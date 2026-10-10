@@ -310,7 +310,7 @@ built. Built by a single agent; the waves show what could run in parallel later.
     command-line errors write no file.
   - done when: tests on a temp config dir show rotation across three launches, the cap holding,
     a panic's message and location in both files, and no file for `--version`.
-- ⬜ **M1.4 `scenes`**
+- ✅ **M1.4 `scenes`**
   - after: M1.1
   - files: `crates/scenes/**`
   - scope: seeded procedural images (gradients, horizons, soft blobs) at any size; JPEG (via

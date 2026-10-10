@@ -47,7 +47,6 @@ muda = "0.21.2"
 # Decoding, encoding, colour, resampling
 image = { version = "0.25.10", default-features = false, features = ["png", "tiff", "webp", "gif", "bmp"] }
 zune-jpeg = "0.5"
-jpeg-encoder = "0.7"
 png = "0.18"
 image-webp = "0.2"
 jxl-oxide = "0.12"
@@ -85,3 +84,12 @@ debug = "line-tables-only"
 
 [profile.release]
 panic = "unwind"
+
+# Test photos are generated in every test run: optimise their generator and encoders even in dev
+# builds (a 200-photo demo library: 9.3 s unoptimised).
+[profile.dev.package.dalica-scenes]
+opt-level = 3
+[profile.dev.package.image]
+opt-level = 3
+[profile.dev.package.png]
+opt-level = 3

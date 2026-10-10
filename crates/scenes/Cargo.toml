@@ -9,4 +9,11 @@ repository.workspace = true
 authors.workspace = true
 publish = false
 
+
 [dependencies]
+dalica-core.workspace = true
+# Its JPEG encoder (MIT OR Apache-2.0); `jpeg-encoder` carries the IJG licence, which the deps gate refuses.
+# Tests also use `image` as the independent decoder.
+image = { workspace = true, features = ["jpeg"] }
+png.workspace = true
+thiserror.workspace = true
