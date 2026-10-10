@@ -18,6 +18,8 @@ pub struct State {
     pub labels: Vec<String>,
     pub fields: ProjectFields,
     pub prs: Vec<(String, PullRequest)>,
+    /// (title, body) of every pull request opened.
+    pub pr_texts: Vec<(String, String)>,
     pub merged_prs: Vec<(u64, String)>,
     /// When set, the latest CI run on `main` failed (`main_ci_failure`).
     pub main_ci_failure: Option<String>,
@@ -211,11 +213,12 @@ impl GitHub for FakeGitHub {
         Ok(self.lock().prs.iter().find(|(b, _)| b == branch).map(|(_, p)| p.clone()))
     }
 
-    fn open_pr(&self, branch: &str, _title: &str, _body: &str) -> Result<PullRequest, String> {
+    fn open_pr(&self, branch: &str, title: &str, body: &str) -> Result<PullRequest, String> {
         self.bump();
         let mut s = self.lock();
+        s.pr_texts.push((title.into(), body.into()));
         let number = 100 + s.prs.len() as u64;
-        let pr = PullRequest { number, url: format!("https://example.invalid/pull/{number}") };
+        let pr = PullRequest { number, url: format!("https://example.invalid/pull/{number}"), labels: Vec::new() };
         s.prs.push((branch.into(), pr.clone()));
         Ok(pr)
     }
@@ -236,11 +239,22 @@ pub struct FakeGit {
     pub merged: Mutex<BTreeSet<String>>,
     pub activity: Mutex<Vec<(String, i64)>>,
     pub worktrees: AtomicUsize,
+    /// What `changed_paths` reports for every branch.
+    pub changed: Mutex<Vec<String>>,
+    /// `push`, `rebase_for_merge` and `run_ci` calls, in order.
+    pub calls: Mutex<Vec<String>>,
 }
 
 impl FakeGit {
     pub fn new(dir: &Path) -> FakeGit {
-        FakeGit { dir: dir.to_path_buf(), merged: Mutex::default(), activity: Mutex::default(), worktrees: AtomicUsize::new(0) }
+        FakeGit {
+            dir: dir.to_path_buf(),
+            merged: Mutex::default(),
+            activity: Mutex::default(),
+            worktrees: AtomicUsize::new(0),
+            changed: Mutex::default(),
+            calls: Mutex::default(),
+        }
     }
 }
 
@@ -266,15 +280,22 @@ impl Git for FakeGit {
         Ok(vec![])
     }
 
-    fn push(&self, _dir: &Path, _branch: &str) -> Result<(), String> {
+    fn changed_paths(&self, _branch: &str) -> Result<Vec<String>, String> {
+        Ok(self.changed.lock().unwrap_or_else(PoisonError::into_inner).clone())
+    }
+
+    fn push(&self, _dir: &Path, branch: &str) -> Result<(), String> {
+        self.calls.lock().unwrap_or_else(PoisonError::into_inner).push(format!("push {branch}"));
         Ok(())
     }
 
-    fn rebase_for_merge(&self, _branch: &str) -> Result<PathBuf, String> {
+    fn rebase_for_merge(&self, branch: &str) -> Result<PathBuf, String> {
+        self.calls.lock().unwrap_or_else(PoisonError::into_inner).push(format!("rebase {branch}"));
         Ok(self.dir.clone())
     }
 
     fn run_ci(&self, _dir: &Path) -> Result<(), String> {
+        self.calls.lock().unwrap_or_else(PoisonError::into_inner).push("ci".into());
         Ok(())
     }
 

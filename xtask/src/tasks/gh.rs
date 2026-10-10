@@ -289,16 +289,17 @@ impl GitHub for GhCli {
     }
 
     fn find_pr(&self, branch: &str) -> Result<Option<PullRequest>, String> {
-        let out = gh(&["pr", "list", "--repo", REPO, "--head", branch, "--state", "open", "--json", "number,url"], None)?;
+        let out = gh(&["pr", "list", "--repo", REPO, "--head", branch, "--state", "open", "--json", "number,url,labels"], None)?;
         let v = json(&out)?;
-        Ok(v.as_array()
-            .and_then(|a| a.first())
-            .and_then(|p| Some(PullRequest { number: p["number"].as_u64()?, url: p["url"].as_str()?.to_string() })))
+        Ok(v.as_array().and_then(|a| a.first()).and_then(|p| {
+            let labels = p["labels"].as_array().into_iter().flatten().filter_map(|l| l["name"].as_str().map(str::to_string)).collect();
+            Some(PullRequest { number: p["number"].as_u64()?, url: p["url"].as_str()?.to_string(), labels })
+        }))
     }
 
     fn open_pr(&self, branch: &str, title: &str, body: &str) -> Result<PullRequest, String> {
         let url = gh(&["pr", "create", "--repo", REPO, "--head", branch, "--base", "main", "--title", title, "--body-file", "-"], Some(body))?;
-        Ok(PullRequest { number: trailing_number(&url)?, url })
+        Ok(PullRequest { number: trailing_number(&url)?, url, labels: Vec::new() })
     }
 
     fn main_ci_failure(&self) -> Result<Option<String>, String> {

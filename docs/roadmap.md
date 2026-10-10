@@ -573,7 +573,7 @@ wave 5   M1.17 → M1.18 ui, app → M1.19 acceptance → M1.R milestone review
     folder deleted on exit) if `--demo` stays persistent.
   - done when: two fresh demo libraries list identical ids and paths; `m1.md`'s restart check
     still holds.
-- ⬜ **M2.7 Lead: board and disk hygiene**
+- ✅ **M2.7 Lead: board and disk hygiene**
   - after: M1.R
   - owner: lead
   - files: `xtask/src/tasks/**`, `docs/task-board.md`

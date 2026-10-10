@@ -5,11 +5,12 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use super::body;
-use super::config::{LABEL_BLOCKED, LABEL_GATE, LABEL_STALE, LABEL_TASK, LABELS, LEAD, MAINTAINER, STALE_SECS};
+use super::config::{LABEL_BASELINE, LABEL_BLOCKED, LABEL_GATE, LABEL_STALE, LABEL_TASK, LABELS, LEAD, MAINTAINER, STALE_SECS, is_fingerprint};
 use super::devlog;
 use super::git::{Clock, Git};
 use super::github::{ALREADY_IN_PROJECT, GitHub, Issue, IssueEdit, Item, NewIssue, Status, TextField};
 use super::glob::lists_overlap;
+use super::prune;
 use super::roadmap::{Owner, Roadmap, Task};
 
 /// Reads of the project's item list while waiting for an auto-added item, and the pause between them.
@@ -335,7 +336,8 @@ impl Board<'_> {
     }
 
     /// `tasks submit`: refuses without a green `ci` on this commit and a dev-log entry; pushes, opens
-    /// the pull request and sets In Review.
+    /// the pull request and sets In Review. The evidence is `body_extra` (`--body-file`) or, without
+    /// it, the task's newest dev-log entry.
     pub fn submit(&self, id: &str, dir: &Path, body_extra: Option<&str>) -> Result<String, String> {
         let task = self.task(id)?;
         let snap = self.snapshot()?;
@@ -354,7 +356,12 @@ impl Board<'_> {
             Some(pr) => pr,
             None => {
                 let subjects = self.git.branch_subjects(&branch).unwrap_or_default();
-                let body = pr_body(task, issue.number, &subjects, body_extra);
+                let evidence = match body_extra {
+                    Some(extra) => extra.to_string(),
+                    None => devlog_evidence(&log, id),
+                };
+                let baselines = fingerprints(self.git.changed_paths(&branch).unwrap_or_default());
+                let body = pr_body(task, issue.number, &subjects, &evidence, &baselines);
                 self.gh.open_pr(&branch, &format!("{}: {}", task.id, task.plain_title()), &body)?
             }
         };
@@ -390,6 +397,15 @@ impl Board<'_> {
             return Err(format!("main is red on GitHub CI ({run}); fix it before merging anything else"));
         }
         let dir = self.git.rebase_for_merge(&branch)?;
+        // First or changed fingerprint baselines wait for the maintainer's look (`task-board.md` §5).
+        let baselines = fingerprints(self.git.changed_paths(&branch)?);
+        if !baselines.is_empty() && !pr.labels.iter().any(|l| l == LABEL_BASELINE) {
+            return Err(format!(
+                "PR #{} adds or changes fingerprint baselines ({}); the maintainer approves them by adding the `{LABEL_BASELINE}` label to the PR, then merge again",
+                pr.number,
+                baselines.join(", ")
+            ));
+        }
         self.git.run_ci(&dir)?;
         self.git.push(&dir, &branch)?;
         let subject = format!("{}: {} (#{})", task.id, task.plain_title(), pr.number);
@@ -443,6 +459,22 @@ impl Board<'_> {
         Ok(out)
     }
 
+    /// `tasks prune`: removes cargo's `incremental/` caches from the target directories under
+    /// `target_root` whose agent holds no In Progress task (`dry_run`: only says what it would remove).
+    pub fn prune(&self, target_root: &Path, dry_run: bool) -> Result<prune::Report, String> {
+        let snap = self.snapshot()?;
+        let mut busy = BTreeMap::new();
+        for task in &self.roadmap.tasks {
+            if let Some(item) = snap.issue(task).and_then(|i| snap.item(i.number))
+                && item.status == Some(Status::InProgress)
+                && !item.agent.is_empty()
+            {
+                busy.insert(item.agent.clone(), task.id.clone());
+            }
+        }
+        Ok(prune::prune(target_root, &busy, dry_run))
+    }
+
     fn last_activity(&self, log: &str, task: &Task, branch: &str, offset: i64) -> Option<i64> {
         let logged = devlog::entry_times(log, &task.id, offset).into_iter().max();
         let pushed = if branch.is_empty() { None } else { self.git.last_activity(branch) };
@@ -493,11 +525,32 @@ pub fn ci_passed(common_dir: &Path, commit: &str) -> bool {
     ci_marker(common_dir, commit).is_file()
 }
 
-fn pr_body(task: &Task, issue: u64, subjects: &[String], extra: Option<&str>) -> String {
+/// The fingerprint files among `paths`.
+fn fingerprints(paths: Vec<String>) -> Vec<String> {
+    paths.into_iter().filter(|p| is_fingerprint(p)).collect()
+}
+
+/// The PR evidence when `submit` has no `--body-file`: the task's newest dev-log entry.
+fn devlog_evidence(log: &str, id: &str) -> String {
+    match devlog::latest_entry(log, id) {
+        Some((heading, text)) => format!("### From the dev log ({heading})\n\n{text}"),
+        None => String::new(),
+    }
+}
+
+fn pr_body(task: &Task, issue: u64, subjects: &[String], evidence: &str, baselines: &[String]) -> String {
     let commits: String = subjects.iter().map(|s| format!("- {s}\n")).collect();
+    let baselines = if baselines.is_empty() {
+        String::new()
+    } else {
+        let list: String = baselines.iter().map(|b| format!("- `{b}`\n")).collect();
+        format!(
+            "## Fingerprint baselines\n\nThis branch adds or changes these fingerprints. `cargo xtask tasks merge` waits until the maintainer has looked at their images (attached to this PR) and added the `{LABEL_BASELINE}` label:\n\n{list}\n"
+        )
+    };
     format!(
-        "## What changed\n\n{commits}\n## Done when\n\n{}\n\nEvidence for each point, numbers and decisions are in the commit bodies and below.\n\n{}\n\nCloses #{issue}\n",
+        "## What changed\n\n{commits}\n## Done when\n\n{}\n\nEvidence for each point, numbers and decisions are in the commit bodies and below.\n\n{}\n\n{baselines}Closes #{issue}\n",
         task.done_when,
-        extra.unwrap_or("").trim()
+        evidence.trim()
     )
 }

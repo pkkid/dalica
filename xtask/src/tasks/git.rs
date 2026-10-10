@@ -18,6 +18,8 @@ pub trait Git: Send + Sync {
     fn head(&self, dir: &Path) -> Result<String, String>;
     /// Subjects of the commits on `branch` that are not on `origin/main`.
     fn branch_subjects(&self, branch: &str) -> Result<Vec<String>, String>;
+    /// Paths (with `/`) that origin's `branch` adds, changes or deletes since it left `origin/main`.
+    fn changed_paths(&self, branch: &str) -> Result<Vec<String>, String>;
     /// Pushes what `dir` has checked out to origin's `branch`, unless origin's `branch` moved since
     /// the last fetch.
     fn push(&self, dir: &Path, branch: &str) -> Result<(), String>;
@@ -149,6 +151,11 @@ impl Git for RealGit {
     fn branch_subjects(&self, branch: &str) -> Result<Vec<String>, String> {
         let range = format!("origin/main..{branch}");
         Ok(git(&self.cwd, &["log", "--reverse", "--format=%s", &range])?.lines().map(str::to_string).collect())
+    }
+
+    fn changed_paths(&self, branch: &str) -> Result<Vec<String>, String> {
+        let range = format!("origin/main...origin/{branch}");
+        Ok(git(&self.cwd, &["diff", "--name-only", "--no-renames", &range])?.lines().map(str::to_string).collect())
     }
 
     fn push(&self, dir: &Path, branch: &str) -> Result<(), String> {
@@ -291,6 +298,7 @@ mod tests {
         g(&worker, &["add", "."]);
         g(&worker, &["commit", "--quiet", "-m", "M9.1: thing"]);
         git.push(&worker, branch).unwrap();
+        assert_eq!(git.changed_paths(branch).unwrap(), ["b.txt"]);
 
         // Meanwhile main moves on.
         std::fs::write(main.join("c.txt"), "c\n").unwrap();
@@ -305,6 +313,8 @@ mod tests {
         g(&main, &["fetch", "--quiet", "origin"]);
         let log = g(&main, &["log", "--format=%s", &format!("origin/{branch}")]);
         assert_eq!(log.lines().collect::<Vec<_>>(), ["M9.1: thing", "M9.0: other", "M0.1: start"], "rebased onto the new main");
+        // Only the branch's own files, not what main added meanwhile.
+        assert_eq!(git.changed_paths(branch).unwrap(), ["b.txt"]);
         assert!(git.rebase_for_merge("task/M9.2-missing").unwrap_err().contains("origin has no"));
     }
 }

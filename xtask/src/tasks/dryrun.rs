@@ -1,26 +1,104 @@
-//! `--dry-run`: forwards reads to the real [`GitHub`] and records writes instead of making them, so
-//! the maintainer can see what `setup` or `sync` would change before approving it.
+//! `--dry-run`: forwards reads to the real [`GitHub`] and [`Git`] and records writes instead of
+//! making them, so the maintainer or the lead can see what `setup`, `sync`, `submit`, `merge` or
+//! `prune` would change before anything does.
 
+use std::collections::BTreeSet;
+use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
 
+use super::git::Git;
 use super::github::{GitHub, Issue, IssueEdit, Item, MilestoneInfo, NewIssue, ProjectFields, PullRequest, Status, TextField};
 
-pub struct DryRun<'a> {
-    pub inner: &'a dyn GitHub,
-    pub writes: Mutex<Vec<String>>,
+/// The writes a dry run would have made, in order.
+#[derive(Default)]
+pub struct Recorder {
+    writes: Mutex<Vec<String>>,
 }
 
-impl<'a> DryRun<'a> {
-    pub fn new(inner: &'a dyn GitHub) -> DryRun<'a> {
-        DryRun { inner, writes: Mutex::new(Vec::new()) }
-    }
-
+impl Recorder {
     fn record(&self, what: String) {
         self.writes.lock().unwrap_or_else(PoisonError::into_inner).push(what);
     }
 
     pub fn writes(&self) -> Vec<String> {
         self.writes.lock().unwrap_or_else(PoisonError::into_inner).clone()
+    }
+}
+
+pub struct DryRun<'a> {
+    pub inner: &'a dyn GitHub,
+    rec: &'a Recorder,
+}
+
+impl<'a> DryRun<'a> {
+    pub fn new(inner: &'a dyn GitHub, rec: &'a Recorder) -> DryRun<'a> {
+        DryRun { inner, rec }
+    }
+
+    fn record(&self, what: String) {
+        self.rec.record(what);
+    }
+}
+
+/// Local git with the writes (worktrees, rebases, `ci` runs, pushes) recorded instead of made.
+pub struct DryGit<'a> {
+    pub inner: &'a dyn Git,
+    rec: &'a Recorder,
+}
+
+impl<'a> DryGit<'a> {
+    pub fn new(inner: &'a dyn Git, rec: &'a Recorder) -> DryGit<'a> {
+        DryGit { inner, rec }
+    }
+}
+
+impl Git for DryGit<'_> {
+    fn merged_task_ids(&self) -> Result<BTreeSet<String>, String> {
+        self.inner.merged_task_ids()
+    }
+
+    fn last_activity(&self, branch: &str) -> Option<i64> {
+        self.inner.last_activity(branch)
+    }
+
+    fn prepare_worktree(&self, agent: &str, branch: &str) -> Result<PathBuf, String> {
+        self.rec.record(format!("check out {branch} in {agent}'s worktree"));
+        Ok(self.inner.main_checkout())
+    }
+
+    fn head(&self, dir: &Path) -> Result<String, String> {
+        self.inner.head(dir)
+    }
+
+    fn branch_subjects(&self, branch: &str) -> Result<Vec<String>, String> {
+        self.inner.branch_subjects(branch)
+    }
+
+    fn changed_paths(&self, branch: &str) -> Result<Vec<String>, String> {
+        self.inner.changed_paths(branch)
+    }
+
+    fn push(&self, _dir: &Path, branch: &str) -> Result<(), String> {
+        self.rec.record(format!("push {branch} to origin"));
+        Ok(())
+    }
+
+    fn rebase_for_merge(&self, branch: &str) -> Result<PathBuf, String> {
+        self.rec.record(format!("rebase origin/{branch} onto origin/main in the merge worktree"));
+        Ok(self.inner.main_checkout())
+    }
+
+    fn run_ci(&self, _dir: &Path) -> Result<(), String> {
+        self.rec.record("run `cargo xtask ci` in the merge worktree".into());
+        Ok(())
+    }
+
+    fn main_checkout(&self) -> PathBuf {
+        self.inner.main_checkout()
+    }
+
+    fn common_dir(&self) -> PathBuf {
+        self.inner.common_dir()
     }
 }
 
@@ -123,9 +201,10 @@ impl GitHub for DryRun<'_> {
         self.inner.find_pr(branch)
     }
 
-    fn open_pr(&self, branch: &str, title: &str, _body: &str) -> Result<PullRequest, String> {
-        self.record(format!("open pull request `{title}` from {branch}"));
-        Ok(PullRequest { number: 0, url: "(dry run)".into() })
+    fn open_pr(&self, branch: &str, title: &str, body: &str) -> Result<PullRequest, String> {
+        let body: String = body.lines().map(|l| format!("\n      | {l}")).collect();
+        self.record(format!("open pull request `{title}` from {branch}, body:{body}"));
+        Ok(PullRequest { number: 0, url: "(dry run)".into(), labels: Vec::new() })
     }
 
     fn main_ci_failure(&self) -> Result<Option<String>, String> {
