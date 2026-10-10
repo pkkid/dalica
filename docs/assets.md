@@ -95,7 +95,7 @@ rows that start with `|` are read; the commented example in `ATTRIBUTION.md` is 
 ## 5. Icons
 
 - **Drawn in code** first: original vector icons on a 20 × 20 design grid in
-  `crates/ui/src/icons.rs` (the LightCraft technique, our own drawings), painted with `paint(&Painter, rect, Icon, Color32)`, round caps, stroke
+  `crates/ui-kit/src/icons.rs` (the LightCraft technique, our own drawings), painted with `paint(&Painter, rect, Icon, Color32)`, round caps, stroke
   `max(1.5·k, 1.0)` where `k = side / 20`. Recorded in `ATTRIBUTION.md` as original work.
 - When a glyph is too complex to draw well (camera, film reel), use a
   [Lucide](https://lucide.dev) SVG (ISC; the subset derived from Feather is also MIT) from

@@ -147,7 +147,7 @@ panel) come from the reference layout; tune them only with side-by-side screensh
 
 ## 5. Icons
 
-Original vector icons drawn in code on a 20 × 20 design grid (`crates/ui/src/icons.rs`,
+Original vector icons drawn in code on a 20 × 20 design grid (`crates/ui-kit/src/icons.rs`,
 the LightCraft technique and starting set, copied with attribution): `paint(&Painter, rect, Icon,
 Color32)`, stroke `max(1.5·k, 1.0)` where `k = side / 20`, round caps. No icon fonts, no bitmap
 icons. When a glyph is too complex to draw (camera, film reel), use a
@@ -162,7 +162,7 @@ Icon sizes: 16 (tree rows, menus), 18 (toolbar toggles), 20 (edit tools), 28 (bi
 
 ## 6. Widgets
 
-Shared widgets live in `crates/ui/src/widgets.rs`; panels compose them and never re-implement
+Shared widgets live in `crates/ui-kit/src/widgets.rs`; panels compose them and never re-implement
 them. Every widget below registers an automation id and an AccessKit role.
 
 | Widget | Spec |

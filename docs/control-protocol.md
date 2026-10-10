@@ -591,7 +591,7 @@ Rules for implementers:
 
 ## 8. Headless rendering (no window, no GPU)
 
-The egui output is rasterized on the CPU (`crates/ui/src/softpaint.rs`, driven by
+The egui output is rasterized on the CPU (`crates/ui-kit/src/softpaint.rs`, driven by
 `crates/ui/src/headless.rs`; our own, modelled on LightCraft's): same tessellation, gamma-space premultiplied
 blending and scissor clipping as egui's GPU backends, so the image matches the window (minus GPU
 dithering). Thumbnails and previews come from the same job pool, drained while settling.

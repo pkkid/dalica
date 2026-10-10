@@ -252,9 +252,9 @@ sidecar and XMP writing, MCP results and external process arguments (§4.4).
 | Fields → file (write-back) | `crates/meta` | merge preserves foreign bytes, escaping, segment sizes, atomic replace, verify by re-read |
 | Sidecar JSON → library | `crates/sidecar` | size/depth/entry limits, name validation, numeric ranges, unknown-data preservation |
 | Legacy files → library | `crates/sidecar/src/legacy.rs` | as above, read-only, path matching only |
-| Index/JSON files → library | `crates/library` | checksums, versions, size and depth limits, quarantine |
+| Index/JSON files → library | `crates/store` | checksums, versions, size and depth limits, quarantine |
 | Directory tree → index | `crates/scan` | depth/entry bounds, link-loop detection, name handling, device content |
-| Library → disk (file ops) | `crates/library`, `crates/engine` | identity check, no symlinks, trash only, collision handling |
+| Library → disk (file ops) | `crates/fs`, `crates/engine` | identity check, no symlinks, trash only, collision handling |
 | JSON line → command | `apps/dalica/src/control_server.rs`, `crates/ui` control, `crates/engine` | auth, line shape, limits, command policy, parameter type/range, enabled state |
 | MCP call → command | `crates/mcp` | roots, read-only mode, argument limits, result limits |
 | Library → generated output | `crates/create` | JSON escaping, name sanitizing, external-process arguments |
@@ -709,7 +709,7 @@ its own entry points, because the limits are the ones Dalica passes.
 | `crates/image` | `sniff`, `decode_any`, `decode_jpeg`, `decode_png`, `decode_tiff`, `decode_webp`, `embedded_thumbnail` (EXIF thumbnail and RAW preview extraction), `icc` | M1 |
 | `crates/meta` | `exif` (IFDs and maker notes), `xmp` (including extended-XMP reassembly), `iptc`, `write_merge` (parse → merge-write → re-parse: no panic, foreign fields unchanged) | M1 (read), M2 (write) |
 | `crates/sidecar` | `parse`, `roundtrip` (parse → write → parse is stable, unknown data preserved), `recipe` (edit-operation list), `legacy` | M1 (`legacy`: M10) |
-| `crates/library` | `journal` (replay of journal records and snapshots), `json` (folders, albums, people, settings) | M1 |
+| `crates/store` | `journal` (replay of journal records and snapshots), `json` (folders, albums, people, settings) | M1 |
 | `crates/ui` control | `request_line` (line validation, auth state machine, limits) | M0 |
 | `crates/mcp` | `tool_args` | M4 |
 | video demuxer | `demux` (if a pure-Rust path is chosen) | M9 |

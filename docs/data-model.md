@@ -2,7 +2,7 @@
 
 How Dalica stores what the user does, what it writes to disk, and when. This is the most
 safety-critical document in the repository: read it before touching `crates/sidecar`,
-`crates/meta`, `crates/library`, `crates/scan` or any command that moves, renames, saves or
+`crates/meta`, `crates/fs`, `crates/store`, `crates/scan` or any command that moves, renames, saves or
 deletes files.
 
 ## 1. Principles
@@ -331,7 +331,7 @@ Rules:
 
 ## 10. Lessons encoded as tests
 
-Each of these is a regression test in `crates/sidecar` / `crates/library` / `crates/engine`:
+Each of these is a regression test in `crates/fs` / `crates/sidecar` / `crates/store` / `crates/engine`:
 
 1. Rebuilding the index loses nothing (every user-visible field survives delete-index + rescan).
 2. Moving a folder outside Dalica keeps all its data.

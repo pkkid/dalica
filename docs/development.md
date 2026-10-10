@@ -30,7 +30,7 @@ cargo xtask ci                                      # THE gate: run before every
 | Command | What it does | In `ci` |
 |---|---|---|
 | `xtask ci` | fmt check, clippy `-D warnings` (all targets), tests, `layers`, `assets`, `names`, `parity` | — |
-| `xtask layers` | checks crate dependencies against the layer table in `xtask/src/layers.rs`; unregistered crates fail | ✓ |
+| `xtask layers` | checks crate dependencies against the layer table in `xtask/src/layers.rs` (`architecture.md` §2); unregistered crates fail; UI crates only in L5; only `crates/fs` calls `std::fs` write functions | ✓ |
 | `xtask assets` | every image/icon/font/sound file is matched by a row in `ATTRIBUTION.md`; referenced licence files exist; forbidden file names/extensions fail | ✓ |
 | `xtask names` | fails if the reference product's name appears in any tracked file other than `AGENTS.md` | ✓ |
 | `xtask parity [--write]` | every `cmd:` id and path cited in `docs/parity.md` exists; `--write` refreshes the summary table | ✓ |
@@ -205,7 +205,7 @@ processed them, so a following `ui.state` or `ui.inspect` observes their effect.
 | `RUST_LOG` | log levels for standard error and the log file (see *Logs*) |
 | `RUST_BACKTRACE=1` | full backtraces in panic reports |
 | `DALICA_PROFILE=1` | per-stage timings (see *Profiling*) |
-| `DALICA_THEME_FILE=tokens.json` | **debug builds only:** live `theme::Tokens` overrides, re-read on change (keys are the field names in `crates/ui/src/theme.rs`); compiled out of release builds |
+| `DALICA_THEME_FILE=tokens.json` | **debug builds only:** live `theme::Tokens` overrides, re-read on change (keys are the field names in `crates/ui-kit/src/theme.rs`); compiled out of release builds |
 | `CRAFT_FONTS_DIR` | optional fonts build input (see §12) |
 | `DALICA_CORPUS_REPO` | local authoring clone of the corpus repository for `xtask corpus --local` (see §11) |
 | `DALICA_GPU=0` | once a GPU path exists: force the CPU renderer for the whole process (see §14) |
