@@ -148,7 +148,9 @@ Adapted from PhotoCraft `docs/development.md` (revision 59684266) and LightCraft
   so this file is what users attach to a bug report (**Help → Open Log Folder** shows it).
 - Each launch moves the previous log to `dalica.1.log` (and that one to `dalica.2.log`), so the log
   of a run that crashed survives the next start. The file stops growing at 16 MiB. `--version`,
-  `--help` and command-line errors write no file. The logger lives in `apps/dalica/src/logging.rs`.
+  `--help` and command-line errors write no file. The logger lives in `apps/dalica/src/logging.rs`
+  and writes through `dalica-fs` (`fs::append`, layer rule 4); until that lands (M1.20) the app logs
+  to standard error only.
 - Default levels: Dalica's own crates at `info`, everything else at `warn`. `RUST_LOG` replaces the
   default with env_logger-style directives: `RUST_LOG=debug`, `RUST_LOG=warn,dalica_scan=trace`,
   `RUST_LOG=info,wgpu_core=warn`; a directive ending in `*` covers every target starting with it

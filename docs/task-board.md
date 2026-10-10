@@ -69,6 +69,17 @@ public repository and the project).
   such as `roadmap.md`, `parity.md` and `devlog` entries are exempt). Two tasks whose `files`
   overlap are never in progress at the same time. If a task turns out to need a file outside its
   list, the agent asks the lead (comment on the issue) before touching it.
+- **Shared registration files** need not be listed and never count as overlap: the root
+  `Cargo.toml` (new `[workspace.dependencies]` lines), `Cargo.lock`, `xtask/src/main.rs` (one
+  dispatch line per new command) and `tests/acceptance/Cargo.toml` (one `[[test]]` per milestone
+  file); `SHARED_FILES` in `xtask/src/tasks/config.rs` is the list the board uses. A task may also
+  make the matching registration edits in a crate it owns files in (its `Cargo.toml` dependencies,
+  the `mod` lines of its `lib.rs`) without listing them. Edits there are small and surgical
+  (re-read the file right before editing); the lead resolves conflicts in them at merge,
+  re-resolving `Cargo.lock` rather than hand-merging it.
+- **done when** never writes `docs/status.md` (metrics go in the dev log and the pull request; the
+  lead copies them) and never needs the maintainer mid-task (approvals, pushes and manual looks
+  belong to the gates or the lead).
 - The parser fails with a line number on a malformed block; `cargo xtask ci` runs it.
 
 ## 4. Lifecycle
@@ -115,7 +126,8 @@ is developer tooling; the Dalica app itself never touches the network for this.
 - **Maintainer:** runs `tasks setup` once, reviews each gate (closes `M<n>.A` / `M<n>.R`), answers
   `needs-maintainer` questions, decides reserved decisions. Watches the project board.
 - **Lead (`agent-1`):** the integrator. Loop: `tasks status` → merge In Review tasks one at a time
-  (`tasks merge`) → copy reported metrics into `docs/status.md` → `tasks sync` → release stale
+  (`tasks merge`, re-resolving `Cargo.lock` if two branches both changed it) → copy reported
+  metrics into `docs/status.md` → `tasks sync` → release stale
   claims → when a milestone's last task merges, run `cargo xtask accept M<n>`, write *Where we
   stand*, draft the next milestone's task blocks, and hand the gate to the maintainer. The lead
   may take small tasks when the review queue is empty, never ones whose files overlap a task in

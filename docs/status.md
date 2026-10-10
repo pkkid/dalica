@@ -8,14 +8,16 @@ and git.
 ## Current
 
 - **Milestone:** M0, skeleton and gates. Every M0 task is merged on `main` (M0.1–M0.10); CI is
-  green on Linux, Windows and macOS. Waiting for the **M0.R** review gate (the maintainer's, #11).
+  green on Linux, Windows and macOS. The **M0.R** review is done; closing #11 starts M1.
 - **Gates:** `cargo xtask ci` runs fmt, clippy, tests, `layers`, `deps`, `assets`, `names`, `parity`,
   `docs` and the roadmap parse; `cargo xtask accept M0` shows 6/6 gates bite.
 - **Board:** `cargo xtask tasks` drives issues #1–#32 on project 3 (adopted 2026-10-09 with no
   duplicate). M0 and M1 are still built by one agent (`AGENTS.md` §4).
-- **Needs the maintainer's review:** the reviewed dependency exceptions in `xtask/src/deps.rs`
-  (`C_BUILD_ALLOW`: wayland-sys, wayland-backend, x11-dl; `objc-sys` in `SYS_ALLOW`), and dropping
-  eframe's `default_fonts` (Ubuntu Font Licence) until Inter is installed (M1.16).
+- **M0 review (2026-10-09):** the maintainer confirmed all 27 decisions listed in the review (dev
+  log), including the dependency exceptions and eframe without GL or default fonts, and approved the
+  edits: M1.2 gains `fs::append`, new M1.20 (app log file), M1.15/M1.16/M1.18/M1.19 adjusted,
+  shared registration files, done-whens never write this file, the single agent uses the full board
+  loop after M1.A.
 - **Blockers:** none.
 
 ## Metrics

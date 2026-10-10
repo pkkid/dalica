@@ -763,8 +763,13 @@ they process attacker-controlled data.
 
 ### 8.1 Pure Rust
 
-- No C/C++ code is compiled into the product: no `cc`, `cmake`, `bindgen` or `pkg-config` build
-  dependencies in the normal or build dependency graph of `dalica` and `dalica-cli`.
+- No C/C++ code is compiled or linked into the product. A `cc`, `cmake`, `bindgen`, `pkg-config` or
+  `vcpkg` build dependency in the normal or build graph of `dalica` and `dalica-cli` fails the
+  check, unless it is a reviewed exception in `xtask/src/deps.rs` (`C_BUILD_ALLOW`) whose condition
+  holds in the resolved features: e.g. `wayland-sys` probes with `pkg-config` only without
+  `dlopen`, `wayland-backend` compiles its C log shim only with `log`. The condition is re-checked on
+  every run, so the gate bites again if a feature flips. Adding an exception needs maintainer review
+  (the first three were confirmed at the M0 review, 2026-10-09).
 - Banned in the product: `openssl`, `openssl-sys`, `native-tls`, `ring`, `aws-lc-rs`, `aws-lc-sys`,
   `libz-sys`, `zstd-sys`, and any other crate that builds or statically links C.
 - `*-sys` crates are allowed only from an allow-list of binding-only crates that compile no C,
