@@ -22,16 +22,24 @@ pub struct Panels {
     pub dialog: Option<Pending>,
     /// Scroll the light table to this offset on the next frame.
     pub scroll_to: Option<f32>,
+    /// The context the panels were last drawn in, for [`Panels::unregistered_widgets`].
+    ctx: Option<egui::Context>,
 }
 
 impl Panels {
     pub fn new(picker: Option<Arc<dyn Picker>>) -> Panels {
-        Panels { thumbnails: thumbnails::Thumbnails::new(), sections: Default::default(), picker, dialog: None, scroll_to: None }
+        Panels { thumbnails: thumbnails::Thumbnails::new(), sections: Default::default(), picker, dialog: None, scroll_to: None, ctx: None }
     }
 
     /// Nothing visible is still on its way: no thumbnail, no open dialog.
     pub fn idle(&self) -> bool {
         self.thumbnails.pending() == 0 && self.dialog.is_none()
+    }
+
+    /// The interactive widgets of the last frame that have no automation id (`control-protocol.md`
+    /// §7): always empty unless a panel forgot to register one. Call it between frames.
+    pub fn unregistered_widgets(&self) -> Vec<dalica_ui_kit::registry::Unregistered> {
+        self.ctx.as_ref().map(dalica_ui_kit::registry::unregistered).unwrap_or_default()
     }
 
     /// Opens the folder dialog (File ▸ Add Folder…) unless one is open or there is no picker.
@@ -47,6 +55,9 @@ impl Panels {
 /// Lays out and paints every region.
 pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
     let t = *app.tokens();
+    if p.ctx.is_none() {
+        p.ctx = Some(ui.ctx().clone());
+    }
     p.thumbnails.poll(ui.ctx());
     if let Some(answer) = p.dialog.as_ref().and_then(Pending::poll) {
         p.dialog = None;

@@ -1,7 +1,8 @@
 //! The menu bar (`menus-and-shortcuts.md`). M1 has File ▸ Add Folder…; the full menu tree comes from
 //! the menu catalog later.
 
-use dalica_ui_kit::registry::{self, Role, WidgetInfo};
+use dalica_ui_kit::registry::Role;
+use dalica_ui_kit::widgets::{self, Target};
 use egui::Ui;
 
 use super::Panels;
@@ -14,12 +15,12 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
     egui::MenuBar::new().ui(ui, |ui| {
         let file = ui.menu_button("File", |ui| {
             let item = ui.add_enabled(can_add, egui::Button::new("Add Folder…"));
-            registry::register(ui.ctx(), WidgetInfo::new("menu.file.addFolder", Role::Button, "Add Folder…", item.rect, can_add, false));
+            widgets::register(ui.ctx(), "menuitem:folders.add", Role::MenuItem, "Add Folder…", Target::Widget(&item), false);
             if item.clicked() {
                 p.add_folder();
                 ui.close();
             }
         });
-        registry::register(ui.ctx(), WidgetInfo::new("menu.file", Role::Button, "File", file.response.rect, true, false));
+        widgets::register(ui.ctx(), "menu:File", Role::Menu, "File", Target::Widget(&file.response), file.inner.is_some());
     });
 }

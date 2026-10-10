@@ -1,13 +1,51 @@
 //! Shared widgets (`design-system.md` §6). Panels compose these and never re-implement them. Each
-//! one takes an automation id, registers itself in the [`registry`](crate::registry) and gives
-//! AccessKit a role and a label.
+//! one takes an automation id, registers itself through [`register`] and gives AccessKit a role and
+//! a label.
+//!
+//! [`register`] is the one way anything gets an automation id (`control-protocol.md` §7): these
+//! widgets call it, and so do the panels for the controls they build themselves (tree rows,
+//! thumbnails, menu items).
 
-use egui::{Align2, Color32, CornerRadius, Id, Painter, Rect, Response, Sense, Stroke, StrokeKind, Ui, Vec2, WidgetType, vec2};
+use egui::{Align2, Color32, Context, CornerRadius, Id, Painter, Rect, Response, Sense, Stroke, StrokeKind, Ui, Vec2, WidgetType, vec2};
 
 use crate::Tokens;
 use crate::fonts;
 use crate::icons::{self, Icon};
 use crate::registry::{self, Role, WidgetInfo};
+
+/// What an automation id is attached to.
+#[derive(Clone, Copy)]
+pub enum Target<'a> {
+    /// An egui widget: its rect, egui id and enabled state come from the response (enabled = it
+    /// takes input: an enabled widget that senses clicks, drags or focus).
+    Widget(&'a Response),
+    /// A painted part with no input of its own (a badge, a scroll handle), visible within `clip`.
+    Painted { rect: Rect, clip: Rect },
+}
+
+/// Registers the automation id `id` for this pass (`control-protocol.md` §7): the one helper every
+/// widget and panel uses, never [`registry::register`] by hand. The rect is clipped to what is
+/// visible; a widget scrolled entirely out of sight is not listed. `active` is the toggled, selected
+/// or open state.
+pub fn register(ctx: &Context, id: &str, role: Role, label: &str, target: Target<'_>, active: bool) {
+    let info = match target {
+        Target::Widget(r) => {
+            if !r.interact_rect.is_positive() {
+                return;
+            }
+            let enabled = r.enabled() && (r.sense.interactive() || r.sense.is_focusable());
+            WidgetInfo::new(id, role, label, r.interact_rect, enabled, active).with_egui_id(r.id)
+        }
+        Target::Painted { rect, clip } => {
+            let rect = rect.intersect(clip);
+            if !rect.is_positive() {
+                return;
+            }
+            WidgetInfo::new(id, role, label, rect, true, active)
+        }
+    };
+    registry::register(ctx, info);
+}
 
 /// Allocates `size`, gives it the stable id `id` and clicks if `enabled`.
 fn allocate(ui: &mut Ui, id: &str, size: Vec2, enabled: bool) -> Response {
@@ -37,7 +75,7 @@ pub fn text_button(ui: &mut Ui, t: &Tokens, id: &str, label: &str, active: bool)
     p.rect(r.rect, CornerRadius::same(t.radius), fill(t, &r, active), Stroke::new(1.0, t.button_border), StrokeKind::Inside);
     let pos = r.rect.center() - galley.size() / 2.0;
     p.galley(pos.round(), galley, t.text);
-    registry::register(ui.ctx(), WidgetInfo::new(id, Role::Button, label, r.rect, enabled, active));
+    register(ui.ctx(), id, Role::Button, label, Target::Widget(&r), active);
     r.widget_info(|| egui::WidgetInfo::labeled(WidgetType::Button, enabled, label));
     r
 }
@@ -66,7 +104,7 @@ pub fn icon_button(ui: &mut Ui, t: &Tokens, id: &str, icon: Icon, size: f32, act
         t.icon
     };
     icons::paint(p, Rect::from_center_size(r.rect.center(), Vec2::splat((size * 0.6).round())), icon, glyph);
-    registry::register(ui.ctx(), WidgetInfo::new(id, Role::IconButton, tooltip, r.rect, enabled, active));
+    register(ui.ctx(), id, Role::IconButton, tooltip, Target::Widget(&r), active);
     r.widget_info(|| egui::WidgetInfo::selected(WidgetType::Button, enabled, active, tooltip));
     r.on_hover_text(tooltip)
 }
@@ -85,7 +123,7 @@ pub fn star_toggle(ui: &mut Ui, t: &Tokens, id: &str, on: bool) -> Response {
         (true, false) => (Icon::StarOutline, t.icon),
     };
     icons::paint(p, glyph, icon, color);
-    registry::register(ui.ctx(), WidgetInfo::new(id, Role::Toggle, "Star", r.rect, enabled, on));
+    register(ui.ctx(), id, Role::Toggle, "Star", Target::Widget(&r), on);
     r.widget_info(|| egui::WidgetInfo::selected(WidgetType::Checkbox, enabled, on, "Star"));
     r.on_hover_text("Star / Unstar")
 }
@@ -116,14 +154,78 @@ pub fn badge_row(painter: &Painter, t: &Tokens, image: Rect, glyphs: &[(Icon, Co
     rects
 }
 
-/// The star badge of a starred photo, registered as `id` (e.g. `"grid.cell.42.star"`).
+/// The star badge of a starred photo, registered as `id` (a part of its cell: `"thumb:42/star"`).
 pub fn star_badge(painter: &Painter, t: &Tokens, id: &str, image: Rect) -> Option<Rect> {
     let plate = badge_row(painter, t, image, &[(Icon::Star, t.star)]).pop()?;
-    registry::register(painter.ctx(), WidgetInfo::new(id, Role::Badge, "Starred", plate, true, true));
+    register(painter.ctx(), id, Role::Badge, "Starred", Target::Painted { rect: plate, clip: painter.clip_rect() }, true);
     Some(plate)
 }
 
 /// A label in `font`, `color`, aligned in `rect` (a convenience for panels).
 pub fn label_in(painter: &Painter, rect: Rect, align: Align2, text: &str, font: egui::FontId, color: Color32) -> Rect {
     painter.text(align.pos_in_rect(&rect), align, text, font, color)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pass(ctx: &Context, ui: impl FnMut(&mut Ui)) {
+        ctx.run_ui(crate::raw_input(400, 300, 1.0), ui).textures_delta.clear();
+    }
+
+    fn context(t: &Tokens) -> Context {
+        let ctx = Context::default();
+        t.apply(&ctx);
+        ctx
+    }
+
+    #[test]
+    fn an_interactive_widget_without_an_id_is_listed_until_it_registers() {
+        let t = Tokens::default();
+        let ctx = context(&t);
+        // A plain egui button nobody registered is caught; our own widgets register themselves.
+        pass(&ctx, |ui| {
+            text_button(ui, &t, "button:ours", "Ours", false);
+            let _ = ui.button("Theirs");
+        });
+        let missing = registry::unregistered(&ctx);
+        assert_eq!(missing.len(), 1, "{missing:?}");
+        assert_eq!(registry::find(&ctx, "button:ours").map(|w| w.enabled), Some(true));
+        // Registered through the helper, it is covered.
+        pass(&ctx, |ui| {
+            text_button(ui, &t, "button:ours", "Ours", false);
+            let r = ui.button("Theirs");
+            register(ui.ctx(), "button:theirs", Role::Button, "Theirs", Target::Widget(&r), false);
+        });
+        assert_eq!(registry::unregistered(&ctx), []);
+        assert_eq!(registry::widgets(&ctx).len(), 2);
+    }
+
+    #[test]
+    fn rects_are_clipped_to_what_is_visible_and_hidden_widgets_are_not_listed() {
+        let t = Tokens::default();
+        let ctx = context(&t);
+        pass(&ctx, |ui| {
+            // A disabled icon button is listed, as disabled.
+            icon_button(ui, &t, "button:off", Icon::Star, 24.0, false, false, "Off");
+            ui.scope(|ui| {
+                ui.set_clip_rect(Rect::from_min_size(egui::pos2(0.0, 0.0), vec2(400.0, 100.0)));
+                let half = Rect::from_min_size(egui::pos2(10.0, 90.0), vec2(20.0, 20.0));
+                let r = ui.interact(half, Id::new("half"), Sense::click());
+                register(ui.ctx(), "thumb:1", Role::Thumbnail, "half", Target::Widget(&r), false);
+                let gone = Rect::from_min_size(egui::pos2(10.0, 200.0), vec2(20.0, 20.0));
+                let r = ui.interact(gone, Id::new("gone"), Sense::click());
+                register(ui.ctx(), "thumb:2", Role::Thumbnail, "gone", Target::Widget(&r), false);
+                register(ui.ctx(), "thumb:1/star", Role::Badge, "", Target::Painted { rect: half, clip: ui.clip_rect() }, true);
+                register(ui.ctx(), "thumb:2/star", Role::Badge, "", Target::Painted { rect: gone, clip: ui.clip_rect() }, true);
+            });
+        });
+        let ids: Vec<String> = registry::widgets(&ctx).into_iter().map(|w| w.id).collect();
+        assert_eq!(ids, ["button:off", "thumb:1", "thumb:1/star"]);
+        assert_eq!(registry::find(&ctx, "button:off").map(|w| w.enabled), Some(false));
+        assert_eq!(registry::find(&ctx, "thumb:1").map(|w| w.rect), Some([10.0, 90.0, 20.0, 10.0]));
+        assert_eq!(registry::find(&ctx, "thumb:1/star").map(|w| (w.rect, w.egui_id)), Some(([10.0, 90.0, 20.0, 10.0], None)));
+        assert_eq!(registry::unregistered(&ctx), [], "a widget clipped out of sight is not counted");
+    }
 }

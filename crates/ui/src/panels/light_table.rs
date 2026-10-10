@@ -5,9 +5,10 @@
 use dalica_core::{FolderId, PhotoId};
 use dalica_library::Library;
 use dalica_thumbs::Priority;
-use dalica_ui_kit::registry::{self, Role, WidgetInfo};
-use dalica_ui_kit::{Tokens, fonts, widgets};
-use egui::{Align2, Color32, Id, Rect, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
+use dalica_ui_kit::registry::Role;
+use dalica_ui_kit::widgets::{self, Target};
+use dalica_ui_kit::{Tokens, fonts};
+use egui::{Align2, Color32, Id, Rect, Sense, Stroke, StrokeKind, Ui, pos2, remap_clamp, vec2};
 use serde_json::json;
 
 use super::Panels;
@@ -119,7 +120,7 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
         area = area.vertical_scroll_offset(y);
     }
     let mut clicked: Option<(PhotoId, bool)> = None;
-    area.show_viewport(ui, |ui, viewport| {
+    let out = area.show_viewport(ui, |ui, viewport| {
         ui.set_min_height(total);
         let origin = ui.max_rect().min;
         let painter = ui.painter().clone();
@@ -168,9 +169,9 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
                 let folder = library.folder(photo.folder);
                 p.thumbnails.request(id, Priority::VISIBLE, || folder.map(|f| f.path.join(&photo.name)));
                 if photo.star {
-                    widgets::star_badge(&painter, &t, &format!("thumb:{}.star", id.get()), image);
+                    widgets::star_badge(&painter, &t, &format!("thumb:{}/star", id.get()), image);
                 }
-                registry::register(ui.ctx(), WidgetInfo::new(&format!("thumb:{}", id.get()), Role::Other, &photo.name, cell_rect, true, selected));
+                widgets::register(ui.ctx(), &format!("thumb:{}", id.get()), Role::Thumbnail, &photo.name, Target::Widget(&response), selected);
                 if response.clicked() {
                     clicked = Some((id, ui.input(|i| i.modifiers.command)));
                 }
@@ -178,6 +179,7 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
             y += h;
         }
     });
+    register_scroll_bar(ui, &out);
     if let Some((id, toggle)) = clicked {
         let mode = if toggle { "toggle" } else { "replace" };
         if app.run("select.set", &json!({ "ids": [id.get()], "mode": mode })).is_ok() {
@@ -185,6 +187,41 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
             app.state_mut().folder = folder;
         }
     }
+}
+
+/// Registers the light table's scroll bar while egui draws one (the content is taller than the
+/// view): `scroll:track`, the bar egui senses clicks and drags on, and `scroll:thumb`, its handle,
+/// placed as egui places it. The speed-control scroll bar of M4 replaces both (`ui-layout.md` §5).
+fn register_scroll_bar<R>(ui: &Ui, out: &egui::scroll_area::ScrollAreaOutput<R>) {
+    // egui gives the vertical bar the id of its area with the axis index.
+    let bar = out.id.with(1_usize);
+    if !ui.ctx().viewport(|v| v.this_pass.widgets.contains(bar)) {
+        return;
+    }
+    let Some(track) = ui.ctx().read_response(bar) else { return };
+    widgets::register(ui.ctx(), "scroll:track", Role::ScrollTrack, "Scroll bar", Target::Widget(&track), track.dragged());
+    let thumb = scroll_handle(out.inner_rect, out.content_size.y, out.state.offset.y, ui.spacing().scroll.handle_min_length, track.rect.x_range());
+    widgets::register(
+        ui.ctx(),
+        "scroll:thumb",
+        Role::ScrollThumb,
+        "Scroll position",
+        Target::Painted { rect: thumb, clip: track.rect },
+        track.dragged(),
+    );
+}
+
+/// The handle of a vertical scroll bar beside `view` (egui's arithmetic): its length is the visible
+/// share of `content` points (at least `min_len`), its top follows `offset`.
+fn scroll_handle(view: Rect, content: f32, offset: f32, min_len: f32, x: egui::Rangef) -> Rect {
+    let (top, bottom) = (view.min.y, view.max.y);
+    let content = content.max(view.height()).max(1.0);
+    let offset = if offset.is_finite() { offset.max(0.0) } else { 0.0 };
+    let from_content = |c: f32| remap_clamp(c, 0.0..=content, top..=bottom);
+    let len = (from_content(offset + view.height()) - from_content(offset)).max(min_len).min(view.height());
+    let max_offset = (content - view.height()).max(f32::EPSILON);
+    let start = remap_clamp(offset, 0.0..=max_offset, top..=(bottom - len));
+    Rect::from_x_y_ranges(x, start..=start + len)
 }
 
 fn paint_cell(painter: &egui::Painter, t: &Tokens, cell: Rect, image: Rect, selected: bool, anchor: bool, hovered: bool) {
@@ -220,6 +257,24 @@ mod tests {
         assert_eq!(letterbox(cell, 480, 320).size(), vec2(144.0, 96.0));
         assert_eq!(letterbox(cell, 320, 480).size(), vec2(96.0, 144.0));
         assert_eq!(letterbox(cell, 0, 0).size(), vec2(144.0, 144.0));
+    }
+
+    #[test]
+    fn the_scroll_handle_follows_the_offset_and_never_leaves_its_track() {
+        let view = Rect::from_min_size(pos2(0.0, 100.0), vec2(500.0, 400.0));
+        let x = egui::Rangef::new(490.0, 500.0);
+        let top = scroll_handle(view, 1600.0, 0.0, 12.0, x);
+        assert_eq!((top.min.y, top.height()), (100.0, 100.0));
+        let bottom = scroll_handle(view, 1600.0, 1200.0, 12.0, x);
+        assert_eq!((bottom.min.y, bottom.max.y), (400.0, 500.0));
+        let mid = scroll_handle(view, 1600.0, 600.0, 12.0, x);
+        assert_eq!(mid.min.y, 250.0);
+        // A long list keeps a grabbable handle; hostile numbers stay inside the track.
+        assert_eq!(scroll_handle(view, 1e9, 0.0, 12.0, x).height(), 12.0);
+        for (content, offset) in [(f32::NAN, 0.0), (0.0, 0.0), (1600.0, f32::NAN), (1600.0, -50.0), (1600.0, 1e9), (f32::INFINITY, 5.0)] {
+            let r = scroll_handle(view, content, offset, 12.0, x);
+            assert!(r.min.y >= 100.0 && r.max.y <= 500.0 && r.height() >= 0.0, "{content} {offset}: {r:?}");
+        }
     }
 
     #[test]

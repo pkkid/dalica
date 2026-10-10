@@ -2,7 +2,8 @@
 //! with its photo count. Clicking a row selects its section and scrolls the light table to it.
 
 use dalica_ui_kit::fonts;
-use dalica_ui_kit::registry::{self, Role, WidgetInfo};
+use dalica_ui_kit::registry::Role;
+use dalica_ui_kit::widgets::{self, Target};
 use egui::{Align2, Id, Rect, Sense, Ui, vec2};
 
 use super::{Panels, light_table};
@@ -42,7 +43,7 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
         let color = if selected { t.text } else { t.text_label };
         painter.text(row.left_center() + vec2(28.0, 0.0), Align2::LEFT_CENTER, &s.title, fonts::regular(t.body), color);
         painter.text(row.right_center() - vec2(12.0, 0.0), Align2::RIGHT_CENTER, s.photos.len().to_string(), fonts::regular(12.0), t.text_dim);
-        registry::register(ui.ctx(), WidgetInfo::new(&format!("tree:folder:{}", s.folder.get()), Role::Other, &s.title, row, true, selected));
+        widgets::register(ui.ctx(), &format!("tree:folder:{}", s.folder.get()), Role::TreeRow, &s.title, Target::Widget(&r), selected);
         if r.clicked() {
             picked = Some(s.folder);
         }
