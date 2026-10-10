@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
 
 use super::git::Git;
-use super::github::{GitHub, Issue, IssueEdit, Item, MilestoneInfo, NewIssue, ProjectFields, PullRequest, Status, TextField};
+use super::github::{GitHub, Issue, IssueEdit, Item, MergeState, MilestoneInfo, NewIssue, ProjectFields, PullRequest, Status, TextField};
 
 /// The writes a dry run would have made, in order.
 #[derive(Default)]
@@ -91,6 +91,10 @@ impl Git for DryGit<'_> {
     fn run_ci(&self, _dir: &Path) -> Result<(), String> {
         self.rec.record("run `cargo xtask ci` in the merge worktree".into());
         Ok(())
+    }
+
+    fn merged_roadmap(&self) -> Result<String, String> {
+        self.inner.merged_roadmap()
     }
 
     fn main_checkout(&self) -> PathBuf {
@@ -179,6 +183,16 @@ impl GitHub for DryRun<'_> {
         Ok(())
     }
 
+    fn edit_milestone(&self, number: u64, title: &str, description: &str) -> Result<(), String> {
+        self.record(format!("edit milestone {number}: title `{title}`, description `{description}`"));
+        Ok(())
+    }
+
+    fn close_milestone(&self, number: u64) -> Result<(), String> {
+        self.record(format!("close milestone {number}"));
+        Ok(())
+    }
+
     fn labels(&self) -> Result<Vec<String>, String> {
         self.inner.labels()
     }
@@ -209,6 +223,12 @@ impl GitHub for DryRun<'_> {
 
     fn main_ci_failure(&self) -> Result<Option<String>, String> {
         self.inner.main_ci_failure()
+    }
+
+    /// Nothing was pushed, so GitHub's answer would describe the branch before the rebase; the dry
+    /// run assumes the wait would end in a mergeable pull request.
+    fn pr_mergeable(&self, _pr: u64, _head: &str) -> Result<MergeState, String> {
+        Ok(MergeState::Mergeable)
     }
 
     fn squash_merge(&self, pr: u64, subject: &str) -> Result<(), String> {

@@ -7,7 +7,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, PoisonError};
 
 use super::git::{Clock, Git};
-use super::github::{ALREADY_IN_PROJECT, GitHub, Issue, IssueEdit, Item, MilestoneInfo, NewIssue, ProjectFields, PullRequest, Status, TextField};
+use super::github::{
+    ALREADY_IN_PROJECT, GitHub, Issue, IssueEdit, Item, MergeState, MilestoneInfo, NewIssue, ProjectFields, PullRequest, Status, TextField,
+};
 
 #[derive(Default)]
 pub struct State {
@@ -27,6 +29,13 @@ pub struct State {
     pub auto_add: bool,
     /// Reads of the item list that still miss auto-added items (GitHub lists them a moment late).
     pub item_list_lag: usize,
+    /// The next answers of `pr_mergeable`, oldest first; once used up, every pull request is
+    /// mergeable.
+    pub mergeable: Vec<MergeState>,
+    /// How often `pr_mergeable` was asked.
+    pub mergeable_reads: usize,
+    /// Errors the next `squash_merge` calls fail with, oldest first.
+    pub squash_errors: Vec<String>,
 }
 
 #[derive(Default)]
@@ -77,8 +86,9 @@ impl GitHub for FakeGitHub {
     }
 
     fn create_issue(&self, issue: &NewIssue) -> Result<u64, String> {
-        self.bump();
         let mut s = self.lock();
+        missing_milestone(&s, issue.milestone.as_deref())?;
+        self.bump();
         let number = s.issues.iter().map(|i| i.number).max().unwrap_or(0) + 1;
         s.issues.push(Issue {
             number,
@@ -96,8 +106,9 @@ impl GitHub for FakeGitHub {
     }
 
     fn edit_issue(&self, number: u64, edit: &IssueEdit) -> Result<(), String> {
-        self.bump();
         let mut s = self.lock();
+        missing_milestone(&s, edit.milestone.as_deref())?;
+        self.bump();
         let issue = s.issues.iter_mut().find(|i| i.number == number).ok_or_else(|| format!("no issue #{number}"))?;
         if let Some(t) = &edit.title {
             issue.title.clone_from(t);
@@ -185,7 +196,26 @@ impl GitHub for FakeGitHub {
 
     fn create_milestone(&self, title: &str, description: &str) -> Result<(), String> {
         self.bump();
-        self.lock().milestones.push(MilestoneInfo { title: title.into(), description: description.into() });
+        let mut s = self.lock();
+        let number = s.milestones.iter().map(|m| m.number).max().unwrap_or(0) + 1;
+        s.milestones.push(MilestoneInfo { number, title: title.into(), description: description.into(), open: true, issues: 0 });
+        Ok(())
+    }
+
+    fn edit_milestone(&self, number: u64, title: &str, description: &str) -> Result<(), String> {
+        self.bump();
+        let mut s = self.lock();
+        let m = s.milestones.iter_mut().find(|m| m.number == number).ok_or_else(|| format!("no milestone {number}"))?;
+        m.title = title.into();
+        m.description = description.into();
+        Ok(())
+    }
+
+    fn close_milestone(&self, number: u64) -> Result<(), String> {
+        self.bump();
+        let mut s = self.lock();
+        let m = s.milestones.iter_mut().find(|m| m.number == number).ok_or_else(|| format!("no milestone {number}"))?;
+        m.open = false;
         Ok(())
     }
 
@@ -227,10 +257,38 @@ impl GitHub for FakeGitHub {
         Ok(self.lock().main_ci_failure.clone())
     }
 
+    fn pr_mergeable(&self, _pr: u64, _head: &str) -> Result<MergeState, String> {
+        let mut s = self.lock();
+        s.mergeable_reads += 1;
+        Ok(if s.mergeable.is_empty() { MergeState::Mergeable } else { s.mergeable.remove(0) })
+    }
+
+    /// Like GitHub, a merged pull request closes the issue its body names with `Closes #N`.
     fn squash_merge(&self, pr: u64, subject: &str) -> Result<(), String> {
+        let mut s = self.lock();
+        if !s.squash_errors.is_empty() {
+            return Err(s.squash_errors.remove(0));
+        }
         self.bump();
-        self.lock().merged_prs.push((pr, subject.into()));
+        s.merged_prs.push((pr, subject.into()));
+        let index = s.prs.iter().position(|(_, p)| p.number == pr);
+        let closes = index
+            .and_then(|i| s.pr_texts.get(i))
+            .and_then(|(_, body)| body.split("Closes #").nth(1))
+            .and_then(|rest| rest.split(|c: char| !c.is_ascii_digit()).next())
+            .and_then(|n| n.parse::<u64>().ok());
+        if let Some(issue) = closes.and_then(|n| s.issues.iter_mut().find(|i| i.number == n)) {
+            issue.open = false;
+        }
         Ok(())
+    }
+}
+
+/// GitHub's refusal when an issue names a milestone that does not exist.
+fn missing_milestone(s: &State, milestone: Option<&str>) -> Result<(), String> {
+    match milestone {
+        Some(m) if !s.milestones.iter().any(|x| x.title == m) => Err(format!("could not add to milestone '{m}': '{m}' not found")),
+        _ => Ok(()),
     }
 }
 
@@ -243,6 +301,8 @@ pub struct FakeGit {
     pub changed: Mutex<Vec<String>>,
     /// `push`, `rebase_for_merge` and `run_ci` calls, in order.
     pub calls: Mutex<Vec<String>>,
+    /// `docs/roadmap.md` on origin's `main` (`merged_roadmap`).
+    pub origin_roadmap: Mutex<Option<String>>,
 }
 
 impl FakeGit {
@@ -254,6 +314,7 @@ impl FakeGit {
             worktrees: AtomicUsize::new(0),
             changed: Mutex::default(),
             calls: Mutex::default(),
+            origin_roadmap: Mutex::default(),
         }
     }
 }
@@ -297,6 +358,11 @@ impl Git for FakeGit {
     fn run_ci(&self, _dir: &Path) -> Result<(), String> {
         self.calls.lock().unwrap_or_else(PoisonError::into_inner).push("ci".into());
         Ok(())
+    }
+
+    fn merged_roadmap(&self) -> Result<String, String> {
+        self.calls.lock().unwrap_or_else(PoisonError::into_inner).push("fetch".into());
+        self.origin_roadmap.lock().unwrap_or_else(PoisonError::into_inner).clone().ok_or_else(|| "origin/main has no docs/roadmap.md".into())
     }
 
     fn main_checkout(&self) -> PathBuf {

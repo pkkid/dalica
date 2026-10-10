@@ -45,8 +45,9 @@ Nothing else counts: a ✅ on an unmerged branch, a closed issue without a merge
   - Built-in fields stay: Milestone, Linked pull requests, Labels.
 
 `cargo xtask tasks setup` creates the milestones, the labels (including `baseline-approved`) and the
-Agent and Branch fields. It is idempotent, and the maintainer approves its first run (it writes to the
-public repository and the project).
+Agent and Branch fields, and keeps the milestones' titles and descriptions equal to `roadmap.md` (§5).
+It is idempotent, and the maintainer approves its first run (it writes to the public repository and
+the project).
 
 ## 3. Task block format (in `roadmap.md`)
 
@@ -126,15 +127,15 @@ Todo ──(deps done)──► Ready ──claim──► In Progress ──sub
 
 | Command | What it does |
 |---|---|
-| `setup [--dry-run]` | create milestones, labels (`task`, `gate`, `needs-maintainer`, `stale`, `baseline-approved`) and the Agent/Branch fields (idempotent; maintainer approves). Missing Status options are reported, not created: replacing a single-select field's options through the API resets every item |
-| `sync [--check\|--dry-run]` | parse `roadmap.md`, create or update issues and project items, move Todo ↔ Ready, keep the board in roadmap order, close the issue of a ✅ task once its `M<n>.<k>:` commit is on `main` and nothing that isn't merged; never closes a review's issue (the maintainer does); `--check` only parses (offline, used by `ci`); `--dry-run` reads GitHub and prints the writes it would make |
+| `setup [--dry-run]` | create milestones, labels (`task`, `gate`, `needs-maintainer`, `stale`, `baseline-approved`) and the Agent/Branch fields (idempotent; maintainer approves). A GitHub milestone matches a roadmap milestone by its exact title, else by its `M<n>` number, and is then renamed (and its description set to the milestone's goal) to match `roadmap.md`; the roadmap renamed its milestones once. A GitHub milestone with no roadmap counterpart is closed when it has no issues and otherwise reported, never deleted. Missing Status options are reported, not created: replacing a single-select field's options through the API resets every item |
+| `sync [--check\|--dry-run]` | parse `roadmap.md`, create or update issues and project items, move Todo ↔ Ready, keep the board in roadmap order, close the issue of a ✅ task once its `M<n>.<k>:` commit is on `main` and nothing that isn't merged; never closes a review's issue (the maintainer does); `--check` only parses (offline, used by `ci`); `--dry-run` reads GitHub and prints the writes it would make. Before any write it checks that the milestones it would put issues in exist, and otherwise says to run `tasks setup` |
 | `next [--agent <name>]` | list Ready tasks this agent may take: dependencies done, files not overlapping any In Progress or In Review task, not listed after an open review task, `owner: lead` tasks only for the lead. Prints them in `roadmap.md` order, so the first line is the one to claim |
 | `claim <id> --agent <name>` | under the claim lock, re-read the board, refuse if no longer Ready or overlapping, then set In Progress + Agent + Branch, comment "claimed by agent-3 on task/M1.4-scenes", create or reuse the agent's worktree and branch from `origin/main`, and print the agent's environment |
 | `env <name>` | print the agent's environment (`eval "$(cargo xtask tasks env agent-3)"`) |
 | `submit <id> [--body-file F] [--dry-run]` | refuse a review task; refuse unless `cargo xtask ci` passed on this commit (a green `ci` on a clean worktree records `<git common dir>/dalica-ci/<commit>.ok`) and a devlog entry exists; push the branch; open the PR (title `M1.4: <title>`, body: what changed, evidence for each *done when*, numbers, screenshots, `Closes #<issue>`); set In Review. The evidence is the `--body-file` (screenshots, per-point evidence) or, without it, the task's newest dev-log entry. When the branch adds or changes **fingerprint baselines** (`**/fingerprints/*.json`), the body lists them and asks the maintainer for the `baseline-approved` label; the worker attaches their images |
 | `release <id> --reason …` | back to Ready with a comment; the branch is kept for whoever claims it next |
 | `block <id> "question"` | set Blocked, add `needs-maintainer`, comment the question; the agent then takes another task |
-| `merge <id> [--dry-run]` | lead only, under the merge lock: refuse a review task (only the maintainer merges those), refuse while the latest finished GitHub CI run on `main` is red, rebase origin's copy of the branch on `origin/main` in the `merge` worktree (the worker may still have the branch checked out), refuse while the branch adds or changes a fingerprint baseline and its PR lacks the `baseline-approved` label, `cargo xtask ci`, push, squash-merge (`M1.4: <title> (#PR)`) without waiting for the PR's GitHub checks (they and the run on `main` still report), then `sync` |
+| `merge <id> [--dry-run]` | lead only, under the merge lock: refuse a review task (only the maintainer merges those), refuse while the latest finished GitHub CI run on `main` is red, rebase origin's copy of the branch on `origin/main` in the `merge` worktree (the worker may still have the branch checked out), refuse while the branch adds or changes a fingerprint baseline and its PR lacks the `baseline-approved` label, `cargo xtask ci`, push, wait until GitHub reports the pushed head of the PR mergeable (it recomputes that after a push and refuses a squash before: read at once, then with backoff for up to 2 minutes; a conflict refuses at once, and nothing is merged either way), squash-merge (`M1.4: <title> (#PR)`, retried up to three times while GitHub still answers "not mergeable") without waiting for the PR's GitHub checks (they and the run on `main` still report), then `sync` against `docs/roadmap.md` as merged on `origin/main` (fetched and read from git, so the task's ✅ counts before the main checkout is pulled; no checkout, clean or dirty, is touched) |
 | `status` | the whole board: per milestone, per status, who holds what, stale claims (no push or log entry for 3 h) |
 | `log <id> "text"` | append a dated entry to the private dev log (§8) |
 | `prune [--dry-run]` | lead only, at each review (or when disk runs low): remove cargo's `incremental/` caches from `target/agent-<n>` and `target/merge` (§7). Skips an agent that holds an In Progress task, and a profile where cargo is building (it takes cargo's own build locks first, so a cargo that starts meanwhile waits). Only an `incremental/` next to a `.fingerprint/` is removed; symlinks are never followed. Prints what it removed and the space freed |
@@ -225,4 +226,8 @@ baseline list, `merge` refusing unapproved baselines, `submit`/`merge` dry runs 
 and `prune` on temporary target dirs (idle and busy agents, a held cargo lock, symlinks, dry run).
 Since the review-stop rule (2026-10-10) they also cover an open review holding back every task
 listed after it (in its milestone and later ones) until its issue is closed, `submit` and `merge`
-refusing review tasks, and `sync` never closing a review's issue.
+refusing review tasks, and `sync` never closing a review's issue. Since the M2 run (2026-10-10) they
+also cover `merge` waiting for GitHub's mergeability (unknown then mergeable, a conflict, a bounded
+give-up, "not mergeable" squash retries), the post-merge `sync` reading `origin/main`'s roadmap
+without touching a dirty checkout, and `setup` renaming, describing and closing milestones (and its
+dry run).
