@@ -71,10 +71,12 @@ fn add_dependency(manifest: &Path, line: &str) {
 
 const PLANTS: &[Plant] = &[
     Plant {
-        name: "a layer violation (library -> engine)",
+        // ui-kit depends on core only, so this can never be a cargo cycle (which cargo would report
+        // before the layers check runs).
+        name: "a layer violation (library -> ui-kit)",
         gate: &["xtask", "layers"],
-        expect: "dalica-library (L2) -> dalica-engine (L4)",
-        apply: |t| add_dependency(&t.join("crates/library/Cargo.toml"), "dalica-engine.workspace = true"),
+        expect: "dalica-library (L2) -> dalica-ui-kit (L5)",
+        apply: |t| add_dependency(&t.join("crates/library/Cargo.toml"), "dalica-ui-kit.workspace = true"),
     },
     Plant {
         name: "unwrap() in non-test code",
