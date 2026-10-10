@@ -2,7 +2,6 @@
 name: milestone-review
 description: Prepare a review task (M<n>.A, M<n>.R, and the release gates M6.R, M10.R, M15.R) for the maintainer - check-in page, docs on a review branch, a pull request - then stop. Never merges the PR or closes the review issue; only the maintainer does. Usually run by /milestone-start when the run reaches a review; the maintainer may run it directly.
 argument-hint: "[M<n>.R | M<n>.A]  (default: the first open review task)"
-disable-model-invocation: true
 ---
 
 # Prepare a review task
