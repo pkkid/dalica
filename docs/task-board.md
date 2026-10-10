@@ -4,8 +4,12 @@ How agents (and the maintainer) know which tasks exist, which are free, who is w
 and what is done. Read this with [`roadmap.md`](roadmap.md) (the plan) and `AGENTS.md` §7 (the
 rules for parallel agents).
 
-> Status: specified, not built. The tooling is task **M0.10** (`cargo xtask tasks`). Until it lands,
-> the single M0 agent works through the M0 tasks in `roadmap.md` order.
+> Status: the board exists, the tooling does not yet. On 2026-10-09 a one-off bootstrap created
+> the labels, the 38 milestones, the project's Status options and Agent/Branch fields, and issues
+> #1–#32 for every M0 and M1 task block (M0.1 Ready, the rest Todo). Task **M0.10** builds
+> `cargo xtask tasks`, which must adopt these objects (matched by task id in the title) rather
+> than create duplicates. Until it lands, the single M0 agent moves its own issues by hand-run
+> `gh` commands only for Status (In Progress / Done) and works in `roadmap.md` order.
 
 ## 1. Three places, three jobs
 
