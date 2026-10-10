@@ -24,12 +24,23 @@ pub struct App {
     /// File ▸ Add Folder… was chosen while the panels were busy drawing: open the picker on the
     /// next frame.
     want_folder_picker: bool,
+    /// Whether the folder dialog was open when this frame's panels were taken out to draw (the
+    /// menus drawn meanwhile ask [`App::can_pick_folder`]).
+    folder_dialog_open: bool,
 }
 
 impl App {
     /// An app showing `session`, or the "opening" state while it is `None`.
     pub fn new(session: Option<Session>) -> App {
-        App { state: UiState::default(), tokens: Tokens::default(), session, picker: None, panels: None, want_folder_picker: false }
+        App {
+            state: UiState::default(),
+            tokens: Tokens::default(),
+            session,
+            picker: None,
+            panels: None,
+            want_folder_picker: false,
+            folder_dialog_open: false,
+        }
     }
 
     /// The same, with the dialogs of `picker` (File ▸ Add Folder…).
@@ -101,7 +112,7 @@ impl App {
             Err("The library is still opening.".into())
         } else if self.picker.is_none() {
             Err("There is no folder dialog here.".into())
-        } else if self.want_folder_picker || self.panels.as_ref().is_some_and(|p| p.dialog.is_some()) {
+        } else if self.want_folder_picker || self.panels.as_ref().map_or(self.folder_dialog_open, |p| p.dialog.is_some()) {
             Err("A folder dialog is already open.".into())
         } else {
             Ok(())
@@ -141,6 +152,7 @@ impl App {
         if std::mem::take(&mut self.want_folder_picker) {
             p.add_folder();
         }
+        self.folder_dialog_open = p.dialog.is_some();
         panels::show(&mut p, self, ui);
         self.panels = Some(p);
     }

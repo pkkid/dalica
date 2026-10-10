@@ -686,3 +686,37 @@ fn clicking_an_item_runs_it_and_closes_the_menu() {
     let star = win.find("menuitem:photo.star.toggle").unwrap();
     assert!(!star.enabled);
 }
+
+/// In the real window the bar sits in the layout's menu-bar region and its menus hang below it,
+/// inside the window, at both sizes.
+#[test]
+fn the_window_draws_the_menus_in_its_menu_bar_region() {
+    for (w, h) in [(1400, 900), (900, 600)] {
+        let mut t = setup(1);
+        t.d.resize(w, h);
+        t.d.settle(FRAMES).unwrap();
+        let widgets = t.d.widgets();
+        let region = widgets.iter().find(|wi| wi.id == "region:menuBar").expect("the menu-bar region").rect;
+        let inside =
+            |r: [f32; 4], o: [f32; 4]| r[0] >= o[0] && r[1] >= o[1] && r[0] + r[2] <= o[0] + o[2] + 0.01 && r[1] + r[3] <= o[1] + o[3] + 0.01;
+        for title in ["File", "Edit", "View", "Folder", "Picture", "Create", "Tools", "Help"] {
+            let r = widgets.iter().find(|wi| wi.id == format!("menu:{title}")).unwrap_or_else(|| panic!("{w}×{h}: menu:{title}")).rect;
+            assert!(inside(r, region), "{w}×{h}: menu:{title} {r:?} outside the bar {region:?}");
+        }
+        t.d.click("menu:View").unwrap();
+        t.d.settle(FRAMES).unwrap();
+        let widgets = t.d.widgets();
+        let items: Vec<_> = widgets.iter().filter(|wi| wi.id.starts_with("menuitem:")).collect();
+        assert_eq!(items.len(), 14, "{w}×{h}: every View item is on screen");
+        for wi in items {
+            assert!(wi.rect[1] >= region[1] + region[3], "{w}×{h}: `{}` overlaps the bar", wi.id);
+            assert!(inside(wi.rect, [0.0, 0.0, w as f32, h as f32]), "{w}×{h}: `{}` at {:?}", wi.id, wi.rect);
+        }
+        assert_eq!(t.d.app().panels().unwrap().unregistered_widgets(), [], "{w}×{h}");
+        let shot = t.d.screenshot().unwrap();
+        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/ui");
+        std::fs::create_dir_all(&dir).unwrap();
+        let png = dalica_scenes::fingerprint::png_rgba(shot.width, shot.height, &shot.rgba);
+        std::fs::write(dir.join(format!("menus-window-view-{w}x{h}.png")), png).unwrap();
+    }
+}
