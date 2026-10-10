@@ -179,7 +179,7 @@ turns each into a GitHub issue. M0 is built by a single agent.
     m<n>` and prints `tests/acceptance/m<n>.md`.
   - done when: `cargo xtask ci` is green; `cargo xtask parity --write` twice leaves no diff; unit
     tests show `parity` rejecting a duplicate id and an unknown status.
-- ⬜ **M0.6 Gates bite: `accept M0`**
+- ✅ **M0.6 Gates bite: `accept M0`**
   - after: M0.5
   - files: `tests/acceptance/m0.rs`, `tests/acceptance/m0.md`
   - scope: copy the tree to a temp dir (shared target dir), plant one violation at a time, expect

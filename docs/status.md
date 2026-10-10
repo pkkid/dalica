@@ -16,4 +16,4 @@ and git.
 
 | Date | Machine | Metric | Value |
 |---|---|---|---|
-| — | — | — | — |
+| 2026-10-09 | maintainer desktop (24 cores, 31 GB, Fedora 44, Rust 1.98.1) | `cargo xtask accept M0`, warm (6/6 gates bite) | 1.3 s wall |

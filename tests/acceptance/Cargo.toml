@@ -16,5 +16,9 @@ path = "src/lib.rs"
 serde_json.workspace = true
 
 [[test]]
+name = "m0"
+path = "m0.rs"
+
+[[test]]
 name = "m0_skeleton"
 path = "m0_skeleton.rs"

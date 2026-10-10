@@ -23,7 +23,7 @@ pub fn accept(root: &Path, milestone: u32, headless: bool, quiet: bool) -> Resul
     }
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
     let mut cmd = Command::new(cargo);
-    cmd.current_dir(root).args(["test", "-p", "dalica-acceptance", "--test", &name]);
+    cmd.current_dir(root).args(["test", "-p", "dalica-acceptance", "--test", &name, "--", "--nocapture"]);
     if headless {
         cmd.env("DALICA_ACCEPT_HEADLESS", "1");
     }
