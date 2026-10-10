@@ -39,6 +39,9 @@ const USAGE: &str = "usage: cargo xtask tasks <command>
 
 NAME defaults to $DALICA_AGENT.";
 
+/// Every `cargo xtask tasks` subcommand (`cargo xtask docs` checks the docs against it).
+pub const SUBCOMMANDS: &[&str] = &["setup", "sync", "next", "claim", "env", "submit", "release", "block", "merge", "status", "log"];
+
 /// Positional arguments and `--flag value` pairs.
 struct Args {
     positional: Vec<String>,

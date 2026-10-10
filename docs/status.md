@@ -7,10 +7,17 @@ and git.
 
 ## Current
 
-- **Milestone:** M0 (not started)
-- **Next task:** M0.1 — workspace skeleton (`roadmap.md` → M0 tasks; single agent until the task
-  board exists, M0.10)
-- **Blockers:** none (reuse model and licence decided 2026-10-09).
+- **Milestone:** M0, skeleton and gates. Merged on `main`: M0.1–M0.6, M0.8, M0.10. M0.7 (CI on
+  three OSes) is waiting for its first run on GitHub (PR #33); M0.9 (docs match reality) is in
+  progress. Then the **M0.R** review gate (the maintainer's).
+- **Gates:** `cargo xtask ci` runs fmt, clippy, tests, `layers`, `deps`, `assets`, `names`, `parity`,
+  `docs` and the roadmap parse; `cargo xtask accept M0` shows 6/6 gates bite.
+- **Board:** `cargo xtask tasks` drives issues #1–#32 on project 3 (adopted 2026-10-09 with no
+  duplicate). M0 and M1 are still built by one agent (`AGENTS.md` §4).
+- **Needs the maintainer's review:** the reviewed dependency exceptions in `xtask/src/deps.rs`
+  (`C_BUILD_ALLOW`: wayland-sys, wayland-backend, x11-dl; `objc-sys` in `SYS_ALLOW`), and dropping
+  eframe's `default_fonts` (Ubuntu Font Licence) until Inter is installed (M1.16).
+- **Blockers:** none.
 
 ## Metrics
 

@@ -3,14 +3,14 @@
 Mechanics for building, running, testing and verifying Dalica. Rules about *what* is allowed live in
 `AGENTS.md`; the *why* of the process lives in [`process.md`](process.md).
 
-> Status: the workspace does not exist yet. This document is the target set up by milestone M0
-> (see [`roadmap.md`](roadmap.md)). Keep it in sync with reality as M0 lands.
+> Status: the M0 workspace and gates exist (2026-10-09); commands marked *planned* in §3 do not
+> exist yet (`cargo xtask docs` keeps this file honest). Keep it in sync with reality.
 
 ## 1. Prerequisites
 
 - Rust stable pinned by `rust-toolchain.toml` (edition 2024, MSRV 1.98, the latest stable on
-  2026-10-09; bumped deliberately). `rustup` is optional; the
-  system toolchain works if it matches.
+  2026-10-09; bumped deliberately) with `rustfmt` and `clippy`. `rustup` is optional; a system
+  toolchain works if it matches (Fedora: `sudo dnf install rust cargo clippy rustfmt`).
 - Linux: the usual eframe/wgpu system libraries (Wayland/X11, Vulkan driver). No C/C++ libraries are
   linked into the product.
 - Optional: a checkout of `craft-fonts` for CJK glyphs (`CRAFT_FONTS_DIR=../craft-fonts`).
@@ -29,23 +29,28 @@ cargo xtask ci                                      # THE gate: run before every
 
 | Command | What it does | In `ci` |
 |---|---|---|
-| `xtask ci` | fmt check, clippy `-D warnings` (all targets), tests, `layers`, `assets`, `names`, `parity` | — |
+| `xtask ci` | fmt check, clippy `-D warnings` (all targets), tests, `layers`, `deps`, `assets`, `names`, `parity`, `docs`, `tasks sync --check`, then `accept` for every milestone whose blocks are all ✅; runs every step, prints a table, and on a clean worktree records the green commit for `tasks submit` | — |
 | `xtask layers` | checks crate dependencies against the layer table in `xtask/src/layers.rs` (`architecture.md` §2); unregistered crates fail; UI crates only in L5; only `crates/fs` calls `std::fs` write functions | ✓ |
+| `xtask deps` | offline dependency audit (`security.md` §8): licence allow-list over the whole graph; on the product graph of `dalica` and `dalica-cli` for Linux, Windows and macOS, no banned crate, no C build script (reviewed exceptions are checked against the resolved features) and `*-sys` only from the allow-list; sources; duplicate versions warn | ✓ |
 | `xtask assets` | every image/icon/font/sound file is matched by a row in `ATTRIBUTION.md`; referenced licence files exist; forbidden file names/extensions fail | ✓ |
 | `xtask names` | fails if the reference product's name appears in any tracked file other than `AGENTS.md` | ✓ |
-| `xtask parity [--write]` | every `cmd:` id and path cited in `docs/parity.md` exists; `--write` refreshes the summary table | ✓ |
-| `xtask deps` | dependency audit: licence allow-list, no `*-sys`/C build deps, duplicate versions (`security.md`) | ✓ |
-| `xtask accept M<n>` | runs a milestone's acceptance tests and scripts (`tests/acceptance/`) and lists what a human should look at (`roadmap.md` → How milestones work); earlier milestones' checks run inside `ci` | ✓ (all finished milestones) |
-| `xtask test-corpus` | fetch the corpora and run the `corpus`-feature tests | |
-| `xtask scorecard [--check]` | regenerate / verify `docs/scorecard.md` | |
-| `xtask tasks <sub>` | the task board: `setup`, `sync`, `next`, `claim`, `env`, `submit`, `release`, `block`, `merge`, `status`, `log` ([`task-board.md`](task-board.md)); `sync --check` parses the roadmap offline | `sync --check` ✓ |
-| `xtask stats` | line/test/command counts for the status doc | |
-| `xtask corpus` | fetches pinned, sha256-verified CC0 test photos into the gitignored `corpus/` | |
-| `xtask bench` | library-scale and pixel benchmarks; appends to `target/bench/history.jsonl`, flags CPU-time regressions > 20 % | |
-| `xtask snapshot <script>` | headless UI screenshot via the CPU rasterizer | |
+| `xtask parity [--write]` | ids, tiers and statuses of `docs/parity.md`; every `cmd:` id (from `dalica-cli commands`) and path it cites exists; the summary is current (`--write` refreshes it) | ✓ |
+| `xtask docs` | every `cargo xtask …` command named in `AGENTS.md`, this file and `task-board.md` exists or is registered as planned | ✓ |
+| `xtask accept M<n> [--headless]` | runs a milestone's acceptance test (`tests/acceptance/m<n>.rs`) and prints what a human should look at (`m<n>.md`) (`roadmap.md` → How milestones work); finished milestones' checks run inside `ci` | ✓ (all finished milestones) |
+| `xtask tasks <sub>` | the task board: `setup`, `sync`, `next`, `claim`, `env`, `submit`, `release`, `block`, `merge`, `status`, `log` ([`task-board.md`](task-board.md)); `sync --check` parses the roadmap offline, `setup`/`sync --dry-run` show the GitHub writes without making them | `sync --check` ✓ |
+| `xtask test-corpus` | *planned (M8):* fetch the corpora and run the `corpus`-feature tests | |
+| `xtask corpus` | *planned (M8):* fetches pinned, sha256-verified CC0 test photos into the gitignored `corpus/` | |
+| `xtask bench` | *planned (M4):* library-scale and pixel benchmarks; appends to `target/bench/history.jsonl`, flags CPU-time regressions > 20 % | |
+| `xtask perf` | *planned (from M4):* the budgeted benchmark run of §13 | |
+| `xtask scorecard [--check]` | *planned (after M1):* regenerate / verify `docs/scorecard.md` | |
+| `xtask snapshot <script>` | *planned (M2):* headless UI screenshot via the CPU rasterizer | |
+| `xtask stats` | *planned (not scheduled):* line/test/command counts for the status doc | |
 
-`xtask ci` chooses its test parallelism from available RAM so it doesn't take the machine down when
-several agents run it at once.
+Running a planned command says where it is planned and exits with status 2.
+
+`xtask ci` uses one test thread and build job per GiB of available RAM, capped by
+`CARGO_BUILD_JOBS` or the CPU count, so it doesn't take the machine down when several agents run it
+at once.
 
 ## 4. Code style
 

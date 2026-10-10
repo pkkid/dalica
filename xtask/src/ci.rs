@@ -59,6 +59,7 @@ pub fn run(root: &Path) -> Result<(), String> {
         ("assets".into(), Box::new(|| crate::assets::run(root))),
         ("names".into(), Box::new(|| crate::names::run(root))),
         ("parity".into(), Box::new(|| crate::parity::run(root, false))),
+        ("docs".into(), Box::new(|| crate::docs::run(root))),
         (
             "tasks sync --check".into(),
             Box::new(|| {

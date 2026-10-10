@@ -161,10 +161,11 @@ L0       core · fs                    (only `fs` writes to disk)
   milestone's last task lands, and prepares the review for the maintainer.
 - **Review gates** (`M<n>.A`, `M<n>.R`) belong to the maintainer; no agent claims them, and the next
   milestone's tasks stay `Todo` until the maintainer closes the gate.
-- **Before the board exists** (M0.1, M0.2, M0.10): the single M0 agent works in roadmap order, one
-  branch `task/M0.<n>` per task, fast-forwarding `main` after `cargo xtask ci` is green. Pushing to
-  GitHub always needs the maintainer's go-ahead until the board's `submit`/`merge` take over.
-- M0 and M1 are built by one agent (acting as lead and worker). Parallel workers start at M2.
+- **M0 and M1 (one agent, acting as lead and worker):** work in roadmap order, one branch
+  `task/M<n>.<k>-<slug>` per task, fast-forward `main` after `cargo xtask ci` is green, then
+  `cargo xtask tasks sync` marks the task Done and closes its issue (In Progress is set by hand with
+  `gh` until claims are used). Pushing to GitHub always needs the maintainer's go-ahead until the
+  board's `submit`/`merge` take over. Parallel workers start at M2.
 
 ## 5. Before you finish a task
 
@@ -174,12 +175,12 @@ Run, in your worktree, with your agent environment loaded:
 cargo fmt --all
 cargo clippy -p <crates you touched> --all-targets -- -D warnings
 cargo test -p <crates you touched>
-cargo xtask ci                                               # fmt, clippy, tests, layers, deps, assets, names, parity, finished milestones' acceptance
+cargo xtask ci                                               # fmt, clippy, tests, layers, deps, assets, names, parity, docs, roadmap parse, finished milestones' acceptance
 cargo xtask accept M<n>                                      # the current milestone, once its acceptance test exists
 cargo test -p dalica-engine --test panic_hunt -- --ignored   # if you added or changed commands
 cargo xtask parity --write                                   # if parity rows changed; commit the regenerated summary
-cargo xtask bench                                            # before and after touching a hot path; put both numbers in the PR
-cargo xtask test-corpus                                      # if you touched a decoder, metadata or sidecar reader/writer
+cargo xtask bench                                            # before and after touching a hot path; put both numbers in the PR (planned, M4)
+cargo xtask test-corpus                                      # if you touched a decoder, metadata or sidecar reader/writer (planned, M8)
 cargo xtask tasks log <id> "Landed: …  Open: …  Numbers: …"  # the dev-log entry (required by submit)
 cargo xtask tasks submit <id>
 ```
@@ -198,8 +199,7 @@ And:
   commits, but every commit must build.
 - **Dev log (every task, no exceptions):** append a short entry to `log/devlog.md` in the **main
   checkout** (not your worktree's copy): what landed, what is still open, the numbers. Use
-  `cargo xtask tasks log <id> "…"`; until that exists (before M0.10 lands), append it by hand in
-  the same format (`docs/task-board.md` §8):
+  `cargo xtask tasks log <id> "…"`, which writes this format (`docs/task-board.md` §8):
 
   ```markdown
   ## 2026-10-09 14:02 · agent-3 · M1.4 scenes

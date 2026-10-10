@@ -21,7 +21,7 @@ latest). They are pinned in `[workspace.dependencies]`; bumping one is its own c
 | Concern | Choice | Why |
 |---|---|---|
 | Language | Rust, edition 2024, `rust-version = "1.98"`, `resolver = "3"`; toolchain pinned in `rust-toolchain.toml` | latest stable; a pinned toolchain keeps `clippy -D warnings` from breaking on its own |
-| UI | `egui` / `eframe` **0.36.2** (`default_fonts, wgpu, accesskit, wayland, x11`), `egui_extras` 0.36.2 | immediate mode is easy to drive headlessly; same toolkit as the Craft apps, whose look we match |
+| UI | `egui` / `eframe` **0.36.2** (`wgpu_no_default_features, accesskit, wayland, x11`; no `default_fonts`, whose fonts carry the Ubuntu Font Licence: Inter is installed by `ui-kit`), `egui_extras` 0.36.2 | immediate mode is easy to drive headlessly; same toolkit as the Craft apps, whose look we match |
 | GPU | `wgpu` 30.0.1 (Metal / Vulkan / DX12, no GL) | eframe's renderer; later, optional compute shaders for slow effects (`development.md` §14) |
 | Native dialogs | `rfd` 0.17.2, always off the UI thread, behind a `Picker` trait | native look; the trait lets tests and agents script dialogs |
 | macOS menu bar | `muda` 0.21.2, generated from the menu catalog | one menu model, three platforms |

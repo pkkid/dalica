@@ -4,12 +4,12 @@ How agents (and the maintainer) know which tasks exist, which are free, who is w
 and what is done. Read this with [`roadmap.md`](roadmap.md) (the plan) and `AGENTS.md` §7 (the
 rules for parallel agents).
 
-> Status: the board exists, the tooling does not yet. On 2026-10-09 a one-off bootstrap created
-> the labels, the 38 milestones, the project's Status options and Agent/Branch fields, and issues
-> #1–#32 for every M0 and M1 task block (M0.1 Ready, the rest Todo). Task **M0.10** builds
-> `cargo xtask tasks`, which must adopt these objects (matched by task id in the title) rather
-> than create duplicates. Until it lands, the single M0 agent moves its own issues by hand-run
-> `gh` commands only for Status (In Progress / Done) and works in `roadmap.md` order.
+> Status: built (M0.10). On 2026-10-09 a one-off bootstrap created the labels, the 38 milestones,
+> the project's Status options and Agent/Branch fields, and issues #1–#32 for the M0 and M1 task
+> blocks; the first `cargo xtask tasks sync` the same day adopted them (matched by task id in the
+> title) with no duplicate: its `--dry-run` against the bootstrap showed zero writes. Until parallel
+> workers start (M2), the single agent sets In Progress by hand and lets `sync` mark merged tasks
+> Done (`AGENTS.md` §4).
 
 ## 1. Three places, three jobs
 
@@ -95,12 +95,12 @@ Todo ──(deps done)──► Ready ──claim──► In Progress ──sub
 
 | Command | What it does |
 |---|---|
-| `setup` | create milestones, labels, Status options and fields (idempotent; maintainer approves) |
-| `sync [--check]` | parse `roadmap.md`, create or update issues and project items, move Todo ↔ Ready, close nothing that isn't merged; `--check` only parses (offline, used by `ci`) |
+| `setup [--dry-run]` | create milestones, labels and the Agent/Branch fields (idempotent; maintainer approves). Missing Status options are reported, not created: replacing a single-select field's options through the API resets every item |
+| `sync [--check\|--dry-run]` | parse `roadmap.md`, create or update issues and project items, move Todo ↔ Ready, keep the board in roadmap order, close the issue of a ✅ task once its `M<n>.<k>:` commit is on `main` and nothing that isn't merged; `--check` only parses (offline, used by `ci`); `--dry-run` reads GitHub and prints the writes it would make |
 | `next [--agent <name>]` | list Ready tasks this agent may take: dependencies done, files not overlapping any In Progress or In Review task, milestone not behind an open gate. Prints them in `roadmap.md` order, so the first line is the one to claim |
 | `claim <id> --agent <name>` | under the claim lock, re-read the board, refuse if no longer Ready or overlapping, then set In Progress + Agent + Branch, comment "claimed by agent-3 on task/M1.4-scenes", create or reuse the agent's worktree and branch from `origin/main`, and print the agent's environment |
 | `env <name>` | print the agent's environment (`eval "$(cargo xtask tasks env agent-3)"`) |
-| `submit <id>` | refuse unless `cargo xtask ci` passed on this commit and a devlog entry exists; push the branch; open the PR (title `M1.4: <title>`, body: what changed, evidence for each *done when*, numbers, screenshots, `Closes #<issue>`); set In Review |
+| `submit <id> [--body-file F]` | refuse unless `cargo xtask ci` passed on this commit (a green `ci` on a clean worktree records `<git common dir>/dalica-ci/<commit>.ok`) and a devlog entry exists; push the branch; open the PR (title `M1.4: <title>`, body: what changed, evidence for each *done when*, numbers, screenshots, `Closes #<issue>`); set In Review |
 | `release <id> --reason …` | back to Ready with a comment; the branch is kept for whoever claims it next |
 | `block <id> "question"` | set Blocked, add `needs-maintainer`, comment the question; the agent then takes another task |
 | `merge <id>` | lead only, under the merge lock: rebase the branch on `origin/main`, `cargo xtask ci`, push, wait for GitHub CI, squash-merge (`M1.4: <title> (#PR)`), then `sync` |
