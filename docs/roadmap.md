@@ -684,7 +684,7 @@ the reason in the commit body), they never count as a `files` overlap, and on a 
 worker re-blesses after the rebase instead of merging the JSON by hand. The maintainer approves them
 with the rest at the next review.
 
-- ⬜ **M3.1 `ui-kit`: the full widget set**
+- ✅ **M3.1 `ui-kit`: the full widget set**
   - after: M2.1, M2.2
   - files: `crates/ui-kit/src/theme.rs`, `crates/ui-kit/src/widgets.rs`, `crates/ui-kit/src/widgets/**`, `crates/ui-kit/tests/gallery.rs`, `crates/ui-kit/tests/widgets*.rs`, `crates/ui-kit/tests/contrast*.rs`, `crates/ui-kit/tests/fingerprints/gallery*.json`, `crates/ui-kit/tests/fingerprints/widgets*.json`, `docs/design-system.md`
   - scope: every token and metric of `design-system.md` §2–§4 not yet in `Tokens` (divider, inset,
