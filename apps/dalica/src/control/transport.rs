@@ -550,17 +550,24 @@ mod tests {
         };
         assert_eq!(refused["code"], "limit");
         drop(open.pop());
+        // The slot frees when the server reads the close, a little after it was made. Nothing is
+        // sent first, so a refused connection closes cleanly after its line (never a reset that
+        // could pass for "accepted").
         let deadline = Instant::now() + Duration::from_secs(10);
         loop {
-            let (mut s, mut r) = client(port);
+            let (_s, mut r) = client(port);
             r.get_ref().set_read_timeout(Some(Duration::from_millis(300))).unwrap();
-            s.write_all(b"\n").unwrap();
             let mut line = String::new();
             match r.read_line(&mut line) {
                 // No reply: the connection was accepted and waits for auth.
-                Err(_) => break,
-                Ok(_) => assert!(Instant::now() < deadline, "the slot was not freed: {line}"),
+                Err(e) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => break,
+                Ok(n) if n > 0 => {
+                    assert_eq!(serde_json::from_str::<Value>(&line).unwrap()["code"], "limit", "{line}");
+                    assert!(Instant::now() < deadline, "the slot was not freed: {line}");
+                }
+                other => panic!("neither accepted nor refused with a line: {other:?}"),
             }
+            std::thread::sleep(Duration::from_millis(10));
         }
     }
 
