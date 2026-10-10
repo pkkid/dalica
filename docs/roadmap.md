@@ -149,7 +149,7 @@ turns each into a GitHub issue. M0 is built by a single agent.
     claiming the same task produce exactly one winner; a ✅ task with an open issue makes `sync`
     fail. Then, with approval, `cargo xtask tasks setup && cargo xtask tasks sync` creates the
     board and `cargo xtask tasks status` lists every M0 and M1 task.
-- ⬜ **M0.3 `xtask deps`**
+- ✅ **M0.3 `xtask deps`**
   - after: M0.2
   - files: `xtask/src/deps.rs`
   - scope: licence allow-list (MIT, Apache-2.0, BSD-2/3, ISC, Zlib, Unicode-3.0; MPL-2.0 only

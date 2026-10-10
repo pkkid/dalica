@@ -99,12 +99,18 @@ pub struct NodeDepKind {
 impl Metadata {
     /// Runs `cargo metadata` in `root`. `with_deps` adds the resolved dependency graph.
     pub fn load(root: &Path, with_deps: bool) -> Result<Metadata, String> {
+        Self::run(root, if with_deps { &[] } else { &["--no-deps"] })
+    }
+
+    /// The resolved graph as built for one target triple.
+    pub fn load_for_target(root: &Path, target: &str) -> Result<Metadata, String> {
+        Self::run(root, &["--filter-platform", target])
+    }
+
+    fn run(root: &Path, extra: &[&str]) -> Result<Metadata, String> {
         let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
         let mut cmd = Command::new(cargo);
-        cmd.current_dir(root).args(["metadata", "--format-version", "1"]);
-        if !with_deps {
-            cmd.arg("--no-deps");
-        }
+        cmd.current_dir(root).args(["metadata", "--format-version", "1"]).args(extra);
         let out = cmd.output().map_err(|e| format!("cannot run cargo metadata: {e}"))?;
         if !out.status.success() {
             return Err(format!("cargo metadata failed: {}", String::from_utf8_lossy(&out.stderr).trim()));

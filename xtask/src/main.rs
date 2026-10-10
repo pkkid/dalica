@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+mod deps;
 mod layers;
 mod metadata;
 mod tasks;
@@ -13,6 +14,7 @@ use std::process::ExitCode;
 const USAGE: &str = "usage: cargo xtask <command>
 
 commands:
+  deps      audit dependencies: licences, banned and *-sys crates, C builds, sources (docs/security.md §8)
   layers    check crate dependencies against the layer table (docs/architecture.md §2)
   tasks     the task board (docs/task-board.md); `cargo xtask tasks` for its commands";
 
@@ -26,6 +28,7 @@ fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let root = workspace_root();
     let result = match args.first().map(String::as_str) {
+        Some("deps") => deps::run(&root),
         Some("layers") => layers::run(&root),
         Some("tasks") => tasks::run(&root, args.get(1..).unwrap_or(&[])),
         Some("-h" | "--help" | "help") => {
