@@ -180,3 +180,18 @@ fn walking_on_the_ui_thread_is_refused() {
     let _ui = mark_ui_thread();
     assert!(matches!(walk(dir.path(), Limits::default(), |_| false), Err(Error::OnUiThread)));
 }
+
+/// A FIFO or device is listed as neither a folder nor a regular file, so readers can skip it
+/// (opening a FIFO for reading blocks until a writer appears).
+#[cfg(unix)]
+#[test]
+fn special_files_are_marked_as_not_regular() {
+    let dir = tempfile::tempdir().unwrap();
+    touch(&dir.path().join("photo.jpg"));
+    let fifo = dir.path().join("pipe.jpg");
+    assert!(std::process::Command::new("mkfifo").arg(&fifo).status().unwrap().success());
+    let w = walk(dir.path(), Limits::default(), |_| false).unwrap();
+    let pipe = w.entries.iter().find(|e| e.path == fifo).unwrap();
+    assert!(!pipe.is_file && !pipe.is_dir);
+    assert!(w.entries.iter().find(|e| e.path.ends_with("photo.jpg")).unwrap().is_file);
+}

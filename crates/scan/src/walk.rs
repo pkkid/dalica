@@ -73,7 +73,8 @@ pub fn scan(roots: &[PathBuf], cancel: Option<&AtomicBool>) -> Scan {
         for w in walk.warnings {
             out.warnings.push(Warning { path: root.clone(), reason: format!("{w:?}") });
         }
-        for entry in walk.entries.into_iter().filter(|e| !e.is_dir) {
+        // Regular files only: a FIFO or device in a watched folder must never block a scan.
+        for entry in walk.entries.into_iter().filter(|e| e.is_file) {
             let parent = entry.path.parent().map(Path::to_path_buf).unwrap_or_default();
             by_folder.entry(parent).or_default().push(entry);
         }

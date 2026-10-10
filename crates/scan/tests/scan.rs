@@ -187,3 +187,18 @@ fn scanning_1000_scenes_jpegs() {
     assert!(lib.photos().all(|p| (p.width, p.height) == (480, 320) || (p.width, p.height) == (320, 480)));
     assert!(total.as_secs() < 20, "{total:?}");
 }
+
+/// A FIFO named like a photo (or any device) is skipped: opening it would block the scan forever.
+#[cfg(unix)]
+#[test]
+fn a_fifo_never_blocks_a_scan() {
+    let dir = tempfile::tempdir().unwrap();
+    put(&dir.path().join("p/real.jpg"), &camera(14, 1));
+    assert!(std::process::Command::new("mkfifo").arg(dir.path().join("p/pipe.jpg")).status().unwrap().success());
+    let root = dir.path().to_path_buf();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || tx.send(scan(&[root], None)).unwrap());
+    let s = rx.recv_timeout(std::time::Duration::from_secs(20)).expect("the scan blocked on the FIFO");
+    assert_eq!(s.folders.len(), 1);
+    assert_eq!(s.folders[0].photos.iter().map(|p| p.name.as_str()).collect::<Vec<_>>(), ["real.jpg"]);
+}

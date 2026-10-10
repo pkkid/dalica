@@ -42,7 +42,11 @@ pub struct Entry {
     /// 1 for the root's children.
     pub depth: usize,
     pub is_dir: bool,
-    /// Reached through a symbolic link (or junction); `is_dir`, `size` and `modified` describe its target.
+    /// A regular file. Neither this nor `is_dir`: a device, FIFO or socket, which readers must not
+    /// open (reading a FIFO or a device can block forever).
+    pub is_file: bool,
+    /// Reached through a symbolic link (or junction); `is_dir`, `is_file`, `size` and `modified`
+    /// describe its target.
     pub is_link: bool,
     pub size: u64,
     pub modified: Timestamp,
@@ -230,6 +234,7 @@ fn describe(path: &Path, depth: usize, warnings: &mut Vec<Warning>) -> Option<En
         path: path.to_path_buf(),
         depth,
         is_dir: meta.is_dir(),
+        is_file: meta.is_file(),
         is_link,
         size: if meta.is_dir() { 0 } else { meta.len() },
         modified: modified(&meta),
