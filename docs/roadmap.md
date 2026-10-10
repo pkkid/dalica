@@ -327,7 +327,7 @@ built. Built by a single agent; the waves show what could run in parallel later.
   - done when: `cargo test -p dalica-image` covers a `.jpg` that is really a PNG, all 8
     orientations read from `scenes` files, looping and out-of-range IFD offsets returning `Err`,
     and a property test truncating files at every offset that never panics.
-- ⬜ **M1.6 `image`: decoding**
+- ✅ **M1.6 `image`: decoding**
   - after: M1.5
   - files: `crates/image/src/decode.rs`, `crates/image/src/resize.rs`, `crates/image/tests/**`
   - scope: JPEG and PNG decode to RGBA8 sRGB (ICC in M8); scaled decode for thumbnails (DCT

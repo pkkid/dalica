@@ -93,3 +93,8 @@ opt-level = 3
 opt-level = 3
 [profile.dev.package.png]
 opt-level = 3
+# Decoding and resizing in tests (thumbnails of 24 MP scenes, 200-photo libraries).
+[profile.dev.package.dalica-image]
+opt-level = 3
+[profile.dev.package.zune-jpeg]
+opt-level = 3

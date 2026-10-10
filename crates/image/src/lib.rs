@@ -14,16 +14,19 @@
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+pub mod decode;
 pub mod exif;
 pub mod ifd;
 pub mod limits;
 pub mod orient;
+pub mod resize;
 pub mod sniff;
 
 use std::io::Read as _;
 use std::ops::Range;
 use std::path::Path;
 
+pub use decode::{decode, decode_thumbnail};
 pub use exif::Exif;
 pub use limits::Limits;
 pub use orient::Orientation;

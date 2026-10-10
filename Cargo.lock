@@ -782,8 +782,10 @@ version = "0.0.0"
 dependencies = [
  "dalica-core",
  "dalica-scenes",
+ "png",
  "proptest",
  "thiserror 2.0.21",
+ "zune-jpeg",
 ]
 
 [[package]]

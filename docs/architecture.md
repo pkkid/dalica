@@ -25,7 +25,7 @@ latest). They are pinned in `[workspace.dependencies]`; bumping one is its own c
 | GPU | `wgpu` 30.0.1 (Metal / Vulkan / DX12, no GL) | eframe's renderer; later, optional compute shaders for slow effects (`development.md` §14) |
 | Native dialogs | `rfd` 0.17.2, always off the UI thread, behind a `Picker` trait | native look; the trait lets tests and agents script dialogs |
 | macOS menu bar | `muda` 0.21.2, generated from the menu catalog | one menu model, three platforms |
-| Decoding / encoding | `image` 0.25.10 (png, tiff, webp, gif, bmp; its own JPEG encoder, since `jpeg-encoder` carries the IJG licence), `zune-jpeg` (scaled JPEG decode), `png` 0.18, `image-webp` 0.2, `jxl-oxide` 0.12; `heic-rs` 0.1 behind the off-by-default `heif` feature | pure Rust, permissive licences (`formats.md`) |
+| Decoding / encoding | `image` 0.25.10 (png, tiff, webp, gif, bmp; its own JPEG encoder, since `jpeg-encoder` carries the IJG licence), `zune-jpeg` (JPEG decode; 0.5 has no DCT scaling, so thumbnails decode in full and resize), `png` 0.18, `image-webp` 0.2, `jxl-oxide` 0.12; `heic-rs` 0.1 behind the off-by-default `heif` feature | pure Rust, permissive licences (`formats.md`) |
 | Colour | `moxcms` 0.9 | pure-Rust ICC transforms; never assume sRGB input |
 | Resampling | `fast_image_resize` 6 | fast, SIMD, pure Rust; thumbnails dominate CPU time |
 | Metadata | our own `meta` crate (segment surgery, `xmp-interop.md`) + `quick-xml` 0.42 for XMP parsing | no crate preserves foreign metadata byte for byte; we must own that guarantee |

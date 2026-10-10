@@ -12,8 +12,12 @@ publish = false
 
 [dependencies]
 dalica-core.workspace = true
+png.workspace = true
 thiserror.workspace = true
+zune-jpeg.workspace = true
 
 [dev-dependencies]
 dalica-scenes.workspace = true
+# Encodes test-only PNG layouts (16-bit, grey) and the PNGs written on a fingerprint mismatch.
+png.workspace = true
 proptest.workspace = true
