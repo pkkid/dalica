@@ -441,7 +441,7 @@ their PNGs to the maintainer, who approves them before they merge (M1.A decision
   - scope: the maintainer runs `cargo xtask accept M1 --headless`, looks at a sidecar and the CLI
     output, and approves building the UI on top.
   - done when: the maintainer closes the review issue.
-- ⬜ **M1.16 `ui-kit`: tokens, widgets, rasterizer**
+- ✅ **M1.16 `ui-kit`: tokens, widgets, rasterizer**
   - after: M1.1
   - files: `crates/ui-kit/**`, `assets/fonts/**`, `ATTRIBUTION.md`, `crates/scenes/src/fingerprint.rs`
   - scope: M1's tokens (`chrome`, `canvas`, `grid_bg`, `cell`, `cell_selected`, text greys,

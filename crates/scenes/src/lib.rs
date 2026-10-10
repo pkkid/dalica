@@ -17,12 +17,14 @@
 pub mod demo;
 pub mod encode;
 pub mod exif;
+pub mod fingerprint;
 pub mod orient;
 pub mod render;
 
 pub use demo::{DemoFile, demo_library};
 pub use encode::{jpeg, png};
 pub use exif::{ByteOrder, Exif};
+pub use fingerprint::Fingerprint;
 pub use render::{Kind, Rgb8, Scene};
 
 /// The largest width or height a scene may have (the JPEG limit).

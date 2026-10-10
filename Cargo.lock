@@ -847,6 +847,8 @@ dependencies = [
  "dalica-core",
  "image",
  "png",
+ "serde",
+ "serde_json",
  "thiserror 2.0.21",
 ]
 
@@ -892,7 +894,10 @@ version = "0.0.0"
 name = "dalica-ui-kit"
 version = "0.0.0"
 dependencies = [
+ "dalica-scenes",
  "egui",
+ "serde",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

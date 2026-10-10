@@ -118,7 +118,7 @@ Todo ──(deps done)──► Ready ──claim──► In Progress ──sub
 | `submit <id> [--body-file F]` | refuse unless `cargo xtask ci` passed on this commit (a green `ci` on a clean worktree records `<git common dir>/dalica-ci/<commit>.ok`) and a devlog entry exists; push the branch; open the PR (title `M1.4: <title>`, body: what changed, evidence for each *done when*, numbers, screenshots, `Closes #<issue>`); set In Review |
 | `release <id> --reason …` | back to Ready with a comment; the branch is kept for whoever claims it next |
 | `block <id> "question"` | set Blocked, add `needs-maintainer`, comment the question; the agent then takes another task |
-| `merge <id>` | lead only, under the merge lock: rebase the branch on `origin/main`, `cargo xtask ci`, push, wait for GitHub CI, squash-merge (`M1.4: <title> (#PR)`), then `sync` |
+| `merge <id>` | lead only, under the merge lock: rebase origin's copy of the branch on `origin/main` in the `merge` worktree (the worker may still have the branch checked out), `cargo xtask ci`, push, wait for GitHub CI, squash-merge (`M1.4: <title> (#PR)`), then `sync` |
 | `status` | the whole board: per milestone, per status, who holds what, stale claims (no push or log entry for 3 h) |
 | `log <id> "text"` | append a dated entry to the private dev log (§8) |
 
