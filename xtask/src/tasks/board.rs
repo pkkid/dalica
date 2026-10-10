@@ -66,6 +66,8 @@ impl Snapshot {
 #[derive(Debug, Default)]
 pub struct SyncReport {
     pub changes: Vec<String>,
+    /// What sync saw but left alone: open issues whose task is no longer in `roadmap.md`.
+    pub notes: Vec<String>,
 }
 
 /// What `setup` changed, and what it saw but left alone.
@@ -107,7 +109,7 @@ impl Board<'_> {
 
     /// The first open review task the maintainer owns that is listed before `task` in `roadmap.md`.
     /// Every task after an open review waits until the maintainer closes its issue (or it is ✅),
-    /// whatever its milestone: a mid-milestone `M3.A` holds back `M3.6` and everything after it.
+    /// whatever its milestone: an open `M2.R` holds back every M3 task and everything after it.
     fn open_gate_before<'r>(&'r self, snap: &Snapshot, task: &Task) -> Option<&'r Task> {
         self.roadmap.tasks.iter().take_while(|t| t.id != task.id).find(|t| t.is_gate() && t.owner == Owner::Maintainer && !snap.done(t))
     }
@@ -170,7 +172,7 @@ impl Board<'_> {
             return Err(format!("sync: roadmap.md, the issues and main disagree:\n  {}", problems.join("\n  ")));
         }
         self.check_milestones(&snap)?;
-        let mut report = SyncReport::default();
+        let mut report = SyncReport { notes: self.orphan_notes(&snap), ..SyncReport::default() };
         let mut numbers = snap.issue_numbers(self.roadmap);
         let mut ordered_items: Vec<String> = Vec::new();
 
@@ -273,6 +275,30 @@ impl Board<'_> {
             }
         }
         Ok(report)
+    }
+
+    /// Open issues titled with a task id that `roadmap.md` no longer has (a dropped block, such as a
+    /// removed mid-milestone review). Sync never edits, moves or closes them: a review's issue is
+    /// the maintainer's to close, and a dropped task's issue is closed by whoever dropped it.
+    fn orphan_notes(&self, snap: &Snapshot) -> Vec<String> {
+        let mut issues: Vec<&Issue> = snap.issues.iter().filter(|i| i.open).collect();
+        issues.sort_by_key(|i| i.number);
+        issues
+            .into_iter()
+            .filter_map(|issue| {
+                let id = issue.title.split(' ').next()?;
+                let (_, n) = roadmap::split_id(id)?;
+                if self.roadmap.task(id).is_some() {
+                    return None;
+                }
+                let who = if n.chars().all(|c| c.is_ascii_uppercase()) {
+                    "a review issue: only the maintainer closes it"
+                } else {
+                    "close it if the task was dropped on purpose"
+                };
+                Some(format!("issue #{} `{}` is open but {id} is not in roadmap.md any more; left as it is ({who})", issue.number, issue.title))
+            })
+            .collect()
     }
 
     /// The milestones `sync` would put issues in must exist on GitHub, checked before any write
@@ -736,7 +762,7 @@ fn pr_body(task: &Task, issue: u64, subjects: &[String], evidence: &str, baselin
     } else {
         let list: String = baselines.iter().map(|b| format!("- `{}` ({})\n", b.path, b.kind.name())).collect();
         format!(
-            "## Fingerprint baselines\n\nThis branch adds, changes or deletes these fingerprints. Their images are attached to this PR and the commit body says why; `cargo xtask tasks merge` merges them and records them in the dev log, and the maintainer approves them in bulk at the next review (M<n>.A or M<n>.R):\n\n{list}\n"
+            "## Fingerprint baselines\n\nThis branch adds, changes or deletes these fingerprints. Their images are attached to this PR and the commit body says why; `cargo xtask tasks merge` merges them and records them in the dev log, and the maintainer approves them in bulk at the next review (the milestone's M<n>.R):\n\n{list}\n"
         )
     };
     format!(

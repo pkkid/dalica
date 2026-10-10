@@ -30,7 +30,7 @@ Nothing else counts: a ✅ on an unmerged branch, a closed issue without a merge
   generated section between `<!-- dalica:task -->` markers (after, owner, files, scope, done when,
   a link to the roadmap block); `sync` rewrites only that section, so humans may add notes below
   it. `sync` also keeps the project's item order equal to `roadmap.md` order, so the board reads
-  top to bottom in build order. Review tasks (`M2.R`, `M3.A`, `M6.R`) are issues too, assigned to the
+  top to bottom in build order. Review tasks (`M2.R`, `M3.R`, `M6.R`) are issues too, assigned to the
   maintainer.
 - **Labels:** `task` (every task issue), `gate` (review tasks), `needs-maintainer` (an agent is
   blocked on a question), `stale` (claimed but idle, set by `status`), and `baseline-approved`
@@ -60,8 +60,10 @@ the project).
   - done when: the command or test that proves it, with its edge cases.
 ```
 
-- **Id:** `M<milestone>.<n>` for work, `M<n>.R` for the end-of-milestone review task (a release gate
-  in M6, M10 and M15), `M<n>.A`, `M<n>.B`… for mid-milestone review tasks. Ids are never reused or
+- **Id:** `M<milestone>.<n>` for work, `M<n>.R` for the milestone's one review task, at its end (a
+  release gate in M6, M10 and M15). There are no mid-milestone reviews (maintainer rule,
+  2026-10-10: "I do not want any checkins mid milestones"): the parser refuses an open `M<n>.A`,
+  `M<n>.B`, …; the finished `M1.A` stays as history. Ids are never reused or
   renumbered (the milestones were renumbered once, on 2026-10-10, before any task past M3
   existed).
 - **owner:** `agent` (default, any worker), `lead` (only `agent-1` may claim it: board upkeep,
@@ -120,7 +122,7 @@ Todo ──(deps done)──► Ready ──claim──► In Progress ──sub
 | In Progress → Ready | `tasks release <id> --reason "…"` | the claiming worker, or the lead for stale claims |
 | In Progress → Blocked | `tasks block <id> "question"` | the claiming worker |
 | Blocked → Ready | the maintainer answers on the issue and removes `needs-maintainer`; `sync` | the maintainer |
-| review task: prepared | `/milestone-review`: the check-in page, a `review/M<n>.<X>` pull request (✅ ticked, *Where we stand*, `status.md`) linked on the issue; the run stops | lead |
+| review task: prepared | `/milestone-review`: the check-in page, a `review/M<n>.R` pull request (✅ ticked, *Where we stand*, `status.md`) linked on the issue; the run stops | lead |
 | review task → Done | the maintainer merges the review's pull request and closes its issue; `sync` (everything listed after it can then be claimed) | maintainer only |
 
 ## 5. Commands (`cargo xtask tasks …`)
@@ -158,7 +160,7 @@ is developer tooling; the Dalica app itself never touches the network for this.
   metrics into `docs/status.md` → `tasks sync` → release stale
   claims → write the next milestone's task blocks while the current one runs. When the run reaches
   a review task, let running tasks finish and merge, prepare it (`/milestone-review`: `accept M<n>`,
-  the check-in page, *Where we stand* and `status.md` on a `review/M<n>.<X>` branch, a pull
+  the check-in page, *Where we stand* and `status.md` on a `review/M<n>.R` branch, a pull
   request) and stop; never merge that pull request or close the review issue. When GitHub CI on `main` turns red, fix it
   before the next merge (`tasks merge` refuses until it is green). The lead
   may take small tasks when the review queue is empty, never ones whose files overlap a task in
@@ -192,7 +194,7 @@ All agents run on the maintainer's machine, so local locks make GitHub updates r
   the other limit: a long-lived target dir grows from ~3.5 GB to ~10 GB, mostly `incremental/`, so
   the lead runs `cargo xtask tasks prune` at each review.
 - **Fingerprint approvals:** fingerprint baselines are approved **in bulk at the next review**
-  (`M<n>.A` or `M<n>.R`), not on each pull request (the maintainer's decision, 2026-10-10: in M3
+  (the milestone's `M<n>.R`), not on each pull request (the maintainer's decision, 2026-10-10: in M3
   nearly every task touches fingerprints, and a per-PR approval stopped the build on each). A
   branch that adds, changes or deletes a baseline still shows what changed on its PR (the new PNG,
   or the diff images) and says why in the commit body (`AGENTS.md` §3); `merge` merges it without

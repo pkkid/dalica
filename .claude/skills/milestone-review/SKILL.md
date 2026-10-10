@@ -1,12 +1,12 @@
 ---
 name: milestone-review
-description: Prepare a review task (M<n>.A, M<n>.R, and the release gates M6.R, M10.R, M15.R) for the maintainer - check-in page, docs on a review branch, a pull request - then stop. Never merges the PR or closes the review issue; only the maintainer does. Usually run by /milestone-start when the run reaches a review; the maintainer may run it directly.
-argument-hint: "[M<n>.R | M<n>.A]  (default: the first open review task)"
+description: Prepare a review task (M<n>.R, and the release gates M6.R, M10.R, M15.R) for the maintainer - check-in page, docs on a review branch, a pull request - then stop. Never merges the PR or closes the review issue; only the maintainer does. Usually run by /milestone-start when the run reaches a review; the maintainer may run it directly.
+argument-hint: "[M<n>.R]  (default: the first open review task)"
 ---
 
 # Prepare a review task
 
-Target: **$ARGUMENTS**. If empty, use the first open `M<n>.A` / `M<n>.R` in
+Target: **$ARGUMENTS**. If empty, use the first open `M<n>.R` in
 `cargo xtask tasks status`.
 
 You are the lead (`agent-1`, `docs/task-board.md` §6). Every review task is a **stop** (maintainer
@@ -21,9 +21,8 @@ branch, open a pull request, and stop.
 - **Release gates** (M6.R, M10.R, M15.R) are prepared the same way, plus the release checklist and
   the sign-off questions of §5.
 
-**Scope.** For `M<n>.R`: every task of milestone M<n>. If the milestone had a mid-milestone review
-(`M<n>.A`), cover the whole milestone but say briefly what that one already showed. For `M<n>.A`:
-the tasks from the start of M<n> up to it.
+**Scope.** For `M<n>.R`: every task of milestone M<n>. A milestone has exactly one review, at its
+end; there are no mid-milestone reviews (maintainer rule, 2026-10-10).
 
 ## 1. Gather the facts (read-only)
 
@@ -68,7 +67,7 @@ the tasks from the start of M<n> up to it.
 ## 2. Write it down
 
 Append one entry to `log/devlog.md` in the **main checkout**, headed
-`## <YYYY-MM-DD HH:MM> · agent-1 · M<n>.R Check-in` (or `M<n>.A`, or `Release gate`). Keep it short:
+`## <YYYY-MM-DD HH:MM> · agent-1 · M<n>.R Check-in` (or `Release gate`). Keep it short:
 
 1. **What landed:** one line per task, with evidence against its *done when*, numbers and the PR.
    Then the milestone's numbers against the previous check-in's.
@@ -88,7 +87,7 @@ Append one entry to `log/devlog.md` in the **main checkout**, headed
 ## 3. Publish the check-in page
 
 Publish one artifact page per check-in (load the `artifact-design` skill first). Title it
-`Dalica M<n> check-in`; for `M<n>.A`, `Dalica M<n>.A check-in`. It is the maintainer's view of the
+`Dalica M<n> check-in`. It is the maintainer's view of the
 milestone, so lead with the app:
 
 - **Try it:** exact commands, such as `cargo run -p dalica -- --demo`, and what to click and look
@@ -107,19 +106,19 @@ The page is linked on the review issue together with the pull request (§4).
 
 ## 4. Docs on a review branch, a pull request, and stop
 
-The review's id is `M<n>.<X>` (`M2.R`, `M3.A`, …) and its issue `#<issue>`.
+The review's id is `M<n>.R` (`M2.R`, `M6.R`, …) and its issue `#<issue>`.
 
-1. Make a branch `review/M<n>.<X>` from `origin/main` in a worktree of your own (for example
-   `git worktree add ../dalica.worktrees/review-M<n>.<X> -b review/M<n>.<X> origin/main`, with
+1. Make a branch `review/M<n>.R` from `origin/main` in a worktree of your own (for example
+   `git worktree add ../dalica.worktrees/review-M<n>.R -b review/M<n>.R origin/main`, with
    `CARGO_TARGET_DIR` at `target/agent-1`). There:
    - write the dated *Where we stand* paragraph in `docs/roadmap.md` and the numbers in
      `docs/status.md`;
    - apply any reversals the maintainer asked for since the last review;
    - tick the review's ✅ in `docs/roadmap.md`, so merging the PR is the approval.
-2. Commit as `M<n>.<X>: check-in` (body: what the page covers, the numbers, the attribution line),
-   run `cargo xtask ci` there, and `cargo xtask tasks log M<n>.<X> "…" --agent agent-1`.
-3. Push the branch (`git push -u origin review/M<n>.<X>`) and open the pull request with
-   `gh pr create --base main --head review/M<n>.<X> --title "M<n>.<X>: check-in"`. Its body:
+2. Commit as `M<n>.R: check-in` (body: what the page covers, the numbers, the attribution line),
+   run `cargo xtask ci` there, and `cargo xtask tasks log M<n>.R "…" --agent agent-1`.
+3. Push the branch (`git push -u origin review/M<n>.R`) and open the pull request with
+   `gh pr create --base main --head review/M<n>.R --title "M<n>.R: check-in"`. Its body:
    - the check-in page's link and a three-line summary (what to try, the decisions to look at);
    - the number of fingerprint baselines to approve, with a pointer to that section of the page;
    - the line "Merge this PR and close #<issue> to approve; the next run starts after that."

@@ -65,15 +65,17 @@ waits for.)
   acceptance tests and scripts (`dalica-cli run` / `snapshot` scripts under `tests/acceptance/`)
   and prints what a human should look at. Its *Done when* lines say what it proves. Acceptance
   checks of earlier milestones keep running in `cargo xtask ci`, so nothing silently regresses.
-- **Every review task is a stop.** A milestone ends with a review task `M<n>.R`; a big one adds a
-  mid-milestone review `M<n>.A` (then `M<n>.B`, …). Every review task is `owner: maintainer` (the
-  roadmap parser refuses any other owner), and nothing listed after an open review task in this
-  file is claimed until the maintainer closes it, whether in the same milestone or a later one
+- **Every review task is a stop.** A milestone has exactly one review, at its end: the review task
+  `M<n>.R`. There are no mid-milestone reviews (the maintainer's decision, 2026-10-10: "I do not
+  want any checkins mid milestones"); the roadmap parser refuses an open `M<n>.A`, `M<n>.B`, …
+  (the finished M1.A stays as history). Every review task is `owner: maintainer` (the roadmap
+  parser refuses any other owner), and nothing listed after an open review task in this file is
+  claimed until the maintainer closes it, whether in the same milestone or a later one
   (`cargo xtask tasks next` and `claim` enforce it).
 - **The lead prepares a review; the maintainer decides it.** When the run reaches a review task,
-  running tasks finish and merge, and the lead runs `/milestone-review M<n>.<X>`: a check-in page
+  running tasks finish and merge, and the lead runs `/milestone-review M<n>.R`: a check-in page
   (screenshots at both window sizes, what to try, every decision made with a way to reverse it),
-  the dated *Where we stand* and the `status.md` numbers on a branch `review/M<n>.<X>`, and a pull
+  the dated *Where we stand* and the `status.md` numbers on a branch `review/M<n>.R`, and a pull
   request linked on the review issue. Then the run stops. Only the maintainer merges that pull
   request and closes the review issue; no agent and no `cargo xtask tasks` command merges or closes
   a review. The maintainer then starts the next run (`/milestone-start`); feedback becomes tasks.
@@ -646,10 +648,8 @@ wave 5   M2.8 accept M2 → M2.R
 #### M3 tasks
 
 M3 builds the whole window shell on top of M2's widget ids and headless driver; its first wave
-starts as soon as the maintainer has closed M2.R. A review **M3.A** after the foundations (widgets,
-icons, menus, keys, layout skeleton) shows the maintainer the look early; the panels and everything
-listed after it wait until the maintainer closes it.
-First fingerprints of new widgets and icons are approved in bulk on the M3.A review page.
+starts as soon as the maintainer has closed M2.R. First fingerprints of new widgets and icons are
+approved in bulk on the M3.R review page.
 
 Whole-window baselines belong to no task: `crates/ui/tests/fingerprints/library-*.json` and the
 finished milestones' `tests/acceptance/fingerprints/m1-*.json` and `m2-*.json` change whenever the
@@ -721,15 +721,6 @@ with the rest at the next review.
     review (owner: maintainer).
   - done when: `cargo xtask tasks sync --check` parses them and `tasks sync --dry-run` lists one new
     issue per block.
-- ⬜ **M3.A Checkpoint A check-in**
-  - after: M3.1, M3.2, M3.3, M3.4, M3.5
-  - owner: maintainer
-  - files: `docs/status.md`
-  - scope: the lead runs `/milestone-review M3.A` to prepare it: a check-in page with the widget
-    gallery, the icon sheet, a menu and the layout at both sizes, and the decisions so far; the
-    `status.md` numbers on a `review/M3.A` branch, a pull request open. Only the maintainer merges
-    that pull request and closes this issue; nothing after it starts until then.
-  - done when: prepared: page published, PR open, both linked on the issue.
 - ⬜ **M3.6 `ui` + `dalica`: title bar, window frame and window state**
   - after: M3.1, M3.2, M3.3, M3.4, M3.5
   - files: `crates/ui/src/titlebar.rs`, `crates/ui/src/panels/menubar.rs`, `apps/dalica/src/**`, `apps/dalica/Cargo.toml`, `crates/engine/src/settings.rs`, `tests/acceptance/m2.md`
@@ -801,7 +792,7 @@ Waves (inside a wave, "‖" separates tasks whose `files` do not overlap):
 
 ```text
 wave 1   M3.1 widgets  ‖  M3.2 icons  ‖  M3.3 menus  ‖  M3.5 layout skeleton  ‖  M3.12 lead (M5 blocks)
-wave 2   M3.4 keys (after M3.3) → M3.A checkpoint
+wave 2   M3.4 keys (after M3.3)
 wave 3   M3.6 title bar + window  ‖  M3.7 toolbar  ‖  M3.8 tree, status, side pane  ‖  M3.9 bottom area
 wave 4   M3.10 responsiveness + F11
 wave 5   M3.11 accept M3 → M3.R
@@ -867,9 +858,7 @@ the M1 work it extends and starts as soon as the maintainer has closed M3.R; the
 M3's panels. Two
 tasks lay the ground the others share so later tasks never share a file: M4.5 adds every M4
 view-state field and one module per command area, and M4.6 splits the light table into one module
-per part (layout, header, cell, scrollbar, input) with a fixed painting API. A review **M4.A**
-shows the scrollbar and the never-blank thumbnails early, so the maintainer can tune the scroll
-speed before the rest is built (everything listed after it waits until the maintainer closes it). Each task updates its `parity.md` rows; first fingerprints of new
+per part (layout, header, cell, scrollbar, input) with a fixed painting API. Each task updates its `parity.md` rows; first fingerprints of new
 widgets are approved on their PRs; M4.6 splits the window fingerprints by region so parallel
 UI tasks each re-bless only their own.
 
@@ -1061,17 +1050,6 @@ UI tasks each re-bless only their own.
   - done when: `cargo xtask bench library_bench` prints the p95 and the cells-visited counts; a
     test with a planted history flags a 25 % slowdown and not a 10 % one; `xtask docs` lists
     `bench` as implemented; numbers for this machine in the PR.
-- ⬜ **M4.A Checkpoint A check-in**
-  - after: M4.10, M4.11, M4.12
-  - owner: maintainer
-  - files: `docs/status.md`
-  - scope: the lead runs `/milestone-review M4.A` to prepare it: a check-in page with the demo
-    library at both window sizes, cells with badges and captions, and a short screen recording or
-    step list for scrolling with the speed thumb, with the settings keys to tune its curve; the
-    decisions so far; the `status.md` numbers on a `review/M4.A` branch, a pull request open. Only
-    the maintainer merges that pull request and closes this issue; nothing after it starts until
-    then.
-  - done when: prepared: page published, PR open, both linked on the issue.
 - ⬜ **M4.15 `ui`: the library tree pane**
   - after: M3.7, M3.8, M4.4, M4.5, M4.6, M4.7, M4.13
   - files: `crates/ui/src/panels/folders.rs`, `crates/ui/src/panels/folders/**`, `crates/ui/tests/tree.rs`, `crates/ui/tests/fingerprints/region-tree*.json`
@@ -1148,10 +1126,9 @@ wave 1   M4.1 sketch  ‖  M4.2 sketch in the index  ‖  M4.3 pack cache  ‖  
 wave 2   M4.6 light-table skeleton  ‖  M4.7 synthetic libraries  ‖  M4.8 ladder + scan-time thumbnails
 wave 3   M4.9 header  ‖  M4.10 cells + badges  ‖  M4.11 scrollbar  ‖  M4.12 never blank
          ‖  M4.13 selection  ‖  M4.14 bench
-         → M4.A checkpoint (after M4.10, M4.11, M4.12)
 wave 4   M4.15 tree pane  ‖  M4.16 tray
 wave 5   M4.17 status line
-wave 6   M4.18 accept M4 → M4.R          (M4.19 lead: M6 blocks, any time after M3.12 once M4.A is closed)
+wave 6   M4.18 accept M4 → M4.R          (M4.19 lead: M6 blocks, any time after M3.12)
 ```
 
 ### M5 — Folders, scanning and formats

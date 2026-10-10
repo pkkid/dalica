@@ -114,7 +114,7 @@ L0       core · fs                    (only `fs` writes to disk)
   `xtask` check loosened, no `DALICA_BLESS` fingerprint update without looking at the diff images
   and saying why in the commit body. If a gate is wrong, raise it on the task's issue.
 - New or changed fingerprint baselines merge with their task (images on the PR, the why in the
-  commit body); the maintainer approves them **in bulk at the next review** (`M<n>.A`/`M<n>.R`),
+  commit body); the maintainer approves them **in bulk at the next review** (the milestone's `M<n>.R`),
   and a rejected baseline becomes a fix task (`docs/task-board.md` §7).
 - Never claim parity you have not measured. A ✅ parity row is not proof: if you find one wrong,
   downgrade it to 🟡 with a note.
@@ -177,13 +177,15 @@ L0       core · fs                    (only `fs` writes to disk)
 - **The lead** (`agent-1`) merges In Review tasks one at a time with `cargo xtask tasks merge
   <id>`, releases stale claims, writes the next milestone's task blocks while the current one runs,
   takes the `owner: lead` tasks, and prepares each review task (`/milestone-review`): `accept M<n>`,
-  a published check-in page, *Where we stand* and `docs/status.md` on a `review/M<n>.<X>` branch, a
+  a published check-in page, *Where we stand* and `docs/status.md` on a `review/M<n>.R` branch, a
   pull request.
 - **Review tasks are stops** (maintainer rule, 2026-10-10; `roadmap.md` → How milestones work).
-  Every `M<n>.A` / `M<n>.R` (release gates in M6, M10 and M15 included) is `owner: maintainer`, and
-  nothing listed after an open one is claimed. When the run reaches one, the lead lets running
+  A milestone has exactly one review, at its end: `M<n>.R` (release gates in M6, M10 and M15
+  included); there are no mid-milestone reviews (maintainer rule, 2026-10-10: "I do not want any
+  checkins mid milestones"; the roadmap parser refuses an open `M<n>.A`). Every review is
+  `owner: maintainer`, and nothing listed after an open one is claimed. When the run reaches one, the lead lets running
   tasks finish and merge, runs `/milestone-review` to prepare it, and stops (pushing the
-  `review/M<n>.<X>` branch and opening its pull request are part of preparing it). **Only the
+  `review/M<n>.R` branch and opening its pull request are part of preparing it). **Only the
   maintainer merges a review's pull request or closes its issue;** no agent ever does, not even as
   board housekeeping, and `cargo xtask tasks` refuses to (`submit` and `merge` reject review ids;
   `sync` never closes a review's issue).
