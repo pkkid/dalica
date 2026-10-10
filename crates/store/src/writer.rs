@@ -113,23 +113,34 @@ impl SidecarWriter {
 
     /// Writes every dirty folder whose last write is at least [`DEBOUNCE`] old.
     pub fn write_due(&mut self, library: &Library, now: Timestamp) -> BTreeMap<FolderId, Outcome> {
+        self.write_due_with(|f| mapping::folder_state(library, f), now)
+    }
+
+    /// [`Self::write_due`] for a writer that has no `Library` (a background thread fed with
+    /// [`FolderState`]s): `state_of` gives a folder's current state, `None` if it left the model.
+    pub fn write_due_with(&mut self, state_of: impl Fn(FolderId) -> Option<FolderState>, now: Timestamp) -> BTreeMap<FolderId, Outcome> {
         let due: Vec<FolderId> = self.dirty.iter().copied().filter(|f| self.last_write.get(f).is_none_or(|t| now.since(*t) >= DEBOUNCE)).collect();
-        self.write(library, &due, now)
+        self.write(&state_of, &due, now)
     }
 
     /// Writes every dirty folder now, whatever the debounce says.
     pub fn flush(&mut self, library: &Library, now: Timestamp) -> BTreeMap<FolderId, Outcome> {
-        let all: Vec<FolderId> = self.dirty.iter().copied().collect();
-        self.write(library, &all, now)
+        self.flush_with(|f| mapping::folder_state(library, f), now)
     }
 
-    fn write(&mut self, library: &Library, folders: &[FolderId], now: Timestamp) -> BTreeMap<FolderId, Outcome> {
+    /// [`Self::flush`] fed with folder states (see [`Self::write_due_with`]).
+    pub fn flush_with(&mut self, state_of: impl Fn(FolderId) -> Option<FolderState>, now: Timestamp) -> BTreeMap<FolderId, Outcome> {
+        let all: Vec<FolderId> = self.dirty.iter().copied().collect();
+        self.write(&state_of, &all, now)
+    }
+
+    fn write(&mut self, state_of: &impl Fn(FolderId) -> Option<FolderState>, folders: &[FolderId], now: Timestamp) -> BTreeMap<FolderId, Outcome> {
         let mut out = BTreeMap::new();
         for &f in folders {
             let outcome = if self.read_only.contains(&f) {
                 Outcome::ReadOnly
             } else {
-                match mapping::folder_state(library, f) {
+                match state_of(f) {
                     // The folder left the model: nothing to write.
                     None => Outcome::Unchanged,
                     Some(state) => write_folder(&state, now),

@@ -391,7 +391,7 @@ built. Built by a single agent; the waves show what could run in parallel later.
   - done when: fake-job tests show strict priority order under contention, one execution per
     duplicate key, cancelled jobs never delivered, and no lost results in a 10 000-job stress run;
     the LRU never exceeds its byte budget.
-- ⬜ **M1.13 `engine`: Session and commands**
+- ✅ **M1.13 `engine`: Session and commands**
   - after: M1.10, M1.11
   - files: `crates/engine/src/session.rs`, `crates/engine/src/registry.rs`, `crates/engine/src/undo.rs`, `crates/engine/src/error.rs`, `crates/engine/src/lib.rs`, `crates/engine/src/cmd/**`, `crates/engine/Cargo.toml`
   - scope: `Session` (library, store, clock, lock), `CommandSpec`, `execute` (enabled check, typed

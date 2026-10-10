@@ -9,4 +9,19 @@ repository.workspace = true
 authors.workspace = true
 publish = false
 
+
 [dependencies]
+dalica-core.workspace = true
+dalica-fs.workspace = true
+dalica-library.workspace = true
+dalica-scan.workspace = true
+dalica-store.workspace = true
+log.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+dalica-scenes.workspace = true
+dalica-sidecar.workspace = true
+tempfile.workspace = true
