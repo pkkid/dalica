@@ -9,7 +9,7 @@ and git.
 
 - **Milestone:** M1, star a photo end to end. M0 is done: every M0 task is merged on `main`
   (M0.1–M0.10), CI is green on Linux, Windows and macOS, and the maintainer closed the M0.R review
-  (#11) on 2026-10-09. M1 starts with M1.1 `core`; checkpoint M1.A follows M1.15.
+  (#11) on 2026-10-09. Merged: M1.1 `core`. Checkpoint M1.A follows M1.15.
 - **Gates:** `cargo xtask ci` runs fmt, clippy, tests, `layers`, `deps`, `assets`, `names`, `parity`,
   `docs` and the roadmap parse; `cargo xtask accept M0` shows 6/6 gates bite.
 - **Board:** `cargo xtask tasks` drives issues #1–#32 on project 3 (adopted 2026-10-09 with no
@@ -30,3 +30,5 @@ and git.
 | 2026-10-09 | GitHub macos-latest | CI job `cargo xtask ci`, cold cache / warm cache (run 38018640880) | 2 min 25 s / 37 s |
 | 2026-10-09 | GitHub windows-latest | CI job `cargo xtask ci`, cold cache (no warm run yet: the first run failed, so no cache was saved) | 4 min 36 s |
 | 2026-10-09 | maintainer desktop | `cargo xtask ci` on a clean clone, cold target dir | 46.5 s wall |
+| 2026-10-10 | maintainer desktop | `dalica-core` position keys, longest key after 10 000 inserts: append / prepend / at index 1 / after the previous insert | 6 / 6 / 8 / 9 bytes |
+| 2026-10-10 | maintainer desktop | `dalica-core` position keys, inserts into the middle before a key passes 512 bytes | 2 379 |
