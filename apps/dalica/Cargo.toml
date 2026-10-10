@@ -1,0 +1,12 @@
+[package]
+name = "dalica"
+description = "Dalica desktop app: the eframe window, the control-server transport, the native menu and the rfd picker"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]

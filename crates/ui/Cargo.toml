@@ -1,0 +1,12 @@
+[package]
+name = "dalica-ui"
+description = "Dalica L5: The app: serialisable UiState, panels, menus and the menu catalog, shortcut dispatch, UI_COMMANDS, the headless driver and the control-method handlers"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]

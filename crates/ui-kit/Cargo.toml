@@ -1,0 +1,12 @@
+[package]
+name = "dalica-ui-kit"
+description = "Dalica L5: The generic look: Tokens, widgets, icons drawn in code, the widget registry and the CPU rasterizer for screenshots"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]

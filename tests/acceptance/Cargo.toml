@@ -1,0 +1,20 @@
+[package]
+name = "dalica-acceptance"
+description = "Dalica milestone acceptance tests, run by cargo xtask accept M<n>"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+serde_json.workspace = true
+
+[[test]]
+name = "m0_skeleton"
+path = "m0_skeleton.rs"

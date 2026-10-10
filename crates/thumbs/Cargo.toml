@@ -1,0 +1,12 @@
+[package]
+name = "dalica-thumbs"
+description = "Dalica L2: The prioritised, de-duplicating job pool, the in-memory LRU and the on-disk thumbnail cache"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]

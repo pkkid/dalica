@@ -1,0 +1,12 @@
+[package]
+name = "dalica-cli"
+description = "Dalica headless CLI: commands, run, inspect, render, snapshot, mcp"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]

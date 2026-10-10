@@ -1,0 +1,84 @@
+[workspace]
+resolver = "3"
+members = ["crates/*", "apps/*", "xtask", "tests/acceptance"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.98"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/pkkid/dalica"
+authors = ["the Dalica contributors"]
+
+# Versions of architecture.md §1, the latest stable releases on 2026-10-09. Bumping one is its own commit.
+[workspace.dependencies]
+# Dalica crates
+dalica-core = { path = "crates/core" }
+dalica-fs = { path = "crates/fs" }
+dalica-image = { path = "crates/image" }
+dalica-meta = { path = "crates/meta" }
+dalica-sidecar = { path = "crates/sidecar" }
+dalica-edit = { path = "crates/edit" }
+dalica-scenes = { path = "crates/scenes" }
+dalica-fetch = { path = "crates/fetch" }
+dalica-faces = { path = "crates/faces" }
+dalica-library = { path = "crates/library" }
+dalica-thumbs = { path = "crates/thumbs" }
+dalica-store = { path = "crates/store" }
+dalica-scan = { path = "crates/scan" }
+dalica-create = { path = "crates/create" }
+dalica-engine = { path = "crates/engine" }
+dalica-ui-kit = { path = "crates/ui-kit" }
+dalica-ui = { path = "crates/ui" }
+dalica-mcp = { path = "crates/mcp" }
+
+# UI
+egui = "0.36.2"
+eframe = { version = "0.36.2", default-features = false, features = ["default_fonts", "wgpu", "accesskit", "wayland", "x11"] }
+egui_extras = "0.36.2"
+wgpu = "30.0.1"
+rfd = "0.17.2"
+muda = "0.21.2"
+
+# Decoding, encoding, colour, resampling
+image = { version = "0.25.10", default-features = false, features = ["png", "tiff", "webp", "gif", "bmp"] }
+zune-jpeg = "0.5"
+jpeg-encoder = "0.7"
+png = "0.18"
+image-webp = "0.2"
+jxl-oxide = "0.12"
+heic-rs = "0.1"
+moxcms = "0.9"
+fast_image_resize = "6"
+
+# Metadata, files, locations
+quick-xml = "0.42"
+notify = "8"
+fs4 = "1.1"
+trash = "5.2"
+tempfile = "3"
+directories = "6"
+
+# Parallelism, serialization, errors, logging
+rayon = "1.12"
+crossbeam-channel = "0.5"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+log = "0.4"
+
+# Automation
+rmcp = "3.5"
+
+# Tests and benches
+proptest = "1.11"
+insta = { version = "1.49", features = ["json"] }
+criterion = "0.8"
+
+[profile.dev]
+panic = "unwind"
+# Keeps the target directories of 8 parallel agents small.
+debug = "line-tables-only"
+
+[profile.release]
+panic = "unwind"

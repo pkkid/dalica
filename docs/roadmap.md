@@ -110,7 +110,7 @@ contexts, two undo histories, OS integration last), and the architecture was spe
 Task blocks use the fixed format of [`task-board.md`](task-board.md) §3; `cargo xtask tasks sync`
 turns each into a GitHub issue. M0 is built by a single agent.
 
-- ⬜ **M0.1 Workspace skeleton**
+- ✅ **M0.1 Workspace skeleton**
   - after: —
   - files: `Cargo.toml`, `rust-toolchain.toml`, `LICENSE-MIT`, `LICENSE-APACHE`, `.gitignore`, `crates/**`, `apps/**`, `tests/acceptance/**`
   - scope: workspace members `crates/*`, `apps/*`, `xtask`, `tests/acceptance`;

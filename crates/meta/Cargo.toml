@@ -1,0 +1,12 @@
+[package]
+name = "dalica-meta"
+description = "Dalica L1: EXIF / IPTC / XMP reading; write-back of owned fields by segment surgery (merge, never replace); MWG face regions; .xmp sidecars for RAW"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]

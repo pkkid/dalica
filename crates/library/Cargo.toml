@@ -1,0 +1,12 @@
+[package]
+name = "dalica-library"
+description = "Dalica L2: The in-memory model (folders, photos, albums, people, tags, captions, stars, hidden, recipes, places), Ops with inverses, revisions, queries and the search grammar"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]

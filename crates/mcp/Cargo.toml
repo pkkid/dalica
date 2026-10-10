@@ -1,0 +1,12 @@
+[package]
+name = "dalica-mcp"
+description = "Dalica L5: The MCP server over the command registry (headless or connected to a running app)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]

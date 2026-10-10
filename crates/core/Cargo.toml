@@ -1,0 +1,12 @@
+[package]
+name = "dalica-core"
+description = "Dalica L0: Ids (PhotoId, FolderId, AlbumId, PersonId), errors, normalised geometry, dates, path and name utilities (collision names -001), position keys and the Clock trait"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]

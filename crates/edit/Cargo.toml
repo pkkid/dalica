@@ -1,0 +1,12 @@
+[package]
+name = "dalica-edit"
+description = "Dalica L1: The edit recipe: operation syntax parse/print (unknown operations preserved), pipeline order, the CPU renderer for every tool and effect (the oracle), auto-fix analysis"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]

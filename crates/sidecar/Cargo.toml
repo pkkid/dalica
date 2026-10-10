@@ -1,0 +1,12 @@
+[package]
+name = "dalica-sidecar"
+description = "Dalica L1: The .dalica.json folder sidecar: parse and print with unknown keys preserved; the read-only legacy reader and its conversion to Dalica's model"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]

@@ -1,0 +1,12 @@
+[package]
+name = "dalica-scenes"
+description = "Dalica L1: Procedural test and demo photos (gradients, horizons, soft blobs, text-free patterns) at any size, depth and orientation, with a minimal EXIF block"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]
