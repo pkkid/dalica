@@ -188,7 +188,7 @@ turns each into a GitHub issue. M0 is built by a single agent.
     outside `fs`.
   - done when: `cargo xtask accept M0` reports 6/6 gates bite and exits 0; the warm run time is
     recorded in `status.md` → Metrics.
-- ⬜ **M0.7 CI on three OSes**
+- ✅ **M0.7 CI on three OSes**
   - after: M0.1
   - files: `.github/workflows/ci.yml`
   - scope: matrix ubuntu / windows / macos; toolchain 1.98; dependency cache; the Linux packages
