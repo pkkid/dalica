@@ -871,7 +871,7 @@ M3's panels. Two
 tasks lay the ground the others share so later tasks never share a file: M4.5 adds every M4
 view-state field and one module per command area, and M4.6 splits the light table into one module
 per part (layout, header, cell, scrollbar, input) with a fixed painting API. Each task updates its `parity.md` rows; first fingerprints of new
-widgets are approved on their PRs; M4.6 splits the window fingerprints by region so parallel
+widgets are approved in bulk on the M4.R review page; M4.6 splits the window fingerprints by region so parallel
 UI tasks each re-bless only their own.
 
 - ⬜ **M4.1 `thumbs`: the colour sketch**
