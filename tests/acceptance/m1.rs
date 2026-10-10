@@ -74,12 +74,12 @@ fn star_a_photo_end_to_end() {
     let _ui_thread = dalica_fs::mark_ui_thread();
     let mut driver = dalica_ui::Driver::new(dalica_ui::App::new(Some(session)), 1400, 900, 1.0);
     driver.settle(60 * 60).unwrap();
-    let badges: Vec<String> = driver.widgets().into_iter().map(|w| w.id).filter(|id| id.starts_with("thumb:") && id.ends_with(".star")).collect();
+    let badges: Vec<String> = driver.widgets().into_iter().map(|w| w.id).filter(|id| id.starts_with("thumb:") && id.ends_with("/star")).collect();
     assert_eq!(badges.len(), 2, "{badges:?}");
     let library = driver.app().session().unwrap().library();
     let mut names: Vec<String> = badges
         .iter()
-        .filter_map(|b| b.trim_start_matches("thumb:").trim_end_matches(".star").parse().ok())
+        .filter_map(|b| b.trim_start_matches("thumb:").trim_end_matches("/star").parse().ok())
         .filter_map(|id| library.photo(dalica_core::PhotoId::new(id)))
         .map(|p| p.name.clone())
         .collect();

@@ -521,7 +521,7 @@ wave 5   M1.17 → M1.18 ui, app → M1.19 acceptance → M1.R milestone review
 
 #### M2 tasks
 
-- ⬜ **M2.1 `ui`: widget ids to the spec grammar**
+- ✅ **M2.1 `ui`: widget ids to the spec grammar**
   - after: M1.R
   - files: `crates/ui/src/panels/**`, `crates/ui-kit/src/widgets.rs`, `crates/ui-kit/src/registry.rs`, `crates/ui/tests/**`, `tests/acceptance/m1.rs`, `tests/acceptance/m1_steps.rs`
   - scope: rename M1's ids to `control-protocol.md` §7 (`menu:File`, `menuitem:folders.add`,

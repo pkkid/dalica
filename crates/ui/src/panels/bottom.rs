@@ -35,7 +35,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let mut child = ui
         .new_child(egui::UiBuilder::new().max_rect(egui::Rect::from_min_size(area.min + vec2(0.365 * area.width() + 12.0, 8.0), vec2(200.0, 24.0))));
     child.add_enabled_ui(!ids.is_empty(), |ui| {
-        if widgets::star_toggle(ui, &t, "bottom.star", on).clicked() {
+        if widgets::star_toggle(ui, &t, "button:star", on).clicked() {
             let _ = app.run("photo.star.toggle", &json!({ "ids": ids }));
         }
     });

@@ -63,10 +63,10 @@ fn click_a_thumbnail_press_ctrl_8_and_the_badge_shows() {
     d.settle(FRAMES).unwrap();
 
     // File ▸ Add Folder…, answered by the scripted picker; the scan runs on the engine's threads.
-    d.click("menu.file").unwrap();
-    d.click("menu.file.addFolder").unwrap();
+    d.click("menu:File").unwrap();
+    d.click("menuitem:folders.add").unwrap();
     d.settle(FRAMES).unwrap();
-    let thumbs: Vec<String> = d.widgets().into_iter().map(|w| w.id).filter(|id| id.starts_with("thumb:") && !id.ends_with(".star")).collect();
+    let thumbs: Vec<String> = d.widgets().into_iter().map(|w| w.id).filter(|id| id.starts_with("thumb:") && !id.ends_with("/star")).collect();
     assert_eq!(thumbs.len(), 12, "{thumbs:?}");
     let opened = started.elapsed();
 
@@ -83,11 +83,11 @@ fn click_a_thumbnail_press_ctrl_8_and_the_badge_shows() {
     assert!(library.photo(id).unwrap().star, "the photo is starred in the engine");
     assert_eq!(library.photos().filter(|p| p.star).count(), 1);
     let widgets = d.widgets();
-    let badge = widgets.iter().find(|w| w.id == format!("{target}.star")).expect("the star badge is registered");
+    let badge = widgets.iter().find(|w| w.id == format!("{target}/star")).expect("the star badge is registered");
     let cell = widgets.iter().find(|w| &w.id == target).unwrap();
     let inside = |r: [f32; 4], o: [f32; 4]| r[0] >= o[0] && r[1] >= o[1] && r[0] + r[2] <= o[0] + o[2] && r[1] + r[3] <= o[1] + o[3];
     assert!(inside(badge.rect, cell.rect), "badge {:?} inside cell {:?}", badge.rect, cell.rect);
-    assert_eq!(widgets.iter().filter(|w| w.id.starts_with("thumb:") && w.id.ends_with(".star")).count(), 1);
+    assert_eq!(widgets.iter().filter(|w| w.id.starts_with("thumb:") && w.id.ends_with("/star")).count(), 1);
 
     // The screenshot shows it: a light star glyph in the middle of the badge's dark plate.
     let shot = d.screenshot().unwrap();
@@ -121,14 +121,14 @@ fn the_star_button_toggles_the_selection() {
     let refused_before = dalica_fs::guard::refused();
     let mut d = Driver::new(App::new(Some(session)), 900, 600, 1.0);
     d.settle(FRAMES).unwrap();
-    assert!(matches!(d.click("bottom.star"), Err(dalica_ui::DriverError::Disabled(_))));
+    assert!(matches!(d.click("button:star"), Err(dalica_ui::DriverError::Disabled(_))));
     let first = d.widgets().into_iter().find(|w| w.id.starts_with("thumb:")).unwrap();
     d.click(&first.id).unwrap();
-    d.click("bottom.star").unwrap();
-    assert!(d.widgets().iter().any(|w| w.id == format!("{}.star", first.id)));
-    assert!(d.widgets().iter().any(|w| w.id == "bottom.star" && w.active));
-    d.click("bottom.star").unwrap();
-    assert!(!d.widgets().iter().any(|w| w.id.ends_with(".star") && w.id.starts_with("thumb:")));
+    d.click("button:star").unwrap();
+    assert!(d.widgets().iter().any(|w| w.id == format!("{}/star", first.id)));
+    assert!(d.widgets().iter().any(|w| w.id == "button:star" && w.active));
+    d.click("button:star").unwrap();
+    assert!(!d.widgets().iter().any(|w| w.id.ends_with("/star") && w.id.starts_with("thumb:")));
     // Ctrl+8 with nothing selected is refused with a reason on the status line, not a crash.
     d.run("select.none", &serde_json::json!({})).unwrap();
     d.key("Ctrl+8").unwrap();
