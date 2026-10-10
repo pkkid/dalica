@@ -651,6 +651,13 @@ icons, menus, keys, layout skeleton) shows the maintainer the look early; the pa
 listed after it wait until the maintainer closes it.
 First fingerprints of new widgets and icons are approved on their PRs.
 
+Whole-window baselines belong to no task: `crates/ui/tests/fingerprints/library-*.json` and the
+finished milestones' `tests/acceptance/fingerprints/m1-*.json` and `m2-*.json` change whenever the
+window does. A task whose change moves them re-blesses them on its branch (diff images on the PR,
+the reason in the commit body), they never count as a `files` overlap, and on a rebase conflict the
+worker re-blesses after the rebase instead of merging the JSON by hand. The maintainer approves them
+with the rest at the next review.
+
 - ⬜ **M3.1 `ui-kit`: the full widget set**
   - after: M2.1, M2.2
   - files: `crates/ui-kit/src/theme.rs`, `crates/ui-kit/src/widgets.rs`, `crates/ui-kit/src/widgets/**`, `crates/ui-kit/tests/**`, `docs/design-system.md`
@@ -676,12 +683,14 @@ First fingerprints of new widgets and icons are approved on their PRs.
     fingerprint; `cargo xtask assets` passes.
 - ⬜ **M3.3 `ui`: menu model, menu catalog and menus that never run off the window**
   - after: M2.1, M2.2
-  - files: `crates/ui/src/menu_catalog.rs`, `crates/ui/src/menus.rs`, `crates/ui/src/app.rs`, `crates/ui/src/control/menu.rs`, `crates/ui/tests/menus.rs`
+  - files: `crates/ui/src/menu_catalog.rs`, `crates/ui/src/menus.rs`, `crates/ui/src/app.rs`, `crates/ui/src/control/menu.rs`, `crates/ui/src/control/mod.rs`, `crates/ui/tests/menus.rs`
   - scope: the complete menu tree of `menus-and-shortcuts.md` §1 as data (`menu_catalog.rs`): label,
     command id, shortcut shown, separators, submenus; items whose id has a registered command are
     live, the rest drawn disabled; `UI_COMMANDS` move from `app.rs` to `menus.rs`; in-window menus,
     submenus and context menus bounded by the window and scrolling when too tall
-    (`design-system.md` §11.2); `ui.menu.tree` and `ui.menu.invoke` (control-protocol §6.10).
+    (`design-system.md` §11.2); `ui.menu.tree` and `ui.menu.invoke` (control-protocol §6.10), moved
+    from `later(…)` to live methods in `control/mod.rs`; the `later` notes of `ui.dialog.confirm` /
+    `ui.dialog.cancel` say M5 (the Folder Manager is the first in-app dialog), not M3.
   - done when: a test walks `ui.menu.tree` and finds every item of §1 in order; a headless snapshot
     at 900 × 600 shows the longest menu scrolling inside the window; invoking a disabled item is
     `disabled`, an unknown path `not_found`.
@@ -704,6 +713,14 @@ First fingerprints of new widgets and icons are approved on their PRs.
     (tree width, pane, thumb size, full screen).
   - done when: `crates/ui/tests/layout.rs` reads every region's rect from the widget registry at
     1400 × 900 and 900 × 600 and matches §2.
+- ⬜ **M3.12 Lead: task blocks for M5**
+  - after: M2.9
+  - owner: lead
+  - files: `docs/roadmap.md`
+  - scope: write every M5 task block from M5's section and the spec, with waves and the `M5.R`
+    review (owner: maintainer).
+  - done when: `cargo xtask tasks sync --check` parses them and `tasks sync --dry-run` lists one new
+    issue per block.
 - ⬜ **M3.A Checkpoint A check-in**
   - after: M3.1, M3.2, M3.3, M3.4, M3.5
   - owner: maintainer
@@ -715,12 +732,15 @@ First fingerprints of new widgets and icons are approved on their PRs.
   - done when: prepared: page published, PR open, both linked on the issue.
 - ⬜ **M3.6 `ui` + `dalica`: title bar, window frame and window state**
   - after: M3.1, M3.2, M3.3, M3.4, M3.5
-  - files: `crates/ui/src/titlebar.rs`, `crates/ui/src/panels/menubar.rs`, `apps/dalica/src/**`, `apps/dalica/Cargo.toml`, `crates/engine/src/settings.rs`
+  - files: `crates/ui/src/titlebar.rs`, `crates/ui/src/panels/menubar.rs`, `apps/dalica/src/**`, `apps/dalica/Cargo.toml`, `crates/engine/src/settings.rs`, `tests/acceptance/m2.md`
   - scope: `design-system.md` §11.1: the menu row is the title bar on Windows and Linux (app mark,
     menus, centred title, caption buttons 46 × 24, drag, double-click maximize, 5 pt resize edges,
     Close runs File → Exit); the "Use system title bar" setting; macOS keeps native traffic lights
     and gets the system menu bar from the same menu model through `muda` (a macOS-only dependency;
-    `cargo xtask deps`); window position, size, maximized state and tree width persisted.
+    `cargo xtask deps`); window position, size, maximized state and tree width persisted;
+    `ui.screenshot` of a minimised or covered window: `tests/acceptance/m2.md` promises a CPU-drawn
+    image (`headless: true`) while M2.4 answers `timeout` after 2 s; make them agree (draw it, as the
+    spec's `headless` fallback says, or correct `m2.md`) with a test.
   - done when: headless snapshots of the title bar at both sizes; the menu model and the macOS menu
     list the same items (test); window state survives a restart (test through settings).
 - ⬜ **M3.7 `ui`: the toolbar**
@@ -733,14 +753,16 @@ First fingerprints of new widgets and icons are approved on their PRs.
     hides below 1100 wide.
 - ⬜ **M3.8 `ui`: tree pane, splitter, status line and side-pane frame**
   - after: M3.1, M3.2, M3.3, M3.4, M3.5
-  - files: `crates/ui/src/panels/folders.rs`, `crates/ui/src/panels/status.rs`, `crates/ui/src/panels/side_pane.rs`, `crates/ui/tests/tree_status_pane.rs`
+  - files: `crates/ui/src/panels/folders.rs`, `crates/ui/src/panels/status.rs`, `crates/ui/src/panels/side_pane.rs`, `crates/ui/src/state.rs`, `crates/ui/src/control/view.rs`, `crates/ui/tests/tree_status_pane.rs`
   - scope: the tree pane frame with the Folders group header (30) and rows (24), resizable through
     the splitter (200 … W − 480, persisted); the status line texts of `ui-layout.md` §6.1; the
     side-pane frame of §7 (header with «, title, ×; 280 or large; pushes the light table, closes
-    itself below 480; open state persisted); pane contents stay empty until their milestones.
+    itself below 480; open state persisted); pane contents stay empty until their milestones;
+    `ui.state` reports the status line's text in `status` (M2.8 found it empty while the line showed
+    "1 of 60 pictures selected").
   - done when: a test drags the splitter by id and the tree width follows within its limits and
-    survives a restart; status-line texts for no selection, one photo and a folder; the pane opens,
-    widens and closes by id.
+    survives a restart; status-line texts for no selection, one photo and a folder, and `ui.state`
+    reports the same text; the pane opens, widens and closes by id.
 - ⬜ **M3.9 `ui`: the bottom area**
   - after: M3.1, M3.2, M3.3, M3.4, M3.5
   - files: `crates/ui/src/panels/bottom.rs`, `crates/ui/tests/bottom.rs`
@@ -765,14 +787,6 @@ First fingerprints of new widgets and icons are approved on their PRs.
     fingerprints, every menu item of `menus-and-shortcuts.md` §1 present in order; the manual check
     (open the app at both sizes and compare with the docs) written down.
   - done when: `cargo xtask accept M3` passes everything in M3's *Done when*.
-- ⬜ **M3.12 Lead: task blocks for M5**
-  - after: M2.9
-  - owner: lead
-  - files: `docs/roadmap.md`
-  - scope: write every M5 task block from M5's section and the spec, with waves and the `M5.R`
-    review (owner: maintainer).
-  - done when: `cargo xtask tasks sync --check` parses them and `tasks sync --dry-run` lists one new
-    issue per block.
 - ⬜ **M3.R Check-in**
   - after: M3.11
   - owner: maintainer
@@ -786,7 +800,7 @@ First fingerprints of new widgets and icons are approved on their PRs.
 Waves (inside a wave, "‖" separates tasks whose `files` do not overlap):
 
 ```text
-wave 1   M3.1 widgets  ‖  M3.2 icons  ‖  M3.3 menus  ‖  M3.5 layout skeleton
+wave 1   M3.1 widgets  ‖  M3.2 icons  ‖  M3.3 menus  ‖  M3.5 layout skeleton  ‖  M3.12 lead (M5 blocks)
 wave 2   M3.4 keys (after M3.3) → M3.A checkpoint
 wave 3   M3.6 title bar + window  ‖  M3.7 toolbar  ‖  M3.8 tree, status, side pane  ‖  M3.9 bottom area
 wave 4   M3.10 responsiveness + F11
