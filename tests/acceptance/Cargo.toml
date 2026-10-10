@@ -39,3 +39,7 @@ path = "m1.rs"
 [[test]]
 name = "m1_headless"
 path = "m1_headless.rs"
+
+[[test]]
+name = "m2"
+path = "m2.rs"

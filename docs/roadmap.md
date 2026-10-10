@@ -589,7 +589,7 @@ wave 5   M1.17 → M1.18 ui, app → M1.19 acceptance → M1.R milestone review
     PR (a `baseline-approved` label the lead checks before `merge`); `tasks prune` removes
     `incremental/` from idle agents' target dirs.
   - done when: tests with the fake board cover all three; a dry run on the real board.
-- ⬜ **M2.8 `accept M2`**
+- ✅ **M2.8 `accept M2`**
   - after: M2.4, M2.5, M2.6
   - files: `tests/acceptance/m2.rs`, `tests/acceptance/m2.md`, `tests/acceptance/fingerprints/m2-*.json`
   - scope: M2's *Done when*: a control session against a headless instance (auth, click a
