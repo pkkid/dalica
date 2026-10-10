@@ -1,0 +1,10 @@
+# Private research notes — never committed (see AGENTS.md)
+/notes/
+
+# Rust build output
+/target
+/target-*/
+
+# Editor / OS cruft
+*~
+.DS_Store

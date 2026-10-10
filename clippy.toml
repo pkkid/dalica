@@ -1,0 +1,6 @@
+# Tests may unwrap, expect, panic and index; production code may not (see AGENTS.md "Never crash").
+# Same file as LightCraft and PhotoCraft.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+allow-indexing-slicing-in-tests = true

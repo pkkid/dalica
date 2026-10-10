@@ -1,0 +1,57 @@
+Dalica
+Copyright (c) 2026 the Dalica contributors.
+Dalica is intended to be licensed under the MIT License or the Apache License, Version 2.0, at
+your option (LICENSE-MIT, LICENSE-APACHE). Until those files are added, the licence is a reserved
+maintainer decision (docs/roadmap.md, Reserved decisions).
+
+Material adapted from LightCraft and PhotoCraft
+
+Dalica follows the architecture, design tokens, widgets and agent-driven development process of
+LightCraft (https://github.com/storytold/lightcraft) and PhotoCraft
+(https://github.com/storytold/photocraft), Copyright (c) 2026 ArtCraft Team and the LightCraft
+contributors / the PhotoCraft contributors, licensed under the MIT License or the Apache License,
+Version 2.0. Source revisions used: LightCraft 88ea1a8, PhotoCraft 59684266.
+
+Documentation adapted from them (each file names its sources in its first lines):
+
+  docs/assets.md
+  docs/contributing.md
+  docs/contributors.md
+  docs/control-protocol.md
+  docs/faces.md
+  docs/formats.md
+  docs/localization.md
+  docs/mcp.md
+  docs/releasing.md
+  docs/security.md
+  docs/showcase.md
+  docs/standards/never-crash.md
+  docs/whats-new.md
+  docs/xmp-interop.md
+  SECURITY.md
+  contributors/people.toml (template header)
+
+Documentation with individual adapted sections (each section names its source):
+
+  AGENTS.md (rules adapted from the Craft apps' AGENTS.md: never crash, assets, parallel agents,
+            contributor credits, look-at-what-you-built)
+  docs/design-system.md
+  docs/development.md
+
+Configuration copied from them unchanged or nearly so:
+
+  clippy.toml, rustfmt.toml, .cargo/config.toml
+
+No ArtCraft name, wordmark or logo is included; those are trademarks of the ArtCraft Team and are
+not covered by the licences above.
+
+Reused code
+
+None yet. Every file vendored from, or crate depended on from, LightCraft or PhotoCraft will be
+listed here with its source path and revision, and each vendored file keeps a header comment naming
+its origin (docs/architecture.md, section 9).
+
+Third-party material
+
+None bundled yet. Every asset (image, icon, font, sound, data file) will be listed here by family
+and per file, with author, source and licence, in ATTRIBUTION.md (rules in docs/assets.md).

@@ -1,0 +1,161 @@
+# Viewing: slideshow, quick preview, photo viewer, video
+
+Behaviour spec for every way of *looking at* photos outside the light table. The edit view (with its
+zoom and compare modes) is in [`editing.md`](editing.md).
+
+| Surface | Entry | Exit |
+|---|---|---|
+| Slideshow | section header ▶, edit-view ▶ Play, View → Slideshow (Ctrl+4), photo viewer ▶ | Esc, Exit button |
+| Quick full-screen preview | hold **Ctrl+Alt** while hovering a thumbnail (or in the edit view) | release |
+| Photo viewer (standalone) | opening an image file from the OS file manager when Dalica is the default viewer; `dalica --view <file>` | Esc, × |
+| Video player | double-click a video | Back to Library |
+| Whole-window full screen | F11 | F11 |
+
+## 1. Slideshow
+
+### 1.1 What plays
+
+- The section's folder/album, starting at the selected photo if one is selected in it (else the
+  first). From the edit view: the current folder/album starting at the current photo. From a search:
+  the results. Videos are included and play to the end before advancing (muted unless "Play video
+  sound in slideshows" is on).
+- Order = the section's display order.
+
+### 1.2 Presentation
+
+- Full screen, pure black background, photo fitted (never upscaled beyond 2× of its pixel size),
+  centred. Rendered at screen resolution (always full quality).
+- The next photo is decoded ahead of time; a transition never waits on the disk.
+- Captions (when the caption toggle is on): the photo's caption centred near the bottom, 22 pt
+  Inter on a `black α160` rounded plate, max 70 % of the screen width, wrapping to 2 lines.
+- Starts **playing**; the control bar is visible for 2 s at start, then hides. Moving the mouse or
+  pressing Space shows the bar; **showing the bar by mouse does not pause**; Space toggles
+  pause/resume. (The reference's versions disagreed here; this is our decision.)
+- End of show: without Loop, the last photo stays and the bar appears with Play enabled (Play
+  restarts from the beginning); with Loop, it wraps around.
+
+### 1.3 Control bar
+
+A rounded translucent dark panel (`black α170`, radius 10) centred along the bottom, auto-hiding
+after 2.5 s without mouse movement. Left → right:
+
+```text
+╭──────────────────────────────────────────────────────────────────────────────────────────────╮
+│ [⇦ Exit] [🔍]○━━━━━━  [↺][↻]   ⇦   (▶/❚❚)   ⇨   [★]   [Dissolve     ▴]  [▭ ☑]   Display time  │
+│                                                                                  [−] 3 s [+] │
+╰──────────────────────────────────────────────────────────────────────────────────────────────╯
+```
+
+| # | Control | Behaviour |
+|---|---|---|
+| 1 | **Exit** | ends the show (Esc) and returns to where it started, with the last shown photo selected |
+| 2 | **Zoom** (magnifier + slider) | zooms the current photo (pauses while zoomed; drag to pan) |
+| 3–4 | **Rotate left / right** | rotates the photo (the same non-destructive rotation as in the library) |
+| 5 | **Previous** | disabled on the first photo when Loop is off |
+| 6 | **Play / Pause** | toggle |
+| 7 | **Next** | |
+| 8 | **Star** | toggles the star on the current photo |
+| 9 | **Transition** (drop-up list) | **Cut**, **Pan and Zoom**, **Dissolve** (default), **Wipe**, **Circle**, **Push**, **Rectangle** |
+| 10 | **Captions** toggle | caption icon + checkbox |
+| 11 | **Display time** | `[−] 3 seconds [+]`, 1–60 s in 1 s steps (default 3) |
+
+Transition, display time and caption settings persist (Options → Slideshow mirrors them).
+Transitions last 0.8 s (Pan and Zoom spans the whole display time: a slow 5–10 % zoom/pan toward a
+detected face or the centre).
+
+### 1.4 Keys and mouse
+
+| Input | Action |
+|---|---|
+| Esc | exit |
+| Space | pause / resume (and show the bar) |
+| → / ↓ / PgDn | next |
+| ← / ↑ / PgUp | previous |
+| Home / End | first / last |
+| Ctrl+R / Ctrl+Shift+R | rotate |
+| Ctrl+8 | star |
+| + / − | zoom in / out |
+| Mouse move | show the bar |
+| Wheel | previous / next |
+| Click | next (only when the bar is hidden) |
+
+### 1.5 Options → Slideshow
+
+**Loop slideshow** (off) · **Play music during slideshows** (off) + music folder [Browse…] (every
+MP3/OGG/FLAC/WAV in the folder plays in name order, looping) · **Display time** · **Transition** ·
+**Show captions** (on) · **Play video sound** (off). A folder's own music (Folder Properties →
+Music) overrides the global music folder.
+
+## 2. Quick full-screen preview (Ctrl+Alt)
+
+Hover a thumbnail and hold **Ctrl+Alt** (macOS: Cmd+Option): the photo fills the screen on black
+immediately (from the best cached preview, refined in place). While held, the **mouse wheel** steps
+through the neighbouring photos of the section. Releasing returns to the light table, with the last
+shown photo focused. Works on the current photo in the edit view too. No controls are shown.
+
+## 3. Photo viewer (standalone)
+
+A lightweight mode of the same binary for viewing image files from the file manager, without the
+library window. Dalica offers to register as the default viewer for chosen file types during first
+run (opt-in, per type) and in Options → Photo Viewer.
+
+### 3.1 Look
+
+```text
+                                       (desktop / dark overlay)                         close ✕
+                     ┌────────────────────────────────────────────────┐
+                     │                                                │
+                     │                    PHOTO                       │
+                     │                                                │
+                     └────────────────────────────────────────────────┘
+                               IMG_0151.jpg (3008 × 2000)
+══════════════════════════════════════════════════════════════════════════════════════════════
+  [th][th][th][th][th][th]                 ╭───╮                 [th][th][th][th][th][th]      ← filmstrip
+        [+][−][1:1]   [Open in Dalica]     │ ▶ │    [↺][↻]   [★]   [⋯]
+══════════════════════════════════════════╰───╯═══════════════════════════════════════════════
+```
+
+- A borderless full-screen window drawn over a dark translucent overlay (`black α210`; fully
+  opaque `#000` where the platform cannot do translucent windows, e.g. some Wayland compositors).
+  Space toggles translucent ↔ opaque background.
+- The photo is fitted above the bottom strip. Above the strip: "filename (W × H)" in white SemiBold.
+- **Filmstrip**: a dark band across the full width with thumbnails of the other images in the same
+  folder, centred on the current one (others dimmed); click to jump.
+- **Control bar** over the strip: zoom in **+**, zoom out **−**, **1:1**, **Open in Dalica** (opens
+  the photo in the main window's edit view), a large round **Play** (slideshow of the folder),
+  rotate left/right, **star**, **⋯** More (Open With ▸, Show in File Manager, Settings…). "close ✕" at the top-right. Controls auto-hide after 3 s of no mouse movement.
+- Shows Dalica edits (from the folder sidecar) when present.
+
+### 3.2 Keys and mouse
+
+| Input | Action |
+|---|---|
+| ← / → , J / K | previous / next image in the folder |
+| Wheel | zoom (default; Ctrl+wheel navigates) — or navigate (Ctrl+wheel zooms), per Settings |
+| + / −, PgUp / PgDn | zoom in / out |
+| 1 | toggle 100 % |
+| drag | pan when zoomed |
+| Ctrl+R / Ctrl+Shift+R | rotate |
+| 8, Ctrl+8 | star |
+| E | open in Dalica |
+| Space | toggle background |
+| Delete | move to trash (confirmation) |
+| Esc, click on the overlay outside the photo | close |
+
+### 3.3 Settings (⋯ → Settings…, Options → Photo Viewer)
+
+Tabs: **File Types** — radio "Use Dalica as the default viewer for these file types:" with a
+checkbox per type showing the current handler ("JPEG (Image Viewer)"), [Current] [Select All]
+[Select None]; radio "Don't use Dalica as a viewer". **Interface** — "Mouse wheel zooms (hold Ctrl
+to navigate)" / "Mouse wheel moves through photos (hold Ctrl to zoom)", "Hide controls
+automatically", "Translucent background". [OK] [Cancel].
+
+## 4. Video player (in the edit view)
+
+See [`editing.md`](editing.md) §11 for the panel and trim controls. Playback: play/pause, scrubber
+with time readout "00:00:09 / 00:00:41 (trimmed to 00:00:21)", volume, full screen; keys **/** or
+Space play/pause, **,** / **.** frame step (hold to rewind / fast-forward). Unsupported codecs show
+the poster frame with "This video can't be played" and [Open With ▸].
+
+Library: videos show their first non-black frame as the thumbnail with the film-sprocket edge and
+the duration pill; the **Videos** filter shows only videos.
