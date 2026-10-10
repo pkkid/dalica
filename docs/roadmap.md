@@ -495,7 +495,7 @@ their PNGs to the maintainer, who approves them before they merge (M1.A decision
     `m1_headless.rs` and adding the snapshot; the manual check written down; metrics in the dev log
     (the lead copies them to `status.md`).
   - done when: `cargo xtask accept M1` passes everything in M1's *Done when*.
-- ⬜ **M1.R Milestone review**
+- ✅ **M1.R Milestone review**
   - after: M1.19
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`

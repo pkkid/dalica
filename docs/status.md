@@ -9,8 +9,9 @@ and git.
 
 - **Milestone:** M1, star a photo end to end, is done: every task is merged and
   `cargo xtask accept M1` passes; the maintainer's manual check passed and the M1.R review was
-  confirmed on 2026-10-10 (all decisions; dev log). M1.R closes when the maintainer closes #32;
-  M2 (agent eyes, task blocks in `roadmap.md`) is next, the first milestone for parallel agents.
+  confirmed on 2026-10-10 (all decisions; dev log). The maintainer closed #32 (M1.R)
+  on 2026-10-10. Next: M2 (agent eyes, task blocks in `roadmap.md`), the first milestone for
+  parallel agents.
 - **Gates:** `cargo xtask ci` runs fmt, clippy, tests, `layers`, `deps`, `assets`, `names`, `parity`,
   `docs` and the roadmap parse; `cargo xtask accept M0` shows 6/6 gates bite. Layer rule 4 now scans
   code after a test module (it used to stop at the first `#[cfg(test)]`).
