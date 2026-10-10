@@ -29,7 +29,8 @@ Nothing else counts: a ✅ on an unmerged branch, a closed issue without a merge
 - **Issues:** one per task block, titled `M1.4 scenes` (id + the block's title). The body holds a
   generated section between `<!-- dalica:task -->` markers (after, owner, files, scope, done when,
   a link to the roadmap block); `sync` rewrites only that section, so humans may add notes below
-  it. Review gates (`M1.A`, `M1.R`) are issues too, assigned to the maintainer.
+  it. `sync` also keeps the project's item order equal to `roadmap.md` order, so the board reads
+  top to bottom in build order. Review gates (`M1.A`, `M1.R`) are issues too, assigned to the maintainer.
 - **Labels:** `task` (every task issue), `gate` (review gates), `needs-maintainer` (an agent is
   blocked on a question), `stale` (claimed but idle, set by `status`).
 - **Project fields** (project 3, "Dalica"):
@@ -60,6 +61,10 @@ public repository and the project).
 - **Checkbox:** ⬜ or ✅ only. Live progress is on the board, not in this file.
 - **after:** comma-separated ids, or `—`. A milestone's first tasks list the previous milestone's
   review gate, so nothing starts before the maintainer has reviewed.
+- **Order:** the order of blocks in `roadmap.md` is the order work is picked up, and it must be a
+  valid build order: every id in `after` appears earlier in the file (the parser fails
+  otherwise). Ids are names, not positions: M0.10 sits right after M0.2 and is picked up before
+  M0.3. To reprioritise, move blocks in `roadmap.md` (the lead, at a review); never renumber.
 - **files:** comma-separated backticked paths or globs the task may create or change (shared docs
   such as `roadmap.md`, `parity.md` and `devlog` entries are exempt). Two tasks whose `files`
   overlap are never in progress at the same time. If a task turns out to need a file outside its
@@ -92,7 +97,7 @@ Todo ──(deps done)──► Ready ──claim──► In Progress ──sub
 |---|---|
 | `setup` | create milestones, labels, Status options and fields (idempotent; maintainer approves) |
 | `sync [--check]` | parse `roadmap.md`, create or update issues and project items, move Todo ↔ Ready, close nothing that isn't merged; `--check` only parses (offline, used by `ci`) |
-| `next [--agent <name>]` | list Ready tasks this agent may take: dependencies done, files not overlapping any In Progress or In Review task, milestone not behind an open gate. Prints the best first (lowest wave, then id) |
+| `next [--agent <name>]` | list Ready tasks this agent may take: dependencies done, files not overlapping any In Progress or In Review task, milestone not behind an open gate. Prints them in `roadmap.md` order, so the first line is the one to claim |
 | `claim <id> --agent <name>` | under the claim lock, re-read the board, refuse if no longer Ready or overlapping, then set In Progress + Agent + Branch, comment "claimed by agent-3 on task/M1.4-scenes", create or reuse the agent's worktree and branch from `origin/main`, and print the agent's environment |
 | `env <name>` | print the agent's environment (`eval "$(cargo xtask tasks env agent-3)"`) |
 | `submit <id>` | refuse unless `cargo xtask ci` passed on this commit and a devlog entry exists; push the branch; open the PR (title `M1.4: <title>`, body: what changed, evidence for each *done when*, numbers, screenshots, `Closes #<issue>`); set In Review |
