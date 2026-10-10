@@ -44,7 +44,7 @@ fn main() -> ExitCode {
         }
         None => {}
     }
-    logging::init();
+    let _log = logging::init();
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_title("Dalica").with_inner_size(WINDOW_SIZE).with_min_inner_size(MIN_WINDOW_SIZE),
         ..Default::default()

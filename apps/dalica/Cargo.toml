@@ -10,8 +10,13 @@ authors.workspace = true
 publish = false
 
 [dependencies]
+dalica-core.workspace = true
+dalica-fs.workspace = true
 dalica-ui-kit.workspace = true
 eframe.workspace = true
 egui.workspace = true
 log.workspace = true
 wgpu.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

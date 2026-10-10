@@ -300,7 +300,7 @@ built. Built by a single agent; the waves show what could run in parallel later.
   - done when: a second process (spawned test helper) gets `Err(Locked)` while the first holds
     the lock and succeeds after it exits; a symlink loop and a 40-deep tree end with a bounded
     result and a warning, not a hang; names with `]`, `"`, `;`, `=` and non-ASCII are listed.
-- ⬜ **M1.20 App log file**
+- ✅ **M1.20 App log file**
   - after: M1.2
   - files: `apps/dalica/src/logging.rs`, `apps/dalica/Cargo.toml`
   - scope: the desktop app's log of `development.md` §10 written through `fs::append`:
