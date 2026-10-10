@@ -8,7 +8,7 @@ use super::body;
 use super::config::{LABEL_BLOCKED, LABEL_GATE, LABEL_STALE, LABEL_TASK, LABELS, MAINTAINER, STALE_SECS};
 use super::devlog;
 use super::git::{Clock, Git};
-use super::github::{GitHub, Issue, IssueEdit, Item, NewIssue, Status, TextField};
+use super::github::{ALREADY_IN_PROJECT, GitHub, Issue, IssueEdit, Item, NewIssue, Status, TextField};
 use super::glob::lists_overlap;
 use super::roadmap::{Owner, Roadmap, Task};
 
@@ -188,9 +188,20 @@ impl Board<'_> {
             let item = match snap.item(issue.number).cloned() {
                 Some(item) => item,
                 None => {
-                    let id = self.gh.add_item(issue.number)?;
-                    report.changes.push(format!("#{} {}: added to the project", issue.number, task.id));
-                    let item = Item { id, issue: issue.number, status: None, agent: String::new(), branch: String::new() };
+                    let item = match self.gh.add_item(issue.number) {
+                        Ok(id) => {
+                            report.changes.push(format!("#{} {}: added to the project", issue.number, task.id));
+                            Item { id, issue: issue.number, status: None, agent: String::new(), branch: String::new() }
+                        }
+                        // The project's auto-add workflow put a new issue on the board when it was created.
+                        Err(e) if e.contains(ALREADY_IN_PROJECT) => self
+                            .gh
+                            .items()?
+                            .into_iter()
+                            .find(|i| i.issue == issue.number)
+                            .ok_or_else(|| format!("{e}, but issue #{} is not in the project's item list", issue.number))?,
+                        Err(e) => return Err(e),
+                    };
                     snap.items.push(item.clone());
                     item
                 }

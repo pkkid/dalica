@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, PoisonError};
 
 use super::git::{Clock, Git};
-use super::github::{GitHub, Issue, IssueEdit, Item, MilestoneInfo, NewIssue, ProjectFields, PullRequest, Status, TextField};
+use super::github::{ALREADY_IN_PROJECT, GitHub, Issue, IssueEdit, Item, MilestoneInfo, NewIssue, ProjectFields, PullRequest, Status, TextField};
 
 #[derive(Default)]
 pub struct State {
@@ -19,6 +19,8 @@ pub struct State {
     pub fields: ProjectFields,
     pub prs: Vec<(String, PullRequest)>,
     pub merged_prs: Vec<(u64, String)>,
+    /// The project's auto-add workflow: a created issue lands on the board at once.
+    pub auto_add: bool,
 }
 
 #[derive(Default)]
@@ -81,6 +83,9 @@ impl GitHub for FakeGitHub {
             assignees: issue.assignee.clone().into_iter().collect(),
             milestone: issue.milestone.clone(),
         });
+        if s.auto_add {
+            s.items.push(Item { id: format!("AUTO_{number}"), issue: number, status: None, agent: String::new(), branch: String::new() });
+        }
         Ok(number)
     }
 
@@ -131,6 +136,9 @@ impl GitHub for FakeGitHub {
     fn add_item(&self, issue: u64) -> Result<String, String> {
         self.bump();
         let mut s = self.lock();
+        if s.items.iter().any(|i| i.issue == issue) {
+            return Err(format!("GraphQL: {ALREADY_IN_PROJECT} (addProjectV2ItemById)"));
+        }
         let id = format!("ITEM_{issue}");
         s.items.push(Item { id: id.clone(), issue, status: None, agent: String::new(), branch: String::new() });
         Ok(id)

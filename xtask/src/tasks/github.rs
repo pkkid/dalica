@@ -122,6 +122,10 @@ pub struct PullRequest {
     pub url: String,
 }
 
+/// GitHub's error text when [`GitHub::add_item`] names an issue already on the project (the
+/// project's auto-add workflow adds new issues itself).
+pub const ALREADY_IN_PROJECT: &str = "Content already exists in this project";
+
 /// Every call is a single GitHub read or write. Errors are human-readable strings.
 pub trait GitHub: Send + Sync {
     /// Every issue of the repository, open and closed.

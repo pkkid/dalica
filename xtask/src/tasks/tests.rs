@@ -349,3 +349,23 @@ impl FakeGit {
         self.common_dir()
     }
 }
+
+#[test]
+fn sync_adopts_an_issue_the_project_auto_added() {
+    // The project's auto-add workflow puts each new issue on the board as it is created, so
+    // adding it again fails; sync uses the item that is already there.
+    let w = World::new(ROADMAP);
+    w.gh.lock().auto_add = true;
+    let report = w.board().sync().unwrap();
+    assert!(!report.changes.iter().any(|c| c.contains("added to the project")), "{:?}", report.changes);
+    let (items, issues) = {
+        let s = w.gh.lock();
+        (s.items.len(), s.issues.len())
+    };
+    assert_eq!(items, issues);
+    assert_eq!(w.status_of("M0.1"), Some(Status::Ready));
+    assert_eq!(w.status_of("M0.2"), Some(Status::Todo));
+    let before = w.gh.mutations();
+    assert!(w.board().sync().unwrap().changes.is_empty());
+    assert_eq!(w.gh.mutations(), before);
+}
