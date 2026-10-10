@@ -558,7 +558,7 @@ wave 5   M1.17 → M1.18 ui, app → M1.19 acceptance → M1.R milestone review
     is taken.
   - done when: a test starts `dalica --headless --control <port> --demo`, authenticates, stars a
     photo by `ui.clickWidget` + `ui.key`, and gets a screenshot.
-- ⬜ **M2.5 Control security tests**
+- ✅ **M2.5 Control security tests**
   - after: M2.4
   - files: `apps/dalica/tests/control_security.rs`
   - scope: wrong token, no `auth`, oversized line, non-JSON and HTTP request lines close the
