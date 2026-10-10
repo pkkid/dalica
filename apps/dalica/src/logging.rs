@@ -338,11 +338,34 @@ fn append_panics_file(path: &Path, bytes: &[u8]) {
 #[cfg(test)]
 mod tests {
     use std::process::Command;
+    use std::time::Instant;
 
     use super::*;
 
     fn read(p: &Path) -> String {
         std::fs::read_to_string(p).unwrap_or_default()
+    }
+
+    /// How long a test waits for the writer to put its queue on disk. The writer syncs every
+    /// record, so megabytes of writes can take longer than one flush waits ([`FLUSH_WAIT`]) on a
+    /// busy machine.
+    const FLUSHED_WITHIN: Duration = Duration::from_secs(30);
+
+    /// Asserts every line queued so far reaches the disk within [`FLUSHED_WITHIN`]: flushes again
+    /// while a flush gives up. The writer answers in queue order, so any flush's answer means
+    /// every line queued before it was written. Returns how long it took.
+    fn assert_flushed(log: &FileLog) -> Duration {
+        let started = Instant::now();
+        let mut tries = 0;
+        loop {
+            tries += 1;
+            if log.flush() {
+                return started.elapsed();
+            }
+            assert!(started.elapsed() < FLUSHED_WITHIN, "the log writer did not write its queue within {FLUSHED_WITHIN:?} ({tries} flushes gave up)");
+            // A writer that is gone fails a flush at once: do not spin.
+            std::thread::sleep(Duration::from_millis(10));
+        }
     }
 
     #[test]
@@ -352,7 +375,7 @@ mod tests {
         for run in 1..=4 {
             let log = FileLog::start(&logs).unwrap();
             log.write(line("INFO", "dalica", format!("run {run}")));
-            assert!(log.flush());
+            assert_flushed(&log);
             assert!(read(log.path()).contains(&format!("run {run}")));
         }
         assert!(read(&logs.join("dalica.log")).contains("run 4"));
@@ -372,7 +395,8 @@ mod tests {
             log.write(chunk.clone());
         }
         log.write("after the cap\n".into());
-        assert!(log.flush());
+        let took = assert_flushed(&log);
+        eprintln!("numbers: 20 records of 1 MiB capped and on disk {:.2} s after the last was queued", took.as_secs_f64());
         let len = std::fs::metadata(log.path()).unwrap().len();
         assert!(len <= LOG_CAP, "{len}");
         let text = read(log.path());
