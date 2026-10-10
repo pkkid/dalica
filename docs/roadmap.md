@@ -204,7 +204,7 @@ turns each into a GitHub issue. M0 is built by a single agent.
     `dalica-cli commands` (prints `[]`).
   - done when: `cargo test -p dalica-cli` checks `commands` prints `[]` and both `--version`
     outputs equal the workspace version; you run `cargo run -p dalica` and see the empty window.
-- ⬜ **M0.9 Docs match reality**
+- ✅ **M0.9 Docs match reality**
   - after: M0.5, M0.6, M0.7, M0.8, M0.10
   - files: `docs/development.md`, `docs/task-board.md`, `AGENTS.md`, `docs/status.md`, `xtask/src/docs.rs`
   - scope: a `ci` step checking every `cargo xtask …` command named in `AGENTS.md`,

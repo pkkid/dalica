@@ -7,9 +7,8 @@ and git.
 
 ## Current
 
-- **Milestone:** M0, skeleton and gates. Merged on `main`: M0.1–M0.6, M0.8, M0.10. M0.7 (CI on
-  three OSes) is waiting for its first run on GitHub (PR #33); M0.9 (docs match reality) is in
-  progress. Then the **M0.R** review gate (the maintainer's).
+- **Milestone:** M0, skeleton and gates. Every M0 task is merged on `main` (M0.1–M0.10); CI is
+  green on Linux, Windows and macOS. Waiting for the **M0.R** review gate (the maintainer's, #11).
 - **Gates:** `cargo xtask ci` runs fmt, clippy, tests, `layers`, `deps`, `assets`, `names`, `parity`,
   `docs` and the roadmap parse; `cargo xtask accept M0` shows 6/6 gates bite.
 - **Board:** `cargo xtask tasks` drives issues #1–#32 on project 3 (adopted 2026-10-09 with no
