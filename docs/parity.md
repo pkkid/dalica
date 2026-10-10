@@ -42,7 +42,7 @@ same commit.
 
 | Id | Feature | Tier | Status | Evidence / notes |
 |---|---|---|---|---|
-| LIB-REGIONS | Window regions and sizes per `ui-layout.md` §2 | P0 | ⬜ | ref 01 §2.1, 02 §2 |
+| LIB-REGIONS | Window regions and sizes per `ui-layout.md` §2 | P0 | 🟡 | every region at its §2 size, registered as `region:<name>`, resizable tree through the splitter: `crates/ui/src/panels/layout.rs`, `crates/ui/tests/layout.rs`; toolbar, side-pane and bottom-area contents, the §11 responsiveness rules and persistence missing; ref 01 §2.1, 02 §2 |
 | LIB-TREE-GROUPS | Tree groups Albums/People/Projects/Folders/Other/Hidden, collapsible, counts | P0 | ⬜ | ref 02 §6.2–6.3 |
 | LIB-TREE-FLAT | Flat folder view with year dividers (default) | P0 | ⬜ | |
 | LIB-TREE-TREE | Tree view, simplified tree | P1 | ⬜ | |

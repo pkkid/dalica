@@ -1,15 +1,21 @@
-//! The regions of the window (`ui-layout.md` §2), one module each. M1 has the plain library window:
-//! a menu bar, the folder list, the light table, the status line and the bottom bar.
+//! The regions of the window (`ui-layout.md` §2), one module each, so the tasks that fill them never
+//! share a file: the menu bar, the toolbar, the library tree (folders), the light table, the side
+//! pane, the status line and the bottom area. [`layout`] says where each one is; [`show`] gives
+//! each its rect and registers the regions.
 
 pub mod bottom;
 pub mod folders;
+pub mod layout;
 pub mod light_table;
 pub mod menubar;
+pub mod side_pane;
+pub mod status;
 pub mod thumbnails;
+pub mod toolbar;
 
 use std::sync::Arc;
 
-use egui::{Frame, Panel, Ui};
+use egui::{Rect, Ui, UiBuilder, vec2};
 
 use crate::app::App;
 use crate::picker::{Pending, Picker};
@@ -52,9 +58,20 @@ impl Panels {
     }
 }
 
-/// Lays out and paints every region.
+/// Runs `add` in a child of `ui` that fills `rect` (clipped to it), painted `fill` first. A region
+/// with no area is skipped.
+fn region(ui: &mut Ui, name: &'static str, rect: Rect, fill: egui::Color32, add: impl FnOnce(&mut Ui)) {
+    if !rect.is_positive() {
+        return;
+    }
+    let mut child = ui.new_child(UiBuilder::new().id_salt(("region", name)).max_rect(rect));
+    child.set_clip_rect(rect.intersect(ui.clip_rect()));
+    child.painter().rect_filled(rect, 0, fill);
+    add(&mut child);
+}
+
+/// Lays out and paints every region at the rects of [`layout::compute`], and registers them.
 pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
-    let t = *app.tokens();
     if p.ctx.is_none() {
         p.ctx = Some(ui.ctx().clone());
     }
@@ -65,10 +82,35 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
             let _ = app.run("folders.add", &serde_json::json!({ "path": path }));
         }
     }
-    let menubar_frame = Frame::new().fill(t.chrome).inner_margin(egui::Margin::symmetric(8, 0));
-    Panel::top("menubar").exact_size(menubar::HEIGHT).frame(menubar_frame).show(ui, |ui| menubar::show(p, app, ui));
-    Panel::bottom("bottom").exact_size(bottom::HEIGHT).frame(Frame::new().fill(t.chrome)).show(ui, |ui| bottom::show(app, ui));
-    Panel::bottom("status").exact_size(bottom::STATUS_HEIGHT).frame(Frame::new().fill(t.chrome)).show(ui, |ui| bottom::status(p, app, ui));
-    Panel::left("folders").resizable(false).exact_size(folders::WIDTH).frame(Frame::new().fill(t.chrome)).show(ui, |ui| folders::show(p, app, ui));
-    egui::CentralPanel::default().frame(Frame::new().fill(t.grid_bg)).show(ui, |ui| light_table::show(p, app, ui));
+    // One central panel over the whole window, so egui counts every point as used (the pointer is
+    // over egui anywhere); the regions are laid out inside it at the layout's rects.
+    egui::CentralPanel::default().frame(egui::Frame::NONE).show(ui, |ui| regions(p, app, ui));
+}
+
+fn regions(p: &mut Panels, app: &mut App, ui: &mut Ui) {
+    let t = *app.tokens();
+    let l = layout::compute(ui.max_rect(), app.state());
+    l.register(ui.ctx());
+    region(ui, "menuBar", l.menu_bar, t.chrome, |ui| {
+        let mut inner = ui.new_child(UiBuilder::new().max_rect(ui.max_rect().shrink2(vec2(8.0, 0.0))));
+        menubar::show(p, app, &mut inner);
+    });
+    region(ui, "toolbar", l.toolbar, t.chrome, |ui| toolbar::show(app, ui));
+    region(ui, "tree", l.tree, t.chrome, |ui| folders::show(p, app, ui));
+    // A tree click asks to scroll to its folder's section; the offset depends on the light table's
+    // width, which the layout knows exactly (the tree pane only knows its own width).
+    if p.scroll_to.is_some()
+        && let Some(folder) = app.state().folder
+    {
+        p.scroll_to = light_table::offset_of(&p.sections, folder, l.light_table.union(l.scrollbar).width(), app.state().thumb_size);
+    }
+    layout::splitter(ui, &t, &l, app.state_mut());
+    // The light table's column includes its scroll bar: egui draws its bar there until the
+    // section-aware scroll bar of M4 takes the scroll-bar region.
+    region(ui, "lightTable", l.light_table.union(l.scrollbar), t.grid_bg, |ui| light_table::show(p, app, ui));
+    if let Some(rect) = l.side_pane {
+        region(ui, "sidePane", rect, t.chrome, |ui| side_pane::show(app, ui));
+    }
+    region(ui, "statusLine", l.status_line, t.chrome, |ui| status::show(p, app, ui));
+    region(ui, "bottom", l.bottom, t.chrome, |ui| bottom::show(app, ui));
 }
