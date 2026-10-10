@@ -22,7 +22,7 @@ same commit.
 <!-- parity:summary -->
 | Section | ✅ | 🟡 | ⬜ | 🚫 |
 |---|---:|---:|---:|---:|
-| A. Library view | 0 | 1 | 31 | 1 |
+| A. Library view | 0 | 2 | 30 | 1 |
 | B. Organizing | 0 | 1 | 41 | 0 |
 | C. Editing | 0 | 0 | 21 | 4 |
 | D. Viewing | 0 | 0 | 6 | 2 |
@@ -30,7 +30,7 @@ same commit.
 | F. Data | 1 | 2 | 3 | 0 |
 | G. Preferences and system | 0 | 2 | 9 | 0 |
 | H. Menus | 0 | 0 | 7 | 0 |
-| **All** | 1 | 6 | 120 | 16 |
+| **All** | 1 | 7 | 119 | 16 |
 <!-- /parity:summary -->
 
 ## Top gaps
