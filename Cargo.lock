@@ -910,6 +910,7 @@ dependencies = [
  "dalica-thumbs",
  "dalica-ui-kit",
  "egui",
+ "log",
  "serde",
  "serde_json",
  "tempfile",

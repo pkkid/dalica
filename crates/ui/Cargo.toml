@@ -17,6 +17,7 @@ dalica-library.workspace = true
 dalica-thumbs.workspace = true
 dalica-ui-kit.workspace = true
 egui.workspace = true
+log.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
