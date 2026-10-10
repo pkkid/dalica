@@ -50,6 +50,9 @@ pub use picker::{PickerKind, PickerRequest, StubPicker};
 
 /// The request line limit, newline included (§4).
 pub const MAX_REQUEST_LINE: usize = 1 << 20;
+/// How deep arrays and objects may nest in a request line, the request object itself included
+/// (`security.md` §6.5).
+pub const MAX_REQUEST_DEPTH: usize = 64;
 /// The reply line limit, newline included (§4).
 pub const MAX_REPLY_LINE: usize = 8 << 20;
 /// `ui.clickWidget` `count` (§4).
@@ -255,6 +258,9 @@ impl Request {
         if text.trim().is_empty() {
             return Ok(None);
         }
+        if nests_deeper_than(text.as_bytes(), MAX_REQUEST_DEPTH) {
+            return Err(parse(&format!("arrays and objects nest deeper than {MAX_REQUEST_DEPTH} levels")));
+        }
         let value: Value = serde_json::from_str(text).map_err(|_| parse("the line is not JSON"))?;
         Request::from_value(value).map(Some)
     }
@@ -269,6 +275,37 @@ impl Request {
         };
         Ok(Request { id: obj.remove("id").unwrap_or(Value::Null), method, params: obj.remove("params").unwrap_or(Value::Null) })
     }
+}
+
+/// Whether `[` and `{` nest deeper than `limit` outside strings (escapes honoured), in one linear
+/// pass with no recursion, stopping at the first level over. It runs before the parser, whose own
+/// limit is 128 and fixed; malformed JSON is left to the parser to refuse.
+fn nests_deeper_than(json: &[u8], limit: usize) -> bool {
+    let (mut depth, mut in_string, mut escaped) = (0usize, false, false);
+    for &b in json {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if b == b'\\' {
+                escaped = true;
+            } else if b == b'"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match b {
+            b'"' => in_string = true,
+            b'[' | b'{' => {
+                depth = depth.saturating_add(1);
+                if depth > limit {
+                    return true;
+                }
+            }
+            b']' | b'}' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+    false
 }
 
 /// What the app was started with that decides what automation may do (§1, §5.6, §5.7).
