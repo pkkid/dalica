@@ -81,10 +81,22 @@ impl Board<'_> {
         task.after.iter().all(|d| self.roadmap.task(d).is_some_and(|t| snap.done(t)))
     }
 
-    /// The lowest milestone with an open review gate the maintainer owns; tasks of later milestones
-    /// wait for it. A gate the lead owns (a check-in) blocks nothing.
-    fn open_gate_milestone(&self, snap: &Snapshot) -> Option<u32> {
-        self.roadmap.tasks.iter().filter(|t| t.is_gate() && t.owner == Owner::Maintainer && !snap.done(t)).map(|t| t.milestone).min()
+    /// The first open review task the maintainer owns that is listed before `task` in `roadmap.md`.
+    /// Every task after an open review waits until the maintainer closes its issue (or it is ✅),
+    /// whatever its milestone: a mid-milestone `M3.A` holds back `M3.6` and everything after it.
+    fn open_gate_before<'r>(&'r self, snap: &Snapshot, task: &Task) -> Option<&'r Task> {
+        self.roadmap.tasks.iter().take_while(|t| t.id != task.id).find(|t| t.is_gate() && t.owner == Owner::Maintainer && !snap.done(t))
+    }
+
+    /// Review tasks are stops only the maintainer merges or closes; the board tooling never does.
+    fn refuse_gate(task: &Task, what: &str) -> Result<(), String> {
+        if task.is_gate() {
+            return Err(format!(
+                "{} is a review task: the board never {what} one; the maintainer merges its pull request and closes its issue",
+                task.id
+            ));
+        }
+        Ok(())
     }
 
     /// Where `roadmap.md`, the issues and `main` disagree; `sync` refuses to touch the board then.
@@ -216,6 +228,7 @@ impl Board<'_> {
                 self.gh.set_status(&item.id, wanted)?;
                 report.changes.push(format!("#{} {}: {} -> {wanted}", issue.number, task.id, item.status.map_or("none", Status::name)));
             }
+            // A review's issue is closed only by the maintainer, never here.
             if wanted == Status::Done && issue.open && !task.is_gate() {
                 self.gh.close_issue(issue.number, &format!("Merged into main (`{}:` commit); closed by `cargo xtask tasks sync`.", task.id))?;
                 report.changes.push(format!("#{} {}: closed (merged)", issue.number, task.id));
@@ -255,10 +268,8 @@ impl Board<'_> {
         if let Some(dep) = task.after.iter().find(|d| !self.roadmap.task(d).is_some_and(|t| snap.done(t))) {
             return Some(format!("{} waits for {dep}", task.id));
         }
-        if let Some(gate) = self.open_gate_milestone(snap)
-            && task.milestone > gate
-        {
-            return Some(format!("{} is in M{} but the M{gate} review gate is open", task.id, task.milestone));
+        if let Some(gate) = self.open_gate_before(snap, task) {
+            return Some(format!("{} comes after {}, a review the maintainer has not closed yet", task.id, gate.id));
         }
         for other in &self.roadmap.tasks {
             if other.id == task.id || !matches!(snap.status(other), Some(Status::InProgress | Status::InReview)) {
@@ -335,11 +346,13 @@ impl Board<'_> {
         self.gh.comment(issue.number, &format!("**Blocked ({by}), question for the maintainer:** {question}"))
     }
 
-    /// `tasks submit`: refuses without a green `ci` on this commit and a dev-log entry; pushes, opens
+    /// `tasks submit`: refuses a review task, and refuses without a green `ci` on this commit and a
+    /// dev-log entry; pushes, opens
     /// the pull request and sets In Review. The evidence is `body_extra` (`--body-file`) or, without
     /// it, the task's newest dev-log entry.
     pub fn submit(&self, id: &str, dir: &Path, body_extra: Option<&str>) -> Result<String, String> {
         let task = self.task(id)?;
+        Self::refuse_gate(task, "submits")?;
         let snap = self.snapshot()?;
         let (issue, item) = self.require_status(&snap, task, &[Status::InProgress])?;
         let head = self.git.head(dir)?;
@@ -384,9 +397,11 @@ impl Board<'_> {
         Ok(None)
     }
 
-    /// `tasks merge` (lead only; the caller holds the merge lock).
+    /// `tasks merge` (lead only; the caller holds the merge lock). Never a review task: only the
+    /// maintainer merges those.
     pub fn merge(&self, id: &str) -> Result<String, String> {
         let task = self.task(id)?;
+        Self::refuse_gate(task, "merges")?;
         let snap = self.snapshot()?;
         let (_, item) = self.require_status(&snap, task, &[Status::InReview])?;
         let branch = if item.branch.is_empty() { task.branch() } else { item.branch.clone() };

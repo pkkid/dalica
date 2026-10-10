@@ -20,10 +20,18 @@ pub fn render(task: &Task, issues: &BTreeMap<String, u64>) -> String {
             .collect::<Vec<_>>()
             .join(", ")
     };
+    let next = if task.is_gate() {
+        format!(
+            "A review task: the lead prepares it with `/milestone-review {}`; only the maintainer merges its pull request and closes this issue, and nothing listed after it in the roadmap starts until then.",
+            task.id
+        )
+    } else {
+        format!("Claim with `cargo xtask tasks claim {} --agent <name>`.", task.id)
+    };
     format!(
         "{START}\n**Task {id}** · [roadmap.md line {line}]({BLOB_URL}/docs/roadmap.md#L{line}) · managed by `cargo xtask tasks sync` (edit the roadmap, not this section)\n\n\
          - **after:** {after}\n- **owner:** {owner}\n- **files:** {files}\n- **scope:** {scope}\n- **done when:** {done}\n\n\
-         Workflow: [docs/task-board.md]({BLOB_URL}/docs/task-board.md). Claim with `cargo xtask tasks claim {id} --agent <name>`.\n{END}\n",
+         Workflow: [docs/task-board.md]({BLOB_URL}/docs/task-board.md). {next}\n{END}\n",
         id = task.id,
         line = task.line,
         owner = task.owner.as_str(),
@@ -74,6 +82,20 @@ mod tests {
             body,
             "<!-- dalica:task -->\n**Task M0.5** · [roadmap.md line 171](https://github.com/pkkid/dalica/blob/main/docs/roadmap.md#L171) · managed by `cargo xtask tasks sync` (edit the roadmap, not this section)\n\n- **after:** M0.3 (#4), M0.4 (#5)\n- **owner:** agent\n- **files:** `xtask/src/ci.rs`\n- **scope:** s\n- **done when:** d\n\nWorkflow: [docs/task-board.md](https://github.com/pkkid/dalica/blob/main/docs/task-board.md). Claim with `cargo xtask tasks claim M0.5 --agent <name>`.\n<!-- /dalica:task -->\n"
         );
+    }
+
+    #[test]
+    fn a_review_says_who_merges_and_closes_it() {
+        let review = Task { id: "M0.R".into(), owner: Owner::Maintainer, ..task() };
+        let body = render(&review, &BTreeMap::new());
+        assert!(body.contains("- **owner:** maintainer\n"), "{body}");
+        assert!(
+            body.contains(
+                "A review task: the lead prepares it with `/milestone-review M0.R`; only the maintainer merges its pull request and closes this issue"
+            ),
+            "{body}"
+        );
+        assert!(!body.contains("tasks claim"), "{body}");
     }
 
     #[test]

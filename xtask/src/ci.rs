@@ -138,7 +138,7 @@ mod tests {
     #[test]
     fn finished_milestones_need_every_block_ticked() {
         let text = "| P | M0 | A | a | ⬜ |\n| | M1 | B | b | ⬜ |\n\n- ✅ **M0.1 X**\n  - after: —\n  - files: —\n  - scope: s\n  - done when: d\n\
-                    - ✅ **M0.R Y**\n  - after: M0.1\n  - files: —\n  - scope: s\n  - done when: d\n- ⬜ **M1.1 Z**\n  - after: M0.R\n  - files: —\n  - scope: s\n  - done when: d\n";
+                    - ✅ **M0.R Y**\n  - after: M0.1\n  - owner: maintainer\n  - files: —\n  - scope: s\n  - done when: d\n- ⬜ **M1.1 Z**\n  - after: M0.R\n  - files: —\n  - scope: s\n  - done when: d\n";
         let r = tasks::roadmap::parse(text).unwrap();
         assert_eq!(finished_milestones(&r), [0]);
     }

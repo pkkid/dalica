@@ -49,6 +49,8 @@ const ROADMAP: &str = "\
 ";
 
 struct World {
+    /// The roadmap text the world started from (`finish` ticks blocks in it).
+    text: String,
     roadmap: Roadmap,
     gh: FakeGitHub,
     git: FakeGit,
@@ -61,6 +63,7 @@ impl World {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join(".git")).unwrap();
         World {
+            text: text.to_string(),
             roadmap: roadmap::parse(text).unwrap(),
             gh: FakeGitHub::with_setup(),
             git: FakeGit::new(dir.path()),
@@ -75,7 +78,7 @@ impl World {
 
     /// Ticks a task ✅ in the roadmap (as a merged commit would) and records the merge on main.
     fn finish(&mut self, id: &str) {
-        let text = ROADMAP.replace(&format!("- ⬜ **{id} "), &format!("- ✅ **{id} "));
+        let text = self.text.replace(&format!("- ⬜ **{id} "), &format!("- ✅ **{id} "));
         let mut done: Vec<String> = self.roadmap.tasks.iter().filter(|t| t.done).map(|t| t.id.clone()).collect();
         done.push(id.to_string());
         let mut text = text;
@@ -298,48 +301,149 @@ fn release_block_and_submit() {
     assert_eq!(subject, "M0.1: Skeleton (#100)");
 }
 
-const CHECK_IN: &str = "\
+const REVIEWS: &str = "\
 | Phase | # | Milestone | One-line goal | Status |
 |---|---|---|---|---|
 | F | M0 | Skeleton | an empty workspace | ⬜ |
 | | M1 | Star | star a photo | ⬜ |
 
-- ⬜ **M0.1 Skeleton**
+- ⬜ **M0.1 Before**
   - after: —
-  - files: `crates/**`
+  - files: `crates/a/**`
   - scope: s
   - done when: d
-- ⬜ **M0.R Check-in**
-  - after: —
-  - owner: OWNER
+- ⬜ **M0.A Checkpoint**
+  - after: M0.1
+  - owner: maintainer
   - files: `docs/status.md`
   - scope: s
   - done when: d
-- ⬜ **M1.1 Core**
+- ⬜ **M0.2 Middle**
   - after: —
-  - files: `xtask/**`
+  - files: `crates/b/**`
+  - scope: s
+  - done when: d
+- ⬜ **M0.3 Lead plan**
+  - after: —
+  - owner: lead
+  - files: `docs/roadmap.md`
+  - scope: s
+  - done when: d
+- ⬜ **M0.R Review**
+  - after: M0.2
+  - owner: maintainer
+  - files: `docs/status.md`
+  - scope: s
+  - done when: d
+- ⬜ **M1.1 Next**
+  - after: —
+  - files: `crates/c/**`
   - scope: s
   - done when: d
 ";
 
 #[test]
-fn only_maintainer_gates_block_and_lead_tasks_are_the_leads() {
-    // A maintainer's gate holds back the next milestone.
-    let w = World::new(&CHECK_IN.replace("OWNER", "maintainer"));
+fn an_open_review_holds_back_everything_listed_after_it() {
+    let mut w = World::new(REVIEWS);
     w.board().sync().unwrap();
+    // M0.2, M0.3 and M1.1 are Ready by dependencies, but all come after the open M0.A;
+    // M0.1, listed before it, is not held back.
+    assert_eq!(w.status_of("M0.2"), Some(Status::Ready));
+    assert_eq!(w.status_of("M1.1"), Some(Status::Ready));
     assert_eq!(w.next_ids(), ["M0.1"]);
+    let ids = |w: &World, agent| w.board().next(Some(agent)).unwrap().into_iter().map(|t| t.id.clone()).collect::<Vec<_>>();
+    assert_eq!(ids(&w, "agent-1"), ["M0.1"]);
+    // `claim` uses the same check as `next`, for the same milestone and a later one.
+    for id in ["M0.2", "M1.1"] {
+        let err = w.board().claim(id, "agent-2").unwrap_err();
+        assert!(err.contains(&format!("{id} comes after M0.A")), "{err}");
+    }
+    assert!(w.board().claim("M0.3", "agent-1").unwrap_err().contains("comes after M0.A"));
+    // Nobody claims the review itself, not even the lead.
+    assert!(w.board().claim("M0.A", "agent-1").unwrap_err().contains("belongs to the maintainer"));
 
-    // A lead's check-in blocks nothing, and only the lead may take it.
-    let w = World::new(&CHECK_IN.replace("OWNER", "lead"));
+    // Its dependency done, the review is Ready, and still holds everything after it.
+    w.finish("M0.1");
     w.board().sync().unwrap();
-    assert_eq!(w.next_ids(), ["M0.1", "M0.R", "M1.1"]);
-    let ids = |agent| w.board().next(Some(agent)).unwrap().into_iter().map(|t| t.id.clone()).collect::<Vec<_>>();
-    assert_eq!(ids("agent-3"), ["M0.1", "M1.1"]);
-    assert_eq!(ids("agent-1"), ["M0.1", "M0.R", "M1.1"]);
-    let err = w.board().claim("M0.R", "agent-3").unwrap_err();
-    assert!(err.contains("belongs to the lead"), "{err}");
-    w.board().claim("M0.R", "agent-1").unwrap();
-    assert_eq!(w.status_of("M0.R"), Some(Status::InProgress));
+    assert_eq!(w.status_of("M0.A"), Some(Status::Ready));
+    assert!(w.next_ids().is_empty(), "{:?}", w.next_ids());
+
+    // The maintainer closes M0.A: the tasks up to the next open review become claimable.
+    w.gh.close_issue(w.issue_of("M0.A"), "approved").unwrap();
+    w.board().sync().unwrap();
+    assert_eq!(w.status_of("M0.A"), Some(Status::Done));
+    assert_eq!(w.next_ids(), ["M0.2", "M0.3"]);
+    // `owner: lead` tasks are still the lead's alone.
+    assert_eq!(ids(&w, "agent-3"), ["M0.2"]);
+    assert_eq!(ids(&w, "agent-1"), ["M0.2", "M0.3"]);
+    assert!(w.board().claim("M0.3", "agent-3").unwrap_err().contains("belongs to the lead"));
+    w.board().claim("M0.3", "agent-1").unwrap();
+    assert_eq!(w.status_of("M0.3"), Some(Status::InProgress));
+
+    // M1.1 waits for M0.R next, even once M0.R is Ready; closing it frees M1.1.
+    w.finish("M0.2");
+    w.board().sync().unwrap();
+    assert_eq!(w.status_of("M0.R"), Some(Status::Ready));
+    assert!(!w.next_ids().contains(&"M1.1".to_string()));
+    assert!(w.board().claim("M1.1", "agent-2").unwrap_err().contains("comes after M0.R"));
+    w.gh.close_issue(w.issue_of("M0.R"), "approved").unwrap();
+    w.board().sync().unwrap();
+    assert_eq!(w.next_ids(), ["M1.1"]);
+}
+
+#[test]
+fn merge_and_submit_refuse_review_tasks() {
+    let w = World::new(REVIEWS);
+    w.board().sync().unwrap();
+    // Even with the review's item forced to In Progress or In Review and a pull request open for
+    // its branch, the board neither submits nor merges it.
+    let n = w.issue_of("M0.A");
+    let item = w.gh.lock().items.iter().find(|i| i.issue == n).unwrap().id.clone();
+    w.gh.set_status(&item, Status::InProgress).unwrap();
+    w.gh.open_pr("task/M0.A-checkpoint", "M0.A: check-in", "body").unwrap();
+    let marker = ci_marker(&w.git.common_dir_path(), "0123abcd");
+    std::fs::create_dir_all(marker.parent().unwrap()).unwrap();
+    std::fs::write(&marker, "").unwrap();
+    let dir = w.git.dir.clone();
+    std::fs::create_dir_all(dir.join("log")).unwrap();
+    std::fs::write(dir.join("log/devlog.md"), "## 2026-10-10 12:00 · agent-1 · M0.A Checkpoint\nLanded: x\n").unwrap();
+    let before = w.gh.mutations();
+    let err = w.board().submit("M0.A", &dir, None).unwrap_err();
+    assert!(err.contains("M0.A is a review task") && err.contains("never submits"), "{err}");
+    w.gh.set_status(&item, Status::InReview).unwrap();
+    let before_merge = w.gh.mutations();
+    assert_eq!(before_merge, before + 1);
+    for id in ["M0.A", "M0.R"] {
+        let err = w.board().merge(id).unwrap_err();
+        assert!(err.contains(&format!("{id} is a review task")) && err.contains("never merges"), "{err}");
+    }
+    assert_eq!(w.gh.mutations(), before_merge);
+    assert!(w.git.calls.lock().unwrap().is_empty(), "nothing pushed, rebased or built");
+    assert!(w.gh.lock().merged_prs.is_empty());
+    assert!(w.gh.lock().issues.iter().all(|i| i.open));
+}
+
+#[test]
+fn sync_never_closes_an_open_review_issue() {
+    let mut w = World::new(REVIEWS);
+    w.board().sync().unwrap();
+    w.finish("M0.1");
+    w.board().sync().unwrap();
+    // The review is ✅ in roadmap.md and even has an `M0.A:` commit on main, but its issue is open:
+    // sync refuses (the maintainer closes it) and writes nothing.
+    w.finish("M0.A");
+    let n = w.issue_of("M0.A");
+    let before = w.gh.mutations();
+    let err = w.board().sync().unwrap_err();
+    assert!(err.contains(&format!("M0.A is ✅ in roadmap.md but its review issue #{n} is still open")), "{err}");
+    assert_eq!(w.gh.mutations(), before);
+    assert!(w.gh.lock().issues.iter().find(|i| i.number == n).unwrap().open);
+    // Once the maintainer has closed it, sync marks it Done and closes nothing else.
+    w.gh.close_issue(n, "approved").unwrap();
+    w.board().sync().unwrap();
+    assert_eq!(w.status_of("M0.A"), Some(Status::Done));
+    let open: Vec<u64> = w.gh.lock().issues.iter().filter(|i| i.open).map(|i| i.number).collect();
+    assert_eq!(open.len(), 4, "only M0.1 and M0.A are closed: {open:?}");
 }
 
 #[test]
