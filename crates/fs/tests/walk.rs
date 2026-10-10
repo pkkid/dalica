@@ -2,7 +2,7 @@
 //! awkward names, cancellation and the UI-thread guard.
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::atomic::AtomicBool;
 
 use dalica_fs::{Error, Limits, Warning, mark_ui_thread, walk};
@@ -90,7 +90,7 @@ fn a_symlink_loop_ends_with_a_bounded_result_and_a_warning() {
     std::os::unix::fs::symlink(r.join("a/b"), r.join("other")).unwrap(); // a second way into a/b
     let w = walk(r, Limits::default(), |_| false).unwrap();
     assert_eq!(rel(r, &w), ["a", "a/b", "a/b/photo.jpg"]);
-    let loops: Vec<&PathBuf> = w.warnings.iter().filter_map(|x| if let Warning::Loop(p) = x { Some(p) } else { None }).collect();
+    let loops: Vec<&std::path::PathBuf> = w.warnings.iter().filter_map(|x| if let Warning::Loop(p) = x { Some(p) } else { None }).collect();
     assert_eq!(loops.len(), 3, "{:?}", w.warnings);
     // The self-link cannot be resolved: reported as unreadable, not followed.
     assert!(w.warnings.iter().any(|x| matches!(x, Warning::Unreadable { path, .. } if path.ends_with("self"))), "{:?}", w.warnings);
