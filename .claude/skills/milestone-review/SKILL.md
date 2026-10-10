@@ -134,9 +134,11 @@ The page is linked on the review issue together with the pull request (§4).
 
 The review's id is `M<n>.R` (`M2.R`, `M6.R`, …) and its issue `#<issue>`.
 
-1. Make a branch `review/M<n>.R` from `origin/main` in a worktree of your own (for example
-   `git worktree add ../dalica.worktrees/review-M<n>.R -b review/M<n>.R origin/main`, with
-   `CARGO_TARGET_DIR` at `target/agent-1`). There:
+1. Make a branch `review/M<n>.R` from `origin/main` in the lead session's own worktree (no new
+   worktree, no subagent; `CARGO_TARGET_DIR` at `target/lead`, never an agent's). **Everything the review
+   changes goes in this one branch and its one pull request** (maintainer rule, 2026-10-10):
+   docs, numbers, process fixes found during the milestone, answers applied. Never a second PR
+   for the review. There:
    - write the dated *Where we stand* paragraph in `docs/roadmap.md` and the numbers in
      `docs/status.md`;
    - apply any reversals the maintainer asked for since the last review;

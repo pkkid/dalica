@@ -234,8 +234,9 @@ pub struct CommandSpec {
 - **Settings** (`settings.json`, engine): a typed struct; unknown keys preserved; damaged file kept
   aside as `.corrupt-<time>` and defaults used.
 - **Library location:** the platform data directory by default; `--library <dir>` or
-  `DALICA_HOME` override it (tests and agents always pass one); `--demo` builds a throwaway library
-  of `scenes` photos in a temporary directory.
+  `DALICA_HOME` override it (tests and agents always pass one); `--demo` opens a persistent library
+  of `scenes` photos with deterministic ids (built once, reused); `--demo-fresh` builds a throwaway
+  copy in a private temporary folder, deleted on exit.
 - A library lock file (`fs`) prevents two Dalica processes from opening the same library.
 - **Time** comes from a `Clock` in the `Session` (debounce, "Recently Updated", the age filter,
   animations), so tests run on virtual time.

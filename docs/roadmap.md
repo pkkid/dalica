@@ -13,6 +13,20 @@ state (ready, claimed, in review) is on the task board ([`task-board.md`](task-b
 *Honest assessment, 2026-10-10. Agents: read this before picking work. Update it only with
 measured facts, dated.*
 
+*2026-10-10 (M2.R).* M2 is done: `cargo xtask accept M2` passes in 12 s (a control session against
+`dalica --headless` on a fresh demo: auth, click a thumbnail, Ctrl+8, the star in the sidecar, a
+1400 × 900 screenshot matching its fingerprint; plus the 9 control security tests), green on Linux,
+macOS and Windows. Agents can now drive and look at the real window: every interactive widget has an
+id per `control-protocol.md` §7 (a test finds none missing), the headless driver clicks, drags,
+scrolls, types and settles, `ui.inspect` reports perf counters (cells visited stay flat from 200 to
+2 000 photos), and `dalica --control [PORT]` serves the protocol on 127.0.0.1 only, with a 0600 token
+file, `auth` first in constant time, line, depth, connection and time limits; `--headless` serves the
+same without a window. `--demo` is persistent with deterministic ids; `--demo-fresh` is a throwaway
+copy. The board ran four agents in parallel for the first time; the day also settled the process:
+one review per milestone, at its end; a milestone's issues are created when the previous review
+closes; runs are unattended, with questions, a UI changelog and fingerprint approval saved for the
+review. Next: M3, the window shell.
+
 *2026-10-10 (M1.R).* M1 is done: `cargo xtask accept M1` passes in 5 s on a fresh clone, and the
 maintainer's manual check passed (a star set with Ctrl+8 in `dalica --demo` survives a restart). A
 folder of photos is scanned and shown in a plain library window (folder list, square thumbnail
@@ -619,7 +633,7 @@ wave 5   M1.17 → M1.18 ui, app → M1.19 acceptance → M1.R milestone review
     check-in.
   - done when: `cargo xtask tasks sync --check` parses them and `tasks sync --dry-run` lists one new
     issue per block.
-- ⬜ **M2.R Check-in**
+- ✅ **M2.R Check-in**
   - after: M2.8
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`
