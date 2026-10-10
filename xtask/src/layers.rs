@@ -223,8 +223,9 @@ fn dev_lower(layer: Layer, to: &str) -> bool {
 }
 
 /// Rule 4: `std::fs` writes in product code outside `dalica-fs`. Scans `src/**/*.rs` of every crate
-/// and app except `dalica-fs`, the acceptance tests and `xtask`; `#[cfg(test)]` items at the end of a
-/// file (the usual test module) are skipped, and so are `tests/`, `benches/` and `examples/`.
+/// and app except `dalica-fs`, the acceptance tests and `xtask`; top-level `#[cfg(test)]` items (the
+/// usual test module, through its closing brace) are skipped, and so are `tests/`, `benches/` and
+/// `examples/`. Code after a test module is scanned.
 pub fn check_sources(meta: &Metadata) -> Vec<Violation> {
     let mut out = Vec::new();
     for package in meta.workspace_packages() {
@@ -280,10 +281,27 @@ fn rust_files(dir: &Path) -> Vec<PathBuf> {
 /// Lines (1-based) of `text` that call a `std::fs` write function, with the matched item.
 pub fn fs_writes(text: &str) -> Vec<(usize, String)> {
     let mut out = Vec::new();
+    // Inside a top-level `#[cfg(test)]` item: `Some(None)` before its body opens, then
+    // `Some(Some(depth))` of its braces.
+    let mut test_item: Option<Option<i64>> = None;
     for (i, raw) in text.lines().enumerate() {
         let line = raw.trim_start();
         if line.starts_with("#[cfg(test)]") && raw.starts_with('#') {
-            break;
+            test_item = Some(None);
+            continue;
+        }
+        if let Some(state) = test_item {
+            // Skip the item's other attributes, then the item: one line if it ends in `;` before
+            // any brace (`mod tests;`), else through its matching closing brace. Code after it is
+            // scanned again.
+            let (opens, closes) = code_braces(line);
+            test_item = match state {
+                _ if line.starts_with("#[") && state.is_none() => Some(None),
+                None if opens == 0 => (!line.trim_end().ends_with(';')).then_some(None),
+                None => (opens > closes).then_some(Some(opens - closes)),
+                Some(depth) => (depth + opens > closes).then_some(Some(depth + opens - closes)),
+            };
+            continue;
         }
         if line.starts_with("//") {
             continue;
@@ -303,6 +321,23 @@ pub fn fs_writes(text: &str) -> Vec<(usize, String)> {
         }
     }
     out
+}
+
+/// Opening and closing braces on a line, outside comments and string and char literals (a line
+/// heuristic, like the rest of this check).
+fn code_braces(line: &str) -> (i64, i64) {
+    let code = line.split("//").next().unwrap_or(line);
+    let (mut opens, mut closes, mut in_str, mut prev) = (0, 0, false, ' ');
+    for c in code.chars() {
+        match c {
+            '"' if prev != '\\' => in_str = !in_str,
+            '{' if !in_str && prev != '\'' => opens += 1,
+            '}' if !in_str && prev != '\'' => closes += 1,
+            _ => {}
+        }
+        prev = c;
+    }
+    (opens, closes)
 }
 
 /// A `fs::<write item>` path where `fs` is a whole path segment (so `dalica_fs::write` is fine).
@@ -506,5 +541,11 @@ mod tests {
         assert!(hits("// std::fs::write(p, b)").is_empty());
         assert!(hits("fs::writer()").is_empty());
         assert!(hits("fn a() {}\n#[cfg(test)]\nmod tests { fn t() { std::fs::write(p, b); } }").is_empty());
+        let module = "#[cfg(test)]\n#[allow(dead_code)]\nmod tests {\n    fn t() {\n        std::fs::write(p, \"}\");\n    }\n}\n";
+        assert!(hits(module).is_empty());
+        // Code after a test module is product code again.
+        assert_eq!(hits(&format!("{module}pub fn planted() {{\n    std::fs::write(p, b);\n}}\n")), ["9:fs::write"]);
+        assert_eq!(hits("#[cfg(test)]\nmod tests;\nfn x() { std::fs::write(p, b); }"), ["3:fs::write"]);
+        assert_eq!(hits("#[cfg(test)]\nfn helper() { std::fs::write(p, b); }\nfn x() { std::fs::write(p, b); }"), ["3:fs::write"]);
     }
 }
