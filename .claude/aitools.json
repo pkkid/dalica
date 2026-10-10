@@ -1,0 +1,13 @@
+{
+  "project": {
+    "tools": [
+      {
+        "type": "server",
+        "label": "Demo",
+        "start": "cd {main} && cargo run -p dalica -- --control 7990 --demo",
+        "port": 7990,
+        "ready": "control: listening on (\\S+);"
+      }
+    ]
+  }
+}
