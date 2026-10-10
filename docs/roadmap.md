@@ -588,7 +588,7 @@ wave 5   M1.17 → M1.18 ui, app → M1.19 acceptance → M1.R milestone review
     thumbnail, Ctrl+8, screenshot) checking the star and the PNG fingerprint; the security tests;
     the manual check (`dalica --control 7990 --demo`, an agent's screenshot matches the screen).
   - done when: `cargo xtask accept M2` passes everything in M2's *Done when*.
-- ⬜ **M2.9 Lead: task blocks for M4**
+- ✅ **M2.9 Lead: task blocks for M4**
   - after: M1.R
   - owner: lead
   - files: `docs/roadmap.md`
@@ -830,6 +830,296 @@ One milestone in 3 feature areas (*Light table*, *Library tree*, *Selection and 
 - **Done when:** `cargo xtask accept M4`: select 2 in folder A, Hold, select 3 in folder B → the
   tray has 5 → star all 5 in one undo step → undo restores all 5; status-line strings match each
   case of §6.1; keyboard navigation stops at section edges.
+
+#### M4 tasks
+
+M4 builds the light table, the library tree and the tray on M3's shell. The thumbnail pipeline
+(`thumbs`, `library`, `store`, `engine`) touches nothing M2 or M3 changes, so its first wave lists
+the M1 work it extends and can start while M3 runs; the UI tasks start when M3's panels land. Two
+tasks lay the ground the others share so later tasks never share a file: M4.5 adds every M4
+view-state field and one module per command area, and M4.6 splits the light table into one module
+per part (layout, header, cell, scrollbar, input) with a fixed painting API. A check-in **M4.A**
+shows the scrollbar and the never-blank thumbnails early, so the maintainer can tune the scroll
+speed while the rest is built. Each task updates its `parity.md` rows; first fingerprints of new
+widgets are approved on their PRs; M4.6 splits the window fingerprints by region so parallel
+UI tasks each re-bless only their own.
+
+- ⬜ **M4.1 `thumbs`: the colour sketch**
+  - after: M1.12
+  - files: `crates/thumbs/src/sketch.rs`, `crates/thumbs/tests/sketch.rs`
+  - scope: `architecture.md` §6.5: a blurred colour preview of at most 32 bytes in the ThumbHash
+    style (our own encoder and decoder written from the public description, or an audited
+    permissive crate through `cargo xtask deps`): encode from an RGBA thumbnail keeping its aspect
+    ratio, decode to a small RGBA image or a colour grid cheap enough to draw on the UI thread
+    (a few µs of arithmetic, no file and no codec); hostile bytes decode to `Err`, never a panic.
+  - done when: tests on `scenes` photos: the decoded sketch matches the photo's 4 × 4 mean
+    colours within a stated tolerance and its aspect within 5 %; every sketch is ≤ 32 bytes and
+    identical across runs; proptest random and truncated bytes never panic; encode and decode
+    times per photo are in the PR.
+- ⬜ **M4.2 `library` + `store`: the sketch in the index**
+  - after: M1.10
+  - files: `crates/library/src/model.rs`, `crates/library/src/op.rs`, `crates/library/tests/sketch.rs`, `crates/store/src/snapshot.rs`, `crates/store/src/journal.rs`, `crates/store/src/mapping.rs`, `crates/store/tests/sketch.rs`, `crates/store/tests/sidecars.rs`
+  - scope: `data-model.md` §4: each photo gains an optional sketch (opaque bytes, capped at 32);
+    an op sets sketches in batches with an exact inverse; sketches are derived data: index only
+    (journal and snapshot), never written to sidecars, never on an undo stack, and they bump a
+    separate thumbnail revision rather than the library revision that tree and layout caches key
+    on; a rebuild from folders starts without sketches (they are regenerated).
+  - done when: the library property test (op then inverse restores the model) covers sketch ops;
+    store tests: sketches survive journal replay and a snapshot, a torn tail loses only the torn
+    batch, no sketch reaches `.dalica.json`, the "every model field has a sidecar mapping" test
+    lists the sketch as index-only; the index growth for 100 k sketches is in the PR.
+- ⬜ **M4.3 `thumbs` + `fs`: the packed disk cache**
+  - after: M1.12
+  - files: `crates/thumbs/src/pack.rs`, `crates/thumbs/src/pack/**`, `crates/thumbs/tests/pack.rs`, `crates/thumbs/benches/pack.rs`, `crates/thumbs/README.md`, `crates/fs/src/pack.rs`, `crates/fs/tests/pack.rs`
+  - scope: `architecture.md` §6.6: under `<cache>/thumbs/`, one append-only pack file plus an
+    index per ladder size (128, 256, 512, 1024, screen), JPEG q90 entries keyed by the
+    content-addressed key of §6.4; checksummed index records (a torn tail costs only that entry);
+    dead entries counted and compacted in the background past 25 % of a pack; pruning at the
+    2 GiB default down to 80 %, largest sizes first; only files of the cache's own naming shape
+    are listed or deleted. `fs` gains what packs need: positioned reads, a streamed temp file
+    committed by rename, and removal of a cache file of a given name shape (fault points on each).
+  - done when: temp-dir tests: put/get round trip at every size; reopening after a torn index tail
+    loses only the torn entry; compaction keeps every live entry byte-identical; pruning stops at
+    80 %, removes the largest sizes first and never touches a foreign file in the directory; `fs`
+    fault injection on every pack write leaves a readable cache; a bench reads 100 k thumbnails
+    packed against loose files on the same data (numbers in the PR).
+- ⬜ **M4.4 `library`: the tree model**
+  - after: M1.8
+  - files: `crates/library/src/tree.rs`, `crates/library/tests/tree.rs`
+  - scope: `ui-layout.md` §4 and `organizing.md` §10 as a pure function of the library, the
+    watched roots and the view options: groups in order (Albums, People, Projects, Folders, Other,
+    Hidden Folders; each only when non-empty; Projects and Other in flat mode only); flat mode
+    with year dividers (sorted by date, only when the folders span more than one year); tree mode
+    (the disk hierarchy under each watched root, parents with their own count); sorts by date
+    (a folder's oldest capture date, newest first), recent changes (newest photo `mtime`), size and
+    name, each reversible; counts; "Other" = folders where most photos are small pictures
+    (< 64 px on both sides); the section order of the light table = the rows of expanded groups.
+  - done when: tests on hand-built models: rows and order in both modes for every sort and its
+    reverse; year dividers only across years; counts; a collapsed group drops its sections; a
+    5 k-folder model builds in a time stated in the PR.
+- ⬜ **M4.5 `ui`: M4's view state and command modules**
+  - after: M3.3, M3.4, M3.5, M3.6
+  - files: `crates/ui/src/state.rs`, `crates/ui/src/menus.rs`, `crates/ui/src/app.rs`, `crates/ui/src/commands/mod.rs`, `crates/ui/src/commands/view.rs`, `crates/ui/src/commands/select.rs`, `crates/ui/src/commands/scroll.rs`, `crates/ui/src/commands/tray.rs`, `crates/ui/src/control/**`, `crates/engine/src/settings.rs`, `crates/ui/tests/view_state.rs`, `docs/control-protocol.md`
+  - scope: every M4 field of `UiState` in one go (control-protocol §6.5): tree mode, folder sort
+    and reverse, collapsed groups, caption mode, small and hidden pictures, the selection's
+    section scope and whole-section form, the tray (held photos, tray selection), the scroll
+    anchor; the persisted ones (tree mode, sort, caption, small/hidden pictures, thumbnail size)
+    saved the way M3.6 saves window state; `crates/ui/src/commands/` with one module per area
+    joined into `UI_COMMANDS` once (`select.rs` takes M1's `select.set` / `select.none`; `scroll.rs`
+    and `tray.rs` start empty for M4.11 and M4.16); `view.rs`: `view.caption`,
+    `view.smallPictures`, `view.hiddenPictures`, `view.folderView`, the folder sorts and Reverse
+    Sort of the view-options popup, group collapse; `ui.set` accepts the new fields.
+  - done when: `crates/ui/tests/view_state.rs`: each new field round-trips through `ui.state` /
+    `ui.set` (bad values are `bad_params`, nothing changes) and the persisted ones survive a
+    restart through settings; the view commands change state and light up their menu and popup
+    items; every command has its graceful-failure test; `panic_hunt` stays green.
+- ⬜ **M4.6 `ui`: the light-table skeleton and layout**
+  - after: M3.5, M3.9, M4.4, M4.5
+  - files: `crates/ui/src/panels/light_table.rs`, `crates/ui/src/panels/light_table/**`, `crates/ui/src/panels/thumbnails.rs`, `crates/ui/src/panels/mod.rs`, `crates/ui/tests/light_table.rs`, `crates/ui/tests/library_window.rs`, `crates/ui/tests/fingerprints/**`
+  - scope: `ui-layout.md` §5.1–§5.3: the light table split into the parent (viewport, scroll
+    state, painting order) and one module per part, `layout.rs`, `header.rs`, `cell.rs`,
+    `scrollbar.rs`, `input.rs`, the last four carrying M1's drawing and click handling moved over;
+    a fixed API at each boundary (including `Thumbnails::paint(painter, photo, rect, device_px)`),
+    so M4.9–M4.13 never share a file; the layout model: sections in tree order (M4.4), header
+    block ≈ 96 (`design-system.md` §4), justified columns, caption line when captions are on,
+    24 pt gutter, prefix-summed offsets, visible rows by binary search, sticky-header geometry
+    with push-up, cached per (revision, width, cell size, caption, section set); our own viewport
+    in place of egui's scroll area; `section.scrollTo` animated 0.2 s ease-out on the virtual clock
+    (again = top of that section); Ctrl+wheel thumbnail size; the "No pictures yet" empty state;
+    the whole-window fingerprints split into one per region (tree pane, section header, grid
+    cells, tray, status line: `region-<name>*.json`) covering the same pixels, so a task that
+    changes one region re-blesses only its own file.
+  - done when: `crates/ui/tests/light_table.rs`: justification at widths 480–2 000 and sizes
+    64–320 (gap ≥ 12, margins 24); a sticky header pinned, then pushed up by the next; offset ↔
+    section round trip; cells visited per frame equal at 10 k and 100 k photos; `section.scrollTo`
+    leaves the header at the top after 0.2 s; Ctrl+wheel changes the size; the region
+    fingerprints approved on the PR; `widget_ids` stays green.
+- ⬜ **M4.7 `engine`: synthetic libraries**
+  - after: M4.1, M4.2
+  - files: `crates/engine/src/synthetic.rs`, `crates/engine/tests/synthetic.rs`
+  - scope: deterministic generated libraries for tests, benches and `accept M4`: N photos in M
+    folders (100 k in 1 k folders; 5 k folders) with mixed aspects, dates over several years and
+    real sketches from the M4.1 encoder, written as an index snapshot through `store` and opened
+    with `Session::open` (no photo files); an option with small `scenes` files on disk for the
+    scanned case at smaller sizes.
+  - done when: tests: the same seed gives the same library; a 100 k library opens with every
+    photo sketched; generation and open times for 100 k (release) are in the PR.
+- ⬜ **M4.8 `thumbs` + `engine`: the thumbnail ladder and scan-time generation**
+  - after: M4.1, M4.2, M4.3
+  - files: `crates/thumbs/src/ladder.rs`, `crates/thumbs/tests/ladder.rs`, `crates/engine/src/thumbs.rs`, `crates/engine/tests/thumbs.rs`, `crates/engine/src/session.rs`, `apps/dalica/src/main.rs`, `apps/dalica-cli/src/main.rs`
+  - scope: `architecture.md` §5–§6: ladder sizes in device pixels; after a scan adds or changes
+    photos, background jobs make the 128 and 256 entries and the sketch of each (one decode per
+    photo) and apply sketches in batches; 512, 1024 and screen size on demand; a session API that
+    answers at once with the best available (the covering size, else the next smaller to scale up,
+    else the sketch, else "not scanned") and queues the right size; direction-aware prefetch
+    (further ahead the faster the view moves; stale prefetch cancelled); the cache directory from
+    the session's options (`<cache>/Dalica/thumbs` in the apps, a temp dir in tests and demos).
+  - done when: engine tests on a temp library of 200 `scenes` photos: after `wait_idle` every
+    photo has a sketch and 128/256 entries; a request for a 300 px cell answers with the 256 entry
+    and gets the 512 after its job; a never-scanned photo answers "not scanned"; prefetch order
+    follows the scroll direction; the owner thread made no `fs` call (guard count 0).
+- ⬜ **M4.9 `ui`: the section header block**
+  - after: M4.6
+  - files: `crates/ui/src/panels/light_table/header.rs`, `crates/ui/tests/section_header.rs`, `crates/ui/tests/fingerprints/region-header*.json`
+  - scope: `ui-layout.md` §5.2, `design-system.md` §7: icon 32 (tooltip = full path; Locate on
+    Disk disabled until OS integration), title, long date (+ " · place" when set), the button row
+    (Play, Collage, Select Starred, Save, Export; live only when their command is registered,
+    Select Starred also only when the section has a starred photo), "%d edited" + Save only with
+    unsaved edits, the description line (placeholder "Add a description"; inline editing is M6),
+    the accent bar on the selected section, the 32-high sticky form, right-click = the section
+    context menu with later items disabled; ids per control-protocol §7.
+  - done when: headless tests find every `section:<id>/…` part with its §5.2 size at both window
+    sizes; disabled buttons are disabled; a sticky header shows its first line only; the header
+    region fingerprint approved on the PR.
+- ⬜ **M4.10 `ui` + `ui-kit`: thumbnail cells, badges and captions**
+  - after: M4.6
+  - files: `crates/ui/src/panels/light_table/cell.rs`, `crates/ui-kit/src/widgets.rs`, `crates/ui-kit/src/widgets/badges.rs`, `crates/ui-kit/tests/badges.rs`, `crates/ui-kit/tests/fingerprints/badges*.json`, `crates/ui/tests/cells.rs`, `crates/ui/tests/fingerprints/region-cells*.json`
+  - scope: `ui-layout.md` §5.3, §5.5 and `design-system.md` §7: letterboxed image with its drop
+    shadow, selection outlines, hover surround; the badge row (edited, geotag, held, star) and
+    the video marks as one ui-kit painter fed what the model knows (star and held now, the rest
+    when their milestones add the data); caption modes (Filename, Date, Resolution now; Caption
+    and Tags empty until M6), middle-elided; hidden photos at 40 % with Hidden Pictures, small
+    pictures omitted unless Small Pictures; the "!" tile with its reason; the 600 ms hover tooltip
+    (file name, date taken, pixel size, file size).
+  - done when: a ui-kit badge sheet (every combination, three cell sizes) matches its
+    fingerprint; headless tests: each caption mode's text, small pictures hidden and shown,
+    the hidden-photo opacity rule, the tooltip after 600 ms of virtual time and not before.
+- ⬜ **M4.11 `ui`: the speed-control scrollbar and scroll keys**
+  - after: M4.6
+  - files: `crates/ui/src/panels/light_table/scrollbar.rs`, `crates/ui/src/commands/scroll.rs`, `crates/ui/tests/scrollbar.rs`, `crates/engine/src/settings.rs`, `docs/ui-layout.md`
+  - scope: `ui-layout.md` §5.6: ⇑ ▲ track ▼ ⇓ with auto-repeat, track click pages (one row + 90,
+    animated), ⇑/⇓ to the previous/next header (⇑ first snaps to the current section's start);
+    the speed thumb: 16 × 64 resting at the centre, 4 pt dead zone, speed as a pure function of
+    the distance (quadratic, top 40 screen heights/s at the track end), stop on release and a
+    150 ms spring-back; the faint 16 × 3 position marker; the curve exponent and top speed read
+    from settings so they can be tuned without a rebuild (documented in §5.6); scroll commands
+    with keys: PgUp/PgDn, Ctrl+↑/↓ (previous/next section), Ctrl+Home/End; ids per §7.
+  - done when: `crates/ui/tests/scrollbar.rs` on virtual time: the speed curve at sample
+    distances, nothing inside the dead zone, the top speed at the track end; release stops the
+    view and the thumb is back at the centre after 150 ms; ⇑/⇓ land headers at the top; the
+    marker tracks the position; the keymap has no conflicts.
+- ⬜ **M4.12 `ui`: never-blank thumbnails on screen**
+  - after: M4.6, M4.7, M4.8
+  - files: `crates/ui/src/panels/thumbnails.rs`, `crates/ui/tests/never_blank.rs`
+  - scope: `Thumbnails::paint` drawn from the session's ladder: the covering size, else the next
+    smaller scaled up, else the sketch drawn the same frame, the `gray 38` placeholder only for a
+    photo never scanned; textures per (photo, ladder size) evicted beyond ±1 screen (cap ~600);
+    uploads per frame capped to stay in the frame budget; scroll direction and speed passed to the
+    session's prefetch; perf counters for placeholder and upscaled cells (`ui.inspect`).
+  - done when: a headless test scrolls a scanned 10 k-photo synthetic library at top thumb speed
+    and counts zero placeholder cells on every frame, with textures within the cap; once the view
+    stops, every visible cell draws its covering size and the region fingerprints are unchanged.
+- ⬜ **M4.13 `ui`: the selection model and keyboard navigation**
+  - after: M4.5, M4.6
+  - files: `crates/ui/src/selection.rs`, `crates/ui/src/commands/select.rs`, `crates/ui/src/panels/light_table/input.rs`, `crates/ui/tests/selection.rs`
+  - scope: `ui-layout.md` §5.4: click, Ctrl-click, Shift range from the anchor, rubber band from
+    empty space (`lightTable`), all scoped to one section (selecting elsewhere replaces it);
+    a whole section as a unit (`select.section`, used by the tree); arrows (Shift extends),
+    Home/End, stopping at the section's ends; `select.all`, `select.none`, `select.invert`,
+    `select.starred` (Ctrl+A / D / I) per section; right-click on an unselected photo selects it
+    first; Enter is left to the edit view (M7).
+  - done when: `crates/ui/tests/selection.rs`: each gesture by widget id; a range and a band never
+    cross a section; arrows and Home/End stop at section edges; the four commands per section;
+    every command's graceful-failure test; `panic_hunt` green.
+- ⬜ **M4.14 `xtask bench` and the light-table benchmark**
+  - after: M4.6, M4.7
+  - files: `xtask/src/bench.rs`, `crates/ui/benches/library_bench.rs`, `docs/development.md`
+  - scope: `development.md` §3, §8: `cargo xtask bench [name]` builds benches in release, runs
+    them with `--json`, appends to `target/bench/history.jsonl` and flags a CPU-time regression
+    over 20 % against the last run on the same machine; `library_bench` scrolls a synthetic
+    100 k-photo library headlessly at a fixed speed and reports p50/p95/max UI frame time and
+    cells visited per frame at 10 k and 100 k (row "scroll light table 100k").
+  - done when: `cargo xtask bench library_bench` prints the p95 and the cells-visited counts; a
+    test with a planted history flags a 25 % slowdown and not a 10 % one; `xtask docs` lists
+    `bench` as implemented; numbers for this machine in the PR.
+- ⬜ **M4.A Checkpoint A check-in**
+  - after: M4.10, M4.11, M4.12
+  - owner: lead
+  - files: `docs/status.md`
+  - scope: the lead publishes a check-in page: the demo library at both window sizes, cells with
+    badges and captions, and a short screen recording or step list for scrolling with the speed
+    thumb, with the settings keys to tune its curve; the decisions so far. The maintainer looks
+    when convenient; nothing waits.
+  - done when: the check-in page is published and linked on the issue.
+- ⬜ **M4.15 `ui`: the library tree pane**
+  - after: M3.7, M3.8, M4.4, M4.5, M4.6, M4.7, M4.13
+  - files: `crates/ui/src/panels/folders.rs`, `crates/ui/src/panels/folders/**`, `crates/ui/tests/tree.rs`, `crates/ui/tests/fingerprints/region-tree*.json`
+  - scope: `ui-layout.md` §4 on M3.8's pane frame: group headers (30, disclosure, count; collapsed
+    headers docked at the bottom), rows (24, icon, name middle-elided, dimmed count), year
+    dividers (18), tree-mode indent and disclosure triangles, the selection look; click =
+    `section.scrollTo` + `select.section`; collapsing a group hides its sections; with the pane
+    focused ↑/↓ move the row selection (scrolling the light table) and ←/→ collapse/expand in tree
+    mode; only visible rows built and painted, cached per revision; Flat | Tree and the
+    view-options popup drive M4.5's commands; ids per control-protocol §7.
+  - done when: `crates/ui/tests/tree.rs` on a fixture library: row ids and order in both modes and
+    every sort; a row click leaves its header at the top after 0.2 s and selects the folder as a
+    unit; collapsing Folders removes its sections; a 5 k-folder synthetic library stays within
+    the frame budget with rows visited flat.
+- ⬜ **M4.16 `ui`: the Photo Tray, Hold, Clear and tray actions**
+  - after: M4.13
+  - files: `crates/ui/src/tray.rs`, `crates/ui/src/commands/tray.rs`, `crates/ui/src/panels/bottom.rs`, `crates/ui/src/panels/bottom/**`, `crates/ui/tests/tray.rs`, `crates/ui/tests/fingerprints/region-tray*.json`
+  - scope: `ui-layout.md` §6.2–§6.3: the tray mirrors the selection live plus held photos; a
+    section selected as a unit shows one token ("Folder selected — 48 photos"); mini thumbnails
+    shrinking with the count (54 … 18, up to three rows); the tray's own selection (click, band);
+    `tray.hold` (Ctrl+H, the held badge) and `tray.clear` (tray-selected items, or all, asking
+    "Clear all photos from the tray?" when items are held); Add to Album ▾ and later context-menu
+    items disabled; star acts on the whole tray in one undo step (stars all unless all are
+    starred), rotate disabled until its command; "Select some photos first" with an empty tray.
+  - done when: `crates/ui/tests/tray.rs`: select 2 in folder A, Hold, select 3 in folder B → the
+    tray has 5 → star → one undo restores all 5; the token for a section; the confirmation only
+    with held items; mini-thumbnail sizes at 1, 12, 40 and 100 items; graceful-failure tests.
+- ⬜ **M4.17 `ui`: the status line**
+  - after: M3.8, M4.16
+  - files: `crates/ui/src/panels/status.rs`, `crates/ui/src/status_text.rs`, `crates/ui/tests/status_line.rs`, `crates/ui/tests/fingerprints/region-status*.json`
+  - scope: `ui-layout.md` §6.1 from the tray's contents: "No selection"; one photo (name, date
+    taken, pixel size, file size); several photos or a section (count, date range, size on disk,
+    tags when tagged); the edit-view prefix and "(12 of 48)" as a tested format for M7; long text
+    drops the prefix first, then middle-elides the name; transient messages for 4 s on virtual
+    time.
+  - done when: `crates/ui/tests/status_line.rs` matches the §6.1 string of each case at both
+    window sizes, the elision order, and the 4 s transient message.
+- ⬜ **M4.18 `accept M4`**
+  - after: M4.9, M4.10, M4.11, M4.12, M4.14, M4.15, M4.17
+  - files: `tests/acceptance/m4.rs`, `tests/acceptance/m4_*.rs`, `tests/acceptance/m4.md`, `tests/acceptance/fingerprints/m4-*.json`
+  - scope: every *Done when* of M4's three areas: the 100 k scroll benchmark (p95 ≤ 8 ms UI time
+    in the release bench; inside `cargo xtask ci` the debug run checks the counters and prints the
+    time) with cells visited flat from 10 k to 100 k; layout, sticky-header and section-jump
+    tests; the thumb's speed curve, dead zone and spring-back; zero placeholder cells at top thumb
+    speed through a sketched 100 k library within budget; tree rows, order, click and collapse;
+    the tray scenario with one undo step; status-line strings; keyboard stops at section edges;
+    the manual check (scroll the demo library with the thumb and tune its curve) in `m4.md`.
+  - done when: `cargo xtask accept M4` passes everything in M4's *Done when*.
+- ⬜ **M4.19 Lead: task blocks for M6**
+  - after: M3.12
+  - owner: lead
+  - files: `docs/roadmap.md`
+  - scope: write every M6 task block from M6's section and the spec, with waves and the `M6.R`
+    release gate (owner: maintainer).
+  - done when: `cargo xtask tasks sync --check` parses them and `tasks sync --dry-run` lists one new
+    issue per block.
+- ⬜ **M4.R Check-in**
+  - after: M4.18
+  - owner: lead
+  - files: `docs/roadmap.md`, `docs/status.md`
+  - scope: the lead runs `/milestone-review M4.R`: the check-in page (the demo library at both
+    sizes; scrolling with the speed thumb and tuning its curve written as a step for the
+    maintainer to try), *Where we stand*, the `status.md` numbers (100 k p95 frame time, packed
+    against loose reads, sketch and index sizes).
+  - done when: the check-in page is published and linked on the issue; roadmap and status updated.
+
+Waves (inside a wave, "‖" separates tasks whose `files` do not overlap):
+
+```text
+wave 1   M4.1 sketch  ‖  M4.2 sketch in the index  ‖  M4.3 pack cache  ‖  M4.4 tree model     (during M3)
+         M4.5 view state + command modules (after M3.3–M3.6)
+wave 2   M4.6 light-table skeleton  ‖  M4.7 synthetic libraries  ‖  M4.8 ladder + scan-time thumbnails
+wave 3   M4.9 header  ‖  M4.10 cells + badges  ‖  M4.11 scrollbar  ‖  M4.12 never blank
+         ‖  M4.13 selection  ‖  M4.14 bench
+         → M4.A checkpoint (after M4.10, M4.11, M4.12)
+wave 4   M4.15 tree pane  ‖  M4.16 tray
+wave 5   M4.17 status line
+wave 6   M4.18 accept M4 → M4.R          (M4.19 lead: M6 blocks, any time after M3.12)
+```
 
 ### M5 — Folders, scanning and formats
 
