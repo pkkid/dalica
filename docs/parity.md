@@ -28,9 +28,9 @@ same commit.
 | D. Viewing | 0 | 0 | 6 | 2 |
 | E. Output | 0 | 0 | 2 | 9 |
 | F. Data | 1 | 2 | 3 | 0 |
-| G. Preferences and system | 0 | 1 | 10 | 0 |
+| G. Preferences and system | 0 | 2 | 9 | 0 |
 | H. Menus | 0 | 0 | 7 | 0 |
-| **All** | 1 | 5 | 121 | 16 |
+| **All** | 1 | 6 | 120 | 16 |
 <!-- /parity:summary -->
 
 ## Top gaps
@@ -202,8 +202,8 @@ same commit.
 | PREF-KEYMAP | Keyboard contexts and the shortcut editor (search, record, conflicts, reset) | P1 | ⬜ | `menus-and-shortcuts.md` §2.0 |
 | SYS-UPDATES | Check for updates | — | ⬜ | deferred, not planned yet (2026-10-09) |
 | SYS-COMMANDS | Command registry, menu catalog, UI_COMMANDS | P0 | ⬜ | |
-| SYS-CONTROL | Control channel + widget registry + screenshots | P0 | ⬜ | |
-| SYS-HEADLESS | Headless snapshots | P0 | 🟡 | `crates/ui/src/headless.rs` (click, drag, hover, scroll, raw pointer, keys, text, settle, wait) and `crates/ui/src/perf.rs` (perf counters, `DALICA_PROFILE=1`); `dalica-cli snapshot`; missing: the control-protocol script format and `--headless` mode (M2.3, M2.4) |
+| SYS-CONTROL | Control channel + widget registry + screenshots | P0 | 🟡 | `crates/ui/src/control/` (every M2 method as pure handlers over the app and the headless driver: `engine.execute`, `engine.commands`, `ui.state`/`ui.set`, `ui.inspect`, `ui.widgets`, click/drag/hover/pointer/key/type/scroll/resize, `ui.screenshot` with §5.7 write roots, `ui.settle`/`ui.wait`, the file-picker stub); missing: the TCP transport, `auth` and `--headless` (M2.4), menu methods (M3), `batch`, `library.inspect`, `jobs.*`, `app.quit` |
+| SYS-HEADLESS | Headless snapshots | P0 | 🟡 | `crates/ui/src/headless.rs` (click, drag, hover, scroll, raw pointer, keys, text, settle, wait) and `crates/ui/src/perf.rs` (perf counters, `DALICA_PROFILE=1`); `dalica-cli snapshot`; missing: the control-protocol script format and `--headless` mode (M2.4) |
 | SYS-MCP | MCP server | P1 | ⬜ | |
 | SYS-I18N | Localisation | P2 | ⬜ | |
 | SYS-A11Y | Accessibility (AccessKit) | P2 | ⬜ | |

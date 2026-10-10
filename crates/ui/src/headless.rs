@@ -615,6 +615,18 @@ impl Driver {
         self.step();
     }
 
+    /// The window's size in pixels and its pixels per point.
+    pub fn size(&self) -> (u32, u32, f32) {
+        (self.width, self.height, self.pixels_per_point)
+    }
+
+    /// Changes the window's pixel size and its scale together (a screenshot at another scale);
+    /// the next frame lays out for them.
+    pub fn set_size(&mut self, width: u32, height: u32, pixels_per_point: f32) {
+        (self.width, self.height, self.pixels_per_point) = (width, height, pixels_per_point);
+        self.step();
+    }
+
     /// The last frame, painted.
     pub fn screenshot(&self) -> Result<Image, DriverError> {
         Ok(self.raster.render(&self.primitives, self.pixels_per_point, self.width, self.height, self.app.tokens().chrome)?)

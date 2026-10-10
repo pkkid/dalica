@@ -911,6 +911,7 @@ dependencies = [
  "dalica-ui-kit",
  "egui",
  "log",
+ "png",
  "serde",
  "serde_json",
  "tempfile",

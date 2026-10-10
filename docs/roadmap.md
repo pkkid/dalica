@@ -538,7 +538,7 @@ wave 5   M1.17 → M1.18 ui, app → M1.19 acceptance → M1.R milestone review
     counters `ui.inspect` reports (frame time, cells visited, textures uploaded, jobs requested).
   - done when: tests drag a scroll by widget id, type into a text field, and show cells visited per
     frame stay flat between a 200- and a 2 000-photo library.
-- ⬜ **M2.3 `ui`: control method handlers**
+- ✅ **M2.3 `ui`: control method handlers**
   - after: M2.1, M2.2
   - files: `crates/ui/src/control/**`, `crates/ui/src/lib.rs`
   - scope: the methods of M2's *In* as pure handlers over `App` + `Driver`/window input queue:
