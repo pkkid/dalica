@@ -1,6 +1,6 @@
 //! Dalica desktop app: the eframe window around `dalica_ui::App` (`docs/architecture.md` §10).
 //!
-//! Usage: `dalica [--library DIR | --demo] [--version | --help]`.
+//! Usage: `dalica [--library DIR | --demo | --demo-fresh] [--version | --help]`.
 
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
@@ -12,9 +12,10 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-const USAGE: &str = "usage: dalica [--library DIR | --demo] [--version | --help]
+const USAGE: &str = "usage: dalica [--library DIR | --demo | --demo-fresh] [--version | --help]
 
---demo opens a library of generated photos in the temp folder (made on first use, kept between runs).
+--demo opens a library of generated photos in the temp folder (made on first use, kept between runs);
+--demo-fresh a new one, removed when the window closes. Neither reads or changes your own library or settings.
 Otherwise the library is DIR, else $DALICA_HOME, else the platform data folder (Linux ~/.local/share/dalica/library,
 macOS ~/Library/Application Support/Dalica/Library, Windows %LOCALAPPDATA%\\Dalica\\Library).";
 
@@ -37,43 +38,80 @@ fn default_library(var: impl Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
     }
 }
 
-fn main() -> ExitCode {
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    let mut library = None;
-    let mut demo = false;
+/// Which library the command line chose.
+#[derive(Debug, PartialEq)]
+enum Choice {
+    /// `$DALICA_HOME` or the platform data folder.
+    Default,
+    Library(PathBuf),
+    /// The persistent demo library (`dalica_engine::demo::default_dir`).
+    Demo,
+    /// A new demo library, removed on exit.
+    DemoFresh,
+}
+
+/// What the command line asked for.
+#[derive(Debug, PartialEq)]
+enum Launch {
+    Version,
+    Help,
+    Open(Choice),
+}
+
+/// Reads the arguments; `Err` says what is wrong with them.
+fn parse(args: &[String]) -> Result<Launch, String> {
+    let mut choice = Choice::Default;
     let mut it = args.iter();
     while let Some(a) = it.next() {
-        match a.as_str() {
-            "--version" | "-V" => {
-                println!("dalica {}", env!("CARGO_PKG_VERSION"));
-                return ExitCode::SUCCESS;
-            }
-            "--help" | "-h" => {
-                println!("{USAGE}");
-                return ExitCode::SUCCESS;
-            }
-            "--demo" => demo = true,
-            "--library" => match it.next() {
-                Some(dir) => library = Some(PathBuf::from(dir)),
-                None => {
-                    eprintln!("dalica: --library needs a folder\n{USAGE}");
-                    return ExitCode::from(2);
-                }
-            },
-            other => {
-                eprintln!("dalica: unknown argument `{other}`\n{USAGE}");
-                return ExitCode::from(2);
-            }
+        let next = match a.as_str() {
+            "--version" | "-V" => return Ok(Launch::Version),
+            "--help" | "-h" => return Ok(Launch::Help),
+            "--demo" => Choice::Demo,
+            "--demo-fresh" => Choice::DemoFresh,
+            "--library" => Choice::Library(it.next().map(PathBuf::from).ok_or("--library needs a folder")?),
+            other => return Err(format!("unknown argument `{other}`")),
+        };
+        if choice != Choice::Default {
+            return Err("choose one of --library, --demo and --demo-fresh".into());
         }
+        choice = next;
     }
-    let source = match (demo, library) {
-        (true, Some(_)) => {
-            eprintln!("dalica: --demo and --library cannot be combined\n{USAGE}");
+    Ok(Launch::Open(choice))
+}
+
+fn main() -> ExitCode {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let choice = match parse(&args) {
+        Ok(Launch::Version) => {
+            println!("dalica {}", env!("CARGO_PKG_VERSION"));
+            return ExitCode::SUCCESS;
+        }
+        Ok(Launch::Help) => {
+            println!("{USAGE}");
+            return ExitCode::SUCCESS;
+        }
+        Ok(Launch::Open(choice)) => choice,
+        Err(why) => {
+            eprintln!("dalica: {why}\n{USAGE}");
             return ExitCode::from(2);
         }
-        (true, None) => window::Source::Demo(dalica_engine::demo::default_dir()),
-        (false, Some(dir)) => window::Source::Library(dir),
-        (false, None) => match default_library(|k| std::env::var_os(k)) {
+    };
+    let mut fresh = None;
+    let source = match choice {
+        Choice::Demo => window::Source::Demo(dalica_engine::demo::default_dir()),
+        Choice::DemoFresh => match dalica_engine::demo::fresh_dir() {
+            Ok(dir) => {
+                let source = window::Source::Demo(dir.path().to_path_buf());
+                fresh = Some(dir);
+                source
+            }
+            Err(e) => {
+                eprintln!("dalica: cannot make a fresh demo folder: {e}");
+                return ExitCode::FAILURE;
+            }
+        },
+        Choice::Library(dir) => window::Source::Library(dir),
+        Choice::Default => match default_library(|k| std::env::var_os(k)) {
             Some(dir) => window::Source::Library(dir),
             None => {
                 eprintln!("dalica: no library folder: pass --library DIR or set DALICA_HOME");
@@ -86,7 +124,7 @@ fn main() -> ExitCode {
         viewport: egui::ViewportBuilder::default().with_title("Dalica").with_inner_size(WINDOW_SIZE).with_min_inner_size(MIN_WINDOW_SIZE),
         ..Default::default()
     };
-    match eframe::run_native("Dalica", options, Box::new(move |cc| Ok(Box::new(window::Window::new(&cc.egui_ctx, source))))) {
+    let code = match eframe::run_native("Dalica", options, Box::new(move |cc| Ok(Box::new(window::Window::new(&cc.egui_ctx, source))))) {
         Ok(()) => {
             log::info!("dalica: closed");
             ExitCode::SUCCESS
@@ -95,6 +133,22 @@ fn main() -> ExitCode {
             log::error!("dalica: the window failed: {e}");
             ExitCode::FAILURE
         }
+    };
+    if let Some(dir) = fresh {
+        remove_fresh_demo(dir);
+    }
+    code
+}
+
+/// Removes a fresh demo's folder once the window, and the session in it, are gone. On its own
+/// thread: this one was the UI thread, which the `fs` guard keeps off the disk.
+fn remove_fresh_demo(dir: dalica_fs::TempDir) {
+    let path = dir.path().to_path_buf();
+    let removed = std::thread::Builder::new().name("dalica-cleanup".into()).spawn(move || dir.close()).map(|t| t.join());
+    match removed {
+        Ok(Ok(Ok(()))) => log::info!("dalica: removed the fresh demo in {}", path.display()),
+        Ok(Ok(Err(e))) => log::warn!("dalica: the fresh demo in {} was not removed: {e}", path.display()),
+        _ => log::warn!("dalica: the fresh demo in {} was not removed", path.display()),
     }
 }
 
@@ -123,5 +177,33 @@ mod tests {
             assert_eq!(default_library(env(&[("HOME", "/home/a")])), Some(PathBuf::from("/home/a/.local/share/dalica/library")));
             assert_eq!(default_library(env(&[("HOME", "/home/a"), ("XDG_DATA_HOME", "/data")])), Some(PathBuf::from("/data/dalica/library")));
         }
+    }
+
+    fn parsed(args: &[&str]) -> Result<Launch, String> {
+        parse(&args.iter().map(|a| a.to_string()).collect::<Vec<_>>())
+    }
+
+    #[test]
+    fn the_command_line_chooses_one_library() {
+        assert_eq!(parsed(&[]), Ok(Launch::Open(Choice::Default)));
+        assert_eq!(parsed(&["--demo"]), Ok(Launch::Open(Choice::Demo)));
+        assert_eq!(parsed(&["--demo-fresh"]), Ok(Launch::Open(Choice::DemoFresh)));
+        assert_eq!(parsed(&["--library", "/lib"]), Ok(Launch::Open(Choice::Library(PathBuf::from("/lib")))));
+        assert_eq!(parsed(&["--demo", "--version"]), Ok(Launch::Version));
+        assert_eq!(parsed(&["-h"]), Ok(Launch::Help));
+        for bad in [&["--library"][..], &["--demo", "--demo-fresh"], &["--demo-fresh", "--library", "/lib"], &["--demo", "--demo"], &["--colour"]] {
+            assert!(parsed(bad).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn a_fresh_demo_is_removed_after_the_window() {
+        let dir = dalica_engine::demo::fresh_dir().unwrap();
+        let path = dir.path().to_path_buf();
+        std::fs::create_dir_all(dalica_engine::demo::library_dir(&path)).unwrap();
+        // Called from the thread that was the UI thread: the removal still happens, on another one.
+        let _ui = dalica_fs::mark_ui_thread();
+        remove_fresh_demo(dir);
+        assert!(!path.exists());
     }
 }

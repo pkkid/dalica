@@ -565,7 +565,7 @@ wave 5   M1.17 → M1.18 ui, app → M1.19 acceptance → M1.R milestone review
     connection; the 17th connection is refused; a group-readable token file is refused; no flag
     binds a non-loopback address.
   - done when: all pass on Linux, macOS and Windows CI.
-- ⬜ **M2.6 Demo library per the spec**
+- ✅ **M2.6 Demo library per the spec**
   - after: M1.R
   - files: `crates/engine/src/demo.rs`, `apps/dalica-cli/src/main.rs`, `apps/dalica/src/main.rs`, `apps/dalica/src/window.rs`, `tests/acceptance/m1.md`, `docs/control-protocol.md`
   - scope: per decision 2 of the M1.R review: deterministic demo ids (folders numbered in tree

@@ -24,7 +24,8 @@ impl Picker for RfdPicker {
 /// Which library the window opens.
 pub enum Source {
     Library(PathBuf),
-    /// The demo library in this folder, made on first use (`dalica_engine::demo`).
+    /// The demo library in this folder (the persistent one or a fresh one), made on first use
+    /// (`dalica_engine::demo`).
     Demo(PathBuf),
 }
 
