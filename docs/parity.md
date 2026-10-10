@@ -22,7 +22,7 @@ same commit.
 <!-- parity:summary -->
 | Section | ✅ | 🟡 | ⬜ | 🚫 |
 |---|---:|---:|---:|---:|
-| A. Library view | 0 | 0 | 31 | 1 |
+| A. Library view | 0 | 0 | 32 | 1 |
 | B. Organizing | 0 | 0 | 42 | 0 |
 | C. Editing | 0 | 0 | 21 | 4 |
 | D. Viewing | 0 | 0 | 6 | 2 |
@@ -30,7 +30,7 @@ same commit.
 | F. Data | 1 | 2 | 3 | 0 |
 | G. Preferences and system | 0 | 0 | 11 | 0 |
 | H. Menus | 0 | 0 | 7 | 0 |
-| **All** | 1 | 2 | 123 | 16 |
+| **All** | 1 | 2 | 124 | 16 |
 <!-- /parity:summary -->
 
 ## Top gaps
@@ -56,7 +56,8 @@ same commit.
 | LIB-LT-GRID | Justified square-cell grid, aspect-preserving thumbnails, shadow | P0 | ⬜ | |
 | LIB-LT-CAPTION | Thumbnail captions (None/Filename/Caption/Tags/Resolution/Date) | P1 | ⬜ | |
 | LIB-LT-BADGES | Badges: edited, geotag, held, star; video sprockets + duration | P0 | ⬜ | ref 02 §7.4 |
-| LIB-LT-SCROLLBAR | Section-jump scrollbar (⇑ ▲ ▼ ⇓) | P2 | ⬜ | ref 02 §7.1 |
+| LIB-LT-SCROLLBAR | Section-jump scrollbar (⇑ ▲ ▼ ⇓) with the speed-control thumb and position marker | P0 | ⬜ | ref 02 §7.1 |
+| LIB-LT-INSTANT | Thumbnails never blank while scrolling: colour sketch, packed size ladder, upscaled fallback | P0 | ⬜ | ref 05 db3 tiers |
 | LIB-LT-HIDDEN | Hidden pictures shown translucent when enabled; small pictures toggle | P1 | ⬜ | |
 | LIB-SEL | Selection: click, Ctrl, Shift, rubber band, scoped to one section | P0 | ⬜ | ref 02 §7.5 |
 | LIB-SEL-KEYS | Keyboard navigation and selection keys | P0 | ⬜ | |

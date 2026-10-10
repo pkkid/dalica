@@ -207,7 +207,9 @@ them. Every widget below registers an automation id and an AccessKit role.
   - **videos:** a film-sprocket strip along the image's left edge and a duration pill "1:23" at its
     bottom-left.
   Badges are always shown, as in the reference behaviour.
-- Placeholder `gray 38` until the texture arrives; the outline and badges still draw. A missing or
+- Until the right size arrives a cell draws the next smaller cached size scaled up, or the photo's
+  colour sketch (`architecture.md` §6); the placeholder `gray 38` shows only for a photo not yet
+  scanned. The outline and badges always draw. A missing or
   unreadable file shows a `caution` "!" centred and a tooltip with the reason.
 
 ### Section header (one per folder/album section on the light table)

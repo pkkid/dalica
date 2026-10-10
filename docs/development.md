@@ -125,6 +125,7 @@ cargo run --release -p dalica -- --control 7990 --demo
 | Scenario | Budget |
 |---|---|
 | UI frame time, light table with 100 k photos, scrolling | ≤ 8 ms (p95) |
+| Grey placeholder cells while scrolling a scanned 100 k-photo library at top thumb speed | 0 |
 | First thumbnails visible after adding a folder of 1,000 JPEGs | ≤ 1 s |
 | Initial scan throughput (embedded thumbnails available) | ≥ 500 photos/s on SSD |
 | Open a 24 MP JPEG in the edit view (screen-size preview) | ≤ 150 ms |
