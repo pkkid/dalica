@@ -374,7 +374,7 @@ built. Built by a single agent; the waves show what could run in parallel later.
     shows at most one write per folder per second; delete the index → `rebuild` → the same stars
     (`data-model.md` §10.1 for stars); fault injection during a write leaves the old or the new
     sidecar (§10.5).
-- ⬜ **M1.11 `scan`: one-shot scan and verification**
+- ✅ **M1.11 `scan`: one-shot scan and verification**
   - after: M1.3, M1.5, M1.7, M1.8
   - files: `crates/scan/**`
   - scope: walk the watched roots through `fs`; skip rules (dot files and folders,

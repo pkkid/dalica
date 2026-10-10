@@ -810,6 +810,15 @@ version = "0.0.0"
 [[package]]
 name = "dalica-scan"
 version = "0.0.0"
+dependencies = [
+ "dalica-core",
+ "dalica-fs",
+ "dalica-image",
+ "dalica-library",
+ "dalica-scenes",
+ "dalica-sidecar",
+ "tempfile",
+]
 
 [[package]]
 name = "dalica-scenes"
