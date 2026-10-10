@@ -7,15 +7,15 @@ and git.
 
 ## Current
 
-- **Milestone:** M1, star a photo end to end. M0 is done (M0.R closed 2026-10-09). M1.1–M1.15 and
-  M1.20 are merged (2026-10-10): the whole data path from a folder to a starred photo in its sidecar
-  works headlessly, and `cargo xtask accept M1 --headless` passes. **Checkpoint M1.A (#27) is with the
-  maintainer**; the UI tasks (M1.16–M1.19) wait for it.
+- **Milestone:** M1, star a photo end to end. M1.1–M1.15 and M1.20 are merged; the data path works
+  headlessly and `cargo xtask accept M1 --headless` passes. The maintainer confirmed the M1.A review
+  on 2026-10-10 (all decisions, all recommendations; dev log). Next: M1.16–M1.19 (the UI) through
+  the full board loop, then M1.R.
 - **Gates:** `cargo xtask ci` runs fmt, clippy, tests, `layers`, `deps`, `assets`, `names`, `parity`,
   `docs` and the roadmap parse; `cargo xtask accept M0` shows 6/6 gates bite. Layer rule 4 now scans
   code after a test module (it used to stop at the first `#[cfg(test)]`).
-- **Board:** `cargo xtask tasks` drives issues #1–#32 on project 3 (adopted 2026-10-09 with no
-  duplicate). M0 and M1 are still built by one agent (`AGENTS.md` §4).
+- **Board:** `cargo xtask tasks` drives issues #1–#35 on project 3. M1 is built by one agent; from
+  M1.16 it uses `claim` / `submit` / `merge` (`AGENTS.md` §4).
 - **M0 review (2026-10-09):** the maintainer confirmed all 27 decisions listed in the review (dev
   log), including the dependency exceptions and eframe without GL or default fonts, and approved the
   edits: M1.2 gains `fs::append`, new M1.20 (app log file), M1.15/M1.16/M1.18/M1.19 adjusted,
@@ -41,3 +41,10 @@ and git.
 | 2026-10-10 | maintainer desktop | `cargo test -p dalica-engine --test panic_hunt -- --ignored` (10 commands × 300 cases + 64 sequences) | 0.3 s |
 | 2026-10-10 | maintainer desktop | `cargo xtask ci`, warm, test step | 7–16 s (≈ 5 s of it generating 1 000 scan-test photos) |
 | 2026-10-10 | GitHub ubuntu / macos / windows | CI job `cargo xtask ci`, warm (run 38029115337, M1.14) | 1 min 51 s / 2 min 17 s / 2 min 31 s |
+| 2026-10-10 | maintainer desktop, fresh clone of 193a89b, target dirs on NVMe | cold build `cargo build --workspace --all-targets` | 27.7 s |
+| 2026-10-10 | same | `cargo xtask ci` cold / warm | 95.2 s / 20.6 s |
+| 2026-10-10 | same | `cargo test --workspace` (warm) | 16.5 s, 285 tests (+2 ignored: `panic_hunt`) |
+| 2026-10-10 | same | `cargo xtask accept M0` / `accept M1 --headless` | 2.9 s / 1.7 s |
+| 2026-10-10 | same | target dir after a cold build / after ci; free disk | 3.3 GB / 5.4 GB; 124 GB |
+| 2026-10-10 | GitHub ubuntu / macos / windows | CI job `cargo xtask ci` (run 38029673539, 193a89b) | 1 min 55 s / 2 min 15 s / 3 min 25 s |
+| 2026-10-10 | — | parity summary | 1 ✅ / 2 🟡 / 123 ⬜ / 16 🚫 (142 rows, 10 commands) |

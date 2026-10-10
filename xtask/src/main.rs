@@ -44,10 +44,17 @@ pub const PLANNED: &[(&str, &str)] = &[
     ("stats", "not scheduled yet"),
 ];
 
-/// The workspace root: the parent of this crate's manifest directory.
+/// The workspace root: the parent of this crate's manifest directory, as cargo reports it when it
+/// runs `xtask` (`cargo xtask …` sets `CARGO_MANIFEST_DIR` at run time). The compile-time value is
+/// only a fallback: with a target dir shared by two checkouts, cargo may reuse a binary built in the
+/// other checkout, and a baked-in root would make `ci` check the wrong tree.
 pub fn workspace_root() -> PathBuf {
-    let here = Path::new(env!("CARGO_MANIFEST_DIR"));
-    here.parent().map(Path::to_path_buf).unwrap_or_else(|| here.to_path_buf())
+    root_from(std::env::var_os("CARGO_MANIFEST_DIR"), env!("CARGO_MANIFEST_DIR"))
+}
+
+fn root_from(at_run_time: Option<std::ffi::OsString>, compiled: &str) -> PathBuf {
+    let here = at_run_time.filter(|v| !v.is_empty()).map_or_else(|| PathBuf::from(compiled), PathBuf::from);
+    here.parent().map(Path::to_path_buf).unwrap_or(here)
 }
 
 fn main() -> ExitCode {
@@ -87,5 +94,18 @@ fn main() -> ExitCode {
             eprintln!("{e}");
             ExitCode::FAILURE
         }
+    }
+}
+
+#[cfg(test)]
+mod root_tests {
+    use super::*;
+
+    #[test]
+    fn the_run_time_manifest_dir_wins_over_the_compiled_one() {
+        let compiled = "/checkout-a/xtask";
+        assert_eq!(root_from(Some("/checkout-b/xtask".into()), compiled), PathBuf::from("/checkout-b"));
+        assert_eq!(root_from(None, compiled), PathBuf::from("/checkout-a"));
+        assert_eq!(root_from(Some("".into()), compiled), PathBuf::from("/checkout-a"));
     }
 }

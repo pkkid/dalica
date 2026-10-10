@@ -10,8 +10,19 @@ state (ready, claimed, in review) is on the task board ([`task-board.md`](task-b
 
 ## Where we stand
 
-*Honest assessment, 2026-10-09. Agents: read this before picking work. Update it only with
+*Honest assessment, 2026-10-10. Agents: read this before picking work. Update it only with
 measured facts, dated.*
+
+*2026-10-10 (M1.A).* The whole data path of M1 works headlessly on all three OSes: a folder of
+photos is scanned by content (bounded; links and special files handled), its sidecars are read,
+stars change through `Session::execute` with one undo step each, every change is journalled and
+written back to `.dalica.json` (debounced, atomic, unknown keys kept), and deleting the index and
+rebuilding gives the same stars. `cargo xtask accept M1 --headless` passes in 1.7 s; `panic_hunt`
+fuzzes all 10 commands without a panic; the workspace has 285 tests, `cargo xtask ci` takes 95 s
+cold and 21 s warm on a fresh clone. The tests found and fixed five real bugs (a job pool losing
+work, scans hanging on FIFOs, sidecar floats drifting, sub-pixel rectangles off by one, a board sync
+failure). There is no UI yet beyond M0's empty window: M1.16–M1.19 add the widgets, the headless
+driver and the plain library window. Next: M1.16, through the full board loop for the first time.
 
 *2026-10-09.* M0 is done pending its review. The workspace has the 18 crates of `architecture.md` §2
 as stubs plus the two apps, and every gate bites: `cargo xtask ci` (fmt, clippy, tests, layers, deps,
@@ -270,7 +281,10 @@ M0.1 ─┬─► M0.2 ─┬─► M0.10 (task board) ────────�
 
 M1 is deliberately the thickest milestone: every crate on the data path gets built for real once.
 Review gate **M1.A (checkpoint A)** after M1.15 checks the whole path headlessly before any UI is
-built. Built by a single agent; the waves show what could run in parallel later.
+built. Built by a single agent; the waves show what could run in parallel later. After M1.A the
+agent uses the full board loop (`claim`, `submit`, `merge`). The first fingerprints of the
+repository (M1.16's widget gallery, M1.18/M1.19's star badges) are new baselines: the lead sends
+their PNGs to the maintainer, who approves them before they merge (M1.A decision, 2026-10-10).
 
 - ✅ **M1.1 `core`**
   - after: M0.R
@@ -295,7 +309,7 @@ built. Built by a single agent; the waves show what could run in parallel later.
 - ✅ **M1.3 `fs`: lock and walks**
   - after: M1.2
   - files: `crates/fs/src/lock.rs`, `crates/fs/src/walk.rs`, `crates/fs/tests/**`
-  - scope: library lock file (`fs4`); bounded directory walk (depth 32, 1 000 000 entries,
+  - scope: library lock file (std `File::try_lock`; `fs4` was dropped); bounded directory walk (depth 32, 1 000 000 entries,
     symlink-loop detection, caller-supplied skip rules, sorted entries).
   - done when: a second process (spawned test helper) gets `Err(Locked)` while the first holds
     the lock and succeeds after it exits; a symlink loop and a 40-deep tree end with a bounded
@@ -315,7 +329,9 @@ built. Built by a single agent; the waves show what could run in parallel later.
   - files: `crates/scenes/**`
   - scope: seeded procedural images (gradients, horizons, soft blobs) at any size; JPEG (via
     `jpeg-encoder`) with a minimal EXIF block (orientation 1–8, DateTimeOriginal, make/model,
-    optional embedded thumbnail) and PNG; `demo_library(dir, folders, photos)`.
+    optional embedded thumbnail) and PNG; `demo_library(dir, folders, photos)`. (Built with the `image`
+    crate's JPEG encoder, since `jpeg-encoder`'s licence includes IJG; `demo_library` returns the files
+    and the caller writes them.)
   - done when: `cargo test -p dalica-scenes` shows the same seed gives identical bytes, all 8
     orientations are written, and the files decode with the `image` crate.
 - ✅ **M1.5 `image`: sniffing, EXIF and orientation**
@@ -427,13 +443,16 @@ built. Built by a single agent; the waves show what could run in parallel later.
   - done when: the maintainer closes the review issue.
 - ⬜ **M1.16 `ui-kit`: tokens, widgets, rasterizer**
   - after: M1.1
-  - files: `crates/ui-kit/**`, `assets/fonts/**`, `ATTRIBUTION.md`
+  - files: `crates/ui-kit/**`, `assets/fonts/**`, `ATTRIBUTION.md`, `crates/scenes/src/fingerprint.rs`
   - scope: M1's tokens (`chrome`, `canvas`, `grid_bg`, `cell`, `cell_selected`, text greys,
     `accent`, `icon`), the widget registry, a button, an icon button, the star icon and badge; Inter
     (Regular, SemiBold) in `assets/fonts/` with `OFL-Inter.txt` and its `ATTRIBUTION.md` row,
     installed by `ui-kit` (egui's default fonts are off); the CPU rasterizer: first check whether
     `egui_software_backend` (0.0.3 on 2026-10-09) supports egui 0.36 and matches egui's blending,
-    adopt it if so, else write our own (decision and reason in the commit body).
+    adopt it if so, else write our own (decision and reason in the commit body). Move the image
+    fingerprint helper (8 × 8 grid, per-channel mean and deviation, tolerance, actual/expected PNGs
+    under `target/test-output/`) from `crates/image/tests/decode.rs` to `dalica-scenes`, for
+    `image`, `ui-kit` and `ui` tests.
   - done when: `cargo test -p dalica-ui-kit` renders a widget gallery to identical pixels twice,
     matches its fingerprint, and the token contrast test passes (text on `chrome` ≥ 4.5:1).
 - ⬜ **M1.17 `ui`: headless driver and snapshots**
@@ -451,15 +470,18 @@ built. Built by a single agent; the waves show what could run in parallel later.
     selects; Ctrl+8 (through the keymap) and a star button; the star badge; File → Add Folder…
     through the `Picker` trait (`rfd` with only its `xdg-portal` backend in the app, since gtk3
     links C; scripted in tests); the UI-thread guard on. The window keeps OS decorations until M3's
-    title bar.
+    title bar. The app opens the `Session` off the UI thread, then marks the UI thread and calls
+    `Session::poll()` every frame (scans and writes run on the engine's worker threads).
   - done when: a headless test opens a `scenes` library, clicks a thumbnail by widget id, presses
     Ctrl+8, and the photo is starred in the engine and its badge shows in the screenshot
     fingerprint; no `fs` call happens on the UI thread during the test.
 - ⬜ **M1.19 Demo library and `accept M1`**
   - after: M1.18
-  - files: `crates/engine/src/demo.rs`, `tests/acceptance/m1.rs`, `tests/acceptance/m1.md`
-  - scope: `--demo` builds a throwaway `scenes` library; the full acceptance test; the manual
-    check written down; metrics in the dev log (the lead copies them to `status.md`).
+  - files: `crates/engine/src/demo.rs`, `tests/acceptance/m1.rs`, `tests/acceptance/m1.md`, `apps/dalica/src/main.rs`, `apps/dalica-cli/src/main.rs`
+  - scope: `--demo` (in `dalica` and `dalica-cli`) builds a throwaway `scenes` library, written
+    through `fs` (`scenes` itself never writes); the full acceptance test, reusing the steps of
+    `m1_headless.rs` and adding the snapshot; the manual check written down; metrics in the dev log
+    (the lead copies them to `status.md`).
   - done when: `cargo xtask accept M1` passes everything in M1's *Done when*.
 - ⬜ **M1.R Milestone review**
   - after: M1.19
@@ -504,7 +526,8 @@ wave 5   M1.17 → M1.18 ui, app → M1.19 acceptance → M1.R milestone review
   toolbar (controls present, inactive ones disabled); tree pane and splitter (resizable,
   persisted); status line; bottom area (tray box, star and rotate buttons, size slider, pane
   toggles, action buttons with More… overflow); side-pane frame; window state persisted;
-  responsiveness rules (§11); F11; `ui.menu.tree` / `ui.menu.invoke`.
+  responsiveness rules (§11); F11; `ui.menu.tree` / `ui.menu.invoke`; per-platform default keys
+  (Redo is Cmd+Shift+Z on macOS).
 - **Out:** real tree and grid behaviour (M4, M5), pane contents, rooms.
 - **Done when:** `cargo xtask accept M3`: geometry tests read every region's rect from the widget
   registry at 1400 × 900 and 900 × 600 and match `ui-layout.md` §2 and §11; token contrast tests;
@@ -562,7 +585,8 @@ wave 5   M1.17 → M1.18 ui, app → M1.19 acceptance → M1.R milestone review
   verification; external creates, deletes, renames and modifications; folders moved outside Dalica
   keep their data; offline volumes (dimmed, cached thumbnails, queued edits written on return);
   skip rules; the disk thumbnail cache (2 GiB, pruning); the activity indicator with its job list
-  and Cancel; scan progress on the status line.
+  and Cancel; scan progress on the status line; stale `.dalica-tmp-*` cleanup (`security.md` §5.8);
+  writes relative to a held folder handle (`security.md` §5.6, through `rustix`; approved at M1.A).
 - **Out:** new formats (M8), legacy sidecars (M33), face finding (M29).
 - **Done when:** `cargo xtask accept M7`: temp-dir scenarios (add, remove, rename while running;
   the verification pass finds everything; a volume "unplugged" by renaming its root shows offline,
@@ -576,7 +600,7 @@ wave 5   M1.17 → M1.18 ui, app → M1.19 acceptance → M1.R milestone review
 - **In:** TIFF, WebP, GIF, BMP, JPEG XL, PSD composite, RAW embedded previews (our own IFD walker),
   CMYK and 16-bit sources, ICC through `moxcms`, decode limits on every path, "!" tiles with
   reasons, HEIF behind the `heif` feature, View → Use Color Management, `cargo xtask corpus` with
-  floors, a fuzz target per parser.
+  floors, a fuzz target per parser, TIFF-strip EXIF thumbnails.
 - **Out:** writing metadata (M10), video (M34), AVIF (no decoder available).
 - **Done when:** `cargo xtask accept M8`: decode tests per format from `scenes` at several depths
   and profiles; orientation 1–8 per container; malformed-input property tests never panic; corpus
@@ -671,7 +695,8 @@ wave 5   M1.17 → M1.18 ui, app → M1.19 acceptance → M1.R milestone review
 ### M17 — Albums
 
 - **In:** user albums (New Album, properties, add via tray, context menu or drop on an album row,
-  remove, manual order with position keys, Sort Album By, cover, delete); Starred Photos and
+  remove, manual order with position keys (re-keying an album when a key would pass 512 bytes,
+  `data-model.md` §3.2), Sort Album By, cover, delete); Starred Photos and
   Recently Updated; the Albums group and album sections; the Album menu variant.
 - **Done when:** `cargo xtask accept M17`: `data-model.md` §10.12 (cross-folder order survives a
   rebuild); undo for every album command.

@@ -188,7 +188,11 @@ cargo xtask tasks submit <id>
 ```
 
 - **Portable paths:** CI runs on Windows too. Paths in messages use `/` (as git prints them); tests
-  build expected paths with `Path::join`, never by hard-coding a separator.
+  build expected paths with `Path::join`, never by hard-coding a separator. Tests that create files
+  leave out names Windows forbids (`" * ? < > | :`, trailing dots or spaces) on Windows.
+- **Watch `main`'s CI.** Local `cargo xtask ci` does not cover Windows or macOS: after a push to
+  `main`, watch its run (`gh run watch <id> --exit-status`) before the next push (`tasks merge`
+  already waits for it).
 - **Nested cargo in tests is fine** (cargo releases the build lock while tests run); a test that
   copies the tree and builds it uses its own target directory (see `tests/acceptance/m0.rs`).
 
@@ -246,7 +250,8 @@ And:
 - **Your own resources** (from `cargo xtask tasks env agent-<n>`): worktree
   `../dalica.worktrees/agent-<n>`, `CARGO_TARGET_DIR=<main checkout>/target/agent-<n>` (keep it
   warm between tasks), `CARGO_BUILD_JOBS=3`, control port `18000 + 10·n` (never 7990), scratch
-  directory `<scratchpad>/agent-<n>/`. Never `rm -rf` shared paths.
+  directory `<scratchpad>/agent-<n>/`. Never `rm -rf` shared paths. Never share a
+  `CARGO_TARGET_DIR` between two checkouts: cargo can reuse a binary or test built in the other one.
 - **Keep every `Cargo.toml` valid at all times:** the `crates/*` glob means one broken manifest
   breaks everyone. Write new or rewritten manifests to a temp file outside `crates/`, then move
   them into place.

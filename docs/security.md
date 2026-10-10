@@ -438,7 +438,8 @@ embedded, never loaded by a referenced name. **Planned (M1, M33).**
   out of the source or destination folder. **Planned (M19).**
 - Where the platform allows, the write path holds a directory handle and works relative to it,
   so a component swapped for a link after validation cannot redirect the write. Canonicalization
-  alone is insufficient because links can change after the check. **Planned (M1).**
+  alone is insufficient because links can change after the check. **Planned (M7, through `rustix`;
+  until then the write path compares the file's identity before and after opening it).**
 
 ### 5.7 Trash, never delete
 

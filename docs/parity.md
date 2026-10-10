@@ -185,7 +185,7 @@ same commit.
 
 | Id | Feature | Tier | Status | Evidence / notes |
 |---|---|---|---|---|
-| DATA-SIDECAR | `.dalica.json` read/write per `data-model.md` §3 | P0 | 🟡 | `star` only (v1); unknown keys kept, debounced atomic writes, damaged files set aside: `crates/sidecar/src/lib.rs`, `crates/store/tests/sidecars.rs`; other fields arrive with their features; a pre-existing file does not get the `dalica.version` stamp yet |
+| DATA-SIDECAR | `.dalica.json` read/write per `data-model.md` §3 | P0 | 🟡 | `star` only (v1); unknown keys kept, debounced atomic writes, damaged files set aside: `crates/sidecar/src/lib.rs`, `crates/store/tests/sidecars.rs`; other fields arrive with their features |
 | DATA-INDEX | Library index journal + snapshot, lock, rebuild | P0 | ✅ | `cmd:library.rebuild`; `crates/store/src/journal.rs`, `crates/fs/src/lock.rs`; measured by `tests/acceptance/m1_headless.rs` |
 | DATA-META | XMP/IPTC/EXIF write-back with merge | P0 | ⬜ | |
 | DATA-ORIGINALS | `.dalica-originals` backups | P0 | ⬜ | |

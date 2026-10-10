@@ -109,6 +109,13 @@ cargo run --release -p dalica -- --control 7990 --demo
 - Parallel agents use their own port in 18000–19999.
 - Headless (no window, works with the display asleep and in CI):
   `dalica-cli snapshot --demo --script tour.jsonl -o out.png --size 1400x900`.
+- CLI scripts (M1.15): `dalica-cli run --library DIR script.jsonl` (or `-` for stdin) runs one
+  `{"command": id, "params": {...}}` per line and prints one JSON result per line;
+  `dalica-cli run --library DIR --cmd ID --params '{…}'` runs one command;
+  `dalica-cli inspect --library DIR` summarises a library. Exit codes: 0 success, 1 a command
+  failed, 2 a bad argument or script line, 3 the library could not be opened (for example, it is
+  open in another process). `cargo xtask accept M<n> --headless` runs `tests/acceptance/m<n>_headless.rs`
+  when the milestone has one.
 - MCP: `claude mcp add dalica -- "$PWD/target/release/dalica-cli" mcp --demo` (headless) or
   `… mcp --connect 127.0.0.1:7990` (the running app).
 - Never send OS-level synthetic input.

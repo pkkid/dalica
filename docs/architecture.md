@@ -248,6 +248,13 @@ decodes images, touches the file system, waits on a lock held by a worker, or bl
 - **`fs` UI-thread guard:** the owning thread is marked at startup; in debug and test builds every
   `fs` call made from it returns `Err(OnUiThread)`, so a violation fails tests instead of stuttering
   in production.
+- **The session's I/O worker** (built in M1.13): once `Session::open` (called off the UI thread)
+  has taken the lock and loaded the index, every disk write the session makes goes to one worker
+  thread: journal appends, debounced sidecar writes (fed with folder states, not the library),
+  snapshots, and the library directory's own files (`folders.json`, `settings.json`). Scans run on
+  threads of their own. The owner applies finished background work with `Session::poll()` (each UI
+  frame) or `Session::wait_idle()` (CLI, tests); `Session::flush()` blocks until every pending write
+  has landed.
 - **Jobs:** long work (scan, import, export, save, collage, batch edit, metadata writes) runs as an
   engine job on a worker with an `AtomicBool` cancel and progress reports. A job gets owned inputs
   when it is submitted and returns `Op`s or files; the owner applies the result as one undo step.

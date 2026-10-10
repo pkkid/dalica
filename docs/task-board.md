@@ -77,6 +77,10 @@ public repository and the project).
   the `mod` lines of its `lib.rs`) without listing them. Edits there are small and surgical
   (re-read the file right before editing); the lead resolves conflicts in them at merge,
   re-resolving `Cargo.lock` rather than hand-merging it.
+- **Small primitives** (M1.A decision): when a task needs one small, tested addition to a lower crate
+  it depends on (a function, a field, an enum variant) and the alternative is a workaround, it may
+  make it outside its `files`, says so on its issue and in the commit body, and keeps the edit
+  additive. The lead checks at merge that no two tasks in review touched the same file this way.
 - **done when** never writes `docs/status.md` (metrics go in the dev log and the pull request; the
   lead copies them) and never needs the maintainer mid-task (approvals, pushes and manual looks
   belong to the gates or the lead).
