@@ -1,7 +1,8 @@
 //! Dalica's headless command line (`docs/architecture.md` §3, §7): `commands` lists the command
 //! registry as JSON, `run` executes a JSON-lines script on a library, `inspect` summarises one,
 //! `snapshot` screenshots the app headlessly. `--demo` in place of `--library DIR` uses the demo
-//! library (made on first use under the temp folder).
+//! library (made on first use under the temp folder and kept); `--demo-fresh` a new one that is
+//! removed on exit.
 
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
@@ -26,21 +27,29 @@ commands:
                                              {\"settle\": true}
   --version                                  print the version
 
---demo may replace --library DIR in run, inspect and snapshot: the demo library of generated photos.
+--demo may replace --library DIR in run, inspect and snapshot: the demo library of generated photos in
+the temp folder, made on first use and kept between runs. --demo-fresh: a new demo library, removed on exit.
 
 exit codes: 0 success, 1 a command failed, 2 a bad argument or script line, 3 the library could not be
 opened (for example, another Dalica process has it open)";
 
 fn main() -> ExitCode {
-    let mut args: Vec<String> = std::env::args().skip(1).collect();
-    if let Some(i) = args.iter().position(|a| a == "--demo") {
-        match demo_library() {
-            Ok(dir) => {
-                args.splice(i..=i, ["--library".to_string(), dir.to_string_lossy().into_owned()]);
-            }
-            Err(code) => return code,
-        }
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let (args, fresh) = match demo_args(args, &dalica_engine::demo::default_dir()) {
+        Ok(v) => v,
+        Err(code) => return code,
+    };
+    let code = dispatch(&args);
+    // The command's session is gone: a fresh demo's folder can go too.
+    if let Some(dir) = fresh
+        && let Err(e) = dir.close()
+    {
+        eprintln!("dalica-cli: the fresh demo folder was not removed: {e}");
     }
+    code
+}
+
+fn dispatch(args: &[String]) -> ExitCode {
     match args.first().map(String::as_str) {
         Some("--version" | "-V") => println!("dalica-cli {}", env!("CARGO_PKG_VERSION")),
         Some("--help" | "-h" | "help") => println!("{USAGE}"),
@@ -83,12 +92,36 @@ fn commands() -> String {
     serde_json::to_string_pretty(&list).unwrap_or_else(|_| "[]".into())
 }
 
-/// Makes (first time) and scans the demo library; returns its library folder.
-fn demo_library() -> Result<std::path::PathBuf, ExitCode> {
-    let dir = dalica_engine::demo::default_dir();
+/// Replaces `--demo` (the persistent demo in `persistent`) or `--demo-fresh` (a new one) with
+/// `--library <its library>`, after making and scanning it. A fresh demo's folder is returned, for
+/// `main` to remove once the command is done. Neither flag: `args` as they are.
+fn demo_args(mut args: Vec<String>, persistent: &std::path::Path) -> Result<(Vec<String>, Option<dalica_fs::TempDir>), ExitCode> {
+    let demo = args.iter().position(|a| a == "--demo");
+    let fresh = args.iter().position(|a| a == "--demo-fresh");
+    let i = match (demo, fresh) {
+        (None, None) => return Ok((args, None)),
+        (Some(_), Some(_)) => return Err(usage_error("--demo and --demo-fresh cannot be combined")),
+        _ if args.iter().any(|a| a == "--library") => return Err(usage_error("--demo cannot be combined with --library")),
+        (Some(i), None) | (None, Some(i)) => i,
+    };
+    let temp = match fresh {
+        Some(_) => match dalica_engine::demo::fresh_dir() {
+            Ok(t) => Some(t),
+            Err(e) => {
+                eprintln!("dalica-cli: cannot make a fresh demo folder: {e}");
+                return Err(ExitCode::from(3));
+            }
+        },
+        None => None,
+    };
+    let dir = temp.as_ref().map_or(persistent, |t| t.path()).to_path_buf();
     let opened = dalica_engine::demo::open(&dir, std::sync::Arc::new(dalica_core::SystemClock));
     match opened.map(|mut s| s.flush()) {
-        Ok(Ok(())) => Ok(dalica_engine::demo::library_dir(&dir)),
+        Ok(Ok(())) => {
+            let library = dalica_engine::demo::library_dir(&dir).to_string_lossy().into_owned();
+            args.splice(i..=i, ["--library".to_string(), library]);
+            Ok((args, temp))
+        }
         Ok(Err(e)) => {
             eprintln!("dalica-cli: the demo library was not saved: {e}");
             Err(ExitCode::from(3))
@@ -98,6 +131,11 @@ fn demo_library() -> Result<std::path::PathBuf, ExitCode> {
             Err(ExitCode::from(3))
         }
     }
+}
+
+fn usage_error(msg: &str) -> ExitCode {
+    eprintln!("dalica-cli: {msg}\n\n{USAGE}");
+    ExitCode::from(2)
 }
 
 /// The value after `--library`.
@@ -113,5 +151,61 @@ pub(crate) fn open(dir: &std::path::Path) -> Result<dalica_engine::Session, Exit
             eprintln!("dalica-cli: {e}");
             Err(ExitCode::from(3))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn strings(args: &[&str]) -> Vec<String> {
+        args.iter().map(|a| a.to_string()).collect()
+    }
+
+    fn photos(library: &str) -> Vec<(u64, String)> {
+        let mut s = open(std::path::Path::new(library)).unwrap();
+        let q = s.execute("library.query", &serde_json::json!({})).unwrap();
+        q["photos"].as_array().unwrap().iter().map(|p| (p["id"].as_u64().unwrap(), p["name"].as_str().unwrap().to_string())).collect()
+    }
+
+    #[test]
+    fn demo_fresh_is_a_new_library_removed_with_its_folder() {
+        let unused = tempfile::tempdir().unwrap();
+        let (args, fresh) = demo_args(strings(&["inspect", "--demo-fresh"]), unused.path()).unwrap();
+        let fresh = fresh.unwrap();
+        assert_eq!(args[..2], strings(&["inspect", "--library"]));
+        assert_eq!(std::path::Path::new(&args[2]), dalica_engine::demo::library_dir(fresh.path()));
+        let first = photos(&args[2]);
+        assert_eq!(first.len(), dalica_engine::demo::PHOTOS);
+        // A second fresh demo is another folder with the same ids for the same photos.
+        let (again, other) = demo_args(strings(&["inspect", "--demo-fresh"]), unused.path()).unwrap();
+        assert_ne!(again[2], args[2]);
+        assert_eq!(photos(&again[2]), first);
+        let path = fresh.path().to_path_buf();
+        fresh.close().unwrap();
+        drop(other);
+        assert!(!path.exists());
+        assert!(std::fs::read_dir(unused.path()).unwrap().next().is_none(), "the persistent demo was not touched");
+    }
+
+    #[test]
+    fn demo_is_the_persistent_library() {
+        let dir = tempfile::tempdir().unwrap();
+        let (args, fresh) = demo_args(strings(&["run", "--demo", "-"]), dir.path()).unwrap();
+        assert!(fresh.is_none());
+        assert_eq!(args, strings(&["run", "--library", &dalica_engine::demo::library_dir(dir.path()).to_string_lossy(), "-"]));
+        let (args, fresh) = demo_args(strings(&["inspect", "--library", "x"]), dir.path()).unwrap();
+        assert_eq!((args, fresh.is_none()), (strings(&["inspect", "--library", "x"]), true));
+    }
+
+    #[test]
+    fn demo_flags_do_not_combine() {
+        let dir = tempfile::tempdir().unwrap();
+        for bad in
+            [&["inspect", "--demo", "--demo-fresh"][..], &["inspect", "--demo", "--library", "x"], &["inspect", "--library", "x", "--demo-fresh"]]
+        {
+            assert!(demo_args(strings(bad), dir.path()).is_err(), "{bad:?}");
+        }
+        assert!(std::fs::read_dir(dir.path()).unwrap().next().is_none());
     }
 }

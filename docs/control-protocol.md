@@ -37,8 +37,8 @@ dalica --control 18042 --control-token-file ~/.cache/dalica/agent-a.token \
 | `--automation-read-root DIR` (repeatable) | `DALICA_AUTOMATION_READ_ROOT` (`:`/`;`-separated) | Folders automation may add to the library or read from (§5.7). |
 | `--automation-write-root DIR` (repeatable) | `DALICA_AUTOMATION_WRITE_ROOT` | Folders automation may write new files into (§5.7). |
 | `--automation-allow-external` | — | Allow commands with effects outside Dalica (§5.6). Off by default. |
-| `--demo` | — | Procedural demo library (`dalica-scenes`) in `dalica-demo` in the OS temporary folder: made on first use and **reused** by later runs (so a star survives a restart; delete the folder to start over), with **isolated settings**: nothing in the user's settings, library index or window state is read or changed. |
-| `--demo-fresh` (planned, M2.6) | — | Like `--demo`, but in a fresh temporary folder deleted on exit: a clean slate for every automation run. |
+| `--demo` | — | Procedural demo library (`dalica-scenes`) in `dalica-demo` in the OS temporary folder: made on first use and **reused** by later runs (so a star survives a restart; delete the folder to start over), with **isolated settings**: the library index, `folders.json` and `settings.json` live in the demo folder, so nothing in the user's settings, library index or window state is read or changed. Ids are deterministic (§5.4). |
+| `--demo-fresh` | — | Like `--demo`, but in a new folder `dalica-demo-<pid>-<n>` in the OS temporary folder (private to the user on Unix), removed with everything in it when the app or the CLI command exits: a clean slate for every automation run. A killed process leaves the folder behind. |
 
 - If the port is already in use, Dalica prints the reason to standard error and **exits with status
   2** instead of starting without a control channel, so a script can never end up driving another
@@ -188,8 +188,13 @@ Input replies do not wait for work the input started (thumbnails, a scan, an exp
   life of the index and change only on a rebuild. Paths are the durable identity: every listing
   carries both. **AlbumId** and **PersonId** are the short hex strings stored in sidecars
   (`a91c0e`, `p7f3a2c`), stable across rebuilds.
-- In the `--demo` library, ids are **deterministic**: folders are numbered from 1 in tree order
-  (flat view, date sort) and photos from 1 in light-table order, so scripts can name them.
+- In the `--demo` and `--demo-fresh` libraries, ids are **deterministic**: folders are numbered
+  from 1 in tree order (flat view, date sort: folder 1 is the newest, `2026-06-06 Garden`) and
+  photos from 1 in light-table order (each folder's photos oldest first: photo 1 is
+  `IMG_0041.jpg`), so scripts can name them, and two demo libraries list the same ids for the same
+  paths under the demo folder. A persistent demo whose ids are out of order (made by an older
+  version) has its index set aside as `library.unordered-<time>` and is indexed again on its next
+  start; its stars come back from the sidecars.
 - A **section id** names a light-table section: `folder:<FolderId>`, `album:<AlbumId>`,
   `album:starred`, `album:recent`, `album:search` (the temporary search-results album),
   `person:<PersonId>`, `person:unnamed`.
@@ -569,7 +574,7 @@ recipe operation and parameter names of `data-model.md` §3.1 and `editing.md` (
 | Toolbar (M3) | `button:toolbar.import`, `button:toolbar.newAlbum`, `button:tree.flat`, `button:tree.tree`, `button:toolbar.viewOptions`, `button:filter.starred`, `button:filter.faces`, `button:filter.videos`, `button:filter.geotagged`, `slider:age`, `field:search`, `button:search.clear`, `indicator:activity` |
 | Room tabs (M11+) | `tab:room.library`, `tab:room.import`, `tab:room.collage`, …; `button:room.close.<room>` |
 | Library tree (M4) | `tree:group:albums` · `people` · `projects` · `folders` · `other` · `hidden` (the group header), `tree:folder:<FolderId>`, `tree:album:<AlbumId>` (also `tree:album:starred`, `tree:album:recent`, `tree:album:search`), `tree:person:<PersonId>` (M13), `tree:disclosure:<FolderId>` (tree mode), `splitter:tree` |
-| Light table (M4) | `section:<section id>` (the header block, e.g. `section:folder:12`), its parts `section:folder:12/icon`, `/title`, `/description`, `/play`, `/collage`, `/selectStarred`, `/save`, `/export`; `thumb:<PhotoId>`; `lightTable` (empty space: rubber band, section menu); `banner:search` and `button:search.showAll` (M9) |
+| Light table (M4) | `section:<section id>` (the header block, e.g. `section:folder:12`), its parts `section:folder:12/icon`, `/title`, `/description`, `/play`, `/collage`, `/selectStarred`, `/save`, `/export`; `thumb:<PhotoId>` and its star badge `thumb:<PhotoId>/star`; `lightTable` (empty space: rubber band, section menu); `banner:search` and `button:search.showAll` (M9) |
 | Scrollbar (M4) | `scroll:prevSection`, `scroll:up`, `scroll:track`, `scroll:thumb`, `scroll:down`, `scroll:nextSection` |
 | Status line (M4) | `text:status`, `indicator:unsaved`, `indicator:temporarySession` |
 | Photo Tray (M4) | `tray` (the box), `tray:token`, `tray:item:<PhotoId>`, `button:tray.hold`, `button:tray.clear`, `button:tray.addToAlbum` |
@@ -627,8 +632,9 @@ cargo xtask snapshot tour.jsonl                                         # same, 
   and the showcase rely on.
 - **Isolated:** a snapshot session never reads or writes the user's settings, window state or
   library. `--library DIR` opens that library **read-only** (no sidecar, metadata or index writes;
-  a locked library is opened as a read-only copy of its snapshot). `--demo` writes its procedural
-  photos into a temporary folder deleted on exit.
+  a locked library is opened as a read-only copy of its snapshot). `--demo` uses the persistent demo
+  library (§1), so a script's stars stay in it; `--demo-fresh` writes the procedural photos into a
+  new temporary folder removed on exit, the clean slate a deterministic script wants.
 - **Paths:** the person running `snapshot` chose its output, so the working directory and the
   directory of `-o` are write roots of a snapshot session, and relative `path` params resolve against
   the working directory (the other rules of §5.7 still apply). `dalica-cli run --connect` likewise
