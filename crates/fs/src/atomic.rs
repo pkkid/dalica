@@ -374,7 +374,10 @@ mod tests {
     #[test]
     fn names_with_awkward_characters_and_great_length_work() {
         let dir = tempfile::tempdir().unwrap();
-        for name in ["a]b.json", "say \"hi\".json", "a;b=c.json", "Lisboa à noite 東京 🌊.json", &"é".repeat(127)] {
+        let long = "é".repeat(127);
+        // Windows forbids `"` in file names.
+        let names = ["a]b.json", "say \"hi\".json", "a;b=c.json", "Lisboa à noite 東京 🌊.json", &long];
+        for name in names.into_iter().filter(|n| cfg!(unix) || !n.contains('"')) {
             let p = dir.path().join(name);
             replace(&p, name.as_bytes(), Expect::Absent).unwrap();
             assert_eq!(read(&p, LIMIT).unwrap().unwrap().bytes, name.as_bytes());
