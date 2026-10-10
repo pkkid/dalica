@@ -110,8 +110,34 @@ impl Board<'_> {
     /// The first open review task the maintainer owns that is listed before `task` in `roadmap.md`.
     /// Every task after an open review waits until the maintainer closes its issue (or it is ✅),
     /// whatever its milestone: an open `M2.R` holds back every M3 task and everything after it.
+    /// A task pulled forward into milestone k (`pulled: M<k>`) waits only for reviews before M<k>.
     fn open_gate_before<'r>(&'r self, snap: &Snapshot, task: &Task) -> Option<&'r Task> {
-        self.roadmap.tasks.iter().take_while(|t| t.id != task.id).find(|t| t.is_gate() && t.owner == Owner::Maintainer && !snap.done(t))
+        self.roadmap
+            .tasks
+            .iter()
+            .take_while(|t| t.id != task.id)
+            .filter(|t| task.pulled.is_none_or(|k| t.milestone < k))
+            .find(|t| t.is_gate() && t.owner == Owner::Maintainer && !snap.done(t))
+    }
+
+    /// The review that opens milestone `number`: the previous milestone's `M<n-1>.R` (`None` for the
+    /// first milestone, which is always open).
+    fn opening_review(&self, number: u32) -> Option<String> {
+        let prev = self.roadmap.milestones.iter().map(|m| m.number).filter(|&n| n < number).max()?;
+        Some(format!("M{prev}.R"))
+    }
+
+    /// A milestone is open once the maintainer has closed the previous milestone's review (or it
+    /// is ✅); the first is always open (maintainer rule, 2026-10-10: no milestone's tasks on the
+    /// board before the review of the one before it).
+    pub fn milestone_open(&self, snap: &Snapshot, number: u32) -> bool {
+        self.opening_review(number).is_none_or(|id| self.roadmap.task(&id).is_some_and(|r| snap.done(r)))
+    }
+
+    /// Whether `task` is on the board, i.e. has (or gets) an issue: its milestone is open, or it is
+    /// pulled forward into an open milestone. Other blocks are planning text in `roadmap.md`.
+    pub fn listed(&self, snap: &Snapshot, task: &Task) -> bool {
+        self.milestone_open(snap, task.milestone) || task.pulled.is_some_and(|k| self.milestone_open(snap, k))
     }
 
     /// Review tasks are stops only the maintainer merges or closes; the board tooling never does.
@@ -128,7 +154,7 @@ impl Board<'_> {
     /// Where `roadmap.md`, the issues and `main` disagree; `sync` refuses to touch the board then.
     pub fn disagreements(&self, snap: &Snapshot) -> Vec<String> {
         let mut out = Vec::new();
-        for task in &self.roadmap.tasks {
+        for task in self.roadmap.tasks.iter().filter(|t| self.listed(snap, t)) {
             let Some(issue) = snap.issue(task) else {
                 if task.done && !task.is_gate() && !snap.merged.contains(&task.id) {
                     out.push(format!("{} is ✅ in roadmap.md but no `{}:` commit is on main", task.id, task.id));
@@ -173,10 +199,13 @@ impl Board<'_> {
         }
         self.check_milestones(&snap)?;
         let mut report = SyncReport { notes: self.orphan_notes(&snap), ..SyncReport::default() };
+        report.notes.extend(self.unopened_notes(&snap));
+        let listed: Vec<&Task> = self.roadmap.tasks.iter().filter(|t| self.listed(&snap, t)).collect();
         let mut numbers = snap.issue_numbers(self.roadmap);
+        numbers.retain(|id, _| listed.iter().any(|t| &t.id == id));
         let mut ordered_items: Vec<String> = Vec::new();
 
-        for task in &self.roadmap.tasks {
+        for task in listed {
             let section = body::render(task, &numbers);
             let milestone = self.roadmap.milestone(task.milestone).map(|m| m.title());
             let label = if task.is_gate() { LABEL_GATE } else { LABEL_TASK };
@@ -277,6 +306,31 @@ impl Board<'_> {
         Ok(report)
     }
 
+    /// What sync leaves off the board: one line per milestone that is not open yet, and each open
+    /// issue that already exists for one of its tasks (left as it is: never edited, moved or closed).
+    fn unopened_notes(&self, snap: &Snapshot) -> Vec<String> {
+        let mut out = Vec::new();
+        for m in &self.roadmap.milestones {
+            let waiting: Vec<&Task> = self.roadmap.tasks.iter().filter(|t| t.milestone == m.number && !self.listed(snap, t)).collect();
+            if waiting.is_empty() {
+                continue;
+            }
+            let review = self.opening_review(m.number).unwrap_or_default();
+            out.push(format!("M{} is not open yet: {} task block(s) get issues when the maintainer closes {review}", m.number, waiting.len()));
+            for task in waiting {
+                if let Some(issue) = snap
+                    .issues
+                    .iter()
+                    .filter(|i| i.open && (i.title == task.id || i.title.starts_with(&format!("{} ", task.id))))
+                    .min_by_key(|i| i.number)
+                {
+                    out.push(format!("issue #{} `{}` is open but M{} is not open yet; left as it is", issue.number, issue.title, m.number));
+                }
+            }
+        }
+        out
+    }
+
     /// Open issues titled with a task id that `roadmap.md` no longer has (a dropped block, such as a
     /// removed mid-milestone review). Sync never edits, moves or closes them: a review's issue is
     /// the maintainer's to close, and a dropped task's issue is closed by whoever dropped it.
@@ -308,6 +362,7 @@ impl Board<'_> {
             .roadmap
             .tasks
             .iter()
+            .filter(|t| self.listed(snap, t))
             .filter_map(|t| {
                 let title = self.roadmap.milestone(t.milestone)?.title();
                 let placed = snap.issue(t).is_some_and(|i| i.milestone.as_deref() == Some(title.as_str()));
@@ -346,6 +401,10 @@ impl Board<'_> {
         }
         if snap.done(task) {
             return Some(format!("{} is done", task.id));
+        }
+        if !self.listed(snap, task) {
+            let review = self.opening_review(task.milestone).unwrap_or_default();
+            return Some(format!("{} is in M{}, which is not open yet (it opens when the maintainer closes {review})", task.id, task.milestone));
         }
         let status = snap.status(task);
         if status != Some(Status::Ready) {
@@ -578,6 +637,10 @@ impl Board<'_> {
             let done = tasks.iter().filter(|t| snap.done(t)).count();
             out.push_str(&format!("{} ({done}/{} done)\n", milestone.title(), tasks.len()));
             for task in tasks {
+                if !self.listed(&snap, task) {
+                    out.push_str(&format!("  {:<6} {:<12} {}\n", task.id, "planned", task.plain_title()));
+                    continue;
+                }
                 let issue = snap.issue(task);
                 let item = issue.and_then(|i| snap.item(i.number));
                 let status = item.and_then(|i| i.status).map_or("—", Status::name);

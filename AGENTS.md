@@ -142,9 +142,14 @@ L0       core · fs                    (only `fs` writes to disk)
 ## 4. How work is organised: the task board (`docs/task-board.md`)
 
 - **The plan** is the task blocks in `docs/roadmap.md` (`after`, `owner`, `files`, `scope`,
-  `done when`). **The live state** is the GitHub board: one issue per task, all on
-  [project 3](https://github.com/users/pkkid/projects/3), Status `Todo · Ready · In Progress ·
-  In Review · Blocked · Done`. **Done** means squash-merged into `main` with the task's ✅ ticked.
+  `done when`). **The live state** is the GitHub board: one issue per task of an open milestone,
+  all on [project 3](https://github.com/users/pkkid/projects/3), Status `Todo · Ready · In
+  Progress · In Review · Blocked · Done`. **Done** means squash-merged into `main` with the task's
+  ✅ ticked.
+- **A milestone's tasks become issues when the previous milestone's review closes** (maintainer
+  rule, 2026-10-10): until then its blocks are planning text in `roadmap.md`, and `tasks sync`
+  creates nothing for them. To bring one task forward, its block gets `pulled: M<k>`: only that
+  task gets an issue, during milestone k's run (`docs/task-board.md` §2–§3).
 - Touch the board **only through `cargo xtask tasks`**; never edit labels, statuses or fields by hand.
 - **Workers** loop:
   1. `cargo xtask tasks next --agent agent-<n>`: pick the first offered task.

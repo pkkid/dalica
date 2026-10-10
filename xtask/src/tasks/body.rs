@@ -28,9 +28,10 @@ pub fn render(task: &Task, issues: &BTreeMap<String, u64>) -> String {
     } else {
         format!("Claim with `cargo xtask tasks claim {} --agent <name>`.", task.id)
     };
+    let pulled = task.pulled.map_or_else(String::new, |k| format!("- **pulled:** M{k} (its run may take this task early)\n"));
     format!(
         "{START}\n**Task {id}** · [roadmap.md line {line}]({BLOB_URL}/docs/roadmap.md#L{line}) · managed by `cargo xtask tasks sync` (edit the roadmap, not this section)\n\n\
-         - **after:** {after}\n- **owner:** {owner}\n- **files:** {files}\n- **scope:** {scope}\n- **done when:** {done}\n\n\
+         - **after:** {after}\n- **owner:** {owner}\n{pulled}- **files:** {files}\n- **scope:** {scope}\n- **done when:** {done}\n\n\
          Workflow: [docs/task-board.md]({BLOB_URL}/docs/task-board.md). {next}\n{END}\n",
         id = task.id,
         line = task.line,
@@ -66,6 +67,7 @@ mod tests {
             done: false,
             after: vec!["M0.3".into(), "M0.4".into()],
             owner: Owner::Agent,
+            pulled: None,
             files: vec!["xtask/src/ci.rs".into()],
             files_text: "`xtask/src/ci.rs`".into(),
             scope: "s".into(),
@@ -82,6 +84,13 @@ mod tests {
             body,
             "<!-- dalica:task -->\n**Task M0.5** · [roadmap.md line 171](https://github.com/pkkid/dalica/blob/main/docs/roadmap.md#L171) · managed by `cargo xtask tasks sync` (edit the roadmap, not this section)\n\n- **after:** M0.3 (#4), M0.4 (#5)\n- **owner:** agent\n- **files:** `xtask/src/ci.rs`\n- **scope:** s\n- **done when:** d\n\nWorkflow: [docs/task-board.md](https://github.com/pkkid/dalica/blob/main/docs/task-board.md). Claim with `cargo xtask tasks claim M0.5 --agent <name>`.\n<!-- /dalica:task -->\n"
         );
+    }
+
+    #[test]
+    fn a_pulled_task_says_which_run_may_take_it() {
+        let pulled = Task { id: "M1.5".into(), milestone: 1, pulled: Some(0), ..task() };
+        let body = render(&pulled, &BTreeMap::new());
+        assert!(body.contains("- **owner:** agent\n- **pulled:** M0 (its run may take this task early)\n- **files:**"), "{body}");
     }
 
     #[test]

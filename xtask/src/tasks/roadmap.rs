@@ -51,6 +51,9 @@ pub struct Task {
     pub done: bool,
     pub after: Vec<String>,
     pub owner: Owner,
+    /// `pulled: M<k>`: the earlier milestone whose run may take this task early. Its issue is
+    /// created once milestone k is open, before the task's own milestone opens.
+    pub pulled: Option<u32>,
     /// Paths or globs without backticks; empty for `—`.
     pub files: Vec<String>,
     /// The `files` value as written (backticks kept), `—` when empty.
@@ -238,8 +241,8 @@ fn parse_block(lines: &[&str], start: usize, milestones: &[Milestone], earlier: 
     }
     let get = |key: &str| fields.iter().find(|(k, _, _)| k == key).map(|(_, v, l)| (v.clone(), *l));
     for (key, _, line) in &fields {
-        if !matches!(key.as_str(), "after" | "owner" | "files" | "scope" | "done when") {
-            return Err(err(*line, format!("{id}: unknown field `{key}` (after, owner, files, scope, done when)")));
+        if !matches!(key.as_str(), "after" | "owner" | "pulled" | "files" | "scope" | "done when") {
+            return Err(err(*line, format!("{id}: unknown field `{key}` (after, owner, pulled, files, scope, done when)")));
         }
     }
     let require = |key: &str| get(key).ok_or_else(|| err(lineno, format!("{id}: missing field `{key}`")));
@@ -277,6 +280,29 @@ fn parse_block(lines: &[&str], start: usize, milestones: &[Milestone], earlier: 
         ));
     }
 
+    // `pulled: M<k>` brings one task forward into an earlier milestone's run (maintainer rule,
+    // 2026-10-10: only the pulled items get issues, not the whole future milestone).
+    let pulled = match get("pulled") {
+        None => None,
+        Some((v, l)) => {
+            let k = v
+                .strip_prefix('M')
+                .filter(|n| !n.is_empty() && n.len() <= 3 && n.chars().all(|c| c.is_ascii_digit()))
+                .and_then(|n| n.parse::<u32>().ok())
+                .ok_or_else(|| err(l, format!("{id}: `pulled` must be one milestone such as `M3`, found `{v}`")))?;
+            if is_gate_id(id) {
+                return Err(err(l, format!("{id} is a review task: a review is never pulled forward")));
+            }
+            if k >= milestone {
+                return Err(err(l, format!("{id}: `pulled: M{k}` must name an earlier milestone than M{milestone}")));
+            }
+            if !milestones.iter().any(|m| m.number == k) {
+                return Err(err(l, format!("{id}: `pulled` names M{k}, which is not in the Overview table")));
+            }
+            Some(k)
+        }
+    };
+
     let mut after = Vec::new();
     if !is_none(&after_text) {
         let known: BTreeSet<&str> = earlier.iter().map(|t| t.id.as_str()).collect();
@@ -310,6 +336,7 @@ fn parse_block(lines: &[&str], start: usize, milestones: &[Milestone], earlier: 
         done,
         after,
         owner,
+        pulled,
         files,
         files_text: if is_none(&files_text) { "—".into() } else { files_text },
         scope,
@@ -379,6 +406,35 @@ mod tests {
         assert_eq!(t.issue_title(), "M0.1 Skeleton `ws`");
         assert_eq!(t.branch(), "task/M0.1-skeleton-ws");
         assert!(r.tasks[1].done && r.tasks[1].is_gate());
+        assert_eq!(t.pulled, None);
+    }
+
+    #[test]
+    fn pulled_names_one_earlier_milestone() {
+        let block =
+            |id: &str, pulled: &str| format!("- ⬜ **{id} X**\n  - after: —\n  - pulled: {pulled}\n  - files: —\n  - scope: s\n  - done when: d\n");
+        let r = parse(&doc(&block("M1.1", "M0"))).unwrap();
+        assert_eq!(r.tasks[0].pulled, Some(0));
+        let cases = [
+            (block("M1.1", "0"), "must be one milestone"),
+            (block("M1.1", "M0, M1"), "must be one milestone"),
+            (block("M1.1", "Mx"), "must be one milestone"),
+            (block("M1.1", ""), "must be one milestone"),
+            (block("M1.1", "M1"), "earlier milestone"),
+            (block("M0.1", "M1"), "earlier milestone"),
+            (block("M1.1", "M99"), "earlier milestone"),
+        ];
+        for (text, needle) in &cases {
+            let e = parse(&doc(text)).unwrap_err();
+            assert_eq!(e.line, 8, "{e}");
+            assert!(e.message.contains(needle), "{e}");
+        }
+        // A milestone number below the task's that the Overview does not list, and a review.
+        let gap = "| Phase | # | Milestone | One-line goal | Status |\n|---|---|---|---|---|\n| F | M0 | Skeleton | x | ⬜ |\n| | M2 | Shell | y | ⬜ |\n\n";
+        let e = parse(&format!("{gap}{}", block("M2.1", "M1"))).unwrap_err();
+        assert!(e.message.contains("not in the Overview"), "{e}");
+        let review = "- ⬜ **M1.R X**\n  - after: —\n  - owner: maintainer\n  - pulled: M0\n  - files: —\n  - scope: s\n  - done when: d\n";
+        assert!(parse(&doc(review)).unwrap_err().message.contains("never pulled forward"));
     }
 
     #[test]

@@ -6,7 +6,7 @@ use std::sync::{Arc, Barrier, Mutex};
 use super::board::{Board, ci_marker};
 use super::fake::{FakeClock, FakeGit, FakeGitHub};
 use super::git::{ChangeKind, PathChange};
-use super::github::{GitHub, MergeState, MilestoneInfo, Status};
+use super::github::{GitHub, MergeState, MilestoneInfo, NewIssue, Status};
 use super::lock::Lock;
 use super::roadmap::{self, Roadmap};
 
@@ -96,6 +96,10 @@ impl World {
         self.gh.lock().issues.iter().find(|i| i.title.starts_with(&format!("{id} "))).unwrap().number
     }
 
+    fn has_issue(&self, id: &str) -> bool {
+        self.gh.lock().issues.iter().any(|i| i.title.starts_with(&format!("{id} ")))
+    }
+
     fn status_of(&self, id: &str) -> Option<Status> {
         self.gh.item_status(self.issue_of(id))
     }
@@ -110,7 +114,10 @@ fn sync_twice_makes_no_second_change() {
     let w = World::new(ROADMAP);
     let first = w.board().sync().unwrap();
     assert!(!first.changes.is_empty());
-    assert_eq!(w.gh.lock().issues.len(), 6);
+    // M1 is not open while M0.R is: M1.1 stays planning text, with no issue.
+    assert_eq!(w.gh.lock().issues.len(), 5);
+    assert!(!w.has_issue("M1.1"));
+    assert!(first.notes.iter().any(|n| n == "M1 is not open yet: 1 task block(s) get issues when the maintainer closes M0.R"), "{:?}", first.notes);
     assert_eq!(w.status_of("M0.1"), Some(Status::Ready));
     assert_eq!(w.status_of("M0.2"), Some(Status::Todo));
     let gate = w.gh.lock().issues.iter().find(|i| i.title == "M0.R Review").cloned().unwrap();
@@ -133,24 +140,43 @@ fn sync_of_the_real_roadmap_is_idempotent_and_ordered() {
     w.git.merged.lock().unwrap().extend(done);
     // A ✅ gate's issue was closed by the maintainer: sync with those gates still ⬜ to create
     // their issues, close them, then sync the real text. They are unticked in the parsed roadmap,
-    // not the text: the parser refuses an open mid-milestone review such as M1.A.
+    // not the text: the parser refuses an open mid-milestone review such as M1.A. Each closed
+    // review opens the next milestone, so this repeats until no ✅ gate's issue is open.
     let gates: Vec<String> = w.roadmap.tasks.iter().filter(|t| t.done && t.is_gate()).map(|t| t.id.clone()).collect();
     let mut open = roadmap::parse(&text).unwrap();
     for t in open.tasks.iter_mut().filter(|t| gates.contains(&t.id)) {
         t.done = false;
     }
     w.roadmap = open;
-    w.board().sync().unwrap();
-    for g in &gates {
-        w.gh.close_issue(w.issue_of(g), "approved").unwrap();
+    loop {
+        w.board().sync().unwrap();
+        let open_gates: Vec<u64> = gates
+            .iter()
+            .filter(|g| w.has_issue(g))
+            .map(|g| w.issue_of(g))
+            .filter(|n| w.gh.lock().issues.iter().any(|i| i.number == *n && i.open))
+            .collect();
+        if open_gates.is_empty() {
+            break;
+        }
+        for n in open_gates {
+            w.gh.close_issue(n, "approved").unwrap();
+        }
     }
     w.roadmap = roadmap::parse(&text).unwrap();
     w.board().sync().unwrap();
+    // Every milestone up to the first open review has issues; the ones after it do not, except
+    // tasks pulled forward into an open milestone.
+    let first_open_review = w.roadmap.tasks.iter().find(|t| t.is_gate() && !t.done).unwrap().clone();
+    for t in &w.roadmap.tasks {
+        let open = t.milestone <= first_open_review.milestone || t.pulled.is_some_and(|k| k <= first_open_review.milestone);
+        assert_eq!(w.has_issue(&t.id), open, "{} (first open review {})", t.id, first_open_review.id);
+    }
     // Shuffle the board, then sync puts it back in roadmap order.
     w.gh.lock().items.reverse();
     w.board().sync().unwrap();
     let order: Vec<u64> = w.gh.lock().items.iter().map(|i| i.issue).collect();
-    let expected: Vec<u64> = w.roadmap.tasks.iter().map(|t| w.issue_of(&t.id)).collect();
+    let expected: Vec<u64> = w.roadmap.tasks.iter().filter(|t| w.has_issue(&t.id)).map(|t| w.issue_of(&t.id)).collect();
     assert_eq!(order, expected);
     let before = w.gh.mutations();
     assert!(w.board().sync().unwrap().changes.is_empty());
@@ -167,7 +193,7 @@ fn sync_adopts_existing_issues_without_duplicates() {
     w.gh.lock().issues.iter_mut().find(|i| i.number == n).unwrap().body = format!("{body}\nhuman note\n");
     let report = w.board().sync().unwrap();
     assert!(report.changes.is_empty(), "{:?}", report.changes);
-    assert_eq!(w.gh.lock().issues.len(), 6);
+    assert_eq!(w.gh.lock().issues.len(), 5);
 }
 
 #[test]
@@ -213,8 +239,11 @@ fn next_respects_dependencies_overlap_and_gates() {
 
     w.finish("M0.1");
     w.board().sync().unwrap();
-    // M1.1 is Ready by dependencies but waits for the open M0.R gate.
-    assert_eq!(w.status_of("M1.1"), Some(Status::Ready));
+    // M1.1's dependency is done, but M1 opens only when the maintainer closes M0.R: no issue yet.
+    assert!(!w.has_issue("M1.1"));
+    assert!(
+        w.board().claim("M1.1", "agent-2").unwrap_err().contains("M1.1 is in M1, which is not open yet (it opens when the maintainer closes M0.R)")
+    );
     assert_eq!(w.next_ids(), ["M0.2", "M0.3", "M0.4"]);
 
     // M0.3 and M0.4 share `xtask/src/deps.rs`; claiming one hides the other. `docs/roadmap.md` is shared.
@@ -224,7 +253,7 @@ fn next_respects_dependencies_overlap_and_gates() {
     assert!(err.contains("overlaps"), "{err}");
     assert!(w.board().claim("M0.R", "agent-3").unwrap_err().contains("maintainer"));
 
-    // The gate closes → M1.1 becomes claimable.
+    // The gate closes → M1.1 gets its issue and becomes claimable.
     w.finish("M0.2");
     w.finish("M0.3");
     w.board().sync().unwrap();
@@ -233,6 +262,7 @@ fn next_respects_dependencies_overlap_and_gates() {
     w.gh.close_issue(w.issue_of("M0.R"), "approved").unwrap();
     w.board().sync().unwrap();
     assert_eq!(w.status_of("M0.R"), Some(Status::Done));
+    assert_eq!(w.status_of("M1.1"), Some(Status::Ready));
     assert_eq!(w.next_ids(), ["M0.4", "M1.1"]);
 }
 
@@ -351,19 +381,20 @@ const REVIEWS: &str = "\
 fn an_open_review_holds_back_everything_listed_after_it() {
     let mut w = World::new(REVIEWS);
     w.board().sync().unwrap();
-    // M1.1, M1.2 and M2.1 are Ready by dependencies, but all come after the open M0.R;
-    // M0.1, listed before it, is not held back.
-    assert_eq!(w.status_of("M1.1"), Some(Status::Ready));
-    assert_eq!(w.status_of("M2.1"), Some(Status::Ready));
+    // M1.1, M1.2 and M2.1 have no dependencies, but all come after the open M0.R: their
+    // milestones are not open, so they have no issue yet. M0.1, listed before it, is not held back.
+    for id in ["M1.1", "M1.2", "M1.R", "M2.1"] {
+        assert!(!w.has_issue(id), "{id}");
+    }
     assert_eq!(w.next_ids(), ["M0.1"]);
     let ids = |w: &World, agent| w.board().next(Some(agent)).unwrap().into_iter().map(|t| t.id.clone()).collect::<Vec<_>>();
     assert_eq!(ids(&w, "agent-1"), ["M0.1"]);
     // `claim` uses the same check as `next`, for the next milestone and the one after it.
-    for id in ["M1.1", "M2.1"] {
+    for (id, review) in [("M1.1", "M0.R"), ("M2.1", "M1.R")] {
         let err = w.board().claim(id, "agent-2").unwrap_err();
-        assert!(err.contains(&format!("{id} comes after M0.R")), "{err}");
+        assert!(err.contains(&format!("not open yet (it opens when the maintainer closes {review})")), "{err}");
     }
-    assert!(w.board().claim("M1.2", "agent-1").unwrap_err().contains("comes after M0.R"));
+    assert!(w.board().claim("M1.2", "agent-1").unwrap_err().contains("not open yet"));
     // Nobody claims the review itself, not even the lead.
     assert!(w.board().claim("M0.R", "agent-1").unwrap_err().contains("belongs to the maintainer"));
 
@@ -373,10 +404,11 @@ fn an_open_review_holds_back_everything_listed_after_it() {
     assert_eq!(w.status_of("M0.R"), Some(Status::Ready));
     assert!(w.next_ids().is_empty(), "{:?}", w.next_ids());
 
-    // The maintainer closes M0.R: the tasks up to the next open review become claimable.
+    // The maintainer closes M0.R: M1 opens, its tasks get issues and become claimable; M2 waits.
     w.gh.close_issue(w.issue_of("M0.R"), "approved").unwrap();
     w.board().sync().unwrap();
     assert_eq!(w.status_of("M0.R"), Some(Status::Done));
+    assert!(w.has_issue("M1.R") && !w.has_issue("M2.1"));
     assert_eq!(w.next_ids(), ["M1.1", "M1.2"]);
     // `owner: lead` tasks are still the lead's alone.
     assert_eq!(ids(&w, "agent-3"), ["M1.1"]);
@@ -385,12 +417,12 @@ fn an_open_review_holds_back_everything_listed_after_it() {
     w.board().claim("M1.2", "agent-1").unwrap();
     assert_eq!(w.status_of("M1.2"), Some(Status::InProgress));
 
-    // M2.1 waits for M1.R next, even once M1.R is Ready; closing it frees M2.1.
+    // M2.1 waits for M1.R next, even once M1.R is Ready; closing it opens M2 and frees M2.1.
     w.finish("M1.1");
     w.board().sync().unwrap();
     assert_eq!(w.status_of("M1.R"), Some(Status::Ready));
-    assert!(!w.next_ids().contains(&"M2.1".to_string()));
-    assert!(w.board().claim("M2.1", "agent-2").unwrap_err().contains("comes after M1.R"));
+    assert!(!w.has_issue("M2.1"));
+    assert!(w.board().claim("M2.1", "agent-2").unwrap_err().contains("not open yet"));
     w.gh.close_issue(w.issue_of("M1.R"), "approved").unwrap();
     w.board().sync().unwrap();
     assert_eq!(w.next_ids(), ["M2.1"]);
@@ -448,14 +480,18 @@ fn sync_never_closes_an_open_review_issue() {
     w.board().sync().unwrap();
     assert_eq!(w.status_of("M0.R"), Some(Status::Done));
     let open: Vec<u64> = w.gh.lock().issues.iter().filter(|i| i.open).map(|i| i.number).collect();
-    assert_eq!(open.len(), 4, "only M0.1 and M0.R are closed: {open:?}");
+    // M0.1 and M0.R are closed; M1 opened (M1.1, M1.2, M1.R); M2.1 has no issue yet.
+    assert_eq!(open.len(), 3, "only M0.1 and M0.R are closed: {open:?}");
+    assert!(!w.has_issue("M2.1"));
 }
 
 #[test]
 fn sync_leaves_issues_of_dropped_blocks_alone_with_a_note() {
     let mut w = World::new(REVIEWS);
     w.board().sync().unwrap();
-    let review = w.issue_of("M0.R");
+    w.gh.close_issue(w.issue_of("M0.R"), "approved").unwrap();
+    w.board().sync().unwrap();
+    let review = w.issue_of("M1.R");
     let task = w.issue_of("M1.2");
     let before: Vec<_> = w.gh.lock().issues.iter().filter(|i| [review, task].contains(&i.number)).cloned().collect();
     let statuses = (w.gh.item_status(review), w.gh.item_status(task));
@@ -465,22 +501,140 @@ fn sync_leaves_issues_of_dropped_blocks_alone_with_a_note() {
         let end = start + text[start..].find("\n- ").unwrap() + 1;
         format!("{}{}", &text[..start], &text[end..])
     };
-    let text = drop(&drop(REVIEWS, "- ⬜ **M0.R Review**"), "- ⬜ **M1.2 Lead plan**");
+    let text = drop(&drop(REVIEWS, "- ⬜ **M1.R Review**"), "- ⬜ **M1.2 Lead plan**");
     w.roadmap = roadmap::parse(&text).unwrap();
-    assert!(w.roadmap.task("M0.R").is_none() && w.roadmap.task("M1.2").is_none());
+    assert!(w.roadmap.task("M1.R").is_none() && w.roadmap.task("M1.2").is_none());
     // Sync does not fail, and neither edits, moves nor closes their issues; it names them.
     let report = w.board().sync().unwrap();
     let after: Vec<_> = w.gh.lock().issues.iter().filter(|i| [review, task].contains(&i.number)).cloned().collect();
     assert_eq!(after, before);
     assert_eq!((w.gh.item_status(review), w.gh.item_status(task)), statuses);
-    assert_eq!(report.notes.len(), 2, "{:?}", report.notes);
-    assert!(report.notes[0].contains(&format!("issue #{review} `M0.R Review` is open but M0.R is not in roadmap.md")), "{:?}", report.notes);
-    assert!(report.notes[0].contains("only the maintainer closes it"), "{:?}", report.notes);
-    assert!(report.notes[1].contains(&format!("issue #{task} `M1.2 Lead plan`")) && report.notes[1].contains("dropped"), "{:?}", report.notes);
+    // In issue order, then the note that M2 (whose opening review is gone) is not open.
+    assert_eq!(report.notes.len(), 3, "{:?}", report.notes);
+    assert!(report.notes[0].contains(&format!("issue #{task} `M1.2 Lead plan` is open but M1.2 is not in roadmap.md")), "{:?}", report.notes);
+    assert!(report.notes[0].contains("dropped"), "{:?}", report.notes);
+    assert!(report.notes[1].contains(&format!("issue #{review} `M1.R Review` is open but M1.R is not in roadmap.md")), "{:?}", report.notes);
+    assert!(report.notes[1].contains("only the maintainer closes it"), "{:?}", report.notes);
+    assert!(report.notes[2].starts_with("M2 is not open yet"), "{:?}", report.notes);
     assert!(report.changes.iter().all(|c| !c.contains(&format!("#{review} ")) && !c.contains(&format!("#{task} "))), "{:?}", report.changes);
     // A closed issue of a dropped block needs no note.
     w.gh.close_issue(review, "approved").unwrap();
-    assert_eq!(w.board().sync().unwrap().notes.len(), 1);
+    assert_eq!(w.board().sync().unwrap().notes.len(), 2);
+}
+
+const PULLED: &str = "\
+| Phase | # | Milestone | One-line goal | Status |
+|---|---|---|---|---|
+| F | M0 | Skeleton | an empty workspace | ⬜ |
+| | M1 | Star | star a photo | ⬜ |
+| | M2 | Shell | a window | ⬜ |
+
+- ⬜ **M0.1 First**
+  - after: —
+  - files: `crates/a/**`
+  - scope: s
+  - done when: d
+- ⬜ **M0.R Review**
+  - after: M0.1
+  - owner: maintainer
+  - files: —
+  - scope: s
+  - done when: d
+- ⬜ **M1.1 Base**
+  - after: —
+  - files: `crates/b/**`
+  - scope: s
+  - done when: d
+- ⬜ **M1.R Review**
+  - after: M1.1
+  - owner: maintainer
+  - files: —
+  - scope: s
+  - done when: d
+- ⬜ **M2.1 Early**
+  - after: M1.1
+  - pulled: M1
+  - files: `crates/c/**`
+  - scope: s
+  - done when: d
+- ⬜ **M2.2 Later**
+  - after: —
+  - files: `crates/d/**`
+  - scope: s
+  - done when: d
+- ⬜ **M2.R Review**
+  - after: M2.1, M2.2
+  - owner: maintainer
+  - files: —
+  - scope: s
+  - done when: d
+";
+
+/// The maintainer's rule (2026-10-10): a milestone's tasks become issues only when the previous
+/// milestone's review closes; `pulled: M<k>` brings one task forward into milestone k's run.
+#[test]
+fn issues_appear_when_the_previous_review_closes_and_pulled_tasks_come_early() {
+    let mut w = World::new(PULLED);
+    let report = w.board().sync().unwrap();
+    // Only M0 is open: M1's tasks and the M2 task pulled into M1 have no issue yet.
+    for id in ["M1.1", "M1.R", "M2.1", "M2.2", "M2.R"] {
+        assert!(!w.has_issue(id), "{id}");
+    }
+    assert_eq!(
+        report.notes,
+        [
+            "M1 is not open yet: 2 task block(s) get issues when the maintainer closes M0.R",
+            "M2 is not open yet: 3 task block(s) get issues when the maintainer closes M1.R"
+        ]
+    );
+
+    // An issue of M2.2 already exists (made before this rule): sync leaves it alone, with a note.
+    let stray =
+        w.gh.create_issue(&NewIssue { title: "M2.2 Later".into(), body: "old".into(), labels: vec![], milestone: None, assignee: None }).unwrap();
+    let before = w.gh.lock().issues.iter().find(|i| i.number == stray).cloned().unwrap();
+
+    // The maintainer closes M0.R: M1 opens, and the pulled M2.1 comes with it; M2.2 and M2.R do not.
+    w.finish("M0.1");
+    w.gh.close_issue(w.issue_of("M0.R"), "approved").unwrap();
+    let report = w.board().sync().unwrap();
+    for id in ["M1.1", "M1.R", "M2.1"] {
+        assert!(w.has_issue(id), "{id}");
+    }
+    assert!(!w.has_issue("M2.R"));
+    assert!(w.gh.lock().issues.iter().find(|i| i.title.starts_with("M2.1 ")).unwrap().body.contains("- **pulled:** M1"));
+    assert!(report.notes.contains(&format!("issue #{stray} `M2.2 Later` is open but M2 is not open yet; left as it is")), "{:?}", report.notes);
+    assert!(
+        report.notes.contains(&"M2 is not open yet: 2 task block(s) get issues when the maintainer closes M1.R".to_string()),
+        "{:?}",
+        report.notes
+    );
+    assert_eq!(w.gh.lock().issues.iter().find(|i| i.number == stray).cloned().unwrap(), before);
+    assert!(w.gh.item_status(stray).is_none(), "not put on the project");
+    assert!(report.changes.iter().all(|c| !c.contains(&format!("#{stray} "))), "{:?}", report.changes);
+    assert!(
+        w.board().claim("M2.2", "agent-2").unwrap_err().contains("M2.2 is in M2, which is not open yet (it opens when the maintainer closes M1.R)")
+    );
+
+    // M2.1 still obeys `after`; once M1.1 is done it is offered during M1's run, although M1.R
+    // (listed before it) is open.
+    assert_eq!(w.status_of("M2.1"), Some(Status::Todo));
+    assert_eq!(w.next_ids(), ["M1.1"]);
+    w.finish("M1.1");
+    w.board().sync().unwrap();
+    assert_eq!(w.status_of("M1.R"), Some(Status::Ready));
+    assert_eq!(w.next_ids(), ["M2.1"]);
+    w.board().claim("M2.1", "agent-2").unwrap();
+    assert_eq!(w.status_of("M2.1"), Some(Status::InProgress));
+
+    // M1.R closes: M2 opens; the old M2.2 issue is adopted (no duplicate) and M2.R is created.
+    w.gh.close_issue(w.issue_of("M1.R"), "approved").unwrap();
+    let report = w.board().sync().unwrap();
+    assert!(report.notes.is_empty(), "{:?}", report.notes);
+    assert_eq!(w.issue_of("M2.2"), stray);
+    assert_eq!(w.gh.lock().issues.iter().filter(|i| i.title.starts_with("M2.2 ")).count(), 1);
+    assert_eq!(w.status_of("M2.2"), Some(Status::Ready));
+    assert!(w.has_issue("M2.R"));
+    assert_eq!(w.next_ids(), ["M2.2"]);
 }
 
 #[test]
@@ -980,9 +1134,9 @@ fn setup_dry_run_lists_the_milestone_writes_and_makes_none() {
 #[test]
 fn sync_names_setup_when_a_milestone_is_missing() {
     let w = World::new(ROADMAP);
-    w.gh.lock().milestones.retain(|m| m.title != "M1 Star");
+    w.gh.lock().milestones.retain(|m| m.title != "M0 Skeleton");
     let err = w.board().sync().unwrap_err();
-    assert!(err.contains("GitHub has no milestone `M1 Star`") && err.contains("run `cargo xtask tasks setup`"), "{err}");
+    assert!(err.contains("GitHub has no milestone `M0 Skeleton`") && err.contains("run `cargo xtask tasks setup`"), "{err}");
     assert_eq!(w.gh.mutations(), 0, "refused before any write");
     // Issues already in their milestone need no read of the milestones at all.
     let w = World::new(ROADMAP);
