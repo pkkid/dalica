@@ -6,7 +6,7 @@ possible, with the muted grey look of the Craft apps (LightCraft, PhotoCraft). N
 Windows and macOS; every feature drivable by agents. Read this file first, then `docs/`.
 
 The product name is always **Dalica** in user-facing text; machine names are lowercase
-(`dalica-*` crates, binaries, ids).
+(`dalica-*` crates, binaries, ids). Licence: MIT OR Apache-2.0.
 
 ## Reference research lives in `notes/` (private, never committed)
 
@@ -16,196 +16,223 @@ texts, file-format details, version history and observations (`notes/picasa/`, i
 `notes/README.md`). Studies of the Craft apps live in `notes/craft-apps/`.
 
 - Never write the reference application's name anywhere in the repository except this
-  section of `AGENTS.md`: not in `docs/`, code, comments, tests, commit messages, PR text, UI strings,
-  file names or assets. In checked-in text call it "the reference organizer" or "the legacy
-  organizer". `cargo xtask names` enforces this.
+  section of `AGENTS.md`: not in `docs/`, code, comments, tests, commit messages, PR text, issue
+  text, UI strings, file names or assets. In checked-in text call it "the reference organizer" or
+  "the legacy organizer". `cargo xtask names` enforces this.
 - `docs/` is strictly how *Dalica* should be built and behave, written in our own words.
 - When you learn something new about the reference behaviour, add it to the matching
   `notes/picasa/NN-*.md` file (with source URL and a confidence tag) and update the public spec in
   `docs/` in our own words.
 - Never copy text, images or icons from `notes/` into the repository.
 
-## 1. Start every session here
+## 1. Where things live
 
-1. Read `docs/status.md` (current milestone, next task, blockers, metrics) and `docs/roadmap.md` →
-   *Where we stand* and *Reserved decisions*.
-2. Read the spec for the area you touch: `docs/ui-layout.md`, `organizing.md`, `editing.md`,
-   `viewing.md`, `creating.md`, `menus-and-shortcuts.md`, `data-model.md`, `architecture.md`,
-   `design-system.md`. If you have `notes/`, check the matching reference notes and screenshots.
-3. Pick work: the next unchecked task of the current milestone, or a *Top gaps* row in
-   `docs/parity.md`. A ✅ row is not proof of parity: if you find one wrong or incomplete, downgrade it
-   to 🟡 with a note.
-4. Work autonomously. Don't stop to ask unless the decision is listed under *Reserved decisions*;
-   record decisions you make in the commit body. Use `TODO(maintainer): …` for questions only a human
-   can answer; never leave bare `TODO`s.
-5. Resuming after a crash or another session: check `git status`, `git worktree list`, and each
-   worktree's `git log main..HEAD` before starting anything new.
+| Path | What |
+|---|---|
+| `docs/` | the spec: start with `docs/README.md` (index), `product.md`, `ui-layout.md` |
+| `docs/architecture.md` | crates, layers, commands, threading, testing strategy |
+| `docs/roadmap.md` | milestones and **task blocks** (the plan), reserved decisions, honest assessment |
+| `docs/task-board.md` | how tasks are claimed, submitted and merged (the live board on GitHub) |
+| `docs/status.md` | current milestone, blockers, metrics (kept by the lead) |
+| `docs/parity.md` | one row per feature, menu item and shortcut |
+| `docs/development.md`, `docs/standards/never-crash.md`, `docs/security.md` | mechanics, crash standard, threat model |
+| `crates/<name>/` | library crates (`dalica-<name>`), each with a README saying how to test it alone |
+| `apps/dalica`, `apps/dalica-cli` | the desktop app; the headless CLI (`run`, `inspect`, `snapshot`, `mcp`) |
+| `tests/acceptance/` | one acceptance test per milestone, run by `cargo xtask accept M<n>` |
+| `xtask/` | every gate and tool: `cargo xtask ci`, `layers`, `deps`, `names`, `assets`, `parity`, `accept`, `tasks`, … |
+| GitHub [issues](https://github.com/pkkid/dalica/issues) + [project 3](https://github.com/users/pkkid/projects/3) | the **live task board**: what is ready, claimed, in review, done |
+| `log/devlog.md` (main checkout, gitignored) | the private dev log: one entry per task |
+| `notes/` (gitignored) | reference research and Craft-app studies |
 
-## 2. Never lose a photo (outranks feature work)
+LightCraft (`~/Sources/lightcraft`) and PhotoCraft (`~/Sources/photocraft`) are **reference only**:
+study them for techniques and look, never copy their code (`architecture.md` §9).
 
-People trust Dalica with decades of photos. Full rules: `docs/data-model.md`.
+## 2. Architecture in one screen (details: `docs/architecture.md`)
 
-- **Originals are sacred.** Pixels change only on an explicit Save, which first moves the original
-  into the folder's `.dalica-originals/`. Everything else (stars, captions, edits, albums, faces) is
-  data in sidecars and metadata.
-- **Every write is atomic** (temp file + fsync + rename) and verified. Deletes go to the OS trash.
-  Never overwrite a file you did not just read.
-- **Merge, never replace:** sidecars and XMP/IPTC keep unknown keys and other apps' fields
-  verbatim. An unknown edit operation never drops the operations after it.
-- **Legacy files are read-only:** the previous organizer's sidecars and backup folders are read
-  where a folder has no `.dalica.json`, never modified; the first change writes `.dalica.json`.
-- One process per library (lock file). Damaged settings/sidecar files are kept aside as
-  `.corrupt-<time>`, never overwritten.
-- No file-system work, decoding or dialogs on the UI thread. Long jobs are cancellable with progress.
-- Caches only list and delete files of their own naming shape.
-- Every data-safety or crash fix lands with a regression test that failed before the fix.
-
-## 3. Never crash
-
-Full standard: `docs/standards/never-crash.md`. In short:
-
-- **Non-test code never panics:** no `unwrap()`, `expect()`, `panic!`, `unreachable!`, `todo!`,
-  `unimplemented!`. Return the crate's error type through `Result` and `?`; use `ok_or(..)?`,
-  `let … else`, `if let`, or `unwrap_or…` only where a fallback cannot silently corrupt data.
-  Unfinished features return an "unsupported" error. Sole exception: a provably infallible literal
-  as `#[allow(clippy::expect_used)]` + `.expect("why it can't fail")`.
-- **No `unsafe`:** `#![forbid(unsafe_code)]` in every crate root. A future platform need goes into
-  one isolated helper crate named here, with `// SAFETY:` on every block. (None today.)
-- **Input-derived numbers are hostile** (image headers, EXIF/XMP/IPTC, sidecars, file sizes,
-  control/MCP params): `get()` instead of indexing, checked/saturating arithmetic, no division by
-  zero or NaN casts, capped allocations, char-boundary string slicing, bounded recursion and walks.
-- **Don't cascade:** `lock().unwrap_or_else(PoisonError::into_inner)` or an error; thread joins and
-  channel operations are `Result`s.
-- **Last-resort guard:** panic hook + `catch_unwind` around command dispatch and per-file
-  scan/import/export work; keep `panic = "unwind"` on native. A safety net, not a licence.
-- **Prove it:** every crash fix lands with a synthetic regression test that panicked before the
-  fix; `panic_hunt` fuzzes every command with hostile params and must stay green; new commands get
-  a graceful-failure test (empty / out-of-range / wrong-type params → `Err`).
-- **Enforced by clippy:** `clippy.toml` allows unwrap/expect/panic/indexing in tests only; every
-  production crate root (each `lib.rs` and binary `main.rs`) carries
-  `#![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]`
-  (not `[workspace.lints]`, which would also hit tests, examples and benches). New crates start
-  with it.
-
-## 4. Non-negotiables
-
-- **Clean-room.** Match layout, workflow and behaviour; never copy the reference application's
-  code, text, icons, images, sounds or data, not even as placeholders. Legacy formats are
-  implemented from public prose descriptions and black-box observation; every such reader starts
-  with a provenance header (sources consulted, what was observed, "no decoder source was read").
-  Never copy GPL/LGPL/AGPL code (including GPL clones of the reference application — read their
-  prose specs for facts only). Trademarked or branded feature names get descriptive names of our
-  own (e.g. **Auto Fix**). Translations are written from the meaning of our English text, never from
-  another product's localisation files.
-- **Assets (absolute rule).** Every image, icon, font or sound in the repository is original work
-  (icons drawn in code), public domain/CC0, CC-BY(-SA), OFL or permissively licensed, with a row in
-  `ATTRIBUTION.md` (path, asset, creator, source, licence, date added, modifications) and its licence
-  text in the same commit. `cargo xtask assets` enforces it — never weaken the check to make a commit
-  pass. When in doubt about a licence, don't use it. Fonts: Inter only in the repo; others via the
-  optional `CRAFT_FONTS_DIR` build input. Demo and test photos are procedural (`dalica-scenes`) or
-  public domain/CC0 (sources recorded); never personal photos. Details: `docs/assets.md`.
-- **Pure Rust.** No C/C++ dependencies in the product; no webview/JS/Tauri. Audit new dependencies
-  (licence, `*-sys`, `ring`, `openssl`) per `docs/security.md`.
-- **Everything is a command** (`crates/engine`): id, label, menu path, shortcut, params doc (what
-  agents read), `enabled`, `run` recording exactly one undo step (coalesce drags and typing). The UI,
-  keyboard, CLI, control channel and MCP all dispatch by id. Use the id from
-  `crates/ui/src/menu_catalog.rs` so the menu item goes live. Only pure view state (zoom, panes,
-  window) lives in `UI_COMMANDS`. Every slider is a control spec (id, label, min, max, default, step)
-  so the UI and the API share one table.
-- **One implementation per output.** Export, render, metadata write-back and save go through one
-  engine function used by the app, the CLI and MCP alike.
-- **The UI is thin and data-driven.** UI state lives in a serializable `state.rs` so the control
-  channel can read and drive it. Colours, radii, fonts and metrics come from `theme::Tokens`; widgets
-  from `widgets.rs`; never hard-code a colour. Layout follows `docs/ui-layout.md`; the look follows
-  `docs/design-system.md`, never the reference screenshots' colours.
-- **Layering** is enforced by `cargo xtask layers`: nothing below the UI crate depends on egui,
-  eframe, winit or rfd. Register new crates in `xtask/src/layers.rs`.
-- **No format or colour assumptions.** Sources may be 8- or 16-bit, greyscale or CMYK, any ICC
-  profile; never assume sRGB input — convert through the colour crate. Test at several depths and
-  with tagged profiles.
-- **Resolution independence.** Edit parameters use normalised image coordinates and relative radii;
-  thumbnails, the edit view, collages and exports must match.
-- **Nothing silently dropped.** Every user-visible field of a photo, folder, album or person must
-  round-trip through the folder sidecar; a test fails when a model field is added without a sidecar
-  mapping (the sidecar equivalent of PhotoCraft's "format fails to compile when a field is added").
-- **Performance is a feature.** Never do per-frame work proportional to the library; cache per
-  library revision; heavy pixel work runs in parallel tiles on workers; measure with
-  `DALICA_PROFILE=1` and record before/after numbers in `docs/status.md` → Metrics.
-- **Privacy.** No network access without a user action, no telemetry; face data never leaves the
-  machine or appears in logs; never put personal details in requests (use the generic User-Agent
-  `Dalica-dev`).
-
-## 5. Look at what you built
-
-- Run the app with `cargo run --release -p dalica -- --control <port> --demo` and drive it only
-  through the control channel (`ui.clickWidget`, `ui.key`, `ui.pointer`, `ui.menu.invoke`; see
-  `docs/control-protocol.md`) or headless `dalica-cli snapshot --script …`. **Never send OS-level
-  synthetic input** (xdotool, ydotool, osascript, AutoHotkey): it goes to whatever window is focused,
-  including the user's terminal.
-- After every user-visible change: take a screenshot, look at it, compare with `docs/ui-layout.md`
-  and (if you have them) the reference screenshots in `notes/`, at 1400 × 900 and 900 × 600. Check
-  `ui.inspect` → perf. PRs that touch UI include before/after screenshots.
-- Unattended (display asleep, CI, nightly runs): prefer headless snapshots; a windowed
-  `ui.screenshot` falls back to headless after 2 s.
-
-## 6. Before you finish a task
-
-```sh
-cargo test -p <crates you touched>
-cargo clippy -p <crates> --all-targets -- -D warnings
-cargo xtask ci                     # fmt, clippy -D warnings, tests, layers, assets, names, parity
-cargo test -p dalica-engine --test panic_hunt -- --ignored   # if you added/changed commands
-cargo xtask parity --write         # if parity rows changed; commit the regenerated summary
-cargo xtask bench                  # before and after touching a hot path
-cargo xtask test-corpus            # if you touched a decoder, metadata or sidecar reader/writer
+```text
+apps     dalica · dalica-cli
+L5       ui ─► ui-kit · mcp           (only L5 and apps may use egui/eframe/winit/wgpu/rfd/muda)
+L4       engine                       Session, command registry, keymap, undo, jobs, settings
+L3       store · scan · create
+L2       library (pure) · thumbs
+L1       image · meta · sidecar · edit · scenes · fetch · faces
+L0       core · fs                    (only `fs` writes to disk)
 ```
 
-- New features need at least one test that would fail without them. Run the app after every
-  user-visible change.
-- Commit small and often, only green states, **one task id per commit** (`M1.3: journal +
-  snapshot persistence`); the body says what was tested and any numbers. Update the parity row(s),
-  `docs/status.md`, and `docs/roadmap.md` (*Where we stand* when a listed gap closes) in the same
-  commit. End commit messages with the attribution line required by the environment.
-- Sessions can end abruptly (crashes, context limits): a green tree plus a short `docs/status.md`
-  entry (what landed, numbers, what's still open) is how the next agent picks up.
-- Test corpora live outside the repository (pinned by commit, sha256-verified, fetched into the
-  gitignored `corpus/` by `cargo xtask corpus`); never commit media. See `docs/development.md`.
+- A crate depends only on lower layers (listed exceptions: `edit → image`, `meta → image`).
+  `cargo xtask layers` enforces it; a new crate is registered in `xtask/src/layers.rs` and
+  `architecture.md` §2 in the same commit.
+- **Everything is a command** (`crates/engine/src/cmd/<area>.rs`): id, label, menu path, default
+  keys with their context, params doc, effect, history, `enabled`, `run`. The UI, keyboard, CLI,
+  control channel and MCP all call `Session::execute`. Use the id from
+  `crates/ui/src/menu_catalog.rs` so the menu item goes live. Only pure view state lives in
+  `UI_COMMANDS`. Every slider is a control spec shared by the UI and the API.
+- **One implementation per output** (export, render, metadata write-back, save) used by the app,
+  the CLI and MCP alike.
+- **The UI is thin and data-driven:** state in the serialisable `crates/ui/src/state.rs`; colours,
+  metrics and fonts from `ui-kit` `Tokens`; widgets from `ui-kit`; never hard-code a colour.
+  Layout follows `docs/ui-layout.md`; the look follows `docs/design-system.md`.
+- **No file system, decoding or dialogs on the UI thread** (the `fs` guard fails tests that try).
 
-## 7. Parallel agents
+## 3. Golden rules
 
-- Own git worktree, own `CARGO_TARGET_DIR=target/agent-<name>` (each is ~10 GB: delete it when
-  done), own control port (18000–19999, never the default 7990) and own scratch directory
-  (`<scratch>/<agent-name>/`). Never `rm -rf` shared paths.
-- Keep every `Cargo.toml` valid at all times: the `crates/*` glob means one broken manifest breaks
-  everyone. Create or rewrite manifests atomically (write to a temp file outside `crates/`, then move
-  it into place).
-- Put new commands in a new `engine/src/cmd/<area>.rs` module rather than growing shared files.
-  Shared files (`engine/src/cmd/mod.rs`, `ui/src/menus.rs`, `ui/src/state.rs`) get small, surgical
-  edits; re-read before editing. If someone else's in-progress edit breaks the build, wait and retry;
-  don't fix their files.
-- The lead merges one branch at a time, runs `cargo xtask ci`, fixes, commits — then the next. Two
-  individually green branches can still break each other.
+### Never lose a photo (outranks feature work; `docs/data-model.md`)
 
-## 8. Where things are tracked
+- **Originals are sacred.** Pixels change only on an explicit Save, which first moves the original
+  into the folder's `.dalica-originals/`. Everything else is data in sidecars and metadata;
+  metadata writes merge into existing fields and never touch pixels.
+- **Every write goes through `fs`:** atomic (temp + fsync + rename) and verified. Deletes go to the
+  OS trash. Never overwrite a file you did not just read.
+- **Merge, never replace:** sidecars and XMP/IPTC keep unknown keys and other apps' fields verbatim.
+  An unknown edit operation never drops the operations after it.
+- **Legacy files are read-only.** One process per library. Damaged files are kept aside as
+  `.corrupt-<time>`. Caches only list and delete files of their own naming shape.
 
-| File | What |
-|---|---|
-| `docs/status.md` | current milestone, next task, blockers, metrics, short log |
-| `docs/roadmap.md` | honest assessment, milestones and task ids, reserved decisions |
-| `docs/parity.md` | one row per feature, menu item and shortcut, with tier and status |
-| `docs/process.md` | how we work with agents, clean-room, verification, reviews |
-| `docs/development.md` | build, run, test, xtask, corpora, budgets, debugging |
-| `docs/standards/never-crash.md` | the never-crash standard |
-| `docs/security.md`, `SECURITY.md` | threat model, parser and file-handling rules, control-channel security |
-| `docs/control-protocol.md`, `docs/mcp.md` | driving the app as an agent |
-| `docs/assets.md`, `ATTRIBUTION.md`, `NOTICE` | asset, font and icon rules; attributions; reused material |
-| `docs/contributing.md`, `docs/contributors.md` | contribution rules; how people and models are credited |
-| `notes/` (local only) | reference research and screenshots; Craft-app studies |
+### Never crash on bad input (`docs/standards/never-crash.md`)
 
-Shell gotcha: `mv`/`cp` may be aliased to interactive mode on maintainer machines; use `/bin/mv -f`
-and `/bin/cp -f` in scripts.
+- Non-test code never panics: no `unwrap()`, `expect()`, `panic!`, `unreachable!`, `todo!`,
+  `unimplemented!`; return the crate's error through `Result`. Every crate root has
+  `#![forbid(unsafe_code)]` and the clippy `deny` list; `clippy.toml` allows them in tests only.
+- Input-derived numbers are hostile (headers, EXIF/XMP, sidecars, file sizes, command params):
+  `get()` not indexing, checked arithmetic, capped allocations, bounded recursion and walks.
+- Every new command gets a graceful-failure test (empty, out-of-range, wrong-type params → `Err`);
+  `panic_hunt` must stay green.
 
-## 9. Contributor credits (About window)
+### Every change comes with tests
+
+- New behaviour has a test that fails without it, at the lowest crate that fits. Every crash or
+  data-safety fix lands with a regression test that failed before the fix.
+- Commands follow the command test contract (`architecture.md` §3); pixel output uses fingerprint
+  tests (`architecture.md` §11). Test photos are procedural (`scenes`) or public domain; never
+  personal photos; never commit media.
+
+### Never lower a quality metric
+
+- Floors only rise: corpus floors, performance budgets, parity counts, workflow pass rates,
+  acceptance checks of finished milestones.
+- Never weaken a gate to make a commit pass: no `#[ignore]` or deleted tests, no relaxed lint, no
+  `xtask` check loosened, no `DALICA_BLESS` fingerprint update without looking at the diff images
+  and saying why in the commit body. If a gate is wrong, raise it on the task's issue.
+- Never claim parity you have not measured. A ✅ parity row is not proof: if you find one wrong,
+  downgrade it to 🟡 with a note.
+
+### Non-negotiables
+
+- **Clean-room:** match layout, workflow and behaviour; never copy the reference application's
+  code, text, icons, images, sounds or data. Legacy formats are implemented from public prose and
+  black-box observation, each reader with a provenance header. No GPL/LGPL/AGPL code. Branded
+  feature names get descriptive names of our own (e.g. **Auto Fix**).
+- **Assets:** original, public domain/CC0, CC-BY(-SA), OFL or permissively licensed, each with an
+  `ATTRIBUTION.md` row and licence text in the same commit (`cargo xtask assets`; `docs/assets.md`).
+- **Pure Rust:** no C/C++ build dependencies in the product, no webview/JS/Tauri; audit new
+  dependencies (`cargo xtask deps`, `docs/security.md` §8).
+- **No format or colour assumptions:** sources may be 8/16-bit, grey or CMYK, any ICC profile.
+- **Resolution independence:** normalised coordinates and relative radii everywhere.
+- **Nothing silently dropped:** every user-visible model field round-trips through the sidecar (a
+  test fails when one is added without a mapping).
+- **Performance is a feature:** no per-frame work proportional to the library; cache per revision;
+  measure with `DALICA_PROFILE=1` and `cargo xtask bench`, and report before/after numbers.
+- **Privacy:** no network without a user action, no telemetry; face data never leaves the machine.
+- **Never send OS-level synthetic input** (xdotool, ydotool, osascript, AutoHotkey). Drive the app
+  through the control channel or `dalica-cli snapshot`.
+
+## 4. How work is organised: the task board (`docs/task-board.md`)
+
+- **The plan** is the task blocks in `docs/roadmap.md` (`after`, `owner`, `files`, `scope`,
+  `done when`). **The live state** is the GitHub board: one issue per task, all on
+  [project 3](https://github.com/users/pkkid/projects/3), Status `Todo · Ready · In Progress ·
+  In Review · Blocked · Done`. **Done** means squash-merged into `main` with the task's ✅ ticked.
+- Touch the board **only through `cargo xtask tasks`**; never edit labels, statuses or fields by hand.
+- **Workers** loop:
+  1. `cargo xtask tasks next --agent agent-<n>`: pick the first offered task.
+  2. `cargo xtask tasks claim <id> --agent agent-<n>`, then `eval "$(cargo xtask tasks env agent-<n>)"`
+     and work in the worktree it prints.
+  3. Do the task: read its spec in `docs/`, stay inside its `files`, meet its *done when*.
+  4. The checklist in §5.
+  5. `cargo xtask tasks submit <id>`: the branch now belongs to the lead; start the next task.
+  When `next` offers nothing, wait 5 minutes before asking again.
+- **Stuck on a decision** only a human can make (a *Reserved decision*, a gap in the spec):
+  `cargo xtask tasks block <id> "question"` and take another task. Otherwise decide, and record
+  the decision in the commit body. Never leave bare `TODO`s; use `TODO(maintainer): …`.
+- **Can't finish** (wrong estimate, needs a file outside `files`): comment on the issue and
+  `cargo xtask tasks release <id> --reason "…"`.
+- **The lead** (`agent-1`) merges In Review tasks one at a time with `cargo xtask tasks merge
+  <id>`, keeps `docs/status.md`, releases stale claims, runs `cargo xtask accept M<n>` when a
+  milestone's last task lands, and prepares the review for the maintainer.
+- **Review gates** (`M<n>.A`, `M<n>.R`) belong to the maintainer; no agent claims them, and the next
+  milestone's tasks stay `Todo` until the maintainer closes the gate.
+- **Before the board exists** (M0.1, M0.2, M0.10): the single M0 agent works in roadmap order, one
+  branch `task/M0.<n>` per task, fast-forwarding `main` after `cargo xtask ci` is green. Pushing to
+  GitHub always needs the maintainer's go-ahead until the board's `submit`/`merge` take over.
+- M0 and M1 are built by one agent (acting as lead and worker). Parallel workers start at M2.
+
+## 5. Before you finish a task
+
+Run, in your worktree, with your agent environment loaded:
+
+```sh
+cargo fmt --all
+cargo clippy -p <crates you touched> --all-targets -- -D warnings
+cargo test -p <crates you touched>
+cargo xtask ci                                               # fmt, clippy, tests, layers, deps, assets, names, parity, finished milestones' acceptance
+cargo xtask accept M<n>                                      # the current milestone, once its acceptance test exists
+cargo test -p dalica-engine --test panic_hunt -- --ignored   # if you added or changed commands
+cargo xtask parity --write                                   # if parity rows changed; commit the regenerated summary
+cargo xtask bench                                            # before and after touching a hot path; put both numbers in the PR
+cargo xtask test-corpus                                      # if you touched a decoder, metadata or sidecar reader/writer
+cargo xtask tasks log <id> "Landed: …  Open: …  Numbers: …"  # the dev-log entry (required by submit)
+cargo xtask tasks submit <id>
+```
+
+And:
+- **Look at what you built.** After any user-visible change, take screenshots at 1400 × 900 and
+  900 × 600 (`dalica-cli snapshot --script …`, or the control channel on your own port) and compare
+  them with `docs/ui-layout.md` (and the reference screenshots in `notes/`, if you have them).
+  Attach before/after images to the PR. Check `ui.inspect` → perf.
+- **Update the docs in the same branch:** tick your task's ✅ in `roadmap.md`, update its parity
+  row(s), and any spec section your work clarified. Do not edit `docs/status.md` (the lead does);
+  put numbers in the PR body instead.
+- **Commit messages:** one task id per commit subject (`M1.4: scenes: seeded JPEG and PNG
+  generator`); the body says what was tested, numbers, and decisions made. End with the
+  attribution line the environment requires. The lead squash-merges, so a branch may have several
+  commits, but every commit must build.
+- **Dev log:** every task gets an entry in `log/devlog.md` (via `tasks log`): what landed, what is
+  still open, the numbers. It is private and lives only in the main checkout; it is how the next
+  agent picks up after a crash.
+
+## 6. Start or resume a session
+
+1. Read this file, `docs/status.md`, and `docs/roadmap.md` → *Where we stand* and *Reserved
+   decisions*. Run `cargo xtask tasks status`.
+2. Resuming after a crash: check `git status`, `git worktree list`, each worktree's
+   `git log origin/main..HEAD`, the end of `log/devlog.md`, and which tasks the board says you
+   hold. Finish or release them before claiming anything new.
+3. Read the spec for the area you touch (`docs/README.md` says which file) and, if you have them,
+   the matching notes and screenshots.
+
+## 7. Parallel agents (up to 8 on this machine)
+
+- **Own your files.** Work only inside your task's `files`. Need another file? Ask on the issue
+  first. Two tasks with overlapping `files` are never in progress together (`tasks next` and
+  `claim` enforce it).
+- **Put new work in new modules.** New commands go in a new `crates/engine/src/cmd/<area>.rs`, new
+  panels in a new `crates/ui/src/panels/<region>.rs`, rather than growing shared files. Shared
+  files (`cmd/mod.rs`, `ui/src/menus.rs`, `ui/src/state.rs`, `menu_catalog.rs`) get small,
+  surgical edits; re-read them right before editing.
+- **Don't fix another agent's broken files.** If `main` or someone else's in-progress work breaks
+  your build, wait and retry, or comment on their issue; never edit their files. If `main` itself
+  is red, tell the lead (comment on the most recent merged task) and wait.
+- **Your own resources** (from `cargo xtask tasks env agent-<n>`): worktree
+  `../dalica.worktrees/agent-<n>`, `CARGO_TARGET_DIR=<main checkout>/target/agent-<n>` (keep it
+  warm between tasks), `CARGO_BUILD_JOBS=3`, control port `18000 + 10·n` (never 7990), scratch
+  directory `<scratchpad>/agent-<n>/`. Never `rm -rf` shared paths.
+- **Keep every `Cargo.toml` valid at all times:** the `crates/*` glob means one broken manifest
+  breaks everyone. Write new or rewritten manifests to a temp file outside `crates/`, then move
+  them into place.
+- **Only the lead merges**, one branch at a time (`tasks merge`: rebase, `cargo xtask ci`, GitHub
+  CI, squash-merge). Two individually green branches can still break each other.
+
+## 8. Contributor credits (About window)
 
 - About ▸ Contributors/Models will be compiled into the binary from `contributors/contributors.json`
   (commit stats; generated, never hand-edit) and `contributors/people.toml` (names people chose for
@@ -218,3 +245,6 @@ and `/bin/cp -f` in scripts.
   credited as `@username` anyway.
 - Never add, edit, guess or copy anyone else's entry or name (not from git config, commit authors or
   GitHub profiles). Never hand-edit `contributors.json`.
+
+Shell gotcha: `mv`/`cp` may be aliased to interactive mode on maintainer machines; use `/bin/mv -f`
+and `/bin/cp -f` in scripts.

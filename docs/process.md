@@ -14,7 +14,7 @@ honest assessment (docs/roadmap.md) ──┘                                   
                                                                             ▼
              commit (one task id, green)  ◄─ cargo xtask ci ◄─ look at it (screenshot) ◄─ implement as commands + tests
                     │
-                    └─► update parity row, roadmap "Where we stand", docs/status.md
+                    └─► update parity row, tick the task, dev log, submit → lead merges
 ```
 
 1. **Research privately.** Everything learned about the reference application (screenshots, menu
@@ -30,8 +30,9 @@ honest assessment (docs/roadmap.md) ──┘                                   
 5. **Look at it.** Drive the app through the control channel or a headless snapshot script, take a
    screenshot, and compare with the reference screenshots in `notes/`. UI work is not done until
    someone has looked at the pixels.
-6. **Gate and commit.** `cargo xtask ci` green; one task id per commit; update the parity row,
-   `docs/status.md`, and the roadmap's *Where we stand* if a listed gap closed.
+6. **Gate and submit.** `cargo xtask ci` green; one task id per commit; tick the task and update
+   its parity row; dev-log entry; `cargo xtask tasks submit`. The lead merges, keeps
+   `docs/status.md`, and updates the roadmap's *Where we stand* at milestone reviews.
 
 ## 2. Private reference notes (`notes/`)
 
@@ -89,28 +90,34 @@ Rules:
 
 ### Sessions
 
-- An agent session starts by reading `AGENTS.md`, `docs/status.md` and the task's spec in `docs/`.
-- The canonical prompt for autonomous work is short: *"Read AGENTS.md and docs/status.md. Take the
-  next unchecked task in docs/roadmap.md, follow the operating protocol, and keep going until the
-  milestone's Done-when criteria pass."*
+- An agent session starts by reading `AGENTS.md`, `docs/status.md`, the task board
+  (`cargo xtask tasks status`) and the task's spec in `docs/`.
+- The canonical prompt for a worker is short: *"You are agent-<n>. Read AGENTS.md. Take tasks from
+  the board with `cargo xtask tasks next` / `claim`, follow the operating protocol, submit each
+  one, and keep going until `next` has nothing for you."* The lead's prompt names it the
+  integrator (`docs/task-board.md` §6).
 - **Operating protocol:** agents don't stop to ask unless the decision is in the *Reserved
   decisions* list in `roadmap.md`. They record decisions they make in the commit body, and
   maintainer decisions are recorded inline with a date ("maintainer decision, 2026-10-09").
   Code never contains bare `TODO`s; use `TODO(maintainer): …` for questions only a human can answer.
 - **Crash and context-loss resilience:** commit small and often (a crash loses minutes, not hours),
-  only green states, and update `docs/status.md` after every task. A resuming agent checks
-  `git status`, `git worktree list`, and each worktree's `git log main..HEAD` before starting.
+  only green states, and write a dev-log entry after every task (`cargo xtask tasks log`). A
+  resuming agent checks `git status`, `git worktree list`, each worktree's `git log main..HEAD`
+  and the board (`tasks status`: what it had claimed) before starting.
 
 ### Parallel agents
 
-- A lead agent fans out to at most 4–6 workers, each owning one area (crate or panel).
-- Each worker: its own git worktree, its own `CARGO_TARGET_DIR=target/agent-<name>`, its own
-  control port (18000–19999, never the default), its own scratch directory. Never `rm -rf` shared
-  paths; keep every `Cargo.toml` valid at all times (write to a temp file, then move it into place);
-  delete your target dir when done.
+- Up to 8 agents on the maintainer's machine: one lead (integrator) and workers, coordinated by
+  the GitHub task board ([`task-board.md`](task-board.md)). Workers pick tasks themselves with
+  `cargo xtask tasks next` / `claim`; local locks stop two agents from claiming the same task or
+  overlapping files.
+- Each agent: its own git worktree, `CARGO_TARGET_DIR`, control port and scratch directory
+  (`cargo xtask tasks env <agent>`). Never `rm -rf` shared paths; keep every `Cargo.toml` valid at
+  all times (write to a temp file, then move it into place).
 - New commands go in new modules (`engine/src/cmd/<area>.rs`) rather than growing shared files.
-- The lead merges **one branch at a time**, runs `cargo xtask ci`, fixes, commits, then merges the
-  next. Two individually green branches can still break each other.
+- The lead merges **one branch at a time** (`cargo xtask tasks merge`: rebase, `cargo xtask ci`,
+  GitHub CI, squash-merge), then the next. Two individually green branches can still break each
+  other.
 - When running many sessions, use a notification hook (Claude Code `Stop` / permission-request
   hooks) so the maintainer hears when an agent needs input.
 

@@ -1,6 +1,9 @@
 # Private research notes — never committed (see AGENTS.md)
 /notes/
 
+# Private dev log — never committed (see docs/task-board.md §8)
+/log/
+
 # Rust build output
 /target
 /target-*/

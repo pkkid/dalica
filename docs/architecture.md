@@ -90,7 +90,8 @@ crates/
 apps/
   dalica        desktop app: eframe window, control-server transport, native menu, rfd picker
   dalica-cli    headless: commands, run, inspect, render, snapshot, mcp
-xtask/          ci | layers | deps | assets | names | parity | corpus | bench | perf | scorecard | stats
+tests/acceptance  one test file per milestone (`m<n>.rs`) + its manual checks (`m<n>.md`); run by `cargo xtask accept M<n>`
+xtask/          ci | layers | deps | assets | names | parity | accept | corpus | bench | perf | scorecard | stats
 ```
 
 ### Layering (enforced by `cargo xtask layers`)
@@ -117,7 +118,7 @@ Arrows point down only: a crate may use crates in lower bands (exact pairs in th
 | Layer | Crates | May depend on (workspace) |
 |---|---|---|
 | L0 | `core`, `fs` | `fs → core`; nothing else |
-| L1 | `image`, `meta`, `sidecar`, `edit`, `scenes`, `fetch`, `faces` | L0; sibling exceptions: `edit → image` (`faces` takes decoded buffers and depends on `core` only) |
+| L1 | `image`, `meta`, `sidecar`, `edit`, `scenes`, `fetch`, `faces` | L0; sibling exceptions: `edit → image`, `meta → image` (reuses its bounded TIFF/IFD reader) (`faces` takes decoded buffers and depends on `core` only) |
 | L2 | `library`, `thumbs` | `library → core` only (it stays pure); `thumbs → image, edit, fs, core` |
 | L3 | `store`, `scan`, `create` | L0–L2; no L3 siblings |
 | L4 | `engine` | L0–L3 |
@@ -125,6 +126,7 @@ Arrows point down only: a crate may use crates in lower bands (exact pairs in th
 | L5 | `ui` | `engine`, `ui-kit`, lower layers |
 | L5 | `mcp` | `engine`, lower layers |
 | apps | `dalica`, `dalica-cli` | anything |
+| test | `tests/acceptance` (`dalica-acceptance`, `publish = false`) | anything; nothing may depend on it |
 
 Rules the checker enforces:
 1. A normal dependency must point to a lower layer (or a listed exception). A new crate must be

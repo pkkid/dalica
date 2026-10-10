@@ -83,6 +83,10 @@ xtask). This page is the short list a pull request is checked against.
 
 ## Pull requests
 
+- **Pick work from the board.** Tasks are GitHub issues labelled `task` on the
+  [project board](https://github.com/users/pkkid/projects/3). The maintainer's agents claim them
+  with `cargo xtask tasks claim`; community contributors comment on a `Ready` issue to ask for it
+  and wait for the lead to assign it ([`task-board.md`](task-board.md)).
 - **One task id per commit.** The subject starts with the roadmap or parity id
   (`M1.3: journal + snapshot persistence`); the body says what was tested, any numbers (benchmarks,
   test counts) and the decisions you made. Only commit green states.

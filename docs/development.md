@@ -38,6 +38,7 @@ cargo xtask ci                                      # THE gate: run before every
 | `xtask accept M<n>` | runs a milestone's acceptance tests and scripts (`tests/acceptance/`) and lists what a human should look at (`roadmap.md` → How milestones work); earlier milestones' checks run inside `ci` | ✓ (all finished milestones) |
 | `xtask test-corpus` | fetch the corpora and run the `corpus`-feature tests | |
 | `xtask scorecard [--check]` | regenerate / verify `docs/scorecard.md` | |
+| `xtask tasks <sub>` | the task board: `setup`, `sync`, `next`, `claim`, `env`, `submit`, `release`, `block`, `merge`, `status`, `log` ([`task-board.md`](task-board.md)); `sync --check` parses the roadmap offline | `sync --check` ✓ |
 | `xtask stats` | line/test/command counts for the status doc | |
 | `xtask corpus` | fetches pinned, sha256-verified CC0 test photos into the gitignored `corpus/` | |
 | `xtask bench` | library-scale and pixel benchmarks; appends to `target/bench/history.jsonl`, flags CPU-time regressions > 20 % | |
@@ -71,7 +72,8 @@ several agents run it at once.
 5. Tests: behaviour, undo/redo, disabled state, bad params (must return `Err`, never panic), and a
    headless UI test if it has UI.
 6. UI: compose existing widgets; register automation ids; verify by screenshot.
-7. `cargo xtask ci`; update the parity row and `docs/status.md`; commit with the task id.
+7. `cargo xtask ci`; tick the task's ✅ and update its parity row; commit with the task id; `cargo xtask
+   tasks log` and `tasks submit` (`AGENTS.md` §5).
 
 ## 6. Tests
 

@@ -27,6 +27,7 @@ Start with [`product.md`](product.md), then [`ui-layout.md`](ui-layout.md).
 | [parity.md](parity.md) | pick work or record progress |
 | [roadmap.md](roadmap.md) | need milestones, task ids, the honest status and reserved decisions |
 | [status.md](status.md) | start or end a work session |
+| [task-board.md](task-board.md) | find, claim, submit or merge a task; run several agents at once |
 | [contributing.md](contributing.md) | open a pull request: rules, the "Adding a command" checklist, PR expectations |
 | [contributors.md](contributors.md) | want to know how people and AI models are credited in the About window |
 | [assets.md](assets.md) | add an image, icon, font, sound, screenshot or test photo; touch the app icon |
