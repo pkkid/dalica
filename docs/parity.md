@@ -22,15 +22,15 @@ same commit.
 <!-- parity:summary -->
 | Section | ✅ | 🟡 | ⬜ | 🚫 |
 |---|---:|---:|---:|---:|
-| A. Library view | 0 | 0 | 31 | 1 |
-| B. Organizing | 0 | 0 | 42 | 0 |
+| A. Library view | 0 | 1 | 30 | 1 |
+| B. Organizing | 0 | 1 | 41 | 0 |
 | C. Editing | 0 | 0 | 21 | 4 |
 | D. Viewing | 0 | 0 | 6 | 2 |
 | E. Output | 0 | 0 | 2 | 9 |
 | F. Data | 1 | 2 | 3 | 0 |
 | G. Preferences and system | 0 | 0 | 11 | 0 |
 | H. Menus | 0 | 0 | 7 | 0 |
-| **All** | 1 | 2 | 123 | 16 |
+| **All** | 1 | 4 | 121 | 16 |
 <!-- /parity:summary -->
 
 ## Top gaps
@@ -55,7 +55,7 @@ same commit.
 | LIB-LT-STICKY | Sticky section headers | P1 | ⬜ | |
 | LIB-LT-GRID | Justified square-cell grid, aspect-preserving thumbnails, shadow | P0 | ⬜ | |
 | LIB-LT-CAPTION | Thumbnail captions (None/Filename/Caption/Tags/Resolution/Date) | P1 | ⬜ | |
-| LIB-LT-BADGES | Badges: edited, geotag, held, star; video sprockets + duration | P0 | ⬜ | ref 02 §7.4 |
+| LIB-LT-BADGES | Badges: edited, geotag, held, star; video sprockets + duration | P0 | 🟡 | star badge only: `crates/ui-kit/src/widgets.rs`, `crates/ui/tests/library_window.rs`; edited, geotag, held badges and video marks missing; ref 02 §7.4 |
 | LIB-LT-SCROLLBAR | Section-jump scrollbar (⇑ ▲ ▼ ⇓) | P2 | ⬜ | ref 02 §7.1 |
 | LIB-LT-HIDDEN | Hidden pictures shown translucent when enabled; small pictures toggle | P1 | ⬜ | |
 | LIB-SEL | Selection: click, Ctrl, Shift, rubber band, scoped to one section | P0 | ⬜ | ref 02 §7.5 |
@@ -85,7 +85,7 @@ same commit.
 | ORG-ALBUM-NEW | New album + Album Properties | P0 | ⬜ | |
 | ORG-ALBUM-EDIT | Add/remove/reorder/cover/delete album | P0 | ⬜ | |
 | ORG-ALBUM-AUTO | Starred Photos, Recently Updated, Search results albums | P0 | ⬜ | |
-| ORG-STAR | Star toggle everywhere | P0 | ⬜ | |
+| ORG-STAR | Star toggle everywhere | P0 | 🟡 | library view only: Ctrl+8 / F4 and the bottom-bar star button (`cmd:photo.star.toggle`, `crates/ui/tests/library_window.rs`); menus, tray, edit view missing |
 | ORG-TAGS | Tags pane: add, list with partial counts, remove | P1 | ⬜ | |
 | ORG-QUICKTAGS | Quick tags + configure dialog | P2 | ⬜ | |
 | ORG-CAPTION | Captions (edit view field, library inline) | P0 | ⬜ | |
