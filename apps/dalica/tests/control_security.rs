@@ -25,6 +25,14 @@ const MAX_CONNECTIONS: usize = 16;
 const AUTH_WITHIN: Duration = Duration::from_secs(10);
 /// The longest a test waits for a reply, a close or the app.
 const PATIENCE: Duration = Duration::from_secs(60);
+/// The longest a test waits for the server to free the slots of connections the client closed. The
+/// server frees a slot when that connection's thread reads the end of its stream, which can come a
+/// little after the client's close returned (notably on Windows), so a connection made right after
+/// may still be refused with `limit`.
+const SLOT_FREED_WITHIN: Duration = Duration::from_secs(10);
+/// How long a new connection waits for a first line before it counts as accepted: a refused one is
+/// answered `limit` as soon as it is accepted; an accepted one says nothing until `auth`.
+const REFUSAL_WITHIN: Duration = Duration::from_secs(1);
 
 /// A port nobody listens on now (the OS picks it; it is free again once the probe closes).
 fn free_port() -> u16 {
@@ -169,9 +177,14 @@ impl App {
     }
 
     /// Quits the app over the channel; it must exit cleanly.
-    fn quit(mut self) {
+    fn quit(self) {
         let mut c = Conn::open(self.port);
         c.auth(&self.token);
+        self.quit_over(c);
+    }
+
+    /// Quits the app over `c` (authenticated); it must exit cleanly.
+    fn quit_over(mut self, mut c: Conn) {
         assert_eq!(c.request("app.quit", json!({}))["ok"], true);
         assert_eq!(self.proc.exit_code(self.home.path()), Some(0), "{}", stderr_of(self.home.path()));
     }
@@ -256,6 +269,68 @@ impl Conn {
     fn auth(&mut self, token: &str) {
         let v = self.request("auth", json!({ "token": token }));
         assert_eq!((v["ok"].clone(), v["result"]["app"].clone()), (json!(true), json!("dalica")), "{v}");
+    }
+
+    /// What the server sends first, within `wait`; `None` when it sends nothing in that time.
+    fn first_within(&mut self, wait: Duration) -> Option<Got> {
+        self.replies.get_ref().set_read_timeout(Some(wait)).unwrap();
+        let mut line = Vec::new();
+        let got = match self.replies.read_until(b'\n', &mut line) {
+            Ok(0) => Some(Got::Closed),
+            Ok(_) => Some(Got::Line(String::from_utf8(line).expect("replies are UTF-8"))),
+            Err(e) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => {
+                assert!(line.is_empty(), "half a line, then nothing for {wait:?}: {:?}", String::from_utf8_lossy(&line));
+                None
+            }
+            Err(e) => Some(Got::Reset(e.kind())),
+        };
+        self.replies.get_ref().set_read_timeout(Some(PATIENCE)).unwrap();
+        got
+    }
+
+    /// Asserts this new connection, to which nothing was sent, is refused: one `limit` line with
+    /// no id that says how many connections are open, then the close.
+    fn assert_limit(&mut self, what: &str) {
+        let v = self.reply();
+        assert_eq!((v["ok"].clone(), v["code"].clone(), v["id"].clone()), (json!(false), json!("limit"), Value::Null), "{what}: {v}");
+        assert!(v["error"].as_str().unwrap_or_default().contains("16 connections"), "{what}: {v}");
+        self.assert_closed(what);
+    }
+
+    /// An authenticated connection, made while the server may still be freeing the slots of
+    /// connections the client just closed: until one is free it refuses with `limit`, so this
+    /// tries again with a short backoff for up to [`SLOT_FREED_WITHIN`]. Nothing is sent before
+    /// the server's first line, so every refused try must be a clean `limit` line and the close
+    /// (sending first could make the server close with unread data, a reset that may drop the
+    /// line). Returns the connection and the tries it took.
+    fn open_once_a_slot_is_free(port: u16, token: &str) -> (Conn, u32) {
+        let end = Instant::now() + SLOT_FREED_WITHIN;
+        let mut backoff = Duration::from_millis(10);
+        let mut tries = 0;
+        loop {
+            tries += 1;
+            let mut c = Conn::open(port);
+            match c.first_within(REFUSAL_WITHIN) {
+                // Silent: accepted, it waits for `auth`.
+                None => {
+                    c.auth(token);
+                    return (c, tries);
+                }
+                Some(Got::Line(line)) => {
+                    let v: Value = serde_json::from_str(&line).unwrap_or_else(|e| panic!("try {tries}: not JSON ({e}): {line:?}"));
+                    assert_eq!(
+                        (v["ok"].clone(), v["code"].clone(), v["id"].clone()),
+                        (json!(false), json!("limit"), Value::Null),
+                        "try {tries}: {v}"
+                    );
+                    c.assert_closed(&format!("refused try {tries}"));
+                }
+                Some(other) => panic!("try {tries}: a new connection must be accepted or refused with a `limit` line, got {other:?}"),
+            }
+            assert!(Instant::now() < end, "no slot was free {SLOT_FREED_WITHIN:?} after connections closed: {tries} tries were refused with `limit`");
+            std::thread::sleep(backoff);
+            backoff = (backoff * 2).min(Duration::from_millis(200));
+        }
     }
 
     /// Sends `bytes`; asserts one error reply with `code` that says the connection closes and does
@@ -517,7 +592,9 @@ fn non_json_and_http_request_lines_get_a_parse_error_and_the_connection_closes()
 }
 
 /// Scope: the 17th connection is refused (`control-protocol.md` §4): with 16 open, another gets
-/// one `limit` line and is closed, the 16 keep working, and closing one frees its slot.
+/// one `limit` line and is closed, the 16 keep working, and closing one frees its slot (within
+/// [`SLOT_FREED_WITHIN`]: the server frees it when it reads the close, a little after the client
+/// made it), after which the count is exact again.
 #[test]
 fn the_seventeenth_connection_gets_a_limit_error_and_is_closed() {
     let app = App::start(&[]);
@@ -530,36 +607,27 @@ fn the_seventeenth_connection_gets_a_limit_error_and_is_closed() {
         })
         .collect();
     for n in [MAX_CONNECTIONS + 1, MAX_CONNECTIONS + 2] {
-        let mut c = Conn::open(app.port);
-        let v = c.reply();
-        assert_eq!((v["ok"].clone(), v["code"].clone(), v["id"].clone()), (json!(false), json!("limit"), Value::Null), "connection {n}: {v}");
-        assert!(v["error"].as_str().unwrap_or_default().contains("16 connections"), "{v}");
-        c.assert_closed(&format!("connection {n}"));
+        Conn::open(app.port).assert_limit(&format!("connection {n}"));
     }
     for c in &mut open {
         assert_eq!(c.request("ui.state", json!({}))["ok"], true, "the 16 open connections keep working");
     }
     drop(open.pop());
-    // The server frees the slot when it sees the close; until then a new connection is refused.
-    let end = Instant::now() + PATIENCE;
-    let mut tries = 0;
-    loop {
-        tries += 1;
-        let mut c = Conn::open(app.port);
-        c.send(auth_line(json!(1), &app.token).as_bytes());
-        if let Got::Line(line) = c.read() {
-            let v: Value = serde_json::from_str(&line).unwrap();
-            if v["ok"] == true {
-                break;
-            }
-            assert_eq!(v["code"], "limit", "{v}");
-        }
-        assert!(Instant::now() < end, "the closed connection's slot was not freed");
-        std::thread::sleep(Duration::from_millis(50));
-    }
-    eprintln!("numbers: the freed slot was taken on try {tries}");
+    let t = Instant::now();
+    let (mut again, tries) = Conn::open_once_a_slot_is_free(app.port, &app.token);
+    let freed_ms = t.elapsed().as_secs_f64() * 1000.0;
+    assert_eq!(again.request("ui.state", json!({}))["ok"], true, "the connection in the freed slot works");
+    open.push(again);
+    // 16 open again: the next one is refused, whatever the server has noticed yet (an unnoticed
+    // close only makes it count more).
+    Conn::open(app.port).assert_limit("connection 17 after a slot was freed and taken");
+    eprintln!(
+        "numbers: the freed slot was taken on try {tries}, {freed_ms:.0} ms after the close (with the {REFUSAL_WITHIN:?} of silence that tells an accepted connection)"
+    );
+    // Closing all 16 at once: the quit waits for the server to free a slot the same way.
     drop(open);
-    app.quit();
+    let (c, _) = Conn::open_once_a_slot_is_free(app.port, &app.token);
+    app.quit_over(c);
 }
 
 /// Writes a token file holding `token` (mode 0600 on Unix, from the umask elsewhere).
