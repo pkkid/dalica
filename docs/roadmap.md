@@ -13,12 +13,20 @@ state (ready, claimed, in review) is on the task board ([`task-board.md`](task-b
 *Honest assessment, 2026-10-09. Agents: read this before picking work. Update it only with
 measured facts, dated.*
 
-Nothing is built yet. The investigation stage is done: the reference organizer's layout, workflows,
-data formats, menus and shortcuts are documented privately in `notes/`, and the public specs in
-`docs/` describe Dalica. On 2026-10-09 the scope was trimmed (dated features dropped), the kickoff
-decisions were recorded (Craft apps are reference only, licence, metadata defaults, keyboard
-contexts, two undo histories, OS integration last), and the architecture was specified
-(`architecture.md`). The milestones below replace the earlier, much larger ones. Next: M0.
+*2026-10-09.* M0 is done pending its review. The workspace has the 18 crates of `architecture.md` §2
+as stubs plus the two apps, and every gate bites: `cargo xtask ci` (fmt, clippy, tests, layers, deps,
+assets, names, parity, docs, roadmap parse) is green on Linux, Windows and macOS (GitHub CI 2–5 min
+per OS cold, under a minute warm on Linux and macOS; 46 s on a clean local clone), and
+`cargo xtask accept M0` shows 6/6 planted violations caught. The task board (`cargo xtask tasks`)
+adopted the 32 bootstrap issues without duplicates and closes merged tasks; its claim, submit and
+merge paths have only run against the in-memory fake. `dalica` opens an empty 1400 × 900 window
+(GL-free wgpu, no fonts bundled yet; the title text is missing on GNOME until M3's own title bar).
+There is no product code yet. Next: M1, the first real data path from a folder to a starred photo
+that survives a restart.
+
+Before that (kickoff, 2026-10-09): the reference organizer was documented privately in `notes/`,
+the public specs in `docs/` describe Dalica, the scope was trimmed (dated features dropped), the
+kickoff decisions were recorded and the architecture was specified (`architecture.md`).
 
 ## How milestones work
 
@@ -34,6 +42,9 @@ contexts, two undo histories, OS integration last), and the architecture was spe
   learned, adjust the following milestones, and write the next milestone's task blocks. The next
   milestone's first tasks list `M<n>.R` in `after:`, so no agent can start them before the
   maintainer closes the review issue.
+- **Metrics** a task measures go in its dev-log entry and pull request; the lead copies them into
+  `status.md` (done-whens never write it). Steps only the maintainer can do (approving a live board
+  run, a push, a manual look) belong to the review gates or the lead, not to a worker's done-when.
 - **Tasks are blocks in a fixed format** (`after`, `owner`, `files`, `scope`, `done when`;
   [`task-board.md`](task-board.md) §3). This file is the plan; the **live state** (ready, claimed,
   in review, done) is the GitHub task board that `cargo xtask tasks` keeps in sync with it.
@@ -271,14 +282,16 @@ built. Built by a single agent; the waves show what could run in parallel later.
     collision naming on empty, dot-only and non-ASCII names.
 - ⬜ **M1.2 `fs`: atomic writes**
   - after: M1.1
-  - files: `crates/fs/src/atomic.rs`, `crates/fs/src/guard.rs`, `crates/fs/src/faults.rs`, `crates/fs/src/lib.rs`, `crates/fs/Cargo.toml`
+  - files: `crates/fs/src/atomic.rs`, `crates/fs/src/append.rs`, `crates/fs/src/guard.rs`, `crates/fs/src/faults.rs`, `crates/fs/src/lib.rs`, `crates/fs/Cargo.toml`
   - scope: atomic replace (temp in the same folder, write, fsync, rename, fsync the folder where
     supported, re-read and compare); read-before-write identity check; the UI-thread guard; named
-    fault points behind the `faults` feature.
+    fault points behind the `faults` feature; an append-only, size-capped `append` (fsync after each
+    write) and `rotate` (`name.log` → `name.1.log` → `name.2.log`) for log files, so the app's logger
+    writes through `fs` too (layer rule 4).
   - done when: `cargo test -p dalica-fs --features faults` passes, including a loop that fails each
     fault point in turn and asserts the target holds exactly the old or the new bytes; a file
     changed between read and write is refused; any call on a thread marked as UI returns
-    `Err(OnUiThread)`.
+    `Err(OnUiThread)`; `append` past its cap returns an error and leaves the file at or under the cap.
 - ⬜ **M1.3 `fs`: lock and walks**
   - after: M1.2
   - files: `crates/fs/src/lock.rs`, `crates/fs/src/walk.rs`, `crates/fs/tests/**`
@@ -287,6 +300,16 @@ built. Built by a single agent; the waves show what could run in parallel later.
   - done when: a second process (spawned test helper) gets `Err(Locked)` while the first holds
     the lock and succeeds after it exits; a symlink loop and a 40-deep tree end with a bounded
     result and a warning, not a hang; names with `]`, `"`, `;`, `=` and non-ASCII are listed.
+- ⬜ **M1.20 App log file**
+  - after: M1.2
+  - files: `apps/dalica/src/logging.rs`, `apps/dalica/Cargo.toml`
+  - scope: the desktop app's log of `development.md` §10 written through `fs::append`:
+    `<config>/logs/dalica.log`, rotated to `dalica.1.log` / `dalica.2.log` at each launch, capped at
+    16 MiB, Dalica's crates at `info` and the rest at `warn`, `RUST_LOG` directives; the panic hook
+    also appends to `dalica-panics.log` in the OS temp folder; `--version`, `--help` and
+    command-line errors write no file.
+  - done when: tests on a temp config dir show rotation across three launches, the cap holding,
+    a panic's message and location in both files, and no file for `--version`.
 - ⬜ **M1.4 `scenes`**
   - after: M1.1
   - files: `crates/scenes/**`
@@ -388,9 +411,10 @@ built. Built by a single agent; the waves show what could run in parallel later.
     `cargo test -p dalica-engine --test panic_hunt -- --ignored` is green.
 - ⬜ **M1.15 `dalica-cli` run and inspect**
   - after: M1.14
-  - files: `apps/dalica-cli/src/run.rs`, `apps/dalica-cli/src/inspect.rs`, `apps/dalica-cli/src/main.rs`, `tests/acceptance/m1_headless.rs`
-  - scope: `commands`, `run --library DIR` (JSON-lines script, one result per line, flush, exit 1
-    on a failed command and 2 on a bad script line), `inspect`.
+  - files: `apps/dalica-cli/src/run.rs`, `apps/dalica-cli/src/inspect.rs`, `apps/dalica-cli/src/main.rs`, `apps/dalica-cli/Cargo.toml`, `tests/acceptance/m1_headless.rs`, `xtask/src/accept.rs`
+  - scope: `commands` (the engine registry), `run --library DIR` (JSON-lines script, one result per
+    line, flush, exit 1 on a failed command and 2 on a bad script line), `inspect`;
+    `cargo xtask accept M<n> --headless` runs the `m<n>_headless` test target.
   - done when: `cargo xtask accept M1 --headless` passes the data half of M1's *Done when*: 200
     `scenes` JPEGs in all orientations, star 3, undo 1 → 2 stars in `.dalica.json` with planted
     keys intact; delete the index, rebuild → 2 stars; a second process refused.
@@ -403,11 +427,13 @@ built. Built by a single agent; the waves show what could run in parallel later.
   - done when: the maintainer closes the review issue.
 - ⬜ **M1.16 `ui-kit`: tokens, widgets, rasterizer**
   - after: M1.1
-  - files: `crates/ui-kit/**`
+  - files: `crates/ui-kit/**`, `assets/fonts/**`, `ATTRIBUTION.md`
   - scope: M1's tokens (`chrome`, `canvas`, `grid_bg`, `cell`, `cell_selected`, text greys,
-    `accent`, `icon`), the widget registry, a button, an icon button, the star icon and badge; the
-    CPU rasterizer: first try `egui_software_backend` and adopt it if it supports egui 0.36 and
-    matches egui's blending, else write our own (decision and reason in the commit body).
+    `accent`, `icon`), the widget registry, a button, an icon button, the star icon and badge; Inter
+    (Regular, SemiBold) in `assets/fonts/` with `OFL-Inter.txt` and its `ATTRIBUTION.md` row,
+    installed by `ui-kit` (egui's default fonts are off); the CPU rasterizer: first check whether
+    `egui_software_backend` (0.0.3 on 2026-10-09) supports egui 0.36 and matches egui's blending,
+    adopt it if so, else write our own (decision and reason in the commit body).
   - done when: `cargo test -p dalica-ui-kit` renders a widget gallery to identical pixels twice,
     matches its fingerprint, and the token contrast test passes (text on `chrome` ≥ 4.5:1).
 - ⬜ **M1.17 `ui`: headless driver and snapshots**
@@ -420,18 +446,20 @@ built. Built by a single agent; the waves show what could run in parallel later.
     `dalica-cli snapshot --library DIR -o out.png --size 1400x900` writes that PNG.
 - ⬜ **M1.18 `ui`: the plain library window**
   - after: M1.12, M1.17
-  - files: `crates/ui/src/panels/**`, `crates/ui/src/keys.rs`, `crates/ui/src/picker.rs`, `crates/ui/tests/**`, `apps/dalica/src/**`
+  - files: `crates/ui/src/panels/**`, `crates/ui/src/keys.rs`, `crates/ui/src/picker.rs`, `crates/ui/tests/**`, `apps/dalica/src/**`, `apps/dalica/Cargo.toml`
   - scope: folder list; one square grid per folder with thumbnails from the job pool; click
     selects; Ctrl+8 (through the keymap) and a star button; the star badge; File → Add Folder…
-    through the `Picker` trait (`rfd` in the app, scripted in tests); the UI-thread guard on.
+    through the `Picker` trait (`rfd` with only its `xdg-portal` backend in the app, since gtk3
+    links C; scripted in tests); the UI-thread guard on. The window keeps OS decorations until M3's
+    title bar.
   - done when: a headless test opens a `scenes` library, clicks a thumbnail by widget id, presses
     Ctrl+8, and the photo is starred in the engine and its badge shows in the screenshot
     fingerprint; no `fs` call happens on the UI thread during the test.
 - ⬜ **M1.19 Demo library and `accept M1`**
   - after: M1.18
-  - files: `crates/engine/src/demo.rs`, `tests/acceptance/m1.rs`, `tests/acceptance/m1.md`, `docs/status.md`
+  - files: `crates/engine/src/demo.rs`, `tests/acceptance/m1.rs`, `tests/acceptance/m1.md`
   - scope: `--demo` builds a throwaway `scenes` library; the full acceptance test; the manual
-    check written down; metrics recorded.
+    check written down; metrics in the dev log (the lead copies them to `status.md`).
   - done when: `cargo xtask accept M1` passes everything in M1's *Done when*.
 - ⬜ **M1.R Milestone review**
   - after: M1.19
@@ -445,7 +473,7 @@ Waves (inside a wave, "‖" separates chains in different crates that share no f
 
 ```text
 wave 1   M1.1 core
-wave 2   M1.2 → M1.3 fs  ‖  M1.4 → M1.5 → M1.6 scenes, image  ‖  M1.7 sidecar  ‖  M1.8 library  ‖  M1.16 ui-kit
+wave 2   M1.2 → M1.3 fs, M1.20 app log  ‖  M1.4 → M1.5 → M1.6 scenes, image  ‖  M1.7 sidecar  ‖  M1.8 library  ‖  M1.16 ui-kit
 wave 3   M1.9 → M1.10 store  ‖  M1.11 scan  ‖  M1.12 thumbs
 wave 4   M1.13 → M1.14 engine → M1.15 cli → M1.A checkpoint review
 wave 5   M1.17 → M1.18 ui, app → M1.19 acceptance → M1.R milestone review

@@ -45,6 +45,9 @@ mod tests {
         assert!(!patterns_overlap("crates/fs/src/atomic.rs", "crates/fs/src/lock.rs"));
         assert!(!patterns_overlap("crates/ui/**", "crates/ui-kit/src/theme.rs"));
         assert!(!patterns_overlap("docs/roadmap.md", "docs/roadmap.md"));
+        assert!(!patterns_overlap("Cargo.lock", "Cargo.lock"));
+        assert!(!patterns_overlap("xtask/src/main.rs", "xtask/src/main.rs"));
+        assert!(patterns_overlap("crates/fs/Cargo.toml", "crates/fs/**"));
         assert!(!patterns_overlap("xtask/src/deps.rs", "xtask/src/names.rs"));
     }
 }

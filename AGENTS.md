@@ -161,11 +161,13 @@ L0       core · fs                    (only `fs` writes to disk)
   milestone's last task lands, and prepares the review for the maintainer.
 - **Review gates** (`M<n>.A`, `M<n>.R`) belong to the maintainer; no agent claims them, and the next
   milestone's tasks stay `Todo` until the maintainer closes the gate.
-- **M0 and M1 (one agent, acting as lead and worker):** work in roadmap order, one branch
-  `task/M<n>.<k>-<slug>` per task, fast-forward `main` after `cargo xtask ci` is green, then
-  `cargo xtask tasks sync` marks the task Done and closes its issue (In Progress is set by hand with
-  `gh` until claims are used). Pushing to GitHub always needs the maintainer's go-ahead until the
-  board's `submit`/`merge` take over. Parallel workers start at M2.
+- **M0 and M1 (one agent, acting as lead and worker):** up to the M1.A checkpoint, work in roadmap
+  order, one branch `task/M<n>.<k>-<slug>` per task, fast-forward `main` after `cargo xtask ci` is
+  green, then `cargo xtask tasks sync` marks the task Done and closes its issue (In Progress is set
+  by hand with `gh`). After M1.A the same agent uses the full loop (`tasks claim`, `submit`,
+  `merge`, with pull requests), so the board's live paths are proven by one agent before eight use
+  them; the maintainer gave the standing go-ahead for those `submit`/`merge` pushes at the M0 review
+  (2026-10-09). Any other push still needs the go-ahead. Parallel workers start at M2.
 
 ## 5. Before you finish a task
 
@@ -184,6 +186,11 @@ cargo xtask test-corpus                                      # if you touched a 
 cargo xtask tasks log <id> "Landed: …  Open: …  Numbers: …"  # the dev-log entry (required by submit)
 cargo xtask tasks submit <id>
 ```
+
+- **Portable paths:** CI runs on Windows too. Paths in messages use `/` (as git prints them); tests
+  build expected paths with `Path::join`, never by hard-coding a separator.
+- **Nested cargo in tests is fine** (cargo releases the build lock while tests run); a test that
+  copies the tree and builds it uses its own target directory (see `tests/acceptance/m0.rs`).
 
 And:
 - **Look at what you built.** After any user-visible change, take screenshots at 1400 × 900 and
@@ -225,6 +232,10 @@ And:
 - **Own your files.** Work only inside your task's `files`. Need another file? Ask on the issue
   first. Two tasks with overlapping `files` are never in progress together (`tasks next` and
   `claim` enforce it).
+- **Shared registration files** (root `Cargo.toml`, `Cargo.lock`, `xtask/src/main.rs`,
+  `tests/acceptance/Cargo.toml`) need not be in your `files` and never block a claim; keep edits
+  there to the lines you add. The lead re-resolves `Cargo.lock` at merge instead of hand-merging it
+  (`docs/task-board.md` §3).
 - **Put new work in new modules.** New commands go in a new `crates/engine/src/cmd/<area>.rs`, new
   panels in a new `crates/ui/src/panels/<region>.rs`, rather than growing shared files. Shared
   files (`cmd/mod.rs`, `ui/src/menus.rs`, `ui/src/state.rs`, `menu_catalog.rs`) get small,

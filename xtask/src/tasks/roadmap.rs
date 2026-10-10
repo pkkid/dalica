@@ -317,7 +317,7 @@ mod tests {
         assert!(roadmap.milestones.len() >= 38);
         let m0: Vec<_> = roadmap.tasks.iter().filter(|t| t.milestone == 0).map(|t| t.id.as_str()).collect();
         assert_eq!(m0, ["M0.1", "M0.2", "M0.10", "M0.3", "M0.4", "M0.5", "M0.6", "M0.7", "M0.8", "M0.9", "M0.R"]);
-        assert_eq!(roadmap.tasks.iter().filter(|t| t.milestone == 1).count(), 21);
+        assert_eq!(roadmap.tasks.iter().filter(|t| t.milestone == 1).count(), 22);
         let r = roadmap.task("M0.R").unwrap();
         assert!(r.is_gate() && r.owner == Owner::Maintainer);
         assert_eq!(roadmap.task("M0.5").unwrap().after, ["M0.3", "M0.4"]);

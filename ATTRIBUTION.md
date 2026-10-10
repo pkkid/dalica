@@ -32,7 +32,7 @@ Columns: **Path** (backticked path pattern), **Asset** (title), **Creator**, **S
 |---|---|---|---|---|---|---|
 
 <!--
-Example row (not a real entry; copy it without the leading "e.g. " when Inter lands in M0.4):
+Example row (not a real entry; copy it without the leading "e.g. " when Inter lands in M1.16):
 
 e.g. | `assets/fonts/Inter-*.ttf` (Regular, SemiBold) | Inter | The Inter Project Authors (Rasmus Andersson) | https://github.com/rsms/inter | SIL Open Font License 1.1 (`assets/fonts/OFL-Inter.txt`) | 2026-10-09 | none |
 -->

@@ -136,7 +136,9 @@ Rules the checker enforces:
 3. Only L5 and apps may depend on `egui`, `eframe`, `winit`, `wgpu`, `rfd`, `muda`.
 4. Only `fs` may call `std::fs` write functions (`write`, `rename`, `remove_*`, `copy`,
    `create_dir*`, `OpenOptions` with write); `xtask layers` greps for them. Everything else writes
-   through `fs`, so atomicity, verification and fault injection have one home.
+   through `fs`, so atomicity, verification and fault injection have one home. That includes the
+   app's log files, written with `fs::append` (M1.20). Tooling (`xtask`, `tests/acceptance`) and
+   test code are not product code and are not checked.
 5. L0–L4 stay free of platform UI code so they can later build for `wasm32` (not before 1.0).
 
 ## 3. Commands: the one seam

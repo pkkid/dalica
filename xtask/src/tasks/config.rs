@@ -28,5 +28,7 @@ pub const LABELS: [(&str, &str, &str); 4] = [
 /// A claim with no push and no dev-log entry for this long is stale.
 pub const STALE_SECS: i64 = 3 * 60 * 60;
 
-/// Shared files every task may touch; they never count as overlapping (`task-board.md` §3).
-pub const SHARED_FILES: [&str; 2] = ["docs/roadmap.md", "docs/parity.md"];
+/// Shared docs and registration files every task may touch; they never count as overlapping
+/// (`task-board.md` §3).
+pub const SHARED_FILES: [&str; 6] =
+    ["docs/roadmap.md", "docs/parity.md", "Cargo.toml", "Cargo.lock", "xtask/src/main.rs", "tests/acceptance/Cargo.toml"];
