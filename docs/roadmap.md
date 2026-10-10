@@ -123,7 +123,7 @@ turns each into a GitHub issue. M0 is built by a single agent.
   - done when: `cargo build --workspace --all-targets` and `cargo test --workspace` pass, and
     `tests/acceptance/m0_skeleton.rs` asserts every crate root has both attributes and
     `cargo metadata` lists exactly the 18 crates, 2 apps, `xtask` and `dalica-acceptance`.
-- ⬜ **M0.2 `xtask` frame and `layers`**
+- ✅ **M0.2 `xtask` frame and `layers`**
   - after: M0.1
   - files: `xtask/Cargo.toml`, `xtask/src/main.rs`, `xtask/src/layers.rs`, `xtask/src/metadata.rs`
   - scope: subcommand dispatch; the layer table of `architecture.md` §2 and rules 1–4 (downward
