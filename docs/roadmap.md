@@ -455,7 +455,7 @@ their PNGs to the maintainer, who approves them before they merge (M1.A decision
     `image`, `ui-kit` and `ui` tests.
   - done when: `cargo test -p dalica-ui-kit` renders a widget gallery to identical pixels twice,
     matches its fingerprint, and the token contrast test passes (text on `chrome` ≥ 4.5:1).
-- ⬜ **M1.17 `ui`: headless driver and snapshots**
+- ✅ **M1.17 `ui`: headless driver and snapshots**
   - after: M1.A, M1.16
   - files: `crates/ui/src/app.rs`, `crates/ui/src/state.rs`, `crates/ui/src/headless.rs`, `crates/ui/src/lib.rs`, `crates/ui/Cargo.toml`, `apps/dalica-cli/src/snapshot.rs`
   - scope: `App::run` (UI-only ids, else forwarded), a minimal `UiState`, the headless driver

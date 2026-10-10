@@ -12,6 +12,9 @@ publish = false
 [dependencies]
 dalica-core.workspace = true
 dalica-engine.workspace = true
+dalica-fs.workspace = true
+dalica-ui.workspace = true
+png.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
