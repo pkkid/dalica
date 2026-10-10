@@ -1,6 +1,7 @@
 //! Dalica's headless command line (`docs/architecture.md` §3, §7): `commands` lists the command
 //! registry as JSON, `run` executes a JSON-lines script on a library, `inspect` summarises one,
-//! `snapshot` screenshots the app headlessly.
+//! `snapshot` screenshots the app headlessly. `--demo` in place of `--library DIR` uses the demo
+//! library (made on first use under the temp folder).
 
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
@@ -25,11 +26,21 @@ commands:
                                              {\"settle\": true}
   --version                                  print the version
 
+--demo may replace --library DIR in run, inspect and snapshot: the demo library of generated photos.
+
 exit codes: 0 success, 1 a command failed, 2 a bad argument or script line, 3 the library could not be
 opened (for example, another Dalica process has it open)";
 
 fn main() -> ExitCode {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    let mut args: Vec<String> = std::env::args().skip(1).collect();
+    if let Some(i) = args.iter().position(|a| a == "--demo") {
+        match demo_library() {
+            Ok(dir) => {
+                args.splice(i..=i, ["--library".to_string(), dir.to_string_lossy().into_owned()]);
+            }
+            Err(code) => return code,
+        }
+    }
     match args.first().map(String::as_str) {
         Some("--version" | "-V") => println!("dalica-cli {}", env!("CARGO_PKG_VERSION")),
         Some("--help" | "-h" | "help") => println!("{USAGE}"),
@@ -70,6 +81,23 @@ fn commands() -> String {
         }))
         .collect();
     serde_json::to_string_pretty(&list).unwrap_or_else(|_| "[]".into())
+}
+
+/// Makes (first time) and scans the demo library; returns its library folder.
+fn demo_library() -> Result<std::path::PathBuf, ExitCode> {
+    let dir = dalica_engine::demo::default_dir();
+    let opened = dalica_engine::demo::open(&dir, std::sync::Arc::new(dalica_core::SystemClock));
+    match opened.map(|mut s| s.flush()) {
+        Ok(Ok(())) => Ok(dalica_engine::demo::library_dir(&dir)),
+        Ok(Err(e)) => {
+            eprintln!("dalica-cli: the demo library was not saved: {e}");
+            Err(ExitCode::from(3))
+        }
+        Err(e) => {
+            eprintln!("dalica-cli: cannot open the demo library: {e}");
+            Err(ExitCode::from(3))
+        }
+    }
 }
 
 /// The value after `--library`.

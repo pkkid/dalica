@@ -15,6 +15,8 @@ dalica-core.workspace = true
 dalica-fs.workspace = true
 dalica-library.workspace = true
 dalica-scan.workspace = true
+# The demo library's photos (`demo.rs`).
+dalica-scenes.workspace = true
 dalica-store.workspace = true
 log.workspace = true
 serde.workspace = true
@@ -22,7 +24,6 @@ serde_json.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
-dalica-scenes.workspace = true
 proptest.workspace = true
 dalica-sidecar.workspace = true
 tempfile.workspace = true

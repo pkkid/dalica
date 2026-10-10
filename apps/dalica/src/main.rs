@@ -1,6 +1,6 @@
 //! Dalica desktop app: the eframe window around `dalica_ui::App` (`docs/architecture.md` §10).
 //!
-//! Usage: `dalica [--library DIR] [--version | --help]`.
+//! Usage: `dalica [--library DIR | --demo] [--version | --help]`.
 
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
@@ -12,9 +12,10 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-const USAGE: &str = "usage: dalica [--library DIR] [--version | --help]
+const USAGE: &str = "usage: dalica [--library DIR | --demo] [--version | --help]
 
-The library is DIR, else $DALICA_HOME, else the platform data folder (Linux ~/.local/share/dalica/library,
+--demo opens a library of generated photos in the temp folder (made on first use, kept between runs).
+Otherwise the library is DIR, else $DALICA_HOME, else the platform data folder (Linux ~/.local/share/dalica/library,
 macOS ~/Library/Application Support/Dalica/Library, Windows %LOCALAPPDATA%\\Dalica\\Library).";
 
 /// Default and minimum window sizes (`docs/ui-layout.md` §11).
@@ -39,6 +40,7 @@ fn default_library(var: impl Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut library = None;
+    let mut demo = false;
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
@@ -50,6 +52,7 @@ fn main() -> ExitCode {
                 println!("{USAGE}");
                 return ExitCode::SUCCESS;
             }
+            "--demo" => demo = true,
             "--library" => match it.next() {
                 Some(dir) => library = Some(PathBuf::from(dir)),
                 None => {
@@ -63,16 +66,27 @@ fn main() -> ExitCode {
             }
         }
     }
-    let Some(library) = library.or_else(|| default_library(|k| std::env::var_os(k))) else {
-        eprintln!("dalica: no library folder: pass --library DIR or set DALICA_HOME");
-        return ExitCode::from(2);
+    let source = match (demo, library) {
+        (true, Some(_)) => {
+            eprintln!("dalica: --demo and --library cannot be combined\n{USAGE}");
+            return ExitCode::from(2);
+        }
+        (true, None) => window::Source::Demo(dalica_engine::demo::default_dir()),
+        (false, Some(dir)) => window::Source::Library(dir),
+        (false, None) => match default_library(|k| std::env::var_os(k)) {
+            Some(dir) => window::Source::Library(dir),
+            None => {
+                eprintln!("dalica: no library folder: pass --library DIR or set DALICA_HOME");
+                return ExitCode::from(2);
+            }
+        },
     };
     let _log = logging::init();
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_title("Dalica").with_inner_size(WINDOW_SIZE).with_min_inner_size(MIN_WINDOW_SIZE),
         ..Default::default()
     };
-    match eframe::run_native("Dalica", options, Box::new(move |cc| Ok(Box::new(window::Window::new(&cc.egui_ctx, library))))) {
+    match eframe::run_native("Dalica", options, Box::new(move |cc| Ok(Box::new(window::Window::new(&cc.egui_ctx, source))))) {
         Ok(()) => {
             log::info!("dalica: closed");
             ExitCode::SUCCESS

@@ -475,7 +475,7 @@ their PNGs to the maintainer, who approves them before they merge (M1.A decision
   - done when: a headless test opens a `scenes` library, clicks a thumbnail by widget id, presses
     Ctrl+8, and the photo is starred in the engine and its badge shows in the screenshot
     fingerprint; no `fs` call happens on the UI thread during the test.
-- ⬜ **M1.19 Demo library and `accept M1`**
+- ✅ **M1.19 Demo library and `accept M1`**
   - after: M1.18
   - files: `crates/engine/src/demo.rs`, `tests/acceptance/m1.rs`, `tests/acceptance/m1.md`, `apps/dalica/src/main.rs`, `apps/dalica-cli/src/main.rs`
   - scope: `--demo` (in `dalica` and `dalica-cli`) builds a throwaway `scenes` library, written
