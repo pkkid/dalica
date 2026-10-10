@@ -314,12 +314,12 @@ rather than relying on defaults.
 ### 4.3 Work budgets during scans
 
 - Each file's decode and metadata read runs inside the per-file `catch_unwind` guard on a worker
-  thread with a cancel flag. **Planned (M1).**
+  thread with a cancel flag. **Planned (M7).**
 - A file that fails, panics or exceeds a 10-second work budget is recorded by (path, size, mtime)
   and not retried until it changes; the tile shows a generic placeholder and the scan continues.
-  **Planned (M1).**
+  **Planned (M7).**
 - Work counters (not only byte counts) for highly fragmented but size-bounded files: number of
-  JPEG scans, Huffman tables, PNG chunks, TIFF strips/tiles. **Planned (M1).**
+  JPEG scans, Huffman tables, PNG chunks, TIFF strips/tiles. **Planned (M7).**
 
 ### 4.4 Tainted text
 

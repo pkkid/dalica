@@ -13,6 +13,18 @@ state (ready, claimed, in review) is on the task board ([`task-board.md`](task-b
 *Honest assessment, 2026-10-10. Agents: read this before picking work. Update it only with
 measured facts, dated.*
 
+*2026-10-10 (M1.R).* M1 is done: `cargo xtask accept M1` passes in 5 s on a fresh clone, and the
+maintainer's manual check passed (a star set with Ctrl+8 in `dalica --demo` survives a restart). A
+folder of photos is scanned and shown in a plain library window (folder list, square thumbnail
+grid); a photo is starred with a click and Ctrl+8; the star is written to `.dalica.json`, survives an
+index rebuild and a restart; a second process is refused. The window is drawn by our own widgets
+with Inter, and the same frames render headlessly on the CPU, byte-identical to what
+`dalica-cli snapshot` writes; the first four fingerprints are approved baselines. The UI thread
+never touches the disk (counted in tests). 319 tests; `cargo xtask ci` takes 111 s cold and 29 s
+warm; GitHub CI 3–5.5 min per OS. The board's full loop (`claim`, `submit`, `merge`) ran live for
+M1.16–M1.19, and two bugs in `merge` were fixed. Next: M2, agent eyes (widget ids per the spec,
+the control channel, a windowless `--headless` instance), the first milestone for parallel agents.
+
 *2026-10-10 (M1.A).* The whole data path of M1 works headlessly on all three OSes: a folder of
 photos is scanned by content (bounded; links and special files handled), its sidecars are read,
 stars change through `Session::execute` with one undo step each, every change is journalled and
@@ -515,6 +527,92 @@ wave 5   M1.17 → M1.18 ui, app → M1.19 acceptance → M1.R milestone review
   click a thumbnail, Ctrl+8, screenshot) and checks the star and the PNG fingerprint; the
   protocol's security tests pass (wrong token, oversized line, non-loopback bind refused). You
   start `dalica --control 7990 --demo` and an agent's screenshot matches your screen.
+
+#### M2 tasks
+
+- ⬜ **M2.1 `ui`: widget ids to the spec grammar**
+  - after: M1.R
+  - files: `crates/ui/src/panels/**`, `crates/ui-kit/src/widgets.rs`, `crates/ui-kit/src/registry.rs`, `crates/ui/tests/**`, `tests/acceptance/m1.rs`, `tests/acceptance/m1_steps.rs`
+  - scope: rename M1's ids to `control-protocol.md` §7 (`menu:File`, `menuitem:folders.add`,
+    `button:star`, `thumb:<PhotoId>`, `thumb:<PhotoId>/star`, `tree:folder:<FolderId>`); one
+    registration helper; a headless test that every interactive widget drawn has an id, unique per
+    frame.
+  - done when: the test lists zero unregistered interactive widgets at 1400 × 900 and 900 × 600;
+    `accept M1` still passes.
+- ⬜ **M2.2 `ui`: the complete headless driver and perf counters**
+  - after: M1.R
+  - files: `crates/ui/src/headless.rs`, `crates/ui/src/perf.rs`
+  - scope: `drag`, `hover`, `scroll`, `type_text`, `pointer` (raw events); `settle` as in
+    control-protocol §6.12 (quiet frames, pending jobs listed); `DALICA_PROFILE=1` and the perf
+    counters `ui.inspect` reports (frame time, cells visited, textures uploaded, jobs requested).
+  - done when: tests drag a scroll by widget id, type into a text field, and show cells visited per
+    frame stay flat between a 200- and a 2 000-photo library.
+- ⬜ **M2.3 `ui`: control method handlers**
+  - after: M2.1, M2.2
+  - files: `crates/ui/src/control/**`, `crates/ui/src/lib.rs`
+  - scope: the methods of M2's *In* as pure handlers over `App` + `Driver`/window input queue:
+    `auth` is the transport's; `engine.execute`, `engine.commands`, `ui.state`/`ui.set`, `ui.widgets`,
+    `ui.clickWidget`, `ui.pointer`, `ui.key`, `ui.type`, `ui.screenshot` (path within write roots,
+    §5.7), `ui.inspect`, `ui.settle`/`ui.wait`; errors (§3) and limits (§4) checked before any
+    change; input replies after the input played out (§5.2); the file-picker stub (§5.6).
+  - done when: each method has a test against the headless driver, including every §3 code it can
+    return and every §4 limit.
+- ⬜ **M2.4 `dalica`: the control transport and headless mode**
+  - after: M2.3
+  - files: `apps/dalica/src/control/**`, `apps/dalica/src/main.rs`, `apps/dalica/Cargo.toml`
+  - scope: `--control [PORT]` on 127.0.0.1 only, the token file (§2.1: 256-bit from `getrandom`,
+    0600 on Unix, refused if group/other-readable), `auth` first in constant time, framing, limits
+    (1 MiB lines, 16 connections, 30 s idle, 60 s deadline), requests served from the logic tick;
+    `--headless` runs the same handlers on the headless driver without a window; exit 2 if the port
+    is taken.
+  - done when: a test starts `dalica --headless --control <port> --demo`, authenticates, stars a
+    photo by `ui.clickWidget` + `ui.key`, and gets a screenshot.
+- ⬜ **M2.5 Control security tests**
+  - after: M2.4
+  - files: `apps/dalica/tests/control_security.rs`
+  - scope: wrong token, no `auth`, oversized line, non-JSON and HTTP request lines close the
+    connection; the 17th connection is refused; a group-readable token file is refused; no flag
+    binds a non-loopback address.
+  - done when: all pass on Linux, macOS and Windows CI.
+- ⬜ **M2.6 Demo library per the spec**
+  - after: M1.R
+  - files: `crates/engine/src/demo.rs`, `apps/dalica-cli/src/main.rs`, `docs/control-protocol.md`
+  - scope: per decision 2 of the M1.R review: deterministic demo ids (folders numbered in tree
+    order, photos in light-table order, §5.4); isolated settings; `--demo-fresh` (a new temporary
+    folder deleted on exit) if `--demo` stays persistent.
+  - done when: two fresh demo libraries list identical ids and paths; `m1.md`'s restart check
+    still holds.
+- ⬜ **M2.7 Lead: board and disk hygiene**
+  - after: M1.R
+  - owner: agent
+  - files: `xtask/src/tasks/**`, `docs/task-board.md`
+  - scope: the lead (agent-1) takes it; `submit` defaults the PR body to the task's dev-log entry; fingerprint approval on the
+    PR (a `baseline-approved` label the lead checks before `merge`); `tasks prune` removes
+    `incremental/` from idle agents' target dirs.
+  - done when: tests with the fake board cover all three; a dry run on the real board.
+- ⬜ **M2.8 `accept M2`**
+  - after: M2.4, M2.5, M2.6
+  - files: `tests/acceptance/m2.rs`, `tests/acceptance/m2.md`, `tests/acceptance/fingerprints/m2-*.json`
+  - scope: M2's *Done when*: a control session against a headless instance (auth, click a
+    thumbnail, Ctrl+8, screenshot) checking the star and the PNG fingerprint; the security tests;
+    the manual check (`dalica --control 7990 --demo`, an agent's screenshot matches the screen).
+  - done when: `cargo xtask accept M2` passes everything in M2's *Done when*.
+- ⬜ **M2.R Milestone review**
+  - after: M2.8
+  - owner: maintainer
+  - files: `docs/roadmap.md`, `docs/status.md`
+  - scope: the manual check; approve M3's task list.
+  - done when: the maintainer closes the review issue.
+
+Waves (inside a wave, "‖" separates tasks whose `files` do not overlap):
+
+```text
+wave 1   M2.1 ids  ‖  M2.2 driver + perf  ‖  M2.6 demo  ‖  M2.7 lead (xtask)
+wave 2   M2.3 handlers
+wave 3   M2.4 transport + headless mode
+wave 4   M2.5 security tests
+wave 5   M2.8 accept M2 → M2.R
+```
 
 ### M3 — Window shell
 
