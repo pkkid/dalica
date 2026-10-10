@@ -169,7 +169,7 @@ them. Every widget below registers an automation id and an AccessKit role.
 |---|---|
 | `text_button(id, label, active)` | SemiBold 11.5 `text`; `(text_w + 18).max(37) × 24`; radius 4; fill `button` / `hover` / `pressed`; 1 pt `button_border` |
 | `primary_button` | as `text_button` but fill `accent`, text white; one per dialog (the default action) |
-| `icon_button(id, icon, size, active, enabled, tooltip)` | highlight square `min(32, size)` radius 4: `tool_active` active, `hover × 0.7` hovered; glyph colour `icon` / `text` hover / `pick` active / `text_disabled` |
+| `icon_button(id, icon, size, active, enabled, tooltip)` | highlight square `min(32, size)` radius 4: `tool_active` active, `hover × 0.7` hovered; glyph colour `icon` / `text` hover / `pick` active / `text_disabled`; glyph `0.6 × size` |
 | `action_button(id, icon, label)` | **Dalica**: big bottom-bar button, 64 × 56 (`ui-layout.md` §6.5), icon 28 centred in the top 34 pt, label below (11.5, `text_label`), hover fill `hover` radius 4, disabled when nothing is selected or in the tray |
 | `toggle_filter(id, icon, on)` | 26 × 26 icon toggle for the filter row; on = `tool_active` fill radius 5 + 1 pt `accent` stroke |
 | `slider(spec, value)` | LightCraft slider: label left, value right (click to type), 2 pt track, hollow ring thumb r 7 stroked 2 pt `thumb`; drag, Shift = fine ×0.1, double-click resets to the spec default, ↑/↓ nudge; one undo step per drag |
@@ -178,7 +178,7 @@ them. Every widget below registers an automation id and an AccessKit role.
 | `tabs(id, items, active)` | edit-panel tab strip: icon-only tabs 40 × 32 with tooltips; active tab `chrome` fill joined to the panel, inactive `canvas` |
 | `tool_button(id, icon, label)` | edit-panel tool: 124 × 32, icon 20 left, label 12; hover `hover`; active `tool_active` |
 | `effect_tile(id, preview_texture, label)` | 86 × 69: a 78 × 48 live preview of the current photo with the effect applied (rendered async, placeholder `gray 38` meanwhile) + label below |
-| `stars(id, rating)` / `star_toggle(id, on)` | Dalica stars are a boolean "starred" flag: one star glyph, filled `star` when on, outline `icon` when off |
+| `stars(id, rating)` / `star_toggle(id, on)` | Dalica stars are a boolean "starred" flag: one star glyph, filled `star` when on, outline `icon` when off; `star_toggle` is a 36 × 24 button plate with a 16 pt glyph |
 | `dropdown(id, text)` | borderless text + chevron; opens a popup menu bounded to the window |
 | `search_field(id)` | 28 high, radius 4, `field` fill (`canvas` focused), border `field_border` (accent focused), magnifier icon + placeholder `text_dim`, clear (×) button when non-empty; filters live on every keystroke |
 | `checkbox`, `radio`, `text_edit`, `combo` | egui defaults under the theme visuals |
@@ -201,7 +201,8 @@ them. Every widget below registers an automation id and an AccessKit role.
 - Hover: `hover × 0.5` surround; tooltip after 600 ms with file name, dimensions, size, date.
 - Caption (optional, View → Thumbnail Caption): one line under the image, 10.5 pt `text_dim`,
   elided in the middle, choices None / Filename / Caption / Date / Resolution / Tags.
-- **Badges**, 12 pt glyphs on a `black α130` rounded plate, drawn inside the image:
+- **Badges**, 12 pt glyphs on a `black α130` rounded plate (18 × 18 pt, radius 3, 4 pt in from the
+  image's corner, plates 2 pt apart), drawn inside the image:
   - **bottom-right row**, right-aligned, in the order edited (✎, unsaved edit recipe) · geotagged
     (pin) · held in tray (pin-tack) · starred (★ in `star`, always rightmost);
   - **videos:** a film-sprocket strip along the image's left edge and a duration pill "1:23" at its
