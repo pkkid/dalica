@@ -686,7 +686,7 @@ with the rest at the next review.
 
 - ⬜ **M3.1 `ui-kit`: the full widget set**
   - after: M2.1, M2.2
-  - files: `crates/ui-kit/src/theme.rs`, `crates/ui-kit/src/widgets.rs`, `crates/ui-kit/src/widgets/**`, `crates/ui-kit/tests/**`, `docs/design-system.md`
+  - files: `crates/ui-kit/src/theme.rs`, `crates/ui-kit/src/widgets.rs`, `crates/ui-kit/src/widgets/**`, `crates/ui-kit/tests/gallery.rs`, `crates/ui-kit/tests/widgets*.rs`, `crates/ui-kit/tests/contrast*.rs`, `crates/ui-kit/tests/fingerprints/gallery*.json`, `crates/ui-kit/tests/fingerprints/widgets*.json`, `docs/design-system.md`
   - scope: every token and metric of `design-system.md` §2–§4 not yet in `Tokens` (divider, inset,
     field, field_border, track, thumb, thumb_hover, tray_bg, drop_target, filter_banner, face_box,
     shadows, UI scale and font-size factors); the widgets of §6 the shell needs: `primary_button`,
