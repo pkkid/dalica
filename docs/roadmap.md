@@ -434,7 +434,7 @@ their PNGs to the maintainer, who approves them before they merge (M1.A decision
   - done when: `cargo xtask accept M1 --headless` passes the data half of M1's *Done when*: 200
     `scenes` JPEGs in all orientations, star 3, undo 1 → 2 stars in `.dalica.json` with planted
     keys intact; delete the index, rebuild → 2 stars; a second process refused.
-- ⬜ **M1.A Checkpoint A review**
+- ✅ **M1.A Checkpoint A review**
   - after: M1.15
   - owner: maintainer
   - files: —
