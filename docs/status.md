@@ -7,8 +7,9 @@ and git.
 
 ## Current
 
-- **Milestone:** M0, skeleton and gates. Every M0 task is merged on `main` (M0.1–M0.10); CI is
-  green on Linux, Windows and macOS. The **M0.R** review is done; closing #11 starts M1.
+- **Milestone:** M1, star a photo end to end. M0 is done: every M0 task is merged on `main`
+  (M0.1–M0.10), CI is green on Linux, Windows and macOS, and the maintainer closed the M0.R review
+  (#11) on 2026-10-09. M1 starts with M1.1 `core`; checkpoint M1.A follows M1.15.
 - **Gates:** `cargo xtask ci` runs fmt, clippy, tests, `layers`, `deps`, `assets`, `names`, `parity`,
   `docs` and the roadmap parse; `cargo xtask accept M0` shows 6/6 gates bite.
 - **Board:** `cargo xtask tasks` drives issues #1–#32 on project 3 (adopted 2026-10-09 with no

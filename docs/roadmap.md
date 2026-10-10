@@ -57,8 +57,8 @@ kickoff decisions were recorded and the architecture was specified (`architectur
 
 | Phase | # | Milestone | One-line goal | Status |
 |---|---|---|---|---|
-| Foundation | M0 | Skeleton and gates | an empty, fully gated workspace on 3 OSes | ⬜ |
-| | M1 | Star a photo, end to end | folder → index → grid → star → sidecar → restart and rebuild | ⬜ |
+| Foundation | M0 | Skeleton and gates | an empty, fully gated workspace on 3 OSes | ✅ |
+| | M1 | Star a photo, end to end | folder → index → grid → star → sidecar → restart and rebuild | 🚧 |
 | | M2 | Agent eyes | agents drive and screenshot the real window | ⬜ |
 | Library | M3 | Window shell | every region of the main window, at the right size, in the Craft look | ⬜ |
 | | M4 | Light table | the continuous sectioned grid, smooth at 100 k photos | ⬜ |
@@ -222,7 +222,7 @@ turns each into a GitHub issue. M0 is built by a single agent.
     `development.md` and `task-board.md` exists; status and metrics updated.
   - done when: `cargo xtask ci` (with the docs check) and `cargo xtask accept M0` pass on a clean
     clone.
-- ⬜ **M0.R Milestone review**
+- ✅ **M0.R Milestone review**
   - after: M0.9
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`
