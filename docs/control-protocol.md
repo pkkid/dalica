@@ -8,7 +8,7 @@ Adapted from LightCraft `docs/control-protocol.md` (revision 88ea1a8) and PhotoC
 > `dalica-cli snapshot` are **M1** (see [`roadmap.md`](roadmap.md)). Methods and widget ids that
 > need a later region (edit view M7, panes M6, effects M12, people M13) say so; until then
 > they answer with the `unsupported` error.
-> Keep this file in sync with `crates/ui/src/control.rs` as it lands.
+> Keep this file in sync with `crates/ui/src/control/` (the method table is in its `mod.rs`).
 
 The control channel lets an agent, a test or a script **drive and see** the real Dalica UI: run any
 command by id, read the library and UI state, click widgets by automation id, press keys, take
@@ -19,8 +19,9 @@ Read with: [`architecture.md`](architecture.md) §3 (commands) and §7 (automati
 [`menus-and-shortcuts.md`](menus-and-shortcuts.md) (command ids),
 [`ui-layout.md`](ui-layout.md) (regions), [`data-model.md`](data-model.md) (what commands write).
 
-Implementation (planned): `apps/dalica/src/control_server.rs` (TCP transport, auth, limits) and
-`crates/ui/src/control.rs` (method handlers, shared by the window and the headless driver).
+Implementation (M2): `apps/dalica/src/control/` (TCP transport, token file, auth, limits, the window
+and `--headless` hosts) and `crates/ui/src/control/` (method handlers, shared by the window and the
+headless driver).
 
 ## 1. Starting the server
 

@@ -255,7 +255,7 @@ sidecar and XMP writing, MCP results and external process arguments (§4.4).
 | Index/JSON files → library | `crates/store` | checksums, versions, size and depth limits, quarantine |
 | Directory tree → index | `crates/scan` | depth/entry bounds, link-loop detection, name handling, device content |
 | Library → disk (file ops) | `crates/fs`, `crates/engine` | identity check, no symlinks, trash only, collision handling |
-| JSON line → command | `apps/dalica/src/control_server.rs`, `crates/ui` control, `crates/engine` | auth, line shape, limits, command policy, parameter type/range, enabled state |
+| JSON line → command | `apps/dalica/src/control/`, `crates/ui/src/control/`, `crates/engine` | auth, line shape, limits, command policy, parameter type/range, enabled state |
 | MCP call → command | `crates/mcp` | roots, read-only mode, argument limits, result limits |
 | Library → generated output | `crates/create` | JSON escaping, name sanitizing, external-process arguments |
 
@@ -666,13 +666,13 @@ All of §6.7: **Planned (M10).**
 
 | Control | Status |
 |---|---|
-| Loopback-only TCP binding | Planned (M2) |
-| Token authentication from a `0600` token file | Planned (M2) |
-| JSON-request-only lines, close on junk | Planned (M2) |
-| Request, reply, depth, connection, timeout limits | Planned (M2) |
-| Screenshot / snapshot dimension limits | Planned (M1, M2) |
-| Command error contract and `panic_hunt` | Planned (M1) |
-| Root-checked path parameters | Planned (M2 screenshots; M8–M11 others) |
+| Loopback-only TCP binding | Implemented (M2; `control_security.rs`) |
+| Token authentication from a `0600` token file | Implemented (M2; `control_security.rs`, `control_headless.rs`); the "owned by the current user" check of §6.3 is not yet built, and on Windows the file keeps its folder's ACL |
+| JSON-request-only lines, close on junk | Implemented (M2; `control_security.rs`) |
+| Request, reply, depth, connection, timeout limits | Implemented (M2; `control_security.rs`, the `ui` control tests; depth 64 since #102) |
+| Screenshot / snapshot dimension limits | Implemented (M1, M2; the `ui` control tests) |
+| Command error contract and `panic_hunt` | Implemented (M1; `panic_hunt`) |
+| Root-checked path parameters | Implemented for screenshots (M2; the `ui` control tests); M8–M11 others planned |
 | Batch limits, paging, preview limits | Planned (M10) |
 | MCP roots, read-only mode, tool annotations | Planned (M10) |
 | Server proof in the handshake | Planned (M10) |

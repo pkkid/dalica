@@ -7,17 +7,17 @@ and git.
 
 ## Current
 
-- **Milestone:** M1, star a photo end to end, is done: every task is merged and
-  `cargo xtask accept M1` passes; the maintainer's manual check passed and the M1.R review was
-  confirmed on 2026-10-10 (all decisions; dev log). The maintainer closed #32 (M1.R)
-  on 2026-10-10. Next: M2 (agent eyes, task blocks in `roadmap.md`), the first milestone for
-  parallel agents.
+- **Milestone:** M2, agent eyes, is done: M2.1–M2.9 are merged and `cargo xtask accept M2`
+  passes (12 s) on all three OSes. Next: M3, the window shell; its issues open when the M2.R review
+  PR is merged.
 - **Gates:** `cargo xtask ci` runs fmt, clippy, tests, `layers`, `deps`, `assets`, `names`, `parity`,
   `docs` and the roadmap parse; `cargo xtask accept M0` shows 6/6 gates bite. Layer rule 4 now scans
   code after a test module (it used to stop at the first `#[cfg(test)]`).
-- **Board:** `cargo xtask tasks` drives the issues on project 3. `claim` / `submit` / `merge` ran
-  live for M1.16–M1.19; `merge` now rebases origin's copy of the branch (the worker may still have
-  it checked out) and runs ci in `target/merge`.
+- **Board:** `cargo xtask tasks` drives the issues on project 3; four agents ran in parallel in M2.
+  One review per milestone, at its end (`M<n>.R`, the maintainer's); a milestone's issues are created
+  when the previous review closes (`pulled:` brings one task forward); `merge` waits for GitHub's
+  mergeability and syncs the merged roadmap; fingerprint baselines are approved in bulk at the
+  review; board reads cost 2 GraphQL points.
 - **M0 review (2026-10-09):** the maintainer confirmed all 27 decisions listed in the review (dev
   log), including the dependency exceptions and eframe without GL or default fonts, and approved the
   edits: M1.2 gains `fs::append`, new M1.20 (app log file), M1.15/M1.16/M1.18/M1.19 adjusted,
@@ -60,3 +60,11 @@ and git.
 | 2026-10-10 | GitHub ubuntu / macos / windows | CI job `cargo xtask ci` (run 38057753715, 22583c0) | 3 min 16 s / 5 min 14 s / 5 min 19 s |
 | 2026-10-10 | maintainer desktop | `cargo xtask tasks merge` per task (local ci in `target/merge` + GitHub checks + squash), M1.16–M1.19 | 4:23 / 4:25 / 4:47 / 6:28 |
 | 2026-10-10 | — | parity summary (M1.R) | 1 ✅ / 4 🟡 / 121 ⬜ / 16 🚫 (142 rows, 12 commands: 10 engine + 2 UI) |
+| 2026-10-10 | maintainer desktop (dev build) | `cargo xtask accept M2` (headless control session + 9 security tests) | 12.1 s (session ~1.5 s, security suite ~10.4 s) |
+| 2026-10-10 | GitHub ubuntu / macos / windows | `accept M2` inside CI (PR #99 checks) | pass / pass / pass |
+| 2026-10-10 | maintainer desktop (dev build) | control channel: connect + auth / `ui.state` round trip / click / Ctrl+8 / 1400 × 900 screenshot (headless) | 1–3 ms / 0.09 ms / 6 ms / 1 ms / ~1.0 s |
+| 2026-10-10 | maintainer desktop (dev build) | windowed demo under control: frame time mean / p95 | 1.23 ms / 1.5 ms (64 fps) |
+| 2026-10-10 | maintainer desktop (dev build) | headless frame mean / p95 and most cells laid out in a frame, 200 vs 2 000 photos | 1.71 / 5.65 ms vs 1.63 / 5.85 ms; 42 cells both |
+| 2026-10-10 | maintainer desktop | refusing a 1 MiB request line / a 1 MiB line nested too deep (debug, worst case) | 3.6 ms / 3.2 ms |
+| 2026-10-10 | maintainer desktop | `cargo xtask ci` test step during M2 (warm) | 38–62 s |
+| 2026-10-10 | — | parity summary (M2.R) | 143 rows, 12 registered commands; SYS-CONTROL and SYS-HEADLESS 🟡 |

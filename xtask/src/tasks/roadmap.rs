@@ -25,8 +25,8 @@ pub enum Owner {
     Agent,
     /// Only the lead (`agent-1`) takes it: board upkeep, planning the next milestone.
     Lead,
-    /// No agent takes it: every review task (`M<n>.A`, `M<n>.R`), which only the maintainer
-    /// merges or closes.
+    /// No agent takes it: every review task (`M<n>.R`; the finished mid-milestone `M1.A`), which
+    /// only the maintainer merges or closes.
     Maintainer,
 }
 
@@ -51,6 +51,9 @@ pub struct Task {
     pub done: bool,
     pub after: Vec<String>,
     pub owner: Owner,
+    /// `pulled: M<k>`: the earlier milestone whose run may take this task early. Its issue is
+    /// created once milestone k is open, before the task's own milestone opens.
+    pub pulled: Option<u32>,
     /// Paths or globs without backticks; empty for `—`.
     pub files: Vec<String>,
     /// The `files` value as written (backticks kept), `—` when empty.
@@ -238,8 +241,8 @@ fn parse_block(lines: &[&str], start: usize, milestones: &[Milestone], earlier: 
     }
     let get = |key: &str| fields.iter().find(|(k, _, _)| k == key).map(|(_, v, l)| (v.clone(), *l));
     for (key, _, line) in &fields {
-        if !matches!(key.as_str(), "after" | "owner" | "files" | "scope" | "done when") {
-            return Err(err(*line, format!("{id}: unknown field `{key}` (after, owner, files, scope, done when)")));
+        if !matches!(key.as_str(), "after" | "owner" | "pulled" | "files" | "scope" | "done when") {
+            return Err(err(*line, format!("{id}: unknown field `{key}` (after, owner, pulled, files, scope, done when)")));
         }
     }
     let require = |key: &str| get(key).ok_or_else(|| err(lineno, format!("{id}: missing field `{key}`")));
@@ -265,6 +268,40 @@ fn parse_block(lines: &[&str], start: usize, milestones: &[Milestone], earlier: 
         let line = get("owner").map_or(lineno, |(_, l)| l);
         return Err(err(line, format!("{id} is a review task: its owner must be `maintainer` (only the maintainer merges or closes a review)")));
     }
+    // A milestone has one review, at its end (`M<n>.R`): no mid-milestone reviews (maintainer
+    // rule, 2026-10-10: "I do not want any checkins mid milestones"). Finished ones (✅ M1.A) stay
+    // as history.
+    if is_gate_id(id) && !id.ends_with(".R") && !done {
+        return Err(err(
+            lineno,
+            format!(
+                "{id} is a mid-milestone review: a milestone has one review, at its end (`M{milestone}.R`), none in the middle (the maintainer's rule, 2026-10-10); remove the block"
+            ),
+        ));
+    }
+
+    // `pulled: M<k>` brings one task forward into an earlier milestone's run (maintainer rule,
+    // 2026-10-10: only the pulled items get issues, not the whole future milestone).
+    let pulled = match get("pulled") {
+        None => None,
+        Some((v, l)) => {
+            let k = v
+                .strip_prefix('M')
+                .filter(|n| !n.is_empty() && n.len() <= 3 && n.chars().all(|c| c.is_ascii_digit()))
+                .and_then(|n| n.parse::<u32>().ok())
+                .ok_or_else(|| err(l, format!("{id}: `pulled` must be one milestone such as `M3`, found `{v}`")))?;
+            if is_gate_id(id) {
+                return Err(err(l, format!("{id} is a review task: a review is never pulled forward")));
+            }
+            if k >= milestone {
+                return Err(err(l, format!("{id}: `pulled: M{k}` must name an earlier milestone than M{milestone}")));
+            }
+            if !milestones.iter().any(|m| m.number == k) {
+                return Err(err(l, format!("{id}: `pulled` names M{k}, which is not in the Overview table")));
+            }
+            Some(k)
+        }
+    };
 
     let mut after = Vec::new();
     if !is_none(&after_text) {
@@ -299,6 +336,7 @@ fn parse_block(lines: &[&str], start: usize, milestones: &[Milestone], earlier: 
         done,
         after,
         owner,
+        pulled,
         files,
         files_text: if is_none(&files_text) { "—".into() } else { files_text },
         scope,
@@ -335,9 +373,13 @@ mod tests {
         assert_eq!(roadmap.milestones.len(), 16);
         // Every review task is the maintainer's: a stop only the maintainer merges or closes.
         let reviews: Vec<&Task> = roadmap.tasks.iter().filter(|t| t.is_gate()).collect();
-        for id in ["M0.R", "M1.A", "M1.R", "M2.R", "M3.A", "M3.R", "M4.A", "M4.R"] {
+        for id in ["M0.R", "M1.A", "M1.R", "M2.R", "M3.R", "M4.R"] {
             assert!(reviews.iter().any(|t| t.id == id), "{id}");
         }
+        // One review per milestone, at its end: the only mid-milestone review is the finished M1.A.
+        let mid: Vec<&str> = reviews.iter().filter(|t| !t.id.ends_with(".R")).map(|t| t.id.as_str()).collect();
+        assert_eq!(mid, ["M1.A"]);
+        assert!(roadmap.task("M1.A").unwrap().done);
         for t in &reviews {
             assert_eq!(t.owner, Owner::Maintainer, "{}", t.id);
         }
@@ -364,6 +406,35 @@ mod tests {
         assert_eq!(t.issue_title(), "M0.1 Skeleton `ws`");
         assert_eq!(t.branch(), "task/M0.1-skeleton-ws");
         assert!(r.tasks[1].done && r.tasks[1].is_gate());
+        assert_eq!(t.pulled, None);
+    }
+
+    #[test]
+    fn pulled_names_one_earlier_milestone() {
+        let block =
+            |id: &str, pulled: &str| format!("- ⬜ **{id} X**\n  - after: —\n  - pulled: {pulled}\n  - files: —\n  - scope: s\n  - done when: d\n");
+        let r = parse(&doc(&block("M1.1", "M0"))).unwrap();
+        assert_eq!(r.tasks[0].pulled, Some(0));
+        let cases = [
+            (block("M1.1", "0"), "must be one milestone"),
+            (block("M1.1", "M0, M1"), "must be one milestone"),
+            (block("M1.1", "Mx"), "must be one milestone"),
+            (block("M1.1", ""), "must be one milestone"),
+            (block("M1.1", "M1"), "earlier milestone"),
+            (block("M0.1", "M1"), "earlier milestone"),
+            (block("M1.1", "M99"), "earlier milestone"),
+        ];
+        for (text, needle) in &cases {
+            let e = parse(&doc(text)).unwrap_err();
+            assert_eq!(e.line, 8, "{e}");
+            assert!(e.message.contains(needle), "{e}");
+        }
+        // A milestone number below the task's that the Overview does not list, and a review.
+        let gap = "| Phase | # | Milestone | One-line goal | Status |\n|---|---|---|---|---|\n| F | M0 | Skeleton | x | ⬜ |\n| | M2 | Shell | y | ⬜ |\n\n";
+        let e = parse(&format!("{gap}{}", block("M2.1", "M1"))).unwrap_err();
+        assert!(e.message.contains("not in the Overview"), "{e}");
+        let review = "- ⬜ **M1.R X**\n  - after: —\n  - owner: maintainer\n  - pulled: M0\n  - files: —\n  - scope: s\n  - done when: d\n";
+        assert!(parse(&doc(review)).unwrap_err().message.contains("never pulled forward"));
     }
 
     #[test]
@@ -379,8 +450,8 @@ mod tests {
             ("- ⬜ **M0.1 X**\n  - after: —\n  - owner: robot\n  - files: —\n  - scope: s\n  - done when: d\n", 8, "owner"),
             // A review task must be the maintainer's: no owner, `lead` or `agent` is refused.
             ("- ⬜ **M0.R X**\n  - after: —\n  - files: —\n  - scope: s\n  - done when: d\n", 6, "review task"),
-            ("- ⬜ **M0.A X**\n  - after: —\n  - owner: lead\n  - files: —\n  - scope: s\n  - done when: d\n", 8, "owner must be `maintainer`"),
-            ("- ⬜ **M0.B X**\n  - after: —\n  - owner: agent\n  - files: —\n  - scope: s\n  - done when: d\n", 8, "review task"),
+            ("- ✅ **M0.A X**\n  - after: —\n  - owner: lead\n  - files: —\n  - scope: s\n  - done when: d\n", 8, "owner must be `maintainer`"),
+            ("- ✅ **M0.B X**\n  - after: —\n  - owner: agent\n  - files: —\n  - scope: s\n  - done when: d\n", 8, "review task"),
         ];
         for (block, line, needle) in cases {
             let e = parse(&doc(block)).unwrap_err();
@@ -390,6 +461,28 @@ mod tests {
         }
         let twice = "- ⬜ **M0.1 X**\n  - after: —\n  - files: —\n  - scope: s\n  - done when: d\n- ⬜ **M0.1 Y**\n  - after: —\n  - files: —\n  - scope: s\n  - done when: d\n";
         assert_eq!(parse(&doc(twice)).unwrap_err().line, 11);
+    }
+
+    /// The maintainer's rule (2026-10-10): one review per milestone, at its end. An open
+    /// mid-milestone review is refused; a finished one (✅ M1.A) still parses as history.
+    #[test]
+    fn mid_milestone_reviews_are_refused_unless_finished() {
+        let head = "| Phase | # | Milestone | One-line goal | Status |\n|---|---|---|---|---|\n| F | M1 | Star | star a photo | ✅ |\n| | M2 | Shell | a window | ⬜ |\n\n";
+        let block = |mark: &str, id: &str| {
+            format!("- {mark} **{id} Check-in**\n  - after: —\n  - owner: maintainer\n  - files: `docs/status.md`\n  - scope: s\n  - done when: d\n")
+        };
+        for id in ["M2.A", "M2.B"] {
+            let e = parse(&format!("{head}{}", block("⬜", id))).unwrap_err();
+            assert_eq!(e.line, 6, "{e}");
+            assert!(e.message.contains(&format!("{id} is a mid-milestone review")), "{e}");
+            assert!(e.message.contains("one review, at its end (`M2.R`)") && e.message.contains("maintainer's rule"), "{e}");
+        }
+        // Finished history parses; so does an end-of-milestone review, open or finished.
+        let ok = format!("{head}{}{}{}", block("✅", "M1.A"), block("✅", "M1.R"), block("⬜", "M2.R"));
+        let r = parse(&ok).unwrap();
+        let ids: Vec<&str> = r.tasks.iter().map(|t| t.id.as_str()).collect();
+        assert_eq!(ids, ["M1.A", "M1.R", "M2.R"]);
+        assert!(r.tasks.iter().all(|t| t.is_gate() && t.owner == Owner::Maintainer));
     }
 
     #[test]

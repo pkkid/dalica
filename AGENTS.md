@@ -114,7 +114,7 @@ L0       core · fs                    (only `fs` writes to disk)
   `xtask` check loosened, no `DALICA_BLESS` fingerprint update without looking at the diff images
   and saying why in the commit body. If a gate is wrong, raise it on the task's issue.
 - New or changed fingerprint baselines merge with their task (images on the PR, the why in the
-  commit body); the maintainer approves them **in bulk at the next review** (`M<n>.A`/`M<n>.R`),
+  commit body); the maintainer approves them **in bulk at the next review** (the milestone's `M<n>.R`),
   and a rejected baseline becomes a fix task (`docs/task-board.md` §7).
 - Never claim parity you have not measured. A ✅ parity row is not proof: if you find one wrong,
   downgrade it to 🟡 with a note.
@@ -142,9 +142,14 @@ L0       core · fs                    (only `fs` writes to disk)
 ## 4. How work is organised: the task board (`docs/task-board.md`)
 
 - **The plan** is the task blocks in `docs/roadmap.md` (`after`, `owner`, `files`, `scope`,
-  `done when`). **The live state** is the GitHub board: one issue per task, all on
-  [project 3](https://github.com/users/pkkid/projects/3), Status `Todo · Ready · In Progress ·
-  In Review · Blocked · Done`. **Done** means squash-merged into `main` with the task's ✅ ticked.
+  `done when`). **The live state** is the GitHub board: one issue per task of an open milestone,
+  all on [project 3](https://github.com/users/pkkid/projects/3), Status `Todo · Ready · In
+  Progress · In Review · Blocked · Done`. **Done** means squash-merged into `main` with the task's
+  ✅ ticked.
+- **A milestone's tasks become issues when the previous milestone's review closes** (maintainer
+  rule, 2026-10-10): until then its blocks are planning text in `roadmap.md`, and `tasks sync`
+  creates nothing for them. To bring one task forward, its block gets `pulled: M<k>`: only that
+  task gets an issue, during milestone k's run (`docs/task-board.md` §2–§3).
 - Touch the board **only through `cargo xtask tasks`**; never edit labels, statuses or fields by hand.
 - **Workers** loop:
   1. `cargo xtask tasks next --agent agent-<n>`: pick the first offered task.
@@ -158,18 +163,23 @@ L0       core · fs                    (only `fs` writes to disk)
   follow the spec; where it is silent, do what LightCraft or PhotoCraft did (study, never copy;
   `architecture.md` §9); otherwise pick the simplest option that keeps every rule in §3. Record
   each decision in the commit body (what, why, the alternative) so the check-in can list it for
-  reversal. Only these stop for the maintainer, with `cargo xtask tasks block <id> "question"`
-  (then take another task):
+  reversal. Only these need the maintainer, and even they never stop the run (maintainer rule,
+  2026-10-10: a milestone runs through its whole backlog without human intervention): run
+  `cargo xtask tasks block <id> "question"` (that task, and anything that depends on it, waits),
+  take another task, and the question is asked at the milestone's review:
   - a licence exception, a C/C++ dependency or a new `C_BUILD_ALLOW` / `*-sys` entry;
   - anything that could lose or damage users' photos or data, or weaken §3's data rules;
   - loosening a quality gate, a floor or a budget;
   - dropping or descoping a feature or a parity row;
   - a *Reserved decision* in `roadmap.md`.
   Never leave bare `TODO`s; use `TODO(maintainer): …`.
-- **The lead asks even less** (maintainer decision, 2026-10-10). Mid-run, the lead interrupts the
-  maintainer only for the list above, a step it has no go-ahead for, or a fork where a wrong guess
-  means a large rewrite. Everything else it decides (the most reversible option), and logs what
-  has no commit body to live in (board, process, scheduling) with
+- **The lead asks even less** (maintainer decision, 2026-10-10). Mid-run, the lead does not relay
+  questions: blocked tasks' questions and its own hard forks (where a wrong guess means a large
+  rewrite) are recorded for the review, which asks them all at once. It interrupts the maintainer
+  mid-run only in two rare cases: a push or permission it has no go-ahead for, or nothing left to
+  run (every remaining task blocked or waiting on a blocked one), when it prepares the review
+  early. Everything else it decides (the most reversible option), and logs what has no commit
+  body to live in (board, process, scheduling) with
   `cargo xtask tasks log <check-in id> "DEFERRED: question | options | chose | how to reverse" --agent agent-1`;
   the check-in lists these with the other decisions.
 - **Can't finish** (wrong estimate, needs a file outside `files`): comment on the issue and
@@ -177,13 +187,17 @@ L0       core · fs                    (only `fs` writes to disk)
 - **The lead** (`agent-1`) merges In Review tasks one at a time with `cargo xtask tasks merge
   <id>`, releases stale claims, writes the next milestone's task blocks while the current one runs,
   takes the `owner: lead` tasks, and prepares each review task (`/milestone-review`): `accept M<n>`,
-  a published check-in page, *Where we stand* and `docs/status.md` on a `review/M<n>.<X>` branch, a
+  a published check-in page, *Where we stand* and `docs/status.md` on a `review/M<n>.R` branch, a
   pull request.
 - **Review tasks are stops** (maintainer rule, 2026-10-10; `roadmap.md` → How milestones work).
-  Every `M<n>.A` / `M<n>.R` (release gates in M6, M10 and M15 included) is `owner: maintainer`, and
-  nothing listed after an open one is claimed. When the run reaches one, the lead lets running
-  tasks finish and merge, runs `/milestone-review` to prepare it, and stops (pushing the
-  `review/M<n>.<X>` branch and opening its pull request are part of preparing it). **Only the
+  A milestone has exactly one review, at its end: `M<n>.R` (release gates in M6, M10 and M15
+  included); there are no mid-milestone reviews (maintainer rule, 2026-10-10: "I do not want any
+  checkins mid milestones"; the roadmap parser refuses an open `M<n>.A`). Every review is
+  `owner: maintainer`, and nothing listed after an open one is claimed. When the run reaches one,
+  the lead lets running tasks finish and merge, runs `/milestone-review` to prepare it (the
+  check-in leads with the few **questions** only the maintainer can answer, asked there, and a
+  **UI changelog** with before/after screenshots to check by eye), and stops (pushing the
+  `review/M<n>.R` branch and opening its pull request are part of preparing it). **Only the
   maintainer merges a review's pull request or closes its issue;** no agent ever does, not even as
   board housekeeping, and `cargo xtask tasks` refuses to (`submit` and `merge` reject review ids;
   `sync` never closes a review's issue).

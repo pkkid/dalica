@@ -1,6 +1,6 @@
 ---
 name: milestone-start
-description: Run the build from a milestone (M2 and later) with this session as the lead (agent-1) and parallel worker subagents, one per task, until the next review task (any M<n>.A or M<n>.R); there it prepares the review with /milestone-review and stops for the maintainer, who merges the review PR, closes the issue and runs this again. Run only when the maintainer asks.
+description: Run the build from a milestone (M2 and later) with this session as the lead (agent-1) and parallel worker subagents, one per task, until the milestone's review task (M<n>.R, release gates included); there it prepares the review with /milestone-review and stops for the maintainer, who merges the review PR, closes the issue and runs this again. Run only when the maintainer asks.
 argument-hint: "[M<n>] [workers, default 7]"
 disable-model-invocation: true
 ---
@@ -19,15 +19,18 @@ Its jobs are to claim, dispatch, review, merge and keep the board true.
   and returns.
 - A slot (`agent-<k>`) keeps its worktree, target dir, port and scratch dir from task to task, so
   builds stay warm.
-- **Run until the next review task** (any `M<n>.A` or `M<n>.R`, release gates included;
-  `docs/roadmap.md` → How milestones work). Every review task is a stop: the board offers nothing
-  listed after it until the maintainer closes it. At a review the lead prepares it with
+- **Run until the milestone's review task** (`M<n>.R`, release gates included; a milestone has
+  one review, at its end, and none in the middle; `docs/roadmap.md` → How milestones work). Every
+  review task is a stop: the board offers nothing listed after it until the maintainer closes it. At a review the lead prepares it with
   `/milestone-review` and **stops**. Only the maintainer merges the review's pull request and
   closes its issue; the lead never does either.
-- **Decide, don't ask.** Technical decisions are the agents' (`AGENTS.md` §4). Only the short list
-  there reaches the maintainer. The lead's own choices (board, process, scheduling) follow "The
-  lead asks even less" there: decide, and log each one as a `DEFERRED:` dev-log line for the
-  check-in.
+- **Run unattended; questions wait for the review** (maintainer's process, 2026-10-10). The run
+  works through the milestone's whole backlog without the maintainer. Technical decisions are the
+  agents' (`AGENTS.md` §4). Only the short list there needs the maintainer, and it never stops the
+  run: the task is blocked, the others go on, and `/milestone-review` asks the question. The
+  lead's own choices (board, process, scheduling) follow "The lead asks even less" there: decide,
+  and log each one as a `DEFERRED:` dev-log line for the check-in. No AskUserQuestion mid-run,
+  except for a push or permission with no go-ahead.
 
 ## 1. Preflight (stop and report if any check fails)
 
@@ -39,7 +42,9 @@ Its jobs are to claim, dispatch, review, merge and keep the board true.
    `target/agent-1`).
 3. **Is the board ready?**
    - The milestone's task blocks exist on `main`.
-   - `cargo xtask tasks sync` has created their issues.
+   - The milestone is open (the maintainer has closed the previous milestone's review) and
+     `cargo xtask tasks sync` has created their issues. A milestone that is not open has no issues
+     yet (`sync` prints a `note:` naming the review that opens it); stop and tell the maintainer.
    - Its first tasks show Ready in `cargo xtask tasks status`, and `cargo xtask tasks next`
      offers them: no review task listed before them is still open. If one is (its PR not merged
      or its issue not closed), stop and tell the maintainer which review waits for them.
@@ -105,14 +110,20 @@ once and report.
 5. **Sending a task back.** If the worker is still addressable, continue it with SendMessage, giving
    the conflict or CI output. Otherwise spawn a new worker on the same slot and branch. Tell it the
    claim is already its own and to read `git log origin/main..HEAD` and the PR first.
-6. **Blocked.** The worker ran `tasks block`, or it needs a file outside its list. Ask the
-   maintainer straight away with the AskUserQuestion tool, while the other workers keep going:
-   - Quote the worker's question word for word in the question text.
-   - Offer 2–4 concrete answers, your recommendation first.
-   - Workers cannot ask the maintainer themselves, so the lead always relays the question. Pass
-     the answer back to the worker with SendMessage, or put it in the prompt of the task's next
-     worker.
-   Release the task (`tasks release <id> --reason …`) if it can't continue.
+6. **Blocked.** The worker ran `tasks block` (an `AGENTS.md` §4 short-list question). Do **not**
+   ask the maintainer now (no AskUserQuestion mid-run): the question waits for the review.
+   - Record it for the review: `cargo xtask tasks log <check-in id> "QUESTION: <id> #<issue> |
+     <the worker's question, word for word> | options: … | recommend: …" --agent agent-1`.
+   - Keep dispatching: the blocked task, and anything that depends on it, waits; everything else
+     goes on. The task stays Blocked; its branch is kept for the worker that resumes it after the
+     answer.
+   - A worker that needs a file outside its list is not blocked on the maintainer: decide yourself
+     (allow it if no task in progress or in review owns that file, and say so on the issue), or
+     release the task and note it for the review.
+   - If nothing else can run (every remaining task is blocked or waits on a blocked one), stop
+     dispatching and prepare the review early (§4).
+   - Workers cannot ask the maintainer themselves; `/milestone-review` asks every recorded
+     question at once.
 7. **Crashed or returned without submitting.** Check the worktree (`git status`,
    `git log origin/main..HEAD`), then resume it as in step 5 or release it.
 8. **`main` is red** on GitHub CI after a merge (usually Windows or macOS):
@@ -135,22 +146,34 @@ once and report.
   - Write the blocks from the milestone's section and the spec: `after`, `files`, `scope`,
     `done when`, plus waves.
   - The first tasks list the work they build on. List a gate only after a release.
-  - The milestone ends with an `M<n+1>.R` review task, and a big one has a mid-milestone
-    `M<n+1>.A`; every review task is `owner: maintainer` (the parser refuses any other owner).
+  - The milestone ends with an `M<n+1>.R` review task, its only review: no mid-milestone reviews
+    (maintainer rule, 2026-10-10; the parser refuses an open `M<n+1>.A`). Every review task is
+    `owner: maintainer` (the parser refuses any other owner).
     M6, M10 and M15 end with release gates.
-  - Merge the blocks like any task; `tasks sync` then creates their issues. No approval is needed.
-- **Review task: stop.** When the next tasks wait on an open review task (`M<n>.A`, `M<n>.R`,
-  release gates included), `tasks next` offers nothing listed after it:
+  - Merge the blocks like any task. No approval is needed. They stay planning text: `tasks sync`
+    creates their issues only when the maintainer closes this milestone's review and the next
+    milestone opens. To run one of them early, give its block `pulled: M<n>` (this milestone);
+    only that task gets an issue now, and `tasks next` offers it once its `after` is done
+    (`docs/task-board.md` §3).
+- **Review task: stop.** When the next tasks wait on the open review task (`M<n>.R`, release
+  gates included), `tasks next` offers nothing listed after it (or when nothing else can run
+  because every remaining task is blocked):
   - Let the running tasks finish; review and merge them as usual. Claim nothing listed after the
     review.
-  - Run `/milestone-review M<n>.<X>` to prepare it: the check-in page, *Where we stand* and
-    `docs/status.md` on a `review/M<n>.<X>` branch, a pull request, both linked on the issue (for a
-    release gate also the checklist and the sign-off questions).
+  - Run `/milestone-review M<n>.R` to prepare it: the check-in page (questions first, then the UI
+    changelog), the questions asked with AskUserQuestion and their answers applied, *Where we
+    stand* and `docs/status.md` on a `review/M<n>.R` branch, a pull request, both linked on the
+    issue (for a release gate also the checklist and the sign-off questions).
   - Never merge that pull request, never close the review issue, never `tasks merge` it. Then end
     the run.
 - **Final message** (at a review task, or when the maintainer stops the run):
-  - the review waiting: its pull request and check-in page links, and "Merge the PR and close
-    #<issue> to approve; then run `/milestone-start` again to continue";
+  - the review waiting: the check-in page link and the pull request link;
+  - the four steps from the maintainer's side: (1) the run worked through the backlog unattended
+    (what merged, what is blocked); (2) the decisions that needed you were recorded mid-run;
+    (3) the questions were asked in `/milestone-review` (say which are answered, list any still
+    open) and the page's UI changelog shows every visible change with before/after screenshots
+    and the demo command; (4) once you have answered and checked the UI, merge the PR (it closes
+    #<issue>, `M<n>.R`) and run `/milestone-start M<n+1>`;
   - tasks merged per milestone, and any blocked or released;
   - wall-clock time;
   - one line per incident.
@@ -184,7 +207,8 @@ Rules:
   LightCraft or PhotoCraft did; record each decision in the commit body (what, why, the
   alternative). Only AGENTS.md §4's short list (licence or C-dependency exceptions, risks to users'
   data, loosening a gate, dropping a feature, reserved decisions) is a reason to run
-  `cargo xtask tasks block <id> "<question>"` and report.
+  `cargo xtask tasks block <id> "<question>"` and report; the question is asked at the milestone's
+  review, so give it 2–4 options and your recommendation.
 
 Finish with AGENTS.md §5, in your worktree:
   cargo fmt --all; cargo clippy -p <crates> --all-targets -- -D warnings; cargo test -p <crates>;
