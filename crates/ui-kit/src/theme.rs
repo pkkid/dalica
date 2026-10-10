@@ -50,6 +50,10 @@ pub struct Tokens {
     pub star: Color32,
     /// `#f0f0f0`: active icon glyph.
     pub pick: Color32,
+    /// `#e04a4a`: destructive confirmations, error badges.
+    pub danger: Color32,
+    /// `#e3a83c`: warnings: an offline folder, a missing or unreadable file.
+    pub caution: Color32,
     /// `black α130`: the plate behind thumbnail badges.
     pub badge_plate: Color32,
     /// `gray 38`: a thumbnail whose texture has not arrived.
@@ -86,6 +90,8 @@ impl Tokens {
         accent: Color32::from_rgb(0x01, 0x65, 0xdd),
         star: grey(0xd8),
         pick: grey(0xf0),
+        danger: Color32::from_rgb(0xe0, 0x4a, 0x4a),
+        caution: Color32::from_rgb(0xe3, 0xa8, 0x3c),
         badge_plate: Color32::from_black_alpha(130),
         placeholder: grey(38),
         radius: 4,
@@ -194,6 +200,8 @@ mod tests {
             (t.accent, "#0165dd"),
             (t.star, "#d8d8d8"),
             (t.pick, "#f0f0f0"),
+            (t.danger, "#e04a4a"),
+            (t.caution, "#e3a83c"),
         ] {
             assert_eq!(hex(got), want);
         }
