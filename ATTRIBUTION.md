@@ -55,6 +55,7 @@ image used is listed in `docs/images/SOURCES.md` and here.
 
 | Path | Asset | Creator | Source | Licence | Added | Modifications |
 |---|---|---|---|---|---|---|
+| `docs/mockups/*.png`, `docs/mockups/*.html` | Target mockups of Dalica's windows (procedural placeholder photos, icons drawn for Dalica) | the Dalica contributors | original work | MIT OR Apache-2.0 (`LICENSE-MIT`, `LICENSE-APACHE`) | 2026-10-09 | none |
 
 ## Test data (not committed, not shipped)
 

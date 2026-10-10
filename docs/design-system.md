@@ -148,7 +148,7 @@ panel) come from the reference layout; tune them only with side-by-side screensh
 ## 5. Icons
 
 Original vector icons drawn in code on a 20 × 20 design grid (`crates/ui-kit/src/icons.rs`,
-the LightCraft technique and starting set, copied with attribution): `paint(&Painter, rect, Icon,
+our own drawings, using the LightCraft technique): `paint(&Painter, rect, Icon,
 Color32)`, stroke `max(1.5·k, 1.0)` where `k = side / 20`, round caps. No icon fonts, no bitmap
 icons. When a glyph is too complex to draw (camera, film reel), use a
 [Lucide](https://lucide.dev) SVG (ISC licence) from `assets/icons/` with its licence file and an
@@ -170,14 +170,14 @@ them. Every widget below registers an automation id and an AccessKit role.
 | `text_button(id, label, active)` | SemiBold 11.5 `text`; `(text_w + 18).max(37) × 24`; radius 4; fill `button` / `hover` / `pressed`; 1 pt `button_border` |
 | `primary_button` | as `text_button` but fill `accent`, text white; one per dialog (the default action) |
 | `icon_button(id, icon, size, active, enabled, tooltip)` | highlight square `min(32, size)` radius 4: `tool_active` active, `hover × 0.7` hovered; glyph colour `icon` / `text` hover / `pick` active / `text_disabled` |
-| `action_button(id, icon, label)` | **Dalica**: big bottom-bar button, 64 × 64, icon 28 centred in the top 40 pt, label below (11.5, `text_label`), hover fill `hover` radius 4, disabled when nothing is selected or in the tray |
+| `action_button(id, icon, label)` | **Dalica**: big bottom-bar button, 64 × 56 (`ui-layout.md` §6.5), icon 28 centred in the top 34 pt, label below (11.5, `text_label`), hover fill `hover` radius 4, disabled when nothing is selected or in the tray |
 | `toggle_filter(id, icon, on)` | 26 × 26 icon toggle for the filter row; on = `tool_active` fill radius 5 + 1 pt `accent` stroke |
 | `slider(spec, value)` | LightCraft slider: label left, value right (click to type), 2 pt track, hollow ring thumb r 7 stroked 2 pt `thumb`; drag, Shift = fine ×0.1, double-click resets to the spec default, ↑/↓ nudge; one undo step per drag |
 | `zoom_slider(id, value, range)` | thin variant for thumbnail size / edit zoom: 110 × 20, 2 pt `track` line, 3 × 14 thumb in `thumb_hover` |
 | `section_header(id, title, open)` | collapsible header, 30 pt, chevron + SemiBold 13 title; used in the library tree groups and dialogs |
 | `tabs(id, items, active)` | edit-panel tab strip: icon-only tabs 40 × 32 with tooltips; active tab `chrome` fill joined to the panel, inactive `canvas` |
 | `tool_button(id, icon, label)` | edit-panel tool: 124 × 32, icon 20 left, label 12; hover `hover`; active `tool_active` |
-| `effect_tile(id, preview_texture, label)` | 80 × 80 live preview of the current photo with the effect applied (rendered async, placeholder `gray 38` meanwhile) + label below |
+| `effect_tile(id, preview_texture, label)` | 86 × 69: a 78 × 48 live preview of the current photo with the effect applied (rendered async, placeholder `gray 38` meanwhile) + label below |
 | `stars(id, rating)` / `star_toggle(id, on)` | Dalica stars are a boolean "starred" flag: one star glyph, filled `star` when on, outline `icon` when off |
 | `dropdown(id, text)` | borderless text + chevron; opens a popup menu bounded to the window |
 | `search_field(id)` | 28 high, radius 4, `field` fill (`canvas` focused), border `field_border` (accent focused), magnifier icon + placeholder `text_dim`, clear (×) button when non-empty; filters live on every keystroke |
@@ -216,7 +216,7 @@ them. Every widget below registers an automation id and an AccessKit role.
 ┌──────────────────────────────────────────────────────────────────────────────────┐
 │ [📁]  Folder Name                                            3 edited  [Save]      │  SemiBold 15 `text`
 │       Thursday, June 4, 2026 · Lisbon                                              │  12.5 `text_dim`
-│ [▶][▦][🎞] │ [★] │ [💾] [Export ▾]                                                  │  26 × 22 icon buttons
+│ [▶][▦] │ [★] │ [💾] [Export ▾]                                                     │  26 × 22 icon buttons
 │ Add a description                                                                  │  12.5, click to edit inline
 └──────────────────────────────────────────────────────────────────────────────────┘
 ```

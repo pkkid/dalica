@@ -41,7 +41,7 @@ Sizes are in points at 100 % UI scale. "W" is the window width.
 │ ▾ Albums (3)              ││ ┌─────────────────────────────────────────────────────────┐   │⇑│ « People ×│ side pane
 │   ★ Starred Photos (12)   ││ │[📁] Lisbon Weekend                         3 edited [Save]│  │▲│ (280,     │ (optional)
 │   ◷ Recently Updated (40) ││ │     Thursday, June 4, 2026 · Lisbon, Portugal            │   │ │  shown    │
-│   📘 Best of 2026 (40)    ││ │ [▶][▦][🎞] [★] [💾] [Export ▾]                            │   │ │  when a   │
+│   📘 Best of 2026 (40)    ││ │ [▶][▦] [★] [💾] [Export ▾]                                │   │ │  when a   │
 │ ▾ People (8)              ││ │ Add a description                                        │   │ │  pane is  │
 │   ☺ Unnamed (112)         ││ └─────────────────────────────────────────────────────────┘   │ │  toggled) │
 │   ☺ Ana Costa (40)        ││   ┌────┐ ┌──┐ ┌────┐ ┌────┐ ┌──┐ ┌────┐                       │ │           │
@@ -130,7 +130,7 @@ tree order. 24 pt gutter between a grid's last row and the next header.
 ```text
 [📁 32]  Lisbon Weekend                                   3 edited  [Save]
          Thursday, June 4, 2026 · Lisbon, Portugal
-[▶] [▦] [🎞] │ [★] │ [💾] [Export ▾]
+[▶] [▦] │ [★] │ [💾] [Export ▾]
 Add a description
 ```
 
