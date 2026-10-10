@@ -1,0 +1,9 @@
+# Task issues are generated from docs/roadmap.md by `cargo xtask tasks sync`; never open them by hand.
+blank_issues_enabled: true
+contact_links:
+  - name: Roadmap tasks
+    url: https://github.com/pkkid/dalica/blob/main/docs/task-board.md
+    about: Task issues are created and updated by `cargo xtask tasks sync` from docs/roadmap.md. To change a task, change its block in the roadmap.
+  - name: Security vulnerabilities
+    url: https://github.com/pkkid/dalica/blob/main/SECURITY.md
+    about: Report vulnerabilities privately as described in SECURITY.md, not in a public issue.

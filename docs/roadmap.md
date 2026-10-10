@@ -134,7 +134,7 @@ turns each into a GitHub issue. M0 is built by a single agent.
     sources fail naming the crate and rule for `library → engine`, `egui` in `engine`, an
     unregistered crate, `std::fs::write` in `crates/store`, and `scenes` as a normal dependency of
     `core`.
-- ⬜ **M0.10 Task board: `xtask tasks`**
+- ✅ **M0.10 Task board: `xtask tasks`**
   - after: M0.2
   - files: `xtask/src/tasks/**`, `.github/ISSUE_TEMPLATE/**`
   - scope: everything in [`task-board.md`](task-board.md): the roadmap task parser; `setup`,

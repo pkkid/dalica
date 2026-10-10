@@ -5,6 +5,7 @@
 
 mod layers;
 mod metadata;
+mod tasks;
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -12,7 +13,8 @@ use std::process::ExitCode;
 const USAGE: &str = "usage: cargo xtask <command>
 
 commands:
-  layers    check crate dependencies against the layer table (docs/architecture.md §2)";
+  layers    check crate dependencies against the layer table (docs/architecture.md §2)
+  tasks     the task board (docs/task-board.md); `cargo xtask tasks` for its commands";
 
 /// The workspace root: the parent of this crate's manifest directory.
 pub fn workspace_root() -> PathBuf {
@@ -25,6 +27,7 @@ fn main() -> ExitCode {
     let root = workspace_root();
     let result = match args.first().map(String::as_str) {
         Some("layers") => layers::run(&root),
+        Some("tasks") => tasks::run(&root, args.get(1..).unwrap_or(&[])),
         Some("-h" | "--help" | "help") => {
             println!("{USAGE}");
             Ok(())
