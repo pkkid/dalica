@@ -50,6 +50,46 @@ fn trailing_number(url: &str) -> Result<u64, String> {
     url.trim().rsplit('/').next().and_then(|n| n.parse().ok()).ok_or_else(|| format!("unexpected gh output `{url}`"))
 }
 
+/// The board's items in board order, 100 per page, with only the fields `xtask` reads (issue number,
+/// Status, Agent, Branch). GitHub prices a query by the nodes it could return: this costs 1 point
+/// per page, where `gh project item-list --limit 2000` (every field of every item) cost about 100.
+const ITEMS_QUERY: &str = "query($owner:String!,$project:Int!,$after:String){user(login:$owner){projectV2(number:$project){\
+items(first:100,after:$after,orderBy:{field:POSITION,direction:ASC}){pageInfo{hasNextPage endCursor}\
+nodes{id content{...on Issue{number}}\
+status:fieldValueByName(name:\"Status\"){...on ProjectV2ItemFieldSingleSelectValue{name}}\
+agent:fieldValueByName(name:\"Agent\"){...on ProjectV2ItemFieldTextValue{text}}\
+branch:fieldValueByName(name:\"Branch\"){...on ProjectV2ItemFieldTextValue{text}}}}}}}";
+
+/// Pages read before giving up (a bounded loop: 100 pages = 10,000 items).
+const ITEM_PAGES: usize = 100;
+
+/// One page of [`ITEMS_QUERY`]: its items (drafts and pull requests, which have no issue number,
+/// are skipped) and the cursor of the next page, if any.
+fn parse_items_page(v: &Value) -> Result<(Vec<Item>, Option<String>), String> {
+    let conn = &v["data"]["user"]["projectV2"]["items"];
+    let nodes = conn["nodes"].as_array().ok_or_else(|| format!("unexpected project items reply: {}", short(v)))?;
+    let items = nodes
+        .iter()
+        .filter_map(|i| {
+            Some(Item {
+                id: i["id"].as_str()?.to_string(),
+                issue: i["content"]["number"].as_u64()?,
+                status: i["status"]["name"].as_str().and_then(Status::from_name),
+                agent: i["agent"]["text"].as_str().unwrap_or("").to_string(),
+                branch: i["branch"]["text"].as_str().unwrap_or("").to_string(),
+            })
+        })
+        .collect();
+    let next =
+        (conn["pageInfo"]["hasNextPage"].as_bool() == Some(true)).then(|| conn["pageInfo"]["endCursor"].as_str().map(str::to_string)).flatten();
+    Ok((items, next))
+}
+
+/// The start of a reply, for error messages.
+fn short(v: &Value) -> String {
+    v.to_string().chars().take(200).collect()
+}
+
 #[derive(Deserialize)]
 struct RawIssue {
     number: u64,
@@ -183,22 +223,26 @@ impl GitHub for GhCli {
     }
 
     fn items(&self) -> Result<Vec<Item>, String> {
-        let out = gh(&["project", "item-list", &PROJECT.to_string(), "--owner", OWNER, "--format", "json", "--limit", "2000"], None)?;
-        let v = json(&out)?;
-        Ok(v["items"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|i| {
-                Some(Item {
-                    id: i["id"].as_str()?.to_string(),
-                    issue: i["content"]["number"].as_u64()?,
-                    status: i["status"].as_str().and_then(Status::from_name),
-                    agent: i["agent"].as_str().unwrap_or("").to_string(),
-                    branch: i["branch"].as_str().unwrap_or("").to_string(),
-                })
-            })
-            .collect())
+        let mut items = Vec::new();
+        let mut cursor: Option<String> = None;
+        for _ in 0..ITEM_PAGES {
+            let owner = format!("owner={OWNER}");
+            let project = format!("project={PROJECT}");
+            let q = format!("query={ITEMS_QUERY}");
+            let mut args = vec!["api", "graphql", "-f", q.as_str(), "-f", owner.as_str(), "-F", project.as_str()];
+            let after;
+            if let Some(c) = &cursor {
+                after = format!("after={c}");
+                args.extend(["-f", after.as_str()]);
+            }
+            let (page, next) = parse_items_page(&json(&gh(&args, None)?)?)?;
+            items.extend(page);
+            match next {
+                Some(c) => cursor = Some(c),
+                None => return Ok(items),
+            }
+        }
+        Err(format!("the project has more than {} items; raise ITEM_PAGES", ITEM_PAGES * 100))
     }
 
     fn add_item(&self, issue: u64) -> Result<String, String> {
@@ -316,5 +360,44 @@ impl GitHub for GhCli {
 
     fn squash_merge(&self, pr: u64, subject: &str) -> Result<(), String> {
         gh(&["pr", "merge", &pr.to_string(), "--repo", REPO, "--squash", "--subject", subject, "--delete-branch"], None).map(|_| ())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_items_page_reads_status_agent_and_branch_and_skips_drafts() {
+        let page = json(
+            r#"{"data":{"user":{"projectV2":{"items":{
+                "pageInfo":{"hasNextPage":true,"endCursor":"Y3Vy"},
+                "nodes":[
+                  {"id":"PVTI_1","content":{"number":43},"status":{"name":"In Progress"},"agent":{"text":"agent-3"},"branch":{"text":"task/M2.2-x"}},
+                  {"id":"PVTI_2","content":{"number":44},"status":{"name":"Todo"},"agent":null,"branch":null},
+                  {"id":"PVTI_3","content":{},"status":null,"agent":null,"branch":null}
+                ]}}}}}"#,
+        )
+        .unwrap();
+        let (items, next) = parse_items_page(&page).unwrap();
+        assert_eq!(next.as_deref(), Some("Y3Vy"));
+        assert_eq!(items.len(), 2, "the draft without an issue number is skipped");
+        assert_eq!((items[0].issue, items[0].status, items[0].agent.as_str()), (43, Some(Status::InProgress), "agent-3"));
+        assert_eq!(items[0].branch, "task/M2.2-x");
+        assert_eq!((items[1].status, items[1].agent.as_str(), items[1].branch.as_str()), (Some(Status::Todo), "", ""));
+    }
+
+    #[test]
+    fn the_last_page_has_no_cursor_and_an_error_reply_is_an_error() {
+        let last = json(r#"{"data":{"user":{"projectV2":{"items":{"pageInfo":{"hasNextPage":false,"endCursor":"Y3Vy"},"nodes":[]}}}}}"#).unwrap();
+        assert_eq!(parse_items_page(&last).unwrap(), (Vec::new(), None));
+        let err = json(r#"{"errors":[{"message":"API rate limit already exceeded"}]}"#).unwrap();
+        assert!(parse_items_page(&err).unwrap_err().contains("rate limit"));
+    }
+
+    #[test]
+    fn the_query_asks_for_one_page_of_100_in_board_order() {
+        assert!(ITEMS_QUERY.contains("items(first:100,after:$after,orderBy:{field:POSITION,direction:ASC})"));
+        assert!(!ITEMS_QUERY.contains('\n'));
     }
 }
