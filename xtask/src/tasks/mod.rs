@@ -230,9 +230,15 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), String> {
             }
             let _merge = lock("dalica-merge.lock")?;
             let subject = board.merge(id)?;
-            println!("{}: {subject}", if dry_run { "would merge" } else { "merged" });
-            let _lock = claim_lock()?;
-            print_changes("sync", &board.sync()?.changes);
+            if dry_run {
+                // Nothing was merged, so the sync that follows a merge would only see the branch's
+                // ✅ without its commit on main and refuse.
+                println!("would merge: {subject}, then sync");
+            } else {
+                println!("merged: {subject}");
+                let _lock = claim_lock()?;
+                print_changes("sync", &board.sync()?.changes);
+            }
         }
         "status" => print!("{}", board.status()?),
         "log" => {
