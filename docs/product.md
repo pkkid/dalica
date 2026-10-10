@@ -80,4 +80,4 @@ important parity, **P2** later / niche, **OOS** out of scope.
 - A catalog database that owns your photos.
 - Multi-user or cloud sync.
 - Plugins (until 1.0).
-- A web build (possible later; L0–L4 stay wasm-clean once M10 starts).
+- A web build (possible later; L0–L4 stay wasm-clean after 1.0).

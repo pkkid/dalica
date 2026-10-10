@@ -118,5 +118,5 @@ planned per milestone (marked **Planned (M0)**, **Planned (M1)**, …) and becom
 only when their code and tests land on `main`. Do not rely on a planned control. In particular,
 the control channel is designed to require a 256-bit token, bind only to loopback, reject
 anything that is not a JSON request line, and enforce request, connection and batch limits from
-its first commit (M0); the MCP server is designed to confine file-system access to granted roots
-(M4).
+its first commit (M2); the MCP server is designed to confine file-system access to granted roots
+(M21).

@@ -35,6 +35,7 @@ cargo xtask ci                                      # THE gate: run before every
 | `xtask names` | fails if the reference product's name appears in any tracked file other than `AGENTS.md` | ✓ |
 | `xtask parity [--write]` | every `cmd:` id and path cited in `docs/parity.md` exists; `--write` refreshes the summary table | ✓ |
 | `xtask deps` | dependency audit: licence allow-list, no `*-sys`/C build deps, duplicate versions (`security.md`) | ✓ |
+| `xtask accept M<n>` | runs a milestone's acceptance tests and scripts (`tests/acceptance/`) and lists what a human should look at (`roadmap.md` → How milestones work); earlier milestones' checks run inside `ci` | ✓ (all finished milestones) |
 | `xtask test-corpus` | fetch the corpora and run the `corpus`-feature tests | |
 | `xtask scorecard [--check]` | regenerate / verify `docs/scorecard.md` | |
 | `xtask stats` | line/test/command counts for the status doc | |
@@ -209,7 +210,7 @@ processed them, so a following `ui.state` or `ui.inspect` observes their effect.
 | `CRAFT_FONTS_DIR` | optional fonts build input (see §12) |
 | `DALICA_CORPUS_REPO` | local authoring clone of the corpus repository for `xtask corpus --local` (see §11) |
 | `DALICA_GPU=0` | once a GPU path exists: force the CPU renderer for the whole process (see §14) |
-| `DALICA_FACE_MODELS` | M7: alternative face-model folder (see [`faces.md`](faces.md)) |
+| `DALICA_FACE_MODELS` | M29: alternative face-model folder (see [`faces.md`](faces.md)) |
 
 ## 11. Test corpora
 
@@ -234,7 +235,7 @@ fetched at **pinned commits** and are checked against committed **sha256 manifes
 | `corpus/raw/` | small CC0 raw files per vendor, for embedded-preview extraction | `dalica-image` |
 | `corpus/heif/` | small HEIC/HEIF files, for the `heif` feature | `dalica-image` |
 | `corpus/pngsuite/` | PngSuite | `dalica-image` |
-| `corpus/public-faces/` | public-domain portraits with their sources in `SOURCES.tsv`, for M7 | `dalica-faces` ([`faces.md`](faces.md)) |
+| `corpus/public-faces/` | public-domain portraits with their sources in `SOURCES.tsv`, for M29 | `dalica-faces` ([`faces.md`](faces.md)) |
 
 ```sh
 cargo xtask corpus                  # where each corpus lives, its pin, present / missing / stale
@@ -329,7 +330,7 @@ cargo xtask perf --update-baseline   # also write perf/baseline.json from this r
   id = "META-1"
   target = "Caption and tags round-trip through XMP and IPTC with foreign fields byte for byte"
   status = "partial"
-  task = "M2.8"
+  task = "M10"
   note = "crates/meta/tests/roundtrip.rs covers JPEG; PNG/WebP not yet"
   ```
 

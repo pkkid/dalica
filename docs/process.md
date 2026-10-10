@@ -85,7 +85,7 @@ Rules:
 - **Cheap parallel work:** Sonnet 5.5 subagents for mechanical tasks (translations, test
   scaffolding, doc regeneration).
 - Commits carry a `Co-Authored-By:` trailer naming the model; the About window credits models from
-  these trailers (M10).
+  these trailers (M11).
 
 ### Sessions
 

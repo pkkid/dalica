@@ -21,4 +21,4 @@ This file is the user-facing changelog. Help ▸ Release Notes compiles it into 
   its translation until the catalogs catch up (docs/localization.md → Release notes).
 -->
 
-Nothing yet: Dalica has no release. The first entries arrive with milestone M1.
+Nothing yet: Dalica has no release. The first entries arrive with milestone M11.

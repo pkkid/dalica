@@ -278,7 +278,7 @@ Grid: Boost, Soften, Vignette / Pixelate, Focal Zoom, Border / Drop Shadow, Muse
 | **Museum Matte** | Outer color (#1A0E03), Outer thickness 0–100 (25), Inner color (#F0EAE4), Inner thickness 0–100 (40) | double mat with inner shadow; enlarges canvas; repeatable |
 
 Algorithms are implemented from the effect descriptions above and our own design (no reference
-code). Each effect has a golden-image test on a procedural scene so its look is pinned.
+code). Each effect has a fingerprint test on a procedural scene so its look is pinned (`architecture.md` §11).
 
 ## 9. Edit menu and batch editing
 
@@ -299,7 +299,7 @@ code). Each effect has a golden-image test on a procedural scene so its look is 
   (recorded as edits).
 - EXIF orientation is applied on read; Save normalises it (`data-model.md` §6).
 
-## 11. Video in the edit view (M9)
+## 11. Video in the edit view (M34)
 
 - A video opens in the same view; under it a control bar: play/pause, scrubber with time readout,
   volume, a **trim ruler** with start/end handles, **Set Start**, **Set End**, **Full Screen**.

@@ -67,8 +67,8 @@ crates/
                 CPU renderer for every tool and effect (the oracle), auto-fix analysis
   L1  scenes    procedural test and demo photos (gradients, faces-like blobs, horizons, text-free
                 patterns) at any size, depth and orientation, with a minimal EXIF block; no media files
-  L1  fetch     consented, resumable, hash-pinned downloads (M7)
-  L1  faces     detection, alignment, embeddings, clustering on decoded RGB buffers (M7, `faces.md`)
+  L1  fetch     consented, resumable, hash-pinned downloads (M29)
+  L1  faces     detection, alignment, embeddings, clustering on decoded RGB buffers (M29, `faces.md`)
   L2  library   the in-memory model (folders, photos, albums, people, tags, captions, stars, hidden,
                 recipes, places), `Op`s with inverses, revisions, queries and the search grammar.
                 Pure: no I/O, no threads
@@ -135,7 +135,7 @@ Rules the checker enforces:
 4. Only `fs` may call `std::fs` write functions (`write`, `rename`, `remove_*`, `copy`,
    `create_dir*`, `OpenOptions` with write); `xtask layers` greps for them. Everything else writes
    through `fs`, so atomicity, verification and fault injection have one home.
-5. L0–L4 stay free of platform UI code so they can later build for `wasm32` (not before M10).
+5. L0–L4 stay free of platform UI code so they can later build for `wasm32` (not before 1.0).
 
 ## 3. Commands: the one seam
 
@@ -173,7 +173,7 @@ pub struct CommandSpec {
   | Keyboard | key event + active context → keymap → `App::run` | M1 |
   | CLI | `dalica-cli run --library DIR script.jsonl` / `--cmd id --params '{…}'` | M1 |
   | Control channel | `engine.execute` over loopback JSON lines (`control-protocol.md`) | M2 |
-  | MCP | one tool per command plus helpers (`mcp.md`) | M4 |
+  | MCP | one tool per command plus helpers (`mcp.md`) | M21 |
 
 - **UI-only commands** (pane toggles, zoom, view switches, window state) live in `UI_COMMANDS` in
   `crates/ui/src/menus.rs`, declare keys the same way, and are listed by `engine.commands` too, so
@@ -341,7 +341,7 @@ for Dalica. Ordinary third-party crates from crates.io remain allowed after the 
 | Persistence | `crates/catalog/src/{journal,store,safe_file,lock}.rs` | op journal + snapshot, atomic writes, single-process lock |
 | Metadata, decoding, RAW previews | `crates/{meta,tiff,codecs,raw}` | merge-never-replace writes, decode limits, embedded-preview extraction |
 | Organizer plumbing | `engine/src/{memory,availability,walk,rename,guard}.rs` | memory budget, offline volumes, bounded walks, panic guard |
-| Faces (M7) | `crates/faces` | detector/recogniser pipeline, consented model downloads |
+| Faces (M29) | `crates/faces` | detector/recogniser pipeline, consented model downloads |
 
 From PhotoCraft: the command/`UiState` model, `shortcut_dispatch.rs`, the scorecard and perf
 budgets, and the process (`notes/craft-apps/` has both studies).
@@ -418,5 +418,5 @@ diff. No media is committed.
 | GPU vs CPU, DPI, real windows | headless isn't the window | CPU is the oracle; agents check the real window through the control channel's `ui.screenshot` at milestone reviews |
 | Timing, animation, debounce, drag feel | wall-clock tests are flaky; "feel" is subjective | virtual `Clock`; the driver advances time explicitly; human review of drag/scroll feel |
 | Native dialogs | can't be clicked headlessly | `Picker` trait, scripted in tests |
-| Accessibility and IME | needs assistive tech and real input methods | AccessKit tree assertions headless; manual IME and screen-reader checks (M10) |
-| Face recognition (M7), video (M9) | model- and codec-dependent | decided at those milestones; small public-domain face set with expected groupings as floors |
+| Accessibility and IME | needs assistive tech and real input methods | AccessKit tree assertions headless; manual IME and screen-reader checks (M35) |
+| Face recognition (M29), video (M34) | model- and codec-dependent | decided at those milestones; small public-domain face set with expected groupings as floors |

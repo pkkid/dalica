@@ -32,7 +32,7 @@ widget and icon code is its own (`architecture.md` §9).
 
 ## 2. Colour tokens
 
-Dark theme (the only theme until M8; a light variant is a later option, not a goal).
+Dark theme (the only theme until after 1.0; a light variant is a later option, not a goal).
 
 | Token | Hex | Used for |
 |---|---|---|

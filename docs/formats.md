@@ -28,7 +28,7 @@ and the per-type toggles are in [`data-model.md`](data-model.md) §7 and Options
 | JPEG XL | yes (`jxl-oxide`) | scaled decode | — (sidecar only) | JPEG copy beside it | orientation applied by the decoder |
 | PSD / PSB | merged composite only (8/16/32-bit gray, RGB, CMYK, indexed) | embedded thumbnail resource or composite | — (sidecar only) | JPEG copy beside it | layers are not read; ZIP-compressed composites and Lab unsupported |
 | RAW | **embedded preview only** (§2) | embedded preview | `.xmp` sidecar when enabled | JPEG copy beside it | RAW development is out of scope (`product.md`) |
-| Video (MP4, MOV, M4V, MKV) | poster frame when decodable (M9), otherwise a generic video tile | — | — (sidecar only) | — | |
+| Video (MP4, MOV, M4V, MKV) | poster frame when decodable (M34), otherwise a generic video tile | — | — (sidecar only) | — | |
 
 "JPEG copy beside it": Save of a format Dalica cannot write in place writes `name.jpg` (or
 `name-001.jpg`) next to the source and leaves the source untouched (`data-model.md` §6). Export
@@ -62,7 +62,7 @@ Damaged and truncated files decode as far as possible and say so; they never tak
 - It sits behind the **non-default** `heif` cargo feature of `dalica-image`, forwarded by the app
   (`cargo build -p dalica --features heif`). HEVC is patent-encumbered in some jurisdictions, so
   including a decoder is the distributor's decision; whether official Dalica builds enable it is
-  decided with the release pipeline (M10). Without the feature, HEIC files are still recognised and
+  decided with the release pipeline (M11). Without the feature, HEIC files are still recognised and
   listed, with the tile "HEIC support isn't included in this build".
 - The decoder is young and pinned exactly; moving the pin is a reviewed change that re-runs the
   `heif` corpus tests (`development.md` §11).
