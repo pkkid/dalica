@@ -463,7 +463,7 @@ their PNGs to the maintainer, who approves them before they merge (M1.A decision
     `dalica-cli snapshot`.
   - done when: a test drives an empty app headlessly and takes a screenshot of the requested size;
     `dalica-cli snapshot --library DIR -o out.png --size 1400x900` writes that PNG.
-- ⬜ **M1.18 `ui`: the plain library window**
+- ✅ **M1.18 `ui`: the plain library window**
   - after: M1.12, M1.17
   - files: `crates/ui/src/panels/**`, `crates/ui/src/keys.rs`, `crates/ui/src/picker.rs`, `crates/ui/tests/**`, `apps/dalica/src/**`, `apps/dalica/Cargo.toml`
   - scope: folder list; one square grid per folder with thumbnails from the job pool; click

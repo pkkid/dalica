@@ -4,11 +4,15 @@
 
 use dalica_core::PhotoId;
 use dalica_engine::{CmdError, Context, Session};
+use std::sync::Arc;
+
 use dalica_ui_kit::{Tokens, fonts};
 use egui::{Align2, Frame};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use crate::panels::{self, Panels};
+use crate::picker::Picker;
 use crate::state::UiState;
 
 /// A command that changes only the view state. Listed with the engine's commands so agents see one
@@ -107,12 +111,20 @@ pub struct App {
     state: UiState,
     tokens: Tokens,
     session: Option<Session>,
+    picker: Option<Arc<dyn Picker>>,
+    /// Created on the first frame with a session (it starts the thumbnail workers).
+    panels: Option<Panels>,
 }
 
 impl App {
     /// An app showing `session`, or the "opening" state while it is `None`.
     pub fn new(session: Option<Session>) -> App {
-        App { state: UiState::default(), tokens: Tokens::default(), session }
+        App { state: UiState::default(), tokens: Tokens::default(), session, picker: None, panels: None }
+    }
+
+    /// The same, with the dialogs of `picker` (File ▸ Add Folder…).
+    pub fn with_picker(session: Option<Session>, picker: Arc<dyn Picker>) -> App {
+        App { picker: Some(picker), ..App::new(session) }
     }
 
     /// Installs fonts and the theme; call once before the first frame.
@@ -161,31 +173,38 @@ impl App {
                 None => Err(CmdError::UnknownCommand(id.into())),
             },
         };
-        if let Err(e) = &result {
-            self.state.status = e.to_string();
+        match &result {
+            Ok(_) => self.state.status.clear(),
+            Err(e) => self.state.status = e.to_string(),
         }
         result
     }
 
-    /// Nothing is running in the background: no scan, no pending result to apply.
+    /// Nothing is running in the background: no scan, no thumbnail on its way, no open dialog.
     pub fn idle(&self) -> bool {
-        self.session.as_ref().is_some_and(|s| !s.busy())
+        self.session.as_ref().is_some_and(|s| !s.busy()) && self.panels.as_ref().is_none_or(Panels::idle)
     }
 
-    /// One frame: applies finished background work, then paints.
+    /// The panels' state, once the first frame with a library has run.
+    pub fn panels(&self) -> Option<&Panels> {
+        self.panels.as_ref()
+    }
+
+    /// One frame: applies finished background work, runs this frame's shortcuts, then paints.
     pub fn frame(&mut self, ui: &mut egui::Ui) {
-        if let Some(s) = &mut self.session {
-            s.poll();
-        }
-        let t = self.tokens;
-        let opening = self.session.is_none();
-        egui::CentralPanel::default().frame(Frame::new().fill(t.chrome)).show(ui, |ui| {
-            let rect = ui.max_rect();
-            let p = ui.painter();
-            let (title, body) = if opening { ("Opening the library…", "") } else { ("No folders yet", "Add a folder with File → Add Folder…") };
-            p.text(rect.center() - egui::vec2(0.0, 12.0), Align2::CENTER_CENTER, title, fonts::semibold(18.0), t.text_label);
-            p.text(rect.center() + egui::vec2(0.0, 14.0), Align2::CENTER_CENTER, body, fonts::regular(t.body), t.text_dim);
-        });
+        let Some(session) = &mut self.session else {
+            let t = self.tokens;
+            egui::CentralPanel::default().frame(Frame::new().fill(t.chrome)).show(ui, |ui| {
+                let rect = ui.max_rect();
+                ui.painter().text(rect.center(), Align2::CENTER_CENTER, "Opening the library…", fonts::semibold(18.0), t.text_label);
+            });
+            return;
+        };
+        session.poll();
+        crate::keys::dispatch(self, ui.ctx());
+        let mut p = self.panels.take().unwrap_or_else(|| Panels::new(self.picker.clone()));
+        panels::show(&mut p, self, ui);
+        self.panels = Some(p);
     }
 }
 

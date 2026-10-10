@@ -11,11 +11,15 @@ publish = false
 
 [dependencies]
 dalica-core.workspace = true
+dalica-engine.workspace = true
 dalica-fs.workspace = true
+dalica-ui.workspace = true
 dalica-ui-kit.workspace = true
 eframe.workspace = true
 egui.workspace = true
 log.workspace = true
+# Native folder dialogs; only the XDG portal backend on Linux (gtk3 links C, architecture.md §1).
+rfd = { workspace = true, default-features = false, features = ["xdg-portal"] }
 wgpu.workspace = true
 
 [dev-dependencies]
