@@ -27,6 +27,7 @@
 mod engine;
 mod host;
 mod input;
+mod menu;
 mod paths;
 mod picker;
 mod screenshot;
@@ -579,10 +580,10 @@ pub static METHODS: &[Method] = &[
     method("ui.type", "{text}", "{}", input::type_text),
     method("ui.scroll", "{dx?, dy?, widget?, ctrl?, shift?, alt?}", "{}", input::scroll),
     method("ui.wait", "{ms}", "{frames}", input::wait),
-    later("ui.menu.tree", "{context?}", "the menu bar as shown (§6.10)", "planned for M3, with the menu catalog"),
-    later("ui.menu.invoke", "{path | id, params?, wait?}", "the command's result, or {dialog}", "planned for M3, with the menu catalog"),
-    later("ui.dialog.confirm", "{button?}", "the dialog's command result", "planned for M3, with the first in-app dialogs"),
-    later("ui.dialog.cancel", "—", "{}", "planned for M3, with the first in-app dialogs"),
+    method("ui.menu.tree", "{context?}", "the menu bar (or a context menu) as shown (§6.10)", menu::tree),
+    method("ui.menu.invoke", "{path | id, params?, wait?}", "the command's result, or {dialog}", menu::invoke),
+    later("ui.dialog.confirm", "{button?}", "the dialog's command result", "planned for M5, with the Folder Manager (the first in-app dialog)"),
+    later("ui.dialog.cancel", "—", "{}", "planned for M5, with the Folder Manager (the first in-app dialog)"),
     method("ui.filePicker", "{path} | {cancel: true}", "the command's result (§5.6)", picker::answer),
     method(
         "ui.screenshot",

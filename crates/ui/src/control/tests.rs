@@ -302,10 +302,10 @@ fn methods_are_listed_unknown_ones_refused_unbuilt_ones_unsupported_and_panics_c
         assert!(names.contains(&m), "{m}");
     }
     assert!(!names.contains(&"auth"), "auth is the transport's");
-    let menu = list.as_array().unwrap().iter().find(|m| m["method"] == "ui.menu.tree").unwrap();
-    assert_eq!((menu["built"].as_bool(), menu["planned"].as_str().map(|p| p.contains("M3"))), (Some(false), Some(true)));
-    let e = refused(&mut t, "ui.menu.tree", json!({}), "unsupported");
-    assert!(e.message.contains("M3"), "{}", e.message);
+    let dialog = list.as_array().unwrap().iter().find(|m| m["method"] == "ui.dialog.confirm").unwrap();
+    assert_eq!((dialog["built"].as_bool(), dialog["planned"].as_str().map(|p| p.contains("M5"))), (Some(false), Some(true)));
+    let e = refused(&mut t, "ui.dialog.confirm", json!({}), "unsupported");
+    assert!(e.message.contains("M5"), "{}", e.message);
     for m in ["batch", "library.inspect", "jobs.wait", "app.quit"] {
         refused(&mut t, m, json!({}), "unsupported");
     }
@@ -332,7 +332,7 @@ fn every_method_refuses_hostile_params_and_changes_nothing() {
     let mut t = setup(3);
     let before = t.d.app().state().clone();
     let built: Vec<&str> = METHODS.iter().filter(|m| m.run.is_some()).map(|m| m.name).collect();
-    assert_eq!(built.len(), 19, "{built:?}");
+    assert_eq!(built.len(), 21, "{built:?}");
     for m in &built {
         for params in [json!([1]), json!("x"), json!(7), json!(true), json!({ "zzz": 1 })] {
             let e = refused(&mut t, m, params.clone(), "bad_params");

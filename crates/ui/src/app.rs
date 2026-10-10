@@ -2,110 +2,17 @@
 //! [`Session`]. Every action goes through [`App::run`]: UI-only commands ([`UI_COMMANDS`]) change
 //! the view state here, every other id is forwarded to `Session::execute` (`architecture.md` §3).
 
-use dalica_core::PhotoId;
-use dalica_engine::{CmdError, Context, Session};
+use dalica_engine::{CmdError, Session};
 use std::sync::Arc;
 
 use dalica_ui_kit::{Tokens, fonts};
 use egui::{Align2, Frame};
-use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::Value;
 
+pub use crate::menus::{UI_COMMANDS, UiCommand};
 use crate::panels::{self, Panels};
 use crate::picker::Picker;
 use crate::state::UiState;
-
-/// A command that changes only the view state. Listed with the engine's commands so agents see one
-/// catalogue.
-pub struct UiCommand {
-    pub id: &'static str,
-    pub label: &'static str,
-    /// Menu path, `""` if not in a menu.
-    pub menu: &'static str,
-    /// Default bindings (none yet: the keymap learns UI commands with the menus, M2).
-    pub keys: &'static [(Context, &'static str)],
-    /// Agent-readable parameter doc.
-    pub params: &'static str,
-    pub run: fn(&mut App, &Value) -> Result<Value, CmdError>,
-}
-
-pub const UI_COMMANDS: &[UiCommand] = &[
-    UiCommand {
-        id: "select.set",
-        label: "Select",
-        menu: "",
-        keys: &[],
-        params: r#"{"ids": [PhotoId], "mode": "replace" | "toggle" = "replace"}"#,
-        run: select_set,
-    },
-    UiCommand { id: "select.none", label: "Select None", menu: "Edit/Select None", keys: &[], params: "{}", run: select_none },
-];
-
-fn parse<T: for<'de> Deserialize<'de>>(params: &Value) -> Result<T, CmdError> {
-    serde_json::from_value(params.clone()).map_err(|e| CmdError::BadParams(e.to_string()))
-}
-
-#[derive(Deserialize, Default, Clone, Copy, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-enum Mode {
-    #[default]
-    Replace,
-    Toggle,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct SelectSet {
-    ids: Vec<PhotoId>,
-    #[serde(default)]
-    mode: Mode,
-}
-
-/// The most photos one selection command takes.
-const MAX_IDS: usize = 1_000_000;
-
-fn select_set(app: &mut App, params: &Value) -> Result<Value, CmdError> {
-    let p: SelectSet = parse(params)?;
-    if p.ids.len() > MAX_IDS {
-        return Err(CmdError::Limit(format!("at most {MAX_IDS} ids")));
-    }
-    let library = app.session.as_ref().map(Session::library);
-    if let Some(missing) = p.ids.iter().find(|&&id| !library.is_some_and(|l| l.photo(id).is_some())) {
-        return Err(CmdError::NotFound(format!("no photo {missing}")));
-    }
-    let sel = &mut app.state.selection;
-    match p.mode {
-        Mode::Replace => {
-            sel.ids.clear();
-            for id in &p.ids {
-                if !sel.ids.contains(id) {
-                    sel.ids.push(*id);
-                }
-            }
-        }
-        Mode::Toggle => {
-            for id in &p.ids {
-                match sel.ids.iter().position(|x| x == id) {
-                    Some(i) => {
-                        sel.ids.remove(i);
-                    }
-                    None => sel.ids.push(*id),
-                }
-            }
-        }
-    }
-    sel.anchor = p.ids.last().copied().filter(|id| sel.ids.contains(id)).or_else(|| sel.ids.last().copied());
-    Ok(json!({ "selection": sel.ids }))
-}
-
-fn select_none(app: &mut App, params: &Value) -> Result<Value, CmdError> {
-    #[derive(Deserialize)]
-    #[serde(deny_unknown_fields)]
-    struct NoParams {}
-    let _: NoParams = parse(params)?;
-    app.state.selection = Default::default();
-    Ok(json!({ "selection": [] }))
-}
 
 pub struct App {
     state: UiState,
@@ -114,12 +21,26 @@ pub struct App {
     picker: Option<Arc<dyn Picker>>,
     /// Created on the first frame with a session (it starts the thumbnail workers).
     panels: Option<Panels>,
+    /// File ▸ Add Folder… was chosen while the panels were busy drawing: open the picker on the
+    /// next frame.
+    want_folder_picker: bool,
+    /// Whether the folder dialog was open when this frame's panels were taken out to draw (the
+    /// menus drawn meanwhile ask [`App::can_pick_folder`]).
+    folder_dialog_open: bool,
 }
 
 impl App {
     /// An app showing `session`, or the "opening" state while it is `None`.
     pub fn new(session: Option<Session>) -> App {
-        App { state: UiState::default(), tokens: Tokens::default(), session, picker: None, panels: None }
+        App {
+            state: UiState::default(),
+            tokens: Tokens::default(),
+            session,
+            picker: None,
+            panels: None,
+            want_folder_picker: false,
+            folder_dialog_open: false,
+        }
     }
 
     /// The same, with the dialogs of `picker` (File ▸ Add Folder…).
@@ -185,6 +106,31 @@ impl App {
         self.session.as_ref().is_some_and(|s| !s.busy()) && self.panels.as_ref().is_none_or(Panels::idle)
     }
 
+    /// Whether File ▸ Add Folder… can open the folder picker now; why not, if it cannot.
+    pub fn can_pick_folder(&self) -> Result<(), String> {
+        if self.session.is_none() {
+            Err("The library is still opening.".into())
+        } else if self.picker.is_none() {
+            Err("There is no folder dialog here.".into())
+        } else if self.want_folder_picker || self.panels.as_ref().map_or(self.folder_dialog_open, |p| p.dialog.is_some()) {
+            Err("A folder dialog is already open.".into())
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Opens the folder picker (File ▸ Add Folder…) unless [`App::can_pick_folder`] says no: now
+    /// between frames, or on the next frame when the panels are drawing.
+    pub fn add_folder(&mut self) {
+        if self.can_pick_folder().is_err() {
+            return;
+        }
+        match &mut self.panels {
+            Some(p) => p.add_folder(),
+            None => self.want_folder_picker = true,
+        }
+    }
+
     /// The panels' state, once the first frame with a library has run.
     pub fn panels(&self) -> Option<&Panels> {
         self.panels.as_ref()
@@ -203,14 +149,20 @@ impl App {
         session.poll();
         crate::keys::dispatch(self, ui.ctx());
         let mut p = self.panels.take().unwrap_or_else(|| Panels::new(self.picker.clone()));
+        if std::mem::take(&mut self.want_folder_picker) {
+            p.add_folder();
+        }
+        self.folder_dialog_open = p.dialog.is_some();
         panels::show(&mut p, self, ui);
         self.panels = Some(p);
     }
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
+    use dalica_core::PhotoId;
+    use serde_json::json;
     use std::sync::Arc;
 
     /// A session on a fresh library holding one folder of `n` scenes photos; and their ids.
@@ -232,53 +184,6 @@ mod tests {
     }
 
     #[test]
-    fn select_set_replaces_or_toggles_and_keeps_an_anchor() {
-        let (_dir, s, ids) = session_with_photos(4);
-        let mut app = App::new(Some(s));
-        let n = |i: usize| ids[i].get();
-        assert_eq!(app.run("select.set", &json!({ "ids": [n(0), n(1)] })).unwrap(), json!({ "selection": [n(0), n(1)] }));
-        assert_eq!(app.state().selection.anchor, Some(ids[1]));
-        app.run("select.set", &json!({ "ids": [n(1), n(2)], "mode": "toggle" })).unwrap();
-        assert_eq!(app.state().selection.ids, [ids[0], ids[2]]);
-        assert_eq!(app.state().selection.anchor, Some(ids[2]));
-        // Toggling the anchor off moves it to the last selected photo.
-        app.run("select.set", &json!({ "ids": [n(2)], "mode": "toggle" })).unwrap();
-        assert_eq!(app.state().selection.anchor, Some(ids[0]));
-        app.run("select.set", &json!({ "ids": [n(3), n(3)] })).unwrap();
-        assert_eq!(app.state().selection.ids, [ids[3]], "duplicates collapse");
-        app.run("select.none", &json!({})).unwrap();
-        assert!(app.state().selection.ids.is_empty() && app.state().selection.anchor.is_none());
-        // Engine commands are forwarded.
-        let r = app.run("photo.star.toggle", &json!({ "ids": [n(0)] })).unwrap();
-        assert!(r.to_string().contains("true"), "{r}");
-    }
-
-    #[test]
-    fn hostile_params_and_unknown_ids_are_errors_never_panics() {
-        let (_dir, s, ids) = session_with_photos(1);
-        let mut app = App::new(Some(s));
-        for (id, params) in [
-            ("select.set", json!({})),
-            ("select.set", json!({ "ids": "1" })),
-            ("select.set", json!({ "ids": [-1] })),
-            ("select.set", json!({ "ids": [1.5] })),
-            ("select.set", json!({ "ids": [], "mode": "sideways" })),
-            ("select.set", json!({ "ids": [], "extra": 1 })),
-            ("select.set", json!([1, 2])),
-            ("select.set", Value::Null),
-            ("select.none", json!({ "all": true })),
-            ("select.none", json!("x")),
-        ] {
-            assert!(matches!(app.run(id, &params), Err(CmdError::BadParams(_))), "{id} {params}");
-        }
-        assert!(matches!(app.run("select.set", &json!({ "ids": [ids[0].get() + 1000] })), Err(CmdError::NotFound(_))));
-        assert!(matches!(app.run("select.set", &json!({ "ids": [u64::MAX] })), Err(CmdError::NotFound(_))));
-        assert!(matches!(app.run("no.such.command", &json!({})), Err(CmdError::UnknownCommand(_))));
-        assert!(app.state().selection.ids.is_empty(), "nothing changed");
-        assert!(!app.state().status.is_empty(), "the last failure is on the status line");
-    }
-
-    #[test]
     fn without_a_session_engine_commands_wait_and_unknown_ones_are_unknown() {
         let mut app = App::new(None);
         assert!(!app.idle());
@@ -286,14 +191,5 @@ mod tests {
         assert!(matches!(app.run("nope", &json!({})), Err(CmdError::UnknownCommand(_))));
         assert!(matches!(app.run("select.set", &json!({ "ids": [1] })), Err(CmdError::NotFound(_))));
         assert_eq!(app.run("select.set", &json!({ "ids": [] })).unwrap(), json!({ "selection": [] }));
-    }
-
-    #[test]
-    fn ui_commands_do_not_clash_with_engine_commands() {
-        let engine = dalica_engine::cmd::specs();
-        for c in UI_COMMANDS {
-            assert!(!engine.iter().any(|s| s.id == c.id), "{} is both", c.id);
-            assert!(UI_COMMANDS.iter().filter(|o| o.id == c.id).count() == 1);
-        }
     }
 }
