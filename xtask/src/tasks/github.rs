@@ -106,8 +106,33 @@ impl IssueEdit {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MilestoneInfo {
+    /// GitHub's number for the milestone (not the roadmap's `M<n>`).
+    pub number: u64,
     pub title: String,
     pub description: String,
+    pub open: bool,
+    /// Issues in the milestone, open and closed.
+    pub issues: u64,
+}
+
+/// Whether GitHub can merge a pull request, as its `mergeable` field says.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MergeState {
+    Mergeable,
+    Conflicting,
+    /// GitHub has not (re)computed it yet, e.g. right after a push; ask again shortly.
+    Unknown,
+}
+
+impl MergeState {
+    /// `MERGEABLE`, `CONFLICTING`; anything else (`UNKNOWN`) is [`MergeState::Unknown`].
+    pub fn from_graphql(value: &str) -> MergeState {
+        match value {
+            "MERGEABLE" => MergeState::Mergeable,
+            "CONFLICTING" => MergeState::Conflicting,
+            _ => MergeState::Unknown,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -127,6 +152,10 @@ pub struct PullRequest {
 /// GitHub's error text when [`GitHub::add_item`] names an issue already on the project (the
 /// project's auto-add workflow adds new issues itself).
 pub const ALREADY_IN_PROJECT: &str = "Content already exists in this project";
+
+/// GitHub's error text when [`GitHub::squash_merge`] comes before it has recomputed a pull
+/// request's mergeability after a push (`GraphQL: Pull Request is not mergeable (mergePullRequest)`).
+pub const NOT_MERGEABLE: &str = "Pull Request is not mergeable";
 
 /// Every call is a single GitHub read or write. Errors are human-readable strings.
 pub trait GitHub: Send + Sync {
@@ -149,6 +178,9 @@ pub trait GitHub: Send + Sync {
 
     fn milestones(&self) -> Result<Vec<MilestoneInfo>, String>;
     fn create_milestone(&self, title: &str, description: &str) -> Result<(), String>;
+    /// Sets a milestone's title and description (`number` is GitHub's milestone number).
+    fn edit_milestone(&self, number: u64, title: &str, description: &str) -> Result<(), String>;
+    fn close_milestone(&self, number: u64) -> Result<(), String>;
     fn labels(&self) -> Result<Vec<String>, String>;
     fn create_label(&self, name: &str, color: &str, description: &str) -> Result<(), String>;
     fn project_fields(&self) -> Result<ProjectFields, String>;
@@ -158,5 +190,8 @@ pub trait GitHub: Send + Sync {
     fn open_pr(&self, branch: &str, title: &str, body: &str) -> Result<PullRequest, String>;
     /// The latest finished CI run on `main` when it failed (its title and URL), else `None`.
     fn main_ci_failure(&self) -> Result<Option<String>, String>;
+    /// Whether GitHub can merge pull request `pr` with `head` as its head commit; a different head
+    /// (GitHub has not seen the push yet) is [`MergeState::Unknown`].
+    fn pr_mergeable(&self, pr: u64, head: &str) -> Result<MergeState, String>;
     fn squash_merge(&self, pr: u64, subject: &str) -> Result<(), String>;
 }

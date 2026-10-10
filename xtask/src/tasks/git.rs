@@ -29,6 +29,9 @@ pub trait Git: Send + Sync {
     fn rebase_for_merge(&self, branch: &str) -> Result<PathBuf, String>;
     /// Runs `cargo xtask ci` in `dir`.
     fn run_ci(&self, dir: &Path) -> Result<(), String>;
+    /// Fetches origin and returns `docs/roadmap.md` as it is on `origin/main` (what a merge just
+    /// landed), read from git's objects: no checkout, clean or dirty, is touched.
+    fn merged_roadmap(&self) -> Result<String, String>;
     /// The main checkout (parent of the git common directory).
     fn main_checkout(&self) -> PathBuf;
     /// The git common directory, shared by every worktree (locks live here).
@@ -191,6 +194,11 @@ impl Git for RealGit {
         if status.success() { Ok(()) } else { Err(format!("cargo xtask ci failed in {}", dir.display())) }
     }
 
+    fn merged_roadmap(&self) -> Result<String, String> {
+        self.fetch()?;
+        git(&self.cwd, &["show", "origin/main:docs/roadmap.md"])
+    }
+
     fn main_checkout(&self) -> PathBuf {
         let common = self.common_dir();
         common.parent().map(Path::to_path_buf).unwrap_or(common)
@@ -316,5 +324,40 @@ mod tests {
         // Only the branch's own files, not what main added meanwhile.
         assert_eq!(git.changed_paths(branch).unwrap(), ["b.txt"]);
         assert!(git.rebase_for_merge("task/M9.2-missing").unwrap_err().contains("origin has no"));
+    }
+
+    /// Live failure (M2 merges, 2026-10-10): the sync after a merge read the main checkout's
+    /// roadmap.md, which predates the squash. It now reads origin/main's, and never touches the
+    /// checkout, even a dirty one.
+    #[test]
+    fn the_merged_roadmap_comes_from_origin_and_a_dirty_checkout_is_left_alone() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (origin, main, other) = (tmp.path().join("origin.git"), tmp.path().join("repo"), tmp.path().join("other"));
+        g(tmp.path(), &["init", "--quiet", "--bare", origin.to_str().unwrap()]);
+        g(tmp.path(), &["clone", "--quiet", origin.to_str().unwrap(), main.to_str().unwrap()]);
+        std::fs::create_dir_all(main.join("docs")).unwrap();
+        std::fs::write(main.join("docs").join("roadmap.md"), "- ⬜ **M9.1 Thing**\n").unwrap();
+        g(&main, &["add", "."]);
+        g(&main, &["commit", "--quiet", "-m", "M9.0: start"]);
+        g(&main, &["push", "--quiet", "origin", "HEAD:refs/heads/main"]);
+
+        // The squash-merge lands on origin's main from elsewhere (GitHub).
+        g(tmp.path(), &["clone", "--quiet", origin.to_str().unwrap(), other.to_str().unwrap()]);
+        std::fs::write(other.join("docs").join("roadmap.md"), "- ✅ **M9.1 Thing**\n").unwrap();
+        g(&other, &["commit", "--quiet", "-am", "M9.1: thing (#1)"]);
+        g(&other, &["push", "--quiet", "origin", "HEAD:refs/heads/main"]);
+
+        // The lead's main checkout is behind and dirty.
+        std::fs::write(main.join("docs").join("roadmap.md"), "- ⬜ **M9.1 Thing**\nlocal edit\n").unwrap();
+        std::fs::write(main.join("scratch.txt"), "untracked\n").unwrap();
+        let head = g(&main, &["rev-parse", "HEAD"]);
+        let status = g(&main, &["status", "--porcelain"]);
+
+        let git = RealGit { cwd: main.clone() };
+        assert_eq!(git.merged_roadmap().unwrap(), "- ✅ **M9.1 Thing**");
+        assert!(git.merged_task_ids().unwrap().contains("M9.1"), "the fetch brought the squash commit");
+        assert_eq!(g(&main, &["rev-parse", "HEAD"]), head, "the checkout did not move");
+        assert_eq!(g(&main, &["status", "--porcelain"]), status);
+        assert_eq!(std::fs::read_to_string(main.join("docs").join("roadmap.md")).unwrap(), "- ⬜ **M9.1 Thing**\nlocal edit\n");
     }
 }

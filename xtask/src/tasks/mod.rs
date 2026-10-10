@@ -26,7 +26,8 @@ use lock::Lock;
 
 const USAGE: &str = "usage: cargo xtask tasks <command>
 
-  setup [--dry-run]              create milestones, labels and project fields (idempotent)
+  setup [--dry-run]              create labels and project fields; create, rename and describe milestones to match
+                                 roadmap.md, close empty ones it no longer lists (idempotent)
   sync [--check|--dry-run]       make the issues and the project match roadmap.md (--check: parse only, offline;
                                  --dry-run: read GitHub, print the writes it would make, make none)
   next [--agent NAME]            tasks you may claim, in roadmap order (claim the first); nothing listed after an
@@ -39,7 +40,8 @@ const USAGE: &str = "usage: cargo xtask tasks <command>
   release ID --reason TEXT       give a claimed task back (the branch is kept)
   block ID \"QUESTION\"            ask the maintainer; the task becomes Blocked
   merge ID [--dry-run]           lead only: refuse while main is red on GitHub CI, rebase, refuse new or changed
-                                 fingerprints without the `baseline-approved` label, ci, push, squash-merge, sync;
+                                 fingerprints without the `baseline-approved` label, ci, push, wait until GitHub
+                                 finds the PR mergeable, squash-merge, sync against origin/main's roadmap.md;
                                  never a review task (only the maintainer merges or closes those)
   status                         the whole board; marks idle claims stale
   log ID \"TEXT\" [--agent NAME]   append to the private dev log (log/devlog.md in the main checkout)
@@ -163,8 +165,11 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), String> {
     let claim_lock = || lock("dalica-tasks.lock");
     match cmd.as_str() {
         "setup" => {
-            let changes = board.setup()?;
-            print_changes("setup", &changes);
+            let report = board.setup()?;
+            print_changes("setup", &report.changes);
+            for note in &report.notes {
+                println!("setup: note: {note}");
+            }
         }
         "sync" => {
             let _lock = claim_lock()?;
@@ -238,8 +243,10 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), String> {
                 println!("would merge: {subject}, then sync");
             } else {
                 println!("merged: {subject}");
+                // The main checkout's roadmap.md predates the merge (it lacks the task's ✅), so the
+                // sync reads the roadmap as merged on origin/main; no checkout is touched.
                 let _lock = claim_lock()?;
-                print_changes("sync", &board.sync()?.changes);
+                print_changes("sync", &board.sync_merged()?.changes);
             }
         }
         "status" => print!("{}", board.status()?),

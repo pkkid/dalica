@@ -9,7 +9,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use super::config::{OWNER, PROJECT, REPO};
-use super::github::{GitHub, Issue, IssueEdit, Item, MilestoneInfo, NewIssue, ProjectFields, PullRequest, Status, TextField};
+use super::github::{GitHub, Issue, IssueEdit, Item, MergeState, MilestoneInfo, NewIssue, ProjectFields, PullRequest, Status, TextField};
 
 #[derive(Default)]
 pub struct GhCli {
@@ -83,6 +83,22 @@ fn parse_items_page(v: &Value) -> Result<(Vec<Item>, Option<String>), String> {
     let next =
         (conn["pageInfo"]["hasNextPage"].as_bool() == Some(true)).then(|| conn["pageInfo"]["endCursor"].as_str().map(str::to_string)).flatten();
     Ok((items, next))
+}
+
+/// A pull request's mergeability and head commit: one small query (1 point), asked a few times
+/// while `merge` waits for GitHub to recompute it after a push.
+const MERGEABLE_QUERY: &str =
+    "query($owner:String!,$repo:String!,$pr:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$pr){mergeable headRefOid}}}";
+
+/// A [`MERGEABLE_QUERY`] reply: `Unknown` while GitHub still shows a head other than `head`.
+fn parse_mergeable(v: &Value, head: &str) -> Result<MergeState, String> {
+    let pr = &v["data"]["repository"]["pullRequest"];
+    let state = pr["mergeable"].as_str().ok_or_else(|| format!("unexpected pull request reply: {}", short(v)))?;
+    let oid = pr["headRefOid"].as_str().unwrap_or("");
+    if head.is_empty() || !oid.eq_ignore_ascii_case(head) {
+        return Ok(MergeState::Unknown);
+    }
+    Ok(MergeState::from_graphql(state))
 }
 
 /// The start of a reply, for error messages.
@@ -289,23 +305,33 @@ impl GitHub for GhCli {
     }
 
     fn milestones(&self) -> Result<Vec<MilestoneInfo>, String> {
-        let out = gh(&["api", "--paginate", &format!("repos/{REPO}/milestones?state=all&per_page=100"), "--jq", ".[] | {title, description}"], None)?;
-        out.lines()
-            .filter(|l| !l.trim().is_empty())
-            .map(|l| {
-                let v = json(l)?;
-                Ok(MilestoneInfo {
-                    title: v["title"].as_str().unwrap_or("").to_string(),
-                    description: v["description"].as_str().unwrap_or("").to_string(),
-                })
-            })
-            .collect()
+        let out = gh(
+            &[
+                "api",
+                "--paginate",
+                &format!("repos/{REPO}/milestones?state=all&per_page=100"),
+                "--jq",
+                ".[] | {number, title, description, state, open_issues, closed_issues}",
+            ],
+            None,
+        )?;
+        out.lines().filter(|l| !l.trim().is_empty()).map(|l| parse_milestone(&json(l)?)).collect()
     }
 
     fn create_milestone(&self, title: &str, description: &str) -> Result<(), String> {
         let t = format!("title={title}");
         let d = format!("description={description}");
         gh(&["api", &format!("repos/{REPO}/milestones"), "-f", &t, "-f", &d], None).map(|_| ())
+    }
+
+    fn edit_milestone(&self, number: u64, title: &str, description: &str) -> Result<(), String> {
+        let t = format!("title={title}");
+        let d = format!("description={description}");
+        gh(&["api", "-X", "PATCH", &format!("repos/{REPO}/milestones/{number}"), "-f", &t, "-f", &d], None).map(|_| ())
+    }
+
+    fn close_milestone(&self, number: u64) -> Result<(), String> {
+        gh(&["api", "-X", "PATCH", &format!("repos/{REPO}/milestones/{number}"), "-f", "state=closed"], None).map(|_| ())
     }
 
     fn labels(&self) -> Result<Vec<String>, String> {
@@ -358,9 +384,29 @@ impl GitHub for GhCli {
             .map(|r| format!("{} {}", r["displayTitle"].as_str().unwrap_or("?"), r["url"].as_str().unwrap_or(""))))
     }
 
+    fn pr_mergeable(&self, pr: u64, head: &str) -> Result<MergeState, String> {
+        let (owner, name) = REPO.split_once('/').ok_or_else(|| format!("REPO `{REPO}` is not owner/name"))?;
+        let q = format!("query={MERGEABLE_QUERY}");
+        let o = format!("owner={owner}");
+        let r = format!("repo={name}");
+        let p = format!("pr={pr}");
+        parse_mergeable(&json(&gh(&["api", "graphql", "-f", &q, "-f", &o, "-f", &r, "-F", &p], None)?)?, head)
+    }
+
     fn squash_merge(&self, pr: u64, subject: &str) -> Result<(), String> {
         gh(&["pr", "merge", &pr.to_string(), "--repo", REPO, "--squash", "--subject", subject, "--delete-branch"], None).map(|_| ())
     }
+}
+
+/// One line of the milestones listing.
+fn parse_milestone(v: &Value) -> Result<MilestoneInfo, String> {
+    Ok(MilestoneInfo {
+        number: v["number"].as_u64().ok_or_else(|| format!("unexpected milestone reply: {}", short(v)))?,
+        title: v["title"].as_str().unwrap_or("").to_string(),
+        description: v["description"].as_str().unwrap_or("").to_string(),
+        open: v["state"].as_str() != Some("closed"),
+        issues: v["open_issues"].as_u64().unwrap_or(0).saturating_add(v["closed_issues"].as_u64().unwrap_or(0)),
+    })
 }
 
 #[cfg(test)]
@@ -393,6 +439,33 @@ mod tests {
         assert_eq!(parse_items_page(&last).unwrap(), (Vec::new(), None));
         let err = json(r#"{"errors":[{"message":"API rate limit already exceeded"}]}"#).unwrap();
         assert!(parse_items_page(&err).unwrap_err().contains("rate limit"));
+    }
+
+    #[test]
+    fn mergeability_counts_only_for_the_pushed_head() {
+        let reply = |state: &str, oid: &str| {
+            json(&format!(r#"{{"data":{{"repository":{{"pullRequest":{{"mergeable":"{state}","headRefOid":"{oid}"}}}}}}}}"#)).unwrap()
+        };
+        assert_eq!(parse_mergeable(&reply("MERGEABLE", "abc123"), "abc123").unwrap(), MergeState::Mergeable);
+        assert_eq!(parse_mergeable(&reply("CONFLICTING", "abc123"), "abc123").unwrap(), MergeState::Conflicting);
+        assert_eq!(parse_mergeable(&reply("UNKNOWN", "abc123"), "abc123").unwrap(), MergeState::Unknown);
+        // GitHub has not seen the push yet: its answer is about the old head.
+        assert_eq!(parse_mergeable(&reply("MERGEABLE", "0ld"), "abc123").unwrap(), MergeState::Unknown);
+        let err = json(r#"{"errors":[{"message":"Could not resolve to a PullRequest"}]}"#).unwrap();
+        assert!(parse_mergeable(&err, "abc123").unwrap_err().contains("Could not resolve"));
+        assert!(!MERGEABLE_QUERY.contains('\n'));
+    }
+
+    #[test]
+    fn a_milestone_line_reads_its_number_state_and_issue_count() {
+        let m = parse_milestone(
+            &json(r#"{"number":5,"title":"M4 Library browsing","description":"d","state":"open","open_issues":21,"closed_issues":2}"#).unwrap(),
+        )
+        .unwrap();
+        assert_eq!((m.number, m.title.as_str(), m.open, m.issues), (5, "M4 Library browsing", true, 23));
+        let closed = parse_milestone(&json(r#"{"number":17,"title":"M16 Export","description":null,"state":"closed"}"#).unwrap()).unwrap();
+        assert_eq!((closed.open, closed.issues, closed.description.as_str()), (false, 0, ""));
+        assert!(parse_milestone(&json(r#"{"title":"x"}"#).unwrap()).is_err());
     }
 
     #[test]

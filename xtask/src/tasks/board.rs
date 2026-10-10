@@ -8,14 +8,21 @@ use super::body;
 use super::config::{LABEL_BASELINE, LABEL_BLOCKED, LABEL_GATE, LABEL_STALE, LABEL_TASK, LABELS, LEAD, MAINTAINER, STALE_SECS, is_fingerprint};
 use super::devlog;
 use super::git::{Clock, Git};
-use super::github::{ALREADY_IN_PROJECT, GitHub, Issue, IssueEdit, Item, NewIssue, Status, TextField};
+use super::github::{ALREADY_IN_PROJECT, GitHub, Issue, IssueEdit, Item, MergeState, MilestoneInfo, NOT_MERGEABLE, NewIssue, Status, TextField};
 use super::glob::lists_overlap;
 use super::prune;
-use super::roadmap::{Owner, Roadmap, Task};
+use super::roadmap::{self, Owner, Roadmap, Task};
 
 /// Reads of the project's item list while waiting for an auto-added item, and the pause between them.
 const ITEM_WAIT_TRIES: usize = 6;
 const ITEM_WAIT_SECS: u64 = 2;
+
+/// Pauses between reads of a pull request's mergeability after `merge` pushed it (120 s in all,
+/// 9 reads). GitHub recomputes it after a push; a squash before that fails with "not mergeable".
+const MERGEABLE_WAITS: [u64; 8] = [2, 3, 5, 10, 15, 25, 30, 30];
+/// Squash attempts while GitHub still answers [`NOT_MERGEABLE`], and the pause between them.
+const SQUASH_TRIES: usize = 3;
+const SQUASH_RETRY_SECS: u64 = 20;
 
 pub struct Board<'a> {
     pub roadmap: &'a Roadmap,
@@ -59,6 +66,23 @@ impl Snapshot {
 #[derive(Debug, Default)]
 pub struct SyncReport {
     pub changes: Vec<String>,
+}
+
+/// What `setup` changed, and what it saw but left alone.
+#[derive(Debug, Default)]
+pub struct SetupReport {
+    pub changes: Vec<String>,
+    pub notes: Vec<String>,
+}
+
+/// The roadmap milestone number a GitHub milestone title starts with: `M4 Library browsing` → 4.
+fn milestone_number(title: &str) -> Option<u32> {
+    let rest = title.strip_prefix('M')?;
+    let digits = rest.split(' ').next()?;
+    if digits.is_empty() || !digits.chars().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    digits.parse().ok()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -145,6 +169,7 @@ impl Board<'_> {
         if !problems.is_empty() {
             return Err(format!("sync: roadmap.md, the issues and main disagree:\n  {}", problems.join("\n  ")));
         }
+        self.check_milestones(&snap)?;
         let mut report = SyncReport::default();
         let mut numbers = snap.issue_numbers(self.roadmap);
         let mut ordered_items: Vec<String> = Vec::new();
@@ -248,6 +273,41 @@ impl Board<'_> {
             }
         }
         Ok(report)
+    }
+
+    /// The milestones `sync` would put issues in must exist on GitHub, checked before any write
+    /// (GitHub is asked only when an issue is to be created or moved).
+    fn check_milestones(&self, snap: &Snapshot) -> Result<(), String> {
+        let wanted: BTreeSet<String> = self
+            .roadmap
+            .tasks
+            .iter()
+            .filter_map(|t| {
+                let title = self.roadmap.milestone(t.milestone)?.title();
+                let placed = snap.issue(t).is_some_and(|i| i.milestone.as_deref() == Some(title.as_str()));
+                (!placed).then_some(title)
+            })
+            .collect();
+        if wanted.is_empty() {
+            return Ok(());
+        }
+        let existing = self.gh.milestones()?;
+        let missing: Vec<String> = wanted.into_iter().filter(|w| !existing.iter().any(|m| &m.title == w)).map(|m| format!("`{m}`")).collect();
+        if missing.is_empty() {
+            return Ok(());
+        }
+        Err(format!(
+            "sync: GitHub has no milestone {}; run `cargo xtask tasks setup` (it creates and renames milestones to match roadmap.md), then sync again",
+            missing.join(", ")
+        ))
+    }
+
+    /// The `sync` that follows a merge, against `docs/roadmap.md` as merged on `origin/main`: the
+    /// main checkout may not be pulled yet (its copy lacks the task's ✅), and it is never touched.
+    pub fn sync_merged(&self) -> Result<SyncReport, String> {
+        let text = self.git.merged_roadmap()?;
+        let merged = roadmap::parse(&text).map_err(|e| format!("docs/roadmap.md on origin/main: {e}"))?;
+        Board { roadmap: &merged, gh: self.gh, git: self.git, clock: self.clock }.sync()
     }
 
     /// Why `task` may not be claimed now (by `agent`, when known), or `None` if it may.
@@ -423,9 +483,54 @@ impl Board<'_> {
         }
         self.git.run_ci(&dir)?;
         self.git.push(&dir, &branch)?;
+        let head = self.git.head(&dir)?;
+        self.wait_mergeable(id, pr.number, &head)?;
         let subject = format!("{}: {} (#{})", task.id, task.plain_title(), pr.number);
-        self.gh.squash_merge(pr.number, &subject)?;
+        self.squash(id, pr.number, &subject)?;
         Ok(subject)
+    }
+
+    /// Waits (bounded by [`MERGEABLE_WAITS`]) until GitHub says the pushed `head` of `pr` is mergeable.
+    fn wait_mergeable(&self, id: &str, pr: u64, head: &str) -> Result<(), String> {
+        let mut waited = 0u64;
+        // The first read right away, then one after each pause.
+        for pause in std::iter::once(0).chain(MERGEABLE_WAITS) {
+            if pause > 0 {
+                self.clock.pause(pause);
+                waited = waited.saturating_add(pause);
+            }
+            match self.gh.pr_mergeable(pr, head)? {
+                MergeState::Mergeable => return Ok(()),
+                MergeState::Conflicting => {
+                    return Err(format!(
+                        "GitHub says PR #{pr} conflicts with main (main moved after the rebase?); nothing was merged: run `cargo xtask tasks merge {id}` again"
+                    ));
+                }
+                MergeState::Unknown => {}
+            }
+        }
+        Err(format!(
+            "GitHub had not worked out whether PR #{pr} is mergeable after {waited} s; the branch is pushed, nothing was merged: run `cargo xtask tasks merge {id}` again"
+        ))
+    }
+
+    /// Squash-merges `pr`, trying again (bounded) while GitHub still answers "not mergeable".
+    fn squash(&self, id: &str, pr: u64, subject: &str) -> Result<(), String> {
+        let not_mergeable = NOT_MERGEABLE.to_ascii_lowercase();
+        let mut last = String::new();
+        for attempt in 0..SQUASH_TRIES {
+            if attempt > 0 {
+                self.clock.pause(SQUASH_RETRY_SECS);
+            }
+            match self.gh.squash_merge(pr, subject) {
+                Ok(()) => return Ok(()),
+                Err(e) if e.to_ascii_lowercase().contains(&not_mergeable) => last = e,
+                Err(e) => return Err(e),
+            }
+        }
+        Err(format!(
+            "GitHub still refused to merge PR #{pr} after {SQUASH_TRIES} tries ({last}); the branch is pushed, nothing was merged: run `cargo xtask tasks merge {id}` again"
+        ))
     }
 
     /// `tasks status`: the board as text; marks idle claims `stale` (and unmarks active ones).
@@ -497,23 +602,16 @@ impl Board<'_> {
     }
 
     /// `tasks setup`: labels, milestones and project fields (idempotent).
-    pub fn setup(&self) -> Result<Vec<String>, String> {
-        let mut changes = Vec::new();
+    pub fn setup(&self) -> Result<SetupReport, String> {
+        let mut report = SetupReport::default();
         let labels = self.gh.labels()?;
         for (name, color, description) in LABELS {
             if !labels.iter().any(|l| l == name) {
                 self.gh.create_label(name, color, description)?;
-                changes.push(format!("created label {name}"));
+                report.changes.push(format!("created label {name}"));
             }
         }
-        let milestones = self.gh.milestones()?;
-        for m in &self.roadmap.milestones {
-            let prefix = format!("M{} ", m.number);
-            if !milestones.iter().any(|x| x.title.starts_with(&prefix)) {
-                self.gh.create_milestone(&m.title(), &m.goal)?;
-                changes.push(format!("created milestone {}", m.title()));
-            }
-        }
+        self.setup_milestones(&mut report)?;
         let fields = self.gh.project_fields()?;
         let missing: Vec<&str> = Status::ALL.iter().map(|s| s.name()).filter(|s| !fields.status_options.iter().any(|o| o == s)).collect();
         if !missing.is_empty() {
@@ -524,10 +622,71 @@ impl Board<'_> {
         for field in [TextField::Agent, TextField::Branch] {
             if !fields.text_fields.iter().any(|f| f == field.name()) {
                 self.gh.create_text_field(field.name())?;
-                changes.push(format!("created project field {}", field.name()));
+                report.changes.push(format!("created project field {}", field.name()));
             }
         }
-        Ok(changes)
+        Ok(report)
+    }
+
+    /// One GitHub milestone per roadmap milestone, titled and described as `roadmap.md` says. A
+    /// GitHub milestone is matched by its exact title, else by its `M<n>` number (and renamed: the
+    /// roadmap renamed its milestones once); one with no roadmap counterpart is closed when it has
+    /// no issues, else reported. Nothing is deleted.
+    fn setup_milestones(&self, report: &mut SetupReport) -> Result<(), String> {
+        let github = self.gh.milestones()?;
+        let mut used: BTreeSet<u64> = BTreeSet::new();
+        let mut matched: Vec<(&roadmap::Milestone, Option<&MilestoneInfo>)> = Vec::new();
+        for m in &self.roadmap.milestones {
+            let exact = github.iter().find(|x| x.title == m.title());
+            if let Some(x) = exact {
+                used.insert(x.number);
+            }
+            matched.push((m, exact));
+        }
+        for (m, found) in &mut matched {
+            if found.is_none() {
+                *found = github.iter().filter(|x| !used.contains(&x.number) && milestone_number(&x.title) == Some(m.number)).min_by_key(|x| x.number);
+                if let Some(x) = found {
+                    used.insert(x.number);
+                }
+            }
+        }
+        for (m, found) in matched {
+            let title = m.title();
+            match found {
+                None => {
+                    self.gh.create_milestone(&title, &m.goal)?;
+                    report.changes.push(format!("created milestone {title}"));
+                }
+                Some(x) if x.title != title => {
+                    self.gh.edit_milestone(x.number, &title, &m.goal)?;
+                    report.changes.push(format!("renamed milestone `{}` to `{title}`", x.title));
+                }
+                Some(x) if x.description != m.goal => {
+                    self.gh.edit_milestone(x.number, &title, &m.goal)?;
+                    report.changes.push(format!("updated the description of milestone {title}"));
+                }
+                Some(_) => {}
+            }
+        }
+        let mut retired = 0usize;
+        for x in github.iter().filter(|x| !used.contains(&x.number)) {
+            if x.issues > 0 {
+                report.notes.push(format!(
+                    "milestone `{}` is not in roadmap.md but holds {} issue(s); left as it is (once they move, setup closes it)",
+                    x.title, x.issues
+                ));
+            } else if x.open {
+                self.gh.close_milestone(x.number)?;
+                report.changes.push(format!("closed milestone `{}` (not in roadmap.md, no issues)", x.title));
+            } else {
+                retired += 1;
+            }
+        }
+        if retired > 0 {
+            report.notes.push(format!("{retired} closed milestone(s) with no issues are not in roadmap.md; left as they are"));
+        }
+        Ok(())
     }
 }
 

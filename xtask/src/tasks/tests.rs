@@ -5,7 +5,7 @@ use std::sync::{Arc, Barrier, Mutex};
 
 use super::board::{Board, ci_marker};
 use super::fake::{FakeClock, FakeGit, FakeGitHub};
-use super::github::{GitHub, Status};
+use super::github::{GitHub, MergeState, MilestoneInfo, Status};
 use super::lock::Lock;
 use super::roadmap::{self, Roadmap};
 
@@ -62,14 +62,16 @@ impl World {
     fn new(text: &str) -> World {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join(".git")).unwrap();
-        World {
-            text: text.to_string(),
-            roadmap: roadmap::parse(text).unwrap(),
-            gh: FakeGitHub::with_setup(),
-            git: FakeGit::new(dir.path()),
-            clock: FakeClock { now: Mutex::new(1_000_000) },
-            _dir: dir,
-        }
+        let roadmap = roadmap::parse(text).unwrap();
+        let gh = FakeGitHub::with_setup();
+        // `setup` has run: every roadmap milestone is on GitHub (sync needs them).
+        gh.lock().milestones = roadmap
+            .milestones
+            .iter()
+            .zip(1..)
+            .map(|(m, number)| MilestoneInfo { number, title: m.title(), description: m.goal.clone(), open: true, issues: 0 })
+            .collect();
+        World { text: text.to_string(), roadmap, gh, git: FakeGit::new(dir.path()), clock: FakeClock { now: Mutex::new(1_000_000) }, _dir: dir }
     }
 
     fn board(&self) -> Board<'_> {
@@ -472,12 +474,14 @@ fn stale_claims_are_marked_on_a_virtual_clock() {
 fn setup_is_idempotent() {
     let w = World::new(ROADMAP);
     w.gh.lock().fields.text_fields.clear();
-    let changes = w.board().setup().unwrap();
+    w.gh.lock().milestones.clear();
+    let changes = w.board().setup().unwrap().changes;
     assert_eq!(changes.len(), 5 + 2 + 2, "{changes:?}");
     assert!(changes.contains(&"created label baseline-approved".to_string()), "{changes:?}");
     assert!(w.gh.lock().milestones.iter().any(|m| m.title == "M1 Star" && m.description == "star a photo"));
     let before = w.gh.mutations();
-    assert!(w.board().setup().unwrap().is_empty());
+    let again = w.board().setup().unwrap();
+    assert!(again.changes.is_empty() && again.notes.is_empty(), "{again:?}");
     assert_eq!(w.gh.mutations(), before);
     w.gh.lock().fields.status_options.retain(|o| o != "Blocked");
     assert!(w.board().setup().unwrap_err().contains("Blocked"));
@@ -720,4 +724,198 @@ fn prune_skips_agents_the_board_says_are_working() {
     assert!(target.join("agent-2").join("debug").join("incremental").is_dir());
     assert!(!target.join("agent-3").join("debug").join("incremental").exists());
     assert_eq!(w.gh.mutations(), before, "prune only reads the board");
+}
+
+/// Submits M0.1 for real and clears the git call log, ready for `merge`.
+fn in_review() -> World {
+    let w = World::new(ROADMAP);
+    w.board().sync().unwrap();
+    let dir = w.ready_to_submit("M0.1", "agent-2", LOG);
+    w.board().submit("M0.1", &dir, None).unwrap();
+    w.git.calls.lock().unwrap().clear();
+    w
+}
+
+const NOT_MERGEABLE_REPLY: &str = "gh pr failed: GraphQL: Pull Request is not mergeable (mergePullRequest)";
+
+#[test]
+fn merge_waits_until_github_finds_the_pushed_pr_mergeable() {
+    // Live failure (M2.6, M2.9, M2.3, M2.8 on 2026-10-10): merge squashed straight after its push,
+    // before GitHub had recomputed mergeability, and GitHub refused; a retry later always worked.
+    let w = in_review();
+    w.gh.lock().mergeable = vec![MergeState::Unknown, MergeState::Unknown, MergeState::Mergeable];
+    let start = *w.clock.now.lock().unwrap();
+    assert_eq!(w.board().merge("M0.1").unwrap(), "M0.1: Skeleton (#100)");
+    assert_eq!(w.gh.lock().mergeable_reads, 3);
+    assert_eq!(*w.clock.now.lock().unwrap() - start, 2 + 3, "read at once, then after each pause");
+    assert_eq!(*w.git.calls.lock().unwrap(), ["rebase task/M0.1-skeleton", "ci", "push task/M0.1-skeleton"]);
+    assert_eq!(w.gh.lock().merged_prs.len(), 1);
+}
+
+#[test]
+fn merge_refuses_a_conflicting_pr_without_squashing() {
+    let w = in_review();
+    w.gh.lock().mergeable = vec![MergeState::Unknown, MergeState::Conflicting, MergeState::Mergeable];
+    let before = w.gh.mutations();
+    let err = w.board().merge("M0.1").unwrap_err();
+    assert!(err.contains("PR #100 conflicts with main") && err.contains("nothing was merged"), "{err}");
+    assert_eq!(w.gh.lock().mergeable_reads, 2, "a conflict is final, not polled");
+    assert!(w.gh.lock().merged_prs.is_empty());
+    assert_eq!(w.gh.mutations(), before);
+}
+
+#[test]
+fn merge_gives_up_when_github_never_decides() {
+    let w = in_review();
+    w.gh.lock().mergeable = vec![MergeState::Unknown; 50];
+    let start = *w.clock.now.lock().unwrap();
+    let err = w.board().merge("M0.1").unwrap_err();
+    assert!(err.contains("PR #100 is mergeable after 120 s") && err.contains("tasks merge M0.1` again"), "{err}");
+    assert_eq!(w.gh.lock().mergeable_reads, 9, "bounded");
+    assert_eq!(*w.clock.now.lock().unwrap() - start, 120);
+    assert!(w.gh.lock().merged_prs.is_empty());
+}
+
+#[test]
+fn merge_retries_the_squash_while_github_says_not_mergeable() {
+    let w = in_review();
+    w.gh.lock().squash_errors = vec![NOT_MERGEABLE_REPLY.into(), NOT_MERGEABLE_REPLY.into()];
+    let start = *w.clock.now.lock().unwrap();
+    assert_eq!(w.board().merge("M0.1").unwrap(), "M0.1: Skeleton (#100)");
+    assert_eq!(w.gh.lock().merged_prs.len(), 1);
+    assert_eq!(*w.clock.now.lock().unwrap() - start, 2 * 20);
+
+    // Bounded: GitHub refusing every time is an error after three tries, and nothing is merged.
+    let w = in_review();
+    w.gh.lock().squash_errors = vec![NOT_MERGEABLE_REPLY.into(); 10];
+    let err = w.board().merge("M0.1").unwrap_err();
+    assert!(err.contains("refused to merge PR #100 after 3 tries") && err.contains("not mergeable"), "{err}");
+    assert_eq!(w.gh.lock().squash_errors.len(), 7);
+    assert!(w.gh.lock().merged_prs.is_empty());
+
+    // Any other error is not retried.
+    let w = in_review();
+    w.gh.lock().squash_errors = vec!["gh pr failed: HTTP 401".into(), NOT_MERGEABLE_REPLY.into()];
+    assert_eq!(w.board().merge("M0.1").unwrap_err(), "gh pr failed: HTTP 401");
+    assert_eq!(w.gh.lock().squash_errors.len(), 1);
+}
+
+#[test]
+fn the_sync_after_a_merge_reads_the_roadmap_as_merged() {
+    // Live failure (every M2 merge, 2026-10-10): the post-merge sync read the main checkout's
+    // roadmap.md, not pulled since the squash, and refused: "issue #N is closed but the task is not ✅".
+    let mut w = in_review();
+    // origin/main after the squash: the branch ticked M0.1 ✅, and its `M0.1:` commit is there.
+    let ticked = w.text.replace("- ⬜ **M0.1 ", "- ✅ **M0.1 ");
+    *w.git.origin_roadmap.lock().unwrap() = Some(ticked.clone());
+    w.board().merge("M0.1").unwrap();
+    w.git.merged.lock().unwrap().insert("M0.1".into());
+    assert!(!w.gh.lock().issues[0].open, "GitHub closed the issue (`Closes #1`)");
+
+    // The local roadmap still says ⬜: a plain sync refuses, as it did live.
+    let err = w.board().sync().unwrap_err();
+    assert!(err.contains("issue #1 (M0.1) is closed but the task is not ✅"), "{err}");
+    // The post-merge sync fetches and reads origin/main's roadmap.md instead.
+    w.git.calls.lock().unwrap().clear();
+    let report = w.board().sync_merged().unwrap();
+    assert_eq!(*w.git.calls.lock().unwrap(), ["fetch"]);
+    assert!(report.changes.iter().any(|c| c.contains("M0.1: In Review -> Done")), "{:?}", report.changes);
+    assert_eq!(w.status_of("M0.1"), Some(Status::Done));
+    assert_eq!(w.status_of("M0.2"), Some(Status::Ready));
+    // Once the checkout is pulled, a plain sync agrees and has nothing left to do.
+    w.text = ticked;
+    w.roadmap = roadmap::parse(&w.text).unwrap();
+    assert!(w.board().sync().unwrap().changes.is_empty());
+}
+
+/// The board's milestones after the roadmap renamed and dropped some (2026-10-10).
+fn renamed_milestones(w: &World) {
+    let m = |number, title: &str, description: &str, open, issues| MilestoneInfo {
+        number,
+        title: title.into(),
+        description: description.into(),
+        open,
+        issues,
+    };
+    let mut s = w.gh.lock();
+    s.labels = super::config::LABELS.iter().map(|(n, _, _)| n.to_string()).collect();
+    s.milestones = vec![
+        m(1, "M0 Skeleton", "an empty workspace", true, 3),
+        m(2, "M1 Folder tree", "the old M1 goal", true, 0),
+        m(3, "M2 Old middle", "x", true, 0),
+        m(4, "M3 Busy", "y", true, 2),
+        m(5, "M4 Retired", "", false, 0),
+    ];
+}
+
+#[test]
+fn setup_renames_milestones_and_closes_empty_ones_the_roadmap_dropped() {
+    // Live failure (2026-10-10): setup matched milestones by number only, said "nothing to change"
+    // after the roadmap renamed them, and sync then failed to create issues in `M4 Library browsing`.
+    let w = World::new(ROADMAP);
+    renamed_milestones(&w);
+    let report = w.board().setup().unwrap();
+    assert_eq!(
+        report.changes,
+        ["renamed milestone `M1 Folder tree` to `M1 Star`", "closed milestone `M2 Old middle` (not in roadmap.md, no issues)"]
+    );
+    assert_eq!(
+        report.notes,
+        [
+            "milestone `M3 Busy` is not in roadmap.md but holds 2 issue(s); left as it is (once they move, setup closes it)",
+            "1 closed milestone(s) with no issues are not in roadmap.md; left as they are",
+        ]
+    );
+    {
+        let s = w.gh.lock();
+        let titles: Vec<(&str, &str, bool)> = s.milestones.iter().map(|m| (m.title.as_str(), m.description.as_str(), m.open)).collect();
+        assert_eq!(
+            titles,
+            [
+                ("M0 Skeleton", "an empty workspace", true),
+                ("M1 Star", "star a photo", true),
+                ("M2 Old middle", "x", false),
+                ("M3 Busy", "y", true),
+                ("M4 Retired", "", false),
+            ]
+        );
+    }
+    let before = w.gh.mutations();
+    assert!(w.board().setup().unwrap().changes.is_empty());
+    assert_eq!(w.gh.mutations(), before);
+
+    // A changed goal updates the description of a milestone whose title already matches.
+    w.gh.lock().milestones[0].description = "an older goal".into();
+    assert_eq!(w.board().setup().unwrap().changes, ["updated the description of milestone M0 Skeleton"]);
+    assert_eq!(w.gh.lock().milestones[0].description, "an empty workspace");
+}
+
+#[test]
+fn setup_dry_run_lists_the_milestone_writes_and_makes_none() {
+    use super::dryrun::{DryGit, DryRun, Recorder};
+    let w = World::new(ROADMAP);
+    renamed_milestones(&w);
+    let before = w.gh.mutations();
+    let rec = Recorder::default();
+    let (gh, git) = (DryRun::new(&w.gh, &rec), DryGit::new(&w.git, &rec));
+    let dry = Board { roadmap: &w.roadmap, gh: &gh, git: &git, clock: &w.clock };
+    dry.setup().unwrap();
+    assert_eq!(rec.writes(), ["edit milestone 2: title `M1 Star`, description `star a photo`", "close milestone 3"]);
+    assert_eq!(w.gh.mutations(), before);
+    assert_eq!(w.gh.lock().milestones[1].title, "M1 Folder tree");
+    assert!(w.gh.lock().milestones[2].open);
+}
+
+#[test]
+fn sync_names_setup_when_a_milestone_is_missing() {
+    let w = World::new(ROADMAP);
+    w.gh.lock().milestones.retain(|m| m.title != "M1 Star");
+    let err = w.board().sync().unwrap_err();
+    assert!(err.contains("GitHub has no milestone `M1 Star`") && err.contains("run `cargo xtask tasks setup`"), "{err}");
+    assert_eq!(w.gh.mutations(), 0, "refused before any write");
+    // Issues already in their milestone need no read of the milestones at all.
+    let w = World::new(ROADMAP);
+    w.board().sync().unwrap();
+    w.gh.lock().milestones.clear();
+    assert!(w.board().sync().unwrap().changes.is_empty());
 }
