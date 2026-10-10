@@ -11,6 +11,8 @@ pub mod append;
 pub mod atomic;
 pub mod faults;
 pub mod guard;
+pub mod lock;
+pub mod walk;
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -18,6 +20,8 @@ use std::path::{Path, PathBuf};
 pub use append::{Appender, append, rotate};
 pub use atomic::{Expect, Identity, Read, identity, read, replace};
 pub use guard::{UiThread, mark_ui_thread};
+pub use lock::LibraryLock;
+pub use walk::{Entry, Limits, Walk, Warning, walk};
 
 /// Everything a file operation can refuse or fail with.
 #[derive(Debug, thiserror::Error)]

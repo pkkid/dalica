@@ -58,7 +58,6 @@ fast_image_resize = "6"
 # Metadata, files, locations
 quick-xml = "0.42"
 notify = "8"
-fs4 = "1.1"
 trash = "5.2"
 tempfile = "3"
 directories = "6"

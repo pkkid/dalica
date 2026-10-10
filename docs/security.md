@@ -426,7 +426,8 @@ embedded, never loaded by a referenced name. **Planned (M1, M33).**
 ### 5.6 Symlinks, junctions and hard links
 
 - Directory walks follow directory symlinks and junctions with (device, inode) loop detection
-  inside the depth and entry bounds of `data-model.md` §7. **Planned (M1).**
+  inside the depth and entry bounds of `data-model.md` §7. **Built (M1.3: `dalica-fs` `walk`;
+  folder links are followed after the real tree, so a real folder always wins over a link to it).**
 - **Writes never go through a link.** Sidecars, photos on Save or metadata write-back, the
   `.dalica-originals` directory and its contents are opened without following a final symlink
   (`O_NOFOLLOW`-style). If the target is a link, or a folder reached through a link resolves

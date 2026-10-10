@@ -292,7 +292,7 @@ built. Built by a single agent; the waves show what could run in parallel later.
     fault point in turn and asserts the target holds exactly the old or the new bytes; a file
     changed between read and write is refused; any call on a thread marked as UI returns
     `Err(OnUiThread)`; `append` past its cap returns an error and leaves the file at or under the cap.
-- ⬜ **M1.3 `fs`: lock and walks**
+- ✅ **M1.3 `fs`: lock and walks**
   - after: M1.2
   - files: `crates/fs/src/lock.rs`, `crates/fs/src/walk.rs`, `crates/fs/tests/**`
   - scope: library lock file (`fs4`); bounded directory walk (depth 32, 1 000 000 entries,

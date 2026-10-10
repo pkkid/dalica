@@ -30,7 +30,7 @@ latest). They are pinned in `[workspace.dependencies]`; bumping one is its own c
 | Resampling | `fast_image_resize` 6 | fast, SIMD, pure Rust; thumbnails dominate CPU time |
 | Metadata | our own `meta` crate (segment surgery, `xmp-interop.md`) + `quick-xml` 0.42 for XMP parsing | no crate preserves foreign metadata byte for byte; we must own that guarantee |
 | File watching | `notify` 8 + periodic verification scans | pure Rust; events are hints, verification is the truth |
-| File safety | `fs4` 1.1 (lock file), `trash` 5.2 (OS trash), `tempfile` 3 (tests) | single-process lock; deletes go to the trash |
+| File safety | `std::fs::File::try_lock` (lock file; stable since Rust 1.89, so no `fs4`), `trash` 5.2 (OS trash), `tempfile` 3 (tests) | single-process lock; deletes go to the trash |
 | Locations | `directories` 6 | per-OS data, config and cache paths |
 | Parallelism | `rayon` 1.12 for pixel tiles; our own prioritised job pool for previews; `crossbeam-channel` 0.5 | pixel work scales; previews need priorities and cancellation rayon doesn't give |
 | Serialization | `serde` 1, `serde_json` 1 (sidecars: pretty, sorted keys, LF) | human-readable, diffable, merge-friendly |
