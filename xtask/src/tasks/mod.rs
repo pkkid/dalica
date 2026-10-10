@@ -12,6 +12,7 @@ mod git;
 mod github;
 mod glob;
 mod lock;
+mod prune;
 pub mod roadmap;
 #[cfg(test)]
 mod tests;
@@ -20,6 +21,7 @@ use std::path::{Path, PathBuf};
 
 use board::Board;
 use git::{Clock, Git, RealGit, SystemClock};
+use github::GitHub;
 use lock::Lock;
 
 const USAGE: &str = "usage: cargo xtask tasks <command>
@@ -30,17 +32,26 @@ const USAGE: &str = "usage: cargo xtask tasks <command>
   next [--agent NAME]            tasks you may claim, in roadmap order (claim the first)
   claim ID --agent NAME          claim a Ready task; prints the worktree to work in
   env NAME                       the agent's environment: eval \"$(cargo xtask tasks env agent-3)\"
-  submit ID [--body-file FILE]   push, open the pull request, set In Review (needs a green ci and a dev-log entry)
+  submit ID [--body-file FILE] [--dry-run]
+                                 push, open the pull request, set In Review (needs a green ci and a dev-log entry);
+                                 without --body-file the evidence is the task's newest dev-log entry
   release ID --reason TEXT       give a claimed task back (the branch is kept)
   block ID \"QUESTION\"            ask the maintainer; the task becomes Blocked
-  merge ID                       lead only: rebase, ci, push, wait for GitHub CI, squash-merge, sync
+  merge ID [--dry-run]           lead only: refuse while main is red on GitHub CI, rebase, refuse new or changed
+                                 fingerprints without the `baseline-approved` label, ci, push, squash-merge, sync
   status                         the whole board; marks idle claims stale
   log ID \"TEXT\" [--agent NAME]   append to the private dev log (log/devlog.md in the main checkout)
+  prune [--dry-run]              lead only: remove incremental/ from the target dirs of agents with no In Progress task
+
+--dry-run reads GitHub and git, prints the writes it would make (and what prune would remove), makes none.
 
 NAME defaults to $DALICA_AGENT.";
 
 /// Every `cargo xtask tasks` subcommand (`cargo xtask docs` checks the docs against it).
-pub const SUBCOMMANDS: &[&str] = &["setup", "sync", "next", "claim", "env", "submit", "release", "block", "merge", "status", "log"];
+pub const SUBCOMMANDS: &[&str] = &["setup", "sync", "next", "claim", "env", "submit", "release", "block", "merge", "status", "log", "prune"];
+
+/// The commands `--dry-run` works with.
+const DRY_RUNNABLE: &[&str] = &["setup", "sync", "submit", "merge", "prune"];
 
 /// Positional arguments and `--flag value` pairs.
 struct Args {
@@ -132,17 +143,22 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), String> {
         println!("tasks: roadmap.md parses: {} milestones, {} task blocks", roadmap.milestones.len(), roadmap.tasks.len());
         return Ok(());
     }
-    let git = RealGit { cwd: std::env::current_dir().unwrap_or_else(|_| root.to_path_buf()) };
+    let real_git = RealGit { cwd: std::env::current_dir().unwrap_or_else(|_| root.to_path_buf()) };
     let real = gh::GhCli::default();
-    let dry = dryrun::DryRun::new(&real);
+    let recorder = dryrun::Recorder::default();
+    let dry = dryrun::DryRun::new(&real, &recorder);
+    let dry_git = dryrun::DryGit::new(&real_git, &recorder);
     let dry_run = a.has("dry-run");
-    if dry_run && !matches!(cmd.as_str(), "setup" | "sync") {
-        return Err("--dry-run works with setup and sync".into());
+    if dry_run && !DRY_RUNNABLE.contains(&cmd.as_str()) {
+        return Err(format!("--dry-run works with {}", DRY_RUNNABLE.join(", ")));
     }
-    let gh: &dyn github::GitHub = if dry_run { &dry } else { &real };
+    let gh: &dyn GitHub = if dry_run { &dry } else { &real };
+    let git: &dyn Git = if dry_run { &dry_git } else { &real_git };
     let clock = SystemClock;
-    let board = Board { roadmap: &roadmap, gh, git: &git, clock: &clock };
-    let claim_lock = || Lock::acquire(&git.common_dir().join("dalica-tasks.lock"));
+    let board = Board { roadmap: &roadmap, gh, git, clock: &clock };
+    // A dry run writes nothing, so it takes no lock (and never waits for the lead's merge).
+    let lock = |name: &str| if dry_run { Ok(None) } else { Lock::acquire(&git.common_dir().join(name)).map(Some) };
+    let claim_lock = || lock("dalica-tasks.lock");
     match cmd.as_str() {
         "setup" => {
             let changes = board.setup()?;
@@ -212,9 +228,9 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), String> {
             if a.agent()? != config::LEAD {
                 return Err(format!("only the lead ({}) merges", config::LEAD));
             }
-            let _merge = Lock::acquire(&git.common_dir().join("dalica-merge.lock"))?;
+            let _merge = lock("dalica-merge.lock")?;
             let subject = board.merge(id)?;
-            println!("merged: {subject}");
+            println!("{}: {subject}", if dry_run { "would merge" } else { "merged" });
             let _lock = claim_lock()?;
             print_changes("sync", &board.sync()?.changes);
         }
@@ -230,10 +246,23 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), String> {
             devlog::append(&path, &entry)?;
             println!("appended to {}", path.display());
         }
+        "prune" => {
+            if a.agent()? != config::LEAD {
+                return Err(format!("only the lead ({}) prunes", config::LEAD));
+            }
+            let report = board.prune(&git.main_checkout().join("target"), dry_run)?;
+            for line in &report.lines {
+                println!("prune: {line}");
+            }
+            println!("prune: {} {}", if dry_run { "would free" } else { "freed" }, prune::human(report.freed));
+            if report.errors > 0 {
+                return Err(format!("prune: {} removal(s) failed", report.errors));
+            }
+        }
         other => return Err(format!("unknown tasks command `{other}`\n\n{USAGE}")),
     }
     if dry_run {
-        let writes = dry.writes();
+        let writes = recorder.writes();
         println!("dry run: {} write(s) would be made, none were:", writes.len());
         for w in writes {
             println!("  {w}");

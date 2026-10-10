@@ -120,6 +120,8 @@ pub struct ProjectFields {
 pub struct PullRequest {
     pub number: u64,
     pub url: String,
+    /// Label names on the pull request (`baseline-approved` is the maintainer's approval).
+    pub labels: Vec<String>,
 }
 
 /// GitHub's error text when [`GitHub::add_item`] names an issue already on the project (the

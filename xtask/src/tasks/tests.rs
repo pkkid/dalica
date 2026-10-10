@@ -369,7 +369,8 @@ fn setup_is_idempotent() {
     let w = World::new(ROADMAP);
     w.gh.lock().fields.text_fields.clear();
     let changes = w.board().setup().unwrap();
-    assert_eq!(changes.len(), 4 + 2 + 2, "{changes:?}");
+    assert_eq!(changes.len(), 5 + 2 + 2, "{changes:?}");
+    assert!(changes.contains(&"created label baseline-approved".to_string()), "{changes:?}");
     assert!(w.gh.lock().milestones.iter().any(|m| m.title == "M1 Star" && m.description == "star a photo"));
     let before = w.gh.mutations();
     assert!(w.board().setup().unwrap().is_empty());
@@ -445,4 +446,174 @@ fn sync_adopts_an_issue_the_project_auto_added() {
     let before = w.gh.mutations();
     assert!(w.board().sync().unwrap().changes.is_empty());
     assert_eq!(w.gh.mutations(), before);
+}
+
+impl World {
+    /// Claims `id` for `agent`, records a green `ci` on the fake HEAD and writes `log` as the dev log.
+    fn ready_to_submit(&self, id: &str, agent: &str, log: &str) -> std::path::PathBuf {
+        self.board().claim(id, agent).unwrap();
+        let marker = ci_marker(&self.git.common_dir_path(), "0123abcd");
+        std::fs::create_dir_all(marker.parent().unwrap()).unwrap();
+        std::fs::write(&marker, "").unwrap();
+        let dir = self.git.dir.clone();
+        std::fs::create_dir_all(dir.join("log")).unwrap();
+        std::fs::write(dir.join("log/devlog.md"), log).unwrap();
+        dir
+    }
+
+    fn pr_body(&self) -> String {
+        self.gh.lock().pr_texts.last().map(|(_, b)| b.clone()).unwrap_or_default()
+    }
+}
+
+const LOG: &str = "# Dev log\n\n## 2026-10-10 11:00 · agent-2 · M0.1 Skeleton\nLanded: an early try.\n\n\
+                   ## 2026-10-10 12:00 · agent-2 · M0.1 Skeleton\nLanded: the workspace.\nOpen: nothing.\nNumbers: ci 76 s.\n\n\
+                   ## 2026-10-10 12:05 · agent-3 · M0.2 Layers\nLanded: other work.\n";
+
+#[test]
+fn submit_without_a_body_file_uses_the_newest_dev_log_entry() {
+    let w = World::new(ROADMAP);
+    w.board().sync().unwrap();
+    let dir = w.ready_to_submit("M0.1", "agent-2", LOG);
+    w.board().submit("M0.1", &dir, None).unwrap();
+    let body = w.pr_body();
+    assert!(
+        body.contains(
+            "### From the dev log (2026-10-10 12:00 · agent-2 · M0.1 Skeleton)\n\nLanded: the workspace.\nOpen: nothing.\nNumbers: ci 76 s."
+        ),
+        "{body}"
+    );
+    assert!(!body.contains("an early try") && !body.contains("other work"), "{body}");
+    assert!(body.ends_with("Closes #1\n"), "{body}");
+    assert!(!body.contains("Fingerprint baselines"), "{body}");
+}
+
+#[test]
+fn submit_with_a_body_file_uses_it_and_lists_new_baselines() {
+    let w = World::new(ROADMAP);
+    w.board().sync().unwrap();
+    let dir = w.ready_to_submit("M0.1", "agent-2", LOG);
+    *w.git.changed.lock().unwrap() = vec![
+        "crates/ui/src/lib.rs".into(),
+        "crates/ui/tests/fingerprints/library-small.json".into(),
+        "tests/acceptance/fingerprints/m2-star.json".into(),
+    ];
+    w.board().submit("M0.1", &dir, Some("Evidence: the gallery test passes.\n")).unwrap();
+    let body = w.pr_body();
+    assert!(body.contains("Evidence: the gallery test passes."), "{body}");
+    assert!(!body.contains("From the dev log"), "--body-file replaces the dev-log default: {body}");
+    assert!(body.contains("## Fingerprint baselines"), "{body}");
+    assert!(body.contains("- `crates/ui/tests/fingerprints/library-small.json`\n- `tests/acceptance/fingerprints/m2-star.json`\n"), "{body}");
+    assert!(!body.contains("`crates/ui/src/lib.rs`"), "{body}");
+    assert!(body.contains("`baseline-approved`"), "{body}");
+}
+
+#[test]
+fn merge_waits_for_the_baseline_approved_label() {
+    let w = World::new(ROADMAP);
+    w.board().sync().unwrap();
+    let dir = w.ready_to_submit("M0.1", "agent-2", LOG);
+    *w.git.changed.lock().unwrap() = vec!["crates/ui-kit/tests/fingerprints/gallery.json".into()];
+    w.board().submit("M0.1", &dir, None).unwrap();
+    w.git.calls.lock().unwrap().clear();
+
+    let before = w.gh.mutations();
+    let err = w.board().merge("M0.1").unwrap_err();
+    assert!(err.contains("PR #100 adds or changes fingerprint baselines (crates/ui-kit/tests/fingerprints/gallery.json)"), "{err}");
+    assert!(err.contains("`baseline-approved` label"), "{err}");
+    // Refused before ci, the push and the squash.
+    assert_eq!(*w.git.calls.lock().unwrap(), ["rebase task/M0.1-skeleton"]);
+    assert_eq!(w.gh.mutations(), before);
+    assert!(w.gh.lock().merged_prs.is_empty());
+
+    // Another label is not an approval; the maintainer's label is.
+    w.gh.lock().prs[0].1.labels = vec!["task".into()];
+    assert!(w.board().merge("M0.1").is_err());
+    w.gh.lock().prs[0].1.labels.push("baseline-approved".into());
+    assert_eq!(w.board().merge("M0.1").unwrap(), "M0.1: Skeleton (#100)");
+    assert_eq!(w.gh.lock().merged_prs.len(), 1);
+}
+
+#[test]
+fn merge_without_fingerprints_needs_no_label() {
+    let w = World::new(ROADMAP);
+    w.board().sync().unwrap();
+    let dir = w.ready_to_submit("M0.1", "agent-2", LOG);
+    *w.git.changed.lock().unwrap() = vec!["crates/scenes/src/fingerprint.rs".into()];
+    w.board().submit("M0.1", &dir, None).unwrap();
+    w.git.calls.lock().unwrap().clear();
+    assert_eq!(w.board().merge("M0.1").unwrap(), "M0.1: Skeleton (#100)");
+    assert_eq!(*w.git.calls.lock().unwrap(), ["rebase task/M0.1-skeleton", "ci", "push task/M0.1-skeleton"]);
+}
+
+#[test]
+fn dry_runs_of_submit_and_merge_write_nothing() {
+    use super::dryrun::{DryGit, DryRun, Recorder};
+    let w = World::new(ROADMAP);
+    w.board().sync().unwrap();
+    let dir = w.ready_to_submit("M0.1", "agent-2", LOG);
+    *w.git.changed.lock().unwrap() = vec!["crates/ui/tests/fingerprints/library-small.json".into()];
+    let before = w.gh.mutations();
+
+    let rec = Recorder::default();
+    let (gh, git) = (DryRun::new(&w.gh, &rec), DryGit::new(&w.git, &rec));
+    let dry = Board { roadmap: &w.roadmap, gh: &gh, git: &git, clock: &w.clock };
+    assert_eq!(dry.submit("M0.1", &dir, None).unwrap(), "(dry run)");
+    let writes = rec.writes();
+    assert_eq!(writes.len(), 4, "{writes:#?}");
+    assert_eq!(writes[0], "push task/M0.1-skeleton to origin");
+    assert!(writes[1].starts_with("open pull request `M0.1: Skeleton` from task/M0.1-skeleton, body:"), "{}", writes[1]);
+    assert!(writes[1].contains("| ### From the dev log (2026-10-10 12:00 · agent-2 · M0.1 Skeleton)"), "{}", writes[1]);
+    assert!(writes[1].contains("| - `crates/ui/tests/fingerprints/library-small.json`"), "{}", writes[1]);
+    assert!(writes[2].ends_with("Status = In Review"), "{}", writes[2]);
+    assert!(writes[3].starts_with("comment on #1: submitted for review"), "{}", writes[3]);
+    assert_eq!(w.gh.mutations(), before, "the board is untouched");
+    assert!(w.git.calls.lock().unwrap().is_empty(), "nothing pushed");
+    assert_eq!(w.status_of("M0.1"), Some(Status::InProgress));
+
+    // Merge needs In Review; submit for real, then dry-run the merge.
+    w.board().submit("M0.1", &dir, None).unwrap();
+    w.git.calls.lock().unwrap().clear();
+    let before = w.gh.mutations();
+    let rec = Recorder::default();
+    let (gh, git) = (DryRun::new(&w.gh, &rec), DryGit::new(&w.git, &rec));
+    let dry = Board { roadmap: &w.roadmap, gh: &gh, git: &git, clock: &w.clock };
+    let err = dry.merge("M0.1").unwrap_err();
+    assert!(err.contains("baseline-approved"), "the dry run reports the missing approval: {err}");
+    w.gh.lock().prs[0].1.labels.push("baseline-approved".into());
+    assert_eq!(dry.merge("M0.1").unwrap(), "M0.1: Skeleton (#100)");
+    assert_eq!(
+        rec.writes(),
+        [
+            "rebase origin/task/M0.1-skeleton onto origin/main in the merge worktree",
+            "rebase origin/task/M0.1-skeleton onto origin/main in the merge worktree",
+            "run `cargo xtask ci` in the merge worktree",
+            "push task/M0.1-skeleton to origin",
+            "squash-merge #100 as `M0.1: Skeleton (#100)`",
+        ]
+    );
+    assert_eq!(w.gh.mutations(), before);
+    assert!(w.git.calls.lock().unwrap().is_empty());
+    assert!(w.gh.lock().merged_prs.is_empty());
+}
+
+#[test]
+fn prune_skips_agents_the_board_says_are_working() {
+    let w = World::new(ROADMAP);
+    w.board().sync().unwrap();
+    w.board().claim("M0.1", "agent-2").unwrap();
+    let target = w.git.dir.join("target");
+    for agent in ["agent-2", "agent-3"] {
+        let debug = target.join(agent).join("debug");
+        std::fs::create_dir_all(debug.join(".fingerprint")).unwrap();
+        std::fs::create_dir_all(debug.join("incremental").join("x")).unwrap();
+        std::fs::write(debug.join("incremental").join("x").join("y.bin"), [0u8; 64]).unwrap();
+    }
+    let before = w.gh.mutations();
+    let report = w.board().prune(&target, false).unwrap();
+    assert_eq!(report.lines, ["agent-2: skipped, M0.1 is In Progress", "agent-3: removed target/agent-3/debug/incremental (64 B)"]);
+    assert_eq!(report.freed, 64);
+    assert!(target.join("agent-2").join("debug").join("incremental").is_dir());
+    assert!(!target.join("agent-3").join("debug").join("incremental").exists());
+    assert_eq!(w.gh.mutations(), before, "prune only reads the board");
 }

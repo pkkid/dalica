@@ -81,6 +81,29 @@ pub fn entry_times(log: &str, task_id: &str, offset: i64) -> Vec<i64> {
         .collect()
 }
 
+/// The newest entry for `task_id`: its heading (without `## `) and its text, up to the next entry.
+pub fn latest_entry(log: &str, task_id: &str) -> Option<(String, String)> {
+    let mut found = None;
+    let mut current: Option<(String, Vec<&str>)> = None;
+    for line in log.lines() {
+        if let Some(heading) = line.strip_prefix("## ") {
+            if let Some(done) = current.take() {
+                found = Some(done);
+            }
+            let what = heading.split(" · ").nth(2).unwrap_or("");
+            if what == task_id || what.starts_with(&format!("{task_id} ")) {
+                current = Some((heading.to_string(), Vec::new()));
+            }
+        } else if let Some((_, lines)) = current.as_mut() {
+            lines.push(line);
+        }
+    }
+    if let Some(done) = current {
+        found = Some(done);
+    }
+    found.map(|(heading, lines)| (heading, lines.join("\n").trim().to_string()))
+}
+
 pub fn append(path: &Path, text: &str) -> Result<(), String> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
@@ -111,5 +134,20 @@ mod tests {
         let log = format!("# log\n{e}\n## 2026-10-09 15:00 · agent-2 · M1.40 other\nx\n");
         assert_eq!(entry_times(&log, "M1.4", -4 * 3600), [1_791_568_920]);
         assert!(entry_times(&log, "M1.5", 0).is_empty());
+    }
+
+    #[test]
+    fn latest_entry_is_the_newest_for_the_task() {
+        let log = "# log\n\n## 2026-10-09 14:02 · agent-3 · M1.4 scenes\nLanded: first.\n\n\
+                   ## 2026-10-09 15:00 · agent-2 · M1.40 other\nnot this\n\n\
+                   ## 2026-10-09 16:00 · agent-3 · M1.4 scenes\nLanded: second.\n### a sub-heading\nOpen: x.\n\n\
+                   ## 2026-10-09 17:00 · agent-1 · M1.5 next\ny\n";
+        let (heading, text) = latest_entry(log, "M1.4").unwrap();
+        assert_eq!(heading, "2026-10-09 16:00 · agent-3 · M1.4 scenes");
+        assert_eq!(text, "Landed: second.\n### a sub-heading\nOpen: x.");
+        // The last entry of the file ends at the end of the file.
+        assert_eq!(latest_entry(log, "M1.5").unwrap().1, "y");
+        assert!(latest_entry(log, "M1.6").is_none());
+        assert!(latest_entry("", "M1.4").is_none());
     }
 }
