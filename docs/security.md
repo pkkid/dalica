@@ -574,7 +574,7 @@ Bearer-token authentication with the token file: **Planned (M2).**
 
 Every line must be a UTF-8 JSON **object** with a string `method` (`id` and `params` optional;
 blank lines are skipped). Anything else (text that is not JSON, a JSON array or number, an object
-without `method`, invalid UTF-8, or a line over the size limit) gets one error reply
+without `method`, invalid UTF-8, a line over the size limit, or one nesting arrays and objects deeper than 64 levels) gets one error reply
 `{"ok":false,"error":"… closing the connection"}` and the server closes the connection; nothing
 sent after it on that connection runs. Junk never reaches the UI thread.
 

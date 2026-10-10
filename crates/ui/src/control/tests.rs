@@ -169,6 +169,112 @@ fn requests_parse_and_replies_frame_as_the_spec_says() {
     assert_eq!(Error::from(DriverError::NotSettled { frames: 1, busy: vec![] }).code, Code::Timeout);
 }
 
+/// A request whose `x` (beside `method`) nests arrays so the line is `depth` deep in all, the
+/// request object included.
+fn nested(method: &str, depth: usize) -> String {
+    let n = depth - 1;
+    format!(r#"{{"id": 1, "method": "{method}", "x": {}{}}}"#, "[".repeat(n), "]".repeat(n))
+}
+
+/// The `parse` refusal for a line nested too deep; any other outcome fails.
+fn too_deep(line: &[u8]) -> Error {
+    let e = Request::parse(line).unwrap_err();
+    assert_eq!(e.code, Code::Parse, "{e}");
+    assert!(e.code.closes());
+    assert!(e.message.contains("deeper than 64 levels"), "{e}");
+    e
+}
+
+#[test]
+fn requests_nested_deeper_than_64_levels_are_refused_before_json_parsing() {
+    assert_eq!(MAX_REQUEST_DEPTH, 64);
+    // Exactly 64 levels is a request; 65 is refused, whatever the parser itself would take (128).
+    let r = Request::parse(nested("ui.state", 64).as_bytes()).unwrap().unwrap();
+    assert_eq!(r.method, "ui.state");
+    for depth in [65, 100, 128, 129, 10_000] {
+        too_deep(nested("ui.state", depth).as_bytes());
+    }
+    // In `params`, with objects, or mixed: the same count.
+    let params = |open: &str, close: &str, n: usize| format!(r#"{{"method": "ui.set", "params": {{"a": {}1{}}}}}"#, open.repeat(n), close.repeat(n));
+    assert!(Request::parse(params("[", "]", 62).as_bytes()).unwrap().is_some());
+    too_deep(params("[", "]", 63).as_bytes());
+    assert!(Request::parse(params(r#"{"k": "#, "}", 62).as_bytes()).unwrap().is_some());
+    too_deep(params(r#"{"k": "#, "}", 63).as_bytes());
+    too_deep(params(r#"[{"k": "#, "}]", 32).as_bytes());
+    // Brackets inside strings are text, escaped quotes and backslashes included.
+    let text = format!(r#"{}\"{}\\{}\"\\\"{}"#, "[".repeat(1000), "{".repeat(1000), "[{".repeat(500), "]}".repeat(10));
+    let r = Request::parse(format!(r#"{{"method": "ui.type", "params": {{"text": "{text}"}}}}"#).as_bytes()).unwrap().unwrap();
+    assert_eq!(r.params["text"].as_str().map(|s| s.matches('[').count()), Some(1500));
+    assert_eq!(r.params["text"].as_str().map(|s| s.matches('"').count()), Some(3));
+    // An escaped backslash ends with the string's real closing quote: what follows is counted.
+    let after_backslash = |n: usize| format!(r#"{{"method": "m", "t": "a\\", "x": {}{}}}"#, "[".repeat(n), "]".repeat(n));
+    assert!(Request::parse(after_backslash(63).as_bytes()).unwrap().is_some());
+    too_deep(after_backslash(64).as_bytes());
+    // A string with an escaped quote does not end there.
+    let line = format!(r#"{{"method": "m", "t": "\" {} "}}"#, "[".repeat(100));
+    assert!(Request::parse(line.as_bytes()).unwrap().is_some());
+    // Closing more than was opened never wraps the count; the parser refuses the junk.
+    assert_eq!(
+        Request::parse(format!("]]]]{}", nested("m", 2)).as_bytes()).unwrap_err().message,
+        "not a request: the line is not JSON; send one JSON object per line"
+    );
+    assert!(!nests_deeper_than(format!("{}{}", "]".repeat(100), "[".repeat(64)).as_bytes(), 64));
+    assert!(nests_deeper_than(format!("{}{}", "]".repeat(100), "[".repeat(65)).as_bytes(), 64));
+}
+
+#[test]
+fn a_one_mib_line_of_open_brackets_is_refused_fast_without_recursion() {
+    // At the size limit (one byte more is the line-size refusal), all `[`; then 64 levels of
+    // padding with the 65th level at the very end, the scan's worst case.
+    let all_open = vec![b'['; MAX_REQUEST_LINE];
+    let mut late = b"{\"method\": \"m\", \"x\": ".to_vec();
+    late.extend(std::iter::repeat_n(b'[', 63));
+    let tail = b"[]";
+    while late.len() + 2 + tail.len() <= MAX_REQUEST_LINE {
+        late.extend_from_slice(b"0,");
+    }
+    late.extend_from_slice(tail);
+    assert!(late.len() <= MAX_REQUEST_LINE);
+    for line in [&all_open, &late] {
+        let start = std::time::Instant::now();
+        too_deep(line);
+        let took = start.elapsed();
+        eprintln!("refused a {}-byte line nested too deep in {took:?}", line.len());
+        assert!(took < std::time::Duration::from_secs(1), "{took:?}");
+    }
+}
+
+/// The transport's path for one line: parse, and only a request reaches a handler.
+fn line(t: &mut T, line: &str) -> Reply {
+    match Request::parse(line.as_bytes())? {
+        Some(req) => serve(&t.control, &mut t.conn, &mut t.d, &req),
+        None => panic!("a blank line"),
+    }
+}
+
+#[test]
+fn a_line_nested_too_deep_reaches_no_handler_and_runs_no_frame() {
+    let mut t = setup(1);
+    let a = t.ids[0];
+    let star = |depth: usize| {
+        let n = depth - 1;
+        format!(
+            r#"{{"id": 1, "method": "engine.execute", "params": {{"command": "photo.star.toggle", "params": {{"ids": [{a}]}}}}, "x": {}{}}}"#,
+            "[".repeat(n),
+            "]".repeat(n)
+        )
+    };
+    let frames = t.d.frames();
+    let e = line(&mut t, &star(65)).unwrap_err();
+    assert_eq!(e.code, Code::Parse, "{e}");
+    assert_eq!(t.d.frames(), frames, "a refused line runs no frame");
+    assert!(!starred(&t, a), "a refused line runs no command");
+    assert!(t.d.app().session().unwrap().undo_stack().is_empty());
+    // The same line 64 deep is an ordinary request.
+    line(&mut t, &star(64)).unwrap();
+    assert!(starred(&t, a));
+}
+
 #[test]
 fn methods_are_listed_unknown_ones_refused_unbuilt_ones_unsupported_and_panics_caught() {
     let mut t = setup(0);
