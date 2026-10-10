@@ -530,7 +530,7 @@ wave 5   M1.17 → M1.18 ui, app → M1.19 acceptance → M1.R milestone review
     frame.
   - done when: the test lists zero unregistered interactive widgets at 1400 × 900 and 900 × 600;
     `accept M1` still passes.
-- ⬜ **M2.2 `ui`: the complete headless driver and perf counters**
+- ✅ **M2.2 `ui`: the complete headless driver and perf counters**
   - after: M1.R
   - files: `crates/ui/src/headless.rs`, `crates/ui/src/perf.rs`
   - scope: `drag`, `hover`, `scroll`, `type_text`, `pointer` (raw events); `settle` as in
