@@ -9,4 +9,15 @@ repository.workspace = true
 authors.workspace = true
 publish = false
 
+[features]
+# Named fault points (`faults` module) that tests arm to fail or "crash" each step of a write.
+faults = []
+
 [dependencies]
+dalica-core.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+# Tests always build with the fault points, so `cargo test` (and `cargo xtask ci`) runs the fault loops.
+dalica-fs = { path = ".", features = ["faults"] }
+tempfile.workspace = true

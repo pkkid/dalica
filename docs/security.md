@@ -364,7 +364,9 @@ write needs a row here.
 
 ### 5.2 Atomic replace
 
-The shared primitive (our own; prior art LightCraft `safe_file.rs`). **Planned (M1).**
+The shared primitive (our own; prior art LightCraft `safe_file.rs`). **Built (M1.2:
+`dalica-fs` `atomic::replace`), with a byte-for-byte check in step 6; the metadata-aware check
+comes with write-back (M10).**
 
 1. Read the target and record its identity: device, inode (file index on Windows), size and
    modification time.
@@ -386,7 +388,8 @@ A write that replaces a file proceeds only if the file's identity is unchanged s
 the content it is replacing. This covers external edits, sync clients and a collaborator swapping
 the file on a share. Save also checks the original's identity immediately before moving it into
 `.dalica-originals/`, and refuses if a backup with that name already exists but does not match the
-recorded original (the first original is the one kept). **Planned (M1, M15).**
+recorded original (the first original is the one kept). **Built for every `fs::replace` (M1.2:
+`Expect::Unchanged`); Save's checks are planned (M15).**
 
 ### 5.4 Names
 
@@ -458,7 +461,8 @@ embedded, never loaded by a referenced name. **Planned (M1, M33).**
 
 - Atomic-replace temporaries live next to their target, named `.<name>.dalica-tmp-<random>`,
   created exclusively. Dalica removes only stale files of exactly this shape (older than 24 hours)
-  when it next scans the folder. **Planned (M1).**
+  when it next scans the folder. **Names built (M1.2: `atomic::is_temp_name`); the stale cleanup
+  is planned with scanning (M1).**
 - Other scratch files (render and export scratch, decoded previews spilled to disk) go to
   `<cache>/Dalica/tmp/`, created `0700` on Unix, with random names, never to a predictable name in
   a shared system temp directory. **Planned (M13).**

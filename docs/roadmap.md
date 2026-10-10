@@ -280,7 +280,7 @@ built. Built by a single agent; the waves show what could run in parallel later.
   - done when: `cargo test -p dalica-core` passes, including property tests that `between(a, b)`
     sorts strictly between any `a < b`, that keys stay short after 10 000 inserts at one spot, and
     collision naming on empty, dot-only and non-ASCII names.
-- ⬜ **M1.2 `fs`: atomic writes**
+- ✅ **M1.2 `fs`: atomic writes**
   - after: M1.1
   - files: `crates/fs/src/atomic.rs`, `crates/fs/src/append.rs`, `crates/fs/src/guard.rs`, `crates/fs/src/faults.rs`, `crates/fs/src/lib.rs`, `crates/fs/Cargo.toml`
   - scope: atomic replace (temp in the same folder, write, fsync, rename, fsync the folder where
