@@ -649,7 +649,7 @@ M3 builds the whole window shell on top of M2's widget ids and headless driver; 
 starts as soon as the maintainer has closed M2.R. A review **M3.A** after the foundations (widgets,
 icons, menus, keys, layout skeleton) shows the maintainer the look early; the panels and everything
 listed after it wait until the maintainer closes it.
-First fingerprints of new widgets and icons are approved on their PRs.
+First fingerprints of new widgets and icons are approved in bulk on the M3.A review page.
 
 - ⬜ **M3.1 `ui-kit`: the full widget set**
   - after: M2.1, M2.2

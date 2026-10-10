@@ -145,7 +145,7 @@ pub struct ProjectFields {
 pub struct PullRequest {
     pub number: u64,
     pub url: String,
-    /// Label names on the pull request (`baseline-approved` is the maintainer's approval).
+    /// Label names on the pull request.
     pub labels: Vec<String>,
 }
 

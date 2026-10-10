@@ -4,6 +4,7 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use super::devlog;
 use super::roadmap::split_id;
 
 pub trait Git: Send + Sync {
@@ -19,7 +20,7 @@ pub trait Git: Send + Sync {
     /// Subjects of the commits on `branch` that are not on `origin/main`.
     fn branch_subjects(&self, branch: &str) -> Result<Vec<String>, String>;
     /// Paths (with `/`) that origin's `branch` adds, changes or deletes since it left `origin/main`.
-    fn changed_paths(&self, branch: &str) -> Result<Vec<String>, String>;
+    fn changed_paths(&self, branch: &str) -> Result<Vec<PathChange>, String>;
     /// Pushes what `dir` has checked out to origin's `branch`, unless origin's `branch` moved since
     /// the last fetch.
     fn push(&self, dir: &Path, branch: &str) -> Result<(), String>;
@@ -32,6 +33,8 @@ pub trait Git: Send + Sync {
     /// Fetches origin and returns `docs/roadmap.md` as it is on `origin/main` (what a merge just
     /// landed), read from git's objects: no checkout, clean or dirty, is touched.
     fn merged_roadmap(&self) -> Result<String, String>;
+    /// Appends `text` to the private dev log in the main checkout (`docs/task-board.md` §8).
+    fn append_devlog(&self, text: &str) -> Result<(), String>;
     /// The main checkout (parent of the git common directory).
     fn main_checkout(&self) -> PathBuf;
     /// The git common directory, shared by every worktree (locks live here).
@@ -44,6 +47,53 @@ pub trait Clock: Send + Sync {
     fn utc_offset(&self) -> i64;
     /// Waits `secs` seconds (the fake only advances its time).
     fn pause(&self, secs: u64);
+}
+
+/// How a branch touches a path (`git diff --name-status`, renames split into a delete and an add).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ChangeKind {
+    Added,
+    Changed,
+    Deleted,
+}
+
+impl ChangeKind {
+    pub fn name(self) -> &'static str {
+        match self {
+            ChangeKind::Added => "added",
+            ChangeKind::Changed => "changed",
+            ChangeKind::Deleted => "deleted",
+        }
+    }
+}
+
+/// One path a branch adds, changes or deletes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PathChange {
+    pub kind: ChangeKind,
+    pub path: String,
+}
+
+impl PathChange {
+    pub fn new(kind: ChangeKind, path: &str) -> PathChange {
+        PathChange { kind, path: path.to_string() }
+    }
+}
+
+/// Parses `git diff --name-status -z` output: a status letter, then the path, each NUL-terminated.
+/// `A` is an add, `D` a delete, anything else (`M`, `T`, …) a change.
+pub fn parse_name_status(out: &str) -> Vec<PathChange> {
+    let mut fields = out.split('\0').filter(|f| !f.is_empty());
+    let mut changes = Vec::new();
+    while let (Some(status), Some(path)) = (fields.next(), fields.next()) {
+        let kind = match status.chars().next() {
+            Some('A') => ChangeKind::Added,
+            Some('D') => ChangeKind::Deleted,
+            _ => ChangeKind::Changed,
+        };
+        changes.push(PathChange::new(kind, path));
+    }
+    changes
 }
 
 /// Parses a commit subject's task id: `M1.4: scenes (#12)` → `M1.4`.
@@ -156,9 +206,9 @@ impl Git for RealGit {
         Ok(git(&self.cwd, &["log", "--reverse", "--format=%s", &range])?.lines().map(str::to_string).collect())
     }
 
-    fn changed_paths(&self, branch: &str) -> Result<Vec<String>, String> {
+    fn changed_paths(&self, branch: &str) -> Result<Vec<PathChange>, String> {
         let range = format!("origin/main...origin/{branch}");
-        Ok(git(&self.cwd, &["diff", "--name-only", "--no-renames", &range])?.lines().map(str::to_string).collect())
+        Ok(parse_name_status(&git(&self.cwd, &["diff", "--name-status", "-z", "--no-renames", &range])?))
     }
 
     fn push(&self, dir: &Path, branch: &str) -> Result<(), String> {
@@ -197,6 +247,10 @@ impl Git for RealGit {
     fn merged_roadmap(&self) -> Result<String, String> {
         self.fetch()?;
         git(&self.cwd, &["show", "origin/main:docs/roadmap.md"])
+    }
+
+    fn append_devlog(&self, text: &str) -> Result<(), String> {
+        devlog::append(&devlog::path(&self.main_checkout()), text)
     }
 
     fn main_checkout(&self) -> PathBuf {
@@ -267,6 +321,63 @@ mod tests {
         assert_eq!(ci_target_dir(main, &Path::new("/w/dalica.worktrees").join("merge")), main.join("target").join("merge"));
     }
 
+    #[test]
+    fn name_status_kinds() {
+        let out = "A\0crates/ui/tests/fingerprints/new.json\0M\0a.txt\0D\0old.json\0T\0link\0";
+        assert_eq!(
+            parse_name_status(out),
+            [
+                PathChange::new(ChangeKind::Added, "crates/ui/tests/fingerprints/new.json"),
+                PathChange::new(ChangeKind::Changed, "a.txt"),
+                PathChange::new(ChangeKind::Deleted, "old.json"),
+                PathChange::new(ChangeKind::Changed, "link"),
+            ]
+        );
+        assert!(parse_name_status("").is_empty());
+        // A status without its path (truncated output) is dropped, not misread.
+        assert_eq!(parse_name_status("M\0a.txt\0A"), [PathChange::new(ChangeKind::Changed, "a.txt")]);
+    }
+
+    /// `changed_paths` tells adds, changes and deletes apart on a real repository (what `merge`
+    /// records for the review), and a rename counts as a delete and an add.
+    #[test]
+    fn changed_paths_report_the_kind_of_change() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (origin, main) = (tmp.path().join("origin.git"), tmp.path().join("repo"));
+        g(tmp.path(), &["init", "--quiet", "--bare", origin.to_str().unwrap()]);
+        g(tmp.path(), &["clone", "--quiet", origin.to_str().unwrap(), main.to_str().unwrap()]);
+        let fp = main.join("tests").join("fingerprints");
+        std::fs::create_dir_all(&fp).unwrap();
+        for name in ["kept.json", "gone.json", "moved.json"] {
+            std::fs::write(fp.join(name), format!("{{\"name\": \"{name}\"}}\n")).unwrap();
+        }
+        g(&main, &["add", "."]);
+        g(&main, &["commit", "--quiet", "-m", "M0.1: start"]);
+        g(&main, &["push", "--quiet", "origin", "HEAD:refs/heads/main"]);
+        g(&main, &["checkout", "--quiet", "-b", "task/M9.1-thing"]);
+        std::fs::write(fp.join("kept.json"), "{\"name\": \"kept, new pixels\"}\n").unwrap();
+        std::fs::write(fp.join("new.json"), "{}\n").unwrap();
+        g(&main, &["rm", "--quiet", "tests/fingerprints/gone.json"]);
+        g(&main, &["mv", "tests/fingerprints/moved.json", "tests/fingerprints/renamed.json"]);
+        g(&main, &["add", "."]);
+        g(&main, &["commit", "--quiet", "-m", "M9.1: thing"]);
+        g(&main, &["push", "--quiet", "origin", "HEAD:refs/heads/task/M9.1-thing"]);
+        g(&main, &["fetch", "--quiet", "origin"]);
+        let git = RealGit { cwd: main.clone() };
+        let mut changes = git.changed_paths("task/M9.1-thing").unwrap();
+        changes.sort_by(|a, b| a.path.cmp(&b.path));
+        assert_eq!(
+            changes,
+            [
+                PathChange::new(ChangeKind::Deleted, "tests/fingerprints/gone.json"),
+                PathChange::new(ChangeKind::Changed, "tests/fingerprints/kept.json"),
+                PathChange::new(ChangeKind::Deleted, "tests/fingerprints/moved.json"),
+                PathChange::new(ChangeKind::Added, "tests/fingerprints/new.json"),
+                PathChange::new(ChangeKind::Added, "tests/fingerprints/renamed.json"),
+            ]
+        );
+    }
+
     /// Runs git with a fixed identity in `dir`.
     fn g(dir: &Path, args: &[&str]) -> String {
         let out = Command::new("git")
@@ -306,7 +417,7 @@ mod tests {
         g(&worker, &["add", "."]);
         g(&worker, &["commit", "--quiet", "-m", "M9.1: thing"]);
         git.push(&worker, branch).unwrap();
-        assert_eq!(git.changed_paths(branch).unwrap(), ["b.txt"]);
+        assert_eq!(git.changed_paths(branch).unwrap(), [PathChange::new(ChangeKind::Added, "b.txt")]);
 
         // Meanwhile main moves on.
         std::fs::write(main.join("c.txt"), "c\n").unwrap();
@@ -322,7 +433,7 @@ mod tests {
         let log = g(&main, &["log", "--format=%s", &format!("origin/{branch}")]);
         assert_eq!(log.lines().collect::<Vec<_>>(), ["M9.1: thing", "M9.0: other", "M0.1: start"], "rebased onto the new main");
         // Only the branch's own files, not what main added meanwhile.
-        assert_eq!(git.changed_paths(branch).unwrap(), ["b.txt"]);
+        assert_eq!(git.changed_paths(branch).unwrap(), [PathChange::new(ChangeKind::Added, "b.txt")]);
         assert!(git.rebase_for_merge("task/M9.2-missing").unwrap_err().contains("origin has no"));
     }
 

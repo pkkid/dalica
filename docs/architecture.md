@@ -430,14 +430,16 @@ personal photo or other crate's state. Test inputs are built in the test (synthe
 (per-channel mean and standard deviation over an 8 × 8 grid, plus output size) with a tolerance,
 not a PNG. On failure the test writes actual/expected/diff PNGs under `target/test-output/` for a
 human or agent to look at. `DALICA_BLESS=1` rewrites fingerprints and must be reviewed in the
-diff. No media is committed.
+diff: the PR shows the images and the commit body says why. New and changed baselines merge with
+their task and the maintainer approves them in bulk at the next review (`task-board.md` §7). No
+media is committed.
 
 ## 12. What is hard to test automatically, and how we check it
 
 | Risk | Why automation falls short | How we check it |
 |---|---|---|
 | The look matches the Craft apps and the layout feels like the reference organizer | "looks right" is a judgement; reference screenshots must not be pixel-compared or copied | numeric layout assertions (§10) + token tests; agents take headless and windowed screenshots at 1400 × 900 and 900 × 600 after every UI change and compare by eye with `ui-layout.md` and the private notes; before/after screenshots in every UI PR; maintainer review at each milestone end |
-| Effect and Auto Fix quality | correctness is aesthetic | fingerprint tests pin the look once approved; invariants catch breakage; a human approves every `DALICA_BLESS` change by viewing the diff PNGs |
+| Effect and Auto Fix quality | correctness is aesthetic | fingerprint tests pin the look once approved; invariants catch breakage; the maintainer approves every `DALICA_BLESS` change by viewing the diff PNGs, in bulk at the next review |
 | Real-world files (camera JPEGs, RAW previews, HEIC, metadata written by other apps) | synthetic files miss vendor quirks | pinned, sha256-verified external corpora with floors that only rise; optionally `exiftool` as an outside oracle in the corpus job only (never in the product) |
 | Interop with other apps' metadata | we can't run every app | corpus files written by other apps + byte-preservation hashes; a manual round-trip checklist (open in another app, edit, rescan) before releases |
 | File watching, network drives, sleep/wake, unplugged volumes | OS event timing is nondeterministic | events are hints; the deterministic verification scan is what tests assert; offline volumes simulated; a manual unplug/replug checklist per release |

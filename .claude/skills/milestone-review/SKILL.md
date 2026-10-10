@@ -37,6 +37,19 @@ the tasks from the start of M<n> up to it.
 - **Board:** `cargo xtask tasks status`; open issues labelled `needs-maintainer` or `stale`;
   leftover worktrees (`git worktree list`).
 - **Loose ends in code:** `TODO(maintainer)` comments, `#[ignore]`d tests, fingerprint blesses.
+- **Fingerprints to approve** (`docs/task-board.md` §7): baselines merge with their task and the
+  maintainer approves them in bulk here. Collect every `FINGERPRINTS:` line that `tasks merge`
+  wrote to `log/devlog.md` (main checkout) since the previous review's check-in entry:
+  `grep -n '^FINGERPRINTS:' log/devlog.md`, keeping the lines below that entry's heading. Each line
+  reads `FINGERPRINTS: <task id> #<PR> added|changed|deleted <paths>`. For each one:
+  - the PR link (`https://github.com/pkkid/dalica/pull/<PR>`) and the commit body's reason;
+  - the image(s): run the fingerprint's test in your clean checkout of `origin/main` (the
+    measurement checkout below); it writes what it rendered under that checkout's
+    `target/test-output/<crate>/` (never commit those PNGs). For a changed baseline also run it at
+    the commit before the merge, for the before image. Or link the images attached to the PR. For a
+    deleted baseline, say what replaced it.
+  - Cross-check with `git log --name-status origin/main` over `**/fingerprints/*.json` since the
+    previous review, in case a merge failed to record its lines; add any it missed.
 - **Measurements** on a clean checkout of `origin/main` at one named commit, with a target dir in
   your scratchpad. Each number gets a unit, the machine and the commit:
   - `cargo xtask ci` (cold and warm), and the test count;
@@ -85,6 +98,9 @@ milestone, so lead with the app:
 - **Decisions made:** the numbered list from §2. Under it: "To reverse one, reply with its number,
   or comment on the page".
 - **Numbers:** the few that matter (speed budgets met, test count, CI time per OS).
+- **Fingerprints to approve:** every baseline from §1 since the last review, grouped by task: the
+  path, added/changed/deleted, the PR link, the reason, and the image(s) (before and after for a
+  changed one). Number them so the maintainer can name the ones to redo. If there are none, say so.
 - **Next:** what the next milestone builds, in two or three lines.
 
 The page is linked on the review issue together with the pull request (§4).
@@ -105,26 +121,37 @@ The review's id is `M<n>.<X>` (`M2.R`, `M3.A`, …) and its issue `#<issue>`.
 3. Push the branch (`git push -u origin review/M<n>.<X>`) and open the pull request with
    `gh pr create --base main --head review/M<n>.<X> --title "M<n>.<X>: check-in"`. Its body:
    - the check-in page's link and a three-line summary (what to try, the decisions to look at);
+   - the number of fingerprint baselines to approve, with a pointer to that section of the page;
    - the line "Merge this PR and close #<issue> to approve; the next run starts after that."
      (GitHub reads "close #<issue>" in a PR body as a closing keyword, so the maintainer's merge
      also closes the issue.)
    - the attribution line the environment requires.
 4. Comment both links on the review issue:
    `gh issue comment <issue> --body "Check-in page: <page url>  Pull request: <pr url>"`.
-5. **Stop.** Never merge that PR, never close the issue, and do not claim anything listed after the
+5. **Ask about the fingerprints** (when §1 found any) with the **AskUserQuestion** tool, recommended
+   option first: "Approve all N fingerprint baselines" / "Redo some (list their numbers from the
+   page)" / "Look later" (merging the review PR without naming any approves them all). Each
+   rejected baseline becomes a fix task: write its block in `docs/roadmap.md` on the review branch
+   (`after:` the review; `files`: the code that draws it, its test and its fingerprint; *done
+   when*: the maintainer's objection is fixed and the new image is on its PR, to be approved at
+   the next review), say on the review PR which numbers were rejected, and record the answer in
+   the check-in's dev-log entry. Approved baselines need nothing more. Asking is not merging: the
+   maintainer still merges the PR.
+6. **Stop.** Never merge that PR, never close the issue, and do not claim anything listed after the
    review. Report the PR and the page in one short message and tell the maintainer: after merging
    the PR and closing #<issue>, run `/milestone-start` again. If `/milestone-start` is running, it
    ends its run with that message.
 
 ## 5. Release gates: the checklist and the sign-off questions
 
-For a release gate (M6.R, M10.R, M15.R), before §4's step 5:
+For a release gate (M6.R, M10.R, M15.R), before §4's step 6:
 
 - Add the release checklist (`docs/releasing.md`) to the page: packages built per OS, install
   steps, known issues.
 - Ask with the **AskUserQuestion** tool, recommended option first:
   - one question to sign off the release: ship / ship after listed fixes / hold;
-  - questions for any decision the maintainer must make (`AGENTS.md` §4's short list).
+  - questions for any decision the maintainer must make (`AGENTS.md` §4's short list);
+  - the fingerprint question of §4's step 5, if it was not asked yet.
   - Up to 4 questions per call; keep asking until everything is answered.
 - Apply the answers on the `review/M<n>.R` branch (or on a separate PR that the maintainer also
   merges) and say on the review PR what changed.

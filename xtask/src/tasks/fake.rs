@@ -6,7 +6,8 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, PoisonError};
 
-use super::git::{Clock, Git};
+use super::devlog;
+use super::git::{Clock, Git, PathChange};
 use super::github::{
     ALREADY_IN_PROJECT, GitHub, Issue, IssueEdit, Item, MergeState, MilestoneInfo, NewIssue, ProjectFields, PullRequest, Status, TextField,
 };
@@ -298,7 +299,7 @@ pub struct FakeGit {
     pub activity: Mutex<Vec<(String, i64)>>,
     pub worktrees: AtomicUsize,
     /// What `changed_paths` reports for every branch.
-    pub changed: Mutex<Vec<String>>,
+    pub changed: Mutex<Vec<PathChange>>,
     /// `push`, `rebase_for_merge` and `run_ci` calls, in order.
     pub calls: Mutex<Vec<String>>,
     /// `docs/roadmap.md` on origin's `main` (`merged_roadmap`).
@@ -341,7 +342,7 @@ impl Git for FakeGit {
         Ok(vec![])
     }
 
-    fn changed_paths(&self, _branch: &str) -> Result<Vec<String>, String> {
+    fn changed_paths(&self, _branch: &str) -> Result<Vec<PathChange>, String> {
         Ok(self.changed.lock().unwrap_or_else(PoisonError::into_inner).clone())
     }
 
@@ -363,6 +364,10 @@ impl Git for FakeGit {
     fn merged_roadmap(&self) -> Result<String, String> {
         self.calls.lock().unwrap_or_else(PoisonError::into_inner).push("fetch".into());
         self.origin_roadmap.lock().unwrap_or_else(PoisonError::into_inner).clone().ok_or_else(|| "origin/main has no docs/roadmap.md".into())
+    }
+
+    fn append_devlog(&self, text: &str) -> Result<(), String> {
+        devlog::append(&devlog::path(&self.dir), text)
     }
 
     fn main_checkout(&self) -> PathBuf {

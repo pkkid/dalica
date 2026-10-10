@@ -90,6 +90,10 @@ once and report.
    - The task's ✅ and parity rows are updated.
    - A dev-log entry exists.
    - The PR body gives evidence for each line of the *done when*.
+   - New, changed or deleted fingerprint baselines show their images on the PR and the commit body
+     says why. They need no label or approval before the merge: `tasks merge` records them in the
+     dev log and the maintainer approves them in bulk at the next review (`/milestone-review`).
+     Never wait for the maintainer on a baseline mid-run.
    - If anything is missing, send it back (step 5) instead of merging.
 3. **Merge one at a time:** `cargo xtask tasks merge <id>`. It rebases, runs the local `ci`,
    squash-merges and syncs; it does not wait for the PR's GitHub checks. Run it in the background
@@ -185,7 +189,10 @@ Rules:
 Finish with AGENTS.md §5, in your worktree:
   cargo fmt --all; cargo clippy -p <crates> --all-targets -- -D warnings; cargo test -p <crates>;
   cargo xtask ci; plus panic_hunt if you added or changed commands; `cargo xtask parity --write` if
-  parity rows changed; screenshots at 1400×900 and 900×600 if the change is user-visible.
+  parity rows changed; screenshots at 1400×900 and 900×600 if the change is user-visible. If you
+  added or re-blessed fingerprints (DALICA_BLESS=1), look at the diff images, attach the new PNG or
+  the diff images to the PR and say why in the commit body; do not wait for an approval (the
+  maintainer approves baselines in bulk at the next review).
   Tick your task's ✅ in docs/roadmap.md and update your parity rows and any spec section you
   clarified. Commit with the subject `<id>: <summary>`, a body covering what was tested, numbers
   and decisions, and the attribution line your environment requires.

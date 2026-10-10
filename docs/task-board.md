@@ -33,9 +33,9 @@ Nothing else counts: a ✅ on an unmerged branch, a closed issue without a merge
   top to bottom in build order. Review tasks (`M2.R`, `M3.A`, `M6.R`) are issues too, assigned to the
   maintainer.
 - **Labels:** `task` (every task issue), `gate` (review tasks), `needs-maintainer` (an agent is
-  blocked on a question), `stale` (claimed but idle, set by `status`), and on pull requests
-  `baseline-approved` (the maintainer approved the fingerprint baselines the PR adds or changes; only
-  the maintainer sets it, never an agent).
+  blocked on a question), `stale` (claimed but idle, set by `status`), and `baseline-approved`
+  (pull requests; required by nothing since fingerprint baselines are approved in bulk at reviews,
+  §7; `setup` still creates it so a per-PR gate could return, and agents never set it).
 - **Project fields** (project 3, "Dalica"):
   - **Status:** `Todo` (a dependency is not done) · `Ready` (all dependencies done; free to claim) ·
     `In Progress` (claimed) · `In Review` (pull request open) · `Blocked` (needs the maintainer) ·
@@ -44,7 +44,7 @@ Nothing else counts: a ✅ on an unmerged branch, a closed issue without a merge
   - **Branch** (text): e.g. `task/M1.4-scenes`.
   - Built-in fields stay: Milestone, Linked pull requests, Labels.
 
-`cargo xtask tasks setup` creates the milestones, the labels (including `baseline-approved`) and the
+`cargo xtask tasks setup` creates the milestones, the labels (including the unused `baseline-approved`) and the
 Agent and Branch fields, and keeps the milestones' titles and descriptions equal to `roadmap.md` (§5).
 It is idempotent, and the maintainer approves its first run (it writes to the public repository and
 the project).
@@ -132,10 +132,10 @@ Todo ──(deps done)──► Ready ──claim──► In Progress ──sub
 | `next [--agent <name>]` | list Ready tasks this agent may take: dependencies done, files not overlapping any In Progress or In Review task, not listed after an open review task, `owner: lead` tasks only for the lead. Prints them in `roadmap.md` order, so the first line is the one to claim |
 | `claim <id> --agent <name>` | under the claim lock, re-read the board, refuse if no longer Ready or overlapping, then set In Progress + Agent + Branch, comment "claimed by agent-3 on task/M1.4-scenes", create or reuse the agent's worktree and branch from `origin/main`, and print the agent's environment |
 | `env <name>` | print the agent's environment (`eval "$(cargo xtask tasks env agent-3)"`) |
-| `submit <id> [--body-file F] [--dry-run]` | refuse a review task; refuse unless `cargo xtask ci` passed on this commit (a green `ci` on a clean worktree records `<git common dir>/dalica-ci/<commit>.ok`) and a devlog entry exists; push the branch; open the PR (title `M1.4: <title>`, body: what changed, evidence for each *done when*, numbers, screenshots, `Closes #<issue>`); set In Review. The evidence is the `--body-file` (screenshots, per-point evidence) or, without it, the task's newest dev-log entry. When the branch adds or changes **fingerprint baselines** (`**/fingerprints/*.json`), the body lists them and asks the maintainer for the `baseline-approved` label; the worker attaches their images |
+| `submit <id> [--body-file F] [--dry-run]` | refuse a review task; refuse unless `cargo xtask ci` passed on this commit (a green `ci` on a clean worktree records `<git common dir>/dalica-ci/<commit>.ok`) and a devlog entry exists; push the branch; open the PR (title `M1.4: <title>`, body: what changed, evidence for each *done when*, numbers, screenshots, `Closes #<issue>`); set In Review. The evidence is the `--body-file` (screenshots, per-point evidence) or, without it, the task's newest dev-log entry. When the branch adds, changes or deletes **fingerprint baselines** (`**/fingerprints/*.json`), the body lists them (each marked added, changed or deleted) and says they are approved in bulk at the next review; the worker attaches their images (the new PNG, or the actual/expected/diff PNGs) and the commit body says why each changed |
 | `release <id> --reason …` | back to Ready with a comment; the branch is kept for whoever claims it next |
 | `block <id> "question"` | set Blocked, add `needs-maintainer`, comment the question; the agent then takes another task |
-| `merge <id> [--dry-run]` | lead only, under the merge lock: refuse a review task (only the maintainer merges those), refuse while the latest finished GitHub CI run on `main` is red, rebase origin's copy of the branch on `origin/main` in the `merge` worktree (the worker may still have the branch checked out), refuse while the branch adds or changes a fingerprint baseline and its PR lacks the `baseline-approved` label, `cargo xtask ci`, push, wait until GitHub reports the pushed head of the PR mergeable (it recomputes that after a push and refuses a squash before: read at once, then with backoff for up to 2 minutes; a conflict refuses at once, and nothing is merged either way), squash-merge (`M1.4: <title> (#PR)`, retried up to three times while GitHub still answers "not mergeable") without waiting for the PR's GitHub checks (they and the run on `main` still report), then `sync` against `docs/roadmap.md` as merged on `origin/main` (fetched and read from git, so the task's ✅ counts before the main checkout is pulled; no checkout, clean or dirty, is touched) |
+| `merge <id> [--dry-run]` | lead only, under the merge lock: refuse a review task (only the maintainer merges those), refuse while the latest finished GitHub CI run on `main` is red, rebase origin's copy of the branch on `origin/main` in the `merge` worktree (the worker may still have the branch checked out), `cargo xtask ci`, push, wait until GitHub reports the pushed head of the PR mergeable (it recomputes that after a push and refuses a squash before: read at once, then with backoff for up to 2 minutes; a conflict refuses at once, and nothing is merged either way), squash-merge (`M1.4: <title> (#PR)`, retried up to three times while GitHub still answers "not mergeable") without waiting for the PR's GitHub checks (they and the run on `main` still report); when the branch adds, changes or deletes fingerprint baselines, append a dev-log entry for the next review with one `FINGERPRINTS: <id> #<PR> added\|changed\|deleted <paths>` line per kind (from the local `git diff`, no extra GitHub call; only after the squash succeeded); then `sync` against `docs/roadmap.md` as merged on `origin/main` (fetched and read from git, so the task's ✅ counts before the main checkout is pulled; no checkout, clean or dirty, is touched) |
 | `status` | the whole board: per milestone, per status, who holds what, stale claims (no push or log entry for 3 h) |
 | `log <id> "text"` | append a dated entry to the private dev log (§8) |
 | `prune [--dry-run]` | lead only, at each review (or when disk runs low): remove cargo's `incremental/` caches from `target/agent-<n>` and `target/merge` (§7). Skips an agent that holds an In Progress task, and a profile where cargo is building (it takes cargo's own build locks first, so a cargo that starts meanwhile waits). Only an `incremental/` next to a `.fingerprint/` is removed; symlinks are never followed. Prints what it removed and the space freed |
@@ -191,9 +191,14 @@ All agents run on the maintainer's machine, so local locks make GitHub updates r
   runs are memory-bound: `cargo xtask ci` lowers test parallelism when free RAM is low. Disk is
   the other limit: a long-lived target dir grows from ~3.5 GB to ~10 GB, mostly `incremental/`, so
   the lead runs `cargo xtask tasks prune` at each review.
-- **Fingerprint approvals:** a branch that adds or changes a fingerprint baseline is approved on
-  its pull request: the maintainer looks at the attached images and adds the `baseline-approved`
-  label; `merge` refuses it until then. The worker does not wait: it submits and takes its next task.
+- **Fingerprint approvals:** fingerprint baselines are approved **in bulk at the next review**
+  (`M<n>.A` or `M<n>.R`), not on each pull request (the maintainer's decision, 2026-10-10: in M3
+  nearly every task touches fingerprints, and a per-PR approval stopped the build on each). A
+  branch that adds, changes or deletes a baseline still shows what changed on its PR (the new PNG,
+  or the diff images) and says why in the commit body (`AGENTS.md` §3); `merge` merges it without
+  waiting and records the baselines in the dev log as `FINGERPRINTS:` lines (§5, §8). The review
+  page lists every baseline recorded since the last review with its PR and images; the maintainer
+  approves them all or names the ones to redo, and each rejected baseline becomes a fix task.
 - **Shared files:** workers may tick their own task's ✅ and update their own parity rows (different
   lines, so rebases stay clean). Workers never edit `docs/status.md` (the lead owns it), never edit
   another task's block, and never fix files owned by another in-progress task: they comment on
@@ -213,8 +218,20 @@ Numbers: 200-photo demo library in 1.9 s.
 
 Every task gets one entry before `submit` (what landed, what is still open, numbers); without
 `--body-file`, `submit` uses the task's newest entry as the PR's evidence. The lead
-adds one per merge and per review. Committed history lives in git; the dev log is the
-private narrative the next agent reads after a crash.
+adds one per merge and per review. `merge` itself appends an entry, under the lead's name, for a
+branch that adds, changes or deletes fingerprint baselines:
+
+```markdown
+## 2026-10-12 09:40 · agent-1 · M3.4 Icons
+FINGERPRINTS: M3.4 #120 added crates/ui-kit/tests/fingerprints/icons-light.json crates/ui-kit/tests/fingerprints/icons-dark.json
+FINGERPRINTS: M3.4 #120 changed crates/ui/tests/fingerprints/window-1400.json
+```
+
+The review (`/milestone-review`) lists every `FINGERPRINTS:` line written since the previous review
+for the maintainer to approve (§7).
+
+Committed history lives in git; the dev log is the private narrative the next agent reads after a
+crash.
 
 ## 9. Tests (M0.10)
 
@@ -222,7 +239,7 @@ The `GitHub` trait has an in-memory fake; tests cover parsing every block of `ro
 idempotence, `next` (dependencies, file overlap with globs, gates), 8 concurrent claimers on one
 task (exactly one wins), stale detection on a virtual clock, and `sync` failing when `roadmap.md`,
 the issues and `main` disagree. Since M2.7 they also cover `submit`'s dev-log default and its
-baseline list, `merge` refusing unapproved baselines, `submit`/`merge` dry runs that write nothing,
+baseline list, `submit`/`merge` dry runs that write nothing,
 and `prune` on temporary target dirs (idle and busy agents, a held cargo lock, symlinks, dry run).
 Since the review-stop rule (2026-10-10) they also cover an open review holding back every task
 listed after it (in its milestone and later ones) until its issue is closed, `submit` and `merge`
@@ -230,4 +247,8 @@ refusing review tasks, and `sync` never closing a review's issue. Since the M2 r
 also cover `merge` waiting for GitHub's mergeability (unknown then mergeable, a conflict, a bounded
 give-up, "not mergeable" squash retries), the post-merge `sync` reading `origin/main`'s roadmap
 without touching a dirty checkout, and `setup` renaming, describing and closing milestones (and its
-dry run).
+dry run). Since bulk baseline approval (2026-10-10) they cover `merge` merging a branch with
+fingerprint changes without any label and recording one `FINGERPRINTS:` line per kind (added,
+changed, deleted), recording nothing for a branch without fingerprints or for a merge that failed,
+its dry run reporting the dev-log write instead of making it, and `changed_paths` telling adds,
+changes and deletes apart on a real repository.

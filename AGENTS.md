@@ -113,6 +113,9 @@ L0       core · fs                    (only `fs` writes to disk)
 - Never weaken a gate to make a commit pass: no `#[ignore]` or deleted tests, no relaxed lint, no
   `xtask` check loosened, no `DALICA_BLESS` fingerprint update without looking at the diff images
   and saying why in the commit body. If a gate is wrong, raise it on the task's issue.
+- New or changed fingerprint baselines merge with their task (images on the PR, the why in the
+  commit body); the maintainer approves them **in bulk at the next review** (`M<n>.A`/`M<n>.R`),
+  and a rejected baseline becomes a fix task (`docs/task-board.md` §7).
 - Never claim parity you have not measured. A ✅ parity row is not proof: if you find one wrong,
   downgrade it to 🟡 with a note.
 
