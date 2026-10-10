@@ -40,10 +40,7 @@ impl TempDir {
         for _ in 0..TEMP_TRIES {
             let n = TEMP_SERIAL.fetch_add(1, Ordering::Relaxed);
             let path = parent.join(format!("{prefix}-{pid}-{n}"));
-            let mut builder = std::fs::DirBuilder::new();
-            #[cfg(unix)]
-            std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
-            match builder.create(&path) {
+            match private_dir_builder().create(&path) {
                 Ok(()) => return Ok(TempDir { path, removed: false }),
                 Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => last = path,
                 Err(e) => return Err(io_err("create folder", &path)(e)),
@@ -75,6 +72,21 @@ impl TempDir {
         self.removed = true;
         Ok(())
     }
+}
+
+/// A folder builder whose folders only their owner may enter (mode 0700 on Unix).
+#[cfg(unix)]
+fn private_dir_builder() -> std::fs::DirBuilder {
+    use std::os::unix::fs::DirBuilderExt;
+    let mut builder = std::fs::DirBuilder::new();
+    builder.mode(0o700);
+    builder
+}
+
+/// A folder builder; elsewhere the folder gets the platform's default permissions.
+#[cfg(not(unix))]
+fn private_dir_builder() -> std::fs::DirBuilder {
+    std::fs::DirBuilder::new()
 }
 
 impl Drop for TempDir {
