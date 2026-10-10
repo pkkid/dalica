@@ -9,10 +9,13 @@
 
 pub mod cmd;
 pub mod error;
+pub mod keymap;
 pub mod registry;
 pub mod session;
+pub mod settings;
 pub mod undo;
 
 pub use error::{CmdError, OpenError};
+pub use keymap::{Binding, Key, Keymap, Override};
 pub use registry::{CommandInfo, CommandSpec, Context, Disabled, Effect, History};
 pub use session::Session;

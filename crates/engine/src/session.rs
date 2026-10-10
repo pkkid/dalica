@@ -24,7 +24,9 @@ use dalica_store::{FolderState, Recovery, SidecarWriter, Store};
 use serde_json::Value;
 
 use crate::error::{CmdError, OpenError};
+use crate::keymap::Keymap;
 use crate::registry::{CommandInfo, CommandSpec, History};
+use crate::settings::Settings;
 use crate::undo::{Step, UndoStack};
 
 /// The watched-folders file in the library directory (`data-model.md` §4).
@@ -39,7 +41,8 @@ const TICK: Duration = Duration::from_millis(100);
 enum Msg {
     Journal(Vec<Op>),
     Dirty(Vec<(FolderId, Option<FolderState>)>),
-    Folders(Vec<u8>),
+    /// Atomically replace one of the library directory's own files (`folders.json`, `settings.json`).
+    Write(PathBuf, Vec<u8>),
     Snapshot(Box<Library>),
     Flush(Sender<()>),
 }
@@ -70,6 +73,9 @@ pub struct Session {
     recovery: Vec<Recovery>,
     scan_warnings: Vec<String>,
     ops_since_snapshot: u64,
+    settings: Settings,
+    keymap: Keymap,
+    notices: Vec<String>,
     _lock: LibraryLock,
 }
 
@@ -90,14 +96,20 @@ impl Session {
         let (tx, rx) = mpsc::channel();
         let worker = {
             let (clock, errors) = (Arc::clone(&clock), Arc::clone(&io_errors));
-            let (store, dir) = (opened.store, dir.to_path_buf());
+            let store = opened.store;
             std::thread::Builder::new()
                 .name("dalica-io".into())
-                .spawn(move || io_worker(store, &dir, rx, clock.as_ref(), &errors))
+                .spawn(move || io_worker(store, rx, clock.as_ref(), &errors))
                 .map_err(|e| OpenError::Thread(e.to_string()))?
         };
         let registry = crate::cmd::specs();
-        let by_id = registry.iter().enumerate().map(|(i, s)| (s.id, i)).collect();
+        let by_id: HashMap<&'static str, usize> = registry.iter().enumerate().map(|(i, s)| (s.id, i)).collect();
+        let (settings, settings_note) = Settings::load(dir, clock.now());
+        let mut keymap = Keymap::from_specs(&registry).unwrap_or_else(|e| {
+            log::error!("a default shortcut does not parse: {e}");
+            Keymap::default()
+        });
+        keymap.set_overrides(settings.keymap(&|c| by_id.contains_key(c)));
         let mut session = Session {
             dir: dir.to_path_buf(),
             library: opened.library,
@@ -114,6 +126,9 @@ impl Session {
             recovery,
             scan_warnings: Vec::new(),
             ops_since_snapshot: 0,
+            settings,
+            keymap,
+            notices: settings_note.into_iter().collect(),
             _lock: lock,
         };
         if session.recovery.iter().any(|r| matches!(r, Recovery::RebuildNeeded { .. })) && !session.roots.is_empty() {
@@ -226,7 +241,7 @@ impl Session {
                 serde_json::json!({ "version": 1, "folders": self.roots.iter().map(|p| serde_json::json!({ "path": p })).collect::<Vec<_>>() });
             let mut bytes = serde_json::to_vec_pretty(&json).unwrap_or_default();
             bytes.push(b'\n');
-            self.send(Msg::Folders(bytes));
+            self.send(Msg::Write(self.dir.join(FOLDERS_FILE), bytes));
         }
         self.start_scan(vec![path], ScanKind::Merge);
         new
@@ -339,6 +354,11 @@ impl Session {
         &self.recovery
     }
 
+    /// Other things opening the library repaired or could not read (a damaged `settings.json`).
+    pub fn notices(&self) -> &[String] {
+        &self.notices
+    }
+
     /// What scans could not read, oldest first.
     pub fn scan_warnings(&self) -> &[String] {
         &self.scan_warnings
@@ -347,6 +367,21 @@ impl Session {
     /// Whether background work (a scan) is still running.
     pub fn busy(&self) -> bool {
         !self.scans.is_empty()
+    }
+
+    /// The shortcuts in effect.
+    pub fn keymap(&self) -> &Keymap {
+        &self.keymap
+    }
+
+    /// Changes the keymap (through `f`) and saves the user's overrides in `settings.json`.
+    pub(crate) fn change_keymap<R>(&mut self, f: impl FnOnce(&mut Keymap) -> R) -> R {
+        let r = f(&mut self.keymap);
+        let known: std::collections::HashSet<&str> = self.by_id.keys().copied().collect();
+        self.settings.set_keymap(self.keymap.overrides(), &|c| known.contains(c));
+        let bytes = self.settings.print();
+        self.send(Msg::Write(self.dir.join(crate::settings::FILE), bytes));
+        r
     }
 
     pub fn spec(&self, id: &str) -> Option<&CommandSpec> {
@@ -409,7 +444,7 @@ fn read_roots(path: &Path, now: dalica_core::Timestamp) -> (Vec<PathBuf>, Option
 }
 
 /// The I/O worker: owns the store and the sidecar writer.
-fn io_worker(mut store: Store, dir: &Path, rx: Receiver<Msg>, clock: &dyn Clock, errors: &Mutex<Vec<String>>) {
+fn io_worker(mut store: Store, rx: Receiver<Msg>, clock: &dyn Clock, errors: &Mutex<Vec<String>>) {
     let mut writer = SidecarWriter::new();
     let mut states: HashMap<FolderId, Option<FolderState>> = HashMap::new();
     let fail = |e: String| {
@@ -444,12 +479,11 @@ fn io_worker(mut store: Store, dir: &Path, rx: Receiver<Msg>, clock: &dyn Clock,
                     states.insert(folder, state);
                 }
             }
-            Ok(Msg::Folders(bytes)) => {
-                let path = dir.join(FOLDERS_FILE);
+            Ok(Msg::Write(path, bytes)) => {
                 let result =
                     dalica_fs::identity(&path).and_then(|id| dalica_fs::replace(&path, &bytes, id.map_or(Expect::Absent, Expect::Unchanged)));
                 if let Err(e) = result {
-                    fail(format!("folders.json: {e}"));
+                    fail(format!("{}: {e}", path.file_name().map(|n| n.to_string_lossy()).unwrap_or_default()));
                 }
             }
             Ok(Msg::Snapshot(library)) => {

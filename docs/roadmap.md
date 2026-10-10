@@ -400,7 +400,7 @@ built. Built by a single agent; the waves show what could run in parallel later.
     `edit.undo`, `edit.redo`, `library.rebuild`.
   - done when: each command passes the command test contract (`architecture.md` §3); star 3 →
     undo → `flush` → the sidecar holds 2; a second `Session` on the same library gets `Locked`.
-- ⬜ **M1.14 `engine`: keymap, settings, `panic_hunt`**
+- ✅ **M1.14 `engine`: keymap, settings, `panic_hunt`**
   - after: M1.13
   - files: `crates/engine/src/keymap.rs`, `crates/engine/src/settings.rs`, `crates/engine/src/cmd/app.rs`, `crates/engine/tests/**`
   - scope: contexts, key parsing, defaults from specs, user overrides, resolution order, conflict
