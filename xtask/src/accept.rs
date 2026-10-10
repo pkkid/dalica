@@ -1,6 +1,7 @@
 //! `cargo xtask accept M<n> [--headless]`: runs a milestone's acceptance test
-//! (`cargo test -p dalica-acceptance --test m<n>`) and prints its manual checks
-//! (`tests/acceptance/m<n>.md`) (`docs/roadmap.md` → How milestones work).
+//! (`cargo test -p dalica-acceptance --test m<n>`, or with `--headless` its headless half
+//! `m<n>_headless` when there is one) and prints its manual checks (`tests/acceptance/<test>.md`)
+//! (`docs/roadmap.md` → How milestones work).
 
 use std::path::Path;
 use std::process::Command;
@@ -16,8 +17,13 @@ pub fn parse_milestone(arg: &str) -> Result<u32, String> {
 
 /// Runs the test; `quiet` skips printing the manual checks (used by `ci`).
 pub fn accept(root: &Path, milestone: u32, headless: bool, quiet: bool) -> Result<(), String> {
-    let name = format!("m{milestone}");
-    let test = root.join("tests").join("acceptance").join(format!("{name}.rs"));
+    let dir = root.join("tests").join("acceptance");
+    // `--headless` runs the milestone's headless half (`m<n>_headless`) when it has one.
+    let name = match format!("m{milestone}_headless") {
+        h if headless && dir.join(format!("{h}.rs")).is_file() => h,
+        _ => format!("m{milestone}"),
+    };
+    let test = dir.join(format!("{name}.rs"));
     if !test.is_file() {
         return Err(format!("M{milestone} has no acceptance test yet ({} is missing)", test.display()));
     }
@@ -35,7 +41,7 @@ pub fn accept(root: &Path, milestone: u32, headless: bool, quiet: bool) -> Resul
     }
     println!("accept M{milestone}: passed in {secs:.1} s");
     if !quiet {
-        match std::fs::read_to_string(root.join("tests").join("acceptance").join(format!("{name}.md"))) {
+        match std::fs::read_to_string(dir.join(format!("{name}.md"))) {
             Ok(manual) => println!("\nWhat a human should look at (tests/acceptance/{name}.md):\n\n{manual}"),
             Err(_) => println!("(no tests/acceptance/{name}.md with manual checks)"),
         }
@@ -66,5 +72,7 @@ mod tests {
     fn missing_test_is_an_error() {
         let dir = tempfile::tempdir().unwrap();
         assert!(accept(dir.path(), 999, false, true).unwrap_err().contains("no acceptance test"));
+        // Without a headless half, --headless still looks for the milestone's own test.
+        assert!(accept(dir.path(), 999, true, true).unwrap_err().contains("m999.rs is missing"));
     }
 }

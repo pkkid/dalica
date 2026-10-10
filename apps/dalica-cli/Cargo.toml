@@ -10,6 +10,10 @@ authors.workspace = true
 publish = false
 
 [dependencies]
+dalica-core.workspace = true
+dalica-engine.workspace = true
+serde_json.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
+tempfile.workspace = true

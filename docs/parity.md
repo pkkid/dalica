@@ -27,10 +27,10 @@ same commit.
 | C. Editing | 0 | 0 | 21 | 4 |
 | D. Viewing | 0 | 0 | 6 | 2 |
 | E. Output | 0 | 0 | 2 | 9 |
-| F. Data | 0 | 0 | 6 | 0 |
+| F. Data | 1 | 2 | 3 | 0 |
 | G. Preferences and system | 0 | 0 | 11 | 0 |
 | H. Menus | 0 | 0 | 7 | 0 |
-| **All** | 0 | 0 | 126 | 16 |
+| **All** | 1 | 2 | 123 | 16 |
 <!-- /parity:summary -->
 
 ## Top gaps
@@ -185,12 +185,12 @@ same commit.
 
 | Id | Feature | Tier | Status | Evidence / notes |
 |---|---|---|---|---|
-| DATA-SIDECAR | `.dalica.json` read/write per `data-model.md` §3 | P0 | ⬜ | |
-| DATA-INDEX | Library index journal + snapshot, lock, rebuild | P0 | ⬜ | |
+| DATA-SIDECAR | `.dalica.json` read/write per `data-model.md` §3 | P0 | 🟡 | `star` only (v1); unknown keys kept, debounced atomic writes, damaged files set aside: `crates/sidecar/src/lib.rs`, `crates/store/tests/sidecars.rs`; other fields arrive with their features; a pre-existing file does not get the `dalica.version` stamp yet |
+| DATA-INDEX | Library index journal + snapshot, lock, rebuild | P0 | ✅ | `cmd:library.rebuild`; `crates/store/src/journal.rs`, `crates/fs/src/lock.rs`; measured by `tests/acceptance/m1_headless.rs` |
 | DATA-META | XMP/IPTC/EXIF write-back with merge | P0 | ⬜ | |
 | DATA-ORIGINALS | `.dalica-originals` backups | P0 | ⬜ | |
 | DATA-LEGACY | Legacy sidecars read as a fallback when a folder has no `.dalica.json`; first change writes `.dalica.json`; legacy files never written | P1 | ⬜ | ref 05 §3; `data-model.md` §9 |
-| DATA-TESTS | The eleven data-safety regression tests (`data-model.md` §10) | P0 | ⬜ | |
+| DATA-TESTS | The eleven data-safety regression tests (`data-model.md` §10) | P0 | 🟡 | §10.1 for stars, §10.5, §10.6, §10.7: `crates/store/tests/sidecars.rs`, `crates/fs/tests/lock.rs`, `crates/fs/tests/walk.rs`; the rest arrive with their features |
 
 ## G. Preferences (PREF) and system (SYS)
 

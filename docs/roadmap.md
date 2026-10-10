@@ -409,7 +409,7 @@ built. Built by a single agent; the waves show what could run in parallel later.
   - done when: Ctrl+1 in Library and Edit view is not a conflict while Global + Library on one key
     is; no two default bindings conflict; a rebinding survives a restart;
     `cargo test -p dalica-engine --test panic_hunt -- --ignored` is green.
-- ⬜ **M1.15 `dalica-cli` run and inspect**
+- ✅ **M1.15 `dalica-cli` run and inspect**
   - after: M1.14
   - files: `apps/dalica-cli/src/run.rs`, `apps/dalica-cli/src/inspect.rs`, `apps/dalica-cli/src/main.rs`, `apps/dalica-cli/Cargo.toml`, `tests/acceptance/m1_headless.rs`, `xtask/src/accept.rs`
   - scope: `commands` (the engine registry), `run --library DIR` (JSON-lines script, one result per

@@ -301,7 +301,10 @@ mod tests {
     #[test]
     fn the_real_parity_doc_parses_cleanly() {
         let text = std::fs::read_to_string(root().join("docs/parity.md")).unwrap();
-        let problems = check(&root(), &text, &cmds(&[]));
+        // Cited commands are checked against the real registry by `cargo xtask parity` (a ci step);
+        // here every cited id counts as registered, so only the document's own shape is tested.
+        let cited: Vec<String> = parse_rows(&text).iter().flat_map(|r| cited_commands(&r.evidence)).collect();
+        let problems = check(&root(), &text, &cited.into_iter().collect());
         assert!(problems.is_empty(), "{problems:#?}");
         assert!(parse_rows(&text).len() > 100);
     }

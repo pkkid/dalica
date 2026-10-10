@@ -1,5 +1,5 @@
-//! M0.8: the CLI stubs. `commands` prints the (empty) registry and both binaries print the workspace
-//! version.
+//! The CLI: `commands` prints the engine's registry, `run` executes scripts on a library (exit codes
+//! 0 / 1 / 2 / 3), `inspect` summarises one, and both binaries print the workspace version.
 
 use std::path::Path;
 use std::process::Command;
@@ -18,11 +18,69 @@ fn cli(args: &[&str]) -> (bool, String) {
 }
 
 #[test]
-fn commands_prints_an_empty_registry() {
+fn commands_prints_the_registry() {
     let (ok, out) = cli(&["commands"]);
     assert!(ok);
-    assert_eq!(out.trim(), "[]");
-    assert_eq!(serde_json::from_str::<serde_json::Value>(&out).unwrap(), serde_json::json!([]));
+    let list: Vec<serde_json::Value> = serde_json::from_str(&out).unwrap();
+    let star = list.iter().find(|c| c["id"] == "photo.star.toggle").unwrap();
+    assert_eq!((star["label"].as_str(), star["shortcut"].as_str()), (Some("Star / Unstar"), Some("Ctrl+8")));
+    for id in ["folders.add", "library.query", "library.rebuild", "photo.inspect", "photo.star.set", "edit.undo", "edit.redo", "app.setShortcut"] {
+        assert!(list.iter().any(|c| c["id"] == id), "{id}");
+    }
+}
+
+fn run(args: &[&str], stdin: &str) -> (Option<i32>, Vec<serde_json::Value>, String) {
+    use std::io::Write;
+    let mut child = Command::new(env!("CARGO_BIN_EXE_dalica-cli"))
+        .args(args)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(stdin.as_bytes()).unwrap();
+    let out = child.wait_with_output().unwrap();
+    let lines = String::from_utf8(out.stdout).unwrap().lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+    (out.status.code(), lines, String::from_utf8_lossy(&out.stderr).into_owned())
+}
+
+#[test]
+fn run_prints_one_result_per_line_and_sets_the_exit_code() {
+    let lib = tempfile::tempdir().unwrap();
+    let dir = lib.path().to_str().unwrap();
+    let (code, lines, _) = run(&["run", "--library", dir], "# a comment\n\n{\"command\": \"library.query\", \"params\": {}}\n");
+    assert_eq!(code, Some(0));
+    assert_eq!(lines.len(), 1);
+    assert_eq!(lines[0]["ok"], true);
+    assert_eq!(lines[0]["result"]["total"], 0);
+    // A failed command: exit 1, the script goes on.
+    let (code, lines, _) = run(&["run", "--library", dir, "-"], "{\"command\": \"edit.undo\"}\n{\"command\": \"library.query\"}\n");
+    assert_eq!(code, Some(1));
+    assert_eq!((lines[0]["ok"].as_bool(), lines[0]["code"].as_str(), lines[1]["ok"].as_bool()), (Some(false), Some("disabled"), Some(true)));
+    // A bad line: exit 2 at that line.
+    for bad in ["not json\n", "{\"params\": {}}\n", "{\"command\": \"x\", \"extra\": 1}\n"] {
+        let (code, lines, err) =
+            run(&["run", "--library", dir], &format!("{{\"command\": \"library.query\"}}\n{bad}{{\"command\": \"library.query\"}}\n"));
+        assert_eq!(code, Some(2), "{bad}");
+        assert_eq!(lines.len(), 1, "{bad}");
+        assert!(err.contains("line 2"), "{err}");
+    }
+    // One command with --cmd.
+    let (code, lines, _) = run(&["run", "--library", dir, "--cmd", "photo.inspect", "--params", "{\"ids\": [5]}"], "");
+    assert_eq!((code, lines[0]["code"].as_str()), (Some(1), Some("not_found")));
+    let (code, ..) = run(&["run", "--library", dir, "--cmd", "photo.inspect", "--params", "{oops"], "");
+    assert_eq!(code, Some(2));
+    let (code, ..) = run(&["run"], "");
+    assert_eq!(code, Some(2));
+}
+
+#[test]
+fn inspect_summarises_a_library() {
+    let lib = tempfile::tempdir().unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_dalica-cli")).args(["inspect", "--library", lib.path().to_str().unwrap()]).output().unwrap();
+    assert!(out.status.success());
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!((v["photos"].as_u64(), v["folders"].as_array().map(Vec::len)), (Some(0), Some(0)));
 }
 
 #[test]
