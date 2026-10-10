@@ -12,17 +12,18 @@ publish = false
 [dependencies]
 dalica-core.workspace = true
 dalica-engine.workspace = true
+dalica-fs.workspace = true
 dalica-image.workspace = true
 dalica-library.workspace = true
 dalica-thumbs.workspace = true
 dalica-ui-kit.workspace = true
 egui.workspace = true
 log.workspace = true
+png.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
-dalica-fs.workspace = true
 dalica-scenes.workspace = true
 tempfile.workspace = true
