@@ -234,7 +234,14 @@ pub fn check_sources(meta: &Metadata) -> Vec<Violation> {
         }
         for file in rust_files(&package.dir().join("src")) {
             let Ok(text) = std::fs::read_to_string(&file) else { continue };
-            let rel = file.strip_prefix(&meta.workspace_root).unwrap_or(&file).display().to_string();
+            // Forward slashes on every OS, like git's paths.
+            let rel = file
+                .strip_prefix(&meta.workspace_root)
+                .unwrap_or(&file)
+                .components()
+                .map(|c| c.as_os_str().to_string_lossy())
+                .collect::<Vec<_>>()
+                .join("/");
             for (line, what) in fs_writes(&text) {
                 out.push(Violation {
                     krate: package.name.clone(),

@@ -319,9 +319,12 @@ fn setup_is_idempotent() {
 
 #[test]
 fn agent_environment() {
-    let out = super::env_lines("agent-3", Path::new("/src/dalica"), Path::new("/tmp/scratch")).unwrap();
-    assert!(out.contains("export DALICA_WORKTREE='/src/dalica.worktrees/agent-3'"), "{out}");
-    assert!(out.contains("export CARGO_TARGET_DIR='/src/dalica/target/agent-3'"));
+    let main = Path::new("/src/dalica");
+    let out = super::env_lines("agent-3", main, Path::new("/tmp/scratch")).unwrap();
+    // Paths are joined with the platform separator.
+    let worktree = Path::new("/src").join("dalica.worktrees").join("agent-3");
+    assert!(out.contains(&format!("export DALICA_WORKTREE='{}'", worktree.display())), "{out}");
+    assert!(out.contains(&format!("export CARGO_TARGET_DIR='{}'", main.join("target").join("agent-3").display())), "{out}");
     assert!(out.contains("export CARGO_BUILD_JOBS=3"));
     assert!(out.contains("export DALICA_CONTROL_PORT=18030"));
     assert!(super::env_lines("agent-0", Path::new("/x"), Path::new("/y")).is_err());
