@@ -125,10 +125,25 @@ fn find_incremental(dir: &Path, depth: usize, visited: &mut usize, found: &mut V
     }
 }
 
-/// Takes cargo's locks of `profile` without waiting. Err says why not (cargo is building there).
-/// A dry run opens only lock files that exist, read-only, and creates nothing.
-fn lock_profile(profile: &Path, dry_run: bool) -> Result<Vec<File>, String> {
-    let mut held = Vec::new();
+/// Cargo's locks of one profile, held by prune. Dropping it unlocks each file before closing it.
+/// Closing alone is not enough: the lock belongs to the open file, and a child process spawned
+/// meanwhile (by another thread) holds a copy of every open file until its exec closes them, so
+/// the lock could outlive prune for a moment and make a cargo starting then wait.
+struct Held(Vec<File>);
+
+impl Drop for Held {
+    fn drop(&mut self) {
+        for file in &self.0 {
+            let _ = file.unlock();
+        }
+    }
+}
+
+/// Takes cargo's locks of `profile` without waiting. Err says why not (cargo is building there),
+/// and has released the locks already taken. A dry run opens only lock files that exist,
+/// read-only, and creates nothing.
+fn lock_profile(profile: &Path, dry_run: bool) -> Result<Held, String> {
+    let mut held = Held(Vec::new());
     for name in CARGO_LOCKS {
         let path = profile.join(name);
         let file = if dry_run {
@@ -141,7 +156,7 @@ fn lock_profile(profile: &Path, dry_run: bool) -> Result<Vec<File>, String> {
         };
         let file = file.map_err(|e| format!("cannot open {name}: {e}"))?;
         match file.try_lock() {
-            Ok(()) => held.push(file),
+            Ok(()) => held.0.push(file),
             Err(TryLockError::WouldBlock) => return Err("cargo is building there".into()),
             Err(TryLockError::Error(e)) => return Err(format!("cannot lock {name}: {e}")),
         }
@@ -293,11 +308,41 @@ mod tests {
             assert_eq!(report.freed, 0);
             assert!(debug.join("incremental").is_dir());
         }
-        // Once cargo is done, it goes.
+        // Once cargo is done, it goes. Unlock before closing, as cargo's lock release does in
+        // effect: other tests in this binary spawn git meanwhile, and a child spawned while `lock`
+        // is open holds a copy of it until its exec closes it, which keeps a merely closed lock
+        // held for a moment (it failed this way on macOS CI).
+        lock.unlock().unwrap();
         drop(lock);
         let report = prune(root, &BTreeMap::new(), false);
         assert_eq!(report.lines, ["agent-4: removed target/agent-4/debug/incremental (100 B)"]);
         assert!(!debug.join("incremental").exists());
+    }
+
+    #[test]
+    fn a_copy_of_a_lock_file_left_open_elsewhere_keeps_no_lock() {
+        // A child process spawned while prune holds cargo's locks holds a copy of each lock file
+        // until its exec closes it; `try_clone` makes the same kind of copy.
+        let tmp = tempfile::tempdir().unwrap();
+        let debug = tmp.path().join("debug");
+        profile(&debug, 1);
+        let held = lock_profile(&debug, false).unwrap();
+        assert_eq!(held.0.len(), CARGO_LOCKS.len());
+        let copies: Vec<File> = held.0.iter().map(|f| f.try_clone().unwrap()).collect();
+        drop(held);
+        // Cargo starting now gets every lock at once, although the copies are still open.
+        let cargo = lock_profile(&debug, false).unwrap();
+        assert_eq!(cargo.0.len(), CARGO_LOCKS.len());
+        drop(copies);
+
+        // Locks taken before a refusal are released too: a cargo holding `.cargo-build-lock`
+        // makes prune give up after taking `.cargo-lock`, and must not leave that one locked.
+        let build = OpenOptions::new().read(true).write(true).open(debug.join(".cargo-build-lock")).unwrap();
+        drop(cargo);
+        build.lock().unwrap();
+        assert_eq!(lock_profile(&debug, false).err().as_deref(), Some("cargo is building there"));
+        let first = OpenOptions::new().read(true).write(true).open(debug.join(".cargo-lock")).unwrap();
+        assert!(first.try_lock().is_ok(), "the refused prune released .cargo-lock");
     }
 
     #[test]
