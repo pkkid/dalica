@@ -1,16 +1,193 @@
 //! Icons drawn in code on a 20 × 20 design grid (`design-system.md` §5): our own drawings, tinted
-//! by the caller, stroke `max(1.5·k, 1)` where `k = side / 20`. No icon fonts, no bitmaps.
+//! by the caller, stroke `max(1.5·k, 1)` where `k = side / 20`, round caps. No icon fonts, no
+//! bitmaps, no SVG files: every glyph of the window shell is drawn here.
+//!
+//! Use: `icons::paint(painter, rect, Icon::Folder, tokens.icon)` paints the glyph centred in the
+//! largest square that fits `rect`; [`paint_activity`] draws the spinner at an animation step.
+//! Sizes (§5): 16 tree rows and menus, 18 toolbar toggles, 20 edit tools, 28 big action buttons,
+//! 12 thumbnail badges; the caption glyphs read best at 10–12 inside their 46 × 24 buttons.
+
+mod glyphs;
+mod pen;
 
 use egui::{Color32, Mesh, Painter, Pos2, Rect, Shape, Stroke, pos2};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Every icon of the shell. Keep [`Icon::ALL`] in declaration order (a test checks it).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Icon {
-    /// A filled five-pointed star: the photo is starred.
+    /// A filled five-pointed star: the photo is starred; the Starred filter.
     Star,
     /// The same star as an outline: not starred.
     StarOutline,
     /// A plus sign: add something.
     Plus,
+    /// Dalica's mark: a framed picture of a sun over two hills (title bar, About).
+    AppMark,
+    /// A camera: Import.
+    Import,
+    /// A photo album (a book with a picture on its cover): albums in the tree.
+    Album,
+    /// An album with a plus: New Album.
+    NewAlbum,
+    /// An album with a caret: Add to Album ▾ in the tray.
+    AddToAlbum,
+    /// Three bulleted rows: the tree shown as a flat list.
+    FlatList,
+    /// An indented hierarchy: the tree shown as a tree.
+    Tree,
+    /// A chevron pointing down: expanded rows, dropdowns, view options.
+    ChevronDown,
+    /// A chevron pointing up.
+    ChevronUp,
+    /// A chevron pointing right: collapsed rows, submenus.
+    ChevronRight,
+    /// A chevron pointing left.
+    ChevronLeft,
+    /// Two chevrons pointing left («): the side-pane header.
+    ChevronsLeft,
+    /// A smiling face: the Faces filter.
+    Faces,
+    /// A video camera: the Videos filter.
+    Videos,
+    /// A map pin: the Geotagged filter.
+    Geotagged,
+    /// A magnifier: the search field.
+    Search,
+    /// A cross in a circle: clear the search field.
+    ClearSearch,
+    /// Eight spokes, graded: the activity indicator ([`paint_activity`] animates it).
+    Activity,
+    /// A push pin: Hold (keep photos in the tray).
+    Hold,
+    /// A circle with a slash: Clear the tray.
+    ClearTray,
+    /// An arrow turning counterclockwise: Rotate Counterclockwise.
+    RotateCcw,
+    /// An arrow turning clockwise: Rotate Clockwise.
+    RotateCw,
+    /// A magnifier with a plus: the loupe.
+    Loupe,
+    /// Two people: the People pane toggle.
+    People,
+    /// A folded map: the Places pane toggle.
+    Places,
+    /// A price tag: the Tags pane toggle.
+    Tags,
+    /// "i" in a circle: the Properties pane toggle.
+    Properties,
+    /// An arrow leaving a box: Export.
+    Export,
+    /// A frame split into three pictures: Collage.
+    Collage,
+    /// A screen with a play triangle: Slideshow.
+    Slideshow,
+    /// Three dots: More… (overflow).
+    More,
+    /// A folder: folders in the tree.
+    Folder,
+    /// A horizontal bar: the Minimize caption button.
+    Minimize,
+    /// A square: the Maximize caption button.
+    Maximize,
+    /// Two overlapping squares: the Restore caption button.
+    Restore,
+    /// A cross: the Close caption button, close buttons.
+    Close,
+}
+
+impl Icon {
+    /// Every icon, in declaration order.
+    pub const ALL: [Icon; 39] = [
+        Icon::Star,
+        Icon::StarOutline,
+        Icon::Plus,
+        Icon::AppMark,
+        Icon::Import,
+        Icon::Album,
+        Icon::NewAlbum,
+        Icon::AddToAlbum,
+        Icon::FlatList,
+        Icon::Tree,
+        Icon::ChevronDown,
+        Icon::ChevronUp,
+        Icon::ChevronRight,
+        Icon::ChevronLeft,
+        Icon::ChevronsLeft,
+        Icon::Faces,
+        Icon::Videos,
+        Icon::Geotagged,
+        Icon::Search,
+        Icon::ClearSearch,
+        Icon::Activity,
+        Icon::Hold,
+        Icon::ClearTray,
+        Icon::RotateCcw,
+        Icon::RotateCw,
+        Icon::Loupe,
+        Icon::People,
+        Icon::Places,
+        Icon::Tags,
+        Icon::Properties,
+        Icon::Export,
+        Icon::Collage,
+        Icon::Slideshow,
+        Icon::More,
+        Icon::Folder,
+        Icon::Minimize,
+        Icon::Maximize,
+        Icon::Restore,
+        Icon::Close,
+    ];
+
+    /// The icon's stable kebab-case name (icon sheets, inspection output).
+    pub fn name(self) -> &'static str {
+        match self {
+            Icon::Star => "star",
+            Icon::StarOutline => "star-outline",
+            Icon::Plus => "plus",
+            Icon::AppMark => "app-mark",
+            Icon::Import => "import",
+            Icon::Album => "album",
+            Icon::NewAlbum => "new-album",
+            Icon::AddToAlbum => "add-to-album",
+            Icon::FlatList => "flat-list",
+            Icon::Tree => "tree",
+            Icon::ChevronDown => "chevron-down",
+            Icon::ChevronUp => "chevron-up",
+            Icon::ChevronRight => "chevron-right",
+            Icon::ChevronLeft => "chevron-left",
+            Icon::ChevronsLeft => "chevrons-left",
+            Icon::Faces => "faces",
+            Icon::Videos => "videos",
+            Icon::Geotagged => "geotagged",
+            Icon::Search => "search",
+            Icon::ClearSearch => "clear-search",
+            Icon::Activity => "activity",
+            Icon::Hold => "hold",
+            Icon::ClearTray => "clear-tray",
+            Icon::RotateCcw => "rotate-ccw",
+            Icon::RotateCw => "rotate-cw",
+            Icon::Loupe => "loupe",
+            Icon::People => "people",
+            Icon::Places => "places",
+            Icon::Tags => "tags",
+            Icon::Properties => "properties",
+            Icon::Export => "export",
+            Icon::Collage => "collage",
+            Icon::Slideshow => "slideshow",
+            Icon::More => "more",
+            Icon::Folder => "folder",
+            Icon::Minimize => "minimize",
+            Icon::Maximize => "maximize",
+            Icon::Restore => "restore",
+            Icon::Close => "close",
+        }
+    }
+
+    /// The icon called `name` ([`Icon::name`]), if any.
+    pub fn from_name(name: &str) -> Option<Icon> {
+        Icon::ALL.into_iter().find(|i| i.name() == name)
+    }
 }
 
 /// The five outer and five inner points of the star on the 20 × 20 grid, mapped into `rect`.
@@ -32,13 +209,26 @@ pub fn stroke_width(side: f32) -> f32 {
     (1.5 * side / 20.0).max(1.0)
 }
 
-/// Paints `icon` in `color`, centred in the largest square that fits `rect`.
-pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
+/// The largest square that fits `rect`, centred in it; `None` for an empty or non-finite rect.
+fn square(rect: Rect) -> Option<Rect> {
     let side = rect.width().min(rect.height());
-    if !(side.is_finite() && side > 0.0) {
-        return;
-    }
-    let rect = Rect::from_center_size(rect.center(), egui::vec2(side, side));
+    (side.is_finite() && side > 0.0 && rect.center().is_finite()).then(|| Rect::from_center_size(rect.center(), egui::vec2(side, side)))
+}
+
+/// Paints the activity spinner in `color` at animation `phase` (in turns; the bright spoke steps
+/// clockwise eight times per turn), centred in the largest square that fits `rect`. Phase 0 is
+/// [`Icon::Activity`]; a non-finite phase draws phase 0.
+pub fn paint_activity(painter: &Painter, rect: Rect, color: Color32, phase: f32) {
+    let Some(rect) = square(rect) else { return };
+    let step = if phase.is_finite() { (phase.rem_euclid(1.0) * 8.0).floor() as u32 % 8 } else { 0 };
+    glyphs::spokes(&pen::Pen::new(painter, rect, color), step);
+}
+
+/// Paints `icon` in `color`, centred in the largest square that fits `rect`. An empty or
+/// non-finite rect paints nothing.
+pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
+    let Some(rect) = square(rect) else { return };
+    let side = rect.width();
     let k = side / 20.0;
     match icon {
         Icon::Star => {
@@ -65,6 +255,7 @@ pub fn paint(painter: &Painter, rect: Rect, icon: Icon, color: Color32) {
             painter.line_segment([c - egui::vec2(r, 0.0), c + egui::vec2(r, 0.0)], stroke);
             painter.line_segment([c - egui::vec2(0.0, r), c + egui::vec2(0.0, r)], stroke);
         }
+        other => glyphs::draw(&pen::Pen::new(painter, rect, color), other),
     }
 }
 
@@ -82,5 +273,32 @@ mod tests {
         }
         assert_eq!(stroke_width(12.0), 1.0);
         assert_eq!(stroke_width(20.0), 1.5);
+    }
+
+    #[test]
+    fn all_lists_every_icon_once_in_declaration_order() {
+        for (i, icon) in Icon::ALL.iter().enumerate() {
+            assert_eq!(*icon as usize, i, "{icon:?}");
+        }
+        // `Close` is the last variant: a variant added after it without an `ALL` entry fails here.
+        assert_eq!(Icon::Close as usize + 1, Icon::ALL.len());
+        let mut names: Vec<_> = Icon::ALL.iter().map(|i| i.name()).collect();
+        names.sort_unstable();
+        names.dedup();
+        assert_eq!(names.len(), Icon::ALL.len(), "names are unique");
+        for icon in Icon::ALL {
+            assert_eq!(Icon::from_name(icon.name()), Some(icon));
+        }
+        assert_eq!(Icon::from_name("camera"), None);
+    }
+
+    #[test]
+    fn arcs_have_at_least_two_points_and_end_where_asked() {
+        let pts = pen::arc_points(10.0, 10.0, 5.0, 0.0, 90.0);
+        assert!(pts.len() >= 10);
+        let last = pts.last().copied().unwrap();
+        assert!((last.0 - 10.0).abs() < 1e-4 && (last.1 - 15.0).abs() < 1e-4, "{last:?}");
+        assert_eq!(pen::arc_points(0.0, 0.0, 1.0, 5.0, 5.0).len(), 2);
+        assert_eq!(pen::arc_points(0.0, 0.0, 1.0, 0.0, f32::NAN).len(), 2);
     }
 }

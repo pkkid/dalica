@@ -696,7 +696,7 @@ with the rest at the next review.
   - done when: `cargo test -p dalica-ui-kit` renders a gallery of every widget in every state
     (rest, hover, pressed, active, disabled, focused) identically twice and matches its
     fingerprints; contrast tests cover every text/background pair of §9.
-- ⬜ **M3.2 `ui-kit`: shell icons drawn in code**
+- ✅ **M3.2 `ui-kit`: shell icons drawn in code**
   - after: M2.1, M2.2
   - files: `crates/ui-kit/src/icons.rs`, `crates/ui-kit/src/icons/**`, `crates/ui-kit/tests/icons.rs`, `crates/ui-kit/tests/fingerprints/icons*.json`, `assets/icons/**`, `ATTRIBUTION.md`
   - scope: every icon the shell shows (`design-system.md` §5, `ui-layout.md` §3, §6): app mark,
