@@ -125,6 +125,18 @@ fn sync_of_the_real_roadmap_is_idempotent_and_ordered() {
     // Merge evidence for every ✅ task, as `main` would have it.
     let done: Vec<String> = w.roadmap.tasks.iter().filter(|t| t.done).map(|t| t.id.clone()).collect();
     w.git.merged.lock().unwrap().extend(done);
+    // A ✅ gate's issue was closed by the maintainer: sync with those gates still ⬜ to create
+    // their issues, close them, then sync the real text.
+    let gates: Vec<String> = w.roadmap.tasks.iter().filter(|t| t.done && t.is_gate()).map(|t| t.id.clone()).collect();
+    let mut open = text.clone();
+    for g in &gates {
+        open = open.replace(&format!("- ✅ **{g} "), &format!("- ⬜ **{g} "));
+    }
+    w.roadmap = roadmap::parse(&open).unwrap();
+    w.board().sync().unwrap();
+    for g in &gates {
+        w.gh.close_issue(w.issue_of(g), "approved").unwrap();
+    }
     w.roadmap = roadmap::parse(&text).unwrap();
     w.board().sync().unwrap();
     // Shuffle the board, then sync puts it back in roadmap order.
