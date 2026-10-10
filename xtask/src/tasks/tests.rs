@@ -95,7 +95,7 @@ impl World {
     }
 
     fn next_ids(&self) -> Vec<String> {
-        self.board().next().unwrap().into_iter().map(|t| t.id.clone()).collect()
+        self.board().next(None).unwrap().into_iter().map(|t| t.id.clone()).collect()
     }
 }
 
@@ -288,9 +288,58 @@ fn release_block_and_submit() {
     let url = w.board().submit("M0.1", &dir, None).unwrap();
     assert!(url.contains("/pull/"));
     assert_eq!(w.status_of("M0.1"), Some(Status::InReview));
+    // A red `main` on GitHub CI stops every merge until it is fixed.
+    w.gh.lock().main_ci_failure = Some("M0.9: x https://example.test/run/1".into());
+    let err = w.board().merge("M0.1").unwrap_err();
+    assert!(err.contains("main is red"), "{err}");
+    w.gh.lock().main_ci_failure = None;
     // In review, its files still block overlapping work; merge squashes with the task id.
     let subject = w.board().merge("M0.1").unwrap();
     assert_eq!(subject, "M0.1: Skeleton (#100)");
+}
+
+const CHECK_IN: &str = "\
+| Phase | # | Milestone | One-line goal | Status |
+|---|---|---|---|---|
+| F | M0 | Skeleton | an empty workspace | ⬜ |
+| | M1 | Star | star a photo | ⬜ |
+
+- ⬜ **M0.1 Skeleton**
+  - after: —
+  - files: `crates/**`
+  - scope: s
+  - done when: d
+- ⬜ **M0.R Check-in**
+  - after: —
+  - owner: OWNER
+  - files: `docs/status.md`
+  - scope: s
+  - done when: d
+- ⬜ **M1.1 Core**
+  - after: —
+  - files: `xtask/**`
+  - scope: s
+  - done when: d
+";
+
+#[test]
+fn only_maintainer_gates_block_and_lead_tasks_are_the_leads() {
+    // A maintainer's gate holds back the next milestone.
+    let w = World::new(&CHECK_IN.replace("OWNER", "maintainer"));
+    w.board().sync().unwrap();
+    assert_eq!(w.next_ids(), ["M0.1"]);
+
+    // A lead's check-in blocks nothing, and only the lead may take it.
+    let w = World::new(&CHECK_IN.replace("OWNER", "lead"));
+    w.board().sync().unwrap();
+    assert_eq!(w.next_ids(), ["M0.1", "M0.R", "M1.1"]);
+    let ids = |agent| w.board().next(Some(agent)).unwrap().into_iter().map(|t| t.id.clone()).collect::<Vec<_>>();
+    assert_eq!(ids("agent-3"), ["M0.1", "M1.1"]);
+    assert_eq!(ids("agent-1"), ["M0.1", "M0.R", "M1.1"]);
+    let err = w.board().claim("M0.R", "agent-3").unwrap_err();
+    assert!(err.contains("belongs to the lead"), "{err}");
+    w.board().claim("M0.R", "agent-1").unwrap();
+    assert_eq!(w.status_of("M0.R"), Some(Status::InProgress));
 }
 
 #[test]

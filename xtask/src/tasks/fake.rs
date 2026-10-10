@@ -19,6 +19,8 @@ pub struct State {
     pub fields: ProjectFields,
     pub prs: Vec<(String, PullRequest)>,
     pub merged_prs: Vec<(u64, String)>,
+    /// When set, the latest CI run on `main` failed (`main_ci_failure`).
+    pub main_ci_failure: Option<String>,
     /// The project's auto-add workflow: a created issue lands on the board at once.
     pub auto_add: bool,
     /// Reads of the item list that still miss auto-added items (GitHub lists them a moment late).
@@ -218,8 +220,8 @@ impl GitHub for FakeGitHub {
         Ok(pr)
     }
 
-    fn wait_for_checks(&self, _pr: u64) -> Result<(), String> {
-        Ok(())
+    fn main_ci_failure(&self) -> Result<Option<String>, String> {
+        Ok(self.lock().main_ci_failure.clone())
     }
 
     fn squash_merge(&self, pr: u64, subject: &str) -> Result<(), String> {

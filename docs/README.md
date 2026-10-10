@@ -20,7 +20,7 @@ Start with [`product.md`](product.md), then [`ui-layout.md`](ui-layout.md).
 | [design-system.md](design-system.md) | draw anything (colours, type, metrics, icons, widgets) |
 | [architecture.md](architecture.md) | add a crate, a command, a thread, a cache; need the automation hooks |
 | [control-protocol.md](control-protocol.md) | drive or screenshot the app from a script or agent, add a control method or widget id, use headless snapshots (planned, M2) |
-| [mcp.md](mcp.md) | connect an AI agent over MCP, add an MCP tool, write a workflow acceptance test (planned, M21) |
+| [mcp.md](mcp.md) | connect an AI agent over MCP, add an MCP tool, write a workflow acceptance test (planned, M10) |
 | [showcase.md](showcase.md) | make or update README screenshots (scripted, procedural or public-domain photos only) |
 | [development.md](development.md) | build, run, test, benchmark, use xtask |
 | [process.md](process.md) | want to know how we work with AI agents, clean-room rules, reviews, verification |
@@ -32,11 +32,11 @@ Start with [`product.md`](product.md), then [`ui-layout.md`](ui-layout.md).
 | [contributors.md](contributors.md) | want to know how people and AI models are credited in the About window |
 | [assets.md](assets.md) | add an image, icon, font, sound, screenshot or test photo; touch the app icon |
 | [localization.md](localization.md) | write user-facing text, or add or maintain a translation |
-| [releasing.md](releasing.md) | cut a release, touch packaging or signing (planned, M11) |
+| [releasing.md](releasing.md) | cut a release, touch packaging or signing (planned, M6) |
 | [whats-new.md](whats-new.md) | ship a user-visible change (the user-facing changelog) |
 | [formats.md](formats.md) | touch decoding, thumbnails, RAW previews, HEIF, or the decode limits |
 | [xmp-interop.md](xmp-interop.md) | read or write XMP/IPTC/EXIF in photo files or `.xmp` sidecars (captions, tags, ratings, GPS, dates, face regions) |
-| [faces.md](faces.md) | work on face detection, recognition, models, grouping or suggestions (planned, M29) |
+| [faces.md](faces.md) | work on face detection, recognition, models, grouping or suggestions (planned, M13) |
 
 Conventions in these docs:
 - Sizes are in points at 100 % UI scale; "W" is the window width.

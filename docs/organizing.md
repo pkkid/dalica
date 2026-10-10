@@ -270,7 +270,7 @@ Manager.
   names, captions, tags, people names, folder and album names, places, descriptions, dates (month
   names, years, `2026-06`), camera make/model, and dimensions. Several words = AND. Operators:
   `-word` (NOT), `tag:word`, `person:name`, `camera:x`, `color:green` (a later milestone, decided at
-  the M18 review; dominant colour).
+  the M9 review; dominant colour).
 - Autocomplete dropdown lists matching tags, folders, albums and people with counts.
 - Results: only matching folders/albums/photos are shown; a **filter banner** across the top of the
   light table: [**Show All**] + "Showing 33 pictures in 4 folders (0.01 s)"; a temporary album
@@ -351,4 +351,4 @@ By ▸.
 
 ## 11. Open questions (reserved for the maintainer)
 
-1. Whether `color:` search ships in M18 or later.
+1. Whether `color:` search ships in M9 or later.

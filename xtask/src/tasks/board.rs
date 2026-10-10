@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use super::body;
-use super::config::{LABEL_BLOCKED, LABEL_GATE, LABEL_STALE, LABEL_TASK, LABELS, MAINTAINER, STALE_SECS};
+use super::config::{LABEL_BLOCKED, LABEL_GATE, LABEL_STALE, LABEL_TASK, LABELS, LEAD, MAINTAINER, STALE_SECS};
 use super::devlog;
 use super::git::{Clock, Git};
 use super::github::{ALREADY_IN_PROJECT, GitHub, Issue, IssueEdit, Item, NewIssue, Status, TextField};
@@ -80,9 +80,10 @@ impl Board<'_> {
         task.after.iter().all(|d| self.roadmap.task(d).is_some_and(|t| snap.done(t)))
     }
 
-    /// The lowest milestone with an open review gate; tasks of later milestones wait for it.
+    /// The lowest milestone with an open review gate the maintainer owns; tasks of later milestones
+    /// wait for it. A gate the lead owns (a check-in) blocks nothing.
     fn open_gate_milestone(&self, snap: &Snapshot) -> Option<u32> {
-        self.roadmap.tasks.iter().filter(|t| t.is_gate() && !snap.done(t)).map(|t| t.milestone).min()
+        self.roadmap.tasks.iter().filter(|t| t.is_gate() && t.owner == Owner::Maintainer && !snap.done(t)).map(|t| t.milestone).min()
     }
 
     /// Where `roadmap.md`, the issues and `main` disagree; `sync` refuses to touch the board then.
@@ -235,10 +236,13 @@ impl Board<'_> {
         Ok(report)
     }
 
-    /// Why `task` may not be claimed now, or `None` if it may.
-    fn refusal(&self, snap: &Snapshot, task: &Task) -> Option<String> {
+    /// Why `task` may not be claimed now (by `agent`, when known), or `None` if it may.
+    fn refusal(&self, snap: &Snapshot, task: &Task, agent: Option<&str>) -> Option<String> {
         if task.owner == Owner::Maintainer {
             return Some(format!("{} belongs to the maintainer", task.id));
+        }
+        if task.owner == Owner::Lead && agent.is_some_and(|a| a != LEAD) {
+            return Some(format!("{} belongs to the lead ({LEAD})", task.id));
         }
         if snap.done(task) {
             return Some(format!("{} is done", task.id));
@@ -267,16 +271,16 @@ impl Board<'_> {
     }
 
     /// `tasks next`: the tasks this agent may claim, in roadmap order.
-    pub fn next(&self) -> Result<Vec<&Task>, String> {
+    pub fn next(&self, agent: Option<&str>) -> Result<Vec<&Task>, String> {
         let snap = self.snapshot()?;
-        Ok(self.roadmap.tasks.iter().filter(|t| self.refusal(&snap, t).is_none()).collect())
+        Ok(self.roadmap.tasks.iter().filter(|t| self.refusal(&snap, t, agent).is_none()).collect())
     }
 
     /// `tasks claim`: the caller holds the claim lock.
     pub fn claim(&self, id: &str, agent: &str) -> Result<Claim, String> {
         let task = self.task(id)?;
         let snap = self.snapshot()?;
-        if let Some(why) = self.refusal(&snap, task) {
+        if let Some(why) = self.refusal(&snap, task, Some(agent)) {
             return Err(format!("cannot claim: {why}"));
         }
         let (issue, item) = self.issue_and_item(&snap, task)?;
@@ -380,10 +384,14 @@ impl Board<'_> {
         let (_, item) = self.require_status(&snap, task, &[Status::InReview])?;
         let branch = if item.branch.is_empty() { task.branch() } else { item.branch.clone() };
         let pr = self.gh.find_pr(&branch)?.ok_or_else(|| format!("no open pull request for {branch}"))?;
+        // The local gate decides the merge; GitHub's three-OS run checks `main` after it, and a red
+        // `main` stops further merges until it is fixed (`task-board.md` §5).
+        if let Some(run) = self.gh.main_ci_failure()? {
+            return Err(format!("main is red on GitHub CI ({run}); fix it before merging anything else"));
+        }
         let dir = self.git.rebase_for_merge(&branch)?;
         self.git.run_ci(&dir)?;
         self.git.push(&dir, &branch)?;
-        self.gh.wait_for_checks(pr.number)?;
         let subject = format!("{}: {} (#{})", task.id, task.plain_title(), pr.number);
         self.gh.squash_merge(pr.number, &subject)?;
         Ok(subject)

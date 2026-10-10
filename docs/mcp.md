@@ -3,8 +3,8 @@
 Adapted from LightCraft `docs/mcp.md` (revision 88ea1a8) and PhotoCraft `docs/mcp.md` (revision
 59684266); MIT OR Apache-2.0.
 
-> **Status: Planned (M21).** Nothing here exists yet. The server, its helper tools and the workflow
-> acceptance-test harness land in milestone **M21** (see [`roadmap.md`](roadmap.md)); individual
+> **Status: Planned (M10).** Nothing here exists yet. The server, its helper tools and the workflow
+> acceptance-test harness land in milestone **M10** (see [`roadmap.md`](roadmap.md)); individual
 > workflows are added as the features they exercise land (§9). Connect mode needs the control channel
 > of [`control-protocol.md`](control-protocol.md) (M2).
 
@@ -287,18 +287,18 @@ Initial workflows (each becomes required in the milestone shown):
 
 | Id | Workflow | Milestone |
 |---|---|---|
-| W01 | **Organize and export** (the `process.md` §5 example): `scan_folder` 200 photos → star 5 → `create_album` from them → caption 3 → crop and Auto Fix one → `export` the album at 1600 px → check 5 JPEGs, long edge ≤ 1600, captions in XMP/IPTC, crop visible in the output, originals byte-identical | M21 (uses M1–M17 features) |
-| W02 | **Tray across folders**: select 2 in folder A → hold → select 3 in folder B → tray holds 5 → Rotate Clockwise on the tray → sidecars of both folders record `rotate(90)` → undo restores all 5 in one step | M9 |
-| W03 | **Save, Undo Save, Revert**: edit → `cmd_photo_save {confirm}` → original in `.dalica-originals/` → Undo Save restores it with the edits unsaved → Save → Revert returns the exact original bytes (`data-model.md` §10.9) | M15 |
-| W04 | **Rebuild loses nothing**: star, caption, tag, hide, edit, album → `library.rebuild {confirm}` → `doc_inspect` and `photo_info` equal before and after (`data-model.md` §10.1) | M17 |
-| W05 | **Move carries data**: drag-equivalent move of 3 starred, captioned, saved photos to another folder → their sidecar entries and originals backups moved, nothing left behind, undo moves them back (§10.3) | M19 |
-| W06 | **Search and save results**: tag 10 photos, caption 2 with "tram" → `query_photos {query: "tram"}` and `tag:` queries return the expected ids → save the search as an album | M18 |
-| W07 | **Batch edit is one step**: `apply_edit {op: "autofix"}` on 20 photos → 20 recipes end in `autofix()` → one `cmd_edit_undo` removes all 20 | M26 |
-| W08 | **Foreign metadata survives**: photos carrying other applications' XMP fields → caption and tags → those fields byte-identical, pixels untouched, mtime unchanged by default (`data-model.md` §10.8) | M10 |
-| W09 | **Hidden photos**: hide 4 → they leave the light table and `query_photos` → `view.hiddenPictures` shows them → unhide | M9 |
-| W10 | **Import with duplicates**: import a card-like folder twice → second import skips duplicates and reports them; destination naming as configured | M23 |
-| W11 | **Effects stack**: `apply_edit` sepia then vignette then border → recipe order kept → `render_photo` size grows for Border → render fingerprint within tolerance (`architecture.md` §11) | M25 |
-| W12 | **Destructive commands ask**: `cmd_photo_delete` without `confirm` → `needs_confirm`, file still there → with `confirm` → file in the OS trash (a test trash directory), sidecar section kept in the undo record | M19 |
+| W01 | **Organize and export** (the `process.md` §5 example): `scan_folder` 200 photos → star 5 → `create_album` from them → caption 3 → crop and Auto Fix one → `export` the album at 1600 px → check 5 JPEGs, long edge ≤ 1600, captions in XMP/IPTC, crop visible in the output, originals byte-identical | M10 (uses M1–M9 features) |
+| W02 | **Tray across folders**: select 2 in folder A → hold → select 3 in folder B → tray holds 5 → Rotate Clockwise on the tray → sidecars of both folders record `rotate(90)` → undo restores all 5 in one step | M6 |
+| W03 | **Save, Undo Save, Revert**: edit → `cmd_photo_save {confirm}` → original in `.dalica-originals/` → Undo Save restores it with the edits unsaved → Save → Revert returns the exact original bytes (`data-model.md` §10.9) | M8 |
+| W04 | **Rebuild loses nothing**: star, caption, tag, hide, edit, album → `library.rebuild {confirm}` → `doc_inspect` and `photo_info` equal before and after (`data-model.md` §10.1) | M9 |
+| W05 | **Move carries data**: drag-equivalent move of 3 starred, captioned, saved photos to another folder → their sidecar entries and originals backups moved, nothing left behind, undo moves them back (§10.3) | M9 |
+| W06 | **Search and save results**: tag 10 photos, caption 2 with "tram" → `query_photos {query: "tram"}` and `tag:` queries return the expected ids → save the search as an album | M9 |
+| W07 | **Batch edit is one step**: `apply_edit {op: "autofix"}` on 20 photos → 20 recipes end in `autofix()` → one `cmd_edit_undo` removes all 20 | M11 |
+| W08 | **Foreign metadata survives**: photos carrying other applications' XMP fields → caption and tags → those fields byte-identical, pixels untouched, mtime unchanged by default (`data-model.md` §10.8) | M6 |
+| W09 | **Hidden photos**: hide 4 → they leave the light table and `query_photos` → `view.hiddenPictures` shows them → unhide | M6 |
+| W10 | **Import with duplicates**: import a card-like folder twice → second import skips duplicates and reports them; destination naming as configured | M11 |
+| W11 | **Effects stack**: `apply_edit` sepia then vignette then border → recipe order kept → `render_photo` size grows for Border → render fingerprint within tolerance (`architecture.md` §11) | M12 |
+| W12 | **Destructive commands ask**: `cmd_photo_delete` without `confirm` → `needs_confirm`, file still there → with `confirm` → file in the OS trash (a test trash directory), sidecar section kept in the undo record | M9 |
 
 New user-visible features add a workflow when they add a user task; a bug report that reproduces as
 a workflow lands with it (it fails before the fix).

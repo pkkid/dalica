@@ -1,11 +1,11 @@
 ---
 name: milestone-start
-description: Start a milestone (M2 and later) with this session as the lead (agent-1) and parallel worker subagents, one per task; run it until the next review gate. Run only when the maintainer asks.
+description: Run the build from a milestone (M2 and later) with this session as the lead (agent-1) and parallel worker subagents, one per task, through check-ins and into later milestones, until the next release gate. Run only when the maintainer asks.
 argument-hint: "[M<n>] [workers, default 7]"
 disable-model-invocation: true
 ---
 
-# Start a milestone
+# Run the milestones
 
 Arguments: **$ARGUMENTS**. The first argument is the milestone (`M<n>`). If it is missing, use the
 first milestone with Ready tasks in `cargo xtask tasks status`. The second argument is the number of
@@ -19,8 +19,12 @@ Its jobs are to claim, dispatch, review, merge and keep the board true.
   and returns.
 - A slot (`agent-<k>`) keeps its worktree, target dir, port and scratch dir from task to task, so
   builds stay warm.
-- Stop at the next review gate. That is either a checkpoint `M<n>.A` or the end of the milestone,
-  `M<n>.R`.
+- **Run until the next release gate** (M6.R, M10.R, M15.R; `docs/roadmap.md` → How milestones
+  work). Check-ins (`M<n>.A`, `M<n>.R` with `owner: lead`) are the lead's own tasks: run
+  `/milestone-review` for them and keep going. Work flows into the next milestone as soon as the
+  board offers its tasks.
+- **Decide, don't ask.** Technical decisions are the agents' (`AGENTS.md` §4). Only the short list
+  there reaches the maintainer.
 
 ## 1. Preflight (stop and report if any check fails)
 
@@ -33,7 +37,8 @@ Its jobs are to claim, dispatch, review, merge and keep the board true.
 3. **Is the board ready?**
    - The milestone's task blocks exist on `main`.
    - `cargo xtask tasks sync` has created their issues.
-   - The previous gate is closed: its first tasks show Ready in `cargo xtask tasks status`.
+   - Its first tasks show Ready in `cargo xtask tasks status`. Only an open release gate holds
+     them back.
 4. **Are there leftovers?** Nothing should be In Progress from an earlier run. For each worktree in
    `git worktree list`, check `git status` and `git log origin/main..HEAD`. Finish, release
    (`tasks release <id> --reason …`) or report it before claiming anything.
@@ -44,10 +49,10 @@ Its jobs are to claim, dispatch, review, merge and keep the board true.
 6. **Plan the parallelism.**
    - List the milestone's tasks in roadmap order with `after` and `files`.
    - Work out the waves and how many tasks can run at once given `files` overlap.
-   - Find where the gates fall.
+   - Find where the check-ins and the next release gate fall.
    - If fewer tasks can run at once than there are workers, use fewer workers and say so.
-7. Show the maintainer a short plan: milestone, worker count, waves, gates where the run will stop,
-   and any preflight warning. Then start; the command itself is the go-ahead. The maintainer's
+7. Show the maintainer a short plan: milestone, worker count, waves, the check-ins on the way, the
+   release gate where the run will stop, and any preflight warning. Then start; the command itself is the go-ahead. The maintainer's
    standing go-ahead covers the `submit` and `merge` pushes (`AGENTS.md` §4). Ask before any other
    push.
 
@@ -82,9 +87,10 @@ once and report.
    - A dev-log entry exists.
    - The PR body gives evidence for each line of the *done when*.
    - If anything is missing, send it back (step 5) instead of merging.
-3. **Merge one at a time:** `cargo xtask tasks merge <id>`. It rebases, runs `ci`, waits for
-   GitHub CI, squash-merges and syncs. Run it in the background and keep dispatching to free slots
-   meanwhile.
+3. **Merge one at a time:** `cargo xtask tasks merge <id>`. It rebases, runs the local `ci`,
+   squash-merges and syncs; it does not wait for the PR's GitHub checks. Run it in the background
+   and keep dispatching to free slots meanwhile. GitHub's three-OS run then checks `main`, and
+   `tasks merge` refuses while the latest finished run on `main` is red.
    - Conflict only in `Cargo.lock`: re-resolve it (`cargo update -w`, never hand-merge).
    - Any other conflict, or red CI after the rebase: send the task back to its slot.
 4. After each merge, fill free slots again (§2). A merge may have made new tasks Ready.
@@ -101,26 +107,40 @@ once and report.
    Release the task (`tasks release <id> --reason …`) if it can't continue.
 7. **Crashed or returned without submitting.** Check the worktree (`git status`,
    `git log origin/main..HEAD`), then resume it as in step 5 or release it.
-8. **`main` is red after a merge.** Stop dispatching. Find the merge that broke it. Fix it on a
-   branch, or revert it through a PR. Tell the maintainer. Resume when `main` is green.
-9. Keep a short running table in the dev log, using `cargo xtask tasks log M<n>.R "…" --agent agent-1` at each
+8. **`main` is red** on GitHub CI after a merge (usually Windows or macOS):
+   - Stop merging; workers keep working.
+   - Find the merge that broke it: `gh run list --branch main`, then the failing log.
+   - Fix it as the next task: a worker on a `task/<id>-fix` branch, or revert through a PR.
+   - Merge the fix; `tasks merge` accepts merges again once `main` is green.
+   - Note it for the check-in page. No need to stop for the maintainer.
+9. Keep a short running table in the dev log, using `cargo xtask tasks log <check-in id> "…" --agent agent-1` at each
    merge or incident: claim → submit → merge times, conflicts (which files), CI failures,
    send-backs.
-10. Note numbers for `docs/status.md`. Do not edit it here; it is written in the review commit
+10. Note numbers for `docs/status.md`. Do not edit it here; it is written by the check-in
     (`/milestone-review`).
 
-## 4. Stop at the gate
+## 4. Plan ahead, check in, and stop only at a release
 
-- **Checkpoint `M<n>.A`.** Once every task before it has merged, stop dispatching. Run the
-  checkpoint's acceptance check if there is one. Then tell the maintainer to run
-  `/milestone-review M<n>.A`.
-- **Last task merged.** Run `cargo xtask accept M<n>` on `origin/main`. Confirm every worktree is
-  clean and no task is In Progress or In Review. Tell the maintainer to run
-  `/milestone-review M<n>.R`.
-- Never claim a task beyond the gate, and never a task of the next milestone. When the gate is
-  closed, the maintainer runs `/milestone-start` again.
-- Final message: tasks merged, any blocked or released, wall-clock time, a one-line note per
-  incident, and the gate to review.
+- **Plan ahead.** As soon as a milestone's first wave is running, make sure the next milestone's
+  task blocks are on `main`. Each milestone carries an `owner: lead` task for this ("Lead: task
+  blocks for M<n+1>"); if it is missing, add one.
+  - Write the blocks from the milestone's section and the spec: `after`, `files`, `scope`,
+    `done when`, plus waves.
+  - The first tasks list the work they build on. List a gate only after a release.
+  - The milestone ends with an `M<n+1>.R` check-in (`owner: lead`), or a release gate
+    (`owner: maintainer`) for M6, M10 and M15.
+  - Merge the blocks like any task; `tasks sync` then creates their issues. No approval is needed.
+- **Check-ins.** When the board offers you an `M<n>.A` / `M<n>.R` with `owner: lead`, run
+  `/milestone-review` for it. It publishes the page, writes the docs and merges. Keep the workers
+  busy meanwhile.
+- **Release gate.** When the next tasks wait on an open release gate (M6.R, M10.R, M15.R):
+  - Let the running tasks finish and merge; claim nothing behind the gate.
+  - Run `/milestone-review` for the gate. It asks the maintainer to sign off, then stops.
+- **Final message** (at a release gate, or when the maintainer stops the run):
+  - tasks merged per milestone, and any blocked or released;
+  - the check-in pages published;
+  - wall-clock time;
+  - one line per incident.
 
 ## 5. Worker prompt (fill in every `<…>`)
 
@@ -147,9 +167,11 @@ Rules:
 - Follow AGENTS.md §3: no panics in non-test code, a test for every new behaviour, a
   graceful-failure test for every new command, never lower a metric, never weaken a gate.
 - Use only your own control port. Never send OS-level synthetic input. Never rm -rf shared paths.
-- A decision only the maintainer can make (a reserved decision, a gap in the spec): run
-  `cargo xtask tasks block <id> "<question>"` and report. Otherwise decide yourself and record the
-  decision in the commit body.
+- Decide technical questions yourself (AGENTS.md §4): follow the spec; where it is silent, do what
+  LightCraft or PhotoCraft did; record each decision in the commit body (what, why, the
+  alternative). Only AGENTS.md §4's short list (licence or C-dependency exceptions, risks to users'
+  data, loosening a gate, dropping a feature, reserved decisions) is a reason to run
+  `cargo xtask tasks block <id> "<question>"` and report.
 
 Finish with AGENTS.md §5, in your worktree:
   cargo fmt --all; cargo clippy -p <crates> --all-targets -- -D warnings; cargo test -p <crates>;

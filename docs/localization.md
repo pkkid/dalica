@@ -4,9 +4,9 @@ Adapted from PhotoCraft `docs/localization.md`, `docs/localization-ko.md` and th
 `crates/ui-egui/src/i18n/` catalog format (revision 59684266), and LightCraft
 `docs/localization.md` (revision 88ea1a8); MIT OR Apache-2.0.
 
-> Status: **Planned (M35, parity row `SYS-I18N`).** From M0 on, every user-facing string is
+> Status: **Planned (M15, parity row `SYS-I18N`).** From M0 on, every user-facing string is
 > written as an English literal wrapped in `tl!` so the catalogs can be added later without
-> touching call sites. The catalog loader, the language preference and the tests below land in M35.
+> touching call sites. The catalog loader, the language preference and the tests below land in M15.
 
 Dalica follows the PhotoCraft i18n design (prior art only; our own code, see
 [`architecture.md`](architecture.md) §9): **English source strings are the lookup keys**, UTF-8
@@ -61,7 +61,7 @@ fonts), its plural rule, and a `complete_menus` flag:
 | one / few / many | Russian, Ukrainian, Polish (with their own few/many boundaries) |
 | one / few / other | Czech |
 
-The first languages are chosen by the maintainer when M35 starts; nothing is promised before then.
+The first languages are chosen by the maintainer when M15 starts; nothing is promised before then.
 
 ## Choosing the language
 

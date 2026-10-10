@@ -41,7 +41,7 @@ pub enum Effect {
 pub enum History {
     /// One step on the library undo stack.
     Library,
-    /// A step of the photo's own history (M12).
+    /// A step of the photo's own history (M7).
     Photo,
     /// No undo step (queries, view changes, undo itself).
     None,

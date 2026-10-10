@@ -35,7 +35,7 @@ same commit.
 
 ## Top gaps
 
-1. Everything in M0–M7 (`roadmap.md`): the workspace, the window regions, scanning, the light
+1. Everything in M0–M5 (`roadmap.md`): the workspace, the window regions, scanning, the light
    table and selection.
 
 ## A. Library view (LIB)

@@ -2,7 +2,7 @@
 
 Adapted from LightCraft `docs/faces.md` and `crates/faces` (revision 88ea1a8); MIT OR Apache-2.0.
 
-> **Status: Planned (M29; suggestions and the People pane M30).** Nothing here is built. The
+> **Status: Planned (M13; suggestions and the People pane M13).** Nothing here is built. The
 > user-facing behaviour (the People group,
 > Unnamed, suggestions, the People pane, options) is specified in [`organizing.md`](organizing.md)
 > §6; where faces are stored is in [`data-model.md`](data-model.md) §2–§5; how names travel in
@@ -178,7 +178,7 @@ Options → People: **Suggest names** (on), **Suggestion confidence** and **Grou
 
 Embeddings are stored at float32 on disk and may be quantised (8-bit per component) in memory for
 search, so 100 k faces stay within the memory budget; the exact footprint is measured, not assumed,
-when M29 lands. Deleting a person returns their faces to Unnamed; deleting a photo removes its faces.
+when M13 lands. Deleting a person returns their faces to Unnamed; deleting a photo removes its faces.
 
 ## 7. Privacy
 
@@ -194,7 +194,7 @@ when M29 lands. Deleting a person returns their faces to Unnamed; deleting a pho
 
 ## 8. Performance
 
-Budgets are added to `perf/budgets.toml` when M29 starts, as `not_measurable` until a bench exists
+Budgets are added to `perf/budgets.toml` when M13 starts, as `not_measurable` until a bench exists
 (`development.md` §13): faces embedded per second during a background scan, UI frame time while the
 scan runs (must stay within the normal frame budget), People view open time with 10 k unnamed faces,
 memory per worker. Reference figures from LightCraft's measurements of the same engine (one thread,

@@ -1,5 +1,5 @@
 //! Decoding JPEG and PNG to upright 8-bit RGBA (`zune-jpeg`, `png`). Colour profiles are not yet
-//! applied: pixels are taken as sRGB (ICC arrives in M8).
+//! applied: pixels are taken as sRGB (ICC arrives in M5).
 //!
 //! The header is read and its size checked against [`Limits`] before any decoder is created, so a
 //! file declaring a huge image is refused without allocating for it. For thumbnails, `zune-jpeg`

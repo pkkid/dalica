@@ -4,7 +4,7 @@ Adapted from LightCraft `docs/showcase/README.md` (revision 88ea1a8) and PhotoCr
 `docs/images/SOURCES.md` (revision 59684266); MIT OR Apache-2.0.
 
 > **Status: Planned (M2).** The mechanism (headless snapshots and the control channel) lands in M2;
-> the first real showcase shots come with M4 (library view) and M12 (edit view). Nothing exists yet.
+> the first real showcase shots come with M4 (library view) and M7 (edit view). Nothing exists yet.
 
 The screenshots in the README and in `docs/images/` are **produced by scripts**, never captured by
 hand: each one is a JSON-lines script of control-protocol requests
@@ -130,14 +130,14 @@ Example (`docs/showcase/demo-library.jsonl`):
 
 | Image | Shows | Source | From |
 |---|---|---|---|
-| `library.jpg` (hero) | light table with several sections, tree with albums and year dividers, a held tray, Tags pane | demo | M6 (Tags pane M10, albums M17) |
+| `library.jpg` (hero) | light table with several sections, tree with albums and year dividers, a held tray, Tags pane | demo | M4 (Tags pane M6, albums M9) |
 | `small-window.jpg` | the same at 900 × 600 (overflowing action buttons) | demo | M3 |
-| `edit-tuning.jpg` | edit view, Tuning tab, histogram, filmstrip | public domain | M14 |
-| `crop.jpg` | crop tool with ratio guides | public domain | M13 |
-| `effects.jpg` | an effects tab with tile previews, one effect panel open | public domain | M24 |
-| `search.jpg` | search mode banner and the search-results album | public domain | M18 |
-| `people.jpg` | People group and pane | procedural faces / public-domain portraits of public figures | M30 |
-| `places.jpg` | Places pane with geotagged photos (map tiles only from a provider whose terms allow it, with attribution visible) | public domain | M31 |
+| `edit-tuning.jpg` | edit view, Tuning tab, histogram, filmstrip | public domain | M7 |
+| `crop.jpg` | crop tool with ratio guides | public domain | M7 |
+| `effects.jpg` | an effects tab with tile previews, one effect panel open | public domain | M12 |
+| `search.jpg` | search mode banner and the search-results album | public domain | M9 |
+| `people.jpg` | People group and pane | procedural faces / public-domain portraits of public figures | M13 |
+| `places.jpg` | Places pane with geotagged photos (map tiles only from a provider whose terms allow it, with attribution visible) | public domain | M13 |
 
 ## 6. Before committing screenshots
 

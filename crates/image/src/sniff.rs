@@ -6,7 +6,7 @@
 pub enum Format {
     Jpeg,
     Png,
-    /// TIFF, and the TIFF-based RAW formats (told apart later, M8).
+    /// TIFF, and the TIFF-based RAW formats (told apart later, M5).
     Tiff,
     WebP,
     Gif,
@@ -19,7 +19,7 @@ pub enum Format {
 }
 
 impl Format {
-    /// Whether M1 reads and decodes it (JPEG and PNG; the rest arrive in M8).
+    /// Whether M1 reads and decodes it (JPEG and PNG; the rest arrive in M5).
     pub fn supported(self) -> bool {
         matches!(self, Format::Jpeg | Format::Png)
     }

@@ -95,7 +95,7 @@ pub fn scan(roots: &[PathBuf], cancel: Option<&AtomicBool>) -> Scan {
                     let star = stars.as_ref().is_some_and(|s| s.star(&name) == Field::Value(true));
                     photos.push(FoundPhoto { name, size: entry.size, mtime: entry.modified, width, height, date, star });
                 }
-                // Other formats arrive in M8; anything else is not a photo.
+                // Other formats arrive in M5; anything else is not a photo.
                 Ok(_) | Err(dalica_image::Error::Unknown | dalica_image::Error::Unsupported(_)) => {}
                 Err(dalica_image::Error::Truncated) if entry.size < dalica_image::sniff::SNIFF_LEN as u64 => {}
                 Err(e) => out.warnings.push(Warning { path: entry.path.clone(), reason: e.to_string() }),
