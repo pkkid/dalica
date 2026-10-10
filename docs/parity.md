@@ -30,7 +30,7 @@ same commit.
 | F. Data | 1 | 2 | 3 | 0 |
 | G. Preferences and system | 0 | 3 | 8 | 0 |
 | H. Menus | 0 | 0 | 7 | 0 |
-| **All** | 1 | 7 | 119 | 16 |
+| **All** | 1 | 8 | 118 | 16 |
 <!-- /parity:summary -->
 
 ## Top gaps
