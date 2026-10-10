@@ -59,7 +59,8 @@ Append one entry to `log/devlog.md` in the **main checkout**, headed
    Then the milestone's numbers against the previous check-in's.
 2. **Acceptance:** the `accept` result and each line of *Done when*, met or not. List any parity
    ✅ that was not measured, and downgrade it to 🟡.
-3. **Decisions made:** numbered, from commit bodies and dev-log entries. Each one gets what was
+3. **Decisions made:** numbered, from commit bodies and dev-log entries (every `DEFERRED:` line
+   since the last check-in is one; it may have been answered meanwhile). Each one gets what was
    decided, why, the alternative and the PR. Say which decisions default to what LightCraft or
    PhotoCraft did.
 4. **Surprises and process friction:** short, each with what you changed or will change.
