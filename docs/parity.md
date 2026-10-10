@@ -22,7 +22,15 @@ same commit.
 <!-- parity:summary -->
 | Section | ✅ | 🟡 | ⬜ | 🚫 |
 |---|---:|---:|---:|---:|
-| all | 0 | 0 | all | — |
+| A. Library view | 0 | 0 | 31 | 1 |
+| B. Organizing | 0 | 0 | 42 | 0 |
+| C. Editing | 0 | 0 | 21 | 4 |
+| D. Viewing | 0 | 0 | 6 | 2 |
+| E. Output | 0 | 0 | 2 | 9 |
+| F. Data | 0 | 0 | 6 | 0 |
+| G. Preferences and system | 0 | 0 | 11 | 0 |
+| H. Menus | 0 | 0 | 7 | 0 |
+| **All** | 0 | 0 | 126 | 16 |
 <!-- /parity:summary -->
 
 ## Top gaps

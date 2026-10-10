@@ -168,7 +168,7 @@ turns each into a GitHub issue. M0 is built by a single agent.
   - done when: both pass on the tree and unit tests (temp dirs) fail on a planted forbidden word,
     a forbidden word in a file name, an unlisted `.png`, and a row pointing at a missing licence
     file; the same word inside `AGENTS.md` passes.
-- ⬜ **M0.5 `xtask ci`, `parity`, `accept`**
+- ✅ **M0.5 `xtask ci`, `parity`, `accept`**
   - after: M0.3, M0.4
   - files: `xtask/src/ci.rs`, `xtask/src/parity.rs`, `xtask/src/accept.rs`
   - scope: `ci` = `fmt --check`, `clippy --workspace --all-targets -D warnings`, tests
