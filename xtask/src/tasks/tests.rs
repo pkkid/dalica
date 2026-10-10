@@ -5,6 +5,7 @@ use std::sync::{Arc, Barrier, Mutex};
 
 use super::board::{Board, ci_marker};
 use super::fake::{FakeClock, FakeGit, FakeGitHub};
+use super::git::{ChangeKind, PathChange};
 use super::github::{GitHub, MergeState, MilestoneInfo, Status};
 use super::lock::Lock;
 use super::roadmap::{self, Roadmap};
@@ -602,56 +603,93 @@ fn submit_with_a_body_file_uses_it_and_lists_new_baselines() {
     w.board().sync().unwrap();
     let dir = w.ready_to_submit("M0.1", "agent-2", LOG);
     *w.git.changed.lock().unwrap() = vec![
-        "crates/ui/src/lib.rs".into(),
-        "crates/ui/tests/fingerprints/library-small.json".into(),
-        "tests/acceptance/fingerprints/m2-star.json".into(),
+        PathChange::new(ChangeKind::Changed, "crates/ui/src/lib.rs"),
+        PathChange::new(ChangeKind::Changed, "crates/ui/tests/fingerprints/library-small.json"),
+        PathChange::new(ChangeKind::Added, "tests/acceptance/fingerprints/m2-star.json"),
     ];
     w.board().submit("M0.1", &dir, Some("Evidence: the gallery test passes.\n")).unwrap();
     let body = w.pr_body();
     assert!(body.contains("Evidence: the gallery test passes."), "{body}");
     assert!(!body.contains("From the dev log"), "--body-file replaces the dev-log default: {body}");
     assert!(body.contains("## Fingerprint baselines"), "{body}");
-    assert!(body.contains("- `crates/ui/tests/fingerprints/library-small.json`\n- `tests/acceptance/fingerprints/m2-star.json`\n"), "{body}");
+    assert!(
+        body.contains("- `crates/ui/tests/fingerprints/library-small.json` (changed)\n- `tests/acceptance/fingerprints/m2-star.json` (added)\n"),
+        "{body}"
+    );
     assert!(!body.contains("`crates/ui/src/lib.rs`"), "{body}");
-    assert!(body.contains("`baseline-approved`"), "{body}");
+    assert!(body.contains("approves them in bulk at the next review"), "{body}");
+    assert!(!body.contains("baseline-approved"), "no per-PR label any more: {body}");
+}
+
+impl World {
+    fn devlog(&self) -> String {
+        std::fs::read_to_string(self.git.dir.join("log/devlog.md")).unwrap_or_default()
+    }
 }
 
 #[test]
-fn merge_waits_for_the_baseline_approved_label() {
+fn merge_records_fingerprint_baselines_for_the_next_review() {
+    // Fingerprints no longer wait for a per-PR label: the PR merges, and the dev log lists them so
+    // the next review page shows every baseline to approve (`task-board.md` §5).
     let w = World::new(ROADMAP);
     w.board().sync().unwrap();
     let dir = w.ready_to_submit("M0.1", "agent-2", LOG);
-    *w.git.changed.lock().unwrap() = vec!["crates/ui-kit/tests/fingerprints/gallery.json".into()];
+    *w.git.changed.lock().unwrap() = vec![
+        PathChange::new(ChangeKind::Changed, "crates/ui/src/lib.rs"),
+        PathChange::new(ChangeKind::Added, "crates/ui-kit/tests/fingerprints/gallery.json"),
+        PathChange::new(ChangeKind::Changed, "crates/ui/tests/fingerprints/library-small.json"),
+        PathChange::new(ChangeKind::Added, "tests/acceptance/fingerprints/m2-star.json"),
+        PathChange::new(ChangeKind::Deleted, "crates/ui/tests/fingerprints/old.json"),
+    ];
     w.board().submit("M0.1", &dir, None).unwrap();
     w.git.calls.lock().unwrap().clear();
+    assert!(w.gh.lock().prs[0].1.labels.is_empty(), "no label on the PR");
 
-    let before = w.gh.mutations();
-    let err = w.board().merge("M0.1").unwrap_err();
-    assert!(err.contains("PR #100 adds or changes fingerprint baselines (crates/ui-kit/tests/fingerprints/gallery.json)"), "{err}");
-    assert!(err.contains("`baseline-approved` label"), "{err}");
-    // Refused before ci, the push and the squash.
-    assert_eq!(*w.git.calls.lock().unwrap(), ["rebase task/M0.1-skeleton"]);
-    assert_eq!(w.gh.mutations(), before);
-    assert!(w.gh.lock().merged_prs.is_empty());
-
-    // Another label is not an approval; the maintainer's label is.
-    w.gh.lock().prs[0].1.labels = vec!["task".into()];
-    assert!(w.board().merge("M0.1").is_err());
-    w.gh.lock().prs[0].1.labels.push("baseline-approved".into());
     assert_eq!(w.board().merge("M0.1").unwrap(), "M0.1: Skeleton (#100)");
+    assert_eq!(*w.git.calls.lock().unwrap(), ["rebase task/M0.1-skeleton", "ci", "push task/M0.1-skeleton"]);
     assert_eq!(w.gh.lock().merged_prs.len(), 1);
+    let log = w.devlog();
+    assert!(log.starts_with(LOG), "appended, nothing rewritten: {log}");
+    assert_eq!(
+        &log[LOG.len()..],
+        "\n## 1970-01-12 13:46 · agent-1 · M0.1 Skeleton\n\
+         FINGERPRINTS: M0.1 #100 added crates/ui-kit/tests/fingerprints/gallery.json tests/acceptance/fingerprints/m2-star.json\n\
+         FINGERPRINTS: M0.1 #100 changed crates/ui/tests/fingerprints/library-small.json\n\
+         FINGERPRINTS: M0.1 #100 deleted crates/ui/tests/fingerprints/old.json\n"
+    );
 }
 
 #[test]
-fn merge_without_fingerprints_needs_no_label() {
+fn merge_records_nothing_when_nothing_was_merged() {
     let w = World::new(ROADMAP);
     w.board().sync().unwrap();
     let dir = w.ready_to_submit("M0.1", "agent-2", LOG);
-    *w.git.changed.lock().unwrap() = vec!["crates/scenes/src/fingerprint.rs".into()];
+    *w.git.changed.lock().unwrap() = vec![PathChange::new(ChangeKind::Added, "crates/ui-kit/tests/fingerprints/gallery.json")];
     w.board().submit("M0.1", &dir, None).unwrap();
+    w.gh.lock().squash_errors = vec!["gh pr failed: HTTP 401".into()];
+    assert_eq!(w.board().merge("M0.1").unwrap_err(), "gh pr failed: HTTP 401");
+    assert_eq!(w.devlog(), LOG, "a failed merge records no baselines");
+    // The retry that merges records them once.
+    w.board().merge("M0.1").unwrap();
+    assert_eq!(w.devlog().matches("FINGERPRINTS:").count(), 1);
+}
+
+#[test]
+fn merge_without_fingerprints_records_nothing() {
+    let w = World::new(ROADMAP);
+    w.board().sync().unwrap();
+    let dir = w.ready_to_submit("M0.1", "agent-2", LOG);
+    // Neither is a fingerprint: a source file named after them, and a non-JSON file beside them.
+    *w.git.changed.lock().unwrap() = vec![
+        PathChange::new(ChangeKind::Changed, "crates/scenes/src/fingerprint.rs"),
+        PathChange::new(ChangeKind::Added, "crates/ui/tests/fingerprints/README.md"),
+    ];
+    w.board().submit("M0.1", &dir, None).unwrap();
+    assert!(!w.pr_body().contains("Fingerprint baselines"));
     w.git.calls.lock().unwrap().clear();
     assert_eq!(w.board().merge("M0.1").unwrap(), "M0.1: Skeleton (#100)");
     assert_eq!(*w.git.calls.lock().unwrap(), ["rebase task/M0.1-skeleton", "ci", "push task/M0.1-skeleton"]);
+    assert_eq!(w.devlog(), LOG, "nothing to record");
 }
 
 #[test]
@@ -660,7 +698,7 @@ fn dry_runs_of_submit_and_merge_write_nothing() {
     let w = World::new(ROADMAP);
     w.board().sync().unwrap();
     let dir = w.ready_to_submit("M0.1", "agent-2", LOG);
-    *w.git.changed.lock().unwrap() = vec!["crates/ui/tests/fingerprints/library-small.json".into()];
+    *w.git.changed.lock().unwrap() = vec![PathChange::new(ChangeKind::Changed, "crates/ui/tests/fingerprints/library-small.json")];
     let before = w.gh.mutations();
 
     let rec = Recorder::default();
@@ -672,7 +710,7 @@ fn dry_runs_of_submit_and_merge_write_nothing() {
     assert_eq!(writes[0], "push task/M0.1-skeleton to origin");
     assert!(writes[1].starts_with("open pull request `M0.1: Skeleton` from task/M0.1-skeleton, body:"), "{}", writes[1]);
     assert!(writes[1].contains("| ### From the dev log (2026-10-10 12:00 · agent-2 · M0.1 Skeleton)"), "{}", writes[1]);
-    assert!(writes[1].contains("| - `crates/ui/tests/fingerprints/library-small.json`"), "{}", writes[1]);
+    assert!(writes[1].contains("| - `crates/ui/tests/fingerprints/library-small.json` (changed)"), "{}", writes[1]);
     assert!(writes[2].ends_with("Status = In Review"), "{}", writes[2]);
     assert!(writes[3].starts_with("comment on #1: submitted for review"), "{}", writes[3]);
     assert_eq!(w.gh.mutations(), before, "the board is untouched");
@@ -686,20 +724,19 @@ fn dry_runs_of_submit_and_merge_write_nothing() {
     let rec = Recorder::default();
     let (gh, git) = (DryRun::new(&w.gh, &rec), DryGit::new(&w.git, &rec));
     let dry = Board { roadmap: &w.roadmap, gh: &gh, git: &git, clock: &w.clock };
-    let err = dry.merge("M0.1").unwrap_err();
-    assert!(err.contains("baseline-approved"), "the dry run reports the missing approval: {err}");
-    w.gh.lock().prs[0].1.labels.push("baseline-approved".into());
     assert_eq!(dry.merge("M0.1").unwrap(), "M0.1: Skeleton (#100)");
     assert_eq!(
         rec.writes(),
         [
             "rebase origin/task/M0.1-skeleton onto origin/main in the merge worktree",
-            "rebase origin/task/M0.1-skeleton onto origin/main in the merge worktree",
             "run `cargo xtask ci` in the merge worktree",
             "push task/M0.1-skeleton to origin",
             "squash-merge #100 as `M0.1: Skeleton (#100)`",
+            "append to the dev log:\n## 1970-01-12 13:46 · agent-1 · M0.1 Skeleton\n\
+             FINGERPRINTS: M0.1 #100 changed crates/ui/tests/fingerprints/library-small.json",
         ]
     );
+    assert_eq!(w.devlog(), LOG, "the dev log is untouched");
     assert_eq!(w.gh.mutations(), before);
     assert!(w.git.calls.lock().unwrap().is_empty());
     assert!(w.gh.lock().merged_prs.is_empty());

@@ -5,9 +5,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use super::body;
-use super::config::{LABEL_BASELINE, LABEL_BLOCKED, LABEL_GATE, LABEL_STALE, LABEL_TASK, LABELS, LEAD, MAINTAINER, STALE_SECS, is_fingerprint};
+use super::config::{LABEL_BLOCKED, LABEL_GATE, LABEL_STALE, LABEL_TASK, LABELS, LEAD, MAINTAINER, STALE_SECS, is_fingerprint};
 use super::devlog;
-use super::git::{Clock, Git};
+use super::git::{ChangeKind, Clock, Git, PathChange};
 use super::github::{ALREADY_IN_PROJECT, GitHub, Issue, IssueEdit, Item, MergeState, MilestoneInfo, NOT_MERGEABLE, NewIssue, Status, TextField};
 use super::glob::lists_overlap;
 use super::prune;
@@ -472,21 +472,25 @@ impl Board<'_> {
             return Err(format!("main is red on GitHub CI ({run}); fix it before merging anything else"));
         }
         let dir = self.git.rebase_for_merge(&branch)?;
-        // First or changed fingerprint baselines wait for the maintainer's look (`task-board.md` §5).
+        // New, changed or deleted fingerprint baselines do not hold the merge: the maintainer
+        // approves them in bulk at the next review, which lists them from the dev log (`task-board.md` §5).
         let baselines = fingerprints(self.git.changed_paths(&branch)?);
-        if !baselines.is_empty() && !pr.labels.iter().any(|l| l == LABEL_BASELINE) {
-            return Err(format!(
-                "PR #{} adds or changes fingerprint baselines ({}); the maintainer approves them by adding the `{LABEL_BASELINE}` label to the PR, then merge again",
-                pr.number,
-                baselines.join(", ")
-            ));
-        }
         self.git.run_ci(&dir)?;
         self.git.push(&dir, &branch)?;
         let head = self.git.head(&dir)?;
         self.wait_mergeable(id, pr.number, &head)?;
         let subject = format!("{}: {} (#{})", task.id, task.plain_title(), pr.number);
         self.squash(id, pr.number, &subject)?;
+        if !baselines.is_empty() {
+            let text = fingerprint_record(&task.id, pr.number, &baselines);
+            let heading = format!("{} {}", task.id, task.plain_title());
+            let entry = devlog::entry(self.clock.now(), self.clock.utc_offset(), LEAD, &heading, &text);
+            self.git.append_devlog(&entry).map_err(|e| {
+                format!(
+                    "merged {subject}, but could not record its fingerprint baselines for the next review ({e}); add these lines to the dev log by hand, then run `cargo xtask tasks sync`:\n{text}"
+                )
+            })?;
+        }
         Ok(subject)
     }
 
@@ -699,9 +703,22 @@ pub fn ci_passed(common_dir: &Path, commit: &str) -> bool {
     ci_marker(common_dir, commit).is_file()
 }
 
-/// The fingerprint files among `paths`.
-fn fingerprints(paths: Vec<String>) -> Vec<String> {
-    paths.into_iter().filter(|p| is_fingerprint(p)).collect()
+/// The fingerprint files among `changes`.
+fn fingerprints(changes: Vec<PathChange>) -> Vec<PathChange> {
+    changes.into_iter().filter(|c| is_fingerprint(&c.path)).collect()
+}
+
+/// The dev-log lines `merge` writes for the next review (`docs/task-board.md` §5), one per kind of
+/// change: `FINGERPRINTS: M3.4 #120 added crates/ui/tests/fingerprints/a.json …`.
+fn fingerprint_record(task_id: &str, pr: u64, baselines: &[PathChange]) -> String {
+    let mut lines = Vec::new();
+    for kind in [ChangeKind::Added, ChangeKind::Changed, ChangeKind::Deleted] {
+        let paths: Vec<&str> = baselines.iter().filter(|b| b.kind == kind).map(|b| b.path.as_str()).collect();
+        if !paths.is_empty() {
+            lines.push(format!("FINGERPRINTS: {task_id} #{pr} {} {}", kind.name(), paths.join(" ")));
+        }
+    }
+    lines.join("\n")
 }
 
 /// The PR evidence when `submit` has no `--body-file`: the task's newest dev-log entry.
@@ -712,14 +729,14 @@ fn devlog_evidence(log: &str, id: &str) -> String {
     }
 }
 
-fn pr_body(task: &Task, issue: u64, subjects: &[String], evidence: &str, baselines: &[String]) -> String {
+fn pr_body(task: &Task, issue: u64, subjects: &[String], evidence: &str, baselines: &[PathChange]) -> String {
     let commits: String = subjects.iter().map(|s| format!("- {s}\n")).collect();
     let baselines = if baselines.is_empty() {
         String::new()
     } else {
-        let list: String = baselines.iter().map(|b| format!("- `{b}`\n")).collect();
+        let list: String = baselines.iter().map(|b| format!("- `{}` ({})\n", b.path, b.kind.name())).collect();
         format!(
-            "## Fingerprint baselines\n\nThis branch adds or changes these fingerprints. `cargo xtask tasks merge` waits until the maintainer has looked at their images (attached to this PR) and added the `{LABEL_BASELINE}` label:\n\n{list}\n"
+            "## Fingerprint baselines\n\nThis branch adds, changes or deletes these fingerprints. Their images are attached to this PR and the commit body says why; `cargo xtask tasks merge` merges them and records them in the dev log, and the maintainer approves them in bulk at the next review (M<n>.A or M<n>.R):\n\n{list}\n"
         )
     };
     format!(

@@ -39,10 +39,11 @@ const USAGE: &str = "usage: cargo xtask tasks <command>
                                  without --body-file the evidence is the task's newest dev-log entry; never a review task
   release ID --reason TEXT       give a claimed task back (the branch is kept)
   block ID \"QUESTION\"            ask the maintainer; the task becomes Blocked
-  merge ID [--dry-run]           lead only: refuse while main is red on GitHub CI, rebase, refuse new or changed
-                                 fingerprints without the `baseline-approved` label, ci, push, wait until GitHub
-                                 finds the PR mergeable, squash-merge, sync against origin/main's roadmap.md;
-                                 never a review task (only the maintainer merges or closes those)
+  merge ID [--dry-run]           lead only: refuse while main is red on GitHub CI, rebase, ci, push, wait until
+                                 GitHub finds the PR mergeable, squash-merge, record added, changed or deleted
+                                 fingerprints in the dev log (FINGERPRINTS: lines, approved in bulk at the next
+                                 review), sync against origin/main's roadmap.md; never a review task (only the
+                                 maintainer merges or closes those)
   status                         the whole board; marks idle claims stale
   log ID \"TEXT\" [--agent NAME]   append to the private dev log (log/devlog.md in the main checkout)
   prune [--dry-run]              lead only: remove incremental/ from the target dirs of agents with no In Progress task

@@ -6,7 +6,7 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, PoisonError};
 
-use super::git::Git;
+use super::git::{Git, PathChange};
 use super::github::{GitHub, Issue, IssueEdit, Item, MergeState, MilestoneInfo, NewIssue, ProjectFields, PullRequest, Status, TextField};
 
 /// The writes a dry run would have made, in order.
@@ -74,7 +74,7 @@ impl Git for DryGit<'_> {
         self.inner.branch_subjects(branch)
     }
 
-    fn changed_paths(&self, branch: &str) -> Result<Vec<String>, String> {
+    fn changed_paths(&self, branch: &str) -> Result<Vec<PathChange>, String> {
         self.inner.changed_paths(branch)
     }
 
@@ -95,6 +95,11 @@ impl Git for DryGit<'_> {
 
     fn merged_roadmap(&self) -> Result<String, String> {
         self.inner.merged_roadmap()
+    }
+
+    fn append_devlog(&self, text: &str) -> Result<(), String> {
+        self.rec.record(format!("append to the dev log:\n{}", text.trim()));
+        Ok(())
     }
 
     fn main_checkout(&self) -> PathBuf {
