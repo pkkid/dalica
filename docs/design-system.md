@@ -241,7 +241,7 @@ underneath, pushed up by the next header).
 - UI Scale (Auto, 75–300 %) and UI Font Size (Small/Medium/Large) as in PhotoCraft
   (`docs/ui-design.md` there).
 - Minimum contrast: `text_label` on `chrome` and `text_dim` on `grid_bg` must stay ≥ 4.5:1; check
-  with the contrast test in `dalica-ui` when tokens change.
+  with the contrast test in `dalica-ui-kit` (`theme.rs`) when tokens change.
 
 ## 10. Verification
 
