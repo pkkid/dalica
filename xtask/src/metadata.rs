@@ -81,6 +81,9 @@ pub struct Node {
     pub id: String,
     #[serde(default)]
     pub deps: Vec<NodeDep>,
+    /// Features enabled for this package in the resolved graph.
+    #[serde(default)]
+    pub features: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

@@ -33,10 +33,14 @@ dalica-ui = { path = "crates/ui" }
 dalica-mcp = { path = "crates/mcp" }
 
 # UI
-egui = "0.36.2"
-eframe = { version = "0.36.2", default-features = false, features = ["default_fonts", "wgpu", "accesskit", "wayland", "x11"] }
+egui = { version = "0.36.2", default-features = false }
+# `wgpu_no_default_features`, not `wgpu`: eframe's `wgpu` turns on wgpu's defaults, which include the
+# GL/EGL backend; our own `wgpu` entry below picks Metal / Vulkan / DX12. No `default_fonts`: egui's
+# bundled fonts carry the Ubuntu Font Licence, and Inter is Dalica's one committed font (assets.md §4).
+eframe = { version = "0.36.2", default-features = false, features = ["wgpu_no_default_features", "accesskit", "wayland", "x11"] }
 egui_extras = "0.36.2"
-wgpu = "30.0.1"
+# Metal / Vulkan / DX12 only, no GL (architecture.md §1).
+wgpu = { version = "30.0.1", default-features = false, features = ["std", "parking_lot", "metal", "vulkan", "dx12", "wgsl"] }
 rfd = "0.17.2"
 muda = "0.21.2"
 

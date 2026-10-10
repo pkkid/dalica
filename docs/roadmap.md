@@ -196,7 +196,7 @@ turns each into a GitHub issue. M0 is built by a single agent.
     pull requests and pushes to `main`. Pushing needs the maintainer's go-ahead.
   - done when: a pushed branch shows the workflow green on all three runners (`gh run watch`);
     each runner's duration is recorded in `status.md` → Metrics.
-- ⬜ **M0.8 Empty window and CLI stubs**
+- ✅ **M0.8 Empty window and CLI stubs**
   - after: M0.1
   - files: `apps/dalica/src/**`, `apps/dalica-cli/src/**`, `apps/dalica-cli/tests/**`, `crates/ui-kit/src/theme.rs`
   - scope: window titled "Dalica", 1400 × 900, minimum 900 × 600, `chrome` background (one

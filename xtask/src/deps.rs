@@ -39,12 +39,37 @@ pub const BANNED: &[&str] =
 /// Build-script dependencies that mean "compiles C/C++ or links system libraries".
 pub const C_BUILD: &[&str] = &["cc", "cmake", "bindgen", "pkg-config", "vcpkg", "autocfg-cc"];
 
+/// When a C build dependency is present but provably inactive in our build.
+#[derive(Debug, Clone, Copy)]
+pub enum Inactive {
+    /// Only while this feature is enabled (it skips the C step).
+    With(&'static str),
+    /// Only while this feature is disabled (it would turn the C step on).
+    Without(&'static str),
+    /// The build script never compiles or links C.
+    Always,
+}
+
+/// Reviewed `(crate, build dependency, condition, reason)` exceptions to [`C_BUILD`]; the condition is
+/// checked against the resolved features, so the gate bites again if a feature flips.
+pub const C_BUILD_ALLOW: &[(&str, &str, Inactive, &str)] = &[
+    (
+        "wayland-sys",
+        "pkg-config",
+        Inactive::With("dlopen"),
+        "with `dlopen` the build script returns before probing; libwayland is loaded at run time",
+    ),
+    ("wayland-backend", "cc", Inactive::Without("log"), "compiles its C log shim only with the `log` feature"),
+    ("x11-dl", "pkg-config", Inactive::Always, "asks pkg-config for library directories to load Xlib at run time; compiles and links nothing"),
+];
+
 /// Binding-only `*-sys` crates that compile no C, each with its reason (`security.md` §8.1).
 pub const SYS_ALLOW: &[(&str, &str)] = &[
     ("windows-sys", "Win32 bindings only, no C build"),
     ("linux-raw-sys", "raw Linux syscall bindings, no C build"),
     ("core-foundation-sys", "macOS framework bindings, linked from the system"),
     ("objc2-encode", "Objective-C runtime bindings (objc2 family), no C build"),
+    ("objc-sys", "Objective-C runtime bindings (objc2 family); links the system libobjc, its optional `cc` is off"),
     ("wayland-sys", "Wayland client library loaded at run time, no C build"),
     ("renderdoc-sys", "RenderDoc API loaded at run time, debugging only"),
     ("js-sys", "wasm bindings only"),
@@ -197,6 +222,18 @@ pub fn product_graph(meta: &Metadata) -> BTreeSet<String> {
     seen
 }
 
+fn c_build_inactive(krate: &str, build_dep: &str, features: &[String]) -> bool {
+    C_BUILD_ALLOW.iter().any(|(k, d, when, _)| {
+        *k == krate
+            && *d == build_dep
+            && match when {
+                Inactive::With(f) => features.iter().any(|x| x == f),
+                Inactive::Without(f) => !features.iter().any(|x| x == f),
+                Inactive::Always => true,
+            }
+    })
+}
+
 /// Banned crates, C build scripts and unlisted `*-sys` crates in the product graph.
 pub fn check_product(meta: &Metadata) -> Vec<Violation> {
     let mut out = Vec::new();
@@ -217,7 +254,7 @@ pub fn check_product(meta: &Metadata) -> Vec<Violation> {
             for dep in &node.deps {
                 let build = dep.dep_kinds.iter().any(|k| k.kind.as_deref() == Some("build"));
                 let dep_name = by_id.get(dep.pkg.as_str()).map(|d| d.name.as_str()).unwrap_or("");
-                if build && C_BUILD.contains(&dep_name) {
+                if build && C_BUILD.contains(&dep_name) && !c_build_inactive(name, dep_name, &node.features) {
                     out.push(v(format!("its build script depends on `{dep_name}`: no C/C++ builds in the product (security.md §8.1)")));
                 }
             }
@@ -261,7 +298,7 @@ pub fn run(root: &Path) -> Result<(), String> {
         eprintln!("deps: {v}");
     }
     if violations.is_empty() {
-        println!("deps: ok ({crates} crates resolved, {} in the product graph, {} targets)", product.len(), TARGETS.len());
+        println!("deps: ok (up to {crates} crates resolved per target; {} in the product graph across {} targets)", product.len(), TARGETS.len());
         Ok(())
     } else {
         Err(format!("deps: {} violation(s)", violations.len()))
@@ -365,6 +402,21 @@ mod tests {
     }
 
     #[test]
+    fn inactive_c_build_dependencies_pass_only_while_their_feature_says_so() {
+        let mut m = meta(
+            vec![pkg("wayland-backend", Some("MIT"), Some(IO)), pkg("cc", Some("MIT OR Apache-2.0"), Some(IO))],
+            &[("dalica", "wayland-backend", None), ("wayland-backend", "cc", Some("build"))],
+        );
+        assert!(check(&m).is_empty(), "{:?}", check(&m));
+        for node in m.resolve.iter_mut().flat_map(|r| r.nodes.iter_mut()) {
+            if node.id.starts_with("wayland-backend") {
+                node.features.push("log".into());
+            }
+        }
+        assert_eq!(names(&check(&m)), ["wayland-backend 1.0.0"]);
+    }
+
+    #[test]
     fn dev_and_tooling_dependencies_are_not_the_product() {
         // A banned crate only reachable as a dev-dependency, or only from xtask, is not in the product.
         let m = meta(
@@ -394,7 +446,7 @@ mod tests {
         b["id"] = json!("dup 2.0.0");
         let mut m = meta(vec![a, b], &[("dalica", "dup", None)]);
         if let Some(r) = m.resolve.as_mut() {
-            r.nodes.push(crate::metadata::Node { id: "dup 2.0.0".into(), deps: vec![] });
+            r.nodes.push(crate::metadata::Node { id: "dup 2.0.0".into(), deps: vec![], features: vec![] });
         }
         assert_eq!(duplicates(&m), [("dup".to_string(), vec!["1.0.0".to_string(), "2.0.0".to_string()])]);
     }
