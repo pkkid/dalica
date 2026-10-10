@@ -7,11 +7,13 @@ and git.
 
 ## Current
 
-- **Milestone:** M1, star a photo end to end. M0 is done: every M0 task is merged on `main`
-  (M0.1–M0.10), CI is green on Linux, Windows and macOS, and the maintainer closed the M0.R review
-  (#11) on 2026-10-09. Merged: M1.1 `core`. Checkpoint M1.A follows M1.15.
+- **Milestone:** M1, star a photo end to end. M0 is done (M0.R closed 2026-10-09). M1.1–M1.15 and
+  M1.20 are merged (2026-10-10): the whole data path from a folder to a starred photo in its sidecar
+  works headlessly, and `cargo xtask accept M1 --headless` passes. **Checkpoint M1.A (#27) is with the
+  maintainer**; the UI tasks (M1.16–M1.19) wait for it.
 - **Gates:** `cargo xtask ci` runs fmt, clippy, tests, `layers`, `deps`, `assets`, `names`, `parity`,
-  `docs` and the roadmap parse; `cargo xtask accept M0` shows 6/6 gates bite.
+  `docs` and the roadmap parse; `cargo xtask accept M0` shows 6/6 gates bite. Layer rule 4 now scans
+  code after a test module (it used to stop at the first `#[cfg(test)]`).
 - **Board:** `cargo xtask tasks` drives issues #1–#32 on project 3 (adopted 2026-10-09 with no
   duplicate). M0 and M1 are still built by one agent (`AGENTS.md` §4).
 - **M0 review (2026-10-09):** the maintainer confirmed all 27 decisions listed in the review (dev
@@ -32,3 +34,10 @@ and git.
 | 2026-10-09 | maintainer desktop | `cargo xtask ci` on a clean clone, cold target dir | 46.5 s wall |
 | 2026-10-10 | maintainer desktop | `dalica-core` position keys, longest key after 10 000 inserts: append / prepend / at index 1 / after the previous insert | 6 / 6 / 8 / 9 bytes |
 | 2026-10-10 | maintainer desktop | `dalica-core` position keys, inserts into the middle before a key passes 512 bytes | 2 379 |
+| 2026-10-10 | maintainer desktop | `cargo xtask accept M1 --headless` (200 JPEGs, star/undo, rebuild, lock), warm | 2.0 s (test 1.45 s) |
+| 2026-10-10 | maintainer desktop | scan of 1 000 `scenes` JPEGs in 10 folders: walk + headers / with diff and apply (tmpfs, warm cache, dev build) | 6.4 ms / 8.2 ms |
+| 2026-10-10 | maintainer desktop | 256 px thumbnail of a 6000 × 4000 JPEG (decode + area-average resize, dev build at opt-level 3) | 108 ms |
+| 2026-10-10 | maintainer desktop | `demo_library(3, 200)` (200 JPEGs with EXIF and thumbnails, dev build) | 1.05 s, 2.1 MiB |
+| 2026-10-10 | maintainer desktop | `cargo test -p dalica-engine --test panic_hunt -- --ignored` (10 commands × 300 cases + 64 sequences) | 0.3 s |
+| 2026-10-10 | maintainer desktop | `cargo xtask ci`, warm, test step | 7–16 s (≈ 5 s of it generating 1 000 scan-test photos) |
+| 2026-10-10 | GitHub ubuntu / macos / windows | CI job `cargo xtask ci`, warm (run 38029115337, M1.14) | 1 min 51 s / 2 min 17 s / 2 min 31 s |
