@@ -74,11 +74,19 @@ waits for.)
   (`cargo xtask tasks next` and `claim` enforce it).
 - **The lead prepares a review; the maintainer decides it.** When the run reaches a review task,
   running tasks finish and merge, and the lead runs `/milestone-review M<n>.R`: a check-in page
-  (screenshots at both window sizes, what to try, every decision made with a way to reverse it),
+  (the questions only the maintainer can answer, asked there; a UI changelog with before/after
+  screenshots and what to try; every decision made with a way to reverse it),
   the dated *Where we stand* and the `status.md` numbers on a branch `review/M<n>.R`, and a pull
   request linked on the review issue. Then the run stops. Only the maintainer merges that pull
   request and closes the review issue; no agent and no `cargo xtask tasks` command merges or closes
   a review. The maintainer then starts the next run (`/milestone-start`); feedback becomes tasks.
+- **A milestone runs unattended; its review asks the questions** (the maintainer's process,
+  2026-10-10). Agents work through the milestone's whole backlog without human intervention. A
+  decision that needs the maintainer mid-milestone is recorded (`tasks block`; the blocked task
+  waits, the rest go on) and asked at the review. The review brings a short list of questions,
+  as few as possible, each with options and a recommendation, and a changelog of what changed in
+  the UI so the maintainer can check it by eye. The maintainer answers, checks the UI, closes
+  `M<n>.R` (by merging its pull request) and starts the next milestone.
 - **Releases are reviews too.** M6 (0.1), M10 (0.2) and M15 (1.0) end with a release gate `M<n>.R`;
   its check-in adds the release checklist and the sign-off questions.
 - **The lead plans ahead.** The lead writes the next milestone's task blocks while the current one

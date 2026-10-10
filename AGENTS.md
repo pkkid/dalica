@@ -163,18 +163,23 @@ L0       core · fs                    (only `fs` writes to disk)
   follow the spec; where it is silent, do what LightCraft or PhotoCraft did (study, never copy;
   `architecture.md` §9); otherwise pick the simplest option that keeps every rule in §3. Record
   each decision in the commit body (what, why, the alternative) so the check-in can list it for
-  reversal. Only these stop for the maintainer, with `cargo xtask tasks block <id> "question"`
-  (then take another task):
+  reversal. Only these need the maintainer, and even they never stop the run (maintainer rule,
+  2026-10-10: a milestone runs through its whole backlog without human intervention): run
+  `cargo xtask tasks block <id> "question"` (that task, and anything that depends on it, waits),
+  take another task, and the question is asked at the milestone's review:
   - a licence exception, a C/C++ dependency or a new `C_BUILD_ALLOW` / `*-sys` entry;
   - anything that could lose or damage users' photos or data, or weaken §3's data rules;
   - loosening a quality gate, a floor or a budget;
   - dropping or descoping a feature or a parity row;
   - a *Reserved decision* in `roadmap.md`.
   Never leave bare `TODO`s; use `TODO(maintainer): …`.
-- **The lead asks even less** (maintainer decision, 2026-10-10). Mid-run, the lead interrupts the
-  maintainer only for the list above, a step it has no go-ahead for, or a fork where a wrong guess
-  means a large rewrite. Everything else it decides (the most reversible option), and logs what
-  has no commit body to live in (board, process, scheduling) with
+- **The lead asks even less** (maintainer decision, 2026-10-10). Mid-run, the lead does not relay
+  questions: blocked tasks' questions and its own hard forks (where a wrong guess means a large
+  rewrite) are recorded for the review, which asks them all at once. It interrupts the maintainer
+  mid-run only in two rare cases: a push or permission it has no go-ahead for, or nothing left to
+  run (every remaining task blocked or waiting on a blocked one), when it prepares the review
+  early. Everything else it decides (the most reversible option), and logs what has no commit
+  body to live in (board, process, scheduling) with
   `cargo xtask tasks log <check-in id> "DEFERRED: question | options | chose | how to reverse" --agent agent-1`;
   the check-in lists these with the other decisions.
 - **Can't finish** (wrong estimate, needs a file outside `files`): comment on the issue and
@@ -188,8 +193,10 @@ L0       core · fs                    (only `fs` writes to disk)
   A milestone has exactly one review, at its end: `M<n>.R` (release gates in M6, M10 and M15
   included); there are no mid-milestone reviews (maintainer rule, 2026-10-10: "I do not want any
   checkins mid milestones"; the roadmap parser refuses an open `M<n>.A`). Every review is
-  `owner: maintainer`, and nothing listed after an open one is claimed. When the run reaches one, the lead lets running
-  tasks finish and merge, runs `/milestone-review` to prepare it, and stops (pushing the
+  `owner: maintainer`, and nothing listed after an open one is claimed. When the run reaches one,
+  the lead lets running tasks finish and merge, runs `/milestone-review` to prepare it (the
+  check-in leads with the few **questions** only the maintainer can answer, asked there, and a
+  **UI changelog** with before/after screenshots to check by eye), and stops (pushing the
   `review/M<n>.R` branch and opening its pull request are part of preparing it). **Only the
   maintainer merges a review's pull request or closes its issue;** no agent ever does, not even as
   board housekeeping, and `cargo xtask tasks` refuses to (`submit` and `merge` reject review ids;
