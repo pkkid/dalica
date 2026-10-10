@@ -37,6 +37,8 @@ pub trait Clock: Send + Sync {
     fn now(&self) -> i64;
     /// Local time offset from UTC in seconds (dev-log times are local).
     fn utc_offset(&self) -> i64;
+    /// Waits `secs` seconds (the fake only advances its time).
+    fn pause(&self, secs: u64);
 }
 
 /// Parses a commit subject's task id: `M1.4: scenes (#12)` → `M1.4`.
@@ -204,6 +206,10 @@ pub fn ci_target_dir(main: &Path, dir: &Path) -> PathBuf {
 pub struct SystemClock;
 
 impl Clock for SystemClock {
+    fn pause(&self, secs: u64) {
+        std::thread::sleep(std::time::Duration::from_secs(secs));
+    }
+
     fn now(&self) -> i64 {
         std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
     }

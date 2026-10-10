@@ -351,6 +351,34 @@ impl FakeGit {
 }
 
 #[test]
+fn sync_waits_for_an_auto_added_item_the_item_list_does_not_show_yet() {
+    // Live failure (M1.R, 2026-10-10): GitHub refused to add #44 again ("Content already exists"),
+    // yet the item list read straight after did not list it; a moment later it did.
+    let w = World::new(ROADMAP);
+    {
+        let mut s = w.gh.lock();
+        s.auto_add = true;
+        s.item_list_lag = 2;
+    }
+    let report = w.board().sync().unwrap();
+    assert_eq!(w.status_of("M0.1"), Some(Status::Ready), "{:?}", report.changes);
+    let (items, issues) = {
+        let s = w.gh.lock();
+        (s.items.len(), s.issues.len())
+    };
+    assert_eq!(items, issues);
+    // A lag longer than the wait still fails with a clear error, never a duplicate item.
+    let w = World::new(ROADMAP);
+    {
+        let mut s = w.gh.lock();
+        s.auto_add = true;
+        s.item_list_lag = 100;
+    }
+    let e = w.board().sync().unwrap_err();
+    assert!(e.contains("not in the project's item list after 6 reads"), "{e}");
+}
+
+#[test]
 fn sync_adopts_an_issue_the_project_auto_added() {
     // The project's auto-add workflow puts each new issue on the board as it is created, so
     // adding it again fails; sync uses the item that is already there.

@@ -21,6 +21,8 @@ pub struct State {
     pub merged_prs: Vec<(u64, String)>,
     /// The project's auto-add workflow: a created issue lands on the board at once.
     pub auto_add: bool,
+    /// Reads of the item list that still miss auto-added items (GitHub lists them a moment late).
+    pub item_list_lag: usize,
 }
 
 #[derive(Default)]
@@ -130,7 +132,12 @@ impl GitHub for FakeGitHub {
     }
 
     fn items(&self) -> Result<Vec<Item>, String> {
-        Ok(self.lock().items.clone())
+        let mut s = self.lock();
+        if s.item_list_lag > 0 {
+            s.item_list_lag -= 1;
+            return Ok(s.items.iter().filter(|i| !i.id.starts_with("AUTO_")).cloned().collect());
+        }
+        Ok(s.items.clone())
     }
 
     fn add_item(&self, issue: u64) -> Result<String, String> {
@@ -283,6 +290,10 @@ pub struct FakeClock {
 }
 
 impl Clock for FakeClock {
+    fn pause(&self, secs: u64) {
+        *self.now.lock().unwrap_or_else(PoisonError::into_inner) += secs as i64;
+    }
+
     fn now(&self) -> i64 {
         *self.now.lock().unwrap_or_else(PoisonError::into_inner)
     }

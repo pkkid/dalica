@@ -12,6 +12,10 @@ use super::github::{ALREADY_IN_PROJECT, GitHub, Issue, IssueEdit, Item, NewIssue
 use super::glob::lists_overlap;
 use super::roadmap::{Owner, Roadmap, Task};
 
+/// Reads of the project's item list while waiting for an auto-added item, and the pause between them.
+const ITEM_WAIT_TRIES: usize = 6;
+const ITEM_WAIT_SECS: u64 = 2;
+
 pub struct Board<'a> {
     pub roadmap: &'a Roadmap,
     pub gh: &'a dyn GitHub,
@@ -193,13 +197,11 @@ impl Board<'_> {
                             report.changes.push(format!("#{} {}: added to the project", issue.number, task.id));
                             Item { id, issue: issue.number, status: None, agent: String::new(), branch: String::new() }
                         }
-                        // The project's auto-add workflow put a new issue on the board when it was created.
-                        Err(e) if e.contains(ALREADY_IN_PROJECT) => self
-                            .gh
-                            .items()?
-                            .into_iter()
-                            .find(|i| i.issue == issue.number)
-                            .ok_or_else(|| format!("{e}, but issue #{} is not in the project's item list", issue.number))?,
+                        // The project's auto-add workflow put a new issue on the board when it was created;
+                        // GitHub may list that item only a moment later.
+                        Err(e) if e.contains(ALREADY_IN_PROJECT) => self.find_item(issue.number)?.ok_or_else(|| {
+                            format!("{e}, but issue #{} is not in the project's item list after {ITEM_WAIT_TRIES} reads", issue.number)
+                        })?,
                         Err(e) => return Err(e),
                     };
                     snap.items.push(item.clone());
@@ -355,6 +357,20 @@ impl Board<'_> {
         self.gh.set_status(&item.id, Status::InReview)?;
         self.gh.comment(issue.number, &format!("submitted for review: {}", pr.url))?;
         Ok(pr.url)
+    }
+
+    /// The project item of `issue`, re-reading the item list a few times (it lags behind the
+    /// project's auto-add workflow).
+    fn find_item(&self, issue: u64) -> Result<Option<Item>, String> {
+        for attempt in 0..ITEM_WAIT_TRIES {
+            if attempt > 0 {
+                self.clock.pause(ITEM_WAIT_SECS);
+            }
+            if let Some(item) = self.gh.items()?.into_iter().find(|i| i.issue == issue) {
+                return Ok(Some(item));
+            }
+        }
+        Ok(None)
     }
 
     /// `tasks merge` (lead only; the caller holds the merge lock).
