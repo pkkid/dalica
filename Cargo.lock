@@ -833,6 +833,15 @@ dependencies = [
 [[package]]
 name = "dalica-store"
 version = "0.0.0"
+dependencies = [
+ "dalica-core",
+ "dalica-fs",
+ "dalica-library",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+]
 
 [[package]]
 name = "dalica-thumbs"

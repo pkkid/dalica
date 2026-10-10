@@ -355,7 +355,7 @@ built. Built by a single agent; the waves show what could run in parallel later.
   - done when: `cargo test -p dalica-library` passes a property test that, for random op
     sequences, applying an op and then its inverse restores the model and each apply bumps the
     revision once.
-- ⬜ **M1.9 `store`: journal and snapshot**
+- ✅ **M1.9 `store`: journal and snapshot**
   - after: M1.2, M1.8
   - files: `crates/store/src/journal.rs`, `crates/store/src/snapshot.rs`, `crates/store/src/lib.rs`, `crates/store/Cargo.toml`
   - scope: JSON-lines journal with a checksum per line, periodic snapshot, replay that stops

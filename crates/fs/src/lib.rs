@@ -8,6 +8,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 pub mod append;
+pub mod aside;
 pub mod atomic;
 pub mod dirs;
 pub mod faults;
@@ -19,6 +20,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 pub use append::{Appender, append, rotate};
+pub use aside::set_aside;
 pub use atomic::{Expect, Identity, Read, identity, read, replace};
 pub use dirs::create_dir_all;
 pub use guard::{UiThread, mark_ui_thread};
