@@ -18,7 +18,13 @@ use egui::epaint::{ClippedPrimitive, ImageData, Primitive, Vertex};
 use egui::{Color32, TextureFilter, TextureId, TexturesDelta};
 
 /// The largest edge, in pixels, of a texture or an image this rasterizer will allocate.
-pub const MAX_SIDE: u32 = 16_384;
+pub const MAX_SIDE: u32 = 8_192;
+/// The most pixels of a texture or an image (64 MB at 4 bytes each).
+pub const MAX_PIXELS: u64 = 1 << 24;
+
+fn size_ok(width: u64, height: u64) -> bool {
+    (1..=u64::from(MAX_SIDE)).contains(&width) && (1..=u64::from(MAX_SIDE)).contains(&height) && width * height <= MAX_PIXELS
+}
 
 /// An RGBA image, 4 bytes per pixel (premultiplied, as egui's framebuffer), rows top to bottom.
 #[derive(Clone, PartialEq, Eq)]
@@ -48,8 +54,8 @@ impl Image {
 struct Texture {
     width: usize,
     height: usize,
-    /// Texels as floats in 0..=1 (premultiplied gamma RGBA), converted once on upload.
-    texels: Vec<[f32; 4]>,
+    /// Premultiplied gamma RGBA, as egui uploads them.
+    texels: Vec<Color32>,
     nearest: bool,
 }
 
@@ -57,7 +63,7 @@ impl Texture {
     fn texel(&self, x: i64, y: i64) -> [f32; 4] {
         let x = x.clamp(0, self.width as i64 - 1) as usize;
         let y = y.clamp(0, self.height as i64 - 1) as usize;
-        self.texels.get(y * self.width + x).copied().unwrap_or([0.0; 4])
+        self.texels.get(y * self.width + x).map_or([0.0; 4], |&c| unit(c))
     }
 
     fn sample(&self, u: f32, v: f32) -> [f32; 4] {
@@ -83,7 +89,7 @@ impl Texture {
 /// Error from [`Rasterizer::render`].
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum RasterError {
-    #[error("an image of {0} × {1} pixels is outside 1 … {MAX_SIDE} per side")]
+    #[error("an image of {0} × {1} pixels is outside 1 … {MAX_SIDE} per side or {MAX_PIXELS} in all")]
     Size(u32, u32),
 }
 
@@ -110,11 +116,11 @@ impl Rasterizer {
             for d in deltas {
                 let ImageData::Color(img) = &d.image;
                 let [w, h] = img.size;
-                if w == 0 || h == 0 || w > MAX_SIDE as usize || h > MAX_SIDE as usize {
+                if !size_ok(w as u64, h as u64) || img.pixels.len() != w * h {
                     continue;
                 }
                 let nearest = d.options.magnification == TextureFilter::Nearest;
-                let texels: Vec<[f32; 4]> = img.pixels.iter().map(|&c| unit(c)).collect();
+                let texels = img.pixels.clone();
                 match d.pos {
                     None => {
                         self.textures.insert(id, Texture { width: w, height: h, texels, nearest });
@@ -155,11 +161,11 @@ impl Rasterizer {
         height: u32,
         clear: Color32,
     ) -> Result<Image, RasterError> {
-        if width == 0 || height == 0 || width > MAX_SIDE || height > MAX_SIDE {
+        if !size_ok(u64::from(width), u64::from(height)) {
             return Err(RasterError::Size(width, height));
         }
         let ppp = if pixels_per_point.is_finite() && pixels_per_point > 0.0 { pixels_per_point } else { 1.0 };
-        let mut target = Target { width: width as usize, height: height as usize, px: vec![unit(clear); width as usize * height as usize] };
+        let mut target = Target { width: width as usize, height: height as usize, px: vec![clear.to_array(); width as usize * height as usize] };
         for prim in primitives {
             let Primitive::Mesh(mesh) = &prim.primitive else { continue };
             let Some(texture) = self.textures.get(&mesh.texture_id) else { continue };
@@ -185,7 +191,8 @@ impl Rasterizer {
 struct Target {
     width: usize,
     height: usize,
-    px: Vec<[f32; 4]>,
+    /// 8 bits per channel, like the framebuffer: every blend is quantised.
+    px: Vec<[u8; 4]>,
 }
 
 /// Whether the edge from `a` to `b` is a top or left edge of a triangle with positive area.
@@ -244,17 +251,17 @@ impl Target {
                 };
                 let src: [f32; 4] = std::array::from_fn(|c| color[c] * tex[c]);
                 if let Some(dst) = self.px.get_mut(y * self.width + x) {
+                    let d = dst.map(|v| f32::from(v) / 255.0);
                     let inv = 1.0 - src[3];
-                    // Stored as 8 bits per channel after every blend, like the framebuffer.
-                    let q8 = |f: f32| (f.clamp(0.0, 1.0) * 255.0).round() / 255.0;
-                    *dst = [q8(src[0] + dst[0] * inv), q8(src[1] + dst[1] * inv), q8(src[2] + dst[2] * inv), q8(src[3] * (1.0 - dst[3]) + dst[3])];
+                    let q8 = |f: f32| (f.clamp(0.0, 1.0) * 255.0).round() as u8;
+                    *dst = [q8(src[0] + d[0] * inv), q8(src[1] + d[1] * inv), q8(src[2] + d[2] * inv), q8(src[3] * (1.0 - d[3]) + d[3])];
                 }
             }
         }
     }
 
     fn into_image(self) -> Image {
-        let rgba = self.px.iter().flat_map(|p| p.map(|f| (f.clamp(0.0, 1.0) * 255.0).round() as u8)).collect();
+        let rgba = self.px.into_iter().flatten().collect();
         Image { width: self.width as u32, height: self.height as u32, rgba }
     }
 }
@@ -317,11 +324,12 @@ mod tests {
         assert!(r.render(&prims, f32::NAN, 4, 4, Color32::BLACK).is_ok());
         assert_eq!(r.render(&[], 1.0, 0, 4, Color32::BLACK), Err(RasterError::Size(0, 4)));
         assert_eq!(r.render(&[], 1.0, 4, MAX_SIDE + 1, Color32::BLACK), Err(RasterError::Size(4, MAX_SIDE + 1)));
+        assert_eq!(r.render(&[], 1.0, MAX_SIDE, MAX_SIDE, Color32::BLACK), Err(RasterError::Size(MAX_SIDE, MAX_SIDE)), "64 M pixels is over the cap");
     }
 
     #[test]
     fn bilinear_sampling_matches_texel_centres() {
-        let t = Texture { width: 2, height: 1, texels: vec![[0.0; 4], [1.0; 4]], nearest: false };
+        let t = Texture { width: 2, height: 1, texels: vec![Color32::TRANSPARENT, Color32::WHITE], nearest: false };
         assert_eq!(t.sample(0.25, 0.5), [0.0; 4]);
         assert_eq!(t.sample(0.75, 0.5), [1.0; 4]);
         assert_eq!(t.sample(0.5, 0.5), [0.5; 4]);
