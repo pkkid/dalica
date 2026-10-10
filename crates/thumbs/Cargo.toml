@@ -9,4 +9,13 @@ repository.workspace = true
 authors.workspace = true
 publish = false
 
+
 [dependencies]
+dalica-image.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+dalica-image.workspace = true
+dalica-scenes.workspace = true
+proptest.workspace = true
+tempfile.workspace = true

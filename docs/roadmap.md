@@ -383,7 +383,7 @@ built. Built by a single agent; the waves show what could run in parallel later.
   - done when: temp-tree tests find nested folders, skip skipped folders, and after adding,
     deleting and renaming files the verification pass emits exactly the matching ops; scanning
     1 000 `scenes` JPEGs completes within a recorded time.
-- ⬜ **M1.12 `thumbs`: job pool and memory cache**
+- ✅ **M1.12 `thumbs`: job pool and memory cache**
   - after: M1.6
   - files: `crates/thumbs/**`
   - scope: prioritised, per-key de-duplicating pool with cancellation; byte-budgeted LRU; the

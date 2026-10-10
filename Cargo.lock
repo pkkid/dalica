@@ -856,6 +856,13 @@ dependencies = [
 [[package]]
 name = "dalica-thumbs"
 version = "0.0.0"
+dependencies = [
+ "dalica-image",
+ "dalica-scenes",
+ "proptest",
+ "tempfile",
+ "thiserror 2.0.21",
+]
 
 [[package]]
 name = "dalica-ui"
