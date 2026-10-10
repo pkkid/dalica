@@ -171,7 +171,14 @@ impl Git for RealGit {
 
     fn run_ci(&self, dir: &Path) -> Result<(), String> {
         let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
-        let status = Command::new(cargo).current_dir(dir).args(["xtask", "ci"]).status().map_err(|e| format!("cannot run cargo: {e}"))?;
+        // Its own target directory (never another checkout's: cargo could reuse its binaries).
+        let target = ci_target_dir(&self.main_checkout(), dir);
+        let status = Command::new(cargo)
+            .current_dir(dir)
+            .env("CARGO_TARGET_DIR", &target)
+            .args(["xtask", "ci"])
+            .status()
+            .map_err(|e| format!("cannot run cargo: {e}"))?;
         if status.success() { Ok(()) } else { Err(format!("cargo xtask ci failed in {}", dir.display())) }
     }
 
@@ -186,6 +193,12 @@ impl Git for RealGit {
             Err(_) => self.cwd.join(".git"),
         }
     }
+}
+
+/// The target directory `run_ci` uses for the worktree `dir`: `<main checkout>/target/<name>`.
+pub fn ci_target_dir(main: &Path, dir: &Path) -> PathBuf {
+    let name = dir.file_name().map_or_else(|| "merge".into(), |n| n.to_string_lossy().into_owned());
+    main.join("target").join(name)
 }
 
 pub struct SystemClock;
@@ -229,6 +242,8 @@ mod tests {
         assert_eq!(parse_offset("-0400"), Some(-14400));
         assert_eq!(parse_offset("+0530"), Some(19800));
         assert_eq!(parse_offset("EDT"), None);
+        let main = Path::new("/w/dalica");
+        assert_eq!(ci_target_dir(main, &Path::new("/w/dalica.worktrees").join("merge")), main.join("target").join("merge"));
     }
 
     /// Runs git with a fixed identity in `dir`.
