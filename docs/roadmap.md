@@ -686,7 +686,7 @@ with the rest at the next review.
 
 - ⬜ **M3.1 `ui-kit`: the full widget set**
   - after: M2.1, M2.2
-  - files: `crates/ui-kit/src/theme.rs`, `crates/ui-kit/src/widgets.rs`, `crates/ui-kit/src/widgets/**`, `crates/ui-kit/tests/**`, `docs/design-system.md`
+  - files: `crates/ui-kit/src/theme.rs`, `crates/ui-kit/src/widgets.rs`, `crates/ui-kit/src/widgets/**`, `crates/ui-kit/tests/gallery.rs`, `crates/ui-kit/tests/widgets*.rs`, `crates/ui-kit/tests/contrast*.rs`, `crates/ui-kit/tests/fingerprints/gallery*.json`, `crates/ui-kit/tests/fingerprints/widgets*.json`, `docs/design-system.md`
   - scope: every token and metric of `design-system.md` §2–§4 not yet in `Tokens` (divider, inset,
     field, field_border, track, thumb, thumb_hover, tray_bg, drop_target, filter_banner, face_box,
     shadows, UI scale and font-size factors); the widgets of §6 the shell needs: `primary_button`,
@@ -739,7 +739,7 @@ with the rest at the next review.
     (tree width, pane, thumb size, full screen).
   - done when: `crates/ui/tests/layout.rs` reads every region's rect from the widget registry at
     1400 × 900 and 900 × 600 and matches §2.
-- ⬜ **M3.12 Lead: task blocks for M5**
+- ✅ **M3.12 Lead: task blocks for M5**
   - after: M2.9
   - owner: lead
   - files: `docs/roadmap.md`
@@ -1190,6 +1190,386 @@ One milestone in 2 feature areas (*Folders and scanning*, *Formats and colour*);
 - **Done when:** `cargo xtask accept M5`: decode tests per format from `scenes` at several depths
   and profiles; orientation 1–8 per container; malformed-input property tests never panic; corpus
   floors hold; a mixed-format folder snapshot matches its fingerprint.
+
+#### M5 tasks
+
+M5 makes the library follow the user's folders and show every listed format. Its first wave
+(`image`, `scenes`, `fs`, `scan`) touches nothing M3 or M4 changes, so it lists the M1 work it
+extends and starts as soon as the maintainer has closed M4.R; the engine and UI tasks build on M4's
+session, thumbnail ladder, tree and panels. Three tasks lay the ground the others share, so later
+tasks never share a file: M5.1 gives `image` one module per format behind one decoded-image model
+and colour stage, M5.5 splits the session into one module per concern (scanning, folders, jobs,
+watching, offline) with a job registry, and M5.14 adds the dialog host, M5's view state and stub
+modules for the UI tasks. Each task updates its `parity.md` rows (M5.1 adds one row per format
+group, `DATA-FMT-*`, for the decoder tasks to tick); first fingerprints of new decoders, dialogs and
+icons are approved in bulk on the M5.R review page.
+
+Whole-window baselines belong to no task: the finished milestones'
+`tests/acceptance/fingerprints/m1-*.json` … `m4-*.json` and any `crates/ui/tests/fingerprints/`
+file not named in a task's `files` change whenever the window does. A task whose change moves them
+re-blesses them on its branch (diff images on the PR, the reason in the commit body), they never
+count as a `files` overlap, and on a rebase conflict the worker re-blesses after the rebase instead
+of merging the JSON by hand. The maintainer approves them with the rest at the review.
+
+Pure Rust holds throughout (`AGENTS.md` §3), and no block needs a C dependency: decoders come from
+the crates pinned in `architecture.md` §1 (each audited with `cargo xtask deps` when it first enters
+the product graph); HEIF stays behind the off-by-default `heif` feature; AVIF is listed, never
+decoded. One known snag: `notify` 8 pulls `inotify-sys` (Linux) and `fsevent-sys` (macOS),
+binding-only crates that are not in `SYS_ALLOW`, and adding an entry is the maintainer's call. M5.11 therefore
+builds the watcher behind a hint interface with a pure-Rust polling backend as the default and the
+`notify` backend behind an off-by-default `notify` feature; the question is asked at M5.R, and
+either answer leaves the verification pass as the truth (`data-model.md` §7).
+
+- ⬜ **M5.1 `image`: one module per format, the decoded-image model and colour management**
+  - after: M1.6
+  - files: `crates/image/src/lib.rs`, `crates/image/src/decode.rs`, `crates/image/src/sniff.rs`, `crates/image/src/limits.rs`, `crates/image/src/color.rs`, `crates/image/src/formats/**`, `crates/image/tests/decode.rs`, `crates/image/tests/color.rs`, `crates/image/tests/fingerprints/color*.json`, `crates/image/fuzz/**`, `crates/image/README.md`, `.github/workflows/fuzz.yml`, `docs/formats.md`
+  - scope: `formats.md` §1, §4–§5: a `Decoded` value between container and display (8/16-bit
+    integer or float samples; grey, RGB, CMYK, palette expanded; alpha; embedded ICC bytes;
+    orientation) and one colour stage to upright 8-bit sRGB: ICC v2/v4 through `moxcms` (audit with
+    `cargo xtask deps`), untagged = sRGB, an unusable profile falls back to sRGB (logged), CMYK
+    without a profile converted naively, ICC limits of `security.md` §4.2; a `DecodeOptions`
+    with `color_managed` (View → Use Color Management; off = embedded profiles ignored); JPEG APP2
+    profile reassembly, CMYK/YCCK JPEG, PNG `iCCP` and 16-bit PNG through it; `formats/` with one
+    module per format (header for scanning, decode, embedded thumbnail), JPEG and PNG moved there,
+    stubs answering `Unsupported` for TIFF, WebP, GIF, BMP, JPEG XL, PSD, HEIF and `formats/raw/`
+    (`tiff_based.rs`, `cr3.rs`, `raf.rs`, `crw.rs`, `mrw.rs`, `x3f.rs`), so M5.6–M5.10 never share
+    a file; `sniff` tells the RAW containers apart by content; `catch_unwind` around every
+    third-party decoder ("Damaged file"); fallible allocations charged to the allocation limit;
+    work counters on the container walks we own; `Error::reason()` gives the tile texts of §1;
+    `crates/image/fuzz/` (a separate cargo-fuzz workspace outside the product graph, excluded in the
+    root manifest) with a target per parser of `security.md` §7.1 (`sniff`, `decode_any`, one
+    `decode_<format>` per format, `raw_preview`, `embedded_thumbnail`, `icc`) and a manually
+    dispatched fuzz workflow; the `DATA-FMT-*` parity rows.
+  - done when: `cargo test -p dalica-image`: the JPEG and PNG decodes of M1 still match their
+    fingerprints; `scenes` photos tagged with Display P3, Adobe RGB and ProPhoto profiles match
+    their sRGB references within a stated tolerance, with `color_managed` off they do not; a
+    damaged or oversized profile decodes as sRGB; 16-bit PNG and CMYK JPEG match fingerprints; a
+    planted panic inside a decoder is "Damaged file"; every stub format sniffs and answers its
+    reason; truncation and proptest random bytes never panic on any path; `cargo +nightly fuzz
+    build` builds every target (output in the PR).
+- ⬜ **M5.2 `scenes`: test files in every M5 format**
+  - after: M1.4
+  - files: `crates/scenes/src/formats.rs`, `crates/scenes/src/formats/**`, `crates/scenes/src/icc.rs`, `crates/scenes/tests/formats.rs`, `crates/scenes/README.md`
+  - scope: procedural photos written as TIFF (8/16-bit and float; grey, RGB, CMYK, palette;
+    uncompressed, LZW, Deflate, PackBits; Orientation tag; embedded thumbnail IFD; ICC tag), WebP
+    (lossless, with alpha, EXIF and ICCP chunks), GIF (one and several frames), BMP, a PSD composite
+    (our own writer: raw and RLE, 8/16-bit grey, RGB, CMYK, indexed, with thumbnail and ICC
+    resources), JPEG with an APP2 profile and, where an encoder can write it, CMYK; ICC profiles for
+    sRGB, Display P3, Adobe RGB, ProPhoto and Rec.2020 built in code from their published primaries
+    (v2 and v4); JPEG XL through an audited pure-Rust encoder if one passes `cargo xtask deps`
+    (otherwise JPEG XL tests rely on hand-built codestreams and the corpus). Encoders come from the
+    pinned `image` crate (audit with `cargo xtask deps`); no media committed.
+  - done when: `cargo test -p dalica-scenes`: every writer is deterministic (same seed, same
+    bytes); each file sniffs as its format and reads back through the `image` crate's own decoder
+    (or a structural check for PSD and ICC); profiles parse with `moxcms`.
+- ⬜ **M5.3 `fs`: writes through a held folder handle and stale temp cleanup**
+  - after: M1.2, M1.3
+  - files: `crates/fs/src/atomic.rs`, `crates/fs/src/dirfd.rs`, `crates/fs/src/stale.rs`, `crates/fs/src/faults.rs`, `crates/fs/tests/dirfd.rs`, `crates/fs/tests/stale.rs`, `crates/fs/README.md`, `docs/security.md`
+  - scope: `security.md` §5.6: on Unix, `atomic::replace` opens the target's folder once
+    (`O_DIRECTORY | O_NOFOLLOW`), checks it is the folder that was validated, and does every step
+    relative to that handle through `rustix` (approved at M1.A; audit with `cargo xtask deps`):
+    exclusive temp `openat`, write, fsync, identity re-check, `renameat`, folder fsync, read-back
+    with `O_NOFOLLOW`; Windows keeps the identity comparison before and after opening; §5.8:
+    `remove_stale_temps(folder, now)` removes only files of exactly the `.<name>.dalica-tmp-<random>`
+    shape older than 24 hours, never through a link, and reports what it removed; fault points on
+    the new steps; the §5.6 and §5.8 status lines.
+  - done when: `cargo test -p dalica-fs`: a folder swapped for a link between validation and write
+    (planted through a fault point) leaves the write in the original folder or fails, never writes
+    through the link; the fault loop over every step leaves the old or the new file; stale cleanup
+    removes a 25-hour-old temp and keeps a 23-hour-old one, a near-miss name, a foreign file and a
+    link; tests pass on all three OSes in CI.
+- ⬜ **M5.4 `scan`: skip rules, volumes, standard places and per-file guards**
+  - after: M1.11
+  - files: `crates/scan/src/walk.rs`, `crates/scan/src/skip.rs`, `crates/scan/src/volumes.rs`, `crates/scan/src/lib.rs`, `crates/scan/tests/scan.rs`, `crates/scan/tests/skip.rs`, `crates/scan/tests/volumes.rs`, `crates/scan/README.md`
+  - scope: `data-model.md` §7 and `security.md` §4.3: the skip rules in one module (dot entries,
+    `.dalica-originals`, OS system folders and cache/temp folders per platform, the list written
+    in the README) plus per-type toggles (`FileTypes` of Options → File Types; JPEG always on); every
+    recognised format listed by content, a file whose header cannot be read listed at 0 × 0 (its
+    reason comes from the thumbnail job); `scan` takes excluded subtrees (folders set to Remove
+    under a watched root) and streams per-folder results through a channel as it goes, with
+    progress counts and the cancel flag; each file's header read inside `catch_unwind` with a
+    10-second budget, failures returned with their (path, size, mtime) and skipped when given back
+    unchanged; `volumes`: standard places (Pictures, Documents, Desktop, Home through
+    `directories`, overridable for tests), mounted volumes per OS, `online(root)`, and a bounded,
+    sorted `children(path)` listing of subfolders for the Folder Manager.
+  - done when: `cargo test -p dalica-scan`: each skip rule on a temp tree; toggles drop exactly
+    their formats; an excluded subtree is never walked; results arrive per folder before the walk
+    ends and a cancelled scan stops at the next file; a planted panicking or slow file is reported
+    once and not retried until its mtime changes; `children` of a 10 000-folder tree stays within
+    its cap; places honour the override; a renamed-away root reports offline.
+- ⬜ **M5.5 `engine`: session modules, the job registry and progressive scans**
+  - after: M4.8, M5.4
+  - files: `crates/engine/src/session.rs`, `crates/engine/src/scanning.rs`, `crates/engine/src/folders.rs`, `crates/engine/src/jobs.rs`, `crates/engine/src/watching.rs`, `crates/engine/src/offline.rs`, `crates/engine/src/cmd/mod.rs`, `crates/engine/src/cmd/view.rs`, `crates/engine/src/cmd/section.rs`, `crates/engine/tests/jobs.rs`, `crates/engine/tests/progressive_scan.rs`, `crates/engine/README.md`
+  - scope: `architecture.md` §5: `session.rs` split so M5.11–M5.17 never touch it: `scanning.rs`
+    (scan jobs), `folders.rs` (watched roots and `folders.json`, moved over unchanged), `jobs.rs`,
+    and stub `watching.rs` and `offline.rs` called from `poll()`; empty `cmd/view.rs` and
+    `cmd/section.rs` registered once; a job registry per `control-protocol.md` §6.13 (id, kind,
+    label, state, progress, cancel flag, result or error; kept 10 minutes, at most 64, on the
+    session clock) with `jobs()`, `cancel(job | all)` and `wait(job, timeout)`; scans become jobs
+    whose streamed batches are applied a few hundred photos per `poll()`, so folders and thumbnails
+    fill in progressively, with scan progress (`running, foldersQueued, found, indexed`) and
+    thumbnail generation queued for each batch as it lands; `is_new_library()` for the first-run
+    panel.
+  - done when: engine tests on a temp library of 2 000 `scenes` photos in 40 folders: the first
+    batch is applied and its photos have thumbnail jobs queued before the walk finishes; progress
+    counts rise to the totals; cancelling the scan job stops it within one folder and keeps what
+    was applied; the registry expires entries after 10 minutes of virtual time and caps at 64;
+    every existing engine test and `panic_hunt` pass unchanged.
+- ⬜ **M5.6 `image`: TIFF**
+  - after: M5.1, M5.2
+  - files: `crates/image/src/formats/tiff.rs`, `crates/image/tests/tiff.rs`, `crates/image/tests/fingerprints/tiff*.json`
+  - scope: `formats.md` §1: the first full-resolution page through the pinned `image`/`tiff`
+    decoders (8/16-bit integer and float; grey, RGB, CMYK, palette; uncompressed, LZW, Deflate,
+    PackBits, JPEG), straight to `Decoded` where `image` refuses a layout (CMYK, float); header
+    (size, Orientation, EXIF) for scanning; the embedded thumbnail IFD as the fast path; the ICC
+    tag into the colour stage; multi-page files show page one; Lab and YCbCr answer `Unsupported`;
+    the decode limits checked against the IFD before any strip is read.
+  - done when: `cargo test -p dalica-image --test tiff`: `scenes` TIFFs at every depth, colour
+    model and compression match their fingerprints; orientation 1–8; a tagged profile converts;
+    the thumbnail IFD is used for a small target; a header bomb is refused before allocating;
+    truncation at every offset and proptest random bytes never panic.
+- ⬜ **M5.7 `image`: WebP, GIF and BMP**
+  - after: M5.1, M5.2
+  - files: `crates/image/src/formats/webp.rs`, `crates/image/src/formats/gif.rs`, `crates/image/src/formats/bmp.rs`, `crates/image/tests/webp_gif_bmp.rs`, `crates/image/tests/fingerprints/webp*.json`, `crates/image/tests/fingerprints/gif*.json`, `crates/image/tests/fingerprints/bmp*.json`
+  - scope: `formats.md` §1: WebP lossy and lossless with alpha, the first frame of an animation,
+    orientation from its EXIF chunk and its ICCP profile; GIF's first frame (frame count and
+    allocation bounded per `security.md` §4.2); BMP; headers for scanning; all through the pinned
+    decoders under the decode limits.
+  - done when: `cargo test -p dalica-image --test webp_gif_bmp`: `scenes` files of each format
+    match their fingerprints; WebP orientation 1–8 and its profile; an animated GIF and WebP show
+    frame one; oversized headers are refused before allocating; truncation and proptest random
+    bytes never panic.
+- ⬜ **M5.8 `image`: JPEG XL and PSD composites**
+  - after: M5.1, M5.2
+  - files: `crates/image/src/formats/jxl.rs`, `crates/image/src/formats/psd.rs`, `crates/image/tests/jxl.rs`, `crates/image/tests/psd.rs`, `crates/image/tests/fingerprints/jxl*.json`, `crates/image/tests/fingerprints/psd*.json`
+  - scope: `formats.md` §1: JPEG XL through `jxl-oxide` (audit with `cargo xtask deps`; the
+    decoder applies orientation; ICC into the colour stage); PSD and PSB through our own reader of
+    the header, the image resources (thumbnail, ICC) and the merged composite (raw and RLE;
+    8/16/32-bit grey, RGB, CMYK, indexed), with the provenance header the clean-room rule asks for;
+    layers are never parsed; ZIP-compressed composites and Lab answer `Unsupported`; every length
+    and count checked before use.
+  - done when: `cargo test -p dalica-image --test jxl --test psd`: JPEG XL files (from M5.2 or
+    built in the test) and `scenes` PSDs at each depth and colour model match their fingerprints;
+    a PSD's thumbnail resource serves a small target; a declared size past the limits is refused
+    before allocating; truncation and proptest random bytes never panic.
+- ⬜ **M5.9 `image`: RAW previews from TIFF-structured raws, and TIFF-strip EXIF thumbnails**
+  - after: M5.1, M5.2
+  - files: `crates/image/src/formats/raw/tiff_based.rs`, `crates/image/src/ifd.rs`, `crates/image/src/exif.rs`, `crates/image/tests/raw_tiff.rs`, `crates/image/tests/fingerprints/raw-tiff*.json`
+  - scope: `formats.md` §2: DNG, CR2, NEF, ARW, PEF, ORF, RW2 and SRW recognised by content; the
+    largest embedded JPEG preview found by our own bounded walk (SubIFD arrays and the vendor
+    preview pointers that are plain IFD offsets; seen-set, depth and entry caps of §4.2), previews
+    tagged Adobe RGB converted through the colour stage, orientation from IFD0; a raw without a
+    usable preview answers the generic RAW tile; EXIF IFD1 thumbnails stored as uncompressed TIFF
+    strips (not only as JPEG) used as the fast path in JPEG, TIFF and raw files.
+  - done when: `cargo test -p dalica-image --test raw_tiff`: synthetic raws of each kind built in
+    the test from public structure descriptions around a `scenes` JPEG yield the largest preview
+    and match its fingerprint; orientation 1–8; a strip thumbnail decodes; IFD loops, offsets
+    past the end and huge counts are `Err`; truncation and proptest random bytes never panic.
+- ⬜ **M5.10 `image`: RAW previews from other containers, HEIF behind its feature, AVIF tiles**
+  - after: M5.1, M5.2
+  - files: `crates/image/src/formats/raw/cr3.rs`, `crates/image/src/formats/raw/raf.rs`, `crates/image/src/formats/raw/crw.rs`, `crates/image/src/formats/raw/mrw.rs`, `crates/image/src/formats/raw/x3f.rs`, `crates/image/src/formats/bmff.rs`, `crates/image/src/formats/heif.rs`, `crates/image/tests/raw_containers.rs`, `crates/image/tests/heif.rs`, `.github/workflows/ci.yml`
+  - scope: `formats.md` §2–§3: embedded previews from CR3 (through a bounded ISOBMFF box walk:
+    nesting ≤ 12, boxes per level capped), RAF, CRW, MRW and X3F, each a small reader with a
+    provenance header (MRW's TIFF block read through `ifd` without changing it); HEIF/HEIC through
+    `heic-rs` behind the non-default `heif` feature (forwarded by `dalica`; reviewed per
+    `security.md` §8.6, the review in the commit body), a panic-guarded wrapper for single
+    pictures and grids, 8–12 bits, alpha, `irot`/`imir`, ICC; without the feature, HEIC tiles say
+    "HEIC support isn't included in this build"; AVIF is sniffed and shown as a format tile, never
+    decoded; a CI step tests `dalica-image` with `--features heif` on the three OSes.
+  - done when: `cargo test -p dalica-image --test raw_containers` (synthetic containers around a
+    `scenes` JPEG, built in the test) finds each preview; `cargo test -p dalica-image --features
+    heif --test heif` passes the structural tests (rotation, mirror, grid layout, unsupported
+    sequences answer `Unsupported`) and, without the feature, the tile reason; box loops and
+    oversized boxes are `Err`; truncation and proptest random bytes never panic.
+- ⬜ **M5.11 `scan`: the watcher and incremental verification**
+  - after: M5.4
+  - files: `crates/scan/src/watch.rs`, `crates/scan/src/watch/**`, `crates/scan/src/diff.rs`, `crates/scan/tests/watch.rs`, `crates/scan/tests/incremental.rs`
+  - scope: `data-model.md` §7: events are hints, verification is the truth. A `Watcher` interface
+    reporting dirty folders (debounced, coalesced, bounded queue); the default backend polls
+    folder modification times in sweeps sized to the library; the `notify` 8 backend behind the
+    off-by-default `notify` feature (see the intro: its `*-sys` crates wait for the maintainer);
+    incremental verification of dirty folders and a full verification on a schedule; `diff`
+    scoped to the folders a rescan covered, with folder renames and moves detected like photo
+    renames (same files by size and mtime) so ids, stars and the undo stack survive; a folder that
+    vanished under a root that cannot be walked is never removed.
+  - done when: `cargo test -p dalica-scan`: on temp trees the polling backend reports adds,
+    deletes, renames and rewrites within two sweeps (virtual time where possible); the incremental
+    diff of a dirty folder equals the full diff restricted to it; a renamed folder keeps its ids;
+    10 000 queued events coalesce within the queue cap; with `--features notify` the same tests
+    pass with events as hints and generous timeouts.
+- ⬜ **M5.12 `scan` + `engine`: folder modes, inheritance and the Folder Manager commands**
+  - after: M5.4, M5.5
+  - files: `crates/scan/src/rules.rs`, `crates/scan/tests/rules.rs`, `crates/engine/src/folders.rs`, `crates/engine/src/scanning.rs`, `crates/engine/src/settings.rs`, `crates/engine/src/cmd/folders.rs`, `crates/engine/tests/folders.rs`, `docs/data-model.md`
+  - scope: `data-model.md` §4, §7 and `organizing.md` §2: Scan Always, Scan Once and Remove per
+    folder, inherited by subfolders unless set (effective mode = nearest explicit ancestor);
+    Scan Once roots indexed once, then frozen; `folders.json` v2 (modes, exclusions, the "Find
+    faces in this folder" flag kept for M13) reading v1 files; commands: `folders.set {changes}`
+    (one library undo step), `folder.remove {id, confirm}` (`needs_confirm` with the "Remove
+    Folder" text), `folders.browse {path?}` (standard places and volumes, then children, answered
+    from a worker), `folders.list` (the watched list with friendly names); a volume root or the
+    home folder set to Scan Always needs `confirm` with the "Watch the whole drive" text;
+    `folders.add` becomes a Scan Always change; the File Types toggles join settings and the scans.
+  - done when: `crates/engine/tests/folders.rs` and `crates/scan/tests/rules.rs`: inheritance and
+    overrides on a temp tree; Remove drops a subtree from the library without touching a file,
+    and undo brings it back; Scan Once is not rescanned by verification; a v1 `folders.json` opens
+    and is written back as v2; confirmations over automation; every command's graceful-failure
+    test; `panic_hunt` green.
+- ⬜ **M5.13 `engine` + `store`: offline volumes and queued writes**
+  - after: M4.4, M5.4, M5.5
+  - files: `crates/engine/src/offline.rs`, `crates/engine/tests/offline.rs`, `crates/store/src/writer.rs`, `crates/store/tests/offline.rs`, `crates/store/README.md`, `crates/library/src/tree.rs`, `crates/library/tests/tree.rs`
+  - scope: `data-model.md` §7, `security.md` §5.9: a worker-filled cache of which roots are online
+    (checked on a schedule and after each scan, never on the owner thread); folders under an
+    offline root stay in the library and the tree (`offline` on each row, for M5.19 to dim) and
+    keep their cached thumbnails; edits to their photos are journalled at once and their sidecar
+    writes wait: the writer keeps the folder dirty, never creates a missing folder to write into,
+    reports `pendingWrites`, and writes everything when the root returns.
+  - done when: tests: a volume "unplugged" by renaming its root shows offline with its photos and
+    rows intact; a star made meanwhile is journalled, no folder is created at the old path, and
+    after renaming the root back the sidecar holds the star; `pendingWrites` counts it in between;
+    the tree property tests cover the offline flag; the owner thread made no `fs` call.
+- ⬜ **M5.14 `ui`: the dialog host, M5's view state and job methods**
+  - after: M4.5, M4.16, M5.5
+  - files: `crates/ui/src/state.rs`, `crates/ui/src/menus.rs`, `crates/ui/src/app.rs`, `crates/ui/src/tray.rs`, `crates/ui/src/commands/mod.rs`, `crates/ui/src/commands/dialogs.rs`, `crates/ui/src/dialogs/**`, `crates/ui/src/panels/activity.rs`, `crates/ui/src/control/**`, `crates/ui/tests/dialogs.rs`, `crates/ui/tests/jobs_control.rs`, `docs/control-protocol.md`
+  - scope: `design-system.md` §6 `dialog` and `control-protocol.md` §6.6, §6.13: a modal host in
+    `crates/ui/src/dialogs/mod.rs` (backdrop, Esc = Cancel, Enter = default, `dialog:<kind>` and
+    `button:dialog.*` ids, `ui.inspect` → `dialog`), with M4.16's tray confirmation moved onto it;
+    stub `dialogs/folder_manager.rs`, `dialogs/first_run.rs` and `panels/activity.rs` for M5.18
+    and M5.19; `UiState` gains the open dialog with its draft and the activity popover;
+    `folders.manager` (File → Add Folder… and Tools → Folder Manager…) as a UI command;
+    `ui.dialog.confirm` / `ui.dialog.cancel` and `jobs.list` / `jobs.wait` / `jobs.cancel` move
+    from `later(…)` to live methods over M5.5's registry.
+  - done when: `crates/ui/tests/dialogs.rs`: a dialog opens by command, Esc and Enter close it as
+    specified, `ui.inspect` reports it, the tray confirmation still works through the host;
+    `crates/ui/tests/jobs_control.rs`: a scan job is listed with progress, `jobs.wait` returns its
+    final entry, `jobs.cancel` stops it; bad params are `bad_params`; `widget_ids` stays green.
+- ⬜ **M5.15 `xtask corpus` and `test-corpus` with floors**
+  - after: M5.6, M5.7, M5.8, M5.9, M5.10
+  - files: `xtask/src/corpus.rs`, `xtask/src/corpus_pins.rs`, `xtask/corpus/**`, `xtask/src/docs.rs`, `crates/image/tests/corpus.rs`, `crates/image/tests/corpus_floors.json`, `crates/image/README.md`, `.github/workflows/ci.yml`, `.gitignore`, `docs/development.md`, `docs/formats.md`, `docs/security.md`
+  - scope: `development.md` §11: `cargo xtask corpus` (status, `--all`, `--local`,
+    `--update-manifest`), pins in `corpus_pins.rs`, sha256 manifests, `corpus/` gitignored;
+    `cargo xtask test-corpus [-p crate]`; the `corpus` feature of `dalica-image` with committed
+    floors per set (files decoded, previews extracted) that a missing or stale corpus fails; the
+    CI `corpus` job with its cache. Sets that exist today are pinned to their upstreams under
+    their own terms (PngSuite; CC0 raw samples per vendor); our own CC0 `dalica-corpus`
+    repository does not exist yet and creating it is the maintainer's step, so the `photos` and
+    `heif` sets are listed as unpinned and asked about at M5.R. Brings `formats.md` and
+    `security.md` §4 and §7 statuses up to date with M5's decoders, guards and fuzz targets.
+  - done when: `cargo xtask corpus --all` fetches and verifies the pinned sets; `cargo xtask
+    test-corpus` passes with floors at the measured counts (numbers in the PR); a planted stale
+    file fails verification; `xtask docs` lists both commands as implemented; no corpus file is
+    tracked by git.
+- ⬜ **M5.16 `engine` + `thumbs`: cache upkeep, colour management and the first-thumbnails benchmark**
+  - after: M4.3, M4.14, M5.1, M5.5, M5.13
+  - files: `crates/engine/src/thumbs.rs`, `crates/engine/src/cmd/view.rs`, `crates/engine/src/cmd/section.rs`, `crates/engine/src/settings.rs`, `crates/engine/tests/thumb_cache.rs`, `crates/engine/benches/first_thumbnails.rs`, `crates/thumbs/src/upkeep.rs`, `crates/thumbs/tests/upkeep.rs`, `crates/thumbs/README.md`, `crates/ui/src/menus.rs`, `crates/ui/tests/color_management.rs`
+  - scope: `architecture.md` §6: the cache size setting (2 GiB default), pruning as a background
+    job at start and whenever the cache passes its limit, entries of removed photos made dead,
+    entries of offline photos kept and never regenerated while offline; a photo that cannot be
+    decoded answers its `formats.md` §1 reason, remembered by (path, size, mtime) and not retried
+    until it changes; `view.colorManagement` (View → Use Color Management, checkable, on by
+    default, persisted) switches `DecodeOptions::color_managed`, joins the cache key and refreshes
+    visible thumbnails; `section.refreshThumbs` (Folder → Refresh Thumbnails); a just-added
+    folder's first screenful is generated before the rest, from embedded thumbnails where they
+    cover the cell; `first_thumbnails` bench: time from `folders.add` to the first screenful
+    having thumbnails for 1 000 JPEGs (the `development.md` §8 budget) and 10 000 JPEGs (the
+    roadmap's), plus full scan time and photos per second.
+  - done when: engine tests: pruning stops at 80 % and keeps offline entries; a broken file gets
+    its reason once and is retried after a rewrite; toggling colour management changes a tagged
+    photo's thumbnail and its cache key, and the menu item's check follows it; refresh regenerates
+    a section; every command's graceful-failure test; `cargo xtask bench first_thumbnails` reports
+    first thumbnails ≤ 1 s for 1 k and 10 k JPEGs and the full scan numbers (in the PR).
+- ⬜ **M5.17 `engine` + `store`: watching and external changes end to end**
+  - after: M5.3, M5.11, M5.12, M5.13
+  - files: `crates/engine/src/watching.rs`, `crates/engine/src/scanning.rs`, `crates/engine/tests/watching.rs`, `crates/engine/README.md`, `crates/store/src/stale.rs`, `crates/store/src/writer.rs`, `crates/store/tests/stale.rs`, `docs/data-model.md`
+  - scope: `data-model.md` §7: Scan Always roots watched through M5.11's interface, dirty folders
+    rescanned as jobs, a full verification pass on the session clock; external creates, deletes,
+    renames and modifications reach the library within seconds; a folder moved inside the watched
+    roots keeps its data (the sidecar moves with it); stale `.dalica-tmp-*` files removed when a
+    folder is scanned (M5.3); a photo deleted outside Dalica leaves the library and its sidecar
+    entry is pruned after 30 days (the index remembers when it went missing; pruning happens on the
+    folder's next sidecar write).
+  - done when: `crates/engine/tests/watching.rs` on temp libraries while the session runs: add,
+    remove, rename and rewrite files and folders and see each in the library; with the watcher
+    switched off, the verification pass alone finds everything; a moved folder keeps its stars; a
+    stale temp is removed and a fresh one kept; a missing photo's entry survives 29 days and is
+    gone after 31 (virtual time); the owner thread made no `fs` call.
+- ⬜ **M5.18 `ui`: the Folder Manager and the first-run panel**
+  - after: M5.12, M5.14
+  - files: `crates/ui/src/dialogs/folder_manager.rs`, `crates/ui/src/dialogs/folder_manager/**`, `crates/ui/src/dialogs/first_run.rs`, `crates/ui-kit/src/icons.rs`, `crates/ui-kit/src/icons/folder_modes.rs`, `crates/ui-kit/tests/icons_folder_modes.rs`, `crates/ui-kit/tests/fingerprints/icons-folder-modes*.json`, `crates/ui/tests/folder_manager.rs`, `crates/ui/tests/first_run.rs`, `crates/ui/tests/fingerprints/dialog-folder-manager*.json`, `crates/ui/tests/fingerprints/dialog-first-run*.json`, `docs/organizing.md`
+  - scope: `organizing.md` §1–§2: the Folder Manager (≈ 640 × 480, resizable, split 50/50): the
+    folder tree with its roots (Pictures, Documents, Desktop, Home, volumes) loaded lazily through
+    `folders.browse` (a spinner row while loading), state icons drawn in code (Scan Always, Scan
+    Once, Remove; inherited ones at 50 %), the three radios, the faces toggle, the watched list
+    (a click reveals the folder), OK / Cancel / Help (Help disabled until there is help), changes
+    applied on OK through `folders.set`, the drive and Remove Folder confirmations, the selected
+    library folder pre-selected; the first-run panel (≈ 640 × 460) for a new library with no
+    watched folders (never in `--demo`), whose Continue adds the standard places as Scan Always or
+    opens the Folder Manager; ids per control-protocol §7.
+  - done when: headless tests drive both dialogs by id: expanding a root lists its children
+    without blocking a frame; inheritance icons and opacity; Cancel changes nothing; OK applies one
+    undo step; the drive confirmation reverts on Cancel; first run with the default choice adds the
+    standard places (test override) and folders appear while the scan runs; dialog and icon
+    fingerprints at both window sizes; earlier milestones' acceptance tests pass unchanged.
+- ⬜ **M5.19 `ui`: the activity indicator, scan progress and offline folders**
+  - after: M3.7, M4.15, M4.17, M5.13, M5.14
+  - files: `crates/ui/src/panels/toolbar.rs`, `crates/ui/src/panels/activity.rs`, `crates/ui/src/panels/status.rs`, `crates/ui/src/status_text.rs`, `crates/ui/src/panels/folders.rs`, `crates/ui/src/panels/folders/**`, `crates/ui/tests/activity.rs`, `crates/ui/tests/offline_folders.rs`, `crates/ui/tests/fingerprints/activity*.json`, `crates/ui/tests/fingerprints/region-tree*.json`, `crates/ui/tests/fingerprints/region-status*.json`, `docs/ui-layout.md`
+  - scope: `ui-layout.md` §3 item 8 and `organizing.md` §1: the 28 × 28 activity indicator spins
+    while a job runs; a click opens a popover listing jobs with `progress_row` and Cancel
+    (`jobs.cancel`); the status line shows "Scanning: 1,204 pictures found" in place of "No
+    selection", and as the last field (dropped first when space is short) when something is
+    selected; offline folders' tree rows dimmed with a `caution` "offline" marker; ids per
+    control-protocol §7.
+  - done when: `crates/ui/tests/activity.rs`: during a scan of a temp library the indicator spins,
+    the popover lists the job with rising progress and Cancel stops it, the status text counts
+    up and returns to the selection text when the scan ends; `crates/ui/tests/offline_folders.rs`:
+    renaming a root away dims its rows with the marker and renaming it back restores them; the
+    region and popover fingerprints at both window sizes.
+- ⬜ **M5.20 `accept M5`**
+  - after: M5.15, M5.16, M5.17, M5.18, M5.19
+  - files: `tests/acceptance/m5.rs`, `tests/acceptance/m5_*.rs`, `tests/acceptance/m5.md`, `tests/acceptance/fingerprints/m5-*.json`
+  - scope: every *Done when* of M5's two areas: the temp-dir scenarios (add, remove, rename while
+    running; the verification pass finds everything; a volume "unplugged" by renaming its root
+    shows offline and a star made meanwhile is written when it returns); first thumbnails of a
+    10 k-JPEG folder ≤ 1 s and the full scan time (the release bench; inside `cargo xtask ci` a
+    smaller debug run checks the progressive path and prints its time); decode tests per format
+    at several depths and profiles; orientation 1–8 per container; malformed-input property tests;
+    the corpus floors (run when `corpus/` is present and verified, said plainly when it is not;
+    the CI corpus job is the strict run); a mixed-format folder snapshot (every format, a HEIC and
+    an AVIF tile with their reasons, a broken file's "!") matching its fingerprint; the manual
+    check (first run on a fresh library directory, watching thumbnails fill in) in `m5.md`.
+  - done when: `cargo xtask accept M5` passes everything in M5's *Done when*.
+- ⬜ **M5.21 Lead: task blocks for M7**
+  - after: M4.19
+  - owner: lead
+  - files: `docs/roadmap.md`
+  - scope: write every M7 task block from M7's section and the spec, with waves and the `M7.R`
+    review (owner: maintainer).
+  - done when: `cargo xtask tasks sync --check` parses them and `tasks sync --dry-run` lists one new
+    issue per block.
+- ⬜ **M5.R Check-in**
+  - after: M5.20
+  - owner: maintainer
+  - files: `docs/roadmap.md`, `docs/status.md`
+  - scope: the lead runs `/milestone-review M5.R` to prepare it: the check-in page (first run on a
+    fresh library, the Folder Manager, the mixed-format folder, an unplugged and replugged folder,
+    written as steps for the maintainer to try; the questions: the `notify` `*-sys` entries, the
+    `dalica-corpus` repository, the display profile for colour management), *Where we stand* and
+    the `status.md` numbers (first thumbnails at 1 k and 10 k, scan throughput, corpus floors) on a
+    `review/M5.R` branch, a pull request open. Only the maintainer merges that pull request and
+    closes this issue; nothing after it starts until then.
+  - done when: prepared: page published, PR open, both linked on the issue.
+
+Waves (inside a wave, "‖" separates tasks whose `files` do not overlap):
+
+```text
+wave 1   M5.1 image formats + colour  ‖  M5.2 scenes formats  ‖  M5.3 fs folder handle
+         ‖  M5.4 scan rules + volumes     (once M4.R is closed)
+wave 2   M5.5 engine modules + jobs  ‖  M5.6 TIFF  ‖  M5.7 WebP/GIF/BMP  ‖  M5.8 JPEG XL + PSD
+         ‖  M5.9 RAW (TIFF-based)  ‖  M5.10 RAW (other) + HEIF  ‖  M5.11 watcher
+wave 3   M5.12 folder modes  ‖  M5.13 offline volumes  ‖  M5.14 dialog host + jobs  ‖  M5.15 corpus
+wave 4   M5.16 cache, colour, benchmark  ‖  M5.17 watching end to end
+         ‖  M5.18 Folder Manager + first run  ‖  M5.19 activity + offline UI
+wave 5   M5.20 accept M5 → M5.R          (M5.21 lead: M7 blocks, any time after M4.19)
+```
 
 ### M6 — Photo info, metadata and Release 0.1
 
