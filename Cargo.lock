@@ -837,6 +837,7 @@ dependencies = [
  "dalica-core",
  "dalica-fs",
  "dalica-library",
+ "dalica-sidecar",
  "serde",
  "serde_json",
  "tempfile",

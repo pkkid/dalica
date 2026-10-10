@@ -14,9 +14,12 @@ publish = false
 dalica-core.workspace = true
 dalica-fs.workspace = true
 dalica-library.workspace = true
+dalica-sidecar.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+# Fault points, to show a failed sidecar write leaves the old or the new file.
+dalica-fs = { workspace = true, features = ["faults"] }
 tempfile.workspace = true

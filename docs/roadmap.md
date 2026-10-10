@@ -363,7 +363,7 @@ built. Built by a single agent; the waves show what could run in parallel later.
   - done when: journal + replay reproduce the model; truncating the journal at every byte offset
     replays to the last complete op; a corrupt snapshot falls back to the journal or a rebuild
     with a reported reason.
-- ⬜ **M1.10 `store`: sidecar sync and rebuild**
+- ✅ **M1.10 `store`: sidecar sync and rebuild**
   - after: M1.3, M1.7, M1.9
   - files: `crates/store/src/mapping.rs`, `crates/store/src/writer.rs`, `crates/store/src/rebuild.rs`, `crates/store/tests/**`
   - scope: model ↔ sidecar mapping (with the test that every user-visible model field is

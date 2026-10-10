@@ -11,7 +11,10 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 pub mod journal;
+pub mod mapping;
+pub mod rebuild;
 pub mod snapshot;
+pub mod writer;
 
 use std::path::{Path, PathBuf};
 
@@ -19,6 +22,9 @@ use dalica_core::{DateTime, Timestamp};
 use dalica_library::{Library, Op};
 
 pub use journal::Journal;
+pub use mapping::FolderState;
+pub use rebuild::{Import, import_sidecars};
+pub use writer::{Outcome, SidecarWriter, write_folder};
 
 /// The largest index file read (journals are snapshotted long before this).
 pub const MAX_FILE: u64 = 1 << 30;
