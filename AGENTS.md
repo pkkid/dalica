@@ -196,9 +196,19 @@ And:
   generator`); the body says what was tested, numbers, and decisions made. End with the
   attribution line the environment requires. The lead squash-merges, so a branch may have several
   commits, but every commit must build.
-- **Dev log:** every task gets an entry in `log/devlog.md` (via `tasks log`): what landed, what is
-  still open, the numbers. It is private and lives only in the main checkout; it is how the next
-  agent picks up after a crash.
+- **Dev log (every task, no exceptions):** append a short entry to `log/devlog.md` in the **main
+  checkout** (not your worktree's copy): what landed, what is still open, the numbers. Use
+  `cargo xtask tasks log <id> "…"`; until that exists (before M0.10 lands), append it by hand in
+  the same format (`docs/task-board.md` §8):
+
+  ```markdown
+  ## 2026-10-09 14:02 · agent-3 · M1.4 scenes
+  Landed: …
+  Open: …
+  Numbers: …
+  ```
+
+  It is private (gitignored, never committed); it is how the next agent picks up after a crash.
 
 ## 6. Start or resume a session
 
