@@ -93,8 +93,9 @@ connection is closed. `protocol` is an integer bumped on incompatible changes.
 - A reply has `ok`, then `result` (success) or `code` + `error` (failure). `error` is an English
   sentence an agent can act on; `code` is stable (§3).
 - **Only requests are read.** A line that is not JSON, not an object, lacks `method`, is not valid
-  UTF-8 or is longer than the line limit gets one error reply (`code: "parse"`) and the server
-  **closes the connection**; nothing sent after it on that connection runs. This keeps an HTTP
+  UTF-8, is longer than the line limit or nests arrays and objects deeper than the depth limit (§4)
+  gets one error reply (`code: "parse"`) and the server **closes the connection**; nothing sent
+  after it on that connection runs. This keeps an HTTP
   request (for example a web page's cross-origin `fetch` to `127.0.0.1:7990`) from smuggling a
   command in its body: its request line is rejected first, and it could not authenticate anyway.
   Clients that see a `parse` error reconnect.
@@ -105,7 +106,7 @@ connection is closed. `protocol` is an integer bumped on incompatible changes.
 
 | `code` | When | Connection |
 |---|---|---|
-| `parse` | the line is not a request (see §2.3) or exceeds the line limit | closed |
+| `parse` | the line is not a request (see §2.3), exceeds the line limit or nests deeper than the depth limit | closed |
 | `unauthorized` | first line is not a successful `auth` | closed |
 | `unknown_method` | no such method (`methods` lists them) | open |
 | `unknown_command` | `engine.execute` / `ui.menu.invoke` with an unregistered id | open |
@@ -127,6 +128,7 @@ connection is closed. `protocol` is an integer bumped on incompatible changes.
 | Limit | Value |
 |---|---|
 | Request line | 1 MiB (encoded, including the newline) |
+| JSON nesting depth | 64 levels of arrays and objects, the request object included; deeper lines get `parse` and are closed (§2.3) |
 | Reply line | 8 MiB; a larger result is replaced by a `limit` error (screenshots: write to a `path` instead) |
 | Open connections | 16; further ones get one `limit` error line and are closed |
 | Socket read/write timeout | 30 s idle |
