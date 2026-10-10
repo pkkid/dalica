@@ -16,7 +16,7 @@ rules for parallel agents).
 | What | Where | Changed by |
 |---|---|---|
 | **The plan:** every task, its dependencies, files, scope and *done when* | task blocks in [`roadmap.md`](roadmap.md), versioned with the code | the lead, ahead of each milestone (no approval needed) |
-| **The live state:** ready, claimed (by whom, on which branch), in review, blocked | GitHub: one issue per task in [pkkid/dalica](https://github.com/pkkid/dalica/issues), all on the project board [Dalica](https://github.com/users/pkkid/projects/3) | agents, only through `cargo xtask tasks` |
+| **The live state:** ready, claimed (by whom, on which branch), in review, blocked | GitHub: one issue per task of an open milestone (§2) in [pkkid/dalica](https://github.com/pkkid/dalica/issues), all on the project board [Dalica](https://github.com/users/pkkid/projects/3) | agents, only through `cargo xtask tasks` |
 | **Done** | the task's squash commit (`M1.4: …`) is on `main` and its block is ticked ✅ in `roadmap.md` | the worker ticks ✅ in its branch; it becomes true when the lead merges |
 
 Nothing else counts: a ✅ on an unmerged branch, a closed issue without a merge, or a comment saying
@@ -26,7 +26,14 @@ Nothing else counts: a ✅ on an unmerged branch, a closed issue without a merge
 
 - **Milestones** (repository milestones): one per roadmap milestone, titled `M1 Star a photo, end
   to end`. The project's built-in *Milestone* field shows them.
-- **Issues:** one per task block, titled `M1.4 scenes` (id + the block's title). The body holds a
+- **Open milestones:** a milestone's tasks get issues only once it is open: the first milestone
+  always, any other once the maintainer has closed the previous milestone's review (`M<n-1>.R`).
+  Before that its task blocks are planning text in `roadmap.md` (the lead writes them ahead) and
+  nothing of it is on the board (the maintainer's rule, 2026-10-10: "I don't want to be creating
+  milestone tasks until the review of the previous milestone"). A single task can be brought
+  forward with `pulled: M<k>` (§3): it gets its issue as soon as milestone k is open.
+- **Issues:** one per task block of an open milestone (and per pulled task), titled `M1.4 scenes`
+  (id + the block's title). The body holds a
   generated section between `<!-- dalica:task -->` markers (after, owner, files, scope, done when,
   a link to the roadmap block); `sync` rewrites only that section, so humans may add notes below
   it. `sync` also keeps the project's item order equal to `roadmap.md` order, so the board reads
@@ -55,6 +62,7 @@ the project).
 - ⬜ **M1.4 `scenes`**
   - after: M1.1
   - owner: agent                     (optional; `lead` for board upkeep and planning, `maintainer` for every review task)
+  - pulled: M0                       (optional; brings this one task forward into M0's run)
   - files: `crates/scenes/**`
   - scope: what to build, in a few lines.
   - done when: the command or test that proves it, with its edge cases.
@@ -75,6 +83,11 @@ the project).
   stand* and the `status.md` numbers); only the maintainer merges that pull request and closes the
   issue. `tasks submit` and `tasks merge` refuse a review task, and `tasks sync` never closes a
   review's issue.
+- **pulled:** optional, one earlier milestone `M<k>` (in the Overview table, lower than the task's
+  own; never on a review task). Only that task is pulled forward, not its milestone: its issue is
+  created once milestone k is open, and during k's run `next` may offer it as soon as its `after`
+  ids are done and its `files` overlap nothing in progress (the reviews from M<k> on do not hold
+  it back). The rest of its milestone stays off the board until the previous review closes.
 - **Checkbox:** ⬜ or ✅ only. Live progress is on the board, not in this file.
 - **after:** comma-separated ids, or `—`. A milestone's first tasks list the work they build on; a
   review listed before them already holds them back by its place in the file, so `after` names a
@@ -115,6 +128,7 @@ Todo ──(deps done)──► Ready ──claim──► In Progress ──sub
 
 | Transition | Command | Who |
 |---|---|---|
+| (planning text) → Todo or Ready | `tasks sync` creates the issue once the task's milestone is open (the previous review closed) or the task is `pulled` into an open milestone | anyone; the first `sync` after the maintainer closes a review |
 | Todo → Ready | `tasks sync` (when every `after` id is ✅ on `main`) | anyone; the lead runs it after each merge |
 | Ready → In Progress | `tasks claim <id> --agent <name>` | a worker (or the lead) |
 | In Progress → In Review | `tasks submit <id>` | the claiming worker |
@@ -130,8 +144,8 @@ Todo ──(deps done)──► Ready ──claim──► In Progress ──sub
 | Command | What it does |
 |---|---|
 | `setup [--dry-run]` | create milestones, labels (`task`, `gate`, `needs-maintainer`, `stale`, `baseline-approved`) and the Agent/Branch fields (idempotent; maintainer approves). A GitHub milestone matches a roadmap milestone by its exact title, else by its `M<n>` number, and is then renamed (and its description set to the milestone's goal) to match `roadmap.md`; the roadmap renamed its milestones once. A GitHub milestone with no roadmap counterpart is closed when it has no issues and otherwise reported, never deleted. Missing Status options are reported, not created: replacing a single-select field's options through the API resets every item |
-| `sync [--check\|--dry-run]` | parse `roadmap.md`, create or update issues and project items, move Todo ↔ Ready, keep the board in roadmap order, close the issue of a ✅ task once its `M<n>.<k>:` commit is on `main` and nothing that isn't merged; never closes a review's issue (the maintainer does); `--check` only parses (offline, used by `ci`); `--dry-run` reads GitHub and prints the writes it would make. Before any write it checks that the milestones it would put issues in exist, and otherwise says to run `tasks setup` |
-| `next [--agent <name>]` | list Ready tasks this agent may take: dependencies done, files not overlapping any In Progress or In Review task, not listed after an open review task, `owner: lead` tasks only for the lead. Prints them in `roadmap.md` order, so the first line is the one to claim |
+| `sync [--check\|--dry-run]` | parse `roadmap.md`, create or update issues and project items for the tasks of open milestones and the tasks pulled into one (§2; other blocks get no issue, and a note per milestone says which review opens it), move Todo ↔ Ready, keep the board in roadmap order, close the issue of a ✅ task once its `M<n>.<k>:` commit is on `main` and nothing that isn't merged; never closes a review's issue (the maintainer does); an open issue whose task is in a milestone that is not open, or is no longer in `roadmap.md`, is left as it is (never edited, moved, closed or failed on) and named in a `note:` line; `--check` only parses (offline, used by `ci`); `--dry-run` reads GitHub and prints the writes it would make. Before any write it checks that the milestones it would put issues in exist, and otherwise says to run `tasks setup` |
+| `next [--agent <name>]` | list Ready tasks this agent may take (never a task without an issue: its milestone is open, or it is pulled into an open one): dependencies done, files not overlapping any In Progress or In Review task, not listed after an open review task, `owner: lead` tasks only for the lead. Prints them in `roadmap.md` order, so the first line is the one to claim |
 | `claim <id> --agent <name>` | under the claim lock, re-read the board, refuse if no longer Ready or overlapping, then set In Progress + Agent + Branch, comment "claimed by agent-3 on task/M1.4-scenes", create or reuse the agent's worktree and branch from `origin/main`, and print the agent's environment |
 | `env <name>` | print the agent's environment (`eval "$(cargo xtask tasks env agent-3)"`) |
 | `submit <id> [--body-file F] [--dry-run]` | refuse a review task; refuse unless `cargo xtask ci` passed on this commit (a green `ci` on a clean worktree records `<git common dir>/dalica-ci/<commit>.ok`) and a devlog entry exists; push the branch; open the PR (title `M1.4: <title>`, body: what changed, evidence for each *done when*, numbers, screenshots, `Closes #<issue>`); set In Review. The evidence is the `--body-file` (screenshots, per-point evidence) or, without it, the task's newest dev-log entry. When the branch adds, changes or deletes **fingerprint baselines** (`**/fingerprints/*.json`), the body lists them (each marked added, changed or deleted) and says they are approved in bulk at the next review; the worker attaches their images (the new PNG, or the actual/expected/diff PNGs) and the commit body says why each changed |

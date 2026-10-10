@@ -81,8 +81,9 @@ Append one entry to `log/devlog.md` in the **main checkout**, headed
 5. **Open items:** every `Open:` line and `TODO(maintainer)`. Each gets the task that takes it, or
    the reason it is dropped.
 6. **Next:** the next milestone's task blocks. Check that they are on `main` already (the lead writes
-   them ahead). If they are not, write them now, before anything else. Add the parallelism
-   report: waves, how many tasks can run at once, and shared-file hotspots.
+   them ahead). If they are not, write them now, before anything else. They become issues only
+   when the maintainer closes this review (any task `pulled` forward already has one). Add the
+   parallelism report: waves, how many tasks can run at once, and shared-file hotspots.
 
 ## 3. Publish the check-in page
 

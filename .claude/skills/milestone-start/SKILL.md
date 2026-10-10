@@ -39,7 +39,9 @@ Its jobs are to claim, dispatch, review, merge and keep the board true.
    `target/agent-1`).
 3. **Is the board ready?**
    - The milestone's task blocks exist on `main`.
-   - `cargo xtask tasks sync` has created their issues.
+   - The milestone is open (the maintainer has closed the previous milestone's review) and
+     `cargo xtask tasks sync` has created their issues. A milestone that is not open has no issues
+     yet (`sync` prints a `note:` naming the review that opens it); stop and tell the maintainer.
    - Its first tasks show Ready in `cargo xtask tasks status`, and `cargo xtask tasks next`
      offers them: no review task listed before them is still open. If one is (its PR not merged
      or its issue not closed), stop and tell the maintainer which review waits for them.
@@ -139,7 +141,11 @@ once and report.
     (maintainer rule, 2026-10-10; the parser refuses an open `M<n+1>.A`). Every review task is
     `owner: maintainer` (the parser refuses any other owner).
     M6, M10 and M15 end with release gates.
-  - Merge the blocks like any task; `tasks sync` then creates their issues. No approval is needed.
+  - Merge the blocks like any task. No approval is needed. They stay planning text: `tasks sync`
+    creates their issues only when the maintainer closes this milestone's review and the next
+    milestone opens. To run one of them early, give its block `pulled: M<n>` (this milestone);
+    only that task gets an issue now, and `tasks next` offers it once its `after` is done
+    (`docs/task-board.md` §3).
 - **Review task: stop.** When the next tasks wait on the open review task (`M<n>.R`, release
   gates included), `tasks next` offers nothing listed after it:
   - Let the running tasks finish; review and merge them as usual. Claim nothing listed after the

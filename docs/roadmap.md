@@ -84,6 +84,10 @@ waits for.)
 - **The lead plans ahead.** The lead writes the next milestone's task blocks while the current one
   runs, by the end of its first wave, so agents never wait for a plan. Task blocks need no
   approval; the check-in shows them.
+- **A milestone's tasks become issues when the previous review closes.** Until the maintainer
+  closes `M<n-1>.R`, M<n>'s blocks are planning text and `cargo xtask tasks sync` creates no
+  issue for them; a block with `pulled: M<k>` brings that one task forward into milestone k's run
+  (the maintainer's rule, 2026-10-10; `task-board.md` §2–§3).
 - **Agents make the technical decisions** (`AGENTS.md` §4): they default to what LightCraft and
   PhotoCraft did (`architecture.md` §9) and record each decision in the commit body; the check-in
   lists them for reversal. Only the decisions listed in `AGENTS.md` §4 stop and ask the maintainer.
