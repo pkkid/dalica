@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::time::Duration;
 
-use dalica_engine::{OpenError, Session};
+use dalica_engine::Session;
 use dalica_ui::{App, Picker};
 use dalica_ui_kit::{Tokens, fonts};
 use egui::{Align2, Frame};
@@ -21,23 +21,33 @@ impl Picker for RfdPicker {
     }
 }
 
+/// Which library the window opens.
+pub enum Source {
+    Library(PathBuf),
+    /// The demo library in this folder, made on first use (`dalica_engine::demo`).
+    Demo(PathBuf),
+}
+
 pub struct Window {
     app: App,
-    opening: Option<Receiver<Result<Session, OpenError>>>,
+    opening: Option<Receiver<Result<Session, String>>>,
     failed: Option<String>,
     _ui_thread: Option<dalica_fs::UiThread>,
 }
 
 impl Window {
-    /// Starts opening the library in `dir` on another thread; the window shows "Opening…" until it
-    /// arrives.
-    pub fn new(ctx: &egui::Context, dir: PathBuf) -> Window {
+    /// Starts opening the library on another thread; the window shows "Opening…" until it arrives.
+    pub fn new(ctx: &egui::Context, source: Source) -> Window {
         let app = App::with_picker(None, Arc::new(RfdPicker));
         app.install(ctx);
         let (tx, rx) = mpsc::channel();
         let ctx = ctx.clone();
         let spawned = std::thread::Builder::new().name("dalica-open".into()).spawn(move || {
-            let opened = Session::open(&dir, Arc::new(dalica_core::SystemClock));
+            let clock = Arc::new(dalica_core::SystemClock);
+            let opened = match source {
+                Source::Library(dir) => Session::open(&dir, clock).map_err(|e| e.to_string()),
+                Source::Demo(dir) => dalica_engine::demo::open(&dir, clock).map_err(|e| e.to_string()),
+            };
             let _ = tx.send(opened);
             ctx.request_repaint();
         });

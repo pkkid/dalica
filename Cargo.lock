@@ -729,7 +729,12 @@ dependencies = [
 name = "dalica-acceptance"
 version = "0.0.0"
 dependencies = [
+ "dalica-core",
+ "dalica-engine",
+ "dalica-fs",
  "dalica-scenes",
+ "dalica-ui",
+ "png",
  "serde_json",
  "tempfile",
 ]
