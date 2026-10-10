@@ -28,7 +28,7 @@ same commit.
 | D. Viewing | 0 | 0 | 6 | 2 |
 | E. Output | 0 | 0 | 2 | 9 |
 | F. Data | 1 | 2 | 3 | 0 |
-| G. Preferences and system | 0 | 2 | 9 | 0 |
+| G. Preferences and system | 0 | 3 | 8 | 0 |
 | H. Menus | 0 | 0 | 7 | 0 |
 | **All** | 1 | 7 | 119 | 16 |
 <!-- /parity:summary -->
@@ -201,8 +201,8 @@ same commit.
 | PREF-GENERAL / FILETYPES / SLIDESHOW / NETWORK / PEOPLE / VIEWER / EXPORT | each tab's options | P1 | ⬜ | `menus-and-shortcuts.md` §5 |
 | PREF-KEYMAP | Keyboard contexts and the shortcut editor (search, record, conflicts, reset) | P1 | ⬜ | `menus-and-shortcuts.md` §2.0 |
 | SYS-UPDATES | Check for updates | — | ⬜ | deferred, not planned yet (2026-10-09) |
-| SYS-COMMANDS | Command registry, menu catalog, UI_COMMANDS | P0 | ⬜ | |
-| SYS-CONTROL | Control channel + widget registry + screenshots | P0 | 🟡 | `crates/ui/src/control/` (every M2 method as pure handlers over the app and the headless driver: `engine.execute`, `engine.commands`, `ui.state`/`ui.set`, `ui.inspect`, `ui.widgets`, click/drag/hover/pointer/key/type/scroll/resize, `ui.screenshot` with §5.7 write roots, `ui.settle`/`ui.wait`, the file-picker stub); the transport in `apps/dalica/src/control/` (`--control [PORT]` on 127.0.0.1 only, the 0600 token file, `auth` in constant time, 1 MiB lines, 16 connections, 30 s idle, 60 s deadline, `app.quit`; requests answered from the window's logic tick or `--headless`), measured by `apps/dalica/tests/control_headless.rs`, its security rules (wrong token, no `auth`, oversized, non-JSON and HTTP lines, the 17th connection, token file modes, loopback only) by `apps/dalica/tests/control_security.rs`; missing: menu methods (M3), `batch`, `library.inspect`, `jobs.*`, the headless capture of a window (`ui.screenshot {headless: true}` in the window) |
+| SYS-COMMANDS | Command registry, menu catalog, UI_COMMANDS | P0 | 🟡 | the registry (`crates/engine/src/registry.rs`); the catalog of every item of `menus-and-shortcuts.md` §1 (`crates/ui/src/menu_catalog.rs`) and the menu model, `UI_COMMANDS` and menus bounded by the window (`crates/ui/src/menus.rs`), measured by `crates/ui/tests/menus.rs`; missing: the catalog's menus in the window's menu row and the native macOS menu (M3.6), UI commands in the keymap (M3.4), check marks fed by the view state (M4) |
+| SYS-CONTROL | Control channel + widget registry + screenshots | P0 | 🟡 | `crates/ui/src/control/` (every M2 method as pure handlers over the app and the headless driver: `engine.execute`, `engine.commands`, `ui.state`/`ui.set`, `ui.inspect`, `ui.widgets`, click/drag/hover/pointer/key/type/scroll/resize, `ui.screenshot` with §5.7 write roots, `ui.settle`/`ui.wait`, the file-picker stub); the transport in `apps/dalica/src/control/` (`--control [PORT]` on 127.0.0.1 only, the 0600 token file, `auth` in constant time, 1 MiB lines, 16 connections, 30 s idle, 60 s deadline, `app.quit`; requests answered from the window's logic tick or `--headless`), measured by `apps/dalica/tests/control_headless.rs`, its security rules (wrong token, no `auth`, oversized, non-JSON and HTTP lines, the 17th connection, token file modes, loopback only) by `apps/dalica/tests/control_security.rs`; `ui.menu.tree` / `ui.menu.invoke` in `crates/ui/src/control/menu.rs` (`crates/ui/tests/menus.rs`); missing: `batch`, `library.inspect`, `jobs.*`, the headless capture of a window (`ui.screenshot {headless: true}` in the window) |
 | SYS-HEADLESS | Headless snapshots | P0 | 🟡 | `crates/ui/src/headless.rs` (click, drag, hover, scroll, raw pointer, keys, text, settle, wait) and `crates/ui/src/perf.rs` (perf counters, `DALICA_PROFILE=1`); `dalica-cli snapshot`; `dalica --headless --control` (the same handlers over TCP, no window); missing: the control-protocol script format in `snapshot` |
 | SYS-MCP | MCP server | P1 | ⬜ | |
 | SYS-I18N | Localisation | P2 | ⬜ | |

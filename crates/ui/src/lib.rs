@@ -9,13 +9,16 @@ pub mod app;
 pub mod control;
 pub mod headless;
 pub mod keys;
+pub mod menu_catalog;
+pub mod menus;
 pub mod panels;
 pub mod perf;
 pub mod picker;
 pub mod state;
 
-pub use app::{App, UI_COMMANDS, UiCommand};
+pub use app::App;
 pub use headless::{Driver, DriverError};
+pub use menus::{UI_COMMANDS, UiCommand};
 pub use perf::Perf;
 pub use picker::{Picker, ScriptedPicker};
 pub use state::UiState;

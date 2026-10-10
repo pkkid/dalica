@@ -24,7 +24,7 @@ accordingly; it is identical to the section's context menu).
 |---|---|---|---|
 | New Album… | Ctrl+N | `album.new` | always; adds the tray contents |
 | — | | | |
-| Add Folder… | | `folders.manager` | opens Folder Manager |
+| Add Folder… | | `folders.add` | opens the folder picker; the Folder Manager (`folders.manager`, M5) takes this item over |
 | Open File… | Ctrl+O | `library.openFile` | show a single file (adds its folder as Scan Once) |
 | Import From… | Ctrl+M | `import.open` | |
 | — | | | |
@@ -169,10 +169,22 @@ only in context menus and buttons).
 
 ### 1.8 Help
 
-Help Contents (F1) · Keyboard Shortcuts… (Ctrl+/, `app.shortcuts`; opens Options → Keyboard
-Shortcuts, §2.0) — Release Notes · Report a Problem… · Show Log Folder · Rebuild Library…
-(`library.rebuild`) — About Dalica (version, credits, models). There is no Check for Updates item
+Help Contents (F1, `help.contents`) · Keyboard Shortcuts… (Ctrl+/, `app.shortcuts`; opens Options →
+Keyboard Shortcuts, §2.0) — Release Notes (`help.releaseNotes`) · Report a Problem…
+(`help.reportProblem`) · Show Log Folder (`help.logFolder`) · Rebuild Library… (`library.rebuild`) —
+About Dalica (`app.about`; version, credits, models). The macOS application menu's Hide Dalica is
+`app.hide`. There is no Check for Updates item
 for now (deferred, `product.md` → Scope).
+
+**Rows that share a command.** Submenu rows that differ only by a parameter run one command with
+that parameter, and their widget id ends in the variant (`menuitem:view.caption/date`): Thumbnail
+Caption ▸ `view.caption {caption: none | filename | caption | tags | resolution | date}`; Folder
+View ▸ `view.folderView {mode: flat | tree}`, and Simplified Tree View is `view.simplifiedTree`;
+Sort By ▸ `section.sort {by: date | name | size}` and Reverse Order `section.sort {reverse: true}`;
+Search for ▸ `search.color {color: red | orange | yellow | green | blue | purple | bw}`. Batch Edit ▸
+runs `photo.rename`, `photo.rotate.cw` and `photo.rotate.ccw` (widget part `batch`, since the
+Picture menu lists the rotations too) and `edit.apply {op: autocontrast | autocolor | autofix |
+sepia | sharpen | warmify | grain | bw}`.
 
 ### 1.9 Commands without a menu item
 

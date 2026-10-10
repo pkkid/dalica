@@ -707,7 +707,7 @@ with the rest at the next review.
     licence row.
   - done when: an icon sheet at 12, 16, 18, 20 and 28 pt renders identically twice and matches its
     fingerprint; `cargo xtask assets` passes.
-- ⬜ **M3.3 `ui`: menu model, menu catalog and menus that never run off the window**
+- ✅ **M3.3 `ui`: menu model, menu catalog and menus that never run off the window**
   - after: M2.1, M2.2
   - files: `crates/ui/src/menu_catalog.rs`, `crates/ui/src/menus.rs`, `crates/ui/src/app.rs`, `crates/ui/src/control/menu.rs`, `crates/ui/src/control/mod.rs`, `crates/ui/tests/menus.rs`
   - scope: the complete menu tree of `menus-and-shortcuts.md` §1 as data (`menu_catalog.rs`): label,

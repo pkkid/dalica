@@ -504,12 +504,22 @@ model as the in-window menus and the native macOS menu bar:
 `ui.menu.tree {context: "photo" | "section" | "tray" | "treeGroup" | "tag" | "face"}` returns that
 context menu's model for the current selection without opening it.
 
+Each item carries `id`, `label` (as shown: Undo names the action it undoes), `enabled`, `live`
+(its command is registered, and for an item ending in `…` its dialog exists), `widget`, and when
+they apply `shortcut` (the binding in effect, `Cmd` on macOS), `params` (the fixed parameters of a
+row that shares its command), `checked` (checkable rows; radio rows add `radio: true`), `dialog`
+(the dialog the item opens) and `reason` (why it is disabled). A submenu is `{label, widget,
+children}`. Context menus are modelled as their regions arrive: `section` (the fourth menu's rows)
+answers now, the others are `unsupported` until then.
+
 `ui.menu.invoke {path: "Picture/Batch Edit/Rotate Clockwise"}` (labels as shown, without a
 trailing `…`, separated by `/`; a literal `/` in a label is `\/`) or `{id: "photo.rotate.cw"}`
 behaves like clicking the item: items whose label ends in `…` open their dialog (reply
 `{dialog: kind}`), others run their command (reply = the command's result, with `wait` as in
 §5.3). Disabled items fail with `disabled`; catalog items that are not live yet fail with
-`unsupported`.
+`unsupported`. A command runs as `engine.execute` runs it (§5.5–§5.7 apply), with the
+selection as `ids` when it takes them, the row's fixed parameters, then `params`. File ▸ Add
+Folder… replies `{dialog: "filePicker"}` once the stubbed picker waits for `ui.filePicker` (§5.6).
 
 Dialogs are driven through their widgets (`field:dialog.<name>`, `button:dialog.<action>`) or the
 shortcuts `ui.dialog.confirm` (the default button, or `{button: "dialog.undoSave"}`) and
@@ -574,7 +584,7 @@ recipe operation and parameter names of `data-model.md` §3.1 and `editing.md` (
 | Region (milestone) | Ids |
 |---|---|
 | Regions (M3) | `region:<name>` for each region of §6.6 shown (`region:menuBar`, `region:toolbar`, `region:tree`, `region:splitter`, `region:lightTable`, `region:scrollbar`, `region:sidePane`, `region:statusLine`, `region:tray`, `region:trayButtons`, `region:bottomControls`, `region:actionButtons`): the region's rect, no input of its own (role `other`); a region not shown is not listed |
-| Menu bar (M3) | `menu:File` … `menu:Help` (title by its English label; the fourth is `menu:Folder` whatever its shown title), `menuitem:<command id>` for open menu and context-menu items, `submenu:<path>` |
+| Menu bar (M3) | `menu:File` … `menu:Help` (title by its English label; the fourth is `menu:Folder` whatever its shown title; macOS adds `menu:Dalica`), `menuitem:<command id>` for open menu and context-menu items (`menuitem:<command id>/<variant>` for rows of one command that differ by a parameter, `menus-and-shortcuts.md` §1), `submenu:<menu>/<label>…` (`submenu:View/Thumbnail Caption`), and on a menu taller than the window its scroll arrows `button:menu.scrollUp/<depth>` and `button:menu.scrollDown/<depth>` (depth 1 for a menu of the bar or a context menu) |
 | Toolbar (M3) | `button:toolbar.import`, `button:toolbar.newAlbum`, `button:tree.flat`, `button:tree.tree`, `button:toolbar.viewOptions`, `button:filter.starred`, `button:filter.faces`, `button:filter.videos`, `button:filter.geotagged`, `slider:age`, `field:search`, `button:search.clear`, `indicator:activity` |
 | Room tabs (M11+) | `tab:room.library`, `tab:room.import`, `tab:room.collage`, …; `button:room.close.<room>` |
 | Library tree (M4) | `tree:group:albums` · `people` · `projects` · `folders` · `other` · `hidden` (the group header), `tree:folder:<FolderId>`, `tree:album:<AlbumId>` (also `tree:album:starred`, `tree:album:recent`, `tree:album:search`), `tree:person:<PersonId>` (M13), `tree:disclosure:<FolderId>` (tree mode), `splitter:tree` |
