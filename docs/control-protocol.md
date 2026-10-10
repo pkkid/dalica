@@ -25,7 +25,7 @@ Implementation (planned): `apps/dalica/src/control_server.rs` (TCP transport, au
 ## 1. Starting the server
 
 ```sh
-dalica --control 7990 --demo                         # procedural demo library, isolated settings
+dalica --control 7990 --demo                         # the demo library (persistent, in the temp folder)
 dalica --control 18042 --control-token-file ~/.cache/dalica/agent-a.token \
        --automation-read-root "$PWD/corpus" --automation-write-root "$PWD/target/shots"
 ```
@@ -37,7 +37,8 @@ dalica --control 18042 --control-token-file ~/.cache/dalica/agent-a.token \
 | `--automation-read-root DIR` (repeatable) | `DALICA_AUTOMATION_READ_ROOT` (`:`/`;`-separated) | Folders automation may add to the library or read from (§5.7). |
 | `--automation-write-root DIR` (repeatable) | `DALICA_AUTOMATION_WRITE_ROOT` | Folders automation may write new files into (§5.7). |
 | `--automation-allow-external` | — | Allow commands with effects outside Dalica (§5.6). Off by default. |
-| `--demo` | — | Procedural demo library (`dalica-scenes`) written to a fresh temporary folder that is deleted on exit, with **isolated settings**: nothing in the user's settings, library index or window state is read or changed. |
+| `--demo` | — | Procedural demo library (`dalica-scenes`) in `dalica-demo` in the OS temporary folder: made on first use and **reused** by later runs (so a star survives a restart; delete the folder to start over), with **isolated settings**: nothing in the user's settings, library index or window state is read or changed. |
+| `--demo-fresh` (planned, M2.6) | — | Like `--demo`, but in a fresh temporary folder deleted on exit: a clean slate for every automation run. |
 
 - If the port is already in use, Dalica prints the reason to standard error and **exits with status
   2** instead of starting without a control channel, so a script can never end up driving another
@@ -592,7 +593,7 @@ Rules for implementers:
 
 ## 8. Headless rendering (no window, no GPU)
 
-The egui output is rasterized on the CPU (`crates/ui-kit/src/softpaint.rs`, driven by
+The egui output is rasterized on the CPU (`crates/ui-kit/src/raster.rs`, driven by
 `crates/ui/src/headless.rs`; our own, modelled on LightCraft's): same tessellation, gamma-space premultiplied
 blending and scissor clipping as egui's GPU backends, so the image matches the window (minus GPU
 dithering). Thumbnails and previews come from the same job pool, drained while settling.

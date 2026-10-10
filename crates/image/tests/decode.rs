@@ -6,53 +6,17 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use dalica_image::{Error, Limits, Rgba8, decode, decode_thumbnail, read_header};
-use dalica_scenes::{ByteOrder, Exif, Scene, jpeg, png};
-
-/// (mean, standard deviation) of R, G and B in each cell of an 8 × 8 grid, and the size.
-#[derive(Debug, PartialEq)]
-struct Fingerprint {
-    size: (u32, u32),
-    cells: Vec<[(f64, f64); 3]>,
-}
-
-fn fingerprint(img: &Rgba8) -> Fingerprint {
-    let mut cells = Vec::with_capacity(64);
-    for gy in 0..8u64 {
-        for gx in 0..8u64 {
-            let (x0, x1) = ((gx * u64::from(img.width) / 8) as u32, ((gx + 1) * u64::from(img.width) / 8) as u32);
-            let (y0, y1) = ((gy * u64::from(img.height) / 8) as u32, ((gy + 1) * u64::from(img.height) / 8) as u32);
-            let mut stats = [(0.0, 0.0); 3];
-            for (c, stat) in stats.iter_mut().enumerate() {
-                let values: Vec<f64> = (y0..y1.max(y0 + 1))
-                    .flat_map(|y| (x0..x1.max(x0 + 1)).map(move |x| (x, y)))
-                    .filter_map(|(x, y)| img.data.get(((y * img.width + x) * 4) as usize + c).map(|&v| f64::from(v)))
-                    .collect();
-                let n = values.len().max(1) as f64;
-                let mean = values.iter().sum::<f64>() / n;
-                let var = values.iter().map(|v| (v - mean) * (v - mean)).sum::<f64>() / n;
-                *stat = (mean, var.sqrt());
-            }
-            cells.push(stats);
-        }
-    }
-    Fingerprint { size: (img.width, img.height), cells }
-}
+use dalica_scenes::{ByteOrder, Exif, Scene, fingerprint, jpeg, png};
 
 /// Fails (writing actual/expected PNGs) unless the fingerprints agree within `tol` per value.
 fn assert_close(case: &str, actual: &Rgba8, expected: &Rgba8, tol: f64) {
-    let (a, e) = (fingerprint(actual), fingerprint(expected));
-    let worst =
-        a.cells.iter().zip(&e.cells).flat_map(|(x, y)| x.iter().zip(y).map(|(p, q)| (p.0 - q.0).abs().max((p.1 - q.1).abs()))).fold(0.0, f64::max);
-    if a.size != e.size || worst > tol {
+    let e = fingerprint::fingerprint(expected.width, expected.height, &expected.data);
+    if let Err(m) = fingerprint::check(actual.width, actual.height, &actual.data, &e, tol) {
         let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/image");
         std::fs::create_dir_all(&dir).unwrap();
-        for (name, img) in [("actual", actual), ("expected", expected)] {
-            let file = std::fs::File::create(dir.join(format!("{case}-{name}.png"))).unwrap();
-            let mut enc = ::png::Encoder::new(file, img.width, img.height);
-            enc.set_color(::png::ColorType::Rgba);
-            enc.write_header().unwrap().write_image_data(&img.data).unwrap();
-        }
-        panic!("{case}: sizes {:?} vs {:?}, worst cell difference {worst:.2} > {tol} (PNGs in {})", a.size, e.size, dir.display());
+        std::fs::write(dir.join(format!("{case}-actual.png")), &m.actual_png).unwrap();
+        std::fs::write(dir.join(format!("{case}-expected.png")), fingerprint::png_rgba(expected.width, expected.height, &expected.data)).unwrap();
+        panic!("{case}: {} (PNGs in {})", m.message, dir.display());
     }
 }
 

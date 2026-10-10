@@ -16,7 +16,12 @@ path = "src/lib.rs"
 serde_json.workspace = true
 
 [dev-dependencies]
+dalica-core.workspace = true
+dalica-engine.workspace = true
+dalica-fs.workspace = true
 dalica-scenes.workspace = true
+dalica-ui.workspace = true
+png.workspace = true
 tempfile.workspace = true
 
 [[test]]
@@ -26,6 +31,10 @@ path = "m0.rs"
 [[test]]
 name = "m0_skeleton"
 path = "m0_skeleton.rs"
+
+[[test]]
+name = "m1"
+path = "m1.rs"
 
 [[test]]
 name = "m1_headless"

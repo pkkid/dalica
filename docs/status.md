@@ -7,15 +7,17 @@ and git.
 
 ## Current
 
-- **Milestone:** M1, star a photo end to end. M1.1–M1.15 and M1.20 are merged; the data path works
-  headlessly and `cargo xtask accept M1 --headless` passes. The maintainer confirmed the M1.A review
-  on 2026-10-10 (all decisions, all recommendations; dev log). Next: M1.16–M1.19 (the UI) through
-  the full board loop, then M1.R.
+- **Milestone:** M1, star a photo end to end, is done: every task is merged and
+  `cargo xtask accept M1` passes; the maintainer's manual check passed and the M1.R review was
+  confirmed on 2026-10-10 (all decisions; dev log). The maintainer closed #32 (M1.R)
+  on 2026-10-10. Next: M2 (agent eyes, task blocks in `roadmap.md`), the first milestone for
+  parallel agents.
 - **Gates:** `cargo xtask ci` runs fmt, clippy, tests, `layers`, `deps`, `assets`, `names`, `parity`,
   `docs` and the roadmap parse; `cargo xtask accept M0` shows 6/6 gates bite. Layer rule 4 now scans
   code after a test module (it used to stop at the first `#[cfg(test)]`).
-- **Board:** `cargo xtask tasks` drives issues #1–#35 on project 3. M1 is built by one agent; from
-  M1.16 it uses `claim` / `submit` / `merge` (`AGENTS.md` §4).
+- **Board:** `cargo xtask tasks` drives the issues on project 3. `claim` / `submit` / `merge` ran
+  live for M1.16–M1.19; `merge` now rebases origin's copy of the branch (the worker may still have
+  it checked out) and runs ci in `target/merge`.
 - **M0 review (2026-10-09):** the maintainer confirmed all 27 decisions listed in the review (dev
   log), including the dependency exceptions and eframe without GL or default fonts, and approved the
   edits: M1.2 gains `fs::append`, new M1.20 (app log file), M1.15/M1.16/M1.18/M1.19 adjusted,
@@ -48,3 +50,13 @@ and git.
 | 2026-10-10 | same | target dir after a cold build / after ci; free disk | 3.3 GB / 5.4 GB; 124 GB |
 | 2026-10-10 | GitHub ubuntu / macos / windows | CI job `cargo xtask ci` (run 38029673539, 193a89b) | 1 min 55 s / 2 min 15 s / 3 min 25 s |
 | 2026-10-10 | — | parity summary | 1 ✅ / 2 🟡 / 123 ⬜ / 16 🚫 (142 rows, 10 commands) |
+| 2026-10-10 | maintainer desktop, fresh clone of 22583c0 (M1.R), target dirs on NVMe | cold build `cargo build --workspace --all-targets` | 28.7 s |
+| 2026-10-10 | same | `cargo xtask ci` cold (clippy 14.1, test 82.7, accept M0 10.2) / warm | 111.3 s / 29.0 s |
+| 2026-10-10 | same | `cargo test --workspace` (warm) | 25.5 s, 319 tests (+2 ignored: `panic_hunt`) |
+| 2026-10-10 | same | `cargo xtask accept M0` / `accept M1` / `accept M1 --headless` | 3.0 s / 5.0 s / 1.8 s |
+| 2026-10-10 | same | `panic_hunt` (10 engine commands) | 0.33 s |
+| 2026-10-10 | same | widget gallery render 480 × 200 / `dalica-cli snapshot --demo` 1400 × 900 / 900 × 600 (dev build) | 76 ms / 1.5 s / 0.8 s |
+| 2026-10-10 | same | target dir after a cold build / after ci; free disk | 3.9 GB / 6.7 GB; 110 GB |
+| 2026-10-10 | GitHub ubuntu / macos / windows | CI job `cargo xtask ci` (run 38057753715, 22583c0) | 3 min 16 s / 5 min 14 s / 5 min 19 s |
+| 2026-10-10 | maintainer desktop | `cargo xtask tasks merge` per task (local ci in `target/merge` + GitHub checks + squash), M1.16–M1.19 | 4:23 / 4:25 / 4:47 / 6:28 |
+| 2026-10-10 | — | parity summary (M1.R) | 1 ✅ / 4 🟡 / 121 ⬜ / 16 🚫 (142 rows, 12 commands: 10 engine + 2 UI) |

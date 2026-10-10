@@ -13,6 +13,18 @@ state (ready, claimed, in review) is on the task board ([`task-board.md`](task-b
 *Honest assessment, 2026-10-10. Agents: read this before picking work. Update it only with
 measured facts, dated.*
 
+*2026-10-10 (M1.R).* M1 is done: `cargo xtask accept M1` passes in 5 s on a fresh clone, and the
+maintainer's manual check passed (a star set with Ctrl+8 in `dalica --demo` survives a restart). A
+folder of photos is scanned and shown in a plain library window (folder list, square thumbnail
+grid); a photo is starred with a click and Ctrl+8; the star is written to `.dalica.json`, survives an
+index rebuild and a restart; a second process is refused. The window is drawn by our own widgets
+with Inter, and the same frames render headlessly on the CPU, byte-identical to what
+`dalica-cli snapshot` writes; the first four fingerprints are approved baselines. The UI thread
+never touches the disk (counted in tests). 319 tests; `cargo xtask ci` takes 111 s cold and 29 s
+warm; GitHub CI 3–5.5 min per OS. The board's full loop (`claim`, `submit`, `merge`) ran live for
+M1.16–M1.19, and two bugs in `merge` were fixed. Next: M2, agent eyes (widget ids per the spec,
+the control channel, a windowless `--headless` instance), the first milestone for parallel agents.
+
 *2026-10-10 (M1.A).* The whole data path of M1 works headlessly on all three OSes: a folder of
 photos is scanned by content (bounded; links and special files handled), its sidecars are read,
 stars change through `Session::execute` with one undo step each, every change is journalled and
@@ -441,7 +453,7 @@ their PNGs to the maintainer, who approves them before they merge (M1.A decision
   - scope: the maintainer runs `cargo xtask accept M1 --headless`, looks at a sidecar and the CLI
     output, and approves building the UI on top.
   - done when: the maintainer closes the review issue.
-- ⬜ **M1.16 `ui-kit`: tokens, widgets, rasterizer**
+- ✅ **M1.16 `ui-kit`: tokens, widgets, rasterizer**
   - after: M1.1
   - files: `crates/ui-kit/**`, `assets/fonts/**`, `ATTRIBUTION.md`, `crates/scenes/src/fingerprint.rs`
   - scope: M1's tokens (`chrome`, `canvas`, `grid_bg`, `cell`, `cell_selected`, text greys,
@@ -455,7 +467,7 @@ their PNGs to the maintainer, who approves them before they merge (M1.A decision
     `image`, `ui-kit` and `ui` tests.
   - done when: `cargo test -p dalica-ui-kit` renders a widget gallery to identical pixels twice,
     matches its fingerprint, and the token contrast test passes (text on `chrome` ≥ 4.5:1).
-- ⬜ **M1.17 `ui`: headless driver and snapshots**
+- ✅ **M1.17 `ui`: headless driver and snapshots**
   - after: M1.A, M1.16
   - files: `crates/ui/src/app.rs`, `crates/ui/src/state.rs`, `crates/ui/src/headless.rs`, `crates/ui/src/lib.rs`, `crates/ui/Cargo.toml`, `apps/dalica-cli/src/snapshot.rs`
   - scope: `App::run` (UI-only ids, else forwarded), a minimal `UiState`, the headless driver
@@ -463,7 +475,7 @@ their PNGs to the maintainer, who approves them before they merge (M1.A decision
     `dalica-cli snapshot`.
   - done when: a test drives an empty app headlessly and takes a screenshot of the requested size;
     `dalica-cli snapshot --library DIR -o out.png --size 1400x900` writes that PNG.
-- ⬜ **M1.18 `ui`: the plain library window**
+- ✅ **M1.18 `ui`: the plain library window**
   - after: M1.12, M1.17
   - files: `crates/ui/src/panels/**`, `crates/ui/src/keys.rs`, `crates/ui/src/picker.rs`, `crates/ui/tests/**`, `apps/dalica/src/**`, `apps/dalica/Cargo.toml`
   - scope: folder list; one square grid per folder with thumbnails from the job pool; click
@@ -475,7 +487,7 @@ their PNGs to the maintainer, who approves them before they merge (M1.A decision
   - done when: a headless test opens a `scenes` library, clicks a thumbnail by widget id, presses
     Ctrl+8, and the photo is starred in the engine and its badge shows in the screenshot
     fingerprint; no `fs` call happens on the UI thread during the test.
-- ⬜ **M1.19 Demo library and `accept M1`**
+- ✅ **M1.19 Demo library and `accept M1`**
   - after: M1.18
   - files: `crates/engine/src/demo.rs`, `tests/acceptance/m1.rs`, `tests/acceptance/m1.md`, `apps/dalica/src/main.rs`, `apps/dalica-cli/src/main.rs`
   - scope: `--demo` (in `dalica` and `dalica-cli`) builds a throwaway `scenes` library, written
@@ -483,7 +495,7 @@ their PNGs to the maintainer, who approves them before they merge (M1.A decision
     `m1_headless.rs` and adding the snapshot; the manual check written down; metrics in the dev log
     (the lead copies them to `status.md`).
   - done when: `cargo xtask accept M1` passes everything in M1's *Done when*.
-- ⬜ **M1.R Milestone review**
+- ✅ **M1.R Milestone review**
   - after: M1.19
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`
@@ -516,6 +528,92 @@ wave 5   M1.17 → M1.18 ui, app → M1.19 acceptance → M1.R milestone review
   protocol's security tests pass (wrong token, oversized line, non-loopback bind refused). You
   start `dalica --control 7990 --demo` and an agent's screenshot matches your screen.
 
+#### M2 tasks
+
+- ⬜ **M2.1 `ui`: widget ids to the spec grammar**
+  - after: M1.R
+  - files: `crates/ui/src/panels/**`, `crates/ui-kit/src/widgets.rs`, `crates/ui-kit/src/registry.rs`, `crates/ui/tests/**`, `tests/acceptance/m1.rs`, `tests/acceptance/m1_steps.rs`
+  - scope: rename M1's ids to `control-protocol.md` §7 (`menu:File`, `menuitem:folders.add`,
+    `button:star`, `thumb:<PhotoId>`, `thumb:<PhotoId>/star`, `tree:folder:<FolderId>`); one
+    registration helper; a headless test that every interactive widget drawn has an id, unique per
+    frame.
+  - done when: the test lists zero unregistered interactive widgets at 1400 × 900 and 900 × 600;
+    `accept M1` still passes.
+- ⬜ **M2.2 `ui`: the complete headless driver and perf counters**
+  - after: M1.R
+  - files: `crates/ui/src/headless.rs`, `crates/ui/src/perf.rs`
+  - scope: `drag`, `hover`, `scroll`, `type_text`, `pointer` (raw events); `settle` as in
+    control-protocol §6.12 (quiet frames, pending jobs listed); `DALICA_PROFILE=1` and the perf
+    counters `ui.inspect` reports (frame time, cells visited, textures uploaded, jobs requested).
+  - done when: tests drag a scroll by widget id, type into a text field, and show cells visited per
+    frame stay flat between a 200- and a 2 000-photo library.
+- ⬜ **M2.3 `ui`: control method handlers**
+  - after: M2.1, M2.2
+  - files: `crates/ui/src/control/**`, `crates/ui/src/lib.rs`
+  - scope: the methods of M2's *In* as pure handlers over `App` + `Driver`/window input queue:
+    `auth` is the transport's; `engine.execute`, `engine.commands`, `ui.state`/`ui.set`, `ui.widgets`,
+    `ui.clickWidget`, `ui.pointer`, `ui.key`, `ui.type`, `ui.screenshot` (path within write roots,
+    §5.7), `ui.inspect`, `ui.settle`/`ui.wait`; errors (§3) and limits (§4) checked before any
+    change; input replies after the input played out (§5.2); the file-picker stub (§5.6).
+  - done when: each method has a test against the headless driver, including every §3 code it can
+    return and every §4 limit.
+- ⬜ **M2.4 `dalica`: the control transport and headless mode**
+  - after: M2.3
+  - files: `apps/dalica/src/control/**`, `apps/dalica/src/main.rs`, `apps/dalica/src/window.rs`, `apps/dalica/Cargo.toml`
+  - scope: `--control [PORT]` on 127.0.0.1 only, the token file (§2.1: 256-bit from `getrandom`,
+    0600 on Unix, refused if group/other-readable), `auth` first in constant time, framing, limits
+    (1 MiB lines, 16 connections, 30 s idle, 60 s deadline), requests served from the logic tick;
+    `--headless` runs the same handlers on the headless driver without a window; exit 2 if the port
+    is taken.
+  - done when: a test starts `dalica --headless --control <port> --demo`, authenticates, stars a
+    photo by `ui.clickWidget` + `ui.key`, and gets a screenshot.
+- ⬜ **M2.5 Control security tests**
+  - after: M2.4
+  - files: `apps/dalica/tests/control_security.rs`
+  - scope: wrong token, no `auth`, oversized line, non-JSON and HTTP request lines close the
+    connection; the 17th connection is refused; a group-readable token file is refused; no flag
+    binds a non-loopback address.
+  - done when: all pass on Linux, macOS and Windows CI.
+- ⬜ **M2.6 Demo library per the spec**
+  - after: M1.R
+  - files: `crates/engine/src/demo.rs`, `apps/dalica-cli/src/main.rs`, `apps/dalica/src/main.rs`, `apps/dalica/src/window.rs`, `tests/acceptance/m1.md`, `docs/control-protocol.md`
+  - scope: per decision 2 of the M1.R review: deterministic demo ids (folders numbered in tree
+    order, photos in light-table order, §5.4); isolated settings; `--demo-fresh` (a new temporary
+    folder deleted on exit) if `--demo` stays persistent.
+  - done when: two fresh demo libraries list identical ids and paths; `m1.md`'s restart check
+    still holds.
+- ⬜ **M2.7 Lead: board and disk hygiene**
+  - after: M1.R
+  - owner: agent
+  - files: `xtask/src/tasks/**`, `docs/task-board.md`
+  - scope: the lead (agent-1) takes it; `submit` defaults the PR body to the task's dev-log entry; fingerprint approval on the
+    PR (a `baseline-approved` label the lead checks before `merge`); `tasks prune` removes
+    `incremental/` from idle agents' target dirs.
+  - done when: tests with the fake board cover all three; a dry run on the real board.
+- ⬜ **M2.8 `accept M2`**
+  - after: M2.4, M2.5, M2.6
+  - files: `tests/acceptance/m2.rs`, `tests/acceptance/m2.md`, `tests/acceptance/fingerprints/m2-*.json`
+  - scope: M2's *Done when*: a control session against a headless instance (auth, click a
+    thumbnail, Ctrl+8, screenshot) checking the star and the PNG fingerprint; the security tests;
+    the manual check (`dalica --control 7990 --demo`, an agent's screenshot matches the screen).
+  - done when: `cargo xtask accept M2` passes everything in M2's *Done when*.
+- ⬜ **M2.R Milestone review**
+  - after: M2.8
+  - owner: maintainer
+  - files: `docs/roadmap.md`, `docs/status.md`
+  - scope: the manual check; approve M3's task list.
+  - done when: the maintainer closes the review issue.
+
+Waves (inside a wave, "‖" separates tasks whose `files` do not overlap):
+
+```text
+wave 1   M2.1 ids  ‖  M2.2 driver + perf  ‖  M2.6 demo  ‖  M2.7 lead (xtask)
+wave 2   M2.3 handlers
+wave 3   M2.4 transport + headless mode
+wave 4   M2.5 security tests
+wave 5   M2.8 accept M2 → M2.R
+```
+
 ### M3 — Window shell
 
 - **Goal:** the main window has every region of `ui-layout.md` §2 at the specified size, in the
@@ -533,6 +631,142 @@ wave 5   M1.17 → M1.18 ui, app → M1.19 acceptance → M1.R milestone review
   registry at 1400 × 900 and 900 × 600 and match `ui-layout.md` §2 and §11; token contrast tests;
   widget-gallery fingerprints; every menu item of `menus-and-shortcuts.md` §1 is present in order.
   You open the app at both sizes and compare with the docs.
+
+#### M3 tasks
+
+M3 builds the whole window shell on top of M2. A checkpoint **M3.A** after the foundations (widgets,
+icons, menus, keys, layout skeleton) lets the maintainer approve the look before the panels are
+built on it. First fingerprints of new widgets and icons are approved on their PRs.
+
+- ⬜ **M3.1 `ui-kit`: the full widget set**
+  - after: M2.R
+  - files: `crates/ui-kit/src/theme.rs`, `crates/ui-kit/src/widgets.rs`, `crates/ui-kit/src/widgets/**`, `crates/ui-kit/tests/**`, `docs/design-system.md`
+  - scope: every token and metric of `design-system.md` §2–§4 not yet in `Tokens` (divider, inset,
+    field, field_border, track, thumb, thumb_hover, tray_bg, drop_target, filter_banner, face_box,
+    shadows, UI scale and font-size factors); the widgets of §6 the shell needs: `primary_button`,
+    segmented buttons, `action_button`, `toggle_filter`, `slider`, `zoom_slider`, `section_header`,
+    `dropdown`, `search_field` and text field, tooltips, `progress_row`, `empty_state`, `toast`,
+    the splitter and the `dialog` frame; each registers its id per control-protocol §7.
+  - done when: `cargo test -p dalica-ui-kit` renders a gallery of every widget in every state
+    (rest, hover, pressed, active, disabled, focused) identically twice and matches its
+    fingerprints; contrast tests cover every text/background pair of §9.
+- ⬜ **M3.2 `ui-kit`: shell icons drawn in code**
+  - after: M2.R
+  - files: `crates/ui-kit/src/icons.rs`, `crates/ui-kit/src/icons/**`, `crates/ui-kit/tests/icons.rs`, `crates/ui-kit/tests/fingerprints/icons*.json`, `assets/icons/**`, `ATTRIBUTION.md`
+  - scope: every icon the shell shows (`design-system.md` §5, `ui-layout.md` §3, §6): app mark,
+    import, new album, flat/tree, chevrons, the four filters, search and clear, activity spinner,
+    hold, clear, add to album, rotate ccw/cw, loupe, the four pane toggles, export, collage,
+    slideshow, more, folder, album, and the caption buttons (minimize, maximize, restore, close);
+    our own drawings on the 20 × 20 grid; a Lucide SVG only where a glyph is too complex, with its
+    licence row.
+  - done when: an icon sheet at 12, 16, 18, 20 and 28 pt renders identically twice and matches its
+    fingerprint; `cargo xtask assets` passes.
+- ⬜ **M3.3 `ui`: menu model, menu catalog and menus that never run off the window**
+  - after: M2.R
+  - files: `crates/ui/src/menu_catalog.rs`, `crates/ui/src/menus.rs`, `crates/ui/src/app.rs`, `crates/ui/src/control/menu.rs`, `crates/ui/tests/menus.rs`
+  - scope: the complete menu tree of `menus-and-shortcuts.md` §1 as data (`menu_catalog.rs`): label,
+    command id, shortcut shown, separators, submenus; items whose id has a registered command are
+    live, the rest drawn disabled; `UI_COMMANDS` move from `app.rs` to `menus.rs`; in-window menus,
+    submenus and context menus bounded by the window and scrolling when too tall
+    (`design-system.md` §11.2); `ui.menu.tree` and `ui.menu.invoke` (control-protocol §6.10).
+  - done when: a test walks `ui.menu.tree` and finds every item of §1 in order; a headless snapshot
+    at 900 × 600 shows the longest menu scrolling inside the window; invoking a disabled item is
+    `disabled`, an unknown path `not_found`.
+- ⬜ **M3.4 `engine` + `ui`: per-platform default keys and keys for UI commands**
+  - after: M3.3
+  - files: `crates/engine/src/keymap.rs`, `crates/engine/src/registry.rs`, `crates/engine/tests/keymap.rs`, `crates/ui/src/keys.rs`, `crates/ui/src/menus.rs`
+  - scope: default bindings per platform (`menus-and-shortcuts.md` §2: Redo is Cmd+Shift+Z on macOS,
+    Ctrl+Y elsewhere); `UI_COMMANDS` declare keys and join the keymap and its conflict check (F11
+    full screen, Ctrl+1/Ctrl+2 thumbnail size, Ctrl+0 side pane); shortcuts shown in menus come from
+    the keymap, so a rebinding shows up there.
+  - done when: no default conflicts on any platform (tested for all three); rebinding a UI command
+    with `app.setShortcut` changes the key shown in its menu item.
+- ⬜ **M3.5 `ui`: the layout skeleton and geometry tests**
+  - after: M2.R
+  - files: `crates/ui/src/panels/mod.rs`, `crates/ui/src/panels/layout.rs`, `crates/ui/src/panels/toolbar.rs`, `crates/ui/src/panels/status.rs`, `crates/ui/src/panels/side_pane.rs`, `crates/ui/src/state.rs`, `crates/ui/tests/layout.rs`
+  - scope: every region of `ui-layout.md` §2 laid out at its specified size (menu/title row 24,
+    toolbar 40, tree 240 with an 8 pt splitter, light table, status line 20, bottom area 96 split at
+    0.365·W, side pane 280 when open), each a stub panel in its own module so M3.6–M3.9 never share
+    a file; each region registers its rect; `UiState` gains the view state of control-protocol §6.5
+    (tree width, pane, thumb size, full screen).
+  - done when: `crates/ui/tests/layout.rs` reads every region's rect from the widget registry at
+    1400 × 900 and 900 × 600 and matches §2.
+- ⬜ **M3.A Checkpoint A review**
+  - after: M3.1, M3.2, M3.3, M3.4, M3.5
+  - owner: maintainer
+  - files: —
+  - scope: the maintainer looks at the widget gallery, the icon sheet, a menu and the layout
+    skeleton at both sizes, and approves building the panels on them.
+  - done when: the maintainer closes the review issue.
+- ⬜ **M3.6 `ui` + `dalica`: title bar, window frame and window state**
+  - after: M3.A
+  - files: `crates/ui/src/titlebar.rs`, `crates/ui/src/panels/menubar.rs`, `apps/dalica/src/**`, `apps/dalica/Cargo.toml`, `crates/engine/src/settings.rs`
+  - scope: `design-system.md` §11.1: the menu row is the title bar on Windows and Linux (app mark,
+    menus, centred title, caption buttons 46 × 24, drag, double-click maximize, 5 pt resize edges,
+    Close runs File → Exit); the "Use system title bar" setting; macOS keeps native traffic lights
+    and gets the system menu bar from the same menu model through `muda` (a macOS-only dependency;
+    `cargo xtask deps`); window position, size, maximized state and tree width persisted.
+  - done when: headless snapshots of the title bar at both sizes; the menu model and the macOS menu
+    list the same items (test); window state survives a restart (test through settings).
+- ⬜ **M3.7 `ui`: the toolbar**
+  - after: M3.A
+  - files: `crates/ui/src/panels/toolbar.rs`, `crates/ui/tests/toolbar.rs`
+  - scope: `ui-layout.md` §3: Import, New Album, Flat | Tree, view options ▾ popup, the Filters group
+    with its caption, age slider, search field, activity indicator; controls without a command yet
+    are present and disabled; ids per control-protocol §7.
+  - done when: a test finds every toolbar id at both sizes with the sizes of §3; the filter caption
+    hides below 1100 wide.
+- ⬜ **M3.8 `ui`: tree pane, splitter, status line and side-pane frame**
+  - after: M3.A
+  - files: `crates/ui/src/panels/folders.rs`, `crates/ui/src/panels/status.rs`, `crates/ui/src/panels/side_pane.rs`, `crates/ui/tests/tree_status_pane.rs`
+  - scope: the tree pane frame with the Folders group header (30) and rows (24), resizable through
+    the splitter (200 … W − 480, persisted); the status line texts of `ui-layout.md` §6.1; the
+    side-pane frame of §7 (header with «, title, ×; 280 or large; pushes the light table, closes
+    itself below 480; open state persisted); pane contents stay empty until their milestones.
+  - done when: a test drags the splitter by id and the tree width follows within its limits and
+    survives a restart; status-line texts for no selection, one photo and a folder; the pane opens,
+    widens and closes by id.
+- ⬜ **M3.9 `ui`: the bottom area**
+  - after: M3.A
+  - files: `crates/ui/src/panels/bottom.rs`, `crates/ui/tests/bottom.rs`
+  - scope: `ui-layout.md` §6.2–§6.5: the tray box (empty watermark; Hold, Clear, Add to Album
+    present and disabled until M6), star and rotate buttons (rotate disabled until its command),
+    loupe, the thumbnail-size slider (Ctrl+1 / Ctrl+2), the four pane toggles, the action buttons
+    with the More… overflow below 1100 wide.
+  - done when: a test finds every bottom-area id with its §6 size at both sizes; More… holds the
+    action buttons at 900 × 600; the size slider changes the light table's cell size.
+- ⬜ **M3.10 `ui`: responsiveness rules and full screen**
+  - after: M3.6, M3.7, M3.8, M3.9
+  - files: `crates/ui/src/panels/layout.rs`, `crates/ui/tests/layout.rs`
+  - scope: `ui-layout.md` §11 and `design-system.md` §11.1 "narrow windows": chrome drops in the
+    stated order, the tree shrinks before the light table drops below 480, the side pane closes;
+    F11 full screen; the geometry test extended to every control of M3.6–M3.9.
+  - done when: the geometry test passes at 1400 × 900, 1100 × 700 and 900 × 600 with the side pane
+    open and closed, and in full screen.
+- ⬜ **M3.11 `accept M3`**
+  - after: M3.10
+  - files: `tests/acceptance/m3.rs`, `tests/acceptance/m3.md`, `tests/acceptance/fingerprints/m3-*.json`
+  - scope: M3's *Done when*: geometry of every region at both sizes, token contrast, widget-gallery
+    fingerprints, every menu item of `menus-and-shortcuts.md` §1 present in order; the manual check
+    (open the app at both sizes and compare with the docs) written down.
+  - done when: `cargo xtask accept M3` passes everything in M3's *Done when*.
+- ⬜ **M3.R Milestone review**
+  - after: M3.11
+  - owner: maintainer
+  - files: `docs/roadmap.md`, `docs/status.md`
+  - scope: the maintainer opens the app at both sizes, compares it with the docs, and approves the
+    M4 task list.
+  - done when: the maintainer closes the review issue.
+
+Waves (inside a wave, "‖" separates tasks whose `files` do not overlap):
+
+```text
+wave 1   M3.1 widgets  ‖  M3.2 icons  ‖  M3.3 menus  ‖  M3.5 layout skeleton
+wave 2   M3.4 keys (after M3.3) → M3.A checkpoint
+wave 3   M3.6 title bar + window  ‖  M3.7 toolbar  ‖  M3.8 tree, status, side pane  ‖  M3.9 bottom area
+wave 4   M3.10 responsiveness + F11
+wave 5   M3.11 accept M3 → M3.R
+```
 
 ### M4 — Light table
 

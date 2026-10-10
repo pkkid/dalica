@@ -317,9 +317,10 @@ decodes images, touches the file system, waits on a lock held by a worker, or bl
   mode.
 - **Screenshots without a GPU:** a CPU rasterizer for egui's tessellated output lives in `ui-kit`
   (prior art: LightCraft `softpaint.rs`). Because Inter is bundled and rasterised by us,
-  screenshots are identical on Linux, Windows and macOS. First task: try `egui_software_backend`
-  (MIT OR Apache-2.0); adopt it if it supports egui 0.36 and matches egui's blending, else write our
-  own.
+  screenshots are identical on Linux, Windows and macOS. It is our own (`ui-kit/src/raster.rs`,
+  M1.16): `egui_software_backend` 0.0.3 needs egui 0.34. It reproduces `egui-wgpu` on a gamma
+  framebuffer: premultiplied gamma vertex colours × a bilinear texel-centre sample, premultiplied
+  "over" blending stored at 8 bits, a top-left fill rule and pixel-rounded clip rectangles.
 - **CLI** (`dalica-cli`), the agent's main verifier from M1:
   `commands` (the registry as JSON), `run --library DIR script.jsonl` (execute commands, print
   each result, then `flush`), `inspect --library DIR [ids]`, `render <file> --recipe … -o out.png`,

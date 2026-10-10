@@ -184,7 +184,7 @@ cargo xtask parity --write                                   # if parity rows ch
 cargo xtask bench                                            # before and after touching a hot path; put both numbers in the PR (planned, M4)
 cargo xtask test-corpus                                      # if you touched a decoder, metadata or sidecar reader/writer (planned, M8)
 cargo xtask tasks log <id> "Landed: …  Open: …  Numbers: …"  # the dev-log entry (required by submit)
-cargo xtask tasks submit <id>
+cargo xtask tasks submit <id> --body-file <evidence.md>   # the PR body: evidence per *done when*, numbers, screenshots
 ```
 
 - **Portable paths:** CI runs on Windows too. Paths in messages use `/` (as git prints them); tests
