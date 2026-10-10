@@ -1,23 +1,34 @@
-//! Dalica desktop app: the eframe window around `dalica_ui::App` (`docs/architecture.md` §10).
+//! Dalica desktop app: the eframe window around `dalica_ui::App` (`docs/architecture.md` §10), its
+//! control channel (`docs/control-protocol.md`), and `--headless`, the same app with no window.
 //!
-//! Usage: `dalica [--library DIR | --demo | --demo-fresh] [--version | --help]`.
+//! Usage: see [`USAGE`].
 
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+mod control;
 mod logging;
 mod window;
 
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::sync::Arc;
 
-const USAGE: &str = "usage: dalica [--library DIR | --demo | --demo-fresh] [--version | --help]
+const USAGE: &str = "usage: dalica [--library DIR | --demo | --demo-fresh] [--control [PORT] [CONTROL OPTIONS] [--headless]] [--version | --help]
 
 --demo opens a library of generated photos in the temp folder (made on first use, kept between runs);
 --demo-fresh a new one, removed when the window closes. Neither reads or changes your own library or settings.
 Otherwise the library is DIR, else $DALICA_HOME, else the platform data folder (Linux ~/.local/share/dalica/library,
-macOS ~/Library/Application Support/Dalica/Library, Windows %LOCALAPPDATA%\\Dalica\\Library).";
+macOS ~/Library/Application Support/Dalica/Library, Windows %LOCALAPPDATA%\\Dalica\\Library).
+
+--control [PORT] lets agents and scripts drive the app over 127.0.0.1:PORT (default $DALICA_CONTROL_PORT, else 7990),
+with a token from a private token file (docs/control-protocol.md). Control options:
+  --control-token-file PATH      the token file (made when missing); default <run folder>/control-<PORT>.token
+  --automation-read-root DIR     a folder automation may read from (repeatable)
+  --automation-write-root DIR    a folder automation may write new files into (repeatable)
+  --automation-allow-external    allow commands with effects outside Dalica
+  --headless                     no window: the app runs on the CPU renderer and answers only the control channel";
 
 /// Default and minimum window sizes (`docs/ui-layout.md` §11).
 const WINDOW_SIZE: [f32; 2] = [1400.0, 900.0];
@@ -55,20 +66,73 @@ enum Choice {
 enum Launch {
     Version,
     Help,
-    Open(Choice),
+    Open(Options),
+}
+
+/// What to open and how.
+#[derive(Debug, PartialEq)]
+struct Options {
+    choice: Choice,
+    /// `--control` and its options.
+    control: Option<control::Flags>,
+    headless: bool,
 }
 
 /// Reads the arguments; `Err` says what is wrong with them.
 fn parse(args: &[String]) -> Result<Launch, String> {
     let mut choice = Choice::Default;
-    let mut it = args.iter();
+    let mut control: Option<control::Flags> = None;
+    let mut flags = control::Flags::default();
+    let mut needs_control: Option<&str> = None;
+    let mut headless = false;
+    let mut it = args.iter().peekable();
     while let Some(a) = it.next() {
+        let mut path = |what: &str| it.next().map(PathBuf::from).ok_or_else(|| format!("{a} needs {what}"));
         let next = match a.as_str() {
             "--version" | "-V" => return Ok(Launch::Version),
             "--help" | "-h" => return Ok(Launch::Help),
             "--demo" => Choice::Demo,
             "--demo-fresh" => Choice::DemoFresh,
-            "--library" => Choice::Library(it.next().map(PathBuf::from).ok_or("--library needs a folder")?),
+            "--library" => Choice::Library(path("a folder")?),
+            "--control" => {
+                if control.is_some() {
+                    return Err("--control is given twice".into());
+                }
+                let port = match it.peek() {
+                    Some(p) if !p.starts_with('-') => Some(control::parse_port(p).map_err(|e| format!("--control: {e}"))?),
+                    _ => None,
+                };
+                if port.is_some() {
+                    it.next();
+                }
+                control = Some(control::Flags { port, ..control::Flags::default() });
+                continue;
+            }
+            "--control-token-file" => {
+                flags.token_file = Some(path("a file")?);
+                needs_control = Some("--control-token-file");
+                continue;
+            }
+            "--automation-read-root" => {
+                flags.read_roots.push(path("a folder")?);
+                needs_control = Some("--automation-read-root");
+                continue;
+            }
+            "--automation-write-root" => {
+                flags.write_roots.push(path("a folder")?);
+                needs_control = Some("--automation-write-root");
+                continue;
+            }
+            "--automation-allow-external" => {
+                flags.allow_external = true;
+                needs_control = Some("--automation-allow-external");
+                continue;
+            }
+            "--headless" => {
+                headless = true;
+                needs_control = needs_control.or(Some("--headless"));
+                continue;
+            }
             other => return Err(format!("unknown argument `{other}`")),
         };
         if choice != Choice::Default {
@@ -76,12 +140,17 @@ fn parse(args: &[String]) -> Result<Launch, String> {
         }
         choice = next;
     }
-    Ok(Launch::Open(choice))
+    let control = match (control, needs_control) {
+        (Some(c), _) => Some(control::Flags { port: c.port, ..flags }),
+        (None, Some(flag)) => return Err(format!("{flag} needs --control")),
+        (None, None) => None,
+    };
+    Ok(Launch::Open(Options { choice, control, headless }))
 }
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let choice = match parse(&args) {
+    let options = match parse(&args) {
         Ok(Launch::Version) => {
             println!("dalica {}", env!("CARGO_PKG_VERSION"));
             return ExitCode::SUCCESS;
@@ -90,14 +159,31 @@ fn main() -> ExitCode {
             println!("{USAGE}");
             return ExitCode::SUCCESS;
         }
-        Ok(Launch::Open(choice)) => choice,
+        Ok(Launch::Open(options)) => options,
         Err(why) => {
             eprintln!("dalica: {why}\n{USAGE}");
             return ExitCode::from(2);
         }
     };
+    // The control port first: a taken port exits 2 before anything is made (§1).
+    let listening = match &options.control {
+        None => None,
+        Some(flags) => {
+            let cwd = std::env::current_dir().unwrap_or_default();
+            let resolved = control::resolve(flags.clone(), |k| std::env::var_os(k), &cwd)
+                .and_then(|(port, flags)| control::listen(port, flags.token_file.as_deref()).map(|l| (l, flags)));
+            match resolved {
+                Ok(l) => Some(l),
+                Err(why) => {
+                    eprintln!("dalica: {why}");
+                    return ExitCode::from(2);
+                }
+            }
+        }
+    };
+    let demo = matches!(options.choice, Choice::Demo | Choice::DemoFresh);
     let mut fresh = None;
-    let source = match choice {
+    let source = match options.choice {
         Choice::Demo => window::Source::Demo(dalica_engine::demo::default_dir()),
         Choice::DemoFresh => match dalica_engine::demo::fresh_dir() {
             Ok(dir) => {
@@ -120,11 +206,43 @@ fn main() -> ExitCode {
         },
     };
     let _log = logging::init();
+    let (code, token_file) = match listening {
+        Some((listening, flags)) if options.headless => run_headless(listening, &flags, source, demo),
+        Some((listening, flags)) => {
+            let control = window::ControlSetup { listening, control: dalica_ui::control::Control::new(flags.config(demo)) };
+            run_window(source, Some(control))
+        }
+        None => run_window(source, None),
+    };
+    if let Some(t) = token_file {
+        t.finish();
+    }
+    if let Some(dir) = fresh {
+        remove_fresh_demo(dir);
+    }
+    code
+}
+
+/// The window, until it closes. Returns the exit code and the token file to remove.
+fn run_window(source: window::Source, control: Option<window::ControlSetup>) -> (ExitCode, Option<control::TokenFileGuard>) {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_title("Dalica").with_inner_size(WINDOW_SIZE).with_min_inner_size(MIN_WINDOW_SIZE),
         ..Default::default()
     };
-    let code = match eframe::run_native("Dalica", options, Box::new(move |cc| Ok(Box::new(window::Window::new(&cc.egui_ctx, source))))) {
+    let token_file = Arc::new(std::sync::Mutex::new(None));
+    let keep = token_file.clone();
+    let ran = eframe::run_native(
+        "Dalica",
+        options,
+        Box::new(move |cc| {
+            let (w, guard) = window::Window::new(&cc.egui_ctx, source, control);
+            if let Ok(mut slot) = keep.lock() {
+                *slot = guard;
+            }
+            Ok(Box::new(w))
+        }),
+    );
+    let code = match ran {
         Ok(()) => {
             log::info!("dalica: closed");
             ExitCode::SUCCESS
@@ -134,10 +252,37 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     };
-    if let Some(dir) = fresh {
-        remove_fresh_demo(dir);
-    }
-    code
+    let guard = token_file.lock().map(|mut g| g.take()).unwrap_or_default();
+    (code, guard)
+}
+
+/// `--headless`: opens the library, serves the control channel until `app.quit`, flushes.
+fn run_headless(
+    listening: control::Listening,
+    flags: &control::Flags,
+    source: window::Source,
+    demo: bool,
+) -> (ExitCode, Option<control::TokenFileGuard>) {
+    let session = match window::open(source) {
+        Ok(s) => s,
+        Err(e) => {
+            log::error!("dalica: cannot open the library: {e}");
+            eprintln!("dalica: cannot open the library: {e}");
+            return (ExitCode::FAILURE, Some(listening.token_file));
+        }
+    };
+    let port = listening.port;
+    let (hub, token_file) = match listening.start(Arc::new(|| {})) {
+        Ok(h) => h,
+        Err(e) => {
+            eprintln!("dalica: {e}");
+            return (ExitCode::FAILURE, None);
+        }
+    };
+    eprintln!("dalica: headless, control on 127.0.0.1:{port}, token file {}", token_file.path.display());
+    let control = dalica_ui::control::Control::new(flags.config(demo));
+    let saved = control::headless::run(&hub, &control, session);
+    (if saved { ExitCode::SUCCESS } else { ExitCode::FAILURE }, Some(token_file))
 }
 
 /// Removes a fresh demo's folder once the window, and the session in it, are gone. On its own
@@ -183,17 +328,70 @@ mod tests {
         parse(&args.iter().map(|a| a.to_string()).collect::<Vec<_>>())
     }
 
+    fn open(choice: Choice) -> Result<Launch, String> {
+        Ok(Launch::Open(Options { choice, control: None, headless: false }))
+    }
+
     #[test]
     fn the_command_line_chooses_one_library() {
-        assert_eq!(parsed(&[]), Ok(Launch::Open(Choice::Default)));
-        assert_eq!(parsed(&["--demo"]), Ok(Launch::Open(Choice::Demo)));
-        assert_eq!(parsed(&["--demo-fresh"]), Ok(Launch::Open(Choice::DemoFresh)));
-        assert_eq!(parsed(&["--library", "/lib"]), Ok(Launch::Open(Choice::Library(PathBuf::from("/lib")))));
+        assert_eq!(parsed(&[]), open(Choice::Default));
+        assert_eq!(parsed(&["--demo"]), open(Choice::Demo));
+        assert_eq!(parsed(&["--demo-fresh"]), open(Choice::DemoFresh));
+        assert_eq!(parsed(&["--library", "/lib"]), open(Choice::Library(PathBuf::from("/lib"))));
         assert_eq!(parsed(&["--demo", "--version"]), Ok(Launch::Version));
         assert_eq!(parsed(&["-h"]), Ok(Launch::Help));
         for bad in [&["--library"][..], &["--demo", "--demo-fresh"], &["--demo-fresh", "--library", "/lib"], &["--demo", "--demo"], &["--colour"]] {
             assert!(parsed(bad).is_err(), "{bad:?}");
         }
+    }
+
+    #[test]
+    fn the_control_flags_go_with_control() {
+        let flags = |port| control::Flags { port, ..control::Flags::default() };
+        let with = |c: control::Flags, headless| Ok(Launch::Open(Options { choice: Choice::Demo, control: Some(c), headless }));
+        assert_eq!(parsed(&["--control", "18040", "--demo"]), with(flags(Some(18040)), false));
+        assert_eq!(parsed(&["--demo", "--control"]), with(flags(None), false));
+        assert_eq!(parsed(&["--control", "--demo", "--headless"]), with(flags(None), true));
+        let full = control::Flags {
+            port: Some(18042),
+            token_file: Some(PathBuf::from("/t/a.token")),
+            read_roots: vec![PathBuf::from("/r1"), PathBuf::from("/r2")],
+            write_roots: vec![PathBuf::from("/w")],
+            allow_external: true,
+        };
+        let args = [
+            "--automation-read-root",
+            "/r1",
+            "--demo",
+            "--control-token-file",
+            "/t/a.token",
+            "--control",
+            "18042",
+            "--automation-read-root",
+            "/r2",
+            "--automation-write-root",
+            "/w",
+            "--automation-allow-external",
+            "--headless",
+        ];
+        assert_eq!(parsed(&args), with(full, true));
+        for bad in [
+            &["--control", "0"][..],
+            &["--control", "70000"],
+            &["--control", "x"],
+            &["--control", "1", "--control", "2"],
+            &["--headless"],
+            &["--headless", "--demo"],
+            &["--control-token-file", "/t"],
+            &["--automation-read-root", "/r"],
+            &["--automation-write-root", "/w"],
+            &["--automation-allow-external"],
+            &["--control", "--control-token-file"],
+            &["--control", "--automation-read-root"],
+        ] {
+            assert!(parsed(bad).is_err(), "{bad:?}");
+        }
+        assert!(parsed(&["--headless"]).unwrap_err().contains("needs --control"));
     }
 
     #[test]

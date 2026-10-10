@@ -12,6 +12,32 @@ pub fn create_dir_all(path: &Path) -> Result<()> {
     std::fs::create_dir_all(path).map_err(io_err("create folder", path))
 }
 
+/// Creates `path` and any missing parents as private folders: only their owner may enter the ones
+/// it creates (mode 0700 on Unix); folders that already exist keep their permissions. Succeeds if
+/// `path` already exists as a folder.
+pub fn create_private_dir_all(path: &Path) -> Result<()> {
+    guard::check()?;
+    let mut builder = private_dir_builder();
+    builder.recursive(true);
+    builder.create(path).map_err(io_err("create folder", path))
+}
+
+/// Removes a file Dalica made for itself and nobody else uses (the control token file at exit). A
+/// missing file is fine; a folder is refused. A symbolic link is removed, never what it points to.
+pub fn remove_own_file(path: &Path) -> Result<()> {
+    guard::check()?;
+    match std::fs::symlink_metadata(path) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(io_err("stat", path)(e)),
+        Ok(m) if m.is_dir() => return Err(io_err("remove", path)(std::io::Error::other("is a folder"))),
+        Ok(_) => {}
+    }
+    match std::fs::remove_file(path) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(io_err("remove", path)(e)),
+        _ => Ok(()),
+    }
+}
+
 /// Names tried before [`TempDir::new`] gives up.
 const TEMP_TRIES: u64 = 1000;
 static TEMP_SERIAL: AtomicU64 = AtomicU64::new(0);
@@ -111,6 +137,43 @@ mod tests {
         assert!(matches!(create_dir_all(&dir.path().join("file/sub")), Err(Error::Io { .. })));
         let _ui = guard::mark_ui_thread();
         assert!(matches!(create_dir_all(&p), Err(Error::OnUiThread)));
+    }
+
+    #[test]
+    fn private_folders_are_created_with_their_parents() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("a").join("b");
+        create_private_dir_all(&p).unwrap();
+        create_private_dir_all(&p).unwrap();
+        assert!(p.is_dir());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            for d in [dir.path().join("a"), p.clone()] {
+                assert_eq!(std::fs::metadata(&d).unwrap().permissions().mode() & 0o777, 0o700, "{}", d.display());
+            }
+        }
+        std::fs::write(dir.path().join("file"), b"").unwrap();
+        assert!(matches!(create_private_dir_all(&dir.path().join("file")), Err(Error::Io { .. })));
+        let _ui = guard::mark_ui_thread();
+        assert!(matches!(create_private_dir_all(&p), Err(Error::OnUiThread)));
+    }
+
+    #[test]
+    fn an_own_file_is_removed_a_missing_one_is_fine_a_folder_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = dir.path().join("control-1.token");
+        std::fs::write(&f, b"x").unwrap();
+        remove_own_file(&f).unwrap();
+        assert!(!f.exists());
+        remove_own_file(&f).unwrap();
+        assert!(matches!(remove_own_file(dir.path()), Err(Error::Io { .. })));
+        assert!(dir.path().is_dir());
+        std::fs::write(&f, b"x").unwrap();
+        let ui = guard::mark_ui_thread();
+        assert!(matches!(remove_own_file(&f), Err(Error::OnUiThread)));
+        drop(ui);
+        assert!(f.exists());
     }
 
     #[test]

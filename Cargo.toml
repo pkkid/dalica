@@ -72,6 +72,8 @@ log = "0.4"
 
 # Automation
 rmcp = "3.5"
+# The control token: 256 bits from the OS random source (already in the tree through tempfile).
+getrandom = "0.4"
 
 # Tests and benches
 proptest = "1.11"
