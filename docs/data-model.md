@@ -106,6 +106,8 @@ Format rules:
 - Lists (`order`, `tags`, `edits`, `redo`) are JSON arrays; a photo's `albums` is an object from
   album id to position key (§3.2). Each edit operation is one
   string in the operation syntax of §3.1, the same text the recipe API uses.
+- Album ids are `a` and person ids `p`, followed by 4 to 16 lowercase hex digits (`a91c0e`,
+  `p7f3a2c`); anything else is kept verbatim and reported (`security.md` §5.4).
 - Coordinates are **normalised floats** in 0..1, at most six decimals, `[x0, y0, x1, y1]`. Which
   frame they are measured in is an open question (§3.3).
 - Unknown objects and keys are **preserved verbatim** on rewrite (forward compatibility). A value of
@@ -155,6 +157,10 @@ a short string (digits and ASCII letters) that sorts in album order by plain byt
 - Adding a photo gives it a key after the album's last key; dropping a photo between two others
   gives it a key that sorts between theirs (a key always exists between two different keys). Only
   the moved photo's sidecar is rewritten; no other folder is touched.
+- A key is at most 512 bytes. Inserting at one spot over and over (appending, prepending, dropping
+  next to the last drop) keeps keys under 10 bytes for 10 000 inserts; only repeated drops into the
+  middle of the newest pair grow them steadily, and when a key would pass the limit Dalica rewrites
+  the album's keys as Sort Album By does. The encoding is documented in `dalica-core` (`poskey`).
 - Rebuilding an album = collect every member from every folder sidecar and sort by key; equal keys
   (possible after merges) sort by folder path, then file name.
 - Sort Album By ▸ rewrites the keys of all members (one undo step).

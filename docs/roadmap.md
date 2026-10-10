@@ -272,7 +272,7 @@ M1 is deliberately the thickest milestone: every crate on the data path gets bui
 Review gate **M1.A (checkpoint A)** after M1.15 checks the whole path headlessly before any UI is
 built. Built by a single agent; the waves show what could run in parallel later.
 
-- ⬜ **M1.1 `core`**
+- ✅ **M1.1 `core`**
   - after: M0.R
   - files: `crates/core/**`
   - scope: id newtypes with serde; `Rect01` normalised geometry; `Clock` with system and virtual

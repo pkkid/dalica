@@ -2,6 +2,13 @@
 
 **Layer L0.** Ids (`PhotoId`, `FolderId`, `AlbumId`, `PersonId`), errors, normalised geometry, dates, path and name utilities (collision names `-001`), position keys and the `Clock` trait.
 
-- **May depend on:** nothing (`docs/architecture.md` §2; `cargo xtask layers` enforces it).
-- **Public API:** none yet; this crate is a stub until M1.1 (`docs/roadmap.md`).
-- **Test it alone:** `cargo test -p dalica-core` (no window, GPU, network or personal photos needed).
+- **May depend on:** nothing (`docs/architecture.md` §2; `cargo xtask layers` enforces it). External: `serde`, `thiserror`.
+- **Public API:**
+  - `ids`: `PhotoId`, `FolderId` (integers from the index); `AlbumId`, `PersonId` (`a`/`p` + 4–16 lowercase hex digits, checked on parse and deserialize).
+  - `geom`: `Rect01` (normalised `[x0, y0, x1, y1]`, six decimals, never empty), `PixelRect`, `to_pixels` / `from_pixels`.
+  - `clock`: `Timestamp` (Unix milliseconds, saturating), the `Clock` trait, `SystemClock`, `VirtualClock`.
+  - `dates`: `Date`, `DateTime` (local, no zone; ISO and EXIF forms in, ISO out), `DateTime::from_unix_secs`.
+  - `names`: `split_ext`, `numbered` (`photo-001.jpg`), `candidates`, `next_free`; names stay within 255 bytes.
+  - `poskey`: `PosKey` with `first`, `after`, `before`, `between`; byte order is album order. The module docs explain the encoding.
+  - `Error`: the one error type.
+- **Test it alone:** `cargo test -p dalica-core` (no window, GPU, network or personal photos needed). Property tests live in `tests/poskey.rs` and `tests/props.rs`; `cargo test -p dalica-core --test poskey -- --nocapture` prints the key lengths after 10 000 inserts per pattern.
