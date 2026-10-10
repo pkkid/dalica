@@ -346,7 +346,7 @@ built. Built by a single agent; the waves show what could run in parallel later.
   - done when: `cargo test -p dalica-sidecar` passes property tests (`parse(print(x)) == x` for
     random documents, any file name as a key) and a planted unknown key and a wrong-type `star`
     keep their values when another photo is edited.
-- ⬜ **M1.8 `library` model and ops**
+- ✅ **M1.8 `library` model and ops**
   - after: M1.1
   - files: `crates/library/**`
   - scope: folders, photos (name, size, mtime, dimensions, date, star), `Op` (add/remove folder,

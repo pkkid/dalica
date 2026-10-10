@@ -791,6 +791,13 @@ dependencies = [
 [[package]]
 name = "dalica-library"
 version = "0.0.0"
+dependencies = [
+ "dalica-core",
+ "proptest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
 
 [[package]]
 name = "dalica-mcp"
