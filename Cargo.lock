@@ -779,6 +779,12 @@ dependencies = [
 [[package]]
 name = "dalica-image"
 version = "0.0.0"
+dependencies = [
+ "dalica-core",
+ "dalica-scenes",
+ "proptest",
+ "thiserror 2.0.21",
+]
 
 [[package]]
 name = "dalica-library"

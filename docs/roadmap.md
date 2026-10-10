@@ -318,7 +318,7 @@ built. Built by a single agent; the waves show what could run in parallel later.
     optional embedded thumbnail) and PNG; `demo_library(dir, folders, photos)`.
   - done when: `cargo test -p dalica-scenes` shows the same seed gives identical bytes, all 8
     orientations are written, and the files decode with the `image` crate.
-- ⬜ **M1.5 `image`: sniffing, EXIF and orientation**
+- ✅ **M1.5 `image`: sniffing, EXIF and orientation**
   - after: M1.4
   - files: `crates/image/src/sniff.rs`, `crates/image/src/ifd.rs`, `crates/image/src/exif.rs`, `crates/image/src/orient.rs`, `crates/image/src/limits.rs`, `crates/image/src/lib.rs`, `crates/image/Cargo.toml`
   - scope: magic-number sniffing; a bounded TIFF/IFD reader (shared later with `meta` and RAW
