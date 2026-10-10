@@ -163,6 +163,12 @@ L0       core · fs                    (only `fs` writes to disk)
   - dropping or descoping a feature or a parity row;
   - a *Reserved decision* in `roadmap.md`.
   Never leave bare `TODO`s; use `TODO(maintainer): …`.
+- **The lead asks even less** (maintainer decision, 2026-10-10). Mid-run, the lead interrupts the
+  maintainer only for the list above, a step it has no go-ahead for, or a fork where a wrong guess
+  means a large rewrite. Everything else it decides (the most reversible option), and logs what
+  has no commit body to live in (board, process, scheduling) with
+  `cargo xtask tasks log <check-in id> "DEFERRED: question | options | chose | how to reverse" --agent agent-1`;
+  the check-in lists these with the other decisions.
 - **Can't finish** (wrong estimate, needs a file outside `files`): comment on the issue and
   `cargo xtask tasks release <id> --reason "…"`.
 - **The lead** (`agent-1`) merges In Review tasks one at a time with `cargo xtask tasks merge
@@ -178,7 +184,11 @@ L0       core · fs                    (only `fs` writes to disk)
   by hand with `gh`). After M1.A the same agent uses the full loop (`tasks claim`, `submit`,
   `merge`, with pull requests), so the board's live paths are proven by one agent before eight use
   them; the maintainer gave the standing go-ahead for those `submit`/`merge` pushes at the M0 review
-  (2026-10-09). Any other push still needs the go-ahead. Parallel workers start at M2.
+  (2026-10-09). Two more standing go-aheads (2026-10-10): **fixing a red `main`** (push a fix
+  branch, open a PR, squash-merge it once its GitHub CI is green on all three OSes, then tell the
+  maintainer) and **board housekeeping** (GitHub writes that only bring the board in line with
+  `roadmap.md` and `task-board.md`: labels `tasks setup` defines, renaming milestones, closing
+  empty ones). Any other push still needs the go-ahead. Parallel workers start at M2.
 
 ## 5. Before you finish a task
 

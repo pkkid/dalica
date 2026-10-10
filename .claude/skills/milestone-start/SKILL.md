@@ -24,7 +24,9 @@ Its jobs are to claim, dispatch, review, merge and keep the board true.
   `/milestone-review` for them and keep going. Work flows into the next milestone as soon as the
   board offers its tasks.
 - **Decide, don't ask.** Technical decisions are the agents' (`AGENTS.md` §4). Only the short list
-  there reaches the maintainer.
+  there reaches the maintainer. The lead's own choices (board, process, scheduling) follow "The
+  lead asks even less" there: decide, and log each one as a `DEFERRED:` dev-log line for the
+  check-in.
 
 ## 1. Preflight (stop and report if any check fails)
 
