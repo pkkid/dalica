@@ -573,6 +573,7 @@ recipe operation and parameter names of `data-model.md` §3.1 and `editing.md` (
 
 | Region (milestone) | Ids |
 |---|---|
+| Regions (M3) | `region:<name>` for each region of §6.6 shown (`region:menuBar`, `region:toolbar`, `region:tree`, `region:splitter`, `region:lightTable`, `region:scrollbar`, `region:sidePane`, `region:statusLine`, `region:tray`, `region:trayButtons`, `region:bottomControls`, `region:actionButtons`): the region's rect, no input of its own (role `other`); a region not shown is not listed |
 | Menu bar (M3) | `menu:File` … `menu:Help` (title by its English label; the fourth is `menu:Folder` whatever its shown title), `menuitem:<command id>` for open menu and context-menu items, `submenu:<path>` |
 | Toolbar (M3) | `button:toolbar.import`, `button:toolbar.newAlbum`, `button:tree.flat`, `button:tree.tree`, `button:toolbar.viewOptions`, `button:filter.starred`, `button:filter.faces`, `button:filter.videos`, `button:filter.geotagged`, `slider:age`, `field:search`, `button:search.clear`, `indicator:activity` |
 | Room tabs (M11+) | `tab:room.library`, `tab:room.import`, `tab:room.collage`, …; `button:room.close.<room>` |

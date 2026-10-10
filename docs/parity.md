@@ -22,7 +22,7 @@ same commit.
 <!-- parity:summary -->
 | Section | ✅ | 🟡 | ⬜ | 🚫 |
 |---|---:|---:|---:|---:|
-| A. Library view | 0 | 1 | 31 | 1 |
+| A. Library view | 0 | 2 | 30 | 1 |
 | B. Organizing | 0 | 1 | 41 | 0 |
 | C. Editing | 0 | 0 | 21 | 4 |
 | D. Viewing | 0 | 0 | 6 | 2 |
@@ -30,7 +30,7 @@ same commit.
 | F. Data | 1 | 2 | 3 | 0 |
 | G. Preferences and system | 0 | 2 | 9 | 0 |
 | H. Menus | 0 | 0 | 7 | 0 |
-| **All** | 1 | 6 | 120 | 16 |
+| **All** | 1 | 7 | 119 | 16 |
 <!-- /parity:summary -->
 
 ## Top gaps
@@ -42,7 +42,7 @@ same commit.
 
 | Id | Feature | Tier | Status | Evidence / notes |
 |---|---|---|---|---|
-| LIB-REGIONS | Window regions and sizes per `ui-layout.md` §2 | P0 | ⬜ | ref 01 §2.1, 02 §2 |
+| LIB-REGIONS | Window regions and sizes per `ui-layout.md` §2 | P0 | 🟡 | every region at its §2 size, registered as `region:<name>`, resizable tree through the splitter: `crates/ui/src/panels/layout.rs`, `crates/ui/tests/layout.rs`; toolbar, side-pane and bottom-area contents, the §11 responsiveness rules and persistence missing; ref 01 §2.1, 02 §2 |
 | LIB-TREE-GROUPS | Tree groups Albums/People/Projects/Folders/Other/Hidden, collapsible, counts | P0 | ⬜ | ref 02 §6.2–6.3 |
 | LIB-TREE-FLAT | Flat folder view with year dividers (default) | P0 | ⬜ | |
 | LIB-TREE-TREE | Tree view, simplified tree | P1 | ⬜ | |

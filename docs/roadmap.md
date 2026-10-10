@@ -729,7 +729,7 @@ with the rest at the next review.
     the keymap, so a rebinding shows up there.
   - done when: no default conflicts on any platform (tested for all three); rebinding a UI command
     with `app.setShortcut` changes the key shown in its menu item.
-- ⬜ **M3.5 `ui`: the layout skeleton and geometry tests**
+- ✅ **M3.5 `ui`: the layout skeleton and geometry tests**
   - after: M2.1, M2.2
   - files: `crates/ui/src/panels/mod.rs`, `crates/ui/src/panels/layout.rs`, `crates/ui/src/panels/toolbar.rs`, `crates/ui/src/panels/status.rs`, `crates/ui/src/panels/side_pane.rs`, `crates/ui/src/state.rs`, `crates/ui/tests/layout.rs`
   - scope: every region of `ui-layout.md` §2 laid out at its specified size (menu/title row 24,
