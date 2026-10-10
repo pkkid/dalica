@@ -5,6 +5,11 @@
 //! [`register`] is the one way anything gets an automation id (`control-protocol.md` §7): these
 //! widgets call it, and so do the panels for the controls they build themselves (tree rows,
 //! thumbnails, menu items).
+//!
+//! Every widget paints its states from [`Tokens`]: rest, hover, pressed, active (toggled, selected
+//! or open), disabled (`ui.is_enabled()` false, or its own `enabled` flag) and focused (the 1.5 pt
+//! `accent` ring of [`focus_ring`], `design-system.md` §9). The `tests/widgets.rs` gallery renders
+//! each one in each state.
 
 use egui::{Align2, Color32, Context, CornerRadius, Id, Painter, Rect, Response, Sense, Stroke, StrokeKind, Ui, Vec2, WidgetType, vec2};
 
@@ -12,6 +17,27 @@ use crate::Tokens;
 use crate::fonts;
 use crate::icons::{self, Icon};
 use crate::registry::{self, Role, WidgetInfo};
+
+mod buttons;
+mod dialog;
+mod dropdown;
+mod feedback;
+mod field;
+mod header;
+mod marks;
+mod slider;
+mod splitter;
+mod tooltip;
+
+pub use buttons::{Segment, SegmentLabel, action_button, primary_button, segmented, toggle_filter};
+pub use dialog::{ButtonKind, DialogButton, DialogResponse, dialog};
+pub use dropdown::{dropdown, dropdown_popup_id};
+pub use feedback::{ProgressOut, TOAST_ERROR_SECS, TOAST_SECS, ToastKind, empty_state, progress_row, toast, toast_opacity};
+pub use field::{SearchOut, search_field, text_field};
+pub use header::section_header;
+pub use slider::{SliderOut, SliderSpec, edit_slider_value, nudged, slider, typed_value, zoom_slider};
+pub use splitter::{arrow_delta, split_position, splitter};
+pub use tooltip::{TOOLTIP_WIDTH, tooltip};
 
 /// What an automation id is attached to.
 #[derive(Clone, Copy)]
@@ -64,15 +90,37 @@ fn fill(t: &Tokens, r: &Response, active: bool) -> Color32 {
     }
 }
 
+/// The keyboard focus ring (`design-system.md` §9): a `focus_width` `accent` outline 1 pt outside
+/// `rect`, so it reads on any fill (the primary button's `accent` included). Painted only while
+/// `r` has the keyboard focus.
+pub fn focus_ring(painter: &Painter, t: &Tokens, r: &Response, rect: Rect, radius: u8) {
+    if r.has_focus() {
+        painter.rect_stroke(
+            rect.expand(1.0),
+            CornerRadius::same(radius.saturating_add(1)),
+            Stroke::new(t.focus_width, t.accent),
+            StrokeKind::Outside,
+        );
+    }
+}
+
+/// `text` on one line in `font`, cut short with "…" when wider than `max` points.
+fn one_line(painter: &Painter, text: &str, font: egui::FontId, color: Color32, max: f32) -> std::sync::Arc<egui::Galley> {
+    let mut job = egui::text::LayoutJob::simple_singleline(text.to_owned(), font, color);
+    job.wrap = egui::text::TextWrapping::truncate_at_width(if max.is_finite() { max.max(1.0) } else { 1.0 });
+    painter.layout_job(job)
+}
+
 /// A button with a text label: SemiBold 11.5 `text`, `(text_w + 18).max(37) × 24`, radius 4, fill
 /// `button` / `hover` / `pressed`, 1 pt `button_border`.
 pub fn text_button(ui: &mut Ui, t: &Tokens, id: &str, label: &str, active: bool) -> Response {
     let enabled = ui.is_enabled();
-    let galley = ui.painter().layout_no_wrap(label.to_owned(), fonts::semibold(11.5), if enabled { t.text } else { t.text_disabled });
-    let size = vec2((galley.size().x + 18.0).max(37.0).round(), 24.0);
+    let galley = ui.painter().layout_no_wrap(label.to_owned(), fonts::semibold(t.button_label), if enabled { t.text } else { t.text_disabled });
+    let size = vec2((galley.size().x + 18.0).max(37.0).round(), t.metrics.button_h);
     let r = allocate(ui, id, size, enabled);
     let p = ui.painter();
     p.rect(r.rect, CornerRadius::same(t.radius), fill(t, &r, active), Stroke::new(1.0, t.button_border), StrokeKind::Inside);
+    focus_ring(p, t, &r, r.rect, t.radius);
     let pos = r.rect.center() - galley.size() / 2.0;
     p.galley(pos.round(), galley, t.text);
     register(ui.ctx(), id, Role::Button, label, Target::Widget(&r), active);
@@ -94,6 +142,7 @@ pub fn icon_button(ui: &mut Ui, t: &Tokens, id: &str, icon: Icon, size: f32, act
     } else if enabled && r.hovered() {
         p.rect_filled(highlight, CornerRadius::same(t.radius), t.hover.gamma_multiply(0.7));
     }
+    focus_ring(p, t, &r, highlight, t.radius);
     let glyph = if !enabled {
         t.text_disabled
     } else if active {
@@ -113,9 +162,10 @@ pub fn icon_button(ui: &mut Ui, t: &Tokens, id: &str, icon: Icon, size: f32, act
 /// outlined `icon` when off, on a button plate.
 pub fn star_toggle(ui: &mut Ui, t: &Tokens, id: &str, on: bool) -> Response {
     let enabled = ui.is_enabled();
-    let r = allocate(ui, id, vec2(36.0, 24.0), enabled);
+    let r = allocate(ui, id, t.metrics.star_button, enabled);
     let p = ui.painter();
     p.rect(r.rect, CornerRadius::same(t.radius), fill(t, &r, false), Stroke::new(1.0, t.button_border), StrokeKind::Inside);
+    focus_ring(p, t, &r, r.rect, t.radius);
     let glyph = Rect::from_center_size(r.rect.center(), Vec2::splat(16.0));
     let (icon, color) = match (enabled, on) {
         (false, _) => (if on { Icon::Star } else { Icon::StarOutline }, t.text_disabled),

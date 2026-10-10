@@ -59,6 +59,9 @@ Dark theme (the only theme until after 1.0; a light variant is a later option, n
 | `thumb` | `#a0a0a0` | slider ring at rest |
 | `thumb_hover` | `#e0e0e0` | slider ring hovered / dragged |
 | `accent` | `#0165dd` | focus border, text selection (`accent × 0.6` fill), active filter, drop target outline |
+| `accent_hover` | `#1a74e0` | primary button hovered (`accent` 10 % towards white) |
+| `accent_pressed` | `#0156bc` | primary button pressed (`accent × 0.85`) |
+| `on_accent` | `#ffffff` | text on an `accent` fill (the primary button) |
 | `star` | `#d8d8d8` | star badge glyph on thumbnails, star buttons |
 | `pick` | `#f0f0f0` | active icon glyph |
 | `danger` | `#e04a4a` | destructive confirmations, error badges |
@@ -74,11 +77,17 @@ Dalica additions (not in LightCraft):
 | `filter_banner` | `#2f3b4d` | the "filter active" banner across the top of the light table |
 | `face_box` | `#f0f0f0` 1.5 pt, `black α160` 1 pt outer | face rectangles in the edit view |
 
-Other fixed values: dialog backdrop `black α140`; popup shadow offset (0,4) blur 16 `black α140`;
-window shadow (0,8) blur 30 `black α160`; slideshow and photo-viewer background pure black
-(viewer overlay `black α210` over the desktop/app); thumbnail placeholder `gray 38`; histogram
-channels `#df3939 / #44b072 / #3b6fe0`; colour-label palette (only if labels are added later) as
+Other fixed values, each a `Tokens` field too: dialog `backdrop` `black α140`; `popup_shadow`
+offset (0,4) blur 16 `black α140`; `window_shadow` (0,8) blur 30 `black α160`; `toast_bg`
+`black α200`; slideshow and photo-viewer background (`viewer_bg`) pure black (`viewer_overlay`
+`black α210` over the desktop/app); thumbnail `placeholder` `gray 38`; photo selection outlines
+`photo_focus` white and `photo_selected` `gray 170`; histogram channels `#df3939 / #44b072 /
+#3b6fe0` (`theme::HISTOGRAM`); colour-label palette (only if labels are added later) as
 LightCraft's `theme::label_color`.
+
+The §3 sizes are `Tokens` fields (`body`, `small`, `title`, `heading`, `button_label`, `caption`,
+`detail`, `count`, `large`, `empty_title`) and the §4 metrics are `Tokens::metrics`
+(`theme::Metrics`), so the UI Font Size and the tests read one source.
 
 ## 3. Typography
 
@@ -168,27 +177,38 @@ them. Every widget below registers an automation id and an AccessKit role.
 | Widget | Spec |
 |---|---|
 | `text_button(id, label, active)` | SemiBold 11.5 `text`; `(text_w + 18).max(37) × 24`; radius 4; fill `button` / `hover` / `pressed`; 1 pt `button_border` |
-| `primary_button` | as `text_button` but fill `accent`, text white; one per dialog (the default action) |
+| `primary_button(id, label)` | as `text_button` but fill `accent` (`accent_hover` hovered, `accent_pressed` held), text `on_accent`, no border; one per dialog (the default action). Disabled it takes the plain button look with `text_disabled` text |
+| `segmented(segments, active, size)` | **Dalica**: joined segments (each its own id, text or icon, tooltip), one `button_border` outline with 1 pt dividers, rounded at the ends; selected `tool_active` with a `pick` glyph, others `button` / `hover` / `pressed`; registered as toggles. The toolbar's Flat \| Tree pair is two 30 × 28 icon segments |
 | `icon_button(id, icon, size, active, enabled, tooltip)` | highlight square `min(32, size)` radius 4: `tool_active` active, `hover × 0.7` hovered; glyph colour `icon` / `text` hover / `pick` active / `text_disabled`; glyph `0.6 × size` |
-| `action_button(id, icon, label)` | **Dalica**: big bottom-bar button, 64 × 56 (`ui-layout.md` §6.5), icon 28 centred in the top 34 pt, label below (11.5, `text_label`), hover fill `hover` radius 4, disabled when nothing is selected or in the tray |
-| `toggle_filter(id, icon, on)` | 26 × 26 icon toggle for the filter row; on = `tool_active` fill radius 5 + 1 pt `accent` stroke |
-| `slider(spec, value)` | LightCraft slider: label left, value right (click to type), 2 pt track, hollow ring thumb r 7 stroked 2 pt `thumb`; drag, Shift = fine ×0.1, double-click resets to the spec default, ↑/↓ nudge; one undo step per drag |
-| `zoom_slider(id, value, range)` | thin variant for thumbnail size / edit zoom: 110 × 20, 2 pt `track` line, 3 × 14 thumb in `thumb_hover` |
-| `section_header(id, title, open)` | collapsible header, 30 pt, chevron + SemiBold 13 title; used in the library tree groups and dialogs |
+| `action_button(id, icon, label, active, enabled)` | **Dalica**: big bottom-bar button, 64 × 56 (`ui-layout.md` §6.5), icon 28 centred in the top 34 pt, label below (11.5, `text_label`, elided), hover fill `hover` radius 4 with `text` glyph and label, `pressed` fill and `pick` glyph while held or `active` (More… menu open), disabled when nothing is selected or in the tray |
+| `toggle_filter(id, icon, on, tooltip)` | 26 × 26 icon toggle for the filter row, 16 pt glyph; on = `tool_active` fill radius 5 + 1 pt `accent` stroke and `pick` glyph; off = no fill, `hover × 0.7` hovered, `pressed` held |
+| `slider(spec, value)` | LightCraft slider, 45 pt row: label left, value right (12.5, click to type: Return or clicking away applies, Esc keeps the old value; the field has the focused-field frame), 2 pt track, hollow ring thumb r 7 stroked 2 pt `thumb` (`thumb_hover` hovered or dragged); drag, Shift = fine ×0.1, a click jumps, double-click resets to the spec default, ↑/↓ nudge (about 1/200 of the range, Shift ×5) while the pointer is on the row or it has the focus; one undo step per drag (`SliderOut::drag_started` / `drag_stopped`). `SliderSpec` is the control spec (id, label, range, default, step, decimals, unit); hostile specs (reversed or infinite ranges, NaN) are ordered and clamped. Registers `slider:<name>` and `slider:<name>/value` |
+| `zoom_slider(id, value, range, tooltip)` | thin variant for thumbnail size / edit zoom: 110 × 20, 2 pt `track` line (`thumb` hovered), 3 × 14 thumb in `thumb_hover` (`pick` dragged); click or drag sets, ←/→ with the focus move a twentieth of the range |
+| `section_header(id, title, open)` | collapsible header, 30 pt, 12 pt chevron (right closed, down open) + SemiBold 13 title in `text_label` (`text` hovered); no fill at rest, `hover × 0.5` hovered; used in the library tree groups and dialogs; registered as a toggle whose state is `open` |
 | `tabs(id, items, active)` | edit-panel tab strip: icon-only tabs 40 × 32 with tooltips; active tab `chrome` fill joined to the panel, inactive `canvas` |
 | `tool_button(id, icon, label)` | edit-panel tool: 124 × 32, icon 20 left, label 12; hover `hover`; active `tool_active` |
 | `effect_tile(id, preview_texture, label)` | 86 × 69: a 78 × 48 live preview of the current photo with the effect applied (rendered async, placeholder `gray 38` meanwhile) + label below |
 | `stars(id, rating)` / `star_toggle(id, on)` | Dalica stars are a boolean "starred" flag: one star glyph, filled `star` when on, outline `icon` when off; `star_toggle` is a 36 × 24 button plate with a 16 pt glyph |
-| `dropdown(id, text)` | borderless text + chevron; opens a popup menu bounded to the window |
-| `search_field(id)` | 28 high, radius 4, `field` fill (`canvas` focused), border `field_border` (accent focused), magnifier icon + placeholder `text_dim`, clear (×) button when non-empty; filters live on every keystroke |
-| `checkbox`, `radio`, `text_edit`, `combo` | egui defaults under the theme visuals |
+| `dropdown(id, text, menu)` | borderless 13 pt text + 12 pt chevron, 22 high; `hover × 0.7` fill hovered, `pressed` while held or open; a click toggles a popup menu anchored below it and kept inside the window |
+| `search_field(id, clear_id, text, hint, width)` | 28 high, radius 4, `field` fill (`canvas` focused), border `field_border` (`button_border` hovered, 1.5 pt `accent` focused), 14 pt magnifier + placeholder `text_dim`, clear (×) button `clear_id` when non-empty (clearing keeps the focus); filters live on every keystroke (`SearchOut::changed`) |
+| `text_field(id, text, hint, width)` | the search field's frame without the magnifier and clear button, 24 high |
+| `tooltip(response, title, detail)` | title 13 `text`, optional detail 11 `text_dim`, wrapped at 280 pt, in the popup frame (`chrome`, `button_border`, radius 6, popup shadow); shown on disabled controls too, so they can say why |
+| `checkbox`, `radio`, `text_edit`, `combo` | egui defaults under the theme visuals. Labels are not selectable (`selectable_labels` off): a label is text, not a control without an id |
 | `thumbnail_cell` | see §7 |
 | `folder_header` | see §7 |
 | `tray_well` | see `ui-layout.md` → Bottom area |
-| `toast(text)` | bottom-centre of the light table / canvas, 1.4 s (errors 6 s), radius 6, `black α200` |
-| `progress_row(label, fraction, cancel)` | for background jobs in the status line and progress dialogs |
-| `empty_state(title, body, action)` | centred SemiBold 18 title + Inter 13 body + optional primary button |
-| `dialog(title, body, buttons)` | dim backdrop `black α140`, centred `Window` with margin 16 × 12, buttons right-aligned, laid out right-to-left (avoids auto-size growth); Esc = Cancel, Enter = default |
+| `toast(id, area, text, kind, age, action)` | bottom-centre of the light table / canvas, 24 pt above its bottom, 1.4 s (errors 6 s), the last 0.2 s fading out; radius 6, `toast_bg` (`black α200`), padding 16 × 10, text 14 `text`; an error has a 4 pt `danger` bar at its left edge; an optional text-button action (`button:toast.showFolder`) |
+| `progress_row(id, label, fraction, cancel_id, width)` | for background jobs in the status line and progress dialogs: 20 high, label 11 `text_dim` elided, a 4 pt bar (`track`, `accent` fill; a sliding third when the fraction is unknown), a 16 pt × cancel button |
+| `empty_state(id, title, body, action)` | centred SemiBold 18 title + Inter 13 body (wrapped at 360, centred) + optional primary button 16 pt below |
+| `splitter(id, rect)` | 8 wide, `chrome` with a grip of two 1 pt lines 48 long (`button_border`; `icon` with a `hover × 0.5` strip hovered; `text` with a `hover` strip dragged); horizontal when wider than tall; the caller adds the drag delta and `arrow_delta` (±8 with the focus) through `split_position`; double-click = reset |
+| `dialog(id, title, width, buttons, body)` | dim backdrop `black α140` that takes the clicks (it does not cancel), centred modal window `chrome`, 1 pt `button_border`, radius 6, window shadow, margin 16 × 12, SemiBold 15 title; buttons right-aligned, laid out right-to-left (avoids auto-size growth), the default one a `primary_button`; Esc = Cancel, Enter = default (unless a field keeps the focus, e.g. a multi-line text); registers `dialog:<kind>`, `dialog:<kind>/backdrop` and each button |
+
+Every widget has the states rest, hover, pressed, active (toggled, selected or open), disabled and
+focused. The keyboard focus ring is a 1.5 pt `accent` outline 1 pt outside the control, so it reads
+on every fill (the primary button's included). `crates/ui-kit/tests/widgets.rs` renders each widget
+in each state with real input (pointer moved, button held, focus requested) and keeps a fingerprint
+per widget. The small marks inside widgets (a chevron, the magnifier, a clear cross) are drawn by
+the widget itself; the icons a caller picks are §5's.
 
 ## 7. Light-table elements
 
@@ -244,7 +264,13 @@ underneath, pushed up by the next header).
 - UI Scale (Auto, 75–300 %) and UI Font Size (Small/Medium/Large) as in PhotoCraft
   (`docs/ui-design.md` there).
 - Minimum contrast: `text_label` on `chrome` and `text_dim` on `grid_bg` must stay ≥ 4.5:1; check
-  with the contrast test in `dalica-ui-kit` (`theme.rs`) when tokens change.
+  with the contrast tests in `dalica-ui-kit` (`theme.rs` and `tests/contrast.rs`) when tokens
+  change. `tests/contrast.rs` checks every text/background pair the widgets paint at 4.5:1 and
+  every glyph at 3:1, translucent plates blended over what lies beneath. Four pairs fall short and
+  are pinned so they cannot get worse: `text_dim` on `chrome` (4.2:1: status line, tooltip detail,
+  window title; `#949494` would reach 4.5:1) and on `hover` (3.5:1), `accent` on `chrome` (2.6:1:
+  the focus ring and drop-target outline, below WCAG 2.2's 3:1), and the slider `track` (2.0:1, a
+  guide under the 5.3:1 ring).
 
 ## 10. Verification
 
@@ -325,6 +351,9 @@ size in this document; photo pixels and the edit-view zoom are independent of it
   smaller controls on purpose.
 - Thumbnail decode sizes follow physical pixels (cell edge × scale), so thumbnails stay sharp at
   every scale.
+- `theme::UiScale::factor(system scale, monitor long side)` computes the factor (fixed choices snap
+  to 25 % steps inside 75–300 %; an unknown or nonsensical system scale counts as 100 %); the window
+  applies it as egui's zoom, so widgets never multiply by it themselves.
 
 ### 11.5 UI Font Size
 
@@ -334,4 +363,5 @@ Options → General → Interface → **UI font size** changes interface text in
 Control heights grow with the text where a label would otherwise be clipped. The choice previews live
 in the dialog, persists across launches, and applies to the CJK fallback fonts too, including fonts
 loaded after the change. Photo captions and watermarks drawn into output (collages, exports) are never
-affected.
+affected. `Tokens::with_font_size(FontSize)` gives the tokens for a choice (every §3
+size times the factor; applying another choice never compounds).
