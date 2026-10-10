@@ -31,8 +31,8 @@ shortcuts in [`menus-and-shortcuts.md`](menus-and-shortcuts.md). Parity ids are 
      shown at any time with Tools → Folder Manager."
    - Single button **Continue**.
 2. The main window opens immediately; folders **appear in the library tree as they are found** and
-   their thumbnails fill in progressively. A spinner at the right end of the search box and a status
-   line message ("Scanning: 1,204 pictures found") show background work. The user can browse,
+   their thumbnails fill in progressively. The activity indicator at the right end of the toolbar
+   (`ui-layout.md` §3) and a status line message ("Scanning: 1,204 pictures found") show background work. The user can browse,
    star, and open Folder Manager while scanning continues.
 3. After scanning, face detection runs as a second, lower-priority background pass (if enabled);
    progress shows in the People group header ("Finding faces… 312 of 4,980").
@@ -85,9 +85,9 @@ files load.
 
 Layout, top to bottom:
 
-1. **"Import from:"** dropdown (top-left): detected cameras/phones (MTP/PTP where supported),
-   removable volumes ("Removable drive (E:)" / volume name), **"Folder…"** (opens a folder picker),
-   recent sources.
+1. **"Import from:"** dropdown (top-left): removable volumes ("Removable drive (E:)" / volume name), **"Folder…"** (opens a folder picker),
+   recent sources. Cameras and phones over MTP/PTP are added in the OS-integration milestone
+   (`product.md` → Scope).
 2. **Import tray** (left/main area, the full width minus the preview): a status line ("Loading 112
    of 340 files…", "340 files", "No pictures found"), a checkbox **"Exclude duplicates"**
    (tooltip "Skip pictures that are already in your library"; default from Options →
@@ -151,8 +151,8 @@ status line; Cancel stops after the current file (already-copied files stay). Th
   Options → "Remove from albums without asking"): title "Remove from Album", "Remove the %d
   selected pictures from this album? The files are not deleted." [Remove] [Cancel].
   Ctrl+Delete deletes the file from disk (with the delete confirmation).
-- Order: drag thumbnails within an album; order is **persisted** (in the sidecars and
-  `albums.json`). Album context menu → Sort Album By ▸ Date / Name / Size / Reverse Order rewrites the
+- Order: drag thumbnails within an album; order is **persisted** (one position key per member in its
+  folder sidecar, `data-model.md` §3.2, mirrored in `albums.json`). Album context menu → Sort Album By ▸ Date / Name / Size / Reverse Order rewrites the
   manual order. Album cover: context menu on a photo in the album → **Set as Album Cover**
   (default: first photo).
 - Delete album: album context menu → **Delete Album…** — "Delete the album "%s"? The pictures in it
@@ -194,12 +194,12 @@ status line; Cancel stops after the current file (already-copied files stay). Th
   over photos in slideshows and the viewer.
 - Library: View → Thumbnail Caption → Caption shows captions under thumbnails; Picture → Edit
   Caption edits the caption of the focused photo inline under its thumbnail.
-- Captions are searchable, shown in slideshows, printed, and written to file metadata.
+- Captions are searchable, shown in slideshows and the viewer, and written to file metadata.
 
 ## 6. People (face recognition)
 
 Face detection and recognition run locally (pure-Rust models downloaded by the user on first use
-with consent; see `architecture.md` §9). Nothing leaves the machine.
+with consent; see [`faces.md`](faces.md) §3). Nothing leaves the machine.
 
 ### 6.1 Settings
 
@@ -307,8 +307,8 @@ All act on real files; all are commands with undo where possible (`data-model.md
 | Delete folder | folder context menu → **Delete Folder…** | "Move the folder "%s" and everything in it (including non-picture files) to the trash?" [Move to Trash] [Cancel] |
 | Hide / Unhide | Picture → Hide (context menu) | none; hidden items show only with View → Hidden Pictures (drawn at 40 % opacity) |
 | Hide folder | folder context menu → Hide Folder | folder moves to a **Hidden Folders** group visible with View → Hidden Pictures (no password protection) |
-| Locate on Disk | context menu, Ctrl+Enter, clicking the folder icon in a folder header | opens the system file manager with the item selected |
-| Open with | context menu → Open With ▸ (system handlers), Open in External Editor (Ctrl+Shift+O) | |
+| Locate on Disk | context menu, Ctrl+Enter, clicking the folder icon in a folder header | opens the system file manager with the item selected *(OS integration)* |
+| Open with | context menu → Open With ▸ (system handlers), Open in External Editor (Ctrl+Shift+O) | *(OS integration)* |
 | Copy Path | context menu | |
 | Refresh thumbnails | folder context menu | regenerates the folder's thumbnails |
 | Adjust date and time | Tools → **Adjust Date and Time…** | **Adjust Picture Date** (title "… — %d pictures" for several): thumbnail, "Current date:" (read-only), "New date:" date + time pickers; with several: radios **"Shift all dates by the same amount"** (default) / **"Set all pictures to the same date and time"**; [OK] [Cancel] |
@@ -350,5 +350,4 @@ By ▸.
 
 ## 11. Open questions (reserved for the maintainer)
 
-1. Album sync to a web service: out of scope; confirm.
-2. Whether `color:` search ships in M8 or later.
+1. Whether `color:` search ships in M8 or later.

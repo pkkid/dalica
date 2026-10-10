@@ -96,8 +96,9 @@ shown photo focused. Works on the current photo in the edit view too. No control
 ## 3. Photo viewer (standalone)
 
 A lightweight mode of the same binary for viewing image files from the file manager, without the
-library window. Dalica offers to register as the default viewer for chosen file types during first
-run (opt-in, per type) and in Options → Photo Viewer.
+library window. Until the OS-integration milestone it opens with `dalica --view <file>`; registering as the
+default viewer for chosen file types (offered at first run, opt-in per type, and in Options →
+Photo Viewer) comes with that milestone (`product.md` → Scope).
 
 ### 3.1 Look
 

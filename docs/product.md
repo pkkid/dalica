@@ -6,7 +6,7 @@ Dalica is a fast, local-first desktop **photo organizer with simple editing**, f
 personal photo collections on their own disks. It shows every photo in the folders you choose, in
 one continuous, scrollable "light table"; lets you star, caption, tag, album, name faces, place on a
 map, fix and play with photos in one click; and makes slideshows, collages and exports — without importing anything into a proprietary library, without an account, and without
-ever touching an original file unless you explicitly save.
+ever changing a photo's pixels unless you explicitly save.
 
 Dalica re-creates the layout, workflows and behaviour of a classic, much-loved desktop photo
 organizer as faithfully as we can (the reference is documented privately; see `AGENTS.md`), with a
@@ -27,7 +27,9 @@ and macOS.
 1. **Your folders are the library.** No import step for files already on disk; no hidden copies;
    moving or renaming in Dalica is moving or renaming on disk.
 2. **Originals are sacred.** Edits are recipes; pixels change only on an explicit Save, with the
-   original kept and restorable (`data-model.md`).
+   original kept and restorable (`data-model.md`). Captions, tags, places and date changes are
+   also written into the file's metadata (on by default, can be turned off); that never touches
+   pixels and keeps every other application's metadata.
 3. **Your work is portable.** Everything you do is stored in small readable files next to your
    photos and in standard metadata; the central index is a disposable cache.
 4. **Instant.** Thumbnails appear as fast as the disk allows; the UI never waits for the disk,
@@ -56,7 +58,8 @@ important parity, **P2** later / niche, **OOS** out of scope.
 | Export | P0 | |
 | Albums (incl. automatic albums) | P0 | |
 | File operations (move, copy, rename, delete to trash, new folder) | P0 | |
-| Import from cameras/cards/folders | P1 | |
+| Import from memory cards, removable drives and folders | P1 | cameras/phones over MTP/PTP: P2, OS integration (below) |
+| Keyboard shortcut editor with contexts | P1 | `menus-and-shortcuts.md` §2.0 |
 | Effects tabs (27 effects) | P1 | |
 | Slideshow, full-screen preview, photo viewer | P1 | |
 | People (faces) | P1 | local models only |
@@ -64,11 +67,13 @@ important parity, **P2** later / niche, **OOS** out of scope.
 | Collage | P1 | |
 | Video playback/trim | P2 | needs a pure-Rust video decision |
 | Legacy sidecar compatibility | P1 | reads the previous organizer's sidecars where no `.dalica.json` exists; never writes them |
+| OS integration: talking to other apps (drag photos out to other apps, files on the clipboard, Open With ▸, Open in External Editor, Locate on Disk with the file selected, default-viewer registration, camera import over MTP/PTP) | P2 | the last milestone (maintainer decision, 2026-10-09): cross-platform and needs per-OS code; until then these items render disabled |
+| Check for updates | — | deferred, not planned yet (maintainer decision, 2026-10-09); updates come from the release page |
 | Upload/sync to any web service, sign-in, blogging, online print ordering, online editors | OOS | the reference's online features are not reproduced |
 | Email, printing (print room, contact sheets, posters), movie maker, timeline view, web page export, gift folder, screensaver, set as desktop, backup, configurable action buttons | OOS | dropped 2026-10-09 as dated; people share by exporting |
 | Red Eye and Text tools, novelty effects and Shift variants, legacy video formats (AVI, WMV, MPG, 3GP, MTS/M2TS), "delete everything on the card" | OOS | dropped 2026-10-09 as dated |
 | Password-protected hidden folders | OOS | decided 2026-10-09: no (false sense of security) |
-| RAW development beyond the embedded preview | OOS | open the file in LightCraft instead (Open With) |
+| RAW development beyond the embedded preview | OOS | open the file in a raw developer such as LightCraft instead (Open With, OS integration) |
 
 ## Non-goals
 

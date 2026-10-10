@@ -46,7 +46,7 @@ Everything else follows the order below unless a *Reserved decision* changes it.
 - ⬜ M0.1 Workspace: `Cargo.toml`, `rust-toolchain.toml`, `clippy.toml`, `rustfmt.toml`, crate stubs per `architecture.md` §2 with the never-crash attributes, `LICENSE-MIT`, `LICENSE-APACHE`, `NOTICE`, `ATTRIBUTION.md`.
 - ⬜ M0.2 xtask: `ci`, `layers`, `assets`, `names`, `parity`, `stats`.
 - ⬜ M0.3 CI workflow running `cargo xtask ci` on Linux, Windows and macOS for every PR.
-- ⬜ M0.4 Theme, widgets, icons vendored from LightCraft with attribution; Inter fonts; token tests (contrast).
+- ⬜ M0.4 Theme, widgets, icons: our own code matching LightCraft's look (reference only); Inter fonts; token tests (contrast).
 - ⬜ M0.5 App shell: eframe window, persisted window state, menu bar from a menu catalog (`menus-and-shortcuts.md`), all regions of `ui-layout.md` drawn with placeholders.
 - ⬜ M0.6 Engine: `CommandSpec` registry, `Session::execute`, undo stack, `catch_unwind` guard, `UI_COMMANDS`.
 - ⬜ M0.7 Control channel (`--control <port>`), widget registry, `ui.screenshot`.
@@ -85,15 +85,17 @@ areas, each with a *Done when* line.
 
 Record the decision here with a date when made.
 
-1. Reuse model: depend on LightCraft crates at a pinned git revision, or vendor them? (Proposed:
-   vendor UI files, depend on `meta`/`codecs`/`raw` pinned.)
+1. Reuse model. **Decided 2026-10-09: reference only.** LightCraft and PhotoCraft are prior art for
+   technology, look and methodology; no Craft code is depended on or vendored. crates.io
+   libraries stay allowed after the dependency check (`architecture.md` §9).
 2. Video: pure-Rust decoding vs optional external process (M9).
-3. Default for writing stars as XMP ratings (proposed: off) and captions/tags into files
-   (proposed: on).
+3. Metadata write defaults. **Decided 2026-10-09:** captions, tags, places and date changes are
+   written into the photo files' metadata by default (pixels never change without Save); stars as
+   XMP ratings off.
 4. Map tiles provider and whether maps are on by default.
 5. Face-recognition models and their licences (M7).
 6. Password-protected hidden folders. **Decided 2026-10-09: no.**
-7. Licence (proposed: MIT OR Apache-2.0, like the Craft apps).
+7. Licence. **Decided 2026-10-09: MIT OR Apache-2.0**, the same as PhotoCraft.
 8. Public repository and community process (Discord/GitHub Discussions), release cadence.
 9. TLS stack for the few network features (map tiles, model downloads): a pure-Rust provider vs
    accepting `ring` (LightCraft pulls `ring` in through its TLS stack), or delegating downloads to

@@ -198,7 +198,7 @@ Add a description
 - **Drag** from the grid: reorder within the section (persisted manual order), onto a tree folder
   (move; Ctrl copies), onto an album (add), onto a person (assign faces), onto the tray (add), onto
   the map in the Places pane (geotag), out of Dalica to the file manager or other apps (file URIs;
-  the receiver decides copy/move). The drag pill shows the count and the operation ("Move 3 photos
+  the receiver decides copy/move; OS-integration milestone). The drag pill shows the count and the operation ("Move 3 photos
   to Garden").
 - **Wheel** scrolls; **Ctrl+wheel** changes the thumbnail size.
 - **Loupe**: press and drag from the magnifier icon left of the thumbnail-size slider; a round

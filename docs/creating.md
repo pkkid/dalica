@@ -48,8 +48,10 @@ Watermark:                [ ] Add watermark  [© Ana Costa 2026                 
 - Watermark: bottom-right, white text with a soft shadow, size 3 % of the long side.
 - Name collisions get `-001`. A new folder per export.
 - Progress in the status line and a small progress window ("Exporting 12 of 48…", [Cancel]); when
-  done a toast "Exported 48 pictures" with [Show Folder]; the export folder appears in the library
-  in the **Exported** project group.
+  done a toast "Exported 48 pictures" with [Show Folder] (*OS integration*; until then the
+  library scrolls to the export folder); the export folder appears in the library in the
+  **Exported** project group. If the chosen location is not inside a watched folder, the export
+  folder is added to the watched folders as Scan Always so it can appear there.
 
 ## 3. Collage (room)
 

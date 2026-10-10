@@ -6,8 +6,7 @@ Continuity log for agents and humans. Update after every task (keep it short; hi
 
 - **Milestone:** M0 (not started)
 - **Next task:** M0.1 — workspace skeleton (see `roadmap.md`)
-- **Blockers:** reserved decisions 1 and 7 in `roadmap.md` (reuse model, licence) should be made
-  before M0.1 lands; agents may proceed with the proposed defaults and note it.
+- **Blockers:** none (reuse model and licence decided 2026-10-09).
 
 ## Metrics
 

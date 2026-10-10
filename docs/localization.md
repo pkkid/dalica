@@ -8,7 +8,7 @@ Adapted from PhotoCraft `docs/localization.md`, `docs/localization-ko.md` and th
 > written as an English literal wrapped in `tl!` so the catalogs can be added later without
 > touching call sites. The catalog loader, the language preference and the tests below land in M10.
 
-Dalica uses the PhotoCraft i18n design (vendored from the Craft apps with attribution, see
+Dalica follows the PhotoCraft i18n design (prior art only; our own code, see
 [`architecture.md`](architecture.md) §9): **English source strings are the lookup keys**, UTF-8
 **TSV catalogs** supply translations per language, and a missing entry falls back to English.
 

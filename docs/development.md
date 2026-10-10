@@ -8,7 +8,8 @@ Mechanics for building, running, testing and verifying Dalica. Rules about *what
 
 ## 1. Prerequisites
 
-- Rust stable pinned by `rust-toolchain.toml` (edition 2024, MSRV 1.90). `rustup` is optional; the
+- Rust stable pinned by `rust-toolchain.toml` (edition 2024, MSRV 1.98, the latest stable on
+  2026-10-09; bumped deliberately). `rustup` is optional; the
   system toolchain works if it matches.
 - Linux: the usual eframe/wgpu system libraries (Wayland/X11, Vulkan driver). No C/C++ libraries are
   linked into the product.

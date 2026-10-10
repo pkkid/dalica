@@ -42,8 +42,9 @@ Never allowed, not even as a temporary placeholder or a "reference copy":
 - Put the licence text next to the asset when the licence requires it (`assets/fonts/OFL-Inter.txt`,
   `assets/icons/LICENSE-lucide.txt`) and reference it, backticked, in the Licence column.
 - Third-party material bundled in the product is also summarised in [`NOTICE`](../NOTICE).
-- Code reused from LightCraft or PhotoCraft is not an asset: it goes in `NOTICE` with its source
-  revision, and vendored files keep a header naming their origin.
+- Dalica does not reuse LightCraft or PhotoCraft code (`architecture.md` §9). Any other
+  third-party code ever vendored goes in `NOTICE` with its source revision and keeps a header
+  naming its origin.
 
 ## 3. `cargo xtask assets`
 
@@ -94,8 +95,7 @@ rows that start with `|` are read; the commented example in `ATTRIBUTION.md` is 
 ## 5. Icons
 
 - **Drawn in code** first: original vector icons on a 20 × 20 design grid in
-  `crates/ui/src/icons.rs` (the LightCraft technique and starting set, vendored with attribution in
-  `NOTICE`), painted with `paint(&Painter, rect, Icon, Color32)`, round caps, stroke
+  `crates/ui/src/icons.rs` (the LightCraft technique, our own drawings), painted with `paint(&Painter, rect, Icon, Color32)`, round caps, stroke
   `max(1.5·k, 1.0)` where `k = side / 20`. Recorded in `ATTRIBUTION.md` as original work.
 - When a glyph is too complex to draw well (camera, film reel), use a
   [Lucide](https://lucide.dev) SVG (ISC; the subset derived from Feather is also MIT) from

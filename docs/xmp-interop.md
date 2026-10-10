@@ -9,8 +9,8 @@ everything Dalica puts into, or takes from, files it did not create. Read it wit
 [`data-model.md`](data-model.md) §2 (where each piece of data lives) and §5 (when it is written).
 
 > Status: specified, not built. Lands with M2.8 (captions, tags) and M7 (places, people). The
-> parser and writer come from LightCraft's `meta` and `tiff` crates at a pinned revision
-> (`architecture.md` §9), wrapped by `crates/meta` (`dalica-meta`, L1).
+> parser and writer are our own, in `crates/meta` (`dalica-meta`, L1); LightCraft's `meta` and
+> `tiff` crates are prior art only (`architecture.md` §9).
 
 ## 1. Principles
 
@@ -65,9 +65,7 @@ Notes:
   respected: a caption longer than IPTC allows is written in full to XMP and truncated at a
   character boundary in IPTC (logged once).
 - **Exif-native vs XMP.** For place and date, the EXIF value wins over the XMP copy (XMP copies of
-  Exif fields are often stale). For caption, tags and rating, XMP wins over IPTC and EXIF. If the
-  pinned `meta::extract` precedence differs, `dalica-meta` reads the raw blocks and applies this
-  table itself.
+  Exif fields are often stale). For caption, tags and rating, XMP wins over IPTC and EXIF.
 - **Removing a place** deletes GPSLatitude/Ref and GPSLongitude/Ref and their XMP mirrors; other GPS
   tags (altitude, timestamp, direction) are left as they are. Export's "Remove location from
   exported photos" removes the whole GPS IFD from the *copy* only.
@@ -148,8 +146,8 @@ the format most photo applications use for named faces.
   Entries of other types (`Pet`, `Focus`, `BarCode`) are kept in the file and ignored.
 - **Orientation:** regions are on the EXIF-upright photo. A `mwg-rs:Rotation` of −π/2, +π/2 or ±π
   (a box given in the sensor's frame) is turned back into the upright frame; mirrored orientations
-  are taken as written. Dalica's sidecar coordinates are on the photo *as displayed* (after
-  `rotate=`), so reading and writing convert through any pending Dalica rotation.
+  are taken as written. Reading and writing convert between the upright frame and the frame of
+  Dalica's sidecar coordinates, which is still an open question (`data-model.md` §3.3).
 - **Writing** (option on): Dalica writes `mwg-rs:AppliedToDimensions` (upright pixel size) and one
   `Face` entry per **named** face (`mwg-rs:Name`, `mwg-rs:Type`, `mwg-rs:Area` with
   `stArea:unit="normalized"`). Unnamed and ignored faces are never written. Existing face entries

@@ -8,9 +8,10 @@ and the per-type toggles are in [`data-model.md`](data-model.md) §7 and Options
 ([`menus-and-shortcuts.md`](menus-and-shortcuts.md) §5); metadata details are in
 [`xmp-interop.md`](xmp-interop.md).
 
-> Status: specified, not built (M1.1 `image`). Decoding comes from LightCraft's `codecs` and `raw`
-> crates at a pinned revision, wrapped by `crates/image` (`dalica-image`, L1; `architecture.md` §9).
-> Everything is pure Rust; no C decoder is linked, ever.
+> Status: specified, not built. Decoding lives in our own `crates/image` (`dalica-image`, L1), built
+> on permissive pure-Rust crates.io decoders (`image`, `zune-jpeg`, `jxl-oxide`, `heic-rs`) plus our
+> own RAW embedded-preview extractor. LightCraft's `codecs` and `raw` crates are prior art only
+> (`architecture.md` §9). Everything is pure Rust; no C decoder is linked, ever.
 
 ## 1. Formats
 
@@ -41,9 +42,9 @@ Damaged and truncated files decode as far as possible and say so; they never tak
 ## 2. RAW files
 
 - **Recognised:** TIFF-structured raws (DNG, CR2, NEF, ARW, PEF, ORF, RW2, SRW, …)
-  and the others the `raw` crate probes (CR3, RAF, CRW, MRW, X3F). Detection is by content, not by
+  and the other containers our extractor probes (CR3, RAF, CRW, MRW, X3F). Detection is by content, not by
   extension.
-- **Shown** through the largest embedded JPEG preview (`raw::embedded_preview`), which is what the
+- **Shown** through the largest embedded JPEG preview (found by our own bounded TIFF/IFD walk), which is what the
   camera rendered; previews tagged with a colour space (for example Adobe RGB on some cameras) are
   converted to sRGB. A raw file with no usable preview shows a generic RAW tile.
 - **Edits** apply to the embedded preview; Save writes a JPEG beside the raw at the preview's size.
@@ -55,7 +56,7 @@ Damaged and truncated files decode as far as possible and say so; they never tak
 ## 3. HEIF / HEIC: an optional feature
 
 - Decoding uses `heic-rs` (pure Rust, no `unsafe`, MIT OR Apache-2.0) through a thin, panic-guarded
-  wrapper (LightCraft's `heif` crate): single pictures and grid-tiled photos, 8 to 12 bits (10/12-bit
+  wrapper of our own (prior art: LightCraft's `heif` crate): single pictures and grid-tiled photos, 8 to 12 bits (10/12-bit
   decode to 16-bit), auxiliary alpha, the container's rotation/mirror/crop, ICC, EXIF and XMP. Image
   sequences, overlays and some 4:2:2/4:4:4 streams return "unsupported", never wrong pixels.
 - It sits behind the **non-default** `heif` cargo feature of `dalica-image`, forwarded by the app
@@ -73,8 +74,8 @@ Damaged and truncated files decode as far as possible and say so; they never tak
   profiles are applied with `moxcms` (v2/v4; sRGB, Display P3, Adobe RGB, ProPhoto, Rec.2020
   recognised); untagged images are assumed sRGB; an unusable profile falls back to sRGB and is
   logged; CMYK without a profile uses a naive conversion.
-- EXIF orientation (and HEIF `irot`/`imir`) is applied for display; Dalica's own `rotate=` is applied
-  on top. Files are never rewritten just to fix orientation.
+- EXIF orientation (and HEIF `irot`/`imir`) is applied for display; Dalica's own `rotate(…)` and
+  flip operations in the recipe are applied on top. Files are never rewritten just to fix orientation.
 
 ## 5. Decode limits
 
@@ -84,10 +85,10 @@ allocated (and again after orientation swaps width and height):
 
 | Limit | Value | Why |
 |---|---|---|
-| Width or height | ≤ 65,535 px (JPEG's own maximum) for full decodes; the codec's absolute ceiling of 262,144 px applies to header reads | no real photo is larger; panoramas up to the JPEG maximum still open |
+| Width or height | ≤ 65,535 px (JPEG's own maximum) for full decodes; an absolute ceiling of 262,144 px applies to header reads | no real photo is larger; panoramas up to the JPEG maximum still open |
 | Pixels for a full decode | ≤ 2^28 (268 MP) | covers stitched panoramas and medium-format files |
 | Allocation per decode | ≤ min(the codec default, half the memory budget) — the budget is RAM/4 clamped 256 MiB–1.5 GiB (`architecture.md` §5) | a single file can never take the whole budget |
-| Source pixels for a thumbnail from a decoder that cannot scale | ≤ 64 MP (LightCraft's default) | non-JPEG decoders allocate at full size before resizing |
+| Source pixels for a thumbnail from a decoder that cannot scale | ≤ 64 MP (the same default as LightCraft) | non-JPEG decoders allocate at full size before resizing |
 | PNG text and XMP chunks | bounded by the allocation limit | |
 
 Whichever limit is reached first applies; for large images it is usually the allocation limit.

@@ -86,7 +86,8 @@ same commit.
 | ORG-SORT-PHOTOS | Photo order in sections, manual order persisted | P1 | ⬜ | |
 | ORG-ADJDATE | Adjust Date and Time dialog | P1 | ⬜ | |
 | IMP-ROOM | Import room: source, tray, preview, destination strip | P1 | ⬜ | ref 04 §3 |
-| IMP-DEVICES | Cameras/phones/cards detection | P1 | ⬜ | |
+| IMP-DEVICES | Memory card and removable-drive detection | P1 | ⬜ | |
+| IMP-MTP | Cameras/phones over MTP/PTP | P2 | ⬜ | OS integration (last milestone) |
 | IMP-DUP | Exclude duplicates | P1 | ⬜ | |
 | IMP-NAMING | Folder name options incl. date taken per day | P1 | ⬜ | |
 | IMP-AFTER | After-copying card options (leave, delete copied files) with confirmation; no "delete everything" | P1 | ⬜ | |
@@ -109,7 +110,9 @@ same commit.
 | FILE-RENAME | Rename / batch rename dialog | P0 | ⬜ | |
 | FILE-DELETE | Delete to trash with confirmations | P0 | ⬜ | |
 | FILE-FOLDEROPS | Move / rename / delete folder | P1 | ⬜ | |
-| FILE-LOCATE | Locate on disk, open with, external editor, copy path | P1 | ⬜ | |
+| FILE-COPYPATH | Copy Path | P1 | ⬜ | |
+| FILE-LOCATE | Locate on disk (file selected), Open With ▸, Open in External Editor | P2 | ⬜ | OS integration (last milestone) |
+| FILE-DRAGOUT | Drag photos out to other apps; files and image on the system clipboard | P2 | ⬜ | OS integration (last milestone) |
 
 ## C. Editing (EDIT, FX)
 
@@ -148,7 +151,7 @@ same commit.
 | VIEW-SLIDESHOW | Slideshow with control bar, transitions, display time, captions | P1 | ⬜ | ref 06 §2 |
 | VIEW-MUSIC | Slideshow music, loop | P2 | ⬜ | |
 | VIEW-VIEWER | Standalone photo viewer | P1 | ⬜ | ref 06 §1 |
-| VIEW-VIEWER-ASSOC | Default-viewer registration | P2 | ⬜ | |
+| VIEW-VIEWER-ASSOC | Default-viewer registration | P2 | ⬜ | OS integration (last milestone) |
 | VIEW-TIMELINE | Timeline | OOS | 🚫 | dropped 2026-10-09 (dated feature) |
 | VIEW-VIDEO | Video playback | P2 | ⬜ | |
 | VIEW-FULLSCREEN | F11 full screen | P1 | ⬜ | |
@@ -187,6 +190,8 @@ same commit.
 |---|---|---|---|---|
 | PREF-DIALOG | Options dialog with tabs, OK/Cancel/Apply | P1 | ⬜ | ref 08 §5 |
 | PREF-GENERAL / FILETYPES / SLIDESHOW / NETWORK / PEOPLE / VIEWER / EXPORT | each tab's options | P1 | ⬜ | `menus-and-shortcuts.md` §5 |
+| PREF-KEYMAP | Keyboard contexts and the shortcut editor (search, record, conflicts, reset) | P1 | ⬜ | `menus-and-shortcuts.md` §2.0 |
+| SYS-UPDATES | Check for updates | — | ⬜ | deferred, not planned yet (2026-10-09) |
 | SYS-COMMANDS | Command registry, menu catalog, UI_COMMANDS | P0 | ⬜ | |
 | SYS-CONTROL | Control channel + widget registry + screenshots | P0 | ⬜ | |
 | SYS-HEADLESS | Headless snapshots | P0 | ⬜ | |

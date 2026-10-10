@@ -288,7 +288,7 @@ Initial workflows (each becomes required in the milestone shown):
 | Id | Workflow | Milestone |
 |---|---|---|
 | W01 | **Organize and export** (the `process.md` §5 example): `scan_folder` 200 photos → star 5 → `create_album` from them → caption 3 → crop and Auto Fix one → `export` the album at 1600 px → check 5 JPEGs, long edge ≤ 1600, captions in XMP/IPTC, crop visible in the output, originals byte-identical | M4 (uses M1–M3 features) |
-| W02 | **Tray across folders**: select 2 in folder A → hold → select 3 in folder B → tray holds 5 → Rotate Clockwise on the tray → sidecars of both folders record `rotate=90` → undo restores all 5 in one step | M1 |
+| W02 | **Tray across folders**: select 2 in folder A → hold → select 3 in folder B → tray holds 5 → Rotate Clockwise on the tray → sidecars of both folders record `rotate(90)` → undo restores all 5 in one step | M1 |
 | W03 | **Save, Undo Save, Revert**: edit → `cmd_photo_save {confirm}` → original in `.dalica-originals/` → Undo Save restores it with the edits unsaved → Save → Revert returns the exact original bytes (`data-model.md` §10.9) | M2 |
 | W04 | **Rebuild loses nothing**: star, caption, tag, hide, edit, album → `library.rebuild {confirm}` → `doc_inspect` and `photo_info` equal before and after (`data-model.md` §10.1) | M3 |
 | W05 | **Move carries data**: drag-equivalent move of 3 starred, captioned, saved photos to another folder → their sidecar entries and originals backups moved, nothing left behind, undo moves them back (§10.3) | M3 |

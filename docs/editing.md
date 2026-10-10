@@ -12,7 +12,8 @@ person's name, we use a descriptive name instead (e.g. **Auto Fix**). Never rena
 - Enter: double-click a thumbnail; select and press **Enter** or **Ctrl+3**; Picture → **View and
   Edit**; context menu → View and Edit (bold default item); from the photo viewer (**E**).
 - Leave: the **Back to Library** button (top-left), **Esc** (if a tool panel is open, Esc first
-  cancels that panel), View → Library (**Ctrl+1**). Leaving never prompts: edits are already stored.
+  cancels that panel), View → Library (**Ctrl+1**, an edit-view binding; in the library Ctrl+1 is Small Thumbnails, see
+  `menus-and-shortcuts.md` §2.0). Leaving never prompts: edits are already stored.
 - The library keeps its scroll position and selection; the photo last viewed becomes the focused
   thumbnail.
 
@@ -114,8 +115,11 @@ the rest of the edit panel is drawn disabled until Apply/Cancel. Esc = Cancel.
 - Two buttons under every tab. Undo reads **"Undo " + the last edit's name** ("Undo Crop", "Undo
   Tuning", "Undo Sepia", "Undo Save"); Redo reads **"Redo " + the next edit's name** when enabled,
   "Redo" when disabled. Tooltip "Remove the latest edit".
-- History is **linear** per photo and persists across sessions (stored in the sidecar). Ctrl+Z /
-  Ctrl+Y (Cmd+Z / Cmd+Shift+Z) also work in the edit view.
+- History is **linear** per photo and persists across sessions (stored in the sidecar). In the edit
+  view, Ctrl+Z / Ctrl+Y (Cmd+Z / Cmd+Shift+Z) and Edit → Undo / Redo walk **this photo's history**,
+  never the library undo stack; back in the library they walk the library stack again
+  (`architecture.md` §4). Rotations and flips made in the edit view are steps of this history
+  ("Undo Rotate").
 - Picture → **Undo All Edits** (also in the library for a selection): confirmation "Remove all
   edits from %d pictures? You can't undo this." [Remove Edits] [Cancel].
 - Exception to linear history: **Crop** can be re-opened at any time; it shows the whole photo with
@@ -289,8 +293,9 @@ code). Each effect has a golden-image test on a procedural scene so its look is 
 
 ## 10. Rotation
 
-- Ctrl+R / Ctrl+Shift+R and the bottom-bar buttons rotate 90° CW/CCW (a `rotate` value, not an
-  edit-history entry, but undoable). Ctrl+Shift+H / Ctrl+Shift+V flip horizontally/vertically
+- Ctrl+R / Ctrl+Shift+R and the bottom-bar buttons rotate 90° CW/CCW (stored as a `rotate(…)` operation
+  in the recipe; consecutive rotations merge, `data-model.md` §3.1). Undo follows the view: a rotation made in the library is a
+  library undo step; one made in the edit view is a step of the photo's history. Ctrl+Shift+H / Ctrl+Shift+V flip horizontally/vertically
   (recorded as edits).
 - EXIF orientation is applied on read; Save normalises it (`data-model.md` §6).
 
@@ -308,13 +313,14 @@ code). Each effect has a golden-image test on a procedural scene so its look is 
 | Key | Action |
 |---|---|
 | Esc | cancel open tool; otherwise back to library |
+| Ctrl+1 | back to library |
 | ← / → (also PgUp/PgDn) | previous / next photo |
 | Home / End | first / last photo |
 | Ctrl+R / Ctrl+Shift+R | rotate CW / CCW |
 | Ctrl+Shift+H / Ctrl+Shift+V | flip horizontal / vertical |
 | Ctrl+Shift+E / Ctrl+Shift+B | Auto Fix / B&W |
 | Ctrl+8, Space | toggle star |
-| Ctrl+Z / Ctrl+Y | undo / redo |
+| Ctrl+Z / Ctrl+Y | undo / redo in this photo's history |
 | Ctrl+S | Save |
 | Ctrl+Shift+S | Export |
 | Ctrl+4 | slideshow from this photo |

@@ -34,11 +34,9 @@ deletes files.
 | Caption | `"caption"` | XMP `dc:description` + IPTC Caption-Abstract (default **on**) | yes | |
 | Tags | `"tags"` | XMP `dc:subject` + IPTC Keywords (default **on**) | yes | |
 | Hidden | `"hidden": true` | — | yes | |
-| Rotation (90° steps) | `"rotate"` | — (until Save) | yes | |
-| Edit recipe | `"edits"` (ordered), `"redo"` | — (until Save) | yes | |
+| Edit recipe, including 90° rotations and flips | `"edits"` (ordered), `"redo"` | — (until Save) | yes | |
 | Saved-edit backup | — | — | yes | `.dalica-originals/<file>` + `.dalica-originals/.dalica.json` |
-| Album membership | `"albums"` per photo | — | yes | album definitions: §4 |
-| Album order (manual) | `"albums": { "<id>": { "order" } }` in each member folder | — | yes | `albums.json` in the library dir |
+| Album membership and order | `"albums": { "<album id>": "<position key>" }` per photo (§3.2) | — | yes | album definitions: §4 |
 | Folder description/date/place | `"folder"` object | — | yes | |
 | Custom folder sort order | `"folder": { "order" }` | — | yes | |
 | Face rectangles + person | `"faces"` | XMP MWG Regions when "Store people names in photos" is on (default **off**) | yes | |
@@ -86,19 +84,18 @@ atomically, keys sorted deterministically (photos by file name) so diffs are min
       "caption": "Tram 28 at sunset",
       "tags": ["lisbon", "tram", "sunset"],
       "hidden": false,
-      "rotate": 90,
-      "edits": ["crop(0.08,0.10,0.92,0.86)", "straighten(1.5)", "autofix()", "fill_light(0.25)", "sepia()"],
+      "edits": ["rotate(90)", "crop(0.08,0.10,0.92,0.86)", "straighten(1.5)", "autofix()", "fill_light(0.25)", "sepia()"],
       "redo": ["glow(0.4,3.0)"],
       "faces": [
         { "rect": [0.41, 0.22, 0.52, 0.38], "person": "p7f3a2c" },
         { "rect": [0.70, 0.30, 0.78, 0.44], "person": "ignored" }
       ],
-      "albums": ["a91c0e", "a77d02"],
+      "albums": { "a91c0e": "V", "a77d02": "b3" },
       "geo": [38.7116, -9.1389],
       "date": "2026-06-04T19:42:10"
     }
   },
-  "albums": { "a91c0e": { "name": "Best of 2026", "order": ["IMG_0001.jpg"] } },
+  "albums": { "a91c0e": { "name": "Best of 2026" }, "a77d02": { "name": "Trams" } },
   "people": { "p7f3a2c": { "name": "Ana Costa" } }
 }
 ```
@@ -106,10 +103,11 @@ atomically, keys sorted deterministically (photos by file name) so diffs are min
 Format rules:
 - File names are object keys under `"photos"`, so JSON string escaping round-trips any name
   (including `]`, `"`, `;`, `=` and non-ASCII). `sort` is `manual | name | date | size | modified`.
-- Lists (`order`, `tags`, `albums`, `edits`, `redo`) are JSON arrays. Each edit operation is one
+- Lists (`order`, `tags`, `edits`, `redo`) are JSON arrays; a photo's `albums` is an object from
+  album id to position key (§3.2). Each edit operation is one
   string in the operation syntax of §3.1, the same text the recipe API uses.
-- Coordinates are **normalised floats** in 0..1 of the photo *as displayed after rotation*, at most
-  six decimals, `[x0, y0, x1, y1]`.
+- Coordinates are **normalised floats** in 0..1, at most six decimals, `[x0, y0, x1, y1]`. Which
+  frame they are measured in is an open question (§3.3).
 - Unknown objects and keys are **preserved verbatim** on rewrite (forward compatibility). A value of
   the wrong type is kept as-is and reported once; it never aborts reading the rest.
 - Readers accept a BOM and CRLF; a duplicate key takes the later value. Nesting is bounded
@@ -132,6 +130,8 @@ name; an unknown operation is skipped (and preserved), it never aborts the rest 
 
 | Operation | Parameters | Spec |
 |---|---|---|
+| `rotate(deg)` | 90, 180 or 270 | 90° steps (Ctrl+R / Ctrl+Shift+R, rotate buttons); consecutive rotations merge into one entry, and a net 0 removes it |
+| `flip_h()` / `flip_v()` | — | mirror horizontally / vertically (Ctrl+Shift+H / Ctrl+Shift+V); two consecutive identical flips cancel |
 | `crop(x0,y0,x1,y1)` | normalised rect | only the last crop counts |
 | `straighten(deg)` | −10..+10 (crop to fill) | |
 | `retouch(sx,sy,tx,ty,r;…)` | source/target points and radius per stroke | stored as parameters |
@@ -144,6 +144,33 @@ name; an unknown operation is skipped (and preserved), it never aborts the rest 
 
 The authoritative list with ranges and defaults is in [`editing.md`](editing.md).
 
+Rotations and flips are ordinary entries, so both undo histories can step over them
+(`architecture.md` §4): a rotation made in the library is one library undo step that changes the
+photo's `"edits"`; one made in the edit view is a step of the photo's own history.
+
+### 3.2 Album order: position keys
+
+An album's manual order spans many folders, so it is stored as one **position key** per member:
+a short string (digits and ASCII letters) that sorts in album order by plain byte comparison.
+- Adding a photo gives it a key after the album's last key; dropping a photo between two others
+  gives it a key that sorts between theirs (a key always exists between two different keys). Only
+  the moved photo's sidecar is rewritten; no other folder is touched.
+- Rebuilding an album = collect every member from every folder sidecar and sort by key; equal keys
+  (possible after merges) sort by folder path, then file name.
+- Sort Album By ▸ rewrites the keys of all members (one undo step).
+- The folder-level `"albums"` object carries each album's name so an album can be recovered when
+  `albums.json` is lost.
+
+### 3.3 Open question: the coordinate frame
+
+`TODO(maintainer)`: which frame do normalised coordinates use? They appear in `crop`, face
+rectangles (`"faces"`), `retouch` spots and the centre points of the focal effects (Soft Focus,
+Focal B&W, Graduated Tint, Focal Zoom). The choice only matters when a photo is rotated or flipped
+*after* such data exists. Options: (a) the photo as displayed after Dalica's rotations, which means
+rewriting every stored rectangle on each rotation; (b) the photo after EXIF orientation but before
+Dalica's own rotations, converting only for display. To decide before the edit view's crop tool
+is built.
+
 ## 4. Library directory (index and global data)
 
 `<data>/Dalica/` (Linux `$XDG_DATA_HOME/dalica`, macOS `~/Library/Application Support/Dalica`,
@@ -152,7 +179,7 @@ Windows `%LOCALAPPDATA%\Dalica`):
 | File | Contents | Rebuildable? |
 |---|---|---|
 | `folders.json` | watched folders and their mode (Scan Always / Scan Once / Removed), exclusions | no — small, backed up with settings |
-| `albums.json` | album definitions (id, name, description, date, place, cover, manual order) | yes, from sidecars (each member folder carries the album's name and order) |
+| `albums.json` | album definitions (id, name, description, date, place, cover) and a copy of the order | yes, from sidecars (each member folder carries the album's name; each member its position key, §3.2) |
 | `people.json` | people (id, name, nickname), merges, settings | yes, from sidecars (names are mirrored per folder) |
 | `index.log` + `index.snap` | the library index: one record per photo (path, size, mtime, dimensions, dates, EXIF summary, content hash, face descriptors), journal + snapshot as in LightCraft | yes, by rescanning |
 | `lock` | single-process lock | — |
@@ -192,11 +219,11 @@ photos in the folder):
    to the original's estimated quality, 90 if unknown; all metadata carried over; orientation
    normalised to "top-left" after applying rotation).
 4. Record the recipe, the original's mtime and dimensions in `.dalica-originals/.dalica.json`; clear
-   `"edits"`/`"rotate"` from the folder sidecar.
+   `"edits"` from the folder sidecar.
 5. For files Dalica cannot write in their own format (RAW, PNG with alpha, GIF, video), Save writes
    a JPEG next to the source (`name.jpg`, or `name-001.jpg` on collision) and leaves the source
    untouched.
-A rotate-only Save of a JPEG is **lossless** (DCT-domain rotation when dimensions allow; otherwise
+A Save whose recipe holds only rotations and flips is **lossless** for JPEGs (DCT-domain rotation when dimensions allow; otherwise
 the EXIF orientation flag is updated instead).
 
 **Undo Save** (button in the edit panel for saved photos): restore the original from the backup and
@@ -209,9 +236,15 @@ only the last save and keep the edits, choose Undo Save."* with buttons [Revert]
 **Save a Copy**: writes `<name>-001.jpg` (next free number) with edits applied, in the same folder;
 the original and its edits are untouched.
 
+**Save As…** (one photo): Save a Copy with a file dialog to choose the name, the folder and the
+format (JPEG, or PNG; JPEG quality as for Save). It never overwrites an existing file (the dialog
+asks for another name), never touches the original or its edits, and if the chosen folder is not
+watched it is added as Scan Always so the new file appears in the library.
+
 **Export** never changes originals: it renders copies into a chosen folder (see
 [`creating.md`](creating.md) → Export), adds the export folder to the library as an
-**Exported** collection member, and names collisions `-001`.
+**Exported** collection member (adding it to the watched folders as Scan Always when it is outside
+them), and names collisions `-001`.
 
 Photos with unsaved edits show the *edited* badge; folders with unsaved edits show a Save button in
 their folder header.
@@ -309,6 +342,8 @@ Each of these is a regression test in `crates/sidecar` / `crates/library` / `cra
 7. File names with `]`, `"`, `;`, `=`, non-ASCII and very long names round-trip.
 8. Metadata write-back preserves foreign XMP/IPTC fields byte for byte and never touches pixels.
 9. Save → Undo Save → Save → Revert returns the exact original bytes.
+12. An album whose members live in several folders keeps its exact order after deleting
+    `albums.json` and the index and rescanning (position keys, §3.2).
 10. Unplugging a volume and plugging it back loses nothing and queued edits are written.
 11. A folder with only a legacy sidecar shows its data; the first change writes `.dalica.json` with
     all of it, the legacy file stays byte-identical, and a folder with both files reads only

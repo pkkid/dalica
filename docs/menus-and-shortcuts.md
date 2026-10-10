@@ -8,6 +8,10 @@ Conventions: `Ctrl` means Cmd on macOS unless a row says otherwise; `—` is a s
 submenu; *(cond)* states when an item is enabled. On macOS an application menu **Dalica** holds About,
 Preferences… (Cmd+,; the Options dialog), Hide, Quit; File → Exit and Tools → Options… move there.
 
+Every shortcut in this file is a **default**: the user can change any of them (§2.0). Items marked
+*(OS integration)* talk to other applications or the operating system; they are listed so the menu
+is complete but stay disabled until the last milestone (`product.md` → Scope).
+
 ## 1. Menu bar
 
 `File  Edit  View  Folder  Picture  Create  Tools  Help` — the fourth menu is titled **Folder** when
@@ -24,7 +28,7 @@ accordingly; it is identical to the section's context menu).
 | Open File… | Ctrl+O | `library.openFile` | show a single file (adds its folder as Scan Once) |
 | Import From… | Ctrl+M | `import.open` | |
 | — | | | |
-| Open in External Editor | Ctrl+Shift+O | `photo.openExternal` | selection |
+| Open in External Editor | Ctrl+Shift+O | `photo.openExternal` | selection *(OS integration)* |
 | — | | | |
 | Move to New Folder… | | `photo.moveToNewFolder` | selection in one folder |
 | Rename… | F2 | `photo.rename` | selection |
@@ -32,11 +36,11 @@ accordingly; it is identical to the section's context menu).
 | Save | Ctrl+S | `photo.save` | focused/selected photos with unsaved edits |
 | Revert… | | `photo.revert` | saved photos with an original backup |
 | — | | | |
-| Save As… | | `photo.saveAs` | one photo with edits |
+| Save As… | | `photo.saveAs` | one photo with edits; file dialog for name, folder and format (`data-model.md` §6) |
 | Save a Copy | | `photo.saveCopy` | photos with edits |
 | Export Pictures to Folder… | Ctrl+Shift+S | `output.export` | tray not empty |
 | — | | | |
-| Locate on Disk | Ctrl+Enter | `photo.locate` | |
+| Locate on Disk | Ctrl+Enter | `photo.locate` | *(OS integration)* |
 | Delete from Disk… | Delete (Ctrl+Delete in albums) | `photo.delete` | |
 | — | | | |
 | Exit | Ctrl+Q | `app.quit` | |
@@ -47,11 +51,11 @@ Reference order; Undo/Redo are a Dalica addition placed first.
 
 | Item | Shortcut | Command id | Notes |
 |---|---|---|---|
-| Undo *<last action>* | Ctrl+Z | `edit.undo` | label names the action ("Undo Star") |
-| Redo *<action>* | Ctrl+Y (macOS Cmd+Shift+Z) | `edit.redo` | |
+| Undo *<last action>* | Ctrl+Z | `edit.undo` | label names the action ("Undo Star"); library view: the library undo stack; edit view: the open photo's history (`architecture.md` §4) |
+| Redo *<action>* | Ctrl+Y (macOS Cmd+Shift+Z) | `edit.redo` | same two histories as Undo |
 | — | | | |
-| Cut | Ctrl+X | `photo.cut` | for moving files between folders |
-| Copy | Ctrl+C | `photo.copy` | files to the clipboard (paths + image for other apps) |
+| Cut | Ctrl+X | `photo.cut` | for moving files between folders inside Dalica |
+| Copy | Ctrl+C | `photo.copy` | for copying files between folders inside Dalica; putting paths and the image on the system clipboard for other apps is *(OS integration)* |
 | Paste | Ctrl+V | `photo.paste` | into the current folder (move after Cut, copy after Copy) |
 | — | | | |
 | Copy All Edits | | `edit.copyRecipe` | one photo with edits |
@@ -66,10 +70,10 @@ Reference order; Undo/Redo are a Dalica addition placed first.
 
 | Item | Shortcut | Command id | Notes |
 |---|---|---|---|
-| Library View | | `view.library` | disabled when already in the library |
+| Library View | Ctrl+1 *(edit view context)* | `view.library` | disabled when already in the library; in the edit view Ctrl+1 means Back to Library (§2.0) |
 | — | | | |
-| Small Thumbnails | Ctrl+1 | `view.thumbsSmall` | radio group of three |
-| Normal Thumbnails | Ctrl+2 | `view.thumbsNormal` | |
+| Small Thumbnails | Ctrl+1 *(library context)* | `view.thumbsSmall` | radio group of two |
+| Normal Thumbnails | Ctrl+2 *(library context)* | `view.thumbsNormal` | |
 | Edit View | Ctrl+3 | `view.edit` | "Select a photo to edit." toast without a selection |
 | — | | | |
 | Properties | Alt+Enter | `pane.properties` | checkable; Ctrl+0 toggles the side pane (`pane.toggle`) |
@@ -111,7 +115,7 @@ The same list as the section context menu (`organizing.md` §9.2).
 | Hide | | `folder.hide` | |
 | Unhide | | `folder.unhide` | disabled unless hidden |
 | — | | | |
-| Locate on Disk | Ctrl+Enter | `folder.locate` | disabled for albums |
+| Locate on Disk | Ctrl+Enter | `folder.locate` | disabled for albums *(OS integration)* |
 | Remove from Dalica… | | `folder.remove` | disabled for albums |
 | — | | | |
 | Move… | | `folder.move` | disabled for albums |
@@ -165,8 +169,10 @@ only in context menus and buttons).
 
 ### 1.8 Help
 
-Help Contents (F1) · Keyboard Shortcuts (Ctrl+/) — Release Notes · Report a Problem… · Show Log
-Folder · Rebuild Library… (`library.rebuild`) — Check for Updates — About Dalica (version, credits, models).
+Help Contents (F1) · Keyboard Shortcuts… (Ctrl+/, `app.shortcuts`; opens Options → Keyboard
+Shortcuts, §2.0) — Release Notes · Report a Problem… · Show Log Folder · Rebuild Library…
+(`library.rebuild`) — About Dalica (version, credits, models). There is no Check for Updates item
+for now (deferred, `product.md` → Scope).
 
 ### 1.9 Commands without a menu item
 
@@ -176,6 +182,8 @@ commands change nothing and record no undo step.
 | Command id | Purpose |
 |---|---|
 | `photo.caption.set` | set captions (`{ids, caption}`); the inline caption editors call it |
+| `app.setShortcut` | bind or unbind a key (`{command, context, key}`; `key: null` removes the user's binding); the shortcut editor calls it |
+| `app.resetShortcuts` | drop user overrides (`{command?}`: one command, or all when omitted) |
 | `photo.star.set` | set or clear stars explicitly (`{ids, on}`) |
 | `photo.tags.add` / `photo.tags.remove` | Tags pane and quick tags |
 | `photo.geo.set` | Places pane drop |
@@ -189,31 +197,77 @@ commands change nothing and record no undo step.
 
 ## 2. Keyboard shortcuts by context
 
+### 2.0 Contexts and the shortcut editor
+
+Maintainer decision, 2026-10-09: every shortcut is user-editable, and a key may mean different
+things in different places.
+
+**Contexts.** A binding is *(key, context) → command*. The contexts are **Global**, **Library**,
+**Edit view**, **Slideshow**, **Photo viewer**, **Import**, **Collage** and **Text input**.
+- Exactly one view context is active at a time (the library, the edit view, a running slideshow,
+  the standalone viewer, or the active room). **Global** is always active underneath it.
+  **Text input** is active on top while a text field has keyboard focus.
+- A key press is resolved Text input → the active view context → Global; the first binding found
+  runs. Text input owns the keys a text field needs (characters, arrows, Home/End, Backspace,
+  Delete, Enter, and Ctrl+A/C/V/X/Z/Y); other keys (Ctrl+S, F11) fall through.
+- Two bindings **conflict** only when they use the same key in contexts that can be active at the
+  same time: the same context, or Global plus any other. The same key in two view contexts (Ctrl+1
+  is Small Thumbnails in Library and Back to Library in Edit view) is not a conflict.
+- A shortcut whose command is disabled right now does nothing except show the reason on the status
+  line ("Select a photo to edit."), never silently fall through to another binding.
+- A command may have up to two keys per context (Star: Ctrl+8 and F4). Hold gestures (Ctrl+Alt
+  full-screen preview, `\` show original) are listed but not editable for now.
+- Keys are written platform-neutrally: `Ctrl` is the primary modifier (Cmd on macOS); defaults
+  that differ by platform say so (Redo: Ctrl+Y, macOS Cmd+Shift+Z).
+
+**Where defaults live.** Each `CommandSpec` declares its default bindings with their contexts
+(`architecture.md` §3); `UI_COMMANDS` does the same. The menu catalog shows whatever is in effect.
+A test fails if two default bindings conflict or a binding names an unknown command.
+
+**The editor:** Options → **Keyboard Shortcuts** (also Help → Keyboard Shortcuts…, Ctrl+/):
+- a search field (matches command names, menu paths and keys: typing "ctrl+1" finds both Ctrl+1
+  bindings), a **Context** filter (All, Global, Library, Edit view, …) and **Show commands without
+  a shortcut**;
+- one row per command and context: the menu path and label, the context, its key(s), and a ↺
+  button when it differs from the default;
+- click a key cell to record: "Press the new shortcut…"; Esc cancels, Backspace removes the key.
+  A conflict shows inline: "Ctrl+1 is already Small Thumbnails in Library." [Replace] [Cancel];
+  Replace removes it from the other command;
+- **Reset All** restores every default (confirmation "Restore all default shortcuts?"
+  [Reset All] [Cancel]);
+- changes follow the dialog's Apply / OK / Cancel rules (`design-system.md` §11.3).
+
+**Storage.** Only the user's overrides are stored, in `settings.json` under `"keymap"` as
+`{command, context, key}` entries (`key: null` = removed). Entries naming a command this version
+does not know are kept verbatim and ignored. The editor goes through `app.setShortcut` /
+`app.resetShortcuts` (§1.9), so agents and tests can rebind keys too. Prior art: LightCraft
+`crates/ui-egui/src/panels/keymap.rs` and PhotoCraft `shortcut_dispatch.rs` (reference only).
+
 ### 2.1 Global
 
 | Key | Action |
 |---|---|
 | Ctrl+N / Ctrl+O / Ctrl+M | new album / open file / import |
-| Ctrl+1 / Ctrl+2 | small / normal thumbnails (library) |
 | Ctrl+3 / Ctrl+4 | edit view / slideshow |
 | Ctrl+0 / Ctrl+9 | side pane / edit controls |
 | Ctrl+T | Tags pane |
 | Ctrl+F, F3 | search |
 | Ctrl+S / Ctrl+Shift+S | save / export |
-| Ctrl+Shift+O | open in external editor |
-| Ctrl+Enter | locate on disk |
+| Ctrl+Shift+O | open in external editor *(OS integration)* |
+| Ctrl+Enter | locate on disk *(OS integration)* |
 | Alt+Enter | properties |
 | F2 | rename |
 | F5 | refresh the current folder |
 | F11 | full screen |
 | F1 | help |
-| Ctrl+Z / Ctrl+Y | undo / redo |
+| Ctrl+Z / Ctrl+Y | undo / redo (library stack in the library, the photo's history in the edit view) |
 | Ctrl+Q | quit |
 
 ### 2.2 Library
 
 | Key | Action |
 |---|---|
+| Ctrl+1 / Ctrl+2 | small / normal thumbnails |
 | ← → ↑ ↓ | move the focus/selection within the section (Shift extends) |
 | Home / End | first / last photo of the section (Shift extends) |
 | Ctrl+Home / Ctrl+End | top / bottom of the library |
@@ -269,7 +323,8 @@ toggles exclude on the selected item, Enter imports selected.
 
 ## 5. Options (Tools → Options…; macOS Dalica → Preferences…)
 
-Tabs: **General · File Types · Slideshow · Network · People · Photo Viewer · Export**. Buttons [OK] [Cancel] [Apply] (Apply disabled until something changes; Cancel discards
+Tabs: **General · File Types · Slideshow · Network · People · Photo Viewer · Export · Keyboard
+Shortcuts** (§2.0). Buttons [OK] [Cancel] [Apply] (Apply disabled until something changes; Cancel discards
 changes since the last Apply).
 
 ### General
@@ -291,7 +346,6 @@ changes since the last Apply).
 | | Write XMP sidecars for RAW files | off |
 | | Read photo data left by the previous organizer (`data-model.md` §9) | on |
 | Import | Save imported pictures in | ~/Pictures |
-| Updates | Check for updates: Ask / Never | Ask |
 
 ### File Types
 
@@ -322,3 +376,7 @@ As [`viewing.md`](viewing.md) §3.3.
 
 Default export location · Default size and quality · Remove location from exported photos (off) ·
 Default watermark text.
+
+### Keyboard Shortcuts
+
+The shortcut editor of §2.0.

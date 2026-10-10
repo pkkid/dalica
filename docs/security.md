@@ -364,7 +364,7 @@ write needs a row here.
 
 ### 5.2 Atomic replace
 
-The shared primitive (vendored from LightCraft `safe_file.rs`, adapted). **Planned (M1).**
+The shared primitive (our own; prior art LightCraft `safe_file.rs`). **Planned (M1).**
 
 1. Read the target and record its identity: device, inode (file index on Windows), size and
    modification time.
@@ -701,9 +701,8 @@ library. Never point an experimental agent at the only copy of a photo collectio
 
 Each target lives in a `fuzz/` workspace next to its crate, separate from the main workspace
 because `cargo-fuzz` uses nightly Rust and sanitizer instrumentation. A target lands in the same
-commit as the parser it covers. Where Dalica depends on LightCraft's `meta`, `tiff`, `codecs` or
-`raw` crates at a pinned revision, Dalica still fuzzes its own entry points, because the limits are
-the ones Dalica passes.
+commit as the parser it covers. Where a parser comes from a crates.io dependency, Dalica still fuzzes
+its own entry points, because the limits are the ones Dalica passes.
 
 | Crate | Targets | Lands |
 |---|---|---|
@@ -823,8 +822,8 @@ full commit hash and reviewed.
 
 The commit body says why the crate is needed, whether it processes untrusted input, its `unsafe`
 and native-code exposure, `build.rs` and proc-macro behaviour (no network access at build time),
-supported targets, maintenance status and licence. Code vendored from the Craft apps keeps a header
-naming its origin and gets a `NOTICE` row with the source revision. A scanner result does not
+supported targets, maintenance status and licence. Craft-app code is never copied (`architecture.md` §9);
+any other vendored code keeps a header naming its origin and gets a `NOTICE` row. A scanner result does not
 replace reading the code. Community batches follow the checklist in `process.md` §4 (new
 dependencies, `build.rs` or CI changes, `unsafe`, hidden Unicode, network access, file writes
 outside the library).

@@ -13,15 +13,15 @@ test, tooling).
 
 | Concern | Choice | Why |
 |---|---|---|
-| Language | Rust, edition 2024, `rust-version = "1.90"`, `resolver = "3"`; toolchain pinned in `rust-toolchain.toml` | same as the Craft apps; a pinned toolchain keeps `clippy -D warnings` stable (a lesson LightCraft paid for) |
-| UI | `egui` / `eframe` **0.36** (features `default_fonts, wgpu, accesskit, wayland, x11`), `egui_extras` | identical API to the Craft apps so their theme/widgets/icons copy over unchanged |
-| GPU | `wgpu` 30 (Metal / Vulkan / DX12, no GL) | eframe renderer; later, compute shaders for effects |
-| Native dialogs | `rfd` 0.17 — always called off the UI thread | GNOME reports "not responding" otherwise |
-| macOS menu bar | `muda` 0.21, generated from the command registry | one menu model, three surfaces |
-| Images | `image` 0.25 (png, jpeg, tiff, webp, gif, bmp), `zune-jpeg`, `jpeg-encoder`, `moxcms` (ICC) — or the LightCraft `codecs` / `meta` / `raw` crates at a pinned revision (see §9) | pure Rust, no C |
-| Metadata | EXIF/IPTC/XMP read + XMP/IPTC write (LightCraft `meta` + `tiff`, pinned) | captions, tags, people regions and GPS must round-trip with other apps |
+| Language | Rust, edition 2024, `rust-version = "1.98"`, `resolver = "3"`; toolchain pinned to the latest stable (1.98 on 2026-10-09) in `rust-toolchain.toml`, bumped deliberately in its own commit | latest stable (maintainer decision, 2026-10-09); a pinned toolchain keeps `clippy -D warnings` stable (a lesson the Craft apps paid for) |
+| UI | `egui` / `eframe` **0.36.2** (features `default_fonts, wgpu, accesskit, wayland, x11`), `egui_extras` | the same toolkit as the Craft apps, whose look and feel Dalica matches |
+| GPU | `wgpu` 30.0.1 (Metal / Vulkan / DX12, no GL) | eframe renderer; later, compute shaders for effects |
+| Native dialogs | `rfd` 0.17.2 — always called off the UI thread | GNOME reports "not responding" otherwise |
+| macOS menu bar | `muda` 0.21.2, generated from the command registry | one menu model, three surfaces |
+| Images | `image` 0.25.10 (png, jpeg, tiff, webp, gif, bmp), `zune-jpeg`, `jpeg-encoder`, `jxl-oxide`, `moxcms` 0.9 (ICC); RAW embedded-preview extraction is our own (a bounded TIFF/IFD walker in `crates/image`) | pure Rust, no C |
+| Metadata | our own `crates/meta`: EXIF/IPTC/XMP read + XMP/IPTC/EXIF write-back by segment surgery (`xmp-interop.md`); small permissive crates.io helpers (e.g. an XML reader) after the dependency check | captions, tags, people regions and GPS must round-trip with other apps |
 | Video (M9) | thumbnail + playback through a pure-Rust demux/decode path if one is viable; otherwise an optional, clearly separated `ffmpeg` process integration behind a feature flag | decision recorded in `roadmap.md` before work starts |
-| File watching | `notify` (pure Rust) + periodic verification scans | multi-root watched folders |
+| File watching | `notify` 8 (pure Rust; latest stable, 9 is still a release candidate) + periodic verification scans | multi-root watched folders |
 | Parallelism | `rayon` for pixel work; a prioritised job pool for previews | |
 | Serialization | `serde`, `serde_json`; folder sidecars are pretty-printed JSON with sorted keys; a small read-only INI reader for legacy sidecars (see `data-model.md`) | human-readable, diffable |
 | Errors | `thiserror` per crate | |
@@ -88,7 +88,9 @@ pub struct CommandSpec {
     pub id: &'static str,            // "photo.star.toggle", "folder.rename", "edit.crop.apply"
     pub label: &'static str,         // English UI label, also the i18n key
     pub menu: &'static str,          // "Picture/Star"; "" if not in a menu
-    pub shortcut: &'static str,      // "Ctrl+S" (Cmd on macOS is written Cmd and mapped)
+    pub keys: &'static [(Context, &'static str)], // default bindings, e.g. [(Library, "Ctrl+1")];
+                                     // `Ctrl` = primary modifier (Cmd on macOS); user overrides
+                                     // live in settings (menus-and-shortcuts.md §2.0)
     pub params: &'static str,        // agent-readable doc: {"ids":[PhotoId], "on":bool=toggle}
     pub effect: Effect,              // Query | Library | Files (writes to photo folders; needs confirm
                                      // over automation when destructive) | External (outside Dalica)
@@ -114,16 +116,25 @@ pub struct CommandSpec {
 
 - `Library` (crate `library`) is an in-memory model mutated **only** by `Op`s. `library.apply(op)`
   returns the inverse op; the inverse is the undo entry. The same op stream is appended to a
-  crash-safe journal (JSON lines, checksummed) with periodic background snapshots, exactly the
-  LightCraft catalog design (`journal.rs`, `store.rs`, `safe_file.rs`, `lock.rs`).
+  crash-safe journal (JSON lines, checksummed) with periodic background snapshots, modelled on the
+  LightCraft catalog design (prior art: `journal.rs`, `store.rs`, `safe_file.rs`, `lock.rs`; §9).
 - **Source of truth for user data is on disk next to the photos** (per-folder sidecars, plus
   metadata written into files where the user enabled it). The library journal/snapshot is an
   index and cache that can be rebuilt from the folders at any time. See `data-model.md`.
 - File operations (move, rename, delete-to-trash, save edited copy) are ops whose inverse is
   recorded where possible (move back, rename back, restore from the trash is best-effort and is
   never promised in the UI).
-- Undo history: per session, capped at 1,000 entries; edit-recipe history is per photo and
-  persisted in the sidecar (so "Undo" in the edit view works across restarts).
+- **Two undo histories, chosen by the view** (maintainer decision, 2026-10-09):
+  - **Library view:** Edit → Undo / Redo (Ctrl+Z / Ctrl+Y) walk the **library undo stack**: every
+    library-level op (stars, captions, tags, hide, rotations made in the library, moves, renames,
+    album changes, batch edits and Paste All Edits applied from the library). In memory, per
+    session, capped at 1,000 entries.
+  - **Edit view:** the same keys, the Edit-menu items and the edit panel's Undo/Redo buttons walk
+    the **open photo's own history**, persisted in its folder sidecar (`"edits"` / `"redo"`, so it
+    works across restarts). Everything done in the edit view (tools, effects, rotations, flips)
+    goes into that photo's history and not onto the library stack.
+  - The menu label always names the step it will undo ("Undo Star", "Undo Crop"), so the user can
+    see which history is active.
 - A library lock file prevents two Dalica processes from opening the same library.
 
 ## 5. Threading and responsiveness
@@ -131,7 +142,7 @@ pub struct CommandSpec {
 The UI thread **never** decodes images, touches the file system, waits on a lock held by a worker,
 or blocks on a dialog.
 
-- **Job pool** (copy of LightCraft `preview/src/pool.rs`): a prioritised, per-slot de-duplicating
+- **Job pool** (our own; prior art LightCraft `preview/src/pool.rs`): a prioritised, per-slot de-duplicating
   pool; workers = cores − 1 clamped 2..8. Priorities (high → low): edit-view main image, hovered
   photo, visible thumbnails, filmstrip, effect-tile previews, prefetch (next/previous photo),
   background thumbnail generation.
@@ -144,7 +155,7 @@ or blocks on a dialog.
 - **Long jobs** (import, export, save, collage, batch edit) run on workers with an
   `AtomicBool` cancel and report progress to the status line.
 - Memory budget: RAM/4 clamped 256 MiB–1.5 GiB, split between texture cache, decode buffers and
-  render caches (LightCraft `engine/src/memory.rs`).
+  render caches (prior art: LightCraft `engine/src/memory.rs`).
 - Per-frame cost must stay flat at 100 k photos: everything derived from the library (tree rows,
   light-table layout, counts) is cached per library revision; visible rows found by binary search.
 
@@ -159,7 +170,7 @@ or blocks on a dialog.
    thumbnails, the edit view and full-size output match. Thumbnails always show edits.
 4. **Cache keys** are content-addressed: (file path, size, mtime, recipe hash, renderer version).
    The renderer version is per-operation, not one global constant (avoids merge hotspots).
-5. **Disk cache:** `<cache>/thumbs/`, JPEG q90, 2 GiB default, pruned to 80 % (LightCraft `disk.rs`).
+5. **Disk cache:** `<cache>/thumbs/`, JPEG q90, 2 GiB default, pruned to 80 % (prior art: LightCraft `disk.rs`).
    The cache only lists/deletes files of its own naming shape.
 
 ## 7. Automation: agents can drive and see the app
@@ -170,8 +181,8 @@ or blocks on a dialog.
   (`docs/control-protocol.md`, M0): `engine.execute`, `engine.commands`, `ui.state`, `ui.widgets`,
   `ui.clickWidget`, `ui.pointer`, `ui.key`, `ui.type`, `ui.menu.tree`, `ui.menu.invoke`,
   `ui.screenshot {path, headless}`, `ui.inspect` (perf counters).
-- **Headless rendering:** a CPU rasterizer for egui output (LightCraft `softpaint.rs` +
-  `headless.rs`) so `dalica-cli snapshot --demo --script tour.jsonl -o out.png --size 1400x900`
+- **Headless rendering:** our own CPU rasterizer for egui output (prior art: LightCraft
+  `softpaint.rs` + `headless.rs`) so `dalica-cli snapshot --demo --script tour.jsonl -o out.png --size 1400x900`
   renders the real UI without a window or GPU. Tests use the same driver.
 - **MCP:** `dalica-cli mcp [--connect host:port]` exposes the command registry plus helpers
   (scan a folder, query photos, render a photo with its recipe, screenshot). Thin layer, M4.
@@ -193,22 +204,31 @@ or blocks on a dialog.
   (temp file + fsync + rename). Damaged settings/sidecar files are kept as `.corrupt-<time>` copies.
 - Every crash fix lands with a regression test that panicked before the fix.
 
-## 9. Reuse from the Craft apps
+## 9. Prior art: the Craft apps
 
-Both Craft repos are `MIT OR Apache-2.0`. Dalica may depend on or vendor their code with attribution
-(`NOTICE` lists every borrowed file/crate with its source revision; vendored files keep a header
-comment naming their origin). Plan:
+**Maintainer decision, 2026-10-09:** LightCraft and PhotoCraft are **reference only**. Dalica does
+not depend on their crates and does not vendor their code. We study them for technology choices,
+techniques and methodology, and we match their look and feel, but every line of Dalica is written
+for Dalica. Ordinary third-party crates from crates.io remain allowed after the dependency check
+(`security.md` §8). Local checkouts: `~/Sources/lightcraft` (revision 88ea1a8) and
+`~/Sources/photocraft` (revision 59684266); both are public (`github.com/storytold/…`).
 
-| Take | From LightCraft | How |
+| Dalica area | Study in LightCraft | What to learn |
 |---|---|---|
-| Look and UI infrastructure | `ui-egui/src/{theme,widgets,icons,headless,softpaint,control,menubar,menu_level,shortcuts,tasks,pick,i18n}.rs`, `panels/mod.rs::resizable_side`, grid `layout`/`rows_between` | vendor into `crates/ui`, rename types |
-| Job pool, LRU, disk cache | `crates/preview` | vendor into `crates/thumbs` |
-| Metadata | `crates/meta`, `crates/tiff` | git dependency pinned to a revision, or vendor if we must patch |
-| Decoding | `crates/codecs`, `crates/raw` (`embedded_preview`) | git dependency pinned |
-| Persistence primitives | `crates/catalog/src/{journal,store,safe_file,lock}.rs` | vendor and adapt |
-| Organizer plumbing | `engine/src/{memory,availability,walk,rename,guard}.rs` | vendor and adapt |
-| Faces (M7) | `crates/faces` | evaluate; models downloaded by the user, never committed |
+| Look, widgets, icons drawn in code | `crates/ui-egui/src/{theme,widgets,icons}.rs` | token set, widget proportions, icon grid; Dalica's `design-system.md` holds the values |
+| Headless UI and screenshots | `crates/ui-egui/src/{headless,softpaint}.rs` | rasterizing egui output on the CPU for tests and agents |
+| Control channel, menus, shortcuts | `crates/ui-egui/src/{control,menubar,menu_level,shortcuts}.rs`, `panels/keymap.rs` | command dispatch by id, menus that never run off the window, the shortcut editor |
+| Grid at 100 k photos | `crates/ui-egui/src/panels/grid.rs` (`layout`, `rows_between`) | layout cached per revision, visible rows by binary search |
+| Job pool, LRU, disk cache | `crates/preview` | prioritised de-duplicating pool, cache pruning |
+| Persistence | `crates/catalog/src/{journal,store,safe_file,lock}.rs` | op journal + snapshot, atomic writes, single-process lock |
+| Metadata, decoding, RAW previews | `crates/{meta,tiff,codecs,raw}` | merge-never-replace writes, decode limits, embedded-preview extraction |
+| Organizer plumbing | `engine/src/{memory,availability,walk,rename,guard}.rs` | memory budget, offline volumes, bounded walks, panic guard |
+| Faces (M7) | `crates/faces` | detector/recogniser pipeline, consented model downloads |
 
-Do **not** copy: LightCraft's develop pipeline UI (Dalica's editing is simpler and different),
-its catalog `Photo`/`Op` model, packaging metadata (it contains other apps' strings), or anything
-under `docs/brand/` (ArtCraft trademarks).
+From PhotoCraft: the command/`UiState` model, `shortcut_dispatch.rs`, the scorecard and perf
+budgets, and the process (`notes/craft-apps/` has both studies).
+
+Never take: their code, their develop-pipeline UI, packaging metadata (it contains other apps'
+strings), or anything under `docs/brand/` (ArtCraft trademarks). Some of our docs adapt Craft-app
+documentation text with attribution; those files say so in their first lines and are listed in
+`NOTICE`.

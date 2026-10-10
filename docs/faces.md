@@ -37,9 +37,9 @@ photo ──► upright preview (≤ 2048 px; RAW: embedded preview)
 
 - **Crate:** a new `crates/faces` (`dalica-faces`, L1: depends on `core` only and takes decoded RGB
   buffers; the caller decodes through `image`). It is registered in `xtask/src/layers.rs` and
-  `architecture.md` §2 in the commit that creates it. It starts as a vendored copy of LightCraft's
-  `crates/faces` (`runtime`, `onnx`, `graph`, `yunet`, `align`, `manifest`, `catalog`, `hash`,
-  `matching`, `suggest`) with attribution in `NOTICE`.
+  `architecture.md` §2 in the commit that creates it. It is our own code; LightCraft's `crates/faces`
+  (`runtime`, `onnx`, `graph`, `yunet`, `align`, `manifest`, `catalog`, `hash`, `matching`,
+  `suggest`) is the prior art to study.
 - **Inference engine:** a small pure-Rust ONNX interpreter shared by the detector and the
   recogniser. It supports the operators the pinned models use (Conv including depthwise groups,
   BatchNormalization, PRelu, Relu, Sigmoid, Add, Sub, Mul, Dropout as identity, Flatten, Gemm,
