@@ -10,6 +10,6 @@
   - `orient`: `Orientation` (1–8, `display_size`), `apply(Rgba8, Orientation)`.
   - `Limits` (`security.md` §4.2), `Rgba8`, `Error`.
 - **Public API (M1.6):**
-  - `decode(bytes, &Limits)` → upright `Rgba8` (sRGB assumed until M8); `decode_thumbnail(bytes, long_side, &Limits)` decodes and fits (no DCT scaling in `zune-jpeg` 0.5), and past 64 MP uses the embedded EXIF thumbnail or refuses. The declared size is checked before any decoder is created.
+  - `decode(bytes, &Limits)` → upright `Rgba8` (sRGB assumed until M5); `decode_thumbnail(bytes, long_side, &Limits)` decodes and fits (no DCT scaling in `zune-jpeg` 0.5), and past 64 MP uses the embedded EXIF thumbnail or refuses. The declared size is checked before any decoder is created.
   - `resize::fit` / `resize::resize`: exact area average in integer arithmetic, identical on every CPU.
 - **Test it alone:** `cargo test -p dalica-image` (no window, GPU, network or personal photos needed). Test photos come from `dalica-scenes`; truncation at every byte offset and random corruption (proptest) never panic. `tests/decode.rs` compares decodes by fingerprint (8 × 8 grid of per-channel mean and deviation) and writes actual/expected PNGs to `target/test-output/image/` on a mismatch. Dev builds compile this crate and `zune-jpeg` at `opt-level = 3`.

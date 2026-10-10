@@ -37,8 +37,8 @@ pub const COMMANDS: &[&str] = &["ci", "accept", "assets", "docs", "deps", "layer
 pub const PLANNED: &[(&str, &str)] = &[
     ("bench", "with the first hot paths (M4's headless scrolling benchmark)"),
     ("perf", "with the performance budgets (docs/development.md §13), from M4"),
-    ("corpus", "with the test corpora (M8, docs/development.md §11)"),
-    ("test-corpus", "with the test corpora (M8, docs/development.md §11)"),
+    ("corpus", "with the test corpora (M5, docs/development.md §11)"),
+    ("test-corpus", "with the test corpora (M5, docs/development.md §11)"),
     ("scorecard", "after M1 (docs/development.md §13)"),
     ("snapshot", "with the headless snapshot scripts (M2)"),
     ("stats", "not scheduled yet"),

@@ -151,16 +151,27 @@ L0       core · fs                    (only `fs` writes to disk)
   4. The checklist in §5.
   5. `cargo xtask tasks submit <id>`: the branch now belongs to the lead; start the next task.
   When `next` offers nothing, wait 5 minutes before asking again.
-- **Stuck on a decision** only a human can make (a *Reserved decision*, a gap in the spec):
-  `cargo xtask tasks block <id> "question"` and take another task. Otherwise decide, and record
-  the decision in the commit body. Never leave bare `TODO`s; use `TODO(maintainer): …`.
+- **Decide, don't wait** (maintainer decision, 2026-10-10). Make technical decisions yourself:
+  follow the spec; where it is silent, do what LightCraft or PhotoCraft did (study, never copy;
+  `architecture.md` §9); otherwise pick the simplest option that keeps every rule in §3. Record
+  each decision in the commit body (what, why, the alternative) so the check-in can list it for
+  reversal. Only these stop for the maintainer, with `cargo xtask tasks block <id> "question"`
+  (then take another task):
+  - a licence exception, a C/C++ dependency or a new `C_BUILD_ALLOW` / `*-sys` entry;
+  - anything that could lose or damage users' photos or data, or weaken §3's data rules;
+  - loosening a quality gate, a floor or a budget;
+  - dropping or descoping a feature or a parity row;
+  - a *Reserved decision* in `roadmap.md`.
+  Never leave bare `TODO`s; use `TODO(maintainer): …`.
 - **Can't finish** (wrong estimate, needs a file outside `files`): comment on the issue and
   `cargo xtask tasks release <id> --reason "…"`.
 - **The lead** (`agent-1`) merges In Review tasks one at a time with `cargo xtask tasks merge
-  <id>`, keeps `docs/status.md`, releases stale claims, runs `cargo xtask accept M<n>` when a
-  milestone's last task lands, and prepares the review for the maintainer.
-- **Review gates** (`M<n>.A`, `M<n>.R`) belong to the maintainer; no agent claims them, and the next
-  milestone's tasks stay `Todo` until the maintainer closes the gate.
+  <id>`, releases stale claims, writes the next milestone's task blocks while the current one runs,
+  takes the `owner: lead` tasks, and runs each check-in (`/milestone-review`): `accept M<n>`, a
+  published check-in page, *Where we stand*, `docs/status.md`.
+- **Check-ins and release gates** (`roadmap.md` → How milestones work). `M<n>.R` / `M<n>.A` owned
+  by the lead are check-ins: nothing waits for them. Only the release gates (M6, M10, M15), owned by
+  the maintainer, hold back the next milestone until the maintainer closes them.
 - **M0 and M1 (one agent, acting as lead and worker):** up to the M1.A checkpoint, work in roadmap
   order, one branch `task/M<n>.<k>-<slug>` per task, fast-forward `main` after `cargo xtask ci` is
   green, then `cargo xtask tasks sync` marks the task Done and closes its issue (In Progress is set
@@ -182,7 +193,7 @@ cargo xtask accept M<n>                                      # the current miles
 cargo test -p dalica-engine --test panic_hunt -- --ignored   # if you added or changed commands
 cargo xtask parity --write                                   # if parity rows changed; commit the regenerated summary
 cargo xtask bench                                            # before and after touching a hot path; put both numbers in the PR (planned, M4)
-cargo xtask test-corpus                                      # if you touched a decoder, metadata or sidecar reader/writer (planned, M8)
+cargo xtask test-corpus                                      # if you touched a decoder, metadata or sidecar reader/writer (planned, M5)
 cargo xtask tasks log <id> "Landed: …  Open: …  Numbers: …"  # the dev-log entry (required by submit)
 cargo xtask tasks submit <id> --body-file <evidence.md>   # the PR body: evidence per *done when*, numbers, screenshots
 ```
@@ -255,8 +266,10 @@ And:
 - **Keep every `Cargo.toml` valid at all times:** the `crates/*` glob means one broken manifest
   breaks everyone. Write new or rewritten manifests to a temp file outside `crates/`, then move
   them into place.
-- **Only the lead merges**, one branch at a time (`tasks merge`: rebase, `cargo xtask ci`, GitHub
-  CI, squash-merge). Two individually green branches can still break each other.
+- **Only the lead merges**, one branch at a time (`tasks merge`: rebase, `cargo xtask ci`,
+  squash-merge). Two individually green branches can still break each other. The local gate
+  decides a merge; GitHub's Linux/Windows/macOS run checks `main` after it, and `tasks merge`
+  refuses while the latest finished run on `main` is red: fixing it comes first.
 
 ## 8. Contributor credits (About window)
 

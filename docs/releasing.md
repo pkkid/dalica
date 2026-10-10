@@ -3,7 +3,7 @@
 Adapted from LightCraft `docs/releasing.md` (revision 88ea1a8) and PhotoCraft `docs/releasing.md`
 and `docs/release-playbook.md` (revision 59684266); MIT OR Apache-2.0.
 
-> Status: **Planned (M11; signing M37).** There is no release workflow, packaging script or signing setup yet.
+> Status: **Planned (M6; signing M15).** There is no release workflow, packaging script or signing setup yet.
 > This page is the target, copied in shape from the Craft apps' release pipeline
 > ([`process.md`](process.md) §7). Update it as the pieces land; until then nothing here runs.
 

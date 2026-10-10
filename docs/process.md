@@ -86,7 +86,7 @@ Rules:
 - **Cheap parallel work:** Sonnet 5.5 subagents for mechanical tasks (translations, test
   scaffolding, doc regeneration).
 - Commits carry a `Co-Authored-By:` trailer naming the model; the About window credits models from
-  these trailers (M11).
+  these trailers (M6).
 
 ### Sessions
 
@@ -116,8 +116,8 @@ Rules:
   all times (write to a temp file, then move it into place).
 - New commands go in new modules (`engine/src/cmd/<area>.rs`) rather than growing shared files.
 - The lead merges **one branch at a time** (`cargo xtask tasks merge`: rebase, `cargo xtask ci`,
-  GitHub CI, squash-merge), then the next. Two individually green branches can still break each
-  other.
+  squash-merge), then the next. Two individually green branches can still break each other.
+  GitHub's three-OS CI checks `main` after each merge; a red `main` is fixed before the next merge.
 - When running many sessions, use a notification hook (Claude Code `Stop` / permission-request
   hooks) so the maintainer hears when an agent needs input.
 

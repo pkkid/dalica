@@ -23,6 +23,8 @@ impl Milestone {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Owner {
     Agent,
+    /// Only the lead (`agent-1`) takes it: check-ins, board upkeep.
+    Lead,
     Maintainer,
 }
 
@@ -30,6 +32,7 @@ impl Owner {
     pub fn as_str(self) -> &'static str {
         match self {
             Owner::Agent => "agent",
+            Owner::Lead => "lead",
             Owner::Maintainer => "maintainer",
         }
     }
@@ -250,6 +253,7 @@ fn parse_block(lines: &[&str], start: usize, milestones: &[Milestone], earlier: 
     let owner = match get("owner") {
         None => Owner::Agent,
         Some((v, _)) if v == "agent" => Owner::Agent,
+        Some((v, _)) if v == "lead" => Owner::Lead,
         Some((v, _)) if v == "maintainer" => Owner::Maintainer,
         Some((v, l)) => return Err(err(l, format!("{id}: owner must be `agent` or `maintainer`, found `{v}`"))),
     };
@@ -314,7 +318,12 @@ mod tests {
     fn every_block_of_the_real_roadmap_parses() {
         let text = std::fs::read_to_string(crate::workspace_root().join("docs/roadmap.md")).unwrap();
         let roadmap = parse(&text).unwrap();
-        assert!(roadmap.milestones.len() >= 38);
+        // 38 milestones combined into 16 (maintainer decision, 2026-10-10).
+        assert_eq!(roadmap.milestones.len(), 16);
+        // Check-ins after M1 are the lead's and block nothing.
+        for id in ["M2.R", "M3.A", "M3.R"] {
+            assert_eq!(roadmap.task(id).map(|t| t.owner), Some(Owner::Lead), "{id}");
+        }
         let m0: Vec<_> = roadmap.tasks.iter().filter(|t| t.milestone == 0).map(|t| t.id.as_str()).collect();
         assert_eq!(m0, ["M0.1", "M0.2", "M0.10", "M0.3", "M0.4", "M0.5", "M0.6", "M0.7", "M0.8", "M0.9", "M0.R"]);
         assert_eq!(roadmap.tasks.iter().filter(|t| t.milestone == 1).count(), 22);

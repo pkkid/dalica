@@ -301,8 +301,16 @@ impl GitHub for GhCli {
         Ok(PullRequest { number: trailing_number(&url)?, url })
     }
 
-    fn wait_for_checks(&self, pr: u64) -> Result<(), String> {
-        gh(&["pr", "checks", &pr.to_string(), "--repo", REPO, "--watch", "--fail-fast"], None).map(|_| ())
+    fn main_ci_failure(&self) -> Result<Option<String>, String> {
+        let out = gh(
+            &["run", "list", "--repo", REPO, "--branch", "main", "--workflow", "CI", "--limit", "10", "--json", "status,conclusion,displayTitle,url"],
+            None,
+        )?;
+        let runs: Value = serde_json::from_str(&out).map_err(|e| format!("gh run list: {e}"))?;
+        let finished = runs.as_array().and_then(|r| r.iter().find(|r| r["status"].as_str() == Some("completed")));
+        Ok(finished
+            .filter(|r| r["conclusion"].as_str() == Some("failure"))
+            .map(|r| format!("{} {}", r["displayTitle"].as_str().unwrap_or("?"), r["url"].as_str().unwrap_or(""))))
     }
 
     fn squash_merge(&self, pr: u64, subject: &str) -> Result<(), String> {

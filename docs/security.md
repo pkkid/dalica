@@ -43,18 +43,18 @@ Principles:
 | Area | Planned protections | Lands | Known limits (by design) |
 |---|---|---|---|
 | Image decoding | dimension, pixel and allocation limits charged to the memory budget; scaled decode; per-file panic guard; fuzz targets | M1 | decoders from dependencies are trusted to honour the limits we pass; we fuzz our wrappers to check |
-| Metadata (EXIF/XMP/IPTC/ICC) | IFD count/depth/entry limits, cycle detection, XML depth/node limits, no DTDs or entities, segment reassembly limits; merge-preserving writer; fuzz targets | M1 (read), M10 (write-back) | |
+| Metadata (EXIF/XMP/IPTC/ICC) | IFD count/depth/entry limits, cycle detection, XML depth/node limits, no DTDs or entities, segment reassembly limits; merge-preserving writer; fuzz targets | M1 (read), M6 (write-back) | |
 | Folder sidecar `.dalica.json` | size/depth/entry limits, single-component names only, escaped values, unknown data preserved; fuzz + property tests | M1 | a sidecar is as private as its folder |
-| Legacy sidecars and backups | read-only fallback when a folder has no `.dalica.json`, same limits, no path from them is ever opened | M33 | |
+| Legacy sidecars and backups | read-only fallback when a folder has no `.dalica.json`, same limits, no path from them is ever opened | M14 | |
 | Library index, journal, settings | checksummed records, size and depth limits, `.corrupt-<time>` quarantine | M1 | |
 | Directory walks | depth 32, 1,000,000 entries, symlink-loop detection, off the UI thread | M1 | |
-| File writes | atomic replace with identity check, no writes through symlinks, OS trash only | M1 (sidecars), M10 (metadata), M15 (Save), M19 (file operations) | network file systems weaken atomicity (§5.9) |
+| File writes | atomic replace with identity check, no writes through symlinks, OS trash only | M1 (sidecars), M6 (metadata), M8 (Save), M9 (file operations) | network file systems weaken atomicity (§5.9) |
 | Control channel | loopback only, 256-bit token from a `0600` file, JSON-request-only lines, request/reply/connection/batch limits | M2 | no per-client capabilities, no encryption |
-| MCP server | stdio by default, roots, read-only mode, tool annotations, same limits | M21 | an authenticated agent can still trash or caption any photo in the library unless read-only |
-| Network features | user-initiated only, TLS, size limits, pinned model hashes | M29, M31 | TLS stack still to be decided (§8.2) |
-| Generated output | escaped JSON, sanitized file names | M16 (export), M32 (collage) | |
+| MCP server | stdio by default, roots, read-only mode, tool annotations, same limits | M10 | an authenticated agent can still trash or caption any photo in the library unless read-only |
+| Network features | user-initiated only, TLS, size limits, pinned model hashes | M13 | TLS stack still to be decided (§8.2) |
+| Generated output | escaped JSON, sanitized file names | M8 (export), M14 (collage) | |
 | Dependencies | pure Rust, banned crates, licence allow-list, advisory check | M0 | scanner results do not replace review |
-| Releases | draft releases, `SHA256SUMS.txt`, optional signing secrets, least-privilege jobs | M11 | signing may be absent; consumers must check |
+| Releases | draft releases, `SHA256SUMS.txt`, optional signing secrets, least-privilege jobs | M6 | signing may be absent; consumers must check |
 
 The table is a plan, not a guarantee about any build. Verify source and release evidence before
 relying on it.
@@ -66,9 +66,9 @@ relying on it.
    dependency check (§8) land with the workspace.
 2. M1: bounded decoders and walkers, the sidecar parser with its fuzz target, and one shared
    atomic-write primitive with the path rules of §5.
-3. M10 and M15: metadata write-back with merge fuzzing; Save with originals backup.
-4. M21: MCP roots, read-only mode, and server proof for the bridge (§6.3).
-5. M29–M37: network responses, collage output, legacy sidecar reading, release signing and SBOMs.
+3. M6 and M8: metadata write-back with merge fuzzing; Save with originals backup.
+4. M10: MCP roots, read-only mode, and server proof for the bridge (§6.3).
+5. M13–M15: network responses, collage output, legacy sidecar reading, release signing and SBOMs.
 
 ## 2. Threat model
 
@@ -113,7 +113,7 @@ untrusted files and bytes
   EXIF + maker notes / XMP (incl. extended XMP) / IPTC / ICC profiles / embedded thumbnails
   .dalica.json sidecars / .dalica-originals/.dalica.json / legacy sidecars and backup folders
   folders.json / albums.json / people.json / settings.json / index journal + snapshot
-  video containers (M34) / face models (M29) / map tiles and geocoder replies (M31)
+  video containers (M15) / face models (M13) / map tiles and geocoder replies (M13)
 
 untrusted names
   file and folder names from disks, shares and devices / names inside sidecars / paths in metadata
@@ -221,7 +221,7 @@ UNTRUSTED
   .dalica.json, legacy sidecars, JSON files (sidecar, library)
   file and folder names, device contents  (scan)
   CLI arguments, control lines, MCP calls (apps, ui control, mcp)
-  network replies (M29)
+  network replies (M13)
              |
              v
 SECURITY BOUNDARY
@@ -295,31 +295,31 @@ rather than relying on defaults.
 | Input | Crate | Limits | Lands |
 |---|---|---|---|
 | Raster decode (all formats) | `image` | edge ≤ 65,535 px; ≤ 2³⁰ pixels; decoded allocation charged to the memory budget (RAM/4, 256 MiB–1.5 GiB): a file whose full decode does not fit is decoded at reduced scale (JPEG DCT scaling, embedded preview) or shown as a "too large" placeholder | M1 |
-| Animated GIF/WebP | `image` | first frame for thumbnails; ≤ 10,000 frames and the same allocation budget for playback | M8 / M27 |
-| PSD | `image` | flattened composite only; layers are never parsed | M8 |
-| Embedded thumbnail / RAW preview | `image` | offset + length inside the file; ≤ 64 MiB; decoded under the raster limits | M1 / M8 |
+| Animated GIF/WebP | `image` | first frame for thumbnails; ≤ 10,000 frames and the same allocation budget for playback | M5 / M11 |
+| PSD | `image` | flattened composite only; layers are never parsed | M5 |
+| Embedded thumbnail / RAW preview | `image` | offset + length inside the file; ≤ 64 MiB; decoded under the raster limits | M1 / M5 |
 | EXIF/TIFF IFDs | `meta` | ≤ 1,024 IFDs, depth ≤ 10, ≤ 8,192 entries per IFD, visited-offset cycle detection (LightCraft); maker notes ≤ 64 IFDs, depth ≤ 3; strings ≤ 64 KiB; zero-denominator rationals are invalid values | M1 |
 | XMP | `meta` | packet ≤ 16 MiB after extended-XMP reassembly (matching GUID, chunk offsets inside the declared length); XML depth ≤ 64, ≤ 200,000 nodes (LightCraft); `DOCTYPE`, entity declarations and external references rejected | M1 |
 | IPTC (IIM in APP13 / 8BIM) | `meta` | resource and dataset lengths inside the segment; dataset ≤ 64 KiB; ≤ 10,000 datasets | M1 |
-| ICC profile | `image` | APP2 chunk sequence validated; ≤ 16 MiB; tag count ≤ 1,000; LUT sizes bounded by the colour library | M8 |
+| ICC profile | `image` | APP2 chunk sequence validated; ≤ 16 MiB; tag count ≤ 1,000; LUT sizes bounded by the colour library | M5 |
 | `.dalica.json` | `sidecar` | file ≤ 64 MiB; nesting depth ≤ 16; string ≤ 1 MiB; ≤ 1,000,000 photo entries; ≤ 1,000 keys per entry; ≤ 10,000 operations per recipe; ≤ 1,000 regions per operation; list entries ≤ 100,000 | M1 |
-| Legacy sidecars | `sidecar` | file ≤ 64 MiB; line ≤ 1 MiB; ≤ 1,000,000 sections; ≤ 1,000 keys per section; the recipe limits above; encoding detection never fails the whole file | M33 |
+| Legacy sidecars | `sidecar` | file ≤ 64 MiB; line ≤ 1 MiB; ≤ 1,000,000 sections; ≤ 1,000 keys per section; the recipe limits above; encoding detection never fails the whole file | M14 |
 | JSON files (`folders`, `albums`, `people`, `settings`) | `library` | file ≤ 64 MiB; depth ≤ 64 | M1 |
 | Index journal / snapshot | `library` | checksummed records ≤ 16 MiB; a torn tail is discarded, a bad checksum stops replay at that record; version checked | M1 |
-| Control / MCP JSON | `ui`, `mcp` | see §6.5 | M2 / M21 |
-| Video containers | `image` or the video crate | box depth ≤ 12, ≤ 4,096 boxes per level, sample tables bounded; or an external process with a timeout (reserved decision 2) | M34 |
-| Face models | faces crate | SHA-256 pinned in the source; size cap; parsed as data only | M29 |
-| Map tiles, geocoder replies | network module | tile ≤ 1 MiB and ≤ 1,024 px edge, decoded under the raster limits; JSON reply ≤ 1 MiB, depth ≤ 32 | M31 |
+| Control / MCP JSON | `ui`, `mcp` | see §6.5 | M2 / M10 |
+| Video containers | `image` or the video crate | box depth ≤ 12, ≤ 4,096 boxes per level, sample tables bounded; or an external process with a timeout (reserved decision 2) | M15 |
+| Face models | faces crate | SHA-256 pinned in the source; size cap; parsed as data only | M13 |
+| Map tiles, geocoder replies | network module | tile ≤ 1 MiB and ≤ 1,024 px edge, decoded under the raster limits; JSON reply ≤ 1 MiB, depth ≤ 32 | M13 |
 
 ### 4.3 Work budgets during scans
 
 - Each file's decode and metadata read runs inside the per-file `catch_unwind` guard on a worker
-  thread with a cancel flag. **Planned (M7).**
+  thread with a cancel flag. **Planned (M5).**
 - A file that fails, panics or exceeds a 10-second work budget is recorded by (path, size, mtime)
   and not retried until it changes; the tile shows a generic placeholder and the scan continues.
-  **Planned (M7).**
+  **Planned (M5).**
 - Work counters (not only byte counts) for highly fragmented but size-bounded files: number of
-  JPEG scans, Huffman tables, PNG chunks, TIFF strips/tiles. **Planned (M7).**
+  JPEG scans, Huffman tables, PNG chunks, TIFF strips/tiles. **Planned (M5).**
 
 ### 4.4 Tainted text
 
@@ -335,7 +335,7 @@ Text that came from a file, a sidecar, a device or an agent:
   needed and never in bulk;
 - is passed to external programs only as separate argv elements (§5.11);
 - is returned to AI agents as data. MCP tool descriptions state that captions, tags and file names
-  are user content and may contain instructions that must not be followed. **Planned (M21).**
+  are user content and may contain instructions that must not be followed. **Planned (M10).**
 
 ### 4.5 Required tests
 
@@ -366,7 +366,7 @@ write needs a row here.
 
 The shared primitive (our own; prior art LightCraft `safe_file.rs`). **Built (M1.2:
 `dalica-fs` `atomic::replace`), with a byte-for-byte check in step 6; the metadata-aware check
-comes with write-back (M10).**
+comes with write-back (M6).**
 
 1. Read the target and record its identity: device, inode (file index on Windows), size and
    modification time.
@@ -389,7 +389,7 @@ the content it is replacing. This covers external edits, sync clients and a coll
 the file on a share. Save also checks the original's identity immediately before moving it into
 `.dalica-originals/`, and refuses if a backup with that name already exists but does not match the
 recorded original (the first original is the one kept). **Built for every `fs::replace` (M1.2:
-`Expect::Unchanged`); Save's checks are planned (M15).**
+`Expect::Unchanged`); Save's checks are planned (M8).**
 
 ### 5.4 Names
 
@@ -406,7 +406,7 @@ bidirectional characters; strip leading `.` and `-` and trailing dots and spaces
 device names; limit to 255 bytes on a character boundary; never empty (fallback such as
 `Export 2026-06-04`). Collisions are resolved with `-001`, `-002`, … using exclusive creation in a
 loop, not "check then create". Dates from EXIF are parsed and re-formatted, never copied as text.
-**Planned (M16, M23, M32).**
+**Planned (M8, M11, M14).**
 
 **Names from the file system.** File names that are not valid UTF-8 are indexed and shown with a
 lossy display form, but the lossy form is never written into a sidecar and never used to open a
@@ -421,7 +421,7 @@ Paths found in XMP (`xmpMM:DerivedFrom`, `stRef:filePath`, …), maker notes, IP
 sidecars and legacy album definitions are data. Dalica never opens, stats, creates, deletes, moves
 or launches anything because of them. Legacy album members are matched only against photos already
 indexed beneath watched folders, by comparing paths in memory. ICC profiles are used only when
-embedded, never loaded by a referenced name. **Planned (M1, M33).**
+embedded, never loaded by a referenced name. **Planned (M1, M14).**
 
 ### 5.6 Symlinks, junctions and hard links
 
@@ -435,29 +435,29 @@ embedded, never loaded by a referenced name. **Planned (M1, M33).**
   shows a `caution` notice. The exact UI and how user data for such folders is kept are settled in
   M1 (`data-model.md` §7). **Planned (M1).**
 - Moves and renames inside Dalica operate on the link, not its target, and never follow a link
-  out of the source or destination folder. **Planned (M19).**
+  out of the source or destination folder. **Planned (M9).**
 - Where the platform allows, the write path holds a directory handle and works relative to it,
   so a component swapped for a link after validation cannot redirect the write. Canonicalization
-  alone is insufficient because links can change after the check. **Planned (M7, through `rustix`;
+  alone is insufficient because links can change after the check. **Planned (M5, through `rustix`;
   until then the write path compares the file's identity before and after opening it).**
 
 ### 5.7 Trash, never delete
 
 - Deleting a photo, video or folder moves it to the **OS trash** after confirmation
   (`data-model.md` §8). Dalica has no permanent-delete path for library content, in the UI or over
-  automation. **Planned (M19).**
+  automation. **Planned (M9).**
 - If the platform trash is unavailable for a volume (some network shares and removable media), the
   delete fails with an explanation that points to the file manager. It never falls back to a
-  permanent delete. **Planned (M19).**
+  permanent delete. **Planned (M9).**
 - "Remove from Dalica", "Rebuild library" and cache pruning never touch photos. Caches list and
   delete only files of their own naming shape. Stale sidecar entries are pruned, not files.
 - **Camera and card import** ("Delete copied files from the card"): cards usually have no trash,
   so this is the only permanent deletion Dalica performs. They
   happen only after every copied file has been verified by hash at its destination, only for files
   the import listed, after an explicit confirmation, and they are refused over automation.
-  **Planned (M23).**
+  **Planned (M11).**
 - Moving across volumes is copy + verify (hash) + delete-to-trash of the source, never delete
-  before verify. **Planned (M19).**
+  before verify. **Planned (M9).**
 
 ### 5.8 Temporary files
 
@@ -467,7 +467,7 @@ embedded, never loaded by a referenced name. **Planned (M1, M33).**
   is planned with scanning (M1).**
 - Other scratch files (render and export scratch, decoded previews spilled to disk) go to
   `<cache>/Dalica/tmp/`, created `0700` on Unix, with random names, never to a predictable name in
-  a shared system temp directory. **Planned (M13).**
+  a shared system temp directory. **Planned (M7).**
 - A crash leaves at most a stray temporary file, never a truncated target.
 
 ### 5.9 Network shares, synced folders and removable media
@@ -485,7 +485,7 @@ embedded, never loaded by a referenced name. **Planned (M1, M33).**
 - Sync clients create conflict copies (for example `.dalica (conflict).json` style names). Dalica
   does not read or merge them automatically; it may report them. **Planned (M1).**
 - Devices (cameras, cards, phones) are read as untrusted trees: the walker bounds apply, names are
-  validated, and sizes reported by the device are not trusted for allocation. **Planned (M23).**
+  validated, and sizes reported by the device are not trusted for allocation. **Planned (M11).**
 
 ### 5.10 Private data at rest
 
@@ -504,7 +504,7 @@ embedded, never loaded by a referenced name. **Planned (M1, M33).**
 - Programs are started with an argument vector, never through a shell; paths come after `--`
   where the program supports it, and a path starting with `-` is passed as `./-name`.
 - Only user actions in the UI launch external programs (Open With, Open in External Editor, Locate
-  on Disk). These commands are refused over automation (§6.6). **Planned (M36).**
+  on Disk). These commands are refused over automation (§6.6). **Planned (M15).**
 - URLs Dalica opens are fixed `https://` addresses from its own configuration (map attribution,
   help), never URLs found in metadata.
 - An optional external video process (reserved decision 2) runs with a timeout, without a shell,
@@ -530,8 +530,8 @@ preferences, all with the user's file-system permissions.
 |---|---|---|---|
 | Desktop control channel, JSON lines over TCP | `dalica --control <port>` (default 7990; parallel agents 18000–19999) | token (§6.3) | M2 |
 | Headless script on stdio | `dalica-cli run`, `dalica-cli snapshot --script` | inherited from the process pipe | M1, M2 |
-| MCP over stdio, headless engine | `dalica-cli mcp [--demo]` | inherited from the process pipe | M21 |
-| MCP bridge to the running app | `dalica-cli mcp --connect 127.0.0.1:<port>` | token (§6.3) | M21 |
+| MCP over stdio, headless engine | `dalica-cli mcp [--demo]` | inherited from the process pipe | M10 |
+| MCP bridge to the running app | `dalica-cli mcp --connect 127.0.0.1:<port>` | token (§6.3) | M10 |
 
 Prefer stdio. Start the TCP control channel only when needed.
 
@@ -566,7 +566,7 @@ never tunnel or proxy it to another host. **Planned (M2).**
   the token from a connecting bridge. Before the MCP bridge ships, the handshake becomes
   challenge-response: the server greets with a nonce, the client answers with an HMAC of both
   nonces under the token, and the server proves knowledge of the token the same way before the
-  client sends anything else. **Planned (M21).**
+  client sends anything else. **Planned (M10).**
 
 Bearer-token authentication with the token file: **Planned (M2).**
 
@@ -598,10 +598,10 @@ Applied before command dispatch or file effects, with stable error messages.
 | Time to authenticate | 10 s | M2 |
 | Ids per command (`ids` arrays) | 100,000 | M2 |
 | `ui.screenshot`, `dalica-cli snapshot`, `ui.resize` | ≥ 1 px and ≤ 16,384 px per edge, ≤ 64 million pixels, finite positive scale; checked before layout or rasterization | M1, M2 |
-| Batch requests (control or MCP) | ≤ 256 steps; an aggregate reply budget stops later steps when exhausted | M21 |
-| Query results (photo lists) | paged, ≤ 10,000 items per page | M21 |
-| Rendered previews returned to agents | ≤ 2,048 px edge by default; encoded image ≤ 5 MiB | M21 |
-| MCP tool arguments / results | arguments ≤ 1 MiB; encoded results ≤ 8 MiB | M21 |
+| Batch requests (control or MCP) | ≤ 256 steps; an aggregate reply budget stops later steps when exhausted | M10 |
+| Query results (photo lists) | paged, ≤ 10,000 items per page | M10 |
+| Rendered previews returned to agents | ≤ 2,048 px edge by default; encoded image ≤ 5 MiB | M10 |
+| MCP tool arguments / results | arguments ≤ 1 MiB; encoded results ≤ 8 MiB | M10 |
 
 A reply can be rejected after a command has already changed state; such errors say that the
 operation may have completed, and earlier batch steps are not rolled back. Inspect state before
@@ -639,9 +639,9 @@ retrying. A bounded reply does not imply a bounded command cost.
   original in `.dalica-originals/`, metadata write-back merges. Automation has no way around these.
 - **Read-only mode.** `--automation-read-only` (control channel) and `dalica-cli mcp --read-only`
   expose only commands that do not change files, sidecars or the library. Use it for untrusted
-  agents. **Planned (M21).**
+  agents. **Planned (M10).**
 
-Command policy and roots: **Planned (M2)** for `ui.screenshot`; **Planned (M16–M23)** for the
+Command policy and roots: **Planned (M2)** for `ui.screenshot`; **Planned (M8–M11)** for the
 other path-bearing commands as they land.
 
 ### 6.7 MCP specifics
@@ -660,7 +660,7 @@ other path-bearing commands as they land.
 - The bridge bounds incoming replies, drops the connection after a transport failure or timeout,
   reports that the operation may have completed, and never resends it automatically.
 
-All of §6.7: **Planned (M21).**
+All of §6.7: **Planned (M10).**
 
 ### 6.8 Control status
 
@@ -672,10 +672,10 @@ All of §6.7: **Planned (M21).**
 | Request, reply, depth, connection, timeout limits | Planned (M2) |
 | Screenshot / snapshot dimension limits | Planned (M1, M2) |
 | Command error contract and `panic_hunt` | Planned (M1) |
-| Root-checked path parameters | Planned (M2 screenshots; M16–M23 others) |
-| Batch limits, paging, preview limits | Planned (M21) |
-| MCP roots, read-only mode, tool annotations | Planned (M21) |
-| Server proof in the handshake | Planned (M21) |
+| Root-checked path parameters | Planned (M2 screenshots; M8–M11 others) |
+| Batch limits, paging, preview limits | Planned (M10) |
+| MCP roots, read-only mode, tool annotations | Planned (M10) |
+| Server proof in the handshake | Planned (M10) |
 | Per-client capabilities, audit events | Proposed, not scheduled |
 
 ### 6.9 Known limitations and proposed capability model
@@ -712,13 +712,13 @@ its own entry points, because the limits are the ones Dalica passes.
 
 | Crate | Targets | Lands |
 |---|---|---|
-| `crates/image` | `sniff`, `decode_any`, `decode_jpeg`, `decode_png`, `decode_tiff`, `decode_webp`, `embedded_thumbnail` (EXIF thumbnail and RAW preview extraction), `icc` | M1 (`decode_tiff`, `decode_webp`, `icc`: M8) |
-| `crates/meta` | `exif` (IFDs and maker notes), `xmp` (including extended-XMP reassembly), `iptc`, `write_merge` (parse → merge-write → re-parse: no panic, foreign fields unchanged) | M1 (read), M10 (write) |
-| `crates/sidecar` | `parse`, `roundtrip` (parse → write → parse is stable, unknown data preserved), `recipe` (edit-operation list), `legacy` | M1 (`legacy`: M33) |
+| `crates/image` | `sniff`, `decode_any`, `decode_jpeg`, `decode_png`, `decode_tiff`, `decode_webp`, `embedded_thumbnail` (EXIF thumbnail and RAW preview extraction), `icc` | M1 (`decode_tiff`, `decode_webp`, `icc`: M5) |
+| `crates/meta` | `exif` (IFDs and maker notes), `xmp` (including extended-XMP reassembly), `iptc`, `write_merge` (parse → merge-write → re-parse: no panic, foreign fields unchanged) | M1 (read), M6 (write) |
+| `crates/sidecar` | `parse`, `roundtrip` (parse → write → parse is stable, unknown data preserved), `recipe` (edit-operation list), `legacy` | M1 (`legacy`: M14) |
 | `crates/store` | `journal` (replay of journal records and snapshots), `json` (folders, albums, people, settings) | M1 |
 | `crates/ui` control | `request_line` (line validation, auth state machine, limits) | M2 |
-| `crates/mcp` | `tool_args` | M21 |
-| video demuxer | `demux` (if a pure-Rust path is chosen) | M34 |
+| `crates/mcp` | `tool_args` | M10 |
+| video demuxer | `demux` (if a pure-Rust path is chosen) | M15 |
 
 Command parameters are fuzzed by `panic_hunt` (M1), which runs every registered command with
 hostile parameters and must stay green.
@@ -737,7 +737,7 @@ then fix it. A time-limited run with no findings is evidence of that run only, n
 parser is secure.
 
 CI: a manually dispatched fuzz job lands with the first target (M1); a scheduled weekly run of every
-target for a fixed time lands by M37. Continuous hosted fuzzing is future work.
+target for a fixed time lands by M15. Continuous hosted fuzzing is future work.
 
 ### 7.3 What counts as a finding
 
@@ -791,8 +791,8 @@ they process attacker-controlled data.
 
 ### 8.2 Network stack
 
-Map tiles, geocoding and model downloads (M29, M31) need TLS. The usual Rust TLS providers (`ring`,
-`aws-lc-rs`) contain C or assembly, and LightCraft's lockfile already contains `ring`. Before M29 a
+Map tiles, geocoding and model downloads (M13) need TLS. The usual Rust TLS providers (`ring`,
+`aws-lc-rs`) contain C or assembly, and LightCraft's lockfile already contains `ring`. Before M13 a
 decision is recorded: a pure-Rust crypto provider for `rustls`, an optional clearly separated
 network feature, or delegating downloads to the platform. Until then the product contains no TLS
 code. It is reserved decision 9 in `roadmap.md`.
@@ -856,7 +856,7 @@ outside the library).
 
 ## 10. Release security
 
-Releases follow the Craft apps' workflow (`process.md` §7). **Planned (M11; signing M37).**
+Releases follow the Craft apps' workflow (`process.md` §7). **Planned (M6; signing M15).**
 
 - A `release` branch builds platform packages (AppImage, Flatpak, deb/rpm, MSI, DMG) and creates or
   updates a **draft** release; a maintainer publishes it after checking. Building, signing, drafting,
@@ -872,7 +872,7 @@ Releases follow the Craft apps' workflow (`process.md` §7). **Planned (M11; sig
 - Builds use the pinned toolchain and `--locked`.
 - Dalica has no built-in updater; updates come through the release page or the package channel.
 - Packages request the narrowest platform permissions that still let users add their own folders
-  (decided with the Flatpak manifest at M11).
+  (decided with the Flatpak manifest at M6).
 
 Future hardening: a machine-readable SBOM per release (for example with `cargo auditable` /
 `cargo cyclonedx`), provenance attestations tied to the source commit and workflow, explicit

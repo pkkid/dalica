@@ -184,7 +184,7 @@ Windows `%LOCALAPPDATA%\Dalica`):
 
 | File | Contents | Rebuildable? |
 |---|---|---|
-| `folders.json` | watched folders and their mode (Scan Always / Scan Once / Removed), exclusions; M1 writes `{"version": 1, "folders": [{"path": …}]}` (modes arrive with the Folder Manager, M7) | no — small, backed up with settings |
+| `folders.json` | watched folders and their mode (Scan Always / Scan Once / Removed), exclusions; M1 writes `{"version": 1, "folders": [{"path": …}]}` (modes arrive with the Folder Manager, M5) | no — small, backed up with settings |
 | `albums.json` | album definitions (id, name, description, date, place, cover) and a copy of the order | yes, from sidecars (each member folder carries the album's name; each member its position key, §3.2) |
 | `people.json` | people (id, name, nickname), merges, settings | yes, from sidecars (names are mirrored per folder) |
 | `index.log` + `index.snap` | the library index: one record per photo (path, size, mtime, dimensions, dates, EXIF summary, content hash, colour sketch, face descriptors), journal + snapshot as in LightCraft | yes, by rescanning |

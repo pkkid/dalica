@@ -1,147 +1,118 @@
 ---
 name: milestone-review
-description: Prepare a milestone review (M<n>.R) or checkpoint review (M<n>.A) for the maintainer, write it to the dev log, show it, and wait for decisions. Run only when the maintainer asks.
-argument-hint: "[M<n>.R | M<n>.A]  (default: the first open gate)"
+description: Run a milestone check-in (M<n>.R or M<n>.A owned by the lead; publish a page for the maintainer and keep going) or a release gate (M6.R, M10.R, M15.R; stop for the maintainer's sign-off). Usually run by /milestone-start; the maintainer may run it directly.
+argument-hint: "[M<n>.R | M<n>.A]  (default: the first open check-in or release gate)"
 disable-model-invocation: true
 ---
 
-# Milestone review
+# Milestone check-in or release gate
 
-Gate: **$ARGUMENTS**. If empty, use the first open gate (`M<n>.A` or `M<n>.R`) in
+Target: **$ARGUMENTS**. If empty, use the first open `M<n>.A` / `M<n>.R` in
 `cargo xtask tasks status`.
 
-You are the lead (`agent-1`, `docs/task-board.md` §6) preparing this gate for the maintainer.
-Prepare, write, show, then **stop and wait**. Do not apply any edit, tick any ✅, edit
-`docs/status.md`, close the gate issue, or push until the maintainer has decided.
+You are the lead (`agent-1`, `docs/task-board.md` §6). The roadmap (*How milestones work*) gives two
+kinds:
 
-**Scope.** For `M<n>.R`: every task of milestone M<n>. If the milestone had a checkpoint (`M<n>.A`),
-cover the whole milestone but say briefly what the checkpoint already reviewed. For `M<n>.A`: the
-tasks from the start of M<n> up to the checkpoint.
+- **Check-in** (the block says `owner: lead`). Nothing waits for it. Gather the facts, publish a
+  check-in page, write the docs, merge, and **keep going**. Never stop to ask; the maintainer reads
+  the page when convenient and reverses anything by replying.
+- **Release gate** (`owner: maintainer`: M6.R, M10.R, M15.R). Do the same, then **stop**: ask the
+  maintainer to sign off, and apply their answers.
+
+**Scope.** For `M<n>.R`: every task of milestone M<n>. If the milestone had a mid-milestone check-in
+(`M<n>.A`), cover the whole milestone but say briefly what that one already showed. For `M<n>.A`:
+the tasks from the start of M<n> up to it.
 
 ## 1. Gather the facts (read-only)
 
-- **Plan:** the milestone's section and task blocks in `docs/roadmap.md` (Goal, In, Out, Done when,
-  each task's scope and *done when*), *Reserved decisions*, and the previous review's entry in
-  `log/devlog.md`. Check that the previous review's decisions were applied.
-- **What happened:** the dev-log entries since the previous gate (their `Landed`, `Open` and
-  `Numbers` lines); `git log` of the `M<n>.` commits on `origin/main` (the commit bodies hold the
-  decisions); merged PRs, their bodies and CI runs (`gh pr list --state merged --search "M<n>."`).
-- **Board:** `cargo xtask tasks status`; `cargo xtask tasks sync --dry-run` (it should have nothing
-  to write); open issues labelled `needs-maintainer`, `stale` or Blocked; leftover worktrees and
-  branches (`git worktree list`).
+- **Plan:** the milestone's section and task blocks in `docs/roadmap.md`, *Reserved decisions*,
+  and the previous check-in's dev-log entry. Check that any reversals the maintainer asked for
+  since then were applied.
+- **What happened:**
+  - the dev-log entries since the previous check-in (their `Landed`, `Open` and `Numbers` lines);
+  - `git log` of the `M<n>.` commits on `origin/main`, whose bodies hold the decisions;
+  - merged PRs and their bodies (`gh pr list --state merged --search "M<n>."`).
+- **Board:** `cargo xtask tasks status`; open issues labelled `needs-maintainer` or `stale`;
+  leftover worktrees (`git worktree list`).
 - **Loose ends in code:** `TODO(maintainer)` comments, `#[ignore]`d tests, fingerprint blesses.
-- **Measurements.** Take them on a clean checkout of `origin/main` at one commit (name it), with
-  a target dir in your scratchpad. Each number gets a unit, the machine and the commit:
-  - cold build, `cargo xtask ci` (cold and warm), `cargo test --workspace` (time and test count)
-  - `cargo xtask accept M<k>` for every finished milestone and this one (result and time)
-  - `cargo test -p dalica-engine --test panic_hunt -- --ignored`, if the engine has commands
-  - GitHub CI duration per OS on the latest `main` run (`gh run list`, `gh run view`)
-  - the target dir size, free disk, and `cargo xtask parity` summary counts
-  - every number this milestone's *Done when* and its tasks' *done when* name, plus benchmarks
-    (`cargo xtask bench`, `ui.inspect` → perf) once they exist
-  - **Is there user-visible UI?** Take screenshots at 1400 × 900 and 900 × 600
-    (`dalica-cli snapshot`) and compare them with `docs/ui-layout.md`.
-  - **Did agents work in parallel?** Record tasks per agent, time from claim to submit, time
-    spent In Review, rebase conflicts (which files), merge-time CI failures, stale releases and
-    idle `next` waits.
-  - If you cannot measure something, write "not measured" and the reason. Never estimate a
-    number and present it as measured.
+- **Measurements** on a clean checkout of `origin/main` at one named commit, with a target dir in
+  your scratchpad. Each number gets a unit, the machine and the commit:
+  - `cargo xtask ci` (cold and warm), and the test count;
+  - `cargo xtask accept M<k>` for every finished milestone and this one;
+  - `panic_hunt`, if there are commands;
+  - GitHub CI per OS on the latest `main` run;
+  - the target dir size, free disk, and the `cargo xtask parity` counts;
+  - every number the milestone's *Done when* lines name, plus benchmarks once they exist.
+  - With parallel agents, also record: tasks per agent, time from claim to merge, rebase
+    conflicts (which files), CI failures on `main`, send-backs.
+  - Write "not measured" with the reason rather than estimate.
+- **Screenshots** (whenever the app's look changed): 1400 × 900 and 900 × 600 through
+  `dalica-cli snapshot` or the control channel, plus a close-up of each new feature. Compare
+  them with `docs/ui-layout.md`.
 
-## 2. Write the review
+## 2. Write it down
 
-Append one entry to `log/devlog.md` in the **main checkout** (not a worktree), headed
-`## <YYYY-MM-DD HH:MM> · agent-1 · M<n>.R Milestone review (prepared for the maintainer)`
-(or `M<n>.A Checkpoint review`). Use these sections:
+Append one entry to `log/devlog.md` in the **main checkout**, headed
+`## <YYYY-MM-DD HH:MM> · agent-1 · M<n>.R Check-in` (or `Release gate`). Keep it short:
 
-0. **Decisions needed.** A numbered list of everything the maintainer must answer, pointing to the
-   items below, so the reply can be "confirm all except 4 and 9".
-1. **What landed.** A table, one row per task: what landed, evidence against its *done when*,
-   numbers, and the commit or PR. Then a table of the milestone's numbers with the previous
-   review's values and the change.
-2. **Acceptance.** The `accept` result; each line of the milestone's *Done when*, met or not, with
-   evidence. List the manual checks from `tests/acceptance/m<n>.md` as exact steps and commands for
-   the maintainer to run. List the parity rows that changed; say whether each ✅ was measured, and
-   propose 🟡 for any that was not.
-3. **Surprises.** Where a task took longer than one session; where the spec was wrong, vague or
-   missing something; where a *done when* was too weak or too strict.
-4. **Decisions not in the spec**, collected from commit bodies and dev-log entries. Number each one
-   and give: the decision, the commit, the alternative, and what reversing it would cost.
-5. **Quality floors and safety.** Floors that moved (they may only rise). Any gate loosened, test
-   ignored or fingerprint blessed (should be none; if there is one, give the justification).
-   Crash or data-safety bugs found and their regression tests. New dependencies, with licence and
-   any C-build exception. Changes relevant to security.
-6. **Open items.** Every `Open:` line from this milestone's dev-log entries, plus every
-   `TODO(maintainer)`, blocked or `needs-maintainer` issue and PR follow-up. Give each a proposed
-   home: a task in the next milestone, a spec change, or drop it (and say why).
-7. **Process friction.** The task board, the gates, the `AGENTS.md` rules, the dev log, parallel
-   agents (with the numbers from §1), disk and time. Say what should change before the next
-   milestone and what before more agents run in parallel.
-8. **Next plan.** For `M<n>.R`: draft **every** task block for M<n+1> in roadmap format (`after`,
-   `owner`, `files`, `scope`, `done when`), ready to paste into `docs/roadmap.md`:
-   - The first tasks list `M<n>.R` in `after`.
-   - The milestone ends with its own review gate `M<n+1>.R` (`owner: maintainer`), plus a
-     checkpoint gate `M<n+1>.A` if the milestone is big.
-   - These blocks are what `/milestone-start` runs; it writes no tasks of its own. For `M<n>.A`: the changes to M<n>'s remaining tasks. Add a
-   parallelism report:
-   - the waves, and how many tasks can be in progress at once given `files` overlap
-   - the longest dependency chain
-   - shared-file hotspots several tasks need
-   - reserved decisions that block the plan
-   - how this milestone's estimates compared with reality
-9. **Proposed edits (not applied).** Concrete edits to task blocks, the spec (`docs/`),
-   `AGENTS.md` and the `xtask` gates. Give each edit its file and section.
-10. **Where we stand.** The dated paragraph proposed for `docs/roadmap.md`, and the numbers
-    proposed for `docs/status.md`.
+1. **What landed:** one line per task, with evidence against its *done when*, numbers and the PR.
+   Then the milestone's numbers against the previous check-in's.
+2. **Acceptance:** the `accept` result and each line of *Done when*, met or not. List any parity
+   ✅ that was not measured, and downgrade it to 🟡.
+3. **Decisions made:** numbered, from commit bodies and dev-log entries. Each one gets what was
+   decided, why, the alternative and the PR. Say which decisions default to what LightCraft or
+   PhotoCraft did.
+4. **Surprises and process friction:** short, each with what you changed or will change.
+5. **Open items:** every `Open:` line and `TODO(maintainer)`. Each gets the task that takes it, or
+   the reason it is dropped.
+6. **Next:** the next milestone's task blocks. Check that they are on `main` already (the lead writes
+   them ahead). If they are not, write them now, before anything else. Add the parallelism
+   report: waves, how many tasks can run at once, and shared-file hotspots.
 
-Write plainly and briefly. Lead with facts and numbers. The names rule applies: never name the
-reference application anywhere in the review.
+## 3. Publish the check-in page
 
-## 3. Show it and wait
+Publish one artifact page per check-in (load the `artifact-design` skill first). Title it
+`Dalica M<n> check-in`; for `M<n>.A`, `Dalica M<n>.A check-in`. It is the maintainer's view of the
+milestone, so lead with the app:
 
-Show the maintainer the whole entry. Print it in chat, or, if it is long, send that section as a
-file. Also send any screenshots.
+- **Try it:** exact commands, such as `cargo run -p dalica -- --demo`, and what to click and look
+  for, step by step.
+- **Screenshots** at both sizes, with the new features shown close up.
+- **What changed** for a user, in plain words; not the task list.
+- **Decisions made:** the numbered list from §2. Under it: "To reverse one, reply with its number,
+  or comment on the page".
+- **Numbers:** the few that matter (speed budgets met, test count, CI time per OS).
+- **Next:** what the next milestone builds, in two or three lines.
 
-Then ask for the decisions with the **AskUserQuestion** tool, not in prose. Each call takes up to
-4 questions, and each question takes 2–4 options; the maintainer can always pick "Other" and
-type an answer.
+Link the page in a comment on the check-in issue: `gh issue comment <n> --body "Check-in page:
+<url>"`.
 
-- **Choices between real alternatives** (a gap in the spec, a reserved decision, which of two
-  designs) get one question each:
-  - The options are the alternatives, with your recommended option first and marked
-    "(Recommended)".
-  - Each option's description gives its cost or consequence in one line.
-- **Confirm-or-reverse items** (decisions not in the spec, proposed edits) are grouped four to a
-  question with `multiSelect: true`:
-  - Phrase it as "Which of these should be reversed or changed? Select none to confirm all four."
-  - Each option is one item: its number and a short label as the label, and the decision and its
-    alternative as the description.
-- For `M<n>.R`, one question approves the next milestone's task list as drafted in §8: approve,
-  approve with listed changes, or rework.
-- Ask in order of importance and keep asking until every item of *Decisions needed* has an
-  answer.
-- Any item the maintainer answers with "Other", or marks for change, gets a follow-up question or
-  a short discussion before you treat it as decided.
+## 4. Docs, tick and merge (a check-in ends here)
 
-Record the answers in the dev-log entry under *Decisions needed*, one line per item: confirmed,
-reversed, or changed to what. Then go on to §4.
+1. `cargo xtask tasks claim M<n>.R --agent agent-1` (or `.A`).
+2. In its worktree:
+   - write the dated *Where we stand* paragraph in `docs/roadmap.md` and the numbers in
+     `docs/status.md`;
+   - apply any reversals the maintainer asked for since the last check-in;
+   - tick the check-in's ✅.
+3. `cargo xtask ci`, `cargo xtask tasks log M<n>.R "…"`, `cargo xtask tasks submit M<n>.R`,
+   `cargo xtask tasks merge M<n>.R`.
+4. For a **check-in**: report the page's link in one line and go back to work. That means the
+   `/milestone-start` loop if it is running, or a pointer to `/milestone-start` if not.
 
-## 4. After the maintainer decides
+## 5. Release gates only: stop for the maintainer
 
-Only when the maintainer replies:
+After §1–§3, and the same docs as §4 without ticking the gate:
 
-1. Make a branch `task/M<n>.R-review` from `origin/main`, or `M<n>.A` for a checkpoint.
-2. Apply the confirmed edits and the reversals. Write the *Where we stand* paragraph and the
-   `status.md` numbers.
-   - For `M<n>.R`, also write the approved M<n+1> task blocks into M<n+1>'s section of
-     `docs/roadmap.md`, gates included.
-   - `cargo xtask tasks sync --dry-run` must list one new issue per block and nothing else.
-3. Run `cargo xtask ci`. It includes `tasks sync --check`, which fails if a block does not parse.
-4. Commit as `M<n>.R: review decisions applied`. The body lists every decision and every edit.
-5. `cargo xtask tasks log M<n>.R "Landed: …  Open: …"`.
-6. Ask before pushing, unless the maintainer's standing go-ahead covers it (`AGENTS.md` §4).
-7. Once the review commit is on `main` and the maintainer has closed the gate issue:
-   - Tick the gate's ✅.
-   - Run `cargo xtask tasks sync`. It creates the GitHub issues for the new task blocks on project
-     3 and moves the first ones to Ready.
-   - Confirm with `cargo xtask tasks status`, then tell the maintainer to run
-     `/milestone-start M<n+1>`.
+- Add the release checklist (`docs/releasing.md`) to the page: packages built per OS, install
+  steps, known issues.
+- Ask with the **AskUserQuestion** tool, recommended option first:
+  - one question to sign off the release: ship / ship after listed fixes / hold;
+  - questions for any decision the maintainer must make (`AGENTS.md` §4's short list).
+  - Up to 4 questions per call; keep asking until everything is answered.
+- Apply the answers on a branch and merge it.
+- Once the maintainer closes the gate issue, tick it ✅ and run `cargo xtask tasks sync`; the next
+  milestone's tasks become Ready. Tell the maintainer to run `/milestone-start M<n+1>`.
+
+The names rule applies everywhere: never name the reference application, in the dev log, the page
+or a commit.

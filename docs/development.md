@@ -38,8 +38,8 @@ cargo xtask ci                                      # THE gate: run before every
 | `xtask docs` | every `cargo xtask …` command named in `AGENTS.md`, this file and `task-board.md` exists or is registered as planned | ✓ |
 | `xtask accept M<n> [--headless]` | runs a milestone's acceptance test (`tests/acceptance/m<n>.rs`) and prints what a human should look at (`m<n>.md`) (`roadmap.md` → How milestones work); finished milestones' checks run inside `ci` | ✓ (all finished milestones) |
 | `xtask tasks <sub>` | the task board: `setup`, `sync`, `next`, `claim`, `env`, `submit`, `release`, `block`, `merge`, `status`, `log` ([`task-board.md`](task-board.md)); `sync --check` parses the roadmap offline, `setup`/`sync --dry-run` show the GitHub writes without making them | `sync --check` ✓ |
-| `xtask test-corpus` | *planned (M8):* fetch the corpora and run the `corpus`-feature tests | |
-| `xtask corpus` | *planned (M8):* fetches pinned, sha256-verified CC0 test photos into the gitignored `corpus/` | |
+| `xtask test-corpus` | *planned (M5):* fetch the corpora and run the `corpus`-feature tests | |
+| `xtask corpus` | *planned (M5):* fetches pinned, sha256-verified CC0 test photos into the gitignored `corpus/` | |
 | `xtask bench` | *planned (M4):* library-scale and pixel benchmarks; appends to `target/bench/history.jsonl`, flags CPU-time regressions > 20 % | |
 | `xtask perf` | *planned (from M4):* the budgeted benchmark run of §13 | |
 | `xtask scorecard [--check]` | *planned (after M1):* regenerate / verify `docs/scorecard.md` | |
@@ -228,7 +228,7 @@ processed them, so a following `ui.state` or `ui.inspect` observes their effect.
 | `CRAFT_FONTS_DIR` | optional fonts build input (see §12) |
 | `DALICA_CORPUS_REPO` | local authoring clone of the corpus repository for `xtask corpus --local` (see §11) |
 | `DALICA_GPU=0` | once a GPU path exists: force the CPU renderer for the whole process (see §14) |
-| `DALICA_FACE_MODELS` | M29: alternative face-model folder (see [`faces.md`](faces.md)) |
+| `DALICA_FACE_MODELS` | M13: alternative face-model folder (see [`faces.md`](faces.md)) |
 
 ## 11. Test corpora
 
@@ -253,7 +253,7 @@ fetched at **pinned commits** and are checked against committed **sha256 manifes
 | `corpus/raw/` | small CC0 raw files per vendor, for embedded-preview extraction | `dalica-image` |
 | `corpus/heif/` | small HEIC/HEIF files, for the `heif` feature | `dalica-image` |
 | `corpus/pngsuite/` | PngSuite | `dalica-image` |
-| `corpus/public-faces/` | public-domain portraits with their sources in `SOURCES.tsv`, for M29 | `dalica-faces` ([`faces.md`](faces.md)) |
+| `corpus/public-faces/` | public-domain portraits with their sources in `SOURCES.tsv`, for M13 | `dalica-faces` ([`faces.md`](faces.md)) |
 
 ```sh
 cargo xtask corpus                  # where each corpus lives, its pin, present / missing / stale
@@ -348,7 +348,7 @@ cargo xtask perf --update-baseline   # also write perf/baseline.json from this r
   id = "META-1"
   target = "Caption and tags round-trip through XMP and IPTC with foreign fields byte for byte"
   status = "partial"
-  task = "M10"
+  task = "M6"
   note = "crates/meta/tests/roundtrip.rs covers JPEG; PNG/WebP not yet"
   ```
 

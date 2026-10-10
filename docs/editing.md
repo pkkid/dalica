@@ -299,7 +299,7 @@ code). Each effect has a fingerprint test on a procedural scene so its look is p
   (recorded as edits).
 - EXIF orientation is applied on read; Save normalises it (`data-model.md` §6).
 
-## 11. Video in the edit view (M34)
+## 11. Video in the edit view (M15)
 
 - A video opens in the same view; under it a control bar: play/pause, scrubber with time readout,
   volume, a **trim ruler** with start/end handles, **Set Start**, **Set End**, **Full Screen**.

@@ -67,8 +67,8 @@ crates/
                 CPU renderer for every tool and effect (the oracle), auto-fix analysis
   L1  scenes    procedural test and demo photos (gradients, faces-like blobs, horizons, text-free
                 patterns) at any size, depth and orientation, with a minimal EXIF block; no media files
-  L1  fetch     consented, resumable, hash-pinned downloads (M29)
-  L1  faces     detection, alignment, embeddings, clustering on decoded RGB buffers (M29, `faces.md`)
+  L1  fetch     consented, resumable, hash-pinned downloads (M13)
+  L1  faces     detection, alignment, embeddings, clustering on decoded RGB buffers (M13, `faces.md`)
   L2  library   the in-memory model (folders, photos, albums, people, tags, captions, stars, hidden,
                 recipes, places), `Op`s with inverses, revisions, queries and the search grammar.
                 Pure: no I/O, no threads
@@ -177,7 +177,7 @@ pub struct CommandSpec {
   | Keyboard | key event + active context → keymap → `App::run` | M1 |
   | CLI | `dalica-cli run --library DIR script.jsonl` / `--cmd id --params '{…}'` | M1 |
   | Control channel | `engine.execute` over loopback JSON lines (`control-protocol.md`) | M2 |
-  | MCP | one tool per command plus helpers (`mcp.md`) | M21 |
+  | MCP | one tool per command plus helpers (`mcp.md`) | M10 |
 
 - **UI-only commands** (pane toggles, zoom, view switches, window state) live in `UI_COMMANDS` in
   `crates/ui/src/menus.rs`, declare keys the same way, and are listed by `engine.commands` too, so
@@ -370,7 +370,7 @@ for Dalica. Ordinary third-party crates from crates.io remain allowed after the 
 | Persistence | `crates/catalog/src/{journal,store,safe_file,lock}.rs` | op journal + snapshot, atomic writes, single-process lock |
 | Metadata, decoding, RAW previews | `crates/{meta,tiff,codecs,raw}` | merge-never-replace writes, decode limits, embedded-preview extraction |
 | Organizer plumbing | `engine/src/{memory,availability,walk,rename,guard}.rs` | memory budget, offline volumes, bounded walks, panic guard |
-| Faces (M29) | `crates/faces` | detector/recogniser pipeline, consented model downloads |
+| Faces (M13) | `crates/faces` | detector/recogniser pipeline, consented model downloads |
 
 From PhotoCraft: the command/`UiState` model, `shortcut_dispatch.rs`, the scorecard and perf
 budgets, and the process (`notes/craft-apps/` has both studies).
@@ -444,8 +444,8 @@ diff. No media is committed.
 | Crash safety | real crashes are random | `fs` fault injection at every write step; journal torn-tail tests; a kill-the-process loop test in `store` |
 | Performance at 100 k photos | needs scale and quiet machines | synthetic in-memory libraries; `cargo xtask bench` before/after on hot paths; budgets in `perf/budgets.toml`; nightly perf runs on one fixed machine, never per PR |
 | Platform differences (Windows paths and locking, macOS menus and Cmd keys, Wayland translucency, trash) | one dev machine | CI on Linux, Windows and macOS for every PR; odd-name path tests; menu model tests instead of native-menu tests; a per-release manual checklist per OS |
-| GPU vs CPU, DPI, real windows | headless isn't the window | CPU is the oracle; agents check the real window through the control channel's `ui.screenshot` at milestone reviews |
+| GPU vs CPU, DPI, real windows | headless isn't the window | CPU is the oracle; agents check the real window through the control channel's `ui.screenshot` for each check-in page |
 | Timing, animation, debounce, drag feel | wall-clock tests are flaky; "feel" is subjective | virtual `Clock`; the driver advances time explicitly; human review of drag/scroll feel |
 | Native dialogs | can't be clicked headlessly | `Picker` trait, scripted in tests |
-| Accessibility and IME | needs assistive tech and real input methods | AccessKit tree assertions headless; manual IME and screen-reader checks (M35) |
-| Face recognition (M29), video (M34) | model- and codec-dependent | decided at those milestones; small public-domain face set with expected groupings as floors |
+| Accessibility and IME | needs assistive tech and real input methods | AccessKit tree assertions headless; manual IME and screen-reader checks (M15) |
+| Face recognition (M13), video (M15) | model- and codec-dependent | decided at those milestones; small public-domain face set with expected groupings as floors |

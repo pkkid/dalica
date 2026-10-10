@@ -154,7 +154,7 @@ pub trait GitHub: Send + Sync {
 
     fn find_pr(&self, branch: &str) -> Result<Option<PullRequest>, String>;
     fn open_pr(&self, branch: &str, title: &str, body: &str) -> Result<PullRequest, String>;
-    /// Blocks until the pull request's checks finish; `Err` if any failed.
-    fn wait_for_checks(&self, pr: u64) -> Result<(), String>;
+    /// The latest finished CI run on `main` when it failed (its title and URL), else `None`.
+    fn main_ci_failure(&self) -> Result<Option<String>, String>;
     fn squash_merge(&self, pr: u64, subject: &str) -> Result<(), String>;
 }

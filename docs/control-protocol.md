@@ -6,7 +6,7 @@ Adapted from LightCraft `docs/control-protocol.md` (revision 88ea1a8) and PhotoC
 > **Status: Planned (M2; menu methods M3).** Nothing here exists yet. The control channel, widget
 > registry and `ui.screenshot` are milestone **M2**; the headless renderer and
 > `dalica-cli snapshot` are **M1** (see [`roadmap.md`](roadmap.md)). Methods and widget ids that
-> need a later region (edit view M12, panes M9–M10, effects M24, people M29) say so; until then
+> need a later region (edit view M7, panes M6, effects M12, people M13) say so; until then
 > they answer with the `unsupported` error.
 > Keep this file in sync with `crates/ui/src/control.rs` as it lands.
 
@@ -463,7 +463,7 @@ selected/toggled state where one exists. Off-screen thumbnails are not listed: s
 - `ui.pointer {events: [{kind: "move" | "down" | "drag" | "up", x, y}], space}` plays a raw gesture.
   `space: "screen"` (default) uses screen points; `space: "image"` uses **normalised coordinates of
   the photo shown in the edit view** (0..1, after rotation, as stored in recipes), for crop handles,
-  Retouch strokes and crosshair effects (M12). `button: "right"` for
+  Retouch strokes and crosshair effects (M7). `button: "right"` for
   secondary-button gestures. The rubber band on empty light-table space is a `down`/`drag`/`up` in
   screen space.
 
@@ -476,8 +476,8 @@ selected/toggled state where one exists. Off-screen thumbnails are not listed: s
   **`Ctrl` means the command modifier** (Cmd on macOS), exactly as the docs write shortcuts. Use
   `macCtrl: true` for the physical Control key on macOS.
 - `state: "down"` / `"up"` presses or releases without the other half, for the hold gestures:
-  Ctrl+Alt full-screen preview, Shift over an effects tab (alternate effects, M24), `\` before/after
-  (M26). A key left down is released when the connection closes.
+  Ctrl+Alt full-screen preview, Shift over an effects tab (alternate effects, M12), `\` before/after
+  (M11). A key left down is released when the connection closes.
 - `ui.type {text}` types into the focused widget (search field, caption bar, rename dialog).
 
 ### 6.10 Menus
@@ -567,19 +567,19 @@ recipe operation and parameter names of `data-model.md` §3.1 and `editing.md` (
 |---|---|
 | Menu bar (M3) | `menu:File` … `menu:Help` (title by its English label; the fourth is `menu:Folder` whatever its shown title), `menuitem:<command id>` for open menu and context-menu items, `submenu:<path>` |
 | Toolbar (M3) | `button:toolbar.import`, `button:toolbar.newAlbum`, `button:tree.flat`, `button:tree.tree`, `button:toolbar.viewOptions`, `button:filter.starred`, `button:filter.faces`, `button:filter.videos`, `button:filter.geotagged`, `slider:age`, `field:search`, `button:search.clear`, `indicator:activity` |
-| Room tabs (M23+) | `tab:room.library`, `tab:room.import`, `tab:room.collage`, …; `button:room.close.<room>` |
-| Library tree (M5) | `tree:group:albums` · `people` · `projects` · `folders` · `other` · `hidden` (the group header), `tree:folder:<FolderId>`, `tree:album:<AlbumId>` (also `tree:album:starred`, `tree:album:recent`, `tree:album:search`), `tree:person:<PersonId>` (M29), `tree:disclosure:<FolderId>` (tree mode), `splitter:tree` |
-| Light table (M4) | `section:<section id>` (the header block, e.g. `section:folder:12`), its parts `section:folder:12/icon`, `/title`, `/description`, `/play`, `/collage`, `/selectStarred`, `/save`, `/export`; `thumb:<PhotoId>`; `lightTable` (empty space: rubber band, section menu); `banner:search` and `button:search.showAll` (M18) |
+| Room tabs (M11+) | `tab:room.library`, `tab:room.import`, `tab:room.collage`, …; `button:room.close.<room>` |
+| Library tree (M4) | `tree:group:albums` · `people` · `projects` · `folders` · `other` · `hidden` (the group header), `tree:folder:<FolderId>`, `tree:album:<AlbumId>` (also `tree:album:starred`, `tree:album:recent`, `tree:album:search`), `tree:person:<PersonId>` (M13), `tree:disclosure:<FolderId>` (tree mode), `splitter:tree` |
+| Light table (M4) | `section:<section id>` (the header block, e.g. `section:folder:12`), its parts `section:folder:12/icon`, `/title`, `/description`, `/play`, `/collage`, `/selectStarred`, `/save`, `/export`; `thumb:<PhotoId>`; `lightTable` (empty space: rubber band, section menu); `banner:search` and `button:search.showAll` (M9) |
 | Scrollbar (M4) | `scroll:prevSection`, `scroll:up`, `scroll:track`, `scroll:thumb`, `scroll:down`, `scroll:nextSection` |
-| Status line (M6) | `text:status`, `indicator:unsaved`, `indicator:temporarySession` |
-| Photo Tray (M6) | `tray` (the box), `tray:token`, `tray:item:<PhotoId>`, `button:tray.hold`, `button:tray.clear`, `button:tray.addToAlbum` |
+| Status line (M4) | `text:status`, `indicator:unsaved`, `indicator:temporarySession` |
+| Photo Tray (M4) | `tray` (the box), `tray:token`, `tray:item:<PhotoId>`, `button:tray.hold`, `button:tray.clear`, `button:tray.addToAlbum` |
 | Bottom controls (M3) | `button:star`, `button:rotate.ccw`, `button:rotate.cw`, `button:loupe`, `slider:thumbSize`, `toggle:pane.people`, `toggle:pane.places`, `toggle:pane.tags`, `toggle:pane.properties`; edit view: `button:zoom.fit`, `button:zoom.1to1`, `slider:zoom` |
 | Action buttons (M3) | `action:export`, `action:collage`, `action:slideshow`, `action:more` |
-| Side pane (M9–M10) | `pane:tags`, `pane:people`, `pane:places`, `pane:properties` (the pane body), `button:pane.widen`, `button:pane.close`; Tags: `field:tags.add`, `button:tags.add`, `tag:<tag text>`, `quicktag:1` … `quicktag:10`, `button:quicktags.configure`; Properties: `button:properties.showAll` |
-| Edit view (M12) | `button:edit.back`, `button:compare.one`, `button:compare.two`, `canvas:edit` (the photo), `film:<PhotoId>`, `field:caption`, `tab:edit.basic`, `tab:edit.tuning`, `tab:edit.effects`, `tab:edit.effects2`, `tab:edit.effects3`, `button:edit.undo`, `button:edit.redo`, `button:edit.showOriginal`, `box:histogram` |
-| Edit tools (M13) | `tool:crop`, `tool:straighten`, `tool:autofix`, `tool:autocontrast`, `tool:autocolor`, `tool:retouch`; `slider:basic.fill_light`; tool panels: `slider:straighten.angle`, `choice:crop.ratio`, `button:crop.rotate`, `button:panel.apply`, `button:panel.cancel`, `button:panel.reset` |
-| Tuning (M14) | `slider:tuning.fill_light`, `slider:tuning.highlights`, `slider:tuning.shadows`, `slider:tuning.temperature`, `button:tuning.neutralPicker`, `button:tuning.reset` |
-| Effects (M24) | `effect:<name>` per tile (`effect:sharpen`, `effect:sepia`, `effect:bw`, `effect:soft_focus`, `effect:graduated_tint`, …); effect panels: `slider:effect.<param>` (`slider:effect.amount`, `slider:effect.fade`), `color:effect.<param>`, `check:effect.<param>`, `crosshair:effect` |
+| Side pane (M6) | `pane:tags`, `pane:people`, `pane:places`, `pane:properties` (the pane body), `button:pane.widen`, `button:pane.close`; Tags: `field:tags.add`, `button:tags.add`, `tag:<tag text>`, `quicktag:1` … `quicktag:10`, `button:quicktags.configure`; Properties: `button:properties.showAll` |
+| Edit view (M7) | `button:edit.back`, `button:compare.one`, `button:compare.two`, `canvas:edit` (the photo), `film:<PhotoId>`, `field:caption`, `tab:edit.basic`, `tab:edit.tuning`, `tab:edit.effects`, `tab:edit.effects2`, `tab:edit.effects3`, `button:edit.undo`, `button:edit.redo`, `button:edit.showOriginal`, `box:histogram` |
+| Edit tools (M7) | `tool:crop`, `tool:straighten`, `tool:autofix`, `tool:autocontrast`, `tool:autocolor`, `tool:retouch`; `slider:basic.fill_light`; tool panels: `slider:straighten.angle`, `choice:crop.ratio`, `button:crop.rotate`, `button:panel.apply`, `button:panel.cancel`, `button:panel.reset` |
+| Tuning (M7) | `slider:tuning.fill_light`, `slider:tuning.highlights`, `slider:tuning.shadows`, `slider:tuning.temperature`, `button:tuning.neutralPicker`, `button:tuning.reset` |
+| Effects (M12) | `effect:<name>` per tile (`effect:sharpen`, `effect:sepia`, `effect:bw`, `effect:soft_focus`, `effect:graduated_tint`, …); effect panels: `slider:effect.<param>` (`slider:effect.amount`, `slider:effect.fade`), `color:effect.<param>`, `check:effect.<param>`, `crosshair:effect` |
 | Dialogs (M3+) | `dialog:<kind>` (the dialog), `field:dialog.<name>`, `check:dialog.<name>`, `choice:dialog.<name>`, `button:dialog.ok`, `button:dialog.cancel`, `button:dialog.<action>` (`button:dialog.undoSave`, `button:dialog.clearTray`) |
 | Toasts (M3) | `toast:<n>`, `button:toast.<action>` (`button:toast.showFolder`) |
 

@@ -8,7 +8,7 @@ back. The folder sidecar `.dalica.json` stays Dalica's own record; this document
 everything Dalica puts into, or takes from, files it did not create. Read it with
 [`data-model.md`](data-model.md) §2 (where each piece of data lives) and §5 (when it is written).
 
-> Status: specified, not built. Lands with M10 (captions, tags), M31 (places) and M30 (people). The
+> Status: specified, not built. Lands with M6 (captions, tags), M13 (places) and M13 (people). The
 > parser and writer are our own, in `crates/meta` (`dalica-meta`, L1); LightCraft's `meta` and
 > `tiff` crates are prior art only (`architecture.md` §9).
 

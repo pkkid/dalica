@@ -1,5 +1,5 @@
 //! Undo and redo. In the library they walk the library undo stack; the edit view's per-photo
-//! history arrives with the edit view (M12) and the same command ids (`architecture.md` §4).
+//! history arrives with the edit view (M7) and the same command ids (`architecture.md` §4).
 
 use serde::Deserialize;
 use serde_json::{Value, json};

@@ -3,7 +3,7 @@
 Adapted from LightCraft `docs/contributors.md` (revision 88ea1a8) and PhotoCraft
 `docs/contributors.md` (revision 59684266); MIT OR Apache-2.0.
 
-> Status: **Planned (M11).** Nothing below exists yet; this page records the decision so the
+> Status: **Planned (M6).** Nothing below exists yet; this page records the decision so the
 > files can be kept correct from the first community contribution.
 
 **About ▸ Contributors** credits everyone who contributed to Dalica, and **About ▸ Models** credits
@@ -72,7 +72,7 @@ to remove your names.
 
 The Craft apps generate `contributors.json` with a maintainer script that lives in a private shared
 repository, so Dalica cannot use it. Dalica will get its own **`cargo xtask contributors`**
-(planned, M11) with the same behaviour:
+(planned, M6) with the same behaviour:
 
 ```sh
 cargo xtask contributors           # regenerate contributors.json + verify people.toml; needs git and gh

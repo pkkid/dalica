@@ -128,8 +128,8 @@ impl GitHub for DryRun<'_> {
         Ok(PullRequest { number: 0, url: "(dry run)".into() })
     }
 
-    fn wait_for_checks(&self, _pr: u64) -> Result<(), String> {
-        Ok(())
+    fn main_ci_failure(&self) -> Result<Option<String>, String> {
+        self.inner.main_ci_failure()
     }
 
     fn squash_merge(&self, pr: u64, subject: &str) -> Result<(), String> {

@@ -154,7 +154,8 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), String> {
             print_changes("sync", &report.changes);
         }
         "next" => {
-            let tasks = board.next()?;
+            let agent = a.agent().ok();
+            let tasks = board.next(agent.as_deref())?;
             if tasks.is_empty() {
                 println!("nothing to claim right now; ask again in 5 minutes");
             }
