@@ -21,8 +21,8 @@ use std::path::{Path, PathBuf};
 
 pub use append::{Appender, append, rotate};
 pub use aside::set_aside;
-pub use atomic::{Expect, Identity, Read, identity, read, replace};
-pub use dirs::{TempDir, create_dir_all};
+pub use atomic::{Expect, Identity, Read, identity, read, replace, replace_private};
+pub use dirs::{TempDir, create_dir_all, create_private_dir_all, remove_own_file};
 pub use guard::{UiThread, mark_ui_thread};
 pub use lock::LibraryLock;
 pub use walk::{Entry, Limits, Walk, Warning, walk};

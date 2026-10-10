@@ -548,7 +548,7 @@ wave 5   M1.17 → M1.18 ui, app → M1.19 acceptance → M1.R milestone review
     change; input replies after the input played out (§5.2); the file-picker stub (§5.6).
   - done when: each method has a test against the headless driver, including every §3 code it can
     return and every §4 limit.
-- ⬜ **M2.4 `dalica`: the control transport and headless mode**
+- ✅ **M2.4 `dalica`: the control transport and headless mode**
   - after: M2.3
   - files: `apps/dalica/src/control/**`, `apps/dalica/src/main.rs`, `apps/dalica/src/window.rs`, `apps/dalica/Cargo.toml`
   - scope: `--control [PORT]` on 127.0.0.1 only, the token file (§2.1: 256-bit from `getrandom`,

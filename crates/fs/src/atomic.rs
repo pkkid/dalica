@@ -124,6 +124,18 @@ pub fn identity(path: &Path) -> Result<Option<Identity>> {
 /// Atomically replaces (or creates) `path` with `bytes`, if it still matches `expect`. Returns the
 /// new file's identity, to pass as the `expect` of the next write.
 pub fn replace(path: &Path, bytes: &[u8], expect: Expect) -> Result<Identity> {
+    replace_with(path, bytes, expect, false)
+}
+
+/// [`replace`] for a file only its owner may read (a credential such as the control token,
+/// `security.md` §6.3): the temporary file is created with mode `0600` on Unix, so the bytes are
+/// never readable by anyone else, not even for a moment. Elsewhere the file gets its folder's
+/// permissions.
+pub fn replace_private(path: &Path, bytes: &[u8], expect: Expect) -> Result<Identity> {
+    replace_with(path, bytes, expect, true)
+}
+
+fn replace_with(path: &Path, bytes: &[u8], expect: Expect, private: bool) -> Result<Identity> {
     guard::check()?;
     let name = path.file_name().ok_or_else(|| Error::Io {
         op: "replace",
@@ -142,7 +154,7 @@ pub fn replace(path: &Path, bytes: &[u8], expect: Expect) -> Result<Identity> {
         Some(Fault::Crash) => return Err(Error::Crashed(points::CREATE_TEMP)),
         None => {}
     }
-    let (tmp, mut file) = create_temp(dir, name)?;
+    let (tmp, mut file) = create_temp(dir, name, private)?;
     let cleanup = |e: Error| {
         let _ = fs::remove_file(&tmp);
         e
@@ -164,7 +176,7 @@ pub fn replace(path: &Path, bytes: &[u8], expect: Expect) -> Result<Identity> {
         None => {}
     }
     file.sync_all().map_err(|e| cleanup(io_err("fsync", &tmp)(e)))?;
-    if let Some(old) = &old {
+    if let Some(old) = old.as_ref().filter(|_| !private) {
         // Best effort: some file systems (FAT, some shares) have no permission bits to copy.
         let _ = file.set_permissions(old.permissions());
     }
@@ -239,7 +251,7 @@ fn check_target(path: &Path, expect: Expect) -> Result<Option<Metadata>> {
     if ok { Ok(meta) } else { Err(Error::Changed(path.to_path_buf())) }
 }
 
-fn create_temp(dir: &Path, name: &OsStr) -> Result<(PathBuf, File)> {
+fn create_temp(dir: &Path, name: &OsStr, private: bool) -> Result<(PathBuf, File)> {
     let lossy = name.to_string_lossy();
     let mut keep = lossy.len().min(TEMP_NAME_KEEP);
     while !lossy.is_char_boundary(keep) {
@@ -249,7 +261,12 @@ fn create_temp(dir: &Path, name: &OsStr) -> Result<(PathBuf, File)> {
     let mut last = None;
     for _ in 0..16 {
         let tmp = dir.join(format!(".{stem}{TEMP_MARK}{}", random_hex()));
-        match OpenOptions::new().write(true).create_new(true).open(&tmp) {
+        let mut options = OpenOptions::new();
+        options.write(true).create_new(true);
+        if private {
+            owner_only(&mut options);
+        }
+        match options.open(&tmp) {
             Ok(f) => return Ok((tmp, f)),
             Err(e) if e.kind() == io::ErrorKind::AlreadyExists => last = Some(e),
             Err(e) => return Err(io_err("create", &tmp)(e)),
@@ -257,6 +274,17 @@ fn create_temp(dir: &Path, name: &OsStr) -> Result<(PathBuf, File)> {
     }
     Err(io_err("create", dir)(last.unwrap_or_else(|| io::Error::other("no free temporary name"))))
 }
+
+/// Files created with `options` may be read and written by their owner only.
+#[cfg(unix)]
+fn owner_only(options: &mut OpenOptions) {
+    use std::os::unix::fs::OpenOptionsExt;
+    options.mode(0o600);
+}
+
+/// No permission bits elsewhere: the file gets its folder's (on Windows, its inherited ACL).
+#[cfg(not(unix))]
+fn owner_only(_options: &mut OpenOptions) {}
 
 /// 16 hex digits from the standard library's per-process random hash keys and a counter.
 fn random_hex() -> String {
@@ -371,6 +399,31 @@ mod tests {
         assert_eq!(fs::metadata(&p).unwrap().permissions().mode() & 0o777, 0o640);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn a_private_replace_is_owner_only_from_the_start_and_stays_so() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("secret");
+        let id = replace_private(&p, b"a", Expect::Absent).unwrap();
+        assert_eq!(fs::metadata(&p).unwrap().permissions().mode() & 0o777, 0o600);
+        // An existing file's looser bits are not copied onto a private replacement.
+        fs::set_permissions(&p, fs::Permissions::from_mode(0o644)).unwrap();
+        let id = identity(&p).unwrap().unwrap_or(id);
+        replace_private(&p, b"b", Expect::Unchanged(id)).unwrap();
+        assert_eq!(fs::metadata(&p).unwrap().permissions().mode() & 0o777, 0o600);
+        assert_eq!(fs::read(&p).unwrap(), b"b");
+    }
+
+    #[test]
+    fn a_private_replace_checks_the_target_like_replace() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("secret");
+        replace_private(&p, b"a", Expect::Absent).unwrap();
+        assert!(matches!(replace_private(&p, b"b", Expect::Absent), Err(Error::Changed(_))));
+        assert_eq!(fs::read(&p).unwrap(), b"a");
+    }
+
     #[test]
     fn names_with_awkward_characters_and_great_length_work() {
         let dir = tempfile::tempdir().unwrap();
@@ -398,7 +451,7 @@ mod tests {
             assert!(!is_temp_name(OsStr::new(other)), "{other}");
         }
         let dir = tempfile::tempdir().unwrap();
-        let (tmp, _f) = create_temp(dir.path(), OsStr::new(&"x".repeat(255))).unwrap();
+        let (tmp, _f) = create_temp(dir.path(), OsStr::new(&"x".repeat(255)), false).unwrap();
         let n = tmp.file_name().unwrap();
         assert!(n.len() <= 255 && is_temp_name(n));
     }

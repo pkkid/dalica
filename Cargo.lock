@@ -719,8 +719,10 @@ dependencies = [
  "dalica-ui-kit",
  "eframe",
  "egui",
+ "getrandom 0.4.3",
  "log",
  "rfd",
+ "serde_json",
  "tempfile",
  "wgpu",
 ]
