@@ -336,7 +336,7 @@ built. Built by a single agent; the waves show what could run in parallel later.
   - done when: each of the 8 orientations decodes upright (fingerprint equal to the orientation-1
     source); a header declaring 100 000 × 100 000 is refused without allocating; a 256 px
     thumbnail of a 24 MP scene decodes within a recorded time.
-- ⬜ **M1.7 `sidecar` v1**
+- ✅ **M1.7 `sidecar` v1**
   - after: M1.1
   - files: `crates/sidecar/**`
   - scope: the `.dalica.json` document with `photos.<name>.star`; unknown keys preserved at every

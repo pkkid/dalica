@@ -9,4 +9,11 @@ repository.workspace = true
 authors.workspace = true
 publish = false
 
+
 [dependencies]
+# Exact float parsing: coordinates (geo, crop, faces) must survive any number of rewrites.
+serde_json = { workspace = true, features = ["float_roundtrip"] }
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true

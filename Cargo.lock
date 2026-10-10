@@ -817,6 +817,11 @@ dependencies = [
 [[package]]
 name = "dalica-sidecar"
 version = "0.0.0"
+dependencies = [
+ "proptest",
+ "serde_json",
+ "thiserror 2.0.21",
+]
 
 [[package]]
 name = "dalica-store"
