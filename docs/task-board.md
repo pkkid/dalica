@@ -30,8 +30,9 @@ Nothing else counts: a ✅ on an unmerged branch, a closed issue without a merge
   generated section between `<!-- dalica:task -->` markers (after, owner, files, scope, done when,
   a link to the roadmap block); `sync` rewrites only that section, so humans may add notes below
   it. `sync` also keeps the project's item order equal to `roadmap.md` order, so the board reads
-  top to bottom in build order. Check-ins and release gates (`M2.R`, `M3.A`, `M6.R`) are issues too; release gates are assigned to the maintainer.
-- **Labels:** `task` (every task issue), `gate` (check-ins and release gates), `needs-maintainer` (an agent is
+  top to bottom in build order. Review tasks (`M2.R`, `M3.A`, `M6.R`) are issues too, assigned to the
+  maintainer.
+- **Labels:** `task` (every task issue), `gate` (review tasks), `needs-maintainer` (an agent is
   blocked on a question), `stale` (claimed but idle, set by `status`), and on pull requests
   `baseline-approved` (the maintainer approved the fingerprint baselines the PR adds or changes; only
   the maintainer sets it, never an agent).
@@ -52,22 +53,29 @@ public repository and the project).
 ```markdown
 - ⬜ **M1.4 `scenes`**
   - after: M1.1
-  - owner: agent                     (optional; `lead` for check-ins and board upkeep, `maintainer` for release gates)
+  - owner: agent                     (optional; `lead` for board upkeep and planning, `maintainer` for every review task)
   - files: `crates/scenes/**`
   - scope: what to build, in a few lines.
   - done when: the command or test that proves it, with its edge cases.
 ```
 
-- **Id:** `M<milestone>.<n>` for work, `M<n>.R` for the end-of-milestone check-in (a release gate
-  in M6, M10 and M15), `M<n>.A`, `M<n>.B`… for mid-milestone check-ins. Ids are never reused or
+- **Id:** `M<milestone>.<n>` for work, `M<n>.R` for the end-of-milestone review task (a release gate
+  in M6, M10 and M15), `M<n>.A`, `M<n>.B`… for mid-milestone review tasks. Ids are never reused or
   renumbered (the milestones were renumbered once, on 2026-10-10, before any task past M3
   existed).
-- **owner:** `agent` (default, any worker), `lead` (only `agent-1` may claim it: check-ins, board
-  upkeep), `maintainer` (no agent claims it). Only a gate the maintainer owns holds back later
-  milestones; a lead's check-in blocks nothing.
+- **owner:** `agent` (default, any worker), `lead` (only `agent-1` may claim it: board upkeep,
+  planning), `maintainer` (no agent claims it). Every review task is `maintainer` (maintainer rule,
+  2026-10-10; the parser refuses a review task with any other owner).
+- **Review tasks are stops.** An open review task holds back every task listed after it in
+  `roadmap.md`, in its own milestone and later ones, until the maintainer closes its issue. The
+  lead prepares it (`/milestone-review`: the check-in page and a pull request with *Where we
+  stand* and the `status.md` numbers); only the maintainer merges that pull request and closes the
+  issue. `tasks submit` and `tasks merge` refuse a review task, and `tasks sync` never closes a
+  review's issue.
 - **Checkbox:** ⬜ or ✅ only. Live progress is on the board, not in this file.
-- **after:** comma-separated ids, or `—`. A milestone's first tasks list the work they build on,
-  never a lead's check-in; after a release, they list the release gate.
+- **after:** comma-separated ids, or `—`. A milestone's first tasks list the work they build on; a
+  review listed before them already holds them back by its place in the file, so `after` names a
+  review only to make the dependency visible (after a release, the release gate).
 - **Order:** the order of blocks in `roadmap.md` is the order work is picked up, and it must be a
   valid build order: every id in `after` appears earlier in the file (the parser fails
   otherwise). Ids are names, not positions: M0.10 sits right after M0.2 and is picked up before
@@ -90,7 +98,7 @@ public repository and the project).
   additive. The lead checks at merge that no two tasks in review touched the same file this way.
 - **done when** never writes `docs/status.md` (metrics go in the dev log and the pull request; the
   lead copies them) and never needs the maintainer mid-task (approvals, pushes and manual looks
-  belong to release gates, check-in pages or the lead).
+  belong to review tasks, their check-in pages or the lead).
 - The parser fails with a line number on a malformed block; `cargo xtask ci` runs it.
 
 ## 4. Lifecycle
@@ -111,25 +119,25 @@ Todo ──(deps done)──► Ready ──claim──► In Progress ──sub
 | In Progress → Ready | `tasks release <id> --reason "…"` | the claiming worker, or the lead for stale claims |
 | In Progress → Blocked | `tasks block <id> "question"` | the claiming worker |
 | Blocked → Ready | the maintainer answers on the issue and removes `needs-maintainer`; `sync` | the maintainer |
-| check-in → Done | the lead claims it, publishes the check-in page, merges its commit (✅ ticked) | lead |
-| release gate → Done | the maintainer closes the gate issue; the lead ticks ✅ | maintainer, lead |
+| review task: prepared | `/milestone-review`: the check-in page, a `review/M<n>.<X>` pull request (✅ ticked, *Where we stand*, `status.md`) linked on the issue; the run stops | lead |
+| review task → Done | the maintainer merges the review's pull request and closes its issue; `sync` (everything listed after it can then be claimed) | maintainer only |
 
 ## 5. Commands (`cargo xtask tasks …`)
 
 | Command | What it does |
 |---|---|
 | `setup [--dry-run]` | create milestones, labels (`task`, `gate`, `needs-maintainer`, `stale`, `baseline-approved`) and the Agent/Branch fields (idempotent; maintainer approves). Missing Status options are reported, not created: replacing a single-select field's options through the API resets every item |
-| `sync [--check\|--dry-run]` | parse `roadmap.md`, create or update issues and project items, move Todo ↔ Ready, keep the board in roadmap order, close the issue of a ✅ task once its `M<n>.<k>:` commit is on `main` and nothing that isn't merged; `--check` only parses (offline, used by `ci`); `--dry-run` reads GitHub and prints the writes it would make |
-| `next [--agent <name>]` | list Ready tasks this agent may take: dependencies done, files not overlapping any In Progress or In Review task, milestone not behind an open release gate, `owner: lead` tasks only for the lead. Prints them in `roadmap.md` order, so the first line is the one to claim |
+| `sync [--check\|--dry-run]` | parse `roadmap.md`, create or update issues and project items, move Todo ↔ Ready, keep the board in roadmap order, close the issue of a ✅ task once its `M<n>.<k>:` commit is on `main` and nothing that isn't merged; never closes a review's issue (the maintainer does); `--check` only parses (offline, used by `ci`); `--dry-run` reads GitHub and prints the writes it would make |
+| `next [--agent <name>]` | list Ready tasks this agent may take: dependencies done, files not overlapping any In Progress or In Review task, not listed after an open review task, `owner: lead` tasks only for the lead. Prints them in `roadmap.md` order, so the first line is the one to claim |
 | `claim <id> --agent <name>` | under the claim lock, re-read the board, refuse if no longer Ready or overlapping, then set In Progress + Agent + Branch, comment "claimed by agent-3 on task/M1.4-scenes", create or reuse the agent's worktree and branch from `origin/main`, and print the agent's environment |
 | `env <name>` | print the agent's environment (`eval "$(cargo xtask tasks env agent-3)"`) |
-| `submit <id> [--body-file F] [--dry-run]` | refuse unless `cargo xtask ci` passed on this commit (a green `ci` on a clean worktree records `<git common dir>/dalica-ci/<commit>.ok`) and a devlog entry exists; push the branch; open the PR (title `M1.4: <title>`, body: what changed, evidence for each *done when*, numbers, screenshots, `Closes #<issue>`); set In Review. The evidence is the `--body-file` (screenshots, per-point evidence) or, without it, the task's newest dev-log entry. When the branch adds or changes **fingerprint baselines** (`**/fingerprints/*.json`), the body lists them and asks the maintainer for the `baseline-approved` label; the worker attaches their images |
+| `submit <id> [--body-file F] [--dry-run]` | refuse a review task; refuse unless `cargo xtask ci` passed on this commit (a green `ci` on a clean worktree records `<git common dir>/dalica-ci/<commit>.ok`) and a devlog entry exists; push the branch; open the PR (title `M1.4: <title>`, body: what changed, evidence for each *done when*, numbers, screenshots, `Closes #<issue>`); set In Review. The evidence is the `--body-file` (screenshots, per-point evidence) or, without it, the task's newest dev-log entry. When the branch adds or changes **fingerprint baselines** (`**/fingerprints/*.json`), the body lists them and asks the maintainer for the `baseline-approved` label; the worker attaches their images |
 | `release <id> --reason …` | back to Ready with a comment; the branch is kept for whoever claims it next |
 | `block <id> "question"` | set Blocked, add `needs-maintainer`, comment the question; the agent then takes another task |
-| `merge <id> [--dry-run]` | lead only, under the merge lock: refuse while the latest finished GitHub CI run on `main` is red, rebase origin's copy of the branch on `origin/main` in the `merge` worktree (the worker may still have the branch checked out), refuse while the branch adds or changes a fingerprint baseline and its PR lacks the `baseline-approved` label, `cargo xtask ci`, push, squash-merge (`M1.4: <title> (#PR)`) without waiting for the PR's GitHub checks (they and the run on `main` still report), then `sync` |
+| `merge <id> [--dry-run]` | lead only, under the merge lock: refuse a review task (only the maintainer merges those), refuse while the latest finished GitHub CI run on `main` is red, rebase origin's copy of the branch on `origin/main` in the `merge` worktree (the worker may still have the branch checked out), refuse while the branch adds or changes a fingerprint baseline and its PR lacks the `baseline-approved` label, `cargo xtask ci`, push, squash-merge (`M1.4: <title> (#PR)`) without waiting for the PR's GitHub checks (they and the run on `main` still report), then `sync` |
 | `status` | the whole board: per milestone, per status, who holds what, stale claims (no push or log entry for 3 h) |
 | `log <id> "text"` | append a dated entry to the private dev log (§8) |
-| `prune [--dry-run]` | lead only, at each check-in (or when disk runs low): remove cargo's `incremental/` caches from `target/agent-<n>` and `target/merge` (§7). Skips an agent that holds an In Progress task, and a profile where cargo is building (it takes cargo's own build locks first, so a cargo that starts meanwhile waits). Only an `incremental/` next to a `.fingerprint/` is removed; symlinks are never followed. Prints what it removed and the space freed |
+| `prune [--dry-run]` | lead only, at each review (or when disk runs low): remove cargo's `incremental/` caches from `target/agent-<n>` and `target/merge` (§7). Skips an agent that holds an In Progress task, and a profile where cargo is building (it takes cargo's own build locks first, so a cargo that starts meanwhile waits). Only an `incremental/` next to a `.fingerprint/` is removed; symlinks are never followed. Prints what it removed and the space freed |
 
 `--dry-run` (with `setup`, `sync`, `submit`, `merge` and `prune`) reads GitHub and git, prints every
 write it would make (pushes, rebases, `ci` runs, the PR body, board changes) and what `prune` would
@@ -140,15 +148,17 @@ is developer tooling; the Dalica app itself never touches the network for this.
 
 ## 6. Roles
 
-- **Maintainer:** runs `tasks setup` once, looks at check-in pages when convenient (feedback becomes
-  tasks), signs off release gates (M6, M10, M15), answers `needs-maintainer` questions (only the
-  kinds `AGENTS.md` §4 lists), decides reserved decisions.
+- **Maintainer:** runs `tasks setup` once; decides every review task: reads its check-in page,
+  merges its pull request and closes its issue (feedback becomes tasks), and signs off the releases
+  (M6, M10, M15) the same way; then starts the next run (`/milestone-start`). Answers
+  `needs-maintainer` questions (only the kinds `AGENTS.md` §4 lists), decides reserved decisions.
 - **Lead (`agent-1`):** the integrator. Loop: `tasks status` → merge In Review tasks one at a time
   (`tasks merge`, re-resolving `Cargo.lock` if two branches both changed it) → copy reported
   metrics into `docs/status.md` → `tasks sync` → release stale
-  claims → write the next milestone's task blocks while the current one runs → take the
-  `owner: lead` check-ins (`/milestone-review`: `accept M<n>`, the check-in page, *Where we
-  stand*) and keep going; stop only at a release gate. When GitHub CI on `main` turns red, fix it
+  claims → write the next milestone's task blocks while the current one runs. When the run reaches
+  a review task, let running tasks finish and merge, prepare it (`/milestone-review`: `accept M<n>`,
+  the check-in page, *Where we stand* and `status.md` on a `review/M<n>.<X>` branch, a pull
+  request) and stop; never merge that pull request or close the review issue. When GitHub CI on `main` turns red, fix it
   before the next merge (`tasks merge` refuses until it is green). The lead
   may take small tasks when the review queue is empty, never ones whose files overlap a task in
   review.
@@ -179,7 +189,7 @@ All agents run on the maintainer's machine, so local locks make GitHub updates r
   On this machine (24 cores, 31 GB RAM, ~134 GB free on 2026-10-09) eight agents fit, but test
   runs are memory-bound: `cargo xtask ci` lowers test parallelism when free RAM is low. Disk is
   the other limit: a long-lived target dir grows from ~3.5 GB to ~10 GB, mostly `incremental/`, so
-  the lead runs `cargo xtask tasks prune` at each check-in.
+  the lead runs `cargo xtask tasks prune` at each review.
 - **Fingerprint approvals:** a branch that adds or changes a fingerprint baseline is approved on
   its pull request: the maintainer looks at the attached images and adds the `baseline-approved`
   label; `merge` refuses it until then. The worker does not wait: it submits and takes its next task.
@@ -202,7 +212,7 @@ Numbers: 200-photo demo library in 1.9 s.
 
 Every task gets one entry before `submit` (what landed, what is still open, numbers); without
 `--body-file`, `submit` uses the task's newest entry as the PR's evidence. The lead
-adds one per merge and per check-in. Committed history lives in git; the dev log is the
+adds one per merge and per review. Committed history lives in git; the dev log is the
 private narrative the next agent reads after a crash.
 
 ## 9. Tests (M0.10)
@@ -213,3 +223,6 @@ task (exactly one wins), stale detection on a virtual clock, and `sync` failing 
 the issues and `main` disagree. Since M2.7 they also cover `submit`'s dev-log default and its
 baseline list, `merge` refusing unapproved baselines, `submit`/`merge` dry runs that write nothing,
 and `prune` on temporary target dirs (idle and busy agents, a held cargo lock, symlinks, dry run).
+Since the review-stop rule (2026-10-10) they also cover an open review holding back every task
+listed after it (in its milestone and later ones) until its issue is closed, `submit` and `merge`
+refusing review tasks, and `sync` never closing a review's issue.

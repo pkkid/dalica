@@ -173,11 +173,17 @@ L0       core · fs                    (only `fs` writes to disk)
   `cargo xtask tasks release <id> --reason "…"`.
 - **The lead** (`agent-1`) merges In Review tasks one at a time with `cargo xtask tasks merge
   <id>`, releases stale claims, writes the next milestone's task blocks while the current one runs,
-  takes the `owner: lead` tasks, and runs each check-in (`/milestone-review`): `accept M<n>`, a
-  published check-in page, *Where we stand*, `docs/status.md`.
-- **Check-ins and release gates** (`roadmap.md` → How milestones work). `M<n>.R` / `M<n>.A` owned
-  by the lead are check-ins: nothing waits for them. Only the release gates (M6, M10, M15), owned by
-  the maintainer, hold back the next milestone until the maintainer closes them.
+  takes the `owner: lead` tasks, and prepares each review task (`/milestone-review`): `accept M<n>`,
+  a published check-in page, *Where we stand* and `docs/status.md` on a `review/M<n>.<X>` branch, a
+  pull request.
+- **Review tasks are stops** (maintainer rule, 2026-10-10; `roadmap.md` → How milestones work).
+  Every `M<n>.A` / `M<n>.R` (release gates in M6, M10 and M15 included) is `owner: maintainer`, and
+  nothing listed after an open one is claimed. When the run reaches one, the lead lets running
+  tasks finish and merge, runs `/milestone-review` to prepare it, and stops (pushing the
+  `review/M<n>.<X>` branch and opening its pull request are part of preparing it). **Only the
+  maintainer merges a review's pull request or closes its issue;** no agent ever does, not even as
+  board housekeeping, and `cargo xtask tasks` refuses to (`submit` and `merge` reject review ids;
+  `sync` never closes a review's issue).
 - **M0 and M1 (one agent, acting as lead and worker):** up to the M1.A checkpoint, work in roadmap
   order, one branch `task/M<n>.<k>-<slug>` per task, fast-forward `main` after `cargo xtask ci` is
   green, then `cargo xtask tasks sync` marks the task Done and closes its issue (In Progress is set
@@ -277,7 +283,7 @@ And:
   breaks everyone. Write new or rewritten manifests to a temp file outside `crates/`, then move
   them into place.
 - **Only the lead merges**, one branch at a time (`tasks merge`: rebase, `cargo xtask ci`,
-  squash-merge). Two individually green branches can still break each other. The local gate
+  squash-merge); a review task's pull request only the maintainer merges (§4). Two individually green branches can still break each other. The local gate
   decides a merge; GitHub's Linux/Windows/macOS run checks `main` after it, and `tasks merge`
   refuses while the latest finished run on `main` is red: fixing it comes first.
 

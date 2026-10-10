@@ -23,8 +23,10 @@ impl Milestone {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Owner {
     Agent,
-    /// Only the lead (`agent-1`) takes it: check-ins, board upkeep.
+    /// Only the lead (`agent-1`) takes it: board upkeep, planning the next milestone.
     Lead,
+    /// No agent takes it: every review task (`M<n>.A`, `M<n>.R`), which only the maintainer
+    /// merges or closes.
     Maintainer,
 }
 
@@ -60,9 +62,9 @@ pub struct Task {
 }
 
 impl Task {
-    /// Review gates (`M1.A`, `M1.R`) end in a letter.
+    /// Review tasks (`M1.A`, `M1.R`) end in a letter.
     pub fn is_gate(&self) -> bool {
-        self.id.rsplit('.').next().is_some_and(|s| s.chars().all(|c| c.is_ascii_uppercase()))
+        is_gate_id(&self.id)
     }
 
     /// The issue title: id plus the block title, e.g. ``M1.4 `scenes` ``.
@@ -255,8 +257,14 @@ fn parse_block(lines: &[&str], start: usize, milestones: &[Milestone], earlier: 
         Some((v, _)) if v == "agent" => Owner::Agent,
         Some((v, _)) if v == "lead" => Owner::Lead,
         Some((v, _)) if v == "maintainer" => Owner::Maintainer,
-        Some((v, l)) => return Err(err(l, format!("{id}: owner must be `agent` or `maintainer`, found `{v}`"))),
+        Some((v, l)) => return Err(err(l, format!("{id}: owner must be `agent`, `lead` or `maintainer`, found `{v}`"))),
     };
+    // Every review task is a stop that only the maintainer merges or closes (maintainer rule,
+    // 2026-10-10; `task-board.md` §3), so its block must say so.
+    if is_gate_id(id) && owner != Owner::Maintainer {
+        let line = get("owner").map_or(lineno, |(_, l)| l);
+        return Err(err(line, format!("{id} is a review task: its owner must be `maintainer` (only the maintainer merges or closes a review)")));
+    }
 
     let mut after = Vec::new();
     if !is_none(&after_text) {
@@ -300,6 +308,11 @@ fn parse_block(lines: &[&str], start: usize, milestones: &[Milestone], earlier: 
     Ok((task, i))
 }
 
+/// A review task's id (`M1.A`, `M1.R`) ends in a letter.
+fn is_gate_id(id: &str) -> bool {
+    id.rsplit('.').next().is_some_and(|s| !s.is_empty() && s.chars().all(|c| c.is_ascii_uppercase()))
+}
+
 fn is_none(value: &str) -> bool {
     matches!(value.trim(), "—" | "-" | "")
 }
@@ -320,9 +333,13 @@ mod tests {
         let roadmap = parse(&text).unwrap();
         // 38 milestones combined into 16 (maintainer decision, 2026-10-10).
         assert_eq!(roadmap.milestones.len(), 16);
-        // Check-ins after M1 are the lead's and block nothing.
-        for id in ["M2.R", "M3.A", "M3.R"] {
-            assert_eq!(roadmap.task(id).map(|t| t.owner), Some(Owner::Lead), "{id}");
+        // Every review task is the maintainer's: a stop only the maintainer merges or closes.
+        let reviews: Vec<&Task> = roadmap.tasks.iter().filter(|t| t.is_gate()).collect();
+        for id in ["M0.R", "M1.A", "M1.R", "M2.R", "M3.A", "M3.R", "M4.A", "M4.R"] {
+            assert!(reviews.iter().any(|t| t.id == id), "{id}");
+        }
+        for t in &reviews {
+            assert_eq!(t.owner, Owner::Maintainer, "{}", t.id);
         }
         let m0: Vec<_> = roadmap.tasks.iter().filter(|t| t.milestone == 0).map(|t| t.id.as_str()).collect();
         assert_eq!(m0, ["M0.1", "M0.2", "M0.10", "M0.3", "M0.4", "M0.5", "M0.6", "M0.7", "M0.8", "M0.9", "M0.R"]);
@@ -360,6 +377,10 @@ mod tests {
             ("- ⬜ **M9.1 X**\n  - after: —\n  - files: —\n  - scope: s\n  - done when: d\n", 6, "not in the Overview"),
             ("- ⬜ **M0.1 X** extra\n  - after: —\n  - files: —\n  - scope: s\n  - done when: d\n", 6, "header"),
             ("- ⬜ **M0.1 X**\n  - after: —\n  - owner: robot\n  - files: —\n  - scope: s\n  - done when: d\n", 8, "owner"),
+            // A review task must be the maintainer's: no owner, `lead` or `agent` is refused.
+            ("- ⬜ **M0.R X**\n  - after: —\n  - files: —\n  - scope: s\n  - done when: d\n", 6, "review task"),
+            ("- ⬜ **M0.A X**\n  - after: —\n  - owner: lead\n  - files: —\n  - scope: s\n  - done when: d\n", 8, "owner must be `maintainer`"),
+            ("- ⬜ **M0.B X**\n  - after: —\n  - owner: agent\n  - files: —\n  - scope: s\n  - done when: d\n", 8, "review task"),
         ];
         for (block, line, needle) in cases {
             let e = parse(&doc(block)).unwrap_err();

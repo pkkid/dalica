@@ -29,16 +29,18 @@ const USAGE: &str = "usage: cargo xtask tasks <command>
   setup [--dry-run]              create milestones, labels and project fields (idempotent)
   sync [--check|--dry-run]       make the issues and the project match roadmap.md (--check: parse only, offline;
                                  --dry-run: read GitHub, print the writes it would make, make none)
-  next [--agent NAME]            tasks you may claim, in roadmap order (claim the first)
+  next [--agent NAME]            tasks you may claim, in roadmap order (claim the first); nothing listed after an
+                                 open review task (M<n>.A, M<n>.R) until the maintainer closes it
   claim ID --agent NAME          claim a Ready task; prints the worktree to work in
   env NAME                       the agent's environment: eval \"$(cargo xtask tasks env agent-3)\"
   submit ID [--body-file FILE] [--dry-run]
                                  push, open the pull request, set In Review (needs a green ci and a dev-log entry);
-                                 without --body-file the evidence is the task's newest dev-log entry
+                                 without --body-file the evidence is the task's newest dev-log entry; never a review task
   release ID --reason TEXT       give a claimed task back (the branch is kept)
   block ID \"QUESTION\"            ask the maintainer; the task becomes Blocked
   merge ID [--dry-run]           lead only: refuse while main is red on GitHub CI, rebase, refuse new or changed
-                                 fingerprints without the `baseline-approved` label, ci, push, squash-merge, sync
+                                 fingerprints without the `baseline-approved` label, ci, push, squash-merge, sync;
+                                 never a review task (only the maintainer merges or closes those)
   status                         the whole board; marks idle claims stale
   log ID \"TEXT\" [--agent NAME]   append to the private dev log (log/devlog.md in the main checkout)
   prune [--dry-run]              lead only: remove incremental/ from the target dirs of agents with no In Progress task

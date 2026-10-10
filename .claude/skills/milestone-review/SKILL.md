@@ -1,25 +1,28 @@
 ---
 name: milestone-review
-description: Run a milestone check-in (M<n>.R or M<n>.A owned by the lead; publish a page for the maintainer and keep going) or a release gate (M6.R, M10.R, M15.R; stop for the maintainer's sign-off). Usually run by /milestone-start; the maintainer may run it directly.
-argument-hint: "[M<n>.R | M<n>.A]  (default: the first open check-in or release gate)"
+description: Prepare a review task (M<n>.A, M<n>.R, and the release gates M6.R, M10.R, M15.R) for the maintainer - check-in page, docs on a review branch, a pull request - then stop. Never merges the PR or closes the review issue; only the maintainer does. Usually run by /milestone-start when the run reaches a review; the maintainer may run it directly.
+argument-hint: "[M<n>.R | M<n>.A]  (default: the first open review task)"
 disable-model-invocation: true
 ---
 
-# Milestone check-in or release gate
+# Prepare a review task
 
 Target: **$ARGUMENTS**. If empty, use the first open `M<n>.A` / `M<n>.R` in
 `cargo xtask tasks status`.
 
-You are the lead (`agent-1`, `docs/task-board.md` §6). The roadmap (*How milestones work*) gives two
-kinds:
+You are the lead (`agent-1`, `docs/task-board.md` §6). Every review task is a **stop** (maintainer
+rule, 2026-10-10; `docs/roadmap.md` → How milestones work): it is `owner: maintainer`, and nothing
+listed after it is claimed until the maintainer closes it. Your job is to **prepare** it so the
+maintainer can decide quickly: gather the facts, publish a check-in page, put the docs on a review
+branch, open a pull request, and stop.
 
-- **Check-in** (the block says `owner: lead`). Nothing waits for it. Gather the facts, publish a
-  check-in page, write the docs, merge, and **keep going**. Never stop to ask; the maintainer reads
-  the page when convenient and reverses anything by replying.
-- **Release gate** (`owner: maintainer`: M6.R, M10.R, M15.R). Do the same, then **stop**: ask the
-  maintainer to sign off, and apply their answers.
+- **You never merge the review's pull request and never close its issue.** Only the maintainer
+  does. Do not `tasks claim`, `tasks submit` or `tasks merge` a review (they refuse), and do not
+  use `gh pr merge` or `gh issue close` on it.
+- **Release gates** (M6.R, M10.R, M15.R) are prepared the same way, plus the release checklist and
+  the sign-off questions of §5.
 
-**Scope.** For `M<n>.R`: every task of milestone M<n>. If the milestone had a mid-milestone check-in
+**Scope.** For `M<n>.R`: every task of milestone M<n>. If the milestone had a mid-milestone review
 (`M<n>.A`), cover the whole milestone but say briefly what that one already showed. For `M<n>.A`:
 the tasks from the start of M<n> up to it.
 
@@ -53,7 +56,7 @@ the tasks from the start of M<n> up to it.
 ## 2. Write it down
 
 Append one entry to `log/devlog.md` in the **main checkout**, headed
-`## <YYYY-MM-DD HH:MM> · agent-1 · M<n>.R Check-in` (or `Release gate`). Keep it short:
+`## <YYYY-MM-DD HH:MM> · agent-1 · M<n>.R Check-in` (or `M<n>.A`, or `Release gate`). Keep it short:
 
 1. **What landed:** one line per task, with evidence against its *done when*, numbers and the PR.
    Then the milestone's numbers against the previous check-in's.
@@ -85,25 +88,38 @@ milestone, so lead with the app:
 - **Numbers:** the few that matter (speed budgets met, test count, CI time per OS).
 - **Next:** what the next milestone builds, in two or three lines.
 
-Link the page in a comment on the check-in issue: `gh issue comment <n> --body "Check-in page:
-<url>"`.
+The page is linked on the review issue together with the pull request (§4).
 
-## 4. Docs, tick and merge (a check-in ends here)
+## 4. Docs on a review branch, a pull request, and stop
 
-1. `cargo xtask tasks claim M<n>.R --agent agent-1` (or `.A`).
-2. In its worktree:
+The review's id is `M<n>.<X>` (`M2.R`, `M3.A`, …) and its issue `#<issue>`.
+
+1. Make a branch `review/M<n>.<X>` from `origin/main` in a worktree of your own (for example
+   `git worktree add ../dalica.worktrees/review-M<n>.<X> -b review/M<n>.<X> origin/main`, with
+   `CARGO_TARGET_DIR` at `target/agent-1`). There:
    - write the dated *Where we stand* paragraph in `docs/roadmap.md` and the numbers in
      `docs/status.md`;
-   - apply any reversals the maintainer asked for since the last check-in;
-   - tick the check-in's ✅.
-3. `cargo xtask ci`, `cargo xtask tasks log M<n>.R "…"`, `cargo xtask tasks submit M<n>.R`,
-   `cargo xtask tasks merge M<n>.R`.
-4. For a **check-in**: report the page's link in one line and go back to work. That means the
-   `/milestone-start` loop if it is running, or a pointer to `/milestone-start` if not.
+   - apply any reversals the maintainer asked for since the last review;
+   - tick the review's ✅ in `docs/roadmap.md`, so merging the PR is the approval.
+2. Commit as `M<n>.<X>: check-in` (body: what the page covers, the numbers, the attribution line),
+   run `cargo xtask ci` there, and `cargo xtask tasks log M<n>.<X> "…" --agent agent-1`.
+3. Push the branch (`git push -u origin review/M<n>.<X>`) and open the pull request with
+   `gh pr create --base main --head review/M<n>.<X> --title "M<n>.<X>: check-in"`. Its body:
+   - the check-in page's link and a three-line summary (what to try, the decisions to look at);
+   - the line "Merge this PR and close #<issue> to approve; the next run starts after that."
+     (GitHub reads "close #<issue>" in a PR body as a closing keyword, so the maintainer's merge
+     also closes the issue.)
+   - the attribution line the environment requires.
+4. Comment both links on the review issue:
+   `gh issue comment <issue> --body "Check-in page: <page url>  Pull request: <pr url>"`.
+5. **Stop.** Never merge that PR, never close the issue, and do not claim anything listed after the
+   review. Report the PR and the page in one short message and tell the maintainer: after merging
+   the PR and closing #<issue>, run `/milestone-start` again. If `/milestone-start` is running, it
+   ends its run with that message.
 
-## 5. Release gates only: stop for the maintainer
+## 5. Release gates: the checklist and the sign-off questions
 
-After §1–§3, and the same docs as §4 without ticking the gate:
+For a release gate (M6.R, M10.R, M15.R), before §4's step 5:
 
 - Add the release checklist (`docs/releasing.md`) to the page: packages built per OS, install
   steps, known issues.
@@ -111,9 +127,10 @@ After §1–§3, and the same docs as §4 without ticking the gate:
   - one question to sign off the release: ship / ship after listed fixes / hold;
   - questions for any decision the maintainer must make (`AGENTS.md` §4's short list).
   - Up to 4 questions per call; keep asking until everything is answered.
-- Apply the answers on a branch and merge it.
-- Once the maintainer closes the gate issue, tick it ✅ and run `cargo xtask tasks sync`; the next
-  milestone's tasks become Ready. Tell the maintainer to run `/milestone-start M<n+1>`.
+- Apply the answers on the `review/M<n>.R` branch (or on a separate PR that the maintainer also
+  merges) and say on the review PR what changed.
+- Still never merge the review PR or close the gate issue: the maintainer does both, then runs
+  `/milestone-start M<n+1>`.
 
 The names rule applies everywhere: never name the reference application, in the dev log, the page
 or a commit.

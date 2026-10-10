@@ -1,6 +1,6 @@
 ---
 name: milestone-start
-description: Run the build from a milestone (M2 and later) with this session as the lead (agent-1) and parallel worker subagents, one per task, through check-ins and into later milestones, until the next release gate. Run only when the maintainer asks.
+description: Run the build from a milestone (M2 and later) with this session as the lead (agent-1) and parallel worker subagents, one per task, until the next review task (any M<n>.A or M<n>.R); there it prepares the review with /milestone-review and stops for the maintainer, who merges the review PR, closes the issue and runs this again. Run only when the maintainer asks.
 argument-hint: "[M<n>] [workers, default 7]"
 disable-model-invocation: true
 ---
@@ -19,10 +19,11 @@ Its jobs are to claim, dispatch, review, merge and keep the board true.
   and returns.
 - A slot (`agent-<k>`) keeps its worktree, target dir, port and scratch dir from task to task, so
   builds stay warm.
-- **Run until the next release gate** (M6.R, M10.R, M15.R; `docs/roadmap.md` → How milestones
-  work). Check-ins (`M<n>.A`, `M<n>.R` with `owner: lead`) are the lead's own tasks: run
-  `/milestone-review` for them and keep going. Work flows into the next milestone as soon as the
-  board offers its tasks.
+- **Run until the next review task** (any `M<n>.A` or `M<n>.R`, release gates included;
+  `docs/roadmap.md` → How milestones work). Every review task is a stop: the board offers nothing
+  listed after it until the maintainer closes it. At a review the lead prepares it with
+  `/milestone-review` and **stops**. Only the maintainer merges the review's pull request and
+  closes its issue; the lead never does either.
 - **Decide, don't ask.** Technical decisions are the agents' (`AGENTS.md` §4). Only the short list
   there reaches the maintainer. The lead's own choices (board, process, scheduling) follow "The
   lead asks even less" there: decide, and log each one as a `DEFERRED:` dev-log line for the
@@ -39,8 +40,9 @@ Its jobs are to claim, dispatch, review, merge and keep the board true.
 3. **Is the board ready?**
    - The milestone's task blocks exist on `main`.
    - `cargo xtask tasks sync` has created their issues.
-   - Its first tasks show Ready in `cargo xtask tasks status`. Only an open release gate holds
-     them back.
+   - Its first tasks show Ready in `cargo xtask tasks status`, and `cargo xtask tasks next`
+     offers them: no review task listed before them is still open. If one is (its PR not merged
+     or its issue not closed), stop and tell the maintainer which review waits for them.
 4. **Are there leftovers?** Nothing should be In Progress from an earlier run. For each worktree in
    `git worktree list`, check `git status` and `git log origin/main..HEAD`. Finish, release
    (`tasks release <id> --reason …`) or report it before claiming anything.
@@ -51,10 +53,10 @@ Its jobs are to claim, dispatch, review, merge and keep the board true.
 6. **Plan the parallelism.**
    - List the milestone's tasks in roadmap order with `after` and `files`.
    - Work out the waves and how many tasks can run at once given `files` overlap.
-   - Find where the check-ins and the next release gate fall.
+   - Find the next review task: the run stops there.
    - If fewer tasks can run at once than there are workers, use fewer workers and say so.
-7. Show the maintainer a short plan: milestone, worker count, waves, the check-ins on the way, the
-   release gate where the run will stop, and any preflight warning. Then start; the command itself is the go-ahead. The maintainer's
+7. Show the maintainer a short plan: milestone, worker count, waves, the review task where the
+   run will stop, and any preflight warning. Then start; the command itself is the go-ahead. The maintainer's
    standing go-ahead covers the `submit` and `merge` pushes (`AGENTS.md` §4). Ask before any other
    push.
 
@@ -121,7 +123,7 @@ once and report.
 10. Note numbers for `docs/status.md`. Do not edit it here; it is written by the check-in
     (`/milestone-review`).
 
-## 4. Plan ahead, check in, and stop only at a release
+## 4. Plan ahead, and stop at the next review task
 
 - **Plan ahead.** As soon as a milestone's first wave is running, make sure the next milestone's
   task blocks are on `main`. Each milestone carries an `owner: lead` task for this ("Lead: task
@@ -129,18 +131,23 @@ once and report.
   - Write the blocks from the milestone's section and the spec: `after`, `files`, `scope`,
     `done when`, plus waves.
   - The first tasks list the work they build on. List a gate only after a release.
-  - The milestone ends with an `M<n+1>.R` check-in (`owner: lead`), or a release gate
-    (`owner: maintainer`) for M6, M10 and M15.
+  - The milestone ends with an `M<n+1>.R` review task, and a big one has a mid-milestone
+    `M<n+1>.A`; every review task is `owner: maintainer` (the parser refuses any other owner).
+    M6, M10 and M15 end with release gates.
   - Merge the blocks like any task; `tasks sync` then creates their issues. No approval is needed.
-- **Check-ins.** When the board offers you an `M<n>.A` / `M<n>.R` with `owner: lead`, run
-  `/milestone-review` for it. It publishes the page, writes the docs and merges. Keep the workers
-  busy meanwhile.
-- **Release gate.** When the next tasks wait on an open release gate (M6.R, M10.R, M15.R):
-  - Let the running tasks finish and merge; claim nothing behind the gate.
-  - Run `/milestone-review` for the gate. It asks the maintainer to sign off, then stops.
-- **Final message** (at a release gate, or when the maintainer stops the run):
+- **Review task: stop.** When the next tasks wait on an open review task (`M<n>.A`, `M<n>.R`,
+  release gates included), `tasks next` offers nothing listed after it:
+  - Let the running tasks finish; review and merge them as usual. Claim nothing listed after the
+    review.
+  - Run `/milestone-review M<n>.<X>` to prepare it: the check-in page, *Where we stand* and
+    `docs/status.md` on a `review/M<n>.<X>` branch, a pull request, both linked on the issue (for a
+    release gate also the checklist and the sign-off questions).
+  - Never merge that pull request, never close the review issue, never `tasks merge` it. Then end
+    the run.
+- **Final message** (at a review task, or when the maintainer stops the run):
+  - the review waiting: its pull request and check-in page links, and "Merge the PR and close
+    #<issue> to approve; then run `/milestone-start` again to continue";
   - tasks merged per milestone, and any blocked or released;
-  - the check-in pages published;
   - wall-clock time;
   - one line per incident.
 
