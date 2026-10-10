@@ -18,8 +18,12 @@ pub trait Git: Send + Sync {
     fn head(&self, dir: &Path) -> Result<String, String>;
     /// Subjects of the commits on `branch` that are not on `origin/main`.
     fn branch_subjects(&self, branch: &str) -> Result<Vec<String>, String>;
+    /// Pushes what `dir` has checked out to origin's `branch`, unless origin's `branch` moved since
+    /// the last fetch.
     fn push(&self, dir: &Path, branch: &str) -> Result<(), String>;
-    /// Rebases `branch` onto `origin/main` in the merge worktree and returns that worktree.
+    /// Checks out origin's `branch` (detached) in the merge worktree, rebases it onto `origin/main`
+    /// and returns that worktree. The local branch is not used: the worker may still have it
+    /// checked out in its own worktree.
     fn rebase_for_merge(&self, branch: &str) -> Result<PathBuf, String>;
     /// Runs `cargo xtask ci` in `dir`.
     fn run_ci(&self, dir: &Path) -> Result<(), String>;
@@ -84,19 +88,25 @@ impl RealGit {
         Ok(())
     }
 
-    fn ensure_worktree(&self, name: &str, branch: &str) -> Result<PathBuf, String> {
+    /// `name`'s worktree, created (detached at `origin/main`) if missing; refused if it has
+    /// uncommitted changes.
+    fn clean_worktree(&self, name: &str) -> Result<PathBuf, String> {
         let path = self.worktree_path(name);
         if path.join(".git").exists() {
             let dirty = git(&path, &["status", "--porcelain"])?;
             if !dirty.is_empty() {
                 return Err(format!("worktree {} has uncommitted changes; commit or clean them first", path.display()));
             }
-            self.checkout(&path, branch)?;
         } else {
             let p = path.to_string_lossy().to_string();
             git(&self.cwd, &["worktree", "add", "--quiet", "--detach", &p, "origin/main"])?;
-            self.checkout(&path, branch)?;
         }
+        Ok(path)
+    }
+
+    fn ensure_worktree(&self, name: &str, branch: &str) -> Result<PathBuf, String> {
+        let path = self.clean_worktree(name)?;
+        self.checkout(&path, branch)?;
         Ok(path)
     }
 }
@@ -140,12 +150,18 @@ impl Git for RealGit {
     }
 
     fn push(&self, dir: &Path, branch: &str) -> Result<(), String> {
-        git(dir, &["push", "--quiet", "--force-with-lease", "-u", "origin", branch]).map(|_| ())
+        let lease = format!("--force-with-lease=refs/heads/{branch}");
+        git(dir, &["push", "--quiet", &lease, "origin", &format!("HEAD:refs/heads/{branch}")]).map(|_| ())
     }
 
     fn rebase_for_merge(&self, branch: &str) -> Result<PathBuf, String> {
         self.fetch()?;
-        let path = self.ensure_worktree("merge", branch)?;
+        let remote = format!("origin/{branch}");
+        if !self.ref_exists(&format!("refs/remotes/{remote}")) {
+            return Err(format!("origin has no {branch}; `tasks submit` pushes it"));
+        }
+        let path = self.clean_worktree("merge")?;
+        git(&path, &["checkout", "--quiet", "--detach", &remote])?;
         if let Err(e) = git(&path, &["rebase", "--quiet", "origin/main"]) {
             let _ = git(&path, &["rebase", "--abort"]);
             return Err(format!("{branch} does not rebase cleanly on origin/main; send it back to its worker ({e})"));
@@ -213,5 +229,61 @@ mod tests {
         assert_eq!(parse_offset("-0400"), Some(-14400));
         assert_eq!(parse_offset("+0530"), Some(19800));
         assert_eq!(parse_offset("EDT"), None);
+    }
+
+    /// Runs git with a fixed identity in `dir`.
+    fn g(dir: &Path, args: &[&str]) -> String {
+        let out = Command::new("git")
+            .current_dir(dir)
+            .args(["-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "init.defaultBranch=main", "-c", "commit.gpgsign=false"])
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    }
+
+    /// A live failure (M1.16, 2026-10-10): after `submit` the worker's worktree still had the
+    /// branch checked out, so `merge` could not check it out in the merge worktree. Merge now works
+    /// on origin's copy of the branch, whatever the worker's worktree holds.
+    #[test]
+    fn merge_rebases_a_branch_its_worker_still_has_checked_out() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (origin, main) = (tmp.path().join("origin.git"), tmp.path().join("repo"));
+        g(tmp.path(), &["init", "--quiet", "--bare", origin.to_str().unwrap()]);
+        g(tmp.path(), &["clone", "--quiet", origin.to_str().unwrap(), main.to_str().unwrap()]);
+        // RealGit's own commands (the rebase) need an identity and no signing in this repository.
+        for (k, v) in [("user.name", "t"), ("user.email", "t@example.invalid"), ("commit.gpgsign", "false")] {
+            g(&main, &["config", k, v]);
+        }
+        std::fs::write(main.join("a.txt"), "a\n").unwrap();
+        g(&main, &["add", "."]);
+        g(&main, &["commit", "--quiet", "-m", "M0.1: start"]);
+        g(&main, &["push", "--quiet", "origin", "HEAD:refs/heads/main"]);
+        g(&main, &["fetch", "--quiet", "origin"]);
+        let git = RealGit { cwd: main.clone() };
+
+        // The worker: a branch in its own worktree, committed and pushed (as `submit` does).
+        let branch = "task/M9.1-thing";
+        let worker = git.prepare_worktree("agent-9", branch).unwrap();
+        std::fs::write(worker.join("b.txt"), "b\n").unwrap();
+        g(&worker, &["add", "."]);
+        g(&worker, &["commit", "--quiet", "-m", "M9.1: thing"]);
+        git.push(&worker, branch).unwrap();
+
+        // Meanwhile main moves on.
+        std::fs::write(main.join("c.txt"), "c\n").unwrap();
+        g(&main, &["add", "."]);
+        g(&main, &["commit", "--quiet", "-m", "M9.0: other"]);
+        g(&main, &["push", "--quiet", "origin", "HEAD:refs/heads/main"]);
+
+        // The worker still has the branch checked out; the lead merges anyway.
+        assert_eq!(g(&worker, &["rev-parse", "--abbrev-ref", "HEAD"]), branch);
+        let dir = git.rebase_for_merge(branch).unwrap();
+        git.push(&dir, branch).unwrap();
+        g(&main, &["fetch", "--quiet", "origin"]);
+        let log = g(&main, &["log", "--format=%s", &format!("origin/{branch}")]);
+        assert_eq!(log.lines().collect::<Vec<_>>(), ["M9.1: thing", "M9.0: other", "M0.1: start"], "rebased onto the new main");
+        assert!(git.rebase_for_merge("task/M9.2-missing").unwrap_err().contains("origin has no"));
     }
 }
