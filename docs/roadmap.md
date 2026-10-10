@@ -158,7 +158,7 @@ turns each into a GitHub issue. M0 is built by a single agent.
     one-line reason each (e.g. `windows-sys`: bindings only, no C build).
   - done when: `cargo xtask deps` passes on the tree and unit tests reject a GPL crate,
     `openssl-sys`, an unknown `foo-sys`, and a crate whose build script depends on `cc`.
-- ⬜ **M0.4 `xtask names` and `assets`**
+- ✅ **M0.4 `xtask names` and `assets`**
   - after: M0.2
   - files: `xtask/src/names.rs`, `xtask/src/assets.rs`
   - scope: `names` compares every tracked file's words and file names against SHA-256 hashes of
