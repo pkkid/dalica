@@ -285,8 +285,25 @@ decodes images, touches the file system, waits on a lock held by a worker, or bl
    renderer is the oracle; any GPU path must match it (`development.md` §14).
 4. **Cache keys** are content-addressed: (file path, size, mtime, recipe hash, renderer version).
    The renderer version is per operation, not one global constant (avoids merge hotspots).
-5. **Disk cache:** `<cache>/thumbs/`, JPEG q90, 2 GiB default, pruned to 80 % (prior art:
-   LightCraft `disk.rs`). The cache only lists and deletes files of its own naming shape.
+5. **Never blank while scrolling** (maintainer decision, 2026-10-10). Three layers, each drawn
+   until the next one arrives:
+   - a **colour sketch** per photo (a ~25-byte blurred preview in the ThumbHash style, made at scan
+     with the edits applied), stored in the index and held in memory for every photo (≈ 2.5 MB at
+     100 k), so any cell can be drawn on any frame without a disk read;
+   - a **size ladder** of cached thumbnails in device pixels: 128 and 256 for every photo at scan,
+     512, 1024 and a screen-size edit-view preview (long edge = the display's) on demand. A cell
+     draws the smallest ladder size that covers it, or the next smaller one scaled up (blurry,
+     then sharp) while the right one loads; only a photo never scanned shows the `gray 38`
+     placeholder;
+   - the full decode, only for sizes above the ladder.
+   The pool prefetches in the scroll direction, further ahead the faster the view moves.
+6. **Disk cache:** `<cache>/thumbs/`, JPEG q90 (fastest to decode), one set of append-only pack
+   files plus an index per ladder size, written and read through `fs` with positioned reads (no
+   memory mapping), never one file per thumbnail. Entries made dead by edits, deletes and moves are
+   compacted in the background when they pass 25 % of a pack. 2 GiB default, pruned to 80 %, the
+   largest sizes first. The cache only lists and deletes files of its own naming shape. Prior art:
+   LightCraft `disk.rs` for pruning; the pack layout is our own (the reference organizer also
+   packed each size into a few large files).
 
 ## 7. Automation: agents can drive and see the app
 

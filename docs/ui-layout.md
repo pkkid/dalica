@@ -212,6 +212,19 @@ pages; page step = one thumbnail row + 90, animated), thumb, **▼**, **⇓ next
 buttons scroll so the previous/next section header is at the top (⇑ first snaps to the current
 section's start when mid-section). All four buttons auto-repeat when held.
 
+The thumb sets the scroll **speed**, not the position (maintainer decision, 2026-10-10, matching
+the reference behaviour):
+- At rest the thumb (16 × 64) sits at the **centre of the track**, whatever the scroll position.
+- Dragging it up or down scrolls the light table continuously in that direction, **faster the
+  further the thumb is from the centre**: a small dead zone (4 pt) does nothing, then speed grows
+  with the distance and reaches its top speed at the end of the track. The curve and top speed
+  are tuned by feel at the M4 review (start: quadratic, top speed 40 screen heights per second).
+- On release the view stops where it is and the thumb springs back to the centre (150 ms).
+- The scroll **position** is shown by a separate faint marker (16 × 3, `text_dim` at 40 %) in the
+  track at the proportional position; it cannot be dragged. Jumping far is done with ⇑/⇓, a click
+  in the folder list, Home/End and Page Up/Down.
+- The folder list keeps an ordinary position scrollbar.
+
 ## 6. Bottom area
 
 A 20 pt status line, then a 96 pt area split at **0.365·W**: the Photo Tray on the left, controls on

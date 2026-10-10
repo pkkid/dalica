@@ -773,15 +773,21 @@ wave 5   M3.11 accept M3 → M3.R
 - **Goal:** the continuous, sectioned light table of `ui-layout.md` §5, smooth at 100 k photos.
 - **In:** sections in tree order; section header block (icon, title, date and place, buttons with
   inactive ones disabled, description line); justified square-cell grid; badges; thumbnail caption
-  modes; hidden/small-picture drawing rules; sticky headers; section scrollbar (⇑ ▲ ▼ ⇓); size
-  slider, Ctrl+wheel, Ctrl+1 / Ctrl+2; hover tooltip; empty states; layout cached per revision;
-  texture eviction.
+  modes; hidden/small-picture drawing rules; sticky headers; section scrollbar (⇑ ▲ ▼ ⇓) with the
+  speed-control thumb and position marker (`ui-layout.md` §5.6); size slider, Ctrl+wheel, Ctrl+1 /
+  Ctrl+2; hover tooltip; empty states; layout cached per revision; texture eviction; never-blank
+  thumbnails: colour sketch in the index, the packed thumbnail ladder with compaction and
+  pruning, upscaled fallback, direction-aware prefetch (`architecture.md` §6).
 - **Out:** selection beyond M1's click (M6); section-header actions (their own milestones); inline
   description editing (M9).
 - **Done when:** `cargo xtask accept M4`: a headless benchmark scrolls a synthetic 100 k-photo
   library at ≤ 8 ms/frame p95 UI time (recorded in `status.md` → Metrics) and cells visited per
   frame stay flat from 10 k to 100 k; layout tests for column justification and sticky-header
-  push-up; section-jump tests. You scroll the demo library.
+  push-up; section-jump tests; the scrollbar thumb's speed curve, dead zone and spring-back on
+  virtual time; with the thumb held at full speed through a scanned 100 k-photo library no cell
+  draws the grey placeholder and frames stay within budget; packed against loose-file reads
+  benchmarked on the same library (numbers in the PR). You scroll the demo library with the thumb
+  and tune its curve.
 
 ### M5 — Library tree
 
