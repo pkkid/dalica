@@ -31,7 +31,7 @@ const USAGE: &str = "usage: cargo xtask tasks <command>
   sync [--check|--dry-run]       make the issues and the project match roadmap.md (--check: parse only, offline;
                                  --dry-run: read GitHub, print the writes it would make, make none)
   next [--agent NAME]            tasks you may claim, in roadmap order (claim the first); nothing listed after an
-                                 open review task (M<n>.A, M<n>.R) until the maintainer closes it
+                                 open review task (M<n>.R) until the maintainer closes it
   claim ID --agent NAME          claim a Ready task; prints the worktree to work in
   env NAME                       the agent's environment: eval \"$(cargo xtask tasks env agent-3)\"
   submit ID [--body-file FILE] [--dry-run]
@@ -174,8 +174,7 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), String> {
         }
         "sync" => {
             let _lock = claim_lock()?;
-            let report = board.sync()?;
-            print_changes("sync", &report.changes);
+            print_sync(&board.sync()?);
         }
         "next" => {
             let agent = a.agent().ok();
@@ -247,7 +246,7 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), String> {
                 // The main checkout's roadmap.md predates the merge (it lacks the task's ✅), so the
                 // sync reads the roadmap as merged on origin/main; no checkout is touched.
                 let _lock = claim_lock()?;
-                print_changes("sync", &board.sync_merged()?.changes);
+                print_sync(&board.sync_merged()?);
             }
         }
         "status" => print!("{}", board.status()?),
@@ -289,6 +288,13 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), String> {
 
 fn scratch_base() -> PathBuf {
     std::env::var_os("DALICA_SCRATCH_BASE").map(PathBuf::from).unwrap_or_else(|| std::env::temp_dir().join("dalica-scratch"))
+}
+
+fn print_sync(report: &board::SyncReport) {
+    print_changes("sync", &report.changes);
+    for note in &report.notes {
+        println!("sync: note: {note}");
+    }
 }
 
 fn print_changes(what: &str, changes: &[String]) {

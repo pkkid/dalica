@@ -1,6 +1,6 @@
 ---
 name: milestone-start
-description: Run the build from a milestone (M2 and later) with this session as the lead (agent-1) and parallel worker subagents, one per task, until the next review task (any M<n>.A or M<n>.R); there it prepares the review with /milestone-review and stops for the maintainer, who merges the review PR, closes the issue and runs this again. Run only when the maintainer asks.
+description: Run the build from a milestone (M2 and later) with this session as the lead (agent-1) and parallel worker subagents, one per task, until the milestone's review task (M<n>.R, release gates included); there it prepares the review with /milestone-review and stops for the maintainer, who merges the review PR, closes the issue and runs this again. Run only when the maintainer asks.
 argument-hint: "[M<n>] [workers, default 7]"
 disable-model-invocation: true
 ---
@@ -19,8 +19,8 @@ Its jobs are to claim, dispatch, review, merge and keep the board true.
   and returns.
 - A slot (`agent-<k>`) keeps its worktree, target dir, port and scratch dir from task to task, so
   builds stay warm.
-- **Run until the next review task** (any `M<n>.A` or `M<n>.R`, release gates included;
-  `docs/roadmap.md` → How milestones work). Every review task is a stop: the board offers nothing
+- **Run until the milestone's review task** (`M<n>.R`, release gates included; a milestone has
+  one review, at its end, and none in the middle; `docs/roadmap.md` → How milestones work). Every review task is a stop: the board offers nothing
   listed after it until the maintainer closes it. At a review the lead prepares it with
   `/milestone-review` and **stops**. Only the maintainer merges the review's pull request and
   closes its issue; the lead never does either.
@@ -135,16 +135,17 @@ once and report.
   - Write the blocks from the milestone's section and the spec: `after`, `files`, `scope`,
     `done when`, plus waves.
   - The first tasks list the work they build on. List a gate only after a release.
-  - The milestone ends with an `M<n+1>.R` review task, and a big one has a mid-milestone
-    `M<n+1>.A`; every review task is `owner: maintainer` (the parser refuses any other owner).
+  - The milestone ends with an `M<n+1>.R` review task, its only review: no mid-milestone reviews
+    (maintainer rule, 2026-10-10; the parser refuses an open `M<n+1>.A`). Every review task is
+    `owner: maintainer` (the parser refuses any other owner).
     M6, M10 and M15 end with release gates.
   - Merge the blocks like any task; `tasks sync` then creates their issues. No approval is needed.
-- **Review task: stop.** When the next tasks wait on an open review task (`M<n>.A`, `M<n>.R`,
-  release gates included), `tasks next` offers nothing listed after it:
+- **Review task: stop.** When the next tasks wait on the open review task (`M<n>.R`, release
+  gates included), `tasks next` offers nothing listed after it:
   - Let the running tasks finish; review and merge them as usual. Claim nothing listed after the
     review.
-  - Run `/milestone-review M<n>.<X>` to prepare it: the check-in page, *Where we stand* and
-    `docs/status.md` on a `review/M<n>.<X>` branch, a pull request, both linked on the issue (for a
+  - Run `/milestone-review M<n>.R` to prepare it: the check-in page, *Where we stand* and
+    `docs/status.md` on a `review/M<n>.R` branch, a pull request, both linked on the issue (for a
     release gate also the checklist and the sign-off questions).
   - Never merge that pull request, never close the review issue, never `tasks merge` it. Then end
     the run.
