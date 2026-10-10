@@ -137,8 +137,8 @@ The review's id is `M<n>.R` (`M2.R`, `M6.R`, …) and its issue `#<issue>`.
 1. Make a branch `review/M<n>.R` from `origin/main` in the lead session's own worktree (no new
    worktree, no subagent; `CARGO_TARGET_DIR` at `target/lead`, never an agent's). **Everything the review
    changes goes in this one branch and its one pull request** (maintainer rule, 2026-10-10):
-   docs, numbers, process fixes found during the milestone, answers applied. Never a second PR
-   for the review. There:
+   docs, numbers, process fixes found during the milestone, answers applied. The one exception: a fix
+   for red CI may be its own PR (the fix-red-main go-ahead). There:
    - write the dated *Where we stand* paragraph in `docs/roadmap.md` and the numbers in
      `docs/status.md`;
    - apply any reversals the maintainer asked for since the last review;
