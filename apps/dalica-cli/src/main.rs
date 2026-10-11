@@ -69,6 +69,23 @@ fn dispatch(args: &[String]) -> ExitCode {
     ExitCode::SUCCESS
 }
 
+/// A command's default keys on this platform, as `{context, key}`: keys for other platforms left
+/// out, and no `mac:` / `win,linux:` qualifier ever shown.
+fn shown_keys(keys: dalica_engine::keymap::DefaultKeys) -> Vec<serde_json::Value> {
+    let here = dalica_engine::keymap::Platform::current();
+    keys.iter()
+        .filter_map(|(c, k)| match dalica_engine::keymap::parse_default(k, here) {
+            Ok((key, true)) => Some(serde_json::json!({ "context": c, "key": key.to_string() })),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A command's first default key on this platform, without its qualifier.
+fn first_key(keys: dalica_engine::keymap::DefaultKeys) -> Option<&'static str> {
+    dalica_engine::keymap::first_default(keys, dalica_engine::keymap::Platform::current())
+}
+
 /// The registry as `engine.commands` lists it, UI-only commands included, without a library (so
 /// `enabled` is not evaluated).
 fn commands() -> String {
@@ -76,15 +93,13 @@ fn commands() -> String {
         .iter()
         .map(|s| {
             serde_json::json!({
-                "id": s.id, "label": s.label, "menu": s.menu, "shortcut": s.keys.first().map(|(_, k)| *k),
-                "keys": s.keys.iter().map(|(c, k)| serde_json::json!({ "context": c, "key": k })).collect::<Vec<_>>(),
+                "id": s.id, "label": s.label, "menu": s.menu, "shortcut": first_key(s.keys), "keys": shown_keys(s.keys),
                 "params": s.params, "effect": s.effect, "history": s.history, "ui": false, "live": true,
             })
         })
         .chain(dalica_ui::UI_COMMANDS.iter().map(|c| {
             serde_json::json!({
-                "id": c.id, "label": c.label, "menu": c.menu, "shortcut": c.keys.first().map(|(_, k)| *k),
-                "keys": c.keys.iter().map(|(ctx, k)| serde_json::json!({ "context": ctx, "key": k })).collect::<Vec<_>>(),
+                "id": c.id, "label": c.label, "menu": c.menu, "shortcut": first_key(c.keys), "keys": shown_keys(c.keys),
                 "params": c.params, "effect": "query", "history": "none", "ui": true, "live": true,
             })
         }))
@@ -186,6 +201,26 @@ mod tests {
         drop(other);
         assert!(!path.exists());
         assert!(std::fs::read_dir(unused.path()).unwrap().next().is_none(), "the persistent demo was not touched");
+    }
+
+    /// No default key reaches the output with its platform qualifier (`win,linux:Ctrl+Y`); Redo
+    /// shows this platform's key.
+    #[test]
+    fn commands_show_no_platform_qualifier() {
+        let list: Vec<serde_json::Value> = serde_json::from_str(&commands()).unwrap();
+        let mut shown = Vec::new();
+        for c in &list {
+            shown.extend(c["shortcut"].as_str().map(str::to_string));
+            shown.extend(c["keys"].as_array().unwrap().iter().map(|k| k["key"].as_str().unwrap().to_string()));
+        }
+        assert!(shown.len() > 5, "{shown:?}");
+        assert!(shown.iter().all(|k| !k.contains(':')), "{shown:?}");
+        let redo = list.iter().find(|c| c["id"] == "edit.redo").unwrap();
+        let want = if cfg!(target_os = "macos") { "Ctrl+Shift+Z" } else { "Ctrl+Y" };
+        assert_eq!(redo["shortcut"], want);
+        assert_eq!(redo["keys"], serde_json::json!([{ "context": "library", "key": want }]));
+        let small = list.iter().find(|c| c["id"] == "view.thumbsSmall").unwrap();
+        assert_eq!(small["shortcut"], "Ctrl+1");
     }
 
     #[test]
