@@ -22,7 +22,7 @@ same commit.
 <!-- parity:summary -->
 | Section | ✅ | 🟡 | ⬜ | 🚫 |
 |---|---:|---:|---:|---:|
-| A. Library view | 2 | 13 | 17 | 1 |
+| A. Library view | 3 | 13 | 16 | 1 |
 | B. Organizing | 0 | 1 | 41 | 0 |
 | C. Editing | 0 | 0 | 21 | 4 |
 | D. Viewing | 0 | 1 | 5 | 2 |
@@ -30,7 +30,7 @@ same commit.
 | F. Data | 1 | 2 | 3 | 0 |
 | G. Preferences and system | 0 | 4 | 8 | 0 |
 | H. Menus | 0 | 2 | 5 | 0 |
-| **All** | 3 | 23 | 102 | 16 |
+| **All** | 4 | 23 | 101 | 16 |
 <!-- /parity:summary -->
 
 ## Top gaps
@@ -51,8 +51,8 @@ same commit.
 | LIB-TREE-DND | Drop photos on folder (move/copy), album (add), person | P0 | ⬜ | |
 | LIB-SPLIT | Resizable tree with persisted width | P0 | ✅ | `splitter:tree` drags the tree within 200 … W − 480 (W − pane − 480 beside an open side pane) (by id: `crates/ui/tests/tree_status_pane.rs`, `crates/ui/tests/layout.rs`); the width survives a restart through `settings.json` (`crates/ui/src/app.rs` test `the_view_state_survives_a_restart`) |
 | LIB-LT-SECTIONS | Continuous light table of sections in tree order | P0 | 🟡 | one continuous view of the folders' sections in the tree's order (sort, reverse, collapsed groups), our own viewport with the position kept by section, laid out by prefix sums and binary search (cells visited per frame equal at 10 k and 100 k photos): `crates/ui/src/panels/light_table.rs`, `crates/ui/src/panels/light_table/layout.rs`, `crates/ui/tests/light_table.rs`; album and person sections missing (M9, M13); ref 02 §7.1 |
-| LIB-LT-HEADER | Section header: icon, title, date/place, buttons, description, edited count + Save | P0 | ⬜ | ref 02 §7.2 |
-| LIB-LT-STICKY | Sticky section headers | P1 | 🟡 | the header of the section scrolled through is pinned at the top (32 high, its first line) and pushed up by the next: `crates/ui/src/panels/light_table/layout.rs`, `crates/ui/tests/light_table.rs`; the full header parts missing (M4.9) |
+| LIB-LT-HEADER | Section header: icon, title, date/place, buttons, description, edited count + Save | P0 | 🟡 | the 96-high block: folder icon 32 (tooltip = full path), title, long date with weekday (" · place" when set), the 26 × 22 buttons Play, Collage │ Select Starred │ Save, Export (live only when their command is registered; Select Starred also needs a starred photo, Save an unsaved edit), the "Add a description" placeholder, the accent bar on the selected section, right-click = the section menu: `crates/ui/src/panels/light_table/header.rs`, `crates/ui/tests/section_header.rs`; the buttons' commands, Locate on Disk, Properties on double-click, places, descriptions and their inline editing (M6) and the edited count (M7) arrive with their milestones; ref 02 §7.2 |
+| LIB-LT-STICKY | Sticky section headers | P1 | ✅ | the header of the section scrolled through is pinned at the top (32 high, its first line: icon, title, edited count and Save) and pushed up by the next; the pinned line owns the header's ids: `crates/ui/src/panels/light_table/layout.rs`, `crates/ui/src/panels/light_table/header.rs`, `crates/ui/tests/light_table.rs`, `crates/ui/tests/section_header.rs` |
 | LIB-LT-GRID | Justified square-cell grid, aspect-preserving thumbnails, shadow | P0 | 🟡 | square cells 64–320 in justified columns (gap ≥ 12, margins 24, rows 22 apart, 24 before the next header), photos letterboxed: `crates/ui/src/panels/light_table/layout.rs`, `crates/ui/src/panels/light_table/cell.rs`, `crates/ui/tests/light_table.rs`; the drop shadow missing (M4.10) |
 | LIB-LT-CAPTION | Thumbnail captions (None/Filename/Caption/Tags/Resolution/Date) | P1 | ⬜ | |
 | LIB-LT-BADGES | Badges: edited, geotag, held, star; video sprockets + duration | P0 | 🟡 | star badge only: `crates/ui-kit/src/widgets.rs`, `crates/ui/tests/library_window.rs`; edited, geotag, held badges and video marks missing; ref 02 §7.4 |
