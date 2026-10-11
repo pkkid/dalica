@@ -1107,7 +1107,7 @@ UI tasks each re-bless only their own.
   - done when: `cargo xtask bench library_bench` prints the p95 and the cells-visited counts; a
     test with a planted history flags a 25 % slowdown and not a 10 % one; `xtask docs` lists
     `bench` as implemented; numbers for this machine in the PR.
-- ⬜ **M4.15 `ui`: the library tree pane**
+- ✅ **M4.15 `ui`: the library tree pane**
   - after: M3.7, M3.8, M4.4, M4.5, M4.6, M4.7, M4.13
   - files: `crates/ui/src/panels/folders.rs`, `crates/ui/src/panels/folders/**`, `crates/ui/tests/tree.rs`, `crates/ui/tests/fingerprints/region-tree*.json`
   - scope: `ui-layout.md` §4 on M3.8's pane frame: group headers (30, disclosure, count; collapsed

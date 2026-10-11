@@ -1,8 +1,9 @@
 //! Shortcut dispatch (`menus-and-shortcuts.md` §2.0): each key press of the frame becomes the
 //! keymap's [`Key`], is resolved in the active context (a focused text field first), and runs its
 //! command through [`App::run`] with the parameters the context implies (the selection, for photo
-//! commands). [`join_keymap`] adds the UI commands to the session's keymap, so their keys are
-//! resolved, conflict-checked and rebindable like the engine's.
+//! commands). Plain arrows go to the library tree instead while it has the focus. [`join_keymap`]
+//! adds the UI commands to the session's keymap, so their keys are resolved, conflict-checked and
+//! rebindable like the engine's.
 
 use dalica_engine::keymap::DefaultKeys;
 use dalica_engine::{Context, Key, Session};
@@ -52,10 +53,15 @@ pub fn params_for(app: &App, id: &str) -> Value {
 /// Runs the commands bound to this frame's key presses. Returns the ids that ran (or were refused;
 /// a refusal's reason is on the status line).
 pub fn dispatch(app: &mut App, ctx: &egui::Context) -> Vec<String> {
+    // With the library tree focused, its pane moves its own selection with the plain arrows.
+    let tree_focused = crate::panels::folders::has_focus(ctx);
     let presses: Vec<Key> = ctx.input(|i| {
         i.events
             .iter()
             .filter_map(|e| match e {
+                egui::Event::Key { key, pressed: true, modifiers, .. } if tree_focused && crate::panels::folders::is_tree_key(*key, *modifiers) => {
+                    None
+                }
                 egui::Event::Key { key, pressed: true, modifiers, .. } => from_egui(*key, *modifiers),
                 _ => None,
             })

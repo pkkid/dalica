@@ -106,7 +106,9 @@ activity indicator draws nothing.
 - **Group header**: 30 high, full width, disclosure triangle, SemiBold 13 title with count "Albums
   (3)". Collapsing a group hides its rows **and its sections in the light table**. During search the
   triangle is replaced by a magnifier glyph. Headers are sticky: a collapsed group's header stays
-  docked at the bottom of the pane when the list above it is short.
+  docked at the bottom of the pane when the list above it is short (the collapsed groups after the
+  last open one sit at the pane's bottom while the whole list fits, and follow the list once it is
+  taller).
 - **Rows**: 24 high; 16 pt icon (folder, album, automatic album, person face thumbnail 20 pt in
   28-high rows, project), name, count in `text_dim`; long names elide in the middle. Tree mode:
   16 pt indent per level with disclosure triangles, parents show their own count (often "(0)",
@@ -121,6 +123,11 @@ activity indicator draws nothing.
   Ctrl = copy; drag pill text changes accordingly); over an album row = add to album; over a person
   = assign faces (from the Unnamed view).
 - Keyboard: ↑/↓ move the selection (scrolling the light table), ←/→ collapse/expand in tree mode.
+  The keys are the tree's while it has the focus: a press in the pane gives it, a press anywhere
+  else takes it back to the light table. ↑/↓ pass over rows without photos (a parent showing
+  "(0)") and keep the selected row in view; ← on a row that is folded or has no children goes up
+  to the nearest parent with photos. The wheel scrolls the pane; only the rows on screen are laid
+  out, so its cost per frame does not grow with the library.
 
 ## 5. Light table
 
