@@ -720,7 +720,7 @@ with the rest at the next review.
   - done when: a test walks `ui.menu.tree` and finds every item of §1 in order; a headless snapshot
     at 900 × 600 shows the longest menu scrolling inside the window; invoking a disabled item is
     `disabled`, an unknown path `not_found`.
-- ⬜ **M3.4 `engine` + `ui`: per-platform default keys and keys for UI commands**
+- ✅ **M3.4 `engine` + `ui`: per-platform default keys and keys for UI commands**
   - after: M3.3
   - files: `crates/engine/src/keymap.rs`, `crates/engine/src/registry.rs`, `crates/engine/tests/keymap.rs`, `crates/ui/src/keys.rs`, `crates/ui/src/menus.rs`
   - scope: default bindings per platform (`menus-and-shortcuts.md` §2: Redo is Cmd+Shift+Z on macOS,

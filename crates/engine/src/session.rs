@@ -109,7 +109,8 @@ impl Session {
             log::error!("a default shortcut does not parse: {e}");
             Keymap::default()
         });
-        keymap.set_overrides(settings.keymap(&|c| by_id.contains_key(c)));
+        let overrides = settings.keymap(&|c| keymap.knows(c));
+        keymap.set_overrides(overrides);
         let mut session = Session {
             dir: dir.to_path_buf(),
             library: opened.library,
@@ -377,11 +378,23 @@ impl Session {
     /// Changes the keymap (through `f`) and saves the user's overrides in `settings.json`.
     pub(crate) fn change_keymap<R>(&mut self, f: impl FnOnce(&mut Keymap) -> R) -> R {
         let r = f(&mut self.keymap);
-        let known: std::collections::HashSet<&str> = self.by_id.keys().copied().collect();
-        self.settings.set_keymap(self.keymap.overrides(), &|c| known.contains(c));
+        let keymap = &self.keymap;
+        self.settings.set_keymap(keymap.overrides(), &|c| keymap.knows(c));
         let bytes = self.settings.print();
         self.send(Msg::Write(self.dir.join(crate::settings::FILE), bytes));
         r
+    }
+
+    /// Adds the UI's commands (`UI_COMMANDS`) to the keymap with their default keys for this
+    /// platform, so they can be bound, rebound through `app.setShortcut` and conflict-checked like
+    /// the engine's; the user's stored bindings for them apply from now on. Adding the same list
+    /// again changes nothing. `Err` (and no change) when a default key does not parse.
+    pub fn add_ui_keys(&mut self, commands: &[(&str, crate::keymap::DefaultKeys)]) -> Result<(), String> {
+        self.keymap.add_commands(commands.iter().copied(), crate::keymap::Platform::current())?;
+        let keymap = &self.keymap;
+        let overrides = self.settings.keymap(&|c| keymap.knows(c));
+        self.keymap.set_overrides(overrides);
+        Ok(())
     }
 
     pub fn spec(&self, id: &str) -> Option<&CommandSpec> {
@@ -400,7 +413,7 @@ impl Session {
                 id: s.id,
                 label: s.label,
                 menu: s.menu,
-                shortcut: s.keys.first().map(|(_, k)| *k),
+                shortcut: crate::keymap::first_default(s.keys, crate::keymap::Platform::current()),
                 params: s.params,
                 enabled: (s.enabled)(self, &Value::Null).is_ok(),
                 ui: false,

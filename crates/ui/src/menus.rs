@@ -23,6 +23,7 @@ use serde_json::{Map, Value, json};
 
 use crate::app::App;
 use crate::menu_catalog::{self, Entry, Item, MAC_APP_MENU, MENU_BAR, Mac, Mark, Menu};
+use crate::state::{Pane, THUMB_DEFAULT};
 
 /// A command that changes only the view state. Listed with the engine's commands so agents see one
 /// catalogue.
@@ -31,7 +32,10 @@ pub struct UiCommand {
     pub label: &'static str,
     /// Menu path, `""` if not in a menu.
     pub menu: &'static str,
-    /// Default bindings (none yet: the keymap learns UI commands in M3.4).
+    /// Default bindings with their contexts, as `CommandSpec::keys` declares them (a `mac:` /
+    /// `win,linux:` qualifier for a per-platform default). The app adds them to the session's
+    /// keymap ([`crate::keys::join_keymap`]), so they are conflict-checked, rebindable with
+    /// `app.setShortcut` and shown in the menus like the engine's.
     pub keys: &'static [(Context, &'static str)],
     /// Agent-readable parameter doc.
     pub params: &'static str,
@@ -47,8 +51,51 @@ pub const UI_COMMANDS: &[UiCommand] = &[
         params: r#"{"ids": [PhotoId], "mode": "replace" | "toggle" = "replace"}"#,
         run: select_set,
     },
-    UiCommand { id: "select.none", label: "Select None", menu: "Edit/Select None", keys: &[], params: "{}", run: select_none },
+    UiCommand {
+        id: "select.none",
+        label: "Select None",
+        menu: "Edit/Select None",
+        keys: &[(Context::Library, "Ctrl+D")],
+        params: "{}",
+        run: select_none,
+    },
+    UiCommand {
+        id: "view.thumbsSmall",
+        label: "Small Thumbnails",
+        menu: "View/Small Thumbnails",
+        keys: &[(Context::Library, "Ctrl+1")],
+        params: "{}: thumbnails at the small size (96)",
+        run: thumbs_small,
+    },
+    UiCommand {
+        id: "view.thumbsNormal",
+        label: "Normal Thumbnails",
+        menu: "View/Normal Thumbnails",
+        keys: &[(Context::Library, "Ctrl+2")],
+        params: "{}: thumbnails at the normal size (144)",
+        run: thumbs_normal,
+    },
+    UiCommand {
+        id: "pane.toggle",
+        label: "Toggle Side Pane",
+        menu: "",
+        keys: &[(Context::Global, "Ctrl+0")],
+        params: "{}: close the side pane, or open it (Properties) when closed",
+        run: pane_toggle,
+    },
+    UiCommand {
+        id: "window.fullscreen",
+        label: "Full Screen",
+        menu: "View/Full Screen",
+        keys: &[(Context::Global, "F11")],
+        params: "{}: full screen on or off",
+        run: full_screen,
+    },
 ];
+
+/// The small thumbnail size Ctrl+1 jumps to (`ui-layout.md` §6.4); Ctrl+2 jumps to
+/// [`THUMB_DEFAULT`].
+pub const THUMB_SMALL: f32 = 96.0;
 
 fn parse<T: for<'de> Deserialize<'de>>(params: &Value) -> Result<T, CmdError> {
     serde_json::from_value(params.clone()).map_err(|e| CmdError::BadParams(e.to_string()))
@@ -107,13 +154,51 @@ fn select_set(app: &mut App, params: &Value) -> Result<Value, CmdError> {
     Ok(json!({ "selection": sel.ids }))
 }
 
-fn select_none(app: &mut App, params: &Value) -> Result<Value, CmdError> {
+/// Refuses parameters for a command that takes none (`{}`; `null` counts as `{}`).
+fn no_params(params: &Value) -> Result<(), CmdError> {
     #[derive(Deserialize)]
     #[serde(deny_unknown_fields)]
     struct NoParams {}
+    if params.is_null() {
+        return Ok(());
+    }
     let _: NoParams = parse(params)?;
+    Ok(())
+}
+
+fn select_none(app: &mut App, params: &Value) -> Result<Value, CmdError> {
+    no_params(params)?;
     app.state_mut().selection = Default::default();
     Ok(json!({ "selection": [] }))
+}
+
+fn thumbs_small(app: &mut App, params: &Value) -> Result<Value, CmdError> {
+    no_params(params)?;
+    app.state_mut().thumb_size = THUMB_SMALL;
+    Ok(json!({ "thumbSize": THUMB_SMALL }))
+}
+
+fn thumbs_normal(app: &mut App, params: &Value) -> Result<Value, CmdError> {
+    no_params(params)?;
+    app.state_mut().thumb_size = THUMB_DEFAULT;
+    Ok(json!({ "thumbSize": THUMB_DEFAULT }))
+}
+
+fn pane_toggle(app: &mut App, params: &Value) -> Result<Value, CmdError> {
+    no_params(params)?;
+    let state = app.state_mut();
+    state.pane = match state.pane {
+        Some(_) => None,
+        None => Some(Pane::Properties),
+    };
+    Ok(json!({ "pane": state.pane }))
+}
+
+fn full_screen(app: &mut App, params: &Value) -> Result<Value, CmdError> {
+    no_params(params)?;
+    let state = app.state_mut();
+    state.full_screen = !state.full_screen;
+    Ok(json!({ "fullScreen": state.full_screen }))
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -355,7 +440,7 @@ fn item_node(facts: &Facts<'_>, i: &'static Item) -> ItemNode {
         catalog_label: i.label,
         params,
         widget,
-        shortcut: shortcut(facts, i, id, spec.is_some()),
+        shortcut: shortcut(facts, i, id, registered),
         live,
         enabled,
         reason,
@@ -365,8 +450,9 @@ fn item_node(facts: &Facts<'_>, i: &'static Item) -> ItemNode {
     }
 }
 
-/// The shortcut a row shows: for a registered engine command, the keymap's binding in effect (so
-/// a rebinding shows here, and a removed one shows nothing); otherwise the catalog's default. Rows
+/// The shortcut a row shows: for a registered command (the engine's or a UI command, both in the
+/// session's keymap), the keymap's binding in effect (so a rebinding shows here, and a removed one
+/// shows nothing); otherwise, and before a library is open, the catalog's default. Rows
 /// the catalog gives no shortcut (Batch Edit's rotations) show none. macOS writes `Ctrl` as `Cmd`.
 fn shortcut(facts: &Facts<'_>, i: &Item, id: &str, registered: bool) -> Option<String> {
     i.shortcut?;
@@ -382,10 +468,16 @@ fn shortcut(facts: &Facts<'_>, i: &Item, id: &str, registered: bool) -> Option<S
     Some(if mac { text.replace("Ctrl+", "Cmd+") } else { text })
 }
 
-/// Whether a checkable row is on. None of the view-state commands behind check marks and radio
-/// groups is registered yet (they arrive with the view state, M4); each answers here when it does.
-fn checked(_app: &App, _id: &str, _params: &str) -> bool {
-    false
+/// Whether a checkable row is on: the thumbnail-size radio group answers from the view state; the
+/// other view-state commands behind check marks arrive with the view state (M4) and answer here
+/// when they do.
+fn checked(app: &App, id: &str, _params: &str) -> bool {
+    let size = app.state().thumb_size;
+    match id {
+        "view.thumbsSmall" => size == THUMB_SMALL,
+        "view.thumbsNormal" => size == THUMB_DEFAULT,
+        _ => false,
+    }
 }
 
 /// How `ui.menu.invoke` names an item.
@@ -733,6 +825,7 @@ pub fn context_menu(response: &egui::Response, app: &mut App, nodes: &[Node]) ->
 mod tests {
     use super::*;
     use crate::app::tests::session_with_photos;
+    use crate::state::UiState;
 
     #[test]
     fn select_set_replaces_or_toggles_and_keeps_an_anchor() {
@@ -809,7 +902,19 @@ mod tests {
         let menus = bar(&app, Platform::Other);
         let all: Vec<&ItemNode> = menus.iter().flat_map(|m| items(&m.children)).collect();
         let live: Vec<&str> = all.iter().filter(|i| i.live).map(|i| i.id).collect();
-        assert_eq!(live, ["folders.add", "edit.undo", "edit.redo", "select.none", "photo.star.toggle"]);
+        assert_eq!(
+            live,
+            [
+                "folders.add",
+                "edit.undo",
+                "edit.redo",
+                "select.none",
+                "view.thumbsSmall",
+                "view.thumbsNormal",
+                "window.fullscreen",
+                "photo.star.toggle"
+            ]
+        );
         for i in all.iter().filter(|i| !i.live) {
             assert!(!i.enabled && i.reason.as_deref() == Some("Not available yet."), "{}", i.widget);
         }
@@ -903,6 +1008,96 @@ mod tests {
         assert_eq!(star(&app), None, "a removed key is not shown");
         app.run("app.resetShortcuts", &json!({})).unwrap();
         assert_eq!(star(&app).as_deref(), Some("Ctrl+8"));
+    }
+
+    /// The UI commands' defaults join the engine's in one conflict check, on every platform:
+    /// Ctrl+1 is Small Thumbnails in Library and may mean something else in Edit view.
+    #[test]
+    fn no_default_conflicts_with_ui_commands_on_any_platform() {
+        use dalica_engine::keymap::{Keymap, Platform as KeyPlatform};
+        let specs = dalica_engine::cmd::specs();
+        for p in KeyPlatform::ALL {
+            let mut map = Keymap::from_specs_on(&specs, p).unwrap();
+            map.add_commands(crate::keys::ui_keys(), p).unwrap();
+            assert_eq!(map.conflicts(), [], "{p:?}");
+            assert!(UI_COMMANDS.iter().all(|c| map.knows(c.id)), "{p:?}");
+            for (id, ctx, k) in [
+                ("window.fullscreen", Context::Global, "F11"),
+                ("view.thumbsSmall", Context::Library, "Ctrl+1"),
+                ("view.thumbsNormal", Context::Library, "Ctrl+2"),
+                ("pane.toggle", Context::Global, "Ctrl+0"),
+                ("select.none", Context::Library, "Ctrl+D"),
+            ] {
+                assert_eq!(map.keys_for(id, ctx), [dalica_engine::Key::parse(k).unwrap()], "{id} on {p:?}");
+            }
+        }
+        // Every catalog shortcut of a UI command is its first default key.
+        for c in UI_COMMANDS.iter().filter(|c| !c.menu.is_empty()) {
+            let (_, first) = c.keys.first().copied().unwrap_or((Context::Global, ""));
+            let row = find(&bar(&App::new(None), Platform::Other), &Lookup::Id { id: c.id.into(), params: Value::Null }).cloned().unwrap();
+            assert_eq!(row.shortcut.as_deref().unwrap_or(""), first, "{}", c.id);
+        }
+    }
+
+    /// The done-when of M3.4: rebinding a UI command with `app.setShortcut` changes its menu item.
+    #[test]
+    fn rebinding_a_ui_command_changes_its_menu_item() {
+        let (_dir, s, _) = session_with_photos(1);
+        let mut app = App::new(Some(s));
+        let shown =
+            |app: &App, p: Platform, id: &str| find(&bar(app, p), &Lookup::Id { id: id.into(), params: Value::Null }).unwrap().shortcut.clone();
+        assert_eq!(shown(&app, Platform::Other, "view.thumbsSmall").as_deref(), Some("Ctrl+1"));
+        assert_eq!(shown(&app, Platform::Other, "window.fullscreen").as_deref(), Some("F11"));
+        app.run("app.setShortcut", &json!({ "command": "view.thumbsSmall", "context": "library", "key": "Ctrl+Shift+1" })).unwrap();
+        app.run("app.setShortcut", &json!({ "command": "window.fullscreen", "context": "global", "key": "F12" })).unwrap();
+        assert_eq!(shown(&app, Platform::Other, "view.thumbsSmall").as_deref(), Some("Ctrl+Shift+1"));
+        assert_eq!(shown(&app, Platform::Mac, "view.thumbsSmall").as_deref(), Some("Cmd+Shift+1"));
+        assert_eq!(shown(&app, Platform::Other, "window.fullscreen").as_deref(), Some("F12"));
+        // A conflicting key is refused and the menu keeps the old one.
+        let r = app.run("app.setShortcut", &json!({ "command": "view.thumbsNormal", "context": "library", "key": "Ctrl+Shift+1" }));
+        assert!(matches!(&r, Err(CmdError::BadParams(m)) if m.contains("already view.thumbsSmall")), "{r:?}");
+        assert_eq!(shown(&app, Platform::Other, "view.thumbsNormal").as_deref(), Some("Ctrl+2"));
+        app.run("app.setShortcut", &json!({ "command": "view.thumbsSmall", "context": "library", "key": null })).unwrap();
+        assert_eq!(shown(&app, Platform::Other, "view.thumbsSmall"), None, "a removed key is not shown");
+        app.run("app.resetShortcuts", &json!({})).unwrap();
+        assert_eq!(shown(&app, Platform::Other, "view.thumbsSmall").as_deref(), Some("Ctrl+1"));
+        assert_eq!(shown(&app, Platform::Other, "window.fullscreen").as_deref(), Some("F11"));
+        // A session handed over later learns the UI commands too.
+        let (_dir2, s2, _) = session_with_photos(1);
+        let mut later = App::new(None);
+        later.set_session(s2);
+        later.run("app.setShortcut", &json!({ "command": "pane.toggle", "context": "global", "key": "Ctrl+Alt+0" })).unwrap();
+        let key = dalica_engine::Key::parse("Ctrl+Alt+0").unwrap();
+        assert_eq!(later.session().unwrap().keymap().resolve(&key, Context::Library, false).as_deref(), Some("pane.toggle"));
+    }
+
+    #[test]
+    fn view_state_commands_set_the_state_and_refuse_parameters() {
+        let mut app = App::new(None);
+        let radio = |app: &App, id: &str| find(&bar(app, Platform::Other), &Lookup::Id { id: id.into(), params: Value::Null }).unwrap().checked;
+        assert!(radio(&app, "view.thumbsNormal") && !radio(&app, "view.thumbsSmall"));
+        assert_eq!(app.run("view.thumbsSmall", &json!({})).unwrap(), json!({ "thumbSize": 96.0 }));
+        assert_eq!(app.state().thumb_size, THUMB_SMALL);
+        assert!(radio(&app, "view.thumbsSmall") && !radio(&app, "view.thumbsNormal"));
+        app.run("view.thumbsNormal", &Value::Null).unwrap();
+        assert_eq!(app.state().thumb_size, THUMB_DEFAULT);
+        assert_eq!(app.run("pane.toggle", &json!({})).unwrap(), json!({ "pane": "properties" }));
+        assert_eq!(app.state().pane, Some(Pane::Properties));
+        app.state_mut().pane = Some(Pane::Tags);
+        app.run("pane.toggle", &json!({})).unwrap();
+        assert_eq!(app.state().pane, None);
+        assert_eq!(app.run("window.fullscreen", &json!({})).unwrap(), json!({ "fullScreen": true }));
+        assert!(app.state().full_screen);
+        app.run("window.fullscreen", &json!({})).unwrap();
+        assert!(!app.state().full_screen);
+        let before = app.state().clone();
+        for id in ["view.thumbsSmall", "view.thumbsNormal", "pane.toggle", "window.fullscreen", "select.none"] {
+            for params in [json!({ "size": 96 }), json!([1]), json!("x"), json!(7), json!(true)] {
+                assert!(matches!(app.run(id, &params), Err(CmdError::BadParams(_))), "{id} {params}");
+            }
+        }
+        let after = app.state().clone();
+        assert_eq!(UiState { status: String::new(), ..after }, UiState { status: String::new(), ..before }, "nothing changed");
     }
 
     #[test]

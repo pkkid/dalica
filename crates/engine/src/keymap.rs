@@ -7,6 +7,10 @@
 //! - A key press resolves Text input → the active view context → Global; the first binding wins.
 //! - Two bindings conflict when they share a key in contexts that can be active together: the same
 //!   context, or Global and any other. The same key in two view contexts is fine.
+//! - A default may be for some platforms only: `mac:Ctrl+Shift+Z`, `win,linux:Ctrl+Y` (Redo). A
+//!   keymap is built for one [`Platform`]; unqualified defaults apply on all three.
+//! - The keymap knows every command that may be bound (the engine's, and the UI commands the app
+//!   adds with [`Keymap::add_commands`]), with or without default keys.
 
 use std::fmt;
 
@@ -92,6 +96,65 @@ impl fmt::Display for Key {
     }
 }
 
+/// The platform a keymap is built for: defaults may differ by platform (`menus-and-shortcuts.md`
+/// §2.0: Redo is Ctrl+Y, on macOS Cmd+Shift+Z).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Platform {
+    Mac,
+    Windows,
+    Linux,
+}
+
+impl Platform {
+    pub const ALL: [Platform; 3] = [Platform::Mac, Platform::Windows, Platform::Linux];
+
+    /// The platform this build runs on (other Unixes count as Linux).
+    pub fn current() -> Platform {
+        if cfg!(target_os = "macos") {
+            Platform::Mac
+        } else if cfg!(windows) {
+            Platform::Windows
+        } else {
+            Platform::Linux
+        }
+    }
+
+    /// The name a default's qualifier uses: `mac`, `win`, `linux`.
+    pub fn name(self) -> &'static str {
+        match self {
+            Platform::Mac => "mac",
+            Platform::Windows => "win",
+            Platform::Linux => "linux",
+        }
+    }
+}
+
+/// Parses a default key with its optional platform qualifier (`mac:Ctrl+Shift+Z`,
+/// `win,linux:Ctrl+Y`, or plain `Ctrl+8` for all platforms): the key, and whether it applies on
+/// `platform`. An unknown platform name is an error.
+pub fn parse_default(text: &str, platform: Platform) -> Result<(Key, bool), String> {
+    // `:` is never part of a key, so the first one ends the qualifier.
+    match text.split_once(':') {
+        None => Ok((Key::parse(text)?, true)),
+        Some((names, key)) => {
+            let mut applies = false;
+            for name in names.split(',') {
+                let p = Platform::ALL.into_iter().find(|p| p.name() == name.trim()).ok_or_else(|| format!("`{text}`: no platform `{name}`"))?;
+                applies |= p == platform;
+            }
+            Ok((Key::parse(key)?, applies))
+        }
+    }
+}
+
+/// The text of the first default in `keys` that applies on `platform`, without its qualifier.
+pub fn first_default(keys: DefaultKeys, platform: Platform) -> Option<&'static str> {
+    keys.iter().find_map(|(_, text)| match text.split_once(':') {
+        None => Some(*text),
+        Some((_, key)) => parse_default(text, platform).ok().filter(|(_, applies)| *applies).map(|_| key),
+    })
+}
+
 /// One binding in effect.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Binding {
@@ -113,26 +176,80 @@ pub fn overlapping(a: Context, b: Context) -> bool {
     a == b || a == Context::Global || b == Context::Global
 }
 
+/// A command's default bindings as declared (`CommandSpec::keys`, `UiCommand::keys`).
+pub type DefaultKeys = &'static [(Context, &'static str)];
+
 /// The defaults and the user's overrides.
 #[derive(Clone, Debug, Default)]
 pub struct Keymap {
+    /// Every command that may be bound, with or without default keys.
+    commands: Vec<String>,
     defaults: Vec<Binding>,
     overrides: Vec<Override>,
 }
 
+/// The bindings of `defaults` that apply on `platform`. Every key must parse.
+fn bindings_on<'a>(defaults: impl IntoIterator<Item = (&'a str, Context, &'a str)>, platform: Platform) -> Result<Vec<Binding>, String> {
+    let mut out = Vec::new();
+    for (command, context, text) in defaults {
+        let (key, applies) = parse_default(text, platform)?;
+        if applies {
+            out.push(Binding { command: command.to_string(), context, key });
+        }
+    }
+    Ok(out)
+}
+
 impl Keymap {
-    /// A keymap from default bindings `(command, context, key text)`. Every key must parse.
+    /// A keymap for this platform from default bindings `(command, context, key text)`; it knows
+    /// the commands they name. Every key must parse.
     pub fn new<'a>(defaults: impl IntoIterator<Item = (&'a str, Context, &'a str)>) -> Result<Keymap, String> {
-        let defaults = defaults
-            .into_iter()
-            .map(|(c, ctx, k)| Ok(Binding { command: c.to_string(), context: ctx, key: Key::parse(k)? }))
-            .collect::<Result<_, String>>()?;
-        Ok(Keymap { defaults, overrides: Vec::new() })
+        Keymap::new_on(defaults, Platform::current())
     }
 
-    /// The defaults declared by every command spec.
+    /// The same, for `platform`.
+    pub fn new_on<'a>(defaults: impl IntoIterator<Item = (&'a str, Context, &'a str)>, platform: Platform) -> Result<Keymap, String> {
+        let defaults = bindings_on(defaults, platform)?;
+        let mut commands: Vec<String> = Vec::new();
+        for b in &defaults {
+            if !commands.contains(&b.command) {
+                commands.push(b.command.clone());
+            }
+        }
+        Ok(Keymap { commands, defaults, overrides: Vec::new() })
+    }
+
+    /// The defaults declared by every command spec, for this platform; it knows every spec.
     pub fn from_specs(specs: &[crate::registry::CommandSpec]) -> Result<Keymap, String> {
-        Keymap::new(specs.iter().flat_map(|s| s.keys.iter().map(move |(ctx, k)| (s.id, *ctx, *k))))
+        Keymap::from_specs_on(specs, Platform::current())
+    }
+
+    /// The same, for `platform`.
+    pub fn from_specs_on(specs: &[crate::registry::CommandSpec], platform: Platform) -> Result<Keymap, String> {
+        let mut map = Keymap::default();
+        map.add_commands(specs.iter().map(|s| (s.id, s.keys)), platform)?;
+        Ok(map)
+    }
+
+    /// Adds commands (the UI's) with their default keys for `platform`. A command it already knows
+    /// has its defaults replaced, so adding the same list twice changes nothing. Nothing changes
+    /// when a key does not parse. Overrides are kept.
+    pub fn add_commands<'a>(&mut self, commands: impl IntoIterator<Item = (&'a str, DefaultKeys)>, platform: Platform) -> Result<(), String> {
+        let commands: Vec<(&str, DefaultKeys)> = commands.into_iter().collect();
+        let added = bindings_on(commands.iter().flat_map(|(id, keys)| keys.iter().map(move |(ctx, k)| (*id, *ctx, *k))), platform)?;
+        self.defaults.retain(|b| !commands.iter().any(|(id, _)| *id == b.command));
+        self.defaults.extend(added);
+        for (id, _) in commands {
+            if !self.knows(id) {
+                self.commands.push(id.to_string());
+            }
+        }
+        Ok(())
+    }
+
+    /// Whether `command` may be bound.
+    pub fn knows(&self, command: &str) -> bool {
+        self.commands.iter().any(|c| c == command)
     }
 
     pub fn overrides(&self) -> &[Override] {
