@@ -1144,7 +1144,7 @@ UI tasks each re-bless only their own.
     time.
   - done when: `crates/ui/tests/status_line.rs` matches the §6.1 string of each case at both
     window sizes, the elision order, and the 4 s transient message.
-- ⬜ **M4.18 `accept M4`**
+- ✅ **M4.18 `accept M4`**
   - after: M4.9, M4.10, M4.11, M4.12, M4.14, M4.15, M4.17
   - files: `tests/acceptance/m4.rs`, `tests/acceptance/m4_*.rs`, `tests/acceptance/m4.md`, `tests/acceptance/fingerprints/m4-*.json`
   - scope: every *Done when* of M4's three areas: the 100 k scroll benchmark (p95 ≤ 8 ms UI time
