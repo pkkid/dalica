@@ -539,7 +539,7 @@ fn ui_click_widget_clicks_with_counts_buttons_points_and_modifiers() {
     ok(&mut t, "ui.clickWidget", json!({ "id": thumb(ids[1]), "count": 8 }));
     assert_eq!(t.d.app().state().selection.ids, [PhotoId::new(ids[1])], "eight presses, raw");
     ok(&mut t, "ui.clickWidget", json!({ "id": thumb(ids[2]), "button": "right" }));
-    assert_eq!(t.d.app().state().selection.ids, [PhotoId::new(ids[1])], "a right click does not select");
+    assert_eq!(t.d.app().state().selection.ids, [PhotoId::new(ids[2])], "a right click on an unselected photo selects it first");
     // Limits, then params, then the widget.
     for count in [0, 9, 1_000_000] {
         refused(&mut t, "ui.clickWidget", json!({ "id": thumb(ids[0]), "count": count }), "limit");
