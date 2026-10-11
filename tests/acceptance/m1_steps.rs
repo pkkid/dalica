@@ -32,9 +32,17 @@ pub fn cli() -> PathBuf {
     exe.parent().and_then(Path::parent).unwrap().join(format!("dalica-cli{}", std::env::consts::EXE_SUFFIX))
 }
 
+/// `dalica-cli` on the library `lib`, its thumbnail cache in the test's library folder, never the
+/// user's (`DALICA_CACHE_DIR`).
+pub fn command(cli: &Path, lib: &Path) -> Command {
+    let mut c = Command::new(cli);
+    c.env("DALICA_CACHE_DIR", lib.join("test-cache"));
+    c
+}
+
 /// Runs a script; returns the exit code and one JSON value per result line.
 fn run_script(cli: &Path, lib: &Path, script: &[Value]) -> (Option<i32>, Vec<Value>) {
-    let mut child = Command::new(cli).args(["run", "--library"]).arg(lib).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
+    let mut child = command(cli, lib).args(["run", "--library"]).arg(lib).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
     let text: String = script.iter().map(|v| format!("{v}\n")).collect();
     child.stdin.take().unwrap().write_all(text.as_bytes()).unwrap();
     let out = child.wait_with_output().unwrap();
@@ -43,7 +51,7 @@ fn run_script(cli: &Path, lib: &Path, script: &[Value]) -> (Option<i32>, Vec<Val
 }
 
 fn inspect(cli: &Path, lib: &Path) -> Value {
-    let out = Command::new(cli).args(["inspect", "--library"]).arg(lib).output().unwrap();
+    let out = command(cli, lib).args(["inspect", "--library"]).arg(lib).output().unwrap();
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     serde_json::from_slice(&out.stdout).unwrap()
 }
@@ -123,14 +131,15 @@ pub fn run() -> Outcome {
     assert_eq!(starred_names(&after), BTreeSet::from(["IMG_0001.jpg".to_string(), "IMG_0002.jpg".to_string()]));
 
     // 4. One process holds the library; a second is refused.
-    let mut first = Command::new(&cli).args(["run", "--library"]).arg(lib.path()).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
+    let mut first =
+        command(&cli, lib.path()).args(["run", "--library"]).arg(lib.path()).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().unwrap();
     let mut first_in = first.stdin.take().unwrap();
     writeln!(first_in, "{}", json!({ "command": "library.query", "params": { "limit": 1 } })).unwrap();
     let mut first_out = BufReader::new(first.stdout.take().unwrap());
     let mut line = String::new();
     first_out.read_line(&mut line).unwrap(); // its first result: it has the library open
     assert!(line.contains("\"ok\":true"), "{line}");
-    let second = Command::new(&cli).args(["inspect", "--library"]).arg(lib.path()).output().unwrap();
+    let second = command(&cli, lib.path()).args(["inspect", "--library"]).arg(lib.path()).output().unwrap();
     assert_eq!(second.status.code(), Some(3));
     let why = String::from_utf8_lossy(&second.stderr);
     assert!(why.contains("open in another Dalica process"), "{why}");

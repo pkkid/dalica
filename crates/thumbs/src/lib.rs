@@ -1,12 +1,13 @@
 //! dalica-thumbs: The prioritised, de-duplicating job pool, the in-memory LRU and the on-disk thumbnail cache.
 //!
-//! Layer L2; see `docs/architecture.md` §2 and §5. M1: the [`Pool`] of worker threads, the
-//! byte-budgeted [`Lru`], and the thumbnail job ([`thumbnail`]: decode at size, upright). The
-//! on-disk cache arrives later.
+//! Layer L2; see `docs/architecture.md` §2, §5 and §6. The [`Pool`] of worker threads, the
+//! byte-budgeted [`Lru`], the thumbnail job ([`thumbnail`]: decode at size, upright), the colour
+//! [`sketch`], the packed disk cache ([`pack`]) and the size [`ladder`] with its scan and fetch jobs.
 
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+pub mod ladder;
 pub mod lru;
 pub mod pack;
 pub mod pool;

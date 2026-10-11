@@ -1019,7 +1019,7 @@ UI tasks each re-bless only their own.
     scanned case at smaller sizes.
   - done when: tests: the same seed gives the same library; a 100 k library opens with every
     photo sketched; generation and open times for 100 k (release) are in the PR.
-- ⬜ **M4.8 `thumbs` + `engine`: the thumbnail ladder and scan-time generation**
+- ✅ **M4.8 `thumbs` + `engine`: the thumbnail ladder and scan-time generation**
   - after: M4.1, M4.2, M4.3
   - files: `crates/thumbs/src/ladder.rs`, `crates/thumbs/tests/ladder.rs`, `crates/engine/src/thumbs.rs`, `crates/engine/tests/thumbs.rs`, `crates/engine/src/session.rs`, `apps/dalica/src/main.rs`, `apps/dalica-cli/src/main.rs`
   - scope: `architecture.md` §5–§6: ladder sizes in device pixels; after a scan adds or changes
@@ -1084,7 +1084,7 @@ UI tasks each re-bless only their own.
   - done when: a headless test scrolls a scanned 10 k-photo synthetic library at top thumb speed
     and counts zero placeholder cells on every frame, with textures within the cap; once the view
     stops, every visible cell draws its covering size and the region fingerprints are unchanged.
-- ⬜ **M4.13 `ui`: the selection model and keyboard navigation**
+- ✅ **M4.13 `ui`: the selection model and keyboard navigation**
   - after: M4.5, M4.6
   - files: `crates/ui/src/selection.rs`, `crates/ui/src/commands/select.rs`, `crates/ui/src/panels/light_table/input.rs`, `crates/ui/tests/selection.rs`
   - scope: `ui-layout.md` §5.4: click, Ctrl-click, Shift range from the anchor, rubber band from
@@ -1096,7 +1096,7 @@ UI tasks each re-bless only their own.
   - done when: `crates/ui/tests/selection.rs`: each gesture by widget id; a range and a band never
     cross a section; arrows and Home/End stop at section edges; the four commands per section;
     every command's graceful-failure test; `panic_hunt` green.
-- ⬜ **M4.14 `xtask bench` and the light-table benchmark**
+- ✅ **M4.14 `xtask bench` and the light-table benchmark**
   - after: M4.6, M4.7
   - files: `xtask/src/bench.rs`, `crates/ui/benches/library_bench.rs`, `docs/development.md`
   - scope: `development.md` §3, §8: `cargo xtask bench [name]` builds benches in release, runs

@@ -15,6 +15,7 @@ pub mod menus;
 pub mod panels;
 pub mod perf;
 pub mod picker;
+pub mod selection;
 pub mod state;
 pub mod titlebar;
 

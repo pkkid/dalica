@@ -8,7 +8,6 @@
 mod steps;
 
 use std::path::PathBuf;
-use std::process::Command;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -56,7 +55,7 @@ fn star_a_photo_end_to_end() {
     std::fs::create_dir_all(&out_dir).unwrap();
     let png_path = out_dir.join("m1-snapshot.png");
     let _ = std::fs::remove_file(&png_path);
-    let snap = Command::new(&outcome.cli)
+    let snap = steps::command(&outcome.cli, outcome.lib.path())
         .args(["snapshot", "--library"])
         .arg(outcome.lib.path())
         .args(["--size", "1400x900", "-o"])

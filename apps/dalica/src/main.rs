@@ -203,6 +203,11 @@ fn main() -> ExitCode {
             }
         },
     };
+    // The user's library keeps its thumbnails in Dalica's cache folder; a demo keeps a temporary
+    // cache that goes with it.
+    if matches!(source, window::Source::Library(_)) {
+        dalica_engine::thumbs::set_process_cache_dir(dalica_engine::thumbs::default_cache_dir(|k| std::env::var_os(k)));
+    }
     let _log = logging::init();
     let (code, token_file) = match listening {
         Some((listening, flags)) if options.headless => run_headless(listening, &flags, source, demo),

@@ -40,7 +40,7 @@ cargo xtask ci                                      # THE gate: run before every
 | `xtask tasks <sub>` | the task board: `setup`, `sync`, `next`, `claim`, `env`, `submit`, `release`, `block`, `merge`, `status`, `log` ([`task-board.md`](task-board.md)); `sync --check` parses the roadmap offline, `setup`/`sync --dry-run` show the GitHub writes without making them | `sync --check` ✓ |
 | `xtask test-corpus` | *planned (M5):* fetch the corpora and run the `corpus`-feature tests | |
 | `xtask corpus` | *planned (M5):* fetches pinned, sha256-verified CC0 test photos into the gitignored `corpus/` | |
-| `xtask bench` | *planned (M4):* library-scale and pixel benchmarks; appends to `target/bench/history.jsonl`, flags CPU-time regressions > 20 % | |
+| `xtask bench [name…] [-- args]` | builds the registered benches in release (`cargo bench`), runs each with `--json` (plus `args`), prints its rows, appends the run to `<target dir>/bench/history.jsonl` and fails on a CPU-time regression over 20 % against the last run of the same bench with the same arguments on the same machine (§13 *Bench runs*); no name runs them all | |
 | `xtask perf` | *planned (from M4):* the budgeted benchmark run of §13 | |
 | `xtask scorecard [--check]` | *planned (after M1):* regenerate / verify `docs/scorecard.md` | |
 | `xtask snapshot <script>` | *planned (M2):* headless UI screenshot via the CPU rasterizer | |
@@ -224,6 +224,7 @@ processed them, so a following `ui.state` or `ui.inspect` observes their effect.
 | `RUST_LOG` | log levels for standard error and the log file (see *Logs*) |
 | `RUST_BACKTRACE=1` | full backtraces in panic reports |
 | `DALICA_PROFILE=1` | per-stage timings (see *Profiling*) |
+| `DALICA_CACHE_DIR` | an absolute folder used in place of Dalica's cache folder for the thumbnail cache (`<dir>/thumbs`); every test that launches `dalica` or `dalica-cli` on a library sets it to a temporary folder ([`data-model.md`](data-model.md) §4) |
 | `DALICA_THEME_FILE=tokens.json` | **debug builds only:** live `theme::Tokens` overrides, re-read on change (keys are the field names in `crates/ui-kit/src/theme.rs`); compiled out of release builds |
 | `CRAFT_FONTS_DIR` | optional fonts build input (see §12) |
 | `DALICA_CORPUS_REPO` | local authoring clone of the corpus repository for `xtask corpus --local` (see §11) |
@@ -405,7 +406,34 @@ Runs from different machine classes are never compared, and `--quick` numbers on
 baseline. A busy machine gives noisy numbers: check the load average before trusting a regression.
 
 `xtask bench` (§3) remains the quick local before/after check for one hot path; `xtask perf` is the
-budgeted, baseline-compared run that feeds the scorecard. CI runs `cargo xtask scorecard --check` on
+budgeted, baseline-compared run that feeds the scorecard.
+
+**Bench runs.** The benches `xtask bench` knows are registered in `xtask/src/bench.rs` (a
+`harness = false` bench target each): `library_bench` (`dalica-ui`) and `pack` (`dalica-thumbs`).
+A bench given `--json` prints one JSON object on its last line with a `rows` array; each row has a
+`name` (the key) and numbers. A row's **CPU-time fields** are those whose key names a time unit
+(`p50_ms`, `pack_us_per_read`): `xtask bench` compares them with the last run in the history that
+has the same bench, arguments and machine (OS, architecture, CPU count and model, host name) and
+flags any that grew more than 20 %. Tail statistics (`p95_…`, `p99_…`, `max_…`) and counters are
+printed, never flagged. Every successful run is appended, so a flagged run becomes the next
+baseline: rerun on a quiet machine before trusting a regression. The history lives in the target
+directory (`CARGO_TARGET_DIR` when set), never in the repository.
+
+```sh
+cargo xtask bench library_bench                      # 10 k and 100 k photos, 4 × 300 wheel scrolls each
+cargo xtask bench library_bench -- --photos 20000    # 2 k and 20 k; other arguments are another series
+cargo bench -p dalica-ui --bench library_bench       # the bench alone, a table instead of JSON
+```
+
+`library_bench` opens an index-only synthetic library (`dalica_engine::synthetic`, 100 photos per
+folder) at a tenth of `--photos` and at `--photos` (default 100 000) in the headless driver at
+1400 × 900, and scrolls the light table with the wheel at 3 600 points per second from four places
+(the top and a quarter, half and three quarters down). Rows: `scroll light table <n>` (UI frame
+time, layout plus tessellation, p50/p95/max by nearest rank; cells visited per frame, min/p50/max),
+`sections refresh <n>` (rebuilding the light table's sections, once per library revision) and
+`layout <n>`. It exits non-zero when the cells visited per frame grow with the library (the larger
+library's maximum more than 10 % over the smaller one's). Without `--bench` (`cargo test --benches`)
+it runs a smoke pass at 1 k and 10 k photos. CI runs `cargo xtask scorecard --check` on
 every PR; `cargo xtask perf` runs nightly on one fixed runner, never on pull requests.
 
 **Adding a scenario.** Add a row to a bench (its name is the key: keep it stable), give the bench
