@@ -143,10 +143,12 @@ The review's id is `M<n>.R` (`M2.R`, `M6.R`, …) and its issue `#<issue>`.
      `docs/status.md`;
    - apply any reversals the maintainer asked for since the last review;
    - tick the review's ✅ in `docs/roadmap.md`, so merging the PR is the approval.
-2. **Ask the questions** with the **AskUserQuestion** tool: the questions for the maintainer from
-   §2, then the fingerprint question (step 6). Ask as few as possible, recommended option first,
-   up to 4 per call, until everything is answered (a question the maintainer leaves open stays
-   on the page and the PR as open). Then apply the answers on the review branch:
+2. **Notify, then ask the questions.** Immediately before the first question, send the push
+   notification (`AGENTS.md` §4): the **PushNotification** tool, one line such as
+   `M<n>.R ready: 4 questions waiting`. Then ask with the **AskUserQuestion** tool: the
+   questions for the maintainer from §2, then the fingerprint question (step 6). Ask as few as
+   possible, recommended option first, up to 4 per call, until everything is answered (a
+   question the maintainer leaves open stays on the page and the PR as open). Then apply the answers on the review branch:
    - roadmap and docs edits the answers call for;
    - a fix-task block in `docs/roadmap.md` for each rejected item (`after:` the review);
    - for each blocked task, comment the answer on its issue, remove `needs-maintainer`
