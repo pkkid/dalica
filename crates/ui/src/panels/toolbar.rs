@@ -146,9 +146,9 @@ const fn row(label: &'static str, command: &'static str, part: &'static str, par
     ViewOption::Row { label, command, part: Some(part), params, checked: false }
 }
 
-/// The view options popup. The tree sorts and their reverse, the people sorts and tree thumbnails
-/// get their commands with the tree model (M4); until then these ids are the ones their rows
-/// answer to. Sort by Date is the default, so it is checked.
+/// The view options popup. A row's check mark reads the view state (`view::checked`); `checked`
+/// is only the fallback for a row whose command does not answer yet (the people sorts and tree
+/// thumbnails get theirs later).
 pub const VIEW_OPTIONS_ROWS: &[ViewOption] = &[
     ViewOption::Row { label: "Sort by Date", command: "view.folderSort", part: Some("date"), params: r#"{"by":"date"}"#, checked: true },
     row("Sort by Recent Changes", "view.folderSort", "recent", r#"{"by":"recent"}"#),
@@ -238,12 +238,13 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         let _ = app.run("album.new", &json!({}));
     }
 
-    // Flat | Tree. Flat is the default mode until the tree mode is view state (M4).
+    // Flat | Tree, the selected segment as the view state says.
     let pair = [
         Segment { id: FLAT_ID, label: SegmentLabel::Icon(Icon::FlatList), tooltip: "Show folders as a flat list" },
         Segment { id: TREE_ID, label: SegmentLabel::Icon(Icon::Tree), tooltip: "Show the folder tree" },
     ];
-    let clicked = place(ui, l.flat.union(l.tree), available(app, "view.folderView"), |ui| widgets::segmented(ui, &t, &pair, Some(0), SEGMENT));
+    let active = usize::from(menus::checked(app, "view.folderView", &json!({ "mode": "tree" })));
+    let clicked = place(ui, l.flat.union(l.tree), available(app, "view.folderView"), |ui| widgets::segmented(ui, &t, &pair, Some(active), SEGMENT));
     segment_tooltips(ui, &t, &pair);
     if let Some(i) = clicked {
         let mode = if i == 0 { "flat" } else { "tree" };
@@ -354,11 +355,16 @@ fn view_options(app: &mut App, ui: &mut Ui, t: &Tokens, rect: Rect) {
     let open = Popup::is_id_open(ui.ctx(), popup_id);
     let toggled = single(ui, t, rect, true, VIEW_OPTIONS_ID, Icon::ChevronDown, "View options", open);
     let Some(button) = ui.ctx().read_response(Id::new(VIEW_OPTIONS_ID)) else { return };
-    let live: Vec<bool> = VIEW_OPTIONS_ROWS
+    // Whether each row's command is registered, and whether the view state checks it.
+    let live: Vec<(bool, bool)> = VIEW_OPTIONS_ROWS
         .iter()
         .map(|o| match o {
-            ViewOption::Row { command, .. } => available(app, command),
-            ViewOption::Separator => false,
+            ViewOption::Row { command, params, checked, .. } => {
+                let params = serde_json::from_str(params).unwrap_or(Value::Null);
+                let on = crate::commands::view::checked(app.state(), command, &params).unwrap_or(*checked);
+                (available(app, command), on)
+            }
+            ViewOption::Separator => (false, false),
         })
         .collect();
     let top = rect.max.y;
@@ -367,8 +373,8 @@ fn view_options(app: &mut App, ui: &mut Ui, t: &Tokens, rect: Rect) {
         menus::level(ui, 1, top, |ui| {
             ui.set_min_width(220.0);
             ui.spacing_mut().button_padding.x = 24.0;
-            for (o, &live) in VIEW_OPTIONS_ROWS.iter().zip(&live) {
-                let ViewOption::Row { label, command, params, checked, .. } = *o else {
+            for (o, &(live, checked)) in VIEW_OPTIONS_ROWS.iter().zip(&live) {
+                let ViewOption::Row { label, command, params, .. } = *o else {
                     ui.separator();
                     continue;
                 };
