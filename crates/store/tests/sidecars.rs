@@ -8,7 +8,7 @@ use std::time::Duration;
 use dalica_core::{Clock, FolderId, PhotoId, Timestamp, VirtualClock};
 use dalica_library::{Folder, Library, Op, Photo};
 use dalica_sidecar::{Field, Limits, Sidecar};
-use dalica_store::mapping::{PHOTO_FIELDS, Source};
+use dalica_store::mapping::{PHOTO_DATA, PHOTO_FIELDS, Source};
 use dalica_store::{Outcome, SidecarWriter, import_sidecars, write_folder};
 
 const NAMES: [&str; 4] = ["IMG_0001.jpg", "a]b \"c\";=.jpg", "東京.jpg", "IMG_0004.jpg"];
@@ -39,7 +39,8 @@ fn star(lib: &mut Library, writer: &mut SidecarWriter, id: PhotoId, on: bool) {
 }
 
 /// Every model field has a home; adding a field to `Photo` breaks this destructuring until it is
-/// placed in `PHOTO_FIELDS` (nothing is silently dropped).
+/// placed in `PHOTO_FIELDS` (nothing is silently dropped). The per-photo data kept beside `Photo`
+/// is listed too: the sketch is index-only (derived, never in a sidecar).
 #[test]
 fn every_photo_field_is_mapped() {
     let Photo { id: _, folder: _, name: _, size: _, mtime: _, width: _, height: _, date: _, star: _ } = Photo {
@@ -56,6 +57,7 @@ fn every_photo_field_is_mapped() {
     let names: Vec<&str> = PHOTO_FIELDS.iter().map(|(n, _)| *n).collect();
     assert_eq!(names, ["id", "folder", "name", "size", "mtime", "width", "height", "date", "star"]);
     assert!(PHOTO_FIELDS.contains(&("star", Source::Sidecar("star"))));
+    assert_eq!(PHOTO_DATA, [("sketch", Source::Index)]);
 }
 
 #[test]

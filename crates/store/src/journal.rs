@@ -1,7 +1,9 @@
 //! The index journal, `index.log` (`architecture.md` §4, `security.md` §4.2): one record per line,
 //! `<crc32 as 8 hex digits> <json>\n`. The first record is a header (`{"journal": 1, "base": N}`:
 //! the format version, and how many ops the snapshot already holds); every other record is one
-//! applied [`Op`]. Each append is synced to disk.
+//! applied [`Op`]. Each append is synced to disk. Sketch batches ([`Op::SetSketches`]) are records
+//! like any other: replay restores them, and a torn batch is lost whole while the ones before it
+//! are kept.
 //!
 //! Reading stops cleanly at the first line that is torn (no newline), fails its checksum or does
 //! not parse: everything before it is kept, nothing after it is trusted.

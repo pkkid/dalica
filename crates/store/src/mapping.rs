@@ -1,7 +1,8 @@
 //! Model ↔ sidecar mapping (`data-model.md` §2): which photo fields live in the folder's
 //! `.dalica.json` and which are read from the file itself. Every field of `Photo` is listed in
 //! [`PHOTO_FIELDS`]; a test destructures `Photo` exhaustively, so a new field does not compile
-//! until it is placed here (nothing is silently dropped).
+//! until it is placed here (nothing is silently dropped). Per-photo data the model keeps beside
+//! `Photo` is listed in [`PHOTO_DATA`].
 
 use std::path::PathBuf;
 
@@ -12,7 +13,8 @@ use dalica_sidecar::{Field, Sidecar, WrongType};
 /// Where a photo field's value comes from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Source {
-    /// Kept by the index only (ids).
+    /// Kept by the index only (ids, and derived data such as the sketch, which is made again
+    /// after a rebuild and never reaches a sidecar).
     Index,
     /// Read from the file system or the file's headers on every scan.
     File,
@@ -32,6 +34,9 @@ pub const PHOTO_FIELDS: [(&str, Source); 9] = [
     ("date", Source::File),
     ("star", Source::Sidecar("star")),
 ];
+
+/// Per-photo data the model keeps beside [`dalica_library::Photo`], and where it lives.
+pub const PHOTO_DATA: [(&str, Source); 1] = [("sketch", Source::Index)];
 
 /// What a folder's sidecar should say, taken from the model: enough to write it on any thread.
 #[derive(Clone, Debug, PartialEq, Eq)]
