@@ -286,27 +286,42 @@ day alone.
 
 - A sunken rounded box (`tray_bg`, radius 4) from x = 6 to 0.365·W − 56, 80 high. Empty: centred
   `text_dim` watermark **"Selection"**.
-- Contents: a whole folder/album selected from the tree → one **token** (cover thumbnail + pill
-  "Folder selected — 48 photos" / "Album selected — 10 photos"); individual photos → square
-  centre-cropped mini thumbnails in rows, shrinking as the count grows (54 pt up to ~11 items, then
-  48, 42, … 28 in two rows, 18 in three rows).
-- The tray has its own selection (click a tray thumbnail; rubber band) used by **Clear** to remove
-  just those items. Drag onto the tray adds; drag out of the tray works like dragging from the grid.
+- Contents: the selection plus the held photos, each photo once. A whole folder/album selected
+  from the tree → one **token** at the tray's left (cover thumbnail + accent pill "Folder selected —
+  48 photos" / "Album selected — 10 photos"; "1 photo"), unless every photo of it is held; individual
+  photos → square centre-cropped mini thumbnails in rows, held photos first, shrinking as the count
+  grows. The count picks the first size (54 pt up to 11 items, 48 from 12, 42 from 14, 36 from 16,
+  30 from 18, 28 in up to two rows from 20, 22 in up to three rows from 40, 18 in three rows from
+  67); a smaller step is taken while the minis do not fit the box (4 pt margin, 3 pt gaps), only
+  the rows needed are used, centred; at 18 pt what does not fit is counted on the last place
+  ("+38", Dalica addition). At 1400 × 900 (a box 449 wide): 1 item 54, 12 items 30, 40 items 22,
+  100 items 18 with "+38".
+- Held photos carry the held badge (pin on a dark plate) in their mini's top-right corner;
+  tray-selected minis a 2 pt `accent` outline.
+- The tray has its own selection (click a tray thumbnail, Ctrl-click toggles; rubber band from the
+  box's empty space, Ctrl adds; a click on empty space selects none) used by **Clear** to remove
+  just those items; it only ever holds photos the tray shows. Drag onto the tray adds; drag out of
+  the tray works like dragging from the grid.
 - Three stacked icon buttons at the tray's right edge (34 × 24):
   - **Hold** (pin; "Keep these photos in the tray") — Ctrl+H; held photos get the 📌 badge;
   - **Clear** (circle-slash; "Remove photos from the tray") — removes tray-selected items, or all
-    (asking "Clear all photos from the tray?" [Clear Tray] [Cancel] when items are held);
+    (asking "Clear all photos from the tray?" [Clear Tray] [Cancel] when items are held; over
+    automation `tray.clear` then needs `confirm: true`). Photos leaving the tray leave the
+    light-table selection too;
   - **Add to Album ▾** (album + ▾; "Add these photos to an album") — popup opening upward: New
     Album…, then albums (recent first).
 - Tray context menu: View and Edit · Hold · Remove from Tray · Rotate Clockwise · Rotate
-  Counterclockwise · Locate on Disk · — · Properties.
+  Counterclockwise · Locate on Disk · — · Properties. On a mini it acts on the tray-selected photos
+  (a right-click on an unselected mini selects it first); on empty space, on the tray-selected
+  photos or else the whole tray. Items whose command does not exist yet are greyed.
 - The tray is not persisted across restarts. An action that needs photos with an empty tray shows
   a toast "Select some photos first".
 
 ### 6.3 Star and rotate
 
 Right of the tray, top row: **Star** ("Star / unstar"), **Rotate counterclockwise**, **Rotate
-clockwise** (36 × 24 each; disabled when the tray is empty). They act on the tray.
+clockwise** (36 × 24 each; disabled when the tray is empty). They act on the tray: Star stars every
+photo in it in one undo step, or unstars them all when all are starred.
 
 ### 6.4 Thumbnail size, loupe, pane toggles
 

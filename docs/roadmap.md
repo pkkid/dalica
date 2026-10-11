@@ -1033,7 +1033,7 @@ UI tasks each re-bless only their own.
     photo has a sketch and 128/256 entries; a request for a 300 px cell answers with the 256 entry
     and gets the 512 after its job; a never-scanned photo answers "not scanned"; prefetch order
     follows the scroll direction; the owner thread made no `fs` call (guard count 0).
-- ⬜ **M4.9 `ui`: the section header block**
+- ✅ **M4.9 `ui`: the section header block**
   - after: M4.6
   - files: `crates/ui/src/panels/light_table/header.rs`, `crates/ui/tests/section_header.rs`, `crates/ui/tests/fingerprints/region-header*.json`
   - scope: `ui-layout.md` §5.2, `design-system.md` §7: icon 32 (tooltip = full path; Locate on
@@ -1121,7 +1121,7 @@ UI tasks each re-bless only their own.
     every sort; a row click leaves its header at the top after 0.2 s and selects the folder as a
     unit; collapsing Folders removes its sections; a 5 k-folder synthetic library stays within
     the frame budget with rows visited flat.
-- ⬜ **M4.16 `ui`: the Photo Tray, Hold, Clear and tray actions**
+- ✅ **M4.16 `ui`: the Photo Tray, Hold, Clear and tray actions**
   - after: M4.13
   - files: `crates/ui/src/tray.rs`, `crates/ui/src/commands/tray.rs`, `crates/ui/src/panels/bottom.rs`, `crates/ui/src/panels/bottom/**`, `crates/ui/tests/tray.rs`, `crates/ui/tests/fingerprints/region-tray*.json`
   - scope: `ui-layout.md` §6.2–§6.3: the tray mirrors the selection live plus held photos; a

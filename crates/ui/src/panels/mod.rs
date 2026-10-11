@@ -127,5 +127,5 @@ fn regions(p: &mut Panels, app: &mut App, ui: &mut Ui) {
         region(ui, "sidePane", rect, t.chrome, |ui| side_pane::show(app, ui));
     }
     region(ui, "statusLine", l.status_line, t.chrome, |ui| status::show(p, app, ui));
-    region(ui, "bottom", l.bottom, t.chrome, |ui| bottom::show(app, ui));
+    region(ui, "bottom", l.bottom, t.chrome, |ui| bottom::show(p, app, ui));
 }
