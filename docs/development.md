@@ -56,8 +56,10 @@ at once.
 
 1. `test`: `cargo test --workspace --exclude dalica-acceptance`, every crate's suites.
 2. `test acceptance`: the acceptance package's library and every `[[test]]` target of
-   `tests/acceptance/Cargo.toml` that no `accept` step runs (the headless halves such as
-   `m1_headless`, `m0_skeleton`, and the acceptance test of a milestone still in progress).
+   `tests/acceptance/Cargo.toml` that no `accept` step runs (`m0_skeleton`, and the acceptance
+   test of a milestone still in progress). A finished milestone's headless half (`m1_headless`) is
+   left out too: `m1.rs` runs the same steps first, so it would repeat them; it stays for
+   `cargo xtask accept M1 --headless`.
 3. `accept M<k>` for each finished milestone (every block ✅), each running `m<k>.rs` once.
 
 An acceptance test re-runs the crate suites its milestone's *Done when* names (`cargo test -p …`),

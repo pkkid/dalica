@@ -43,8 +43,9 @@ fn cargo_env(root: &Path, args: &[&str], env: &[(&str, &str)]) -> Result<(), Str
 pub const ACCEPTANCE: &str = "dalica-acceptance";
 
 /// The `[[test]]` targets of the acceptance manifest that no `accept` step runs, in its order: all
-/// but `m<k>` for each milestone in `accepted` (so the headless halves, the skeleton checks and the
-/// acceptance test of a milestone still in progress keep running in `ci`).
+/// but `m<k>` and `m<k>_headless` for each milestone in `accepted` (`m<k>` runs the headless half's
+/// steps first, so `m<k>_headless` would repeat them; it stays for `accept M<k> --headless`). The
+/// skeleton checks and the acceptance test of a milestone still in progress keep running in `ci`.
 pub fn acceptance_rest(manifest: &str, accepted: &[u32]) -> Vec<String> {
     let mut rest = Vec::new();
     let mut in_test = false;
@@ -55,7 +56,7 @@ pub fn acceptance_rest(manifest: &str, accepted: &[u32]) -> Vec<String> {
         }
         let Some(value) = line.strip_prefix("name").map(str::trim_start).and_then(|l| l.strip_prefix('=')) else { continue };
         let name = value.trim().trim_matches('"');
-        if in_test && !name.is_empty() && !accepted.iter().any(|m| name == format!("m{m}")) {
+        if in_test && !name.is_empty() && !accepted.iter().any(|m| name == format!("m{m}") || name == format!("m{m}_headless")) {
             rest.push(name.to_string());
         }
     }
@@ -191,14 +192,15 @@ mod tests {
     fn acceptance_rest_leaves_out_the_accepted_milestones() {
         let manifest = "[package]\nname = \"dalica-acceptance\"\n\n[lib]\npath = \"src/lib.rs\"\n\n[[test]]\nname = \"m0\"\npath = \"m0.rs\"\n\n\
                         [[test]]\nname = \"m0_skeleton\"\n\n[[test]]\nname = \"m1\"\n\n[[test]]\nname = \"m1_headless\"\n\n[[test]]\nname=\"m12\"\n";
-        assert_eq!(acceptance_rest(manifest, &[0, 1]), ["m0_skeleton", "m1_headless", "m12"]);
+        assert_eq!(acceptance_rest(manifest, &[0, 1]), ["m0_skeleton", "m12"]);
+        assert_eq!(acceptance_rest(manifest, &[0]), ["m0_skeleton", "m1", "m1_headless", "m12"]);
         assert_eq!(acceptance_rest(manifest, &[]), ["m0", "m0_skeleton", "m1", "m1_headless", "m12"]);
-        assert_eq!(acceptance_rest(manifest, &[0, 1, 12]), ["m0_skeleton", "m1_headless"]);
+        assert_eq!(acceptance_rest(manifest, &[0, 1, 12]), ["m0_skeleton"]);
         // The real manifest: every finished milestone up to M4 has its test there.
         let real = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/acceptance/Cargo.toml")).unwrap();
         let rest = acceptance_rest(&real, &[0, 1, 2, 3, 4]);
         assert!(rest.iter().all(|t| !["m0", "m1", "m2", "m3", "m4"].contains(&t.as_str())), "{rest:?}");
-        assert!(rest.contains(&"m0_skeleton".to_string()) && rest.contains(&"m1_headless".to_string()), "{rest:?}");
+        assert!(rest.contains(&"m0_skeleton".to_string()) && !rest.contains(&"m1_headless".to_string()), "{rest:?}");
     }
 
     #[test]
