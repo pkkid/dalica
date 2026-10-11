@@ -486,6 +486,7 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui, area: Rect, bar: Rect) {
         header::apply(app, out);
     }
     if let Some(s) = app.session_mut() {
+        p.thumbnails.set_order(&p.sections);
         p.thumbnails.end_frame(s, &motion);
     }
     let state = app.state_mut();

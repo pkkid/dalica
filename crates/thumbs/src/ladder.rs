@@ -207,11 +207,12 @@ pub fn scan(cache: &Cache, source: &Source, want_sketch: bool, limits: &dalica_i
     }
     let large = crate::thumbnail(&source.path, 256, limits)?;
     let small = dalica_image::resize::fit(&large, 128).map_err(|e| Error::Photo(e.into()))?;
-    for (size, img) in [(Size::S128, &small), (Size::S256, &large)] {
-        cache.put(size, key, &encode_jpeg(img)?)?;
-    }
     let sketch = if want_sketch { Some(sketch::encode(&small).map_err(|e| Error::Encode(e.to_string()))?) } else { None };
-    Ok(Scanned { images: vec![(Size::S128, small), (Size::S256, large)], sketch, decoded: true })
+    let mut images = Vec::with_capacity(2);
+    for (size, img) in [(Size::S128, &small), (Size::S256, &large)] {
+        images.push((size, store(cache, size, key, img, limits)?));
+    }
+    Ok(Scanned { images, sketch, decoded: true })
 }
 
 /// What [`fetch`] brought into memory.
@@ -234,8 +235,16 @@ pub fn fetch(cache: &Cache, source: &Source, size: Size, screen: u32, limits: &d
         return Err(Error::Cancelled);
     }
     let image = crate::thumbnail(&source.path, pixels(size, screen), limits)?;
-    cache.put(size, key, &encode_jpeg(&image)?)?;
-    Ok(Fetched { image, decoded: true })
+    Ok(Fetched { image: store(cache, size, key, &image, limits)?, decoded: true })
+}
+
+/// Stores `image` as the `size` entry of `key` and returns the entry's pixels as a later read
+/// gives them (the JPEG decoded again), so an image looks the same whether it was just made or
+/// read from the cache.
+fn store(cache: &Cache, size: Size, key: Key, image: &Rgba8, limits: &dalica_image::Limits) -> Result<Rgba8, Error> {
+    let bytes = encode_jpeg(image)?;
+    cache.put(size, key, &bytes)?;
+    decode_entry(&bytes, limits)
 }
 
 /// The cached entry of `key` at `size`, decoded; `None` when there is none or it does not decode

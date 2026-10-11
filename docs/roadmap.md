@@ -1033,7 +1033,7 @@ UI tasks each re-bless only their own.
     photo has a sketch and 128/256 entries; a request for a 300 px cell answers with the 256 entry
     and gets the 512 after its job; a never-scanned photo answers "not scanned"; prefetch order
     follows the scroll direction; the owner thread made no `fs` call (guard count 0).
-- ⬜ **M4.9 `ui`: the section header block**
+- ✅ **M4.9 `ui`: the section header block**
   - after: M4.6
   - files: `crates/ui/src/panels/light_table/header.rs`, `crates/ui/tests/section_header.rs`, `crates/ui/tests/fingerprints/region-header*.json`
   - scope: `ui-layout.md` §5.2, `design-system.md` §7: icon 32 (tooltip = full path; Locate on
@@ -1073,7 +1073,7 @@ UI tasks each re-bless only their own.
     distances, nothing inside the dead zone, the top speed at the track end; release stops the
     view and the thumb is back at the centre after 150 ms; ⇑/⇓ land headers at the top; the
     marker tracks the position; the keymap has no conflicts.
-- ⬜ **M4.12 `ui`: never-blank thumbnails on screen**
+- ✅ **M4.12 `ui`: never-blank thumbnails on screen**
   - after: M4.6, M4.7, M4.8
   - files: `crates/ui/src/panels/thumbnails.rs`, `crates/ui/tests/never_blank.rs`
   - scope: `Thumbnails::paint` drawn from the session's ladder: the covering size, else the next
