@@ -1059,7 +1059,7 @@ UI tasks each re-bless only their own.
   - done when: a ui-kit badge sheet (every combination, three cell sizes) matches its
     fingerprint; headless tests: each caption mode's text, small pictures hidden and shown,
     the hidden-photo opacity rule, the tooltip after 600 ms of virtual time and not before.
-- ⬜ **M4.11 `ui`: the speed-control scrollbar and scroll keys**
+- ✅ **M4.11 `ui`: the speed-control scrollbar and scroll keys**
   - after: M4.6
   - files: `crates/ui/src/panels/light_table/scrollbar.rs`, `crates/ui/src/commands/scroll.rs`, `crates/ui/tests/scrollbar.rs`, `crates/engine/src/settings.rs`, `docs/ui-layout.md`
   - scope: `ui-layout.md` §5.6: ⇑ ▲ track ▼ ⇓ with auto-repeat, track click pages (one row + 90,
@@ -1107,7 +1107,7 @@ UI tasks each re-bless only their own.
   - done when: `cargo xtask bench library_bench` prints the p95 and the cells-visited counts; a
     test with a planted history flags a 25 % slowdown and not a 10 % one; `xtask docs` lists
     `bench` as implemented; numbers for this machine in the PR.
-- ⬜ **M4.15 `ui`: the library tree pane**
+- ✅ **M4.15 `ui`: the library tree pane**
   - after: M3.7, M3.8, M4.4, M4.5, M4.6, M4.7, M4.13
   - files: `crates/ui/src/panels/folders.rs`, `crates/ui/src/panels/folders/**`, `crates/ui/tests/tree.rs`, `crates/ui/tests/fingerprints/region-tree*.json`
   - scope: `ui-layout.md` §4 on M3.8's pane frame: group headers (30, disclosure, count; collapsed

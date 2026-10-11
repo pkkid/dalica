@@ -1,99 +1,356 @@
 //! The library tree pane (`ui-layout.md` §4), left of the light table and as wide as the splitter
-//! leaves it (200 … W − 480): the **Folders** group header (30 high: disclosure triangle, SemiBold
-//! title with the count, `tree:group:folders`), then one 24-high row per folder, newest first
-//! (16 pt folder icon, name, count in `text_dim`). Clicking a row selects its section and scrolls the
-//! light table to it; clicking the header folds the rows away. The other groups, year dividers, tree
-//! mode, the collapsed light-table sections and the keyboard arrive with M4.
+//! leaves it (200 … W − 480).
+//!
+//! - **What it shows** is [`dalica_library::Tree`] for the view state (Flat | Tree, the folder
+//!   sort, the collapsed groups and tree folders, Small and Hidden Pictures), laid out by
+//!   [`model::Model`]: group headers (30, disclosure, title with the count), folder rows (24: the
+//!   disclosure triangle in tree mode, indented 16 per level, the folder icon, the name elided in
+//!   the middle, the count in `text_dim`) and year dividers (18). The model is rebuilt only when the
+//!   library's revision, the watched roots or those options change; a frame lays out and paints
+//!   the rows on screen only, so its work does not grow with the library.
+//! - **Clicks:** a row with photos selects its folder as a unit (what `select.section` does) and
+//!   scrolls the light table to its section (`section.scrollTo`, through [`Panels::scroll_to`]);
+//!   a row without photos folds or unfolds its children. A header runs `view.groupCollapse` (its
+//!   sections leave the light table); a disclosure triangle `view.folderCollapse`. Directories
+//!   that are no library folder have no `FolderId` for the view state: they fold here, in the
+//!   pane's own memory, for this session.
+//! - **Focus and keys:** a press in the pane gives it the keyboard focus (the selected row gets
+//!   the 2 pt `accent` bar), a press anywhere else takes it away. While it has it, the plain arrows
+//!   are the pane's ([`has_focus`], [`is_tree_key`]: the shortcut dispatch leaves them alone):
+//!   ↑/↓ move the selection to the previous or next row with photos (scrolling the light table, and
+//!   the pane to keep the row in view); in tree mode ← folds the selected row or goes to its
+//!   parent, → unfolds it.
+//! - **Scrolling:** the wheel over the pane scrolls it. Collapsed groups after the last open one
+//!   dock at the bottom of the pane while the list above them is short.
+//!
+//! The pane's state between frames (the model and what it was built from, the offset, the folded
+//! directories, the focus) lives in the egui context's memory; [`info`] reports what the last frame
+//! did, for tests and inspection.
 
-use dalica_ui_kit::fonts;
-use dalica_ui_kit::icons::{self, Icon};
+pub mod model;
+mod paint;
+
+use std::collections::BTreeSet;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+use dalica_core::FolderId;
+use dalica_library::{Group, Tree, TreeMode, TreeOptions};
 use dalica_ui_kit::registry::Role;
 use dalica_ui_kit::widgets::{self, Target};
-use egui::text::{LayoutJob, TextWrapping};
-use egui::{Id, Rect, Sense, Ui, UiBuilder, pos2, vec2};
+use egui::{Context, Id, Modifiers, Rect, Sense, Ui, UiBuilder, pos2, vec2};
+use serde_json::json;
 
+use self::model::{Heights, Kind, Model};
 use super::{Panels, light_table};
 use crate::app::App;
 use crate::perf::{self, Counter};
+use crate::selection::{self, Scope};
+use crate::state::Section;
 
-/// Group header and row heights (`design-system.md` §4).
-pub const GROUP_HEADER: f32 = 30.0;
-pub const ROW: f32 = 24.0;
-/// A row's icon edge, where it starts, and the gap after it.
-const ICON: f32 = 16.0;
-const ICON_LEFT: f32 = 24.0;
-const ICON_GAP: f32 = 6.0;
-/// Space kept free at a row's right end.
-const RIGHT: f32 = 8.0;
+/// What the pane's tree was built from: the library's revision, the watched roots, the view
+/// state's tree options and folded folders, the pane's folded directories, the row heights.
+#[derive(Debug, Clone, PartialEq)]
+struct ModelKey {
+    revision: u64,
+    roots: Vec<PathBuf>,
+    options: TreeOptions,
+    folded: Vec<FolderId>,
+    dirs: BTreeSet<PathBuf>,
+    heights: Heights,
+}
 
-/// The Folders group's header label: `Folders (174)`.
-pub fn group_title(folders: usize) -> String {
-    format!("Folders ({folders})")
+/// The pane's state between frames.
+#[derive(Debug, Clone, Default)]
+struct Pane {
+    key: Option<ModelKey>,
+    model: Arc<Model>,
+    /// Counts the model's rebuilds, and how long the last one took.
+    generation: u64,
+    build: Duration,
+    /// The content offset at the pane's top.
+    offset: f32,
+    /// Tree mode: folded directories that are no library folder.
+    dirs: BTreeSet<PathBuf>,
+}
+
+/// What the last frame of the pane did.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct PaneInfo {
+    /// The content offset at the pane's top.
+    pub offset: f32,
+    /// The content's height and the pane's.
+    pub height: f32,
+    pub view_h: f32,
+    /// Rows and year dividers laid out (headers aside).
+    pub rows_visited: usize,
+    /// The model's rebuilds so far.
+    pub generation: u64,
+    /// The time the pane took, rebuilding the model included.
+    pub time: Duration,
+    /// How long the last rebuild of the model took (the tree and its items).
+    pub build: Duration,
+    /// Whether the model was rebuilt this frame.
+    pub rebuilt: bool,
+}
+
+/// What a click or key asks for, applied once the frame is drawn.
+#[derive(Debug, Clone, PartialEq)]
+enum Action {
+    /// Select item `i`'s folder as a unit and scroll the light table to it.
+    Select(usize),
+    /// Fold (`Some(true)`), unfold or toggle item `i`'s children.
+    Fold(usize, Option<bool>),
+    /// Fold or unfold a group.
+    Group(Group),
+}
+
+fn pane_id() -> Id {
+    Id::new("dalica-tree-pane")
+}
+
+fn focus_id() -> Id {
+    Id::new("dalica-tree-pane/focus")
+}
+
+fn info_id() -> Id {
+    Id::new("dalica-tree-pane/info")
+}
+
+/// Whether the library tree has the keyboard focus.
+pub fn has_focus(ctx: &Context) -> bool {
+    ctx.data(|d| d.get_temp::<bool>(focus_id())).unwrap_or(false)
+}
+
+/// Whether the focused tree takes this key press for itself: a plain arrow.
+pub fn is_tree_key(key: egui::Key, modifiers: Modifiers) -> bool {
+    modifiers.is_none() && matches!(key, egui::Key::ArrowUp | egui::Key::ArrowDown | egui::Key::ArrowLeft | egui::Key::ArrowRight)
+}
+
+/// What the pane's last frame did.
+pub fn info(ctx: &Context) -> PaneInfo {
+    ctx.data(|d| d.get_temp::<PaneInfo>(info_id())).unwrap_or_default()
+}
+
+/// The pane's items as last laid out.
+pub fn current_model(ctx: &Context) -> Arc<Model> {
+    ctx.data(|d| d.get_temp::<Pane>(pane_id())).map(|p| p.model).unwrap_or_default()
 }
 
 pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
+    let started = Instant::now();
     let t = *app.tokens();
     let rect = ui.max_rect();
+    let ctx = ui.ctx().clone();
     let Some(session) = app.session() else { return };
-    p.sections.update(session.library());
-    // Each group is shown only when it has rows (§4).
-    if p.sections.list.is_empty() {
-        return;
+    let mut pane = ctx.data_mut(|d| d.remove_temp::<Pane>(pane_id())).unwrap_or_default();
+
+    // The model, rebuilt when what it shows changed.
+    let library = session.library();
+    let state = app.state();
+    let heights = Heights::from_metrics(&t.metrics);
+    let key = ModelKey {
+        revision: library.revision(),
+        roots: session.roots().to_vec(),
+        options: light_table::tree_options(state),
+        folded: state.collapsed_folders.clone(),
+        dirs: pane.dirs.clone(),
+        heights,
+    };
+    let rebuilt = pane.key.as_ref() != Some(&key);
+    if rebuilt {
+        // Folded folders by path, as the tree takes them.
+        let mut options = key.options.clone();
+        options.collapsed_folders =
+            key.folded.iter().filter_map(|id| library.folder(*id)).map(|f| f.path.clone()).chain(key.dirs.iter().cloned()).collect();
+        let tree = Tree::build(library, &key.roots, &options);
+        pane.model = Arc::new(Model::build(&tree, heights));
+        pane.generation = pane.generation.wrapping_add(1);
+        pane.build = started.elapsed();
+        pane.key = Some(key);
     }
-    let open_id = Id::new("tree:group:folders/open");
-    let open = ui.ctx().data(|d| d.get_temp::<bool>(open_id)).unwrap_or(true);
-    let header_rect = Rect::from_min_size(rect.min, vec2(rect.width(), GROUP_HEADER));
-    let mut header_ui = ui.new_child(UiBuilder::new().max_rect(header_rect));
-    let header = widgets::section_header(&mut header_ui, &t, "tree:group:folders", &group_title(p.sections.list.len()), open);
-    if header.clicked() {
-        ui.ctx().data_mut(|d| d.insert_temp(open_id, !open));
+    let model = Arc::clone(&pane.model);
+    let tree_mode = model.mode == TreeMode::Tree;
+    let view_h = rect.height();
+
+    // Focus: a press in the pane takes it, a press elsewhere gives it up.
+    let mut focused = has_focus(&ctx);
+    if let Some(pos) = ctx.input(|i| if i.pointer.any_pressed() { i.pointer.press_origin() } else { None }) {
+        focused = rect.contains(pos);
     }
-    if !open {
-        perf::count(ui.ctx(), Counter::TreeRowsVisited, 0);
-        return;
+
+    // The wheel, then the keys, before anything is drawn.
+    if ui.rect_contains_pointer(rect) {
+        let dy = ctx.input(|i| i.smooth_scroll_delta.y);
+        if dy.is_finite() && dy != 0.0 {
+            pane.offset -= dy;
+        }
     }
+    let mut actions = Vec::new();
+    if focused {
+        let keys: Vec<egui::Key> = ctx.input(|i| {
+            i.events
+                .iter()
+                .filter_map(|e| match e {
+                    egui::Event::Key { key, pressed: true, modifiers, .. } if is_tree_key(*key, *modifiers) => Some(*key),
+                    _ => None,
+                })
+                .collect()
+        });
+        let mut cursor = state.folder.and_then(|f| model.row_of(f));
+        for k in keys {
+            match k {
+                egui::Key::ArrowDown | egui::Key::ArrowUp => {
+                    if let Some(i) = model.step(cursor, k == egui::Key::ArrowDown) {
+                        cursor = Some(i);
+                        actions.push(Action::Select(i));
+                        pane.offset = model.reveal(i, pane.offset, view_h);
+                    }
+                }
+                egui::Key::ArrowLeft if tree_mode => {
+                    let Some(i) = cursor else { continue };
+                    match model.row(i) {
+                        Some(r) if r.has_children && r.expanded => actions.push(Action::Fold(i, Some(true))),
+                        Some(_) => {
+                            if let Some(up) = model.parent_with_section(i) {
+                                cursor = Some(up);
+                                actions.push(Action::Select(up));
+                                pane.offset = model.reveal(up, pane.offset, view_h);
+                            }
+                        }
+                        None => {}
+                    }
+                }
+                egui::Key::ArrowRight if tree_mode => {
+                    if let Some(i) = cursor
+                        && model.row(i).is_some_and(|r| r.has_children && !r.expanded)
+                    {
+                        actions.push(Action::Fold(i, Some(false)));
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    pane.offset = if pane.offset.is_finite() { pane.offset.clamp(0.0, model.max_offset(view_h)) } else { 0.0 };
+
+    // The items on screen.
     let painter = ui.painter().clone();
-    let mut picked = None;
-    let mut visited = 0u64;
-    for (i, s) in p.sections.list.iter().enumerate() {
-        let row = Rect::from_min_size(rect.min + vec2(0.0, GROUP_HEADER + i as f32 * ROW), vec2(rect.width(), ROW));
-        if row.min.y > rect.max.y {
-            break;
-        }
-        visited += 1;
-        let r = ui.interact(row, Id::new(("tree:folder", s.folder.get())), Sense::click());
-        let selected = app.state().folder == Some(s.folder);
-        if selected {
-            painter.rect_filled(row, 0, t.canvas);
-        } else if r.hovered() {
-            painter.rect_filled(row, 0, t.hover.gamma_multiply(0.6));
-        }
-        let icon = Rect::from_center_size(pos2(row.min.x + ICON_LEFT + ICON / 2.0, row.center().y), vec2(ICON, ICON));
-        icons::paint(&painter, icon, Icon::Folder, t.icon);
-        // The name, cut short to leave room for the count right after it.
-        let count = format!("({})", s.photos.len());
-        let count_galley = painter.layout_no_wrap(count.clone(), fonts::regular(t.count), t.text_dim);
-        let x = icon.max.x + ICON_GAP;
-        let room = (row.max.x - RIGHT - x - count_galley.size().x - 4.0).max(1.0);
-        let mut job = LayoutJob::simple_singleline(s.title.clone(), fonts::regular(t.body), if selected { t.text } else { t.text_label });
-        job.wrap = TextWrapping::truncate_at_width(room);
-        let name = painter.layout_job(job);
-        let name_w = name.size().x;
-        painter.galley(pos2(x, row.center().y - name.size().y / 2.0).round(), name, t.text);
-        painter.galley(pos2(x + name_w + 4.0, row.center().y - count_galley.size().y / 2.0).round(), count_galley, t.text_dim);
-        let label = format!("{} {count}", s.title);
-        widgets::register(ui.ctx(), &format!("tree:folder:{}", s.folder.get()), Role::TreeRow, &label, Target::Widget(&r), selected);
-        if r.clicked() {
-            picked = Some(s.folder);
+    let selected_folder = state.folder;
+    let mut visited = 0usize;
+    for i in model.visible(pane.offset, view_h) {
+        let (Some(item), Some(top)) = (model.items.get(i), model.screen_top(i, pane.offset, view_h)) else { continue };
+        let r = Rect::from_min_size(pos2(rect.min.x, rect.min.y + top), vec2(rect.width(), item.height));
+        match &item.kind {
+            Kind::Header { group, title, collapsed } => {
+                let mut child = ui.new_child(UiBuilder::new().id_salt(("tree-header", group.id())).max_rect(r));
+                if widgets::section_header(&mut child, &t, &format!("tree:group:{}", group.id()), title, !collapsed).clicked() {
+                    actions.push(Action::Group(*group));
+                }
+            }
+            Kind::Year(year) => {
+                visited += 1;
+                paint::year(&painter, &t, r, *year);
+            }
+            Kind::Row(row) => {
+                visited += 1;
+                let response = ui.interact(r, Id::new(("tree-row", &row.id)), Sense::click());
+                let selected = row.folder.is_some() && row.folder == selected_folder;
+                let look = paint::Look { selected, hovered: response.hovered(), focused, indent: heights.indent };
+                paint::row(&painter, &t, r, row, look, tree_mode);
+                widgets::register(&ctx, &row.id, Role::TreeRow, &row.label(), Target::Widget(&response), selected);
+                // The triangle goes over the row, so a click on it folds rather than selects.
+                let mut folded = false;
+                if let (true, Some(id)) = (tree_mode, &row.disclosure) {
+                    let d = ui.interact(paint::disclosure_rect(r, row.depth, heights.indent), Id::new(("tree-disclosure", id)), Sense::click());
+                    let label = if row.expanded { format!("Collapse {}", row.name) } else { format!("Expand {}", row.name) };
+                    widgets::register(&ctx, id, Role::Toggle, &label, Target::Widget(&d), row.expanded);
+                    if d.clicked() {
+                        folded = true;
+                        actions.push(Action::Fold(i, None));
+                    }
+                }
+                if response.clicked() && !folded {
+                    if row.section.is_some() {
+                        actions.push(Action::Select(i));
+                    } else if row.has_children && tree_mode {
+                        actions.push(Action::Fold(i, None));
+                    }
+                }
+            }
         }
     }
-    // The header is not a row: report the rows laid out.
-    perf::count(ui.ctx(), Counter::TreeRowsVisited, visited);
-    if let Some(folder) = picked {
-        app.state_mut().folder = Some(folder);
-        // The layout recomputes the offset for the light table's real width this frame; this one
-        // only asks for the scroll.
-        let width = (ui.ctx().content_rect().width() - rect.width()).max(0.0);
-        p.scroll_to = light_table::offset_of(&p.sections, folder, width, app.state().thumb_size);
+    perf::count(&ctx, Counter::TreeRowsVisited, visited as u64);
+
+    // With the frame drawn, apply what was asked for.
+    for action in actions {
+        apply(p, app, &mut pane, &model, action);
     }
+    let info = PaneInfo {
+        offset: pane.offset,
+        height: model.height,
+        view_h,
+        rows_visited: visited,
+        generation: pane.generation,
+        build: pane.build,
+        time: started.elapsed(),
+        rebuilt,
+    };
+    ctx.data_mut(|d| {
+        d.insert_temp(pane_id(), pane);
+        d.insert_temp(focus_id(), focused);
+        d.insert_temp(info_id(), info);
+    });
+}
+
+fn apply(p: &mut Panels, app: &mut App, pane: &mut Pane, model: &Model, action: Action) {
+    match action {
+        Action::Group(g) => {
+            let _ = app.run("view.groupCollapse", &json!({ "group": g.id() }));
+        }
+        Action::Fold(i, want) => {
+            let Some(row) = model.row(i) else { return };
+            match row.folder {
+                Some(folder) => {
+                    let params = match want {
+                        Some(c) => json!({ "folder": folder, "collapsed": c }),
+                        None => json!({ "folder": folder }),
+                    };
+                    let _ = app.run("view.folderCollapse", &params);
+                }
+                None => {
+                    let fold = want.unwrap_or(!pane.dirs.contains(&row.path));
+                    if fold {
+                        pane.dirs.insert(row.path.clone());
+                    } else {
+                        pane.dirs.remove(&row.path);
+                    }
+                }
+            }
+        }
+        Action::Select(i) => {
+            let Some(Section::Folder(folder)) = model.row(i).and_then(|r| r.section) else { return };
+            select_folder(p, app, folder);
+        }
+    }
+}
+
+/// Selects `folder`'s section as a unit, as `select.section` does, and asks the light table to
+/// scroll to it. The panels' sections are this frame's, so nothing is rebuilt for it.
+fn select_folder(p: &mut Panels, app: &mut App, folder: FolderId) {
+    let section = Section::Folder(folder);
+    match p.sections.get(section) {
+        Some(s) => {
+            let scope = Scope { section, folder: s.folder, photos: &s.photos, cols: 1 };
+            selection::commit(app.state_mut(), selection::whole(&scope));
+            app.state_mut().status.clear();
+        }
+        None => {
+            if app.run("select.section", &json!({ "section": section })).is_err() {
+                return;
+            }
+        }
+    }
+    p.scroll_to = Some(0.0);
 }
