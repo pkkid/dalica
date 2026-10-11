@@ -758,6 +758,7 @@ dependencies = [
  "dalica-core",
  "dalica-engine",
  "dalica-fs",
+ "dalica-scenes",
  "dalica-ui",
  "png",
  "serde_json",

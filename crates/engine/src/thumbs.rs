@@ -63,13 +63,20 @@ fn process_cache_dir() -> Option<PathBuf> {
     PROCESS_CACHE.lock().unwrap_or_else(PoisonError::into_inner).clone()
 }
 
-/// The thumbnail cache in Dalica's cache folder (`control-protocol.md` §2.1): Linux
+/// The environment variable that replaces Dalica's cache folder (tests, and anyone who wants the
+/// cache elsewhere); `thumbs` goes inside it.
+pub const CACHE_DIR_VAR: &str = "DALICA_CACHE_DIR";
+
+/// The thumbnail cache in Dalica's cache folder: `$DALICA_CACHE_DIR/thumbs` when that is an
+/// absolute folder, else the platform's (`control-protocol.md` §2.1): Linux
 /// `$XDG_CACHE_HOME/dalica/thumbs` (`~/.cache` without it), macOS
 /// `~/Library/Caches/Dalica/thumbs`, Windows `%LOCALAPPDATA%\Dalica\cache\thumbs`. `None` when
 /// the environment (read through `var`) names no absolute folder.
 pub fn default_cache_dir(var: impl Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
     let abs = |k: &str| var(k).filter(|v| !v.is_empty()).map(PathBuf::from).filter(|p| p.is_absolute());
-    let cache = if cfg!(windows) {
+    let cache = if let Some(dir) = abs(CACHE_DIR_VAR) {
+        Some(dir)
+    } else if cfg!(windows) {
         abs("LOCALAPPDATA").map(|d| d.join("Dalica").join("cache"))
     } else if cfg!(target_os = "macos") {
         abs("HOME").map(|h| h.join("Library").join("Caches").join("Dalica"))
@@ -650,6 +657,25 @@ mod tests {
 
     fn env(pairs: &'static [(&'static str, &'static str)]) -> impl Fn(&str) -> Option<OsString> {
         move |k| pairs.iter().find(|(n, _)| *n == k).map(|(_, v)| OsString::from(v))
+    }
+
+    #[test]
+    fn dalica_cache_dir_replaces_the_platform_cache_folder() {
+        const ROOT: &str = if cfg!(windows) { r"C:\t\cache" } else { "/t/cache" };
+        const LOCAL: (&str, &str) = ("LOCALAPPDATA", r"C:\Users\a\AppData\Local");
+        let all = env(&[("DALICA_CACHE_DIR", ROOT), ("HOME", "/home/a"), ("XDG_CACHE_HOME", "/c"), LOCAL]);
+        assert_eq!(default_cache_dir(all), Some(PathBuf::from(ROOT).join("thumbs")));
+        // Empty or relative: ignored, the platform folder is used.
+        for value in ["", "cache"] {
+            let platform = default_cache_dir(env(&[("HOME", "/home/a"), LOCAL]));
+            let given: &'static [(&str, &str)] = if value.is_empty() {
+                &[("DALICA_CACHE_DIR", ""), ("HOME", "/home/a"), LOCAL]
+            } else {
+                &[("DALICA_CACHE_DIR", "cache"), ("HOME", "/home/a"), LOCAL]
+            };
+            assert!(platform.is_some());
+            assert_eq!(default_cache_dir(env(given)), platform, "{value:?}");
+        }
     }
 
     #[test]

@@ -12,8 +12,16 @@ fn workspace_version() -> String {
     line.split('"').nth(1).unwrap().to_string()
 }
 
+/// `dalica-cli` with its thumbnail cache in `cache`, never the user's cache folder.
+fn dalica_cli(cache: &Path) -> Command {
+    let mut c = Command::new(env!("CARGO_BIN_EXE_dalica-cli"));
+    c.env("DALICA_CACHE_DIR", cache);
+    c
+}
+
 fn cli(args: &[&str]) -> (bool, String) {
-    let out = Command::new(env!("CARGO_BIN_EXE_dalica-cli")).args(args).output().unwrap();
+    let cache = tempfile::tempdir().unwrap();
+    let out = dalica_cli(cache.path()).args(args).output().unwrap();
     (out.status.success(), String::from_utf8(out.stdout).unwrap())
 }
 
@@ -31,7 +39,8 @@ fn commands_prints_the_registry() {
 
 fn run(args: &[&str], stdin: &str) -> (Option<i32>, Vec<serde_json::Value>, String) {
     use std::io::Write;
-    let mut child = Command::new(env!("CARGO_BIN_EXE_dalica-cli"))
+    let cache = tempfile::tempdir().unwrap();
+    let mut child = dalica_cli(cache.path())
         .args(args)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
@@ -77,10 +86,51 @@ fn run_prints_one_result_per_line_and_sets_the_exit_code() {
 #[test]
 fn inspect_summarises_a_library() {
     let lib = tempfile::tempdir().unwrap();
-    let out = Command::new(env!("CARGO_BIN_EXE_dalica-cli")).args(["inspect", "--library", lib.path().to_str().unwrap()]).output().unwrap();
+    let cache = tempfile::tempdir().unwrap();
+    let out = dalica_cli(cache.path()).args(["inspect", "--library", lib.path().to_str().unwrap()]).output().unwrap();
     assert!(out.status.success());
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!((v["photos"].as_u64(), v["folders"].as_array().map(Vec::len)), (Some(0), Some(0)));
+}
+
+/// Every file `dalica-cli` made under `dir`.
+fn files_under(dir: &Path) -> Vec<std::path::PathBuf> {
+    let mut out = Vec::new();
+    for entry in std::fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            out.extend(files_under(&path));
+        } else {
+            out.push(path);
+        }
+    }
+    out
+}
+
+/// A run on a named library keeps its thumbnails in `$DALICA_CACHE_DIR/thumbs` and writes nothing
+/// to the platform's cache folder (pointed at another temporary folder here).
+#[test]
+fn a_run_on_a_library_keeps_its_thumbnails_in_dalica_cache_dir() {
+    let dir = tempfile::tempdir().unwrap();
+    let (lib, cache, platform) = (dir.path().join("library"), dir.path().join("cache"), dir.path().join("platform"));
+    let photos = dir.path().join("photos");
+    for d in [&cache, &platform, &photos] {
+        std::fs::create_dir_all(d).unwrap();
+    }
+    let jpeg = dalica_scenes::jpeg(&dalica_scenes::Scene::new(3, 400, 300), 80, None).unwrap();
+    std::fs::write(photos.join("IMG_0001.jpg"), jpeg).unwrap();
+    let add = serde_json::json!({ "path": photos }).to_string();
+    let out = dalica_cli(&cache)
+        .args(["run", "--library", lib.to_str().unwrap(), "--cmd", "folders.add", "--params", &add])
+        .envs([("HOME", &platform), ("XDG_CACHE_HOME", &platform), ("LOCALAPPDATA", &platform)])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let made = files_under(&cache.join("thumbs"));
+    let names: Vec<String> = made.iter().filter_map(|p| p.file_name()).map(|n| n.to_string_lossy().into_owned()).collect();
+    assert!(names.iter().any(|n| n.starts_with("128-") && n.ends_with(".pack")), "{names:?}");
+    assert!(names.iter().any(|n| n.starts_with("256-") && n.ends_with(".pack")), "{names:?}");
+    assert_eq!(files_under(&platform), Vec::<std::path::PathBuf>::new(), "nothing in the platform cache folder");
 }
 
 #[test]

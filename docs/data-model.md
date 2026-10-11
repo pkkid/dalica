@@ -193,7 +193,9 @@ Windows `%LOCALAPPDATA%\Dalica`):
 
 `<cache>/thumbs/` in Dalica's cache folder (`control-protocol.md` §2.1: Linux
 `$XDG_CACHE_HOME/dalica/thumbs`, macOS `~/Library/Caches/Dalica/thumbs`, Windows
-`%LOCALAPPDATA%\Dalica\cache\thumbs`) holds the thumbnail/preview disk cache: pack files plus an
+`%LOCALAPPDATA%\Dalica\cache\thumbs`; `$DALICA_CACHE_DIR/thumbs` when the `DALICA_CACHE_DIR`
+environment variable names an absolute folder, which tests set so they never write to the user's
+cache) holds the thumbnail/preview disk cache: pack files plus an
 index per size of the thumbnail ladder (`architecture.md` §6), 2 GiB default, deletable at any
 time. Demos and tests keep a temporary cache that goes with their session; a cache another Dalica
 process holds is not shared (the session falls back to a temporary one and says so). Face detection descriptors are cached in the index; face *assignments* live in sidecars.

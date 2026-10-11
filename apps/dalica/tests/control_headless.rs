@@ -57,6 +57,7 @@ fn dalica(home: &Path, args: &[&str]) -> Command {
         ("HOME", home.to_path_buf()),
         ("XDG_CONFIG_HOME", home.join("config")),
         ("XDG_CACHE_HOME", home.join("cache")),
+        ("DALICA_CACHE_DIR", home.join("dalica-cache")),
         ("XDG_DATA_HOME", home.join("data")),
         ("XDG_RUNTIME_DIR", home.join("run")),
         ("APPDATA", home.join("appdata")),
