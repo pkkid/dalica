@@ -197,7 +197,10 @@ L0       core · fs                    (only `fs` writes to disk)
   the lead lets running tasks finish and merge, runs `/milestone-review` to prepare it (the
   check-in leads with the few **questions** only the maintainer can answer, asked there, and a
   **UI changelog** with before/after screenshots to check by eye), and stops (pushing the
-  `review/M<n>.R` branch and opening its pull request are part of preparing it). **Only the
+  `review/M<n>.R` branch and opening its pull request are part of preparing it). Its last step
+  is a push notification to the maintainer (maintainer rule, 2026-10-10): the `PushNotification`
+  tool, which reaches their phone through Remote Control, with one line naming the review, how
+  many questions wait and the pull request, e.g. `M3.R ready: 4 questions, PR #123`. **Only the
   maintainer merges a review's pull request or closes its issue;** no agent ever does, not even as
   board housekeeping, and `cargo xtask tasks` refuses to (`submit` and `merge` reject review ids;
   `sync` never closes a review's issue).
