@@ -956,7 +956,7 @@ UI tasks each re-bless only their own.
   - done when: tests on hand-built models: rows and order in both modes for every sort and its
     reverse; year dividers only across years; counts; a collapsed group drops its sections; a
     5 k-folder model builds in a time stated in the PR.
-- ⬜ **M4.5 `ui`: M4's view state and command modules**
+- ✅ **M4.5 `ui`: M4's view state and command modules**
   - after: M3.3, M3.4, M3.5, M3.6
   - files: `crates/ui/src/state.rs`, `crates/ui/src/menus.rs`, `crates/ui/src/app.rs`, `crates/ui/src/commands/mod.rs`, `crates/ui/src/commands/view.rs`, `crates/ui/src/commands/select.rs`, `crates/ui/src/commands/scroll.rs`, `crates/ui/src/commands/tray.rs`, `crates/ui/src/control/**`, `crates/engine/src/settings.rs`, `crates/ui/tests/view_state.rs`, `docs/control-protocol.md`
   - scope: every M4 field of `UiState` in one go (control-protocol §6.5): tree mode, folder sort

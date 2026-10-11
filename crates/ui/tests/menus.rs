@@ -389,10 +389,10 @@ fn invoking_items_runs_refuses_or_opens_them_like_a_click() {
         assert_eq!(code(&mut t, "ui.menu.invoke", bad.clone()), "not_found", "{bad}");
     }
     // Catalog items without a command yet, and `…` items whose dialog is not built.
-    for p in ["File/New Album…", "View/Slideshow", "Help/Rebuild Library…", "View/Thumbnail Caption/Date"] {
+    for p in ["File/New Album…", "View/Slideshow", "Help/Rebuild Library…", "View/Folder View/Simplified Tree View"] {
         assert_eq!(code(&mut t, "ui.menu.invoke", json!({ "path": p })), "unsupported", "{p}");
     }
-    assert_eq!(code(&mut t, "ui.menu.invoke", json!({ "id": "view.caption", "params": { "caption": "tags" } })), "unsupported");
+    assert_eq!(code(&mut t, "ui.menu.invoke", json!({ "id": "section.sort", "params": { "by": "name" } })), "unsupported");
     // Bad parameters change nothing.
     for bad in [
         json!({}),

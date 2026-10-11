@@ -11,7 +11,9 @@
 //! - `"window"`: `{x, y, width, height, maximized}`, the window's outer position and inner size in
 //!   points as last seen while it was neither maximised nor full screen ([`WindowState`]);
 //! - `"view"`: `{treeWidth, pane, paneLarge}`, the view state restored at the next start
-//!   ([`ViewState`], `ui-layout.md` §2);
+//!   ([`ViewState`], `ui-layout.md` §2); M4 adds the library view's options to the same object,
+//!   `{thumbSize, treeMode, folderSort, folderSortReverse, caption, smallPictures,
+//!   hiddenPictures}` ([`ViewOptions`]);
 //! - `"interface"`: `{systemTitleBar}`, Options → General → Interface → Use system title bar
 //!   (`design-system.md` §11.1).
 //!
@@ -84,6 +86,28 @@ pub struct ViewState {
     /// The side pane at its large width.
     pub pane_large: bool,
 }
+
+/// The library view's options kept between runs (M4; more keys of `"view"` in `settings.json`):
+/// the thumbnail size and what the View menu and the view-options popup choose. Names are kept as
+/// their protocol names (`"tree"`, `"recent"`, `"filename"`); the UI maps them to its own types and
+/// treats a name it does not know as the default.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ViewOptions {
+    /// The thumbnail cell edge in points; `None` for the default.
+    pub thumb_size: Option<f32>,
+    /// `"flat"` or `"tree"`.
+    pub tree_mode: Option<String>,
+    /// `"date"`, `"recent"`, `"size"` or `"name"`.
+    pub folder_sort: Option<String>,
+    pub folder_sort_reverse: bool,
+    /// The thumbnail caption: `"none"`, `"filename"`, …
+    pub caption: Option<String>,
+    pub small_pictures: bool,
+    pub hidden_pictures: bool,
+}
+
+/// The largest stored thumbnail size read, in points (the UI clamps it to its own range).
+pub const THUMB_SIZE_LIMIT: f32 = 4096.0;
 
 /// The settings document.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -241,6 +265,40 @@ impl Settings {
         self.merge("view", &[("treeWidth", tree), ("pane", pane), ("paneLarge", Some(json!(v.pane_large)))]);
     }
 
+    /// The stored view options; hostile values are dropped (a thumbnail size that is not a finite
+    /// number in `0 < s ≤ THUMB_SIZE_LIMIT`, a name that is not a short string, a flag that is not
+    /// a boolean).
+    pub fn view_options(&self) -> ViewOptions {
+        let name = |k: &str| self.field("view", k).and_then(Value::as_str).filter(|p| !p.is_empty() && p.len() <= MAX_NAME).map(str::to_string);
+        let flag = |k: &str| self.field("view", k).and_then(Value::as_bool).unwrap_or(false);
+        ViewOptions {
+            thumb_size: self.field("view", "thumbSize").and_then(Value::as_f64).map(|v| v as f32).filter(|s| thumb_size_ok(*s)),
+            tree_mode: name("treeMode"),
+            folder_sort: name("folderSort"),
+            folder_sort_reverse: flag("folderSortReverse"),
+            caption: name("caption"),
+            small_pictures: flag("smallPictures"),
+            hidden_pictures: flag("hiddenPictures"),
+        }
+    }
+
+    /// Stores `v` under `"view"`, next to [`ViewState`]'s keys (a value of `None` removes its key).
+    pub fn set_view_options(&mut self, v: &ViewOptions) {
+        let name = |n: &Option<String>| n.as_ref().filter(|p| !p.is_empty() && p.len() <= MAX_NAME).map(|p| json!(p));
+        self.merge(
+            "view",
+            &[
+                ("thumbSize", v.thumb_size.filter(|s| thumb_size_ok(*s)).map(|s| json!(s))),
+                ("treeMode", name(&v.tree_mode)),
+                ("folderSort", name(&v.folder_sort)),
+                ("folderSortReverse", Some(json!(v.folder_sort_reverse))),
+                ("caption", name(&v.caption)),
+                ("smallPictures", Some(json!(v.small_pictures))),
+                ("hiddenPictures", Some(json!(v.hidden_pictures))),
+            ],
+        );
+    }
+
     /// Options → General → Interface → Use system title bar (Windows and Linux; default off).
     pub fn system_title_bar(&self) -> bool {
         self.field("interface", "systemTitleBar").and_then(Value::as_bool).unwrap_or(false)
@@ -259,6 +317,11 @@ impl Settings {
             _ => Settings::default(),
         }
     }
+}
+
+/// A stored thumbnail size worth reading: a finite number in `0 < s ≤ THUMB_SIZE_LIMIT`.
+fn thumb_size_ok(s: f32) -> bool {
+    s.is_finite() && s > 0.0 && s <= THUMB_SIZE_LIMIT
 }
 
 /// `(command, context, key)` of one entry; `None` if it cannot be read.
@@ -303,10 +366,60 @@ mod tests {
     }
 
     #[test]
+    fn view_options_survive_a_write_and_a_read_beside_the_view_state() {
+        let mut s = Settings::parse(br#"{"view": {"treeWidth": 300, "future": [1]}}"#).unwrap();
+        let o = ViewOptions {
+            thumb_size: Some(200.0),
+            tree_mode: Some("tree".into()),
+            folder_sort: Some("recent".into()),
+            folder_sort_reverse: true,
+            caption: Some("filename".into()),
+            small_pictures: true,
+            hidden_pictures: true,
+        };
+        s.set_view_options(&o);
+        let back = Settings::parse(&s.print()).unwrap();
+        assert_eq!(back.view_options(), o);
+        // Merged into "view": the view state's keys and unknown keys are kept, and the view state
+        // writes leave the options alone.
+        assert_eq!(back.view().tree_width, Some(300.0));
+        assert_eq!(back.get("view").unwrap()["future"], json!([1]));
+        let mut s = back;
+        s.set_view(&ViewState { tree_width: Some(250.0), pane: None, pane_large: false });
+        assert_eq!(s.view_options(), o);
+        // Back to the defaults: the names are removed, the flags stored as false.
+        s.set_view_options(&ViewOptions::default());
+        assert_eq!(s.view_options(), ViewOptions::default());
+        assert!(s.get("view").unwrap().get("treeMode").is_none());
+        assert_eq!(s.view().tree_width, Some(250.0));
+    }
+
+    #[test]
+    fn hostile_view_options_are_dropped() {
+        let s = Settings::parse(
+            br#"{"view": {"thumbSize": 1e9, "treeMode": 3, "folderSort": "", "folderSortReverse": "yes",
+                          "caption": ["date"], "smallPictures": 1, "hiddenPictures": null}}"#,
+        )
+        .unwrap();
+        assert_eq!(s.view_options(), ViewOptions::default());
+        for bad in ["-1", "0", "null", r#""144""#, "1e40"] {
+            let s = Settings::parse(format!(r#"{{"view": {{"thumbSize": {bad}}}}}"#).as_bytes()).unwrap();
+            assert_eq!(s.view_options().thumb_size, None, "{bad}");
+        }
+        let long = format!(r#"{{"view": {{"caption": "{}"}}}}"#, "c".repeat(100));
+        assert_eq!(Settings::parse(long.as_bytes()).unwrap().view_options().caption, None);
+        // Values out of range are never written either.
+        let mut s = Settings::default();
+        s.set_view_options(&ViewOptions { thumb_size: Some(f32::NAN), caption: Some(String::new()), ..ViewOptions::default() });
+        assert!(s.get("view").unwrap().get("thumbSize").is_none() && s.get("view").unwrap().get("caption").is_none());
+    }
+
+    #[test]
     fn nothing_stored_means_the_defaults() {
         let s = Settings::default();
         assert_eq!(s.window(), None);
         assert_eq!(s.view(), ViewState::default());
+        assert_eq!(s.view_options(), ViewOptions::default());
         assert!(!s.system_title_bar());
     }
 

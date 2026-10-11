@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 
 use super::host::Input;
 use super::{Call, Code, Error, Outcome, object};
-use crate::state::{LIGHT_TABLE_MIN, THUMB_MAX, THUMB_MIN, TREE_MIN, UiState};
+use crate::state::{LIGHT_TABLE_MIN, MAX_IDS, SCROLL_OFFSET_MAX, Section, THUMB_MAX, THUMB_MIN, TREE_MIN, UiState};
 
 /// The regions of `ui-layout.md` §2 that `ui.inspect` → `regions` and `ui.widgets {region}` name.
 pub const REGIONS: &[&str] = &[
@@ -94,7 +94,7 @@ pub(super) fn set(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Error>
     if let Some(obj) = merged.as_object_mut() {
         obj.extend(changes);
     }
-    let mut new: UiState = serde_json::from_value(merged).map_err(|e| call.bad(e))?;
+    let new: UiState = serde_json::from_value(merged).map_err(|e| call.bad(e))?;
     if !(new.thumb_size.is_finite() && (THUMB_MIN..=THUMB_MAX).contains(&new.thumb_size)) {
         return Err(call.bad(format!("`thumbSize` is {THUMB_MIN} … {THUMB_MAX}, not {}", new.thumb_size)));
     }
@@ -103,11 +103,29 @@ pub(super) fn set(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Error>
     if sets_tree && !(new.tree_width.is_finite() && (TREE_MIN..=tree_max).contains(&new.tree_width)) {
         return Err(call.bad(format!("`treeWidth` is {TREE_MIN} … {tree_max} in this window, not {}", new.tree_width)));
     }
-    if let Some(f) = new.folder
-        && !call.host.app().session().is_some_and(|s| s.library().folder(f).is_some())
-    {
+    if !(new.scroll.offset.is_finite() && (0.0..=SCROLL_OFFSET_MAX).contains(&new.scroll.offset)) {
+        return Err(call.bad(format!("`scroll.offset` is 0 … {SCROLL_OFFSET_MAX}, not {}", new.scroll.offset)));
+    }
+    let tray = &new.tray;
+    if tray.held.len() > MAX_IDS || tray.selected.len() > MAX_IDS || new.collapsed_folders.len() > MAX_IDS {
+        return Err(Error::new(Code::Limit, format!("`tray.held`, `tray.selected` and `collapsedFolders` take at most {MAX_IDS} ids each")));
+    }
+    if let Some(id) = tray.selected.iter().find(|id| !tray.held.contains(id) && !new.selection.ids.contains(id)) {
+        return Err(call.bad(format!("`tray.selected` names photo {id}, which the tray does not show (it shows the selection and `tray.held`)")));
+    }
+    let library = call.host.app().session().map(dalica_engine::Session::library);
+    let has_folder = |f| library.is_some_and(|l| l.folder(f).is_some());
+    let section = new.scroll.section.map(|s| match s {
+        Section::Folder(f) => f,
+    });
+    if let Some(f) = new.folder.iter().chain(&section).chain(&new.collapsed_folders).find(|f| !has_folder(**f)) {
         return Err(Error::new(Code::NotFound, format!("no folder {f}")));
     }
+    if let Some(id) = tray.held.iter().chain(&tray.selected).find(|id| !library.is_some_and(|l| l.photo(**id).is_some())) {
+        return Err(Error::new(Code::NotFound, format!("no photo {id}")));
+    }
+    // Repeated ids are dropped; every number is already in range.
+    let mut new = new.sanitized();
     // The transient status message is not part of the protocol's state: keep it.
     new.status = call.host.app().state().status.clone();
     *call.host.app_mut().state_mut() = new;
