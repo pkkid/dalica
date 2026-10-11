@@ -13,6 +13,21 @@ state (ready, claimed, in review) is on the task board ([`task-board.md`](task-b
 *Honest assessment, 2026-10-10. Agents: read this before picking work. Update it only with
 measured facts, dated.*
 
+*2026-10-10 (M3.R).* M3 is done: `cargo xtask accept M3` passes in 41 s. It drives the real
+`dalica --headless` on a fresh demo and checks every region and shell control at 1400 × 900 and
+900 × 600 against the layout spec, the side pane, the splitter and F11, and the live menu tree
+against all 112 items of `menus-and-shortcuts.md` §1 read from the document; it also runs the
+contrast, widget-gallery and icon suites and matches three whole-window fingerprints. The window now
+has a drawn title bar (caption buttons, drag, resize; the system menu bar on macOS through `muda`),
+the full menu bar with menus that stay inside the window, the toolbar, the folder tree with its
+splitter, the status line, the bottom area with More… below 1100 wide, and the side-pane frame;
+narrow windows give way in the spec's order, F11 toggles full screen, and window size, tree width
+and the open pane survive a restart. Keys follow the platform (Redo is Cmd+Shift+Z on macOS) and UI
+commands join the keymap. 605 tests; `cargo xtask ci` takes 266 s cold and 158 s warm; GitHub CI
+4–8.5 min per OS. Twelve tasks ran with four workers in about three hours; `main` went red twice on
+macOS (a menu layout drawn per OS, then an acceptance floor), each fixed by a PR within the run's
+standing go-ahead. Not yet seen by a person: F11 filling the real screen. Next: M4, library browsing.
+
 *2026-10-10 (M2.R).* M2 is done: `cargo xtask accept M2` passes in 12 s (a control session against
 `dalica --headless` on a fresh demo: auth, click a thumbnail, Ctrl+8, the star in the sidecar, a
 1400 × 900 screenshot matching its fingerprint; plus the 9 control security tests), green on Linux,
@@ -804,7 +819,7 @@ with the rest at the next review.
     fingerprints, every menu item of `menus-and-shortcuts.md` §1 present in order; the manual check
     (open the app at both sizes and compare with the docs) written down.
   - done when: `cargo xtask accept M3` passes everything in M3's *Done when*.
-- ⬜ **M3.R Check-in**
+- ✅ **M3.R Check-in**
   - after: M3.11
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`
@@ -952,11 +967,27 @@ UI tasks each re-bless only their own.
     joined into `UI_COMMANDS` once (`select.rs` takes M1's `select.set` / `select.none`; `scroll.rs`
     and `tray.rs` start empty for M4.11 and M4.16); `view.rs`: `view.caption`,
     `view.smallPictures`, `view.hiddenPictures`, `view.folderView`, the folder sorts and Reverse
-    Sort of the view-options popup, group collapse; `ui.set` accepts the new fields.
+    Sort of the view-options popup, group collapse; `ui.set` accepts the new fields. Loose ends
+    found at M3.R: File ▸ Exit as the UI command `app.quit` (the title bar's Close already runs it),
+    View ▸ Properties / Tags / People / Places live through the pane state the bottom toggles use,
+    and menu check marks that follow the state.
   - done when: `crates/ui/tests/view_state.rs`: each new field round-trips through `ui.state` /
     `ui.set` (bad values are `bad_params`, nothing changes) and the persisted ones survive a
     restart through settings; the view commands change state and light up their menu and popup
-    items; every command has its graceful-failure test; `panic_hunt` stays green.
+    items; `ui.menu.tree` reports File ▸ Exit and the four View pane items live; every command has
+    its graceful-failure test; `panic_hunt` stays green.
+- ⬜ **M4.20 `ui-kit`: dim text meets 4.5:1 on the chrome**
+  - after: M3.R
+  - files: `crates/ui-kit/src/theme.rs`, `crates/ui-kit/tests/contrast.rs`, `crates/ui-kit/tests/fingerprints/widgets-*.json`, `crates/ui-kit/tests/fingerprints/gallery*.json`, `crates/ui-kit/README.md`, `docs/design-system.md`
+  - scope: the maintainer's answer at M3.R (2026-10-10): lighten `text_dim` so it reaches 4.5:1 on
+    `chrome` (about `#949494`; check `surface` and `hover` too and say what they reach); the accent
+    focus ring and the slider track stay as they are. The contrast test's pinned 4.20 for that pair
+    becomes a ≥ 4.5 assertion. Re-bless the widget sheets and the whole-window baselines (diff
+    images on the PR; only dim text may change). Also brings `crates/ui-kit/README.md`'s public API
+    list up to date (M3.1 and M3.2 open items: the M3 widgets, `paint_activity`, `Icon::ALL`).
+  - done when: `cargo test -p dalica-ui-kit --test contrast` asserts `text_dim` on `chrome` ≥ 4.5:1
+    (it fails on today's token); the re-blessed images differ only in dim text; the README lists the
+    current API.
 - ⬜ **M4.6 `ui`: the light-table skeleton and layout**
   - after: M3.5, M3.9, M4.4, M4.5
   - files: `crates/ui/src/panels/light_table.rs`, `crates/ui/src/panels/light_table/**`, `crates/ui/src/panels/thumbnails.rs`, `crates/ui/src/panels/mod.rs`, `crates/ui/tests/light_table.rs`, `crates/ui/tests/library_window.rs`, `crates/ui/tests/fingerprints/**`
@@ -1148,7 +1179,7 @@ Waves (inside a wave, "‖" separates tasks whose `files` do not overlap):
 
 ```text
 wave 1   M4.1 sketch  ‖  M4.2 sketch in the index  ‖  M4.3 pack cache  ‖  M4.4 tree model     (once M3.R is closed)
-         M4.5 view state + command modules (after M3.3–M3.6)
+         M4.5 view state + command modules (after M3.3–M3.6)  ‖  M4.20 dim-text contrast (M3.R answer)
 wave 2   M4.6 light-table skeleton  ‖  M4.7 synthetic libraries  ‖  M4.8 ladder + scan-time thumbnails
 wave 3   M4.9 header  ‖  M4.10 cells + badges  ‖  M4.11 scrollbar  ‖  M4.12 never blank
          ‖  M4.13 selection  ‖  M4.14 bench
@@ -1214,11 +1245,12 @@ of merging the JSON by hand. The maintainer approves them with the rest at the r
 Pure Rust holds throughout (`AGENTS.md` §3), and no block needs a C dependency: decoders come from
 the crates pinned in `architecture.md` §1 (each audited with `cargo xtask deps` when it first enters
 the product graph); HEIF stays behind the off-by-default `heif` feature; AVIF is listed, never
-decoded. One known snag: `notify` 8 pulls `inotify-sys` (Linux) and `fsevent-sys` (macOS),
-binding-only crates that are not in `SYS_ALLOW`, and adding an entry is the maintainer's call. M5.11 therefore
-builds the watcher behind a hint interface with a pure-Rust polling backend as the default and the
-`notify` backend behind an off-by-default `notify` feature; the question is asked at M5.R, and
-either answer leaves the verification pass as the truth (`data-model.md` §7).
+decoded. `notify` 8 pulls `inotify-sys` (Linux) and `fsevent-sys` (macOS), binding-only crates
+with no C build; the maintainer allowed both at M3.R (2026-10-10), so M5.11 adds them to `SYS_ALLOW`
+with that reason and makes `notify` the default watcher, with a pure-Rust polling backend as the
+fallback. Either way the verification pass stays the truth (`data-model.md` §7). Our own CC0
+`pkkid/dalica-corpus` repository is created by the maintainer before M5 starts (M3.R answer) and
+filled by the lead; M5.15 pins it.
 
 - ⬜ **M5.1 `image`: one module per format, the decoded-image model and colour management**
   - after: M1.6
@@ -1383,11 +1415,13 @@ either answer leaves the verification pass as the truth (`data-model.md` §7).
     oversized boxes are `Err`; truncation and proptest random bytes never panic.
 - ⬜ **M5.11 `scan`: the watcher and incremental verification**
   - after: M5.4
-  - files: `crates/scan/src/watch.rs`, `crates/scan/src/watch/**`, `crates/scan/src/diff.rs`, `crates/scan/tests/watch.rs`, `crates/scan/tests/incremental.rs`
+  - files: `crates/scan/src/watch.rs`, `crates/scan/src/watch/**`, `crates/scan/src/diff.rs`, `crates/scan/tests/watch.rs`, `crates/scan/tests/incremental.rs`, `xtask/src/deps.rs`
   - scope: `data-model.md` §7: events are hints, verification is the truth. A `Watcher` interface
-    reporting dirty folders (debounced, coalesced, bounded queue); the default backend polls
-    folder modification times in sweeps sized to the library; the `notify` 8 backend behind the
-    off-by-default `notify` feature (see the intro: its `*-sys` crates wait for the maintainer);
+    reporting dirty folders (debounced, coalesced, bounded queue); the `notify` 8 backend is the
+    default (add `inotify-sys` and `fsevent-sys` to `SYS_ALLOW` in `xtask/src/deps.rs`, reason:
+    bindings only, no C build, allowed by the maintainer at M3.R; audit with `cargo xtask deps`),
+    and a pure-Rust backend polling folder modification times in sweeps sized to the library is the
+    fallback when watching fails or a volume cannot be watched;
     incremental verification of dirty folders and a full verification on a schedule; `diff`
     scoped to the folders a rescan covered, with folder renames and moves detected like photo
     renames (same files by size and mtime) so ids, stars and the undo stack survive; a folder that
@@ -1395,8 +1429,9 @@ either answer leaves the verification pass as the truth (`data-model.md` §7).
   - done when: `cargo test -p dalica-scan`: on temp trees the polling backend reports adds,
     deletes, renames and rewrites within two sweeps (virtual time where possible); the incremental
     diff of a dirty folder equals the full diff restricted to it; a renamed folder keeps its ids;
-    10 000 queued events coalesce within the queue cap; with `--features notify` the same tests
-    pass with events as hints and generous timeouts.
+    10 000 queued events coalesce within the queue cap; the `notify` backend passes the same tests
+    with events as hints and generous timeouts, and the polling fallback passes them alone;
+    `cargo xtask deps` accepts the two new `*-sys` entries and still refuses an unknown one.
 - ⬜ **M5.12 `scan` + `engine`: folder modes, inheritance and the Folder Manager commands**
   - after: M5.4, M5.5
   - files: `crates/scan/src/rules.rs`, `crates/scan/tests/rules.rs`, `crates/engine/src/folders.rs`, `crates/engine/src/scanning.rs`, `crates/engine/src/settings.rs`, `crates/engine/src/cmd/folders.rs`, `crates/engine/tests/folders.rs`, `docs/data-model.md`
@@ -1450,9 +1485,10 @@ either answer leaves the verification pass as the truth (`data-model.md` §7).
     `cargo xtask test-corpus [-p crate]`; the `corpus` feature of `dalica-image` with committed
     floors per set (files decoded, previews extracted) that a missing or stale corpus fails; the
     CI `corpus` job with its cache. Sets that exist today are pinned to their upstreams under
-    their own terms (PngSuite; CC0 raw samples per vendor); our own CC0 `dalica-corpus`
-    repository does not exist yet and creating it is the maintainer's step, so the `photos` and
-    `heif` sets are listed as unpinned and asked about at M5.R. Brings `formats.md` and
+    their own terms (PngSuite; CC0 raw samples per vendor); the `photos` and `heif` sets come from
+    our own CC0 `pkkid/dalica-corpus` repository, which the maintainer creates before M5 starts and
+    the lead fills (public-domain or CC0 files only, each with its source; M3.R answer, 2026-10-10),
+    pinned the same way. Brings `formats.md` and
     `security.md` §4 and §7 statuses up to date with M5's decoders, guards and fuzz targets.
   - done when: `cargo xtask corpus --all` fetches and verifies the pinned sets; `cargo xtask
     test-corpus` passes with floors at the measured counts (numbers in the PR); a planted stale
@@ -1551,8 +1587,8 @@ either answer leaves the verification pass as the truth (`data-model.md` §7).
   - files: `docs/roadmap.md`, `docs/status.md`
   - scope: the lead runs `/milestone-review M5.R` to prepare it: the check-in page (first run on a
     fresh library, the Folder Manager, the mixed-format folder, an unplugged and replugged folder,
-    written as steps for the maintainer to try; the questions: the `notify` `*-sys` entries, the
-    `dalica-corpus` repository, the display profile for colour management), *Where we stand* and
+    written as steps for the maintainer to try; the question: the display profile for colour
+    management), *Where we stand* and
     the `status.md` numbers (first thumbnails at 1 k and 10 k, scan throughput, corpus floors) on a
     `review/M5.R` branch, a pull request open. Only the maintainer merges that pull request and
     closes this issue; nothing after it starts until then.

@@ -7,9 +7,12 @@ and git.
 
 ## Current
 
-- **Milestone:** M2, agent eyes, is done: M2.1–M2.9 are merged and `cargo xtask accept M2`
-  passes (12 s) on all three OSes. Next: M3, the window shell; its issues open when the M2.R review
-  PR is merged.
+- **Milestone:** M3, the window shell, is done: M3.1–M3.12 are merged and `cargo xtask accept M3`
+  passes (41 s). Next: M4, library browsing; its issues open when the M3.R review PR is merged. M5's
+  task blocks are written too.
+- **M3 review (2026-10-10):** the maintainer approved all 28 fingerprint baselines; asked for the dim
+  text to reach 4.5:1 on the chrome (new M4.20); allowed `inotify-sys` and `fsevent-sys` for the
+  `notify` watcher (M5.11); and will create the `pkkid/dalica-corpus` repository before M5 (M5.15).
 - **Gates:** `cargo xtask ci` runs fmt, clippy, tests, `layers`, `deps`, `assets`, `names`, `parity`,
   `docs` and the roadmap parse; `cargo xtask accept M0` shows 6/6 gates bite. Layer rule 4 now scans
   code after a test module (it used to stop at the first `#[cfg(test)]`).
@@ -68,3 +71,12 @@ and git.
 | 2026-10-10 | maintainer desktop | refusing a 1 MiB request line / a 1 MiB line nested too deep (debug, worst case) | 3.6 ms / 3.2 ms |
 | 2026-10-10 | maintainer desktop | `cargo xtask ci` test step during M2 (warm) | 38–62 s |
 | 2026-10-10 | — | parity summary (M2.R) | 143 rows, 12 registered commands; SYS-CONTROL and SYS-HEADLESS 🟡 |
+| 2026-10-10 | maintainer desktop, clean checkout of 5c41c00 (M3.11), target dir on NVMe | `cargo xtask ci` cold / warm | 266 s / 158 s |
+| 2026-10-10 | same | tests in `cargo xtask ci` | 605 pass, 2 ignored (`panic_hunt`) |
+| 2026-10-10 | same | `cargo xtask accept M3` (live headless app 2.8 s, crate suites 37.9 s) / `accept` M0 / M1 / M2 | 41 s / 3.2 s / 3.8 s / 12.2 s |
+| 2026-10-10 | same | `panic_hunt` (16 registered commands) | 0.33 s |
+| 2026-10-10 | same | `dalica-cli snapshot --demo-fresh` 1400 × 900 / 900 × 600 (dev build) | 1.1 s / 0.45 s |
+| 2026-10-10 | GitHub ubuntu / macos / windows | CI job `cargo xtask ci` (run 38103647913, M3.10) | 4 min 45 s / 4 min 18 s / 8 min 27 s |
+| 2026-10-10 | maintainer desktop | the measurement target dir / all target dirs; free disk | 9.2 GB / 156 GB; 65 GB |
+| 2026-10-10 | — | M3 run: 12 tasks + 1 lead task, 4 workers, 19:19–22:21; send-backs 3 (M3.4, M3.9 rebase, M3.10); extra files granted to 3 tasks; `main` red twice on macOS (#116, and the M3.11 floor) | — |
+| 2026-10-10 | — | parity summary (M3.R) | 2 ✅ / 16 🟡 / 110 ⬜ / 16 🚫 (144 rows, 16 registered commands); VIEW-FULLSCREEN 🟡 until F11 is seen on a real screen |
