@@ -191,8 +191,12 @@ Windows `%LOCALAPPDATA%\Dalica`):
 | `lock` | single-process lock | — |
 | `settings.json` | preferences (atomic write; damaged file kept as `.corrupt-<time>`); unknown keys kept; `"keymap"` holds the user's shortcut overrides (`menus-and-shortcuts.md` §2.0) | no |
 
-`<cache>/Dalica/thumbs/` holds the thumbnail/preview disk cache: pack files plus an index per
-size of the thumbnail ladder (`architecture.md` §6), 2 GiB default, deletable at any time. Face detection descriptors are cached in the index; face *assignments* live in sidecars.
+`<cache>/thumbs/` in Dalica's cache folder (`control-protocol.md` §2.1: Linux
+`$XDG_CACHE_HOME/dalica/thumbs`, macOS `~/Library/Caches/Dalica/thumbs`, Windows
+`%LOCALAPPDATA%\Dalica\cache\thumbs`) holds the thumbnail/preview disk cache: pack files plus an
+index per size of the thumbnail ladder (`architecture.md` §6), 2 GiB default, deletable at any
+time. Demos and tests keep a temporary cache that goes with their session; a cache another Dalica
+process holds is not shared (the session falls back to a temporary one and says so). Face detection descriptors are cached in the index; face *assignments* live in sidecars.
 
 "Rebuild library" (Help → Troubleshooting) deletes the index and rescans; it must never lose user
 data, and a test proves it (scan → edit everything → rebuild → compare).

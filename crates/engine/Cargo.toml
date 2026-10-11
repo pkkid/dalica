@@ -13,11 +13,14 @@ publish = false
 [dependencies]
 dalica-core.workspace = true
 dalica-fs.workspace = true
+# Decode limits of the thumbnail jobs (`thumbs.rs`).
+dalica-image.workspace = true
 dalica-library.workspace = true
 dalica-scan.workspace = true
 # The demo library's photos (`demo.rs`).
 dalica-scenes.workspace = true
 dalica-store.workspace = true
+dalica-thumbs.workspace = true
 log.workspace = true
 serde.workspace = true
 serde_json.workspace = true

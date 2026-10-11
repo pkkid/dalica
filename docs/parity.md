@@ -57,7 +57,7 @@ same commit.
 | LIB-LT-CAPTION | Thumbnail captions (None/Filename/Caption/Tags/Resolution/Date) | P1 | ⬜ | |
 | LIB-LT-BADGES | Badges: edited, geotag, held, star; video sprockets + duration | P0 | 🟡 | star badge only: `crates/ui-kit/src/widgets.rs`, `crates/ui/tests/library_window.rs`; edited, geotag, held badges and video marks missing; ref 02 §7.4 |
 | LIB-LT-SCROLLBAR | Section-jump scrollbar (⇑ ▲ ▼ ⇓) with the speed-control thumb and position marker | P0 | ⬜ | ref 02 §7.1 |
-| LIB-LT-INSTANT | Thumbnails never blank while scrolling: colour sketch, packed size ladder, upscaled fallback | P0 | ⬜ | the colour sketch (encode, decode, ≤ 26 bytes): `crates/thumbs/src/sketch.rs`, `crates/thumbs/tests/sketch.rs` (M4.1); the sketch in the index, the ladder and drawing them still missing (M4.2, M4.3, M4.8, M4.10); ref 05 db3 tiers |
+| LIB-LT-INSTANT | Thumbnails never blank while scrolling: colour sketch, packed size ladder, upscaled fallback | P0 | ⬜ | the colour sketch (encode, decode, ≤ 26 bytes): `crates/thumbs/src/sketch.rs`, `crates/thumbs/tests/sketch.rs` (M4.1); the sketch in the index (M4.2); the packed cache (M4.3); the size ladder, scan-time 128/256 entries and sketches, best-available answers (covering, smaller scaled up, sketch, not scanned) and direction-aware prefetch: `crates/thumbs/src/ladder.rs`, `crates/engine/src/thumbs.rs`, `crates/thumbs/tests/ladder.rs`, `crates/engine/tests/thumbs.rs` (M4.8); drawing them still missing (M4.10, M4.12); ref 05 db3 tiers |
 | LIB-LT-HIDDEN | Hidden pictures shown translucent when enabled; small pictures toggle | P1 | ⬜ | |
 | LIB-SEL | Selection: click, Ctrl, Shift, rubber band, scoped to one section | P0 | ⬜ | ref 02 §7.5 |
 | LIB-SEL-KEYS | Keyboard navigation and selection keys | P0 | ⬜ | |
