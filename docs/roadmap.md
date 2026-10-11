@@ -976,7 +976,7 @@ UI tasks each re-bless only their own.
     restart through settings; the view commands change state and light up their menu and popup
     items; `ui.menu.tree` reports File ▸ Exit and the four View pane items live; every command has
     its graceful-failure test; `panic_hunt` stays green.
-- ⬜ **M4.20 `ui-kit`: dim text meets 4.5:1 on the chrome**
+- ✅ **M4.20 `ui-kit`: dim text meets 4.5:1 on the chrome**
   - after: M3.R
   - files: `crates/ui-kit/src/theme.rs`, `crates/ui-kit/tests/contrast.rs`, `crates/ui-kit/tests/fingerprints/widgets-*.json`, `crates/ui-kit/tests/fingerprints/gallery*.json`, `crates/ui-kit/README.md`, `docs/design-system.md`
   - scope: the maintainer's answer at M3.R (2026-10-10): lighten `text_dim` so it reaches 4.5:1 on

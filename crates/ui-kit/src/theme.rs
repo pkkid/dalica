@@ -53,7 +53,7 @@ pub struct Tokens {
     pub text: Color32,
     /// `#bcbcbc`: default text.
     pub text_label: Color32,
-    /// `#8e8e8e`: counts, captions, hints, placeholders.
+    /// `#949494`: counts, captions, hints, placeholders (4.5:1 on `chrome`).
     pub text_dim: Color32,
     /// `#5c5c5c`: disabled controls.
     pub text_disabled: Color32,
@@ -371,7 +371,7 @@ impl Tokens {
         tool_active: grey(0x3f),
         text: grey(0xe2),
         text_label: grey(0xbc),
-        text_dim: grey(0x8e),
+        text_dim: grey(0x94),
         text_disabled: grey(0x5c),
         icon: grey(0x9a),
         track: grey(0x5a),
@@ -638,7 +638,7 @@ mod tests {
             (t.tool_active, "#3f3f3f"),
             (t.text, "#e2e2e2"),
             (t.text_label, "#bcbcbc"),
-            (t.text_dim, "#8e8e8e"),
+            (t.text_dim, "#949494"),
             (t.text_disabled, "#5c5c5c"),
             (t.icon, "#9a9a9a"),
             (t.track, "#5a5a5a"),
@@ -767,7 +767,8 @@ mod tests {
         assert_eq!(over(Color32::TRANSPARENT, grey(0x2d)), grey(0x2d));
     }
 
-    /// `design-system.md` §9: text on `chrome` and captions on `grid_bg` stay ≥ 4.5:1 (WCAG AA).
+    /// `design-system.md` §9: text on `chrome` (dim text included) and captions on `grid_bg` stay
+    /// ≥ 4.5:1 (WCAG AA).
     /// Every other text/background pair is in `tests/contrast.rs`.
     #[test]
     fn text_contrast_is_at_least_4_5_to_1() {
@@ -775,6 +776,7 @@ mod tests {
         for (name, fg, bg) in [
             ("text on chrome", t.text, t.chrome),
             ("text_label on chrome", t.text_label, t.chrome),
+            ("text_dim on chrome", t.text_dim, t.chrome),
             ("text on canvas", t.text, t.canvas),
             ("text_label on canvas", t.text_label, t.canvas),
             ("text_dim on grid_bg", t.text_dim, t.grid_bg),

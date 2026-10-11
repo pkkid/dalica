@@ -52,7 +52,7 @@ Dark theme (the only theme until after 1.0; a light variant is a later option, n
 | `tool_active` | `#3f3f3f` | the active edit tool, an active filter toggle |
 | `text` | `#e2e2e2` | primary text: titles, values, selected rows |
 | `text_label` | `#bcbcbc` | default text (egui `override_text_color`) |
-| `text_dim` | `#8e8e8e` | counts, captions under thumbnails, hints, placeholders |
+| `text_dim` | `#949494` | counts, captions under thumbnails, hints, placeholders (4.5:1 on `chrome`) |
 | `text_disabled` | `#5c5c5c` | disabled controls |
 | `icon` | `#9a9a9a` | icon glyphs at rest (hover → `text`, active → `pick`) |
 | `track` | `#5a5a5a` | slider tracks, the thumbnail-size slider |
@@ -263,14 +263,16 @@ underneath, pushed up by the next header).
 - AccessKit roles and labels on every custom widget; keyboard focus ring = 1.5 pt `accent`.
 - UI Scale (Auto, 75–300 %) and UI Font Size (Small/Medium/Large) as in PhotoCraft
   (`docs/ui-design.md` there).
-- Minimum contrast: `text_label` on `chrome` and `text_dim` on `grid_bg` must stay ≥ 4.5:1; check
-  with the contrast tests in `dalica-ui-kit` (`theme.rs` and `tests/contrast.rs`) when tokens
-  change. `tests/contrast.rs` checks every text/background pair the widgets paint at 4.5:1 and
-  every glyph at 3:1, translucent plates blended over what lies beneath. Four pairs fall short and
-  are pinned so they cannot get worse: `text_dim` on `chrome` (4.2:1: status line, tooltip detail,
-  window title; `#949494` would reach 4.5:1) and on `hover` (3.5:1), `accent` on `chrome` (2.6:1:
-  the focus ring and drop-target outline, below WCAG 2.2's 3:1), and the slider `track` (2.0:1, a
-  guide under the 5.3:1 ring).
+- Minimum contrast: `text_label` on `chrome`, `text_dim` on `chrome` (status line, tooltip detail,
+  window title: 4.54:1) and `text_dim` on `grid_bg` must stay ≥ 4.5:1; check with the contrast
+  tests in `dalica-ui-kit` (`theme.rs` and `tests/contrast.rs`) when tokens change.
+  `tests/contrast.rs` checks every text/background pair the widgets paint at 4.5:1 and every glyph
+  at 3:1, translucent plates blended over what lies beneath. `text_dim` on the other surfaces:
+  `button` 5.1, `inset` 5.2, `tray_bg` 5.0, `field` 5.2, `canvas` 5.6, `grid_bg` 6.3. Three pairs
+  fall short by decision and are pinned so they cannot get worse: `text_dim` on `hover` (3.75:1,
+  counts in a hovered row; 4.5:1 would need about `#a8a8a8`, too close to `text_label`), `accent`
+  on `chrome` (2.6:1: the focus ring and drop-target outline, below WCAG 2.2's 3:1), and the slider
+  `track` (2.0:1, a guide under the 5.3:1 ring).
 
 ## 10. Verification
 
