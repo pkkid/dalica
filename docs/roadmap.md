@@ -797,7 +797,7 @@ with the rest at the next review.
     F11 full screen; the geometry test extended to every control of M3.6–M3.9.
   - done when: the geometry test passes at 1400 × 900, 1100 × 700 and 900 × 600 with the side pane
     open and closed, and in full screen.
-- ⬜ **M3.11 `accept M3`**
+- ✅ **M3.11 `accept M3`**
   - after: M3.10
   - files: `tests/acceptance/m3.rs`, `tests/acceptance/m3.md`, `tests/acceptance/fingerprints/m3-*.json`
   - scope: M3's *Done when*: geometry of every region at both sizes, token contrast, widget-gallery
