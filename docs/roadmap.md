@@ -1096,7 +1096,7 @@ UI tasks each re-bless only their own.
   - done when: `crates/ui/tests/selection.rs`: each gesture by widget id; a range and a band never
     cross a section; arrows and Home/End stop at section edges; the four commands per section;
     every command's graceful-failure test; `panic_hunt` green.
-- ⬜ **M4.14 `xtask bench` and the light-table benchmark**
+- ✅ **M4.14 `xtask bench` and the light-table benchmark**
   - after: M4.6, M4.7
   - files: `xtask/src/bench.rs`, `crates/ui/benches/library_bench.rs`, `docs/development.md`
   - scope: `development.md` §3, §8: `cargo xtask bench [name]` builds benches in release, runs

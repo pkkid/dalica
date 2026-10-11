@@ -27,3 +27,7 @@ thiserror.workspace = true
 [dev-dependencies]
 dalica-scenes.workspace = true
 tempfile.workspace = true
+
+[[bench]]
+name = "library_bench"
+harness = false
