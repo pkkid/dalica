@@ -927,7 +927,7 @@ UI tasks each re-bless only their own.
     store tests: sketches survive journal replay and a snapshot, a torn tail loses only the torn
     batch, no sketch reaches `.dalica.json`, the "every model field has a sidecar mapping" test
     lists the sketch as index-only; the index growth for 100 k sketches is in the PR.
-- ⬜ **M4.3 `thumbs` + `fs`: the packed disk cache**
+- ✅ **M4.3 `thumbs` + `fs`: the packed disk cache**
   - after: M1.12
   - files: `crates/thumbs/src/pack.rs`, `crates/thumbs/src/pack/**`, `crates/thumbs/tests/pack.rs`, `crates/thumbs/benches/pack.rs`, `crates/thumbs/README.md`, `crates/fs/src/pack.rs`, `crates/fs/tests/pack.rs`
   - scope: `architecture.md` §6.6: under `<cache>/thumbs/`, one append-only pack file plus an

@@ -902,6 +902,7 @@ dependencies = [
 name = "dalica-thumbs"
 version = "0.0.0"
 dependencies = [
+ "dalica-fs",
  "dalica-image",
  "dalica-scenes",
  "proptest",

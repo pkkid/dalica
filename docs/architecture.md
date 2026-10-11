@@ -305,6 +305,10 @@ decodes images, touches the file system, waits on a lock held by a worker, or bl
    largest sizes first. The cache only lists and deletes files of its own naming shape. Prior art:
    LightCraft `disk.rs` for pruning; the pack layout is our own (the reference organizer also
    packed each size into a few large files).
+   Each index record and each entry carries a CRC-32, so a torn tail or a damaged record costs only
+   its own entry. A compaction writes the size's next generation beside the current one (pack,
+   then index; a generation counts only once its index exists) while reads go on. The folder is
+   held with an OS lock, so two processes never write one cache (a second open is refused at once).
 
 ## 7. Automation: agents can drive and see the app
 
