@@ -31,7 +31,7 @@ fn write(path: impl AsRef<Path>, bytes: impl AsRef<[u8]>) {
 }
 
 fn photos(folder: &Path, n: usize) {
-    let jpeg = dalica_scenes::encode::jpeg(&dalica_scenes::Scene::new(7, 48, 32), 80, None).unwrap();
+    let jpeg = dalica_scenes::encode::jpeg(&dalica_scenes::Scene::new(7, 96, 64), 80, None).unwrap();
     dalica_fs::create_dir_all(folder).unwrap();
     for i in 0..n {
         write(folder.join(format!("IMG_{i:04}.jpg")), &jpeg);

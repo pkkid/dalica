@@ -1,7 +1,14 @@
 //! The plain library window (M1.18), driven headlessly: add a folder through File ▸ Add Folder…,
 //! click a thumbnail by widget id, press Ctrl+8, and see the star in the engine, in the widget list
 //! and in the screenshot — with the UI thread marked, so any file access from it is counted.
-//! Renders go to `target/test-output/ui/`; `DALICA_BLESS=1` stores a new fingerprint.
+//!
+//! The screenshots are checked **by region** (M4.6), so a task that changes one region re-blesses
+//! only its own file: `region-<name>-<case>.json` for the chrome (menu bar and toolbar), the tree
+//! pane (with the splitter), the section headers, the grid cells, the scroll bar, the status line
+//! and the tray (the whole bottom area). Headers and cells share the light table's rect: each is
+//! that rect with the other's pixels blacked out. Together the regions cover every pixel of the
+//! window exactly once (checked). Renders go to `target/test-output/ui/`; `DALICA_BLESS=1` stores
+//! new fingerprints.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -31,18 +38,101 @@ fn out_dir() -> PathBuf {
     dir
 }
 
-fn check_fingerprint(name: &str, shot: &dalica_ui_kit::Image) {
-    let png = fingerprint::png_rgba(shot.width, shot.height, &shot.rgba);
+fn check_fingerprint(name: &str, width: u32, height: u32, rgba: &[u8]) {
+    let png = fingerprint::png_rgba(width, height, rgba);
     std::fs::write(out_dir().join(format!("{name}.png")), &png).unwrap();
     let stored = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("tests/fingerprints/{name}.json"));
     if std::env::var_os("DALICA_BLESS").is_some() {
-        std::fs::write(&stored, fingerprint::to_json(&fingerprint::fingerprint(shot.width, shot.height, &shot.rgba)) + "\n").unwrap();
+        std::fs::write(&stored, fingerprint::to_json(&fingerprint::fingerprint(width, height, rgba)) + "\n").unwrap();
     }
     let expected = fingerprint::from_json(&std::fs::read_to_string(&stored).unwrap()).unwrap();
-    if let Err(m) = fingerprint::check(shot.width, shot.height, &shot.rgba, &expected, 2.0) {
+    if let Err(m) = fingerprint::check(width, height, rgba, &expected, 2.0) {
         std::fs::write(out_dir().join(format!("{name}-actual.png")), &m.actual_png).unwrap();
         panic!("{name}: {}", m.message);
     }
+}
+
+/// A pixel rectangle `[x0, y0, x1, y1)`.
+type Px = [u32; 4];
+
+fn px(r: [f32; 4]) -> Px {
+    [r[0].round() as u32, r[1].round() as u32, (r[0] + r[2]).round() as u32, (r[1] + r[3]).round() as u32]
+}
+
+fn union(a: Px, b: Px) -> Px {
+    [a[0].min(b[0]), a[1].min(b[1]), a[2].max(b[2]), a[3].max(b[3])]
+}
+
+fn inside(p: (u32, u32), r: Px) -> bool {
+    p.0 >= r[0] && p.0 < r[2] && p.1 >= r[1] && p.1 < r[3]
+}
+
+/// One region of the screenshot: a rectangle, and which of its pixels belong to it (the others are
+/// blacked out).
+struct Region {
+    name: &'static str,
+    rect: Px,
+    keep: Box<dyn Fn(u32, u32) -> bool>,
+}
+
+/// The regions of the window in the last frame (`ui-layout.md` §2), from the registered region
+/// rects and the light table's header rects.
+fn regions(d: &Driver) -> Vec<Region> {
+    let (w, h, _) = d.size();
+    let widgets = d.widgets();
+    let rect = |name: &str| px(widgets.iter().find(|wi| wi.id == format!("region:{name}")).unwrap_or_else(|| panic!("no region {name}")).rect);
+    let info = d.app().panels().unwrap().light_table.frame_info().clone();
+    let headers: Vec<Px> = info
+        .headers
+        .iter()
+        .map(|(_, r)| r)
+        .chain(info.sticky.as_ref().map(|(_, r)| r))
+        .map(|r| px([r.min.x, r.min.y, r.width(), r.height()]))
+        .collect();
+    let in_header = move |x: u32, y: u32| headers.iter().any(|r| inside((x, y), *r));
+    let in_header2 = in_header.clone();
+    let status = rect("statusLine");
+    let all = |_: u32, _: u32| true;
+    vec![
+        Region { name: "chrome", rect: union(rect("menuBar"), rect("toolbar")), keep: Box::new(all) },
+        Region { name: "tree", rect: union(rect("tree"), rect("splitter")), keep: Box::new(all) },
+        Region { name: "header", rect: rect("lightTable"), keep: Box::new(in_header) },
+        Region { name: "cells", rect: rect("lightTable"), keep: Box::new(move |x, y| !in_header2(x, y)) },
+        Region { name: "scrollbar", rect: rect("scrollbar"), keep: Box::new(all) },
+        Region { name: "status", rect: status, keep: Box::new(all) },
+        Region { name: "tray", rect: [0, status[3], w, h], keep: Box::new(all) },
+    ]
+}
+
+/// Checks each region of `shot` against `region-<name>-<case>.json`, after checking that the
+/// regions cover every pixel exactly once.
+fn check_regions(d: &Driver, case: &str, shot: &dalica_ui_kit::Image) {
+    let regions = regions(d);
+    let (w, h) = (shot.width, shot.height);
+    let mut covered = vec![0u8; (w * h) as usize];
+    for r in &regions {
+        for y in r.rect[1]..r.rect[3].min(h) {
+            for x in r.rect[0]..r.rect[2].min(w) {
+                if (r.keep)(x, y) {
+                    covered[(y * w + x) as usize] += 1;
+                }
+            }
+        }
+    }
+    let bad = covered.iter().filter(|&&c| c != 1).count();
+    assert_eq!(bad, 0, "{case}: {bad} pixels are not covered by exactly one region");
+    for r in &regions {
+        let (rw, rh) = (r.rect[2].min(w) - r.rect[0], r.rect[3].min(h) - r.rect[1]);
+        let mut rgba = Vec::with_capacity((rw * rh * 4) as usize);
+        for y in r.rect[1]..r.rect[1] + rh {
+            for x in r.rect[0]..r.rect[0] + rw {
+                let p = if (r.keep)(x, y) { shot.pixel(x, y).unwrap() } else { [0, 0, 0, 255] };
+                rgba.extend_from_slice(&p);
+            }
+        }
+        check_fingerprint(&format!("region-{}-{case}", r.name), rw, rh, &rgba);
+    }
+    std::fs::write(out_dir().join(format!("window-{case}.png")), fingerprint::png_rgba(w, h, &shot.rgba)).unwrap();
 }
 
 /// The M1.18 done-when.
@@ -94,7 +184,7 @@ fn click_a_thumbnail_press_ctrl_8_and_the_badge_shows() {
     let (cx, cy) = ((badge.rect[0] + badge.rect[2] / 2.0) as u32, (badge.rect[1] + badge.rect[3] / 2.0) as u32);
     let glyph = shot.pixel(cx, cy).unwrap();
     assert!(glyph[0] > 180 && glyph[1] > 180 && glyph[2] > 180, "star glyph pixel {glyph:?}");
-    check_fingerprint("library-starred", &shot);
+    check_regions(&d, "starred", &shot);
 
     // Nothing touched the disk from the UI thread.
     assert_eq!(dalica_fs::guard::refused(), refused_before, "file access was attempted on the UI thread");
@@ -133,6 +223,6 @@ fn the_star_button_toggles_the_selection() {
     d.run("select.none", &serde_json::json!({})).unwrap();
     d.key("Ctrl+8").unwrap();
     assert!(!d.state().status.is_empty());
-    check_fingerprint("library-small", &d.screenshot().unwrap());
+    check_regions(&d, "small", &d.screenshot().unwrap());
     assert_eq!(dalica_fs::guard::refused(), refused_before);
 }

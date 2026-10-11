@@ -22,7 +22,7 @@ same commit.
 <!-- parity:summary -->
 | Section | ✅ | 🟡 | ⬜ | 🚫 |
 |---|---:|---:|---:|---:|
-| A. Library view | 1 | 8 | 23 | 1 |
+| A. Library view | 2 | 13 | 17 | 1 |
 | B. Organizing | 0 | 1 | 41 | 0 |
 | C. Editing | 0 | 0 | 21 | 4 |
 | D. Viewing | 0 | 1 | 5 | 2 |
@@ -30,7 +30,7 @@ same commit.
 | F. Data | 1 | 2 | 3 | 0 |
 | G. Preferences and system | 0 | 4 | 8 | 0 |
 | H. Menus | 0 | 2 | 5 | 0 |
-| **All** | 2 | 18 | 108 | 16 |
+| **All** | 3 | 23 | 102 | 16 |
 <!-- /parity:summary -->
 
 ## Top gaps
@@ -47,24 +47,24 @@ same commit.
 | LIB-TREE-FLAT | Flat folder view with year dividers (default) | P0 | ⬜ | the model (rows, order, counts, sections as a pure function of the library): `crates/library/src/tree.rs`, `crates/library/tests/tree.rs` (M4.4); the pane missing (M4.15) |
 | LIB-TREE-TREE | Tree view, simplified tree | P1 | ⬜ | the model (rows, order, counts, sections as a pure function of the library): `crates/library/src/tree.rs`, `crates/library/tests/tree.rs` (M4.4); the pane missing (M4.15) |
 | LIB-TREE-SORT | Folder sort: date, recent changes, size, name, reverse | P0 | ⬜ | the model (rows, order, counts, sections as a pure function of the library): `crates/library/src/tree.rs`, `crates/library/tests/tree.rs` (M4.4); the pane missing (M4.15) |
-| LIB-TREE-CLICK | Click scrolls light table to section and selects folder as a unit | P0 | ⬜ | ref 02 §6.5 |
+| LIB-TREE-CLICK | Click scrolls light table to section and selects folder as a unit | P0 | 🟡 | a row's click eases its section's header to the top in 0.2 s (`cmd:section.scrollTo`; again = the top of that section): `crates/ui/src/commands/scroll.rs`, `crates/ui/tests/light_table.rs`; selecting the folder as a unit missing (M4.13, M4.15); ref 02 §6.5 |
 | LIB-TREE-DND | Drop photos on folder (move/copy), album (add), person | P0 | ⬜ | |
 | LIB-SPLIT | Resizable tree with persisted width | P0 | ✅ | `splitter:tree` drags the tree within 200 … W − 480 (W − pane − 480 beside an open side pane) (by id: `crates/ui/tests/tree_status_pane.rs`, `crates/ui/tests/layout.rs`); the width survives a restart through `settings.json` (`crates/ui/src/app.rs` test `the_view_state_survives_a_restart`) |
-| LIB-LT-SECTIONS | Continuous light table of sections in tree order | P0 | ⬜ | ref 02 §7.1 |
+| LIB-LT-SECTIONS | Continuous light table of sections in tree order | P0 | 🟡 | one continuous view of the folders' sections in the tree's order (sort, reverse, collapsed groups), our own viewport with the position kept by section, laid out by prefix sums and binary search (cells visited per frame equal at 10 k and 100 k photos): `crates/ui/src/panels/light_table.rs`, `crates/ui/src/panels/light_table/layout.rs`, `crates/ui/tests/light_table.rs`; album and person sections missing (M9, M13); ref 02 §7.1 |
 | LIB-LT-HEADER | Section header: icon, title, date/place, buttons, description, edited count + Save | P0 | ⬜ | ref 02 §7.2 |
-| LIB-LT-STICKY | Sticky section headers | P1 | ⬜ | |
-| LIB-LT-GRID | Justified square-cell grid, aspect-preserving thumbnails, shadow | P0 | ⬜ | |
+| LIB-LT-STICKY | Sticky section headers | P1 | 🟡 | the header of the section scrolled through is pinned at the top (32 high, its first line) and pushed up by the next: `crates/ui/src/panels/light_table/layout.rs`, `crates/ui/tests/light_table.rs`; the full header parts missing (M4.9) |
+| LIB-LT-GRID | Justified square-cell grid, aspect-preserving thumbnails, shadow | P0 | 🟡 | square cells 64–320 in justified columns (gap ≥ 12, margins 24, rows 22 apart, 24 before the next header), photos letterboxed: `crates/ui/src/panels/light_table/layout.rs`, `crates/ui/src/panels/light_table/cell.rs`, `crates/ui/tests/light_table.rs`; the drop shadow missing (M4.10) |
 | LIB-LT-CAPTION | Thumbnail captions (None/Filename/Caption/Tags/Resolution/Date) | P1 | ⬜ | |
 | LIB-LT-BADGES | Badges: edited, geotag, held, star; video sprockets + duration | P0 | 🟡 | star badge only: `crates/ui-kit/src/widgets.rs`, `crates/ui/tests/library_window.rs`; edited, geotag, held badges and video marks missing; ref 02 §7.4 |
 | LIB-LT-SCROLLBAR | Section-jump scrollbar (⇑ ▲ ▼ ⇓) with the speed-control thumb and position marker | P0 | ⬜ | ref 02 §7.1 |
 | LIB-LT-INSTANT | Thumbnails never blank while scrolling: colour sketch, packed size ladder, upscaled fallback | P0 | ⬜ | the colour sketch (encode, decode, ≤ 26 bytes): `crates/thumbs/src/sketch.rs`, `crates/thumbs/tests/sketch.rs` (M4.1); the sketch in the index, the ladder and drawing them still missing (M4.2, M4.3, M4.8, M4.10); ref 05 db3 tiers |
-| LIB-LT-HIDDEN | Hidden pictures shown translucent when enabled; small pictures toggle | P1 | ⬜ | |
+| LIB-LT-HIDDEN | Hidden pictures shown translucent when enabled; small pictures toggle | P1 | 🟡 | small pictures (< 64 px on both sides) are left out unless View ▸ Small Pictures (`cmd:view.smallPictures`): `crates/ui/src/panels/light_table.rs`, `crates/ui/tests/light_table.rs`; hidden photos missing (M6) |
 | LIB-SEL | Selection: click, Ctrl, Shift, rubber band, scoped to one section | P0 | ⬜ | ref 02 §7.5 |
 | LIB-SEL-KEYS | Keyboard navigation and selection keys | P0 | ⬜ | |
 | LIB-HOVER | Tooltip on hover | P1 | ⬜ | |
 | LIB-PEEK | Ctrl+Alt full-screen peek with wheel stepping | P1 | ⬜ | |
 | LIB-LOUPE | Loupe magnifier over thumbnails | P2 | ⬜ | |
-| LIB-THUMBSIZE | Thumbnail-size slider, Ctrl+1/Ctrl+2, Ctrl+wheel | P0 | 🟡 | the bottom bar's slider (64–320) and Ctrl+1 / Ctrl+2 (`cmd:view.thumbsSmall`, `cmd:view.thumbsNormal`) set the light table's cell size: `crates/ui/src/panels/bottom.rs`, `crates/ui/tests/bottom.rs`; Ctrl+wheel and persistence missing |
+| LIB-THUMBSIZE | Thumbnail-size slider, Ctrl+1/Ctrl+2, Ctrl+wheel | P0 | ✅ | the bottom bar's slider (64–320) and Ctrl+1 / Ctrl+2 (`cmd:view.thumbsSmall`, `cmd:view.thumbsNormal`) set the light table's cell size: `crates/ui/src/panels/bottom.rs`, `crates/ui/tests/bottom.rs`; Ctrl+wheel over the light table changes it, keeping the section at the top in view: `crates/ui/tests/light_table.rs`; the size survives a restart: `crates/ui/tests/view_state.rs` |
 | LIB-STATUS | Status line texts (none / one / many / edit view) | P0 | 🟡 | "No selection", one photo (name, date and time, pixels, size), several photos or a folder (count, date range, size on disk), the file name middle-elided when too long, transient messages for 4 s, `ui.state` → `status` the text as drawn: `crates/ui/src/panels/status.rs`, `crates/ui/tests/tree_status_pane.rs`; the tags field (M6) and the edit view (M7) missing; ref 02 §8.1 |
 | LIB-TRAY | Photo Tray: token for folder, mini thumbnails, own selection | P0 | ⬜ | ref 02 §8.2 |
 | LIB-TRAY-HOLD | Hold / Clear / Add to Album ▾ | P0 | ⬜ | the three buttons are drawn, disabled until the tray (M4): `crates/ui/src/panels/bottom.rs` |
@@ -74,7 +74,7 @@ same commit.
 | LIB-PANES | Side pane container with People/Places/Tags/Properties toggles | P1 | 🟡 | the frame: 30 pt header with « (large width), title, × by id; pushes the light table; a narrowing window shrinks the tree to 200 first, then takes the large width away, then closes it: `crates/ui/src/panels/side_pane.rs`, `crates/ui/tests/tree_status_pane.rs`, `crates/ui/tests/layout.rs`; the bottom-bar toggles (M3.9), the slide animation and the pane contents (M6, M13) missing |
 | LIB-PROPS | Properties pane | P1 | ⬜ | |
 | LIB-ROOMS | Room tab strip (Import, Collage) | P1 | ⬜ | ref 01 §2.3 |
-| LIB-EMPTY | Empty states | P0 | ⬜ | |
+| LIB-EMPTY | Empty states | P0 | 🟡 | no watched folders: "No pictures yet" with Add a Folder… (the folder dialog) and Import… (disabled until import): `crates/ui/src/panels/light_table.rs`, `crates/ui/tests/light_table.rs`; search with no results missing (M9) |
 
 ## B. Organizing (ORG, IMP, PPL, GEO, SRCH, FILE)
 
