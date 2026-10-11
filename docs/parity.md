@@ -22,15 +22,15 @@ same commit.
 <!-- parity:summary -->
 | Section | ✅ | 🟡 | ⬜ | 🚫 |
 |---|---:|---:|---:|---:|
-| A. Library view | 2 | 13 | 17 | 1 |
+| A. Library view | 2 | 15 | 15 | 1 |
 | B. Organizing | 0 | 1 | 41 | 0 |
 | C. Editing | 0 | 0 | 21 | 4 |
 | D. Viewing | 0 | 1 | 5 | 2 |
 | E. Output | 0 | 0 | 2 | 9 |
 | F. Data | 1 | 2 | 3 | 0 |
 | G. Preferences and system | 0 | 4 | 8 | 0 |
-| H. Menus | 0 | 2 | 5 | 0 |
-| **All** | 3 | 23 | 102 | 16 |
+| H. Menus | 0 | 3 | 4 | 0 |
+| **All** | 3 | 26 | 99 | 16 |
 <!-- /parity:summary -->
 
 ## Top gaps
@@ -47,7 +47,7 @@ same commit.
 | LIB-TREE-FLAT | Flat folder view with year dividers (default) | P0 | ⬜ | the model (rows, order, counts, sections as a pure function of the library): `crates/library/src/tree.rs`, `crates/library/tests/tree.rs` (M4.4); the pane missing (M4.15) |
 | LIB-TREE-TREE | Tree view, simplified tree | P1 | ⬜ | the model (rows, order, counts, sections as a pure function of the library): `crates/library/src/tree.rs`, `crates/library/tests/tree.rs` (M4.4); the pane missing (M4.15) |
 | LIB-TREE-SORT | Folder sort: date, recent changes, size, name, reverse | P0 | ⬜ | the model (rows, order, counts, sections as a pure function of the library): `crates/library/src/tree.rs`, `crates/library/tests/tree.rs` (M4.4); the pane missing (M4.15) |
-| LIB-TREE-CLICK | Click scrolls light table to section and selects folder as a unit | P0 | 🟡 | a row's click eases its section's header to the top in 0.2 s (`cmd:section.scrollTo`; again = the top of that section): `crates/ui/src/commands/scroll.rs`, `crates/ui/tests/light_table.rs`; selecting the folder as a unit missing (M4.13, M4.15); ref 02 §6.5 |
+| LIB-TREE-CLICK | Click scrolls light table to section and selects folder as a unit | P0 | 🟡 | a row's click eases its section's header to the top in 0.2 s (`cmd:section.scrollTo`; again = the top of that section): `crates/ui/src/commands/scroll.rs`, `crates/ui/tests/light_table.rs`; a folder selected as a unit by `cmd:select.section` (`crates/ui/tests/selection.rs`); the row's click calling it missing (M4.15); ref 02 §6.5 |
 | LIB-TREE-DND | Drop photos on folder (move/copy), album (add), person | P0 | ⬜ | |
 | LIB-SPLIT | Resizable tree with persisted width | P0 | ✅ | `splitter:tree` drags the tree within 200 … W − 480 (W − pane − 480 beside an open side pane) (by id: `crates/ui/tests/tree_status_pane.rs`, `crates/ui/tests/layout.rs`); the width survives a restart through `settings.json` (`crates/ui/src/app.rs` test `the_view_state_survives_a_restart`) |
 | LIB-LT-SECTIONS | Continuous light table of sections in tree order | P0 | 🟡 | one continuous view of the folders' sections in the tree's order (sort, reverse, collapsed groups), our own viewport with the position kept by section, laid out by prefix sums and binary search (cells visited per frame equal at 10 k and 100 k photos): `crates/ui/src/panels/light_table.rs`, `crates/ui/src/panels/light_table/layout.rs`, `crates/ui/tests/light_table.rs`; album and person sections missing (M9, M13); ref 02 §7.1 |
@@ -59,8 +59,8 @@ same commit.
 | LIB-LT-SCROLLBAR | Section-jump scrollbar (⇑ ▲ ▼ ⇓) with the speed-control thumb and position marker | P0 | ⬜ | ref 02 §7.1 |
 | LIB-LT-INSTANT | Thumbnails never blank while scrolling: colour sketch, packed size ladder, upscaled fallback | P0 | ⬜ | the colour sketch (encode, decode, ≤ 26 bytes): `crates/thumbs/src/sketch.rs`, `crates/thumbs/tests/sketch.rs` (M4.1); the sketch in the index (M4.2); the packed cache (M4.3); the size ladder, scan-time 128/256 entries and sketches, best-available answers (covering, smaller scaled up, sketch, not scanned) and direction-aware prefetch: `crates/thumbs/src/ladder.rs`, `crates/engine/src/thumbs.rs`, `crates/thumbs/tests/ladder.rs`, `crates/engine/tests/thumbs.rs` (M4.8); drawing them still missing (M4.10, M4.12); ref 05 db3 tiers |
 | LIB-LT-HIDDEN | Hidden pictures shown translucent when enabled; small pictures toggle | P1 | 🟡 | small pictures (< 64 px on both sides) are left out unless View ▸ Small Pictures (`cmd:view.smallPictures`): `crates/ui/src/panels/light_table.rs`, `crates/ui/tests/light_table.rs`; hidden photos missing (M6) |
-| LIB-SEL | Selection: click, Ctrl, Shift, rubber band, scoped to one section | P0 | ⬜ | ref 02 §7.5 |
-| LIB-SEL-KEYS | Keyboard navigation and selection keys | P0 | ⬜ | |
+| LIB-SEL | Selection: click, Ctrl, Shift, rubber band, scoped to one section | P0 | 🟡 | click, Ctrl-click (toggles; in another section replaces), Shift-click (range from the anchor), right-click on an unselected photo selects it first, a click on empty space selects nothing, the rubber band from empty space (Ctrl adds) touching only the section it started in; a drag from a thumbnail starts no band (`cmd:select.set`, `cmd:select.section`): `crates/ui/src/selection.rs`, `crates/ui/src/panels/light_table/input.rs`, `crates/ui/tests/selection.rs`; the band does not scroll the view at its edges, dragging photos and the tray's held exception (M4.16) missing; ref 02 §7.5 |
+| LIB-SEL-KEYS | Keyboard navigation and selection keys | P0 | 🟡 | arrows move (Shift extends from the anchor), Home / End go to the section's first / last photo, all stop at the section's ends and scroll what they reach into view (`cmd:select.left` … `cmd:select.extendLast`); Ctrl+A / Ctrl+I / Ctrl+D and Select Starred per section (`cmd:select.all`, `cmd:select.invert`, `cmd:select.none`, `cmd:select.starred`): `crates/ui/src/commands/select.rs`, `crates/ui/tests/selection.rs`; Ctrl+Home / End and PgUp / PgDn (M4.11), Ctrl+H (M4.16) and Enter (M7) missing |
 | LIB-HOVER | Tooltip on hover | P1 | ⬜ | |
 | LIB-PEEK | Ctrl+Alt full-screen peek with wheel stepping | P1 | ⬜ | |
 | LIB-LOUPE | Loupe magnifier over thumbnails | P2 | ⬜ | |
@@ -218,7 +218,7 @@ its command exists, is wired to the menu catalog, and its behaviour row above is
 | Menu | Ids | Status |
 |---|---|---|
 | File | `album.new` `folders.manager` `library.openFile` `import.open` `photo.openExternal` `photo.moveToNewFolder` `photo.rename` `photo.save` `photo.revert` `photo.saveAs` `photo.saveCopy` `output.export` `photo.locate` `photo.delete` `app.quit` | 🟡 |
-| Edit | `edit.undo` `edit.redo` `photo.cut` `photo.copy` `photo.paste` `edit.copyRecipe` `edit.pasteRecipe` `select.all` `select.starred` `select.invert` `select.none` | ⬜ |
+| Edit | `edit.undo` `edit.redo` `photo.cut` `photo.copy` `photo.paste` `edit.copyRecipe` `edit.pasteRecipe` `select.all` `select.starred` `select.invert` `select.none` | 🟡 |
 | View | `view.library` `view.thumbsSmall` `view.thumbsNormal` `view.edit` `pane.properties` `pane.tags` `pane.people` `pane.places` `pane.toggle` `edit.panelToggle` `view.slideshow` `view.smallPictures` `view.hiddenPictures` `view.colorManagement` `view.caption` `view.folderView` `window.fullscreen` | 🟡 |
 | Folder / Album | `section.properties` `section.slideshow` `section.refreshThumbs` `section.sort` `folder.hide` `folder.unhide` `folder.locate` `folder.remove` `folder.move` `folder.delete` `album.delete` | ⬜ |
 | Picture | `view.edit` `edit.undoAll` `photo.hide` `photo.unhide` `faces.reset` `pane.properties` `photo.star.toggle` `photo.caption.edit` `photo.rotate.cw` `photo.rotate.ccw` `edit.flipH` `edit.flipV` | ⬜ |

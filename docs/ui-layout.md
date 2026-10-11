@@ -190,13 +190,20 @@ Add a description
   cell surround `cell_selected`); the tray mirrors the selection live.
 - **Ctrl-click** toggles, **Shift-click** selects a range from the anchor, **rubber band** from empty
   space selects every thumbnail the band intersects. Pressing on a thumbnail and dragging starts a
-  drag instead.
+  drag instead. With Ctrl the band adds to the selection; a click on empty space selects nothing.
 - Selection never crosses a section boundary; selecting in another section replaces it (unless
   items are held in the tray).
 - Keyboard: arrows move (Shift extends); arrows stop at the section's ends; **Home/End** first/last
   photo of the section (Shift extends); **Ctrl+Home/End** top/bottom of the library; **Ctrl+A**
   select all in the section; **Ctrl+D** select none; **Ctrl+I** invert; **Ctrl+H** hold; **Enter**
   view and edit; **Space** star toggle in the library is not bound (Ctrl+8 is).
+- With nothing selected, an arrow or Home selects the first photo of the **current section** (End
+  its last): the section of the selection, else the folder selected in the tree, else the section
+  at the top of the view. The photo an arrow reaches is scrolled into view (just below the pinned
+  header; a first-row photo brings its section header into view). Ctrl+A / Ctrl+I / Select Starred
+  act on the current section; a Shift range runs from the anchor, which keeps its white outline.
+- Every gesture and key keeps the selection inside one section; only a script's `select.set`
+  (`replace` or `toggle`) may name photos of several folders, and such a selection has no section.
 
 ### 5.5 Mouse
 

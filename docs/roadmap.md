@@ -1084,7 +1084,7 @@ UI tasks each re-bless only their own.
   - done when: a headless test scrolls a scanned 10 k-photo synthetic library at top thumb speed
     and counts zero placeholder cells on every frame, with textures within the cap; once the view
     stops, every visible cell draws its covering size and the region fingerprints are unchanged.
-- ⬜ **M4.13 `ui`: the selection model and keyboard navigation**
+- ✅ **M4.13 `ui`: the selection model and keyboard navigation**
   - after: M4.5, M4.6
   - files: `crates/ui/src/selection.rs`, `crates/ui/src/commands/select.rs`, `crates/ui/src/panels/light_table/input.rs`, `crates/ui/tests/selection.rs`
   - scope: `ui-layout.md` §5.4: click, Ctrl-click, Shift range from the anchor, rubber band from
