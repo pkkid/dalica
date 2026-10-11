@@ -830,11 +830,12 @@ mod tests {
         d.settle(3600).unwrap();
         let thumb = find(&d, "scroll:thumb");
         let low = cells(&d).into_iter().find(|w| w.rect[1] > 500.0).unwrap();
+        // The speed thumb: pulled down, the content scrolls up; released, it springs back.
         d.drag("scroll:thumb", Target::Delta(vec2(0.0, 40.0)), &Drag::default()).unwrap();
-        let moved = find(&d, "scroll:thumb");
-        assert!((moved.rect[1] - thumb.rect[1] - 40.0).abs() < 0.5, "the handle followed the pointer: {:?} → {:?}", thumb.rect, moved.rect);
         let after = find(&d, &low.id);
-        assert!(after.rect[1] < low.rect[1] - 40.0, "the content moved up faster than the handle: {:?} → {:?}", low.rect, after.rect);
+        assert!(after.rect[1] < low.rect[1], "the content moved up: {:?} → {:?}", low.rect, after.rect);
+        d.wait(150).unwrap();
+        assert_eq!(find(&d, "scroll:thumb").rect, thumb.rect, "the thumb is back at the centre");
         // And back to the top, onto the track's top edge.
         let track = find(&d, "scroll:track");
         d.drag("scroll:thumb", Target::Point(Pos2::new(track.rect[0] + track.rect[2] / 2.0, track.rect[1] - 100.0)), &Drag::default()).unwrap();

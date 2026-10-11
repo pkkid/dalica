@@ -650,12 +650,15 @@ fn drag_hover_scroll_resize_wait_and_settle() {
     refused(&mut t, "ui.scroll", json!({ "dy": 1, "widget": "thumb:0" }), "not_found");
     refused(&mut t, "ui.scroll", json!({ "dy": 2.0e6 }), "bad_params");
     refused(&mut t, "ui.scroll", json!({ "dy": 1, "ctrl": true }), "unsupported");
-    // Drag the scroll handle by an offset, then back onto the track's top, from a point inside it.
+    // Drag the speed thumb by an offset (the content scrolls down while it is held, and it springs
+    // back to the centre), then back onto the track's top, from a point inside it.
     let handle = registry::find(t.d.ctx(), "scroll:thumb").unwrap();
     let r = ok(&mut t, "ui.dragWidget", json!({ "id": "scroll:thumb", "dx": 0, "dy": 40 }));
     assert_eq!(r["from"], json!([handle.center().x, handle.center().y]));
-    let after = registry::find(t.d.ctx(), "scroll:thumb").unwrap();
-    assert!((after.rect[1] - handle.rect[1] - 40.0).abs() < 0.5, "{:?} → {:?}", handle.rect, after.rect);
+    let scrolled = registry::find(t.d.ctx(), &low.id).unwrap();
+    assert!(scrolled.rect[1] < low.rect[1], "the content moved up: {:?} → {:?}", low.rect, scrolled.rect);
+    ok(&mut t, "ui.wait", json!({ "ms": 150 }));
+    assert_eq!(registry::find(t.d.ctx(), "scroll:thumb").unwrap().rect, handle.rect, "the thumb is back at the centre");
     let track = registry::find(t.d.ctx(), "scroll:track").unwrap();
     let back = json!({ "id": "scroll:thumb", "fy": 0.2, "toX": track.rect[0] + 2.0, "toY": track.rect[1] - 100.0, "steps": 1000 });
     ok(&mut t, "ui.dragWidget", back);

@@ -19,7 +19,9 @@
     `dropdown_popup_id`); `dialog` (+ `DialogButton`, `ButtonKind`, `DialogResponse`);
     `section_header`; `splitter` (+ `arrow_delta`, `split_position`); `tooltip` (+
     `TOOLTIP_WIDTH`); `progress_row` (+ `ProgressOut`), `toast` (+ `ToastKind`, `toast_opacity`,
-    `TOAST_SECS`, `TOAST_ERROR_SECS`), `empty_state`; thumbnail badges `badge_row`, `star_badge`.
+    `TOAST_SECS`, `TOAST_ERROR_SECS`), `empty_state`, `tooltip_now`; thumbnail marks `badges` (+ `Badges`,
+    `Badge`, `Video`, `BadgeRects`, `duration_text`), `badge_row`, `star_badge`, `photo_shadow`,
+    `failed_mark`.
   - `registry`: `register`, `widgets`, `find`, `unregistered` (+ `Unregistered`), `is_valid_id`,
     `WidgetInfo`, `Role`.
   - `raster`: `Rasterizer`, `Image`, `RasterError`, `MAX_SIDE`, `MAX_PIXELS`; and at the root
