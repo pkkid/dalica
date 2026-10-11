@@ -760,7 +760,7 @@ with the rest at the next review.
     spec's `headless` fallback says, or correct `m2.md`) with a test.
   - done when: headless snapshots of the title bar at both sizes; the menu model and the macOS menu
     list the same items (test); window state survives a restart (test through settings).
-- ⬜ **M3.7 `ui`: the toolbar**
+- ✅ **M3.7 `ui`: the toolbar**
   - after: M3.1, M3.2, M3.3, M3.4, M3.5
   - files: `crates/ui/src/panels/toolbar.rs`, `crates/ui/tests/toolbar.rs`
   - scope: `ui-layout.md` §3: Import, New Album, Flat | Tree, view options ▾ popup, the Filters group
