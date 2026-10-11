@@ -273,7 +273,7 @@ clockwise** (36 × 24 each; disabled when the tray is empty). They act on the tr
 
 ### 6.4 Thumbnail size, loupe, pane toggles
 
-Top row, right side: **loupe** icon (drag to magnify, §5.5), the **thumbnail-size slider** (128 wide;
+Top row, right side: **loupe** icon (24 × 24; drag to magnify, §5.5), the **thumbnail-size slider** (128 wide;
 Ctrl+1 / Ctrl+2 jump to small (96) / normal (144)), then the four **side-pane toggles** (joined
 32 × 24 icon segments): **People** ("Show/hide the People pane"), **Places**, **Tags**,
 **Properties** (Info). In the edit view the slider becomes the zoom slider and **Fit** | **1:1**
@@ -283,7 +283,9 @@ buttons appear to its left.
 
 Second row (below a 1 pt separator): `action_button`s (64 × 56: icon over label) acting on the
 tray: **Export** ┆ **Collage**, **Slideshow**. The set is fixed (not configurable). When the
-window is too narrow, the overflow collapses behind a **More…** button that opens a vertical menu.
+window is narrower than 1100 (§11), all three collapse behind a **More…** button (an `action_button`
+with a three-dot icon) that opens a vertical menu upward: one row per action, its icon in the left
+gutter, enabled exactly when the button would be.
 
 ## 7. Side pane (right)
 

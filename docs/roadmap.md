@@ -780,7 +780,7 @@ with the rest at the next review.
   - done when: a test drags the splitter by id and the tree width follows within its limits and
     survives a restart; status-line texts for no selection, one photo and a folder, and `ui.state`
     reports the same text; the pane opens, widens and closes by id.
-- ⬜ **M3.9 `ui`: the bottom area**
+- ✅ **M3.9 `ui`: the bottom area**
   - after: M3.1, M3.2, M3.3, M3.4, M3.5
   - files: `crates/ui/src/panels/bottom.rs`, `crates/ui/tests/bottom.rs`
   - scope: `ui-layout.md` §6.2–§6.5: the tray box (empty watermark; Hold, Clear, Add to Album
