@@ -2,7 +2,8 @@
 //! `UiState` round-trips through `ui.state` / `ui.set` (bad values are refused and change nothing);
 //! the persisted ones survive a restart through `settings.json`; the view commands change the state
 //! and light up their menu and view-options rows, whose check marks follow the state; File ▸ Exit
-//! and View ▸ Properties / Tags / People / Places are live; every UI command fails gracefully.
+//! (Dalica ▸ Quit Dalica on macOS) and View ▸ Properties / Tags / People / Places are live; every
+//! UI command fails gracefully.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -319,7 +320,16 @@ fn the_view_commands_light_up_their_menu_rows_and_check_marks_follow_the_state()
         let r = row(&mut t, id, params.clone());
         assert_eq!((&r["live"], &r["enabled"]), (&json!(true), &json!(true)), "{id} {params}: {r}");
     }
-    assert_eq!(row(&mut t, "app.quit", Value::Null)["label"], "Exit");
+    // macOS keeps Quit in its application menu; elsewhere it is File ▸ Exit. Both layouts are checked
+    // on every platform; the control channel shows this platform's.
+    for (platform, path, label) in [(Platform::Other, "File/Exit", "Exit"), (Platform::Mac, "Dalica/Quit Dalica", "Quit Dalica")] {
+        let lookup = Lookup::Path(menus::split_path(path).unwrap());
+        let bar = menus::bar(t.d.app(), platform);
+        let item = menus::find(&bar, &lookup).unwrap_or_else(|| panic!("{platform:?}: no {path}"));
+        assert_eq!((item.id, item.label.as_str(), item.enabled), ("app.quit", label, true), "{platform:?}");
+    }
+    let (quit_label, quit_path) = if cfg!(target_os = "macos") { ("Quit Dalica", "Dalica/Quit Dalica") } else { ("Exit", "File/Exit") };
+    assert_eq!(row(&mut t, "app.quit", Value::Null)["label"], quit_label);
     assert_eq!(row(&mut t, "pane.tags", Value::Null)["shortcut"], if cfg!(target_os = "macos") { "Cmd+T" } else { "Ctrl+T" });
     // The pane rows follow the open pane, whoever opened it.
     assert_eq!(row(&mut t, "pane.tags", Value::Null)["checked"], false);
@@ -358,8 +368,8 @@ fn the_view_commands_light_up_their_menu_rows_and_check_marks_follow_the_state()
     assert_eq!(t.d.state().tree_mode, TreeMode::Tree);
     assert_eq!(row(&mut t, "view.folderView", json!({ "mode": "tree" }))["checked"], true);
     assert_eq!(row(&mut t, "view.folderView", json!({ "mode": "flat" }))["checked"], false);
-    // File ▸ Exit asks the window to close; the next frame passes it on.
-    assert_eq!(ok(&mut t, "ui.menu.invoke", json!({ "path": "File/Exit" })), json!({ "quitting": true }));
+    // File ▸ Exit (Dalica ▸ Quit Dalica on macOS) asks the window to close; the next frame passes it on.
+    assert_eq!(ok(&mut t, "ui.menu.invoke", json!({ "path": quit_path })), json!({ "quitting": true }));
     assert!(!t.d.app().quit_requested(), "the frames after the invoke sent the close request");
     t.d.app_mut().run("app.quit", &json!({})).unwrap();
     assert!(t.d.app().quit_requested());
