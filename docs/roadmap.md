@@ -25,8 +25,8 @@ held at top speed through 100 k sketched photos no cell is ever grey. Thumbnails
 into a packed cache (faster than loose files in order and on first reads, slower on shuffled reads:
 M5.16 looks into it) with a 24–26-byte colour sketch per photo in the index. The "scanned 100 k"
 case is checked at 10 k until M5.16's bench scans 100 k. Open: the speed thumb's feel (M5.R); the
-release budgets get a Linux CI job (M5.24); ci takes 412 s warm because acceptance runs twice
-(M5.22); 36 open items are placed in M5 blocks or listed on the check-in page.
+release budgets get a Linux CI job (M5.24); `cargo xtask ci` warm went from 488 s to 85 s on the
+review branch (each acceptance test runs once, image and UI crates optimised in dev builds); 36 open items are placed in M5 blocks or listed on the check-in page.
 
 *2026-10-10 (M3.R).* M3 is done: `cargo xtask accept M3` passes in 41 s. It drives the real
 `dalica --headless` on a fresh demo and checks every region and shell control at 1400 × 900 and
@@ -1598,24 +1598,20 @@ filled by the lead; M5.15 pins it.
     renaming a root away dims its rows with the marker and renaming it back restores them; a tree
     longer than the pane shows a scroll bar that drags the rows; the region and popover
     fingerprints at both window sizes.
-- ⬜ **M5.22 `xtask tasks`: send-backs, the parity summary and blessing (found at M4.R)**
+- ⬜ **M5.22 `xtask tasks`: send-backs and the parity summary (found at M4.R)**
   - after: M4.R
-  - files: `xtask/src/tasks/**`, `xtask/src/parity.rs`, `xtask/src/ci.rs`, `tests/acceptance/m3.rs`, `docs/task-board.md`
-  - scope: three frictions of the M4 run. A send-back of an In Review task: `tasks submit` accepts
+  - files: `xtask/src/tasks/**`, `xtask/src/parity.rs`, `docs/task-board.md`
+  - scope: two frictions of the M4 run. A send-back of an In Review task: `tasks submit` accepts
     a task that is In Review when its branch was rebased, pushes with lease and keeps the pull
     request (today it refuses, and the lead rebuilt eight branches by hand). `tasks merge` resolves
     a rebase conflict that is only in `docs/parity.md`'s generated summary by regenerating it
-    (`parity --write`) instead of stopping; row conflicts still go back to the worker. Nested cargo
-    runs in acceptance tests never pass `DALICA_BLESS` down (`m3.rs` still does; `m4.rs` already
-    drops it), so blessing one milestone's baselines never rewrites another crate's. And `ci` runs
-    each finished milestone's acceptance once: at M4.R `cargo test --workspace` already ran the
-    acceptance tests and `ci` then ran `accept M0`–`M3` again (about 68 s more; ci warm 412 s, was
-    158 s at M3.R; GitHub Windows 31 min).
+    (`parity --write`) instead of stopping; row conflicts still go back to the worker. (The third,
+    `ci` time, was fixed on the M4.R review branch at the maintainer's request: each acceptance test
+    runs once per `ci`, the crate suites are not re-run inside it, nested cargo runs never see
+    `DALICA_BLESS`, and the image and UI crates are optimised in dev builds; `development.md` §3.)
   - done when: `xtask` tests on a temp repository: a rebased In Review branch re-submits and its PR
     keeps its number; a summary-only conflict merges after regeneration while a row conflict is
-    refused; `DALICA_BLESS=1 cargo xtask accept M3` changes no file outside
-    `tests/acceptance/fingerprints/`; `docs/task-board.md` describes the send-back; `cargo xtask
-    ci` runs every acceptance test exactly once (the step list shows it) with the same checks.
+    refused; `docs/task-board.md` describes the send-back.
 - ⬜ **M5.23 `ui`: M4 loose ends in the light table and keys**
   - after: M4.R
   - files: `crates/ui/src/panels/light_table.rs`, `crates/ui/src/panels/light_table/input.rs`, `crates/ui/src/keys.rs`, `crates/ui/src/panels/bottom.rs`, `crates/ui/src/panels/bottom/**`, `crates/ui/tests/band_autoscroll.rs`, `crates/ui/tests/tray_keys.rs`, `crates/ui/tests/fingerprints/region-tray*.json`

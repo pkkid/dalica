@@ -1,6 +1,7 @@
 //! M1 "Star a photo, end to end" (`docs/roadmap.md` → M1 → Done when; run by `cargo xtask accept
 //! M1`): the headless steps of `m1_steps.rs` (200 photos, star 3 and undo 1, rebuild, a second
-//! process refused), then the fault-injection suites and `panic_hunt`, then a headless snapshot of
+//! process refused), then the fault-injection suites (unless the ci test step already ran them:
+//! `dalica_acceptance::SUITES_RAN`) and `panic_hunt`, then a headless snapshot of
 //! that library through the real `dalica-cli snapshot` that shows its 2 star badges (fingerprint).
 //! The manual check is in `m1.md`.
 
@@ -45,9 +46,12 @@ fn star_a_photo_end_to_end() {
     // 1–4: the headless steps.
     let outcome = steps::run();
 
-    // 5. Fault injection never leaves a torn sidecar (or any torn file); panic_hunt stays green.
-    cargo_test(&["-p", "dalica-store", "--test", "sidecars", "a_failed_write_leaves_the_old_or_the_new_sidecar"]);
-    cargo_test(&["-p", "dalica-fs", "--lib", "each_fault_point_leaves_the_old_or_the_new_file"]);
+    // 5. Fault injection never leaves a torn sidecar (or any torn file); panic_hunt stays green
+    //    (it is ignored by default, so the ci test step never runs it: it always runs here).
+    if !dalica_acceptance::suites_ran() {
+        cargo_test(&["-p", "dalica-store", "--test", "sidecars", "a_failed_write_leaves_the_old_or_the_new_sidecar"]);
+        cargo_test(&["-p", "dalica-fs", "--lib", "each_fault_point_leaves_the_old_or_the_new_file"]);
+    }
     cargo_test(&["-p", "dalica-engine", "--test", "panic_hunt", "--", "--ignored"]);
 
     // 6. A headless snapshot of the library through the real CLI shows the 2 star badges.

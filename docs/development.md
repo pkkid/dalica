@@ -29,14 +29,14 @@ cargo xtask ci                                      # THE gate: run before every
 
 | Command | What it does | In `ci` |
 |---|---|---|
-| `xtask ci` | fmt check, clippy `-D warnings` (all targets), tests, `layers`, `deps`, `assets`, `names`, `parity`, `docs`, `tasks sync --check`, then `accept` for every milestone whose blocks are all ✅; runs every step, prints a table, and on a clean worktree records the green commit for `tasks submit` | — |
+| `xtask ci` | fmt check, clippy `-D warnings` (all targets, the acceptance package included), tests, `layers`, `deps`, `assets`, `names`, `parity`, `docs`, `tasks sync --check`, then `accept` for every milestone whose blocks are all ✅; each acceptance test runs once (below); runs every step, prints a table, and on a clean worktree records the green commit for `tasks submit` | — |
 | `xtask layers` | checks crate dependencies against the layer table in `xtask/src/layers.rs` (`architecture.md` §2); unregistered crates fail; UI crates only in L5; only `crates/fs` calls `std::fs` write functions | ✓ |
 | `xtask deps` | offline dependency audit (`security.md` §8): licence allow-list over the whole graph; on the product graph of `dalica` and `dalica-cli` for Linux, Windows and macOS, no banned crate, no C build script (reviewed exceptions are checked against the resolved features) and `*-sys` only from the allow-list; sources; duplicate versions warn | ✓ |
 | `xtask assets` | every image/icon/font/sound file is matched by a row in `ATTRIBUTION.md`; referenced licence files exist; forbidden file names/extensions fail | ✓ |
 | `xtask names` | fails if the reference product's name appears in any tracked file other than `AGENTS.md` | ✓ |
 | `xtask parity [--write]` | ids, tiers and statuses of `docs/parity.md`; every `cmd:` id (from `dalica-cli commands`) and path it cites exists; the summary is current (`--write` refreshes it) | ✓ |
 | `xtask docs` | every `cargo xtask …` command named in `AGENTS.md`, this file and `task-board.md` exists or is registered as planned | ✓ |
-| `xtask accept M<n> [--headless]` | runs a milestone's acceptance test (`tests/acceptance/m<n>.rs`) and prints what a human should look at (`m<n>.md`) (`roadmap.md` → How milestones work); finished milestones' checks run inside `ci` | ✓ (all finished milestones) |
+| `xtask accept M<n> [--headless]` | runs a milestone's acceptance test (`tests/acceptance/m<n>.rs`) and prints what a human should look at (`m<n>.md`) (`roadmap.md` → How milestones work); run on its own it checks the whole *Done when*, the crate suites it names included; finished milestones' checks run inside `ci` | ✓ (all finished milestones) |
 | `xtask tasks <sub>` | the task board: `setup`, `sync`, `next`, `claim`, `env`, `submit`, `release`, `block`, `merge`, `status`, `log` ([`task-board.md`](task-board.md)); `sync --check` parses the roadmap offline, `setup`/`sync --dry-run` show the GitHub writes without making them | `sync --check` ✓ |
 | `xtask test-corpus` | *planned (M5):* fetch the corpora and run the `corpus`-feature tests | |
 | `xtask corpus` | *planned (M5):* fetches pinned, sha256-verified CC0 test photos into the gitignored `corpus/` | |
@@ -51,6 +51,33 @@ Running a planned command says where it is planned and exits with status 2.
 `xtask ci` uses one test thread and build job per GiB of available RAM, capped by
 `CARGO_BUILD_JOBS` or the CPU count, so it doesn't take the machine down when several agents run it
 at once.
+
+**What `ci` runs, and only once.** Its steps, in order:
+
+1. `test`: `cargo test --workspace --exclude dalica-acceptance`, every crate's suites.
+2. `test acceptance`: the acceptance package's library and every `[[test]]` target of
+   `tests/acceptance/Cargo.toml` that no `accept` step runs (the headless halves such as
+   `m1_headless`, `m0_skeleton`, and the acceptance test of a milestone still in progress).
+3. `accept M<k>` for each finished milestone (every block ✅), each running `m<k>.rs` once.
+
+An acceptance test re-runs the crate suites its milestone's *Done when* names (`cargo test -p …`),
+so one `cargo xtask accept M<n>` checks everything. Inside `ci` those suites already ran in step 1,
+so `ci` sets `DALICA_SUITES_RAN=1` on steps 2 and 3, and the tests skip them, printing `suites: run
+by the ci test step`. A standalone `cargo xtask accept` clears the variable. What only an acceptance
+test runs (the live app, its screenshots, `panic_hunt -- --ignored` in M1, the debug benches in M4)
+always runs. Nested cargo runs in acceptance tests never see `DALICA_BLESS`
+(`dalica_acceptance::cargo`), so blessing a milestone's own baselines never rewrites a crate's.
+
+**Optimised crates in dev and test builds.** The root `Cargo.toml` raises `opt-level` to 3 for the
+crates that tests spend their time in: the test-photo generator and codecs (`dalica-scenes`,
+`dalica-image`, `image`, `png`, `zune-jpeg`, `zune-core`, `fdeflate`, `miniz_oxide`, `crc32fast`,
+`simd-adler32`, `adler2`), egui's layout and tessellation (`egui`, `epaint`, `emath`, `ecolor`),
+the CPU rasterizer behind every screenshot and fingerprint (`dalica-ui-kit`) and the thumbnail
+ladder (`dalica-thumbs`, where `image`'s generic JPEG encoder is compiled, so it runs at this
+crate's level). Only `opt-level` changes: `debug-assertions` and `overflow-checks` stay on in every
+dev and test build, our optimised crates included. Measured on the maintainer desktop (warm, 8
+threads): `dalica-ui --test never_blank` 31 → 11 s, `--test layout` 26 → 3 s, `dalica-ui-kit
+--test badges` 14 → 1 s. A crate joins this list only with a measurement that shows it helps.
 
 ## 4. Code style
 
@@ -224,6 +251,7 @@ processed them, so a following `ui.state` or `ui.inspect` observes their effect.
 | `RUST_LOG` | log levels for standard error and the log file (see *Logs*) |
 | `RUST_BACKTRACE=1` | full backtraces in panic reports |
 | `DALICA_PROFILE=1` | per-stage timings (see *Profiling*) |
+| `DALICA_SUITES_RAN=1` | set by `cargo xtask ci` on its acceptance steps: the acceptance tests skip the crate suites its test step already ran (§3) |
 | `DALICA_CACHE_DIR` | an absolute folder used in place of Dalica's cache folder for the thumbnail cache (`<dir>/thumbs`); every test that launches `dalica` or `dalica-cli` on a library sets it to a temporary folder ([`data-model.md`](data-model.md) §4) |
 | `DALICA_THEME_FILE=tokens.json` | **debug builds only:** live `theme::Tokens` overrides, re-read on change (keys are the field names in `crates/ui-kit/src/theme.rs`); compiled out of release builds |
 | `CRAFT_FONTS_DIR` | optional fonts build input (see §12) |

@@ -24,9 +24,42 @@ pub fn available_gib(meminfo: &str) -> Option<u64> {
 }
 
 fn cargo(root: &Path, args: &[&str]) -> Result<(), String> {
+    cargo_env(root, args, &[])
+}
+
+fn cargo_env(root: &Path, args: &[&str], env: &[(&str, &str)]) -> Result<(), String> {
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
-    let status = Command::new(cargo).current_dir(root).args(args).status().map_err(|e| format!("cannot run cargo: {e}"))?;
+    let mut cmd = Command::new(cargo);
+    cmd.current_dir(root).args(args);
+    for (k, v) in env {
+        cmd.env(k, v);
+    }
+    let status = cmd.status().map_err(|e| format!("cannot run cargo: {e}"))?;
     if status.success() { Ok(()) } else { Err(format!("cargo {} failed", args.join(" "))) }
+}
+
+/// The acceptance tests' package. The workspace test step leaves it out: each milestone's test runs
+/// once, in its `accept` step, and the rest of the package in the `test acceptance` step.
+pub const ACCEPTANCE: &str = "dalica-acceptance";
+
+/// The `[[test]]` targets of the acceptance manifest that no `accept` step runs, in its order: all
+/// but `m<k>` for each milestone in `accepted` (so the headless halves, the skeleton checks and the
+/// acceptance test of a milestone still in progress keep running in `ci`).
+pub fn acceptance_rest(manifest: &str, accepted: &[u32]) -> Vec<String> {
+    let mut rest = Vec::new();
+    let mut in_test = false;
+    for line in manifest.lines().map(str::trim) {
+        if line.starts_with('[') {
+            in_test = line == "[[test]]";
+            continue;
+        }
+        let Some(value) = line.strip_prefix("name").map(str::trim_start).and_then(|l| l.strip_prefix('=')) else { continue };
+        let name = value.trim().trim_matches('"');
+        if in_test && !name.is_empty() && !accepted.iter().any(|m| name == format!("m{m}")) {
+            rest.push(name.to_string());
+        }
+    }
+    rest
 }
 
 /// Milestones whose every task block is ✅ (their acceptance checks keep running).
@@ -49,11 +82,33 @@ pub fn run(root: &Path) -> Result<(), String> {
     let n = parallelism(available_gib(&meminfo), cpus, build_jobs).to_string();
     let threads = format!("--test-threads={n}");
 
+    let roadmap = tasks::load_roadmap(root);
+    let accepted = roadmap.as_ref().map(finished_milestones).unwrap_or_default();
+    // The crate suites the acceptance tests would re-run have run in the test step by the time
+    // they start, so they skip them (`accept::SUITES_RAN`).
+    let suites_ran = [(crate::accept::SUITES_RAN, "1")];
+
     type Step<'a> = (String, Box<dyn Fn() -> Result<(), String> + 'a>);
     let mut steps: Vec<Step> = vec![
         ("fmt".into(), Box::new(|| cargo(root, &["fmt", "--all", "--", "--check"]))),
+        // Clippy still covers the acceptance package (all targets).
         ("clippy".into(), Box::new(|| cargo(root, &["clippy", "--workspace", "--all-targets", "-j", &n, "--", "-D", "warnings"]))),
-        ("test".into(), Box::new(|| cargo(root, &["test", "--workspace", "-j", &n, "--", &threads]))),
+        ("test".into(), Box::new(|| cargo(root, &["test", "--workspace", "--exclude", ACCEPTANCE, "-j", &n, "--", &threads]))),
+        (
+            "test acceptance".into(),
+            Box::new(|| {
+                let manifest = root.join("tests").join("acceptance").join("Cargo.toml");
+                let manifest = std::fs::read_to_string(&manifest).map_err(|e| format!("{}: {e}", manifest.display()))?;
+                let rest = acceptance_rest(&manifest, &accepted);
+                println!("ci: {ACCEPTANCE}: the library and {} (each finished milestone's test runs in its accept step)", rest.join(", "));
+                let mut args = vec!["test", "-p", ACCEPTANCE, "-j", &n, "--lib"];
+                for test in &rest {
+                    args.extend(["--test", test.as_str()]);
+                }
+                args.extend(["--", &threads]);
+                cargo_env(root, &args, &suites_ran)
+            }),
+        ),
         ("layers".into(), Box::new(|| crate::layers::run(root))),
         ("deps".into(), Box::new(|| crate::deps::run(root))),
         ("assets".into(), Box::new(|| crate::assets::run(root))),
@@ -68,11 +123,8 @@ pub fn run(root: &Path) -> Result<(), String> {
             }),
         ),
     ];
-    let roadmap = tasks::load_roadmap(root);
-    if let Ok(roadmap) = &roadmap {
-        for m in finished_milestones(roadmap) {
-            steps.push((format!("accept M{m}"), Box::new(move || crate::accept::accept(root, m, false, true))));
-        }
+    for &m in &accepted {
+        steps.push((format!("accept M{m}"), Box::new(move || crate::accept::accept(root, m, false, true, true))));
     }
 
     let mut results = Vec::new();
@@ -133,6 +185,20 @@ mod tests {
         assert_eq!(parallelism(None, 8, None), 8);
         assert_eq!(available_gib("MemTotal: 32000000 kB\nMemAvailable:   20971520 kB\n"), Some(20));
         assert_eq!(available_gib("nothing"), None);
+    }
+
+    #[test]
+    fn acceptance_rest_leaves_out_the_accepted_milestones() {
+        let manifest = "[package]\nname = \"dalica-acceptance\"\n\n[lib]\npath = \"src/lib.rs\"\n\n[[test]]\nname = \"m0\"\npath = \"m0.rs\"\n\n\
+                        [[test]]\nname = \"m0_skeleton\"\n\n[[test]]\nname = \"m1\"\n\n[[test]]\nname = \"m1_headless\"\n\n[[test]]\nname=\"m12\"\n";
+        assert_eq!(acceptance_rest(manifest, &[0, 1]), ["m0_skeleton", "m1_headless", "m12"]);
+        assert_eq!(acceptance_rest(manifest, &[]), ["m0", "m0_skeleton", "m1", "m1_headless", "m12"]);
+        assert_eq!(acceptance_rest(manifest, &[0, 1, 12]), ["m0_skeleton", "m1_headless"]);
+        // The real manifest: every finished milestone up to M4 has its test there.
+        let real = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../tests/acceptance/Cargo.toml")).unwrap();
+        let rest = acceptance_rest(&real, &[0, 1, 2, 3, 4]);
+        assert!(rest.iter().all(|t| !["m0", "m1", "m2", "m3", "m4"].contains(&t.as_str())), "{rest:?}");
+        assert!(rest.contains(&"m0_skeleton".to_string()) && rest.contains(&"m1_headless".to_string()), "{rest:?}");
     }
 
     #[test]

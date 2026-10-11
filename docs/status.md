@@ -16,7 +16,8 @@ and git.
   full thumb speed" (100 k sketched + 10 k scanned; M5.16 adds a scanned 100 k pass); asked for a
   Linux release-budget CI job on `main` (new M5.24); left the speed thumb's feel for M5.R (defaults:
   exponent 2, top speed 40); approved all 46 fingerprint baselines. Two review blocks carry M4's
-  loose ends: M5.22 (board tooling, acceptance running once in ci) and M5.23 (band autoscroll,
+  loose ends: M5.22 (board tooling; running acceptance once in ci was done on the review branch at
+  the maintainer's request) and M5.23 (band autoscroll,
   tray keys, centred minis).
 - **M3 review (2026-10-10):** the maintainer approved all 28 fingerprint baselines; asked for the dim
   text to reach 4.5:1 on the chrome (new M4.20); allowed `inotify-sys` and `fsevent-sys` for the
@@ -101,4 +102,5 @@ and git.
 | 2026-10-11 | GitHub ubuntu / macos / windows | CI job `cargo xtask ci` (run 38161284768, e73af84) | 20 min 37 s / 15 min 44 s / 30 min 42 s |
 | 2026-10-11 | maintainer desktop | the measurement target dir / all target dirs; free disk | 14 GB / 267 GB; 39 GB |
 | 2026-10-11 | — | M4 run: 20 tasks + 1 fix, 6 workers, 23:11–13:50 (idle 02:15–09:30 on a push permission); send-backs 6; 8 tasks landed by the lead (parity summary conflicts, In Review re-submits); `main` red once on macOS (#155) | — |
+| 2026-10-11 | maintainer desktop | `cargo xtask ci` warm after the CI-time fix (review/M4.R) | 488.1 s → 84.8 s (test step 329.2 → 66.6 s + `test acceptance` 1.4 s; `accept` M0–M4 157.2 → 15.3 s; 827 → 821 test results, the 7 acceptance tests once instead of twice, +1 new `xtask` test); standalone `accept M4` 89.1 → 47.5 s; `dalica-ui --test never_blank` 30.4 → 10.7 s |
 | 2026-10-11 | — | parity summary (M4.R) | 8 ✅ / 31 🟡 / 89 ⬜ / 16 🚫 (144 rows, 54 registered commands) |
