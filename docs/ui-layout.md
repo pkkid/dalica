@@ -91,7 +91,11 @@ Left → right:
 | 8 | **Activity indicator** | 28 × 28 | current background job | spinner while scanning/exporting/finding faces; click → popover listing jobs with progress and Cancel |
 
 The search field and filters move right as the tree is widened (they belong to the light table's
-column).
+column): the filter group starts at least 8 right of the splitter, so with a wide tree or a narrow
+window the search field starts right of the filters (12 after the age slider) rather than at 0.4·W,
+and it never gets narrower than 160. The caption sits above the toggles (which then rest on the
+toolbar's bottom rule); without it the toggles are centred like the other controls. At rest the
+activity indicator draws nothing.
 
 ## 4. Library tree (left pane)
 
