@@ -225,7 +225,8 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     ui.painter().rect_filled(rect, 0, t.chrome);
     let rule = Rect::from_min_max(pos2(rect.min.x, rect.max.y - 1.0), rect.max);
     ui.painter().rect_filled(rule, 0, t.divider);
-    let l = compute(rect, app.state().tree_width);
+    // The tree as the layout narrows it (beside a side pane), so the filters follow the splitter.
+    let l = compute(rect, layout::effective_tree_width(app.state(), rect.width()));
     let mut memory = ui.ctx().data(|d| d.get_temp::<Memory>(memory_id())).unwrap_or_default();
 
     // Import and New Album.

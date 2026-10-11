@@ -15,7 +15,7 @@ use dalica_ui::perf::{self, Perf, Sample};
 use dalica_ui::titlebar;
 use dalica_ui::{App, Picker};
 use dalica_ui_kit::{Tokens, fonts, registry};
-use egui::{Align2, Frame, Rect, vec2};
+use egui::{Align2, Frame, Rect, ViewportCommand, vec2};
 
 use crate::control::play::WindowControl;
 use crate::control::{Listening, TokenFileGuard};
@@ -73,6 +73,8 @@ pub struct Window {
     sample: Option<Sample>,
     /// The window's placement, saved in the library's settings once a change has settled.
     placement: Tracker,
+    /// Keeps the OS window's full screen and the view state's in step.
+    fullscreen: FullscreenSync,
     /// The system menu bar (macOS), and when it was last brought up to date.
     #[cfg(target_os = "macos")]
     native: Option<(crate::native_menu::NativeMenuBar, Instant)>,
@@ -136,6 +138,7 @@ impl Window {
             perf,
             sample: None,
             placement: Tracker::new(frame.stored),
+            fullscreen: FullscreenSync::default(),
             #[cfg(target_os = "macos")]
             native,
             _ui_thread: None,
@@ -186,6 +189,16 @@ impl eframe::App for Window {
         if let Some(state) = self.placement.observe(&info, Instant::now()) {
             self.save_placement(state);
         }
+        // F11 (and View → Full Screen, `ui.set`) asks the OS window to follow the view state; a
+        // full screen the OS ends by itself (Esc on macOS, the window manager) flips it back.
+        match self.fullscreen.step(self.app.state().full_screen, info.fullscreen) {
+            FullscreenAction::Nothing => {}
+            FullscreenAction::Send(on) => ui.ctx().send_viewport_cmd(ViewportCommand::Fullscreen(on)),
+            FullscreenAction::Adopt(on) => {
+                self.app.state_mut().full_screen = on;
+                ui.ctx().request_repaint();
+            }
+        }
         let at = ui.ctx().input(|i| i.time);
         self.sample = Some(Sample { at, frame: layout, update: started.elapsed(), ..Sample::default() });
     }
@@ -202,6 +215,55 @@ impl eframe::App for Window {
             && let Err(e) = session.flush()
         {
             log::error!("dalica: not every change was saved: {e}");
+        }
+    }
+}
+
+/// What the window does this frame to keep the OS window's full screen and
+/// [`dalica_ui::UiState::full_screen`] in step.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FullscreenAction {
+    Nothing,
+    /// Ask the OS window to enter (`true`) or leave full screen.
+    Send(bool),
+    /// The OS changed the window's full screen by itself: the view state takes it over.
+    Adopt(bool),
+}
+
+/// Keeps the OS window's full screen and the view state's in step, in both directions, without the
+/// two ever fighting: a request is sent once and then waited for (never resent while the OS has not
+/// answered), and the view state adopts the OS's state only on an edge of what the OS reports while
+/// no request is outstanding. Pure, so it is tested on every OS.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct FullscreenSync {
+    /// What the OS reported the frame before.
+    before: Option<bool>,
+    /// The request sent and not yet seen through.
+    sent: Option<bool>,
+}
+
+impl FullscreenSync {
+    /// One frame: `want` is the view state's full screen, `have` what the OS reports (`None` when it
+    /// tells nothing, taken as not full screen).
+    pub fn step(&mut self, want: bool, have: Option<bool>) -> FullscreenAction {
+        let changed = have.is_some() && have != self.before;
+        if have.is_some() {
+            self.before = have;
+        }
+        let have = have.unwrap_or(false);
+        if have == want {
+            // In step: whatever was asked for is done (or no longer wanted).
+            self.sent = None;
+            FullscreenAction::Nothing
+        } else if self.sent == Some(want) {
+            // Asked already: wait for the OS rather than asking again every frame.
+            FullscreenAction::Nothing
+        } else if changed && self.sent.is_none() {
+            // The OS moved on its own (it was in step before): follow it.
+            FullscreenAction::Adopt(have)
+        } else {
+            self.sent = Some(want);
+            FullscreenAction::Send(want)
         }
     }
 }
@@ -290,5 +352,104 @@ impl Window {
         let mut row = ui.new_child(egui::UiBuilder::new().id_salt("dalica-bare-title-bar").max_rect(bar.shrink2(vec2(8.0, 0.0))));
         row.set_clip_rect(bar);
         titlebar::show(&mut row, &mut self.app, bar, None);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{FullscreenAction as A, FullscreenSync};
+
+    /// Runs `frames` of (view state, what the OS reports) through a fresh sync and returns the actions.
+    fn run(frames: &[(bool, Option<bool>)]) -> Vec<A> {
+        let mut s = FullscreenSync::default();
+        frames.iter().map(|&(want, have)| s.step(want, have)).collect()
+    }
+
+    #[test]
+    fn a_window_in_step_does_nothing() {
+        assert_eq!(run(&[(false, None), (false, Some(false)), (false, Some(false))]), [A::Nothing; 3]);
+        assert_eq!(run(&[(true, Some(true)), (true, Some(true))]), [A::Nothing; 2]);
+    }
+
+    #[test]
+    fn f11_asks_once_then_waits_for_the_os() {
+        let f = [(false, Some(false)), (true, Some(false)), (true, Some(false)), (true, Some(false)), (true, Some(true)), (true, Some(true))];
+        assert_eq!(run(&f), [A::Nothing, A::Send(true), A::Nothing, A::Nothing, A::Nothing, A::Nothing]);
+        // And back out.
+        let f = [(true, Some(true)), (false, Some(true)), (false, Some(true)), (false, Some(false)), (false, Some(false))];
+        assert_eq!(run(&f), [A::Nothing, A::Send(false), A::Nothing, A::Nothing, A::Nothing]);
+    }
+
+    #[test]
+    fn a_full_screen_the_os_ends_flips_the_view_state_back() {
+        let mut s = FullscreenSync::default();
+        assert_eq!(s.step(false, Some(false)), A::Nothing);
+        assert_eq!(s.step(true, Some(false)), A::Send(true));
+        assert_eq!(s.step(true, Some(true)), A::Nothing);
+        // Esc on macOS, or the window manager: the OS leaves full screen by itself.
+        assert_eq!(s.step(true, Some(false)), A::Adopt(false));
+        // The caller adopted it: in step again, nothing sent back.
+        assert_eq!(s.step(false, Some(false)), A::Nothing);
+        // The OS entering full screen by itself (the macOS green button) is adopted too.
+        assert_eq!(s.step(false, Some(true)), A::Adopt(true));
+        assert_eq!(s.step(true, Some(true)), A::Nothing);
+    }
+
+    #[test]
+    fn pressing_f11_again_before_the_os_answers_never_loops() {
+        let mut s = FullscreenSync::default();
+        assert_eq!(s.step(false, Some(false)), A::Nothing);
+        assert_eq!(s.step(true, Some(false)), A::Send(true));
+        // Changed its mind before the OS answered: in step with the OS, nothing to send.
+        assert_eq!(s.step(false, Some(false)), A::Nothing);
+        // The late answer to the first request arrives: the view state follows, it does not fight.
+        assert_eq!(s.step(false, Some(true)), A::Adopt(true));
+        assert_eq!(s.step(true, Some(true)), A::Nothing);
+    }
+
+    #[test]
+    fn an_os_that_refuses_or_tells_nothing_is_asked_once() {
+        // Never full screen, never reporting: one request, then quiet; F11 again ends it.
+        let mut f = vec![(true, None); 50];
+        f.push((false, None));
+        let actions = run(&f);
+        assert_eq!(actions.first(), Some(&A::Send(true)));
+        assert!(actions.iter().skip(1).all(|a| *a == A::Nothing), "{actions:?}");
+        let mut f = vec![(false, Some(false))];
+        f.extend([(true, Some(false)); 50]);
+        let actions = run(&f);
+        assert_eq!(actions.iter().filter(|a| **a != A::Nothing).count(), 1, "{actions:?}");
+    }
+
+    /// Simulates an OS that applies each request `lag` frames later, and the view state adopting
+    /// what the sync says, under F11 presses at random frames: the sends never outnumber the presses
+    /// and the two end in step.
+    #[test]
+    fn with_a_lagging_os_the_two_settle_in_step() {
+        for lag in 0..4usize {
+            let mut s = FullscreenSync::default();
+            let (mut want, mut os) = (false, false);
+            let mut queue: Vec<(usize, bool)> = Vec::new();
+            let (mut presses, mut sends) = (0, 0);
+            for frame in 0..400usize {
+                if frame < 300 && (frame * 7919) % 37 == 0 {
+                    want = !want;
+                    presses += 1;
+                }
+                if let Some(i) = queue.iter().position(|(at, _)| *at <= frame) {
+                    os = queue.remove(i).1;
+                }
+                match s.step(want, Some(os)) {
+                    A::Nothing => {}
+                    A::Send(on) => {
+                        sends += 1;
+                        queue.push((frame + lag, on));
+                    }
+                    A::Adopt(on) => want = on,
+                }
+            }
+            assert!(sends <= presses, "lag {lag}: {sends} sends for {presses} presses");
+            assert_eq!(want, os, "lag {lag}: the view state and the OS end in step");
+        }
     }
 }

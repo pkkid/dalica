@@ -72,12 +72,22 @@ fn span(x0: f32, x1: f32, y0: f32, y1: f32) -> Rect {
     Rect::from_min_max(pos2(x0, y0), pos2(x1.max(x0), y1.max(y0)))
 }
 
-/// The tree width the layout uses for a window `width` wide: the user's width clamped to
-/// `TREE_MIN ..= width − LIGHT_TABLE_MIN` (never below `TREE_MIN`); a width that is not a finite
-/// number is the default.
+/// The tree width the layout uses for a window `width` wide with no side pane: the user's width
+/// clamped to `TREE_MIN ..= width − LIGHT_TABLE_MIN` (never below `TREE_MIN`); a width that is not
+/// a finite number is the default.
 pub fn tree_width(requested: f32, width: f32) -> f32 {
+    tree_width_beside(requested, width, 0.0)
+}
+
+/// The tree width beside a side pane `pane` wide (0 when closed) in a window `width` wide
+/// (`ui-layout.md` §11): the tree keeps the user's width until the light table (with its splitter
+/// and scroll bar) would drop below `LIGHT_TABLE_MIN`, then gives up width down to `TREE_MIN`, never
+/// further. Only then does a narrowing window take the pane's large width and close the pane
+/// (`side_pane::on_resize`), so the tree always shrinks first.
+pub fn tree_width_beside(requested: f32, width: f32, pane: f32) -> f32 {
     let requested = if requested.is_finite() { requested } else { TREE_DEFAULT };
-    let max = if width.is_finite() { (width - LIGHT_TABLE_MIN).max(TREE_MIN) } else { TREE_MIN };
+    let pane = if pane.is_finite() { pane.max(0.0) } else { 0.0 };
+    let max = if width.is_finite() { (width - pane - LIGHT_TABLE_MIN).max(TREE_MIN) } else { TREE_MIN };
     requested.clamp(TREE_MIN, max)
 }
 
@@ -86,7 +96,30 @@ pub fn side_pane_width(large: bool, width: f32) -> f32 {
     if large { (SIDE_PANE_LARGE_SHARE * width.max(0.0)).min(SIDE_PANE_LARGE_MAX) } else { SIDE_PANE }
 }
 
+/// The tree width the layout gives `state` in a window `width` wide: the user's width, narrowed
+/// for the open side pane as [`tree_width_beside`] says. The toolbar places its right-hand group
+/// from this too, so the filters start 8 right of the splitter wherever it is.
+pub fn effective_tree_width(state: &UiState, width: f32) -> f32 {
+    let pane = state.pane.map_or(0.0, |_: Pane| side_pane_width(state.pane_large, width));
+    tree_width_beside(state.tree_width, width, pane)
+}
+
 /// Lays out the library view in `window` for `state`.
+///
+/// Narrow windows (`ui-layout.md` §11, `design-system.md` §11.1): no region is ever dropped. The
+/// tree shrinks toward its minimum before the light table goes below 480 ([`tree_width_beside`]);
+/// a narrowing window then takes the side pane's large width and closes the pane (the side pane
+/// does that when it sees the window narrow, so a pane opened on purpose in a narrow window stays,
+/// and the light table is then narrower than 480). The chrome inside the rows drops on its own, in
+/// the stated order: the window title in the title bar when it does not fit its gap, the toolbar's
+/// filter caption below 1100, the search field down to 160; the action buttons go behind More…
+/// below 1100. Menus, filter toggles and caption buttons always stay.
+///
+/// Full screen (F11, [`UiState::full_screen`]) is the whole window filling the screen: it lays out
+/// exactly like a window of the screen's size, with every region and control, the menus and the
+/// caption buttons included (the menus never go away, and leaving full screen needs no hidden
+/// gesture). The window's own frame stops there: the title bar has no resize edges while full
+/// screen.
 pub fn compute(window: Rect, state: &UiState) -> Layout {
     let window = if window.is_finite() { window } else { Rect::ZERO };
     let (left, right, top, bottom_edge) = (window.min.x, window.max.x.max(window.min.x), window.min.y, window.max.y.max(window.min.y));
@@ -99,10 +132,11 @@ pub fn compute(window: Rect, state: &UiState) -> Layout {
     let status_line = span(left, right, (bottom.min.y - STATUS_LINE).max(toolbar.max.y), bottom.min.y);
     let (mid_top, mid_bottom) = (toolbar.max.y, status_line.min.y);
 
-    // Columns of the middle: tree, splitter, light table, its scroll bar, the side pane.
-    let tree = span(left, (left + tree_width(state.tree_width, width)).min(right), mid_top, mid_bottom);
-    let splitter = span(tree.max.x, (tree.max.x + SPLITTER).min(right), mid_top, mid_bottom);
+    // Columns of the middle: tree, splitter, light table, its scroll bar, the side pane. The tree
+    // makes room for the pane first.
     let pane_w = state.pane.map(|_: Pane| side_pane_width(state.pane_large, width));
+    let tree = span(left, (left + effective_tree_width(state, width)).min(right), mid_top, mid_bottom);
+    let splitter = span(tree.max.x, (tree.max.x + SPLITTER).min(right), mid_top, mid_bottom);
     let pane_left = pane_w.map_or(right, |w| (right - w).max(splitter.max.x));
     let side_pane = pane_w.map(|_| span(pane_left, right, mid_top, mid_bottom));
     let scroll_left = (pane_left - SCROLLBAR).max(splitter.max.x);
@@ -170,7 +204,8 @@ impl Layout {
 }
 
 /// The splitter between the tree and the light table (`splitter:tree`): drag it to change the tree
-/// width, clamped as [`tree_width`] says. Paints the bar and its centred grip.
+/// width, clamped as [`tree_width_beside`] says for the side pane shown. Paints the bar and its
+/// centred grip.
 pub fn splitter(ui: &mut Ui, t: &Tokens, layout: &Layout, state: &mut UiState) {
     let rect = layout.splitter;
     if !rect.is_positive() {
@@ -179,6 +214,7 @@ pub fn splitter(ui: &mut Ui, t: &Tokens, layout: &Layout, state: &mut UiState) {
     let id = Id::new("splitter:tree");
     let response = ui.interact(rect, id, Sense::drag());
     let width = layout.window.width();
+    let pane = layout.side_pane.map_or(0.0, |r| r.width());
     // The tree follows the pointer from where the press began, so a drag loses nothing to egui's
     // drag threshold: the width at the press plus how far the pointer has moved since.
     if response.drag_started() {
@@ -189,7 +225,7 @@ pub fn splitter(ui: &mut Ui, t: &Tokens, layout: &Layout, state: &mut UiState) {
         let start = ui.ctx().data(|d| d.get_temp::<f32>(id)).unwrap_or(layout.tree.width());
         let moved = ui.input(|i| i.pointer.press_origin().zip(i.pointer.latest_pos()).map(|(from, to)| to.x - from.x));
         if let Some(dx) = moved.filter(|dx| dx.is_finite()) {
-            state.tree_width = tree_width(start + dx, width);
+            state.tree_width = tree_width_beside(start + dx, width, pane);
         }
     }
     if response.hovered() || response.dragged() {
@@ -264,11 +300,53 @@ mod tests {
     }
 
     #[test]
+    fn the_tree_shrinks_for_the_side_pane_before_the_light_table_drops_below_480() {
+        assert_eq!(tree_width_beside(240.0, 1400.0, 280.0), 240.0, "room for both");
+        assert_eq!(tree_width_beside(400.0, 1100.0, 280.0), 340.0, "1100 − 280 − 480");
+        assert_eq!(tree_width_beside(240.0, 1000.0, 300.0), 220.0, "a large pane at 1000 (30 %)");
+        assert_eq!(tree_width_beside(240.0, 960.0, 280.0), 200.0, "the minimum, the light table keeps 480");
+        assert_eq!(tree_width_beside(240.0, 900.0, 280.0), 200.0, "never below the minimum");
+        assert_eq!(tree_width_beside(240.0, 1400.0, 0.0), tree_width(240.0, 1400.0), "no pane: the plain clamp");
+        for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, -100.0] {
+            let w = tree_width_beside(240.0, 1400.0, bad);
+            assert!((TREE_MIN..=1400.0).contains(&w), "{bad}: {w}");
+        }
+
+        // In the layout: with the pane open the tree gives up width first; the columns still tile.
+        let s = |pane, large, tree| UiState { pane, pane_large: large, tree_width: tree, ..UiState::default() };
+        for (w, pane, large, tree, want) in [
+            (1400.0, Some(Pane::Tags), false, 240.0, 240.0),
+            (1100.0, Some(Pane::Tags), false, 400.0, 340.0),
+            (1100.0, None, false, 400.0, 400.0),
+            (1000.0, Some(Pane::People), true, 240.0, 220.0),
+            (960.0, Some(Pane::People), false, 240.0, 200.0),
+            (900.0, Some(Pane::People), false, 240.0, 200.0),
+            (900.0, None, false, 240.0, 240.0),
+        ] {
+            let l = compute(window(w, 700.0), &s(pane, large, tree));
+            assert_eq!(l.tree.width(), want, "{w} {pane:?} {large} {tree}");
+            let light = l.light_table.width() + SPLITTER + SCROLLBAR;
+            assert!(light >= LIGHT_TABLE_MIN || want == TREE_MIN, "{w}: the light table keeps 480 unless the tree is at its minimum");
+        }
+    }
+
+    #[test]
+    fn full_screen_lays_out_like_a_window_of_the_screens_size() {
+        for (w, h) in [(1400.0, 900.0), (1100.0, 700.0), (900.0, 600.0), (1920.0, 1080.0), (3840.0, 2160.0)] {
+            for pane in [None, Some(Pane::Places)] {
+                let windowed = UiState { pane, ..UiState::default() };
+                let full = UiState { full_screen: true, ..windowed.clone() };
+                assert_eq!(compute(window(w, h), &full), compute(window(w, h), &windowed), "{w}×{h} {pane:?}");
+            }
+        }
+    }
+
+    #[test]
     fn hostile_windows_give_empty_regions_never_inside_out_ones() {
         let all = |l: &Layout| l.regions().into_iter().filter_map(|(_, _, r)| r).collect::<Vec<_>>();
         for w in [window(0.0, 0.0), window(10.0, 10.0), window(-50.0, 300.0), window(f32::NAN, 900.0), window(1e9, 1e9)] {
-            for pane in [None, Some(Pane::People)] {
-                let l = compute(w, &UiState { pane, pane_large: true, tree_width: f32::NAN, ..UiState::default() });
+            for (pane, full_screen) in [(None, false), (Some(Pane::People), false), (Some(Pane::People), true)] {
+                let l = compute(w, &UiState { pane, pane_large: true, tree_width: f32::NAN, full_screen, ..UiState::default() });
                 for r in all(&l) {
                     assert!(r.width() >= 0.0 && r.height() >= 0.0 && !r.any_nan(), "{w:?}: {r:?}");
                 }
@@ -278,9 +356,9 @@ mod tests {
 
     #[test]
     fn regions_tile_the_window_without_overlapping() {
-        for (w, h) in [(1400.0, 900.0), (900.0, 600.0)] {
-            for pane in [None, Some(Pane::Places)] {
-                let l = compute(window(w, h), &UiState { pane, ..UiState::default() });
+        for (w, h) in [(1400.0, 900.0), (1100.0, 700.0), (900.0, 600.0)] {
+            for (pane, tree_width) in [(None, 240.0), (Some(Pane::Places), 240.0), (Some(Pane::Places), 600.0)] {
+                let l = compute(window(w, h), &UiState { pane, tree_width, ..UiState::default() });
                 let rows = [l.menu_bar, l.toolbar, l.tree, l.status_line, l.bottom];
                 assert_eq!(rows.iter().map(|r| r.height()).sum::<f32>(), h, "{w}×{h}: the rows add up to the height");
                 let mut cols = vec![l.tree, l.splitter, l.light_table, l.scrollbar];
