@@ -227,7 +227,18 @@ the widget itself; the icons a caller picks are §5's.
     (pin) · held in tray (pin-tack) · starred (★ in `star`, always rightmost);
   - **videos:** a film-sprocket strip along the image's left edge and a duration pill "1:23" at its
     bottom-left.
-  Badges are always shown, as in the reference behaviour.
+  Badges are always shown, as in the reference behaviour. Glyphs are `text` (the star `star`); the
+  edited mark is a pencil the badge draws itself. When the image is too narrow for the whole row,
+  plates are left out from the left, so the star stays longest; the duration pill (`caption` size,
+  `text` on `badge_plate`, fully rounded) shows only where it fits between the sprocket strip
+  (7 % of the image width, 5–10 pt, `badge_plate` with `text_label` holes) and the row. One ui-kit
+  painter draws all of it (`widgets::badges`), fed what the model knows.
+- The photo's drop shadow is `black α90`, 2 pt down, 4 pt blur, under the image only.
+- Hover tooltip: after the pointer has rested 600 ms on the cell (counted from when it came onto
+  the cell or last pressed it), the file name over one `text_dim` line: date taken (else the
+  file's date) · pixel size · file size; for a photo that cannot be shown, the reason instead.
+- A hidden photo (shown only with View ▸ Hidden Pictures) is drawn at 40 % opacity, its surround,
+  outline, badges and caption included.
 - Until the right size arrives a cell draws the next smaller cached size scaled up, or the photo's
   colour sketch (`architecture.md` §6); the placeholder `gray 38` shows only for a photo not yet
   scanned. The outline and badges always draw. A missing or
