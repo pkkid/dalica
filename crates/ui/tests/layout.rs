@@ -579,3 +579,24 @@ fn narrow_windows_drop_only_the_chrome_the_spec_lets_go_before_anything_overlaps
         }
     }
 }
+
+/// The toolbar follows the tree as the layout narrows it: beside a side pane the filters start 8
+/// right of the splitter (`ui-layout.md` §3; never over the ▾ button), not where the user's wider
+/// tree would end.
+#[test]
+fn the_filters_start_8_right_of_the_splitter_beside_a_side_pane() {
+    for (w, h, tree, want) in [(1100.0, 700.0, 400.0, 340.0), (1100.0, 700.0, 600.0, 340.0), (900.0, 600.0, 400.0, 200.0)] {
+        let dir = tempfile::tempdir().unwrap();
+        let mut d = driver(dir.path(), (w, h));
+        d.app_mut().state_mut().tree_width = tree;
+        d.app_mut().state_mut().pane = Some(Pane::Tags);
+        d.settle(FRAMES).unwrap();
+        let case = format!("{w}×{h}, tree {tree} beside the Tags pane");
+        assert_regions(&d, &expected(w, h, want, 280.0), &case);
+        // 8 right of the splitter, unless that is left of the ▾ button's end (246) plus the 12 gap.
+        let view_options = widget(&d, "button:toolbar.viewOptions").rect;
+        let start = (want + 8.0 + 8.0).max(view_options[0] + view_options[2] + 12.0);
+        assert_eq!(widget(&d, "button:filter.starred").rect[0], start, "{case}: 8 right of the splitter");
+        assert_controls(&d, w, h, Some("tags"), &case);
+    }
+}

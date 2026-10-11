@@ -163,7 +163,7 @@ same commit.
 | VIEW-VIEWER-ASSOC | Default-viewer registration | P2 | ⬜ | OS integration (last milestone) |
 | VIEW-TIMELINE | Timeline | OOS | 🚫 | dropped 2026-10-09 (dated feature) |
 | VIEW-VIDEO | Video playback | P2 | ⬜ | |
-| VIEW-FULLSCREEN | F11 full screen | P1 | 🟡 | F11 and View → Full Screen toggle the view state's `fullScreen`; in full screen every region and control keeps its place for the screen's size: `crates/ui/src/menus.rs`, `crates/ui/tests/layout.rs`; the OS window does not go full screen yet (the desktop app does not send the request) |
+| VIEW-FULLSCREEN | F11 full screen | P1 | 🟡 | F11 and View → Full Screen toggle the view state's `fullScreen`; the window asks the OS to follow it once per change and adopts a full screen the OS ends or starts by itself (`FullscreenSync`, tested without a window on every OS): `apps/dalica/src/window.rs`; in full screen every region and control keeps its place for the screen's size: `crates/ui/src/menus.rs`, `crates/ui/tests/layout.rs`; not yet seen on a live window (the agent's window drew no frames), so the manual check of M3.11 confirms it |
 | VIEW-SCREENSAVER | Screensaver mode, Set as Desktop | OOS | 🚫 | dropped 2026-10-09 (dated feature) |
 
 ## E. Output (OUT)

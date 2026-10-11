@@ -96,6 +96,14 @@ pub fn side_pane_width(large: bool, width: f32) -> f32 {
     if large { (SIDE_PANE_LARGE_SHARE * width.max(0.0)).min(SIDE_PANE_LARGE_MAX) } else { SIDE_PANE }
 }
 
+/// The tree width the layout gives `state` in a window `width` wide: the user's width, narrowed
+/// for the open side pane as [`tree_width_beside`] says. The toolbar places its right-hand group
+/// from this too, so the filters start 8 right of the splitter wherever it is.
+pub fn effective_tree_width(state: &UiState, width: f32) -> f32 {
+    let pane = state.pane.map_or(0.0, |_: Pane| side_pane_width(state.pane_large, width));
+    tree_width_beside(state.tree_width, width, pane)
+}
+
 /// Lays out the library view in `window` for `state`.
 ///
 /// Narrow windows (`ui-layout.md` §11, `design-system.md` §11.1): no region is ever dropped. The
@@ -127,8 +135,7 @@ pub fn compute(window: Rect, state: &UiState) -> Layout {
     // Columns of the middle: tree, splitter, light table, its scroll bar, the side pane. The tree
     // makes room for the pane first.
     let pane_w = state.pane.map(|_: Pane| side_pane_width(state.pane_large, width));
-    let tree_w = tree_width_beside(state.tree_width, width, pane_w.unwrap_or(0.0));
-    let tree = span(left, (left + tree_w).min(right), mid_top, mid_bottom);
+    let tree = span(left, (left + effective_tree_width(state, width)).min(right), mid_top, mid_bottom);
     let splitter = span(tree.max.x, (tree.max.x + SPLITTER).min(right), mid_top, mid_bottom);
     let pane_left = pane_w.map_or(right, |w| (right - w).max(splitter.max.x));
     let side_pane = pane_w.map(|_| span(pane_left, right, mid_top, mid_bottom));
