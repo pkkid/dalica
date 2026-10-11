@@ -41,7 +41,7 @@ impl Scope<'_> {
     fn selection(&self, ids: Vec<PhotoId>, anchor: Option<PhotoId>) -> Selection {
         let section = (!ids.is_empty()).then_some(self.section);
         let anchor = if ids.is_empty() { None } else { anchor };
-        Selection { ids, anchor, section, whole: false }
+        Selection::new(ids, anchor, section, false)
     }
 }
 
@@ -161,7 +161,7 @@ pub fn starred(scope: &Scope<'_>, library: &Library) -> Option<Selection> {
 /// The section as a unit (a tree row, `select.section`): all its photos, marked `whole`.
 pub fn whole(scope: &Scope<'_>) -> Selection {
     let anchor = scope.photos.first().copied();
-    Selection { ids: scope.photos.to_vec(), anchor, section: Some(scope.section), whole: true }
+    Selection::new(scope.photos.to_vec(), anchor, Some(scope.section), true)
 }
 
 /// The photos of section `index` a rubber band touches: `x` from the light table's left edge, `y`
@@ -371,7 +371,7 @@ mod tests {
         let i = invert(&sel, &s);
         assert_eq!(i.ids, vec![p[0], p[1], p[3], p[4]]);
         assert_eq!(invert(&a, &s), Selection::default(), "inverting everything leaves nothing");
-        let elsewhere = Selection { section: Some(Section::Folder(FolderId::new(2))), ..sel };
+        let elsewhere = Selection::new(sel.ids, sel.anchor, Some(Section::Folder(FolderId::new(2))), sel.whole);
         assert_eq!(invert(&elsewhere, &s).ids, p, "a selection elsewhere counts as none");
         let w = whole(&s);
         assert!(w.whole && w.ids == p);

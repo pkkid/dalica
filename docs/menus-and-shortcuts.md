@@ -205,7 +205,8 @@ commands change nothing and record no undo step.
 | `edit.apply` | append an edit operation to recipes (`{ids, op, params}`) |
 | `edit.recipe.set` | replace recipes (used by Paste All Edits and agents) |
 | `section.scrollTo` | scroll the light table to a section (tree click) |
-| `tray.hold` / `tray.clear` | tray buttons |
+| `tray.hold` / `tray.clear` | tray buttons (Hold: Ctrl+H) |
+| `tray.select` | the tray's own selection (`{ids, mode}`: click, Ctrl-click, rubber band in the tray) |
 
 ## 2. Keyboard shortcuts by context
 
