@@ -1,5 +1,6 @@
-//! Menus: the UI-only commands ([`UI_COMMANDS`]), the menu model built from the
-//! [catalog](crate::menu_catalog) and the running app, and the in-window menus drawn from it.
+//! Menus: the menu model built from the [catalog](crate::menu_catalog), the UI-only commands
+//! ([`UI_COMMANDS`], defined in [`crate::commands`]) and the running app, and the in-window menus
+//! drawn from it.
 //!
 //! - **The model** ([`bar`], [`section_menu`]) is the catalog with the app's state applied: an
 //!   item is *live* when its command is registered (a UI command or an engine command; an item
@@ -13,193 +14,16 @@
 //! - **Running an item** ([`activate`]): a dialog item opens its dialog, any other runs its
 //!   command through [`App::run`] with the selection where the command takes `ids`.
 
-use dalica_core::PhotoId;
 use dalica_engine::{CmdError, CommandSpec, Context};
 use dalica_ui_kit::registry::Role;
 use dalica_ui_kit::widgets::{self, Target};
 use egui::{Rect, Sense, Ui, pos2, vec2};
-use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 use crate::app::App;
 use crate::menu_catalog::{self, Entry, Item, MAC_APP_MENU, MENU_BAR, Mac, Mark, Menu};
-use crate::state::{Pane, THUMB_DEFAULT};
 
-/// A command that changes only the view state. Listed with the engine's commands so agents see one
-/// catalogue.
-pub struct UiCommand {
-    pub id: &'static str,
-    pub label: &'static str,
-    /// Menu path, `""` if not in a menu.
-    pub menu: &'static str,
-    /// Default bindings with their contexts, as `CommandSpec::keys` declares them (a `mac:` /
-    /// `win,linux:` qualifier for a per-platform default). The app adds them to the session's
-    /// keymap ([`crate::keys::join_keymap`]), so they are conflict-checked, rebindable with
-    /// `app.setShortcut` and shown in the menus like the engine's.
-    pub keys: &'static [(Context, &'static str)],
-    /// Agent-readable parameter doc.
-    pub params: &'static str,
-    pub run: fn(&mut App, &Value) -> Result<Value, CmdError>,
-}
-
-pub const UI_COMMANDS: &[UiCommand] = &[
-    UiCommand {
-        id: "select.set",
-        label: "Select",
-        menu: "",
-        keys: &[],
-        params: r#"{"ids": [PhotoId], "mode": "replace" | "toggle" = "replace"}"#,
-        run: select_set,
-    },
-    UiCommand {
-        id: "select.none",
-        label: "Select None",
-        menu: "Edit/Select None",
-        keys: &[(Context::Library, "Ctrl+D")],
-        params: "{}",
-        run: select_none,
-    },
-    UiCommand {
-        id: "view.thumbsSmall",
-        label: "Small Thumbnails",
-        menu: "View/Small Thumbnails",
-        keys: &[(Context::Library, "Ctrl+1")],
-        params: "{}: thumbnails at the small size (96)",
-        run: thumbs_small,
-    },
-    UiCommand {
-        id: "view.thumbsNormal",
-        label: "Normal Thumbnails",
-        menu: "View/Normal Thumbnails",
-        keys: &[(Context::Library, "Ctrl+2")],
-        params: "{}: thumbnails at the normal size (144)",
-        run: thumbs_normal,
-    },
-    UiCommand {
-        id: "pane.toggle",
-        label: "Toggle Side Pane",
-        menu: "",
-        keys: &[(Context::Global, "Ctrl+0")],
-        params: "{}: close the side pane, or open it (Properties) when closed",
-        run: pane_toggle,
-    },
-    UiCommand {
-        id: "window.fullscreen",
-        label: "Full Screen",
-        menu: "View/Full Screen",
-        keys: &[(Context::Global, "F11")],
-        params: "{}: full screen on or off",
-        run: full_screen,
-    },
-];
-
-/// The small thumbnail size Ctrl+1 jumps to (`ui-layout.md` §6.4); Ctrl+2 jumps to
-/// [`THUMB_DEFAULT`].
-pub const THUMB_SMALL: f32 = 96.0;
-
-fn parse<T: for<'de> Deserialize<'de>>(params: &Value) -> Result<T, CmdError> {
-    serde_json::from_value(params.clone()).map_err(|e| CmdError::BadParams(e.to_string()))
-}
-
-#[derive(Deserialize, Default, Clone, Copy, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-enum Mode {
-    #[default]
-    Replace,
-    Toggle,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct SelectSet {
-    ids: Vec<PhotoId>,
-    #[serde(default)]
-    mode: Mode,
-}
-
-/// The most photos one selection command takes.
-const MAX_IDS: usize = 1_000_000;
-
-fn select_set(app: &mut App, params: &Value) -> Result<Value, CmdError> {
-    let p: SelectSet = parse(params)?;
-    if p.ids.len() > MAX_IDS {
-        return Err(CmdError::Limit(format!("at most {MAX_IDS} ids")));
-    }
-    let library = app.session().map(dalica_engine::Session::library);
-    if let Some(missing) = p.ids.iter().find(|&&id| !library.is_some_and(|l| l.photo(id).is_some())) {
-        return Err(CmdError::NotFound(format!("no photo {missing}")));
-    }
-    let sel = &mut app.state_mut().selection;
-    match p.mode {
-        Mode::Replace => {
-            sel.ids.clear();
-            for id in &p.ids {
-                if !sel.ids.contains(id) {
-                    sel.ids.push(*id);
-                }
-            }
-        }
-        Mode::Toggle => {
-            for id in &p.ids {
-                match sel.ids.iter().position(|x| x == id) {
-                    Some(i) => {
-                        sel.ids.remove(i);
-                    }
-                    None => sel.ids.push(*id),
-                }
-            }
-        }
-    }
-    sel.anchor = p.ids.last().copied().filter(|id| sel.ids.contains(id)).or_else(|| sel.ids.last().copied());
-    Ok(json!({ "selection": sel.ids }))
-}
-
-/// Refuses parameters for a command that takes none (`{}`; `null` counts as `{}`).
-fn no_params(params: &Value) -> Result<(), CmdError> {
-    #[derive(Deserialize)]
-    #[serde(deny_unknown_fields)]
-    struct NoParams {}
-    if params.is_null() {
-        return Ok(());
-    }
-    let _: NoParams = parse(params)?;
-    Ok(())
-}
-
-fn select_none(app: &mut App, params: &Value) -> Result<Value, CmdError> {
-    no_params(params)?;
-    app.state_mut().selection = Default::default();
-    Ok(json!({ "selection": [] }))
-}
-
-fn thumbs_small(app: &mut App, params: &Value) -> Result<Value, CmdError> {
-    no_params(params)?;
-    app.state_mut().thumb_size = THUMB_SMALL;
-    Ok(json!({ "thumbSize": THUMB_SMALL }))
-}
-
-fn thumbs_normal(app: &mut App, params: &Value) -> Result<Value, CmdError> {
-    no_params(params)?;
-    app.state_mut().thumb_size = THUMB_DEFAULT;
-    Ok(json!({ "thumbSize": THUMB_DEFAULT }))
-}
-
-fn pane_toggle(app: &mut App, params: &Value) -> Result<Value, CmdError> {
-    no_params(params)?;
-    let state = app.state_mut();
-    state.pane = match state.pane {
-        Some(_) => None,
-        None => Some(Pane::Properties),
-    };
-    Ok(json!({ "pane": state.pane }))
-}
-
-fn full_screen(app: &mut App, params: &Value) -> Result<Value, CmdError> {
-    no_params(params)?;
-    let state = app.state_mut();
-    state.full_screen = !state.full_screen;
-    Ok(json!({ "fullScreen": state.full_screen }))
-}
+pub use crate::commands::{THUMB_SMALL, UI_COMMANDS, UiCommand};
 
 // ---------------------------------------------------------------------------------------------
 // The model
@@ -434,6 +258,7 @@ fn item_node(facts: &Facts<'_>, i: &'static Item) -> ItemNode {
         Some(part) => format!("menuitem:{id}/{part}"),
         None => format!("menuitem:{id}"),
     };
+    let checked = checked(app, id, &params);
     ItemNode {
         id,
         label,
@@ -445,7 +270,7 @@ fn item_node(facts: &Facts<'_>, i: &'static Item) -> ItemNode {
         enabled,
         reason,
         mark: i.mark,
-        checked: checked(app, id, i.params),
+        checked,
         dialog,
     }
 }
@@ -468,16 +293,11 @@ fn shortcut(facts: &Facts<'_>, i: &Item, id: &str, registered: bool) -> Option<S
     Some(if mac { text.replace("Ctrl+", "Cmd+") } else { text })
 }
 
-/// Whether a checkable row is on: the thumbnail-size radio group answers from the view state; the
-/// other view-state commands behind check marks arrive with the view state (M4) and answer here
-/// when they do.
-fn checked(app: &App, id: &str, _params: &str) -> bool {
-    let size = app.state().thumb_size;
-    match id {
-        "view.thumbsSmall" => size == THUMB_SMALL,
-        "view.thumbsNormal" => size == THUMB_DEFAULT,
-        _ => false,
-    }
+/// Whether a checkable row (or a row of the view-options popup) running `id` with its fixed
+/// `params` is on: the view state answers ([`crate::commands::view::checked`]); rows of commands
+/// that do not exist yet are off.
+pub fn checked(app: &App, id: &str, params: &Value) -> bool {
+    crate::commands::view::checked(app.state(), id, params).unwrap_or(false)
 }
 
 /// How `ui.menu.invoke` names an item.
@@ -825,7 +645,7 @@ pub fn context_menu(response: &egui::Response, app: &mut App, nodes: &[Node]) ->
 mod tests {
     use super::*;
     use crate::app::tests::session_with_photos;
-    use crate::state::UiState;
+    use crate::state::{Pane, THUMB_DEFAULT, UiState};
 
     #[test]
     fn select_set_replaces_or_toggles_and_keeps_an_anchor() {
@@ -906,12 +726,28 @@ mod tests {
             live,
             [
                 "folders.add",
+                "app.quit",
                 "edit.undo",
                 "edit.redo",
                 "select.none",
                 "view.thumbsSmall",
                 "view.thumbsNormal",
+                "pane.properties",
+                "pane.tags",
+                "pane.people",
+                "pane.places",
+                "view.smallPictures",
+                "view.hiddenPictures",
+                "view.caption",
+                "view.caption",
+                "view.caption",
+                "view.caption",
+                "view.caption",
+                "view.caption",
+                "view.folderView",
+                "view.folderView",
                 "window.fullscreen",
+                "pane.properties",
                 "photo.star.toggle"
             ]
         );
@@ -1031,10 +867,13 @@ mod tests {
                 assert_eq!(map.keys_for(id, ctx), [dalica_engine::Key::parse(k).unwrap()], "{id} on {p:?}");
             }
         }
-        // Every catalog shortcut of a UI command is its first default key.
+        // Every catalog shortcut of a UI command is its first default key (its first row, whatever
+        // that row's parameters).
+        let menus = bar(&App::new(None), Platform::Other);
+        let rows: Vec<&ItemNode> = menus.iter().flat_map(|m| items(&m.children)).collect();
         for c in UI_COMMANDS.iter().filter(|c| !c.menu.is_empty()) {
             let (_, first) = c.keys.first().copied().unwrap_or((Context::Global, ""));
-            let row = find(&bar(&App::new(None), Platform::Other), &Lookup::Id { id: c.id.into(), params: Value::Null }).cloned().unwrap();
+            let row = rows.iter().find(|r| r.id == c.id).unwrap_or_else(|| panic!("{} has a menu path but no row", c.id));
             assert_eq!(row.shortcut.as_deref().unwrap_or(""), first, "{}", c.id);
         }
     }

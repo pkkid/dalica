@@ -9,11 +9,11 @@ use dalica_ui_kit::{Tokens, fonts};
 use egui::{Align2, Frame};
 use serde_json::Value;
 
-pub use crate::menus::{UI_COMMANDS, UiCommand};
+pub use crate::commands::{UI_COMMANDS, UiCommand};
 use crate::panels::{self, Panels};
 use crate::picker::Picker;
-use crate::state::{TREE_DEFAULT, UiState};
-use dalica_engine::settings::ViewState;
+use crate::state::{THUMB_DEFAULT, TREE_DEFAULT, UiState};
+use dalica_engine::settings::{ViewOptions, ViewState};
 
 pub struct App {
     state: UiState,
@@ -33,8 +33,13 @@ pub struct App {
     /// the user's settings (`control-protocol.md` §8).
     persist_view: bool,
     /// The view state as last restored or saved.
-    saved_view: Option<ViewState>,
+    saved_view: Option<Persisted>,
+    /// File ▸ Exit (`app.quit`) asked the window to close; the next frame tells it.
+    quit_requested: bool,
 }
+
+/// The persisted part of the view state: the window's (M3) and the library view's options (M4).
+type Persisted = (ViewState, ViewOptions);
 
 impl App {
     /// An app showing `session`, or the "opening" state while it is `None`.
@@ -52,6 +57,7 @@ impl App {
             folder_dialog_open: false,
             persist_view: false,
             saved_view: None,
+            quit_requested: false,
         }
     }
 
@@ -94,10 +100,21 @@ impl App {
         }
     }
 
-    /// From now on the view state (tree width, side pane) is restored from the library's
-    /// `settings.json` (now if the library is open, else when it is) and saved there when it
-    /// changes (`ui-layout.md` §2). The window turns it on; headless and snapshot sessions leave
-    /// it off.
+    /// Asks the window to close, as its Close button does (`app.quit`, File ▸ Exit): the next frame
+    /// sends the close request, and the window writes everything before it goes.
+    pub fn request_quit(&mut self) {
+        self.quit_requested = true;
+    }
+
+    /// Whether a quit was asked for and not yet passed to the window.
+    pub fn quit_requested(&self) -> bool {
+        self.quit_requested
+    }
+
+    /// From now on the view state (tree width, side pane, thumbnail size, the view options) is
+    /// restored from the library's `settings.json` (now if the library is open, else when it is)
+    /// and saved there when it changes (`ui-layout.md` §2). The window turns it on; headless and
+    /// snapshot sessions leave it off.
     pub fn persist_view(&mut self) {
         self.persist_view = true;
         if self.session.is_some() {
@@ -108,7 +125,7 @@ impl App {
     /// Applies the stored view state: a pane name this version does not know is a closed pane.
     fn restore_view(&mut self) {
         let Some(session) = &self.session else { return };
-        let stored = session.settings().view();
+        let stored = (session.settings().view(), session.settings().view_options());
         apply_view(&mut self.state, &stored);
         self.saved_view = Some(view_of(&self.state));
     }
@@ -124,7 +141,10 @@ impl App {
             return;
         }
         if let Some(session) = &mut self.session {
-            session.change_settings(|s| s.set_view(&now));
+            session.change_settings(|s| {
+                s.set_view(&now.0);
+                s.set_view_options(&now.1);
+            });
             self.saved_view = Some(now);
         }
     }
@@ -189,6 +209,9 @@ impl App {
 
     /// One frame: applies finished background work, runs this frame's shortcuts, then paints.
     pub fn frame(&mut self, ui: &mut egui::Ui) {
+        if std::mem::take(&mut self.quit_requested) {
+            ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+        }
         let Some(session) = &mut self.session else {
             let t = self.tokens;
             egui::CentralPanel::default().frame(Frame::new().fill(t.chrome)).show(ui, |ui| {
@@ -213,19 +236,47 @@ impl App {
     }
 }
 
-/// The persisted part of `state` (`ui-layout.md` §2).
-fn view_of(state: &UiState) -> ViewState {
-    let pane = state.pane.and_then(|p| serde_json::to_value(p).ok()).and_then(|v| v.as_str().map(str::to_string));
-    ViewState { tree_width: Some(state.tree_width), pane, pane_large: state.pane_large }
+/// A view-state value as its protocol name (`"tree"`, `"recent"`).
+fn name_of<T: serde::Serialize>(v: T) -> Option<String> {
+    serde_json::to_value(v).ok().and_then(|v| v.as_str().map(str::to_string))
+}
+
+/// A protocol name as a view-state value; `None` for a name this version does not know.
+fn from_name<T: serde::de::DeserializeOwned>(name: &Option<String>) -> Option<T> {
+    name.as_ref().and_then(|n| serde_json::from_value(Value::String(n.clone())).ok())
+}
+
+/// The persisted part of `state` (`ui-layout.md` §2): the tree width and side pane, the thumbnail
+/// size and the view options (tree mode, folder sort, caption, small and hidden pictures).
+fn view_of(state: &UiState) -> Persisted {
+    let view = ViewState { tree_width: Some(state.tree_width), pane: state.pane.and_then(name_of), pane_large: state.pane_large };
+    let options = ViewOptions {
+        thumb_size: Some(state.thumb_size),
+        tree_mode: name_of(state.tree_mode),
+        folder_sort: name_of(state.folder_sort),
+        folder_sort_reverse: state.folder_sort_reverse,
+        caption: name_of(state.caption),
+        small_pictures: state.small_pictures,
+        hidden_pictures: state.hidden_pictures,
+    };
+    (view, options)
 }
 
 /// Applies stored view state to `state`, made safe by [`UiState::sanitized`]: an absent or hostile
-/// value keeps the default, a tree width out of range is clamped (the layout clamps it further to
-/// the window), an unknown pane is closed.
-fn apply_view(state: &mut UiState, v: &ViewState) {
+/// value keeps the default, a tree width or thumbnail size out of range is clamped (the layout
+/// clamps the width further to the window), an unknown pane is closed, an unknown name is the
+/// default.
+fn apply_view(state: &mut UiState, (v, o): &Persisted) {
     state.tree_width = v.tree_width.unwrap_or(TREE_DEFAULT);
-    state.pane = v.pane.as_ref().and_then(|p| serde_json::from_value(Value::String(p.clone())).ok());
+    state.pane = from_name(&v.pane);
     state.pane_large = v.pane_large;
+    state.thumb_size = o.thumb_size.unwrap_or(THUMB_DEFAULT);
+    state.tree_mode = from_name(&o.tree_mode).unwrap_or_default();
+    state.folder_sort = from_name(&o.folder_sort).unwrap_or_default();
+    state.folder_sort_reverse = o.folder_sort_reverse;
+    state.caption = from_name(&o.caption).unwrap_or_default();
+    state.small_pictures = o.small_pictures;
+    state.hidden_pictures = o.hidden_pictures;
     *state = std::mem::take(state).sanitized();
 }
 
