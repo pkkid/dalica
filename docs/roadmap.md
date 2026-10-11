@@ -1009,7 +1009,7 @@ UI tasks each re-bless only their own.
     section round trip; cells visited per frame equal at 10 k and 100 k photos; `section.scrollTo`
     leaves the header at the top after 0.2 s; Ctrl+wheel changes the size; the region
     fingerprints approved on the PR; `widget_ids` stays green.
-- ⬜ **M4.7 `engine`: synthetic libraries**
+- ✅ **M4.7 `engine`: synthetic libraries**
   - after: M4.1, M4.2
   - files: `crates/engine/src/synthetic.rs`, `crates/engine/tests/synthetic.rs`
   - scope: deterministic generated libraries for tests, benches and `accept M4`: N photos in M
