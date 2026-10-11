@@ -942,7 +942,7 @@ UI tasks each re-bless only their own.
     80 %, removes the largest sizes first and never touches a foreign file in the directory; `fs`
     fault injection on every pack write leaves a readable cache; a bench reads 100 k thumbnails
     packed against loose files on the same data (numbers in the PR).
-- ⬜ **M4.4 `library`: the tree model**
+- ✅ **M4.4 `library`: the tree model**
   - after: M1.8
   - files: `crates/library/src/tree.rs`, `crates/library/tests/tree.rs`
   - scope: `ui-layout.md` §4 and `organizing.md` §10 as a pure function of the library, the

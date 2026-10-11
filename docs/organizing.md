@@ -341,6 +341,17 @@ By ▸.
   Changes**, **Reverse Order**. People: by name or by count.
 - Groups ("Albums (12)", "People (40)", "Folders (310)") collapse with a disclosure triangle; the
   light table only shows sections of expanded groups.
+- **How the folder sorts read** (the tree model, `crates/library/src/tree.rs`): By Size is the
+  total bytes of the photos a folder shows, largest first; By Recent Changes is its newest photo's
+  modification time; By Name ignores case. Folders without any date stay first under the header in
+  both directions. In tree mode a directory sorts by its whole subtree (the oldest photo below it,
+  the newest change, the total size), shows only its own count, and folders under no watched root
+  are tops of their own. A group's header count is its folder rows, including those folded away
+  under a collapsed tree node; collapsing a tree node hides rows only, while collapsing a group
+  also drops its light-table sections.
+- **Other** (flat mode) holds folders where more than half of the photos are small pictures; with
+  View → Small Pictures off it shows only their other photos, and a folder with nothing left to
+  show disappears like an empty one.
 - **Photos within a folder:** default by capture date, oldest first (falling back to file name);
   Sort Folder By ▸ Date / Name / Size / Reverse; dragging thumbnails sets a persistent manual
   order (stored in the folder sidecar).
