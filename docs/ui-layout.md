@@ -236,14 +236,17 @@ the right.
 
 ### 6.1 Status line
 
-Full width, `canvas` fill, centred 11.5 pt `text_label`, fields separated by wide spaces:
+Full width, `chrome` fill, centred Small (11 pt) `text_dim` (`design-system.md` §3), fields separated by
+wide spaces:
 - nothing selected: "No selection";
 - one photo: "IMG_0361.jpg     June 4, 2026 7:42 PM     4000 × 3000     3.1 MB";
 - several photos or a folder: "48 pictures     June 4, 2026 to June 6, 2026     212.4 MB on disk"
   (+ "     Tags: lisbon (40), tram (6)" when tagged);
 - edit view: prefixed "Folder › " and suffixed "(12 of 48)".
 Long text drops the folder prefix first, then middle-elides the file name. Transient messages
-("Exported 12 pictures") replace the text for 4 s.
+("Exported 12 pictures", or why an action was refused) replace the text for 4 s. Sizes are decimal
+units with one decimal ("3.1 MB", "12.7 KB"); a selection whose photos share one day shows that
+day alone.
 
 ### 6.2 Photo Tray
 
@@ -290,7 +293,9 @@ gutter, enabled exactly when the button would be.
 ## 7. Side pane (right)
 
 One pane at a time, 280 wide (« toggles the large width), pushes the light table; slides in/out
-over 0.2 s; open state and pane persisted. Header 30 high: « at left, centred SemiBold title
+over 0.2 s; open state and pane persisted. When the window narrows until the light table (with the
+tree at its minimum) would drop below 480, a large pane first takes its normal width, then the pane
+closes; a pane opened on purpose in an already narrow window stays open. Header 30 high: « at left, centred SemiBold title
 ("People", "Places", "Tags", "Properties"), × at right. Toggles: bottom-bar segments, View →
 People/Places/Tags/Properties, **Ctrl+0** (toggle the pane), Ctrl+T (Tags). Contents follow the
 current selection (or the selected folder). Pane contents: People, Places and Tags in

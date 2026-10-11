@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 
 use super::host::Input;
 use super::{Call, Code, Error, Outcome, object};
-use crate::state::{THUMB_MAX, THUMB_MIN, UiState};
+use crate::state::{LIGHT_TABLE_MIN, THUMB_MAX, THUMB_MIN, TREE_MIN, UiState};
 
 /// The regions of `ui-layout.md` §2 that `ui.inspect` → `regions` and `ui.widgets {region}` name.
 pub const REGIONS: &[&str] = &[
@@ -30,19 +30,44 @@ pub const REGIONS: &[&str] = &[
     "captionBar",
 ];
 
-/// A region name: `unsupported` until the regions register their rects (M3), `bad_params` if it is
-/// not one of [`REGIONS`].
+/// `ui.screenshot {region: "<name>"}`: `unsupported` for a region name (pass its rect from
+/// `ui.inspect` → `regions` instead), `bad_params` if it is not one of [`REGIONS`].
 pub(super) fn region(call: &Call<'_>, name: &str) -> Error {
     if REGIONS.contains(&name) {
-        Error::new(Code::Unsupported, format!("region `{name}` is not reported yet: regions register their rects with the window shell (M3)"))
+        Error::new(
+            Code::Unsupported,
+            format!("a screenshot of region `{name}` by name is not supported yet; pass its rect from ui.inspect → regions"),
+        )
     } else {
-        call.bad(format!("`{name}` is not a region; regions are {}", REGIONS.join(", ")))
+        not_a_region(call, name)
     }
+}
+
+fn not_a_region(call: &Call<'_>, name: &str) -> Error {
+    call.bad(format!("`{name}` is not a region; regions are {}", REGIONS.join(", ")))
+}
+
+/// Every region of [`REGIONS`] with its rect as the last frame registered it (`region:<name>`),
+/// `null` for one not shown (§6.6).
+fn regions(widgets: &[WidgetInfo]) -> serde_json::Map<String, Value> {
+    REGIONS
+        .iter()
+        .map(|name| {
+            let id = format!("region:{name}");
+            let rect = widgets.iter().find(|w| w.id == id).map_or(Value::Null, |w| json!(w.rect));
+            ((*name).to_string(), rect)
+        })
+        .collect()
+}
+
+/// Whether point `(x, y)` is inside `r` (`[x, y, w, h]`, the right and bottom edges excluded).
+fn contains(r: [f32; 4], x: f32, y: f32) -> bool {
+    x >= r[0] && y >= r[1] && x < r[0] + r[2] && y < r[1] + r[3]
 }
 
 /// Fields of the view state that `ui.set` does not change, and what does.
 const READ_ONLY: &[(&str, &str)] =
-    [("selection", "the select.set and select.none commands"), ("status", "nothing: it is the result of the last action")].as_slice();
+    [("selection", "the select.set and select.none commands"), ("status", "nothing: it is the status line's text as drawn")].as_slice();
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -64,19 +89,27 @@ pub(super) fn set(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Error>
     if let Some((field, use_instead)) = READ_ONLY.iter().find(|(f, _)| changes.contains_key(*f)) {
         return Err(call.bad(format!("`{field}` cannot be set here; use {use_instead}")));
     }
+    let sets_tree = changes.contains_key("treeWidth");
     let mut merged = state_json(call)?;
     if let Some(obj) = merged.as_object_mut() {
         obj.extend(changes);
     }
-    let new: UiState = serde_json::from_value(merged).map_err(|e| call.bad(e))?;
+    let mut new: UiState = serde_json::from_value(merged).map_err(|e| call.bad(e))?;
     if !(new.thumb_size.is_finite() && (THUMB_MIN..=THUMB_MAX).contains(&new.thumb_size)) {
         return Err(call.bad(format!("`thumbSize` is {THUMB_MIN} … {THUMB_MAX}, not {}", new.thumb_size)));
+    }
+    // The splitter's limits for this window: 200 … W − 480 (`ui-layout.md` §2).
+    let tree_max = (call.host.window().width - LIGHT_TABLE_MIN).max(TREE_MIN);
+    if sets_tree && !(new.tree_width.is_finite() && (TREE_MIN..=tree_max).contains(&new.tree_width)) {
+        return Err(call.bad(format!("`treeWidth` is {TREE_MIN} … {tree_max} in this window, not {}", new.tree_width)));
     }
     if let Some(f) = new.folder
         && !call.host.app().session().is_some_and(|s| s.library().folder(f).is_some())
     {
         return Err(Error::new(Code::NotFound, format!("no folder {f}")));
     }
+    // The transient status message is not part of the protocol's state: keep it.
+    new.status = call.host.app().state().status.clone();
     *call.host.app_mut().state_mut() = new;
     let reply = state_json(call)?;
     Ok(Outcome::play_then_reply(Input::Frames(1), reply))
@@ -101,8 +134,8 @@ fn hovered_and_focused(call: &Call<'_>, widgets: &[WidgetInfo]) -> (Option<Strin
 }
 
 /// `ui.inspect {resetPerf?}`: the view state plus the window, hover and focus, the stubbed file
-/// picker, notices and the perf counters (§6.6). `resetPerf` clears the maxima after this report.
-/// Regions, scroll, popups and dialogs join as their parts of the window are built (M3, M4).
+/// picker, notices, the regions' rects and the perf counters (§6.6). `resetPerf` clears the maxima
+/// after this report. Scroll, popups and dialogs join as their parts of the window are built (M4+).
 pub(super) fn inspect(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Error> {
     let p: Inspect = call.params(params)?;
     let mut v = state_json(call)?;
@@ -111,6 +144,7 @@ pub(super) fn inspect(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Er
     let notices: Vec<String> = call.host.app().session().map(|s| [s.notices(), s.scan_warnings()].concat()).unwrap_or_default();
     let extra = json!({
         "window": call.host.window(),
+        "regions": regions(&widgets),
         "hovered": hovered,
         "focused": focused,
         "filePicker": call.control.stub().waiting(),
@@ -141,14 +175,30 @@ fn checkable(role: Role) -> bool {
     matches!(role, Role::Toggle | Role::Thumbnail | Role::TreeRow | Role::MenuItem)
 }
 
-/// `ui.widgets {filter?, region?}`: the widgets of the last frame, in paint order (§6.7).
+/// `ui.widgets {filter?, region?}`: the widgets of the last frame, in paint order (§6.7). `region`
+/// keeps the widgets whose centre is inside that region's rect (the region's own `region:<name>`
+/// entry included, the other regions' left out); a region not shown has none.
 pub(super) fn widgets(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Error> {
     let p: Widgets = call.params(params)?;
-    if let Some(r) = &p.region {
-        return Err(region(call, r));
-    }
-    let list: Vec<Value> = registry::widgets(call.host.ctx())
-        .into_iter()
+    let all = registry::widgets(call.host.ctx());
+    let within = match &p.region {
+        None => None,
+        Some(name) if REGIONS.contains(&name.as_str()) => {
+            let id = format!("region:{name}");
+            Some((all.iter().find(|w| w.id == id).map(|w| w.rect), id))
+        }
+        Some(name) => return Err(not_a_region(call, name)),
+    };
+    let in_region = |w: &WidgetInfo| match &within {
+        None => true,
+        Some((None, _)) => false,
+        Some((Some(r), id)) => {
+            w.id == *id || (!w.id.starts_with("region:") && contains(*r, w.rect[0] + w.rect[2] / 2.0, w.rect[1] + w.rect[3] / 2.0))
+        }
+    };
+    let list: Vec<Value> = all
+        .iter()
+        .filter(|w| in_region(w))
         .filter(|w| p.filter.as_deref().is_none_or(|f| w.id.contains(f)))
         .map(|w| {
             let mut v = json!({ "id": w.id, "rect": w.rect, "enabled": w.enabled, "role": w.role });
@@ -157,7 +207,7 @@ pub(super) fn widgets(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Er
                     o.insert("checked".into(), w.active.into());
                 }
                 if !w.label.is_empty() {
-                    o.insert("label".into(), w.label.into());
+                    o.insert("label".into(), w.label.clone().into());
                 }
             }
             v

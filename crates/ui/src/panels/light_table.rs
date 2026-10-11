@@ -13,6 +13,7 @@ use serde_json::json;
 
 use super::Panels;
 use crate::app::App;
+use crate::state;
 
 /// Section header block height, the gap below it, the left/right margins, the minimum horizontal
 /// gap and the vertical gap between rows (points, `design-system.md` §4).
@@ -72,8 +73,12 @@ pub fn folder_name(path: &std::path::Path) -> String {
     path.file_name().map_or_else(|| path.display().to_string(), |n| n.to_string_lossy().into_owned())
 }
 
-/// Columns, cell edge and horizontal gap for a grid `width` points wide.
+/// Columns and horizontal gap for a grid `width` points wide of `cell`-edged cells. Hostile numbers
+/// are made safe first: the cell clamped to its range ([`state::thumb_size`]), a width that is not a
+/// finite, positive number taken as none.
 pub fn grid(width: f32, cell: f32) -> (usize, f32) {
+    let cell = state::thumb_size(cell);
+    let width = if width.is_finite() { width.max(0.0) } else { 0.0 };
     let inner = (width - 2.0 * MARGIN).max(cell);
     let cols = (((inner + MIN_GAP) / (cell + MIN_GAP)).floor() as usize).max(1);
     let gap = if cols > 1 { (inner - cols as f32 * cell) / (cols - 1) as f32 } else { 0.0 };
@@ -87,6 +92,7 @@ fn section_height(n: usize, cols: usize, cell: f32) -> f32 {
 
 /// The offset of `folder`'s section from the top of the light table, for scrolling to it.
 pub fn offset_of(sections: &Sections, folder: FolderId, width: f32, cell: f32) -> Option<f32> {
+    let cell = state::thumb_size(cell);
     let (cols, _) = grid(width, cell);
     let mut y = 0.0;
     for s in &sections.list {
@@ -111,7 +117,9 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
     ui.painter().rect_filled(rect, 0, t.grid_bg);
     let Some(session) = app.session() else { return };
     p.sections.update(session.library());
-    let cell = app.state().thumb_size;
+    // Clamped where it is used: a thumbnail size from any writer (a settings file, a script) can
+    // never make the layout negative.
+    let cell = state::thumb_size(app.state().thumb_size);
     let width = rect.width();
     let (cols, gap) = grid(width, cell);
     let total: f32 = p.sections.list.iter().map(|s| section_height(s.photos.len(), cols, cell)).sum();

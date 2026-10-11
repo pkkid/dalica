@@ -22,7 +22,7 @@ same commit.
 <!-- parity:summary -->
 | Section | ✅ | 🟡 | ⬜ | 🚫 |
 |---|---:|---:|---:|---:|
-| A. Library view | 0 | 5 | 27 | 1 |
+| A. Library view | 0 | 9 | 23 | 1 |
 | B. Organizing | 0 | 1 | 41 | 0 |
 | C. Editing | 0 | 0 | 21 | 4 |
 | D. Viewing | 0 | 0 | 6 | 2 |
@@ -30,7 +30,7 @@ same commit.
 | F. Data | 1 | 2 | 3 | 0 |
 | G. Preferences and system | 0 | 3 | 8 | 0 |
 | H. Menus | 0 | 0 | 7 | 0 |
-| **All** | 1 | 11 | 115 | 16 |
+| **All** | 1 | 15 | 111 | 16 |
 <!-- /parity:summary -->
 
 ## Top gaps
@@ -42,14 +42,14 @@ same commit.
 
 | Id | Feature | Tier | Status | Evidence / notes |
 |---|---|---|---|---|
-| LIB-REGIONS | Window regions and sizes per `ui-layout.md` §2 | P0 | 🟡 | every region at its §2 size, registered as `region:<name>`, resizable tree through the splitter: `crates/ui/src/panels/layout.rs`, `crates/ui/tests/layout.rs`; the toolbar's controls at their §3 sizes (disabled until their commands): `crates/ui/src/panels/toolbar.rs`, `crates/ui/tests/toolbar.rs`; the bottom area's controls at their §6 sizes (disabled until their commands or the tray): `crates/ui/src/panels/bottom.rs`, `crates/ui/tests/bottom.rs`; side-pane contents, the §11 responsiveness rules and persistence missing; ref 01 §2.1, 02 §2 |
-| LIB-TREE-GROUPS | Tree groups Albums/People/Projects/Folders/Other/Hidden, collapsible, counts | P0 | ⬜ | ref 02 §6.2–6.3 |
+| LIB-REGIONS | Window regions and sizes per `ui-layout.md` §2 | P0 | 🟡 | every region at its §2 size, registered as `region:<name>` and reported by `ui.inspect` → `regions`, resizable tree through the splitter (200 … W − 480, `ui.set` refuses widths outside): `crates/ui/src/panels/layout.rs`, `crates/ui/tests/layout.rs`, `crates/ui/tests/tree_status_pane.rs`; the toolbar's controls at their §3 sizes (disabled until their commands): `crates/ui/src/panels/toolbar.rs`, `crates/ui/tests/toolbar.rs`; the bottom area's controls at their §6 sizes (disabled until their commands or the tray): `crates/ui/src/panels/bottom.rs`, `crates/ui/tests/bottom.rs`; the tree pane frame, status line and side-pane frame (M3.8): `crates/ui/src/panels/folders.rs`, `crates/ui/src/panels/status.rs`, `crates/ui/src/panels/side_pane.rs`; side-pane contents, the §11 responsiveness rules and persistence (M3.6) missing; ref 01 §2.1, 02 §2 |
+| LIB-TREE-GROUPS | Tree groups Albums/People/Projects/Folders/Other/Hidden, collapsible, counts | P0 | 🟡 | the Folders group header (30, disclosure, "Folders (n)", `tree:group:folders`) folds its rows: `crates/ui/src/panels/folders.rs`, `crates/ui/tests/tree_status_pane.rs`; the other groups, docked collapsed headers and hiding the light-table sections missing (M4.15); ref 02 §6.2–6.3 |
 | LIB-TREE-FLAT | Flat folder view with year dividers (default) | P0 | ⬜ | |
 | LIB-TREE-TREE | Tree view, simplified tree | P1 | ⬜ | |
 | LIB-TREE-SORT | Folder sort: date, recent changes, size, name, reverse | P0 | ⬜ | |
 | LIB-TREE-CLICK | Click scrolls light table to section and selects folder as a unit | P0 | ⬜ | ref 02 §6.5 |
 | LIB-TREE-DND | Drop photos on folder (move/copy), album (add), person | P0 | ⬜ | |
-| LIB-SPLIT | Resizable tree with persisted width | P0 | ⬜ | |
+| LIB-SPLIT | Resizable tree with persisted width | P0 | 🟡 | `splitter:tree` drags the tree within 200 … W − 480 (by id: `crates/ui/tests/tree_status_pane.rs`, `crates/ui/tests/layout.rs`); persistence missing (M3.6) |
 | LIB-LT-SECTIONS | Continuous light table of sections in tree order | P0 | ⬜ | ref 02 §7.1 |
 | LIB-LT-HEADER | Section header: icon, title, date/place, buttons, description, edited count + Save | P0 | ⬜ | ref 02 §7.2 |
 | LIB-LT-STICKY | Sticky section headers | P1 | ⬜ | |
@@ -65,13 +65,13 @@ same commit.
 | LIB-PEEK | Ctrl+Alt full-screen peek with wheel stepping | P1 | ⬜ | |
 | LIB-LOUPE | Loupe magnifier over thumbnails | P2 | ⬜ | |
 | LIB-THUMBSIZE | Thumbnail-size slider, Ctrl+1/Ctrl+2, Ctrl+wheel | P0 | 🟡 | the bottom bar's slider (64–320) and Ctrl+1 / Ctrl+2 (`cmd:view.thumbsSmall`, `cmd:view.thumbsNormal`) set the light table's cell size: `crates/ui/src/panels/bottom.rs`, `crates/ui/tests/bottom.rs`; Ctrl+wheel and persistence missing |
-| LIB-STATUS | Status line texts (none / one / many / edit view) | P0 | ⬜ | ref 02 §8.1 |
+| LIB-STATUS | Status line texts (none / one / many / edit view) | P0 | 🟡 | "No selection", one photo (name, date and time, pixels, size), several photos or a folder (count, date range, size on disk), the file name middle-elided when too long, transient messages for 4 s, `ui.state` → `status` the text as drawn: `crates/ui/src/panels/status.rs`, `crates/ui/tests/tree_status_pane.rs`; the tags field (M6) and the edit view (M7) missing; ref 02 §8.1 |
 | LIB-TRAY | Photo Tray: token for folder, mini thumbnails, own selection | P0 | ⬜ | ref 02 §8.2 |
 | LIB-TRAY-HOLD | Hold / Clear / Add to Album ▾ | P0 | ⬜ | the three buttons are drawn, disabled until the tray (M4): `crates/ui/src/panels/bottom.rs` |
 | LIB-STARROT | Star and rotate buttons acting on the tray | P0 | 🟡 | the star button stars the selection (`cmd:photo.star.toggle`); the rotate buttons are drawn, disabled until their commands: `crates/ui/src/panels/bottom.rs`, `crates/ui/tests/bottom.rs`; the tray (M4) and rotation missing |
 | LIB-ACTIONS | Action buttons (Export, Collage, Slideshow) with overflow | P0 | 🟡 | the buttons, and their More… menu below 1100 wide: `crates/ui/src/panels/bottom.rs`, `crates/ui/tests/bottom.rs`; disabled until export, collage and slideshow exist |
 | LIB-CONFBUTTONS | Configure Buttons dialog | OOS | 🚫 | dropped 2026-10-09 (dated feature); the button set is fixed |
-| LIB-PANES | Side pane container with People/Places/Tags/Properties toggles | P1 | ⬜ | |
+| LIB-PANES | Side pane container with People/Places/Tags/Properties toggles | P1 | 🟡 | the frame: 30 pt header with « (large width), title, × by id; pushes the light table; a narrowing window takes the large width away, then closes it: `crates/ui/src/panels/side_pane.rs`, `crates/ui/tests/tree_status_pane.rs`; the bottom-bar toggles (M3.9), the slide animation and the pane contents (M6, M13) missing |
 | LIB-PROPS | Properties pane | P1 | ⬜ | |
 | LIB-ROOMS | Room tab strip (Import, Collage) | P1 | ⬜ | ref 01 §2.3 |
 | LIB-EMPTY | Empty states | P0 | ⬜ | |
