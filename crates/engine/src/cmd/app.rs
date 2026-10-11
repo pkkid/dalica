@@ -55,7 +55,8 @@ struct Reset {
 
 fn set_shortcut(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
     let Set { command, context, key, replace } = params(p)?;
-    if s.spec(&command).is_none() {
+    // The engine's commands and the UI commands the app added (`Session::add_ui_keys`).
+    if !s.keymap().knows(&command) {
         return Err(CmdError::NotFound(format!("no command `{command}`")));
     }
     let key = match key {
@@ -71,7 +72,7 @@ fn set_shortcut(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
 fn reset_shortcuts(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
     let Reset { command } = params(p)?;
     if let Some(c) = &command
-        && s.spec(c).is_none()
+        && !s.keymap().knows(c)
     {
         return Err(CmdError::NotFound(format!("no command `{c}`")));
     }

@@ -173,7 +173,7 @@ pub(super) fn commands(call: &mut Call<'_>, params: &Value) -> Result<Outcome, E
                 id: s.id,
                 label: s.label,
                 menu: s.menu,
-                shortcut: s.keys.first().map(|(_, k)| *k),
+                shortcut: dalica_engine::keymap::first_default(s.keys, dalica_engine::keymap::Platform::current()),
                 params: s.params,
                 enabled: false,
                 ui: false,
@@ -199,9 +199,41 @@ pub(super) fn commands(call: &mut Call<'_>, params: &Value) -> Result<Outcome, E
             continue;
         }
         out.push(json!({
-            "id": u.id, "label": u.label, "menu": u.menu, "shortcut": shortcut(call, u.id, u.keys.first().map(|(_, k)| *k)),
+            "id": u.id, "label": u.label, "menu": u.menu, "shortcut": shortcut(call, u.id, dalica_engine::keymap::first_default(u.keys, dalica_engine::keymap::Platform::current())),
             "params": u.params, "enabled": true, "ui": true, "checked": null, "live": true, "effect": "view", "history": "none",
         }));
     }
     Ok(Outcome::Reply(Ok(Value::Array(out))))
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::{Value, json};
+
+    use crate::app::App;
+    use crate::control::{Config, Connection, Control, Request, serve};
+    use crate::headless::Driver;
+
+    /// The shortcuts `engine.commands` shows, before and after a library is open: none carries a
+    /// platform qualifier (`win,linux:Ctrl+Y`), and Redo shows this platform's key.
+    #[test]
+    fn engine_commands_show_no_platform_qualifier() {
+        let control = Control::new(Config::default());
+        let (_dir, session, _) = crate::app::tests::session_with_photos(1);
+        let ctrl = if cfg!(target_os = "macos") { "Cmd" } else { "Ctrl" };
+        let redo = if cfg!(target_os = "macos") { "Cmd+Shift+Z" } else { "Ctrl+Y" };
+        for app in [App::new(None), App::new(Some(session))] {
+            let mut d = Driver::new(app, 320, 200, 1.0);
+            let mut conn = Connection::new();
+            let all = serve(&control, &mut conn, &mut d, &Request::new("engine.commands", json!({}))).unwrap();
+            let all = all.as_array().unwrap();
+            let shown: Vec<&str> = all.iter().filter_map(|c| c["shortcut"].as_str()).collect();
+            assert!(shown.len() > 5, "{shown:?}");
+            assert!(shown.iter().all(|k| !k.contains(':')), "{shown:?}");
+            let shortcut = |id: &str| all.iter().find(|c| c["id"] == id).map(|c| c["shortcut"].clone()).unwrap_or(Value::Null);
+            assert_eq!(shortcut("edit.redo"), json!(redo));
+            assert_eq!(shortcut("view.thumbsSmall"), json!(format!("{ctrl}+1")));
+            assert_eq!(shortcut("window.fullscreen"), json!("F11"));
+        }
+    }
 }

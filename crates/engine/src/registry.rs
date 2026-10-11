@@ -60,7 +60,8 @@ pub struct CommandSpec {
     pub label: &'static str,
     /// Menu path (`Picture/Star / Unstar`); empty if not in a menu.
     pub menu: &'static str,
-    /// Default key bindings with their contexts; `Ctrl` is the primary modifier.
+    /// Default key bindings with their contexts; `Ctrl` is the primary modifier. A key may be for
+    /// some platforms only: `mac:Ctrl+Shift+Z`, `win,linux:Ctrl+Y` ([`crate::keymap::parse_default`]).
     pub keys: &'static [(Context, &'static str)],
     /// Agent-readable parameter doc.
     pub params: &'static str,

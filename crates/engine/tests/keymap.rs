@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use dalica_core::SystemClock;
+use dalica_engine::keymap::{DefaultKeys, Platform, first_default, parse_default};
 use dalica_engine::{CmdError, Context, Key, Keymap, Session};
 use serde_json::json;
 
@@ -51,6 +52,83 @@ fn no_two_default_bindings_conflict_and_every_default_parses() {
     let map = Keymap::from_specs(&dalica_engine::cmd::specs()).unwrap();
     assert_eq!(map.conflicts(), []);
     assert_eq!(map.keys_for("photo.star.toggle", Context::Library), [key("Ctrl+8"), key("F4")]);
+}
+
+/// The defaults are checked for every platform, not only the one the tests run on.
+#[test]
+fn no_default_conflicts_on_any_platform_and_redo_differs_on_macos() {
+    let specs = dalica_engine::cmd::specs();
+    for p in Platform::ALL {
+        let map = Keymap::from_specs_on(&specs, p).unwrap();
+        assert_eq!(map.conflicts(), [], "{p:?}");
+        // Every command is known, with or without keys; every spec's defaults parse here.
+        assert!(specs.iter().all(|s| map.knows(s.id)), "{p:?}");
+        let redo = if p == Platform::Mac { "Ctrl+Shift+Z" } else { "Ctrl+Y" };
+        assert_eq!(map.keys_for("edit.redo", Context::Library), [key(redo)], "{p:?}");
+        assert_eq!(map.keys_for("edit.undo", Context::Library), [key("Ctrl+Z")], "{p:?}");
+        assert_eq!(map.resolve(&key(redo), Context::Library, false).as_deref(), Some("edit.redo"));
+    }
+    assert_eq!(
+        Keymap::from_specs(&specs).unwrap().keys_for("edit.redo", Context::Library),
+        Keymap::from_specs_on(&specs, Platform::current()).unwrap().keys_for("edit.redo", Context::Library)
+    );
+}
+
+#[test]
+fn platform_qualifiers_pick_a_default_and_refuse_unknown_platforms() {
+    for (text, platform, applies) in [
+        ("Ctrl+8", Platform::Mac, true),
+        ("mac:Ctrl+Shift+Z", Platform::Mac, true),
+        ("mac:Ctrl+Shift+Z", Platform::Linux, false),
+        ("win,linux:Ctrl+Y", Platform::Windows, true),
+        ("win, linux:Ctrl+Y", Platform::Linux, true),
+        ("win,linux:Ctrl+Y", Platform::Mac, false),
+        ("linux:Ctrl+,", Platform::Linux, true),
+    ] {
+        let (k, a) = parse_default(text, platform).unwrap();
+        assert_eq!(a, applies, "{text} {platform:?}");
+        assert_eq!(k.to_string(), text.rsplit(':').next().unwrap(), "{text}");
+    }
+    for bad in ["bsd:F1", "mac:", ":F1", "mac;win:F1", "mac:Hyper+A", "Mac:F1"] {
+        assert!(parse_default(bad, Platform::Mac).is_err(), "{bad:?}");
+    }
+    // A user's key is never qualified.
+    assert!(Key::parse("mac:Ctrl+Y").is_err());
+    // A keymap whose default does not parse is refused.
+    assert!(Keymap::new_on([("a", Context::Library, "plan9:F1")], Platform::Linux).is_err());
+    let keys: DefaultKeys = &[(Context::Library, "mac:Ctrl+Shift+Z"), (Context::Library, "win,linux:Ctrl+Y")];
+    assert_eq!(first_default(keys, Platform::Mac), Some("Ctrl+Shift+Z"));
+    assert_eq!(first_default(keys, Platform::Windows), Some("Ctrl+Y"));
+    assert_eq!(first_default(&[(Context::Library, "mac:F1")], Platform::Linux), None);
+    assert_eq!(first_default(&[], Platform::Linux), None);
+}
+
+/// The UI's commands join the keymap: known with or without keys, conflict-checked, added twice
+/// without change; a default that does not parse changes nothing.
+#[test]
+fn added_commands_join_the_keymap_and_its_conflict_check() {
+    let mut map = Keymap::from_specs_on(&dalica_engine::cmd::specs(), Platform::Linux).unwrap();
+    let ui: [(&str, DefaultKeys); 3] =
+        [("view.thumbsSmall", &[(Context::Library, "Ctrl+1")]), ("view.library", &[(Context::EditView, "Ctrl+1")]), ("select.set", &[])];
+    map.set("photo.star.toggle", Context::Library, Some(key("F9")), false).unwrap();
+    map.add_commands(ui, Platform::Linux).unwrap();
+    map.add_commands(ui, Platform::Linux).unwrap();
+    assert!(map.knows("select.set") && map.knows("view.library") && !map.knows("no.such"));
+    assert_eq!(map.keys_for("view.thumbsSmall", Context::Library), [key("Ctrl+1")], "added once");
+    assert_eq!(map.keys_for("photo.star.toggle", Context::Library), [key("F9")], "overrides kept");
+    assert_eq!(map.conflicts(), [], "Ctrl+1 in two view contexts is no conflict");
+    assert_eq!(map.resolve(&key("Ctrl+1"), Context::EditView, false).as_deref(), Some("view.library"));
+    // A real conflict is found and a rebinding onto it refused.
+    map.add_commands([("window.fullscreen", &[(Context::Global, "Ctrl+1")] as DefaultKeys)], Platform::Linux).unwrap();
+    assert_eq!(map.conflicts().len(), 2);
+    map.add_commands([("window.fullscreen", &[(Context::Global, "F11")] as DefaultKeys)], Platform::Linux).unwrap();
+    assert_eq!(map.conflicts(), []);
+    assert!(map.set("select.set", Context::Library, Some(key("F11")), false).is_err());
+    // Nothing changes when a default does not parse.
+    let before = map.bindings();
+    assert!(map.add_commands([("x.y", &[(Context::Library, "Hyper+X")] as DefaultKeys)], Platform::Linux).is_err());
+    assert_eq!(map.bindings(), before);
+    assert!(!map.knows("x.y"));
 }
 
 #[test]
@@ -159,4 +237,72 @@ fn shortcut_commands_refuse_bad_input() {
     assert!(matches!(s.execute("app.resetShortcuts", &json!({ "command": "nope" })), Err(CmdError::NotFound(_))));
     assert!(matches!(s.execute("app.resetShortcuts", &json!({ "all": true })), Err(CmdError::BadParams(_))));
     assert_eq!(s.keymap().overrides(), []);
+}
+
+/// The UI's commands, as the app adds them (`Session::add_ui_keys`).
+const UI: [(&str, DefaultKeys); 3] =
+    [("view.thumbsSmall", &[(Context::Library, "Ctrl+1")]), ("window.fullscreen", &[(Context::Global, "F11")]), ("select.set", &[])];
+
+/// A UI command is rebound through `app.setShortcut`, stored once in `settings.json`, and the
+/// binding applies again once the next session has added the UI commands.
+#[test]
+fn ui_commands_are_rebound_through_set_shortcut_and_survive_a_restart() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut s = session(dir.path());
+    // Before the app adds them, the engine does not know UI commands.
+    let r = s.execute("app.setShortcut", &json!({ "command": "view.thumbsSmall", "context": "library", "key": "F9" }));
+    assert!(matches!(r, Err(CmdError::NotFound(_))), "{r:?}");
+    s.add_ui_keys(&UI).unwrap();
+    s.add_ui_keys(&UI).unwrap();
+    assert_eq!(s.keymap().resolve(&key("F11"), Context::EditView, false).as_deref(), Some("window.fullscreen"));
+    let r = s.execute("app.setShortcut", &json!({ "command": "view.thumbsSmall", "context": "library", "key": "Ctrl+Shift+1" })).unwrap();
+    assert_eq!(r["keys"], json!(["Ctrl+Shift+1"]));
+    s.execute("app.setShortcut", &json!({ "command": "select.set", "context": "library", "key": "F9" })).unwrap();
+    s.flush().unwrap();
+    drop(s);
+    let text = std::fs::read_to_string(dir.path().join("settings.json")).unwrap();
+    assert_eq!(text.matches("view.thumbsSmall").count(), 1, "{text}");
+    let mut s = session(dir.path());
+    assert_eq!(s.keymap().resolve(&key("Ctrl+Shift+1"), Context::Library, false), None, "not until the UI commands are added");
+    s.add_ui_keys(&UI).unwrap();
+    assert_eq!(s.keymap().resolve(&key("Ctrl+Shift+1"), Context::Library, false).as_deref(), Some("view.thumbsSmall"));
+    assert_eq!(s.keymap().resolve(&key("Ctrl+1"), Context::Library, false), None);
+    assert_eq!(s.keymap().resolve(&key("F9"), Context::Library, false).as_deref(), Some("select.set"));
+    s.execute("app.resetShortcuts", &json!({ "command": "view.thumbsSmall" })).unwrap();
+    assert_eq!(s.keymap().resolve(&key("Ctrl+1"), Context::Library, false).as_deref(), Some("view.thumbsSmall"));
+    s.flush().unwrap();
+    drop(s);
+    let text = std::fs::read_to_string(dir.path().join("settings.json")).unwrap();
+    assert!(!text.contains("view.thumbsSmall") && text.contains("select.set"), "{text}");
+}
+
+#[test]
+fn shortcut_commands_refuse_bad_input_for_ui_commands() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut s = session(dir.path());
+    s.add_ui_keys(&UI).unwrap();
+    for p in [
+        json!({ "command": "view.thumbsHuge", "context": "library", "key": "F9" }),
+        json!({ "command": "view.thumbsSmall", "context": "library", "key": "Ctrl+Ctrl+1" }),
+        json!({ "command": "view.thumbsSmall", "context": "library", "key": "mac:Ctrl+1" }),
+        json!({ "command": "view.thumbsSmall", "context": "attic", "key": "F9" }),
+        json!({ "command": "view.thumbsSmall", "context": "library", "key": ["F9"] }),
+    ] {
+        let r = s.execute("app.setShortcut", &p);
+        assert!(matches!(r, Err(CmdError::BadParams(_) | CmdError::NotFound(_))), "{p}: {r:?}");
+    }
+    // Conflicts: Ctrl+8 is Star in Library; F11 (Global) clashes in every context.
+    let r = s.execute("app.setShortcut", &json!({ "command": "view.thumbsSmall", "context": "library", "key": "Ctrl+8" }));
+    assert!(matches!(&r, Err(CmdError::BadParams(m)) if m.contains("already photo.star.toggle")), "{r:?}");
+    let r = s.execute("app.setShortcut", &json!({ "command": "photo.star.toggle", "context": "editView", "key": "F11" }));
+    assert!(matches!(&r, Err(CmdError::BadParams(m)) if m.contains("already window.fullscreen")), "{r:?}");
+    // The same key in another view context is allowed.
+    s.execute("app.setShortcut", &json!({ "command": "photo.star.toggle", "context": "editView", "key": "Ctrl+1" })).unwrap();
+    assert!(matches!(s.execute("app.resetShortcuts", &json!({ "command": "view.thumbsHuge" })), Err(CmdError::NotFound(_))));
+    s.execute("app.resetShortcuts", &json!({ "command": "window.fullscreen" })).unwrap();
+    // A UI default that does not parse is refused and changes nothing.
+    let before = s.keymap().bindings();
+    assert!(s.add_ui_keys(&[("bad.command", &[(Context::Library, "plan9:F1")])]).is_err());
+    assert_eq!(s.keymap().bindings(), before);
+    assert!(s.keymap().conflicts().is_empty());
 }

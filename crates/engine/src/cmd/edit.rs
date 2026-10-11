@@ -25,7 +25,7 @@ pub fn specs() -> Vec<CommandSpec> {
             id: "edit.redo",
             label: "Redo",
             menu: "Edit/Redo",
-            keys: &[(Context::Library, "Ctrl+Y")],
+            keys: &[(Context::Library, "win,linux:Ctrl+Y"), (Context::Library, "mac:Ctrl+Shift+Z")],
             params: "{}: redo the last undone library step",
             effect: Effect::Library,
             history: History::None,

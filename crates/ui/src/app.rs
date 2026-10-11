@@ -31,7 +31,10 @@ pub struct App {
 
 impl App {
     /// An app showing `session`, or the "opening" state while it is `None`.
-    pub fn new(session: Option<Session>) -> App {
+    pub fn new(mut session: Option<Session>) -> App {
+        if let Some(s) = &mut session {
+            crate::keys::join_keymap(s);
+        }
         App {
             state: UiState::default(),
             tokens: Tokens::default(),
@@ -74,7 +77,8 @@ impl App {
     }
 
     /// Hands over the library once it has been opened (off the UI thread).
-    pub fn set_session(&mut self, session: Session) {
+    pub fn set_session(&mut self, mut session: Session) {
+        crate::keys::join_keymap(&mut session);
         self.session = Some(session);
     }
 

@@ -76,7 +76,7 @@ Reference order; Undo/Redo are a Dalica addition placed first.
 | Normal Thumbnails | Ctrl+2 *(library context)* | `view.thumbsNormal` | |
 | Edit View | Ctrl+3 | `view.edit` | "Select a photo to edit." toast without a selection |
 | — | | | |
-| Properties | Alt+Enter | `pane.properties` | checkable; Ctrl+0 toggles the side pane (`pane.toggle`) |
+| Properties | Alt+Enter | `pane.properties` | checkable; Ctrl+0 toggles the side pane (`pane.toggle`; when closed it opens Properties) |
 | Tags | Ctrl+T | `pane.tags` | checkable |
 | People | | `pane.people` | checkable |
 | Places | | `pane.places` | checkable |
@@ -233,8 +233,13 @@ things in different places.
   that differ by platform say so (Redo: Ctrl+Y, macOS Cmd+Shift+Z).
 
 **Where defaults live.** Each `CommandSpec` declares its default bindings with their contexts
-(`architecture.md` §3); `UI_COMMANDS` does the same. The menu catalog shows whatever is in effect.
-A test fails if two default bindings conflict or a binding names an unknown command.
+(`architecture.md` §3); `UI_COMMANDS` does the same, and the app adds them to the session's keymap,
+so UI commands are conflict-checked and rebound through `app.setShortcut` like the engine's. A
+default for some platforms only carries a qualifier: Redo declares `win,linux:Ctrl+Y` and
+`mac:Ctrl+Shift+Z`; an unqualified default applies on all three (a key the user binds never has
+one). The menus show whatever is in effect (the catalog's default only until a library is open).
+A test fails if two default bindings conflict on any of the three platforms or a binding names an
+unknown command.
 
 **The editor:** Options → **Keyboard Shortcuts** (also Help → Keyboard Shortcuts…, Ctrl+/):
 - a search field (matches command names, menu paths and keys: typing "ctrl+1" finds both Ctrl+1
