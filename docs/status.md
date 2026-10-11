@@ -7,9 +7,17 @@ and git.
 
 ## Current
 
-- **Milestone:** M3, the window shell, is done: M3.1–M3.12 are merged and `cargo xtask accept M3`
-  passes (41 s). Next: M4, library browsing; its issues open when the M3.R review PR is merged. M5's
-  task blocks are written too.
+- **Milestone:** M4, library browsing, is done: M4.1–M4.20 are merged and `cargo xtask accept M4`
+  passes (90 s; 155 s with the release budgets). Dalica browses a library: the folder tree, the
+  continuous light table with section headers, badges and captions, the speed-control scroll bar,
+  selection, and the Photo Tray with Hold. Next: M5, folders, scanning and formats; its issues open
+  when the M4.R review PR is merged. M6's task blocks are written too.
+- **M4 review (2026-10-11):** the maintainer accepted the split check of "a scanned 100 k library at
+  full thumb speed" (100 k sketched + 10 k scanned; M5.16 adds a scanned 100 k pass); asked for a
+  Linux release-budget CI job on `main` (new M5.24); left the speed thumb's feel for M5.R (defaults:
+  exponent 2, top speed 40); approved all 46 fingerprint baselines. Two review blocks carry M4's
+  loose ends: M5.22 (board tooling, acceptance running once in ci) and M5.23 (band autoscroll,
+  tray keys, centred minis).
 - **M3 review (2026-10-10):** the maintainer approved all 28 fingerprint baselines; asked for the dim
   text to reach 4.5:1 on the chrome (new M4.20); allowed `inotify-sys` and `fsevent-sys` for the
   `notify` watcher (M5.11); and will create the `pkkid/dalica-corpus` repository before M5 (M5.15).
@@ -80,3 +88,17 @@ and git.
 | 2026-10-10 | maintainer desktop | the measurement target dir / all target dirs; free disk | 9.2 GB / 156 GB; 65 GB |
 | 2026-10-10 | — | M3 run: 12 tasks + 1 lead task, 4 workers, 19:19–22:21; send-backs 3 (M3.4, M3.9 rebase, M3.10); extra files granted to 3 tasks; `main` red twice on macOS (#116, and the M3.11 floor) | — |
 | 2026-10-10 | — | parity summary (M3.R) | 2 ✅ / 16 🟡 / 110 ⬜ / 16 🚫 (144 rows, 16 registered commands); VIEW-FULLSCREEN 🟡 until F11 is seen on a real screen |
+| 2026-10-11 | maintainer desktop (i7-13700K, 24 cores, 31 GB, Fedora 44, Rust 1.98.1), clean checkout of e73af84 (M4.18), load 1–6 | `library_bench` 100 k photos, release: scroll p50 / p95 / max | 0.234 / 0.261 / 0.737 ms (budget p95 ≤ 8 ms); 10 k p95 0.265 ms |
+| 2026-10-11 | same | cells visited per frame, 10 k / 100 k (min / p50 / max) | 13 / 35 / 42 and 12 / 35 / 42 (flat) |
+| 2026-10-11 | same | speed thumb at top speed through 100 k sketched photos (release) | 0 placeholder cells in 5 317 frames; p95 0.31 ms |
+| 2026-10-11 | same | packed cache vs loose files, 100 k entries of ~6 KB, µs per read (warm) | first (CRC) 3.5 / 86 · in order 1.4 / 7.4 · shuffled 4.7 / 2.5; write 0.94 s / 6.85 s; 604 MB in 11 files / 799 MB in 100 000 |
+| 2026-10-11 | same | colour sketch; index growth for 100 k sketches | 24–26 bytes (cap 32); journal +4.49 MB, snapshot 11.18 → 15.67 MB (45 B per photo) |
+| 2026-10-11 | same | tree model, 5 000 folders / 100 k photos (release) | flat 3.0–4.3 ms, tree 6.7–7.3 ms |
+| 2026-10-11 | same | `cargo xtask accept M4` debug / with `DALICA_ACCEPT_RELEASE=1` | 89.9 s / 154.9 s |
+| 2026-10-11 | same | `cargo xtask accept` M0 / M1 / M2 / M3 | 3.6 / 4.5 / 12.5 / 47.2 s |
+| 2026-10-11 | same | `cargo xtask ci` cold / warm | 575.9 s / 411.7 s (test step 474 / 342 s; acceptance runs twice, M5.22) |
+| 2026-10-11 | same | tests | 820 pass, 3 ignored (`panic_hunt` ×2, `make_the_large_demo_library`) |
+| 2026-10-11 | GitHub ubuntu / macos / windows | CI job `cargo xtask ci` (run 38161284768, e73af84) | 20 min 37 s / 15 min 44 s / 30 min 42 s |
+| 2026-10-11 | maintainer desktop | the measurement target dir / all target dirs; free disk | 14 GB / 267 GB; 39 GB |
+| 2026-10-11 | — | M4 run: 20 tasks + 1 fix, 6 workers, 23:11–13:50 (idle 02:15–09:30 on a push permission); send-backs 6; 8 tasks landed by the lead (parity summary conflicts, In Review re-submits); `main` red once on macOS (#155) | — |
+| 2026-10-11 | — | parity summary (M4.R) | 8 ✅ / 31 🟡 / 89 ⬜ / 16 🚫 (144 rows, 54 registered commands) |

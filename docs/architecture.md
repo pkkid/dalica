@@ -288,9 +288,10 @@ decodes images, touches the file system, waits on a lock held by a worker, or bl
    The renderer version is per operation, not one global constant (avoids merge hotspots).
 5. **Never blank while scrolling** (maintainer decision, 2026-10-10). Three layers, each drawn
    until the next one arrives:
-   - a **colour sketch** per photo (a ~25-byte blurred preview in the ThumbHash style, made at scan
-     with the edits applied), stored in the index and held in memory for every photo (≈ 2.5 MB at
-     100 k), so any cell can be drawn on any frame without a disk read;
+   - a **colour sketch** per photo (a 24–26-byte blurred preview in the ThumbHash style, capped
+     at 32, made at scan with the edits applied), stored in the index and held in memory for every
+     photo (measured at M4: about 45 bytes per photo in the index, ≈ 4.8 MB in memory at 100 k
+     with its key), so any cell can be drawn on any frame without a disk read;
    - a **size ladder** of cached thumbnails in device pixels: 128 and 256 for every photo at scan,
      512, 1024 and a screen-size edit-view preview (long edge = the display's) on demand. A cell
      draws the smallest ladder size that covers it, or the next smaller one scaled up (blurry,
