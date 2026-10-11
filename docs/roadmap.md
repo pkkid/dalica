@@ -903,7 +903,7 @@ per part (layout, header, cell, scrollbar, input) with a fixed painting API. Eac
 widgets are approved in bulk on the M4.R review page; M4.6 splits the window fingerprints by region so parallel
 UI tasks each re-bless only their own.
 
-- ⬜ **M4.1 `thumbs`: the colour sketch**
+- ✅ **M4.1 `thumbs`: the colour sketch**
   - after: M1.12
   - files: `crates/thumbs/src/sketch.rs`, `crates/thumbs/tests/sketch.rs`
   - scope: `architecture.md` §6.5: a blurred colour preview of at most 32 bytes in the ThumbHash
