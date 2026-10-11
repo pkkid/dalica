@@ -15,9 +15,11 @@
 mod model;
 mod op;
 mod query;
+mod tree;
 
 pub use model::{Folder, Library, MAX_SKETCH, Model, Photo, Sketch};
 pub use op::Op;
+pub use tree::{FolderRow, FolderSort, Group, GroupRows, Row, SMALL_PICTURE_PX, SectionId, Tree, TreeMode, TreeOptions};
 
 use dalica_core::{FolderId, PhotoId};
 
