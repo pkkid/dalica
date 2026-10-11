@@ -1046,7 +1046,7 @@ UI tasks each re-bless only their own.
   - done when: headless tests find every `section:<id>/…` part with its §5.2 size at both window
     sizes; disabled buttons are disabled; a sticky header shows its first line only; the header
     region fingerprint approved on the PR.
-- ⬜ **M4.10 `ui` + `ui-kit`: thumbnail cells, badges and captions**
+- ✅ **M4.10 `ui` + `ui-kit`: thumbnail cells, badges and captions**
   - after: M4.6
   - files: `crates/ui/src/panels/light_table/cell.rs`, `crates/ui-kit/src/widgets.rs`, `crates/ui-kit/src/widgets/badges.rs`, `crates/ui-kit/tests/badges.rs`, `crates/ui-kit/tests/fingerprints/badges*.json`, `crates/ui/tests/cells.rs`, `crates/ui/tests/fingerprints/region-cells*.json`
   - scope: `ui-layout.md` §5.3, §5.5 and `design-system.md` §7: letterboxed image with its drop

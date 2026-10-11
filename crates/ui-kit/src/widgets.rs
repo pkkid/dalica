@@ -18,6 +18,7 @@ use crate::fonts;
 use crate::icons::{self, Icon};
 use crate::registry::{self, Role, WidgetInfo};
 
+mod badges;
 mod buttons;
 mod dialog;
 mod dropdown;
@@ -29,6 +30,10 @@ mod slider;
 mod splitter;
 mod tooltip;
 
+pub use badges::{
+    BADGE_GAP, BADGE_GLYPH, BADGE_INSET, BADGE_PLATE, Badge, BadgeRects, Badges, PHOTO_SHADOW, Video, badge_row, badges, duration_text, failed_mark,
+    photo_shadow, star_badge,
+};
 pub use buttons::{Segment, SegmentLabel, action_button, primary_button, segmented, toggle_filter};
 pub use dialog::{ButtonKind, DialogButton, DialogResponse, dialog};
 pub use dropdown::{dropdown, dropdown_popup_id};
@@ -178,42 +183,26 @@ pub fn star_toggle(ui: &mut Ui, t: &Tokens, id: &str, on: bool) -> Response {
     r.on_hover_text("Star / Unstar")
 }
 
-/// Edge of a badge plate and its glyph, and the inset from the image corner (points).
-const BADGE_PLATE: f32 = 18.0;
-const BADGE_GLYPH: f32 = 12.0;
-const BADGE_INSET: f32 = 4.0;
-
-/// Paints a row of badges inside the bottom-right corner of `image`, right-aligned in the order
-/// given (so the last one is rightmost), each a 12 pt glyph on a `badge_plate`. Returns the rects of
-/// the plates, left to right. Nothing is painted if the image is too small to hold one plate.
-pub fn badge_row(painter: &Painter, t: &Tokens, image: Rect, glyphs: &[(Icon, Color32)]) -> Vec<Rect> {
-    if image.width() < BADGE_PLATE + 2.0 * BADGE_INSET || image.height() < BADGE_PLATE + 2.0 * BADGE_INSET {
-        return Vec::new();
-    }
-    let n = glyphs.len() as f32;
-    let mut x = image.max.x - BADGE_INSET - n * BADGE_PLATE - (n - 1.0).max(0.0) * 2.0;
-    let y = image.max.y - BADGE_INSET - BADGE_PLATE;
-    let mut rects = Vec::with_capacity(glyphs.len());
-    for &(icon, color) in glyphs {
-        let plate = Rect::from_min_size(egui::pos2(x, y), Vec2::splat(BADGE_PLATE));
-        painter.rect_filled(plate, CornerRadius::same(3), t.badge_plate);
-        icons::paint(painter, Rect::from_center_size(plate.center(), Vec2::splat(BADGE_GLYPH)), icon, color);
-        rects.push(plate);
-        x += BADGE_PLATE + 2.0;
-    }
-    rects
-}
-
-/// The star badge of a starred photo, registered as `id` (a part of its cell: `"thumb:42/star"`).
-pub fn star_badge(painter: &Painter, t: &Tokens, id: &str, image: Rect) -> Option<Rect> {
-    let plate = badge_row(painter, t, image, &[(Icon::Star, t.star)]).pop()?;
-    register(painter.ctx(), id, Role::Badge, "Starred", Target::Painted { rect: plate, clip: painter.clip_rect() }, true);
-    Some(plate)
-}
-
 /// A label in `font`, `color`, aligned in `rect` (a convenience for panels).
 pub fn label_in(painter: &Painter, rect: Rect, align: Align2, text: &str, font: egui::FontId, color: Color32) -> Rect {
     painter.text(align.pos_in_rect(&rect), align, text, font, color)
+}
+
+/// Shows a tooltip on `response` this pass, whatever egui's hover delay: for a widget that times
+/// its own (a thumbnail's 600 ms, `ui-layout.md` §5.5). The look of [`tooltip`]: `title` in 13 pt
+/// `text`, `detail` below in 11 pt `text_dim`, wrapped at [`TOOLTIP_WIDTH`].
+pub fn tooltip_now(response: &Response, t: &Tokens, title: &str, detail: Option<&str>) {
+    if title.is_empty() && detail.is_none_or(str::is_empty) {
+        return;
+    }
+    response.show_tooltip_ui(|ui| {
+        ui.set_max_width(TOOLTIP_WIDTH);
+        ui.spacing_mut().item_spacing.y = 2.0;
+        ui.label(egui::RichText::new(title).font(fonts::regular(t.body)).color(t.text));
+        if let Some(detail) = detail.filter(|d| !d.is_empty()) {
+            ui.label(egui::RichText::new(detail).font(fonts::regular(t.small)).color(t.text_dim));
+        }
+    });
 }
 
 #[cfg(test)]
