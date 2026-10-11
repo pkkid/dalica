@@ -758,6 +758,7 @@ dependencies = [
  "dalica-core",
  "dalica-engine",
  "dalica-fs",
+ "dalica-scenes",
  "dalica-ui",
  "png",
  "serde_json",
@@ -788,6 +789,7 @@ version = "0.0.0"
 dependencies = [
  "dalica-core",
  "dalica-fs",
+ "dalica-image",
  "dalica-library",
  "dalica-scan",
  "dalica-scenes",
@@ -906,6 +908,7 @@ dependencies = [
  "dalica-fs",
  "dalica-image",
  "dalica-scenes",
+ "image",
  "proptest",
  "tempfile",
  "thiserror 2.0.21",

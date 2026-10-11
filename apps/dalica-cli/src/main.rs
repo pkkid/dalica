@@ -35,6 +35,11 @@ opened (for example, another Dalica process has it open)";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    // A library named on the command line keeps its thumbnails in Dalica's cache folder; a demo
+    // keeps a temporary cache that goes with its session.
+    if !args.iter().any(|a| a == "--demo" || a == "--demo-fresh") {
+        dalica_engine::thumbs::set_process_cache_dir(dalica_engine::thumbs::default_cache_dir(|k| std::env::var_os(k)));
+    }
     let (args, fresh) = match demo_args(args, &dalica_engine::demo::default_dir()) {
         Ok(v) => v,
         Err(code) => return code,

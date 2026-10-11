@@ -7,6 +7,10 @@
 //! on worker threads: the I/O worker started by [`Session::open`], and one thread per scan. Their
 //! results come back through [`Session::poll`] (each UI frame) or [`Session::wait_idle`] (the CLI
 //! and tests); [`Session::flush`] blocks until every pending write has landed.
+//!
+//! Thumbnails (`thumbs.rs`) are made by the thumbnailer's own workers after each scan; their
+//! sketches come back through the same calls and are applied as derived ops: journaled, but never
+//! on the undo stack and never written to a sidecar.
 
 use std::collections::{BTreeSet, HashMap};
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -27,6 +31,7 @@ use crate::error::{CmdError, OpenError};
 use crate::keymap::Keymap;
 use crate::registry::{CommandInfo, CommandSpec, History};
 use crate::settings::Settings;
+use crate::thumbs::{Thumb, ThumbOptions, ThumbStats, Thumbs};
 use crate::undo::{Step, UndoStack};
 
 /// The watched-folders file in the library directory (`data-model.md` §4).
@@ -45,6 +50,13 @@ enum Msg {
     Write(PathBuf, Vec<u8>),
     Snapshot(Box<Library>),
     Flush(Sender<()>),
+}
+
+/// How a session is opened.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Options {
+    /// Where thumbnails are cached, how many workers make them, how much memory they keep.
+    pub thumbs: ThumbOptions,
 }
 
 /// What a background scan was for.
@@ -76,6 +88,7 @@ pub struct Session {
     settings: Settings,
     keymap: Keymap,
     notices: Vec<String>,
+    thumbs: Thumbs,
     _lock: LibraryLock,
 }
 
@@ -84,8 +97,15 @@ impl Session {
     /// [`OpenError::Locked`]), loads the index — repairing what it can, reported by
     /// [`Session::recovery`] — and the watched folders, and starts the I/O worker. If the index had
     /// to be dropped, a rebuild from the watched folders starts in the background.
-    /// Call it off the UI thread.
+    /// Call it off the UI thread. Thumbnails use the default [`Options`]: the cache folder the app
+    /// set ([`crate::thumbs::set_process_cache_dir`]), else a temporary one.
     pub fn open(dir: &Path, clock: Arc<dyn Clock>) -> Result<Session, OpenError> {
+        Session::open_with(dir, clock, &Options::default())
+    }
+
+    /// [`Session::open`] with `options`. A thumbnail cache that cannot be opened never fails the
+    /// open: a temporary one is used instead, and [`Session::notices`] says why.
+    pub fn open_with(dir: &Path, clock: Arc<dyn Clock>, options: &Options) -> Result<Session, OpenError> {
         dalica_fs::create_dir_all(dir)?;
         let lock = LibraryLock::acquire(dir)?;
         let opened = Store::open(dir, clock.now())?;
@@ -111,6 +131,9 @@ impl Session {
         });
         let overrides = settings.keymap(&|c| keymap.knows(c));
         keymap.set_overrides(overrides);
+        let (thumbs, thumb_notes) = Thumbs::open(&options.thumbs);
+        let mut notices: Vec<String> = settings_note.into_iter().collect();
+        notices.extend(thumb_notes);
         let mut session = Session {
             dir: dir.to_path_buf(),
             library: opened.library,
@@ -129,9 +152,11 @@ impl Session {
             ops_since_snapshot: 0,
             settings,
             keymap,
-            notices: settings_note.into_iter().collect(),
+            notices,
+            thumbs,
             _lock: lock,
         };
+        session.thumbs.sync(&session.library);
         if session.recovery.iter().any(|r| matches!(r, Recovery::RebuildNeeded { .. })) && !session.roots.is_empty() {
             session.start_scan(session.roots.clone(), ScanKind::Rebuild);
         }
@@ -183,12 +208,41 @@ impl Session {
         if let Some(c) = &mut self.collected {
             c.push(inverse.clone());
         }
+        self.count_op();
+        Ok(inverse)
+    }
+
+    /// Applies a derived op ([`Op::is_derived`]: sketches) and journals it, without an undo step
+    /// and without marking any folder for a sidecar write (it bumps neither revision they follow).
+    fn apply_derived(&mut self, op: Op) -> Result<(), CmdError> {
+        if !op.is_derived() {
+            return Err(CmdError::Internal("only derived data may change outside a command".into()));
+        }
+        self.library.apply(op.clone()).map_err(|e| CmdError::BadParams(e.to_string()))?;
+        self.send(Msg::Journal(vec![op]));
+        self.count_op();
+        Ok(())
+    }
+
+    /// Counts one journaled op and sends the worker a snapshot when one is due.
+    fn count_op(&mut self) {
         self.ops_since_snapshot += 1;
         if self.ops_since_snapshot >= SNAPSHOT_EVERY {
             self.ops_since_snapshot = 0;
             self.send(Msg::Snapshot(Box::new(self.library.clone())));
         }
-        Ok(inverse)
+    }
+
+    /// Applies the sketches the thumbnailer made, [`crate::thumbs::SKETCH_BATCH`] per op; those of
+    /// photos that are gone, or unchanged, are left out.
+    fn apply_sketches(&mut self) {
+        let mut list = self.thumbs.take_sketches();
+        list.retain(|(id, sketch)| self.library.photo(*id).is_some() && self.library.sketch(*id) != sketch.as_ref());
+        for batch in list.chunks(crate::thumbs::SKETCH_BATCH) {
+            if let Err(e) = self.apply_derived(Op::SetSketches { sketches: batch.to_vec() }) {
+                self.scan_warnings.push(format!("sketches not applied: {e}"));
+            }
+        }
     }
 
     fn all_folder_ids(&self) -> Vec<FolderId> {
@@ -264,7 +318,9 @@ impl Session {
         }
     }
 
-    /// Applies the results of finished background work (scans). Returns how many finished.
+    /// Applies the results of finished background work: scans, and up to
+    /// [`crate::thumbs::POLL_MAX`] thumbnail jobs (their sketches in batches). Returns how many
+    /// finished.
     pub fn poll(&mut self) -> usize {
         let mut done = Vec::new();
         self.scans.retain(|(kind, rx)| match rx.try_recv() {
@@ -275,15 +331,25 @@ impl Session {
             Err(mpsc::TryRecvError::Empty) => true,
             Err(mpsc::TryRecvError::Disconnected) => false,
         });
-        let n = done.len();
+        let mut n = done.len();
         for (kind, scan) in done {
             self.apply_scan(kind, &scan);
         }
+        n += self.thumbs.poll(&self.library, crate::thumbs::POLL_MAX);
+        self.apply_sketches();
         n
     }
 
-    /// Blocks until all background work (scans) has finished and its results are applied.
+    /// Blocks until all background work — scans, then the thumbnails and sketches they started —
+    /// has finished and its results are applied.
     pub fn wait_idle(&mut self) {
+        self.wait_scans();
+        self.thumbs.wait(&self.library);
+        self.apply_sketches();
+    }
+
+    /// Blocks until every scan has finished and its results are applied.
+    fn wait_scans(&mut self) {
         for (kind, rx) in std::mem::take(&mut self.scans) {
             if let Ok(scan) = rx.recv() {
                 self.apply_scan(kind, &scan);
@@ -316,12 +382,16 @@ impl Session {
                 self.send(Msg::Snapshot(Box::new(self.library.clone())));
             }
         }
+        self.thumbs.sync(&self.library);
     }
 
-    /// Waits for background work, then until every journal record and sidecar write has landed.
-    /// `Err(Unsaved)` lists writes that failed (they stay pending and are retried).
+    /// Waits for running scans, applies the sketches already made (it does not wait for thumbnails
+    /// still being made: they are a cache), then waits until every journal record and sidecar write
+    /// has landed. `Err(Unsaved)` lists writes that failed (they stay pending and are retried).
     pub fn flush(&mut self) -> Result<(), CmdError> {
-        self.wait_idle();
+        self.wait_scans();
+        self.thumbs.poll(&self.library, usize::MAX);
+        self.apply_sketches();
         let (ack, done) = mpsc::channel();
         self.send(Msg::Flush(ack));
         let _ = done.recv();
@@ -365,9 +435,58 @@ impl Session {
         &self.scan_warnings
     }
 
-    /// Whether background work (a scan) is still running.
+    /// Whether background work (a scan) is still running. Thumbnail jobs are counted apart
+    /// ([`Session::thumbnails_pending`]).
     pub fn busy(&self) -> bool {
         !self.scans.is_empty()
+    }
+
+    /// What photo `id` draws now in a cell whose long side is `need` device pixels, from memory
+    /// (never waiting, never touching the disk): the ladder size that covers it, else the next
+    /// smaller one to scale up, else its colour sketch, else [`Thumb::NotScanned`]. What is missing
+    /// is queued at the visible priority; ask again after [`Session::poll`].
+    pub fn thumbnail(&mut self, id: dalica_core::PhotoId, need: u32) -> Thumb {
+        self.thumbs.request(&self.library, id, need)
+    }
+
+    /// Prefetches thumbnails around the visible cells: `order` is the photos in display order,
+    /// `visible` the indices on screen, `velocity` the scroll speed in cells per second (positive
+    /// towards the end of `order`), `need` the cells' long side in device pixels. Loads ahead in
+    /// the scroll direction (further the faster), then a little behind; prefetch the view has left
+    /// is cancelled. Returns the photos in the order they were queued.
+    pub fn prefetch_thumbnails(
+        &mut self,
+        order: &[dalica_core::PhotoId],
+        visible: std::ops::Range<usize>,
+        velocity: f64,
+        need: u32,
+    ) -> Vec<dalica_core::PhotoId> {
+        self.thumbs.prefetch(&self.library, order, visible, velocity, need)
+    }
+
+    /// Why photo `id` has no thumbnail, if its thumbnail failed.
+    pub fn thumbnail_failure(&self, id: dalica_core::PhotoId) -> Option<&str> {
+        self.thumbs.failure(id)
+    }
+
+    /// Thumbnail jobs queued or running.
+    pub fn thumbnails_pending(&self) -> usize {
+        self.thumbs.pending()
+    }
+
+    /// The thumbnailer's numbers.
+    pub fn thumbnail_stats(&self) -> ThumbStats {
+        self.thumbs.stats()
+    }
+
+    /// The thumbnail cache folder, if thumbnails are on.
+    pub fn thumbnail_cache_dir(&self) -> Option<&Path> {
+        self.thumbs.cache_dir()
+    }
+
+    /// The display's long side in device pixels: the size of the screen-size preview.
+    pub fn set_screen_size(&mut self, long_side: u32) {
+        self.thumbs.set_screen(long_side);
     }
 
     /// The shortcuts in effect.

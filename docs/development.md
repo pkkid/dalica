@@ -224,6 +224,7 @@ processed them, so a following `ui.state` or `ui.inspect` observes their effect.
 | `RUST_LOG` | log levels for standard error and the log file (see *Logs*) |
 | `RUST_BACKTRACE=1` | full backtraces in panic reports |
 | `DALICA_PROFILE=1` | per-stage timings (see *Profiling*) |
+| `DALICA_CACHE_DIR` | an absolute folder used in place of Dalica's cache folder for the thumbnail cache (`<dir>/thumbs`); every test that launches `dalica` or `dalica-cli` on a library sets it to a temporary folder ([`data-model.md`](data-model.md) §4) |
 | `DALICA_THEME_FILE=tokens.json` | **debug builds only:** live `theme::Tokens` overrides, re-read on change (keys are the field names in `crates/ui-kit/src/theme.rs`); compiled out of release builds |
 | `CRAFT_FONTS_DIR` | optional fonts build input (see §12) |
 | `DALICA_CORPUS_REPO` | local authoring clone of the corpus repository for `xtask corpus --local` (see §11) |

@@ -1019,7 +1019,7 @@ UI tasks each re-bless only their own.
     scanned case at smaller sizes.
   - done when: tests: the same seed gives the same library; a 100 k library opens with every
     photo sketched; generation and open times for 100 k (release) are in the PR.
-- ⬜ **M4.8 `thumbs` + `engine`: the thumbnail ladder and scan-time generation**
+- ✅ **M4.8 `thumbs` + `engine`: the thumbnail ladder and scan-time generation**
   - after: M4.1, M4.2, M4.3
   - files: `crates/thumbs/src/ladder.rs`, `crates/thumbs/tests/ladder.rs`, `crates/engine/src/thumbs.rs`, `crates/engine/tests/thumbs.rs`, `crates/engine/src/session.rs`, `apps/dalica/src/main.rs`, `apps/dalica-cli/src/main.rs`
   - scope: `architecture.md` §5–§6: ladder sizes in device pixels; after a scan adds or changes
