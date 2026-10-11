@@ -1,30 +1,34 @@
 //! The bottom area (`ui-layout.md` §6.2–§6.5): 96 high under the status line, split at 0.365·W.
 //!
-//! Left of the split, the Photo Tray: a sunken box (empty: the "Selection" watermark) and its three
-//! stacked buttons Hold, Clear and Add to Album, present and disabled until the tray arrives (M4).
-//! Right of it, the controls row (star, rotate counterclockwise and clockwise; the loupe, the
-//! thumbnail-size slider and the four side-pane toggles at the right) and, under a 1 pt separator,
-//! the action buttons Export ┆ Collage, Slideshow, which go behind a **More…** button that opens a
-//! vertical menu when the window is narrower than [`OVERFLOW_BELOW`].
+//! Left of the split, the Photo Tray ([`tray`]): a sunken box showing the selection and the held
+//! photos (empty: the "Selection" watermark) and its three stacked buttons Hold, Clear and Add to
+//! Album (disabled until albums). Right of it, the controls row (star, rotate counterclockwise and
+//! clockwise; the loupe, the thumbnail-size slider and the four side-pane toggles at the right) and,
+//! under a 1 pt separator, the action buttons Export ┆ Collage, Slideshow, which go behind a
+//! **More…** button that opens a vertical menu when the window is narrower than [`OVERFLOW_BELOW`].
 //!
-//! Until the tray exists the star button acts on the light table's selection. A button whose command
-//! is not registered yet is drawn disabled; it comes alive by itself when the command lands and
-//! is enabled for the selection (`CommandSpec::enabled`).
+//! The star and rotate buttons act on the tray's photos (`ui-layout.md` §6.3): star in one undo step
+//! (`photo.star.toggle` stars them all unless all are starred). A button whose command is not
+//! registered yet is drawn disabled; it comes alive by itself when the command lands and is enabled
+//! for what it acts on (`CommandSpec::enabled`).
 //!
 //! The size slider drives the same view state as Ctrl+1 / Ctrl+2 (`UiState::thumb_size`), so the
 //! light table's cells follow it; the pane toggles open, switch and close `UiState::pane`, the
 //! state `pane.toggle` (Ctrl+0) flips.
 
+use dalica_ui_kit::Tokens;
 use dalica_ui_kit::icons::{self, Icon};
 use dalica_ui_kit::registry::Role;
 use dalica_ui_kit::widgets::{self, Segment, SegmentLabel, Target};
-use dalica_ui_kit::{Tokens, fonts};
-use egui::{Align2, CornerRadius, Id, Popup, Rect, RectAlign, Stroke, StrokeKind, Ui, UiBuilder, Vec2, pos2, vec2};
+use egui::{Id, Popup, Rect, RectAlign, Stroke, Ui, UiBuilder, Vec2, pos2, vec2};
 use serde_json::json;
 
+use super::Panels;
 use super::layout::{self, Layout};
 use crate::app::App;
-use crate::state::{Pane, THUMB_MAX, THUMB_MIN};
+use crate::state::{Pane, THUMB_MAX, THUMB_MIN, UiState};
+
+pub mod tray;
 
 /// Below this window width the action buttons go behind More… (`ui-layout.md` §11).
 pub const OVERFLOW_BELOW: f32 = 1100.0;
@@ -130,30 +134,78 @@ fn plate(ui: &mut Ui, t: &Tokens, id: &str, icon: Icon, tooltip: &str, size: Vec
 }
 
 /// Paints and runs the bottom area in `ui`'s rect (the bottom region of [`super::layout`]).
-pub fn show(app: &mut App, ui: &mut Ui) {
+pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
     let area = ui.max_rect();
-    let p = parts(area);
-    tray(app, ui, &p);
-    controls(app, ui, p.controls);
-    actions(app, ui, p.actions, area.width());
+    let parts = parts(area);
+    tray::show(p, app, ui, parts.tray);
+    tray_buttons(app, ui, &parts);
+    controls(app, ui, parts.controls);
+    actions(app, ui, parts.actions, area.width());
+    tray::confirmation(app, ui.ctx());
 }
 
-/// The tray box with its watermark, and its three stacked buttons.
-fn tray(app: &App, ui: &mut Ui, p: &Parts) {
+/// The tray's three stacked buttons: Hold while the tray has photos that are not held, Clear while
+/// it has any, Add to Album once albums exist.
+fn tray_buttons(app: &mut App, ui: &mut Ui, p: &Parts) {
     let t = *app.tokens();
-    let painter = ui.painter();
-    if p.tray.is_positive() {
-        painter.rect(p.tray, CornerRadius::same(t.radius), t.tray_bg, Stroke::new(1.0, t.divider), StrokeKind::Inside);
-        painter.text(p.tray.center(), Align2::CENTER_CENTER, "Selection", fonts::regular(t.body), t.text_dim);
-        widgets::register(ui.ctx(), "tray", Role::Other, "Photo tray", Target::Painted { rect: p.tray, clip: ui.clip_rect() }, false);
-    }
+    let state = app.state();
+    let count = crate::tray::count(state);
+    // Add to Album ▾ waits for albums (M9): its popup lists them.
+    let enabled = [count > state.tray.held.len(), count > 0, false];
     let size = t.metrics.tray_button;
     let mut y = p.tray_buttons.min.y;
-    for (id, icon, tooltip) in TRAY_BUTTONS {
+    let mut clicked = None;
+    for (i, (id, icon, tooltip)) in TRAY_BUTTONS.into_iter().enumerate() {
         let rect = Rect::from_min_size(pos2(p.tray_buttons.min.x, y), size);
-        at(ui, id, rect, |ui| plate(ui, &t, id, icon, tooltip, size, false));
+        let on = enabled.get(i).copied().unwrap_or(false);
+        if at(ui, id, rect, |ui| plate(ui, &t, id, icon, tooltip, size, on)) {
+            clicked = Some(id);
+        }
         y += size.y + GAP;
     }
+    match clicked {
+        Some("button:tray.hold") => {
+            let _ = app.run("tray.hold", &json!({}));
+        }
+        Some("button:tray.clear") => tray::clear_clicked(app, ui.ctx()),
+        _ => {}
+    }
+}
+
+/// Whether every photo in the tray is starred (the star button's state). Cached per library
+/// revision and tray contents, so a tray of 100 000 photos is not looked up each frame.
+fn all_starred(app: &App, ctx: &egui::Context) -> bool {
+    let (Some(session), state) = (app.session(), app.state()) else { return false };
+    if crate::tray::is_empty(state) {
+        return false;
+    }
+    let key = (session.library().revision(), fingerprint(state));
+    let id = Id::new("bottom.allStarred");
+    if let Some((k, on)) = ctx.data(|d| d.get_temp::<((u64, u64), bool)>(id))
+        && k == key
+    {
+        return on;
+    }
+    let library = session.library();
+    let starred = |id: &dalica_core::PhotoId| library.photo(*id).is_some_and(|p| p.star);
+    let on = state.tray.held.iter().all(starred) && state.selection.ids.iter().all(starred);
+    ctx.data_mut(|d| d.insert_temp(id, (key, on)));
+    on
+}
+
+/// A cheap hash of what the tray holds (the held photos and the selection, in order).
+fn fingerprint(state: &UiState) -> u64 {
+    let mix = |h: u64, x: u64| (h.rotate_left(5) ^ x).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    let held = state.tray.held.iter().fold(0x51_7cc1_b727_220a, |h, id| mix(h, id.get()));
+    let all = state.selection.ids.iter().fold(mix(held, u64::MAX), |h, id| mix(h, id.get()));
+    mix(all, state.tray.held.len() as u64 ^ (state.selection.ids.len() as u64).rotate_left(32))
+}
+
+/// Whether command `id` is registered and enabled for the tray's photos.
+fn ready_on_tray(app: &App, id: &str) -> bool {
+    let Some(session) = app.session() else { return false };
+    let Some(spec) = session.spec(id) else { return false };
+    !crate::tray::is_empty(app.state()) && (spec.enabled)(session, &json!({ "ids": crate::tray::photos(app.state()) })).is_ok()
 }
 
 /// The controls row: star and rotate at the left; loupe, size slider and pane toggles at the right.
@@ -162,21 +214,23 @@ fn controls(app: &mut App, ui: &mut Ui, row: Rect) {
     let star = t.metrics.star_button;
     let y = (row.center().y - star.y / 2.0).round();
 
-    // Star (acting on the selection until the tray arrives), then the two rotations.
-    let ids = app.state().selection.ids.clone();
-    let on = !ids.is_empty() && app.session().is_some_and(|s| ids.iter().all(|&id| s.library().photo(id).is_some_and(|p| p.star)));
+    // Star and the two rotations, on the tray's photos.
+    let any = !crate::tray::is_empty(app.state());
+    let on = all_starred(app, ui.ctx());
     let mut x = row.min.x + PAD;
     let star_clicked = at(ui, "star", Rect::from_min_size(pos2(x, y), star), |ui| {
-        ui.add_enabled_ui(!ids.is_empty(), |ui| widgets::star_toggle(ui, &t, "button:star", on).clicked()).inner
+        ui.add_enabled_ui(any, |ui| widgets::star_toggle(ui, &t, "button:star", on).clicked()).inner
     });
     if star_clicked {
+        let ids = crate::tray::photos(app.state());
         let _ = app.run("photo.star.toggle", &json!({ "ids": ids }));
     }
     for (id, icon, tooltip, command) in ROTATE {
         x += star.x + GAP;
-        let enabled = ready(app, command);
+        let enabled = ready_on_tray(app, command);
         if at(ui, id, Rect::from_min_size(pos2(x, y), star), |ui| plate(ui, &t, id, icon, tooltip, star, enabled)) {
-            run(app, command);
+            let ids = crate::tray::photos(app.state());
+            let _ = app.run(command, &json!({ "ids": ids }));
         }
     }
 
