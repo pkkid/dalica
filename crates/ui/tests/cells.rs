@@ -337,7 +337,13 @@ fn a_photo_whose_file_is_gone_shows_the_caution_tile_and_why() {
     let folder = photos(dir.path(), 3, 0);
     let s = session(dir.path(), &folder);
     let gone = s.library().photos().find(|p| p.name == "IMG_0002.jpg").unwrap().id;
+    // Gone while the library was closed: reopened (with a new thumbnail cache), its scan finds
+    // no file. (A file deleted while the library is open keeps its cached thumbnails until the
+    // session notices, M5.)
+    drop(s);
     std::fs::remove_file(folder.join("IMG_0002.jpg")).unwrap();
+    let s = Session::open(&dir.path().join("library"), Arc::new(dalica_core::SystemClock)).unwrap();
+    assert!(s.library().photo(gone).is_some(), "the index still lists it");
     let mut d = driver(s, (900, 600));
     let all = shown(&d);
     assert_eq!(all.len(), 3);

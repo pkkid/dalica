@@ -170,7 +170,7 @@ pub(super) fn inspect(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Er
         "jobs": [],
         "notices": notices,
         "libraryOpen": call.host.app().session().is_some(),
-        "perf": call.host.perf().report(),
+        "perf": perf(call),
     });
     if let (Some(obj), Value::Object(extra)) = (v.as_object_mut(), extra) {
         obj.extend(extra);
@@ -179,6 +179,16 @@ pub(super) fn inspect(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Er
         call.host.perf_mut().reset();
     }
     Ok(Outcome::Reply(Ok(v)))
+}
+
+/// The frame counters plus the thumbnails' cell and texture counters (`placeholderCells`, …).
+fn perf(call: &Call<'_>) -> Value {
+    let mut perf = serde_json::to_value(call.host.perf().report()).unwrap_or_else(|_| json!({}));
+    let thumbs = call.host.app().panels().map(|p| p.thumbnails.counts()).unwrap_or_default();
+    if let (Some(obj), Ok(Value::Object(extra))) = (perf.as_object_mut(), serde_json::to_value(thumbs)) {
+        obj.extend(extra);
+    }
+    perf
 }
 
 #[derive(Deserialize)]
