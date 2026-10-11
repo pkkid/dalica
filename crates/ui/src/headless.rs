@@ -667,7 +667,7 @@ mod tests {
     /// light table only needs their headers), opened and scanned.
     fn library(folders: usize, per_folder: usize) -> (tempfile::TempDir, dalica_engine::Session) {
         let dir = tempfile::tempdir().unwrap();
-        let jpeg = dalica_scenes::encode::jpeg(&dalica_scenes::Scene::new(7, 48, 32), 80, None).unwrap();
+        let jpeg = dalica_scenes::encode::jpeg(&dalica_scenes::Scene::new(7, 96, 64), 80, None).unwrap();
         let mut s = dalica_engine::Session::open(&dir.path().join("library"), Arc::new(dalica_core::SystemClock)).unwrap();
         for f in 0..folders {
             let folder = dir.path().join("photos").join(format!("2026-06-{:02} Trip", f + 1));
@@ -1018,11 +1018,11 @@ mod tests {
 
     #[test]
     fn textures_uploaded_are_counted_when_thumbnails_arrive() {
-        let (_dir, s) = library(1, 8);
+        let (_dir, s) = library(1, 6);
         let mut d = Driver::new(App::new(Some(s)), 900, 600, 1.0);
         d.settle(3600).unwrap();
         let uploaded: u64 = d.perf().samples().map(|s| s.textures_uploaded).sum();
-        assert!(uploaded >= 9, "eight thumbnails and the font atlas were uploaded: {uploaded}");
-        assert!(d.perf().report().textures >= 9);
+        assert!(uploaded >= 7, "six thumbnails and the font atlas were uploaded: {uploaded}");
+        assert!(d.perf().report().textures >= 7);
     }
 }
