@@ -10,6 +10,7 @@
 pub mod lru;
 pub mod pack;
 pub mod pool;
+pub mod sketch;
 
 use std::io::Read as _;
 use std::path::Path;
