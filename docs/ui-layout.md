@@ -127,7 +127,11 @@ activity indicator draws nothing.
 ### 5.1 Sections
 
 Each visible folder/album is a section: **header block** + **thumbnail grid**. Sections follow the
-tree order. 24 pt gutter between a grid's last row and the next header.
+tree order. 12 pt between the header block and the first row; 24 pt gutter between a grid's last
+row and the next header. The scroll position is kept by content (the section at the top and the
+offset below its top), so a resize, a new thumbnail size or a caption change keeps the same photos
+in view; a scroll asked for from outside the view (a tree click, a scroll command) eases there over
+0.2 s, ease-out.
 
 ### 5.2 Section header block
 
@@ -169,7 +173,9 @@ Add a description
   so columns justify across the light table; vertical gap 22 (room for a caption line when
   captions are on). Left/right margins 24.
 - **Caption** (View → Thumbnail Caption: None (default) · Filename · Caption · Tags · Date ·
-  Resolution): one line centred under the cell, 10.5 pt `text_dim`, middle-elided.
+  Resolution): one line centred under the cell, 10.5 pt `text_dim`, middle-elided; the line is
+  16 high, directly under the cell, inside the 22 pt row gap (rows do not move when captions
+  turn on).
 - **Badges** (`design-system.md` §7): a right-aligned row inside the image's bottom-right corner in
   the order edited ✎ · geotag 📍 · held 📌 · star ★ (star rightmost); videos: a film-sprocket edge
   on the left side of the image and a duration pill "1:23" at its bottom-left.

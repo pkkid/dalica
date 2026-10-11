@@ -988,7 +988,7 @@ UI tasks each re-bless only their own.
   - done when: `cargo test -p dalica-ui-kit --test contrast` asserts `text_dim` on `chrome` ≥ 4.5:1
     (it fails on today's token); the re-blessed images differ only in dim text; the README lists the
     current API.
-- ⬜ **M4.6 `ui`: the light-table skeleton and layout**
+- ✅ **M4.6 `ui`: the light-table skeleton and layout**
   - after: M3.5, M3.9, M4.4, M4.5
   - files: `crates/ui/src/panels/light_table.rs`, `crates/ui/src/panels/light_table/**`, `crates/ui/src/panels/thumbnails.rs`, `crates/ui/src/panels/mod.rs`, `crates/ui/tests/light_table.rs`, `crates/ui/tests/library_window.rs`, `crates/ui/tests/fingerprints/**`
   - scope: `ui-layout.md` §5.1–§5.3: the light table split into the parent (viewport, scroll
