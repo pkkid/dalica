@@ -21,6 +21,7 @@ dalica-engine.workspace = true
 dalica-fs.workspace = true
 dalica-scenes.workspace = true
 dalica-ui.workspace = true
+egui.workspace = true
 png.workspace = true
 tempfile.workspace = true
 
@@ -47,3 +48,7 @@ path = "m2.rs"
 [[test]]
 name = "m3"
 path = "m3.rs"
+
+[[test]]
+name = "m4"
+path = "m4.rs"
