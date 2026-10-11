@@ -14,6 +14,7 @@ pub mod dirs;
 pub mod faults;
 pub mod guard;
 pub mod lock;
+pub mod pack;
 pub mod walk;
 
 use std::io;
@@ -25,6 +26,7 @@ pub use atomic::{Expect, Identity, Read, identity, read, replace, replace_privat
 pub use dirs::{TempDir, create_dir_all, create_private_dir_all, remove_own_file};
 pub use guard::{UiThread, mark_ui_thread};
 pub use lock::LibraryLock;
+pub use pack::{CacheFile, PackFile, TempFile, list_shaped, remove_shaped};
 pub use walk::{Entry, Limits, Walk, Warning, walk};
 
 /// Everything a file operation can refuse or fail with.
