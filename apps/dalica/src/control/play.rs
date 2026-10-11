@@ -28,6 +28,15 @@ const MAX_COORD: f32 = 1.0e6;
 const WINDOW_WAIT: Duration = Duration::from_secs(2);
 /// Without a frame for this long, the window is not drawing (`ui.inspect` → `window.drawing`).
 const NOT_DRAWING: Duration = Duration::from_secs(1);
+/// Why a play in a window that draws no frames ends.
+pub const STALLED: &str = "the window drew no frames for 2 s (minimised or covered), so nothing can be played or captured; Dalica never raises its window: use `--headless` or `dalica-cli snapshot` to draw without one";
+
+/// Whether a play that started at `started` has seen no frame for [`WINDOW_WAIT`] at `now`: since
+/// it started, or since the last frame if one came after.
+fn stalled(started: Instant, last_frame: Option<Instant>, now: Instant) -> bool {
+    let since = last_frame.map_or(started, |f| f.max(started));
+    now.saturating_duration_since(since) > WINDOW_WAIT
+}
 
 /// What one frame of a play does.
 #[derive(Debug)]
@@ -214,7 +223,13 @@ impl WindowControl {
                         }
                     },
                     Stage::Playing(play, then) => {
-                        if a.started.elapsed() > RUN_LIMIT {
+                        if stalled(a.started, self.last_frame, Instant::now()) {
+                            // Minimised or covered: the window draws no frames, so input cannot play
+                            // and a screenshot cannot be read back (§6.11). Dalica never raises the
+                            // window for it; `--headless` and `dalica-cli snapshot` draw without one.
+                            let e = Error::new(Code::Timeout, STALLED);
+                            Job::Continue(a.pending.take(), a.started, Outcome::Reply(Err(e)))
+                        } else if a.started.elapsed() > RUN_LIMIT {
                             // The window stopped drawing (hidden, minimised): give up on this one so
                             // later requests are not stuck behind it.
                             let e = Error::new(Code::Timeout, "the window drew no frames to play the input; it may be hidden or minimised");
@@ -779,6 +794,34 @@ mod tests {
             Played::Settled(s) => assert!(!s.settled && s.busy == ["library: opening"]),
             other => panic!("{other:?}"),
         }
+    }
+
+    /// `tests/acceptance/m2.md`: a screenshot of a minimised or covered window answers `timeout`
+    /// within about 2 s, without raising the window; a window that draws keeps playing.
+    #[test]
+    fn a_window_that_draws_no_frames_answers_timeout_within_2_s() {
+        let t0 = Instant::now();
+        let at = |ms: u64| t0 + Duration::from_millis(ms);
+        assert!(!stalled(t0, None, at(1900)));
+        assert!(stalled(t0, None, at(2100)), "no frame since the request started");
+        assert!(!stalled(t0, Some(at(1500)), at(3000)), "a frame came after it started");
+        assert!(stalled(t0, Some(at(1500)), at(3600)));
+        assert!(!stalled(at(5000), Some(t0), at(6000)), "an old frame does not count against a new request");
+
+        // The whole path: a screenshot play queued, no frame ever drawn.
+        let ctx = ctx_with(&[]);
+        let mut app = App::new(None);
+        let mut c = control();
+        let mut perf = Perf::new(false);
+        let p = c.plan(&ctx, &Input::Screenshot { settle_ms: Some(5000), scale: ctx.pixels_per_point() }).unwrap();
+        let then: Then = Box::new(|_, played| match played {
+            Ok(_) => Outcome::Reply(Ok(Value::Null)),
+            Err(e) => Outcome::Reply(Err(e.into())),
+        });
+        let started = Instant::now().checked_sub(Duration::from_millis(2500)).unwrap();
+        c.active = Some(Active { pending: None, started, stage: Stage::Playing(p, then) });
+        c.logic(&mut app, &ctx, &mut perf);
+        assert!(c.active.is_none(), "answered (timeout) and done, not left waiting for frames");
     }
 
     #[test]

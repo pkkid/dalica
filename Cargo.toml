@@ -43,7 +43,8 @@ egui_extras = "0.36.2"
 wgpu = { version = "30.0.1", default-features = false, features = ["std", "parking_lot", "metal", "vulkan", "dx12", "wgsl"] }
 # Each user picks its backend (the app: the XDG portal only).
 rfd = { version = "0.17.2", default-features = false }
-muda = "0.21.2"
+# The macOS menu bar only (apps/dalica); no GTK backend (it links C, architecture.md §1).
+muda = { version = "0.21.2", default-features = false }
 
 # Decoding, encoding, colour, resampling
 image = { version = "0.25.10", default-features = false, features = ["png", "tiff", "webp", "gif", "bmp"] }

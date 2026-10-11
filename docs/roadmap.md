@@ -747,7 +747,7 @@ with the rest at the next review.
     review (owner: maintainer).
   - done when: `cargo xtask tasks sync --check` parses them and `tasks sync --dry-run` lists one new
     issue per block.
-- ⬜ **M3.6 `ui` + `dalica`: title bar, window frame and window state**
+- ✅ **M3.6 `ui` + `dalica`: title bar, window frame and window state**
   - after: M3.1, M3.2, M3.3, M3.4, M3.5
   - files: `crates/ui/src/titlebar.rs`, `crates/ui/src/panels/menubar.rs`, `apps/dalica/src/**`, `apps/dalica/Cargo.toml`, `crates/engine/src/settings.rs`, `tests/acceptance/m2.md`
   - scope: `design-system.md` §11.1: the menu row is the title bar on Windows and Linux (app mark,

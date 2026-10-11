@@ -5,6 +5,18 @@
 //! M1 reads and writes `"keymap"`: the user's shortcut overrides, as `{command, context, key}`
 //! entries (`key: null` = removed). Entries for commands this version does not know, and entries it
 //! cannot read, are kept verbatim and ignored (`menus-and-shortcuts.md` §2.0).
+//!
+//! M3 adds three objects, each merged key by key (keys this version does not write are kept):
+//!
+//! - `"window"`: `{x, y, width, height, maximized}`, the window's outer position and inner size in
+//!   points as last seen while it was neither maximised nor full screen ([`WindowState`]);
+//! - `"view"`: `{treeWidth, pane, paneLarge}`, the view state restored at the next start
+//!   ([`ViewState`], `ui-layout.md` §2);
+//! - `"interface"`: `{systemTitleBar}`, Options → General → Interface → Use system title bar
+//!   (`design-system.md` §11.1).
+//!
+//! Stored numbers are hostile like any input: a value that is not a finite number in its range is
+//! dropped (the default is used), never trusted.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -19,6 +31,59 @@ use crate::registry::Context;
 pub const FILE: &str = "settings.json";
 /// The largest settings file read.
 const MAX_BYTES: u64 = 64 << 20;
+
+/// The window's default and smallest inner size in points (`ui-layout.md` §2), and the largest
+/// side a stored size may have.
+pub const WINDOW_DEFAULT: [f32; 2] = [1400.0, 900.0];
+pub const WINDOW_MIN: [f32; 2] = [900.0, 600.0];
+pub const WINDOW_MAX_SIDE: f32 = 16384.0;
+/// The farthest from the origin a stored window position may be, in points.
+pub const POSITION_LIMIT: f32 = 100_000.0;
+/// The widest a stored library-tree width may be, in points (the layout clamps it to the window).
+pub const TREE_WIDTH_LIMIT: f32 = 16384.0;
+/// The longest stored side-pane name read.
+const MAX_NAME: usize = 64;
+
+/// The window as last seen (`"window"` in `settings.json`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct WindowState {
+    /// The outer top-left corner in points; `None` where the platform does not tell (Wayland).
+    pub position: Option<[f32; 2]>,
+    /// The inner size in points while not maximised, within `WINDOW_MIN ..= WINDOW_MAX_SIDE`.
+    pub size: [f32; 2],
+    pub maximized: bool,
+}
+
+impl Default for WindowState {
+    fn default() -> Self {
+        WindowState { position: None, size: WINDOW_DEFAULT, maximized: false }
+    }
+}
+
+impl WindowState {
+    /// This state with every number in its range: a size that is not finite is the default, one
+    /// out of range is clamped; a position that is not finite or farther than `POSITION_LIMIT` is
+    /// dropped.
+    pub fn sanitized(self) -> WindowState {
+        let side = |v: f32, min: f32, default: f32| if v.is_finite() { v.clamp(min, WINDOW_MAX_SIDE) } else { default };
+        let size = [side(self.size[0], WINDOW_MIN[0], WINDOW_DEFAULT[0]), side(self.size[1], WINDOW_MIN[1], WINDOW_DEFAULT[1])];
+        let position = self.position.filter(|p| p.iter().all(|v| v.is_finite() && v.abs() <= POSITION_LIMIT));
+        WindowState { position, size, maximized: self.maximized }
+    }
+}
+
+/// The view state kept between runs (`"view"` in `settings.json`): what `ui-layout.md` §2 says is
+/// persisted. The pane is kept by its protocol name (`"tags"`); the UI maps it to its own type and
+/// treats a name it does not know as closed.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ViewState {
+    /// The library tree's width in points as the user set it; `None` for the default.
+    pub tree_width: Option<f32>,
+    /// The open side pane's name, `None` when closed.
+    pub pane: Option<String>,
+    /// The side pane at its large width.
+    pub pane_large: bool,
+}
 
 /// The settings document.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -101,6 +166,101 @@ impl Settings {
     }
 }
 
+impl Settings {
+    /// The value stored under the top-level `key`, if any.
+    pub fn get(&self, key: &str) -> Option<&Value> {
+        self.root.get(key)
+    }
+
+    /// Merges `fields` into the object stored under `key` (made when absent; a value there that is
+    /// not an object is replaced): each field is set, `None` removes it, and every other key of the
+    /// object is kept verbatim.
+    pub fn merge(&mut self, key: &str, fields: &[(&str, Option<Value>)]) {
+        let slot = self.root.entry(key.to_string()).or_insert_with(|| Value::Object(Map::new()));
+        if !slot.is_object() {
+            *slot = Value::Object(Map::new());
+        }
+        if let Value::Object(obj) = slot {
+            for (k, v) in fields {
+                match v {
+                    Some(v) => {
+                        obj.insert((*k).to_string(), v.clone());
+                    }
+                    None => {
+                        obj.remove(*k);
+                    }
+                }
+            }
+        }
+    }
+
+    /// A field of the object under `key`.
+    fn field(&self, key: &str, field: &str) -> Option<&Value> {
+        self.root.get(key)?.as_object()?.get(field)
+    }
+
+    /// The stored window state, with hostile numbers replaced ([`WindowState::sanitized`]); `None`
+    /// when none is stored.
+    pub fn window(&self) -> Option<WindowState> {
+        let obj = self.root.get("window")?.as_object()?;
+        let num = |k: &str| obj.get(k).and_then(Value::as_f64).map(|v| v as f32);
+        let position = match (num("x"), num("y")) {
+            (Some(x), Some(y)) => Some([x, y]),
+            _ => None,
+        };
+        let size = [num("width").unwrap_or(f32::NAN), num("height").unwrap_or(f32::NAN)];
+        let maximized = obj.get("maximized").and_then(Value::as_bool).unwrap_or(false);
+        Some(WindowState { position, size, maximized }.sanitized())
+    }
+
+    /// Stores `w` (sanitized) under `"window"`. A position the platform did not tell leaves the
+    /// stored one as it is.
+    pub fn set_window(&mut self, w: &WindowState) {
+        let w = w.sanitized();
+        let mut fields = vec![("width", Some(json!(w.size[0]))), ("height", Some(json!(w.size[1]))), ("maximized", Some(json!(w.maximized)))];
+        if let Some([x, y]) = w.position {
+            fields.extend([("x", Some(json!(x))), ("y", Some(json!(y)))]);
+        }
+        self.merge("window", &fields);
+    }
+
+    /// The stored view state; hostile values are dropped (a tree width that is not a finite number
+    /// in `0 < w ≤ TREE_WIDTH_LIMIT`, a pane that is not a short string).
+    pub fn view(&self) -> ViewState {
+        let tree_width =
+            self.field("view", "treeWidth").and_then(Value::as_f64).map(|v| v as f32).filter(|w| w.is_finite() && *w > 0.0 && *w <= TREE_WIDTH_LIMIT);
+        let pane = self.field("view", "pane").and_then(Value::as_str).filter(|p| !p.is_empty() && p.len() <= MAX_NAME).map(str::to_string);
+        let pane_large = self.field("view", "paneLarge").and_then(Value::as_bool).unwrap_or(false);
+        ViewState { tree_width, pane, pane_large }
+    }
+
+    /// Stores `v` under `"view"` (a closed pane as `null`).
+    pub fn set_view(&mut self, v: &ViewState) {
+        let tree = v.tree_width.filter(|w| w.is_finite() && *w > 0.0 && *w <= TREE_WIDTH_LIMIT).map(|w| json!(w));
+        let pane = Some(v.pane.as_ref().map_or(Value::Null, |p| json!(p)));
+        self.merge("view", &[("treeWidth", tree), ("pane", pane), ("paneLarge", Some(json!(v.pane_large)))]);
+    }
+
+    /// Options → General → Interface → Use system title bar (Windows and Linux; default off).
+    pub fn system_title_bar(&self) -> bool {
+        self.field("interface", "systemTitleBar").and_then(Value::as_bool).unwrap_or(false)
+    }
+
+    pub fn set_system_title_bar(&mut self, on: bool) {
+        self.merge("interface", &[("systemTitleBar", Some(json!(on)))]);
+    }
+
+    /// Reads `<dir>/settings.json` without changing anything: unlike [`Settings::load`], a damaged
+    /// or unreadable file gives the defaults and stays where it is (the session that opens the
+    /// library sets it aside and reports it). For what the window needs before the library opens.
+    pub fn peek(dir: &Path) -> Settings {
+        match dalica_fs::read(&dir.join(FILE), MAX_BYTES) {
+            Ok(Some(r)) => Settings::parse(&r.bytes).unwrap_or_default(),
+            _ => Settings::default(),
+        }
+    }
+}
+
 /// `(command, context, key)` of one entry; `None` if it cannot be read.
 fn read_entry(e: &Value) -> Option<(String, Context, Option<Key>)> {
     let command = e.get("command")?.as_str()?.to_string();
@@ -111,4 +271,85 @@ fn read_entry(e: &Value) -> Option<(String, Context, Option<Key>)> {
         _ => return None,
     };
     Some((command, context, key))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn window_and_view_state_survive_a_write_and_a_read() {
+        let mut s = Settings::parse(br#"{"keymap": [], "window": {"monitor": "DP-1"}, "future": {"a": 1}}"#).unwrap();
+        let w = WindowState { position: Some([-1200.0, 40.0]), size: [1600.0, 1000.0], maximized: true };
+        let v = ViewState { tree_width: Some(310.0), pane: Some("tags".into()), pane_large: true };
+        s.set_window(&w);
+        s.set_view(&v);
+        s.set_system_title_bar(true);
+        let back = Settings::parse(&s.print()).unwrap();
+        assert_eq!(back.window(), Some(w));
+        assert_eq!(back.view(), v);
+        assert!(back.system_title_bar());
+        // Merge, never replace: keys this version does not write are kept.
+        assert_eq!(back.get("window").unwrap()["monitor"], "DP-1");
+        assert_eq!(back.get("future").unwrap(), &json!({ "a": 1 }));
+        assert_eq!(back.get("keymap").unwrap(), &json!([]));
+        // A closed pane is stored as null; a position the platform did not tell keeps the old one.
+        let mut s = back;
+        s.set_view(&ViewState { tree_width: None, pane: None, pane_large: false });
+        assert_eq!(s.get("view").unwrap()["pane"], Value::Null);
+        assert_eq!(s.view(), ViewState::default());
+        s.set_window(&WindowState { position: None, size: [1000.0, 700.0], maximized: false });
+        assert_eq!(s.window().unwrap().position, Some([-1200.0, 40.0]));
+    }
+
+    #[test]
+    fn nothing_stored_means_the_defaults() {
+        let s = Settings::default();
+        assert_eq!(s.window(), None);
+        assert_eq!(s.view(), ViewState::default());
+        assert!(!s.system_title_bar());
+    }
+
+    #[test]
+    fn hostile_stored_values_are_clamped_or_dropped() {
+        let s = Settings::parse(
+            br#"{"window": {"x": 1e30, "y": 5, "width": -3, "height": 1e9, "maximized": "yes"},
+                 "view": {"treeWidth": 1e9, "pane": 7, "paneLarge": 1},
+                 "interface": {"systemTitleBar": "on"}}"#,
+        )
+        .unwrap();
+        let w = s.window().unwrap();
+        assert_eq!(w, WindowState { position: None, size: [WINDOW_MIN[0], WINDOW_MAX_SIDE], maximized: false });
+        assert_eq!(s.view(), ViewState::default());
+        assert!(!s.system_title_bar());
+        for bad in [r#"{"view": {"treeWidth": -5}}"#, r#"{"view": {"treeWidth": 0}}"#, r#"{"view": "wide"}"#, r#"{"window": [1, 2]}"#] {
+            let s = Settings::parse(bad.as_bytes()).unwrap();
+            assert_eq!(s.view().tree_width, None, "{bad}");
+            assert!(s.window().is_none_or(|w| w == WindowState::default()), "{bad}");
+        }
+        let long = format!(r#"{{"view": {{"pane": "{}"}}}}"#, "p".repeat(100));
+        assert_eq!(Settings::parse(long.as_bytes()).unwrap().view().pane, None);
+        // Values that are not numbers in range are never written either.
+        let mut s = Settings::default();
+        s.set_window(&WindowState { position: Some([f32::NAN, 0.0]), size: [f32::INFINITY, 10.0], maximized: false });
+        assert_eq!(s.window().unwrap(), WindowState { position: None, size: [WINDOW_DEFAULT[0], WINDOW_MIN[1]], maximized: false });
+        s.set_view(&ViewState { tree_width: Some(f32::NAN), pane: None, pane_large: false });
+        assert!(s.get("view").unwrap().get("treeWidth").is_none());
+        // A value that is not an object is replaced by one.
+        let mut s = Settings::parse(br#"{"view": 3}"#).unwrap();
+        s.set_view(&ViewState { tree_width: Some(250.0), ..ViewState::default() });
+        assert_eq!(s.view().tree_width, Some(250.0));
+    }
+
+    #[test]
+    fn peek_reads_without_setting_a_damaged_file_aside() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(Settings::peek(dir.path()), Settings::default());
+        dalica_fs::replace(&dir.path().join(FILE), b"{ not json", dalica_fs::Expect::Absent).unwrap();
+        assert_eq!(Settings::peek(dir.path()), Settings::default());
+        assert!(dir.path().join(FILE).is_file(), "left where it is");
+        let good = tempfile::tempdir().unwrap();
+        dalica_fs::replace(&good.path().join(FILE), br#"{"interface": {"systemTitleBar": true}}"#, dalica_fs::Expect::Absent).unwrap();
+        assert!(Settings::peek(good.path()).system_title_bar());
+    }
 }

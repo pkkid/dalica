@@ -540,9 +540,13 @@ shortcuts `ui.dialog.confirm` (the default button, or `{button: "dialog.undoSave
 - Without `path` the PNG comes back base64-encoded in `png` (subject to the 8 MiB reply limit).
   `path` follows §5.7 and must end in `.png`.
 - `headless: true` draws the UI on the CPU (§8) instead of reading back the window: it needs no
-  compositor and works when the window is occluded, minimised or the display is asleep. A windowed
-  capture that receives no frame within **2 s falls back to headless automatically** (`headless:
-  true` in the result).
+  compositor and works when the window is occluded, minimised or the display is asleep.
+  **Planned, not built yet:** in the running window it would need a second copy of the window's
+  textures, so today the window reads its own frame back whatever `headless` says, and a window that
+  draws no frames (minimised, covered) answers `timeout` within **2 s** (every input request does;
+  on Wayland a minimised window gets no logic ticks either, so the 70 s request limit answers).
+  An `--headless` app and `dalica-cli snapshot` always draw on the CPU (`headless: true` in the
+  result).
 - Dalica **never raises or focuses its window** to take a screenshot: stealing focus from the user's
   terminal is as bad as synthetic OS input.
 
@@ -587,6 +591,7 @@ recipe operation and parameter names of `data-model.md` §3.1 and `editing.md` (
 |---|---|
 | Regions (M3) | `region:<name>` for each region of §6.6 shown (`region:menuBar`, `region:toolbar`, `region:tree`, `region:splitter`, `region:lightTable`, `region:scrollbar`, `region:sidePane`, `region:statusLine`, `region:tray`, `region:trayButtons`, `region:bottomControls`, `region:actionButtons`): the region's rect, no input of its own (role `other`); a region not shown is not listed |
 | Menu bar (M3) | `menu:File` … `menu:Help` (title by its English label; the fourth is `menu:Folder` whatever its shown title; macOS adds `menu:Dalica`), `menuitem:<command id>` for open menu and context-menu items (`menuitem:<command id>/<variant>` for rows of one command that differ by a parameter, `menus-and-shortcuts.md` §1), `submenu:<menu>/<label>…` (`submenu:View/Thumbnail Caption`), and on a menu taller than the window its scroll arrows `button:menu.scrollUp/<depth>` and `button:menu.scrollDown/<depth>` (depth 1 for a menu of the bar or a context menu) |
+| Title bar (M3) | Windows and Linux, unless the system title bar is chosen (`design-system.md` §11.1): `button:window.minimize`, `button:window.maximize` (labelled Restore while maximized), `button:window.close`, `titlebar:drag` (the free gap: drag moves, double-click maximizes; also on macOS, beside the traffic lights); in a real window, while neither maximized nor full screen, the resize edges `resize:n`, `resize:s`, `resize:e`, `resize:w`, `resize:ne`, `resize:nw`, `resize:se`, `resize:sw` |
 | Toolbar (M3) | `button:toolbar.import`, `button:toolbar.newAlbum`, `button:tree.flat`, `button:tree.tree`, `button:toolbar.viewOptions`, `button:filter.starred`, `button:filter.faces`, `button:filter.videos`, `button:filter.geotagged`, `slider:age`, `field:search`, `button:search.clear`, `indicator:activity` |
 | Room tabs (M11+) | `tab:room.library`, `tab:room.import`, `tab:room.collage`, …; `button:room.close.<room>` |
 | Library tree (M4) | `tree:group:albums` · `people` · `projects` · `folders` · `other` · `hidden` (the group header), `tree:folder:<FolderId>`, `tree:album:<AlbumId>` (also `tree:album:starred`, `tree:album:recent`, `tree:album:search`), `tree:person:<PersonId>` (M13), `tree:disclosure:<FolderId>` (tree mode), `splitter:tree` |
@@ -619,8 +624,9 @@ The egui output is rasterized on the CPU (`crates/ui-kit/src/raster.rs`, driven 
 blending and scissor clipping as egui's GPU backends, so the image matches the window (minus GPU
 dithering). Thumbnails and previews come from the same job pool, drained while settling.
 
-- **In the running app:** `ui.screenshot {headless: true}` draws the current UI into an offscreen
-  context from the logic tick; windowed screenshots fall back to it after 2 s (§6.11).
+- **In the running app (planned):** `ui.screenshot {headless: true}` would draw the current UI into
+  an offscreen context from the logic tick; until then a window that draws no frames answers
+  `timeout` after 2 s (§6.11). `--headless` runs the app on this renderer from the start.
 - **Without any window:** `dalica-cli snapshot` runs a whole app session headlessly and answers the
   same requests through the same handler (no TCP, no token):
 

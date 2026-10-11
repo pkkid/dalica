@@ -22,15 +22,15 @@ same commit.
 <!-- parity:summary -->
 | Section | ✅ | 🟡 | ⬜ | 🚫 |
 |---|---:|---:|---:|---:|
-| A. Library view | 0 | 9 | 23 | 1 |
+| A. Library view | 1 | 8 | 23 | 1 |
 | B. Organizing | 0 | 1 | 41 | 0 |
 | C. Editing | 0 | 0 | 21 | 4 |
 | D. Viewing | 0 | 0 | 6 | 2 |
 | E. Output | 0 | 0 | 2 | 9 |
 | F. Data | 1 | 2 | 3 | 0 |
-| G. Preferences and system | 0 | 3 | 8 | 0 |
+| G. Preferences and system | 0 | 4 | 8 | 0 |
 | H. Menus | 0 | 0 | 7 | 0 |
-| **All** | 1 | 15 | 111 | 16 |
+| **All** | 2 | 15 | 111 | 16 |
 <!-- /parity:summary -->
 
 ## Top gaps
@@ -49,7 +49,7 @@ same commit.
 | LIB-TREE-SORT | Folder sort: date, recent changes, size, name, reverse | P0 | ⬜ | |
 | LIB-TREE-CLICK | Click scrolls light table to section and selects folder as a unit | P0 | ⬜ | ref 02 §6.5 |
 | LIB-TREE-DND | Drop photos on folder (move/copy), album (add), person | P0 | ⬜ | |
-| LIB-SPLIT | Resizable tree with persisted width | P0 | 🟡 | `splitter:tree` drags the tree within 200 … W − 480 (by id: `crates/ui/tests/tree_status_pane.rs`, `crates/ui/tests/layout.rs`); persistence missing (M3.6) |
+| LIB-SPLIT | Resizable tree with persisted width | P0 | ✅ | `splitter:tree` drags the tree within 200 … W − 480 (by id: `crates/ui/tests/tree_status_pane.rs`, `crates/ui/tests/layout.rs`); the width survives a restart through `settings.json` (`crates/ui/src/app.rs` test `the_view_state_survives_a_restart`) |
 | LIB-LT-SECTIONS | Continuous light table of sections in tree order | P0 | ⬜ | ref 02 §7.1 |
 | LIB-LT-HEADER | Section header: icon, title, date/place, buttons, description, edited count + Save | P0 | ⬜ | ref 02 §7.2 |
 | LIB-LT-STICKY | Sticky section headers | P1 | ⬜ | |
@@ -201,7 +201,8 @@ same commit.
 | PREF-GENERAL / FILETYPES / SLIDESHOW / NETWORK / PEOPLE / VIEWER / EXPORT | each tab's options | P1 | ⬜ | `menus-and-shortcuts.md` §5 |
 | PREF-KEYMAP | Keyboard contexts and the shortcut editor (search, record, conflicts, reset) | P1 | ⬜ | `menus-and-shortcuts.md` §2.0 |
 | SYS-UPDATES | Check for updates | — | ⬜ | deferred, not planned yet (2026-10-09) |
-| SYS-COMMANDS | Command registry, menu catalog, UI_COMMANDS | P0 | 🟡 | the registry (`crates/engine/src/registry.rs`); the catalog of every item of `menus-and-shortcuts.md` §1 (`crates/ui/src/menu_catalog.rs`) and the menu model, `UI_COMMANDS` and menus bounded by the window (`crates/ui/src/menus.rs`), measured by `crates/ui/tests/menus.rs`; missing: the catalog's menus in the window's menu row and the native macOS menu (M3.6), check marks fed by the view state (M4; the thumbnail-size radio group already answers) |
+| SYS-COMMANDS | Command registry, menu catalog, UI_COMMANDS | P0 | 🟡 | the registry (`crates/engine/src/registry.rs`); the catalog of every item of `menus-and-shortcuts.md` §1 (`crates/ui/src/menu_catalog.rs`) and the menu model, `UI_COMMANDS` and menus bounded by the window (`crates/ui/src/menus.rs`), measured by `crates/ui/tests/menus.rs`; the in-window menu row (`crates/ui/src/titlebar.rs`) and the macOS menu bar generated from the same model (`apps/dalica/src/native_menu.rs`, the same items checked on every OS); missing: check marks fed by the view state (M4; the thumbnail-size radio group already answers) |
+| SYS-WINDOW | Title bar, window frame and window state | P0 | 🟡 | the menu row as title bar on Windows and Linux (app mark, menus, centred title, 46 × 24 caption buttons, drag, double-click maximize, resize edges), the system-title-bar setting, the macOS strip and menu bar: `crates/ui/src/titlebar.rs`, `apps/dalica/src/frame.rs`, `apps/dalica/src/native_menu.rs`; window position, size and maximized state and the view state (tree width, side pane) restored from `settings.json` (`crates/engine/src/settings.rs`, `crates/ui/src/app.rs` test `the_view_state_survives_a_restart`); missing: the Options checkbox for the setting (PREF-GENERAL), File ▸ Exit as a command (the Close button closes the window directly), the macOS build checked only by CI |
 | SYS-CONTROL | Control channel + widget registry + screenshots | P0 | 🟡 | `crates/ui/src/control/` (every M2 method as pure handlers over the app and the headless driver: `engine.execute`, `engine.commands`, `ui.state`/`ui.set`, `ui.inspect`, `ui.widgets`, click/drag/hover/pointer/key/type/scroll/resize, `ui.screenshot` with §5.7 write roots, `ui.settle`/`ui.wait`, the file-picker stub); the transport in `apps/dalica/src/control/` (`--control [PORT]` on 127.0.0.1 only, the 0600 token file, `auth` in constant time, 1 MiB lines, 16 connections, 30 s idle, 60 s deadline, `app.quit`; requests answered from the window's logic tick or `--headless`), measured by `apps/dalica/tests/control_headless.rs`, its security rules (wrong token, no `auth`, oversized, non-JSON and HTTP lines, the 17th connection, token file modes, loopback only) by `apps/dalica/tests/control_security.rs`; `ui.menu.tree` / `ui.menu.invoke` in `crates/ui/src/control/menu.rs` (`crates/ui/tests/menus.rs`); missing: `batch`, `library.inspect`, `jobs.*`, the headless capture of a window (`ui.screenshot {headless: true}` in the window) |
 | SYS-HEADLESS | Headless snapshots | P0 | 🟡 | `crates/ui/src/headless.rs` (click, drag, hover, scroll, raw pointer, keys, text, settle, wait) and `crates/ui/src/perf.rs` (perf counters, `DALICA_PROFILE=1`); `dalica-cli snapshot`; `dalica --headless --control` (the same handlers over TCP, no window); missing: the control-protocol script format in `snapshot` |
 | SYS-MCP | MCP server | P1 | ⬜ | |
