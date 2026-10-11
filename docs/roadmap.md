@@ -1073,7 +1073,7 @@ UI tasks each re-bless only their own.
     distances, nothing inside the dead zone, the top speed at the track end; release stops the
     view and the thumb is back at the centre after 150 ms; ⇑/⇓ land headers at the top; the
     marker tracks the position; the keymap has no conflicts.
-- ⬜ **M4.12 `ui`: never-blank thumbnails on screen**
+- ✅ **M4.12 `ui`: never-blank thumbnails on screen**
   - after: M4.6, M4.7, M4.8
   - files: `crates/ui/src/panels/thumbnails.rs`, `crates/ui/tests/never_blank.rs`
   - scope: `Thumbnails::paint` drawn from the session's ladder: the covering size, else the next

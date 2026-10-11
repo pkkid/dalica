@@ -136,6 +136,12 @@ fn a_scan_decodes_once_and_makes_the_128_and_256_entries_and_the_sketch() {
     assert!(sk.len() <= 26);
     assert!((sketch::decode(&sk).unwrap().aspect() - 1.5).abs() < 0.05);
 
+    // What a scan hands back is the cached entry's pixels: the same as a later read of it.
+    for (size, img) in &first.images {
+        let read = ladder::decode_entry(&c.get(*size, src.key()).unwrap().unwrap(), &limits).unwrap();
+        assert!(read == *img, "{size:?}: the scan's image differs from the cached entry");
+    }
+
     // Again: the entries are there, nothing is decoded.
     let again = ladder::scan(&c, &src, false, &limits, &not_cancelled()).unwrap();
     assert_eq!((again.decoded, again.images.len(), again.sketch), (false, 0, None));
@@ -157,6 +163,7 @@ fn a_fetch_reads_the_cache_and_decodes_only_what_is_missing() {
     let read = ladder::fetch(&c, &src, Size::S512, SCREEN, &limits, &not_cancelled()).unwrap();
     assert!(!read.decoded);
     assert_eq!(dims(&read.image), (512, 341));
+    assert!(read.image == made.image, "made or read, the same pixels");
     // Never enlarged: the 1024 and screen entries of a 1200-pixel photo.
     assert_eq!(dims(&ladder::fetch(&c, &src, Size::S1024, SCREEN, &limits, &not_cancelled()).unwrap().image), (1024, 683));
     assert_eq!(dims(&ladder::fetch(&c, &src, Size::Screen, SCREEN, &limits, &not_cancelled()).unwrap().image), (1200, 800));

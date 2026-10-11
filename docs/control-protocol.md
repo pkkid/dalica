@@ -462,6 +462,8 @@ Everything in `ui.state`, plus:
 | `thumbRequests`, `jobsQueued` | jobs requested last frame; queue length per priority (`editMain`, `hover`, `visible`, `filmstrip`, `effectTiles`, `prefetch`, `background`) |
 | `jobsInFlight`, `decodesInFlight`, `jobsDone`, `staleDropped` | job-pool activity |
 | `textures`, `textureBytes`, `textureEvictions` | live egui textures and their size |
+| `coveredCells`, `upscaledCells`, `sketchCells`, `placeholderCells`, `failedCells` | light-table cells last frame by what they drew: the covering ladder size, a smaller one scaled up, the colour sketch, the `gray 38` placeholder (never scanned; 0 while scrolling a scanned library), a failed thumbnail (`architecture.md` §6.5) |
+| `thumbTextures`, `thumbTextureBytes`, `thumbUploads`, `thumbUploadBytes`, `thumbUploadsDeferred`, `thumbEvictions` | thumbnail textures alive (at most 600, kept within one screen of the view), uploaded last frame (at most 24 and 4 MiB a frame), left for a later frame by that cap, evicted last frame |
 | `fsCachedPending` | file-system answers the UI is waiting for (`fs_cached`) |
 | `opsApplied` | scanner `Op`s applied last frame |
 | `memory` | `{budgetBytes, usedBytes, byCache: {…}}` (`architecture.md` §5) |
