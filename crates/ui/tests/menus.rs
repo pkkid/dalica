@@ -720,3 +720,29 @@ fn the_window_draws_the_menus_in_its_menu_bar_region() {
         std::fs::write(dir.join(format!("menus-window-view-{w}x{h}.png")), png).unwrap();
     }
 }
+
+/// The in-window bar draws the Windows/Linux layout on every OS: on macOS the Mac layout (an
+/// application menu first, Options… moved into it) belongs to the system menu bar
+/// (`design-system.md` §11.1), and whole-window fingerprints are blessed once for every OS. The
+/// drawn bar is compared with the `Other` model here (it fails on macOS when the bar follows the
+/// OS), and the source check fails on any OS when `show_bar` asks the OS again.
+#[test]
+fn the_in_window_bar_draws_the_same_layout_on_every_os() {
+    let other: Vec<&str> = menus::bar_menus(menus::Platform::Other).iter().map(|m| m.key).collect();
+    let mac: Vec<&str> = menus::bar_menus(menus::Platform::Mac).iter().map(|m| m.key).collect();
+    assert_ne!(other, mac, "the two layouts differ, so the check below means something");
+
+    let mut win = Window::new(1400, 900, 1.0, false);
+    let mut drawn: Vec<_> = registry::widgets(&win.ctx).into_iter().filter(|wi| wi.id.starts_with("menu:")).collect();
+    drawn.sort_by(|a, b| a.rect[0].total_cmp(&b.rect[0]));
+    let drawn: Vec<String> = drawn.iter().map(|wi| wi.id.trim_start_matches("menu:").to_string()).collect();
+    assert_eq!(drawn, other, "the bar draws the Windows/Linux menus, left to right");
+    // Options… stays in Tools (on macOS the system menu bar's application menu holds it).
+    win.click("menu:Tools");
+    assert!(win.find("menuitem:app.preferences").is_some(), "Tools ▸ Options… is drawn");
+
+    let src = include_str!("../src/menus.rs");
+    let start = src.find("pub fn show_bar(").expect("show_bar");
+    let body = src.get(start..).and_then(|s| s.find("\n}\n").and_then(|end| s.get(..end))).expect("show_bar's body");
+    assert!(!body.contains("Platform::current()"), "show_bar must not draw a per-OS layout");
+}

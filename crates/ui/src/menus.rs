@@ -692,9 +692,11 @@ fn rows(ui: &mut Ui, nodes: &[Node], clicked: &mut Option<ItemNode>, depth: usiz
 
 /// The in-window menu bar (Windows and Linux): one title per menu of the model (`menu:<key>`), each
 /// opening its menu bounded by the window. A clicked item runs through [`activate`]; returns its
-/// command id (its result or refusal is on the status line).
+/// command id (its result or refusal is on the status line). It always draws the Windows/Linux
+/// layout: on macOS the Mac layout belongs to the system menu bar (`design-system.md` §11.1), and
+/// a render must not depend on the OS it runs on.
 pub fn show_bar(ui: &mut Ui, app: &mut App) -> Option<&'static str> {
-    let platform = Platform::current();
+    let platform = Platform::Other;
     let top = ui.max_rect().bottom();
     let mut clicked: Option<ItemNode> = None;
     {
