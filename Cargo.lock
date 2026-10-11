@@ -793,6 +793,7 @@ dependencies = [
  "dalica-scenes",
  "dalica-sidecar",
  "dalica-store",
+ "dalica-thumbs",
  "log",
  "proptest",
  "serde",
