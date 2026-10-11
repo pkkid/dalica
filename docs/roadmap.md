@@ -1059,7 +1059,7 @@ UI tasks each re-bless only their own.
   - done when: a ui-kit badge sheet (every combination, three cell sizes) matches its
     fingerprint; headless tests: each caption mode's text, small pictures hidden and shown,
     the hidden-photo opacity rule, the tooltip after 600 ms of virtual time and not before.
-- ⬜ **M4.11 `ui`: the speed-control scrollbar and scroll keys**
+- ✅ **M4.11 `ui`: the speed-control scrollbar and scroll keys**
   - after: M4.6
   - files: `crates/ui/src/panels/light_table/scrollbar.rs`, `crates/ui/src/commands/scroll.rs`, `crates/ui/tests/scrollbar.rs`, `crates/engine/src/settings.rs`, `docs/ui-layout.md`
   - scope: `ui-layout.md` §5.6: ⇑ ▲ track ▼ ⇓ with auto-repeat, track click pages (one row + 90,

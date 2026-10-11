@@ -17,6 +17,10 @@
 //! - `"interface"`: `{systemTitleBar}`, Options → General → Interface → Use system title bar
 //!   (`design-system.md` §11.1).
 //!
+//! M4 adds `"scrolling"`: `{thumbExponent, thumbTopSpeed}`, the light table's speed-control thumb
+//! ([`ThumbSpeed`], `ui-layout.md` §5.6), read only, so the curve can be tuned by hand in the file
+//! without a rebuild.
+//!
 //! Stored numbers are hostile like any input: a value that is not a finite number in its range is
 //! dropped (the default is used), never trusted.
 
@@ -108,6 +112,30 @@ pub struct ViewOptions {
 
 /// The largest stored thumbnail size read, in points (the UI clamps it to its own range).
 pub const THUMB_SIZE_LIMIT: f32 = 4096.0;
+
+/// The light table's speed-control thumb (`"scrolling"` in `settings.json`, `ui-layout.md` §5.6):
+/// past the dead zone, the scroll speed is `topSpeed · u^exponent` screen heights per second, `u`
+/// the thumb's distance from the centre as a share of the way to the track's end.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ThumbSpeed {
+    /// The curve's exponent (`thumbExponent`): 1 linear, 2 quadratic (the default).
+    pub exponent: f32,
+    /// The speed at the track's end in screen heights per second (`thumbTopSpeed`; default 40).
+    pub top_speed: f32,
+}
+
+impl Default for ThumbSpeed {
+    fn default() -> Self {
+        ThumbSpeed { exponent: THUMB_EXPONENT_DEFAULT, top_speed: THUMB_TOP_SPEED_DEFAULT }
+    }
+}
+
+/// The default and the range of a stored [`ThumbSpeed::exponent`]; a value outside it is dropped.
+pub const THUMB_EXPONENT_DEFAULT: f32 = 2.0;
+pub const THUMB_EXPONENT_RANGE: std::ops::RangeInclusive<f32> = 0.25..=8.0;
+/// The default and the range of a stored [`ThumbSpeed::top_speed`] (screen heights per second).
+pub const THUMB_TOP_SPEED_DEFAULT: f32 = 40.0;
+pub const THUMB_TOP_SPEED_RANGE: std::ops::RangeInclusive<f32> = 0.5..=400.0;
 
 /// The settings document.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -308,6 +336,29 @@ impl Settings {
         self.merge("interface", &[("systemTitleBar", Some(json!(on)))]);
     }
 
+    /// The speed-control thumb's curve; each value that is not a number in its range is the default.
+    pub fn thumb_speed(&self) -> ThumbSpeed {
+        let num = |k: &str, range: &std::ops::RangeInclusive<f32>| {
+            self.field("scrolling", k).and_then(Value::as_f64).map(|v| v as f32).filter(|v| v.is_finite() && range.contains(v))
+        };
+        ThumbSpeed {
+            exponent: num("thumbExponent", &THUMB_EXPONENT_RANGE).unwrap_or(THUMB_EXPONENT_DEFAULT),
+            top_speed: num("thumbTopSpeed", &THUMB_TOP_SPEED_RANGE).unwrap_or(THUMB_TOP_SPEED_DEFAULT),
+        }
+    }
+
+    /// Stores `v` under `"scrolling"`; a value out of its range is stored as its default.
+    pub fn set_thumb_speed(&mut self, v: &ThumbSpeed) {
+        let ok = |x: f32, range: &std::ops::RangeInclusive<f32>, default: f32| if x.is_finite() && range.contains(&x) { x } else { default };
+        self.merge(
+            "scrolling",
+            &[
+                ("thumbExponent", Some(json!(ok(v.exponent, &THUMB_EXPONENT_RANGE, THUMB_EXPONENT_DEFAULT)))),
+                ("thumbTopSpeed", Some(json!(ok(v.top_speed, &THUMB_TOP_SPEED_RANGE, THUMB_TOP_SPEED_DEFAULT)))),
+            ],
+        );
+    }
+
     /// Reads `<dir>/settings.json` without changing anything: unlike [`Settings::load`], a damaged
     /// or unreadable file gives the defaults and stays where it is (the session that opens the
     /// library sets it aside and reports it). For what the window needs before the library opens.
@@ -452,6 +503,24 @@ mod tests {
         let mut s = Settings::parse(br#"{"view": 3}"#).unwrap();
         s.set_view(&ViewState { tree_width: Some(250.0), ..ViewState::default() });
         assert_eq!(s.view().tree_width, Some(250.0));
+    }
+
+    #[test]
+    fn the_thumb_speed_is_read_from_the_file_and_hostile_values_are_the_defaults() {
+        assert_eq!(Settings::default().thumb_speed(), ThumbSpeed { exponent: 2.0, top_speed: 40.0 });
+        let s = Settings::parse(br#"{"scrolling": {"thumbExponent": 1.5, "thumbTopSpeed": 25, "future": true}}"#).unwrap();
+        assert_eq!(s.thumb_speed(), ThumbSpeed { exponent: 1.5, top_speed: 25.0 });
+        for bad in ["0", "-2", "1e9", "null", r#""2""#, "[2]"] {
+            let s = Settings::parse(format!(r#"{{"scrolling": {{"thumbExponent": {bad}, "thumbTopSpeed": {bad}}}}}"#).as_bytes()).unwrap();
+            assert_eq!(s.thumb_speed(), ThumbSpeed::default(), "{bad}");
+        }
+        assert_eq!(Settings::parse(br#"{"scrolling": 3}"#).unwrap().thumb_speed(), ThumbSpeed::default());
+        // Written merged, out-of-range values as the defaults; unknown keys kept.
+        let mut s = s;
+        s.set_thumb_speed(&ThumbSpeed { exponent: 3.0, top_speed: f32::NAN });
+        let back = Settings::parse(&s.print()).unwrap();
+        assert_eq!(back.thumb_speed(), ThumbSpeed { exponent: 3.0, top_speed: 40.0 });
+        assert_eq!(back.get("scrolling").unwrap()["future"], json!(true));
     }
 
     #[test]

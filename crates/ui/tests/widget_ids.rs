@@ -103,13 +103,14 @@ fn every_interactive_widget_has_a_unique_id_at_both_window_sizes() {
         assert!(inside(badge.rect, find(&widgets, &first).rect));
         assert!(find(&widgets, &first).active, "the selected cell is active");
 
-        // Scrolled to the second folder by its tree row: other cells, the handle further down.
+        // Scrolled to the second folder by its tree row: other cells; the speed thumb stays at the
+        // centre of its track whatever the position (`ui-layout.md` §5.6).
         d.click(&rows[1]).unwrap();
         d.settle(FRAMES).unwrap();
         let widgets = check(&d, size, "scrolled");
         assert!(find(&widgets, &rows[1]).active);
         let handle_after = find(&widgets, "scroll:thumb").rect;
-        assert!(handle_after[1] > handle_before[1], "the handle moved down: {handle_before:?} → {handle_after:?}");
+        assert_eq!(handle_after, handle_before, "the speed thumb rests at the centre");
         assert_ne!(ids_of(&widgets, Role::Thumbnail).first(), Some(&first), "other cells are on screen");
 
         // The File menu open: its item is listed under the command it runs.

@@ -224,22 +224,36 @@ Add a description
 
 ### 5.6 Scrollbar
 
-16 wide on the right of the light table: **⇑ previous section** (16 × 24), **▲**, track (click
-pages; page step = one thumbnail row + 90, animated), thumb, **▼**, **⇓ next section**. The ⇑/⇓
-buttons scroll so the previous/next section header is at the top (⇑ first snaps to the current
-section's start when mid-section). All four buttons auto-repeat when held.
+16 wide on the right of the light table: **⇑ previous section** (16 × 24), **▲** (16 × 24), track
+(click pages; page step = one thumbnail row + 90, animated), thumb, **▼**, **⇓ next section** (ids
+`scroll:prevSection`, `scroll:up`, `scroll:track`, `scroll:thumb`, `scroll:down`,
+`scroll:nextSection`). The ⇑/⇓ buttons scroll so the previous/next section header is at the top
+(⇑ first snaps to the current section's start when mid-section; ⇓ after the last section goes to the
+end). ▲/▼ move one thumbnail row. The four buttons and the track act on press and auto-repeat while
+held (after 0.4 s, then every 0.06 s). Every step eases over 0.2 s like `section.scrollTo`, and
+steps taken while one is still easing add up (each starts from where the last one was going). When
+the content fits the view, the buttons are disabled and the track is empty (no thumb, no marker).
 
 The thumb sets the scroll **speed**, not the position (maintainer decision, 2026-10-10, matching
 the reference behaviour):
 - At rest the thumb (16 × 64) sits at the **centre of the track**, whatever the scroll position.
 - Dragging it up or down scrolls the light table continuously in that direction, **faster the
-  further the thumb is from the centre**: a small dead zone (4 pt) does nothing, then speed grows
-  with the distance and reaches its top speed at the end of the track. The curve and top speed
+  further the thumb is from the centre**: a small dead zone (4 pt) does nothing, then the speed is
+  `top · u^exponent` screen heights per second, `u` the share of the way from the dead zone to the
+  end of the track, so it reaches its top speed at the end of the track. The curve and top speed
   are tuned by feel at the M4 review (start: quadratic, top speed 40 screen heights per second).
-- On release the view stops where it is and the thumb springs back to the centre (150 ms).
+  Both are read from the library's `settings.json`, so they can be tuned without a rebuild:
+  `"scrolling": {"thumbExponent": 2, "thumbTopSpeed": 40}` (exponent 0.25–8, top speed 0.5–400;
+  a value outside its range is the default).
+- On release the view stops where it is and the thumb springs back to the centre (150 ms,
+  ease-out).
 - The scroll **position** is shown by a separate faint marker (16 × 3, `text_dim` at 40 %) in the
   track at the proportional position; it cannot be dragged. Jumping far is done with ⇑/⇓, a click
   in the folder list, Home/End and Page Up/Down.
+- Keys (library context): **PgUp / PgDn** scroll a page (the view's height less one thumbnail row,
+  `scroll.pageUp` / `scroll.pageDown`), **Ctrl+↑ / Ctrl+↓** move like ⇑ / ⇓
+  (`scroll.prevSection` / `scroll.nextSection`), **Ctrl+Home / Ctrl+End** go to the top / bottom of
+  the library (`scroll.top` / `scroll.bottom`); they ease and add up like the buttons.
 - The folder list keeps an ordinary position scrollbar.
 
 ## 6. Bottom area
