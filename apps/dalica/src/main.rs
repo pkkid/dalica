@@ -7,7 +7,9 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 mod control;
+mod frame;
 mod logging;
+mod native_menu;
 mod window;
 
 use std::ffi::OsString;
@@ -29,10 +31,6 @@ with a token from a private token file (docs/control-protocol.md). Control optio
   --automation-write-root DIR    a folder automation may write new files into (repeatable)
   --automation-allow-external    allow commands with effects outside Dalica
   --headless                     no window: the app runs on the CPU renderer and answers only the control channel";
-
-/// Default and minimum window sizes (`docs/ui-layout.md` §11).
-const WINDOW_SIZE: [f32; 2] = [1400.0, 900.0];
-const MIN_WINDOW_SIZE: [f32; 2] = [900.0, 600.0];
 
 /// The default library folder (`architecture.md` §4: the platform data directory).
 fn default_library(var: impl Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
@@ -225,17 +223,18 @@ fn main() -> ExitCode {
 
 /// The window, until it closes. Returns the exit code and the token file to remove.
 fn run_window(source: window::Source, control: Option<window::ControlSetup>) -> (ExitCode, Option<control::TokenFileGuard>) {
-    let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_title("Dalica").with_inner_size(WINDOW_SIZE).with_min_inner_size(MIN_WINDOW_SIZE),
-        ..Default::default()
-    };
+    // The chrome and placement come from the library's settings, read (never changed) before the
+    // window and the library open; the session that opens it sets a damaged file aside.
+    let settings = dalica_engine::settings::Settings::peek(&source.library_dir());
+    let frame = frame::FrameSetup::from_settings(&settings, frame::Os::host());
+    let options = eframe::NativeOptions { viewport: frame.viewport(), ..Default::default() };
     let token_file = Arc::new(std::sync::Mutex::new(None));
     let keep = token_file.clone();
     let ran = eframe::run_native(
         "Dalica",
         options,
         Box::new(move |cc| {
-            let (w, guard) = window::Window::new(&cc.egui_ctx, source, control);
+            let (w, guard) = window::Window::new(&cc.egui_ctx, source, control, frame);
             if let Ok(mut slot) = keep.lock() {
                 *slot = guard;
             }

@@ -385,6 +385,23 @@ impl Session {
         r
     }
 
+    /// The settings as loaded and changed since (`settings.json`).
+    pub fn settings(&self) -> &Settings {
+        &self.settings
+    }
+
+    /// Changes the settings (through `f`) and, if anything changed, saves `settings.json` through
+    /// the I/O worker (atomically, off the calling thread). The window and view state use it.
+    pub fn change_settings<R>(&mut self, f: impl FnOnce(&mut Settings) -> R) -> R {
+        let before = self.settings.clone();
+        let r = f(&mut self.settings);
+        if self.settings != before {
+            let bytes = self.settings.print();
+            self.send(Msg::Write(self.dir.join(crate::settings::FILE), bytes));
+        }
+        r
+    }
+
     /// Adds the UI's commands (`UI_COMMANDS`) to the keymap with their default keys for this
     /// platform, so they can be bound, rebound through `app.setShortcut` and conflict-checked like
     /// the engine's; the user's stored bindings for them apply from now on. Adding the same list
@@ -556,6 +573,32 @@ mod tests {
         assert_eq!(s.recovery(), []);
         assert_eq!(s.library().photos().count(), 2);
         assert!(s.library().photo(ids[1]).unwrap().star);
+    }
+
+    /// Window and view state written through the session are there after a restart, beside the
+    /// keymap, and an unchanged write sends nothing. The owner thread does no file I/O for it.
+    #[test]
+    fn changed_settings_survive_a_restart() {
+        use crate::settings::{ViewState, WindowState};
+        let (dirs, mut s, _ids) = library(1);
+        let window = WindowState { position: Some([30.0, 40.0]), size: [1200.0, 800.0], maximized: true };
+        let view = ViewState { tree_width: Some(300.0), pane: Some("properties".into()), pane_large: false };
+        let ui = dalica_fs::mark_ui_thread();
+        s.change_settings(|st| {
+            st.set_window(&window);
+            st.set_view(&view);
+        });
+        s.flush().unwrap();
+        drop(ui);
+        let file = dirs.library.path().join(crate::settings::FILE);
+        let written = std::fs::metadata(&file).unwrap().modified().unwrap();
+        s.change_settings(|st| st.set_view(&view));
+        s.flush().unwrap();
+        assert_eq!(std::fs::metadata(&file).unwrap().modified().unwrap(), written, "nothing changed, nothing written");
+        drop(s);
+        let s = open(dirs.library.path());
+        assert_eq!(s.settings().window(), Some(window));
+        assert_eq!(s.settings().view(), view);
     }
 
     #[test]

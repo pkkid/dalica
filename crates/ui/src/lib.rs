@@ -15,6 +15,7 @@ pub mod panels;
 pub mod perf;
 pub mod picker;
 pub mod state;
+pub mod titlebar;
 
 pub use app::App;
 pub use headless::{Driver, DriverError};

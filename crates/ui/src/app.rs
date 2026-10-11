@@ -12,7 +12,8 @@ use serde_json::Value;
 pub use crate::menus::{UI_COMMANDS, UiCommand};
 use crate::panels::{self, Panels};
 use crate::picker::Picker;
-use crate::state::UiState;
+use crate::state::{TREE_DEFAULT, UiState};
+use dalica_engine::settings::ViewState;
 
 pub struct App {
     state: UiState,
@@ -27,6 +28,12 @@ pub struct App {
     /// Whether the folder dialog was open when this frame's panels were taken out to draw (the
     /// menus drawn meanwhile ask [`App::can_pick_folder`]).
     folder_dialog_open: bool,
+    /// Restore the view state from the library's settings and save it when it changes
+    /// ([`App::persist_view`]); off for headless and snapshot sessions, which never read or write
+    /// the user's settings (`control-protocol.md` §8).
+    persist_view: bool,
+    /// The view state as last restored or saved.
+    saved_view: Option<ViewState>,
 }
 
 impl App {
@@ -43,6 +50,8 @@ impl App {
             panels: None,
             want_folder_picker: false,
             folder_dialog_open: false,
+            persist_view: false,
+            saved_view: None,
         }
     }
 
@@ -80,6 +89,44 @@ impl App {
     pub fn set_session(&mut self, mut session: Session) {
         crate::keys::join_keymap(&mut session);
         self.session = Some(session);
+        if self.persist_view {
+            self.restore_view();
+        }
+    }
+
+    /// From now on the view state (tree width, side pane) is restored from the library's
+    /// `settings.json` (now if the library is open, else when it is) and saved there when it
+    /// changes (`ui-layout.md` §2). The window turns it on; headless and snapshot sessions leave
+    /// it off.
+    pub fn persist_view(&mut self) {
+        self.persist_view = true;
+        if self.session.is_some() {
+            self.restore_view();
+        }
+    }
+
+    /// Applies the stored view state: a pane name this version does not know is a closed pane.
+    fn restore_view(&mut self) {
+        let Some(session) = &self.session else { return };
+        let stored = session.settings().view();
+        apply_view(&mut self.state, &stored);
+        self.saved_view = Some(view_of(&self.state));
+    }
+
+    /// Saves the view state if it changed since it was restored or last saved. Cheap when nothing
+    /// changed; the write runs on the session's I/O worker.
+    pub fn save_view(&mut self) {
+        if !self.persist_view {
+            return;
+        }
+        let now = view_of(&self.state);
+        if self.saved_view.as_ref() == Some(&now) {
+            return;
+        }
+        if let Some(session) = &mut self.session {
+            session.change_settings(|s| s.set_view(&now));
+            self.saved_view = Some(now);
+        }
     }
 
     /// Takes the session out, to flush and close it.
@@ -159,12 +206,33 @@ impl App {
         self.folder_dialog_open = p.dialog.is_some();
         panels::show(&mut p, self, ui);
         self.panels = Some(p);
+        // Not in the middle of a drag (the splitter): save once the button is up.
+        if !ui.ctx().input(|i| i.pointer.any_down()) {
+            self.save_view();
+        }
     }
+}
+
+/// The persisted part of `state` (`ui-layout.md` §2).
+fn view_of(state: &UiState) -> ViewState {
+    let pane = state.pane.and_then(|p| serde_json::to_value(p).ok()).and_then(|v| v.as_str().map(str::to_string));
+    ViewState { tree_width: Some(state.tree_width), pane, pane_large: state.pane_large }
+}
+
+/// Applies stored view state to `state`, made safe by [`UiState::sanitized`]: an absent or hostile
+/// value keeps the default, a tree width out of range is clamped (the layout clamps it further to
+/// the window), an unknown pane is closed.
+fn apply_view(state: &mut UiState, v: &ViewState) {
+    state.tree_width = v.tree_width.unwrap_or(TREE_DEFAULT);
+    state.pane = v.pane.as_ref().and_then(|p| serde_json::from_value(Value::String(p.clone())).ok());
+    state.pane_large = v.pane_large;
+    *state = std::mem::take(state).sanitized();
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use crate::state::TREE_MIN;
     use dalica_core::PhotoId;
     use serde_json::json;
     use std::sync::Arc;
@@ -185,6 +253,59 @@ pub(crate) mod tests {
         let found = s.execute("library.query", &json!({ "limit": 1000 })).unwrap();
         let ids = found["photos"].as_array().unwrap().iter().map(|p| PhotoId::new(p["id"].as_u64().unwrap())).collect();
         (dir, s, ids)
+    }
+
+    /// `ui-layout.md` §2: the tree width and the side pane survive a restart through
+    /// `settings.json`, when the app persists them (the window); hostile stored values are not used.
+    #[test]
+    fn the_view_state_survives_a_restart() {
+        use crate::state::Pane;
+        let (dir, s, _ids) = session_with_photos(1);
+        let library = dir.path().join("library");
+        let mut app = App::new(Some(s));
+        app.persist_view();
+        assert_eq!(app.state().tree_width, TREE_DEFAULT);
+        app.state_mut().tree_width = 333.0;
+        app.state_mut().pane = Some(Pane::Tags);
+        app.state_mut().pane_large = true;
+        app.save_view();
+        app.take_session().unwrap().flush().unwrap();
+        drop(app);
+        // A new app on the reopened library starts where the last one stopped.
+        let reopened = || Session::open(&library, Arc::new(dalica_core::SystemClock)).unwrap();
+        let mut app = App::new(None);
+        app.persist_view();
+        app.set_session(reopened());
+        assert_eq!((app.state().tree_width, app.state().pane, app.state().pane_large), (333.0, Some(Pane::Tags), true));
+        // Closing the pane is saved too.
+        app.state_mut().pane = None;
+        app.save_view();
+        app.take_session().unwrap().flush().unwrap();
+        let mut app = App::new(Some(reopened()));
+        // Without persistence (headless, snapshots) the stored state is not read.
+        assert_eq!(app.state().tree_width, TREE_DEFAULT);
+        app.persist_view();
+        assert_eq!((app.state().tree_width, app.state().pane), (333.0, None));
+        // Hostile values stored by hand: the defaults (and the minimum width) are used.
+        let mut session = app.take_session().unwrap();
+        session.change_settings(|s| s.merge("view", &[("treeWidth", Some(json!(-40.0))), ("pane", Some(json!("attic")))]));
+        let mut app = App::new(Some(session));
+        app.persist_view();
+        assert_eq!((app.state().tree_width, app.state().pane), (TREE_DEFAULT, None));
+        // Below the minimum: the minimum; wide but possible: kept (the layout fits it to the window).
+        for (stored, used) in [(12.0, TREE_MIN), (9000.0, 9000.0)] {
+            let mut session = app.take_session().unwrap();
+            session.change_settings(|s| s.merge("view", &[("treeWidth", Some(json!(stored)))]));
+            app = App::new(Some(session));
+            app.persist_view();
+            assert_eq!(app.state().tree_width, used, "{stored}");
+        }
+        // A width no window can have is dropped when read: the default.
+        let mut session = app.take_session().unwrap();
+        session.change_settings(|s| s.merge("view", &[("treeWidth", Some(json!(1e9)))]));
+        let mut app = App::new(Some(session));
+        app.persist_view();
+        assert_eq!(app.state().tree_width, TREE_DEFAULT);
     }
 
     #[test]
