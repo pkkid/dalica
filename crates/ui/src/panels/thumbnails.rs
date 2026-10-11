@@ -6,8 +6,12 @@
 //! 2. else the next smaller size, scaled up while the covering one loads (`Drawn::Upscaled`);
 //! 3. else the photo's colour sketch from the index, drawn as a small vertex-coloured mesh with
 //!    no texture and no upload (`Drawn::Sketch`);
-//! 4. else, only for a photo never scanned, the `gray 38` placeholder (`Drawn::Placeholder`), or
-//!    the placeholder for good when its thumbnail failed (`Drawn::Failed`; the cell adds the "!").
+//! 4. else, only for a photo never scanned, the `gray 38` placeholder (`Drawn::Placeholder`).
+//!
+//! A photo whose thumbnail failed (a missing or unreadable file) draws the placeholder whatever it
+//! has (`Drawn::Failed`; the cell adds the "!" and the reason). A file deleted after its thumbnails
+//! were made is noticed when the session next scans or verifies it (the watcher, M5): until then
+//! its cached thumbnails show.
 //!
 //! **The painting API** (fixed by the light-table skeleton). Each frame the light table calls, in
 //! order:
@@ -301,7 +305,15 @@ impl Thumbnails {
             Choice::Covers(size) | Choice::Smaller(size) => self.textures.get_mut(&(id, size)),
             Choice::Nothing => None,
         };
-        let drawn = if let Some(tex) = texture {
+        let drawn = if let Some(why) = photo.session.thumbnail_failure(id) {
+            // A missing or unreadable file: the placeholder under the cell's "!", whatever was
+            // drawn of it before.
+            painter.rect_filled(rect, 0, self.placeholder);
+            if self.failed.get(&id).is_none_or(|w| w != why) {
+                self.failed.insert(id, why.to_string());
+            }
+            Drawn::Failed
+        } else if let Some(tex) = texture {
             tex.drawn = frame;
             painter.image(tex.handle.id(), rect, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
             if matches!(choice, Choice::Covers(_)) { Drawn::Image } else { Drawn::Upscaled }
@@ -310,15 +322,7 @@ impl Thumbnails {
                 Some(sketch) if self.paint_sketch(painter, id, sketch, rect) => Drawn::Sketch,
                 _ => {
                     painter.rect_filled(rect, 0, self.placeholder);
-                    match photo.session.thumbnail_failure(id) {
-                        Some(why) => {
-                            if self.failed.get(&id).is_none_or(|w| w != why) {
-                                self.failed.insert(id, why.to_string());
-                            }
-                            Drawn::Failed
-                        }
-                        None => Drawn::Placeholder,
-                    }
+                    Drawn::Placeholder
                 }
             }
         };
