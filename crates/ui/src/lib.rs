@@ -17,6 +17,7 @@ pub mod perf;
 pub mod picker;
 pub mod selection;
 pub mod state;
+pub mod status_text;
 pub mod titlebar;
 pub mod tray;
 

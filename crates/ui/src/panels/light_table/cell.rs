@@ -27,9 +27,9 @@ use dalica_ui_kit::{Tokens, fonts};
 use egui::{Align2, Id, Painter, Rect, Response, Sense, Stroke, StrokeKind, Ui, vec2};
 
 use super::{Frame, long_date};
-use crate::panels::status;
 use crate::panels::thumbnails::{Drawn, PhotoRef, Thumbnails};
 use crate::state::{self, Caption};
+use crate::status_text as status;
 
 /// How long the pointer rests on a cell before its tooltip shows (seconds, `ui-layout.md` §5.5).
 pub const TOOLTIP_SECONDS: f64 = 0.6;
