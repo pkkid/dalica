@@ -556,6 +556,36 @@ fn tree_beside(requested: f64, w: f64, pane: f64) -> f64 {
     requested.clamp(200.0, (w - pane - 480.0).max(200.0))
 }
 
+/// What `menus-and-shortcuts.md` §1 lists today, per layout: 8 menus, 112 items and 7 submenus on
+/// Windows and Linux; on macOS Exit, Options… and About Dalica move to the application menu (109).
+fn menu_floor(platform: menus::Platform) -> menus::Counts {
+    let items = match platform {
+        menus::Platform::Mac => 109,
+        menus::Platform::Other => 112,
+    };
+    menus::Counts { menus: 8, items, submenus: 7 }
+}
+
+/// Both layouts' expectations come from the document on every OS, so the macOS path runs on Linux
+/// and Windows too: each counts exactly its floor.
+#[test]
+fn the_menu_expectations_of_both_layouts_come_from_the_doc() {
+    let doc = std::fs::read_to_string(dalica_acceptance::workspace_root().join("docs/menus-and-shortcuts.md")).unwrap();
+    for platform in [menus::Platform::Other, menus::Platform::Mac] {
+        let want = menus::for_platform(menus::from_doc(&doc), platform);
+        assert_eq!(menus::count(&want), menu_floor(platform), "{platform:?}");
+        let titles: Vec<&str> = want.iter().map(|m| m.title.as_str()).collect();
+        assert_eq!(titles, ["File", "Edit", "View", "Folder", "Picture", "Create", "Tools", "Help"], "{platform:?}");
+        // The label of a menu's last row ("" when it is not an item).
+        let last = |title: &str| match want.iter().find(|m| m.title == title).and_then(|m| m.rows.last()) {
+            Some(menus::Node::Item { label, .. }) => label.clone(),
+            _ => String::new(),
+        };
+        let moved = [last("File") == "Exit", last("Tools") == "Options…", last("Help") == "About Dalica"];
+        assert_eq!(moved, [platform == menus::Platform::Other; 3], "{platform:?}: Exit, Options… and About Dalica");
+    }
+}
+
 fn secs(t: Instant) -> f64 {
     t.elapsed().as_secs_f64()
 }
@@ -674,9 +704,14 @@ fn window_shell() {
     // 4. The menu bar: every item of `menus-and-shortcuts.md` §1, in order, read from the document.
     let t = Instant::now();
     let tree = c.ok("ui.menu.tree", json!({}));
-    let counts = menus::compare_bar(&menus::for_this_platform(menus_from_doc), &tree)
+    let want = menus::for_this_platform(menus_from_doc);
+    let counts = menus::compare_bar(&want, &tree)
         .unwrap_or_else(|errors| panic!("`ui.menu.tree` against menus-and-shortcuts.md §1:\n  {}", errors.join("\n  ")));
-    assert!(counts.items >= 110 && counts.submenus >= 7, "{counts:?}");
+    // Exactly what the document lists for this platform's layout, and never less than it lists
+    // today (so an empty or truncated parse cannot pass).
+    assert_eq!(counts, menus::count(&want), "`ui.menu.tree` shows exactly the rows §1 lists for {:?}", menus::Platform::current());
+    let floor = menu_floor(menus::Platform::current());
+    assert!(counts.menus >= floor.menus && counts.items >= floor.items && counts.submenus >= floor.submenus, "{counts:?} < {floor:?}");
     let menu_check = secs(t);
 
     // 5. The agent quits the app; the fresh demo goes with it.
