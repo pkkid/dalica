@@ -1155,7 +1155,7 @@ UI tasks each re-bless only their own.
     the tray scenario with one undo step; status-line strings; keyboard stops at section edges;
     the manual check (scroll the demo library with the thumb and tune its curve) in `m4.md`.
   - done when: `cargo xtask accept M4` passes everything in M4's *Done when*.
-- ⬜ **M4.19 Lead: task blocks for M6**
+- ✅ **M4.19 Lead: task blocks for M6**
   - after: M3.12
   - owner: lead
   - files: `docs/roadmap.md`
@@ -1646,6 +1646,614 @@ One milestone in 3 feature areas (*Photo info*, *Tags and metadata write-back*, 
 - **Out:** signing without credentials, update checks (deferred).
 - **Done when:** `cargo xtask accept M6`: a CI dry run builds the artifacts on all three OSes and
   the checksums match. You install it and browse your own photos.
+
+#### M6 tasks
+
+M6 fills in what a user knows about a photo, writes it into the files without harming them, and
+ships the first installable preview. Its first wave lists the M1–M5 work each task extends and
+starts as soon as the maintainer has closed M5.R. Five tasks lay the ground the others share, so
+later tasks never share a file: M6.2 adds every M6 field and op to the library model in one go, M6.4
+lays out `meta` with one module per container and per metadata kind behind one field model and a
+write API whose container writers start as stubs, M6.5 registers one engine command module per area
+and every M6 setting, M6.6 adds M6's view state, the UI commands that open editors and dialogs, and
+stub dialogs and panes, and M6.13 builds the release workflow end to end around stub packaging
+scripts that the per-OS tasks then fill. Each task updates its `parity.md` rows (new rows where none
+fit: `SYS-ABOUT` for the About window, `SYS-RELEASE` for the release workflow, `DATA-XMP-RAW` for
+`.xmp` sidecars); first fingerprints of new panes, dialogs, widgets and rotated cells are approved
+in bulk on the M6.R review page.
+
+Whole-window baselines belong to no task, as in M5: the finished milestones'
+`tests/acceptance/fingerprints/m1-*.json` … `m5-*.json` and any `crates/ui/tests/fingerprints/`
+file not named in a task's `files` change whenever the window does. A task whose change moves them
+re-blesses them on its branch (diff images on the PR, the reason in the commit body), they never
+count as a `files` overlap, and on a rebase conflict the worker re-blesses after the rebase.
+
+Decisions taken while planning (the check-in lists them for reversal): commands that open an editor
+or a dialog are UI commands with the menu ids of `menus-and-shortcuts.md` (`photo.caption.edit`,
+`section.properties`, `photo.adjustDate`, `app.about`, `help.releaseNotes`), and each calls one
+engine command that changes the library (`photo.caption.set`, `folder.info.set`,
+`photo.dates.set`), the way `folders.manager` calls `folders.set`; a rotation or flip is drawn by
+mapping the cached thumbnail and sketch at paint time, so it never waits for a decode (M7 puts the
+whole recipe into the cache keys when tone edits arrive); a hidden folder is stored in its own
+sidecar as `"folder": {"hidden": true}`, so it stays hidden when the folder moves; `meta` parses
+XML with its own bounded tokenizer that keeps byte spans, which merge-writing needs and which
+enforces `security.md` §4.2 directly (the alternative, `quick-xml`, gives positions but not the
+limits); the write options of Options → General → Files are settings from M6.5 on, and their
+checkboxes arrive with the Options dialog (M10). The two open questions of `xmp-interop.md` §9 are
+built as proposed there (removing a tag leaves `lr:hierarchicalSubject` alone; IPTC is always
+written) and asked at M6.R. Two maintainer decisions are needed: the application id (reserved
+decision 10), which M6.1 brings forward into M5's run so that M5.R asks it, and the app icon's
+design (`assets.md` §7), which M6.12 drafts as an original candidate for the maintainer to accept or
+replace at M6.R.
+
+- ⬜ **M6.1 The application id in one place**
+  - after: —
+  - pulled: M5
+  - files: `crates/core/src/app_id.rs`, `crates/core/tests/app_id.rs`, `apps/dalica/src/window.rs`
+  - scope: reserved decision 10 is the maintainer's. Pulled into M5's run so the question reaches
+    M5.R: the agent who claims it runs `cargo xtask tasks block M6.1` with the options (for example
+    `io.github.pkkid.Dalica` or a domain the maintainer owns; the recommendation first) and takes
+    other work. Once answered: one constant in `dalica-core` (reverse-DNS, checked to be a valid
+    D-Bus name and macOS bundle id), the window's Wayland app id and X11 class set from it, the
+    decision recorded with its date under *Reserved decisions*. The settings and data paths stay as
+    `data-model.md` §4 says (changing them would need a migration, which is not this task).
+  - done when: `cargo test -p dalica-core --test app_id` checks the id's syntax rules; the window
+    sets it (a test on the viewport builder); *Reserved decisions* item 10 says what was decided and
+    when.
+- ⬜ **M6.2 `library`: M6's model fields, ops and the tag index**
+  - after: M4.2, M4.4, M5.13
+  - files: `crates/library/src/model.rs`, `crates/library/src/op.rs`, `crates/library/src/tags.rs`, `crates/library/src/tree.rs`, `crates/library/tests/ops.rs`, `crates/library/tests/m6_fields.rs`, `crates/library/tests/tags.rs`, `crates/library/tests/tree.rs`, `crates/library/README.md`
+  - scope: `data-model.md` §2–§3 as pure model: each photo gains a caption, tags, hidden, its edit
+    recipe and redo list (operation strings, opaque here; `edit` parses them), a date set by the
+    user (the file's own date kept beside it; the effective date is the user's, else the file's),
+    and the last-synced hashes of its owned metadata fields (`xmp-interop.md` §5; index-only derived
+    data like the sketch: never on an undo stack, no library revision bump); each folder gains a
+    description, date, place and hidden flag. One batched op per change with an exact inverse
+    (captions, tag additions and removals, a tag renamed everywhere, hidden photos and folders,
+    recipes, dates, folder info, synced hashes). `tags.rs`: counts per tag, partial counts over a
+    set of photos ("beach (3 of 8)"), prefix lookup for autocomplete, case-insensitive matching that
+    keeps the first spelling, caption and tag lengths capped per `security.md` §4.4 (caps in the
+    README). `tree.rs`: hidden folders leave Folders for the Hidden Folders group, shown (with their
+    sections) only when hidden pictures are shown; folder dates and sorts use effective dates.
+  - done when: the op-then-inverse property test covers every new op; tag tests: counts, partial
+    counts, rename onto an existing tag merges, case rules, caps; tree tests: Hidden Folders in both
+    modes with the option on and off; a 100 k-photo tag index builds in a time stated in the PR.
+- ⬜ **M6.3 `edit`: the recipe and the geometric operations**
+  - after: M1.6
+  - files: `crates/edit/src/lib.rs`, `crates/edit/src/syntax.rs`, `crates/edit/src/recipe.rs`, `crates/edit/src/geometry.rs`, `crates/edit/tests/recipe.rs`, `crates/edit/tests/geometry.rs`, `crates/edit/tests/fingerprints/geometry*.json`, `crates/edit/README.md`
+  - scope: `data-model.md` §3.1 and `editing.md`: the operation syntax parsed and printed for every
+    operation listed there (typed parameters where M6 needs them, the others kept as name plus
+    parameter text), unknown and `legacy:` operations kept verbatim and never dropping what follows;
+    the recipe rules for `rotate`, `flip_h` and `flip_v` (a rotation appended after a rotation
+    merges, a net 0 removes it, two identical flips in a row cancel); pipeline order with geometry
+    first; a recipe's net orientation as one of the eight dihedral transforms composed after the
+    EXIF orientation, and the displayed size it gives; applying it to an RGBA image (the CPU oracle
+    M8's Save will use). No rectangles exist yet, so the coordinate-frame question (`data-model.md`
+    §3.3) does not arise here.
+  - done when: `cargo test -p dalica-edit`: print(parse(s)) == s for every operation of §3.1 and an
+    unknown one; proptest random strings never panic; an unknown operation between two rotations
+    keeps both; the merge and cancel rules; every recipe of up to four geometric operations on each
+    EXIF orientation gives the pixel-exact transform of a `scenes` image (fingerprints) and the
+    right displayed size.
+- ⬜ **M6.4 `meta`: the field model, container reading, EXIF and IPTC, and the write skeleton**
+  - after: M5.1, M5.9
+  - files: `crates/meta/src/lib.rs`, `crates/meta/src/fields.rs`, `crates/meta/src/listing.rs`, `crates/meta/src/container/**`, `crates/meta/src/exif/mod.rs`, `crates/meta/src/exif/read.rs`, `crates/meta/src/iptc/mod.rs`, `crates/meta/src/iptc/read.rs`, `crates/meta/src/xmp/mod.rs`, `crates/meta/src/write/**`, `crates/meta/tests/read.rs`, `crates/meta/tests/build/**`, `crates/meta/fuzz/**`, `crates/meta/README.md`, `.github/workflows/fuzz.yml`
+  - scope: `xmp-interop.md` §2 and §4 (reading) with the limits of `security.md` §4.2 and the
+    tainted-text rules of §4.4: one `OwnedFields` model (caption, tags, rating, place, date taken
+    with offset and sub-seconds) and the precedence rules of §2; `container/` walks JPEG segments
+    (APP1 EXIF, APP1 XMP and extended-XMP chunks reassembled by GUID and bounded, APP13 Photoshop
+    resources, APP2), PNG chunks (`eXIf`, `iTXt`, `tEXt`, `zTXt` inflated under a cap), WebP RIFF
+    chunks and TIFF IFD0 tags 700 and 33723, and reports the byte spans of every metadata block;
+    `exif/read.rs` reads the owned fields and the Properties summary (camera, lens, exposure,
+    aperture, ISO, focal length, flash, orientation, colour space) through `image`'s IFD walker,
+    ignoring known camera placeholder descriptions; `iptc/read.rs` with 1:90, UTF-8 and the Latin-1
+    fallback; `xmp/mod.rs` a stub that M6.9 fills; `listing.rs` every field as label/value rows for
+    Show All Metadata (bounded); `write/` the one entry point `write_owned(bytes, changes, options)`
+    with per-container writers answering `Unsupported` for M6.17 and M6.18, and the verification
+    every write passes (owned fields re-read equal the request; a digest of every byte outside the
+    metadata spans unchanged); `tests/build/` builders of synthetic files for every meta test;
+    `crates/meta/fuzz/` targets per `security.md` §7.1 (`exif`, `xmp`, `iptc`, `write_merge`) added
+    to the manual fuzz workflow.
+  - done when: `cargo test -p dalica-meta --test read`: each field from each source in each
+    container, and the precedence rules; IPTC Latin-1 and UTF-8; a placeholder description ignored;
+    extended XMP reassembled and an oversized or mismatched one refused; the listing; IFD loops,
+    offsets past the end and huge counts are `Err`; truncation at every offset and proptest random
+    bytes never panic; `cargo +nightly fuzz build` builds every target (output in the PR).
+- ⬜ **M6.5 `engine`: M6's command modules and settings**
+  - after: M5.12, M5.16
+  - files: `crates/engine/src/cmd/mod.rs`, `crates/engine/src/cmd/rotate.rs`, `crates/engine/src/cmd/hide.rs`, `crates/engine/src/cmd/caption.rs`, `crates/engine/src/cmd/folder_info.rs`, `crates/engine/src/cmd/tags.rs`, `crates/engine/src/cmd/dates.rs`, `crates/engine/src/cmd/info.rs`, `crates/engine/src/metadata.rs`, `crates/engine/src/session.rs`, `crates/engine/src/settings.rs`, `crates/engine/tests/settings_m6.rs`, `crates/engine/README.md`
+  - scope: the engine's ground for M6 so M6.14–M6.16, M6.32 and M6.33 never share a file: empty
+    `cmd/rotate.rs`, `hide.rs`, `caption.rs`, `folder_info.rs`, `tags.rs`, `dates.rs` and `info.rs`
+    joined into the registry once; a stub `metadata.rs` that the session calls after every applied
+    op (with the photos and fields it touched, so every surface, undo and redo reach it) and from
+    `poll()`; every M6 setting with its default (`menus-and-shortcuts.md` §5 General → Files: write
+    captions, tags and places (on), stars as ratings (off), update modification time (off), XMP
+    sidecars for RAW (off), date changes (on, `xmp-interop.md` §2); the ten quick tags and "use the
+    top two for recent tags" (on), recent tags) behind a typed accessor the command modules use
+    without editing `settings.rs`.
+  - done when: `crates/engine/tests/settings_m6.rs`: every new setting round-trips through
+    `settings.json` with unknown keys kept and a wrong-typed value falls back to its default
+    (reported); the metadata hook sees the photos and fields of a star op, its undo and its redo;
+    every existing engine test and `panic_hunt` pass unchanged.
+- ⬜ **M6.6 `ui`: M6's view state, editor and dialog commands, and stub panes**
+  - after: M5.14, M5.18, M5.19
+  - files: `crates/ui/src/state.rs`, `crates/ui/src/menus.rs`, `crates/ui/src/app.rs`, `crates/ui/src/notices.rs`, `crates/ui/src/commands/mod.rs`, `crates/ui/src/commands/caption.rs`, `crates/ui/src/commands/info.rs`, `crates/ui/src/commands/help.rs`, `crates/ui/src/dialogs/mod.rs`, `crates/ui/src/dialogs/folder_properties.rs`, `crates/ui/src/dialogs/adjust_date.rs`, `crates/ui/src/dialogs/quick_tags.rs`, `crates/ui/src/dialogs/rename_tag.rs`, `crates/ui/src/dialogs/about.rs`, `crates/ui/src/dialogs/release_notes.rs`, `crates/ui/src/panels/mod.rs`, `crates/ui/src/panels/side_pane.rs`, `crates/ui/src/panels/properties.rs`, `crates/ui/src/panels/tags.rs`, `crates/ui/src/panels/tags/**`, `crates/ui/src/control/**`, `crates/ui/tests/view_state_m6.rs`, `docs/control-protocol.md`
+  - scope: every M6 field of `UiState` in one go (control-protocol §6.5): the inline caption editor
+    (photo, draft), the description editor (section, draft), the Properties pane's Show All state,
+    the Tags pane's add-field draft and autocomplete highlight, the six dialogs' drafts, the About
+    dialog's tab, list view, sort and name mode; the UI commands that open them
+    (`photo.caption.edit` in `commands/caption.rs` as a stub for M6.25; `section.properties`,
+    `photo.adjustDate`, Configure Quick Tags and Rename Tag… in `commands/info.rs`; `app.about` and
+    `help.releaseNotes` in `commands/help.rs`), each opening its stub dialog on M5.14's host; the
+    side pane hosting stub Properties and Tags panes (`panels/tags.rs` laying out `tags/add.rs`,
+    `tags/list.rs` and `tags/quick.rs`, so M6.28 and M6.31 never share a file); `notices.rs` (a stub
+    turning session events into toasts, for M6.33) polled by the app; `ui.set` accepts the new
+    fields.
+  - done when: `crates/ui/tests/view_state_m6.rs`: each new field round-trips through `ui.state` /
+    `ui.set` (bad values are `bad_params`, nothing changes); each opener shows its dialog by
+    `dialog:<kind>` and Esc closes it; the Properties and Tags panes open from their toggles and
+    View items; the menu items light up; every command's graceful-failure test; `panic_hunt` and
+    `widget_ids` stay green.
+- ⬜ **M6.7 `xtask version`, build information and portable mode**
+  - after: M4.8
+  - files: `xtask/src/version.rs`, `xtask/src/docs.rs`, `crates/core/src/build.rs`, `crates/core/tests/build.rs`, `apps/dalica/src/main.rs`, `apps/dalica/src/paths.rs`, `apps/dalica-cli/src/main.rs`, `docs/development.md`
+  - scope: `releasing.md` → Cutting a release and What gets built: `cargo xtask version` prints
+    `[workspace.package] version`, `cargo xtask version set <semver>` (pre-releases with a hyphen)
+    rewrites it and refreshes `Cargo.lock`, refusing anything that is not a semantic version;
+    `dalica-core` exposes the version, commit and build date from `DALICA_BUILD_SHA` and
+    `DALICA_BUILD_DATE` at compile time (`<version> (dev build)` without them); `dalica --version`
+    and `dalica-cli --version` print it; `apps/dalica/src/paths.rs` takes the default library
+    directory out of `main.rs` and adds portable mode (a `portable` marker file beside the
+    executable keeps settings, the index and caches in a `data` folder next to it; sidecars stay in
+    the photo folders), for the Windows portable zip.
+  - done when: tests: `version set 0.1.0-rc.1` on a copied manifest rewrites only the version lines
+    and is read back; bad versions are refused; the build string with and without the variables; the
+    default library directory per OS as before, and next to the executable with the marker; `xtask
+    docs` lists `version` as implemented.
+- ⬜ **M6.8 `sidecar` + `store`: every M6 field in `.dalica.json` and the index**
+  - after: M6.2
+  - files: `crates/sidecar/src/lib.rs`, `crates/sidecar/src/print.rs`, `crates/sidecar/src/tests.rs`, `crates/sidecar/src/fields.rs`, `crates/sidecar/README.md`, `crates/store/src/mapping.rs`, `crates/store/src/journal.rs`, `crates/store/src/snapshot.rs`, `crates/store/src/rebuild.rs`, `crates/store/tests/sidecars.rs`, `crates/store/tests/m6_fields.rs`, `docs/data-model.md`
+  - scope: `data-model.md` §3: `caption`, `tags`, `hidden`, `edits`, `redo` and `date` per photo and
+    `description`, `date`, `place` and `hidden` in the `"folder"` object (the last one written into
+    §3 with this milestone's decision), parsed and printed in the documented key order with unknown
+    keys and wrong-typed values kept as they are (reported once); every field in the journal and
+    snapshot; the synced hashes index-only; a rebuild from folders reads them all back.
+  - done when: `data-model.md` §10.1 for every M6 field (scan, change everything, delete the index,
+    rebuild, compare), §10.4 (an unknown operation keeps the ones after it through a rewrite) and
+    §10.7 with the new fields; the "every model field has a sidecar mapping" test lists each new
+    field (synced hashes as index-only); journal replay and snapshots keep them; proptest round
+    trips of sidecars with every field never panic.
+- ⬜ **M6.9 `meta`: XMP reading and the merge writer**
+  - after: M6.4
+  - files: `crates/meta/src/xmp/**`, `crates/meta/tests/xmp.rs`, `crates/meta/tests/xmp_merge.rs`
+  - scope: `xmp-interop.md` §1–§3: our own XML tokenizer that keeps byte spans (no DTD or entities,
+    depth ≤ 64, ≤ 200 000 nodes, `security.md` §4.2), RDF read in attribute and element form
+    (`rdf:Alt` with `x-default` and the other languages, `rdf:Bag`, `rdf:Seq`), the owned properties
+    and the listing rows for M6.4's `listing.rs`; the merge writer: owned properties into one
+    `rdf:Description` of Dalica's own, the same properties removed from other descriptions in either
+    form with those descriptions otherwise unchanged, clearing a value removes it,
+    `xmp:MetadataDate` set, text escaped and characters invalid in XML 1.0 dropped, the packet
+    wrapper and its padding reused so a rewrite can stay in place, a new packet when the file has
+    none; extended XMP is never written; the packet size reported for the APP1 limit.
+  - done when: `cargo test -p dalica-meta --test xmp --test xmp_merge`: §8 test 1 for the XMP fields
+    (Unicode captions, tags with `/`, `,` and non-ASCII, other languages kept), test 2 for XMP
+    (unknown namespaces, other descriptions and `xmpMM:History` byte-identical), test 3 (writing
+    twice gives identical bytes), test 4 at the XMP level (the rating rule), test 10 (DOCTYPE and
+    entities refused, deep nesting and node bombs bounded, truncation and proptest random bytes
+    never panic).
+- ⬜ **M6.10 `meta`: IPTC writing and EXIF edits in place**
+  - after: M6.4
+  - files: `crates/meta/src/iptc/write.rs`, `crates/meta/src/exif/edit.rs`, `crates/meta/tests/iptc_write.rs`, `crates/meta/tests/exif_edit.rs`
+  - scope: `xmp-interop.md` §2–§3: IPTC in Photoshop resource 0x0404 with 1:90 = UTF-8, 2:25 (one
+    dataset per tag) and 2:120 (truncated at a character boundary past the IPTC limit, logged once),
+    every other dataset and resource byte for byte, the digest resource 0x0425 recomputed (MD5
+    through an audited pure-Rust crate, `cargo xtask deps`); EXIF edited in place or appended, never
+    repacked: a changed value of the same size overwritten where it is, a new or larger value
+    (DateTimeOriginal and DateTimeDigitized with OffsetTime and SubSecTime; a GPS IFD with
+    GPSVersionID 2.3.0.0 and latitude/longitude with their refs as degree/minute/second rationals)
+    appended at the end of the TIFF block with only the pointer to it updated; removing a place
+    deletes the four latitude/longitude tags and nothing else; maker notes never move.
+  - done when: `cargo test -p dalica-meta --test iptc_write --test exif_edit`: §8 test 6 (1:90
+    written, digest updated, Latin-1 legacy read); test 1 for dates with offsets and sub-seconds and
+    southern/western coordinates; test 2 for a synthetic maker note with absolute offsets that reads
+    the same after a write; test 7 (a block that would pass the APP1 limit fails with the field
+    named and the input unchanged); truncation and proptest random bytes never panic.
+- ⬜ **M6.11 `xtask contributors`**
+  - after: M6.7
+  - files: `xtask/src/contributors.rs`, `xtask/src/ci.rs`, `xtask/src/docs.rs`, `contributors/contributors.json`, `docs/contributors.md`, `docs/development.md`
+  - scope: `contributors.md` → Refreshing: `cargo xtask contributors` regenerates
+    `contributors/contributors.json` from `git log` on `main` and, through `gh`, merged pull
+    requests and GitHub usernames (never author names or emails), and model counts from
+    `Co-Authored-By` trailers; `--check` (offline, run by `cargo xtask ci`) verifies `people.toml`:
+    unknown keys, malformed TOML, and an entry added by someone other than its owner without
+    `consent_source`. Never edits `people.toml`.
+  - done when: tests on a temporary repository with planted commits and a fake `gh`: stats per
+    username, models counted from trailers, no email or author name in the output; `--check` refuses
+    each planted fault and passes the real file; the first real `contributors.json` is committed
+    (its diff in the PR); `xtask docs` lists the command as implemented.
+- ⬜ **M6.12 The app icon (a candidate for the maintainer)**
+  - after: M6.1
+  - files: `assets/app-icon/**`, `packaging/icons.sh`, `ATTRIBUTION.md`, `docs/assets.md`, `apps/dalica/src/icon.rs`, `apps/dalica/src/window.rs`
+  - scope: `assets.md` §7: an original icon drawn for Dalica in the Craft family's shape (512-unit
+    tile, `rx=112`, full-bleed colour field, at most three colours; macOS renders on Apple's
+    824/1024 grid, the others full-tile so the motif reads at 16–48 px), resembling no other
+    product's icon; its README (motif, palette, geometry, provenance, file list) and licence;
+    `packaging/icons.sh` regenerating the 1024 px PNG, `.icns`, `.ico` and hicolor PNGs 16–512 plus
+    the scalable SVG, all committed; the window icon set from the embedded PNGs. Its design is the
+    maintainer's: the M6.R check-in shows it at every size for the maintainer to accept or replace.
+  - done when: `cargo xtask assets` passes with the new row; a test checks every derived file exists
+    at its size and decodes; `icons.sh` run twice gives identical files; the window sets its icon (a
+    test on the viewport builder); renders at 16, 32, 48 and 512 px are on the PR.
+- ⬜ **M6.13 The release workflow, end to end**
+  - after: M6.7
+  - files: `.github/workflows/release.yml`, `.github/workflows/packaging-lint.yml`, `packaging/README.md`, `packaging/checksums.sh`, `packaging/linux/package.sh`, `packaging/windows/package.ps1`, `packaging/macos/package.sh`, `docs/releasing.md`
+  - scope: `releasing.md` and `security.md` §10: pushes to `release` build every platform and create
+    or update a draft release `Dalica v<version>` tagged on the pushed commit, with generated notes
+    and `SHA256SUMS.txt` over every artifact; refuses a version whose release is already published;
+    a manual run takes an optional `version` (applied with `cargo xtask version set`); a run on any
+    other branch, and on pull requests that touch `packaging/`, the workflows or the icons, is a dry
+    run (signing jobs refused, the draft job skipped) that still builds, checksums and verifies;
+    `DALICA_BUILD_SHA` and `DALICA_BUILD_DATE` set; the fonts pin of `releasing.md`; least privilege
+    (signing jobs alone use the `release` environment, every secret optional with a `::warning::`
+    when missing, only the final job has `contents: write`); per-OS jobs calling
+    `packaging/<os>/package.*`, which start as stubs packing the release binaries into the tarball
+    and zips so the pipeline runs whole (M6.21–M6.23 fill them); a checksum step that re-downloads
+    the artifacts and verifies them; `packaging-lint.yml` (actionlint, shellcheck, PowerShell parse,
+    and xmllint, `desktop-file-validate`, `appstreamcli validate` and the Flatpak agreement check
+    once those files exist).
+  - done when: the dry run on this task's pull request builds on Linux, Windows and macOS and its
+    checksum step passes (run linked in the PR); a planted mismatched checksum fails
+    `packaging/checksums.sh` (a script test); actionlint and shellcheck are clean; `releasing.md`
+    says what now runs.
+- ⬜ **M6.14 `engine`: rotate, flip, hide, captions and folder info**
+  - after: M6.3, M6.5, M6.8
+  - files: `crates/engine/src/cmd/rotate.rs`, `crates/engine/src/cmd/hide.rs`, `crates/engine/src/cmd/caption.rs`, `crates/engine/src/cmd/folder_info.rs`, `crates/engine/src/cmd/photo.rs`, `crates/engine/tests/rotate.rs`, `crates/engine/tests/hide.rs`, `crates/engine/tests/captions.rs`, `crates/engine/tests/folder_info.rs`
+  - scope: `organizing.md` §5.3, §9, §10 and `data-model.md` §3.1, §8: `photo.rotate.cw` /
+    `photo.rotate.ccw` (Ctrl+R / Ctrl+Shift+R) and `edit.flipH` / `edit.flipV` (Ctrl+Shift+H /
+    Ctrl+Shift+V) as library undo steps editing recipes through `edit`'s rules; `photo.hide` /
+    `photo.unhide` and `folder.hide` / `folder.unhide` (Unhide disabled unless hidden);
+    `photo.caption.set {ids, caption}` (trimmed, capped; empty clears); `folder.info.set {id,
+    description?, date?, place?}` (date or "use the oldest photo's"); `photo.inspect` reports
+    caption, tags, hidden, recipe, effective date and displayed size.
+  - done when: each command's contract (`architecture.md` §3): behaviour, undo and redo restore
+    exactly, `enabled` false cases, hostile params `Err`; the sidecar after the command and after
+    undo; four rotations leave no `edits` entry and an unknown operation survives them; hide,
+    captions, folder info and rotations survive a rebuild; `panic_hunt` green.
+- ⬜ **M6.15 `engine`: tag commands and quick tags**
+  - after: M6.5, M6.8
+  - files: `crates/engine/src/cmd/tags.rs`, `crates/engine/tests/tags.rs`
+  - scope: `organizing.md` §5.2 and `menus-and-shortcuts.md` §1.9, §4: `photo.tags.add {ids, tags}`
+    (commas separate tags; trimmed, deduplicated by the case rule) and `photo.tags.remove`, one undo
+    step for any number of photos; `photo.tags.toggle {ids, tag}` (removes from all when all have
+    it, else adds to all); `tags.list {ids?, prefix?}` (query: counts, partial counts, completion);
+    `tags.rename {from, to, confirm}` everywhere (`needs_confirm` over automation; merging onto an
+    existing tag); `tags.quick.set {slots, useRecent}` and `tags.quick.apply {n, ids}` with
+    Ctrl+Alt+1 … Ctrl+Alt+0, the top two slots following recently used tags when `useRecent` is on.
+  - done when: each command's contract; tagging 1 000 photos is one undo step; a rename merges and
+    undoes exactly; partial counts over a mixed selection; the keymap has no conflicts for the ten
+    keys; `panic_hunt` green.
+- ⬜ **M6.16 `engine`: dates and the photo metadata query**
+  - after: M6.4, M6.5, M6.8, M6.9
+  - files: `crates/engine/src/cmd/dates.rs`, `crates/engine/src/cmd/info.rs`, `crates/engine/src/metadata_cache.rs`, `crates/engine/tests/dates.rs`, `crates/engine/tests/photo_metadata.rs`
+  - scope: `organizing.md` §9 (Adjust date and time): `photo.dates.set {ids, shift}` (seconds, every
+    photo by the same amount from its effective date, the file time for photos without one) or
+    `{ids, set}` (one date and time for all), one undo step, the folder's sections re-sorted;
+    `photo.metadata {id, all?}` (query) answered from a cache filled by a worker job (the first call
+    answers `pending`; never a file read on the owner thread): the Properties rows of `ui-layout.md`
+    §7, and with `all` M6.4's listing; a "changed in another application" note when M6.33 reports
+    one.
+  - done when: each command's contract; shifting three photos across midnight and a month end; set
+    on photos without dates; dates survive a rebuild; `photo.metadata` on a JPEG with EXIF, XMP and
+    IPTC answers pending, then every row, and the owner thread made no `fs` call; `panic_hunt`
+    green.
+- ⬜ **M6.17 `meta`: JPEG write-back**
+  - after: M6.9, M6.10
+  - files: `crates/meta/src/write/jpeg.rs`, `crates/meta/tests/write_jpeg.rs`
+  - scope: `xmp-interop.md` §3–§4 for JPEG: only APP1 (EXIF, XMP) and APP13 are rewritten, new
+    segments inserted where readers expect them, every other segment (ICC, MPF, extended XMP,
+    comments, the scan data) copied byte for byte; the standard XMP packet fits one APP1 (padding
+    dropped first, else the write fails naming the field); the rating rule (5 on star; 0 on unstar
+    only when the file says 5); the result passes M6.4's verification.
+  - done when: `cargo test -p dalica-meta --test write_jpeg`: §8 tests 1–4, 6 and 7 on JPEG; the
+    digest outside the metadata spans is unchanged and the image decodes to identical pixels;
+    writing twice gives identical bytes; truncated inputs are `Err` without panicking.
+- ⬜ **M6.18 `meta`: PNG, WebP and TIFF write-back**
+  - after: M6.9, M6.10
+  - files: `crates/meta/src/write/png.rs`, `crates/meta/src/write/webp.rs`, `crates/meta/src/write/tiff.rs`, `crates/meta/tests/write_png_webp_tiff.rs`
+  - scope: `xmp-interop.md` §4: PNG XMP in `iTXt` and place and date in `eXIf` (CRCs recomputed,
+    other chunks byte for byte); WebP `XMP ` and `EXIF` chunks, a simple-format file promoted to
+    `VP8X` with the image chunk unchanged and the RIFF size fixed; TIFF XMP (700) and IPTC (33723)
+    by the append-only rule (new data at the end, only pointers changed), place and date into the
+    XMP mirrors; each result passes M6.4's verification.
+  - done when: `cargo test -p dalica-meta --test write_png_webp_tiff`: §8 tests 1–3, 6, 7 and 10 for
+    each container; pixels decode identically through `image`; a promoted WebP still decodes; TIFF
+    strips and maker notes keep their offsets.
+- ⬜ **M6.19 `meta`: `.xmp` sidecars for RAW**
+  - after: M6.9
+  - files: `crates/meta/src/xmp_sidecar.rs`, `crates/meta/tests/xmp_sidecar.rs`
+  - scope: `xmp-interop.md` §7: the sidecar name for a RAW (`<stem>.xmp`; reading also `<file>.xmp`
+    and `.XMP`; a RAW+JPEG pair's stem sidecar belongs to the RAW), reading it (else the XMP
+    embedded in a DNG), and the merged bytes of a whole sidecar file (packet wrapper, every other
+    namespace and raw-converter settings byte for byte); a sidecar that is not well-formed XMP is
+    reported as damaged so the writer keeps it aside.
+  - done when: `cargo test -p dalica-meta --test xmp_sidecar`: name resolution for each case;
+    develop settings and history kept byte for byte; a damaged sidecar reported; proptest random
+    bytes never panic.
+- ⬜ **M6.20 `ui`: the About window and the release notes**
+  - after: M6.6, M6.7, M6.11
+  - files: `crates/ui/build.rs`, `crates/ui/src/credits.rs`, `crates/ui/src/dialogs/about.rs`, `crates/ui/src/dialogs/release_notes.rs`, `crates/ui/src/commands/help.rs`, `crates/ui/tests/about.rs`, `crates/ui/tests/fingerprints/dialog-about*.json`, `crates/ui/tests/fingerprints/dialog-release-notes*.json`
+  - scope: `contributors.md` → In Dalica and `menus-and-shortcuts.md` §1.8: `build.rs` compiles
+    `contributors.json` and `people.toml` into the binary (nothing read at run time); Help ▸ About
+    Dalica (the macOS application menu's About) with the tabs About (icon, version, commit, build
+    date, licence) · Contributors (grab bag or table, every sort of `contributors.md`, the name
+    toggle Username → Display name → Real name with the `@username` fallback, case-insensitive and
+    `@`-blind alphabetical order) · Models; Help ▸ Release Notes showing `whats-new.md` (headings
+    and bullets, HTML comments left out) from `include_str!`; ids per control-protocol §7.
+  - done when: `crates/ui/tests/about.rs`: each tab by id; each sort and the name toggle on a
+    fixture with missing names; no email reaches the binary (a test on the compiled data); the
+    release notes skip comments; dialog fingerprints at both window sizes.
+- ⬜ **M6.21 Linux packages**
+  - after: M6.1, M6.7, M6.12, M6.13
+  - files: `packaging/linux/**`, `apps/dalica/src/preflight.rs`, `apps/dalica/src/main.rs`
+  - scope: `releasing.md` → Linux: one staged FHS tree (both binaries, the `.desktop` file named by
+    the application id, hicolor icons, AppStream metainfo, `LICENSE-MIT`, `LICENSE-APACHE`,
+    `NOTICE`, `ATTRIBUTION.md`, font licences) and from it the AppImage (maintained `appimagetool`,
+    static runtime, zsync update information and `.zsync`, the `AppRun` desktop install with its
+    opt-out), `.deb` and `.rpm` through one nfpm config with their runtime libraries, `.tar.gz`, and
+    a Flatpak bundle from the tarball (freedesktop runtime; Wayland with X11 fallback, GPU, Pictures
+    read/write, no network) for x86_64 and aarch64; tools installed by the scripts, not the
+    workflow; before opening a window `dalica` checks for the libraries its session needs (without
+    `unsafe`: where the dynamic loader looks) and, if one is missing, names the package to install
+    and exits with status 1.
+  - done when: `packaging/linux/package.sh` builds all six locally (formats whose tool is missing
+    said plainly) and the dry run on the PR builds them on both architectures;
+    `desktop-file-validate` and `appstreamcli validate` pass; the AppImage runs `dalica --version`
+    in CI; a preflight test with a planted missing library prints the package and exits 1.
+- ⬜ **M6.22 Windows packages**
+  - after: M6.7, M6.12, M6.13
+  - files: `packaging/windows/**`, `apps/dalica/build.rs`
+  - scope: `releasing.md` → Windows: `package.ps1 -Arch x64` with `+crt-static`; `build.rs` embeds
+    the icon and VERSIONINFO only when targeting Windows (a missing resource compiler is an error
+    naming the tool, never a panic) and selects the GUI subsystem for release builds through linker
+    arguments; an MSI (WiX v5: per-machine, Start Menu shortcut, no licence page, silent install,
+    listed under Open with for the readable formats without taking over the default viewer, numeric
+    `X.Y.Z`, same-version upgrades); the portable zip with M6.7's marker; `sign.ps1` (`.pfx` or
+    Azure Trusted Signing, whichever is configured; skipped with a warning otherwise). If `cargo
+    xtask deps` refuses the resource step, block with the question (`C_BUILD_ALLOW` is the
+    maintainer's).
+  - done when: the dry run on the PR builds the MSI and the zip; in CI `msiexec /qn` installs and
+    uninstalls cleanly and the installed executable's version resource matches; the portable zip
+    keeps its data beside the executable (a CI step); `build.rs` without a resource compiler fails
+    with the tool named.
+- ⬜ **M6.23 macOS packages**
+  - after: M6.1, M6.7, M6.12, M6.13
+  - files: `packaging/macos/**`
+  - scope: `releasing.md` → macOS: `aarch64` and `x86_64` builds at `MACOSX_DEPLOYMENT_TARGET=11.0`
+    joined with `lipo`; `Dalica.app` with `Info.plist` from a template (the application id as bundle
+    id, image formats as Alternate handler); signing inside-out with the hardened runtime and
+    notarization with stapling when the secrets exist, ad hoc otherwise; the DMG (volume `Dalica`,
+    an `Applications` link, the window layout and a background drawn from the icon, generated
+    reproducibly); the CLI zip; `verify.sh`.
+  - done when: the dry run on the PR builds the DMG and the CLI zip; `lipo -info` lists both
+    architectures; `verify.sh` passes in ad hoc mode; the app from the mounted DMG runs `--version`
+    in CI; the DMG layout files are identical across two runs.
+- ⬜ **M6.24 `ui`: rotation and hiding in the library**
+  - after: M6.6, M6.14
+  - files: `crates/ui/src/panels/thumbnails.rs`, `crates/ui/src/panels/light_table/layout.rs`, `crates/ui/src/selection.rs`, `crates/ui/src/panels/bottom.rs`, `crates/ui/src/panels/bottom/**`, `crates/ui/src/panels/folders.rs`, `crates/ui/src/panels/folders/**`, `crates/ui/tests/rotate.rs`, `crates/ui/tests/hidden.rs`, `crates/ui/tests/fingerprints/rotated*.json`, `crates/ui/tests/fingerprints/region-tree*.json`
+  - scope: `ui-layout.md` §4, §5.3, §6.2–§6.3: `Thumbnails::paint` draws each photo (cells, tray,
+    tokens) with its recipe's net orientation by mapping the cached thumbnail and sketch, so a
+    rotation shows the same frame with no decode; the layout uses the displayed size (a landscape
+    turned 90° takes a portrait cell), cached per revision; hidden photos left out of the layout and
+    of selection gestures unless View → Hidden Pictures (then at 40 %, M4.10's rule); the bottom
+    bar's rotate buttons and the tray menu's rotations act on the tray; the Hidden Folders group and
+    its sections only with Hidden Pictures; a tree row's double-click opens Folder Properties
+    (`section.properties`).
+  - done when: `crates/ui/tests/rotate.rs`: a landscape photo rotated clockwise from the bottom bar
+    shows a portrait cell matching its fingerprint for each EXIF orientation, a flip mirrors it,
+    undo restores the cell, and no decode job ran; `crates/ui/tests/hidden.rs`: hiding a photo
+    removes its cell and Ctrl+A skips it, Hidden Pictures shows it at 40 %; hiding a folder moves
+    its row to Hidden Folders and removes its section until Hidden Pictures; the tree fingerprints
+    at both window sizes.
+- ⬜ **M6.25 `ui`: captions in the library**
+  - after: M6.6, M6.14
+  - files: `crates/ui/src/panels/light_table/cell.rs`, `crates/ui/src/panels/light_table/caption_edit.rs`, `crates/ui/src/commands/caption.rs`, `crates/ui/tests/captions.rs`, `crates/ui/tests/fingerprints/region-cells*.json`
+  - scope: `organizing.md` §5.3 and `ui-layout.md` §5.3: Picture → Edit Caption opens a one-line
+    editor under the focused photo's cell (placeholder "Add a caption", the text-input keyboard
+    context so shortcuts do not fire); Enter or a click elsewhere commits through
+    `photo.caption.set` (one undo step), Esc cancels, scrolling the cell away commits; the Caption
+    and Tags thumbnail-caption modes show the model's text (tags joined by ", "), middle-elided; ids
+    per control-protocol §7.
+  - done when: `crates/ui/tests/captions.rs`: type a caption by id and Enter, the sidecar holds it
+    and one undo removes it; Esc leaves it unchanged; Ctrl+8 typed into the editor stars nothing;
+    each caption mode's text; the cell fingerprints at both window sizes.
+- ⬜ **M6.26 `ui`: folder descriptions and Folder Properties**
+  - after: M6.6, M6.14
+  - files: `crates/ui/src/panels/light_table/header.rs`, `crates/ui/src/dialogs/folder_properties.rs`, `crates/ui/tests/folder_properties.rs`, `crates/ui/tests/fingerprints/region-header*.json`, `crates/ui/tests/fingerprints/dialog-folder-properties*.json`
+  - scope: `ui-layout.md` §5.2 and `organizing.md` §10: a click on the description line edits it
+    inline (Enter commits through `folder.info.set`, Esc cancels); a double-click on the title opens
+    Folder Properties: Name (shown, read-only until renaming arrives in M9), Date with "Use the date
+    of the oldest photo", Place, Description, Music for slideshows (disabled until M11), OK applying
+    one undo step; the header's date line shows the folder's date and " · place".
+  - done when: `crates/ui/tests/folder_properties.rs`: an inline description by id survives a
+    restart; the dialog's OK sets date and place in one undo step, Cancel changes nothing; the
+    header shows them; the header and dialog fingerprints at both window sizes.
+- ⬜ **M6.27 `ui`: the Properties pane**
+  - after: M6.6, M6.16
+  - files: `crates/ui/src/panels/properties.rs`, `crates/ui/src/panels/properties/**`, `crates/ui/tests/properties_pane.rs`, `crates/ui/tests/fingerprints/pane-properties*.json`
+  - scope: `ui-layout.md` §7: header "Properties of IMG_0361.jpg" ("Properties of 12 photos" or the
+    folder's name for a selected section), label/value rows (Path, File size, Dimensions, Date
+    taken, Date digitized, File modified, Camera, Lens, Exposure, Aperture, ISO, Focal length,
+    Flash, Orientation, Color space, GPS, Caption, Tags) from `photo.metadata` and the model, long
+    values elided with a tooltip, a loading row while `pending`, the "Changed in another
+    application; Dalica's value kept" note when reported; [Show All Metadata] lists every field
+    grouped by EXIF, XMP and IPTC in a scrolling list; following the selection; ids per §7.
+  - done when: `crates/ui/tests/properties_pane.rs` on a JPEG with EXIF, XMP and IPTC: every row's
+    value, Show All Metadata lists the extra fields, the pane follows a new selection, no frame
+    waited on a file read (perf counters); the pane fingerprints at both window sizes.
+- ⬜ **M6.28 `ui`: the Tags pane**
+  - after: M6.6, M6.15
+  - files: `crates/ui/src/panels/tags.rs`, `crates/ui/src/panels/tags/add.rs`, `crates/ui/src/panels/tags/list.rs`, `crates/ui/src/dialogs/rename_tag.rs`, `crates/ui/src/status_text.rs`, `crates/ui/tests/tags_pane.rs`, `crates/ui/tests/status_tags.rs`, `crates/ui/tests/fingerprints/pane-tags*.json`, `crates/ui/tests/fingerprints/dialog-rename-tag*.json`, `crates/ui/tests/fingerprints/region-status*.json`
+  - scope: `organizing.md` §5.2 and `menus-and-shortcuts.md` §4: "Add a tag:" with + (Enter adds,
+    commas separate, autocomplete from `tags.list`); "Tags in the selection:" with partial counts
+    ("beach (3 of 8)"), hover × removing from all selected photos; the tag context menu (Add to All
+    Selected, Search for This Tag disabled until M9, Remove from Selected, Rename Tag… with its
+    confirmation dialog); Ctrl+T; the status line's "Tags: lisbon (40), tram (6)" field
+    (`ui-layout.md` §6.1); ids per §7.
+  - done when: `crates/ui/tests/tags_pane.rs`: add two tags to a selection of 8 by typing, see the
+    counts, remove one by ×, undo; autocomplete offers existing tags; Rename Tag merges after
+    confirming; `crates/ui/tests/status_tags.rs`: the status text for tagged selections; the pane,
+    dialog and status fingerprints at both window sizes.
+- ⬜ **M6.29 `ui` + `ui-kit`: Adjust Date and Time**
+  - after: M6.6, M6.16
+  - files: `crates/ui/src/dialogs/adjust_date.rs`, `crates/ui-kit/src/widgets/datetime.rs`, `crates/ui-kit/tests/datetime.rs`, `crates/ui-kit/tests/fingerprints/datetime*.json`, `crates/ui/tests/adjust_date.rs`, `crates/ui/tests/fingerprints/dialog-adjust-date*.json`
+  - scope: `organizing.md` §9: a date and a time picker in `ui-kit` (keyboard entry, arrows step the
+    focused field, invalid days refused, no locale formats beyond the long date of `ui-layout.md`
+    §5.2 yet); Adjust Picture Date ("… — %d pictures" for several): the thumbnail, "Current date:"
+    read-only, "New date:", for several photos the radios "Shift all dates by the same amount"
+    (default) and "Set all pictures to the same date and time"; OK runs `photo.dates.set` (one undo
+    step); ids per §7.
+  - done when: `crates/ui-kit/tests/datetime.rs`: entry, stepping and refusal of 31 February;
+    `crates/ui/tests/adjust_date.rs`: shift three photos by +1 h 30 min and set one, by id, then
+    undo; the widget and dialog fingerprints at both window sizes.
+- ⬜ **M6.30 `store`: the metadata write queue**
+  - after: M6.8, M6.17, M6.19
+  - files: `crates/store/src/metawrite.rs`, `crates/store/src/metawrite/**`, `crates/store/tests/metawrite.rs`, `crates/store/README.md`, `crates/library/src/sync.rs`, `crates/library/tests/sync.rs`, `crates/fs/src/times.rs`, `crates/fs/tests/times.rs`
+  - scope: `data-model.md` §5 and `xmp-interop.md` §1, §5: a queue of files to write, batched per
+    file and debounced, run on a worker: re-read the file, decide per field with the §5 rules (a
+    pure function in `library/src/sync.rs` over the file's value, the last-synced hash and the
+    sidecar's value: write, import, keep, or report both changed), merge-write through `meta`,
+    replace atomically through `fs` (never a file that changed since it was read: re-queued),
+    verify, restore the modification time unless the option says otherwise (`fs` gains setting a
+    file's times, with a fault point), update the synced hashes; a RAW gets its `.xmp` sidecar only
+    with that option (a damaged one kept aside through `fs`); formats that cannot be written, and
+    read-only files, keep their values in the sidecar with the reason; files under an offline root
+    wait (M5.13) and are written on return; each field follows its option; results (written,
+    imported, conflict, failed with reason, skipped) returned for the engine.
+  - done when: `cargo test -p dalica-store --test metawrite` on temp folders: `xmp-interop.md` §8
+    test 8 (first-scan import, sidecar wins, change made elsewhere imported, both changed reported,
+    the rebuild fallback) and test 9 (a fault at every step of a metadata write leaves the old or
+    the new file, never a torn one, and the time restored); an offline root writes on return; a
+    read-only file fails with its reason and the sidecar intact; a file changed between read and
+    write is re-read; `cargo test -p dalica-fs --test times` with fault injection.
+- ⬜ **M6.31 `ui`: quick tags**
+  - after: M6.28
+  - files: `crates/ui/src/panels/tags/quick.rs`, `crates/ui/src/dialogs/quick_tags.rs`, `crates/ui/tests/quick_tags.rs`, `crates/ui/tests/fingerprints/pane-tags*.json`, `crates/ui/tests/fingerprints/dialog-quick-tags*.json`
+  - scope: `organizing.md` §5.2: the grid of ten buttons in rows of 2/3/2/3 (unassigned ones show
+    "+", a click toggles that tag on the selection through `photo.tags.toggle`), the gear opening
+    Configure Quick Tags (the recent-tags checkbox, ten fields, [Fill Empty with Common Tags], OK /
+    Cancel through `tags.quick.set`); Ctrl+Alt+1 … Ctrl+Alt+0 act on the tray; ids per §7.
+  - done when: `crates/ui/tests/quick_tags.rs`: configure three slots, apply slot 2 by click and by
+    Ctrl+Alt+2, toggle it off again; Fill Empty uses the most common tags; Cancel changes nothing;
+    the pane and dialog fingerprints at both window sizes.
+- ⬜ **M6.32 `scan` + `engine`: importing file metadata on scan**
+  - after: M5.17, M6.8, M6.9, M6.19, M6.30
+  - files: `crates/scan/src/meta.rs`, `crates/scan/tests/meta.rs`, `crates/engine/src/scanning.rs`, `crates/engine/tests/meta_import.rs`
+  - scope: `xmp-interop.md` §5 and §7: when a scan finds a new or changed file (size or mtime), its
+    owned fields are read through `meta` on the scan worker (an `.xmp` sidecar for a RAW whatever
+    the option, else a DNG's embedded XMP); a photo with no sidecar entry imports every field it has
+    (rating 5 as a star) without an undo step; a rescan applies the `sync.rs` decision: a value
+    changed elsewhere becomes one undoable import op, both changed is recorded for Properties;
+    synced hashes are set from what was read.
+  - done when: `crates/engine/tests/meta_import.rs` on temp folders: a JPEG tagged by another tool
+    shows its caption, tags, date and star after the first scan; editing the file's caption outside
+    while Dalica runs imports it as one undoable step; editing both reports the conflict and keeps
+    Dalica's value; a RAW with an `.xmp` sidecar imports from it; the owner thread made no `fs`
+    call.
+- ⬜ **M6.33 `engine` + `ui`: metadata write-back end to end**
+  - after: M6.14, M6.15, M6.16, M6.18, M6.30
+  - files: `crates/engine/src/metadata.rs`, `crates/engine/tests/write_back.rs`, `crates/ui/src/notices.rs`, `crates/ui/tests/notices.rs`, `docs/xmp-interop.md`, `docs/data-model.md`
+  - scope: `data-model.md` §5: the session's metadata hook queues a write for every photo whose
+    caption, tags, place, date or (with its option) star an op changed, including undo and redo, and
+    only when the field's option is on; writes run as jobs ("Writing metadata", progress, Cancel)
+    through M6.30's queue, imports come back as ops, conflicts reach `photo.metadata`;
+    `pendingMetadataWrites` in `library.inspect`; a failed write becomes a session event that
+    `notices.rs` shows as a `caution` toast naming the file and field; the status lines of
+    `xmp-interop.md` and `data-model.md` §5 updated.
+  - done when: `crates/engine/tests/write_back.rs` on temp JPEG, PNG, WebP and TIFF files: caption,
+    tags and a date change reach each file and survive another application's read (`meta`); undo
+    writes the old value back; with an option off nothing is written; the star rating rule; a
+    read-only file gives one toast (`crates/ui/tests/notices.rs`) and the sidecar keeps the value;
+    the owner thread made no `fs` call.
+- ⬜ **M6.34 `meta`: the metadata corpus**
+  - after: M5.15, M6.17, M6.18, M6.19
+  - owner: lead
+  - files: `xtask/src/corpus_pins.rs`, `xtask/corpus/metadata/**`, `crates/meta/tests/corpus.rs`, `crates/meta/tests/corpus_floors.json`
+  - scope: `development.md` §11 `corpus/metadata/`: the lead adds a `metadata` set to our CC0
+    `pkkid/dalica-corpus` repository (as it filled M5's sets, M3.R answer): `scenes` photos in JPEG,
+    PNG, WebP and TIFF, and RAW `.xmp` sidecars, after other tools wrote captions, keywords,
+    ratings, GPS, dates and face regions into them (each file's tool and version in the manifest),
+    pins it, and adds the `corpus`-feature test: every file reads, and after a Dalica write of each
+    owned field every byte outside the owned properties is kept (the non-metadata digest equal,
+    foreign XMP, IPTC and EXIF fields unchanged), with floors at the measured counts.
+  - done when: `cargo xtask corpus --all` fetches and verifies the set; `cargo xtask test-corpus -p
+    dalica-meta` passes with its floors (numbers in the PR); no corpus file is tracked by git.
+- ⬜ **M6.35 Release 0.1: notes, version and README**
+  - after: M6.20, M6.21, M6.22, M6.23, M6.24, M6.25, M6.26, M6.27, M6.29, M6.31, M6.32, M6.33, M6.34
+  - files: `docs/whats-new.md`, `README.md`, `docs/releasing.md`, `docs/security.md`
+  - scope: the user-facing 0.1 section of `whats-new.md` by its conventions (what a user can do now,
+    honest about what is missing, every data-safety change: what is written into photo files and
+    when), a status banner at the top of `README.md` (an organizer preview; editing comes later),
+    the version set to `0.1.0` with `cargo xtask version set` (root manifest and lock file),
+    `<app-id>` in `releasing.md` replaced by the decided id, and the statuses of `security.md` §1.1,
+    §4, §7 and §10 brought up to date with M6.
+  - done when: `cargo xtask version` prints `0.1.0`; Help ▸ Release Notes shows the new section (a
+    test through M6.20's dialog); `cargo xtask names` and `cargo xtask docs` pass.
+- ⬜ **M6.36 `accept M6`**
+  - after: M6.35
+  - files: `tests/acceptance/m6.rs`, `tests/acceptance/m6_*.rs`, `tests/acceptance/m6.md`, `tests/acceptance/fingerprints/m6-*.json`
+  - scope: every *Done when* of M6's three areas: the command contract of every new command
+    (including `panic_hunt`); rotated thumbnails matching their fingerprints in the real `dalica
+    --headless`; hide, captions, dates, tags and folder info surviving a rebuild; `xmp-interop.md`
+    §8 tests 1–4 and 6–10 (the `meta` and `store` suites); the corpus check that other applications'
+    bytes are kept (run when `corpus/` is present and verified, said plainly when it is not; the CI
+    corpus job is the strict run); the latest release dry run on `main` green on all three OSes with
+    its checksums verified (read through `gh`, said plainly when offline); the manual checks in
+    `m6.md` (rotate, hide and caption photos in the app; tag a photo and see the tag in another
+    photo application; install a package and browse your own photos).
+  - done when: `cargo xtask accept M6` passes everything in M6's *Done when*.
+- ⬜ **M6.37 Lead: task blocks for M8**
+  - after: M5.21
+  - owner: lead
+  - files: `docs/roadmap.md`
+  - scope: write every M8 task block from M8's section and the spec, with waves and the `M8.R`
+    review (owner: maintainer).
+  - done when: `cargo xtask tasks sync --check` parses them and `tasks sync --dry-run` lists one new
+    issue per block.
+- ⬜ **M6.R Release 0.1 gate**
+  - after: M6.36
+  - owner: maintainer
+  - files: `docs/roadmap.md`, `docs/status.md`
+  - scope: the lead runs `/milestone-review M6.R` to prepare it: the check-in page (rotate, hide,
+    caption and tag photos, Properties, Adjust Date and Time, a tag seen in another application, the
+    About window, written as steps for the maintainer to try), the release checklist of
+    `releasing.md` up to the draft (version 0.1.0 on `main`, the dry run's artifacts and
+    `SHA256SUMS.txt`, signature state per artifact), and the sign-off questions: accept or replace
+    the app icon candidate, the two open questions of `xmp-interop.md` §9, and cutting 0.1 (the push
+    to `release` and publishing the draft are the maintainer's); *Where we stand* and the
+    `status.md` numbers (metadata write times, corpus floors, package sizes) on a `review/M6.R`
+    branch, a pull request open. Only the maintainer merges that pull request and closes this issue;
+    nothing after it starts until then.
+  - done when: prepared: page published, PR open, both linked on the issue.
+
+Waves (inside a wave, "‖" separates tasks whose `files` do not overlap):
+
+```text
+wave 0   M6.1 application id    (pulled into M5's run so M5.R asks reserved decision 10)
+wave 1   M6.2 library fields  ‖  M6.3 edit recipe  ‖  M6.4 meta reading + skeleton
+         ‖  M6.5 engine modules + settings  ‖  M6.6 ui state + stubs  ‖  M6.7 version + portable
+         (once M5.R is closed)
+wave 2   M6.8 sidecar + index  ‖  M6.9 XMP  ‖  M6.10 IPTC + EXIF writes  ‖  M6.11 contributors
+         ‖  M6.12 app icon  ‖  M6.13 release workflow
+wave 3   M6.14 rotate/hide/caption commands  ‖  M6.15 tag commands  ‖  M6.16 dates + metadata query
+         ‖  M6.17 JPEG write  ‖  M6.18 PNG/WebP/TIFF write  ‖  M6.19 .xmp sidecars  ‖  M6.20 About
+         ‖  M6.21 Linux  ‖  M6.22 Windows  ‖  M6.23 macOS
+wave 4   M6.24 rotation + hiding  ‖  M6.25 captions  ‖  M6.26 Folder Properties  ‖  M6.27 Properties
+         ‖  M6.28 Tags pane  ‖  M6.29 Adjust Date  ‖  M6.30 write queue
+         ‖  M6.34 metadata corpus (lead)
+wave 5   M6.31 quick tags  ‖  M6.32 import on scan  ‖  M6.33 write-back end to end
+wave 6   M6.35 notes + 0.1.0 → M6.36 accept M6 → M6.R
+         (M6.37 lead: M8 blocks, any time after M5.21)
+```
 
 ### M7 — Edit view and fixes
 
