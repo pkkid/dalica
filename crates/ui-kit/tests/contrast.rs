@@ -17,8 +17,9 @@ fn text_pairs(t: &Tokens) -> Vec<Pair> {
     let toast_on_table = over(t.toast_bg, t.grid_bg);
     let toast_on_white = over(t.toast_bg, Color32::WHITE);
     vec![
-        // §9's two named pairs.
+        // §9's three named pairs.
         ("text_label on chrome", t.text_label, t.chrome),
+        ("text_dim on chrome (status line, tooltip detail, window title)", t.text_dim, t.chrome),
         ("text_dim on grid_bg", t.text_dim, t.grid_bg),
         // Panels, menus, tooltips, dialogs (chrome).
         ("text on chrome", t.text, t.chrome),
@@ -76,17 +77,17 @@ fn glyph_pairs(t: &Tokens) -> Vec<Pair> {
     ]
 }
 
-/// Pairs the tokens of `design-system.md` §2 put below their threshold. They are pinned here so
-/// they cannot get worse, and are a question for the review: raising `text_dim` to `#949494` brings
-/// it to 4.5:1 on `chrome` (a hovered row needs about `#a8a8a8`). `accent` on `chrome` is below the
-/// 3:1 that WCAG 2.2 asks of a focus indicator and of a drop-target outline (the ring is drawn 1 pt
-/// outside the control, the outline over an `accent × 0.15` fill). The slider `track` is a guide
-/// under the ring (`thumb`, 5.3:1), not the control itself.
+/// Pairs the tokens of `design-system.md` §2 put below their threshold, pinned here so they cannot
+/// get worse. The maintainer settled them at the M3 review: `text_dim` was raised to `#949494` so it
+/// reaches 4.5:1 on `chrome`; on a hovered row it stays below (a hovered row would need about
+/// `#a8a8a8`, too close to `text_label`). `accent` on `chrome` stays below the 3:1 that WCAG 2.2
+/// asks of a focus indicator and of a drop-target outline (the ring is drawn 1 pt outside the
+/// control, the outline over an `accent × 0.15` fill). The slider `track` stays a guide under the
+/// ring (`thumb`, 5.3:1), not the control itself.
 fn known_below(t: &Tokens) -> Vec<(&'static str, Color32, Color32, f64, f64)> {
     // (what, foreground, background, pinned floor, threshold it misses)
     vec![
-        ("text_dim on chrome (status line, tooltip detail, window title)", t.text_dim, t.chrome, 4.20, 4.5),
-        ("text_dim on hover (counts in a hovered row)", t.text_dim, t.hover, 3.47, 4.5),
+        ("text_dim on hover (counts in a hovered row)", t.text_dim, t.hover, 3.75, 4.5),
         ("accent focus ring and drop-target outline on chrome", t.accent, t.chrome, 2.56, 3.0),
         ("track on chrome", t.track, t.chrome, 2.00, 3.0),
     ]
@@ -103,6 +104,15 @@ fn every_text_pair_is_at_least_4_5_to_1() {
         })
         .collect();
     assert!(fails.is_empty(), "below 4.5:1: {fails:?}");
+}
+
+/// The M3 review's answer (`design-system.md` §9): dim text on the chrome is body text too, so the
+/// status line, a tooltip's detail line and the window title reach 4.5:1 (`#8e8e8e` gave 4.20:1).
+#[test]
+fn text_dim_on_chrome_is_at_least_4_5_to_1() {
+    let t = Tokens::default();
+    let c = contrast(t.text_dim, t.chrome);
+    assert!(c >= 4.5, "text_dim on chrome: {c:.2}:1");
 }
 
 #[test]
