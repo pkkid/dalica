@@ -109,7 +109,7 @@ fn clicks_select_toggle_and_range_inside_one_section() {
     let Section::Folder(fb) = b;
 
     click(&mut d, pa[1], egui::Modifiers::NONE);
-    assert_eq!(sel(&d), Selection { ids: vec![pa[1]], anchor: Some(pa[1]), section: Some(a), whole: false });
+    assert_eq!(sel(&d), Selection::new(vec![pa[1]], Some(pa[1]), Some(a), false));
     click(&mut d, pa[3], ctrl());
     assert_eq!((sel(&d).ids, sel(&d).anchor), (vec![pa[1], pa[3]], Some(pa[3])), "Ctrl-click adds");
     click(&mut d, pa[3], ctrl());
@@ -121,7 +121,7 @@ fn clicks_select_toggle_and_range_inside_one_section() {
 
     // Another section: Ctrl-click replaces, Shift-click never reaches back.
     click(&mut d, pb[2], ctrl());
-    assert_eq!(sel(&d), Selection { ids: vec![pb[2]], anchor: Some(pb[2]), section: Some(b), whole: false });
+    assert_eq!(sel(&d), Selection::new(vec![pb[2]], Some(pb[2]), Some(b), false));
     assert_eq!(d.state().folder, Some(fb), "the tree's folder follows the selection");
     click(&mut d, pa[4], shift());
     assert_eq!((sel(&d).ids, sel(&d).section), (vec![pa[4]], Some(a)), "a range never crosses a section");
@@ -299,7 +299,7 @@ fn the_selection_commands_work_per_section() {
 
     // A section as a unit.
     d.run("select.section", &json!({ "section": b.to_string() })).unwrap();
-    assert_eq!(sel(&d), Selection { ids: pb.clone(), anchor: Some(pb[0]), section: Some(b), whole: true });
+    assert_eq!(sel(&d), Selection::new(pb.clone(), Some(pb[0]), Some(b), true));
     assert_eq!(d.state().folder, Some(fb));
     click(&mut d, pb[3], ctrl());
     assert!(!sel(&d).whole && !sel(&d).ids.contains(&pb[3]), "a gesture makes it a plain selection again");

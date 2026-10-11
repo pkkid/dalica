@@ -2,6 +2,7 @@
 //! Plain data, so `ui.state` and `ui.set` can read and drive it and tests can assert on it. Library
 //! state never lives here: it is the engine's.
 
+use std::collections::HashSet;
 use std::fmt;
 use std::str::FromStr;
 
@@ -58,6 +59,13 @@ impl<'de> Deserialize<'de> for Section {
 
 /// The photos selected on the light table (`ui-layout.md` §5.4). A selection never crosses a
 /// section: `section` is the one its photos belong to.
+///
+/// [`Selection::contains`] is O(1): every thumbnail cell on screen asks it each frame, and a
+/// section selected with Ctrl+A may hold 100 000 photos. It looks the id up in an index of `ids`
+/// built on first use and kept beside them (not serialised). Build a selection with
+/// [`Selection::new`] (or `..Default::default()`) and change its photos with
+/// [`Selection::set_ids`] or by building a new one: an index that no longer matches `ids` is never
+/// trusted (the lookup falls back to a search), but writing `ids` in place is slow from then on.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Selection {
@@ -71,11 +79,82 @@ pub struct Selection {
     /// The section was selected as a unit (a tree row or a section header): the tray shows it as
     /// one token ("Folder selected — 48 photos", `ui-layout.md` §6.2) instead of its photos.
     pub whole: bool,
+    /// The lookup index of `ids` behind [`Selection::contains`].
+    #[serde(skip)]
+    index: Index,
 }
 
 impl Selection {
+    /// A selection of `ids` (in the order selected) with its anchor, section and whole flag.
+    pub fn new(ids: Vec<PhotoId>, anchor: Option<PhotoId>, section: Option<Section>, whole: bool) -> Selection {
+        Selection { ids, anchor, section, whole, index: Index::default() }
+    }
+
+    /// Replaces the selected photos (anchor, section and whole flag stay as they are).
+    pub fn set_ids(&mut self, ids: Vec<PhotoId>) {
+        self.ids = ids;
+        self.index = Index::default();
+    }
+
+    /// Whether photo `id` is selected, in O(1) (a short selection is searched directly).
     pub fn contains(&self, id: PhotoId) -> bool {
-        self.ids.contains(&id)
+        self.index.contains(&self.ids, id)
+    }
+}
+
+/// Lists up to this long are searched directly: cheaper than hashing.
+const INDEX_FROM: usize = 16;
+
+/// The lookup index of a list of photo ids, built on its first use. It is part of no comparison,
+/// never serialised, and a clone starts without one (it is rebuilt on the clone's first lookup).
+/// An index that was not built from the list it is asked about (the list was replaced in place) is
+/// never trusted: the list is searched instead.
+#[derive(Default)]
+struct Index(std::sync::OnceLock<Built>);
+
+impl Index {
+    fn contains(&self, ids: &[PhotoId], id: PhotoId) -> bool {
+        if ids.len() <= INDEX_FROM {
+            return ids.contains(&id);
+        }
+        let built = self.0.get_or_init(|| Built::of(ids));
+        if built.key == Built::key(ids) { built.set.contains(&id) } else { ids.contains(&id) }
+    }
+}
+
+/// An index and the `ids` it was built from: their buffer and length.
+struct Built {
+    key: (usize, usize),
+    set: HashSet<PhotoId>,
+}
+
+impl Built {
+    fn key(ids: &[PhotoId]) -> (usize, usize) {
+        (ids.as_ptr() as usize, ids.len())
+    }
+
+    fn of(ids: &[PhotoId]) -> Built {
+        Built { key: Built::key(ids), set: ids.iter().copied().collect() }
+    }
+}
+
+impl Clone for Index {
+    fn clone(&self) -> Index {
+        Index::default()
+    }
+}
+
+impl PartialEq for Index {
+    fn eq(&self, _: &Index) -> bool {
+        true
+    }
+}
+
+impl Eq for Index {}
+
+impl fmt::Debug for Index {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("Index")
     }
 }
 
@@ -147,10 +226,27 @@ pub enum Caption {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Tray {
-    /// Photos kept in the tray by Hold (Ctrl+H), in the order they were held.
+    /// Photos kept in the tray by Hold (Ctrl+H), in the order they were held. Change them with
+    /// [`Tray::set_held`] so [`Tray::holds`] stays O(1).
     pub held: Vec<PhotoId>,
     /// The tray's own selection (what Clear removes), photos the tray shows.
     pub selected: Vec<PhotoId>,
+    /// The lookup index of `held` behind [`Tray::holds`].
+    #[serde(skip)]
+    held_index: Index,
+}
+
+impl Tray {
+    /// Whether photo `id` is held, in O(1).
+    pub fn holds(&self, id: PhotoId) -> bool {
+        self.held_index.contains(&self.held, id)
+    }
+
+    /// Replaces the held photos.
+    pub fn set_held(&mut self, held: Vec<PhotoId>) {
+        self.held = held;
+        self.held_index = Index::default();
+    }
 }
 
 /// Where the light table is scrolled to, kept by its content rather than by pixels so it survives a
@@ -260,21 +356,19 @@ impl UiState {
         self.scroll.offset = clamp_or(self.scroll.offset, 0.0, SCROLL_OFFSET_MAX, 0.0);
         dedup(&mut self.collapsed_groups);
         dedup(&mut self.collapsed_folders);
-        dedup(&mut self.tray.held);
+        let mut held = std::mem::take(&mut self.tray.held);
+        dedup(&mut held);
+        self.tray.set_held(held);
         dedup(&mut self.tray.selected);
         self
     }
 }
 
-/// Drops repeated entries, keeping the first of each (lists are short or bounded by [`MAX_IDS`]).
-fn dedup<T: PartialEq + Copy>(v: &mut Vec<T>) {
-    let mut kept: Vec<T> = Vec::with_capacity(v.len());
-    for x in v.iter() {
-        if !kept.contains(x) {
-            kept.push(*x);
-        }
-    }
-    *v = kept;
+/// Drops repeated entries, keeping the first of each, in one pass (lists are bounded by
+/// [`MAX_IDS`]).
+fn dedup<T: Eq + std::hash::Hash + Copy>(v: &mut Vec<T>) {
+    let mut seen: HashSet<T> = HashSet::with_capacity(v.len());
+    v.retain(|x| seen.insert(*x));
 }
 
 impl Default for UiState {
@@ -323,6 +417,38 @@ mod tests {
         assert_eq!(v["selection"], serde_json::json!({ "ids": [3, 1], "anchor": 1, "section": null, "whole": false }));
         assert_eq!(serde_json::from_value::<UiState>(v).unwrap(), s);
         assert!(serde_json::from_value::<UiState>(serde_json::json!({ "view": "library", "zoom": 2 })).is_err());
+    }
+
+    /// `contains` answers from an index, so asking it for every cell of a 100 000-photo selection
+    /// is linear, not quadratic; the index never outlives the ids it was built from.
+    #[test]
+    fn selection_lookups_are_constant_time_and_never_stale() {
+        let n = 100_000u64;
+        let all: Vec<PhotoId> = (1..=n).map(PhotoId::new).collect();
+        let sel = Selection::new(all.clone(), Some(PhotoId::new(1)), None, false);
+        let started = std::time::Instant::now();
+        // 200 000 lookups: a linear search would take about 10^10 comparisons.
+        let hits = (1..=2 * n).filter(|&k| sel.contains(PhotoId::new(k))).count();
+        assert_eq!(hits as u64, n);
+        assert!(started.elapsed() < std::time::Duration::from_secs(5), "{:?}", started.elapsed());
+        // The serialised shape is unchanged: no index in it, and a round trip compares equal.
+        let v = serde_json::to_value(&sel).unwrap();
+        assert_eq!(v.as_object().unwrap().keys().collect::<Vec<_>>(), ["anchor", "ids", "section", "whole"]);
+        let back: Selection = serde_json::from_value(v).unwrap();
+        assert_eq!(back, sel);
+        assert!(back.contains(PhotoId::new(n)) && !back.contains(PhotoId::new(n + 1)));
+        // A clone, a new set of ids, and ids written in place all answer for their own ids.
+        let mut other = sel.clone();
+        assert!(other.contains(PhotoId::new(5)));
+        other.set_ids((n + 1..=n + 50).map(PhotoId::new).collect());
+        assert!(!other.contains(PhotoId::new(5)) && other.contains(PhotoId::new(n + 50)));
+        let mut written = sel.clone();
+        assert!(written.contains(PhotoId::new(7)));
+        written.ids = (n + 1..=2 * n).map(PhotoId::new).collect();
+        assert!(!written.contains(PhotoId::new(7)) && written.contains(PhotoId::new(2 * n)), "a stale index is not trusted");
+        written.ids.truncate(10);
+        assert!(written.contains(PhotoId::new(n + 10)) && !written.contains(PhotoId::new(n + 11)));
+        assert!(!Selection::default().contains(PhotoId::new(1)));
     }
 
     #[test]
@@ -419,7 +545,11 @@ mod tests {
         let s = UiState {
             collapsed_groups: vec![Group::Folders, Group::Albums, Group::Folders],
             collapsed_folders: vec![FolderId::new(2), FolderId::new(2)],
-            tray: Tray { held: vec![PhotoId::new(1), PhotoId::new(1), PhotoId::new(2)], selected: vec![PhotoId::new(2), PhotoId::new(2)] },
+            tray: Tray {
+                held: vec![PhotoId::new(1), PhotoId::new(1), PhotoId::new(2)],
+                selected: vec![PhotoId::new(2), PhotoId::new(2)],
+                ..Tray::default()
+            },
             scroll: ScrollAnchor { section: None, offset: f32::NAN },
             ..UiState::default()
         }

@@ -187,7 +187,7 @@ fn loose(ids: Vec<PhotoId>, anchor: Option<PhotoId>, folder: &impl Fn(PhotoId) -
     let mut folders = ids.iter().map(|id| folder(*id));
     let first = folders.next().flatten();
     let section = if folders.all(|f| f == first) { first.map(Section::Folder) } else { None };
-    Selection { ids, anchor, section, whole: false }
+    Selection::new(ids, anchor, section, false)
 }
 
 fn select_none(app: &mut App, params: &Value) -> Result<Value, CmdError> {

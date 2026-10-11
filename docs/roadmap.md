@@ -1121,7 +1121,7 @@ UI tasks each re-bless only their own.
     every sort; a row click leaves its header at the top after 0.2 s and selects the folder as a
     unit; collapsing Folders removes its sections; a 5 k-folder synthetic library stays within
     the frame budget with rows visited flat.
-- ⬜ **M4.16 `ui`: the Photo Tray, Hold, Clear and tray actions**
+- ✅ **M4.16 `ui`: the Photo Tray, Hold, Clear and tray actions**
   - after: M4.13
   - files: `crates/ui/src/tray.rs`, `crates/ui/src/commands/tray.rs`, `crates/ui/src/panels/bottom.rs`, `crates/ui/src/panels/bottom/**`, `crates/ui/tests/tray.rs`, `crates/ui/tests/fingerprints/region-tray*.json`
   - scope: `ui-layout.md` §6.2–§6.3: the tray mirrors the selection live plus held photos; a

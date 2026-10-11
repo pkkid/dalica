@@ -22,7 +22,7 @@ same commit.
 <!-- parity:summary -->
 | Section | ✅ | 🟡 | ⬜ | 🚫 |
 |---|---:|---:|---:|---:|
-| A. Library view | 6 | 17 | 9 | 1 |
+| A. Library view | 6 | 19 | 7 | 1 |
 | B. Organizing | 0 | 1 | 41 | 0 |
 | C. Editing | 0 | 0 | 21 | 4 |
 | D. Viewing | 0 | 1 | 5 | 2 |
@@ -30,7 +30,7 @@ same commit.
 | F. Data | 1 | 2 | 3 | 0 |
 | G. Preferences and system | 0 | 4 | 8 | 0 |
 | H. Menus | 0 | 3 | 4 | 0 |
-| **All** | 7 | 28 | 93 | 16 |
+| **All** | 7 | 30 | 91 | 16 |
 <!-- /parity:summary -->
 
 ## Top gaps
@@ -59,16 +59,16 @@ same commit.
 | LIB-LT-SCROLLBAR | Section-jump scrollbar (⇑ ▲ ▼ ⇓) with the speed-control thumb and position marker | P0 | 🟡 | ⇑ ▲ track ▼ ⇓ acting on press with auto-repeat, eased steps that add up, the speed thumb (dead zone, `top · u^exponent` from `settings.json`, stop and 150 ms spring-back on release), the position marker, and the keys PgUp/PgDn, Ctrl+↑/↓, Ctrl+Home/End (`cmd:scroll.pageUp` `cmd:scroll.pageDown` `cmd:scroll.prevSection` `cmd:scroll.nextSection` `cmd:scroll.top` `cmd:scroll.bottom`): `crates/ui/src/panels/light_table/scrollbar.rs`, `crates/ui/src/commands/scroll.rs`, `crates/ui/tests/scrollbar.rs`; the curve and top speed are a starting point to tune by feel at the M4 review; ref 02 §7.1 |
 | LIB-LT-INSTANT | Thumbnails never blank while scrolling: colour sketch, packed size ladder, upscaled fallback | P0 | ⬜ | the colour sketch (encode, decode, ≤ 26 bytes): `crates/thumbs/src/sketch.rs`, `crates/thumbs/tests/sketch.rs` (M4.1); the sketch in the index (M4.2); the packed cache (M4.3); the size ladder, scan-time 128/256 entries and sketches, best-available answers (covering, smaller scaled up, sketch, not scanned) and direction-aware prefetch: `crates/thumbs/src/ladder.rs`, `crates/engine/src/thumbs.rs`, `crates/thumbs/tests/ladder.rs`, `crates/engine/tests/thumbs.rs` (M4.8); drawing them still missing (M4.10, M4.12); ref 05 db3 tiers |
 | LIB-LT-HIDDEN | Hidden pictures shown translucent when enabled; small pictures toggle | P1 | 🟡 | small pictures (< 64 px on both sides) are left out unless View ▸ Small Pictures (`cmd:view.smallPictures`): `crates/ui/src/panels/light_table.rs`, `crates/ui/tests/light_table.rs`, `crates/ui/tests/cells.rs`; the 40 % rule for hidden photos with `cmd:view.hiddenPictures`: `crates/ui/src/panels/light_table/cell.rs` (`opacity`), `crates/ui/tests/cells.rs`; the photos' hidden flag missing (M6) |
-| LIB-SEL | Selection: click, Ctrl, Shift, rubber band, scoped to one section | P0 | 🟡 | click, Ctrl-click (toggles; in another section replaces), Shift-click (range from the anchor), right-click on an unselected photo selects it first, a click on empty space selects nothing, the rubber band from empty space (Ctrl adds) touching only the section it started in; a drag from a thumbnail starts no band (`cmd:select.set`, `cmd:select.section`): `crates/ui/src/selection.rs`, `crates/ui/src/panels/light_table/input.rs`, `crates/ui/tests/selection.rs`; the band does not scroll the view at its edges, dragging photos and the tray's held exception (M4.16) missing; ref 02 §7.5 |
+| LIB-SEL | Selection: click, Ctrl, Shift, rubber band, scoped to one section | P0 | 🟡 | click, Ctrl-click (toggles; in another section replaces), Shift-click (range from the anchor), right-click on an unselected photo selects it first, a click on empty space selects nothing, the rubber band from empty space (Ctrl adds) touching only the section it started in; a drag from a thumbnail starts no band (`cmd:select.set`, `cmd:select.section`): `crates/ui/src/selection.rs`, `crates/ui/src/panels/light_table/input.rs`, `crates/ui/tests/selection.rs`; held photos stay in the tray when the selection moves (LIB-TRAY-HOLD); the band does not scroll the view at its edges, dragging photos missing; ref 02 §7.5 |
 | LIB-SEL-KEYS | Keyboard navigation and selection keys | P0 | 🟡 | arrows move (Shift extends from the anchor), Home / End go to the section's first / last photo, all stop at the section's ends and scroll what they reach into view (`cmd:select.left` … `cmd:select.extendLast`); Ctrl+A / Ctrl+I / Ctrl+D and Select Starred per section (`cmd:select.all`, `cmd:select.invert`, `cmd:select.none`, `cmd:select.starred`): `crates/ui/src/commands/select.rs`, `crates/ui/tests/selection.rs`; Ctrl+Home / End and PgUp / PgDn (M4.11), Ctrl+H (M4.16) and Enter (M7) missing |
 | LIB-HOVER | Tooltip on hover | P1 | 🟡 | thumbnails: after 600 ms of rest the file name over date taken, pixel size and file size, or why the photo cannot be shown: `crates/ui/src/panels/light_table/cell.rs`, `crates/ui/tests/cells.rs`; Ctrl+Alt full-screen preview missing |
 | LIB-PEEK | Ctrl+Alt full-screen peek with wheel stepping | P1 | ⬜ | |
 | LIB-LOUPE | Loupe magnifier over thumbnails | P2 | ⬜ | |
 | LIB-THUMBSIZE | Thumbnail-size slider, Ctrl+1/Ctrl+2, Ctrl+wheel | P0 | ✅ | the bottom bar's slider (64–320) and Ctrl+1 / Ctrl+2 (`cmd:view.thumbsSmall`, `cmd:view.thumbsNormal`) set the light table's cell size: `crates/ui/src/panels/bottom.rs`, `crates/ui/tests/bottom.rs`; Ctrl+wheel over the light table changes it, keeping the section at the top in view: `crates/ui/tests/light_table.rs`; the size survives a restart: `crates/ui/tests/view_state.rs` |
 | LIB-STATUS | Status line texts (none / one / many / edit view) | P0 | 🟡 | "No selection", one photo (name, date and time, pixels, size), several photos or a folder (count, date range, size on disk), the file name middle-elided when too long, transient messages for 4 s, `ui.state` → `status` the text as drawn: `crates/ui/src/panels/status.rs`, `crates/ui/tests/tree_status_pane.rs`; the tags field (M6) and the edit view (M7) missing; ref 02 §8.1 |
-| LIB-TRAY | Photo Tray: token for folder, mini thumbnails, own selection | P0 | ⬜ | ref 02 §8.2 |
-| LIB-TRAY-HOLD | Hold / Clear / Add to Album ▾ | P0 | ⬜ | the three buttons are drawn, disabled until the tray (M4): `crates/ui/src/panels/bottom.rs` |
-| LIB-STARROT | Star and rotate buttons acting on the tray | P0 | 🟡 | the star button stars the selection (`cmd:photo.star.toggle`); the rotate buttons are drawn, disabled until their commands: `crates/ui/src/panels/bottom.rs`, `crates/ui/tests/bottom.rs`; the tray (M4) and rotation missing |
+| LIB-TRAY | Photo Tray: token for folder, mini thumbnails, own selection | P0 | 🟡 | the tray mirrors the selection plus the held photos (held first, each once); a section selected as a unit is one token (cover and "Folder selected — 48 photos"); square centre-cropped mini thumbnails shrinking with the count (54 … 18, up to three rows, the rest counted as "+N"); its own selection by click, Ctrl-click and rubber band (`cmd:tray.select`); the tray menu (View and Edit · Hold · Remove from Tray · rotations · Locate on Disk · Properties, greyed until their commands): `crates/ui/src/tray.rs`, `crates/ui/src/panels/bottom/tray.rs`, `crates/ui/tests/tray.rs`; dragging photos onto and out of the tray, `ui.menu.tree {context: "tray"}` and the album token (M9) missing; ref 02 §8.2 |
+| LIB-TRAY-HOLD | Hold / Clear / Add to Album ▾ | P0 | 🟡 | Hold (Ctrl+H, the held badge; `cmd:tray.hold`) keeps photos while the selection moves; Clear removes the tray-selected photos, or all of them, asking "Clear all photos from the tray?" only when photos are held (`cmd:tray.clear`, `confirm: true` over automation): `crates/ui/src/commands/tray.rs`, `crates/ui/tests/tray.rs`; Add to Album ▾ is drawn, disabled until albums (M9) |
+| LIB-STARROT | Star and rotate buttons acting on the tray | P0 | 🟡 | the star button stars every photo in the tray in one undo step, or unstars them when all are starred (`cmd:photo.star.toggle`); the rotate buttons act on the tray once their commands exist: `crates/ui/src/panels/bottom.rs`, `crates/ui/tests/tray.rs`; rotation missing (M6) |
 | LIB-ACTIONS | Action buttons (Export, Collage, Slideshow) with overflow | P0 | 🟡 | the buttons, and their More… menu below 1100 wide: `crates/ui/src/panels/bottom.rs`, `crates/ui/tests/bottom.rs`; disabled until export, collage and slideshow exist |
 | LIB-CONFBUTTONS | Configure Buttons dialog | OOS | 🚫 | dropped 2026-10-09 (dated feature); the button set is fixed |
 | LIB-PANES | Side pane container with People/Places/Tags/Properties toggles | P1 | 🟡 | the frame: 30 pt header with « (large width), title, × by id; pushes the light table; a narrowing window shrinks the tree to 200 first, then takes the large width away, then closes it: `crates/ui/src/panels/side_pane.rs`, `crates/ui/tests/tree_status_pane.rs`, `crates/ui/tests/layout.rs`; the bottom-bar toggles (M3.9), the slide animation and the pane contents (M6, M13) missing |
@@ -86,7 +86,7 @@ same commit.
 | ORG-ALBUM-NEW | New album + Album Properties | P0 | ⬜ | |
 | ORG-ALBUM-EDIT | Add/remove/reorder/cover/delete album | P0 | ⬜ | |
 | ORG-ALBUM-AUTO | Starred Photos, Recently Updated, Search results albums | P0 | ⬜ | |
-| ORG-STAR | Star toggle everywhere | P0 | 🟡 | library view only: Ctrl+8 / F4 and the bottom-bar star button (`cmd:photo.star.toggle`, `crates/ui/tests/library_window.rs`); menus, tray, edit view missing |
+| ORG-STAR | Star toggle everywhere | P0 | 🟡 | library view only: Ctrl+8 / F4 on the selection and the bottom-bar star button on the tray (`cmd:photo.star.toggle`, `crates/ui/tests/library_window.rs`, `crates/ui/tests/tray.rs`); menus, edit view missing |
 | ORG-TAGS | Tags pane: add, list with partial counts, remove | P1 | ⬜ | |
 | ORG-QUICKTAGS | Quick tags + configure dialog | P2 | ⬜ | |
 | ORG-CAPTION | Captions (edit view field, library inline) | P0 | ⬜ | |
