@@ -22,7 +22,7 @@ same commit.
 <!-- parity:summary -->
 | Section | ✅ | 🟡 | ⬜ | 🚫 |
 |---|---:|---:|---:|---:|
-| A. Library view | 0 | 2 | 30 | 1 |
+| A. Library view | 0 | 5 | 27 | 1 |
 | B. Organizing | 0 | 1 | 41 | 0 |
 | C. Editing | 0 | 0 | 21 | 4 |
 | D. Viewing | 0 | 0 | 6 | 2 |
@@ -30,7 +30,7 @@ same commit.
 | F. Data | 1 | 2 | 3 | 0 |
 | G. Preferences and system | 0 | 3 | 8 | 0 |
 | H. Menus | 0 | 0 | 7 | 0 |
-| **All** | 1 | 8 | 118 | 16 |
+| **All** | 1 | 11 | 115 | 16 |
 <!-- /parity:summary -->
 
 ## Top gaps
@@ -42,7 +42,7 @@ same commit.
 
 | Id | Feature | Tier | Status | Evidence / notes |
 |---|---|---|---|---|
-| LIB-REGIONS | Window regions and sizes per `ui-layout.md` §2 | P0 | 🟡 | every region at its §2 size, registered as `region:<name>`, resizable tree through the splitter: `crates/ui/src/panels/layout.rs`, `crates/ui/tests/layout.rs`; the toolbar's controls at their §3 sizes (disabled until their commands): `crates/ui/src/panels/toolbar.rs`, `crates/ui/tests/toolbar.rs`; side-pane and bottom-area contents, the §11 responsiveness rules and persistence missing; ref 01 §2.1, 02 §2 |
+| LIB-REGIONS | Window regions and sizes per `ui-layout.md` §2 | P0 | 🟡 | every region at its §2 size, registered as `region:<name>`, resizable tree through the splitter: `crates/ui/src/panels/layout.rs`, `crates/ui/tests/layout.rs`; the toolbar's controls at their §3 sizes (disabled until their commands): `crates/ui/src/panels/toolbar.rs`, `crates/ui/tests/toolbar.rs`; the bottom area's controls at their §6 sizes (disabled until their commands or the tray): `crates/ui/src/panels/bottom.rs`, `crates/ui/tests/bottom.rs`; side-pane contents, the §11 responsiveness rules and persistence missing; ref 01 §2.1, 02 §2 |
 | LIB-TREE-GROUPS | Tree groups Albums/People/Projects/Folders/Other/Hidden, collapsible, counts | P0 | ⬜ | ref 02 §6.2–6.3 |
 | LIB-TREE-FLAT | Flat folder view with year dividers (default) | P0 | ⬜ | |
 | LIB-TREE-TREE | Tree view, simplified tree | P1 | ⬜ | |
@@ -64,12 +64,12 @@ same commit.
 | LIB-HOVER | Tooltip on hover | P1 | ⬜ | |
 | LIB-PEEK | Ctrl+Alt full-screen peek with wheel stepping | P1 | ⬜ | |
 | LIB-LOUPE | Loupe magnifier over thumbnails | P2 | ⬜ | |
-| LIB-THUMBSIZE | Thumbnail-size slider, Ctrl+1/Ctrl+2, Ctrl+wheel | P0 | ⬜ | |
+| LIB-THUMBSIZE | Thumbnail-size slider, Ctrl+1/Ctrl+2, Ctrl+wheel | P0 | 🟡 | the bottom bar's slider (64–320) and Ctrl+1 / Ctrl+2 (`cmd:view.thumbsSmall`, `cmd:view.thumbsNormal`) set the light table's cell size: `crates/ui/src/panels/bottom.rs`, `crates/ui/tests/bottom.rs`; Ctrl+wheel and persistence missing |
 | LIB-STATUS | Status line texts (none / one / many / edit view) | P0 | ⬜ | ref 02 §8.1 |
 | LIB-TRAY | Photo Tray: token for folder, mini thumbnails, own selection | P0 | ⬜ | ref 02 §8.2 |
-| LIB-TRAY-HOLD | Hold / Clear / Add to Album ▾ | P0 | ⬜ | |
-| LIB-STARROT | Star and rotate buttons acting on the tray | P0 | ⬜ | |
-| LIB-ACTIONS | Action buttons (Export, Collage, Slideshow) with overflow | P0 | ⬜ | |
+| LIB-TRAY-HOLD | Hold / Clear / Add to Album ▾ | P0 | ⬜ | the three buttons are drawn, disabled until the tray (M4): `crates/ui/src/panels/bottom.rs` |
+| LIB-STARROT | Star and rotate buttons acting on the tray | P0 | 🟡 | the star button stars the selection (`cmd:photo.star.toggle`); the rotate buttons are drawn, disabled until their commands: `crates/ui/src/panels/bottom.rs`, `crates/ui/tests/bottom.rs`; the tray (M4) and rotation missing |
+| LIB-ACTIONS | Action buttons (Export, Collage, Slideshow) with overflow | P0 | 🟡 | the buttons, and their More… menu below 1100 wide: `crates/ui/src/panels/bottom.rs`, `crates/ui/tests/bottom.rs`; disabled until export, collage and slideshow exist |
 | LIB-CONFBUTTONS | Configure Buttons dialog | OOS | 🚫 | dropped 2026-10-09 (dated feature); the button set is fixed |
 | LIB-PANES | Side pane container with People/Places/Tags/Properties toggles | P1 | ⬜ | |
 | LIB-PROPS | Properties pane | P1 | ⬜ | |
