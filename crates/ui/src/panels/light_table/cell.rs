@@ -35,8 +35,9 @@ use crate::state::{self, Caption};
 pub const TOOLTIP_SECONDS: f64 = 0.6;
 /// The opacity of a hidden photo shown by View ▸ Hidden Pictures (`ui-layout.md` §5.3).
 pub const HIDDEN_OPACITY: f32 = 0.4;
-/// Up to this many held photos are looked up in the tray's list; more are put in a set once a pass.
-const HELD_SCAN: usize = 32;
+/// Lists of ids (the tray's held photos, the selection) up to this long are searched as they are;
+/// longer ones are put in a set once a pass, so a cell's lookup stays O(1).
+const SCAN: usize = 32;
 /// The most fitted captions kept between passes (a screenful is far fewer).
 const FITTED_CAP: usize = 4096;
 
@@ -55,6 +56,8 @@ pub struct Shown {
     pub photo: PhotoId,
     /// The caption line as drawn (middle-elided); `None` with captions off.
     pub caption: Option<String>,
+    /// Drawn as selected (the surround and the outline).
+    pub selected: bool,
     /// 1, or [`HIDDEN_OPACITY`] for a hidden photo.
     pub opacity: f32,
     /// What the badges were fed.
@@ -82,9 +85,9 @@ pub struct Cells {
     pass: Option<u64>,
     hover: Option<Hover>,
     shown: Vec<Shown>,
-    /// The tray's held photos as a set, when there are many (refreshed once a pass).
-    held: Vec<PhotoId>,
-    held_set: HashSet<PhotoId>,
+    /// The tray's held photos and the selection, as sets when they are long.
+    held: IdSet,
+    selected: IdSet,
     /// Fitted captions: photo → (full text, width bits, fitted text).
     fitted: HashMap<PhotoId, (String, u32, String)>,
 }
@@ -106,24 +109,18 @@ impl Cells {
     }
 
     /// Starts a new pass on the first cell of one: forgets the last pass's records and refreshes
-    /// the held set.
-    fn begin(&mut self, pass: u64, held: &[PhotoId]) {
+    /// the held and selected sets.
+    fn begin(&mut self, pass: u64, held: &[PhotoId], selected: &[PhotoId]) {
         if self.pass == Some(pass) {
             return;
         }
         self.pass = Some(pass);
         self.shown.clear();
-        if held.len() > HELD_SCAN && self.held != held {
-            self.held = held.to_vec();
-            self.held_set = held.iter().copied().collect();
-        }
+        self.held.refresh(held);
+        self.selected.refresh(selected);
         if self.fitted.len() > FITTED_CAP {
             self.fitted.clear();
         }
-    }
-
-    fn is_held(&self, held: &[PhotoId], id: PhotoId) -> bool {
-        if held.len() > HELD_SCAN { self.held_set.contains(&id) } else { held.contains(&id) }
     }
 
     /// Whether the pointer has rested on `photo` for [`TOOLTIP_SECONDS`], counting from when it
@@ -159,6 +156,28 @@ impl Cells {
         let fitted = fit_middle(text, max, |s| painter.layout_no_wrap(s.to_owned(), font.clone(), egui::Color32::WHITE).size().x);
         self.fitted.insert(photo, (text.to_owned(), bits, fitted.clone()));
         fitted
+    }
+}
+
+/// A list of photo ids looked up per cell: searched as it is when short, else through a set
+/// rebuilt once a pass when the list changed.
+#[derive(Debug, Default)]
+struct IdSet {
+    list: Vec<PhotoId>,
+    set: HashSet<PhotoId>,
+}
+
+impl IdSet {
+    fn refresh(&mut self, list: &[PhotoId]) {
+        if list.len() > SCAN && self.list != list {
+            self.list = list.to_vec();
+            self.set = list.iter().copied().collect();
+        }
+    }
+
+    /// Whether `list` (the one last refreshed with) holds `id`.
+    fn contains(&self, list: &[PhotoId], id: PhotoId) -> bool {
+        if list.len() > SCAN { self.set.contains(&id) } else { list.contains(&id) }
     }
 }
 
@@ -293,7 +312,8 @@ pub fn show(ui: &mut Ui, f: &Frame<'_>, cells: &mut Cells, thumbs: &mut Thumbnai
     let id = c.photo.id;
     let pass = ui.ctx().cumulative_pass_nr();
     let held = &f.state.tray.held;
-    cells.begin(pass, held);
+    let selection = &f.state.selection;
+    cells.begin(pass, held, &selection.ids);
     let image = letterbox(c.rect, c.photo.width, c.photo.height);
     let Some(alpha) = opacity(is_hidden(c.photo), f.state.hidden_pictures) else {
         // Not shown: the parent leaves hidden photos out; this is the cell's own guard.
@@ -301,8 +321,7 @@ pub fn show(ui: &mut Ui, f: &Frame<'_>, cells: &mut Cells, thumbs: &mut Thumbnai
         return CellOut { photo: id, section: c.section, rect: c.rect, image, response, drawn: Drawn::Placeholder };
     };
     let response = ui.interact(c.rect, Id::new(("thumb", id.get())), Sense::click());
-    let selection = &f.state.selection;
-    let selected = selection.contains(id);
+    let selected = cells.selected.contains(&selection.ids, id);
     let mut painter = ui.painter().clone();
     painter.multiply_opacity(alpha);
     let look = Look {
@@ -311,7 +330,7 @@ pub fn show(ui: &mut Ui, f: &Frame<'_>, cells: &mut Cells, thumbs: &mut Thumbnai
         selected,
         anchor: selection.anchor == Some(id),
         hovered: response.hovered(),
-        badges: badges_of(c.photo, cells.is_held(held, id)),
+        badges: badges_of(c.photo, cells.held.contains(held, id)),
     };
     paint_under(&painter, t, &look);
     let device_px = image.width().max(image.height()) * f.pixels_per_point;
@@ -336,7 +355,7 @@ pub fn show(ui: &mut Ui, f: &Frame<'_>, cells: &mut Cells, thumbs: &mut Thumbnai
         widgets::tooltip_now(&response, t, &tip.title, Some(&tip.detail));
         tip
     });
-    cells.shown.push(Shown { photo: id, caption, opacity: alpha, badges: look.badges, drawn, tooltip });
+    cells.shown.push(Shown { photo: id, caption, selected, opacity: alpha, badges: look.badges, drawn, tooltip });
     CellOut { photo: id, section: c.section, rect: c.rect, image, response, drawn }
 }
 

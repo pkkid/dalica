@@ -244,6 +244,39 @@ fn badges_follow_the_model_star_and_held() {
 }
 
 #[test]
+fn long_selections_and_held_lists_are_looked_up_through_a_set() {
+    // More than 32 ids: the cells look them up through a set built once a pass, with the same
+    // answers as the lists.
+    let dir = tempfile::tempdir().unwrap();
+    let folder = photos(dir.path(), 40, 0);
+    let mut d = driver(session(dir.path(), &folder), (1400, 900));
+    let ids: Vec<PhotoId> = d.app().session().unwrap().library().photos().map(|p| p.id).collect();
+    assert_eq!(ids.len(), 40);
+    let first = shown(&d)[0].photo;
+    d.click(&format!("thumb:{}", first.get())).unwrap();
+    d.key("Ctrl+A").unwrap();
+    d.settle(FRAMES).unwrap();
+    assert_eq!(d.state().selection.ids.len(), 40);
+    let held: Vec<PhotoId> = ids.iter().copied().filter(|i| i.get() % 7 != 0).collect();
+    assert!(held.len() > 32);
+    d.app_mut().state_mut().tray.held = held.clone();
+    d.step();
+    let all = shown(&d);
+    assert!(all.len() > 10);
+    for s in &all {
+        assert!(s.selected, "{:?}", s.photo);
+        assert_eq!(s.badges.held, held.contains(&s.photo), "{:?}", s.photo);
+    }
+    // Shrinking both lists below the threshold goes back to plain lookups.
+    d.run("select.set", &json!({ "ids": [first.get()] })).unwrap();
+    d.app_mut().state_mut().tray.held = vec![first];
+    d.step();
+    for s in shown(&d) {
+        assert_eq!((s.selected, s.badges.held), (s.photo == first, s.photo == first), "{:?}", s.photo);
+    }
+}
+
+#[test]
 fn the_tooltip_shows_after_600_ms_of_virtual_time_and_not_before() {
     let dir = tempfile::tempdir().unwrap();
     let folder = photos(dir.path(), 3, 0);
