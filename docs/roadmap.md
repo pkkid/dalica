@@ -915,7 +915,7 @@ UI tasks each re-bless only their own.
     colours within a stated tolerance and its aspect within 5 %; every sketch is ≤ 32 bytes and
     identical across runs; proptest random and truncated bytes never panic; encode and decode
     times per photo are in the PR.
-- ⬜ **M4.2 `library` + `store`: the sketch in the index**
+- ✅ **M4.2 `library` + `store`: the sketch in the index**
   - after: M1.10
   - files: `crates/library/src/model.rs`, `crates/library/src/op.rs`, `crates/library/tests/sketch.rs`, `crates/store/src/snapshot.rs`, `crates/store/src/journal.rs`, `crates/store/src/mapping.rs`, `crates/store/tests/sketch.rs`, `crates/store/tests/sidecars.rs`
   - scope: `data-model.md` §4: each photo gains an optional sketch (opaque bytes, capped at 32);

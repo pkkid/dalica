@@ -16,7 +16,7 @@ mod model;
 mod op;
 mod query;
 
-pub use model::{Folder, Library, Model, Photo};
+pub use model::{Folder, Library, MAX_SKETCH, Model, Photo, Sketch};
 pub use op::Op;
 
 use dalica_core::{FolderId, PhotoId};
