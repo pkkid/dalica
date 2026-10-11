@@ -768,7 +768,7 @@ with the rest at the next review.
     are present and disabled; ids per control-protocol §7.
   - done when: a test finds every toolbar id at both sizes with the sizes of §3; the filter caption
     hides below 1100 wide.
-- ⬜ **M3.8 `ui`: tree pane, splitter, status line and side-pane frame**
+- ✅ **M3.8 `ui`: tree pane, splitter, status line and side-pane frame**
   - after: M3.1, M3.2, M3.3, M3.4, M3.5
   - files: `crates/ui/src/panels/folders.rs`, `crates/ui/src/panels/status.rs`, `crates/ui/src/panels/side_pane.rs`, `crates/ui/src/state.rs`, `crates/ui/src/control/view.rs`, `crates/ui/tests/tree_status_pane.rs`
   - scope: the tree pane frame with the Folders group header (30) and rows (24), resizable through

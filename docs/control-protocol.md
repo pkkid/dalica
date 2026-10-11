@@ -402,7 +402,8 @@ The view state: what `UI_COMMANDS` change and what is persisted between sessions
 ```
 
 `view` is `library | edit | slideshow | viewer`; `room` is the active tab (`library`,
-`import`, `collage`). `ui.set` takes any subset of
+`import`, `collage`); `status` is the status line's text as drawn (read-only); `treeWidth` is
+200 … W − 480 for the current window. `ui.set` takes any subset of
 these fields, validates all of them first (unknown fields and bad values are `bad_params`, nothing
 changes) and returns the new state. Prefer the equivalent command (`view.edit`, `pane.tags`) when
 there is one: commands are what users trigger and what parity tracks.
@@ -452,7 +453,8 @@ Everything in `ui.state`, plus:
 ```
 
 Widgets drawn in the **last frame**, in paint order, with screen-point rects (clipped to what is
-visible). `filter` is a substring of the id; `region` restricts to a region of §6.6. `checked` is the
+visible). `filter` is a substring of the id; `region` restricts to a region of §6.6 (the widgets whose
+centre is inside it, with its `region:<name>` entry; none for a region not shown). `checked` is the
 selected/toggled state where one exists. Off-screen thumbnails are not listed: scroll first
 (`ui.clickWidget` on the tree row, or `ui.scroll`). Ids are in §7.
 

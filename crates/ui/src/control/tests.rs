@@ -520,7 +520,7 @@ fn ui_widgets_lists_the_last_frame_filtered() {
     assert!(thumbs.as_array().unwrap().iter().all(|w| w["id"].as_str().unwrap().contains("thumb:")));
     assert!(thumbs.as_array().unwrap().iter().any(|w| w["id"] == thumb(t.ids[0]) && w["checked"] == true), "the click shows at once (§5.2)");
     assert_eq!(ok(&mut t, "ui.widgets", json!({ "filter": "nothing-has-this" })), json!([]));
-    refused(&mut t, "ui.widgets", json!({ "region": "lightTable" }), "unsupported");
+    assert!(ok(&mut t, "ui.widgets", json!({ "region": "lightTable" })).as_array().unwrap().iter().any(|w| w["id"] == thumb(t.ids[0])));
     refused(&mut t, "ui.widgets", json!({ "region": "attic" }), "bad_params");
     refused(&mut t, "ui.widgets", json!({ "region": 5 }), "bad_params");
 }
