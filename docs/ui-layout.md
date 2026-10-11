@@ -277,10 +277,13 @@ wide spaces:
 - several photos or a folder: "48 pictures     June 4, 2026 to June 6, 2026     212.4 MB on disk"
   (+ "     Tags: lisbon (40), tram (6)" when tagged);
 - edit view: prefixed "Folder › " and suffixed "(12 of 48)".
-Long text drops the folder prefix first, then middle-elides the file name. Transient messages
-("Exported 12 pictures", or why an action was refused) replace the text for 4 s. Sizes are decimal
-units with one decimal ("3.1 MB", "12.7 KB"); a selection whose photos share one day shows that
-day alone.
+The text describes the Photo Tray's contents (§6.2: the held photos and the selection, each once),
+so held photos count with a selection made elsewhere and an empty tray reads "No selection". Long
+text drops the folder prefix first, then middle-elides the file name; a line still too long (a long
+tag list) is cut at its end with "…". Transient messages ("Exported 12 pictures", or why an action
+was refused) replace the text for 4 s; the next successful action clears one at once. Sizes are
+decimal units with one decimal ("3.1 MB", "12.7 KB"); a selection whose photos share one day shows
+that day alone. Tags are listed most used first, ties alphabetically.
 
 ### 6.2 Photo Tray
 

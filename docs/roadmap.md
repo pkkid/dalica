@@ -1134,7 +1134,7 @@ UI tasks each re-bless only their own.
   - done when: `crates/ui/tests/tray.rs`: select 2 in folder A, Hold, select 3 in folder B → the
     tray has 5 → star → one undo restores all 5; the token for a section; the confirmation only
     with held items; mini-thumbnail sizes at 1, 12, 40 and 100 items; graceful-failure tests.
-- ⬜ **M4.17 `ui`: the status line**
+- ✅ **M4.17 `ui`: the status line**
   - after: M3.8, M4.16
   - files: `crates/ui/src/panels/status.rs`, `crates/ui/src/status_text.rs`, `crates/ui/tests/status_line.rs`, `crates/ui/tests/fingerprints/region-status*.json`
   - scope: `ui-layout.md` §6.1 from the tray's contents: "No selection"; one photo (name, date
