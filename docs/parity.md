@@ -22,7 +22,7 @@ same commit.
 <!-- parity:summary -->
 | Section | ✅ | 🟡 | ⬜ | 🚫 |
 |---|---:|---:|---:|---:|
-| A. Library view | 2 | 15 | 15 | 1 |
+| A. Library view | 2 | 16 | 14 | 1 |
 | B. Organizing | 0 | 1 | 41 | 0 |
 | C. Editing | 0 | 0 | 21 | 4 |
 | D. Viewing | 0 | 1 | 5 | 2 |
@@ -30,7 +30,7 @@ same commit.
 | F. Data | 1 | 2 | 3 | 0 |
 | G. Preferences and system | 0 | 4 | 8 | 0 |
 | H. Menus | 0 | 3 | 4 | 0 |
-| **All** | 3 | 26 | 99 | 16 |
+| **All** | 3 | 27 | 98 | 16 |
 <!-- /parity:summary -->
 
 ## Top gaps
@@ -57,7 +57,7 @@ same commit.
 | LIB-LT-CAPTION | Thumbnail captions (None/Filename/Caption/Tags/Resolution/Date) | P1 | ⬜ | |
 | LIB-LT-BADGES | Badges: edited, geotag, held, star; video sprockets + duration | P0 | 🟡 | star badge only: `crates/ui-kit/src/widgets.rs`, `crates/ui/tests/library_window.rs`; edited, geotag, held badges and video marks missing; ref 02 §7.4 |
 | LIB-LT-SCROLLBAR | Section-jump scrollbar (⇑ ▲ ▼ ⇓) with the speed-control thumb and position marker | P0 | ⬜ | ref 02 §7.1 |
-| LIB-LT-INSTANT | Thumbnails never blank while scrolling: colour sketch, packed size ladder, upscaled fallback | P0 | ⬜ | the colour sketch (encode, decode, ≤ 26 bytes): `crates/thumbs/src/sketch.rs`, `crates/thumbs/tests/sketch.rs` (M4.1); the sketch in the index (M4.2); the packed cache (M4.3); the size ladder, scan-time 128/256 entries and sketches, best-available answers (covering, smaller scaled up, sketch, not scanned) and direction-aware prefetch: `crates/thumbs/src/ladder.rs`, `crates/engine/src/thumbs.rs`, `crates/thumbs/tests/ladder.rs`, `crates/engine/tests/thumbs.rs` (M4.8); drawing them still missing (M4.10, M4.12); ref 05 db3 tiers |
+| LIB-LT-INSTANT | Thumbnails never blank while scrolling: colour sketch, packed size ladder, upscaled fallback | P0 | 🟡 | the colour sketch (encode, decode, ≤ 26 bytes): `crates/thumbs/src/sketch.rs`, `crates/thumbs/tests/sketch.rs` (M4.1); the sketch in the index (M4.2); the packed cache (M4.3); the size ladder, scan-time 128/256 entries and sketches, best-available answers (covering, smaller scaled up, sketch, not scanned) and direction-aware prefetch: `crates/thumbs/src/ladder.rs`, `crates/engine/src/thumbs.rs`, `crates/thumbs/tests/ladder.rs`, `crates/engine/tests/thumbs.rs` (M4.8); drawing them on screen (covering size, smaller scaled up, the sketch as a mesh the same frame, the placeholder only for a photo never scanned; textures within ±1 screen and 600, capped uploads per frame, speed-gated requests, `placeholderCells` and friends in `ui.inspect`): `crates/ui/src/panels/thumbnails.rs`, `crates/ui/tests/never_blank.rs` (M4.12: a scanned 10 k library at the thumb's top speed draws no placeholder on any frame); the 100 k scanned run is M4.18's; ref 05 db3 tiers |
 | LIB-LT-HIDDEN | Hidden pictures shown translucent when enabled; small pictures toggle | P1 | 🟡 | small pictures (< 64 px on both sides) are left out unless View ▸ Small Pictures (`cmd:view.smallPictures`): `crates/ui/src/panels/light_table.rs`, `crates/ui/tests/light_table.rs`; hidden photos missing (M6) |
 | LIB-SEL | Selection: click, Ctrl, Shift, rubber band, scoped to one section | P0 | 🟡 | click, Ctrl-click (toggles; in another section replaces), Shift-click (range from the anchor), right-click on an unselected photo selects it first, a click on empty space selects nothing, the rubber band from empty space (Ctrl adds) touching only the section it started in; a drag from a thumbnail starts no band (`cmd:select.set`, `cmd:select.section`): `crates/ui/src/selection.rs`, `crates/ui/src/panels/light_table/input.rs`, `crates/ui/tests/selection.rs`; the band does not scroll the view at its edges, dragging photos and the tray's held exception (M4.16) missing; ref 02 §7.5 |
 | LIB-SEL-KEYS | Keyboard navigation and selection keys | P0 | 🟡 | arrows move (Shift extends from the anchor), Home / End go to the section's first / last photo, all stop at the section's ends and scroll what they reach into view (`cmd:select.left` … `cmd:select.extendLast`); Ctrl+A / Ctrl+I / Ctrl+D and Select Starred per section (`cmd:select.all`, `cmd:select.invert`, `cmd:select.none`, `cmd:select.starred`): `crates/ui/src/commands/select.rs`, `crates/ui/tests/selection.rs`; Ctrl+Home / End and PgUp / PgDn (M4.11), Ctrl+H (M4.16) and Enter (M7) missing |

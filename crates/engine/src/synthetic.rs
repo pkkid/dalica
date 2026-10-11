@@ -35,7 +35,7 @@ use dalica_scenes::Scene;
 use serde_json::json;
 
 use crate::session::FOLDERS_FILE;
-use crate::{CmdError, OpenError, Session};
+use crate::{CacheDir, CmdError, OpenError, Options, Session, ThumbOptions};
 
 /// The most photos an index-only library may hold.
 pub const MAX_PHOTOS: usize = 1_000_000;
@@ -216,11 +216,13 @@ pub fn write_index(dir: &Path, spec: &Spec) -> Result<(), SyntheticError> {
     Ok(())
 }
 
-/// [`write_index`], then [`Session::open`] on it: the index-only synthetic library, ready to use.
-/// Off the UI thread.
+/// [`write_index`], then [`Session::open_with`] on it: the index-only synthetic library, ready to
+/// use. Thumbnails are off ([`CacheDir::Off`]): there are no files to make them from, so every
+/// cell draws its sketch and no photo is marked as failed. Off the UI thread.
 pub fn open(dir: &Path, spec: &Spec, clock: Arc<dyn Clock>) -> Result<Session, SyntheticError> {
     write_index(dir, spec)?;
-    Ok(Session::open(&library_dir(dir), clock)?)
+    let options = Options { thumbs: ThumbOptions { cache: CacheDir::Off, ..ThumbOptions::default() } };
+    Ok(Session::open_with(&library_dir(dir), clock, &options)?)
 }
 
 /// Writes the plan of `spec` as JPEG files under [`photos_dir`]: `long_side` pixels on the longer
@@ -425,5 +427,30 @@ impl Rng {
     /// A number in `0..n` (0 when `n` is 0).
     fn below(&mut self, n: u64) -> u64 {
         if n == 0 { 0 } else { self.next() % n }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Thumb;
+
+    /// With no files to make thumbnails from, the index-only library runs with thumbnails off:
+    /// every photo answers with its sketch, nothing is queued and nothing is marked as failed.
+    #[test]
+    fn an_index_only_library_answers_sketches_and_fails_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut s = open(dir.path(), &Spec::new(300, 7, SEED), Arc::new(dalica_core::SystemClock)).unwrap();
+        assert_eq!(s.thumbnail_cache_dir(), None);
+        let ids: Vec<PhotoId> = s.library().photos().map(|p| p.id).collect();
+        let order = ids.clone();
+        s.prefetch_thumbnails(&order, 0..50, 500.0, 256);
+        for id in ids {
+            assert!(matches!(s.thumbnail(id, 256), Thumb::Sketch(_)), "{id}");
+        }
+        s.wait_idle();
+        let stats = s.thumbnail_stats();
+        assert_eq!((stats.failed, stats.jobs, stats.decodes), (0, 0, 0), "{stats:?}");
+        assert!(s.library().photos().all(|p| s.thumbnail_failure(p.id).is_none()));
     }
 }
