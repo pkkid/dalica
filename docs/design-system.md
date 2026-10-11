@@ -318,8 +318,12 @@ Adapted from PhotoCraft `docs/ui-design.md` (revision 59684266) and LightCraft `
   under `"view"`.
 - **Narrow windows** drop chrome before anything overlaps, in this order: the window title in the
   title bar, then the toolbar's filter caption (`ui-layout.md` §11), then the search field shrinks
-  to a 160 pt minimum. Only text that repeats information shown elsewhere may disappear; menus,
-  filter toggles and caption buttons never do. Check at 900 × 600 (the minimum window size).
+  to a 160 pt minimum. Each goes only when it must, and stays gone while the window narrows
+  further: the title when it no longer fits its gap with 16 pt to spare on each side (a long folder
+  name drops it early; "Dalica" alone fits at every width down to 900), the caption below 1100, the
+  search field down to its minimum. Only text that repeats information shown elsewhere may
+  disappear; menus, filter toggles and caption buttons never do. Check at 900 × 600 (the minimum
+  window size).
 
 ### 11.2 Menus never run off the window
 

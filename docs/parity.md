@@ -25,12 +25,12 @@ same commit.
 | A. Library view | 1 | 8 | 23 | 1 |
 | B. Organizing | 0 | 1 | 41 | 0 |
 | C. Editing | 0 | 0 | 21 | 4 |
-| D. Viewing | 0 | 0 | 6 | 2 |
+| D. Viewing | 0 | 1 | 5 | 2 |
 | E. Output | 0 | 0 | 2 | 9 |
 | F. Data | 1 | 2 | 3 | 0 |
 | G. Preferences and system | 0 | 4 | 8 | 0 |
 | H. Menus | 0 | 0 | 7 | 0 |
-| **All** | 2 | 15 | 111 | 16 |
+| **All** | 2 | 16 | 110 | 16 |
 <!-- /parity:summary -->
 
 ## Top gaps
@@ -42,14 +42,14 @@ same commit.
 
 | Id | Feature | Tier | Status | Evidence / notes |
 |---|---|---|---|---|
-| LIB-REGIONS | Window regions and sizes per `ui-layout.md` §2 | P0 | 🟡 | every region at its §2 size, registered as `region:<name>` and reported by `ui.inspect` → `regions`, resizable tree through the splitter (200 … W − 480, `ui.set` refuses widths outside): `crates/ui/src/panels/layout.rs`, `crates/ui/tests/layout.rs`, `crates/ui/tests/tree_status_pane.rs`; the toolbar's controls at their §3 sizes (disabled until their commands): `crates/ui/src/panels/toolbar.rs`, `crates/ui/tests/toolbar.rs`; the bottom area's controls at their §6 sizes (disabled until their commands or the tray): `crates/ui/src/panels/bottom.rs`, `crates/ui/tests/bottom.rs`; the tree pane frame, status line and side-pane frame (M3.8): `crates/ui/src/panels/folders.rs`, `crates/ui/src/panels/status.rs`, `crates/ui/src/panels/side_pane.rs`; side-pane contents, the §11 responsiveness rules and persistence (M3.6) missing; ref 01 §2.1, 02 §2 |
+| LIB-REGIONS | Window regions and sizes per `ui-layout.md` §2 | P0 | 🟡 | every region at its §2 size, registered as `region:<name>` and reported by `ui.inspect` → `regions`, resizable tree through the splitter (200 … W − 480, `ui.set` refuses widths outside): `crates/ui/src/panels/layout.rs`, `crates/ui/tests/layout.rs`, `crates/ui/tests/tree_status_pane.rs`; the toolbar's controls at their §3 sizes (disabled until their commands): `crates/ui/src/panels/toolbar.rs`, `crates/ui/tests/toolbar.rs`; the bottom area's controls at their §6 sizes (disabled until their commands or the tray): `crates/ui/src/panels/bottom.rs`, `crates/ui/tests/bottom.rs`; the tree pane frame, status line and side-pane frame (M3.8): `crates/ui/src/panels/folders.rs`, `crates/ui/src/panels/status.rs`, `crates/ui/src/panels/side_pane.rs`; the §11 responsiveness rules (M3.10): every control at 1400 × 900, 1100 × 700 and 900 × 600, pane open and closed, in full screen; the tree shrinks before the light table drops below 480, then the pane narrows and closes; narrow windows drop only the title, the filter caption and search width: `crates/ui/tests/layout.rs`; side-pane contents and persistence (M3.6) missing; ref 01 §2.1, 02 §2 |
 | LIB-TREE-GROUPS | Tree groups Albums/People/Projects/Folders/Other/Hidden, collapsible, counts | P0 | 🟡 | the Folders group header (30, disclosure, "Folders (n)", `tree:group:folders`) folds its rows: `crates/ui/src/panels/folders.rs`, `crates/ui/tests/tree_status_pane.rs`; the other groups, docked collapsed headers and hiding the light-table sections missing (M4.15); ref 02 §6.2–6.3 |
 | LIB-TREE-FLAT | Flat folder view with year dividers (default) | P0 | ⬜ | |
 | LIB-TREE-TREE | Tree view, simplified tree | P1 | ⬜ | |
 | LIB-TREE-SORT | Folder sort: date, recent changes, size, name, reverse | P0 | ⬜ | |
 | LIB-TREE-CLICK | Click scrolls light table to section and selects folder as a unit | P0 | ⬜ | ref 02 §6.5 |
 | LIB-TREE-DND | Drop photos on folder (move/copy), album (add), person | P0 | ⬜ | |
-| LIB-SPLIT | Resizable tree with persisted width | P0 | ✅ | `splitter:tree` drags the tree within 200 … W − 480 (by id: `crates/ui/tests/tree_status_pane.rs`, `crates/ui/tests/layout.rs`); the width survives a restart through `settings.json` (`crates/ui/src/app.rs` test `the_view_state_survives_a_restart`) |
+| LIB-SPLIT | Resizable tree with persisted width | P0 | ✅ | `splitter:tree` drags the tree within 200 … W − 480 (W − pane − 480 beside an open side pane) (by id: `crates/ui/tests/tree_status_pane.rs`, `crates/ui/tests/layout.rs`); the width survives a restart through `settings.json` (`crates/ui/src/app.rs` test `the_view_state_survives_a_restart`) |
 | LIB-LT-SECTIONS | Continuous light table of sections in tree order | P0 | ⬜ | ref 02 §7.1 |
 | LIB-LT-HEADER | Section header: icon, title, date/place, buttons, description, edited count + Save | P0 | ⬜ | ref 02 §7.2 |
 | LIB-LT-STICKY | Sticky section headers | P1 | ⬜ | |
@@ -71,7 +71,7 @@ same commit.
 | LIB-STARROT | Star and rotate buttons acting on the tray | P0 | 🟡 | the star button stars the selection (`cmd:photo.star.toggle`); the rotate buttons are drawn, disabled until their commands: `crates/ui/src/panels/bottom.rs`, `crates/ui/tests/bottom.rs`; the tray (M4) and rotation missing |
 | LIB-ACTIONS | Action buttons (Export, Collage, Slideshow) with overflow | P0 | 🟡 | the buttons, and their More… menu below 1100 wide: `crates/ui/src/panels/bottom.rs`, `crates/ui/tests/bottom.rs`; disabled until export, collage and slideshow exist |
 | LIB-CONFBUTTONS | Configure Buttons dialog | OOS | 🚫 | dropped 2026-10-09 (dated feature); the button set is fixed |
-| LIB-PANES | Side pane container with People/Places/Tags/Properties toggles | P1 | 🟡 | the frame: 30 pt header with « (large width), title, × by id; pushes the light table; a narrowing window takes the large width away, then closes it: `crates/ui/src/panels/side_pane.rs`, `crates/ui/tests/tree_status_pane.rs`; the bottom-bar toggles (M3.9), the slide animation and the pane contents (M6, M13) missing |
+| LIB-PANES | Side pane container with People/Places/Tags/Properties toggles | P1 | 🟡 | the frame: 30 pt header with « (large width), title, × by id; pushes the light table; a narrowing window shrinks the tree to 200 first, then takes the large width away, then closes it: `crates/ui/src/panels/side_pane.rs`, `crates/ui/tests/tree_status_pane.rs`, `crates/ui/tests/layout.rs`; the bottom-bar toggles (M3.9), the slide animation and the pane contents (M6, M13) missing |
 | LIB-PROPS | Properties pane | P1 | ⬜ | |
 | LIB-ROOMS | Room tab strip (Import, Collage) | P1 | ⬜ | ref 01 §2.3 |
 | LIB-EMPTY | Empty states | P0 | ⬜ | |
@@ -163,7 +163,7 @@ same commit.
 | VIEW-VIEWER-ASSOC | Default-viewer registration | P2 | ⬜ | OS integration (last milestone) |
 | VIEW-TIMELINE | Timeline | OOS | 🚫 | dropped 2026-10-09 (dated feature) |
 | VIEW-VIDEO | Video playback | P2 | ⬜ | |
-| VIEW-FULLSCREEN | F11 full screen | P1 | ⬜ | |
+| VIEW-FULLSCREEN | F11 full screen | P1 | 🟡 | F11 and View → Full Screen toggle the view state's `fullScreen`; in full screen every region and control keeps its place for the screen's size: `crates/ui/src/menus.rs`, `crates/ui/tests/layout.rs`; the OS window does not go full screen yet (the desktop app does not send the request) |
 | VIEW-SCREENSAVER | Screensaver mode, Set as Desktop | OOS | 🚫 | dropped 2026-10-09 (dated feature) |
 
 ## E. Output (OUT)

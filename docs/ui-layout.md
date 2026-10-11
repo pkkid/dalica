@@ -339,4 +339,14 @@ When any search text or filter is active:
   to its minimum.
 - The tree never collapses entirely in the library view; the side pane closes automatically when
   the light table would drop below 480.
-- All regions must be verified by screenshot at 1400 × 900 and 900 × 600.
+- The 480 counts the light table with its splitter and scroll bar. With a side pane open the tree
+  makes room for the pane first: it is at most W − pane − 480 wide (never under 200), and the
+  splitter drags it no further. Only when the tree is at 200 does a narrowing window take a large
+  pane's width away, then close the pane (§7). The width the user gave the tree is kept and comes
+  back as soon as there is room.
+- **Full screen** (F11, View → Full Screen; F11 again leaves) fills the screen with the same
+  layout: every region and control is where these rules put it for the screen's size, the menus
+  and the caption buttons included, so leaving needs no hidden gesture. The window frame's own
+  behaviour stops while full screen: no resize edges.
+- All regions must be verified by screenshot at 1400 × 900 and 900 × 600 (and 1100 × 700, where
+  the narrow-window rules begin), with the side pane open and closed, and in full screen.

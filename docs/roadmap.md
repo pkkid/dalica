@@ -789,7 +789,7 @@ with the rest at the next review.
     with the More… overflow below 1100 wide.
   - done when: a test finds every bottom-area id with its §6 size at both sizes; More… holds the
     action buttons at 900 × 600; the size slider changes the light table's cell size.
-- ⬜ **M3.10 `ui`: responsiveness rules and full screen**
+- ✅ **M3.10 `ui`: responsiveness rules and full screen**
   - after: M3.6, M3.7, M3.8, M3.9
   - files: `crates/ui/src/panels/layout.rs`, `crates/ui/tests/layout.rs`
   - scope: `ui-layout.md` §11 and `design-system.md` §11.1 "narrow windows": chrome drops in the
