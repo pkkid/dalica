@@ -29,8 +29,8 @@ same commit.
 | E. Output | 0 | 0 | 2 | 9 |
 | F. Data | 1 | 2 | 3 | 0 |
 | G. Preferences and system | 0 | 4 | 8 | 0 |
-| H. Menus | 0 | 0 | 7 | 0 |
-| **All** | 2 | 16 | 110 | 16 |
+| H. Menus | 0 | 2 | 5 | 0 |
+| **All** | 2 | 18 | 108 | 16 |
 <!-- /parity:summary -->
 
 ## Top gaps
@@ -202,7 +202,7 @@ same commit.
 | PREF-KEYMAP | Keyboard contexts and the shortcut editor (search, record, conflicts, reset) | P1 | ⬜ | `menus-and-shortcuts.md` §2.0 |
 | SYS-UPDATES | Check for updates | — | ⬜ | deferred, not planned yet (2026-10-09) |
 | SYS-COMMANDS | Command registry, menu catalog, UI_COMMANDS | P0 | 🟡 | the registry (`crates/engine/src/registry.rs`); the catalog of every item of `menus-and-shortcuts.md` §1 (`crates/ui/src/menu_catalog.rs`) and the menu model, `UI_COMMANDS` and menus bounded by the window (`crates/ui/src/menus.rs`), measured by `crates/ui/tests/menus.rs`; the in-window menu row (`crates/ui/src/titlebar.rs`) and the macOS menu bar generated from the same model (`apps/dalica/src/native_menu.rs`, the same items checked on every OS); missing: check marks fed by the view state (M4; the thumbnail-size radio group already answers) |
-| SYS-WINDOW | Title bar, window frame and window state | P0 | 🟡 | the menu row as title bar on Windows and Linux (app mark, menus, centred title, 46 × 24 caption buttons, drag, double-click maximize, resize edges), the system-title-bar setting, the macOS strip and menu bar: `crates/ui/src/titlebar.rs`, `apps/dalica/src/frame.rs`, `apps/dalica/src/native_menu.rs`; window position, size and maximized state and the view state (tree width, side pane) restored from `settings.json` (`crates/engine/src/settings.rs`, `crates/ui/src/app.rs` test `the_view_state_survives_a_restart`); missing: the Options checkbox for the setting (PREF-GENERAL), File ▸ Exit as a command (the Close button closes the window directly), the macOS build checked only by CI |
+| SYS-WINDOW | Title bar, window frame and window state | P0 | 🟡 | the menu row as title bar on Windows and Linux (app mark, menus, centred title, 46 × 24 caption buttons, drag, double-click maximize, resize edges), the system-title-bar setting, the macOS strip and menu bar: `crates/ui/src/titlebar.rs`, `apps/dalica/src/frame.rs`, `apps/dalica/src/native_menu.rs`; window position, size and maximized state and the view state (tree width, side pane) restored from `settings.json` (`crates/engine/src/settings.rs`, `crates/ui/src/app.rs` test `the_view_state_survives_a_restart`); File ▸ Exit is the UI command `app.quit` (Ctrl+Q; it closes the window by the Close button's path: `crates/ui/src/commands/view.rs`, `crates/ui/tests/view_state.rs`); missing: the Options checkbox for the setting (PREF-GENERAL), the macOS build checked only by CI |
 | SYS-CONTROL | Control channel + widget registry + screenshots | P0 | 🟡 | `crates/ui/src/control/` (every M2 method as pure handlers over the app and the headless driver: `engine.execute`, `engine.commands`, `ui.state`/`ui.set`, `ui.inspect`, `ui.widgets`, click/drag/hover/pointer/key/type/scroll/resize, `ui.screenshot` with §5.7 write roots, `ui.settle`/`ui.wait`, the file-picker stub); the transport in `apps/dalica/src/control/` (`--control [PORT]` on 127.0.0.1 only, the 0600 token file, `auth` in constant time, 1 MiB lines, 16 connections, 30 s idle, 60 s deadline, `app.quit`; requests answered from the window's logic tick or `--headless`), measured by `apps/dalica/tests/control_headless.rs`, its security rules (wrong token, no `auth`, oversized, non-JSON and HTTP lines, the 17th connection, token file modes, loopback only) by `apps/dalica/tests/control_security.rs`; `ui.menu.tree` / `ui.menu.invoke` in `crates/ui/src/control/menu.rs` (`crates/ui/tests/menus.rs`); missing: `batch`, `library.inspect`, `jobs.*`, the headless capture of a window (`ui.screenshot {headless: true}` in the window) |
 | SYS-HEADLESS | Headless snapshots | P0 | 🟡 | `crates/ui/src/headless.rs` (click, drag, hover, scroll, raw pointer, keys, text, settle, wait) and `crates/ui/src/perf.rs` (perf counters, `DALICA_PROFILE=1`); `dalica-cli snapshot`; `dalica --headless --control` (the same handlers over TCP, no window); missing: the control-protocol script format in `snapshot` |
 | SYS-MCP | MCP server | P1 | ⬜ | |
@@ -217,9 +217,9 @@ its command exists, is wired to the menu catalog, and its behaviour row above is
 
 | Menu | Ids | Status |
 |---|---|---|
-| File | `album.new` `folders.manager` `library.openFile` `import.open` `photo.openExternal` `photo.moveToNewFolder` `photo.rename` `photo.save` `photo.revert` `photo.saveAs` `photo.saveCopy` `output.export` `photo.locate` `photo.delete` `app.quit` | ⬜ |
+| File | `album.new` `folders.manager` `library.openFile` `import.open` `photo.openExternal` `photo.moveToNewFolder` `photo.rename` `photo.save` `photo.revert` `photo.saveAs` `photo.saveCopy` `output.export` `photo.locate` `photo.delete` `app.quit` | 🟡 |
 | Edit | `edit.undo` `edit.redo` `photo.cut` `photo.copy` `photo.paste` `edit.copyRecipe` `edit.pasteRecipe` `select.all` `select.starred` `select.invert` `select.none` | ⬜ |
-| View | `view.library` `view.thumbsSmall` `view.thumbsNormal` `view.edit` `pane.properties` `pane.tags` `pane.people` `pane.places` `pane.toggle` `edit.panelToggle` `view.slideshow` `view.smallPictures` `view.hiddenPictures` `view.colorManagement` `view.caption` `view.folderView` `window.fullscreen` | ⬜ |
+| View | `view.library` `view.thumbsSmall` `view.thumbsNormal` `view.edit` `pane.properties` `pane.tags` `pane.people` `pane.places` `pane.toggle` `edit.panelToggle` `view.slideshow` `view.smallPictures` `view.hiddenPictures` `view.colorManagement` `view.caption` `view.folderView` `window.fullscreen` | 🟡 |
 | Folder / Album | `section.properties` `section.slideshow` `section.refreshThumbs` `section.sort` `folder.hide` `folder.unhide` `folder.locate` `folder.remove` `folder.move` `folder.delete` `album.delete` | ⬜ |
 | Picture | `view.edit` `edit.undoAll` `photo.hide` `photo.unhide` `faces.reset` `pane.properties` `photo.star.toggle` `photo.caption.edit` `photo.rotate.cw` `photo.rotate.ccw` `edit.flipH` `edit.flipV` | ⬜ |
 | Create | `create.collage` | ⬜ |

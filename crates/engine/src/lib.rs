@@ -14,6 +14,7 @@ pub mod keymap;
 pub mod registry;
 pub mod session;
 pub mod settings;
+pub mod synthetic;
 pub mod thumbs;
 pub mod undo;
 

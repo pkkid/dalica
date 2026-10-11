@@ -956,7 +956,7 @@ UI tasks each re-bless only their own.
   - done when: tests on hand-built models: rows and order in both modes for every sort and its
     reverse; year dividers only across years; counts; a collapsed group drops its sections; a
     5 k-folder model builds in a time stated in the PR.
-- ⬜ **M4.5 `ui`: M4's view state and command modules**
+- ✅ **M4.5 `ui`: M4's view state and command modules**
   - after: M3.3, M3.4, M3.5, M3.6
   - files: `crates/ui/src/state.rs`, `crates/ui/src/menus.rs`, `crates/ui/src/app.rs`, `crates/ui/src/commands/mod.rs`, `crates/ui/src/commands/view.rs`, `crates/ui/src/commands/select.rs`, `crates/ui/src/commands/scroll.rs`, `crates/ui/src/commands/tray.rs`, `crates/ui/src/control/**`, `crates/engine/src/settings.rs`, `crates/ui/tests/view_state.rs`, `docs/control-protocol.md`
   - scope: every M4 field of `UiState` in one go (control-protocol §6.5): tree mode, folder sort
@@ -1009,7 +1009,7 @@ UI tasks each re-bless only their own.
     section round trip; cells visited per frame equal at 10 k and 100 k photos; `section.scrollTo`
     leaves the header at the top after 0.2 s; Ctrl+wheel changes the size; the region
     fingerprints approved on the PR; `widget_ids` stays green.
-- ⬜ **M4.7 `engine`: synthetic libraries**
+- ✅ **M4.7 `engine`: synthetic libraries**
   - after: M4.1, M4.2
   - files: `crates/engine/src/synthetic.rs`, `crates/engine/tests/synthetic.rs`
   - scope: deterministic generated libraries for tests, benches and `accept M4`: N photos in M

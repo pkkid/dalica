@@ -20,6 +20,7 @@ dalica-scan.workspace = true
 # The demo library's photos (`demo.rs`).
 dalica-scenes.workspace = true
 dalica-store.workspace = true
+# Sketches of synthetic libraries (`synthetic.rs`) and the thumbnail ladder (`thumbs.rs`).
 dalica-thumbs.workspace = true
 log.workspace = true
 serde.workspace = true

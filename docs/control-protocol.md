@@ -397,16 +397,38 @@ The view state: what `UI_COMMANDS` change and what is persisted between sessions
 ```json
 {"view": "library", "room": "library", "rooms": ["library"], "treeMode": "flat", "treeWidth": 240,
  "pane": null, "paneLarge": false, "thumbSize": 144, "caption": "none", "fullScreen": false,
+ "folder": null, "folderSort": "date", "folderSortReverse": false,
+ "collapsedGroups": [], "collapsedFolders": [], "smallPictures": false, "hiddenPictures": false,
+ "selection": {"ids": [], "anchor": null, "section": null, "whole": false},
+ "tray": {"held": [], "selected": []}, "scroll": {"section": null, "offset": 0},
  "edit": {"photo": null, "tab": "basic", "tool": null, "compare": "one", "zoom": "fit", "panelVisible": true},
- "slideshow": null, "language": "en"}
+ "slideshow": null, "language": "en", "status": "No selection"}
 ```
 
 `view` is `library | edit | slideshow | viewer`; `room` is the active tab (`library`,
 `import`, `collage`); `status` is the status line's text as drawn (read-only); `treeWidth` is
-200 … W − 480 for the current window. `ui.set` takes any subset of
-these fields, validates all of them first (unknown fields and bad values are `bad_params`, nothing
-changes) and returns the new state. Prefer the equivalent command (`view.edit`, `pane.tags`) when
-there is one: commands are what users trigger and what parity tracks.
+200 … W − 480 for the current window. The library view's fields (M4):
+
+| Field | Values | Changed by |
+|---|---|---|
+| `treeMode` | `flat` \| `tree` | `view.folderView {mode}`, the toolbar's Flat \| Tree |
+| `folderSort`, `folderSortReverse` | `date` \| `recent` \| `size` \| `name`; bool | `view.folderSort {by?, reverse?: true}` (the view-options popup; `reverse: true` flips) |
+| `collapsedGroups` | group names as in `tree:group:<name>`: `albums`, `people`, `projects`, `folders`, `other`, `hidden` | `view.groupCollapse {group, collapsed?}` |
+| `collapsedFolders` | `[FolderId]`, tree mode's folded folders | `view.folderCollapse {folder, collapsed?}` |
+| `caption` | `none` \| `filename` \| `caption` \| `tags` \| `resolution` \| `date` | `view.caption {caption}` |
+| `smallPictures`, `hiddenPictures` | bool | `view.smallPictures {on?}`, `view.hiddenPictures {on?}` (toggle without `on`) |
+| `selection` | `ids`, `anchor`, `section` (the section the photos are in, written as its widget id, `"folder:12"`; `null` for none), `whole` (the section selected as a unit) | the `select.*` commands only (read-only here) |
+| `tray` | `held` (photos kept by Hold), `selected` (the tray's own selection: photos the tray shows) | the `tray.*` commands |
+| `scroll` | `section` (the section at the top of the light table, `null` for the top of the library) and `offset` (points below that section's top, 0 … 10⁹) | the scroll commands, the scroll bar |
+
+`thumbSize`, `treeMode`, `folderSort`, `folderSortReverse`, `caption`, `smallPictures` and
+`hiddenPictures` are kept in the library's `settings.json` (with the tree width and the side pane)
+when the app runs in a window; `collapsedGroups`, `collapsedFolders`, the selection, the tray and
+the scroll anchor start fresh. `ui.set` takes any subset of these fields, validates all of them
+first (unknown fields and bad values are `bad_params`, ids that do not exist `not_found`; nothing
+changes) and returns the new state; repeated ids in a list are kept once. Prefer the equivalent
+command (`view.edit`, `pane.tags`) when there is one: commands are what users trigger and what
+parity tracks.
 
 ### 6.6 `ui.inspect` (with perf counters)
 
