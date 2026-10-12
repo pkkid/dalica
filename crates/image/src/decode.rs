@@ -139,6 +139,13 @@ pub fn decode_thumbnail(bytes: &[u8], long_side: u32, limits: &Limits) -> Result
 /// Decodes `bytes` to fit in `long_side` pixels on the longer side (never enlarged), upright.
 pub fn decode_thumbnail_with(bytes: &[u8], long_side: u32, options: &DecodeOptions, limits: &Limits) -> Result<Rgba8> {
     let header = read_header(bytes, limits)?;
+    // A TIFF's reduced-resolution page covering the target, when it has one (M5.6); a page that
+    // fails to decode falls back to the paths below.
+    if header.format == Format::Tiff
+        && let Ok(Some(t)) = formats::tiff::thumbnail(bytes, long_side, options, limits)
+    {
+        return Ok(t);
+    }
     let pixels = u64::from(header.width) * u64::from(header.height);
     let stored = if pixels > THUMBNAIL_SOURCE_MAX_PIXELS {
         // Too big to decode just for a thumbnail: the camera's own small copy, if there is one,

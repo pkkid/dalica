@@ -663,3 +663,30 @@ fn orient_is_applied_once() {
     let as_stored = decode(&stored, &L).unwrap();
     assert_eq!(decode(&file, &L).unwrap(), orient::apply(as_stored, Orientation::new(6).unwrap()).unwrap());
 }
+
+/// Lead-approved follow-up for M5.6: `decode_thumbnail` of a TIFF uses its reduced-resolution
+/// page. The main page's strips are wiped, so only the thumbnail page can give the right picture.
+#[test]
+fn decode_thumbnail_uses_a_tiff_thumbnail_page() {
+    use dalica_image::ifd::{Tiff as TiffReader, Visited};
+    use dalica_scenes::formats::{Tiff, tiff};
+    let scene = Scene::new(14, 400, 300);
+    let mut bytes = tiff(&scene, &Tiff { thumbnail: Some(64), orientation: 6, ..Tiff::default() }).unwrap();
+    assert_eq!(sniff(&bytes), Some(Format::Tiff));
+    let full = decode(&bytes, &L).unwrap();
+    let original = bytes.clone();
+    let (strips, ifd1) = {
+        let t = TiffReader::new(&bytes).unwrap();
+        let ifd0 = t.ifd(t.first_ifd().unwrap(), &mut Visited::default(), &L).unwrap();
+        (t.uint(ifd0.get(273).unwrap()).unwrap() as usize, ifd0.next as usize)
+    };
+    assert!(strips < ifd1);
+    bytes[strips..ifd1].fill(0);
+    let t = decode_thumbnail(&bytes, 48, &L).unwrap();
+    assert_eq!((t.width, t.height), (48, 36));
+    let expected = dalica_image::resize::fit(&dalica_image::resize::fit(&full, 64).unwrap(), 48).unwrap();
+    assert_close("tiff-thumbnail-page-hook", &t, &expected, 4.0);
+    // Without the thumbnail page's help (a target larger than it), the wiped main page shows.
+    assert_ne!(decode_thumbnail(&bytes, 200, &L).ok(), decode_thumbnail(&original, 200, &L).ok());
+    assert_eq!(decode_thumbnail(&original, 200, &L).map(|t| (t.width, t.height)), Ok((200, 150)));
+}

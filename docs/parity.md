@@ -27,10 +27,10 @@ same commit.
 | C. Editing | 0 | 0 | 21 | 4 |
 | D. Viewing | 0 | 1 | 5 | 2 |
 | E. Output | 0 | 0 | 2 | 9 |
-| F. Data | 1 | 12 | 6 | 0 |
+| F. Data | 1 | 15 | 3 | 0 |
 | G. Preferences and system | 0 | 4 | 8 | 0 |
 | H. Menus | 0 | 3 | 4 | 0 |
-| **All** | 8 | 43 | 90 | 16 |
+| **All** | 8 | 46 | 87 | 16 |
 <!-- /parity:summary -->
 
 ## Top gaps
