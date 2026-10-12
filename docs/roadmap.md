@@ -1415,7 +1415,7 @@ filled by the lead; M5.15 pins it.
     the test from public structure descriptions around a `scenes` JPEG yield the largest preview
     and match its fingerprint; orientation 1–8; a strip thumbnail decodes; IFD loops, offsets
     past the end and huge counts are `Err`; truncation and proptest random bytes never panic.
-- ⬜ **M5.10 `image`: RAW previews from other containers, HEIF behind its feature, AVIF tiles**
+- ✅ **M5.10 `image`: RAW previews from other containers, HEIF behind its feature, AVIF tiles**
   - after: M5.1, M5.2
   - files: `crates/image/src/formats/raw/cr3.rs`, `crates/image/src/formats/raw/raf.rs`, `crates/image/src/formats/raw/crw.rs`, `crates/image/src/formats/raw/mrw.rs`, `crates/image/src/formats/raw/x3f.rs`, `crates/image/src/formats/bmff.rs`, `crates/image/src/formats/heif.rs`, `crates/image/tests/raw_containers.rs`, `crates/image/tests/heif.rs`, `.github/workflows/ci.yml`
   - scope: `formats.md` §2–§3: embedded previews from CR3 (through a bounded ISOBMFF box walk:
