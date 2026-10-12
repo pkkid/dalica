@@ -10,6 +10,9 @@
 //! - Arrows, Home and End stop at the section's ends; up and down move by one row of the grid.
 //! - The **current section** ([`Table::current`]) is the one the selection is in, else the folder
 //!   selected in the tree, else the one at the top of the view, else the first.
+//! - **Hidden photos** are not in the sections unless View ▸ Hidden Pictures is on, so no gesture
+//!   selects them; photos hidden while selected leave the selection ([`without_hidden`]), so nothing
+//!   acts on photos the user cannot see.
 
 use std::collections::HashSet;
 
@@ -286,6 +289,27 @@ impl<'a> Table<'a> {
         };
         Some(layout.anchor_at(layout.clamp(to, view_h as f32)))
     }
+}
+
+/// Whether photo `id` is out of sight while View ▸ Hidden Pictures is off: hidden itself, or in a
+/// hidden folder.
+pub fn out_of_sight(library: &Library, id: PhotoId) -> bool {
+    library.is_hidden(id) || library.photo(id).is_some_and(|p| library.is_folder_hidden(p.folder))
+}
+
+/// The selection without its hidden photos (and the photos of hidden folders), unless View ▸
+/// Hidden Pictures (`hidden_pictures`) is on (maintainer decision, M6.24): the anchor moves to the
+/// first photo left, and a selection left empty has no section. `None` when nothing would change.
+/// One pass over the selection.
+pub fn without_hidden(sel: &Selection, hidden_pictures: bool, library: &Library) -> Option<Selection> {
+    if hidden_pictures || !sel.ids.iter().any(|&id| out_of_sight(library, id)) {
+        return None;
+    }
+    let ids: Vec<PhotoId> = sel.ids.iter().copied().filter(|&id| !out_of_sight(library, id)).collect();
+    let anchor = sel.anchor.filter(|a| ids.contains(a)).or_else(|| ids.first().copied());
+    let section = if ids.is_empty() { None } else { sel.section };
+    let whole = sel.whole && !ids.is_empty();
+    Some(Selection::new(ids, anchor, section, whole))
 }
 
 /// Makes `sel` the selection; its section's folder becomes the tree's selected folder.

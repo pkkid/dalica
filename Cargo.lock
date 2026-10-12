@@ -987,6 +987,7 @@ name = "dalica-ui"
 version = "0.0.0"
 dependencies = [
  "dalica-core",
+ "dalica-edit",
  "dalica-engine",
  "dalica-fs",
  "dalica-image",

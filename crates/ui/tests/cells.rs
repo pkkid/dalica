@@ -200,7 +200,8 @@ fn hidden_photos_are_drawn_at_40_percent_only_with_hidden_pictures() {
         d.settle(FRAMES).unwrap();
         let all = shown(&d);
         assert_eq!(all.len(), 3);
-        assert!(all.iter().all(|s| s.opacity == 1.0 && !cell::is_hidden(&photo(&d, s.photo))), "{on}");
+        let library = d.app().session().unwrap().library();
+        assert!(all.iter().all(|s| s.opacity == 1.0 && !cell::is_hidden(library, &photo(&d, s.photo))), "{on}");
     }
 }
 
