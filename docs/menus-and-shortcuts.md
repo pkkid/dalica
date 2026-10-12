@@ -225,9 +225,13 @@ things in different places.
 - Exactly one view context is active at a time (the library, the edit view, a running slideshow,
   the standalone viewer, or the active room). **Global** is always active underneath it.
   **Text input** is active on top while a text field has keyboard focus.
-- A key press is resolved Text input → the active view context → Global; the first binding found
-  runs. Text input owns the keys a text field needs (characters, arrows, Home/End, Backspace,
-  Delete, Enter, and Ctrl+A/C/V/X/Z/Y); other keys (Ctrl+S, F11) fall through.
+- A key press is resolved in the active view context → Global; the first binding found runs.
+  While a text field has keyboard focus it is resolved Text input → Global instead: the view
+  context's shortcuts are off while typing, so the field keeps the keys it needs (characters,
+  arrows, Home/End, Backspace, Delete, Enter, Ctrl+A/C/V/X/Z/Y) and a view shortcut (Star's Ctrl+8,
+  Select All, Undo) never acts on the photos behind it; Global keys (F11, Ctrl+Q) still work. A
+  view command meant to work while typing (M8's Save, Ctrl+S, from the edit view's caption field)
+  must be bound in Global or Text input.
 - Two bindings **conflict** only when they use the same key in contexts that can be active at the
   same time: the same context, or Global plus any other. The same key in two view contexts (Ctrl+1
   is Small Thumbnails in Library and Back to Library in Edit view) is not a conflict.

@@ -1,7 +1,8 @@
 //! Shortcut dispatch (`menus-and-shortcuts.md` §2.0): each key press of the frame becomes the
-//! keymap's [`Key`], is resolved in the active context (a focused text field first), and runs its
-//! command through [`App::run`] with the parameters the context implies ([`params_for`]: the
-//! photos it acts on). Plain arrows go to the library tree instead while it has the focus. [`join_keymap`]
+//! keymap's [`Key`], is resolved in the active context and runs its command through [`App::run`]
+//! with the parameters the context implies ([`params_for`]: the photos it acts on). While a text
+//! field has the focus a key resolves Text input, then Global: the view's shortcuts are off while
+//! typing. Plain arrows go to the library tree instead while it has the focus. [`join_keymap`]
 //! adds the UI commands to the session's keymap, so their keys are resolved, conflict-checked and
 //! rebindable like the engine's.
 
@@ -86,9 +87,12 @@ pub fn dispatch(app: &mut App, ctx: &egui::Context) -> Vec<String> {
             .collect()
     });
     let text_input = ctx.egui_wants_keyboard_input();
+    // While a text field has the focus, the view's shortcuts are off (Ctrl+8, Ctrl+A, Ctrl+Z are
+    // the field's or nothing): Text input, then Global.
+    let view = if text_input { Context::Global } else { Context::Library };
     let mut ran = Vec::new();
     for key in presses {
-        let Some(id) = app.session().and_then(|s| s.keymap().resolve(&key, Context::Library, text_input)) else { continue };
+        let Some(id) = app.session().and_then(|s| s.keymap().resolve(&key, view, text_input)) else { continue };
         let params = params_for(app, &id);
         let _ = app.run(&id, &params);
         ran.push(id);
@@ -118,6 +122,34 @@ mod tests {
         }
         // Keys the keymap has no name for are ignored, never a panic.
         assert_eq!(from_egui(egui::Key::Copy, Modifiers::NONE), None);
+    }
+
+    /// While a text field has the focus the view's shortcuts are off (`menus-and-shortcuts.md`
+    /// §2.0): Ctrl+8, Ctrl+A and Ctrl+Z typed into the caption editor star, select and undo
+    /// nothing in the library, while Global's F11 still works.
+    #[test]
+    fn the_views_shortcuts_are_off_while_a_field_has_the_focus() {
+        let (_dir, s, ids) = crate::app::tests::session_with_photos(3);
+        let mut d = crate::headless::Driver::new(App::new(Some(s)), 900, 600, 1.0);
+        d.settle(3600).unwrap();
+        d.run("photo.star.toggle", &json!({ "ids": [ids[2].get()] })).unwrap();
+        d.run("select.set", &json!({ "ids": [ids[0].get()] })).unwrap();
+        d.run("photo.caption.edit", &json!({})).unwrap();
+        d.settle(3600).unwrap();
+        assert!(d.ctx().egui_wants_keyboard_input(), "the editor has the focus");
+        let starred = |d: &crate::headless::Driver| -> Vec<bool> {
+            let lib = d.app().session().unwrap().library();
+            ids.iter().map(|id| lib.photo(*id).unwrap().star).collect()
+        };
+        for key in ["Ctrl+8", "Ctrl+A", "Ctrl+Z"] {
+            d.key(key).unwrap();
+        }
+        assert_eq!(starred(&d), [false, false, true], "no star set, none undone");
+        assert_eq!(d.state().selection.ids, vec![ids[0]], "nothing selected");
+        assert_eq!(d.app().session().unwrap().undo_stack().len(), 1);
+        d.key("F11").unwrap();
+        assert!(d.app().state().full_screen, "Global keys still work");
+        assert!(d.ctx().egui_wants_keyboard_input(), "still typing");
     }
 
     /// UI commands' keys run them like the engine's: F11, Ctrl+1 / Ctrl+2, Ctrl+0, and a rebinding

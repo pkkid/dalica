@@ -13,7 +13,7 @@
 //! | [`scrollbar`] | the [`Frame`] and its rect, before the content ([`scrollbar::input`]) and after it ([`scrollbar::paint`]) | a [`scrollbar::ScrollRequest`] |
 //! | [`input`] | the [`Frame`] before the cells ([`input::begin`]), the cells' [`cell::CellOut`]s after them ([`input::finish`]) | [`input::Pending`], applied by [`input::apply`] |
 //! | [`header`] | the [`Frame`], the section, its rect and [`header::Form`] | [`header::HeaderOut`], applied by [`header::apply`] |
-//! | [`cell`] | the [`Frame`], the [`Thumbnails`](super::thumbnails::Thumbnails), a [`cell::CellIn`] | a [`cell::CellOut`] |
+//! | [`cell`] | the [`Frame`], the [`Thumbnails`](super::thumbnails::Thumbnails), a [`cell::CellIn`] | a [`cell::CellOut`]; the inline caption editor's result ([`caption_edit`]) is applied by [`cell::apply`] |
 //!
 //! Each part keeps what it needs between frames in its own state struct ([`scrollbar::Scrollbar`],
 //! [`input::Input`], [`header::Headers`], [`cell::Cells`]), held here by [`LightTable`]. A frame:
@@ -32,6 +32,7 @@
 //! rubber band held at an edge with [`input::Pending::scroll`], applied after the cells, so the
 //! next frame shows (and the band selects) the rows it brings in.
 
+pub mod caption_edit;
 pub mod cell;
 pub mod header;
 pub mod input;
@@ -499,6 +500,7 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui, area: Rect, bar: Rect) {
     for out in header_outs {
         header::apply(app, out);
     }
+    cell::apply(app, &mut lt.cells);
     if let Some(s) = app.session_mut() {
         p.thumbnails.set_order(&p.sections);
         p.thumbnails.end_frame(s, &motion);
