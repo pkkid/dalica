@@ -1365,7 +1365,7 @@ filled by the lead; M5.15 pins it.
     counts rise to the totals; cancelling the scan job stops it within one folder and keeps what
     was applied; the registry expires entries after 10 minutes of virtual time and caps at 64;
     every existing engine test and `panic_hunt` pass unchanged.
-- ⬜ **M5.6 `image`: TIFF**
+- ✅ **M5.6 `image`: TIFF**
   - after: M5.1, M5.2
   - files: `crates/image/src/formats/tiff.rs`, `crates/image/tests/tiff.rs`, `crates/image/tests/fingerprints/tiff*.json`
   - scope: `formats.md` §1: the first full-resolution page through the pinned `image`/`tiff`
