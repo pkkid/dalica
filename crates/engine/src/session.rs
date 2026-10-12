@@ -223,6 +223,7 @@ impl Session {
     /// (inside `execute`) collects its inverse for the undo step. Commands change the library
     /// only through this.
     pub(crate) fn apply(&mut self, op: Op) -> Result<Op, CmdError> {
+        let before = self.all_folder_ids();
         let inverse = self.library.apply(op.clone()).map_err(|e| match e {
             dalica_library::Error::UnknownFolder(_) | dalica_library::Error::UnknownPhoto(_) => CmdError::NotFound(e.to_string()),
             other => CmdError::BadParams(other.to_string()),
@@ -230,7 +231,11 @@ impl Session {
         self.send(Msg::Journal(vec![op]));
         let rev = self.library.revision();
         let touched: BTreeSet<FolderId> = self.all_folder_ids().into_iter().filter(|f| self.library.folder_revision(*f) == rev).collect();
-        let states = touched.into_iter().map(|f| (f, dalica_store::mapping::folder_state(&self.library, f))).collect();
+        let mut states: Vec<(FolderId, Option<FolderState>)> =
+            touched.into_iter().map(|f| (f, dalica_store::mapping::folder_state(&self.library, f))).collect();
+        // Folders the op removed: the I/O worker drops their pending writes (a folder deleted
+        // outside Dalica never comes back to be written into).
+        states.extend(self.left_library(before));
         self.send(Msg::Dirty(states));
         if let Some(c) = &mut self.collected {
             c.push(inverse.clone());
@@ -274,6 +279,12 @@ impl Session {
 
     fn all_folder_ids(&self) -> Vec<FolderId> {
         self.library.folders().map(|f| f.id).collect()
+    }
+
+    /// Of the folders in `before`, those no longer in the library, each with no state: told to the
+    /// I/O worker, they leave its pending writes.
+    pub(crate) fn left_library(&self, before: Vec<FolderId>) -> impl Iterator<Item = (FolderId, Option<FolderState>)> + use<'_> {
+        before.into_iter().filter(|f| self.library.folder(*f).is_none()).map(|f| (f, None))
     }
 
     pub(crate) fn send(&mut self, msg: Msg) {

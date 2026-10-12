@@ -463,6 +463,38 @@ fn an_emptied_root_removes_nothing() {
     assert_eq!(dalica_fs::guard::refused(), 0);
 }
 
+/// A folder deleted outside Dalica while its sidecar write is still to come (an edit within the
+/// debounce): once the folder has left the library its write is dropped, not kept waiting for a
+/// folder that will never come back. Flush is Ok, nothing waits, and nothing is created at the old
+/// path. (Found by `accept M5` on Windows, where a deletion can be seen in two steps.)
+#[test]
+fn a_pending_write_of_a_folder_deleted_outside_dalica_is_dropped() {
+    let fx = Fx::new();
+    let mut s = fx.scanned(WatchMode::Polling, &[]);
+    let ui = dalica_fs::mark_ui_thread();
+    let porto = fx.root.join("Porto");
+    let id = photo(&s, &porto, "IMG_0001.jpg").unwrap();
+    fx.settle(&mut s);
+    // A star written now, then a second edit within the debounce (the clock does not move): dirty,
+    // not yet due, so no write runs while the folder is being deleted.
+    s.execute("photo.star.set", &json!({ "ids": [id], "on": true })).unwrap();
+    s.flush().unwrap();
+    assert_eq!(fx.sidecar(&porto)["photos"]["IMG_0001.jpg"]["star"], json!(true));
+    s.execute("photo.star.set", &json!({ "ids": [id], "on": false })).unwrap();
+    remove(&porto);
+    fx.settle(&mut s);
+    assert!(s.library().folder_by_path(&porto).is_none(), "the folder left the library");
+    for _ in 0..3 {
+        fx.clock.advance(Duration::from_secs(30));
+        fx.settle(&mut s);
+    }
+    assert_eq!(s.flush(), Ok(()), "nothing is left to save for a folder that is gone");
+    assert_eq!(s.pending_writes(), None, "nothing waits");
+    assert!(!exists(&porto), "nothing is created at the old path");
+    drop(ui);
+    assert_eq!(dalica_fs::guard::refused(), 0);
+}
+
 /// The system's change events (native backend, real time, generous timeouts: events are hints
 /// whose timing differs per OS): a photo added and one removed reach the library while the
 /// session is polled as the UI polls it.
