@@ -175,6 +175,7 @@ waits for.)
 | | M13 | People and places | local faces, the People pane, the Places pane and geotagging | ⬜ |
 | | M14 | Collage and legacy sidecars | the collage room; reading the previous organizer's data | ⬜ |
 | Finish | M15 | Video, localisation, OS integration and Release 1.0 | the honest 1.0 | ⬜ |
+| After 1.0 | M16 | Post-1.0 enhancements | what comes after the honest 1.0, starting with switchable themes | ⬜ |
 
 ## Milestones
 
@@ -1492,7 +1493,9 @@ filled by the lead; M5.15 pins it.
     and M5.19; `UiState` gains the open dialog with its draft and the activity popover;
     `folders.manager` (File → Add Folder… and Tools → Folder Manager…) as a UI command;
     `ui.dialog.confirm` / `ui.dialog.cancel` and `jobs.list` / `jobs.wait` / `jobs.cancel` move
-    from `later(…)` to live methods over M5.5's registry. Loose ends found at M4.R: `ui.inspect`
+    from `later(…)` to live methods over M5.5's registry. Reuse (`architecture.md` §9):
+    PhotoCraft's `crates/ui-egui/src/dialogs.rs` is the pattern (dialogs as data in `UiState`,
+    set, confirmed and cancelled by automation). Loose ends found at M4.R: `ui.inspect`
     reports the light table's `scroll` and running `animations` (M4.6), `ui.menu.tree
     {context:"tray"}` answers the tray menu (M4.16), `tray.clear` asks through the host instead of
     returning `disabled`, `ui.inspect` reports the open `popup`, `dialog` and `tooltip` (they read
@@ -1657,9 +1660,27 @@ filled by the lead; M5.15 pins it.
   - owner: lead
   - files: `docs/roadmap.md`
   - scope: write every M7 task block from M7's section and the spec, with waves and the `M7.R`
-    review (owner: maintainer).
+    review (owner: maintainer); a block that can port Craft-app code names the source files in its
+    scope (the section's *Reuse* line, `architecture.md` §9).
   - done when: `cargo xtask tasks sync --check` parses them and `tasks sync --dry-run` lists one new
     issue per block.
+- ⬜ **M5.25 `ui-kit`: text field behaviour and an autocomplete list, from the Craft apps**
+  - after: M3.1
+  - files: `crates/ui-kit/src/widgets.rs`, `crates/ui-kit/src/widgets/field.rs`, `crates/ui-kit/src/widgets/field/**`, `crates/ui-kit/src/widgets/autocomplete.rs`, `crates/ui-kit/src/registry.rs`, `crates/ui-kit/tests/fields.rs`, `crates/ui-kit/tests/fingerprints/fields*.json`, `crates/ui-kit/tests/fingerprints/gallery*.json`, `NOTICE`, `docs/design-system.md`
+  - scope: one shared text field for M6's caption, description, tag, quick-tag and date entry, so
+    those tasks do not each build one. Port LightCraft's `crates/ui-egui/src/text_field.rs` into
+    `ui-kit`'s `text_field` and `search_field`: Esc reverts, Return or a click away commits once,
+    optional select-all on focus, the right-click Cut / Copy / Paste / Select All menu; keep
+    `design-system.md` §6's geometry and Dalica's `register` ids. Add an `autocomplete` list under
+    a field (type-ahead filtering, ↑/↓ and Enter pick, a click picks, Esc closes, it stays inside
+    the window like every popup) from LightCraft's `album_picker.rs` filtering and PhotoCraft's
+    `widgets/type_ahead.rs`, for the Tags pane (M6.28) and search (M9). New `Role`s where needed;
+    each ported file starts with a header naming its source file and revision, with a `NOTICE`
+    row (`architecture.md` §9); `design-system.md` §6 gets both rows.
+  - done when: `crates/ui-kit/tests/fields.rs`: Esc restores the old text; Return and a click away
+    commit once; the context menu's items act on the selection; the autocomplete filters, picks by
+    keys and by click, and closes on Esc; the tests ported with the code pass; every state in the
+    gallery fingerprints at both sizes; `widget_ids` stays green.
 - ⬜ **M5.R Check-in**
   - after: M5.20
   - owner: maintainer
@@ -1678,7 +1699,8 @@ Waves (inside a wave, "‖" separates tasks whose `files` do not overlap):
 ```text
 wave 1   M5.1 image formats + colour  ‖  M5.2 scenes formats  ‖  M5.3 fs folder handle
          ‖  M5.4 scan rules + volumes  ‖  M5.22 tasks tooling  ‖  M5.23 M4 UI loose ends
-         ‖  M5.24 release budgets job                              (once M4.R is closed)
+         ‖  M5.24 release budgets job  ‖  M5.25 text field + autocomplete
+                                                                   (once M4.R is closed)
 wave 2   M5.5 engine modules + jobs  ‖  M5.6 TIFF  ‖  M5.7 WebP/GIF/BMP  ‖  M5.8 JPEG XL + PSD
          ‖  M5.9 RAW (TIFF-based)  ‖  M5.10 RAW (other) + HEIF  ‖  M5.11 watcher
 wave 3   M5.12 folder modes  ‖  M5.13 offline volumes  ‖  M5.14 dialog host + jobs  ‖  M5.15 corpus
@@ -2068,8 +2090,9 @@ replace at M6.R.
     Dalica (the macOS application menu's About) with the tabs About (icon, version, commit, build
     date, licence) · Contributors (grab bag or table, every sort of `contributors.md`, the name
     toggle Username → Display name → Real name with the `@username` fallback, case-insensitive and
-    `@`-blind alphabetical order) · Models; Help ▸ Release Notes showing `whats-new.md` (headings
-    and bullets, HTML comments left out) from `include_str!`; ids per control-protocol §7.
+    `@`-blind alphabetical order) · Models (PhotoCraft's `crates/ui-egui/src/credits.rs` About
+    window is the pattern, `architecture.md` §9); Help ▸ Release Notes showing `whats-new.md`
+    (headings and bullets, HTML comments left out) from `include_str!`; ids per control-protocol §7.
   - done when: `crates/ui/tests/about.rs`: each tab by id; each sort and the name toggle on a
     fixture with missing names; no email reaches the binary (a test on the compiled data); the
     release notes skip comments; dialog fingerprints at both window sizes.
@@ -2136,22 +2159,24 @@ replace at M6.R.
     its row to Hidden Folders and removes its section until Hidden Pictures; the tree fingerprints
     at both window sizes.
 - ⬜ **M6.25 `ui`: captions in the library**
-  - after: M6.6, M6.14
+  - after: M5.25, M6.6, M6.14
   - files: `crates/ui/src/panels/light_table/cell.rs`, `crates/ui/src/panels/light_table/caption_edit.rs`, `crates/ui/src/commands/caption.rs`, `crates/ui/tests/captions.rs`, `crates/ui/tests/fingerprints/region-cells*.json`
   - scope: `organizing.md` §5.3 and `ui-layout.md` §5.3: Picture → Edit Caption opens a one-line
     editor under the focused photo's cell (placeholder "Add a caption", the text-input keyboard
     context so shortcuts do not fire); Enter or a click elsewhere commits through
-    `photo.caption.set` (one undo step), Esc cancels, scrolling the cell away commits; the Caption
+    `photo.caption.set` (one undo step), Esc cancels, scrolling the cell away commits (the editor
+    is M5.25's `text_field`); the Caption
     and Tags thumbnail-caption modes show the model's text (tags joined by ", "), middle-elided; ids
     per control-protocol §7.
   - done when: `crates/ui/tests/captions.rs`: type a caption by id and Enter, the sidecar holds it
     and one undo removes it; Esc leaves it unchanged; Ctrl+8 typed into the editor stars nothing;
     each caption mode's text; the cell fingerprints at both window sizes.
 - ⬜ **M6.26 `ui`: folder descriptions and Folder Properties**
-  - after: M6.6, M6.14
+  - after: M5.25, M6.6, M6.14
   - files: `crates/ui/src/panels/light_table/header.rs`, `crates/ui/src/dialogs/folder_properties.rs`, `crates/ui/tests/folder_properties.rs`, `crates/ui/tests/fingerprints/region-header*.json`, `crates/ui/tests/fingerprints/dialog-folder-properties*.json`
   - scope: `ui-layout.md` §5.2 and `organizing.md` §10: a click on the description line edits it
-    inline (Enter commits through `folder.info.set`, Esc cancels); a double-click on the title opens
+    inline with M5.25's `text_field` (Enter commits through `folder.info.set`, Esc cancels); a
+    double-click on the title opens
     Folder Properties: Name (shown, read-only until renaming arrives in M9), Date with "Use the date
     of the oldest photo", Place, Description, Music for slideshows (disabled until M11), OK applying
     one undo step; the header's date line shows the folder's date and " · place".
@@ -2172,10 +2197,11 @@ replace at M6.R.
     value, Show All Metadata lists the extra fields, the pane follows a new selection, no frame
     waited on a file read (perf counters); the pane fingerprints at both window sizes.
 - ⬜ **M6.28 `ui`: the Tags pane**
-  - after: M6.6, M6.15
+  - after: M5.25, M6.6, M6.15
   - files: `crates/ui/src/panels/tags.rs`, `crates/ui/src/panels/tags/add.rs`, `crates/ui/src/panels/tags/list.rs`, `crates/ui/src/dialogs/rename_tag.rs`, `crates/ui/src/status_text.rs`, `crates/ui/tests/tags_pane.rs`, `crates/ui/tests/status_tags.rs`, `crates/ui/tests/fingerprints/pane-tags*.json`, `crates/ui/tests/fingerprints/dialog-rename-tag*.json`, `crates/ui/tests/fingerprints/region-status*.json`
   - scope: `organizing.md` §5.2 and `menus-and-shortcuts.md` §4: "Add a tag:" with + (Enter adds,
-    commas separate, autocomplete from `tags.list`); "Tags in the selection:" with partial counts
+    commas separate, autocomplete from `tags.list` through M5.25's `text_field` and
+    `autocomplete`); "Tags in the selection:" with partial counts
     ("beach (3 of 8)"), hover × removing from all selected photos; the tag context menu (Add to All
     Selected, Search for This Tag disabled until M9, Remove from Selected, Rename Tag… with its
     confirmation dialog); Ctrl+T; the status line's "Tags: lisbon (40), tram (6)" field
@@ -2185,14 +2211,15 @@ replace at M6.R.
     confirming; `crates/ui/tests/status_tags.rs`: the status text for tagged selections; the pane,
     dialog and status fingerprints at both window sizes.
 - ⬜ **M6.29 `ui` + `ui-kit`: Adjust Date and Time**
-  - after: M6.6, M6.16
+  - after: M5.25, M6.6, M6.16
   - files: `crates/ui/src/dialogs/adjust_date.rs`, `crates/ui-kit/src/widgets/datetime.rs`, `crates/ui-kit/tests/datetime.rs`, `crates/ui-kit/tests/fingerprints/datetime*.json`, `crates/ui/tests/adjust_date.rs`, `crates/ui/tests/fingerprints/dialog-adjust-date*.json`
   - scope: `organizing.md` §9: a date and a time picker in `ui-kit` (keyboard entry, arrows step the
     focused field, invalid days refused, no locale formats beyond the long date of `ui-layout.md`
-    §5.2 yet); Adjust Picture Date ("… — %d pictures" for several): the thumbnail, "Current date:"
-    read-only, "New date:", for several photos the radios "Shift all dates by the same amount"
-    (default) and "Set all pictures to the same date and time"; OK runs `photo.dates.set` (one undo
-    step); ids per §7.
+    §5.2 yet; built on M5.25's `text_field`, with the date rules, limits and tests ported from
+    LightCraft's `crates/ui-egui/src/date_picker.rs`, `architecture.md` §9); Adjust Picture Date ("…
+    — %d pictures" for several): the thumbnail, "Current date:" read-only, "New date:", for several
+    photos the radios "Shift all dates by the same amount" (default) and "Set all pictures to the
+    same date and time"; OK runs `photo.dates.set` (one undo step); ids per §7.
   - done when: `crates/ui-kit/tests/datetime.rs`: entry, stepping and refusal of 31 February;
     `crates/ui/tests/adjust_date.rs`: shift three photos by +1 h 30 min and set one, by id, then
     undo; the widget and dialog fingerprints at both window sizes.
@@ -2217,12 +2244,13 @@ replace at M6.R.
     read-only file fails with its reason and the sidecar intact; a file changed between read and
     write is re-read; `cargo test -p dalica-fs --test times` with fault injection.
 - ⬜ **M6.31 `ui`: quick tags**
-  - after: M6.28
+  - after: M5.25, M6.28
   - files: `crates/ui/src/panels/tags/quick.rs`, `crates/ui/src/dialogs/quick_tags.rs`, `crates/ui/tests/quick_tags.rs`, `crates/ui/tests/fingerprints/pane-tags*.json`, `crates/ui/tests/fingerprints/dialog-quick-tags*.json`
   - scope: `organizing.md` §5.2: the grid of ten buttons in rows of 2/3/2/3 (unassigned ones show
     "+", a click toggles that tag on the selection through `photo.tags.toggle`), the gear opening
-    Configure Quick Tags (the recent-tags checkbox, ten fields, [Fill Empty with Common Tags], OK /
-    Cancel through `tags.quick.set`); Ctrl+Alt+1 … Ctrl+Alt+0 act on the tray; ids per §7.
+    Configure Quick Tags (the recent-tags checkbox, ten M5.25 `text_field`s, [Fill Empty with Common
+    Tags], OK / Cancel through `tags.quick.set`); Ctrl+Alt+1 … Ctrl+Alt+0 act on the tray; ids per
+    §7.
   - done when: `crates/ui/tests/quick_tags.rs`: configure three slots, apply slot 2 by click and by
     Ctrl+Alt+2, toggle it off again; Fill Empty uses the most common tags; Cancel changes nothing;
     the pane and dialog fingerprints at both window sizes.
@@ -2297,7 +2325,8 @@ replace at M6.R.
   - owner: lead
   - files: `docs/roadmap.md`
   - scope: write every M8 task block from M8's section and the spec, with waves and the `M8.R`
-    review (owner: maintainer).
+    review (owner: maintainer); a block that can port Craft-app code names the source files in its
+    scope (`architecture.md` §9).
   - done when: `cargo xtask tasks sync --check` parses them and `tasks sync --dry-run` lists one new
     issue per block.
 - ⬜ **M6.R Release 0.1 gate**
@@ -2348,6 +2377,11 @@ One milestone in 3 feature areas (*Edit view shell*, *Basic fixes*, *Tuning and 
   Histogram & Camera Info); entering and leaving (double-click, Enter, Ctrl+3, Esc, Ctrl+1);
   previous/next; zoom and pan maths, Fit / 1:1, background refinement; the per-photo history
   commands with labelled Undo/Redo buttons; star, rotate and flip in the edit view as history steps.
+- **Reuse** (`architecture.md` §9): craft-ui's `tabs` (fit maths and an accessible tab) under
+  `design-system.md`'s `tabs` widget; PhotoCraft's `rgb_histogram.rs` and `tone.rs`
+  `draw_histogram` for the histogram; PhotoCraft's `wheel_nav.rs` (`classify`) and `flick_pan.rs`
+  for wheel, trackpad and pinch input (the zoom curve stays Dalica's); LightCraft's filmstrip in
+  `panels/detail.rs` as the pattern.
 - **Out:** tools and effects (M7+), compare modes (M11), video (M15).
 - **Done when:** `cargo xtask accept M7`: zoom maths tests (ends and midpoint = 100 %); navigation
   tests; a photo's history survives a restart; opening a 24 MP JPEG renders its screen preview in
@@ -2359,6 +2393,8 @@ One milestone in 3 feature areas (*Edit view shell*, *Basic fixes*, *Tuning and 
 - **In:** the `edit` renderer with pipeline order and per-operation versions; thumbnails show
   edits (recipe in cache keys); Crop (ratios, custom ratios, Manual, rotate, preview; suggestions
   from thirds/saliency); Straighten; Auto Fix, Auto Contrast, Auto Color; the Fill Light slider.
+- **Reuse** (`architecture.md` §9): the guide geometry of LightCraft's `panels/crop_overlay.rs`
+  and PhotoCraft's `crop_overlay.rs` (`guides`, unit-square polylines with tests).
 - **Out:** face-based crop suggestions (M13), Retouch (M7).
 - **Done when:** `cargo xtask accept M7`: fingerprints per operation; resolution independence (two
   sizes agree after downscale); thumbnail render = edit-view render; unknown operations survive.
@@ -2435,6 +2471,11 @@ One milestone in 3 feature areas (*Preferences and shortcuts*, *MCP and workflow
 - **In:** the Options dialog (tabs; OK / Cancel / Apply rules); General, File Types and Export tabs;
   UI scale and font size; the shortcut editor (`menus-and-shortcuts.md` §2.0) and Help → Keyboard
   Shortcuts.
+- **Reuse** (`architecture.md` §9): LightCraft's `panels/keymap.rs` (click to rebind, × removes, ↺
+  restores) and PhotoCraft's key capture (`prefs_ui.rs` `shortcuts_body`,
+  `shortcut_capture_tests.rs`) for the shortcut editor, which adds search, the Context filter and
+  conflicts; `shortcuts.rs` `parse` / `pretty` from either app; PhotoCraft's `prefs_ui.rs`
+  working-copy model for the draft and the OK / Cancel / Apply rules.
 - **Done when:** `cargo xtask accept M10`: settings round-trip with unknown keys kept; keymap
   conflict tests; rebinding Star to F8 through `app.setShortcut` and pressing F8 headless stars
   the photo; Reset All restores every default.
@@ -2455,13 +2496,13 @@ One milestone in 3 feature areas (*Preferences and shortcuts*, *MCP and workflow
 
 | # | In | Done when (sketch) |
 |---|---|---|
-| M11 Import | rooms/tab strip; sources (cards, removable drives, folders); time grouping; exclude duplicates; destination and folder naming; copy-verify; optional removal from the card | import of a simulated card into dated folders; duplicates skipped; no file overwritten |
-| M11 Compare and batch edit | A│B, A│A, before/after hold, Copy/Paste All Edits, Batch Edit ▸, Undo All Edits | batch of 100 photos is one undo step |
+| M11 Import | rooms/tab strip (craft-ui `tabs` and PhotoCraft's `tab_strip.rs` overflow menu); sources (cards, removable drives, folders); time grouping; exclude duplicates; destination and folder naming; copy-verify; optional removal from the card | import of a simulated card into dated folders; duplicates skipped; no file overwritten |
+| M11 Compare and batch edit | A│B, A│A (LightCraft's `panels/compare.rs` as the pattern), before/after hold, Copy/Paste All Edits, Batch Edit ▸, Undo All Edits | batch of 100 photos is one undo step |
 | M11 Slideshow and quick preview | slideshow, control bar, transitions, captions, music; Ctrl+Alt preview | transitions never wait on disk (prefetch test) |
-| M11 Photo viewer | `dalica --view`, filmstrip, controls, settings | open, navigate, star from the viewer |
-| M12 Effects I | effect tiles, parameter panels, crosshair control, Fade; the 12 effects of tab 3 | a fingerprint and an invariant per effect |
+| M11 Photo viewer | `dalica --view`, filmstrip (LightCraft's `panels/detail.rs` as the pattern), controls, settings | open, navigate, star from the viewer |
+| M12 Effects I | effect tiles, parameter panels (colour parameters from PhotoCraft's `color_picker_ui.rs` colour maths and `widgets.rs` `swatch_popup`), crosshair control, Fade; the 12 effects of tab 3 | a fingerprint and an invariant per effect |
 | M12 Effects II | the 15 effects of tabs 4–5, canvas-enlarging effects, Soften's paint mask | as M12 |
-| M13 People I | consented model download (decisions 5 and 9), detection, embeddings, clustering, Unnamed, naming, ignore, person albums | a public-domain face set groups as expected (floors) |
+| M13 People I | LightCraft's `crates/faces` pipeline and `panels/faces.rs` as the starting point; consented model download (decisions 5 and 9), detection, embeddings, clustering, Unnamed, naming, ignore, person albums | a public-domain face set groups as expected (floors) |
 | M13 People II | suggestions, People pane, manual faces, merge/rename/delete, MWG regions | MWG round-trip tests (`xmp-interop.md` §8.5) |
 | M13 Places | Places pane, opt-in map tiles (decision 4), geotag by drag and search, GPS write, Geotag menu | GPS round-trip; no network without the user's action |
 | M14 Collage | the collage room, styles, canvas, render + recipe, Edit Collage | deterministic layouts per seed; render size |
@@ -2472,17 +2513,28 @@ One milestone in 3 feature areas (*Preferences and shortcuts*, *MCP and workflow
 | # | In | Done when (sketch) |
 |---|---|---|
 | M15 Video | reserved decision 2 first; then poster frames, playback, trim, frame save — or descope to tiles | decided and recorded; tests per chosen scope |
-| M15 Localisation and accessibility | translation catalogs, AccessKit labels, screen-reader and keyboard-only passes, scaling | coverage per language reported; AccessKit tree tests |
+| M15 Localisation and accessibility | translation catalogs (from LightCraft's `i18n.rs` and `locales/*.json`, with its script-based CJK font fallback), AccessKit labels, screen-reader and keyboard-only passes, scaling | coverage per language reported; AccessKit tree tests |
 | M15 OS integration | drag out to other apps, clipboard files, Open With ▸, external editor, Locate on Disk with selection, default-viewer registration, MTP/PTP cameras | per-OS manual checklist plus what can be tested per OS in CI |
 | M15 Release 1.0 | signed packages, full honest assessment, release notes | the release checklist (`releasing.md`) |
+
+### M16 — Post-1.0 enhancements (outline)
+
+Improvements the maintainer wants after 1.0, beyond parity with the reference organizer. Nothing
+here starts before M15.R closes; the lead details these items into task blocks while M15 runs, and
+the maintainer adds items here as they come up (maintainer decision, 2026-10-11).
+
+| # | In | Done when (sketch) |
+|---|---|---|
+| M16 Themes | switchable themes, taken from the Craft apps: today's dark theme stays the default (it is LightCraft's look, LightCraft's only theme), plus PhotoCraft's twelve: Pro (Dark), Pro (Medium Gray), Pro (Light Gray), Pro (Light), Studio (Dark), Studio (Light), Classic, Adwaita (Light), Adwaita (Dark), Solarized Dark, Breeze Light, Breeze Dark (as of `storytold/photocraft` 30bd8a55). The same architecture and implementation as PhotoCraft's `crates/ui-egui/src/theme.rs`: a `ThemeKind` enum with id, label, `from_name` and `next`, one token set per kind (`Tokens::for_kind`), the theme kept in settings, one command per theme plus `ui.set {theme}`, and a Theme choice in Options › General › Interface. PhotoCraft's palettes and code are mapped onto Dalica's `ui-kit` `Tokens`, with a header naming the source and a `NOTICE` row (`architecture.md` §9), plus the Solarized palette's `ATTRIBUTION.md` row and MIT licence text | every theme passes the `ui-kit` contrast tests; a widget-gallery fingerprint per theme; switching by command, CLI and MCP repaints without a restart and survives one; the main window screenshotted in every theme |
 
 ## Reserved decisions (the maintainer's, not the agents')
 
 Record the decision here with a date when made.
 
-1. Reuse model. **Decided 2026-10-09: reference only.** LightCraft and PhotoCraft are prior art for
-   technology, look and methodology; no Craft code is depended on or vendored. crates.io
-   libraries stay allowed after the dependency check (`architecture.md` §9).
+1. Reuse model. **Decided 2026-10-09: reference only; revised 2026-10-11: reuse allowed.**
+   LightCraft and PhotoCraft share Dalica's licence, so their code may be copied and adapted with
+   a header naming its origin and a `NOTICE` row. The reference organizer's code is never looked
+   at or used. crates.io libraries stay allowed after the dependency check (`architecture.md` §9).
 2. Video: pure-Rust decoding vs optional external process (M15).
 3. Metadata write defaults. **Decided 2026-10-09:** captions, tags, places and date changes are
    written into the photo files' metadata by default (pixels never change without Save); stars as

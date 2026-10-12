@@ -42,8 +42,8 @@ Never allowed, not even as a temporary placeholder or a "reference copy":
 - Put the licence text next to the asset when the licence requires it (`assets/fonts/OFL-Inter.txt`,
   `assets/icons/LICENSE-lucide.txt`) and reference it, backticked, in the Licence column.
 - Third-party material bundled in the product is also summarised in [`NOTICE`](../NOTICE).
-- Dalica does not reuse LightCraft or PhotoCraft code (`architecture.md` §9). Any other
-  third-party code ever vendored goes in `NOTICE` with its source revision and keeps a header
+- LightCraft or PhotoCraft code reused in Dalica (`architecture.md` §9), and any other
+  third-party code ever vendored, goes in `NOTICE` with its source revision and keeps a header
   naming its origin.
 
 ## 3. `cargo xtask assets`

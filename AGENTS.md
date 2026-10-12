@@ -44,8 +44,12 @@ texts, file-format details, version history and observations (`notes/picasa/`, i
 | `log/devlog.md` (main checkout, gitignored) | the private dev log: one entry per task |
 | `notes/` (gitignored) | reference research and Craft-app studies |
 
-LightCraft (`~/Sources/lightcraft`) and PhotoCraft (`~/Sources/photocraft`) are **reference only**:
-study them for techniques and look, never copy their code (`architecture.md` §9).
+LightCraft (`~/Sources/lightcraft`) and PhotoCraft (`~/Sources/photocraft`) share Dalica's licence
+(MIT OR Apache-2.0): study them, and reuse their code where it fits, with a header naming its
+origin and a `NOTICE` row (`architecture.md` §9). Their checkouts lag upstream: `git fetch` there
+and read `origin/main`. The shared `craft-ui` crate (`github.com/storytold/craft-libs`) counts as
+part of them. The reference organizer is the opposite: never look at or use its code; match its
+behaviour only (§3, clean-room).
 
 ## 2. Architecture in one screen (details: `docs/architecture.md`)
 
@@ -121,10 +125,10 @@ L0       core · fs                    (only `fs` writes to disk)
 
 ### Non-negotiables
 
-- **Clean-room:** match layout, workflow and behaviour; never copy the reference application's
-  code, text, icons, images, sounds or data. Legacy formats are implemented from public prose and
-  black-box observation, each reader with a provenance header. No GPL/LGPL/AGPL code. Branded
-  feature names get descriptive names of our own (e.g. **Auto Fix**).
+- **Clean-room:** match layout, workflow and behaviour; never look at or copy the reference
+  application's code, and never copy its text, icons, images, sounds or data. Legacy formats are
+  implemented from public prose and black-box observation, each reader with a provenance header. No
+  GPL/LGPL/AGPL code. Branded feature names get descriptive names of our own (e.g. **Auto Fix**).
 - **Assets:** original, public domain/CC0, CC-BY(-SA), OFL or permissively licensed, each with an
   `ATTRIBUTION.md` row and licence text in the same commit (`cargo xtask assets`; `docs/assets.md`).
 - **Pure Rust:** no C/C++ build dependencies in the product, no webview/JS/Tauri; audit new
@@ -160,7 +164,7 @@ L0       core · fs                    (only `fs` writes to disk)
   5. `cargo xtask tasks submit <id>`: the branch now belongs to the lead; start the next task.
   When `next` offers nothing, wait 5 minutes before asking again.
 - **Decide, don't wait** (maintainer decision, 2026-10-10). Make technical decisions yourself:
-  follow the spec; where it is silent, do what LightCraft or PhotoCraft did (study, never copy;
+  follow the spec; where it is silent, do what LightCraft or PhotoCraft did (study or reuse;
   `architecture.md` §9); otherwise pick the simplest option that keeps every rule in §3. Record
   each decision in the commit body (what, why, the alternative) so the check-in can list it for
   reversal. Only these need the maintainer, and even they never stop the run (maintainer rule,

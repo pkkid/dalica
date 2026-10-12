@@ -16,12 +16,12 @@ xtask). This page is the short list a pull request is checked against.
 - **Language:** Rust only. No C/C++ dependencies in the product, no JavaScript, TypeScript,
   webview or Tauri.
 - **Licence:** contributions are MIT OR Apache-2.0 (`LICENSE-MIT`, `LICENSE-APACHE`, `NOTICE`;
-  the same licence as PhotoCraft, maintainer decision 2026-10-09). LightCraft and PhotoCraft are
-  reference only: never copy their code (`architecture.md` §9).
-- **Clean-room:** match the reference organizer's layout, workflow and behaviour; never copy its
-  code, text, icons, images, sounds, sample photos, help text or data, not even as placeholders.
-  Never copy GPL/LGPL/AGPL code. Never write the reference product's name in the repository
-  (`cargo xtask names` fails). Details: [`process.md`](process.md) §3.
+  the same licence as PhotoCraft, maintainer decision 2026-10-09). LightCraft and PhotoCraft code
+  may be reused with a header naming its origin and a `NOTICE` row (`architecture.md` §9).
+- **Clean-room:** match the reference organizer's layout, workflow and behaviour; never look at or
+  copy its code, and never copy its text, icons, images, sounds, sample photos, help text or data,
+  not even as placeholders. Never copy GPL/LGPL/AGPL code. Never write the reference product's name
+  in the repository (`cargo xtask names` fails). Details: [`process.md`](process.md) §3.
 - **Assets:** only original work, public domain/CC0, CC-BY(-SA), OFL or permissively licensed
   material, with its licence file next to it and a row in [`ATTRIBUTION.md`](../ATTRIBUTION.md) in
   the same commit. Fonts: Inter is the only font file in the repository; everything else comes
