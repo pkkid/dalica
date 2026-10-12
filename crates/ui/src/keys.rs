@@ -47,8 +47,24 @@ pub fn from_egui(key: egui::Key, modifiers: egui::Modifiers) -> Option<Key> {
 
 /// The photo commands that act on the Photo Tray's photos (the held ones and the selection,
 /// [`crate::tray::photos`]) rather than only the selection: the star and rotate buttons under the
-/// tray act on it (`ui-layout.md` §6.3), and their shortcuts and menu items act on the same set.
-pub const TRAY_COMMANDS: [&str; 4] = ["photo.star.toggle", "photo.star.set", "photo.rotate.cw", "photo.rotate.ccw"];
+/// tray act on it (`ui-layout.md` §6.3), and their shortcuts and menu items act on the same set;
+/// so do the quick tags' Ctrl+Alt+1 … Ctrl+Alt+0 (`organizing.md` §5.2).
+pub const TRAY_COMMANDS: [&str; 14] = [
+    "photo.star.toggle",
+    "photo.star.set",
+    "photo.rotate.cw",
+    "photo.rotate.ccw",
+    "tags.quick.1",
+    "tags.quick.2",
+    "tags.quick.3",
+    "tags.quick.4",
+    "tags.quick.5",
+    "tags.quick.6",
+    "tags.quick.7",
+    "tags.quick.8",
+    "tags.quick.9",
+    "tags.quick.10",
+];
 
 /// Whether command `id` acts on the tray's photos ([`TRAY_COMMANDS`]).
 pub fn acts_on_tray(id: &str) -> bool {

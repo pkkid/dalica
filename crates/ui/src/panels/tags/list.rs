@@ -27,7 +27,7 @@ use crate::menus::{self, ItemNode, Node};
 use crate::state::DialogKind;
 
 /// The room the rows leave below them for the quick tags (points).
-const QUICK_ROOM: f32 = 150.0;
+const QUICK_ROOM: f32 = 165.0;
 /// The edge of a row's × (points).
 const REMOVE: f32 = 18.0;
 /// The command Search for This Tag will run (M9); greyed until then.

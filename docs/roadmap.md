@@ -2260,7 +2260,7 @@ replace at M6.R.
     the new file, never a torn one, and the time restored); an offline root writes on return; a
     read-only file fails with its reason and the sidecar intact; a file changed between read and
     write is re-read; `cargo test -p dalica-fs --test times` with fault injection.
-- ⬜ **M6.31 `ui`: quick tags**
+- ✅ **M6.31 `ui`: quick tags**
   - after: M5.25, M6.28
   - files: `crates/ui/src/panels/tags/quick.rs`, `crates/ui/src/dialogs/quick_tags.rs`, `crates/ui/tests/quick_tags.rs`, `crates/ui/tests/fingerprints/pane-tags*.json`, `crates/ui/tests/fingerprints/dialog-quick-tags*.json`
   - scope: `organizing.md` §5.2: the grid of ten buttons in rows of 2/3/2/3 (unassigned ones show
