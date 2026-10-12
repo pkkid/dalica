@@ -1,0 +1,62 @@
+//! `ui.dialog.confirm` and `ui.dialog.cancel` (`control-protocol.md` §6.10): the top in-app dialog
+//! answered as its buttons answer it ([`crate::dialogs::answer`], [`crate::dialogs::cancel`]).
+
+use serde::Deserialize;
+use serde_json::Value;
+
+use super::host::Input;
+use super::{Call, Code, Error, Outcome};
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Confirm {
+    button: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NoParams {}
+
+/// The longest button name taken.
+const MAX_BUTTON: usize = 128;
+
+fn no_dialog() -> Error {
+    Error::new(Code::NotFound, "no dialog is open (ui.inspect → dialog)")
+}
+
+/// `ui.dialog.confirm {button?}`: presses the top dialog's default button, or `button`
+/// (`dialog.undoSave`, with or without its `button:` prefix); replies what it ran, once a frame has
+/// shown the result.
+pub(super) fn confirm(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Error> {
+    let p: Confirm = call.params(params)?;
+    let action = match &p.button {
+        None => None,
+        Some(b) => {
+            let name = b.strip_prefix("button:").unwrap_or(b);
+            match name.strip_prefix("dialog.") {
+                Some(a) if !a.is_empty() && b.len() <= MAX_BUTTON => Some(a.to_string()),
+                _ => {
+                    return Err(call.bad(format!(
+                        "`button` names a dialog button, `dialog.<action>` (`dialog.ok`), not `{}`",
+                        b.chars().take(64).collect::<String>()
+                    )));
+                }
+            }
+        }
+    };
+    if crate::dialogs::top(call.host.app()).is_none() {
+        return Err(no_dialog());
+    }
+    let reply = crate::dialogs::answer(call.host.app_mut(), action.as_deref())?;
+    Ok(Outcome::play_then_reply(Input::Frames(1), reply))
+}
+
+/// `ui.dialog.cancel`: closes the top dialog, changing nothing (its Cancel button, Esc).
+pub(super) fn cancel(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Error> {
+    let _: NoParams = call.params(params)?;
+    if crate::dialogs::top(call.host.app()).is_none() {
+        return Err(no_dialog());
+    }
+    let reply = crate::dialogs::cancel(call.host.app_mut())?;
+    Ok(Outcome::play_then_reply(Input::Frames(1), reply))
+}

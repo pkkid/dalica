@@ -56,6 +56,7 @@ file and revision in its first lines:
   crates/ui-kit/tests/fields.rs (tests)      LightCraft crates/ui-egui/src/text_field.rs @ 76b53778
   crates/image/src/formats/heif.rs           LightCraft crates/heif/src/lib.rs, crates/heif/src/vui.rs @ 76b53778
   crates/image/tests/heif.rs (tests)         LightCraft crates/heif/src/testdata.rs @ 76b53778
+  crates/ui/src/dialogs/mod.rs (pattern)     PhotoCraft crates/ui-egui/src/dialogs.rs @ 82c58fab
 
 Any other third-party code ever vendored will be listed here with its source and revision.
 

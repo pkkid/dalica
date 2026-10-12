@@ -60,10 +60,24 @@ pub fn section_kind(_app: &App) -> SectionKind {
 }
 
 /// Items that open a dialog Dalica already has, and the dialog: `ui.menu.invoke` replies
-/// `{dialog: kind}` for them. Other `…` items stay disabled until their dialog exists, even when
-/// their command is registered (Help ▸ Rebuild Library… asks first; `engine.execute` runs it with
-/// `confirm: true`).
-pub const DIALOGS: &[(&str, &str)] = &[("folders.add", "filePicker")];
+/// `{dialog: kind}` for them. `filePicker` is the native folder picker (the stub over automation,
+/// `control-protocol.md` §5.6); the others are in-app dialogs on the host (`crate::dialogs`),
+/// opened by running the item's command. Other `…` items stay disabled until their dialog exists,
+/// even when their command is registered (Help ▸ Rebuild Library… asks first; `engine.execute` runs
+/// it with `confirm: true`).
+pub const DIALOGS: &[(&str, &str)] = &[("folders.add", "filePicker"), ("folders.manager", "folderManager")];
+
+/// The native folder picker, among [`DIALOGS`].
+pub const FILE_PICKER: &str = "filePicker";
+
+/// Whether the dialog `dialog` (of [`DIALOGS`]) can open now; why not, if it cannot.
+fn dialog_ready(app: &App, dialog: &str) -> Result<(), String> {
+    match crate::dialogs::DialogKind::from_name(dialog) {
+        _ if dialog == FILE_PICKER => app.can_pick_folder(),
+        Some(kind) => crate::dialogs::can_open(app, kind),
+        None => Err("Not available yet.".into()),
+    }
+}
 
 /// One item as the app shows it now.
 #[derive(Clone, Debug, PartialEq)]
@@ -232,8 +246,8 @@ fn item_node(facts: &Facts<'_>, i: &'static Item) -> ItemNode {
         refuse("Not available yet.")
     } else if album && i.folder_only {
         refuse("Not available for albums.")
-    } else if dialog.is_some() {
-        match app.can_pick_folder() {
+    } else if let Some(d) = dialog {
+        match dialog_ready(app, d) {
             Ok(()) => (true, None),
             Err(why) => (false, Some(why)),
         }
@@ -432,8 +446,9 @@ pub fn nodes_json(nodes: &[Node]) -> Value {
     )
 }
 
-/// Runs a menu item as a click does: a dialog item opens its dialog (`{dialog: kind}`), any other
-/// runs its command with [`params_for`] plus `extra` (the caller's parameters win). A disabled or
+/// Runs a menu item as a click does: the file-picker item opens the picker (`{dialog:
+/// "filePicker"}`), any other runs its command (an in-app dialog item's command opens its dialog and
+/// replies `{dialog: kind}`) with [`params_for`] plus `extra` (the caller's parameters win). A disabled or
 /// not-yet-live item is refused with the reason, which the status line shows.
 pub fn activate(app: &mut App, item: &ItemNode, extra: &Value) -> Result<Value, CmdError> {
     if !item.enabled {
@@ -441,9 +456,9 @@ pub fn activate(app: &mut App, item: &ItemNode, extra: &Value) -> Result<Value, 
         app.state_mut().status = why.clone();
         return Err(CmdError::Disabled(why));
     }
-    if let Some(dialog) = item.dialog {
+    if item.dialog == Some(FILE_PICKER) {
         app.add_folder();
-        return Ok(json!({ "dialog": dialog }));
+        return Ok(json!({ "dialog": FILE_PICKER }));
     }
     let mut params = params_for(app, item.id, &item.params);
     if let (Value::Object(p), Value::Object(e)) = (&mut params, extra) {
@@ -751,7 +766,8 @@ mod tests {
                 "view.folderView",
                 "window.fullscreen",
                 "pane.properties",
-                "photo.star.toggle"
+                "photo.star.toggle",
+                "folders.manager"
             ]
         );
         for i in all.iter().filter(|i| !i.live) {

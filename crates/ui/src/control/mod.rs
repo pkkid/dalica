@@ -24,9 +24,11 @@
 //!
 //! `auth` is the transport's: it answers the first line itself and never passes `auth` here.
 
+mod dialog;
 mod engine;
 mod host;
 mod input;
+mod jobs;
 mod menu;
 mod paths;
 mod picker;
@@ -582,8 +584,8 @@ pub static METHODS: &[Method] = &[
     method("ui.wait", "{ms}", "{frames}", input::wait),
     method("ui.menu.tree", "{context?}", "the menu bar (or a context menu) as shown (§6.10)", menu::tree),
     method("ui.menu.invoke", "{path | id, params?, wait?}", "the command's result, or {dialog}", menu::invoke),
-    later("ui.dialog.confirm", "{button?}", "the dialog's command result", "planned for M5, with the Folder Manager (the first in-app dialog)"),
-    later("ui.dialog.cancel", "—", "{}", "planned for M5, with the Folder Manager (the first in-app dialog)"),
+    method("ui.dialog.confirm", "{button?}", "what the dialog's button ran", dialog::confirm),
+    method("ui.dialog.cancel", "—", "{}", dialog::cancel),
     method("ui.filePicker", "{path} | {cancel: true}", "the command's result (§5.6)", picker::answer),
     method(
         "ui.screenshot",
@@ -592,8 +594,8 @@ pub static METHODS: &[Method] = &[
         screenshot::screenshot,
     ),
     method("ui.settle", "{timeoutMs?, jobs?}", "{settled, frames, ms, busy} (§6.12)", input::settle),
-    later("jobs.list", "—", "[{job, kind, label, state, progress, result?, error?}]", "no milestone plans it yet: there are no long jobs before M4"),
-    later("jobs.wait", "{job, timeoutMs?}", "the job's final entry", "no milestone plans it yet: there are no long jobs before M4"),
-    later("jobs.cancel", "{job?}", "{cancelled}", "no milestone plans it yet: there are no long jobs before M4"),
+    method("jobs.list", "—", "[{job, kind, label, state, progress, cancellable, startedMs, result?, error?}] (§6.13)", jobs::jobs_list),
+    method("jobs.wait", "{job, timeoutMs?}", "the job's final entry, or its entry with pending: true", jobs::jobs_wait),
+    method("jobs.cancel", "{job?}", "{cancelled: [job…]}", jobs::jobs_cancel),
     later("app.quit", "—", "{}", "no milestone plans it yet"),
 ];

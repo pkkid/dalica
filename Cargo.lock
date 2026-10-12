@@ -967,6 +967,7 @@ dependencies = [
  "dalica-fs",
  "dalica-image",
  "dalica-library",
+ "dalica-scan",
  "dalica-scenes",
  "dalica-thumbs",
  "dalica-ui-kit",

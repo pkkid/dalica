@@ -326,7 +326,7 @@ fn the_menu_tree_lists_every_item_of_the_spec_in_order() {
     let section = ok(&mut t, "ui.menu.tree", json!({ "context": "section" }));
     let folder = menus.iter().find(|m| m["widget"] == "menu:Folder").unwrap();
     assert_eq!(section, folder["children"]);
-    for c in ["photo", "tray", "treeGroup", "tag", "face"] {
+    for c in ["photo", "treeGroup", "tag", "face"] {
         assert_eq!(code(&mut t, "ui.menu.tree", json!({ "context": c })), "unsupported", "{c}");
     }
     for bad in [json!({ "context": "nope" }), json!({ "context": 3 }), json!({ "extra": 1 }), json!([1])] {
@@ -449,7 +449,7 @@ fn invoking_items_runs_refuses_or_opens_them_like_a_click() {
         assert_eq!(entry["built"], true, "{m}");
     }
     let confirm = methods.as_array().unwrap().iter().find(|e| e["method"] == "ui.dialog.confirm").unwrap();
-    assert!(confirm["planned"].as_str().unwrap().contains("M5"), "{confirm}");
+    assert_eq!(confirm["built"], true, "{confirm}");
 }
 
 // ---------------------------------------------------------------------------------------------

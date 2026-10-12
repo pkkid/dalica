@@ -9,7 +9,8 @@
 //! the edit view), a click on the box's empty space tray-selects nothing, a rubber band dragged
 //! from it tray-selects the minis it touches (Ctrl adds), and a right-click opens the tray menu (a mini not tray-selected is selected
 //! first). Every change goes through the `tray.*` commands. The Clear button asks
-//! "Clear all photos from the tray?" before it empties a tray that holds held photos.
+//! "Clear all photos from the tray?" (through the dialog host) before it empties a tray that holds
+//! held photos.
 
 use std::collections::HashSet;
 
@@ -17,7 +18,7 @@ use dalica_core::PhotoId;
 use dalica_engine::Context;
 use dalica_ui_kit::icons::{self, Icon};
 use dalica_ui_kit::registry::Role;
-use dalica_ui_kit::widgets::{self, ButtonKind, DialogButton, Target};
+use dalica_ui_kit::widgets::{self, Target};
 use dalica_ui_kit::{Tokens, fonts};
 use egui::{Align2, CornerRadius, Id, Pos2, Rect, Response, Sense, Stroke, StrokeKind, Ui, Vec2, pos2};
 use serde_json::{Value, json};
@@ -29,22 +30,10 @@ use crate::menu_catalog::Mark;
 use crate::menus::{self, ItemNode, Node};
 use crate::tray;
 
-/// The automation ids of the clear-tray confirmation and its buttons (`control-protocol.md` §7).
-pub const DIALOG_ID: &str = "dialog:clearTray";
-pub const DIALOG_CLEAR: &str = "button:dialog.clearTray";
-pub const DIALOG_CANCEL: &str = "button:dialog.cancel";
-
-/// The width of the confirmation.
-const DIALOG_W: f32 = 360.0;
 /// The pill's padding either side of its text.
 const PILL_PAD: f32 = 8.0;
 
-/// egui memory: the confirmation is open; a rubber band started at this point (and the tray
-/// selection it adds to).
-fn confirm_id() -> Id {
-    Id::new("tray.confirmClear")
-}
-
+/// egui memory: a rubber band started at this point (and the tray selection it adds to).
 fn band_id() -> Id {
     Id::new("tray.band")
 }
@@ -247,40 +236,11 @@ fn band(
     Some(("tray.select", json!({ "ids": ids })))
 }
 
-/// The Clear button: removes the tray-selected photos; with none selected empties the tray, asking
-/// first when it holds held photos.
-pub fn clear_clicked(app: &mut App, ctx: &egui::Context) {
-    let state = app.state();
-    let selected = !state.tray.selected.is_empty();
-    if !selected && !state.tray.held.is_empty() {
-        ctx.data_mut(|d| d.insert_temp(confirm_id(), true));
-        return;
-    }
+/// The Clear button: removes the tray-selected photos; with none selected empties the tray. When
+/// that would drop held photos, `tray.clear` asks "Clear all photos from the tray?" through the
+/// dialog host (`dialog:clearTray`, `crate::dialogs::confirm`).
+pub fn clear_clicked(app: &mut App) {
     let _ = app.run("tray.clear", &json!({}));
-}
-
-/// The confirmation "Clear all photos from the tray?" [Cancel] [Clear Tray], while it is open
-/// (drawn after the tray's buttons, so it shows in the frame Clear was clicked).
-pub fn confirmation(app: &mut App, ctx: &egui::Context) {
-    if !ctx.data(|d| d.get_temp::<bool>(confirm_id())).unwrap_or(false) {
-        return;
-    }
-    let t = *app.tokens();
-    let buttons = [
-        DialogButton { id: DIALOG_CANCEL, label: "Cancel", kind: ButtonKind::Cancel, enabled: true },
-        DialogButton { id: DIALOG_CLEAR, label: tray::CLEAR_TITLE, kind: ButtonKind::Default, enabled: true },
-    ];
-    let r = widgets::dialog(ctx, &t, DIALOG_ID, tray::CLEAR_TITLE, DIALOG_W, &buttons, |ui| {
-        ui.label(egui::RichText::new(tray::CLEAR_QUESTION).font(fonts::regular(t.body)).color(t.text));
-    });
-    match r.clicked {
-        Some(0) => ctx.data_mut(|d| d.remove::<bool>(confirm_id())),
-        Some(_) => {
-            ctx.data_mut(|d| d.remove::<bool>(confirm_id()));
-            let _ = app.run("tray.clear", &json!({ "confirm": true }));
-        }
-        None => {}
-    }
 }
 
 /// The tray menu (`ui-layout.md` §6.2) for `targets`: View and Edit · Hold · Remove from Tray ·

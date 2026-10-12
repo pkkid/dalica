@@ -3,6 +3,7 @@
 //! pane, the status line and the bottom area. [`layout`] says where each one is; [`show`] gives
 //! each its rect and registers the regions.
 
+pub mod activity;
 pub mod bottom;
 pub mod folders;
 pub mod layout;

@@ -36,6 +36,8 @@ pub struct App {
     saved_view: Option<Persisted>,
     /// File ▸ Exit (`app.quit`) asked the window to close; the next frame tells it.
     quit_requested: bool,
+    /// The text of the tooltip the last frame showed (`ui.inspect` → `tooltip`).
+    tooltip: Option<String>,
 }
 
 /// The persisted part of the view state: the window's (M3) and the library view's options (M4).
@@ -58,6 +60,7 @@ impl App {
             persist_view: false,
             saved_view: None,
             quit_requested: false,
+            tooltip: None,
         }
     }
 
@@ -154,16 +157,22 @@ impl App {
         self.session.take()
     }
 
-    /// Runs command `id`: a UI-only one here, anything else in the engine. A failure's message
+    /// Runs command `id`: a UI-only one here, anything else in the engine. A command whose UI asks
+    /// first, run without `"confirm": true` when its question applies, asks through the dialog host
+    /// instead and replies `{dialog: <kind>}` (`crate::dialogs::asking`). A failure's message
     /// becomes the status line.
     pub fn run(&mut self, id: &str, params: &Value) -> Result<Value, CmdError> {
-        let result = match UI_COMMANDS.iter().find(|c| c.id == id) {
-            Some(c) => (c.run)(self, params),
-            None => match &mut self.session {
-                Some(s) => s.execute(id, params),
-                None if dalica_engine::cmd::specs().iter().any(|s| s.id == id) => Err(CmdError::Disabled("The library is still opening.".into())),
-                None => Err(CmdError::UnknownCommand(id.into())),
-            },
+        let result = if let Some(ask) = crate::dialogs::asking(self, id, params) {
+            crate::dialogs::ask(self, ask, params)
+        } else {
+            match UI_COMMANDS.iter().find(|c| c.id == id) {
+                Some(c) => (c.run)(self, params),
+                None => match &mut self.session {
+                    Some(s) => s.execute(id, params),
+                    None if dalica_engine::cmd::specs().iter().any(|s| s.id == id) => Err(CmdError::Disabled("The library is still opening.".into())),
+                    None => Err(CmdError::UnknownCommand(id.into())),
+                },
+            }
         };
         match &result {
             Ok(_) => self.state.status.clear(),
@@ -202,6 +211,11 @@ impl App {
         }
     }
 
+    /// The text of the tooltip the last frame showed, if any.
+    pub fn tooltip(&self) -> Option<&str> {
+        self.tooltip.as_deref()
+    }
+
     /// The panels' state, once the first frame with a library has run.
     pub fn panels(&self) -> Option<&Panels> {
         self.panels.as_ref()
@@ -221,7 +235,19 @@ impl App {
             return;
         };
         session.poll();
-        crate::keys::dispatch(self, ui.ctx());
+        // Under an open dialog the window takes no keys: no shortcut runs and no panel sees a key
+        // press or typed text; the dialog gets them back once the panels are drawn.
+        let keys = if self.state.dialogs.is_empty() {
+            crate::keys::dispatch(self, ui.ctx());
+            Vec::new()
+        } else {
+            ui.ctx().input_mut(|i| {
+                let (keys, rest) =
+                    std::mem::take(&mut i.events).into_iter().partition(|e| matches!(e, egui::Event::Key { .. } | egui::Event::Text(_)));
+                i.events = rest;
+                keys
+            })
+        };
         let mut p = self.panels.take().unwrap_or_else(|| Panels::new(self.picker.clone()));
         if std::mem::take(&mut self.want_folder_picker) {
             p.add_folder();
@@ -229,11 +255,41 @@ impl App {
         self.folder_dialog_open = p.dialog.is_some();
         panels::show(&mut p, self, ui);
         self.panels = Some(p);
+        if !keys.is_empty() {
+            ui.ctx().input_mut(|i| i.events.extend(keys));
+        }
+        crate::dialogs::show(self, ui.ctx());
+        self.tooltip = tooltip_text(ui.ctx());
         // Not in the middle of a drag (the splitter): save once the button is up.
         if !ui.ctx().input(|i| i.pointer.any_down()) {
             self.save_view();
         }
     }
+}
+
+/// The text of the tooltips painted this pass (egui's tooltip layers), lines joined with `\n`;
+/// `None` when no tooltip is shown. Call at the end of the pass, once every widget is drawn.
+fn tooltip_text(ctx: &egui::Context) -> Option<String> {
+    /// How deep nested shape lists are followed, and how much text is kept.
+    const DEPTH: usize = 8;
+    const MAX_CHARS: usize = 4096;
+    fn walk(shape: &egui::Shape, depth: usize, out: &mut Vec<String>) {
+        match shape {
+            egui::Shape::Text(t) if !t.galley.text().trim().is_empty() => out.push(t.galley.text().to_string()),
+            egui::Shape::Vec(v) if depth < DEPTH => v.iter().for_each(|s| walk(s, depth + 1, out)),
+            _ => {}
+        }
+    }
+    let layers: Vec<egui::LayerId> = ctx.memory(|m| m.layer_ids().filter(|l| l.order == egui::Order::Tooltip).collect());
+    let mut lines = Vec::new();
+    ctx.graphics(|g| {
+        for layer in &layers {
+            if let Some(list) = g.get(*layer) {
+                list.all_entries().for_each(|c| walk(&c.shape, 0, &mut lines));
+            }
+        }
+    });
+    (!lines.is_empty()).then(|| lines.join("\n").chars().take(MAX_CHARS).collect())
 }
 
 /// A view-state value as its protocol name (`"tree"`, `"recent"`).

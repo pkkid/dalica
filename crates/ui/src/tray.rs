@@ -40,6 +40,14 @@ pub const EMPTY: &str = "Select some photos first.";
 pub const CLEAR_QUESTION: &str = "Clear all photos from the tray?";
 pub const CLEAR_TITLE: &str = "Clear Tray";
 
+/// Whether Clear with no photos named asks first: it would empty a tray that holds held photos
+/// (none of the photos it shows is tray-selected, so everything goes). `tray.clear` asks through the
+/// dialog host (`crate::dialogs`): the Clear button and an unconfirmed run open the question,
+/// `engine.execute` answers `needs_confirm` (`control-protocol.md` §5.5).
+pub fn clear_asks(state: &UiState) -> bool {
+    !state.tray.held.is_empty() && !state.tray.selected.iter().any(|id| shows(state, *id))
+}
+
 /// Inside the tray box: the margin around the minis and the gap between them (points).
 pub const PAD: f32 = 4.0;
 pub const GAP: f32 = 3.0;
@@ -264,6 +272,18 @@ mod tests {
         assert_eq!(token(&state(vec![], ids(1..=3), false)), None);
         assert_eq!(token_label(Section::Folder(FolderId::new(1)), 48), "Folder selected — 48 photos");
         assert_eq!(token_label(Section::Folder(FolderId::new(1)), 1), "Folder selected — 1 photo");
+    }
+
+    #[test]
+    fn clear_asks_only_when_it_would_drop_held_photos() {
+        assert!(!clear_asks(&UiState::default()));
+        assert!(!clear_asks(&state(vec![], ids(1..=3), false)), "nothing held");
+        let mut s = state(ids(1..=1), ids(2..=3), false);
+        assert!(clear_asks(&s));
+        s.tray.selected = vec![PhotoId::new(3)];
+        assert!(!clear_asks(&s), "only the tray-selected photo goes");
+        s.tray.selected = vec![PhotoId::new(9)];
+        assert!(clear_asks(&s), "a stale tray selection does not count");
     }
 
     #[test]

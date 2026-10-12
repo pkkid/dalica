@@ -5,15 +5,17 @@
 //! - [`view`]: the View menu, the view-options popup, the tree's groups, the side pane, the window
 //!   (thumbnail size, captions, small and hidden pictures, folder view and sort, group collapse,
 //!   panes, full screen, quit);
-//! - [`select`]: the light-table selection (`select.set`, `select.none`; the selection model
-//!   adds the rest);
+//! - [`select`]: the light-table selection (`select.set`, `select.none`, `select.all`,
+//!   `select.invert`, `select.section`, `select.starred`);
 //! - [`scroll`]: scrolling the light table (the scroll bar's keys);
-//! - [`tray`]: the Photo Tray (Hold, Clear).
+//! - [`tray`]: the Photo Tray (Hold, Clear);
+//! - [`dialogs`]: commands that open an in-app dialog (`folders.manager`).
 //!
 //! A new command goes in its area's module (a new area gets a new module and one line in
 //! [`AREAS`]); its id is the one the menu catalog uses, so its menu item goes live. Every command
 //! refuses parameters it does not know with `bad_params` and changes nothing when it fails.
 
+pub mod dialogs;
 pub mod scroll;
 pub mod select;
 pub mod tray;
@@ -46,7 +48,7 @@ pub struct UiCommand {
 }
 
 /// Every area's commands, in the order [`UI_COMMANDS`] lists them.
-const AREAS: &[&[UiCommand]] = &[select::COMMANDS, view::COMMANDS, scroll::COMMANDS, tray::COMMANDS];
+const AREAS: &[&[UiCommand]] = &[select::COMMANDS, view::COMMANDS, scroll::COMMANDS, tray::COMMANDS, dialogs::COMMANDS];
 
 /// Every UI command: the areas' lists joined.
 pub const UI_COMMANDS: &[UiCommand] = &JOINED;

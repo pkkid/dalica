@@ -33,12 +33,21 @@ pub(super) fn tree(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Error
     let reply = match t.context.as_deref() {
         None => menus::tree_json(&menus::bar(app, platform)),
         Some("section") => menus::nodes_json(&menus::section_menu(app, platform)),
+        Some("tray") => menus::nodes_json(&crate::panels::bottom::tray::context_nodes(app, &tray_targets(app))),
         Some(c) if CONTEXTS.contains(&c) => {
             return Err(Error::new(Code::Unsupported, format!("the {c} context menu is not built yet; it comes with its region")));
         }
         Some(other) => return Err(call.bad(format!("no context menu `{other}`; one of {}", CONTEXTS.join(", ")))),
     };
     Ok(Outcome::Reply(Ok(reply)))
+}
+
+/// The photos the tray menu acts on when it opens on the tray's empty space: the tray-selected
+/// ones, or with none every photo in the tray (`ui-layout.md` §6.2).
+fn tray_targets(app: &crate::App) -> Vec<dalica_core::PhotoId> {
+    let state = app.state();
+    let selected: Vec<dalica_core::PhotoId> = state.tray.selected.iter().copied().filter(|id| crate::tray::shows(state, *id)).collect();
+    if selected.is_empty() { crate::tray::photos(state) } else { selected }
 }
 
 #[derive(Deserialize)]
@@ -87,7 +96,11 @@ pub(super) fn invoke(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Err
         if p.params.as_object().is_some_and(|o| !o.is_empty()) {
             return Err(call.bad(format!("`{}` opens a dialog and takes no `params`; answer the dialog instead", item.label)));
         }
-        menus::activate(call.host.app_mut(), &item, &Value::Null)?;
+        let reply = menus::activate(call.host.app_mut(), &item, &Value::Null)?;
+        if dialog != menus::FILE_PICKER {
+            // An in-app dialog is open now: reply once a frame has drawn it.
+            return Ok(Outcome::play_then_reply(Input::Frames(1), reply));
+        }
         let stub = call.control.picker.clone();
         let reply = json!({ "dialog": dialog });
         // The picker opens on its own thread (after one frame, if the panels were drawing): wait
@@ -113,6 +126,11 @@ pub(super) fn invoke(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Err
         for (k, v) in extra {
             c.insert(k.clone(), v.clone());
         }
+    }
+    // A command that asks first opens its question, as a click does (§5.5).
+    if let Some(ask) = crate::dialogs::asking(call.host.app(), item.id, &command_params) {
+        let reply = crate::dialogs::ask(call.host.app_mut(), ask, &command_params)?;
+        return Ok(Outcome::play_then_reply(Input::Frames(1), reply));
     }
     super::engine::execute(call, &json!({ "command": item.id, "params": command_params, "wait": p.wait }))
 }

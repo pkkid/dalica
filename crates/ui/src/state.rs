@@ -297,6 +297,72 @@ pub fn tree_width(v: f32) -> f32 {
     clamp_or(v, TREE_MIN, TREE_MAX, TREE_DEFAULT)
 }
 
+/// The kinds of in-app dialog the host draws (`crate::dialogs`); each is `dialog:<kind>` on screen
+/// and in `ui.inspect` (`control-protocol.md` §7). A new dialog adds its kind here and its module
+/// under `dialogs/`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum DialogKind {
+    /// "Clear all photos from the tray?" (`tray.clear` with held photos).
+    ClearTray,
+    /// Tools ▸ Folder Manager… (`organizing.md` §2).
+    FolderManager,
+    /// The first-run panel of a new library (`organizing.md` §1).
+    FirstRun,
+}
+
+impl DialogKind {
+    pub const ALL: [DialogKind; 3] = [DialogKind::ClearTray, DialogKind::FolderManager, DialogKind::FirstRun];
+
+    /// The kind as the protocol writes it (`clearTray`), the `<kind>` of `dialog:<kind>`.
+    pub fn name(self) -> &'static str {
+        match self {
+            DialogKind::ClearTray => "clearTray",
+            DialogKind::FolderManager => "folderManager",
+            DialogKind::FirstRun => "firstRun",
+        }
+    }
+
+    /// The kind named `name`, if there is one.
+    pub fn from_name(name: &str) -> Option<DialogKind> {
+        DialogKind::ALL.into_iter().find(|k| k.name() == name)
+    }
+}
+
+/// A command a dialog runs when it is confirmed: the confirmation of a command that asks first
+/// (`control-protocol.md` §5.5) keeps what was asked for here and runs it with `"confirm": true`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DialogCommand {
+    pub id: String,
+    #[serde(default)]
+    pub params: serde_json::Value,
+}
+
+/// An open dialog: its kind and its draft. Nothing a dialog edits is applied before its default
+/// button; the draft is plain data, so `ui.state` shows it and tests assert on it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Dialog {
+    pub kind: DialogKind,
+    /// The draft: field values by name (`field:dialog.<name>`).
+    #[serde(default)]
+    pub fields: serde_json::Map<String, serde_json::Value>,
+    /// The command its default button runs, for a confirmation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<DialogCommand>,
+}
+
+impl Dialog {
+    /// A dialog of `kind` with an empty draft.
+    pub fn new(kind: DialogKind) -> Dialog {
+        Dialog { kind, fields: serde_json::Map::new(), command: None }
+    }
+}
+
+/// The most dialogs open at once (a confirmation over a dialog over a dialog is already rare).
+pub const MAX_DIALOGS: usize = 8;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct UiState {
@@ -335,6 +401,12 @@ pub struct UiState {
     pub tray: Tray,
     /// Where the light table is scrolled to.
     pub scroll: ScrollAnchor,
+    /// The open dialogs, the last on top (the one that takes input); drawn by `crate::dialogs`.
+    #[serde(default)]
+    pub dialogs: Vec<Dialog>,
+    /// The activity popover (the jobs under the toolbar's activity indicator) is open.
+    #[serde(default)]
+    pub activity: bool,
     /// The status line's text as last drawn (`ui-layout.md` §6.1): `"No selection"`, the photo or
     /// the pictures selected, or a transient [`UiState::status`] message. Written by the status line
     /// each frame; `ui.state` reports it as `status`, and `ui.set` cannot change it.
@@ -392,6 +464,8 @@ impl Default for UiState {
             hidden_pictures: false,
             tray: Tray::default(),
             scroll: ScrollAnchor::default(),
+            dialogs: Vec::new(),
+            activity: false,
             status_line: String::new(),
             status: String::new(),
         }
@@ -526,6 +600,28 @@ mod tests {
             assert_eq!(serde_json::to_value(c).unwrap(), name);
         }
         assert_eq!(serde_json::to_value(TreeMode::Tree).unwrap(), "tree");
+    }
+
+    #[test]
+    fn dialogs_are_a_stack_of_kinds_and_drafts_and_the_activity_popover_a_flag() {
+        let v = serde_json::to_value(UiState::default()).unwrap();
+        assert_eq!((&v["dialogs"], &v["activity"]), (&serde_json::json!([]), &false.into()));
+        let mut d = Dialog::new(DialogKind::ClearTray);
+        d.command = Some(DialogCommand { id: "tray.clear".into(), params: serde_json::json!({}) });
+        let s = UiState { dialogs: vec![Dialog::new(DialogKind::FolderManager), d], activity: true, ..UiState::default() };
+        let v = serde_json::to_value(&s).unwrap();
+        assert_eq!(
+            v["dialogs"],
+            serde_json::json!([{ "kind": "folderManager", "fields": {} }, { "kind": "clearTray", "fields": {}, "command": { "id": "tray.clear", "params": {} } }])
+        );
+        assert_eq!(serde_json::from_value::<UiState>(v).unwrap(), s);
+        for k in DialogKind::ALL {
+            assert_eq!(serde_json::to_value(k).unwrap(), k.name());
+            assert_eq!(DialogKind::from_name(k.name()), Some(k));
+        }
+        assert_eq!(DialogKind::from_name("attic"), None);
+        assert!(serde_json::from_value::<Dialog>(serde_json::json!({ "kind": "attic" })).is_err());
+        assert!(serde_json::from_value::<Dialog>(serde_json::json!({ "kind": "firstRun", "zzz": 1 })).is_err());
     }
 
     #[test]
