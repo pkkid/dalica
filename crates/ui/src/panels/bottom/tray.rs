@@ -2,11 +2,12 @@
 //! watermark when empty; a section selected as a unit as one token (its cover and the pill
 //! "Folder selected — 48 photos"); every other photo as a square, centre-cropped mini thumbnail
 //! from the light table's thumbnails ([`Thumbnails::paint`]), held photos first with the held
-//! badge, shrinking as their count grows; what does not fit counted on the last place ("+12").
+//! badge, shrinking as their count grows; what does not fit counted on the last place ("+12"). The
+//! block of minis sits centred in its area ([`centred`]): the box, or the part right of a token.
 //!
 //! Input: a click on a mini thumbnail tray-selects it (Ctrl toggles; a double-click will open it in
-//! the edit view), a click on the box's empty space tray-selects nothing, a rubber band dragged from it tray-selects the minis it touches
-//! (Ctrl adds), and a right-click opens the tray menu (a mini not tray-selected is selected
+//! the edit view), a click on the box's empty space tray-selects nothing, a rubber band dragged
+//! from it tray-selects the minis it touches (Ctrl adds), and a right-click opens the tray menu (a mini not tray-selected is selected
 //! first). Every change goes through the `tray.*` commands. The Clear button asks
 //! "Clear all photos from the tray?" before it empties a tray that holds held photos.
 
@@ -105,10 +106,10 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui, rect: Rect) {
 
     // The minis.
     let total = if token.is_some() { state.tray.held.len() } else { tray::count(state) };
-    let area = parts.minis;
-    let m = tray::minis(total, area.size());
+    let m = tray::minis(total, parts.minis.size());
     let overflow = total > m.capacity();
     let shown = if overflow { m.capacity().saturating_sub(1) } else { total };
+    let area = centred(parts.minis, &m, total);
     let (ids, _) = tray::thumbs(state, shown);
     let (command, shift) = ctx.input(|i| (i.modifiers.command, i.modifiers.shift));
     let mut placed: Vec<(PhotoId, Rect)> = Vec::with_capacity(ids.len());
@@ -176,6 +177,21 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui, rect: Rect) {
         let nodes = context_nodes(app, &targets);
         menus::context_menu(&response, app, &nodes);
     }
+}
+
+/// `area` moved right so that the places `count` minis laid out as `m` take ([`tray::Minis::place`]:
+/// as many columns as the first row fills) sit centred across it. Whole points, so edges stay crisp.
+pub fn centred(area: Rect, m: &tray::Minis, count: usize) -> Rect {
+    let used = count.min(m.capacity()).min(m.cols);
+    if used == 0 {
+        return area;
+    }
+    let block = used as f32 * (m.size + tray::GAP) - tray::GAP;
+    let slack = area.width() - 2.0 * tray::PAD - block;
+    if !slack.is_finite() || slack <= 0.0 {
+        return area;
+    }
+    area.translate(Vec2::new((slack / 2.0).floor(), 0.0))
 }
 
 /// The held badge: a pin on a dark plate in the mini's top-right corner, registered as a part of

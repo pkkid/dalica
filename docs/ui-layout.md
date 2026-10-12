@@ -198,6 +198,9 @@ Add a description
 - **Ctrl-click** toggles, **Shift-click** selects a range from the anchor, **rubber band** from empty
   space selects every thumbnail the band intersects. Pressing on a thumbnail and dragging starts a
   drag instead. With Ctrl the band adds to the selection; a click on empty space selects nothing.
+  A band held at (or within 8 pt of) the view's top or bottom edge scrolls the view, faster the
+  farther past the edge (120 pt/s plus 12 pt/s per point, at most 3000 pt/s), and keeps selecting
+  the rows that come in; it stops at its section's top or end.
 - Selection never crosses a section boundary; selecting in another section replaces it (unless
   items are held in the tray).
 - Keyboard: arrows move (Shift extends); arrows stop at the section's ends; **Home/End** first/last
@@ -324,7 +327,8 @@ that day alone. Tags are listed most used first, ties alphabetically.
 
 Right of the tray, top row: **Star** ("Star / unstar"), **Rotate counterclockwise**, **Rotate
 clockwise** (36 × 24 each; disabled when the tray is empty). They act on the tray: Star stars every
-photo in it in one undo step, or unstars them all when all are starred.
+photo in it in one undo step, or unstars them all when all are starred. Their shortcuts (Ctrl+8 /
+F4, the rotate keys) and menu items act on the same photos: the held ones and the selection.
 
 ### 6.4 Thumbnail size, loupe, pane toggles
 

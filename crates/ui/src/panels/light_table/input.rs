@@ -4,12 +4,15 @@
 //! on an unselected photo selects it first, a click on empty space selects nothing, and a rubber
 //! band dragged from empty space selects the photos it touches in the section it started in (with
 //! Ctrl, added to the selection there). Pressing on a thumbnail and dragging never starts a band.
-//! Every change goes through `select.set`, which makes the section's folder the tree's folder.
+//! A band held at the view's top or bottom edge scrolls it ([`autoscroll_speed`]: faster the
+//! farther past the edge) and keeps selecting the rows that come in, never beyond its section's
+//! ends. Every change goes through `select.set`, which makes the section's folder the tree's folder.
 //!
 //! **Boundary.** Two calls a frame and one after it. [`begin`] runs before any cell is laid out
 //! (an interaction it creates on the empty space sits under the cells, so cells win their clicks);
 //! [`finish`] runs after the last cell with the cells' [`CellOut`]s and what [`begin`] returned, and
-//! collects what to do as [`Pending`]; the parent passes that to [`apply`] once the library is no
+//! collects what to do as [`Pending`] (the commands, and how far to scroll the view); the parent
+//! moves the view by [`Pending::scroll`] and passes the rest to [`apply`] once the library is no
 //! longer borrowed. What input keeps between frames (a rubber band) lives in [`Input`].
 
 use std::collections::HashSet;
@@ -28,6 +31,34 @@ use crate::state;
 
 /// The automation id of the light table's empty space (`control-protocol.md` §7).
 pub const EMPTY_SPACE_ID: &str = "lightTable";
+
+/// How far inside the view's top and bottom edges a held band starts scrolling it (points), so it
+/// scrolls in a full-screen window whose edges the pointer cannot pass.
+pub const AUTOSCROLL_EDGE: f32 = 8.0;
+/// The band's scroll speed at that line (points per second), how much it grows per point the
+/// pointer is farther out, and its cap.
+pub const AUTOSCROLL_BASE: f32 = 120.0;
+pub const AUTOSCROLL_GAIN: f32 = 12.0;
+pub const AUTOSCROLL_MAX: f32 = 3000.0;
+
+/// How fast a held rubber band scrolls the view (points per second; positive = down, towards the
+/// end) with the pointer at `y` and the view spanning `top..bottom`: none inside, from
+/// [`AUTOSCROLL_EDGE`] in from an edge [`AUTOSCROLL_BASE`] growing by [`AUTOSCROLL_GAIN`] per point
+/// farther out, at most [`AUTOSCROLL_MAX`]. 0 for numbers that are not finite.
+pub fn autoscroll_speed(y: f32, top: f32, bottom: f32) -> f32 {
+    if !(y.is_finite() && top.is_finite() && bottom.is_finite()) {
+        return 0.0;
+    }
+    let speed = |past: f32| (AUTOSCROLL_BASE + AUTOSCROLL_GAIN * past).min(AUTOSCROLL_MAX);
+    let (below, above) = (y - (bottom - AUTOSCROLL_EDGE), (top + AUTOSCROLL_EDGE) - y);
+    if below > 0.0 && below >= above {
+        speed(below)
+    } else if above > 0.0 {
+        -speed(above)
+    } else {
+        0.0
+    }
+}
 
 /// What the input keeps between frames.
 #[derive(Debug, Default)]
@@ -63,10 +94,31 @@ pub struct Action {
     pub params: Value,
 }
 
-/// What this frame's input asks for, in order.
+/// A band held at an edge asks the view to move by `step` content points (positive = down), but
+/// never past `limit` (its section's end going down, its top going up) and never back.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Autoscroll {
+    pub step: f64,
+    pub limit: f64,
+}
+
+impl Autoscroll {
+    /// Where a view at `offset` goes.
+    pub fn apply(&self, offset: f64) -> f64 {
+        if !(self.step.is_finite() && self.limit.is_finite() && offset.is_finite()) {
+            return offset;
+        }
+        if self.step > 0.0 { (offset + self.step).min(self.limit.max(offset)) } else { (offset + self.step).max(self.limit.min(offset)) }
+    }
+}
+
+/// What this frame's input asks for: commands, in order, and a scroll.
 #[derive(Debug, Default)]
 pub struct Pending {
     pub actions: Vec<Action>,
+    /// A band held at an edge: the parent moves the view as the user's own scroll, so the anchor
+    /// follows.
+    pub scroll: Option<Autoscroll>,
 }
 
 impl Pending {
@@ -114,7 +166,7 @@ pub fn finish(ui: &mut Ui, f: &Frame<'_>, input: &mut Input, background: Option<
 }
 
 /// The rubber band: started by a drag from empty space, it selects the photos it touches in its
-/// section each frame they change, and is painted over the cells.
+/// section each frame they change, is painted over the cells, and held at an edge asks for a scroll.
 fn band(ui: &Ui, f: &Frame<'_>, input: &mut Input, bg: &Response, cells: &[CellOut], command: bool, pending: &mut Pending) {
     let content_y = |p: Pos2| f.offset + f64::from(p.y - f.area.min.y);
     if bg.drag_started() {
@@ -149,11 +201,62 @@ fn band(ui: &Ui, f: &Frame<'_>, input: &mut Input, bg: &Response, cells: &[CellO
     let rect = Rect::from_two_pos(start, pos);
     let t = f.t;
     ui.painter().rect(rect, 0, t.accent.gamma_multiply(0.18), Stroke::new(1.0, t.accent), StrokeKind::Inside);
+    let dt = ui.input(|i| i.stable_dt);
+    pending.scroll = autoscroll(f, index, section.photos.len(), pos.y, dt);
+}
+
+/// How a band held at `y` in section `index` (of `count` photos) scrolls the view this frame (`dt`
+/// seconds long): never past the section's ends, so it stays inside the one section it selects in.
+fn autoscroll(f: &Frame<'_>, index: usize, count: usize, y: f32, dt: f32) -> Option<Autoscroll> {
+    let speed = autoscroll_speed(y, f.area.min.y, f.area.max.y);
+    let top = f.layout.top(index)?;
+    if speed == 0.0 || !dt.is_finite() {
+        return None;
+    }
+    let step = f64::from(speed * dt.clamp(1.0 / 120.0, 0.1));
+    let limit = if step > 0.0 { top + f.layout.section_height(count) - f64::from(f.view_h()) } else { top };
+    Some(Autoscroll { step, limit })
 }
 
 /// Runs what [`finish`] collected.
 pub fn apply(app: &mut App, pending: Pending) {
     for a in pending.actions {
         let _ = app.run(&a.command, &a.params);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_band_scrolls_only_near_an_edge_and_faster_farther_out() {
+        let (top, bottom) = (100.0, 500.0);
+        assert_eq!(autoscroll_speed(300.0, top, bottom), 0.0);
+        assert_eq!(autoscroll_speed(bottom - AUTOSCROLL_EDGE - 1.0, top, bottom), 0.0, "short of the edge line");
+        let (near, far) = (autoscroll_speed(bottom + 1.0, top, bottom), autoscroll_speed(bottom + 60.0, top, bottom));
+        assert!(near > 0.0 && far > near, "{near} {far}");
+        assert_eq!(autoscroll_speed(bottom + 10_000.0, top, bottom), AUTOSCROLL_MAX, "capped");
+        assert_eq!(autoscroll_speed(top - 60.0, top, bottom), -far, "the same going up");
+        for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            assert_eq!(autoscroll_speed(bad, top, bottom), 0.0);
+            assert_eq!(autoscroll_speed(300.0, bad, bottom), 0.0);
+        }
+        // A view shorter than its edge lines still scrolls one way only.
+        assert!(autoscroll_speed(105.0, 100.0, 106.0).is_finite());
+    }
+
+    #[test]
+    fn an_autoscroll_stops_at_its_limit_and_never_goes_back() {
+        let down = Autoscroll { step: 10.0, limit: 100.0 };
+        assert_eq!(down.apply(50.0), 60.0);
+        assert_eq!(down.apply(95.0), 100.0);
+        assert_eq!(down.apply(120.0), 120.0, "already past the limit: stays");
+        let up = Autoscroll { step: -10.0, limit: 40.0 };
+        assert_eq!(up.apply(80.0), 70.0);
+        assert_eq!(up.apply(45.0), 40.0);
+        assert_eq!(up.apply(20.0), 20.0);
+        assert_eq!(Autoscroll { step: f64::NAN, limit: 0.0 }.apply(5.0), 5.0);
+        assert_eq!(Autoscroll { step: 1.0, limit: f64::INFINITY }.apply(5.0), 5.0);
     }
 }

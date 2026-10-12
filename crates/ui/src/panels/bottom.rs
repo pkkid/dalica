@@ -7,7 +7,8 @@
 //! under a 1 pt separator, the action buttons Export ┆ Collage, Slideshow, which go behind a
 //! **More…** button that opens a vertical menu when the window is narrower than [`OVERFLOW_BELOW`].
 //!
-//! The star and rotate buttons act on the tray's photos (`ui-layout.md` §6.3): star in one undo step
+//! The star and rotate buttons act on the tray's photos (`ui-layout.md` §6.3), the same set their
+//! shortcuts and menu items act on ([`crate::keys::targets`]): star in one undo step
 //! (`photo.star.toggle` stars them all unless all are starred). A button whose command is not
 //! registered yet is drawn disabled; it comes alive by itself when the command lands and is enabled
 //! for what it acts on (`CommandSpec::enabled`).
@@ -113,14 +114,15 @@ fn at<R>(ui: &mut Ui, salt: &str, rect: Rect, add: impl FnOnce(&mut Ui) -> R) ->
     add(&mut child)
 }
 
-/// Whether command `id` is registered and enabled for what a click would pass it (the selection).
+/// Whether command `id` is registered and enabled for what a click would pass it (the photos it
+/// acts on, [`crate::keys::targets`]: the tray's for star and rotate, else the selection).
 fn ready(app: &App, id: &str) -> bool {
     let Some(session) = app.session() else { return false };
     let Some(spec) = session.spec(id) else { return false };
     (spec.enabled)(session, &crate::keys::params_for(app, id)).is_ok()
 }
 
-/// Runs command `id` on the selection; a refusal lands on the status line.
+/// Runs command `id` on the photos it acts on; a refusal lands on the status line.
 fn run(app: &mut App, id: &str) {
     let params = crate::keys::params_for(app, id);
     let _ = app.run(id, &params);
@@ -201,13 +203,6 @@ fn fingerprint(state: &UiState) -> u64 {
     mix(all, state.tray.held.len() as u64 ^ (state.selection.ids.len() as u64).rotate_left(32))
 }
 
-/// Whether command `id` is registered and enabled for the tray's photos.
-fn ready_on_tray(app: &App, id: &str) -> bool {
-    let Some(session) = app.session() else { return false };
-    let Some(spec) = session.spec(id) else { return false };
-    !crate::tray::is_empty(app.state()) && (spec.enabled)(session, &json!({ "ids": crate::tray::photos(app.state()) })).is_ok()
-}
-
 /// The controls row: star and rotate at the left; loupe, size slider and pane toggles at the right.
 fn controls(app: &mut App, ui: &mut Ui, row: Rect) {
     let t = *app.tokens();
@@ -222,15 +217,13 @@ fn controls(app: &mut App, ui: &mut Ui, row: Rect) {
         ui.add_enabled_ui(any, |ui| widgets::star_toggle(ui, &t, "button:star", on).clicked()).inner
     });
     if star_clicked {
-        let ids = crate::tray::photos(app.state());
-        let _ = app.run("photo.star.toggle", &json!({ "ids": ids }));
+        run(app, "photo.star.toggle");
     }
     for (id, icon, tooltip, command) in ROTATE {
         x += star.x + GAP;
-        let enabled = ready_on_tray(app, command);
+        let enabled = any && ready(app, command);
         if at(ui, id, Rect::from_min_size(pos2(x, y), star), |ui| plate(ui, &t, id, icon, tooltip, star, enabled)) {
-            let ids = crate::tray::photos(app.state());
-            let _ = app.run(command, &json!({ "ids": ids }));
+            run(app, command);
         }
     }
 

@@ -28,7 +28,9 @@
 //! there over [`SCROLL_SECONDS`] (ease-out, on the frame clock, which is virtual in headless runs)
 //! and the anchor stays as written, even where the view stops short of it at the end of the
 //! content. A resize, a new cell size or a caption change keeps the anchor, so the same photos stay
-//! in view. A scroll part asks for either kind of move with a [`scrollbar::ScrollRequest`].
+//! in view. A scroll part asks for either kind of move with a [`scrollbar::ScrollRequest`]; a
+//! rubber band held at an edge with [`input::Pending::scroll`], applied after the cells, so the
+//! next frame shows (and the band selects) the rows it brings in.
 
 pub mod cell;
 pub mod header;
@@ -456,6 +458,16 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui, area: Rect, bar: Rect) {
     }
     scrollbar::paint(ui, &f, &mut lt.scrollbar, bar);
     let pending = input::finish(&mut content, &f, &mut lt.input, background, &cells);
+    // A band held at an edge moves the view as the user's own scroll; the next frame paints it.
+    if let Some(a) = pending.scroll {
+        let to = layout.clamp(a.apply(lt.offset), view_h);
+        if to != lt.offset {
+            lt.animation = None;
+            lt.moved = true;
+            lt.offset = to;
+            ui.ctx().request_repaint();
+        }
+    }
     perf::count(ui.ctx(), Counter::CellsVisited, cells.len() as u64);
     perf::count(ui.ctx(), Counter::SectionsVisited, visible.len() as u64);
 

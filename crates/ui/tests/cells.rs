@@ -211,12 +211,13 @@ fn badges_follow_the_model_star_and_held() {
     let mut d = driver(session(dir.path(), &folder), (900, 600));
     let ids: Vec<PhotoId> = shown(&d).iter().map(|s| s.photo).collect();
     assert!(shown(&d).iter().all(|s| s.badges == Badges::default()), "no badges at first");
-    // Star the first, hold the second and the third (held in the tray).
+    // Star the first and the third, then hold the second and the third (held in the tray). The
+    // hold comes last: Ctrl+8 acts on the whole tray, held photos included.
     d.run("select.set", &json!({ "ids": [ids[0].get()] })).unwrap();
     d.key("Ctrl+8").unwrap();
-    d.app_mut().state_mut().tray.held = vec![ids[1], ids[2]];
     d.run("select.set", &json!({ "ids": [ids[2].get()] })).unwrap();
     d.key("Ctrl+8").unwrap();
+    d.app_mut().state_mut().tray.held = vec![ids[1], ids[2]];
     d.settle(FRAMES).unwrap();
     save(&d, "cells-badges-900x600");
     let badges = |id: PhotoId| cells(&d).get(id).unwrap().badges;

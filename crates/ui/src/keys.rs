@@ -1,7 +1,7 @@
 //! Shortcut dispatch (`menus-and-shortcuts.md` §2.0): each key press of the frame becomes the
 //! keymap's [`Key`], is resolved in the active context (a focused text field first), and runs its
-//! command through [`App::run`] with the parameters the context implies (the selection, for photo
-//! commands). Plain arrows go to the library tree instead while it has the focus. [`join_keymap`]
+//! command through [`App::run`] with the parameters the context implies ([`params_for`]: the
+//! photos it acts on). Plain arrows go to the library tree instead while it has the focus. [`join_keymap`]
 //! adds the UI commands to the session's keymap, so their keys are resolved, conflict-checked and
 //! rebindable like the engine's.
 
@@ -44,10 +44,28 @@ pub fn from_egui(key: egui::Key, modifiers: egui::Modifiers) -> Option<Key> {
     Key::parse(&text).ok()
 }
 
-/// The parameters a shortcut passes to `id`: the selected photos for commands that take `ids`.
+/// The photo commands that act on the Photo Tray's photos (the held ones and the selection,
+/// [`crate::tray::photos`]) rather than only the selection: the star and rotate buttons under the
+/// tray act on it (`ui-layout.md` §6.3), and their shortcuts and menu items act on the same set.
+pub const TRAY_COMMANDS: [&str; 4] = ["photo.star.toggle", "photo.star.set", "photo.rotate.cw", "photo.rotate.ccw"];
+
+/// Whether command `id` acts on the tray's photos ([`TRAY_COMMANDS`]).
+pub fn acts_on_tray(id: &str) -> bool {
+    TRAY_COMMANDS.contains(&id)
+}
+
+/// The photos command `id` acts on when run from a shortcut, a menu or a bottom button: the tray's
+/// for [`TRAY_COMMANDS`], else the selection.
+pub fn targets(app: &App, id: &str) -> Vec<dalica_core::PhotoId> {
+    let state = app.state();
+    if acts_on_tray(id) { crate::tray::photos(state) } else { state.selection.ids.clone() }
+}
+
+/// The parameters a shortcut passes to `id`: for commands that take `ids`, the photos it acts on
+/// ([`targets`]).
 pub fn params_for(app: &App, id: &str) -> Value {
     let takes_ids = app.session().and_then(|s| s.spec(id)).is_some_and(|spec| spec.params.contains("\"ids\""));
-    if takes_ids { json!({ "ids": app.state().selection.ids }) } else { json!({}) }
+    if takes_ids { json!({ "ids": targets(app, id) }) } else { json!({}) }
 }
 
 /// Runs the commands bound to this frame's key presses. Returns the ids that ran (or were refused;
