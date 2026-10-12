@@ -47,7 +47,8 @@ function Invoke-Msi([string] $Name, [string[]] $Arguments) {
   Write-Output "ok msiexec $Name"
 }
 
-# The uninstall entries named Dalica (64- and 32-bit views).
+# The uninstall entries named Dalica (64- and 32-bit views). PowerShell unrolls an empty array
+# returned by a function to $null, so callers wrap the call in @().
 function Get-Installed {
   $roots = 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall', 'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall'
   @(foreach ($root in $roots) {
@@ -75,7 +76,7 @@ function Test-Version([string] $Path) {
   Write-Output "ok $(Split-Path -Leaf $Path) --version: $out"
 }
 
-if ((Get-Installed).Count -ne 0) { throw 'Dalica is already installed on this machine; uninstall it before this test' }
+if (@(Get-Installed).Count -ne 0) { throw 'Dalica is already installed on this machine; uninstall it before this test' }
 # The defaults of two extensions, which the MSI must not change.
 $defaults = @{}
 foreach ($ext in 'jpg', 'cr3') { $defaults[$ext] = Get-RegValue "HKLM:\Software\Classes\.$ext" '(default)' }
@@ -90,7 +91,7 @@ try {
     if (-not (Test-Path (Join-Path $Dir $f))) { throw "the MSI did not install $f into $Dir" }
   }
   if (-not (Test-Path $Shortcut)) { throw "no Start Menu shortcut at $Shortcut" }
-  $entries = Get-Installed
+  $entries = @(Get-Installed)
   if ($entries.Count -ne 1) { throw "$($entries.Count) uninstall entries named Dalica after installing, expected 1" }
   if ($entries[0].DisplayVersion -ne $WantVersion) { throw "the uninstall entry says version $($entries[0].DisplayVersion), not $WantVersion" }
   $first = $entries[0].PSChildName
@@ -118,7 +119,7 @@ try {
 
   # ---- 2. same-version upgrade -----------------------------------------------------------------
   Invoke-Msi 'upgrade' @('/i', "`"$UpgradeMsi`"")
-  $entries = Get-Installed
+  $entries = @(Get-Installed)
   if ($entries.Count -ne 1) { throw "$($entries.Count) uninstall entries named Dalica after a same-version upgrade, expected 1" }
   if ($entries[0].PSChildName -eq $first) { throw 'the same-version upgrade left the first product installed' }
   if (-not (Test-Path $Exe)) { throw 'dalica.exe is gone after the same-version upgrade' }
@@ -127,7 +128,7 @@ try {
   # ---- 3. uninstall ----------------------------------------------------------------------------
   Invoke-Msi 'uninstall' @('/x', "`"$UpgradeMsi`"")
   $installed = $false
-  if ((Get-Installed).Count -ne 0) { throw 'an uninstall entry named Dalica is left after uninstalling' }
+  if (@(Get-Installed).Count -ne 0) { throw 'an uninstall entry named Dalica is left after uninstalling' }
   foreach ($f in $Exe, $Cli, (Join-Path $Dir 'NOTICE'), $Shortcut) {
     if (Test-Path $f) { throw "$f is left after uninstalling" }
   }
@@ -146,7 +147,7 @@ try {
   $passed = $true
 } finally {
   if ($installed) {
-    foreach ($e in Get-Installed) {
+    foreach ($e in @(Get-Installed)) {
       Start-Process msiexec.exe -ArgumentList @('/x', $e.PSChildName, '/qn', '/norestart') -Wait | Out-Null
     }
   }
