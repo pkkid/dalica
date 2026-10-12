@@ -2039,7 +2039,7 @@ replace at M6.R.
     exactly, `enabled` false cases, hostile params `Err`; the sidecar after the command and after
     undo; four rotations leave no `edits` entry and an unknown operation survives them; hide,
     captions, folder info and rotations survive a rebuild; `panic_hunt` green.
-- ⬜ **M6.15 `engine`: tag commands and quick tags**
+- ✅ **M6.15 `engine`: tag commands and quick tags**
   - after: M6.5, M6.8
   - files: `crates/engine/src/cmd/tags.rs`, `crates/engine/tests/tags.rs`
   - scope: `organizing.md` §5.2 and `menus-and-shortcuts.md` §1.9, §4: `photo.tags.add {ids, tags}`
