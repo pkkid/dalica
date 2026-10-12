@@ -84,7 +84,7 @@ jobs:
           shopt -s globstar nullglob
           files=(packaging/**/*.xml packaging/**/*.xml.in packaging/**/*.wxs packaging/**/*.wxl packaging/**/*.plist packaging/**/*.plist.in)
           if [ ${#files[@]} = 0 ]; then echo "no XML files yet (M6.21–M6.23)"; exit 0; fi
-          xmllint --noout -- "${files[@]}"
+          xmllint --noout "${files[@]}"
           printf 'ok %s\n' "${files[@]}"
       - name: Desktop entries
         run: |

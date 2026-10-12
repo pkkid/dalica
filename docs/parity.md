@@ -28,9 +28,9 @@ same commit.
 | D. Viewing | 0 | 1 | 5 | 2 |
 | E. Output | 0 | 0 | 2 | 9 |
 | F. Data | 1 | 15 | 3 | 0 |
-| G. Preferences and system | 0 | 6 | 8 | 0 |
+| G. Preferences and system | 0 | 7 | 7 | 0 |
 | H. Menus | 0 | 5 | 2 | 0 |
-| **All** | 13 | 52 | 78 | 16 |
+| **All** | 13 | 53 | 77 | 16 |
 <!-- /parity:summary -->
 
 ## Top gaps
@@ -222,7 +222,7 @@ same commit.
 | SYS-MCP | MCP server | P1 | ⬜ | |
 | SYS-I18N | Localisation | P2 | ⬜ | |
 | SYS-A11Y | Accessibility (AccessKit) | P2 | ⬜ | |
-| SYS-PACKAGING | Packages for Linux, Windows, macOS | P1 | ⬜ | |
+| SYS-PACKAGING | Packages for Linux, Windows, macOS | P1 | 🟡 | macOS (M6.23): `packaging/macos/package.sh` builds `aarch64` and `x86_64` at macOS 11 joined with `lipo`, `Dalica.app` (`Info.plist.in` with the application id as bundle id and the image formats as Alternate handler), signed inside-out with the hardened runtime (ad hoc without secrets; notarization and stapling when they exist), the DMG (volume `Dalica`, `Applications` link, the window layout and background generated reproducibly by `packaging/macos/dmg/generate.py`) and the CLI zip; `verify.sh` mounts the DMG, checks signatures, layout and both architectures and runs `--version` (the PR's release dry run); `test.sh` checks the template and layout on any OS; missing: Linux (M6.21), Windows (M6.22), Developer ID signing and notarization in the release run (M15), opening a file handed over by Finder's Open With |
 | SYS-RELEASE | Release workflow: every platform built, checksummed, verified and drafted | P1 | 🟡 | `.github/workflows/release.yml` (a push to `release` builds Linux x86_64/aarch64, Windows x64 and macOS universal with `DALICA_BUILD_SHA`/`DALICA_BUILD_DATE`, writes `SHA256SUMS.txt`, re-downloads and verifies the set on three OSes, and creates or updates the draft `Dalica v<version>`, refusing a published version; other branches and pull requests touching `packaging/`, the workflows or the icons are dry runs), `packaging/checksums.sh` (`self-test` plants mismatches), `.github/workflows/packaging-lint.yml` (actionlint, shellcheck, PowerShell parse, metadata checks); missing: the real packages (the platform scripts are stubs until M6.21–M6.23, SYS-PACKAGING) and signing (M15) |
 
 ## H. Menus (MENU)
