@@ -1045,8 +1045,8 @@ mod tests {
         let (_dir2, s2, _) = session_with_photos(1);
         let mut later = App::new(None);
         later.set_session(s2);
-        later.run("app.setShortcut", &json!({ "command": "pane.toggle", "context": "global", "key": "Ctrl+Alt+0" })).unwrap();
-        let key = dalica_engine::Key::parse("Ctrl+Alt+0").unwrap();
+        later.run("app.setShortcut", &json!({ "command": "pane.toggle", "context": "global", "key": "Ctrl+Alt+P" })).unwrap();
+        let key = dalica_engine::Key::parse("Ctrl+Alt+P").unwrap();
         assert_eq!(later.session().unwrap().keymap().resolve(&key, Context::Library, false).as_deref(), Some("pane.toggle"));
     }
 
