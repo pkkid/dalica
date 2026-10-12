@@ -3,7 +3,46 @@
 **Layer L3.** Watched-folder rules, walks, change detection, `notify` events, offline volumes and card/folder import; turns what it finds into `Op`s.
 
 - **May depend on:** L0–L2 (`docs/architecture.md` §2; `cargo xtask layers` enforces it).
-- **Public API (M1.11):**
-  - `scan(roots, cancel)` → `Scan { walked, folders, warnings }`: bounded walks through `dalica-fs`, `skipped()` leaves out dot files and folders (so `.dalica.json`, `.dalica-originals`) and OS system folders; JPEG and PNG recognised by content; size as displayed and capture date from the headers; stars from each folder's sidecar. Never fails as a whole: unreadable parts are warnings.
-  - `diff(&mut Library, &Scan)` → the ops (batches of at most `BATCH` = 500 photos) that make the model match the disk: new folders, removed / renamed / changed / added photos, folders gone. A delete plus an add with the same size and mtime in one folder is a rename (id and star kept). Folders under roots that could not be walked are never removed.
-- **Test it alone:** `cargo test -p dalica-scan` (no window, GPU, network or personal photos needed): temp trees of `scenes` photos; the verification pass emits exactly the ops for an add, a delete, a rename and a rewrite; 1000 JPEGs are scanned and timed.
+- **Public API:**
+  - `scan_streaming(roots, &Options, emit) -> Summary` (M5.4): walks the roots a folder at a time through `dalica-fs` (depth 32, 1 000 000 entries, folder links followed after the real tree with loop detection, FIFOs and devices never opened) and hands each `Event` to `emit` as it happens: `Folder` (a folder's photos, complete, as soon as it is read: depth first, each folder before its subfolders, in name order), `Progress` (`folders_done`, `folders_queued`, `files`, `found`, `failed`, after every folder and every 256 files inside a big one), `Failed` (a file's first failure) and `Warning`. `emit` returning `false` (`|e| tx.send(e).is_ok()` on a channel whose receiver is gone) stops the scan like `Options::cancel`. A stopped scan stops before the next file: the folder it was reading is not handed out and the root it was walking is not in `Summary::walked`, so the verification pass never removes what it did not see.
+  - `Options` (owned, `Clone + Send`): `types` (`FileTypes`, Options → File Types), `skip` (`SkipRules`), `excluded` (subtrees set to Remove under a watched root: never listed, never entered; an excluded root counts as walked and empty), `cancel` (`Arc<AtomicBool>`, checked before every folder and every file, and by the reading thread before each file it takes), `failures` (the last scan's `Summary::failures`), `budget` (10 s), `limits` (`dalica-image` limits), `reader` (the header reader; tests plant panicking or stalling ones).
+  - `scan(roots, cancel)` and `scan_with(roots, &Options)` gather the same into one `Scan { walked, folders, warnings, failures, cancelled }`, folders sorted by path. A scan never fails as a whole.
+  - `diff(&mut Library, &Scan)` → the ops (batches of at most `BATCH` = 500 photos) that make the model match the disk: new folders, removed / renamed / changed / added photos, folders gone. A delete plus an add with the same size and mtime in one folder is a rename (id and star kept). Folders under roots that could not be walked are never removed. A streaming caller diffs each `Folder` as it lands with an empty `walked` (no folder is removed), and once more at the end with every folder path and `Summary::walked`.
+  - `volumes`: `Places` (Pictures, Documents, Desktop, Home: `Places::system()` from `HOME`/`USERPROFILE` and, on Linux, the XDG user-dirs file; everything under `$DALICA_PLACES_HOME` when that is an absolute folder; `Places::under(home)` and `Places::from_env(var)` for tests; `existing()`, `first_run()`), `volumes()` (the startup disk first: Linux `/proc/self/mounts`, macOS `/Volumes`, Windows drive letters C–Z; `parse_mounts` and `volumes_in(parents)` for tests), `online(root)` (a folder that can be reached), `children(path)` (subfolders for the Folder Manager, skip rules applied, sorted by name, at most `CHILDREN_CAP` = 1000 with `truncated`). These read the disk (a sleeping network volume can stall them): call them off the UI thread.
+
+## What a scan lists
+
+Every file is recognised by its content (`dalica_image::sniff`), never by its name: a `.jpg` that holds a PNG is a PNG, text named `.jpg` is nothing. Every recognised format is listed unless its `FileType` is turned off (JPEG is always on); a format `dalica-image` does not decode yet, and a file whose header cannot be read, is listed at 0 × 0 (the thumbnail job gives the reason). Formats `dalica-image` learns to read are sized without a change here; a format it adds beyond today's list falls under the RAW toggle.
+
+Each file is read inside a per-file guard (`security.md` §4.3): on a reading thread, inside `catch_unwind`, within `Options::budget` (10 s). The thread reads up to 16 files ahead of the one waited for. A file that fails (a header error), panics or overruns the budget becomes a `Failure { path, size, mtime, format, reason }`: reported once as `Event::Failed`, kept in `Summary::failures`, and, given back in `Options::failures`, not read again (still listed at 0 × 0 when its format was recognised) until its size or modification time changes. A thread that overruns is abandoned and a fresh one takes the next file.
+
+## Skip rules
+
+One module (`src/skip.rs`); names compared ignoring ASCII case. A skipped folder is never entered.
+
+| Rule | Where | Names |
+|---|---|---|
+| Dot entries | files and folders, everywhere, every system | any name starting with `.` (`.dalica.json`, `.git`, `.Trashes`, `.Spotlight-V100`, `._IMG_0001.JPG`, …) |
+| Dalica's originals | everywhere | `.dalica-originals` |
+| OS, NAS and tool folders | everywhere, every system | `$RECYCLE.BIN`, `System Volume Information`, `lost+found`, `@eaDir`, `#recycle`, `#snapshot`, `@Recycle`, `@Recently-Snapshot`, `@SynoResource`, `node_modules`, `__pycache__`, `$WinREAgent`, `Config.Msi` |
+| Bundles, other programs' libraries and preview caches | everywhere, every system | names ending `.app`, `.photoslibrary`, `.photolibrary`, `.aplibrary`, `.lrdata`, `.cocatalogdb` |
+| Windows caches | everywhere on Windows | `AppData`, `Temporary Internet Files`, `INetCache`, `$Windows.~BT` |
+| Windows system folders | at the top of a drive | `Windows`, `Program Files`, `Program Files (x86)`, `ProgramData`, `Recovery`, `PerfLogs`, `MSOCache`, `$Windows.~WS`, `$SysReset` |
+| macOS system folders | at the top of the startup disk | `System`, `Library`, `Applications`, `private`, `usr`, `bin`, `sbin`, `dev`, `cores`, `opt`, `etc`, `tmp`, `var`, `Volumes` |
+| macOS home caches | at the top of a home (`/Users/<name>`) | `Library` |
+| Linux / Unix system, cache and temp folders | at the top of `/` | `proc`, `sys`, `dev`, `run`, `tmp`, `var`, `boot`, `efi`, `snap`, `usr`, `etc`, `bin`, `sbin`, `lib`, `lib32`, `lib64`, `libx32`, `opt`, `srv` |
+| Linux / Unix home caches | at the top of a home (`/home/<name>`) | `snap` |
+
+The same names deeper down (a `Library` or `tmp` folder inside Pictures) are the user's own and are scanned. Images smaller than 64 × 64 are listed; hiding them is the view's job (View → Small Pictures).
+
+## File Types
+
+`FileType`: `jpeg` (always on), `png`, `gif`, `bmp`, `tiff`, `webp`, `heif`, `avif`, `jxl`, `psd`, `raw`, `video` (stable ids for settings and the control API). `FileTypes::all()`, `jpeg_only()`, `with(type, on)`, `allows(type)`.
+
+## Test it alone
+
+`cargo test -p dalica-scan` (no window, GPU, network or personal photos needed):
+
+- `tests/scan.rs`: temp trees of `scenes` photos; the verification pass emits exactly the ops for an add, a delete, a rename and a rewrite; an excluded subtree is never walked; a folder's photos arrive while a later folder is still being read, and progress rises to the totals (inside a big folder too); a cancelled scan stops at the next file; a planted panicking or stalling file is reported once and not read again until its modification time changes; a FIFO never blocks a scan; 1000 JPEGs are scanned and timed.
+- `tests/skip.rs`: each skip rule on a temp tree, for each system's rules; each toggle drops exactly its format; content wins over names.
+- `tests/volumes.rs`: places honour the override and the XDG file; the first run never offers the home; `children` of a 10 000-folder tree stays within its cap; a renamed-away root is offline; mount tables and mount folders list their volumes.

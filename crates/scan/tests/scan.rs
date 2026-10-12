@@ -1,12 +1,16 @@
-//! One-shot scans of temporary trees (`architecture.md` §11): nested folders, skip rules, content
-//! sniffing, and a verification pass that emits exactly the ops for what changed on disk.
+//! Scans of temporary trees (`architecture.md` §11): nested folders, skip rules, content
+//! sniffing, a verification pass that emits exactly the ops for what changed on disk, streamed
+//! per-folder results, cancelling, excluded subtrees and the per-file guard.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::AtomicBool;
-use std::time::Instant;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, mpsc};
+use std::time::{Duration, Instant};
 
+use dalica_image::Format;
 use dalica_library::{Library, Op};
-use dalica_scan::{diff, scan};
+use dalica_scan::{Event, HeaderReader, Options, default_reader, diff, scan, scan_streaming, scan_with};
 use dalica_scenes::{Exif, Scene, demo_library, jpeg, png};
 
 fn put(path: &Path, bytes: &[u8]) {
@@ -164,6 +168,8 @@ fn a_set_cancel_flag_stops_the_scan() {
     let s = scan(&[dir.path().to_path_buf()], Some(&cancel));
     assert!(s.folders.is_empty());
     assert!(s.warnings.iter().any(|w| w.reason.contains("Cancelled")), "{:?}", s.warnings);
+    // A root not walked to the end is not walked: nothing under it may be removed.
+    assert!(s.cancelled && s.walked.is_empty(), "{s:?}");
 }
 
 #[test]
@@ -201,4 +207,231 @@ fn a_fifo_never_blocks_a_scan() {
     let s = rx.recv_timeout(std::time::Duration::from_secs(20)).expect("the scan blocked on the FIFO");
     assert_eq!(s.folders.len(), 1);
     assert_eq!(s.folders[0].photos.iter().map(|p| p.name.as_str()).collect::<Vec<_>>(), ["real.jpg"]);
+}
+
+/// The default reader, recording every file it is asked about.
+fn recording() -> (HeaderReader, Arc<Mutex<Vec<PathBuf>>>) {
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let (inner, seen) = (default_reader(), log.clone());
+    let reader: HeaderReader = Arc::new(move |p: &Path, l: &dalica_image::Limits| {
+        seen.lock().unwrap().push(p.to_path_buf());
+        inner(p, l)
+    });
+    (reader, log)
+}
+
+fn folder_names(s: &dalica_scan::Scan, root: &Path) -> Vec<String> {
+    s.folders.iter().map(|f| f.path.strip_prefix(root).unwrap().to_string_lossy().replace('\\', "/")).collect()
+}
+
+#[test]
+fn an_excluded_subtree_is_never_walked() {
+    let dir = tempfile::tempdir().unwrap();
+    let r = dir.path();
+    put(&r.join("a/x.jpg"), &camera(20, 1));
+    put(&r.join("a/removed/y.jpg"), &camera(21, 1));
+    put(&r.join("a/removed/deeper/z.jpg"), &camera(22, 1));
+    put(&r.join("b/w.jpg"), &camera(23, 1));
+    let (reader, log) = recording();
+    let mut progress = Vec::new();
+    let options = Options { excluded: vec![r.join("a/removed")], reader, ..Options::default() };
+    let summary = scan_streaming(&[r.to_path_buf()], &options, |e| {
+        if let Event::Progress(p) = e {
+            progress.push(p);
+        }
+        true
+    });
+    assert!(log.lock().unwrap().iter().all(|p| !p.starts_with(r.join("a/removed"))), "{log:?}");
+    assert_eq!(log.lock().unwrap().len(), 2);
+    // The root, a and b: the excluded folder and the one inside it were never listed.
+    assert_eq!(progress.last().unwrap().folders_done, 3, "{progress:?}");
+    assert_eq!(summary.walked, [r.to_path_buf()]);
+    let s = scan_with(&[r.to_path_buf()], &Options { excluded: vec![r.join("a/removed")], ..Options::default() });
+    assert_eq!(folder_names(&s, r), ["a", "b"]);
+    // An excluded root is walked as an empty one: its folders leave the library.
+    let s = scan_with(&[r.join("a")], &Options { excluded: vec![r.join("a")], ..Options::default() });
+    assert!(s.folders.is_empty() && s.walked == [r.join("a")], "{s:?}");
+}
+
+#[test]
+fn results_arrive_per_folder_before_the_walk_ends() {
+    let dir = tempfile::tempdir().unwrap();
+    let r = dir.path().to_path_buf();
+    for (i, f) in ["a", "b", "c"].iter().enumerate() {
+        put(&r.join(f).join("p.jpg"), &camera(30 + i as u64, 1));
+        put(&r.join(f).join("q.jpg"), &camera(40 + i as u64, 1));
+    }
+    // The last folder's photos wait until the test has seen the first folder's.
+    let (open_tx, open_rx) = mpsc::channel::<()>();
+    let gate = Arc::new(Mutex::new(open_rx));
+    let inner = default_reader();
+    let reader: HeaderReader = Arc::new(move |p: &Path, l: &dalica_image::Limits| {
+        if p.parent().is_some_and(|d| d.ends_with("c")) {
+            let _ = gate.lock().unwrap().recv_timeout(Duration::from_secs(20));
+        }
+        inner(p, l)
+    });
+    let options = Options { reader, ..Options::default() };
+    let (tx, rx) = mpsc::channel();
+    let roots = vec![r.clone()];
+    let scanning = std::thread::spawn(move || scan_streaming(&roots, &options, |e| tx.send(e).is_ok()));
+    let mut events = Vec::new();
+    loop {
+        let e = rx.recv_timeout(Duration::from_secs(20)).expect("no folder arrived while the walk was held");
+        let first_folder = matches!(&e, Event::Folder(f) if f.path.ends_with("a"));
+        events.push(e);
+        if first_folder {
+            break;
+        }
+    }
+    // The walk is still held inside c, and a's photos are already here.
+    assert!(!scanning.is_finished());
+    open_tx.send(()).unwrap();
+    open_tx.send(()).unwrap();
+    events.extend(rx.iter());
+    let summary = scanning.join().unwrap();
+    let folders: Vec<&Path> = events.iter().filter_map(|e| if let Event::Folder(f) = e { Some(f.path.as_path()) } else { None }).collect();
+    assert_eq!(folders, [r.join("a"), r.join("b"), r.join("c")]);
+    // Progress only rises, and ends at the totals.
+    let progress: Vec<_> = events.iter().filter_map(|e| if let Event::Progress(p) = e { Some(*p) } else { None }).collect();
+    assert!(
+        progress.windows(2).all(|w| w[0].folders_done < w[1].folders_done && w[0].found <= w[1].found && w[0].files <= w[1].files),
+        "{progress:?}"
+    );
+    let last = progress.last().unwrap();
+    assert_eq!((last.folders_done, last.folders_queued, last.files, last.found, last.failed), (4, 0, 6, 6, 0));
+    assert_eq!(summary.progress, *last);
+    assert_eq!(summary.walked, [r]);
+    assert!(!summary.cancelled);
+}
+
+#[test]
+fn a_cancelled_scan_stops_at_the_next_file() {
+    let dir = tempfile::tempdir().unwrap();
+    let r = dir.path().to_path_buf();
+    put(&r.join("a/0.jpg"), &camera(50, 1));
+    for i in 1..=5 {
+        put(&r.join(format!("b/{i}.jpg")), &camera(50 + i, 1));
+    }
+    put(&r.join("c/9.jpg"), &camera(59, 1));
+    let cancel = Arc::new(AtomicBool::new(false));
+    let (inner, flag) = (default_reader(), cancel.clone());
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let seen = log.clone();
+    let reader: HeaderReader = Arc::new(move |p: &Path, l: &dalica_image::Limits| {
+        seen.lock().unwrap().push(p.file_name().unwrap().to_string_lossy().into_owned());
+        if p.ends_with("2.jpg") {
+            flag.store(true, Ordering::Relaxed);
+        }
+        inner(p, l)
+    });
+    let options = Options { cancel: Some(cancel), reader, ..Options::default() };
+    let mut events = Vec::new();
+    let summary = scan_streaming(std::slice::from_ref(&r), &options, |e| {
+        events.push(e);
+        true
+    });
+    assert_eq!(*log.lock().unwrap(), ["0.jpg", "1.jpg", "2.jpg"]);
+    // Folder a was handed out; b, read halfway, was not; c was never reached.
+    let folders: Vec<&Path> = events.iter().filter_map(|e| if let Event::Folder(f) = e { Some(f.path.as_path()) } else { None }).collect();
+    assert_eq!(folders, [r.join("a")]);
+    assert!(summary.cancelled && summary.walked.is_empty(), "{summary:?}");
+    assert!(events.iter().any(|e| matches!(e, Event::Warning(w) if w.reason.contains("Cancelled"))));
+
+    // A receiver that goes away stops the scan the same way.
+    let (tx, rx) = mpsc::channel();
+    drop(rx);
+    let summary = scan_streaming(&[r], &Options::default(), |e| tx.send(e).is_ok());
+    assert!(summary.cancelled && summary.walked.is_empty(), "{summary:?}");
+}
+
+#[test]
+fn a_panicking_or_slow_file_is_reported_once_and_retried_when_it_changes() {
+    let dir = tempfile::tempdir().unwrap();
+    let r = dir.path().to_path_buf();
+    put(&r.join("p/boom.jpg"), &camera(60, 1));
+    put(&r.join("p/slow.jpg"), &camera(61, 1));
+    put(&r.join("p/fine.jpg"), &camera(62, 1));
+    // A truncated JPEG: recognised, its header unreadable.
+    put(&r.join("p/cut.jpg"), &camera(63, 1)[..40]);
+    let calls: Arc<Mutex<HashMap<String, usize>>> = Arc::default();
+    let (inner, count) = (default_reader(), calls.clone());
+    let reader: HeaderReader = Arc::new(move |p: &Path, l: &dalica_image::Limits| {
+        let name = p.file_name().unwrap().to_string_lossy().into_owned();
+        *count.lock().unwrap().entry(name.clone()).or_default() += 1;
+        match name.as_str() {
+            "boom.jpg" => panic!("a planted panic"),
+            "slow.jpg" => std::thread::sleep(Duration::from_secs(6)),
+            _ => {}
+        }
+        inner(p, l)
+    });
+    // Generous enough for a busy CI machine opening a small file; far below the stall.
+    let options = Options { budget: Duration::from_secs(1), reader, ..Options::default() };
+    let run = |options: &Options| {
+        let mut failed = Vec::new();
+        let start = Instant::now();
+        let summary = scan_streaming(std::slice::from_ref(&r), options, |e| {
+            if let Event::Failed(f) = e {
+                failed.push(f);
+            }
+            true
+        });
+        (summary, failed, start.elapsed(), scan_with(std::slice::from_ref(&r), &Options { failures: options.failures.clone(), ..options.clone() }))
+    };
+    let (first, failed, took, _) = run(&options);
+    let mut reasons: Vec<(String, String)> =
+        failed.iter().map(|f| (f.path.file_name().unwrap().to_string_lossy().into_owned(), f.reason.clone())).collect();
+    reasons.sort();
+    assert_eq!(reasons.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>(), ["boom.jpg", "cut.jpg", "slow.jpg"], "{reasons:?}");
+    assert!(reasons[0].1.contains("panicked") && reasons[0].1.contains("a planted panic"), "{reasons:?}");
+    assert!(reasons[2].1.contains("took longer"), "{reasons:?}");
+    assert!(failed.iter().all(|f| f.format == Some(Format::Jpeg)));
+    assert!(took < Duration::from_secs(5), "the scan waited for the slow file: {took:?}");
+    assert_eq!(first.failures.len(), 3);
+    assert_eq!(first.progress.failed, 3);
+
+    // Given back unchanged: not read again, not reported again, still listed (at 0 × 0).
+    let again = Options { failures: first.failures.clone(), ..options.clone() };
+    let before = calls.lock().unwrap().clone();
+    let (second, failed, _, listed) = run(&again);
+    assert!(failed.is_empty(), "{failed:?}");
+    assert_eq!(second.failures, first.failures);
+    let now = calls.lock().unwrap().clone();
+    for name in ["boom.jpg", "slow.jpg"] {
+        assert_eq!(now.get(name), before.get(name), "{name} was read again");
+    }
+    let photos: Vec<(&str, u32, u32)> = listed.folders[0].photos.iter().map(|p| (p.name.as_str(), p.width, p.height)).collect();
+    assert_eq!(photos, [("boom.jpg", 0, 0), ("cut.jpg", 0, 0), ("fine.jpg", 120, 80), ("slow.jpg", 0, 0)]);
+
+    // Once its modification time changes, it is read (and reported) again.
+    let file = std::fs::File::options().write(true).open(r.join("p/boom.jpg")).unwrap();
+    file.set_modified(std::time::SystemTime::now() + Duration::from_secs(10)).unwrap();
+    drop(file);
+    let before = calls.lock().unwrap().clone();
+    let (third, failed, _, _) = run(&Options { failures: second.failures.clone(), ..options.clone() });
+    assert_eq!(failed.iter().map(|f| f.path.file_name().unwrap().to_string_lossy().into_owned()).collect::<Vec<_>>(), ["boom.jpg"]);
+    let now = calls.lock().unwrap().clone();
+    assert_eq!(now.get("boom.jpg").copied(), before.get("boom.jpg").map(|n| n + 2), "read once by the streaming scan and once by the gathering one");
+    assert_eq!(now.get("slow.jpg"), before.get("slow.jpg"));
+    assert_eq!(third.failures.len(), 3);
+}
+
+#[test]
+fn a_big_folder_reports_progress_as_it_goes() {
+    let dir = tempfile::tempdir().unwrap();
+    let r = dir.path().to_path_buf();
+    put(&r.join("big/photo.jpg"), &camera(70, 1));
+    for i in 0..600 {
+        put(&r.join(format!("big/note{i:03}.txt")), b"not a photo, and long enough to be sniffed as nothing at all");
+    }
+    let mut progress = Vec::new();
+    scan_streaming(std::slice::from_ref(&r), &Options::default(), |e| {
+        if let Event::Progress(p) = e {
+            progress.push((p.folders_done, p.files, p.found));
+        }
+        true
+    });
+    // The root, then 256 and 512 files into the big folder, then its end.
+    assert_eq!(progress, [(1, 0, 0), (1, 256, 0), (1, 512, 0), (2, 601, 1)]);
 }

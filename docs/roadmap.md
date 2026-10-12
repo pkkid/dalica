@@ -1327,7 +1327,7 @@ filled by the lead; M5.15 pins it.
     through the link; the fault loop over every step leaves the old or the new file; stale cleanup
     removes a 25-hour-old temp and keeps a 23-hour-old one, a near-miss name, a foreign file and a
     link; tests pass on all three OSes in CI.
-- ⬜ **M5.4 `scan`: skip rules, volumes, standard places and per-file guards**
+- ✅ **M5.4 `scan`: skip rules, volumes, standard places and per-file guards**
   - after: M1.11
   - files: `crates/scan/src/walk.rs`, `crates/scan/src/skip.rs`, `crates/scan/src/volumes.rs`, `crates/scan/src/lib.rs`, `crates/scan/tests/scan.rs`, `crates/scan/tests/skip.rs`, `crates/scan/tests/volumes.rs`, `crates/scan/README.md`
   - scope: `data-model.md` §7 and `security.md` §4.3: the skip rules in one module (dot entries,
