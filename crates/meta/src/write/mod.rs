@@ -1,8 +1,8 @@
 //! Writing the owned fields into a file: the one entry point [`write_owned`], a writer per
 //! container, and the verification every write passes (`xmp-interop.md` §1, §3–§4).
 //!
-//! The container writers are stubs answering [`Error::Unsupported`] until M6.17 (JPEG) and M6.18
-//! (PNG, WebP, TIFF) fill them. Whatever a writer produces, [`write_owned`] returns it only after
+//! PNG, WebP and TIFF have their writers (M6.18); JPEG answers [`Error::Unsupported`] until M6.17
+//! fills it. Whatever a writer produces, [`write_owned`] returns it only after
 //! [`verify`] has checked it: the owned fields re-read equal the request, and every byte outside
 //! the rewritable metadata spans is unchanged. This crate never touches the disk; the caller
 //! writes the returned bytes atomically through `dalica-fs`.
@@ -49,8 +49,9 @@ impl Changes {
     }
 }
 
-/// The write options of Options → General → Files (`xmp-interop.md` §2) and the parse limits.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// The write options of Options → General → Files (`xmp-interop.md` §2), the time of the write and
+/// the parse limits.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WriteOptions {
     /// Write captions, tags and places into photo files (default on).
     pub captions_tags_places: bool,
@@ -58,12 +59,16 @@ pub struct WriteOptions {
     pub stars_as_ratings: bool,
     /// Write date changes to files (default on).
     pub dates: bool,
+    /// The time of the write, for `xmp:MetadataDate`: the caller sets it from the Session's clock
+    /// (this crate reads no clock). `None` (the default, for callers without a clock) leaves the
+    /// `xmp:MetadataDate` of Dalica's description as it is, and a new description gets none.
+    pub metadata_date: Option<DateTaken>,
     pub limits: Limits,
 }
 
 impl Default for WriteOptions {
     fn default() -> WriteOptions {
-        WriteOptions { captions_tags_places: true, stars_as_ratings: false, dates: true, limits: Limits::default() }
+        WriteOptions { captions_tags_places: true, stars_as_ratings: false, dates: true, metadata_date: None, limits: Limits::default() }
     }
 }
 

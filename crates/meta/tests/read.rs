@@ -566,7 +566,15 @@ fn write_owned_stubs_answer_unsupported_and_skip_empty_changes() {
     let caption = Changes { caption: Some(Some("new".into())), ..Changes::default() };
     for (name, file, _) in every_container() {
         let container = scan(&file, &l()).unwrap().container;
-        assert_eq!(write_owned(&file, &caption, &WriteOptions::default()), Err(Error::Unsupported(container)), "{name}");
+        match container {
+            // JPEG is written by M6.17; PNG, WebP and TIFF by M6.18 (tests/write_png_webp_tiff.rs).
+            Container::Jpeg => assert_eq!(write_owned(&file, &caption, &WriteOptions::default()), Err(Error::Unsupported(container)), "{name}"),
+            _ => assert_eq!(
+                read(&write_owned(&file, &caption, &WriteOptions::default()).unwrap(), &l()).unwrap().owned.caption.as_deref(),
+                Some("new"),
+                "{name}"
+            ),
+        }
         // Nothing to write: the same bytes back.
         assert_eq!(write_owned(&file, &Changes::default(), &WriteOptions::default()).as_deref(), Ok(&file[..]), "{name}");
         // Options off: the change is dropped, so nothing is written.

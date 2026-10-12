@@ -26,7 +26,6 @@
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 
-use crate::fields::DateTaken;
 use crate::write::{Changes, WriteOptions};
 use crate::xmp::{self, xml};
 use crate::{BlockKind, Error, Limits, Metadata, Problem, Result, container};
@@ -227,22 +226,17 @@ pub enum SidecarWrite {
 
 /// The new sidecar file for `changes` (those `options` allow; `xmp-interop.md` §1 principle 5).
 /// `sidecar` is the existing sidecar's bytes (blank counts as none), `raw` the RAW's bytes when
-/// the caller has them (a new sidecar starts from the packet embedded in a DNG), `metadata_date`
-/// the time of the write (`xmp:MetadataDate`). Errors are the merge writer's: the result never
+/// the caller has them (a new sidecar starts from the packet embedded in a DNG). The time of the
+/// write (`xmp:MetadataDate`) is [`WriteOptions::metadata_date`], as for photo files. Errors are the merge writer's: the result never
 /// replaces a well-formed sidecar unless its every changed property reads back as written.
-pub fn merge(
-    raw: Option<&[u8]>,
-    sidecar: Option<&[u8]>,
-    changes: &Changes,
-    options: &WriteOptions,
-    metadata_date: &DateTaken,
-) -> Result<SidecarWrite> {
+pub fn merge(raw: Option<&[u8]>, sidecar: Option<&[u8]>, changes: &Changes, options: &WriteOptions) -> Result<SidecarWrite> {
     let limits = &options.limits;
+    let metadata_date = options.metadata_date.as_ref();
     let changes = changes.allowed(options);
     let damaged = match sidecar.filter(|b| !xml::is_blank(b)) {
         Some(bytes) => match well_formed(bytes, limits) {
             Ok(()) => {
-                return match xmp::merge(Some(bytes), &changes, metadata_date, limits)? {
+                return match xmp::merge::merge_at(Some(bytes), &changes, metadata_date, limits)? {
                     Some(m) => Ok(SidecarWrite::Write(checked(m.into_bytes(), limits)?)),
                     None => Ok(SidecarWrite::Unchanged),
                 };
@@ -252,7 +246,7 @@ pub fn merge(
         None => None,
     };
     let base = raw.and_then(|r| embedded(r, limits)).unwrap_or(Cow::Borrowed(NEW_SIDECAR.as_bytes()));
-    let Some(m) = xmp::merge(Some(&base), &changes, metadata_date, limits)? else { return Ok(SidecarWrite::Unchanged) };
+    let Some(m) = xmp::merge::merge_at(Some(&base), &changes, metadata_date, limits)? else { return Ok(SidecarWrite::Unchanged) };
     // A file needs no padding: the copy of an embedded packet loses it (and nothing else).
     let bytes = m.fit(m.min_len()).unwrap_or_else(|| m.into_bytes());
     let bytes = checked(bytes, limits)?;

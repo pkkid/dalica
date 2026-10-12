@@ -2077,7 +2077,7 @@ replace at M6.R.
   - done when: `cargo test -p dalica-meta --test write_jpeg`: §8 tests 1–4, 6 and 7 on JPEG; the
     digest outside the metadata spans is unchanged and the image decodes to identical pixels;
     writing twice gives identical bytes; truncated inputs are `Err` without panicking.
-- ⬜ **M6.18 `meta`: PNG, WebP and TIFF write-back**
+- ✅ **M6.18 `meta`: PNG, WebP and TIFF write-back**
   - after: M6.9, M6.10
   - files: `crates/meta/src/write/png.rs`, `crates/meta/src/write/webp.rs`, `crates/meta/src/write/tiff.rs`, `crates/meta/tests/write_png_webp_tiff.rs`
   - scope: `xmp-interop.md` §4: PNG XMP in `iTXt` and place and date in `eXIf` (CRCs recomputed,
