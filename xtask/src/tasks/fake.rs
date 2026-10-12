@@ -304,6 +304,10 @@ pub struct FakeGit {
     pub calls: Mutex<Vec<String>>,
     /// `docs/roadmap.md` on origin's `main` (`merged_roadmap`).
     pub origin_roadmap: Mutex<Option<String>>,
+    /// What `head` answers for every directory (a rebase changes it).
+    pub head: Mutex<String>,
+    /// Origin's branches and the commit each was pushed at.
+    pub pushed: Mutex<Vec<(String, String)>>,
 }
 
 impl FakeGit {
@@ -316,6 +320,8 @@ impl FakeGit {
             changed: Mutex::default(),
             calls: Mutex::default(),
             origin_roadmap: Mutex::default(),
+            head: Mutex::new("0123abcd".into()),
+            pushed: Mutex::default(),
         }
     }
 }
@@ -335,7 +341,7 @@ impl Git for FakeGit {
     }
 
     fn head(&self, _dir: &Path) -> Result<String, String> {
-        Ok("0123abcd".into())
+        Ok(self.head.lock().unwrap_or_else(PoisonError::into_inner).clone())
     }
 
     fn branch_subjects(&self, _branch: &str) -> Result<Vec<String>, String> {
@@ -346,8 +352,14 @@ impl Git for FakeGit {
         Ok(self.changed.lock().unwrap_or_else(PoisonError::into_inner).clone())
     }
 
-    fn push(&self, _dir: &Path, branch: &str) -> Result<(), String> {
+    fn pushed_head(&self, branch: &str) -> Option<String> {
+        self.pushed.lock().unwrap_or_else(PoisonError::into_inner).iter().rev().find(|(b, _)| b == branch).map(|(_, h)| h.clone())
+    }
+
+    fn push(&self, dir: &Path, branch: &str) -> Result<(), String> {
         self.calls.lock().unwrap_or_else(PoisonError::into_inner).push(format!("push {branch}"));
+        let head = self.head(dir)?;
+        self.pushed.lock().unwrap_or_else(PoisonError::into_inner).push((branch.to_string(), head));
         Ok(())
     }
 
