@@ -23,6 +23,7 @@ use dalica_image::{Format, Header};
 use dalica_library::{FolderInfo, MAX_CAPTION, MAX_DESCRIPTION, MAX_OPERATION, MAX_OPERATIONS, MAX_PLACE, PhotoInfo};
 use dalica_sidecar::{Field, Sidecar};
 
+use crate::meta::{FileValues, ReadMetadata};
 use crate::skip::{FileTypes, SkipRules};
 
 /// Files between two progress reports inside one folder.
@@ -49,6 +50,10 @@ pub struct FoundPhoto {
     /// What the folder's sidecar says about the photo besides its star (caption, tags, hidden,
     /// recipe, redo list, date), as the model takes it ([`photo_info`]).
     pub info: PhotoInfo,
+    /// What the file itself says about the fields Dalica owns (caption, tags, rating, place,
+    /// date), read when [`Options::metadata`] asks for it and the file is new or changed; `None`
+    /// when not read or unreadable ([`crate::meta`]).
+    pub file: Option<FileValues>,
 }
 
 /// A folder holding at least one photo.
@@ -162,6 +167,9 @@ pub struct Options {
     pub budget: Duration,
     pub limits: dalica_image::Limits,
     pub reader: HeaderReader,
+    /// Whether to read the owned metadata of new and changed photos ([`crate::meta`]); off by
+    /// default.
+    pub metadata: ReadMetadata,
 }
 
 impl Default for Options {
@@ -175,6 +183,7 @@ impl Default for Options {
             budget: BUDGET,
             limits: dalica_image::Limits::default(),
             reader: default_reader(),
+            metadata: ReadMetadata::Off,
         }
     }
 }
@@ -189,6 +198,13 @@ impl fmt::Debug for Options {
             .field("failures", &self.failures.len())
             .field("budget", &self.budget)
             .field("limits", &self.limits)
+            .field(
+                "metadata",
+                &match &self.metadata {
+                    ReadMetadata::Off => "off".to_string(),
+                    ReadMetadata::NewOrChanged(known) => format!("new or changed ({} known)", known.len()),
+                },
+            )
             .finish_non_exhaustive()
     }
 }
@@ -459,6 +475,11 @@ impl Scanner<'_> {
         let types = self.options.types;
         let mut photos = Vec::new();
         let mut to_read: Vec<(Entry, String)> = Vec::new();
+        // Every file name of the folder, for the RAWs' `.xmp` sidecars.
+        let names: Vec<String> = match self.options.metadata {
+            ReadMetadata::Off => Vec::new(),
+            ReadMetadata::NewOrChanged(_) => files.iter().filter_map(|e| e.path.file_name().and_then(|n| n.to_str()).map(str::to_string)).collect(),
+        };
         for entry in files {
             let Some(name) = entry.path.file_name().and_then(|n| n.to_str()).map(str::to_string) else {
                 self.warn(&entry.path, "the file name is not valid Unicode".into());
@@ -531,6 +552,17 @@ impl Scanner<'_> {
         if !finished {
             return None;
         }
+        if let ReadMetadata::NewOrChanged(known) = &self.options.metadata
+            && !photos.is_empty()
+        {
+            // Read here, on the scan's thread, in the same pass: what the files say comes in with
+            // the photos (`diff`).
+            let cancel = self.cancel;
+            let cancelled = || cancel.is_some_and(|c| c.load(Ordering::Relaxed));
+            if !crate::meta::read_folder(dir, &names, &mut photos, known, &dalica_meta::Limits::default(), &cancelled) {
+                return None;
+            }
+        }
         let mut info = FolderInfo::default();
         if !photos.is_empty() {
             // Read here, on the scan's thread: everything the user said in the sidecar comes in
@@ -581,6 +613,7 @@ fn unread(entry: &Entry, name: &str, format: Format) -> FoundPhoto {
         date: None,
         star: false,
         info: PhotoInfo::default(),
+        file: None,
     }
 }
 

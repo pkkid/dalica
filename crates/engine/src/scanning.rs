@@ -38,6 +38,19 @@
 //!   that cannot be walked, with a warning when the library holds folders there. Every walked unit
 //!   counts as verified for the schedule in [`crate::watching`].
 //!
+//! - **What the files say** (M6.32, `xmp-interop.md` §5, §7): every scan and rescan reads the
+//!   owned metadata (caption, tags, rating, place, date) of the photos the model does not know at
+//!   their size and modification time, on its own thread ([`dalica_scan::ReadMetadata`]; a rebuild
+//!   reads every photo). The diff imports it: a photo Dalica has nothing for takes every value its
+//!   file has with no undo step; a value changed in another application while Dalica's did not
+//!   comes in through the diff's sync op, whose imports are one undoable step ("Import from
+//!   Files"); a field changed on both sides keeps Dalica's value and is noted for Properties
+//!   ([`Session::note_changed_elsewhere`]); the synced hashes become those of what was read.
+//!   [`Session::apply`] calls [`Session::files_op_before`] / [`Session::files_op_after`] for every
+//!   op applied outside a command, so the watcher's rescans get the same. All of it is tagged
+//!   [`crate::metadata::Origin::Files`]: never written back. A folder's sync op is diffed again
+//!   when the model changed since its diff, so an edit made meanwhile is never overwritten.
+//!
 //! Seams: [`crate::watching`] starts the periodic verification through
 //! [`Session::start_verification`]'s units and runs its own incremental rescans of dirty folders
 //! ([`Session::busy`] and [`Session::wait_idle`] include them); M5.16 replaces the amortised
@@ -49,13 +62,19 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 
+use dalica_core::PhotoId;
 use dalica_library::{Library, Op};
-use dalica_scan::{Event, Failure, FoundFolder, HeaderReader, Plan, Progress, Scan, Summary};
+use dalica_scan::{Event, Failure, FoundFolder, HeaderReader, Known, Plan, Progress, ReadMetadata, Scan, Summary};
 use serde::Serialize;
 use serde_json::json;
 
 use crate::jobs::{JobId, JobKind, JobProgress, Outcome};
+use crate::metadata::{Field, Fields};
 use crate::session::{Msg, Session};
+use crate::undo::Step;
+
+/// The undo label of what a scan imported from the files (a value changed in another application).
+pub const IMPORT_LABEL: &str = "Import from Files";
 
 /// The most photos [`Session::poll`] applies in one call: one `diff` batch.
 pub const PHOTOS_PER_POLL: usize = dalica_scan::BATCH;
@@ -105,6 +124,9 @@ pub(crate) struct Scanning {
     applied_since_sync: usize,
     synced_photos: usize,
     last: ScanProgress,
+    /// The files the model knows, at the library revision they were listed at: scans read the
+    /// metadata of the others.
+    known: Option<(u64, Arc<Known>)>,
 }
 
 /// One running scan, as the owner sees it.
@@ -135,6 +157,9 @@ struct ScanJob {
     /// A rebuild's model, swapped in at the end.
     fresh: Option<Library>,
     synced: bool,
+    /// The library revision after the current folder's diff or the last op of ours: another value
+    /// means the model changed meanwhile, and the folder's sync op is diffed again.
+    revision: u64,
 }
 
 impl ScanJob {
@@ -157,6 +182,7 @@ impl ScanJob {
             stopped: false,
             fresh,
             synced: false,
+            revision: 0,
         }
     }
 
@@ -275,6 +301,18 @@ impl Budget {
     }
 }
 
+/// The engine's name of a library sync field.
+fn engine_field(f: dalica_library::sync::Field) -> Field {
+    use dalica_library::sync::Field as F;
+    match f {
+        F::Caption => Field::Caption,
+        F::Tags => Field::Tags,
+        F::Rating => Field::Star,
+        F::Place => Field::Place,
+        F::Date => Field::Date,
+    }
+}
+
 /// "1 picture", "1,204 pictures".
 pub(crate) fn pictures(n: usize) -> String {
     let digits = n.to_string();
@@ -328,6 +366,10 @@ impl Session {
         let mut options = self.scan_options();
         options.cancel = Some(cancel);
         options.excluded = plan.excluded.clone();
+        if kind == ScanKind::Rebuild {
+            // The rebuilt model knows nothing: every photo's metadata is read.
+            options.metadata = ReadMetadata::all();
+        }
         let (tx, rx) = mpsc::channel();
         let walk = plan.roots.clone();
         let spawned = std::thread::Builder::new().name("dalica-scan".into()).spawn(move || {
@@ -366,15 +408,63 @@ impl Session {
         self.start_plan(plan, ScanKind::Rebuild);
     }
 
-    /// The options the next scan gets (owned: they move to its thread): the failures in effect and
-    /// Options → File Types. Built on the owner thread without touching the disk.
-    pub(crate) fn scan_options(&self) -> dalica_scan::Options {
-        let mut options =
-            dalica_scan::Options { failures: self.scanning.failures.clone(), types: self.settings().file_types(), ..dalica_scan::Options::default() };
+    /// The options the next scan gets (owned: they move to its thread): the failures in effect,
+    /// Options → File Types, and the files the model knows (the metadata of the others is read).
+    /// Built on the owner thread without touching the disk.
+    pub(crate) fn scan_options(&mut self) -> dalica_scan::Options {
+        let metadata = ReadMetadata::NewOrChanged(self.known_files());
+        let mut options = dalica_scan::Options {
+            failures: self.scanning.failures.clone(),
+            types: self.settings().file_types(),
+            metadata,
+            ..dalica_scan::Options::default()
+        };
         if let Some(reader) = &self.scanning.reader {
             options.reader = Arc::clone(reader);
         }
         options
+    }
+
+    /// The files the model knows now: listed once per library revision (one pass over the photos).
+    fn known_files(&mut self) -> Arc<Known> {
+        let revision = self.library.revision();
+        match &self.scanning.known {
+            Some((r, known)) if *r == revision => Arc::clone(known),
+            _ => {
+                let known = Arc::new(Known::of(&self.library));
+                self.scanning.known = Some((revision, Arc::clone(&known)));
+                known
+            }
+        }
+    }
+
+    /// Before an op from the files (a scan's or the watcher's, applied outside a command): for a
+    /// diff's sync op, the fields of each photo that changed both in another application and in
+    /// Dalica since the last sync, judged on the model before the op. `None` for any other op.
+    pub(crate) fn files_op_before(&self, op: &Op) -> Option<Vec<(PhotoId, Fields)>> {
+        let parts = dalica_scan::meta::sync_parts(op)?;
+        let mut out = Vec::new();
+        for (id, file) in parts.synced {
+            let Some(file) = file else { continue };
+            let fields = dalica_scan::meta::conflicts(&self.library, *id, file);
+            if !fields.is_empty() {
+                out.push((*id, Fields::of(&fields.into_iter().map(engine_field).collect::<Vec<_>>())));
+            }
+        }
+        Some(out)
+    }
+
+    /// After an op from the files was applied (`inverse` undoes it): a sync op's imports become
+    /// one undo step ("Import from Files"; the synced hashes stay those of the files), and the
+    /// conflicts found before it are noted for Properties ("Changed in another application;
+    /// Dalica's value kept").
+    pub(crate) fn files_op_after(&mut self, conflicts: Vec<(PhotoId, Fields)>, inverse: &Op) {
+        if let Some(op) = dalica_scan::meta::undo_of_import(inverse) {
+            self.undo.push(Step { label: IMPORT_LABEL, op, modes: None });
+        }
+        for (id, fields) in conflicts {
+            self.note_changed_elsewhere(id, fields);
+        }
     }
 
     /// The header reader later scans use; `None` for `dalica-image`'s. Tests and benches plant
@@ -471,12 +561,25 @@ impl Session {
                 if !budget.take(n) {
                     break;
                 }
+                if job.fresh.is_none()
+                    && self.library.revision() != job.revision
+                    && dalica_scan::meta::sync_parts(op).is_some()
+                    && let Some(folder) = &job.current
+                {
+                    // The model changed since the folder's diff (a command, another scan): what
+                    // the files said is decided again, so an edit made meanwhile stands.
+                    let scan = Scan { folders: vec![folder.clone()], ..Scan::default() };
+                    job.pending = dalica_scan::diff(&mut self.library, &scan).into();
+                    job.revision = self.library.revision();
+                    continue;
+                }
                 let Some(op) = job.pending.pop_front() else { break };
                 applied += n;
                 let result = match &mut job.fresh {
                     Some(fresh) => fresh.apply(op).map(|_| ()).map_err(|e| e.to_string()),
                     None => self.apply(op).map(|_| ()).map_err(|e| e.to_string()),
                 };
+                job.revision = self.library.revision();
                 if let Err(e) = result {
                     self.scan_warnings.push(format!("scan result not applied: {e}"));
                 }
@@ -503,6 +606,7 @@ impl Session {
                 None => dalica_scan::diff(&mut self.library, &scan),
             };
             let folder = scan.folders.into_iter().next();
+            job.revision = self.library.revision();
             if ops.is_empty() {
                 // Nothing changed: the diff was the work.
                 budget.take(folder.as_ref().map_or(1, |f| f.photos.len().max(1)));

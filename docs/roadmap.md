@@ -2271,7 +2271,7 @@ replace at M6.R.
   - done when: `crates/ui/tests/quick_tags.rs`: configure three slots, apply slot 2 by click and by
     Ctrl+Alt+2, toggle it off again; Fill Empty uses the most common tags; Cancel changes nothing;
     the pane and dialog fingerprints at both window sizes.
-- ⬜ **M6.32 `scan` + `engine`: importing file metadata on scan**
+- ✅ **M6.32 `scan` + `engine`: importing file metadata on scan**
   - after: M5.17, M6.8, M6.9, M6.19, M6.30
   - files: `crates/scan/src/meta.rs`, `crates/scan/tests/meta.rs`, `crates/engine/src/scanning.rs`, `crates/engine/tests/meta_import.rs`
   - scope: `xmp-interop.md` §5 and §7: when a scan finds a new or changed file (size or mtime), its

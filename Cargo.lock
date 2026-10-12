@@ -923,6 +923,7 @@ dependencies = [
  "dalica-fs",
  "dalica-image",
  "dalica-library",
+ "dalica-meta",
  "dalica-scenes",
  "dalica-sidecar",
  "notify",

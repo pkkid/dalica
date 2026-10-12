@@ -351,7 +351,7 @@ fn settle_waits_until_the_pane_has_the_files_rows() {
         assert!(!s.loading && s.error.is_none(), "settled while still reading: {s:?}");
         assert_eq!(t.d.app().session().unwrap().photo_metadata_pending(), 0);
         if id == big {
-            assert_eq!(keys(&s).len(), 17, "every row of the file (Dalica's caption and tags are on tagged.jpg only): {s:?}");
+            assert_eq!(keys(&s).len(), 19, "every row of the file (the file's caption and tags are imported on scan): {s:?}");
             assert_eq!(row(&s, "camera").value, "Canon EOS 5D");
         } else {
             assert_eq!(keys(&s), ["path", "fileSize", "dimensions", "dateTaken", "fileModified"]);

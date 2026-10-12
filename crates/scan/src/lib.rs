@@ -19,6 +19,10 @@
 //!   pure-Rust poller where those cannot be had; [`watch::rescan`] and [`diff_rescan`] verify only
 //!   the dirty folders. Folder renames keep the folder's and its photos' ids.
 //!
+//! - [`meta`](mod@meta) (M6.32): with [`ReadMetadata`] on, the owned metadata of new and changed
+//!   photos is read from the files (a RAW's `.xmp` sidecar, a DNG's embedded XMP) in the same pass;
+//!   the diff imports it under `xmp-interop.md` §5 and ends with a sync op ([`meta::sync_parts`]).
+//!
 //! - [`rules`](mod@rules): the Folder Manager's modes per folder (Scan Always, Scan Once, Remove)
 //!   and the faces flag, inherited by subfolders; the scan plans they give.
 //!
@@ -28,6 +32,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 mod diff;
+pub mod meta;
 pub mod rules;
 pub mod skip;
 pub mod volumes;
@@ -35,6 +40,7 @@ mod walk;
 pub mod watch;
 
 pub use diff::{BATCH, diff, diff_rescan};
+pub use meta::{FileValues, Known, ReadMetadata};
 pub use rules::{Effective, Mode, Plan, Rule, Rules, folder_path};
 pub use skip::{FileType, FileTypes, Platform, Skip, SkipRules, skipped};
 pub use volumes::{Child, Children, Place, PlaceKind, Places, Volume, VolumeKind, children, online, volumes};

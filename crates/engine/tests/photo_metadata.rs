@@ -290,7 +290,7 @@ fn a_file_without_metadata_a_missing_file_and_a_new_selection() {
 
     // A new selection while the tagged photo's answer is cached: both are answered.
     let t = ask_ready(&mut s, json!({ "id": tagged }));
-    assert_eq!(rows(&t).len(), 17);
+    assert_eq!(rows(&t).len(), 19, "with the caption and tags imported from the file on scan (M6.32)");
     assert_eq!(s.execute("photo.metadata", &json!({ "id": plain })).unwrap()["pending"], json!(false), "still cached");
     drop(ui);
 
@@ -308,7 +308,8 @@ fn a_file_without_metadata_a_missing_file_and_a_new_selection() {
     let gone = ask_ready(&mut s, json!({ "id": tagged }));
     assert_eq!(gone["error"], json!("the file is missing"));
     assert!(gone.get("file").is_none());
-    assert_eq!(keys(&gone), ["path", "fileSize", "dimensions", "dateTaken", "fileModified"]);
+    // The library's rows, with the caption and tags imported from the file on scan (M6.32).
+    assert_eq!(keys(&gone), ["path", "fileSize", "dimensions", "dateTaken", "fileModified", "caption", "tags"]);
 }
 
 #[test]
