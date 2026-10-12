@@ -225,7 +225,12 @@ fn a_right_click_opens_the_section_menu_with_later_items_disabled() {
     {
         assert!(ids.contains(&expected), "{expected} in {ids:?}");
     }
-    assert!(items.iter().all(|w| !w.enabled), "the items whose commands are not there yet are disabled: {ids:?}");
+    let properties = items.iter().find(|w| w.id == "menuitem:section.properties").unwrap();
+    assert!(properties.enabled, "Edit Description… opens Folder Properties for the right-clicked section");
+    assert!(
+        items.iter().filter(|w| w.id != "menuitem:section.properties").all(|w| !w.enabled),
+        "the items whose commands are not there yet are disabled: {ids:?}"
+    );
     ids_are_sound(&d, "menu open");
     save(&d, "section-header-menu");
 }

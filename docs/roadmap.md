@@ -1895,7 +1895,7 @@ replace at M6.R.
     `settings.json` with unknown keys kept and a wrong-typed value falls back to its default
     (reported); the metadata hook sees the photos and fields of a star op, its undo and its redo;
     every existing engine test and `panic_hunt` pass unchanged.
-- ⬜ **M6.6 `ui`: M6's view state, editor and dialog commands, and stub panes**
+- ✅ **M6.6 `ui`: M6's view state, editor and dialog commands, and stub panes**
   - after: M5.14, M5.18, M5.19
   - files: `crates/ui/src/state.rs`, `crates/ui/src/menus.rs`, `crates/ui/src/app.rs`, `crates/ui/src/notices.rs`, `crates/ui/src/commands/mod.rs`, `crates/ui/src/commands/caption.rs`, `crates/ui/src/commands/info.rs`, `crates/ui/src/commands/help.rs`, `crates/ui/src/dialogs/mod.rs`, `crates/ui/src/dialogs/folder_properties.rs`, `crates/ui/src/dialogs/adjust_date.rs`, `crates/ui/src/dialogs/quick_tags.rs`, `crates/ui/src/dialogs/rename_tag.rs`, `crates/ui/src/dialogs/about.rs`, `crates/ui/src/dialogs/release_notes.rs`, `crates/ui/src/panels/mod.rs`, `crates/ui/src/panels/side_pane.rs`, `crates/ui/src/panels/properties.rs`, `crates/ui/src/panels/tags.rs`, `crates/ui/src/panels/tags/**`, `crates/ui/src/control/**`, `crates/ui/tests/view_state_m6.rs`, `docs/control-protocol.md`
   - scope: every M6 field of `UiState` in one go (control-protocol §6.5): the inline caption editor
