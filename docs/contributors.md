@@ -3,8 +3,8 @@
 Adapted from LightCraft `docs/contributors.md` (revision 88ea1a8) and PhotoCraft
 `docs/contributors.md` (revision 59684266); MIT OR Apache-2.0.
 
-> Status: **Planned (M6).** Nothing below exists yet; this page records the decision so the
-> files can be kept correct from the first community contribution.
+> Status: **M6.** `cargo xtask contributors` and its `--check` exist (M6.11) and the first
+> `contributors.json` is committed; the About window that shows them is M6.18.
 
 **About ▸ Contributors** credits everyone who contributed to Dalica, and **About ▸ Models** credits
 the AI models named in `Co-Authored-By` trailers. Dalica follows the same contributor-credit
@@ -71,16 +71,42 @@ to remove your names.
 ## Refreshing (maintainers)
 
 The Craft apps generate `contributors.json` with a maintainer script that lives in a private shared
-repository, so Dalica cannot use it. Dalica will get its own **`cargo xtask contributors`**
-(planned, M6) with the same behaviour:
+repository, so Dalica has its own **`cargo xtask contributors`** with the same behaviour and the
+same file shape (schema 1, the one the Craft apps' `build.rs` reads):
 
 ```sh
-cargo xtask contributors           # regenerate contributors.json + verify people.toml; needs git and gh
-cargo xtask contributors --check   # verify people.toml only (also run by `cargo xtask ci`)
+cargo xtask contributors               # verify people.toml, then regenerate contributors.json; needs git and gh
+cargo xtask contributors --check       # verify people.toml only, offline (also run by `cargo xtask ci`)
+cargo xtask contributors --ref <rev>   # count another ref (default: origin/main, else main)
 ```
 
-- Stats come from `git log` on `main` and, for merged PRs and usernames, the GitHub API through
-  `gh`; commits are mapped to GitHub usernames, never stored by author name or email.
-- `--check` fails on unknown keys, an entry whose file history shows it was added by someone other
-  than its owner without a `consent_source`, and malformed TOML.
-- Commit the updated `contributors/contributors.json` on its own (`M11.x: refresh contributors`).
+- **Stats** come from `git log` on `main` (`origin/main` when it exists, since GitHub must know the
+  commits; run `git fetch` first). Merge commits are not counted themselves; the commits they bring
+  are. Per commit: lines added and deleted, and binary files added and removed (from `--numstat`
+  and `--raw`, renames off); its date is the committer date in UTC.
+- **Usernames** come from GitHub through `gh` (read-only): the account GitHub links each commit to,
+  else the author of the merged pull request whose merge commit it is; a commit with neither, or
+  only a bot (`…[bot]`, `app/…`), counts in `unattributed_commits`. A contributor's PRs are the pull
+  requests merged into `main` whose merge commit is in that history. Every `gh` query keeps only
+  shas, usernames and profile names, so no author name or email reaches the tool, and none is
+  written.
+- **Models** are counted from `Co-Authored-By` trailers (once per commit, with that commit's lines)
+  when the name and the address's domain belong to a known model vendor (`Claude` at
+  `anthropic.com`, `Copilot` at GitHub's no-reply domain, `Codex`/`GPT`/`ChatGPT` at `openai.com`,
+  `Gemini` at `google.com`, `Cursor` at `cursor.com`); any other trailer, a person's included, is
+  ignored. `Claude Opus 5.5` is company Anthropic, model `Claude Opus`, version `5.5`, id
+  `anthropic/claude-opus/5.5`; a trailing `(…)` note is left out.
+- **`people.toml`** is TOML restricted to what its template uses: `[people.<username>]` tables (a
+  GitHub username) with `real_name`, `display_name` and `consent_source` (one-line strings) and
+  `sync_github_name` (`true`/`false`), and comments. Malformed TOML, other tables, unknown keys, a
+  wrong type, a key set twice and a repeated entry each fail, with their line.
+- **Ownership:** the commit that last added an entry (it was absent from the file before) must be
+  by that user, or the entry must have a `consent_source`; otherwise both modes fail. The full run
+  knows each commit's username from GitHub; `--check` is offline and can tell only from a GitHub
+  no-reply author address, so it skips what it cannot tell (and a shallow clone, as in GitHub CI)
+  and says so. `people_entry` in the JSON is `true` only for an entry that passed (by owner or by
+  consent); the About window shows names only for those. `github_name` is fetched only for such an
+  entry with `sync_github_name = true`.
+- Contributors are sorted by commits, then PRs, then username; models by commits, then id.
+- Commit the updated `contributors/contributors.json` on its own (`M<n>.x: refresh contributors`).
+  Neither mode ever writes `people.toml`.

@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "repo": "pkkid/dalica",
+  "branch": "main",
+  "head": "fe829de389b3b618a75634994a9dc22a2423e72a",
+  "head_date": "2026-10-12T15:14:25Z",
+  "commits": 165,
+  "unattributed_commits": 0,
+  "contributors": [
+    {
+      "login": "pkkid",
+      "people_entry": false,
+      "github_name": null,
+      "prs": 108,
+      "commits": 165,
+      "lines_added": 264307,
+      "lines_deleted": 16859,
+      "binary_added": 16,
+      "binary_deleted": 0,
+      "first_commit": "2026-10-10T00:17:34Z",
+      "last_commit": "2026-10-12T15:14:25Z"
+    }
+  ],
+  "models": [
+    {
+      "id": "anthropic/claude-opus/5.5",
+      "company": "Anthropic",
+      "model": "Claude Opus",
+      "version": "5.5",
+      "commits": 164,
+      "lines_added": 263988,
+      "lines_deleted": 16859
+    }
+  ]
+}
