@@ -194,14 +194,26 @@ With **Write XMP sidecars for RAW files** on (default off), Dalica writes its ow
 file into an XMP sidecar next to it; the RAW itself is never modified.
 
 - **Name:** `<stem>.xmp` (`IMG_0001.CR3` → `IMG_0001.xmp`), the name most applications use. Reading
-  also accepts `<file>.xmp` (`IMG_0001.CR3.xmp`) and `.XMP`. When a RAW and a JPEG share a stem
+  also accepts `<file>.xmp` (`IMG_0001.CR3.xmp`) and `.XMP`, in that order after `<stem>.xmp`, and
+  an existing sidecar is written back under its own name. When a RAW and a JPEG share a stem
   (RAW+JPEG pairs), the stem sidecar belongs to the RAW; the JPEG keeps its metadata inside itself.
+  When several RAWs share a stem, it belongs to the one named exactly the stem, else the first by
+  name, and the others use `<file>.xmp`, so two photos never share a sidecar. Names are compared
+  without case (one file on Windows and macOS), the RAW's own spelling first.
 - **Merge:** an existing sidecar is merged into exactly as in §3; raw converters' develop settings,
-  history and every other namespace stay byte for byte.
+  history and every other namespace stay byte for byte. A new sidecar starts as a copy of the XMP
+  embedded in the RAW (a DNG's), so once it exists the sidecar is the RAW's whole XMP, or else as
+  a plain `x:xmpmeta` document with no packet wrapper or padding; either way it gets the place too
+  (the place mirror of §2 goes into any existing packet). A write that changes nothing creates no
+  sidecar.
 - **Reading** happens on scan whatever the option says: an existing `.xmp` (else the XMP embedded in
-  a DNG) is imported under the rules of §5.
-- **Damaged sidecar:** an `.xmp` that is not well-formed XMP is kept aside as
-  `<name>.xmp.corrupt-<time>` and a new one is written; one that cannot be read at all (permissions)
+  a DNG) is imported under the rules of §5. The sidecar replaces the embedded packet as a whole
+  (no field-by-field fill, so a value cleared in the sidecar stays cleared); the RAW's own EXIF
+  still comes first for the date and place.
+- **Damaged sidecar:** an `.xmp` that is not well-formed XMP (not UTF-8, not XML within the limits
+  of `security.md` §4.2, or without an `rdf:RDF` element with content) is kept aside as
+  `<name>.xmp.corrupt-<time>` and a new one is written (on the next write; reading falls back to
+  the embedded XMP meanwhile); a blank one counts as none; one that cannot be read at all (permissions)
   is left alone and the write fails.
 - Moving or renaming a RAW inside Dalica moves its `.xmp` with it (`data-model.md` §8).
 

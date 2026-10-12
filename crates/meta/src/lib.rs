@@ -23,6 +23,7 @@ pub mod iptc;
 pub mod listing;
 pub mod write;
 pub mod xmp;
+pub mod xmp_sidecar;
 
 pub use container::{BlockKind, Container, Scan, Span, scan};
 pub use fields::{DateSource, DateTaken, OwnedFields, Place, Sources};
