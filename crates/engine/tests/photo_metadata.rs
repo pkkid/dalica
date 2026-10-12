@@ -356,3 +356,35 @@ fn the_contract_hostile_params_and_no_undo_step() {
     assert_eq!(s.undo_stack().len(), 0);
     assert!(s.wait_photo_metadata(WAIT));
 }
+
+/// Each session keeps its own answers and notes: a second library in the same process, watching
+/// the same folder, reads the file itself (pending first) and does not see the first one's note.
+/// An answer arriving counts in `poll()`, and a session closed with reads waiting drops them.
+#[test]
+fn two_sessions_in_one_process_do_not_share_answers_or_notes() {
+    let (_l, _d, folder, mut a, tagged_a, _) = setup();
+    let ready_a = ask_ready(&mut a, json!({ "id": tagged_a }));
+    a.note_changed_elsewhere(tagged_a, Fields::of(&[Field::Caption]));
+    assert!(a.execute("photo.metadata", &json!({ "id": tagged_a })).unwrap().get("changedElsewhere").is_some());
+
+    let lib_b = tempfile::tempdir().unwrap();
+    let mut b = open(lib_b.path());
+    b.execute("folders.add", &json!({ "path": folder })).unwrap();
+    b.wait_idle();
+    let tagged_b = b.library().photos().find(|p| p.name == "tagged.jpg").unwrap().id;
+    let first = b.execute("photo.metadata", &json!({ "id": tagged_b })).unwrap();
+    assert_eq!(first["pending"], json!(true), "the other session's answer is not shared");
+    assert!(first.get("changedElsewhere").is_none(), "nor its note");
+    assert!(b.wait_photo_metadata(WAIT));
+    assert!(b.poll() >= 1, "the answer that arrived counts as work done in poll()");
+    let ready_b = b.execute("photo.metadata", &json!({ "id": tagged_b })).unwrap();
+    assert_eq!(ready_b["pending"], json!(false));
+    assert_eq!((&ready_b["rows"], &ready_b["file"]), (&ready_a["rows"], &ready_a["file"]));
+    assert_eq!(b.photo_metadata_pending(), 0);
+
+    // Closing a session with reads waiting neither hangs nor touches the other session.
+    let plain_b = b.library().photos().find(|p| p.name == "plain.png").unwrap().id;
+    b.execute("photo.metadata", &json!({ "id": plain_b })).unwrap();
+    drop(b);
+    assert_eq!(a.execute("photo.metadata", &json!({ "id": tagged_a })).unwrap()["pending"], json!(false));
+}

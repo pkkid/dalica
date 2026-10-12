@@ -22,6 +22,7 @@
 //! | [`crate::offline`] | offline volumes (stub until M5.13) |
 //! | [`crate::thumbs`] | the thumbnail ladder |
 //! | [`crate::metadata`] | the metadata hook: the owned fields each applied op changed (stub until M6.33) |
+//! | [`crate::metadata_cache`] | what photo files say, read on workers for `photo.metadata` |
 //!
 //! Thumbnails are made by the thumbnailer's own workers as scans land; their sketches come back
 //! through the same calls and are applied as derived ops: journaled, but never on the undo stack
@@ -47,6 +48,7 @@ use crate::folders::Folders;
 use crate::jobs::Jobs;
 use crate::keymap::Keymap;
 use crate::metadata::{Metadata, Origin};
+use crate::metadata_cache::MetadataCache;
 use crate::offline::Offline;
 use crate::registry::{CommandInfo, CommandSpec, History};
 use crate::scanning::{PHOTOS_PER_POLL, ScanKind, Scanning};
@@ -115,6 +117,8 @@ pub struct Session {
     pub(crate) offline: Offline,
     /// What the metadata hook was told (`metadata.rs`).
     pub(crate) metadata: Metadata,
+    /// What photo files say, read on workers for `photo.metadata` (`metadata_cache.rs`).
+    pub(crate) metadata_cache: MetadataCache,
     _lock: LibraryLock,
 }
 
@@ -187,6 +191,7 @@ impl Session {
             watching: Watching::default(),
             offline: Offline::default(),
             metadata: Metadata::default(),
+            metadata_cache: MetadataCache::default(),
             _lock: lock,
         };
         session.configure_thumbnails();
@@ -355,7 +360,7 @@ impl Session {
     /// Applies the results of finished background work: up to [`PHOTOS_PER_POLL`] photos of what
     /// the scans found (ending the scans that are complete), what the watcher and the online
     /// checks reported, and up to [`crate::thumbs::POLL_MAX`] thumbnail jobs (their sketches in
-    /// batches); then the metadata hook's turn, and drops the jobs that expired. Returns how many things it handled. Call it each
+    /// batches); then the metadata hook's turn and the photo metadata answers that arrived, and drops the jobs that expired. Returns how many things it handled. Call it each
     /// frame; it never blocks and never touches the disk.
     pub fn poll(&mut self) -> usize {
         let mut n = self.poll_scans(PHOTOS_PER_POLL);
@@ -364,6 +369,7 @@ impl Session {
         n += self.thumbs.poll(&self.library, crate::thumbs::POLL_MAX);
         self.apply_sketches();
         n += self.poll_metadata();
+        n += self.poll_photo_metadata();
         self.jobs.prune(self.clock.now());
         n
     }

@@ -6,8 +6,8 @@
 //! ratings are shown, never turned into a star). Rows without a value are left out. What the
 //! library knows (path, size, dimensions as displayed, the effective date taken, the file time, and
 //! Dalica's caption and tags, which win over the file's for display, `xmp-interop.md` §5) is
-//! answered at once; what only the file says comes from [`crate::metadata_cache`], read on a
-//! worker. The first ask answers `pending: true` with the library's rows; ask again (the UI each
+//! answered at once; what only the file says comes from the session's
+//! [`crate::metadata_cache::MetadataCache`], read on a worker. The first ask answers `pending: true` with the library's rows; ask again (the UI each
 //! frame while the pane shows it) for the rest. The owner thread never reads the file.
 //!
 //! With `all`, the answer adds Show All Metadata: every field of the file as `{group, label,
@@ -21,7 +21,7 @@ use serde_json::{Map, Value, json};
 
 use crate::cmd::photo::displayed_size;
 use crate::error::CmdError;
-use crate::metadata_cache::{FileMetadata, Lookup, lookup, note};
+use crate::metadata_cache::{FileMetadata, Lookup};
 use crate::registry::{CommandSpec, Effect, History, params};
 use crate::session::Session;
 
@@ -77,7 +77,7 @@ impl Rows {
 fn metadata(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
     let Query { id, all } = params(p)?;
     let key = s.file_key(id).ok_or_else(|| CmdError::NotFound(format!("no photo {id}")))?;
-    let answer = lookup(&key);
+    let answer = s.metadata_cache.lookup(&key);
     let file = match &answer {
         Lookup::Ready(m) => Some(m.as_ref()),
         Lookup::Pending | Lookup::Failed(_) => None,
@@ -89,7 +89,7 @@ fn metadata(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
     out.insert("name".into(), json!(photo.name));
     out.insert("pending".into(), json!(answer == Lookup::Pending));
     out.insert("rows".into(), Value::Array(rows(lib, id, &key.path.display().to_string(), file).0));
-    let changed = note(&key);
+    let changed = s.metadata_cache.note(&key);
     if !changed.is_empty() {
         out.insert("changedElsewhere".into(), json!({ "fields": changed.iter().collect::<Vec<_>>(), "note": CHANGED_ELSEWHERE }));
     }
