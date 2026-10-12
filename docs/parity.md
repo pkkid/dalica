@@ -22,15 +22,15 @@ same commit.
 <!-- parity:summary -->
 | Section | ✅ | 🟡 | ⬜ | 🚫 |
 |---|---:|---:|---:|---:|
-| A. Library view | 11 | 16 | 5 | 1 |
-| B. Organizing | 1 | 8 | 33 | 0 |
+| A. Library view | 11 | 17 | 4 | 1 |
+| B. Organizing | 1 | 9 | 32 | 0 |
 | C. Editing | 0 | 1 | 20 | 4 |
 | D. Viewing | 0 | 1 | 5 | 2 |
 | E. Output | 0 | 0 | 2 | 9 |
 | F. Data | 1 | 16 | 3 | 0 |
 | G. Preferences and system | 0 | 7 | 7 | 0 |
 | H. Menus | 0 | 5 | 2 | 0 |
-| **All** | 13 | 54 | 77 | 16 |
+| **All** | 13 | 56 | 75 | 16 |
 <!-- /parity:summary -->
 
 ## Top gaps
@@ -72,7 +72,7 @@ same commit.
 | LIB-ACTIONS | Action buttons (Export, Collage, Slideshow) with overflow | P0 | 🟡 | the buttons, and their More… menu below 1100 wide: `crates/ui/src/panels/bottom.rs`, `crates/ui/tests/bottom.rs`; disabled until export, collage and slideshow exist |
 | LIB-CONFBUTTONS | Configure Buttons dialog | OOS | 🚫 | dropped 2026-10-09 (dated feature); the button set is fixed |
 | LIB-PANES | Side pane container with People/Places/Tags/Properties toggles | P1 | 🟡 | the frame: 30 pt header with « (large width), title, × by id; pushes the light table; a narrowing window shrinks the tree to 200 first, then takes the large width away, then closes it: `crates/ui/src/panels/side_pane.rs`, `crates/ui/tests/tree_status_pane.rs`, `crates/ui/tests/layout.rs`; the Tags pane's contents since M6.28 (ORG-TAGS); the bottom-bar toggles (M3.9), the slide animation and the other panes' contents (M6, M13) missing |
-| LIB-PROPS | Properties pane | P1 | ⬜ | |
+| LIB-PROPS | Properties pane | P1 | 🟡 | the engine query (M6.16): `photo.metadata {id, all?}` gives the pane's rows in order (Path … Tags, and the file's rating) from the library at once and from the file once a worker has read it (the first ask answers `pending`; the owner thread never reads the file), the file's owned fields by source, the Show All Metadata listing with `all`, and the "Changed in another application" note: `crates/engine/src/cmd/info.rs`, `crates/engine/src/metadata_cache.rs`, `crates/engine/tests/photo_metadata.rs`; the pane itself is M6.27 |
 | LIB-ROOMS | Room tab strip (Import, Collage) | P1 | ⬜ | ref 01 §2.3 |
 | LIB-EMPTY | Empty states | P0 | 🟡 | no watched folders: "No pictures yet" with Add a Folder… (the folder dialog) and Import… (disabled until import): `crates/ui/src/panels/light_table.rs`, `crates/ui/tests/light_table.rs`; search with no results missing (M9) |
 
@@ -93,7 +93,7 @@ same commit.
 | ORG-HIDE | Hide/unhide photos and folders | P1 | ✅ | engine: `cmd:photo.hide` `cmd:photo.unhide` `cmd:folder.hide` `cmd:folder.unhide` (one undo step; Unhide disabled unless hidden; `"hidden"` in the photo's entry or the folder's own `"folder"` object): `crates/engine/src/cmd/hide.rs`, `crates/engine/tests/hide.rs`; in the window: hidden photos leave the cells, Ctrl+A and the selection, View ▸ Hidden Pictures shows them at 40 %; a hidden folder leaves the tree and the light table, and with Hidden Pictures sits in the Hidden Folders group with its section back: `crates/ui/tests/hidden.rs` (M6.24) |
 | ORG-FOLDERPROPS | Folder Properties dialog | P0 | 🟡 | `cmd:section.properties` (Folder ▸ Edit Description…, a double-click on a section title) opens it on the folder: Name (shown, read-only), Date typed as YYYY-MM-DD with its long form beside it and "Use the date of the oldest photo", Place, Description; OK runs `cmd:folder.info.set` once (one undo step), disabled while the date does not read; Cancel changes nothing: `crates/ui/src/dialogs/folder_properties.rs`, `crates/ui/tests/folder_properties.rs` (M6.26); renaming the folder (M9), Music for slideshows (shown disabled until M11) and a date picker (the date is typed) are missing |
 | ORG-SORT-PHOTOS | Photo order in sections, manual order persisted | P1 | ⬜ | |
-| ORG-ADJDATE | Adjust Date and Time dialog | P1 | ⬜ | |
+| ORG-ADJDATE | Adjust Date and Time dialog | P1 | 🟡 | the engine command (M6.16): `photo.dates.set {ids, shift}` (every photo by the same seconds from its effective date, else its file time) or `{ids, set}`, one undo step, the folder's photos re-sorted by effective date, dates in the sidecar and surviving a rebuild: `crates/engine/src/cmd/dates.rs`, `crates/engine/tests/dates.rs`, `crates/library/src/query.rs`; the dialog's pickers are M6.29 |
 | IMP-ROOM | Import room: source, tray, preview, destination strip | P1 | ⬜ | ref 04 §3 |
 | IMP-DEVICES | Memory card and removable-drive detection | P1 | ⬜ | |
 | IMP-MTP | Cameras/phones over MTP/PTP | P2 | ⬜ | OS integration (last milestone) |

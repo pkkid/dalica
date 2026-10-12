@@ -14,6 +14,7 @@ pub mod folders;
 pub mod jobs;
 pub mod keymap;
 pub mod metadata;
+pub mod metadata_cache;
 pub mod offline;
 pub mod registry;
 pub mod scanning;

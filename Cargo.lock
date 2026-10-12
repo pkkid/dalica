@@ -827,6 +827,7 @@ dependencies = [
  "dalica-fs",
  "dalica-image",
  "dalica-library",
+ "dalica-meta",
  "dalica-scan",
  "dalica-scenes",
  "dalica-sidecar",

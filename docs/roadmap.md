@@ -2052,7 +2052,7 @@ replace at M6.R.
   - done when: each command's contract; tagging 1 000 photos is one undo step; a rename merges and
     undoes exactly; partial counts over a mixed selection; the keymap has no conflicts for the ten
     keys; `panic_hunt` green.
-- ⬜ **M6.16 `engine`: dates and the photo metadata query**
+- ✅ **M6.16 `engine`: dates and the photo metadata query**
   - after: M6.4, M6.5, M6.8, M6.9
   - files: `crates/engine/src/cmd/dates.rs`, `crates/engine/src/cmd/info.rs`, `crates/engine/src/metadata_cache.rs`, `crates/engine/tests/dates.rs`, `crates/engine/tests/photo_metadata.rs`
   - scope: `organizing.md` §9 (Adjust date and time): `photo.dates.set {ids, shift}` (seconds, every
