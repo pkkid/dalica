@@ -53,14 +53,21 @@ winresource = { version = "=$Winres", default-features = false }
 [workspace]
 "@
 
+# Sets or (with $null) removes a process environment variable. Not [Environment]::Set...($k, $null):
+# PowerShell passes $null to a string parameter as "", which leaves the variable set but empty.
+function Set-ProcessEnv([string] $Name, $Value) {
+  if ($null -eq $Value) { Remove-Item -LiteralPath "Env:$Name" -ErrorAction SilentlyContinue }
+  else { Set-Item -LiteralPath "Env:$Name" -Value $Value }
+}
+
 # Runs cargo in the probe crate; returns its exit code and everything it printed.
 function Invoke-Probe([string] $Name, [string[]] $CargoArgs, [hashtable] $Vars = @{}) {
   $saved = @{}
   foreach ($k in @('RC_PATH', 'CARGO_TARGET_DIR') + @($Vars.Keys)) { $saved[$k] = [Environment]::GetEnvironmentVariable($k) }
   try {
-    [Environment]::SetEnvironmentVariable('RC_PATH', $null)
-    [Environment]::SetEnvironmentVariable('CARGO_TARGET_DIR', (Join-Path $tmp "target-$Name"))
-    foreach ($k in $Vars.Keys) { [Environment]::SetEnvironmentVariable($k, $Vars[$k]) }
+    Set-ProcessEnv 'RC_PATH' $null
+    Set-ProcessEnv 'CARGO_TARGET_DIR' (Join-Path $tmp "target-$Name")
+    foreach ($k in $Vars.Keys) { Set-ProcessEnv $k $Vars[$k] }
     Push-Location $crate
     # cargo reports progress on standard error; an expected failure must not stop this script.
     $eap = $ErrorActionPreference
@@ -70,7 +77,7 @@ function Invoke-Probe([string] $Name, [string[]] $CargoArgs, [hashtable] $Vars =
       $code = $LASTEXITCODE
     } finally { $ErrorActionPreference = $eap; Pop-Location }
   } finally {
-    foreach ($k in $saved.Keys) { [Environment]::SetEnvironmentVariable($k, $saved[$k]) }
+    foreach ($k in $saved.Keys) { Set-ProcessEnv $k $saved[$k] }
   }
   return @{ Code = $code; Out = $out }
 }
