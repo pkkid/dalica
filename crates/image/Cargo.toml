@@ -30,6 +30,12 @@ image.workspace = true
 image-webp.workspace = true
 # JPEG XL (architecture.md §1): pure Rust, MIT OR Apache-2.0; single-threaded (no `rayon`).
 jxl-oxide.workspace = true
+# The image header and an embedded ICC profile's declared sizes, read before `jxl-oxide` reserves
+# the profile outside its allocation tracker (formats/jxl.rs). Same project and licence, already
+# compiled as `jxl-oxide`'s own dependencies.
+jxl-bitstream.workspace = true
+jxl-coding.workspace = true
+jxl-oxide-common.workspace = true
 log.workspace = true
 # ICC v2/v4 profiles to sRGB (architecture.md §1): pure Rust, BSD-3-Clause OR Apache-2.0.
 moxcms.workspace = true

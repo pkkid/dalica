@@ -5,6 +5,12 @@
 //! header here, come out upright and converted by the colour stage; declared sizes past the limits
 //! and decoders running out of their allocation are refused; damaged files never panic.
 //!
+//! Embedded ICC profiles (M6.41): an ICC stream written here (ISO/IEC 18181-1 §E.4: the profile's
+//! header as residuals against the decoder's prediction, the rest copied, entropy-coded with ANS
+//! over a flat 256-symbol distribution) decodes like the enumerated Display P3 file; a profile or
+//! stream declared past `max_icc` is refused before the decoder reserves it, and an accepted one
+//! is charged to the decode's budget.
+//!
 //! Orientation and colour encoding are image header fields `zune-jpegxl` always leaves at their
 //! defaults, so the tests rewrite its header (ISO/IEC 18181-1 §A.3–A.6: SizeHeader and
 //! ImageMetadata, then padding to a byte, after which the frame starts unchanged).
@@ -13,7 +19,10 @@ use std::path::PathBuf;
 use std::sync::LazyLock;
 use std::time::Instant;
 
-use dalica_image::{DecodeOptions, Error, Format, Limits, Rgba8, decode, decode_as, decode_thumbnail, decode_with, formats, read_header, sniff};
+use dalica_image::{
+    Budget, DecodeOptions, Error, Format, Header, Limits, Orientation, Rgba8, decode, decode_as, decode_thumbnail, decode_with, formats, read_header,
+    sniff,
+};
 use dalica_scenes::formats::{Colour, Depth, SampleData, alpha, jxl, samples};
 use dalica_scenes::{Rgb8, Scene, fingerprint, orient};
 use moxcms::{ColorProfile, Layout};
@@ -127,6 +136,38 @@ impl Bits {
         self.put(bits, v);
     }
 
+    /// A `U64` (selector 3: twelve bits, then bytes behind continuation bits, the last four bits
+    /// at shift 60).
+    fn u64(&mut self, v: u64) {
+        match v {
+            0 => self.put(2, 0),
+            1..=16 => {
+                self.put(2, 1);
+                self.put(4, v - 1);
+            }
+            17..=272 => {
+                self.put(2, 2);
+                self.put(8, v - 17);
+            }
+            _ => {
+                self.put(2, 3);
+                self.put(12, v & 0xfff);
+                let (mut rest, mut shift) = (v >> 12, 12);
+                while rest != 0 {
+                    self.put(1, 1);
+                    if shift == 60 {
+                        self.put(4, rest);
+                        return;
+                    }
+                    self.put(8, rest & 0xff);
+                    rest >>= 8;
+                    shift += 8;
+                }
+                self.put(1, 0);
+            }
+        }
+    }
+
     /// An enum value as `U32(0, 1, 2 + u(4), 18 + u(6))`.
     fn enumerated(&mut self, v: u64) {
         match v {
@@ -159,6 +200,12 @@ struct Meta {
 
 /// The signature, SizeHeader and ImageMetadata of a lossless modular image, padded to a byte.
 fn image_header(m: Meta) -> Vec<u8> {
+    header_bits(m, false).bytes
+}
+
+/// The image header's bits; with `icc`, the colour encoding asks for an embedded profile (whose
+/// stream the caller appends before the frame).
+fn header_bits(m: Meta, icc: bool) -> Bits {
     let mut b = Bits::default();
     b.put(16, 0x0aff);
     b.put(1, 0); // not small
@@ -186,7 +233,11 @@ fn image_header(m: Meta) -> Vec<u8> {
         b.put(2, 0);
     }
     b.put(1, 0); // not XYB
-    if m.grey || m.p3 {
+    if icc {
+        b.put(1, 0); // colour encoding not all default
+        b.put(1, 1); // an ICC profile
+        b.enumerated(u64::from(m.grey)); // RGB 0, grey 1
+    } else if m.grey || m.p3 {
         b.put(1, 0); // colour encoding not all default
         b.put(1, 0); // no ICC profile
         b.enumerated(u64::from(m.grey)); // RGB 0, grey 1
@@ -205,7 +256,7 @@ fn image_header(m: Meta) -> Vec<u8> {
     }
     b.put(2, 0); // no extensions
     b.put(1, 1); // default transform data
-    b.bytes
+    b
 }
 
 /// A lossless codestream of `pixels` (interleaved, native-endian 16-bit) from `zune-jpegxl`, with
@@ -224,6 +275,118 @@ fn codestream(pixels: &[u8], m: Meta) -> Vec<u8> {
     let plain = image_header(Meta { orientation: 0, p3: false, ..m });
     assert_eq!(out[..plain.len()], plain[..], "the encoder's image header");
     [image_header(m), out[plain.len()..].to_vec()].concat()
+}
+
+// ---- Writing an embedded ICC profile -----------------------------------------------------------
+
+/// A base-128 varint, low bits first, as the ICC stream stores its sizes and commands.
+fn varint(mut v: u64) -> Vec<u8> {
+    let mut out = Vec::new();
+    loop {
+        let byte = (v & 0x7f) as u8;
+        v >>= 7;
+        if v == 0 {
+            out.push(byte);
+            return out;
+        }
+        out.push(byte | 0x80);
+    }
+}
+
+/// The decoder's prediction of the profile header's byte `i` from the residuals before it
+/// (ISO/IEC 18181-1 §E.4.3).
+fn predicted(i: usize, size: u32, r: &[u8]) -> u8 {
+    match i {
+        0..=3 => size.to_be_bytes()[i],
+        8 => 4,
+        12..=23 => b"mntrRGB XYZ "[i - 12],
+        36..=39 => b"acsp"[i - 36],
+        41 | 42 if r[40] == b'A' => b'P',
+        43 if r[40] == b'A' => b'L',
+        41 if r[40] == b'M' => b'S',
+        42 if r[40] == b'M' => b'F',
+        43 if r[40] == b'M' => b'T',
+        42 if r[40] == b'S' && r[41] == b'G' => b'I',
+        43 if r[40] == b'S' && r[41] == b'G' => b' ',
+        42 if r[40] == b'S' && r[41] == b'U' => b'N',
+        43 if r[40] == b'S' && r[41] == b'U' => b'W',
+        70 => 246,
+        71 => 214,
+        73 => 1,
+        78 => 211,
+        79 => 45,
+        80..=83 => r[4 + i - 80],
+        _ => 0,
+    }
+}
+
+/// The ICC stream of `profile` before entropy coding: its size, the commands (no tag table, then
+/// "copy the rest"), the header as residuals against the prediction, the rest as it is.
+fn icc_stream(profile: &[u8]) -> Vec<u8> {
+    assert!(profile.len() > 128);
+    let commands = [&[0u8, 1][..], &varint(profile.len() as u64 - 128)].concat();
+    let mut header = Vec::new();
+    for (i, &p) in profile[..128].iter().enumerate() {
+        let r = p.wrapping_sub(predicted(i, profile.len() as u32, &header));
+        header.push(r);
+    }
+    [varint(profile.len() as u64), varint(commands.len() as u64), commands, header, profile[128..].to_vec()].concat()
+}
+
+/// The ICC stream as the codestream stores it: its declared length, then `symbols` entropy-coded
+/// (no LZ77, every context in one cluster, ANS with a flat distribution of 256 literal tokens).
+/// The decoder checks the ANS state only once it has read `declared` symbols, so a test may
+/// declare more than it writes.
+fn put_icc(b: &mut Bits, declared: u64, symbols: &[u8]) {
+    b.u64(declared);
+    b.put(1, 0); // no LZ77
+    b.put(1, 1); // a simple context map,
+    b.put(2, 0); // zero bits per context: every context in cluster 0
+    b.put(1, 0); // ANS, not prefix codes
+    b.put(2, 3); // log alphabet size 5 + 3
+    b.put(4, 8); // split exponent 8: every token is its own value
+    b.put(1, 0); // not a one- or two-symbol distribution;
+    b.put(1, 1); // flat, over
+    b.put(1, 1); // U8: 2^7 + 127 + 1 = 256 symbols
+    b.put(3, 7);
+    b.put(7, 127);
+    // rANS with 12-bit precision, 32-bit state and 16-bit words: each symbol has frequency 16 at
+    // 16 × symbol. Encoded backwards from the state the decoder ends on.
+    let mut state: u64 = 0x13_0000;
+    let mut words = Vec::new();
+    for &s in symbols.iter().rev() {
+        if state >= 1 << 24 {
+            words.push(state & 0xffff);
+            state >>= 16;
+        }
+        state = ((state / 16) << 12) + 16 * u64::from(s) + state % 16;
+    }
+    b.put(32, state);
+    for &w in words.iter().rev() {
+        b.put(16, w);
+    }
+}
+
+/// A lossless codestream of `pixels` with an embedded ICC stream: `declared` symbols, of which
+/// `symbols` are written.
+fn codestream_icc(pixels: &[u8], m: Meta, declared: u64, symbols: &[u8]) -> Vec<u8> {
+    let plain = codestream(pixels, Meta { orientation: 0, p3: false, ..m });
+    let frame = &plain[image_header(Meta { orientation: 0, p3: false, ..m }).len()..];
+    let mut b = header_bits(m, true);
+    put_icc(&mut b, declared, symbols);
+    [b.bytes, frame.to_vec()].concat()
+}
+
+/// A JPEG XL container with the codestream split into `jxlp` boxes of `size` bytes.
+fn container_parts(codestream: &[u8], size: usize) -> Vec<u8> {
+    let boxed = |kind: &[u8; 4], payload: &[u8]| [&(8 + payload.len() as u32).to_be_bytes()[..], kind, payload].concat();
+    let chunks: Vec<&[u8]> = codestream.chunks(size).collect();
+    let mut out = [boxed(b"JXL ", b"\r\n\x87\n"), boxed(b"ftyp", b"jxl \0\0\0\0jxl ")].concat();
+    for (i, chunk) in chunks.iter().enumerate() {
+        let index = i as u32 | if i + 1 == chunks.len() { 0x8000_0000 } else { 0 };
+        out.extend(boxed(b"jxlp", &[&index.to_be_bytes()[..], chunk].concat()));
+    }
+    out
 }
 
 /// A JPEG XL container: the signature box, `ftyp`, and the codestream in one `jxlc` box.
@@ -332,6 +495,135 @@ fn the_decoder_runs_inside_the_allocation_limit() {
     assert_eq!(Error::TooLarge { width: 256, height: 256 }.reason(), "Too large to display (256 × 256)");
 }
 
+/// The Display P3 pixels of `a_display_p3_image_converts_to_srgb`, the size of a test image.
+fn p3_pixels(seed: u64, width: u32, height: u32) -> (Rgb8, Vec<u8>) {
+    let img = Scene::new(seed, width, height).render().unwrap();
+    let to_p3 = ColorProfile::new_srgb()
+        .create_transform_8bit(Layout::Rgb, &ColorProfile::new_display_p3(), Layout::Rgb, dalica_image::color::transform_options(8))
+        .unwrap();
+    let mut p3 = vec![0u8; img.data.len()];
+    to_p3.transform(&img.data, &mut p3).unwrap();
+    (img, p3)
+}
+
+const RGB8: Meta = Meta { width: 120, height: 80, grey: false, bits: 8, alpha: false, orientation: 0, p3: false };
+
+/// The smallest `max_alloc` with which `bytes` decode.
+fn least_alloc(bytes: &[u8]) -> u64 {
+    let (mut fails, mut works) = (0u64, 64 << 20);
+    assert!(decode(bytes, &Limits { max_alloc: works, ..Limits::default() }).is_ok());
+    while works - fails > 1 {
+        let mid = (fails + works) / 2;
+        match decode(bytes, &Limits { max_alloc: mid, ..Limits::default() }) {
+            Ok(_) => works = mid,
+            Err(Error::TooLarge { .. }) => fails = mid,
+            Err(e) => panic!("{e:?} at {mid}"),
+        }
+    }
+    works
+}
+
+/// A file with an embedded Display P3 profile: the profile reaches the colour stage and the pixels
+/// match the enumerated P3 file's fingerprint, in a bare codestream, one `jxlc` box or many
+/// `jxlp` boxes; the profile is charged to the budget; `max_icc` is checked at its boundary.
+#[test]
+fn an_embedded_profile_decodes_and_is_charged_to_the_budget() {
+    let (img, p3) = p3_pixels(63, 120, 80);
+    let profile = ColorProfile::new_display_p3().encode().unwrap();
+    let stream = icc_stream(&profile);
+    let bytes = codestream_icc(&p3, RGB8, stream.len() as u64, &stream);
+    for file in [bytes.clone(), container(&bytes), container_parts(&bytes, 7)] {
+        assert_eq!(sniff(&file), Some(Format::JpegXl));
+        let h = read_header(&file, &Limits::default()).unwrap();
+        assert_eq!((h.width, h.height), (120, 80));
+        let on = decode_with(&file, &ON, &Limits::default()).unwrap();
+        assert_close("jxl-icc-vs-source", &on, &rgba(&img), 1.5);
+        assert_fingerprint("jxl-rgb8-p3", &on, 1.0);
+        let off = decode_with(&file, &OFF, &Limits::default()).unwrap();
+        assert_eq!(off.data, p3.as_chunks::<3>().0.iter().flat_map(|&[r, g, b]| [r, g, b, 255]).collect::<Vec<u8>>());
+    }
+    // The decoder hands the embedded profile itself to the colour stage.
+    let header = read_header(&bytes, &Limits::default()).unwrap();
+    let mut budget = Budget::new(&Limits::default(), 120, 80);
+    let decoded = formats::jxl::decode(&bytes, &header, &mut budget, &Limits::default()).unwrap();
+    assert_eq!(decoded.icc.as_deref(), Some(&profile[..]));
+    // Charged: the stream and two copies of the profile, on top of what the same pixels need with
+    // an enumerated encoding.
+    let enumerated = codestream(&p3, Meta { p3: true, ..RGB8 });
+    let reserved = (stream.len() + 2 * profile.len()) as u64;
+    let (with_icc, without) = (least_alloc(&bytes), least_alloc(&enumerated));
+    assert_eq!(with_icc, without + reserved, "{with_icc} bytes with the profile, {without} without");
+    // `max_icc` at its boundary: the profile's own length passes, a byte less refuses it.
+    let at = Limits { max_icc: profile.len(), ..Limits::default() };
+    assert!(decode(&bytes, &at).is_ok());
+    let under = Limits { max_icc: profile.len() - 1, ..Limits::default() };
+    assert_eq!(read_header(&bytes, &under), Err(Error::TooLarge { width: 0, height: 0 }));
+    assert_eq!(
+        formats::jxl::decode(&bytes, &header, &mut Budget::new(&under, 120, 80), &under).unwrap_err(),
+        Error::TooLarge { width: 0, height: 0 }
+    );
+    // Every prefix: the right size or an error, never a panic.
+    for len in 0..bytes.len() {
+        if let Ok(h) = read_header(&bytes[..len], &Limits::default()) {
+            assert_eq!((h.width, h.height), (120, 80), "prefix {len}");
+        }
+    }
+}
+
+/// A small file declaring a 200 MiB profile, or a 200 MiB stream, is refused as too large from
+/// the declared sizes, before the decoder reserves either: from the header, the decode and the
+/// thumbnail, in a bare codestream and in containers. Directly against a budget (with `max_icc`
+/// raised past it), the charge fails and nothing is left charged; had the decoder run, it would
+/// have reserved the size and then found the file damaged or cut short instead.
+#[test]
+fn a_declared_profile_past_the_limit_is_refused_before_the_decoder_reserves_it() {
+    let start = Instant::now();
+    let pixels = Scene::new(70, 16, 16).render().unwrap().data;
+    let m = Meta { width: 16, height: 16, ..RGB8 };
+    const BIG: u64 = 200 << 20;
+    // The profile's length is 200 MiB; the stream holds 140 bytes (its sizes, then zeros).
+    let mut sizes = [varint(BIG), varint(0)].concat();
+    sizes.resize(140, 0);
+    let big_profile = codestream_icc(&pixels, m, sizes.len() as u64, &sizes);
+    // The stream's length is 200 MiB; nothing of it follows.
+    let big_stream = codestream_icc(&pixels, m, BIG, &[]);
+    let raised = Limits { max_icc: 256 << 20, max_alloc: 128 << 20, ..Limits::default() };
+    for (name, bytes) in [("profile", big_profile), ("stream", big_stream)] {
+        assert!(bytes.len() < 4096, "{name}: {} bytes", bytes.len());
+        for file in [bytes.clone(), container(&bytes), container_parts(&bytes, 5)] {
+            let too_large = Error::TooLarge { width: 0, height: 0 };
+            assert_eq!(read_header(&file, &Limits::default()).unwrap_err(), too_large, "{name}");
+            assert_eq!(decode(&file, &Limits::default()).unwrap_err(), too_large, "{name}");
+            assert_eq!(decode_thumbnail(&file, 8, &Limits::default()).unwrap_err(), too_large, "{name}");
+            assert_eq!(formats::embedded_thumbnail(Format::JpegXl, &file, &Limits::default()).unwrap_err(), too_large, "{name}");
+            assert_eq!(too_large.reason(), "Too large to display");
+            // With `max_icc` raised: the header's 64 MiB allowance refuses it, and so does the
+            // decode's budget.
+            assert_eq!(read_header(&file, &raised), Err(Error::TooLarge { width: 0, height: 0 }), "{name}");
+            let header = Header {
+                format: Format::JpegXl,
+                width: 16,
+                height: 16,
+                orientation: Orientation::UPRIGHT,
+                exif: None,
+                exif_error: None,
+                thumbnail: None,
+            };
+            let mut budget = Budget::new(&raised, 16, 16);
+            assert_eq!(formats::jxl::decode(&file, &header, &mut budget, &raised).unwrap_err(), Error::TooLarge { width: 16, height: 16 }, "{name}");
+            assert_eq!(budget.left(), 128 << 20, "{name}");
+        }
+    }
+    // The stream's limit is `max_icc` plus the 64 KiB the decoder itself allows beyond the
+    // profile: at it the sizes are read on (and this file ends there), past it refused at once.
+    let small = Limits { max_icc: 1000, ..Limits::default() };
+    let at = codestream_icc(&pixels, m, 1000 + 65_536, &[]);
+    assert_ne!(read_header(&at, &small), Err(Error::TooLarge { width: 0, height: 0 }));
+    let past = codestream_icc(&pixels, m, 1000 + 65_537, &[]);
+    assert_eq!(read_header(&past, &small), Err(Error::TooLarge { width: 0, height: 0 }));
+    assert!(start.elapsed().as_millis() < 2000, "{:?}", start.elapsed());
+}
+
 #[test]
 fn damaged_files_are_refused_and_the_reason_text() {
     let scene = Scene::new(67, 32, 24);
@@ -366,11 +658,18 @@ fn truncation_at_every_offset_never_panics() {
     }
 }
 
-/// Every layout, as a bare codestream and in a container (encoded once: the encoder is slow in
-/// debug builds).
+/// Every layout and a file with an embedded profile, as a bare codestream and in a container
+/// (encoded once: the encoder is slow in debug builds).
 static SMALL_FILES: LazyLock<Vec<Vec<u8>>> = LazyLock::new(|| {
     let scene = Scene::new(69, 20, 14);
-    LAYOUTS.iter().map(|&(colour, depth, with_alpha, _)| jxl(&scene, colour, depth, with_alpha).unwrap()).flat_map(|b| [container(&b), b]).collect()
+    let stream = icc_stream(&ColorProfile::new_display_p3().encode().unwrap());
+    let icc = codestream_icc(&p3_pixels(69, 20, 14).1, Meta { width: 20, height: 14, ..RGB8 }, stream.len() as u64, &stream);
+    LAYOUTS
+        .iter()
+        .map(|&(colour, depth, with_alpha, _)| jxl(&scene, colour, depth, with_alpha).unwrap())
+        .chain([icc])
+        .flat_map(|b| [container(&b), b])
+        .collect()
 });
 
 proptest! {
@@ -378,7 +677,7 @@ proptest! {
 
     /// Corruption and truncation anywhere in real files never panic.
     #[test]
-    fn corrupted_files_never_panic(file in 0..2 * LAYOUTS.len(), cut in any::<prop::sample::Index>(), flips in proptest::collection::vec((any::<prop::sample::Index>(), any::<u8>()), 1..6)) {
+    fn corrupted_files_never_panic(file in 0..2 * LAYOUTS.len() + 2, cut in any::<prop::sample::Index>(), flips in proptest::collection::vec((any::<prop::sample::Index>(), any::<u8>()), 1..6)) {
         let mut bytes = SMALL_FILES[file].clone();
         for (at, v) in flips {
             let i = at.index(bytes.len());

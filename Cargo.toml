@@ -55,6 +55,12 @@ png = "0.18"
 image-webp = "0.2"
 # No `rayon`: decodes already run on the thumbnail workers, so the decoder stays on their thread.
 jxl-oxide = { version = "0.12", default-features = false }
+# Parts of the same project, already in `jxl-oxide`'s graph: `dalica-image` reads the image header
+# and an embedded ICC profile's declared sizes with them before the decoder reserves the profile
+# (formats/jxl.rs, M6.41). Versions follow what `jxl-oxide` 0.12 resolves.
+jxl-bitstream = "1.1"
+jxl-coding = "1.0.1"
+jxl-oxide-common = "1.0"
 # HEIF/HEIC behind `dalica-image`'s non-default `heif` feature (formats.md §3). Pinned exactly: a
 # young decoder of untrusted files; moving the pin is a reviewed change. No `parallel` (rayon):
 # Dalica decodes on its own worker threads.

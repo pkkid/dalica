@@ -16,12 +16,22 @@
 //!   the decode's [`Budget`] has left; running out is "too large", never an abort. The decoder runs
 //!   on the calling thread (no `rayon` pool: decodes already run on the thumbnail workers). Its
 //!   panics are caught: the decode's by the caller's guard, the header's here.
+//! - **Embedded ICC profile:** `jxl-oxide` reserves the encoded profile stream and the profile
+//!   (each up to 256 MiB) outside its tracker, as soon as it has read their declared sizes. So
+//!   before the decoder sees the file, [`declared_icc`] reads those sizes with the decoder's own
+//!   parsers (the image header, the stream's `U64` length, and the first entropy-coded bytes that
+//!   hold the profile's length): a profile over `Limits::max_icc`, or a stream over it plus the
+//!   64 KiB slack the decoder itself allows, is "too large". A smaller one is charged: against the
+//!   header's 64 MiB allowance while the header is read, and to the decode's [`Budget`] (the stream
+//!   and two copies of the profile: the decoder's and the colour stage's) while it decodes.
 
 use std::ops::Range;
 
+use jxl_bitstream::{Bitstream, ContainerParser, ParseEvent};
 use jxl_oxide::color::{ColourEncoding, ColourSpace, TransferFunction, WhitePoint};
 use jxl_oxide::image::BitDepth;
-use jxl_oxide::{AllocTracker, InitializeResult, JxlImage, PixelFormat};
+use jxl_oxide::{AllocTracker, ImageHeader, InitializeResult, JxlImage, PixelFormat};
+use jxl_oxide_common::Bundle;
 
 use crate::decode::{ColorModel, Decoded, Samples, guard};
 use crate::limits::{Budget, Limits};
@@ -35,14 +45,155 @@ pub const REASON: &str = "This kind of JPEG XL file isn't supported";
 
 /// The first prefix fed to the decoder to read the header.
 const FIRST_CHUNK: usize = 16 * 1024;
-/// What the decoder may allocate through its tracker while reading only the header.
-const HEADER_ALLOC: usize = 64 * 1024 * 1024;
+/// What the decoder may allocate while reading only the header: through its tracker, plus the
+/// embedded ICC profile it reserves outside it.
+const HEADER_ALLOC: u64 = 64 * 1024 * 1024;
+/// How much longer than the profile its encoded stream may be: the decoder refuses a stream more
+/// than this longer than the profile it declares.
+const ICC_STREAM_SLACK: u64 = 64 * 1024;
+/// The entropy-coded ICC stream's distributions (ISO/IEC 18181-1 §E.4: 41 contexts).
+const ICC_CONTEXTS: u32 = 41;
+/// The first bytes of the ICC stream, which hold the profile's length (the decoder reads as many
+/// before it reserves the stream).
+const ICC_SIZE_BYTES: usize = 18;
+
+/// An embedded ICC profile as the codestream declares it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Icc {
+    /// No embedded profile, or a codestream the decoder stops reading (damaged or cut short)
+    /// before it reserves one.
+    None,
+    /// The encoded stream's length and the profile's (0 when the stream alone is over the limit,
+    /// so the profile's length was not read).
+    Declared { stream: u64, profile: u64 },
+}
+
+/// The ICC sizes `cs` (the start of a codestream) declares, or `None` when it ends before they
+/// can be told: the image header, then (when the colour encoding asks for a profile) the stream's
+/// length and its first entropy-coded bytes, all read by the decoder's own parsers.
+fn icc_in(cs: &[u8], max_stream: u64) -> Option<Icc> {
+    // Out of data: wait for more. Any other error: the decoder refuses the file at the same point.
+    let stop = |eof: bool| if eof { None } else { Some(Icc::None) };
+    let mut bits = Bitstream::new(cs);
+    let header = match ImageHeader::parse(&mut bits, ()) {
+        Ok(header) => header,
+        Err(e) => return stop(e.unexpected_eof()),
+    };
+    if !header.metadata.colour_encoding.want_icc() {
+        return Some(Icc::None);
+    }
+    let stream = match bits.read_u64() {
+        Ok(stream) => stream,
+        Err(e) => return stop(e.unexpected_eof()),
+    };
+    if stream > max_stream {
+        return Some(Icc::Declared { stream, profile: 0 });
+    }
+    let mut decoder = match jxl_coding::Decoder::parse(&mut bits, ICC_CONTEXTS) {
+        Ok(decoder) => decoder,
+        Err(e) => return stop(e.unexpected_eof()),
+    };
+    if let Err(e) = decoder.begin(&mut bits) {
+        return stop(e.unexpected_eof());
+    }
+    let n = usize::try_from(stream).unwrap_or(usize::MAX).min(ICC_SIZE_BYTES);
+    let mut head = [0u8; ICC_SIZE_BYTES];
+    for byte in head.iter_mut().take(n) {
+        // Context 0: every byte this early in the stream (§E.4.2).
+        match decoder.read_varint(&mut bits, 0).map(u8::try_from) {
+            Ok(Ok(v)) => *byte = v,
+            Ok(Err(_)) => return Some(Icc::None),
+            Err(e) => return stop(e.unexpected_eof()),
+        }
+    }
+    match varint(head.get(..n).unwrap_or_default()) {
+        Some(profile) => Some(Icc::Declared { stream, profile }),
+        None => Some(Icc::None),
+    }
+}
+
+/// The profile's length at the start of the ICC stream: a little-endian base-128 varint of at
+/// most nine bytes, read the way the decoder reads it. `None` when the bytes end inside it.
+fn varint(bytes: &[u8]) -> Option<u64> {
+    let mut value = 0u64;
+    for (i, &b) in bytes.iter().take(9).enumerate() {
+        value |= u64::from(b & 0x7f) << (7 * i);
+        if b & 0x80 == 0 || i == 8 {
+            return Some(value);
+        }
+    }
+    None
+}
+
+/// The ICC sizes `b` (a bare codestream or a container) declares. Container boxes are joined only
+/// as far as needed, re-read each time the joined part has doubled, so a file of many tiny boxes
+/// costs linear time.
+fn declared_icc(b: &[u8], limits: &Limits) -> Result<Icc> {
+    let max_stream = (limits.max_icc as u64).saturating_add(ICC_STREAM_SLACK);
+    let mut parser = ContainerParser::new();
+    let mut first: Option<&[u8]> = None;
+    let mut joined: Vec<u8> = Vec::new();
+    let mut tried = 0usize;
+    for event in parser.feed_bytes(b) {
+        // A container error stops the decoder too, before the codestream.
+        let Ok(event) = event else { break };
+        let ParseEvent::Codestream(part) = event else { continue };
+        if first.is_none() && joined.is_empty() {
+            // The common case, one part (a bare codestream or one `jxlc` box): read in place.
+            if let Some(icc) = icc_in(part, max_stream) {
+                return Ok(icc);
+            }
+            first = Some(part);
+            tried = part.len();
+            continue;
+        }
+        for piece in [first.take().unwrap_or_default(), part] {
+            joined.try_reserve(piece.len()).map_err(|_| Error::TooLarge { width: 0, height: 0 })?;
+            joined.extend_from_slice(piece);
+        }
+        if joined.len() >= tried.saturating_mul(2) {
+            tried = joined.len();
+            if let Some(icc) = icc_in(&joined, max_stream) {
+                return Ok(icc);
+            }
+        }
+    }
+    if joined.len() > tried
+        && let Some(icc) = icc_in(&joined, max_stream)
+    {
+        return Ok(icc);
+    }
+    // Cut short before the sizes: the decoder stops there too.
+    Ok(Icc::None)
+}
+
+/// The bytes `jxl-oxide` reserves outside its tracker for `b`'s embedded profile while it reads
+/// the header (the stream and the profile; 0 without one). A profile over `max_icc`, or a stream
+/// over it plus the decoder's slack, is too large before anything is reserved for it.
+fn icc_reserve(b: &[u8], limits: &Limits) -> Result<(u64, u64)> {
+    match declared_icc(b, limits)? {
+        Icc::None => Ok((0, 0)),
+        Icc::Declared { stream, profile }
+            if stream <= (limits.max_icc as u64).saturating_add(ICC_STREAM_SLACK) && profile <= limits.max_icc as u64 =>
+        {
+            Ok((stream, profile))
+        }
+        Icc::Declared { stream, profile } => {
+            log::debug!("JPEG XL ICC profile of {profile} bytes in a {stream}-byte stream: over the {}-byte limit", limits.max_icc);
+            Err(Error::TooLarge { width: 0, height: 0 })
+        }
+    }
+}
 
 /// Reads the image header (and the ICC profile and preview frame header that follow it) from the
 /// shortest prefix of `b` that holds it.
 fn open_header(b: &[u8], limits: &Limits) -> Result<JxlImage> {
-    let mut uninit = JxlImage::builder().alloc_tracker(AllocTracker::with_limit(HEADER_ALLOC)).build_uninit();
     let cap = usize::try_from(limits.max_header_bytes).unwrap_or(usize::MAX).min(b.len());
+    // The profile comes out of the header's allowance; the tracker gets the rest.
+    let (stream, profile) = icc_reserve(b.get(..cap).ok_or(Error::Truncated)?, limits)?;
+    let tracked = HEADER_ALLOC.checked_sub(stream.saturating_add(profile)).ok_or(Error::TooLarge { width: 0, height: 0 })?;
+    let tracker = AllocTracker::with_limit(usize::try_from(tracked).unwrap_or(usize::MAX));
+    let mut uninit = JxlImage::builder().alloc_tracker(tracker).build_uninit();
     let (mut pos, mut chunk) = (0usize, FIRST_CHUNK);
     loop {
         let end = pos.saturating_add(chunk).min(cap);
@@ -79,8 +230,13 @@ pub fn embedded_thumbnail(b: &[u8], limits: &Limits) -> Result<Option<Range<usiz
     header(b, limits).map(|_| None)
 }
 
-pub fn decode(b: &[u8], header: &Header, budget: &mut Budget, _limits: &Limits) -> Result<Decoded> {
+pub fn decode(b: &[u8], header: &Header, budget: &mut Budget, limits: &Limits) -> Result<Decoded> {
     let (width, height) = (header.width, header.height);
+    // The embedded profile is reserved outside the tracker: the stream and the profile while the
+    // header is read, then the decoder's profile and the copy handed to the colour stage.
+    let (stream, profile) = icc_reserve(b, limits)?;
+    let reserved = stream.saturating_add(profile.saturating_mul(2));
+    budget.charge(reserved)?;
     // Everything the budget has left is lent to the decoder's tracker for the image's buffers;
     // what it does not use is given back once the samples are copied out.
     let lent = budget.left();
@@ -89,6 +245,7 @@ pub fn decode(b: &[u8], header: &Header, budget: &mut Budget, _limits: &Limits) 
     // The decoder and its buffers are gone when `render` returns; the samples it made stay.
     let result = render(b, width, height, &tracker, budget);
     budget.refund(lent);
+    budget.refund(reserved);
     let (decoded, samples_bytes) = result?;
     budget.charge(samples_bytes)?;
     Ok(decoded)
@@ -167,9 +324,16 @@ fn fill(written: usize, len: usize) -> Result<()> {
 }
 
 /// The profile of the rendered pixels, or `None` when they are sRGB (RGB or grey with the sRGB
-/// curve and a D65 white), which the colour stage takes untagged pixels to be.
+/// curve and a D65 white), which the colour stage takes untagged pixels to be. An embedded profile
+/// is handed on as it is when the pixels are stored in its space (not XYB): the decoder would
+/// otherwise describe them with an encoding it guessed from the profile, which can be wrong (its
+/// guess for a Display P3 profile with chromatic adaptation has other primaries).
 fn profile(image: &JxlImage) -> Option<Vec<u8>> {
-    match &image.image_header().metadata.colour_encoding {
+    let metadata = &image.image_header().metadata;
+    if let (ColourEncoding::IccProfile(_), false, Some(icc)) = (&metadata.colour_encoding, metadata.xyb_encoded, image.original_icc()) {
+        return Some(icc.to_vec());
+    }
+    match &metadata.colour_encoding {
         ColourEncoding::Enum(e) if e.is_srgb() => None,
         ColourEncoding::Enum(e)
             if e.colour_space == ColourSpace::Grey && matches!(e.white_point, WhitePoint::D65) && matches!(e.tf, TransferFunction::Srgb) =>
