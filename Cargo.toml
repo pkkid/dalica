@@ -55,6 +55,13 @@ jxl-oxide = "0.12"
 heic-rs = "0.1"
 moxcms = "0.9"
 fast_image_resize = "6"
+# Test files (`dalica-scenes` formats, M5.2): zlib for Deflate TIFF strips (already under `png`), a
+# safe lossless JPEG XL encoder (MIT OR Apache-2.0 OR Zlib; single-threaded, so its bytes are
+# deterministic) with its core types, and `image`'s own TIFF backend for layouts `image` refuses.
+fdeflate = "0.3"
+zune-jpegxl = { version = "0.5", default-features = false, features = ["std"] }
+zune-core = "0.5"
+tiff = "0.11"
 
 # Metadata, files, locations
 quick-xml = "0.42"

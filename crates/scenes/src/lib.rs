@@ -18,6 +18,8 @@ pub mod demo;
 pub mod encode;
 pub mod exif;
 pub mod fingerprint;
+pub mod formats;
+pub mod icc;
 pub mod orient;
 pub mod render;
 
