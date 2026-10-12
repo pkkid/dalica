@@ -42,6 +42,7 @@ cargo xtask ci                                      # THE gate: run before every
 | `xtask test-corpus [-p <crate>] [-- args]` | fetches like `corpus --all`, then runs each corpus crate's `tests/corpus.rs` with `--release --features corpus,heif`, holding every set to its committed floors; sets not published yet are reported as skipped (§11) | the CI `corpus` job |
 | `xtask bench [name…] [-- args]` | builds the registered benches in release (`cargo bench`), runs each with `--json` (plus `args`), prints its rows, appends the run to `<target dir>/bench/history.jsonl` and fails on a CPU-time regression over 20 % against the last run of the same bench with the same arguments on the same machine (§13 *Bench runs*); no name runs them all | |
 | `xtask budgets [--plant-ms N]` | builds in release and runs the frame budgets the milestones assert (§8 *The budgets job*): M4's 100 k scroll (`library_bench`) and thumb at top speed, UI frame time p95 ≤ 8 ms, cells visited flat; one line per budget, fails when one is missed; `--plant-ms` adds a planted slowdown to every frame | the `budgets` workflow |
+| `xtask version [set X.Y.Z[-pre]]` | prints `[workspace.package] version` from the root `Cargo.toml`; `set` checks that the new value is a semantic version (a hyphen makes it a pre-release, `0.2.0-rc.1`; no build metadata), rewrites that line and the version line of every workspace member in `Cargo.lock` and nothing else, then asks `cargo metadata --locked --offline` whether the lock file is current and puts both files back if not ([`releasing.md`](releasing.md) → Cutting a release) | |
 | `xtask perf` | *planned (from M4):* the budgeted benchmark run of §13 | |
 | `xtask scorecard [--check]` | *planned (after M1):* regenerate / verify `docs/scorecard.md` | |
 | `xtask snapshot <script>` | *planned (M2):* headless UI screenshot via the CPU rasterizer | |
@@ -203,8 +204,8 @@ Adapted from PhotoCraft `docs/development.md` (revision 59684266) and LightCraft
 
 - The desktop app writes its `log` records to standard error **and** to `logs/dalica.log` in the
   settings directory (Linux `$XDG_CONFIG_HOME/dalica/logs/`, by default `~/.config/dalica/logs/`;
-  macOS `~/Library/Application Support/Dalica/logs/`; Windows `%APPDATA%\Dalica\logs\`), never in a
-  watched folder or the library directory. A launch from a desktop menu or the Dock has no terminal,
+  macOS `~/Library/Application Support/Dalica/logs/`; Windows `%APPDATA%\Dalica\logs\`; in portable
+  mode `data/logs/` beside the executable), never in a watched folder or the library directory. A launch from a desktop menu or the Dock has no terminal,
   so this file is what users attach to a bug report (**Help → Open Log Folder** shows it).
 - Each launch moves the previous log to `dalica.1.log` (and that one to `dalica.2.log`), so the log
   of a run that crashed survives the next start. The file stops growing at 16 MiB. `--version`,
@@ -278,11 +279,23 @@ processed them, so a following `ui.state` or `ui.inspect` observes their effect.
 | `DALICA_PROFILE=1` | per-stage timings (see *Profiling*) |
 | `DALICA_SUITES_RAN=1` | set by `cargo xtask ci` on its acceptance steps: the acceptance tests skip the crate suites its test step already ran (§3) |
 | `DALICA_CACHE_DIR` | an absolute folder used in place of Dalica's cache folder for the thumbnail cache (`<dir>/thumbs`); every test that launches `dalica` or `dalica-cli` on a library sets it to a temporary folder ([`data-model.md`](data-model.md) §4) |
+| `DALICA_HOME` | an absolute folder used as the default library (its settings and index) when `dalica` is started without `--library`; wins over portable mode (below) |
+| `DALICA_BUILD_SHA`, `DALICA_BUILD_DATE` | **build time:** the commit and date `dalica --version`, `dalica-cli --version` and About report (`dalica_core::build`); CI and the packaging scripts set them, a plain `cargo build` reports `<version> (dev build)`; changing either rebuilds `dalica-core` ([`releasing.md`](releasing.md)) |
 | `DALICA_THEME_FILE=tokens.json` | **debug builds only:** live `theme::Tokens` overrides, re-read on change (keys are the field names in `crates/ui-kit/src/theme.rs`); compiled out of release builds |
 | `CRAFT_FONTS_DIR` | optional fonts build input (see §12) |
 | `DALICA_CORPUS_REPO` | local authoring clone of the corpus repository for `xtask corpus --local` (see §11) |
 | `DALICA_GPU=0` | once a GPU path exists: force the CPU renderer for the whole process (see §14) |
 | `DALICA_FACE_MODELS` | M13: alternative face-model folder (see [`faces.md`](faces.md)) |
+
+### Portable mode
+
+A file named `portable` beside the `dalica` executable (the Windows portable zip ships one) keeps
+the default library, with its settings and index, in `data/library` and the thumbnail cache in
+`data/cache/thumbs` and the log in `data/logs` next to the executable instead of the platform
+folders (`dalica-cli` beside a marker uses the same cache folder); sidecars stay in the photo
+folders as always. `DALICA_HOME` and `DALICA_CACHE_DIR` still win when set. If `data` cannot
+be created or written there, Dalica prints why and uses the platform folders. The resolution lives
+in `apps/dalica/src/paths.rs`.
 
 ## 11. Test corpora
 

@@ -11,9 +11,9 @@ mod frame;
 mod icon;
 mod logging;
 mod native_menu;
+mod paths;
 mod window;
 
-use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
@@ -22,8 +22,10 @@ const USAGE: &str = "usage: dalica [--library DIR | --demo | --demo-fresh] [--co
 
 --demo opens a library of generated photos in the temp folder (made on first use, kept between runs);
 --demo-fresh a new one, removed when the window closes. Neither reads or changes your own library or settings.
-Otherwise the library is DIR, else $DALICA_HOME, else the platform data folder (Linux ~/.local/share/dalica/library,
-macOS ~/Library/Application Support/Dalica/Library, Windows %LOCALAPPDATA%\\Dalica\\Library).
+Otherwise the library is DIR, else $DALICA_HOME, else the `data` folder beside the executable when a file named
+`portable` is there (portable mode: the library and caches stay next to the program), else the platform data folder
+(Linux ~/.local/share/dalica/library, macOS ~/Library/Application Support/Dalica/Library,
+Windows %LOCALAPPDATA%\\Dalica\\Library).
 
 --control [PORT] lets agents and scripts drive the app over 127.0.0.1:PORT (default $DALICA_CONTROL_PORT, else 7990),
 with a token from a private token file (docs/control-protocol.md). Control options:
@@ -33,19 +35,9 @@ with a token from a private token file (docs/control-protocol.md). Control optio
   --automation-allow-external    allow commands with effects outside Dalica
   --headless                     no window: the app runs on the CPU renderer and answers only the control channel";
 
-/// The default library folder (`architecture.md` §4: the platform data directory).
-fn default_library(var: impl Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
-    let abs = |k: &str| var(k).filter(|v| !v.is_empty()).map(PathBuf::from).filter(|p| p.is_absolute());
-    if let Some(home) = abs("DALICA_HOME") {
-        return Some(home);
-    }
-    if cfg!(windows) {
-        abs("LOCALAPPDATA").map(|p| p.join("Dalica").join("Library"))
-    } else if cfg!(target_os = "macos") {
-        abs("HOME").map(|h| h.join("Library").join("Application Support").join("Dalica").join("Library"))
-    } else {
-        abs("XDG_DATA_HOME").or_else(|| abs("HOME").map(|h| h.join(".local").join("share"))).map(|p| p.join("dalica").join("library"))
-    }
+/// What `--version` prints: the version with its commit and build date (`releasing.md`).
+fn version_line() -> String {
+    format!("dalica {}", dalica_core::build::version_string())
 }
 
 /// Which library the command line chose.
@@ -151,7 +143,7 @@ fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let options = match parse(&args) {
         Ok(Launch::Version) => {
-            println!("dalica {}", env!("CARGO_PKG_VERSION"));
+            println!("{}", version_line());
             return ExitCode::SUCCESS;
         }
         Ok(Launch::Help) => {
@@ -181,6 +173,11 @@ fn main() -> ExitCode {
         }
     };
     let demo = matches!(options.choice, Choice::Demo | Choice::DemoFresh);
+    // The user's library, its caches and the log: the platform folders, or beside the executable
+    // in portable mode (`paths`). A demo uses only the log folder.
+    let dirs = paths::current();
+    let data = dirs.data.clone();
+    let dirs = (!demo).then_some(dirs);
     let mut fresh = None;
     let source = match options.choice {
         Choice::Demo => window::Source::Demo(dalica_engine::demo::default_dir()),
@@ -196,7 +193,7 @@ fn main() -> ExitCode {
             }
         },
         Choice::Library(dir) => window::Source::Library(dir),
-        Choice::Default => match default_library(|k| std::env::var_os(k)) {
+        Choice::Default => match dirs.as_ref().and_then(|d| d.library.clone()) {
             Some(dir) => window::Source::Library(dir),
             None => {
                 eprintln!("dalica: no library folder: pass --library DIR or set DALICA_HOME");
@@ -206,10 +203,16 @@ fn main() -> ExitCode {
     };
     // The user's library keeps its thumbnails in Dalica's cache folder; a demo keeps a temporary
     // cache that goes with it.
-    if matches!(source, window::Source::Library(_)) {
-        dalica_engine::thumbs::set_process_cache_dir(dalica_engine::thumbs::default_cache_dir(|k| std::env::var_os(k)));
+    if let Some(dirs) = &dirs {
+        dalica_engine::thumbs::set_process_cache_dir(dirs.cache.clone());
     }
-    let _log = logging::init();
+    let _log = logging::init(data.as_deref());
+    if let Some(dirs) = dirs.as_ref().filter(|d| d.mode == paths::Mode::Portable) {
+        log::info!("dalica: portable mode, library {:?}, thumbnails {:?}", dirs.library, dirs.cache);
+    }
+    if let Some(w) = dirs.as_ref().and_then(|d| d.warning.as_ref()) {
+        log::warn!("dalica: {w}");
+    }
     let (code, token_file) = match listening {
         Some((listening, flags)) if options.headless => run_headless(listening, &flags, source, demo),
         Some((listening, flags)) => {
@@ -306,27 +309,11 @@ fn remove_fresh_demo(dir: dalica_fs::TempDir) {
 mod tests {
     use super::*;
 
-    fn env(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<OsString> {
-        let pairs: Vec<(String, String)> = pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
-        move |k| pairs.iter().find(|(n, _)| n == k).map(|(_, v)| OsString::from(v))
-    }
-
     #[test]
-    fn the_library_is_dalica_home_or_the_platform_data_folder() {
-        let lib = if cfg!(windows) { "C:\\lib" } else { "/lib" };
-        assert_eq!(default_library(env(&[("DALICA_HOME", lib)])), Some(PathBuf::from(lib)));
-        // A relative or empty value is ignored.
-        assert_eq!(default_library(env(&[("DALICA_HOME", "relative")])), default_library(env(&[])));
-        assert_eq!(default_library(env(&[])), None);
-        if cfg!(windows) {
-            let local = "C:\\Users\\a\\AppData\\Local";
-            assert_eq!(default_library(env(&[("LOCALAPPDATA", local)])), Some(PathBuf::from(local).join("Dalica").join("Library")));
-        } else if cfg!(target_os = "macos") {
-            assert_eq!(default_library(env(&[("HOME", "/Users/a")])), Some(PathBuf::from("/Users/a/Library/Application Support/Dalica/Library")));
-        } else {
-            assert_eq!(default_library(env(&[("HOME", "/home/a")])), Some(PathBuf::from("/home/a/.local/share/dalica/library")));
-            assert_eq!(default_library(env(&[("HOME", "/home/a"), ("XDG_DATA_HOME", "/data")])), Some(PathBuf::from("/data/dalica/library")));
-        }
+    fn version_names_the_build() {
+        let v = version_line();
+        assert_eq!(v, format!("dalica {}", dalica_core::build::version_string()));
+        assert!(v.starts_with(&format!("dalica {} (", env!("CARGO_PKG_VERSION"))), "{v}");
     }
 
     fn parsed(args: &[&str]) -> Result<Launch, String> {

@@ -229,8 +229,7 @@ pub fn read_line(r: &mut BufReader<TcpStream>, max: usize, deadline: Option<Inst
 }
 
 fn app_info() -> Value {
-    let build = if cfg!(debug_assertions) { "dev build" } else { "release" };
-    json!({ "app": "dalica", "version": format!("{} ({build})", env!("CARGO_PKG_VERSION")), "protocol": PROTOCOL, "pid": std::process::id() })
+    json!({ "app": "dalica", "version": dalica_core::build::version_string(), "protocol": PROTOCOL, "pid": std::process::id() })
 }
 
 /// Answers an `auth` request: the app's identity, or `unauthorized`.
@@ -436,6 +435,7 @@ mod tests {
         let ok = check_auth(&t, &Request::new("auth", json!({ "token": "ab".repeat(32) }))).unwrap();
         assert_eq!(ok["app"], "dalica");
         assert_eq!(ok["protocol"], PROTOCOL);
+        assert_eq!(ok["version"], dalica_core::build::version_string());
         assert_eq!(ok["pid"], std::process::id());
         for params in [json!({ "token": "ac".repeat(32) }), json!({}), json!({ "token": 5 }), json!(null), json!("ab")] {
             let e = check_auth(&t, &Request::new("auth", params.clone())).unwrap_err();

@@ -25,7 +25,7 @@ commands:
                                              a headless screenshot of the app; script lines are
                                              {\"click\": id}, {\"key\": \"Ctrl+8\"}, {\"command\": id, \"params\": {...}},
                                              {\"settle\": true}
-  --version                                  print the version
+  --version                                  print the version, with its commit and build date
 
 --demo may replace --library DIR in run, inspect and snapshot: the demo library of generated photos in
 the temp folder, made on first use and kept between runs. --demo-fresh: a new demo library, removed on exit.
@@ -38,7 +38,8 @@ fn main() -> ExitCode {
     // A library named on the command line keeps its thumbnails in Dalica's cache folder; a demo
     // keeps a temporary cache that goes with its session.
     if !args.iter().any(|a| a == "--demo" || a == "--demo-fresh") {
-        dalica_engine::thumbs::set_process_cache_dir(dalica_engine::thumbs::default_cache_dir(|k| std::env::var_os(k)));
+        let exe = std::env::current_exe().ok();
+        dalica_engine::thumbs::set_process_cache_dir(cache_dir(|k| std::env::var_os(k), exe.as_deref().and_then(std::path::Path::parent)));
     }
     let (args, fresh) = match demo_args(args, &dalica_engine::demo::default_dir()) {
         Ok(v) => v,
@@ -56,7 +57,7 @@ fn main() -> ExitCode {
 
 fn dispatch(args: &[String]) -> ExitCode {
     match args.first().map(String::as_str) {
-        Some("--version" | "-V") => println!("dalica-cli {}", env!("CARGO_PKG_VERSION")),
+        Some("--version" | "-V") => println!("{}", version_line()),
         Some("--help" | "-h" | "help") => println!("{USAGE}"),
         Some("commands") => println!("{}", commands()),
         Some("run") => return run::main(args.get(1..).unwrap_or_default()),
@@ -72,6 +73,22 @@ fn dispatch(args: &[String]) -> ExitCode {
         }
     }
     ExitCode::SUCCESS
+}
+
+/// The thumbnail cache: `$DALICA_CACHE_DIR`, else `data/cache/thumbs` beside the executable when a
+/// `portable` marker file is there (portable mode, as `apps/dalica/src/paths.rs` resolves it for the
+/// app), else the platform cache folder.
+fn cache_dir(var: impl Fn(&str) -> Option<std::ffi::OsString>, exe_dir: Option<&std::path::Path>) -> Option<std::path::PathBuf> {
+    let set = var(dalica_engine::thumbs::CACHE_DIR_VAR).filter(|v| !v.is_empty()).is_some_and(|v| std::path::Path::new(&v).is_absolute());
+    match exe_dir.filter(|d| d.join("portable").is_file()) {
+        Some(d) if !set => Some(d.join("data").join("cache").join("thumbs")),
+        _ => dalica_engine::thumbs::default_cache_dir(var),
+    }
+}
+
+/// What `--version` prints: the version with its commit and build date (`releasing.md`).
+fn version_line() -> String {
+    format!("dalica-cli {}", dalica_core::build::version_string())
 }
 
 /// A command's default keys on this platform, as `{context, key}`: keys for other platforms left
@@ -226,6 +243,37 @@ mod tests {
         assert_eq!(redo["keys"], serde_json::json!([{ "context": "library", "key": want }]));
         let small = list.iter().find(|c| c["id"] == "view.thumbsSmall").unwrap();
         assert_eq!(small["shortcut"], "Ctrl+1");
+    }
+
+    #[test]
+    fn the_cache_follows_portable_mode() {
+        let dir = tempfile::tempdir().unwrap();
+        let exe = dir.path().join("Dalica");
+        std::fs::create_dir_all(&exe).unwrap();
+        let home = dir.path().join("home");
+        let cache = dir.path().join("cache");
+        let var = |k: &str| match k {
+            "HOME" | "LOCALAPPDATA" => Some(home.clone().into_os_string()),
+            _ => None,
+        };
+        // No marker: the platform cache folder, as before.
+        assert_eq!(cache_dir(var, Some(&exe)), dalica_engine::thumbs::default_cache_dir(var));
+        assert_eq!(cache_dir(var, None), dalica_engine::thumbs::default_cache_dir(var));
+        std::fs::write(exe.join("portable"), b"").unwrap();
+        assert_eq!(cache_dir(var, Some(&exe)), Some(exe.join("data").join("cache").join("thumbs")));
+        assert_eq!(cache_dir(|_| None, Some(&exe)), Some(exe.join("data").join("cache").join("thumbs")));
+        // $DALICA_CACHE_DIR still wins.
+        let with_var = |k: &str| (k == dalica_engine::thumbs::CACHE_DIR_VAR).then(|| cache.clone().into_os_string());
+        assert_eq!(cache_dir(with_var, Some(&exe)), Some(cache.join("thumbs")));
+        assert!(!exe.join("data").exists(), "nothing is made until a thumbnail is written");
+    }
+
+    #[test]
+    fn version_names_the_build() {
+        let v = version_line();
+        assert_eq!(v, format!("dalica-cli {}", dalica_core::build::version_string()));
+        assert!(v.starts_with(&format!("dalica-cli {} (", env!("CARGO_PKG_VERSION"))), "{v}");
+        assert_eq!(dispatch(&strings(&["--version"])), ExitCode::SUCCESS);
     }
 
     #[test]
