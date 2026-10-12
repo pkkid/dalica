@@ -2240,7 +2240,7 @@ replace at M6.R.
   - done when: `crates/ui-kit/tests/datetime.rs`: entry, stepping and refusal of 31 February;
     `crates/ui/tests/adjust_date.rs`: shift three photos by +1 h 30 min and set one, by id, then
     undo; the widget and dialog fingerprints at both window sizes.
-- ⬜ **M6.30 `store`: the metadata write queue**
+- ✅ **M6.30 `store`: the metadata write queue**
   - after: M6.8, M6.17, M6.19
   - files: `crates/store/src/metawrite.rs`, `crates/store/src/metawrite/**`, `crates/store/tests/metawrite.rs`, `crates/store/README.md`, `crates/library/src/sync.rs`, `crates/library/tests/sync.rs`, `crates/fs/src/times.rs`, `crates/fs/tests/times.rs`
   - scope: `data-model.md` §5 and `xmp-interop.md` §1, §5: a queue of files to write, batched per

@@ -356,6 +356,40 @@ fn a_new_sidecar_is_a_plain_xmpmeta_document() {
     assert_eq!(write(None, Some(&out), &c), SidecarWrite::Unchanged);
 }
 
+/// A new sidecar gets the date (`exif:DateTimeOriginal`), alone or with other fields, with and
+/// without the time of the write; written again it changes nothing. (Its plain base has no date
+/// property, and the merge writes the date mirrors only where a packet has them.)
+#[test]
+fn a_new_sidecar_gets_the_date_too() {
+    let date = DateTaken::parse_iso("2024-02-29T23:59:58.25-03:30").unwrap();
+    let cr3 = b"\0\0\0\x18ftypcrx \0\0\0\x01 and the rest of the file".to_vec();
+    let alone = Changes { date_taken: Some(date.clone()), ..Changes::default() };
+    let with = Changes { date_taken: Some(date.clone()), ..full() };
+    let undated = WriteOptions { metadata_date: None, ..all() };
+    for (changes, options) in [(&alone, all()), (&with, all()), (&alone, undated.clone()), (&with, undated)] {
+        let case = format!("{changes:?} {:?}", options.metadata_date);
+        let out = match xmp_sidecar::merge(Some(&cr3), None, changes, &options).unwrap() {
+            SidecarWrite::Write(b) => b,
+            other => panic!("{case}: {other:?}"),
+        };
+        let s = text(&out);
+        assert!(s.starts_with("<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n <rdf:RDF") && !s.contains("xpacket"), "{case}: {s}");
+        assert_eq!(s.matches("<rdf:Description").count(), 1, "{case}: one description, Dalica's: {s}");
+        assert_eq!(s.contains("<xmp:MetadataDate>2026-10-12T09:30:00+02:00</xmp:MetadataDate>"), options.metadata_date.is_some(), "{case}: {s}");
+        let r = read_back(Some(&cr3), &out);
+        assert_eq!(r.metadata.owned.date_taken.as_ref(), Some(&date), "{case}: {s}");
+        if changes.caption.is_some() {
+            assert_full(&r);
+        }
+        assert_eq!(xmp_sidecar::merge(Some(&cr3), Some(&out), changes, &options).unwrap(), SidecarWrite::Unchanged, "{case}");
+        // A blank file counts as none.
+        assert_eq!(xmp_sidecar::merge(Some(&cr3), Some(b" \n"), changes, &options).unwrap(), SidecarWrite::Write(out.clone()), "{case}");
+    }
+    // With dates off nothing is written for a date alone.
+    let off = WriteOptions { dates: false, ..all() };
+    assert_eq!(xmp_sidecar::merge(Some(&cr3), None, &alone, &off).unwrap(), SidecarWrite::Unchanged);
+}
+
 #[test]
 fn nothing_to_write_creates_no_file() {
     assert_eq!(write(None, None, &Changes::default()), SidecarWrite::Unchanged);
