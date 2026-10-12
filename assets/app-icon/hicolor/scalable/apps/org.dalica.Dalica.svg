@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+<!-- Dalica app icon: a magpie carrying a print. Original work, MIT OR Apache-2.0 (LICENSE.txt). -->
+<defs><clipPath id="tile"><rect width="512" height="512" rx="112"/></clipPath></defs>
+<g clip-path="url(#tile)">
+<rect width="512" height="512" fill="#1fa38a"/>
+<g transform="translate(40 4)">
+<g fill="none" stroke="#0b0b0c" stroke-width="12" stroke-linecap="round">
+<path d="M236 420 L222 530"/>
+<path d="M270 426 L276 530"/>
+</g>
+<path fill="#0b0b0c" d="M330 252 C430 300 520 356 610 410 L560 620 C480 540 400 470 330 430 Z"/>
+<path fill="#0b0b0c" d="M122 132 C134 100 168 92 196 98 C226 104 240 128 244 152 C250 186 290 210 340 236 C376 254 404 276 420 300 C420 350 390 410 340 438 C300 456 240 452 200 432 C160 410 128 370 122 320 C118 284 128 252 124 218 C120 190 114 160 122 132 Z"/>
+<path fill="#efe9dc" d="M150 318 C200 336 270 356 380 386 C362 410 344 424 320 434 C290 446 240 444 206 428 C176 412 156 384 150 350 Z"/>
+<path fill="#efe9dc" d="M218 214 C276 222 352 256 410 300 C344 300 270 278 210 246 Z"/>
+</g>
+<g transform="rotate(-20 102 190)">
+<rect x="6" y="190" width="104" height="82" rx="4" fill="#efe9dc" stroke="#0b0b0c" stroke-width="8"/>
+<path fill="#0b0b0c" d="M20 258 L50 224 L68 244 L80 232 L98 258 Z"/>
+<circle cx="84" cy="212" r="8" fill="#0b0b0c"/>
+</g>
+<g transform="translate(40 4)">
+<path fill="#0b0b0c" d="M130 140 C102 148 74 162 46 188 C72 192 102 198 132 202 Z"/>
+<circle cx="168" cy="146" r="13" fill="#efe9dc"/>
+<circle cx="166" cy="146" r="8" fill="#0b0b0c"/>
+</g>
+</g>
+</svg>

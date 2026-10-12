@@ -31,6 +31,7 @@ Columns: **Path** (backticked path pattern), **Asset** (title), **Creator**, **S
 | Path | Asset | Creator | Source | Licence | Added | Modifications |
 |---|---|---|---|---|---|---|
 | `assets/fonts/Inter-*.ttf` (Regular, SemiBold) | Inter 4.001 (static TTF) | The Inter Project Authors (Rasmus Andersson) | https://github.com/rsms/inter | SIL Open Font License 1.1 (`assets/fonts/OFL-Inter.txt`) | 2026-10-10 | none |
+| `assets/app-icon/` (the canonical SVG and every render of it) | Dalica app icon, a magpie carrying a print (a candidate for the maintainer, `assets/app-icon/README.md`) | the Dalica contributors | original work (hand-written SVG; renders by `packaging/icons.sh`) | MIT OR Apache-2.0 (`assets/app-icon/LICENSE.txt`) | 2026-10-12 | none |
 
 ## Optional build input: craft-fonts (not files in this repository)
 
