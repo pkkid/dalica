@@ -1,11 +1,12 @@
 //! `dalica-library` ops (`architecture.md` §11): for random op sequences, applying an op and then
-//! its inverse restores the model, each apply bumps the revision once, and a refused op changes
-//! nothing.
+//! its inverse restores the model (and the tag index), each apply bumps the revision once (derived
+//! ops: never), and a refused op changes nothing. Every op is in the mix, M6's included.
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use dalica_core::{DateTime, FolderId, PhotoId, Timestamp};
-use dalica_library::{Folder, Library, Op, Photo};
+use dalica_library::{Folder, FolderInfo, Library, Op, Photo, PhotoInfo, Recipe, Synced, clean_tags};
 use proptest::prelude::*;
 
 /// A recipe for an op, turned into a real one against the current library (indices wrap around
@@ -18,8 +19,67 @@ enum Seed {
     RemovePhotos(Vec<u8>),
     UpdatePhotos(Vec<(u8, u8, u16)>),
     SetStars(Vec<(u8, bool)>),
+    SetCaptions(Vec<(u8, u8)>),
+    AddTags(Vec<u8>, Vec<u8>),
+    RemoveTags(Vec<u8>, Vec<u8>),
+    RenameTag(u8, u8),
+    SetTags(Vec<(u8, Vec<u8>)>),
+    SetHidden(Vec<(u8, bool)>),
+    SetRecipes(Vec<(u8, u8)>),
+    SetDates(Vec<(u8, Option<u16>)>),
+    SetPhotoInfo(Vec<(u8, u8, Vec<u8>)>),
+    SetFolderInfo(Vec<(u8, u8)>),
+    SetFoldersHidden(Vec<(u8, bool)>),
+    SetSynced(Vec<(u8, Option<u8>)>),
     Batch(Vec<Seed>),
     UnknownPhoto,
+    UnknownFolder,
+    /// A tag or caption the caps refuse.
+    BadText(u8),
+}
+
+/// Tags with case variants, so the case rule is exercised.
+const TAGS: [&str; 7] = ["beach", "Beach", "BEACH", "sea", "Sea side", "dog", "Ünïcode"];
+const CAPTIONS: [&str; 4] = ["", "Tram 28 at sunset", "a \"quoted\" caption\nover two lines", "Ünïcode ✓"];
+const OPERATIONS: [&str; 5] = ["rotate(90)", "flip_h()", "crop(0.1,0.1,0.9,0.9)", "legacy:unknown(1)", "sepia()"];
+
+fn tag(i: u8) -> String {
+    TAGS[usize::from(i) % TAGS.len()].to_string()
+}
+
+fn tag_list(list: &[u8]) -> Vec<String> {
+    let raw: Vec<String> = list.iter().map(|&i| tag(i)).collect();
+    clean_tags(raw.iter().map(String::as_str))
+}
+
+fn recipe(n: u8) -> Recipe {
+    let pick = |k: u8| OPERATIONS[usize::from(k) % OPERATIONS.len()].to_string();
+    Recipe { edits: (0..n % 4).map(|k| pick(n.wrapping_add(k))).collect(), redo: (0..n % 3).map(pick).collect() }
+}
+
+fn date(d: u16) -> Option<DateTime> {
+    DateTime::from_unix_secs(1_600_000_000 + i64::from(d) * 86_400)
+}
+
+fn photo_info(n: u8, tags: &[u8]) -> PhotoInfo {
+    let r = recipe(n);
+    PhotoInfo {
+        caption: CAPTIONS[usize::from(n) % CAPTIONS.len()].to_string(),
+        tags: tag_list(tags),
+        hidden: n.is_multiple_of(3),
+        edits: r.edits,
+        redo: r.redo,
+        date: if n.is_multiple_of(2) { date(u16::from(n)) } else { None },
+    }
+}
+
+fn folder_info(n: u8) -> FolderInfo {
+    FolderInfo {
+        description: CAPTIONS[usize::from(n) % CAPTIONS.len()].to_string(),
+        date: if n.is_multiple_of(2) { date(u16::from(n)).map(|d| d.date()) } else { None },
+        place: if n.is_multiple_of(3) { "Lisbon, Portugal".into() } else { String::new() },
+        hidden: n.is_multiple_of(5),
+    }
 }
 
 fn leaf() -> impl Strategy<Value = Seed> {
@@ -30,7 +90,21 @@ fn leaf() -> impl Strategy<Value = Seed> {
         proptest::collection::vec(any::<u8>(), 0..4).prop_map(Seed::RemovePhotos),
         proptest::collection::vec((any::<u8>(), 0u8..12, any::<u16>()), 0..4).prop_map(Seed::UpdatePhotos),
         proptest::collection::vec((any::<u8>(), any::<bool>()), 0..6).prop_map(Seed::SetStars),
+        proptest::collection::vec((any::<u8>(), any::<u8>()), 0..5).prop_map(Seed::SetCaptions),
+        (proptest::collection::vec(any::<u8>(), 0..6), proptest::collection::vec(any::<u8>(), 0..4)).prop_map(|(i, t)| Seed::AddTags(i, t)),
+        (proptest::collection::vec(any::<u8>(), 0..6), proptest::collection::vec(any::<u8>(), 0..3)).prop_map(|(i, t)| Seed::RemoveTags(i, t)),
+        (any::<u8>(), any::<u8>()).prop_map(|(a, b)| Seed::RenameTag(a, b)),
+        proptest::collection::vec((any::<u8>(), proptest::collection::vec(any::<u8>(), 0..5)), 0..4).prop_map(Seed::SetTags),
+        proptest::collection::vec((any::<u8>(), any::<bool>()), 0..6).prop_map(Seed::SetHidden),
+        proptest::collection::vec((any::<u8>(), any::<u8>()), 0..4).prop_map(Seed::SetRecipes),
+        proptest::collection::vec((any::<u8>(), proptest::option::of(0u16..3000)), 0..4).prop_map(Seed::SetDates),
+        proptest::collection::vec((any::<u8>(), any::<u8>(), proptest::collection::vec(any::<u8>(), 0..4)), 0..4).prop_map(Seed::SetPhotoInfo),
+        proptest::collection::vec((any::<u8>(), any::<u8>()), 0..3).prop_map(Seed::SetFolderInfo),
+        proptest::collection::vec((any::<u8>(), any::<bool>()), 0..3).prop_map(Seed::SetFoldersHidden),
+        proptest::collection::vec((any::<u8>(), proptest::option::of(any::<u8>())), 0..4).prop_map(Seed::SetSynced),
         Just(Seed::UnknownPhoto),
+        Just(Seed::UnknownFolder),
+        any::<u8>().prop_map(Seed::BadText),
     ]
 }
 
@@ -75,9 +149,98 @@ fn build(lib: &mut Library, seed: &Seed) -> Op {
                 .collect(),
         },
         Seed::SetStars(list) => Op::SetStars { stars: list.iter().filter_map(|(i, on)| Some((pick(&photos, *i)?, *on))).collect() },
+        Seed::SetCaptions(list) => Op::SetCaptions {
+            captions: list.iter().filter_map(|(i, c)| Some((pick(&photos, *i)?, CAPTIONS[usize::from(*c) % CAPTIONS.len()].to_string()))).collect(),
+        },
+        Seed::AddTags(ids, tags) => {
+            Op::AddTags { ids: ids.iter().filter_map(|i| pick(&photos, *i)).collect(), tags: tags.iter().map(|&t| tag(t)).collect() }
+        }
+        Seed::RemoveTags(ids, tags) => {
+            Op::RemoveTags { ids: ids.iter().filter_map(|i| pick(&photos, *i)).collect(), tags: tags.iter().map(|&t| tag(t)).collect() }
+        }
+        Seed::RenameTag(a, b) => Op::RenameTag { from: tag(*a), to: tag(*b) },
+        Seed::SetTags(list) => Op::SetTags { tags: list.iter().filter_map(|(i, t)| Some((pick(&photos, *i)?, tag_list(t)))).collect() },
+        Seed::SetHidden(list) => Op::SetHidden { hidden: list.iter().filter_map(|(i, on)| Some((pick(&photos, *i)?, *on))).collect() },
+        Seed::SetRecipes(list) => Op::SetRecipes { recipes: list.iter().filter_map(|(i, n)| Some((pick(&photos, *i)?, recipe(*n)))).collect() },
+        Seed::SetDates(list) => Op::SetDates { dates: list.iter().filter_map(|(i, d)| Some((pick(&photos, *i)?, d.and_then(date)))).collect() },
+        Seed::SetPhotoInfo(list) => {
+            Op::SetPhotoInfo { photos: list.iter().filter_map(|(i, n, t)| Some((pick(&photos, *i)?, photo_info(*n, t)))).collect() }
+        }
+        Seed::SetFolderInfo(list) => {
+            Op::SetFolderInfo { folders: list.iter().filter_map(|(i, n)| Some((pick(&folders, *i)?, folder_info(*n)))).collect() }
+        }
+        Seed::SetFoldersHidden(list) => Op::SetFoldersHidden { hidden: list.iter().filter_map(|(i, on)| Some((pick(&folders, *i)?, *on))).collect() },
+        Seed::SetSynced(list) => Op::SetSynced {
+            synced: list
+                .iter()
+                .filter_map(|(i, h)| {
+                    Some((
+                        pick(&photos, *i)?,
+                        h.map(|h| Synced { caption: Some(u64::from(h)), tags: h.checked_sub(100).map(u64::from), ..Synced::default() }),
+                    ))
+                })
+                .collect(),
+        },
         Seed::Batch(seeds) => Op::Batch { ops: seeds.iter().map(|s| build(lib, s)).collect() },
         Seed::UnknownPhoto => Op::SetStars { stars: vec![(PhotoId::new(u64::MAX), true)] },
+        Seed::UnknownFolder => Op::SetFoldersHidden { hidden: vec![(FolderId::new(u64::MAX), true)] },
+        Seed::BadText(n) => {
+            let id = pick(&photos, *n).unwrap_or(PhotoId::new(1));
+            match n % 4 {
+                0 => Op::AddTags { ids: vec![id], tags: vec![" padded ".into()] },
+                1 => Op::SetCaptions { captions: vec![(id, "x".repeat(dalica_library::MAX_CAPTION + 1))] },
+                2 => Op::SetTags { tags: vec![(id, vec!["dog".into(), "DOG".into()])] },
+                _ => Op::RenameTag { from: "dog".into(), to: "two\nlines".into() },
+            }
+        }
     }
+}
+
+/// The tag index as the photos' tags say it should be: (tag, count) in folded order, the
+/// spelling most photos use (ties: the first in byte order).
+fn expected_counts(lib: &Library) -> Vec<(String, usize)> {
+    let mut by_fold: BTreeMap<String, BTreeMap<String, usize>> = BTreeMap::new();
+    for (_, info) in lib.infos() {
+        for t in &info.tags {
+            *by_fold.entry(t.to_lowercase()).or_default().entry(t.clone()).or_default() += 1;
+        }
+    }
+    by_fold
+        .into_values()
+        .map(|spellings| {
+            let total = spellings.values().sum();
+            let max = spellings.values().copied().max().unwrap_or(0);
+            let tag = spellings.into_iter().find(|(_, n)| *n == max).map(|(t, _)| t).unwrap_or_default();
+            (tag, total)
+        })
+        .collect()
+}
+
+/// Everything the model promises beyond equality: indexes agree with it, no info for anything
+/// gone, no empty info, no photo with one tag twice.
+fn check_invariants(lib: &Library) -> Result<(), TestCaseError> {
+    for p in lib.photos() {
+        prop_assert_eq!(lib.photo_by_name(p.folder, &p.name).map(|q| q.id), Some(p.id));
+    }
+    for f in lib.folders() {
+        prop_assert_eq!(lib.folder_by_path(&f.path), Some(f.id));
+    }
+    for (id, info) in lib.infos() {
+        prop_assert!(lib.photo(id).is_some() && !info.is_empty());
+        let mut folded: Vec<String> = info.tags.iter().map(|t| t.to_lowercase()).collect();
+        folded.sort();
+        folded.dedup();
+        prop_assert_eq!(folded.len(), info.tags.len());
+    }
+    for (id, info) in lib.folder_infos() {
+        prop_assert!(lib.folder(id).is_some() && !info.is_empty());
+    }
+    for (id, s) in lib.synced_all() {
+        prop_assert!(lib.photo(id).is_some() && *s != Synced::default());
+    }
+    let counts: Vec<(String, usize)> = lib.tag_index().counts().into_iter().map(|c| (c.tag, c.count)).collect();
+    prop_assert_eq!(counts, expected_counts(lib));
+    Ok(())
 }
 
 fn photo(id: PhotoId, folder: FolderId, n: u8, size: u64) -> Photo {
@@ -103,31 +266,33 @@ proptest! {
         for s in &seeds {
             let op = build(&mut lib, s);
             let before = lib.model().clone();
+            let index = lib.tag_index().clone();
             let rev = lib.revision();
+            let step = u64::from(!op.is_derived());
             match lib.apply(op.clone()) {
                 Ok(inverse) => {
-                    prop_assert_eq!(lib.revision(), rev + 1);
+                    prop_assert_eq!(lib.revision(), rev + step);
+                    prop_assert_eq!(inverse.is_derived(), op.is_derived());
                     // The op and its inverse survive the journal's JSON.
-                    let json = serde_json::to_string(&inverse).unwrap();
-                    prop_assert_eq!(&serde_json::from_str::<Op>(&json).unwrap(), &inverse);
+                    for o in [&op, &inverse] {
+                        let json = serde_json::to_string(o).unwrap();
+                        prop_assert_eq!(&serde_json::from_str::<Op>(&json).unwrap(), o);
+                    }
+                    check_invariants(&lib)?;
                     lib.apply(inverse).unwrap();
-                    prop_assert_eq!(lib.revision(), rev + 2);
+                    prop_assert_eq!(lib.revision(), rev + 2 * step);
                     prop_assert_eq!(lib.model(), &before);
+                    prop_assert_eq!(lib.tag_index(), &index);
                     // Go forward again so the library keeps growing.
                     lib.apply(op).unwrap();
                 }
                 Err(_) => {
                     prop_assert_eq!(lib.revision(), rev);
                     prop_assert_eq!(lib.model(), &before);
+                    prop_assert_eq!(lib.tag_index(), &index);
                 }
             }
-            // Indexes agree with the model.
-            for p in lib.photos() {
-                prop_assert_eq!(lib.photo_by_name(p.folder, &p.name).map(|q| q.id), Some(p.id));
-            }
-            for f in lib.folders() {
-                prop_assert_eq!(lib.folder_by_path(&f.path), Some(f.id));
-            }
+            check_invariants(&lib)?;
         }
     }
 }

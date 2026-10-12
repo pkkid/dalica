@@ -6,16 +6,24 @@
 //!   People and Folders. Albums and People stay empty until the model holds albums and people.
 //! - **Flat mode:** every folder with something to show is one row. Projects are the folders under
 //!   the projects directory, Other the folders where most photos are small pictures, Hidden Folders
-//!   the hidden ones (only with Hidden Pictures on); the rest are Folders. Sorted by date, the
+//!   the hidden ones (Hide Folder; only with Hidden Pictures on, sections included); the rest are
+//!   Folders. Sorted by date, the
 //!   Folders group gets a year divider before each year when its folders span more than one year.
 //! - **Tree mode:** the disk hierarchy under each watched root: a row per directory on the way from
 //!   a root to a folder with something to show, each with its own count (a parent often shows 0).
 //!   Folders under no watched root are tops of their own. Siblings sort by the same keys taken over
 //!   their whole subtree.
-//! - **Sorts:** by date (a folder's oldest photo, newest folder first), by recent changes (newest
+//! - **Hidden:** a hidden folder ([`crate::FolderInfo::hidden`]) and a hidden photo show only with
+//!   Hidden Pictures on: in flat mode the folder moves to Hidden Folders, in tree mode it keeps its
+//!   place marked [`FolderRow::hidden`]. With the option off they leave the tree and the sections.
+//! - **Dates** are effective dates: a photo's date set by the user, else its file's, else its
+//!   modification time; a folder's date is the one set in Folder Properties, else its oldest photo
+//!   shown.
+//! - **Sorts:** by date (a folder's date, newest folder first), by recent changes (newest
 //!   photo modification time first), by size (most bytes first) and by name (A to Z); `reverse`
 //!   turns each around. Undated folders stay first under the header in both directions.
-//! - **Counts** are the photos a row shows (small pictures only with Small Pictures on); a group's
+//! - **Counts** are the photos a row shows (small pictures only with Small Pictures on, hidden ones
+//!   only with Hidden Pictures on); a group's
 //!   count is its library folders with photos shown, those inside collapsed tree nodes included
 //!   (year dividers and tree mode's directory rows aside), so tree mode's Folders count is the
 //!   flat groups' counts added up.
@@ -33,7 +41,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-use dalica_core::{DateTime, FolderId, Timestamp};
+use dalica_core::{Date, DateTime, FolderId, Timestamp};
 use serde::{Deserialize, Serialize};
 
 use crate::model::{Library, Photo};
@@ -124,10 +132,9 @@ pub struct TreeOptions {
     pub collapsed_folders: BTreeSet<PathBuf>,
     /// View ▸ Small Pictures.
     pub small_pictures: bool,
-    /// View ▸ Hidden Pictures: hidden folders are shown (flat mode: in Hidden Folders).
+    /// View ▸ Hidden Pictures: hidden photos and folders are shown (flat mode: hidden folders in
+    /// Hidden Folders).
     pub hidden_pictures: bool,
-    /// Folders hidden with Hide Folder. Passed in until the model stores the flag.
-    pub hidden_folders: BTreeSet<FolderId>,
     /// The directory holding the project folders (`Pictures/Dalica`), if known.
     pub projects_dir: Option<PathBuf>,
     /// Options ▸ File Types: pictures smaller than this on both sides are small.
@@ -155,7 +162,6 @@ impl Default for TreeOptions {
             collapsed_folders: BTreeSet::new(),
             small_pictures: false,
             hidden_pictures: false,
-            hidden_folders: BTreeSet::new(),
             projects_dir: None,
             small_threshold: SMALL_PICTURE_PX,
             offline_roots: BTreeSet::new(),
@@ -244,10 +250,10 @@ struct Stats {
 }
 
 impl Stats {
-    fn add_shown(&mut self, p: &Photo) {
+    fn add_shown(&mut self, p: &Photo, date: Option<DateTime>) {
         self.count = self.count.saturating_add(1);
         self.bytes = self.bytes.saturating_add(p.size);
-        if let Some(d) = p.sort_date() {
+        if let Some(d) = date {
             self.date = Some(self.date.map_or(d, |old| old.min(d)));
         }
         self.mtime = Some(self.mtime.map_or(p.mtime, |old| old.max(p.mtime)));
@@ -309,6 +315,11 @@ fn key(path: &Path, folder: Option<FolderId>, stats: Stats) -> Key {
     Key { stats, fold: name.to_lowercase(), name, path: path.to_path_buf(), folder }
 }
 
+/// A folder date as the start of its day, to compare with photo dates.
+fn midnight(date: Date) -> Option<DateTime> {
+    DateTime::new(date, 0, 0, 0).ok()
+}
+
 fn is_small(p: &Photo, threshold: u32) -> bool {
     p.width > 0 && p.height > 0 && p.width < threshold && p.height < threshold
 }
@@ -324,15 +335,20 @@ impl Tree {
             if small {
                 s.small = s.small.saturating_add(1);
             }
-            if !small || options.small_pictures {
-                s.add_shown(p);
+            let info = library.info(p.id);
+            if (!small || options.small_pictures) && (options.hidden_pictures || !info.hidden) {
+                s.add_shown(p, info.date.or_else(|| p.sort_date()));
             }
         }
-        // A hidden folder shows nothing unless Hidden Pictures is on.
+        // A hidden folder shows nothing unless Hidden Pictures is on; a folder with a date of its
+        // own sorts by it.
         let shown = |id: FolderId| -> Stats {
             let s = stats.get(&id).copied().unwrap_or_default();
-            if options.hidden_folders.contains(&id) && !options.hidden_pictures {
+            let info = library.folder_info(id);
+            if info.hidden && !options.hidden_pictures {
                 Stats { count: 0, bytes: 0, date: None, mtime: None, ..s }
+            } else if let Some(date) = info.date.filter(|_| s.count > 0).and_then(midnight) {
+                Stats { date: Some(date), ..s }
             } else {
                 s
             }
@@ -380,7 +396,7 @@ fn flat(library: &Library, options: &TreeOptions, shown: &dyn Fn(FolderId) -> St
         if s.count == 0 {
             continue;
         }
-        let group = if options.hidden_folders.contains(&f.id) {
+        let group = if library.is_folder_hidden(f.id) {
             Group::Hidden
         } else if options.projects_dir.as_deref().is_some_and(|d| f.path.starts_with(d)) {
             Group::Projects
@@ -418,7 +434,7 @@ fn flat(library: &Library, options: &TreeOptions, shown: &dyn Fn(FolderId) -> St
                     date: k.stats.date,
                     has_children: false,
                     expanded: true,
-                    hidden: k.folder.is_some_and(|id| options.hidden_folders.contains(&id)),
+                    hidden: k.folder.is_some_and(|id| library.is_folder_hidden(id)),
                     path: k.path,
                 };
                 sections.extend(row.section());
@@ -538,7 +554,7 @@ fn tree(library: &Library, roots: &[PathBuf], options: &TreeOptions, shown: &dyn
             date: n.subtree.date,
             has_children: !kids.is_empty(),
             expanded,
-            hidden: n.folder.is_some_and(|id| options.hidden_folders.contains(&id)),
+            hidden: n.folder.is_some_and(|id| library.is_folder_hidden(id)),
         };
         sections.extend(row.section());
         if folded_away {

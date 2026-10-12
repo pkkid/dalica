@@ -1,16 +1,22 @@
 //! Ops: the only way the model changes (`architecture.md` §4). Applying an op returns its inverse;
 //! applying the inverse restores the model exactly.
 //!
-//! [`Op::SetSketches`] is the one op on derived data: it bumps the thumbnail revision instead of
-//! the library revision, touches no folder, and is journaled but never put on an undo stack
-//! ([`Op::is_derived`]). Removing a photo drops its sketch; the inverse puts it back.
+//! [`Op::SetSketches`] and [`Op::SetSynced`] are the ops on derived data: they bump no library
+//! revision (a sketch bumps the thumbnail revision instead), touch no folder, and are journaled but
+//! never put on an undo stack ([`Op::is_derived`]). Removing a photo drops its info, sketch and
+//! synced hashes; removing a folder drops its info too; the inverse puts them back.
+//!
+//! The M6 ops on what the user says about photos and folders each change one field over any
+//! number of photos or folders, and refuse text past the caps of [`crate::tags`]. Tag ops follow
+//! the case rule there; their inverse is [`Op::SetTags`] with the lists as they were.
 
 use std::collections::{BTreeSet, HashSet};
 
-use dalica_core::{FolderId, PhotoId};
+use dalica_core::{DateTime, FolderId, PhotoId};
 use serde::{Deserialize, Serialize};
 
-use crate::model::{Folder, Library, Photo, Sketch};
+use crate::model::{Folder, FolderInfo, Library, Photo, PhotoInfo, Recipe, Sketch, Synced};
+use crate::tags::{self, fold};
 use crate::{Error, Result};
 
 /// One change to the model. Serialised as one journal record (`{"op": "setStars", …}`).
@@ -44,6 +50,63 @@ pub enum Op {
     SetSketches {
         sketches: Vec<(PhotoId, Option<Sketch>)>,
     },
+    /// Captions ("" clears one), applied in order; each at most [`crate::MAX_CAPTION`] bytes.
+    SetCaptions {
+        captions: Vec<(PhotoId, String)>,
+    },
+    /// `tags` added to each of `ids` that lacks them (ignoring case), appended in order. A tag
+    /// already in use anywhere takes the spelling in use. Each tag must be clean
+    /// ([`crate::clean_tag`]).
+    AddTags {
+        ids: Vec<PhotoId>,
+        tags: Vec<String>,
+    },
+    /// `tags` (ignoring case) removed from each of `ids`.
+    RemoveTags {
+        ids: Vec<PhotoId>,
+        tags: Vec<String>,
+    },
+    /// Tag `from` renamed to `to` on every photo (ignoring case). A photo that already holds `to`
+    /// just loses `from` (the tags merge, keeping the spelling in use); when `to` differs from
+    /// `from` in case only, every photo takes the new spelling.
+    RenameTag {
+        from: String,
+        to: String,
+    },
+    /// Whole tag lists, applied in order (clean tags, no two the same ignoring case).
+    SetTags {
+        tags: Vec<(PhotoId, Vec<String>)>,
+    },
+    /// Hidden flags of photos, applied in order.
+    SetHidden {
+        hidden: Vec<(PhotoId, bool)>,
+    },
+    /// Edit recipes with their redo lists, applied in order.
+    SetRecipes {
+        recipes: Vec<(PhotoId, Recipe)>,
+    },
+    /// Dates set by the user (`None` goes back to the file's date), applied in order.
+    SetDates {
+        dates: Vec<(PhotoId, Option<DateTime>)>,
+    },
+    /// Everything the user said about photos at once (rebuilds, and the inverse of removing
+    /// photos), applied in order.
+    SetPhotoInfo {
+        photos: Vec<(PhotoId, PhotoInfo)>,
+    },
+    /// Everything the user said about folders (Folder Properties), applied in order.
+    SetFolderInfo {
+        folders: Vec<(FolderId, FolderInfo)>,
+    },
+    /// Hidden flags of folders (Hide Folder), applied in order.
+    SetFoldersHidden {
+        hidden: Vec<(FolderId, bool)>,
+    },
+    /// Last-synced metadata hashes (`None` clears them), applied in order. Derived data: see
+    /// [`Op::is_derived`].
+    SetSynced {
+        synced: Vec<(PhotoId, Option<Synced>)>,
+    },
     /// Several ops as one: all or nothing, one revision.
     Batch {
         ops: Vec<Op>,
@@ -51,13 +114,14 @@ pub enum Op {
 }
 
 impl Op {
-    /// Whether the op changes only derived data (sketches): [`Op::SetSketches`], or a non-empty
-    /// batch of nothing else. Such an op bumps [`Library::thumbnail_revision`] but not
-    /// [`Library::revision`] or any folder revision, and its inverse is derived too. It is
-    /// journaled like any op but never goes on an undo stack: undo is for what the user did.
+    /// Whether the op changes only derived data (sketches, synced hashes): [`Op::SetSketches`],
+    /// [`Op::SetSynced`], or a non-empty batch of nothing else. Such an op bumps neither
+    /// [`Library::revision`] nor any folder revision (one with sketches bumps
+    /// [`Library::thumbnail_revision`]), and its inverse is derived too. It is journaled like any op
+    /// but never goes on an undo stack: undo is for what the user did.
     pub fn is_derived(&self) -> bool {
         match self {
-            Op::SetSketches { .. } => true,
+            Op::SetSketches { .. } | Op::SetSynced { .. } => true,
             Op::Batch { ops } => !ops.is_empty() && ops.iter().all(Op::is_derived),
             _ => false,
         }
@@ -71,6 +135,8 @@ struct Effects {
     touched: BTreeSet<FolderId>,
     /// Whether a sketch was set, cleared or removed with its photo.
     sketches: bool,
+    /// Whether a [`Op::SetSketches`] ran (even an empty one).
+    sketch_op: bool,
 }
 
 impl Library {
@@ -82,7 +148,7 @@ impl Library {
         let derived = op.is_derived();
         let mut fx = Effects::default();
         let inverse = self.apply_inner(op, &mut fx)?;
-        if derived || fx.sketches {
+        if fx.sketches || (derived && fx.sketch_op) {
             self.thumbnail_revision += 1;
         }
         if !derived {
@@ -113,19 +179,14 @@ impl Library {
             Op::RemoveFolder { id } => {
                 let folder = self.model.folders.get(&id).cloned().ok_or(Error::UnknownFolder(id))?;
                 let ids: Vec<PhotoId> = self.model.photos.values().filter(|p| p.folder == id).map(|p| p.id).collect();
-                let sketches = self.remove_sketches(&ids);
-                let photos: Vec<Photo> = ids.iter().filter_map(|pid| self.remove_photo(*pid)).collect();
+                let mut ops = vec![Op::AddFolder { folder: folder.clone() }];
+                ops.extend(self.remove_photos(&ids, fx).into_iter().filter(|op| !matches!(op, Op::AddPhotos { photos } if photos.is_empty())));
                 self.by_path.remove(&folder.path);
                 self.model.folders.remove(&id);
-                touched.insert(id);
-                fx.sketches |= !sketches.is_empty();
-                let mut ops = vec![Op::AddFolder { folder }];
-                if !photos.is_empty() {
-                    ops.push(Op::AddPhotos { photos });
+                if let Some(info) = self.model.folder_info.remove(&id) {
+                    ops.insert(1, Op::SetFolderInfo { folders: vec![(id, info)] });
                 }
-                if !sketches.is_empty() {
-                    ops.push(Op::SetSketches { sketches });
-                }
+                fx.touched.insert(id);
                 Ok(if ops.len() == 1 { ops.swap_remove(0) } else { Op::Batch { ops } })
             }
             Op::AddPhotos { photos } => {
@@ -156,15 +217,8 @@ impl Library {
                         return Err(Error::UnknownPhoto(*id));
                     }
                 }
-                let sketches = self.remove_sketches(&ids);
-                let photos: Vec<Photo> = ids.iter().filter_map(|id| self.remove_photo(*id)).collect();
-                touched.extend(photos.iter().map(|p| p.folder));
-                let add = Op::AddPhotos { photos };
-                if sketches.is_empty() {
-                    return Ok(add);
-                }
-                fx.sketches = true;
-                Ok(Op::Batch { ops: vec![add, Op::SetSketches { sketches }] })
+                let mut ops = self.remove_photos(&ids, fx);
+                Ok(if ops.len() == 1 { ops.swap_remove(0) } else { Op::Batch { ops } })
             }
             Op::UpdatePhotos { photos } => {
                 let mut seen = HashSet::new();
@@ -221,8 +275,129 @@ impl Library {
                     undo.push((id, old));
                 }
                 fx.sketches |= !undo.is_empty();
+                fx.sketch_op = true;
                 undo.reverse();
                 Ok(Op::SetSketches { sketches: undo })
+            }
+            Op::SetCaptions { captions } => {
+                self.check_photos(captions.iter().map(|(id, _)| *id))?;
+                for (_, c) in &captions {
+                    tags::check_caption(c)?;
+                }
+                let undo = self.edit_infos(captions, touched, |info, c| std::mem::replace(&mut info.caption, c));
+                Ok(Op::SetCaptions { captions: undo })
+            }
+            Op::SetTags { tags: lists } => {
+                self.check_photos(lists.iter().map(|(id, _)| *id))?;
+                for (_, list) in &lists {
+                    tags::check_tags(list)?;
+                }
+                let undo = self.edit_infos(lists, touched, |info, list| std::mem::replace(&mut info.tags, list));
+                Ok(Op::SetTags { tags: undo })
+            }
+            Op::AddTags { ids, tags: add } => {
+                self.check_photos(ids.iter().copied())?;
+                for t in &add {
+                    tags::check_tag(t)?;
+                }
+                // One spelling per tag for the whole op: the one in use, else the one given.
+                let mut seen = HashSet::new();
+                let add: Vec<(String, String)> =
+                    add.iter().filter(|t| seen.insert(fold(t))).map(|t| (fold(t), self.tags.spelling(t).unwrap_or(t).to_string())).collect();
+                let lists = self.new_tag_lists(&ids, |old| {
+                    let have: HashSet<String> = old.iter().map(|t| fold(t)).collect();
+                    let mut list = old.to_vec();
+                    list.extend(add.iter().filter(|(k, _)| !have.contains(k)).map(|(_, t)| t.clone()));
+                    list
+                })?;
+                Ok(self.set_tag_lists(lists, touched))
+            }
+            Op::RemoveTags { ids, tags: remove } => {
+                self.check_photos(ids.iter().copied())?;
+                for t in &remove {
+                    tags::check_tag(t)?;
+                }
+                let gone: HashSet<String> = remove.iter().map(|t| fold(t)).collect();
+                let lists = self.new_tag_lists(&ids, |old| old.iter().filter(|t| !gone.contains(&fold(t))).cloned().collect())?;
+                Ok(self.set_tag_lists(lists, touched))
+            }
+            Op::RenameTag { from, to } => {
+                tags::check_tag(&from)?;
+                tags::check_tag(&to)?;
+                let (kf, kt) = (fold(&from), fold(&to));
+                let respell = kf == kt;
+                let target = if respell { to.clone() } else { self.tags.spelling(&to).unwrap_or(&to).to_string() };
+                let ids: Vec<PhotoId> =
+                    self.model.photo_info.iter().filter(|(_, i)| i.tags.iter().any(|t| fold(t) == kf)).map(|(id, _)| *id).collect();
+                let lists = self.new_tag_lists(&ids, |old| {
+                    let merge = !respell && old.iter().any(|t| fold(t) == kt);
+                    old.iter()
+                        .filter_map(|t| match fold(t) == kf {
+                            false => Some(t.clone()),
+                            true if merge => None,
+                            true => Some(target.clone()),
+                        })
+                        .collect()
+                })?;
+                Ok(self.set_tag_lists(lists, touched))
+            }
+            Op::SetHidden { hidden } => {
+                self.check_photos(hidden.iter().map(|(id, _)| *id))?;
+                let undo = self.edit_infos(hidden, touched, |info, on| std::mem::replace(&mut info.hidden, on));
+                Ok(Op::SetHidden { hidden: undo })
+            }
+            Op::SetRecipes { recipes } => {
+                self.check_photos(recipes.iter().map(|(id, _)| *id))?;
+                for (_, r) in &recipes {
+                    tags::check_list(&r.edits)?;
+                    tags::check_list(&r.redo)?;
+                }
+                let undo = self.edit_infos(recipes, touched, |info, r| {
+                    let old = Recipe { edits: std::mem::take(&mut info.edits), redo: std::mem::take(&mut info.redo) };
+                    info.edits = r.edits;
+                    info.redo = r.redo;
+                    old
+                });
+                Ok(Op::SetRecipes { recipes: undo })
+            }
+            Op::SetDates { dates } => {
+                self.check_photos(dates.iter().map(|(id, _)| *id))?;
+                let undo = self.edit_infos(dates, touched, |info, d| std::mem::replace(&mut info.date, d));
+                Ok(Op::SetDates { dates: undo })
+            }
+            Op::SetPhotoInfo { photos } => {
+                self.check_photos(photos.iter().map(|(id, _)| *id))?;
+                for (_, info) in &photos {
+                    tags::check_info(info)?;
+                }
+                let undo = self.edit_infos(photos, touched, std::mem::replace);
+                Ok(Op::SetPhotoInfo { photos: undo })
+            }
+            Op::SetFolderInfo { folders } => {
+                self.check_folders(folders.iter().map(|(id, _)| *id))?;
+                for (_, info) in &folders {
+                    tags::check_folder_info(info)?;
+                }
+                let undo = self.edit_folder_infos(folders, touched, std::mem::replace);
+                Ok(Op::SetFolderInfo { folders: undo })
+            }
+            Op::SetFoldersHidden { hidden } => {
+                self.check_folders(hidden.iter().map(|(id, _)| *id))?;
+                let undo = self.edit_folder_infos(hidden, touched, |info, on| std::mem::replace(&mut info.hidden, on));
+                Ok(Op::SetFoldersHidden { hidden: undo })
+            }
+            Op::SetSynced { synced } => {
+                self.check_photos(synced.iter().map(|(id, _)| *id))?;
+                let mut undo = Vec::with_capacity(synced.len());
+                for (id, s) in synced {
+                    let old = match s.filter(|s| *s != Synced::default()) {
+                        Some(s) => self.model.synced.insert(id, s),
+                        None => self.model.synced.remove(&id),
+                    };
+                    undo.push((id, old));
+                }
+                undo.reverse();
+                Ok(Op::SetSynced { synced: undo })
             }
             Op::Batch { ops } => {
                 let mut inverses = Vec::with_capacity(ops.len());
@@ -245,9 +420,126 @@ impl Library {
         }
     }
 
-    /// Takes the sketches of `ids` out of the model, as the entries that put them back.
-    fn remove_sketches(&mut self, ids: &[PhotoId]) -> Vec<(PhotoId, Option<Sketch>)> {
-        ids.iter().filter_map(|id| Some((*id, Some(self.model.sketches.remove(id)?)))).collect()
+    /// Removes the photos `ids` (all known, no repeats) with their info, synced hashes and
+    /// sketches, and returns the ops that put them back, in order: [`Op::AddPhotos`] first, then
+    /// only what there was.
+    fn remove_photos(&mut self, ids: &[PhotoId], fx: &mut Effects) -> Vec<Op> {
+        let sketches: Vec<(PhotoId, Option<Sketch>)> = ids.iter().filter_map(|id| Some((*id, Some(self.model.sketches.remove(id)?)))).collect();
+        let synced: Vec<(PhotoId, Option<Synced>)> = ids.iter().filter_map(|id| Some((*id, Some(self.model.synced.remove(id)?)))).collect();
+        let infos: Vec<(PhotoId, PhotoInfo)> = ids.iter().filter_map(|id| Some((*id, self.put_info(*id, PhotoInfo::default())?))).collect();
+        let photos: Vec<Photo> = ids.iter().filter_map(|id| self.remove_photo(*id)).collect();
+        fx.touched.extend(photos.iter().map(|p| p.folder));
+        let mut ops = Vec::with_capacity(4);
+        ops.push(Op::AddPhotos { photos });
+        if !infos.is_empty() {
+            ops.push(Op::SetPhotoInfo { photos: infos });
+        }
+        if !synced.is_empty() {
+            ops.push(Op::SetSynced { synced });
+        }
+        if !sketches.is_empty() {
+            fx.sketches = true;
+            ops.push(Op::SetSketches { sketches });
+        }
+        ops
+    }
+
+    /// Replaces photo `id`'s info (dropping an empty one) and keeps the tag index in step; returns
+    /// the old info if there was one.
+    fn put_info(&mut self, id: PhotoId, info: PhotoInfo) -> Option<PhotoInfo> {
+        let old = self.model.photo_info.remove(&id);
+        if let Some(o) = &old {
+            self.tags.remove(&o.tags);
+        }
+        if !info.is_empty() {
+            self.tags.add(&info.tags);
+            self.model.photo_info.insert(id, info);
+        }
+        old
+    }
+
+    fn check_photos(&self, ids: impl Iterator<Item = PhotoId>) -> Result<()> {
+        for id in ids {
+            if !self.model.photos.contains_key(&id) {
+                return Err(Error::UnknownPhoto(id));
+            }
+        }
+        Ok(())
+    }
+
+    fn check_folders(&self, ids: impl Iterator<Item = FolderId>) -> Result<()> {
+        for id in ids {
+            if !self.model.folders.contains_key(&id) {
+                return Err(Error::UnknownFolder(id));
+            }
+        }
+        Ok(())
+    }
+
+    /// Sets one field of each photo's info in order (`set` stores the new value and returns the
+    /// old one); returns the entries that undo it. Every id must be known.
+    fn edit_infos<T>(
+        &mut self,
+        items: Vec<(PhotoId, T)>,
+        touched: &mut BTreeSet<FolderId>,
+        set: impl Fn(&mut PhotoInfo, T) -> T,
+    ) -> Vec<(PhotoId, T)> {
+        let mut undo = Vec::with_capacity(items.len());
+        for (id, value) in items {
+            let Some(folder) = self.model.photos.get(&id).map(|p| p.folder) else { continue };
+            let mut info = self.model.photo_info.get(&id).cloned().unwrap_or_default();
+            let old = set(&mut info, value);
+            self.put_info(id, info);
+            touched.insert(folder);
+            undo.push((id, old));
+        }
+        undo.reverse();
+        undo
+    }
+
+    /// [`Library::edit_infos`] for folders. Every id must be known.
+    fn edit_folder_infos<T>(
+        &mut self,
+        items: Vec<(FolderId, T)>,
+        touched: &mut BTreeSet<FolderId>,
+        set: impl Fn(&mut FolderInfo, T) -> T,
+    ) -> Vec<(FolderId, T)> {
+        let mut undo = Vec::with_capacity(items.len());
+        for (id, value) in items {
+            let mut info = self.model.folder_info.remove(&id).unwrap_or_default();
+            let old = set(&mut info, value);
+            if !info.is_empty() {
+                self.model.folder_info.insert(id, info);
+            }
+            touched.insert(id);
+            undo.push((id, old));
+        }
+        undo.reverse();
+        undo
+    }
+
+    /// The new tag list of each of `ids` (repeats ignored) that `change` alters, checked against
+    /// [`crate::MAX_TAGS`] before anything changes.
+    fn new_tag_lists(&self, ids: &[PhotoId], change: impl Fn(&[String]) -> Vec<String>) -> Result<Vec<(PhotoId, Vec<String>)>> {
+        let mut seen = HashSet::with_capacity(ids.len());
+        let mut out = Vec::new();
+        for &id in ids {
+            if !seen.insert(id) {
+                continue;
+            }
+            let old = self.tags_of(id);
+            let list = change(old);
+            if list.as_slice() != old {
+                tags::check_tags(&list)?;
+                out.push((id, list));
+            }
+        }
+        Ok(out)
+    }
+
+    /// Applies checked tag lists; returns the [`Op::SetTags`] that undoes them.
+    fn set_tag_lists(&mut self, lists: Vec<(PhotoId, Vec<String>)>, touched: &mut BTreeSet<FolderId>) -> Op {
+        Op::SetTags { tags: self.edit_infos(lists, touched, |info, list| std::mem::replace(&mut info.tags, list)) }
     }
 
     fn insert_photo(&mut self, p: Photo) {

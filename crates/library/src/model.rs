@@ -1,11 +1,14 @@
-//! The model's data: folders, photos and their sketches, and the [`Library`] that owns them with
-//! its revisions.
+//! The model's data: folders, photos, what the user said about them (M6: captions, tags, hidden,
+//! recipes, dates, folder info), their sketches and synced hashes, and the [`Library`] that owns
+//! them with its revisions and its tag index.
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 
-use dalica_core::{DateTime, FolderId, PhotoId, Timestamp};
+use dalica_core::{Date, DateTime, FolderId, PhotoId, Timestamp};
 use serde::{Deserialize, Serialize};
+
+use crate::tags::TagIndex;
 
 /// A folder of photos, by its absolute path.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -31,6 +34,105 @@ pub struct Photo {
     /// Capture date (EXIF DateTimeOriginal), if the file has one.
     pub date: Option<DateTime>,
     pub star: bool,
+}
+
+/// What the user has said about one photo (`data-model.md` §2–§3), kept in its folder's sidecar.
+/// Held beside [`Photo`] (which is what the file says), so a rescan that updates a photo never
+/// touches it. The default (no caption, no tags, shown, no recipe, no date of the user's) is not
+/// stored: a photo whose info returns to the default leaves the map, so equal models compare equal.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PhotoInfo {
+    /// At most [`MAX_CAPTION`](crate::MAX_CAPTION) bytes; empty for none.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub caption: String,
+    /// Clean tags ([`clean_tag`](crate::clean_tag)), no two equal ignoring case, in the order
+    /// added; at most [`MAX_TAGS`](crate::MAX_TAGS).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
+    /// Hidden with Picture ▸ Hide.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub hidden: bool,
+    /// The edit recipe: operation strings in the order applied (`data-model.md` §3.1), opaque here
+    /// (`edit` parses them).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub edits: Vec<String>,
+    /// Operations undone in the edit view that Redo can bring back.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub redo: Vec<String>,
+    /// A date taken set by the user (Adjust Date and Time). The file's own date stays in
+    /// [`Photo::date`]; the effective date is this one, else the file's.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub date: Option<DateTime>,
+}
+
+impl PhotoInfo {
+    /// The default info, as a constant (for references to "nothing said").
+    pub const EMPTY: PhotoInfo =
+        PhotoInfo { caption: String::new(), tags: Vec::new(), hidden: false, edits: Vec::new(), redo: Vec::new(), date: None };
+
+    pub fn is_empty(&self) -> bool {
+        *self == PhotoInfo::EMPTY
+    }
+
+    /// The recipe and redo list together.
+    pub fn recipe(&self) -> Recipe {
+        Recipe { edits: self.edits.clone(), redo: self.redo.clone() }
+    }
+}
+
+/// A photo's edit recipe and redo list, as [`Op::SetRecipes`](crate::Op::SetRecipes) sets them.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Recipe {
+    pub edits: Vec<String>,
+    pub redo: Vec<String>,
+}
+
+/// What the user has said about one folder (Folder Properties, Hide Folder), kept in the sidecar's
+/// `"folder"` object. Like [`PhotoInfo`], the default is not stored.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct FolderInfo {
+    /// At most [`MAX_DESCRIPTION`](crate::MAX_DESCRIPTION) bytes; empty for none.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub description: String,
+    /// The folder's date when the user set one; `None` uses the oldest photo's.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub date: Option<Date>,
+    /// At most [`MAX_PLACE`](crate::MAX_PLACE) bytes; empty for none.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub place: String,
+    /// Hidden with Hide Folder: the folder leaves Folders for Hidden Folders.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub hidden: bool,
+}
+
+impl FolderInfo {
+    pub const EMPTY: FolderInfo = FolderInfo { description: String::new(), date: None, place: String::new(), hidden: false };
+
+    pub fn is_empty(&self) -> bool {
+        *self == FolderInfo::EMPTY
+    }
+}
+
+/// The last-synced hashes of a photo's owned metadata fields (`xmp-interop.md` §5): a hash of each
+/// field's value as last read from or written to the file, `None` when never synced. Index-only
+/// derived data like the [`Sketch`]: never in a sidecar, never on an undo stack, no library
+/// revision bump. The hash function is the engine's; the library only stores the numbers.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Synced {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub caption: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tags: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rating: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub place: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub date: Option<u64>,
 }
 
 /// The most bytes a [`Sketch`] holds.
@@ -150,14 +252,20 @@ mod base64 {
     }
 }
 
-/// The data that ops change: everything except counters. Two libraries with equal models show the
-/// same photos with the same stars and the same sketches.
+/// The data that ops change: everything except counters and indexes. Two libraries with equal
+/// models show the same photos with the same stars, info, sketches and synced hashes.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Model {
     pub(crate) folders: BTreeMap<FolderId, Folder>,
     pub(crate) photos: BTreeMap<PhotoId, Photo>,
+    /// What the user said about photos: only photos in `photos`, and never an empty info.
+    pub(crate) photo_info: BTreeMap<PhotoId, PhotoInfo>,
+    /// What the user said about folders: only folders in `folders`, never an empty info.
+    pub(crate) folder_info: BTreeMap<FolderId, FolderInfo>,
     /// Derived data beside the photos: only photos in `photos` have one.
     pub(crate) sketches: BTreeMap<PhotoId, Sketch>,
+    /// Derived data: only photos in `photos`, never all `None`.
+    pub(crate) synced: BTreeMap<PhotoId, Synced>,
 }
 
 /// The library: the model, its revision counters and the next free ids.
@@ -173,7 +281,12 @@ pub struct Library {
     pub(crate) folder_revisions: HashMap<FolderId, u64>,
     pub(crate) next_folder: u64,
     pub(crate) next_photo: u64,
+    /// Every tag in use, kept in step with `model.photo_info` by every op.
+    pub(crate) tags: TagIndex,
 }
+
+static EMPTY_PHOTO_INFO: PhotoInfo = PhotoInfo::EMPTY;
+static EMPTY_FOLDER_INFO: FolderInfo = FolderInfo::EMPTY;
 
 impl Library {
     pub fn new() -> Library {
@@ -210,6 +323,71 @@ impl Library {
     /// How many photos have a sketch.
     pub fn sketch_count(&self) -> usize {
         self.model.sketches.len()
+    }
+
+    /// What the user said about photo `id` ([`PhotoInfo::EMPTY`] for nothing, or an unknown id).
+    pub fn info(&self, id: PhotoId) -> &PhotoInfo {
+        self.model.photo_info.get(&id).unwrap_or(&EMPTY_PHOTO_INFO)
+    }
+
+    /// Every photo with something said about it, by id.
+    pub fn infos(&self) -> impl Iterator<Item = (PhotoId, &PhotoInfo)> {
+        self.model.photo_info.iter().map(|(id, i)| (*id, i))
+    }
+
+    /// Photo `id`'s caption ("" for none).
+    pub fn caption(&self, id: PhotoId) -> &str {
+        &self.info(id).caption
+    }
+
+    /// Photo `id`'s tags, in the order added.
+    pub fn tags_of(&self, id: PhotoId) -> &[String] {
+        &self.info(id).tags
+    }
+
+    /// Whether photo `id` is hidden.
+    pub fn is_hidden(&self, id: PhotoId) -> bool {
+        self.info(id).hidden
+    }
+
+    /// Photo `id`'s effective date taken: the user's date, else the file's.
+    pub fn effective_date(&self, id: PhotoId) -> Option<DateTime> {
+        self.info(id).date.or_else(|| self.model.photos.get(&id).and_then(|p| p.date))
+    }
+
+    /// The date `photo` sorts by: its effective date, else its file's modification time (UTC).
+    pub fn sort_date(&self, photo: &Photo) -> Option<DateTime> {
+        self.info(photo.id).date.or(photo.date).or_else(|| DateTime::from_unix_secs(photo.mtime.as_secs()))
+    }
+
+    /// What the user said about folder `id` ([`FolderInfo::EMPTY`] for nothing or an unknown id).
+    pub fn folder_info(&self, id: FolderId) -> &FolderInfo {
+        self.model.folder_info.get(&id).unwrap_or(&EMPTY_FOLDER_INFO)
+    }
+
+    /// Every folder with something said about it, by id.
+    pub fn folder_infos(&self) -> impl Iterator<Item = (FolderId, &FolderInfo)> {
+        self.model.folder_info.iter().map(|(id, i)| (*id, i))
+    }
+
+    /// Whether folder `id` is hidden (Hide Folder).
+    pub fn is_folder_hidden(&self, id: FolderId) -> bool {
+        self.folder_info(id).hidden
+    }
+
+    /// The last-synced hashes of photo `id`, if any field was ever synced.
+    pub fn synced(&self, id: PhotoId) -> Option<&Synced> {
+        self.model.synced.get(&id)
+    }
+
+    /// Every photo's synced hashes, by photo id.
+    pub fn synced_all(&self) -> impl Iterator<Item = (PhotoId, &Synced)> {
+        self.model.synced.iter().map(|(id, s)| (*id, s))
+    }
+
+    /// The tag index: every tag in use with its count.
+    pub fn tag_index(&self) -> &TagIndex {
+        &self.tags
     }
 
     /// The library revision at which something in `folder` (the folder or its photos) last changed;
