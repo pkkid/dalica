@@ -382,6 +382,9 @@ if has flatpak; then
     for want in "command=$fp_command" "sockets=fallback-x11 wayland" "shared=ipc" "devices=dri" "filesystems=xdg-pictures"; do
       key="${want%%=*}"
       got="$(context "$key")"
+      # Older flatpaks (1.12) also write `x11` beside `fallback-x11`, for flatpaks that do not
+      # know the fallback; the fallback still decides at run time.
+      if [ "$key" = sockets ] && [ "$got" = "fallback-x11 wayland x11" ]; then got="fallback-x11 wayland"; fi
       if [ "$got" != "${want#*=}" ]; then
         cat "$metadata" >&2
         fail "the Flatpak's $key is '$got', not '${want#*=}'"
