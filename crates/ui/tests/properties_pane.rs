@@ -320,6 +320,45 @@ fn every_row_of_a_jpeg_with_exif_xmp_and_iptc_and_no_frame_reads_the_file() {
     eprintln!("properties: {frames} frames, max {:.2} ms, mean {:.2} ms, p95 {:.2} ms", report.max_frame_ms, report.frame_ms, report.frame_p95_ms);
 }
 
+/// `settle()` waits for the pane's read (`Driver::busy` counts the engine's pending metadata
+/// reads), so a settled pane shows the photo's full rows, not "Reading the file…". `big.jpg` is
+/// the tagged JPEG with 48 MB after its end, so its read is still under way right after it is
+/// asked for.
+#[test]
+fn settle_waits_until_the_pane_has_the_files_rows() {
+    let mut t = setup(1400, 900);
+    write(&t.folder.join("big.jpg"), &[tagged_jpeg(), vec![0; 48 << 20]].concat());
+    let session = t.d.app_mut().session_mut().unwrap();
+    let _ = session.start_verification();
+    session.wait_idle();
+    let big = session.library().photos().find(|p| p.name == "big.jpg").expect("the rescan found big.jpg").id;
+    run(&mut t, "pane.properties", json!({}));
+    for id in [big, t.plain] {
+        let ids = json!({ "ids": [id.get()] });
+        t.d.app_mut().run("select.set", &ids).unwrap();
+        // Ask as the pane's next frame will, and look at once: the read is queued or under way.
+        let session = t.d.app_mut().session_mut().unwrap();
+        let first = session.execute("photo.metadata", &json!({ "id": id.get() })).unwrap();
+        assert_eq!(first["pending"], json!(true));
+        if id == big {
+            // (A tiny file may be read before `busy` looks; 48 MB is not.)
+            assert!(session.photo_metadata_pending() > 0, "48 MB are still being read");
+            let busy = t.d.busy(false);
+            assert!(busy.iter().any(|b| b.starts_with("photo metadata: ")), "settle would not wait: {busy:?}");
+        }
+        t.d.settle(FRAMES).unwrap();
+        let s = shown(&t);
+        assert!(!s.loading && s.error.is_none(), "settled while still reading: {s:?}");
+        assert_eq!(t.d.app().session().unwrap().photo_metadata_pending(), 0);
+        if id == big {
+            assert_eq!(keys(&s).len(), 17, "every row of the file (Dalica's caption and tags are on tagged.jpg only): {s:?}");
+            assert_eq!(row(&s, "camera").value, "Canon EOS 5D");
+        } else {
+            assert_eq!(keys(&s), ["path", "fileSize", "dimensions", "dateTaken", "fileModified"]);
+        }
+    }
+}
+
 #[test]
 fn the_pane_follows_the_selection() {
     let mut t = setup(1400, 900);
