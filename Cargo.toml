@@ -1,6 +1,8 @@
 [workspace]
 resolver = "3"
 members = ["crates/*", "apps/*", "xtask", "tests/acceptance"]
+# cargo-fuzz workspaces: nightly-only, outside the product graph (security.md §7.1).
+exclude = ["crates/image/fuzz"]
 
 [workspace.package]
 version = "0.0.0"

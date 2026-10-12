@@ -5,8 +5,13 @@
 use std::path::PathBuf;
 use std::time::Instant;
 
-use dalica_image::{Error, Limits, Rgba8, decode, decode_thumbnail, read_header};
+use dalica_image::color::load_profile;
+use dalica_image::formats;
+use dalica_image::{
+    ColorModel, DecodeOptions, Error, Format, Limits, RawKind, Rgba8, decode, decode_as, decode_thumbnail, decode_with, read_header, sniff,
+};
 use dalica_scenes::{ByteOrder, Exif, Scene, fingerprint, jpeg, png};
+use proptest::prelude::*;
 
 /// Fails (writing actual/expected PNGs) unless the fingerprints agree within `tol` per value.
 fn assert_close(case: &str, actual: &Rgba8, expected: &Rgba8, tol: f64) {
@@ -133,4 +138,137 @@ fn a_256_px_thumbnail_of_a_24_mp_scene() {
     assert_eq!((t.width, t.height), (256, 171));
     // Generous: catches a pathological slowdown, not ordinary noise.
     assert!(elapsed.as_secs() < 10, "{elapsed:?}");
+}
+
+/// A little-endian TIFF whose IFD0 holds one SHORT/LONG entry.
+fn tiff_with(tag: u16, kind: u16, value: u32) -> Vec<u8> {
+    let mut b = b"II*\0\x08\0\0\0".to_vec();
+    b.extend(1u16.to_le_bytes());
+    b.extend(tag.to_le_bytes());
+    b.extend(kind.to_le_bytes());
+    b.extend(1u32.to_le_bytes());
+    b.extend(value.to_le_bytes());
+    b.extend(0u32.to_le_bytes());
+    b
+}
+
+/// The start of a file of every format Dalica recognises but does not decode yet, padded past
+/// the sniffing length.
+fn stub_files() -> Vec<(Format, Vec<u8>)> {
+    let pad = |head: &[u8]| [head, &[0u8; 64]].concat();
+    vec![
+        (Format::Tiff, tiff_with(0x0106, 3, 2)),
+        (Format::WebP, pad(b"RIFF\x24\0\0\0WEBPVP8 ")),
+        (Format::Gif, pad(b"GIF89a\x01\0\x01\0")),
+        (Format::Bmp, pad(b"BM\x3a\0\0\0\0\0\0\0\x36\0\0\0")),
+        (Format::JpegXl, pad(b"\xff\x0a\xfa")),
+        (Format::JpegXl, pad(b"\0\0\0\x0cJXL \r\n\x87\n")),
+        (Format::Psd, pad(b"8BPS\0\x01")),
+        (Format::Heif, pad(b"\0\0\0\x18ftypheic\0\0\0\0")),
+        (Format::Avif, pad(b"\0\0\0\x1cftypavif\0\0\0\0")),
+        (Format::Raw(RawKind::TiffBased), tiff_with(0xc612, 1, 0x0001_0401)),
+        (Format::Raw(RawKind::TiffBased), pad(b"II*\0\x10\0\0\0CR\x02\0")),
+        (Format::Raw(RawKind::TiffBased), pad(b"IIRO\x08\0\0\0")),
+        (Format::Raw(RawKind::TiffBased), pad(b"IIU\0\x08\0\0\0")),
+        (Format::Raw(RawKind::Cr3), pad(b"\0\0\0\x18ftypcrx \0\0\0\x01")),
+        (Format::Raw(RawKind::Raf), pad(b"FUJIFILMCCD-RAW 0201")),
+        (Format::Raw(RawKind::Crw), pad(b"II\x1a\0\0\0HEAPCCDR")),
+        (Format::Raw(RawKind::Mrw), pad(b"\0MRM\0\0\0\x08")),
+        (Format::Raw(RawKind::X3f), pad(b"FOVb\0\0\x04\0")),
+    ]
+}
+
+/// Every format without a decoder yet is recognised by content and answers `Unsupported` with
+/// its tile text on every path; one that has gained a decoder refuses these few bytes as damaged.
+#[test]
+fn every_stub_format_sniffs_and_answers_its_reason() {
+    let l = Limits::default();
+    let files = stub_files();
+    for f in Format::ALL {
+        assert!(files.iter().any(|(g, _)| *g == f) || f.supported(), "{f:?} has no test file");
+    }
+    for (format, bytes) in files {
+        assert_eq!(sniff(&bytes), Some(format), "{format:?}");
+        let results = [
+            read_header(&bytes, &l).map(|_| ()),
+            decode(&bytes, &l).map(|_| ()),
+            decode_thumbnail(&bytes, 128, &l).map(|_| ()),
+            decode_as(format, &bytes, &DecodeOptions::default(), &l).map(|_| ()),
+        ];
+        for result in results {
+            let err = result.unwrap_err();
+            if format.supported() {
+                assert_eq!(err.reason(), "Damaged file", "{format:?}: {err:?}");
+            } else {
+                assert_eq!(err, Error::Unsupported(format));
+                assert_eq!(err.reason(), formats::reason(format));
+                assert!(!err.reason().is_empty());
+            }
+        }
+        if !format.supported() && format != Format::Avif {
+            assert_eq!(formats::embedded_thumbnail(format, &bytes, &l), Err(Error::Unsupported(format)));
+        }
+    }
+    // The texts `formats.md` §1 gives.
+    assert_eq!(Error::Unsupported(Format::Avif).reason(), "AVIF files can't be displayed");
+    if !Format::Heif.supported() {
+        assert_eq!(Error::Unsupported(Format::Heif).reason(), "HEIC support isn't included in this build");
+    }
+    assert_eq!(Error::TooLarge { width: 70_000, height: 500 }.reason(), "Too large to display (70000 × 500)");
+    assert_eq!(Error::Truncated.reason(), "Damaged file");
+    assert_eq!(Error::Panic(Format::Jpeg).reason(), "Damaged file");
+}
+
+/// A file sniffed as one format and decoded as another is refused, never misread.
+#[test]
+fn decoding_as_the_wrong_format_is_refused() {
+    let png_bytes = png(&Scene::new(9, 24, 16)).unwrap();
+    let jpg = jpeg(&Scene::new(9, 24, 16), 80, None).unwrap();
+    assert!(decode_as(Format::Jpeg, &png_bytes, &DecodeOptions::default(), &Limits::default()).is_err());
+    assert!(decode_as(Format::Png, &jpg, &DecodeOptions::default(), &Limits::default()).is_err());
+    assert_eq!(decode_as(Format::Png, &png_bytes, &DecodeOptions::default(), &Limits::default()), decode(&png_bytes, &Limits::default()));
+}
+
+const HEADS: [&[u8]; 16] = [
+    b"\xff\xd8\xff",
+    b"\x89PNG\r\n\x1a\n",
+    b"II*\0",
+    b"MM\0*",
+    b"II*\0\x10\0\0\0CR\x02\0",
+    b"IIRO",
+    b"RIFF\0\0\0\0WEBP",
+    b"GIF89a",
+    b"BM\0\0\0\0\0\0\0\0\x36",
+    b"\xff\x0a",
+    b"8BPS",
+    b"\0\0\0\x18ftypheic",
+    b"\0\0\0\x18ftypcrx ",
+    b"FUJIFILMCCD-RAW ",
+    b"\0MRM",
+    b"FOVb",
+];
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(256))]
+
+    /// Random bytes behind every magic number, through every entry point and every format
+    /// module: `Ok` or `Err`, never a panic that escapes (a third-party decoder's caught panic is
+    /// an `Err` like any other).
+    #[test]
+    fn random_bytes_never_panic_on_any_path(head in 0..HEADS.len(), tail in proptest::collection::vec(any::<u8>(), 0..2048), managed in any::<bool>()) {
+        let bytes = [HEADS[head], &tail].concat();
+        let l = Limits { max_alloc: 64 << 20, ..Limits::default() };
+        let options = DecodeOptions { color_managed: managed };
+        let _ = sniff(&bytes);
+        let _ = read_header(&bytes, &l);
+        let _ = decode_with(&bytes, &options, &l);
+        let _ = decode_thumbnail(&bytes, 64, &l);
+        for f in Format::ALL {
+            let _ = decode_as(f, &bytes, &options, &l);
+            let _ = formats::embedded_thumbnail(f, &bytes, &l);
+        }
+        for model in [ColorModel::Gray, ColorModel::Rgb, ColorModel::Cmyk] {
+            let _ = load_profile(&bytes, model, &l);
+        }
+    }
 }

@@ -12,12 +12,17 @@ publish = false
 
 [dependencies]
 dalica-core.workspace = true
+log.workspace = true
+# ICC v2/v4 profiles to sRGB (architecture.md §1): pure Rust, BSD-3-Clause OR Apache-2.0.
+moxcms.workspace = true
 png.workspace = true
 thiserror.workspace = true
 zune-jpeg.workspace = true
 
 [dev-dependencies]
 dalica-scenes.workspace = true
+# Its JPEG encoder writes test JPEGs from arbitrary pixels, with APP2 profiles (tests/color.rs).
+image = { workspace = true, features = ["jpeg"] }
 # Encodes test-only PNG layouts (16-bit, grey) and the PNGs written on a fingerprint mismatch.
 png.workspace = true
 proptest.workspace = true

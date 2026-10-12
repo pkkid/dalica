@@ -8,9 +8,12 @@ and the per-type toggles are in [`data-model.md`](data-model.md) §7 and Options
 ([`menus-and-shortcuts.md`](menus-and-shortcuts.md) §5); metadata details are in
 [`xmp-interop.md`](xmp-interop.md).
 
-> Status: specified, not built. Decoding lives in our own `crates/image` (`dalica-image`, L1), built
-> on permissive pure-Rust crates.io decoders (`image`, `zune-jpeg`, `jxl-oxide`, `heic-rs`) plus our
-> own RAW embedded-preview extractor. LightCraft's `codecs` and `raw` crates are prior art only
+> Status: partly built. Decoding lives in our own `crates/image` (`dalica-image`, L1), built on
+> permissive pure-Rust crates.io decoders (`image`, `zune-jpeg`, `jxl-oxide`, `heic-rs`) plus our
+> own RAW embedded-preview extractor, with one module per format under `crates/image/src/formats/`.
+> JPEG and PNG decode through the colour stage of §4 (M5.1); every other format is recognised and
+> answers its tile text until its task fills its module (TIFF M5.6; WebP, GIF, BMP M5.7; JPEG XL,
+> PSD M5.8; RAW M5.9–M5.10; HEIF M5.10). LightCraft's `codecs` and `raw` crates are prior art only
 > (`architecture.md` §9). Everything is pure Rust; no C decoder is linked, ever.
 
 ## 1. Formats
@@ -39,11 +42,23 @@ shows the embedded thumbnail if one exists, otherwise a `caution` "!" with the r
 ("HEIC support isn't included in this build", "Too large to display (W × H)", "Damaged file").
 Damaged and truncated files decode as far as possible and say so; they never take the app down.
 
+Each format is one module with the same entry points: a **header** read for scanning (size,
+orientation, EXIF, where the embedded thumbnail lies), a **decode** to the decoded-image model of
+§4, and the **embedded thumbnail** for the fast path. The module also states whether this build
+decodes the format and the tile text it shows when it does not. The texts: "Damaged file" for a
+truncated, malformed or looping file and for a decoder that failed on it; "Too large to display
+(W × H)" past a limit of §5; the format's own text for one Dalica recognises but does not show
+("AVIF files can't be displayed", "HEIC support isn't included in this build", and "… aren't
+supported yet" while a format waits for its task).
+
 ## 2. RAW files
 
 - **Recognised:** TIFF-structured raws (DNG, CR2, NEF, ARW, PEF, ORF, RW2, SRW, …)
   and the other containers our extractor probes (CR3, RAF, CRW, MRW, X3F). Detection is by content, not by
-  extension.
+  extension: CR3 by its `ftyp` brand, RAF, CRW, MRW and X3F by their signatures, CR2, ORF and RW2
+  by their variants of the TIFF header, and the other TIFF-structured raws by a bounded walk of
+  IFD0's chain and its sub-IFDs that finds a DNGVersion tag or raw sensor data (CFA or LinearRaw
+  photometric interpretation). A TIFF without either is a TIFF.
 - **Shown** through the largest embedded JPEG preview (found by our own bounded TIFF/IFD walk), which is what the
   camera rendered; previews tagged with a colour space (for example Adobe RGB on some cameras) are
   converted to sRGB. A raw file with no usable preview shows a generic RAW tile.
@@ -74,6 +89,23 @@ Damaged and truncated files decode as far as possible and say so; they never tak
   profiles are applied with `moxcms` (v2/v4; sRGB, Display P3, Adobe RGB, ProPhoto, Rec.2020
   recognised); untagged images are assumed sRGB; an unusable profile falls back to sRGB and is
   logged; CMYK without a profile uses a naive conversion.
+- Between the container and the display sits one **decoded image**: the stored pixels at their own
+  depth (8- or 16-bit integers, or floats), their colour model (grey, RGB or CMYK; palettes are
+  expanded by the format module), an optional straight alpha channel, the embedded profile's bytes
+  and the orientation. One **colour stage** turns it into 8-bit sRGB:
+  - with a usable profile, a relative-colorimetric transform to sRGB at the samples' own precision
+    (16-bit sources are rounded to 8 bits once, at the end); alpha is carried over unchanged;
+  - a profile is unusable when it is over the ICC limits of §5, its tag table runs past its data,
+    it declares more bytes than it has, its colour space does not match the pixels (an RGB profile
+    on a grey image), or `moxcms` refuses or fails on it; the pixels are then shown as untagged;
+  - untagged grey and RGB are taken as sRGB; CMYK becomes R = (1 − C)(1 − K) and likewise for G and
+    B. PNG `gAMA` and `cHRM` without an `iCCP` profile are not interpreted.
+- **View → Use Color Management** (on by default) maps to the decode option `color_managed`: off,
+  every embedded profile is ignored and every file is shown as untagged.
+- JPEG profiles come from APP2 chunks, reassembled only when every chunk carries the same count and
+  the sequence numbers are exactly 1 to that count; anything else is an unusable profile. CMYK
+  JPEGs with an Adobe APP14 segment store their samples inverted (255 = no ink) and are inverted
+  back; YCCK frames are converted from YCbCr to inverted CMY first. PNG profiles come from `iCCP`.
 - EXIF orientation (and HEIF `irot`/`imir`) is applied for display; Dalica's own `rotate(…)` and
   flip operations in the recipe are applied on top. Files are never rewritten just to fix orientation.
 
@@ -90,6 +122,8 @@ allocated (and again after orientation swaps width and height):
 | Allocation per decode | ≤ min(the codec default, half the memory budget) — the budget is RAM/4 clamped 256 MiB–1.5 GiB (`architecture.md` §5) | a single file can never take the whole budget |
 | Source pixels for a thumbnail from a decoder that cannot scale | ≤ 64 MP (the same default as LightCraft) | non-JPEG decoders allocate at full size before resizing |
 | PNG text and XMP chunks | bounded by the allocation limit | |
+| ICC profile | ≤ 16 MiB after APP2 reassembly or `iCCP` inflation; ≤ 1,000 tags; the tag table inside the data; `moxcms`' own caps on lookup-table and curve sizes (`security.md` §4.2) | a profile is parsed before any of its numbers are trusted |
+| PNG decoder's own buffers | twice the ICC limit plus 16 MiB (chunk data, the inflated profile, one row), charged to the allocation limit; text chunks are skipped while decoding pixels | a compressed `iCCP` cannot inflate past it |
 
 Whichever limit is reached first applies; for large images it is usually the allocation limit.
 
@@ -98,13 +132,18 @@ Whichever limit is reached first applies; for large images it is usually the all
   a full decode.
 - A file over a limit returns a "too large" error (shown on its tile); its embedded preview, if any,
   is still used. Allocations are fallible (`try_reserve`), so an allocation failure is an error, not
-  an abort.
+  an abort. Every pixel buffer of one decode (the decoded samples, the colour stage's bands and the
+  8-bit output) is charged to the same allocation limit.
 - Save and Export of very large images render in bands where the operations allow it; otherwise they
   fail with a clear message before starting rather than exhausting memory.
 - Panics inside third-party decoders are caught (`catch_unwind`) and reported as "damaged file"; the
   regression input goes into the malformed-input tests as a synthetic reproduction.
 - Container walks are bounded too: TIFF IFD chains (seen-set, depth limit, directory cap), XMP
-  nesting depth and node count, EXIF entry counts, ISOBMFF box nesting.
+  nesting depth and node count, EXIF entry counts, ISOBMFF box nesting. The walks Dalica owns count
+  their steps (JPEG segments, PNG chunks, APP2 chunks, IFDs while recognising a raw) and stop at
+  their cap.
+- Every parser has a fuzz target in `crates/image/fuzz` (`security.md` §7.1): sniffing, decoding
+  any file, decoding as each format, RAW previews, embedded thumbnails and ICC profiles.
 
 ## 6. Small images
 
