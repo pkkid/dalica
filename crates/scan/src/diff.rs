@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 
 use dalica_core::{FolderId, PhotoId, Timestamp};
-use dalica_library::{Folder, Library, Op, Photo};
+use dalica_library::{Folder, Library, Op, Photo, PhotoInfo};
 
 use crate::walk::{FoundFolder, FoundPhoto, Scan};
 use crate::watch::Rescan;
@@ -15,7 +15,10 @@ pub const BATCH: usize = 500;
 
 /// The ops that bring `library` in line with `scan`, in order: new and renamed folders, then per
 /// folder removed, renamed or changed, and added photos, then folders gone from disk. Ids for new
-/// folders and photos are taken from `library`. Applying the ops in order makes the model match the
+/// folders and photos are taken from `library`. A new folder or photo brings what its sidecar says
+/// (its star, and its [`FolderInfo`](dalica_library::FolderInfo) or [`PhotoInfo`]) in the same op as the one that adds it
+/// (`AddFolder` or `AddPhotos` batched with `SetFolderInfo` or `SetPhotoInfo`), so no sidecar
+/// write can see it without them; for folders and photos already known, the model's word stands. Applying the ops in order makes the model match the
 /// scan; diffing again then gives nothing. Folders are removed (or seen as renamed) only under the
 /// roots in `scan.walked`.
 pub fn diff(library: &mut Library, scan: &Scan) -> Vec<Op> {
@@ -36,7 +39,7 @@ fn diff_in(library: &mut Library, folders: &[FoundFolder], covered: &dyn Fn(&Pat
     let mut ops = Vec::new();
     let mut removes = Vec::new();
     let mut updates = Vec::new();
-    let mut adds = Vec::new();
+    let mut adds: Vec<(Photo, &PhotoInfo)> = Vec::new();
     // Folders known but gone from disk where the scan looked.
     let found: BTreeMap<&Path, ()> = folders.iter().map(|f| (f.path.as_path(), ())).collect();
     let mut gone: Vec<FolderId> = library.folders().filter(|f| covered(&f.path) && !found.contains_key(f.path.as_path())).map(|f| f.id).collect();
@@ -53,7 +56,11 @@ fn diff_in(library: &mut Library, folders: &[FoundFolder], covered: &dyn Fn(&Pat
                 }
                 None => {
                     let id = library.next_folder_id();
-                    ops.push(Op::AddFolder { folder: Folder { id, path: found.path.clone() } });
+                    let add = Op::AddFolder { folder: Folder { id, path: found.path.clone() } };
+                    ops.push(match found.info.is_empty() {
+                        true => add,
+                        false => Op::Batch { ops: vec![add, Op::SetFolderInfo { folders: vec![(id, found.info.clone())] }] },
+                    });
                     id
                 }
             },
@@ -87,7 +94,7 @@ fn diff_in(library: &mut Library, folders: &[FoundFolder], covered: &dyn Fn(&Pat
         }
         for f in new {
             let id = library.next_photo_id();
-            adds.push(photo(id, folder, f, f.star));
+            adds.push((photo(id, folder, f, f.star), &f.info));
         }
     }
     // Removals first, so a rename's new name is free; then updates (renames, changes); then adds.
@@ -98,7 +105,7 @@ fn diff_in(library: &mut Library, folders: &[FoundFolder], covered: &dyn Fn(&Pat
         ops.push(Op::UpdatePhotos { photos: chunk.to_vec() });
     }
     for chunk in adds.chunks(BATCH) {
-        ops.push(Op::AddPhotos { photos: chunk.to_vec() });
+        ops.push(add_photos(chunk));
     }
     ops.extend(gone.into_iter().map(|id| Op::RemoveFolder { id }));
     ops
@@ -175,6 +182,14 @@ fn move_folder(library: &Library, old: FolderId, found: &FoundFolder) -> Op {
         ops.push(Op::SetSketches { sketches });
     }
     Op::Batch { ops }
+}
+
+/// One `AddPhotos` op, batched with the `SetPhotoInfo` of those that bring something from their
+/// sidecar.
+fn add_photos(chunk: &[(Photo, &PhotoInfo)]) -> Op {
+    let add = Op::AddPhotos { photos: chunk.iter().map(|(p, _)| p.clone()).collect() };
+    let infos: Vec<(PhotoId, PhotoInfo)> = chunk.iter().filter(|(_, i)| !i.is_empty()).map(|(p, i)| (p.id, (*i).clone())).collect();
+    if infos.is_empty() { add } else { Op::Batch { ops: vec![add, Op::SetPhotoInfo { photos: infos }] } }
 }
 
 fn photo(id: PhotoId, folder: FolderId, f: &FoundPhoto, star: bool) -> Photo {

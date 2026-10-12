@@ -161,6 +161,86 @@ fn stars_come_from_the_folder_sidecar() {
     assert!(s.warnings.iter().any(|w| w.path.ends_with(".dalica.json")), "{:?}", s.warnings);
 }
 
+/// Everything the user said in a sidecar comes in with the photos and the folder a scan adds, in
+/// the very op that adds them; an unusable value is left out (the file keeps it); a folder and
+/// photos already known keep the model's word.
+#[test]
+fn every_sidecar_field_comes_in_with_the_photos_in_the_same_op() {
+    use dalica_library::{FolderInfo, MAX_CAPTION, PhotoInfo};
+    let dir = tempfile::tempdir().unwrap();
+    for (i, n) in ["a.jpg", "b.jpg", "c.jpg", "d.jpg"].iter().enumerate() {
+        put(&dir.path().join("p").join(n), &camera(20 + i as u64, 1));
+    }
+    let long = "é".repeat(MAX_CAPTION);
+    let full_recipe = vec!["\"flip_h()\""; 10_001].join(",");
+    let sidecar = format!(
+        r#"{{
+  "dalica": {{ "version": 1 }},
+  "folder": {{ "description": "Weekend", "date": "2026-06-04", "place": "Lisbon", "hidden": true, "future": 1 }},
+  "photos": {{
+    "a.jpg": {{ "star": true, "caption": "Tram 28", "tags": ["tram", " Lisbon ", "TRAM"], "hidden": true,
+               "edits": ["rotate(90)", "future_op(1)", "legacy:x(2)"], "redo": ["glow(0.4,3.0)"], "date": "2026-06-04T19:42:10" }},
+    "b.jpg": {{ "caption": 7, "tags": "tram", "hidden": "yes", "edits": [1], "date": "June" }},
+    "c.jpg": {{ "caption": "{long}", "edits": [{full_recipe}] }},
+    "gone.jpg": {{ "caption": "not here" }}
+  }}
+}}"#
+    );
+    put(&dir.path().join("p/.dalica.json"), sidecar.as_bytes());
+    let s = scan(&[dir.path().to_path_buf()], None);
+    assert!(s.warnings.is_empty(), "{:?}", s.warnings);
+    let found = &s.folders[0];
+    assert_eq!(found.info, FolderInfo { description: "Weekend".into(), date: "2026-06-04".parse().ok(), place: "Lisbon".into(), hidden: true });
+    let info = |name: &str| found.photos.iter().find(|p| p.name == name).unwrap().info.clone();
+    assert_eq!(
+        info("a.jpg"),
+        PhotoInfo {
+            caption: "Tram 28".into(),
+            tags: vec!["tram".into(), "Lisbon".into()],
+            hidden: true,
+            edits: vec!["rotate(90)".into(), "future_op(1)".into(), "legacy:x(2)".into()],
+            redo: vec!["glow(0.4,3.0)".into()],
+            date: "2026-06-04T19:42:10".parse().ok(),
+        }
+    );
+    assert_eq!(info("b.jpg"), PhotoInfo::default(), "values of the wrong type are not used");
+    let c = info("c.jpg");
+    assert!(c.caption.len() <= MAX_CAPTION && long.starts_with(&c.caption) && !c.caption.is_empty(), "a caption past the cap is cut");
+    assert!(c.edits.is_empty(), "a recipe past the cap is not used");
+    assert_eq!(info("d.jpg"), PhotoInfo::default());
+
+    // The diff adds the folder and the photos with what they bring, each in one op.
+    let mut lib = Library::new();
+    let ops = diff(&mut lib, &s);
+    assert!(matches!(&ops[0], Op::Batch { ops } if matches!(ops.as_slice(), [Op::AddFolder { .. }, Op::SetFolderInfo { .. }])), "{:?}", ops[0]);
+    assert!(matches!(&ops[1], Op::Batch { ops } if matches!(ops.as_slice(), [Op::AddPhotos { .. }, Op::SetPhotoInfo { .. }])), "{:?}", ops[1]);
+    assert_eq!(ops.len(), 2);
+    apply_all(&mut lib, ops);
+    let id = |lib: &Library, name: &str| lib.photos().find(|p| p.name == name).unwrap().id;
+    let a = id(&lib, "a.jpg");
+    assert_eq!(*lib.info(a), info("a.jpg"));
+    assert!(lib.photo(a).unwrap().star);
+    assert!(lib.is_folder_hidden(lib.folder_by_path(&dir.path().join("p")).unwrap()));
+    assert_eq!(lib.tag_index().count("tram"), 1);
+    assert!(diff(&mut lib, &s).is_empty(), "diffing again gives nothing");
+
+    // Known photos and folders keep the model's word: a rescan does not take the file's value.
+    lib.apply(Op::SetCaptions { captions: vec![(a, "Mine".into())] }).unwrap();
+    let again = scan(&[dir.path().to_path_buf()], None);
+    assert!(diff(&mut lib, &again).is_empty());
+    assert_eq!(lib.caption(a), "Mine");
+}
+
+/// A folder without a sidecar adds its photos with plain ops, as before.
+#[test]
+fn without_sidecar_data_the_ops_are_plain() {
+    let dir = tempfile::tempdir().unwrap();
+    put(&dir.path().join("p/x.jpg"), &camera(30, 1));
+    let mut lib = Library::new();
+    let ops = diff(&mut lib, &scan(&[dir.path().to_path_buf()], None));
+    assert!(matches!(ops.as_slice(), [Op::AddFolder { .. }, Op::AddPhotos { .. }]), "{ops:?}");
+}
+
 #[test]
 fn a_set_cancel_flag_stops_the_scan() {
     let dir = tree();

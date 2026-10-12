@@ -2025,7 +2025,7 @@ replace at M6.R.
     checksum step passes (run linked in the PR); a planted mismatched checksum fails
     `packaging/checksums.sh` (a script test); actionlint and shellcheck are clean; `releasing.md`
     says what now runs.
-- ⬜ **M6.14 `engine`: rotate, flip, hide, captions and folder info**
+- ✅ **M6.14 `engine`: rotate, flip, hide, captions and folder info**
   - after: M6.3, M6.5, M6.8
   - files: `crates/engine/src/cmd/rotate.rs`, `crates/engine/src/cmd/hide.rs`, `crates/engine/src/cmd/caption.rs`, `crates/engine/src/cmd/folder_info.rs`, `crates/engine/src/cmd/photo.rs`, `crates/engine/tests/rotate.rs`, `crates/engine/tests/hide.rs`, `crates/engine/tests/captions.rs`, `crates/engine/tests/folder_info.rs`
   - scope: `organizing.md` §5.3, §9, §10 and `data-model.md` §3.1, §8: `photo.rotate.cw` /
