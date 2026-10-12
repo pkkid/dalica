@@ -27,10 +27,10 @@ same commit.
 | C. Editing | 0 | 0 | 21 | 4 |
 | D. Viewing | 0 | 1 | 5 | 2 |
 | E. Output | 0 | 0 | 2 | 9 |
-| F. Data | 1 | 10 | 8 | 0 |
+| F. Data | 1 | 12 | 6 | 0 |
 | G. Preferences and system | 0 | 4 | 8 | 0 |
 | H. Menus | 0 | 3 | 4 | 0 |
-| **All** | 8 | 40 | 93 | 16 |
+| **All** | 8 | 42 | 91 | 16 |
 <!-- /parity:summary -->
 
 ## Top gaps
@@ -199,8 +199,8 @@ same commit.
 | DATA-FMT-WEBP | WebP: lossy, lossless, alpha, first frame | P1 | 🟡 | `crates/image/src/formats/webp.rs`, `crates/image/tests/webp_gif_bmp.rs`; lossless (alpha, `EXIF` orientation 1–8 and thumbnail, `ICCP`) and an animation's first frame measured exactly; lossy only from a hand-built flat VP8 frame (with and without `ALPH`), real lossy photos wait for the corpus (M5.15) |
 | DATA-FMT-GIF | GIF: first frame | P1 | 🟡 | `crates/image/src/formats/gif.rs`, `crates/image/tests/webp_gif_bmp.rs`; one and several frames and a frame smaller than its screen measured exactly; interlaced frames and transparent colour indices go through `gif` but are not measured until the corpus (M5.15) |
 | DATA-FMT-BMP | BMP | P1 | 🟡 | `crates/image/src/formats/bmp.rs`, `crates/image/tests/webp_gif_bmp.rs`; 24-bit, 8-bit grey and palette, and a top-down 32-bit `BITMAPV5HEADER` with an alpha mask and an embedded profile measured exactly; RLE, 1/4/16-bit and OS/2 headers go through `image` but are not measured; JPEG/PNG-compressed and CMYK bitmaps answer "This kind of BMP isn't supported" |
-| DATA-FMT-JXL | JPEG XL | P2 | ⬜ | recognised; `crates/image/src/formats/jxl.rs` is a stub until M5.8 |
-| DATA-FMT-PSD | PSD/PSB merged composite | P1 | ⬜ | recognised; `crates/image/src/formats/psd.rs` is a stub until M5.8 |
+| DATA-FMT-JXL | JPEG XL | P2 | 🟡 | `crates/image/src/formats/jxl.rs` through `jxl-oxide`, `crates/image/tests/jxl.rs`: lossless grey and RGB at 8 and 16 bits, alpha, bare codestreams and the box container, the eight orientations, an enumerated Display P3 encoding through the colour stage, the allocation limit; lossy (XYB) files, embedded ICC profiles and animations go through the decoder but are not measured until the corpus (M5.15); CMYK answers "This kind of JPEG XL file isn't supported" |
+| DATA-FMT-PSD | PSD/PSB merged composite | P1 | 🟡 | our own reader, `crates/image/src/formats/psd.rs`, `crates/image/tests/psd.rs`: 8/16/32-bit grey, RGB, CMYK and indexed, bitmap and duotone, raw and PackBits, PSD and PSB, the thumbnail (1036) and ICC (1039) resources; extra channels are not shown; ZIP composites, Lab and multichannel answer "This kind of PSD isn't supported"; files saved by Photoshop itself are not measured until the corpus (M5.15) |
 | DATA-FMT-RAW-TIFF | TIFF-structured raws (DNG, CR2, NEF, ARW, PEF, ORF, RW2, SRW): embedded preview | P0 | 🟡 | recognised by content; the largest baseline/progressive JPEG preview found by our own bounded walk (IFD chain, SubIFDs, EXIF IFD, JPEG strips, RW2's JPEG tag, Nikon/Olympus/Pentax maker-note pointers), orientation from IFD0, Adobe RGB/ProPhoto-tagged previews converted, the generic RAW tile without a preview, uncompressed IFD1 strip thumbnails read and decoded: `crates/image/src/formats/raw/tiff_based.rs`, `crates/image/src/ifd.rs`, `crates/image/src/exif.rs`, `crates/image/tests/raw_tiff.rs` (synthetic files of each kind); real camera files not measured until the raw corpus (M5.15) |
 | DATA-FMT-RAW-OTHER | CR3, RAF, CRW, MRW, X3F: embedded preview | P1 | ⬜ | recognised by content (`crates/image/src/formats/raw/`); previews in M5.10 |
 | DATA-FMT-HEIF | HEIF/HEIC behind the `heif` feature | P1 | ⬜ | recognised; tile text "HEIC support isn't included in this build" (`crates/image/src/formats/heif.rs`); decoding in M5.10 |
