@@ -14,10 +14,13 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
 use dalica_core::{Clock, PhotoId, SystemClock, Timestamp, VirtualClock};
-use dalica_engine::offline::{CHECK_EVERY, RootProbe, SETTLE};
+#[cfg(unix)]
+use dalica_engine::offline::RootProbe;
+use dalica_engine::offline::{CHECK_EVERY, SETTLE};
 use dalica_engine::watching::{FIRST_VERIFICATION, FULL_VERIFICATION, WatchMode};
 use dalica_engine::{CacheDir, CmdError, JobKind, Options, Session, ThumbOptions};
 use dalica_fs::Expect;
+#[cfg(unix)]
 use dalica_scan::volumes::{RootState, root_state};
 use dalica_sidecar::{Field, Limits, Sidecar};
 use serde_json::{Value, json};
@@ -230,6 +233,31 @@ fn external_changes_reach_the_library_through_the_watcher() {
     assert_eq!(dalica_fs::guard::refused(), 0, "the owner thread made no fs call");
     // The moved folder's sidecar went with it and still holds the star.
     assert_eq!(fx.sidecar(&moved)["photos"]["IMG_0001.jpg"]["star"], json!(true));
+}
+
+/// A folder renamed outside Dalica while its sidecar write is still to come: the write is tried at
+/// the old path and fails (the folder is not there), the rescan finds the rename, and the write
+/// lands at the new path. Nothing is reported unsaved afterwards: the failed attempt does not
+/// outlive the write that landed (on slower machines this race is common).
+#[test]
+fn a_write_that_missed_a_renamed_folder_lands_at_its_new_path() {
+    let fx = Fx::new();
+    let mut s = fx.scanned(WatchMode::Polling, &[("Lisbon", "IMG_0001.jpg")]);
+    let ui = dalica_fs::mark_ui_thread();
+    let lisbon = fx.root.join("Lisbon");
+    let second = photo(&s, &lisbon, "IMG_0002.jpg").unwrap();
+    fx.settle(&mut s);
+    // Renamed on disk before the next write: the star's write is tried at the old path.
+    rename(&lisbon, &fx.root.join("Lisboa"));
+    s.execute("photo.star.set", &json!({ "ids": [second], "on": true })).unwrap();
+    fx.settle(&mut s);
+    assert_eq!(photo(&s, &fx.root.join("Lisboa"), "IMG_0002.jpg"), Some(second), "the rename is found");
+    s.flush().unwrap();
+    let doc = fx.sidecar(&fx.root.join("Lisboa"));
+    assert_eq!((doc["photos"]["IMG_0001.jpg"]["star"].clone(), doc["photos"]["IMG_0002.jpg"]["star"].clone()), (json!(true), json!(true)));
+    assert!(!exists(&lisbon), "no folder made at the old path");
+    drop(ui);
+    assert_eq!(dalica_fs::guard::refused(), 0);
 }
 
 /// `roadmap.md` M5.17: with the watcher switched off, the verification pass alone finds every

@@ -541,7 +541,13 @@ fn io_worker(mut store: Store, rx: Receiver<Msg>, clock: &dyn Clock, errors: &Mu
                 dalica_store::Outcome::SetAside(p) => {
                     fail(format!("folder {folder}: damaged sidecar kept as {}; the folder is read-only", p.display()))
                 }
-                _ => {}
+                dalica_store::Outcome::Written | dalica_store::Outcome::Unchanged => {
+                    // Landed since: an earlier failed attempt (a folder renamed before its write
+                    // came) is no longer unsaved.
+                    let earlier = format!("sidecar of folder {folder}: ");
+                    errors.lock().unwrap_or_else(PoisonError::into_inner).retain(|e| !e.starts_with(&earlier));
+                }
+                dalica_store::Outcome::ReadOnly => {}
             }
         }
     };
