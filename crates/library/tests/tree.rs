@@ -1,6 +1,7 @@
 //! `dalica-library` tree model (`ui-layout.md` §4, `organizing.md` §10) on hand-built libraries:
 //! rows and order in flat and tree mode for every sort and its reverse, year dividers, counts,
-//! groups, collapsed groups and nodes, sections, and the build time of a 5 k-folder library.
+//! groups, collapsed groups and nodes, sections, offline roots, and the build time of a 5 k-folder
+//! library.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -279,7 +280,7 @@ fn tree_parents_show_their_own_count_and_sort_by_their_subtree() {
     let t = fx.tree(&[base()], &opts(TreeMode::Tree, FolderSort::Date, false));
     // 2025's subtree starts in January 2025, which is newer than 2019.
     assert_eq!(lines(&t, Group::Folders), ["photos (0)", "  2025 (1)", "    January (2)", "  2019 (0)", "    Wedding (1)"]);
-    assert_eq!(t.group(Group::Folders).map(|g| g.count), Some(5), "every tree row counts");
+    assert_eq!(t.group(Group::Folders).map(|g| g.count), Some(3), "library folders only: the photos and 2019 directories do not count");
     let rows = folder_rows(&t);
     assert_eq!(rows.iter().map(|r| r.depth).collect::<Vec<_>>(), [0, 1, 2, 1, 2]);
     assert_eq!(rows.iter().map(|r| r.has_children).collect::<Vec<_>>(), [true, true, false, true, false]);
@@ -319,8 +320,49 @@ fn a_collapsed_tree_node_hides_rows_but_keeps_sections() {
     let t = fx.tree(&[base()], &options);
     assert_eq!(lines(&t, Group::Folders), ["photos (0)", "  a (1)"]);
     assert!(folder_rows(&t).iter().find(|r| r.name == "a").is_some_and(|r| r.has_children && !r.expanded));
-    assert_eq!(t.group(Group::Folders).map(|g| g.count), Some(4), "folded rows still count");
+    assert_eq!(t.group(Group::Folders).map(|g| g.count), Some(3), "folded folders still count; the photos directory does not");
     assert_eq!(t.sections, [SectionId::Folder(a), SectionId::Folder(b), SectionId::Folder(c)]);
+}
+
+/// Found at M4.R: tree mode said "Folders (212)" where flat mode had 200 folders, because it
+/// counted the directory rows between the roots and the folders.
+#[test]
+fn tree_mode_counts_the_same_folders_as_flat_mode() {
+    let (fx, options) = every_group();
+    let flat: usize = fx.tree(&[base()], &options).groups.iter().map(|g| g.count).sum();
+    let tree = fx.tree(&[base()], &TreeOptions { mode: TreeMode::Tree, ..options });
+    assert_eq!(flat, 4);
+    assert_eq!(tree.group(Group::Folders).map(|g| g.count), Some(flat));
+    assert!(folder_rows(&tree).iter().any(|r| r.folder.is_none()), "the tree has directory rows, and they are not counted");
+}
+
+/// `data-model.md` §7: folders under an offline root keep their rows, counts and sections, and
+/// are marked offline; folders under other roots are not.
+#[test]
+fn offline_roots_keep_their_rows_and_are_marked() {
+    let mut fx = Fx::new();
+    let home = fx.folder("Trip");
+    fx.photos(home, &[p(2026, 1, 1)]);
+    let card = PathBuf::from("/media").join("CARD");
+    let dcim = fx.folder_at(card.join("DCIM"));
+    fx.photos(dcim, &[p(2026, 2, 1), p(2026, 2, 2)]);
+    let roots = [base(), card.clone()];
+    for mode in [TreeMode::Flat, TreeMode::Tree] {
+        let online = TreeOptions { mode, ..TreeOptions::default() };
+        let offline = TreeOptions { offline_roots: BTreeSet::from([card.clone()]), ..online.clone() };
+        let (a, b) = (fx.tree(&roots, &online), fx.tree(&roots, &offline));
+        assert_eq!(a, b, "{mode:?}: an offline root changes no row, count or section");
+        let marked: Vec<(String, bool)> = folder_rows(&b).iter().map(|r| (r.name.clone(), offline.is_offline(&r.path))).collect();
+        let want: Vec<(String, bool)> = match mode {
+            TreeMode::Flat => vec![("DCIM".into(), true), ("Trip".into(), false)],
+            TreeMode::Tree => vec![("CARD".into(), true), ("DCIM".into(), true), ("photos".into(), false), ("Trip".into(), false)],
+        };
+        assert_eq!(marked, want, "{mode:?}");
+        assert!(folder_rows(&a).iter().all(|r| !online.is_offline(&r.path)));
+    }
+    // A sibling whose name merely starts like the root is not under it.
+    let options = TreeOptions { offline_roots: BTreeSet::from([card.clone()]), ..TreeOptions::default() };
+    assert!(!options.is_offline(&PathBuf::from("/media").join("CARD2").join("DCIM")));
 }
 
 #[test]
@@ -423,6 +465,15 @@ struct Spec {
     /// (folder path index, its photos)
     folders: Vec<(u8, Vec<SpecPhoto>)>,
     hidden: Vec<u8>,
+    /// Indices into `OFFLINE`: the roots whose volume is offline.
+    offline: Vec<u8>,
+}
+
+/// Candidate offline roots (relative to `base()`; empty for `base()` itself).
+const OFFLINE: [&str; 4] = ["", "a", "a/b", "d"];
+
+fn offline_roots(spec: &Spec) -> BTreeSet<PathBuf> {
+    spec.offline.iter().map(|&i| OFFLINE[usize::from(i)].split('/').filter(|p| !p.is_empty()).fold(base(), |path, part| path.join(part))).collect()
 }
 
 const PATHS: [&str; 8] = ["a", "a/b", "a/b/c", "b", "d/e", "d/f", "Dalica/Collages", "x/y/z"];
@@ -431,8 +482,9 @@ fn spec() -> impl Strategy<Value = Spec> {
     (
         proptest::collection::vec((0u8..8, proptest::collection::vec((0u16..2000, 1u16..5000, any::<bool>()), 0..5)), 0..8),
         proptest::collection::vec(0u8..8, 0..3),
+        proptest::collection::vec(0u8..4, 0..3),
     )
-        .prop_map(|(folders, hidden)| Spec { folders, hidden })
+        .prop_map(|(folders, hidden, offline)| Spec { folders, hidden, offline })
 }
 
 fn library(spec: &Spec) -> (Fx, BTreeSet<FolderId>) {
@@ -518,6 +570,22 @@ proptest! {
                 names.reverse();
                 prop_assert_eq!(names, lines_of(g.group, &back));
             }
+        }
+        // Headers count library folders with photos: tree mode's one group counts what the flat
+        // groups count together.
+        let other = TreeOptions { mode: if tree_mode { TreeMode::Flat } else { TreeMode::Tree }, ..options.clone() };
+        let counted = |t: &Tree| t.groups.iter().map(|g| g.count).sum::<usize>();
+        prop_assert_eq!(counted(&t), counted(&fx.tree(&[base()], &other)));
+        prop_assert_eq!(counted(&t), sections.len());
+        // Offline roots change no row, count or section; a row is offline exactly when it is under
+        // one of them.
+        let roots = offline_roots(&spec);
+        let offline = TreeOptions { offline_roots: roots.clone(), ..options.clone() };
+        let dimmed = fx.tree(&[base()], &offline);
+        prop_assert_eq!(&dimmed, &t);
+        for r in folder_rows(&dimmed) {
+            prop_assert_eq!(offline.is_offline(&r.path), roots.iter().any(|root| r.path.starts_with(root)));
+            prop_assert!(!options.is_offline(&r.path));
         }
         // Collapsing every group drops every row and section and keeps the headers.
         let closed = fx.tree(&[base()], &TreeOptions { collapsed_groups: Group::ALL.into_iter().collect(), ..options });
