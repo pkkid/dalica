@@ -11,8 +11,10 @@
 //!   neighbours.
 //! - Clearing a value removes the property. `dc:description` keeps its other languages: only the
 //!   `x-default` item is Dalica's.
-//! - The place and date mirrors are written only into a packet that exists, and the date mirrors
-//!   only where the packet already has them (`xmp-interop.md` §2).
+//! - The place and date mirrors are never the reason for a new packet: a place goes into a packet
+//!   that exists, the date mirrors only where the packet already has them (`xmp-interop.md` §2).
+//!   A new packet (started for a caption, tags or a rating) gets the place and the date
+//!   (`exif:DateTimeOriginal`) in the same merge, so writing the same values again changes nothing.
 //! - Text is escaped, and characters XML 1.0 does not allow are dropped (`security.md` §4.4).
 //! - The packet wrapper is kept and its padding absorbs the change in size, so a rewrite stays the
 //!   same size while the padding lasts. A file without a packet gets a new one with
@@ -166,6 +168,15 @@ impl Merged {
 /// there is none. `metadata_date` is the time of the write (`xmp:MetadataDate`). `Ok(None)`: the
 /// packet needs no change. A packet that is not well-formed XMP is an `Err` and is never replaced.
 pub fn merge(packet: Option<&[u8]>, changes: &Changes, metadata_date: &DateTaken, limits: &Limits) -> Result<Option<Merged>> {
+    merge_at(packet, changes, Some(metadata_date), limits)
+}
+
+/// [`merge`] with the time of the write optional. Without one (callers without a clock: tests and
+/// tools; the engine always passes the time), Dalica's description keeps the `xmp:MetadataDate` it
+/// has and a new description gets none; such a description, holding only owned properties in
+/// Dalica's form, is then taken for Dalica's even without the date, so the same write twice still
+/// gives the same bytes.
+pub fn merge_at(packet: Option<&[u8]>, changes: &Changes, metadata_date: Option<&DateTaken>, limits: &Limits) -> Result<Option<Merged>> {
     let Some(bytes) = packet.filter(|p| !xml::is_blank(p)) else { return new_packet(changes, metadata_date, limits) };
     let src = text_of(bytes, limits)?;
     let doc = xml::parse(src)?;
@@ -179,19 +190,22 @@ pub fn merge(packet: Option<&[u8]>, changes: &Changes, metadata_date: &DateTaken
     if changed.is_empty() {
         return Ok(None);
     }
-    let ours = find_ours(&doc, &rdf);
+    let ours = find_ours(&doc, &rdf, metadata_date.is_some());
     let mut model: Model = ours.as_ref().map(|(_, m)| m.clone()).unwrap_or_default();
     for (p, v) in &changed {
         set(&mut model, *p, v.clone());
     }
-    // The same values with the packet's own metadata date: if nothing else differs, nothing changes.
-    if let Some(V::Text(old_date)) = ours.as_ref().and_then(|(_, m)| m.get(P::MetadataDate.index()).cloned().flatten()) {
-        set(&mut model, P::MetadataDate, Some(V::Text(old_date)));
+    // The same values with the packet's own metadata date (or none, without a clock): if nothing
+    // else differs, nothing changes.
+    if let Some((_, old)) = &ours {
+        set(&mut model, P::MetadataDate, old.get(P::MetadataDate.index()).cloned().flatten());
         if splice(&doc, &rdf, ours.as_ref().map(|(d, _)| *d), &changed, &model)?.packet == bytes {
             return Ok(None);
         }
     }
-    set(&mut model, P::MetadataDate, Some(V::Text(metadata_date.to_string())));
+    if let Some(date) = metadata_date {
+        set(&mut model, P::MetadataDate, Some(V::Text(date.to_string())));
+    }
     let merged = splice(&doc, &rdf, ours.as_ref().map(|(d, _)| *d), &changed, &model)?;
     check(&merged.packet, &changed, limits)?;
     Ok(Some(merged))
@@ -240,20 +254,20 @@ fn wanted(changes: &Changes, rdf: Option<&Rdf>, current: &XmpOwned, limits: &Lim
         Some(false) if current.rating == Some(5) => out.push((P::Rating, Some(V::Text("0".to_owned())))),
         _ => {}
     }
-    if rdf.is_some() {
-        match changes.place {
-            Some(Some(place)) => {
-                out.push((P::Latitude, Some(V::Text(coordinate(place.latitude(), 'N', 'S')))));
-                out.push((P::Longitude, Some(V::Text(coordinate(place.longitude(), 'E', 'W')))));
-            }
-            Some(None) => out.extend([(P::Latitude, None), (P::Longitude, None)]),
-            None => {}
+    // The mirrors: into the packet there is, or into a new one that the fields above start.
+    match changes.place {
+        Some(Some(place)) => {
+            out.push((P::Latitude, Some(V::Text(coordinate(place.latitude(), 'N', 'S')))));
+            out.push((P::Longitude, Some(V::Text(coordinate(place.longitude(), 'E', 'W')))));
         }
-        if let Some(date) = &changes.date_taken {
-            for p in [P::DateTimeOriginal, P::DateCreated, P::CreateDate] {
-                if present(p) {
-                    out.push((p, Some(V::Text(date.to_string()))));
-                }
+        Some(None) => out.extend([(P::Latitude, None), (P::Longitude, None)]),
+        None => {}
+    }
+    if let Some(date) = &changes.date_taken {
+        for p in [P::DateTimeOriginal, P::DateCreated, P::CreateDate] {
+            // A new packet gets the first of them; a packet only the ones it has.
+            if present(p) || (rdf.is_none() && p == P::DateTimeOriginal) {
+                out.push((p, Some(V::Text(date.to_string()))));
             }
         }
     }
@@ -275,7 +289,10 @@ fn coordinate(value: f64, positive: char, negative: char) -> String {
 }
 
 /// Dalica's description, if the packet has one, and the values it holds.
-fn find_ours(doc: &Doc<'_>, rdf: &Rdf) -> Option<(usize, Model)> {
+///
+/// Its `xmp:MetadataDate` is part of the shape. Without a clock (`dated` false) a description
+/// without one also counts, since a write without a time writes none.
+fn find_ours(doc: &Doc<'_>, rdf: &Rdf, dated: bool) -> Option<(usize, Model)> {
     rdf.descriptions.iter().rev().find_map(|d| {
         let el = doc.element(d.element)?;
         if el.has_text || el.attrs.iter().any(|a| !a.is_xmlns && !doc.is(&a.name, RDF, "about")) {
@@ -302,7 +319,7 @@ fn find_ours(doc: &Doc<'_>, rdf: &Rdf) -> Option<(usize, Model)> {
             }
             *slot = Some(v);
         }
-        model.get(P::MetadataDate.index())?.is_some().then_some((d.element, model))
+        (!dated || model.get(P::MetadataDate.index())?.is_some()).then_some((d.element, model))
     })
 }
 
@@ -457,18 +474,20 @@ fn serialize(model: &Model, r: &str, declare_rdf: bool, about: &str, indent: Opt
     s
 }
 
-/// A new packet holding Dalica's properties (caption, tags and rating: the place and date mirrors
-/// are written only into an existing packet).
-fn new_packet(changes: &Changes, metadata_date: &DateTaken, limits: &Limits) -> Result<Option<Merged>> {
+/// A new packet holding Dalica's properties, started only for a caption, tags or a rating; the place
+/// and the date (`exif:DateTimeOriginal`) go in with them, never on their own.
+fn new_packet(changes: &Changes, metadata_date: Option<&DateTaken>, limits: &Limits) -> Result<Option<Merged>> {
     let changed = wanted(changes, None, &XmpOwned::default(), limits);
-    if changed.is_empty() {
+    if !changed.iter().any(|(p, v)| v.is_some() && matches!(p, P::Description | P::Subject | P::Rating)) {
         return Ok(None);
     }
     let mut model: Model = Default::default();
     for (p, v) in &changed {
         set(&mut model, *p, v.clone());
     }
-    set(&mut model, P::MetadataDate, Some(V::Text(metadata_date.to_string())));
+    if let Some(date) = metadata_date {
+        set(&mut model, P::MetadataDate, Some(V::Text(date.to_string())));
+    }
     let body = serialize(&model, "rdf", false, "", Some("\n  "));
     let padding: String = (0..NEW_PADDING).map(|i| if i % 100 == 99 { '\n' } else { ' ' }).collect();
     let head = format!(

@@ -11,8 +11,8 @@ everything Dalica puts into, or takes from, files it did not create. Read it wit
 > Status: reading of EXIF and IPTC, the containers of §4 (JPEG, PNG, WebP, TIFF) and the
 > precedence rules of §2 built (M6.4); the IPTC writer and in-place EXIF edits built as blocks
 > (M6.10: `iptc::write`, `exif::edit`) and XMP reading and the XMP merge writer of §3 built
-> (M6.9: `crates/meta/src/xmp/`), put into files by the container writers (M6.17–M6.19:
-> captions, tags), M13 (places) and M13 (people). The parser and writer are our own, in `crates/meta`
+> (M6.9: `crates/meta/src/xmp/`), put into files by the container writers (PNG, WebP and TIFF
+> built in M6.18; JPEG M6.17; `.xmp` sidecars M6.19: captions, tags), M13 (places) and M13 (people). The parser and writer are our own, in `crates/meta`
 > (`dalica-meta`, L1); LightCraft's `meta` and `tiff` crates are prior art only (`architecture.md`
 > §9).
 
@@ -128,13 +128,51 @@ latitude/longitude tags and DateTimeOriginal / DateTimeDigitized. Every Dalica X
 | Format | Read | Write (owned fields) |
 |---|---|---|
 | JPEG | EXIF (APP1), XMP (APP1, plus extended XMP), IPTC (APP13), ICC (APP2), MPF | XMP, IPTC and EXIF as above; extended XMP is never written |
-| PNG | `eXIf`, `iTXt` `XML:com.adobe.xmp`, `tEXt`/`zTXt` | XMP (`iTXt`); EXIF (`eXIf`) for place and date |
+| PNG | `eXIf`, `iTXt` `XML:com.adobe.xmp`, `tEXt`/`zTXt`, "Raw profile type" texts | XMP (`iTXt`); EXIF (`eXIf`) for place and date; IPTC only into an existing raw profile |
 | WebP | `EXIF` and `XMP ` chunks of the `VP8X` container | XMP and EXIF chunks (a simple-format file is promoted to `VP8X`, image chunk unchanged) |
-| TIFF | IFD0, EXIF and GPS IFDs, XMP (tag 700), IPTC (tag 33723) | XMP and IPTC tags only, by the append-only rule; place and date go to the XMP mirrors |
+| TIFF | IFD0, EXIF and GPS IFDs, XMP (tag 700), IPTC (tag 33723) | XMP and IPTC tags only (and ImageDescription following the caption), by the append-only rule; place and date go to the XMP mirrors |
 | HEIC/HEIF, AVIF, JPEG XL, PSD | embedded EXIF/XMP where the decoder exposes them | never (sidecar only) |
 | RAW | embedded EXIF/XMP (DNG XMP included), and an `.xmp` sidecar (§7) | never into the RAW; `.xmp` sidecar when enabled |
 | GIF, BMP, video | — / container dates where available | never (sidecar only) |
 | read-only files, offline volumes | as their format | never; the sidecar keeps the record and the write is queued for offline volumes (`data-model.md` §7) |
+
+**Writing PNG, WebP and TIFF** (M6.18):
+
+- **PNG.** The merged XMP goes into an uncompressed `iTXt` chunk where the chunk that held it was,
+  whatever its form (`iTXt`, `tEXt`, `zTXt`, a raw profile). EXIF goes back into its `eXIf`
+  chunk, or into the "Raw profile type exif" text that held it, in the same chunk type,
+  compression and hex layout. IPTC is written only into a raw profile the file already has (PNG
+  has no IPTC chunk). A block the file lacks goes into a new chunk just before the first `IDAT`
+  (`eXIf`, then `iTXt`). Every written chunk's CRC is recomputed; other chunks keep their bytes
+  and their order.
+- **WebP.** The `EXIF` and `XMP ` chunks are replaced where they are; a missing `EXIF` goes just
+  before an existing `XMP `, otherwise new chunks go at the end (after the image data, as the
+  container orders them). The `VP8X` flags gain the bits for the chunks present (never cleared).
+  A simple-format file gets a `VP8X` chunk first, its canvas size read from the `VP8 ` key frame
+  or `VP8L` header and its alpha flag from the lossless header; the image chunk is unchanged. The
+  RIFF size is set for the new body.
+- **TIFF: the append-only rule.** Nothing outside IFD0's table and the old values of tags 700,
+  33723 and 34377 changes or moves, so strips, tiles, maker notes and every offset stay valid. A
+  value no larger than the old one is written where it was (the rest zeroed); a larger or new one
+  is appended (word aligned) and its old bytes zeroed. IFD0 is rewritten in its own place unless
+  it gains an entry, when it is appended whole and only the header's IFD0 offset changes. Field
+  types are kept; a new XMP value is BYTE and a new IPTC stream LONG (padded with zeros). IPTC is
+  written where the file keeps it (tag 33723, and resource 0x0404 of tag 34377 with its digest),
+  and a new 33723 starts only when no IPTC exists and there is something to write.
+  ImageDescription follows the caption by the same rule (§3): a new caption is appended and
+  pointed to, a cleared one removes the entry, and the old text is left where it was,
+  unreferenced. A file whose IFD0 table or rewritten values share bytes with any other IFD, value,
+  strip or tile, or whose IFD0 holds one of these tags twice, is refused. Place and date reach a
+  TIFF only through the XMP mirrors: when no packet exists and the write starts none, or when EXIF
+  holds the value (EXIF wins on reading), the write fails naming the field and the sidecar keeps
+  the value.
+- **Mirrors into a new packet.** A place or a date alone never starts a packet. A packet started
+  for a caption, tags or a rating gets the place and the date (`exif:DateTimeOriginal`) in the
+  same write, so writing the same values twice gives the same bytes.
+- **`xmp:MetadataDate`** is the time of the write, which the caller passes from the session's
+  clock (`WriteOptions::metadata_date`, for photo files and `.xmp` sidecars alike); `dalica-meta`
+  reads no clock. Without one (tests, tools), Dalica's description keeps the date it has and a
+  new one gets none.
 
 **Size limits.** JPEG EXIF and standard XMP must each fit one APP1 segment (65,533 bytes including
 its header). If Dalica's change would push a block over the limit, Dalica first drops the packet's

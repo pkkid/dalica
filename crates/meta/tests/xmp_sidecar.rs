@@ -22,9 +22,9 @@ fn now() -> DateTaken {
     DateTaken::parse_iso("2026-10-12T09:30:00+02:00").unwrap()
 }
 
-/// Every write option on.
+/// Every write option on, written at [`now`].
 fn all() -> WriteOptions {
-    WriteOptions { captions_tags_places: true, stars_as_ratings: true, dates: true, limits: l() }
+    WriteOptions { captions_tags_places: true, stars_as_ratings: true, dates: true, metadata_date: Some(now()), limits: l() }
 }
 
 fn caption(c: &str) -> Changes {
@@ -267,7 +267,7 @@ fn split_ours(packet: &[u8]) -> (String, String) {
 }
 
 fn write(raw: Option<&[u8]>, sidecar: Option<&[u8]>, c: &Changes) -> SidecarWrite {
-    xmp_sidecar::merge(raw, sidecar, c, &all(), &now()).unwrap()
+    xmp_sidecar::merge(raw, sidecar, c, &all()).unwrap()
 }
 
 fn written(w: SidecarWrite) -> Vec<u8> {
@@ -361,11 +361,11 @@ fn nothing_to_write_creates_no_file() {
     assert_eq!(write(None, None, &Changes::default()), SidecarWrite::Unchanged);
     assert_eq!(write(None, None, &Changes { star: Some(false), ..Changes::default() }), SidecarWrite::Unchanged);
     // The options still decide: captions off, stars off.
-    let off = WriteOptions { captions_tags_places: false, stars_as_ratings: false, dates: true, limits: l() };
-    assert_eq!(xmp_sidecar::merge(None, None, &full(), &off, &now()).unwrap(), SidecarWrite::Unchanged);
-    assert_eq!(xmp_sidecar::merge(None, Some(DEVELOPER.as_bytes()), &full(), &off, &now()).unwrap(), SidecarWrite::Unchanged);
+    let off = WriteOptions { captions_tags_places: false, stars_as_ratings: false, dates: true, metadata_date: Some(now()), limits: l() };
+    assert_eq!(xmp_sidecar::merge(None, None, &full(), &off).unwrap(), SidecarWrite::Unchanged);
+    assert_eq!(xmp_sidecar::merge(None, Some(DEVELOPER.as_bytes()), &full(), &off).unwrap(), SidecarWrite::Unchanged);
     let stars_off = WriteOptions { stars_as_ratings: false, ..all() };
-    let out = written(xmp_sidecar::merge(None, None, &full(), &stars_off, &now()).unwrap());
+    let out = written(xmp_sidecar::merge(None, None, &full(), &stars_off).unwrap());
     assert_eq!(read_back(None, &out).metadata.owned.rating, None);
 }
 
@@ -530,7 +530,7 @@ fn a_damaged_embedded_packet_falls_back_to_a_plain_new_sidecar() {
 
 /// Whatever comes back is safe to write: well-formed, and it reads back as asked.
 fn check_write(raw: Option<&[u8]>, sidecar: Option<&[u8]>, c: &Changes) {
-    let Ok(w) = xmp_sidecar::merge(raw, sidecar, c, &all(), &now()) else { return };
+    let Ok(w) = xmp_sidecar::merge(raw, sidecar, c, &all()) else { return };
     let bytes = match w {
         SidecarWrite::Unchanged => return,
         SidecarWrite::Write(b) => b,
