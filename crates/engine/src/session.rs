@@ -177,6 +177,7 @@ impl Session {
             offline: Offline::default(),
             _lock: lock,
         };
+        session.configure_thumbnails();
         session.sync_thumbnails();
         if session.recovery.iter().any(|r| matches!(r, Recovery::RebuildNeeded { .. })) && !session.folders.roots.is_empty() {
             session.start_scan(session.folders.roots.clone(), ScanKind::Rebuild);

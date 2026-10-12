@@ -275,6 +275,12 @@ impl Cache {
         Ok(())
     }
 
+    /// The live entries of `size`, oldest first, with their lengths in bytes: what a pruning
+    /// policy ([`crate::upkeep`]) chooses from. From memory; no disk access.
+    pub fn entries(&self, size: Size) -> Vec<(Key, u32)> {
+        self.pack(size).entries_by_offset().into_iter().map(|(key, loc)| (key, loc.len)).collect()
+    }
+
     pub fn stats(&self, size: Size) -> SizeStats {
         let p = self.pack(size);
         SizeStats {

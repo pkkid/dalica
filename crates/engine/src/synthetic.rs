@@ -9,8 +9,10 @@
 //!   thumbnailer's encoder, made from a small `scenes` picture at the photo's aspect: one of
 //!   [`PICTURES`] pictures per aspect, each encoded once.
 //! - **Scanned** ([`write_photos`], [`open_scanned`]): the same plan written as small `scenes`
-//!   JPEGs (at most [`MAX_SCANNED_PHOTOS`]) and added as a watched folder, for tests that need
-//!   files on disk (thumbnails, the ladder). Ids then follow the scan, and sizes are the files'.
+//!   JPEGs (at most [`MAX_SCANNED_PHOTOS`], 100 000: the scanned 100 k pass of the
+//!   `first_thumbnails` bench) and added as a watched folder, for tests that need files on disk
+//!   (thumbnails, the ladder). Ids then follow the scan, and sizes are the files'.
+//!   [`write_photos_with`] can also embed an EXIF thumbnail in each, as cameras do.
 //!
 //! **The plan.** Folders are spread over [`YEARS`] years ending on 2026-06-04, oldest folder
 //! first, each later than the one before; folder sizes are uneven (most hold a few dozen photos,
@@ -42,7 +44,7 @@ pub const MAX_PHOTOS: usize = 1_000_000;
 /// The most folders a library may hold.
 pub const MAX_FOLDERS: usize = 100_000;
 /// The most photos [`write_photos`] writes as files.
-pub const MAX_SCANNED_PHOTOS: usize = 20_000;
+pub const MAX_SCANNED_PHOTOS: usize = 100_000;
 /// The smallest and largest long side of the files [`write_photos`] writes.
 pub const FILE_SIDE: (u32, u32) = (16, 2048);
 /// The long side the scanned case usually uses: the 256 ladder entry is still a real reduction.
@@ -230,7 +232,16 @@ pub fn open(dir: &Path, spec: &Spec, clock: Arc<dyn Clock>) -> Result<Session, S
 /// At most [`MAX_SCANNED_PHOTOS`] photos; the photo folder must be new. Returns the folders in
 /// tree order. Off the UI thread.
 pub fn write_photos(dir: &Path, spec: &Spec, long_side: u32) -> Result<Vec<PathBuf>, SyntheticError> {
+    write_photos_with(dir, spec, long_side, None)
+}
+
+/// [`write_photos`], each file with an EXIF thumbnail `thumbnail` pixels on its long side (as a
+/// camera writes one; `None`: none). A thumbnail longer than the photo is refused.
+pub fn write_photos_with(dir: &Path, spec: &Spec, long_side: u32, thumbnail: Option<u32>) -> Result<Vec<PathBuf>, SyntheticError> {
     spec.check()?;
+    if let Some(t) = thumbnail.filter(|t| *t == 0 || *t > long_side) {
+        return Err(SyntheticError::Spec(format!("an embedded thumbnail of {t} px does not fit a {long_side} px photo")));
+    }
     if spec.photos > MAX_SCANNED_PHOTOS {
         return Err(SyntheticError::Spec(format!("{} photos is more than the {MAX_SCANNED_PHOTOS} written as files", spec.photos)));
     }
@@ -254,7 +265,7 @@ pub fn write_photos(dir: &Path, spec: &Spec, long_side: u32) -> Result<Vec<PathB
     let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).clamp(1, 8);
     let per_thread = files.len().div_ceil(threads).max(1);
     let results: Vec<Result<(), SyntheticError>> = std::thread::scope(|scope| {
-        let workers: Vec<_> = files.chunks(per_thread).map(|chunk| scope.spawn(move || write_files(chunk, long_side))).collect();
+        let workers: Vec<_> = files.chunks(per_thread).map(|chunk| scope.spawn(move || write_files(chunk, long_side, thumbnail))).collect();
         workers.into_iter().map(|w| w.join().unwrap_or_else(|_| Err(SyntheticError::Scenes("a writer thread panicked".into())))).collect()
     });
     results.into_iter().collect::<Result<(), _>>()?;
@@ -262,11 +273,12 @@ pub fn write_photos(dir: &Path, spec: &Spec, long_side: u32) -> Result<Vec<PathB
     Ok(folders)
 }
 
-/// Writes each planned photo as a JPEG `long_side` pixels on its longer side.
-fn write_files(files: &[(PathBuf, Planned)], long_side: u32) -> Result<(), SyntheticError> {
+/// Writes each planned photo as a JPEG `long_side` pixels on its longer side, with an embedded
+/// thumbnail `thumbnail` pixels long when asked.
+fn write_files(files: &[(PathBuf, Planned)], long_side: u32, thumbnail: Option<u32>) -> Result<(), SyntheticError> {
     for (path, p) in files {
         let (w, h) = fit(p.photo.width, p.photo.height, long_side);
-        let exif = dalica_scenes::Exif { date_time_original: p.photo.date, ..Default::default() };
+        let exif = dalica_scenes::Exif { date_time_original: p.photo.date, thumbnail, ..Default::default() };
         let bytes = dalica_scenes::jpeg(&Scene::new(p.scene, w, h), 85, Some(&exif)).map_err(|e| SyntheticError::Scenes(e.to_string()))?;
         dalica_fs::replace(path, &bytes, Expect::Absent)?;
     }
@@ -434,6 +446,20 @@ impl Rng {
 mod tests {
     use super::*;
     use crate::Thumb;
+
+    #[test]
+    fn photos_can_carry_an_embedded_thumbnail() {
+        let dir = tempfile::tempdir().unwrap();
+        let spec = Spec::new(3, 1, SEED);
+        assert!(matches!(write_photos_with(dir.path(), &spec, 64, Some(65)), Err(SyntheticError::Spec(_))));
+        assert!(matches!(write_photos_with(dir.path(), &spec, 64, Some(0)), Err(SyntheticError::Spec(_))));
+        let folders = write_photos_with(dir.path(), &spec, 320, Some(160)).unwrap();
+        let file = std::fs::read_dir(&folders[0]).unwrap().next().unwrap().unwrap().path();
+        let bytes = std::fs::read(file).unwrap();
+        let header = dalica_image::read_header(&bytes, &dalica_image::Limits::default()).unwrap();
+        let thumb = dalica_image::read_header(header.thumbnail(&bytes).unwrap(), &dalica_image::Limits::default()).unwrap();
+        assert_eq!(thumb.width.max(thumb.height), 160);
+    }
 
     /// With no files to make thumbnails from, the index-only library runs with thumbnails off:
     /// every photo answers with its sketch, nothing is queued and nothing is marked as failed.

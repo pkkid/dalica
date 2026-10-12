@@ -51,7 +51,7 @@ use std::sync::{Arc, Weak};
 
 use dalica_core::PhotoId;
 use dalica_engine::thumbs::Size;
-use dalica_engine::{Session, Thumb};
+use dalica_engine::{Refreshed, Session, Thumb};
 use dalica_library::Photo;
 use dalica_thumbs::Rgba8;
 use dalica_thumbs::ladder::{self, Choice};
@@ -246,6 +246,8 @@ pub struct Thumbnails {
     speed: f64,
     /// `gray 38` from the theme of the current frame.
     placeholder: Color32,
+    /// The session's thumbnail generation the textures were made in.
+    made_in: u64,
 }
 
 impl Thumbnails {
@@ -254,6 +256,7 @@ impl Thumbnails {
             ctx: None,
             textures: HashMap::new(),
             texture_bytes: 0,
+            made_in: 0,
             sketches: HashMap::new(),
             failed: HashMap::new(),
             order: Order::default(),
@@ -280,6 +283,26 @@ impl Thumbnails {
         }
         self.frame = self.frame.wrapping_add(1);
         self.cells.clear();
+        // Thumbnails made again (colour management switched, a refresh): their textures go, so the
+        // cells ask for the new images.
+        let generation = session.thumbnail_generation();
+        if generation != self.made_in {
+            match session.thumbnails_refreshed_since(self.made_in) {
+                Refreshed::Nothing => {}
+                Refreshed::All => {
+                    self.textures.clear();
+                    self.texture_bytes = 0;
+                }
+                Refreshed::Photos(ids) => {
+                    for id in ids {
+                        for size in Size::ALL {
+                            self.remove(id, size);
+                        }
+                    }
+                }
+            }
+            self.made_in = generation;
+        }
         self.counting = Counts::default();
         self.now = ctx.input(|i| i.time);
         let monitor = ctx.input(|i| i.viewport().monitor_size.map(|s| s.x.max(s.y) * i.pixels_per_point()));

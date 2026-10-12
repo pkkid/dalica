@@ -77,10 +77,44 @@ pub struct Source {
 }
 
 impl Source {
-    /// The photo's content-addressed key (§6.4): path, size, modification time, the recipe (none
-    /// yet: edits arrive with the edit view) and [`RENDERER_VERSION`].
+    /// The photo's content-addressed key (§6.4) as the default [`Render`] makes it: path, size,
+    /// modification time, the recipe (none yet: edits arrive with the edit view) and
+    /// [`RENDERER_VERSION`].
     pub fn key(&self) -> Key {
-        Key::new(&self.path, self.file_size, i128::from(self.mtime_ms) * 1_000_000, 0, RENDERER_VERSION)
+        self.key_for(&Render::default())
+    }
+
+    /// The photo's key when rendered with `render`: the render options join the recipe hash, so
+    /// entries made one way are never read the other way.
+    pub fn key_for(&self, render: &Render) -> Key {
+        Key::new(&self.path, self.file_size, i128::from(self.mtime_ms) * 1_000_000, render.recipe_hash(), RENDERER_VERSION)
+    }
+}
+
+/// How the ladder renders a photo, besides its size: what goes into [`Source::key_for`] and the
+/// decode options of [`scan_with`] and [`fetch_with`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Render {
+    /// Apply embedded ICC profiles (View → Use Color Management, on by default).
+    pub color_managed: bool,
+}
+
+impl Default for Render {
+    fn default() -> Render {
+        Render { color_managed: true }
+    }
+}
+
+impl Render {
+    /// The part of the cache key these options make: 0 for the defaults (the key entries made
+    /// before render options existed already have), a fixed tag otherwise.
+    pub fn recipe_hash(&self) -> u64 {
+        if self.color_managed { 0 } else { 0x636d_2d6f_6666_0001 }
+    }
+
+    /// The decode options.
+    pub fn decode_options(&self) -> dalica_image::DecodeOptions {
+        dalica_image::DecodeOptions { color_managed: self.color_managed }
     }
 }
 
@@ -192,7 +226,19 @@ pub struct Scanned {
 /// decode of the photo, and its colour sketch when `want_sketch`. A photo whose entries are
 /// already cached is not decoded; its sketch is then made from the cached 128 entry.
 pub fn scan(cache: &Cache, source: &Source, want_sketch: bool, limits: &dalica_image::Limits, cancel: &AtomicBool) -> Result<Scanned, Error> {
-    let key = source.key();
+    scan_with(cache, source, &Render::default(), want_sketch, limits, cancel)
+}
+
+/// [`scan`] rendered with `render` (its entries under [`Source::key_for`]).
+pub fn scan_with(
+    cache: &Cache,
+    source: &Source,
+    render: &Render,
+    want_sketch: bool,
+    limits: &dalica_image::Limits,
+    cancel: &AtomicBool,
+) -> Result<Scanned, Error> {
+    let key = source.key_for(render);
     if SCAN_SIZES.iter().all(|&s| cache.contains(s, key)) {
         if !want_sketch {
             return Ok(Scanned { images: Vec::new(), sketch: None, decoded: false });
@@ -205,7 +251,7 @@ pub fn scan(cache: &Cache, source: &Source, want_sketch: bool, limits: &dalica_i
     if cancel.load(Ordering::Relaxed) {
         return Err(Error::Cancelled);
     }
-    let large = crate::thumbnail(&source.path, 256, limits)?;
+    let large = crate::thumbnail_with(&source.path, 256, &render.decode_options(), limits)?;
     let small = dalica_image::resize::fit(&large, 128).map_err(|e| Error::Photo(e.into()))?;
     let sketch = if want_sketch { Some(sketch::encode(&small).map_err(|e| Error::Encode(e.to_string()))?) } else { None };
     let mut images = Vec::with_capacity(2);
@@ -227,14 +273,27 @@ pub struct Fetched {
 /// the photo (to fit `size`, never enlarged) and stored. `screen` is the screen-size preview's long
 /// side.
 pub fn fetch(cache: &Cache, source: &Source, size: Size, screen: u32, limits: &dalica_image::Limits, cancel: &AtomicBool) -> Result<Fetched, Error> {
-    let key = entry_key(source.key(), size, screen);
+    fetch_with(cache, source, &Render::default(), size, screen, limits, cancel)
+}
+
+/// [`fetch`] rendered with `render` (its entry under [`Source::key_for`]).
+pub fn fetch_with(
+    cache: &Cache,
+    source: &Source,
+    render: &Render,
+    size: Size,
+    screen: u32,
+    limits: &dalica_image::Limits,
+    cancel: &AtomicBool,
+) -> Result<Fetched, Error> {
+    let key = entry_key(source.key_for(render), size, screen);
     if let Some(image) = load(cache, size, key, limits)? {
         return Ok(Fetched { image, decoded: false });
     }
     if cancel.load(Ordering::Relaxed) {
         return Err(Error::Cancelled);
     }
-    let image = crate::thumbnail(&source.path, pixels(size, screen), limits)?;
+    let image = crate::thumbnail_with(&source.path, pixels(size, screen), &render.decode_options(), limits)?;
     Ok(Fetched { image: store(cache, size, key, &image, limits)?, decoded: true })
 }
 
