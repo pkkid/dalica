@@ -308,9 +308,13 @@ fn shortcut(facts: &Facts<'_>, i: &Item, id: &str, registered: bool) -> Option<S
 }
 
 /// Whether a checkable row (or a row of the view-options popup) running `id` with its fixed
-/// `params` is on: the view state answers ([`crate::commands::view::checked`]); rows of commands
-/// that do not exist yet are off.
+/// `params` is on: the view state answers ([`crate::commands::view::checked`]), and the session for
+/// the engine's View settings (Use Color Management, on until a library says otherwise); rows of
+/// commands that do not exist yet are off.
 pub fn checked(app: &App, id: &str, params: &Value) -> bool {
+    if id == "view.colorManagement" {
+        return app.session().is_none_or(dalica_engine::Session::color_management);
+    }
     crate::commands::view::checked(app.state(), id, params).unwrap_or(false)
 }
 
@@ -756,6 +760,7 @@ mod tests {
                 "pane.places",
                 "view.smallPictures",
                 "view.hiddenPictures",
+                "view.colorManagement",
                 "view.caption",
                 "view.caption",
                 "view.caption",
@@ -765,6 +770,7 @@ mod tests {
                 "view.folderView",
                 "view.folderView",
                 "window.fullscreen",
+                "section.refreshThumbs",
                 "pane.properties",
                 "photo.star.toggle",
                 "folders.manager"

@@ -25,6 +25,11 @@
 //! File Types (`data-model.md` §7): each `false` leaves that type out of every scan ([`FileTypes`];
 //! JPEG is always on, and a value that is not a boolean counts as on).
 //!
+//! M5 also adds `"view"` → `colorManagement` (View → Use Color Management, on unless stored as
+//! `false`) and `"cache"`: `{thumbnailBytes}`, the thumbnail cache's size (2 GiB by default; a value
+//! that is not a whole number of bytes in `dalica_thumbs::upkeep::MIN_BUDGET ..= MAX_BUDGET` is the
+//! default).
+//!
 //! Stored numbers are hostile like any input: a value that is not a finite number in its range is
 //! dropped (the default is used), never trusted.
 
@@ -364,6 +369,30 @@ impl Settings {
         );
     }
 
+    /// View → Use Color Management: on unless stored as `false`.
+    pub fn color_management(&self) -> bool {
+        self.field("view", "colorManagement").and_then(Value::as_bool).unwrap_or(true)
+    }
+
+    pub fn set_color_management(&mut self, on: bool) {
+        self.merge("view", &[("colorManagement", Some(json!(on)))]);
+    }
+
+    /// The thumbnail cache's size in bytes: the stored `cache.thumbnailBytes` when it is a whole
+    /// number in `MIN_BUDGET ..= MAX_BUDGET`, else 2 GiB.
+    pub fn thumbnail_cache_bytes(&self) -> u64 {
+        self.field("cache", "thumbnailBytes")
+            .and_then(Value::as_u64)
+            .filter(|b| (dalica_thumbs::upkeep::MIN_BUDGET..=dalica_thumbs::upkeep::MAX_BUDGET).contains(b))
+            .unwrap_or(dalica_thumbs::pack::DEFAULT_BUDGET)
+    }
+
+    /// Stores the thumbnail cache's size, clamped to `MIN_BUDGET ..= MAX_BUDGET`.
+    pub fn set_thumbnail_cache_bytes(&mut self, bytes: u64) {
+        let bytes = bytes.clamp(dalica_thumbs::upkeep::MIN_BUDGET, dalica_thumbs::upkeep::MAX_BUDGET);
+        self.merge("cache", &[("thumbnailBytes", Some(json!(bytes)))]);
+    }
+
     /// Options → File Types: the types scans list. Every type is on unless stored as `false`.
     pub fn file_types(&self) -> FileTypes {
         FileType::ALL.into_iter().fold(FileTypes::all(), |t, ty| match self.field("fileTypes", ty.id()).and_then(Value::as_bool) {
@@ -556,6 +585,33 @@ mod tests {
         let back = Settings::parse(&s.print()).unwrap();
         assert_eq!(back.thumb_speed(), ThumbSpeed { exponent: 3.0, top_speed: 40.0 });
         assert_eq!(back.get("scrolling").unwrap()["future"], json!(true));
+    }
+
+    #[test]
+    fn colour_management_and_the_cache_size_survive_a_write_and_hostile_values_are_the_defaults() {
+        use dalica_thumbs::pack::DEFAULT_BUDGET;
+        use dalica_thumbs::upkeep::{MAX_BUDGET, MIN_BUDGET};
+        let s = Settings::default();
+        assert!(s.color_management());
+        assert_eq!(s.thumbnail_cache_bytes(), DEFAULT_BUDGET);
+        let mut s = Settings::parse(br#"{"view": {"thumbSize": 120}, "cache": {"other": 1}}"#).unwrap();
+        s.set_color_management(false);
+        s.set_thumbnail_cache_bytes(512 << 20);
+        let back = Settings::parse(&s.print()).unwrap();
+        assert!(!back.color_management());
+        assert_eq!(back.thumbnail_cache_bytes(), 512 << 20);
+        assert_eq!(back.view_options().thumb_size, Some(120.0), "other view keys kept");
+        assert_eq!(back.get("cache").unwrap()["other"], json!(1), "other cache keys kept");
+        s.set_thumbnail_cache_bytes(1);
+        assert_eq!(s.thumbnail_cache_bytes(), MIN_BUDGET, "stored clamped");
+        s.set_thumbnail_cache_bytes(u64::MAX);
+        assert_eq!(s.thumbnail_cache_bytes(), MAX_BUDGET);
+        for hostile in [r#""4 GB""#, "-1", "1.5e9", "1", "1e300", "null", "true"] {
+            let s = Settings::parse(format!(r#"{{"cache": {{"thumbnailBytes": {hostile}}}, "view": {{"colorManagement": {hostile}}}}}"#).as_bytes())
+                .unwrap();
+            assert_eq!(s.thumbnail_cache_bytes(), DEFAULT_BUDGET, "{hostile}");
+            assert_eq!(s.color_management(), hostile != "false", "{hostile}");
+        }
     }
 
     #[test]

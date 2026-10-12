@@ -1524,7 +1524,7 @@ filled by the lead; M5.15 pins it.
     test-corpus` passes with floors at the measured counts (numbers in the PR); a planted stale
     file fails verification; `xtask docs` lists both commands as implemented; no corpus file is
     tracked by git.
-- ⬜ **M5.16 `engine` + `thumbs`: cache upkeep, colour management and the first-thumbnails benchmark**
+- ✅ **M5.16 `engine` + `thumbs`: cache upkeep, colour management and the first-thumbnails benchmark**
   - after: M4.3, M4.14, M5.1, M5.5, M5.13
   - files: `crates/engine/src/thumbs.rs`, `crates/engine/src/cmd/view.rs`, `crates/engine/src/cmd/section.rs`, `crates/engine/src/settings.rs`, `crates/engine/tests/thumb_cache.rs`, `crates/engine/benches/first_thumbnails.rs`, `crates/engine/src/synthetic.rs`, `crates/thumbs/src/upkeep.rs`, `crates/thumbs/tests/upkeep.rs`, `crates/thumbs/README.md`, `crates/ui/src/menus.rs`, `crates/ui/tests/color_management.rs`
   - scope: `architecture.md` §6: the cache size setting (2 GiB default), pruning as a background

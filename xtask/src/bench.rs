@@ -32,6 +32,11 @@ pub const BENCHES: &[Bench] = &[
         what: "the light table scrolling a synthetic 10 k and 100 k-photo library: UI frame time, cells visited",
     },
     Bench { name: "pack", package: "dalica-thumbs", what: "the packed thumbnail cache against loose files (writes about 1 GB)" },
+    Bench {
+        name: "first_thumbnails",
+        package: "dalica-engine",
+        what: "first thumbnails after adding 1 k and 10 k JPEGs, the full scan, and the scanned 100 k light table at top thumb speed (writes about 3 GB)",
+    },
 ];
 
 /// Time units a field may name, in milliseconds.

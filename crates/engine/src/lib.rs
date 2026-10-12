@@ -29,4 +29,4 @@ pub use keymap::{Binding, Key, Keymap, Override};
 pub use registry::{CommandInfo, CommandSpec, Context, Disabled, Effect, History};
 pub use scanning::ScanProgress;
 pub use session::{Options, Session};
-pub use thumbs::{CacheDir, Thumb, ThumbOptions, ThumbStats};
+pub use thumbs::{CacheDir, Refreshed, Thumb, ThumbOptions, ThumbStats};
