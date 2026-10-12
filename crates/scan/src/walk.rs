@@ -20,6 +20,7 @@ use std::time::{Duration, Instant};
 use dalica_core::{DateTime, Timestamp};
 use dalica_fs::{Entry, Limits};
 use dalica_image::{Format, Header};
+use dalica_library::{FolderInfo, MAX_CAPTION, MAX_DESCRIPTION, MAX_OPERATION, MAX_OPERATIONS, MAX_PLACE, PhotoInfo};
 use dalica_sidecar::{Field, Sidecar};
 
 use crate::skip::{FileTypes, SkipRules};
@@ -45,6 +46,9 @@ pub struct FoundPhoto {
     pub date: Option<DateTime>,
     /// From the folder's sidecar.
     pub star: bool,
+    /// What the folder's sidecar says about the photo besides its star (caption, tags, hidden,
+    /// recipe, redo list, date), as the model takes it ([`photo_info`]).
+    pub info: PhotoInfo,
 }
 
 /// A folder holding at least one photo.
@@ -53,6 +57,9 @@ pub struct FoundFolder {
     pub path: PathBuf,
     /// Sorted by name.
     pub photos: Vec<FoundPhoto>,
+    /// What the folder's sidecar says about the folder (description, date, place, hidden), as
+    /// the model takes it ([`folder_info`]).
+    pub info: FolderInfo,
 }
 
 /// Something a scan could not read; the scan went on without it.
@@ -524,20 +531,25 @@ impl Scanner<'_> {
         if !finished {
             return None;
         }
+        let mut info = FolderInfo::default();
         if !photos.is_empty() {
-            if let Some(stars) = self.read_stars(dir) {
+            // Read here, on the scan's thread: everything the user said in the sidecar comes in
+            // with the photos, in the same op (`diff`), so no sidecar write can run in between.
+            if let Some(sidecar) = self.read_sidecar(dir) {
                 for p in &mut photos {
-                    p.star = stars.star(&p.name) == Field::Value(true);
+                    p.star = sidecar.star(&p.name) == Field::Value(true);
+                    p.info = photo_info(&sidecar, &p.name);
                 }
+                info = folder_info(&sidecar);
             }
             photos.sort_by(|a, b| a.name.cmp(&b.name));
             self.summary.progress.found = self.summary.progress.found.saturating_add(photos.len());
         }
-        Some(FoundFolder { path: dir.to_path_buf(), photos })
+        Some(FoundFolder { path: dir.to_path_buf(), photos, info })
     }
 
     /// The folder's sidecar, if it has a readable one (a damaged one is the store's to set aside).
-    fn read_stars(&mut self, folder: &Path) -> Option<Sidecar> {
+    fn read_sidecar(&mut self, folder: &Path) -> Option<Sidecar> {
         let path = folder.join(dalica_sidecar::FILE_NAME);
         let limits = dalica_sidecar::Limits::default();
         match dalica_fs::read(&path, limits.max_bytes as u64) {
@@ -559,7 +571,72 @@ impl Scanner<'_> {
 
 /// A photo whose header was not read: listed at 0 × 0.
 fn unread(entry: &Entry, name: &str, format: Format) -> FoundPhoto {
-    FoundPhoto { name: name.to_string(), size: entry.size, mtime: entry.modified, format, width: 0, height: 0, date: None, star: false }
+    FoundPhoto {
+        name: name.to_string(),
+        size: entry.size,
+        mtime: entry.modified,
+        format,
+        width: 0,
+        height: 0,
+        date: None,
+        star: false,
+        info: PhotoInfo::default(),
+    }
+}
+
+/// What `sidecar` says about photo `name` (its star aside), as a photo new to the model takes it
+/// (`data-model.md` §3, the rules of `dalica-store`'s `mapping::read_photo`): a value of the wrong
+/// type is not used (the photo keeps the empty value, and the file keeps its value: writing only
+/// changes keys whose value differs from what the file reads as); a caption past the cap is cut;
+/// tags are cleaned; a recipe or redo list past the caps is not used.
+pub fn photo_info(sidecar: &Sidecar, name: &str) -> PhotoInfo {
+    let f = sidecar.photo(name);
+    let tags: Vec<String> = usable(f.tags);
+    PhotoInfo {
+        caption: cut(usable(f.caption), MAX_CAPTION, dalica_library::clean_caption),
+        tags: dalica_library::clean_tags(tags.iter().map(String::as_str)),
+        hidden: usable(f.hidden),
+        edits: operations(usable(f.edits)),
+        redo: operations(usable(f.redo)),
+        date: usable_value(f.date),
+    }
+}
+
+/// What `sidecar` says about its folder, as a folder new to the model takes it (the rules of
+/// `dalica-store`'s `mapping::read_folder`, as [`photo_info`]).
+pub fn folder_info(sidecar: &Sidecar) -> FolderInfo {
+    let f = sidecar.folder();
+    FolderInfo {
+        description: cut(usable(f.description), MAX_DESCRIPTION, dalica_library::clean_description),
+        date: usable_value(f.date),
+        place: cut(usable(f.place), MAX_PLACE, dalica_library::clean_place),
+        hidden: usable(f.hidden),
+    }
+}
+
+/// The value read, or the empty one when the key is absent or holds the wrong type.
+fn usable<T: Default>(f: Field<T>) -> T {
+    match f {
+        Field::Value(v) => v,
+        Field::Absent | Field::WrongType(_) => T::default(),
+    }
+}
+
+fn usable_value<T>(f: Field<T>) -> Option<T> {
+    match f {
+        Field::Value(v) => Some(v),
+        Field::Absent | Field::WrongType(_) => None,
+    }
+}
+
+/// Text past `max` bytes cleaned (cut); shorter text as it is.
+fn cut(text: String, max: usize, clean: fn(&str) -> String) -> String {
+    if text.len() > max { clean(&text) } else { text }
+}
+
+/// A recipe or redo list, or none past the caps of `dalica-library`.
+fn operations(list: Vec<String>) -> Vec<String> {
+    if list.len() > MAX_OPERATIONS || list.iter().any(|op| op.len() > MAX_OPERATION) { Vec::new() } else { list }
 }
 
 /// One folder's kept entries.

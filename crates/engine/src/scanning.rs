@@ -231,10 +231,20 @@ impl ScanJob {
 }
 
 /// The photos one op adds, changes or removes (at least 1): what it costs from the poll's budget.
+/// A batch (photos added with what their sidecar says about them) costs what its photo ops cost.
 pub(crate) fn cost(op: &Op) -> usize {
     match op {
         Op::AddPhotos { photos } | Op::UpdatePhotos { photos } => photos.len().max(1),
         Op::RemovePhotos { ids } => ids.len().max(1),
+        Op::Batch { ops } => ops
+            .iter()
+            .map(|op| match op {
+                Op::AddPhotos { photos } | Op::UpdatePhotos { photos } => photos.len(),
+                Op::RemovePhotos { ids } => ids.len(),
+                _ => 0,
+            })
+            .fold(0, usize::saturating_add)
+            .max(1),
         _ => 1,
     }
 }
@@ -655,6 +665,45 @@ mod tests {
         assert_eq!(pictures(999), "999 pictures");
         assert_eq!(pictures(1_204), "1,204 pictures");
         assert_eq!(pictures(12_345_678), "12,345,678 pictures");
+    }
+
+    /// The scan reads a sidecar on its own thread with `dalica-scan`'s `photo_info` / `folder_info`;
+    /// the store reads it with `mapping`. They must agree, or the first write after a scan would
+    /// change a file nobody touched: on every kind of value (usable, wrong type, past a cap,
+    /// untidy tags, absent), the scan's info is what the store's reading gives a new photo.
+    #[test]
+    fn the_scans_reading_of_a_sidecar_is_the_stores() {
+        use dalica_library::{FolderInfo, MAX_CAPTION, MAX_DESCRIPTION, MAX_OPERATION, MAX_PLACE};
+        use dalica_sidecar::{Limits, Sidecar};
+        use dalica_store::mapping::{PhotoState, read_folder, read_photo};
+        use serde_json::Value;
+
+        let long = |n: usize| Value::String("ü".repeat(n));
+        let photos = [
+            json!({ "caption": "Tram 28", "tags": ["a", " b ", "A", "", "c\nd"], "hidden": true, "edits": ["rotate(90)", "x(1)"], "redo": ["sepia()"], "date": "2026-06-04T19:42:10" }),
+            json!({ "caption": 3, "tags": [1], "hidden": "no", "edits": "rotate(90)", "redo": {}, "date": "2026:06:04 19:42:10" }),
+            json!({ "caption": long(MAX_CAPTION), "edits": vec!["flip_h()"; 10_001], "date": "not a date" }),
+            json!({ "caption": "  padded  ", "redo": ["y".repeat(MAX_OPERATION + 1)], "hidden": false }),
+            json!({ "star": true }),
+            json!("not an object"),
+        ];
+        let folders = [
+            json!({ "description": "Weekend", "date": "2026-06-04", "place": "Lisbon", "hidden": true }),
+            json!({ "description": long(MAX_DESCRIPTION), "place": long(MAX_PLACE), "date": "2026-02-30", "hidden": 1 }),
+            json!({ "description": ["x"], "place": "a\tb" }),
+            json!([]),
+        ];
+        for (i, folder) in folders.iter().enumerate() {
+            let entries: serde_json::Map<String, Value> = photos.iter().enumerate().map(|(j, p)| (format!("p{j}.jpg"), p.clone())).collect();
+            let doc = json!({ "dalica": { "version": 1 }, "folder": folder, "photos": entries });
+            let sidecar = Sidecar::parse(&serde_json::to_vec(&doc).unwrap(), &Limits::default()).unwrap();
+            assert_eq!(dalica_scan::folder_info(&sidecar), read_folder(&sidecar).merged(&FolderInfo::default()), "folder {i}");
+            for j in 0..=photos.len() {
+                let name = format!("p{j}.jpg");
+                let store = read_photo(&sidecar, &name).merged(&PhotoState::default()).info;
+                assert_eq!(dalica_scan::photo_info(&sidecar, &name), store, "photo {j}");
+            }
+        }
     }
 
     #[test]

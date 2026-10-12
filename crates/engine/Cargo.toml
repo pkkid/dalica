@@ -12,6 +12,8 @@ publish = false
 
 [dependencies]
 dalica-core.workspace = true
+# Edit recipes: rotations and flips appended with their merge and cancel rules (`cmd/rotate.rs`).
+dalica-edit.workspace = true
 dalica-fs.workspace = true
 # Decode limits of the thumbnail jobs (`thumbs.rs`).
 dalica-image.workspace = true

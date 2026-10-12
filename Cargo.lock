@@ -823,6 +823,7 @@ name = "dalica-engine"
 version = "0.0.0"
 dependencies = [
  "dalica-core",
+ "dalica-edit",
  "dalica-fs",
  "dalica-image",
  "dalica-library",
