@@ -27,10 +27,10 @@ same commit.
 | C. Editing | 0 | 0 | 21 | 4 |
 | D. Viewing | 0 | 1 | 5 | 2 |
 | E. Output | 0 | 0 | 2 | 9 |
-| F. Data | 1 | 2 | 3 | 0 |
+| F. Data | 1 | 5 | 13 | 0 |
 | G. Preferences and system | 0 | 4 | 8 | 0 |
 | H. Menus | 0 | 3 | 4 | 0 |
-| **All** | 8 | 31 | 89 | 16 |
+| **All** | 8 | 34 | 99 | 16 |
 <!-- /parity:summary -->
 
 ## Top gaps
@@ -192,6 +192,19 @@ same commit.
 | DATA-ORIGINALS | `.dalica-originals` backups | P0 | ⬜ | |
 | DATA-LEGACY | Legacy sidecars read as a fallback when a folder has no `.dalica.json`; first change writes `.dalica.json`; legacy files never written | P1 | ⬜ | ref 05 §3; `data-model.md` §9 |
 | DATA-TESTS | The eleven data-safety regression tests (`data-model.md` §10) | P0 | 🟡 | §10.1 for stars, §10.5, §10.6, §10.7: `crates/store/tests/sidecars.rs`, `crates/fs/tests/lock.rs`, `crates/fs/tests/walk.rs`; the rest arrive with their features |
+| DATA-FMT-JPEG | JPEG: baseline, progressive, CMYK/YCCK, APP2 profiles, EXIF orientation and thumbnail | P0 | 🟡 | `crates/image/src/formats/jpeg.rs`, `crates/image/tests/decode.rs`, `crates/image/tests/color.rs`; 12-bit and DCT-scaled decodes not measured; arithmetic coding answers "Damaged file" |
+| DATA-FMT-PNG | PNG: 1–16-bit, palette, transparency, interlaced, `iCCP` | P0 | 🟡 | `crates/image/src/formats/png.rs`, `crates/image/tests/color.rs`; 8/16-bit RGB and grey+alpha and `iCCP` measured; palette, low bit depths and interlacing go through `png` but are not measured until the PngSuite corpus (M5.15) |
+| DATA-FMT-COLOR | Colour management: ICC v2/v4 to sRGB, untagged = sRGB, unusable profile → sRGB, naive CMYK | P0 | 🟡 | `crates/image/src/color.rs`, `crates/image/tests/color.rs` (Display P3, Adobe RGB, ProPhoto; v2 and v4); View → Use Color Management (`view.colorManagement`) arrives with M5.16 |
+| DATA-FMT-TIFF | TIFF: 8/16-bit, float, grey/RGB/CMYK/palette, LZW/Deflate/PackBits/JPEG, first page | P0 | ⬜ | recognised; `crates/image/src/formats/tiff.rs` is a stub until M5.6 |
+| DATA-FMT-WEBP | WebP: lossy, lossless, alpha, first frame | P1 | ⬜ | recognised; `crates/image/src/formats/webp.rs` is a stub until M5.7 |
+| DATA-FMT-GIF | GIF: first frame | P1 | ⬜ | recognised; `crates/image/src/formats/gif.rs` is a stub until M5.7 |
+| DATA-FMT-BMP | BMP | P1 | ⬜ | recognised; `crates/image/src/formats/bmp.rs` is a stub until M5.7 |
+| DATA-FMT-JXL | JPEG XL | P2 | ⬜ | recognised; `crates/image/src/formats/jxl.rs` is a stub until M5.8 |
+| DATA-FMT-PSD | PSD/PSB merged composite | P1 | ⬜ | recognised; `crates/image/src/formats/psd.rs` is a stub until M5.8 |
+| DATA-FMT-RAW-TIFF | TIFF-structured raws (DNG, CR2, NEF, ARW, PEF, ORF, RW2, SRW): embedded preview | P0 | ⬜ | recognised by content (`crates/image/src/formats/raw/tiff_based.rs`); previews in M5.9 |
+| DATA-FMT-RAW-OTHER | CR3, RAF, CRW, MRW, X3F: embedded preview | P1 | ⬜ | recognised by content (`crates/image/src/formats/raw/`); previews in M5.10 |
+| DATA-FMT-HEIF | HEIF/HEIC behind the `heif` feature | P1 | ⬜ | recognised; tile text "HEIC support isn't included in this build" (`crates/image/src/formats/heif.rs`); decoding in M5.10 |
+| DATA-FMT-AVIF | AVIF recognised and listed as a format tile, never decoded | P2 | ⬜ | recognised with its tile text (`crates/image/src/formats/mod.rs`); the tile arrives with M5.10 |
 
 ## G. Preferences (PREF) and system (SYS)
 

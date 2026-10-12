@@ -10,12 +10,17 @@
 //!   the photo still shows, upright as stored, and [`Header::exif_error`] says why.
 //! - [`ifd`]: the bounded TIFF/IFD reader; [`exif`]: the fields read from it; [`orient`]: turning
 //!   pixels upright.
+//! - [`formats`]: one module per container format (header, decode, embedded thumbnail);
+//!   [`decode`]: container → [`Decoded`] → [`color`] stage → upright 8-bit sRGB.
+//! - [`Error::reason`]: the text a refused file's tile shows (`formats.md` §1).
 
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+pub mod color;
 pub mod decode;
 pub mod exif;
+pub mod formats;
 pub mod ifd;
 pub mod limits;
 pub mod orient;
@@ -26,11 +31,11 @@ use std::io::Read as _;
 use std::ops::Range;
 use std::path::Path;
 
-pub use decode::{decode, decode_thumbnail};
+pub use decode::{ColorModel, DecodeOptions, Decoded, Samples, decode, decode_as, decode_thumbnail, decode_thumbnail_with, decode_with};
 pub use exif::Exif;
-pub use limits::Limits;
+pub use limits::{Budget, Limits};
 pub use orient::Orientation;
-pub use sniff::{Format, sniff};
+pub use sniff::{Format, RawKind, sniff};
 
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum Error {
@@ -52,6 +57,24 @@ pub enum Error {
     TooLarge { width: u32, height: u32 },
     #[error("cannot read the file: {0}")]
     Io(String),
+    /// A third-party decoder panicked on this file (caught; `formats.md` §5).
+    #[error("the {0:?} decoder failed on damaged data")]
+    Panic(Format),
+}
+
+impl Error {
+    /// The text a refused file's tile shows in its tooltip (`formats.md` §1): "Damaged file",
+    /// "Too large to display (W × H)", or the format module's own reason for an unsupported file.
+    pub fn reason(&self) -> String {
+        match self {
+            Error::Unknown => "Not a picture Dalica can read".into(),
+            Error::Unsupported(format) => formats::reason(*format).into(),
+            Error::TooLarge { width: 0, .. } | Error::TooLarge { height: 0, .. } => "Too large to display".into(),
+            Error::TooLarge { width, height } => format!("Too large to display ({width} × {height})"),
+            Error::Io(_) => "Can't read the file".into(),
+            Error::Truncated | Error::Malformed(_) | Error::OutOfRange | Error::Loop | Error::TooMany(_) | Error::Panic(_) => "Damaged file".into(),
+        }
+    }
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -91,7 +114,9 @@ impl Header {
         file.get(self.thumbnail.clone()?)
     }
 
-    fn with_exif(mut self, block: Option<(&[u8], usize)>, limits: &Limits) -> Header {
+    /// Fills orientation, EXIF and the thumbnail range from an EXIF TIFF block found at `at` in
+    /// the file (format modules call it after reading their own header).
+    pub(crate) fn with_exif(mut self, block: Option<(&[u8], usize)>, limits: &Limits) -> Header {
         if let Some((tiff, at)) = block {
             match exif::read(tiff, limits) {
                 Ok(e) => {
@@ -109,9 +134,7 @@ impl Header {
 /// Reads the header of an image held in memory.
 pub fn read_header(bytes: &[u8], limits: &Limits) -> Result<Header> {
     match sniff(bytes) {
-        Some(Format::Jpeg) => jpeg_header(bytes, limits),
-        Some(Format::Png) => png_header(bytes, limits),
-        Some(other) => Err(Error::Unsupported(other)),
+        Some(format) => formats::header(format, bytes, limits),
         None if bytes.len() < sniff::SNIFF_LEN => Err(Error::Truncated),
         None => Err(Error::Unknown),
     }
@@ -138,110 +161,6 @@ pub fn read_header_file(path: &Path, limits: &Limits) -> Result<(Header, Vec<u8>
             result => return result.map(|h| (h, bytes)),
         }
     }
-}
-
-/// Bytes a JPEG segment's own length field says it has (after the two marker bytes).
-fn u16_be(b: &[u8], at: usize) -> Result<u16> {
-    match b.get(at..at + 2) {
-        Some(&[hi, lo]) => Ok(u16::from_be_bytes([hi, lo])),
-        _ => Err(Error::Truncated),
-    }
-}
-
-fn u32_be(b: &[u8], at: usize) -> Result<u32> {
-    match b.get(at..at + 4) {
-        Some(&[a, b2, c, d]) => Ok(u32::from_be_bytes([a, b2, c, d])),
-        _ => Err(Error::Truncated),
-    }
-}
-
-/// Walks JPEG segments from SOI to the first SOF (ITU T.81 §B.1), picking up an EXIF APP1 on the way.
-fn jpeg_header(b: &[u8], limits: &Limits) -> Result<Header> {
-    let mut pos = 2;
-    let mut exif_block = None;
-    for _ in 0..limits.max_segments {
-        if b.get(pos) != Some(&0xff) {
-            return Err(if pos >= b.len() { Error::Truncated } else { Error::Malformed(format!("no marker at byte {pos}")) });
-        }
-        // Fill bytes: any number of 0xFF before the marker code.
-        while b.get(pos) == Some(&0xff) {
-            pos += 1;
-        }
-        let marker = *b.get(pos).ok_or(Error::Truncated)?;
-        pos += 1;
-        match marker {
-            // Markers without a length: TEM, RSTn, SOI.
-            0x01 | 0xd0..=0xd8 => continue,
-            0xd9 => return Err(Error::Malformed("end of image before a frame header".into())),
-            0xda => return Err(Error::Malformed("scan data before a frame header".into())),
-            _ => {}
-        }
-        let len = usize::from(u16_be(b, pos)?);
-        if len < 2 {
-            return Err(Error::Malformed(format!("segment length {len}")));
-        }
-        let seg = b.get(pos + 2..pos + len).ok_or(Error::Truncated)?;
-        match marker {
-            // SOF0–SOF15, except DHT (C4), JPG (C8) and DAC (CC).
-            0xc0..=0xcf if !matches!(marker, 0xc4 | 0xc8 | 0xcc) => {
-                let (height, width) = (u16_be(seg, 1)?, u16_be(seg, 3)?);
-                if width == 0 || height == 0 {
-                    return Err(Error::Malformed(format!("frame size {width} × {height}")));
-                }
-                let header = Header {
-                    format: Format::Jpeg,
-                    width: u32::from(width),
-                    height: u32::from(height),
-                    orientation: Orientation::UPRIGHT,
-                    exif: None,
-                    exif_error: None,
-                    thumbnail: None,
-                };
-                return Ok(header.with_exif(exif_block, limits));
-            }
-            0xe1 if exif_block.is_none() && seg.starts_with(b"Exif\0\0") => {
-                exif_block = seg.get(6..).map(|t| (t, pos + 2 + 6));
-            }
-            _ => {}
-        }
-        pos += len;
-    }
-    Err(Error::TooMany("JPEG segments"))
-}
-
-/// The IHDR chunk and an `eXIf` chunk before the image data (PNG 1.2, Extensions 1.5).
-fn png_header(b: &[u8], limits: &Limits) -> Result<Header> {
-    let mut pos = 8;
-    let mut size = None;
-    let mut exif_block = None;
-    for _ in 0..limits.max_segments {
-        let len = u32_be(b, pos)? as usize;
-        let kind = b.get(pos + 4..pos + 8).ok_or(Error::Truncated)?;
-        let data_end = (pos + 8).checked_add(len).ok_or(Error::OutOfRange)?;
-        if size.is_none() && kind != b"IHDR" {
-            return Err(Error::Malformed("the first chunk is not IHDR".into()));
-        }
-        match kind {
-            b"IHDR" => {
-                let data = b.get(pos + 8..data_end).ok_or(Error::Truncated)?;
-                let (w, h) = (u32_be(data, 0)?, u32_be(data, 4)?);
-                if len != 13 || w == 0 || h == 0 || w > i32::MAX as u32 || h > i32::MAX as u32 {
-                    return Err(Error::Malformed(format!("IHDR {w} × {h}, {len} bytes")));
-                }
-                size = Some((w, h));
-            }
-            b"eXIf" => {
-                let data = b.get(pos + 8..data_end).ok_or(Error::Truncated)?;
-                exif_block = Some((data, pos + 8));
-            }
-            b"IDAT" | b"IEND" => break,
-            _ => {}
-        }
-        pos = data_end.checked_add(4).ok_or(Error::OutOfRange)?;
-    }
-    let (width, height) = size.ok_or(Error::Truncated)?;
-    let header = Header { format: Format::Png, width, height, orientation: Orientation::UPRIGHT, exif: None, exif_error: None, thumbnail: None };
-    Ok(header.with_exif(exif_block, limits))
 }
 
 #[cfg(test)]

@@ -1268,7 +1268,7 @@ fallback. Either way the verification pass stays the truth (`data-model.md` §7)
 `pkkid/dalica-corpus` repository is created by the maintainer before M5 starts (M3.R answer) and
 filled by the lead; M5.15 pins it.
 
-- ⬜ **M5.1 `image`: one module per format, the decoded-image model and colour management**
+- ✅ **M5.1 `image`: one module per format, the decoded-image model and colour management**
   - after: M1.6
   - files: `crates/image/src/lib.rs`, `crates/image/src/decode.rs`, `crates/image/src/sniff.rs`, `crates/image/src/limits.rs`, `crates/image/src/color.rs`, `crates/image/src/formats/**`, `crates/image/tests/decode.rs`, `crates/image/tests/color.rs`, `crates/image/tests/fingerprints/color*.json`, `crates/image/fuzz/**`, `crates/image/README.md`, `.github/workflows/fuzz.yml`, `docs/formats.md`
   - scope: `formats.md` §1, §4–§5: a `Decoded` value between container and display (8/16-bit
