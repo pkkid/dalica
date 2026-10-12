@@ -141,10 +141,16 @@ pub fn decode_thumbnail_with(bytes: &[u8], long_side: u32, options: &DecodeOptio
     let header = read_header(bytes, limits)?;
     let pixels = u64::from(header.width) * u64::from(header.height);
     let stored = if pixels > THUMBNAIL_SOURCE_MAX_PIXELS {
-        // Too big to decode just for a thumbnail: the camera's own small copy, if there is one.
-        let thumb = header.thumbnail(bytes).ok_or(Error::TooLarge { width: header.width, height: header.height })?;
-        let small = read_header(thumb, limits)?;
-        decode_stored(thumb, &small, options, limits)?
+        // Too big to decode just for a thumbnail: the camera's own small copy, if there is one,
+        // a JPEG or uncompressed strips.
+        if let Some(thumb) = header.thumbnail(bytes) {
+            let small = read_header(thumb, limits)?;
+            decode_stored(thumb, &small, options, limits)?
+        } else if let Some(strip) = header.exif.as_ref().and_then(|e| e.strip_thumbnail.as_ref()) {
+            crate::exif::strip_thumbnail_rgba(bytes, strip, options, limits)?
+        } else {
+            return Err(Error::TooLarge { width: header.width, height: header.height });
+        }
     } else {
         decode_stored(bytes, &header, options, limits)?
     };

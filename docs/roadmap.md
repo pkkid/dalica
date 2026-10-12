@@ -1402,7 +1402,7 @@ filled by the lead; M5.15 pins it.
     built in the test) and `scenes` PSDs at each depth and colour model match their fingerprints;
     a PSD's thumbnail resource serves a small target; a declared size past the limits is refused
     before allocating; truncation and proptest random bytes never panic.
-- ⬜ **M5.9 `image`: RAW previews from TIFF-structured raws, and TIFF-strip EXIF thumbnails**
+- ✅ **M5.9 `image`: RAW previews from TIFF-structured raws, and TIFF-strip EXIF thumbnails**
   - after: M5.1, M5.2
   - files: `crates/image/src/formats/raw/tiff_based.rs`, `crates/image/src/ifd.rs`, `crates/image/src/exif.rs`, `crates/image/tests/raw_tiff.rs`, `crates/image/tests/fingerprints/raw-tiff*.json`
   - scope: `formats.md` §2: DNG, CR2, NEF, ARW, PEF, ORF, RW2 and SRW recognised by content; the
