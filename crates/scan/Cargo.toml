@@ -16,6 +16,7 @@ dalica-fs.workspace = true
 dalica-image.workspace = true
 dalica-library.workspace = true
 dalica-sidecar.workspace = true
+notify.workspace = true
 
 [dev-dependencies]
 dalica-scenes.workspace = true

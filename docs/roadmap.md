@@ -1431,7 +1431,7 @@ filled by the lead; M5.15 pins it.
     heif --test heif` passes the structural tests (rotation, mirror, grid layout, unsupported
     sequences answer `Unsupported`) and, without the feature, the tile reason; box loops and
     oversized boxes are `Err`; truncation and proptest random bytes never panic.
-- ⬜ **M5.11 `scan`: the watcher and incremental verification**
+- ✅ **M5.11 `scan`: the watcher and incremental verification**
   - after: M5.4
   - files: `crates/scan/src/watch.rs`, `crates/scan/src/watch/**`, `crates/scan/src/diff.rs`, `crates/scan/tests/watch.rs`, `crates/scan/tests/incremental.rs`, `xtask/src/deps.rs`
   - scope: `data-model.md` §7: events are hints, verification is the truth. A `Watcher` interface

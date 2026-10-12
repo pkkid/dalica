@@ -76,6 +76,11 @@ pub const SYS_ALLOW: &[(&str, &str)] = &[
     ("web-sys", "wasm bindings only"),
     ("jni-sys", "Android bindings, target-gated, unused on desktop"),
     ("ndk-sys", "Android bindings, target-gated, unused on desktop"),
+    (
+        "inotify-sys",
+        "Linux inotify bindings for `notify` 8, no C build (its build script only links libinotify on NetBSD/OpenBSD); allowed by the maintainer at M3.R",
+    ),
+    ("fsevent-sys", "macOS FSEvents bindings for `notify` 8, linked from the system, no C build; allowed by the maintainer at M3.R"),
 ];
 
 /// The apps whose graph is the product.
@@ -385,6 +390,12 @@ mod tests {
         let v = check(&m);
         assert_eq!(names(&v), ["foo-sys 1.0.0"]);
         assert!(v[0].message.contains("allow-list"));
+        // The watcher's bindings (M5.11) pass; an unknown one beside them still does not.
+        let m = meta(
+            vec![pkg("inotify-sys", Some("ISC"), Some(IO)), pkg("fsevent-sys", Some("MIT"), Some(IO)), pkg("watch-sys", Some("MIT"), Some(IO))],
+            &[("dalica", "inotify-sys", None), ("dalica-cli", "fsevent-sys", None), ("dalica", "watch-sys", None)],
+        );
+        assert_eq!(names(&check(&m)), ["watch-sys 1.0.0"]);
         // A path dependency (no source) counts too.
         let m = meta(vec![pkg("evil-sys", Some("MIT"), None)], &[("dalica", "evil-sys", None)]);
         assert_eq!(names(&check(&m)), ["evil-sys 1.0.0"]);

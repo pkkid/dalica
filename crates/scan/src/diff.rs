@@ -1,32 +1,62 @@
-//! The verification pass: the ops that make the model match a [`Scan`].
+//! The verification pass: the ops that make the model match a [`Scan`], or the part of the model
+//! an incremental [`Rescan`] covers.
 
 use std::collections::{BTreeMap, HashMap};
+use std::path::Path;
 
-use dalica_core::PhotoId;
+use dalica_core::{FolderId, PhotoId, Timestamp};
 use dalica_library::{Folder, Library, Op, Photo};
 
-use crate::walk::{FoundPhoto, Scan};
+use crate::walk::{FoundFolder, FoundPhoto, Scan};
+use crate::watch::Rescan;
 
 /// The most photos in one `AddPhotos` / `UpdatePhotos` / `RemovePhotos` op.
 pub const BATCH: usize = 500;
 
-/// The ops that bring `library` in line with `scan`, in order: new folders, then per folder
-/// removed, renamed or changed, and added photos, then folders gone from disk. Ids for new folders
-/// and photos are taken from `library`. Applying the ops in order makes the model match the scan;
-/// diffing again then gives nothing.
+/// The ops that bring `library` in line with `scan`, in order: new and renamed folders, then per
+/// folder removed, renamed or changed, and added photos, then folders gone from disk. Ids for new
+/// folders and photos are taken from `library`. Applying the ops in order makes the model match the
+/// scan; diffing again then gives nothing. Folders are removed (or seen as renamed) only under the
+/// roots in `scan.walked`.
 pub fn diff(library: &mut Library, scan: &Scan) -> Vec<Op> {
+    let walked = &scan.walked;
+    diff_in(library, &scan.folders, &|path: &Path| walked.iter().any(|root| path.starts_with(root)))
+}
+
+/// [`diff`] for an incremental verification: only what the verified scopes cover changes, so the
+/// result equals the full diff restricted to them.
+pub fn diff_rescan(library: &mut Library, rescan: &Rescan) -> Vec<Op> {
+    diff_in(library, &rescan.scan.folders, &|path: &Path| rescan.covers(path))
+}
+
+/// A photo's (size, modification time): what renames are recognised by.
+type Key = (u64, Timestamp);
+
+fn diff_in(library: &mut Library, folders: &[FoundFolder], covered: &dyn Fn(&Path) -> bool) -> Vec<Op> {
     let mut ops = Vec::new();
     let mut removes = Vec::new();
     let mut updates = Vec::new();
     let mut adds = Vec::new();
-    for found in &scan.folders {
+    // Folders known but gone from disk where the scan looked.
+    let found: BTreeMap<&Path, ()> = folders.iter().map(|f| (f.path.as_path(), ())).collect();
+    let mut gone: Vec<FolderId> = library.folders().filter(|f| covered(&f.path) && !found.contains_key(f.path.as_path())).map(|f| f.id).collect();
+    gone.sort();
+    let mut renames = folder_renames(library, folders, &gone);
+    gone.retain(|id| !renames.values().any(|old| old == id));
+    for found in folders {
         let folder = match library.folder_by_path(&found.path) {
             Some(id) => id,
-            None => {
-                let id = library.next_folder_id();
-                ops.push(Op::AddFolder { folder: Folder { id, path: found.path.clone() } });
-                id
-            }
+            None => match renames.remove(found.path.as_path()) {
+                Some(old) => {
+                    ops.push(move_folder(library, old, found));
+                    old
+                }
+                None => {
+                    let id = library.next_folder_id();
+                    ops.push(Op::AddFolder { folder: Folder { id, path: found.path.clone() } });
+                    id
+                }
+            },
         };
         let known: HashMap<&str, &Photo> = library.photos_in(folder).into_iter().map(|p| (p.name.as_str(), p)).collect();
         let on_disk: HashMap<&str, &FoundPhoto> = found.photos.iter().map(|p| (p.name.as_str(), p)).collect();
@@ -60,15 +90,6 @@ pub fn diff(library: &mut Library, scan: &Scan) -> Vec<Op> {
             adds.push(photo(id, folder, f, f.star));
         }
     }
-    // Folders under a walked root that hold no photos any more.
-    let found: BTreeMap<_, _> = scan.folders.iter().map(|f| (f.path.as_path(), ())).collect();
-    let mut gone_folders = Vec::new();
-    for folder in library.folders() {
-        let under_walked = scan.walked.iter().any(|root| folder.path.starts_with(root));
-        if under_walked && !found.contains_key(folder.path.as_path()) {
-            gone_folders.push(folder.id);
-        }
-    }
     // Removals first, so a rename's new name is free; then updates (renames, changes); then adds.
     for chunk in removes.chunks(BATCH) {
         ops.push(Op::RemovePhotos { ids: chunk.to_vec() });
@@ -79,10 +100,83 @@ pub fn diff(library: &mut Library, scan: &Scan) -> Vec<Op> {
     for chunk in adds.chunks(BATCH) {
         ops.push(Op::AddPhotos { photos: chunk.to_vec() });
     }
-    ops.extend(gone_folders.into_iter().map(|id| Op::RemoveFolder { id }));
+    ops.extend(gone.into_iter().map(|id| Op::RemoveFolder { id }));
     ops
 }
 
-fn photo(id: PhotoId, folder: dalica_core::FolderId, f: &FoundPhoto, star: bool) -> Photo {
+/// Folders renamed or moved on disk: a folder gone from where the scan looked, paired with a new
+/// folder holding most of the same files (by size and modification time, like photo renames). A
+/// gone folder pairs with the new folder sharing the most of its photos, when that is more than
+/// half of them; each pairs at most once, new folders in path order. Returns new path → old folder.
+fn folder_renames<'a>(library: &Library, folders: &'a [FoundFolder], gone: &[FolderId]) -> HashMap<&'a Path, FolderId> {
+    let mut out = HashMap::new();
+    if gone.is_empty() {
+        return out;
+    }
+    // (size, time) → the gone folders holding such photos, with how many.
+    let mut index: HashMap<Key, Vec<(FolderId, usize)>> = HashMap::new();
+    let mut sizes: HashMap<FolderId, usize> = HashMap::new();
+    for &id in gone {
+        let photos = library.photos_in(id);
+        sizes.insert(id, photos.len());
+        for (key, n) in counts(photos.iter().map(|p| (p.size, p.mtime))) {
+            index.entry(key).or_default().push((id, n));
+        }
+    }
+    let mut taken: Vec<FolderId> = Vec::new();
+    for found in folders {
+        if library.folder_by_path(&found.path).is_some() {
+            continue;
+        }
+        let mut overlap: BTreeMap<FolderId, usize> = BTreeMap::new();
+        for (key, n) in counts(found.photos.iter().map(|p| (p.size, p.mtime))) {
+            for &(id, m) in index.get(&key).map(Vec::as_slice).unwrap_or_default() {
+                let e = overlap.entry(id).or_default();
+                *e = e.saturating_add(n.min(m));
+            }
+        }
+        // The most shared photos; ties go to the same folder name, then the oldest folder.
+        let name = found.path.file_name();
+        let best = overlap
+            .into_iter()
+            .filter(|(id, n)| !taken.contains(id) && n.saturating_mul(2) > sizes.get(id).copied().unwrap_or(usize::MAX))
+            .max_by(|(a, n), (b, m)| {
+                let same = |id: &FolderId| library.folder(*id).is_some_and(|f| f.path.file_name() == name);
+                n.cmp(m).then(same(a).cmp(&same(b))).then(b.cmp(a))
+            });
+        if let Some((id, _)) = best {
+            taken.push(id);
+            out.insert(found.path.as_path(), id);
+        }
+    }
+    out
+}
+
+/// How many of each key.
+fn counts(keys: impl Iterator<Item = Key>) -> HashMap<Key, usize> {
+    let mut out: HashMap<Key, usize> = HashMap::new();
+    for k in keys {
+        let e = out.entry(k).or_default();
+        *e = e.saturating_add(1);
+    }
+    out
+}
+
+/// One op that moves folder `old` to `found.path` keeping its id, its photos' ids, stars and
+/// sketches: the folder is taken out and put back at its new path, in one batch.
+fn move_folder(library: &Library, old: FolderId, found: &FoundFolder) -> Op {
+    let photos: Vec<Photo> = library.photos_in(old).into_iter().cloned().collect();
+    let sketches: Vec<_> = photos.iter().filter_map(|p| library.sketch(p.id).map(|s| (p.id, Some(*s)))).collect();
+    let mut ops = vec![Op::RemoveFolder { id: old }, Op::AddFolder { folder: Folder { id: old, path: found.path.clone() } }];
+    if !photos.is_empty() {
+        ops.push(Op::AddPhotos { photos });
+    }
+    if !sketches.is_empty() {
+        ops.push(Op::SetSketches { sketches });
+    }
+    Op::Batch { ops }
+}
+
+fn photo(id: PhotoId, folder: FolderId, f: &FoundPhoto, star: bool) -> Photo {
     Photo { id, folder, name: f.name.clone(), size: f.size, mtime: f.mtime, width: f.width, height: f.height, date: f.date, star }
 }

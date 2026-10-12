@@ -23,14 +23,14 @@ same commit.
 | Section | ✅ | 🟡 | ⬜ | 🚫 |
 |---|---:|---:|---:|---:|
 | A. Library view | 7 | 20 | 5 | 1 |
-| B. Organizing | 0 | 2 | 40 | 0 |
+| B. Organizing | 0 | 3 | 39 | 0 |
 | C. Editing | 0 | 0 | 21 | 4 |
 | D. Viewing | 0 | 1 | 5 | 2 |
 | E. Output | 0 | 0 | 2 | 9 |
 | F. Data | 1 | 12 | 6 | 0 |
 | G. Preferences and system | 0 | 4 | 8 | 0 |
 | H. Menus | 0 | 3 | 4 | 0 |
-| **All** | 8 | 42 | 91 | 16 |
+| **All** | 8 | 43 | 90 | 16 |
 <!-- /parity:summary -->
 
 ## Top gaps
@@ -82,7 +82,7 @@ same commit.
 |---|---|---|---|---|
 | ORG-FIRSTRUN | First-run panel and progressive first scan | P0 | 🟡 | ref 04 §1; engine: scans are jobs whose folders land a batch per frame with their thumbnails queued while the walk goes on, with progress and cancel (`crates/engine/src/scanning.rs`, `crates/engine/tests/progressive_scan.rs`, `crates/engine/tests/jobs.rs`), and `Session::is_new_library` answers the panel's question; missing: the panel (M5.18), the activity indicator and status text (M5.19) |
 | ORG-FOLDERMGR | Folder Manager (Scan Always / Once / Remove, faces toggle, watched list) | P0 | ⬜ | ref 04 §2 |
-| ORG-WATCH | Watching for changes, offline volumes | P0 | ⬜ | |
+| ORG-WATCH | Watching for changes, offline volumes | P0 | 🟡 | `dalica-scan` side (M5.11): dirty folders from `notify` 8 events, debounced, coalesced and capped, with a pure-Rust polling fallback per root (network shares, watch failures, lost roots); incremental verification of the dirty folders (`watch::rescan`, `diff_rescan`) equal to the full diff restricted to them; folder renames and moves keep folder and photo ids; nothing removed under a root that cannot be walked; a full-verification `Schedule`: `crates/scan/src/watch.rs`, `crates/scan/tests/watch.rs`, `crates/scan/tests/incremental.rs`; wiring into the session and offline volumes missing |
 | ORG-ALBUM-NEW | New album + Album Properties | P0 | ⬜ | |
 | ORG-ALBUM-EDIT | Add/remove/reorder/cover/delete album | P0 | ⬜ | |
 | ORG-ALBUM-AUTO | Starred Photos, Recently Updated, Search results albums | P0 | ⬜ | |
