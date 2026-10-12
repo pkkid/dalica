@@ -1,0 +1,136 @@
+# Quick checks for the release pipeline, no Rust build (docs/releasing.md → Checks): the workflow
+# files (actionlint, which also runs shellcheck over their scripts), the packaging shell scripts
+# (shellcheck), the checksum script's planted-mismatch test, a PowerShell parse of the Windows
+# scripts, and the Linux and macOS metadata once those files exist (xmllint,
+# desktop-file-validate, appstreamcli validate, the Flatpak manifests' agreement). Runs in seconds
+# on any change to packaging/, the workflows or the icons. Actions are pinned to full commit hashes
+# and the actionlint download to its SHA-256 (docs/security.md §8.5).
+#
+# Adapted from LightCraft .github/workflows/packaging-lint.yml @ 25ef65c8 (MIT OR Apache-2.0): the
+# tool install, the PowerShell parse and the Flatpak agreement check. Changed for Dalica: the
+# actionlint archive is checksum-pinned, and the metadata checks find their files instead of naming
+# them, so each starts checking when its file lands (M6.21–M6.23).
+name: Packaging lint
+
+on:
+  push:
+    branches: [main, release]
+    paths: [".github/workflows/**", "packaging/**", "assets/app-icon/**"]
+  pull_request:
+    paths: [".github/workflows/**", "packaging/**", "assets/app-icon/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: packaging-lint-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: packaging lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      ACTIONLINT_VERSION: 1.7.12
+      # From the release's actionlint_1.7.12_checksums.txt.
+      ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends shellcheck libxml2-utils desktop-file-utils appstream python3-yaml
+          archive="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          curl -fsSL -o "$RUNNER_TEMP/$archive" \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/$archive"
+          echo "$ACTIONLINT_SHA256  $RUNNER_TEMP/$archive" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP" actionlint
+          shellcheck --version | head -n 2
+      - name: actionlint
+        run: |
+          "$RUNNER_TEMP/actionlint" -version
+          "$RUNNER_TEMP/actionlint" -color
+      - name: shellcheck
+        run: |
+          shopt -s globstar nullglob
+          scripts=(packaging/**/*.sh)
+          printf 'shellcheck %s\n' "${scripts[@]}"
+          shellcheck --severity=style -- "${scripts[@]}"
+      - name: The checksum script's planted-mismatch test
+        run: bash packaging/checksums.sh self-test
+      - name: PowerShell parse
+        shell: pwsh
+        run: |
+          $files = @(Get-ChildItem -Recurse -Path packaging -Include *.ps1, *.psm1)
+          if ($files.Count -eq 0) { Write-Output 'no PowerShell scripts'; exit 0 }
+          $failed = $false
+          foreach ($f in $files) {
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$null, [ref]$errors) | Out-Null
+            if ($errors) {
+              $errors | ForEach-Object { Write-Output "::error file=$($f.FullName)::$($_.Message) (line $($_.Extent.StartLineNumber))" }
+              $failed = $true
+            } else {
+              Write-Output "ok $($f.FullName)"
+            }
+          }
+          if ($failed) { exit 1 }
+      - name: XML (WiX, plists, AppStream, MIME)
+        run: |
+          shopt -s globstar nullglob
+          files=(packaging/**/*.xml packaging/**/*.xml.in packaging/**/*.wxs packaging/**/*.wxl packaging/**/*.plist packaging/**/*.plist.in)
+          if [ ${#files[@]} = 0 ]; then echo "no XML files yet (M6.21–M6.23)"; exit 0; fi
+          xmllint --noout -- "${files[@]}"
+          printf 'ok %s\n' "${files[@]}"
+      - name: Desktop entries
+        run: |
+          shopt -s globstar nullglob
+          files=(packaging/**/*.desktop)
+          if [ ${#files[@]} = 0 ]; then echo "no desktop entries yet (M6.21)"; exit 0; fi
+          for f in "${files[@]}"; do
+            desktop-file-validate "$f"
+            echo "ok $f"
+          done
+      - name: AppStream metainfo
+        run: |
+          shopt -s globstar nullglob
+          files=(packaging/**/*.metainfo.xml packaging/**/*.metainfo.xml.in)
+          if [ ${#files[@]} = 0 ]; then echo "no AppStream metainfo yet (M6.21)"; exit 0; fi
+          for f in "${files[@]}"; do
+            out="$RUNNER_TEMP/$(basename "${f%.in}")"
+            sed -e 's/@VERSION@/0.0.0/g' -e 's/@DATE@/2026-01-01/g' "$f" >"$out"
+            appstreamcli validate --no-net --explain "$out"
+          done
+      - name: Flatpak manifests agree
+        run: |
+          shopt -s globstar nullglob
+          files=(packaging/**/flatpak/*.yml packaging/**/flatpak/*.yaml packaging/**/flatpak/*.json)
+          if [ ${#files[@]} = 0 ]; then echo "no Flatpak manifests yet (M6.21)"; exit 0; fi
+          python3 - "${files[@]}" <<'EOF'
+          import json, sys, yaml
+          # The application id (crates/core/src/app_id.rs) and the binary every manifest launches.
+          APP_ID, COMMAND = "org.dalica.Dalica", "dalica"
+          KEYS = ("runtime", "runtime-version", "sdk", "finish-args")
+          manifests = {}
+          for path in sys.argv[1:]:
+              with open(path, encoding="utf-8") as f:
+                  manifests[path] = json.load(f) if path.endswith(".json") else yaml.safe_load(f)
+          failed = False
+          for path, m in manifests.items():
+              if m.get("id", m.get("app-id")) != APP_ID or m.get("command") != COMMAND:
+                  print(f"::error file={path}::id must be {APP_ID} and command {COMMAND}")
+                  failed = True
+          first_path, first = next(iter(manifests.items()))
+          for path, m in manifests.items():
+              for key in KEYS:
+                  if m.get(key) != first.get(key):
+                      print(f"::error file={path}::{key} differs from {first_path}: {m.get(key)!r} vs {first.get(key)!r}")
+                      failed = True
+          if failed:
+              sys.exit(1)
+          print(f"{len(manifests)} Flatpak manifest(s) agree on id, command and {', '.join(KEYS)}")
+          EOF

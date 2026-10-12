@@ -1,0 +1,482 @@
+# The release pipeline (docs/releasing.md, docs/security.md §10). A push to `release` builds every
+# platform, checksums and verifies the artifact set, and creates or updates the draft GitHub
+# Release "Dalica v<version>" tagged on the pushed commit. A maintainer publishes the draft.
+#
+# Every other run is a dry run that still builds, checksums and verifies: a manual run on any other
+# branch, and a pull request that touches packaging/, the workflows or the icons. In a dry run the
+# signing jobs are skipped (and the `release` environment, restricted to the `release` branch, would
+# refuse them), so the draft job, which needs them, is skipped too.
+#
+# Least privilege: the workflow reads (`contents: read`); the build jobs read no secrets and run
+# without the `release` environment; only the signing jobs use that environment and its secrets,
+# each secret optional (a missing one is a ::warning:: and an unsigned artifact); only the draft
+# job gets `contents: write`. Inputs reach scripts through `env`, never through `${{ }}` inside a
+# script. Actions are pinned to full commit hashes (docs/security.md §8.5).
+#
+# Adapted from LightCraft .github/workflows/release.yml @ 25ef65c8 (MIT OR Apache-2.0): the version
+# job, the per-OS jobs and the create-or-update draft step. Changed for Dalica: build and signing
+# are separate jobs (so a dry run builds macOS and Windows too), dry runs on pull requests, a
+# checksum job and a verify job on three OSes, an early refusal of a published version, and the
+# pinned toolchain of ci.yml.
+name: Release
+
+on:
+  push:
+    branches: [release]
+  pull_request:
+    paths:
+      - "packaging/**"
+      - ".github/workflows/**"
+      - "assets/app-icon/**"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version for this run only, e.g. 0.2.0-rc.1 (empty: Cargo.toml)"
+        type: string
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event.pull_request.number || github.ref }}
+  # Never cancel a release run mid-upload; a newer push waits its turn. A pull request's dry run
+  # is replaced by the next push to it.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  # The craft-fonts pin (docs/releasing.md → What gets built). Bump it deliberately.
+  CRAFT_FONTS_REF: 3d9ab3a132ed0eff457e424226a435a901da30d3
+  DALICA_BUILD_SHA: ${{ github.sha }}
+  INPUT_VERSION: ${{ inputs.version }}
+
+jobs:
+  version:
+    name: version
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      date: ${{ steps.v.outputs.date }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+      real: ${{ steps.v.outputs.real }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: v
+        name: Resolve the version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+        run: |
+          v="${INPUT_VERSION#v}"
+          if [ -z "$v" ]; then
+            v="$(awk '/^\[/ { p = ($0 == "[workspace.package]"); next } p && $1 == "version" { gsub(/[" ]/, "", $3); print $3; exit }' Cargo.toml)"
+          fi
+          # The same rule as `cargo xtask version set` (xtask/src/version.rs): X.Y.Z[-pre]. The
+          # character check comes first, because grep would accept one good line among several.
+          case "$v" in
+            "" | *[!0-9A-Za-z.-]*) ok=false ;;
+            *) if printf '%s' "$v" | grep -Eq '^(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})(-(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*)?$'; then ok=true; else ok=false; fi ;;
+          esac
+          if [ "$ok" = false ]; then
+            echo "::error::'${v//[^0-9A-Za-z.-]/?}' is not a version like 1.2.3 or 1.2.3-rc.1"
+            exit 1
+          fi
+          case "$v" in *-*) pre=true ;; *) pre=false ;; esac
+          if [ "$REF" = refs/heads/release ] && [ "$EVENT" != pull_request ]; then real=true; else real=false; fi
+          # Refuse early a version whose release is already published (the draft job checks again).
+          if draft="$(gh release view "v$v" --json isDraft --jq .isDraft 2>/dev/null)" && [ "$draft" = false ]; then
+            if [ "$real" = true ]; then
+              echo "::error::Dalica v$v is already published. Bump the version (cargo xtask version set) before pushing to release."
+              exit 1
+            fi
+            echo "::warning::Dalica v$v is already published; a push to release with this version would be refused."
+          fi
+          {
+            echo "version=$v"
+            echo "date=$(date -u +%Y-%m-%d)"
+            echo "prerelease=$pre"
+            echo "real=$real"
+          } >>"$GITHUB_OUTPUT"
+          if [ "$real" = true ]; then kind="release run"; else kind="dry run (nothing is signed or drafted)"; fi
+          echo "### Dalica v$v at \`${GITHUB_SHA::9}\`: $kind" >>"$GITHUB_STEP_SUMMARY"
+
+  linux:
+    name: build Linux ${{ matrix.arch }}
+    needs: version
+    # The oldest supported Ubuntu LTS image, for a low glibc floor (docs/releasing.md).
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x86_64, runner: ubuntu-22.04 }
+          - { arch: aarch64, runner: ubuntu-22.04-arm }
+    env:
+      DALICA_VERSION: ${{ needs.version.outputs.version }}
+      DALICA_BUILD_DATE: ${{ needs.version.outputs.date }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: storytold/craft-fonts
+          ref: ${{ env.CRAFT_FONTS_REF }}
+          path: craft-fonts
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master, 2026-10-09
+        with:
+          toolchain: "1.98"
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: release-linux-${{ matrix.arch }}
+      - name: Linux packages for eframe
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libwayland-dev
+      - name: Apply the version input
+        if: inputs.version != ''
+        run: |
+          cargo fetch --locked
+          cargo xtask version set "$DALICA_VERSION"
+      - name: Build and package
+        env:
+          CRAFT_FONTS_DIR: ${{ github.workspace }}/craft-fonts
+          CRAFT_FONTS_REQUIRED: "1"
+        run: packaging/linux/package.sh
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-linux-${{ matrix.arch }}
+          path: dist/release/*
+          if-no-files-found: error
+          retention-days: 14
+
+  windows:
+    name: build Windows ${{ matrix.arch }}
+    needs: version
+    runs-on: windows-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x64, target: x86_64-pc-windows-msvc }
+    env:
+      DALICA_VERSION: ${{ needs.version.outputs.version }}
+      DALICA_BUILD_DATE: ${{ needs.version.outputs.date }}
+    steps:
+      - run: git config --global core.autocrlf false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: storytold/craft-fonts
+          ref: ${{ env.CRAFT_FONTS_REF }}
+          path: craft-fonts
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master, 2026-10-09
+        with:
+          toolchain: "1.98"
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: release-windows-${{ matrix.arch }}
+      - name: Apply the version input
+        if: inputs.version != ''
+        shell: bash
+        run: |
+          cargo fetch --locked
+          cargo xtask version set "$DALICA_VERSION"
+      - name: Build and package
+        shell: pwsh
+        env:
+          CRAFT_FONTS_DIR: ${{ github.workspace }}/craft-fonts
+          CRAFT_FONTS_REQUIRED: "1"
+          ARCH: ${{ matrix.arch }}
+        run: ./packaging/windows/package.ps1 -Arch $env:ARCH
+      # Unsigned here; on the release branch the signing job replaces it with the signed set.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-windows-${{ matrix.arch }}
+          path: dist/release/*
+          if-no-files-found: error
+          retention-days: 14
+
+  macos:
+    name: build macOS universal
+    needs: version
+    runs-on: macos-latest
+    timeout-minutes: 90
+    env:
+      DALICA_VERSION: ${{ needs.version.outputs.version }}
+      DALICA_BUILD_DATE: ${{ needs.version.outputs.date }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: storytold/craft-fonts
+          ref: ${{ env.CRAFT_FONTS_REF }}
+          path: craft-fonts
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master, 2026-10-09
+        with:
+          toolchain: "1.98"
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: release-macos-universal
+      - name: Apply the version input
+        if: inputs.version != ''
+        run: |
+          cargo fetch --locked
+          cargo xtask version set "$DALICA_VERSION"
+      - name: Build and package
+        env:
+          CRAFT_FONTS_DIR: ${{ github.workspace }}/craft-fonts
+          CRAFT_FONTS_REQUIRED: "1"
+        run: packaging/macos/package.sh
+      # Unsigned here; on the release branch the signing job replaces it with the signed set.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-macos-universal
+          path: dist/release/*
+          if-no-files-found: error
+          retention-days: 14
+
+  # The signing jobs: the only jobs in the `release` environment and the only ones that see its
+  # secrets. Signing and notarization arrive in M15 (docs/releasing.md → Secrets); until then they
+  # report which secrets are configured, state every artifact as unsigned in the summary, and pass
+  # the set through unchanged, so the draft job's inputs are already the signed jobs' outputs.
+  sign-windows:
+    name: sign Windows ${{ matrix.arch }}
+    needs: [version, windows]
+    if: needs.version.outputs.real == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    environment: release
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64]
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-windows-${{ matrix.arch }}
+          path: dist/release
+      - name: Signing state
+        shell: bash
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_SIGNING_ENDPOINT: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
+          AZURE_SIGNING_ACCOUNT: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
+          AZURE_CERT_PROFILE: ${{ secrets.AZURE_CERT_PROFILE }}
+        run: |
+          pfx=false azure=false
+          if [ -n "$WINDOWS_CERTIFICATE" ] && [ -n "$WINDOWS_CERTIFICATE_PASSWORD" ]; then pfx=true; fi
+          if [ -n "$AZURE_TENANT_ID" ] && [ -n "$AZURE_CLIENT_ID" ] && [ -n "$AZURE_CLIENT_SECRET" ] &&
+            [ -n "$AZURE_SIGNING_ENDPOINT" ] && [ -n "$AZURE_SIGNING_ACCOUNT" ] && [ -n "$AZURE_CERT_PROFILE" ]; then azure=true; fi
+          if [ "$pfx" = false ] && [ "$azure" = false ]; then
+            echo "::warning::No Windows signing secrets (WINDOWS_CERTIFICATE + WINDOWS_CERTIFICATE_PASSWORD, or the six AZURE_* secrets): the Windows artifacts are unsigned."
+          else
+            echo "::warning::Windows signing secrets are configured, but signing arrives in M15: the Windows artifacts are unsigned."
+          fi
+          {
+            echo "#### Windows signature state"
+            for f in dist/release/*; do echo "- \`${f##*/}\`: unsigned"; done
+          } >>"$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-windows-${{ matrix.arch }}
+          path: dist/release/*
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 14
+
+  sign-macos:
+    name: sign macOS universal
+    needs: [version, macos]
+    if: needs.version.outputs.real == 'true'
+    runs-on: macos-latest
+    timeout-minutes: 60
+    environment: release
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-macos-universal
+          path: dist/release
+      - name: Signing state
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          cert=false notary=0
+          if [ -n "$APPLE_CERTIFICATE" ] && [ -n "$APPLE_CERTIFICATE_PASSWORD" ]; then cert=true; fi
+          for s in "$APPLE_ID" "$APPLE_PASSWORD" "$APPLE_TEAM_ID"; do
+            if [ -n "$s" ]; then notary=$((notary + 1)); fi
+          done
+          if [ "$cert" = false ]; then
+            echo "::warning::No macOS signing secrets (APPLE_CERTIFICATE + APPLE_CERTIFICATE_PASSWORD): the macOS artifacts are unsigned."
+          fi
+          case "$notary" in
+            0) echo "::warning::No notarization secrets (APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID): the macOS artifacts are not notarized." ;;
+            3) ;;
+            *) echo "::warning::Only $notary of APPLE_ID, APPLE_PASSWORD, APPLE_TEAM_ID are set (all three or none): the macOS artifacts are not notarized." ;;
+          esac
+          if [ "$cert" = true ]; then
+            echo "::warning::macOS signing secrets are configured, but signing and notarization arrive in M15: the macOS artifacts are unsigned."
+          fi
+          {
+            echo "#### macOS signature state"
+            for f in dist/release/*; do echo "- \`${f##*/}\`: unsigned, not notarized"; done
+          } >>"$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-macos-universal
+          path: dist/release/*
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 14
+
+  # SHA256SUMS.txt over the complete artifact set: the signed set on the release branch, the
+  # unsigned build outputs in a dry run (the signing jobs are skipped there, never failed).
+  checksums:
+    name: checksums
+    needs: [version, linux, windows, macos, sign-windows, sign-macos]
+    if: ${{ !cancelled() && !failure() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: release-*
+          path: dist/release
+          merge-multiple: true
+      - name: Write SHA256SUMS.txt
+        run: |
+          packaging/checksums.sh create dist/release
+          cat dist/release/SHA256SUMS.txt
+          ls -l dist/release
+          {
+            echo "#### SHA256SUMS.txt"
+            echo
+            sed 's/^/    /' dist/release/SHA256SUMS.txt
+          } >>"$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sha256sums
+          path: dist/release/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  # The checksum step: a fresh runner per OS re-downloads the artifacts and SHA256SUMS.txt and
+  # verifies them, as a user would; the script's own planted-mismatch test runs first.
+  verify:
+    name: verify checksums (${{ matrix.os }})
+    needs: checksums
+    if: ${{ !cancelled() && needs.checksums.result == 'success' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: packaging
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: release-*
+          path: verify
+          merge-multiple: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: sha256sums
+          path: verify
+      - name: The checksum script's planted-mismatch test
+        shell: bash
+        run: bash packaging/checksums.sh self-test
+      - name: Verify the artifacts against SHA256SUMS.txt
+        shell: bash
+        run: bash packaging/checksums.sh verify verify
+
+  release:
+    name: draft GitHub Release
+    needs: [version, checksums, verify, sign-windows, sign-macos]
+    # Only a release-branch run reaches here: the signing jobs it needs are skipped elsewhere.
+    if: needs.version.outputs.real == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      PRERELEASE: ${{ needs.version.outputs.prerelease }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: packaging
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: release-*
+          path: artifacts
+          merge-multiple: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: sha256sums
+          path: artifacts
+      - name: Verify the set once more
+        run: bash packaging/checksums.sh verify artifacts
+      - name: Create or update the draft release
+        working-directory: artifacts
+        run: |
+          tag="v$VERSION"
+          title="Dalica v$VERSION"
+          if draft="$(gh release view "$tag" --json isDraft --jq .isDraft 2>/dev/null)"; then
+            if [ "$draft" != true ]; then
+              echo "::error::$title is already published. Bump the version (cargo xtask version set) before pushing to release."
+              exit 1
+            fi
+            echo "Updating the draft $tag: replacing its assets"
+            gh release view "$tag" --json assets --jq '.assets[].name' | while IFS= read -r asset; do
+              gh release delete-asset "$tag" "$asset" --yes
+            done
+            gh release edit "$tag" --draft --title "$title" --target "$GITHUB_SHA" --prerelease="$PRERELEASE"
+            gh release upload "$tag" --clobber -- *
+          else
+            echo "Creating the draft $tag"
+            pre=()
+            if [ "$PRERELEASE" = true ]; then pre=(--prerelease); fi
+            gh release create "$tag" --draft --title "$title" --target "$GITHUB_SHA" --generate-notes "${pre[@]}" -- *
+          fi
+          {
+            echo "Draft release **$title** at \`${GITHUB_SHA::9}\` (unsigned until M15):"
+            echo
+            sed 's/^/    /' SHA256SUMS.txt
+          } >>"$GITHUB_STEP_SUMMARY"

@@ -2004,7 +2004,7 @@ replace at M6.R.
   - done when: `cargo xtask assets` passes with the new row; a test checks every derived file exists
     at its size and decodes; `icons.sh` run twice gives identical files; the window sets its icon (a
     test on the viewport builder); renders at 16, 32, 48 and 512 px are on the PR.
-- ⬜ **M6.13 The release workflow, end to end**
+- ✅ **M6.13 The release workflow, end to end**
   - after: M6.7
   - files: `.github/workflows/release.yml`, `.github/workflows/packaging-lint.yml`, `packaging/README.md`, `packaging/checksums.sh`, `packaging/linux/package.sh`, `packaging/windows/package.ps1`, `packaging/macos/package.sh`, `docs/releasing.md`
   - scope: `releasing.md` and `security.md` §10: pushes to `release` build every platform and create
