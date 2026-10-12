@@ -4,9 +4,9 @@
 //! - **What it says** ([`line`]): the Photo Tray's contents ([`crate::tray::photos`]: the held
 //!   photos and the selection, each once). Nothing: "No selection". One photo: its name, date
 //!   taken, pixel size and file size ([`one`]). Several photos or a section selected as a unit: how
-//!   many, their date range and their size on disk, and their tags when they have some
-//!   ([`several`]). The edit view (M7) prefixes the folder and adds the photo's place in it
-//!   ([`edit`]).
+//!   many, their date range and their size on disk, and their tags when they have some, most used
+//!   first ([`several`], [`selection_tags`]). The edit view (M7) prefixes the folder and adds the
+//!   photo's place in it ([`edit`]).
 //! - **How it is written**: sizes in decimal units with one decimal ([`size`]), dates in full
 //!   ([`date_time`], [`date_range`]), fields separated by wide spaces ([`SEP`]).
 //! - **Background work** ([`scanning`], [`with_activity`]): while a scan runs, "Scanning: 1,204
@@ -299,9 +299,19 @@ pub fn line(library: &Library, state: &UiState) -> Line {
     match picked.as_slice() {
         [] => Line::plain(NO_SELECTION),
         [p] => one(p),
-        // Photos carry no tags until M6: the field stays out until then.
-        many => several(many, &[]),
+        many => several(many, &selection_tags(library, &ids)),
     }
+}
+
+/// The tags of the photos `ids` with how many of them hold each, most used first, ties in
+/// alphabetical order ignoring case: the status line's "Tags: lisbon (40), tram (6)". Unknown and
+/// repeated ids count once at most.
+pub fn selection_tags(library: &Library, ids: &[PhotoId]) -> Vec<(String, usize)> {
+    // `tag_counts_in` lists them in alphabetical order ignoring case; a stable sort keeps it for
+    // ties.
+    let mut counts: Vec<(String, usize)> = library.tag_counts_in(ids).into_iter().map(|c| (c.tag, c.count)).collect();
+    counts.sort_by_key(|c| std::cmp::Reverse(c.1));
+    counts
 }
 
 #[cfg(test)]
