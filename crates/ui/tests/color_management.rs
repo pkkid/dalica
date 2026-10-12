@@ -170,8 +170,19 @@ fn a_refresh_drops_only_its_sections_textures() {
     d.settle_for(FRAMES, true);
     assert_eq!(textures(&d), 8, "both folders on screen, every cell covered");
     let before = uploads(&d);
+    // The refreshed scans wait at a gate until the drop has been seen, so no new image can arrive
+    // in the same frame however fast the machine is.
+    let gate: Arc<(std::sync::Mutex<bool>, std::sync::Condvar)> = Arc::default();
+    let held = Arc::clone(&gate);
+    d.app_mut().session_mut().unwrap().set_thumbnail_scan_hook(Some(Arc::new(move |_| {
+        let (lock, cv) = &*held;
+        let open = lock.lock().unwrap();
+        let _ = cv.wait_timeout_while(open, std::time::Duration::from_secs(60), |open| !*open).unwrap();
+    })));
     d.run("section.refreshThumbs", &json!({ "section": format!("folder:{a}") })).unwrap();
     assert_eq!(textures(&d), 4, "folder A's textures went, folder B's stayed");
+    *gate.0.lock().unwrap() = true;
+    gate.1.notify_all();
     d.settle_for(FRAMES, true);
     assert_eq!(textures(&d), 8);
     assert_eq!(uploads(&d) - before, 4, "only folder A's four cells uploaded again");

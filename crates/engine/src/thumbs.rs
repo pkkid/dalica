@@ -78,6 +78,10 @@ pub const UNAVAILABLE_RETRY: Duration = Duration::from_secs(30);
 /// The embedded-thumbnail job runs just above the visible cells' scans.
 const QUICK: Priority = Priority(Priority::VISIBLE.0 + 5);
 
+/// What [`Session::set_thumbnail_scan_hook`](crate::Session::set_thumbnail_scan_hook) plants: called
+/// on a pool worker with the photo's path before a scan job reads it.
+pub type ScanHook = Arc<dyn Fn(&Path) + Send + Sync>;
+
 /// The cache folder the apps set for sessions opened with [`CacheDir::Default`].
 static PROCESS_CACHE: Mutex<Option<PathBuf>> = Mutex::new(None);
 
@@ -308,6 +312,8 @@ pub(crate) struct Thumbs {
     epoch: u32,
     screen: u32,
     limits: dalica_image::Limits,
+    /// Called on the worker before each scan job reads its photo (tests plant gates through it).
+    scan_hook: Option<ScanHook>,
     stats: ThumbStats,
 }
 
@@ -370,6 +376,7 @@ impl Thumbs {
             epoch: 0,
             screen: options.screen.clamp(1, ladder::MAX_SCREEN),
             limits: dalica_image::Limits::default(),
+            scan_hook: None,
             stats: ThumbStats::default(),
         };
         (thumbs, notices)
@@ -548,7 +555,11 @@ impl Thumbs {
         let Some(cache) = self.cache.clone() else { return };
         let (limits, in_flight, render, screen) = (self.limits, Arc::clone(&self.in_flight), self.render, self.screen);
         let (over, budget) = (Arc::clone(&self.over), Arc::clone(&self.budget));
+        let hook = self.scan_hook.clone();
         self.submit(Job::Scan(id), priority, move |cancel| {
+            if let Some(hook) = &hook {
+                hook(&source.path);
+            }
             let key = source.key_for(&render);
             if refresh {
                 if !reachable(&source.path) {
@@ -1245,6 +1256,13 @@ impl Session {
     /// Which thumbnails were made again after generation `since` (whose images to drop).
     pub fn thumbnails_refreshed_since(&self, since: u64) -> Refreshed {
         self.thumbs.refreshed_since(since)
+    }
+
+    /// Plants a function each scan job calls on its worker, with the photo's path, before it reads
+    /// the photo (`None`: none). Tests and benches hold scans behind gates with it, as
+    /// [`Session::set_scan_reader`] does for the scanner; jobs already queued are not affected.
+    pub fn set_thumbnail_scan_hook(&mut self, hook: Option<ScanHook>) {
+        self.thumbs.scan_hook = hook;
     }
 
     /// What photo `id` draws now in a cell of `need` device pixels, like

@@ -314,17 +314,48 @@ fn refresh_regenerates_a_section() {
     }
 }
 
+/// A gate scan jobs wait at (through `Session::set_thumbnail_scan_hook`) until it is opened, or
+/// for 60 s at most, so a failing test never hangs.
+#[derive(Clone, Default)]
+struct Gate(Arc<(std::sync::Mutex<(bool, usize)>, std::sync::Condvar)>);
+
+impl Gate {
+    fn hook(&self) -> dalica_engine::thumbs::ScanHook {
+        let gate = self.clone();
+        Arc::new(move |_| {
+            let (lock, cv) = &*gate.0;
+            let mut g = lock.lock().unwrap();
+            g.1 += 1;
+            cv.notify_all();
+            let _ = cv.wait_timeout_while(g, Duration::from_secs(60), |g| !g.0).unwrap();
+        })
+    }
+
+    /// Scan jobs that reached the gate.
+    fn held(&self) -> usize {
+        self.0.0.lock().unwrap().1
+    }
+
+    fn open(&self) {
+        let (lock, cv) = &*self.0;
+        lock.lock().unwrap().0 = true;
+        cv.notify_all();
+    }
+}
+
 /// A photo on screen whose scan is still running shows its embedded thumbnail first, when it
-/// covers the cell; the scan's own downscale replaces it.
+/// covers the cell; the scan's own downscale replaces it. The scan is held at a gate until the
+/// embedded thumbnail has been shown, so the order does not depend on how fast the machine is.
 #[test]
 fn a_new_photo_on_screen_shows_its_embedded_thumbnail_first() {
     let dir = tempfile::tempdir().unwrap();
     let folder = dir.path().join("Camera");
     dalica_fs::create_dir_all(&folder).unwrap();
     let exif = Exif { thumbnail: Some(160), ..Exif::default() };
-    // Large enough that its full decode takes far longer than the embedded thumbnail's.
     write(&folder.join("IMG_0001.jpg"), &dalica_scenes::jpeg(&Scene::new(5, 2400, 1600), 90, Some(&exif)).unwrap());
     let mut s = open(&dir.path().join("library"), &options(CacheDir::Temp, 2, None));
+    let gate = Gate::default();
+    s.set_thumbnail_scan_hook(Some(gate.hook()));
     s.execute("folders.add", &json!({ "path": folder })).unwrap();
     let start = Instant::now();
     let first = loop {
@@ -337,13 +368,53 @@ fn a_new_photo_on_screen_shows_its_embedded_thumbnail_first() {
         std::thread::sleep(Duration::from_millis(1));
     };
     assert!(first.width == 160 && (106..=107).contains(&first.height), "the embedded thumbnail came first: {} × {}", first.width, first.height);
-    assert_eq!(s.thumbnail_stats().quick, 1);
+    let stats = s.thumbnail_stats();
+    assert_eq!((stats.quick, stats.scanned, stats.decodes), (1, 0, 0), "shown while the scan is still held: {stats:?}");
+    assert_eq!(gate.held(), 1, "the photo's scan was queued and is waiting");
+    gate.open();
     s.wait_idle();
     let id = ids(&s)[0];
     match s.thumbnail(id, 144) {
         Thumb::Image { size, image, covers } => assert_eq!((size, covers, image.width), (Size::S256, true, 256), "replaced by the ladder's"),
         other => panic!("{other:?}"),
     }
+    assert_eq!(s.thumbnail_stats().decodes, 1);
+}
+
+/// A cell whose embedded thumbnail is smaller than it keeps its sketch until the scan is done:
+/// the embedded image is shown only when it covers the cell.
+#[test]
+fn an_embedded_thumbnail_too_small_for_the_cell_is_not_shown() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = dir.path().join("Camera");
+    dalica_fs::create_dir_all(&folder).unwrap();
+    let exif = Exif { thumbnail: Some(160), ..Exif::default() };
+    write(&folder.join("IMG_0001.jpg"), &dalica_scenes::jpeg(&Scene::new(6, 1200, 800), 90, Some(&exif)).unwrap());
+    let mut s = open(&dir.path().join("library"), &options(CacheDir::Temp, 2, None));
+    let gate = Gate::default();
+    s.set_thumbnail_scan_hook(Some(gate.hook()));
+    s.execute("folders.add", &json!({ "path": folder })).unwrap();
+    let start = Instant::now();
+    // Until the cell has asked and the embedded job has answered (it runs while the scan is
+    // held: then only the scan is pending).
+    let mut asked = false;
+    while !(asked && gate.held() == 1 && s.thumbnails_pending() == 1) {
+        s.poll();
+        let id = s.library().photos().next().map(|p| p.id);
+        if let Some(id) = id {
+            assert!(image(&s.thumbnail(id, 300)).is_none(), "nothing covers a 300 px cell yet");
+            asked = true;
+        }
+        assert!(start.elapsed() < Duration::from_secs(60), "the embedded job never answered");
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    let id = ids(&s)[0];
+    assert!(image(&s.thumbnail(id, 300)).is_none(), "a 160 px embedded thumbnail does not cover 300 px");
+    gate.open();
+    s.wait_idle();
+    let _ = s.thumbnail(id, 300);
+    s.wait_idle();
+    assert!(image(&s.thumbnail(id, 300)).is_some());
 }
 
 /// A rebuild gives the same files new ids: their entries are still theirs, never made dead, and
