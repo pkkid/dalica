@@ -38,8 +38,8 @@ cargo xtask ci                                      # THE gate: run before every
 | `xtask docs` | every `cargo xtask …` command named in `AGENTS.md`, this file and `task-board.md` exists or is registered as planned | ✓ |
 | `xtask accept M<n> [--headless]` | runs a milestone's acceptance test (`tests/acceptance/m<n>.rs`) and prints what a human should look at (`m<n>.md`) (`roadmap.md` → How milestones work); run on its own it checks the whole *Done when*, the crate suites it names included; finished milestones' checks run inside `ci` | ✓ (all finished milestones) |
 | `xtask tasks <sub>` | the task board: `setup`, `sync`, `next`, `claim`, `env`, `submit`, `release`, `block`, `merge`, `status`, `log` ([`task-board.md`](task-board.md)); `sync --check` parses the roadmap offline, `setup`/`sync --dry-run` show the GitHub writes without making them | `sync --check` ✓ |
-| `xtask test-corpus` | *planned (M5):* fetch the corpora and run the `corpus`-feature tests | |
-| `xtask corpus` | *planned (M5):* fetches pinned, sha256-verified CC0 test photos into the gitignored `corpus/` | |
+| `xtask corpus [--all \| <set>…] [--local] [--update-manifest]` | the test corpora of §11: without arguments, each set's pin and state (present, missing, stale, not published yet); with `--all` or set names, fetches what is missing or stale into the gitignored `corpus/`, every download checked against its pin and every file against `xtask/corpus/<set>.sha256` | |
+| `xtask test-corpus [-p <crate>] [-- args]` | fetches like `corpus --all`, then runs each corpus crate's `tests/corpus.rs` with `--release --features corpus,heif`, holding every set to its committed floors; sets not published yet are reported as skipped (§11) | the CI `corpus` job |
 | `xtask bench [name…] [-- args]` | builds the registered benches in release (`cargo bench`), runs each with `--json` (plus `args`), prints its rows, appends the run to `<target dir>/bench/history.jsonl` and fails on a CPU-time regression over 20 % against the last run of the same bench with the same arguments on the same machine (§13 *Bench runs*); no name runs them all | |
 | `xtask budgets [--plant-ms N]` | builds in release and runs the frame budgets the milestones assert (§8 *The budgets job*): M4's 100 k scroll (`library_bench`) and thumb at top speed, UI frame time p95 ≤ 8 ms, cells visited flat; one line per budget, fails when one is missed; `--plant-ms` adds a planted slowdown to every frame | the `budgets` workflow |
 | `xtask perf` | *planned (from M4):* the budgeted benchmark run of §13 | |
@@ -288,50 +288,77 @@ Adapted from PhotoCraft `docs/development.md` → *Test corpora* (revision 59684
 
 Real files are the best oracles for decoders, metadata readers and writers, but they are large
 binaries and must never enter this repository's history. They live in `corpus/` (gitignored), are
-fetched at **pinned commits** and are checked against committed **sha256 manifests**.
+fetched from **pins** (a URL with its sha256, or a commit) and are checked against committed
+**sha256 manifests**.
 
-- **Our own corpus** is a separate repository, `dalica-corpus`, holding only CC0 or public-domain
-  photos (and files we generated ourselves from them with other applications, for metadata
-  interop). Third-party test suites with their own permissive or public-domain terms (PngSuite, raw
-  camera samples published as CC0) are fetched from their upstreams the same way and are never
-  copied into `dalica-corpus`. Personal photos are never part of any corpus.
-- All pins are in one file, `xtask/src/corpus_pins.rs`; each corpus has a manifest
-  `xtask/corpus/<name>.sha256`. Planned sets:
+- **Our own corpus** is a separate repository, `pkkid/dalica-corpus`, holding only CC0 or
+  public-domain photos (and files we generated ourselves from them with other applications, for
+  metadata interop), each with its source. Third-party test suites with their own permissive or
+  public-domain terms (PngSuite, raw camera samples published as CC0) are fetched from their
+  upstreams the same way and are never copied into `dalica-corpus`. Personal photos are never part
+  of any corpus.
+- All pins are in one file, `xtask/src/corpus_pins.rs`; each set has a manifest
+  `xtask/corpus/<set>.sha256` (`<sha256>  <path>` per line, sorted by path). Sets:
 
-| Directory | What | Used by |
-|---|---|---|
-| `corpus/photos/` | CC0 JPEGs from many cameras and phones: orientations 1–8, EXIF thumbnails, MPF previews, ICC profiles, CMYK, progressive, truncated | `dalica-image`, `dalica-thumbs` |
-| `corpus/metadata/` | the same photos after other applications wrote captions, keywords, ratings, GPS, dates and MWG face regions into them (and `.xmp` sidecars for RAW) | `dalica-meta` interop and round-trip tests ([`xmp-interop.md`](xmp-interop.md)) |
-| `corpus/raw/` | small CC0 raw files per vendor, for embedded-preview extraction | `dalica-image` |
-| `corpus/heif/` | small HEIC/HEIF files, for the `heif` feature | `dalica-image` |
-| `corpus/pngsuite/` | PngSuite | `dalica-image` |
-| `corpus/public-faces/` | public-domain portraits with their sources in `SOURCES.tsv`, for M13 | `dalica-faces` ([`faces.md`](faces.md)) |
+| Directory | What | Source and pin | Used by |
+|---|---|---|---|
+| `corpus/pngsuite/` | PngSuite: 176 PNGs (every bit depth, colour type, interlacing and ancillary chunk, 14 corrupt on purpose) | the 2017-07-19 release archive from schaik.com, by URL and sha256 (its own permissive terms) | `dalica-image` |
+| `corpus/raw/` | 26 camera raws, two per kind Dalica reads previews from: CR2, CR3, CRW, DNG, NEF, ARW, PEF, ORF, RW2, SRW, RAF, MRW, X3F (245 MB) | raw.pixls.us, each file CC0, by URL and sha256 | `dalica-image` |
+| `corpus/photos/` | CC0 JPEGs from many cameras and phones: orientations 1–8, EXIF thumbnails, MPF previews, ICC profiles, CMYK, progressive, truncated | `photos/` of `dalica-corpus` at a pinned commit: **not published yet** | `dalica-image`, `dalica-thumbs` |
+| `corpus/heif/` | small HEIC/HEIF files, for the `heif` feature | `heif/` of `dalica-corpus` at a pinned commit: **not published yet** | `dalica-image` |
+| `corpus/metadata/` | the photos after other applications wrote captions, keywords, ratings, GPS, dates and MWG face regions into them (and `.xmp` sidecars for RAW) | planned, `dalica-corpus` | `dalica-meta` interop and round-trip tests ([`xmp-interop.md`](xmp-interop.md)) |
+| `corpus/public-faces/` | public-domain portraits with their sources in `SOURCES.tsv`, for M13 | planned, `dalica-corpus` | `dalica-faces` ([`faces.md`](faces.md)) |
 
 ```sh
-cargo xtask corpus                  # where each corpus lives, its pin, present / missing / stale
-cargo xtask corpus --all            # fetch everything missing or stale (verified copies are left alone)
-cargo xtask test-corpus             # fetch, then cargo test --release --features corpus on the corpus crates
-cargo xtask test-corpus -p meta     # narrow to one crate
-cargo xtask corpus --local          # copy from ../dalica-corpus (or $DALICA_CORPUS_REPO) instead of downloading
+cargo xtask corpus                  # each set: its directory, pin and state (present / missing / stale / not published yet); no network
+cargo xtask corpus --all            # fetch every published set that is missing or stale (verified copies are left alone)
+cargo xtask corpus raw              # the same for some sets
+cargo xtask test-corpus             # fetch, then each corpus crate's tests/corpus.rs (--release --features corpus,heif)
+cargo xtask test-corpus -p image    # narrow to one crate
+cargo xtask corpus --local --all    # our own sets copied from ../dalica-corpus (or $DALICA_CORPUS_REPO) instead of downloaded
+cargo xtask corpus --update-manifest raw   # after moving a pin: refetch from the pins and rewrite the manifest
 ```
+
+- **Verified before use.** A download is checked against its pin before it is used (an archive
+  before it is unpacked, a single file before it is moved into place); a file whose sha256 differs
+  is deleted and refused. A set is then checked file by file against its manifest in a staging
+  directory before it replaces `corpus/<set>/`, so a stale or altered file never passes: it shows as
+  "stale" in `cargo xtask corpus` and fails the corpus tests until `--all` fetches it again.
+  `corpus/<set>/SOURCES.md` says where the files came from and under which terms.
+- **Network only on request.** Only `cargo xtask corpus` and `cargo xtask test-corpus` download,
+  through `curl` (generic User-Agent, retries, 512 MiB cap per file) and `tar`, which ship with
+  Linux, macOS and Windows 10 and later. `cargo xtask ci`, builds and the ordinary tests never touch
+  the network or the corpus.
+- **Not published yet.** A set of our own repository with no pinned commit is reported as "not
+  published yet" by `cargo xtask corpus`, skipped by `--all`, and skipped with that message (never
+  counted as passed) by `cargo xtask test-corpus`; it has no manifest and no floors. Publishing
+  one: commit it in `dalica-corpus`, pin the commit in `corpus_pins.rs` (`DALICA_CORPUS_COMMIT`),
+  run `cargo xtask corpus --update-manifest <set>`, commit the manifest, run
+  `cargo xtask test-corpus` and add the set's floors at the measured counts. Before pushing there,
+  `--local --update-manifest <set>` tests a clone's files (it warns when the clone is not at the pin).
 
 **Opt-in locally, strict when opted in, always in CI.**
 
-- The corpus tests sit behind a `corpus` cargo feature of the crates that use them (`dalica-image`,
-  `dalica-meta`, `dalica-thumbs`, later `dalica-faces`), so plain `cargo test` and `cargo xtask ci`
-  neither compile nor need them.
+- The corpus tests sit in each crate's `tests/corpus.rs` behind a `corpus` cargo feature
+  (`dalica-image` today; `dalica-meta`, `dalica-thumbs` and later `dalica-faces` when their tests
+  land), so plain `cargo test` and `cargo xtask ci` neither compile nor need them.
 - With the feature on, a missing or stale corpus is a **failure** ("run `cargo xtask corpus --all`"),
   never a silent skip, and every floor is enforced.
-- **Floors only rise.** Each corpus test has committed floors (files decoded, thumbnails extracted,
-  metadata fields read, round trips byte-identical outside the metadata segments). Raise a floor in
-  the PR that improves it; never lower one. A file that newly fails is investigated, and a synthetic
-  reproduction goes into the crate's ordinary tests (corpus files are never committed or quoted).
+- **Floors only rise.** Each crate commits floors per set (`crates/image/tests/corpus_floors.json`:
+  files, files sniffed as their extension says, headers read the way scanning reads them, full
+  decodes, 256 px thumbnails, embedded thumbnails decoded, and for PngSuite the corrupt files
+  refused). A measured set without floors, a floor without a manifest and a count below its floor
+  all fail; a count above its floor is printed so the PR that improved it raises it. Never lower
+  one. A file that newly fails is investigated, and a synthetic reproduction goes into the crate's
+  ordinary tests (corpus files are never committed or quoted).
 - If you touch `image`, `meta`, `thumbs` or `scan`, run `cargo xtask test-corpus` before you finish.
-- The CI `corpus` job runs `cargo xtask corpus --all` and `cargo xtask test-corpus` on every PR and
-  on main, with `corpus/` cached under a key of `corpus_pins.rs` plus the manifests; a restored cache
-  is re-verified (sha256) before the tests run.
-- **Bumping a pin:** commit and push in `dalica-corpus`, then in a PR here update the commit in
-  `corpus_pins.rs`, run `cargo xtask corpus --update-manifest <name>`, commit the manifest diff, run
+- The CI `corpus` job (Linux) runs `cargo xtask corpus --all`, clippy of `dalica-image` with the
+  `corpus` and `heif` features, and `cargo xtask test-corpus` on every PR and on main, with
+  `corpus/` cached under a key of `corpus_pins.rs` plus the manifests; `--all` re-hashes a restored
+  cache before the tests run.
+- **Bumping a pin:** for our own sets, commit and push in `dalica-corpus`, then in a PR here update
+  the commit in `corpus_pins.rs`; for an upstream file or archive, change its URL and sha256. Run
+  `cargo xtask corpus --update-manifest <set>`, commit the manifest diff, run
   `cargo xtask test-corpus`, and raise floors that improved.
 - **Not a submodule or a subtree:** a subtree puts the binaries back into this history, and
   submodules cost every contributor init and detached-HEAD friction. A pin plus a manifest gives the

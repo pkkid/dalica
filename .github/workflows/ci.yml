@@ -64,3 +64,31 @@ jobs:
       - name: dalica-image with the heif feature (tests)
         shell: bash
         run: cargo test -p dalica-image --features heif
+
+  # The test corpora (docs/development.md §11): every published set fetched from its pin and
+  # sha256-verified, then the corpus tests with their committed floors. `corpus/` is cached under a
+  # key of the pins and the manifests; `cargo xtask corpus --all` re-hashes a restored cache and
+  # fetches only what is missing or stale. The only CI job that uses the network for test data.
+  corpus:
+    name: corpus
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master, 2026-10-09
+        with:
+          toolchain: "1.98"
+          components: clippy
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: corpus
+          key: corpus-${{ hashFiles('xtask/src/corpus_pins.rs', 'xtask/corpus/*.sha256') }}
+      - name: cargo xtask corpus --all
+        run: cargo xtask corpus --all
+      - name: dalica-image corpus tests (clippy)
+        run: cargo clippy -p dalica-image --all-targets --features corpus,heif -- -D warnings
+      - name: cargo xtask test-corpus
+        run: cargo xtask test-corpus

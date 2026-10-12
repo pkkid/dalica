@@ -1507,7 +1507,7 @@ filled by the lead; M5.15 pins it.
     menu's rows;
     `crates/ui/tests/jobs_control.rs`: a scan job is listed with progress, `jobs.wait` returns its
     final entry, `jobs.cancel` stops it; bad params are `bad_params`; `widget_ids` stays green.
-- ⬜ **M5.15 `xtask corpus` and `test-corpus` with floors**
+- ✅ **M5.15 `xtask corpus` and `test-corpus` with floors**
   - after: M5.6, M5.7, M5.8, M5.9, M5.10
   - files: `xtask/src/corpus.rs`, `xtask/src/corpus_pins.rs`, `xtask/corpus/**`, `xtask/src/docs.rs`, `crates/image/tests/corpus.rs`, `crates/image/tests/corpus_floors.json`, `crates/image/README.md`, `.github/workflows/ci.yml`, `.gitignore`, `docs/development.md`, `docs/formats.md`, `docs/security.md`
   - scope: `development.md` §11: `cargo xtask corpus` (status, `--all`, `--local`,

@@ -1,0 +1,20 @@
+{
+  "pngsuite": {
+    "files": 176,
+    "sniffed": 170,
+    "headers": 162,
+    "decoded": 162,
+    "thumbnails": 162,
+    "embedded_thumbnails": 1,
+    "corrupt": 14,
+    "corrupt_refused": 14
+  },
+  "raw": {
+    "files": 26,
+    "sniffed": 23,
+    "headers": 20,
+    "decoded": 20,
+    "thumbnails": 20,
+    "embedded_thumbnails": 13
+  }
+}
