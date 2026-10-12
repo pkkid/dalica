@@ -14,7 +14,7 @@
   - `widgets`: `register` + `Target` (the one way to get an automation id), `focus_ring`,
     `label_in`; buttons `text_button`, `icon_button`, `star_toggle`, `primary_button`,
     `action_button`, `toggle_filter`, `segmented` (+ `Segment`, `SegmentLabel`); fields
-    `text_field`, `search_field` (+ `SearchOut`); `slider` (+ `SliderSpec`, `SliderOut`,
+    `text_field` (+ `FieldOut`, `Ending`, `TextField`, `focus_field`; Esc reverts, Return or a click away commits once, the Cut/Copy/Paste/Select All menu: M5.25), `search_field` (+ `SearchOut`), `autocomplete` (type-ahead list under a field, `Role::Suggestion` rows: M5.25); `slider` (+ `SliderSpec`, `SliderOut`,
     `typed_value`, `nudged`, `edit_slider_value`), `zoom_slider`; `dropdown` (+
     `dropdown_popup_id`); `dialog` (+ `DialogButton`, `ButtonKind`, `DialogResponse`);
     `section_header`; `splitter` (+ `arrow_delta`, `split_position`); `tooltip` (+

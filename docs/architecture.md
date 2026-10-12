@@ -29,9 +29,11 @@ latest). They are pinned in `[workspace.dependencies]`; bumping one is its own c
 | Colour | `moxcms` 0.9 | pure-Rust ICC transforms; never assume sRGB input |
 | Resampling | `fast_image_resize` 6 | fast, SIMD, pure Rust; thumbnails dominate CPU time |
 | Metadata | our own `meta` crate (segment surgery, `xmp-interop.md`) + `quick-xml` 0.42 for XMP parsing | no crate preserves foreign metadata byte for byte; we must own that guarantee |
-| File watching | `notify` 8 + periodic verification scans | pure Rust; events are hints, verification is the truth |
+| File watching | `notify` 8 (its `inotify-sys` / `fsevent-sys` bindings allowed at M3.R) + a pure-Rust polling fallback + periodic verification scans | events are hints, verification is the truth |
 | File safety | `std::fs::File::try_lock` (lock file; stable since Rust 1.89, so no `fs4`), `trash` 5.2 (OS trash), `tempfile` 3 (tests) | single-process lock; deletes go to the trash |
-| Locations | `directories` 6 | per-OS data, config and cache paths |
+| Locations | our own lookup in `scan::volumes` (HOME / USERPROFILE and the XDG user-dirs file; M5.4), not `directories`, which would bring `dirs-sys` and MPL-2.0 `option-ext` | per-OS standard places without new exceptions; Windows folder redirection is not followed yet |
+| Folder handles | `rustix` 1 (`fs`, safe API only; Unix) | writes relative to a held folder handle (`security.md` §5.6; M5.3) |
+| Test-file encoders (`scenes` only) | `tiff`, `fdeflate`, `zune-jpegxl` 0.5 (no threads, deterministic) | our own TIFF/PSD/ICC writers need them; never in the product's decode path |
 | Parallelism | `rayon` 1.12 for pixel tiles; our own prioritised job pool for previews; `crossbeam-channel` 0.5 | pixel work scales; previews need priorities and cancellation rayon doesn't give |
 | Serialization | `serde` 1, `serde_json` 1 (sidecars: pretty, sorted keys, LF) | human-readable, diffable, merge-friendly |
 | Errors | `thiserror` 2 per crate; `Result` everywhere (never-crash) | typed errors that commands turn into JSON |

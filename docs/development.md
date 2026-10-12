@@ -171,8 +171,10 @@ Measure, don't guess: record numbers in `docs/status.md` → Metrics with the ma
 the budgets the acceptance tests assert only with `DALICA_ACCEPT_RELEASE=1`, and the run fails when
 one is missed. Today (M4) that is the 100 k scroll of `library_bench` in full (UI frame time p95
 ≤ 8 ms; cells visited per frame flat from 10 k to 100 k) and `m4.rs`'s thumb held at its top speed
-through 100 k sketched photos (p95 ≤ 8 ms, no placeholder, cells flat). A milestone adds its budgets
-to `BUDGETS` in `xtask/src/accept.rs` (M5: first thumbnails ≤ 1 s). A pull request that changes the
+through 100 k sketched photos (p95 ≤ 8 ms, no placeholder, cells flat); since M5 also the first
+screenful of a just-added folder of 1 k and of 10 k JPEGs (≤ 1 s each, `first_thumbnails`) and a
+scanned 20 k pass at top thumb speed (no placeholder, p95 ≤ 8 ms); the scanned 100 k pass runs in
+the release acceptance only. A milestone adds its budgets to `BUDGETS` in `xtask/src/accept.rs`. A pull request that changes the
 workflow or `xtask/src/accept.rs` runs the job too, and *Run workflow* on the Actions tab runs it on
 any branch with a planted slowdown (`plant_ms`). The same check locally:
 

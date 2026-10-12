@@ -124,7 +124,9 @@ while a format waits for its task).
 - Every decode ends in 8-bit sRGB for display and in the edit renderer's working format. Embedded ICC
   profiles are applied with `moxcms` (v2/v4; sRGB, Display P3, Adobe RGB, ProPhoto, Rec.2020
   recognised); untagged images are assumed sRGB; an unusable profile falls back to sRGB and is
-  logged; CMYK without a profile uses a naive conversion.
+  logged; CMYK without a profile uses a naive conversion. The display is treated as sRGB (the
+  maintainer's answer at M5.R, 2026-10-12); reading the real display profile per OS comes later,
+  without C dependencies.
 - Between the container and the display sits one **decoded image**: the stored pixels at their own
   depth (8- or 16-bit integers, or floats), their colour model (grey, RGB or CMYK; palettes are
   expanded by the format module), an optional straight alpha channel, the embedded profile's bytes

@@ -10,8 +10,9 @@ MCP server, a dependency, or the release workflow. The reporting policy is
 replace) are in [`data-model.md`](data-model.md); this document is the adversarial view of the
 same code.
 
-> **Status:** nothing is built yet. Every control below is marked **Planned (Mn)** with the
-> milestone from [`roadmap.md`](roadmap.md) in which it lands. The commit that lands a control
+> **Status:** each control below is marked **Implemented** (with its code path) or **Planned (Mn)**
+> with the milestone from [`roadmap.md`](roadmap.md) in which it lands; as of M5 the file-system,
+> decoder and watcher controls are built. The commit that lands a control
 > changes its mark to **Implemented** and names the code path. Never describe a control as
 > implemented before its code and tests are on `main`, and never report a successful build as a
 > published release.
@@ -486,7 +487,7 @@ embedded, never loaded by a referenced name. **Planned (M1, M14).**
   (M5.3: `dalica-fs` `remove_stale_temps(folder, now)`: regular files of exactly that shape whose
   modification time is more than 24 hours before `now`, in that folder only, through the held
   folder handle; links, folders, near-miss names and other files are never touched; it reports
-  what it removed and what it could not). Calling it from the scan is planned (M5).**
+  what it removed and what it could not). Called when a folder is scanned (M5.17).**
 - Other scratch files (render and export scratch, decoded previews spilled to disk) go to
   `<cache>/Dalica/tmp/`, created `0700` on Unix, with random names, never to a predictable name in
   a shared system temp directory. **Planned (M7).**
