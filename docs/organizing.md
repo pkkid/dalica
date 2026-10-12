@@ -30,6 +30,15 @@ shortcuts in [`menus-and-shortcuts.md`](menus-and-shortcuts.md). Parity ids are 
    - Footer: "Looking for pictures never moves or copies files. You can change which folders are
      shown at any time with Tools → Folder Manager."
    - Single button **Continue**.
+   - Built (M5.18): the panel is offered by the window when it opens a library that has never had
+     a folder (`Session::is_new_library`); headless and snapshot sessions never show it, and the
+     demo library is never new. Under the first choice it lists the places it will add (with their
+     icons), read on the engine's workers (`folders.browse`); Continue adds the existing Pictures,
+     Documents and Desktop folders (never the home folder itself, never a folder inside another)
+     as Scan Always with one `folders.set`, one undo step. When none of them exists, Continue opens
+     the Folder Manager, as "Choose folders…" does. Ids: `dialog:firstRun`,
+     `choice:dialog.start/places`, `choice:dialog.start/choose`, `button:dialog.continue`; the
+     draft is `{choice}`.
 2. The main window opens immediately; folders **appear in the library tree as they are found** and
    their thumbnails fill in progressively. The activity indicator at the right end of the toolbar
    (`ui-layout.md` §3) and a status line message ("Scanning: 1,204 pictures found") show background work. The user can browse,
@@ -76,6 +85,45 @@ Semantics: see `data-model.md` §7. Confirmations:
 - The folder context-menu command **Remove from Dalica…** (different entry point, same effect as
   the radio) confirms: title "Remove Folder", text "Remove the folder "%s" and its subfolders from
   Dalica? The files stay on your disk." [Remove Folder] [Cancel].
+
+How it is built (M5.18; `crates/ui/src/dialogs/folder_manager.rs`, its tests
+`crates/ui/tests/folder_manager.rs`):
+
+- The dialog is ≈ 640 × 480, fixed (it fits the smallest window, 900 × 600); a resizable frame
+  waits for the dialog widget to grow one. Its draft (the dialog's fields: the selected folder,
+  the expanded folders, the changes by folder, the drives confirmed) is plain data; nothing reaches
+  the library before OK, and OK with no change runs nothing.
+- Roots are the standard places that exist, then the volumes (a volume that is also a place is
+  listed once). A folder's subfolders are read only when it is expanded, through `folders.browse`
+  on the engine's workers: the frame never waits, a spinner row ("Loading…") stands in until the
+  answer arrives, and each folder is read from disk again the first time it is listed after the
+  dialog opens. A folder whose listing comes back empty loses its triangle. Double-clicking a row
+  expands or collapses it.
+- A row's state is its effective mode with the draft applied: the nearest folder at or above it
+  that sets one, else Remove. Clicking a radio sets the selected folder's own mode, also when it
+  only inherited that mode; a change back to what the library already sets is dropped from the
+  draft.
+- The Watch Drive question opens over the Folder Manager when Scan Always is chosen for a volume
+  root (a path with no parent, or a volume the roots listed) or the home folder that is not
+  watched yet. Watch Drive sets the radio and marks the folder confirmed, so OK sends
+  `"confirm": true`; Cancel or Esc leaves the radio as it was. The same question guards
+  `folders.set` run from anywhere in the app while the Folder Manager knows the drives.
+- Remove from Dalica… (`folder.remove`) asks Remove Folder through the dialog host, naming the
+  folder; over automation the question is `needs_confirm` with the generic text "Remove this
+  folder and its subfolders from Dalica? The files stay on your disk."
+- The Remove Faces question waits for faces (M13). Help stays disabled until there is help.
+- A dialog under another one keeps its buttons as parts of its own id (`dialog:folderManager/ok`),
+  so `button:dialog.<action>` always names the top dialog's.
+- Ids: the tree's rows `choice:dialog.folder/<root>` (a root) and
+  `choice:dialog.folder/<root>/<folder>`, where each part is sixteen hex digits of the FNV-1a hash
+  of the path; their triangles `button:dialog.expand/…` with the same parts; a spinner row
+  `choice:dialog.folder/…/loading` (painted, under the folder being read); the radios
+  `choice:dialog.mode/always`, `/once`, `/remove`; the faces toggle `check:dialog.faces`; the
+  watched folders `button:dialog.reveal/<folder>`; the questions `dialog:watchDrive` and
+  `dialog:removeFolder` with `button:dialog.watchDrive` and `button:dialog.removeFolder`.
+- The state icons and the roots' icons are drawn in code (`FolderIcon` in `dalica-ui-kit`):
+  circular arrows, check mark and cross; a framed picture, a page, a monitor, a house, a drive and
+  a network drive.
 
 ## 3. Import (Import button, File → Import From…, Ctrl+M)
 

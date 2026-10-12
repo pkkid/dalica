@@ -40,6 +40,32 @@ pub struct DialogResponse<R> {
     pub rect: Rect,
 }
 
+/// The dialogs drawn in a pass, in order.
+#[derive(Clone, Default)]
+struct Drawn {
+    pass: u64,
+    layers: Vec<egui::LayerId>,
+    /// The layers of the pass before `pass`, if dialogs were drawn in it.
+    last: Vec<egui::LayerId>,
+}
+
+/// Records `layer` as drawn in this pass; whether it was the last dialog drawn in the previous one.
+fn drawn_last(ctx: &Context, layer: egui::LayerId) -> bool {
+    let pass = ctx.cumulative_pass_nr();
+    ctx.data_mut(|d| {
+        let s = d.get_temp_mut_or_default::<Drawn>(Id::new("dalica-ui-kit.dialogs"));
+        if s.pass != pass {
+            s.last = if s.pass.saturating_add(1) == pass { std::mem::take(&mut s.layers) } else { Vec::new() };
+            s.layers.clear();
+            s.pass = pass;
+        }
+        if s.layers.len() < 64 {
+            s.layers.push(layer);
+        }
+        s.last.last() == Some(&layer)
+    })
+}
+
 /// A modal dialog (`design-system.md` §6): the app dimmed by a `backdrop` that takes every click
 /// meant for it, and centred on it a window `width` wide (`chrome`, 1 pt `button_border`, radius 6,
 /// the window shadow, margin 16 × 12) with the SemiBold 15 `title`, the `body`, and the `buttons`
@@ -65,17 +91,18 @@ pub fn dialog<R>(
         .anchor(Align2::CENTER_CENTER, Vec2::ZERO)
         .order(egui::Order::Foreground)
         .interactable(true);
-    let is_top = ctx.memory_mut(|m| {
-        m.set_modal_layer(area.layer());
-        m.top_modal_layer() == Some(area.layer())
-    });
+    // The dialog drawn last in the previous pass is on top and takes the keys. egui's own top modal
+    // layer is no guide here: a dialog opened over another one only wins it on its second frame.
+    let layer = area.layer();
+    let is_top = drawn_last(ctx, layer);
     let mut clicked = None;
     let shown = area.show(ctx, |ui| {
         let screen = ui.ctx().content_rect();
-        let mut backdrop = ui.new_child(UiBuilder::new().sense(Sense::CLICK | Sense::DRAG).max_rect(screen));
-        backdrop.set_min_size(screen.size());
+        // The backdrop is a widget of its own over the whole screen, allocated with its rect, so it
+        // is registered (and found by `unregistered`) the pass it is drawn. A child ui's response
+        // has no size until the pass after, which left `<id>/backdrop` out on the first pass.
+        let backdrop = ui.interact(screen, Id::new(id).with("backdrop"), Sense::CLICK | Sense::DRAG);
         ui.painter().rect_filled(screen, 0.0, t.backdrop);
-        let backdrop = backdrop.response();
         register(ui.ctx(), &format!("{id}/backdrop"), Role::Other, title, Target::Widget(&backdrop), false);
         let frame = Frame::new()
             .fill(t.chrome)
@@ -112,6 +139,10 @@ pub fn dialog<R>(
         register(ui.ctx(), id, Role::Other, title, Target::Widget(&window.response), true);
         (window.inner, window.response.rect)
     });
+    // Claimed once the area is shown, so a dialog opened over another one is in the layer order
+    // when it claims the top on its first frame (claimed before, it lost to the one under it for a
+    // frame, which then took that frame's Esc or Enter).
+    ctx.memory_mut(|m| m.set_modal_layer(layer));
     let (inner, rect) = shown.inner;
     if clicked.is_none() && is_top && !egui::Popup::is_any_open(ctx) {
         let pick = |kind: ButtonKind| buttons.iter().position(|b| b.kind == kind && b.enabled);

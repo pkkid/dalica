@@ -309,10 +309,15 @@ pub enum DialogKind {
     FolderManager,
     /// The first-run panel of a new library (`organizing.md` §1).
     FirstRun,
+    /// "Remove the folder … from Dalica?" (`folder.remove`, `organizing.md` §2).
+    RemoveFolder,
+    /// "Watch the whole drive anyway?" (a volume root or the home folder set to Scan Always).
+    WatchDrive,
 }
 
 impl DialogKind {
-    pub const ALL: [DialogKind; 3] = [DialogKind::ClearTray, DialogKind::FolderManager, DialogKind::FirstRun];
+    pub const ALL: [DialogKind; 5] =
+        [DialogKind::ClearTray, DialogKind::FolderManager, DialogKind::FirstRun, DialogKind::RemoveFolder, DialogKind::WatchDrive];
 
     /// The kind as the protocol writes it (`clearTray`), the `<kind>` of `dialog:<kind>`.
     pub fn name(self) -> &'static str {
@@ -320,6 +325,8 @@ impl DialogKind {
             DialogKind::ClearTray => "clearTray",
             DialogKind::FolderManager => "folderManager",
             DialogKind::FirstRun => "firstRun",
+            DialogKind::RemoveFolder => "removeFolder",
+            DialogKind::WatchDrive => "watchDrive",
         }
     }
 

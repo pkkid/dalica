@@ -1568,7 +1568,7 @@ filled by the lead; M5.15 pins it.
     switched off, the verification pass alone finds everything; a moved folder keeps its stars; a
     stale temp is removed and a fresh one kept; a missing photo's entry survives 29 days and is
     gone after 31 (virtual time); the owner thread made no `fs` call.
-- ⬜ **M5.18 `ui`: the Folder Manager and the first-run panel**
+- ✅ **M5.18 `ui`: the Folder Manager and the first-run panel**
   - after: M5.12, M5.14
   - files: `crates/ui/src/dialogs/folder_manager.rs`, `crates/ui/src/dialogs/folder_manager/**`, `crates/ui/src/dialogs/first_run.rs`, `crates/ui-kit/src/icons.rs`, `crates/ui-kit/src/icons/folder_modes.rs`, `crates/ui-kit/tests/icons_folder_modes.rs`, `crates/ui-kit/tests/fingerprints/icons-folder-modes*.json`, `crates/ui/tests/folder_manager.rs`, `crates/ui/tests/first_run.rs`, `crates/ui/tests/fingerprints/dialog-folder-manager*.json`, `crates/ui/tests/fingerprints/dialog-first-run*.json`, `docs/organizing.md`
   - scope: `organizing.md` §1–§2: the Folder Manager (≈ 640 × 480, resizable, split 50/50): the

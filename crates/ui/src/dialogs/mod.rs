@@ -15,6 +15,12 @@
 //!   succeeds and stays open, the reason on the status line, when it fails.
 //! - **Reporting**: [`inspect`] is `ui.inspect` → `dialog`: the top dialog's kind, title, draft,
 //!   buttons and default button.
+//! - **Stacking**: a question asked over a dialog (Watch Drive over the Folder Manager) is drawn
+//!   on top; the dialogs under it take no input, and their buttons are registered as parts of
+//!   their own id (`dialog:folderManager/ok`), so `button:dialog.<action>` always names a button
+//!   of the top dialog and every id stays unique.
+//! - **First run**: the window offers the first-run panel when it opens a new library
+//!   ([`first_run::offer`]).
 //!
 //! Each kind lives in a module of its own with the same three functions, which the host
 //! dispatches to: `look` (title, width, buttons), `body` (draws the draft and edits it in place)
@@ -83,7 +89,7 @@ pub fn widget_id(kind: DialogKind) -> String {
 
 fn look(app: &App, d: &Dialog) -> Look {
     match d.kind {
-        DialogKind::ClearTray => confirm::look(d),
+        DialogKind::ClearTray | DialogKind::RemoveFolder | DialogKind::WatchDrive => confirm::look(d),
         DialogKind::FolderManager => folder_manager::look(app, d),
         DialogKind::FirstRun => first_run::look(app, d),
     }
@@ -91,7 +97,7 @@ fn look(app: &App, d: &Dialog) -> Look {
 
 fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
     match d.kind {
-        DialogKind::ClearTray => confirm::body(app, ui, d),
+        DialogKind::ClearTray | DialogKind::RemoveFolder | DialogKind::WatchDrive => confirm::body(app, ui, d),
         DialogKind::FolderManager => folder_manager::body(app, ui, d),
         DialogKind::FirstRun => first_run::body(app, ui, d),
     }
@@ -99,7 +105,7 @@ fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
 
 fn act(app: &mut App, d: &Dialog, action: &str) -> Result<Value, CmdError> {
     match d.kind {
-        DialogKind::ClearTray => confirm::act(app, d, action),
+        DialogKind::ClearTray | DialogKind::RemoveFolder | DialogKind::WatchDrive => confirm::act(app, d, action),
         DialogKind::FolderManager => folder_manager::act(app, d, action),
         DialogKind::FirstRun => first_run::act(app, d, action),
     }
@@ -218,7 +224,10 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     for i in 0..count {
         let Some(mut d) = app.state().dialogs.get(i).cloned() else { break };
         let look = look(app, &d);
-        let ids: Vec<String> = look.buttons.iter().map(Button::widget).collect();
+        // The top dialog's buttons are `button:dialog.<action>`; a dialog under another one keeps
+        // its buttons as parts of its own id, so ids stay unique while a question is asked over it.
+        let top = i + 1 == count;
+        let ids: Vec<String> = look.buttons.iter().map(|b| if top { b.widget() } else { format!("{}/{}", widget_id(d.kind), b.action) }).collect();
         let buttons: Vec<DialogButton<'_>> =
             look.buttons.iter().zip(&ids).map(|(b, id)| DialogButton { id, label: &b.label, kind: b.kind, enabled: b.enabled }).collect();
         let r = widgets::dialog(ctx, &t, &widget_id(d.kind), &look.title, look.width, &buttons, |ui| body(app, ui, &mut d));
@@ -227,7 +236,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
             *slot = d;
         }
         let pressed = r.clicked.and_then(|k| look.buttons.get(k));
-        if i + 1 == count
+        if top
             && let Some(b) = pressed
             && let Err(e) = answer(app, Some(b.action))
         {
@@ -258,7 +267,9 @@ mod tests {
         );
         // Unknown and disabled buttons are refused; the top one answers first.
         assert!(matches!(answer(&mut app, Some("nope")), Err(CmdError::NotFound(m)) if m.contains("dialog.continue")));
-        answer(&mut app, None).unwrap();
+        // "Choose folders…" with the Folder Manager already open only closes the panel.
+        app.state_mut().dialogs.last_mut().unwrap().fields.insert("choice".into(), json!("choose"));
+        assert_eq!(answer(&mut app, None).unwrap(), json!({ "dialog": "folderManager" }));
         assert_eq!(top(&app).map(|d| d.kind), Some(DialogKind::FolderManager));
         assert!(matches!(answer(&mut app, Some("help")), Err(CmdError::Disabled(_))));
         assert_eq!(app.state().dialogs.len(), 1, "a refused answer keeps the dialog");

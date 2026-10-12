@@ -131,6 +131,8 @@ impl App {
         let stored = (session.settings().view(), session.settings().view_options());
         apply_view(&mut self.state, &stored);
         self.saved_view = Some(view_of(&self.state));
+        // The window has opened a library: a new one offers the first-run panel (`organizing.md` §1).
+        crate::dialogs::first_run::offer(self);
     }
 
     /// Saves the view state if it changed since it was restored or last saved. Cheap when nothing
