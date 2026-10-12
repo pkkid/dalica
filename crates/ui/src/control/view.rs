@@ -107,6 +107,7 @@ pub(super) fn set(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Error>
     if !(new.scroll.offset.is_finite() && (0.0..=SCROLL_OFFSET_MAX).contains(&new.scroll.offset)) {
         return Err(call.bad(format!("`scroll.offset` is 0 … {SCROLL_OFFSET_MAX}, not {}", new.scroll.offset)));
     }
+    new.check_m6().map_err(|e| call.bad(e))?;
     let tray = &new.tray;
     if tray.held.len() > MAX_IDS || tray.selected.len() > MAX_IDS || new.collapsed_folders.len() > MAX_IDS {
         return Err(Error::new(Code::Limit, format!("`tray.held`, `tray.selected` and `collapsedFolders` take at most {MAX_IDS} ids each")));
@@ -116,13 +117,16 @@ pub(super) fn set(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Error>
     }
     let library = call.host.app().session().map(dalica_engine::Session::library);
     let has_folder = |f| library.is_some_and(|l| l.folder(f).is_some());
-    let section = new.scroll.section.map(|s| match s {
+    let folder_of = |s: Section| match s {
         Section::Folder(f) => f,
-    });
-    if let Some(f) = new.folder.iter().chain(&section).chain(&new.collapsed_folders).find(|f| !has_folder(**f)) {
+    };
+    let section = new.scroll.section.map(folder_of);
+    let described = new.description_edit.as_ref().map(|e| folder_of(e.section));
+    if let Some(f) = new.folder.iter().chain(&section).chain(&described).chain(&new.collapsed_folders).find(|f| !has_folder(**f)) {
         return Err(Error::new(Code::NotFound, format!("no folder {f}")));
     }
-    if let Some(id) = tray.held.iter().chain(&tray.selected).find(|id| !library.is_some_and(|l| l.photo(**id).is_some())) {
+    let captioned = new.caption_edit.as_ref().map(|e| e.photo);
+    if let Some(id) = tray.held.iter().chain(&tray.selected).chain(&captioned).find(|id| !library.is_some_and(|l| l.photo(**id).is_some())) {
         return Err(Error::new(Code::NotFound, format!("no photo {id}")));
     }
     // Repeated ids are dropped; every number is already in range.
@@ -168,7 +172,7 @@ pub(super) fn inspect(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Er
         "hovered": hovered,
         "focused": focused,
         "filePicker": call.control.stub().waiting(),
-        "toasts": [],
+        "toasts": call.host.app().notices().inspect(call.host.ctx().input(|i| i.time)),
         "jobs": super::jobs::list(call.host),
         "dialog": crate::dialogs::inspect(call.host.app()),
         "popup": popup(&widgets),

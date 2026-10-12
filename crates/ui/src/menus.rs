@@ -65,7 +65,14 @@ pub fn section_kind(_app: &App) -> SectionKind {
 /// opened by running the item's command. Other `…` items stay disabled until their dialog exists,
 /// even when their command is registered (Help ▸ Rebuild Library… asks first; `engine.execute` runs
 /// it with `confirm: true`).
-pub const DIALOGS: &[(&str, &str)] = &[("folders.add", "filePicker"), ("folders.manager", "folderManager")];
+pub const DIALOGS: &[(&str, &str)] = &[
+    ("folders.add", "filePicker"),
+    ("folders.manager", "folderManager"),
+    ("section.properties", "folderProperties"),
+    ("photo.adjustDate", "adjustDate"),
+    ("help.releaseNotes", "releaseNotes"),
+    ("app.about", "about"),
+];
 
 /// The native folder picker, among [`DIALOGS`].
 pub const FILE_PICKER: &str = "filePicker";
@@ -247,12 +254,16 @@ fn item_node(facts: &Facts<'_>, i: &'static Item) -> ItemNode {
     } else if album && i.folder_only {
         refuse("Not available for albums.")
     } else if let Some(d) = dialog {
-        match dialog_ready(app, d) {
+        let ready = dialog_ready(app, d).and_then(|()| if ui_command { crate::commands::enabled(app, id, &params) } else { Ok(()) });
+        match ready {
             Ok(()) => (true, None),
             Err(why) => (false, Some(why)),
         }
     } else if ui_command {
-        (true, None)
+        match crate::commands::enabled(app, id, &params) {
+            Ok(()) => (true, None),
+            Err(why) => (false, Some(why)),
+        }
     } else {
         match (app.session(), spec) {
             (Some(session), Some(spec)) => match (spec.enabled)(session, &params_for(app, id, &params)) {
@@ -770,10 +781,15 @@ mod tests {
                 "view.folderView",
                 "view.folderView",
                 "window.fullscreen",
+                "section.properties",
                 "section.refreshThumbs",
                 "pane.properties",
                 "photo.star.toggle",
-                "folders.manager"
+                "photo.caption.edit",
+                "folders.manager",
+                "photo.adjustDate",
+                "help.releaseNotes",
+                "app.about"
             ]
         );
         for i in all.iter().filter(|i| !i.live) {

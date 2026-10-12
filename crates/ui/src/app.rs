@@ -10,6 +10,7 @@ use egui::{Align2, Frame};
 use serde_json::Value;
 
 pub use crate::commands::{UI_COMMANDS, UiCommand};
+use crate::notices::Notices;
 use crate::panels::{self, Panels};
 use crate::picker::Picker;
 use crate::state::{THUMB_DEFAULT, TREE_DEFAULT, UiState};
@@ -38,6 +39,8 @@ pub struct App {
     quit_requested: bool,
     /// The text of the tooltip the last frame showed (`ui.inspect` → `tooltip`).
     tooltip: Option<String>,
+    /// The toasts showing what the session reported (`crate::notices`).
+    notices: Notices,
 }
 
 /// The persisted part of the view state: the window's (M3) and the library view's options (M4).
@@ -61,6 +64,7 @@ impl App {
             saved_view: None,
             quit_requested: false,
             tooltip: None,
+            notices: Notices::default(),
         }
     }
 
@@ -218,6 +222,16 @@ impl App {
         self.tooltip.as_deref()
     }
 
+    /// The toasts showing now.
+    pub fn notices(&self) -> &Notices {
+        &self.notices
+    }
+
+    /// The toasts, to add one ([`Notices::push`]).
+    pub fn notices_mut(&mut self) -> &mut Notices {
+        &mut self.notices
+    }
+
     /// The panels' state, once the first frame with a library has run.
     pub fn panels(&self) -> Option<&Panels> {
         self.panels.as_ref()
@@ -237,6 +251,8 @@ impl App {
             return;
         };
         session.poll();
+        let now = ui.input(|i| i.time);
+        self.notices.poll(session, now);
         // Under an open dialog the window takes no keys: no shortcut runs and no panel sees a key
         // press or typed text; the dialog gets them back once the panels are drawn.
         let keys = if self.state.dialogs.is_empty() {
@@ -260,6 +276,9 @@ impl App {
         if !keys.is_empty() {
             ui.ctx().input_mut(|i| i.events.extend(keys));
         }
+        // Toasts at the bottom of the light table, over the panels and under any dialog.
+        let area = panels::layout::compute(ui.max_rect(), &self.state).light_table;
+        self.notices.show(ui, &self.tokens, area, now);
         crate::dialogs::show(self, ui.ctx());
         self.tooltip = tooltip_text(ui.ctx());
         // Not in the middle of a drag (the splitter): save once the button is up.

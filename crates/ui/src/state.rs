@@ -297,6 +297,109 @@ pub fn tree_width(v: f32) -> f32 {
     clamp_or(v, TREE_MIN, TREE_MAX, TREE_DEFAULT)
 }
 
+/// The longest draft an inline editor or a pane field keeps, in characters (a caption, a section
+/// description, the Tags pane's "Add a tag:" text). Longer text is refused by `ui.set` and cut by
+/// [`UiState::sanitized`].
+pub const MAX_DRAFT: usize = 4096;
+
+/// The most rows an autocomplete list holds (`dalica_ui_kit::widgets::MAX_SUGGESTIONS`): a
+/// highlight is an index below it.
+pub const MAX_HIGHLIGHT: usize = dalica_ui_kit::widgets::MAX_SUGGESTIONS;
+
+/// The inline caption editor under a photo's cell (Picture ▸ Edit Caption, `organizing.md` §5.3):
+/// the photo it captions and the text typed so far. Nothing is applied before it commits (Enter, a
+/// click elsewhere), which runs `photo.caption.set`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CaptionEdit {
+    pub photo: PhotoId,
+    pub draft: String,
+}
+
+/// The inline description editor of a section header (`ui-layout.md` §5.2): the section and the
+/// text typed so far; it commits through `folder.info.set`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DescriptionEdit {
+    pub section: Section,
+    pub draft: String,
+}
+
+/// The Tags pane's own state (`organizing.md` §5.2): the "Add a tag:" field's text and the row of
+/// its autocomplete list that ↑ / ↓ highlight (`None`: none; Enter then adds the typed text).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TagsPane {
+    pub draft: String,
+    pub highlight: Option<usize>,
+}
+
+/// The tabs of the About dialog (`contributors.md` → In Dalica).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum AboutTab {
+    #[default]
+    About,
+    Contributors,
+    Models,
+}
+
+/// How About ▸ Contributors lists people: names flowing as text, or a table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum CreditsList {
+    #[default]
+    GrabBag,
+    Table,
+}
+
+/// What About ▸ Contributors sorts by (`contributors.md` → Decision).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum CreditsSort {
+    Name,
+    Prs,
+    Commits,
+    LinesAdded,
+    LinesDeleted,
+    LinesDelta,
+    BinaryAdded,
+    BinaryDeleted,
+    #[default]
+    FirstCommit,
+    LastCommit,
+}
+
+/// Which name About ▸ Contributors shows; a missing display or real name falls back to
+/// `@username`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum NameMode {
+    #[default]
+    Username,
+    DisplayName,
+    RealName,
+}
+
+/// The About dialog's view: its tab, and how the Contributors tab lists people. Kept while the app
+/// runs, so the dialog reopens as it was left; not persisted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct About {
+    pub tab: AboutTab,
+    pub list: CreditsList,
+    pub sort: CreditsSort,
+    /// Oldest or A first; counts read biggest first when `false`.
+    pub ascending: bool,
+    pub names: NameMode,
+}
+
+impl Default for About {
+    fn default() -> About {
+        About { tab: AboutTab::About, list: CreditsList::GrabBag, sort: CreditsSort::FirstCommit, ascending: true, names: NameMode::Username }
+    }
+}
+
 /// The kinds of in-app dialog the host draws (`crate::dialogs`); each is `dialog:<kind>` on screen
 /// and in `ui.inspect` (`control-protocol.md` §7). A new dialog adds its kind here and its module
 /// under `dialogs/`.
@@ -313,11 +416,34 @@ pub enum DialogKind {
     RemoveFolder,
     /// "Watch the whole drive anyway?" (a volume root or the home folder set to Scan Always).
     WatchDrive,
+    /// Folder Properties (`section.properties`, `organizing.md` §10).
+    FolderProperties,
+    /// Adjust Date and Time (`photo.adjustDate`, `organizing.md` §9).
+    AdjustDate,
+    /// Configure Quick Tags (`quicktags.configure`, `organizing.md` §5.2).
+    QuickTags,
+    /// Rename Tag (`tag.rename`, the Tags pane's tag menu).
+    RenameTag,
+    /// About Dalica (`app.about`, `contributors.md`).
+    About,
+    /// Help ▸ Release Notes (`help.releaseNotes`).
+    ReleaseNotes,
 }
 
 impl DialogKind {
-    pub const ALL: [DialogKind; 5] =
-        [DialogKind::ClearTray, DialogKind::FolderManager, DialogKind::FirstRun, DialogKind::RemoveFolder, DialogKind::WatchDrive];
+    pub const ALL: [DialogKind; 11] = [
+        DialogKind::ClearTray,
+        DialogKind::FolderManager,
+        DialogKind::FirstRun,
+        DialogKind::RemoveFolder,
+        DialogKind::WatchDrive,
+        DialogKind::FolderProperties,
+        DialogKind::AdjustDate,
+        DialogKind::QuickTags,
+        DialogKind::RenameTag,
+        DialogKind::About,
+        DialogKind::ReleaseNotes,
+    ];
 
     /// The kind as the protocol writes it (`clearTray`), the `<kind>` of `dialog:<kind>`.
     pub fn name(self) -> &'static str {
@@ -327,6 +453,12 @@ impl DialogKind {
             DialogKind::FirstRun => "firstRun",
             DialogKind::RemoveFolder => "removeFolder",
             DialogKind::WatchDrive => "watchDrive",
+            DialogKind::FolderProperties => "folderProperties",
+            DialogKind::AdjustDate => "adjustDate",
+            DialogKind::QuickTags => "quickTags",
+            DialogKind::RenameTag => "renameTag",
+            DialogKind::About => "about",
+            DialogKind::ReleaseNotes => "releaseNotes",
         }
     }
 
@@ -414,6 +546,21 @@ pub struct UiState {
     /// The activity popover (the jobs under the toolbar's activity indicator) is open.
     #[serde(default)]
     pub activity: bool,
+    /// The inline caption editor, while one is open (`photo.caption.edit`).
+    #[serde(default)]
+    pub caption_edit: Option<CaptionEdit>,
+    /// The inline description editor of a section header, while one is open.
+    #[serde(default)]
+    pub description_edit: Option<DescriptionEdit>,
+    /// The Properties pane lists every metadata field (its [Show All Metadata]).
+    #[serde(default)]
+    pub properties_show_all: bool,
+    /// The Tags pane's "Add a tag:" text and autocomplete highlight.
+    #[serde(default)]
+    pub tags_pane: TagsPane,
+    /// The About dialog's tab and how its Contributors tab lists people.
+    #[serde(default)]
+    pub about: About,
     /// The status line's text as last drawn (`ui-layout.md` §6.1): `"No selection"`, the photo or
     /// the pictures selected, or a transient [`UiState::status`] message. Written by the status line
     /// each frame; `ui.state` reports it as `status`, and `ui.set` cannot change it.
@@ -439,7 +586,42 @@ impl UiState {
         dedup(&mut held);
         self.tray.set_held(held);
         dedup(&mut self.tray.selected);
+        if let Some(e) = &mut self.caption_edit {
+            cut(&mut e.draft);
+        }
+        if let Some(e) = &mut self.description_edit {
+            cut(&mut e.draft);
+        }
+        cut(&mut self.tags_pane.draft);
+        self.tags_pane.highlight = self.tags_pane.highlight.filter(|h| *h < MAX_HIGHLIGHT);
         self
+    }
+
+    /// Why the M6 fields of this state cannot be used, if they cannot: a draft longer than
+    /// [`MAX_DRAFT`] characters, a highlight past [`MAX_HIGHLIGHT`]. What `ui.set` refuses
+    /// (`bad_params`) before it changes anything.
+    pub fn check_m6(&self) -> Result<(), String> {
+        let long = |name: &str, text: &str| {
+            if text.chars().count() > MAX_DRAFT { Err(format!("`{name}` is at most {MAX_DRAFT} characters")) } else { Ok(()) }
+        };
+        if let Some(e) = &self.caption_edit {
+            long("captionEdit.draft", &e.draft)?;
+        }
+        if let Some(e) = &self.description_edit {
+            long("descriptionEdit.draft", &e.draft)?;
+        }
+        long("tagsPane.draft", &self.tags_pane.draft)?;
+        match self.tags_pane.highlight {
+            Some(h) if h >= MAX_HIGHLIGHT => Err(format!("`tagsPane.highlight` is 0 … {}, or null", MAX_HIGHLIGHT - 1)),
+            _ => Ok(()),
+        }
+    }
+}
+
+/// Cuts `text` to [`MAX_DRAFT`] characters.
+fn cut(text: &mut String) {
+    if let Some((at, _)) = text.char_indices().nth(MAX_DRAFT) {
+        text.truncate(at);
     }
 }
 
@@ -473,6 +655,11 @@ impl Default for UiState {
             scroll: ScrollAnchor::default(),
             dialogs: Vec::new(),
             activity: false,
+            caption_edit: None,
+            description_edit: None,
+            properties_show_all: false,
+            tags_pane: TagsPane::default(),
+            about: About::default(),
             status_line: String::new(),
             status: String::new(),
         }
@@ -629,6 +816,67 @@ mod tests {
         assert_eq!(DialogKind::from_name("attic"), None);
         assert!(serde_json::from_value::<Dialog>(serde_json::json!({ "kind": "attic" })).is_err());
         assert!(serde_json::from_value::<Dialog>(serde_json::json!({ "kind": "firstRun", "zzz": 1 })).is_err());
+    }
+
+    #[test]
+    fn the_m6_fields_have_their_protocol_names_and_defaults() {
+        let v = serde_json::to_value(UiState::default()).unwrap();
+        assert_eq!(
+            (&v["captionEdit"], &v["descriptionEdit"], &v["propertiesShowAll"]),
+            (&serde_json::Value::Null, &serde_json::Value::Null, &false.into())
+        );
+        assert_eq!(v["tagsPane"], serde_json::json!({ "draft": "", "highlight": null }));
+        assert_eq!(
+            v["about"],
+            serde_json::json!({ "tab": "about", "list": "grabBag", "sort": "firstCommit", "ascending": true, "names": "username" })
+        );
+        let s = UiState {
+            caption_edit: Some(CaptionEdit { photo: PhotoId::new(4), draft: "Lisbon".into() }),
+            description_edit: Some(DescriptionEdit { section: Section::Folder(FolderId::new(2)), draft: "trams".into() }),
+            properties_show_all: true,
+            tags_pane: TagsPane { draft: "bea".into(), highlight: Some(1) },
+            about: About {
+                tab: AboutTab::Models,
+                list: CreditsList::Table,
+                sort: CreditsSort::LinesDelta,
+                ascending: false,
+                names: NameMode::RealName,
+            },
+            ..UiState::default()
+        };
+        let v = serde_json::to_value(&s).unwrap();
+        assert_eq!(v["captionEdit"], serde_json::json!({ "photo": 4, "draft": "Lisbon" }));
+        assert_eq!(v["descriptionEdit"], serde_json::json!({ "section": "folder:2", "draft": "trams" }));
+        assert_eq!(
+            v["about"],
+            serde_json::json!({ "tab": "models", "list": "table", "sort": "linesDelta", "ascending": false, "names": "realName" })
+        );
+        assert_eq!(serde_json::from_value::<UiState>(v).unwrap(), s);
+        for k in DialogKind::ALL {
+            assert_eq!(serde_json::to_value(k).unwrap(), k.name());
+        }
+        let names: Vec<&str> = DialogKind::ALL[5..].iter().map(|k| k.name()).collect();
+        assert_eq!(names, ["folderProperties", "adjustDate", "quickTags", "renameTag", "about", "releaseNotes"]);
+    }
+
+    #[test]
+    fn drafts_and_highlights_are_bounded() {
+        let long = "é".repeat(MAX_DRAFT + 5);
+        let s = UiState {
+            caption_edit: Some(CaptionEdit { photo: PhotoId::new(1), draft: long.clone() }),
+            tags_pane: TagsPane { draft: long.clone(), highlight: Some(MAX_HIGHLIGHT) },
+            ..UiState::default()
+        };
+        assert!(s.check_m6().unwrap_err().contains("captionEdit.draft"));
+        let s = s.sanitized();
+        assert_eq!(s.caption_edit.as_ref().unwrap().draft.chars().count(), MAX_DRAFT);
+        assert_eq!((s.tags_pane.draft.chars().count(), s.tags_pane.highlight), (MAX_DRAFT, None));
+        assert!(s.check_m6().is_ok());
+        let high = UiState { tags_pane: TagsPane { draft: String::new(), highlight: Some(MAX_HIGHLIGHT) }, ..UiState::default() };
+        assert!(high.check_m6().unwrap_err().contains("highlight"));
+        let fine = UiState { tags_pane: TagsPane { draft: "x".repeat(MAX_DRAFT), highlight: Some(MAX_HIGHLIGHT - 1) }, ..UiState::default() };
+        assert_eq!(fine.check_m6(), Ok(()));
+        assert_eq!(fine.clone().sanitized(), fine);
     }
 
     #[test]
