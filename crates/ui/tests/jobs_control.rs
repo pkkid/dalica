@@ -9,6 +9,7 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
 use dalica_engine::Session;
+use dalica_engine::watching::WatchMode;
 use dalica_scan::HeaderReader;
 use dalica_ui::control::{Config, Connection, Control, Reply, Request, serve};
 use dalica_ui::{App, Driver};
@@ -55,7 +56,11 @@ struct T {
 fn setup() -> T {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().to_path_buf();
-    let session = Session::open(&root.join("library"), Arc::new(dalica_core::SystemClock)).unwrap();
+    let mut session = Session::open(&root.join("library"), Arc::new(dalica_core::SystemClock)).unwrap();
+    // No watcher: the change events the system may still deliver for the files just written
+    // (Windows reports attribute and size updates late) would start a rescan job of their own
+    // after the scan, and this test is about the scan's job alone.
+    session.set_watching(WatchMode::Off);
     let control = Control::new(Config { read_roots: vec![root.join("photos")], ..Config::default() });
     let mut d = Driver::new(App::with_picker(Some(session), control.picker()), 1400, 900, 1.0);
     d.settle(600).unwrap();
