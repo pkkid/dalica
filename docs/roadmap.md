@@ -1788,7 +1788,7 @@ decision 10), which M6.1 brings forward into M5's run so that M5.R asks it, and 
 design (`assets.md` §7), which M6.12 drafts as an original candidate for the maintainer to accept or
 replace at M6.R.
 
-- ⬜ **M6.1 The application id in one place**
+- ✅ **M6.1 The application id in one place**
   - after: —
   - pulled: M5
   - files: `crates/core/src/app_id.rs`, `crates/core/tests/app_id.rs`, `apps/dalica/src/window.rs`
@@ -3015,5 +3015,9 @@ Record the decision here with a date when made.
 8. Community process (Discord/GitHub Discussions) and release cadence. The repository is public.
 9. TLS stack for the few network features (map tiles, model downloads): a pure-Rust provider vs
    accepting `ring`, or delegating downloads to the OS. See `security.md` (M13).
-10. Application id (reverse-DNS, used by packaging, desktop files and the settings path) (M6).
+10. Application id (reverse-DNS, used by packaging, desktop files and the settings path).
+    **Decided 2026-10-11 (the maintainer): `org.dalica.Dalica`**, the reverse of `dalica.org`
+    (which the maintainer owns) plus the app's name; three elements so Flathub accepts it. It lives
+    in one place, `dalica_core::app_id::APP_ID` (M6.1), and names the window (Wayland app id, X11
+    class). The settings and data folders stay as `data-model.md` §4 says.
 11. Coordinate frame for normalised coordinates (`data-model.md` §3.3) (M7).

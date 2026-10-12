@@ -9,17 +9,26 @@ use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::time::{Duration, Instant};
 
+use dalica_core::app_id::APP_ID;
 use dalica_engine::Session;
 use dalica_ui::control::Control;
 use dalica_ui::perf::{self, Perf, Sample};
 use dalica_ui::titlebar;
 use dalica_ui::{App, Picker};
 use dalica_ui_kit::{Tokens, fonts, registry};
-use egui::{Align2, Frame, Rect, ViewportCommand, vec2};
+use egui::{Align2, Frame, Rect, ViewportBuilder, ViewportCommand, vec2};
 
 use crate::control::play::WindowControl;
 use crate::control::{Listening, TokenFileGuard};
 use crate::frame::{FrameSetup, Tracker};
+
+/// The OS window to make: the frame's chrome and placement ([`FrameSetup::viewport`]), named with
+/// the application id ([`APP_ID`]). eframe turns it into the Wayland app id and the X11 class
+/// (`WM_CLASS`), which the desktop matches with Dalica's desktop file and icon; without it eframe
+/// would use the app name, "Dalica".
+pub fn viewport(frame: &FrameSetup) -> ViewportBuilder {
+    frame.viewport().with_app_id(APP_ID)
+}
 
 /// Native folder dialogs through `rfd` (the XDG portal on Linux). Called on a dialog thread.
 pub struct RfdPicker;
@@ -358,6 +367,22 @@ impl Window {
 #[cfg(test)]
 mod tests {
     use super::{FullscreenAction as A, FullscreenSync};
+    use crate::frame::{FrameSetup, Os, chrome_for};
+
+    #[test]
+    fn the_window_is_named_with_the_application_id() {
+        for os in [Os::Mac, Os::Other] {
+            for system_title_bar in [false, true] {
+                let frame = FrameSetup { chrome: chrome_for(os, system_title_bar), stored: None };
+                let v = super::viewport(&frame);
+                assert_eq!(v.app_id.as_deref(), Some(dalica_core::app_id::APP_ID));
+                assert_eq!(v.app_id.as_deref(), Some("org.dalica.Dalica"));
+                // The rest of the frame is the frame's own.
+                assert_eq!(v.title, frame.viewport().title);
+                assert_eq!(v.decorations, frame.viewport().decorations);
+            }
+        }
+    }
 
     /// Runs `frames` of (view state, what the OS reports) through a fresh sync and returns the actions.
     fn run(frames: &[(bool, Option<bool>)]) -> Vec<A> {
