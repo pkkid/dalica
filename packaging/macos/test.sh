@@ -83,6 +83,7 @@ done
 
 echo "==> common.sh refuses bad input"
 for bad in "DALICA_VERSION=1.2" "DALICA_VERSION=1.2.3;rm" "DALICA_BUILD_SHA=not-a-sha"; do
+  # shellcheck source=common.sh
   if (export "${bad?}"; . "$HERE/common.sh") 2>/dev/null; then
     fail "common.sh accepted $bad"
   fi

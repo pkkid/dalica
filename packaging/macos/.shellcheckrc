@@ -1,0 +1,4 @@
+# shellcheck reads this for the scripts in this folder (the Packaging lint workflow runs it without
+# -x): follow `. common.sh` from the script's own folder, so the variables it sets are known.
+external-sources=true
+source-path=SCRIPTDIR

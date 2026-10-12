@@ -1,4 +1,4 @@
-# shellcheck shell=bash
+# shellcheck shell=bash disable=SC2034  # the variables are for the scripts that source this file
 # Shared setup for the macOS packaging scripts. Source it: `. "$(dirname "${BASH_SOURCE[0]}")/common.sh"`.
 #
 # Sets: ROOT, HERE (packaging/macos), VERSION, SHORT_VERSION (numeric X.Y.Z for CFBundleVersion),
