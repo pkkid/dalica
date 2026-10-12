@@ -1,15 +1,20 @@
 //! dalica-scan: Watched-folder rules, walks, change detection, `notify` events, offline volumes and card/folder import; turns what it finds into `Op`s.
 //!
-//! Layer L3; see `docs/architecture.md` §2 and `data-model.md` §7. M1 has the one-shot scan:
+//! Layer L3; see `docs/architecture.md` §2 and `data-model.md` §7.
 //!
-//! - [`scan`] walks the watched roots through `dalica-fs` (bounded, links followed safely), skips
-//!   dot files and folders (which covers `.dalica.json` and `.dalica-originals`) and OS system
-//!   folders, recognises JPEG and PNG by their content, reads their headers (size as displayed,
-//!   capture date) and each folder's sidecar (stars). It never fails as a whole: what it cannot
-//!   read becomes a [`Warning`].
+//! - [`scan_streaming`] walks the watched roots a folder at a time through `dalica-fs` (bounded,
+//!   links followed safely), leaves out what the [`SkipRules`] say and the excluded subtrees,
+//!   recognises every file by its content (the [`FileTypes`] toggles drop whole types), reads each
+//!   header inside a per-file guard (`catch_unwind`, a time budget, failures remembered by path,
+//!   size and modification time) and hands out each folder's photos as soon as the folder is read,
+//!   with progress counts and a cancel flag. [`scan`] and [`scan_with`] gather the same into one
+//!   [`Scan`]. A scan never fails as a whole: what it cannot read becomes a [`Warning`] or a
+//!   [`Failure`].
 //! - [`diff`] is the verification pass: the ops that make the model match what is on disk, in
 //!   batches. A photo deleted and another added in the same folder with the same size and
 //!   modification time is a rename: the photo keeps its id and star.
+//! - [`volumes`](mod@volumes): the standard places, the mounted volumes, [`online`] and the
+//!   bounded [`children`] listing for the Folder Manager.
 //!
 //! Folders under a root that could not be walked (an offline volume) are never removed.
 
@@ -17,7 +22,14 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 mod diff;
+pub mod skip;
+pub mod volumes;
 mod walk;
 
 pub use diff::{BATCH, diff};
-pub use walk::{FoundFolder, FoundPhoto, Scan, Warning, scan, skipped};
+pub use skip::{FileType, FileTypes, Platform, Skip, SkipRules, skipped};
+pub use volumes::{Child, Children, Place, PlaceKind, Places, Volume, VolumeKind, children, online, volumes};
+pub use walk::{
+    BUDGET, Event, Failure, FoundFolder, FoundPhoto, HeaderReader, Options, Progress, Scan, Summary, Warning, default_reader, scan, scan_streaming,
+    scan_with,
+};
