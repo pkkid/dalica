@@ -2188,7 +2188,7 @@ replace at M6.R.
   - done when: `crates/ui/tests/captions.rs`: type a caption by id and Enter, the sidecar holds it
     and one undo removes it; Esc leaves it unchanged; Ctrl+8 typed into the editor stars nothing;
     each caption mode's text; the cell fingerprints at both window sizes.
-- ⬜ **M6.26 `ui`: folder descriptions and Folder Properties**
+- ✅ **M6.26 `ui`: folder descriptions and Folder Properties**
   - after: M5.25, M6.6, M6.14
   - files: `crates/ui/src/panels/light_table/header.rs`, `crates/ui/src/dialogs/folder_properties.rs`, `crates/ui/tests/folder_properties.rs`, `crates/ui/tests/fingerprints/region-header*.json`, `crates/ui/tests/fingerprints/dialog-folder-properties*.json`
   - scope: `ui-layout.md` §5.2 and `organizing.md` §10: a click on the description line edits it

@@ -124,7 +124,7 @@ fn every_part_is_there_with_its_size_at_both_window_sizes() {
             let description = part("description");
             assert_eq!(description.label, PLACEHOLDER);
             assert_eq!(rect(&description).height(), 18.0);
-            assert!(!description.enabled, "{case}: inline editing is M6");
+            assert!(description.enabled, "{case}: a click edits the description inline (M6.26)");
 
             let mut left = 0.0;
             for b in Button::ALL {
