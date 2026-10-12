@@ -364,7 +364,11 @@ if has flatpak; then
     echo "Flatpak: $fp_id on $fp_runtime//$fp_runtime_version: ${fp_finish[*]}"
     mkdir -p "$FP/stage"
     tar -xzf "$TARBALL" -C "$FP/stage" --strip-components=1
-    "$FLATPAK" build-init "$FP/build" "$fp_id" "$fp_sdk" "$fp_runtime" "$fp_runtime_version"
+    # What `flatpak build-init` makes, written here: older flatpaks (Ubuntu 22.04's 1.12) refuse
+    # build-init without the SDK installed, and nothing here needs it.
+    mkdir -p "$FP/build/files" "$FP/build/var/tmp" "$FP/build/var/run"
+    printf '[Application]\nname=%s\nruntime=%s/%s/%s\nsdk=%s/%s/%s\n' "$fp_id" \
+      "$fp_runtime" "$ARCH" "$fp_runtime_version" "$fp_sdk" "$ARCH" "$fp_runtime_version" >"$FP/build/metadata"
     for cmd in "${fp_build[@]}"; do
       (cd "$FP/stage" && FLATPAK_DEST="$FP/build/files" sh -ec "$cmd") || fail "Flatpak build command failed: $cmd"
     done
