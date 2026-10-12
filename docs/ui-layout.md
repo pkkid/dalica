@@ -273,7 +273,8 @@ the reference behaviour):
   further the thumb is from the centre**: a small dead zone (4 pt) does nothing, then the speed is
   `top · u^exponent` screen heights per second, `u` the share of the way from the dead zone to the
   end of the track, so it reaches its top speed at the end of the track. The curve and top speed
-  are tuned by feel at the M4 review (start: quadratic, top speed 40 screen heights per second).
+  were tuned by feel at the M4 and M5 reviews and kept (quadratic, top speed 40 screen heights per
+  second; the maintainer's answer at M5.R, 2026-10-12).
   Both are read from the library's `settings.json`, so they can be tuned without a rebuild:
   `"scrolling": {"thumbExponent": 2, "thumbTopSpeed": 40}` (exponent 0.25–8, top speed 0.5–400;
   a value outside its range is the default).

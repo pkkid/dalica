@@ -652,6 +652,8 @@ recipe operation and parameter names of `data-model.md` §3.1 and `editing.md` (
 | Tuning (M7) | `slider:tuning.fill_light`, `slider:tuning.highlights`, `slider:tuning.shadows`, `slider:tuning.temperature`, `button:tuning.neutralPicker`, `button:tuning.reset` |
 | Effects (M12) | `effect:<name>` per tile (`effect:sharpen`, `effect:sepia`, `effect:bw`, `effect:soft_focus`, `effect:graduated_tint`, …); effect panels: `slider:effect.<param>` (`slider:effect.amount`, `slider:effect.fade`), `color:effect.<param>`, `check:effect.<param>`, `crosshair:effect` |
 | Dialogs (M3+) | `dialog:<kind>` (the dialog: `dialog:clearTray`, `dialog:folderManager`, `dialog:firstRun`), `dialog:<kind>/backdrop`, `field:dialog.<name>`, `check:dialog.<name>`, `choice:dialog.<name>`, `button:dialog.ok`, `button:dialog.cancel`, `button:dialog.<action>` (`button:dialog.undoSave`, `button:dialog.clearTray`, `button:dialog.help`, `button:dialog.continue`) |
+| Folder Manager and first run (M5) | rows `choice:dialog.folder/<roothash>[/<pathhash>]`, `button:dialog.expand/…` (and `…/loading` while a listing is read), `choice:dialog.mode/<always\|once\|remove>`, `check:dialog.faces`, `button:dialog.reveal/<hash>` (the watched list), `choice:dialog.start/<places\|choose>` (first run); stacked questions `dialog:removeFolder`, `dialog:watchDrive`, whose buttons are `dialog:<kind>/<action>` while another dialog is under them |
+| Activity and tree scroll bar (M5) | `indicator:activity` popover `popover:activity`, its rows `job:<n>` and `job:<n>/cancel`; the tree's `scroll:tree`, `scroll:tree/thumb` |
 | Toasts (M3) | `toast:<n>`, `button:toast.<action>` (`button:toast.showFolder`) |
 
 Rules for implementers:

@@ -7,7 +7,17 @@ and git.
 
 ## Current
 
-- **Milestone:** M4, library browsing, is done: M4.1–M4.20 are merged and `cargo xtask accept M4`
+- **Milestone:** M5, folders, scanning and formats, is done: M5.1–M5.25 are merged (and M6.1,
+  the application id `org.dalica.Dalica`) and `cargo xtask accept M5` passes (98 s; 651 s with the
+  release budgets). The library follows the user's folders (Folder Manager, first run, watching,
+  verification, offline volumes) and reads every format of `formats.md` §1. Next: M6, photo info,
+  metadata and Release 0.1; its issues open when the M5.R review PR is merged.
+- **M5 review (2026-10-12):** the maintainer answered six questions: the display stays sRGB for
+  now; the speed thumb keeps its defaults; the lead fills our own CC0 corpus in M6 (M6.42); our own
+  standard-places lookup stays (no `directories`); the ≤ 10 s mount-point window gets a fix task
+  (M6.43); all 70 fingerprint baselines approved. Mid-run, reserved decision 10 was answered
+  (`org.dalica.Dalica`). Fix tasks M6.38–M6.41 carry what the run found.
+- **Milestone (M4):** M4, library browsing, is done: M4.1–M4.20 are merged and `cargo xtask accept M4`
   passes (90 s; 155 s with the release budgets). Dalica browses a library: the folder tree, the
   continuous light table with section headers, badges and captions, the speed-control scroll bar,
   selection, and the Photo Tray with Hold. Next: M5, folders, scanning and formats; its issues open
@@ -104,3 +114,14 @@ and git.
 | 2026-10-11 | — | M4 run: 20 tasks + 1 fix, 6 workers, 23:11–13:50 (idle 02:15–09:30 on a push permission); send-backs 6; 8 tasks landed by the lead (parity summary conflicts, In Review re-submits); `main` red once on macOS (#155) | — |
 | 2026-10-11 | maintainer desktop | `cargo xtask ci` warm after the CI-time fix (review/M4.R) | 488.1 s → 84.8 s (test step 329.2 → 66.6 s + `test acceptance` 1.4 s; `accept` M0–M4 157.2 → 15.3 s; 827 → 821 test results, the 7 acceptance tests once instead of twice, +1 new `xtask` test); standalone `accept M4` 89.1 → 47.5 s; `dalica-ui --test never_blank` 30.4 → 10.7 s |
 | 2026-10-11 | — | parity summary (M4.R) | 8 ✅ / 31 🟡 / 89 ⬜ / 16 🚫 (144 rows, 54 registered commands) |
+| 2026-10-12 | maintainer desktop (i7-13700K, 24 threads, 31 GB), 6d94f5f (M5.20) | first screenful of a just-added folder, 1 k / 10 k JPEGs (release, `first_thumbnails`) | 67–134 ms / 500–517 ms (budget 1 s) |
+| 2026-10-12 | same | index scan; thumbnails made | ≈ 19 900 photos/s; 1 224–1 562 photos/s |
+| 2026-10-12 | same | scanned 100 k library at top thumb speed (release) | 0 placeholder cells; owner frame p95 0.75 ms; scanned with thumbnails in 30.3 s (3 299 photos/s) |
+| 2026-10-12 | same | `cargo xtask budgets` (4 budgets: 100 k scroll, thumb at top speed, first thumbnails, scanned 20 k) | all held in 170 s; p95 0.29 / 0.34 / — / 0.52 ms |
+| 2026-10-12 | same | `cargo xtask accept M5` debug standalone / with `DALICA_ACCEPT_RELEASE=1` / inside ci | 97.7 s / 651 s / ≈ 6 s |
+| 2026-10-12 | same | `panic_hunt` (61 registered commands) | 0.63 s |
+| 2026-10-12 | same | corpus: PngSuite decoded / corrupt refused; CC0 raws decoded, embedded thumbnails | 162 of 176 / 14 of 14; 20 of 26, 13 |
+| 2026-10-12 | same | local `cargo xtask ci` cold / warm | not measured: the scratch tmpfs ran out of room (9.6 GB target) |
+| 2026-10-12 | GitHub ubuntu / macos / windows | CI job `cargo xtask ci` (run 38234692409, 6d94f5f); tests | 8 min 49 s / 10 min 13 s / 19 min 43 s; 1 440 / 1 439 / 1 415 pass |
+| 2026-10-12 | — | M5 run: 25 tasks + M6.1 + 1 red-main fix, 7 workers, 21:20–05:40 (paused ~1 h on a push permission); 26 re-submits over 14 tasks (mostly neighbouring parity rows); median claim → merge 1.0 h; `main` red once on Windows (a test race, #222) | — |
+| 2026-10-12 | — | parity summary (M5.R) | 9 ✅ / 47 🟡 / 85 ⬜ / 16 🚫 (157 rows, 61 registered commands) |

@@ -16,7 +16,7 @@
 | `watching.rs` | external changes: the watcher thread, rescans of dirty folders, the verification schedule (`poll_watching()` from `poll()`) | M5.17 |
 | `offline.rs` | offline volumes: online checks, waiting sidecar writes, `pending-writes.json` (`poll_offline()` from `poll()`) | M5.13 |
 | `thumbs.rs` | the thumbnail ladder | M5.16 (cache upkeep, colour management, per-batch queueing) |
-| `cmd/view.rs`, `cmd/section.rs` | empty command areas, already registered | M5.16 (`view.colorManagement`, `section.refreshThumbs`) |
+| `cmd/view.rs`, `cmd/section.rs` | `view.colorManagement`, `section.refreshThumbs` | M5.16 |
 
 ## Public API
 

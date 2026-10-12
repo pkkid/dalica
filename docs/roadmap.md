@@ -13,6 +13,23 @@ state (ready, claimed, in review) is on the task board ([`task-board.md`](task-b
 *Honest assessment, 2026-10-10. Agents: read this before picking work. Update it only with
 measured facts, dated.*
 
+*2026-10-12 (M5.R).* M5 is done: `cargo xtask accept M5` passes in 98 s (651 s with
+`DALICA_ACCEPT_RELEASE=1`), and the tests on `main` went from 822 to 1 440. The library now follows
+the user's folders: the Folder Manager (Scan Always, Scan Once, Remove, inherited by subfolders, one
+undo step) and the first-run panel; `notify` watching with a polling fallback and a verification
+pass that alone finds every change; renamed and moved folders keep their photos, stars and ids;
+an unplugged drive, or an emptied mount point, shows offline and gets its edits when it returns;
+stale temporaries are cleaned and a photo deleted outside Dalica leaves its sidecar after 30 days.
+It reads TIFF, WebP, GIF, BMP, JPEG XL, PSD composites and the previews of 13 raw kinds (HEIC
+behind the `heif` feature; AVIF shown as a tile), converts ICC profiles to sRGB on all three OSes,
+and shows "!" with a reason for what it cannot show. A just-added folder's first screenful of
+thumbnails takes 500–517 ms for 10 k JPEGs (budget 1 s), and the speed thumb through a scanned
+100 k library shows no grey cell (p95 0.75 ms). The corpus job checks PngSuite (162 of 176 decoded,
+all 14 corrupt refused) and 26 CC0 raws (20 decoded); its real-camera misses go to M6.38, and our
+own `photos` and `heif` sets wait for M6.42. A Linux job asserts the release budgets on every push.
+Open: four process and safety fixes in M6 (M6.39–M6.41, M6.43); Windows folder redirection is not
+followed; the display is treated as sRGB.
+
 *2026-10-11 (M4.R).* M4 is done: `cargo xtask accept M4` passes in 90 s (155 s with
 `DALICA_ACCEPT_RELEASE=1`, which also asserts the release frame budgets). Dalica now browses a
 library: the folder tree in flat and tree modes with year dividers, sorts and the view-options
@@ -1266,7 +1283,7 @@ with no C build; the maintainer allowed both at M3.R (2026-10-10), so M5.11 adds
 with that reason and makes `notify` the default watcher, with a pure-Rust polling backend as the
 fallback. Either way the verification pass stays the truth (`data-model.md` §7). Our own CC0
 `pkkid/dalica-corpus` repository is created by the maintainer before M5 starts (M3.R answer) and
-filled by the lead; M5.15 pins it.
+filled by the lead; M5.15 pins the upstream sets and leaves our own `photos` and `heif` sets "not published yet" until the repository has files.
 
 - ✅ **M5.1 `image`: one module per format, the decoded-image model and colour management**
   - after: M1.6
@@ -1681,7 +1698,7 @@ filled by the lead; M5.15 pins it.
     commit once; the context menu's items act on the selection; the autocomplete filters, picks by
     keys and by click, and closes on Esc; the tests ported with the code pass; every state in the
     gallery fingerprints at both sizes; `widget_ids` stays green.
-- ⬜ **M5.R Check-in**
+- ✅ **M5.R Check-in**
   - after: M5.20
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`
@@ -2329,6 +2346,74 @@ replace at M6.R.
     scope (`architecture.md` §9).
   - done when: `cargo xtask tasks sync --check` parses them and `tasks sync --dry-run` lists one new
     issue per block.
+- ⬜ **M6.38 `image`: real-camera fixes found by the M5 corpus**
+  - after: M5.R
+  - files: `crates/image/src/formats/raw/**`, `crates/image/src/formats/tiff.rs`, `crates/image/src/sniff.rs`, `crates/image/src/ifd.rs`, `crates/image/tests/raw_tiff.rs`, `crates/image/tests/raw_containers.rs`, `crates/image/tests/tiff.rs`, `crates/image/tests/corpus_floors.json`
+  - scope: found by `cargo xtask test-corpus` at M5.15/M5.20 (M5.R): both Samsung SRW files and the
+    Sony DSLR-A100 ARW are sniffed as plain TIFF and then refused as damaged; the Olympus C5060WZ
+    ORF and both MRW files answer "no preview"; the Olympus E-3 ORF decodes from the whole file but
+    a header read from the first 256 KiB answers "no preview" instead of asking for more; a
+    truncated 16-bit CMYK Deflate TIFF answers "Too large to display" instead of "Damaged file"
+    (`decode_page` sizes `intermediate_buffer_size` to `largest_chunk.min(file length)`, so a cut
+    chunk raises the decoder's limit error). Fix each from public structure descriptions (provenance
+    headers stay), with a synthetic regression test per case built in the test.
+  - done when: `cargo test -p dalica-image`: each case's synthetic file now decodes or answers its
+    right reason; `cargo xtask test-corpus` passes with the `raw` floors raised to the new measured
+    counts (numbers in the PR) and no floor lowered.
+- ⬜ **M6.39 `ui`: File ▸ Add Folder… opens the Folder Manager; Folder ▸ Remove from Dalica… live**
+  - after: M5.R, M6.6
+  - files: `crates/ui/src/menu_catalog.rs`, `crates/ui/src/menus.rs`, `crates/ui/tests/menus.rs`, `crates/ui/src/control/tests.rs`, `crates/ui/tests/library_window.rs`, `crates/ui/tests/widget_ids.rs`, `crates/ui/src/panels/light_table.rs`, `docs/menus-and-shortcuts.md`
+  - scope: left open by M5.18 (its files could not reach them): File ▸ Add Folder… and the empty
+    library's Add Folder button open the Folder Manager instead of the system folder picker
+    (`organizing.md` §2), and Folder ▸ Remove from Dalica… goes live through the dialog host's
+    "Remove Folder" question (`folder.remove`); the tests that pinned the picker flow follow.
+  - done when: `cargo test -p dalica-ui`: both entry points open `dialog:folderManager` with the
+    selected library folder pre-selected; Remove from Dalica asks and removes one folder in one undo
+    step; `widget_ids` and earlier milestones' acceptance tests pass.
+- ⬜ **M6.40 `xtask tasks`: parity row edits that touch different rows merge by themselves**
+  - after: M5.R
+  - files: `xtask/src/tasks/**`, `xtask/src/parity.rs`, `docs/task-board.md`
+  - scope: found in the M5 run: the `docs/parity.md` rows of one area are neighbours, so two tasks
+    that each edit their own row conflict as adjacent lines; M5 had a dozen send-backs and repeated
+    three-OS runs for nothing else. `tasks merge` resolves a rebase conflict confined to
+    `docs/parity.md` rows when each side changed different rows (by row id), then regenerates the
+    summary; two edits to the same row still go back to the worker.
+  - done when: `xtask` tests on a temp repository: neighbouring row edits merge with both rows kept;
+    an edit of the same row by both sides is refused; the summary is regenerated.
+- ⬜ **M6.41 `image`: a JPEG XL colour profile is bounded before the decoder reserves it**
+  - after: M5.R
+  - files: `crates/image/src/formats/jxl.rs`, `crates/image/tests/jxl.rs`
+  - scope: found at M5.8: `jxl-oxide` can reserve up to 256 MiB for an embedded ICC profile outside
+    its allocation tracker from a small file (the colour stage then refuses anything over 16 MiB).
+    Read the codestream's declared ICC size first and refuse a file whose profile passes
+    `security.md` §4.2's ICC limit before handing it to the decoder, or charge it to the budget.
+  - done when: `cargo test -p dalica-image --test jxl`: a small file declaring a 200 MiB profile is
+    refused as too large before any allocation of that size (checked through the budget); valid
+    files with profiles still match their fingerprints.
+- ⬜ **M6.42 Lead: our own corpus sets, published and pinned**
+  - after: M5.R
+  - owner: lead
+  - files: `xtask/src/corpus_pins.rs`, `xtask/corpus/**`, `crates/image/tests/corpus_floors.json`, `docs/development.md`
+  - scope: the maintainer's answer at M5.R (2026-10-12): the lead fills `pkkid/dalica-corpus` with
+    public-domain and CC0 photos (mixed formats, orientations, ICC-tagged, CMYK and 16-bit) and
+    HEIC samples, each file with its source and licence in the repository's manifest; the
+    maintainer approves the source list (asked through the board's review of this task's PR)
+    before anything is pushed there; then the `photos` and `heif` sets are pinned by commit and
+    sha256 like the upstream sets.
+  - done when: `cargo xtask corpus --all` fetches and verifies the two sets; `cargo xtask
+    test-corpus` passes with their floors at the measured counts (numbers in the PR); every file
+    in the repository has a source and a public-domain or CC0 licence.
+- ⬜ **M6.43 `engine` + `store`: a sidecar write checks its root right before it lands**
+  - after: M5.R, M6.5
+  - files: `crates/engine/src/session.rs`, `crates/engine/src/offline.rs`, `crates/store/src/writer.rs`, `crates/engine/tests/offline.rs`, `crates/store/tests/offline.rs`
+  - scope: the maintainer's answer at M5.R (2026-10-12): M5.17 holds writes under roots found
+    offline, but an edit made in the up to 10 s between an unmount and the next online check can
+    still be written into the empty mount point. The I/O worker checks the root's identity (the
+    remembered device id where the platform has one, and one of the library's sample files under
+    it) right before each sidecar write, and holds the write as offline when it fails.
+  - done when: tests: a root unmounted (emptied, or its device changed) just before a due write
+    gets no sidecar, the edit is reported unsaved and lands when the files return; the existing
+    offline and sidecar tests pass unchanged; the owner thread makes no `fs` call.
 - ⬜ **M6.R Release 0.1 gate**
   - after: M6.36
   - owner: maintainer
@@ -2363,6 +2448,8 @@ wave 4   M6.24 rotation + hiding  ‖  M6.25 captions  ‖  M6.26 Folder Propert
 wave 5   M6.31 quick tags  ‖  M6.32 import on scan  ‖  M6.33 write-back end to end
 wave 6   M6.35 notes + 0.1.0 → M6.36 accept M6 → M6.R
          (M6.37 lead: M8 blocks, any time after M5.21)
+         (M6.38–M6.43 from M5.R, any time after it; M6.39 after M6.6, M6.43 after M6.5;
+          M6.42 lead: our own corpus sets)
 ```
 
 ### M7 — Edit view and fixes
