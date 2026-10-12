@@ -90,6 +90,8 @@ file and revision in its first lines:
   crates/ui-kit/src/widgets/autocomplete.rs  LightCraft crates/ui-egui/src/album_picker.rs @ 76b53778
                                              PhotoCraft crates/ui-egui/src/widgets/type_ahead.rs @ 9a9d23d2
   crates/ui-kit/tests/fields.rs (tests)      LightCraft crates/ui-egui/src/text_field.rs @ 76b53778
+  crates/ui-kit/src/widgets/datetime.rs      LightCraft crates/ui-egui/src/date_picker.rs @ 034ef489
+  crates/ui-kit/tests/datetime.rs (tests)    LightCraft crates/ui-egui/src/date_picker.rs @ 034ef489
   crates/image/src/formats/heif.rs           LightCraft crates/heif/src/lib.rs, crates/heif/src/vui.rs @ 76b53778
   crates/image/tests/heif.rs (tests)         LightCraft crates/heif/src/testdata.rs @ 76b53778
   crates/ui/src/dialogs/mod.rs (pattern)     PhotoCraft crates/ui-egui/src/dialogs.rs @ 82c58fab

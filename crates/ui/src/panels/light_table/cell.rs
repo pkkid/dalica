@@ -245,13 +245,14 @@ pub fn badges_of(photo: &Photo, held: bool) -> Badges {
 }
 
 /// The caption line's text for `mode` (`ui-layout.md` §5.3), before fitting: the file name; the
-/// date taken (else the file's date); the pixel size; the photo's caption; its tags joined with
-/// ", " in the order added. Empty for a size, date, caption or tags the photo does not have. `None`
-/// with captions off.
+/// effective date (the date set by the user, else the date taken, else the file's date); the pixel
+/// size; the photo's caption; its tags joined with ", " in the order added. Empty for a size, date,
+/// caption or tags the photo does not have. `None` with captions off.
 pub fn caption_of(photo: &Photo, library: &Library, mode: Caption) -> Option<String> {
     Some(match mode {
         Caption::Caption => library.caption(photo.id).to_owned(),
         Caption::Tags => library.tags_of(photo.id).join(", "),
+        Caption::Date => library.sort_date(photo).map(|d| long_date(d.date())).unwrap_or_default(),
         _ => return caption_text(photo, mode),
     })
 }
@@ -276,11 +277,16 @@ fn resolution(photo: &Photo) -> Option<String> {
 /// The hover tooltip (`ui-layout.md` §5.5): the file name over the date taken (else the file's
 /// date), the pixel size and the file size; for a photo that cannot be shown, why.
 pub fn tooltip_text(photo: &Photo, failure: Option<&str>) -> Tip {
+    tooltip_dated(photo, photo.sort_date(), failure)
+}
+
+/// [`tooltip_text`] showing `date`: the cells pass the effective date ([`Library::sort_date`]).
+pub fn tooltip_dated(photo: &Photo, date: Option<dalica_core::DateTime>, failure: Option<&str>) -> Tip {
     let detail = match failure {
         Some(why) => format!("Cannot show this photo: {why}"),
         None => {
             let mut parts: Vec<String> = Vec::with_capacity(3);
-            parts.extend(photo.sort_date().map(status::date_time));
+            parts.extend(date.map(status::date_time));
             parts.extend(resolution(photo));
             parts.push(status::size(photo.size));
             parts.join(" · ")
@@ -376,7 +382,7 @@ pub fn show(ui: &mut Ui, f: &Frame<'_>, cells: &mut Cells, thumbs: &mut Thumbnai
     }
     widgets::register(ui.ctx(), &format!("thumb:{}", id.get()), Role::Thumbnail, &c.photo.name, Target::Widget(&response), selected);
     let tooltip = cells.rested(ui, id, &response, pass, f.now).then(|| {
-        let tip = tooltip_text(c.photo, if drawn == Drawn::Failed { thumbs.failure(id) } else { None });
+        let tip = tooltip_dated(c.photo, f.session.library().sort_date(c.photo), if drawn == Drawn::Failed { thumbs.failure(id) } else { None });
         widgets::tooltip_now(&response, t, &tip.title, Some(&tip.detail));
         tip
     });

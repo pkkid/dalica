@@ -21,6 +21,7 @@ use crate::registry::{self, Role, WidgetInfo};
 mod autocomplete;
 mod badges;
 mod buttons;
+mod datetime;
 mod dialog;
 mod dropdown;
 mod feedback;
@@ -37,6 +38,10 @@ pub use badges::{
     photo_shadow, star_badge,
 };
 pub use buttons::{Segment, SegmentLabel, action_button, primary_button, segmented, toggle_filter};
+pub use datetime::{
+    DATE_HINT, DATE_WIDTH, DatePart, MAX_YEAR, MIN_YEAR, PickedDate, PickedTime, PickerOut, TIME_HINT, TIME_WIDTH, TimePart, date_field,
+    days_in_month, time_field,
+};
 pub use dialog::{ButtonKind, DialogButton, DialogResponse, dialog};
 pub use dropdown::{dropdown, dropdown_popup_id};
 pub use feedback::{ProgressOut, TOAST_ERROR_SECS, TOAST_SECS, ToastKind, empty_state, progress_row, toast, toast_opacity};
