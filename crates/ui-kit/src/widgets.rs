@@ -18,6 +18,7 @@ use crate::fonts;
 use crate::icons::{self, Icon};
 use crate::registry::{self, Role, WidgetInfo};
 
+mod autocomplete;
 mod badges;
 mod buttons;
 mod dialog;
@@ -30,6 +31,7 @@ mod slider;
 mod splitter;
 mod tooltip;
 
+pub use autocomplete::{AutocompleteOut, MAX_SUGGESTIONS, VISIBLE_SUGGESTIONS, autocomplete, autocomplete_matches};
 pub use badges::{
     BADGE_GAP, BADGE_GLYPH, BADGE_INSET, BADGE_PLATE, Badge, BadgeRects, Badges, PHOTO_SHADOW, Video, badge_row, badges, duration_text, failed_mark,
     photo_shadow, star_badge,
@@ -38,7 +40,7 @@ pub use buttons::{Segment, SegmentLabel, action_button, primary_button, segmente
 pub use dialog::{ButtonKind, DialogButton, DialogResponse, dialog};
 pub use dropdown::{dropdown, dropdown_popup_id};
 pub use feedback::{ProgressOut, TOAST_ERROR_SECS, TOAST_SECS, ToastKind, empty_state, progress_row, toast, toast_opacity};
-pub use field::{SearchOut, search_field, text_field};
+pub use field::{Ending, FieldOut, SearchOut, TextField, focus_field, search_field, text_field};
 pub use header::section_header;
 pub use slider::{SliderOut, SliderSpec, edit_slider_value, nudged, slider, typed_value, zoom_slider};
 pub use splitter::{arrow_delta, split_position, splitter};
