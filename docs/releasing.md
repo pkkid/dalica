@@ -3,19 +3,21 @@
 Adapted from LightCraft `docs/releasing.md` (revision 88ea1a8) and PhotoCraft `docs/releasing.md`
 and `docs/release-playbook.md` (revision 59684266); MIT OR Apache-2.0.
 
-> Status: **Planned (M6; signing M15).** There is no release workflow, packaging script or signing setup yet.
-> This page is the target, copied in shape from the Craft apps' release pipeline
-> ([`process.md`](process.md) §7). Update it as the pieces land; until then nothing here runs.
+> Status: **The pipeline runs (M6.13); the packages are stubs until M6.21–M6.23; signing M15.**
+> `.github/workflows/release.yml` and `packaging-lint.yml` run as described under *What runs
+> now*. The platform scripts in `packaging/` still pack plain archives of the two binaries; the
+> installers below are the target, copied in shape from the Craft apps' release pipeline
+> ([`process.md`](process.md) §7). Update this page as the pieces land.
 
-Every push to the `release` branch will run `.github/workflows/release.yml`. The workflow builds
+Every push to the `release` branch runs `.github/workflows/release.yml`. The workflow builds
 installers for Linux, Windows and macOS, signs what it has credentials for, and creates or updates a
 **draft** GitHub Release named `Dalica v<version>`. Nobody sees a draft until a maintainer publishes
 it.
 
 User-facing names say **Dalica**. Files, binaries and ids stay lowercase
 (`dalica-<version>-<platform>-<arch>.<ext>`). The reverse-DNS application id (Wayland app id,
-`.desktop` file, hicolor icon name, macOS bundle id) is a reserved decision; this page writes it as
-`<app-id>`.
+`.desktop` file, hicolor icon name, macOS bundle id) is `org.dalica.Dalica`
+(`crates/core/src/app_id.rs`); this page writes it as `<app-id>`.
 
 ## Cutting a release
 
@@ -49,9 +51,47 @@ After the draft is published, the workflow refuses to touch that version again, 
 
 **Test runs:** *Actions → Release → Run workflow* runs the whole pipeline by hand, with an optional
 `version` input (such as `0.2.0-rc.1`) that overrides `Cargo.toml` for that run only (applied with
-`cargo xtask version set` before building, so the binaries report it too). Only the `release`
-branch can use the `release` environment, so a dispatch on another branch is a dry run: the signing
-jobs are refused and the draft-release job, which needs them, is skipped.
+`cargo xtask version set` before building, so the binaries report it too). Only a run on the
+`release` branch signs and drafts; a run on any other branch, and every pull request that touches
+`packaging/`, `.github/workflows/` or `assets/app-icon/`, is a **dry run**: it builds, checksums
+and verifies every platform, while the signing jobs are skipped (the `release` environment, limited
+to the `release` branch, would refuse them anyway) and the draft job, which needs them, is skipped
+too. A pull request's own checks are therefore a dry run of the release.
+
+## What runs now
+
+`.github/workflows/release.yml`, since M6.13. The workflow defaults to `contents: read`, pins every
+action to a full commit hash, builds with the pinned toolchain (`1.98`, as `ci.yml`) and
+`--locked`, and passes inputs to scripts through environment variables only.
+
+| Job | Runs on | Does | Dry run |
+|---|---|---|---|
+| `version` | ubuntu-latest | the version (the `version` input or `Cargo.toml`), checked like `cargo xtask version set`; pre-release when it has a hyphen; the build date; refuses a version whose release is already published | runs; a published version is only a warning |
+| `build Linux x86_64`, `aarch64` | ubuntu-22.04, ubuntu-22.04-arm | `packaging/linux/package.sh` | runs |
+| `build Windows x64` | windows-latest | `packaging/windows/package.ps1 -Arch x64` (static C runtime) | runs |
+| `build macOS universal` | macos-latest | `packaging/macos/package.sh` (both architectures, `lipo`) | runs |
+| `sign Windows x64`, `sign macOS universal` | windows-latest, macos-latest, **`release` environment** | reports which signing secrets are set (a `::warning::` for each missing group), writes every artifact's signature state to the job summary, passes the set on | skipped |
+| `checksums` | ubuntu-latest | downloads the whole set and writes `SHA256SUMS.txt` (`packaging/checksums.sh create`) | runs over the unsigned set |
+| `verify checksums` | ubuntu, Windows and macOS | on a fresh runner each: re-downloads the set and `SHA256SUMS.txt`, runs the script's planted-mismatch test (`checksums.sh self-test`) and `checksums.sh verify` | runs |
+| `draft GitHub Release` | ubuntu-latest, **`contents: write`** | verifies the set once more, refuses a published version, then creates the draft `Dalica v<version>` tagged `v<version>` on the pushed commit with generated notes (or replaces an existing draft's assets), every artifact and `SHA256SUMS.txt` | skipped |
+
+Every build job sets `DALICA_BUILD_SHA` (the commit) and `DALICA_BUILD_DATE` (the `version` job's
+UTC date), and each script fails unless both binaries' `--version` reports the version and that
+commit. The build jobs read no secrets and run without the `release` environment; the signing jobs
+alone use it; only the draft job may write. Signing and notarization themselves arrive in M15:
+until then every artifact is unsigned, which the signing jobs' warnings and summaries say.
+
+What each platform job uploads today (stubs; *What gets built* below is the target):
+
+| Platform | Artifacts now | Filled by |
+|---|---|---|
+| Linux x86_64, aarch64 | `dalica-<v>-linux-<arch>.tar.gz` (`bin/`, `share/doc/dalica/`) | M6.21 |
+| Windows x64 | `dalica-<v>-windows-x64-portable.zip` (both `.exe`, the `portable` marker) | M6.22 |
+| macOS universal | `dalica-<v>-macos-universal.zip` (until the DMG), `dalica-cli-<v>-macos-universal.zip` | M6.23 |
+
+Before the first push to `release`, a maintainer creates the **`release` environment** (Settings →
+Environments) with its deployment branches limited to `release`. GitHub creates a missing
+environment on first use *without* that limit, so the order matters.
 
 ## What gets built
 
@@ -71,7 +111,10 @@ Release builds check out [craft-fonts](https://github.com/storytold/craft-fonts)
 and build with `CRAFT_FONTS_DIR` and `CRAFT_FONTS_REQUIRED=1`, so they fail rather than ship
 without the CJK fallback faces. Packages carry each font's licence as `OFL-<family>.txt`. Bump the
 pin deliberately, together with the one in `ci.yml`, whenever a shipped language needs a face the
-old pin lacks: a stale pin still builds, it just shows boxes instead of glyphs. Before a release,
+old pin lacks: a stale pin still builds, it just shows boxes instead of glyphs. The pin is
+`CRAFT_FONTS_REF` at the top of `release.yml`; `ci.yml` gets its own when CI's font tests run with
+the fonts. Until `crates/ui/build.rs` embeds them (not built yet), the release jobs check out the pin
+and ship its licences, and `CRAFT_FONTS_REQUIRED` has nothing to enforce. Before a release,
 run the i18n glyph-coverage test with `CRAFT_FONTS_DIR` set ([`localization.md`](localization.md)).
 
 Every package ships `LICENSE-MIT`, `LICENSE-APACHE`, `NOTICE` and `ATTRIBUTION.md`.
@@ -139,7 +182,8 @@ compiler returns an error naming the tool, never a panic). Release builds use th
 ## Secrets
 
 All secrets live in the repository's **`release` environment**, whose deployment branches are
-restricted to `release`. Only jobs that sign or publish declare `environment: release`. **Every
+restricted to `release`. Only the signing jobs declare `environment: release`; the draft job runs
+without it and cannot be reached from another branch, because it needs the signing jobs. **Every
 secret is optional:** if one is missing, that platform's artifacts are unsigned and the run shows a
 `::warning::`. Configure only what you need.
 
@@ -163,6 +207,10 @@ Rules for the icon itself are in [`assets.md`](assets.md) → App icon.
 
 ## Checks
 
-A `packaging-lint` workflow runs in seconds on any change to `packaging/`, the workflows or the
-icons: actionlint, shellcheck, a PowerShell parse, xmllint, `desktop-file-validate`,
-`appstreamcli validate`, and a check that the Flatpak manifests agree on runtime and permissions.
+The `Packaging lint` workflow (`.github/workflows/packaging-lint.yml`, since M6.13) runs in seconds
+on any change to `packaging/`, the workflows or the icons: actionlint (its download checked against
+a pinned SHA-256; it also runs shellcheck over the workflows' scripts), shellcheck over every
+`packaging/**/*.sh`, the checksum script's planted-mismatch test, a PowerShell parse of every
+`packaging/**/*.ps1`, and xmllint, `desktop-file-validate`, `appstreamcli validate` and a check that
+the Flatpak manifests agree on id, command, runtime and permissions. The last four find their files
+by pattern and report "none yet" until M6.21–M6.23 add them.

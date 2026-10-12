@@ -52,6 +52,11 @@ file and revision in its first lines:
 
   packaging/icons.sh                         LightCraft packaging/icons.sh @ 75e4e3ce
                                              PhotoCraft packaging/icons.sh @ 148b1b44
+  .github/workflows/release.yml              LightCraft .github/workflows/release.yml @ 25ef65c8
+  .github/workflows/packaging-lint.yml       LightCraft .github/workflows/packaging-lint.yml @ 25ef65c8
+  packaging/linux/package.sh                 LightCraft packaging/env.sh, packaging/linux/package.sh @ 25ef65c8
+  packaging/macos/package.sh                 LightCraft packaging/env.sh, packaging/macos/package.sh @ 25ef65c8
+  packaging/windows/package.ps1              PhotoCraft packaging/windows/package.ps1 @ 2db6b7d8
   crates/ui-kit/src/widgets/field/edit.rs    LightCraft crates/ui-egui/src/text_field.rs @ 76b53778
   crates/ui-kit/src/widgets/autocomplete.rs  LightCraft crates/ui-egui/src/album_picker.rs @ 76b53778
                                              PhotoCraft crates/ui-egui/src/widgets/type_ahead.rs @ 9a9d23d2
