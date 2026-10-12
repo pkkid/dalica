@@ -11,8 +11,9 @@ replace) are in [`data-model.md`](data-model.md); this document is the adversari
 same code.
 
 > **Status:** each control below is marked **Implemented** (with its code path) or **Planned (Mn)**
-> with the milestone from [`roadmap.md`](roadmap.md) in which it lands; as of M5 the file-system,
-> decoder and watcher controls are built. The commit that lands a control
+> with the milestone from [`roadmap.md`](roadmap.md) in which it lands; as of M6 the file-system,
+> decoder and watcher controls are built, and so are metadata reading, metadata write-back and the
+> release workflow (signing excepted). The commit that lands a control
 > changes its mark to **Implemented** and names the code path. Never describe a control as
 > implemented before its code and tests are on `main`, and never report a successful build as a
 > published release.
@@ -44,18 +45,18 @@ Principles:
 | Area | Planned protections | Lands | Known limits (by design) |
 |---|---|---|---|
 | Image decoding | dimension, pixel and allocation limits charged to the memory budget; scaled decode; per-file panic guard; fuzz targets | M1 | decoders from dependencies are trusted to honour the limits we pass; we fuzz our wrappers to check |
-| Metadata (EXIF/XMP/IPTC/ICC) | IFD count/depth/entry limits, cycle detection, XML depth/node limits, no DTDs or entities, segment reassembly limits; merge-preserving writer; fuzz targets | M1 (read), M6 (write-back) | |
+| Metadata (EXIF/XMP/IPTC/ICC) | IFD count/depth/entry limits, cycle detection, XML depth/node limits, no DTDs or entities, segment reassembly limits; merge-preserving writer; fuzz targets | **Implemented** (M6: reading M6.4 and M6.9, the merge writers M6.10, M6.17 and M6.18, `.xmp` sidecars for RAW M6.19, the write queue M6.30, write-back from commands M6.33, reading on scan M6.32; `crates/meta`, `crates/store/src/metawrite.rs`; fuzz targets in `crates/meta/fuzz`) | only the owned fields are written, into JPEG, PNG, WebP and TIFF; RAW files never (an `.xmp` sidecar beside them, opt-in); a field another application changed meanwhile is imported, never overwritten (`xmp-interop.md` §5) |
 | Folder sidecar `.dalica.json` | size/depth/entry limits, single-component names only, escaped values, unknown data preserved; fuzz + property tests | M1 | a sidecar is as private as its folder |
 | Legacy sidecars and backups | read-only fallback when a folder has no `.dalica.json`, same limits, no path from them is ever opened | M14 | |
 | Library index, journal, settings | checksummed records, size and depth limits, `.corrupt-<time>` quarantine | M1 | |
 | Directory walks | depth 32, 1,000,000 entries, symlink-loop detection, off the UI thread | M1 | |
-| File writes | atomic replace with identity check, no writes through symlinks, OS trash only | M1 (sidecars), M6 (metadata), M8 (Save), M9 (file operations) | network file systems weaken atomicity (§5.9) |
+| File writes | atomic replace with identity check, no writes through symlinks, OS trash only | **Implemented** for sidecars (M1) and metadata write-back (M6.30: re-read, merge, verify, `fs::replace` expecting the identity read, the modification time put back; a root checked right before each write, M6.43); M8 (Save), M9 (file operations) | network file systems weaken atomicity (§5.9); a process killed between the rename and putting the time back leaves the new file with the write's time |
 | Control channel | loopback only, 256-bit token from a `0600` file, JSON-request-only lines, request/reply/connection/batch limits | M2 | no per-client capabilities, no encryption |
 | MCP server | stdio by default, roots, read-only mode, tool annotations, same limits | M10 | an authenticated agent can still trash or caption any photo in the library unless read-only |
 | Network features | user-initiated only, TLS, size limits, pinned model hashes | M13 | TLS stack still to be decided (§8.2) |
 | Generated output | escaped JSON, sanitized file names | M8 (export), M14 (collage) | |
 | Dependencies | pure Rust, banned crates, licence allow-list, advisory check | M0 | scanner results do not replace review |
-| Releases | draft releases, `SHA256SUMS.txt`, optional signing secrets, least-privilege jobs | M6 | signing may be absent; consumers must check |
+| Releases | draft releases, `SHA256SUMS.txt`, optional signing secrets, least-privilege jobs | **Implemented** (M6.13 `.github/workflows/release.yml`, `packaging/checksums.sh`; packages M6.21–M6.23); signing and notarization M15 | until M15 every artifact is unsigned (ad hoc on macOS); consumers verify `SHA256SUMS.txt` |
 
 The table is a plan, not a guarantee about any build. Verify source and release evidence before
 relying on it.
@@ -307,8 +308,11 @@ rather than relying on defaults.
 | EXIF/TIFF IFDs | `meta` | ≤ 1,024 IFDs, depth ≤ 10, ≤ 8,192 entries per IFD, visited-offset cycle detection (LightCraft); maker notes ≤ 64 IFDs, depth ≤ 3; strings ≤ 64 KiB; zero-denominator rationals are invalid values | **Implemented** (M6.4; `exif/read.rs` through `dalica-image`'s IFD walker: IFD0, EXIF, GPS, Interoperability and the next-IFD chain; strings kept to 64 KiB; maker notes are not parsed yet, only listed by size) |
 | XMP | `meta` | packet ≤ 16 MiB after extended-XMP reassembly (matching GUID, chunk offsets inside the declared length); XML depth ≤ 64, ≤ 200,000 nodes (LightCraft); `DOCTYPE`, entity declarations and external references rejected | Reassembly **implemented** (M6.4; `container/jpeg.rs`: the GUID the main packet declares, one declared length, chunks inside it and covering it, standard + extended ≤ 16 MiB; compressed PNG text inflated to ≤ 16 MiB); the XML limits **implemented** (M6.9; `xmp/xml.rs`, our own tokenizer: depth ≤ 64, ≤ 200,000 nodes counting elements, attributes, text runs, comments, processing instructions and CDATA sections; any `<!DOCTYPE` or other declaration refused, only the five predefined entities and character references to XML characters accepted; prefixes resolved and repeated attributes found in linear time) |
 | IPTC (IIM in APP13 / 8BIM) | `meta` | resource and dataset lengths inside the segment; dataset ≤ 64 KiB; ≤ 10,000 datasets | **Implemented** (M6.4; `iptc/read.rs`; also ≤ 4,096 image resources) |
+| Metadata write-back | `meta`, `store` | owned fields only; a file whose EXIF, XMP, IPTC or Photoshop block cannot be read is not rewritten, nor is a TIFF-structured RAW; JPEG: EXIF ≤ 65,527 bytes and the XMP packet ≤ 65,504 bytes in one APP1 (only padding is dropped to fit, else the write fails naming the field), APP13 split at the segment limit; IPTC caption cut at 2,000 bytes and keywords at 64 on a character boundary; PNG chunks < 2³¹ bytes, the WebP RIFF and TIFF offsets within 32 bits; TIFF written append-only, and refused when IFD0 or a rewritten value overlaps any other IFD, value, strip or tile; every result re-parsed and verified before it is written; the file read whole ≤ 1 GiB | **Implemented** (M6.10, M6.17, M6.18: `iptc/write.rs`, `exif/edit.rs`, `write/{jpeg,png,webp,tiff}.rs`, `write/mod.rs` `verify`; M6.30: `crates/store/src/metawrite.rs` `MAX_FILE`) |
+| `.xmp` sidecars for RAW | `meta` | the sidecar ≤ the XMP limit, read with the XML limits above; one that is not UTF-8, not XML within the limits or has no `rdf:RDF` with content is damaged: read falls back to the embedded packet, a write keeps it aside as `.xmp.corrupt-<time>`; every merged sidecar checked well-formed before it is returned; names resolved from the folder's own listing, never from a path inside a file | **Implemented** (M6.19; `xmp_sidecar.rs`; written by M6.30) |
+| Metadata read on scan and for Properties | `scan`, `engine` | a JPEG read only up to its image data (256 KiB, doubled while the metadata runs on); PNG, WebP, TIFF and TIFF-structured RAW read whole ≤ 1 GiB; each read inside `catch_unwind`; the Properties cache ≤ 256 answers, ≈ 64 MiB of text, 64 queued requests, 2 reader threads | **Implemented** (M6.32 `crates/scan/src/meta.rs`; M6.16 `crates/engine/src/metadata_cache.rs`) |
 | ICC profile | `image` | APP2 chunk sequence validated; ≤ 16 MiB; tag count ≤ 1,000; LUT sizes bounded by the colour library | **Implemented** (M5.1; `color.rs`: over the limits or inconsistent, a profile is unusable and the pixels show as untagged) |
-| `.dalica.json` | `sidecar` | file ≤ 64 MiB; nesting depth ≤ 16; string ≤ 1 MiB; ≤ 1,000,000 photo entries; ≤ 1,000 keys per entry; ≤ 10,000 operations per recipe; ≤ 1,000 regions per operation; list entries ≤ 100,000 | M1 |
+| `.dalica.json` | `sidecar` | file ≤ 64 MiB; nesting depth ≤ 16; string ≤ 1 MiB; ≤ 1,000,000 photo entries; ≤ 1,000 keys per entry; ≤ 10,000 operations per recipe; ≤ 1,000 regions per operation; list entries ≤ 100,000 | M1; the M6 fields' caps **implemented** (M6.2, M6.8: caption and folder description ≤ 16 KiB, a tag ≤ 256 bytes, ≤ 1,000 tags per photo, a place ≤ 1 KiB, ≤ 10,000 operations per recipe and ≤ 64 KiB per operation, `crates/library/src/tags.rs`; a longer text is shown cut and kept whole in the file, a recipe past them is not used and kept; a value of the wrong type is reported once and kept) |
 | Legacy sidecars | `sidecar` | file ≤ 64 MiB; line ≤ 1 MiB; ≤ 1,000,000 sections; ≤ 1,000 keys per section; the recipe limits above; encoding detection never fails the whole file | M14 |
 | JSON files (`folders`, `albums`, `people`, `settings`) | `library` | file ≤ 64 MiB; depth ≤ 64 | M1 |
 | Index journal / snapshot | `library` | checksummed records ≤ 16 MiB; a torn tail is discarded, a bad checksum stops replay at that record; version checked | M1 |
@@ -320,7 +324,10 @@ rather than relying on defaults.
 ### 4.3 Work budgets during scans
 
 - Each file's decode and metadata read runs inside the per-file `catch_unwind` guard on a worker
-  thread with a cancel flag. **Planned (M5).**
+  thread with a cancel flag. **Implemented** for metadata reads (M6.32: the scan's reads in
+  `crates/scan/src/meta.rs`, the cancel flag checked between files; M6.16: the Properties pane's
+  reads on their own threads, `crates/engine/src/metadata_cache.rs`); decoders from dependencies
+  run inside `catch_unwind` ("Damaged file", §4.2).
 - A file that fails, panics or exceeds a 10-second work budget is recorded by (path, size, mtime)
   and not retried until it changes; the tile shows a generic placeholder and the scan continues.
   **Planned (M5).**
@@ -338,9 +345,14 @@ Text that came from a file, a sidecar, a device or an agent:
   file names (a name like `photo<RLO>gpj.exe` must not pass for a JPEG);
 - is escaped for its destination: sidecar values are written through the JSON serializer, so a
   caption can never start a new key or object; XMP writing escapes XML and drops characters that
-  are invalid in XML 1.0; IPTC writing respects the dataset length and the declared character set;
+  are invalid in XML 1.0; IPTC writing respects the dataset length and the declared character set.
+  **Implemented** for the metadata writers (M6.9 `xmp/merge.rs`, M6.10 `iptc/write.rs`: 1:90 set
+  to UTF-8, Latin-1 text re-encoded; M6.17 `fields::clean_text` also drops U+FFFE and U+FFFF);
 - is kept out of logs: no captions, tags, people names, face data or tokens; paths only where
-  needed and never in bulk;
+  needed and never in bulk. **Implemented** for M6's paths: settings problems are reported by key
+  (M6.5), errors from tag and caption commands and from metadata verification name the field,
+  never its value (M6.2, M6.4, M6.15), an IPTC cut logs one line without the text (M6.10), and a
+  failed metadata write's notice names the file and the field (M6.33);
 - is passed to external programs only as separate argv elements (§5.11);
 - is returned to AI agents as data. MCP tool descriptions state that captions, tags and file names
   are user content and may contain instructions that must not be followed. **Planned (M10).**
@@ -373,8 +385,10 @@ write needs a row here.
 ### 5.2 Atomic replace
 
 The shared primitive (our own; prior art LightCraft `safe_file.rs`). **Built (M1.2:
-`dalica-fs` `atomic::replace`), with a byte-for-byte check in step 6; the metadata-aware check
-comes with write-back (M6).**
+`dalica-fs` `atomic::replace`), with a byte-for-byte check in step 6; for metadata write-back
+(M6.30, `crates/store/src/metawrite.rs`) `dalica-meta`'s `verify` first checks the new bytes
+against the old (the fields written read back, every byte outside the rewritten blocks unchanged),
+then `fs::replace` writes them expecting the identity it read.**
 
 1. Read the target and record its identity: device, inode (file index on Windows), size and
    modification time.
@@ -736,7 +750,7 @@ its own entry points, because the limits are the ones Dalica passes.
 | Crate | Targets | Lands |
 |---|---|---|
 | `crates/image` | `sniff`, `decode_any`, `decode_jpeg`, `decode_png`, `decode_tiff`, `decode_webp`, `decode_gif`, `decode_bmp`, `decode_jxl`, `decode_psd`, `decode_heif` (each format decoded explicitly, no sniffing), `raw_preview` (every RAW container's recognition and preview decode), `embedded_thumbnail` (EXIF thumbnails, thumbnail IFDs, PSD resources, RAW previews), `icc` | **Implemented** (M5.1, in `crates/image/fuzz/`; the targets reach each decoder as M5.6–M5.10 filled it; `decode_heif` reaches `heic-rs` only when built with `--features dalica-image/heif`, and the Fuzz workflow builds without it, so there it fuzzes our box walk); built on pull requests touching the crate, run when the Fuzz workflow is dispatched |
-| `crates/meta` | `exif` (IFDs and maker notes), `xmp` (including extended-XMP reassembly), `iptc`, `write_merge` (parse → merge-write → re-parse: no panic, foreign fields unchanged) | **Implemented** (M6.4, in `crates/meta/fuzz/`; `write_merge` reaches each container writer as M6.17–M6.18 fill them, `xmp` the XML reader with M6.9); built on pull requests touching the crate, run when the Fuzz workflow is dispatched |
+| `crates/meta` | `exif` (IFDs and maker notes), `xmp` (including extended-XMP reassembly), `iptc`, `write_merge` (parse → merge-write → re-parse: no panic, foreign fields unchanged) | **Implemented** (M6.4, in `crates/meta/fuzz/`; `write_merge` reaches every container writer (JPEG M6.17, PNG, WebP and TIFF M6.18) and asserts that a returned write passes its verification, reads back and writes again to the same bytes; `xmp` reaches the XML reader (M6.9), the merge writer and extended-XMP reassembly with MD5 GUIDs, and writes its JPEG through `write_owned` (M6.17)); built on pull requests touching the crate, run when the Fuzz workflow is dispatched. Local runs before merging (stable with cargo-fuzz's flags): `write_merge` 2.8 M runs in 180 s and `xmp` 0.8 M in 60 s with no finding after the one idempotence finding M6.17 fixed (`tests/write_jpeg.rs` keeps its regression test). The metadata corpus (M6.34, `crates/meta/tests/corpus.rs`) runs the same write rules over files other applications wrote |
 | `crates/sidecar` | `parse`, `roundtrip` (parse → write → parse is stable, unknown data preserved), `recipe` (edit-operation list), `legacy` | M1 (`legacy`: M14) |
 | `crates/store` | `journal` (replay of journal records and snapshots), `json` (folders, albums, people, settings) | M1 |
 | `crates/ui` control | `request_line` (line validation, auth state machine, limits) | M2 |
@@ -879,23 +893,43 @@ writes outside the library).
 
 ## 10. Release security
 
-Releases follow the Craft apps' workflow (`process.md` §7). **Planned (M6; signing M15).**
+Releases follow the Craft apps' workflow (`process.md` §7). **Implemented (M6.13:
+`.github/workflows/release.yml`, `packaging/checksums.sh`; the packages M6.21–M6.23); signing and
+notarization M15.** [`releasing.md`](releasing.md) describes every job.
 
-- A `release` branch builds platform packages (AppImage, Flatpak, deb/rpm, MSI, DMG) and creates or
-  updates a **draft** release; a maintainer publishes it after checking. Building, signing, drafting,
-  publishing and deploying are separate states.
-- Workflow permissions default to `contents: read`. Build jobs that read no secrets run without
-  the `release` environment, so a branch dry run can run them. Only the signing jobs use the
-  `release` environment with its secrets, and only the final release job gets `contents: write`.
+- A `release` branch builds platform packages (AppImage, Flatpak, deb/rpm, tarball, MSI, portable
+  zip, DMG) and creates or updates a **draft** release; a maintainer publishes it after checking.
+  Building, signing, drafting, publishing and deploying are separate states. Every other run (a
+  dispatch on another branch, a pull request touching `packaging/`, the workflows or the icons) is
+  a dry run that builds, checksums and verifies but signs and drafts nothing. A version whose
+  release is already published is refused. **Implemented (M6.13).**
+- Workflow permissions default to `contents: read`, and every action is pinned to a full commit
+  hash. Build jobs that read no secrets run without the `release` environment, so a branch dry run
+  can run them. Only the signing jobs use the `release` environment with its secrets, and only the
+  final draft job gets `contents: write` (it runs without the environment and is reachable only
+  through the signing jobs on the `release` branch). Workflow inputs reach scripts only through
+  environment variables. **Implemented (M6.13).**
 - Signing and notarization (macOS, Windows) are conditional: every signing secret is optional, and
   a missing one produces an unsigned artifact and a warning, never a failed build. The job summary
-  and release notes state the signature state of every artifact. Consumers verify the signature
-  rather than assume one.
-- Every release carries `SHA256SUMS.txt` over all artifacts.
-- Builds use the pinned toolchain and `--locked`.
-- Dalica has no built-in updater; updates come through the release page or the package channel.
-- Packages request the narrowest platform permissions that still let users add their own folders
-  (decided with the Flatpak manifest at M6).
+  states the signature state of every artifact; the release notes say it by hand
+  (`releasing.md` step 5). Consumers verify the signature rather than assume one. **The jobs and
+  their warnings are implemented (M6.13); the signing itself is M15**, so until then every artifact
+  is unsigned (ad hoc on macOS) and the warnings say so.
+- Every release carries `SHA256SUMS.txt` over all artifacts, written once the set is complete,
+  re-downloaded and verified on Linux, Windows and macOS (with the script's planted-mismatch
+  self-test) and verified again by the draft job. **Implemented (M6.13).**
+- Builds use the pinned toolchain and `--locked`; each package's binaries must report the version
+  and the commit (`DALICA_BUILD_SHA`) or the build fails. **Implemented (M6.13).**
+- Dalica has no built-in updater; updates come through the release page or the package channel
+  (the AppImage carries update information for the separate AppImageUpdate tool).
+- Packages request the narrowest platform permissions that still let users add their own folders.
+  **Decided (M6.21–M6.23):** the Flatpak gets Wayland with X11 fallback, IPC, the GPU and
+  read/write access to `xdg-pictures`, and no network and no home folder (a folder elsewhere needs
+  a user's `flatpak override`, since the Folder Manager does not use the portal file chooser yet);
+  the MSI registers Dalica under "Open with" without taking over a default; the macOS app has empty
+  entitlements and the hardened runtime, and registers its formats as Alternate handler only.
+  Packaging tools downloaded in CI (nfpm, appimagetool, its runtime, actionlint) are pinned by
+  SHA-256; WiX is pinned by version (5.0.2).
 
 Future hardening: a machine-readable SBOM per release (for example with `cargo auditable` /
 `cargo cyclonedx`), provenance attestations tied to the source commit and workflow, explicit

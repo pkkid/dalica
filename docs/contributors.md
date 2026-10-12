@@ -4,7 +4,8 @@ Adapted from LightCraft `docs/contributors.md` (revision 88ea1a8) and PhotoCraft
 `docs/contributors.md` (revision 59684266); MIT OR Apache-2.0.
 
 > Status: **M6.** `cargo xtask contributors` and its `--check` exist (M6.11) and the first
-> `contributors.json` is committed; the About window that shows them is M6.18.
+> `contributors.json` is committed; the About window shows them (M6.20: `crates/ui/build.rs` bakes
+> them into the binary, `crates/ui/src/credits.rs` draws the Contributors and Models tabs).
 
 **About ▸ Contributors** credits everyone who contributed to Dalica, and **About ▸ Models** credits
 the AI models named in `Co-Authored-By` trailers. Dalica follows the same contributor-credit

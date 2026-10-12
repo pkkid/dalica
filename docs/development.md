@@ -321,9 +321,9 @@ fetched from **pins** (a URL with its sha256, or a commit) and are checked again
 |---|---|---|---|
 | `corpus/pngsuite/` | PngSuite: 176 PNGs (every bit depth, colour type, interlacing and ancillary chunk, 14 corrupt on purpose) | the 2017-07-19 release archive from schaik.com, by URL and sha256 (its own permissive terms) | `dalica-image` |
 | `corpus/raw/` | 26 camera raws, two per kind Dalica reads previews from: CR2, CR3, CRW, DNG, NEF, ARW, PEF, ORF, RW2, SRW, RAF, MRW, X3F (245 MB) | raw.pixls.us, each file CC0, by URL and sha256 | `dalica-image` |
-| `corpus/photos/` | 57 CC0 and public-domain photos (134.5 MB) from 18 camera and phone makes: JPEG orientations 0–8 and none (1–8 also as one generated set showing the same picture), EXIF thumbnails, MPF, Display P3 and Adobe RGB (with and without an ICC profile), CMYK JPEG and LZW TIFF, progressive, truncated, 16-bit TIFF and PNG, WebP | `photos/` of `dalica-corpus` at commit `ef4826d0`, by commit and sha256 (M6.42) | `dalica-image`, `dalica-thumbs` |
-| `corpus/heif/` | 3 CC0 and public-domain iPhone HEIC photos (5.6 MB, grid tiles, EXIF, colour), for the `heif` feature | `heif/` of `dalica-corpus` at commit `ef4826d0`, by commit and sha256 (M6.42) | `dalica-image` |
-| `corpus/metadata/` | the photos after other applications wrote captions, keywords, ratings, GPS, dates and MWG face regions into them (and `.xmp` sidecars for RAW) | planned, `dalica-corpus` | `dalica-meta` interop and round-trip tests ([`xmp-interop.md`](xmp-interop.md)) |
+| `corpus/photos/` | 57 CC0 and public-domain photos (134.5 MB) from 18 camera and phone makes: JPEG orientations 0–8 and none (1–8 also as one generated set showing the same picture), EXIF thumbnails, MPF, Display P3 and Adobe RGB (with and without an ICC profile), CMYK JPEG and LZW TIFF, progressive, truncated, 16-bit TIFF and PNG, WebP | `photos/` of `dalica-corpus` at commit `6239cad2`, by commit and sha256 (published M6.42 at `ef4826d0`; files unchanged since) | `dalica-image`, `dalica-thumbs` |
+| `corpus/heif/` | 3 CC0 and public-domain iPhone HEIC photos (5.6 MB, grid tiles, EXIF, colour), for the `heif` feature | `heif/` of `dalica-corpus` at commit `6239cad2`, by commit and sha256 (published M6.42 at `ef4826d0`; files unchanged since) | `dalica-image` |
+| `corpus/metadata/` | 53 generated files (1.0 MB): `dalica-scenes` photos (JPEG, PNG, WebP, TIFF and a DNG-like TIFF) after exiv2 0.28.9, ImageMagick 7.1.2-32 and Pillow 12.3.0 wrote captions, keywords, ratings, GPS, dates, MWG face regions and foreign metadata into them, and RAW `.xmp` sidecars | `metadata/` of `dalica-corpus` at commit `6239cad2`, by commit and sha256 (M6.34) | `dalica-meta` interop and round-trip tests ([`xmp-interop.md`](xmp-interop.md) §8; `crates/meta/tests/corpus.rs`) |
 | `corpus/public-faces/` | public-domain portraits with their sources in `SOURCES.tsv`, for M13 | planned, `dalica-corpus` | `dalica-faces` ([`faces.md`](faces.md)) |
 
 ```sh
@@ -357,14 +357,16 @@ cargo xtask corpus --update-manifest raw   # after moving a pin: refetch from th
 **Opt-in locally, strict when opted in, always in CI.**
 
 - The corpus tests sit in each crate's `tests/corpus.rs` behind a `corpus` cargo feature
-  (`dalica-image` today; `dalica-meta`, `dalica-thumbs` and later `dalica-faces` when their tests
-  land), so plain `cargo test` and `cargo xtask ci` neither compile nor need them.
+  (`dalica-image` and `dalica-meta` today; `dalica-thumbs` and later `dalica-faces` when their
+  tests land), so plain `cargo test` and `cargo xtask ci` neither compile nor need them.
 - With the feature on, a missing or stale corpus is a **failure** ("run `cargo xtask corpus --all`"),
   never a silent skip, and every floor is enforced.
 - **Floors only rise.** Each crate commits floors per set (`crates/image/tests/corpus_floors.json`:
   files, files sniffed as their extension says, headers read the way scanning reads them, full
   decodes, 256 px thumbnails, embedded thumbnails decoded, and for PngSuite the corrupt files
-  refused). A measured set without floors, a floor without a manifest and a count below its floor
+  refused; `crates/meta/tests/corpus_floors.json`: files and sidecars read, writes made and
+  written, sidecar writes, RAW+sidecar pairs; refusals and unchanged writes have no floor, and
+  any failed write fails the test). A measured set without floors, a floor without a manifest and a count below its floor
   all fail; a count above its floor is printed so the PR that improved it raises it. Never lower
   one. A file that newly fails is investigated, and a synthetic reproduction goes into the crate's
   ordinary tests (corpus files are never committed or quoted).

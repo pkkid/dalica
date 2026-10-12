@@ -227,8 +227,10 @@ the format most photo applications use for named faces.
   Entries of other types (`Pet`, `Focus`, `BarCode`) are kept in the file and ignored.
 - **Orientation:** regions are on the EXIF-upright photo. A `mwg-rs:Rotation` of −π/2, +π/2 or ±π
   (a box given in the sensor's frame) is turned back into the upright frame; mirrored orientations
-  are taken as written. Reading and writing convert between the upright frame and the frame of
-  Dalica's sidecar coordinates, which is still an open question (`data-model.md` §3.3).
+  are taken as written. That is the frame of Dalica's sidecar coordinates too (reserved decision
+  11, decided 2026-10-12: stored rectangles and points use the photo after its EXIF orientation and
+  before Dalica's own rotations and flips; `data-model.md` §3.3), so regions are read and written
+  without conversion.
 - **Writing** (option on): Dalica writes `mwg-rs:AppliedToDimensions` (upright pixel size) and one
   `Face` entry per **named** face (`mwg-rs:Name`, `mwg-rs:Type`, `mwg-rs:Area` with
   `stArea:unit="normalized"`). Unnamed and ignored faces are never written. Existing face entries

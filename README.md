@@ -1,19 +1,24 @@
 # Dalica
 
+> **Status: 0.1, an organizer preview.** Dalica 0.1 browses the photos in your own folders: you
+> can star, caption, tag, rotate, hide and re-date them, and captions, tags and dates are written
+> into the photo files without touching their pixels. Editing (the edit view, Auto Fix, effects,
+> Save), export, slideshows, albums, people, places and search come in later releases. What 0.1
+> can and cannot do yet is in [`docs/whats-new.md`](docs/whats-new.md); where the work stands is
+> in [`docs/roadmap.md`](docs/roadmap.md). Packages for Linux, Windows and macOS appear on the
+> [Releases](https://github.com/pkkid/dalica/releases) page once a maintainer publishes them.
+
 **A fast, local-first photo organizer with simple editing, written in pure Rust.**
 
 Dalica shows every photo in the folders you choose in one continuous, scrollable light table. You
 can star, caption, tag and album your photos, name the people in them and put them on a map. Fix a
 photo in one click, play with effects, and make slideshows, collages and exports. There is
-no library to import into, no account, and nothing touches your original files unless you
+no library to import into, no account, and nothing changes your photos' pixels unless you
 explicitly save.
 
 Dalica faithfully re-creates the layout and workflows of a classic desktop photo organizer. Its
 look is the muted dark grey of the [Craft apps](https://github.com/storytold/lightcraft)
 (LightCraft, PhotoCraft), so it sits naturally beside them.
-
-> **Status: investigation stage.** No code yet. The specs in [`docs/`](docs/) describe what
-> Dalica will be; [`docs/roadmap.md`](docs/roadmap.md) says where we are.
 
 ## How it works
 
@@ -58,12 +63,17 @@ look is the muted dark grey of the [Craft apps](https://github.com/storytold/lig
 
 ## Building
 
-Not yet. The planned commands are in [`docs/development.md`](docs/development.md):
+Rust 1.98 (pinned in `rust-toolchain.toml`), and on Windows the Windows SDK for its resource
+compiler (`rc.exe`). More in [`docs/development.md`](docs/development.md):
 
 ```sh
-cargo run --release -p dalica
-cargo xtask ci
+cargo run --release -p dalica                    # the app, on your default library
+cargo run --release -p dalica -- --demo          # a generated demo library, no personal photos
+cargo run --release -p dalica --features heif    # with the HEIC decoder (release builds leave it out)
+cargo xtask ci                                   # the gate every change passes
 ```
+
+How releases are built and published: [`docs/releasing.md`](docs/releasing.md).
 
 ## Contributing
 
@@ -81,5 +91,5 @@ Dalica may reuse their code; code, docs and rules adapted from them are listed i
 
 ## License
 
-MIT OR Apache-2.0, at your option (the same licence as PhotoCraft). The `LICENSE-MIT` and
-`LICENSE-APACHE` files land with the workspace skeleton (M0).
+MIT OR Apache-2.0, at your option (the same licence as PhotoCraft): [`LICENSE-MIT`](LICENSE-MIT)
+and [`LICENSE-APACHE`](LICENSE-APACHE).

@@ -3,11 +3,11 @@
 Adapted from LightCraft `docs/releasing.md` (revision 88ea1a8) and PhotoCraft `docs/releasing.md`
 and `docs/release-playbook.md` (revision 59684266); MIT OR Apache-2.0.
 
-> Status: **The pipeline runs (M6.13); the packages are stubs until M6.21–M6.23; signing M15.**
-> `.github/workflows/release.yml` and `packaging-lint.yml` run as described under *What runs
-> now*. The platform scripts in `packaging/` still pack plain archives of the two binaries; the
-> installers below are the target, copied in shape from the Craft apps' release pipeline
-> ([`process.md`](process.md) §7). Update this page as the pieces land.
+> Status: **The pipeline runs (M6.13) and builds every package (M6.21–M6.23); signing and
+> notarization arrive in M15.** `.github/workflows/release.yml` and `packaging-lint.yml` run as
+> described under *What runs now*, and `packaging/` builds the installers of *What gets built*,
+> copied in shape from the Craft apps' release pipeline ([`process.md`](process.md) §7). Until
+> M15 every artifact is unsigned (ad hoc on macOS). Update this page as the pieces land.
 
 Every push to the `release` branch runs `.github/workflows/release.yml`. The workflow builds
 installers for Linux, Windows and macOS, signs what it has credentials for, and creates or updates a
@@ -17,7 +17,7 @@ it.
 User-facing names say **Dalica**. Files, binaries and ids stay lowercase
 (`dalica-<version>-<platform>-<arch>.<ext>`). The reverse-DNS application id (Wayland app id,
 `.desktop` file, hicolor icon name, macOS bundle id) is `org.dalica.Dalica`
-(`crates/core/src/app_id.rs`); this page writes it as `<app-id>`.
+(`crates/core/src/app_id.rs`).
 
 ## Cutting a release
 
@@ -81,13 +81,17 @@ commit. The build jobs read no secrets and run without the `release` environment
 alone use it; only the draft job may write. Signing and notarization themselves arrive in M15:
 until then every artifact is unsigned, which the signing jobs' warnings and summaries say.
 
-What each platform job uploads today (stubs; *What gets built* below is the target):
+What each platform job uploads (sizes from the pull requests' dry runs of 0.0.0):
 
-| Platform | Artifacts now | Filled by |
-|---|---|---|
-| Linux x86_64, aarch64 | `dalica-<v>-linux-<arch>.tar.gz` (`bin/`, `share/doc/dalica/`) | M6.21 |
-| Windows x64 | `dalica-<v>-windows-x64-portable.zip` (both `.exe`, the `portable` marker) | M6.22 |
-| macOS universal | `dalica-<v>-macos-universal.zip` (until the DMG), `dalica-cli-<v>-macos-universal.zip` | M6.23 |
+| Platform | Artifacts | Size | Since |
+|---|---|---|---|
+| Linux x86_64, aarch64 | `dalica-<v>-linux-<arch>.tar.gz`, `.deb`, `.rpm`, `.AppImage`, `.AppImage.zsync`, `.flatpak` (six files per architecture) | x86_64 / aarch64: tar 18 / 16 MB, deb 18 / 17 MB, rpm 18 / 17 MB, AppImage 17 / 15 MB, zsync 59 / 53 KB, flatpak 12 / 9.9 MB | M6.21 |
+| Windows x64 | `dalica-<v>-windows-x64.msi`, `dalica-<v>-windows-x64-portable.zip` (both `.exe`, the `portable` marker, the licences) | MSI 12.7 MiB, zip 15.8 MiB | M6.22 |
+| macOS universal | `dalica-<v>-macos-universal.dmg`, `dalica-cli-<v>-macos-universal.zip` | DMG 20.2 MB, CLI zip 12.6 MB | M6.23 |
+
+Each platform script checks its own artifacts before the job uploads them (*What gets built*
+below says what each checks) and prints what it made with the sizes; the Windows and macOS
+scripts also write their sizes and checks to the job summary.
 
 Before the first push to `release`, a maintainer creates the **`release` environment** (Settings →
 Environments) with its deployment branches limited to `release`. GitHub creates a missing
@@ -121,63 +125,117 @@ Every package ships `LICENSE-MIT`, `LICENSE-APACHE`, `NOTICE` and `ATTRIBUTION.m
 
 ### Linux
 
-`packaging/linux/package.sh` stages one FHS tree (both binaries, `<app-id>.desktop`, hicolor icons
-from 16 px to 512 px plus a scalable SVG, AppStream metainfo) and makes every format from it:
+`packaging/linux/package.sh [--skip-build] [--formats "tar deb rpm appimage flatpak"]
+[--install-tools] [--require-all]` stages one FHS tree (both binaries, `org.dalica.Dalica.desktop`,
+hicolor icons from 16 px to 512 px plus a scalable SVG, AppStream metainfo, the licences) and makes
+every format from it:
 
 - **AppImage** runs on any distribution without installing anything; built with the maintained
-  `appimagetool` (static runtime, no libfuse2). Each embeds `gh-releases-zsync` update information
-  and ships a `.zsync`, so AppImageUpdate downloads only changed blocks. Its `AppRun` installs a
-  user-level `.desktop` file on launch (best effort, with an opt-out variable) so Wayland docks show
-  the right icon.
-- **.deb** and **.rpm**, both built by [nfpm](https://nfpm.goreleaser.com/) from one config, declare
-  the runtime libraries (Wayland/X11, xkbcommon, Vulkan) and integrate with the menu and icon
-  caches.
+  `appimagetool` (static type2 runtime, no libfuse2). Each embeds `gh-releases-zsync` update
+  information and ships a `.zsync`, so AppImageUpdate downloads only changed blocks. Its `AppRun`
+  installs a user-level `.desktop` file on launch (best effort; `DALICA_NO_DESKTOP_INTEGRATION=1`
+  opts out) so Wayland docks show the right icon.
+- **.deb** and **.rpm**, both built by [nfpm](https://nfpm.goreleaser.com/) from one config
+  (`packaging/linux/nfpm.yaml`), declare the runtime libraries (Wayland/X11, xkbcommon, Vulkan) and
+  a glibc floor computed from the binaries, and integrate with the menu and icon caches.
 - **.tar.gz** for people who manage their own `/opt` or `~/.local`.
-- **Flatpak bundle** (`.flatpak`), repackaged from the tarball (no Rust build inside
-  `flatpak-builder`) on the freedesktop runtime. Sandbox permissions: Wayland with X11 fallback,
-  GPU, and **read/write access to Pictures** (Dalica's library is the user's own folders; other
-  folders go through the document portal). No network permission: map tiles and other online
-  features stay off inside the sandbox until the user grants it. A from-source Flathub manifest
-  with the same runtime and permissions follows later.
+- **Flatpak bundle** (`.flatpak`), made from the tarball on the freedesktop 26.08 runtime with plain
+  `flatpak build-*` commands, so no SDK is downloaded and no Rust build runs inside Flatpak
+  (`packaging/linux/flatpak/org.dalica.Dalica.bundle.yml` stays a valid `flatpak-builder`
+  manifest). Sandbox: `wayland`, `fallback-x11`, `ipc`, `dri` and **read/write access to
+  `xdg-pictures`**; no network and no home folder. The Folder Manager browses the file system
+  itself (no portal file chooser yet), so a folder outside Pictures needs
+  `flatpak override --user --filesystem=<folder> org.dalica.Dalica`. Map tiles and other online
+  features stay off inside the sandbox until the user grants the network the same way. A
+  from-source Flathub manifest with the same runtime and permissions follows later.
 
-Because the AppImage and tarball cannot declare dependencies, `dalica` checks for the libraries its
-session needs before opening a window and, if one is missing, prints the package to install and
-exits with status 1 instead of crashing.
+Tools: nfpm 2.47.0, appimagetool 1.9.1 and the type2 runtime 20251108, each pinned with its
+SHA-256 in `packaging/linux/tools.sh`, plus `zsyncmake`, `flatpak`, `desktop-file-validate` and
+`appstreamcli`. Locally the script downloads nothing: a format whose tool is missing is skipped and
+named in the summary. `--install-tools` installs the pinned tools and `--require-all` makes any
+skipped format or check an error; both are on in GitHub Actions (`DALICA_INSTALL_TOOLS=0` turns
+them off).
+
+Checks, in `package.sh`: both binaries report the version and the commit; `dalica` refuses to start
+on a planted system missing a library, naming its package; the desktop entry and the metainfo
+validate; `AppRun`'s desktop integration (`apprun-test.sh`); every format holds exactly the staged
+tree's files; the AppImage runs `--version` and carries its update information; the Flatpak's
+sandbox is exactly the manifest's. With `--install-tools` also: the `.deb` installs, runs and
+uninstalls cleanly, and the Flatpak installs into a private installation (its runtime from
+Flathub) and runs.
+
+Because the AppImage and tarball cannot declare dependencies, `dalica` looks where the loader looks
+(`LD_LIBRARY_PATH`, `/etc/ld.so.cache`, `/etc/ld.so.conf` and its includes) for the libraries its
+session loads before opening a window and, if one is missing, prints the package to install and
+exits with status 1 instead of crashing. `DALICA_SKIP_LIB_CHECK=1` skips the check;
+`DALICA_LIB_CHECK_ROOT=<dir>` reads the system files under another root (how `package.sh` tests the
+refusal).
 
 ### Windows
 
-`packaging/windows/package.ps1 -Arch x64` builds with `-C target-feature=+crt-static`. The app's
-`build.rs` embeds the icon and VERSIONINFO (only when targeting Windows; a missing resource
-compiler returns an error naming the tool, never a panic). Release builds use the GUI subsystem;
-`dalica-cli` stays a console program.
+`packaging/windows/package.ps1 -Arch x64 [-SkipBuild] [-Test | -NoTest] [-InstallTools]` builds with
+`-C target-feature=+crt-static` and makes the MSI and the portable zip. It checks both programs' PE
+machine and subsystem (`dalica.exe` GUI, `dalica-cli.exe` console), their `--version`, and
+`dalica.exe`'s version resource and embedded icon. The app's `build.rs` embeds the icon and
+VERSIONINFO (only when targeting Windows; a missing resource compiler returns an error naming the
+tool, never a panic; `RC_PATH` (MSVC) or `WINDRES` (GNU) names it explicitly). Release builds use
+the GUI subsystem, so `dalica.exe --version` typed in a console prints nothing; `dalica-cli` stays a
+console program.
 
-- **MSI** (WiX v5): per-machine install with a Start Menu shortcut and a setup wizard without a
-  licence page (`msiexec /qn` still installs silently). Dalica is listed under "Open with" for the
-  image formats it reads but never takes over the default photo viewer. The MSI version is numeric
-  `X.Y.Z`; same-version upgrades are allowed so release candidates replace each other.
-- **Portable zip** ships a marker file beside `dalica.exe` that keeps settings, the index and
-  caches next to the exe instead of `%APPDATA%`. Sidecars still live in the photo folders.
+- **MSI** (WiX v5, `dalica.wxs` + `dalica.en-us.wxl`): per-machine install with a Start Menu
+  shortcut and a setup wizard without a licence page (`msiexec /qn` still installs silently); the
+  licence and notice files are installed beside the programs. Dalica is listed under "Open with"
+  for the image formats it reads (not HEIC/HEIF while release builds leave out `heif`, nor AVIF)
+  but never takes over the default photo viewer; Open with runs `dalica.exe --view "%1"`, which
+  opens the library window until the standalone viewer exists. The MSI version is numeric `X.Y.Z`;
+  same-version upgrades are allowed so release candidates replace each other.
+- **Portable zip** ships a marker file named `portable` beside `dalica.exe` (a text file
+  explaining itself; its contents are ignored) that keeps the library, thumbnail cache and log in
+  `data\` next to the exe instead of `%LOCALAPPDATA%`. Sidecars still live in the photo folders.
 - **Signing** goes through one script (`packaging/windows/sign.ps1`) that signs both `.exe` files
   and the `.msi` with SHA-256 and an RFC 3161 timestamp, using either a `.pfx` certificate or
   Azure Trusted Signing, whichever is configured.
 
+Tools: Rust with the MSVC target and the Windows SDK (`rc.exe`, `signtool.exe`), and WiX 5.0.2 with
+its UI and Util extensions. In CI (or with `-InstallTools`) the script installs WiX itself;
+elsewhere a missing WiX skips the MSI with a warning.
+
+Tests (in CI, or with `-Test`; `-NoTest` skips them), with their results and the sizes in the job
+summary: `test-build-rs.ps1` (a copy of `build.rs` with and without a resource compiler: the
+missing tool is named; the release exe carries the icon and version and is GUI, a debug build stays
+console), `test-portable.ps1` (the unpacked zip keeps library, cache and log in `data\`, and
+without the marker uses `%LOCALAPPDATA%`), `test-msi.ps1` (silent install, the installed version
+resource and `--version`, Open with for `.jpg` and `.cr3` with the defaults unchanged, a
+same-version upgrade, a clean uninstall). `pe.ps1` holds the PE header checks.
+
 ### macOS
 
-`packaging/macos/package.sh` builds `aarch64-apple-darwin` and `x86_64-apple-darwin` with
-`MACOSX_DEPLOYMENT_TARGET=11.0`, joins them with `lipo`, and assembles `Dalica.app`
-(`Info.plist` from a template, image formats registered as Alternate handler only).
+`packaging/macos/package.sh [--skip-build]` builds `aarch64-apple-darwin` and `x86_64-apple-darwin`
+with `MACOSX_DEPLOYMENT_TARGET=11.0`, joins them with `lipo`, and assembles `Dalica.app`
+(`Info.plist` from `Info.plist.in` with the application id as bundle id, image formats registered
+as Alternate handler only, HEIC left out while release builds lack `heif`). Finder's Open With
+sends the file as an Apple Event, which Dalica does not handle yet: the app starts and ignores it.
 
 - **Signing** inside-out with the hardened runtime and a secure timestamp, no `--deep`; empty
-  entitlements unless a feature proves it needs one.
+  entitlements unless a feature proves it needs one. Without `MACOS_SIGN_IDENTITY` everything is
+  signed ad hoc, with a warning. `import-cert.sh` imports the Developer ID certificate for the
+  signing job (wired in M15).
 - **Notarization** with `xcrun notarytool submit --wait`, then the ticket is stapled to the app
   and to the DMG. The CLI zip is notarized too (a bare binary cannot hold a stapled ticket).
-- **DMG** built with `hdiutil`, with an `Applications` link and a Finder window layout from
-  `packaging/macos/dmg/` (background drawn from the app icon, text outlined, layout files
-  generated reproducibly). The volume is named `Dalica` without the version, because the window's
-  background alias resolves by volume name; the DMG file name keeps the version.
-- A `verify.sh` step checks the artifacts as users download them (`codesign --verify --strict`,
-  `stapler validate`, `spctl`). Without credentials the script signs ad hoc and skips
-  notarization, which is enough to check the bundle locally.
+- **DMG** built with `hdiutil create -srcfolder` (bounded retries), with an `Applications` link
+  and a Finder window layout generated at every build by `packaging/macos/dmg/generate.py`
+  (standard-library Python: the `.DS_Store` and a background drawn from the app icon, generated
+  twice and compared, nothing binary committed). The volume is named `Dalica` without the version,
+  because the window's background alias resolves by volume name; the DMG file name keeps the
+  version.
+- **`verify.sh`**, run last, checks the artifacts as users download them: mounts the DMG
+  read-only and checks the volume name, the `Applications` link, the layout against a fresh
+  generator run, both architectures, `Info.plist`, strict signatures (also after a `ditto` copy as
+  an install makes) and runs the app's `--version`; the CLI zip likewise. With credentials the
+  Developer ID, `stapler validate` and `spctl` checks are strict; without them they are warnings,
+  which is enough to check the bundle locally.
+- **`test.sh`** runs the template and layout checks on any OS in seconds (`package.sh` runs it
+  first).
 
 ## Secrets
 
@@ -213,4 +271,5 @@ a pinned SHA-256; it also runs shellcheck over the workflows' scripts), shellche
 `packaging/**/*.sh`, the checksum script's planted-mismatch test, a PowerShell parse of every
 `packaging/**/*.ps1`, and xmllint, `desktop-file-validate`, `appstreamcli validate` and a check that
 the Flatpak manifests agree on id, command, runtime and permissions. The last four find their files
-by pattern and report "none yet" until M6.21–M6.23 add them.
+by pattern (the WiX sources, the macOS property lists, the Linux desktop entry and metainfo, the
+Flatpak manifest).

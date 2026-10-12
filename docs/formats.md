@@ -24,8 +24,11 @@ and the per-type toggles are in [`data-model.md`](data-model.md) §7 and Options
 > refuses all 14 corrupt ones. All 26 camera raws (two per kind) show their preview, with their
 > header read from the first bytes the way scanning reads it (M6.38 fixed the six that did not:
 > both MRW files, both Samsung SRW files, the Sony DSLR-A100 ARW and the Olympus C5060WZ ORF, and
-> the Olympus E-3 ORF's header read). The `photos` and `heif` sets are not published yet, so
-> camera JPEGs and HEIC files are measured only on synthetic files.
+> the Olympus E-3 ORF's header read). Our own `photos` set (57 CC0 and public-domain photos from 18
+> camera and phone makes: JPEG orientations, EXIF thumbnails, MPF, Display P3 and Adobe RGB, CMYK
+> JPEG and TIFF, progressive and truncated JPEGs, 16-bit TIFF and PNG, WebP) and `heif` set (3
+> iPhone HEIC photos) are published (M6.42): every file is sniffed, read and decoded, 41 photos
+> show their embedded thumbnail (the other 16 carry none).
 
 ## 1. Formats
 
@@ -109,8 +112,8 @@ while a format waits for its task).
   sequences, overlays and some 4:2:2/4:4:4 streams return "unsupported", never wrong pixels.
 - It sits behind the **non-default** `heif` cargo feature of `dalica-image`, forwarded by the app
   (`cargo build -p dalica --features heif`). HEVC is patent-encumbered in some jurisdictions, so
-  including a decoder is the distributor's decision; whether official Dalica builds enable it is
-  decided with the release pipeline (M6). Without the feature, HEIC files are still recognised and
+  including a decoder is the distributor's decision. Official Dalica builds leave it out
+  (M6.21–M6.23): their packages do not register HEIC/HEIF with the system. Without the feature, HEIC files are still recognised and
   listed, with the tile "HEIC support isn't included in this build".
 - The decoder is young and pinned exactly (`=0.1.1`, without its `parallel` feature: Dalica
   decodes on its own worker threads); moving the pin is a reviewed change that re-runs the
@@ -204,7 +207,7 @@ Images smaller than 64 × 64 are indexed but hidden unless View → Small Pictur
 - Limits: header-declared bombs are refused before allocating; images exactly at each limit decode.
 - Malformed input: truncation at every offset, bit flips, proptest random bytes; never a panic.
 - Corpora behind the `corpus` feature (`development.md` §11; `crates/image/tests/corpus.rs`):
-  PngSuite and raw previews per vendor today, camera JPEGs and HEIF (with the `heif` feature) once
-  they are published; per set, files sniffed as their extension says, headers read as scanning
+  PngSuite, raw previews per vendor, our own `photos` set and the `heif` set (with the `heif`
+  feature); per set, files sniffed as their extension says, headers read as scanning
   reads them, full decodes, 256 px thumbnails and embedded thumbnails have committed floors
   (`crates/image/tests/corpus_floors.json`) that only rise.
