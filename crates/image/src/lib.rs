@@ -216,9 +216,10 @@ mod tests {
     fn plain_files_have_no_exif() {
         let h = read_header(&jpeg(&Scene::new(3, 40, 30), 80, None).unwrap(), &Limits::default()).unwrap();
         assert_eq!((h.width, h.height, h.orientation.get(), h.exif, h.thumbnail), (40, 30, 1, None, None));
+        // A GIF screen with no image after it is damaged.
         assert!(matches!(
             read_header(b"GIF89a\x01\0\x01\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0", &Limits::default()),
-            Err(Error::Unsupported(Format::Gif))
+            Err(Error::Malformed(_))
         ));
         assert!(matches!(read_header(&[0u8; 64], &Limits::default()), Err(Error::Unknown)));
         assert!(matches!(read_header(b"\xff\xd8\xff", &Limits::default()), Err(Error::Truncated)));
