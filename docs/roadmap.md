@@ -1855,7 +1855,7 @@ replace at M6.R.
     keeps both; the merge and cancel rules; every recipe of up to four geometric operations on each
     EXIF orientation gives the pixel-exact transform of a `scenes` image (fingerprints) and the
     right displayed size.
-- ⬜ **M6.4 `meta`: the field model, container reading, EXIF and IPTC, and the write skeleton**
+- ✅ **M6.4 `meta`: the field model, container reading, EXIF and IPTC, and the write skeleton**
   - after: M5.1, M5.9
   - files: `crates/meta/src/lib.rs`, `crates/meta/src/fields.rs`, `crates/meta/src/listing.rs`, `crates/meta/src/container/**`, `crates/meta/src/exif/mod.rs`, `crates/meta/src/exif/read.rs`, `crates/meta/src/iptc/mod.rs`, `crates/meta/src/iptc/read.rs`, `crates/meta/src/xmp/mod.rs`, `crates/meta/src/write/**`, `crates/meta/tests/read.rs`, `crates/meta/tests/build/**`, `crates/meta/fuzz/**`, `crates/meta/README.md`, `.github/workflows/fuzz.yml`
   - scope: `xmp-interop.md` §2 and §4 (reading) with the limits of `security.md` §4.2 and the

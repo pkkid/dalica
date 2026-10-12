@@ -188,7 +188,7 @@ same commit.
 |---|---|---|---|---|
 | DATA-SIDECAR | `.dalica.json` read/write per `data-model.md` §3 | P0 | 🟡 | `star` only (v1); unknown keys kept, debounced atomic writes, damaged files set aside: `crates/sidecar/src/lib.rs`, `crates/store/tests/sidecars.rs`; other fields arrive with their features |
 | DATA-INDEX | Library index journal + snapshot, lock, rebuild | P0 | ✅ | `cmd:library.rebuild`; `crates/store/src/journal.rs`, `crates/fs/src/lock.rs`; measured by `tests/acceptance/m1_headless.rs` |
-| DATA-META | XMP/IPTC/EXIF write-back with merge | P0 | ⬜ | |
+| DATA-META | XMP/IPTC/EXIF write-back with merge | P0 | ⬜ | reading landed (M6.4, `crates/meta`, `crates/meta/tests/read.rs`): EXIF and IPTC owned fields and the precedence rules in JPEG, PNG, WebP and TIFF, extended XMP reassembled, the Show All Metadata listing; XMP fields wait for M6.9; the write entry point and its verification exist, the container writers answer "unsupported" until M6.17/M6.18 |
 | DATA-ORIGINALS | `.dalica-originals` backups | P0 | ⬜ | |
 | DATA-LEGACY | Legacy sidecars read as a fallback when a folder has no `.dalica.json`; first change writes `.dalica.json`; legacy files never written | P1 | ⬜ | ref 05 §3; `data-model.md` §9 |
 | DATA-TESTS | The eleven data-safety regression tests (`data-model.md` §10) | P0 | 🟡 | §10.1 for stars, §10.5, §10.6, §10.7: `crates/store/tests/sidecars.rs`, `crates/fs/tests/lock.rs`, `crates/fs/tests/walk.rs`; the rest arrive with their features |

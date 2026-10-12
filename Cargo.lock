@@ -898,6 +898,13 @@ version = "0.0.0"
 [[package]]
 name = "dalica-meta"
 version = "0.0.0"
+dependencies = [
+ "dalica-core",
+ "dalica-image",
+ "fdeflate",
+ "proptest",
+ "thiserror 2.0.21",
+]
 
 [[package]]
 name = "dalica-scan"
