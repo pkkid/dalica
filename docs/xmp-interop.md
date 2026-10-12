@@ -12,7 +12,12 @@ everything Dalica puts into, or takes from, files it did not create. Read it wit
 > precedence rules of §2 built (M6.4); the IPTC writer and in-place EXIF edits built as blocks
 > (M6.10: `iptc::write`, `exif::edit`) and XMP reading and the XMP merge writer of §3 built
 > (M6.9: `crates/meta/src/xmp/`), put into files by the container writers (PNG, WebP and TIFF
-> built in M6.18; JPEG in M6.17; `.xmp` sidecars M6.19: captions, tags), M13 (places) and M13 (people). The parser and writer are our own, in `crates/meta`
+> built in M6.18; JPEG in M6.17; `.xmp` sidecars M6.19) through the write queue of §1 and §5
+> (M6.30, `crates/store/src/metawrite.rs`); the write-back end to end built for captions, tags,
+> stars and dates (M6.33, `crates/engine/src/metadata.rs`: every command's change, undo and redo
+> included, written per its option as a "Writing metadata" job, imports and conflicts of §5 back
+> in the library, a failed write shown as a failure toast); reading on scan M6.32; places and
+> people M13. The parser and writer are our own, in `crates/meta`
 > (`dalica-meta`, L1); LightCraft's `meta` and `tiff` crates are prior art only (`architecture.md`
 > §9).
 

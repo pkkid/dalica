@@ -87,7 +87,7 @@ pub type RootProbe = Arc<dyn Fn(&Path, &[PathBuf]) -> RootState + Send + Sync>;
 pub struct PendingWrites {
     /// Folders whose sidecar write waits for an offline root.
     pub sidecars: usize,
-    /// Metadata writes into files (none before M6).
+    /// Photos whose metadata is still to be written into their files (`metadata.rs`).
     pub metadata: usize,
     /// Index writes (journalled at once: none wait).
     pub index: usize,
@@ -638,7 +638,8 @@ impl Session {
     /// The writes still to make (`library.inspect` → `pendingWrites`): `None` when there are none.
     pub fn pending_writes(&self) -> Option<PendingWrites> {
         let sidecars = self.offline.pending.len();
-        if sidecars == 0 {
+        let metadata = self.pending_metadata_writes();
+        if sidecars == 0 && metadata == 0 {
             return None;
         }
         let waiting: BTreeSet<&PathBuf> = self
@@ -649,13 +650,15 @@ impl Session {
             .filter_map(|(id, _)| self.library.folder(*id))
             .filter_map(|f| self.offline.offline_roots().find(|r| f.path.starts_with(r)))
             .collect();
-        let error = if waiting.is_empty() {
+        let error = if waiting.is_empty() && sidecars == 0 {
+            "metadata being written into photo files".to_string()
+        } else if waiting.is_empty() {
             "being written now that their volume is back".to_string()
         } else {
             let list: Vec<String> = waiting.iter().map(|r| r.display().to_string()).collect();
             format!("waiting for offline volumes: {}", list.join(", "))
         };
-        Some(PendingWrites { sidecars, metadata: 0, index: 0, error: Some(error) })
+        Some(PendingWrites { sidecars, metadata, index: 0, error: Some(error) })
     }
 }
 

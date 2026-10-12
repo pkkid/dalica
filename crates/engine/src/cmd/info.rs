@@ -12,7 +12,7 @@
 //!
 //! With `all`, the answer adds Show All Metadata: every field of the file as `{group, label,
 //! value}` rows (`dalica_meta::listing`). `file` gives the owned fields as the file holds them, and
-//! `changedElsewhere` the note of `xmp-interop.md` §5 rule 3 when the scan reported one.
+//! `changedElsewhere` the note of `xmp-interop.md` §5 rule 3 when the scan or the write-back reported one.
 
 use dalica_core::{DateTime, PhotoId};
 use dalica_library::Library;

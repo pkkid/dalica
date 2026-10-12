@@ -28,7 +28,7 @@ pub mod watching;
 pub use error::{CmdError, OpenError};
 pub use jobs::{JobEntry, JobId, JobKind, JobProgress, JobState};
 pub use keymap::{Binding, Key, Keymap, Override};
-pub use metadata::{Field, Fields, MetadataChange, Origin};
+pub use metadata::{Field, Fields, MetadataChange, MetadataEvent, Origin};
 pub use registry::{CommandInfo, CommandSpec, Context, Disabled, Effect, History};
 pub use scanning::ScanProgress;
 pub use session::{Options, Session};

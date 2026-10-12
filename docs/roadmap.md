@@ -2285,7 +2285,7 @@ replace at M6.R.
     while Dalica runs imports it as one undoable step; editing both reports the conflict and keeps
     Dalica's value; a RAW with an `.xmp` sidecar imports from it; the owner thread made no `fs`
     call.
-- ⬜ **M6.33 `engine` + `ui`: metadata write-back end to end**
+- ✅ **M6.33 `engine` + `ui`: metadata write-back end to end**
   - after: M6.14, M6.15, M6.16, M6.18, M6.30
   - files: `crates/engine/src/metadata.rs`, `crates/engine/tests/write_back.rs`, `crates/ui/src/notices.rs`, `crates/ui/tests/notices.rs`, `docs/xmp-interop.md`, `docs/data-model.md`
   - scope: `data-model.md` §5: the session's metadata hook queues a write for every photo whose
