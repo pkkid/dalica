@@ -1,6 +1,6 @@
 //! The `Session` (`architecture.md` §4, §5): one open library — its model, undo stack, watched
-//! folders and command registry — owned by one thread (the UI thread in the app, the main thread
-//! in the CLI).
+//! folders, jobs and command registry — owned by one thread (the UI thread in the app, the main
+//! thread in the CLI).
 //!
 //! That thread never touches the disk once the session is open. Everything that does — the index
 //! journal and snapshots, sidecar writes (debounced on the clock), `folders.json`, scans — happens
@@ -8,9 +8,23 @@
 //! results come back through [`Session::poll`] (each UI frame) or [`Session::wait_idle`] (the CLI
 //! and tests); [`Session::flush`] blocks until every pending write has landed.
 //!
-//! Thumbnails (`thumbs.rs`) are made by the thumbnailer's own workers after each scan; their
-//! sketches come back through the same calls and are applied as derived ops: journaled, but never
-//! on the undo stack and never written to a sidecar.
+//! This file keeps the core: opening, [`Session::execute`], applying ops, undo, the I/O worker and
+//! the per-frame [`Session::poll`]. Each other concern is a module of its own with its state in a
+//! field here and its methods in an `impl Session` block there, so the tasks that grow them never
+//! share a file:
+//!
+//! | Module | Concern |
+//! |---|---|
+//! | [`crate::folders`] | the watched folders and `folders.json`; the first-run question |
+//! | [`crate::scanning`] | scans as jobs, applied progressively |
+//! | [`crate::jobs`] | the job registry (`jobs.list`, `jobs.wait`, `jobs.cancel`) |
+//! | [`crate::watching`] | external changes (stub until M5.17) |
+//! | [`crate::offline`] | offline volumes (stub until M5.13) |
+//! | [`crate::thumbs`] | the thumbnail ladder |
+//!
+//! Thumbnails are made by the thumbnailer's own workers as scans land; their sketches come back
+//! through the same calls and are applied as derived ops: journaled, but never on the undo stack
+//! and never written to a sidecar.
 
 use std::collections::{BTreeSet, HashMap};
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -23,19 +37,22 @@ use std::time::Duration;
 use dalica_core::{Clock, FolderId};
 use dalica_fs::{Expect, LibraryLock};
 use dalica_library::{Library, Op};
-use dalica_scan::Scan;
 use dalica_store::{FolderState, Recovery, SidecarWriter, Store};
 use serde_json::Value;
 
 use crate::error::{CmdError, OpenError};
+pub use crate::folders::FOLDERS_FILE;
+use crate::folders::Folders;
+use crate::jobs::Jobs;
 use crate::keymap::Keymap;
+use crate::offline::Offline;
 use crate::registry::{CommandInfo, CommandSpec, History};
+use crate::scanning::{PHOTOS_PER_POLL, ScanKind, Scanning};
 use crate::settings::Settings;
 use crate::thumbs::{Thumb, ThumbOptions, ThumbStats, Thumbs};
 use crate::undo::{Step, UndoStack};
+use crate::watching::Watching;
 
-/// The watched-folders file in the library directory (`data-model.md` §4).
-pub const FOLDERS_FILE: &str = "folders.json";
 /// A snapshot is taken after this many ops (the store's own threshold, counted here so the worker
 /// is sent a copy of the model only when one is due).
 const SNAPSHOT_EVERY: u64 = dalica_store::SNAPSHOT_OPS;
@@ -43,7 +60,7 @@ const SNAPSHOT_EVERY: u64 = dalica_store::SNAPSHOT_OPS;
 const TICK: Duration = Duration::from_millis(100);
 
 /// Work for the I/O worker.
-enum Msg {
+pub(crate) enum Msg {
     Journal(Vec<Op>),
     Dirty(Vec<(FolderId, Option<FolderState>)>),
     /// Atomically replace one of the library directory's own files (`folders.json`, `settings.json`).
@@ -59,36 +76,36 @@ pub struct Options {
     pub thumbs: ThumbOptions,
 }
 
-/// What a background scan was for.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ScanKind {
-    /// New or rescanned roots: merge into the model.
-    Merge,
-    /// Rebuild the whole model from the roots.
-    Rebuild,
-}
-
-/// One open library.
+/// One open library. Its fields are `pub(crate)` so each concern's module (see the table above)
+/// adds its own `impl Session` block.
 pub struct Session {
-    dir: PathBuf,
-    library: Library,
-    roots: Vec<PathBuf>,
-    undo: UndoStack,
-    clock: Arc<dyn Clock>,
+    pub(crate) dir: PathBuf,
+    pub(crate) library: Library,
+    pub(crate) undo: UndoStack,
+    pub(crate) clock: Arc<dyn Clock>,
     registry: Vec<CommandSpec>,
     by_id: HashMap<&'static str, usize>,
     io: Option<Sender<Msg>>,
     worker: Option<JoinHandle<()>>,
     io_errors: Arc<Mutex<Vec<String>>>,
-    scans: Vec<(ScanKind, Receiver<Scan>)>,
     collected: Option<Vec<Op>>,
     recovery: Vec<Recovery>,
-    scan_warnings: Vec<String>,
-    ops_since_snapshot: u64,
+    pub(crate) scan_warnings: Vec<String>,
+    pub(crate) ops_since_snapshot: u64,
     settings: Settings,
     keymap: Keymap,
     notices: Vec<String>,
-    thumbs: Thumbs,
+    pub(crate) thumbs: Thumbs,
+    /// The watched folders (`folders.rs`).
+    pub(crate) folders: Folders,
+    /// Running scans and what they remember (`scanning.rs`).
+    pub(crate) scanning: Scanning,
+    /// The job registry (`jobs.rs`).
+    pub(crate) jobs: Jobs,
+    /// External changes (`watching.rs`).
+    pub(crate) watching: Watching,
+    /// Which roots are reachable (`offline.rs`).
+    pub(crate) offline: Offline,
     _lock: LibraryLock,
 }
 
@@ -109,7 +126,7 @@ impl Session {
         dalica_fs::create_dir_all(dir)?;
         let lock = LibraryLock::acquire(dir)?;
         let opened = Store::open(dir, clock.now())?;
-        let (roots, folders_note) = read_roots(&dir.join(FOLDERS_FILE), clock.now());
+        let (folders, folders_note) = Folders::read(&dir.join(FOLDERS_FILE), clock.now());
         let mut recovery = opened.report;
         recovery.extend(folders_note);
         let io_errors = Arc::new(Mutex::new(Vec::new()));
@@ -134,10 +151,10 @@ impl Session {
         let (thumbs, thumb_notes) = Thumbs::open(&options.thumbs);
         let mut notices: Vec<String> = settings_note.into_iter().collect();
         notices.extend(thumb_notes);
+        let jobs = Jobs::new(clock.now());
         let mut session = Session {
             dir: dir.to_path_buf(),
             library: opened.library,
-            roots,
             undo: UndoStack::default(),
             clock,
             registry,
@@ -145,7 +162,6 @@ impl Session {
             io: Some(tx),
             worker: Some(worker),
             io_errors,
-            scans: Vec::new(),
             collected: None,
             recovery,
             scan_warnings: Vec::new(),
@@ -154,11 +170,16 @@ impl Session {
             keymap,
             notices,
             thumbs,
+            folders,
+            scanning: Scanning::default(),
+            jobs,
+            watching: Watching::default(),
+            offline: Offline::default(),
             _lock: lock,
         };
-        session.thumbs.sync(&session.library);
-        if session.recovery.iter().any(|r| matches!(r, Recovery::RebuildNeeded { .. })) && !session.roots.is_empty() {
-            session.start_scan(session.roots.clone(), ScanKind::Rebuild);
+        session.sync_thumbnails();
+        if session.recovery.iter().any(|r| matches!(r, Recovery::RebuildNeeded { .. })) && !session.folders.roots.is_empty() {
+            session.start_scan(session.folders.roots.clone(), ScanKind::Rebuild);
         }
         Ok(session)
     }
@@ -249,7 +270,7 @@ impl Session {
         self.library.folders().map(|f| f.id).collect()
     }
 
-    fn send(&mut self, msg: Msg) {
+    pub(crate) fn send(&mut self, msg: Msg) {
         if let Some(io) = &self.io
             && io.send(msg).is_err()
         {
@@ -287,56 +308,18 @@ impl Session {
         }
     }
 
-    /// Adds a watched folder (saved in `folders.json`) and scans it in the background.
-    pub(crate) fn add_root(&mut self, path: PathBuf) -> bool {
-        let new = !self.roots.contains(&path);
-        if new {
-            self.roots.push(path.clone());
-            let json =
-                serde_json::json!({ "version": 1, "folders": self.roots.iter().map(|p| serde_json::json!({ "path": p })).collect::<Vec<_>>() });
-            let mut bytes = serde_json::to_vec_pretty(&json).unwrap_or_default();
-            bytes.push(b'\n');
-            self.send(Msg::Write(self.dir.join(FOLDERS_FILE), bytes));
-        }
-        self.start_scan(vec![path], ScanKind::Merge);
-        new
-    }
-
-    /// Rebuilds the model from the watched folders in the background (`library.rebuild`).
-    pub(crate) fn start_rebuild(&mut self) {
-        self.start_scan(self.roots.clone(), ScanKind::Rebuild);
-    }
-
-    fn start_scan(&mut self, roots: Vec<PathBuf>, kind: ScanKind) {
-        let (tx, rx) = mpsc::channel();
-        let spawned = std::thread::Builder::new().name("dalica-scan".into()).spawn(move || {
-            let _ = tx.send(dalica_scan::scan(&roots, None));
-        });
-        match spawned {
-            Ok(_) => self.scans.push((kind, rx)),
-            Err(e) => self.scan_warnings.push(format!("cannot start a scan: {e}")),
-        }
-    }
-
-    /// Applies the results of finished background work: scans, and up to
-    /// [`crate::thumbs::POLL_MAX`] thumbnail jobs (their sketches in batches). Returns how many
-    /// finished.
+    /// Applies the results of finished background work: up to [`PHOTOS_PER_POLL`] photos of what
+    /// the scans found (ending the scans that are complete), what the watcher and the online
+    /// checks reported, and up to [`crate::thumbs::POLL_MAX`] thumbnail jobs (their sketches in
+    /// batches); then drops the jobs that expired. Returns how many things it handled. Call it each
+    /// frame; it never blocks and never touches the disk.
     pub fn poll(&mut self) -> usize {
-        let mut done = Vec::new();
-        self.scans.retain(|(kind, rx)| match rx.try_recv() {
-            Ok(scan) => {
-                done.push((*kind, scan));
-                false
-            }
-            Err(mpsc::TryRecvError::Empty) => true,
-            Err(mpsc::TryRecvError::Disconnected) => false,
-        });
-        let mut n = done.len();
-        for (kind, scan) in done {
-            self.apply_scan(kind, &scan);
-        }
+        let mut n = self.poll_scans(PHOTOS_PER_POLL);
+        n += self.poll_watching();
+        n += self.poll_offline();
         n += self.thumbs.poll(&self.library, crate::thumbs::POLL_MAX);
         self.apply_sketches();
+        self.jobs.prune(self.clock.now());
         n
     }
 
@@ -346,43 +329,6 @@ impl Session {
         self.wait_scans();
         self.thumbs.wait(&self.library);
         self.apply_sketches();
-    }
-
-    /// Blocks until every scan has finished and its results are applied.
-    fn wait_scans(&mut self) {
-        for (kind, rx) in std::mem::take(&mut self.scans) {
-            if let Ok(scan) = rx.recv() {
-                self.apply_scan(kind, &scan);
-            }
-        }
-    }
-
-    fn apply_scan(&mut self, kind: ScanKind, scan: &Scan) {
-        self.scan_warnings.extend(scan.warnings.iter().map(|w| format!("{}: {}", w.path.display(), w.reason)));
-        match kind {
-            ScanKind::Merge => {
-                let ops = dalica_scan::diff(&mut self.library, scan);
-                for op in ops {
-                    if let Err(e) = self.apply(op) {
-                        self.scan_warnings.push(format!("scan result not applied: {e}"));
-                    }
-                }
-            }
-            ScanKind::Rebuild => {
-                let mut fresh = Library::new();
-                for op in dalica_scan::diff(&mut fresh, scan) {
-                    if let Err(e) = fresh.apply(op) {
-                        self.scan_warnings.push(format!("rebuild: {e}"));
-                    }
-                }
-                // The new model replaces the old one; ids may differ, so the undo stack goes.
-                self.library = fresh;
-                self.undo.clear();
-                self.ops_since_snapshot = 0;
-                self.send(Msg::Snapshot(Box::new(self.library.clone())));
-            }
-        }
-        self.thumbs.sync(&self.library);
     }
 
     /// Waits for running scans, applies the sketches already made (it does not wait for thumbnails
@@ -407,11 +353,6 @@ impl Session {
         &self.dir
     }
 
-    /// The watched folders.
-    pub fn roots(&self) -> &[PathBuf] {
-        &self.roots
-    }
-
     pub fn clock(&self) -> &dyn Clock {
         self.clock.as_ref()
     }
@@ -433,12 +374,6 @@ impl Session {
     /// What scans could not read, oldest first.
     pub fn scan_warnings(&self) -> &[String] {
         &self.scan_warnings
-    }
-
-    /// Whether background work (a scan) is still running. Thumbnail jobs are counted apart
-    /// ([`Session::thumbnails_pending`]).
-    pub fn busy(&self) -> bool {
-        !self.scans.is_empty()
     }
 
     /// What photo `id` draws now in a cell whose long side is `need` device pixels, from memory
@@ -568,26 +503,6 @@ impl Drop for Session {
         drop(self.io.take());
         if let Some(w) = self.worker.take() {
             let _ = w.join();
-        }
-    }
-}
-
-/// The watched folders from `folders.json`; a damaged file is kept aside and reported.
-fn read_roots(path: &Path, now: dalica_core::Timestamp) -> (Vec<PathBuf>, Option<Recovery>) {
-    let bytes = match dalica_fs::read(path, 64 << 20) {
-        Ok(Some(r)) => r.bytes,
-        Ok(None) => return (Vec::new(), None),
-        Err(e) => return (Vec::new(), Some(Recovery::RebuildNeeded { reason: format!("folders.json: {e}") })),
-    };
-    let parsed: Option<Vec<PathBuf>> = serde_json::from_slice::<Value>(&bytes)
-        .ok()
-        .and_then(|v| v.get("folders")?.as_array()?.iter().map(|f| f.get("path")?.as_str().map(PathBuf::from)).collect());
-    match parsed {
-        Some(roots) => (roots, None),
-        None => {
-            let stamp = dalica_core::DateTime::from_unix_secs(now.as_secs()).map(|d| d.to_string().replace(['-', ':'], "")).unwrap_or_default();
-            let kept = dalica_fs::set_aside(path, &format!("corrupt-{stamp}Z")).map(|p| p.display().to_string()).unwrap_or_default();
-            (Vec::new(), Some(Recovery::RebuildNeeded { reason: format!("folders.json was damaged and kept as {kept}; add your folders again") }))
         }
     }
 }

@@ -1346,7 +1346,7 @@ filled by the lead; M5.15 pins it.
     ends and a cancelled scan stops at the next file; a planted panicking or slow file is reported
     once and not retried until its mtime changes; `children` of a 10 000-folder tree stays within
     its cap; places honour the override; a renamed-away root reports offline.
-- ⬜ **M5.5 `engine`: session modules, the job registry and progressive scans**
+- ✅ **M5.5 `engine`: session modules, the job registry and progressive scans**
   - after: M4.8, M5.4
   - files: `crates/engine/src/session.rs`, `crates/engine/src/scanning.rs`, `crates/engine/src/folders.rs`, `crates/engine/src/jobs.rs`, `crates/engine/src/watching.rs`, `crates/engine/src/offline.rs`, `crates/engine/src/cmd/mod.rs`, `crates/engine/src/cmd/view.rs`, `crates/engine/src/cmd/section.rs`, `crates/engine/tests/jobs.rs`, `crates/engine/tests/progressive_scan.rs`, `crates/engine/README.md`
   - scope: `architecture.md` §5: `session.rs` split so M5.11–M5.17 never touch it: `scanning.rs`

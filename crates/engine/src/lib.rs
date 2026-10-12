@@ -10,16 +10,23 @@
 pub mod cmd;
 pub mod demo;
 pub mod error;
+pub mod folders;
+pub mod jobs;
 pub mod keymap;
+pub mod offline;
 pub mod registry;
+pub mod scanning;
 pub mod session;
 pub mod settings;
 pub mod synthetic;
 pub mod thumbs;
 pub mod undo;
+pub mod watching;
 
 pub use error::{CmdError, OpenError};
+pub use jobs::{JobEntry, JobId, JobKind, JobProgress, JobState};
 pub use keymap::{Binding, Key, Keymap, Override};
 pub use registry::{CommandInfo, CommandSpec, Context, Disabled, Effect, History};
+pub use scanning::ScanProgress;
 pub use session::{Options, Session};
 pub use thumbs::{CacheDir, Thumb, ThumbOptions, ThumbStats};
