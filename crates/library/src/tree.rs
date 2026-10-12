@@ -16,7 +16,11 @@
 //!   photo modification time first), by size (most bytes first) and by name (A to Z); `reverse`
 //!   turns each around. Undated folders stay first under the header in both directions.
 //! - **Counts** are the photos a row shows (small pictures only with Small Pictures on); a group's
-//!   count is its rows (dividers aside, collapsed tree nodes included).
+//!   count is its library folders with photos shown, those inside collapsed tree nodes included
+//!   (year dividers and tree mode's directory rows aside), so tree mode's Folders count is the
+//!   flat groups' counts added up.
+//! - **Offline:** folders under a watched root whose volume is offline (`data-model.md` §7) keep
+//!   their rows, counts and sections; [`TreeOptions::is_offline`] says which rows to dim.
 //! - **Sections:** the light table's sections are the rows with photos of the expanded groups, in
 //!   row order; a collapsed group drops its rows and its sections. Collapsing a tree node hides the
 //!   rows below it but keeps their sections (the light table still shows the whole library).
@@ -128,6 +132,17 @@ pub struct TreeOptions {
     pub projects_dir: Option<PathBuf>,
     /// Options ▸ File Types: pictures smaller than this on both sides are small.
     pub small_threshold: u32,
+    /// Watched roots whose volume is offline (the session's online checks): the rows under them
+    /// stay, and [`TreeOptions::is_offline`] marks them.
+    pub offline_roots: BTreeSet<PathBuf>,
+}
+
+impl TreeOptions {
+    /// Whether the row at `path` is under an offline root (drawn dimmed with an "offline" marker).
+    /// It keeps its place, count and section.
+    pub fn is_offline(&self, path: &Path) -> bool {
+        self.offline_roots.iter().any(|r| path.starts_with(r))
+    }
 }
 
 impl Default for TreeOptions {
@@ -143,6 +158,7 @@ impl Default for TreeOptions {
             hidden_folders: BTreeSet::new(),
             projects_dir: None,
             small_threshold: SMALL_PICTURE_PX,
+            offline_roots: BTreeSet::new(),
         }
     }
 }
@@ -195,7 +211,8 @@ pub enum Row {
 pub struct GroupRows {
     pub group: Group,
     pub collapsed: bool,
-    /// The header count: folder rows, including those folded away.
+    /// The header count: library folders with photos shown, including those folded away (not
+    /// year dividers, not tree mode's directory rows).
     pub count: usize,
     /// Empty when collapsed.
     pub rows: Vec<Row>,
@@ -326,7 +343,7 @@ impl Tree {
         };
         let mut out = Tree { revision: library.revision(), mode: options.mode, groups: Vec::new(), sections: Vec::new() };
         for (group, (rows, (sections, folded))) in groups {
-            let count = rows.iter().filter(|r| matches!(r, Row::Folder(_))).count().saturating_add(folded);
+            let count = rows.iter().filter(|r| matches!(r, Row::Folder(f) if f.section().is_some())).count().saturating_add(folded);
             if count == 0 {
                 continue;
             }
@@ -352,7 +369,7 @@ impl Tree {
     }
 }
 
-/// Rows, then (sections in order, rows folded away).
+/// Rows, then (sections in order, library folders with photos folded away).
 type Built = (Vec<Row>, (Vec<SectionId>, usize));
 
 fn flat(library: &Library, options: &TreeOptions, shown: &dyn Fn(FolderId) -> Stats) -> Vec<(Group, Built)> {
@@ -525,7 +542,9 @@ fn tree(library: &Library, roots: &[PathBuf], options: &TreeOptions, shown: &dyn
         };
         sections.extend(row.section());
         if folded_away {
-            folded = folded.saturating_add(1);
+            if row.section().is_some() {
+                folded = folded.saturating_add(1);
+            }
         } else {
             rows.push(Row::Folder(row));
         }

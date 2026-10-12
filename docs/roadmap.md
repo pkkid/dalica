@@ -1467,7 +1467,7 @@ filled by the lead; M5.15 pins it.
     and undo brings it back; Scan Once is not rescanned by verification; a v1 `folders.json` opens
     and is written back as v2; confirmations over automation; every command's graceful-failure
     test; `panic_hunt` green.
-- ⬜ **M5.13 `engine` + `store`: offline volumes and queued writes**
+- ✅ **M5.13 `engine` + `store`: offline volumes and queued writes**
   - after: M4.4, M5.4, M5.5
   - files: `crates/engine/src/offline.rs`, `crates/engine/tests/offline.rs`, `crates/store/src/writer.rs`, `crates/store/tests/offline.rs`, `crates/store/README.md`, `crates/library/src/tree.rs`, `crates/library/tests/tree.rs`
   - scope: `data-model.md` §7, `security.md` §5.9: a worker-filled cache of which roots are online
