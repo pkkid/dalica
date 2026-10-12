@@ -1838,7 +1838,7 @@ replace at M6.R.
   - done when: the op-then-inverse property test covers every new op; tag tests: counts, partial
     counts, rename onto an existing tag merges, case rules, caps; tree tests: Hidden Folders in both
     modes with the option on and off; a 100 k-photo tag index builds in a time stated in the PR.
-- ⬜ **M6.3 `edit`: the recipe and the geometric operations**
+- ✅ **M6.3 `edit`: the recipe and the geometric operations**
   - after: M1.6
   - files: `crates/edit/src/lib.rs`, `crates/edit/src/syntax.rs`, `crates/edit/src/recipe.rs`, `crates/edit/src/geometry.rs`, `crates/edit/tests/recipe.rs`, `crates/edit/tests/geometry.rs`, `crates/edit/tests/fingerprints/geometry*.json`, `crates/edit/README.md`
   - scope: `data-model.md` §3.1 and `editing.md`: the operation syntax parsed and printed for every
