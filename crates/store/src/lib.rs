@@ -12,6 +12,7 @@
 
 pub mod journal;
 pub mod mapping;
+pub mod metawrite;
 pub mod rebuild;
 pub mod snapshot;
 pub mod stale;
@@ -24,6 +25,7 @@ use dalica_library::{Library, Op};
 
 pub use journal::Journal;
 pub use mapping::FolderState;
+pub use metawrite::{FileResult, MetaWriteQueue};
 pub use rebuild::{Import, import_sidecars};
 pub use writer::{Outcome, SidecarWriter, write_folder};
 

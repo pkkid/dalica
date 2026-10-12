@@ -15,7 +15,9 @@
 //!   inside a photo ([`xmp::merge`]: raw converters' develop settings, history, every other
 //!   namespace and the packet wrapper stay byte for byte). Without one, the new sidecar starts as a
 //!   copy of the RAW's embedded packet (so the sidecar, once it exists, says everything the RAW's
-//!   XMP said) or, for a RAW without one, as an empty `x:xmpmeta` document. A damaged sidecar is
+//!   XMP said) or, for a RAW without one, as an empty `x:xmpmeta` document (with the date mirror
+//!   `exif:DateTimeOriginal` when the write sets the date, so a new sidecar gets the date as it gets
+//!   the place, even alone). A damaged sidecar is
 //!   answered with [`SidecarWrite::ReplaceDamaged`]: the writer keeps it aside
 //!   (`<name>.xmp.corrupt-<time>`) and writes the new bytes.
 //!
@@ -26,6 +28,7 @@
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 
+use crate::fields::DateTaken;
 use crate::write::{Changes, WriteOptions};
 use crate::xmp::{self, xml};
 use crate::{BlockKind, Error, Limits, Metadata, Problem, Result, container};
@@ -40,6 +43,25 @@ const RDF: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
 /// applications write for a sidecar, without a packet wrapper or padding (a file needs neither).
 const NEW_SIDECAR: &str =
     "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n </rdf:RDF>\n</x:xmpmeta>\n";
+
+/// The XMP namespaces of a new sidecar's date mirror (`exif:DateTimeOriginal`) and of
+/// `xmp:MetadataDate`.
+const EXIF_NS: &str = "http://ns.adobe.com/exif/1.0/";
+const XMP_NS: &str = "http://ns.adobe.com/xap/1.0/";
+
+/// A new sidecar for a write that sets the date taken: [`NEW_SIDECAR`] with Dalica's description
+/// already holding the date mirror (and the time of the write), so the merge writes the date as
+/// into a packet that has the property (`xmp-interop.md` §7: a sidecar gets every owned field,
+/// the date included, even alone, as the place).
+fn dated_sidecar(date: &DateTaken, metadata_date: Option<&DateTaken>) -> String {
+    let (xmlns, stamp) = match metadata_date {
+        Some(d) => (format!(" xmlns:xmp=\"{XMP_NS}\""), format!("\n   <xmp:MetadataDate>{d}</xmp:MetadataDate>")),
+        None => (String::new(), String::new()),
+    };
+    format!(
+        "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n <rdf:RDF xmlns:rdf=\"{RDF}\">\n  <rdf:Description rdf:about=\"\" xmlns:exif=\"{EXIF_NS}\"{xmlns}>\n   <exif:DateTimeOriginal>{date}</exif:DateTimeOriginal>{stamp}\n  </rdf:Description>\n </rdf:RDF>\n</x:xmpmeta>\n"
+    )
+}
 
 /// A RAW file's sidecar, by name.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -245,10 +267,20 @@ pub fn merge(raw: Option<&[u8]>, sidecar: Option<&[u8]>, changes: &Changes, opti
         },
         None => None,
     };
-    let base = raw.and_then(|r| embedded(r, limits)).unwrap_or(Cow::Borrowed(NEW_SIDECAR.as_bytes()));
-    let Some(m) = xmp::merge::merge_at(Some(&base), &changes, metadata_date, limits)? else { return Ok(SidecarWrite::Unchanged) };
-    // A file needs no padding: the copy of an embedded packet loses it (and nothing else).
-    let bytes = m.fit(m.min_len()).unwrap_or_else(|| m.into_bytes());
+    let (base, seeded) = match raw.and_then(|r| embedded(r, limits)) {
+        Some(packet) => (packet, false),
+        None => match changes.date_taken.as_ref() {
+            Some(date) => (Cow::Owned(dated_sidecar(date, metadata_date).into_bytes()), true),
+            None => (Cow::Borrowed(NEW_SIDECAR.as_bytes()), false),
+        },
+    };
+    let bytes = match xmp::merge::merge_at(Some(&base), &changes, metadata_date, limits)? {
+        // A file needs no padding: the copy of an embedded packet loses it (and nothing else).
+        Some(m) => m.fit(m.min_len()).unwrap_or_else(|| m.into_bytes()),
+        // The seeded document already says everything asked.
+        None if seeded => base.into_owned(),
+        None => return Ok(SidecarWrite::Unchanged),
+    };
     let bytes = checked(bytes, limits)?;
     Ok(match damaged {
         Some(damaged) => SidecarWrite::ReplaceDamaged { bytes, damaged },

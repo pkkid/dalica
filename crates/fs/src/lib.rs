@@ -17,6 +17,7 @@ pub mod guard;
 pub mod lock;
 pub mod pack;
 pub mod stale;
+pub mod times;
 pub mod walk;
 
 use std::io;
@@ -30,6 +31,7 @@ pub use guard::{UiThread, mark_ui_thread};
 pub use lock::LibraryLock;
 pub use pack::{CacheFile, PackFile, TempFile, list_shaped, remove_shaped};
 pub use stale::{StaleTemps, remove_stale_temps};
+pub use times::{Stat, Times, set_times, stat};
 pub use walk::{Entry, Limits, Walk, Warning, walk};
 
 /// Everything a file operation can refuse or fail with.

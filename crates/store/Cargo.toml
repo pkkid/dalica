@@ -13,7 +13,11 @@ publish = false
 [dependencies]
 dalica-core.workspace = true
 dalica-fs.workspace = true
+# The metadata write queue sniffs a file's format from its content (a RAW gets an `.xmp` sidecar).
+dalica-image.workspace = true
 dalica-library.workspace = true
+# The metadata write queue reads and merge-writes the owned fields (`metawrite`).
+dalica-meta.workspace = true
 dalica-sidecar.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -23,4 +27,6 @@ thiserror.workspace = true
 # Fault points, to show a failed sidecar write leaves the old or the new file.
 dalica-fs = { workspace = true, features = ["faults"] }
 proptest.workspace = true
+# Test photos for the metadata write queue (`tests/metawrite.rs`).
+dalica-scenes.workspace = true
 tempfile.workspace = true

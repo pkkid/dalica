@@ -962,7 +962,10 @@ version = "0.0.0"
 dependencies = [
  "dalica-core",
  "dalica-fs",
+ "dalica-image",
  "dalica-library",
+ "dalica-meta",
+ "dalica-scenes",
  "dalica-sidecar",
  "proptest",
  "serde",

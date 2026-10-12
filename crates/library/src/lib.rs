@@ -18,6 +18,7 @@
 mod model;
 mod op;
 mod query;
+pub mod sync;
 pub mod tags;
 mod tree;
 
