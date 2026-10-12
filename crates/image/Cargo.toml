@@ -17,6 +17,9 @@ log.workspace = true
 moxcms.workspace = true
 png.workspace = true
 thiserror.workspace = true
+# TIFF strips and tiles (LZW, Deflate, PackBits, JPEG, predictors): pure Rust, MIT. Our own reader
+# walks the IFDs and checks the limits first (formats/tiff.rs).
+tiff.workspace = true
 zune-jpeg.workspace = true
 
 [dev-dependencies]
