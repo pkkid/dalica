@@ -1310,7 +1310,7 @@ filled by the lead; M5.15 pins it.
   - done when: `cargo test -p dalica-scenes`: every writer is deterministic (same seed, same
     bytes); each file sniffs as its format and reads back through the `image` crate's own decoder
     (or a structural check for PSD and ICC); profiles parse with `moxcms`.
-- ⬜ **M5.3 `fs`: writes through a held folder handle and stale temp cleanup**
+- ✅ **M5.3 `fs`: writes through a held folder handle and stale temp cleanup**
   - after: M1.2, M1.3
   - files: `crates/fs/src/atomic.rs`, `crates/fs/src/dirfd.rs`, `crates/fs/src/stale.rs`, `crates/fs/src/faults.rs`, `crates/fs/tests/dirfd.rs`, `crates/fs/tests/stale.rs`, `crates/fs/README.md`, `docs/security.md`
   - scope: `security.md` §5.6: on Unix, `atomic::replace` opens the target's folder once

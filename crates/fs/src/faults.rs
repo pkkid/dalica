@@ -10,9 +10,16 @@
 //! A fault fires once. [`arm`] applies to the calling thread only, so parallel tests do not see
 //! each other's faults; [`arm_global`] applies to whichever thread reaches the point first, for
 //! tests whose writes happen on a worker thread. Without the feature, [`hit`] is a constant `None`.
+//!
+//! [`run_at`] plants a change instead of a failure: the hook runs when the calling thread next
+//! reaches the point, just before the step, so a test can swap a folder for a link at the exact
+//! moment between validation and write (`security.md` §5.6).
 
 /// The fault points, in the order an atomic replace or an append reaches them.
 pub mod points {
+    /// Opening the target's folder once, after it was validated (the handle every later step of an
+    /// atomic replace works relative to on Unix).
+    pub const OPEN_DIR: &str = "atomic.open_dir";
     /// Creating the temporary file next to the target.
     pub const CREATE_TEMP: &str = "atomic.create_temp";
     /// Writing the new bytes into the temporary file.
@@ -31,13 +38,19 @@ pub mod points {
     pub const APPEND_FSYNC: &str = "append.fsync";
     /// One rename while rotating log files.
     pub const ROTATE: &str = "append.rotate";
+    /// Removing one stale temporary file (`stale::remove_stale_temps`).
+    pub const STALE_REMOVE: &str = "stale.remove";
 }
 
 /// The atomic-replace points, in order.
-pub const ATOMIC_POINTS: [&str; 6] = [points::CREATE_TEMP, points::WRITE, points::FSYNC, points::RENAME, points::FSYNC_DIR, points::VERIFY];
+pub const ATOMIC_POINTS: [&str; 7] =
+    [points::OPEN_DIR, points::CREATE_TEMP, points::WRITE, points::FSYNC, points::RENAME, points::FSYNC_DIR, points::VERIFY];
 
 /// The append and rotate points.
 pub const APPEND_POINTS: [&str; 3] = [points::APPEND_WRITE, points::APPEND_FSYNC, points::ROTATE];
+
+/// The stale-temporary cleanup points.
+pub const STALE_POINTS: [&str; 1] = [points::STALE_REMOVE];
 
 /// How an armed fault point fails.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -55,8 +68,12 @@ mod armed {
 
     use super::Fault;
 
+    /// A change a test plants at a point ([`super::run_at`]).
+    type Hook = Box<dyn FnOnce()>;
+
     thread_local! {
         static LOCAL: RefCell<Vec<(&'static str, Fault)>> = const { RefCell::new(Vec::new()) };
+        static HOOKS: RefCell<Vec<(&'static str, Hook)>> = const { RefCell::new(Vec::new()) };
     }
     static GLOBAL: Mutex<Vec<(&'static str, Fault)>> = Mutex::new(Vec::new());
 
@@ -68,8 +85,13 @@ mod armed {
         GLOBAL.lock().unwrap_or_else(PoisonError::into_inner).push((point, fault));
     }
 
+    pub fn run_at(point: &'static str, hook: Hook) {
+        HOOKS.with(|h| h.borrow_mut().push((point, hook)));
+    }
+
     pub fn disarm_all() {
         LOCAL.with(|l| l.borrow_mut().clear());
+        HOOKS.with(|h| h.borrow_mut().clear());
         GLOBAL.lock().unwrap_or_else(PoisonError::into_inner).clear();
     }
 
@@ -79,6 +101,15 @@ mod armed {
     }
 
     pub fn hit(point: &str) -> Option<Fault> {
+        // Taken out first and run after the borrow ends, so a hook may itself reach fault points.
+        let hook = HOOKS.with(|h| {
+            let mut h = h.borrow_mut();
+            let i = h.iter().position(|(p, _)| *p == point)?;
+            Some(h.remove(i).1)
+        });
+        if let Some(hook) = hook {
+            hook();
+        }
         LOCAL.with(|l| take(&mut l.borrow_mut(), point)).or_else(|| take(&mut GLOBAL.lock().unwrap_or_else(PoisonError::into_inner), point))
     }
 }
@@ -95,7 +126,14 @@ pub fn arm_global(point: &'static str, fault: Fault) {
     armed::arm_global(point, fault);
 }
 
-/// Disarms the calling thread's faults and every global one.
+/// Runs `hook` when the calling thread next reaches `point`, just before that step (once). Tests use
+/// it to change the disk at an exact moment, such as swapping the target's folder for a link.
+#[cfg(feature = "faults")]
+pub fn run_at(point: &'static str, hook: impl FnOnce() + 'static) {
+    armed::run_at(point, Box::new(hook));
+}
+
+/// Disarms the calling thread's faults and hooks, and every global fault.
 #[cfg(feature = "faults")]
 pub fn disarm_all() {
     armed::disarm_all();
@@ -136,5 +174,28 @@ mod tests {
         arm(points::FSYNC, Fault::Crash);
         disarm_all();
         assert_eq!(hit(points::FSYNC), None);
+    }
+
+    #[test]
+    fn a_hook_runs_once_before_its_point_on_its_own_thread() {
+        use std::cell::Cell;
+        use std::rc::Rc;
+        let runs = Rc::new(Cell::new(0));
+        let r = Rc::clone(&runs);
+        run_at(points::OPEN_DIR, move || r.set(r.get() + 1));
+        arm(points::OPEN_DIR, Fault::Error);
+        assert!(std::thread::spawn(|| hit(points::OPEN_DIR)).join().unwrap().is_none());
+        assert_eq!(hit(points::WRITE), None);
+        assert_eq!(runs.get(), 0);
+        // The hook runs, then the armed fault still fires.
+        assert_eq!(hit(points::OPEN_DIR), Some(Fault::Error));
+        assert_eq!(runs.get(), 1);
+        assert_eq!(hit(points::OPEN_DIR), None);
+        assert_eq!(runs.get(), 1);
+        let r = Rc::clone(&runs);
+        run_at(points::RENAME, move || r.set(r.get() + 10));
+        disarm_all();
+        assert_eq!(hit(points::RENAME), None);
+        assert_eq!(runs.get(), 1);
     }
 }
