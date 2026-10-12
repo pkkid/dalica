@@ -237,7 +237,6 @@ struct T {
     conn: Connection,
     d: Driver,
     ids: Vec<u64>,
-    extra: PathBuf,
 }
 
 fn setup(n: usize) -> T {
@@ -254,11 +253,10 @@ fn setup(n: usize) -> T {
     s.wait_idle();
     let found = s.execute("library.query", &json!({ "limit": 10000 })).unwrap();
     let ids = found["photos"].as_array().unwrap().iter().map(|p| p["id"].as_u64().unwrap()).collect();
-    let extra = dir.path().join("extra");
-    let control = Control::new(Config { read_roots: vec![extra.clone()], ..Config::default() });
+    let control = Control::new(Config::default());
     let mut d = Driver::new(App::with_picker(Some(s), control.picker()), 1400, 900, 1.0);
     d.settle(FRAMES).unwrap();
-    T { _dir: dir, control, conn: Connection::new(), d, ids, extra }
+    T { _dir: dir, control, conn: Connection::new(), d, ids }
 }
 
 fn call(t: &mut T, method: &str, params: Value) -> Reply {
@@ -432,16 +430,32 @@ fn invoking_items_runs_refuses_or_opens_them_like_a_click() {
     // A UI command.
     assert_eq!(ok(&mut t, "ui.menu.invoke", json!({ "path": "Edit/Select None" })), json!({ "selection": [] }));
     assert!(t.d.state().selection.ids.is_empty());
-    // A dialog item opens its dialog; the picker is answered as usual.
+    // A dialog item opens its dialog: File ▸ Add Folder… the Folder Manager (`organizing.md` §2),
+    // with the folder selected in the library pre-selected; it takes no params.
     assert_eq!(code(&mut t, "ui.menu.invoke", json!({ "path": "File/Add Folder…", "params": { "path": "/x" } })), "bad_params");
-    assert_eq!(ok(&mut t, "ui.menu.invoke", json!({ "path": "File/Add Folder" })), json!({ "dialog": "filePicker" }));
-    assert!(t.control.stub().waiting().is_some());
-    assert_eq!(code(&mut t, "ui.menu.invoke", json!({ "id": "folders.add" })), "disabled", "one folder dialog at a time");
-    let inside = t.extra.join("2026-07 More");
-    std::fs::create_dir_all(&inside).unwrap();
-    let r = ok(&mut t, "ui.filePicker", json!({ "path": inside }));
-    assert_eq!(r["new"], true);
-    assert_eq!(t.d.app().session().unwrap().roots().len(), 2);
+    let (folder, path) = {
+        let library = t.d.app().session().unwrap().library();
+        let f = library.folders().find(|f| library.photos().any(|p| p.folder == f.id)).unwrap();
+        (f.id, f.path.clone())
+    };
+    t.d.app_mut().state_mut().folder = Some(folder);
+    assert_eq!(ok(&mut t, "ui.menu.invoke", json!({ "path": "File/Add Folder" })), json!({ "dialog": "folderManager" }));
+    let dialog = ok(&mut t, "ui.inspect", json!({}))["dialog"].clone();
+    assert_eq!(dialog["kind"], "folderManager");
+    assert_eq!(dialog["fields"]["selected"].as_str(), path.to_str(), "{dialog}");
+    assert!(t.control.stub().waiting().is_none(), "no folder picker");
+    assert_eq!(code(&mut t, "ui.menu.invoke", json!({ "id": "folders.manager" })), "disabled", "one Folder Manager at a time");
+    assert_eq!(ok(&mut t, "ui.dialog.cancel", json!({})), json!({}));
+    // Folder ▸ Remove from Dalica… asks Remove Folder, naming the folder; the answer removes it in
+    // one undo step.
+    let steps = t.d.app().session().unwrap().undo_stack().len();
+    assert_eq!(ok(&mut t, "ui.menu.invoke", json!({ "path": "Folder/Remove from Dalica" })), json!({ "dialog": "removeFolder" }));
+    let dialog = ok(&mut t, "ui.inspect", json!({}))["dialog"].clone();
+    assert_eq!((dialog["title"].as_str(), dialog["command"]["id"].as_str()), (Some("Remove Folder"), Some("folder.remove")));
+    assert_eq!(dialog["command"]["params"]["id"], folder.get());
+    ok(&mut t, "ui.dialog.confirm", json!({}));
+    let session = t.d.app().session().unwrap();
+    assert_eq!((session.library().photos().count(), session.undo_stack().len()), (0, steps + 1));
     // `methods` lists both as built.
     let methods = ok(&mut t, "methods", json!({}));
     for m in ["ui.menu.tree", "ui.menu.invoke"] {

@@ -1,14 +1,17 @@
 //! Every interactive widget drawn has an automation id, unique within its frame and in the grammar
 //! of `control-protocol.md` §7 (M2.1). The window is driven headlessly at 1400 × 900 and 900 × 600
 //! through the states M1 can reach: a library open with nothing selected, a photo selected and
-//! starred, the light table scrolled to a later folder, and the File menu open. In each, the list
-//! of interactive egui widgets with no id must be empty.
+//! starred, the light table scrolled to a later folder, the File menu open, the Folder Manager
+//! opened from File ▸ Add Folder… and the Remove Folder question of Folder ▸ Remove from Dalica….
+//! In each, the list of interactive egui widgets with no id must be empty.
 
 use std::collections::{BTreeSet, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 
 use dalica_engine::Session;
+use dalica_scan::Places;
+use dalica_ui::dialogs::folder_manager::draft::Draft;
 use dalica_ui::{App, Driver, ScriptedPicker};
 use dalica_ui_kit::WidgetInfo;
 use dalica_ui_kit::registry::{self, Role};
@@ -28,6 +31,9 @@ fn session(root: &Path) -> Session {
     }
     assert_eq!(folders.len(), 2);
     let mut s = Session::open(&root.join("library"), Arc::new(dalica_core::SystemClock)).unwrap();
+    // The Folder Manager lists planted places, not this machine's.
+    std::fs::create_dir_all(root.join("home").join("Pictures")).unwrap();
+    s.set_places(Places::under(&root.join("home")), Vec::new());
     for folder in &folders {
         s.execute("folders.add", &serde_json::json!({ "path": folder })).unwrap();
     }
@@ -113,12 +119,39 @@ fn every_interactive_widget_has_a_unique_id_at_both_window_sizes() {
         assert_eq!(handle_after, handle_before, "the speed thumb rests at the centre");
         assert_ne!(ids_of(&widgets, Role::Thumbnail).first(), Some(&first), "other cells are on screen");
 
-        // The File menu open: its item is listed under the command it runs.
+        // The File menu open: its item is listed under the command it runs, the Folder Manager's.
         d.click("menu:File").unwrap();
         let widgets = check(&d, size, "File menu open");
-        let item = find(&widgets, "menuitem:folders.add");
+        let item = find(&widgets, "menuitem:folders.manager");
         assert!(item.enabled && item.role == Role::MenuItem && item.label == "Add Folder…");
         assert!(find(&widgets, "menu:File").active, "the open menu's title is active");
+
+        // File ▸ Add Folder… opens the Folder Manager with the folder selected in the tree
+        // pre-selected.
+        let folder = dalica_core::FolderId::new(rows[1].trim_start_matches("tree:folder:").parse().unwrap());
+        assert_eq!(d.state().folder, Some(folder));
+        let path = d.app().session().unwrap().library().folder(folder).unwrap().path.clone();
+        d.click("menuitem:folders.manager").unwrap();
+        d.settle(FRAMES).unwrap();
+        let widgets = check(&d, size, "Folder Manager");
+        assert!(find(&widgets, "dialog:folderManager").rect[2] > 0.0);
+        let fm = d.state().dialogs.iter().find(|d| d.kind.name() == "folderManager").unwrap();
+        assert_eq!(Draft::read(&fm.fields).selected.as_deref(), path.to_str());
+        d.click("button:dialog.cancel").unwrap();
+        assert!(d.state().dialogs.is_empty());
+
+        // Folder ▸ Remove from Dalica… asks first: the question names the folder; Cancel keeps it.
+        d.click("menu:Folder").unwrap();
+        let widgets = check(&d, size, "Folder menu open");
+        let item = find(&widgets, "menuitem:folder.remove");
+        assert!(item.enabled && item.label == "Remove from Dalica…");
+        d.click("menuitem:folder.remove").unwrap();
+        d.settle(FRAMES).unwrap();
+        let widgets = check(&d, size, "Remove Folder");
+        assert!(find(&widgets, "button:dialog.removeFolder").enabled);
+        d.click("button:dialog.cancel").unwrap();
+        assert!(d.state().dialogs.is_empty());
+        assert!(d.app().session().unwrap().library().folder(folder).is_some(), "Cancel keeps the folder");
     }
 }
 

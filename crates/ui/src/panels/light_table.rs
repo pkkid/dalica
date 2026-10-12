@@ -382,7 +382,7 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui, area: Rect, bar: Rect) {
         p.light_table.info = FrameInfo { area: Some(area), ..FrameInfo::default() };
         perf::count(ui.ctx(), Counter::CellsVisited, 0);
         if session.roots().is_empty() && session.library().folders().next().is_none() {
-            empty_state(p, app, ui, area);
+            empty_state(app, ui, area);
         }
         return;
     }
@@ -511,13 +511,14 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui, area: Rect, bar: Rect) {
     }
 }
 
-/// "No pictures yet" with Add a Folder… and Import… (`ui-layout.md` §5.3), centred in `area`.
-fn empty_state(p: &mut Panels, app: &mut App, ui: &mut Ui, area: Rect) {
+/// "No pictures yet" with Add a Folder… and Import… (`ui-layout.md` §5.3), centred in `area`. Add a
+/// Folder… opens the Folder Manager, as File ▸ Add Folder… does (`organizing.md` §2).
+fn empty_state(app: &mut App, ui: &mut Ui, area: Rect) {
     let t = *app.tokens();
     let mut child = ui.new_child(UiBuilder::new().id_salt("lightTable.empty").max_rect(area));
     let body = "Add a folder of photos to see them here, or import them from a camera or a card.";
     widgets::empty_state(&mut child, &t, EMPTY_ID, "No pictures yet", body, None);
-    let can_pick = app.can_pick_folder().is_ok();
+    let can_add = crate::dialogs::can_open(app, crate::dialogs::DialogKind::FolderManager).is_ok();
     let can_import = available(app, "import.open");
     let width = |label: &str| {
         let g = child.painter().layout_no_wrap(label.to_owned(), fonts::semibold(t.button_label), t.text);
@@ -533,7 +534,7 @@ fn empty_state(p: &mut Panels, app: &mut App, ui: &mut Ui, area: Rect) {
     };
     let added = child
         .scope_builder(slot(left, wa), |ui| {
-            if !can_pick {
+            if !can_add {
                 ui.disable();
             }
             widgets::primary_button(ui, &t, ADD_FOLDER_ID, add).clicked()
@@ -548,7 +549,7 @@ fn empty_state(p: &mut Panels, app: &mut App, ui: &mut Ui, area: Rect) {
         })
         .inner;
     if added {
-        p.add_folder();
+        let _ = app.run("folders.manager", &serde_json::json!({}));
     }
     if imported {
         let _ = app.run("import.open", &serde_json::json!({}));
