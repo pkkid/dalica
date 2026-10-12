@@ -5,7 +5,8 @@
 //! the watcher off, through the verification pass alone. A moved folder keeps its stars, a stale
 //! temporary file is removed and a fresh one kept, a missing photo's sidecar entry survives 29
 //! days and is gone after 31, and an emptied root (an unmounted volume's mount point) removes
-//! nothing. The owner thread is marked as the UI thread: it makes no `fs` call. File changes the
+//! nothing; such a root (or one on another device without the library's files) counts as offline
+//! and gets no sidecar. The owner thread is marked as the UI thread: it makes no `fs` call. File changes the
 //! test makes itself run on a helper thread.
 
 use std::path::{Path, PathBuf};
@@ -13,9 +14,11 @@ use std::sync::Arc;
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
 use dalica_core::{Clock, PhotoId, SystemClock, Timestamp, VirtualClock};
+use dalica_engine::offline::{CHECK_EVERY, RootProbe, SETTLE};
 use dalica_engine::watching::{FIRST_VERIFICATION, FULL_VERIFICATION, WatchMode};
-use dalica_engine::{CacheDir, JobKind, Options, Session, ThumbOptions};
+use dalica_engine::{CacheDir, CmdError, JobKind, Options, Session, ThumbOptions};
 use dalica_fs::Expect;
+use dalica_scan::volumes::{RootState, root_state};
 use dalica_sidecar::{Field, Limits, Sidecar};
 use serde_json::{Value, json};
 
@@ -461,6 +464,110 @@ fn the_systems_events_reach_the_library() {
     until(&mut s, "the new photo", &|s| photo(s, &lisbon, "IMG_0003.jpg").is_some());
     remove(&lisbon.join("IMG_0001.jpg"));
     until(&mut s, "the removal", &|s| photo(s, &lisbon, "IMG_0001.jpg").is_none());
+    drop(ui);
+    assert_eq!(dalica_fs::guard::refused(), 0);
+}
+
+/// A card with a photo at its root and one in a folder, scanned, watcher off, checked online.
+fn card(fx: &Fx) -> (Session, PathBuf, PhotoId) {
+    let card = fx.outside.join("CARD");
+    put(&card.join("IMG_0001.jpg"), 31);
+    put(&card.join("Trip").join("IMG_0002.jpg"), 32);
+    let mut s = fx.open(WatchMode::Off);
+    s.execute("folders.add", &json!({ "path": card })).unwrap();
+    s.wait_idle();
+    assert!(s.refresh_volumes(PATIENCE));
+    assert_eq!(s.root_online(&card), Some(true));
+    let id = photo(&s, &card, "IMG_0001.jpg").unwrap();
+    (s, card, id)
+}
+
+/// Advances to the next online check and waits for it.
+fn check(fx: &Fx, s: &mut Session) {
+    fx.clock.advance(CHECK_EVERY);
+    assert!(s.refresh_volumes(PATIENCE));
+}
+
+/// Data safety (M5.13's open item): a root left as an empty folder (the mount point of an
+/// unmounted volume) counts as offline. A star made meanwhile is journalled and reported unsaved,
+/// and no sidecar appears in the empty folder; once the files are back the star is written.
+#[test]
+fn an_emptied_mount_point_is_offline_and_gets_no_sidecar() {
+    let fx = Fx::new();
+    let (mut s, card, id) = card(&fx);
+    let ui = dalica_fs::mark_ui_thread();
+    let away = fx.outside.join("CARD (volume)");
+    rename(&card, &away);
+    off_owner({
+        let card = card.clone();
+        move || std::fs::create_dir(card).unwrap()
+    });
+    check(&fx, &mut s);
+    assert_eq!(s.root_online(&card), Some(false), "an empty folder where the library has photos is offline");
+    s.execute("photo.star.set", &json!({ "ids": [id], "on": true })).unwrap();
+    assert!(s.library().photo(id).unwrap().star, "the star is applied and journalled");
+    s.poll();
+    assert!(matches!(s.flush(), Err(CmdError::Unsaved(m)) if m.contains("not there")), "reported unsaved");
+    assert!(!exists(&card.join(".dalica.json")), "no sidecar in the empty mount point");
+    assert_eq!(s.pending_writes().map(|p| p.sidecars), Some(1));
+
+    // The volume is back: the star is written.
+    remove(&card);
+    rename(&away, &card);
+    check(&fx, &mut s);
+    assert_eq!(s.root_online(&card), Some(true));
+    s.flush().unwrap();
+    assert_eq!(fx.sidecar(&card)["photos"]["IMG_0001.jpg"]["star"], json!(true));
+    fx.clock.advance(SETTLE);
+    assert!(s.refresh_volumes(PATIENCE));
+    assert_eq!(s.pending_writes(), None);
+    drop(ui);
+    assert_eq!(dalica_fs::guard::refused(), 0);
+}
+
+/// A root whose device changed and that holds none of the library's files (another volume mounted
+/// in its place) is offline and gets no sidecar; one on a new device that holds the library's
+/// files (a drive plugged in again under a new device number) is accepted. Device ids are Unix
+/// only; the probe is planted to stand for the other device.
+#[cfg(unix)]
+#[test]
+fn a_root_on_another_device_is_offline_unless_its_files_are_there() {
+    use std::sync::atomic::{AtomicU8, Ordering};
+    let fx = Fx::new();
+    let (mut s, card, id) = card(&fx);
+    // 0: as it is; 1: another device without our files; 2: another device with them.
+    let swap = Arc::new(AtomicU8::new(0));
+    let probe: RootProbe = {
+        let swap = Arc::clone(&swap);
+        Arc::new(move |root: &Path, samples: &[PathBuf]| {
+            let real = root_state(root, samples);
+            match swap.load(Ordering::SeqCst) {
+                0 => real,
+                n => RootState { device: real.device.map(|d| d ^ 0xff), known: n == 2, ..real },
+            }
+        })
+    };
+    s.set_root_probe(Some(probe));
+    check(&fx, &mut s);
+    assert_eq!(s.root_online(&card), Some(true), "the device is remembered");
+    let ui = dalica_fs::mark_ui_thread();
+
+    swap.store(1, Ordering::SeqCst);
+    check(&fx, &mut s);
+    assert_eq!(s.root_online(&card), Some(false), "another device without our files");
+    s.execute("photo.star.set", &json!({ "ids": [id], "on": true })).unwrap();
+    s.poll();
+    assert!(matches!(s.flush(), Err(CmdError::Unsaved(m)) if m.contains("not there")));
+    assert!(!exists(&card.join(".dalica.json")), "nothing written while held, though the folder is there");
+
+    swap.store(2, Ordering::SeqCst);
+    check(&fx, &mut s);
+    assert_eq!(s.root_online(&card), Some(true), "a new device holding our files is accepted");
+    s.flush().unwrap();
+    assert_eq!(fx.sidecar(&card)["photos"]["IMG_0001.jpg"]["star"], json!(true));
+    // The new device is remembered from now on.
+    check(&fx, &mut s);
+    assert_eq!(s.root_online(&card), Some(true));
     drop(ui);
     assert_eq!(dalica_fs::guard::refused(), 0);
 }

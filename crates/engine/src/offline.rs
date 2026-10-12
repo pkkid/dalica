@@ -17,6 +17,15 @@
 //!   directory (written through the I/O worker, read by the checker), so a write still waiting
 //!   when the app quits is made when the root is next found online, after any restart.
 //!
+//! - **Mount points** (M5.17): a reachable root still counts as offline when it holds no entries
+//!   while the library has photos under it (the empty folder an unmounted volume leaves at its
+//!   mount point), or when its device changed since it was last seen with entries and none of the
+//!   library's files under it is there (another volume mounted in its place; a replugged drive
+//!   with a new device number but the same files is accepted). Device ids are Unix `st_dev`; on
+//!   Windows only the first rule applies. The roots found offline are sent to the I/O worker
+//!   (`Msg::Hold`): the writer writes nothing under them, even where a folder is there, and the
+//!   edit is reported unsaved as for a missing folder.
+//!
 //! Which edits wait: the writer gets every edit within about a second, so when a root is found
 //! offline, the folders under it changed since [`SETTLE`] before the last check that saw it online
 //! are counted as waiting (a few already written may be counted, and are rewritten harmlessly:
@@ -35,6 +44,8 @@ use dalica_core::{FolderId, Timestamp};
 use serde::Serialize;
 use serde_json::{Value, json};
 
+use dalica_scan::volumes::RootState;
+
 use crate::scanning::ScanProgress;
 use crate::session::{Msg, Session};
 
@@ -50,10 +61,16 @@ pub const PENDING_FILE: &str = "pending-writes.json";
 const PENDING_CAP: u64 = 16 << 20;
 /// Recent checks remembered for [`SETTLE`] look-ups.
 const HISTORY: usize = 64;
+/// How many of the library's photo paths under a root each check looks for.
+pub const SAMPLES: usize = 8;
 
 /// Says whether a watched root can be reached. Runs on the checker thread; the default is
 /// `dalica_scan::volumes::online`. Tests plant gated or recording ones.
 pub type OnlineCheck = Arc<dyn Fn(&Path) -> bool + Send + Sync>;
+
+/// Looks at a reachable root (with sample paths of the library's photos under it). Runs on the
+/// checker thread; the default is `dalica_scan::volumes::root_state`. Tests plant others.
+pub type RootProbe = Arc<dyn Fn(&Path, &[PathBuf]) -> RootState + Send + Sync>;
 
 /// `library.inspect` → `pendingWrites` (`control-protocol.md` §5.8): writes still to make.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
@@ -74,8 +91,10 @@ enum Request {
     Load(PathBuf, Timestamp),
     Check {
         seq: u64,
-        roots: Vec<PathBuf>,
+        /// Each root with sample paths of the library's photos under it.
+        roots: Vec<(PathBuf, Vec<PathBuf>)>,
         check: OnlineCheck,
+        probe: RootProbe,
     },
 }
 
@@ -84,7 +103,8 @@ enum Answer {
     Loaded(Vec<PathBuf>),
     Checked {
         seq: u64,
-        roots: Vec<(PathBuf, bool)>,
+        /// Each root, whether it is reachable, and what the probe saw of it if so.
+        roots: Vec<(PathBuf, bool, Option<RootState>)>,
     },
 }
 
@@ -132,6 +152,11 @@ pub(crate) struct Offline {
     pending: BTreeMap<FolderId, Wait>,
     /// What `pending-writes.json` holds; `None` until it was read (never written before that).
     saved: Option<Vec<PathBuf>>,
+    probe: RootProbe,
+    /// Each root's device when it was last seen online with entries.
+    devices: BTreeMap<PathBuf, u64>,
+    /// The roots last sent to the writer as held.
+    held: Option<Vec<PathBuf>>,
 }
 
 impl Default for Offline {
@@ -153,6 +178,9 @@ impl Default for Offline {
             seen_revision: 0,
             pending: BTreeMap::new(),
             saved: None,
+            probe: Arc::new(dalica_scan::volumes::root_state),
+            devices: BTreeMap::new(),
+            held: None,
         }
     }
 }
@@ -183,13 +211,14 @@ fn checker(rx: Receiver<Request>, tx: Sender<Answer>) {
     while let Ok(request) = rx.recv() {
         let answer = match request {
             Request::Load(path, now) => Answer::Loaded(load_pending(&path, now)),
-            Request::Check { seq, roots, check } => {
-                // A check that panics counts as offline: the writes wait, nothing is lost.
+            Request::Check { seq, roots, check, probe } => {
+                // A check or probe that panics counts as offline: the writes wait, nothing is lost.
                 let roots = roots
                     .into_iter()
-                    .map(|r| {
+                    .map(|(r, samples)| {
                         let online = catch_unwind(AssertUnwindSafe(|| check(&r))).unwrap_or(false);
-                        (r, online)
+                        let state = if online { catch_unwind(AssertUnwindSafe(|| probe(&r, &samples))).ok() } else { None };
+                        (r, online && state.is_some(), state)
                     })
                     .collect();
                 Answer::Checked { seq, roots }
@@ -300,22 +329,33 @@ impl Session {
                 self.offline.in_flight = None;
                 self.offline.answered = seq;
                 let mut changed = 0;
-                let answered: BTreeSet<PathBuf> = roots.iter().map(|(p, _)| p.clone()).collect();
-                for (root, online) in roots {
-                    let before = self.offline.roots.get(&root).copied();
+                let answered: BTreeSet<PathBuf> = roots.iter().map(|(p, ..)| p.clone()).collect();
+                let judged: Vec<(PathBuf, bool, Option<Root>)> = roots
+                    .into_iter()
+                    .map(|(root, reachable, state)| {
+                        let online = self.judge(&root, reachable, state);
+                        let before = self.offline.roots.get(&root).copied();
+                        (root, online, before)
+                    })
+                    .collect();
+                for (root, online, before) in &judged {
+                    let seen_online = if *online { Some(sent) } else { before.and_then(|b| b.seen_online) };
+                    self.offline.roots.insert(root.clone(), Root { online: *online, seen_online });
+                }
+                self.offline.roots.retain(|p, _| answered.contains(p));
+                // The writer learns the held roots before any waiting folder is marked dirty again.
+                self.sync_hold();
+                for (root, online, before) in judged {
                     if online {
                         self.release_root(&root, sent);
                     } else if before.is_none_or(|b| b.online) {
                         self.hold_root(&root, before.and_then(|b| b.seen_online));
                     }
-                    let seen_online = if online { Some(sent) } else { before.and_then(|b| b.seen_online) };
-                    self.offline.roots.insert(root, Root { online, seen_online });
                     // A root never checked counted as online.
                     if before.map_or(!online, |b| b.online != online) {
                         changed += 1;
                     }
                 }
-                self.offline.roots.retain(|p, _| answered.contains(p));
                 self.offline.history.push_back((sent, revision));
                 while self.offline.history.len() > HISTORY {
                     if let Some((_, rev)) = self.offline.history.pop_front() {
@@ -324,6 +364,35 @@ impl Session {
                 }
                 changed
             }
+        }
+    }
+
+    /// Whether a root counts as online: reachable, not an empty folder where the library has
+    /// photos, and not on another device with none of the library's files there. Remembers the
+    /// device of a root seen online with entries.
+    fn judge(&mut self, root: &Path, reachable: bool, state: Option<RootState>) -> bool {
+        let Some(st) = state.filter(|_| reachable) else { return false };
+        if st.empty && !st.known {
+            return false;
+        }
+        if let (Some(now), Some(&was)) = (st.device, self.offline.devices.get(root))
+            && now != was
+            && !st.known
+        {
+            return false;
+        }
+        if let Some(d) = st.device.filter(|_| !st.empty) {
+            self.offline.devices.insert(root.to_path_buf(), d);
+        }
+        true
+    }
+
+    /// Sends the writer the roots found offline when they changed.
+    fn sync_hold(&mut self) {
+        let off: Vec<PathBuf> = self.offline.offline_roots().cloned().collect();
+        if self.offline.held.as_ref() != Some(&off) {
+            self.offline.held = Some(off.clone());
+            self.send(Msg::Hold(off));
         }
     }
 
@@ -407,7 +476,8 @@ impl Session {
         }
         let seq = self.offline.next_seq;
         let roots = self.roots().to_vec();
-        let request = Request::Check { seq, roots: roots.clone(), check: Arc::clone(&self.offline.check) };
+        let with_samples = roots.iter().map(|r| (r.clone(), self.samples(r))).collect();
+        let request = Request::Check { seq, roots: with_samples, check: Arc::clone(&self.offline.check), probe: Arc::clone(&self.offline.probe) };
         if checker.tx.send(request).is_err() {
             return;
         }
@@ -468,6 +538,27 @@ impl Session {
                 }
             }
         }
+    }
+
+    /// Up to [`SAMPLES`] paths of the library's photos under `root` (one pass over the folders,
+    /// once per check).
+    fn samples(&self, root: &Path) -> Vec<PathBuf> {
+        let mut out = Vec::new();
+        for f in self.library.folders().filter(|f| f.path.starts_with(root)) {
+            for p in self.library.photos_in(f.id) {
+                if out.len() >= SAMPLES {
+                    return out;
+                }
+                out.push(f.path.join(&p.name));
+            }
+        }
+        out
+    }
+
+    /// Plants the probe the online checks use on reachable roots (`None`:
+    /// `dalica_scan::volumes::root_state`). It runs on the checker thread.
+    pub fn set_root_probe(&mut self, probe: Option<RootProbe>) {
+        self.offline.probe = probe.unwrap_or_else(|| Arc::new(dalica_scan::volumes::root_state));
     }
 
     /// Plants the function the online checks use (`None`: `dalica_scan::volumes::online`). It

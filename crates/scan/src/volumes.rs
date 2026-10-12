@@ -373,6 +373,40 @@ pub fn online(root: &Path) -> bool {
     std::fs::metadata(root).is_ok_and(|m| m.is_dir())
 }
 
+/// What the online checks see of a reachable watched root, to tell its volume from the empty
+/// folder an unmounted volume leaves at its mount point (`data-model.md` §7, M5.17).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RootState {
+    /// The device the root is on (Unix `st_dev`); `None` where the platform gives none that
+    /// `std` exposes (Windows: not checked).
+    pub device: Option<u64>,
+    /// The root holds no entries at all (or cannot be listed).
+    pub empty: bool,
+    /// One of the sample paths given exists (`true` when none was given): the library's own
+    /// files are there.
+    pub known: bool,
+}
+
+/// Looks at the reachable root `root`: its device, whether it holds anything, and whether any of
+/// `samples` (paths of the library's photos under it) exists. Reads the disk: call it off the UI
+/// thread.
+pub fn root_state(root: &Path, samples: &[PathBuf]) -> RootState {
+    let empty = std::fs::read_dir(root).map_or(true, |mut d| d.next().is_none());
+    let known = samples.is_empty() || samples.iter().any(|p| std::fs::symlink_metadata(p).is_ok());
+    RootState { device: device_of(root), empty, known }
+}
+
+#[cfg(unix)]
+fn device_of(path: &Path) -> Option<u64> {
+    use std::os::unix::fs::MetadataExt;
+    std::fs::metadata(path).ok().map(|m| m.dev())
+}
+
+#[cfg(not(unix))]
+fn device_of(_path: &Path) -> Option<u64> {
+    None
+}
+
 /// A subfolder listed by [`children`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Child {
@@ -410,4 +444,26 @@ pub fn children_capped(path: &Path, cap: usize) -> dalica_fs::Result<Children> {
     let truncated = folders.len() > cap;
     folders.truncate(cap);
     Ok(Children { folders, truncated })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_root_state_tells_an_empty_folder_and_missing_samples() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("CARD");
+        std::fs::create_dir(&root).unwrap();
+        let photo = root.join("IMG_0001.jpg");
+        let empty = root_state(&root, std::slice::from_ref(&photo));
+        assert!(empty.empty && !empty.known);
+        assert_eq!(empty.device.is_some(), cfg!(unix));
+        std::fs::write(&photo, b"x").unwrap();
+        let full = root_state(&root, std::slice::from_ref(&photo));
+        assert!(!full.empty && full.known);
+        assert_eq!(full.device, empty.device);
+        assert!(root_state(&root, &[]).known, "no samples: nothing to miss");
+        assert!(root_state(&dir.path().join("gone"), &[]).empty);
+    }
 }

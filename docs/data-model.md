@@ -324,7 +324,11 @@ their folder header.
   - **Never remove what was not seen:** only what a scan walked to the end may leave the library.
     A root that cannot be walked (offline) keeps everything, and so does a walked root that holds
     no entries at all (the empty mount point an unmounted volume leaves behind; a warning says so
-    when the library holds folders there).
+    when the library holds folders there). The online checks count such a root as **offline**
+    too, and so a root whose device changed (Unix device ids; not checked on Windows) where none
+    of the library's files is found (another volume mounted in its place; a drive plugged in
+    again with a new device number but its files is accepted). Nothing is written under an
+    offline root, even where a folder is there: a sidecar never lands in an empty mount point.
   - **Stale temporaries:** each folder a scan or rescan hands out has its stale atomic-replace
     temporaries removed (`security.md` §5.8).
   - **Stale entries:** a photo deleted outside Dalica leaves the library at once. Its sidecar entry

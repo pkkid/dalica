@@ -66,6 +66,8 @@ pub(crate) enum Msg {
     /// Atomically replace one of the library directory's own files (`folders.json`, `settings.json`).
     Write(PathBuf, Vec<u8>),
     Snapshot(Box<Library>),
+    /// The roots found offline: the writer writes nothing under them (`offline.rs`).
+    Hold(Vec<PathBuf>),
     Flush(Sender<()>),
 }
 
@@ -570,6 +572,7 @@ fn io_worker(mut store: Store, rx: Receiver<Msg>, clock: &dyn Clock, errors: &Mu
                     fail(format!("snapshot: {e}"));
                 }
             }
+            Ok(Msg::Hold(roots)) => writer.hold(roots),
             Ok(Msg::Flush(ack)) => {
                 write(&mut writer, &states, true);
                 let _ = ack.send(());

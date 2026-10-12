@@ -18,7 +18,9 @@
 //! `control-protocol.md` §5.8 says), nothing is written, the folder stays dirty and waits: it is
 //! tried again when it is marked dirty again (the engine does that when the folder's root comes
 //! back) or after [`WAIT_RETRY`], not every second. A folder that left the model meanwhile is
-//! dropped.
+//! dropped. A folder under a root the engine found offline ([`SidecarWriter::hold`]) waits the same
+//! way even if a folder is there: the empty folder an unmounted volume leaves at its mount point
+//! must never get a sidecar (M5.17).
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -161,6 +163,8 @@ pub struct SidecarWriter {
     read_only: BTreeSet<FolderId>,
     /// Dirty folders that were not there, and when the writer last looked.
     waiting: HashMap<FolderId, Timestamp>,
+    /// Roots found offline: nothing under them is written.
+    held: Vec<PathBuf>,
 }
 
 impl SidecarWriter {
@@ -198,6 +202,21 @@ impl SidecarWriter {
         self.read_only.iter().copied()
     }
 
+    /// The roots found offline (replacing the earlier list): folders under them are written as if
+    /// they were not there (they wait, and a flush reports them unsaved). When the list changes, the
+    /// waiting folders are looked at again at their next due write.
+    pub fn hold(&mut self, roots: Vec<PathBuf>) {
+        if roots != self.held {
+            self.held = roots;
+            self.waiting.clear();
+        }
+    }
+
+    /// The roots held (found offline).
+    pub fn held(&self) -> &[PathBuf] {
+        &self.held
+    }
+
     /// Lets writes into `folder` happen again (after the user reset or restored its sidecar).
     pub fn clear_read_only(&mut self, folder: FolderId) {
         self.read_only.remove(&folder);
@@ -221,7 +240,7 @@ impl SidecarWriter {
                 None => self.last_write.get(f).is_none_or(|t| now.since(*t) >= DEBOUNCE),
             })
             .collect();
-        self.write(&state_of, &due, now)
+        self.write(&state_of, &due, now, false)
     }
 
     /// Writes every dirty folder now, whatever the debounce says.
@@ -232,10 +251,18 @@ impl SidecarWriter {
     /// [`Self::flush`] fed with folder states (see [`Self::write_due_with`]).
     pub fn flush_with(&mut self, state_of: impl Fn(FolderId) -> Option<FolderState>, now: Timestamp) -> BTreeMap<FolderId, Outcome> {
         let all: Vec<FolderId> = self.dirty.iter().copied().collect();
-        self.write(&state_of, &all, now)
+        self.write(&state_of, &all, now, true)
     }
 
-    fn write(&mut self, state_of: &impl Fn(FolderId) -> Option<FolderState>, folders: &[FolderId], now: Timestamp) -> BTreeMap<FolderId, Outcome> {
+    /// Writes `folders`. A folder under a held root waits; it is reported (as not there) only by
+    /// a flush (`report_held`), not at every due write: the hold already says why it waits.
+    fn write(
+        &mut self,
+        state_of: &impl Fn(FolderId) -> Option<FolderState>,
+        folders: &[FolderId],
+        now: Timestamp,
+        report_held: bool,
+    ) -> BTreeMap<FolderId, Outcome> {
         let mut out = BTreeMap::new();
         for &f in folders {
             let (outcome, gone) = if self.read_only.contains(&f) {
@@ -244,6 +271,13 @@ impl SidecarWriter {
                 match state_of(f) {
                     // The folder left the model: nothing to write.
                     None => (Outcome::Unchanged, false),
+                    Some(state) if self.held.iter().any(|r| state.path.starts_with(r)) => {
+                        if !report_held {
+                            self.waiting.insert(f, now);
+                            continue;
+                        }
+                        (missing(&state), true)
+                    }
                     Some(state) => match attempt(&state, now) {
                         Attempt::Done(outcome) => (outcome, false),
                         Attempt::Missing => (missing(&state), true),
@@ -277,5 +311,38 @@ impl SidecarWriter {
             out.insert(f, outcome);
         }
         out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use dalica_core::PhotoId;
+    use dalica_library::{Folder, Op, Photo};
+
+    use super::*;
+
+    /// A folder under a held root (an empty mount point) is never written, though it is there:
+    /// due writes pass it over, a flush reports it as not there, and it is written once released.
+    #[test]
+    fn a_held_root_gets_no_sidecar_until_released() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("CARD");
+        std::fs::create_dir(&root).unwrap();
+        let mut lib = Library::new();
+        let f = lib.next_folder_id();
+        lib.apply(Op::AddFolder { folder: Folder { id: f, path: root.clone() } }).unwrap();
+        let id = PhotoId::new(1);
+        let photo = Photo { id, folder: f, name: "a.jpg".into(), size: 1, mtime: Timestamp::EPOCH, width: 1, height: 1, date: None, star: true };
+        lib.apply(Op::AddPhotos { photos: vec![photo] }).unwrap();
+        let mut w = SidecarWriter::new();
+        w.hold(vec![root.clone()]);
+        w.mark_dirty(f);
+        assert!(w.write_due(&lib, Timestamp::EPOCH).is_empty(), "passed over quietly");
+        assert!(matches!(&w.flush(&lib, Timestamp::EPOCH)[&f], Outcome::Failed(m) if m.contains("not there")));
+        assert!(w.is_dirty(f) && !root.join(FILE_NAME).exists());
+        assert_eq!(w.held(), std::slice::from_ref(&root));
+        w.hold(Vec::new());
+        assert_eq!(w.write_due(&lib, Timestamp::EPOCH)[&f], Outcome::Written);
+        assert!(root.join(FILE_NAME).exists());
     }
 }
