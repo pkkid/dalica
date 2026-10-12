@@ -23,14 +23,14 @@ same commit.
 | Section | ✅ | 🟡 | ⬜ | 🚫 |
 |---|---:|---:|---:|---:|
 | A. Library view | 8 | 19 | 5 | 1 |
-| B. Organizing | 0 | 4 | 38 | 0 |
+| B. Organizing | 0 | 6 | 36 | 0 |
 | C. Editing | 0 | 0 | 21 | 4 |
 | D. Viewing | 0 | 1 | 5 | 2 |
 | E. Output | 0 | 0 | 2 | 9 |
 | F. Data | 1 | 15 | 3 | 0 |
 | G. Preferences and system | 0 | 5 | 8 | 0 |
 | H. Menus | 0 | 4 | 3 | 0 |
-| **All** | 9 | 48 | 85 | 16 |
+| **All** | 9 | 50 | 83 | 16 |
 <!-- /parity:summary -->
 
 ## Top gaps
@@ -87,8 +87,8 @@ same commit.
 | ORG-ALBUM-EDIT | Add/remove/reorder/cover/delete album | P0 | ⬜ | |
 | ORG-ALBUM-AUTO | Starred Photos, Recently Updated, Search results albums | P0 | ⬜ | |
 | ORG-STAR | Star toggle everywhere | P0 | 🟡 | library view only: Ctrl+8 / F4 and the bottom-bar star button on the tray's photos (the held ones and the selection) in one undo step (`cmd:photo.star.toggle`, `crates/ui/tests/library_window.rs`, `crates/ui/tests/tray.rs`, `crates/ui/tests/tray_keys.rs`); menus, edit view missing |
-| ORG-TAGS | Tags pane: add, list with partial counts, remove | P1 | ⬜ | |
-| ORG-QUICKTAGS | Quick tags + configure dialog | P2 | ⬜ | |
+| ORG-TAGS | Tags pane: add, list with partial counts, remove | P1 | 🟡 | engine commands only (M6.15): add and remove with commas separating tags and the case rule, one undo step for any number of photos (`cmd:photo.tags.add`, `cmd:photo.tags.remove`), toggle (`cmd:photo.tags.toggle`), counts, partial counts ("beach (3 of 8)") and completion (`cmd:tags.list`), Rename Tag everywhere merging onto an existing tag, asking first (`cmd:tags.rename`): `crates/engine/src/cmd/tags.rs`, `crates/engine/tests/tags.rs`; the pane, its tag menu and the status line's tags field missing (M6.28) |
+| ORG-QUICKTAGS | Quick tags + configure dialog | P2 | 🟡 | engine commands only (M6.15): ten slots and "use the top two buttons for recently used tags" in settings (`cmd:tags.quick.set`, `cmd:tags.quick.get`), applying a slot toggles its tag (`cmd:tags.quick.apply`), Ctrl+Alt+1 … Ctrl+Alt+0 in the library (`cmd:tags.quick.1` … `cmd:tags.quick.10`, no conflict on any platform): `crates/engine/src/cmd/tags.rs`, `crates/engine/tests/tags.rs`; the buttons and Configure Quick Tags missing (M6.31) |
 | ORG-CAPTION | Captions (edit view field, library inline) | P0 | ⬜ | |
 | ORG-HIDE | Hide/unhide photos and folders | P1 | ⬜ | |
 | ORG-FOLDERPROPS | Folder Properties dialog | P0 | ⬜ | |

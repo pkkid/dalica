@@ -230,7 +230,14 @@ status line; Cancel stops after the current file (already-copied files stay). Th
   - **"Quick tags"**: a grid of 10 buttons (rows of 2/3/2/3), unassigned ones show "+"; a gear
     opens **Configure Quick Tags** (checkbox "Use the top two buttons for recently used tags", on;
     10 text fields; [Fill Empty with Common Tags]; [OK] [Cancel]). Clicking a quick tag toggles it
-    on the selection. Keyboard: **Ctrl+Alt+1 … Ctrl+Alt+0** apply quick tags 1–10.
+    on the selection. Keyboard: **Ctrl+Alt+1 … Ctrl+Alt+0** apply quick tags 1–10 (toggling them
+    too). With the recent-tags option on, buttons 1 and 2 show the two tags most recently added
+    through "Add a tag:" (or Add to All Selected) that are not on buttons 3–10, empty until there
+    are such tags; clicking quick tags and toggling do not reorder them, so the buttons stay put.
+- Tag text: commas separate tags typed into "Add a tag:"; each is trimmed, and a tag that differs
+  from one in use only in case takes the spelling in use. A tag is at most 256 bytes; longer ones
+  are refused, not cut. Rename Tag onto an existing tag merges the two (one undo step, asking
+  first).
 - Tags apply to the selection (any folders); show them under thumbnails with View → Thumbnail
   Caption → Tags.
 - Tags are written into JPEG/TIFF/PNG metadata (`data-model.md` §5).

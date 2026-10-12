@@ -197,7 +197,12 @@ commands change nothing and record no undo step.
 | `app.setShortcut` | bind or unbind a key (`{command, context, key}`; `key: null` removes the user's binding); the shortcut editor calls it |
 | `app.resetShortcuts` | drop user overrides (`{command?}`: one command, or all when omitted) |
 | `photo.star.set` | set or clear stars explicitly (`{ids, on}`) |
-| `photo.tags.add` / `photo.tags.remove` | Tags pane and quick tags |
+| `photo.tags.add` / `photo.tags.remove` | add or remove tags (`{ids, tags}`: text with commas separating tags, or a list of whole tags); the Tags pane. Tags added here are the recently used ones |
+| `photo.tags.toggle` | remove a tag from all the photos when all hold it, else add it to all (`{ids, tag}`); the quick tag buttons |
+| `tags.list` | query: every tag with its count, completion for a prefix, or the tags of some photos with partial counts (`{ids?, prefix?}`) |
+| `tags.rename` | rename a tag on every photo, merging onto an existing tag (`{from, to, confirm}`; asks first) |
+| `tags.quick.get` / `tags.quick.set` | the quick tags (`{slots, useRecent}`; `get` also gives what each button applies) |
+| `tags.quick.apply` / `tags.quick.1` … `tags.quick.10` | toggle quick tag n on photos (`{n, ids}`; the numbered ones carry Ctrl+Alt+1 … Ctrl+Alt+0) |
 | `photo.geo.set` | Places pane drop |
 | `photo.inspect` | query: everything known about photos (`{ids}`) |
 | `library.query` | query: search with the search-box grammar, filters and paging |
