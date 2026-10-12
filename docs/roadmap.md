@@ -1991,7 +1991,7 @@ replace at M6.R.
     username, models counted from trailers, no email or author name in the output; `--check` refuses
     each planted fault and passes the real file; the first real `contributors.json` is committed
     (its diff in the PR); `xtask docs` lists the command as implemented.
-- ⬜ **M6.12 The app icon (a candidate for the maintainer)**
+- ✅ **M6.12 The app icon (a candidate for the maintainer)**
   - after: M6.1
   - files: `assets/app-icon/**`, `packaging/icons.sh`, `ATTRIBUTION.md`, `docs/assets.md`, `apps/dalica/src/icon.rs`, `apps/dalica/src/window.rs`
   - scope: `assets.md` §7: an original icon drawn for Dalica in the Craft family's shape (512-unit

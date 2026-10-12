@@ -8,6 +8,7 @@
 
 mod control;
 mod frame;
+mod icon;
 mod logging;
 mod native_menu;
 mod window;

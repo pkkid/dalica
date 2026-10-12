@@ -25,9 +25,14 @@ use crate::frame::{FrameSetup, Tracker};
 /// The OS window to make: the frame's chrome and placement ([`FrameSetup::viewport`]), named with
 /// the application id ([`APP_ID`]). eframe turns it into the Wayland app id and the X11 class
 /// (`WM_CLASS`), which the desktop matches with Dalica's desktop file and icon; without it eframe
-/// would use the app name, "Dalica".
+/// would use the app name, "Dalica". The window's own icon ([`crate::icon`]) shows where no
+/// desktop file is installed (a binary run from the build folder) and on Windows and macOS.
 pub fn viewport(frame: &FrameSetup) -> ViewportBuilder {
-    frame.viewport().with_app_id(APP_ID)
+    let viewport = frame.viewport().with_app_id(APP_ID);
+    match crate::icon::window_icon() {
+        Some(icon) => viewport.with_icon(icon),
+        None => viewport,
+    }
 }
 
 /// Native folder dialogs through `rfd` (the XDG portal on Linux). Called on a dialog thread.
@@ -377,6 +382,11 @@ mod tests {
                 let v = super::viewport(&frame);
                 assert_eq!(v.app_id.as_deref(), Some(dalica_core::app_id::APP_ID));
                 assert_eq!(v.app_id.as_deref(), Some("org.dalica.Dalica"));
+                // And carries the app icon.
+                let icon = v.icon.as_deref().expect("the window sets its icon");
+                let side = if cfg!(target_os = "macos") { 1024 } else { 256 };
+                assert_eq!((icon.width, icon.height), (side, side));
+                assert_eq!(icon.rgba.len(), (side * side * 4) as usize);
                 // The rest of the frame is the frame's own.
                 assert_eq!(v.title, frame.viewport().title);
                 assert_eq!(v.decorations, frame.viewport().decorations);
