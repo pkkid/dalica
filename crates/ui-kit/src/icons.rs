@@ -6,9 +6,15 @@
 //! largest square that fits `rect`; [`paint_activity`] draws the spinner at an animation step.
 //! Sizes (§5): 16 tree rows and menus, 18 toolbar toggles, 20 edit tools, 28 big action buttons,
 //! 12 thumbnail badges; the caption glyphs read best at 10–12 inside their 46 × 24 buttons.
+//!
+//! The Folder Manager's folder states and root icons are a set of their own, [`FolderIcon`]
+//! ([`paint_folder`]; `icons/folder_modes.rs`).
 
+mod folder_modes;
 mod glyphs;
 mod pen;
+
+pub use folder_modes::{FolderIcon, INHERITED_OPACITY, paint_folder, state_color};
 
 use egui::{Color32, Mesh, Painter, Pos2, Rect, Shape, Stroke, pos2};
 

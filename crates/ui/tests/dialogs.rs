@@ -1,8 +1,9 @@
 //! The dialog host (M5.14, `design-system.md` §6 `dialog`, `control-protocol.md` §6.6, §6.10),
-//! driven headlessly at 1400 × 900: Tools ▸ Folder Manager… opens its dialog by command; Esc
-//! cancels and Enter presses the default button; `ui.inspect` reports the dialog, and the window
-//! under it takes no clicks or keys; `ui.dialog.confirm` / `ui.dialog.cancel` answer it; the tray's
-//! Clear confirmation asks through the host. Also the M4.R loose ends of `ui.inspect` (scroll,
+//! driven headlessly at 1400 × 900: Tools ▸ Folder Manager… opens its dialog by command (every
+//! widget of it, the backdrop included, has an id); Esc cancels and Enter presses the default
+//! button; `ui.inspect` reports the dialog, and the window under it takes no clicks or keys;
+//! `ui.dialog.confirm` / `ui.dialog.cancel` answer it; the tray's Clear confirmation asks through
+//! the host. Also the M4.R loose ends of `ui.inspect` (scroll,
 //! animations, the open popup and tooltip) and `ui.menu.tree {context: "tray"}`.
 //!
 //! `DALICA_SHOTS=<dir>` writes screenshots of the open dialogs at 1400 × 900 and 900 × 600 there.
@@ -107,17 +108,15 @@ fn a_dialog_opens_by_command_and_esc_and_enter_close_it() {
         (Some("folderManager"), Some("dialog:folderManager"), Some("Folder Manager"))
     );
     assert_eq!(d["buttons"], json!(["button:dialog.help", "button:dialog.cancel", "button:dialog.ok"]));
-    assert_eq!((d["default"].as_str(), &d["fields"]), (Some("button:dialog.ok"), &json!({})));
-    assert_eq!(v["dialogs"], json!([{ "kind": "folderManager", "fields": {} }]));
-    for id in ["dialog:folderManager", "button:dialog.ok", "button:dialog.cancel", "button:dialog.help"] {
+    // The draft: nothing selected (no library folder was), nothing changed.
+    assert_eq!((d["default"].as_str(), &d["fields"]), (Some("button:dialog.ok"), &json!({ "ready": true })));
+    assert_eq!(v["dialogs"], json!([{ "kind": "folderManager", "fields": { "ready": true } }]));
+    for id in ["dialog:folderManager", "dialog:folderManager/backdrop", "button:dialog.ok", "button:dialog.cancel", "button:dialog.help"] {
         assert!(has_widget(&t, id), "{id}");
     }
     assert!(!t.d.widgets().iter().find(|w| w.id == "button:dialog.help").unwrap().enabled, "Help waits for help");
-    // Every widget of the dialog has an id, but for the backdrop: `ui-kit`'s `dialog` registers it
-    // from its child ui's response before that ui has its size, so it is skipped (a ui-kit fix,
-    // after which `dialog:folderManager/backdrop` joins the ids above).
-    let unregistered = t.d.app().panels().unwrap().unregistered_widgets();
-    assert!(unregistered.iter().all(|u| u.rect == [0.0, 0.0, 1400.0, 900.0]), "{unregistered:?}");
+    // Every widget of the dialog has an id, the backdrop's included.
+    assert_eq!(t.d.app().panels().unwrap().unregistered_widgets(), []);
     shots(&mut t, "dialog-folder-manager");
     // Open: the menu item says why it cannot open again, and the command refuses.
     let tree = ok(&mut t, "ui.menu.tree", json!({}));
@@ -138,7 +137,7 @@ fn a_dialog_opens_by_command_and_esc_and_enter_close_it() {
     ok(&mut t, "ui.key", json!({ "combo": "Ctrl+A" }));
     assert!(!t.d.state().selection.ids.is_empty(), "Ctrl+A selects once the dialog is gone");
     ok(&mut t, "engine.execute", json!({ "command": "select.none" }));
-    // Enter presses the default button (OK closes the stub).
+    // Enter presses the default button (OK with nothing changed closes it).
     assert_eq!(ok(&mut t, "engine.execute", json!({ "command": "folders.manager" })), json!({ "dialog": "folderManager" }));
     ok(&mut t, "ui.settle", json!({}));
     ok(&mut t, "ui.key", json!({ "key": "Enter" }));
@@ -161,7 +160,7 @@ fn a_dialog_opens_by_command_and_esc_and_enter_close_it() {
     assert_eq!(t.d.state().dialogs.len(), 1, "refused answers keep the dialog");
     assert_eq!(ok(&mut t, "ui.dialog.cancel", json!({})), json!({}));
     ok(&mut t, "ui.menu.invoke", json!({ "id": "folders.manager" }));
-    assert_eq!(ok(&mut t, "ui.dialog.confirm", json!({ "button": "button:dialog.ok" })), json!({}));
+    assert_eq!(ok(&mut t, "ui.dialog.confirm", json!({ "button": "button:dialog.ok" })), json!({ "changed": 0 }), "nothing changed, nothing run");
     assert!(t.d.state().dialogs.is_empty());
     // `ui.set` does not open or change dialogs.
     assert_eq!(code(&mut t, "ui.set", json!({ "dialogs": [{ "kind": "folderManager" }] })), "bad_params");
