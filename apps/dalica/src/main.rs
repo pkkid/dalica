@@ -15,11 +15,13 @@ mod paths;
 mod preflight;
 mod window;
 
+use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
 
-const USAGE: &str = "usage: dalica [--library DIR | --demo | --demo-fresh] [--control [PORT] [CONTROL OPTIONS] [--headless]] [--version | --help]
+const USAGE: &str =
+    "usage: dalica [--library DIR | --demo | --demo-fresh] [--view FILE] [--control [PORT] [CONTROL OPTIONS] [--headless]] [--version | --help]
 
 --demo opens a library of generated photos in the temp folder (made on first use, kept between runs);
 --demo-fresh a new one, removed when the window closes. Neither reads or changes your own library or settings.
@@ -27,6 +29,9 @@ Otherwise the library is DIR, else $DALICA_HOME, else the `data` folder beside t
 `portable` is there (portable mode: the library and caches stay next to the program), else the platform data folder
 (Linux ~/.local/share/dalica/library, macOS ~/Library/Application Support/Dalica/Library,
 Windows %LOCALAPPDATA%\\Dalica\\Library).
+
+--view FILE is how the file manager's Open with hands Dalica an image: for now it opens the library window as usual
+(the standalone viewer comes later). FILE may be missing or have any name; it is never read or run.
 
 On Linux the window first checks for the libraries it loads (Wayland or X11, xkbcommon, Vulkan); a missing one is
 named with the package to install and dalica exits with status 1 (DALICA_SKIP_LIB_CHECK=1 skips the check).
@@ -71,30 +76,45 @@ struct Options {
     /// `--control` and its options.
     control: Option<control::Flags>,
     headless: bool,
+    /// `--view FILE`: the file the file manager's Open with handed over. Taken verbatim (any
+    /// bytes, a leading `-`, a missing file) and never read or run; the standalone viewer it will
+    /// open (`viewing.md` §3) is later work, so for now Dalica opens its library window as usual.
+    view: Option<PathBuf>,
 }
 
-/// Reads the arguments; `Err` says what is wrong with them.
-fn parse(args: &[String]) -> Result<Launch, String> {
+/// Reads the arguments (as the OS gave them, so a file name need not be UTF-8); `Err` says what
+/// is wrong with them.
+fn parse(args: &[OsString]) -> Result<Launch, String> {
     let mut choice = Choice::Default;
     let mut control: Option<control::Flags> = None;
     let mut flags = control::Flags::default();
     let mut needs_control: Option<&str> = None;
     let mut headless = false;
+    let mut view = None;
     let mut it = args.iter().peekable();
-    while let Some(a) = it.next() {
+    while let Some(raw) = it.next() {
+        // Every option is ASCII, so a non-UTF-8 argument is never one (it is reported lossily).
+        let a = raw.to_string_lossy();
         let mut path = |what: &str| it.next().map(PathBuf::from).ok_or_else(|| format!("{a} needs {what}"));
-        let next = match a.as_str() {
+        let next = match a.as_ref() {
             "--version" | "-V" => return Ok(Launch::Version),
             "--help" | "-h" => return Ok(Launch::Help),
             "--demo" => Choice::Demo,
             "--demo-fresh" => Choice::DemoFresh,
             "--library" => Choice::Library(path("a folder")?),
+            "--view" => {
+                if view.is_some() {
+                    return Err("--view is given twice".into());
+                }
+                view = Some(path("a file")?);
+                continue;
+            }
             "--control" => {
                 if control.is_some() {
                     return Err("--control is given twice".into());
                 }
-                let port = match it.peek() {
-                    Some(p) if !p.starts_with('-') => Some(control::parse_port(p).map_err(|e| format!("--control: {e}"))?),
+                let port = match it.peek().map(|p| p.to_string_lossy()) {
+                    Some(p) if !p.starts_with('-') => Some(control::parse_port(&p).map_err(|e| format!("--control: {e}"))?),
                     _ => None,
                 };
                 if port.is_some() {
@@ -140,11 +160,12 @@ fn parse(args: &[String]) -> Result<Launch, String> {
         (None, Some(flag)) => return Err(format!("{flag} needs --control")),
         (None, None) => None,
     };
-    Ok(Launch::Open(Options { choice, control, headless }))
+    Ok(Launch::Open(Options { choice, control, headless, view }))
 }
 
 fn main() -> ExitCode {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    // `args_os`: `args` would panic on a file name that is not valid Unicode.
+    let args: Vec<OsString> = std::env::args_os().skip(1).collect();
     let options = match parse(&args) {
         Ok(Launch::Version) => {
             println!("{}", version_line());
@@ -225,6 +246,10 @@ fn main() -> ExitCode {
     }
     if let Some(w) = dirs.as_ref().and_then(|d| d.warning.as_ref()) {
         log::warn!("dalica: {w}");
+    }
+    // A file name can be private: it goes to the log at debug level only.
+    if let Some(file) = &options.view {
+        log::debug!("dalica: --view {}: opening the library window (the standalone viewer comes later)", file.display());
     }
     let (code, token_file) = match listening {
         Some((listening, flags)) if options.headless => run_headless(listening, &flags, source, demo),
@@ -330,11 +355,11 @@ mod tests {
     }
 
     fn parsed(args: &[&str]) -> Result<Launch, String> {
-        parse(&args.iter().map(|a| a.to_string()).collect::<Vec<_>>())
+        parse(&args.iter().map(OsString::from).collect::<Vec<_>>())
     }
 
     fn open(choice: Choice) -> Result<Launch, String> {
-        Ok(Launch::Open(Options { choice, control: None, headless: false }))
+        Ok(Launch::Open(Options { choice, control: None, headless: false, view: None }))
     }
 
     #[test]
@@ -353,7 +378,7 @@ mod tests {
     #[test]
     fn the_control_flags_go_with_control() {
         let flags = |port| control::Flags { port, ..control::Flags::default() };
-        let with = |c: control::Flags, headless| Ok(Launch::Open(Options { choice: Choice::Demo, control: Some(c), headless }));
+        let with = |c: control::Flags, headless| Ok(Launch::Open(Options { choice: Choice::Demo, control: Some(c), headless, view: None }));
         assert_eq!(parsed(&["--control", "18040", "--demo"]), with(flags(Some(18040)), false));
         assert_eq!(parsed(&["--demo", "--control"]), with(flags(None), false));
         assert_eq!(parsed(&["--control", "--demo", "--headless"]), with(flags(None), true));
@@ -397,6 +422,47 @@ mod tests {
             assert!(parsed(bad).is_err(), "{bad:?}");
         }
         assert!(parsed(&["--headless"]).unwrap_err().contains("needs --control"));
+    }
+
+    #[test]
+    fn view_takes_any_file_verbatim_and_opens_as_usual() {
+        let viewing = |choice, file: &str| Ok(Launch::Open(Options { choice, control: None, headless: false, view: Some(PathBuf::from(file)) }));
+        // What Open with passes: existing or missing files, spaces, quotes, Unicode, a leading
+        // `-` or what looks like an option; none of it is read, run or taken as an option.
+        for file in [
+            "/photos/IMG_0001.JPG",
+            "C:\\Users\\a b\\Pictures\\x.jpg",
+            "/no/such/file.cr3",
+            "./ünïcødé 写真 (1).jpeg",
+            "it's \"quoted\" & $(not run).png",
+            "-dash.jpg",
+            "--demo",
+            "",
+        ] {
+            assert_eq!(parsed(&["--view", file]), viewing(Choice::Default, file), "{file:?}");
+        }
+        assert_eq!(parsed(&["--library", "/lib", "--view", "/x.jpg"]), viewing(Choice::Library(PathBuf::from("/lib")), "/x.jpg"));
+        for bad in [&["--view"][..], &["--view", "/a.jpg", "--view", "/b.jpg"]] {
+            assert!(parsed(bad).is_err(), "{bad:?}");
+        }
+    }
+
+    /// A file name that is not valid Unicode (Unix bytes, Windows lone surrogates) is accepted.
+    #[test]
+    fn view_accepts_a_file_name_that_is_not_unicode() {
+        #[cfg(unix)]
+        let odd = {
+            use std::os::unix::ffi::OsStringExt;
+            OsString::from_vec(b"/photos/\xff\xfe.jpg".to_vec())
+        };
+        #[cfg(windows)]
+        let odd = {
+            use std::os::windows::ffi::OsStringExt;
+            OsString::from_wide(&[0x43, 0x3a, 0x5c, 0xd800, 0x2e, 0x6a, 0x70, 0x67])
+        };
+        let got = parse(&[OsString::from("--view"), odd.clone()]);
+        let want = Options { choice: Choice::Default, control: None, headless: false, view: Some(PathBuf::from(odd)) };
+        assert_eq!(got, Ok(Launch::Open(want)));
     }
 
     #[test]

@@ -17,8 +17,9 @@
 
   Adapted from PhotoCraft packaging/windows/photocraft.wxs (revision 0d6e658e); MIT OR Apache-2.0.
   Changed for Dalica: no file type of its own, the "Open with" list is Dalica's readable formats
-  (one list, below), the commands open the standalone viewer (dalica.exe with its view option and
-  the file, docs/viewing.md section 3), and the licence and notice files are installed with the programs.
+  (one list, below), the commands run dalica.exe with its view option and the file (for now that
+  opens the library window; the standalone viewer of docs/viewing.md section 3 comes later), and
+  the licence and notice files are installed with the programs.
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
      xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
