@@ -233,6 +233,10 @@ data, and a test proves it (scan → edit everything → rebuild → compare).
 
 ## 5. Writing metadata into files
 
+> Status: built for captions, tags, stars and dates (M6.30 the write queue, M6.33 the session's
+> write-back: `crates/engine/src/metadata.rs`); places and people wait for their model fields
+> (M13). Edits and rotations reach pixels only on Save (M7).
+
 | Item | When | Where |
 |---|---|---|
 | Caption | when the caption field loses focus or Enter is pressed | XMP `dc:description`, IPTC 2:120 |
@@ -246,6 +250,22 @@ data, and a test proves it (scan → edit everything → rebuild → compare).
 All writes are queued to a background writer, batched per file, merged with existing metadata
 (existing XMP/IPTC fields from other apps are preserved), written atomically, and verified by
 re-reading. A failed write shows a `caution` toast and leaves the sidecar as the record.
+
+- **What is written:** the fields a command changed (undo and redo included), each only while its
+  option is on (Options → General → Files); changes that came from the files themselves (scans,
+  imports) are never written back. A photo's changes go out together, in one write, once it has
+  been left alone for a second (the queue's debounce).
+- **The writer** runs on a thread of its own; due writes run as a "Writing metadata" job
+  (`metadataWrite`, progress, Cancel). Cancel drops the writes not made yet: the folder sidecar
+  keeps those values, and the next change of the field writes it. Writes waiting for an offline
+  volume are retried on their own and land when it returns. When the library closes, the writer
+  writes what is still queued first.
+- **What comes back:** the last-synced hashes (index only); a value another application changed
+  is imported as one undoable step ("Import Metadata"); both changed is reported by
+  `photo.metadata` ("Changed in another application; Dalica's value kept"); a file Dalica wrote
+  takes its new size and time in the library, so a rescan does not mistake the write for an
+  outside change; a failed write becomes one toast naming the file and the fields.
+- `library.inspect` → `pendingWrites.metadata` counts the photos still to write.
 
 ## 6. Save, Undo Save, Revert, Save a Copy, Export
 

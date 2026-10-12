@@ -21,7 +21,7 @@
 //! | [`crate::watching`] | external changes (stub until M5.17) |
 //! | [`crate::offline`] | offline volumes (stub until M5.13) |
 //! | [`crate::thumbs`] | the thumbnail ladder |
-//! | [`crate::metadata`] | the metadata hook: the owned fields each applied op changed (stub until M6.33) |
+//! | [`crate::metadata`] | the metadata hook and the write-back into photo files (a worker thread of its own) |
 //! | [`crate::metadata_cache`] | what photo files say, read on workers for `photo.metadata` |
 //!
 //! Thumbnails are made by the thumbnailer's own workers as scans land; their sketches come back
@@ -240,7 +240,7 @@ impl Session {
     /// this.
     pub(crate) fn apply(&mut self, op: Op) -> Result<Op, CmdError> {
         let before = self.all_folder_ids();
-        let owned_before = crate::metadata::snapshot(&self.library, &crate::metadata::candidates(&op));
+        let owned_before = crate::metadata::snapshot(&self.library, &crate::metadata::candidates(&self.library, &op));
         let inverse = self.library.apply(op.clone()).map_err(|e| match e {
             dalica_library::Error::UnknownFolder(_) | dalica_library::Error::UnknownPhoto(_) => CmdError::NotFound(e.to_string()),
             other => CmdError::BadParams(other.to_string()),
@@ -267,7 +267,7 @@ impl Session {
 
     /// Applies a derived op ([`Op::is_derived`]: sketches) and journals it, without an undo step
     /// and without marking any folder for a sidecar write (it bumps neither revision they follow).
-    fn apply_derived(&mut self, op: Op) -> Result<(), CmdError> {
+    pub(crate) fn apply_derived(&mut self, op: Op) -> Result<(), CmdError> {
         if !op.is_derived() {
             return Err(CmdError::Internal("only derived data may change outside a command".into()));
         }
@@ -309,6 +309,12 @@ impl Session {
     }
 
     pub(crate) fn send(&mut self, msg: Msg) {
+        // The metadata writer holds and guards the same roots as the sidecar writer.
+        match &msg {
+            Msg::Hold(roots) => self.metadata_hold(roots.clone()),
+            Msg::Guard(roots) => self.metadata_guard(roots.clone()),
+            _ => {}
+        }
         if let Some(io) = &self.io
             && io.send(msg).is_err()
         {

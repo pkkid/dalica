@@ -4,8 +4,9 @@
 //! ([`Notices::show`], `toast:<n>`) and reports them to `ui.inspect` → `toasts` ([`Notices::inspect`]).
 //! Each toast stays its kind's time (1.4 s, failures 6 s), then is dropped.
 //!
-//! The session has no events to report yet: the metadata write-back adds its failed writes later in
-//! this milestone, through [`Notices::poll`]. Until then only [`Notices::push`] adds a toast.
+//! Today the session reports failed metadata writes (`dalica_engine::metadata`): each becomes one
+//! failure toast naming the file and the fields (the folder sidecar keeps the values). The app's
+//! own confirmations come through [`Notices::push`].
 
 use dalica_engine::Session;
 use dalica_ui_kit::Tokens;
@@ -49,6 +50,8 @@ impl Toast {
 pub struct Notices {
     toasts: Vec<Toast>,
     next: u64,
+    /// The number of the last session event shown ([`dalica_engine::MetadataEvent::seq`]).
+    seen: u64,
 }
 
 impl Notices {
@@ -65,8 +68,13 @@ impl Notices {
 
     /// Turns what `session` reported since the last poll into toasts, and drops the toasts whose
     /// time is over. Cheap when nothing happened: call it once a frame.
-    pub fn poll(&mut self, _session: &Session, now: f64) {
+    pub fn poll(&mut self, session: &Session, now: f64) {
         self.toasts.retain(|t| t.remaining(now) > 0.0);
+        let fresh: Vec<(u64, String)> = session.metadata_events().filter(|e| e.seq > self.seen).map(|e| (e.seq, e.message())).collect();
+        for (seq, text) in fresh {
+            self.seen = self.seen.max(seq);
+            self.push(&text, ToastKind::Error, now);
+        }
     }
 
     /// The toasts still showing at `now`, oldest first.
