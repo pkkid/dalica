@@ -1,4 +1,5 @@
-//! Photo commands: stars and inspection.
+//! Photo commands: stars and inspection, and the helpers the other photo areas share (`ids`
+//! parameters: [`Ids`], [`has_ids`], [`known`]).
 
 use dalica_core::PhotoId;
 use dalica_library::Op;
@@ -38,7 +39,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Inspect Photos",
             menu: "",
             keys: &[],
-            params: r#"{"ids":[PhotoId]}: everything known about each photo"#,
+            params: r#"{"ids":[PhotoId]}: everything known about each photo: the file's fields, its caption, tags, hidden flag, recipe (edits, redo), effective date and displayed size"#,
             effect: Effect::Query,
             history: History::None,
             enabled: crate::registry::always,
@@ -47,10 +48,11 @@ pub fn specs() -> Vec<CommandSpec> {
     ]
 }
 
+/// The parameters of a command that takes only photos.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Ids {
-    ids: Vec<PhotoId>,
+pub(crate) struct Ids {
+    pub ids: Vec<PhotoId>,
 }
 
 #[derive(Deserialize)]
@@ -61,11 +63,11 @@ struct IdsOn {
 }
 
 /// The most ids one command takes.
-const MAX_IDS: usize = 100_000;
+pub(crate) const MAX_IDS: usize = 100_000;
 
 /// Disabled with "Select some photos first." when `ids` is present and empty. Malformed params
 /// are left to `run`, which reports them as bad parameters.
-fn has_ids(_: &Session, p: &Value) -> Result<(), Disabled> {
+pub(crate) fn has_ids(_: &Session, p: &Value) -> Result<(), Disabled> {
     match p.get("ids").and_then(Value::as_array) {
         Some(ids) if ids.is_empty() => Err(Disabled("Select some photos first.".into())),
         _ => Ok(()),
@@ -73,7 +75,7 @@ fn has_ids(_: &Session, p: &Value) -> Result<(), Disabled> {
 }
 
 /// The ids, de-duplicated, all known; `NotFound` names the first unknown one.
-fn known(s: &Session, ids: Vec<PhotoId>) -> Result<Vec<PhotoId>, CmdError> {
+pub(crate) fn known(s: &Session, ids: Vec<PhotoId>) -> Result<Vec<PhotoId>, CmdError> {
     if ids.len() > MAX_IDS {
         return Err(CmdError::Limit(format!("at most {MAX_IDS} photos at once")));
     }
@@ -126,13 +128,27 @@ fn inspect(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
         .filter_map(|id| {
             let p = lib.photo(*id)?;
             let folder = lib.folder(p.folder)?;
+            let info = lib.info(p.id);
+            let (dw, dh) = displayed_size(&info.edits, p.width, p.height);
             Some(json!({
                 "id": p.id, "folder": p.folder, "name": p.name, "path": folder.path.join(&p.name),
                 "size": p.size, "mtime": p.mtime, "width": p.width, "height": p.height, "date": p.date, "star": p.star,
+                "caption": info.caption, "tags": info.tags, "hidden": info.hidden,
+                "recipe": { "edits": info.edits, "redo": info.redo },
+                "dateSet": info.date, "effectiveDate": lib.effective_date(p.id),
+                "displayed": { "width": dw, "height": dh },
             }))
         })
         .collect();
     Ok(Value::Array(photos))
+}
+
+/// The size the photo shows at: its file's displayed size (`width × height`, after the EXIF
+/// orientation) turned by what the recipe's rotations and flips add up to. A recipe `edit` cannot
+/// read (more operations than it holds) counts as no turn.
+pub(crate) fn displayed_size(edits: &[String], width: u32, height: u32) -> (u32, u32) {
+    let turn = dalica_edit::Recipe::parse(edits).map(|r| r.orientation()).unwrap_or(dalica_edit::Dihedral::IDENTITY);
+    turn.display_size(width, height)
 }
 
 #[cfg(test)]
@@ -206,11 +222,42 @@ mod tests {
         let v = s.execute("photo.inspect", &json!({ "ids": [ids[1], ids[1]] })).unwrap();
         let arr = v.as_array().unwrap();
         assert_eq!(arr.len(), 1);
-        for key in ["id", "folder", "name", "path", "size", "mtime", "width", "height", "date", "star"] {
+        for key in [
+            "id",
+            "folder",
+            "name",
+            "path",
+            "size",
+            "mtime",
+            "width",
+            "height",
+            "date",
+            "star",
+            "caption",
+            "tags",
+            "hidden",
+            "recipe",
+            "dateSet",
+            "effectiveDate",
+            "displayed",
+        ] {
             assert!(arr[0].get(key).is_some(), "{key}");
         }
         assert_eq!((arr[0]["width"].as_u64(), arr[0]["height"].as_u64()), (Some(120), Some(80)));
+        assert_eq!(arr[0]["displayed"], json!({ "width": 120, "height": 80 }));
+        assert_eq!(arr[0]["recipe"], json!({ "edits": [], "redo": [] }));
+        assert_eq!((&arr[0]["caption"], &arr[0]["tags"], &arr[0]["hidden"]), (&json!(""), &json!([]), &json!(false)));
         assert_eq!(s.library().revision(), rev);
         assert_eq!(s.undo_stack().len(), 0);
+    }
+
+    #[test]
+    fn displayed_size_turns_with_the_recipe() {
+        let t = |e: &[&str]| super::displayed_size(&e.iter().map(|s| s.to_string()).collect::<Vec<_>>(), 120, 80);
+        assert_eq!(t(&[]), (120, 80));
+        assert_eq!(t(&["rotate(90)"]), (80, 120));
+        assert_eq!(t(&["rotate(90)", "future_op(1)", "flip_h()"]), (80, 120));
+        assert_eq!(t(&["rotate(180)"]), (120, 80));
+        assert_eq!(t(&["rotate(45)"]), (120, 80), "an operation edit does not know is no turn");
     }
 }

@@ -23,14 +23,14 @@ same commit.
 | Section | ✅ | 🟡 | ⬜ | 🚫 |
 |---|---:|---:|---:|---:|
 | A. Library view | 8 | 19 | 5 | 1 |
-| B. Organizing | 0 | 6 | 36 | 0 |
-| C. Editing | 0 | 0 | 21 | 4 |
+| B. Organizing | 0 | 8 | 34 | 0 |
+| C. Editing | 0 | 1 | 20 | 4 |
 | D. Viewing | 0 | 1 | 5 | 2 |
 | E. Output | 0 | 0 | 2 | 9 |
 | F. Data | 1 | 15 | 3 | 0 |
 | G. Preferences and system | 0 | 6 | 8 | 0 |
-| H. Menus | 0 | 4 | 3 | 0 |
-| **All** | 9 | 51 | 83 | 16 |
+| H. Menus | 0 | 5 | 2 | 0 |
+| **All** | 9 | 55 | 79 | 16 |
 <!-- /parity:summary -->
 
 ## Top gaps
@@ -68,7 +68,7 @@ same commit.
 | LIB-STATUS | Status line texts (none / one / many / edit view) | P0 | 🟡 | from the Photo Tray's contents (held photos and the selection): "No selection", one photo (name, date and time, pixels, size), several photos or a section selected as a unit (count, date range or one day, size on disk), checked against the literal §6.1 strings at 1400 × 900 and 900 × 600; a long line drops the edit view's folder prefix, then middle-elides the file name, then cuts its end; transient messages for 4 s of the frame clock; while a scan runs, "Scanning: 1,204 pictures found" in place of "No selection", or as the last field (dropped first when the line is short) with a selection, until the scan ends (`crates/ui/tests/activity.rs`, M5.19); `ui.state` → `status` the text as drawn: `crates/ui/src/status_text.rs`, `crates/ui/src/panels/status.rs`, `crates/ui/tests/status_line.rs`, `crates/ui/tests/tree_status_pane.rs`; the tags field ("Tags: lisbon (40), tram (6)") and the edit view's "Folder › … (12 of 48)" are tested formats, shown once photos carry tags (M6) and the edit view exists (M7); ref 02 §8.1 |
 | LIB-TRAY | Photo Tray: token for folder, mini thumbnails, own selection | P0 | 🟡 | the tray mirrors the selection plus the held photos (held first, each once); a section selected as a unit is one token (cover and "Folder selected — 48 photos"); square centre-cropped mini thumbnails shrinking with the count (54 … 18, up to three rows, the rest counted as "+N"), centred in the box (`crates/ui/tests/tray_keys.rs`); its own selection by click, Ctrl-click and rubber band (`cmd:tray.select`); the tray menu (View and Edit · Hold · Remove from Tray · rotations · Locate on Disk · Properties, greyed until their commands): `crates/ui/src/tray.rs`, `crates/ui/src/panels/bottom/tray.rs`, `crates/ui/tests/tray.rs`; `ui.menu.tree {context: "tray"}` answers the tray menu's rows (`crates/ui/tests/dialogs.rs`, M5.14); dragging photos onto and out of the tray and the album token (M9) missing; ref 02 §8.2 |
 | LIB-TRAY-HOLD | Hold / Clear / Add to Album ▾ | P0 | 🟡 | Hold (Ctrl+H, the held badge; `cmd:tray.hold`) keeps photos while the selection moves; Clear removes the tray-selected photos, or all of them, asking "Clear all photos from the tray?" only when photos are held, through the dialog host (`dialog:clearTray`; `cmd:tray.clear`, `needs_confirm` over `engine.execute`, `confirm: true` to go ahead; `crates/ui/tests/dialogs.rs`, M5.14): `crates/ui/src/commands/tray.rs`, `crates/ui/tests/tray.rs`; Add to Album ▾ is drawn, disabled until albums (M9) |
-| LIB-STARROT | Star and rotate buttons acting on the tray | P0 | 🟡 | the star button stars every photo in the tray in one undo step, or unstars them when all are starred (`cmd:photo.star.toggle`); the rotate buttons act on the tray once their commands exist; their shortcuts and menu items act on the same photos (`crates/ui/src/keys.rs` `TRAY_COMMANDS`): `crates/ui/src/panels/bottom.rs`, `crates/ui/tests/tray.rs`, `crates/ui/tests/tray_keys.rs`; rotation missing (M6) |
+| LIB-STARROT | Star and rotate buttons acting on the tray | P0 | 🟡 | the star button stars every photo in the tray in one undo step, or unstars them when all are starred (`cmd:photo.star.toggle`); the rotate buttons append `rotate(90)` / `rotate(270)` to the recipe of every photo in the tray in one undo step (`cmd:photo.rotate.cw`, `cmd:photo.rotate.ccw`; rotations merge, a net zero turn leaves no entry: `crates/engine/src/cmd/rotate.rs`, `crates/engine/tests/rotate.rs`); their shortcuts and menu items act on the same photos (`crates/ui/src/keys.rs` `TRAY_COMMANDS`): `crates/ui/src/panels/bottom.rs`, `crates/ui/tests/tray.rs`, `crates/ui/tests/tray_keys.rs`; the thumbnails drawn turned missing (M6) |
 | LIB-ACTIONS | Action buttons (Export, Collage, Slideshow) with overflow | P0 | 🟡 | the buttons, and their More… menu below 1100 wide: `crates/ui/src/panels/bottom.rs`, `crates/ui/tests/bottom.rs`; disabled until export, collage and slideshow exist |
 | LIB-CONFBUTTONS | Configure Buttons dialog | OOS | 🚫 | dropped 2026-10-09 (dated feature); the button set is fixed |
 | LIB-PANES | Side pane container with People/Places/Tags/Properties toggles | P1 | 🟡 | the frame: 30 pt header with « (large width), title, × by id; pushes the light table; a narrowing window shrinks the tree to 200 first, then takes the large width away, then closes it: `crates/ui/src/panels/side_pane.rs`, `crates/ui/tests/tree_status_pane.rs`, `crates/ui/tests/layout.rs`; the bottom-bar toggles (M3.9), the slide animation and the pane contents (M6, M13) missing |
@@ -89,8 +89,8 @@ same commit.
 | ORG-STAR | Star toggle everywhere | P0 | 🟡 | library view only: Ctrl+8 / F4 and the bottom-bar star button on the tray's photos (the held ones and the selection) in one undo step (`cmd:photo.star.toggle`, `crates/ui/tests/library_window.rs`, `crates/ui/tests/tray.rs`, `crates/ui/tests/tray_keys.rs`); menus, edit view missing |
 | ORG-TAGS | Tags pane: add, list with partial counts, remove | P1 | 🟡 | engine commands only (M6.15): add and remove with commas separating tags and the case rule, one undo step for any number of photos (`cmd:photo.tags.add`, `cmd:photo.tags.remove`), toggle (`cmd:photo.tags.toggle`), counts, partial counts ("beach (3 of 8)") and completion (`cmd:tags.list`), Rename Tag everywhere merging onto an existing tag, asking first (`cmd:tags.rename`): `crates/engine/src/cmd/tags.rs`, `crates/engine/tests/tags.rs`; the pane, its tag menu and the status line's tags field missing (M6.28) |
 | ORG-QUICKTAGS | Quick tags + configure dialog | P2 | 🟡 | engine commands only (M6.15): ten slots and "use the top two buttons for recently used tags" in settings (`cmd:tags.quick.set`, `cmd:tags.quick.get`), applying a slot toggles its tag (`cmd:tags.quick.apply`), Ctrl+Alt+1 … Ctrl+Alt+0 in the library (`cmd:tags.quick.1` … `cmd:tags.quick.10`, no conflict on any platform): `crates/engine/src/cmd/tags.rs`, `crates/engine/tests/tags.rs`; the buttons and Configure Quick Tags missing (M6.31) |
-| ORG-CAPTION | Captions (edit view field, library inline) | P0 | ⬜ | |
-| ORG-HIDE | Hide/unhide photos and folders | P1 | ⬜ | |
+| ORG-CAPTION | Captions (edit view field, library inline) | P0 | 🟡 | engine: `cmd:photo.caption.set` (trimmed, capped at 16 KiB, "" clears; one undo step; the sidecar's `caption`), `photo.inspect` reports it: `crates/engine/src/cmd/caption.rs`, `crates/engine/tests/captions.rs`; the inline editors, captions under thumbnails, search and file write-back missing |
+| ORG-HIDE | Hide/unhide photos and folders | P1 | 🟡 | engine: `cmd:photo.hide` `cmd:photo.unhide` `cmd:folder.hide` `cmd:folder.unhide` (one undo step; Unhide disabled unless hidden; `"hidden"` in the photo's entry or the folder's own `"folder"` object): `crates/engine/src/cmd/hide.rs`, `crates/engine/tests/hide.rs`; drawing hidden photos at 40 % and the Hidden Folders group in the window missing |
 | ORG-FOLDERPROPS | Folder Properties dialog | P0 | ⬜ | |
 | ORG-SORT-PHOTOS | Photo order in sections, manual order persisted | P1 | ⬜ | |
 | ORG-ADJDATE | Adjust Date and Time dialog | P1 | ⬜ | |
@@ -144,7 +144,7 @@ same commit.
 | EDIT-SAVE | Save / Undo Save / Revert / Save As / Save a Copy | P0 | ⬜ | data-model §6 |
 | EDIT-RECIPE-COPY | Copy/Paste All Edits | P1 | ⬜ | |
 | EDIT-BATCH | Batch Edit submenu | P1 | ⬜ | |
-| EDIT-FLIP | Flip H/V | P1 | ⬜ | |
+| EDIT-FLIP | Flip H/V | P1 | 🟡 | library: `cmd:edit.flipH` `cmd:edit.flipV` (Ctrl+Shift+H / Ctrl+Shift+V) append `flip_h()` / `flip_v()` to the recipe, the same flip twice in a row cancels, one undo step: `crates/engine/src/cmd/rotate.rs`, `crates/engine/tests/rotate.rs`; the thumbnails drawn flipped and the edit view's own history missing |
 | FX-TILES | Effect tile grid with live previews, 1-click badge | P1 | ⬜ | ref 03 §8 |
 | FX-SHIFT | Shift variants | OOS | 🚫 | dropped 2026-10-09 (dated feature) |
 | FX-T3 | Tab 3 effects (12) | P1 | ⬜ | ref 03 §9 |
@@ -236,7 +236,7 @@ its command exists, is wired to the menu catalog, and its behaviour row above is
 | Edit | `edit.undo` `edit.redo` `photo.cut` `photo.copy` `photo.paste` `edit.copyRecipe` `edit.pasteRecipe` `select.all` `select.starred` `select.invert` `select.none` | 🟡 |
 | View | `view.library` `view.thumbsSmall` `view.thumbsNormal` `view.edit` `pane.properties` `pane.tags` `pane.people` `pane.places` `pane.toggle` `edit.panelToggle` `view.slideshow` `view.smallPictures` `view.hiddenPictures` `view.colorManagement` `view.caption` `view.folderView` `window.fullscreen` | 🟡 |
 | Folder / Album | `section.properties` `section.slideshow` `section.refreshThumbs` `section.sort` `folder.hide` `folder.unhide` `folder.locate` `folder.remove` `folder.move` `folder.delete` `album.delete` | 🟡 |
-| Picture | `view.edit` `edit.undoAll` `photo.hide` `photo.unhide` `faces.reset` `pane.properties` `photo.star.toggle` `photo.caption.edit` `photo.rotate.cw` `photo.rotate.ccw` `edit.flipH` `edit.flipV` | ⬜ |
+| Picture | `view.edit` `edit.undoAll` `photo.hide` `photo.unhide` `faces.reset` `pane.properties` `photo.star.toggle` `photo.caption.edit` `photo.rotate.cw` `photo.rotate.ccw` `edit.flipH` `edit.flipV` | 🟡 |
 | Create | `create.collage` | ⬜ |
 | Tools | `folders.manager` `people.manager` `viewer.settings` `photo.adjustDate` `geo.clear` `geo.copy` `geo.paste` `search.duplicates` `search.color` `search.saveAsAlbum` `search.tagAsAlbum` `faces.writeXmp` `app.preferences` | ⬜ |
 
