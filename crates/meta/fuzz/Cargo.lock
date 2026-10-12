@@ -117,7 +117,10 @@ dependencies = [
  "dalica-core",
  "image",
  "image-webp",
+ "jxl-bitstream",
+ "jxl-coding",
  "jxl-oxide",
+ "jxl-oxide-common",
  "log",
  "moxcms 0.9.1",
  "png",
@@ -133,6 +136,8 @@ dependencies = [
  "dalica-core",
  "dalica-image",
  "fdeflate",
+ "log",
+ "md5",
  "thiserror",
 ]
 
@@ -442,6 +447,12 @@ name = "log"
 version = "0.4.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
+
+[[package]]
+name = "md5"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7ebb8d8732c6a6df3d8f032a82911cfc747e00efb95cc46e8d0acd5b5b88570c"
 
 [[package]]
 name = "miniz_oxide"

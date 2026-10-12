@@ -5,6 +5,8 @@
 //! EXIF is edited in place or appended, never repacked, because maker notes often hold offsets
 //! counted from the TIFF header, so nothing that is there may move:
 //!
+//! - a value equal to the one the entry holds is left where it is, even when other entries share
+//!   its bytes (so writing the same values twice gives the same block);
 //! - a changed value no larger than the old one is written where the old one was (the rest of
 //!   its bytes zeroed); a value of four bytes or fewer goes into its entry;
 //! - a new or larger value is appended at the end of the block (word aligned) and only the entry's
@@ -372,6 +374,11 @@ impl Editor {
         (end <= self.original).then_some(at..end)
     }
 
+    /// Whether an entry of the original block keeps exactly `data` out of line.
+    fn holds(&self, e: &Raw, data: &[u8]) -> bool {
+        self.out_of_line(e).and_then(|r| self.out.get(r)).is_some_and(|old| old == data)
+    }
+
     /// Whether nothing but `owner` points into `r`.
     fn exclusive(&self, owner: (IfdKind, u16), r: &Range<usize>) -> bool {
         self.claimed.iter().all(|(o, c)| *o == Some(owner) || !overlaps(c, r))
@@ -401,7 +408,8 @@ impl Editor {
     }
 
     /// Sets `tag` in `t` to a value of `kind` whose encoded bytes are `data`: inline when it fits
-    /// four bytes, else where the old value was when it fits there and is the entry's alone, else
+    /// four bytes, else left as it is when the entry already holds it, else where the old value
+    /// was when it fits there and is the entry's alone, else
     /// appended.
     fn set(&mut self, t: &mut Table, tag: u16, kind: u16, data: &[u8]) -> Result<()> {
         let size = type_size(kind).ok_or_else(|| Error::Malformed("an unknown field type".into()))?;
@@ -417,6 +425,9 @@ impl Editor {
                 *dst = *src;
             }
             f
+        } else if let Some(e) = old_entry.filter(|e| e.kind == kind && e.count == count && self.holds(e, data)) {
+            // The value is already there: nothing changes, even where other entries share its bytes.
+            e.field
         } else {
             let reuse = old_entry.as_ref().and_then(|e| self.out_of_line(e)).filter(|r| data.len() <= r.len() && self.exclusive((t.kind, tag), r));
             match reuse {
