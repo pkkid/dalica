@@ -223,13 +223,8 @@ fn every_group() -> (Fx, TreeOptions) {
     let secret = fx.folder("Secret");
     fx.photos(secret, &[p(2026, 4, 1)]);
     fx.folder("Empty");
-    let options = TreeOptions {
-        projects_dir: Some(projects),
-        hidden_folders: BTreeSet::from([secret]),
-        hidden_pictures: true,
-        small_pictures: true,
-        ..TreeOptions::default()
-    };
+    fx.lib.apply(Op::SetFoldersHidden { hidden: vec![(secret, true)] }).unwrap();
+    let options = TreeOptions { projects_dir: Some(projects), hidden_pictures: true, small_pictures: true, ..TreeOptions::default() };
     (fx, options)
 }
 
@@ -510,7 +505,8 @@ fn library(spec: &Spec) -> (Fx, BTreeSet<FolderId>) {
             .collect();
         fx.photos(id, &list);
     }
-    let hidden = spec.hidden.iter().filter_map(|h| ids.iter().find(|(p, _)| p == h).map(|(_, id)| *id)).collect();
+    let hidden: BTreeSet<FolderId> = spec.hidden.iter().filter_map(|h| ids.iter().find(|(p, _)| p == h).map(|(_, id)| *id)).collect();
+    fx.lib.apply(Op::SetFoldersHidden { hidden: hidden.iter().map(|&id| (id, true)).collect() }).unwrap();
     (fx, hidden)
 }
 
@@ -532,7 +528,7 @@ proptest! {
         let (fx, hidden) = library(&spec);
         let mode = if tree_mode { TreeMode::Tree } else { TreeMode::Flat };
         let options = TreeOptions {
-            mode, sort, reverse, small_pictures: small, hidden_pictures, hidden_folders: hidden.clone(),
+            mode, sort, reverse, small_pictures: small, hidden_pictures,
             projects_dir: Some(base().join("Dalica")), ..TreeOptions::default()
         };
         let t = fx.tree(&[base()], &options);
@@ -616,4 +612,100 @@ fn photo_ids_in_json_round_trip() {
     let f = fx.folder("a");
     fx.photos(f, &[p(2026, 1, 1)]);
     assert_eq!(fx.lib.photos().map(|p| p.id).collect::<Vec<_>>(), [PhotoId::new(1)]);
+}
+
+// M6: hidden folders and photos from the model, effective dates and folder dates.
+
+/// Every row of the tree as `group: line`, for comparing whole trees.
+fn all_lines(t: &Tree) -> Vec<String> {
+    t.groups.iter().flat_map(|g| lines(t, g.group).into_iter().map(move |l| format!("{}: {l}", g.group.id()))).collect()
+}
+
+#[test]
+fn hidden_folders_in_both_modes_with_hidden_pictures_on_and_off() {
+    let mut fx = Fx::new();
+    let trip = fx.folder("Trip");
+    fx.photos(trip, &[p(2026, 3, 1), p(2026, 3, 2)]);
+    let secret = fx.folder("a/Secret");
+    fx.photos(secret, &[p(2026, 4, 1)]);
+    let before = fx.tree(&[base()], &TreeOptions::default());
+    let undo = fx.lib.apply(Op::SetFoldersHidden { hidden: vec![(secret, true)] }).unwrap();
+    assert!(fx.lib.is_folder_hidden(secret));
+    let on = TreeOptions { hidden_pictures: true, ..TreeOptions::default() };
+    let off = TreeOptions::default();
+
+    // Flat, on: the folder moves to Hidden Folders, marked hidden, with its section after Folders'.
+    let t = fx.tree(&[base()], &on);
+    assert_eq!(all_lines(&t), ["folders: Trip (2)", "hidden: Secret (1)"]);
+    assert_eq!(t.sections, [SectionId::Folder(trip), SectionId::Folder(secret)]);
+    assert!(folder_rows(&t).iter().find(|r| r.folder == Some(secret)).is_some_and(|r| r.hidden));
+    // Flat, off: no Hidden Folders group, no section.
+    let t = fx.tree(&[base()], &off);
+    assert_eq!(all_lines(&t), ["folders: Trip (2)"]);
+    assert_eq!(t.sections, [SectionId::Folder(trip)]);
+    // Tree, on: the folder keeps its place in the disk hierarchy, marked hidden.
+    let tree_on = TreeOptions { mode: TreeMode::Tree, sort: FolderSort::Name, ..on.clone() };
+    let t = fx.tree(&[base()], &tree_on);
+    assert_eq!(all_lines(&t), ["folders: photos (0)", "folders:   a (0)", "folders:     Secret (1)", "folders:   Trip (2)"]);
+    assert_eq!(t.sections, [SectionId::Folder(secret), SectionId::Folder(trip)]);
+    assert!(folder_rows(&t).iter().find(|r| r.folder == Some(secret)).is_some_and(|r| r.hidden));
+    // Tree, off: the folder and the directory that only led to it are gone.
+    let t = fx.tree(&[base()], &TreeOptions { hidden_pictures: false, ..tree_on });
+    assert_eq!(all_lines(&t), ["folders: photos (0)", "folders:   Trip (2)"]);
+    assert_eq!(t.sections, [SectionId::Folder(trip)]);
+
+    // Unhiding (the inverse) puts everything back.
+    fx.lib.apply(undo).unwrap();
+    assert_eq!(fx.tree(&[base()], &TreeOptions::default()).groups, before.groups);
+}
+
+#[test]
+fn hidden_photos_are_counted_only_with_hidden_pictures() {
+    let mut fx = Fx::new();
+    let a = fx.folder("a");
+    fx.photos(a, &[p(2026, 1, 1), p(2026, 1, 2), p(2026, 1, 3)]);
+    let b = fx.folder("b");
+    fx.photos(b, &[p(2025, 6, 1)]);
+    let in_a: Vec<PhotoId> = fx.lib.photos_in(a).iter().map(|p| p.id).collect();
+    let in_b: Vec<PhotoId> = fx.lib.photos_in(b).iter().map(|p| p.id).collect();
+    fx.lib.apply(Op::SetHidden { hidden: vec![(in_a[0], true), (in_b[0], true)] }).unwrap();
+    let off = fx.tree(&[base()], &TreeOptions::default());
+    assert_eq!(all_lines(&off), ["folders: a (2)"], "a folder whose photos are all hidden disappears");
+    assert_eq!(off.sections, [SectionId::Folder(a)]);
+    // The hidden photo no longer gives its folder its date either.
+    assert_eq!(folder_rows(&off).first().and_then(|r| r.date).map(|d| d.to_string()), Some("2026-01-02T12:00:00".into()));
+    let on = fx.tree(&[base()], &TreeOptions { hidden_pictures: true, ..TreeOptions::default() });
+    assert_eq!(all_lines(&on), ["folders: 2026", "folders: a (3)", "folders: 2025", "folders: b (1)"]);
+    let tree = fx.tree(&[base()], &TreeOptions { mode: TreeMode::Tree, ..TreeOptions::default() });
+    assert_eq!(all_lines(&tree), ["folders: photos (0)", "folders:   a (2)"]);
+}
+
+#[test]
+fn folder_dates_and_sorts_use_effective_dates() {
+    let mut fx = five_folders();
+    let id = |fx: &Fx, name: &str| fx.lib.folders().find(|f| f.path.ends_with(name)).map(|f| f.id).unwrap();
+    let by_date = |fx: &Fx| lines(&fx.tree(&[base()], &TreeOptions::default()), Group::Folders);
+    assert_eq!(by_date(&fx), ["2026", "Easter (4)", "Dunes (1)", "2025", "Concert (2)", "attic (1)", "2024", "Beach (3)"]);
+
+    // A date set by the user on attic's one photo moves attic to 2023; the file's date stays.
+    let attic = id(&fx, "attic");
+    let photo = fx.lib.photos_in(attic)[0].clone();
+    let user: dalica_core::DateTime = "2023-05-05T08:00:00".parse().unwrap();
+    let undo = fx.lib.apply(Op::SetDates { dates: vec![(photo.id, Some(user))] }).unwrap();
+    assert_eq!(fx.lib.effective_date(photo.id), Some(user));
+    assert_eq!(fx.lib.photo(photo.id).unwrap().date, photo.date, "the file's own date is kept beside it");
+    assert_eq!(fx.lib.sort_date(&photo), Some(user));
+    assert_eq!(by_date(&fx), ["2026", "Easter (4)", "Dunes (1)", "2025", "Concert (2)", "2024", "Beach (3)", "2023", "attic (1)"]);
+    fx.lib.apply(undo).unwrap();
+    assert_eq!(fx.lib.effective_date(photo.id), photo.date);
+
+    // A folder date set in Folder Properties beats its oldest photo's, in flat and tree mode.
+    let beach = id(&fx, "Beach");
+    let info = dalica_library::FolderInfo { date: Some("2027-01-01".parse().unwrap()), ..Default::default() };
+    fx.lib.apply(Op::SetFolderInfo { folders: vec![(beach, info)] }).unwrap();
+    assert_eq!(by_date(&fx), ["2027", "Beach (3)", "2026", "Easter (4)", "Dunes (1)", "2025", "Concert (2)", "attic (1)"]);
+    let t = fx.tree(&[base()], &opts(TreeMode::Tree, FolderSort::Date, false));
+    assert_eq!(lines(&t, Group::Folders).get(1).map(String::as_str), Some("  Beach (3)"));
+    let row = folder_rows(&t).into_iter().find(|r| r.folder == Some(beach)).cloned();
+    assert_eq!(row.and_then(|r| r.date).map(|d| d.to_string()), Some("2027-01-01T00:00:00".into()));
 }

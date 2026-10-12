@@ -1819,7 +1819,7 @@ replace at M6.R.
   - done when: `cargo test -p dalica-core --test app_id` checks the id's syntax rules; the window
     sets it (a test on the viewport builder); *Reserved decisions* item 10 says what was decided and
     when.
-- ⬜ **M6.2 `library`: M6's model fields, ops and the tag index**
+- ✅ **M6.2 `library`: M6's model fields, ops and the tag index**
   - after: M4.2, M4.4, M5.13
   - files: `crates/library/src/model.rs`, `crates/library/src/op.rs`, `crates/library/src/tags.rs`, `crates/library/src/tree.rs`, `crates/library/tests/ops.rs`, `crates/library/tests/m6_fields.rs`, `crates/library/tests/tags.rs`, `crates/library/tests/tree.rs`, `crates/library/README.md`
   - scope: `data-model.md` §2–§3 as pure model: each photo gains a caption, tags, hidden, its edit

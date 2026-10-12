@@ -6,7 +6,10 @@
 //! replay are built on that.
 //!
 //! M1 holds folders and photos (name, size, modification time, size in pixels, capture date,
-//! star). Ids are assigned by the caller through [`Library::next_folder_id`] /
+//! star); M6 adds what the user says about them ([`PhotoInfo`]: caption, tags, hidden, recipe and
+//! redo list, a date of the user's; [`FolderInfo`]: description, date, place, hidden), the
+//! last-synced metadata hashes ([`Synced`], derived like sketches) and the tag index
+//! ([`tags`]). Ids are assigned by the caller through [`Library::next_folder_id`] /
 //! [`Library::next_photo_id`] and carried inside ops, so replaying a journal gives the same ids.
 
 #![forbid(unsafe_code)]
@@ -15,10 +18,15 @@
 mod model;
 mod op;
 mod query;
+pub mod tags;
 mod tree;
 
-pub use model::{Folder, Library, MAX_SKETCH, Model, Photo, Sketch};
+pub use model::{Folder, FolderInfo, Library, MAX_SKETCH, Model, Photo, PhotoInfo, Recipe, Sketch, Synced};
 pub use op::Op;
+pub use tags::{
+    MAX_CAPTION, MAX_DESCRIPTION, MAX_OPERATION, MAX_OPERATIONS, MAX_PLACE, MAX_TAG, MAX_TAGS, PartialCount, TagCount, TagIndex, clean_caption,
+    clean_description, clean_place, clean_tag, clean_tags,
+};
 pub use tree::{FolderRow, FolderSort, Group, GroupRows, Row, SMALL_PICTURE_PX, SectionId, Tree, TreeMode, TreeOptions};
 
 use dalica_core::{FolderId, PhotoId};
@@ -40,6 +48,13 @@ pub enum Error {
     NameTaken { folder: FolderId, name: String },
     #[error("an update cannot move photo {0} to another folder")]
     FolderChange(PhotoId),
+    /// Text past its cap (`security.md` §4.4). The text itself is never in the message.
+    #[error("a {what} longer than {max} bytes")]
+    TooLong { what: &'static str, max: usize },
+    #[error("more than {max} {what}")]
+    TooMany { what: &'static str, max: usize },
+    #[error("a {what} that is not clean: {why}")]
+    BadText { what: &'static str, why: &'static str },
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
