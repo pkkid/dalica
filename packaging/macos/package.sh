@@ -59,7 +59,7 @@ mkdir -p "$WORK/universal"
 for exe in dalica dalica-cli; do
   lipo -create -output "$WORK/universal/$exe" \
     "$TARGET_DIR/${TARGETS[0]}/release/$exe" "$TARGET_DIR/${TARGETS[1]}/release/$exe"
-  lipo -verify_arch arm64 x86_64 "$WORK/universal/$exe"
+  lipo "$WORK/universal/$exe" -verify_arch arm64 x86_64
   lipo -info "$WORK/universal/$exe"
   # It must report this version and the commit, not a dev build.
   out="$("$WORK/universal/$exe" --version)"
