@@ -23,14 +23,14 @@ same commit.
 | Section | ✅ | 🟡 | ⬜ | 🚫 |
 |---|---:|---:|---:|---:|
 | A. Library view | 8 | 19 | 5 | 1 |
-| B. Organizing | 0 | 8 | 34 | 0 |
+| B. Organizing | 0 | 9 | 33 | 0 |
 | C. Editing | 0 | 1 | 20 | 4 |
 | D. Viewing | 0 | 1 | 5 | 2 |
 | E. Output | 0 | 0 | 2 | 9 |
 | F. Data | 1 | 15 | 3 | 0 |
 | G. Preferences and system | 0 | 6 | 8 | 0 |
 | H. Menus | 0 | 5 | 2 | 0 |
-| **All** | 9 | 55 | 79 | 16 |
+| **All** | 9 | 56 | 78 | 16 |
 <!-- /parity:summary -->
 
 ## Top gaps
@@ -51,7 +51,7 @@ same commit.
 | LIB-TREE-DND | Drop photos on folder (move/copy), album (add), person | P0 | ⬜ | |
 | LIB-SPLIT | Resizable tree with persisted width | P0 | ✅ | `splitter:tree` drags the tree within 200 … W − 480 (W − pane − 480 beside an open side pane) (by id: `crates/ui/tests/tree_status_pane.rs`, `crates/ui/tests/layout.rs`); the width survives a restart through `settings.json` (`crates/ui/src/app.rs` test `the_view_state_survives_a_restart`) |
 | LIB-LT-SECTIONS | Continuous light table of sections in tree order | P0 | 🟡 | one continuous view of the folders' sections in the tree's order (sort, reverse, collapsed groups), our own viewport with the position kept by section, laid out by prefix sums and binary search (cells visited per frame equal at 10 k and 100 k photos): `crates/ui/src/panels/light_table.rs`, `crates/ui/src/panels/light_table/layout.rs`, `crates/ui/tests/light_table.rs`; album and person sections missing (M9, M13); ref 02 §7.1 |
-| LIB-LT-HEADER | Section header: icon, title, date/place, buttons, description, edited count + Save | P0 | 🟡 | the 96-high block: folder icon 32 (tooltip = full path), title, long date with weekday (" · place" when set), the 26 × 22 buttons Play, Collage │ Select Starred │ Save, Export (live only when their command is registered; Select Starred also needs a starred photo, Save an unsaved edit), the "Add a description" placeholder, the accent bar on the selected section, right-click = the section menu; Select Starred selects the section's starred photos (`select.starred`): `crates/ui/src/panels/light_table/header.rs`, `crates/ui/tests/section_header.rs`; the other buttons' commands, Locate on Disk, Properties on double-click, places, descriptions and their inline editing (M6) and the edited count (M7) arrive with their milestones; ref 02 §7.2 |
+| LIB-LT-HEADER | Section header: icon, title, date/place, buttons, description, edited count + Save | P0 | 🟡 | the 96-high block: folder icon 32 (tooltip = full path), title, the folder's date (set in Folder Properties, else its oldest photo's) as a long date with weekday and " · place" when set, the 26 × 22 buttons Play, Collage │ Select Starred │ Save, Export (live only when their command is registered; Select Starred also needs a starred photo, Save an unsaved edit), the description or the "Add a description" placeholder, the accent bar on the selected section, right-click = the section menu; Select Starred selects the section's starred photos (`select.starred`): `crates/ui/src/panels/light_table/header.rs`, `crates/ui/tests/section_header.rs`; a click on the description edits it inline (`field:section.description`: Enter or a click away commits through `cmd:folder.info.set` as one undo step, Esc cancels) and a double-click on the title opens Folder Properties (M6.26, `crates/ui/tests/folder_properties.rs`); the other buttons' commands, Locate on Disk (M9) and the edited count (M7) arrive with their milestones; ref 02 §7.2 |
 | LIB-LT-STICKY | Sticky section headers | P1 | ✅ | the header of the section scrolled through is pinned at the top (32 high, its first line: icon, title, edited count and Save) and pushed up by the next; the pinned line owns the header's ids: `crates/ui/src/panels/light_table/layout.rs`, `crates/ui/src/panels/light_table/header.rs`, `crates/ui/tests/light_table.rs`, `crates/ui/tests/section_header.rs` |
 | LIB-LT-GRID | Justified square-cell grid, aspect-preserving thumbnails, shadow | P0 | ✅ | square cells 64–320 in justified columns (gap ≥ 12, margins 24, rows 22 apart, 24 before the next header), photos letterboxed: `crates/ui/src/panels/light_table/layout.rs`, `crates/ui/src/panels/light_table/cell.rs`, `crates/ui/tests/light_table.rs`; the photo's drop shadow (`black α90`, 2 down, blur 4) under every image: `crates/ui-kit/src/widgets/badges.rs`, `crates/ui-kit/tests/badges.rs` |
 | LIB-LT-CAPTION | Thumbnail captions (None/Filename/Caption/Tags/Resolution/Date) | P1 | 🟡 | `cmd:view.caption`; one 10.5 pt `text_dim` line under the cell, middle-elided: Filename, Date (taken, else the file's), Resolution: `crates/ui/src/panels/light_table/cell.rs`, `crates/ui/tests/cells.rs`; Caption and Tags draw an empty line until the model has them (M6) |
@@ -91,7 +91,7 @@ same commit.
 | ORG-QUICKTAGS | Quick tags + configure dialog | P2 | 🟡 | engine commands only (M6.15): ten slots and "use the top two buttons for recently used tags" in settings (`cmd:tags.quick.set`, `cmd:tags.quick.get`), applying a slot toggles its tag (`cmd:tags.quick.apply`), Ctrl+Alt+1 … Ctrl+Alt+0 in the library (`cmd:tags.quick.1` … `cmd:tags.quick.10`, no conflict on any platform): `crates/engine/src/cmd/tags.rs`, `crates/engine/tests/tags.rs`; the buttons and Configure Quick Tags missing (M6.31) |
 | ORG-CAPTION | Captions (edit view field, library inline) | P0 | 🟡 | engine: `cmd:photo.caption.set` (trimmed, capped at 16 KiB, "" clears; one undo step; the sidecar's `caption`), `photo.inspect` reports it: `crates/engine/src/cmd/caption.rs`, `crates/engine/tests/captions.rs`; the inline editors, captions under thumbnails, search and file write-back missing |
 | ORG-HIDE | Hide/unhide photos and folders | P1 | 🟡 | engine: `cmd:photo.hide` `cmd:photo.unhide` `cmd:folder.hide` `cmd:folder.unhide` (one undo step; Unhide disabled unless hidden; `"hidden"` in the photo's entry or the folder's own `"folder"` object): `crates/engine/src/cmd/hide.rs`, `crates/engine/tests/hide.rs`; drawing hidden photos at 40 % and the Hidden Folders group in the window missing |
-| ORG-FOLDERPROPS | Folder Properties dialog | P0 | ⬜ | |
+| ORG-FOLDERPROPS | Folder Properties dialog | P0 | 🟡 | `cmd:section.properties` (Folder ▸ Edit Description…, a double-click on a section title) opens it on the folder: Name (shown, read-only), Date typed as YYYY-MM-DD with its long form beside it and "Use the date of the oldest photo", Place, Description; OK runs `cmd:folder.info.set` once (one undo step), disabled while the date does not read; Cancel changes nothing: `crates/ui/src/dialogs/folder_properties.rs`, `crates/ui/tests/folder_properties.rs` (M6.26); renaming the folder (M9), Music for slideshows (shown disabled until M11) and a date picker (the date is typed) are missing |
 | ORG-SORT-PHOTOS | Photo order in sections, manual order persisted | P1 | ⬜ | |
 | ORG-ADJDATE | Adjust Date and Time dialog | P1 | ⬜ | |
 | IMP-ROOM | Import room: source, tray, preview, destination strip | P1 | ⬜ | ref 04 §3 |

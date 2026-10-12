@@ -1,63 +1,250 @@
 //! Folder Properties (`organizing.md` §10): opened by `section.properties` (Folder ▸ Edit
-//! Description…, a double-click on a tree row or a section title). The draft is
-//! `{folder, name, date, useOldest, place, description}`: the folder's id and name (shown, read-only
-//! until renaming arrives), its date (`null`: none set) or "use the date of the oldest photo", its
-//! place and its description. OK runs `folder.info.set` once (one undo step); Cancel changes
-//! nothing.
+//! Description…, a double-click on a tree row or a section title).
 //!
-//! The fields are drawn as read-only lines for now; the dialog's own layout (the date picker, the
-//! text fields, Music for slideshows) replaces [`body`] later in this milestone.
+//! ```text
+//! Folder Properties
+//! Name:                  [Lisbon Weekend                 ]   (read-only until renaming, M9)
+//! Date:                  [2026-06-04]  Thursday, June 4, 2026
+//!                        [x] Use the date of the oldest photo
+//! Place:                 [Lisbon, Portugal               ]
+//! Description:           [A weekend of trams             ]
+//! Music for slideshows:  [                     ] [Browse…]  (disabled until slideshows, M11)
+//!                                                   [Cancel] [OK]
+//! ```
+//!
+//! The draft is `{folder, name, date, useOldest, place, description}`: the folder's id and name,
+//! the date the Date field shows (`"YYYY-MM-DD"`; `null` when the folder has none: no photo with a
+//! date and none set), whether "Use the date of the oldest photo" is on, its place and its
+//! description. It starts from what the library holds: the date set in Folder Properties (the box
+//! off), else the oldest photo's (the box on, the field disabled). Turning the box on shows the
+//! oldest photo's date again; while it is off the field takes a date, and OK is disabled until it
+//! reads as one. OK runs `folder.info.set` once (one undo step, none when nothing changed), with
+//! `date: "oldest"` while the box is on; Cancel changes nothing.
+//!
+//! Widget ids (`control-protocol.md` §7, the dialog row): `field:dialog.name` (disabled),
+//! `field:dialog.date`, `check:dialog.useOldest`, `field:dialog.place`, `field:dialog.description`,
+//! `field:dialog.music` and `button:dialog.browse` (both disabled), `button:dialog.cancel`,
+//! `button:dialog.ok`.
 
-use dalica_core::FolderId;
+use dalica_core::{Date, FolderId};
 use dalica_engine::CmdError;
-use dalica_ui_kit::widgets::ButtonKind;
-use egui::Ui;
+use dalica_library::Library;
+use dalica_ui_kit::registry::Role;
+use dalica_ui_kit::widgets::{self, ButtonKind, Target, TextField};
+use dalica_ui_kit::{Tokens, fonts};
+use egui::{Align, Layout, RichText, Ui, vec2};
 use serde_json::{Map, Value, json};
 
 use super::{Button, Dialog, DialogKind, Look};
 use crate::app::App;
+use crate::panels::light_table::header::weekday;
+use crate::panels::light_table::{folder_name, long_date};
 
 pub const TITLE: &str = "Folder Properties";
 /// The dialog's width (points).
-pub const WIDTH: f32 = 440.0;
+pub const WIDTH: f32 = 500.0;
+/// The label column's width (points).
+const LABEL_W: f32 = 148.0;
+/// Between the label column and the fields, and between rows.
+const GAP: f32 = 8.0;
+/// The Date field's width.
+const DATE_W: f32 = 112.0;
+/// The checkbox's label.
+pub const USE_OLDEST: &str = "Use the date of the oldest photo";
+/// What the Music field says while slideshows are not there.
+pub const MUSIC_HINT: &str = "Arrives with slideshows";
+/// What the Date field says while it is empty.
+pub const DATE_HINT: &str = "YYYY-MM-DD";
+/// Why OK is disabled when the Date field does not read as a day.
+pub const BAD_DATE: &str = "Type the date as YYYY-MM-DD.";
 
-/// The dialog for `folder`, its draft filled from what the library knows (its name; the date,
-/// place and description the model does not hold yet start empty).
+pub const NAME_ID: &str = "field:dialog.name";
+pub const DATE_ID: &str = "field:dialog.date";
+pub const USE_OLDEST_ID: &str = "check:dialog.useOldest";
+pub const PLACE_ID: &str = "field:dialog.place";
+pub const DESCRIPTION_ID: &str = "field:dialog.description";
+pub const MUSIC_ID: &str = "field:dialog.music";
+pub const BROWSE_ID: &str = "button:dialog.browse";
+
+/// The dialog for `folder`, its draft filled from what the library holds.
 pub fn dialog(app: &App, folder: FolderId) -> Dialog {
-    let name = app
-        .session()
-        .and_then(|s| s.library().folder(folder))
-        .map(|f| f.path.file_name().map_or_else(|| f.path.display().to_string(), |n| n.to_string_lossy().into_owned()))
-        .unwrap_or_default();
     let mut d = Dialog::new(DialogKind::FolderProperties);
-    d.fields = draft(folder, &name);
+    d.fields = match app.session().map(dalica_engine::Session::library) {
+        Some(library) => {
+            let name = library.folder(folder).map(|f| folder_name(&f.path)).unwrap_or_default();
+            let info = library.folder_info(folder);
+            let date = info.date.or_else(|| oldest_date(library, folder));
+            draft(folder, &name, date, info.date.is_none(), &info.place, &info.description)
+        }
+        None => draft(folder, "", None, true, "", ""),
+    };
     d
 }
 
-/// A fresh draft for `folder` called `name`.
-pub fn draft(folder: FolderId, name: &str) -> Map<String, Value> {
-    let v = json!({ "folder": folder, "name": name, "date": null, "useOldest": true, "place": "", "description": "" });
+/// The date of `folder`'s oldest photo (by effective date, else the file's time): the folder's date
+/// while none is set. A pass over the library: on opening and on a click, never per frame.
+pub fn oldest_date(library: &Library, folder: FolderId) -> Option<Date> {
+    library.photos().filter(|p| p.folder == folder).filter_map(|p| library.sort_date(p)).min().map(|d| d.date())
+}
+
+/// A draft for `folder` called `name`, showing `date`.
+pub fn draft(folder: FolderId, name: &str, date: Option<Date>, use_oldest: bool, place: &str, description: &str) -> Map<String, Value> {
+    let v = json!({
+        "folder": folder,
+        "name": name,
+        "date": date.map(|d| d.to_string()),
+        "useOldest": use_oldest,
+        "place": place,
+        "description": description,
+    });
     match v {
         Value::Object(o) => o,
         _ => Map::new(),
     }
 }
 
-pub fn look(_app: &App, _d: &Dialog) -> Look {
-    Look { title: TITLE.into(), width: WIDTH, buttons: vec![Button::cancel(), Button::new("ok", "OK", ButtonKind::Default)] }
+fn text(fields: &Map<String, Value>, key: &str) -> String {
+    fields.get(key).and_then(Value::as_str).unwrap_or("").to_string()
+}
+
+fn use_oldest(fields: &Map<String, Value>) -> bool {
+    fields.get("useOldest").and_then(Value::as_bool).unwrap_or(true)
+}
+
+/// The date the draft gives: `Ok(None)` for the oldest photo's, `Ok(Some)` for a day typed, `Err`
+/// (why, for the dialog) when the field does not read as one.
+pub fn chosen_date(fields: &Map<String, Value>) -> Result<Option<Date>, &'static str> {
+    if use_oldest(fields) {
+        return Ok(None);
+    }
+    text(fields, "date").trim().parse::<Date>().map(Some).map_err(|_| BAD_DATE)
+}
+
+pub fn look(_app: &App, d: &Dialog) -> Look {
+    let ok = Button::new("ok", "OK", ButtonKind::Default).enabled(chosen_date(&d.fields).is_ok());
+    Look { title: TITLE.into(), width: WIDTH, buttons: vec![Button::cancel(), ok] }
+}
+
+/// One row: `label` in its column, then what `add` draws.
+fn row<R>(ui: &mut Ui, t: &Tokens, label: &str, add: impl FnOnce(&mut Ui) -> R) -> R {
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = GAP;
+        ui.allocate_ui_with_layout(vec2(LABEL_W, t.metrics.text_field_h), Layout::left_to_right(Align::Center), |ui| {
+            ui.set_min_width(LABEL_W);
+            ui.label(RichText::new(label).font(fonts::regular(t.body)).color(t.text_label));
+        });
+        add(ui)
+    })
+    .inner
+}
+
+/// A text field for draft field `key`, `width` wide; the draft takes what is typed.
+fn field(ui: &mut Ui, t: &Tokens, fields: &mut Map<String, Value>, key: &str, id: &str, hint: &str, width: f32) {
+    let mut value = text(fields, key);
+    let before = value.clone();
+    TextField::new(id, hint, width).show(ui, t, &mut value);
+    if value != before {
+        fields.insert(key.into(), Value::String(value));
+    }
+}
+
+/// The long form of the date the Date row shows ("Thursday, June 4, 2026"), or why there is none.
+fn date_note(fields: &Map<String, Value>) -> Result<String, &'static str> {
+    match chosen_date(fields)? {
+        Some(day) => Ok(format!("{}, {}", weekday(day), long_date(day))),
+        None => match text(fields, "date").parse::<Date>() {
+            Ok(day) => Ok(format!("{}, {}", weekday(day), long_date(day))),
+            Err(_) => Ok("No photo here has a date.".to_string()),
+        },
+    }
 }
 
 pub fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
-    super::draft_lines(app, ui, d, &["name", "date", "useOldest", "place", "description"]);
+    let t = *app.tokens();
+    let full = (ui.available_width() - LABEL_W - GAP).max(24.0);
+    ui.spacing_mut().item_spacing.y = GAP;
+    let fields = &mut d.fields;
+
+    row(ui, &t, "Name:", |ui| {
+        // Renaming on disk arrives with the file operations (M9): shown, not edited.
+        ui.add_enabled_ui(false, |ui| {
+            let mut name = text(fields, "name");
+            TextField::new(NAME_ID, "", full).show(ui, &t, &mut name);
+        });
+    });
+
+    let oldest = use_oldest(fields);
+    row(ui, &t, "Date:", |ui| {
+        ui.add_enabled_ui(!oldest, |ui| field(ui, &t, fields, "date", DATE_ID, DATE_HINT, DATE_W));
+        let (note, color) = match date_note(fields) {
+            Ok(note) => (note, t.text_dim),
+            Err(why) => (why.to_string(), t.caution),
+        };
+        ui.label(RichText::new(note).font(fonts::regular(t.detail)).color(color));
+    });
+    row(ui, &t, "", |ui| {
+        let mut on = oldest;
+        let r = ui.checkbox(&mut on, RichText::new(USE_OLDEST).font(fonts::regular(t.body)));
+        widgets::register(ui.ctx(), USE_OLDEST_ID, Role::Toggle, USE_OLDEST, Target::Widget(&r), on);
+        if on != oldest {
+            fields.insert("useOldest".into(), Value::Bool(on));
+            if on {
+                // Back to the oldest photo's date: one pass over the library, on this click only.
+                let folder = fields.get("folder").and_then(|v| serde_json::from_value::<FolderId>(v.clone()).ok());
+                let date = folder.and_then(|f| app.session().and_then(|s| oldest_date(s.library(), f)));
+                fields.insert("date".into(), json!(date.map(|d| d.to_string())));
+            }
+        }
+    });
+    row(ui, &t, "Place:", |ui| field(ui, &t, fields, "place", PLACE_ID, "Where these photos were taken", full));
+    row(ui, &t, "Description:", |ui| field(ui, &t, fields, "description", DESCRIPTION_ID, "Add a description", full));
+    row(ui, &t, "Music for slideshows:", |ui| {
+        // Slideshows arrive in M11: the row is there, disabled.
+        ui.add_enabled_ui(false, |ui| {
+            let browse = "Browse…";
+            let bw = (ui.painter().layout_no_wrap(browse.to_owned(), fonts::semibold(t.button_label), t.text).size().x + 18.0).max(37.0).round();
+            let mut music = String::new();
+            TextField::new(MUSIC_ID, MUSIC_HINT, (full - bw - GAP).max(24.0)).show(ui, &t, &mut music);
+            widgets::text_button(ui, &t, BROWSE_ID, browse, false);
+        });
+    });
 }
 
-/// OK: `folder.info.set {id, description, place, date}`, `date` being `"oldest"` while "use the
+/// OK: `folder.info.set {id, description, place, date}`, `date` being `"oldest"` while "Use the
 /// date of the oldest photo" is on.
 pub fn act(app: &mut App, d: &Dialog, _action: &str) -> Result<Value, CmdError> {
     let f = &d.fields;
     let id = f.get("folder").cloned().ok_or_else(|| CmdError::Internal("the Folder Properties draft has no folder".into()))?;
-    let date =
-        if f.get("useOldest").and_then(Value::as_bool).unwrap_or(true) { json!("oldest") } else { f.get("date").cloned().unwrap_or(Value::Null) };
-    let text = |k: &str| f.get(k).and_then(Value::as_str).unwrap_or("").to_string();
-    app.run("folder.info.set", &json!({ "id": id, "description": text("description"), "place": text("place"), "date": date }))
+    let date = match chosen_date(f) {
+        Ok(None) => json!("oldest"),
+        Ok(Some(day)) => json!(day.to_string()),
+        Err(why) => return Err(CmdError::BadParams(why.into())),
+    };
+    app.run("folder.info.set", &json!({ "id": id, "description": text(f, "description"), "place": text(f, "place"), "date": date }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_date_is_the_oldest_photos_or_a_day_typed() {
+        let folder = FolderId::new(3);
+        let day = Date::new(2026, 6, 4).unwrap();
+        let mut f = draft(folder, "Lisbon", Some(day), true, "", "");
+        assert_eq!(f["date"], json!("2026-06-04"));
+        assert_eq!(chosen_date(&f), Ok(None), "the box on: the oldest photo's");
+        assert_eq!(date_note(&f).unwrap(), "Thursday, June 4, 2026");
+        f.insert("useOldest".into(), json!(false));
+        assert_eq!(chosen_date(&f), Ok(Some(day)));
+        for bad in ["", "June 4", "2026-02-30", "2026-06-04T10:00:00"] {
+            f.insert("date".into(), json!(bad));
+            assert_eq!(chosen_date(&f), Err(BAD_DATE), "{bad:?}");
+            assert_eq!(date_note(&f), Err(BAD_DATE));
+        }
+        f.insert("date".into(), json!(" 2026-06-05 "));
+        assert_eq!(chosen_date(&f), Ok(Some(Date::new(2026, 6, 5).unwrap())), "spaces around it are fine");
+        let none = draft(folder, "x", None, true, "", "");
+        assert_eq!((&none["date"], date_note(&none).unwrap().as_str()), (&Value::Null, "No photo here has a date."));
+    }
 }

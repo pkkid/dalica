@@ -21,16 +21,27 @@
 //! **Ids** (`control-protocol.md` §7): `section:<id>` is the header (its right-click opens the
 //! section menu), with the parts `/icon`, `/title`, `/description`, `/play`, `/collage`,
 //! `/selectStarred`, `/save`, `/export` and, with unsaved edits, `/saveEdited` (the text button at
-//! the top right). While a section's header is pinned, its block has scrolled partly above the view
+//! the top right). While the section's description is being edited inline the field
+//! [`DESCRIPTION_FIELD`] (`field:section.description`) takes the place of `/description`. While a
+//! section's header is pinned, its block has scrolled partly above the view
 //! and lies under the pinned form: the **pinned form owns the ids** (`section:<id>` and its
 //! first-line parts) and the block registers, and takes input on, only the parts below the pinned
 //! band, so every id stays unique and nothing hidden takes a click.
+//!
+//! **Date, place and description** (`organizing.md` §10): the date line is the folder's date (the
+//! one set in Folder Properties, else its oldest photo's) and " · place" when one is set; the last
+//! row is the description, or "Add a description". A click on it opens the inline editor
+//! ([`UiState::description_edit`](crate::state::UiState::description_edit)), which takes the focus
+//! with the description as its text: Enter (or a click elsewhere) commits it through
+//! `folder.info.set` (one undo step), Esc closes it and changes nothing. A double-click on the
+//! title opens Folder Properties (`section.properties`).
 //!
 //! **Buttons** are live only when their command is registered (a UI command or one the session
 //! has) and its `enabled` accepts the parameters a click passes; Select Starred also needs a starred
 //! photo in the section, Save an unsaved edit. A disabled button says why in its tooltip.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use dalica_core::{Date, FolderId};
 use dalica_engine::Session;
@@ -38,9 +49,9 @@ use dalica_ui_kit::Tokens;
 use dalica_ui_kit::fonts;
 use dalica_ui_kit::icons::{self, Icon};
 use dalica_ui_kit::registry::Role;
-use dalica_ui_kit::widgets::{self, Target};
+use dalica_ui_kit::widgets::{self, Target, TextField};
 use egui::text::{LayoutJob, TextWrapping};
-use egui::{Align, Color32, FontId, Galley, Id, Painter, Rect, Response, Sense, Stroke, Ui, UiBuilder, Vec2, pos2, vec2};
+use egui::{Align, Color32, CursorIcon, FontId, Galley, Id, Painter, Rect, Response, Sense, Stroke, Ui, UiBuilder, Vec2, pos2, vec2};
 use serde_json::{Value, json};
 
 use super::{Frame, Section};
@@ -73,6 +84,10 @@ const DESCRIPTION_H: f32 = 18.0;
 pub const STICKY_ICON: f32 = 20.0;
 /// What the description row says when the section has none.
 pub const PLACEHOLDER: &str = "Add a description";
+/// The inline description editor's automation id (`control-protocol.md` §7).
+pub const DESCRIPTION_FIELD: &str = "field:section.description";
+/// The widest the inline description editor gets (points).
+const DESCRIPTION_FIELD_W: f32 = 720.0;
 /// The most sections whose facts are kept; past it the cache starts over.
 const MAX_FACTS: usize = 4096;
 
@@ -188,21 +203,34 @@ pub fn date_line(date: Option<Date>, place: Option<&str>) -> String {
 struct Facts {
     /// The folder's full path (the icon's tooltip).
     path: String,
+    /// The date line: the folder's date and place ([`date_line`]).
     date: String,
+    /// The folder's description, as set (`""`: none); shared, as the facts are copied each frame.
+    description: Arc<str>,
+    /// The description on one line: line breaks it may hold (from another application) as spaces.
+    shown: Arc<str>,
     /// The section holds a starred photo.
     starred: bool,
     /// Photos with unsaved edits. Edit recipes arrive with the edit view (M7); until then none.
     edited: usize,
 }
 
-/// What the headers keep between frames: each section's [`Facts`] for the sections' generation.
+/// What the headers keep between frames: each section's [`Facts`] for the sections' generation,
+/// and the section whose inline description editor was given the focus.
 #[derive(Debug, Default)]
 pub struct Headers {
     generation: Option<u64>,
     facts: HashMap<state::Section, Facts>,
+    focused: Option<state::Section>,
 }
 
 impl Headers {
+    /// What the header of `section` showed when it was last drawn: its date line and its
+    /// description (`""`: none, the placeholder shows).
+    pub fn shown(&self, section: state::Section) -> Option<(&str, &str)> {
+        self.facts.get(&section).map(|f| (f.date.as_str(), &*f.description))
+    }
+
     fn facts(&mut self, session: &Session, generation: u64, section: &Section) -> Facts {
         if self.generation != Some(generation) || self.facts.len() >= MAX_FACTS {
             self.facts.clear();
@@ -213,17 +241,43 @@ impl Headers {
             .or_insert_with(|| {
                 let library = session.library();
                 let path = library.folder(section.folder).map(|f| f.path.display().to_string()).unwrap_or_default();
-                let date = section.photos.iter().find_map(|&id| library.photo(id).and_then(|p| p.sort_date())).map(|d| d.date());
+                let info = library.folder_info(section.folder);
+                // The date set in Folder Properties, else the oldest photo's (its effective date).
+                let date = info
+                    .date
+                    .or_else(|| section.photos.iter().filter_map(|&id| library.photo(id).and_then(|p| library.sort_date(p))).min().map(|d| d.date()));
                 let starred = section.photos.iter().any(|&id| library.photo(id).is_some_and(|p| p.star));
-                Facts { path, date: date_line(date, None), starred, edited: 0 }
+                Facts {
+                    path,
+                    date: date_line(date, Some(&info.place)),
+                    description: Arc::from(info.description.as_str()),
+                    shown: Arc::from(info.description.replace(['\n', '\r', '\t'], " ")),
+                    starred,
+                    edited: 0,
+                }
             })
             .clone()
     }
 }
 
+/// What the description row asks for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DescriptionOut {
+    /// A click on the description: open the inline editor on `text`, the folder's description.
+    Open { section: state::Section, folder: FolderId, text: String },
+    /// The editor's text changed.
+    Draft(String),
+    /// Enter, or a click elsewhere: apply `text` to the folder and close the editor.
+    Commit { section: state::Section, folder: FolderId, text: String },
+    /// Esc: close the editor; nothing changes.
+    Cancel(state::Section),
+}
+
 /// What a header asks for.
 #[derive(Debug, Default)]
 pub struct HeaderOut {
+    /// What the description row asks for.
+    pub description: Option<DescriptionOut>,
     /// Commands to run, in order.
     pub commands: Vec<(String, Value)>,
     /// The section's folder when the header was right-clicked: it becomes the selected section,
@@ -253,7 +307,7 @@ fn params(f: &Frame<'_>, section: &Section) -> Value {
 }
 
 /// `text` on one line in `font`, cut short with "…" past `max` points.
-fn one_line(painter: &Painter, text: &str, font: FontId, color: Color32, max: f32) -> std::sync::Arc<Galley> {
+fn one_line(painter: &Painter, text: &str, font: FontId, color: Color32, max: f32) -> Arc<Galley> {
     let mut job = LayoutJob::simple_singleline(text.to_owned(), font, color);
     job.wrap = TextWrapping::truncate_at_width(if max.is_finite() { max.max(1.0) } else { 1.0 });
     painter.layout_job(job)
@@ -341,6 +395,10 @@ pub fn button_rects(origin: egui::Pos2, height: f32) -> ([(Button, Rect); 5], [R
 pub fn show(ui: &mut Ui, f: &Frame<'_>, headers: &mut Headers, section: &Section, rect: Rect, form: Form) -> HeaderOut {
     let t = f.t;
     let facts = headers.facts(f.session, f.sections.generation(), section);
+    // The editor closed (or moved to another section): it takes the focus again when it opens.
+    if f.state.description_edit.as_ref().map(|e| e.section) != headers.focused {
+        headers.focused = None;
+    }
     let mut out = HeaderOut::default();
     let painter = ui.painter().clone();
     painter.rect_filled(rect, 0, t.folder_header);
@@ -429,12 +487,13 @@ pub fn show(ui: &mut Ui, f: &Frame<'_>, headers: &mut Headers, section: &Section
     let title = Rect::from_min_size(pos2(text_x, line_top), vec2(size.x.max(1.0), TITLE_H));
     painter.galley(pos2(text_x, line_mid - size.y / 2.0).round(), g, t.text);
     if takes_input(title) {
-        let section_params = || json!({ "section": section.id });
-        let props = live(f.session, "section.properties", section_params);
+        // Folder Properties for this section's folder, whatever is selected.
+        let folder_params = || json!({ "folder": section.folder });
+        let props = live(f.session, "section.properties", folder_params);
         let r = ui.interact(title, egui_id("title"), if props { Sense::click() } else { Sense::hover() });
         widgets::register(ui.ctx(), &part_id("title"), Role::Other, &section.title, Target::Widget(&r), false);
         if r.double_clicked() {
-            out.commands.push(("section.properties".to_string(), section_params()));
+            out.commands.push(("section.properties".to_string(), folder_params()));
         }
         track(&r, &mut out, props);
     }
@@ -472,17 +531,115 @@ pub fn show(ui: &mut Ui, f: &Frame<'_>, headers: &mut Headers, section: &Section
         track(&resp, &mut out, enabled.is_ok());
     }
 
-    // The description line: the placeholder until descriptions arrive (inline editing is M6).
+    // The description line, or its inline editor.
+    let editing = f.state.description_edit.as_ref().filter(|e| e.section == section.id);
     let x = rect.min.x + PADDING;
-    let g = one_line(&painter, PLACEHOLDER, fonts::regular(t.detail), t.text_dim, rect.max.x - PADDING - x);
     let top = rect.min.y + DESCRIPTION_TOP;
+    if let Some(e) = editing {
+        let row = Rect::from_min_max(pos2(x, top), pos2(rect.max.x - PADDING, top + DESCRIPTION_H));
+        out.description = description_editor(ui, f, headers, section, &e.draft, row, &takes_input);
+        return out;
+    }
+    let (text, color) = if facts.shown.is_empty() { (PLACEHOLDER, t.text_dim) } else { (&*facts.shown, t.text_label) };
+    let g = one_line(&painter, text, fonts::regular(t.detail), color, rect.max.x - PADDING - x);
     let d = Rect::from_min_size(pos2(x, top), vec2(g.size().x.max(1.0), DESCRIPTION_H));
-    painter.galley(pos2(x, top + (DESCRIPTION_H - g.size().y) / 2.0).round(), g, t.text_dim);
+    painter.galley(pos2(x, top + (DESCRIPTION_H - g.size().y) / 2.0).round(), g, color);
     if takes_input(d) {
-        let r = ui.interact(d, egui_id("description"), Sense::hover());
-        widgets::register(ui.ctx(), &part_id("description"), Role::Other, PLACEHOLDER, Target::Widget(&r), false);
+        let r = ui.interact(d, egui_id("description"), Sense::click()).on_hover_cursor(CursorIcon::Text);
+        widgets::register(ui.ctx(), &part_id("description"), Role::Other, text, Target::Widget(&r), false);
+        if r.clicked() {
+            out.description = Some(DescriptionOut::Open { section: section.id, folder: section.folder, text: facts.description.to_string() });
+        }
+        track(&r, &mut out, true);
     }
     out
+}
+
+/// The inline description editor of `section` over the description `row` (its text starts where
+/// the description's does), as wide as the row allows up to [`DESCRIPTION_FIELD_W`]: the field
+/// gets the focus the first frame it is shown; what its edit asks for comes back.
+fn description_editor(
+    ui: &mut Ui,
+    f: &Frame<'_>,
+    headers: &mut Headers,
+    section: &Section,
+    draft: &str,
+    row: Rect,
+    takes_input: &dyn Fn(Rect) -> bool,
+) -> Option<DescriptionOut> {
+    let t = f.t;
+    let h = t.metrics.text_field_h;
+    // The field's frame starts 8 before its text.
+    let left = row.min.x - 8.0;
+    let w = (row.max.x - left).clamp(24.0, DESCRIPTION_FIELD_W);
+    let slot = Rect::from_min_size(pos2(left, (row.center().y - h / 2.0).round()), vec2(w, h));
+    if !takes_input(slot) {
+        return None;
+    }
+    if headers.focused != Some(section.id) {
+        widgets::focus_field(ui.ctx(), DESCRIPTION_FIELD);
+        headers.focused = Some(section.id);
+    }
+    let mut text = draft.to_owned();
+    let field = ui
+        .scope_builder(UiBuilder::new().max_rect(slot).layout(egui::Layout::left_to_right(Align::Center)), |ui| {
+            TextField::new(DESCRIPTION_FIELD, PLACEHOLDER, w).show(ui, t, &mut text)
+        })
+        .inner;
+    if field.cancelled() {
+        Some(DescriptionOut::Cancel(section.id))
+    } else if field.committed() {
+        Some(DescriptionOut::Commit { section: section.id, folder: section.folder, text })
+    } else if text != draft {
+        Some(DescriptionOut::Draft(text))
+    } else {
+        None
+    }
+}
+
+/// `text` cut to [`state::MAX_DRAFT`] characters, the most an inline editor keeps.
+fn cut_draft(mut text: String) -> String {
+    if let Some((at, _)) = text.char_indices().nth(state::MAX_DRAFT) {
+        text.truncate(at);
+    }
+    text
+}
+
+/// Does what the description row asked for: opens the editor (a description longer than an inline
+/// editor keeps opens Folder Properties instead, so nothing is cut), keeps its text, commits it
+/// through `folder.info.set` or closes it.
+fn apply_description(app: &mut App, d: DescriptionOut) {
+    match d {
+        DescriptionOut::Open { section, folder, text } => {
+            if text.chars().count() > state::MAX_DRAFT {
+                if let Err(e) = app.run("section.properties", &json!({ "folder": folder })) {
+                    app.state_mut().status = e.to_string();
+                }
+                return;
+            }
+            app.state_mut().description_edit = Some(state::DescriptionEdit { section, draft: text });
+        }
+        DescriptionOut::Draft(text) => {
+            if let Some(e) = app.state_mut().description_edit.as_mut() {
+                e.draft = cut_draft(text);
+            }
+        }
+        DescriptionOut::Commit { section, folder, text } => {
+            let state = app.state_mut();
+            if state.description_edit.as_ref().is_some_and(|e| e.section == section) {
+                state.description_edit = None;
+            }
+            if let Err(e) = app.run("folder.info.set", &json!({ "id": folder, "description": text })) {
+                app.state_mut().status = e.to_string();
+            }
+        }
+        DescriptionOut::Cancel(section) => {
+            let state = app.state_mut();
+            if state.description_edit.as_ref().is_some_and(|e| e.section == section) {
+                state.description_edit = None;
+            }
+        }
+    }
 }
 
 /// Runs what a header asked for: the right-clicked section becomes the selected one, the clicked
@@ -491,6 +648,9 @@ pub fn show(ui: &mut Ui, f: &Frame<'_>, headers: &mut Headers, section: &Section
 pub fn apply(app: &mut App, out: HeaderOut) {
     if let Some(folder) = out.select {
         app.state_mut().folder = Some(folder);
+    }
+    if let Some(d) = out.description {
+        apply_description(app, d);
     }
     for (id, params) in out.commands {
         let _ = app.run(&id, &params);
@@ -507,6 +667,15 @@ mod tests {
 
     fn date(y: u16, m: u8, d: u8) -> Date {
         Date::new(y, m, d).unwrap()
+    }
+
+    #[test]
+    fn an_inline_draft_is_cut_to_its_cap_on_a_char_boundary() {
+        assert_eq!(cut_draft("trams".into()), "trams");
+        let long = "é".repeat(state::MAX_DRAFT + 3);
+        let cut = cut_draft(long);
+        assert_eq!(cut.chars().count(), state::MAX_DRAFT);
+        assert!(cut.chars().all(|c| c == 'é'));
     }
 
     #[test]
