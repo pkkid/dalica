@@ -10,7 +10,8 @@
 //!   naively (R = (1 − C)(1 − K), …).
 //!
 //! 16-bit samples go through `moxcms`' 16-bit transform and are rounded to 8 bits once at the
-//! end; float samples go through its float transform. Alpha is carried over, never converted.
+//! end; float samples go through its float transform. [`transform_options`] says which `moxcms`
+//! kernels are used, chosen so every architecture computes the same pixels. Alpha is carried over, never converted.
 //! Work is done in bands of rows so temporary buffers stay small; every buffer is charged to the
 //! decode's [`Budget`].
 
@@ -102,8 +103,6 @@ pub fn load_profile(icc: &[u8], model: ColorModel, limits: &Limits) -> std::resu
 fn with_profile(d: &Decoded, icc: &[u8], budget: &mut Budget, limits: &Limits) -> std::result::Result<Vec<u8>, String> {
     let profile = load_profile(icc, d.model, limits)?;
     let srgb = ColorProfile::new_srgb();
-    let options =
-        TransformOptions { rendering_intent: RenderingIntent::RelativeColorimetric, allow_use_cicp_transfer: false, ..TransformOptions::default() };
     let (ch, cc) = (d.channels(), d.model.channels());
     let mut out = budget.vec(d.width as usize * d.height as usize * 4, 255u8).map_err(|e| e.to_string())?;
     let mut run = || -> std::result::Result<(), String> {
@@ -117,7 +116,7 @@ fn with_profile(d: &Decoded, icc: &[u8], budget: &mut Budget, limits: &Limits) -
                     (_, false) => Layout::Rgb,
                     (_, true) => Layout::Rgba,
                 };
-                let t = profile.create_transform_8bit(layout, &srgb, Layout::Rgba, options).map_err(err)?;
+                let t = profile.create_transform_8bit(layout, &srgb, Layout::Rgba, transform_options(8)).map_err(err)?;
                 for (band, dst) in s.chunks(BAND_PIXELS * ch).zip(out.chunks_mut(BAND_PIXELS * 4)) {
                     t.transform(band, dst).map_err(|e| format!("the colour transform failed: {e:?}"))?;
                 }
@@ -125,15 +124,15 @@ fn with_profile(d: &Decoded, icc: &[u8], budget: &mut Budget, limits: &Limits) -
             }
             // CMYK and deeper samples: the colour channels in bands, alpha copied separately.
             (Samples::U8(s), ColorModel::Cmyk) => {
-                let t = profile.create_transform_8bit(Layout::Rgba, &srgb, Layout::Rgb, options).map_err(err)?;
+                let t = profile.create_transform_8bit(Layout::Rgba, &srgb, Layout::Rgb, transform_options(8)).map_err(err)?;
                 bands(&*t, s, ch, cc, |v| v, |v| v, budget, &mut out)
             }
             (Samples::U16(s), _) => {
-                let t = profile.create_transform_16bit(source_layout(d.model), &srgb, Layout::Rgb, options).map_err(err)?;
+                let t = profile.create_transform_16bit(source_layout(d.model), &srgb, Layout::Rgb, transform_options(16)).map_err(err)?;
                 bands(&*t, s, ch, cc, |v| v, to8_u16, budget, &mut out)
             }
             (Samples::F32(s), _) => {
-                let t = profile.create_transform_f32(source_layout(d.model), &srgb, Layout::Rgb, options).map_err(err)?;
+                let t = profile.create_transform_f32(source_layout(d.model), &srgb, Layout::Rgb, transform_options(32)).map_err(err)?;
                 bands(&*t, s, ch, cc, |v: f32| if v.is_finite() { v.clamp(0.0, 1.0) } else { 0.0 }, to8_f32, budget, &mut out)
             }
         }
@@ -143,6 +142,28 @@ fn with_profile(d: &Decoded, icc: &[u8], budget: &mut Budget, limits: &Limits) -
         copy_alpha(d, &mut out);
     }
     Ok(out)
+}
+
+/// The transform options for samples of `bits` bits (8, 16, or 32 for floats).
+///
+/// `moxcms` picks its matrix/TRC kernel by architecture when `prefer_fixed_point` is on: Q2.13
+/// (AVX2, SSE 4.1 or NEON) for 8-bit samples, but for 12-bit and deeper ones Q1.30 with NEON on
+/// aarch64 against floating point on x86. Q1.30's ±2 range cannot hold ProPhoto → sRGB's 2.03 red
+/// coefficient, which saturates, so ProPhoto reds came out wrong on aarch64 only. So:
+/// - 16-bit and float samples take the floating-point path (`prefer_fixed_point` off): for
+///   profiles whose three curves agree it is the same scalar code on every target (its SIMD
+///   variants are behind non-default features), so they convert to the same values everywhere;
+/// - 8-bit samples keep the Q2.13 kernels (range ±4, enough for every RGB working space). The
+///   AVX2, SSE 4.1 and NEON kernels do the same integer arithmetic (rounding constant,
+///   multiply-accumulate, shift right by 13, clamp) on the same tables, so they agree with each
+///   other; they differ from the float path by at most 2 levels, and are 1.8× faster on 24 MP.
+pub fn transform_options(bits: u8) -> TransformOptions {
+    TransformOptions {
+        rendering_intent: RenderingIntent::RelativeColorimetric,
+        allow_use_cicp_transfer: false,
+        prefer_fixed_point: bits == 8,
+        ..TransformOptions::default()
+    }
 }
 
 /// The `moxcms` layout of the colour channels alone (CMYK as four channels).

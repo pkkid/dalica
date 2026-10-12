@@ -14,11 +14,12 @@
 use std::borrow::Cow;
 use std::path::PathBuf;
 
+use dalica_image::color;
 use dalica_image::{DecodeOptions, Error, Limits, Rgba8, decode_with};
 use dalica_scenes::{Scene, fingerprint};
 use image::codecs::jpeg::JpegEncoder;
 use image::{ExtendedColorType, ImageEncoder};
-use moxcms::{ColorProfile, Layout, RenderingIntent, TransformOptions};
+use moxcms::{ColorProfile, Layout};
 
 const JPEG_TOL: f64 = 3.0;
 const PNG_TOL: f64 = 1.5;
@@ -186,9 +187,7 @@ fn icc_v2(tags: &[(&[u8; 4], Vec<u8>)]) -> Vec<u8> {
 /// The scene's sRGB pixels expressed in the space of `icc`, at 16 bits.
 fn to_space(img: &dalica_scenes::Rgb8, icc: &[u8]) -> Vec<u16> {
     let target = ColorProfile::new_from_slice(icc).unwrap();
-    let options =
-        TransformOptions { rendering_intent: RenderingIntent::RelativeColorimetric, allow_use_cicp_transfer: false, ..TransformOptions::default() };
-    let t = ColorProfile::new_srgb().create_transform_16bit(Layout::Rgb, &target, Layout::Rgb, options).unwrap();
+    let t = ColorProfile::new_srgb().create_transform_16bit(Layout::Rgb, &target, Layout::Rgb, color::transform_options(16)).unwrap();
     let src: Vec<u16> = img.data.iter().map(|&v| u16::from(v) * 257).collect();
     let mut dst = vec![0u16; src.len()];
     t.transform(&src, &mut dst).unwrap();
@@ -268,24 +267,54 @@ fn tagged_photos_match_their_srgb_reference_and_differ_without_colour_management
 /// A space, its linear → linear-sRGB matrix and its decoding curve.
 type Case = (Space, [[f64; 3]; 3], fn(f64) -> f64);
 
-/// Single colours against the published RGB → XYZ matrices (D65), computed independently of
-/// `moxcms`: Display P3 and Adobe RGB values decode to the sRGB values the matrices give.
+fn mat_mul(a: [[f64; 3]; 3], b: [[f64; 3]; 3]) -> [[f64; 3]; 3] {
+    let mut m = [[0.0; 3]; 3];
+    for (i, row) in m.iter_mut().enumerate() {
+        for (j, v) in row.iter_mut().enumerate() {
+            *v = (0..3).map(|k| a[i][k] * b[k][j]).sum();
+        }
+    }
+    m
+}
+
+/// Single colours against the published RGB → XYZ matrices, computed independently of `moxcms`:
+/// Display P3, Adobe RGB and ProPhoto values decode, at 8 and at 16 bits, to the sRGB values the
+/// matrices give. ProPhoto → sRGB has a coefficient over 2 (red), which a fixed-point path with a
+/// ±2 range gets wrong: this case is what keeps every architecture on the same arithmetic.
 #[test]
 fn known_colours_convert_like_the_published_matrices() {
     // Linear Display P3 → linear sRGB and linear Adobe RGB (1998) → linear sRGB, both D65.
     let p3 = [[1.224_940_2, -0.224_940_4, 0.0], [-0.042_056_9, 1.042_057_1, 0.0], [-0.019_637_6, -0.078_636_1, 1.098_273_5]];
     let adobe = [[1.398_355, -0.398_355, 0.0], [0.0, 1.0, 0.0], [0.0, -0.042_930, 1.042_930]];
-    let cases: [Case; 2] = [(Space::DisplayP3, p3, srgb_to_linear), (Space::AdobeRgb, adobe, |v: f64| v.powf(563.0 / 256.0))];
+    // ProPhoto (D50) → XYZ, Bradford D50 → D65, XYZ → linear sRGB.
+    let prophoto_to_xyz = [[0.797_674_9, 0.135_191_7, 0.031_353_4], [0.288_040_2, 0.711_874_1, 0.000_085_7], [0.0, 0.0, 0.825_210_0]];
+    let bradford = [[0.955_576_6, -0.023_039_3, 0.063_163_6], [-0.028_289_5, 1.009_941_6, 0.021_007_7], [0.012_298_2, -0.020_483_0, 1.329_909_8]];
+    let xyz_to_srgb = [[3.240_454_2, -1.537_138_5, -0.498_531_4], [-0.969_266_0, 1.876_010_8, 0.041_556_0], [0.055_643_4, -0.204_025_9, 1.057_225_2]];
+    let prophoto = mat_mul(xyz_to_srgb, mat_mul(bradford, prophoto_to_xyz));
+    assert!(prophoto[0][0] > 2.0, "{prophoto:?}");
+    let cases: [Case; 3] = [
+        (Space::DisplayP3, p3, srgb_to_linear),
+        (Space::AdobeRgb, adobe, |v: f64| v.powf(563.0 / 256.0)),
+        (Space::ProPhoto, prophoto, |v: f64| v.powf(1.8)),
+    ];
     for (space, m, to_linear) in cases {
         for (version, icc) in [("v2", space.v2(4096)), ("v4", space.v4())] {
-            for px in [[204u8, 77, 51], [40, 160, 90], [128, 128, 128], [230, 200, 20], [10, 30, 200]] {
-                let bytes = png_with(8, 8, png::ColorType::Rgb, png::BitDepth::Eight, &px.repeat(64), Some(icc.clone()));
-                let got = decode_with(&bytes, &ON, &Limits::default()).unwrap();
+            for px in [[204u8, 77, 51], [40, 160, 90], [128, 128, 128], [230, 200, 20], [10, 30, 200], [150, 90, 80]] {
                 let lin = px.map(|v| to_linear(f64::from(v) / 255.0));
                 let want: Vec<u8> =
                     m.iter().map(|row| (linear_to_srgb(row[0] * lin[0] + row[1] * lin[1] + row[2] * lin[2]) * 255.0).round() as u8).collect();
-                for c in 0..3 {
-                    assert!(got.data[c].abs_diff(want[c]) <= 2, "{space:?} {version} {px:?}: got {:?}, want {want:?}", &got.data[..3]);
+                let eight = png_with(8, 8, png::ColorType::Rgb, png::BitDepth::Eight, &px.repeat(64), Some(icc.clone()));
+                let wide: Vec<u16> = px.map(|v| u16::from(v) * 257).repeat(64);
+                let sixteen = png16(8, 8, png::ColorType::Rgb, &wide, Some(icc.clone()));
+                for (depth, bytes) in [(8, eight), (16, sixteen)] {
+                    let got = decode_with(&bytes, &ON, &Limits::default()).unwrap();
+                    for c in 0..3 {
+                        assert!(
+                            got.data[c].abs_diff(want[c]) <= 2,
+                            "{space:?} {version} {depth}-bit {px:?}: got {:?}, want {want:?}",
+                            &got.data[..3]
+                        );
+                    }
                 }
             }
         }
