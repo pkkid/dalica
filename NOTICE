@@ -46,9 +46,16 @@ not covered by the licences above.
 
 Reused code
 
-None. LightCraft and PhotoCraft are reference only: Dalica neither depends on nor vendors their
-code (maintainer decision 2026-10-09; docs/architecture.md, section 9). Any other third-party code
-ever vendored will be listed here with its source and revision.
+Code adapted from LightCraft and PhotoCraft (maintainer decision 2026-10-11, replacing the
+reference-only decision of 2026-10-09; docs/architecture.md, section 9). Each file names its source
+file and revision in its first lines:
+
+  crates/ui-kit/src/widgets/field/edit.rs    LightCraft crates/ui-egui/src/text_field.rs @ 76b53778
+  crates/ui-kit/src/widgets/autocomplete.rs  LightCraft crates/ui-egui/src/album_picker.rs @ 76b53778
+                                             PhotoCraft crates/ui-egui/src/widgets/type_ahead.rs @ 9a9d23d2
+  crates/ui-kit/tests/fields.rs (tests)      LightCraft crates/ui-egui/src/text_field.rs @ 76b53778
+
+Any other third-party code ever vendored will be listed here with its source and revision.
 
 Third-party material
 

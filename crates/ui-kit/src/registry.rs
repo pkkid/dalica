@@ -32,6 +32,9 @@ pub enum Role {
     ScrollTrack,
     /// A scroll bar's handle (`scroll:thumb`).
     ScrollThumb,
+    /// A row of the autocomplete list under a text field (`<field id>/option/<index>`); active
+    /// while highlighted.
+    Suggestion,
     /// A widget defined outside `ui-kit` with no role of its own yet.
     Other,
 }

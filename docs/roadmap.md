@@ -1664,7 +1664,7 @@ filled by the lead; M5.15 pins it.
     scope (the section's *Reuse* line, `architecture.md` §9).
   - done when: `cargo xtask tasks sync --check` parses them and `tasks sync --dry-run` lists one new
     issue per block.
-- ⬜ **M5.25 `ui-kit`: text field behaviour and an autocomplete list, from the Craft apps**
+- ✅ **M5.25 `ui-kit`: text field behaviour and an autocomplete list, from the Craft apps**
   - after: M3.1
   - files: `crates/ui-kit/src/widgets.rs`, `crates/ui-kit/src/widgets/field.rs`, `crates/ui-kit/src/widgets/field/**`, `crates/ui-kit/src/widgets/autocomplete.rs`, `crates/ui-kit/src/registry.rs`, `crates/ui-kit/tests/fields.rs`, `crates/ui-kit/tests/fingerprints/fields*.json`, `crates/ui-kit/tests/fingerprints/gallery*.json`, `NOTICE`, `docs/design-system.md`
   - scope: one shared text field for M6's caption, description, tag, quick-tag and date entry, so
