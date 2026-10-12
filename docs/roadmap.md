@@ -1655,7 +1655,7 @@ filled by the lead; M5.15 pins it.
     an AVIF tile with their reasons, a broken file's "!") matching its fingerprint; the manual
     check (first run on a fresh library directory, watching thumbnails fill in) in `m5.md`.
   - done when: `cargo xtask accept M5` passes everything in M5's *Done when*.
-- ⬜ **M5.21 Lead: task blocks for M7**
+- ✅ **M5.21 Lead: task blocks for M7**
   - after: M4.19
   - owner: lead
   - files: `docs/roadmap.md`
@@ -2405,6 +2405,475 @@ One milestone in 3 feature areas (*Edit view shell*, *Basic fixes*, *Tuning and 
   lighting and Auto color, the Neutral Color Picker; the Retouch tool with in-tool patch undo.
 - **Done when:** `cargo xtask accept M7`: a slider drag updates the screen preview in ≤ 16 ms
   draft (recorded); a whole drag is one history step; fingerprints per control.
+
+#### M7 tasks
+
+M7 makes a photo editable: the edit view, the Basic Fixes and Tuning tabs, Retouch, and edits shown
+on every thumbnail. Its first wave lists the M6 work each task extends and starts once the
+maintainer has closed M6.R, the 0.1 release gate. Five tasks lay the ground the others share, so
+later tasks never share a file: M7.2 gives `edit` the renderer with one module per operation family
+(typed parameters, version and history label each) and stubs for the M7 operations, M7.3 adds the
+photo's own history to the engine with stub command modules and M7's settings, M7.4 adds the edit
+view's state, its frame and stub panels with one interface for the tools, and M7.5 and M7.6 give
+`ui-kit` the edit panel's widgets, the canvas input helpers and the icons. Each task updates its
+`parity.md` rows (`EDIT-VIEW`, `EDIT-ZOOM`, `EDIT-TABS`, `EDIT-UNDO`, `EDIT-HIST`, `EDIT-CROP`,
+`EDIT-STRAIGHTEN`, `EDIT-AUTOFIX`, `EDIT-RETOUCH`, `EDIT-FILL`, `EDIT-TUNING`, the edit-view half of
+`EDIT-FLIP`, and Enter in `LIB-SEL-KEYS`); first fingerprints of operations, panels, widgets and
+icons are approved in bulk on the M7.R review page, and with them the look of Auto Fix and Tuning.
+
+Whole-window baselines belong to no task, as in M5 and M6: the finished milestones'
+`tests/acceptance/fingerprints/m1-*.json` … `m6-*.json` and any `crates/ui/tests/fingerprints/`
+file not named in a task's `files` change whenever the window does. A task whose change moves them
+re-blesses them on its branch (diff images on the PR, the reason in the commit body), they never
+count as a `files` overlap, and on a rebase conflict the worker re-blesses after the rebase.
+
+Decisions taken while planning (the check-in lists them for reversal): the coordinate frame
+(`data-model.md` §3.3) is reserved decision 11, so M7.1 is pulled into M6's run and M6.R asks it,
+recommending the frame after EXIF orientation and before Dalica's rotations; the engine's edit-view
+commands take the photo explicitly and walk its history (`photo.history.apply`, `.undo`, `.redo`,
+`.state`, `History::Photo`), and in the edit view the UI routes Edit ▸ Undo / Redo, the rotations,
+the flips and Auto Fix there, the way `architecture.md` §4 resolves `edit.undo`; the library-level
+`edit.apply`, Batch Edit and Undo All Edits stay with M11 as its row says; starring in the edit view
+stays a library step (the photo's history holds only its recipe); the Basic Fixes Fill Light slider
+is Tuning's `fill` (`editing.md` §6.5), so Dalica writes `tuning(…)` and reads a `fill_light(a)` as
+Tuning with only `fill`; Auto Fix, Auto Contrast and Auto Color store no parameters and analyse a
+fixed-size proxy of the image at their place in the pipeline, so a thumbnail and the full size agree
+and cropping first changes the outcome; a Tuning tab session appends one `tuning` entry, or updates
+the last entry when it is one, and is one history step; the Basic Fixes grid draws `editing.md` §6's
+icon-above-label tools (the `tool_button` row of `design-system.md` §6 changes to match); the
+canvas input helpers (wheel, pinch, flick) are ported into `ui-kit` with the tabs and the histogram,
+so only three tasks edit `NOTICE`, each in its own wave; Play, the compare toggle's A│B and A│A, the
+caption bar's slideshow toggle and its trash button are drawn disabled until M11 and M9, and the
+effect tabs show an empty state until M12.
+
+- ⬜ **M7.1 The coordinate frame for stored rectangles and points**
+  - after: M6.3
+  - pulled: M6
+  - files: `crates/edit/src/frame.rs`, `crates/edit/src/recipe.rs`, `crates/edit/tests/frame.rs`, `docs/data-model.md`
+  - scope: reserved decision 11 (`data-model.md` §3.3) is the maintainer's. Pulled into M6's run so
+    the question reaches M6.R: the agent who claims it runs `cargo xtask tasks block M7.1` with the
+    options, the recommendation first: (b) the photo after EXIF orientation and before Dalica's own
+    rotations and flips, converted only for display (a rotation stays a one-entry recipe change;
+    crops, retouch spots and face rectangles are never rewritten; faces found on the upright decode
+    stay valid); (a) the photo as displayed after Dalica's rotations, rewriting every stored
+    rectangle and point on each rotation or flip; then takes other work. Once answered:
+    `edit::frame` maps normalised points and rectangles between the stored and the displayed frame
+    for each of the eight dihedral transforms, both ways; under (a) the rules of `recipe.rs` rewrite
+    the coordinates of `crop`, `retouch` and the focal effects when a rotation or flip is added or
+    undone; §3.3 replaced by the decision; *Reserved decisions* item 11 records it with its date.
+  - done when: `cargo test -p dalica-edit --test frame`: display-then-stored is the identity for
+    every transform on random points and rectangles (proptest); four rotations and two flips
+    compose to the identity; a rectangle on a rotated `scenes` photo covers the same pixels in both
+    frames; under (a) an unknown operation between a crop and a rotation keeps its text;
+    `data-model.md` §3.3 and item 11 say what was decided and when.
+- ⬜ **M7.2 `edit`: the renderer, one module per operation, per-operation versions**
+  - after: M6.3, M6.R
+  - files: `crates/edit/src/lib.rs`, `crates/edit/src/syntax.rs`, `crates/edit/src/render.rs`, `crates/edit/src/version.rs`, `crates/edit/src/ops/**`, `crates/edit/src/analysis.rs`, `crates/edit/src/suggest.rs`, `crates/edit/tests/render.rs`, `crates/edit/tests/common/**`, `crates/edit/tests/fingerprints/render*.json`, `crates/edit/README.md`
+  - scope: `architecture.md` §6.3–§6.4 and `data-model.md` §3.1: `edit::render(source, &recipe,
+    target)` and `render_region` (a window of the output at a scale, for zoomed views) over decoded
+    sRGB images, the CPU oracle for thumbnails, the edit view, Save and Export; the pipeline order
+    (orientation, crop and straighten first, then every other operation in the order applied;
+    unknown and `legacy:` operations skipped and kept); `ops/` with one module per operation family,
+    each owning its typed parameters (parse, print, range, default; `syntax.rs` dispatches to them),
+    its `VERSION`, its history label ("Crop", "Tuning", "Rotate") and, for geometry, its output size
+    and the mapping of normalised points through it; M6.3's `geometry.rs` serving rotate and flip through the same interface; stubs
+    that render nothing yet in `ops/crop.rs`, `straighten.rs`, `tone.rs`, `auto.rs` and
+    `retouch.rs`, and empty `analysis.rs` (with the fixed-size proxy that analysing operations
+    share) and `suggest.rs`, so M7.7, M7.8 and M7.12–M7.14 never share a file; `version.rs`: a
+    recipe's render key (the printed recipe and the versions of the operations it uses); a working
+    precision the tone operations can use (16-bit or float buffers in row bands through `rayon`;
+    the choice and its timing in the commit body); `tests/common/` with the two-size and fingerprint
+    helpers every operation's tests use.
+  - done when: `cargo test -p dalica-edit --test render`: M6.3's geometric recipes render exactly as
+    before; an unknown operation between two known ones is skipped and prints back unchanged;
+    geometry applies first wherever it stands in the recipe; `render_region` equals that window of
+    a full render; the render key changes when one operation's version does, and only for recipes
+    that use it; proptest random recipes and hostile parameters (NaN, huge, zero sizes) never panic
+    and stay within the allocation limit.
+- ⬜ **M7.3 `engine`: the photo's own history, M7's command modules and settings**
+  - after: M6.5, M6.8, M6.14, M6.R
+  - files: `crates/engine/src/cmd/mod.rs`, `crates/engine/src/cmd/edit.rs`, `crates/engine/src/cmd/history.rs`, `crates/engine/src/cmd/crop.rs`, `crates/engine/src/cmd/tuning.rs`, `crates/engine/src/history.rs`, `crates/engine/src/preview.rs`, `crates/engine/src/session.rs`, `crates/engine/src/settings.rs`, `crates/engine/tests/photo_history.rs`, `crates/engine/tests/settings_m7.rs`, `crates/engine/README.md`, `docs/architecture.md`
+  - scope: `architecture.md` §4 and `editing.md` §5.1, over the recipe and redo list M6.2 and M6.8
+    store: `photo.history.apply {id, op}` (`History::Photo`; the operation parsed and checked by
+    `edit`, M6.3's merge rules, the redo list cleared), `photo.history.undo {id}` and
+    `photo.history.redo {id}` (the last entry moves to the redo list and back; a step that merged
+    into the entry before it, such as a second rotation, undoes to that entry's earlier value),
+    `photo.history.state {id}` (query: the recipe and the "Undo Crop" / "Redo Tuning" labels from
+    each operation's history label); a photo step never touches the library undo stack and a
+    library step never a photo's history; a session hook on recipe changes (for M7.9); empty
+    `cmd/crop.rs` and `cmd/tuning.rs` and a stub `preview.rs` called from `poll()`, so M7.11, M7.17
+    and M7.18 never share a file; M7's settings with defaults: custom crop ratios, the last ratio,
+    US or metric photo sizes (US when the system region is the US), "Single-click to leave the edit
+    view" (off). `architecture.md` §4 gets the merged-step rule.
+  - done when: `crates/engine/tests/photo_history.rs`: apply three operations, undo two, redo one,
+    a new step drops the redo; the labels at each point; two rotations undo one at a time; an
+    unknown operation in the middle survives undo and redo; the history and its labels survive a
+    restart and an index rebuild; the library undo stack is unchanged by photo steps; every
+    command's contract and graceful failures; `crates/engine/tests/settings_m7.rs` round-trips the
+    new settings with unknown keys kept; `panic_hunt` green.
+- ⬜ **M7.4 `ui`: the edit view's state, frame and stub panels**
+  - after: M5.14, M6.6, M6.R
+  - files: `crates/ui/src/state.rs`, `crates/ui/src/menus.rs`, `crates/ui/src/app.rs`, `crates/ui/src/commands/mod.rs`, `crates/ui/src/commands/edit_view.rs`, `crates/ui/src/commands/zoom.rs`, `crates/ui/src/commands/tools.rs`, `crates/ui/src/panels/mod.rs`, `crates/ui/src/panels/layout.rs`, `crates/ui/src/panels/edit.rs`, `crates/ui/src/panels/edit/**`, `crates/ui/src/dialogs/mod.rs`, `crates/ui/src/dialogs/custom_ratio.rs`, `crates/ui/src/control/**`, `crates/ui/tests/view_state_m7.rs`, `crates/ui/tests/fingerprints/edit-frame*.json`, `docs/control-protocol.md`, `docs/ui-layout.md`
+  - scope: `editing.md` §1–§2 and control-protocol §6.5–§6.7: `View::Edit` and the `edit` object of
+    `ui.state` (photo, tab, tool, compare `one`, zoom, panel visible) with each tool's draft (crop
+    ratio and rectangle, straighten angle, retouch patches with their undo position and brush size,
+    the Tuning session), accepted by `ui.set`; the edit view's layout in `panels/layout.rs` (top bar
+    40, edit panel 280 and collapsible, photo area, caption bar, the optional side pane, status line
+    and bottom area) with the regions `editTopBar`, `editPanel`, `canvas`, `filmstrip` and
+    `captionBar` registered and in `ui.inspect`; `panels/edit.rs` laying out stub modules under
+    `panels/edit/` (top bar, filmstrip, caption bar, canvas, zoom, navigator, panel, basic,
+    history, histogram, fill light, crop, straighten, tuning, retouch), stub `commands/edit_view.rs`
+    and `commands/zoom.rs`, `commands/tools.rs` dispatching open, apply, cancel, reset, keys and
+    `edit.tool.action {name, params}` to one `Tool` interface each tool module implements, and a
+    stub `dialogs/custom_ratio.rs` on the dialog host, so M7.10 and M7.15–M7.22 never share a file;
+    `view.edit` (Ctrl+3; Enter in the library; "Select a photo to edit." without a selection),
+    `view.library` (Esc and Ctrl+1 in the edit view) and `edit.panelToggle` (Ctrl+9, View ▸ Show
+    Edit Controls) live; `ui-layout.md` §10 and control-protocol §6.5–§6.7 updated.
+  - done when: `crates/ui/tests/view_state_m7.rs`: each new field round-trips through `ui.state` /
+    `ui.set` (bad values are `bad_params`, nothing changes); Ctrl+3 on a selected photo shows every
+    edit-view region at the rects of `editing.md` §2 at 1400 × 900 and 900 × 600 and Esc returns;
+    Ctrl+9 hides and shows the panel; Ctrl+3 with nothing selected gives the toast; the frame's
+    fingerprints at both sizes; `widget_ids` and `panic_hunt` green.
+- ⬜ **M7.5 `ui-kit`: tabs, tool buttons, the histogram, the Tuning slider and canvas input**
+  - after: M5.25, M6.R
+  - files: `crates/ui-kit/src/widgets.rs`, `crates/ui-kit/src/widgets/tabs.rs`, `crates/ui-kit/src/widgets/tool_button.rs`, `crates/ui-kit/src/widgets/histogram.rs`, `crates/ui-kit/src/widgets/slider.rs`, `crates/ui-kit/src/input.rs`, `crates/ui-kit/src/input/**`, `crates/ui-kit/src/registry.rs`, `crates/ui-kit/src/theme.rs`, `crates/ui-kit/tests/edit_widgets.rs`, `crates/ui-kit/tests/input.rs`, `crates/ui-kit/tests/fingerprints/edit-widgets*.json`, `crates/ui-kit/tests/fingerprints/gallery*.json`, `NOTICE`, `docs/design-system.md`
+  - scope: `design-system.md` §6 and `editing.md` §2, §5–§7: `tabs` (icon tabs 40 × 32 with
+    tooltips, the active one joined to the panel; fitting and the accessible tab ported from
+    craft-ui `crates/ui/src/tabs/mod.rs` at 5c874d51); `tool_button` as the Basic Fixes grid draws
+    it (icon 44 × 30 above a label, three to a row; the §6 row updated); `histogram` (R, G and B as
+    translucent areas, additive where they overlap, normalised to the mean so spikes clip, the bins
+    given by the caller; the mesh painting ported from PhotoCraft
+    `crates/ui-egui/src/rgb_histogram.rs`); the Tuning variant of `slider` (no value field, the
+    value as a hover tooltip, + / − nudge 2 %, double-click resets); `input/`: wheel, trackpad and
+    pinch classification ported from PhotoCraft `crates/ui-egui/src/wheel_nav.rs` (`classify`, the
+    Windows pinch fold) and the release glide from `flick_pan.rs`, without PhotoCraft's
+    preferences; new `Role`s where needed. Each ported file starts with a header naming its source
+    file and revision, with a `NOTICE` row (`architecture.md` §9).
+  - done when: `crates/ui-kit/tests/edit_widgets.rs`: tab fitting at narrow widths keeps the active
+    tab; tabs and tool buttons in every state; the histogram of a known bin set; the Tuning
+    slider's tooltip, nudge and reset; `crates/ui-kit/tests/input.rs`: notched wheel, trackpad
+    scroll, pinch and the folded Windows pinch classify as in the source (its tests ported), a
+    flick glides and stops; gallery fingerprints at both sizes; `widget_ids` green.
+- ⬜ **M7.6 `ui-kit`: the edit view's icons**
+  - after: M5.18, M6.R
+  - files: `crates/ui-kit/src/icons.rs`, `crates/ui-kit/src/icons/edit.rs`, `crates/ui-kit/tests/icons_edit.rs`, `crates/ui-kit/tests/fingerprints/icons-edit*.json`
+  - scope: `design-system.md` §5 and `editing.md` §2, §5–§7: original icons drawn in code on the
+    20-unit grid (our own drawings, never traced): the five tabs (wrench, half sun, brush, brush
+    with landscape, brush with sky), Crop, Straighten, Retouch, Auto Fix, Auto Contrast, Auto
+    Color, Fill Light, the magic wand, the eyedropper, Back to Library, Play, the filmstrip arrows,
+    the caption toggle and trash, as named `Icon` variants.
+  - done when: `crates/ui-kit/tests/icons_edit.rs`: every new icon stays inside its grid at 12, 16,
+    20 and 28 px in rest, hover and disabled colours; the icon sheet's fingerprint at both scales;
+    `cargo xtask assets` and `cargo xtask names` pass.
+- ⬜ **M7.7 `edit`: Crop and Straighten**
+  - after: M7.1, M7.2
+  - files: `crates/edit/src/ops/crop.rs`, `crates/edit/src/ops/straighten.rs`, `crates/edit/src/crop_geom.rs`, `crates/edit/src/guides.rs`, `crates/edit/tests/crop.rs`, `crates/edit/tests/straighten.rs`, `crates/edit/tests/fingerprints/crop*.json`, `crates/edit/tests/fingerprints/straighten*.json`, `NOTICE`
+  - scope: `editing.md` §6.1–§6.2 and `data-model.md` §3.1, in M7.1's frame: `crop(x0,y0,x1,y1)`
+    (normalised, ordered, at least one pixel at any size; only the last crop counts) and
+    `straighten(deg)` (−10…+10, about the centre, scaled up so no empty corner shows) rendered and
+    mapped through `ops/`; `crop_geom.rs`, the maths the tools share: a ratio's largest centred
+    rectangle, Rotate (portrait ↔ landscape about the centre, kept inside), dragging an edge, a
+    corner or the inside with the ratio locked unless Manual, a minimum size, the crop kept inside
+    the straightened photo, ported from LightCraft `crates/geom/src/crop.rs`
+    (`max_inscribed_scale`, `crop_fit_angle`, `constrained`) and `crates/geom/src/crop_drag.rs`
+    (`drag_crop`) at 76b53778; `guides.rs`: the thirds lines and the straighten grid as unit-square
+    polylines, from LightCraft `crates/ui-egui/src/panels/crop_overlay.rs` (`paths`) and PhotoCraft
+    `crates/ui-egui/src/crop_overlay.rs` (`guides`); headers and `NOTICE` rows (`architecture.md`
+    §9).
+  - done when: `cargo test -p dalica-edit --test crop --test straighten`: two output sizes agree
+    after downscale; a crop and a straighten render the same in either recipe order; every drag
+    keeps its ratio and stays inside the photo (proptest; the ported tests pass); ±10° leaves no
+    empty corner and 0° is the identity; fingerprints per operation at three values; reversed,
+    outside or NaN rectangles are `Err` or clamped, never a panic.
+- ⬜ **M7.8 `edit`: the Tuning operation**
+  - after: M7.2
+  - files: `crates/edit/src/ops/tone.rs`, `crates/edit/tests/tone.rs`, `crates/edit/tests/fingerprints/tone*.json`, `docs/data-model.md`
+  - scope: `editing.md` §6.5 and §7: `tuning(fill,highlights,shadows,temp,neutral)` with typed
+    parameters, ranges and defaults, rendered as one tone and colour stage of our own curves: Fill
+    Light lifts shadows and the foreground, Highlights brightens bright areas only, Shadows darkens
+    dark areas only, Color Temperature moves cooler or warmer, Neutral makes the picked `#rrggbb`
+    grey (`none` off); `fill_light(a)` read from a sidecar renders as Tuning with only `fill` and is
+    kept as written, and Dalica writes `tuning`; the §3.1 rows say so.
+  - done when: `cargo test -p dalica-edit --test tone`: defaults are the identity; Fill Light never
+    darkens a pixel and lifts dark ones most; Highlights leaves pixels below the middle alone and
+    Shadows those above it; temperature moves the red/blue balance monotonically; the neutral
+    colour of a cast `scenes` photo maps to grey; a fingerprint per control at three values; two
+    sizes agree after downscale; the time of one Tuning render of a 2560-px preview printed;
+    print(parse) round-trips and hostile values clamp.
+- ⬜ **M7.9 `engine` + `thumbs`: edits shown on every thumbnail**
+  - after: M5.16, M6.24, M6.25, M7.2, M7.3
+  - files: `crates/engine/src/thumbs.rs`, `crates/engine/tests/edited_thumbs.rs`, `crates/thumbs/src/ladder.rs`, `crates/thumbs/src/sketch.rs`, `crates/thumbs/src/lib.rs`, `crates/thumbs/tests/recipe.rs`, `crates/thumbs/README.md`, `crates/ui/src/panels/thumbnails.rs`, `crates/ui/src/panels/light_table/cell.rs`, `crates/ui/tests/edited_cells.rs`, `crates/ui/tests/fingerprints/edited*.json`
+  - scope: `architecture.md` §6.3–§6.5 and `editing.md` §9: ladder entries and the colour sketch
+    are rendered through `edit::render` with the photo's recipe (the function the edit view uses);
+    the cache key's recipe hash and renderer version come from `edit`'s render key, so one
+    operation's version bump remakes only the photos that use it; a recipe change (from either
+    history, through M7.3's hook) makes the photo's entries dead and queues new ones at visible
+    priority; until they land the cell draws the old entry with M6.24's paint-time orientation
+    mapping, never a blank; embedded thumbnails serve only unedited photos; cells of photos with a
+    recipe show the edited badge.
+  - done when: `crates/engine/tests/edited_thumbs.rs`: a recipe change remakes the photo's 128 and
+    256 entries and its sketch, and the new entry equals `edit::render` at that size; bumping one
+    operation's version remakes only photos using it; an unedited photo still uses its embedded
+    thumbnail; `crates/ui/tests/edited_cells.rs`: no cell draws a placeholder while its new
+    thumbnail renders, the badge shows and goes with undo; the cell fingerprints at both sizes.
+- ⬜ **M7.10 `ui`: entering, leaving and moving between photos**
+  - after: M5.23, M6.25, M6.28, M7.3, M7.4, M7.5, M7.6
+  - files: `crates/ui/src/commands/edit_view.rs`, `crates/ui/src/panels/edit/top_bar.rs`, `crates/ui/src/panels/edit/filmstrip.rs`, `crates/ui/src/panels/edit/caption_bar.rs`, `crates/ui/src/panels/light_table/input.rs`, `crates/ui/src/status_text.rs`, `crates/ui/src/panels/status.rs`, `crates/ui/tests/edit_navigation.rs`, `crates/ui/tests/fingerprints/edit-topbar*.json`, `crates/ui/tests/fingerprints/edit-caption*.json`, `crates/ui/tests/fingerprints/region-status*.json`
+  - scope: `editing.md` §1–§2 and §12: entering by double-click, Enter, Ctrl+3, Picture ▸ View and
+    Edit and the photo menu's bold default item; leaving by Back to Library, Esc (an open tool
+    cancels first), Ctrl+1 and View ▸ Library, the library keeping its scroll and selection with the
+    last photo viewed focused; ← / →, PgUp / PgDn, Home / End step through the current section's
+    photos in light-table order (hidden ones only when shown); the top bar: Back, Play (disabled
+    until M11), the filmstrip (◀, 7–9 square-cropped 56 pt thumbnails at `filmstrip` priority with
+    the current one centred and outlined white, ▶; a click opens), the compare toggle with only A
+    enabled until M11; in the edit view the UI routes Edit ▸ Undo / Redo, Ctrl+R / Ctrl+Shift+R,
+    the flips and Ctrl+Shift+E (Auto Fix) to M7.3's `photo.history.*` for the open photo; the
+    caption bar (the "Add a caption" field on M5.25's `text_field` through `photo.caption.set`; the
+    slideshow toggle and trash disabled until M11 and M9); the edit view's status text
+    (`ui-layout.md` §6.1, "(12 of 48)"). LightCraft's `crates/ui-egui/src/panels/detail.rs`
+    filmstrip is the pattern (`architecture.md` §9).
+  - done when: `crates/ui/tests/edit_navigation.rs`: each way in and out by id, key and menu; the
+    library's scroll and selection are kept and the last photo focused; → at the end and ← at the
+    start stay put, Home / End jump; a filmstrip click opens that photo and recentres; Ctrl+Z in the
+    edit view undoes the photo's rotation and leaves the library stack alone; a caption typed in the
+    bar is one library step; the status text; top bar, caption bar and status fingerprints at both
+    sizes.
+- ⬜ **M7.11 `engine`: the edit view's preview renders and their benchmark**
+  - after: M7.2, M7.3, M7.8
+  - files: `crates/engine/src/preview.rs`, `crates/engine/src/preview/**`, `crates/engine/tests/preview.rs`, `crates/engine/benches/edit_preview.rs`, `xtask/src/bench.rs`, `.github/workflows/budgets.yml`, `docs/development.md`
+  - scope: `editing.md` §3, §5.2 and `architecture.md` §5–§6, off the owner thread at `editMain`
+    priority: per open photo its screen-size source (the ladder's screen entry first, then a decode
+    under the limits) kept in memory, the screen preview of its recipe, a tool's candidate recipe
+    rendered as a draft (at a lower scale when that is what holds 16 ms) then final, the visible
+    window at full resolution while zoomed past the preview (`render_region`; the full decode kept
+    while zoomed, inside the memory budget), the previous and next photos prefetched at `prefetch`
+    priority, and 256-bin RGB histograms of each preview shown; results tagged by generation so a
+    stale one is dropped; everything cancelled when the photo closes. The `edit_preview` bench
+    (registered in `xtask/src/bench.rs`): a 24 MP JPEG opened to its screen preview (cold and with
+    the screen entry cached), a Tuning drag's draft and final updates, next and previous with
+    prefetch; its budgets join the release-budgets job (M5.24); `development.md` §8 and §13 list it.
+  - done when: `crates/engine/tests/preview.rs`: the preview has the recipe's displayed size; a
+    newer request supersedes an older one; a draft comes before the final; a refined window equals
+    that window of a full render; a prefetched neighbour opens without a decode; the histogram
+    equals a direct count; closing cancels; the owner thread made no `fs` call; `cargo xtask bench
+    edit_preview` meets `development.md` §8 (open ≤ 150 ms, drag ≤ 16 ms draft and ≤ 100 ms final,
+    next/previous ≤ 50 ms; numbers in the PR).
+- ⬜ **M7.12 `edit`: suggested crops**
+  - after: M7.7
+  - files: `crates/edit/src/suggest.rs`, `crates/edit/tests/suggest.rs`
+  - scope: `editing.md` §6.1: three proposed rectangles in a ratio from a proxy of the current
+    image, our own method: a saliency map (local contrast and colour distinctness) whose centre
+    lands on a thirds point, a horizon (the strongest long near-horizontal edge) placed on a third
+    line, and the largest centred fit; ranked and kept distinct; deterministic; faces join in M13.
+  - done when: `cargo test -p dalica-edit --test suggest`: an off-centre blob lands near a thirds
+    point in the first suggestion; a horizon scene puts the horizon near a third line; three
+    distinct rectangles inside the photo in the asked ratio; a flat image gives centred crops; the
+    same input gives the same output; proptest random images and ratios never panic.
+- ⬜ **M7.13 `edit`: Auto Contrast, Auto Color, Auto Fix and the Tuning wands**
+  - after: M7.8
+  - files: `crates/edit/src/ops/auto.rs`, `crates/edit/src/analysis.rs`, `crates/edit/tests/auto.rs`, `crates/edit/tests/fingerprints/auto*.json`
+  - scope: `editing.md` §6.3 and §7, analysed on the fixed-size proxy at the operation's place in
+    the pipeline: `autocontrast()` (black and white points and midtones, levels linked across the
+    channels), `autocolor()` (grey-world and white-patch balance with clamping), `autofix()`
+    (contrast, colour and a little fill light through `ops/tone.rs`); for the Tuning wands
+    `auto_lighting` (fill, highlights, shadows), `auto_neutral` (a colour) and `color_at` (the
+    averaged colour under a normalised point, for the Neutral Color Picker). Our own methods;
+    LightCraft's `crates/raster/src/histogram.rs` (percentiles, clipping) and
+    `crates/pipeline/src/auto.rs` (`auto_wb`) are prior art to study, not code to copy.
+  - done when: `cargo test -p dalica-edit --test auto`: a planted colour cast is removed (channel
+    means within a stated tolerance); a low-contrast scene stretches to near full range with
+    clipping under a stated share; a full-range neutral photo barely changes; the result after a
+    crop differs from before; thumbnail and full size agree after downscale; the wands' values on
+    known scenes; fingerprints per operation; proptest random images never panic.
+- ⬜ **M7.14 `edit`: Retouch**
+  - after: M7.1, M7.2
+  - files: `crates/edit/src/ops/retouch.rs`, `crates/edit/tests/retouch.rs`, `crates/edit/tests/fingerprints/retouch*.json`, `NOTICE`
+  - scope: `editing.md` §6.4 and `data-model.md` §3.1: `retouch(sx,sy,tx,ty,r;…)` with typed
+    strokes in M7.1's frame (radius relative to the shorter side, at most 1 000 strokes per entry),
+    applied in order, mapped through the crop and straighten; each patch copies the source's detail
+    and keeps the target's tone with a feathered edge, reads bounded to the windows it needs; ported
+    from LightCraft `crates/pipeline/src/spots.rs` (Heal, `window_for_reads`) at 76b53778, with its
+    header and a `NOTICE` row (`architecture.md` §9).
+  - done when: `cargo test -p dalica-edit --test retouch`: a planted blemish on a `scenes` photo is
+    removed by one stroke (the patch's mean within a stated tolerance of its surroundings); strokes
+    apply in order; two sizes agree after downscale; a stroke outside the photo or after a crop is
+    clipped; fingerprints; hostile strokes (NaN, huge radius, over the cap) are `Err` or clamped,
+    never a panic.
+- ⬜ **M7.15 `ui`: the photo canvas, zoom and pan**
+  - after: M6.24, M7.4, M7.5, M7.6, M7.11
+  - files: `crates/ui/src/commands/zoom.rs`, `crates/ui/src/panels/edit/canvas.rs`, `crates/ui/src/panels/edit/zoom.rs`, `crates/ui/src/panels/edit/navigator.rs`, `crates/ui/src/panels/bottom.rs`, `crates/ui/src/panels/bottom/**`, `crates/ui/src/perf.rs`, `crates/ui/tests/zoom_maths.rs`, `crates/ui/tests/edit_canvas.rs`, `crates/ui/tests/fingerprints/edit-canvas*.json`, `docs/control-protocol.md`
+  - scope: `editing.md` §2–§3: the photo from M7.11's preview, fitted with 24 pt padding and a
+    subtle shadow, never above 100 % in Fit; `zoom.rs` the pure slider maths (v = 0 fit, 0.5 =
+    100 %, 1 = 400 %, the two half formulas, never below fit, a photo smaller than the area); Fit
+    and 1:1 animate 0.22 s; the wheel, Ctrl+= and Ctrl+− step anchored at the pointer and snap to
+    100 % when crossing it; pinch through M7.5's `input`; click-and-hold zooms to 100 % at the point
+    and a click returns to fit; double-click leaves (one click with M7.3's setting, which turns
+    click-to-zoom off); the "Zoomed to 200 %" read-out; drag pans within the photo with the hand
+    cursor and M7.5's glide; the navigator thumbnail while zoomed; the refined window drawn when it
+    arrives, the scaled preview until then; the bottom area's Fit │ 1:1 and zoom slider in place of
+    the thumbnail size, with star and rotate acting on the open photo; `ui.inspect` perf gains the
+    preview's draft and final times.
+  - done when: `crates/ui/tests/zoom_maths.rs`: the ends and the midpoint (100 %), monotonic,
+    never below fit, the formulas at sample points; `crates/ui/tests/edit_canvas.rs` (headless):
+    a wheel step keeps the image point under the pointer; crossing 100 % snaps; click-and-hold,
+    click, double-click and the setting; pans stop at the photo's edges; zooming in requests the
+    refined window and no frame waits for it (perf counters); canvas fingerprints fitted and at
+    200 % at both sizes.
+- ⬜ **M7.16 `ui`: the edit panel, Basic Fixes, Undo / Redo and the histogram box**
+  - after: M6.16, M7.3, M7.4, M7.5, M7.6, M7.10, M7.11, M7.13
+  - files: `crates/ui/src/panels/edit/panel.rs`, `crates/ui/src/panels/edit/basic.rs`, `crates/ui/src/panels/edit/history.rs`, `crates/ui/src/panels/edit/histogram.rs`, `crates/ui/tests/edit_panel.rs`, `crates/ui/tests/fingerprints/edit-panel*.json`, `docs/editing.md`
+  - scope: `editing.md` §2, §5–§6: the 280 pt panel with its five tabs and tooltips (`tab:edit.*`;
+    the effect tabs show an empty state until M12); the Basic Fixes grid (Crop, Straighten, Retouch
+    open their tools through M7.4's interface; Auto Fix, Auto Contrast and Auto Color apply at once
+    through `photo.history.apply`) with M7.4's Fill Light row stub in place; while a tool is open the
+    rest of the panel is drawn disabled; the Undo / Redo pair filling the width with the labels of
+    `photo.history.state` ("Undo Crop"; "Redo" when there is nothing to redo; tooltip "Remove the
+    latest edit"); the "Histogram & Camera Info" box (≈ 248 × 150) with M7.5's histogram from the
+    shown preview's bins, updated live, and the camera columns from `photo.metadata` ("No camera
+    information" without EXIF, a loading line while `pending`); ids per control-protocol §7.
+  - done when: `crates/ui/tests/edit_panel.rs`: each tab by id; Auto Fix by click and by
+    Ctrl+Shift+E is one "Auto Fix" step and Undo reads "Undo Auto Fix"; Undo then Redo by the
+    buttons; an open tool disables the grid and the tabs' content; the histogram follows an edit;
+    camera information for a JPEG with EXIF and the empty text without; panel fingerprints per tab
+    at both sizes.
+- ⬜ **M7.17 `engine`: crop and straighten commands, ratios and suggestions**
+  - after: M7.3, M7.7, M7.12
+  - files: `crates/engine/src/cmd/crop.rs`, `crates/engine/tests/crop_commands.rs`
+  - scope: `editing.md` §5.1 and §6.1–§6.2: applying a crop or a straighten checks its parameters
+    and is one "Crop" / "Straighten" step of the photo's history; Apply on a re-opened crop appends
+    the new `crop` (only the last counts), so later edits stay and undo brings back the earlier
+    one; `crop.ratios.add {name, width, height}` and `crop.ratios.remove {name}` (the custom ratios
+    in settings, names unique, sizes bounded), `crop.ratios.list` (query: the locale's photo sizes,
+    the fixed ratios, the custom ones and the last used); `photo.crop.suggest {id, ratio}` (a job
+    on a worker returning M7.12's three rectangles in the stored frame).
+  - done when: `crates/engine/tests/crop_commands.rs`: crop, then tune, then re-crop: undo restores
+    the first crop and keeps the tuning; adding, listing and removing a custom ratio survives a
+    restart; the suggestion job answers three rectangles without the owner thread touching `fs`;
+    every command's contract and graceful failures; `panic_hunt` green.
+- ⬜ **M7.18 `engine`: Tuning sessions, the wands and the colour picker**
+  - after: M7.3, M7.8, M7.13
+  - files: `crates/engine/src/cmd/tuning.rs`, `crates/engine/tests/tuning_commands.rs`
+  - scope: `editing.md` §6.5 and §7: `photo.history.tuning {id, session, fill?, highlights?,
+    shadows?, temp?, neutral?}`: a session's first change appends a `tuning` entry (or updates the
+    last entry when it is one), later changes update it in place, and the session is one "Tuning"
+    step (the `coalesce` key of `architecture.md` §3); the Basic Fixes Fill Light uses the same
+    command; `photo.tuning.auto {id, what: lighting | color}` and `photo.tuning.pick {id, x, y}`
+    are jobs answering M7.13's values from the photo's current render, which the UI then applies
+    as a session change.
+  - done when: `crates/engine/tests/tuning_commands.rs`: a drag of 60 changes is one step that one
+    undo removes; a second session after a crop appends a new entry; Fill Light from Basic Fixes
+    and from Tuning edit the same value; the wands and the picker answer from a worker and the
+    owner thread made no `fs` call; every command's contract and graceful failures; `panic_hunt`
+    green.
+- ⬜ **M7.19 `ui`: the Crop tool**
+  - after: M7.15, M7.16, M7.17
+  - files: `crates/ui/src/panels/edit/crop.rs`, `crates/ui/src/panels/edit/crop/**`, `crates/ui/src/dialogs/custom_ratio.rs`, `crates/ui/tests/crop_tool.rs`, `crates/ui/tests/fingerprints/edit-crop*.json`, `crates/ui/tests/fingerprints/dialog-custom-ratio*.json`
+  - scope: `editing.md` §6.1: the "Crop Photo" panel (title, instruction, the size dropdown with
+    the live "Manual: 1210 × 1719" row, Current ratio, the locale's photo sizes, the fixed ratios,
+    "Custom ratios" and "Add Custom Ratio…", the trash for a custom ratio, the last ratio
+    remembered); the three 80 × 50 suggestions from `photo.crop.suggest`; Rotate (disabled until a
+    rectangle exists), Preview (held or toggled), Reset, Apply, Cancel; on the photo: drag to draw
+    with the outside dimmed `black α140`, edges and corners resize with the ratio locked unless
+    Manual, drag inside moves, the thirds from M7.7's guides while dragging, through M7.7's
+    `crop_geom` and M7.1's frame; Enter applies, Esc cancels; a re-opened crop shows the whole photo
+    with the current rectangle; the Add Custom Ratio dialog (Width × Height, Name, a live example
+    line, OK disabled until valid).
+  - done when: `crates/ui/tests/crop_tool.rs` (headless, by id): draw at 4:3 and the ratio holds;
+    Manual is free; corner, edge and move drags; Rotate swaps the orientation; Preview shows the
+    cropped photo; Apply is one "Crop" step and the thumbnail follows; on a rotated photo the
+    stored rectangle is in M7.1's frame; a suggestion click draws its rectangle; the dialog refuses
+    0 × 5 and adds 3 × 2; Esc cancels; panel and dialog fingerprints at both sizes.
+- ⬜ **M7.20 `ui`: the Straighten tool**
+  - after: M7.15, M7.16, M7.17
+  - files: `crates/ui/src/panels/edit/straighten.rs`, `crates/ui/tests/straighten_tool.rs`, `crates/ui/tests/fingerprints/edit-straighten*.json`
+  - scope: `editing.md` §6.2: the dashed white grid from M7.7's guides over the photo; the floating
+    bar (`black α180`, radius 6, 10 pt above the photo's bottom edge, centred) with the wide slider
+    (centred thumb = 0°), Apply and Cancel; the photo rotates live, scaled so no corner is empty,
+    through draft previews; arrow keys nudge 0.1°; Esc cancels; Apply is one "Straighten" step.
+  - done when: `crates/ui/tests/straighten_tool.rs`: a drag to +3.5° previews live and Apply
+    stores it; arrows nudge by 0.1° within ±10°; Esc leaves the recipe unchanged; the result has no
+    empty corner; fingerprints at 0° and +5° at both sizes.
+- ⬜ **M7.21 `ui`: the Tuning tab and the Fill Light row**
+  - after: M7.15, M7.16, M7.18
+  - files: `crates/ui/src/panels/edit/tuning.rs`, `crates/ui/src/panels/edit/fill_light.rs`, `crates/ui/tests/tuning_tab.rs`, `crates/ui/tests/fingerprints/edit-tuning*.json`
+  - scope: `editing.md` §6.5 and §7: Fill Light, Highlights and Shadows with the Auto lighting wand,
+    Color Temperature, the Neutral Color Picker (swatch, eyedropper, a click on a grey or white
+    area through `photo.tuning.pick`, its tooltip) with the Auto color wand, on M7.5's Tuning
+    slider; a tab session is one "Tuning" step through `photo.history.tuning`, the photo updating
+    from draft previews while dragging; the Basic Fixes Fill Light row shares the value; ids per
+    control-protocol §7.
+  - done when: `crates/ui/tests/tuning_tab.rs`: a Fill Light drag is one "Tuning" step and the
+    Basic Fixes row shows the same value; draft updates stay within 16 ms per frame on the perf
+    counter; Auto lighting sets three sliders in one step; picking the grey patch of a cast
+    `scenes` photo removes the cast; hover tooltips, + / − nudges and double-click resets; tab
+    fingerprints at both sizes.
+- ⬜ **M7.22 `ui`: the Retouch tool**
+  - after: M7.14, M7.15, M7.16
+  - files: `crates/ui/src/panels/edit/retouch.rs`, `crates/ui/tests/retouch_tool.rs`, `crates/ui/tests/fingerprints/edit-retouch*.json`
+  - scope: `editing.md` §6.4: the Retouch panel (instruction, Brush size, Undo Patch │ Redo Patch,
+    Reset, Apply │ Cancel); click the blemish (a brush circle stays), the target previews the
+    texture under the pointer, a click picks the source; each patch is a step inside the tool;
+    + / − resize the brush and the wheel zooms; Apply records all patches as one "Retouch" step
+    through `photo.history.apply`; Esc cancels.
+  - done when: `crates/ui/tests/retouch_tool.rs`: two patches, Undo Patch, Redo Patch, Apply gives
+    one "Retouch" entry with two strokes in M7.1's frame; Cancel leaves the recipe unchanged; the
+    brush keys; a planted blemish is gone in the preview; panel fingerprints at both sizes.
+- ⬜ **M7.23 `accept M7`**
+  - after: M7.9, M7.10, M7.19, M7.20, M7.21, M7.22
+  - files: `tests/acceptance/m7.rs`, `tests/acceptance/m7_*.rs`, `tests/acceptance/m7.md`, `tests/acceptance/fingerprints/m7-*.json`
+  - scope: every *Done when* of M7's three areas in the real `dalica --headless`: the zoom maths
+    (ends and midpoint = 100 %); navigation in and out and between photos; a photo's history and
+    its labels surviving a restart; a 24 MP JPEG's screen preview in ≤ 150 ms and a slider drag's
+    draft in ≤ 16 ms (the release bench; inside `cargo xtask ci` a smaller debug run checks the
+    path and prints its times); fingerprints per operation and per Tuning control; resolution
+    independence (two sizes agree after downscale); a thumbnail equal to the edit view's render
+    after downscale; an unknown operation surviving every tool; a whole drag as one history step;
+    the manual checks in `m7.md` (open, zoom, crop, straighten, tune, retouch and undo on your own
+    photos).
+  - done when: `cargo xtask accept M7` passes everything in M7's *Done when*.
+- ⬜ **M7.24 Lead: task blocks for M9**
+  - after: M6.37
+  - owner: lead
+  - files: `docs/roadmap.md`
+  - scope: write every M9 task block from M9's section and the spec, with waves and the `M9.R`
+    review (owner: maintainer); a block that can port Craft-app code names the source files in its
+    scope (`architecture.md` §9).
+  - done when: `cargo xtask tasks sync --check` parses them and `tasks sync --dry-run` lists one new
+    issue per block.
+- ⬜ **M7.R Check-in**
+  - after: M7.23
+  - owner: maintainer
+  - files: `docs/roadmap.md`, `docs/status.md`
+  - scope: the lead runs `/milestone-review M7.R` to prepare it: the check-in page (open a photo by
+    double-click and by Enter, step through the filmstrip, zoom and pan, crop to 4 × 6 and to a
+    custom ratio, straighten a tilted horizon, Auto Fix, the Tuning sliders and the neutral
+    picker, a retouch with patch undo, the Undo / Redo labels, a restart that keeps the history,
+    thumbnails showing the edits, written as steps for the maintainer to try); the questions: the
+    look of Auto Fix, Auto Contrast, Auto Color and the Tuning controls (approved with their
+    fingerprints), the planning decisions above that change behaviour (starring in the edit view
+    as a library step, Fill Light written as Tuning), and the coordinate frame if M6.R left it
+    open; *Where we stand* and the `status.md` numbers (24 MP open, slider draft and final,
+    next/previous, render time per operation) on a `review/M7.R` branch, a pull request open. Only
+    the maintainer merges that pull request and closes this issue; nothing after it starts until
+    then.
+  - done when: prepared: page published, PR open, both linked on the issue.
+
+Waves (inside a wave, "‖" separates tasks whose `files` do not overlap):
+
+```text
+wave 0   M7.1 coordinate frame   (pulled into M6's run so M6.R asks reserved decision 11)
+wave 1   M7.2 edit renderer  ‖  M7.3 photo history + modules  ‖  M7.4 ui state + frame
+         ‖  M7.5 ui-kit widgets + input  ‖  M7.6 ui-kit icons
+         (once M6.R is closed)
+wave 2   M7.7 Crop + Straighten  ‖  M7.8 Tuning op  ‖  M7.9 edited thumbnails
+         ‖  M7.10 entering + navigation
+wave 3   M7.11 preview renders + bench  ‖  M7.12 crop suggestions  ‖  M7.13 auto fixes
+         ‖  M7.14 Retouch op
+wave 4   M7.15 canvas, zoom + pan  ‖  M7.16 edit panel  ‖  M7.17 crop commands
+         ‖  M7.18 Tuning commands
+wave 5   M7.19 Crop tool  ‖  M7.20 Straighten tool  ‖  M7.21 Tuning tab  ‖  M7.22 Retouch tool
+wave 6   M7.23 accept M7 → M7.R          (M7.24 lead: M9 blocks, any time after M6.37)
+```
 
 ### M8 — Save and export
 
