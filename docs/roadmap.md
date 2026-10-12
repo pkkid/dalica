@@ -2390,7 +2390,7 @@ replace at M6.R.
   - done when: `cargo test -p dalica-image --test jxl`: a small file declaring a 200 MiB profile is
     refused as too large before any allocation of that size (checked through the budget); valid
     files with profiles still match their fingerprints.
-- ⬜ **M6.42 Lead: our own corpus sets, published and pinned**
+- ✅ **M6.42 Lead: our own corpus sets, published and pinned**
   - after: M5.R
   - owner: lead
   - files: `xtask/src/corpus_pins.rs`, `xtask/corpus/**`, `crates/image/tests/corpus_floors.json`, `docs/development.md`

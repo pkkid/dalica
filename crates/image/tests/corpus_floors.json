@@ -16,5 +16,21 @@
     "decoded": 26,
     "thumbnails": 26,
     "embedded_thumbnails": 15
+  },
+  "photos": {
+    "files": 57,
+    "sniffed": 57,
+    "headers": 57,
+    "decoded": 57,
+    "thumbnails": 57,
+    "embedded_thumbnails": 41
+  },
+  "heif": {
+    "files": 3,
+    "sniffed": 3,
+    "headers": 3,
+    "decoded": 3,
+    "thumbnails": 3,
+    "embedded_thumbnails": 0
   }
 }
