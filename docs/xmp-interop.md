@@ -10,8 +10,9 @@ everything Dalica puts into, or takes from, files it did not create. Read it wit
 
 > Status: reading of EXIF and IPTC, the containers of §4 (JPEG, PNG, WebP, TIFF) and the
 > precedence rules of §2 built (M6.4); the IPTC writer and in-place EXIF edits built as blocks
-> (M6.10: `iptc::write`, `exif::edit`), put into files by the container writers (M6.17, M6.18); XMP reading and writing land with M6.9–M6.19 (captions,
-> tags), M13 (places) and M13 (people). The parser and writer are our own, in `crates/meta`
+> (M6.10: `iptc::write`, `exif::edit`) and XMP reading and the XMP merge writer of §3 built
+> (M6.9: `crates/meta/src/xmp/`), put into files by the container writers (M6.17–M6.19:
+> captions, tags), M13 (places) and M13 (people). The parser and writer are our own, in `crates/meta`
 > (`dalica-meta`, L1); LightCraft's `meta` and `tiff` crates are prior art only (`architecture.md`
 > §9).
 
@@ -88,11 +89,17 @@ latitude/longitude tags and DateTimeOriginal / DateTimeDigitized. Every Dalica X
 
 - Owned properties are written into one `rdf:Description` of Dalica's own; the same properties
   written by another application in another description (attribute or element form) are removed
-  from there, and that description otherwise stays as it was.
+  from there, and that description otherwise stays as it was (one left empty stays, empty). A
+  write moves only the properties it sets or clears: writing tags leaves another application's
+  caption where it is. Dalica's description is the top-level one holding nothing but owned
+  properties, in element form, and `xmp:MetadataDate`; it is rewritten in place, keeping the owned
+  values it already holds, and a new one goes just before `</rdf:RDF>`. Writing again the values the
+  description already holds changes nothing (not even `xmp:MetadataDate`).
 - Clearing a value in Dalica (empty caption, last tag removed) removes the property from the file.
 - **Everything else is kept byte for byte**, including unknown namespaces, `xmpMM:History`,
   develop settings of raw converters, `xmp:CreatorTool`, the packet wrapper and its padding (reused
-  so a rewrite can stay in place).
+  so a rewrite can stay in place: the padding grows or shrinks by the change in size, so the
+  packet keeps its length while the padding lasts; a new packet gets 2 KiB of padding).
 - **EXIF is edited in place or appended, never repacked.** Maker notes often hold absolute offsets,
   so existing EXIF data never moves: changed values of the same size are overwritten where they
   are, and a new or larger GPS IFD or date value is appended at the end of the TIFF block with only
