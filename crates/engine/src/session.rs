@@ -239,6 +239,8 @@ impl Session {
     /// photos' owned fields it changed (`metadata.rs`). Commands change the library only through
     /// this.
     pub(crate) fn apply(&mut self, op: Op) -> Result<Op, CmdError> {
+        // An op from the files (outside `execute`): what it imports and its conflicts (`scanning.rs`).
+        let files = if self.collected.is_none() { self.files_op_before(&op) } else { None };
         let before = self.all_folder_ids();
         let owned_before = crate::metadata::snapshot(&self.library, &crate::metadata::candidates(&self.library, &op));
         let inverse = self.library.apply(op.clone()).map_err(|e| match e {
@@ -262,6 +264,9 @@ impl Session {
         // scan's or the watcher's.
         let origin = if self.collected.is_some() { Origin::Command } else { Origin::Files };
         self.metadata_applied(owned_before, origin);
+        if let Some(conflicts) = files {
+            self.files_op_after(conflicts, &inverse);
+        }
         Ok(inverse)
     }
 

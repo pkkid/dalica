@@ -7,6 +7,7 @@ use std::path::Path;
 use dalica_core::{FolderId, PhotoId, Timestamp};
 use dalica_library::{Folder, Library, Op, Photo, PhotoInfo};
 
+use crate::meta::{Sync, first_fill};
 use crate::walk::{FoundFolder, FoundPhoto, Scan};
 use crate::watch::Rescan;
 
@@ -18,7 +19,11 @@ pub const BATCH: usize = 500;
 /// folders and photos are taken from `library`. A new folder or photo brings what its sidecar says
 /// (its star, and its [`FolderInfo`](dalica_library::FolderInfo) or [`PhotoInfo`]) in the same op as the one that adds it
 /// (`AddFolder` or `AddPhotos` batched with `SetFolderInfo` or `SetPhotoInfo`), so no sidecar
-/// write can see it without them; for folders and photos already known, the model's word stands. Applying the ops in order makes the model match the
+/// write can see it without them; for folders and photos already known, the model's word stands.
+/// Photos whose files were read ([`FoundPhoto::file`]) follow `xmp-interop.md` §5 ([`crate::meta`]):
+/// a new photo Dalica has nothing for brings every value its file has in its `AddPhotos` batch, and
+/// a last sync op ([`crate::meta::sync_parts`]) imports what changed in another application and
+/// sets the synced hashes. Applying the ops in order makes the model match the
 /// scan; diffing again then gives nothing. Folders are removed (or seen as renamed) only under the
 /// roots in `scan.walked`.
 pub fn diff(library: &mut Library, scan: &Scan) -> Vec<Op> {
@@ -39,7 +44,8 @@ fn diff_in(library: &mut Library, folders: &[FoundFolder], covered: &dyn Fn(&Pat
     let mut ops = Vec::new();
     let mut removes = Vec::new();
     let mut updates = Vec::new();
-    let mut adds: Vec<(Photo, &PhotoInfo)> = Vec::new();
+    let mut adds: Vec<(Photo, PhotoInfo)> = Vec::new();
+    let mut sync = Sync::default();
     // Folders known but gone from disk where the scan looked.
     let found: BTreeMap<&Path, ()> = folders.iter().map(|f| (f.path.as_path(), ())).collect();
     let mut gone: Vec<FolderId> = library.folders().filter(|f| covered(&f.path) && !found.contains_key(f.path.as_path())).map(|f| f.id).collect();
@@ -83,18 +89,31 @@ fn diff_in(library: &mut Library, folders: &[FoundFolder], covered: &dyn Fn(&Pat
         for (id, f) in renamed {
             if let Some(old) = library.photo(id) {
                 updates.push(photo(old.id, folder, f, old.star));
+                if let Some(file) = &f.file {
+                    sync.known_photo(library, old, file, f.date);
+                }
             }
         }
         for f in &found.photos {
-            if let Some(old) = known.get(f.name.as_str())
-                && (old.size, old.mtime, old.width, old.height, old.date) != (f.size, f.mtime, f.width, f.height, f.date)
-            {
-                updates.push(photo(old.id, folder, f, old.star));
+            if let Some(old) = known.get(f.name.as_str()) {
+                if (old.size, old.mtime, old.width, old.height, old.date) != (f.size, f.mtime, f.width, f.height, f.date) {
+                    updates.push(photo(old.id, folder, f, old.star));
+                }
+                if let Some(file) = &f.file {
+                    sync.known_photo(library, old, file, f.date);
+                }
             }
         }
         for f in new {
             let id = library.next_photo_id();
-            adds.push((photo(id, folder, f, f.star), &f.info));
+            let (star, info) = match &f.file {
+                Some(file) => {
+                    sync.new_photo(id, file);
+                    first_fill(f.star, &f.info, file, f.date).unwrap_or_else(|| (f.star, f.info.clone()))
+                }
+                None => (f.star, f.info.clone()),
+            };
+            adds.push((photo(id, folder, f, star), info));
         }
     }
     // Removals first, so a rename's new name is free; then updates (renames, changes); then adds.
@@ -107,6 +126,8 @@ fn diff_in(library: &mut Library, folders: &[FoundFolder], covered: &dyn Fn(&Pat
     for chunk in adds.chunks(BATCH) {
         ops.push(add_photos(chunk));
     }
+    // What the files said, once every photo read is in the model.
+    ops.extend(sync.op());
     ops.extend(gone.into_iter().map(|id| Op::RemoveFolder { id }));
     ops
 }
@@ -186,9 +207,9 @@ fn move_folder(library: &Library, old: FolderId, found: &FoundFolder) -> Op {
 
 /// One `AddPhotos` op, batched with the `SetPhotoInfo` of those that bring something from their
 /// sidecar.
-fn add_photos(chunk: &[(Photo, &PhotoInfo)]) -> Op {
+fn add_photos(chunk: &[(Photo, PhotoInfo)]) -> Op {
     let add = Op::AddPhotos { photos: chunk.iter().map(|(p, _)| p.clone()).collect() };
-    let infos: Vec<(PhotoId, PhotoInfo)> = chunk.iter().filter(|(_, i)| !i.is_empty()).map(|(p, i)| (p.id, (*i).clone())).collect();
+    let infos: Vec<(PhotoId, PhotoInfo)> = chunk.iter().filter(|(_, i)| !i.is_empty()).map(|(p, i)| (p.id, i.clone())).collect();
     if infos.is_empty() { add } else { Op::Batch { ops: vec![add, Op::SetPhotoInfo { photos: infos }] } }
 }
 
