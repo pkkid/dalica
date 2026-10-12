@@ -128,13 +128,16 @@ fn the_first_batch_lands_with_its_thumbnails_queued_before_the_walk_ends() {
     assert!(stats.jobs + stats.scanned + stats.failed >= first, "the first batch's thumbnails are not queued: {stats:?} for {first} photos");
     assert_eq!(s.job(job).unwrap().state, JobState::Running);
 
-    // Everything before the held folder lands while the walk waits in it.
+    // Everything before the held folder lands while the walk waits in it. The owner can apply
+    // F38 before the walk has opened F39's first file (a slow open on Windows), so wait for both;
+    // F39 itself cannot land before the gate opens, so the count stays at 39 folders.
     let mut counts = vec![first];
     poll_until(&mut s, &mut progress, |s| {
         counts.push(s.library().photos().count());
-        s.library().photos().count() == 39 * 50
+        gate.reached() && s.library().photos().count() == 39 * 50
     });
     assert!(gate.reached());
+    assert_eq!(s.library().photos().count(), 39 * 50, "nothing of the held folder landed");
     assert_eq!(s.job(job).unwrap().state, JobState::Running, "the walk has not finished");
     assert_eq!(s.library().folders().count(), 39);
     let entry = s.job(job).unwrap();
