@@ -2337,7 +2337,7 @@ replace at M6.R.
     `m6.md` (rotate, hide and caption photos in the app; tag a photo and see the tag in another
     photo application; install a package and browse your own photos).
   - done when: `cargo xtask accept M6` passes everything in M6's *Done when*.
-- ⬜ **M6.37 Lead: task blocks for M8**
+- ✅ **M6.37 Lead: task blocks for M8**
   - after: M5.21
   - owner: lead
   - files: `docs/roadmap.md`
@@ -2985,6 +2985,560 @@ One milestone in 2 feature areas (*Save to disk*, *Export*); one `cargo xtask ac
 - **Done when:** `cargo xtask accept M8`: exported files are decoded and checked (size, quality
   bounds, metadata, GPS removed when asked); Cancel leaves only complete files; a 200-photo export
   of a mixed tray succeeds.
+
+#### M8 tasks
+
+M8 lets edits leave Dalica: Save writes them into the photo and keeps the original in the folder's
+`.dalica-originals/`, Undo Save and Revert bring the original back, Save a Copy and Save As write
+new files, and Export renders a tray, a folder or an album into a new folder in the background. Its
+first wave lists the M7 work each task extends and starts once the maintainer has closed M7.R. Five
+tasks lay the ground the others share, so later tasks never share a file: M8.1 adds M8's fields,
+ops and queries to the library model (a photo's saved record and its saved-beside copy, a folder's
+Exported mark, the unsaved-edit counts), M8.2 gives `fs` the originals backup and new files made
+without ever replacing one, M8.3 registers one engine command module per area, one runner for every
+file-writing job and M8's settings, M8.4 adds M8's view state, the UI commands that open the Export
+dialog and the Save As picker, and stub dialogs, and M8.5 gives `ui-kit` the Export dialog's
+widgets and the Save and project icons. M8.6–M8.8 (the encoders, metadata carried to a new file,
+lossless JPEG transforms) start beside them, since no other task touches their files. `create`
+holds the one output pipeline (M8.10) that Save, Save a Copy, Save As and Export all use, so each
+output has one implementation for the app, the CLI and MCP. Each task updates its `parity.md` rows
+(`EDIT-SAVE`, `DATA-ORIGINALS`, `OUT-EXPORT`, `LIB-LT-HEADER` for the edited count and Save,
+`LIB-ACTIONS` for the Export button, `LIB-TREE-GROUPS` for Projects, the File menu's row, the
+Export half of the `PREF-…` row; new rows where none fit: `EDIT-SAVE-LOSSLESS` for rotate-only
+saves, `DATA-SAVE-RECOVERY` for the repair of an interrupted Save) and names its commands there;
+first fingerprints of encoders, the watermark, dialogs, the header and icons are approved in bulk
+on the M8.R review page, and with them the look of the watermark.
+
+Whole-window baselines belong to no task, as in M5–M7: the finished milestones'
+`tests/acceptance/fingerprints/m1-*.json` … `m7-*.json` and any `crates/ui/tests/fingerprints/`
+file not named in a task's `files` change whenever the window does. A task whose change moves them
+re-blesses them on its branch (diff images on the PR, the reason in the commit body), they never
+count as a `files` overlap, and on a rebase conflict the worker re-blesses after the rebase.
+
+Decisions taken while planning (the check-in lists them for reversal): `output.export` and
+`photo.saveAs` are UI commands with the menu ids (they open the Export dialog and the save picker)
+and call the engine's `export.run` and `photo.saveTo`, the way `folders.add` calls `folders.set`;
+`photo.save`, `photo.undoSave`, `photo.revert` and `photo.saveCopy` are engine commands whose
+questions go through the dialog host (`control-protocol.md` §5.5). Save is not a step of the library
+undo stack: its way back is Undo Save, which the edit panel's Undo button names ("Undo Save") once
+the edits made after the save are undone. Saving a photo that was saved before renders the recorded
+recipe followed by the new edits from the kept original and records the whole recipe, so quality
+loss never compounds and Undo Save brings every edit back as unsaved (in front of any edits made
+after the save). Undo Save and Revert move the kept original back over the saved file (the saved
+file can always be rendered again, so it is not sent to the trash). A Save is journaled: its record
+enters `.dalica-originals/.dalica.json` as pending before anything moves and is marked done last,
+and a pending record found at open or scan is repaired. Save refuses a photo whose recipe holds an
+operation Dalica cannot render (unknown or `legacy:`), with the reason, so baking pixels never drops
+one. A format Dalica cannot write in place gets a JPEG beside it that is a new, unedited photo; the
+source keeps its recipe and records `savedAs` (the copy's name and the recipe it holds), so it no
+longer counts as unsaved until its recipe changes; Undo Save and Revert apply to in-place saves
+only. Rotate-only saves of JPEGs are lossless through our own DCT-domain transforms written from
+ITU-T T.81 (no crate offers them and neither Craft app has them), for baseline files whose
+dimensions allow; progressive, arithmetic-coded and 12-bit files and other sizes take the EXIF-flag
+fallback. Quality matching estimates the original's quality from its quantisation tables (ported
+from PhotoCraft), 90 when unknown, and keeps its chroma subsampling (4:2:2 is written as 4:4:4,
+never less chroma); Export's Automatic uses the same estimate. JPEGs are encoded by LightCraft's own
+parallel baseline encoder, ported, so no new dependency (the alternative, the `jpeg-encoder` crate,
+adds one). A new file carries the source's EXIF, XMP and IPTC with orientation 1, the new pixel size
+and a fresh EXIF thumbnail (Save) or none (Export); then Save in place merges the library's owned
+fields under the write-back options as M6's write-back would, while copies and exports carry them
+all; output is sRGB, with an sRGB profile embedded only when the source had a profile. "Remove
+location" removes GPS coordinates (the EXIF GPS IFD and `exif:GPS*` in XMP) and keeps place names.
+Numbered export names are `001-<name>`; an export folder whose name is taken becomes
+`<name>-001`; videos are skipped and counted until M15 decodes them (the videos row stays
+disabled). An export marks its folder `"project": "exported"` in the folder's sidecar, and the tree
+lists those folders and the folders under the projects directory (`Pictures/Dalica`) in Projects,
+so an export made elsewhere is listed too and the mark survives moves and rebuilds. The watermark is
+drawn with Inter SemiBold from `assets/fonts/` through `ab_glyph` (already in the tree through
+egui), ported from LightCraft. The save and export budgets join `development.md` §8 at 1.5 × their
+first measurement. No step of M8 needs a maintainer decision mid-run.
+
+- ⬜ **M8.1 `library`: M8's model fields, ops and queries**
+  - after: M6.2, M7.3, M7.R
+  - files: `crates/library/src/model.rs`, `crates/library/src/op.rs`, `crates/library/src/query.rs`, `crates/library/src/tree.rs`, `crates/library/tests/m8_fields.rs`, `crates/library/tests/ops.rs`, `crates/library/tests/tree.rs`, `crates/library/README.md`
+  - scope: `data-model.md` §6 as pure model: each photo gains a saved record (the recipe saved,
+    the original's size, modification time, pixel size and digest, pending or done; read from
+    `.dalica-originals/.dalica.json`, so index-only like the sketch: no undo stack, no revision
+    bump on load) and a `savedAs` copy (the JPEG written beside it and the recipe it holds); each
+    folder gains a project kind (`exported`). One batched op per change with an exact inverse
+    (record set and cleared, `savedAs` set, the recipe and redo list cleared or restored by a
+    Save, Undo Save or Revert, the Exported mark); queries cached per revision: whether a photo has
+    unsaved edits (a recipe that is not empty and not the one `savedAs` holds), its folder's count
+    of them, whether Revert and Undo Save apply (a done in-place record), whether the recipe holds
+    an operation that cannot be rendered (from `edit`'s parse); the tree puts folders with the
+    Exported mark, wherever they are, in Projects with the folders under `projects_dir`.
+  - done when: `cargo test -p dalica-library`: random op sequences with the new fields applied
+    then inverted restore the model exactly (proptest); the unsaved count of a folder follows
+    edits, a Save, an Undo Save and a recipe change after a beside save; a folder with the mark
+    outside `projects_dir` lists in Projects in flat mode and under its parent in tree mode;
+    loading a record bumps no revision.
+- ⬜ **M8.2 `fs`: the originals backup and new files that never replace one**
+  - after: M5.3, M7.R
+  - files: `crates/fs/src/originals.rs`, `crates/fs/src/create.rs`, `crates/fs/src/faults.rs`, `crates/fs/tests/originals.rs`, `crates/fs/tests/create.rs`, `docs/security.md`
+  - scope: `security.md` §5.1–§5.6 and `data-model.md` §6: `originals.rs` opens or creates
+    `<folder>/.dalica-originals/` through the held folder handle (M5.3) and refuses a link; moves a
+    photo into it by rename after re-checking the photo's identity right before (§5.3); refuses
+    when a backup of that name exists and does not match the expected size and digest; moves a
+    backup back over the saved file only when the saved file's identity is the one recorded
+    (`Expect::Unchanged`); `create.rs` writes bytes to a new file under the first free name of
+    `core::names::candidates` (temp file, fsync, a commit that never replaces: `renameat2`
+    NOREPLACE on Linux, a hard link then unlink elsewhere, exclusive creation on volumes without
+    links; the choice per platform in the commit body), verifies it and returns the name; and
+    makes a new folder under the first free name (an export folder); fault points for every step;
+    `security.md` §5.3–§5.4 statuses updated.
+  - done when: `cargo test -p dalica-fs --test originals --test create`: a move into the backup and
+    back gives identical bytes and the same name; a changed photo, a link in place of
+    `.dalica-originals/` and a mismatched existing backup are refused with nothing moved; with
+    `taken.jpg` and `taken-001.jpg` present a new file lands at `taken-002.jpg` and never replaces
+    either; two threads racing for one name get two names; every fault point as Error and as Crash
+    leaves the source and any existing file intact (`--features faults`); hostile names are refused.
+- ⬜ **M8.3 `engine`: M8's command modules, the file-job runner and settings**
+  - after: M5.5, M7.3, M7.R
+  - files: `crates/engine/src/cmd/mod.rs`, `crates/engine/src/cmd/save.rs`, `crates/engine/src/cmd/save_copy.rs`, `crates/engine/src/cmd/export.rs`, `crates/engine/src/filejobs.rs`, `crates/engine/src/save_recovery.rs`, `crates/engine/src/jobs.rs`, `crates/engine/src/session.rs`, `crates/engine/src/settings.rs`, `crates/engine/tests/filejobs.rs`, `crates/engine/tests/settings_m8.rs`, `crates/engine/README.md`, `docs/architecture.md`
+  - scope: the engine's ground for M8 so M8.15–M8.18, M8.23 and M8.24 never share a file: empty
+    `cmd/save.rs`, `save_copy.rs` and `export.rs` joined into the registry once; `filejobs.rs`, one
+    runner for Save, Save a Copy, Save As and Export (`architecture.md` §5; LightCraft
+    `crates/ui-egui/src/export_task.rs` and `crates/engine/src/export.rs` `run_batch_with` at
+    25ef65c8 as the pattern): owned inputs per item, a job with its label, done-of-total progress
+    and Cancel checked between items, items on up to `workers` threads, results back through
+    `poll()`; results applied by the caller's function as ops; a replaced file refreshed through
+    the scan's change path for that one file (keeping its id and sidecar entry, marked as Dalica's
+    own write so the watcher of M5.17 does not import it), a new file added as a photo, a new
+    folder added and scanned; a session event per finished job (message, failures with file and
+    reason, the folder to show) for the UI's notices; a stub `save_recovery.rs` called at session
+    open and when a scan reads a pending record; `JobKind::Save` and `Export`; every M8 setting
+    with its default behind a typed accessor: the first-time Save explanation (on), the export
+    location (`<Pictures>/Dalica/Exports`), size (resize to 1600), quality (Automatic; Custom 75),
+    numbers (off), watermark (off, empty text), remove location (off), the last Save As folder and
+    format (JPEG); the projects directory (the export location's parent) for the tree.
+  - done when: `crates/engine/tests/filejobs.rs` with a fake item worker: progress counts, Cancel
+    between items finishes the current one and starts no other, results applied once in order, a
+    failing item reported with its reason while the rest go on, a new file appears as a photo and
+    a replaced one keeps its id, no `fs` call on the owner thread; `crates/engine/tests/settings_m8.rs`
+    round-trips every new setting with unknown keys kept and wrong types falling back (reported);
+    every existing engine test and `panic_hunt` pass unchanged.
+- ⬜ **M8.4 `ui`: M8's view state, UI commands, the save picker and stub dialogs**
+  - after: M5.14, M7.4, M7.R
+  - files: `crates/ui/src/state.rs`, `crates/ui/src/menus.rs`, `crates/ui/src/app.rs`, `crates/ui/src/picker.rs`, `crates/ui/src/commands/mod.rs`, `crates/ui/src/commands/save.rs`, `crates/ui/src/commands/save_as.rs`, `crates/ui/src/commands/export.rs`, `crates/ui/src/dialogs/mod.rs`, `crates/ui/src/dialogs/confirm.rs`, `crates/ui/src/dialogs/save_explain.rs`, `crates/ui/src/dialogs/revert.rs`, `crates/ui/src/dialogs/export.rs`, `crates/ui/src/dialogs/export_progress.rs`, `crates/ui/src/control/**`, `crates/ui/tests/view_state_m8.rs`, `docs/control-protocol.md`
+  - scope: every M8 field of `UiState` in one go: the Export dialog's draft (location, folder name,
+    numbers, original size or resize with its pixels, quality preset and custom value, videos,
+    watermark on and its text), the Save explanation's "Don't show this again", the Revert
+    question's photos, the export progress window (its job, shown or hidden); UI commands
+    `output.export` (Ctrl+Shift+S; "tray not empty") and `photo.saveAs` (one photo with edits)
+    in `menus.rs` with stub handlers in `commands/export.rs` and `commands/save_as.rs`, and
+    `commands/save.rs` stub routing for Save, Undo Save and Revert, so M8.19–M8.22 never share a
+    file; stub `save_explain`, `revert`, `export` and `export_progress` dialogs on the dialog
+    host, the first two asked through `confirm.rs` for `photo.save` and `photo.revert`; the
+    `Picker` gains a save dialog (suggested name, the JPEG and PNG filters; `rfd` in the app, the
+    scripted picker in tests, `filePicker {kind: "save"}` over control, answered by
+    `ui.filePicker {path}`); the path parameters of `export.run` and `photo.saveTo` checked by the
+    automation root policy (`control-protocol.md` §5.7); control-protocol §5.5, §5.6, §6.1 (its
+    example becomes `export.run`) and §6.5 updated.
+  - done when: `crates/ui/tests/view_state_m8.rs`: each new field round-trips through `ui.state` /
+    `ui.set` (bad values are `bad_params`, nothing changes); Ctrl+Shift+S with a tray opens
+    `dialog:export` and Esc closes it; File ▸ Save As… opens the save picker and
+    `ui.filePicker {cancel: true}` changes nothing; an `export.run` path outside every write root
+    is `path_denied`; the menu items light up; every command's graceful-failure test; `panic_hunt`
+    and `widget_ids` stay green.
+- ⬜ **M8.5 `ui-kit`: the Export dialog's widgets and the Save and project icons**
+  - after: M5.25, M7.5, M7.6, M7.R
+  - files: `crates/ui-kit/src/widgets.rs`, `crates/ui-kit/src/widgets/form.rs`, `crates/ui-kit/src/widgets/slider.rs`, `crates/ui-kit/src/widgets/dropdown.rs`, `crates/ui-kit/src/icons.rs`, `crates/ui-kit/src/icons/output.rs`, `crates/ui-kit/tests/form_widgets.rs`, `crates/ui-kit/tests/icons_output.rs`, `crates/ui-kit/tests/fingerprints/form-widgets*.json`, `crates/ui-kit/tests/fingerprints/icons-output*.json`, `crates/ui-kit/tests/fingerprints/gallery*.json`, `docs/design-system.md`
+  - scope: `creating.md` §2 and `design-system.md` §5–§6: `form` rows (labels right-aligned in one
+    column, controls left-aligned in the next, a hint line under a control, a radio row holding a
+    field and a slider, rows disabled as a group); the slider's stops variant (snaps near the
+    given stops, a linked number field beside it, the stops drawn as ticks); dropdown items with a
+    description line ("Automatic — Keeps the original's quality") and a checked mark; the icons
+    `Save` (a disk, replacing the one `panels/light_table/header.rs` draws for itself) and
+    `Project` (the tree's project row), our own drawings on the 20-unit grid; new `Role`s where
+    needed; the widget gallery gains them.
+  - done when: `crates/ui-kit/tests/form_widgets.rs`: label columns align at both sizes; a drag
+    near 1600 snaps to it and typing 1700 holds 1700; a disabled group ignores clicks; dropdown
+    descriptions and the checked item; `crates/ui-kit/tests/icons_output.rs`: both icons stay in
+    their grid at 12, 16, 20 and 28 px in rest, hover and disabled colours; gallery and icon
+    fingerprints; `widget_ids`, `cargo xtask assets` and `cargo xtask names` pass.
+- ⬜ **M8.6 `image`: JPEG and PNG encoders and the JPEG quality estimate**
+  - after: M5.1, M7.R
+  - files: `crates/image/src/encode.rs`, `crates/image/src/encode/**`, `crates/image/src/jpeg_quality.rs`, `crates/image/tests/encode.rs`, `crates/image/tests/jpeg_quality.rs`, `crates/image/tests/fingerprints/encode*.json`, `crates/image/README.md`, `NOTICE`
+  - scope: `formats.md` §1 and `data-model.md` §6: `encode::jpeg(image, quality, subsampling,
+    segments)` a baseline JPEG (grey, 4:4:4, 4:2:0; restart-interval bands encoded on scoped
+    threads when asked, else on the caller's) ported from LightCraft
+    `crates/codecs/src/jpeg_par.rs` and the APP segment writer `jpeg_app_segments` of
+    `crates/codecs/src/encode.rs` at 25ef65c8 (EXIF, XMP and ICC segments with their size limits);
+    `encode::png(image, chunks)` 8- and 16-bit grey, RGB and RGBA through `png` with `eXIf` and
+    `iTXt` chunks; `jpeg_quality.rs` the quality a JPEG was saved at from its quantisation tables
+    and its chroma subsampling from the frame header, ported from PhotoCraft
+    `crates/codecs/src/source_settings.rs` (`jpeg_quality`) at bb17dd55 with its tests from
+    `crates/codecs/tests/source_settings.rs`; dimensions, sizes and hostile tables bounded; headers
+    and `NOTICE` rows (`architecture.md` §9).
+  - done when: `cargo test -p dalica-image --test encode --test jpeg_quality`: encoded files decode
+    through our own decoder within a stated error per quality, sizes fall as quality falls,
+    parallel and single-threaded output decode identically, EXIF/XMP/ICC segments read back, an
+    oversized segment is `Err`; 16-bit PNG keeps 16 bits and alpha; scenes JPEGs saved at 50, 75,
+    90 and 95 are estimated within 2 and the subsampling is read; truncated and random headers give
+    `None`, never a panic; fingerprints; the time to encode 24 MP printed.
+- ⬜ **M8.7 `meta`: metadata carried to a new file**
+  - after: M6.10, M6.17, M6.18, M7.R
+  - files: `crates/meta/src/carry.rs`, `crates/meta/src/carry/**`, `crates/meta/tests/carry.rs`
+  - scope: `data-model.md` §6 and `creating.md` §2: from a source file's bytes in any container
+    `meta` reads, the metadata of a rendered copy for a JPEG or PNG target: the EXIF block with
+    Orientation 1, the new pixel size and colour space, its thumbnail IFD replaced by a given
+    thumbnail or dropped (edited in place through M6.10's EXIF editor, so maker notes keep their
+    offsets); the XMP packet with `tiff:Orientation` 1 and the new size, every other property
+    kept; IPTC kept; with "remove location", the GPS IFD and every `exif:GPS*` property removed
+    (place names kept); then `write_owned` (M6.4) merges the owned fields the caller passes; and
+    `set_orientation(bytes, o)` for the lossless fallback (an EXIF block added when the file has
+    none), checked by M6.4's verification.
+  - done when: `cargo test -p dalica-meta --test carry`: a JPEG, a TIFF and a WebP source each give
+    a JPEG and a PNG target whose EXIF, XMP and IPTC read back with orientation 1 and the new size,
+    foreign properties byte-identical; maker notes still parse; GPS gone from EXIF and XMP when
+    asked and kept otherwise; the owned fields merged; `set_orientation` changes only that tag's
+    value; truncated and hostile blocks are `Err`, never a panic.
+- ⬜ **M8.8 `image`: lossless JPEG rotation and flips**
+  - after: M5.1, M7.R
+  - files: `crates/image/src/jpeg_transform.rs`, `crates/image/src/jpeg_transform/**`, `crates/image/tests/jpeg_transform.rs`
+  - scope: `data-model.md` §6, our own from ITU-T T.81 (a provenance header naming its sections):
+    for baseline sequential Huffman JPEGs (8-bit, any sampling), the quantised coefficients read
+    under the decode limits, one of the eight dihedral transforms applied in the DCT domain
+    (transposed blocks, odd-index coefficients negated for flips, blocks and MCUs moved, sampling
+    factors and component sizes swapped for transposes), written back with the file's own
+    quantisation tables (no requantisation) and Huffman tables built for the new data, every other
+    segment copied byte for byte; answers "not lossless here" when a transform would move a
+    partial MCU edge to the leading edge, and for progressive, arithmetic, 12-bit, lossless or
+    hierarchical files.
+  - done when: `cargo test -p dalica-image --test jpeg_transform`: each of the eight transforms on
+    scenes JPEGs at 4:4:4, 4:2:0, 4:2:2 and grey at MCU-multiple sizes decodes to the transformed
+    pixels of the original within 1 level and reads back the transformed coefficients exactly;
+    four quarter turns give the original coefficients; a partial-MCU size and a progressive file
+    answer "not lossless here"; truncation at every offset and proptest random bytes never panic;
+    the time for 24 MP printed.
+- ⬜ **M8.9 `sidecar` + `store` + `scan`: the originals record and M8's fields on disk**
+  - after: M6.8, M8.1
+  - files: `crates/sidecar/src/originals.rs`, `crates/sidecar/src/fields.rs`, `crates/sidecar/src/print.rs`, `crates/sidecar/src/lib.rs`, `crates/sidecar/tests/originals.rs`, `crates/store/src/mapping.rs`, `crates/store/src/rebuild.rs`, `crates/store/tests/m8_fields.rs`, `crates/scan/src/originals.rs`, `crates/scan/tests/originals.rs`, `docs/data-model.md`
+  - scope: `data-model.md` §2 and §6: `.dalica-originals/.dalica.json` parsed and printed (per
+    original name: the recipe saved, size, modification time, pixel size, digest, `pending` or
+    `done`, the time of the save; unknown keys kept; names used only when they are one plain path
+    component, `security.md` §5.4); the photo's `savedAs` and the folder's `"project": "exported"`
+    in `.dalica.json` in the documented key order; the scan reads a folder's originals record on
+    its worker (the walk still skips the directory) and turns it into M8.1's ops; a rebuild reads
+    it back; the mapping test lists every new field; `data-model.md` §2–§3 and §6 document both
+    files.
+  - done when: `data-model.md` §10.1 for every M8 field (save, mark, delete the index, rebuild,
+    compare); proptest round trips of the originals record with hostile names and wrong types never
+    panic and keep what they cannot use; a record naming `../x` or `CON` is kept but never reaches a
+    file; a damaged record is set aside as `.corrupt-<time>` and reported; journal replay and
+    snapshots keep the new fields.
+- ⬜ **M8.10 `create`: the one output pipeline**
+  - after: M7.2, M8.6, M8.7
+  - files: `crates/create/src/lib.rs`, `crates/create/src/output.rs`, `crates/create/src/output/**`, `crates/create/src/watermark.rs`, `crates/create/tests/output.rs`, `crates/create/tests/common/**`, `crates/create/tests/fingerprints/output*.json`, `crates/create/README.md`
+  - scope: `architecture.md` §6 and `data-model.md` §6: `output::render(source bytes, recipe,
+    spec)` used by Save, Save a Copy, Save As and Export: decode at full size under the decode
+    limits with EXIF orientation applied (M5.1), `edit::render` of the recipe at full size (M7.2),
+    resize to a long side that never upscales (`image::resize`), the watermark hook (a stub in
+    `watermark.rs` that draws nothing, for M8.11), encode through M8.6 (JPEG at `Quality::Match`
+    from the source's estimate or 90, or a fixed quality, with the matched subsampling; PNG keeping
+    16 bits and alpha), metadata through M8.7 with the owned fields the caller passes; the target
+    format per `formats.md` §1 (`target(kind, alpha, purpose)`: in place, beside, copy or export);
+    a report (format, size, quality used); pure: bytes in, bytes out; `tests/common/` with the
+    scenes and decode helpers the `create` tests share.
+  - done when: `cargo test -p dalica-create --test output`: an empty recipe at Match re-encodes a
+    q75 scenes JPEG estimated at 75 ± 2 within a stated error; a rotated recipe gives orientation 1
+    and the rotated pixel size; a resize hits the long side exactly and never upscales; a PNG with
+    alpha stays PNG with alpha and a 16-bit one 16-bit; EXIF, XMP and IPTC carried with the owned
+    fields; GPS removed when asked; the decoded output equals `edit::render` (fingerprints); an
+    undecodable source and hostile sizes are `Err`, never a panic; nothing is written to disk.
+- ⬜ **M8.11 `create`: the export watermark**
+  - after: M8.10
+  - files: `crates/create/src/watermark.rs`, `crates/create/tests/watermark.rs`, `crates/create/tests/fingerprints/watermark*.json`, `NOTICE`
+  - scope: `creating.md` §2: white text with a soft shadow, bottom-right, 3 % of the long side
+    high, margins relative to the image so every size looks the same; ported from LightCraft
+    `crates/engine/src/export.rs` (`Watermark`, `draw_watermark`, `blend_watermark`) at 25ef65c8,
+    text only, horizontal, with Inter SemiBold from `assets/fonts/` through `ab_glyph` (audited
+    with `cargo xtask deps`); the text cleaned (control and bidirectional characters removed,
+    at most 200 characters) and shrunk to fit inside the image; header and `NOTICE` row
+    (`architecture.md` §9).
+  - done when: `cargo test -p dalica-create --test watermark`: the text height is 3 % of the long
+    side at three sizes and two sizes agree after downscale; it stays inside the bottom-right
+    margins; empty text draws nothing; very long text shrinks to fit; a character without a glyph
+    draws the font's fallback without a panic; fingerprints on a light and a dark scene.
+- ⬜ **M8.12 `create`: Save in place, Undo Save and Revert**
+  - after: M8.2, M8.9, M8.10
+  - files: `crates/create/src/save.rs`, `crates/create/src/save/**`, `crates/create/tests/save.rs`, `docs/data-model.md`
+  - scope: `data-model.md` §6, §10.9 and `security.md` §5.3: `save::in_place(folder, name,
+    recipe, owned fields, options)`: refuse a recipe with an operation Dalica cannot render; read
+    the photo and its identity; render through M8.10 at Match quality, from the kept original and
+    the recorded recipe plus the new edits when the photo was saved before; write the record as
+    pending (M8.9's format, through `fs`'s atomic replace); move the original into
+    `.dalica-originals/` only when no backup exists (M8.2), else replace the saved file under its
+    recorded identity; commit the new file at the photo's name without replacing anything else;
+    verify it (pixel size, the owned fields); mark the record done; `save::undo` and
+    `save::revert` move the kept original back over the saved file under its recorded identity and
+    drop the record, returning the recipe to put back (Undo Save) or none (Revert); the dispatch
+    for M8.14 (`lossless.rs`, `beside.rs` and `copy.rs` stubs); `data-model.md` §6 gets the step
+    order and the record's states.
+  - done when: `cargo test -p dalica-create --test save` on temp folders: `data-model.md` §10.9
+    (Save → Undo Save → Save → Revert returns the exact original bytes); a second Save keeps the
+    first original and renders from it; the saved file's quality is the original's ± 2, its
+    orientation 1 and its metadata carried; a photo changed since it was read, a
+    `.dalica-originals` link and a mismatched backup are refused with nothing moved; a read-only
+    folder fails with its reason and nothing changed; an unknown operation is refused by name.
+- ⬜ **M8.13 `create`: export planning and files**
+  - after: M8.2, M8.10
+  - files: `crates/create/src/export.rs`, `crates/create/src/export/**`, `crates/create/tests/export.rs`, `crates/create/tests/fingerprints/export*.json`, `crates/core/src/names.rs`, `crates/core/tests/sanitize.rs`, `docs/creating.md`, `docs/security.md`
+  - scope: `creating.md` §2 and `security.md` §5.4: `ExportOptions` (original size or a long side
+    100–4000; Automatic (the source's estimate, else 90), Normal 85, Maximum 95, Minimum 60, Custom
+    1–100; numbers; watermark text; remove location); the one name sanitizer in
+    `core::names::sanitize` (separators, `: * ? " < > |`, control and bidirectional characters
+    removed; leading `.` and `-` and trailing dots and spaces stripped; reserved device names
+    replaced; 255 bytes on a character boundary; a fallback such as `Export 2026-06-04`); the plan:
+    the export folder made under the location with a free name (M8.2), each photo's name (its stem,
+    `.jpg`, or `.png` for a source with transparency; `001-` numbers in tray order when asked;
+    collisions `-001` through exclusive creation), the video and undecodable items listed as
+    skipped with their reason; `export_one(item, plan)` through M8.10 and the watermark hook; a
+    cancel removes the file being written, so only complete files remain; `creating.md` §2 and
+    `security.md` §5.4's status updated.
+  - done when: `cargo test -p dalica-create --test export` and `cargo test -p dalica-core --test
+    sanitize`: exported files decoded and checked (long side, never upscaled, the quality estimate
+    within each preset's bounds, metadata copied, GPS removed only when asked); collisions get
+    `-001` and numbers keep the order; `CON`, `../x`, bidirectional text, a 300-byte name and an
+    empty name sanitize as specified (proptest: never empty, never a separator); a cancel during a
+    file leaves only complete, decodable files; a PNG with alpha exports as PNG.
+- ⬜ **M8.14 `create`: lossless rotation, the orientation fallback, JPEG beside and copies**
+  - after: M8.8, M8.12
+  - files: `crates/create/src/save/lossless.rs`, `crates/create/src/save/beside.rs`, `crates/create/src/save/copy.rs`, `crates/create/tests/save_lossless.rs`, `crates/create/tests/save_beside.rs`
+  - scope: `data-model.md` §6 and `formats.md` §1: a JPEG whose recipe holds only rotations and
+    flips saves through M8.8 with the net transform of the recipe and the EXIF orientation (M6.3),
+    orientation set to 1 through M8.7 and every other segment unchanged; when M8.8 answers "not
+    lossless here", the pixels stay and the orientation tag becomes the composed transform (an
+    EXIF block added when there is none); both keep the original in `.dalica-originals/` through
+    M8.12's steps; `beside`: a format Dalica cannot write in place gets `name.jpg` (or the next
+    free name) beside it through M8.2, the source untouched, answering the new name and the recipe
+    it holds; `copy`: `<stem>-001.jpg` (the next free number) in the photo's folder, or a chosen
+    path never replaced and a chosen format (JPEG or PNG) for Save As.
+  - done when: `cargo test -p dalica-create --test save_lossless --test save_beside`: a rotated
+    MCU-sized JPEG saves with the original's quantisation tables and decodes to the rotated
+    original within 1 level; a partial-MCU size keeps its pixel data bytes and gets the composed
+    orientation; a flip after a rotation; a PNG with alpha, a TIFF, a WebP and a raw each get a
+    JPEG beside and stay byte-identical; copies take the next free number and Save As refuses an
+    existing path.
+- ⬜ **M8.15 `engine`: Save, Undo Save and Revert**
+  - after: M8.3, M8.9, M8.12
+  - files: `crates/engine/src/cmd/save.rs`, `crates/engine/src/cmd/history.rs`, `crates/engine/tests/save.rs`
+  - scope: `data-model.md` §6, `editing.md` §5.1 and `control-protocol.md` §5.5: `photo.save {ids,
+    confirm?}` (Ctrl+S in the library and the edit view; enabled for photos with unsaved edits
+    whose recipe can be rendered, the reason otherwise; `needs_confirm` with the first-time
+    explanation while its setting is on, and `dontAsk` turns it off) as a file job through M8.3's
+    runner ("Saving 3 photos", progress, Cancel between photos) through `create`'s save dispatch
+    (M8.12), then ops: the record set and the recipe and redo list cleared, or for a beside save
+    (live once M8.14 lands; M8.23 checks it per format) `savedAs` set and the copy added as a photo; the photo's entry refreshed and its thumbnails and sketch remade (M7.9);
+    `photo.undoSave {ids}` (photos with a done in-place record: the original back, the recorded
+    recipe in front of any newer edits as unsaved edits); `photo.revert {ids, confirm, action?}`
+    (`needs_confirm` with the [Revert] [Undo Save] [Cancel] question; the original back, edits and
+    record gone); `photo.history.state` answers "Undo Save" when the recipe is empty and a done
+    record exists; offline folders and read-only files are disabled or fail with their reason.
+  - done when: `crates/engine/tests/save.rs` on temp folders: `data-model.md` §10.9 through the
+    commands; the explanation asked once and not after `dontAsk`; Save clears the badge and the
+    folder's count, Undo Save brings both back and the "Undo Save" label goes; a re-save after a
+    tune renders from the original; Cancel after the first of three photos saves only that one;
+    the thumbnails show the saved pixels; the watcher imports nothing for Dalica's own write; the
+    owner thread made no `fs` call; each command's contract and graceful failures; `panic_hunt`
+    green.
+- ⬜ **M8.16 `engine`: the export command and job**
+  - after: M8.3, M8.9, M8.11, M8.13
+  - files: `crates/engine/src/cmd/export.rs`, `crates/engine/tests/export.rs`
+  - scope: `creating.md` §2 and `data-model.md` §6: `export.defaults {ids? | section? | album?}`
+    (query: the location, the suggested folder name (the section or album name, "Export
+    2026-06-04" for a mixed tray), size, quality, numbers, watermark, remove location, whether
+    videos are present); `export.run {ids | section | album, dir, folderName, numbers?, size?,
+    quality?, watermark?, removeLocation?}` (Files, no undo step; missing options from the
+    settings, the used ones remembered) as a file job ("Exporting 12 of 48…", progress, Cancel)
+    through M8.3's runner with M8.13's plan; afterwards the folder gets the Exported mark, is added
+    as Scan Always when it lies under no watched folder (M5.12's rules) and is scanned; the result
+    names the folder and the written, skipped and failed files; the session event carries the
+    folder to show; the photos' current recipes are rendered, so unsaved edits are exported.
+  - done when: `crates/engine/tests/export.rs` on temp folders: an export of edited and unedited
+    photos writes decodable files of the right size with the edits applied; Cancel leaves only
+    complete files and the job reports cancelled; an export into an unwatched folder adds it as
+    Scan Always and its photos appear; the folder lists in Projects and keeps the mark after a
+    rebuild; a second export of the same name makes `<name>-001`; videos are skipped and counted;
+    the owner thread made no `fs` call; each command's contract and graceful failures;
+    `panic_hunt` green.
+- ⬜ **M8.17 `engine`: Save a Copy and Save As**
+  - after: M8.3, M8.14
+  - files: `crates/engine/src/cmd/save_copy.rs`, `crates/engine/tests/save_copy.rs`
+  - scope: `data-model.md` §6: `photo.saveCopy {ids}` (photos with edits): `<stem>-001.jpg` (the
+    next free number) in the photo's folder with the edits applied at Match quality, the photo and
+    its edits untouched, the copy added as a new, unedited photo; `photo.saveTo {id, path,
+    format?}` (Save As; JPEG or PNG by `format` or the extension, Match quality for JPEG): never
+    replaces an existing file (`exists`), the folder must exist, a folder under no watched folder
+    is added as Scan Always so the file appears, the last folder and format remembered; both as
+    file jobs through M8.3's runner.
+  - done when: `crates/engine/tests/save_copy.rs` on temp folders: two copies of one photo are
+    `-001` and `-002` with its edits applied and the photo's recipe unchanged; Save As PNG into an
+    unwatched folder adds it and the photo appears; an existing path is refused and unchanged; the
+    owner thread made no `fs` call; each command's contract and graceful failures; `panic_hunt`
+    green.
+- ⬜ **M8.18 `create` + `engine`: a Save interrupted at any step never loses the original**
+  - after: M8.14, M8.15
+  - files: `crates/create/src/save/recover.rs`, `crates/create/tests/save_faults.rs`, `crates/engine/src/save_recovery.rs`, `crates/engine/tests/save_recovery.rs`
+  - scope: `data-model.md` §6 and §10.5, `architecture.md` §8: `save::recover(folder)` for a
+    pending record: rolled forward when the new file is complete and verifies, else rolled back
+    (the kept original moved back to its name, the record dropped); Save's temporary files removed
+    by their shape (M5.3); the engine runs it on a worker at session open and when a scan reads a
+    pending record, puts the recipe back when it rolled back, and reports the repair in the log and
+    `library.inspect`; the fault points of M8.2 and of `fs`'s atomic replace armed at every step of
+    Save, a second Save, Undo Save and Revert, as Error and as Crash.
+  - done when: `cargo test -p dalica-create --features faults --test save_faults` (`create` gains a
+    `faults` feature that turns on `fs`'s): for
+    every step × {Error, Crash} × {Save, re-Save, Undo Save, Revert} the original's bytes exist at
+    the photo's name or in `.dalica-originals/` with a record pointing at them, and after `recover`
+    the folder is wholly saved or wholly original with its sidecars consistent;
+    `crates/engine/tests/save_recovery.rs`: a session reopened after a planted crash repairs the
+    folder and shows the photo with its edits; the owner thread made no `fs` call.
+- ⬜ **M8.19 `ui`: Save, Undo Save and Revert in the app**
+  - after: M8.4, M8.5, M8.15
+  - files: `crates/ui/src/commands/save.rs`, `crates/ui/src/dialogs/save_explain.rs`, `crates/ui/src/dialogs/revert.rs`, `crates/ui/src/panels/light_table/header.rs`, `crates/ui/src/panels/edit/history.rs`, `crates/ui/tests/save_ui.rs`, `crates/ui/tests/section_header.rs`, `crates/ui/tests/fingerprints/region-header-*.json`, `crates/ui/tests/fingerprints/dialog-save-explain-*.json`, `crates/ui/tests/fingerprints/dialog-revert-*.json`, `crates/ui/tests/fingerprints/edit-undo-save-*.json`
+  - scope: `ui-layout.md` §5.2, `data-model.md` §6 and `editing.md` §5.1: the section header's
+    "%d edited" and Save text button (top-right, only with unsaved edits; in the pinned header
+    too) and the disk button with M8.5's `Save` icon run `photo.save` with the section's photos
+    with unsaved edits; File ▸ Save and Ctrl+S save the selected photos in the library and the open
+    photo in the edit view; the first-time explanation (our own words for §6 step 1, the "Don't
+    show this again" checkbox) and the Revert question ([Revert] [Undo Save] [Cancel], Cancel the
+    default) on the dialog host; File ▸ Revert…; the edit panel's Undo reads "Undo Save" from
+    `photo.history.state` and runs `photo.undoSave`; ids per control-protocol §7.
+  - done when: `crates/ui/tests/save_ui.rs` (headless, a temp library): two edited photos show "2
+    edited" and Save; a click asks once, saves both, and the count and badges go; with the
+    checkbox ticked the next Save asks nothing; Ctrl+S in the edit view saves the open photo; the
+    Undo button reads "Undo Save" and brings the edits back; each Revert button does its action
+    and Cancel nothing; header, dialog and panel fingerprints at both sizes.
+- ⬜ **M8.20 `ui`: the Export dialog**
+  - after: M8.4, M8.5, M8.16
+  - files: `crates/ui/src/dialogs/export.rs`, `crates/ui/src/commands/export.rs`, `crates/ui/src/panels/bottom.rs`, `crates/ui/tests/export_dialog.rs`, `crates/ui/tests/bottom.rs`, `crates/ui/tests/fingerprints/dialog-export-1400x900.json`, `crates/ui/tests/fingerprints/dialog-export-900x600.json`
+  - scope: `creating.md` §2: "Export to Folder" on M8.5's form rows: Export location with Browse…
+    (the folder picker), Name of exported folder, the numbers checkbox, Use original size or Resize
+    to with the linked field and the slider (100–4000, stops at 480, 640, 800, 1024, 1280, 1600,
+    2048, 3840), Image quality with the five presets and their descriptions (Custom enables its
+    slider and reads "Custom (75)"), Export videos as (disabled: no video is exported until M15),
+    the watermark checkbox enabling its field and its hint; filled from `export.defaults`; Export
+    runs `export.run` with the tray, or with the section from its header (the selection when it
+    lies inside the section, else the whole section) and closes, Cancel and Esc change nothing;
+    opened by File ▸ Export Pictures to Folder… (Ctrl+Shift+S), the bottom bar's Export and the
+    section header's Export; ids per control-protocol §7.
+  - done when: `crates/ui/tests/export_dialog.rs` (headless, by id): each entry point opens it with
+    the right folder name; field and slider stay in step and snap at the stops; Custom shows its
+    value; a size of 0, 99999 or letters disables Export; Export starts an export job with the
+    dialog's values and they are the next defaults; Cancel changes nothing; the bottom bar's
+    Export is live with a tray; dialog fingerprints at both sizes.
+- ⬜ **M8.21 `ui`: export progress, file-job notices and the Exported group**
+  - after: M8.4, M8.5, M8.16
+  - files: `crates/ui/src/dialogs/export_progress.rs`, `crates/ui/src/notices.rs`, `crates/ui/src/panels/folders/model.rs`, `crates/ui/src/panels/folders/paint.rs`, `crates/ui/tests/export_progress.rs`, `crates/ui/tests/tree_projects.rs`, `crates/ui/tests/fingerprints/dialog-export-progress-*.json`, `crates/ui/tests/fingerprints/region-tree-projects-*.json`
+  - scope: `creating.md` §2 and `ui-layout.md` §4: the small progress window ("Exporting 12 of
+    48…", its bar, [Cancel] through `jobs.cancel`) while an export runs, beside the activity
+    indicator's row; `notices.rs` turns M8.3's file-job events into toasts: "Exported 48 pictures"
+    with [Show Folder] (until OS integration, M15, it scrolls the library to the export folder and
+    selects it), a saved copy's name, skipped items with their count, a failed Save naming the file
+    and the reason (`caution`); the tree's Projects group lists export folders with M8.5's
+    `Project` icon, `projects_dir` taken from the engine.
+  - done when: `crates/ui/tests/export_progress.rs` (headless): the window shows the count and
+    closes when the job ends; Cancel stops the job and leaves only complete files; the toast's
+    Show Folder scrolls to and selects the folder; a read-only file's failed Save gives one toast;
+    `crates/ui/tests/tree_projects.rs`: an export folder outside every watched root appears in
+    Projects in flat mode; window and tree fingerprints at both sizes.
+- ⬜ **M8.22 `ui`: Save As in the app**
+  - after: M8.4, M8.17
+  - files: `crates/ui/src/commands/save_as.rs`, `crates/ui/tests/save_as.rs`
+  - scope: `data-model.md` §6 and `menus-and-shortcuts.md` §1: File ▸ Save As… opens the save
+    picker with the photo's name, the last folder and format, then runs `photo.saveTo`; an
+    existing path answers "Choose another name" and opens the picker again (never a replace); File
+    ▸ Save a Copy runs `photo.saveCopy` on the selection or the open photo; both live in the
+    library and the edit view.
+  - done when: `crates/ui/tests/save_as.rs` (headless, the scripted picker): Save As to a new path
+    writes it and the photo appears; an existing path is refused and the picker returns; cancel
+    writes nothing; Save a Copy from the edit view writes `-001`; the menu items' enabled states.
+- ⬜ **M8.23 `engine`: every format saves as specified**
+  - after: M8.14, M8.15
+  - files: `crates/engine/tests/save_formats.rs`, `docs/formats.md`
+  - scope: `formats.md` §1's "Save edits in place" column through `photo.save` on `scenes` files
+    of every format: JPEG (baseline, progressive, CMYK, with and without EXIF) in place with its
+    quality matched and metadata kept; PNG without alpha in place as PNG (8- and 16-bit); PNG
+    with alpha, TIFF, WebP, GIF, BMP, JPEG XL, PSD, a raw and HEIC (with the `heif` feature) as a
+    JPEG beside with the source byte-identical; AVIF and video disabled with their reason; a
+    rotate-only save lossless on an MCU-sized baseline JPEG and by orientation flag otherwise;
+    `formats.md` §1 brought in line with what was measured.
+  - done when: `crates/engine/tests/save_formats.rs`: one case per row of the table, each checking
+    the files on disk after the save and after Undo Save where it applies; `cargo test -p
+    dalica-engine --features heif --test save_formats` runs the HEIC case.
+- ⬜ **M8.24 `engine`: a 200-photo mixed export and the save and export benchmark**
+  - after: M8.11, M8.16
+  - files: `crates/engine/tests/export_mixed.rs`, `crates/engine/benches/save_export.rs`, `xtask/src/bench.rs`, `xtask/src/accept.rs`, `.github/workflows/budgets.yml`, `docs/development.md`
+  - scope: `creating.md` §2: a mixed tray of 200 `scenes` photos (JPEG in all eight orientations,
+    CMYK, PNG with and without alpha, 16-bit TIFF, WebP, GIF, BMP, JPEG XL, PSD, raw previews,
+    edited and unedited, some with GPS) exported at 1600 px Normal with a watermark and location
+    removal; the `save_export` bench (registered in `xtask/src/bench.rs`): Save of a 24 MP JPEG
+    (render, encode, write, verify), a lossless rotate-only Save of the same, and the 200-photo
+    export; its budgets set at 1.5 × the first measurement in `development.md` §8 and joined to the
+    release-budgets job (`BUDGETS`, M5.24).
+  - done when: `crates/engine/tests/export_mixed.rs`: all 200 succeed and every file decodes with
+    the right size, quality bounds, watermark region and no GPS; a Cancel half-way leaves only
+    complete files; `cargo xtask bench save_export` prints the three numbers (in the PR) and
+    `cargo xtask budgets` passes with them.
+- ⬜ **M8.25 `accept M8`**
+  - after: M8.18, M8.19, M8.20, M8.21, M8.22, M8.23, M8.24
+  - files: `tests/acceptance/m8.rs`, `tests/acceptance/m8_*.rs`, `tests/acceptance/m8.md`, `tests/acceptance/fingerprints/m8-*.json`
+  - scope: every *Done when* of M8's two areas in the real `dalica --headless` over the control
+    channel: Save → Undo Save → Save → Revert returning the exact original bytes (`data-model.md`
+    §10.9, the shape of `mcp.md`'s W03); a planted crash during Save (the `faults` feature) and a
+    restart that repairs the folder without losing the original; the per-format suite of M8.23;
+    an export decoded and checked (size, quality bounds, metadata, GPS removed when asked); Cancel
+    leaving only complete files; the 200-photo mixed export (the release bench and budgets with
+    `DALICA_ACCEPT_RELEASE=1`; inside `cargo xtask ci` a smaller debug run checks the path and
+    prints its times); fingerprints of the header with Save, the Export dialog and the progress
+    window; the manual checks in `m8.md` (save one of your own photos and find the original in
+    `.dalica-originals/`, Undo Save, Revert, a rotate-only save, Save As PNG, export a folder at
+    1600 with a watermark and open the files in another application).
+  - done when: `cargo xtask accept M8` passes everything in M8's *Done when*.
+- ⬜ **M8.26 Lead: task blocks for M10**
+  - after: M7.24
+  - owner: lead
+  - files: `docs/roadmap.md`
+  - scope: write every M10 task block from M10's section and the spec, with waves and the `M10.R`
+    release gate (owner: maintainer); a block that can port Craft-app code names the source files
+    in its scope (`architecture.md` §9).
+  - done when: `cargo xtask tasks sync --check` parses them and `tasks sync --dry-run` lists one new
+    issue per block.
+- ⬜ **M8.R Check-in**
+  - after: M8.25
+  - owner: maintainer
+  - files: `docs/roadmap.md`, `docs/status.md`
+  - scope: the lead runs `/milestone-review M8.R` to prepare it: the check-in page (edit a photo
+    and save it from the folder header, find the original in `.dalica-originals/`, Undo Save from
+    the edit panel, save again and Revert, Save a Copy, Save As PNG into a new folder, a
+    rotate-only save, save a raw and see the JPEG beside it, export a tray at 1600 with a
+    watermark and location removal, cancel an export, find the export under Projects, written as
+    steps for the maintainer to try); the questions: the look of the watermark (approved with its
+    fingerprints), the planning decisions above that change behaviour (a re-save renders from the
+    original; formats saved beside keep their edits; Undo Save only for in-place saves; GPS removal
+    keeps place names; numbered names `001-`; the save and export budgets); *Where we stand* and
+    the `status.md` numbers (Save of a 24 MP JPEG, a lossless rotation, the 200-photo export, the
+    quality estimate's error) on a `review/M8.R` branch, a pull request open. Only the maintainer
+    merges that pull request and closes this issue; nothing after it starts until then.
+  - done when: prepared: page published, PR open, both linked on the issue.
+
+Waves (inside a wave, "‖" separates tasks whose `files` do not overlap):
+
+```text
+wave 1   M8.1 library fields  ‖  M8.2 fs backup + new files  ‖  M8.3 engine modules + runner
+         ‖  M8.4 ui state + stubs  ‖  M8.5 ui-kit form + icons  ‖  M8.6 encoders + quality
+         ‖  M8.7 metadata carried  ‖  M8.8 lossless JPEG transforms
+         (once M7.R is closed)
+wave 2   M8.9 originals record + fields on disk  ‖  M8.10 output pipeline
+wave 3   M8.11 watermark  ‖  M8.12 Save, Undo Save, Revert  ‖  M8.13 export plan + files
+wave 4   M8.14 lossless, beside + copies  ‖  M8.15 save commands  ‖  M8.16 export command + job
+wave 5   M8.17 Save a Copy + Save As  ‖  M8.18 interrupted saves  ‖  M8.19 Save in the app
+         ‖  M8.20 Export dialog  ‖  M8.21 progress, notices + Exported  ‖  M8.23 every format
+         ‖  M8.24 200-photo export + bench
+wave 6   M8.22 Save As in the app
+wave 7   M8.25 accept M8 → M8.R          (M8.26 lead: M10 blocks, any time after M7.24)
+```
 
 ### M9 — Albums, search and file operations
 
