@@ -945,6 +945,7 @@ dependencies = [
 name = "dalica-sidecar"
 version = "0.0.0"
 dependencies = [
+ "dalica-core",
  "proptest",
  "serde_json",
  "thiserror 2.0.21",
@@ -958,6 +959,7 @@ dependencies = [
  "dalica-fs",
  "dalica-library",
  "dalica-sidecar",
+ "proptest",
  "serde",
  "serde_json",
  "tempfile",

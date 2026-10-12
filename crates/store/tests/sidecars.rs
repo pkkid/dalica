@@ -6,9 +6,9 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use dalica_core::{Clock, FolderId, PhotoId, Timestamp, VirtualClock};
-use dalica_library::{Folder, Library, Op, Photo};
+use dalica_library::{Folder, FolderInfo, Library, Op, Photo, PhotoInfo, Synced};
 use dalica_sidecar::{Field, Limits, Sidecar};
-use dalica_store::mapping::{PHOTO_DATA, PHOTO_FIELDS, Source};
+use dalica_store::mapping::{FOLDER_DATA, FOLDER_FIELDS, FOLDER_INFO_FIELDS, PHOTO_DATA, PHOTO_FIELDS, PHOTO_INFO_FIELDS, SYNCED_FIELDS, Source};
 use dalica_store::{Outcome, SidecarWriter, import_sidecars, write_folder};
 
 const NAMES: [&str; 4] = ["IMG_0001.jpg", "a]b \"c\";=.jpg", "東京.jpg", "IMG_0004.jpg"];
@@ -38,11 +38,11 @@ fn star(lib: &mut Library, writer: &mut SidecarWriter, id: PhotoId, on: bool) {
     writer.mark_dirty(lib.photo(id).unwrap().folder);
 }
 
-/// Every model field has a home; adding a field to `Photo` breaks this destructuring until it is
-/// placed in `PHOTO_FIELDS` (nothing is silently dropped). The per-photo data kept beside `Photo`
-/// is listed too: the sketch is index-only (derived, never in a sidecar).
+/// Every model field has a home; adding a field to `Photo`, `PhotoInfo`, `Synced`, `Folder` or
+/// `FolderInfo` breaks a destructuring here until it is placed in its table (nothing is silently
+/// dropped). The sketch and the synced hashes are index-only (derived, never in a sidecar).
 #[test]
-fn every_photo_field_is_mapped() {
+fn every_model_field_is_mapped() {
     let Photo { id: _, folder: _, name: _, size: _, mtime: _, width: _, height: _, date: _, star: _ } = Photo {
         id: PhotoId::new(1),
         folder: FolderId::new(1),
@@ -57,7 +57,34 @@ fn every_photo_field_is_mapped() {
     let names: Vec<&str> = PHOTO_FIELDS.iter().map(|(n, _)| *n).collect();
     assert_eq!(names, ["id", "folder", "name", "size", "mtime", "width", "height", "date", "star"]);
     assert!(PHOTO_FIELDS.contains(&("star", Source::Sidecar("star"))));
-    assert_eq!(PHOTO_DATA, [("sketch", Source::Index)]);
+    assert_eq!(PHOTO_DATA, [("sketch", Source::Index), ("info", Source::Fields("PHOTO_INFO_FIELDS")), ("synced", Source::Fields("SYNCED_FIELDS"))]);
+    let PhotoInfo { caption: _, tags: _, hidden: _, edits: _, redo: _, date: _ } = PhotoInfo::EMPTY;
+    let names: Vec<&str> = PHOTO_INFO_FIELDS.iter().map(|(n, _)| *n).collect();
+    assert_eq!(names, ["caption", "tags", "hidden", "edits", "redo", "date"]);
+    assert!(PHOTO_INFO_FIELDS.iter().all(|(n, s)| *s == Source::Sidecar(n)), "each under its own key in the photo's entry");
+    let Synced { caption: _, tags: _, rating: _, place: _, date: _ } = Synced::default();
+    let names: Vec<&str> = SYNCED_FIELDS.iter().map(|(n, _)| *n).collect();
+    assert_eq!(names, ["caption", "tags", "rating", "place", "date"]);
+    assert!(SYNCED_FIELDS.iter().all(|(_, s)| *s == Source::Index), "synced hashes are index-only");
+    let Folder { id: _, path: _ } = Folder { id: FolderId::new(1), path: PathBuf::new() };
+    assert_eq!(FOLDER_FIELDS, [("id", Source::Index), ("path", Source::File)]);
+    assert_eq!(FOLDER_DATA, [("info", Source::Fields("FOLDER_INFO_FIELDS"))]);
+    let FolderInfo { description: _, date: _, place: _, hidden: _ } = FolderInfo::EMPTY;
+    let names: Vec<&str> = FOLDER_INFO_FIELDS.iter().map(|(n, _)| *n).collect();
+    assert_eq!(names, ["description", "date", "place", "hidden"]);
+    assert!(FOLDER_INFO_FIELDS.iter().all(|(n, s)| *s == Source::FolderSidecar(n)), "each under its own key in \"folder\"");
+    // The sidecar crate reads exactly the keys the tables name.
+    let photo_keys: Vec<&str> = PHOTO_FIELDS
+        .iter()
+        .chain(&PHOTO_INFO_FIELDS)
+        .filter_map(|(_, s)| match s {
+            Source::Sidecar(k) => Some(*k),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(photo_keys, dalica_sidecar::fields::PHOTO_KEYS);
+    let folder_keys: Vec<&str> = FOLDER_INFO_FIELDS.iter().map(|(n, _)| *n).collect();
+    assert_eq!(folder_keys, dalica_sidecar::fields::FOLDER_KEYS);
 }
 
 #[test]

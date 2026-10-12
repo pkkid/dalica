@@ -37,7 +37,7 @@ deletes files.
 | Edit recipe, including 90° rotations and flips | `"edits"` (ordered), `"redo"` | — (until Save) | yes | |
 | Saved-edit backup | — | — | yes | `.dalica-originals/<file>` + `.dalica-originals/.dalica.json` |
 | Album membership and order | `"albums": { "<album id>": "<position key>" }` per photo (§3.2) | — | yes | album definitions: §4 |
-| Folder description/date/place | `"folder"` object | — | yes | |
+| Folder description/date/place, hidden folder | `"folder"` object (`"hidden": true` in the folder's own sidecar, so it stays hidden when the folder moves) | — | yes | |
 | Custom folder sort order | `"folder": { "order" }` | — | yes | |
 | Face rectangles + person | `"faces"` | XMP MWG Regions when "Store people names in photos" is on (default **off**) | yes | |
 | People (names) | `"people"` entries for people present in the folder | (as above) | yes | `people.json` in the library dir |
@@ -75,6 +75,7 @@ atomically, keys sorted deterministically (photos by file name) so diffs are min
     "description": "Weekend in Lisbon with the family",
     "date": "2026-06-04",
     "place": "Lisbon, Portugal",
+    "hidden": true,
     "sort": "manual",
     "order": ["IMG_0003.jpg", "IMG_0001.jpg", "IMG_0002.jpg"]
   },
@@ -101,6 +102,9 @@ atomically, keys sorted deterministically (photos by file name) so diffs are min
 ```
 
 Format rules:
+- The example shows the keys in a readable order; the file itself is printed with the keys of
+  every object sorted by their UTF-8 bytes, at every level (so photos sort by file name), with
+  list items in their own order. That is the documented key order every writer keeps.
 - File names are object keys under `"photos"`, so JSON string escaping round-trips any name
   (including `]`, `"`, `;`, `=` and non-ASCII). `sort` is `manual | name | date | size | modified`.
 - Lists (`order`, `tags`, `edits`, `redo`) are JSON arrays; a photo's `albums` is an object from
@@ -112,6 +116,25 @@ Format rules:
   frame they are measured in is an open question (§3.3).
 - Unknown objects and keys are **preserved verbatim** on rewrite (forward compatibility). A value of
   the wrong type is kept as-is and reported once; it never aborts reading the rest.
+- **The M6 fields** (built in M6.8: `dalica-sidecar` `fields`, `dalica-store` `mapping`). Per
+  photo: `star`, `caption` (string), `tags` (list of strings), `hidden`, `edits` and `redo` (lists
+  of operation strings, §3.1), `date` (a local date and time, `2026-06-04T19:42:10`; the EXIF
+  spelling `2026:06:04 19:42:10` is read too). Per folder, in `"folder"`: `description`, `date`
+  (`2026-06-04`), `place`, `hidden`. An empty value (`false`, `""`, `[]`, no date) is written as
+  no key at all, and a photo entry or the `"folder"` object left with no keys goes; `"hidden":
+  false` written by hand reads as not hidden and is left alone.
+  - Reading: a value of the wrong type (a date that does not parse counts) is not used, the model
+    keeps its own value, and the import reports it once. Text past the caps of `dalica-library`
+    (caption and description 16 KiB, place 1 KiB) is shown cut and kept whole in the file; a tag
+    list is cleaned (trimmed, no two the same ignoring case, at most 1 000); a recipe or redo list
+    past 10 000 operations or with one over 64 KiB is not used and is kept in the file. An unknown
+    operation is just another string: it keeps its place and the operations after it (§10.4).
+  - Writing changes only the keys whose value differs from what the file reads as, so a file that
+    already says what the model says keeps its bytes (a cleaned tag list or an EXIF-style date
+    stays as written). A value of the wrong type is written over only when the user sets that
+    field; a `photos` entry or `"folder"` that is not an object is never written over.
+  - The last-synced metadata hashes (`xmp-interop.md` §5) are index-only: never in a sidecar, and
+    empty again after a rebuild.
 - Readers accept a BOM and CRLF; a duplicate key takes the later value. Nesting is bounded
   (`security.md` §8).
 - `dalica.missing` is Dalica's own bookkeeping for stale entries (§7): an object from a photo's
@@ -191,7 +214,7 @@ Windows `%LOCALAPPDATA%\Dalica`):
 | `folders.json` | the Folder Manager's settings, one entry per folder that sets its own: `{"version": 2, "folders": [{"path", "mode"?: "always" \| "once" \| "remove", "faces"?: bool, "indexed"?: true}]}` (`indexed`: a Scan Once folder's first scan finished; an entry without `mode` sets only the faces flag; the `remove` entries are the exclusions). A v1 file (M1: `{"version": 1, "folders": [{"path"}]}`, every folder watched) is read as Scan Always entries and written back as v2 at once, atomically; keys and entries this version does not know are kept verbatim | no — small, backed up with settings |
 | `albums.json` | album definitions (id, name, description, date, place, cover) and a copy of the order | yes, from sidecars (each member folder carries the album's name; each member its position key, §3.2) |
 | `people.json` | people (id, name, nickname), merges, settings | yes, from sidecars (names are mirrored per folder) |
-| `index.log` + `index.snap` | the library index: one record per photo (path, size, mtime, dimensions, dates, EXIF summary, content hash, colour sketch, face descriptors), journal + snapshot as in LightCraft | yes, by rescanning |
+| `index.log` + `index.snap` | the library index: one record per photo (path, size, mtime, dimensions, dates, EXIF summary, content hash, colour sketch, face descriptors), what the user said about photos and folders (as in the sidecars), the last-synced metadata hashes; journal + snapshot as in LightCraft | yes, by rescanning (the synced hashes start empty) |
 | `pending-writes.json` | the folders whose sidecar write waits for an offline volume (§7): `{"version": 1, "folders": [path, …]}`, written through the I/O worker when the list changes; a damaged file is kept as `.corrupt-<time>` and the list found again by the next online checks (M5.13) | yes, partly: the journal keeps the edits; a lost list is rebuilt for roots found offline |
 | `lock` | single-process lock | — |
 | `settings.json` | preferences (atomic write; damaged file kept as `.corrupt-<time>`); unknown keys kept; `"keymap"` holds the user's shortcut overrides (`menus-and-shortcuts.md` §2.0) | no |

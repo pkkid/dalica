@@ -1,8 +1,10 @@
 //! dalica-sidecar: The `.dalica.json` folder sidecar: parse and print with unknown keys preserved; the read-only legacy reader and its conversion to Dalica's model.
 //!
-//! Layer L1; see `docs/architecture.md` §2 and `docs/data-model.md` §3. Version 1 knows
-//! `photos.<name>.star`; everything else in the file, known or not, is kept verbatim and printed
-//! back unchanged (forward compatibility). A value of the wrong type is kept and reported, never
+//! Layer L1; see `docs/architecture.md` §2 and `docs/data-model.md` §3. Version 1 knows, per
+//! photo, `star`, `caption`, `tags`, `hidden`, `edits`, `redo` and `date` under `photos.<name>`,
+//! and the folder's `description`, `date`, `place` and `hidden` under `"folder"` ([`fields`]);
+//! everything else in the file, known or not, is kept verbatim and printed back unchanged
+//! (forward compatibility). A value of the wrong type is kept and reported, never
 //! dropped and never fatal. A file that is not JSON, or breaks the limits of `security.md` §4.2,
 //! is a [`ParseError`]: the caller sets it aside as `.dalica.json.corrupt-<time>`.
 //!
@@ -12,9 +14,12 @@
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+pub mod fields;
 mod print;
 
 use serde_json::{Map, Value};
+
+pub use fields::{FolderFields, FolderValue, PhotoFields, PhotoValue};
 
 /// The sidecar's file name.
 pub const FILE_NAME: &str = ".dalica.json";
@@ -129,36 +134,13 @@ impl Sidecar {
 
     /// `photos.<name>.star`.
     pub fn star(&self, name: &str) -> Field<bool> {
-        match self.root.get("photos").and_then(|p| p.get(name)).and_then(|e| e.get("star")) {
-            None => Field::Absent,
-            Some(Value::Bool(b)) => Field::Value(*b),
-            Some(other) => Field::WrongType(other.clone()),
-        }
+        fields::read_bool(self.photo_entry(name).and_then(|e| e.get("star")))
     }
 
     /// Sets or clears `photos.<name>.star`. Clearing removes the key, and the photo's entry when
     /// nothing else is left in it. Refused if `photos` or the entry is not an object.
     pub fn set_star(&mut self, name: &str, on: bool) -> Result<(), WrongType> {
-        let pointer = |rest: &str| format!("/photos{rest}");
-        let photos = self.root.entry("photos").or_insert_with(|| Value::Object(Map::new()));
-        let Value::Object(photos) = photos else { return Err(WrongType { pointer: pointer("") }) };
-        if on {
-            let entry = photos.entry(name).or_insert_with(|| Value::Object(Map::new()));
-            let Value::Object(entry) = entry else { return Err(WrongType { pointer: pointer(&format!("/{}", escape(name))) }) };
-            entry.insert("star".into(), Value::Bool(true));
-            return Ok(());
-        }
-        match photos.get_mut(name) {
-            None => {}
-            Some(Value::Object(entry)) => {
-                entry.remove("star");
-                if entry.is_empty() {
-                    photos.remove(name);
-                }
-            }
-            Some(_) => return Err(WrongType { pointer: pointer(&format!("/{}", escape(name))) }),
-        }
-        Ok(())
+        self.set_photo(name, &PhotoValue::Star(on))
     }
 
     /// Every value of the wrong type at a place Dalica reads.
@@ -173,23 +155,7 @@ impl Sidecar {
         {
             out.push(Problem { pointer: "/dalica/version".into(), expected: "a non-negative integer" });
         }
-        match self.root.get("photos") {
-            None => {}
-            Some(Value::Object(photos)) => {
-                for (name, entry) in photos {
-                    let at = format!("/photos/{}", escape(name));
-                    match entry {
-                        Value::Object(e) => {
-                            if e.get("star").is_some_and(|s| !s.is_boolean()) {
-                                out.push(Problem { pointer: format!("{at}/star"), expected: "true or false" });
-                            }
-                        }
-                        _ => out.push(Problem { pointer: at, expected: "an object" }),
-                    }
-                }
-            }
-            Some(_) => out.push(Problem { pointer: "/photos".into(), expected: "an object" }),
-        }
+        self.field_problems(&mut out);
         out
     }
 }
