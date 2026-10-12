@@ -13,6 +13,7 @@ pub mod headless;
 pub mod keys;
 pub mod menu_catalog;
 pub mod menus;
+pub mod notices;
 pub mod panels;
 pub mod perf;
 pub mod picker;

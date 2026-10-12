@@ -407,7 +407,10 @@ The view state: what `UI_COMMANDS` change and what is persisted between sessions
  "selection": {"ids": [], "anchor": null, "section": null, "whole": false},
  "tray": {"held": [], "selected": []}, "scroll": {"section": null, "offset": 0},
  "edit": {"photo": null, "tab": "basic", "tool": null, "compare": "one", "zoom": "fit", "panelVisible": true},
- "slideshow": null, "language": "en", "status": "No selection", "dialogs": [], "activity": false}
+ "slideshow": null, "language": "en", "status": "No selection", "dialogs": [], "activity": false,
+ "captionEdit": null, "descriptionEdit": null, "propertiesShowAll": false,
+ "tagsPane": {"draft": "", "highlight": null},
+ "about": {"tab": "about", "list": "grabBag", "sort": "firstCommit", "ascending": true, "names": "username"}}
 ```
 
 `view` is `library | edit | slideshow | viewer`; `room` is the active tab (`library`,
@@ -425,8 +428,27 @@ The view state: what `UI_COMMANDS` change and what is persisted between sessions
 | `selection` | `ids`, `anchor`, `section` (the section the photos are in, written as its widget id, `"folder:12"`; `null` for none), `whole` (the section selected as a unit) | the `select.*` commands only (read-only here) |
 | `tray` | `held` (photos kept by Hold), `selected` (the tray's own selection: photos the tray shows) | the `tray.*` commands |
 | `scroll` | `section` (the section at the top of the light table, `null` for the top of the library) and `offset` (points below that section's top, 0 … 10⁹) | the scroll commands, the scroll bar |
-| `dialogs` | the open in-app dialogs, bottom first (the last takes input): `{kind, fields, command?}`, `kind` as in `dialog:<kind>` (`clearTray`, `folderManager`, `firstRun`), `fields` its draft (nothing is applied before its default button), `command` what a confirmation runs when confirmed | read-only here: the commands that open them (`folders.manager`, a `tray.clear` that asks), their buttons, `ui.dialog.confirm`, `ui.dialog.cancel` |
+| `dialogs` | the open in-app dialogs, bottom first (the last takes input): `{kind, fields, command?}`, `kind` as in `dialog:<kind>` (`clearTray`, `folderManager`, `firstRun`, `removeFolder`, `watchDrive`; M6: `folderProperties`, `adjustDate`, `quickTags`, `renameTag`, `about`, `releaseNotes`), `fields` its draft (nothing is applied before its default button), `command` what a confirmation runs when confirmed | read-only here: the commands that open them (`folders.manager`, a `tray.clear` that asks), their buttons, `ui.dialog.confirm`, `ui.dialog.cancel` |
 | `activity` | bool: the activity popover under `indicator:activity` is open (its rows are `jobs.list`'s) | `ui.set`; a click on the indicator (M5.19) |
+
+M6's fields (all start fresh; none is persisted):
+
+| Field | Values | Changed by |
+|---|---|---|
+| `captionEdit` | `null`, or `{photo, draft}`: the inline caption editor under that photo's cell and the text typed so far (at most 4096 characters; nothing is applied before it commits through `photo.caption.set`) | `photo.caption.edit {id?}` (Picture ▸ Edit Caption: the focused photo unless `id` names one), typing in `field:caption.inline`, Enter / Esc |
+| `descriptionEdit` | `null`, or `{section, draft}`: the inline description editor of that section's header (`"folder:12"`) and its text (at most 4096 characters; commits through `folder.info.set`) | a click on `section:<id>/description`, Enter / Esc |
+| `propertiesShowAll` | bool: the Properties pane lists every metadata field | `button:properties.showAll` |
+| `tagsPane` | `{draft, highlight}`: the Tags pane's "Add a tag:" text (at most 4096 characters) and the highlighted row of its autocomplete list (0 … 99, `null` for none) | typing in `field:tags.add`, ↑ / ↓ |
+| `about` | `{tab, list, sort, ascending, names}`: the About dialog's tab (`about` \| `contributors` \| `models`), how Contributors lists people (`grabBag` \| `table`), its sort (`name`, `prs`, `commits`, `linesAdded`, `linesDeleted`, `linesDelta`, `binaryAdded`, `binaryDeleted`, `firstCommit`, `lastCommit`), the order and the name shown (`username` \| `displayName` \| `realName`); kept while the app runs, so the dialog reopens as it was left | `ui.set`; the dialog's tabs and controls |
+
+The dialogs M6 adds keep their drafts in `dialogs[].fields` like the others; each is opened by a UI
+command and its default button runs one engine command (one undo step): `folderProperties`
+(`section.properties {folder?}`: `{folder, name, date, useOldest, place, description}`, OK runs
+`folder.info.set`), `adjustDate` (`photo.adjustDate {ids?}`: `{ids, current, mode: "shift" |
+"set", shift, set}`, OK runs `photo.dates.set`), `quickTags` (`quicktags.configure`: `{useRecent,
+slots}`, OK runs `tags.quick.set`), `renameTag` (`tag.rename {tag}`: `{from, to}`, OK runs
+`tags.rename`), `about` (`app.about`, no draft: its state is `about` above) and `releaseNotes`
+(`help.releaseNotes`); About and Release Notes have one button, Close (`button:dialog.cancel`, Esc).
 
 `thumbSize`, `treeMode`, `folderSort`, `folderSortReverse`, `caption`, `smallPictures` and
 `hiddenPictures` are kept in the library's `settings.json` (with the tree width and the side pane)
@@ -450,7 +472,7 @@ Everything in `ui.state`, plus:
 | `popup` | the open menu, context menu or popup as last drawn, `null` when none: `{kind, menu?, items: [{widget, id, label, enabled, checked}]}`; `kind` is `menu` (with `menu`, the bar menu's key: `File`), `viewOptions` (the toolbar's popup) or `contextMenu`; `id` is the row's command (`null` for a submenu row) |
 | `dialog` | the top dialog, `null` when none: `{kind, widget, title, fields: {name: value}, buttons: [widget ids], default, command?}` (`default` the widget of the button Enter presses) |
 | `filePicker` | the stubbed picker waiting for `ui.filePicker` (§5.6) |
-| `status` | the status-line text as drawn; `toasts` with their text and remaining time |
+| `status`, `toasts` | the status-line text as drawn; the toasts showing, oldest first: `[{id, text, kind, remaining}]` (`id` the toast's widget `toast:<n>`, `kind` `info` or `error`, `remaining` in seconds) |
 | `tooltip` | the text of the tooltip the last frame showed (its lines joined with `\n`), `null` when none |
 | `drag` | a drag in progress: `{from, ids, target, op, pill}` |
 | `animations` | running animations: `[{kind, region}]`, today `{kind: "scrollToSection", region: "lightTable"}` while the light table eases to a section (pane slides and fades join as they are built) |
@@ -646,12 +668,13 @@ recipe operation and parameter names of `data-model.md` §3.1 and `editing.md` (
 | Photo Tray (M3: the box and its buttons, disabled; M4: its contents) | `tray` (the box), `tray:token`, `tray:item:<PhotoId>` (its held badge `tray:item:<PhotoId>/held`), `tray:more` (the "+N" place), `button:tray.hold`, `button:tray.clear`, `button:tray.addToAlbum` |
 | Bottom controls (M3) | `button:star`, `button:rotate.ccw`, `button:rotate.cw`, `button:loupe`, `slider:thumbSize`, `toggle:pane.people`, `toggle:pane.places`, `toggle:pane.tags`, `toggle:pane.properties`; edit view: `button:zoom.fit`, `button:zoom.1to1`, `slider:zoom` |
 | Action buttons (M3) | `action:export`, `action:collage`, `action:slideshow`, `action:more`; below 1100 wide only `action:more` is on the row, and the rows of its open menu carry the actions' own ids (role `menuItem`) |
-| Side pane (M6) | `pane:tags`, `pane:people`, `pane:places`, `pane:properties` (the pane body), `button:pane.widen`, `button:pane.close`; Tags: `field:tags.add`, `button:tags.add`, `tag:<tag text>`, `quicktag:1` … `quicktag:10`, `button:quicktags.configure`; Properties: `button:properties.showAll` |
+| Side pane (M6) | `pane:tags`, `pane:people`, `pane:places`, `pane:properties` (the pane body), `button:pane.widen`, `button:pane.close`; Tags: `field:tags.add`, `button:tags.add`, `tag:<tag text>`, `quicktag:1` … `quicktag:10`, `button:quicktags.configure`; Properties: `button:properties.showAll` (shown while something is selected) |
+| Inline editors and About (M6) | the caption editor under a cell `field:caption.inline`; a header's description editor `field:section.description`; the About dialog's tabs `tab:about.about`, `tab:about.contributors`, `tab:about.models` |
 | Edit view (M7) | `button:edit.back`, `button:compare.one`, `button:compare.two`, `canvas:edit` (the photo), `film:<PhotoId>`, `field:caption`, `tab:edit.basic`, `tab:edit.tuning`, `tab:edit.effects`, `tab:edit.effects2`, `tab:edit.effects3`, `button:edit.undo`, `button:edit.redo`, `button:edit.showOriginal`, `box:histogram` |
 | Edit tools (M7) | `tool:crop`, `tool:straighten`, `tool:autofix`, `tool:autocontrast`, `tool:autocolor`, `tool:retouch`; `slider:basic.fill_light`; tool panels: `slider:straighten.angle`, `choice:crop.ratio`, `button:crop.rotate`, `button:panel.apply`, `button:panel.cancel`, `button:panel.reset` |
 | Tuning (M7) | `slider:tuning.fill_light`, `slider:tuning.highlights`, `slider:tuning.shadows`, `slider:tuning.temperature`, `button:tuning.neutralPicker`, `button:tuning.reset` |
 | Effects (M12) | `effect:<name>` per tile (`effect:sharpen`, `effect:sepia`, `effect:bw`, `effect:soft_focus`, `effect:graduated_tint`, …); effect panels: `slider:effect.<param>` (`slider:effect.amount`, `slider:effect.fade`), `color:effect.<param>`, `check:effect.<param>`, `crosshair:effect` |
-| Dialogs (M3+) | `dialog:<kind>` (the dialog: `dialog:clearTray`, `dialog:folderManager`, `dialog:firstRun`), `dialog:<kind>/backdrop`, `field:dialog.<name>`, `check:dialog.<name>`, `choice:dialog.<name>`, `button:dialog.ok`, `button:dialog.cancel`, `button:dialog.<action>` (`button:dialog.undoSave`, `button:dialog.clearTray`, `button:dialog.help`, `button:dialog.continue`) |
+| Dialogs (M3+) | `dialog:<kind>` (the dialog: `dialog:clearTray`, `dialog:folderManager`, `dialog:firstRun`; M6: `dialog:folderProperties`, `dialog:adjustDate`, `dialog:quickTags`, `dialog:renameTag`, `dialog:about`, `dialog:releaseNotes`), `dialog:<kind>/backdrop`, `field:dialog.<name>`, `check:dialog.<name>`, `choice:dialog.<name>`, `button:dialog.ok`, `button:dialog.cancel`, `button:dialog.<action>` (`button:dialog.undoSave`, `button:dialog.clearTray`, `button:dialog.help`, `button:dialog.continue`) |
 | Folder Manager and first run (M5) | rows `choice:dialog.folder/<roothash>[/<pathhash>]`, `button:dialog.expand/…` (and `…/loading` while a listing is read), `choice:dialog.mode/<always\|once\|remove>`, `check:dialog.faces`, `button:dialog.reveal/<hash>` (the watched list), `choice:dialog.start/<places\|choose>` (first run); stacked questions `dialog:removeFolder`, `dialog:watchDrive`, whose buttons are `dialog:<kind>/<action>` while another dialog is under them |
 | Activity and tree scroll bar (M5) | `indicator:activity` popover `popover:activity`, its rows `job:<n>` and `job:<n>/cancel`; the tree's `scroll:tree`, `scroll:tree/thumb` |
 | Toasts (M3) | `toast:<n>`, `button:toast.<action>` (`button:toast.showFolder`) |

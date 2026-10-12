@@ -6,9 +6,11 @@
 //! keeps the focus.
 //!
 //! - **Opening**: [`open`] pushes a dialog (one of each kind at a time, at most
-//!   [`MAX_DIALOGS`]). Commands open theirs: `folders.manager` (Tools ▸ Folder Manager…), and every
-//!   command of [`confirm::ASKS`] run without `"confirm": true` when its question applies
-//!   ([`asking`], called by [`App::run`](crate::App::run)).
+//!   [`MAX_DIALOGS`]). Commands open theirs: `folders.manager` (Tools ▸ Folder Manager…), M6's
+//!   `section.properties`, `photo.adjustDate`, `quicktags.configure`, `tag.rename`, `app.about` and
+//!   `help.releaseNotes` (`crate::commands::{info, help}`), and every command of [`confirm::ASKS`]
+//!   run without `"confirm": true` when its question applies ([`asking`], called by
+//!   [`App::run`](crate::App::run)).
 //! - **Answering**: [`answer`] presses a button of the top dialog (none named: its default one),
 //!   the same function a click, Enter and `ui.dialog.confirm` call; [`cancel`] closes it and runs
 //!   nothing (its Cancel button, Esc, `ui.dialog.cancel`). A dialog closes when its action
@@ -31,9 +33,15 @@
 //! by the same functions for the buttons and for automation) is adapted from PhotoCraft
 //! `crates/ui-egui/src/dialogs.rs` @ 82c58fab (MIT OR Apache-2.0; `NOTICE`).
 
+pub mod about;
+pub mod adjust_date;
 pub mod confirm;
 pub mod first_run;
 pub mod folder_manager;
+pub mod folder_properties;
+pub mod quick_tags;
+pub mod release_notes;
+pub mod rename_tag;
 
 use dalica_engine::CmdError;
 use dalica_ui_kit::widgets::{self, ButtonKind, DialogButton};
@@ -61,6 +69,12 @@ impl Button {
     /// Cancel: closes the dialog, runs nothing.
     pub fn cancel() -> Button {
         Button::new("cancel", "Cancel", ButtonKind::Cancel)
+    }
+
+    /// Close, the only button of a dialog that edits nothing (About, Release Notes): it is the
+    /// Cancel button under another label, so Esc and `ui.dialog.cancel` close the dialog too.
+    pub fn close() -> Button {
+        Button::new("cancel", "Close", ButtonKind::Cancel)
     }
 
     pub fn enabled(self, enabled: bool) -> Button {
@@ -92,6 +106,12 @@ fn look(app: &App, d: &Dialog) -> Look {
         DialogKind::ClearTray | DialogKind::RemoveFolder | DialogKind::WatchDrive => confirm::look(d),
         DialogKind::FolderManager => folder_manager::look(app, d),
         DialogKind::FirstRun => first_run::look(app, d),
+        DialogKind::FolderProperties => folder_properties::look(app, d),
+        DialogKind::AdjustDate => adjust_date::look(app, d),
+        DialogKind::QuickTags => quick_tags::look(app, d),
+        DialogKind::RenameTag => rename_tag::look(app, d),
+        DialogKind::About => about::look(app, d),
+        DialogKind::ReleaseNotes => release_notes::look(app, d),
     }
 }
 
@@ -100,6 +120,12 @@ fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
         DialogKind::ClearTray | DialogKind::RemoveFolder | DialogKind::WatchDrive => confirm::body(app, ui, d),
         DialogKind::FolderManager => folder_manager::body(app, ui, d),
         DialogKind::FirstRun => first_run::body(app, ui, d),
+        DialogKind::FolderProperties => folder_properties::body(app, ui, d),
+        DialogKind::AdjustDate => adjust_date::body(app, ui, d),
+        DialogKind::QuickTags => quick_tags::body(app, ui, d),
+        DialogKind::RenameTag => rename_tag::body(app, ui, d),
+        DialogKind::About => about::body(app, ui, d),
+        DialogKind::ReleaseNotes => release_notes::body(app, ui, d),
     }
 }
 
@@ -108,6 +134,32 @@ fn act(app: &mut App, d: &Dialog, action: &str) -> Result<Value, CmdError> {
         DialogKind::ClearTray | DialogKind::RemoveFolder | DialogKind::WatchDrive => confirm::act(app, d, action),
         DialogKind::FolderManager => folder_manager::act(app, d, action),
         DialogKind::FirstRun => first_run::act(app, d, action),
+        DialogKind::FolderProperties => folder_properties::act(app, d, action),
+        DialogKind::AdjustDate => adjust_date::act(app, d, action),
+        DialogKind::QuickTags => quick_tags::act(app, d, action),
+        DialogKind::RenameTag => rename_tag::act(app, d, action),
+        DialogKind::About => about::act(app, d, action),
+        DialogKind::ReleaseNotes => release_notes::act(app, d, action),
+    }
+}
+
+/// The longest value [`draft_lines`] shows, in characters.
+const LINE_CHARS: usize = 120;
+
+/// Draws the draft fields `keys` of `d` as read-only lines `key: value` (strings as they are,
+/// other values as JSON, each cut to one line): the body of a dialog whose own layout arrives
+/// later, so its draft is visible on screen and in screenshots.
+pub fn draft_lines(app: &App, ui: &mut Ui, d: &Dialog, keys: &[&str]) {
+    let t = *app.tokens();
+    for key in keys {
+        let value = match d.fields.get(*key) {
+            Some(Value::String(s)) => s.clone(),
+            Some(v) => v.to_string(),
+            None => String::new(),
+        };
+        let mut line: String = format!("{key}: {value}").chars().take(LINE_CHARS).collect();
+        line.retain(|c| !c.is_control());
+        ui.label(egui::RichText::new(line).font(dalica_ui_kit::fonts::regular(t.body)).color(t.text_label));
     }
 }
 

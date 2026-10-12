@@ -9,8 +9,10 @@ pub mod folders;
 pub mod layout;
 pub mod light_table;
 pub mod menubar;
+pub mod properties;
 pub mod side_pane;
 pub mod status;
+pub mod tags;
 pub mod thumbnails;
 pub mod toolbar;
 

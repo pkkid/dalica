@@ -205,12 +205,13 @@ pub(super) fn commands(call: &mut Call<'_>, params: &Value) -> Result<Outcome, E
         }));
     }
     for u in UI_COMMANDS {
-        if !matches(u.id, u.label, u.menu) {
+        let enabled = crate::commands::enabled(call.host.app(), u.id, &json!({})).is_ok();
+        if !matches(u.id, u.label, u.menu) || (c.enabled_only && !enabled) {
             continue;
         }
         out.push(json!({
             "id": u.id, "label": u.label, "menu": u.menu, "shortcut": shortcut(call, u.id, dalica_engine::keymap::first_default(u.keys, dalica_engine::keymap::Platform::current())),
-            "params": u.params, "enabled": true, "ui": true, "checked": null, "live": true, "effect": "view", "history": "none",
+            "params": u.params, "enabled": enabled, "ui": true, "checked": null, "live": true, "effect": "view", "history": "none",
         }));
     }
     Ok(Outcome::Reply(Ok(Value::Array(out))))

@@ -9,13 +9,27 @@
 //!   `select.invert`, `select.section`, `select.starred`);
 //! - [`scroll`]: scrolling the light table (the scroll bar's keys);
 //! - [`tray`]: the Photo Tray (Hold, Clear);
-//! - [`dialogs`]: commands that open an in-app dialog (`folders.manager`).
+//! - [`dialogs`]: commands that open an in-app dialog (`folders.manager`);
+//! - [`caption`]: the inline caption editor (Picture ▸ Edit Caption);
+//! - [`info`]: the dialogs that edit what is known about photos and folders (Folder Properties,
+//!   Adjust Date and Time, Configure Quick Tags, Rename Tag);
+//! - [`help`]: the Help menu's windows (About Dalica, Release Notes).
 //!
 //! A new command goes in its area's module (a new area gets a new module and one line in
 //! [`AREAS`]); its id is the one the menu catalog uses, so its menu item goes live. Every command
-//! refuses parameters it does not know with `bad_params` and changes nothing when it fails.
+//! refuses parameters it does not know with `bad_params` and changes nothing when it fails. A
+//! command that cannot always run lists its check in its area's `CHECKS` ([`enabled`]): the menus
+//! grey its item with the reason, and the command refuses with it (`disabled`).
+//!
+//! Each command that opens an editor or a dialog changes only the view state; what the editor or
+//! dialog changes in the library is one engine command run when it is confirmed
+//! (`photo.caption.set`, `folder.info.set`, `photo.dates.set`, `tags.quick.set`, `tags.rename`),
+//! the way `folders.manager` runs `folders.set`.
 
+pub mod caption;
 pub mod dialogs;
+pub mod help;
+pub mod info;
 pub mod scroll;
 pub mod select;
 pub mod tray;
@@ -48,7 +62,24 @@ pub struct UiCommand {
 }
 
 /// Every area's commands, in the order [`UI_COMMANDS`] lists them.
-const AREAS: &[&[UiCommand]] = &[select::COMMANDS, view::COMMANDS, scroll::COMMANDS, tray::COMMANDS, dialogs::COMMANDS];
+const AREAS: &[&[UiCommand]] =
+    &[select::COMMANDS, view::COMMANDS, scroll::COMMANDS, tray::COMMANDS, dialogs::COMMANDS, caption::COMMANDS, info::COMMANDS, help::COMMANDS];
+
+/// Whether a UI command can run now with its parameters; why not (the status line's text) when it
+/// cannot.
+pub type Check = fn(&App, &Value) -> Result<(), String>;
+
+/// The checks of the UI commands that cannot always run, by area.
+const CHECKS: &[&[(&str, Check)]] = &[caption::CHECKS, info::CHECKS];
+
+/// Whether UI command `id` can run now with `params` (what a click passes: `{}`); why not when it
+/// cannot. Commands without a check always can.
+pub fn enabled(app: &App, id: &str, params: &Value) -> Result<(), String> {
+    match CHECKS.iter().flat_map(|a| a.iter()).find(|(c, _)| *c == id) {
+        Some((_, check)) => check(app, params),
+        None => Ok(()),
+    }
+}
 
 /// Every UI command: the areas' lists joined.
 pub const UI_COMMANDS: &[UiCommand] = &JOINED;
@@ -136,6 +167,16 @@ mod tests {
         ids.sort_unstable();
         ids.dedup();
         assert_eq!(ids.len(), got.len(), "ids are unique");
+    }
+
+    #[test]
+    fn every_check_names_a_ui_command() {
+        for (id, _) in CHECKS.iter().flat_map(|a| a.iter()) {
+            assert!(UI_COMMANDS.iter().any(|c| c.id == *id), "{id}");
+        }
+        let app = App::new(None);
+        assert_eq!(enabled(&app, "view.thumbsSmall", &Value::Null), Ok(()));
+        assert!(enabled(&app, "photo.adjustDate", &Value::Null).is_err(), "nothing selected");
     }
 
     #[test]
