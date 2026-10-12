@@ -4,6 +4,9 @@
 # Private dev log — never committed (see docs/task-board.md §8)
 /log/
 
+# Test corpora, fetched by `cargo xtask corpus` (docs/development.md §11); never committed
+/corpus/
+
 # Rust build output
 /target
 /target-*/

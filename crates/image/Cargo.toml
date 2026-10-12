@@ -14,6 +14,10 @@ publish = false
 # HEIF/HEIC decoding through heic-rs (formats.md §3). Off by default: shipping an HEVC decoder is the
 # distributor's decision; without it HEIC files show "HEIC support isn't included in this build".
 heif = ["dep:heic-rs"]
+# The corpus tests (`tests/corpus.rs`, docs/development.md §11): real files from the pinned corpora,
+# run by `cargo xtask test-corpus`. Off by default, so plain `cargo test` and `cargo xtask ci`
+# neither compile nor need them.
+corpus = []
 
 [dependencies]
 dalica-core.workspace = true
@@ -43,6 +47,8 @@ image = { workspace = true, features = ["jpeg"] }
 # Encodes test-only PNG layouts (16-bit, grey) and the PNGs written on a fingerprint mismatch.
 png.workspace = true
 proptest.workspace = true
+# Reads the committed corpus floors (tests/corpus_floors.json).
+serde_json.workspace = true
 # Lossless JPEG XL codestreams of oriented and re-tagged pixels (tests/jxl.rs).
 zune-jpegxl.workspace = true
 zune-core.workspace = true

@@ -294,14 +294,19 @@ rather than relying on defaults.
 
 | Input | Crate | Limits | Lands |
 |---|---|---|---|
-| Raster decode (all formats) | `image` | edge ≤ 65,535 px; ≤ 2³⁰ pixels; decoded allocation charged to the memory budget (RAM/4, 256 MiB–1.5 GiB): a file whose full decode does not fit is decoded at reduced scale (JPEG DCT scaling, embedded preview) or shown as a "too large" placeholder | M1 |
-| Animated GIF/WebP | `image` | first frame for thumbnails; ≤ 10,000 frames and the same allocation budget for playback | M5 / M11 |
-| PSD | `image` | flattened composite only; layers are never parsed | M5 |
-| Embedded thumbnail / RAW preview | `image` | offset + length inside the file; ≤ 64 MiB; decoded under the raster limits | M1 / M5 |
+| Raster decode (all formats) | `image` | edge ≤ 65,535 px; ≤ 2³⁰ pixels; decoded allocation charged to the memory budget (RAM/4, 256 MiB–1.5 GiB): a file whose full decode does not fit is decoded at reduced scale (JPEG DCT scaling, embedded preview) or shown as a "too large" placeholder | **Implemented** (M1, M5.1): `Limits::check_size` before any decoder runs (`decode.rs`), every pixel buffer reserved fallibly through one `Budget` per decode (`limits.rs`), each format module's working buffers charged to it first, third-party decoders inside `catch_unwind` ("Damaged file"); JPEG DCT scaling not yet (past 64 MP a thumbnail comes from the embedded one) |
+| TIFF strips and tiles | `image` | our own IFD walk first (the IFD limits below); ≤ 2²² strips or tiles, both offset lists inside the file; the decoded size, the raw size and the `tiff` decoder's own memory (64 B per chunk, the largest compressed chunk, a decoded copy for JPEG strips) charged to the budget before `tiff` reads a byte | **Implemented** (M5.6; `formats/tiff.rs`) |
+| WebP, GIF, BMP | `image` | our own RIFF chunk walk, GIF block walk to the first image descriptor and BMP header read first; a frame's bitstream checked against its canvas before `image-webp` allocates; the decoders' working buffers (3–9 bytes per pixel) charged to the budget | **Implemented** (M5.7; `formats/{webp,gif,bmp}.rs`) |
+| JPEG XL | `image` | header read from a growing prefix with a 64 MiB tracker; the decode's remaining budget lent to `jxl-oxide`'s allocation tracker, samples carved from what it has not used; no thread pool. Known gap: `jxl-oxide` may reserve up to 256 MiB for an embedded ICC profile outside its tracker; the colour stage then refuses any profile over 16 MiB | **Implemented** (M5.8; `formats/jxl.rs`) |
+| ISOBMFF (HEIF, AVIF, CR3) | `image` | our own box walk before any decoder: nesting ≤ 12, ≤ 4,096 boxes per level, every box counted, a box past its parent is malformed; HEIF through `heic-rs` (pinned exactly, panic-guarded, header and decode) only with the `heif` feature | **Implemented** (M5.10; `formats/bmff.rs`, `formats/heif.rs`) |
+| RAW containers | `image` | CR2/NEF/ARW/DNG/PEF/ORF/RW2/SRW through the IFD walk (SubIFDs, EXIF IFD, maker-note pointers with their own caps); CR3 boxes as above; CRW heaps nesting ≤ 8; RAF, MRW and X3F directories bounded; ≤ 64 preview candidates, each ≤ 64 MiB and inside the file | **Implemented** (M5.9, M5.10; `formats/raw/`) |
+| Animated GIF/WebP | `image` | first frame for thumbnails; ≤ 10,000 frames and the same allocation budget for playback | **Implemented** for display (M5.7: frame one only; a WebP with more than 10,000 `ANMF` chunks is damaged); playback M11 |
+| PSD | `image` | flattened composite only; layers are never parsed (only the layer section's length is read); every length and count checked against the data; the resource walk counts its steps | **Implemented** (M5.8; `formats/psd.rs`) |
+| Embedded thumbnail / RAW preview | `image` | offset + length inside the file; ≤ 64 MiB; decoded under the raster limits | **Implemented** (M1 EXIF thumbnails, M5.8 PSD resource, M5.9–M5.10 RAW previews; `Limits::max_thumbnail`) |
 | EXIF/TIFF IFDs | `meta` | ≤ 1,024 IFDs, depth ≤ 10, ≤ 8,192 entries per IFD, visited-offset cycle detection (LightCraft); maker notes ≤ 64 IFDs, depth ≤ 3; strings ≤ 64 KiB; zero-denominator rationals are invalid values | M1 |
 | XMP | `meta` | packet ≤ 16 MiB after extended-XMP reassembly (matching GUID, chunk offsets inside the declared length); XML depth ≤ 64, ≤ 200,000 nodes (LightCraft); `DOCTYPE`, entity declarations and external references rejected | M1 |
 | IPTC (IIM in APP13 / 8BIM) | `meta` | resource and dataset lengths inside the segment; dataset ≤ 64 KiB; ≤ 10,000 datasets | M1 |
-| ICC profile | `image` | APP2 chunk sequence validated; ≤ 16 MiB; tag count ≤ 1,000; LUT sizes bounded by the colour library | M5 |
+| ICC profile | `image` | APP2 chunk sequence validated; ≤ 16 MiB; tag count ≤ 1,000; LUT sizes bounded by the colour library | **Implemented** (M5.1; `color.rs`: over the limits or inconsistent, a profile is unusable and the pixels show as untagged) |
 | `.dalica.json` | `sidecar` | file ≤ 64 MiB; nesting depth ≤ 16; string ≤ 1 MiB; ≤ 1,000,000 photo entries; ≤ 1,000 keys per entry; ≤ 10,000 operations per recipe; ≤ 1,000 regions per operation; list entries ≤ 100,000 | M1 |
 | Legacy sidecars | `sidecar` | file ≤ 64 MiB; line ≤ 1 MiB; ≤ 1,000,000 sections; ≤ 1,000 keys per section; the recipe limits above; encoding detection never fails the whole file | M14 |
 | JSON files (`folders`, `albums`, `people`, `settings`) | `library` | file ≤ 64 MiB; depth ≤ 64 | M1 |
@@ -319,7 +324,9 @@ rather than relying on defaults.
   and not retried until it changes; the tile shows a generic placeholder and the scan continues.
   **Planned (M5).**
 - Work counters (not only byte counts) for highly fragmented but size-bounded files: number of
-  JPEG scans, Huffman tables, PNG chunks, TIFF strips/tiles. **Planned (M5).**
+  JPEG scans, Huffman tables, PNG chunks, TIFF strips/tiles. **Implemented** in `dalica-image`
+  (M5.1–M5.10: `Work` counts JPEG segments, PNG chunks, APP2 chunks, IFDs, ISOBMFF boxes and
+  container directories; TIFF strips and tiles are capped at 2²², WebP frames at 10,000).
 
 ### 4.4 Tainted text
 
@@ -727,7 +734,7 @@ its own entry points, because the limits are the ones Dalica passes.
 
 | Crate | Targets | Lands |
 |---|---|---|
-| `crates/image` | `sniff`, `decode_any`, `decode_jpeg`, `decode_png`, `decode_tiff`, `decode_webp`, `embedded_thumbnail` (EXIF thumbnail and RAW preview extraction), `icc` | M1 (`decode_tiff`, `decode_webp`, `icc`: M5) |
+| `crates/image` | `sniff`, `decode_any`, `decode_jpeg`, `decode_png`, `decode_tiff`, `decode_webp`, `decode_gif`, `decode_bmp`, `decode_jxl`, `decode_psd`, `decode_heif` (each format decoded explicitly, no sniffing), `raw_preview` (every RAW container's recognition and preview decode), `embedded_thumbnail` (EXIF thumbnails, thumbnail IFDs, PSD resources, RAW previews), `icc` | **Implemented** (M5.1, in `crates/image/fuzz/`; the targets reach each decoder as M5.6–M5.10 filled it; `decode_heif` reaches `heic-rs` only when built with `--features dalica-image/heif`, and the Fuzz workflow builds without it, so there it fuzzes our box walk); built on pull requests touching the crate, run when the Fuzz workflow is dispatched |
 | `crates/meta` | `exif` (IFDs and maker notes), `xmp` (including extended-XMP reassembly), `iptc`, `write_merge` (parse → merge-write → re-parse: no panic, foreign fields unchanged) | M1 (read), M6 (write) |
 | `crates/sidecar` | `parse`, `roundtrip` (parse → write → parse is stable, unknown data preserved), `recipe` (edit-operation list), `legacy` | M1 (`legacy`: M14) |
 | `crates/store` | `journal` (replay of journal records and snapshots), `json` (folders, albums, people, settings) | M1 |

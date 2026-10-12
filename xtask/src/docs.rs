@@ -97,6 +97,18 @@ mod tests {
     }
 
     #[test]
+    fn the_corpus_commands_are_implemented_not_planned() {
+        for cmd in ["corpus", "test-corpus"] {
+            assert!(crate::COMMANDS.contains(&cmd), "{cmd}");
+            assert!(!crate::PLANNED.iter().any(|(c, _)| *c == cmd), "{cmd} is still listed as planned");
+        }
+        // development.md §11 names both.
+        let text = std::fs::read_to_string(crate::workspace_root().join("docs/development.md")).unwrap();
+        let named: Vec<String> = mentions(&text).into_iter().map(|(_, c, _)| c).collect();
+        assert!(named.iter().any(|c| c == "corpus") && named.iter().any(|c| c == "test-corpus"), "{named:?}");
+    }
+
+    #[test]
     fn the_real_docs_pass() {
         let root = crate::workspace_root();
         let files: Vec<(&str, String)> = DOCS.iter().map(|n| (*n, std::fs::read_to_string(root.join(n)).unwrap())).collect();

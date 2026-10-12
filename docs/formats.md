@@ -8,13 +8,25 @@ and the per-type toggles are in [`data-model.md`](data-model.md) §7 and Options
 ([`menus-and-shortcuts.md`](menus-and-shortcuts.md) §5); metadata details are in
 [`xmp-interop.md`](xmp-interop.md).
 
-> Status: partly built. Decoding lives in our own `crates/image` (`dalica-image`, L1), built on
-> permissive pure-Rust crates.io decoders (`image`, `zune-jpeg`, `jxl-oxide`, `heic-rs`) plus our
-> own RAW embedded-preview extractor, with one module per format under `crates/image/src/formats/`.
-> JPEG and PNG decode through the colour stage of §4 (M5.1); every other format is recognised and
-> answers its tile text until its task fills its module (TIFF M5.6; WebP, GIF, BMP M5.7; JPEG XL,
-> PSD M5.8; RAW M5.9–M5.10; HEIF M5.10). LightCraft's `codecs` and `raw` crates are prior art only
+> Status: built for every format of §1 except video (M15). Decoding lives in our own
+> `crates/image` (`dalica-image`, L1), built on permissive pure-Rust crates.io decoders
+> (`zune-jpeg`, `png`, `tiff`, `image-webp`, `image`'s GIF and BMP decoders, `jxl-oxide`, `heic-rs`)
+> plus our own readers (container walks, PSD composites, RAW embedded previews), with one module
+> per format under `crates/image/src/formats/`, all ending in the colour stage of §4: JPEG and PNG
+> (M5.1), TIFF (M5.6), WebP, GIF and BMP (M5.7), JPEG XL and PSD composites (M5.8), previews of
+> TIFF-structured raws (M5.9), previews of CR3, RAF, CRW, MRW and X3F, and HEIF behind its feature
+> (M5.10); AVIF is recognised and never decoded. Not built yet: JPEG DCT-domain scaled decoding
+> (`zune-jpeg` 0.5 has none: thumbnails decode in full and are fitted, and past 64 MP the embedded
+> thumbnail is used) and MPF previews. LightCraft's `codecs` and `raw` crates are prior art only
 > (`architecture.md` §9). Everything is pure Rust; no C decoder is linked, ever.
+>
+> Measured on real files (M5.15, `development.md` §11): PngSuite decodes all 162 valid files and
+> refuses all 14 corrupt ones. Of the 26 camera raws (two per kind), 20 show their preview; still
+> refused: both MRW files (no preview found), both Samsung SRW files and the Sony DSLR-A100 ARW
+> (recognised as plain TIFF, not as raws), the Olympus C5060WZ ORF (no preview found); the Olympus E-3 ORF decodes
+> from the whole file but its header read from the first bytes stops at "no preview" instead of
+> reading on. The `photos` and `heif` sets are not published yet, so camera JPEGs and HEIC files are
+> measured only on synthetic files.
 
 ## 1. Formats
 
@@ -142,7 +154,7 @@ allocated (and again after orientation swaps width and height):
 | Limit | Value | Why |
 |---|---|---|
 | Width or height | ≤ 65,535 px (JPEG's own maximum) for full decodes; an absolute ceiling of 262,144 px applies to header reads | no real photo is larger; panoramas up to the JPEG maximum still open |
-| Pixels for a full decode | ≤ 2^28 (268 MP) | covers stitched panoramas and medium-format files |
+| Pixels for a full decode | ≤ 2^30 (1,074 MP; `Limits::max_pixels`, as in `security.md` §4.2) | covers stitched panoramas and medium-format files |
 | Allocation per decode | ≤ min(the codec default, half the memory budget) — the budget is RAM/4 clamped 256 MiB–1.5 GiB (`architecture.md` §5) | a single file can never take the whole budget |
 | Source pixels for a thumbnail from a decoder that cannot scale | ≤ 64 MP (the same default as LightCraft) | non-JPEG decoders allocate at full size before resizing |
 | PNG text and XMP chunks | bounded by the allocation limit | |
@@ -182,5 +194,8 @@ Images smaller than 64 × 64 are indexed but hidden unless View → Small Pictur
 - Orientation 1–8 for every container that carries it.
 - Limits: header-declared bombs are refused before allocating; images exactly at each limit decode.
 - Malformed input: truncation at every offset, bit flips, proptest random bytes; never a panic.
-- Corpora behind the `corpus` feature (`development.md` §11): camera JPEGs, raw previews per vendor,
-  HEIF (with the `heif` feature), PngSuite; decode and preview-extraction floors only rise.
+- Corpora behind the `corpus` feature (`development.md` §11; `crates/image/tests/corpus.rs`):
+  PngSuite and raw previews per vendor today, camera JPEGs and HEIF (with the `heif` feature) once
+  they are published; per set, files sniffed as their extension says, headers read as scanning
+  reads them, full decodes, 256 px thumbnails and embedded thumbnails have committed floors
+  (`crates/image/tests/corpus_floors.json`) that only rise.

@@ -7,6 +7,8 @@ mod accept;
 mod assets;
 mod bench;
 mod ci;
+mod corpus;
+mod corpus_pins;
 mod deps;
 mod docs;
 mod layers;
@@ -23,6 +25,8 @@ const USAGE: &str = "usage: cargo xtask <command>
 commands:
   ci        THE gate: fmt, clippy, tests, layers, deps, assets, names, parity, tasks sync --check, accept (finished milestones)
   accept    cargo xtask accept M<n> [--headless]: a milestone's acceptance test and its manual checks
+  corpus    cargo xtask corpus [--all | <set>…] [--local] [--update-manifest]: the test corpora, fetched and sha256-verified
+  test-corpus  cargo xtask test-corpus [-p <crate>] [-- args]: fetch, then the corpus tests with their floors (--release --features corpus)
   bench     cargo xtask bench [name…] [-- args]: release benches; history in <target>/bench/history.jsonl; flags >20 % slowdowns
   budgets   cargo xtask budgets [--plant-ms N]: the release frame budgets the milestones assert (the budgets workflow)
   assets    every asset has an ATTRIBUTION.md row; licence files exist; no forbidden names or formats
@@ -34,13 +38,12 @@ commands:
   tasks     the task board (docs/task-board.md); `cargo xtask tasks` for its commands";
 
 /// Implemented commands (`cargo xtask docs` checks the docs against these and [`PLANNED`]).
-pub const COMMANDS: &[&str] = &["ci", "accept", "assets", "bench", "budgets", "docs", "deps", "layers", "names", "parity", "tasks"];
+pub const COMMANDS: &[&str] =
+    &["ci", "accept", "assets", "bench", "budgets", "corpus", "test-corpus", "docs", "deps", "layers", "names", "parity", "tasks"];
 
 /// Commands the docs already describe, with where they are planned; running one says so.
 pub const PLANNED: &[(&str, &str)] = &[
     ("perf", "with the performance budgets (docs/development.md §13), from M4"),
-    ("corpus", "with the test corpora (M5, docs/development.md §11)"),
-    ("test-corpus", "with the test corpora (M5, docs/development.md §11)"),
     ("scorecard", "after M1 (docs/development.md §13)"),
     ("snapshot", "with the headless snapshot scripts (M2)"),
     ("stats", "not scheduled yet"),
@@ -68,6 +71,8 @@ fn main() -> ExitCode {
         Some("bench") => bench::run(&root, args.get(1..).unwrap_or(&[])),
         Some("budgets") => accept::budgets(&root, args.get(1..).unwrap_or(&[])),
         Some("ci") => ci::run(&root),
+        Some("corpus") => corpus::run(&root, args.get(1..).unwrap_or(&[])),
+        Some("test-corpus") => corpus::test(&root, args.get(1..).unwrap_or(&[])),
         Some("parity") => parity::run(&root, args.iter().any(|a| a == "--write")),
         Some("deps") => deps::run(&root),
         Some("docs") => docs::run(&root),
