@@ -55,6 +55,19 @@ file and revision in its first lines:
   .github/workflows/release.yml              LightCraft .github/workflows/release.yml @ 25ef65c8
   .github/workflows/packaging-lint.yml       LightCraft .github/workflows/packaging-lint.yml @ 25ef65c8
   packaging/linux/package.sh                 LightCraft packaging/env.sh, packaging/linux/package.sh @ 25ef65c8
+                                             PhotoCraft packaging/linux/package.sh @ 2bf49f10,
+                                             packaging/linux/flatpak-bundle.sh @ 231bf5fe
+  packaging/linux/tools.sh                   PhotoCraft packaging/linux/verified-download.sh,
+                                             packaging/linux/package.sh @ 2bf49f10
+  packaging/linux/AppRun.sh                  PhotoCraft packaging/linux/AppRun @ dc35ce76
+  packaging/linux/apprun-test.sh (tests)     PhotoCraft packaging/linux/apprun-test.sh @ dc35ce76
+  packaging/linux/nfpm.yaml                  PhotoCraft packaging/linux/nfpm.yaml @ 424a5d49
+  packaging/linux/postinst.sh                PhotoCraft packaging/linux/postinst.sh @ d98bee4c
+  packaging/linux/org.dalica.Dalica.metainfo.xml.in
+                                             PhotoCraft packaging/linux/ai.storyteller.photocraft.metainfo.xml.in @ 77221725
+  packaging/linux/flatpak/org.dalica.Dalica.bundle.yml
+                                             PhotoCraft packaging/linux/flatpak/ai.storyteller.photocraft.bundle.yml @ 231bf5fe
+  apps/dalica/src/preflight.rs               PhotoCraft apps/photocraft/src/linux_libs.rs @ b3993e89
   packaging/macos/package.sh                 LightCraft packaging/macos/package.sh @ 9978dc73
                                              PhotoCraft packaging/macos/package.sh @ 77221725
   packaging/macos/common.sh                  LightCraft packaging/env.sh @ 25ef65c8

@@ -2113,7 +2113,7 @@ replace at M6.R.
   - done when: `crates/ui/tests/about.rs`: each tab by id; each sort and the name toggle on a
     fixture with missing names; no email reaches the binary (a test on the compiled data); the
     release notes skip comments; dialog fingerprints at both window sizes.
-- ⬜ **M6.21 Linux packages**
+- ✅ **M6.21 Linux packages**
   - after: M6.1, M6.7, M6.12, M6.13
   - files: `packaging/linux/**`, `apps/dalica/src/preflight.rs`, `apps/dalica/src/main.rs`
   - scope: `releasing.md` → Linux: one staged FHS tree (both binaries, the `.desktop` file named by
