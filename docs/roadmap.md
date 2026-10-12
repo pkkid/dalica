@@ -2533,7 +2533,7 @@ so only three tasks edit `NOTICE`, each in its own wave; Play, the compare toggl
 caption bar's slideshow toggle and its trash button are drawn disabled until M11 and M9, and the
 effect tabs show an empty state until M12.
 
-- ⬜ **M7.1 The coordinate frame for stored rectangles and points**
+- ✅ **M7.1 The coordinate frame for stored rectangles and points**
   - after: M6.3
   - pulled: M6
   - files: `crates/edit/src/frame.rs`, `crates/edit/src/recipe.rs`, `crates/edit/tests/frame.rs`, `docs/data-model.md`
@@ -3661,4 +3661,9 @@ Record the decision here with a date when made.
     (which the maintainer owns) plus the app's name; three elements so Flathub accepts it. It lives
     in one place, `dalica_core::app_id::APP_ID` (M6.1), and names the window (Wayland app id, X11
     class). The settings and data folders stay as `data-model.md` §4 says.
-11. Coordinate frame for normalised coordinates (`data-model.md` §3.3) (M7).
+11. Coordinate frame for normalised coordinates (`data-model.md` §3.3) (M7). **Decided 2026-10-12
+    (the maintainer, on #268): option (b)**, the photo after its EXIF orientation and before
+    Dalica's own rotations and flips, converted only for display. A rotation or flip stays a
+    one-entry recipe change; crops, retouch spots, focal-effect centres and face rectangles are
+    never rewritten, and faces found on the upright decode stay valid. Built in M7.1
+    (`dalica-edit` `frame`).

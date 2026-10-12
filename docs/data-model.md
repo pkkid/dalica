@@ -112,8 +112,8 @@ Format rules:
   string in the operation syntax of §3.1, the same text the recipe API uses.
 - Album ids are `a` and person ids `p`, followed by 4 to 16 lowercase hex digits (`a91c0e`,
   `p7f3a2c`); anything else is kept verbatim and reported (`security.md` §5.4).
-- Coordinates are **normalised floats** in 0..1, at most six decimals, `[x0, y0, x1, y1]`. Which
-  frame they are measured in is an open question (§3.3).
+- Coordinates are **normalised floats** in 0..1, at most six decimals, `[x0, y0, x1, y1]`, measured
+  on the photo after its EXIF orientation and before Dalica's rotations and flips (§3.3).
 - Unknown objects and keys are **preserved verbatim** on rewrite (forward compatibility). A value of
   the wrong type is kept as-is and reported once; it never aborts reading the rest.
 - **The M6 fields** (built in M6.8: `dalica-sidecar` `fields`, `dalica-store` `mapping`). Per
@@ -194,15 +194,38 @@ a short string (digits and ASCII letters) that sorts in album order by plain byt
 - The folder-level `"albums"` object carries each album's name so an album can be recovered when
   `albums.json` is lost.
 
-### 3.3 Open question: the coordinate frame
+### 3.3 The coordinate frame
 
-`TODO(maintainer)`: which frame do normalised coordinates use? They appear in `crop`, face
-rectangles (`"faces"`), `retouch` spots and the centre points of the focal effects (Soft Focus,
-Focal B&W, Graduated Tint, Focal Zoom). The choice only matters when a photo is rotated or flipped
-*after* such data exists. Options: (a) the photo as displayed after Dalica's rotations, which means
-rewriting every stored rectangle on each rotation; (b) the photo after EXIF orientation but before
-Dalica's own rotations, converting only for display. To decide before the edit view's crop tool
-is built.
+**Decided 2026-10-12 (the maintainer; reserved decision 11, option (b)).** Every stored normalised
+rectangle and point is measured on the photo **after its EXIF orientation and before Dalica's own
+rotations and flips** (the *stored frame*): the `crop` rectangle, `retouch` source and target
+points, the centre points of the focal effects (Soft Focus, Focal B&W, Graduated Tint, Focal Zoom)
+and face rectangles (`"faces"`). The picture the user sees is that photo turned by the recipe's
+rotations and flips (the *displayed frame*). **Built (M7.1: `dalica-edit` `frame`).**
+- `(0, 0)` is the top-left corner of the frame and `(1, 1)` its bottom-right corner, `x` across and
+  `y` down, whatever the photo's size; a rectangle is stored with its corners in order
+  (`x0 ≤ x1`, `y0 ≤ y1`).
+- Coordinates are converted only to draw them and to read the user's clicks and drags back:
+  `edit::frame` maps a point or a rectangle from the stored to the displayed frame by the recipe's
+  net rotation and flip (one of the eight, `Recipe::orientation()`) and back by its inverse. The
+  round trip gives the stored value back (exactly for values such as `k / 2ⁿ`, otherwise to within
+  one rounding of `1 − v`).
+- A rotation or flip is therefore one recipe entry and nothing else: adding or undoing it never
+  rewrites a crop, a retouch stroke, an effect's centre or a face rectangle, and an unknown
+  operation in the recipe never has to be understood to keep its coordinates right.
+- Faces are found on the upright decode (EXIF orientation applied), which is the stored frame, so
+  their rectangles stay valid however the photo is turned later. XMP face regions (on the
+  EXIF-upright photo, [`xmp-interop.md`](xmp-interop.md)) are in the same frame and need no
+  conversion.
+- Lengths relative to the photo's shorter side (retouch and effect radii) are the same in both
+  frames. An angle measured in the stored frame (`straighten`) turns the other way on screen when
+  the recipe mirrors the photo.
+- Rendering does the crop and the straighten in the stored frame, then the recipe's rotations and
+  flips, wherever they stand in the recipe (the same picture as turning first and cropping with the
+  converted rectangle).
+- Save (§6) writes the rotations and flips into the pixels and clears the recipe, so the photo's
+  stored frame becomes the displayed one: Save maps the rectangles and points it keeps (face
+  rectangles) into the new frame with the same functions, and Undo Save maps them back.
 
 ## 4. Library directory (index and global data)
 
