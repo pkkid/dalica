@@ -3,9 +3,10 @@
 //!
 //! - **What it says** ([`line`]): the Photo Tray's contents ([`crate::tray::photos`]: the held
 //!   photos and the selection, each once). Nothing: "No selection". One photo: its name, date
-//!   taken, pixel size and file size ([`one`]). Several photos or a section selected as a unit: how
-//!   many, their date range and their size on disk, and their tags when they have some, most used
-//!   first ([`several`], [`selection_tags`]). The edit view (M7) prefixes the folder and adds the
+//!   (the effective one, [`Library::sort_date`]: the date set by the user, else the date taken,
+//!   else the file's), pixel size and file size ([`one`]). Several photos or a section selected as
+//!   a unit: how many, their date range and their size on disk, and their tags when they have
+//!   some, most used first ([`several`], [`selection_tags`]). The edit view (M7) prefixes the folder and adds the
 //!   photo's place in it ([`edit`]).
 //! - **How it is written**: sizes in decimal units with one decimal ([`size`]), dates in full
 //!   ([`date_time`], [`date_range`]), fields separated by wide spaces ([`SEP`]).
@@ -257,25 +258,25 @@ pub fn tag_counts<'a>(tags: impl IntoIterator<Item = &'a str>) -> Vec<(String, u
     out
 }
 
-/// A photo's details: date taken (else the file's date), pixel size, file size (unknown fields
-/// left out). The status line and the thumbnail tooltip both show them.
-pub fn details(p: &Photo) -> Vec<String> {
+/// A photo's details: `date` (the effective date, else the file's), pixel size, file size (unknown
+/// fields left out). The status line and the thumbnail tooltip both show them.
+pub fn details(p: &Photo, date: Option<DateTime>) -> Vec<String> {
     let mut out = Vec::with_capacity(3);
-    out.extend(p.sort_date().map(date_time));
+    out.extend(date.map(date_time));
     out.extend(pixels(p.width, p.height));
     out.push(size(p.size));
     out
 }
 
-/// The line for one photo: name, date, pixel size, size on disk.
-pub fn one(p: &Photo) -> Line {
-    Line { name: Some(p.name.clone()), rest: details(p), ..Line::default() }
+/// The line for one photo: name, effective date, pixel size, size on disk.
+pub fn one(library: &Library, p: &Photo) -> Line {
+    Line { name: Some(p.name.clone()), rest: details(p, library.sort_date(p)), ..Line::default() }
 }
 
 /// The line for several photos: how many, their date range, their size on disk, their tags.
-pub fn several(photos: &[&Photo], tag_counts: &[(String, usize)]) -> Line {
+pub fn several(library: &Library, photos: &[&Photo], tag_counts: &[(String, usize)]) -> Line {
     let mut rest = vec![pictures(photos.len())];
-    rest.extend(date_range(photos.iter().filter_map(|p| p.sort_date().map(|d| d.date()))));
+    rest.extend(date_range(photos.iter().filter_map(|p| library.sort_date(p).map(|d| d.date()))));
     let bytes = photos.iter().fold(0u64, |sum, p| sum.saturating_add(p.size));
     rest.push(format!("{} on disk", size(bytes)));
     rest.extend(tags(tag_counts));
@@ -285,7 +286,8 @@ pub fn several(photos: &[&Photo], tag_counts: &[(String, usize)]) -> Line {
 /// The edit view's line (M7): "Folder › name", the photo's details, then its place in the folder
 /// "(12 of 48)".
 pub fn edit(folder: &str, p: &Photo, nth: usize, of: usize) -> Line {
-    let mut line = one(p);
+    // The file's date until the edit view reads the library's (M7).
+    let mut line = Line { name: Some(p.name.clone()), rest: details(p, p.sort_date()), ..Line::default() };
     line.prefix = Some(folder.to_owned());
     line.rest.push(position(nth, of));
     line
@@ -298,8 +300,8 @@ pub fn line(library: &Library, state: &UiState) -> Line {
     let picked: Vec<&Photo> = ids.iter().filter_map(|id| library.photo(*id)).collect();
     match picked.as_slice() {
         [] => Line::plain(NO_SELECTION),
-        [p] => one(p),
-        many => several(many, &selection_tags(library, &ids)),
+        [p] => one(library, p),
+        many => several(library, many, &selection_tags(library, &ids)),
     }
 }
 
@@ -429,14 +431,15 @@ mod tests {
         let a = photo(1, "IMG_0361.jpg", 3_100_000, Some((4, 19, 42)));
         let b = photo(2, "IMG_0362.jpg", 200_000_000, Some((6, 8, 0)));
         let c = photo(3, "IMG_0363.jpg", 9_300_000, Some((5, 8, 0)));
-        assert_eq!(one(&a).text(), "IMG_0361.jpg     June 4, 2026 7:42 PM     4000 × 3000     3.1 MB");
-        assert_eq!(several(&[&a, &b, &c], &[]).text(), "3 pictures     June 4, 2026 to June 6, 2026     212.4 MB on disk");
+        let lib = Library::new();
+        assert_eq!(one(&lib, &a).text(), "IMG_0361.jpg     June 4, 2026 7:42 PM     4000 × 3000     3.1 MB");
+        assert_eq!(several(&lib, &[&a, &b, &c], &[]).text(), "3 pictures     June 4, 2026 to June 6, 2026     212.4 MB on disk");
         let counts = [("lisbon".to_string(), 40), ("tram".to_string(), 6)];
         assert_eq!(
-            several(&[&a, &b, &c], &counts).text(),
+            several(&lib, &[&a, &b, &c], &counts).text(),
             "3 pictures     June 4, 2026 to June 6, 2026     212.4 MB on disk     Tags: lisbon (40), tram (6)"
         );
-        assert_eq!(several(&[&a, &a], &[]).text(), "2 pictures     June 4, 2026     6.2 MB on disk", "one day: that day alone");
+        assert_eq!(several(&lib, &[&a, &a], &[]).text(), "2 pictures     June 4, 2026     6.2 MB on disk", "one day: that day alone");
         assert_eq!(
             edit("Lisbon Weekend", &a, 12, 48).text(),
             "Lisbon Weekend › IMG_0361.jpg     June 4, 2026 7:42 PM     4000 × 3000     3.1 MB     (12 of 48)"

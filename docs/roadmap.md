@@ -2227,7 +2227,7 @@ replace at M6.R.
     counts, remove one by ×, undo; autocomplete offers existing tags; Rename Tag merges after
     confirming; `crates/ui/tests/status_tags.rs`: the status text for tagged selections; the pane,
     dialog and status fingerprints at both window sizes.
-- ⬜ **M6.29 `ui` + `ui-kit`: Adjust Date and Time**
+- ✅ **M6.29 `ui` + `ui-kit`: Adjust Date and Time**
   - after: M5.25, M6.6, M6.16
   - files: `crates/ui/src/dialogs/adjust_date.rs`, `crates/ui-kit/src/widgets/datetime.rs`, `crates/ui-kit/tests/datetime.rs`, `crates/ui-kit/tests/fingerprints/datetime*.json`, `crates/ui/tests/adjust_date.rs`, `crates/ui/tests/fingerprints/dialog-adjust-date*.json`
   - scope: `organizing.md` §9: a date and a time picker in `ui-kit` (keyboard entry, arrows step the

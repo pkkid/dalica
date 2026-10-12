@@ -178,13 +178,15 @@ fn build(library: &Library, roots: &[PathBuf], options: &TreeOptions) -> Vec<Sec
     for section in &tree.sections {
         let SectionId::Folder(folder) = *section;
         let Some(f) = library.folder(folder) else { continue };
-        let mut photos = by_folder.remove(&folder).unwrap_or_default();
+        let photos = by_folder.remove(&folder).unwrap_or_default();
         if photos.is_empty() {
             continue;
         }
-        photos.sort_by(|a, b| a.sort_date().cmp(&b.sort_date()).then_with(|| a.name.cmp(&b.name)).then_with(|| a.id.cmp(&b.id)));
+        // By effective date (the user's, else the file's), each looked up once.
+        let mut photos: Vec<(Option<dalica_core::DateTime>, &Photo)> = photos.into_iter().map(|p| (library.sort_date(p), p)).collect();
+        photos.sort_by(|(da, a), (db, b)| da.cmp(db).then_with(|| a.name.cmp(&b.name)).then_with(|| a.id.cmp(&b.id)));
         let count = if photos.len() == 1 { "1 photo".to_string() } else { format!("{} photos", photos.len()) };
-        let subtitle = match photos.iter().find_map(|p| p.sort_date()) {
+        let subtitle = match photos.iter().find_map(|(d, _)| *d) {
             Some(d) => format!("{} · {count}", long_date(d.date())),
             None => count,
         };
@@ -193,7 +195,7 @@ fn build(library: &Library, roots: &[PathBuf], options: &TreeOptions) -> Vec<Sec
             folder,
             title: folder_name(&f.path),
             subtitle,
-            photos: photos.iter().map(|p| p.id).collect(),
+            photos: photos.iter().map(|(_, p)| p.id).collect(),
         });
     }
     out
