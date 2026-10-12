@@ -2200,7 +2200,7 @@ replace at M6.R.
   - done when: `crates/ui/tests/folder_properties.rs`: an inline description by id survives a
     restart; the dialog's OK sets date and place in one undo step, Cancel changes nothing; the
     header shows them; the header and dialog fingerprints at both window sizes.
-- ⬜ **M6.27 `ui`: the Properties pane**
+- ✅ **M6.27 `ui`: the Properties pane**
   - after: M6.6, M6.16
   - files: `crates/ui/src/panels/properties.rs`, `crates/ui/src/panels/properties/**`, `crates/ui/tests/properties_pane.rs`, `crates/ui/tests/fingerprints/pane-properties*.json`
   - scope: `ui-layout.md` §7: header "Properties of IMG_0361.jpg" ("Properties of 12 photos" or the

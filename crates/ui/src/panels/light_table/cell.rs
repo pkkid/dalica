@@ -247,9 +247,12 @@ pub fn badges_of(photo: &Photo, held: bool) -> Badges {
 /// The caption line's text for `mode` (`ui-layout.md` §5.3), before fitting: the file name; the
 /// effective date (the date set by the user, else the date taken, else the file's date); the pixel
 /// size; the photo's caption; its tags joined with ", " in the order added. Empty for a size, date,
-/// caption or tags the photo does not have. `None` with captions off.
-pub fn caption_of(photo: &Photo, library: &Library, mode: Caption) -> Option<String> {
+/// caption or tags the photo does not have. `None` with captions off. The pixel size is `shown`,
+/// the size the photo shows at (its recipe's turns included,
+/// [`crate::panels::thumbnails::Thumbnails::displayed`]).
+pub fn caption_of(photo: &Photo, library: &Library, mode: Caption, shown: (u32, u32)) -> Option<String> {
     Some(match mode {
+        Caption::Resolution => status::pixels(shown.0, shown.1).unwrap_or_default(),
         Caption::Caption => library.caption(photo.id).to_owned(),
         Caption::Tags => library.tags_of(photo.id).join(", "),
         Caption::Date => library.sort_date(photo).map(|d| long_date(d.date())).unwrap_or_default(),
@@ -275,19 +278,26 @@ fn resolution(photo: &Photo) -> Option<String> {
 }
 
 /// The hover tooltip (`ui-layout.md` §5.5): the file name over the date taken (else the file's
-/// date), the pixel size and the file size; for a photo that cannot be shown, why.
+/// date), the pixel size and the file size; for a photo that cannot be shown, why. The pixel size
+/// is the file's; [`tooltip_shown`] gives the size the photo shows at.
 pub fn tooltip_text(photo: &Photo, failure: Option<&str>) -> Tip {
     tooltip_dated(photo, photo.sort_date(), failure)
 }
 
 /// [`tooltip_text`] showing `date`: the cells pass the effective date ([`Library::sort_date`]).
 pub fn tooltip_dated(photo: &Photo, date: Option<dalica_core::DateTime>, failure: Option<&str>) -> Tip {
+    tooltip_shown(photo, date, (photo.width, photo.height), failure)
+}
+
+/// [`tooltip_dated`] with the pixel size `shown`: the size the photo shows at, its recipe's turns
+/// included (what a cell shows).
+pub fn tooltip_shown(photo: &Photo, date: Option<dalica_core::DateTime>, shown: (u32, u32), failure: Option<&str>) -> Tip {
     let detail = match failure {
         Some(why) => format!("Cannot show this photo: {why}"),
         None => {
             let mut parts: Vec<String> = Vec::with_capacity(3);
             parts.extend(date.map(status::date_time));
-            parts.extend(resolution(photo));
+            parts.extend(status::pixels(shown.0, shown.1));
             parts.push(status::size(photo.size));
             parts.join(" · ")
         }
@@ -365,7 +375,7 @@ pub fn show(ui: &mut Ui, f: &Frame<'_>, cells: &mut Cells, thumbs: &mut Thumbnai
     let drawn = thumbs.paint(&painter, PhotoRef { session: f.session, photo: c.photo }, image, device_px);
     let marks = paint_over(&painter, t, &look, drawn == Drawn::Failed);
     let editing = f.state.caption_edit.as_ref().filter(|e| e.photo == id);
-    let caption = match (c.caption, caption_of(c.photo, f.session.library(), f.state.caption)) {
+    let caption = match (c.caption, caption_of(c.photo, f.session.library(), f.state.caption, (width, height))) {
         // The editor takes the caption line's place.
         (Some(_), Some(_)) if editing.is_some() => None,
         (Some(line), Some(text)) => {
@@ -382,7 +392,8 @@ pub fn show(ui: &mut Ui, f: &Frame<'_>, cells: &mut Cells, thumbs: &mut Thumbnai
     }
     widgets::register(ui.ctx(), &format!("thumb:{}", id.get()), Role::Thumbnail, &c.photo.name, Target::Widget(&response), selected);
     let tooltip = cells.rested(ui, id, &response, pass, f.now).then(|| {
-        let tip = tooltip_dated(c.photo, f.session.library().sort_date(c.photo), if drawn == Drawn::Failed { thumbs.failure(id) } else { None });
+        let date = f.session.library().sort_date(c.photo);
+        let tip = tooltip_shown(c.photo, date, (width, height), if drawn == Drawn::Failed { thumbs.failure(id) } else { None });
         widgets::tooltip_now(&response, t, &tip.title, Some(&tip.detail));
         tip
     });
@@ -446,5 +457,29 @@ mod tests {
         assert_eq!(fit_middle("", 0.0, w), "");
         assert_eq!(fit_middle("ñandú.jpg", 5.0, w), "ña…pg", "characters, never bytes");
         assert_eq!(fit_middle("abc", f32::NAN, w), "");
+    }
+
+    /// The Resolution caption and the tooltip give the size the photo shows at: a landscape
+    /// turned a quarter by its recipe reads as a portrait.
+    #[test]
+    fn a_turned_photo_shows_its_displayed_size() {
+        let p = Photo {
+            id: PhotoId::new(1),
+            folder: dalica_core::FolderId::new(1),
+            name: "IMG_0361.jpg".into(),
+            size: 3_100_000,
+            mtime: Default::default(),
+            width: 4000,
+            height: 3000,
+            date: None,
+            star: false,
+        };
+        let lib = Library::new();
+        assert_eq!(caption_of(&p, &lib, Caption::Resolution, (3000, 4000)).as_deref(), Some("3000 × 4000"));
+        assert_eq!(caption_of(&p, &lib, Caption::Resolution, (0, 0)).as_deref(), Some(""));
+        assert_eq!(caption_of(&p, &lib, Caption::Filename, (3000, 4000)).as_deref(), Some("IMG_0361.jpg"));
+        let tip = tooltip_shown(&p, None, (3000, 4000), None);
+        assert!(tip.detail.contains("3000 × 4000") && !tip.detail.contains("4000 × 3000"), "{}", tip.detail);
+        assert!(tooltip_text(&p, None).detail.contains("4000 × 3000"), "the file's size");
     }
 }

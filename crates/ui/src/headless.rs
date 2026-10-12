@@ -282,7 +282,8 @@ impl Driver {
     }
 
     /// What is still pending, as `ui.settle` lists it: queued input, a library opening or
-    /// scanning, visible thumbnails on their way, an open file dialog, a running animation. `jobs`
+    /// scanning, a photo's metadata being read for the Properties pane, visible thumbnails on
+    /// their way, an open file dialog, a running animation. `jobs`
     /// also counts long jobs and background generation; none exist before M4, and scans always
     /// count.
     pub fn busy(&self, jobs: bool) -> Vec<String> {
@@ -295,6 +296,10 @@ impl Driver {
             None => busy.push("library: opening".into()),
             Some(s) if s.busy() => busy.push("library: scanning".into()),
             Some(_) => {}
+        }
+        let reading = self.app.session().map_or(0, dalica_engine::Session::photo_metadata_pending);
+        if reading > 0 {
+            busy.push(format!("photo metadata: {reading}"));
         }
         if let Some(p) = self.app.panels() {
             let pending = p.thumbnails.pending();

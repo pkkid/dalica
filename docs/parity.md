@@ -22,7 +22,7 @@ same commit.
 <!-- parity:summary -->
 | Section | ✅ | 🟡 | ⬜ | 🚫 |
 |---|---:|---:|---:|---:|
-| A. Library view | 11 | 17 | 4 | 1 |
+| A. Library view | 12 | 16 | 4 | 1 |
 | B. Organizing | 2 | 8 | 32 | 0 |
 | C. Editing | 0 | 1 | 20 | 4 |
 | D. Viewing | 0 | 1 | 5 | 2 |
@@ -30,7 +30,7 @@ same commit.
 | F. Data | 1 | 16 | 3 | 0 |
 | G. Preferences and system | 0 | 7 | 7 | 0 |
 | H. Menus | 0 | 5 | 2 | 0 |
-| **All** | 14 | 55 | 75 | 16 |
+| **All** | 15 | 54 | 75 | 16 |
 <!-- /parity:summary -->
 
 ## Top gaps
@@ -72,7 +72,7 @@ same commit.
 | LIB-ACTIONS | Action buttons (Export, Collage, Slideshow) with overflow | P0 | 🟡 | the buttons, and their More… menu below 1100 wide: `crates/ui/src/panels/bottom.rs`, `crates/ui/tests/bottom.rs`; disabled until export, collage and slideshow exist |
 | LIB-CONFBUTTONS | Configure Buttons dialog | OOS | 🚫 | dropped 2026-10-09 (dated feature); the button set is fixed |
 | LIB-PANES | Side pane container with People/Places/Tags/Properties toggles | P1 | 🟡 | the frame: 30 pt header with « (large width), title, × by id; pushes the light table; a narrowing window shrinks the tree to 200 first, then takes the large width away, then closes it: `crates/ui/src/panels/side_pane.rs`, `crates/ui/tests/tree_status_pane.rs`, `crates/ui/tests/layout.rs`; the Tags pane's contents since M6.28 (ORG-TAGS); the bottom-bar toggles (M3.9), the slide animation and the other panes' contents (M6, M13) missing |
-| LIB-PROPS | Properties pane | P1 | 🟡 | the engine query (M6.16): `photo.metadata {id, all?}` gives the pane's rows in order (Path … Tags, and the file's rating) from the library at once and from the file once a worker has read it (the first ask answers `pending`; the owner thread never reads the file), the file's owned fields by source, the Show All Metadata listing with `all`, and the "Changed in another application" note: `crates/engine/src/cmd/info.rs`, `crates/engine/src/metadata_cache.rs`, `crates/engine/tests/photo_metadata.rs`; the pane itself is M6.27 |
+| LIB-PROPS | Properties pane | P1 | ✅ | the engine query (M6.16): `photo.metadata {id, all?}` gives the pane's rows in order (Path … Tags, and the file's rating) from the library at once and from the file once a worker has read it (the first ask answers `pending`; the owner thread never reads the file), the file's owned fields by source, the Show All Metadata listing with `all`, and the "Changed in another application" note: `crates/engine/src/cmd/info.rs`, `crates/engine/src/metadata_cache.rs`, `crates/engine/tests/photo_metadata.rs`; the pane (M6.27): the heading ("Properties of IMG_0361.jpg", "Properties of 12 photos", the folder's name), the label/value rows with dates in full, what the library knows at once and a "Reading the file…" row until the worker answers (no frame reads the file), long values cut with "…" (a path keeps its end) and whole in a tooltip, the changed-elsewhere note on its row, Dimensions as displayed (noting the file's size when the recipe turns it), [Show All Metadata] adding every field grouped by EXIF, GPS, IPTC and XMP, several photos or a folder summed up from the library (Pictures, Dates, Size on disk, Tags; Path, Place, Description), following the selection: `crates/ui/src/panels/properties.rs`, `crates/ui/src/panels/properties/`, `crates/ui/tests/properties_pane.rs` |
 | LIB-ROOMS | Room tab strip (Import, Collage) | P1 | ⬜ | ref 01 §2.3 |
 | LIB-EMPTY | Empty states | P0 | 🟡 | no watched folders: "No pictures yet" with Add a Folder… (the folder dialog) and Import… (disabled until import): `crates/ui/src/panels/light_table.rs`, `crates/ui/tests/light_table.rs`; search with no results missing (M9) |
 

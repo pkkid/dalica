@@ -258,19 +258,27 @@ pub fn tag_counts<'a>(tags: impl IntoIterator<Item = &'a str>) -> Vec<(String, u
     out
 }
 
-/// A photo's details: `date` (the effective date, else the file's), pixel size, file size (unknown
-/// fields left out). The status line and the thumbnail tooltip both show them.
-pub fn details(p: &Photo, date: Option<DateTime>) -> Vec<String> {
+/// A photo's details: `date` (the effective date, else the file's), pixel size as `shown` (the
+/// size it shows at, [`displayed`]), file size (unknown fields left out). The status line and the
+/// thumbnail tooltip both show them.
+pub fn details(p: &Photo, date: Option<DateTime>, shown: (u32, u32)) -> Vec<String> {
     let mut out = Vec::with_capacity(3);
     out.extend(date.map(date_time));
-    out.extend(pixels(p.width, p.height));
+    out.extend(pixels(shown.0, shown.1));
     out.push(size(p.size));
     out
 }
 
-/// The line for one photo: name, effective date, pixel size, size on disk.
+/// The size photo `p` shows at: its file's displayed size turned by its recipe's rotations and
+/// flips (a landscape turned a quarter is a portrait).
+pub fn displayed(library: &Library, p: &Photo) -> (u32, u32) {
+    crate::panels::thumbnails::recipe_orientation(&library.info(p.id).edits).display_size(p.width, p.height)
+}
+
+/// The line for one photo: name, effective date, pixel size as it shows ([`displayed`]), size on
+/// disk.
 pub fn one(library: &Library, p: &Photo) -> Line {
-    Line { name: Some(p.name.clone()), rest: details(p, library.sort_date(p)), ..Line::default() }
+    Line { name: Some(p.name.clone()), rest: details(p, library.sort_date(p), displayed(library, p)), ..Line::default() }
 }
 
 /// The line for several photos: how many, their date range, their size on disk, their tags.
@@ -286,8 +294,8 @@ pub fn several(library: &Library, photos: &[&Photo], tag_counts: &[(String, usiz
 /// The edit view's line (M7): "Folder › name", the photo's details, then its place in the folder
 /// "(12 of 48)".
 pub fn edit(folder: &str, p: &Photo, nth: usize, of: usize) -> Line {
-    // The file's date until the edit view reads the library's (M7).
-    let mut line = Line { name: Some(p.name.clone()), rest: details(p, p.sort_date()), ..Line::default() };
+    // The file's date and size until the edit view reads the library's (M7).
+    let mut line = Line { name: Some(p.name.clone()), rest: details(p, p.sort_date(), (p.width, p.height)), ..Line::default() };
     line.prefix = Some(folder.to_owned());
     line.rest.push(position(nth, of));
     line
@@ -485,5 +493,22 @@ mod tests {
         let mut s = UiState { selection: Selection::new(vec![PhotoId::new(9)], None, None, false), ..UiState::default() };
         s.tray.set_held(vec![PhotoId::new(4)]);
         assert_eq!(line(&lib, &s).text(), NO_SELECTION, "unknown ids say nothing");
+    }
+
+    /// A photo turned a quarter by its recipe reads at the size it shows at, not its file's.
+    #[test]
+    fn a_turned_photo_reads_at_its_displayed_size() {
+        let (_dir, mut s, ids) = crate::app::tests::session_with_photos(1);
+        let p = s.library().photo(ids[0]).unwrap().clone();
+        assert!(p.width > p.height, "a landscape");
+        let state = UiState { selection: Selection::new(vec![p.id], None, None, false), ..UiState::default() };
+        let (wide, tall) = (format!("{} × {}", p.width, p.height), format!("{} × {}", p.height, p.width));
+        assert!(line(s.library(), &state).text().contains(&wide));
+        s.execute("photo.rotate.cw", &serde_json::json!({ "ids": [p.id] })).unwrap();
+        assert_eq!(displayed(s.library(), &p), (p.height, p.width));
+        let text = line(s.library(), &state).text();
+        assert!(text.contains(&tall) && !text.contains(&wide), "{text}");
+        s.execute("photo.rotate.cw", &serde_json::json!({ "ids": [p.id] })).unwrap();
+        assert!(line(s.library(), &state).text().contains(&wide), "half a turn: as stored");
     }
 }
