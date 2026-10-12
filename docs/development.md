@@ -312,7 +312,8 @@ fetched from **pins** (a URL with its sha256, or a commit) and are checked again
   metadata interop), each with its source. Third-party test suites with their own permissive or
   public-domain terms (PngSuite, raw camera samples published as CC0) are fetched from their
   upstreams the same way and are never copied into `dalica-corpus`. Personal photos are never part
-  of any corpus.
+  of any corpus. The `SOURCES.tsv` of `dalica-corpus` lists every file with its source URL, page, author,
+  licence, size, sha256 and the tool that derived it, if any; its `LICENSE` is CC0 1.0.
 - All pins are in one file, `xtask/src/corpus_pins.rs`; each set has a manifest
   `xtask/corpus/<set>.sha256` (`<sha256>  <path>` per line, sorted by path). Sets:
 
@@ -320,8 +321,8 @@ fetched from **pins** (a URL with its sha256, or a commit) and are checked again
 |---|---|---|---|
 | `corpus/pngsuite/` | PngSuite: 176 PNGs (every bit depth, colour type, interlacing and ancillary chunk, 14 corrupt on purpose) | the 2017-07-19 release archive from schaik.com, by URL and sha256 (its own permissive terms) | `dalica-image` |
 | `corpus/raw/` | 26 camera raws, two per kind Dalica reads previews from: CR2, CR3, CRW, DNG, NEF, ARW, PEF, ORF, RW2, SRW, RAF, MRW, X3F (245 MB) | raw.pixls.us, each file CC0, by URL and sha256 | `dalica-image` |
-| `corpus/photos/` | CC0 JPEGs from many cameras and phones: orientations 1–8, EXIF thumbnails, MPF previews, ICC profiles, CMYK, progressive, truncated | `photos/` of `dalica-corpus` at a pinned commit: **not published yet** | `dalica-image`, `dalica-thumbs` |
-| `corpus/heif/` | small HEIC/HEIF files, for the `heif` feature | `heif/` of `dalica-corpus` at a pinned commit: **not published yet** | `dalica-image` |
+| `corpus/photos/` | 57 CC0 and public-domain photos (134.5 MB) from 18 camera and phone makes: JPEG orientations 0–8 and none (1–8 also as one generated set showing the same picture), EXIF thumbnails, MPF, Display P3 and Adobe RGB (with and without an ICC profile), CMYK JPEG and LZW TIFF, progressive, truncated, 16-bit TIFF and PNG, WebP | `photos/` of `dalica-corpus` at commit `ef4826d0`, by commit and sha256 (M6.42) | `dalica-image`, `dalica-thumbs` |
+| `corpus/heif/` | 3 CC0 and public-domain iPhone HEIC photos (5.6 MB, grid tiles, EXIF, colour), for the `heif` feature | `heif/` of `dalica-corpus` at commit `ef4826d0`, by commit and sha256 (M6.42) | `dalica-image` |
 | `corpus/metadata/` | the photos after other applications wrote captions, keywords, ratings, GPS, dates and MWG face regions into them (and `.xmp` sidecars for RAW) | planned, `dalica-corpus` | `dalica-meta` interop and round-trip tests ([`xmp-interop.md`](xmp-interop.md)) |
 | `corpus/public-faces/` | public-domain portraits with their sources in `SOURCES.tsv`, for M13 | planned, `dalica-corpus` | `dalica-faces` ([`faces.md`](faces.md)) |
 

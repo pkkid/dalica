@@ -7,7 +7,8 @@
 //!   our own corpus repository.
 //! - Our own sets (`photos`, `heif`) come from <https://github.com/pkkid/dalica-corpus> (CC0 and
 //!   public-domain files only, each with its source) at the commit pinned in
-//!   [`DALICA_CORPUS_COMMIT`]; until the lead publishes and pins it they are "not published yet".
+//!   [`DALICA_CORPUS_COMMIT`]; that repository's `SOURCES.tsv` gives every file's source, author,
+//!   licence, size, sha256 and the tool that derived it.
 //!
 //! Moving a pin: change it here, run `cargo xtask corpus --update-manifest <set>`, review the
 //! manifest diff, run `cargo xtask test-corpus` and raise the floors that improved (never lower one).
@@ -48,9 +49,9 @@ pub struct Set {
 
 /// Our own CC0 corpus repository (`docs/development.md` §11).
 pub const DALICA_CORPUS_REPO: &str = "pkkid/dalica-corpus";
-/// The pinned commit of [`DALICA_CORPUS_REPO`]. `None`: the repository holds nothing yet; the lead
-/// pins it once the `photos` and `heif` sets are published there.
-pub const DALICA_CORPUS_COMMIT: Option<&str> = None;
+/// The pinned commit of [`DALICA_CORPUS_REPO`] (M6.42: the `photos` and `heif` sets, 2026-10-13).
+/// `None` would mark its sets "not published yet".
+pub const DALICA_CORPUS_COMMIT: Option<&str> = Some("ef4826d0fcf3b016a773ccb31ff6dd29239bc9ff");
 
 /// PngSuite: Willem van Schaik's PNG test images, the 2017-07-19 release archive. Its own terms:
 /// "Permission to use, copy, modify and distribute these images for any purpose and without fee
@@ -253,7 +254,8 @@ pub const RAW: Set = Set {
 /// `corpus/photos/`: CC0 camera and phone JPEGs from our own corpus repository.
 pub const PHOTOS: Set = Set {
     name: "photos",
-    what: "CC0 JPEGs from many cameras and phones (orientations, EXIF thumbnails, MPF, ICC, CMYK, progressive, truncated)",
+    what: "57 CC0/public-domain photos from 18 camera and phone makes: JPEG orientations 0-8 and none, EXIF thumbnails, MPF, \
+           Display P3 and Adobe RGB, CMYK JPEG and TIFF, progressive, truncated, 16-bit TIFF and PNG, WebP",
     terms: "`photos/` of https://github.com/pkkid/dalica-corpus: CC0 and public-domain files only, each with its source in that \
             repository.",
     used_by: &["dalica-image"],
@@ -263,7 +265,7 @@ pub const PHOTOS: Set = Set {
 /// `corpus/heif/`: small HEIC/HEIF files from our own corpus repository (the `heif` feature).
 pub const HEIF: Set = Set {
     name: "heif",
-    what: "small HEIC/HEIF files (grids, 8-12-bit, alpha, ICC, EXIF) for the heif feature",
+    what: "3 CC0/public-domain iPhone HEIC photos (grid tiles, EXIF, colour) for the heif feature",
     terms: "`heif/` of https://github.com/pkkid/dalica-corpus: CC0 and public-domain files only, each with its source in that \
             repository.",
     used_by: &["dalica-image"],
