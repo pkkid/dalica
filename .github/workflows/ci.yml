@@ -57,14 +57,10 @@ jobs:
       - name: cargo xtask ci
         run: cargo xtask ci
       # The optional HEIF decoder (docs/formats.md §3) is off by default, so `xtask ci` never
-      # builds it: lint and test dalica-image with it on every OS. The integration tests and the
-      # HEIF module's own unit tests run; the rest of the crate's unit tests already ran above.
+      # builds it: lint and test dalica-image with it on every OS.
       - name: dalica-image with the heif feature (clippy)
         shell: bash
         run: cargo clippy -p dalica-image --all-targets --features heif -- -D warnings
       - name: dalica-image with the heif feature (tests)
         shell: bash
-        run: |
-          set -euo pipefail
-          cargo test -p dalica-image --features heif --test '*'
-          cargo test -p dalica-image --features heif --lib formats::heif
+        run: cargo test -p dalica-image --features heif

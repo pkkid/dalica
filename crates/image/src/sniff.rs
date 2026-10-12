@@ -181,7 +181,8 @@ mod tests {
         assert_eq!(sniff(&png), Some(Format::Png));
         let jpg = dalica_scenes::jpeg(&dalica_scenes::Scene::new(1, 8, 8), 80, None).unwrap();
         assert_eq!(sniff(&jpg), Some(Format::Jpeg));
-        assert!(Format::Jpeg.supported() && Format::Png.supported() && !Format::Heif.supported());
+        assert!(Format::Jpeg.supported() && Format::Png.supported());
+        assert_eq!(Format::Heif.supported(), cfg!(feature = "heif"));
     }
 
     /// A TIFF whose IFD0 says DNG, or whose sub-IFD holds CFA data, is a raw; a plain TIFF is not.
