@@ -7,14 +7,17 @@
 //! and the data. `\0TTW` holds a TIFF structure (offsets relative to its first byte) with IFD0
 //! (orientation, camera), the EXIF IFD, the camera's maker note (a plain IFD whose tags 0x0088
 //! and 0x0089 give the preview JPEG's offset and length, and whose tag 0x0081 holds a JPEG
-//! thumbnail inline) and possibly an IFD1 JPEG thumbnail. No code was consulted.
+//! thumbnail inline) and possibly an IFD1 JPEG thumbnail. Public notes on the Minolta maker note
+//! add that in MRW files these JPEGs are stored with a wrong first byte (not the 0xFF of the SOI
+//! marker), which M6.38 confirmed on real files by observation: it is read as 0xFF
+//! ([`super::raf::pick_repairing`]). No code was consulted.
 //!
 //! The TIFF block is read through `ifd` unchanged: its loop detection, IFD and entry caps apply.
 //! A damaged maker note only loses its previews; the largest JPEG found is shown.
 
 use std::ops::Range;
 
-use super::raf::{Previews, decode_main, header_of, pick, span, thumbnail_of};
+use super::raf::{Previews, decode_main, header_of, pick_repairing, span, thumbnail_of};
 use crate::decode::Decoded;
 use crate::exif::TAG_EXIF_IFD;
 use crate::formats::u32_be;
@@ -122,7 +125,7 @@ fn maker_note_jpegs(block: &[u8], limits: &Limits, out: &mut Vec<Range<usize>>) 
 }
 
 fn previews(bytes: &[u8], found: &Found, limits: &Limits) -> Result<Previews> {
-    pick(bytes, &found.candidates, limits)?.ok_or(Error::Unsupported(FORMAT))
+    pick_repairing(bytes, &found.candidates, limits)?.ok_or(Error::Unsupported(FORMAT))
 }
 
 pub fn header(bytes: &[u8], limits: &Limits) -> Result<Header> {

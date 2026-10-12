@@ -11,10 +11,10 @@
   },
   "raw": {
     "files": 26,
-    "sniffed": 23,
-    "headers": 20,
-    "decoded": 20,
-    "thumbnails": 20,
-    "embedded_thumbnails": 13
+    "sniffed": 26,
+    "headers": 26,
+    "decoded": 26,
+    "thumbnails": 26,
+    "embedded_thumbnails": 15
   }
 }

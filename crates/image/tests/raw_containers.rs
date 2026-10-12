@@ -417,8 +417,10 @@ fn container_metadata_is_read() {
 /// A raw whose previews are missing or unreadable shows the generic RAW tile.
 #[test]
 fn no_usable_preview_is_the_generic_raw_tile() {
+    // Both SOI bytes broken: an MRW JPEG with only its first byte wrong is read (M6.38).
     let mut not_jpeg = plain(&Scene::new(3, 32, 32));
     not_jpeg[0] = 0;
+    not_jpeg[1] = 0;
     let files = [
         (RawKind::Cr3, cr3(&Cr3 { orientation: 1, thmb: None, prvw: None, full: None, stco: false })),
         (RawKind::Raf, raf(&not_jpeg)),
@@ -433,6 +435,51 @@ fn no_usable_preview_is_the_generic_raw_tile() {
         assert_eq!(decode(&file, &L).unwrap_err(), err);
         assert_eq!(formats::embedded_thumbnail(Format::Raw(kind), &file, &L), Ok(None), "{kind:?}");
     }
+}
+
+/// MRW cameras store the maker note's JPEGs with a wrong first byte (seen as 0x00 and 0x02 where
+/// the SOI marker's 0xFF belongs): they are read as JPEGs all the same, and the other containers
+/// still refuse such bytes (M6.38: both MRW files of the corpus answered "no preview").
+#[test]
+fn an_mrw_preview_with_a_wrong_first_byte_is_shown() {
+    let (full, thumb) = (plain(&Scene::new(8, 64, 48)), plain(&Scene::new(8, 16, 12)));
+    let alone = decode(&full, &L).unwrap();
+    for first in [0x00u8, 0x02, 0xd8] {
+        let mut stored = full.clone();
+        stored[0] = first;
+        let b = mrw(1, &stored, &thumb);
+        let h = read_header(&b, &L).unwrap();
+        assert_eq!((h.format, h.width, h.height), (Format::Raw(RawKind::Mrw), 64, 48), "{first:#x}");
+        // The thumbnail range is read from the file as it is: the IFD1 JPEG, never a repaired one.
+        assert_eq!(h.thumbnail(&b), Some(&thumb[..]), "{first:#x}");
+        assert_eq!(decode(&b, &L).unwrap(), alone, "{first:#x}");
+        assert_eq!(decode_thumbnail(&b, 32, &L).map(|t| (t.width, t.height)), Ok((32, 24)), "{first:#x}");
+        // Every prefix: never a panic, and a header only with the right size.
+        for len in (0..b.len()).step_by(7) {
+            if let Ok(h) = read_header(&b[..len], &L) {
+                assert_eq!((h.width, h.height), (64, 48), "{first:#x} prefix {len}");
+            }
+            let _ = decode(&b[..len], &L);
+        }
+    }
+    // The repaired preview's copy is charged to the decode's memory budget: the least memory the
+    // intact file decodes in is too little for the repaired one, by the copy's size.
+    let mut stored = full.clone();
+    stored[0] = 0;
+    let (intact, repaired) = (mrw(1, &full, &thumb), mrw(1, &stored, &thumb));
+    let fits = |b: &[u8], max_alloc: u64| decode(b, &Limits { max_alloc, ..L }).is_ok();
+    let (mut lo, mut hi) = (0u64, 64 << 20);
+    while lo < hi {
+        let mid = (lo + hi) / 2;
+        if fits(&intact, mid) { hi = mid } else { lo = mid + 1 }
+    }
+    assert!(!fits(&repaired, lo) && fits(&repaired, lo + stored.len() as u64));
+    // A thumbnail with a wrong first byte is still the smaller preview, never the main one.
+    let mut small = thumb.clone();
+    small[0] = 0;
+    assert_eq!(read_header(&mrw(1, &full, &small), &L).map(|h| (h.width, h.height)), Ok((64, 48)));
+    // RAF does not repair: the same bytes are no preview there.
+    assert_eq!(read_header(&raf(&stored), &L).unwrap_err(), Error::Unsupported(Format::Raw(RawKind::Raf)));
 }
 
 /// A header read from the first bytes reads on until the preview is inside them.

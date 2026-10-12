@@ -611,6 +611,38 @@ fn a_header_at_the_end_of_a_long_file_is_read_by_reading_more() {
     assert_eq!(read_header(&bytes[..bytes.len() - 20], &Limits::default()).map(|h| h.width), Err(Error::Truncated));
 }
 
+/// A file cut inside its strip data is damaged, never "too large" (M6.38: a truncated 16-bit
+/// CMYK Deflate TIFF answered "Too large to display": a cut strip larger than what is left of the
+/// file tripped the decoder's buffer limit, which reads as too large).
+#[test]
+fn a_file_cut_inside_a_strip_is_damaged() {
+    let l = Limits::default();
+    let scene = Scene::new(12, 96, 64).with_kind(Kind::Blobs);
+    for (colour, depth, compression, rows) in [
+        (Colour::Cmyk, Depth::Sixteen, Compression::Deflate, Some(64)),
+        (Colour::Cmyk, Depth::Sixteen, Compression::Deflate, None),
+        (Colour::Rgb, Depth::Eight, Compression::None, Some(64)),
+        (Colour::Grey, Depth::Sixteen, Compression::Lzw, Some(64)),
+    ] {
+        let bytes = file(&scene, Tiff { colour, depth, compression, rows_per_strip: rows, ..Tiff::default() });
+        assert!(decode(&bytes, &l).is_ok());
+        let mut checked = 0;
+        for len in (8..bytes.len()).step_by(37) {
+            let cut = &bytes[..len];
+            // Only cuts that keep the page's IFD: the others are no TIFF page at all.
+            if formats::header(Format::Tiff, cut, &Limits { max_header_bytes: len as u64, ..l }).is_err() {
+                continue;
+            }
+            checked += 1;
+            for result in [decode(cut, &l).map(|_| ()), decode_thumbnail(cut, 16, &l).map(|_| ())] {
+                let e = result.unwrap_err();
+                assert_eq!(e.reason(), "Damaged file", "{colour:?} {depth:?} {compression:?} rows {rows:?}, cut at {len} of {}: {e:?}", bytes.len());
+            }
+        }
+        assert!(checked > 10, "{colour:?} {depth:?}: {checked} cuts kept the IFD");
+    }
+}
+
 /// Small files in every container shape this module reads.
 fn small_files() -> Vec<(String, Vec<u8>)> {
     let s = Scene::new(4, 24, 16);

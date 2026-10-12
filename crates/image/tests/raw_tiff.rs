@@ -1067,3 +1067,268 @@ fn a_strip_thumbnail_is_the_fast_path_in_a_jpeg() {
         dalica_image::orient::apply(dalica_image::resize::fit(&rgba(&img), 16).unwrap(), dalica_image::Orientation::new(6).unwrap()).unwrap();
     assert_eq!(t, expected);
 }
+
+// ---- Real-camera layouts found by the corpus (M6.38) ---------------------------------------------
+
+/// TIFF/EP's CFARepeatPatternDim and CFAPattern, and DNGPrivateData.
+const CFA_REPEAT_PATTERN_DIM: u16 = 0x828d;
+const CFA_PATTERN: u16 = 0x828e;
+const DNG_PRIVATE_DATA: u16 = 0xc634;
+
+/// Bytes past which a header read must read on (the first read takes 256 KiB).
+const FIRST_READ: usize = 256 * 1024;
+
+/// Writes `bytes` to a temporary file and reads its header the way scanning does.
+fn header_from_file(name: &str, bytes: &[u8]) -> Result<dalica_image::Header, Error> {
+    let dir = std::env::temp_dir().join(format!("dalica-image-raw-tiff-{}-{name}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("file.raw");
+    std::fs::write(&path, bytes).unwrap();
+    let result = dalica_image::read_header_file(&path, &Limits::default()).map(|(h, _)| h);
+    std::fs::remove_dir_all(&dir).unwrap();
+    result
+}
+
+/// A Samsung-style SRW: IFD0 (camera, EXIF) with SubIFDs for the preview (JPEG pair) and the raw
+/// data, whose IFD has TIFF/EP's CFA pattern tags, a vendor compression and no photometric tag;
+/// `pad` bytes before the SubIFDs put them past the first read.
+fn srw(p: &Parts, pad: usize) -> Vec<u8> {
+    let mut w = Writer::new(true, b"II*\0\0\0\0\0");
+    let exif = exif_ifd(&mut w, &Opts::default(), None);
+    let ifd0 = w.reserve(4);
+    w.blob(&vec![0u8; pad]);
+    let big = w.blob(&p.big);
+    let preview =
+        w.ifd(vec![(COMPRESSION, V::Short(vec![6])), (JPEG_OFFSET, V::Long(vec![big])), (JPEG_LENGTH, V::Long(vec![p.big.len() as u32]))], 0);
+    let raw_at = w.blob(&[0x5a; 96]);
+    let raw_ifd = w.ifd(
+        vec![
+            (NEW_SUBFILE_TYPE, V::Long(vec![0])),
+            (WIDTH, V::Long(vec![4000])),
+            (LENGTH, V::Long(vec![3000])),
+            (BITS, V::Short(vec![12])),
+            (COMPRESSION, V::Long(vec![32772])),
+            (STRIP_OFFSETS, V::Long(vec![raw_at])),
+            (STRIP_COUNTS, V::Long(vec![96])),
+            (CFA_REPEAT_PATTERN_DIM, V::Short(vec![2, 2])),
+            (CFA_PATTERN, V::Byte(vec![0, 1, 1, 2])),
+        ],
+        0,
+    );
+    w.fill(
+        ifd0,
+        vec![
+            (MAKE, V::Ascii("SAMSUNG")),
+            (ORIENTATION, V::Short(vec![1])),
+            (SUB_IFDS, V::Long(vec![preview, raw_ifd])),
+            (EXIF_IFD, V::Long(vec![exif])),
+        ],
+        0,
+    );
+    w.finish(ifd0)
+}
+
+/// A raw IFD known only by its CFA pattern tags is a raw, also when its sub-IFDs lie past the
+/// first read (M6.38: both Samsung SRW files of the corpus sniffed as TIFF, then "Damaged file").
+#[test]
+fn an_srw_raw_ifd_with_cfa_pattern_tags_is_a_raw() {
+    let l = Limits::default();
+    let p = parts(1);
+    let alone = decode(&p.big, &l).unwrap();
+    let bytes = srw(&p, 0);
+    assert_eq!(sniff(&bytes), Some(RAW));
+    let h = read_header(&bytes, &l).unwrap();
+    assert_eq!((h.format, h.width, h.height), (RAW, 240, 160));
+    assert_eq!(decode(&bytes, &l).unwrap(), alone);
+    // Without the CFA tags the same file is a TIFF without a page: damaged, as before.
+    let mut plain = bytes.clone();
+    for tag in [CFA_REPEAT_PATTERN_DIM, CFA_PATTERN] {
+        let at = plain.windows(4).position(|w| w == [tag.to_le_bytes(), [if tag == CFA_PATTERN { 1 } else { 3 }, 0]].concat()).unwrap();
+        plain[at..at + 2].copy_from_slice(&0x9999u16.to_le_bytes());
+    }
+    assert_eq!(sniff(&plain), Some(Format::Tiff));
+    assert_eq!(read_header(&plain, &l).unwrap_err().reason(), "Damaged file");
+    // Sub-IFDs past the first read: the start of the file asks for more, and the file reads whole.
+    let far = srw(&p, FIRST_READ + 1000);
+    assert_eq!(sniff(&far[..FIRST_READ]), Some(Format::Tiff));
+    assert_eq!(read_header(&far[..FIRST_READ], &l).map(|_| ()), Err(Error::Truncated));
+    let h = header_from_file("srw", &far).unwrap();
+    assert_eq!((h.format, h.width, h.height), (RAW, 240, 160));
+}
+
+/// A Sony DSLR-A100-style ARW: IFD0 is the preview (JPEG pair) with DNGPrivateData, its SubIFDs
+/// pointer aims at the raw data (read as an "IFD", hundreds of random entries), IFD1 is the
+/// thumbnail.
+fn a100(p: &Parts) -> Vec<u8> {
+    let mut w = Writer::new(true, b"II*\0\0\0\0\0");
+    let small = w.blob(&p.small);
+    let ifd1 =
+        w.ifd(vec![(COMPRESSION, V::Short(vec![6])), (JPEG_OFFSET, V::Long(vec![small])), (JPEG_LENGTH, V::Long(vec![p.small.len() as u32]))], 0);
+    let private = w.blob(b"\0MRI\0\0\0\0");
+    let big = w.blob(&p.big);
+    let exif = exif_ifd(&mut w, &Opts::default(), None);
+    // Compressed raw data: 600 "entries" out of tag order, one a SubIFDs pointer far past the end.
+    let mut data = 600u16.to_le_bytes().to_vec();
+    let mut x = 0x2545_f491u32;
+    for k in 0..600u32 {
+        x ^= x << 13;
+        x ^= x >> 17;
+        x ^= x << 5;
+        let tag = if k == 1 { SUB_IFDS } else { (x >> 16) as u16 };
+        data.extend(tag.to_le_bytes());
+        data.extend(if k == 1 { 4u16 } else { (x & 0xffff) as u16 }.to_le_bytes());
+        data.extend(1u32.to_le_bytes());
+        data.extend(if k == 1 { 0xffff_fff0 } else { x.rotate_left(7) }.to_le_bytes());
+    }
+    data.extend([0x77; 64]);
+    let raw_at = w.blob(&data);
+    let ifd0 = w.ifd(
+        vec![
+            (NEW_SUBFILE_TYPE, V::Long(vec![1])),
+            (WIDTH, V::Long(vec![3872])),
+            (LENGTH, V::Long(vec![2592])),
+            (COMPRESSION, V::Short(vec![6])),
+            (MAKE, V::Ascii("SONY")),
+            (ORIENTATION, V::Short(vec![1])),
+            (SUB_IFDS, V::Long(vec![raw_at])),
+            (JPEG_OFFSET, V::Long(vec![big])),
+            (JPEG_LENGTH, V::Long(vec![p.big.len() as u32])),
+            (EXIF_IFD, V::Long(vec![exif])),
+            (DNG_PRIVATE_DATA, V::Byte(private.to_le_bytes().to_vec())),
+        ],
+        ifd1,
+    );
+    w.finish(ifd0)
+}
+
+/// DNGPrivateData marks a raw, and a SubIFDs pointer aimed at data is passed over (M6.38: the
+/// corpus' Sony DSLR-A100 ARW sniffed as TIFF, then "Damaged file").
+#[test]
+fn an_arw_whose_sub_ifd_pointer_aims_at_raw_data_shows_its_preview() {
+    let l = Limits::default();
+    let p = parts(1);
+    let bytes = a100(&p);
+    assert_eq!(sniff(&bytes), Some(RAW));
+    let h = read_header(&bytes, &l).unwrap();
+    assert_eq!((h.format, h.width, h.height), (RAW, 240, 160));
+    assert_eq!(h.thumbnail(&bytes), Some(&p.small[..]));
+    assert_eq!(decode(&bytes, &l).unwrap(), decode(&p.big, &l).unwrap());
+    assert_eq!(decode_thumbnail(&bytes, 60, &l).map(|t| (t.width, t.height)), Ok((60, 40)));
+    // The walk that follows every pointer refuses the same structure.
+    let t = dalica_image::ifd::Tiff::new(&bytes).unwrap();
+    let walked = t.walk(t.first_ifd().unwrap(), &[SUB_IFDS, EXIF_IFD], &l, &mut dalica_image::ifd::Visited::default());
+    assert!(walked.is_err(), "{walked:?}");
+}
+
+/// A raw whose EXIF maker note is the older Olympus layout ("OLYMP\0", a version, its IFD at 8,
+/// offsets from the TIFF header): its ThumbnailImage tag holds the only JPEG.
+fn old_orf(p: &Parts) -> Vec<u8> {
+    let mut w = Writer::new(true, b"IIRS\0\0\0\0");
+    let small = w.blob(&p.small);
+    let mut note = b"OLYMP\0\x01\0".to_vec();
+    note.extend(2u16.to_le_bytes());
+    for (tag, kind, count, value) in [(0x0100u16, 7u16, p.small.len() as u32, small), (0x0201, 3, 1, 6)] {
+        note.extend(tag.to_le_bytes());
+        note.extend(kind.to_le_bytes());
+        note.extend(count.to_le_bytes());
+        note.extend(value.to_le_bytes());
+    }
+    note.extend(0u32.to_le_bytes());
+    let exif = exif_ifd(&mut w, &Opts::default(), Some(note));
+    let mut e = strip_entries(&mut w, &p.strip, 21);
+    e.extend([(MAKE, V::Ascii("OLYMPUS CORPORATION")), (ORIENTATION, V::Short(vec![1])), (EXIF_IFD, V::Long(vec![exif]))]);
+    let ifd0 = w.ifd(e, 0);
+    w.finish(ifd0)
+}
+
+/// M6.38: the corpus' Olympus C5060WZ ORF answered "no preview"; its only JPEG is the older maker
+/// note's ThumbnailImage.
+#[test]
+fn an_older_olympus_maker_note_offers_its_thumbnail_image() {
+    let l = Limits::default();
+    let p = parts(1);
+    let bytes = old_orf(&p);
+    assert_eq!(sniff(&bytes), Some(RAW));
+    let h = read_header(&bytes, &l).unwrap();
+    assert_eq!((h.width, h.height), (64, 43));
+    assert_eq!(decode(&bytes, &l).unwrap(), decode(&p.small, &l).unwrap());
+    // A thumbnail pointer past the end of the file only loses the preview.
+    let mut b = bytes.clone();
+    let at = b.windows(8).position(|w| w == b"OLYMP\0\x01\0").unwrap() + 8 + 2 + 8;
+    put(&mut b, at, u32::MAX - 4);
+    assert_eq!(read_header(&b, &l).map(|_| ()), Err(Error::Unsupported(RAW)));
+}
+
+/// An ORF/PEF whose raw strips (`raw` bytes) lie between the maker note and the preview, so that
+/// the first read holds the maker note's start but not the preview: `olympus` puts the preview
+/// inside the maker note (its extent passes the first read), else a Pentax maker note points at
+/// it (only the pointer passes the first read).
+fn far_preview(p: &Parts, olympus: bool, raw: usize) -> Vec<u8> {
+    let mut w = Writer::new(true, if olympus { b"IIRO\0\0\0\0" } else { b"II*\0\0\0\0\0" });
+    let note = if olympus {
+        let mut n = Writer::new(true, b"OLYMPUS\0II\x03\0");
+        let main = n.reserve(2);
+        n.blob(&vec![0u8; raw]);
+        let big = n.blob(&p.big);
+        let cs = n.ifd(vec![(0x0100, V::Long(vec![1])), (0x0101, V::Long(vec![big])), (0x0102, V::Long(vec![p.big.len() as u32]))], 0);
+        n.fill(main, vec![(0x0000, V::Undefined(b"0100".to_vec())), (0x2020, V::Ifd(vec![cs]))], 0);
+        n.buf
+    } else {
+        let mut n = Writer::new(true, b"AOC\0II");
+        n.ifd(vec![(0x0001, V::Short(vec![0])), (0x0003, V::Long(vec![p.big.len() as u32])), (0x0004, V::Long(vec![0]))], 0);
+        n.buf
+    };
+    let exif = exif_ifd(&mut w, &Opts::default(), Some(note));
+    let ifd0 = w.reserve(7);
+    let raw_at = w.blob(&vec![0x5a; raw]);
+    let big = if olympus { 0 } else { w.blob(&p.big) };
+    w.fill(
+        ifd0,
+        vec![
+            (WIDTH, V::Long(vec![4000])),
+            (LENGTH, V::Long(vec![3000])),
+            (PHOTOMETRIC, V::Short(vec![32803])),
+            (STRIP_OFFSETS, V::Long(vec![raw_at])),
+            (STRIP_COUNTS, V::Long(vec![raw as u32])),
+            (MAKE, V::Ascii("Dalica")),
+            (EXIF_IFD, V::Long(vec![exif])),
+        ],
+        0,
+    );
+    let mut b = w.finish(ifd0);
+    if !olympus {
+        // The Pentax preview start, counted from the TIFF header.
+        let at = b.windows(6).position(|w| w == b"AOC\0II").unwrap() + 6 + 2 + 12 * 2 + 8;
+        put(&mut b, at, big);
+    }
+    b
+}
+
+/// M6.38: the corpus' Olympus E-3 ORF decoded from the whole file, but a header read from its
+/// first 256 KiB answered "no preview" instead of reading on.
+#[test]
+fn a_maker_note_preview_past_the_first_read_reads_on() {
+    let l = Limits::default();
+    let p = parts(1);
+    let alone = decode(&p.big, &l).unwrap();
+    for olympus in [true, false] {
+        let bytes = far_preview(&p, olympus, FIRST_READ);
+        assert!(bytes.len() > FIRST_READ + p.big.len());
+        let h = read_header(&bytes, &l).unwrap();
+        assert_eq!((h.width, h.height), (240, 160), "olympus {olympus}");
+        assert_eq!(decode(&bytes, &l).unwrap(), alone, "olympus {olympus}");
+        assert_eq!(read_header(&bytes[..FIRST_READ], &l).map(|_| ()), Err(Error::Truncated), "olympus {olympus}");
+        let h = header_from_file(if olympus { "orf" } else { "pef" }, &bytes).unwrap();
+        assert_eq!((h.width, h.height), (240, 160), "olympus {olympus}");
+        // In a whole file a preview pointer past the end only loses the preview.
+        let broken = if olympus {
+            let mut b = bytes.clone();
+            let length = b.windows(8).position(|w| w == [0x02, 0x01, 4, 0, 1, 0, 0, 0]).unwrap() + 8;
+            put(&mut b, length, 0x7fff_0000);
+            b
+        } else {
+            bytes[..bytes.len() - p.big.len()].to_vec()
+        };
+        assert_eq!(read_header(&broken, &l).map(|_| ()), Err(Error::Unsupported(RAW)), "olympus {olympus}");
+    }
+}

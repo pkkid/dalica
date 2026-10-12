@@ -16,7 +16,9 @@
 //!   [`Tiff::headerless`] (a structure whose offsets count from its own first byte, such as a
 //!   maker note) and [`Tiff::rebased`].
 //! - [`Tiff::ifd`] reads one IFD; [`Tiff::walk`] reads every IFD reachable from one, following the
-//!   next-IFD chain and the pointer tags it is given, within the [`Limits`] caps.
+//!   next-IFD chain and the pointer tags it is given, within the [`Limits`] caps;
+//!   [`Tiff::walk_where`] leaves out the IFDs a filter refuses (with what they point to), and
+//!   [`Ifd::sorted`] tells a real IFD from data a stray pointer aims at.
 //! - Values: [`Tiff::value`], [`Tiff::value_range`], [`Tiff::uint`], [`Tiff::uints`],
 //!   [`Tiff::ascii`], and the raw readers [`Tiff::u16_at`], [`Tiff::u32_at`], [`Tiff::bytes`].
 //! - Every failure is an [`Error`]: `OutOfRange` (an offset or length outside the data), `Loop`
@@ -107,6 +109,13 @@ pub struct Ifd {
 impl Ifd {
     pub fn get(&self, tag: u16) -> Option<&Entry> {
         self.entries.iter().find(|e| e.tag == tag)
+    }
+
+    /// Whether the entries are in ascending tag order, as TIFF 6.0 §2 requires (repeated tags
+    /// pass). A pointer some writer aimed at image data rather than at an IFD reads as an "IFD" of
+    /// thousands of random entries, which this tells apart.
+    pub fn sorted(&self) -> bool {
+        self.entries.windows(2).all(|w| matches!(w, [a, b] if a.tag <= b.tag))
     }
 }
 
@@ -294,24 +303,42 @@ impl<'a> Tiff<'a> {
     /// starting chain is depth 1). Strict: a loop, an offset outside the data or a cap of `limits`
     /// reached anywhere is an error. IFDs already in `visited` count as a loop.
     pub fn walk(&self, start: u32, follow: &[u16], limits: &Limits, visited: &mut Visited) -> Result<Vec<(Ifd, usize)>> {
+        self.walk_where(start, follow, limits, visited, |_, _| true)
+    }
+
+    /// [`Tiff::walk`], keeping only the IFDs `keep` accepts. `keep` gets each IFD as read and the
+    /// pointer tag that led to its chain (`None` for the starting chain); an IFD it refuses is
+    /// left out with everything it points to (its next IFD and its pointer tags). Readers use it
+    /// to pass over pointers that some writers aim at data rather than at an IFD.
+    pub fn walk_where(
+        &self,
+        start: u32,
+        follow: &[u16],
+        limits: &Limits,
+        visited: &mut Visited,
+        keep: impl Fn(&Ifd, Option<u16>) -> bool,
+    ) -> Result<Vec<(Ifd, usize)>> {
         let mut out = Vec::new();
-        let mut stack = vec![(start, 1usize)];
-        while let Some((offset, depth)) = stack.pop() {
+        let mut stack = vec![(start, 1usize, None)];
+        while let Some((offset, depth, via)) = stack.pop() {
             if depth > limits.max_ifd_depth {
                 return Err(Error::TooMany("IFD depth"));
             }
             let ifd = self.ifd(offset, visited, limits)?;
+            if !keep(&ifd, via) {
+                continue;
+            }
             if ifd.next != 0 {
-                stack.push((ifd.next, depth));
+                stack.push((ifd.next, depth, via));
             }
             let mut children = Vec::new();
             for e in ifd.entries.iter().filter(|e| follow.contains(&e.tag)) {
-                children.extend(self.uints(e, limits.max_ifds, "IFDs")?.into_iter().filter(|&o| o != 0));
+                children.extend(self.uints(e, limits.max_ifds, "IFDs")?.into_iter().filter(|&o| o != 0).map(|o| (o, e.tag)));
             }
             if !children.is_empty() && depth >= limits.max_ifd_depth {
                 return Err(Error::TooMany("IFD depth"));
             }
-            stack.extend(children.into_iter().rev().map(|o| (o, depth + 1)));
+            stack.extend(children.into_iter().rev().map(|(o, tag)| (o, depth + 1, Some(tag))));
             out.push((ifd, depth));
         }
         Ok(out)
@@ -488,5 +515,40 @@ mod tests {
         assert!(v.is_empty());
         t.walk(8, &[], &l, &mut v).unwrap();
         assert_eq!(v.len(), 2);
+    }
+
+    #[test]
+    fn a_filtered_walk_leaves_out_refused_ifds_and_what_they_point_to() {
+        let at = |k: u32| 8 + 18 * k;
+        // IFD0 → next IFD1; IFD0's SubIFD is IFD2, whose next IFD is IFD3 and whose EXIF pointer
+        // would lead to an offset outside the data.
+        let b = chain(&[(tags::SUB_IFDS, at(2), at(1)), (7, 0, 0), (tags::EXIF_IFD, 0xffff_0000, at(3)), (7, 0, 0)]);
+        let t = Tiff::new(&b).unwrap();
+        let l = Limits::default();
+        let follow = [tags::SUB_IFDS, tags::EXIF_IFD];
+        assert_eq!(t.walk(8, &follow, &l, &mut Visited::default()), Err(Error::OutOfRange));
+        let mut seen = Vec::new();
+        let kept = t.walk_where(8, &follow, &l, &mut Visited::default(), |_, via| via != Some(tags::SUB_IFDS)).unwrap();
+        seen.extend(kept.iter().map(|(i, d)| (i.offset, *d)));
+        assert_eq!(seen, vec![(at(0), 1), (at(1), 1)]);
+        // The tag that led to each chain is passed on along the chain.
+        let vias = std::cell::RefCell::new(Vec::new());
+        let ok = chain(&[(tags::SUB_IFDS, at(2), at(1)), (7, 0, 0), (7, 0, at(3)), (7, 0, 0)]);
+        Tiff::new(&ok)
+            .unwrap()
+            .walk_where(8, &follow, &l, &mut Visited::default(), |i, via| {
+                vias.borrow_mut().push((i.offset, via));
+                true
+            })
+            .unwrap();
+        assert_eq!(vias.into_inner(), vec![(at(0), None), (at(2), Some(tags::SUB_IFDS)), (at(3), Some(tags::SUB_IFDS)), (at(1), None)]);
+    }
+
+    #[test]
+    fn entries_out_of_tag_order_are_not_sorted() {
+        let e = |tag| Entry { tag, kind: types::SHORT, count: 1, raw: [0; 4] };
+        let ifd = |tags: &[u16]| Ifd { offset: 8, entries: tags.iter().map(|&t| e(t)).collect(), next: 0 };
+        assert!(ifd(&[]).sorted() && ifd(&[5]).sorted() && ifd(&[1, 2, 2, 9]).sorted());
+        assert!(!ifd(&[1, 9, 2]).sorted());
     }
 }
