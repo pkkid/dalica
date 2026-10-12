@@ -184,7 +184,7 @@ Windows `%LOCALAPPDATA%\Dalica`):
 
 | File | Contents | Rebuildable? |
 |---|---|---|
-| `folders.json` | watched folders and their mode (Scan Always / Scan Once / Removed), exclusions; M1 writes `{"version": 1, "folders": [{"path": …}]}` (modes arrive with the Folder Manager, M5) | no — small, backed up with settings |
+| `folders.json` | the Folder Manager's settings, one entry per folder that sets its own: `{"version": 2, "folders": [{"path", "mode"?: "always" \| "once" \| "remove", "faces"?: bool, "indexed"?: true}]}` (`indexed`: a Scan Once folder's first scan finished; an entry without `mode` sets only the faces flag; the `remove` entries are the exclusions). A v1 file (M1: `{"version": 1, "folders": [{"path"}]}`, every folder watched) is read as Scan Always entries and written back as v2 at once, atomically; keys and entries this version does not know are kept verbatim | no — small, backed up with settings |
 | `albums.json` | album definitions (id, name, description, date, place, cover) and a copy of the order | yes, from sidecars (each member folder carries the album's name; each member its position key, §3.2) |
 | `people.json` | people (id, name, nickname), merges, settings | yes, from sidecars (names are mirrored per folder) |
 | `index.log` + `index.snap` | the library index: one record per photo (path, size, mtime, dimensions, dates, EXIF summary, content hash, colour sketch, face descriptors), journal + snapshot as in LightCraft | yes, by rescanning |
@@ -267,12 +267,31 @@ their folder header.
   verification), **Scan Once** (indexed once, then frozen — for removable or slow media),
   **Remove from Dalica** (not indexed; nothing on disk changes). Setting a mode on a folder applies
   to its subfolders unless they have their own setting.
+  - A folder's **effective mode** is that of its nearest ancestor (itself included) that sets one;
+    below no setting a folder is not indexed. The "Find faces in this folder" flag inherits the
+    same way (on when nothing sets it).
+  - Each folder set to Scan Always or Scan Once is a **unit** that owns its subtree minus the
+    folders inside it with a setting of their own. A scan walks one unit's region at a time (the
+    folders inside it that set a mode are never entered); a rebuild walks every unit, entering a
+    removed folder only for a unit inside it and keeping nothing found there.
+  - A change (`folders.set`, the Folder Manager's OK; `folder.remove`, the context menu) is one
+    library undo step: the folders under a changed folder that are no longer indexed leave the
+    library (photo files and sidecars untouched), and regions that became indexed are scanned in
+    the background (newly watched, or indexed for the first time). Undo puts back both the
+    settings and the folders with their photos, ids and stars; a Scan Once region brought back by
+    undo is not scanned again.
+  - A Scan Once unit is frozen once its first scan finished: the verification pass rescans the
+    Scan Always units and the Scan Once units not indexed yet, never a frozen one. Switching it to
+    Scan Always scans it.
+  - Setting a volume root or the home folder to Scan Always asks first (`organizing.md` §2); over
+    automation the command needs `"confirm": true`, as `folder.remove` does.
 - **First run** offers: "Scan only my Pictures, Documents and Desktop folders" (default) or
   "Choose folders…". Scanning the whole disk is not offered.
 - **Recognised files:** JPEG, PNG, TIFF, WebP, GIF, BMP, HEIC/HEIF (if built with support), AVIF,
   JPEG XL, PSD (composite), the RAW formats supported by the codecs crate; videos MP4/MOV/M4V/MKV
   (indexed with a poster frame when decodable, otherwise a generic video
-  tile). Per-type toggles in Options → File Types.
+  tile). Per-type toggles in Options → File Types (`settings.json` → `fileTypes`, one boolean per
+  type id; JPEG is always on), given to every scan.
 - **Skipped:** dot-folders and dot-files, `.dalica-originals`, OS system folders, cache/temp
   folders, images smaller than 64 × 64 (shown only with View → Small Pictures).
 - **External changes:** created/deleted/renamed files and folders in watched roots are picked up

@@ -1,17 +1,21 @@
 //! The library undo stack (`architecture.md` §4): one step per command, in memory, per session,
 //! capped at 1 000 steps. A step holds the op that undoes it; undoing applies that op and turns its
-//! inverse into the redo step.
+//! inverse into the redo step. A step that changed the Folder Manager's rules (`folders.set`,
+//! `folder.remove`) also holds the rules to put back ([`crate::folders::Modes`]); putting them back
+//! gives the rules the redo step puts back in turn.
 
 use dalica_library::Op;
 
 /// The most steps kept; the oldest are dropped first.
 pub const CAP: usize = 1000;
 
-/// One undoable step: the command's label ("Star / Unstar") and the op that reverses it.
+/// One undoable step: the command's label ("Star / Unstar"), the op that reverses it, and the
+/// folder rules to put back, if it changed any.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Step {
     pub label: &'static str,
     pub op: Op,
+    pub modes: Option<crate::folders::Modes>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -76,7 +80,7 @@ mod tests {
     use super::*;
 
     fn step(n: u32) -> Step {
-        Step { label: "Star / Unstar", op: Op::SetStars { stars: vec![(dalica_core::PhotoId::new(u64::from(n)), true)] } }
+        Step { label: "Star / Unstar", op: Op::SetStars { stars: vec![(dalica_core::PhotoId::new(u64::from(n)), true)] }, modes: None }
     }
 
     #[test]

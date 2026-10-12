@@ -1450,7 +1450,7 @@ filled by the lead; M5.15 pins it.
     10 000 queued events coalesce within the queue cap; the `notify` backend passes the same tests
     with events as hints and generous timeouts, and the polling fallback passes them alone;
     `cargo xtask deps` accepts the two new `*-sys` entries and still refuses an unknown one.
-- ⬜ **M5.12 `scan` + `engine`: folder modes, inheritance and the Folder Manager commands**
+- ✅ **M5.12 `scan` + `engine`: folder modes, inheritance and the Folder Manager commands**
   - after: M5.4, M5.5
   - files: `crates/scan/src/rules.rs`, `crates/scan/tests/rules.rs`, `crates/engine/src/folders.rs`, `crates/engine/src/scanning.rs`, `crates/engine/src/settings.rs`, `crates/engine/src/cmd/folders.rs`, `crates/engine/tests/folders.rs`, `docs/data-model.md`
   - scope: `data-model.md` §4, §7 and `organizing.md` §2: Scan Always, Scan Once and Remove per

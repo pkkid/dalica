@@ -22,18 +22,25 @@
 //!   given back to the next scan, which does not read them again until their size or modification
 //!   time changes.
 //!
-//! Seams: M5.12 sets the options each scan gets ([`Session::scan_options`]: File Types, the
-//! subtrees set to Remove); M5.17 starts rescans of dirty folders from [`crate::watching`] through
-//! `start_scan`; M5.16 replaces the amortised whole-library thumbnail sync below with one that
+//! - **What a scan walks** follows the Folder Manager's rules ([`crate::folders`]): a merge scan
+//!   walks one region (a folder without the folders inside it that set a mode of their own, which
+//!   are scanned on their own, or removed), a rebuild every unit ([`dalica_scan::Rules::everything`]).
+//!   A folder the rules do not index when its turn comes (it was removed meanwhile, or it lies in
+//!   a removed folder a rebuild walks for a unit inside it) is dropped, never applied. A Scan Once
+//!   unit a finished scan walked is marked indexed (frozen); [`Session::start_verification`] leaves
+//!   it out from then on. Options → File Types (`settings.json` → `fileTypes`) go to every scan.
+//!
+//! Seams: M5.17 starts rescans of dirty folders from [`crate::watching`] through
+//! `start_region_scan`, and the periodic verification through [`Session::start_verification`]; M5.16 replaces the amortised whole-library thumbnail sync below with one that
 //! queues just the photos of each batch, the first screenful first.
 
 use std::collections::{HashSet, VecDeque};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 
 use dalica_library::{Library, Op};
-use dalica_scan::{Event, Failure, FoundFolder, HeaderReader, Progress, Scan, Summary};
+use dalica_scan::{Event, Failure, FoundFolder, HeaderReader, Plan, Progress, Scan, Summary};
 use serde::Serialize;
 use serde_json::json;
 
@@ -93,7 +100,8 @@ pub(crate) struct Scanning {
 struct ScanJob {
     job: JobId,
     kind: ScanKind,
-    roots: Vec<PathBuf>,
+    /// The roots it walks and the subtrees it leaves out.
+    plan: Plan,
     /// `None` once the walk ended, or was let go when the job was cancelled.
     rx: Option<Receiver<Streamed>>,
     /// Folders read and not yet diffed.
@@ -117,11 +125,11 @@ struct ScanJob {
 }
 
 impl ScanJob {
-    fn new(job: JobId, kind: ScanKind, roots: Vec<PathBuf>, rx: Receiver<Streamed>, fresh: Option<Library>) -> ScanJob {
+    fn new(job: JobId, kind: ScanKind, plan: Plan, rx: Receiver<Streamed>, fresh: Option<Library>) -> ScanJob {
         ScanJob {
             job,
             kind,
-            roots,
+            plan,
             rx: Some(rx),
             queue: VecDeque::new(),
             current: None,
@@ -256,8 +264,34 @@ fn pictures(n: usize) -> String {
 }
 
 impl Session {
-    /// Starts a scan of `roots` on a thread of its own, listed as a job; returns its id.
-    pub(crate) fn start_scan(&mut self, roots: Vec<PathBuf>, kind: ScanKind) -> JobId {
+    /// Starts scans on threads of their own, listed as jobs; returns the last one's id. A merge
+    /// scans the region of each of `roots`, one job each; a rebuild walks every unit (`roots` are
+    /// the units: its plan comes from the rules).
+    pub(crate) fn start_scan(&mut self, roots: Vec<PathBuf>, kind: ScanKind) -> Option<JobId> {
+        match kind {
+            ScanKind::Rebuild => {
+                let plan = self.folders.rules.everything();
+                Some(self.start_plan(plan, kind))
+            }
+            ScanKind::Merge => roots.iter().map(|r| self.start_region_scan(r)).last(),
+        }
+    }
+
+    /// Scans the region of `folder` (`folder` without the folders inside it that set a mode) in
+    /// the background, merging what it finds; returns the job.
+    pub(crate) fn start_region_scan(&mut self, folder: &Path) -> JobId {
+        let plan = self.folders.rules.region(folder);
+        self.start_plan(plan, ScanKind::Merge)
+    }
+
+    /// Starts the verification pass: a scan of each Scan Always unit and of each Scan Once unit not
+    /// indexed yet (a frozen Scan Once unit is never rescanned). Returns the jobs.
+    pub fn start_verification(&mut self) -> Vec<JobId> {
+        self.folders.rules.verification().iter().map(|u| self.start_region_scan(u)).collect()
+    }
+
+    /// Starts one scan of `plan` on a thread of its own, listed as a job; returns its id.
+    fn start_plan(&mut self, plan: Plan, kind: ScanKind) -> JobId {
         let now = self.clock.now();
         let job_kind = if kind == ScanKind::Rebuild { JobKind::Rebuild } else { JobKind::Scan };
         let (job, cancel) = self.jobs.start(job_kind, "Starting", true, now);
@@ -268,15 +302,16 @@ impl Session {
         }
         let mut options = self.scan_options();
         options.cancel = Some(cancel);
+        options.excluded = plan.excluded.clone();
         let (tx, rx) = mpsc::channel();
-        let walk = roots.clone();
+        let walk = plan.roots.clone();
         let spawned = std::thread::Builder::new().name("dalica-scan".into()).spawn(move || {
             let summary = dalica_scan::scan_streaming(&walk, &options, |e| tx.send(Streamed::Event(e)).is_ok());
             let _ = tx.send(Streamed::End(summary));
         });
         match spawned {
             Ok(_) => {
-                let scan = ScanJob::new(job, kind, roots, rx, fresh);
+                let scan = ScanJob::new(job, kind, plan, rx, fresh);
                 self.jobs.progress(job, scan.progress(), scan.label());
                 self.scanning.running.push(scan);
             }
@@ -291,13 +326,15 @@ impl Session {
 
     /// Rebuilds the model from the watched folders in the background (`library.rebuild`).
     pub(crate) fn start_rebuild(&mut self) {
-        self.start_scan(self.folders.roots.clone(), ScanKind::Rebuild);
+        let plan = self.folders.rules.everything();
+        self.start_plan(plan, ScanKind::Rebuild);
     }
 
-    /// The options the next scan gets (owned: they move to its thread). Built on the owner thread
-    /// without touching the disk.
+    /// The options the next scan gets (owned: they move to its thread): the failures in effect and
+    /// Options → File Types. Built on the owner thread without touching the disk.
     pub(crate) fn scan_options(&self) -> dalica_scan::Options {
-        let mut options = dalica_scan::Options { failures: self.scanning.failures.clone(), ..dalica_scan::Options::default() };
+        let mut options =
+            dalica_scan::Options { failures: self.scanning.failures.clone(), types: self.settings().file_types(), ..dalica_scan::Options::default() };
         if let Some(reader) = &self.scanning.reader {
             options.reader = Arc::clone(reader);
         }
@@ -332,9 +369,11 @@ impl Session {
 
     /// Takes in what the scans found and applies up to `photos` of it; ends the scans that are
     /// complete. Returns how many folders were applied and scans ended.
+    /// The Folder Manager's browse answers are taken in here too (`folders.rs`).
     pub(crate) fn poll_scans(&mut self, photos: usize) -> usize {
+        let browsed = self.poll_browse(false);
         if self.scanning.running.is_empty() {
-            return 0;
+            return browsed;
         }
         let mut budget = Budget::new(photos);
         let mut n = 0;
@@ -368,8 +407,10 @@ impl Session {
         n
     }
 
-    /// Blocks until every scan has ended and everything it found is applied.
+    /// Blocks until every scan has ended and everything it found is applied, and every browse
+    /// request is answered.
     pub(crate) fn wait_scans(&mut self) {
+        self.poll_browse(true);
         while !self.scanning.running.is_empty() {
             for job in &mut self.scanning.running {
                 job.receive(true, &mut self.scan_warnings);
@@ -410,6 +451,10 @@ impl Session {
                 break;
             }
             let Some(folder) = job.queue.pop_front() else { break };
+            if !self.folders.rules.indexes(&folder.path) {
+                // Removed meanwhile, or inside a removed folder a rebuild walked for a unit in it.
+                continue;
+            }
             let scan = Scan { folders: vec![folder], ..Scan::default() };
             let ops = match &mut job.fresh {
                 Some(fresh) => dalica_scan::diff(fresh, &scan),
@@ -455,11 +500,17 @@ impl Session {
                     replaced = true;
                 }
                 None => {
-                    // Folders under a root walked to the end that hold no photos any more.
+                    // Folders under a root walked to the end that hold no photos any more (the
+                    // subtrees it left out belong to other scans).
+                    let excluded = &job.plan.excluded;
                     let gone: Vec<_> = self
                         .library
                         .folders()
-                        .filter(|f| s.walked.iter().any(|root| f.path.starts_with(root)) && !job.seen.contains(&f.path))
+                        .filter(|f| {
+                            s.walked.iter().any(|root| f.path.starts_with(root))
+                                && !excluded.iter().any(|x| f.path.starts_with(x))
+                                && !job.seen.contains(&f.path)
+                        })
                         .map(|f| f.id)
                         .collect();
                     for id in gone {
@@ -470,11 +521,17 @@ impl Session {
                 }
             }
         }
+        if let Some(s) = summary.as_ref().filter(|_| !cancelled) {
+            let walked = Plan { roots: s.walked.clone(), excluded: job.plan.excluded.clone() };
+            if self.folders.rules.mark_indexed(&walked) {
+                self.save_folders();
+            }
+        }
         self.sync_thumbnails();
         let found = job.walker.found.max(job.indexed);
         self.scanning.last = ScanProgress { running: false, folders_queued: 0, found, indexed: job.indexed };
         let result = json!({
-            "roots": job.roots,
+            "roots": job.plan.roots,
             "folders": job.folders,
             "found": found,
             "indexed": job.indexed,

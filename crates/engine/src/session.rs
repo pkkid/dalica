@@ -191,16 +191,19 @@ impl Session {
         let spec = *self.spec(id).ok_or_else(|| CmdError::UnknownCommand(id.to_string()))?;
         (spec.enabled)(self, params).map_err(|d| CmdError::Disabled(d.0))?;
         self.collected = Some(Vec::new());
+        self.folders.change = None;
         let result = catch_unwind(AssertUnwindSafe(|| (spec.run)(self, params)));
         let mut inverses = self.collected.take().unwrap_or_default();
-        if spec.history == History::Library && !inverses.is_empty() {
+        // The folder rules the command replaced (`folders.rs`): a rules-only change is a step too.
+        let modes = self.folders.change.take().filter(|m| !m.is_empty());
+        if spec.history == History::Library && (!inverses.is_empty() || modes.is_some()) {
             let op = if inverses.len() == 1 {
                 inverses.pop().unwrap_or(Op::Batch { ops: Vec::new() })
             } else {
                 inverses.reverse();
                 Op::Batch { ops: inverses }
             };
-            self.undo.push(Step { label: spec.label, op });
+            self.undo.push(Step { label: spec.label, op, modes });
         }
         match result {
             Ok(r) => r,
@@ -278,12 +281,22 @@ impl Session {
         }
     }
 
+    /// Applies an undo or redo step's op; the empty batch of a rules-only step changes nothing and
+    /// is not journaled.
+    fn apply_step(&mut self, op: Op) -> Result<Op, CmdError> {
+        if matches!(&op, Op::Batch { ops } if ops.is_empty()) {
+            return Ok(op);
+        }
+        self.apply(op)
+    }
+
     /// Undoes the last library step. `Ok(None)` when there is nothing to undo.
     pub(crate) fn undo(&mut self) -> Result<Option<&'static str>, CmdError> {
         let Some(step) = self.undo.pop_undo() else { return Ok(None) };
-        match self.apply(step.op.clone()) {
+        match self.apply_step(step.op.clone()) {
             Ok(redo) => {
-                self.undo.push_redo(Step { label: step.label, op: redo });
+                let modes = step.modes.clone().map(|m| self.swap_modes(m));
+                self.undo.push_redo(Step { label: step.label, op: redo, modes });
                 Ok(Some(step.label))
             }
             Err(e) => {
@@ -296,9 +309,10 @@ impl Session {
     /// Redoes the last undone step. `Ok(None)` when there is nothing to redo.
     pub(crate) fn redo(&mut self) -> Result<Option<&'static str>, CmdError> {
         let Some(step) = self.undo.pop_redo() else { return Ok(None) };
-        match self.apply(step.op.clone()) {
+        match self.apply_step(step.op.clone()) {
             Ok(undo) => {
-                self.undo.push_undo(Step { label: step.label, op: undo });
+                let modes = step.modes.clone().map(|m| self.swap_modes(m));
+                self.undo.push_undo(Step { label: step.label, op: undo, modes });
                 Ok(Some(step.label))
             }
             Err(e) => {

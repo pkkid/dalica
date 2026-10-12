@@ -21,6 +21,10 @@
 //! ([`ThumbSpeed`], `ui-layout.md` §5.6), read only, so the curve can be tuned by hand in the file
 //! without a rebuild.
 //!
+//! M5 adds `"fileTypes"`: `{png, gif, bmp, tiff, webp, heif, avif, jxl, psd, raw, video}`, Options →
+//! File Types (`data-model.md` §7): each `false` leaves that type out of every scan ([`FileTypes`];
+//! JPEG is always on, and a value that is not a boolean counts as on).
+//!
 //! Stored numbers are hostile like any input: a value that is not a finite number in its range is
 //! dropped (the default is used), never trusted.
 
@@ -28,6 +32,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use dalica_core::{DateTime, Timestamp};
+use dalica_scan::{FileType, FileTypes};
 use serde_json::{Map, Value, json};
 
 use crate::keymap::{Key, Override};
@@ -359,6 +364,22 @@ impl Settings {
         );
     }
 
+    /// Options → File Types: the types scans list. Every type is on unless stored as `false`.
+    pub fn file_types(&self) -> FileTypes {
+        FileType::ALL.into_iter().fold(FileTypes::all(), |t, ty| match self.field("fileTypes", ty.id()).and_then(Value::as_bool) {
+            Some(false) => t.with(ty, false),
+            _ => t,
+        })
+    }
+
+    /// Stores `types` under `"fileTypes"`, one flag per type but JPEG (always on); other keys of the
+    /// object are kept.
+    pub fn set_file_types(&mut self, types: FileTypes) {
+        let fields: Vec<(&str, Option<Value>)> =
+            FileType::ALL.into_iter().filter(|t| *t != FileType::Jpeg).map(|t| (t.id(), Some(json!(types.allows(t))))).collect();
+        self.merge("fileTypes", &fields);
+    }
+
     /// Reads `<dir>/settings.json` without changing anything: unlike [`Settings::load`], a damaged
     /// or unreadable file gives the defaults and stays where it is (the session that opens the
     /// library sets it aside and reports it). For what the window needs before the library opens.
@@ -414,6 +435,20 @@ mod tests {
         assert_eq!(s.view(), ViewState::default());
         s.set_window(&WindowState { position: None, size: [1000.0, 700.0], maximized: false });
         assert_eq!(s.window().unwrap().position, Some([-1200.0, 40.0]));
+    }
+
+    #[test]
+    fn file_types_survive_a_write_and_a_read_and_hostile_values_count_as_on() {
+        let s = Settings::parse(br#"{"fileTypes": {"png": false, "gif": "no", "raw": false, "jpeg": false, "future": 1}}"#).unwrap();
+        let t = s.file_types();
+        assert!(!t.allows(FileType::Png) && !t.allows(FileType::Raw));
+        assert!(t.allows(FileType::Gif) && t.allows(FileType::Jpeg) && t.allows(FileType::Tiff));
+        let mut s = s;
+        s.set_file_types(FileTypes::all().with(FileType::Video, false));
+        let back = Settings::parse(&s.print()).unwrap();
+        assert_eq!(back.file_types(), FileTypes::all().with(FileType::Video, false));
+        assert_eq!(back.get("fileTypes").unwrap()["future"], 1, "keys it does not write are kept");
+        assert_eq!(Settings::default().file_types(), FileTypes::all());
     }
 
     #[test]
