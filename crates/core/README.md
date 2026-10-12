@@ -4,6 +4,7 @@
 
 - **May depend on:** nothing (`docs/architecture.md` §2; `cargo xtask layers` enforces it). External: `serde`, `thiserror`.
 - **Public API:**
+  - `app_id`: `APP_ID` (`"org.dalica.Dalica"`, reserved decision 10) and `check_dbus_name` / `check_bundle_id` / `check_reverse_dns` / `check`.
   - `ids`: `PhotoId`, `FolderId` (integers from the index); `AlbumId`, `PersonId` (`a`/`p` + 4–16 lowercase hex digits, checked on parse and deserialize).
   - `geom`: `Rect01` (normalised `[x0, y0, x1, y1]`, six decimals, never empty), `PixelRect`, `to_pixels` / `from_pixels`.
   - `clock`: `Timestamp` (Unix milliseconds, saturating), the `Clock` trait, `SystemClock`, `VirtualClock`.

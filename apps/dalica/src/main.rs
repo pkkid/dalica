@@ -232,7 +232,7 @@ fn run_window(source: window::Source, control: Option<window::ControlSetup>) -> 
     // window and the library open; the session that opens it sets a damaged file aside.
     let settings = dalica_engine::settings::Settings::peek(&source.library_dir());
     let frame = frame::FrameSetup::from_settings(&settings, frame::Os::host());
-    let options = eframe::NativeOptions { viewport: frame.viewport(), ..Default::default() };
+    let options = eframe::NativeOptions { viewport: window::viewport(&frame), ..Default::default() };
     let token_file = Arc::new(std::sync::Mutex::new(None));
     let keep = token_file.clone();
     let ran = eframe::run_native(
