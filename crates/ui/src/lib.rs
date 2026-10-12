@@ -8,6 +8,7 @@
 pub mod app;
 pub mod commands;
 pub mod control;
+pub mod dialogs;
 pub mod headless;
 pub mod keys;
 pub mod menu_catalog;

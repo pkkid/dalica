@@ -181,7 +181,9 @@ Input replies do not wait for work the input started (thumbnails, a scan, an exp
   as in the UI. By default the reply waits for the job and carries its result. With
   `"wait": false` the reply is `{job, pending: true}` at once. A job still running 55 s into the
   reply deadline replies `{job, pending: true}` too, so a long export never ends in a blind
-  `timeout`. Follow up with `jobs.wait` / `jobs.list`.
+  `timeout`. Follow up with `jobs.wait` / `jobs.list`. **Planned, not built yet:** today the
+  scans (`folders.add`, `library.rebuild`) reply at once (`scanning: true`) and do not name their
+  job; `jobs.list` lists it, and `jobs.wait` waits for it.
 - Input-driven changes behave exactly like the user's: a slider drag or a typing session in the
   caption field coalesces into one undo step.
 
@@ -209,7 +211,10 @@ contain `"confirm": true`: `photo.delete`, `folder.delete`, `album.delete`, `pho
 `edit.undoAll`, `photo.save` (the first-time explanation), clearing a tray with held items,
 `folder.remove`, `library.rebuild`, and the import options that delete from a card. The error
 (`needs_confirm`) carries `prompt`: the dialog's text and buttons, so an agent can show it to its
-user. `ui.menu.invoke` and clicks open the real confirmation dialog instead. Deletes still go to the
+user. `ui.menu.invoke` and clicks open the real confirmation dialog instead. Some commands ask only
+sometimes: `tray.clear` asks only when it would empty a tray holding held photos. Those ask through
+the in-app dialog host: run without `confirm` from the UI they open their question
+(`{dialog: "clearTray"}`), and `prompt` names the dialog (`{title, text, buttons, dialog}`). Deletes still go to the
 OS trash; `confirm` never turns a trash delete into a permanent one.
 
 ### 5.6 Effects outside Dalica are refused by default
@@ -285,12 +290,12 @@ writes nothing and shows `indicator:temporarySession`.
 | `ui.wait` | `{ms}` | `{frames}` |
 | `ui.menu.tree` | `{context?}` | the menu bar (or a context menu) as shown (§6.10) |
 | `ui.menu.invoke` | `{path \| id, params?, wait?}` | the command's result, or `{dialog}` |
-| `ui.dialog.confirm` / `ui.dialog.cancel` | `{button?}` | the dialog's command result / `{}` |
+| `ui.dialog.confirm` / `ui.dialog.cancel` | `{button?}` / — | what the dialog's button ran / `{}` (§6.10) |
 | `ui.filePicker` | `{path} \| {cancel: true}` | the command's result (§5.6) |
 | `ui.screenshot` | `{path?, headless?, widget?, region?, scale?, settle?}` | `{path, width, height, headless}` (§6.11) |
 | `ui.settle` | `{timeoutMs?, jobs?}` | `{settled, frames, ms, busy}` (§6.12) |
 | `jobs.list` | — | `[{job, kind, label, state, progress, result?, error?}]` (§6.13) |
-| `jobs.wait` | `{job, timeoutMs?}` | the job's final entry, or `{job, pending: true}` |
+| `jobs.wait` | `{job, timeoutMs?}` | the job's final entry, or its running entry with `pending: true` |
 | `jobs.cancel` | `{job?}` | `{cancelled: [job…]}`; no `job` = every cancellable job |
 | `app.quit` | — | `{}`; pending sidecar/metadata writes are flushed first |
 
@@ -402,7 +407,7 @@ The view state: what `UI_COMMANDS` change and what is persisted between sessions
  "selection": {"ids": [], "anchor": null, "section": null, "whole": false},
  "tray": {"held": [], "selected": []}, "scroll": {"section": null, "offset": 0},
  "edit": {"photo": null, "tab": "basic", "tool": null, "compare": "one", "zoom": "fit", "panelVisible": true},
- "slideshow": null, "language": "en", "status": "No selection"}
+ "slideshow": null, "language": "en", "status": "No selection", "dialogs": [], "activity": false}
 ```
 
 `view` is `library | edit | slideshow | viewer`; `room` is the active tab (`library`,
@@ -420,6 +425,8 @@ The view state: what `UI_COMMANDS` change and what is persisted between sessions
 | `selection` | `ids`, `anchor`, `section` (the section the photos are in, written as its widget id, `"folder:12"`; `null` for none), `whole` (the section selected as a unit) | the `select.*` commands only (read-only here) |
 | `tray` | `held` (photos kept by Hold), `selected` (the tray's own selection: photos the tray shows) | the `tray.*` commands |
 | `scroll` | `section` (the section at the top of the light table, `null` for the top of the library) and `offset` (points below that section's top, 0 … 10⁹) | the scroll commands, the scroll bar |
+| `dialogs` | the open in-app dialogs, bottom first (the last takes input): `{kind, fields, command?}`, `kind` as in `dialog:<kind>` (`clearTray`, `folderManager`, `firstRun`), `fields` its draft (nothing is applied before its default button), `command` what a confirmation runs when confirmed | read-only here: the commands that open them (`folders.manager`, a `tray.clear` that asks), their buttons, `ui.dialog.confirm`, `ui.dialog.cancel` |
+| `activity` | bool: the activity popover under `indicator:activity` is open (its rows are `jobs.list`'s) | `ui.set`; a click on the indicator (M5.19) |
 
 `thumbSize`, `treeMode`, `folderSort`, `folderSortReverse`, `caption`, `smallPictures` and
 `hiddenPictures` are kept in the library's `settings.json` (with the tree width and the side pane)
@@ -438,15 +445,15 @@ Everything in `ui.state`, plus:
 |---|---|
 | `window` | `{width, height, pixelsPerPoint, focused, drawing}` — `drawing` false while the compositor delivers no frames |
 | `regions` | `[x, y, w, h]` per region of `ui-layout.md` §2: `menuBar`, `toolbar`, `tabStrip`, `tree`, `splitter`, `lightTable`, `scrollbar`, `sidePane`, `statusLine`, `tray`, `trayButtons`, `bottomControls`, `actionButtons`; in the edit view `editPanel`, `canvas`, `filmstrip`, `captionBar`; `null` when not shown |
-| `scroll` | `{lightTable, tree, topSection, sticky}` — offsets in points, the section at the top, the pinned header |
+| `scroll`, `scrollViews` | `scroll` is `ui.state`'s anchor (`{section, offset}`); `scrollViews` is `{lightTable, tree, topSection, sticky}` — the light table's and the tree's offsets in points as last drawn, the section at the top, the pinned header (section ids as in `ui.state`, `null` for none) |
 | `hovered` / `focused` | widget ids |
-| `popup` | the open menu, context menu or dropdown: `{kind, items: [{widget, id, label, enabled, checked?}]}` |
-| `dialog` | the top dialog: `{kind, title, fields: {name: value}, buttons: [widget ids], default}` |
+| `popup` | the open menu, context menu or popup as last drawn, `null` when none: `{kind, menu?, items: [{widget, id, label, enabled, checked}]}`; `kind` is `menu` (with `menu`, the bar menu's key: `File`), `viewOptions` (the toolbar's popup) or `contextMenu`; `id` is the row's command (`null` for a submenu row) |
+| `dialog` | the top dialog, `null` when none: `{kind, widget, title, fields: {name: value}, buttons: [widget ids], default, command?}` (`default` the widget of the button Enter presses) |
 | `filePicker` | the stubbed picker waiting for `ui.filePicker` (§5.6) |
 | `status` | the status-line text as drawn; `toasts` with their text and remaining time |
-| `tooltip` | the tooltip text currently shown |
+| `tooltip` | the text of the tooltip the last frame showed (its lines joined with `\n`), `null` when none |
 | `drag` | a drag in progress: `{from, ids, target, op, pill}` |
-| `animations` | running animations (scroll-to-section, pane slide, fades) |
+| `animations` | running animations: `[{kind, region}]`, today `{kind: "scrollToSection", region: "lightTable"}` while the light table eases to a section (pane slides and fades join as they are built) |
 | `jobs` | same entries as `jobs.list` |
 | `notices` | warnings waiting to be shown (damaged settings file kept aside, …) |
 | `libraryProblem` | §5.9 |
@@ -528,7 +535,8 @@ model as the in-window menus and the native macOS menu bar:
 ```
 
 `ui.menu.tree {context: "photo" | "section" | "tray" | "treeGroup" | "tag" | "face"}` returns that
-context menu's model for the current selection without opening it.
+context menu's model for the current selection without opening it. `tray` is the tray menu as it
+opens on the tray's empty space: for the tray-selected photos, or with none every photo in the tray.
 
 Each item carries `id`, `label` (as shown: Undo names the action it undoes), `enabled`, `live`
 (its command is registered, and for an item ending in `…` its dialog exists), `widget`, and when
@@ -536,7 +544,7 @@ they apply `shortcut` (the binding in effect, `Cmd` on macOS), `params` (the fix
 row that shares its command), `checked` (checkable rows; radio rows add `radio: true`), `dialog`
 (the dialog the item opens) and `reason` (why it is disabled). A submenu is `{label, widget,
 children}`. Context menus are modelled as their regions arrive: `section` (the fourth menu's rows)
-answers now, the others are `unsupported` until then.
+and `tray` answer now, the others are `unsupported` until then.
 
 `ui.menu.invoke {path: "Picture/Batch Edit/Rotate Clockwise"}` (labels as shown, without a
 trailing `…`, separated by `/`; a literal `/` in a label is `\/`) or `{id: "photo.rotate.cw"}`
@@ -545,11 +553,19 @@ behaves like clicking the item: items whose label ends in `…` open their dialo
 §5.3). Disabled items fail with `disabled`; catalog items that are not live yet fail with
 `unsupported`. A command runs as `engine.execute` runs it (§5.5–§5.7 apply), with the
 selection as `ids` when it takes them, the row's fixed parameters, then `params`. File ▸ Add
-Folder… replies `{dialog: "filePicker"}` once the stubbed picker waits for `ui.filePicker` (§5.6).
+Folder… replies `{dialog: "filePicker"}` once the stubbed picker waits for `ui.filePicker` (§5.6);
+Tools ▸ Folder Manager… replies `{dialog: "folderManager"}` once a frame has drawn it. A command that
+asks first (§5.5) opens its question and replies `{dialog: <kind>}`.
 
 Dialogs are driven through their widgets (`field:dialog.<name>`, `button:dialog.<action>`) or the
-shortcuts `ui.dialog.confirm` (the default button, or `{button: "dialog.undoSave"}`) and
-`ui.dialog.cancel`.
+shortcuts `ui.dialog.confirm` (the default button, or `{button: "dialog.undoSave"}`, with or without
+the `button:` prefix) and `ui.dialog.cancel`. Both answer the top dialog, as its buttons do: Cancel
+closes it and changes nothing (`{}`); another button runs the dialog's action and replies its
+result, once a frame has drawn the result. The dialog closes when the action succeeds and stays
+open when it fails (the error is the reply). With no dialog open both are `not_found`; a button the
+dialog does not have is `not_found`, a disabled one `disabled`. While a dialog is open the window
+under it takes no input: its backdrop takes the clicks, and no shortcut runs and no panel sees a key
+(Esc presses Cancel, Enter the default button, unless a field keeps the focus).
 
 ### 6.11 `ui.screenshot`
 
@@ -560,7 +576,8 @@ shortcuts `ui.dialog.confirm` (the default button, or `{button: "dialog.undoSave
 
 - Captures the whole window as a PNG at physical pixels, **after a settle** (§6.12, up to 5 s) so
   visible thumbnails and previews are finished; `settle: false` captures the next frame as is.
-- `widget` or `region` (a region name or `[x, y, w, h]` in points) crops the capture.
+- `widget` or `region` (a region name or `[x, y, w, h]` in points) crops the capture; a region
+  by name is the rect `ui.inspect` → `regions` reports (`not_found` while it is not shown).
 - Without `path` the PNG comes back base64-encoded in `png` (subject to the 8 MiB reply limit).
   `path` follows §5.7 and must end in `.png`.
 - `headless: true` draws the UI on the CPU (§8) instead of reading back the window: it needs no
@@ -596,7 +613,11 @@ slideshow timing).
 ```
 
 `state` is `queued | running | done | failed | cancelled`; finished jobs keep `result` or `error`
-and stay listed for 10 minutes (at most 64 entries). Kinds: `scan`, `import`, `export`, `save`,
+(and `finishedMs`) and stay listed for 10 minutes (at most 64 entries). `jobs.wait` lets frames run
+while it waits (it never blocks one) and replies the final entry, or after `timeoutMs` (default and
+at most 55 s; over 60 000 is `limit`) the running entry with `pending: true`; an unknown or expired
+job is `not_found`. `jobs.cancel` replies once a frame has polled the session; a finished job is not
+in `cancelled`. Kinds: `scan`, `import`, `export`, `save`,
 `batchEdit`, `metadataWrite`, `rebuild`, `duplicates`, `faces`, `collage`. `jobs.cancel` stops a job at its next photo boundary: photos already written stay
 (each was written atomically), nothing is left half-written. Cancelling a job is never an undo of
 the photos it completed.
@@ -630,7 +651,7 @@ recipe operation and parameter names of `data-model.md` §3.1 and `editing.md` (
 | Edit tools (M7) | `tool:crop`, `tool:straighten`, `tool:autofix`, `tool:autocontrast`, `tool:autocolor`, `tool:retouch`; `slider:basic.fill_light`; tool panels: `slider:straighten.angle`, `choice:crop.ratio`, `button:crop.rotate`, `button:panel.apply`, `button:panel.cancel`, `button:panel.reset` |
 | Tuning (M7) | `slider:tuning.fill_light`, `slider:tuning.highlights`, `slider:tuning.shadows`, `slider:tuning.temperature`, `button:tuning.neutralPicker`, `button:tuning.reset` |
 | Effects (M12) | `effect:<name>` per tile (`effect:sharpen`, `effect:sepia`, `effect:bw`, `effect:soft_focus`, `effect:graduated_tint`, …); effect panels: `slider:effect.<param>` (`slider:effect.amount`, `slider:effect.fade`), `color:effect.<param>`, `check:effect.<param>`, `crosshair:effect` |
-| Dialogs (M3+) | `dialog:<kind>` (the dialog), `field:dialog.<name>`, `check:dialog.<name>`, `choice:dialog.<name>`, `button:dialog.ok`, `button:dialog.cancel`, `button:dialog.<action>` (`button:dialog.undoSave`, `button:dialog.clearTray`) |
+| Dialogs (M3+) | `dialog:<kind>` (the dialog: `dialog:clearTray`, `dialog:folderManager`, `dialog:firstRun`), `dialog:<kind>/backdrop`, `field:dialog.<name>`, `check:dialog.<name>`, `choice:dialog.<name>`, `button:dialog.ok`, `button:dialog.cancel`, `button:dialog.<action>` (`button:dialog.undoSave`, `button:dialog.clearTray`, `button:dialog.help`, `button:dialog.continue`) |
 | Toasts (M3) | `toast:<n>`, `button:toast.<action>` (`button:toast.showFolder`) |
 
 Rules for implementers:

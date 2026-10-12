@@ -64,7 +64,11 @@ pub(super) fn screenshot(call: &mut Call<'_>, params: &Value) -> Result<Outcome,
             check_size(f64::from(w.rect[2]), f64::from(w.rect[3]), scale)?;
             Crop::Widget(id.clone())
         }
-        (None, Some(Value::String(name))) => return Err(view::region(call, name)),
+        (None, Some(Value::String(name))) => {
+            let w = view::region(call, name)?;
+            check_size(f64::from(w.rect[2]), f64::from(w.rect[3]), scale)?;
+            Crop::Widget(w.id)
+        }
         (None, Some(r)) => {
             let rect: [f64; 4] = serde_json::from_value(r.clone()).map_err(|_| call.bad("`region` is a region name or [x, y, w, h] in points"))?;
             if rect.iter().any(|v| !v.is_finite()) {

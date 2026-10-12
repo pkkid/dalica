@@ -234,9 +234,9 @@ fn clear_asks_first_only_when_photos_are_held() {
     assert_eq!(minis(&d).iter().map(|m| m.0).collect::<Vec<_>>(), [s[0][1], s[1][0]]);
     assert_eq!((d.state().tray.held.as_slice(), d.state().selection.ids.as_slice()), ([s[0][1]].as_slice(), [s[1][0]].as_slice()));
 
-    // Over automation the question is a parameter.
+    // Run without `confirm`, the command asks through the dialog host; with it, it clears.
     let r = d.app_mut().run("tray.clear", &json!({}));
-    assert!(matches!(&r, Err(CmdError::Disabled(m)) if m.contains("confirm")), "{r:?}");
+    assert_eq!(r.unwrap(), json!({ "dialog": "clearTray" }));
     assert_eq!(d.app_mut().run("tray.clear", &json!({ "confirm": true })).unwrap()["count"], 0);
 }
 

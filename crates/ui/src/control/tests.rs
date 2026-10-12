@@ -302,11 +302,11 @@ fn methods_are_listed_unknown_ones_refused_unbuilt_ones_unsupported_and_panics_c
         assert!(names.contains(&m), "{m}");
     }
     assert!(!names.contains(&"auth"), "auth is the transport's");
-    let dialog = list.as_array().unwrap().iter().find(|m| m["method"] == "ui.dialog.confirm").unwrap();
-    assert_eq!((dialog["built"].as_bool(), dialog["planned"].as_str().map(|p| p.contains("M5"))), (Some(false), Some(true)));
-    let e = refused(&mut t, "ui.dialog.confirm", json!({}), "unsupported");
-    assert!(e.message.contains("M5"), "{}", e.message);
-    for m in ["batch", "library.inspect", "jobs.wait", "app.quit"] {
+    for m in ["ui.dialog.confirm", "ui.dialog.cancel", "jobs.list", "jobs.wait", "jobs.cancel"] {
+        let entry = list.as_array().unwrap().iter().find(|e| e["method"] == m).unwrap();
+        assert_eq!((entry["built"].as_bool(), entry.get("planned")), (Some(true), None), "{m}");
+    }
+    for m in ["batch", "library.inspect", "app.quit"] {
         refused(&mut t, m, json!({}), "unsupported");
     }
     let e = refused(&mut t, "ui.clickwidget", json!({}), "unknown_method");
@@ -332,7 +332,7 @@ fn every_method_refuses_hostile_params_and_changes_nothing() {
     let mut t = setup(3);
     let before = t.d.app().state().clone();
     let built: Vec<&str> = METHODS.iter().filter(|m| m.run.is_some()).map(|m| m.name).collect();
-    assert_eq!(built.len(), 21, "{built:?}");
+    assert_eq!(built.len(), 26, "{built:?}");
     for m in &built {
         for params in [json!([1]), json!("x"), json!(7), json!(true), json!({ "zzz": 1 })] {
             let e = refused(&mut t, m, params.clone(), "bad_params");
@@ -772,7 +772,11 @@ fn screenshots_settle_crop_scale_and_go_inline_or_to_a_checked_path() {
     ] {
         refused(&mut t, "ui.screenshot", bad, "bad_params");
     }
-    refused(&mut t, "ui.screenshot", json!({ "region": "lightTable" }), "unsupported");
+    // A region by name: the rect `ui.inspect` → `regions` reports; one not shown is not found.
+    let tray = ok(&mut t, "ui.inspect", json!({}))["regions"]["tray"].clone();
+    let r = ok(&mut t, "ui.screenshot", json!({ "region": "tray", "settle": false }));
+    assert_eq!((r["width"].as_f64(), r["height"].as_f64()), (tray[2].as_f64().map(f64::round), tray[3].as_f64().map(f64::round)));
+    refused(&mut t, "ui.screenshot", json!({ "region": "editPanel" }), "not_found");
     refused(&mut t, "ui.screenshot", json!({ "headless": false }), "unsupported");
     refused(&mut t, "ui.screenshot", json!({ "widget": "thumb:0" }), "not_found");
     refused(&mut t, "ui.screenshot", json!({ "path": out.join("..").join("x.png") }), "path_denied");

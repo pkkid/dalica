@@ -30,17 +30,14 @@ pub const REGIONS: &[&str] = &[
     "captionBar",
 ];
 
-/// `ui.screenshot {region: "<name>"}`: `unsupported` for a region name (pass its rect from
-/// `ui.inspect` → `regions` instead), `bad_params` if it is not one of [`REGIONS`].
-pub(super) fn region(call: &Call<'_>, name: &str) -> Error {
-    if REGIONS.contains(&name) {
-        Error::new(
-            Code::Unsupported,
-            format!("a screenshot of region `{name}` by name is not supported yet; pass its rect from ui.inspect → regions"),
-        )
-    } else {
-        not_a_region(call, name)
+/// `ui.screenshot {region: "<name>"}`: the region's widget (`region:<name>`) to crop to;
+/// `bad_params` if it is not one of [`REGIONS`], `not_found` if it is not shown.
+pub(super) fn region(call: &Call<'_>, name: &str) -> Result<dalica_ui_kit::WidgetInfo, Error> {
+    if !REGIONS.contains(&name) {
+        return Err(not_a_region(call, name));
     }
+    registry::find(call.host.ctx(), &format!("region:{name}"))
+        .ok_or_else(|| Error::new(Code::NotFound, format!("region `{name}` is not shown (ui.inspect → regions)")))
 }
 
 fn not_a_region(call: &Call<'_>, name: &str) -> Error {
@@ -66,8 +63,12 @@ fn contains(r: [f32; 4], x: f32, y: f32) -> bool {
 }
 
 /// Fields of the view state that `ui.set` does not change, and what does.
-const READ_ONLY: &[(&str, &str)] =
-    [("selection", "the select.set and select.none commands"), ("status", "nothing: it is the status line's text as drawn")].as_slice();
+const READ_ONLY: &[(&str, &str)] = [
+    ("selection", "the select.set and select.none commands"),
+    ("status", "nothing: it is the status line's text as drawn"),
+    ("dialogs", "the commands that open them, their buttons, ui.dialog.confirm and ui.dialog.cancel"),
+]
+.as_slice();
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -151,9 +152,10 @@ fn hovered_and_focused(call: &Call<'_>, widgets: &[WidgetInfo]) -> (Option<Strin
     (hovered.map(|w| w.id.clone()), focused.map(|w| w.id.clone()))
 }
 
-/// `ui.inspect {resetPerf?}`: the view state plus the window, hover and focus, the stubbed file
-/// picker, notices, the regions' rects and the perf counters (§6.6). `resetPerf` clears the maxima
-/// after this report. Scroll, popups and dialogs join as their parts of the window are built (M4+).
+/// `ui.inspect {resetPerf?}`: the view state plus the window, hover and focus, the scroll offsets,
+/// the open popup, dialog and tooltip, running animations, jobs, the stubbed file picker, notices,
+/// the regions' rects and the perf counters (§6.6). `resetPerf` clears the maxima after this
+/// report.
 pub(super) fn inspect(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Error> {
     let p: Inspect = call.params(params)?;
     let mut v = state_json(call)?;
@@ -167,7 +169,11 @@ pub(super) fn inspect(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Er
         "focused": focused,
         "filePicker": call.control.stub().waiting(),
         "toasts": [],
-        "jobs": [],
+        "jobs": super::jobs::list(call.host),
+        "dialog": crate::dialogs::inspect(call.host.app()),
+        "popup": popup(&widgets),
+        "tooltip": call.host.app().tooltip(),
+        "animations": animations(call),
         "notices": notices,
         "libraryOpen": call.host.app().session().is_some(),
         "perf": perf(call),
@@ -175,10 +181,64 @@ pub(super) fn inspect(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Er
     if let (Some(obj), Value::Object(extra)) = (v.as_object_mut(), extra) {
         obj.extend(extra);
     }
+    // Where the views are scrolled to, beside `scroll` (the view state's anchor) (§6.6).
+    let views = Value::Object(scroll_views(call));
+    if let Some(obj) = v.as_object_mut() {
+        obj.insert("scrollViews".into(), views);
+    }
     if p.reset_perf {
         call.host.perf_mut().reset();
     }
     Ok(Outcome::Reply(Ok(v)))
+}
+
+/// The light table's and the tree's offsets (points), the section at the top of the light table
+/// and the pinned header, as the last frame drew them.
+fn scroll_views(call: &Call<'_>) -> serde_json::Map<String, Value> {
+    let app = call.host.app();
+    let info = app.panels().map(|p| p.light_table.frame_info().clone()).unwrap_or_default();
+    let tree = crate::panels::folders::info(call.host.ctx());
+    let top = app.state().scroll.section.map(|s| s.to_string());
+    let sticky = info.sticky.map(|(s, _)| s.to_string());
+    let v = json!({ "lightTable": info.offset, "tree": tree.offset, "topSection": top, "sticky": sticky });
+    match v {
+        Value::Object(o) => o,
+        _ => serde_json::Map::new(),
+    }
+}
+
+/// The animations running now: the light table easing to a section.
+fn animations(call: &Call<'_>) -> Vec<Value> {
+    let mut out = Vec::new();
+    if call.host.app().panels().is_some_and(|p| p.light_table.animating()) {
+        out.push(json!({ "kind": "scrollToSection", "region": "lightTable" }));
+    }
+    out
+}
+
+/// The open menu, context menu or popup as the last frame drew it: `{kind, menu?, items: [{widget,
+/// id, label, enabled, checked}]}`, from the rows it registered (`menuitem:<command id>[/<part>]`,
+/// `submenu:…`); `null` when none is open. `kind` is `menu` (with the bar menu's `menu` key) for a
+/// menu of the bar, `viewOptions` for the toolbar's view-options popup, `contextMenu` otherwise.
+fn popup(widgets: &[WidgetInfo]) -> Value {
+    let rows: Vec<Value> = widgets
+        .iter()
+        .filter(|w| w.role == Role::MenuItem)
+        .map(|w| {
+            let id = w.id.strip_prefix("menuitem:").map(|rest| rest.split('/').next().unwrap_or(rest));
+            json!({ "widget": w.id, "id": id, "label": w.label, "enabled": w.enabled, "checked": w.active })
+        })
+        .collect();
+    if rows.is_empty() {
+        return Value::Null;
+    }
+    let menu = widgets.iter().find(|w| w.role == Role::Menu && w.active).and_then(|w| w.id.strip_prefix("menu:"));
+    let view_options = widgets.iter().any(|w| w.id == crate::panels::toolbar::VIEW_OPTIONS_ID && w.active);
+    match (menu, view_options) {
+        (Some(m), _) => json!({ "kind": "menu", "menu": m, "items": rows }),
+        (None, true) => json!({ "kind": "viewOptions", "items": rows }),
+        (None, false) => json!({ "kind": "contextMenu", "items": rows }),
+    }
 }
 
 /// The frame counters plus the thumbnails' cell and texture counters (`placeholderCells`, …).

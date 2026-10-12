@@ -1483,7 +1483,7 @@ filled by the lead; M5.15 pins it.
     rows intact; a star made meanwhile is journalled, no folder is created at the old path, and
     after renaming the root back the sidecar holds the star; `pendingWrites` counts it in between;
     the tree property tests cover the offline flag; the owner thread made no `fs` call.
-- ⬜ **M5.14 `ui`: the dialog host, M5's view state and job methods**
+- ✅ **M5.14 `ui`: the dialog host, M5's view state and job methods**
   - after: M4.5, M4.16, M5.5
   - files: `crates/ui/src/state.rs`, `crates/ui/src/menus.rs`, `crates/ui/src/app.rs`, `crates/ui/src/tray.rs`, `crates/ui/src/commands/mod.rs`, `crates/ui/src/commands/dialogs.rs`, `crates/ui/src/dialogs/**`, `crates/ui/src/panels/activity.rs`, `crates/ui/src/control/**`, `crates/ui/tests/dialogs.rs`, `crates/ui/tests/jobs_control.rs`, `docs/control-protocol.md`
   - scope: `design-system.md` §6 `dialog` and `control-protocol.md` §6.6, §6.13: a modal host in

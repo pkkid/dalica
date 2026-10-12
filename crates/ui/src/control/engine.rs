@@ -32,8 +32,9 @@ pub(super) fn methods(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Er
     Ok(Outcome::Reply(Ok(Value::Array(list))))
 }
 
-/// Commands whose UI asks first (§5.5), with the question their dialog asks. Only commands that
-/// exist reach this table; the rest of §5.5 joins it with them.
+/// Commands whose UI asks first (§5.5) and that have no dialog on the host yet, with the question
+/// their dialog will ask. Commands that ask through the host are in `crate::dialogs::confirm::ASKS`
+/// instead (their question applies only sometimes, and the same row opens the dialog in the app).
 const CONFIRM: &[(&str, &str)] = &[(
     "library.rebuild",
     "Rebuild the library? Dalica forgets its index and reads every watched folder again; stars and captions come back from the folders.",
@@ -98,6 +99,15 @@ pub(super) fn execute(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Er
     external_allowed(k.effect, call.control.config().allow_external, &id)?;
     if let (Some(spec), Some(session)) = (&k.spec, call.host.app().session()) {
         (spec.enabled)(session, &Value::Object(cmd_params.clone())).map_err(|d| Error::new(Code::Disabled, d.0))?;
+    }
+    // A command that asks through the dialog host, when its question applies (§5.5).
+    if let Some(ask) = crate::dialogs::asking(call.host.app(), &id, &Value::Object(cmd_params.clone())) {
+        let mut err = Error::new(
+            Code::NeedsConfirm,
+            format!("`{id}` asks first in the app; send \"confirm\": true in its params to go ahead (prompt holds the question)"),
+        );
+        err.prompt = Some(crate::dialogs::confirm::prompt(ask));
+        return Err(err);
     }
     if let Some((_, question)) = CONFIRM.iter().find(|(c, _)| *c == id) {
         match cmd_params.remove("confirm") {

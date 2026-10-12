@@ -143,7 +143,6 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
     tray_buttons(app, ui, &parts);
     controls(app, ui, parts.controls);
     actions(app, ui, parts.actions, area.width());
-    tray::confirmation(app, ui.ctx());
 }
 
 /// The tray's three stacked buttons: Hold while the tray has photos that are not held, Clear while
@@ -169,7 +168,7 @@ fn tray_buttons(app: &mut App, ui: &mut Ui, p: &Parts) {
         Some("button:tray.hold") => {
             let _ = app.run("tray.hold", &json!({}));
         }
-        Some("button:tray.clear") => tray::clear_clicked(app, ui.ctx()),
+        Some("button:tray.clear") => tray::clear_clicked(app),
         _ => {}
     }
 }
