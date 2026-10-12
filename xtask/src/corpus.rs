@@ -38,7 +38,7 @@ const MAX_DEPTH: usize = 16;
 
 /// The crates with corpus tests (`tests/corpus.rs` behind their `corpus` feature) and the extra
 /// features their corpus tests need.
-pub const CORPUS_CRATES: &[(&str, &[&str])] = &[("dalica-image", &["heif"])];
+pub const CORPUS_CRATES: &[(&str, &[&str])] = &[("dalica-image", &["heif"]), ("dalica-meta", &[])];
 
 /// `(sha256, path)` entries of a manifest, sorted by path.
 pub type Manifest = Vec<(String, String)>;
@@ -983,8 +983,9 @@ mod tests {
         assert!(parse_args(&strings(&["--fast"])).is_err());
         let t = parse_test_args(&strings(&["-p", "image", "--", "--test-threads=1"])).unwrap();
         assert_eq!(t, TestArgs { crates: vec!["dalica-image".into()], local: false, passthrough: vec!["--test-threads=1".into()] });
-        assert_eq!(parse_test_args(&[]).unwrap().crates, ["dalica-image"]);
-        assert!(parse_test_args(&strings(&["-p", "meta"])).unwrap_err().contains("has no corpus tests"));
+        assert_eq!(parse_test_args(&[]).unwrap().crates, ["dalica-image", "dalica-meta"]);
+        assert_eq!(parse_test_args(&strings(&["-p", "meta"])).unwrap().crates, ["dalica-meta"]);
+        assert!(parse_test_args(&strings(&["-p", "thumbs"])).unwrap_err().contains("has no corpus tests"));
         assert!(parse_test_args(&strings(&["-p"])).is_err());
     }
 

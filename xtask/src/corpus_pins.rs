@@ -5,7 +5,7 @@
 //!
 //! - Third-party sets come from their upstreams, under their own terms, and are never copied into
 //!   our own corpus repository.
-//! - Our own sets (`photos`, `heif`) come from <https://github.com/pkkid/dalica-corpus> (CC0 and
+//! - Our own sets (`photos`, `heif`, `metadata`) come from <https://github.com/pkkid/dalica-corpus> (CC0 and
 //!   public-domain files only, each with its source) at the commit pinned in
 //!   [`DALICA_CORPUS_COMMIT`]; that repository's `SOURCES.tsv` gives every file's source, author,
 //!   licence, size, sha256 and the tool that derived it.
@@ -49,9 +49,10 @@ pub struct Set {
 
 /// Our own CC0 corpus repository (`docs/development.md` §11).
 pub const DALICA_CORPUS_REPO: &str = "pkkid/dalica-corpus";
-/// The pinned commit of [`DALICA_CORPUS_REPO`] (M6.42: the `photos` and `heif` sets, 2026-10-13).
-/// `None` would mark its sets "not published yet".
-pub const DALICA_CORPUS_COMMIT: Option<&str> = Some("ef4826d0fcf3b016a773ccb31ff6dd29239bc9ff");
+/// The pinned commit of [`DALICA_CORPUS_REPO`] (M6.42: the `photos` and `heif` sets; M6.34: the
+/// `metadata` set added, `photos` and `heif` unchanged). `None` would mark its sets "not published
+/// yet".
+pub const DALICA_CORPUS_COMMIT: Option<&str> = Some("6239cad23d043ace64f171cadf951dd698568d01");
 
 /// PngSuite: Willem van Schaik's PNG test images, the 2017-07-19 release archive. Its own terms:
 /// "Permission to use, copy, modify and distribute these images for any purpose and without fee
@@ -272,5 +273,17 @@ pub const HEIF: Set = Set {
     source: Source::Repo { repo: DALICA_CORPUS_REPO, commit: DALICA_CORPUS_COMMIT, subdir: "heif" },
 };
 
+/// `corpus/metadata/`: `dalica-scenes` photos after other applications wrote metadata into them
+/// (M6.34), from our own corpus repository; each file's tool and version is in its `SOURCES.tsv`.
+pub const METADATA: Set = Set {
+    name: "metadata",
+    what: "53 generated files: dalica-scenes JPEG, PNG, WebP and TIFF photos after exiv2, ImageMagick and Pillow wrote captions, \
+           keywords, ratings, GPS, dates, MWG face regions and foreign metadata into them; a DNG-like TIFF and RAW .xmp sidecars",
+    terms: "`metadata/` of https://github.com/pkkid/dalica-corpus: generated from Dalica's own procedural scenes, CC0 1.0, each \
+            file's base scene, tool and version in that repository's SOURCES.tsv.",
+    used_by: &["dalica-meta"],
+    source: Source::Repo { repo: DALICA_CORPUS_REPO, commit: DALICA_CORPUS_COMMIT, subdir: "metadata" },
+};
+
 /// Every set, in the order `cargo xtask corpus` lists and fetches them.
-pub const SETS: &[&Set] = &[&PNGSUITE, &RAW, &PHOTOS, &HEIF];
+pub const SETS: &[&Set] = &[&PNGSUITE, &RAW, &PHOTOS, &HEIF, &METADATA];

@@ -2300,7 +2300,7 @@ replace at M6.R.
     writes the old value back; with an option off nothing is written; the star rating rule; a
     read-only file gives one toast (`crates/ui/tests/notices.rs`) and the sidecar keeps the value;
     the owner thread made no `fs` call.
-- ⬜ **M6.34 `meta`: the metadata corpus**
+- ✅ **M6.34 `meta`: the metadata corpus**
   - after: M5.15, M6.17, M6.18, M6.19
   - owner: lead
   - files: `xtask/src/corpus_pins.rs`, `xtask/corpus/metadata/**`, `crates/meta/tests/corpus.rs`, `crates/meta/tests/corpus_floors.json`
