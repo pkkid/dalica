@@ -1629,7 +1629,7 @@ filled by the lead; M5.15 pins it.
     `crates/ui/tests/tray_keys.rs`: with 2 held and 3 selected, the star key stars all 5 in one
     undo step; the minis are centred at 1, 12 and 40 items; graceful failures; `widget_ids` stays
     green.
-- ⬜ **M5.24 CI: the release frame budgets on `main` (Linux)**
+- ✅ **M5.24 CI: the release frame budgets on `main` (Linux)**
   - after: M4.R
   - files: `.github/workflows/budgets.yml`, `xtask/src/accept.rs`, `docs/development.md`
   - scope: the maintainer's answer at M4.R (2026-10-11): a workflow of its own on every push to

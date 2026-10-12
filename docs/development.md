@@ -41,6 +41,7 @@ cargo xtask ci                                      # THE gate: run before every
 | `xtask test-corpus` | *planned (M5):* fetch the corpora and run the `corpus`-feature tests | |
 | `xtask corpus` | *planned (M5):* fetches pinned, sha256-verified CC0 test photos into the gitignored `corpus/` | |
 | `xtask bench [name…] [-- args]` | builds the registered benches in release (`cargo bench`), runs each with `--json` (plus `args`), prints its rows, appends the run to `<target dir>/bench/history.jsonl` and fails on a CPU-time regression over 20 % against the last run of the same bench with the same arguments on the same machine (§13 *Bench runs*); no name runs them all | |
+| `xtask budgets [--plant-ms N]` | builds in release and runs the frame budgets the milestones assert (§8 *The budgets job*): M4's 100 k scroll (`library_bench`) and thumb at top speed, UI frame time p95 ≤ 8 ms, cells visited flat; one line per budget, fails when one is missed; `--plant-ms` adds a planted slowdown to every frame | the `budgets` workflow |
 | `xtask perf` | *planned (from M4):* the budgeted benchmark run of §13 | |
 | `xtask scorecard [--check]` | *planned (after M1):* regenerate / verify `docs/scorecard.md` | |
 | `xtask snapshot <script>` | *planned (M2):* headless UI screenshot via the CPU rasterizer | |
@@ -164,6 +165,26 @@ cargo run --release -p dalica -- --control 7990 --demo
 | Idle memory with 100 k photos | ≤ 600 MiB |
 
 Measure, don't guess: record numbers in `docs/status.md` → Metrics with the machine and date.
+
+**The budgets job.** `.github/workflows/budgets.yml` runs `cargo xtask budgets` on every push to
+`main`, on Linux only (`ubuntu-latest`), with its own release cache: it builds in release and runs
+the budgets the acceptance tests assert only with `DALICA_ACCEPT_RELEASE=1`, and the run fails when
+one is missed. Today (M4) that is the 100 k scroll of `library_bench` in full (UI frame time p95
+≤ 8 ms; cells visited per frame flat from 10 k to 100 k) and `m4.rs`'s thumb held at its top speed
+through 100 k sketched photos (p95 ≤ 8 ms, no placeholder, cells flat). A milestone adds its budgets
+to `BUDGETS` in `xtask/src/accept.rs` (M5: first thumbnails ≤ 1 s). A pull request that changes the
+workflow or `xtask/src/accept.rs` runs the job too, and *Run workflow* on the Actions tab runs it on
+any branch with a planted slowdown (`plant_ms`). The same check locally:
+
+```sh
+cargo xtask budgets                  # release build, then every budget; exit 1 when one is missed
+cargo xtask budgets --plant-ms 8     # a planted 8 ms in every frame: must fail
+DALICA_ACCEPT_RELEASE=1 cargo xtask accept M4   # the whole M4 acceptance, these budgets included
+```
+
+A planted slowdown of *n* ms in every frame moves every percentile of the frame times by exactly
+*n*, so `--plant-ms` adds *n* to each measured p95 before judging it; the `xtask` tests plant
+slow reports and slow runs and check that the job fails.
 
 ## 9. Repository hygiene
 

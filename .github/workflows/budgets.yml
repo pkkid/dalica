@@ -1,0 +1,58 @@
+# The release frame budgets on every push to main, Linux only: `cargo xtask budgets` builds in
+# release and runs the budgets the milestones' acceptance tests assert only with
+# `DALICA_ACCEPT_RELEASE=1` (M4: the 100 k scroll and the thumb at top speed, UI frame time
+# p95 ≤ 8 ms, cells visited flat), failing the run when one is missed (docs/development.md §8).
+# Its own file, so it never shares ci.yml's matrix; cached like ci.yml. A pull request that changes
+# this job runs it too, and "Run workflow" on the Actions tab takes a planted slowdown to prove
+# that a missed budget fails the run. Actions are pinned to full commit hashes
+# (docs/security.md §8.5).
+name: Budgets
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - .github/workflows/budgets.yml
+      - xtask/src/accept.rs
+  workflow_dispatch:
+    inputs:
+      plant_ms:
+        description: "A planted slowdown, in ms per frame (0: none; 8 must fail the run)"
+        required: false
+        default: "0"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: budgets-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  budgets:
+    name: release budgets (ubuntu-latest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - run: git config --global core.autocrlf false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master, 2026-10-09
+        with:
+          toolchain: "1.98"
+      # The job id names the cache, so this release cache never mixes with ci.yml's debug one.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: Linux packages for eframe
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libwayland-dev
+      - name: cargo xtask budgets
+        env:
+          PLANT_MS: ${{ inputs.plant_ms || '0' }}
+        run: cargo xtask budgets --plant-ms "$PLANT_MS"

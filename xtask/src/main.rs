@@ -24,6 +24,7 @@ commands:
   ci        THE gate: fmt, clippy, tests, layers, deps, assets, names, parity, tasks sync --check, accept (finished milestones)
   accept    cargo xtask accept M<n> [--headless]: a milestone's acceptance test and its manual checks
   bench     cargo xtask bench [name…] [-- args]: release benches; history in <target>/bench/history.jsonl; flags >20 % slowdowns
+  budgets   cargo xtask budgets [--plant-ms N]: the release frame budgets the milestones assert (the budgets workflow)
   assets    every asset has an ATTRIBUTION.md row; licence files exist; no forbidden names or formats
   docs      every `cargo xtask` command the docs name exists (AGENTS.md, development.md, task-board.md)
   deps      audit dependencies: licences, banned and *-sys crates, C builds, sources (docs/security.md §8)
@@ -33,7 +34,7 @@ commands:
   tasks     the task board (docs/task-board.md); `cargo xtask tasks` for its commands";
 
 /// Implemented commands (`cargo xtask docs` checks the docs against these and [`PLANNED`]).
-pub const COMMANDS: &[&str] = &["ci", "accept", "assets", "bench", "docs", "deps", "layers", "names", "parity", "tasks"];
+pub const COMMANDS: &[&str] = &["ci", "accept", "assets", "bench", "budgets", "docs", "deps", "layers", "names", "parity", "tasks"];
 
 /// Commands the docs already describe, with where they are planned; running one says so.
 pub const PLANNED: &[(&str, &str)] = &[
@@ -65,6 +66,7 @@ fn main() -> ExitCode {
         Some("accept") => accept::run(&root, args.get(1..).unwrap_or(&[])),
         Some("assets") => assets::run(&root),
         Some("bench") => bench::run(&root, args.get(1..).unwrap_or(&[])),
+        Some("budgets") => accept::budgets(&root, args.get(1..).unwrap_or(&[])),
         Some("ci") => ci::run(&root),
         Some("parity") => parity::run(&root, args.iter().any(|a| a == "--write")),
         Some("deps") => deps::run(&root),
