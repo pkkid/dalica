@@ -28,7 +28,7 @@ latest). They are pinned in `[workspace.dependencies]`; bumping one is its own c
 | Decoding / encoding | `image` 0.25.10 (png, tiff, webp, gif, bmp; its own JPEG encoder, since `jpeg-encoder` carries the IJG licence), `zune-jpeg` (JPEG decode; 0.5 has no DCT scaling, so thumbnails decode in full and resize), `png` 0.18, `image-webp` 0.2, `jxl-oxide` 0.12; `heic-rs` 0.1 behind the off-by-default `heif` feature | pure Rust, permissive licences (`formats.md`) |
 | Colour | `moxcms` 0.9 | pure-Rust ICC transforms; never assume sRGB input |
 | Resampling | `fast_image_resize` 6 | fast, SIMD, pure Rust; thumbnails dominate CPU time |
-| Metadata | our own `meta` crate (segment surgery, `xmp-interop.md`) + `quick-xml` 0.42 for XMP parsing | no crate preserves foreign metadata byte for byte; we must own that guarantee |
+| Metadata | our own `meta` crate (segment surgery, `xmp-interop.md`) + `quick-xml` 0.42 for XMP parsing + `md5` 0.8 for the IPTC digest (one safe file, no dependencies) | no crate preserves foreign metadata byte for byte; we must own that guarantee |
 | File watching | `notify` 8 (its `inotify-sys` / `fsevent-sys` bindings allowed at M3.R) + a pure-Rust polling fallback + periodic verification scans | events are hints, verification is the truth |
 | File safety | `std::fs::File::try_lock` (lock file; stable since Rust 1.89, so no `fs4`), `trash` 5.2 (OS trash), `tempfile` 3 (tests) | single-process lock; deletes go to the trash |
 | Locations | our own lookup in `scan::volumes` (HOME / USERPROFILE and the XDG user-dirs file; M5.4), not `directories`, which would bring `dirs-sys` and MPL-2.0 `option-ext` | per-OS standard places without new exceptions; Windows folder redirection is not followed yet |

@@ -9,7 +9,8 @@ everything Dalica puts into, or takes from, files it did not create. Read it wit
 [`data-model.md`](data-model.md) §2 (where each piece of data lives) and §5 (when it is written).
 
 > Status: reading of EXIF and IPTC, the containers of §4 (JPEG, PNG, WebP, TIFF) and the
-> precedence rules of §2 built (M6.4); XMP reading and writing land with M6.9–M6.19 (captions,
+> precedence rules of §2 built (M6.4); the IPTC writer and in-place EXIF edits built as blocks
+> (M6.10: `iptc::write`, `exif::edit`), put into files by the container writers (M6.17, M6.18); XMP reading and writing land with M6.9–M6.19 (captions,
 > tags), M13 (places) and M13 (people). The parser and writer are our own, in `crates/meta`
 > (`dalica-meta`, L1); LightCraft's `meta` and `tiff` crates are prior art only (`architecture.md`
 > §9).
@@ -63,9 +64,13 @@ Notes:
 - **Language alternatives.** `dc:description` is an `rdf:Alt`; Dalica writes `x-default` and keeps
   the other languages untouched.
 - **IPTC text encoding.** When Dalica writes IPTC it also writes 1:90 CodedCharacterSet = UTF-8.
-  IPTC without 1:90 is read as UTF-8 if valid, otherwise Latin-1. IPTC dataset length limits are
-  respected: a caption longer than IPTC allows is written in full to XMP and truncated at a
-  character boundary in IPTC (logged once).
+  IPTC without 1:90 is read as UTF-8 if valid, otherwise Latin-1. So that the declaration does not
+  turn another application's Latin-1 text into mojibake, a write into a stream that did not declare
+  UTF-8 re-encodes its record-2 text datasets that are not valid UTF-8 from Latin-1 to UTF-8: every
+  dataset reads the same text after the write as before it (binary datasets, such as the record
+  version, audio and the object preview, are never touched). IPTC dataset length limits are
+  respected: a caption longer than IPTC allows (2,000 bytes) or a keyword longer than 64 bytes is
+  written in full to XMP and truncated at a character boundary in IPTC (logged once per write).
 - **Exif-native vs XMP.** For place and date, the EXIF value wins over the XMP copy (XMP copies of
   Exif fields are often stale). For caption, tags and rating, XMP wins over IPTC and EXIF.
 - **Removing a place** deletes GPSLatitude/Ref and GPSLongitude/Ref and their XMP mirrors; other GPS
@@ -93,8 +98,23 @@ latitude/longitude tags and DateTimeOriginal / DateTimeDigitized. Every Dalica X
   are, and a new or larger GPS IFD or date value is appended at the end of the TIFF block with only
   the pointer to it updated.
 - **IPTC** lives in the APP13 Photoshop image resource 0x0404. Other image resources are kept byte
-  for byte; the IPTC digest resource (0x0425) is updated to match, so other applications do not
-  treat the IPTC as stale.
+  for byte; the IPTC digest resource (0x0425) is updated to match (added when the file had none),
+  so other applications do not treat the IPTC as stale. Inside the stream, Dalica's 2:120 takes the
+  place of the first old one and its 2:25 datasets (one per tag) the place of the first old
+  keyword; a dataset the stream lacks goes in dataset order (with 2:00 RecordVersion when Dalica
+  starts record 2); every other dataset keeps its bytes and its place.
+- **EXIF edits in detail.** Both DateTimeOriginal and DateTimeDigitized get the new date, with
+  their OffsetTime and SubSecTime tags set from it (removed when the date has no offset or
+  fraction, so it reads back exactly). A new EXIF IFD starts with ExifVersion 0232; a new GPS IFD
+  with GPSVersionID 2.3.0.0 (an existing version is kept). An IFD that gains an entry is appended
+  whole with only the pointer to it changed; one that loses entries is rewritten in its own place.
+  The old bytes of a value Dalica replaced elsewhere or removed are zeroed when nothing else points
+  into them, so a removed place does not linger in the file. A changed block that would pass the
+  container's limit (one APP1 segment for JPEG) fails naming the field.
+- **ImageDescription follows the caption.** An EXIF ImageDescription that reads as a caption (not
+  a camera placeholder) is a copy of it: a new caption replaces it and a cleared caption removes
+  it (otherwise the precedence rules of §2 would read the old text back as the caption). A
+  placeholder, or a file without ImageDescription, is left alone; Dalica never adds one.
 
 ## 4. Containers
 
