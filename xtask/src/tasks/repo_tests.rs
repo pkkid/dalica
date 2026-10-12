@@ -393,7 +393,7 @@ fn a_parity_row_conflict_is_sent_back() {
     repo.main_moves("docs/parity.md", &parity_doc(["🟡", "⬜", "⬜", "⬜", "⬜"]));
 
     let err = repo.board().merge("M9.1").unwrap_err();
-    assert!(err.contains("outside the generated summary") && err.contains("send it back"), "{err}");
+    assert!(err.contains("both sides changed row LIB-ONE") && err.contains("send it back"), "{err}");
     assert!(repo.git.ci_runs.lock().unwrap().is_empty());
     assert!(repo.gh.lock().merged_prs.is_empty());
     assert_eq!(repo.git.pushed_head(BRANCH), pushed, "nothing pushed");
@@ -412,5 +412,73 @@ fn a_parity_row_conflict_is_sent_back() {
     repo.main_moves("docs/parity.md", &parity_doc(["⬜", "⬜", "🟡", "⬜", "⬜"]));
     let err = repo.board().merge("M9.1").unwrap_err();
     assert!(err.contains("conflicts in a.txt, docs/parity.md"), "{err}");
+    repo.merge_worktree_is_clean();
+}
+
+/// One table whose rows are neighbours (as in the real `docs/parity.md`): edits to two different
+/// rows touch adjacent lines, so git's own rebase conflicts on them.
+fn neighbours_doc(rows: &[(&str, &str)]) -> String {
+    let mut text = String::from(
+        "# Parity\n\n## Summary\n\n<!-- parity:summary -->\n<!-- /parity:summary -->\n\n## A. Library view (LIB)\n\n\
+         | Id | Feature | Tier | Status | Evidence / notes |\n|---|---|---|---|---|\n",
+    );
+    for (id, status) in rows {
+        text.push_str(&format!("| {id} | feature | P0 | {status} | note |\n"));
+    }
+    crate::parity::with_summary(&text).unwrap()
+}
+
+const NEIGHBOURS: &[(&str, &str)] = &[("LIB-ONE", "⬜"), ("LIB-TWO", "⬜"), ("LIB-THREE", "⬜")];
+
+/// The M5 run's friction (M6.40): two tasks that each edit their own row of the same table conflict
+/// as adjacent lines. `merge` now merges them by row id, keeps both, and regenerates the summary.
+#[test]
+fn neighbouring_parity_row_edits_merge_with_both_rows_kept() {
+    let repo = Repo::new();
+    repo.main_moves("docs/parity.md", &neighbours_doc(NEIGHBOURS));
+    // The branch edits the first row and adds one after the last; main edits the last.
+    let branch_doc = neighbours_doc(&[("LIB-ONE", "✅"), ("LIB-TWO", "⬜"), ("LIB-THREE", "⬜"), ("LIB-NEW", "🟡")]);
+    repo.submit_work(|w| write(w, "docs/parity.md", &branch_doc));
+    let main_doc = neighbours_doc(&[("LIB-ONE", "⬜"), ("LIB-TWO", "⬜"), ("LIB-THREE", "🟡")]);
+    repo.main_moves("docs/parity.md", &main_doc);
+
+    // Git alone cannot merge the two: the edits touch neighbouring lines.
+    let tmp = repo.tmp.path();
+    for (name, text) in [("base", neighbours_doc(NEIGHBOURS)), ("ours", main_doc.clone()), ("theirs", branch_doc.clone())] {
+        write(tmp, name, &text);
+    }
+    assert!(!g_ok(tmp, &["merge-file", "-p", "ours", "base", "theirs"]), "the edits conflict as lines");
+
+    assert_eq!(repo.board().merge("M9.1").unwrap(), "M9.1: Thing (#100)");
+    let merged = format!("{}\n", repo.on_origin(BRANCH, "docs/parity.md"));
+    let expected = neighbours_doc(&[("LIB-ONE", "✅"), ("LIB-TWO", "⬜"), ("LIB-THREE", "🟡"), ("LIB-NEW", "🟡")]);
+    assert_eq!(merged, expected, "both sides' rows kept");
+    assert!(expected.contains("| A. Library view | 1 | 2 | 1 | 0 |\n| **All** | 1 | 2 | 1 | 0 |\n"), "the summary counts both: {expected}");
+    assert_eq!(crate::parity::with_summary(&merged).unwrap(), merged, "`parity --write` would change nothing");
+    let ci = repo.git.ci_runs.lock().unwrap().clone();
+    assert_eq!(ci.len(), 1, "ci ran on the merged result");
+    assert_eq!(std::fs::read_to_string(ci[0].join("docs/parity.md")).unwrap(), expected);
+    assert_eq!(repo.gh.lock().merged_prs.len(), 1);
+    repo.merge_worktree_is_clean();
+    let log = g(&repo.main, &["log", "--format=%s", &format!("origin/main..origin/{BRANCH}")]);
+    assert_eq!(log.lines().collect::<Vec<_>>(), ["M9.1: thing"]);
+}
+
+/// Two edits of the same row stay the worker's to resolve, even among neighbours: `merge` refuses,
+/// names the row, aborts the rebase and pushes nothing.
+#[test]
+fn an_edit_of_the_same_parity_row_by_both_sides_is_refused() {
+    let repo = Repo::new();
+    repo.main_moves("docs/parity.md", &neighbours_doc(NEIGHBOURS));
+    repo.submit_work(|w| write(w, "docs/parity.md", &neighbours_doc(&[("LIB-ONE", "✅"), ("LIB-TWO", "✅"), ("LIB-THREE", "⬜")])));
+    let pushed = repo.git.pushed_head(BRANCH);
+    repo.main_moves("docs/parity.md", &neighbours_doc(&[("LIB-ONE", "⬜"), ("LIB-TWO", "🟡"), ("LIB-THREE", "⬜")]));
+
+    let err = repo.board().merge("M9.1").unwrap_err();
+    assert!(err.contains("both sides changed row LIB-TWO") && err.contains("send it back"), "{err}");
+    assert!(repo.git.ci_runs.lock().unwrap().is_empty());
+    assert!(repo.gh.lock().merged_prs.is_empty());
+    assert_eq!(repo.git.pushed_head(BRANCH), pushed, "nothing pushed");
+    assert_eq!(repo.status(), Some(Status::InReview));
     repo.merge_worktree_is_clean();
 }
