@@ -28,8 +28,10 @@ pub trait Git: Send + Sync {
     fn push(&self, dir: &Path, branch: &str) -> Result<(), String>;
     /// Checks out origin's `branch` (detached) in the merge worktree, rebases it onto `origin/main`
     /// and returns that worktree. The local branch is not used: the worker may still have it
-    /// checked out in its own worktree. A conflict only in `docs/parity.md`'s generated summary is
-    /// resolved by regenerating the summary; any other conflict aborts the rebase (a send-back).
+    /// checked out in its own worktree. A conflict only in `docs/parity.md` is resolved when it lies
+    /// in the generated summary (regenerated) or when the two sides changed different rows (merged
+    /// by row id, then the summary regenerated); any other conflict, two edits of the same row
+    /// included, aborts the rebase (a send-back).
     fn rebase_for_merge(&self, branch: &str) -> Result<PathBuf, String>;
     /// Runs `cargo xtask ci` in `dir`.
     fn run_ci(&self, dir: &Path) -> Result<(), String>;
@@ -121,9 +123,14 @@ fn git_no_editor(dir: &Path, args: &[&str]) -> Result<String, String> {
 }
 
 fn run_git(cmd: &mut Command, args: &[&str]) -> Result<String, String> {
+    run_git_raw(cmd, args).map(|out| out.trim_end().to_string())
+}
+
+/// Like [`run_git`], keeping the output exactly as git printed it (a file's last line end).
+fn run_git_raw(cmd: &mut Command, args: &[&str]) -> Result<String, String> {
     let out = cmd.output().map_err(|e| format!("cannot run git: {e}"))?;
     if out.status.success() {
-        Ok(String::from_utf8_lossy(&out.stdout).trim_end().to_string())
+        Ok(String::from_utf8_lossy(&out.stdout).into_owned())
     } else {
         Err(format!("git {} failed: {}", args.join(" "), String::from_utf8_lossy(&out.stderr).trim()))
     }
@@ -287,8 +294,10 @@ const PARITY: &str = "docs/parity.md";
 const MAX_REBASE_STEPS: usize = 200;
 
 /// Rebases what `dir` has checked out onto `origin/main`. Each stop on a conflict only in the parity
-/// summary is resolved by regenerating it ([`crate::parity::resolve_summary_conflicts`]) and the
-/// rebase goes on; any other conflict aborts it and is the worker's to resolve (a send-back). When
+/// file is resolved when it lies in the summary (regenerated,
+/// [`crate::parity::resolve_summary_conflicts`]) or the two sides changed different rows (merged by
+/// row id, [`crate::parity::merge_rows`]), and the rebase goes on; any other conflict aborts it and
+/// is the worker's to resolve (a send-back). When
 /// a summary was regenerated, the summary of the result is refreshed once more (a later commit can
 /// apply cleanly on top of a regenerated one and still leave it stale) and folded into the last
 /// commit.
@@ -328,8 +337,8 @@ fn rebase_onto_main(dir: &Path, branch: &str) -> Result<(), String> {
 }
 
 /// At a rebase stopped on conflicts: when the only conflicted path is `docs/parity.md` and every
-/// conflict in it is inside the generated summary, writes the file with the summary regenerated and
-/// stages it. Otherwise says what conflicts.
+/// conflict in it is inside the generated summary, or the two sides changed different rows, writes
+/// the merged file with the summary regenerated and stages it. Otherwise says what conflicts.
 fn resolve_summary_stop(dir: &Path) -> Result<(), String> {
     let conflicted: Vec<String> =
         git(dir, &["diff", "--name-only", "--diff-filter=U", "-z"])?.split('\0').filter(|p| !p.is_empty()).map(str::to_string).collect();
@@ -340,7 +349,19 @@ fn resolve_summary_stop(dir: &Path) -> Result<(), String> {
     }
     let file = dir.join(PARITY);
     let text = std::fs::read_to_string(&file).map_err(|e| format!("cannot read {PARITY}: {e}"))?;
-    let resolved = crate::parity::resolve_summary_conflicts(&text)?;
+    let resolved = match crate::parity::resolve_summary_conflicts(&text) {
+        Ok(resolved) => resolved,
+        // Conflicts in the rows: merge the two sides' versions row by row, from git's index (stage 1
+        // the common ancestor, 2 the rebase's base, 3 the commit being applied).
+        Err(_) => {
+            let stage = |n: u8| {
+                let spec = format!(":{n}:{PARITY}");
+                run_git_raw(Command::new("git").current_dir(dir).args(["show", &spec]), &["show", &spec])
+            };
+            let base = stage(1).map_err(|_| format!("{PARITY} has no common version to merge rows from"))?;
+            crate::parity::merge_rows(&base, &stage(2)?, &stage(3)?)?
+        }
+    };
     std::fs::write(&file, resolved).map_err(|e| format!("cannot write {PARITY}: {e}"))?;
     git(dir, &["add", "--", PARITY]).map(|_| ())
 }

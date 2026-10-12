@@ -6,8 +6,11 @@
 //! - Evidence: every `cmd:<id>` is a registered command (from `dalica-cli commands`), every
 //!   backticked path exists (bare `*.md` names are looked up in `docs/`).
 //! - The summary between the `parity:summary` markers matches the rows; `--write` refreshes it.
+//!
+//! `tasks merge` also uses this module to resolve rebase conflicts in the file: the summary is
+//! regenerated, and edits to different rows by the two sides are merged row by row.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::process::Command;
 
@@ -247,6 +250,173 @@ pub fn resolve_summary_conflicts(text: &str) -> Result<String, String> {
     with_summary(&out).ok_or_else(|| "docs/parity.md: the parity:summary markers are missing".into())
 }
 
+/// One version of `docs/parity.md` for [`merge_rows`].
+struct Version {
+    /// Its lines, without line ends.
+    lines: Vec<String>,
+    /// Row id → (line index, section).
+    rows: BTreeMap<String, (usize, String)>,
+    /// Line index → row id.
+    by_line: BTreeMap<usize, String>,
+    /// Row ids in file order.
+    order: Vec<String>,
+    crlf: bool,
+    final_eol: bool,
+}
+
+impl Version {
+    fn parse(text: &str, name: &str) -> Result<Version, String> {
+        let (mut rows, mut by_line, mut order) = (BTreeMap::new(), BTreeMap::new(), Vec::new());
+        for r in parse_rows(text) {
+            let index = r.line.saturating_sub(1);
+            if rows.insert(r.id.clone(), (index, r.section)).is_some() {
+                return Err(format!("docs/parity.md ({name}): row {} appears twice", r.id));
+            }
+            by_line.insert(index, r.id.clone());
+            order.push(r.id);
+        }
+        Ok(Version {
+            lines: text.lines().map(str::to_string).collect(),
+            rows,
+            by_line,
+            order,
+            crlf: text.contains("\r\n"),
+            final_eol: text.ends_with('\n'),
+        })
+    }
+
+    /// Row `id` as (section, line).
+    fn row(&self, id: &str) -> Option<(&str, &str)> {
+        let (index, section) = self.rows.get(id)?;
+        Some((section.as_str(), self.lines.get(*index)?.as_str()))
+    }
+
+    /// The lines outside the rows and outside the generated summary.
+    fn skeleton(&self) -> Vec<&str> {
+        let mut out = Vec::new();
+        let mut in_summary = false;
+        for (i, line) in self.lines.iter().enumerate() {
+            if line.trim() == END {
+                in_summary = false;
+            }
+            if !in_summary && !self.by_line.contains_key(&i) {
+                out.push(line.as_str());
+            }
+            if line.trim() == START {
+                in_summary = true;
+            }
+        }
+        out
+    }
+
+    /// The ids of the rows `other` also has, in this version's order.
+    fn common_order<'a>(&'a self, other: &Version) -> Vec<&'a str> {
+        self.order.iter().filter(|id| other.rows.contains_key(*id)).map(String::as_str).collect()
+    }
+
+    /// Where row `id` of this version goes in `out` (the merged lines, each with its row id): after
+    /// the nearest row above it in the same table that `out` has, else before the nearest one below.
+    fn place(&self, id: &str, out: &[(Option<&str>, &str)]) -> Option<usize> {
+        let (index, _) = self.rows.get(id)?;
+        let pos = |neighbour: &str| out.iter().position(|(r, _)| *r == Some(neighbour));
+        let mut i = *index;
+        while let Some(prev) = i.checked_sub(1) {
+            let Some(neighbour) = self.by_line.get(&prev) else { break };
+            if let Some(p) = pos(neighbour) {
+                return p.checked_add(1);
+            }
+            i = prev;
+        }
+        let mut i = *index;
+        loop {
+            i = i.checked_add(1)?;
+            if let Some(p) = pos(self.by_line.get(&i)?) {
+                return Some(p);
+            }
+        }
+    }
+}
+
+/// Merges two versions of `docs/parity.md` that both changed `base`, row by row (`tasks merge`,
+/// `docs/task-board.md` §5): rows are matched by id, and a row added, changed or deleted on one
+/// side only takes that side's version. The result follows the side that changed text outside the
+/// rows (or `ours` when neither did), and the summary is regenerated from the merged rows.
+///
+/// Refused, so the worker resolves it: a row both sides changed differently, both sides changing
+/// text outside the rows, the side whose rows are merged in reordering rows or moving one to
+/// another section, a new row with no neighbour to place it by, and a duplicate id.
+pub fn merge_rows(base: &str, ours: &str, theirs: &str) -> Result<String, String> {
+    let (b, o, t) = (Version::parse(base, "base")?, Version::parse(ours, "ours")?, Version::parse(theirs, "theirs")?);
+    let ids: BTreeSet<&str> = b.rows.keys().chain(o.rows.keys()).chain(t.rows.keys()).map(String::as_str).collect();
+    let mut merged: BTreeMap<&str, Option<(&str, &str)>> = BTreeMap::new();
+    for id in ids {
+        let (rb, ro, rt) = (b.row(id), o.row(id), t.row(id));
+        for side in [ro, rt] {
+            if let (Some((was, _)), Some((now, _))) = (rb, side)
+                && was != now
+            {
+                return Err(format!("docs/parity.md: row {id} moved from section `{was}` to `{now}`; the worker resolves it"));
+            }
+        }
+        let pick = if ro == rt {
+            ro
+        } else if ro == rb {
+            rt
+        } else if rt == rb {
+            ro
+        } else {
+            return Err(format!("docs/parity.md: both sides changed row {id}; the worker resolves it"));
+        };
+        merged.insert(id, pick);
+    }
+
+    // `x` is the template, `y` the side whose row changes are merged into it.
+    let clean = |v: &Version| v.skeleton() == b.skeleton() && v.common_order(&b) == b.common_order(v);
+    let (x, y) = if clean(&t) {
+        (&o, &t)
+    } else if clean(&o) {
+        (&t, &o)
+    } else {
+        return Err("docs/parity.md: both sides changed text outside the rows (or reordered rows); the worker resolves it".into());
+    };
+    let mut out: Vec<(Option<&str>, &str)> = Vec::with_capacity(x.lines.len().saturating_add(y.rows.len()));
+    for (i, line) in x.lines.iter().enumerate() {
+        match x.by_line.get(&i) {
+            Some(id) => {
+                if let Some(Some((_, text))) = merged.get(id.as_str()) {
+                    out.push((Some(id.as_str()), text));
+                }
+            }
+            None => out.push((None, line.as_str())),
+        }
+    }
+    for id in &y.order {
+        let Some(Some((_, text))) = merged.get(id.as_str()).copied() else { continue };
+        if x.rows.contains_key(id) {
+            continue;
+        }
+        let at =
+            y.place(id, &out).ok_or_else(|| format!("docs/parity.md: no neighbouring row to place the new row {id} by; the worker resolves it"))?;
+        out.insert(at, (Some(id.as_str()), text));
+    }
+
+    let eol = if x.crlf { "\r\n" } else { "\n" };
+    let mut text = out.iter().map(|(_, line)| *line).collect::<Vec<_>>().join(eol);
+    if x.final_eol {
+        text.push_str(eol);
+    }
+    let text = with_summary(&text).ok_or("docs/parity.md: the parity:summary markers are missing")?;
+
+    // Every row ends up as decided above, in its section: anything else is a send-back.
+    let result = Version::parse(&text, "merged")?;
+    let want: BTreeMap<&str, (&str, &str)> = merged.iter().filter_map(|(id, row)| row.map(|r| (*id, r))).collect();
+    let got: BTreeMap<&str, (&str, &str)> = result.order.iter().filter_map(|id| result.row(id).map(|r| (id.as_str(), r))).collect();
+    if got != want {
+        return Err("docs/parity.md: the merged rows do not match both sides' changes; the worker resolves it".into());
+    }
+    Ok(text)
+}
+
 /// Ids of registered commands, from `dalica-cli commands` (a JSON array of objects with `id`, or of
 /// strings). An empty registry before the CLI prints anything.
 pub fn registered_commands(root: &Path) -> Result<BTreeSet<String>, String> {
@@ -392,6 +562,102 @@ mod tests {
         assert!(resolve_summary_conflicts(&doc).unwrap_err().contains("no conflict markers"));
     }
 
+    /// Three neighbouring rows in one table and a menu table, with the summary generated.
+    fn rows_doc(rows: &[(&str, &str)]) -> String {
+        let mut text = String::from(
+            "# P\n\n<!-- parity:summary -->\n<!-- /parity:summary -->\n\n## A. Library view (LIB)\n\n\
+             | Id | Feature | Tier | Status | Evidence / notes |\n|---|---|---|---|---|\n",
+        );
+        for (id, status) in rows {
+            text.push_str(&format!("| {id} | f | P0 | {status} | note |\n"));
+        }
+        text.push_str("\n## H. Menus (MENU)\n\n| Menu | Ids | Status |\n|---|---|---|\n| File | `app.quit` | ⬜ |\n");
+        with_summary(&text).unwrap()
+    }
+
+    const BASE: &[(&str, &str)] = &[("LIB-ONE", "⬜"), ("LIB-TWO", "⬜"), ("LIB-THREE", "⬜")];
+
+    #[test]
+    fn neighbouring_row_edits_merge_with_both_rows_kept() {
+        let ours = rows_doc(&[("LIB-ONE", "✅"), ("LIB-TWO", "⬜"), ("LIB-THREE", "⬜")]);
+        let theirs = rows_doc(&[("LIB-ONE", "⬜"), ("LIB-TWO", "🟡"), ("LIB-THREE", "⬜")]);
+        let merged = merge_rows(&rows_doc(BASE), &ours, &theirs).unwrap();
+        assert_eq!(merged, rows_doc(&[("LIB-ONE", "✅"), ("LIB-TWO", "🟡"), ("LIB-THREE", "⬜")]));
+        assert!(merged.contains("| A. Library view | 1 | 1 | 1 | 0 |\n"), "the summary counts both: {merged}");
+        // Symmetric.
+        assert_eq!(merge_rows(&rows_doc(BASE), &theirs, &ours).unwrap(), merged);
+    }
+
+    #[test]
+    fn added_and_deleted_rows_merge_next_to_edits() {
+        // Ours adds a row after LIB-ONE and edits LIB-THREE; theirs deletes LIB-TWO and adds a first
+        // and a last row.
+        let ours = rows_doc(&[("LIB-ONE", "⬜"), ("LIB-NEW", "🟡"), ("LIB-TWO", "⬜"), ("LIB-THREE", "✅")]);
+        let theirs = rows_doc(&[("LIB-ZERO", "⬜"), ("LIB-ONE", "⬜"), ("LIB-THREE", "⬜"), ("LIB-FOUR", "⬜")]);
+        let want = rows_doc(&[("LIB-ZERO", "⬜"), ("LIB-ONE", "⬜"), ("LIB-NEW", "🟡"), ("LIB-THREE", "✅"), ("LIB-FOUR", "⬜")]);
+        assert_eq!(merge_rows(&rows_doc(BASE), &ours, &theirs).unwrap(), want);
+        assert_eq!(merge_rows(&rows_doc(BASE), &theirs, &ours).unwrap(), want);
+        // Both sides adding the same row, or deleting the same one, is one change.
+        let both = rows_doc(&[("LIB-ONE", "⬜"), ("LIB-THREE", "⬜"), ("LIB-FOUR", "⬜")]);
+        assert_eq!(merge_rows(&rows_doc(BASE), &both, &both).unwrap(), both);
+    }
+
+    #[test]
+    fn text_outside_the_rows_follows_the_side_that_changed_it() {
+        let ours = rows_doc(&[("LIB-ONE", "✅"), ("LIB-TWO", "⬜"), ("LIB-THREE", "⬜")]).replace("# P\n", "# Parity, renamed\n");
+        let theirs = rows_doc(&[("LIB-ONE", "⬜"), ("LIB-TWO", "🟡"), ("LIB-THREE", "⬜")]);
+        let want = rows_doc(&[("LIB-ONE", "✅"), ("LIB-TWO", "🟡"), ("LIB-THREE", "⬜")]).replace("# P\n", "# Parity, renamed\n");
+        assert_eq!(merge_rows(&rows_doc(BASE), &ours, &theirs).unwrap(), want);
+        assert_eq!(merge_rows(&rows_doc(BASE), &theirs, &ours).unwrap(), want);
+        // A stale summary on either side does not matter: it is regenerated.
+        let stale = theirs.replace("| **All** | 0 | 1 | 3 | 0 |", "| **All** | 9 | 9 | 9 | 9 |");
+        assert_ne!(stale, theirs);
+        assert_eq!(merge_rows(&rows_doc(BASE), &ours, &stale).unwrap(), want);
+    }
+
+    #[test]
+    fn an_edit_of_the_same_row_by_both_sides_is_refused() {
+        let base = rows_doc(BASE);
+        let ours = rows_doc(&[("LIB-ONE", "⬜"), ("LIB-TWO", "✅"), ("LIB-THREE", "⬜")]);
+        let theirs = rows_doc(&[("LIB-ONE", "⬜"), ("LIB-TWO", "🟡"), ("LIB-THREE", "⬜")]);
+        let err = merge_rows(&base, &ours, &theirs).unwrap_err();
+        assert!(err.contains("both sides changed row LIB-TWO"), "{err}");
+        // Deleted on one side, changed on the other; added by both with different text.
+        let deleted = rows_doc(&[("LIB-ONE", "⬜"), ("LIB-THREE", "⬜")]);
+        assert!(merge_rows(&base, &deleted, &theirs).unwrap_err().contains("row LIB-TWO"));
+        let added = |s| rows_doc(&[("LIB-ONE", "⬜"), ("LIB-TWO", "⬜"), ("LIB-THREE", "⬜"), ("LIB-FOUR", s)]);
+        assert!(merge_rows(&base, &added("✅"), &added("🟡")).unwrap_err().contains("row LIB-FOUR"));
+    }
+
+    #[test]
+    fn what_cannot_be_merged_by_row_is_refused() {
+        let base = rows_doc(BASE);
+        let edit = rows_doc(&[("LIB-ONE", "✅"), ("LIB-TWO", "⬜"), ("LIB-THREE", "⬜")]);
+        let retitled = rows_doc(&[("LIB-ONE", "⬜"), ("LIB-TWO", "🟡"), ("LIB-THREE", "⬜")]).replace("# P\n", "# Q\n");
+        // Both sides change text outside the rows.
+        let err = merge_rows(&base, &edit.replace("# P\n", "# R\n"), &retitled).unwrap_err();
+        assert!(err.contains("outside the rows"), "{err}");
+        // Rows reordered by both sides (one alone would be the template).
+        let swapped = rows_doc(&[("LIB-TWO", "⬜"), ("LIB-ONE", "⬜"), ("LIB-THREE", "⬜")]);
+        assert!(merge_rows(&base, &swapped, &retitled).unwrap_err().contains("reordered"));
+        // A row moved to another section.
+        let moved = rows_doc(&[("LIB-ONE", "⬜"), ("LIB-TWO", "⬜")]).replace("| File |", "| LIB-THREE | f | P0 | ⬜ | note |\n| File |");
+        assert!(merge_rows(&base, &edit, &moved).unwrap_err().contains("moved from section"));
+        // A duplicate id.
+        let twice = edit.replace("| LIB-THREE |", "| LIB-ONE |");
+        assert!(merge_rows(&base, &twice, &edit).unwrap_err().contains("appears twice"));
+        // A new row in a table that had none: no neighbour to place it by.
+        let empty_table = "\n## B. Organizing (ORG)\n\n| Id | Feature | Tier | Status | Evidence / notes |\n|---|---|---|---|---|\n";
+        let with = |doc: &str, rows: &str| with_summary(&format!("{doc}{empty_table}{rows}")).unwrap();
+        let err = merge_rows(&with(&base, ""), &with(&edit, ""), &with(&base, "| ORG-NEW | f | P1 | ⬜ | n |\n")).unwrap_err();
+        assert!(err.contains("no neighbouring row") && err.contains("ORG-NEW"), "{err}");
+        // Missing markers.
+        let bare = base.replace(START, "").replace(END, "");
+        let one = bare.replace("| LIB-ONE | f | P0 | ⬜ |", "| LIB-ONE | f | P0 | ✅ |");
+        let two = bare.replace("| LIB-TWO | f | P0 | ⬜ |", "| LIB-TWO | f | P0 | 🟡 |");
+        assert!(merge_rows(&bare, &one, &two).unwrap_err().contains("markers"));
+    }
+
     #[test]
     fn the_real_parity_doc_parses_cleanly() {
         let text = std::fs::read_to_string(root().join("docs/parity.md")).unwrap();
@@ -401,5 +667,25 @@ mod tests {
         let problems = check(&root(), &text, &cited.into_iter().collect());
         assert!(problems.is_empty(), "{problems:#?}");
         assert!(parse_rows(&text).len() > 100);
+    }
+
+    /// The real document: two neighbouring rows, each edited by one side, merge with both kept.
+    #[test]
+    fn neighbouring_rows_of_the_real_parity_doc_merge() {
+        let text = with_summary(&std::fs::read_to_string(root().join("docs/parity.md")).unwrap().replace("\r\n", "\n")).unwrap();
+        let rows = parse_rows(&text);
+        let (first, second) =
+            rows.windows(2).find_map(|w| (w[1].line == w[0].line + 1 && w[0].tier.is_some()).then(|| (w[0].clone(), w[1].clone()))).unwrap();
+        let lines: Vec<&str> = text.lines().collect();
+        let edit = |doc: &str, row: &Row, note: &str| {
+            let line = lines[row.line - 1];
+            let edited = format!("{} {note} |", line.trim_end().trim_end_matches('|').trim_end());
+            doc.replacen(&format!("{line}\n"), &format!("{edited}\n"), 1)
+        };
+        let ours = edit(&text, &first, "(ours)");
+        let theirs = edit(&text, &second, "(theirs)");
+        assert_ne!(ours, text);
+        assert_ne!(theirs, text);
+        assert_eq!(merge_rows(&text, &ours, &theirs).unwrap(), edit(&ours, &second, "(theirs)"));
     }
 }

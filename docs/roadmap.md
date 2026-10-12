@@ -2370,7 +2370,7 @@ replace at M6.R.
   - done when: `cargo test -p dalica-ui`: both entry points open `dialog:folderManager` with the
     selected library folder pre-selected; Remove from Dalica asks and removes one folder in one undo
     step; `widget_ids` and earlier milestones' acceptance tests pass.
-- ⬜ **M6.40 `xtask tasks`: parity row edits that touch different rows merge by themselves**
+- ✅ **M6.40 `xtask tasks`: parity row edits that touch different rows merge by themselves**
   - after: M5.R
   - files: `xtask/src/tasks/**`, `xtask/src/parity.rs`, `docs/task-board.md`
   - scope: found in the M5 run: the `docs/parity.md` rows of one area are neighbours, so two tasks
