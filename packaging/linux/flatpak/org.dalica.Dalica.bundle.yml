@@ -1,0 +1,49 @@
+# The Flatpak bundle attached to every release (dalica-<version>-linux-<arch>.flatpak), made by
+# packaging/linux/package.sh from the release's own tarball: the same binaries as the AppImage,
+# .deb and .rpm, no Rust build inside Flatpak. package.sh reads this file (id, runtime,
+# runtime-version, sdk, command, finish-args, build-commands) and builds the bundle with plain
+# `flatpak build-*` commands, so it needs no SDK; flatpak-builder builds the same thing from it,
+# with the tarball unpacked into `stage/` next to it. Keep this file to that simple YAML: one
+# `key: value` or `- item` per line.
+#
+# The binaries need glibc >= 2.35 and load Wayland or X11, xkbcommon and the Vulkan loader at run
+# time; the freedesktop runtime has them all, and the GPU driver comes from its GL extension.
+# A from-source manifest for Flathub, with the same runtime and permissions, follows later.
+#
+# Adapted from PhotoCraft packaging/linux/flatpak/ai.storyteller.photocraft.bundle.yml @ 231bf5fe
+# (MIT OR Apache-2.0). Changed for Dalica: its names and permissions, and ${FLATPAK_DEST} in the
+# build commands so package.sh can run them outside flatpak-builder.
+id: org.dalica.Dalica
+runtime: org.freedesktop.Platform
+runtime-version: '26.08'
+sdk: org.freedesktop.Sdk
+command: dalica
+finish-args:
+  # Display: Wayland first; X11 only when no Wayland compositor runs.
+  - --socket=wayland
+  - --socket=fallback-x11
+  # X11 shared memory (MIT-SHM); without it the X11 fallback is slow or fails.
+  - --share=ipc
+  # The GPU, for wgpu (Vulkan).
+  - --device=dri
+  # Read and write access to Pictures: the library is the user's own photo folders, which Dalica
+  # reads and keeps its sidecars in. Folders elsewhere are added through the file-chooser portal
+  # (rfd's XDG portal backend), which grants each one through the document portal.
+  - --filesystem=xdg-pictures
+  # Deliberately not granted: the network (map tiles and other online features stay off until the
+  # user runs `flatpak override --user --share=network org.dalica.Dalica`), and the home folder.
+modules:
+  - name: dalica
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 bin/dalica "${FLATPAK_DEST}/bin/dalica"
+      - install -Dm755 bin/dalica-cli "${FLATPAK_DEST}/bin/dalica-cli"
+      - install -Dm644 share/applications/org.dalica.Dalica.desktop "${FLATPAK_DEST}/share/applications/org.dalica.Dalica.desktop"
+      # Already has the release's version and date in it (package.sh).
+      - install -Dm644 share/metainfo/org.dalica.Dalica.metainfo.xml "${FLATPAK_DEST}/share/metainfo/org.dalica.Dalica.metainfo.xml"
+      - mkdir -p "${FLATPAK_DEST}/share/icons" "${FLATPAK_DEST}/share/doc"
+      - cp -R share/icons/hicolor "${FLATPAK_DEST}/share/icons/"
+      - cp -R share/doc/dalica "${FLATPAK_DEST}/share/doc/"
+    sources:
+      - type: dir
+        path: stage

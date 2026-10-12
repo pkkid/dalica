@@ -1,0 +1,4 @@
+# shellcheck settings for the Linux packaging scripts: follow `source` lines to the files next to
+# the script (package.sh sources tools.sh).
+source-path=SCRIPTDIR
+external-sources=true

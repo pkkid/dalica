@@ -1,0 +1,77 @@
+# The .deb and the .rpm (nfpm, https://nfpm.goreleaser.com), from the tree package.sh stages.
+# package.sh replaces ${STAGE} with that tree's path (nfpm does not expand variables in `src`)
+# and exports VERSION, NFPM_ARCH and DALICA_MAINTAINER.
+#
+# Adapted from PhotoCraft packaging/linux/nfpm.yaml @ 424a5d49 (MIT OR Apache-2.0). Changed for
+# Dalica: its names, and the Vulkan loader as the only GPU library (wgpu has no GL backend here).
+name: dalica
+arch: ${NFPM_ARCH}
+platform: linux
+version: ${VERSION}
+# semver: 0.2.0-rc.1 becomes 0.2.0~rc.1, so a pre-release sorts before its release.
+version_schema: semver
+release: 1
+section: graphics
+priority: optional
+maintainer: ${DALICA_MAINTAINER}
+homepage: https://github.com/pkkid/dalica
+license: MIT OR Apache-2.0
+description: |-
+  Desktop photo organizer with simple editing.
+  Dalica shows the photos in the folders you choose, as they are on disk: albums, stars, tags,
+  captions and people, and simple edits kept apart from the original until you save. Includes
+  dalica-cli, which runs Dalica's commands without a window.
+
+# Both binaries link only glibc and libgcc_s. The window's libraries are loaded at run time, so
+# they are no ELF NEEDED entries the package tools could find; they are listed here, as `dalica`
+# checks for them before opening the window (apps/dalica/src/preflight.rs): Wayland's
+# libwayland-client, or X11's libX11, libX11-xcb, libxcb, libXcursor and libXi; xkbcommon (and
+# xkbcommon-x11 for X11); the Vulkan loader for wgpu.
+overrides:
+  deb:
+    depends:
+      - libc6 (>= 2.35)
+      - libgcc-s1
+      - libwayland-client0
+      - libxkbcommon0
+      - libxkbcommon-x11-0
+      - libx11-6
+      - libx11-xcb1
+      - libxcb1
+      - libxcursor1
+      - libxi6
+      - libvulkan1
+    recommends:
+      - mesa-vulkan-drivers
+      - xdg-desktop-portal
+  rpm:
+    # Soname provides rather than package names, so the same requirements resolve on Fedora and
+    # RHEL (libxkbcommon-x11, libX11-xcb, ...) and openSUSE (libxkbcommon-x11-0, libX11-xcb1, ...).
+    depends:
+      - libwayland-client.so.0()(64bit)
+      - libxkbcommon.so.0()(64bit)
+      - libxkbcommon-x11.so.0()(64bit)
+      - libX11.so.6()(64bit)
+      - libX11-xcb.so.1()(64bit)
+      - libxcb.so.1()(64bit)
+      - libXcursor.so.1()(64bit)
+      - libXi.so.6()(64bit)
+      - libvulkan.so.1()(64bit)
+    recommends:
+      - mesa-vulkan-drivers
+      - xdg-desktop-portal
+
+contents:
+  - src: ${STAGE}/usr/bin/dalica
+    dst: /usr/bin/dalica
+    file_info: { mode: 0755 }
+  - src: ${STAGE}/usr/bin/dalica-cli
+    dst: /usr/bin/dalica-cli
+    file_info: { mode: 0755 }
+  - src: ${STAGE}/usr/share/
+    dst: /usr/share/
+    type: tree
+
+scripts:
+  postinstall: packaging/linux/postinst.sh
+  postremove: packaging/linux/postinst.sh

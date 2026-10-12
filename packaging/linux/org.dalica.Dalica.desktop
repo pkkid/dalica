@@ -1,0 +1,17 @@
+[Desktop Entry]
+Type=Application
+Name=Dalica
+GenericName=Photo Organizer
+Comment=Organize the photos in your folders and make simple edits
+Exec=dalica
+TryExec=dalica
+Icon=org.dalica.Dalica
+Terminal=false
+# The window does not complete the desktop's startup-notification handshake.
+StartupNotify=false
+StartupWMClass=org.dalica.Dalica
+Categories=Graphics;Photography;Viewer;
+Keywords=photo;picture;album;organizer;folder;tag;caption;star;
+# The AppImage's AppRun installs this entry itself; external AppImage integrators should not add
+# a second one.
+X-AppImage-Integrate=false

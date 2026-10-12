@@ -12,6 +12,7 @@ mod icon;
 mod logging;
 mod native_menu;
 mod paths;
+mod preflight;
 mod window;
 
 use std::path::PathBuf;
@@ -26,6 +27,9 @@ Otherwise the library is DIR, else $DALICA_HOME, else the `data` folder beside t
 `portable` is there (portable mode: the library and caches stay next to the program), else the platform data folder
 (Linux ~/.local/share/dalica/library, macOS ~/Library/Application Support/Dalica/Library,
 Windows %LOCALAPPDATA%\\Dalica\\Library).
+
+On Linux the window first checks for the libraries it loads (Wayland or X11, xkbcommon, Vulkan); a missing one is
+named with the package to install and dalica exits with status 1 (DALICA_SKIP_LIB_CHECK=1 skips the check).
 
 --control [PORT] lets agents and scripts drive the app over 127.0.0.1:PORT (default $DALICA_CONTROL_PORT, else 7990),
 with a token from a private token file (docs/control-protocol.md). Control options:
@@ -156,6 +160,15 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
+    // Before anything else, the libraries the window loads at run time (Linux; `preflight`): a
+    // missing one is named with its package, never a crash inside winit or wgpu.
+    if cfg!(target_os = "linux")
+        && !options.headless
+        && let Err(message) = preflight::check(|k| std::env::var_os(k))
+    {
+        eprint!("{message}");
+        return ExitCode::from(preflight::EXIT_MISSING);
+    }
     // The control port first: a taken port exits 2 before anything is made (§1).
     let listening = match &options.control {
         None => None,

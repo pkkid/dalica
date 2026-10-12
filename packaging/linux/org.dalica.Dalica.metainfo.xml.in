@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- AppStream metadata for software centres and Flatpak (docs/releasing.md → Linux). A template:
+     packaging/linux/package.sh substitutes @VERSION@ and @DATE@ (the version and the build date).
+     Adapted from PhotoCraft packaging/linux/ai.storyteller.photocraft.metainfo.xml.in @ 77221725
+     (MIT OR Apache-2.0): the structure, with Dalica's own text. -->
+<component type="desktop-application">
+  <id>org.dalica.Dalica</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT OR Apache-2.0</project_license>
+  <name>Dalica</name>
+  <summary>Organize the photos in your folders and make simple edits</summary>
+  <developer id="org.dalica">
+    <name>The Dalica contributors</name>
+  </developer>
+  <description>
+    <p>
+      Dalica is an open-source desktop photo organizer. It shows the photos in the folders you
+      choose, as they are on disk, and keeps everything you add to them next to the photos.
+    </p>
+    <ul>
+      <li>Browse every folder of photos in one library, sorted by date</li>
+      <li>Albums, stars, tags, captions and people</li>
+      <li>Simple edits such as crop, straighten and Auto Fix, kept apart from the original until you save</li>
+      <li>Every command can be run from a command line, a local control channel and an MCP server</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">org.dalica.Dalica.desktop</launchable>
+  <icon type="stock">org.dalica.Dalica</icon>
+  <!-- Only url types appstream 0.15 knows (Ubuntu 22.04, where the packages are built). -->
+  <url type="homepage">https://github.com/pkkid/dalica</url>
+  <url type="bugtracker">https://github.com/pkkid/dalica/issues</url>
+  <categories>
+    <category>Graphics</category>
+    <category>Photography</category>
+    <category>Viewer</category>
+  </categories>
+  <keywords>
+    <keyword>photo</keyword>
+    <keyword>photo organizer</keyword>
+    <keyword>album</keyword>
+    <keyword>tags</keyword>
+  </keywords>
+  <supports>
+    <control>keyboard</control>
+    <control>pointing</control>
+  </supports>
+  <provides>
+    <binary>dalica</binary>
+    <binary>dalica-cli</binary>
+  </provides>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="@VERSION@" date="@DATE@"/>
+  </releases>
+</component>
