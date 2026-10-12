@@ -27,10 +27,10 @@ same commit.
 | C. Editing | 0 | 0 | 21 | 4 |
 | D. Viewing | 0 | 1 | 5 | 2 |
 | E. Output | 0 | 0 | 2 | 9 |
-| F. Data | 1 | 6 | 12 | 0 |
+| F. Data | 1 | 9 | 9 | 0 |
 | G. Preferences and system | 0 | 4 | 8 | 0 |
 | H. Menus | 0 | 3 | 4 | 0 |
-| **All** | 8 | 35 | 98 | 16 |
+| **All** | 8 | 38 | 95 | 16 |
 <!-- /parity:summary -->
 
 ## Top gaps
@@ -196,9 +196,9 @@ same commit.
 | DATA-FMT-PNG | PNG: 1–16-bit, palette, transparency, interlaced, `iCCP` | P0 | 🟡 | `crates/image/src/formats/png.rs`, `crates/image/tests/color.rs`; 8/16-bit RGB and grey+alpha and `iCCP` measured; palette, low bit depths and interlacing go through `png` but are not measured until the PngSuite corpus (M5.15) |
 | DATA-FMT-COLOR | Colour management: ICC v2/v4 to sRGB, untagged = sRGB, unusable profile → sRGB, naive CMYK | P0 | 🟡 | `crates/image/src/color.rs`, `crates/image/tests/color.rs` (Display P3, Adobe RGB, ProPhoto; v2 and v4); View → Use Color Management (`view.colorManagement`) arrives with M5.16 |
 | DATA-FMT-TIFF | TIFF: 8/16-bit, float, grey/RGB/CMYK/palette, LZW/Deflate/PackBits/JPEG, first page | P0 | 🟡 | `crates/image/src/formats/tiff.rs`, `crates/image/tests/tiff.rs`: every `scenes` depth, colour model, compression and byte order, JPEG strips, tiles, planar, 1–4-bit, alpha, ICC, orientation 1–8 and multi-page measured on synthetic files; the thumbnail-IFD fast path is `formats::tiff::thumbnail`, not yet called by `decode_thumbnail`; real-world files wait for the corpus (M5.15) |
-| DATA-FMT-WEBP | WebP: lossy, lossless, alpha, first frame | P1 | ⬜ | recognised; `crates/image/src/formats/webp.rs` is a stub until M5.7 |
-| DATA-FMT-GIF | GIF: first frame | P1 | ⬜ | recognised; `crates/image/src/formats/gif.rs` is a stub until M5.7 |
-| DATA-FMT-BMP | BMP | P1 | ⬜ | recognised; `crates/image/src/formats/bmp.rs` is a stub until M5.7 |
+| DATA-FMT-WEBP | WebP: lossy, lossless, alpha, first frame | P1 | 🟡 | `crates/image/src/formats/webp.rs`, `crates/image/tests/webp_gif_bmp.rs`; lossless (alpha, `EXIF` orientation 1–8 and thumbnail, `ICCP`) and an animation's first frame measured exactly; lossy only from a hand-built flat VP8 frame (with and without `ALPH`), real lossy photos wait for the corpus (M5.15) |
+| DATA-FMT-GIF | GIF: first frame | P1 | 🟡 | `crates/image/src/formats/gif.rs`, `crates/image/tests/webp_gif_bmp.rs`; one and several frames and a frame smaller than its screen measured exactly; interlaced frames and transparent colour indices go through `gif` but are not measured until the corpus (M5.15) |
+| DATA-FMT-BMP | BMP | P1 | 🟡 | `crates/image/src/formats/bmp.rs`, `crates/image/tests/webp_gif_bmp.rs`; 24-bit, 8-bit grey and palette, and a top-down 32-bit `BITMAPV5HEADER` with an alpha mask and an embedded profile measured exactly; RLE, 1/4/16-bit and OS/2 headers go through `image` but are not measured; JPEG/PNG-compressed and CMYK bitmaps answer "This kind of BMP isn't supported" |
 | DATA-FMT-JXL | JPEG XL | P2 | ⬜ | recognised; `crates/image/src/formats/jxl.rs` is a stub until M5.8 |
 | DATA-FMT-PSD | PSD/PSB merged composite | P1 | ⬜ | recognised; `crates/image/src/formats/psd.rs` is a stub until M5.8 |
 | DATA-FMT-RAW-TIFF | TIFF-structured raws (DNG, CR2, NEF, ARW, PEF, ORF, RW2, SRW): embedded preview | P0 | ⬜ | recognised by content (`crates/image/src/formats/raw/tiff_based.rs`); previews in M5.9 |

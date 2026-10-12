@@ -12,6 +12,10 @@ publish = false
 
 [dependencies]
 dalica-core.workspace = true
+# GIF (first frame) and BMP through its decoders (`formats.md` §1); already in the product graph via `thumbs`.
+image.workspace = true
+# Lossy and lossless WebP, alpha, the first frame of animations (`formats.md` §1).
+image-webp.workspace = true
 log.workspace = true
 # ICC v2/v4 profiles to sRGB (architecture.md §1): pure Rust, BSD-3-Clause OR Apache-2.0.
 moxcms.workspace = true

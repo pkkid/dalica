@@ -1378,7 +1378,7 @@ filled by the lead; M5.15 pins it.
     model and compression match their fingerprints; orientation 1–8; a tagged profile converts;
     the thumbnail IFD is used for a small target; a header bomb is refused before allocating;
     truncation at every offset and proptest random bytes never panic.
-- ⬜ **M5.7 `image`: WebP, GIF and BMP**
+- ✅ **M5.7 `image`: WebP, GIF and BMP**
   - after: M5.1, M5.2
   - files: `crates/image/src/formats/webp.rs`, `crates/image/src/formats/gif.rs`, `crates/image/src/formats/bmp.rs`, `crates/image/tests/webp_gif_bmp.rs`, `crates/image/tests/fingerprints/webp*.json`, `crates/image/tests/fingerprints/gif*.json`, `crates/image/tests/fingerprints/bmp*.json`
   - scope: `formats.md` §1: WebP lossy and lossless with alpha, the first frame of an animation,
