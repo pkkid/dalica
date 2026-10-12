@@ -770,6 +770,8 @@ dependencies = [
  "dalica-core",
  "dalica-engine",
  "dalica-fs",
+ "dalica-image",
+ "dalica-scan",
  "dalica-scenes",
  "dalica-ui",
  "egui",

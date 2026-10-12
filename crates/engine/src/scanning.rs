@@ -525,7 +525,13 @@ impl Session {
         if let Some(s) = summary.as_ref().filter(|_| !cancelled) {
             match job.fresh.take() {
                 Some(fresh) => {
+                    let before: Vec<_> = self.library.folders().map(|f| f.id).collect();
                     self.library = fresh;
+                    // Folders the rebuilt model no longer has: their pending writes are dropped.
+                    let left: Vec<_> = self.left_library(before).collect();
+                    if !left.is_empty() {
+                        self.send(Msg::Dirty(left));
+                    }
                     self.undo.clear();
                     self.ops_since_snapshot = 0;
                     self.send(Msg::Snapshot(Box::new(self.library.clone())));
