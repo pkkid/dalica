@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
+use dalica_engine::watching::WatchMode;
 use dalica_engine::{JobState, Session};
 use dalica_scan::HeaderReader;
 use dalica_scenes::fingerprint;
@@ -73,6 +74,10 @@ fn setup((w, h): (u32, u32)) -> T {
     let dir = tempfile::tempdir().unwrap();
     let root = trip(dir.path());
     let mut session = Session::open(&dir.path().join("library"), Arc::new(dalica_core::SystemClock)).unwrap();
+    // No watcher: the change events the system may still deliver for the files just written
+    // (Windows reports attribute and size updates late) would start a rescan job of their own
+    // after the scan, and this test is about the scan's job alone.
+    session.set_watching(WatchMode::Off);
     let (reader, permits) = permitted();
     session.set_scan_reader(Some(reader));
     let mut d = Driver::new(App::with_picker(Some(session), Arc::new(ScriptedPicker::new())), w, h, 1.0);
