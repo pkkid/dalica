@@ -2146,7 +2146,7 @@ replace at M6.R.
     uninstalls cleanly and the installed executable's version resource matches; the portable zip
     keeps its data beside the executable (a CI step); `build.rs` without a resource compiler fails
     with the tool named.
-- ⬜ **M6.23 macOS packages**
+- ✅ **M6.23 macOS packages**
   - after: M6.1, M6.7, M6.12, M6.13
   - files: `packaging/macos/**`
   - scope: `releasing.md` → macOS: `aarch64` and `x86_64` builds at `MACOSX_DEPLOYMENT_TARGET=11.0`

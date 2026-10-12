@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Hardened-runtime entitlements for Dalica and dalica-cli (docs/releasing.md → macOS).
+     Deliberately empty: both are pure Rust, load no unsigned code, need no JIT, and are not
+     sandboxed (the library is the user's own folders, opened by path). Add an exception here
+     only when a feature proves it needs one, with the reason in a comment.
+     Adapted from PhotoCraft packaging/macos/entitlements.plist @ 77221725 (MIT OR Apache-2.0). -->
+<plist version="1.0">
+<dict>
+</dict>
+</plist>
