@@ -119,9 +119,11 @@ impl Header {
     pub(crate) fn with_exif(mut self, block: Option<(&[u8], usize)>, limits: &Limits) -> Header {
         if let Some((tiff, at)) = block {
             match exif::read(tiff, limits) {
-                Ok(e) => {
+                Ok(mut e) => {
                     self.orientation = e.orientation.and_then(Orientation::new).unwrap_or_default();
                     self.thumbnail = e.thumbnail.as_ref().map(|r| r.start + at..r.end + at);
+                    // Strip thumbnails are read from the file, so their ranges count from it.
+                    e.strip_thumbnail = e.strip_thumbnail.and_then(|s| s.offset_by(at));
                     self.exif = Some(e);
                 }
                 Err(e) => self.exif_error = Some(e),
