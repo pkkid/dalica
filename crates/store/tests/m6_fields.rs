@@ -364,6 +364,60 @@ fn journal_replay_and_snapshots_keep_every_m6_field() {
     assert_eq!(torn.library.model(), before.model());
 }
 
+/// A photo deleted outside Dalica whose entry holds only M6 fields (no star) is Dalica's entry like
+/// a starred one (`data-model.md` §7): marked at the folder's next write, kept for 30 days, pruned
+/// by the first write after them.
+#[test]
+fn an_entry_with_only_m6_fields_is_marked_and_pruned_when_its_file_is_gone() {
+    use dalica_store::stale::{MISSING_KEY, PRUNE_AFTER};
+    let dir = tempfile::tempdir().unwrap();
+    let mut lib = Library::new();
+    let f = lib.next_folder_id();
+    lib.apply(Op::AddFolder { folder: Folder { id: f, path: dir.path().to_path_buf() } }).unwrap();
+    let mut ids = Vec::new();
+    for name in ["a.jpg", "b.jpg"] {
+        std::fs::write(dir.path().join(name), name).unwrap();
+        let id = lib.next_photo_id();
+        let photo = Photo { id, folder: f, name: name.into(), size: 1, mtime: Timestamp::EPOCH, width: 4, height: 3, date: None, star: false };
+        lib.apply(Op::AddPhotos { photos: vec![photo] }).unwrap();
+        ids.push(id);
+    }
+    let info = PhotoInfo {
+        caption: "gone soon".into(),
+        tags: strings(&["beach"]),
+        hidden: true,
+        edits: strings(&["rotate(90)"]),
+        redo: strings(&["sepia()"]),
+        date: Some(dt("2026-06-04T19:42:10")),
+    };
+    lib.apply(Op::SetPhotoInfo { photos: vec![(ids[1], info)] }).unwrap();
+    let t0 = NOW;
+    let mut w = SidecarWriter::new();
+    w.mark_dirty(f);
+    assert_eq!(w.flush(&lib, t0)[&f], Outcome::Written);
+
+    std::fs::remove_file(dir.path().join("b.jpg")).unwrap();
+    lib.apply(Op::RemovePhotos { ids: vec![ids[1]] }).unwrap();
+    w.mark_dirty(f);
+    assert_eq!(w.flush(&lib, t0)[&f], Outcome::Written, "the mark is written");
+    let doc: serde_json::Value = serde_json::from_slice(&std::fs::read(dir.path().join(".dalica.json")).unwrap()).unwrap();
+    assert!(doc["dalica"][MISSING_KEY]["b.jpg"].is_string(), "{doc}");
+    assert_eq!(doc["photos"]["b.jpg"]["caption"], "gone soon", "the entry is kept while it waits");
+
+    // A write 29 days on keeps it; the first write after 30 days prunes it and its mark.
+    let day = std::time::Duration::from_secs(24 * 60 * 60);
+    for (d, caption) in [(29, "x"), (31, "y")] {
+        lib.apply(Op::SetCaptions { captions: vec![(ids[0], caption.into())] }).unwrap();
+        w.mark_dirty(f);
+        assert_eq!(w.flush(&lib, t0.saturating_add(day * d))[&f], Outcome::Written);
+    }
+    let doc: serde_json::Value = serde_json::from_slice(&std::fs::read(dir.path().join(".dalica.json")).unwrap()).unwrap();
+    assert!(doc["photos"].get("b.jpg").is_none(), "{doc}");
+    assert!(doc["dalica"].get(MISSING_KEY).is_none(), "{doc}");
+    assert_eq!(doc["photos"]["a.jpg"]["caption"], "y");
+    assert_eq!(PRUNE_AFTER, day * 30);
+}
+
 /// The mapping's own round trip on any values: what [`mapping::apply`] writes, the readers give
 /// back, and printing then parsing changes nothing.
 fn info() -> impl Strategy<Value = PhotoInfo> {

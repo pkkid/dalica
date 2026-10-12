@@ -28,7 +28,7 @@ use std::time::Duration;
 use dalica_core::{DateTime, Timestamp};
 use serde_json::{Map, Value};
 
-use crate::mapping::{PHOTO_FIELDS, Source};
+use crate::mapping::{PHOTO_FIELDS, PHOTO_INFO_FIELDS, Source};
 
 /// How long an entry whose file is gone is kept.
 pub const PRUNE_AFTER: Duration = Duration::from_secs(30 * 24 * 60 * 60);
@@ -67,9 +67,10 @@ fn read_stamp(v: &Value) -> Option<String> {
     Some(format!("{d}Z"))
 }
 
-/// The keys under `photos.<name>` that hold Dalica's own data.
+/// The keys under `photos.<name>` that hold Dalica's own data: the star and every field of what
+/// the user said about the photo (caption, tags, hidden, recipe, redo list, date).
 fn dalica_keys() -> impl Iterator<Item = &'static str> {
-    PHOTO_FIELDS.iter().filter_map(|(_, s)| match s {
+    PHOTO_FIELDS.iter().chain(&PHOTO_INFO_FIELDS).filter_map(|(_, s)| match s {
         Source::Sidecar(key) => Some(*key),
         _ => None,
     })
