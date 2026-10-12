@@ -240,7 +240,13 @@ cargo xtask tasks submit <id> --body-file <evidence.md>   # the PR body: evidenc
   leave out names Windows forbids (`" * ? < > | :`, trailing dots or spaces) on Windows.
 - **Watch `main`'s CI.** Local `cargo xtask ci` does not cover Windows or macOS: after a push to
   `main`, watch its run (`gh run watch <id> --exit-status`) before the next push (`tasks merge`
-  already waits for it).
+  already waits for it). Before merging a change to code, tests, fingerprints, `Cargo.*` or
+  workflows, wait for its pull request's checks on all three OSes.
+- **Doc and plan changes merge on the local gate** (maintainer rule, 2026-10-11): a change that
+  touches only Markdown (`docs/**`, `AGENTS.md`, `README.md`, crate READMEs) merges once
+  `cargo xtask ci` is green locally on that commit, without waiting for GitHub's three-OS run.
+  The local run is still required: the roadmap parser, `names`, `docs`, `parity` and the
+  acceptance tests read these files (M16's new milestone failed the roadmap test).
 - **Nested cargo in tests is fine** (cargo releases the build lock while tests run); a test that
   copies the tree and builds it uses its own target directory (see `tests/acceptance/m0.rs`).
 
