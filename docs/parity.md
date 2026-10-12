@@ -23,14 +23,14 @@ same commit.
 | Section | ✅ | 🟡 | ⬜ | 🚫 |
 |---|---:|---:|---:|---:|
 | A. Library view | 7 | 20 | 5 | 1 |
-| B. Organizing | 0 | 1 | 41 | 0 |
+| B. Organizing | 0 | 2 | 40 | 0 |
 | C. Editing | 0 | 0 | 21 | 4 |
 | D. Viewing | 0 | 1 | 5 | 2 |
 | E. Output | 0 | 0 | 2 | 9 |
 | F. Data | 1 | 10 | 8 | 0 |
 | G. Preferences and system | 0 | 4 | 8 | 0 |
 | H. Menus | 0 | 3 | 4 | 0 |
-| **All** | 8 | 39 | 94 | 16 |
+| **All** | 8 | 40 | 93 | 16 |
 <!-- /parity:summary -->
 
 ## Top gaps
@@ -80,7 +80,7 @@ same commit.
 
 | Id | Feature | Tier | Status | Evidence / notes |
 |---|---|---|---|---|
-| ORG-FIRSTRUN | First-run panel and progressive first scan | P0 | ⬜ | ref 04 §1 |
+| ORG-FIRSTRUN | First-run panel and progressive first scan | P0 | 🟡 | ref 04 §1; engine: scans are jobs whose folders land a batch per frame with their thumbnails queued while the walk goes on, with progress and cancel (`crates/engine/src/scanning.rs`, `crates/engine/tests/progressive_scan.rs`, `crates/engine/tests/jobs.rs`), and `Session::is_new_library` answers the panel's question; missing: the panel (M5.18), the activity indicator and status text (M5.19) |
 | ORG-FOLDERMGR | Folder Manager (Scan Always / Once / Remove, faces toggle, watched list) | P0 | ⬜ | ref 04 §2 |
 | ORG-WATCH | Watching for changes, offline volumes | P0 | ⬜ | |
 | ORG-ALBUM-NEW | New album + Album Properties | P0 | ⬜ | |
