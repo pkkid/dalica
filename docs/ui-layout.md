@@ -94,8 +94,20 @@ The search field and filters move right as the tree is widened (they belong to t
 column): the filter group starts at least 8 right of the splitter, so with a wide tree or a narrow
 window the search field starts right of the filters (12 after the age slider) rather than at 0.4·W,
 and it never gets narrower than 160. The caption sits above the toggles (which then rest on the
-toolbar's bottom rule); without it the toggles are centred like the other controls. At rest the
-activity indicator draws nothing.
+toolbar's bottom rule); without it the toggles are centred like the other controls.
+
+The **activity indicator** (`indicator:activity`) spins while a background job runs (today a scan
+or a rebuild); at rest it draws nothing and takes no click (its tooltip says "No background work").
+A click toggles the **activity popover** (`popover:activity`; `ui.state` → `activity`): the popup
+frame (`chrome`, `button_border`, radius 6, popup shadow), 360 wide (less in a narrow window, 8 from its edges), its
+right edge under the indicator's and 4 below it, 8 of padding. It lists the jobs of `jobs.list`,
+running ones first (oldest first), then finished ones (newest first), at most 8 and a "N more" line
+for the rest; each is a `progress_row` (`design-system.md` §6) of the job's label ("Scanning: 1,204
+pictures found", "Scan finished: 4,980 pictures"), its bar (done of total; the sliding third while a
+running job's total is unknown) and, while it runs, its × Cancel (`jobs.cancel`). Ids: the row
+`job:<n>`, its Cancel `job:<n>/cancel`. With no job it reads "No background work". A press outside
+the popover and the indicator, or Esc, closes it; it stays open when its last job ends, showing the
+finished row.
 
 ## 4. Library tree (left pane)
 
@@ -128,6 +140,16 @@ activity indicator draws nothing.
   "(0)") and keep the selected row in view; ← on a row that is folded or has no children goes up
   to the nearest parent with photos. The wheel scrolls the pane; only the rows on screen are laid
   out, so its cost per frame does not grow with the library.
+- **Scroll bar:** while the list is taller than the pane, an ordinary position scroll bar, 10 wide,
+  sits at the pane's right edge (the rows end left of it): the track (`scroll:tree`, `inset`) and a
+  thumb (`scroll:tree/thumb`) as tall as the share of the list on screen (at least 24) at the
+  proportional place, a rounded pill in `track` (`thumb` hovered or held). Dragging the thumb moves
+  the rows with it; a press in the track above or below it pages one pane height that way. A list
+  that fits has no bar.
+- **Offline folders:** the rows of folders under a watched root whose volume is offline
+  (`data-model.md` §7) keep their place, count and section but are dimmed (icon, name and count in
+  `text_disabled`) with an "offline" marker, 11 pt `caution`, at the row's right end (the name
+  gives way, elided in the middle). They come back as they were when the root returns. Rows are marked once per tree build, never tested per frame.
 
 ## 5. Light table
 
@@ -279,10 +301,13 @@ wide spaces:
 - one photo: "IMG_0361.jpg     June 4, 2026 7:42 PM     4000 × 3000     3.1 MB";
 - several photos or a folder: "48 pictures     June 4, 2026 to June 6, 2026     212.4 MB on disk"
   (+ "     Tags: lisbon (40), tram (6)" when tagged);
-- edit view: prefixed "Folder › " and suffixed "(12 of 48)".
+- edit view: prefixed "Folder › " and suffixed "(12 of 48)";
+- while a scan runs: "Scanning: 1,204 pictures found" (the photos its walks have listed so far, in
+  thousands grouped by commas) in place of "No selection", or as the last field when something is
+  selected; it goes when the scan ends (`organizing.md` §1).
 The text describes the Photo Tray's contents (§6.2: the held photos and the selection, each once),
 so held photos count with a selection made elsewhere and an empty tray reads "No selection". Long
-text drops the folder prefix first, then middle-elides the file name; a line still too long (a long
+text drops the scan field first, then the folder prefix, then middle-elides the file name; a line still too long (a long
 tag list) is cut at its end with "…". Transient messages ("Exported 12 pictures", or why an action
 was refused) replace the text for 4 s; the next successful action clears one at once. Sizes are
 decimal units with one decimal ("3.1 MB", "12.7 KB"); a selection whose photos share one day shows

@@ -9,8 +9,12 @@
 //!   ([`edit`]).
 //! - **How it is written**: sizes in decimal units with one decimal ([`size`]), dates in full
 //!   ([`date_time`], [`date_range`]), fields separated by wide spaces ([`SEP`]).
-//! - **When it is too long** ([`Line::fit`]): the folder prefix goes first, then the file name loses
-//!   its middle ("IMG_…jpg"); a line still too long (a long tag list) loses its end.
+//! - **Background work** ([`scanning`], [`with_activity`]): while a scan runs, "Scanning: 1,204
+//!   pictures found" stands in place of "No selection", and is the last field when something is
+//!   selected (`organizing.md` §1).
+//! - **When it is too long** ([`Line::fit`]): the scan field goes first, then the folder prefix, then
+//!   the file name loses its middle ("IMG_…jpg"); a line still too long (a long tag list) loses its
+//!   end.
 
 use dalica_core::{Date, DateTime, PhotoId};
 use dalica_library::{Library, Photo};
@@ -30,28 +34,36 @@ pub const PREFIX_SEP: &str = " › ";
 /// The mark that stands for what elision cut out.
 pub const ELLIPSIS: &str = "…";
 
-/// The status line's text, as fields: `prefix` the edit view's folder (the first thing dropped
-/// when the line is too long), `name` the one-photo file name (middle-elided next), `rest` the
-/// fields after it.
+/// The status line's text, as fields: `prefix` the edit view's folder, `name` the one-photo file
+/// name, `rest` the fields after it, `activity` the background work's field at the end
+/// ("Scanning: 1,204 pictures found"). When the line is too long, `activity` is dropped first, then
+/// `prefix`, then `name` is middle-elided.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Line {
     pub prefix: Option<String>,
     pub name: Option<String>,
     pub rest: Vec<String>,
+    pub activity: Option<String>,
 }
 
 impl Line {
     /// A line of one field (a transient message, "No selection").
     pub fn plain(text: impl Into<String>) -> Line {
-        Line { prefix: None, name: None, rest: vec![text.into()] }
+        Line { rest: vec![text.into()], ..Line::default() }
     }
 
-    /// The whole text: "Folder › name", then the fields, joined by wide spaces.
+    /// The whole text: "Folder › name", then the fields, then the activity, joined by wide spaces.
     pub fn text(&self) -> String {
-        self.render(true, None)
+        let text = self.render(true, None);
+        match &self.activity {
+            Some(a) if text.is_empty() => a.clone(),
+            Some(a) => format!("{text}{SEP}{a}"),
+            None => text,
+        }
     }
 
-    /// The text with or without the prefix, the name cut to `keep` characters (`None`: whole).
+    /// The text without the activity, with or without the prefix, the name cut to `keep`
+    /// characters (`None`: whole).
     fn render(&self, prefix: bool, keep: Option<usize>) -> String {
         let name = self.name.as_deref().map(|n| keep.map_or_else(|| n.to_owned(), |k| elide_middle(n, k)));
         let head = match (self.prefix.as_deref().filter(|_| prefix), name) {
@@ -63,14 +75,20 @@ impl Line {
     }
 
     /// The text that fits in `max` (as measured by `width`): the whole text; else without the
-    /// prefix; else with the name middle-elided to the most characters that fit; else (nothing of
-    /// the name fits) cut at its end with "…". A `max` that is not a number keeps the whole text.
-    /// Measures O(log n) candidates.
+    /// activity; else also without the prefix; else with the name middle-elided to the most
+    /// characters that fit; else (nothing of the name fits) cut at its end with "…". A `max` that
+    /// is not a number keeps the whole text. Measures O(log n) candidates.
     pub fn fit(&self, max: f32, width: impl Fn(&str) -> f32) -> String {
         let whole = self.text();
         let too_wide = width(&whole) > max;
         if !too_wide {
             return whole;
+        }
+        if self.activity.is_some() {
+            let without = self.render(true, None);
+            if width(&without) <= max {
+                return without;
+            }
         }
         if self.prefix.is_some() {
             let bare = self.render(false, None);
@@ -180,6 +198,38 @@ pub fn pictures(n: usize) -> String {
     if n == 1 { "1 picture".to_string() } else { format!("{n} pictures") }
 }
 
+/// `1,204`: a count with its thousands grouped by commas.
+pub fn grouped(n: usize) -> String {
+    let digits = n.to_string();
+    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// `Scanning: 1,204 pictures found` (`organizing.md` §1): the status line's field while a scan
+/// runs, `found` the photos its walks have listed so far.
+pub fn scanning(found: usize) -> String {
+    let noun = if found == 1 { "picture" } else { "pictures" };
+    format!("Scanning: {} {noun} found", grouped(found))
+}
+
+/// `line` with the background work's field `activity`: in place of "No selection" when nothing is
+/// selected, else as the last field (the first one dropped when space is short). `None` leaves the
+/// line as it is.
+pub fn with_activity(mut line: Line, activity: Option<String>) -> Line {
+    let Some(activity) = activity else { return line };
+    if line == Line::plain(NO_SELECTION) {
+        return Line::plain(activity);
+    }
+    line.activity = Some(activity);
+    line
+}
+
 /// `(12 of 48)`: the edit view's photo `nth` (from 1) of `of`.
 pub fn position(nth: usize, of: usize) -> String {
     format!("({nth} of {of})")
@@ -219,7 +269,7 @@ pub fn details(p: &Photo) -> Vec<String> {
 
 /// The line for one photo: name, date, pixel size, size on disk.
 pub fn one(p: &Photo) -> Line {
-    Line { prefix: None, name: Some(p.name.clone()), rest: details(p) }
+    Line { name: Some(p.name.clone()), rest: details(p), ..Line::default() }
 }
 
 /// The line for several photos: how many, their date range, their size on disk, their tags.
@@ -229,7 +279,7 @@ pub fn several(photos: &[&Photo], tag_counts: &[(String, usize)]) -> Line {
     let bytes = photos.iter().fold(0u64, |sum, p| sum.saturating_add(p.size));
     rest.push(format!("{} on disk", size(bytes)));
     rest.extend(tags(tag_counts));
-    Line { prefix: None, name: None, rest }
+    Line { rest, ..Line::default() }
 }
 
 /// The edit view's line (M7): "Folder › name", the photo's details, then its place in the folder
@@ -317,7 +367,12 @@ mod tests {
 
     #[test]
     fn a_long_line_drops_the_prefix_then_elides_the_name_then_its_end() {
-        let line = Line { prefix: Some("Lisbon".into()), name: Some("IMG_0361.jpg".into()), rest: vec!["3.1 MB".into(), "(12 of 48)".into()] };
+        let line = Line {
+            prefix: Some("Lisbon".into()),
+            name: Some("IMG_0361.jpg".into()),
+            rest: vec!["3.1 MB".into(), "(12 of 48)".into()],
+            activity: None,
+        };
         let whole = "Lisbon › IMG_0361.jpg     3.1 MB     (12 of 48)";
         assert_eq!(line.text(), whole);
         assert_eq!(line.fit(chars(whole), chars), whole, "fits");
@@ -339,7 +394,7 @@ mod tests {
         assert_eq!(elide_end("abc", 1.0, chars), "…");
         assert_eq!(elide_end("abc", f32::INFINITY, chars), "abc");
         // A prefix without a name (no photo yet) is still dropped first.
-        let folder = Line { prefix: Some("Lisbon".into()), name: None, rest: vec!["0 pictures".into()] };
+        let folder = Line { prefix: Some("Lisbon".into()), rest: vec!["0 pictures".into()], ..Line::default() };
         assert_eq!(folder.text(), "Lisbon     0 pictures");
         assert_eq!(folder.fit(12.0, chars), "0 pictures");
     }
@@ -376,6 +431,38 @@ mod tests {
             edit("Lisbon Weekend", &a, 12, 48).text(),
             "Lisbon Weekend › IMG_0361.jpg     June 4, 2026 7:42 PM     4000 × 3000     3.1 MB     (12 of 48)"
         );
+    }
+
+    #[test]
+    fn counts_are_grouped_by_thousands_and_the_scan_reads_as_the_spec_shows_it() {
+        assert_eq!(grouped(0), "0");
+        assert_eq!(grouped(999), "999");
+        assert_eq!(grouped(1_204), "1,204");
+        assert_eq!(grouped(12_345_678), "12,345,678");
+        assert_eq!(grouped(usize::MAX).len(), usize::MAX.to_string().len() + (usize::MAX.to_string().len() - 1) / 3);
+        assert_eq!(scanning(1_204), "Scanning: 1,204 pictures found");
+        assert_eq!(scanning(1), "Scanning: 1 picture found");
+        assert_eq!(scanning(0), "Scanning: 0 pictures found");
+    }
+
+    #[test]
+    fn the_scan_replaces_no_selection_and_is_dropped_first_when_space_is_short() {
+        let scan = Some(scanning(1_204));
+        assert_eq!(with_activity(Line::plain(NO_SELECTION), scan.clone()).text(), "Scanning: 1,204 pictures found");
+        assert_eq!(with_activity(Line::plain(NO_SELECTION), None).text(), NO_SELECTION);
+        let line = Line { name: Some("IMG_0361.jpg".into()), rest: vec!["3.1 MB".into()], ..Line::default() };
+        let with = with_activity(line.clone(), scan);
+        let whole = "IMG_0361.jpg     3.1 MB     Scanning: 1,204 pictures found";
+        assert_eq!(with.text(), whole, "the last field");
+        assert_eq!(with.fit(chars(whole), chars), whole);
+        assert_eq!(with.fit(chars(whole) - 1.0, chars), "IMG_0361.jpg     3.1 MB", "dropped first");
+        assert_eq!(
+            with.fit(chars("IMG_0361.jpg     3.1 MB") - 1.0, chars),
+            line.fit(chars("IMG_0361.jpg     3.1 MB") - 1.0, chars),
+            "then as before"
+        );
+        // A transient message is a plain line: the scan is not added to it by the status line.
+        assert_eq!(Line { activity: Some("x".into()), ..Line::default() }.text(), "x");
     }
 
     #[test]

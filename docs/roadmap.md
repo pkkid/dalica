@@ -1585,7 +1585,7 @@ filled by the lead; M5.15 pins it.
     undo step; the drive confirmation reverts on Cancel; first run with the default choice adds the
     standard places (test override) and folders appear while the scan runs; dialog and icon
     fingerprints at both window sizes; earlier milestones' acceptance tests pass unchanged.
-- ⬜ **M5.19 `ui`: the activity indicator, scan progress and offline folders**
+- ✅ **M5.19 `ui`: the activity indicator, scan progress and offline folders**
   - after: M3.7, M4.15, M4.17, M5.13, M5.14
   - files: `crates/ui/src/panels/toolbar.rs`, `crates/ui/src/panels/activity.rs`, `crates/ui/src/panels/status.rs`, `crates/ui/src/status_text.rs`, `crates/ui/src/panels/folders.rs`, `crates/ui/src/panels/folders/**`, `crates/ui/tests/activity.rs`, `crates/ui/tests/offline_folders.rs`, `crates/ui/tests/fingerprints/activity*.json`, `crates/ui/tests/fingerprints/region-tree*.json`, `crates/ui/tests/fingerprints/region-status*.json`, `docs/ui-layout.md`
   - scope: `ui-layout.md` §3 item 8 and `organizing.md` §1: the 28 × 28 activity indicator spins

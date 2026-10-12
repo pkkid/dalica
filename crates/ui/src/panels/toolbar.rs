@@ -11,8 +11,12 @@
 //! ([`VIEW_OPTIONS_ROWS`]). The filters, the age slider and the search field have no command until
 //! search arrives (`organizing.md` §8), so they stay disabled until then.
 //!
-//! The activity indicator spins while the library is busy (scanning). Its phase comes from egui's
-//! input time, which the headless driver's virtual clock sets, so renders stay deterministic.
+//! The activity indicator spins while the library is busy (scanning) and draws nothing at rest. Its
+//! phase comes from egui's input time, which the headless driver's virtual clock sets, so renders
+//! stay deterministic. A click toggles the activity popover ([`super::activity`]: the jobs with
+//! their progress and Cancel); while it is open the indicator sits on a `pressed` plate. It takes
+//! clicks while it shows something (a scan running, or the popover open); at rest it is inert as
+//! well as blank, and its tooltip says "No background work".
 
 use std::time::Duration;
 
@@ -400,12 +404,24 @@ fn view_options(app: &mut App, ui: &mut Ui, t: &Tokens, rect: Rect) {
     }
 }
 
-/// The activity indicator: the spinner while the library is busy, nothing at rest. The popover
-/// listing the jobs joins with the jobs API; until then it has only its tooltip.
-fn activity(app: &App, ui: &mut Ui, t: &Tokens, rect: Rect) {
+/// The activity indicator: the spinner while the library is busy, nothing at rest; a click
+/// toggles the activity popover under it, drawn here (`ui-layout.md` §3 item 8).
+fn activity(app: &mut App, ui: &mut Ui, t: &Tokens, rect: Rect) {
     let busy = app.session().is_some_and(dalica_engine::Session::busy);
-    let r = ui.interact(rect, Id::new(ACTIVITY_ID), Sense::hover());
+    // Clickable while it shows something: the spinner, or the popover open.
+    let live = busy || app.state().activity;
+    let r = ui.interact(rect, Id::new(ACTIVITY_ID), if live { Sense::click() } else { Sense::hover() });
+    if r.clicked() {
+        let open = !app.state().activity;
+        app.state_mut().activity = open;
+    }
+    let open = app.state().activity;
     let label = if busy { "Working in the background" } else { "No background work" };
+    if open {
+        ui.painter().rect_filled(rect, CornerRadius::same(t.radius), t.pressed);
+    } else if r.hovered() {
+        ui.painter().rect_filled(rect, CornerRadius::same(t.radius), t.hover.gamma_multiply(0.7));
+    }
     if busy {
         let time = ui.input(|i| i.time);
         let time = if time.is_finite() { time.max(0.0) } else { 0.0 };
@@ -417,8 +433,9 @@ fn activity(app: &App, ui: &mut Ui, t: &Tokens, rect: Rect) {
         let wait = (step - time.rem_euclid(step)).clamp(0.001, step);
         ui.ctx().request_repaint_after(Duration::from_secs_f64(wait));
     }
-    widgets::register(ui.ctx(), ACTIVITY_ID, Role::Other, label, Target::Widget(&r), busy);
+    widgets::register(ui.ctx(), ACTIVITY_ID, Role::Toggle, label, Target::Widget(&r), open);
     widgets::tooltip(r, t, label, None);
+    super::activity::show(app, ui, rect);
 }
 
 #[cfg(test)]
