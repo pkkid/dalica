@@ -4,26 +4,32 @@
 //! target still has the identity the caller read (or is still absent), through a temporary file in
 //! the same folder:
 //!
+//! 0. validate the target's folder and open it once (`dirfd`, §5.6); every later step names files
+//!    relative to that held folder, so a folder swapped for a link after validation cannot
+//!    redirect the write (Unix: a directory handle; Windows: the folder's identity re-checked
+//!    before each step);
 //! 1. check the target against [`Expect`];
 //! 2. create `.<name>.dalica-tmp-<16 hex>` next to it with exclusive creation;
 //! 3. write, `fsync`, copy the target's permissions;
 //! 4. check the target again; if it changed, remove the temporary file and refuse;
 //! 5. rename over the target, then `fsync` the folder (Unix);
-//! 6. re-read the target and compare.
+//! 6. re-read the target (never through a link) and compare.
 //!
 //! A failure before step 5 leaves the target untouched; after it, the target holds the new bytes.
-//! A crash leaves at most a stray temporary file ([`is_temp_name`]). Writes never go through a
-//! symbolic link (§5.6): a target that is a link is refused with [`Error::Link`].
+//! A crash leaves at most a stray temporary file ([`is_temp_name`]; `stale` removes it a day
+//! later). Writes never go through a symbolic link (§5.6): a target that is a link is refused with
+//! [`Error::Link`].
 
 use std::collections::hash_map::RandomState;
-use std::ffi::OsStr;
-use std::fs::{self, File, Metadata, OpenOptions};
+use std::ffi::{OsStr, OsString};
+use std::fs::{self, File, Metadata};
 use std::hash::{BuildHasher, Hasher};
 use std::io::{self, Read as _, Write as _};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::UNIX_EPOCH;
 
+use crate::dirfd::{Entry, Folder, Kind};
 use crate::faults::{self, Fault, points};
 use crate::{Error, Result, guard, io_err};
 
@@ -50,6 +56,21 @@ impl Identity {
 
     pub fn size(&self) -> u64 {
         self.size
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn from_parts(dev: u64, ino: u64, size: u64, mtime_ns: i128) -> Identity {
+        Identity { dev, ino, size, mtime_ns }
+    }
+
+    /// The same file or folder (device and inode), whatever its size and time now.
+    pub(crate) fn same_object(&self, other: &Identity) -> bool {
+        (self.dev, self.ino) == (other.dev, other.ino)
+    }
+
+    /// Modification time in nanoseconds since the Unix epoch (negative before it).
+    pub(crate) fn mtime_ns(&self) -> i128 {
+        self.mtime_ns
     }
 }
 
@@ -146,7 +167,10 @@ fn replace_with(path: &Path, bytes: &[u8], expect: Expect, private: bool) -> Res
         Some(p) if !p.as_os_str().is_empty() => p,
         _ => Path::new("."),
     };
-    let old = check_target(path, expect)?;
+    // 0. The folder, validated and held; everything below is relative to it.
+    let folder = Folder::open(dir)?;
+    // 1. The target must be what the caller read.
+    let old = check_target(&folder, name, path, expect)?;
 
     // 2. The temporary file.
     match faults::hit(points::CREATE_TEMP) {
@@ -154,9 +178,10 @@ fn replace_with(path: &Path, bytes: &[u8], expect: Expect, private: bool) -> Res
         Some(Fault::Crash) => return Err(Error::Crashed(points::CREATE_TEMP)),
         None => {}
     }
-    let (tmp, mut file) = create_temp(dir, name, private)?;
+    let (tmp, mut file) = create_temp(&folder, name, private)?;
+    let tmp_path = folder.join(&tmp);
     let cleanup = |e: Error| {
-        let _ = fs::remove_file(&tmp);
+        let _ = folder.remove(&tmp);
         e
     };
 
@@ -165,25 +190,25 @@ fn replace_with(path: &Path, bytes: &[u8], expect: Expect, private: bool) -> Res
         let half = bytes.get(..bytes.len() / 2).unwrap_or_default();
         let _ = file.write_all(half);
         return Err(match fault {
-            Fault::Error => cleanup(io_err("write", &tmp)(faults::injected(points::WRITE))),
+            Fault::Error => cleanup(io_err("write", &tmp_path)(faults::injected(points::WRITE))),
             Fault::Crash => Error::Crashed(points::WRITE),
         });
     }
-    file.write_all(bytes).map_err(|e| cleanup(io_err("write", &tmp)(e)))?;
+    file.write_all(bytes).map_err(|e| cleanup(io_err("write", &tmp_path)(e)))?;
     match faults::hit(points::FSYNC) {
-        Some(Fault::Error) => return Err(cleanup(io_err("fsync", &tmp)(faults::injected(points::FSYNC)))),
+        Some(Fault::Error) => return Err(cleanup(io_err("fsync", &tmp_path)(faults::injected(points::FSYNC)))),
         Some(Fault::Crash) => return Err(Error::Crashed(points::FSYNC)),
         None => {}
     }
-    file.sync_all().map_err(|e| cleanup(io_err("fsync", &tmp)(e)))?;
+    file.sync_all().map_err(|e| cleanup(io_err("fsync", &tmp_path)(e)))?;
     if let Some(old) = old.as_ref().filter(|_| !private) {
         // Best effort: some file systems (FAT, some shares) have no permission bits to copy.
-        let _ = file.set_permissions(old.permissions());
+        let _ = Folder::copy_permissions(&file, old);
     }
     drop(file);
 
     // 4. The target must still be what the caller read.
-    check_target(path, expect).map_err(cleanup)?;
+    check_target(&folder, name, path, expect).map_err(cleanup)?;
 
     // 5. Rename over the target, then make the rename durable.
     match faults::hit(points::RENAME) {
@@ -191,24 +216,25 @@ fn replace_with(path: &Path, bytes: &[u8], expect: Expect, private: bool) -> Res
         Some(Fault::Crash) => return Err(Error::Crashed(points::RENAME)),
         None => {}
     }
-    fs::rename(&tmp, path).map_err(|e| cleanup(io_err("rename", path)(e)))?;
+    folder.rename(&tmp, name).map_err(cleanup)?;
     match faults::hit(points::FSYNC_DIR) {
         Some(Fault::Error) => return Err(io_err("fsync", dir)(faults::injected(points::FSYNC_DIR))),
         Some(Fault::Crash) => return Err(Error::Crashed(points::FSYNC_DIR)),
         None => {}
     }
-    sync_dir(dir)?;
+    folder.sync()?;
 
-    // 6. Verify.
+    // 6. Verify, reading the target back through the held folder without following a link.
     match faults::hit(points::VERIFY) {
         Some(Fault::Error) => return Err(io_err("verify", path)(faults::injected(points::VERIFY))),
         Some(Fault::Crash) => return Err(Error::Crashed(points::VERIFY)),
         None => {}
     }
-    let mut back = File::open(path).map_err(io_err("verify", path))?;
+    let back = folder.open_read(name)?;
     let meta = back.metadata().map_err(io_err("verify", path))?;
     let mut read_back = Vec::with_capacity(bytes.len());
-    back.read_to_end(&mut read_back).map_err(io_err("verify", path))?;
+    // One byte past the expected length is enough to tell a longer file apart.
+    back.take(u64::try_from(bytes.len()).unwrap_or(u64::MAX).saturating_add(1)).read_to_end(&mut read_back).map_err(io_err("verify", path))?;
     if read_back != bytes {
         return Err(Error::VerifyFailed(path.to_path_buf()));
     }
@@ -240,51 +266,37 @@ fn target_meta(path: &Path) -> Result<Option<Metadata>> {
     }
 }
 
-/// Checks the target against `expect`; returns its metadata when it exists.
-fn check_target(path: &Path, expect: Expect) -> Result<Option<Metadata>> {
-    let meta = target_meta(path)?;
-    let ok = match (&meta, expect) {
+/// Checks the target `name` in `folder` (at `path`) against `expect`, without following a link;
+/// returns what it is when it exists.
+fn check_target(folder: &Folder, name: &OsStr, path: &Path, expect: Expect) -> Result<Option<Entry>> {
+    let entry = folder.entry(name)?;
+    if entry.as_ref().is_some_and(|e| e.kind == Kind::Link) {
+        return Err(Error::Link(path.to_path_buf()));
+    }
+    let ok = match (&entry, expect) {
         (None, Expect::Absent) => true,
-        (Some(m), Expect::Unchanged(id)) => Identity::of(m) == id,
+        (Some(e), Expect::Unchanged(id)) => e.identity == id,
         _ => false,
     };
-    if ok { Ok(meta) } else { Err(Error::Changed(path.to_path_buf())) }
+    if ok { Ok(entry) } else { Err(Error::Changed(path.to_path_buf())) }
 }
 
-fn create_temp(dir: &Path, name: &OsStr, private: bool) -> Result<(PathBuf, File)> {
+/// Creates a new temporary file for `name` in `folder`; returns its name and the open file.
+fn create_temp(folder: &Folder, name: &OsStr, private: bool) -> Result<(OsString, File)> {
     let lossy = name.to_string_lossy();
     let mut keep = lossy.len().min(TEMP_NAME_KEEP);
     while !lossy.is_char_boundary(keep) {
         keep -= 1;
     }
     let stem = lossy.get(..keep).unwrap_or_default();
-    let mut last = None;
     for _ in 0..16 {
-        let tmp = dir.join(format!(".{stem}{TEMP_MARK}{}", random_hex()));
-        let mut options = OpenOptions::new();
-        options.write(true).create_new(true);
-        if private {
-            owner_only(&mut options);
-        }
-        match options.open(&tmp) {
-            Ok(f) => return Ok((tmp, f)),
-            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => last = Some(e),
-            Err(e) => return Err(io_err("create", &tmp)(e)),
+        let tmp = OsString::from(format!(".{stem}{TEMP_MARK}{}", random_hex()));
+        if let Some(f) = folder.create_new(&tmp, private)? {
+            return Ok((tmp, f));
         }
     }
-    Err(io_err("create", dir)(last.unwrap_or_else(|| io::Error::other("no free temporary name"))))
+    Err(io_err("create", folder.path())(io::Error::new(io::ErrorKind::AlreadyExists, "no free temporary name")))
 }
-
-/// Files created with `options` may be read and written by their owner only.
-#[cfg(unix)]
-fn owner_only(options: &mut OpenOptions) {
-    use std::os::unix::fs::OpenOptionsExt;
-    options.mode(0o600);
-}
-
-/// No permission bits elsewhere: the file gets its folder's (on Windows, its inherited ACL).
-#[cfg(not(unix))]
-fn owner_only(_options: &mut OpenOptions) {}
 
 /// 16 hex digits from the standard library's per-process random hash keys and a counter.
 fn random_hex() -> String {
@@ -296,18 +308,6 @@ fn random_hex() -> String {
         h.write_u128(d.as_nanos());
     }
     format!("{:016x}", h.finish())
-}
-
-/// Makes a rename durable: `fsync` the folder on Unix. Windows journals renames itself and cannot
-/// open a folder as a file.
-#[cfg(unix)]
-fn sync_dir(dir: &Path) -> Result<()> {
-    File::open(dir).and_then(|d| d.sync_all()).map_err(io_err("fsync", dir))
-}
-
-#[cfg(not(unix))]
-fn sync_dir(_dir: &Path) -> Result<()> {
-    Ok(())
 }
 
 #[cfg(test)]
@@ -451,9 +451,9 @@ mod tests {
             assert!(!is_temp_name(OsStr::new(other)), "{other}");
         }
         let dir = tempfile::tempdir().unwrap();
-        let (tmp, _f) = create_temp(dir.path(), OsStr::new(&"x".repeat(255)), false).unwrap();
-        let n = tmp.file_name().unwrap();
-        assert!(n.len() <= 255 && is_temp_name(n));
+        let folder = Folder::open(dir.path()).unwrap();
+        let (n, _f) = create_temp(&folder, OsStr::new(&"x".repeat(255)), false).unwrap();
+        assert!(n.len() <= 255 && is_temp_name(&n));
     }
 
     #[test]

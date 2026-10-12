@@ -62,6 +62,8 @@ notify = "8"
 trash = "5.2"
 tempfile = "3"
 directories = "6"
+# Writes relative to a held folder handle (dalica-fs, Unix only; security.md §5.6). Safe API only.
+rustix = { version = "1.1.5", default-features = false, features = ["std", "fs"] }
 
 # Parallelism, serialization, errors, logging
 rayon = "1.12"

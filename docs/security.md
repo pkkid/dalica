@@ -438,8 +438,20 @@ embedded, never loaded by a referenced name. **Planned (M1, M14).**
   out of the source or destination folder. **Planned (M9).**
 - Where the platform allows, the write path holds a directory handle and works relative to it,
   so a component swapped for a link after validation cannot redirect the write. Canonicalization
-  alone is insufficient because links can change after the check. **Planned (M5, through `rustix`;
-  until then the write path compares the file's identity before and after opening it).**
+  alone is insufficient because links can change after the check. **Built (M5.3: `dalica-fs`
+  `atomic::replace` through its internal `dirfd` module).** On Unix the target's folder is
+  validated, opened once (`O_DIRECTORY | O_NOFOLLOW`, through `rustix`'s safe API) and checked to
+  be the folder that was validated (device and inode); the exclusive temporary `openat`, write,
+  `fsync`, identity re-check (`fstatat` without following), `renameat`, folder `fsync` and the
+  read-back (`O_NOFOLLOW`) all work relative to that handle, so a swap after validation leaves the
+  write in the original folder, and a swap before the open is refused. A folder whose own name is
+  already a link when the write starts (a watched folder linked to another drive) is followed once
+  at validation and then held the same way; whether such a folder may be written is the store's
+  decision (the bullet above). Windows has no handle-relative calls on stable Rust, so it compares
+  the folder's identity again before each step that creates, renames or removes a file, refuses a
+  folder that turned into a link or junction, and compares the file's identity before and after
+  opening it. Its folder identity is the creation time (stable Rust exposes no file index), so
+  there a folder replaced by another *real* folder of the same name is not always detected.
 
 ### 5.7 Trash, never delete
 
@@ -463,8 +475,11 @@ embedded, never loaded by a referenced name. **Planned (M1, M14).**
 
 - Atomic-replace temporaries live next to their target, named `.<name>.dalica-tmp-<random>`,
   created exclusively. Dalica removes only stale files of exactly this shape (older than 24 hours)
-  when it next scans the folder. **Names built (M1.2: `atomic::is_temp_name`); the stale cleanup
-  is planned with scanning (M1).**
+  when it next scans the folder. **Names built (M1.2: `atomic::is_temp_name`); the cleanup built
+  (M5.3: `dalica-fs` `remove_stale_temps(folder, now)`: regular files of exactly that shape whose
+  modification time is more than 24 hours before `now`, in that folder only, through the held
+  folder handle; links, folders, near-miss names and other files are never touched; it reports
+  what it removed and what it could not). Calling it from the scan is planned (M5).**
 - Other scratch files (render and export scratch, decoded previews spilled to disk) go to
   `<cache>/Dalica/tmp/`, created `0700` on Unix, with random names, never to a predictable name in
   a shared system temp directory. **Planned (M7).**
