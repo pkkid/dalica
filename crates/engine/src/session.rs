@@ -21,6 +21,7 @@
 //! | [`crate::watching`] | external changes (stub until M5.17) |
 //! | [`crate::offline`] | offline volumes (stub until M5.13) |
 //! | [`crate::thumbs`] | the thumbnail ladder |
+//! | [`crate::metadata`] | the metadata hook: the owned fields each applied op changed (stub until M6.33) |
 //!
 //! Thumbnails are made by the thumbnailer's own workers as scans land; their sketches come back
 //! through the same calls and are applied as derived ops: journaled, but never on the undo stack
@@ -45,6 +46,7 @@ pub use crate::folders::FOLDERS_FILE;
 use crate::folders::Folders;
 use crate::jobs::Jobs;
 use crate::keymap::Keymap;
+use crate::metadata::{Metadata, Origin};
 use crate::offline::Offline;
 use crate::registry::{CommandInfo, CommandSpec, History};
 use crate::scanning::{PHOTOS_PER_POLL, ScanKind, Scanning};
@@ -108,6 +110,8 @@ pub struct Session {
     pub(crate) watching: Watching,
     /// Which roots are reachable (`offline.rs`).
     pub(crate) offline: Offline,
+    /// What the metadata hook was told (`metadata.rs`).
+    pub(crate) metadata: Metadata,
     _lock: LibraryLock,
 }
 
@@ -152,6 +156,8 @@ impl Session {
         keymap.set_overrides(overrides);
         let (thumbs, thumb_notes) = Thumbs::open(&options.thumbs);
         let mut notices: Vec<String> = settings_note.into_iter().collect();
+        // Stored values of the wrong type: the defaults are used, and the notice says which.
+        notices.extend(settings.problems());
         notices.extend(thumb_notes);
         let jobs = Jobs::new(clock.now());
         let mut session = Session {
@@ -177,6 +183,7 @@ impl Session {
             jobs,
             watching: Watching::default(),
             offline: Offline::default(),
+            metadata: Metadata::default(),
             _lock: lock,
         };
         session.configure_thumbnails();
@@ -220,10 +227,12 @@ impl Session {
     }
 
     /// Applies `op` to the model, journals it, marks the folders it touched for a sidecar write, and
-    /// (inside `execute`) collects its inverse for the undo step. Commands change the library
-    /// only through this.
+    /// (inside `execute`) collects its inverse for the undo step, then tells the metadata hook which
+    /// photos' owned fields it changed (`metadata.rs`). Commands change the library only through
+    /// this.
     pub(crate) fn apply(&mut self, op: Op) -> Result<Op, CmdError> {
         let before = self.all_folder_ids();
+        let owned_before = crate::metadata::snapshot(&self.library, &crate::metadata::candidates(&op));
         let inverse = self.library.apply(op.clone()).map_err(|e| match e {
             dalica_library::Error::UnknownFolder(_) | dalica_library::Error::UnknownPhoto(_) => CmdError::NotFound(e.to_string()),
             other => CmdError::BadParams(other.to_string()),
@@ -241,6 +250,10 @@ impl Session {
             c.push(inverse.clone());
         }
         self.count_op();
+        // Inside `execute` (undo and redo included) the change is a command's; outside it, a
+        // scan's or the watcher's.
+        let origin = if self.collected.is_some() { Origin::Command } else { Origin::Files };
+        self.metadata_applied(owned_before, origin);
         Ok(inverse)
     }
 
@@ -339,7 +352,7 @@ impl Session {
     /// Applies the results of finished background work: up to [`PHOTOS_PER_POLL`] photos of what
     /// the scans found (ending the scans that are complete), what the watcher and the online
     /// checks reported, and up to [`crate::thumbs::POLL_MAX`] thumbnail jobs (their sketches in
-    /// batches); then drops the jobs that expired. Returns how many things it handled. Call it each
+    /// batches); then the metadata hook's turn, and drops the jobs that expired. Returns how many things it handled. Call it each
     /// frame; it never blocks and never touches the disk.
     pub fn poll(&mut self) -> usize {
         let mut n = self.poll_scans(PHOTOS_PER_POLL);
@@ -347,6 +360,7 @@ impl Session {
         n += self.poll_offline();
         n += self.thumbs.poll(&self.library, crate::thumbs::POLL_MAX);
         self.apply_sketches();
+        n += self.poll_metadata();
         self.jobs.prune(self.clock.now());
         n
     }

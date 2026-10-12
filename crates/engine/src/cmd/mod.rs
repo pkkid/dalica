@@ -2,11 +2,18 @@
 //! in [`specs`].
 
 pub mod app;
+pub mod caption;
+pub mod dates;
 pub mod edit;
+pub mod folder_info;
 pub mod folders;
+pub mod hide;
+pub mod info;
 pub mod library;
 pub mod photo;
+pub mod rotate;
 pub mod section;
+pub mod tags;
 pub mod view;
 
 #[cfg(test)]
@@ -16,7 +23,25 @@ use crate::registry::CommandSpec;
 
 /// Every registered command.
 pub fn specs() -> Vec<CommandSpec> {
-    let all = [photo::specs(), library::specs(), edit::specs(), folders::specs(), app::specs(), view::specs(), section::specs()].concat();
+    let all = [
+        photo::specs(),
+        library::specs(),
+        edit::specs(),
+        folders::specs(),
+        app::specs(),
+        view::specs(),
+        section::specs(),
+        // M6: empty until M6.14 (rotate, hide, caption, folder_info), M6.15 (tags) and M6.16
+        // (dates, info) fill them.
+        rotate::specs(),
+        hide::specs(),
+        caption::specs(),
+        folder_info::specs(),
+        tags::specs(),
+        dates::specs(),
+        info::specs(),
+    ]
+    .concat();
     #[cfg(test)]
     let all = [all, testing::specs()].concat();
     all

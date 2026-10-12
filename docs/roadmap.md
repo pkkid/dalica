@@ -1879,7 +1879,7 @@ replace at M6.R.
     extended XMP reassembled and an oversized or mismatched one refused; the listing; IFD loops,
     offsets past the end and huge counts are `Err`; truncation at every offset and proptest random
     bytes never panic; `cargo +nightly fuzz build` builds every target (output in the PR).
-- ⬜ **M6.5 `engine`: M6's command modules and settings**
+- ✅ **M6.5 `engine`: M6's command modules and settings**
   - after: M5.12, M5.16
   - files: `crates/engine/src/cmd/mod.rs`, `crates/engine/src/cmd/rotate.rs`, `crates/engine/src/cmd/hide.rs`, `crates/engine/src/cmd/caption.rs`, `crates/engine/src/cmd/folder_info.rs`, `crates/engine/src/cmd/tags.rs`, `crates/engine/src/cmd/dates.rs`, `crates/engine/src/cmd/info.rs`, `crates/engine/src/metadata.rs`, `crates/engine/src/session.rs`, `crates/engine/src/settings.rs`, `crates/engine/tests/settings_m6.rs`, `crates/engine/README.md`
   - scope: the engine's ground for M6 so M6.14–M6.16, M6.32 and M6.33 never share a file: empty

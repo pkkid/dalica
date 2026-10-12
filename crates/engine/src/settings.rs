@@ -30,6 +30,23 @@
 //! that is not a whole number of bytes in `dalica_thumbs::upkeep::MIN_BUDGET ..= MAX_BUDGET` is the
 //! default).
 //!
+//! M6 adds two objects, merged key by key like the others (M6.5):
+//!
+//! - `"files"`: Options → General → Files, the metadata writes (`menus-and-shortcuts.md` §5,
+//!   `xmp-interop.md` §1–§2; [`MetadataWrites`]): `{writeCaptionsTagsPlaces, writeStarsAsRatings,
+//!   updateModificationTime, writeRawXmpSidecars, writeDates}`, on, off, off, off, on by default.
+//!   Their checkboxes arrive with the Options dialog (M10).
+//! - `"tags"`: the Tags pane's quick tags and recently used tags (`organizing.md` §5.2;
+//!   [`QuickTags`]): `{quick, useRecent, recent}`, `quick` ten slots of tag text or `null`,
+//!   `useRecent` "Use the top two buttons for recently used tags" (on by default), `recent` the
+//!   recently used tags, most recent first (at most [`MAX_RECENT_TAGS`]).
+//!
+//! The command modules read them through [`Session::settings`](crate::Session::settings) and change
+//! them through [`Session::change_settings`](crate::Session::change_settings) with the typed
+//! accessors below. A value of the wrong type is the default and is reported once, when the library
+//! opens ([`Settings::problems`], in `Session::notices`), by its key only: tag text never reaches a
+//! notice or a log (`security.md` §4.4).
+//!
 //! Stored numbers are hostile like any input: a value that is not a finite number in its range is
 //! dropped (the default is used), never trusted.
 
@@ -146,6 +163,91 @@ pub const THUMB_EXPONENT_RANGE: std::ops::RangeInclusive<f32> = 0.25..=8.0;
 /// The default and the range of a stored [`ThumbSpeed::top_speed`] (screen heights per second).
 pub const THUMB_TOP_SPEED_DEFAULT: f32 = 40.0;
 pub const THUMB_TOP_SPEED_RANGE: std::ops::RangeInclusive<f32> = 0.5..=400.0;
+
+/// Options → General → Files: which owned metadata fields Dalica writes into photo files, and how
+/// (`"files"` in `settings.json`; `xmp-interop.md` §1–§2). With an option off, the field is still
+/// read but never written.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MetadataWrites {
+    /// Write captions, tags and places into photo files (`writeCaptionsTagsPlaces`; on).
+    pub captions_tags_places: bool,
+    /// Write stars as ratings (XMP) (`writeStarsAsRatings`; off).
+    pub stars_as_ratings: bool,
+    /// Update file modification time on metadata changes (`updateModificationTime`; off).
+    pub update_modification_time: bool,
+    /// Write XMP sidecars for RAW files (`writeRawXmpSidecars`; off).
+    pub raw_xmp_sidecars: bool,
+    /// Write date changes to files (`writeDates`; on).
+    pub dates: bool,
+}
+
+impl Default for MetadataWrites {
+    fn default() -> Self {
+        MetadataWrites { captions_tags_places: true, stars_as_ratings: false, update_modification_time: false, raw_xmp_sidecars: false, dates: true }
+    }
+}
+
+impl MetadataWrites {
+    /// Each option with its key in `"files"`.
+    fn keyed(&self) -> [(&'static str, bool); 5] {
+        [
+            ("writeCaptionsTagsPlaces", self.captions_tags_places),
+            ("writeStarsAsRatings", self.stars_as_ratings),
+            ("updateModificationTime", self.update_modification_time),
+            ("writeRawXmpSidecars", self.raw_xmp_sidecars),
+            ("writeDates", self.dates),
+        ]
+    }
+
+    /// The options from `values` in [`MetadataWrites::keyed`] order.
+    fn from_keyed(v: [bool; 5]) -> MetadataWrites {
+        let [captions_tags_places, stars_as_ratings, update_modification_time, raw_xmp_sidecars, dates] = v;
+        MetadataWrites { captions_tags_places, stars_as_ratings, update_modification_time, raw_xmp_sidecars, dates }
+    }
+}
+
+/// The number of quick tags (`organizing.md` §5.2).
+pub const QUICK_TAGS: usize = 10;
+/// The most recently used tags kept.
+pub const MAX_RECENT_TAGS: usize = 10;
+/// The longest stored quick or recent tag read, in bytes; a longer one is dropped.
+pub const MAX_TAG_BYTES: usize = 1024;
+
+/// The quick tags (`"tags"` → `quick` and `useRecent` in `settings.json`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct QuickTags {
+    /// The ten slots, `None` unassigned (shown as "+"). Tag text is trimmed and never empty.
+    pub slots: [Option<String>; QUICK_TAGS],
+    /// "Use the top two buttons for recently used tags" (on).
+    pub use_recent: bool,
+}
+
+impl Default for QuickTags {
+    fn default() -> Self {
+        QuickTags { slots: Default::default(), use_recent: true }
+    }
+}
+
+/// Stored tag text worth keeping: trimmed, not empty, at most [`MAX_TAG_BYTES`].
+fn tag_text(t: &str) -> Option<String> {
+    let t = t.trim();
+    (!t.is_empty() && t.len() <= MAX_TAG_BYTES).then(|| t.to_string())
+}
+
+/// `tags` as tag text: each kept by [`tag_text`], the first of equal ones kept, at most
+/// [`MAX_RECENT_TAGS`].
+fn recent_list<'a>(tags: impl IntoIterator<Item = &'a str>) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for t in tags.into_iter().filter_map(tag_text) {
+        if out.len() == MAX_RECENT_TAGS {
+            break;
+        }
+        if !out.contains(&t) {
+            out.push(t);
+        }
+    }
+    out
+}
 
 /// The settings document.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -407,6 +509,154 @@ impl Settings {
         let fields: Vec<(&str, Option<Value>)> =
             FileType::ALL.into_iter().filter(|t| *t != FileType::Jpeg).map(|t| (t.id(), Some(json!(types.allows(t))))).collect();
         self.merge("fileTypes", &fields);
+    }
+
+    /// Options → General → Files: the metadata write options; each value that is not `true` or
+    /// `false` is its default.
+    pub fn metadata_writes(&self) -> MetadataWrites {
+        self.read_metadata_writes(&mut Vec::new())
+    }
+
+    /// Stores every metadata write option under `"files"`; other keys of the object are kept.
+    pub fn set_metadata_writes(&mut self, w: &MetadataWrites) {
+        let fields: Vec<(&str, Option<Value>)> = w.keyed().into_iter().map(|(k, v)| (k, Some(json!(v)))).collect();
+        self.merge("files", &fields);
+    }
+
+    /// The quick tags; a slot that is not tag text (a string, trimmed, not empty, at most
+    /// [`MAX_TAG_BYTES`]) is unassigned, entries past the tenth are ignored, and a `useRecent` that
+    /// is not a boolean is on.
+    pub fn quick_tags(&self) -> QuickTags {
+        self.read_quick_tags(&mut Vec::new())
+    }
+
+    /// Stores the quick tags under `"tags"` (unassigned slots as `null`; text kept by the same
+    /// rules as reading); `recent` and other keys of the object are kept.
+    pub fn set_quick_tags(&mut self, q: &QuickTags) {
+        let slots: Vec<Value> = q.slots.iter().map(|s| s.as_deref().and_then(tag_text).map_or(Value::Null, Value::String)).collect();
+        self.merge("tags", &[("quick", Some(Value::Array(slots))), ("useRecent", Some(json!(q.use_recent)))]);
+    }
+
+    /// The recently used tags, most recent first: at most [`MAX_RECENT_TAGS`], each tag text once;
+    /// entries that are not tag text are left out.
+    pub fn recent_tags(&self) -> Vec<String> {
+        self.read_recent_tags(&mut Vec::new())
+    }
+
+    /// Stores `tags` (most recent first) as the recently used tags, kept by the reading rules.
+    pub fn set_recent_tags(&mut self, tags: &[String]) {
+        let list = recent_list(tags.iter().map(String::as_str));
+        self.merge("tags", &[("recent", Some(json!(list)))]);
+    }
+
+    /// Records `tags` as just used: they go first, in their order, ahead of the tags used before
+    /// (an equal text appears once); the oldest fall off past [`MAX_RECENT_TAGS`].
+    pub fn note_recent_tags(&mut self, tags: &[String]) {
+        let before = self.recent_tags();
+        let list = recent_list(tags.iter().chain(before.iter()).map(String::as_str));
+        self.merge("tags", &[("recent", Some(json!(list)))]);
+    }
+
+    /// The stored settings this version reads with a value of the wrong type, one line each, by key
+    /// (never by value): their defaults are used. The session reports them in its notices when it
+    /// opens the library.
+    pub fn problems(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        self.read_metadata_writes(&mut out);
+        self.read_quick_tags(&mut out);
+        self.read_recent_tags(&mut out);
+        out.into_iter().map(|p| format!("settings.json: {p}")).collect()
+    }
+
+    /// The object under `key`, `None` when absent; a value there that is not an object is reported
+    /// (once) and counts as absent.
+    fn object(&self, key: &str, problems: &mut Vec<String>) -> Option<&Map<String, Value>> {
+        match self.root.get(key)? {
+            Value::Object(o) => Some(o),
+            _ => {
+                let p = format!("\"{key}\" is not an object; its defaults are used");
+                if !problems.contains(&p) {
+                    problems.push(p);
+                }
+                None
+            }
+        }
+    }
+
+    fn read_metadata_writes(&self, problems: &mut Vec<String>) -> MetadataWrites {
+        let defaults = MetadataWrites::default().keyed();
+        let obj = self.object("files", problems);
+        let values = defaults.map(|(key, default)| match obj.and_then(|o| o.get(key)) {
+            None => default,
+            Some(Value::Bool(b)) => *b,
+            Some(_) => {
+                let d = if default { "on" } else { "off" };
+                problems.push(format!("files.{key} is not true or false; the default ({d}) is used"));
+                default
+            }
+        });
+        MetadataWrites::from_keyed(values)
+    }
+
+    fn read_quick_tags(&self, problems: &mut Vec<String>) -> QuickTags {
+        let mut q = QuickTags::default();
+        let Some(obj) = self.object("tags", problems) else { return q };
+        match obj.get("useRecent") {
+            None => {}
+            Some(Value::Bool(b)) => q.use_recent = *b,
+            Some(_) => problems.push("tags.useRecent is not true or false; the default (on) is used".into()),
+        }
+        match obj.get("quick") {
+            None => {}
+            Some(Value::Array(list)) => {
+                let mut bad = 0usize;
+                for (slot, v) in q.slots.iter_mut().zip(list) {
+                    *slot = match v {
+                        Value::Null => None,
+                        Value::String(t) => tag_text(t),
+                        _ => None,
+                    };
+                    let unusable = match v {
+                        Value::Null => false,
+                        Value::String(t) => t.trim().len() > MAX_TAG_BYTES,
+                        _ => true,
+                    };
+                    bad += usize::from(unusable);
+                }
+                if bad > 0 {
+                    problems.push(match bad {
+                        1 => "tags.quick: 1 slot holds no usable tag text; it is unassigned".to_string(),
+                        n => format!("tags.quick: {n} slots hold no usable tag text; they are unassigned"),
+                    });
+                }
+                if list.len() > QUICK_TAGS {
+                    problems.push(format!("tags.quick has more than {QUICK_TAGS} slots; the rest are ignored"));
+                }
+            }
+            Some(_) => problems.push("tags.quick is not a list; every quick tag is unassigned".into()),
+        }
+        q
+    }
+
+    fn read_recent_tags(&self, problems: &mut Vec<String>) -> Vec<String> {
+        let Some(obj) = self.object("tags", problems) else { return Vec::new() };
+        match obj.get("recent") {
+            None => Vec::new(),
+            Some(Value::Array(list)) => {
+                let bad = list.iter().filter(|v| v.as_str().is_none_or(|t| t.trim().len() > MAX_TAG_BYTES)).count();
+                if bad > 0 {
+                    problems.push(match bad {
+                        1 => "tags.recent: 1 entry holds no usable tag text; it is left out".to_string(),
+                        n => format!("tags.recent: {n} entries hold no usable tag text; they are left out"),
+                    });
+                }
+                recent_list(list.iter().filter_map(Value::as_str))
+            }
+            Some(_) => {
+                problems.push("tags.recent is not a list; no recent tags are used".into());
+                Vec::new()
+            }
+        }
     }
 
     /// Reads `<dir>/settings.json` without changing anything: unlike [`Settings::load`], a damaged
