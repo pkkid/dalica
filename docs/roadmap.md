@@ -1943,7 +1943,7 @@ replace at M6.R.
     §10.7 with the new fields; the "every model field has a sidecar mapping" test lists each new
     field (synced hashes as index-only); journal replay and snapshots keep them; proptest round
     trips of sidecars with every field never panic.
-- ⬜ **M6.9 `meta`: XMP reading and the merge writer**
+- ✅ **M6.9 `meta`: XMP reading and the merge writer**
   - after: M6.4
   - files: `crates/meta/src/xmp/**`, `crates/meta/tests/xmp.rs`, `crates/meta/tests/xmp_merge.rs`
   - scope: `xmp-interop.md` §1–§3: our own XML tokenizer that keeps byte spans (no DTD or entities,
