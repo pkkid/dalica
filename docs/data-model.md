@@ -395,6 +395,11 @@ their folder header.
     of the library's files is found (another volume mounted in its place; a drive plugged in
     again with a new device number but its files is accepted). Nothing is written under an
     offline root, even where a folder is there: a sidecar never lands in an empty mount point.
+    The online checks run every 10 s, so each write also checks its root right before it lands
+    (M6.43): the sidecar writer (at most once per root per write pass) and the metadata writer
+    into photo files (before each file, M6.30) run the root's probe with the online checks' own
+    rule and hold a write whose root fails it as offline; it waits, is reported unsaved by a
+    flush, and lands when the volume returns.
   - **Stale temporaries:** each folder a scan or rescan hands out has its stale atomic-replace
     temporaries removed (`security.md` §5.8).
   - **Stale entries:** a photo deleted outside Dalica leaves the library at once. Its sidecar entry

@@ -744,7 +744,7 @@ checksum = "f27ae1dd37df86211c42e150270f82743308803d90a6f6e6651cd730d5e1732f"
 
 [[package]]
 name = "dalica"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "dalica-core",
  "dalica-engine",
@@ -766,7 +766,7 @@ dependencies = [
 
 [[package]]
 name = "dalica-acceptance"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "dalica-core",
  "dalica-engine",
@@ -783,7 +783,7 @@ dependencies = [
 
 [[package]]
 name = "dalica-cli"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "dalica-core",
  "dalica-engine",
@@ -797,7 +797,7 @@ dependencies = [
 
 [[package]]
 name = "dalica-core"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "proptest",
  "serde",
@@ -807,11 +807,11 @@ dependencies = [
 
 [[package]]
 name = "dalica-create"
-version = "0.0.0"
+version = "0.1.0"
 
 [[package]]
 name = "dalica-edit"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "dalica-image",
  "dalica-scenes",
@@ -821,7 +821,7 @@ dependencies = [
 
 [[package]]
 name = "dalica-engine"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "dalica-core",
  "dalica-edit",
@@ -844,15 +844,15 @@ dependencies = [
 
 [[package]]
 name = "dalica-faces"
-version = "0.0.0"
+version = "0.1.0"
 
 [[package]]
 name = "dalica-fetch"
-version = "0.0.0"
+version = "0.1.0"
 
 [[package]]
 name = "dalica-fs"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "dalica-core",
  "dalica-fs",
@@ -863,7 +863,7 @@ dependencies = [
 
 [[package]]
 name = "dalica-image"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "dalica-core",
  "dalica-scenes",
@@ -888,7 +888,7 @@ dependencies = [
 
 [[package]]
 name = "dalica-library"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "dalica-core",
  "proptest",
@@ -899,11 +899,11 @@ dependencies = [
 
 [[package]]
 name = "dalica-mcp"
-version = "0.0.0"
+version = "0.1.0"
 
 [[package]]
 name = "dalica-meta"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "dalica-core",
  "dalica-image",
@@ -917,7 +917,7 @@ dependencies = [
 
 [[package]]
 name = "dalica-scan"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "dalica-core",
  "dalica-fs",
@@ -932,7 +932,7 @@ dependencies = [
 
 [[package]]
 name = "dalica-scenes"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "dalica-core",
  "fdeflate",
@@ -950,7 +950,7 @@ dependencies = [
 
 [[package]]
 name = "dalica-sidecar"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "dalica-core",
  "proptest",
@@ -960,7 +960,7 @@ dependencies = [
 
 [[package]]
 name = "dalica-store"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "dalica-core",
  "dalica-fs",
@@ -978,7 +978,7 @@ dependencies = [
 
 [[package]]
 name = "dalica-thumbs"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "dalica-fs",
  "dalica-image",
@@ -991,7 +991,7 @@ dependencies = [
 
 [[package]]
 name = "dalica-ui"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "dalica-core",
  "dalica-edit",
@@ -1014,7 +1014,7 @@ dependencies = [
 
 [[package]]
 name = "dalica-ui-kit"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "dalica-scenes",
  "egui",
@@ -4566,7 +4566,7 @@ checksum = "e450f9b2ed1dff33c94c12589a87338689467b9c4f5d8a5710bd09a847d2c8a7"
 
 [[package]]
 name = "xtask"
-version = "0.0.0"
+version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",

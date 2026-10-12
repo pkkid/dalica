@@ -2313,7 +2313,7 @@ replace at M6.R.
     foreign XMP, IPTC and EXIF fields unchanged), with floors at the measured counts.
   - done when: `cargo xtask corpus --all` fetches and verifies the set; `cargo xtask test-corpus -p
     dalica-meta` passes with its floors (numbers in the PR); no corpus file is tracked by git.
-- ⬜ **M6.35 Release 0.1: notes, version and README**
+- ✅ **M6.35 Release 0.1: notes, version and README**
   - after: M6.20, M6.21, M6.22, M6.23, M6.24, M6.25, M6.26, M6.27, M6.29, M6.31, M6.32, M6.33, M6.34
   - files: `docs/whats-new.md`, `README.md`, `docs/releasing.md`, `docs/security.md`
   - scope: the user-facing 0.1 section of `whats-new.md` by its conventions (what a user can do now,

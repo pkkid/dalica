@@ -413,7 +413,10 @@ By ▸.
 - **Folder Properties** (double-click the folder name or header, or the context menu): **Name**
   (renames on disk), **Date** + **"Use the date of the oldest photo"**, **Place** (optional),
   **Description** (optional), **Music for slideshows** (path + Browse…), [OK] [Cancel].
-  All fields are searchable; the description shows in the folder header.
+  All fields are searchable; the description shows in the folder header. The date is typed as
+  `YYYY-MM-DD` (the long date shows beside it; OK is greyed while the text does not read as a
+  day); while the box is ticked the field shows the oldest photo's date. Name and Music stay
+  greyed until renaming (M9) and slideshows (M11) arrive.
 
 ## 11. Open questions (reserved for the maintainer)
 
