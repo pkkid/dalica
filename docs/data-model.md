@@ -114,6 +114,10 @@ Format rules:
   the wrong type is kept as-is and reported once; it never aborts reading the rest.
 - Readers accept a BOM and CRLF; a duplicate key takes the later value. Nesting is bounded
   (`security.md` §8).
+- `dalica.missing` is Dalica's own bookkeeping for stale entries (§7): an object from a photo's
+  file name to the UTC time (`"2026-10-12T05:15:00Z"`) Dalica first found that photo's file gone
+  while its entry still held Dalica's data. A name leaves it when its file comes back or its entry
+  is pruned; the key goes when it is empty. **Built (M5.17: `dalica-store` `stale`).**
 - Writers write only when the content changed, and never more often than once per second per
   folder (debounced); a crash loses at most the last second of changes in that folder, never the
   file.
@@ -188,6 +192,7 @@ Windows `%LOCALAPPDATA%\Dalica`):
 | `albums.json` | album definitions (id, name, description, date, place, cover) and a copy of the order | yes, from sidecars (each member folder carries the album's name; each member its position key, §3.2) |
 | `people.json` | people (id, name, nickname), merges, settings | yes, from sidecars (names are mirrored per folder) |
 | `index.log` + `index.snap` | the library index: one record per photo (path, size, mtime, dimensions, dates, EXIF summary, content hash, colour sketch, face descriptors), journal + snapshot as in LightCraft | yes, by rescanning |
+| `pending-writes.json` | the folders whose sidecar write waits for an offline volume (§7): `{"version": 1, "folders": [path, …]}`, written through the I/O worker when the list changes; a damaged file is kept as `.corrupt-<time>` and the list found again by the next online checks (M5.13) | yes, partly: the journal keeps the edits; a lost list is rebuilt for roots found offline |
 | `lock` | single-process lock | — |
 | `settings.json` | preferences (atomic write; damaged file kept as `.corrupt-<time>`); unknown keys kept; `"keymap"` holds the user's shortcut overrides (`menus-and-shortcuts.md` §2.0) | no |
 
@@ -298,6 +303,37 @@ their folder header.
   within seconds; a file whose (size, mtime) changed is re-read; a folder moved outside Dalica keeps
   its data because the sidecar moves with it. A file deleted outside Dalica disappears from the
   library; its stale sidecar entry is pruned after 30 days or on "Clean up folder data".
+  **Built (M5.17)** as follows (`dalica-engine` `watching`, `dalica-store` `stale`):
+  - **Events are hints, verification is the truth.** The outermost Scan Always units are watched
+    on a worker thread through the system's change events, or a pure-Rust poller where those cannot
+    be had (network shares, watch limits, lost roots; M5.11). Folders set to Remove or Scan Once
+    inside them are left out. Changes are debounced (500 ms quiet, 5 s at most) on the session
+    clock and handed out as dirty folders.
+  - **Rescans:** the dirty folders of each unit are scanned again (only them: a folder alone, or a
+    new or renamed one with its subtree) on a worker thread, once no scan is running, as a `scan`
+    job; the result is applied a few hundred photos per frame and diffed again if anything else
+    changed the library meanwhile, so an edit made in between is never overwritten. A file renamed
+    in place (same size and modification time) keeps its photo id and star; a renamed or moved
+    folder keeps its folder and photo ids, stars and sketches; a folder moved in from elsewhere
+    brings its stars in its sidecar.
+  - **Verification pass:** each Scan Always unit (and each Scan Once unit not indexed yet) is
+    scanned whole 6 hours after a scan last walked it, 60 s after the session's first frame if no
+    scan walked it since the session opened (changes made while the app was closed), and again a
+    minute later if it could not be walked (offline). It catches anything the events missed; with
+    the watcher switched off it alone finds every change.
+  - **Never remove what was not seen:** only what a scan walked to the end may leave the library.
+    A root that cannot be walked (offline) keeps everything, and so does a walked root that holds
+    no entries at all (the empty mount point an unmounted volume leaves behind; a warning says so
+    when the library holds folders there).
+  - **Stale temporaries:** each folder a scan or rescan hands out has its stale atomic-replace
+    temporaries removed (`security.md` §5.8).
+  - **Stale entries:** a photo deleted outside Dalica leaves the library at once. Its sidecar entry
+    stays: the folder's next sidecar write marks it in `dalica.missing` (§3) with the time, and the
+    first write 30 days or more later prunes the entry (pruning happens only on a write). An entry
+    is stale only while it holds Dalica's data, has a plain file name, is not a photo of the
+    library and has no file in the folder; a file that comes back (or one the scans skip) keeps its
+    entry, and entries only other programs wrote are never touched. The sidecar, not the index,
+    remembers the time, so it survives a rebuild of the index and travels with the folder.
 - **Offline volumes:** folders on unplugged drives stay in the tree (dimmed, `caution` "offline"
   marker) with their cached thumbnails; edits to their photos are queued in the index and written
   to the sidecar when the volume returns.

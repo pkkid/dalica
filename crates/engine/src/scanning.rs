@@ -30,9 +30,19 @@
 //!   unit a finished scan walked is marked indexed (frozen); [`Session::start_verification`] leaves
 //!   it out from then on. Options → File Types (`settings.json` → `fileTypes`) go to every scan.
 //!
-//! Seams: M5.17 starts rescans of dirty folders from [`crate::watching`] through
-//! `start_region_scan`, and the periodic verification through [`Session::start_verification`]; M5.16 replaces the amortised whole-library thumbnail sync below with one that
-//! queues just the photos of each batch, the first screenful first.
+//! - **Upkeep while scanning** (M5.17, `security.md` §5.8, `data-model.md` §7): each folder handed
+//!   out has its stale `.dalica-tmp-*` files removed on the scan's thread
+//!   ([`crate::watching::clean_temps`], through `dalica_fs::remove_stale_temps` at the session
+//!   time the scan started). A walked root that turns out to hold no entries at all (the mount
+//!   point an unmounted volume leaves behind) removes nothing: its folders stay, as under a root
+//!   that cannot be walked, with a warning when the library holds folders there. Every walked unit
+//!   counts as verified for the schedule in [`crate::watching`].
+//!
+//! Seams: [`crate::watching`] starts the periodic verification through
+//! [`Session::start_verification`]'s units and runs its own incremental rescans of dirty folders
+//! ([`Session::busy`] and [`Session::wait_idle`] include them); M5.16 replaces the amortised
+//! whole-library thumbnail sync below with one that queues just the photos of each batch, the
+//! first screenful first.
 
 use std::collections::{HashSet, VecDeque};
 use std::path::{Path, PathBuf};
@@ -80,7 +90,8 @@ pub struct ScanProgress {
 /// What a scanning thread sends.
 enum Streamed {
     Event(Event),
-    End(Summary),
+    /// The walk's summary, and the walked roots that hold no entries at all.
+    End(Summary, Vec<PathBuf>),
 }
 
 /// The session's scans.
@@ -115,6 +126,8 @@ struct ScanJob {
     indexed: usize,
     folders: usize,
     summary: Option<Summary>,
+    /// Walked roots that hold no entries at all: nothing under them is removed.
+    empty: Vec<PathBuf>,
     /// The thread went away without a summary.
     lost: bool,
     /// Cancelled: nothing more is taken in.
@@ -139,6 +152,7 @@ impl ScanJob {
             indexed: 0,
             folders: 0,
             summary: None,
+            empty: Vec::new(),
             lost: false,
             stopped: false,
             fresh,
@@ -153,8 +167,9 @@ impl ScanJob {
             let message = if block { rx.recv().map_err(|_| TryRecvError::Disconnected) } else { rx.try_recv() };
             match message {
                 Ok(Streamed::Event(e)) => self.event(e, warnings),
-                Ok(Streamed::End(summary)) => {
+                Ok(Streamed::End(summary, empty)) => {
                     self.summary = Some(summary);
+                    self.empty = empty;
                     return;
                 }
                 Err(TryRecvError::Empty) => break,
@@ -216,7 +231,7 @@ impl ScanJob {
 }
 
 /// The photos one op adds, changes or removes (at least 1): what it costs from the poll's budget.
-fn cost(op: &Op) -> usize {
+pub(crate) fn cost(op: &Op) -> usize {
     match op {
         Op::AddPhotos { photos } | Op::UpdatePhotos { photos } => photos.len().max(1),
         Op::RemovePhotos { ids } => ids.len().max(1),
@@ -225,22 +240,22 @@ fn cost(op: &Op) -> usize {
 }
 
 /// What one poll may still apply.
-struct Budget {
+pub(crate) struct Budget {
     left: usize,
     used: bool,
 }
 
 impl Budget {
-    fn new(photos: usize) -> Budget {
+    pub(crate) fn new(photos: usize) -> Budget {
         Budget { left: photos, used: false }
     }
 
     /// Whether `n` more fits (the first piece of a poll always does).
-    fn fits(&self, n: usize) -> bool {
+    pub(crate) fn fits(&self, n: usize) -> bool {
         !self.used || n <= self.left
     }
 
-    fn take(&mut self, n: usize) -> bool {
+    pub(crate) fn take(&mut self, n: usize) -> bool {
         if !self.fits(n) {
             return false;
         }
@@ -251,7 +266,7 @@ impl Budget {
 }
 
 /// "1 picture", "1,204 pictures".
-fn pictures(n: usize) -> String {
+pub(crate) fn pictures(n: usize) -> String {
     let digits = n.to_string();
     let mut grouped = String::new();
     for (i, c) in digits.chars().enumerate() {
@@ -306,8 +321,19 @@ impl Session {
         let (tx, rx) = mpsc::channel();
         let walk = plan.roots.clone();
         let spawned = std::thread::Builder::new().name("dalica-scan".into()).spawn(move || {
-            let summary = dalica_scan::scan_streaming(&walk, &options, |e| tx.send(Streamed::Event(e)).is_ok());
-            let _ = tx.send(Streamed::End(summary));
+            let summary = dalica_scan::scan_streaming(&walk, &options, |e| {
+                if let Event::Folder(f) = &e {
+                    for problem in crate::watching::clean_temps(&f.path, now) {
+                        let warning = dalica_scan::Warning { path: f.path.clone(), reason: problem };
+                        if tx.send(Streamed::Event(Event::Warning(warning))).is_err() {
+                            return false;
+                        }
+                    }
+                }
+                tx.send(Streamed::Event(e)).is_ok()
+            });
+            let empty = summary.walked.iter().filter(|r| crate::watching::holds_nothing(r)).cloned().collect();
+            let _ = tx.send(Streamed::End(summary, empty));
         });
         match spawned {
             Ok(_) => {
@@ -361,10 +387,10 @@ impl Session {
         p
     }
 
-    /// Whether a scan is still running. Thumbnail jobs are counted apart
-    /// ([`Session::thumbnails_pending`]).
+    /// Whether a scan is still running (the watcher's rescans of dirty folders included).
+    /// Thumbnail jobs are counted apart ([`Session::thumbnails_pending`]).
     pub fn busy(&self) -> bool {
-        !self.scanning.running.is_empty()
+        !self.scanning.running.is_empty() || self.rescanning()
     }
 
     /// Takes in what the scans found and applies up to `photos` of it; ends the scans that are
@@ -408,14 +434,20 @@ impl Session {
     }
 
     /// Blocks until every scan has ended and everything it found is applied, and every browse
-    /// request is answered.
+    /// request is answered; then the same for the rescans of the dirty folders the watcher
+    /// reported (which wait for scans to end), until neither runs.
     pub(crate) fn wait_scans(&mut self) {
         self.poll_browse(true);
-        while !self.scanning.running.is_empty() {
-            for job in &mut self.scanning.running {
-                job.receive(true, &mut self.scan_warnings);
+        loop {
+            while !self.scanning.running.is_empty() {
+                for job in &mut self.scanning.running {
+                    job.receive(true, &mut self.scan_warnings);
+                }
+                self.poll_scans(usize::MAX);
             }
-            self.poll_scans(usize::MAX);
+            if !self.wait_rescans() {
+                break;
+            }
         }
     }
 
@@ -500,14 +532,26 @@ impl Session {
                     replaced = true;
                 }
                 None => {
+                    // A walked root holding no entries at all (an unmounted volume's mount point)
+                    // counts as one that could not be walked: nothing under it is removed.
+                    for root in &job.empty {
+                        let kept = self.library.folders().filter(|f| f.path.starts_with(root)).count();
+                        if kept > 0 {
+                            self.scan_warnings.push(format!(
+                                "{}: the folder is empty; its {kept} folders stay in the library (is its volume unmounted?)",
+                                root.display()
+                            ));
+                        }
+                    }
                     // Folders under a root walked to the end that hold no photos any more (the
                     // subtrees it left out belong to other scans).
                     let excluded = &job.plan.excluded;
+                    let empty = &job.empty;
                     let gone: Vec<_> = self
                         .library
                         .folders()
                         .filter(|f| {
-                            s.walked.iter().any(|root| f.path.starts_with(root))
+                            s.walked.iter().any(|root| f.path.starts_with(root) && !empty.contains(root))
                                 && !excluded.iter().any(|x| f.path.starts_with(x))
                                 && !job.seen.contains(&f.path)
                         })
@@ -523,6 +567,7 @@ impl Session {
         }
         if let Some(s) = summary.as_ref().filter(|_| !cancelled) {
             let walked = Plan { roots: s.walked.clone(), excluded: job.plan.excluded.clone() };
+            self.note_verified(&walked);
             if self.folders.rules.mark_indexed(&walked) {
                 self.save_folders();
             }
@@ -568,6 +613,23 @@ impl Session {
         self.thumbs.sync(&self.library);
         self.scanning.synced_photos = self.library.photos().count();
         self.scanning.applied_since_sync = 0;
+    }
+
+    /// Whether no scan runs (the watcher's rescans aside).
+    pub(crate) fn scans_idle(&self) -> bool {
+        self.scanning.running.is_empty()
+    }
+
+    /// Keeps the failures in effect after an incremental rescan: those `covers` says it looked at
+    /// again are replaced by its own (`found`) there; the rest stay. Returns the ones that are new.
+    pub(crate) fn remember_rescan_failures(&mut self, covers: &dyn Fn(&Path) -> bool, found: &[Failure]) -> Vec<Failure> {
+        let failures = &mut self.scanning.failures;
+        let fresh: Vec<Failure> = found.iter().filter(|f| covers(&f.path) && !failures.iter().any(|o| o.path == f.path)).cloned().collect();
+        failures.retain(|f| !covers(&f.path));
+        failures.extend(found.iter().filter(|f| covers(&f.path)).cloned());
+        failures.sort_by(|a, b| a.path.cmp(&b.path));
+        failures.dedup_by(|b, a| a.path == b.path);
+        fresh
     }
 
     /// The failures the scans remember (given back to the next one), sorted by path.

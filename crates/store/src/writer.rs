@@ -8,6 +8,10 @@
 //! that cannot be parsed is kept aside as `.dalica.json.corrupt-<time>` and its folder becomes
 //! read-only: nothing is written there until the user resets it.
 //!
+//! **Stale entries** (`data-model.md` §7): every write also sweeps the entries of photos whose file
+//! is gone ([`crate::stale`]): marked in `dalica.missing` when first found gone, pruned by the
+//! first write [`crate::stale::PRUNE_AFTER`] (30 days) later, unmarked if the file comes back.
+//!
 //! **Offline folders** (`data-model.md` §7, `security.md` §5.9): a folder that is not there — its
 //! volume is unplugged or its share unreachable, or it was renamed or removed — is never created
 //! to write into. The write fails ([`Outcome::Failed`], so the edit is reported unsaved, as
@@ -17,13 +21,14 @@
 //! dropped.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use dalica_core::{DateTime, FolderId, Timestamp};
 use dalica_fs::Expect;
 use dalica_library::Library;
 use dalica_sidecar::{FILE_NAME, Limits, Sidecar};
+use serde_json::Value;
 
 use crate::mapping::{self, FolderState};
 
@@ -93,6 +98,7 @@ fn write_present(state: &FolderState, now: Timestamp) -> Outcome {
     };
     // Places holding a wrong-type value are kept as they are; the rest is written.
     let _refused = mapping::apply(state, &mut sidecar);
+    let sidecar = sweep_stale(state, sidecar, now, &limits);
     let bytes = sidecar.print();
     if before.as_deref() == Some(bytes.as_slice()) {
         return Outcome::Unchanged;
@@ -105,6 +111,37 @@ fn write_present(state: &FolderState, now: Timestamp) -> Outcome {
         Ok(_) => Outcome::Written,
         Err(e) => Outcome::Failed(e.to_string()),
     }
+}
+
+/// The sidecar with its stale entries marked, kept or pruned ([`crate::stale::sweep`]). Most
+/// folders have no entry the model lacks and no marks: they are returned as they are without a
+/// second parse. Anything that does not round-trip is left unswept (never a reason to fail).
+fn sweep_stale(state: &FolderState, sidecar: Sidecar, now: Timestamp, limits: &Limits) -> Sidecar {
+    let model: BTreeSet<&str> = state.photos.iter().map(|(n, _)| n.as_str()).collect();
+    let orphans = sidecar.photo_names().any(|n| !model.contains(n));
+    let printed = sidecar.print();
+    let key = format!("\"{}\"", crate::stale::MISSING_KEY);
+    let marks = printed.windows(key.len()).any(|w| w == key.as_bytes());
+    if !orphans && !marks {
+        return sidecar;
+    }
+    let Ok(Value::Object(mut root)) = serde_json::from_slice::<Value>(&printed) else { return sidecar };
+    if !crate::stale::wanted(&root, &model) {
+        return sidecar;
+    }
+    let swept = crate::stale::sweep(&mut root, &model, |name| present(&state.path, name), now);
+    if !swept.changed() {
+        return sidecar;
+    }
+    match serde_json::to_vec(&Value::Object(root)).ok().and_then(|b| Sidecar::parse(&b, limits).ok()) {
+        Some(swept) => swept,
+        None => sidecar,
+    }
+}
+
+/// Whether `folder` holds an entry named `name`: `true` unless it is known to be absent.
+fn present(folder: &Path, name: &str) -> bool {
+    !matches!(dalica_fs::identity(&folder.join(name)), Ok(None))
 }
 
 /// Keeps a damaged sidecar aside as `.dalica.json.corrupt-<time>`.

@@ -1553,7 +1553,7 @@ filled by the lead; M5.15 pins it.
     first thumbnails ≤ 1 s for 1 k and 10 k JPEGs and the full scan numbers (in the PR); the scanned
     100 k pass counts zero placeholder cells at top thumb speed with p95 within the frame budget
     (LIB-LT-INSTANT becomes ✅).
-- ⬜ **M5.17 `engine` + `store`: watching and external changes end to end**
+- ✅ **M5.17 `engine` + `store`: watching and external changes end to end**
   - after: M5.3, M5.11, M5.12, M5.13
   - files: `crates/engine/src/watching.rs`, `crates/engine/src/scanning.rs`, `crates/engine/tests/watching.rs`, `crates/engine/README.md`, `crates/store/src/stale.rs`, `crates/store/src/writer.rs`, `crates/store/tests/stale.rs`, `docs/data-model.md`
   - scope: `data-model.md` §7: Scan Always roots watched through M5.11's interface, dirty folders
