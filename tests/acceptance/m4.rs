@@ -19,7 +19,9 @@
 //!    blank (a scanned 10 k library at the top speed), selection and keyboard navigation, the tree
 //!    pane (rows and order in both modes and every sort, row click, collapse, 5 k folders within the
 //!    budget), the tray, the status line, the view state; the tree model, the sketch, the index,
-//!    the pack cache, the ladder and the synthetic libraries below the UI.
+//!    the pack cache, the ladder and the synthetic libraries below the UI. Inside `cargo xtask ci`
+//!    its test step already ran them, so they are skipped there (`dalica_acceptance::SUITES_RAN`);
+//!    a standalone `accept M4` runs them.
 //! 4. **The benchmarks in a debug build:** `library_bench` scrolls the 10 k and 100 k synthetic
 //!    libraries and the cells visited per frame must be flat (the frame times are printed); the
 //!    pack bench's smoke pass prints packed against loose reads.
@@ -62,10 +64,11 @@ fn dalica_exe() -> PathBuf {
 }
 
 /// Runs `cargo <args>`; panics with its output if it fails. Returns its standard output. The
-/// suites never see `DALICA_BLESS`: blessing this test's screenshots must not re-bless theirs.
+/// suites never see `DALICA_BLESS` (`dalica_acceptance::cargo`): blessing this test's screenshots
+/// must not re-bless theirs.
 fn cargo(args: &[&str]) -> String {
     let started = Instant::now();
-    let out = dalica_acceptance::cargo().args(args).env_remove("DALICA_BLESS").output().unwrap();
+    let out = dalica_acceptance::cargo().args(args).output().unwrap();
     let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
     assert!(out.status.success(), "cargo {}:\n{stdout}\n{}", args.join(" "), String::from_utf8_lossy(&out.stderr));
     println!("cargo {}: ok ({:.1} s)", args.join(" "), started.elapsed().as_secs_f64());
@@ -546,24 +549,12 @@ fn library_browsing() {
     assert!(status.success(), "{status}");
     println!("live app: build {build:.1} s, browsing {browse:.1} s, tray {tray_secs:.1} s");
 
-    // 4. The crate suites, as they are.
+    // 4. The crate suites, as they are (unless the ci test step already ran them:
+    //    `dalica_acceptance::SUITES_RAN`).
     let t = Instant::now();
-    // Light table (layout, sticky push-up, offsets, cells visited at 10 k and 100 k,
-    // section.scrollTo, Ctrl+wheel), header, cells, scroll bar, never blank, selection, tree pane,
-    // tray, status line, view state.
-    let mut ui = vec!["-p", "dalica-ui"];
-    for suite in ["light_table", "section_header", "cells", "scrollbar", "never_blank", "selection", "tree", "tray", "status_line", "view_state"] {
-        ui.extend(["--test", suite]);
+    if !dalica_acceptance::suites_ran() {
+        crate_suites();
     }
-    cargo_test(&ui);
-    // Badges; the tree model; the sketch in thumbs, the library and the index; the pack cache and
-    // its fs support; the ladder and scan-time thumbnails; the synthetic libraries.
-    cargo_test(&["-p", "dalica-ui-kit", "--test", "badges"]);
-    cargo_test(&["-p", "dalica-library", "--test", "tree", "--test", "sketch"]);
-    cargo_test(&["-p", "dalica-thumbs", "--test", "sketch", "--test", "pack", "--test", "ladder"]);
-    cargo_test(&["-p", "dalica-store", "--test", "sketch"]);
-    cargo_test(&["-p", "dalica-fs", "--test", "pack"]);
-    cargo_test(&["-p", "dalica-engine", "--test", "synthetic", "--test", "thumbs"]);
     let suites = secs(t);
 
     // 5. The benchmarks, debug: the counters are checked, the times printed.
@@ -602,6 +593,26 @@ fn library_browsing() {
     println!("suites {suites:.1} s, benches {benches:.1} s");
     println!("Look at the screenshots beside docs/ui-layout.md §4–§6:\n  {}\n  {}", shot_large.display(), shot_small.display());
     println!("M4 acceptance: passed in {:.1} s", secs(started));
+}
+
+/// Part 4: the crate suites, as they are.
+fn crate_suites() {
+    // Light table (layout, sticky push-up, offsets, cells visited at 10 k and 100 k,
+    // section.scrollTo, Ctrl+wheel), header, cells, scroll bar, never blank, selection, tree pane,
+    // tray, status line, view state.
+    let mut ui = vec!["-p", "dalica-ui"];
+    for suite in ["light_table", "section_header", "cells", "scrollbar", "never_blank", "selection", "tree", "tray", "status_line", "view_state"] {
+        ui.extend(["--test", suite]);
+    }
+    cargo_test(&ui);
+    // Badges; the tree model; the sketch in thumbs, the library and the index; the pack cache and
+    // its fs support; the ladder and scan-time thumbnails; the synthetic libraries.
+    cargo_test(&["-p", "dalica-ui-kit", "--test", "badges"]);
+    cargo_test(&["-p", "dalica-library", "--test", "tree", "--test", "sketch"]);
+    cargo_test(&["-p", "dalica-thumbs", "--test", "sketch", "--test", "pack", "--test", "ladder"]);
+    cargo_test(&["-p", "dalica-store", "--test", "sketch"]);
+    cargo_test(&["-p", "dalica-fs", "--test", "pack"]);
+    cargo_test(&["-p", "dalica-engine", "--test", "synthetic", "--test", "thumbs"]);
 }
 
 /// `library_bench`'s report: the cells visited per frame are flat from 10 k to 100 k (the bench's

@@ -102,3 +102,35 @@ opt-level = 3
 opt-level = 3
 [profile.dev.package.zune-jpeg]
 opt-level = 3
+# The inflate/deflate and checksum code under `png` and the JPEG decoder's core (screenshots,
+# fingerprints and thumbnails decoded in tests).
+[profile.dev.package.zune-core]
+opt-level = 3
+[profile.dev.package.fdeflate]
+opt-level = 3
+[profile.dev.package.miniz_oxide]
+opt-level = 3
+[profile.dev.package.crc32fast]
+opt-level = 3
+[profile.dev.package.simd-adler32]
+opt-level = 3
+[profile.dev.package.adler2]
+opt-level = 3
+# Headless UI tests draw thousands of frames: egui's layout and tessellation, and the CPU rasterizer
+# behind every screenshot and fingerprint (`dalica-ui-kit`; `layout.rs` 26 → 3 s).
+[profile.dev.package.egui]
+opt-level = 3
+[profile.dev.package.epaint]
+opt-level = 3
+[profile.dev.package.emath]
+opt-level = 3
+[profile.dev.package.ecolor]
+opt-level = 3
+[profile.dev.package.dalica-ui-kit]
+opt-level = 3
+# The thumbnail ladder: `image`'s generic JPEG encoder is compiled into this crate, so it runs at this
+# crate's level (a scanned 10 k library: 18 → 8 s).
+[profile.dev.package.dalica-thumbs]
+opt-level = 3
+# Only `opt-level` is raised: `debug-assertions` and `overflow-checks` stay on in every dev and test
+# build, our optimised crates included (`docs/development.md` §3).

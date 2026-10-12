@@ -12,6 +12,12 @@
 //!
 //! The scroll is driven by the wheel (`ui.scroll`: a step every other frame, so on average the
 //! thumb's top speed), which does not depend on the scroll bar's controls.
+//!
+//! The scanned 10 k run does not run on Windows (maintainer decision at M4.R, 2026-10-11): writing
+//! and scanning 10 000 files took 180 s on the Windows CI runner against 52 s on Linux, and the code
+//! it checks does not depend on the OS; Windows file and scan paths are covered by the `scan`,
+//! `pack` and M1 acceptance tests. Linux and macOS run it.
+#![cfg_attr(windows, allow(dead_code, unused_imports))]
 
 use std::path::Path;
 use std::sync::Arc;
@@ -117,8 +123,9 @@ fn scanned(dir: &Path, cache: &Path, spec: &Spec) -> Session {
     session
 }
 
-/// The M4.12 done-when.
+/// The M4.12 done-when (not on Windows: see the module comment).
 #[test]
+#[cfg(not(windows))]
 fn a_scanned_10k_library_scrolled_at_top_speed_never_shows_a_placeholder() {
     let dir = tempfile::tempdir().unwrap();
     let session = scanned(&dir.path().join("lib"), &dir.path().join("cache"), &Spec::new(10_000, 100, synthetic::SEED));

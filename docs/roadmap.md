@@ -13,6 +13,21 @@ state (ready, claimed, in review) is on the task board ([`task-board.md`](task-b
 *Honest assessment, 2026-10-10. Agents: read this before picking work. Update it only with
 measured facts, dated.*
 
+*2026-10-11 (M4.R).* M4 is done: `cargo xtask accept M4` passes in 90 s (155 s with
+`DALICA_ACCEPT_RELEASE=1`, which also asserts the release frame budgets). Dalica now browses a
+library: the folder tree in flat and tree modes with year dividers, sorts and the view-options
+popup; the continuous light table with 96-high section headers, sticky pinned headers, justified
+cells with badges, captions and the 0.6 s tooltip; the speed-control scroll bar; selection by click,
+Shift, Ctrl and rubber band inside one folder with keyboard navigation; and the Photo Tray with
+Hold, Clear and the status line that follows it. Scrolling 100 000 photos costs 0.26 ms per frame
+at p95 in release (budget 8 ms) and cells visited stay flat from 10 k to 100 k; with the speed thumb
+held at top speed through 100 k sketched photos no cell is ever grey. Thumbnails are made at scan
+into a packed cache (faster than loose files in order and on first reads, slower on shuffled reads:
+M5.16 looks into it) with a 24–26-byte colour sketch per photo in the index. The "scanned 100 k"
+case is checked at 10 k until M5.16's bench scans 100 k. Open: the speed thumb's feel (M5.R); the
+release budgets get a Linux CI job (M5.24); `cargo xtask ci` warm went from 488 s to 85 s on the
+review branch (each acceptance test runs once, image and UI crates optimised in dev builds); 36 open items are placed in M5 blocks or listed on the check-in page.
+
 *2026-10-10 (M3.R).* M3 is done: `cargo xtask accept M3` passes in 41 s. It drives the real
 `dalica --headless` on a fresh demo and checks every region and shell control at 1400 × 900 and
 900 × 600 against the layout spec, the side pane, the splitter and F11, and the live menu tree
@@ -1163,7 +1178,7 @@ UI tasks each re-bless only their own.
     release gate (owner: maintainer).
   - done when: `cargo xtask tasks sync --check` parses them and `tasks sync --dry-run` lists one new
     issue per block.
-- ⬜ **M4.R Check-in**
+- ✅ **M4.R Check-in**
   - after: M4.18
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`
@@ -1305,6 +1320,7 @@ filled by the lead; M5.15 pins it.
     `remove_stale_temps(folder, now)` removes only files of exactly the `.<name>.dalica-tmp-<random>`
     shape older than 24 hours, never through a link, and reports what it removed; fault points on
     the new steps; the §5.6 and §5.8 status lines.
+    Found at M4.R: `crates/fs/README.md` also lists M4.3's `pack` module.
   - done when: `cargo test -p dalica-fs`: a folder swapped for a link between validation and write
     (planted through a fault point) leaves the write in the original folder or fails, never writes
     through the link; the fault loop over every step leaves the old or the new file; stale cleanup
@@ -1342,6 +1358,7 @@ filled by the lead; M5.15 pins it.
     fill in progressively, with scan progress (`running, foldersQueued, found, indexed`) and
     thumbnail generation queued for each batch as it lands; `is_new_library()` for the first-run
     panel.
+    Found at M4.R: `crates/engine/README.md` also lists M4.7's `synthetic` and M4.8's `thumbs`.
   - done when: engine tests on a temp library of 2 000 `scenes` photos in 40 folders: the first
     batch is applied and its photos have thumbnail jobs queued before the walk finishes; progress
     counts rise to the totals; cancelling the scan job stops it within one folder and keeps what
@@ -1458,6 +1475,9 @@ filled by the lead; M5.15 pins it.
     keep their cached thumbnails; edits to their photos are journalled at once and their sidecar
     writes wait: the writer keeps the folder dirty, never creates a missing folder to write into,
     reports `pendingWrites`, and writes everything when the root returns.
+    Found at M4.R: `crates/store/README.md` also lists M4.2's sketch ops and `PHOTO_DATA`.
+    Found at M4.R: in tree mode a group's header count includes directory rows that are not
+    library folders ("Folders (212)" against 200 in flat mode); it counts library folders only.
   - done when: tests: a volume "unplugged" by renaming its root shows offline with its photos and
     rows intact; a star made meanwhile is journalled, no folder is created at the old path, and
     after renaming the root back the sidecar holds the star; `pendingWrites` counts it in between;
@@ -1472,9 +1492,16 @@ filled by the lead; M5.15 pins it.
     and M5.19; `UiState` gains the open dialog with its draft and the activity popover;
     `folders.manager` (File → Add Folder… and Tools → Folder Manager…) as a UI command;
     `ui.dialog.confirm` / `ui.dialog.cancel` and `jobs.list` / `jobs.wait` / `jobs.cancel` move
-    from `later(…)` to live methods over M5.5's registry.
+    from `later(…)` to live methods over M5.5's registry. Loose ends found at M4.R: `ui.inspect`
+    reports the light table's `scroll` and running `animations` (M4.6), `ui.menu.tree
+    {context:"tray"}` answers the tray menu (M4.16), `tray.clear` asks through the host instead of
+    returning `disabled`, `ui.inspect` reports the open `popup`, `dialog` and `tooltip` (they read
+    null while on screen), `ui.screenshot {region}` works, and `commands/mod.rs`'s doc line for
+    `select` is brought up to date.
   - done when: `crates/ui/tests/dialogs.rs`: a dialog opens by command, Esc and Enter close it as
     specified, `ui.inspect` reports it, the tray confirmation still works through the host;
+    `ui.inspect` reports scroll and animations and `ui.menu.tree {context:"tray"}` lists the tray
+    menu's rows;
     `crates/ui/tests/jobs_control.rs`: a scan job is listed with progress, `jobs.wait` returns its
     final entry, `jobs.cancel` stops it; bad params are `bad_params`; `widget_ids` stays green.
 - ⬜ **M5.15 `xtask corpus` and `test-corpus` with floors**
@@ -1496,7 +1523,7 @@ filled by the lead; M5.15 pins it.
     tracked by git.
 - ⬜ **M5.16 `engine` + `thumbs`: cache upkeep, colour management and the first-thumbnails benchmark**
   - after: M4.3, M4.14, M5.1, M5.5, M5.13
-  - files: `crates/engine/src/thumbs.rs`, `crates/engine/src/cmd/view.rs`, `crates/engine/src/cmd/section.rs`, `crates/engine/src/settings.rs`, `crates/engine/tests/thumb_cache.rs`, `crates/engine/benches/first_thumbnails.rs`, `crates/thumbs/src/upkeep.rs`, `crates/thumbs/tests/upkeep.rs`, `crates/thumbs/README.md`, `crates/ui/src/menus.rs`, `crates/ui/tests/color_management.rs`
+  - files: `crates/engine/src/thumbs.rs`, `crates/engine/src/cmd/view.rs`, `crates/engine/src/cmd/section.rs`, `crates/engine/src/settings.rs`, `crates/engine/tests/thumb_cache.rs`, `crates/engine/benches/first_thumbnails.rs`, `crates/engine/src/synthetic.rs`, `crates/thumbs/src/upkeep.rs`, `crates/thumbs/tests/upkeep.rs`, `crates/thumbs/README.md`, `crates/ui/src/menus.rs`, `crates/ui/tests/color_management.rs`
   - scope: `architecture.md` §6: the cache size setting (2 GiB default), pruning as a background
     job at start and whenever the cache passes its limit, entries of removed photos made dead,
     entries of offline photos kept and never regenerated while offline; a photo that cannot be
@@ -1508,11 +1535,21 @@ filled by the lead; M5.15 pins it.
     cover the cell; `first_thumbnails` bench: time from `folders.add` to the first screenful
     having thumbnails for 1 000 JPEGs (the `development.md` §8 budget) and 10 000 JPEGs (the
     roadmap's), plus full scan time and photos per second.
+    Found at M4.R: `crates/thumbs/README.md` also lists M4.1's `sketch`, M4.3's `pack` and M4.8's
+    `ladder`.
+    Found at M4.R: the packed cache read slower than loose files on shuffled reads in both 100 k
+    runs (4.7 against 2.5 µs, and 17.9 against 2.7 µs); find why and fix it or say why it is noise.
+    The maintainer's answer at M4.R (2026-10-11): M4's "scanned 100 k-photo library at full thumb
+    speed, no grey cell" line was met split (100 k sketched + 10 k scanned); this bench adds the
+    scanned 100 k pass: `synthetic` writes 100 k small photo files (its cap rises from 20 k), the
+    scan fills the cache, and the light table is driven at top thumb speed through it.
   - done when: engine tests: pruning stops at 80 % and keeps offline entries; a broken file gets
     its reason once and is retried after a rewrite; toggling colour management changes a tagged
     photo's thumbnail and its cache key, and the menu item's check follows it; refresh regenerates
     a section; every command's graceful-failure test; `cargo xtask bench first_thumbnails` reports
-    first thumbnails ≤ 1 s for 1 k and 10 k JPEGs and the full scan numbers (in the PR).
+    first thumbnails ≤ 1 s for 1 k and 10 k JPEGs and the full scan numbers (in the PR); the scanned
+    100 k pass counts zero placeholder cells at top thumb speed with p95 within the frame budget
+    (LIB-LT-INSTANT becomes ✅).
 - ⬜ **M5.17 `engine` + `store`: watching and external changes end to end**
   - after: M5.3, M5.11, M5.12, M5.13
   - files: `crates/engine/src/watching.rs`, `crates/engine/src/scanning.rs`, `crates/engine/tests/watching.rs`, `crates/engine/README.md`, `crates/store/src/stale.rs`, `crates/store/src/writer.rs`, `crates/store/tests/stale.rs`, `docs/data-model.md`
@@ -1553,14 +1590,56 @@ filled by the lead; M5.15 pins it.
     (`jobs.cancel`); the status line shows "Scanning: 1,204 pictures found" in place of "No
     selection", and as the last field (dropped first when space is short) when something is
     selected; offline folders' tree rows dimmed with a `caution` "offline" marker; ids per
-    control-protocol §7.
+    control-protocol §7. Loose end found at M4.R: the tree pane gets its scroll bar (M4.15 left it
+    wheel- and key-driven only).
   - done when: `crates/ui/tests/activity.rs`: during a scan of a temp library the indicator spins,
     the popover lists the job with rising progress and Cancel stops it, the status text counts
     up and returns to the selection text when the scan ends; `crates/ui/tests/offline_folders.rs`:
-    renaming a root away dims its rows with the marker and renaming it back restores them; the
-    region and popover fingerprints at both window sizes.
+    renaming a root away dims its rows with the marker and renaming it back restores them; a tree
+    longer than the pane shows a scroll bar that drags the rows; the region and popover
+    fingerprints at both window sizes.
+- ⬜ **M5.22 `xtask tasks`: send-backs and the parity summary (found at M4.R)**
+  - after: M4.R
+  - files: `xtask/src/tasks/**`, `xtask/src/parity.rs`, `docs/task-board.md`
+  - scope: two frictions of the M4 run. A send-back of an In Review task: `tasks submit` accepts
+    a task that is In Review when its branch was rebased, pushes with lease and keeps the pull
+    request (today it refuses, and the lead rebuilt eight branches by hand). `tasks merge` resolves
+    a rebase conflict that is only in `docs/parity.md`'s generated summary by regenerating it
+    (`parity --write`) instead of stopping; row conflicts still go back to the worker. (The third,
+    `ci` time, was fixed on the M4.R review branch at the maintainer's request: each acceptance test
+    runs once per `ci`, the crate suites are not re-run inside it, nested cargo runs never see
+    `DALICA_BLESS`, and the image and UI crates are optimised in dev builds; `development.md` §3.)
+  - done when: `xtask` tests on a temp repository: a rebased In Review branch re-submits and its PR
+    keeps its number; a summary-only conflict merges after regeneration while a row conflict is
+    refused; `docs/task-board.md` describes the send-back.
+- ⬜ **M5.23 `ui`: M4 loose ends in the light table and keys**
+  - after: M4.R
+  - files: `crates/ui/src/panels/light_table.rs`, `crates/ui/src/panels/light_table/input.rs`, `crates/ui/src/keys.rs`, `crates/ui/src/panels/bottom.rs`, `crates/ui/src/panels/bottom/**`, `crates/ui/tests/band_autoscroll.rs`, `crates/ui/tests/tray_keys.rs`, `crates/ui/tests/fingerprints/region-tray*.json`
+  - scope: two gaps M4 left. A rubber band dragged to the light table's top or bottom edge scrolls
+    the view (speed growing with the distance past the edge) and keeps selecting, still inside one
+    section (M4.13 had no way to ask for a scroll from `input`). The photo shortcuts (Star,
+    Ctrl+8 / F4; rotate when it exists) act on the tray's photos, the same set the bottom buttons
+    act on, instead of only the selection (M4.16). The tray's mini thumbnails sit centred in the
+    tray box as M4.16 intended (they are drawn left-aligned).
+  - done when: `crates/ui/tests/band_autoscroll.rs`: a band held below the view scrolls it and
+    selects the rows that come in, and never crosses into the next section;
+    `crates/ui/tests/tray_keys.rs`: with 2 held and 3 selected, the star key stars all 5 in one
+    undo step; the minis are centred at 1, 12 and 40 items; graceful failures; `widget_ids` stays
+    green.
+- ⬜ **M5.24 CI: the release frame budgets on `main` (Linux)**
+  - after: M4.R
+  - files: `.github/workflows/budgets.yml`, `xtask/src/accept.rs`, `docs/development.md`
+  - scope: the maintainer's answer at M4.R (2026-10-11): a workflow of its own on every push to
+    `main`, Linux only, builds in release and runs the frame budgets that `accept M4` asserts only
+    with `DALICA_ACCEPT_RELEASE=1` (100 k scroll p95 ≤ 8 ms, thumb at top speed through 100 k
+    p95 ≤ 8 ms, cells visited flat), failing the run when one is missed; later milestones add their
+    budgets to the same job (M5's first thumbnails ≤ 1 s). Its own workflow file, so it never
+    shares `ci.yml` with M5.10 or M5.15; cached like `ci.yml`.
+  - done when: the workflow runs on a push to `main` and passes on today's code, and a planted
+    slowdown (an env-gated sleep in the bench, tested in `xtask`) fails it; `development.md` lists
+    the job and how to run the same check locally.
 - ⬜ **M5.20 `accept M5`**
-  - after: M5.15, M5.16, M5.17, M5.18, M5.19
+  - after: M5.15, M5.16, M5.17, M5.18, M5.19, M5.22, M5.23
   - files: `tests/acceptance/m5.rs`, `tests/acceptance/m5_*.rs`, `tests/acceptance/m5.md`, `tests/acceptance/fingerprints/m5-*.json`
   - scope: every *Done when* of M5's two areas: the temp-dir scenarios (add, remove, rename while
     running; the verification pass finds everything; a volume "unplugged" by renaming its root
@@ -1587,8 +1666,8 @@ filled by the lead; M5.15 pins it.
   - files: `docs/roadmap.md`, `docs/status.md`
   - scope: the lead runs `/milestone-review M5.R` to prepare it: the check-in page (first run on a
     fresh library, the Folder Manager, the mixed-format folder, an unplugged and replugged folder,
-    written as steps for the maintainer to try; the question: the display profile for colour
-    management), *Where we stand* and
+    written as steps for the maintainer to try; the questions: the display profile for colour
+    management, and the speed thumb's feel carried over from M4.R (`tests/acceptance/m4.md`)), *Where we stand* and
     the `status.md` numbers (first thumbnails at 1 k and 10 k, scan throughput, corpus floors) on a
     `review/M5.R` branch, a pull request open. Only the maintainer merges that pull request and
     closes this issue; nothing after it starts until then.
@@ -1598,7 +1677,8 @@ Waves (inside a wave, "‖" separates tasks whose `files` do not overlap):
 
 ```text
 wave 1   M5.1 image formats + colour  ‖  M5.2 scenes formats  ‖  M5.3 fs folder handle
-         ‖  M5.4 scan rules + volumes     (once M4.R is closed)
+         ‖  M5.4 scan rules + volumes  ‖  M5.22 tasks tooling  ‖  M5.23 M4 UI loose ends
+         ‖  M5.24 release budgets job                              (once M4.R is closed)
 wave 2   M5.5 engine modules + jobs  ‖  M5.6 TIFF  ‖  M5.7 WebP/GIF/BMP  ‖  M5.8 JPEG XL + PSD
          ‖  M5.9 RAW (TIFF-based)  ‖  M5.10 RAW (other) + HEIF  ‖  M5.11 watcher
 wave 3   M5.12 folder modes  ‖  M5.13 offline volumes  ‖  M5.14 dialog host + jobs  ‖  M5.15 corpus
@@ -1715,6 +1795,7 @@ replace at M6.R.
     keeps the first spelling, caption and tag lengths capped per `security.md` §4.4 (caps in the
     README). `tree.rs`: hidden folders leave Folders for the Hidden Folders group, shown (with their
     sections) only when hidden pictures are shown; folder dates and sorts use effective dates.
+    Found at M4.R: `crates/library/README.md` also lists M4.2's sketches and M4.4's `Tree`.
   - done when: the op-then-inverse property test covers every new op; tag tests: counts, partial
     counts, rename onto an existing tag merges, case rules, caps; tree tests: Hidden Folders in both
     modes with the option on and off; a 100 k-photo tag index builds in a time stated in the PR.

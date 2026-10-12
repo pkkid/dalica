@@ -284,6 +284,9 @@ fn agent_eyes() {
 
     // 7. The protocol's security tests: wrong token, no auth, oversized line, non-JSON and HTTP
     //    lines, the 17th connection, a readable token file, no non-loopback bind.
-    cargo_test(&["-p", "dalica", "--test", "control_security"]);
+    //    (Unless the ci test step already ran them: `dalica_acceptance::SUITES_RAN`.)
+    if !dalica_acceptance::suites_ran() {
+        cargo_test(&["-p", "dalica", "--test", "control_security"]);
+    }
     println!("M2 acceptance: passed in {:.1} s", started.elapsed().as_secs_f64());
 }

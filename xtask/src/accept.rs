@@ -15,8 +15,14 @@ pub fn parse_milestone(arg: &str) -> Result<u32, String> {
         .ok_or_else(|| format!("expected a milestone like M1, not `{arg}`"))
 }
 
-/// Runs the test; `quiet` skips printing the manual checks (used by `ci`).
-pub fn accept(root: &Path, milestone: u32, headless: bool, quiet: bool) -> Result<(), String> {
+/// Set to `1` on the acceptance test when the crate suites it would re-run already ran in the same
+/// `ci` (`tests/acceptance/src/lib.rs` → `SUITES_RAN`).
+pub const SUITES_RAN: &str = "DALICA_SUITES_RAN";
+
+/// Runs the test; `quiet` skips printing the manual checks (used by `ci`). `suites_ran` (set by
+/// `ci`, whose test step ran first) lets the test skip the crate suites it would re-run; otherwise
+/// [`SUITES_RAN`] is cleared, so a standalone run checks everything.
+pub fn accept(root: &Path, milestone: u32, headless: bool, quiet: bool, suites_ran: bool) -> Result<(), String> {
     let dir = root.join("tests").join("acceptance");
     // `--headless` runs the milestone's headless half (`m<n>_headless`) when it has one.
     let name = match format!("m{milestone}_headless") {
@@ -32,6 +38,11 @@ pub fn accept(root: &Path, milestone: u32, headless: bool, quiet: bool) -> Resul
     cmd.current_dir(root).args(["test", "-p", "dalica-acceptance", "--test", &name, "--", "--nocapture"]);
     if headless {
         cmd.env("DALICA_ACCEPT_HEADLESS", "1");
+    }
+    if suites_ran {
+        cmd.env(SUITES_RAN, "1");
+    } else {
+        cmd.env_remove(SUITES_RAN);
     }
     let started = Instant::now();
     let status = cmd.status().map_err(|e| format!("cannot run cargo: {e}"))?;
@@ -52,7 +63,7 @@ pub fn accept(root: &Path, milestone: u32, headless: bool, quiet: bool) -> Resul
 pub fn run(root: &Path, args: &[String]) -> Result<(), String> {
     let milestone = parse_milestone(args.first().map(String::as_str).ok_or("usage: cargo xtask accept M<n> [--headless]")?)?;
     let headless = args.iter().any(|a| a == "--headless");
-    accept(root, milestone, headless, false)
+    accept(root, milestone, headless, false, false)
 }
 
 #[cfg(test)]
@@ -71,8 +82,8 @@ mod tests {
     #[test]
     fn missing_test_is_an_error() {
         let dir = tempfile::tempdir().unwrap();
-        assert!(accept(dir.path(), 999, false, true).unwrap_err().contains("no acceptance test"));
+        assert!(accept(dir.path(), 999, false, true, false).unwrap_err().contains("no acceptance test"));
         // Without a headless half, --headless still looks for the milestone's own test.
-        assert!(accept(dir.path(), 999, true, true).unwrap_err().contains("m999.rs is missing"));
+        assert!(accept(dir.path(), 999, true, true, true).unwrap_err().contains("m999.rs is missing"));
     }
 }

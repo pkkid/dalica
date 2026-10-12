@@ -30,6 +30,17 @@ jobs:
     steps:
       # LF everywhere, so parsers and fingerprints see the same bytes on every OS.
       - run: git config --global core.autocrlf false
+      # Windows Defender scans every file the build and the tests create and every process they
+      # start, which more than doubled the test time (M4.R). The runner is thrown away after the
+      # job, so its real-time scanning skips the workspace, the toolchain, the temp folders and the
+      # build tools. No test changes; every check still runs.
+      - name: Windows Defender exclusions
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Add-MpPreference -ExclusionPath "$env:GITHUB_WORKSPACE", "$env:RUNNER_TEMP", "$env:TEMP", "$env:USERPROFILE\.cargo", "$env:USERPROFILE\.rustup"
+          Add-MpPreference -ExclusionProcess "cargo.exe", "rustc.exe", "link.exe", "rustdoc.exe"
+          Get-MpPreference | Select-Object -ExpandProperty ExclusionPath
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false

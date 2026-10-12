@@ -13,7 +13,8 @@
 //!    fingerprints (`dalica-ui-kit`), the geometry tests at three sizes with the pane open and closed
 //!    and in full screen (`dalica-ui --test layout`), the menu transcription (`--test menus`), the
 //!    toolbar, tree/status/side pane and bottom-area suites, the per-platform keymap, and the window
-//!    and view state surviving a restart.
+//!    and view state surviving a restart. Inside `cargo xtask ci` its test step already ran them, so
+//!    they are skipped there (`dalica_acceptance::SUITES_RAN`); a standalone `accept M3` runs them.
 //!
 //! The manual check (the app at both sizes beside the docs, F11 on a real screen, window state after
 //! a restart, the title bar and the macOS menu bar) is in `m3.md`.
@@ -725,18 +726,12 @@ fn window_shell() {
         counts.menus, counts.items, counts.submenus
     );
 
-    // 6. The crate-level suites, as they are.
+    // 6. The crate-level suites, as they are (unless the ci test step already ran them:
+    //    `dalica_acceptance::SUITES_RAN`).
     let t = Instant::now();
-    // Token contrast (`design-system.md` §9), the widget gallery in every state and the icon sheet
-    // against their fingerprints.
-    cargo_test(&["-p", "dalica-ui-kit", "--test", "contrast", "--test", "widgets", "--test", "gallery", "--test", "icons"]);
-    // Geometry at 1400 × 900, 1100 × 700 and 900 × 600, pane open/closed/large, full screen; the
-    // §1 transcription with submenus, invoke, scrolling menus; toolbar, tree/status/pane, bottom area.
-    cargo_test(&["-p", "dalica-ui", "--test", "layout", "--test", "menus", "--test", "toolbar", "--test", "tree_status_pane", "--test", "bottom"]);
-    // Per-platform default keys without conflicts on any OS; window and view state survive a restart.
-    cargo_test(&["-p", "dalica-engine", "--test", "keymap"]);
-    cargo_test(&["-p", "dalica-engine", "--lib", "window_and_view_state_survive_a_write_and_a_read"]);
-    cargo_test(&["-p", "dalica-ui", "--lib", "the_view_state_survives_a_restart"]);
+    if !dalica_acceptance::suites_ran() {
+        crate_suites();
+    }
     let suites = secs(t);
 
     println!("suites: {suites:.1} s");
@@ -747,4 +742,18 @@ fn window_shell() {
         shot_menu.display()
     );
     println!("M3 acceptance: passed in {:.1} s", started.elapsed().as_secs_f64());
+}
+
+/// Part 6: the crate-level suites, as they are.
+fn crate_suites() {
+    // Token contrast (`design-system.md` §9), the widget gallery in every state and the icon sheet
+    // against their fingerprints.
+    cargo_test(&["-p", "dalica-ui-kit", "--test", "contrast", "--test", "widgets", "--test", "gallery", "--test", "icons"]);
+    // Geometry at 1400 × 900, 1100 × 700 and 900 × 600, pane open/closed/large, full screen; the
+    // §1 transcription with submenus, invoke, scrolling menus; toolbar, tree/status/pane, bottom area.
+    cargo_test(&["-p", "dalica-ui", "--test", "layout", "--test", "menus", "--test", "toolbar", "--test", "tree_status_pane", "--test", "bottom"]);
+    // Per-platform default keys without conflicts on any OS; window and view state survive a restart.
+    cargo_test(&["-p", "dalica-engine", "--test", "keymap"]);
+    cargo_test(&["-p", "dalica-engine", "--lib", "window_and_view_state_survive_a_write_and_a_read"]);
+    cargo_test(&["-p", "dalica-ui", "--lib", "the_view_state_survives_a_restart"]);
 }
