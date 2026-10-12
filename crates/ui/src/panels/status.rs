@@ -4,11 +4,14 @@
 //! size in pixels and on disk; or how many pictures the tray holds (a selection, held photos, a
 //! section selected as a unit), their date range and their size on disk. A transient message (the
 //! result of the last action, or why it was refused) replaces the text for 4 s of the frame clock.
-//! Text too long for the line is fitted by [`Line::fit`]: the prefix goes first, then the name's
-//! middle.
+//! While a scan runs, "Scanning: 1,204 pictures found" stands in place of "No selection", and is
+//! the last field when something is selected ([`status_text::with_activity`], `organizing.md` §1).
+//! Text too long for the line is fitted by [`Line::fit`]: the scan field goes first, then the
+//! prefix, then the name's middle.
 //!
 //! The line is rebuilt only when the library, the selection or the held photos change, and fitted
-//! only when it or the width changes; the text drawn is written to
+//! only when it, the scan's count or the width changes (the scan's count is read from the
+//! session's in-memory progress each frame); the text drawn is written to
 //! [`UiState::status_line`](crate::state::UiState::status_line), which `ui.state` reports as
 //! `status`.
 
@@ -108,6 +111,12 @@ fn expire_message(app: &mut App, ctx: &egui::Context) {
     }
 }
 
+/// The scan's field while one runs: "Scanning: 1,204 pictures found".
+fn scan_field(app: &App) -> Option<String> {
+    let progress = app.session()?.scan_progress();
+    progress.running.then(|| status_text::scanning(progress.found))
+}
+
 /// Paints the status line into `ui`'s rect (the status-line region of [`super::layout`]) and
 /// records the text drawn in the view state.
 pub fn show(_p: &Panels, app: &mut App, ui: &mut Ui) {
@@ -116,7 +125,7 @@ pub fn show(_p: &Panels, app: &mut App, ui: &mut Ui) {
     let ctx = ui.ctx().clone();
     expire_message(app, &ctx);
     let line = match app.state().status.as_str() {
-        "" => cached_line(app, &ctx).unwrap_or_default(),
+        "" => status_text::with_activity(cached_line(app, &ctx).unwrap_or_default(), scan_field(app)),
         message => Line::plain(message),
     };
     let font = fonts::regular(t.small);

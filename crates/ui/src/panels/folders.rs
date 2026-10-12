@@ -20,8 +20,14 @@
 //!   ↑/↓ move the selection to the previous or next row with photos (scrolling the light table, and
 //!   the pane to keep the row in view); in tree mode ← folds the selected row or goes to its
 //!   parent, → unfolds it.
-//! - **Scrolling:** the wheel over the pane scrolls it. Collapsed groups after the last open one
-//!   dock at the bottom of the pane while the list above them is short.
+//! - **Scrolling:** the wheel over the pane scrolls it, and while the list is taller than the pane
+//!   an ordinary position scroll bar ([`scrollbar`]) at its right edge drags and pages it.
+//!   Collapsed groups after the last open one dock at the bottom of the pane while the list above
+//!   them is short.
+//! - **Offline folders:** rows under a watched root whose volume is offline
+//!   ([`Session::offline_roots`](dalica_engine::Session::offline_roots), `data-model.md` §7) are
+//!   dimmed with a `caution` "offline" marker; the roots are part of what the model is built from,
+//!   so the rows are marked once per change, never tested per frame.
 //!
 //! The pane's state between frames (the model and what it was built from, the offset, the folded
 //! directories, the focus) lives in the egui context's memory; [`info`] reports what the last frame
@@ -29,6 +35,7 @@
 
 pub mod model;
 mod paint;
+pub mod scrollbar;
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -73,6 +80,8 @@ struct Pane {
     offset: f32,
     /// Tree mode: folded directories that are no library folder.
     dirs: BTreeSet<PathBuf>,
+    /// The scroll bar's drag.
+    bar: scrollbar::Bar,
 }
 
 /// What the last frame of the pane did.
@@ -93,6 +102,8 @@ pub struct PaneInfo {
     pub build: Duration,
     /// Whether the model was rebuilt this frame.
     pub rebuilt: bool,
+    /// The scroll bar's strip, while the list is taller than the pane.
+    pub scrollbar: Option<Rect>,
 }
 
 /// What a click or key asks for, applied once the frame is drawn.
@@ -150,10 +161,12 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
     let library = session.library();
     let state = app.state();
     let heights = Heights::from_metrics(&t.metrics);
+    let mut options = light_table::tree_options(state);
+    options.offline_roots = session.offline_roots();
     let key = ModelKey {
         revision: library.revision(),
         roots: session.roots().to_vec(),
-        options: light_table::tree_options(state),
+        options,
         folded: state.collapsed_folders.clone(),
         dirs: pane.dirs.clone(),
         heights,
@@ -165,7 +178,11 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
         options.collapsed_folders =
             key.folded.iter().filter_map(|id| library.folder(*id)).map(|f| f.path.clone()).chain(key.dirs.iter().cloned()).collect();
         let tree = Tree::build(library, &key.roots, &options);
-        pane.model = Arc::new(Model::build(&tree, heights));
+        let mut model = Model::build(&tree, heights);
+        if !options.offline_roots.is_empty() {
+            model.mark_offline(|path| options.is_offline(path));
+        }
+        pane.model = Arc::new(model);
         pane.generation = pane.generation.wrapping_add(1);
         pane.build = started.elapsed();
         pane.key = Some(key);
@@ -235,13 +252,18 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
     }
     pane.offset = if pane.offset.is_finite() { pane.offset.clamp(0.0, model.max_offset(view_h)) } else { 0.0 };
 
+    // The scroll bar, while the list is taller than the pane: the rows end left of it.
+    let strip = scrollbar::strip(rect, model.height);
+    let bar = strip.map(|s| scrollbar::input(ui, &mut pane.bar, s, view_h, model.height, &mut pane.offset));
+    let rows = strip.map_or(rect, |s| Rect::from_min_max(rect.min, pos2(s.min.x, rect.max.y)));
+
     // The items on screen.
     let painter = ui.painter().clone();
     let selected_folder = state.folder;
     let mut visited = 0usize;
     for i in model.visible(pane.offset, view_h) {
         let (Some(item), Some(top)) = (model.items.get(i), model.screen_top(i, pane.offset, view_h)) else { continue };
-        let r = Rect::from_min_size(pos2(rect.min.x, rect.min.y + top), vec2(rect.width(), item.height));
+        let r = Rect::from_min_size(pos2(rows.min.x, rows.min.y + top), vec2(rows.width(), item.height));
         match &item.kind {
             Kind::Header { group, title, collapsed } => {
                 let mut child = ui.new_child(UiBuilder::new().id_salt(("tree-header", group.id())).max_rect(r));
@@ -282,6 +304,9 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
         }
     }
     perf::count(&ctx, Counter::TreeRowsVisited, visited as u64);
+    if let (Some(s), Some(f)) = (strip, &bar) {
+        scrollbar::paint(ui, &t, f, s, view_h, model.height, pane.offset);
+    }
 
     // With the frame drawn, apply what was asked for.
     for action in actions {
@@ -296,6 +321,7 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
         build: pane.build,
         time: started.elapsed(),
         rebuilt,
+        scrollbar: strip,
     };
     ctx.data_mut(|d| {
         d.insert_temp(pane_id(), pane);

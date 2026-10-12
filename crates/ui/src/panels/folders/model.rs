@@ -14,6 +14,9 @@
 //!   `tree:disclosure:dir:<hash>`.
 //! - **Moving** ([`Model::step`]): ↑/↓ go to the previous or next row that has a section (a row
 //!   with photos); directories and empty folders are passed over.
+//! - **Offline** ([`Model::mark_offline`]): rows under a watched root whose volume is offline
+//!   (`data-model.md` §7) keep their place, count and section and are marked, once per build, so
+//!   a frame never tests a path.
 
 use std::collections::HashMap;
 use std::ops::Range;
@@ -65,10 +68,16 @@ pub struct Row {
     /// Its widget id and its disclosure triangle's (tree mode, with children).
     pub id: String,
     pub disclosure: Option<String>,
+    /// Under a watched root whose volume is offline: drawn dimmed with the "offline" marker.
+    pub offline: bool,
 }
 
+/// The marker an offline row carries.
+pub const OFFLINE: &str = "offline";
+
 impl Row {
-    /// What `ui.widgets` says for it: `Lisbon Weekend (48)`.
+    /// What `ui.widgets` says for it: `Lisbon Weekend (48)`. An offline row says the same (labels
+    /// are what scripts match on); the pane's model ([`super::current_model`]) carries the flag.
     pub fn label(&self) -> String {
         format!("{} ({})", self.name, self.count)
     }
@@ -181,6 +190,7 @@ impl Model {
                             section: f.section().map(|dalica_library::SectionId::Folder(id)| Section::Folder(id)),
                             id,
                             disclosure: f.has_children.then_some(disclosure),
+                            offline: false,
                         };
                         push(&mut items, Kind::Row(row), h.row);
                     }
@@ -193,6 +203,21 @@ impl Model {
             docked -= 1;
         }
         Model { items, height: y, docked, mode: tree.mode, by_folder }
+    }
+
+    /// Marks the rows `is_offline` says are under an offline root (`TreeOptions::is_offline`);
+    /// the others are unmarked. Run once per build.
+    pub fn mark_offline(&mut self, is_offline: impl Fn(&Path) -> bool) {
+        for item in &mut self.items {
+            if let Kind::Row(r) = &mut item.kind {
+                r.offline = is_offline(&r.path);
+            }
+        }
+    }
+
+    /// Whether any row is marked offline.
+    pub fn any_offline(&self) -> bool {
+        self.items.iter().any(|it| matches!(&it.kind, Kind::Row(r) if r.offline))
     }
 
     /// The farthest the content scrolls in a pane `view_h` high.
@@ -352,6 +377,22 @@ mod tests {
         assert_eq!(m.row(4).unwrap().label(), "y (5)");
         let Kind::Header { title, .. } = &m.items[6].kind else { panic!() };
         assert_eq!(title, "Hidden Folders (2)");
+    }
+
+    #[test]
+    fn rows_under_an_offline_root_are_marked_and_say_so() {
+        let mut m = Model::build(&tree(), Heights::default());
+        assert!(!m.any_offline(), "nothing is offline until marked");
+        let before = m.clone();
+        m.mark_offline(|p| p.starts_with("/p/a"));
+        let marked: Vec<(String, bool)> = (0..m.items.len()).filter_map(|i| m.row(i)).map(|r| (r.name.clone(), r.offline)).collect();
+        assert_eq!(marked, [("p".into(), false), ("a".into(), true), ("x".into(), true), ("y".into(), true), ("b".into(), false)]);
+        assert_eq!(m.row(2).unwrap().label(), "a (3)", "the label is unchanged");
+        // Place, count, section and height are kept.
+        assert_eq!((m.height, m.items.len(), m.row_of(FolderId::new(2))), (before.height, before.items.len(), before.row_of(FolderId::new(2))));
+        assert_eq!(m.row(4).unwrap().section, before.row(4).unwrap().section);
+        m.mark_offline(|_| false);
+        assert_eq!(m, before, "unmarked again");
     }
 
     #[test]
