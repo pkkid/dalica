@@ -1641,7 +1641,7 @@ filled by the lead; M5.15 pins it.
   - done when: the workflow runs on a push to `main` and passes on today's code, and a planted
     slowdown (an env-gated sleep in the bench, tested in `xtask`) fails it; `development.md` lists
     the job and how to run the same check locally.
-- ⬜ **M5.20 `accept M5`**
+- ✅ **M5.20 `accept M5`**
   - after: M5.15, M5.16, M5.17, M5.18, M5.19, M5.22, M5.23
   - files: `tests/acceptance/m5.rs`, `tests/acceptance/m5_*.rs`, `tests/acceptance/m5.md`, `tests/acceptance/fingerprints/m5-*.json`
   - scope: every *Done when* of M5's two areas: the temp-dir scenarios (add, remove, rename while

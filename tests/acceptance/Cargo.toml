@@ -19,6 +19,8 @@ serde_json.workspace = true
 dalica-core.workspace = true
 dalica-engine.workspace = true
 dalica-fs.workspace = true
+dalica-image.workspace = true
+dalica-scan.workspace = true
 dalica-scenes.workspace = true
 dalica-ui.workspace = true
 egui.workspace = true
@@ -52,3 +54,7 @@ path = "m3.rs"
 [[test]]
 name = "m4"
 path = "m4.rs"
+
+[[test]]
+name = "m5"
+path = "m5.rs"

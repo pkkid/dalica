@@ -91,6 +91,16 @@ pub struct Budget {
 /// The release budget test of `tests/acceptance/m4.rs` (part 2).
 const THUMB_TEST: &str = "the_thumb_held_at_top_speed_through_100k_sketched_photos_never_shows_a_placeholder";
 
+/// The first screenful's budget after adding a folder (`docs/development.md` §8 for 1 000 JPEGs,
+/// the roadmap's M5 for 10 000), in milliseconds (`first_thumbnails` → `FIRST_BUDGET_MS`).
+pub const FIRST_THUMBNAILS_MS: f64 = 1000.0;
+
+/// The folder sizes the per-push job adds, and the photos its scanned pass scrolls through. The
+/// full 100 k pass (`first_thumbnails`' default) writes about 1 GB more and takes minutes; it runs
+/// with `DALICA_ACCEPT_RELEASE=1 cargo xtask accept M5` and `cargo xtask bench first_thumbnails`.
+const FIRST_PHOTOS: &str = "1000,10000";
+const SCROLL_PHOTOS: &str = "20000";
+
 /// The budgets, in the order the job runs them. Later milestones add theirs here.
 pub const BUDGETS: &[Budget] = &[
     Budget {
@@ -106,6 +116,20 @@ pub const BUDGETS: &[Budget] = &[
         what: "the speed thumb held at its top speed through 100 k sketched photos: UI frame time p95 ≤ 8 ms, cells flat, no placeholder",
         cargo: &["test", "--release", "-p", "dalica-acceptance", "--test", "m4", "--", "--exact", THUMB_TEST, "--nocapture"],
         judge: judge_thumb,
+    },
+    Budget {
+        milestone: 5,
+        name: "first thumbnails",
+        what: "first_thumbnails: the first screenful drawn ≤ 1 s after adding a folder of 1 k and of 10 k JPEGs (1024 px, EXIF thumbnails); the full scan's time and photos per second (writes about 1.1 GB, removed after)",
+        cargo: &["bench", "-p", "dalica-engine", "--bench", "first_thumbnails", "--", "--photos", FIRST_PHOTOS, "--scroll", "0", "--json"],
+        judge: judge_first_thumbnails,
+    },
+    Budget {
+        milestone: 5,
+        name: "scanned scroll",
+        what: "first_thumbnails' scanned pass: 20 k small JPEGs scanned into the thumbnail cache, then the light table's requests at the speed thumb's top speed from top to bottom: 0 placeholder cells, owner time per frame p95 ≤ 8 ms (the 100 k pass: DALICA_ACCEPT_RELEASE=1 cargo xtask accept M5)",
+        cargo: &["bench", "-p", "dalica-engine", "--bench", "first_thumbnails", "--", "--photos", "0", "--scroll", SCROLL_PHOTOS, "--json"],
+        judge: judge_scanned_scroll,
     },
 ];
 
@@ -173,6 +197,58 @@ pub fn judge_thumb(stdout: &str, plant: f64) -> Result<String, String> {
     let p50 = number_after(line, "UI time p50 ").unwrap_or(f64::NAN);
     let cells = number_after(line, "cells visited at most ").unwrap_or(f64::NAN);
     Ok(format!("thumb at top speed through 100 k: p50 {p50:.2} ms, p95 {judged:.2} ms ≤ {FRAME_BUDGET_MS} ms; cells visited at most {cells}"))
+}
+
+/// A row of a `first_thumbnails` report by name.
+fn report_row<'a>(report: &'a serde_json::Value, name: &str) -> Result<&'a serde_json::Value, String> {
+    report
+        .get("rows")
+        .and_then(serde_json::Value::as_array)
+        .and_then(|rows| rows.iter().find(|r| r.get("name").and_then(serde_json::Value::as_str) == Some(name)))
+        .ok_or(format!("first_thumbnails: no row `{name}`"))
+}
+
+fn field(row: &serde_json::Value, key: &str) -> Result<f64, String> {
+    row.get(key).and_then(serde_json::Value::as_f64).filter(|v| v.is_finite()).ok_or(format!("first_thumbnails: a row without `{key}`"))
+}
+
+/// `first_thumbnails --photos 1000,10000 --scroll 0 --json`: each folder's first screenful within
+/// [`FIRST_THUMBNAILS_MS`]. A planted slowdown of `plant` ms per frame delays the frame that finds
+/// the screenful complete by `plant`, so it is added to each time (the frames before it are paced
+/// at 60 per second and the decoding runs on workers, so it does not add up per frame).
+pub fn judge_first_thumbnails(stdout: &str, plant: f64) -> Result<String, String> {
+    let report = crate::bench::parse_report(stdout).ok_or("first_thumbnails printed no JSON report with `rows`")?;
+    let mut parts = Vec::new();
+    for n in FIRST_PHOTOS.split(',') {
+        let row = report_row(&report, &format!("first thumbnails {n}"))?;
+        let first = field(row, "first_ms")?;
+        let judged = first + plant;
+        let planted = if plant > 0.0 { format!(" ({first:.0} ms measured + {plant:.2} ms planted)") } else { String::new() };
+        if judged > FIRST_THUMBNAILS_MS {
+            return Err(format!("{n} JPEGs: the first screenful after {judged:.0} ms{planted}, over the {FIRST_THUMBNAILS_MS} ms budget"));
+        }
+        let (scan, per_s, thumbs) = (field(row, "scan_s")?, field(row, "scan_photos_per_s")?, field(row, "thumbs_s")?);
+        parts.push(format!(
+            "{n} JPEGs: first screenful {judged:.0} ms{planted}, scan {scan:.2} s ({per_s:.0} photos/s), every thumbnail {thumbs:.1} s"
+        ));
+    }
+    Ok(format!("{} (budget {FIRST_THUMBNAILS_MS} ms)", parts.join("; ")))
+}
+
+/// `first_thumbnails --photos 0 --scroll 20000 --json`: no placeholder cell at the top thumb
+/// speed, and the owner thread's time per frame (p95) within the frame budget.
+pub fn judge_scanned_scroll(stdout: &str, plant: f64) -> Result<String, String> {
+    let report = crate::bench::parse_report(stdout).ok_or("first_thumbnails printed no JSON report with `rows`")?;
+    let row = report_row(&report, &format!("scanned scroll {SCROLL_PHOTOS}"))?;
+    let placeholders = row.get("placeholder_cells").and_then(serde_json::Value::as_u64).ok_or("first_thumbnails: no `placeholder_cells`")?;
+    if placeholders > 0 {
+        return Err(format!("the scanned {SCROLL_PHOTOS}-photo pass drew {placeholders} placeholder cells at the top thumb speed (must be 0)"));
+    }
+    let judged = within_frame_budget(&format!("the scanned {SCROLL_PHOTOS}-photo pass"), field(row, "frame_p95_ms")?, plant)?;
+    let (p50, frames, scan, per_s) = (field(row, "frame_p50_ms")?, field(row, "frames")?, field(row, "scan_s")?, field(row, "scan_photos_per_s")?);
+    Ok(format!(
+        "scanned {SCROLL_PHOTOS} at the top thumb speed: 0 placeholder cells over {frames:.0} frames, owner time p50 {p50:.2} ms, p95 {judged:.2} ms ≤ {FRAME_BUDGET_MS} ms; scanned with its thumbnails in {scan:.1} s ({per_s:.0} photos/s)"
+    ))
 }
 
 /// `--plant-ms N`: the planted slowdown, 0 without the flag.
@@ -287,6 +363,51 @@ mod tests {
         )
     }
 
+    /// What `first_thumbnails --photos 1000,10000 --scroll 0 --json` prints.
+    fn first_out(first_1k: f64, first_10k: f64) -> String {
+        let row = |n: u32, first: f64| {
+            serde_json::json!({ "name": format!("first thumbnails {n}"), "first_ms": first, "budget_ms": 1000.0, "scan_s": f64::from(n) / 20_000.0,
+                "scan_photos_per_s": 20_000.0, "thumbs_s": f64::from(n) / 1500.0, "thumbs_photos_per_s": 1500.0, "frame_p95_ms": 1.0 })
+        };
+        format!("{}\n", serde_json::json!({ "rows": [row(1000, first_1k), row(10000, first_10k)] }))
+    }
+
+    /// What `first_thumbnails --photos 0 --scroll 20000 --json` prints.
+    fn scroll_out(p95: f64, placeholders: u64) -> String {
+        let row = serde_json::json!({ "name": "scanned scroll 20000", "scan_s": 6.0, "scan_photos_per_s": 3333.0, "frames": 1130,
+            "placeholder_cells": placeholders, "frame_p50_ms": p95 / 3.0, "frame_p95_ms": p95, "frame_max_ms": p95 * 2.0, "budget_ms": 8.0 });
+        format!("20000 photos written in 5.1 s\n{}\n", serde_json::json!({ "rows": [row] }))
+    }
+
+    #[test]
+    fn the_first_thumbnails_budget_holds_within_a_second_and_a_planted_slowdown_adds_to_it() {
+        let line = judge_first_thumbnails(&first_out(100.0, 517.0), 0.0).unwrap();
+        assert!(line.contains("1000 JPEGs: first screenful 100 ms") && line.contains("10000 JPEGs: first screenful 517 ms"), "{line}");
+        assert!(line.contains("scan 0.50 s (20000 photos/s)") && line.contains("(budget 1000 ms)"), "{line}");
+        assert!(judge_first_thumbnails(&first_out(100.0, 1000.0), 0.0).is_ok(), "the budget itself holds");
+        let e = judge_first_thumbnails(&first_out(100.0, 1001.0), 0.0).unwrap_err();
+        assert!(e.contains("10000 JPEGs: the first screenful after 1001 ms, over the 1000 ms budget"), "{e}");
+        assert!(judge_first_thumbnails(&first_out(1200.0, 500.0), 0.0).unwrap_err().contains("1000 JPEGs"), "either folder misses it");
+        assert!(judge_first_thumbnails(&first_out(100.0, 517.0), 8.0).is_ok(), "8 ms planted per frame delays a fast screenful by 8 ms");
+        let e = judge_first_thumbnails(&first_out(100.0, 995.0), 8.0).unwrap_err();
+        assert!(e.contains("(995 ms measured + 8.00 ms planted)"), "{e}");
+        assert!(judge_first_thumbnails("no report\n", 0.0).unwrap_err().contains("no JSON report"));
+        assert!(judge_first_thumbnails("{\"rows\":[]}", 0.0).unwrap_err().contains("no row `first thumbnails 1000`"));
+        let no_time = "{\"rows\":[{\"name\":\"first thumbnails 1000\",\"first_ms\":null}]}";
+        assert!(judge_first_thumbnails(no_time, 0.0).unwrap_err().contains("without `first_ms`"));
+    }
+
+    #[test]
+    fn the_scanned_scroll_budget_needs_no_placeholder_and_its_frames_within_the_budget() {
+        let line = judge_scanned_scroll(&scroll_out(0.45, 0), 0.0).unwrap();
+        assert!(line.contains("0 placeholder cells over 1130 frames") && line.contains("p95 0.45 ms ≤ 8 ms"), "{line}");
+        assert!(judge_scanned_scroll(&scroll_out(0.45, 3), 0.0).unwrap_err().contains("3 placeholder cells"));
+        assert!(judge_scanned_scroll(&scroll_out(8.5, 0), 0.0).unwrap_err().contains("over the 8 ms budget"));
+        let e = judge_scanned_scroll(&scroll_out(0.45, 0), 8.0).unwrap_err();
+        assert!(e.contains("p95 8.45 ms (0.45 ms measured + 8.00 ms planted)"), "{e}");
+        assert!(judge_scanned_scroll(&first_out(1.0, 1.0), 0.0).unwrap_err().contains("no row `scanned scroll 20000`"));
+    }
+
     #[test]
     fn the_scroll_budget_holds_on_a_fast_release_run() {
         let line = judge_scroll(&bench_out("release", 2.5, 40, 42), 0.0).unwrap();
@@ -347,26 +468,41 @@ mod tests {
     /// still runs.
     #[test]
     fn the_job_fails_on_a_planted_slowdown_and_passes_without() {
-        let fake = |scroll_p95: f64, thumb_p95: f64| {
+        let fake = |scroll_p95: f64, thumb_p95: f64, first_10k: f64| {
             move |args: &[&str]| -> Result<(bool, String), String> {
-                Ok(match args.first() {
-                    Some(&"bench") => (true, bench_out("release", scroll_p95, 40, 42)),
-                    _ => (true, thumb_out("release", thumb_p95, true)),
+                Ok(if args.contains(&"library_bench") {
+                    (true, bench_out("release", scroll_p95, 40, 42))
+                } else if args.contains(&"first_thumbnails") && args.contains(&"0") && args.contains(&"20000") {
+                    (true, scroll_out(0.45, 0))
+                } else if args.contains(&"first_thumbnails") {
+                    (true, first_out(100.0, first_10k))
+                } else {
+                    (true, thumb_out("release", thumb_p95, true))
                 })
             }
         };
-        assert_eq!(budgets_with(0.0, fake(2.0, 3.0)), Ok(()));
-        let e = budgets_with(8.0, fake(2.0, 3.0)).unwrap_err();
-        assert!(e.contains("2 of 2 missed") && e.contains("M4 light table scroll") && e.contains("M4 thumb at top speed"), "{e}");
-        let e = budgets_with(0.0, fake(2.0, 8.5)).unwrap_err();
-        assert!(e.contains("1 of 2 missed") && e.contains("M4 thumb at top speed"), "{e}");
+        assert_eq!(budgets_with(0.0, fake(2.0, 3.0, 517.0)), Ok(()));
+        // 8 ms planted per frame: every frame budget misses; a first screenful well inside its
+        // second does not.
+        let e = budgets_with(8.0, fake(2.0, 3.0, 517.0)).unwrap_err();
+        assert!(
+            e.contains("3 of 4 missed")
+                && e.contains("M4 light table scroll")
+                && e.contains("M4 thumb at top speed")
+                && e.contains("M5 scanned scroll"),
+            "{e}"
+        );
+        let e = budgets_with(0.0, fake(2.0, 8.5, 517.0)).unwrap_err();
+        assert!(e.contains("1 of 4 missed") && e.contains("M4 thumb at top speed"), "{e}");
+        let e = budgets_with(0.0, fake(2.0, 3.0, 1100.0)).unwrap_err();
+        assert!(e.contains("1 of 4 missed") && e.contains("M5 first thumbnails: 10000 JPEGs"), "{e}");
         let mut ran = Vec::new();
         let e = budgets_with(0.0, |args: &[&str]| {
             ran.push(args.join(" "));
             Ok((false, String::new()))
         })
         .unwrap_err();
-        assert!(e.contains("2 of 2 missed") && e.contains("failed"), "{e}");
+        assert!(e.contains("4 of 4 missed") && e.contains("failed"), "{e}");
         assert_eq!(ran.len(), BUDGETS.len(), "every budget runs after one fails");
         assert!(budgets_with(0.0, |_: &[&str]| Err("cannot run cargo: gone".to_string())).unwrap_err().contains("cannot run cargo"));
     }
@@ -379,6 +515,18 @@ mod tests {
             assert!(b.cargo.first() == Some(&"bench") || b.cargo.contains(&"--release"), "{}: a release build", b.name);
         }
         assert!(crate::bench::BENCHES.iter().any(|b| b.name == "library_bench" && b.package == "dalica-ui"));
+        assert!(crate::bench::BENCHES.iter().any(|b| b.name == "first_thumbnails" && b.package == "dalica-engine"));
+        let bench = std::fs::read_to_string(root.join("crates").join("engine").join("benches").join("first_thumbnails.rs")).unwrap();
+        for printed in [
+            "\"name\": format!(\"first thumbnails {n}\")",
+            "\"name\": format!(\"scanned scroll {n}\")",
+            "\"first_ms\"",
+            "\"placeholder_cells\"",
+            "\"frame_p95_ms\"",
+        ] {
+            assert!(bench.contains(printed), "first_thumbnails prints {printed}");
+        }
+        assert!(bench.contains("const FIRST_BUDGET_MS: f64 = 1000.0;"), "the bench's budget is ours: {FIRST_THUMBNAILS_MS}");
         let m4 = std::fs::read_to_string(root.join("tests").join("acceptance").join("m4.rs")).unwrap();
         assert!(m4.contains(&format!("fn {THUMB_TEST}()")), "m4.rs has the thumb test");
         assert!(m4.contains("\"thumb at top speed ({mode}): ") && m4.contains("UI time p50 {:.2} ms, p95 {:.2} ms"), "the line judge_thumb reads");
