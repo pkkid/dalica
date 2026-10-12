@@ -10,3 +10,12 @@ authors.workspace = true
 publish = false
 
 [dependencies]
+# `Rgba8` and the EXIF `Orientation` the geometric operations compose with (the listed exception
+# `edit → image`, architecture.md §2).
+dalica-image.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+# Procedural photos and the pixel fingerprints of the geometry tests.
+dalica-scenes.workspace = true
+proptest.workspace = true
