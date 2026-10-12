@@ -68,6 +68,8 @@ file and revision in its first lines:
   crates/core/tests/build.rs (tests)         PhotoCraft crates/engine/src/build_info.rs @ bb17dd55
   xtask/src/version.rs                       PhotoCraft xtask/src/version.rs @ bb17dd55
   apps/dalica/src/paths.rs                   PhotoCraft apps/photocraft/src/app_dirs.rs @ bb17dd55
+  crates/ui/build.rs                         PhotoCraft crates/ui-egui/build.rs @ 184c226a
+  crates/ui/src/credits.rs                   PhotoCraft crates/ui-egui/src/credits.rs @ 184c226a
 
 Any other third-party code ever vendored will be listed here with its source and revision.
 
