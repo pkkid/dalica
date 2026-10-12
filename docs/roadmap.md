@@ -2099,7 +2099,7 @@ replace at M6.R.
   - done when: `cargo test -p dalica-meta --test xmp_sidecar`: name resolution for each case;
     develop settings and history kept byte for byte; a damaged sidecar reported; proptest random
     bytes never panic.
-- ⬜ **M6.20 `ui`: the About window and the release notes**
+- ✅ **M6.20 `ui`: the About window and the release notes**
   - after: M6.6, M6.7, M6.11
   - files: `crates/ui/build.rs`, `crates/ui/src/credits.rs`, `crates/ui/src/dialogs/about.rs`, `crates/ui/src/dialogs/release_notes.rs`, `crates/ui/src/commands/help.rs`, `crates/ui/tests/about.rs`, `crates/ui/tests/fingerprints/dialog-about*.json`, `crates/ui/tests/fingerprints/dialog-release-notes*.json`
   - scope: `contributors.md` → In Dalica and `menus-and-shortcuts.md` §1.8: `build.rs` compiles

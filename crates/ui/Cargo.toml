@@ -24,6 +24,9 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 
+[build-dependencies]
+serde_json.workspace = true
+
 [dev-dependencies]
 dalica-scan.workspace = true
 dalica-scenes.workspace = true
