@@ -11,14 +11,19 @@
 //! - [`geometry`]: the eight rotations and mirrorings of a picture ([`Dihedral`]), their composition
 //!   with the EXIF orientation, the displayed size, and applying one to an RGBA image (the CPU
 //!   oracle Save uses).
+//! - [`frame`]: the coordinate frame of stored rectangles and points (the photo after its EXIF
+//!   orientation, before the recipe's rotations and flips; `data-model.md` §3.3), and mapping
+//!   normalised [`Point`]s and [`Rect`]s between it and the displayed photo.
 
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+pub mod frame;
 pub mod geometry;
 pub mod recipe;
 pub mod syntax;
 
+pub use frame::{Point, Rect};
 pub use geometry::Dihedral;
 pub use recipe::{MAX_OPERATIONS, Recipe};
 pub use syntax::{LISTED, Op, Stage, Turn};
