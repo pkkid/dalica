@@ -227,8 +227,11 @@ fn a_right_click_opens_the_section_menu_with_later_items_disabled() {
     }
     let properties = items.iter().find(|w| w.id == "menuitem:section.properties").unwrap();
     assert!(properties.enabled, "Edit Description… opens Folder Properties for the right-clicked section");
+    let remove = items.iter().find(|w| w.id == "menuitem:folder.remove").unwrap();
+    assert!(remove.enabled, "Remove from Dalica… asks about the right-clicked section's folder");
+    let live = ["menuitem:section.properties", "menuitem:folder.remove"];
     assert!(
-        items.iter().filter(|w| w.id != "menuitem:section.properties").all(|w| !w.enabled),
+        items.iter().filter(|w| !live.contains(&w.id.as_str())).all(|w| !w.enabled),
         "the items whose commands are not there yet are disabled: {ids:?}"
     );
     ids_are_sound(&d, "menu open");

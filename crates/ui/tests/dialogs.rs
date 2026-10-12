@@ -246,8 +246,8 @@ fn inspect_reports_scroll_animations_popups_tooltips_and_the_tray_menu() {
     ok(&mut t, "ui.clickWidget", json!({ "id": "menu:File" }));
     let popup = inspect(&mut t)["popup"].clone();
     assert_eq!((popup["kind"].as_str(), popup["menu"].as_str()), (Some("menu"), Some("File")));
-    let add = popup["items"].as_array().unwrap().iter().find(|i| i["widget"] == "menuitem:folders.add").cloned().unwrap();
-    assert_eq!((add["id"].as_str(), add["label"].as_str(), add["enabled"].as_bool()), (Some("folders.add"), Some("Add Folder…"), Some(true)));
+    let add = popup["items"].as_array().unwrap().iter().find(|i| i["widget"] == "menuitem:folders.manager").cloned().unwrap();
+    assert_eq!((add["id"].as_str(), add["label"].as_str(), add["enabled"].as_bool()), (Some("folders.manager"), Some("Add Folder…"), Some(true)));
     ok(&mut t, "ui.key", json!({ "key": "Escape" }));
     assert_eq!(inspect(&mut t)["popup"], Value::Null);
     // The tray menu: its rows for the tray's photos.

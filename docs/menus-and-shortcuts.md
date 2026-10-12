@@ -24,7 +24,7 @@ accordingly; it is identical to the section's context menu).
 |---|---|---|---|
 | New Album… | Ctrl+N | `album.new` | always; adds the tray contents |
 | — | | | |
-| Add Folder… | | `folders.add` | opens the folder picker; the Folder Manager (`folders.manager`, M5) takes this item over |
+| Add Folder… | | `folders.manager` | opens the Folder Manager, as Tools ▸ Folder Manager… does, with the library's selected folder pre-selected (`organizing.md` §2); `folders.add {path}` adds a folder without it (agents, the CLI) |
 | Open File… | Ctrl+O | `library.openFile` | show a single file (adds its folder as Scan Once) |
 | Import From… | Ctrl+M | `import.open` | |
 | — | | | |
@@ -116,7 +116,7 @@ The same list as the section context menu (`organizing.md` §9.2).
 | Unhide | | `folder.unhide` | disabled unless hidden |
 | — | | | |
 | Locate on Disk | Ctrl+Enter | `folder.locate` | disabled for albums *(OS integration)* |
-| Remove from Dalica… | | `folder.remove` | disabled for albums |
+| Remove from Dalica… | | `folder.remove` | disabled for albums and while no folder is selected; asks "Remove Folder" first, naming the folder (`organizing.md` §2) |
 | — | | | |
 | Move… | | `folder.move` | disabled for albums |
 | Delete… | | `folder.delete` / `album.delete` | |

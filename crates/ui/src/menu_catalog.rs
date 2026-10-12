@@ -138,9 +138,9 @@ const SEP: Entry = Entry::Separator;
 pub const FILE: &[Entry] = &[
     item("New Album…", "album.new").key("Ctrl+N").e(),
     SEP,
-    // The Folder Manager (`folders.manager`, Tools ▸ Folder Manager…) arrives in M5; until then
-    // Add Folder… opens the folder picker and runs `folders.add`, as it has since M1.
-    item("Add Folder…", "folders.add").e(),
+    // Add Folder… opens the Folder Manager, as Tools ▸ Folder Manager… does (`organizing.md` §2);
+    // `folders.add {path}` stays the engine's command for agents and the CLI.
+    item("Add Folder…", "folders.manager").e(),
     item("Open File…", "library.openFile").key("Ctrl+O").e(),
     item("Import From…", "import.open").key("Ctrl+M").e(),
     SEP,

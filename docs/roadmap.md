@@ -2360,7 +2360,7 @@ replace at M6.R.
   - done when: `cargo test -p dalica-image`: each case's synthetic file now decodes or answers its
     right reason; `cargo xtask test-corpus` passes with the `raw` floors raised to the new measured
     counts (numbers in the PR) and no floor lowered.
-- ⬜ **M6.39 `ui`: File ▸ Add Folder… opens the Folder Manager; Folder ▸ Remove from Dalica… live**
+- ✅ **M6.39 `ui`: File ▸ Add Folder… opens the Folder Manager; Folder ▸ Remove from Dalica… live**
   - after: M5.R, M6.6
   - files: `crates/ui/src/menu_catalog.rs`, `crates/ui/src/menus.rs`, `crates/ui/tests/menus.rs`, `crates/ui/src/control/tests.rs`, `crates/ui/tests/library_window.rs`, `crates/ui/tests/widget_ids.rs`, `crates/ui/src/panels/light_table.rs`, `docs/menus-and-shortcuts.md`
   - scope: left open by M5.18 (its files could not reach them): File ▸ Add Folder… and the empty

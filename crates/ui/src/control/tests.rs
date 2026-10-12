@@ -820,10 +820,10 @@ fn screenshots_outside_the_write_roots_are_refused_and_writes_never_run_on_the_u
     assert_eq!(png_size(&std::fs::read(shots.join("ok.png")).unwrap()), (1400, 900));
 }
 
-/// Opens File ▸ Add Folder… by clicks and waits for the stubbed picker.
+/// Opens the folder picker as the app does (`App::add_folder`; no menu item opens it since File ▸
+/// Add Folder… opens the Folder Manager) and waits for the stub that stands in for it.
 fn open_picker(t: &mut T) {
-    ok(t, "ui.clickWidget", json!({ "id": "menu:File" }));
-    ok(t, "ui.clickWidget", json!({ "id": "menuitem:folders.add" }));
+    t.d.app_mut().add_folder();
     for _ in 0..1000 {
         if t.control.stub().waiting().is_some() {
             return;

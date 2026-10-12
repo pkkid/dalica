@@ -13,11 +13,12 @@ use std::time::Instant;
 use dalica_core::{FolderId, PhotoId};
 use dalica_engine::{CmdError, Session};
 use dalica_library::{Folder, Library, Op, Photo, TreeOptions};
+use dalica_ui::dialogs::folder_manager::{State, mode_id, row_id};
 use dalica_ui::headless::KeyState;
 use dalica_ui::panels::light_table::layout::{Grid, Layout, STICKY, Spacing};
 use dalica_ui::panels::light_table::{self, Sections};
 use dalica_ui::state::{ScrollAnchor, Section, THUMB_MAX, THUMB_MIN};
-use dalica_ui::{App, Driver, DriverError, ScriptedPicker};
+use dalica_ui::{App, Driver, DriverError};
 use serde_json::json;
 
 const FRAMES: usize = 60 * 60;
@@ -344,20 +345,22 @@ fn ctrl_wheel_changes_the_thumbnail_size_and_keeps_the_section_in_view() {
     assert_eq!(header_top(&d, order[1]), Some(info(&d).area.unwrap().min.y));
 }
 
+/// Add a Folder… opens the Folder Manager, as File ▸ Add Folder… does (`organizing.md` §2): the
+/// photos come once a folder is set to Scan Always there.
 #[test]
 fn no_pictures_yet_offers_to_add_a_folder() {
     let dir = tempfile::tempdir().unwrap();
+    let home = dir.path().join("home");
+    let pictures = home.join("Pictures");
     let files = dalica_scenes::demo_library(1, 4, 3).unwrap();
     for f in &files {
-        let path = dir.path().join("photos").join(&f.path);
+        let path = pictures.join(&f.path);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, &f.bytes).unwrap();
     }
-    let folder = dir.path().join("photos").join(files[0].path.parent().unwrap());
-    let session = Session::open(&dir.path().join("library"), Arc::new(dalica_core::SystemClock)).unwrap();
-    let picker = ScriptedPicker::new();
-    picker.push_folder(&folder);
-    let mut d = Driver::new(App::with_picker(Some(session), Arc::new(picker)), 900, 600, 1.0);
+    let mut session = Session::open(&dir.path().join("library"), Arc::new(dalica_core::SystemClock)).unwrap();
+    session.set_places(dalica_scan::Places::under(&home), Vec::new());
+    let mut d = Driver::new(App::new(Some(session)), 900, 600, 1.0);
     d.settle(FRAMES).unwrap();
     let widgets = d.widgets();
     let get = |id: &str| widgets.iter().find(|w| w.id == id).unwrap_or_else(|| panic!("no {id}")).clone();
@@ -369,6 +372,18 @@ fn no_pictures_yet_offers_to_add_a_folder() {
     assert!(area.contains(egui::pos2(block[0] + block[2] / 2.0, block[1] + block[3] / 2.0)), "centred in the light table");
     assert!(matches!(d.click(light_table::IMPORT_ID), Err(DriverError::Disabled(_))));
     d.click(light_table::ADD_FOLDER_ID).unwrap();
+    assert_eq!(d.state().dialogs.iter().map(|d| d.kind.name()).collect::<Vec<_>>(), ["folderManager"]);
+    let row = row_id(&pictures, &pictures);
+    for _ in 0..FRAMES {
+        if d.widgets().iter().any(|w| w.id == row) {
+            break;
+        }
+        d.step();
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    d.click(&row).unwrap();
+    d.click(&mode_id(State::Always)).unwrap();
+    d.click("button:dialog.ok").unwrap();
     d.settle(FRAMES).unwrap();
     assert_eq!(d.widgets().iter().filter(|w| w.id.starts_with("thumb:")).count(), 4);
     assert!(!d.widgets().iter().any(|w| w.id.starts_with("empty:")), "the empty state is gone");

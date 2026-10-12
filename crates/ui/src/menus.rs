@@ -14,6 +14,7 @@
 //! - **Running an item** ([`activate`]): a dialog item opens its dialog, any other runs its
 //!   command through [`App::run`] with the selection where the command takes `ids`.
 
+use dalica_core::FolderId;
 use dalica_engine::{CmdError, CommandSpec, Context};
 use dalica_ui_kit::registry::Role;
 use dalica_ui_kit::widgets::{self, Target};
@@ -22,6 +23,7 @@ use serde_json::{Map, Value, json};
 
 use crate::app::App;
 use crate::menu_catalog::{self, Entry, Item, MAC_APP_MENU, MENU_BAR, Mac, Mark, Menu};
+use crate::state::Section;
 
 pub use crate::commands::{THUMB_SMALL, UI_COMMANDS, UiCommand};
 
@@ -60,22 +62,39 @@ pub fn section_kind(_app: &App) -> SectionKind {
 }
 
 /// Items that open a dialog Dalica already has, and the dialog: `ui.menu.invoke` replies
-/// `{dialog: kind}` for them. `filePicker` is the native folder picker (the stub over automation,
-/// `control-protocol.md` §5.6); the others are in-app dialogs on the host (`crate::dialogs`),
-/// opened by running the item's command. Other `…` items stay disabled until their dialog exists,
-/// even when their command is registered (Help ▸ Rebuild Library… asks first; `engine.execute` runs
-/// it with `confirm: true`).
+/// `{dialog: kind}` for them. They are in-app dialogs on the host (`crate::dialogs`), opened by
+/// running the item's command: a UI command that opens its dialog, or an engine command whose
+/// question the host asks first (`folder.remove`, `dialogs::confirm::ASKS`). File ▸ Add Folder…
+/// runs `folders.manager` too (`organizing.md` §2). Other `…` items stay disabled until their
+/// dialog exists, even when their command is registered (Help ▸ Rebuild Library… asks first;
+/// `engine.execute` runs it with `confirm: true`).
 pub const DIALOGS: &[(&str, &str)] = &[
-    ("folders.add", "filePicker"),
     ("folders.manager", "folderManager"),
+    ("folder.remove", "removeFolder"),
     ("section.properties", "folderProperties"),
     ("photo.adjustDate", "adjustDate"),
     ("help.releaseNotes", "releaseNotes"),
     ("app.about", "about"),
 ];
 
-/// The native folder picker, among [`DIALOGS`].
+/// The native folder picker (the stub over automation, `control-protocol.md` §5.6): an item of
+/// [`DIALOGS`] naming it opens the picker instead of running its command. No item does since File ▸
+/// Add Folder… opens the Folder Manager; the picker stays for the items that will pick files.
 pub const FILE_PICKER: &str = "filePicker";
+
+/// Engine commands a menu row runs on the current folder (the fourth menu's rows): a click passes
+/// it as `id`, and the row is disabled while there is none.
+const FOLDER_COMMANDS: &[&str] = &["folder.remove"];
+
+/// The folder the fourth menu acts on: the selected section's, else the folder selected in the
+/// tree (a right-click on a row or a section header selects it first).
+pub fn current_folder(app: &App) -> Option<FolderId> {
+    let state = app.state();
+    let section = state.selection.section.map(|s| match s {
+        Section::Folder(f) => f,
+    });
+    section.or(state.folder)
+}
 
 /// Whether the dialog `dialog` (of [`DIALOGS`]) can open now; why not, if it cannot.
 fn dialog_ready(app: &App, dialog: &str) -> Result<(), String> {
@@ -224,12 +243,17 @@ fn nodes(facts: &Facts<'_>, entries: &'static [Entry], path: &str) -> Vec<Node> 
 }
 
 /// The parameters a click on the row passes to `id`: its fixed ones, plus the selection when the
-/// command takes `ids`.
+/// command takes `ids`, or the [current folder](current_folder) as `id` for [`FOLDER_COMMANDS`].
 pub fn params_for(app: &App, id: &str, fixed: &Value) -> Value {
     let mut obj: Map<String, Value> = match crate::keys::params_for(app, id) {
         Value::Object(o) => o,
         _ => Map::new(),
     };
+    if FOLDER_COMMANDS.contains(&id)
+        && let Some(folder) = current_folder(app)
+    {
+        obj.insert("id".into(), folder.get().into());
+    }
     if let Value::Object(f) = fixed {
         for (k, v) in f {
             obj.insert(k.clone(), v.clone());
@@ -253,24 +277,14 @@ fn item_node(facts: &Facts<'_>, i: &'static Item) -> ItemNode {
         refuse("Not available yet.")
     } else if album && i.folder_only {
         refuse("Not available for albums.")
-    } else if let Some(d) = dialog {
-        let ready = dialog_ready(app, d).and_then(|()| if ui_command { crate::commands::enabled(app, id, &params) } else { Ok(()) });
+    } else {
+        let ready = match dialog {
+            Some(d) => dialog_ready(app, d).and_then(|()| command_ready(app, id, &params, ui_command, spec)),
+            None => command_ready(app, id, &params, ui_command, spec),
+        };
         match ready {
             Ok(()) => (true, None),
             Err(why) => (false, Some(why)),
-        }
-    } else if ui_command {
-        match crate::commands::enabled(app, id, &params) {
-            Ok(()) => (true, None),
-            Err(why) => (false, Some(why)),
-        }
-    } else {
-        match (app.session(), spec) {
-            (Some(session), Some(spec)) => match (spec.enabled)(session, &params_for(app, id, &params)) {
-                Ok(()) => (true, None),
-                Err(d) => (false, Some(d.0)),
-            },
-            _ => refuse("The library is still opening."),
         }
     };
     let undo = app.session().map(dalica_engine::Session::undo_stack);
@@ -298,6 +312,21 @@ fn item_node(facts: &Facts<'_>, i: &'static Item) -> ItemNode {
         checked,
         dialog,
     }
+}
+
+/// Whether the command of a live row can run now with what a click passes; why not when it cannot.
+/// A UI command answers through its check ([`crate::commands::enabled`]); an engine command needs
+/// the library, the current folder for [`FOLDER_COMMANDS`], and its `enabled` to accept.
+fn command_ready(app: &App, id: &str, params: &Value, ui_command: bool, spec: Option<&CommandSpec>) -> Result<(), String> {
+    if ui_command {
+        return crate::commands::enabled(app, id, params);
+    }
+    let (Some(session), Some(spec)) = (app.session(), spec) else { return Err("The library is still opening.".into()) };
+    let params = params_for(app, id, params);
+    if FOLDER_COMMANDS.contains(&id) && params.get("id").is_none() {
+        return Err("Select a folder first.".into());
+    }
+    (spec.enabled)(session, &params).map_err(|d| d.0)
 }
 
 /// The shortcut a row shows: for a registered command (the engine's or a UI command, both in the
@@ -755,7 +784,7 @@ mod tests {
         assert_eq!(
             live,
             [
-                "folders.add",
+                "folders.manager",
                 "app.quit",
                 "edit.undo",
                 "edit.redo",
@@ -783,6 +812,7 @@ mod tests {
                 "window.fullscreen",
                 "section.properties",
                 "section.refreshThumbs",
+                "folder.remove",
                 "pane.properties",
                 "photo.star.toggle",
                 "photo.caption.edit",
@@ -826,9 +856,78 @@ mod tests {
         let menus = bar(&app, Platform::Other);
         let star = find(&menus, &Lookup::Id { id: "photo.star.toggle".into(), params: Value::Null }).unwrap();
         assert_eq!((star.live, star.enabled, star.reason.as_deref()), (true, false, Some("The library is still opening.")));
-        let add = find(&menus, &Lookup::Id { id: "folders.add".into(), params: Value::Null }).unwrap();
-        assert!(add.live && !add.enabled, "no library, no picker");
+        let remove = find(&menus, &Lookup::Id { id: "folder.remove".into(), params: Value::Null }).unwrap();
+        assert_eq!((remove.live, remove.enabled, remove.reason.as_deref()), (true, false, Some("The library is still opening.")));
         assert!(find(&menus, &Lookup::Id { id: "select.none".into(), params: Value::Null }).unwrap().enabled);
+    }
+
+    /// File ▸ Add Folder… and Tools ▸ Folder Manager… open the same dialog (`organizing.md` §2);
+    /// the folder picker is no longer an item.
+    #[test]
+    fn add_folder_opens_the_folder_manager_like_tools_folder_manager() {
+        let (_dir, s, _) = session_with_photos(1);
+        let mut app = App::new(Some(s));
+        let menus = bar(&app, Platform::Other);
+        let add = find(&menus, &Lookup::Path(vec!["File".into(), "Add Folder…".into()])).cloned().unwrap();
+        let tools = find(&menus, &Lookup::Path(vec!["Tools".into(), "Folder Manager".into()])).cloned().unwrap();
+        for item in [&add, &tools] {
+            assert_eq!((item.id, item.dialog, item.live, item.enabled), ("folders.manager", Some("folderManager"), true, true), "{}", item.label);
+            assert_eq!(item.widget, "menuitem:folders.manager");
+        }
+        assert!(!menus.iter().flat_map(|m| items(&m.children)).any(|i| i.dialog == Some(FILE_PICKER) || i.id == "folders.add"));
+        assert_eq!(activate(&mut app, &add, &Value::Null).unwrap(), json!({ "dialog": "folderManager" }));
+        assert_eq!(app.state().dialogs.iter().map(|d| d.kind.name()).collect::<Vec<_>>(), ["folderManager"]);
+        // Open: both rows say why they cannot open it again.
+        let menus = bar(&app, Platform::Other);
+        for path in [["File", "Add Folder"], ["Tools", "Folder Manager…"]] {
+            let item = find(&menus, &Lookup::Path(path.iter().map(|p| p.to_string()).collect())).unwrap();
+            assert!(!item.enabled && item.reason.as_deref().is_some_and(|r| r.contains("already open")), "{path:?}");
+        }
+        assert!(matches!(activate(&mut app, &tools, &Value::Null), Err(CmdError::Disabled(_))));
+        assert_eq!(app.state().dialogs.len(), 1);
+    }
+
+    /// Folder ▸ Remove from Dalica… runs `folder.remove` on the current folder: disabled without
+    /// one, it asks Remove Folder through the host, and the answer removes the folder in one undo
+    /// step.
+    #[test]
+    fn remove_from_dalica_asks_then_removes_the_current_folder() {
+        let (_dir, s, _) = session_with_photos(2);
+        let mut app = App::new(Some(s));
+        let folder =
+            app.session().unwrap().library().folders().find(|f| app.session().unwrap().library().photos().any(|p| p.folder == f.id)).unwrap().id;
+        let lookup = Lookup::Path(vec!["Folder".into(), "Remove from Dalica".into()]);
+        let item = find(&bar(&app, Platform::Other), &lookup).cloned().unwrap();
+        assert_eq!((item.id, item.dialog, item.live), ("folder.remove", Some("removeFolder"), true));
+        assert_eq!((item.enabled, item.reason.as_deref()), (false, Some("Select a folder first.")));
+        assert!(matches!(activate(&mut app, &item, &Value::Null), Err(CmdError::Disabled(_))));
+        assert!(app.state().dialogs.is_empty());
+        // The section context menu has the same row.
+        let row = find_id(&section_menu(&app, Platform::Other), "folder.remove", &Value::Null).cloned().unwrap();
+        assert!(row.live && !row.enabled);
+        // The folder selected in the tree: the click passes it and the host asks.
+        app.state_mut().folder = Some(folder);
+        assert_eq!(params_for(&app, "folder.remove", &Value::Null), json!({ "id": folder.get() }));
+        let item = find(&bar(&app, Platform::Other), &lookup).cloned().unwrap();
+        assert!(item.enabled, "{:?}", item.reason);
+        let steps = app.session().unwrap().undo_stack().len();
+        assert_eq!(activate(&mut app, &item, &Value::Null).unwrap(), json!({ "dialog": "removeFolder" }));
+        let top = crate::dialogs::top(&app).cloned().unwrap();
+        assert_eq!(top.kind.name(), "removeFolder");
+        assert_eq!(top.command.as_ref().map(|c| (c.id.as_str(), c.params.clone())), Some(("folder.remove", json!({ "id": folder.get() }))));
+        // Open: the row waits for the answer.
+        assert!(!find(&bar(&app, Platform::Other), &lookup).unwrap().enabled);
+        // Cancel keeps the folder; Remove Folder removes it in one undo step.
+        crate::dialogs::cancel(&mut app).unwrap();
+        assert_eq!((app.session().unwrap().library().photos().count(), app.session().unwrap().undo_stack().len()), (2, steps));
+        activate(&mut app, &item, &Value::Null).unwrap();
+        crate::dialogs::answer(&mut app, None).unwrap();
+        assert!(app.state().dialogs.is_empty());
+        let session = app.session().unwrap();
+        assert_eq!((session.library().photos().count(), session.undo_stack().len()), (0, steps + 1));
+        // Undo brings it back.
+        app.run("edit.undo", &json!({})).unwrap();
+        assert_eq!(app.session().unwrap().library().photos().count(), 2);
     }
 
     #[test]

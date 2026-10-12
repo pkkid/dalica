@@ -1,6 +1,7 @@
-//! The plain library window (M1.18), driven headlessly: add a folder through File ▸ Add Folder…,
-//! click a thumbnail by widget id, press Ctrl+8, and see the star in the engine, in the widget list
-//! and in the screenshot — with the UI thread marked, so any file access from it is counted.
+//! The plain library window (M1.18), driven headlessly: add a folder through File ▸ Add Folder…
+//! (the Folder Manager since M6.39: the folder's row, Scan Always, OK), click a thumbnail by widget
+//! id, press Ctrl+8, and see the star in the engine, in the widget list and in the screenshot —
+//! with the UI thread marked, so any file access from it is counted.
 //!
 //! The screenshots are checked **by region** (M4.6), so a task that changes one region re-blesses
 //! only its own file: `region-<name>-<case>.json` for the chrome (menu bar and toolbar), the tree
@@ -16,8 +17,10 @@ use std::time::Instant;
 
 use dalica_core::PhotoId;
 use dalica_engine::Session;
+use dalica_scan::Places;
 use dalica_scenes::fingerprint;
-use dalica_ui::{App, Driver, ScriptedPicker};
+use dalica_ui::dialogs::folder_manager::{State, mode_id, row_id};
+use dalica_ui::{App, Driver};
 
 const FRAMES: usize = 60 * 60;
 
@@ -139,22 +142,37 @@ fn check_regions(d: &Driver, case: &str, shot: &dalica_ui_kit::Image) {
 #[test]
 fn click_a_thumbnail_press_ctrl_8_and_the_badge_shows() {
     let dir = tempfile::tempdir().unwrap();
-    let folder = photos(&dir.path().join("photos"), 12);
-    let session = Session::open(&dir.path().join("library"), Arc::new(dalica_core::SystemClock)).unwrap();
-    let picker = ScriptedPicker::new();
-    picker.push_folder(&folder);
+    // The standard places are planted: the photos are in the home folder's Pictures.
+    let home = dir.path().join("home");
+    let pictures = home.join("Pictures");
+    let folder = photos(&pictures, 12);
+    let mut session = Session::open(&dir.path().join("library"), Arc::new(dalica_core::SystemClock)).unwrap();
+    session.set_places(Places::under(&home), Vec::new());
 
     // From here on this thread is the UI thread: every file access from it would be refused and
     // counted.
     let ui_thread = dalica_fs::mark_ui_thread();
     let refused_before = dalica_fs::guard::refused();
     let started = Instant::now();
-    let mut d = Driver::new(App::with_picker(Some(session), Arc::new(picker)), 1400, 900, 1.0);
+    let mut d = Driver::new(App::new(Some(session)), 1400, 900, 1.0);
     d.settle(FRAMES).unwrap();
 
-    // File ▸ Add Folder…, answered by the scripted picker; the scan runs on the engine's threads.
+    // File ▸ Add Folder… opens the Folder Manager: Pictures set to Scan Always, then OK; the
+    // listing and the scan run on the engine's threads.
     d.click("menu:File").unwrap();
-    d.click("menuitem:folders.add").unwrap();
+    d.click("menuitem:folders.manager").unwrap();
+    let row = row_id(&pictures, &pictures);
+    for _ in 0..FRAMES {
+        if d.widgets().iter().any(|w| w.id == row) {
+            break;
+        }
+        d.step();
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    d.click(&row).unwrap();
+    d.click(&mode_id(State::Always)).unwrap();
+    d.click("button:dialog.ok").unwrap();
+    assert!(d.state().dialogs.is_empty());
     d.settle(FRAMES).unwrap();
     let thumbs: Vec<String> = d.widgets().into_iter().map(|w| w.id).filter(|id| id.starts_with("thumb:") && !id.ends_with("/star")).collect();
     assert_eq!(thumbs.len(), 12, "{thumbs:?}");

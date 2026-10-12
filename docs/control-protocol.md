@@ -225,7 +225,7 @@ Updates, opening the help or release-notes web pages, and anything that would
 use the network (map tiles, geocoding, model downloads; `AGENTS.md` "Privacy").
 
 **Native file pickers are never opened by automation.** `engine.execute` takes paths as params. A
-picker requested by synthetic input (clicking *Browse…*, *Add Folder…* through `ui.menu.invoke`) is
+picker requested by synthetic input (a *Browse…* button clicked through `ui.clickWidget`) is
 replaced by an in-app stub: `ui.inspect` → `filePicker: {command, kind: "folder" | "file" | "save",
 title}`, answered with `ui.filePicker {path}` or `ui.filePicker {cancel: true}`. Pickers opened by
 real user input stay native.
@@ -575,8 +575,8 @@ behaves like clicking the item: items whose label ends in `…` open their dialo
 §5.3). Disabled items fail with `disabled`; catalog items that are not live yet fail with
 `unsupported`. A command runs as `engine.execute` runs it (§5.5–§5.7 apply), with the
 selection as `ids` when it takes them, the row's fixed parameters, then `params`. File ▸ Add
-Folder… replies `{dialog: "filePicker"}` once the stubbed picker waits for `ui.filePicker` (§5.6);
-Tools ▸ Folder Manager… replies `{dialog: "folderManager"}` once a frame has drawn it. A command that
+Folder… and Tools ▸ Folder Manager… both reply `{dialog: "folderManager"}` once a frame has drawn
+it; Folder ▸ Remove from Dalica… replies `{dialog: "removeFolder"}`, asking about the selected folder. A command that
 asks first (§5.5) opens its question and replies `{dialog: <kind>}`.
 
 Dialogs are driven through their widgets (`field:dialog.<name>`, `button:dialog.<action>`) or the
