@@ -5,6 +5,7 @@
 //! specifications, and the XMP Part 3 / IPTC-NAA tag numbers for TIFF (700, 33723, 34377). No
 //! other reader's code was consulted.
 
+pub mod edit;
 pub mod read;
 
 use std::fmt;

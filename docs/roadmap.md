@@ -1961,7 +1961,7 @@ replace at M6.R.
     twice gives identical bytes), test 4 at the XMP level (the rating rule), test 10 (DOCTYPE and
     entities refused, deep nesting and node bombs bounded, truncation and proptest random bytes
     never panic).
-- ⬜ **M6.10 `meta`: IPTC writing and EXIF edits in place**
+- ✅ **M6.10 `meta`: IPTC writing and EXIF edits in place**
   - after: M6.4
   - files: `crates/meta/src/iptc/write.rs`, `crates/meta/src/exif/edit.rs`, `crates/meta/tests/iptc_write.rs`, `crates/meta/tests/exif_edit.rs`
   - scope: `xmp-interop.md` §2–§3: IPTC in Photoshop resource 0x0404 with 1:90 = UTF-8, 2:25 (one

@@ -77,6 +77,9 @@ tiff = "0.11"
 
 # Metadata, files, locations
 quick-xml = "0.42"
+# The IPTC digest (Photoshop resource 0x0425) in dalica-meta: RFC 1321 in one safe file, no
+# dependencies, no build script (MIT OR Apache-2.0).
+md5 = { version = "0.8.1", default-features = false }
 notify = "8"
 trash = "5.2"
 tempfile = "3"

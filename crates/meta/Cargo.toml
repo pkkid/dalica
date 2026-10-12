@@ -17,6 +17,11 @@ dalica-image.workspace = true
 # zlib for compressed PNG text chunks (`zTXt`, compressed `iTXt`), inflated under a cap. Pure Rust,
 # `forbid(unsafe_code)`, MIT OR Apache-2.0; already in the product graph under `png`.
 fdeflate.workspace = true
+# The IPTC digest (Photoshop resource 0x0425): MD5 of the IIM stream. RFC 1321 in one file with no
+# `unsafe`, no dependencies and no build script; MIT OR Apache-2.0 (reviewed for M6.10).
+md5.workspace = true
+# One line when a caption or keyword is cut to the IPTC limits (already used by dalica-image).
+log.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]

@@ -6,6 +6,7 @@
 //! other reader's code was consulted.
 
 pub mod read;
+pub mod write;
 
 /// The Photoshop image resource holding IPTC-IIM.
 pub const RESOURCE_IPTC: u16 = 0x0404;
