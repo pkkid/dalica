@@ -131,7 +131,7 @@ verify() {
 
 # Each case builds a fresh set, breaks it one way and expects `verify` to refuse it.
 self_test() {
-  local tmp self case_dir failures=0
+  local tmp self case_dir first_line failures=0
   self="${BASH_SOURCE[0]}"
   tmp="$(mktemp -d)"
   # shellcheck disable=SC2064 # expand now: tmp is local
@@ -185,7 +185,8 @@ self_test() {
   expect fail "an artifact that is not listed"
 
   fresh duplicate
-  head -n 1 "$case_dir/$SUMS" >>"$case_dir/$SUMS"
+  first_line="$(head -n 1 "$case_dir/$SUMS")"
+  printf '%s\n' "$first_line" >>"$case_dir/$SUMS"
   expect fail "a name listed twice"
 
   fresh malformed
