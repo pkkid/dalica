@@ -4,15 +4,21 @@
 //! counts it, and once the root is renamed back the sidecar holds the star, also across restarts.
 //! The owner thread makes no `fs` call: it is marked as the UI thread, and the online checks
 //! record the thread they run on. File changes the test makes itself run on a helper thread.
+//!
+//! A root that goes between two online checks (M6.43): emptied (an unmounted volume's mount point)
+//! or replaced by another volume (its device changed), just before a due write. The write is
+//! checked right before it lands: no sidecar, the edit is reported unsaved, and it lands once the
+//! files return.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::ThreadId;
 use std::time::{Duration, Instant};
 
 use dalica_core::{PhotoId, Timestamp, VirtualClock};
-use dalica_engine::offline::{CHECK_EVERY, OnlineCheck, PENDING_FILE, SETTLE};
+use dalica_engine::offline::{CHECK_EVERY, OnlineCheck, PENDING_FILE, RootProbe, SETTLE};
 use dalica_engine::{CacheDir, CmdError, Options, Session, Thumb, ThumbOptions};
 use dalica_fs::Expect;
 use dalica_library::{Row, Tree, TreeMode, TreeOptions};
@@ -29,7 +35,7 @@ fn off_owner<T: Send>(f: impl FnOnce() -> T + Send) -> T {
 struct Fx {
     _tmp: tempfile::TempDir,
     library: PathBuf,
-    /// The watched root (a "card") and its one folder.
+    /// The watched root (a "card") and its one folder of photos (the root itself in [`Fx::flat`]).
     card: PathBuf,
     trip: PathBuf,
     away: PathBuf,
@@ -40,9 +46,18 @@ struct Fx {
 
 impl Fx {
     fn new() -> Fx {
+        Fx::with_photos_in(Some("2026 Trip"))
+    }
+
+    /// The photos directly in the root, as on a card or drive with no folders.
+    fn flat() -> Fx {
+        Fx::with_photos_in(None)
+    }
+
+    fn with_photos_in(folder: Option<&str>) -> Fx {
         let tmp = tempfile::tempdir().unwrap();
         let card = tmp.path().join("CARD");
-        let trip = card.join("2026 Trip");
+        let trip = folder.map_or_else(|| card.clone(), |f| card.join(f));
         dalica_fs::create_dir_all(&trip).unwrap();
         for i in 0..3 {
             let bytes = dalica_scenes::jpeg(&dalica_scenes::Scene::new(i, 120, 80), 80, None).unwrap();
@@ -74,7 +89,13 @@ impl Fx {
 
     /// A new library watching the card, scanned, with the card checked online.
     fn scanned(&self) -> (Session, Vec<PhotoId>) {
+        self.scanned_with(None)
+    }
+
+    /// [`Fx::scanned`] with `probe` planted before the first check.
+    fn scanned_with(&self, probe: Option<RootProbe>) -> (Session, Vec<PhotoId>) {
         let mut s = self.open();
+        s.set_root_probe(probe);
         s.execute("folders.add", &json!({ "path": self.card })).unwrap();
         s.wait_idle();
         assert!(s.refresh_volumes(PATIENCE));
@@ -92,6 +113,26 @@ impl Fx {
     fn replug(&self) {
         let (from, to) = (self.away.clone(), self.card.clone());
         off_owner(move || std::fs::rename(from, to).unwrap());
+    }
+
+    /// Something else at the card's path while the card is away: an empty folder (an unmounted
+    /// volume's mount point), or another volume with the same folder and another file in it.
+    fn stand_in(&self, other_volume: bool) {
+        let (card, trip) = (self.card.clone(), self.trip.clone());
+        off_owner(move || {
+            std::fs::create_dir(&card).unwrap();
+            if other_volume {
+                dalica_fs::create_dir_all(&trip).unwrap();
+                dalica_fs::replace(&trip.join("OTHER.jpg"), b"not ours", Expect::Absent).unwrap();
+            }
+        });
+    }
+
+    /// Takes the stand-in away and plugs the card back in.
+    fn restore(&self) {
+        let card = self.card.clone();
+        off_owner(move || std::fs::remove_dir_all(card).unwrap());
+        self.replug();
     }
 
     /// Advances the clock to the next scheduled check and waits for it.
@@ -342,4 +383,78 @@ fn online_edits_are_not_pending() {
     assert_eq!(s.pending_writes(), None);
     s.flush().unwrap();
     assert_eq!(fx.star_in_sidecar("IMG_0003.jpg"), Field::Value(true));
+}
+
+/// The volume is unmounted between two online checks, leaving its empty mount point, and a star is
+/// made before the next check: the write is checked right before it lands, so no sidecar appears
+/// in the mount point and the edit is reported unsaved. The next check counts it as waiting, and
+/// it lands when the volume is back. The owner thread makes no `fs` call.
+#[test]
+fn a_root_emptied_just_before_a_due_write_gets_no_sidecar() {
+    let fx = Fx::flat();
+    let (mut s, ids) = fx.scanned();
+    let sidecar = fx.card.join(".dalica.json");
+    assert!(s.library().folder_by_path(&fx.card).is_some(), "the photos are in the root itself");
+    let ui = dalica_fs::mark_ui_thread();
+
+    fx.unplug();
+    fx.stand_in(false);
+    s.execute("photo.star.set", &json!({ "ids": [ids[0]], "on": true })).unwrap();
+    s.poll();
+    assert_eq!(s.root_online(&fx.card), Some(true), "no online check has seen it go yet");
+    assert!(matches!(s.flush(), Err(CmdError::Unsaved(m)) if m.contains("not the volume")), "the edit is reported unsaved");
+    assert!(!fx.exists(&sidecar), "no sidecar lands in the empty mount point");
+
+    // The next check finds it offline and counts the write; the writer still writes nothing.
+    fx.check(&mut s);
+    assert_eq!(s.root_online(&fx.card), Some(false));
+    assert_eq!(s.pending_writes().map(|p| p.sidecars), Some(1));
+    assert!(s.flush().is_err());
+    assert!(!fx.exists(&sidecar));
+
+    // Back: the write lands.
+    fx.restore();
+    fx.check(&mut s);
+    assert_eq!(s.root_online(&fx.card), Some(true));
+    s.flush().unwrap();
+    assert_eq!(fx.star_in_sidecar("IMG_0001.jpg"), Field::Value(true));
+    assert_eq!(fx.star_in_sidecar("IMG_0002.jpg"), Field::Absent);
+
+    drop(ui);
+    assert_eq!(dalica_fs::guard::refused(), 0, "the owner thread made no fs call");
+}
+
+/// Another volume mounted in the card's place between two checks (another device, the same folder,
+/// none of the library's files): a star made then gets no sidecar there and is reported unsaved.
+/// When the card returns, before any online check saw it go and with a new device number but its
+/// files, the write lands.
+#[test]
+fn a_root_whose_device_changed_just_before_a_due_write_gets_no_sidecar() {
+    let fx = Fx::new();
+    let device = Arc::new(AtomicU64::new(1));
+    let d = Arc::clone(&device);
+    let probe: RootProbe = Arc::new(move |root: &Path, samples: &[PathBuf]| dalica_scan::volumes::RootState {
+        device: Some(d.load(Ordering::SeqCst)),
+        ..dalica_scan::volumes::root_state(root, samples)
+    });
+    let (mut s, ids) = fx.scanned_with(Some(probe));
+    let sidecar = fx.trip.join(".dalica.json");
+    let ui = dalica_fs::mark_ui_thread();
+
+    fx.unplug();
+    fx.stand_in(true);
+    device.store(2, Ordering::SeqCst);
+    s.execute("photo.star.set", &json!({ "ids": [ids[1]], "on": true })).unwrap();
+    assert!(matches!(s.flush(), Err(CmdError::Unsaved(m)) if m.contains("not the volume")), "the edit is reported unsaved");
+    assert!(fx.exists(&fx.trip) && !fx.exists(&sidecar), "no sidecar on the other volume, though its folder is there");
+
+    // The card is back on yet another device number, with its files: accepted, the write lands.
+    fx.restore();
+    device.store(3, Ordering::SeqCst);
+    s.flush().unwrap();
+    assert_eq!(fx.star_in_sidecar("IMG_0002.jpg"), Field::Value(true));
+    assert_eq!(s.pending_writes(), None, "no online check saw it go");
+
+    drop(ui);
+    assert_eq!(dalica_fs::guard::refused(), 0, "the owner thread made no fs call");
 }

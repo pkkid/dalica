@@ -21,9 +21,18 @@
 //! dropped. A folder under a root the engine found offline ([`SidecarWriter::hold`]) waits the same
 //! way even if a folder is there: the empty folder an unmounted volume leaves at its mount point
 //! must never get a sidecar (M5.17).
+//!
+//! **Guarded roots** (M6.43): the engine's online checks run every 10 s, so a volume unmounted
+//! between two of them is not held yet. Right before each write, a folder under a guarded root
+//! ([`SidecarWriter::guard`]) has its root checked ([`RootCheck`]: the engine's look at the root's
+//! device and the library's files there); a root that fails is treated like a missing folder: the
+//! write fails, nothing is written, the folder waits and is looked at again (and checked again)
+//! when it is marked dirty or after [`WAIT_RETRY`]. Each root is checked at most once per pass.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 use dalica_core::{DateTime, FolderId, Timestamp};
@@ -39,6 +48,24 @@ pub const DEBOUNCE: Duration = Duration::from_secs(1);
 /// How long a folder that was not there waits before the writer looks again on its own. Marking
 /// it dirty again ends the wait.
 pub const WAIT_RETRY: Duration = Duration::from_secs(10);
+
+/// Says, right before a write under a guarded root, whether that root still is the volume the
+/// library knows (`true`) or not (an empty mount point, another volume in its place: `false`).
+/// Runs on the writer's thread and may read the disk; one that panics counts as `false`.
+pub type RootCheck = Arc<dyn Fn(&Path) -> bool + Send + Sync>;
+
+/// A guarded root and its check.
+#[derive(Clone)]
+struct Guard {
+    root: PathBuf,
+    check: RootCheck,
+}
+
+impl std::fmt::Debug for Guard {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Guard").field("root", &self.root).finish_non_exhaustive()
+    }
+}
 
 /// What happened to one folder's sidecar.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -74,6 +101,14 @@ enum Attempt {
 
 fn missing(state: &FolderState) -> Outcome {
     Outcome::Failed(format!("{}: the folder is not there (is its volume offline?); the write waits for it", state.path.display()))
+}
+
+fn not_verified(state: &FolderState, root: &Path) -> Outcome {
+    Outcome::Failed(format!(
+        "{}: {} is not the volume the library knows (unmounted, or another one in its place); the write waits for it",
+        state.path.display(),
+        root.display()
+    ))
 }
 
 fn attempt(state: &FolderState, now: Timestamp) -> Attempt {
@@ -165,6 +200,8 @@ pub struct SidecarWriter {
     waiting: HashMap<FolderId, Timestamp>,
     /// Roots found offline: nothing under them is written.
     held: Vec<PathBuf>,
+    /// Roots checked right before each write under them.
+    guards: Vec<Guard>,
 }
 
 impl SidecarWriter {
@@ -217,6 +254,34 @@ impl SidecarWriter {
         &self.held
     }
 
+    /// The roots to check right before each write under them, with their checks (replacing the
+    /// earlier list). A folder under a root whose check fails is written as if it were not there:
+    /// the write fails and the folder waits (looked at again when marked dirty or after
+    /// [`WAIT_RETRY`], and checked again then).
+    pub fn guard(&mut self, roots: Vec<(PathBuf, RootCheck)>) {
+        self.guards = roots.into_iter().map(|(root, check)| Guard { root, check }).collect();
+    }
+
+    /// The guarded roots.
+    pub fn guarded(&self) -> impl Iterator<Item = &Path> + '_ {
+        self.guards.iter().map(|g| g.root.as_path())
+    }
+
+    /// The first guarded root above `path` whose check fails (each root checked at most once per
+    /// pass: `verdicts` remembers the answers by index).
+    fn failed_root(&self, path: &Path, verdicts: &mut HashMap<usize, bool>) -> Option<PathBuf> {
+        for (i, g) in self.guards.iter().enumerate() {
+            if !path.starts_with(&g.root) {
+                continue;
+            }
+            let ok = *verdicts.entry(i).or_insert_with(|| catch_unwind(AssertUnwindSafe(|| (g.check)(&g.root))).unwrap_or(false));
+            if !ok {
+                return Some(g.root.clone());
+            }
+        }
+        None
+    }
+
     /// Lets writes into `folder` happen again (after the user reset or restored its sidecar).
     pub fn clear_read_only(&mut self, folder: FolderId) {
         self.read_only.remove(&folder);
@@ -264,6 +329,7 @@ impl SidecarWriter {
         report_held: bool,
     ) -> BTreeMap<FolderId, Outcome> {
         let mut out = BTreeMap::new();
+        let mut verdicts = HashMap::new();
         for &f in folders {
             let (outcome, gone) = if self.read_only.contains(&f) {
                 (Outcome::ReadOnly, false)
@@ -278,9 +344,13 @@ impl SidecarWriter {
                         }
                         (missing(&state), true)
                     }
-                    Some(state) => match attempt(&state, now) {
-                        Attempt::Done(outcome) => (outcome, false),
-                        Attempt::Missing => (missing(&state), true),
+                    Some(state) => match self.failed_root(&state.path, &mut verdicts) {
+                        // Checked right before the write: not the library's volume (M6.43).
+                        Some(root) => (not_verified(&state, &root), true),
+                        None => match attempt(&state, now) {
+                            Attempt::Done(outcome) => (outcome, false),
+                            Attempt::Missing => (missing(&state), true),
+                        },
                     },
                 }
             };

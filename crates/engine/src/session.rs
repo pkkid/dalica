@@ -70,6 +70,9 @@ pub(crate) enum Msg {
     Snapshot(Box<Library>),
     /// The roots found offline: the writer writes nothing under them (`offline.rs`).
     Hold(Vec<PathBuf>),
+    /// The watched roots and their checks, run right before each sidecar write under them
+    /// (`offline.rs`, M6.43).
+    Guard(Vec<(PathBuf, dalica_store::writer::RootCheck)>),
     Flush(Sender<()>),
 }
 
@@ -604,6 +607,7 @@ fn io_worker(mut store: Store, rx: Receiver<Msg>, clock: &dyn Clock, errors: &Mu
                 }
             }
             Ok(Msg::Hold(roots)) => writer.hold(roots),
+            Ok(Msg::Guard(roots)) => writer.guard(roots),
             Ok(Msg::Flush(ack)) => {
                 write(&mut writer, &states, true);
                 let _ = ack.send(());

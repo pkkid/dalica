@@ -25,6 +25,14 @@
 //!   Windows only the first rule applies. The roots found offline are sent to the I/O worker
 //!   (`Msg::Hold`): the writer writes nothing under them, even where a folder is there, and the
 //!   edit is reported unsaved as for a missing folder.
+//! - **Checked right before each write** (M6.43): a root can go between two checks, up to
+//!   [`CHECK_EVERY`] apart. So the I/O worker also checks each watched root right before a sidecar
+//!   write under it (`Msg::Guard`, `dalica-store`'s `SidecarWriter::guard`): the same probe and
+//!   the same rules as the online checks ([`is_library_volume`]), with the device remembered and
+//!   the sample paths of the last check. A root that fails gets nothing written; the edit is
+//!   reported unsaved, waits in the writer, and lands once the root passes again (at the writer's
+//!   next look, or when the next online check finds it offline and later back). The check runs on
+//!   the I/O worker; the owner thread only sends what to expect, when it changed.
 //!
 //! Which edits wait: the writer gets every edit within about a second, so when a root is found
 //! offline, the folders under it changed since [`SETTLE`] before the last check that saw it online
@@ -45,6 +53,7 @@ use serde::Serialize;
 use serde_json::{Value, json};
 
 use dalica_scan::volumes::RootState;
+use dalica_store::writer::RootCheck;
 
 use crate::scanning::ScanProgress;
 use crate::session::{Msg, Session};
@@ -157,7 +166,14 @@ pub(crate) struct Offline {
     devices: BTreeMap<PathBuf, u64>,
     /// The roots last sent to the writer as held.
     held: Option<Vec<PathBuf>>,
+    /// The sample paths each root was last checked with.
+    samples: BTreeMap<PathBuf, Vec<PathBuf>>,
+    /// What the writer was last told to expect of each root: (root, device, samples).
+    guarded: Option<Vec<Expected>>,
 }
+
+/// What a root must look like right before a write under it: (root, device remembered, samples).
+type Expected = (PathBuf, Option<u64>, Vec<PathBuf>);
 
 impl Default for Offline {
     fn default() -> Offline {
@@ -181,6 +197,8 @@ impl Default for Offline {
             probe: Arc::new(dalica_scan::volumes::root_state),
             devices: BTreeMap::new(),
             held: None,
+            samples: BTreeMap::new(),
+            guarded: None,
         }
     }
 }
@@ -204,6 +222,24 @@ impl Offline {
     fn revision_at(&self, t: Timestamp) -> u64 {
         self.history.iter().rev().find(|(sent, _)| *sent <= t).map_or(self.floor, |(_, rev)| *rev)
     }
+}
+
+/// Whether a reachable root, as the probe saw it, is the library's volume: not an empty folder
+/// where the library has photos, and not on another device than the one `remembered` with none of
+/// the library's files there. The online checks and the writer's check before each write
+/// (M6.43) both decide by this.
+pub(crate) fn is_library_volume(remembered: Option<u64>, st: RootState) -> bool {
+    if st.empty && !st.known {
+        return false;
+    }
+    !matches!((st.device, remembered), (Some(now), Some(was)) if now != was && !st.known)
+}
+
+/// The writer's check of one root: the probe and [`is_library_volume`], run on the I/O worker.
+/// A probe that panics fails the check (the write waits; nothing is lost).
+fn root_check(probe: &RootProbe, device: Option<u64>, samples: Vec<PathBuf>) -> RootCheck {
+    let probe = Arc::clone(probe);
+    Arc::new(move |root: &Path| catch_unwind(AssertUnwindSafe(|| probe(root, &samples))).is_ok_and(|st| is_library_volume(device, st)))
 }
 
 /// The checker thread: answers requests in order until the session goes away.
@@ -343,8 +379,10 @@ impl Session {
                     self.offline.roots.insert(root.clone(), Root { online: *online, seen_online });
                 }
                 self.offline.roots.retain(|p, _| answered.contains(p));
-                // The writer learns the held roots before any waiting folder is marked dirty again.
+                // The writer learns the held roots (and the devices just seen) before any waiting
+                // folder is marked dirty again.
                 self.sync_hold();
+                self.sync_guard();
                 for (root, online, before) in judged {
                     if online {
                         self.release_root(&root, sent);
@@ -372,13 +410,7 @@ impl Session {
     /// device of a root seen online with entries.
     fn judge(&mut self, root: &Path, reachable: bool, state: Option<RootState>) -> bool {
         let Some(st) = state.filter(|_| reachable) else { return false };
-        if st.empty && !st.known {
-            return false;
-        }
-        if let (Some(now), Some(&was)) = (st.device, self.offline.devices.get(root))
-            && now != was
-            && !st.known
-        {
+        if !is_library_volume(self.offline.devices.get(root).copied(), st) {
             return false;
         }
         if let Some(d) = st.device.filter(|_| !st.empty) {
@@ -394,6 +426,21 @@ impl Session {
             self.offline.held = Some(off.clone());
             self.send(Msg::Hold(off));
         }
+    }
+
+    /// Sends the writer what each root must look like right before a write under it (the device
+    /// remembered and the samples of the last check), when that changed. No disk access: the
+    /// checks run on the I/O worker.
+    fn sync_guard(&mut self) {
+        let want: Vec<Expected> =
+            self.offline.samples.iter().map(|(root, samples)| (root.clone(), self.offline.devices.get(root).copied(), samples.clone())).collect();
+        if self.offline.guarded.as_ref() == Some(&want) {
+            return;
+        }
+        let probe = &self.offline.probe;
+        let roots = want.iter().map(|(root, device, samples)| (root.clone(), root_check(probe, *device, samples.clone()))).collect();
+        self.offline.guarded = Some(want);
+        self.send(Msg::Guard(roots));
     }
 
     /// `root` answered online to the check sent at `sent`: its waiting folders are marked dirty
@@ -476,7 +523,8 @@ impl Session {
         }
         let seq = self.offline.next_seq;
         let roots = self.roots().to_vec();
-        let with_samples = roots.iter().map(|r| (r.clone(), self.samples(r))).collect();
+        let with_samples: Vec<(PathBuf, Vec<PathBuf>)> = roots.iter().map(|r| (r.clone(), self.samples(r))).collect();
+        self.offline.samples = with_samples.iter().cloned().collect();
         let request = Request::Check { seq, roots: with_samples, check: Arc::clone(&self.offline.check), probe: Arc::clone(&self.offline.probe) };
         if checker.tx.send(request).is_err() {
             return;
@@ -486,6 +534,8 @@ impl Session {
         self.offline.last_sent = Some(now);
         self.offline.wanted = false;
         self.offline.watched = roots;
+        // The writer checks each root with these samples right before a write under it.
+        self.sync_guard();
     }
 
     /// Writes `pending-writes.json` (through the I/O worker) when the waiting folders changed,
@@ -556,9 +606,12 @@ impl Session {
     }
 
     /// Plants the probe the online checks use on reachable roots (`None`:
-    /// `dalica_scan::volumes::root_state`). It runs on the checker thread.
+    /// `dalica_scan::volumes::root_state`). It runs on the checker thread, and on the I/O worker
+    /// for the check right before each sidecar write.
     pub fn set_root_probe(&mut self, probe: Option<RootProbe>) {
         self.offline.probe = probe.unwrap_or_else(|| Arc::new(dalica_scan::volumes::root_state));
+        self.offline.guarded = None;
+        self.sync_guard();
     }
 
     /// Plants the function the online checks use (`None`: `dalica_scan::volumes::online`). It
