@@ -1295,7 +1295,7 @@ filled by the lead; M5.15 pins it.
     planted panic inside a decoder is "Damaged file"; every stub format sniffs and answers its
     reason; truncation and proptest random bytes never panic on any path; `cargo +nightly fuzz
     build` builds every target (output in the PR).
-- ⬜ **M5.2 `scenes`: test files in every M5 format**
+- ✅ **M5.2 `scenes`: test files in every M5 format**
   - after: M1.4
   - files: `crates/scenes/src/formats.rs`, `crates/scenes/src/formats/**`, `crates/scenes/src/icc.rs`, `crates/scenes/tests/formats.rs`, `crates/scenes/README.md`
   - scope: procedural photos written as TIFF (8/16-bit and float; grey, RGB, CMYK, palette;
