@@ -14,6 +14,7 @@ pub mod journal;
 pub mod mapping;
 pub mod rebuild;
 pub mod snapshot;
+pub mod stale;
 pub mod writer;
 
 use std::path::{Path, PathBuf};

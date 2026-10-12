@@ -66,6 +66,8 @@ pub(crate) enum Msg {
     /// Atomically replace one of the library directory's own files (`folders.json`, `settings.json`).
     Write(PathBuf, Vec<u8>),
     Snapshot(Box<Library>),
+    /// The roots found offline: the writer writes nothing under them (`offline.rs`).
+    Hold(Vec<PathBuf>),
     Flush(Sender<()>),
 }
 
@@ -539,7 +541,13 @@ fn io_worker(mut store: Store, rx: Receiver<Msg>, clock: &dyn Clock, errors: &Mu
                 dalica_store::Outcome::SetAside(p) => {
                     fail(format!("folder {folder}: damaged sidecar kept as {}; the folder is read-only", p.display()))
                 }
-                _ => {}
+                dalica_store::Outcome::Written | dalica_store::Outcome::Unchanged => {
+                    // Landed since: an earlier failed attempt (a folder renamed before its write
+                    // came) is no longer unsaved.
+                    let earlier = format!("sidecar of folder {folder}: ");
+                    errors.lock().unwrap_or_else(PoisonError::into_inner).retain(|e| !e.starts_with(&earlier));
+                }
+                dalica_store::Outcome::ReadOnly => {}
             }
         }
     };
@@ -570,6 +578,7 @@ fn io_worker(mut store: Store, rx: Receiver<Msg>, clock: &dyn Clock, errors: &Mu
                     fail(format!("snapshot: {e}"));
                 }
             }
+            Ok(Msg::Hold(roots)) => writer.hold(roots),
             Ok(Msg::Flush(ack)) => {
                 write(&mut writer, &states, true);
                 let _ = ack.send(());
