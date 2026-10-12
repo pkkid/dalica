@@ -15,6 +15,9 @@
 //!   modification time is a rename: the photo keeps its id and star.
 //! - [`volumes`](mod@volumes): the standard places, the mounted volumes, [`online`] and the
 //!   bounded [`children`] listing for the Folder Manager.
+//! - [`watch`](mod@watch): dirty folders from the system's change events (`notify`), or from a
+//!   pure-Rust poller where those cannot be had; [`watch::rescan`] and [`diff_rescan`] verify only
+//!   the dirty folders. Folder renames keep the folder's and its photos' ids.
 //!
 //! Folders under a root that could not be walked (an offline volume) are never removed.
 
@@ -25,8 +28,9 @@ mod diff;
 pub mod skip;
 pub mod volumes;
 mod walk;
+pub mod watch;
 
-pub use diff::{BATCH, diff};
+pub use diff::{BATCH, diff, diff_rescan};
 pub use skip::{FileType, FileTypes, Platform, Skip, SkipRules, skipped};
 pub use volumes::{Child, Children, Place, PlaceKind, Places, Volume, VolumeKind, children, online, volumes};
 pub use walk::{
