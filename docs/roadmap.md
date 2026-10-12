@@ -1615,7 +1615,7 @@ filled by the lead; M5.15 pins it.
   - done when: `xtask` tests on a temp repository: a rebased In Review branch re-submits and its PR
     keeps its number; a summary-only conflict merges after regeneration while a row conflict is
     refused; `docs/task-board.md` describes the send-back.
-- ⬜ **M5.23 `ui`: M4 loose ends in the light table and keys**
+- ✅ **M5.23 `ui`: M4 loose ends in the light table and keys**
   - after: M4.R
   - files: `crates/ui/src/panels/light_table.rs`, `crates/ui/src/panels/light_table/input.rs`, `crates/ui/src/keys.rs`, `crates/ui/src/panels/bottom.rs`, `crates/ui/src/panels/bottom/**`, `crates/ui/tests/band_autoscroll.rs`, `crates/ui/tests/tray_keys.rs`, `crates/ui/tests/fingerprints/region-tray*.json`
   - scope: two gaps M4 left. A rubber band dragged to the light table's top or bottom edge scrolls
