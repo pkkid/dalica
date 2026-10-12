@@ -22,4 +22,5 @@ thiserror.workspace = true
 [dev-dependencies]
 # Fault points, to show a failed sidecar write leaves the old or the new file.
 dalica-fs = { workspace = true, features = ["faults"] }
+proptest.workspace = true
 tempfile.workspace = true

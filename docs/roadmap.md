@@ -1930,7 +1930,7 @@ replace at M6.R.
     and is read back; bad versions are refused; the build string with and without the variables; the
     default library directory per OS as before, and next to the executable with the marker; `xtask
     docs` lists `version` as implemented.
-- ⬜ **M6.8 `sidecar` + `store`: every M6 field in `.dalica.json` and the index**
+- ✅ **M6.8 `sidecar` + `store`: every M6 field in `.dalica.json` and the index**
   - after: M6.2
   - files: `crates/sidecar/src/lib.rs`, `crates/sidecar/src/print.rs`, `crates/sidecar/src/tests.rs`, `crates/sidecar/src/fields.rs`, `crates/sidecar/README.md`, `crates/store/src/mapping.rs`, `crates/store/src/journal.rs`, `crates/store/src/snapshot.rs`, `crates/store/src/rebuild.rs`, `crates/store/tests/sidecars.rs`, `crates/store/tests/m6_fields.rs`, `docs/data-model.md`
   - scope: `data-model.md` §3: `caption`, `tags`, `hidden`, `edits`, `redo` and `date` per photo and
