@@ -2213,7 +2213,7 @@ replace at M6.R.
   - done when: `crates/ui/tests/properties_pane.rs` on a JPEG with EXIF, XMP and IPTC: every row's
     value, Show All Metadata lists the extra fields, the pane follows a new selection, no frame
     waited on a file read (perf counters); the pane fingerprints at both window sizes.
-- ⬜ **M6.28 `ui`: the Tags pane**
+- ✅ **M6.28 `ui`: the Tags pane**
   - after: M5.25, M6.6, M6.15
   - files: `crates/ui/src/panels/tags.rs`, `crates/ui/src/panels/tags/add.rs`, `crates/ui/src/panels/tags/list.rs`, `crates/ui/src/dialogs/rename_tag.rs`, `crates/ui/src/status_text.rs`, `crates/ui/tests/tags_pane.rs`, `crates/ui/tests/status_tags.rs`, `crates/ui/tests/fingerprints/pane-tags*.json`, `crates/ui/tests/fingerprints/dialog-rename-tag*.json`, `crates/ui/tests/fingerprints/region-status*.json`
   - scope: `organizing.md` §5.2 and `menus-and-shortcuts.md` §4: "Add a tag:" with + (Enter adds,
