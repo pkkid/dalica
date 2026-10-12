@@ -2066,7 +2066,7 @@ replace at M6.R.
     on photos without dates; dates survive a rebuild; `photo.metadata` on a JPEG with EXIF, XMP and
     IPTC answers pending, then every row, and the owner thread made no `fs` call; `panic_hunt`
     green.
-- ⬜ **M6.17 `meta`: JPEG write-back**
+- ✅ **M6.17 `meta`: JPEG write-back**
   - after: M6.9, M6.10
   - files: `crates/meta/src/write/jpeg.rs`, `crates/meta/tests/write_jpeg.rs`
   - scope: `xmp-interop.md` §3–§4 for JPEG: only APP1 (EXIF, XMP) and APP13 are rewritten, new

@@ -285,9 +285,12 @@ fn extended_xmp_is_reassembled() {
     let ext = b"<x:xmpmeta>extended part, in two chunks</x:xmpmeta>";
     let (a, b) = ext.split_at(20);
     let full = ext.len() as u32;
+    // The GUID is the packet's MD5.
+    let guid = String::from_utf8(dalica_meta::container::jpeg::extended_guid(ext).to_vec()).unwrap();
+    let guid = guid.as_str();
     // Out of order, the GUID in lower case in the chunks, plus a foreign chunk that is ignored.
     let file =
-        extended_file(Some(GUID), &[(&GUID.to_lowercase(), full, 20, b), ("00000000000000000000000000000000", 5, 0, b"other"), (GUID, full, 0, a)]);
+        extended_file(Some(guid), &[(&guid.to_lowercase(), full, 20, b), ("00000000000000000000000000000000", 5, 0, b"other"), (guid, full, 0, a)]);
     let s = scan(&file, &l()).unwrap();
     assert_eq!(s.extended_xmp.as_deref(), Some(&ext[..]));
     assert!(s.problems.is_empty());
@@ -322,6 +325,8 @@ fn an_oversized_or_mismatched_extended_xmp_is_refused() {
     // The GUID does not match the declaration; no declaration at all.
     let other = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
     assert!(matches!(refused(&extended_file(Some(GUID), &[(other, 3, 0, b"abc")])), Error::Malformed(_)));
+    // Whole and declared, but the GUID is not the packet's MD5 (another packet's chunks).
+    assert!(matches!(refused(&extended_file(Some(GUID), &[(GUID, 3, 0, b"abc")])), Error::Malformed(_)));
     assert!(matches!(refused(&extended_file(None, &[(GUID, 3, 0, b"abc")])), Error::Malformed(_)));
     // Chunks that disagree on the length, leave a gap, or stop short.
     assert!(matches!(refused(&extended_file(Some(GUID), &[(GUID, 6, 0, b"abc"), (GUID, 7, 3, b"def")])), Error::Malformed(_)));
@@ -502,7 +507,8 @@ fn container_limits_and_damage() {
 fn samples() -> Vec<Vec<u8>> {
     let mut out: Vec<Vec<u8>> = every_container().into_iter().map(|(_, f, _)| f).collect();
     let ext = b"0123456789abcdef";
-    out.push(extended_file(Some(GUID), &[(GUID, 16, 0, &ext[..8]), (GUID, 16, 8, &ext[8..])]));
+    let guid = String::from_utf8(dalica_meta::container::jpeg::extended_guid(ext).to_vec()).unwrap();
+    out.push(extended_file(Some(&guid), &[(&guid, 16, 0, &ext[..8]), (&guid, 16, 8, &ext[8..])]));
     out.push(png(&[(b"zTXt", ztxt("Comment", b"zipped")), (b"iTXt", itxt("Author", b"me", true))]));
     out
 }
@@ -562,19 +568,15 @@ proptest! {
 }
 
 #[test]
-fn write_owned_stubs_answer_unsupported_and_skip_empty_changes() {
+fn write_owned_writes_every_container_and_skips_empty_changes() {
     let caption = Changes { caption: Some(Some("new".into())), ..Changes::default() };
     for (name, file, _) in every_container() {
-        let container = scan(&file, &l()).unwrap().container;
-        match container {
-            // JPEG is written by M6.17; PNG, WebP and TIFF by M6.18 (tests/write_png_webp_tiff.rs).
-            Container::Jpeg => assert_eq!(write_owned(&file, &caption, &WriteOptions::default()), Err(Error::Unsupported(container)), "{name}"),
-            _ => assert_eq!(
-                read(&write_owned(&file, &caption, &WriteOptions::default()).unwrap(), &l()).unwrap().owned.caption.as_deref(),
-                Some("new"),
-                "{name}"
-            ),
-        }
+        // Every container is written (JPEG: tests/write_jpeg.rs; PNG, WebP, TIFF: tests/write_png_webp_tiff.rs).
+        assert_eq!(
+            read(&write_owned(&file, &caption, &WriteOptions::default()).unwrap(), &l()).unwrap().owned.caption.as_deref(),
+            Some("new"),
+            "{name}"
+        );
         // Nothing to write: the same bytes back.
         assert_eq!(write_owned(&file, &Changes::default(), &WriteOptions::default()).as_deref(), Ok(&file[..]), "{name}");
         // Options off: the change is dropped, so nothing is written.
@@ -585,10 +587,8 @@ fn write_owned_stubs_answer_unsupported_and_skip_empty_changes() {
     let file = jpeg(&[]);
     let star = Changes { star: Some(true), ..Changes::default() };
     assert_eq!(write_owned(&file, &star, &WriteOptions::default()).as_deref(), Ok(&file[..]));
-    assert_eq!(
-        write_owned(&file, &star, &WriteOptions { stars_as_ratings: true, ..WriteOptions::default() }),
-        Err(Error::Unsupported(Container::Jpeg))
-    );
+    let starred = write_owned(&file, &star, &WriteOptions { stars_as_ratings: true, ..WriteOptions::default() }).unwrap();
+    assert_eq!(read(&starred, &l()).unwrap().owned.rating, Some(5));
     let date = Changes { date_taken: DateTaken::parse_iso("2020-02-02T02:02:02"), ..Changes::default() };
     assert_eq!(write_owned(&file, &date, &WriteOptions { dates: false, ..WriteOptions::default() }).as_deref(), Ok(&file[..]));
     // A file whose EXIF cannot be read is not rewritten; an unknown format is refused.

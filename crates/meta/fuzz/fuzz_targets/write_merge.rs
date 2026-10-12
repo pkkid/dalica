@@ -1,4 +1,4 @@
-//! Fuzz target `write_merge`: parse → merge-write → re-parse. Whatever the input, `write_owned` returns an error or bytes that passed its own verification; those bytes must read back, keep every byte outside the rewritable metadata, and hold the requested fields.
+//! Fuzz target `write_merge`: parse → merge-write → re-parse. Whatever the input, `write_owned` returns an error or bytes that passed its own verification; those bytes must read back, keep every byte outside the rewritable metadata, and hold the requested fields. A JPEG input goes through the JPEG writer (EXIF edit, XMP merge, IPTC write); writing the same values again must give the same bytes.
 
 #![no_main]
 
@@ -25,4 +25,7 @@ fuzz_target!(|data: &[u8]| {
         assert_eq!(b.container, a.container);
     }
     assert!(read(&after, &options.limits).is_ok());
+    if let Ok(again) = write_owned(&after, &changes, &options) {
+        assert!(again == after, "writing the same values twice gives different bytes");
+    }
 });

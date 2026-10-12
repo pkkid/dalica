@@ -192,10 +192,14 @@ pub fn format_offset(minutes: i16) -> String {
 }
 
 /// Tainted text made safe to keep: NUL and other control characters (tab and line breaks
-/// excepted) dropped, surrounding white space trimmed, at most `max` bytes (cut at a character
-/// boundary). `None` when nothing is left.
+/// excepted) and the noncharacters U+FFFE and U+FFFF dropped, surrounding white space trimmed, at
+/// most `max` bytes (cut at a character boundary). `None` when nothing is left.
+///
+/// What is left is text XML 1.0 allows, so a value written into XMP reads back as it was cleaned
+/// here (the write verification compares the two).
 pub fn clean_text(text: &str, max: usize) -> Option<String> {
-    let kept: String = text.chars().filter(|&c| !c.is_control() || matches!(c, '\t' | '\n' | '\r')).collect();
+    let kept: String =
+        text.chars().filter(|&c| (!c.is_control() || matches!(c, '\t' | '\n' | '\r')) && !matches!(c, '\u{fffe}' | '\u{ffff}')).collect();
     let trimmed = kept.trim();
     let mut end = trimmed.len().min(max);
     while !trimmed.is_char_boundary(end) {
@@ -386,6 +390,11 @@ mod tests {
         assert_eq!(clean_text(" \0 ", 100), None);
         // Cut at a character boundary.
         assert_eq!(clean_text("aé", 2).as_deref(), Some("a"));
+        // The two noncharacters XML 1.0 forbids go too (so an XMP write reads back as cleaned);
+        // the other noncharacters and private-use characters stay.
+        assert_eq!(clean_text("a\u{fffe}b\u{ffff}c\u{fdd0}\u{e000}", 100).as_deref(), Some("abc\u{fdd0}\u{e000}"));
+        assert_eq!(clean_text("\u{fffe}\u{ffff}", 100), None);
+        assert_eq!(clean_tag("x\u{ffff}y", 100).as_deref(), Some("xy"));
         assert_eq!(clean_tag("beach\nday", 100).as_deref(), Some("beach day"));
         assert_eq!(clean_tags(["Beach", "beach", " ", "Sun", "BEACH"], 100, 10), vec!["Beach", "Sun"]);
         assert_eq!(clean_tags(["a", "b", "c"], 100, 2), vec!["a", "b"]);

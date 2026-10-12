@@ -125,8 +125,8 @@ pub(crate) fn scan<'a>(b: &'a [u8], limits: &Limits) -> Result<Scan<'a>> {
 
 /// The extended packet from its chunks (XMP Part 3, 1.1.3.1): only chunks whose GUID is the one
 /// the standard packet declares in `xmpNote:HasExtendedXMP`, all declaring the same full length,
-/// each inside it, together covering it with no gap, and the standard and extended packets
-/// together within `max_xmp`.
+/// each inside it, together covering it with no gap, the standard and extended packets together
+/// within `max_xmp`, and the GUID the MD5 digest of the packet they make ([`extended_guid`]).
 fn reassemble(main: Option<&[u8]>, chunks: &[Chunk<'_>], limits: &Limits) -> Result<Vec<u8>> {
     let guid = main.and_then(declared_guid).ok_or_else(|| Error::Malformed("extended XMP that the main packet does not declare".into()))?;
     let mut mine: Vec<&Chunk<'_>> = chunks.iter().filter(|c| c.guid.eq_ignore_ascii_case(guid)).collect();
@@ -162,7 +162,26 @@ fn reassemble(main: Option<&[u8]>, chunks: &[Chunk<'_>], limits: &Limits) -> Res
             dst.copy_from_slice(c.data);
         }
     }
+    // The GUID is the packet's digest: chunks of another (or a damaged) packet that reuse it are
+    // not this one.
+    if !extended_guid(&out).eq_ignore_ascii_case(guid) {
+        return Err(Error::Malformed("the extended XMP does not match its GUID".into()));
+    }
     Ok(out)
+}
+
+/// The GUID of an extended XMP packet (XMP Part 3, 1.1.3.1): the MD5 digest of the packet as 32
+/// upper-case hex digits.
+pub fn extended_guid(packet: &[u8]) -> [u8; 32] {
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
+    let mut out = [b'0'; 32];
+    for (i, b) in md5::compute(packet).0.iter().enumerate() {
+        if let Some(pair) = out.get_mut(2 * i..2 * i + 2) {
+            let digit = |n: u8| HEX.get(usize::from(n)).copied().unwrap_or(b'0');
+            pair.copy_from_slice(&[digit(b >> 4), digit(b & 0xf)]);
+        }
+    }
+    out
 }
 
 /// The 32-digit GUID of `xmpNote:HasExtendedXMP` in a standard packet, in attribute
@@ -191,5 +210,22 @@ mod tests {
         assert_eq!(declared_guid(b"xmpNote:HasExtendedXMP=\"short\""), None);
         assert_eq!(declared_guid(b"nothing here"), None);
         assert_eq!(declared_guid(b"HasExtendedXMP"), None);
+    }
+
+    #[test]
+    fn the_extended_packet_must_match_its_guid() {
+        // RFC 1321's test vector.
+        assert_eq!(&extended_guid(b"abc"), b"900150983CD24FB0D6963F7D28E17F72");
+        let packet = b"<x:xmpmeta>the extended packet</x:xmpmeta>";
+        let guid = extended_guid(packet);
+        let main = [&b"<x xmpNote:HasExtendedXMP=\""[..], &guid, b"\"/>"].concat();
+        let full = packet.len() as u32;
+        let lower = guid.to_ascii_lowercase();
+        let ok = [Chunk { guid: &guid, full, offset: 0, data: &packet[..10] }, Chunk { guid: &lower, full, offset: 10, data: &packet[10..] }];
+        assert_eq!(reassemble(Some(&main), &ok, &Limits::default()).unwrap(), packet);
+        // One byte changed: the same GUID, another packet.
+        let other = b"<x:xmpmeta>the extended packeT</x:xmpmeta>";
+        let bad = [Chunk { guid: &guid, full, offset: 0, data: &other[..10] }, Chunk { guid: &guid, full, offset: 10, data: &other[10..] }];
+        assert!(matches!(reassemble(Some(&main), &bad, &Limits::default()), Err(Error::Malformed(_))));
     }
 }

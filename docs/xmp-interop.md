@@ -12,7 +12,7 @@ everything Dalica puts into, or takes from, files it did not create. Read it wit
 > precedence rules of §2 built (M6.4); the IPTC writer and in-place EXIF edits built as blocks
 > (M6.10: `iptc::write`, `exif::edit`) and XMP reading and the XMP merge writer of §3 built
 > (M6.9: `crates/meta/src/xmp/`), put into files by the container writers (PNG, WebP and TIFF
-> built in M6.18; JPEG M6.17; `.xmp` sidecars M6.19: captions, tags), M13 (places) and M13 (people). The parser and writer are our own, in `crates/meta`
+> built in M6.18; JPEG in M6.17; `.xmp` sidecars M6.19: captions, tags), M13 (places) and M13 (people). The parser and writer are our own, in `crates/meta`
 > (`dalica-meta`, L1); LightCraft's `meta` and `tiff` crates are prior art only (`architecture.md`
 > §9).
 
@@ -173,6 +173,15 @@ latitude/longitude tags and DateTimeOriginal / DateTimeDigitized. Every Dalica X
   clock (`WriteOptions::metadata_date`, for photo files and `.xmp` sidecars alike); `dalica-meta`
   reads no clock. Without one (tests, tools), Dalica's description keeps the date it has and a
   new one gets none.
+
+**JPEG in detail.** Only the first EXIF APP1, the first standard-XMP APP1 and the Photoshop APP13
+segments are rewritten; a second EXIF or XMP segment, extended XMP, ICC, MPF, comments, unknown
+segments and the scan data are copied as they are. A segment Dalica adds goes where readers look
+for it: EXIF right after SOI and its APP0 segments, XMP right after EXIF, APP13 after the last
+APP0–APP12 segment that follows SOI (before an Adobe APP14 and the tables). Photoshop resources
+spread over several APP13 segments are written back joined, split again only where one segment
+cannot hold them. Extended XMP is read only when its GUID is the MD5 of the reassembled
+packet (XMP Part 3); otherwise it is reported as damaged and left in the file.
 
 **Size limits.** JPEG EXIF and standard XMP must each fit one APP1 segment (65,533 bytes including
 its header). If Dalica's change would push a block over the limit, Dalica first drops the packet's
