@@ -1,0 +1,13 @@
+{
+  "metadata": {
+    "files": 53,
+    "read": 53,
+    "images_read": 49,
+    "sidecars_read": 4,
+    "writes": 441,
+    "written": 325,
+    "sidecar_writes": 36,
+    "sidecar_written": 28,
+    "raw_sidecar_pairs": 1
+  }
+}

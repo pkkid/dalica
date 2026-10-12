@@ -9,6 +9,12 @@ repository.workspace = true
 authors.workspace = true
 publish = false
 
+[features]
+# The corpus test (`tests/corpus.rs`, docs/development.md §11): the pinned `metadata` corpus, run by
+# `cargo xtask test-corpus`. Off by default, so plain `cargo test` and `cargo xtask ci` neither
+# compile nor need it.
+corpus = []
+
 [dependencies]
 # Dates without a time zone (`DateTime`), shared with the library model.
 dalica-core.workspace = true
@@ -26,3 +32,5 @@ thiserror.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
+# Reads the committed corpus floors (tests/corpus_floors.json).
+serde_json.workspace = true
