@@ -32,7 +32,7 @@ $Root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $lock = Get-Content (Join-Path $Root 'Cargo.lock') -Raw
 if ($lock -notmatch '(?m)^name = "winresource"\r?\nversion = "([^"]+)"') { throw 'winresource is not in Cargo.lock' }
 $Winres = $Matches[1]
-$Numeric = ($Version -split '-')[0]
+$WantVersion = ($Version -split '-')[0]
 
 $tmp = Join-Path ([IO.Path]::GetTempPath()) "dalica-build-rs-$([Guid]::NewGuid().ToString('N'))"
 $crate = Join-Path $tmp 'apps\dalica'
@@ -94,12 +94,12 @@ try {
   if ($info.ProductName -ne 'Dalica') { throw "build.rs: ProductName is '$($info.ProductName)', not Dalica" }
   if ($info.FileDescription -ne 'Dalica') { throw "build.rs: FileDescription is '$($info.FileDescription)', not Dalica" }
   if ($info.ProductVersion -ne $Version) { throw "build.rs: ProductVersion is '$($info.ProductVersion)', not $Version" }
-  $numeric = "$($info.FileMajorPart).$($info.FileMinorPart).$($info.FileBuildPart)"
-  if ($numeric -ne $Numeric -or $info.FilePrivatePart -ne 0) { throw "build.rs: the numeric file version is $numeric.$($info.FilePrivatePart), not $Numeric.0" }
+  $fileVersion = "$($info.FileMajorPart).$($info.FileMinorPart).$($info.FileBuildPart)"
+  if ($fileVersion -ne $WantVersion -or $info.FilePrivatePart -ne 0) { throw "build.rs: the numeric file version is $fileVersion.$($info.FilePrivatePart), not $WantVersion.0" }
   if (-not (Test-EmbeddedIcon $exe (Join-Path $Root 'assets\app-icon\dalica.ico'))) { throw 'build.rs: the exe does not carry the app icon' }
   $h = Get-PeHeader $exe
   if ($h.Subsystem -ne 2) { throw "build.rs: a release build has PE subsystem $($h.Subsystem), expected 2 (GUI)" }
-  Write-Output "ok build.rs release: Dalica $($info.ProductVersion) ($numeric.0), icon, GUI subsystem"
+  Write-Output "ok build.rs release: Dalica $($info.ProductVersion) ($fileVersion.0), icon, GUI subsystem"
 
   # 3. Debug: still a console program, so tests and `cargo run` keep their output.
   $r = Invoke-Probe 'debug' @()

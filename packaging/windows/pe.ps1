@@ -19,18 +19,19 @@ function Get-PeHeader([string] $Path) {
 }
 
 function Test-EmbeddedIcon([string] $Exe, [string] $Ico) {
-  $ico = [System.IO.File]::ReadAllBytes($Ico)
-  if ($ico.Length -lt 6 -or [BitConverter]::ToUInt16($ico, 0) -ne 0 -or [BitConverter]::ToUInt16($ico, 2) -ne 1) { throw "$Ico is not an .ico file" }
-  $count = [BitConverter]::ToUInt16($ico, 4)
-  if ($count -eq 0 -or 6 + 16 * $count -gt $ico.Length) { throw "$Ico has a damaged directory" }
+  # PowerShell names are case-blind, so the bytes get a name of their own (not the parameter's).
+  $icoBytes = [System.IO.File]::ReadAllBytes($Ico)
+  if ($icoBytes.Length -lt 6 -or [BitConverter]::ToUInt16($icoBytes, 0) -ne 0 -or [BitConverter]::ToUInt16($icoBytes, 2) -ne 1) { throw "$Ico is not an .ico file" }
+  $count = [BitConverter]::ToUInt16($icoBytes, 4)
+  if ($count -eq 0 -or 6 + 16 * $count -gt $icoBytes.Length) { throw "$Ico has a damaged directory" }
   # Latin-1 maps every byte to one character, so a byte search becomes an ordinal string search.
   $latin1 = [System.Text.Encoding]::Latin1
   $haystack = $latin1.GetString([System.IO.File]::ReadAllBytes($Exe))
   for ($i = 0; $i -lt $count; $i++) {
-    $size = [BitConverter]::ToUInt32($ico, 6 + 16 * $i + 8)
-    $offset = [BitConverter]::ToUInt32($ico, 6 + 16 * $i + 12)
-    if ($size -eq 0 -or $offset + $size -gt $ico.Length) { throw "$Ico image $i lies outside the file" }
-    if (-not $haystack.Contains($latin1.GetString($ico, $offset, $size), [System.StringComparison]::Ordinal)) { return $false }
+    $size = [BitConverter]::ToUInt32($icoBytes, 6 + 16 * $i + 8)
+    $offset = [BitConverter]::ToUInt32($icoBytes, 6 + 16 * $i + 12)
+    if ($size -eq 0 -or [long]$offset + $size -gt $icoBytes.Length) { throw "$Ico image $i lies outside the file" }
+    if (-not $haystack.Contains($latin1.GetString($icoBytes, $offset, $size), [System.StringComparison]::Ordinal)) { return $false }
   }
   return $true
 }

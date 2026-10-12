@@ -28,7 +28,7 @@ Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'pe.ps1')
 $Msi = (Resolve-Path $Msi).Path
 $UpgradeMsi = (Resolve-Path $UpgradeMsi).Path
-$Numeric = ($Version -split '-')[0]
+$WantVersion = ($Version -split '-')[0]
 $Logs = Join-Path ([IO.Path]::GetTempPath()) "dalica-msi-test-$([Guid]::NewGuid().ToString('N'))"
 New-Item -ItemType Directory -Force -Path $Logs | Out-Null
 
@@ -92,16 +92,16 @@ try {
   if (-not (Test-Path $Shortcut)) { throw "no Start Menu shortcut at $Shortcut" }
   $entries = Get-Installed
   if ($entries.Count -ne 1) { throw "$($entries.Count) uninstall entries named Dalica after installing, expected 1" }
-  if ($entries[0].DisplayVersion -ne $Numeric) { throw "the uninstall entry says version $($entries[0].DisplayVersion), not $Numeric" }
+  if ($entries[0].DisplayVersion -ne $WantVersion) { throw "the uninstall entry says version $($entries[0].DisplayVersion), not $WantVersion" }
   $first = $entries[0].PSChildName
 
   $info = (Get-Item $Exe).VersionInfo
   if ($info.ProductName -ne 'Dalica') { throw "the installed dalica.exe's ProductName is '$($info.ProductName)'" }
   if ($info.ProductVersion -ne $Version) { throw "the installed dalica.exe's ProductVersion is '$($info.ProductVersion)', not $Version" }
-  $numeric = "$($info.FileMajorPart).$($info.FileMinorPart).$($info.FileBuildPart)"
-  if ($numeric -ne $Numeric) { throw "the installed dalica.exe's file version is $numeric, not $Numeric" }
+  $fileVersion = "$($info.FileMajorPart).$($info.FileMinorPart).$($info.FileBuildPart)"
+  if ($fileVersion -ne $WantVersion) { throw "the installed dalica.exe's file version is $fileVersion, not $WantVersion" }
   if ((Get-PeHeader $Exe).Subsystem -ne 2) { throw 'the installed dalica.exe is not a GUI program' }
-  Write-Output "ok installed dalica.exe: $($info.ProductName) $($info.ProductVersion) ($numeric.$($info.FilePrivatePart)), GUI"
+  Write-Output "ok installed dalica.exe: $($info.ProductName) $($info.ProductVersion) ($fileVersion.$($info.FilePrivatePart)), GUI"
   Test-Version $Exe
   Test-Version $Cli
 
