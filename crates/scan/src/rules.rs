@@ -245,6 +245,7 @@ pub fn folder_path(path: &Path) -> Result<PathBuf, String> {
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
     fn p(s: &str) -> PathBuf {
         PathBuf::from(s)
     }

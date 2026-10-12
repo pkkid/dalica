@@ -556,11 +556,11 @@ impl Session {
     }
 }
 
-#[cfg(test)]
+// Its paths are Unix paths; the same parsing runs on every system in `tests/folders.rs`.
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 
-    #[cfg(unix)]
     #[test]
     fn v1_reads_as_scan_always_and_v2_keeps_what_it_does_not_know() {
         let (f, v) = Folders::parse(br#"{"version":1,"folders":[{"path":"/p/a"},{"path":"/p/b","note":"x"}]}"#).unwrap();
