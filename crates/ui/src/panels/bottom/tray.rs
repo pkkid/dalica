@@ -1,7 +1,8 @@
 //! The Photo Tray's box (`ui-layout.md` §6.2), drawn from [`crate::tray`]: the "Selection"
 //! watermark when empty; a section selected as a unit as one token (its cover and the pill
 //! "Folder selected — 48 photos"); every other photo as a square, centre-cropped mini thumbnail
-//! from the light table's thumbnails ([`Thumbnails::paint`]), held photos first with the held
+//! from the light table's thumbnails ([`Thumbnails::paint`]; the crop is of the photo as it shows,
+//! turned by its recipe, [`Thumbnails::displayed`]), held photos first with the held
 //! badge, shrinking as their count grows; what does not fit counted on the last place ("+12"). The
 //! block of minis sits centred in its area ([`centred`]): the box, or the part right of a token.
 //!
@@ -28,7 +29,7 @@ use super::super::thumbnails::PhotoRef;
 use crate::app::App;
 use crate::menu_catalog::Mark;
 use crate::menus::{self, ItemNode, Node};
-use crate::tray;
+use crate::{selection, tray};
 
 /// The pill's padding either side of its text.
 const PILL_PAD: f32 = 8.0;
@@ -43,6 +44,7 @@ type Action = (&'static str, Value);
 
 /// Paints and runs the tray box `rect`.
 pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui, rect: Rect) {
+    drop_hidden(app, ui.ctx());
     tray::prune(app.state_mut());
     if !rect.is_positive() {
         return;
@@ -78,8 +80,9 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui, rect: Rect) {
             && let Some(photo) = session.library().photo(first)
         {
             let cell = cover.intersect(clip);
-            let image = tray::crop(cover, photo.width, photo.height);
-            p.thumbnails.paint(&thumbs_painter.with_clip_rect(cell), PhotoRef { session, photo }, image, cover.width() * ppp);
+            let photo = PhotoRef { session, photo };
+            let (w, h) = p.thumbnails.displayed(photo);
+            p.thumbnails.paint(&thumbs_painter.with_clip_rect(cell), photo, tray::crop(cover, w, h), cover.width() * ppp);
         }
         thumbs_painter.rect_filled(pill, CornerRadius::same((pill.height() / 2.0) as u8), t.accent);
         thumbs_painter.text(pill.center(), Align2::CENTER_CENTER, label, fonts::semibold(t.small), t.on_accent);
@@ -109,8 +112,9 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui, rect: Rect) {
         let visible = cell.intersect(clip);
         match photo {
             Some((session, photo)) => {
-                let image = tray::crop(cell, photo.width, photo.height);
-                p.thumbnails.paint(&thumbs_painter.with_clip_rect(visible), PhotoRef { session, photo }, image, cell.width() * ppp);
+                let photo = PhotoRef { session, photo };
+                let (w, h) = p.thumbnails.displayed(photo);
+                p.thumbnails.paint(&thumbs_painter.with_clip_rect(visible), photo, tray::crop(cell, w, h), cell.width() * ppp);
             }
             None => {
                 thumbs_painter.rect_filled(cell, 0, t.placeholder);
@@ -167,6 +171,31 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui, rect: Rect) {
         menus::context_menu(&response, app, &nodes);
     }
 }
+
+/// Photos hidden while selected leave the selection (unless View ▸ Hidden Pictures), before the
+/// tray shows it ([`selection::without_hidden`]). Looked at only when the library, the option or the
+/// selection changed, so a still frame costs nothing whatever the selection's size.
+fn drop_hidden(app: &mut App, ctx: &egui::Context) {
+    let Some(revision) = app.session().map(|s| s.library().revision()) else { return };
+    let sel = &app.state().selection;
+    let key = (revision, app.state().hidden_pictures, sel.ids.len(), sel.ids.first().copied(), sel.ids.last().copied());
+    let id = Id::new("tray.hiddenChecked");
+    if ctx.data(|d| d.get_temp::<HiddenKey>(id)) == Some(key) {
+        return;
+    }
+    let state = app.state();
+    let kept = app.session().and_then(|s| selection::without_hidden(&state.selection, state.hidden_pictures, s.library()));
+    if let Some(sel) = kept {
+        app.state_mut().selection = sel;
+    }
+    let sel = &app.state().selection;
+    let key = (revision, app.state().hidden_pictures, sel.ids.len(), sel.ids.first().copied(), sel.ids.last().copied());
+    ctx.data_mut(|d| d.insert_temp(id, key));
+}
+
+/// What [`drop_hidden`] last looked at: the library revision, Hidden Pictures, and the selection's
+/// length and ends.
+type HiddenKey = (u64, bool, usize, Option<PhotoId>, Option<PhotoId>);
 
 /// `area` moved right so that the places `count` minis laid out as `m` take ([`tray::Minis::place`]:
 /// as many columns as the first row fills) sit centred across it. Whole points, so edges stay crisp.

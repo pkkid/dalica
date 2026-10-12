@@ -9,7 +9,17 @@
 //! 4. else, only for a photo never scanned, the `gray 38` placeholder (`Drawn::Placeholder`).
 //!
 //! A photo whose thumbnail failed (a missing or unreadable file) draws the placeholder whatever it
-//! has (`Drawn::Failed`; the cell adds the "!" and the reason). A file deleted after its thumbnails
+//! has (`Drawn::Failed`; the cell adds the "!" and the reason).
+//!
+//! **Rotations and flips** (`ui-layout.md` §5.3, M6): the ladder images and the sketch are the
+//! photo upright, as its file shows it; a photo's recipe turns or mirrors that picture. Paint maps
+//! what it has through the recipe's net orientation ([`Thumbnails::orientation`], a
+//! [`Dihedral`]): the texture's corners take the turned UVs, the sketch's vertices the turned
+//! places. So a rotation shows in the very next frame from the same cached pixels, and never waits
+//! for a decode. Callers letterbox (or crop) the photo to its displayed size
+//! ([`Thumbnails::displayed`]: a landscape turned a quarter is a portrait). The orientation is
+//! parsed once per photo and library revision, only for the photos painted, so the per-frame work
+//! stays that of the cells on screen. A file deleted after its thumbnails
 //! were made is noticed when the session next scans or verifies it (the watcher, M5): until then
 //! its cached thumbnails show.
 //!
@@ -50,13 +60,15 @@ use std::path::PathBuf;
 use std::sync::{Arc, Weak};
 
 use dalica_core::PhotoId;
+use dalica_edit::{Dihedral, Recipe};
 use dalica_engine::thumbs::Size;
 use dalica_engine::{Refreshed, Session, Thumb};
 use dalica_library::Photo;
 use dalica_thumbs::Rgba8;
 use dalica_thumbs::ladder::{self, Choice};
 use dalica_ui_kit::Tokens;
-use egui::{Color32, Mesh, Painter, Rect, Shape, pos2};
+use egui::epaint::Vertex;
+use egui::{Color32, Mesh, Painter, Pos2, Rect, Shape, TextureId, pos2};
 use serde::Serialize;
 
 use super::light_table::Sections;
@@ -81,6 +93,9 @@ pub const SKETCH_GRID: u32 = 8;
 const MAX_SKETCHES: usize = 4096;
 /// Without the display order, a texture not drawn for this many frames is evicted.
 const UNORDERED_FRAMES: u64 = 120;
+/// Orientations kept for one library revision, past which the cache starts again (a long scroll
+/// through a large library without any change).
+const MAX_ORIENTATIONS: usize = 1 << 16;
 
 /// The photo a cell shows, with what the thumbnails may need to find its pixels.
 #[derive(Clone, Copy)]
@@ -93,6 +108,27 @@ impl PhotoRef<'_> {
     /// The photo's file, if its folder is known.
     pub fn path(&self) -> Option<PathBuf> {
         self.session.library().folder(self.photo.folder).map(|f| f.path.join(&self.photo.name))
+    }
+}
+
+/// The net orientation of a photo's recipe: its rotations and flips added up (identity for none,
+/// and for a recipe `edit` cannot read). Parses the operation strings: callers cache it.
+pub fn recipe_orientation(edits: &[String]) -> Dihedral {
+    if edits.is_empty() {
+        return Dihedral::IDENTITY;
+    }
+    Recipe::parse(edits).map(|r| r.orientation()).unwrap_or(Dihedral::IDENTITY)
+}
+
+/// Where the point at `(x, y)` of the upright picture (each 0–1 across it) lands once turned by `d`
+/// (each 0–1 across the turned picture): the continuous form of [`Dihedral::map_pixel`].
+pub fn turn_point(d: Dihedral, x: f32, y: f32) -> (f32, f32) {
+    let x = if d.mirrored() { 1.0 - x } else { x };
+    match d.quarters() {
+        1 => (1.0 - y, x),
+        2 => (1.0 - x, 1.0 - y),
+        3 => (y, 1.0 - x),
+        _ => (x, y),
     }
 }
 
@@ -211,6 +247,19 @@ struct Cell {
     id: PhotoId,
     need: u32,
     drawn: Drawn,
+    /// The image rect it was painted into, and the orientation it was turned by.
+    rect: Rect,
+    turn: Dihedral,
+}
+
+/// One photo painted in the last frame (tests, inspection): where, turned how, and what.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Painted {
+    pub photo: PhotoId,
+    /// The image rect, in points (the letterboxed image of a cell; a tray mini's crop).
+    pub rect: Rect,
+    pub turn: Dihedral,
+    pub drawn: Drawn,
 }
 
 /// The photos in display order, flattened from the sections.
@@ -248,6 +297,9 @@ pub struct Thumbnails {
     placeholder: Color32,
     /// The session's thumbnail generation the textures were made in.
     made_in: u64,
+    /// The net orientation of the photos painted lately, for the library revision it was read in.
+    orient: HashMap<PhotoId, Dihedral>,
+    orient_revision: Option<u64>,
 }
 
 impl Thumbnails {
@@ -271,7 +323,43 @@ impl Thumbnails {
             ended: None,
             speed: 0.0,
             placeholder: Tokens::default().placeholder,
+            orient: HashMap::new(),
+            orient_revision: None,
         }
+    }
+
+    /// The net orientation of `photo`'s recipe (what its rotations and flips add up to), read once
+    /// per library revision: the cache is emptied when the revision moves, and only photos asked
+    /// about are parsed, so the cost is that of the cells on screen.
+    pub fn orientation(&mut self, photo: PhotoRef<'_>) -> Dihedral {
+        let library = photo.session.library();
+        let revision = library.revision();
+        if self.orient_revision != Some(revision) {
+            self.orient.clear();
+            self.orient_revision = Some(revision);
+        }
+        let id = photo.photo.id;
+        let edits = &library.info(id).edits;
+        if edits.is_empty() {
+            return Dihedral::IDENTITY;
+        }
+        if let Some(d) = self.orient.get(&id) {
+            return *d;
+        }
+        if self.orient.len() >= MAX_ORIENTATIONS {
+            self.orient.clear();
+        }
+        let d = recipe_orientation(edits);
+        self.orient.insert(id, d);
+        d
+    }
+
+    /// The size `photo` shows at: its file's displayed size turned by its recipe (a landscape
+    /// turned a quarter is a portrait); 0 × 0 when the file's size is unknown. What callers
+    /// letterbox or crop it to.
+    pub fn displayed(&mut self, photo: PhotoRef<'_>) -> (u32, u32) {
+        let d = self.orientation(photo);
+        d.display_size(photo.photo.width, photo.photo.height)
     }
 
     /// Starts a frame: notes the theme and, when the display's size is known, tells the session
@@ -316,11 +404,13 @@ impl Thumbnails {
         self.textures.len()
     }
 
-    /// Paints `photo` into `rect` (its letterboxed image, in points) for an image `device_px` device
-    /// pixels on its long side: the best uploaded ladder size, else its sketch, else the
-    /// placeholder. Never touches the disk and never decodes an image.
+    /// Paints `photo` into `rect` (its letterboxed image at its displayed size, in points) for an
+    /// image `device_px` device pixels on its long side: the best uploaded ladder size, else its
+    /// sketch, else the placeholder, turned by its recipe's orientation. Never touches the disk and
+    /// never decodes an image.
     pub fn paint(&mut self, painter: &Painter, photo: PhotoRef<'_>, rect: Rect, device_px: f32) -> Drawn {
         let id = photo.photo.id;
+        let turn = self.orientation(photo);
         let need = need_of(device_px);
         let frame = self.frame;
         let choice = ladder::choose(need, self.screen, |s| self.textures.contains_key(&(id, s)));
@@ -338,11 +428,11 @@ impl Thumbnails {
             Drawn::Failed
         } else if let Some(tex) = texture {
             tex.drawn = frame;
-            painter.image(tex.handle.id(), rect, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
+            painter.add(textured(rect, tex.handle.id(), turn));
             if matches!(choice, Choice::Covers(_)) { Drawn::Image } else { Drawn::Upscaled }
         } else {
             match photo.session.library().sketch(id) {
-                Some(sketch) if self.paint_sketch(painter, id, sketch, rect) => Drawn::Sketch,
+                Some(sketch) if self.paint_sketch(painter, id, sketch, rect, turn) => Drawn::Sketch,
                 _ => {
                     painter.rect_filled(rect, 0, self.placeholder);
                     Drawn::Placeholder
@@ -358,12 +448,13 @@ impl Thumbnails {
             Drawn::Failed => &mut c.failed_cells,
         };
         *slot = slot.saturating_add(1);
-        self.cells.push(Cell { id, need, drawn });
+        self.cells.push(Cell { id, need, drawn, rect, turn });
         drawn
     }
 
-    /// Draws `sketch` over `rect` as a vertex-coloured mesh; `false` when it does not decode.
-    fn paint_sketch(&mut self, painter: &Painter, id: PhotoId, sketch: &dalica_library::Sketch, rect: Rect) -> bool {
+    /// Draws `sketch` over `rect` as a vertex-coloured mesh turned by `turn`; `false` when it does
+    /// not decode.
+    fn paint_sketch(&mut self, painter: &Painter, id: PhotoId, sketch: &dalica_library::Sketch, rect: Rect, turn: Dihedral) -> bool {
         let frame = self.frame;
         let fresh = self.sketches.get(&id).is_some_and(|m| m.sketch == *sketch);
         if !fresh {
@@ -374,7 +465,7 @@ impl Thumbnails {
         }
         let Some(m) = self.sketches.get_mut(&id) else { return false };
         m.drawn = frame;
-        painter.add(sketch_shape(rect, m.cols, m.rows, &m.colours));
+        painter.add(sketch_shape(rect, m.cols, m.rows, &m.colours, turn));
         true
     }
 
@@ -576,6 +667,11 @@ impl Thumbnails {
         self.totals
     }
 
+    /// What the last frame painted, in paint order (the light table's cells, then the tray's).
+    pub fn painted(&self) -> impl Iterator<Item = Painted> + '_ {
+        self.cells.iter().map(|c| Painted { photo: c.id, rect: c.rect, turn: c.turn, drawn: c.drawn })
+    }
+
     /// Thumbnail textures alive.
     pub fn textures(&self) -> usize {
         self.textures.len()
@@ -593,9 +689,29 @@ fn need_of(device_px: f32) -> u32 {
     if device_px.is_finite() && device_px >= 1.0 { device_px.ceil().min(ladder::MAX_SCREEN as f32) as u32 } else { 1 }
 }
 
-/// A sketch's colours (`cols` × `rows`, row by row) spread over `rect` as a mesh, interpolated
-/// smoothly between the vertices; one flat colour when the grid is a single row or column.
-fn sketch_shape(rect: Rect, cols: u32, rows: u32, colours: &[Color32]) -> Shape {
+/// The point of `rect` at `(x, y)` (each 0–1 across it).
+fn at(rect: Rect, (x, y): (f32, f32)) -> Pos2 {
+    pos2(rect.left() + rect.width() * x, rect.top() + rect.height() * y)
+}
+
+/// A texture of the upright picture drawn over `rect` turned by `turn`: one quad whose corners take
+/// the UVs of the upright picture's points that land there.
+fn textured(rect: Rect, texture: TextureId, turn: Dihedral) -> Shape {
+    let back = turn.inverse();
+    let mut mesh = Mesh::with_texture(texture);
+    for corner in [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)] {
+        let (u, v) = turn_point(back, corner.0, corner.1);
+        mesh.vertices.push(Vertex { pos: at(rect, corner), uv: pos2(u, v), color: Color32::WHITE });
+    }
+    mesh.add_triangle(0, 1, 2);
+    mesh.add_triangle(0, 2, 3);
+    Shape::mesh(mesh)
+}
+
+/// A sketch's colours (`cols` × `rows`, row by row, of the upright picture) spread over `rect` as a
+/// mesh turned by `turn`, interpolated smoothly between the vertices; one flat colour when the grid
+/// is a single row or column.
+fn sketch_shape(rect: Rect, cols: u32, rows: u32, colours: &[Color32], turn: Dihedral) -> Shape {
     let (c, r) = (cols as usize, rows as usize);
     if c < 2 || r < 2 || colours.len() != c * r {
         let mean = colours.first().copied().unwrap_or(Color32::GRAY);
@@ -605,10 +721,10 @@ fn sketch_shape(rect: Rect, cols: u32, rows: u32, colours: &[Color32]) -> Shape 
     mesh.reserve_vertices(c * r);
     mesh.reserve_triangles((c - 1) * (r - 1) * 2);
     for (j, row) in colours.chunks(c).enumerate() {
-        let y = rect.top() + rect.height() * j as f32 / (r - 1) as f32;
+        let y = j as f32 / (r - 1) as f32;
         for (i, colour) in row.iter().enumerate() {
-            let x = rect.left() + rect.width() * i as f32 / (c - 1) as f32;
-            mesh.colored_vertex(pos2(x, y), *colour);
+            let x = i as f32 / (c - 1) as f32;
+            mesh.colored_vertex(at(rect, turn_point(turn, x, y)), *colour);
         }
     }
     for j in 0..rows - 1 {
@@ -641,16 +757,68 @@ mod tests {
     fn a_sketch_mesh_spans_its_rect_with_one_vertex_per_colour() {
         let rect = Rect::from_min_size(pos2(10.0, 20.0), vec2(144.0, 96.0));
         let colours: Vec<Color32> = (0..8 * 5).map(|i| Color32::from_gray(i as u8)).collect();
-        let Shape::Mesh(mesh) = sketch_shape(rect, 8, 5, &colours) else { panic!("not a mesh") };
+        let Shape::Mesh(mesh) = sketch_shape(rect, 8, 5, &colours, Dihedral::IDENTITY) else { panic!("not a mesh") };
         assert_eq!(mesh.vertices.len(), 40);
         assert_eq!(mesh.indices.len(), 7 * 4 * 2 * 3);
         assert_eq!(mesh.calc_bounds(), rect);
         assert!(mesh.is_valid());
         assert_eq!(mesh.vertices[39].color, Color32::from_gray(39));
         // A grid one row high, or colours that do not fit the grid: one flat rectangle.
-        assert!(matches!(sketch_shape(rect, 8, 1, &colours[..8]), Shape::Rect(_)));
-        assert!(matches!(sketch_shape(rect, 8, 5, &colours[..3]), Shape::Rect(_)));
-        assert!(matches!(sketch_shape(rect, 0, 0, &[]), Shape::Rect(_)));
+        assert!(matches!(sketch_shape(rect, 8, 1, &colours[..8], Dihedral::IDENTITY), Shape::Rect(_)));
+        assert!(matches!(sketch_shape(rect, 8, 5, &colours[..3], Dihedral::IDENTITY), Shape::Rect(_)));
+        assert!(matches!(sketch_shape(rect, 0, 0, &[], Dihedral::IDENTITY), Shape::Rect(_)));
+    }
+
+    #[test]
+    fn turned_points_follow_the_pixel_map_of_every_transform() {
+        // The corners of a 5 × 3 picture land where `map_pixel` puts its corner pixels.
+        let (w, h) = (5u32, 3u32);
+        for d in Dihedral::ALL {
+            let (tw, th) = d.display_size(w, h);
+            for (x, y) in [(0, 0), (w - 1, 0), (w - 1, h - 1), (0, h - 1)] {
+                let (px, py) = d.map_pixel(x, y, w, h);
+                let (fx, fy) = turn_point(d, x as f32 / (w - 1) as f32, y as f32 / (h - 1) as f32);
+                assert_eq!((fx, fy), (px as f32 / (tw - 1) as f32, py as f32 / (th - 1) as f32), "{} at {x},{y}", d.name());
+            }
+            // There and back.
+            let (u, v) = turn_point(d, 0.25, 0.75);
+            assert_eq!(turn_point(d.inverse(), u, v), (0.25, 0.75), "{}", d.name());
+        }
+    }
+
+    #[test]
+    fn a_turned_texture_maps_its_corners_and_a_turned_sketch_its_vertices() {
+        let rect = Rect::from_min_size(pos2(10.0, 20.0), vec2(96.0, 144.0));
+        let id = TextureId::Managed(7);
+        // Upright: the top-left corner shows the texture's top-left.
+        let Shape::Mesh(m) = textured(rect, id, Dihedral::IDENTITY) else { panic!("not a mesh") };
+        assert_eq!((m.vertices[0].pos, m.vertices[0].uv), (rect.left_top(), pos2(0.0, 0.0)));
+        assert_eq!((m.texture_id, m.vertices.len(), m.indices.len()), (id, 4, 6));
+        // A quarter turn clockwise: the top-left corner shows what was the bottom-left, the
+        // top-right what was the top-left.
+        let Shape::Mesh(m) = textured(rect, id, Dihedral::ROTATE_90) else { panic!("not a mesh") };
+        assert_eq!(m.vertices[0].uv, pos2(0.0, 1.0));
+        assert_eq!(m.vertices[1].uv, pos2(0.0, 0.0));
+        // Mirrored left-right: the top-left shows the top-right.
+        let Shape::Mesh(m) = textured(rect, id, Dihedral::FLIP_H) else { panic!("not a mesh") };
+        assert_eq!(m.vertices[0].uv, pos2(1.0, 0.0));
+        // The sketch's first colour (its top-left) lands top-right after a quarter turn.
+        let colours: Vec<Color32> = (0..8 * 5).map(|i| Color32::from_gray(i as u8)).collect();
+        let Shape::Mesh(mesh) = sketch_shape(rect, 8, 5, &colours, Dihedral::ROTATE_90) else { panic!("not a mesh") };
+        assert_eq!((mesh.vertices[0].pos, mesh.vertices[0].color), (rect.right_top(), Color32::from_gray(0)));
+        assert_eq!(mesh.calc_bounds(), rect);
+        assert!(mesh.is_valid());
+    }
+
+    #[test]
+    fn recipes_turn_by_their_rotations_and_flips_and_unreadable_ones_not_at_all() {
+        let ops = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(recipe_orientation(&[]), Dihedral::IDENTITY);
+        assert_eq!(recipe_orientation(&ops(&["rotate(90)"])), Dihedral::ROTATE_90);
+        assert_eq!(recipe_orientation(&ops(&["rotate(90)", "flip_h()"])), Dihedral::ROTATE_90.then(Dihedral::FLIP_H));
+        assert_eq!(recipe_orientation(&ops(&["autofix()", "legacy:x", "rotate(45)"])), Dihedral::IDENTITY);
+        let too_many = vec!["rotate(90)".to_string(); dalica_edit::MAX_OPERATIONS + 1];
+        assert_eq!(recipe_orientation(&too_many), Dihedral::IDENTITY);
     }
 
     #[test]

@@ -2158,7 +2158,7 @@ replace at M6.R.
   - done when: the dry run on the PR builds the DMG and the CLI zip; `lipo -info` lists both
     architectures; `verify.sh` passes in ad hoc mode; the app from the mounted DMG runs `--version`
     in CI; the DMG layout files are identical across two runs.
-- ⬜ **M6.24 `ui`: rotation and hiding in the library**
+- ✅ **M6.24 `ui`: rotation and hiding in the library**
   - after: M6.6, M6.14
   - files: `crates/ui/src/panels/thumbnails.rs`, `crates/ui/src/panels/light_table/layout.rs`, `crates/ui/src/selection.rs`, `crates/ui/src/panels/bottom.rs`, `crates/ui/src/panels/bottom/**`, `crates/ui/src/panels/folders.rs`, `crates/ui/src/panels/folders/**`, `crates/ui/tests/rotate.rs`, `crates/ui/tests/hidden.rs`, `crates/ui/tests/fingerprints/rotated*.json`, `crates/ui/tests/fingerprints/region-tree*.json`
   - scope: `ui-layout.md` §4, §5.3, §6.2–§6.3: `Thumbnails::paint` draws each photo (cells, tray,

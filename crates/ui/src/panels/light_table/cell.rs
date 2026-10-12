@@ -20,7 +20,7 @@
 use std::collections::{HashMap, HashSet};
 
 use dalica_core::PhotoId;
-use dalica_library::Photo;
+use dalica_library::{Library, Photo};
 use dalica_ui_kit::registry::Role;
 use dalica_ui_kit::widgets::{self, Badge, Badges, Target};
 use dalica_ui_kit::{Tokens, fonts};
@@ -222,11 +222,9 @@ pub fn opacity(hidden: bool, hidden_pictures: bool) -> Option<f32> {
     }
 }
 
-/// Whether `photo` is hidden. The photo model gains its hidden flag in M6 (`data-model.md` §3);
-/// until then no photo is.
-pub fn is_hidden(photo: &Photo) -> bool {
-    let _ = photo;
-    false
+/// Whether `photo` is hidden (Picture ▸ Hide; `data-model.md` §3).
+pub fn is_hidden(library: &Library, photo: &Photo) -> bool {
+    library.is_hidden(photo.id)
 }
 
 /// What `photo`'s badges show: what the model knows. Starred and held now; edited, geotagged and
@@ -314,8 +312,10 @@ pub fn show(ui: &mut Ui, f: &Frame<'_>, cells: &mut Cells, thumbs: &mut Thumbnai
     let held = &f.state.tray.held;
     let selection = &f.state.selection;
     cells.begin(pass, held, &selection.ids);
-    let image = letterbox(c.rect, c.photo.width, c.photo.height);
-    let Some(alpha) = opacity(is_hidden(c.photo), f.state.hidden_pictures) else {
+    // Letterboxed to the size it shows at: a landscape turned a quarter is a portrait.
+    let (width, height) = thumbs.displayed(PhotoRef { session: f.session, photo: c.photo });
+    let image = letterbox(c.rect, width, height);
+    let Some(alpha) = opacity(is_hidden(f.session.library(), c.photo), f.state.hidden_pictures) else {
         // Not shown: the parent leaves hidden photos out; this is the cell's own guard.
         let response = ui.interact(c.rect, Id::new(("thumb", id.get())), Sense::hover());
         return CellOut { photo: id, section: c.section, rect: c.rect, image, response, drawn: Drawn::Placeholder };

@@ -71,7 +71,7 @@ pub struct Section {
     /// The date and count line under the title.
     pub subtitle: String,
     /// The photos shown, in display order (capture date, then name); small pictures only with
-    /// View ▸ Small Pictures.
+    /// View ▸ Small Pictures, hidden ones only with View ▸ Hidden Pictures.
     pub photos: Vec<PhotoId>,
 }
 
@@ -167,7 +167,9 @@ fn build(library: &Library, roots: &[PathBuf], options: &TreeOptions) -> Vec<Sec
     let tree = Tree::build(library, roots, options);
     let mut by_folder: HashMap<FolderId, Vec<&Photo>> = HashMap::new();
     for p in library.photos() {
-        if options.small_pictures || !is_small(p, options.small_threshold) {
+        let small = !options.small_pictures && is_small(p, options.small_threshold);
+        let hidden = !options.hidden_pictures && library.is_hidden(p.id);
+        if !small && !hidden {
             by_folder.entry(p.folder).or_default().push(p);
         }
     }

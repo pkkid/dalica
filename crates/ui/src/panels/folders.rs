@@ -10,8 +10,13 @@
 //!   the rows on screen only, so its work does not grow with the library.
 //! - **Clicks:** a row with photos selects its folder as a unit (what `select.section` does) and
 //!   scrolls the light table to its section (`section.scrollTo`, through [`Panels::scroll_to`]);
-//!   a row without photos folds or unfolds its children. A header runs `view.groupCollapse` (its
-//!   sections leave the light table); a disclosure triangle `view.folderCollapse`. Directories
+//!   a row without photos folds or unfolds its children. A double-click on a library folder's row
+//!   opens its Folder Properties (`section.properties`). A header runs `view.groupCollapse` (its
+//!   sections leave the light table); a disclosure triangle `view.folderCollapse`.
+//! - **Hidden folders** (Hide Folder): with View ▸ Hidden Pictures off they leave the tree and
+//!   their sections leave the light table; with it on, flat mode lists them in the Hidden Folders
+//!   group (after Other), tree mode keeps them in place. The tree decides
+//!   ([`dalica_library::Tree`]); the pane rebuilds when the option or the library changes. Directories
 //!   that are no library folder have no `FolderId` for the view state: they fold here, in the
 //!   pane's own memory, for this session.
 //! - **Focus and keys:** a press in the pane gives it the keyboard focus (the selected row gets
@@ -115,6 +120,8 @@ enum Action {
     Fold(usize, Option<bool>),
     /// Fold or unfold a group.
     Group(Group),
+    /// Open item `i`'s Folder Properties.
+    Properties(usize),
 }
 
 fn pane_id() -> Id {
@@ -300,6 +307,10 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
                         actions.push(Action::Fold(i, None));
                     }
                 }
+                // The second click of a double-click also selects (as the first did), then opens.
+                if response.double_clicked() && !folded && row.folder.is_some() {
+                    actions.push(Action::Properties(i));
+                }
             }
         }
     }
@@ -358,6 +369,11 @@ fn apply(p: &mut Panels, app: &mut App, pane: &mut Pane, model: &Model, action: 
         Action::Select(i) => {
             let Some(Section::Folder(folder)) = model.row(i).and_then(|r| r.section) else { return };
             select_folder(p, app, folder);
+        }
+        Action::Properties(i) => {
+            let Some(folder) = model.row(i).and_then(|r| r.folder) else { return };
+            // A refusal (no library) lands on the status line.
+            let _ = app.run("section.properties", &json!({ "folder": folder }));
         }
     }
 }
