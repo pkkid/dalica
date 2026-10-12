@@ -16,6 +16,8 @@ dalica-core.workspace = true
 image.workspace = true
 # Lossy and lossless WebP, alpha, the first frame of animations (`formats.md` §1).
 image-webp.workspace = true
+# JPEG XL (architecture.md §1): pure Rust, MIT OR Apache-2.0; single-threaded (no `rayon`).
+jxl-oxide.workspace = true
 log.workspace = true
 # ICC v2/v4 profiles to sRGB (architecture.md §1): pure Rust, BSD-3-Clause OR Apache-2.0.
 moxcms.workspace = true
@@ -33,3 +35,6 @@ image = { workspace = true, features = ["jpeg"] }
 # Encodes test-only PNG layouts (16-bit, grey) and the PNGs written on a fingerprint mismatch.
 png.workspace = true
 proptest.workspace = true
+# Lossless JPEG XL codestreams of oriented and re-tagged pixels (tests/jxl.rs).
+zune-jpegxl.workspace = true
+zune-core.workspace = true

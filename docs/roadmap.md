@@ -1389,7 +1389,7 @@ filled by the lead; M5.15 pins it.
     match their fingerprints; WebP orientation 1–8 and its profile; an animated GIF and WebP show
     frame one; oversized headers are refused before allocating; truncation and proptest random
     bytes never panic.
-- ⬜ **M5.8 `image`: JPEG XL and PSD composites**
+- ✅ **M5.8 `image`: JPEG XL and PSD composites**
   - after: M5.1, M5.2
   - files: `crates/image/src/formats/jxl.rs`, `crates/image/src/formats/psd.rs`, `crates/image/tests/jxl.rs`, `crates/image/tests/psd.rs`, `crates/image/tests/fingerprints/jxl*.json`, `crates/image/tests/fingerprints/psd*.json`
   - scope: `formats.md` §1: JPEG XL through `jxl-oxide` (audit with `cargo xtask deps`; the

@@ -53,7 +53,8 @@ image = { version = "0.25.10", default-features = false, features = ["png", "tif
 zune-jpeg = "0.5"
 png = "0.18"
 image-webp = "0.2"
-jxl-oxide = "0.12"
+# No `rayon`: decodes already run on the thumbnail workers, so the decoder stays on their thread.
+jxl-oxide = { version = "0.12", default-features = false }
 heic-rs = "0.1"
 moxcms = "0.9"
 fast_image_resize = "6"
