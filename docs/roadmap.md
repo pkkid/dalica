@@ -2088,7 +2088,7 @@ replace at M6.R.
   - done when: `cargo test -p dalica-meta --test write_png_webp_tiff`: §8 tests 1–3, 6, 7 and 10 for
     each container; pixels decode identically through `image`; a promoted WebP still decodes; TIFF
     strips and maker notes keep their offsets.
-- ⬜ **M6.19 `meta`: `.xmp` sidecars for RAW**
+- ✅ **M6.19 `meta`: `.xmp` sidecars for RAW**
   - after: M6.9
   - files: `crates/meta/src/xmp_sidecar.rs`, `crates/meta/tests/xmp_sidecar.rs`
   - scope: `xmp-interop.md` §7: the sidecar name for a RAW (`<stem>.xmp`; reading also `<file>.xmp`
