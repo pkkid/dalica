@@ -2403,7 +2403,7 @@ replace at M6.R.
   - done when: `cargo xtask corpus --all` fetches and verifies the two sets; `cargo xtask
     test-corpus` passes with their floors at the measured counts (numbers in the PR); every file
     in the repository has a source and a public-domain or CC0 licence.
-- ⬜ **M6.43 `engine` + `store`: a sidecar write checks its root right before it lands**
+- ✅ **M6.43 `engine` + `store`: a sidecar write checks its root right before it lands**
   - after: M5.R, M6.5
   - files: `crates/engine/src/session.rs`, `crates/engine/src/offline.rs`, `crates/store/src/writer.rs`, `crates/engine/tests/offline.rs`, `crates/store/tests/offline.rs`
   - scope: the maintainer's answer at M5.R (2026-10-12): M5.17 holds writes under roots found
