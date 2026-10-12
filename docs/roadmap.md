@@ -1978,7 +1978,7 @@ replace at M6.R.
     southern/western coordinates; test 2 for a synthetic maker note with absolute offsets that reads
     the same after a write; test 7 (a block that would pass the APP1 limit fails with the field
     named and the input unchanged); truncation and proptest random bytes never panic.
-- ⬜ **M6.11 `xtask contributors`**
+- ✅ **M6.11 `xtask contributors`**
   - after: M6.7
   - files: `xtask/src/contributors.rs`, `xtask/src/ci.rs`, `xtask/src/docs.rs`, `contributors/contributors.json`, `docs/contributors.md`, `docs/development.md`
   - scope: `contributors.md` → Refreshing: `cargo xtask contributors` regenerates

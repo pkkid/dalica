@@ -7,6 +7,7 @@ mod accept;
 mod assets;
 mod bench;
 mod ci;
+mod contributors;
 mod corpus;
 mod corpus_pins;
 mod deps;
@@ -28,6 +29,7 @@ commands:
   accept    cargo xtask accept M<n> [--headless]: a milestone's acceptance test and its manual checks
   corpus    cargo xtask corpus [--all | <set>…] [--local] [--update-manifest]: the test corpora, fetched and sha256-verified
   test-corpus  cargo xtask test-corpus [-p <crate>] [-- args]: fetch, then the corpus tests with their floors (--release --features corpus)
+  contributors  cargo xtask contributors [--check] [--ref <rev>]: regenerate contributors/contributors.json (git + gh); --check verifies people.toml offline
   bench     cargo xtask bench [name…] [-- args]: release benches; history in <target>/bench/history.jsonl; flags >20 % slowdowns
   budgets   cargo xtask budgets [--plant-ms N]: the release frame budgets the milestones assert (the budgets workflow)
   assets    every asset has an ATTRIBUTION.md row; licence files exist; no forbidden names or formats
@@ -40,8 +42,23 @@ commands:
   version   cargo xtask version [set X.Y.Z[-pre]]: print or set [workspace.package] version (Cargo.toml and Cargo.lock)";
 
 /// Implemented commands (`cargo xtask docs` checks the docs against these and [`PLANNED`]).
-pub const COMMANDS: &[&str] =
-    &["ci", "accept", "assets", "bench", "budgets", "corpus", "test-corpus", "docs", "deps", "layers", "names", "parity", "tasks", "version"];
+pub const COMMANDS: &[&str] = &[
+    "ci",
+    "accept",
+    "assets",
+    "bench",
+    "budgets",
+    "contributors",
+    "corpus",
+    "test-corpus",
+    "docs",
+    "deps",
+    "layers",
+    "names",
+    "parity",
+    "tasks",
+    "version",
+];
 
 /// Commands the docs already describe, with where they are planned; running one says so.
 pub const PLANNED: &[(&str, &str)] = &[
@@ -73,6 +90,7 @@ fn main() -> ExitCode {
         Some("bench") => bench::run(&root, args.get(1..).unwrap_or(&[])),
         Some("budgets") => accept::budgets(&root, args.get(1..).unwrap_or(&[])),
         Some("ci") => ci::run(&root),
+        Some("contributors") => contributors::run(&root, args.get(1..).unwrap_or(&[])),
         Some("corpus") => corpus::run(&root, args.get(1..).unwrap_or(&[])),
         Some("test-corpus") => corpus::test(&root, args.get(1..).unwrap_or(&[])),
         Some("parity") => parity::run(&root, args.iter().any(|a| a == "--write")),

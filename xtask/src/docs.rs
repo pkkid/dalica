@@ -1,10 +1,10 @@
 //! `cargo xtask docs` (a `ci` step): every `cargo xtask …` command named in `AGENTS.md`,
-//! `docs/development.md` and `docs/task-board.md` exists, either implemented or registered as
+//! `docs/development.md`, `docs/task-board.md` and `docs/contributors.md` exists, either implemented or registered as
 //! planned (`crate::PLANNED`), and every `tasks` subcommand they name is one `tasks` knows.
 
 use std::path::Path;
 
-pub const DOCS: &[&str] = &["AGENTS.md", "docs/development.md", "docs/task-board.md"];
+pub const DOCS: &[&str] = &["AGENTS.md", "docs/development.md", "docs/task-board.md", "docs/contributors.md"];
 
 /// `(command, optional tasks subcommand)` for each `xtask <word>` in `text`, with its line.
 pub fn mentions(text: &str) -> Vec<(usize, String, Option<String>)> {
@@ -115,6 +115,18 @@ mod tests {
         // development.md §3 lists it.
         let text = std::fs::read_to_string(crate::workspace_root().join("docs/development.md")).unwrap();
         assert!(mentions(&text).iter().any(|(_, c, _)| c == "version"));
+    }
+
+    #[test]
+    fn contributors_is_implemented_and_documented() {
+        assert!(crate::COMMANDS.contains(&"contributors"));
+        assert!(!crate::PLANNED.iter().any(|(c, _)| *c == "contributors"), "contributors is still listed as planned");
+        // development.md §3 and contributors.md → Refreshing name it, both checked by this command.
+        for doc in ["docs/development.md", "docs/contributors.md"] {
+            assert!(DOCS.contains(&doc));
+            let text = std::fs::read_to_string(crate::workspace_root().join(doc)).unwrap();
+            assert!(mentions(&text).iter().any(|(_, c, _)| c == "contributors"), "{doc}");
+        }
     }
 
     #[test]
