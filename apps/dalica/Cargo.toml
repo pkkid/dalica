@@ -9,8 +9,14 @@ repository.workspace = true
 authors.workspace = true
 publish = false
 
+[features]
+# HEIF/HEIC decoding (formats.md §3), off by default: `cargo build -p dalica --features heif`.
+heif = ["dep:dalica-image", "dalica-image/heif"]
+
 [dependencies]
 dalica-core.workspace = true
+# Only to forward the `heif` feature; the app reaches the decoders through the engine.
+dalica-image = { workspace = true, optional = true }
 dalica-engine.workspace = true
 dalica-fs.workspace = true
 dalica-ui.workspace = true

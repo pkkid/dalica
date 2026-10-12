@@ -55,7 +55,10 @@ png = "0.18"
 image-webp = "0.2"
 # No `rayon`: decodes already run on the thumbnail workers, so the decoder stays on their thread.
 jxl-oxide = { version = "0.12", default-features = false }
-heic-rs = "0.1"
+# HEIF/HEIC behind `dalica-image`'s non-default `heif` feature (formats.md §3). Pinned exactly: a
+# young decoder of untrusted files; moving the pin is a reviewed change. No `parallel` (rayon):
+# Dalica decodes on its own worker threads.
+heic-rs = { version = "=0.1.1", default-features = false, features = ["std"] }
 moxcms = "0.9"
 fast_image_resize = "6"
 # Test files (`dalica-scenes` formats, M5.2): zlib for Deflate TIFF strips (already under `png`), a

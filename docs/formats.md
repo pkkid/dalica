@@ -48,8 +48,10 @@ orientation, EXIF, where the embedded thumbnail lies), a **decode** to the decod
 decodes the format and the tile text it shows when it does not. The texts: "Damaged file" for a
 truncated, malformed or looping file and for a decoder that failed on it; "Too large to display
 (W × H)" past a limit of §5; the format's own text for one Dalica recognises but does not show
-("AVIF files can't be displayed", "HEIC support isn't included in this build", and "… aren't
-supported yet" while a format waits for its task).
+("AVIF files can't be displayed", "HEIC support isn't included in this build", "This kind of HEIC
+file can't be displayed" for an image sequence, overlay or 4:2:2/4:4:4 stream, "This RAW file has
+no preview Dalica can show" for a raw without a usable embedded JPEG, and "… aren't supported yet"
+while a format waits for its task).
 
 ## 2. RAW files
 
@@ -62,6 +64,18 @@ supported yet" while a format waits for its task).
 - **Shown** through the largest embedded JPEG preview (found by our own bounded TIFF/IFD walk), which is what the
   camera rendered; previews tagged with a colour space (for example Adobe RGB on some cameras) are
   converted to sRGB. A raw file with no usable preview shows a generic RAW tile.
+- **The other containers** (M5.10) each offer their embedded JPEGs, and the largest (by pixels,
+  then bytes) is shown; the next smaller one is the thumbnail fast path. CR3: the `PRVW` preview,
+  the `THMB` thumbnail and the first sample of each track whose sample description carries a `JPEG`
+  box, through the bounded ISOBMFF walk (nesting ≤ 12, ≤ 4,096 boxes per level, stopping at
+  `mdat`); orientation and camera from `CMT1`, dates from `CMT2`. RAF: the JPEG its header points
+  at, with that JPEG's own EXIF. CRW: the full-size JPEG and thumbnail records of the CIFF heaps
+  (nesting ≤ 8), the rotation of the image specification (degrees clockwise to display), make,
+  model and time stamp. MRW: the maker note's preview and the IFD1 thumbnail of the `\0TTW` TIFF
+  block, read with the shared IFD reader. X3F: the JPEG image sections of the directory. CRW and
+  X3F are found from the end of the file, so a header read takes the whole file (up to the header
+  limit). A preview over the 64 MiB limit is passed over; offsets past the end of the file are
+  "Damaged file".
 - **Edits** apply to the embedded preview; Save writes a JPEG beside the raw at the preview's size.
   Full raw development is out of scope: **Open With** sends the file to a raw developer.
 - **Metadata** is read from the raw's EXIF/XMP and an `.xmp` sidecar, and written only to the `.xmp`
@@ -79,8 +93,18 @@ supported yet" while a format waits for its task).
   including a decoder is the distributor's decision; whether official Dalica builds enable it is
   decided with the release pipeline (M6). Without the feature, HEIC files are still recognised and
   listed, with the tile "HEIC support isn't included in this build".
-- The decoder is young and pinned exactly; moving the pin is a reviewed change that re-runs the
-  `heif` corpus tests (`development.md` §11).
+- The decoder is young and pinned exactly (`=0.1.1`, without its `parallel` feature: Dalica
+  decodes on its own worker threads); moving the pin is a reviewed change that re-runs the
+  `heif` corpus tests (`development.md` §11). CI lints and tests `dalica-image` with the feature on
+  all three systems.
+- Before heic-rs reads a file, Dalica's own bounded box walk checks the top level and the
+  containers inside `meta`; a file with `moov` and no `meta` (an image sequence) is unsupported.
+  The colour description is the item's `colr nclx`, else the HEVC VUI (iPhones mark full range
+  only there), else limited range; an unspecified matrix is BT.601. `imir` axis 0 flips top and
+  bottom (as the files' writers mean it), axis 1 left and right; `clap`, `irot` and `imir` apply in
+  the order the item lists them, so a decoded HEIC is upright and its header reports the shown
+  size. EXIF is read for dates and camera; its orientation only repeats the container's. A file
+  whose brands or primary item say AV1 is AVIF, whatever its major brand.
 - HEIF is read-only: writing needs an HEVC encoder, and every mature one is C.
 
 ## 4. Colour and orientation

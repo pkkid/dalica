@@ -56,3 +56,11 @@ jobs:
           sudo apt-get install -y --no-install-recommends libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libwayland-dev
       - name: cargo xtask ci
         run: cargo xtask ci
+      # The optional HEIF decoder (docs/formats.md §3) is off by default, so `xtask ci` never
+      # builds it: lint and test dalica-image with it on every OS.
+      - name: dalica-image with the heif feature (clippy)
+        shell: bash
+        run: cargo clippy -p dalica-image --all-targets --features heif -- -D warnings
+      - name: dalica-image with the heif feature (tests)
+        shell: bash
+        run: cargo test -p dalica-image --features heif
