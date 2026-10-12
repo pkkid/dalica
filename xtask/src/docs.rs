@@ -109,6 +109,15 @@ mod tests {
     }
 
     #[test]
+    fn version_is_implemented_and_documented() {
+        assert!(crate::COMMANDS.contains(&"version"));
+        assert!(!crate::PLANNED.iter().any(|(c, _)| *c == "version"), "version is still listed as planned");
+        // development.md §3 lists it.
+        let text = std::fs::read_to_string(crate::workspace_root().join("docs/development.md")).unwrap();
+        assert!(mentions(&text).iter().any(|(_, c, _)| c == "version"));
+    }
+
+    #[test]
     fn the_real_docs_pass() {
         let root = crate::workspace_root();
         let files: Vec<(&str, String)> = DOCS.iter().map(|n| (*n, std::fs::read_to_string(root.join(n)).unwrap())).collect();

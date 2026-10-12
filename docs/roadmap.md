@@ -1914,7 +1914,7 @@ replace at M6.R.
     `dialog:<kind>` and Esc closes it; the Properties and Tags panes open from their toggles and
     View items; the menu items light up; every command's graceful-failure test; `panic_hunt` and
     `widget_ids` stay green.
-- ⬜ **M6.7 `xtask version`, build information and portable mode**
+- ✅ **M6.7 `xtask version`, build information and portable mode**
   - after: M4.8
   - files: `xtask/src/version.rs`, `xtask/src/docs.rs`, `crates/core/src/build.rs`, `crates/core/tests/build.rs`, `apps/dalica/src/main.rs`, `apps/dalica/src/paths.rs`, `apps/dalica-cli/src/main.rs`, `docs/development.md`
   - scope: `releasing.md` → Cutting a release and What gets built: `cargo xtask version` prints

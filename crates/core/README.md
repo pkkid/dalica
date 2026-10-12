@@ -4,6 +4,7 @@
 
 - **May depend on:** nothing (`docs/architecture.md` §2; `cargo xtask layers` enforces it). External: `serde`, `thiserror`.
 - **Public API:**
+  - `build`: `VERSION` (the workspace version), `commit()` and `build_date()` from `DALICA_BUILD_SHA` / `DALICA_BUILD_DATE` at compile time, `describe` and `version_string()` (`0.1.0 (3f2a9c1d0, 2026-10-12)`, or `0.1.0 (dev build)` without them); what `--version`, the control channel's `auth` and About report.
   - `app_id`: `APP_ID` (`"org.dalica.Dalica"`, reserved decision 10) and `check_dbus_name` / `check_bundle_id` / `check_reverse_dns` / `check`.
   - `ids`: `PhotoId`, `FolderId` (integers from the index); `AlbumId`, `PersonId` (`a`/`p` + 4–16 lowercase hex digits, checked on parse and deserialize).
   - `geom`: `Rect01` (normalised `[x0, y0, x1, y1]`, six decimals, never empty), `PixelRect`, `to_pixels` / `from_pixels`.
@@ -12,4 +13,4 @@
   - `names`: `split_ext`, `numbered` (`photo-001.jpg`), `candidates`, `next_free`; names stay within 255 bytes.
   - `poskey`: `PosKey` with `first`, `after`, `before`, `between`; byte order is album order. The module docs explain the encoding.
   - `Error`: the one error type.
-- **Test it alone:** `cargo test -p dalica-core` (no window, GPU, network or personal photos needed). Property tests live in `tests/poskey.rs` and `tests/props.rs`; `cargo test -p dalica-core --test poskey -- --nocapture` prints the key lengths after 10 000 inserts per pattern.
+- **Test it alone:** `cargo test -p dalica-core` (no window, GPU, network or personal photos needed). Property tests live in `tests/poskey.rs` and `tests/props.rs`, the version string's in `tests/build.rs`; `cargo test -p dalica-core --test poskey -- --nocapture` prints the key lengths after 10 000 inserts per pattern.

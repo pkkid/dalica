@@ -137,7 +137,9 @@ fn a_run_on_a_library_keeps_its_thumbnails_in_dalica_cache_dir() {
 fn cli_version_is_the_workspace_version() {
     let (ok, out) = cli(&["--version"]);
     assert!(ok);
-    assert_eq!(out.trim(), format!("dalica-cli {}", workspace_version()));
+    // `<version> (<commit>, <date>)`, or `<version> (dev build)` without the build variables.
+    let out = out.trim();
+    assert!(out.starts_with(&format!("dalica-cli {} (", workspace_version())) && out.ends_with(')'), "{out}");
 }
 
 #[test]
@@ -147,7 +149,9 @@ fn app_version_is_the_workspace_version() {
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
     let out = Command::new(cargo).args(["run", "--quiet", "-p", "dalica", "--", "--version"]).output().unwrap();
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
-    assert_eq!(String::from_utf8(out.stdout).unwrap().trim(), format!("dalica {}", workspace_version()));
+    let out = String::from_utf8(out.stdout).unwrap();
+    let out = out.trim();
+    assert!(out.starts_with(&format!("dalica {} (", workspace_version())) && out.ends_with(')'), "{out}");
 }
 
 #[test]

@@ -1,6 +1,7 @@
 //! Logging and the panic hook (`docs/development.md` §10).
 //!
-//! Records go to standard error and to `logs/dalica.log` in the settings folder, written through
+//! Records go to standard error and to `logs/dalica.log` in the settings folder (in portable mode,
+//! in the `data` folder beside the executable: [`logs_dir`], `paths.rs`), written through
 //! `dalica-fs` (layer rule 4) by a writer thread, so logging never touches the disk on the caller's
 //! thread (the UI thread must not, `architecture.md` §5). Each launch rotates the previous logs to
 //! `dalica.1.log` and `dalica.2.log`; the file stops at 16 MiB with a closing notice. A panic is
@@ -37,10 +38,6 @@ const FLUSH_WAIT: Duration = Duration::from_secs(2);
 
 /// Dalica's settings folder: Linux `$XDG_CONFIG_HOME/dalica` (default `~/.config/dalica`), macOS
 /// `~/Library/Application Support/Dalica`, Windows `%APPDATA%\Dalica`. `None` without a home.
-pub fn config_dir() -> Option<PathBuf> {
-    config_dir_from(|k| std::env::var_os(k))
-}
-
 fn config_dir_from(var: impl Fn(&str) -> Option<OsString>) -> Option<PathBuf> {
     let abs = |k: &str| var(k).filter(|v| !v.is_empty()).map(PathBuf::from).filter(|p| p.is_absolute());
     if cfg!(windows) {
@@ -267,9 +264,19 @@ impl Drop for LogGuard {
     }
 }
 
-/// Installs the logger (stderr + `<settings>/logs/dalica.log`) and the panic hook.
-pub fn init() -> LogGuard {
-    init_at(config_dir().map(|c| c.join("logs")))
+/// The logs folder: `<data>/logs` in portable mode (`portable_data` is the data folder beside the
+/// executable, `paths::Dirs::data`), else `<settings>/logs`. `None` without either.
+pub fn logs_dir(portable_data: Option<&Path>) -> Option<PathBuf> {
+    logs_dir_from(|k| std::env::var_os(k), portable_data)
+}
+
+fn logs_dir_from(var: impl Fn(&str) -> Option<OsString>, portable_data: Option<&Path>) -> Option<PathBuf> {
+    portable_data.map(Path::to_path_buf).or_else(|| config_dir_from(var)).map(|d| d.join("logs"))
+}
+
+/// Installs the logger (stderr + `<logs dir>/dalica.log`, [`logs_dir`]) and the panic hook.
+pub fn init(portable_data: Option<&Path>) -> LogGuard {
+    init_at(logs_dir(portable_data))
 }
 
 /// [`init`] with an explicit logs folder (`None`: standard error only).
@@ -317,7 +324,8 @@ fn install_panic_hook() {
             file.write(line("ERROR", "panic", &report));
             file.flush();
         }
-        let entry = format!("{} dalica {} (pid {}): {report}\n", timestamp(SystemTime::now()), env!("CARGO_PKG_VERSION"), std::process::id());
+        let entry =
+            format!("{} dalica {} (pid {}): {report}\n", timestamp(SystemTime::now()), dalica_core::build::version_string(), std::process::id());
         append_panics_file(&std::env::temp_dir().join(PANICS_FILE), entry.as_bytes());
     }));
 }
@@ -474,6 +482,8 @@ mod tests {
     }
 
     const PANIC_HELPER: &str = "DALICA_LOGGING_PANIC_HELPER";
+    /// Set for the helper: the portable data folder it logs into.
+    const PORTABLE_HELPER: &str = "DALICA_LOGGING_PORTABLE_DATA";
 
     /// Run as a child process by `a_panic_reaches_both_files`: logs, then panics.
     #[test]
@@ -481,7 +491,8 @@ mod tests {
         if std::env::var_os(PANIC_HELPER).is_none() {
             return;
         }
-        let _guard = init();
+        let portable = std::env::var_os(PORTABLE_HELPER).map(PathBuf::from);
+        let _guard = init(portable.as_deref());
         log::info!("about to fail");
         let what = "boom";
         panic!("deliberate {what} 42");
@@ -508,6 +519,35 @@ mod tests {
             assert!(text.contains("panic in thread `"), "{text}");
         }
         assert!(log.contains("about to fail"), "{log}");
+    }
+
+    #[test]
+    fn the_portable_log_is_in_the_data_folder() {
+        let config = if cfg!(windows) { r"C:\Users\a\AppData\Roaming" } else { "/home/a" };
+        let var = |k: &str| matches!(k, "HOME" | "APPDATA").then(|| OsString::from(config));
+        let data = if cfg!(windows) { PathBuf::from(r"D:\Dalica\data") } else { PathBuf::from("/media/stick/Dalica/data") };
+        assert_eq!(logs_dir_from(var, Some(&data)), Some(data.join("logs")));
+        assert_eq!(logs_dir_from(|_| None, Some(&data)), Some(data.join("logs")), "no home folder needed");
+        assert_eq!(logs_dir_from(var, None), config_dir_from(var).map(|c| c.join("logs")));
+        assert_eq!(logs_dir_from(|_| None, None), None);
+
+        // A run in portable mode: the log and its panic land in `<data>/logs`, nothing in the
+        // settings folder.
+        let dir = tempfile::tempdir().unwrap();
+        let data = dir.path().join("Dalica").join("data");
+        let mut cmd = Command::new(std::env::current_exe().unwrap());
+        let helper = format!("{}::panic_helper", module_path!().split_once("::").map_or(module_path!(), |(_, m)| m));
+        cmd.args([helper.as_str(), "--exact", "--nocapture", "--test-threads=1"]).env(PANIC_HELPER, "1").env(PORTABLE_HELPER, &data);
+        sandbox(&mut cmd, dir.path());
+        let out = cmd.output().unwrap();
+        assert!(!out.status.success(), "the helper should have panicked");
+        let log = read(&data.join("logs").join(LOG_FILE));
+        assert!(log.contains("about to fail") && log.contains("deliberate boom 42"), "{log}");
+        let settings = config_dir_from(|k| matches!(k, "HOME" | "XDG_CONFIG_HOME" | "APPDATA").then(|| dir.path().into())).unwrap();
+        assert!(!settings.join("logs").exists(), "nothing in the settings folder");
+        // The panic line in the temp folder names the build.
+        let panics = read(&dir.path().join(PANICS_FILE));
+        assert!(panics.contains(&format!("dalica {} (pid", dalica_core::build::version_string())), "{panics}");
     }
 
     #[test]

@@ -16,6 +16,7 @@ mod metadata;
 mod names;
 mod parity;
 mod tasks;
+mod version;
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -35,11 +36,12 @@ commands:
   layers    check crate dependencies against the layer table (docs/architecture.md §2)
   names     the reference product's name appears in no file but AGENTS.md
   parity    docs/parity.md is well formed and its evidence exists; --write refreshes the summary
-  tasks     the task board (docs/task-board.md); `cargo xtask tasks` for its commands";
+  tasks     the task board (docs/task-board.md); `cargo xtask tasks` for its commands
+  version   cargo xtask version [set X.Y.Z[-pre]]: print or set [workspace.package] version (Cargo.toml and Cargo.lock)";
 
 /// Implemented commands (`cargo xtask docs` checks the docs against these and [`PLANNED`]).
 pub const COMMANDS: &[&str] =
-    &["ci", "accept", "assets", "bench", "budgets", "corpus", "test-corpus", "docs", "deps", "layers", "names", "parity", "tasks"];
+    &["ci", "accept", "assets", "bench", "budgets", "corpus", "test-corpus", "docs", "deps", "layers", "names", "parity", "tasks", "version"];
 
 /// Commands the docs already describe, with where they are planned; running one says so.
 pub const PLANNED: &[(&str, &str)] = &[
@@ -79,6 +81,7 @@ fn main() -> ExitCode {
         Some("names") => names::run(&root),
         Some("layers") => layers::run(&root),
         Some("tasks") => tasks::run(&root, args.get(1..).unwrap_or(&[])),
+        Some("version") => version::run(&root, args.get(1..).unwrap_or(&[])),
         Some("-h" | "--help" | "help") => {
             println!("{USAGE}");
             Ok(())
