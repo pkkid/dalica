@@ -2130,7 +2130,7 @@ replace at M6.R.
     said plainly) and the dry run on the PR builds them on both architectures;
     `desktop-file-validate` and `appstreamcli validate` pass; the AppImage runs `dalica --version`
     in CI; a preflight test with a planted missing library prints the package and exits 1.
-- ⬜ **M6.22 Windows packages**
+- ✅ **M6.22 Windows packages**
   - after: M6.7, M6.12, M6.13
   - files: `packaging/windows/**`, `apps/dalica/build.rs`
   - scope: `releasing.md` → Windows: `package.ps1 -Arch x64` with `+crt-static`; `build.rs` embeds

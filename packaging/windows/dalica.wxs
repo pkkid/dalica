@@ -1,0 +1,139 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The Dalica MSI (WiX Toolset v5, with its UI and Util extensions). Built by package.ps1:
+
+    wix build dalica.wxs -arch x64 -ext WixToolset.UI.wixext -ext WixToolset.Util.wixext
+      -culture en-US -loc dalica.en-us.wxl -d Version=1.2.3 -d DisplayVersion=1.2.3-rc.1
+      -d BinDir=... -d DocDir=... -d IconPath=... -d BannerBmp=... -d DialogBmp=... -o out.msi
+
+  Per-machine install (docs/releasing.md -> Windows) with a setup wizard that names the version:
+  Welcome, install folder (Program Files\Dalica by default, remembered for upgrades), Ready,
+  progress, and a Finish page with a "Launch Dalica" box. No licence page: the code is MIT OR
+  Apache-2.0, there is nothing to accept. `msiexec /qn` installs silently. A Start Menu shortcut,
+  both programs, the licence and notice files; Dalica is offered under "Open with" for the image
+  formats it reads and never takes over the default viewer of any of them (no `.ext` default value
+  is written, only OpenWithProgids and SupportedTypes). Version is numeric X.Y.Z; same-version
+  upgrades let release candidates of one X.Y.Z replace each other.
+
+  Adapted from PhotoCraft packaging/windows/photocraft.wxs (revision 0d6e658e); MIT OR Apache-2.0.
+  Changed for Dalica: no file type of its own, the "Open with" list is Dalica's readable formats
+  (one list, below), the commands run dalica.exe with its view option and the file (for now that
+  opens the library window; the standalone viewer of docs/viewing.md section 3 comes later), and
+  the licence and notice files are installed with the programs.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  <!-- The formats Dalica reads (docs/formats.md section 1) by their usual extensions: JPEG, PNG,
+       TIFF, WebP, GIF, BMP, JPEG XL, PSD/PSB, and the camera raws whose embedded preview it shows.
+       Not HEIC/HEIF (release builds leave out the `heif` feature) and not AVIF (never decoded). -->
+  <?define OpenWithExtensions = jpg;jpeg;jpe;jfif;png;tif;tiff;webp;gif;bmp;jxl;psd;psb;dng;cr2;cr3;crw;nef;nrw;arw;srf;sr2;orf;rw2;raf;pef;srw;mrw;x3f;erf;kdc;dcr;3fr;mos;mef;iiq;rwl ?>
+
+  <Package
+      Name="Dalica"
+      Manufacturer="the Dalica contributors"
+      Version="$(var.Version)"
+      UpgradeCode="F587898F-2606-4B16-8F20-B700EEF02858"
+      Scope="perMachine"
+      Compressed="yes"
+      Language="1033">
+    <SummaryInformation Description="Dalica photo organizer" Manufacturer="the Dalica contributors" />
+    <!-- Same-version upgrades let successive pre-releases of one X.Y.Z replace each other (MSI
+         versions are numeric, so 1.2.3-rc.1 and 1.2.3-rc.2 are both 1.2.3). -->
+    <MajorUpgrade AllowSameVersionUpgrades="yes"
+        DowngradeErrorMessage="A newer version of Dalica is already installed." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <!-- MSI caches this icon under its Id as the file name; an advertised shortcut to an .exe needs
+         an .exe icon Id (ICE50), even though the source is an .ico. -->
+    <Icon Id="DalicaIcon.exe" SourceFile="$(var.IconPath)" />
+    <Property Id="ARPPRODUCTICON" Value="DalicaIcon.exe" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/pkkid/dalica" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/pkkid/dalica/issues" />
+
+    <StandardDirectory Id="ProgramFiles6432Folder">
+      <Directory Id="INSTALLFOLDER" Name="Dalica" />
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder" />
+
+    <!-- An upgrade installs where the user put the previous version (written by DalicaApp). -->
+    <Property Id="INSTALLFOLDER">
+      <RegistrySearch Id="PreviousInstallFolder" Root="HKLM" Key="Software\Dalica" Name="InstallDir" Type="raw" />
+    </Property>
+
+    <Feature Id="Main" Title="Dalica" Level="1">
+      <ComponentGroupRef Id="DalicaFiles" />
+    </Feature>
+
+    <!-- WixUI_InstallDir without its licence page. A later NewDialog on the same button wins. -->
+    <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
+    <UI>
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="InstallDirDlg" Order="2" Condition="NOT Installed" />
+      <Publish Dialog="InstallDirDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg" Order="2" />
+      <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="LaunchDalica"
+          Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 AND NOT Installed" />
+    </UI>
+    <!-- Dalica's own art, drawn by package.ps1 from the app icon (not WiX's stock bitmaps). -->
+    <WixVariable Id="WixUIBannerBmp" Value="$(var.BannerBmp)" />
+    <WixVariable Id="WixUIDialogBmp" Value="$(var.DialogBmp)" />
+
+    <!-- The full version (Version is numeric and drops a pre-release tag), shown on the wizard's
+         pages through dalica.en-us.wxl. -->
+    <Property Id="DalicaVersion" Value="$(var.DisplayVersion)" />
+
+    <!-- Finish page: where to find Dalica, and an offer to start it (ticked by default). -->
+    <Property Id="WIXUI_EXITDIALOGOPTIONALTEXT" Value="Dalica $(var.DisplayVersion) is installed. You can start it any time from the Start menu." />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Launch Dalica" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
+    <Property Id="WixShellExecTarget" Value="[#DalicaExe]" />
+    <!-- Runs in the wizard's own (unelevated) process, so Dalica starts as the user, not as admin. -->
+    <CustomAction Id="LaunchDalica" BinaryRef="Wix4UtilCA_$(sys.BUILDARCHSHORT)" DllEntry="WixShellExec" Impersonate="yes" Return="ignore" />
+  </Package>
+
+  <Fragment>
+    <ComponentGroup Id="DalicaFiles" Directory="INSTALLFOLDER">
+      <Component Id="DalicaApp" Guid="36D217AB-87EE-44DC-8ACA-539B42C8E420">
+        <File Id="DalicaExe" Source="$(var.BinDir)\dalica.exe" KeyPath="yes">
+          <Shortcut Id="StartMenuShortcut" Directory="ProgramMenuFolder" Name="Dalica"
+              Description="Dalica photo organizer" WorkingDirectory="INSTALLFOLDER" Advertise="yes"
+              Icon="DalicaIcon.exe" IconIndex="0" />
+        </File>
+
+        <!-- "Open with" only: a ProgId with an open command, listed in each extension's
+             OpenWithProgids and in Applications\dalica.exe\SupportedTypes. No extension's default
+             value is touched, so the user's default viewer stays theirs. The keys that are wholly
+             Dalica's go on uninstall even if something else added to them; the extensions' keys
+             are shared and lose only Dalica's value. -->
+        <ProgId Id="Dalica.Image" Description="Image" Icon="DalicaExe" IconIndex="0" />
+        <RegistryKey Root="HKLM" Key="Software\Classes\Dalica.Image" ForceDeleteOnUninstall="yes">
+          <RegistryValue Key="shell\open\command" Value="&quot;[#DalicaExe]&quot; --view &quot;%1&quot;" Type="string" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Applications\dalica.exe" ForceDeleteOnUninstall="yes">
+          <RegistryValue Name="FriendlyAppName" Value="Dalica" Type="string" />
+          <RegistryValue Key="shell\open\command" Value="&quot;[#DalicaExe]&quot; --view &quot;%1&quot;" Type="string" />
+          <?foreach Ext in $(var.OpenWithExtensions)?>
+          <RegistryValue Key="SupportedTypes" Name=".$(var.Ext)" Value="" Type="string" />
+          <?endforeach?>
+        </RegistryKey>
+        <?foreach Ext in $(var.OpenWithExtensions)?>
+        <RegistryValue Root="HKLM" Key="Software\Classes\.$(var.Ext)\OpenWithProgids" Name="Dalica.Image" Value="" Type="string" />
+        <?endforeach?>
+
+        <!-- The Run dialog (Win+R "dalica") and the remembered install folder. -->
+        <RegistryKey Root="HKLM" Key="Software\Microsoft\Windows\CurrentVersion\App Paths\dalica.exe" ForceDeleteOnUninstall="yes">
+          <RegistryValue Value="[#DalicaExe]" Type="string" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Dalica" ForceDeleteOnUninstall="yes">
+          <RegistryValue Name="InstallDir" Value="[INSTALLFOLDER]" Type="string" />
+        </RegistryKey>
+      </Component>
+
+      <Component Id="DalicaCli">
+        <File Id="DalicaCliExe" Source="$(var.BinDir)\dalica-cli.exe" KeyPath="yes" />
+      </Component>
+
+      <!-- LICENSE-MIT, LICENSE-APACHE, NOTICE, ATTRIBUTION.md, README.md and the fonts' OFL files,
+           staged by package.ps1. -->
+      <Files Include="$(var.DocDir)\*" />
+    </ComponentGroup>
+  </Fragment>
+</Wix>

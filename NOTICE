@@ -78,7 +78,14 @@ file and revision in its first lines:
   packaging/macos/Info.plist.in              PhotoCraft packaging/macos/Info.plist.in @ 77221725
   packaging/macos/entitlements.plist         PhotoCraft packaging/macos/entitlements.plist @ 77221725
   packaging/macos/dmg/generate.py            PhotoCraft packaging/macos/dmg/generate.py @ 77221725
-  packaging/windows/package.ps1              PhotoCraft packaging/windows/package.ps1 @ 2db6b7d8
+  packaging/windows/package.ps1              PhotoCraft packaging/windows/package.ps1 @ 2db6b7d8, @ 0d6e658e
+  packaging/windows/pe.ps1                   PhotoCraft packaging/windows/package.ps1 @ 0d6e658e
+  packaging/windows/dalica.wxs               PhotoCraft packaging/windows/photocraft.wxs @ 0d6e658e
+  packaging/windows/dalica.en-us.wxl         PhotoCraft packaging/windows/photocraft.en-us.wxl @ 0d6e658e
+  packaging/windows/sign.ps1                 LightCraft packaging/windows/sign.ps1 @ 453f97b5
+                                             PhotoCraft packaging/windows/sign.ps1 @ 1f1ddb2a
+  apps/dalica/build.rs                       PhotoCraft apps/photocraft/build.rs @ 1f1ddb2a
+                                             PhotoCraft apps/photocraft-cli/build.rs @ b885173d
   crates/ui-kit/src/widgets/field/edit.rs    LightCraft crates/ui-egui/src/text_field.rs @ 76b53778
   crates/ui-kit/src/widgets/autocomplete.rs  LightCraft crates/ui-egui/src/album_picker.rs @ 76b53778
                                              PhotoCraft crates/ui-egui/src/widgets/type_ahead.rs @ 9a9d23d2

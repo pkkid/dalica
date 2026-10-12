@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Overrides of the setup wizard's WixUI strings, so its pages name the version being installed
+  ([DalicaVersion] is the full version, pre-release tag included, set in dalica.wxs).
+
+  Adapted from PhotoCraft packaging/windows/photocraft.en-us.wxl (revision 0d6e658e); MIT OR
+  Apache-2.0.
+-->
+<WixLocalization Culture="en-US" xmlns="http://wixtoolset.org/schemas/v4/wxl">
+  <String Id="WelcomeDlgTitle" Value="{\WixUI_Font_Bigger}Welcome to the [ProductName] [DalicaVersion] Setup Wizard" />
+  <String Id="WelcomeDlgDescription" Value="The Setup Wizard will install [ProductName] version [DalicaVersion] on your computer. Click Next to continue or Cancel to exit the Setup Wizard." />
+  <String Id="VerifyReadyDlgInstallTitle" Value="{\WixUI_Font_Title}Ready to install [ProductName] [DalicaVersion]" />
+  <String Id="ExitDialogTitle" Value="{\WixUI_Font_Bigger}Completed the [ProductName] [DalicaVersion] Setup Wizard" />
+</WixLocalization>

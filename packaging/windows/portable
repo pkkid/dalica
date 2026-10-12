@@ -1,0 +1,10 @@
+Dalica portable mode
+
+While this file sits next to dalica.exe, Dalica keeps its library (settings and index), its
+thumbnail cache and its log in the "data" folder beside it, and writes nothing to %LOCALAPPDATA%.
+Copy the whole folder to move Dalica with everything it knows. Sidecars (.dalica.json) still live
+in your photo folders, as always.
+
+Delete this file to use the normal per-user folder (%LOCALAPPDATA%\Dalica) instead. If the "data"
+folder cannot be written (for example on a read-only drive), Dalica says so in its log and uses
+%LOCALAPPDATA%\Dalica instead.

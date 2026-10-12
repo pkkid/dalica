@@ -34,5 +34,9 @@ wgpu.workspace = true
 [target.'cfg(target_os = "macos")'.dependencies]
 muda.workspace = true
 
+# The icon and VERSIONINFO of dalica.exe (build.rs; only used when targeting Windows).
+[build-dependencies]
+winresource.workspace = true
+
 [dev-dependencies]
 tempfile.workspace = true
