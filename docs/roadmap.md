@@ -2175,7 +2175,7 @@ replace at M6.R.
     removes its cell and Ctrl+A skips it, Hidden Pictures shows it at 40 %; hiding a folder moves
     its row to Hidden Folders and removes its section until Hidden Pictures; the tree fingerprints
     at both window sizes.
-- ⬜ **M6.25 `ui`: captions in the library**
+- ✅ **M6.25 `ui`: captions in the library**
   - after: M5.25, M6.6, M6.14
   - files: `crates/ui/src/panels/light_table/cell.rs`, `crates/ui/src/panels/light_table/caption_edit.rs`, `crates/ui/src/commands/caption.rs`, `crates/ui/tests/captions.rs`, `crates/ui/tests/fingerprints/region-cells*.json`
   - scope: `organizing.md` §5.3 and `ui-layout.md` §5.3: Picture → Edit Caption opens a one-line

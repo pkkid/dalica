@@ -3,7 +3,8 @@
 //! selection's `cell_selected` surround and 2 pt outline (`photo_focus` on the anchor,
 //! `photo_selected` on the rest); the hover surround; the badges and video marks
 //! ([`widgets::badges`], fed what the model knows); the caption line under the cell, middle-elided;
-//! the `caution` "!" of a photo that cannot be shown; and, after the pointer has rested on the cell
+//! the `caution` "!" of a photo that cannot be shown; the inline caption editor under the cell it
+//! is open for ([`caption_edit`]); and, after the pointer has rested on the cell
 //! for [`TOOLTIP_SECONDS`], the tooltip (file name; date taken, pixel size, file size; or why the
 //! photo cannot be shown). A hidden photo is drawn at [`HIDDEN_OPACITY`] when View ▸ Hidden
 //! Pictures shows it ([`opacity`]).
@@ -14,7 +15,8 @@
 //! already left out what is not shown (small pictures unless View ▸ Small Pictures). The cell senses
 //! clicks, registers `thumb:<PhotoId>` and its star badge `thumb:<PhotoId>/star`, asks
 //! [`Thumbnails::paint`] for the image and returns a [`CellOut`] (its response) for
-//! [`super::input`] to act on. What the last pass drew is kept for tests and inspection
+//! [`super::input`] to act on. Once the cells are drawn, the parent calls [`apply`], which applies
+//! what the caption editor did. What the last pass drew is kept for tests and inspection
 //! ([`Cells::shown`], [`Cells::tooltip`]).
 
 use std::collections::{HashMap, HashSet};
@@ -26,7 +28,9 @@ use dalica_ui_kit::widgets::{self, Badge, Badges, Target};
 use dalica_ui_kit::{Tokens, fonts};
 use egui::{Align2, Id, Painter, Rect, Response, Sense, Stroke, StrokeKind, Ui, vec2};
 
+use super::caption_edit::{self, Editor};
 use super::{Frame, long_date};
+use crate::app::App;
 use crate::panels::thumbnails::{Drawn, PhotoRef, Thumbnails};
 use crate::state::{self, Caption};
 use crate::status_text as status;
@@ -90,6 +94,8 @@ pub struct Cells {
     selected: IdSet,
     /// Fitted captions: photo → (full text, width bits, fitted text).
     fitted: HashMap<PhotoId, (String, u32, String)>,
+    /// The inline caption editor.
+    editor: Editor,
 }
 
 impl Cells {
@@ -101,6 +107,11 @@ impl Cells {
     /// What `photo`'s cell drew in that pass.
     pub fn get(&self, photo: PhotoId) -> Option<&Shown> {
         self.shown.iter().find(|s| s.photo == photo)
+    }
+
+    /// Whether the inline caption editor was drawn in the last pass that drew cells.
+    pub fn editor_shown(&self) -> bool {
+        self.pass.is_some_and(|p| self.editor.drawn_in(p))
     }
 
     /// The tooltip showing in that pass, with its photo.
@@ -234,8 +245,19 @@ pub fn badges_of(photo: &Photo, held: bool) -> Badges {
 }
 
 /// The caption line's text for `mode` (`ui-layout.md` §5.3), before fitting: the file name; the
-/// date taken (else the file's date); the pixel size; empty for Caption and Tags until the model
-/// carries them (M6) and for a size or date that is not known. `None` with captions off.
+/// date taken (else the file's date); the pixel size; the photo's caption; its tags joined with
+/// ", " in the order added. Empty for a size, date, caption or tags the photo does not have. `None`
+/// with captions off.
+pub fn caption_of(photo: &Photo, library: &Library, mode: Caption) -> Option<String> {
+    Some(match mode {
+        Caption::Caption => library.caption(photo.id).to_owned(),
+        Caption::Tags => library.tags_of(photo.id).join(", "),
+        _ => return caption_text(photo, mode),
+    })
+}
+
+/// [`caption_of`] for the modes that come from the photo's file alone (file name, date, size);
+/// Caption and Tags, which the library holds, are empty here.
 pub fn caption_text(photo: &Photo, mode: Caption) -> Option<String> {
     Some(match mode {
         Caption::None => return None,
@@ -336,7 +358,10 @@ pub fn show(ui: &mut Ui, f: &Frame<'_>, cells: &mut Cells, thumbs: &mut Thumbnai
     let device_px = image.width().max(image.height()) * f.pixels_per_point;
     let drawn = thumbs.paint(&painter, PhotoRef { session: f.session, photo: c.photo }, image, device_px);
     let marks = paint_over(&painter, t, &look, drawn == Drawn::Failed);
-    let caption = match (c.caption, caption_text(c.photo, f.state.caption)) {
+    let editing = f.state.caption_edit.as_ref().filter(|e| e.photo == id);
+    let caption = match (c.caption, caption_of(c.photo, f.session.library(), f.state.caption)) {
+        // The editor takes the caption line's place.
+        (Some(_), Some(_)) if editing.is_some() => None,
         (Some(line), Some(text)) => {
             let font = fonts::regular(t.caption);
             let fitted = cells.fit(&painter, id, &text, (line.width() - 4.0).max(0.0), &font);
@@ -355,8 +380,17 @@ pub fn show(ui: &mut Ui, f: &Frame<'_>, cells: &mut Cells, thumbs: &mut Thumbnai
         widgets::tooltip_now(&response, t, &tip.title, Some(&tip.detail));
         tip
     });
+    if let Some(edit) = editing {
+        caption_edit::show(ui, f, &mut cells.editor, edit, c.rect, pass);
+    }
     cells.shown.push(Shown { photo: id, caption, selected, opacity: alpha, badges: look.badges, drawn, tooltip });
     CellOut { photo: id, section: c.section, rect: c.rect, image, response, drawn }
+}
+
+/// Applies what the cells' parts did this frame, once the cells are drawn and the library is no
+/// longer borrowed: the caption editor's typing, commit or cancel ([`caption_edit::apply`]).
+pub fn apply(app: &mut App, cells: &mut Cells) {
+    caption_edit::apply(app, &mut cells.editor, cells.pass);
 }
 
 /// What goes under the image: the selected or hovered surround, and the photo's drop shadow.

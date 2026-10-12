@@ -1,11 +1,10 @@
 //! The inline caption editor (`organizing.md` §5.3): Picture ▸ Edit Caption (`photo.caption.edit`)
-//! opens a one-line editor under a photo's cell, the focused photo's unless the command names one.
-//! The editor is view state ([`crate::state::CaptionEdit`]: the photo and the text typed so far);
-//! it commits through the engine's `photo.caption.set` (one undo step), and Esc leaves the caption
-//! as it was.
-//!
-//! For now the command opens the editor in the view state only: the cell draws it, commits it and
-//! cancels it later in this milestone.
+//! opens a one-line editor under a photo's cell, the focused photo's unless the command names one,
+//! starting from its caption, and scrolls the cell into view. The editor is view state
+//! ([`crate::state::CaptionEdit`]: the photo and the text typed so far); the cell draws it, and it
+//! commits through the engine's `photo.caption.set` (one undo step) or, with Esc, leaves the caption
+//! as it was ([`crate::panels::light_table::caption_edit`]). Opening it on another photo commits
+//! what was typed for the first, as a click elsewhere would.
 
 use dalica_core::PhotoId;
 use dalica_engine::CmdError;
@@ -14,7 +13,9 @@ use serde_json::{Value, json};
 
 use super::{Check, UiCommand, parse_object};
 use crate::app::App;
-use crate::state::CaptionEdit;
+use crate::panels::light_table::caption_edit;
+use crate::selection::Table;
+use crate::state::{CaptionEdit, MAX_DRAFT};
 
 pub const COMMANDS: &[UiCommand] = &[UiCommand {
     id: "photo.caption.edit",
@@ -34,8 +35,16 @@ fn focused(app: &App) -> Option<PhotoId> {
     sel.anchor.or_else(|| sel.ids.first().copied())
 }
 
+/// Why the editor cannot hold `photo`'s caption: one longer than a draft holds is edited in the
+/// edit view's caption field, never cut here.
+fn too_long(app: &App, photo: PhotoId) -> Option<String> {
+    let caption = app.session()?.library().caption(photo);
+    (caption.chars().count() > MAX_DRAFT).then(|| format!("This caption is longer than {MAX_DRAFT} characters; it cannot be edited here."))
+}
+
 fn can_edit(app: &App, _params: &Value) -> Result<(), String> {
-    focused(app).map(|_| ()).ok_or_else(|| "Select a photo first.".to_string())
+    let photo = focused(app).ok_or_else(|| "Select a photo first.".to_string())?;
+    too_long(app, photo).map_or(Ok(()), Err)
 }
 
 #[derive(Deserialize)]
@@ -50,12 +59,29 @@ fn edit(app: &mut App, params: &Value) -> Result<Value, CmdError> {
         Some(id) => id,
         None => focused(app).ok_or_else(|| CmdError::Disabled("Select a photo first.".into()))?,
     };
-    if !app.session().is_some_and(|s| s.library().photo(photo).is_some()) {
+    let Some(caption) = app.session().and_then(|s| s.library().photo(photo).map(|_| s.library().caption(photo).to_owned())) else {
         return Err(CmdError::NotFound(format!("no photo {photo}")));
+    };
+    if let Some(why) = too_long(app, photo) {
+        return Err(CmdError::Disabled(why));
     }
-    // The model holds no captions yet: the editor starts empty.
-    let open = CaptionEdit { photo, draft: String::new() };
-    app.state_mut().caption_edit = Some(open.clone());
+    // The cell scrolls into view (when a frame has been drawn and it is not in view).
+    let reveal = Table::of(app).and_then(|t| t.section_of(photo).and_then(|s| t.reveal(s, photo)));
+    // Open on this photo already: it goes on with what was typed. Open on another: what was typed
+    // there is kept, as a click elsewhere keeps it.
+    let open = match app.state_mut().caption_edit.take() {
+        Some(old) if old.photo == photo => old,
+        Some(old) => {
+            caption_edit::commit(app, old.photo, &old.draft);
+            CaptionEdit { photo, draft: caption }
+        }
+        None => CaptionEdit { photo, draft: caption },
+    };
+    let state = app.state_mut();
+    state.caption_edit = Some(open.clone());
+    if let Some(anchor) = reveal {
+        state.scroll = anchor;
+    }
     Ok(json!({ "captionEdit": open }))
 }
 
