@@ -2346,7 +2346,7 @@ replace at M6.R.
     scope (`architecture.md` §9).
   - done when: `cargo xtask tasks sync --check` parses them and `tasks sync --dry-run` lists one new
     issue per block.
-- ⬜ **M6.38 `image`: real-camera fixes found by the M5 corpus**
+- ✅ **M6.38 `image`: real-camera fixes found by the M5 corpus**
   - after: M5.R
   - files: `crates/image/src/formats/raw/**`, `crates/image/src/formats/tiff.rs`, `crates/image/src/sniff.rs`, `crates/image/src/ifd.rs`, `crates/image/tests/raw_tiff.rs`, `crates/image/tests/raw_containers.rs`, `crates/image/tests/tiff.rs`, `crates/image/tests/corpus_floors.json`
   - scope: found by `cargo xtask test-corpus` at M5.15/M5.20 (M5.R): both Samsung SRW files and the

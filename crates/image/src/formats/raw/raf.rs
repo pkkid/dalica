@@ -68,6 +68,8 @@ pub(crate) const MAX_PREVIEWS: usize = 64;
 pub(crate) struct Preview {
     pub range: Range<usize>,
     pub header: Header,
+    /// Its first byte is not the 0xFF of the SOI marker and is read as one ([`pick_repairing`]).
+    pub repaired: bool,
 }
 
 /// The largest embedded JPEG (what the file shows) and the next smaller one (the thumbnail fast
@@ -92,6 +94,40 @@ pub(crate) fn span(offset: u64, len: u64) -> Result<Range<usize>> {
 /// is largest). The largest by pixels (then bytes) is the preview; the largest smaller one is the
 /// thumbnail. `Ok(None)`: no usable JPEG.
 pub(crate) fn pick(bytes: &[u8], candidates: &[Range<usize>], limits: &Limits) -> Result<Option<Previews>> {
+    choose(bytes, candidates, limits, false)
+}
+
+/// [`pick`] for containers whose cameras store the JPEG with a wrong first byte (`?? D8 FF`
+/// instead of `FF D8 FF`; Minolta's MRW): such a candidate is read as if that byte were 0xFF,
+/// through a copy. A repaired JPEG is never offered as the thumbnail range, which callers read
+/// from the file as it is.
+pub(crate) fn pick_repairing(bytes: &[u8], candidates: &[Range<usize>], limits: &Limits) -> Result<Option<Previews>> {
+    choose(bytes, candidates, limits, true)
+}
+
+/// Whether `data` starts like a JPEG: `Some(false)` as it is, `Some(true)` once its first byte is
+/// set to 0xFF (only when `repair` allows it), `None` not at all.
+fn soi(data: &[u8], repair: bool) -> Option<bool> {
+    if data.starts_with(b"\xff\xd8\xff") {
+        Some(false)
+    } else if repair && data.len() > 3 && data.get(1..3) == Some(b"\xd8\xff") {
+        Some(true)
+    } else {
+        None
+    }
+}
+
+/// `data` with its first byte set to 0xFF, in `buf` (fallibly reserved by the caller).
+fn with_soi(data: &[u8], mut buf: Vec<u8>) -> Vec<u8> {
+    buf.clear();
+    buf.extend_from_slice(data);
+    if let Some(b) = buf.first_mut() {
+        *b = 0xff;
+    }
+    buf
+}
+
+fn choose(bytes: &[u8], candidates: &[Range<usize>], limits: &Limits, repair: bool) -> Result<Option<Previews>> {
     if candidates.len() > MAX_PREVIEWS {
         return Err(Error::TooMany("embedded previews"));
     }
@@ -101,16 +137,22 @@ pub(crate) fn pick(bytes: &[u8], candidates: &[Range<usize>], limits: &Limits) -
             continue;
         }
         let data = bytes.get(range.clone()).ok_or(Error::Truncated)?;
-        if !data.starts_with(b"\xff\xd8\xff") {
-            continue;
-        }
-        if let Ok(header) = jpeg::header(data, limits) {
-            found.push(Preview { range: range.clone(), header });
+        let header = match soi(data, repair) {
+            None => continue,
+            Some(false) => jpeg::header(data, limits),
+            Some(true) => {
+                let mut buf = Vec::new();
+                buf.try_reserve_exact(data.len()).map_err(|_| Error::TooLarge { width: 0, height: 0 })?;
+                jpeg::header(&with_soi(data, buf), limits)
+            }
+        };
+        if let Ok(header) = header {
+            found.push(Preview { range: range.clone(), header, repaired: soi(data, repair) == Some(true) });
         }
     }
     let pixels = |p: &Preview| u64::from(p.header.width) * u64::from(p.header.height);
     let Some(main) = found.iter().max_by_key(|p| (pixels(p), p.range.len())).cloned() else { return Ok(None) };
-    let smaller = found.iter().filter(|p| pixels(p) < pixels(&main));
+    let smaller = found.iter().filter(|p| pixels(p) < pixels(&main) && !p.repaired);
     let thumb = smaller.max_by_key(|p| (pixels(p), p.range.len())).map(|p| p.range.clone());
     Ok(Some(Previews { main, thumb }))
 }
@@ -144,7 +186,14 @@ pub(crate) fn header_of(format: Format, p: &Previews, exif: Option<(&[u8], usize
 /// Decodes the main preview; its orientation is the raw's.
 pub(crate) fn decode_main(bytes: &[u8], header: &Header, p: &Previews, budget: &mut Budget, limits: &Limits) -> Result<Decoded> {
     let data = bytes.get(p.main.range.clone()).ok_or(Error::Truncated)?;
-    let mut decoded = jpeg::decode(data, &p.main.header, budget, limits)?;
+    let mut decoded = if p.main.repaired {
+        let copy = with_soi(data, budget.vec(data.len(), 0u8)?);
+        let decoded = jpeg::decode(&copy, &p.main.header, budget, limits);
+        budget.refund(copy.len() as u64);
+        decoded?
+    } else {
+        jpeg::decode(data, &p.main.header, budget, limits)?
+    };
     decoded.orientation = header.orientation;
     Ok(decoded)
 }

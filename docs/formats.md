@@ -21,12 +21,11 @@ and the per-type toggles are in [`data-model.md`](data-model.md) §7 and Options
 > (`architecture.md` §9). Everything is pure Rust; no C decoder is linked, ever.
 >
 > Measured on real files (M5.15, `development.md` §11): PngSuite decodes all 162 valid files and
-> refuses all 14 corrupt ones. Of the 26 camera raws (two per kind), 20 show their preview; still
-> refused: both MRW files (no preview found), both Samsung SRW files and the Sony DSLR-A100 ARW
-> (recognised as plain TIFF, not as raws), the Olympus C5060WZ ORF (no preview found); the Olympus E-3 ORF decodes
-> from the whole file but its header read from the first bytes stops at "no preview" instead of
-> reading on. The `photos` and `heif` sets are not published yet, so camera JPEGs and HEIC files are
-> measured only on synthetic files.
+> refuses all 14 corrupt ones. All 26 camera raws (two per kind) show their preview, with their
+> header read from the first bytes the way scanning reads it (M6.38 fixed the six that did not:
+> both MRW files, both Samsung SRW files, the Sony DSLR-A100 ARW and the Olympus C5060WZ ORF, and
+> the Olympus E-3 ORF's header read). The `photos` and `heif` sets are not published yet, so
+> camera JPEGs and HEIC files are measured only on synthetic files.
 
 ## 1. Formats
 
@@ -34,7 +33,7 @@ and the per-type toggles are in [`data-model.md`](data-model.md) §7 and Options
 |---|---|---|---|---|---|
 | JPEG | yes: baseline, progressive, CMYK/YCCK, 12-bit | embedded EXIF thumbnail or MPF preview; DCT-domain 1/2–1/8 scaled decode | XMP, IPTC, EXIF | yes (JPEG; rotate-only Save is lossless where dimensions allow, `data-model.md` §6) | arithmetic coding unsupported |
 | PNG | yes: 1–16-bit, palette, transparency, interlaced | scaled decode | XMP (`iTXt`), EXIF (`eXIf`) | PNG without alpha: yes; with alpha: JPEG copy beside it | |
-| TIFF | yes: 8/16-bit int, float, gray/RGB/CMYK/palette, LZW/Deflate/PackBits/JPEG; first full-resolution page | embedded thumbnail IFD if present, else scaled decode | XMP and IPTC tags (append-only) | JPEG copy beside it | multi-page: first page; Lab/YCbCr unsupported |
+| TIFF | yes: 8/16-bit int, float, gray/RGB/CMYK/palette, LZW/Deflate/PackBits/JPEG; first full-resolution page | embedded thumbnail IFD if present, else scaled decode | XMP and IPTC tags (append-only) | JPEG copy beside it | multi-page: first page; Lab/YCbCr unsupported; a file cut inside a strip or tile is "Damaged file" |
 | WebP | yes: lossy and lossless, alpha; first frame of animations | scaled decode | XMP, EXIF chunks | JPEG copy beside it | |
 | GIF | first frame | scaled decode | — (sidecar only) | JPEG copy beside it | animation shown as its first frame |
 | BMP | yes | scaled decode | — (sidecar only) | JPEG copy beside it | |
@@ -71,11 +70,17 @@ while a format waits for its task).
   and the other containers our extractor probes (CR3, RAF, CRW, MRW, X3F). Detection is by content, not by
   extension: CR3 by its `ftyp` brand, RAF, CRW, MRW and X3F by their signatures, CR2, ORF and RW2
   by their variants of the TIFF header, and the other TIFF-structured raws by a bounded walk of
-  IFD0's chain and its sub-IFDs that finds a DNGVersion tag or raw sensor data (CFA or LinearRaw
-  photometric interpretation). A TIFF without either is a TIFF.
+  IFD0's chain and its sub-IFDs that finds a DNGVersion or DNGPrivateData tag or raw sensor data
+  (CFA or LinearRaw photometric interpretation, or the CFA pattern tags of TIFF/EP). A TIFF
+  without any of these is a TIFF; one whose IFD0 has no page but points at sub-IFDs past the
+  bytes read so far is read further before it is called damaged.
 - **Shown** through the largest embedded JPEG preview (found by our own bounded TIFF/IFD walk), which is what the
   camera rendered; previews tagged with a colour space (for example Adobe RGB on some cameras) are
-  converted to sRGB. A raw file with no usable preview shows a generic RAW tile.
+  converted to sRGB. A raw file with no usable preview shows a generic RAW tile. A SubIFDs pointer
+  that leads to something whose entries are not in tag order is data, not an IFD, and is passed
+  over. Maker notes are read leniently (a bad pointer only loses that preview), but when the
+  bytes are known to be the start of a longer file (some IFD's strips run past them), a maker note
+  or its preview pointer past their end makes the header read read on.
 - **The other containers** (M5.10) each offer their embedded JPEGs, and the largest (by pixels,
   then bytes) is shown; the next smaller one is the thumbnail fast path. CR3: the `PRVW` preview,
   the `THMB` thumbnail and the first sample of each track whose sample description carries a `JPEG`
@@ -84,7 +89,9 @@ while a format waits for its task).
   at, with that JPEG's own EXIF. CRW: the full-size JPEG and thumbnail records of the CIFF heaps
   (nesting ≤ 8), the rotation of the image specification (degrees clockwise to display), make,
   model and time stamp. MRW: the maker note's preview and the IFD1 thumbnail of the `\0TTW` TIFF
-  block, read with the shared IFD reader. X3F: the JPEG image sections of the directory. CRW and
+  block, read with the shared IFD reader; a maker-note JPEG stored with a wrong first byte (not
+  the 0xFF of the SOI marker) is read as if it were 0xFF, through a copy charged to the decode's
+  memory. X3F: the JPEG image sections of the directory. CRW and
   X3F are found from the end of the file, so a header read takes the whole file (up to the header
   limit). A preview over the 64 MiB limit is passed over; offsets past the end of the file are
   "Damaged file".

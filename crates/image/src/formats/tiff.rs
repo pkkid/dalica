@@ -74,7 +74,11 @@ const DECODER_OVERHEAD: u64 = 1 << 20;
 pub fn header(bytes: &[u8], limits: &Limits) -> Result<Header> {
     let t = open(bytes)?;
     // A value past the end of what we hold may lie in the part of the file not read yet.
-    let page = first_page(&t, limits).map_err(prefix)?;
+    let page = match first_page(&t, limits).map_err(prefix) {
+        // Sub-IFDs past the end: with more of the file, sniffing may find a camera raw there.
+        Err(Error::Malformed(_)) if sub_ifds_past_the_end(&t, limits) => return Err(Error::Truncated),
+        page => page?,
+    };
     let plain = Header {
         format: Format::Tiff,
         width: page.width,
@@ -227,6 +231,22 @@ fn holds_a_prefix(t: &Tiff, ifd: &Ifd, limits: &Limits) -> bool {
     match chunk_tags(ifd) {
         Some((offsets, counts)) => data_end(t, offsets, counts).is_none_or(|end| end > t.len() as u64),
         None => false,
+    }
+}
+
+/// Whether IFD0 points at sub-IFDs past the end of `t` while the header reader could still read
+/// more: TIFF-structured raws sniffing tells apart by their sub-IFDs (Samsung's SRW) look like a
+/// TIFF without a page until those are read.
+fn sub_ifds_past_the_end(t: &Tiff, limits: &Limits) -> bool {
+    if t.len() as u64 >= limits.max_header_bytes {
+        return false;
+    }
+    let Ok(ifd0) = t.first_ifd().and_then(|at| t.ifd(at, &mut Visited::default(), limits)) else { return false };
+    let Some(e) = ifd0.get(crate::ifd::tags::SUB_IFDS) else { return false };
+    match t.uints(e, limits.max_ifds, "IFDs") {
+        Ok(subs) => subs.iter().any(|&at| u64::from(at) >= t.len() as u64),
+        // The list of offsets itself lies past the end.
+        Err(e) => e == Error::OutOfRange,
     }
 }
 
@@ -559,6 +579,11 @@ fn decode_page(bytes: &[u8], t: &Tiff, page: &Page, budget: &mut Budget, limits:
     // into our own buffers, so `tiff`'s decoding-buffer limit only bounds its tag value lists.
     limits.check_size(width, height, l.out_channels() as u64 * l.out_sample_bytes())?;
     let raw_len = l.raw_bytes().filter(|&b| b <= limits.max_alloc).ok_or_else(too_large)?;
+    // A strip or tile cut by the end of the file: damaged. (Left to the decoder, a cut chunk
+    // larger than the whole file would trip its buffer limit and read as "too large".)
+    if chunk_tags(&page.ifd).and_then(|(o, c)| data_end(t, o, c)).is_some_and(|end| end > bytes.len() as u64) {
+        return Err(Error::Truncated);
+    }
     let compressed = l.largest_chunk.min(bytes.len() as u64);
     // The `tiff` decoder reads IFD0's strip lists under its default limits before it moves to
     // the page: they are checked and charged here too.

@@ -6,23 +6,35 @@
 //! NewSubFileType, PreviewColorSpace, raw photometric interpretations), EXIF 2.32 (the EXIF IFD,
 //! MakerNote, JPEGInterchangeFormat), and published vendor notes on the header variants (CR2's
 //! "CR" marker, ORF's "IIRO", RW2's "IIU\0" and its JPEG-from-raw tag 0x002E) and on the maker-note
-//! layouts followed below. No raw converter's or metadata tool's code was consulted.
+//! layouts followed below, and TIFF/EP (CFARepeatPatternDim, CFAPattern). No raw converter's or
+//! metadata tool's code was consulted. M6.38 checked these layouts against the real files of the
+//! test corpus by looking at their structure only.
+//!
+//! **Recognising** (`formats.md` §2): a vendor header variant, or an IFD of IFD0's chain or its
+//! sub-IFDs carrying DNGVersion or DNGPrivateData (Sony's ARW keeps its maker data there), a CFA
+//! or LinearRaw photometric interpretation, or TIFF/EP's CFA pattern tags (Samsung's SRW raw IFD
+//! has those and no photometric tag).
 //!
 //! **Where previews are looked for.** Every IFD reachable from IFD0 (its chain, SubIFDs and the
 //! EXIF IFD; seen-set, depth and count caps of `security.md` §4.2), and in each:
 //! JPEGInterchangeFormat/Length pairs; old-style or new-style JPEG compression (6, 7) stored in
 //! contiguous strips; RW2's JPEG-from-raw tag. In the EXIF IFD's maker note, the vendor preview
 //! pointers that are plain IFD offsets: Nikon's preview IFD (inside the maker note's own TIFF
-//! header), Olympus' camera-settings IFD (preview start and length) and Pentax's preview start and
-//! length. A candidate counts when its bytes are a baseline, extended or progressive JPEG (a
-//! lossless JPEG is raw sensor data, as in CR2 and many DNGs). The largest by pixels wins; the
-//! smallest other one is the header's thumbnail.
+//! header), Olympus' camera-settings IFD (preview start and length), the older Olympus maker note's
+//! (`OLYMP\0`, its IFD at 8, offsets from the TIFF header) ThumbnailImage tag 0x0100, and Pentax's
+//! preview start and length. A SubIFDs pointer to something whose entries are not in tag order
+//! is not followed: Sony's DSLR-A100 aims it at the raw data. A candidate counts when its bytes
+//! are a baseline, extended or progressive JPEG (a lossless JPEG is raw sensor data, as in CR2
+//! and many DNGs). The largest by pixels wins; the smallest other one is the header's thumbnail.
 //!
 //! **Strict and lenient parts.** The main structure is read strictly: a loop, an offset past the
 //! end or a count past the caps is an error ("Damaged file"). Maker notes are vendor data with
 //! their own offset bases: they are walked under the maker-note caps (≤ 64 IFDs, depth ≤ 3) and
 //! anything wrong in them only means no candidate from there. An offset past the end of the
-//! bytes is reported as `Truncated`, so a header read from the start of a file asks for more.
+//! bytes is reported as `Truncated`, so a header read from the start of a file asks for more; in
+//! the maker note too (its extent, a preview pointer that lies past the end from either base),
+//! but only when the bytes are known to be such a start: some IFD's strips or tiles run past
+//! their end.
 //!
 //! **Colour.** A preview without its own ICC profile is tagged Adobe RGB (or ProPhoto) when the
 //! DNG PreviewColorSpace of its IFD says so, else Adobe RGB when the raw's EXIF colour space or
@@ -57,10 +69,17 @@ const TAG_STRIP_OFFSETS: u16 = 0x0111;
 const TAG_ORIENTATION: u16 = 0x0112;
 const TAG_STRIP_BYTE_COUNTS: u16 = 0x0117;
 const TAG_TILE_OFFSETS: u16 = 0x0144;
+const TAG_TILE_BYTE_COUNTS: u16 = 0x0145;
 const TAG_JPEG_OFFSET: u16 = 0x0201;
 const TAG_JPEG_LENGTH: u16 = 0x0202;
 const TAG_MAKER_NOTE: u16 = 0x927c;
 const TAG_DNG_VERSION: u16 = 0xc612;
+/// DNGPrivateData (DNG 1.4): maker data some raws carry outside DNG too (Sony's ARW).
+const TAG_DNG_PRIVATE_DATA: u16 = 0xc634;
+/// TIFF/EP's CFARepeatPatternDim and CFAPattern: the colour filter layout of raw sensor data,
+/// which some raws (Samsung's SRW) give instead of a CFA photometric interpretation.
+const TAG_CFA_REPEAT_PATTERN_DIM: u16 = 0x828d;
+const TAG_CFA_PATTERN: u16 = 0x828e;
 const TAG_PREVIEW_COLOR_SPACE: u16 = 0xc71a;
 /// RW2: the camera's JPEG, stored as the tag's value.
 const TAG_RW2_JPEG: u16 = 0x002e;
@@ -79,6 +98,8 @@ const NIKON_PREVIEW_IFD: u16 = 0x0011;
 const OLYMPUS_CAMERA_SETTINGS: u16 = 0x2020;
 const OLYMPUS_PREVIEW_START: u16 = 0x0101;
 const OLYMPUS_PREVIEW_LENGTH: u16 = 0x0102;
+/// The older Olympus maker note (`OLYMP\0`): a small JPEG stored as the tag's value.
+const OLYMPUS_THUMBNAIL_IMAGE: u16 = 0x0100;
 const PENTAX_PREVIEW_LENGTH: u16 = 0x0003;
 const PENTAX_PREVIEW_START: u16 = 0x0004;
 
@@ -119,8 +140,11 @@ fn has_raw_ifd(tiff: &Tiff) -> Result<bool> {
     Ok(false)
 }
 
+/// Whether `ifd` marks a camera raw: a DNG tag (DNGVersion, DNGPrivateData), raw sensor data by
+/// its photometric interpretation, or TIFF/EP's colour filter pattern tags.
 fn is_raw(tiff: &Tiff, ifd: &Ifd) -> bool {
-    ifd.get(TAG_DNG_VERSION).is_some() || ifd.get(TAG_PHOTOMETRIC).and_then(|e| tiff.uint(e)).is_some_and(|p| RAW_PHOTOMETRIC.contains(&p))
+    [TAG_DNG_VERSION, TAG_DNG_PRIVATE_DATA, TAG_CFA_REPEAT_PATTERN_DIM, TAG_CFA_PATTERN].iter().any(|&t| ifd.get(t).is_some())
+        || ifd.get(TAG_PHOTOMETRIC).and_then(|e| tiff.uint(e)).is_some_and(|p| RAW_PHOTOMETRIC.contains(&p))
 }
 
 /// A colour space a preview is tagged with, other than sRGB.
@@ -181,11 +205,15 @@ fn prefix(e: Error) -> Error {
     if e == Error::OutOfRange { Error::Truncated } else { e }
 }
 
-/// Walks the structure and collects every usable preview.
+/// Walks the structure and collects every usable preview. A SubIFDs pointer that leads to
+/// something whose entries are not in tag order is passed over: some cameras (Sony's DSLR-A100)
+/// aim it at the raw data rather than at an IFD.
 fn find(bytes: &[u8], limits: &Limits) -> Result<Found> {
     let tiff = Tiff::new_raw(bytes)?;
     let mut visited = Visited::default();
-    let ifds = tiff.walk(tiff.first_ifd()?, &[tags::SUB_IFDS, tags::EXIF_IFD], limits, &mut visited)?;
+    let follow = [tags::SUB_IFDS, tags::EXIF_IFD];
+    let ifds = tiff.walk_where(tiff.first_ifd()?, &follow, limits, &mut visited, |ifd, via| via != Some(tags::SUB_IFDS) || ifd.sorted())?;
+    let cut = ifds.iter().any(|(ifd, _)| runs_past_the_end(&tiff, ifd));
     let mut found = Found::default();
     if let Some((ifd0, _)) = ifds.first() {
         let o = ifd0.get(TAG_ORIENTATION).and_then(|e| tiff.uint(e)).and_then(|o| u8::try_from(o).ok());
@@ -207,8 +235,12 @@ fn find(bytes: &[u8], limits: &Limits) -> Result<Found> {
         {
             ranges.extend(tiff.value_range(e)?);
         }
-        if let Some(note) = ifd.get(TAG_MAKER_NOTE).and_then(|e| tiff.value_range(e).ok().flatten()) {
-            ranges.extend(maker_note(&tiff, note, limits));
+        // Vendor data is read leniently, except that past the end of bytes known to be a prefix
+        // it asks for more.
+        match ifd.get(TAG_MAKER_NOTE).map(|e| tiff.value_range(e)) {
+            Some(Ok(Some(note))) => ranges.extend(maker_note(&tiff, note, cut, limits)?),
+            Some(Err(e)) if cut => return Err(e),
+            _ => {}
         }
         if !ranges.is_empty() || [TAG_STRIP_OFFSETS, TAG_TILE_OFFSETS, TAG_RW2_RAW_OFFSET].iter().any(|&t| ifd.get(t).is_some()) {
             found.has_image = true;
@@ -216,6 +248,21 @@ fn find(bytes: &[u8], limits: &Limits) -> Result<Found> {
         found.previews.extend(ranges.into_iter().filter_map(|r| preview(bytes, r, space, limits)));
     }
     Ok(found)
+}
+
+/// Whether the strips or tiles of `ifd` run past the end of the bytes: then the bytes are surely
+/// the start of a longer file (a header read), not a whole one.
+fn runs_past_the_end(tiff: &Tiff, ifd: &Ifd) -> bool {
+    let end = tiff.len() as u64;
+    [(TAG_STRIP_OFFSETS, TAG_STRIP_BYTE_COUNTS), (TAG_TILE_OFFSETS, TAG_TILE_BYTE_COUNTS)].iter().any(|&(offsets, counts)| {
+        let (Some(offsets), Some(counts)) = (ifd.get(offsets), ifd.get(counts)) else { return false };
+        let max = crate::formats::tiff::MAX_CHUNKS as usize;
+        match (tiff.uints(offsets, max, "strips"), tiff.uints(counts, max, "strips")) {
+            (Ok(o), Ok(c)) => o.iter().zip(&c).any(|(&o, &c)| u64::from(o) + u64::from(c) > end),
+            (Err(Error::OutOfRange), _) | (_, Err(Error::OutOfRange)) => true,
+            _ => false,
+        }
+    })
 }
 
 /// The byte range an offset tag and a length tag of `ifd` describe, checked against the data.
@@ -298,19 +345,21 @@ fn jpeg_frame(b: &[u8], limits: &Limits) -> Option<(u32, u32)> {
 }
 
 /// Preview ranges (of the whole file) that a maker note points to. Lenient: anything wrong only
-/// means fewer candidates.
-fn maker_note(tiff: &Tiff, note: Range<usize>, limits: &Limits) -> Vec<Range<usize>> {
+/// means fewer candidates, except, when the bytes are known to be the start of a longer file
+/// (`cut`), a vendor preview pointer past their end: that is `Err(OutOfRange)`, so the header
+/// read reads on.
+fn maker_note(tiff: &Tiff, note: Range<usize>, cut: bool, limits: &Limits) -> Result<Vec<Range<usize>>> {
     let caps = Limits { max_ifds: 64, max_ifd_depth: 3, ..*limits };
     let walk = |inner: &Tiff, ifd: u32, follow: &[u16]| inner.walk(ifd, follow, &caps, &mut Visited::default()).unwrap_or_default();
     let data = tiff.data();
     let start = note.start;
-    let Some(head) = data.get(note) else { return Vec::new() };
+    let Some(head) = data.get(note) else { return Ok(Vec::new()) };
     let mut out = Vec::new();
     if head.starts_with(b"Nikon\0") {
         // A version, then a TIFF header of its own; offsets count from that header.
         let base = start + 10;
-        let Some(inner) = data.get(base..).and_then(|d| Tiff::new(d).ok()) else { return out };
-        let Ok(first) = inner.first_ifd() else { return out };
+        let Some(inner) = data.get(base..).and_then(|d| Tiff::new(d).ok()) else { return Ok(out) };
+        let Ok(first) = inner.first_ifd() else { return Ok(out) };
         for (ifd, _) in walk(&inner, first, &[NIKON_PREVIEW_IFD]) {
             if let Ok(Some(r)) = pair(&inner, &ifd, TAG_JPEG_OFFSET, TAG_JPEG_LENGTH) {
                 out.push(r.start + base..r.end + base);
@@ -320,27 +369,46 @@ fn maker_note(tiff: &Tiff, note: Range<usize>, limits: &Limits) -> Vec<Range<usi
         // Byte order and version, then the IFD at 12; offsets count from the maker note's start.
         let inner = Tiff::headerless(data.get(start..).unwrap_or_default(), head.get(8..10) == Some(b"II"));
         for (ifd, _) in walk(&inner, 12, &[OLYMPUS_CAMERA_SETTINGS]) {
-            out.extend(vendor_pair(tiff, &inner, start, &ifd, (OLYMPUS_PREVIEW_START, OLYMPUS_PREVIEW_LENGTH), limits));
+            out.extend(vendor_pair(tiff, &inner, start, &ifd, (OLYMPUS_PREVIEW_START, OLYMPUS_PREVIEW_LENGTH), cut, limits)?);
+        }
+    } else if head.starts_with(b"OLYMP\0") {
+        // The older Olympus layout: a version, then the IFD at 8, in the file's byte order with
+        // offsets counting from the TIFF header; its ThumbnailImage holds a small JPEG.
+        let at = u32::try_from(start + 8).map_err(|_| Error::OutOfRange)?;
+        if let Some(e) = walk(tiff, at, &[]).first().and_then(|(ifd, _)| ifd.get(OLYMPUS_THUMBNAIL_IMAGE).copied()) {
+            out.extend(tiff.value_range(&e).ok().flatten());
         }
     } else if head.starts_with(b"AOC\0") {
         // Byte order, then the IFD at 6.
         let inner = Tiff::headerless(data.get(start..).unwrap_or_default(), head.get(4..6) == Some(b"II"));
         for (ifd, _) in walk(&inner, 6, &[]) {
-            out.extend(vendor_pair(tiff, &inner, start, &ifd, (PENTAX_PREVIEW_START, PENTAX_PREVIEW_LENGTH), limits));
+            out.extend(vendor_pair(tiff, &inner, start, &ifd, (PENTAX_PREVIEW_START, PENTAX_PREVIEW_LENGTH), cut, limits)?);
         }
     }
-    out
+    Ok(out)
 }
 
 /// A maker note's preview start and length: models differ in what the start counts from, so the
 /// TIFF header and the maker note's start (`base`) are both tried, and only a range that holds a
-/// JPEG counts.
-fn vendor_pair(tiff: &Tiff, inner: &Tiff, base: usize, ifd: &Ifd, (start, length): (u16, u16), limits: &Limits) -> Option<Range<usize>> {
-    let at = u64::from(ifd.get(start).and_then(|e| inner.uint(e))?);
-    let len = u64::from(ifd.get(length).and_then(|e| inner.uint(e))?);
+/// JPEG counts. When neither base gives a range inside bytes known to be a prefix (`cut`), the
+/// preview lies in the part not read yet: `Err(OutOfRange)`.
+fn vendor_pair(
+    tiff: &Tiff,
+    inner: &Tiff,
+    base: usize,
+    ifd: &Ifd,
+    (start, length): (u16, u16),
+    cut: bool,
+    limits: &Limits,
+) -> Result<Option<Range<usize>>> {
+    let (Some(at), Some(len)) = (ifd.get(start).and_then(|e| inner.uint(e)), ifd.get(length).and_then(|e| inner.uint(e))) else { return Ok(None) };
+    let (at, len) = (u64::from(at), u64::from(len));
     let tiff_relative = range(tiff, at, len).ok();
     let note_relative = range(inner, at, len).ok().map(|r| r.start + base..r.end + base);
-    [tiff_relative, note_relative].into_iter().flatten().find(|r| tiff.data().get(r.clone()).is_some_and(|b| jpeg_frame(b, limits).is_some()))
+    if cut && tiff_relative.is_none() && note_relative.is_none() && len > 0 {
+        return Err(Error::OutOfRange);
+    }
+    Ok([tiff_relative, note_relative].into_iter().flatten().find(|r| tiff.data().get(r.clone()).is_some_and(|b| jpeg_frame(b, limits).is_some())))
 }
 
 pub fn header(bytes: &[u8], limits: &Limits) -> Result<Header> {
