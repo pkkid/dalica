@@ -10,3 +10,14 @@ authors.workspace = true
 publish = false
 
 [dependencies]
+# Dates without a time zone (`DateTime`), shared with the library model.
+dalica-core.workspace = true
+# The bounded TIFF/IFD walker (`dalica_image::ifd`): EXIF blocks and TIFF files are read through it.
+dalica-image.workspace = true
+# zlib for compressed PNG text chunks (`zTXt`, compressed `iTXt`), inflated under a cap. Pure Rust,
+# `forbid(unsafe_code)`, MIT OR Apache-2.0; already in the product graph under `png`.
+fdeflate.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true

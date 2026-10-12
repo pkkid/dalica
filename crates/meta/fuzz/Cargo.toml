@@ -1,0 +1,51 @@
+# The fuzz targets of `dalica-meta` (`docs/security.md` §7.1): a separate cargo-fuzz workspace,
+# outside the product graph and excluded from the root workspace, because cargo-fuzz needs nightly
+# Rust and sanitizer instrumentation. Run: `cargo +nightly fuzz run <target>` from this directory.
+[package]
+name = "dalica-meta-fuzz"
+version = "0.0.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+dalica-meta = { path = ".." }
+libfuzzer-sys = "0.4"
+
+# Its own workspace, so the root manifest's members and lockfile are untouched.
+[workspace]
+members = ["."]
+
+[profile.release]
+debug = 1
+
+[[bin]]
+name = "exif"
+path = "fuzz_targets/exif.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "xmp"
+path = "fuzz_targets/xmp.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "iptc"
+path = "fuzz_targets/iptc.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "write_merge"
+path = "fuzz_targets/write_merge.rs"
+test = false
+doc = false
+bench = false

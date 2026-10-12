@@ -1,7 +1,9 @@
-# Fuzzing `dalica-image` (docs/security.md §7): every target of `crates/image/fuzz` (a separate
-# cargo-fuzz workspace on nightly Rust). Dispatched by hand, it runs each target for a fixed time;
-# on a pull request that touches the image crate it only builds them, so a target that no longer
-# compiles is caught where it breaks. A scheduled weekly run lands by M15 (§7.2).
+# Fuzzing `dalica-image` and `dalica-meta` (docs/security.md §7): every target of `crates/image/fuzz`
+# and `crates/meta/fuzz` (separate cargo-fuzz workspaces on nightly Rust). Dispatched by hand, it runs
+# each target for a fixed time; on a pull request that touches either crate it only builds them, so
+# a target that no longer compiles is caught where it breaks (`dalica-meta` reads through
+# `dalica-image`'s IFD walker, so both jobs run for either crate). A scheduled weekly run lands by
+# M15 (§7.2).
 # Actions are pinned to full commit hashes (docs/security.md §8.5).
 name: Fuzz
 
@@ -15,6 +17,7 @@ on:
   pull_request:
     paths:
       - "crates/image/**"
+      - "crates/meta/**"
       - ".github/workflows/fuzz.yml"
 
 permissions:
@@ -65,4 +68,42 @@ jobs:
         with:
           name: fuzz-artifacts
           path: crates/image/fuzz/artifacts
+          if-no-files-found: ignore
+
+  meta:
+    name: fuzz dalica-meta
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@e2a55d2ffb04f378e9626c28d38b36d230d1e12f # master, 2026-10-09
+        with:
+          toolchain: nightly
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: crates/meta/fuzz
+      - name: Install cargo-fuzz
+        run: cargo +nightly install cargo-fuzz --version "$CARGO_FUZZ_VERSION" --locked
+      - name: Build every target
+        working-directory: crates/meta/fuzz
+        run: cargo +nightly fuzz build
+      - name: Run every target
+        if: github.event_name == 'workflow_dispatch'
+        working-directory: crates/meta/fuzz
+        env:
+          SECONDS_PER_TARGET: ${{ inputs.seconds }}
+        run: |
+          for target in $(cargo +nightly fuzz list); do
+            echo "::group::$target"
+            cargo +nightly fuzz run "$target" -- -max_total_time="$SECONDS_PER_TARGET" -rss_limit_mb=2048
+            echo "::endgroup::"
+          done
+      - name: Keep crash inputs
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fuzz-artifacts-meta
+          path: crates/meta/fuzz/artifacts
           if-no-files-found: ignore

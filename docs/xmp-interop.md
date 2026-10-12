@@ -8,9 +8,11 @@ back. The folder sidecar `.dalica.json` stays Dalica's own record; this document
 everything Dalica puts into, or takes from, files it did not create. Read it with
 [`data-model.md`](data-model.md) §2 (where each piece of data lives) and §5 (when it is written).
 
-> Status: specified, not built. Lands with M6 (captions, tags), M13 (places) and M13 (people). The
-> parser and writer are our own, in `crates/meta` (`dalica-meta`, L1); LightCraft's `meta` and
-> `tiff` crates are prior art only (`architecture.md` §9).
+> Status: reading of EXIF and IPTC, the containers of §4 (JPEG, PNG, WebP, TIFF) and the
+> precedence rules of §2 built (M6.4); XMP reading and writing land with M6.9–M6.19 (captions,
+> tags), M13 (places) and M13 (people). The parser and writer are our own, in `crates/meta`
+> (`dalica-meta`, L1); LightCraft's `meta` and `tiff` crates are prior art only (`architecture.md`
+> §9).
 
 ## 1. Principles
 
