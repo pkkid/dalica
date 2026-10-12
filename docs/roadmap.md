@@ -2380,7 +2380,7 @@ replace at M6.R.
     summary; two edits to the same row still go back to the worker.
   - done when: `xtask` tests on a temp repository: neighbouring row edits merge with both rows kept;
     an edit of the same row by both sides is refused; the summary is regenerated.
-- ⬜ **M6.41 `image`: a JPEG XL colour profile is bounded before the decoder reserves it**
+- ✅ **M6.41 `image`: a JPEG XL colour profile is bounded before the decoder reserves it**
   - after: M5.R
   - files: `crates/image/src/formats/jxl.rs`, `crates/image/tests/jxl.rs`
   - scope: found at M5.8: `jxl-oxide` can reserve up to 256 MiB for an embedded ICC profile outside
