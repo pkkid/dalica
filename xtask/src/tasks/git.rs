@@ -21,12 +21,15 @@ pub trait Git: Send + Sync {
     fn branch_subjects(&self, branch: &str) -> Result<Vec<String>, String>;
     /// Paths (with `/`) that origin's `branch` adds, changes or deletes since it left `origin/main`.
     fn changed_paths(&self, branch: &str) -> Result<Vec<PathChange>, String>;
+    /// The commit origin's `branch` was at when last fetched or pushed, if it is there.
+    fn pushed_head(&self, branch: &str) -> Option<String>;
     /// Pushes what `dir` has checked out to origin's `branch`, unless origin's `branch` moved since
     /// the last fetch.
     fn push(&self, dir: &Path, branch: &str) -> Result<(), String>;
     /// Checks out origin's `branch` (detached) in the merge worktree, rebases it onto `origin/main`
     /// and returns that worktree. The local branch is not used: the worker may still have it
-    /// checked out in its own worktree.
+    /// checked out in its own worktree. A conflict only in `docs/parity.md`'s generated summary is
+    /// resolved by regenerating the summary; any other conflict aborts the rebase (a send-back).
     fn rebase_for_merge(&self, branch: &str) -> Result<PathBuf, String>;
     /// Runs `cargo xtask ci` in `dir`.
     fn run_ci(&self, dir: &Path) -> Result<(), String>;
@@ -108,7 +111,17 @@ pub struct RealGit {
 }
 
 fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
-    let out = Command::new("git").current_dir(dir).args(args).output().map_err(|e| format!("cannot run git: {e}"))?;
+    run_git(Command::new("git").current_dir(dir).args(args), args)
+}
+
+/// Like [`git`], for commands that may want an editor (`rebase --continue`): the editor is `true`,
+/// so the message git proposes is kept and nothing waits for a terminal.
+fn git_no_editor(dir: &Path, args: &[&str]) -> Result<String, String> {
+    run_git(Command::new("git").current_dir(dir).env("GIT_EDITOR", "true").args(args), args)
+}
+
+fn run_git(cmd: &mut Command, args: &[&str]) -> Result<String, String> {
+    let out = cmd.output().map_err(|e| format!("cannot run git: {e}"))?;
     if out.status.success() {
         Ok(String::from_utf8_lossy(&out.stdout).trim_end().to_string())
     } else {
@@ -211,6 +224,10 @@ impl Git for RealGit {
         Ok(parse_name_status(&git(&self.cwd, &["diff", "--name-status", "-z", "--no-renames", &range])?))
     }
 
+    fn pushed_head(&self, branch: &str) -> Option<String> {
+        git(&self.cwd, &["rev-parse", "--verify", "--quiet", &format!("refs/remotes/origin/{branch}")]).ok()
+    }
+
     fn push(&self, dir: &Path, branch: &str) -> Result<(), String> {
         let lease = format!("--force-with-lease=refs/heads/{branch}");
         git(dir, &["push", "--quiet", &lease, "origin", &format!("HEAD:refs/heads/{branch}")]).map(|_| ())
@@ -224,10 +241,7 @@ impl Git for RealGit {
         }
         let path = self.clean_worktree("merge")?;
         git(&path, &["checkout", "--quiet", "--detach", &remote])?;
-        if let Err(e) = git(&path, &["rebase", "--quiet", "origin/main"]) {
-            let _ = git(&path, &["rebase", "--abort"]);
-            return Err(format!("{branch} does not rebase cleanly on origin/main; send it back to its worker ({e})"));
-        }
+        rebase_onto_main(&path, branch)?;
         Ok(path)
     }
 
@@ -264,6 +278,71 @@ impl Git for RealGit {
             Err(_) => self.cwd.join(".git"),
         }
     }
+}
+
+/// The generated file whose conflicts `merge` resolves itself (`docs/task-board.md` §5).
+const PARITY: &str = "docs/parity.md";
+
+/// Rebase steps (one per conflicting commit) `rebase_onto_main` resolves before it gives up.
+const MAX_REBASE_STEPS: usize = 200;
+
+/// Rebases what `dir` has checked out onto `origin/main`. Each stop on a conflict only in the parity
+/// summary is resolved by regenerating it ([`crate::parity::resolve_summary_conflicts`]) and the
+/// rebase goes on; any other conflict aborts it and is the worker's to resolve (a send-back). When
+/// a summary was regenerated, the summary of the result is refreshed once more (a later commit can
+/// apply cleanly on top of a regenerated one and still leave it stale) and folded into the last
+/// commit.
+fn rebase_onto_main(dir: &Path, branch: &str) -> Result<(), String> {
+    let mut step = git(dir, &["rebase", "--quiet", "origin/main"]);
+    let mut regenerated = false;
+    for _ in 0..MAX_REBASE_STEPS {
+        let Err(e) = &step else { break };
+        if let Err(why) = resolve_summary_stop(dir) {
+            let _ = git(dir, &["rebase", "--abort"]);
+            return Err(format!("{branch} does not rebase cleanly on origin/main ({why}); send it back to its worker ({e})"));
+        }
+        regenerated = true;
+        // A commit whose only change was the summary may now change nothing: skip it.
+        step = if git(dir, &["diff", "--cached", "--quiet"]).is_ok() {
+            git_no_editor(dir, &["rebase", "--skip"])
+        } else {
+            git_no_editor(dir, &["rebase", "--continue"])
+        };
+    }
+    if let Err(e) = step {
+        let _ = git(dir, &["rebase", "--abort"]);
+        return Err(format!("{branch} still conflicts after {MAX_REBASE_STEPS} rebase steps; send it back to its worker ({e})"));
+    }
+    if regenerated {
+        let file = dir.join(PARITY);
+        let text = std::fs::read_to_string(&file).map_err(|e| format!("cannot read {PARITY} after the rebase: {e}"))?;
+        let fresh = crate::parity::with_summary(&text).ok_or_else(|| format!("{PARITY}: the parity:summary markers are missing"))?;
+        if fresh != text {
+            std::fs::write(&file, fresh).map_err(|e| format!("cannot write {PARITY}: {e}"))?;
+            git(dir, &["add", "--", PARITY])?;
+            // The refresh may undo all the last commit did (a stale hand edit of the summary).
+            git(dir, &["commit", "--quiet", "--amend", "--no-edit", "--allow-empty"])?;
+        }
+    }
+    Ok(())
+}
+
+/// At a rebase stopped on conflicts: when the only conflicted path is `docs/parity.md` and every
+/// conflict in it is inside the generated summary, writes the file with the summary regenerated and
+/// stages it. Otherwise says what conflicts.
+fn resolve_summary_stop(dir: &Path) -> Result<(), String> {
+    let conflicted: Vec<String> =
+        git(dir, &["diff", "--name-only", "--diff-filter=U", "-z"])?.split('\0').filter(|p| !p.is_empty()).map(str::to_string).collect();
+    match conflicted.as_slice() {
+        [] => return Err("the rebase stopped without a conflicted file".into()),
+        [only] if only == PARITY => {}
+        paths => return Err(format!("conflicts in {}", paths.join(", "))),
+    }
+    let file = dir.join(PARITY);
+    let text = std::fs::read_to_string(&file).map_err(|e| format!("cannot read {PARITY}: {e}"))?;
+    let resolved = crate::parity::resolve_summary_conflicts(&text)?;
+    std::fs::write(&file, resolved).map_err(|e| format!("cannot write {PARITY}: {e}"))?;
+    git(dir, &["add", "--", PARITY]).map(|_| ())
 }
 
 /// The target directory `run_ci` uses for the worktree `dir`: `<main checkout>/target/<name>`.

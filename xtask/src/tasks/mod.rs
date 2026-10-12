@@ -13,6 +13,8 @@ mod github;
 mod glob;
 mod lock;
 mod prune;
+#[cfg(test)]
+mod repo_tests;
 pub mod roadmap;
 #[cfg(test)]
 mod tests;
@@ -36,10 +38,14 @@ const USAGE: &str = "usage: cargo xtask tasks <command>
   env NAME                       the agent's environment: eval \"$(cargo xtask tasks env agent-3)\"
   submit ID [--body-file FILE] [--dry-run]
                                  push, open the pull request, set In Review (needs a green ci and a dev-log entry);
-                                 without --body-file the evidence is the task's newest dev-log entry; never a review task
+                                 without --body-file the evidence is the task's newest dev-log entry; never a review task;
+                                 an In Review task sent back by merge is submitted again once rebased (pushed with
+                                 lease, the same pull request)
   release ID --reason TEXT       give a claimed task back (the branch is kept)
   block ID \"QUESTION\"            ask the maintainer; the task becomes Blocked
-  merge ID [--dry-run]           lead only: refuse while main is red on GitHub CI, rebase, ci, push, wait until
+  merge ID [--dry-run]           lead only: refuse while main is red on GitHub CI, rebase (a conflict only in
+                                 docs/parity.md's summary is resolved by regenerating it; any other conflict sends
+                                 the task back to its worker), ci, push, wait until
                                  GitHub finds the PR mergeable, squash-merge, record added, changed or deleted
                                  fingerprints in the dev log (FINGERPRINTS: lines, approved in bulk at the next
                                  review), sync against origin/main's roadmap.md; never a review task (only the

@@ -78,6 +78,10 @@ impl Git for DryGit<'_> {
         self.inner.changed_paths(branch)
     }
 
+    fn pushed_head(&self, branch: &str) -> Option<String> {
+        self.inner.pushed_head(branch)
+    }
+
     fn push(&self, _dir: &Path, branch: &str) -> Result<(), String> {
         self.rec.record(format!("push {branch} to origin"));
         Ok(())

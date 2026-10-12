@@ -195,6 +195,58 @@ pub fn with_summary(text: &str) -> Option<String> {
     Some(format!("{}{START}\n{}{}", text.get(..start)?, summary(text), text.get(end..)?))
 }
 
+/// Resolves the merge conflicts in `text` (a conflicted `docs/parity.md`) when every conflict lies
+/// inside the generated summary: keeps one side of each conflict, then regenerates the summary
+/// from the rows, so the side kept does not matter (`tasks merge`, `docs/task-board.md` §5). A
+/// conflict outside the summary (in the rows) is the worker's to resolve and is an error, as is a
+/// conflict that touches the summary markers themselves or text without any conflict.
+pub fn resolve_summary_conflicts(text: &str) -> Result<String, String> {
+    let mut out = String::with_capacity(text.len());
+    let mut in_summary = false;
+    // Inside a conflict: whether the lines still belong to the first side (the one kept).
+    let mut conflict: Option<bool> = None;
+    let mut conflicts = 0usize;
+    for (i, line) in text.split_inclusive('\n').enumerate() {
+        let bare = line.trim_end_matches(['\n', '\r']);
+        let at = format!("docs/parity.md:{}", i.saturating_add(1));
+        let marker = bare.trim() == START || bare.trim() == END;
+        if let Some(first_side) = conflict.as_mut() {
+            if marker {
+                return Err(format!("{at}: a conflict touches the summary markers"));
+            }
+            if bare.starts_with(">>>>>>>") {
+                conflict = None;
+            } else if bare.starts_with("|||||||") || bare.starts_with("=======") {
+                *first_side = false;
+            } else if *first_side {
+                out.push_str(line);
+            }
+            continue;
+        }
+        if bare.starts_with("<<<<<<<") {
+            if !in_summary {
+                return Err(format!("{at}: a conflict outside the generated summary (in the rows); the worker resolves it"));
+            }
+            conflict = Some(true);
+            conflicts = conflicts.saturating_add(1);
+            continue;
+        }
+        if bare.trim() == START {
+            in_summary = true;
+        } else if bare.trim() == END {
+            in_summary = false;
+        }
+        out.push_str(line);
+    }
+    if conflict.is_some() {
+        return Err("docs/parity.md: a conflict is not closed".into());
+    }
+    if conflicts == 0 {
+        return Err("docs/parity.md: no conflict markers in the text (a conflict of another kind)".into());
+    }
+    with_summary(&out).ok_or_else(|| "docs/parity.md: the parity:summary markers are missing".into())
+}
+
 /// Ids of registered commands, from `dalica-cli commands` (a JSON array of objects with `id`, or of
 /// strings). An empty registry before the CLI prints anything.
 pub fn registered_commands(root: &Path) -> Result<BTreeSet<String>, String> {
@@ -296,6 +348,48 @@ mod tests {
         let once = with_summary(DOC).unwrap();
         assert_eq!(with_summary(&once).unwrap(), once);
         assert!(once.contains("| A. Library view | 1 | 0 | 1 | 1 |\n| H. Menus | 0 | 0 | 1 | 0 |\n| **All** | 1 | 0 | 2 | 1 |\n"), "{once}");
+    }
+
+    /// `DOC` with its summary regenerated and a conflict in it (both sides of a rebase).
+    fn summary_conflict(style_base: bool) -> String {
+        let doc = with_summary(DOC).unwrap();
+        let line = "| A. Library view | 1 | 0 | 1 | 1 |\n";
+        let base = if style_base { "||||||| base\n| A. Library view | 0 | 0 | 2 | 1 |\n" } else { "" };
+        doc.replace(
+            line,
+            &format!(
+                "<<<<<<< HEAD\n| A. Library view | 2 | 0 | 0 | 1 |\n{base}=======\n| A. Library view | 9 | 9 | 9 | 9 |\n>>>>>>> abc (M9.1: x)\n"
+            ),
+        )
+    }
+
+    #[test]
+    fn a_conflict_only_in_the_summary_is_resolved_by_regenerating_it() {
+        for style_base in [false, true] {
+            let resolved = resolve_summary_conflicts(&summary_conflict(style_base)).unwrap();
+            assert_eq!(resolved, with_summary(DOC).unwrap(), "the rows decide, not either side");
+            assert!(!resolved.contains("<<<<<<<") && !resolved.contains(">>>>>>>"));
+        }
+        // CRLF line ends are conflicts too.
+        assert!(resolve_summary_conflicts(&summary_conflict(false).replace('\n', "\r\n")).is_ok());
+    }
+
+    #[test]
+    fn a_conflict_in_the_rows_is_refused() {
+        let doc = with_summary(DOC).unwrap();
+        let row = "| LIB-ONE | one | P0 | ⬜ | ref 02 §6 |\n";
+        let rows = doc.replace(row, "<<<<<<< HEAD\n| LIB-ONE | one | P0 | ✅ | a |\n=======\n| LIB-ONE | one | P0 | 🟡 | b |\n>>>>>>> abc\n");
+        let err = resolve_summary_conflicts(&rows).unwrap_err();
+        assert!(err.contains("outside the generated summary") && err.contains("docs/parity.md:"), "{err}");
+        // A row conflict next to a summary conflict is still refused.
+        let both = summary_conflict(false).replace(row, &format!("<<<<<<< HEAD\n{row}=======\nx\n>>>>>>> abc\n"));
+        assert!(resolve_summary_conflicts(&both).unwrap_err().contains("in the rows"));
+        // A conflict that swallows a marker, one left open, and no conflict at all.
+        let swallowed = doc.replace(&format!("{END}\n"), &format!("<<<<<<< HEAD\n{END}\n=======\n>>>>>>> abc\n"));
+        assert!(resolve_summary_conflicts(&swallowed).unwrap_err().contains("markers"), "{swallowed}");
+        let open = summary_conflict(false).replace(">>>>>>> abc (M9.1: x)\n", "");
+        assert!(resolve_summary_conflicts(&open).is_err());
+        assert!(resolve_summary_conflicts(&doc).unwrap_err().contains("no conflict markers"));
     }
 
     #[test]

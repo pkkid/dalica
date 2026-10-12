@@ -1601,7 +1601,7 @@ filled by the lead; M5.15 pins it.
     renaming a root away dims its rows with the marker and renaming it back restores them; a tree
     longer than the pane shows a scroll bar that drags the rows; the region and popover
     fingerprints at both window sizes.
-- ⬜ **M5.22 `xtask tasks`: send-backs and the parity summary (found at M4.R)**
+- ✅ **M5.22 `xtask tasks`: send-backs and the parity summary (found at M4.R)**
   - after: M4.R
   - files: `xtask/src/tasks/**`, `xtask/src/parity.rs`, `docs/task-board.md`
   - scope: two frictions of the M4 run. A send-back of an In Review task: `tasks submit` accepts

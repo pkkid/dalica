@@ -495,12 +495,23 @@ impl Board<'_> {
     /// dev-log entry; pushes, opens
     /// the pull request and sets In Review. The evidence is `body_extra` (`--body-file`) or, without
     /// it, the task's newest dev-log entry.
+    ///
+    /// A task already In Review is a send-back (`merge` could not rebase it): once its worker has
+    /// rebased the branch, `submit` pushes it with lease and keeps the open pull request, its number
+    /// and its body. The same commit as the one already pushed is refused (nothing was rebased).
     pub fn submit(&self, id: &str, dir: &Path, body_extra: Option<&str>) -> Result<String, String> {
         let task = self.task(id)?;
         Self::refuse_gate(task, "submits")?;
         let snap = self.snapshot()?;
-        let (issue, item) = self.require_status(&snap, task, &[Status::InProgress])?;
+        let (issue, item) = self.require_status(&snap, task, &[Status::InProgress, Status::InReview])?;
+        let resubmit = item.status == Some(Status::InReview);
+        let branch = if item.branch.is_empty() { task.branch() } else { item.branch.clone() };
         let head = self.git.head(dir)?;
+        if resubmit && self.git.pushed_head(&branch).as_deref() == Some(head.as_str()) {
+            return Err(format!(
+                "{id} is In Review and origin already has {head} on {branch}; a send-back is submitted again after its branch is rebased on origin/main"
+            ));
+        }
         if !ci_passed(&self.git.common_dir(), &head) {
             return Err(format!("cargo xtask ci has not passed on {head}; run it in this worktree first"));
         }
@@ -508,7 +519,6 @@ impl Board<'_> {
         if devlog::entry_times(&log, id, 0).is_empty() {
             return Err(format!("no dev-log entry for {id}; add one with `cargo xtask tasks log {id} \"Landed: … Open: … Numbers: …\"`"));
         }
-        let branch = if item.branch.is_empty() { task.branch() } else { item.branch.clone() };
         self.git.push(dir, &branch)?;
         let pr = match self.gh.find_pr(&branch)? {
             Some(pr) => pr,
@@ -523,8 +533,12 @@ impl Board<'_> {
                 self.gh.open_pr(&branch, &format!("{}: {}", task.id, task.plain_title()), &body)?
             }
         };
-        self.gh.set_status(&item.id, Status::InReview)?;
-        self.gh.comment(issue.number, &format!("submitted for review: {}", pr.url))?;
+        if resubmit {
+            self.gh.comment(issue.number, &format!("submitted again after a rebase ({head}): {}", pr.url))?;
+        } else {
+            self.gh.set_status(&item.id, Status::InReview)?;
+            self.gh.comment(issue.number, &format!("submitted for review: {}", pr.url))?;
+        }
         Ok(pr.url)
     }
 
