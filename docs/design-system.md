@@ -6,8 +6,8 @@ design language of the Craft apps ([LightCraft](https://github.com/storytold/lig
 [PhotoCraft](https://github.com/storytold/photocraft)), so it sits naturally beside them. When this
 document and a Craft app disagree on a value, this document wins for Dalica; when this document is
 silent, match LightCraft's look (study `crates/ui-egui/src/theme.rs`, `widgets.rs`, `icons.rs` at
-revision 88ea1a8) and record the value here. The Craft apps are reference only: Dalica's theme,
-widget and icon code is its own (`architecture.md` §9).
+revision 88ea1a8) and record the value here. Their theme, widget and icon code may be reused
+with attribution (`architecture.md` §9).
 
 > Rule of thumb: **the chrome is quiet so the photos are loud.** Neutral greys only, one blue
 > accent, no gradients on chrome, photos never rounded, never tinted.
@@ -32,7 +32,8 @@ widget and icon code is its own (`architecture.md` §9).
 
 ## 2. Colour tokens
 
-Dark theme (the only theme until after 1.0; a light variant is a later option, not a goal).
+Dark theme (the only theme until after 1.0; switchable themes, light ones included, are planned
+for M16 in `roadmap.md`, and this dark theme stays the default).
 
 | Token | Hex | Used for |
 |---|---|---|

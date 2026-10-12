@@ -76,8 +76,8 @@ everything is a command, and `cargo xtask ci` green before every commit.
 Dalica's architecture, design tokens, widgets and agent-driven development process follow
 [LightCraft](https://github.com/storytold/lightcraft) and
 [PhotoCraft](https://github.com/storytold/photocraft) by the ArtCraft team (MIT OR Apache-2.0).
-They are reference only: Dalica reuses none of their code. Docs and rules adapted from them are
-listed in [NOTICE](NOTICE).
+Dalica may reuse their code; code, docs and rules adapted from them are listed in
+[NOTICE](NOTICE).
 
 ## License
 

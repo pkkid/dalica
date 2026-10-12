@@ -56,7 +56,8 @@ Rules:
 
 ## 3. Clean-room rules
 
-- Match **layout, workflow and behaviour**; never copy **assets, code, text or data**. No icons,
+- Match **layout, workflow and behaviour**; never look at or use the reference application's
+  **code**, and never copy its **assets, text or data**. No icons,
   bitmaps, sounds, fonts, sample photos or help-text from the reference application or its vendor,
   not even as placeholders.
 - Observation of the reference application, if done at all, happens in a disposable VM or

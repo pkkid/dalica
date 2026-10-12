@@ -833,11 +833,11 @@ full commit hash and reviewed.
 
 The commit body says why the crate is needed, whether it processes untrusted input, its `unsafe`
 and native-code exposure, `build.rs` and proc-macro behaviour (no network access at build time),
-supported targets, maintenance status and licence. Craft-app code is never copied (`architecture.md` §9);
-any other vendored code keeps a header naming its origin and gets a `NOTICE` row. A scanner result does not
-replace reading the code. Community batches follow the checklist in `process.md` §4 (new
-dependencies, `build.rs` or CI changes, `unsafe`, hidden Unicode, network access, file writes
-outside the library).
+supported targets, maintenance status and licence. Reused Craft-app code (`architecture.md` §9)
+and any other vendored code keep a header naming their origin and get a `NOTICE` row. A scanner
+result does not replace reading the code. Community batches follow the checklist in `process.md`
+§4 (new dependencies, `build.rs` or CI changes, `unsafe`, hidden Unicode, network access, file
+writes outside the library).
 
 ## 9. Security testing
 

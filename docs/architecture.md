@@ -359,14 +359,29 @@ decodes images, touches the file system, waits on a lock held by a worker, or bl
 
 ## 9. Prior art: the Craft apps
 
-**Maintainer decision, 2026-10-09:** LightCraft and PhotoCraft are **reference only**. Dalica does
-not depend on their crates and does not vendor their code. We study them for technology choices,
-techniques and methodology, and we match their look and feel, but every line of Dalica is written
-for Dalica. Ordinary third-party crates from crates.io remain allowed after the dependency check
-(`security.md` §8). Local checkouts: `~/Sources/lightcraft` (revision 88ea1a8) and
-`~/Sources/photocraft` (revision 59684266); both are public (`github.com/storytold/…`).
+**Maintainer decision, 2026-10-11** (replaces the reference-only decision of 2026-10-09):
+LightCraft and PhotoCraft are MIT OR Apache-2.0, the same licence as Dalica, so we study them for
+technology choices, techniques and methodology, match their look and feel, and may reuse their
+code. Reused code:
 
-| Dalica area | Study in LightCraft | What to learn |
+- keeps a header naming its origin (project, file, revision) and gets a `NOTICE` row, as both
+  licences require;
+- meets Dalica's rules before it lands: the layer map, the never-crash standard, writes through
+  `fs`, colours from `Tokens`, tests to Dalica's contract, and `cargo xtask names`;
+- is copied into Dalica's own crates; depending on a Craft crate directly is allowed only at a full
+  commit hash (`cargo xtask deps` enforces it).
+
+Code from `craft-ui`, the UI crate both apps share (`github.com/storytold/craft-libs`, same
+licence), may be copied the same way; a direct dependency on it is not on `cargo xtask deps`'s
+allowed list. Ordinary third-party crates from crates.io remain allowed after the dependency check
+(`security.md` §8). This is the opposite of the reference organizer, whose code is never looked at
+or used (`process.md` §3). Local checkouts: `~/Sources/lightcraft` and `~/Sources/photocraft`; both
+are public (`github.com/storytold/…`). The checkouts lag upstream: run `git fetch` in them and read
+`origin/main` (`git show origin/main:<path>`) rather than the working tree, and name the revision
+you copied from in the file header. `craft-ui` has no checkout; read it on GitHub at the revision
+the Craft apps pin.
+
+| Dalica area | Study or reuse in LightCraft | What to learn |
 |---|---|---|
 | Look, widgets, icons drawn in code | `crates/ui-egui/src/{theme,widgets,icons}.rs` | token set, widget proportions, icon grid; Dalica's `design-system.md` holds the values |
 | Headless UI and screenshots | `crates/ui-egui/src/{headless,softpaint}.rs` | rasterizing egui output on the CPU for tests and agents |
@@ -376,15 +391,22 @@ for Dalica. Ordinary third-party crates from crates.io remain allowed after the 
 | Persistence | `crates/catalog/src/{journal,store,safe_file,lock}.rs` | op journal + snapshot, atomic writes, single-process lock |
 | Metadata, decoding, RAW previews | `crates/{meta,tiff,codecs,raw}` | merge-never-replace writes, decode limits, embedded-preview extraction |
 | Organizer plumbing | `engine/src/{memory,availability,walk,rename,guard}.rs` | memory budget, offline volumes, bounded walks, panic guard |
-| Faces (M13) | `crates/faces` | detector/recogniser pipeline, consented model downloads |
+| Faces (M13) | `crates/faces`, `panels/faces.rs` | detector/recogniser pipeline, consented model downloads, the face grid |
+| Text field, autocomplete, date rules (M5.25, M6.29) | `crates/ui-egui/src/{text_field,album_picker,date_picker}.rs` | revert on Esc, commit once, edit menu, type-ahead filtering, date limits |
+| Crop guides, filmstrip, compare (M7, M11) | `panels/{crop_overlay,detail,compare}.rs` | guide geometry, filmstrip and compare patterns |
+| Shortcut editor (M10) | `panels/keymap.rs`, `shortcuts.rs` | click to rebind, remove, restore; key parsing and labels |
+| Translations (M15) | `crates/ui-egui/src/i18n.rs`, `locales/*.json` | table-driven catalogs, script-based CJK font fallback |
 
-From PhotoCraft: the command/`UiState` model, `shortcut_dispatch.rs`, the scorecard and perf
-budgets, and the process (`notes/craft-apps/` has both studies).
+From PhotoCraft (`crates/ui-egui/src/`): the command/`UiState` model, `shortcut_dispatch.rs`,
+`dialogs.rs` (dialogs as data, M5.14), `theme.rs` (themes, M16), `widgets/type_ahead.rs`
+(M5.25), `rgb_histogram.rs`, `tone.rs`, `wheel_nav.rs` and `flick_pan.rs` (M7), `prefs_ui.rs`
+(the Options draft and key capture, M10), `tab_strip.rs` (M11), `color_picker_ui.rs` (M12), the
+scorecard and perf budgets, and the process (`notes/craft-apps/` has both studies). From
+`craft-ui`: `tabs` (M7, M11).
 
-Never take: their code, their develop-pipeline UI, packaging metadata (it contains other apps'
-strings), or anything under `docs/brand/` (ArtCraft trademarks). Some of our docs adapt Craft-app
-documentation text with attribution; those files say so in their first lines and are listed in
-`NOTICE`.
+Never take: their develop-pipeline UI, packaging metadata (it contains other apps' strings), or
+anything under `docs/brand/` (ArtCraft trademarks). Some of our docs adapt Craft-app documentation
+text with attribution; those files say so in their first lines and are listed in `NOTICE`.
 
 ## 10. UI structure
 

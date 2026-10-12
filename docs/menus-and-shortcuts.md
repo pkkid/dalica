@@ -259,7 +259,7 @@ unknown command.
 `{command, context, key}` entries (`key: null` = removed). Entries naming a command this version
 does not know are kept verbatim and ignored. The editor goes through `app.setShortcut` /
 `app.resetShortcuts` (§1.9), so agents and tests can rebind keys too. Prior art: LightCraft
-`crates/ui-egui/src/panels/keymap.rs` and PhotoCraft `shortcut_dispatch.rs` (reference only).
+`crates/ui-egui/src/panels/keymap.rs` and PhotoCraft `shortcut_dispatch.rs`.
 
 ### 2.1 Global
 
