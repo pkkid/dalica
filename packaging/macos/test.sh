@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2030,SC2031  # the subshells below source common.sh so its settings stay local
 # The macOS packaging checks that run on any OS (Linux too), in seconds, without building:
 #
 #   - dmg/generate.py --self-test: the Craft apps' committed .DS_Store files reproduced byte for
