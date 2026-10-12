@@ -23,14 +23,14 @@ same commit.
 | Section | ✅ | 🟡 | ⬜ | 🚫 |
 |---|---:|---:|---:|---:|
 | A. Library view | 7 | 20 | 5 | 1 |
-| B. Organizing | 0 | 3 | 39 | 0 |
+| B. Organizing | 0 | 4 | 38 | 0 |
 | C. Editing | 0 | 0 | 21 | 4 |
 | D. Viewing | 0 | 1 | 5 | 2 |
 | E. Output | 0 | 0 | 2 | 9 |
 | F. Data | 1 | 15 | 3 | 0 |
 | G. Preferences and system | 0 | 4 | 8 | 0 |
 | H. Menus | 0 | 3 | 4 | 0 |
-| **All** | 8 | 46 | 87 | 16 |
+| **All** | 8 | 47 | 86 | 16 |
 <!-- /parity:summary -->
 
 ## Top gaps
@@ -81,7 +81,7 @@ same commit.
 | Id | Feature | Tier | Status | Evidence / notes |
 |---|---|---|---|---|
 | ORG-FIRSTRUN | First-run panel and progressive first scan | P0 | 🟡 | ref 04 §1; engine: scans are jobs whose folders land a batch per frame with their thumbnails queued while the walk goes on, with progress and cancel (`crates/engine/src/scanning.rs`, `crates/engine/tests/progressive_scan.rs`, `crates/engine/tests/jobs.rs`), and `Session::is_new_library` answers the panel's question; missing: the panel (M5.18), the activity indicator and status text (M5.19) |
-| ORG-FOLDERMGR | Folder Manager (Scan Always / Once / Remove, faces toggle, watched list) | P0 | ⬜ | ref 04 §2 |
+| ORG-FOLDERMGR | Folder Manager (Scan Always / Once / Remove, faces toggle, watched list) | P0 | 🟡 | engine and model (M5.12): modes and the faces flag per folder, inherited unless overridden, Remove leaves the library without touching a file and undoes with its mode, Scan Once frozen after its first scan, `folders.json` v2 reading v1, the drive and Remove Folder confirmations over automation: `cmd:folders.set` `cmd:folder.remove` `cmd:folders.browse` `cmd:folders.list`, `crates/scan/src/rules.rs`, `crates/engine/src/folders.rs`, `crates/scan/tests/rules.rs`, `crates/engine/tests/folders.rs`; the dialog (M5.18) missing; confirmations answer `disabled` until the dialog host routes `needs_confirm`; ref 04 §2 |
 | ORG-WATCH | Watching for changes, offline volumes | P0 | 🟡 | `dalica-scan` side (M5.11): dirty folders from `notify` 8 events, debounced, coalesced and capped, with a pure-Rust polling fallback per root (network shares, watch failures, lost roots); incremental verification of the dirty folders (`watch::rescan`, `diff_rescan`) equal to the full diff restricted to them; folder renames and moves keep folder and photo ids; nothing removed under a root that cannot be walked; a full-verification `Schedule`: `crates/scan/src/watch.rs`, `crates/scan/tests/watch.rs`, `crates/scan/tests/incremental.rs`. Offline volumes in the engine (M5.13): roots checked off the owner thread (every 10 s and after scans), folders under an offline root keep their photos, rows and thumbnails, edits are journalled at once and their sidecar writes wait (no folder created, `pendingWrites` counts them, `pending-writes.json` keeps them across a restart) and land when the root returns: `crates/engine/src/offline.rs`, `crates/engine/tests/offline.rs`, `crates/store/tests/offline.rs`, `crates/library/tests/tree.rs`; wiring the watcher into the session (M5.17) and the dimmed rows with their "offline" marker (M5.19) missing |
 | ORG-ALBUM-NEW | New album + Album Properties | P0 | ⬜ | |
 | ORG-ALBUM-EDIT | Add/remove/reorder/cover/delete album | P0 | ⬜ | |
