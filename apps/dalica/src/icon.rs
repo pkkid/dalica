@@ -86,7 +86,7 @@ mod tests {
             .collect();
         colours.sort();
         colours.dedup();
-        assert_eq!(colours, ["#0b0b0c", "#1fa38a", "#efe9dc"], "ink, the Dalica teal field and paper, nothing else");
+        assert_eq!(colours, ["#0b0b0c", "#d65d0e", "#efe9dc"], "ink, the Dalica orange field and paper, nothing else");
         let scalable = read(&["hicolor", "scalable", "apps", &format!("{APP_ID}.svg")]);
         assert_eq!(scalable, svg.as_bytes(), "the scalable theme icon is the canonical SVG");
     }

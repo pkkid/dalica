@@ -48,12 +48,12 @@ FIXED_DATE = datetime.datetime(2026, 10, 8, tzinfo=datetime.timezone.utc)
 # The palette of the app icon (assets/app-icon/README.md).
 INK = (0x0B, 0x0B, 0x0C)
 PAPER = (0xEF, 0xE9, 0xDC)
-TEAL = (0x1F, 0xA3, 0x8A)
-# The left panel, pt: the icon's colour field with the magpie cropped as a cover.
+ORANGE = (0xD6, 0x5D, 0x0E)
+# The left panel, pt: the icon's colour field with the melting shutter cropped as a cover.
 PANEL = 232
 # The crop of the 512-unit icon tile shown in the panel: its full height, and this many units
-# from the tile's left edge (the print, the head and the front of the body).
-CROP_LEFT = 4
+# from the tile's left edge (centred on the lens, whose drips run to the bottom).
+CROP_LEFT = 108
 
 # The two Craft apps whose committed .DS_Store files the self-test reproduces byte for byte.
 ORACLES = (
@@ -400,7 +400,7 @@ def resample_weights(src_start, ratio, count, src_limit):
 
 
 def panel_art(icon, width, height):
-    """The icon tile's field and magpie, cropped as a cover, `width` × `height` RGB pixels."""
+    """The icon tile's field and melting shutter, cropped as a cover, `width` × `height` RGB pixels."""
     iw, ih, rgba = icon
     # icons.sh renders the macOS icon from the viewBox -62 -62 636 636: tile unit u is at
     # (u + 62) × size / 636 px.
@@ -413,7 +413,7 @@ def panel_art(icon, width, height):
     for i in range(iw * ih):
         a = rgba[i * 4 + 3]
         for c in range(3):
-            flat[i * 3 + c] = (rgba[i * 4 + c] * a + TEAL[c] * (255 - a) + 127) // 255
+            flat[i * 3 + c] = (rgba[i * 4 + c] * a + ORANGE[c] * (255 - a) + 127) // 255
     cols = resample_weights(x0, ratio, width, iw)
     rows = resample_weights(y0, ratio, height, ih)
     out = bytearray(width * height * 3)
@@ -452,7 +452,7 @@ def background(icon, scale):
     for y in (88, 335):
         canvas.rect(267 * s, y * s, 624 * s, (y + 0.6) * s, INK)
         canvas.polygon([(267 * s, (y + 0.3) * s), (271.5 * s, (y - 6.7) * s),
-                        (276 * s, (y + 0.3) * s), (271.5 * s, (y + 7.3) * s)], TEAL)
+                        (276 * s, (y + 0.3) * s), (271.5 * s, (y + 7.3) * s)], ORANGE)
     # The arrow from the app to Applications, between the two 128 pt icon boxes.
     arrow = [(410, 202.5), (466, 201), (464, 191), (490, 205), (464, 219), (466, 209), (410, 207.5)]
     canvas.polygon([(x * s, y * s) for x, y in arrow], INK)

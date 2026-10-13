@@ -36,7 +36,7 @@ command -v python3 >/dev/null || { echo "error: python3 not found" >&2; exit 1; 
 magick -list format | grep -qE '^ *SVG .*RSVG' ||
   { echo "error: this ImageMagick renders SVG without librsvg; install its rsvg coder" >&2; exit 1; }
 
-# The SVG is the full-bleed 512-unit tile (rx=112). Windows and Linux use it as is, so the magpie
+# The SVG is the full-bleed 512-unit tile (rx=112). Windows and Linux use it as is, so the shutter
 # reads at 16-48 px. macOS icons follow Apple's grid: an 824/1024 body with a transparent margin,
 # made by widening the viewBox (512 / 0.805 = 636, so 62 units each side).
 grep -q 'viewBox="0 0 512 512"' "$SVG" || { echo "error: expected viewBox=\"0 0 512 512\" in $SVG" >&2; exit 1; }

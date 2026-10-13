@@ -15,9 +15,10 @@ writes.
 ## The background
 
 Drawn from the icon's own material (`assets/app-icon/README.md`): the left 232 pt are the icon's
-teal field with the magpie and its print cropped from `assets/app-icon/dalica-1024.png` as a
-cover (area-averaged, composited on the teal so the tile's corners disappear), edged by an ink
-rule and hairline; the rest is Paper with two ink hairlines framing the icon row, a teal diamond
+orange field with the melting shutter cropped from `assets/app-icon/dalica-1024.png` as a
+cover, centred on the lens (area-averaged, composited on the orange so the tile's corners
+disappear), edged by an ink rule and hairline; the rest is Paper with two ink hairlines framing the
+icon row, an orange diamond
 on each, and an ink arrow from the app to `Applications`. No text, so no fonts are involved.
 
 - **Finder draws the icon labels in black in light and dark mode** when a window has a
