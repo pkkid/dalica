@@ -2937,7 +2937,7 @@ effect tabs show an empty state until M12.
     the manual checks in `m7.md` (open, zoom, crop, straighten, tune, retouch and undo on your own
     photos).
   - done when: `cargo xtask accept M7` passes everything in M7's *Done when*.
-- ⬜ **M7.24 Lead: task blocks for M9**
+- ✅ **M7.24 Lead: task blocks for M9**
   - after: M6.37
   - owner: lead
   - files: `docs/roadmap.md`
@@ -3001,8 +3001,36 @@ effect tabs show an empty state until M12.
     `data-model.md` §4's library path (`…/dalica/library`, `…/Dalica/Library` on macOS and
     Windows); `control-protocol.md` §8 and `dalica-cli snapshot --demo` brought into agreement.
   - done when: `cargo xtask ci` passes and each item matches the code.
+- ⬜ **M7.30 `engine`: undoing Adjust Date after its write has landed**
+  - after: M6.R, M7.27
+  - files: `crates/engine/src/cmd/dates.rs`, `crates/engine/tests/dates_undo_written.rs`, `crates/ui/tests/adjust_date.rs`, `apps/dalica/src/control/play.rs`
+  - scope: found mid-M7 by M7.27: once Adjust Date's metadata write has landed in the file, Undo
+    leaves the photo at the written date instead of the date it had (the file's EXIF now holds the
+    new date, so dropping the override falls back to it). Undo and Redo of a date step put the
+    file's date back through the same metadata write-back (queued, merged, verified, the file's
+    time kept), so the library and the file agree after undo whether or not the write had landed;
+    `adjust_date.rs` waits for metadata writes (`settle` with `jobs`) and checks both orders. The
+    windowed app's `ui.settle` (`control/play.rs`) counts queued metadata writes the way M7.27
+    made the headless driver do.
+  - done when: a test that fails on main: adjust a date, let the write land, undo → the library
+    and the file both read the original date; redo → both read the new one; the same with the
+    write still queued; `cargo xtask ci` passes.
+- ⬜ **M7.31 `meta` + docs: refusals as their own error, and the API notes found mid-M7**
+  - after: M7.5, M7.6, M7.26, M7.27
+  - files: `crates/meta/src/lib.rs`, `crates/meta/src/write/png.rs`, `crates/meta/tests/corpus.rs`, `crates/meta/tests/write_png_webp_tiff.rs`, `crates/meta/README.md`, `docs/xmp-interop.md`, `crates/ui-kit/README.md`, `docs/design-system.md`
+  - scope: found mid-M7 by M7.26, M7.5, M7.6 and M7.27: a write refused up front (TIFF place or
+    date with no mirror) returns its own `Error::Refused` naming the field, so its notice no longer
+    starts "the written file failed its check:" and the corpus counts refusals by that variant; a
+    PNG with a second IPTC-holding profile has every copy rewritten, so no old caption lingers;
+    `xmp-interop.md` and the `meta` README describe the bare IIM form ImageMagick writes; the
+    `ui-kit` README's API list names `EditIcon` / `paint_edit`, the tabs, tool buttons,
+    histogram, Tuning slider, input helpers and `ToastText`; `design-system.md` §6's toast row
+    names the caution kind.
+  - done when: a refusal test matches `Error::Refused` with the field's name; a two-profile PNG
+    caption write leaves no old caption; `cargo xtask test-corpus -p dalica-meta` keeps its
+    counts; `cargo xtask ci` passes.
 - ⬜ **M7.R Check-in**
-  - after: M7.23
+  - after: M7.23, M7.30, M7.31
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`
   - scope: the lead runs `/milestone-review M7.R` to prepare it: the check-in page (open a photo by
@@ -3647,6 +3675,618 @@ One milestone in 3 feature areas (*Albums*, *Search and filters*, *File operatio
 - **Out:** dragging out to other applications (M15).
 - **Done when:** `cargo xtask accept M9`: `data-model.md` §10.2, §10.3 and §10.7; undo tests per
   operation; a move across two file systems copies, verifies, then deletes.
+
+#### M9 tasks
+
+M9 makes the library organisable: albums that last and span folders, instant search with filters,
+and file operations that move, copy, rename and delete real files without ever losing one. Its
+first wave lists the M8 work each task extends and starts once the maintainer has closed M8.R. Five
+tasks lay the ground the others share, so later tasks never share a file: M9.1 adds M9's model to
+`library` (albums and their position keys, the automatic albums, search facts, moves, renames and
+removals of photos and folders as ops with exact inverses, a section filter for search mode), M9.2
+gives `fs` the OS trash and moves and copies that never replace a file, M9.3 registers one engine
+command module per area, file operations as library undo steps whose undo moves files back on a
+worker, and M9's settings, M9.4 adds M9's view state, UI commands, the photo context menu's frame,
+the banner's place and stub dialogs, and M9.5 gives `ui-kit` the album icons, the filter banner,
+the drag pill and the age slider. The search grammar (M9.8) lives in `library` beside the model it
+reads, where `architecture.md` §2 puts it; the engine keeps its index and runs it on a worker
+(M9.11). Sidecar entries travel with their files through one `store` module (M9.9), so a move, a
+copy, a rename and a folder merge carry them the same way. Each task updates its `parity.md` rows
+(`ORG-ALBUM-NEW`, `ORG-ALBUM-EDIT`, `ORG-ALBUM-AUTO`, `SRCH-LIVE`, `SRCH-FILTERS`, `SRCH-BANNER`,
+the Save half of `SRCH-SAVE`, `SRCH-DUP`, `FILE-MOVE`, `FILE-NEWFOLDER`, `FILE-RENAME`,
+`FILE-DELETE`, `FILE-FOLDEROPS`, `LIB-TREE-DND`, the album and search parts of `LIB-TREE-GROUPS`,
+`LIB-LT-SECTIONS`, `LIB-LT-HEADER`, `LIB-TRAY`, `LIB-TRAY-HOLD`, `LIB-EMPTY` and `LIB-SEL`, Search
+for This Tag in `ORG-TAGS`, renaming in `ORG-FOLDERPROPS`, Sort By in `ORG-SORT-PHOTOS`, the File,
+Edit, Folder / Album and Tools menu rows; new rows where none fit: `LIB-CTX-PHOTO` for the photo
+context menu, `DATA-FILEOPS-RECOVERY` for the repair of an interrupted file operation) and names its
+commands there; first fingerprints of the album tree and headers, the banner, the drag pill, the
+dialogs and the icons are approved in bulk on the M9.R review page.
+
+Whole-window baselines belong to no task, as in M5–M8: the finished milestones'
+`tests/acceptance/fingerprints/m1-*.json` … `m8-*.json` and any `crates/ui/tests/fingerprints/`
+file not named in a task's `files` change whenever the window does. A task whose change moves them
+re-blesses them on its branch (diff images on the PR, the reason in the commit body), they never
+count as a `files` overlap, and on a rebase conflict the worker re-blesses after the rebase.
+
+Decisions taken while planning (the check-in lists them for reversal): menu items ending in "…"
+whose engine command takes input open their dialog in the UI, and the dialog's default button runs
+that same engine command with the input (`photo.rename`, `photo.moveToNewFolder`, `folder.move`),
+as control-protocol §5.3 already shows for `photo.rename`; New Album… is the UI command `album.new`
+(Ctrl+N, the toolbar button) that opens Album Properties and runs the engine's `album.create`, the
+way `output.export` runs `export.run`, and Album Properties is `section.properties` on an album
+section, running `album.info.set`; Cut, Copy and Paste are UI commands that keep the photos in the
+view state, and Paste runs `photo.moveTo` or `photo.copyTo` into the current folder; in an album
+section the Delete key removes from the album and Ctrl+Delete deletes from disk, routed by the UI
+by section as Ctrl+1 is by view. Album ids are `a` and 12 random hex digits from the OS random
+source (`getrandom`, already in the tree), drawn again on a clash. The Albums group lists the search
+album (while searching), Starred Photos, Recently Updated, then user albums in the tree's folder
+sort, an album's date being its own, else its newest photo's; Starred Photos lists by date like a
+folder; a photo is "recently updated" by the later of its file's modification time, the time this
+library first indexed it and the last time Dalica changed its data (index-only: after a rebuild only
+the file's time counts), newest first, within the setting's 30 days; an album's cover is its first
+photo until one is set, and falls back to the first when the cover leaves. A key that would pass 512
+bytes re-keys its album inside the same undo step. `albums.json` is written after album changes and
+read at open; when it is missing, a rebuild recovers memberships, order and names from the
+sidecars, and description, date, place and cover start empty. `section.sort` sorts albums (rewriting
+their keys) and folders (the folder's `sort`, with a `reverse` flag added to `data-model.md` §3);
+a folder's manual order by dragging stays out of M9 with the rest of `ORG-SORT-PHOTOS`. Search
+matches word prefixes ignoring case (no accent folding until localisation, M15), month names in
+English until M15, and a photo through its own text, its folder's name, description and place, and
+the names of its albums; an unknown `name:value` is searched as plain words; hidden photos match
+only while hidden pictures are shown; the age slider counts back from today on the effective date
+(the user's, else the capture date, else the file's), on a logarithmic scale up to 20 years; the
+Faces filter is drawn disabled until faces exist (M13), and `person:` and `color:` match nothing
+and say so until their milestones. Queries run on a worker after a 120 ms debounce on the session
+clock; the worker keeps the index and updates it for the photos each applied op touched, never
+rebuilding it per revision; stale results are dropped by generation. The search budgets join
+`development.md` §8 at 1.5 × their first measurement and never above 100 ms per query at 100 k
+photos. Find Duplicates finds identical files only: equal sizes, then an MD5 digest (the `md5`
+crate is already in the tree for the IPTC digest) as the bucket key, then a byte-for-byte
+comparison, so a digest collision never groups different files; digests are cached index-only by
+size and modification time, and the groups show as search-mode sections. Every move, copy, rename
+and delete is a file job on M8.3's runner, entered in a file-operation journal (`file-ops.json` in
+the library directory) before anything moves and repaired at open (rolled forward when the
+destination verifies, else back), as M8 journals a Save; a moved or renamed photo keeps its id, and
+its whole sidecar entry (unknown keys too), its `.dalica-originals/` backup and its record travel
+with it; within a volume a move is a rename that never replaces, across volumes a copy, fsync, a
+byte-for-byte verification, then the source to the trash; Dalica's own moves are marked so the
+watcher imports nothing. Moving asks the first time ("Don't ask again"), copying never asks in the
+engine (the UI asks "Copy %d files to %s?" before it runs), and a name clash asks [Rename
+Duplicates] [Skip Duplicates] [Cancel] (renamed to `-001` by `core::names`). Undo moves files back
+on a worker; undoing a copy sends the copies to the trash when they are unchanged; undoing a delete
+restores from the trash where the platform can (Linux, Windows) and is otherwise disabled with the
+reason ("Restore it from the Trash"). Moving or renaming a watched folder rewrites its `folders.json`
+entry; a folder moves only into a library folder; a folder moved onto one of the same name merges
+into it photo by photo under the collision rules; new folders (Move to New Folder, Split Folder
+Here) are made beside the source folder, named through `core::names::sanitize` (M8.13). Folder
+Properties' OK renames first and then sets the info: two undo steps. Cross-volume tests force that
+path through an `fs` `faults` switch and also run on a real second file system (a tmpfs) when the
+test machine has one, saying which ran. Copy Path, Locate on Disk, Show Tag as Album and dragging
+out to other applications stay out (M15 or later). No step of M9 needs a maintainer decision
+mid-run.
+
+- ⬜ **M9.1 `library`: albums, search facts and file-operation ops**
+  - after: M8.1, M8.R
+  - files: `crates/library/src/model.rs`, `crates/library/src/op.rs`, `crates/library/src/query.rs`, `crates/library/src/tree.rs`, `crates/library/src/albums.rs`, `crates/library/tests/m9_fields.rs`, `crates/library/tests/albums.rs`, `crates/library/tests/ops.rs`, `crates/library/tests/tree.rs`, `crates/library/README.md`
+  - scope: `data-model.md` §2–§4 and §8 and `organizing.md` §4 as pure model: albums (id, name,
+    date with "use the newest photo's", place, description, cover) and each photo's memberships
+    with their position keys (`core::poskey`); each photo gains search facts (camera make and model,
+    video, holds a GPS location), its first-indexed time, its last-changed time (set from the op's
+    clock time by every op that changes its data) and a content digest keyed by size and
+    modification time (facts and digests index-only like the sketch: no undo step, no revision bump
+    on load); each folder gains its photo sort (`name | date | size`, reverse). One batched op per
+    change with an exact inverse: album created, deleted (every membership in the inverse), info
+    set, members added at keys, removed, re-keyed (a whole album at once), cover set; a photo moved
+    to another folder or renamed (its id and all its data kept), a photo removed with everything
+    said about it, a folder renamed or moved (its subtree's paths with it, ids kept), an empty
+    folder added. `albums.rs`: the keys for an add, a drop between two members and Sort Album By
+    (`poskey` `after` and `between`; a key over 512 bytes re-keys the album, `data-model.md` §3.2).
+    Queries cached per revision: an album's members in order (equal keys by folder path, then file
+    name), Starred Photos, Recently Updated within n days of a given now, each album's date, count
+    and cover. `tree.rs`: the Albums group (the search album first when there is one, Starred
+    Photos, Recently Updated, then user albums in the folder sort), album sections, folder sections
+    in their folder's sort, and an optional section filter (a set of shown photos: sections without
+    one drop out; the search album lists them all).
+  - done when: `cargo test -p dalica-library`: random op sequences with the new ops applied then
+    inverted restore the model exactly (proptest); a moved or renamed photo keeps its id, caption,
+    tags, recipe and memberships; 10 000 drops at one spot keep keys under 10 bytes, and repeated
+    drops into the middle re-key before 512 bytes with the order unchanged; equal keys sort by path
+    then name; Recently Updated follows a virtual clock; the section filter drops sections without
+    matches in flat and tree mode; loading facts or digests bumps no revision.
+- ⬜ **M9.2 `fs`: the OS trash, and moves and copies that never replace a file**
+  - after: M8.2, M8.R
+  - files: `crates/fs/src/trash.rs`, `crates/fs/src/transfer.rs`, `crates/fs/src/transfer/**`, `crates/fs/src/faults.rs`, `crates/fs/tests/trash.rs`, `crates/fs/tests/transfer.rs`, `docs/security.md`, `NOTICE`
+  - scope: `security.md` §5.3 and §5.7 and `data-model.md` §8: `transfer.rs` moves a file to
+    another folder or to a new name in its own, through held folder handles (M5.3), its identity
+    re-checked right before, by a rename that never replaces (M8.2's commit: `renameat2` NOREPLACE,
+    a hard link then unlink, exclusive creation), a clash answered as `Exists` for the caller to
+    rename or skip; across volumes (`EXDEV` or another device) it copies into a new file (temp,
+    fsync, a commit that never replaces), verifies the copy byte for byte against the source, then
+    sends the source to the trash, never before the copy verifies (the two phases of LightCraft
+    `crates/engine/src/import_move.rs` `place` / `finish` at b7091805, ported, with a header and a
+    `NOTICE` row); a copy is the first phase alone; folders: a new folder made exclusively, a folder
+    renamed or moved without replacing one (across volumes a bounded copy of the tree, verified file
+    by file, then the source tree to the trash); `trash.rs` sends a file or folder to the OS trash
+    through the `trash` crate (already pinned in the workspace; audited with `cargo xtask deps`),
+    answers `NoTrash` for a volume without one (never a permanent delete), and restores a trashed
+    item to its old path where the platform's API allows (Linux, Windows), `Unsupported` elsewhere;
+    a `faults` switch that forces the cross-volume path; fault points at every step; `security.md`
+    §5.7's statuses updated.
+  - done when: `cargo test -p dalica-fs --test transfer --test trash`: a move keeps the bytes and
+    the modification time and never replaces a file at the target, even one created between the
+    check and the move (a racing thread); the forced cross-volume path copies, verifies and trashes
+    the source, and a byte flipped in the copy (a fault point) leaves the source in place; a link in
+    place of either folder is refused with nothing moved; a folder moves with its subtree; a
+    trashed file comes back on Linux and Windows and is `Unsupported` on macOS; a volume without a
+    trash gives `NoTrash` and the file stays; every fault point as Error and as Crash leaves the
+    source whole (`--features faults`); hostile names are refused.
+- ⬜ **M9.3 `engine`: M9's command modules, file operations on the undo stack, and settings**
+  - after: M8.3, M8.R
+  - files: `crates/engine/src/cmd/mod.rs`, `crates/engine/src/cmd/albums.rs`, `crates/engine/src/cmd/search.rs`, `crates/engine/src/cmd/files.rs`, `crates/engine/src/cmd/rename.rs`, `crates/engine/src/cmd/delete.rs`, `crates/engine/src/cmd/folder_ops.rs`, `crates/engine/src/cmd/duplicates.rs`, `crates/engine/src/fileops.rs`, `crates/engine/src/fileops_recovery.rs`, `crates/engine/src/albums_file.rs`, `crates/engine/src/search.rs`, `crates/engine/src/duplicates.rs`, `crates/engine/src/undo.rs`, `crates/engine/src/jobs.rs`, `crates/engine/src/folders.rs`, `crates/engine/src/session.rs`, `crates/engine/src/settings.rs`, `crates/engine/tests/fileops.rs`, `crates/engine/tests/settings_m9.rs`, `crates/engine/README.md`, `docs/architecture.md`
+  - scope: the engine's ground for M9 so M9.10–M9.16 and M9.21 never share a file: empty
+    `cmd/albums.rs`, `search.rs`, `files.rs`, `rename.rs`, `delete.rs`, `folder_ops.rs` and
+    `duplicates.rs` joined into the registry once; `fileops.rs`: a file operation is a file job on
+    M8.3's runner (`JobKind::Files`) whose result applies as one library undo step of a new kind,
+    and whose undo and redo run the reverse operation as a file job in turn ("Undo Move"; the step
+    stays on the stack while it runs, and a step that cannot be undone says why through `enabled`);
+    each operation entered in the file-operation journal before it starts (M9.9's format; a stub
+    writer until then); both ends of a move marked as Dalica's own (M8.3's mark) so the watcher
+    imports nothing; a session event per finished operation (moved, copied, renamed, trashed,
+    skipped, failed with file and reason) for the UI's notices; stubs `fileops_recovery.rs` (called
+    at open), `albums_file.rs` (called after every applied op that touches albums), `search.rs` (the
+    search state: text, filters, age, mode `search | duplicates`, generation, last result) and
+    `duplicates.rs`; `folders.rs` gains `rebase(from, to)`, rewriting the `folders.json` entries at
+    and under a moved or renamed folder; every M9 setting with its default behind a typed accessor:
+    ask before moving (on), remove from albums without asking (off), delete without asking (off),
+    Recently Updated days (30), the last Move Folder destination; `architecture.md` §4 describes
+    file-operation undo steps.
+  - done when: `crates/engine/tests/fileops.rs` with a fake operation: it runs as a job and applies
+    once as one undo step; undo runs its reverse as a job and redo runs it again; Cancel between
+    files keeps what finished as one step; a failure is reported with its reason while the rest go
+    on; the watcher imports nothing for the marked paths; the owner thread made no `fs` call;
+    `rebase` moves nested entries and keeps the others; `crates/engine/tests/settings_m9.rs`
+    round-trips every new setting with unknown keys kept and wrong types falling back (reported);
+    every existing engine test and `panic_hunt` pass unchanged.
+- ⬜ **M9.4 `ui`: M9's view state, UI commands, the photo context menu's frame and stub dialogs**
+  - after: M8.4, M8.R
+  - files: `crates/ui/src/state.rs`, `crates/ui/src/menus.rs`, `crates/ui/src/menu_catalog.rs`, `crates/ui/src/app.rs`, `crates/ui/src/keys.rs`, `crates/ui/src/commands/mod.rs`, `crates/ui/src/commands/albums.rs`, `crates/ui/src/commands/search.rs`, `crates/ui/src/commands/files.rs`, `crates/ui/src/commands/rename.rs`, `crates/ui/src/commands/folder_ops.rs`, `crates/ui/src/commands/clipboard.rs`, `crates/ui/src/dialogs/mod.rs`, `crates/ui/src/dialogs/confirm.rs`, `crates/ui/src/dialogs/album_properties.rs`, `crates/ui/src/dialogs/remove_from_album.rs`, `crates/ui/src/dialogs/move_confirm.rs`, `crates/ui/src/dialogs/copy_confirm.rs`, `crates/ui/src/dialogs/collision.rs`, `crates/ui/src/dialogs/new_folder.rs`, `crates/ui/src/dialogs/rename_files.rs`, `crates/ui/src/dialogs/delete.rs`, `crates/ui/src/panels/mod.rs`, `crates/ui/src/panels/layout.rs`, `crates/ui/src/panels/search_banner.rs`, `crates/ui/src/panels/light_table/context_menu.rs`, `crates/ui/src/panels/light_table/input.rs`, `crates/ui/src/drag.rs`, `crates/ui/src/control/**`, `crates/ui/tests/view_state_m9.rs`, `docs/control-protocol.md`
+  - scope: every M9 field of `UiState` in one go: the search field's text, the autocomplete
+    highlight, the filters and the age, search mode's saved scroll anchor; the clipboard (cut or
+    copy, its photos); the drag in progress (`ui.inspect` → `drag`: from, ids, target, op, pill);
+    the drafts of Album Properties, Rename Files, the new-folder dialog, and the move, copy,
+    collision and delete questions; UI commands with stub handlers, so M9.17–M9.23 never share a
+    file: `album.new` (Ctrl+N), `photo.cut`, `photo.copy`, `photo.paste` (Ctrl+X, Ctrl+C, Ctrl+V in
+    the library), `search.focus` (Ctrl+F, F3), `photo.splitFolder`, `photo.showInFolder`, and the
+    openers of the `…` items `photo.rename` (F2), `photo.moveToNewFolder` and `folder.move`; the
+    Delete key routed by section (Remove from Album in an album, `photo.delete` elsewhere;
+    Ctrl+Delete always `photo.delete`); stub dialogs on the host (`albumProperties`,
+    `removeFromAlbum`, `moveFiles`, `copyFiles`, `collision`, `newFolder`, `renameFiles`,
+    `deletePhotos`, `deleteFolder`, the folder picker of Move Folder) with `confirm.rs` asking for
+    `album.delete`, `album.remove`, `photo.delete`, `folder.delete` and `photo.moveTo`; `section_kind`
+    answering Album for album sections, so the fourth menu reads Album with `organizing.md` §9.2's
+    album rows; the photo context menu (`organizing.md` §9.1; `ui.menu.tree {context: "photo"}`)
+    opened by a right-click through `light_table/input.rs` into a stub `context_menu.rs`, its rows
+    greyed until their commands exist; a press-and-drag on a thumbnail starting `drag.rs`'s stub (no
+    drop yet); `layout.rs` reserving the 32-high banner at the light table's top in search mode for
+    the stub `search_banner.rs`; control-protocol §5.5, §6.5, §6.6 and §6.10 updated.
+  - done when: `crates/ui/tests/view_state_m9.rs`: each new field round-trips through `ui.state` /
+    `ui.set` (bad values are `bad_params`, nothing changes); each opener shows its dialog by
+    `dialog:<kind>` and Esc closes it; `ui.menu.tree {context: "photo"}` lists §9.1's rows in order;
+    Delete and Ctrl+Delete route by section; the menu items light up; every command's
+    graceful-failure test; `panic_hunt` and `widget_ids` stay green.
+- ⬜ **M9.5 `ui-kit`: album icons, the filter banner, the drag pill and the age slider**
+  - after: M8.5, M8.R
+  - files: `crates/ui-kit/src/widgets.rs`, `crates/ui-kit/src/widgets/banner.rs`, `crates/ui-kit/src/widgets/drag_pill.rs`, `crates/ui-kit/src/widgets/age_slider.rs`, `crates/ui-kit/src/icons.rs`, `crates/ui-kit/src/icons/albums.rs`, `crates/ui-kit/tests/m9_widgets.rs`, `crates/ui-kit/tests/icons_albums.rs`, `crates/ui-kit/tests/fingerprints/m9-widgets*.json`, `crates/ui-kit/tests/fingerprints/icons-albums*.json`, `crates/ui-kit/tests/fingerprints/gallery*.json`, `docs/design-system.md`
+  - scope: `design-system.md` §5–§6 and `ui-layout.md` §4, §5.5 and §9: `filter_banner` (32 high in
+    the `filter_banner` colour, [Show All] at its left, the text after it, cut from its end with an
+    ellipsis when narrow); `drag_pill` (near the pointer, never outside the window: the first
+    photo's mini thumbnail, the count and the operation, "Move 3 photos", "Copy 3 photos" with a +,
+    "Add to album"); the age slider (`zoom_slider`'s thin look with a logarithmic map from 0 =
+    everything to 20 years, and its label "Pictures up to 3 months old" in days, weeks, months and
+    years, both pure functions the UI and the tests share); the insertion marker between two cells
+    while reordering an album (a 2 pt `accent` bar with end caps); the `drop_target` highlight as
+    one painter for tree rows and the tray; the icons `StarredAlbum` (a book with a star),
+    `RecentAlbum` (a book with a clock) and `SearchAlbum` (a book with a magnifier), our own
+    drawings on the 20-unit grid; the widget gallery gains them.
+  - done when: `crates/ui-kit/tests/m9_widgets.rs`: the banner's text elides from its end and Show
+    All stays whole at both window widths; the pill stays inside the window at every corner and
+    shows + only for a copy; the age map is monotonic, 0 means everything, and the labels read as
+    specified at 1 day, 2 weeks, 3 months and 5 years; `crates/ui-kit/tests/icons_albums.rs`: each
+    icon stays in its grid at 12, 16, 20 and 28 px in rest, hover and disabled colours; gallery and
+    icon fingerprints; `widget_ids`, `cargo xtask assets` and `cargo xtask names` pass.
+- ⬜ **M9.6 `sidecar` + `store`: albums and M9's fields on disk and in the index**
+  - after: M9.1, M8.9
+  - files: `crates/sidecar/src/fields.rs`, `crates/sidecar/src/print.rs`, `crates/sidecar/src/lib.rs`, `crates/sidecar/src/albums.rs`, `crates/sidecar/tests/albums.rs`, `crates/store/src/mapping.rs`, `crates/store/src/journal.rs`, `crates/store/src/snapshot.rs`, `crates/store/src/rebuild.rs`, `crates/store/src/albums.rs`, `crates/store/tests/m9_fields.rs`, `crates/store/tests/albums.rs`, `docs/data-model.md`
+  - scope: `data-model.md` §2–§4: a photo's `"albums"` (album id → position key) and the folder's
+    top-level `"albums"` names in `.dalica.json`, in the documented key order, ids and keys checked
+    (a bad one kept verbatim and reported, never used); the folder's `"sort"` and a new `"reverse"`
+    flag in `"folder"`; `albums.json` in the library directory (id, name, description, date, use
+    newest, place, cover, and a copy of the order) parsed and printed with unknown keys kept, a
+    damaged file set aside as `.corrupt-<time>` and rebuilt; the album fields, facts, first-indexed
+    and last-changed times and digests in the journal and snapshot (facts, times and digests
+    index-only); a rebuild collects memberships from every folder sidecar and definitions from
+    `albums.json`, or names from the folders' `"albums"` when it is missing; the mapping test lists
+    each new field; `data-model.md` §3 and §4 updated.
+  - done when: `data-model.md` §10.1 for every M9 field (scan, change everything, delete the index,
+    rebuild, compare); §10.12 at the store level (an album over three folders keeps its order after
+    deleting `albums.json` and the index and rebuilding, its name recovered from the folders);
+    proptest round trips with hostile ids, keys and wrong types never panic and keep what they
+    cannot use; a damaged `albums.json` is set aside and reported; journal replay and snapshots
+    keep the new fields.
+- ⬜ **M9.7 `scan` + `engine`: search facts read on scan**
+  - after: M9.1, M6.32
+  - files: `crates/scan/src/meta.rs`, `crates/scan/src/facts.rs`, `crates/scan/tests/facts.rs`, `crates/engine/src/scanning.rs`, `crates/engine/tests/facts.rs`
+  - scope: `organizing.md` §8: the scan's metadata pass (M6.32) also reads each new or changed
+    photo's search facts on its worker: camera make and model (EXIF, trimmed, kept as read), whether
+    it is a video (its file type) and whether it holds a GPS location (the EXIF GPS IFD, or
+    `exif:GPSLatitude` and `exif:GPSLongitude` in XMP), bounded like the rest of the pass; the
+    engine turns them into M9.1's ops in the same batches, without an undo step.
+  - done when: `cargo test -p dalica-scan --test facts`: `scenes` JPEG, TIFF, PNG, raw and video
+    files give the expected facts; a file without EXIF gives none; GPS from EXIF and from XMP;
+    truncated and hostile blocks give no facts and never a panic; `crates/engine/tests/facts.rs`:
+    after a scan the facts are in the library, a file rewritten with another camera model updates
+    them, and the undo stack is unchanged.
+- ⬜ **M9.8 `library`: the search grammar, matcher and index**
+  - after: M9.1
+  - files: `crates/library/src/search.rs`, `crates/library/src/search/**`, `crates/library/tests/search.rs`, `crates/library/tests/search_props.rs`, `NOTICE`
+  - scope: `organizing.md` §8.1–§8.2: the grammar (words split at space, dot, underscore and dash;
+    several words AND; `-word` NOT; `tag:`, `camera:`; `person:` and `color:` parsed, matching
+    nothing and reported as not available yet; an unknown `name:value` searched as plain words);
+    prefix matches ignoring case on file names, captions, tags, folder names, descriptions and
+    places, album names, effective dates (years, `2026-06`, `2026-06-04`, English month names),
+    camera make and model, and pixel sizes (`4000x3000`); the filters Starred, Videos and
+    Geotagged (Faces matches nothing until M13) and the age (days back from a given now); hidden
+    photos only when asked; an index (sorted terms → photo sets, prefix ranges by binary search)
+    built from an owned extract of the searchable fields and updated photo by photo, so the engine
+    can keep it on a worker; a result in light-table order with the matching sections and the
+    counts, folders and bytes the banner shows; suggestions for a prefix (tags, folders and albums
+    with their counts, at most 100). Prior art: LightCraft `crates/catalog/src/query.rs` at
+    b7091805 (tokens and fielded terms), ported where it fits with a header and a `NOTICE` row.
+  - done when: `cargo test -p dalica-library --test search --test search_props`: grammar tests per
+    operator and their combinations; an empty query matches everything; `-` excludes; the prefix
+    and case rules; each date spelling; a tag renamed or a caption changed shows in the results
+    after its photo's update; an index updated through random op sequences equals one built from
+    scratch (proptest); hostile queries (10 000 words, 1 MiB, control and bidirectional characters)
+    are bounded and never panic; the times to build and to query 100 k synthetic photos printed.
+- ⬜ **M9.9 `store`: sidecar entries travel with their files, and the file-operation journal**
+  - after: M9.2, M9.6
+  - files: `crates/store/src/carry.rs`, `crates/store/src/intents.rs`, `crates/store/src/writer.rs`, `crates/store/tests/carry.rs`, `crates/store/tests/intents.rs`, `docs/data-model.md`
+  - scope: `data-model.md` §8: a moved photo's whole entry (unknown keys included) leaves the
+    source folder's `.dalica.json` and enters the destination's under its new name (a renamed
+    photo's stays in its folder under the new name), merged entry by entry and never replacing a
+    sidecar, both writes sequenced through the writer with the folders' pending debounced changes
+    so none is lost; a copied photo's entry is duplicated; the photo's `.dalica-originals/` backup
+    and its record (M8.9) move or copy with it through `fs` (M9.2); a folder merge carries every
+    entry; the file-operation journal `file-ops.json` in the library directory (`{"version": 1,
+    "ops": [{id, kind, items: [{from, to, state: pending | placed | done}]}]}`) written through the
+    I/O worker before an operation starts and after each item, a damaged file set aside and
+    reported; `intents::plan(op, what is on disk)` deciding per item whether to roll forward or
+    back, pure apart from the facts it is given; §8 gains the journal and the order of steps.
+  - done when: `cargo test -p dalica-store --test carry --test intents`: a photo moved between two
+    folders arrives with its unknown keys and memberships and leaves the source; a star made just
+    before the move, still in the debounce, lands in the destination; a rename keeps the entry; a
+    move that renamed a duplicate keeps both entries; the backup and its record travel and a copy
+    duplicates them; the journal round-trips and `plan` answers every item state; hostile journals
+    never panic and are set aside.
+- ⬜ **M9.10 `engine`: album commands**
+  - after: M9.3, M9.6
+  - files: `crates/engine/src/cmd/albums.rs`, `crates/engine/src/cmd/section.rs`, `crates/engine/src/cmd/photo.rs`, `crates/engine/src/albums_file.rs`, `crates/engine/tests/albums.rs`
+  - scope: `organizing.md` §4 and `data-model.md` §3.2: `album.create {name, date?, useNewest?,
+    place?, description?, ids?}` (the new id in the result, the photos added in order),
+    `album.info.set {album, …}`, `album.add {album, ids, before? | after?}`, `album.remove {album,
+    ids, confirm?}` (`needs_confirm` with the "Remove from Album" question unless its setting is
+    on), `album.reorder {album, ids, before? | after?}`, `album.setCover {album, id}`, `album.delete
+    {album, confirm}` (`needs_confirm`), `albums.list` (query: id, name, kind, count, cover, date);
+    `section.sort {section?, by, reverse?}` on an album (its keys rewritten) and on a folder (its
+    sort); `album:starred`, `album:recent` and user albums accepted wherever a section is;
+    `photo.inspect` lists a photo's albums; each one library undo step, re-keying inside the step
+    that needed it; `albums_file.rs` writes `albums.json` through the I/O worker after album changes
+    and reads it at open.
+  - done when: `crates/engine/tests/albums.rs` on temp folders: `data-model.md` §10.12 through the
+    commands (an album over three folders in a custom order; delete `albums.json` and the index;
+    rebuild; the same order); undo and redo of every command restore the model and the sidecars on
+    disk; a drop between two members rewrites only the moved photo's sidecar; deleting an album
+    keeps the files and removes every membership, and undo brings them back; Sort Album By and
+    Reverse Order; Starred Photos and Recently Updated follow stars and edits on a virtual clock;
+    each command's contract and graceful failures; `panic_hunt` green.
+- ⬜ **M9.11 `engine`: search on a worker, suggestions and Save Search as Album**
+  - after: M9.3, M9.7, M9.8
+  - files: `crates/engine/src/cmd/search.rs`, `crates/engine/src/cmd/library.rs`, `crates/engine/src/search.rs`, `crates/engine/tests/search.rs`
+  - scope: `organizing.md` §8 and `ui-layout.md` §9: `search.set {text?, filters?, age?}` (no undo
+    step; debounced 120 ms on the session clock; the query run on a worker against M9.8's index,
+    which the worker keeps and updates for the photos each applied op touched; results tagged with
+    a generation, stale ones dropped; `library.inspect` → `search`: active, text, filters, age,
+    matches, folders, bytes, seconds), `search.clear`, `search.suggest {text}` (query),
+    `search.saveAsAlbum {name}` (Tools ▸ Experimental ▸ Save Search Results…: a user album of the
+    results in light-table order, one undo step), `library.query` taking the grammar in `text` and
+    paging the results; search mode's sections through M9.1's section filter, and `album:search`
+    accepted wherever a section is (an export of the results included); the owner thread does no
+    search work beyond applying results.
+  - done when: `crates/engine/tests/search.rs`: five keystrokes inside the debounce run one query;
+    results equal M9.8's for the same library; a star changed during search updates them; Starred,
+    Videos, Geotagged and the age combine with text; `search.clear` shows everything again; Save
+    Search as Album makes an album in that order and undo removes it; `album:search` lists the
+    results; a query on a 100 k synthetic library answers off the owner thread (time printed); each
+    command's contract and graceful failures; `panic_hunt` green.
+- ⬜ **M9.12 `engine`: the 100 k search benchmark and its budgets**
+  - after: M9.11
+  - files: `crates/engine/benches/search.rs`, `xtask/src/bench.rs`, `xtask/src/accept.rs`, `.github/workflows/budgets.yml`, `docs/development.md`
+  - scope: the `search` bench (registered in `xtask/src/bench.rs`) over a synthetic 100 k library
+    with captions, tags, folders and albums: building the index, a one-word query, three words with
+    a filter, a `-word`, and the time from a `search.set` (debounce excluded) to results applied;
+    its budgets at 1.5 × the first measurement and never above 100 ms per query, in
+    `development.md` §8 and the release-budgets job (`BUDGETS`, M5.24).
+  - done when: `cargo xtask bench search` prints the numbers (in the PR) and `cargo xtask budgets`
+    passes with them.
+- ⬜ **M9.13 `engine`: move and copy photos, and Move to New Folder**
+  - after: M9.9, M8.13
+  - files: `crates/engine/src/cmd/files.rs`, `crates/engine/tests/move_copy.rs`, `crates/engine/tests/new_folder.rs`
+  - scope: `organizing.md` §9 and `data-model.md` §8: `photo.moveTo {ids, folder, collisions?,
+    confirm?, dontAsk?}` (`needs_confirm` with the first-time question while its setting is on;
+    `collisions: rename | skip`, and without it a clash answers `needs_confirm` with the [Rename
+    Duplicates] [Skip Duplicates] [Cancel] question naming the clashing files), `photo.copyTo {ids,
+    folder, collisions?}` (the copies added as new photos with the sources' entries),
+    `photo.moveToNewFolder {ids, name, date?, useOldest?, place?, description?}` (a new folder
+    beside the photos' folder, its name through `core::names::sanitize` and the next free name, its
+    info set, the photos moved: one undo step); the destination a library folder; all through
+    M9.3's file operations with M9.9's carry, so ids, entries, memberships, recipes and backups
+    travel; undo moves them back (and removes a folder it made while still empty); undoing a copy
+    trashes the copies still unchanged.
+  - done when: `crates/engine/tests/move_copy.rs` on temp folders: `data-model.md` §10.3 (moved
+    photos keep star, caption, tags, recipe, album order and their `.dalica-originals/` backup);
+    undo and redo restore the files on disk and the model; the first-time question is asked once
+    and not after `dontAsk`; Rename Duplicates gives `-001` and Skip leaves both files untouched; a
+    forced cross-volume move copies, verifies, then trashes; Cancel half-way keeps the moved part as
+    one step; a read-only destination fails with its reason and nothing moved;
+    `crates/engine/tests/new_folder.rs`: Move to New Folder and a split (one photo and every photo
+    after it) are one step each and undo removes the empty folder; the owner thread made no `fs`
+    call; each command's contract and graceful failures; `panic_hunt` green.
+- ⬜ **M9.14 `engine`: rename and batch rename photos, and rename folders**
+  - after: M9.9, M8.13
+  - files: `crates/engine/src/cmd/rename.rs`, `crates/engine/tests/rename.rs`, `NOTICE`
+  - scope: `organizing.md` §9 and `data-model.md` §8: `photo.rename {ids, name, addDate?,
+    addSize?}` (one photo takes the name with its own extension; several get `-001`, `-002` … in
+    light-table order; the date taken (`2026-06-04`) and the pixel size (`4000x3000`) added when
+    asked; names through `core::names::sanitize`; a name another file or another photo of the batch
+    holds takes the next free number, decided by file identity, so a change of letter case on a
+    case-insensitive volume renames in place; if one rename fails the batch is moved back and
+    nothing changes), `folder.rename {folder, name}` (the directory renamed, its watched-folder
+    entry rebased, ids kept); through M9.3's file operations with M9.9's carry, one undo step each;
+    the collision, case-change and rollback rules ported from LightCraft
+    `crates/engine/src/rename.rs` at b7091805, with a header and a `NOTICE` row.
+  - done when: `crates/engine/tests/rename.rs` on temp folders: three photos renamed `Lisbon` become
+    `Lisbon-001.jpg` … `Lisbon-003.jpg` in order with their data; with the date and the size; a
+    clash with an existing file takes the next number; `img.jpg` → `IMG.jpg` renames in place on a
+    case-insensitive volume (the macOS and Windows runners); a planted failure on the second file
+    leaves all three as they were; undo and redo; a renamed folder keeps its ids and sidecar, and a
+    renamed watched folder its `folders.json` entry; names with `]`, `"`, `;`, `=`, non-ASCII and
+    255 bytes round-trip (`data-model.md` §10.7); each command's contract and graceful failures;
+    `panic_hunt` green.
+- ⬜ **M9.15 `engine`: delete to the trash, and move folders**
+  - after: M9.9, M8.13
+  - files: `crates/engine/src/cmd/delete.rs`, `crates/engine/src/cmd/folder_ops.rs`, `crates/engine/tests/delete.rs`, `crates/engine/tests/folder_move.rs`
+  - scope: `organizing.md` §9 and `security.md` §5.7: `photo.delete {ids, confirm}` and
+    `folder.delete {folder, confirm}` (`needs_confirm` with the question unless "delete without
+    asking" is on, and always over automation without `confirm`; to the OS trash, never
+    permanently; a volume without a trash fails with an explanation that points to the file
+    manager); the photos' data kept in the undo step, undo restoring from the trash where M9.2 can
+    and otherwise disabled with the reason; `folder.move {folder, to, collisions?}` (into a library
+    folder; its watched entry rebased; onto a folder of the same name it merges photo by photo under
+    the collision rules, and the emptied source is removed only when nothing else is left in it);
+    each one undo step through M9.3's file operations with M9.9's carry.
+  - done when: `crates/engine/tests/delete.rs` on temp folders: a deleted photo is in the trash and
+    gone from the library and its albums; undo restores it with its data on Linux and Windows, and
+    on macOS undo is disabled with its reason; no trash fails and the file stays; a folder delete
+    takes its non-picture files too; `crates/engine/tests/folder_move.rs`: a moved folder keeps ids,
+    sidecar and subfolders; a merge keeps both folders' photos and entries; a forced cross-volume
+    folder move verifies before trashing; undo and redo; the owner thread made no `fs` call; each
+    command's contract and graceful failures; `panic_hunt` green.
+- ⬜ **M9.16 `engine`: Find Duplicates**
+  - after: M9.11
+  - files: `crates/engine/src/cmd/duplicates.rs`, `crates/engine/src/duplicates.rs`, `crates/engine/tests/duplicates.rs`
+  - scope: `organizing.md` §8.3: `search.duplicates` (Tools ▸ Experimental ▸ Show Duplicate Files,
+    Ctrl+F6) as a job with progress and Cancel: photos grouped by size, digests of the photos that
+    share a size computed on workers (MD5 through the `md5` crate already in the tree, cached in the
+    index by size and modification time, M9.6), each digest group confirmed byte for byte; the
+    groups (largest total first) enter search mode `duplicates`, one section each, with "12
+    duplicate groups (31 files)" for the banner; `search.clear` leaves it.
+  - done when: `crates/engine/tests/duplicates.rs`: three copies of one `scenes` JPEG in three
+    folders and a pair elsewhere make two groups; a different file of the same size is not grouped;
+    a planted digest collision (a test hook) is split by the byte comparison; a second run reads
+    no file whose digest is cached (counted); Cancel stops it; the owner thread made no `fs` call;
+    each command's contract and graceful failures; `panic_hunt` green; the time for 10 k photos
+    printed.
+- ⬜ **M9.17 `ui`: albums in the tree, album sections, Album Properties and the Album menu**
+  - after: M9.4, M9.5, M9.10
+  - files: `crates/ui/src/panels/folders/model.rs`, `crates/ui/src/panels/folders/paint.rs`, `crates/ui/src/panels/light_table/header.rs`, `crates/ui/src/commands/albums.rs`, `crates/ui/src/dialogs/album_properties.rs`, `crates/ui/tests/albums_tree.rs`, `crates/ui/tests/album_properties.rs`, `crates/ui/tests/section_header.rs`, `crates/ui/tests/fingerprints/region-tree-albums-*.json`, `crates/ui/tests/fingerprints/region-header-album-*.json`, `crates/ui/tests/fingerprints/dialog-album-properties-*.json`
+  - scope: `organizing.md` §4, `ui-layout.md` §4 and §5.2: the Albums group's rows (M9.5's icons,
+    name and count; the search album first and highlighted while searching; the group headers'
+    magnifier in search mode), a click scrolling to the album's section; album section headers (the
+    album icon, name, date and place, the description edited inline through `album.info.set`, the
+    buttons as for folders); New Album… (File menu, Ctrl+N, the toolbar button) and Album
+    Properties (`section.properties` on an album, a double-click on its name or header) on the
+    dialog (Name selected, Date with "Use the date of the newest photo", Place, Description), OK
+    running `album.create` with the tray's photos, then selecting the new album, or
+    `album.info.set`; Delete Album… asking through the host; the Album menu's rows live; ids per
+    control-protocol §7.
+  - done when: `crates/ui/tests/albums_tree.rs` and `crates/ui/tests/album_properties.rs`
+    (headless, a temp library): New Album with two photos in the tray creates the album, selects it
+    in the tree and its section shows both; Properties changes name, date and description and Esc
+    changes nothing; Delete Album asks, deletes, and Edit ▸ Undo brings it back; the fourth menu
+    reads Album on an album section; Starred Photos and Recently Updated list as expected;
+    `crates/ui/tests/section_header.rs` covers album headers; tree, header and dialog fingerprints
+    at both sizes.
+- ⬜ **M9.18 `ui`: Add to Album, the photo context menu and the album token**
+  - after: M9.4, M9.5, M9.10
+  - files: `crates/ui/src/panels/light_table/context_menu.rs`, `crates/ui/src/panels/bottom/tray.rs`, `crates/ui/src/tray.rs`, `crates/ui/src/dialogs/remove_from_album.rs`, `crates/ui/tests/photo_menu.rs`, `crates/ui/tests/add_to_album.rs`, `crates/ui/tests/tray.rs`, `crates/ui/tests/fingerprints/region-tray-album-*.json`, `crates/ui/tests/fingerprints/menu-photo-*.json`
+  - scope: `organizing.md` §4.3 and §9.1, `ui-layout.md` §6.2: the photo context menu's rows, live
+    as their commands exist, with Add to Album ▸ (albums by name, then New Album…), and in an album
+    Remove from Album (the question of `organizing.md` §4.3 unless its setting is on), Set as Album
+    Cover and Show in Folder (selects the photo in its folder); the tray's Add to Album ▾ (the same
+    list, adding the tray's photos); the tray's album token ("Album selected — 40 photos") when an
+    album section is selected as a unit; ids per control-protocol §7.
+  - done when: `crates/ui/tests/photo_menu.rs` and `crates/ui/tests/add_to_album.rs` (headless):
+    the menu's rows in order and their enabled states in a folder and in an album; Add to Album ▸
+    adds and Edit ▸ Undo removes; New Album… from the menu opens Album Properties with the photos;
+    Remove from Album asks, removes and leaves the files; Set as Album Cover changes the tree's
+    cover; Show in Folder selects the photo in its folder; `crates/ui/tests/tray.rs`: the album
+    token and Add to Album ▾ live; tray and menu fingerprints at both sizes.
+- ⬜ **M9.19 `ui`: the move and copy questions, Move to New Folder, Split Folder Here and file notices**
+  - after: M9.4, M9.5, M9.13
+  - files: `crates/ui/src/dialogs/move_confirm.rs`, `crates/ui/src/dialogs/copy_confirm.rs`, `crates/ui/src/dialogs/collision.rs`, `crates/ui/src/dialogs/new_folder.rs`, `crates/ui/src/commands/files.rs`, `crates/ui/src/notices.rs`, `crates/ui/tests/move_dialogs.rs`, `crates/ui/tests/new_folder.rs`, `crates/ui/tests/notices.rs`, `crates/ui/tests/fingerprints/dialog-move-*.json`, `crates/ui/tests/fingerprints/dialog-copy-*.json`, `crates/ui/tests/fingerprints/dialog-collision-*.json`, `crates/ui/tests/fingerprints/dialog-new-folder-*.json`
+  - scope: `organizing.md` §9: the first-time move question with "Don't ask again", the copy
+    question, the collision question ([Rename Duplicates] [Skip Duplicates] [Cancel], naming the
+    files), on the dialog host for `photo.moveTo` and `photo.copyTo`; File ▸ Move to New Folder…
+    and the context menu's Move to New Folder… and Split Folder Here… on the new-folder dialog (Name
+    "New Folder", Date with "Use the date of the oldest photo", Place, Description), running
+    `photo.moveToNewFolder` with the selection, or the photo and every photo after it in its folder;
+    `notices.rs` turns M9.3's events into toasts: "Moved 3 photos to Lisbon", copies, renames and
+    trashed items with their counts, skipped duplicates, an undo that moved files back, failures
+    naming the file and the reason (`caution`).
+  - done when: `crates/ui/tests/move_dialogs.rs` (headless, temp folders): a move asks once, and
+    with the box ticked never again; a clash offers both choices and each does what it says; Cancel
+    moves nothing; `crates/ui/tests/new_folder.rs`: Move to New Folder and Split Folder Here make
+    the folder beside the source with the photos and its info, and Edit ▸ Undo removes it;
+    `crates/ui/tests/notices.rs`: one toast per finished operation and per failure; dialog
+    fingerprints at both sizes.
+- ⬜ **M9.20 `ui`: Rename Files, the delete questions, Move Folder and renaming in Folder Properties**
+  - after: M9.4, M9.14, M9.15
+  - files: `crates/ui/src/dialogs/rename_files.rs`, `crates/ui/src/dialogs/delete.rs`, `crates/ui/src/dialogs/folder_properties.rs`, `crates/ui/src/commands/rename.rs`, `crates/ui/src/commands/folder_ops.rs`, `crates/ui/tests/rename_dialog.rs`, `crates/ui/tests/delete_dialogs.rs`, `crates/ui/tests/folder_properties.rs`, `crates/ui/tests/folder_move.rs`, `crates/ui/tests/fingerprints/dialog-rename-files-*.json`, `crates/ui/tests/fingerprints/dialog-delete-*.json`, `crates/ui/tests/fingerprints/dialog-folder-properties-*.json`
+  - scope: `organizing.md` §9 and §10: Rename Files (File ▸ Rename…, F2): "%d files selected. Enter
+    a new name:", the example line following the typing ("Example: Lisbon-001.jpg"), Add the date
+    taken and Add the image size, Rename running `photo.rename`; the delete questions for one
+    photo, several photos and a folder ("… and everything in it (including non-picture files)"),
+    and the explanation when a volume has no trash; Delete from Disk… (File menu, context menu,
+    Delete in folders, Ctrl+Delete anywhere) and Folder ▸ Delete…; Folder ▸ Move… opening the
+    folder picker (scripted in tests, library folders only) and running `folder.move`; Folder
+    Properties' Name now editable: OK runs `folder.rename`, then `folder.info.set`; ids per
+    control-protocol §7.
+  - done when: headless tests on temp folders: F2 on three photos shows "3 files selected" and the
+    example follows the typing and the boxes; Rename renames them and Edit ▸ Undo puts the names
+    back; each delete question's text matches the spec, Move to Trash trashes and Cancel keeps; Move
+    Folder through the scripted picker moves it and the tree follows; renaming in Folder Properties
+    renames on disk and the section title follows; dialog fingerprints at both sizes.
+- ⬜ **M9.21 `engine`: a file operation interrupted at any step loses nothing**
+  - after: M9.13, M9.14, M9.15
+  - files: `crates/engine/src/fileops_recovery.rs`, `crates/engine/tests/fileops_faults.rs`, `crates/engine/tests/fileops_recovery.rs`
+  - scope: `data-model.md` §8 and §10.5, `architecture.md` §8: the file-operation journal replayed
+    at open on a worker through `intents::plan` (M9.9): an item rolled forward when its destination
+    is complete and verifies (finishing the trash step of a cross-volume move, carrying its entry),
+    else back; the repair reported in the log and in `library.inspect`; the fault points of M9.2 and
+    of the sidecar writes armed at every step of a move (one volume and across volumes), a copy, a
+    batch rename, a delete and a folder move, as Error and as Crash (the engine's tests take `fs`'s
+    `faults` feature as `store`'s do).
+  - done when: `cargo test -p dalica-engine --test fileops_faults --test fileops_recovery`: for every
+    step × {Error, Crash} × each operation, after recovery every photo's bytes exist at a path the
+    library lists (once for a move, twice for a copy) with its sidecar entry, and nothing is left in
+    the journal; a session reopened after a planted crash repairs the folders and shows each photo
+    with its data; the owner thread made no `fs` call.
+- ⬜ **M9.22 `ui`: search mode: the search field, filters, age slider and banner**
+  - after: M9.4, M9.5, M9.11, M9.16
+  - files: `crates/ui/src/panels/toolbar.rs`, `crates/ui/src/panels/search_banner.rs`, `crates/ui/src/commands/search.rs`, `crates/ui/src/panels/light_table.rs`, `crates/ui/src/panels/tags/list.rs`, `crates/ui/src/dialogs/album_properties.rs`, `crates/ui/tests/search_ui.rs`, `crates/ui/tests/toolbar.rs`, `crates/ui/tests/light_table.rs`, `crates/ui/tests/tags_pane.rs`, `crates/ui/tests/fingerprints/region-toolbar-search-*.json`, `crates/ui/tests/fingerprints/region-banner-*.json`, `crates/ui/tests/fingerprints/region-no-results-*.json`
+  - scope: `organizing.md` §8 and `ui-layout.md` §3 and §9: the search field live (`search.set` on
+    every change; ×, Esc and Show All clear it; Ctrl+F and F3 focus it); its autocomplete of
+    `search.suggest` (a tag picked becomes `tag:<tag>`, a folder or album its name); the filter
+    toggles (Faces disabled with the reason "Available once Dalica finds faces", M13) with their
+    tooltips in the caption; the age slider and its label; the banner ([Show All] and "Showing 33
+    pictures in 4 folders (0.01 s) · 439.8 MB", or the duplicates text) with only matching sections
+    shown; the scroll position saved when search mode starts and restored when it ends; the empty
+    state when nothing matches; Tools ▸ Experimental ▸ Show Duplicate Files and Save Search
+    Results… (Album Properties with "Search results for "x"" as its name); Search for This Tag in
+    the Tags pane's tag menu; ids per control-protocol §7.
+  - done when: `crates/ui/tests/search_ui.rs` (headless, a demo library): typing narrows the light
+    table and the banner's text and counts match the spec; each filter and the age combine with
+    text; Show All restores the scroll position; an autocomplete pick searches the tag; no match
+    shows the empty state; Show Duplicate Files shows the groups and its banner; Save Search
+    Results… makes the album; Search for This Tag searches it; toolbar, banner and empty-state
+    fingerprints at both sizes.
+- ⬜ **M9.23 `ui`: drag and drop, the drag pill, and Cut, Copy and Paste**
+  - after: M9.17, M9.18, M9.19
+  - files: `crates/ui/src/drag.rs`, `crates/ui/src/panels/light_table/input.rs`, `crates/ui/src/panels/folders.rs`, `crates/ui/src/commands/clipboard.rs`, `crates/ui/tests/drag.rs`, `crates/ui/tests/clipboard.rs`, `crates/ui/tests/fingerprints/drag-*.json`
+  - scope: `ui-layout.md` §4, §5.5 and §6.2: a press-and-drag from a thumbnail or the tray carries
+    the selected photos (or that one) with M9.5's pill, its text following the target under the
+    pointer: a folder row moves (Ctrl copies, the pill shows +), an album row adds, the tray adds
+    and holds, a gap between two cells of an album reorders (the insertion marker); targets get the
+    `drop_target` highlight; a drop runs `photo.moveTo` or `photo.copyTo` (with their questions),
+    `album.add`, `album.reorder` or `tray.hold`; a drop on the photos' own folder or Esc does
+    nothing; the tree scrolls near its edges during a drag; `ui.dragWidget` and `ui.inspect` →
+    `drag` report it; Cut and Copy keep the photos, Paste into a folder section moves or copies
+    them there (disabled in albums and with nothing cut or copied).
+  - done when: `crates/ui/tests/drag.rs` (headless, `ui.dragWidget`, temp folders): a thumbnail onto
+    a tree folder moves it (asked the first time); with Ctrl it copies; onto an album row it adds;
+    onto the tray it holds; a reorder within an album survives a restart; onto its own folder and
+    with Esc nothing changes; `crates/ui/tests/clipboard.rs`: Cut then Paste moves, Copy then Paste
+    copies, Paste is disabled in an album; pill fingerprints for move, copy and add.
+- ⬜ **M9.24 `engine`: M9's data lessons end to end, and a move across two file systems**
+  - after: M9.10, M9.21
+  - files: `crates/engine/tests/lessons_m9.rs`, `crates/engine/tests/two_volumes.rs`
+  - scope: `data-model.md` §10 through the commands and a real watcher: §10.2 (a folder moved
+    outside Dalica, between sessions and while watching, keeps stars, captions, tags, recipes and
+    album memberships and order), §10.3, §10.7 (odd names through move, copy, rename, delete and
+    their undo) and §10.12; a move of photos and of a folder across two real file systems (on Linux
+    `/dev/shm` and the temp folder when they are different devices; otherwise the forced path),
+    printing which ran.
+  - done when: `cargo test -p dalica-engine --test lessons_m9 --test two_volumes` on the three OSes:
+    each lesson as a test; the cross-volume move copies, verifies byte for byte, trashes the source
+    and undo brings everything back.
+- ⬜ **M9.25 `accept M9`**
+  - after: M9.12, M9.20, M9.22, M9.23, M9.24
+  - files: `tests/acceptance/m9.rs`, `tests/acceptance/m9_*.rs`, `tests/acceptance/m9.md`, `tests/acceptance/fingerprints/m9-*.json`
+  - scope: every *Done when* of M9's three areas in the real `dalica --headless` over the control
+    channel: `data-model.md` §10.12 (a cross-folder album keeps its order after a rebuild); undo for
+    every album command; the grammar tests; search of 100 k photos within its budget (the release
+    bench and budgets with `DALICA_ACCEPT_RELEASE=1`; inside `cargo xtask ci` a smaller debug run
+    checks the path and prints its times); the banner text and counts against the spec;
+    `data-model.md` §10.2, §10.3 and §10.7; undo per file operation; a move across two file systems
+    that copies, verifies, then deletes; fingerprints of the album tree, the banner, the drag pill
+    and the file dialogs; the manual checks in `m9.md` (make an album from three folders and
+    reorder it, search your own photos, drag photos onto a folder and undo, rename a batch, delete
+    to the trash and restore it).
+  - done when: `cargo xtask accept M9` passes everything in M9's *Done when*.
+- ⬜ **M9.26 Lead: task blocks for M11**
+  - after: M8.26
+  - owner: lead
+  - files: `docs/roadmap.md`
+  - scope: write every M11 task block from M11's outline rows and the spec, with waves and the
+    `M11.R` review (owner: maintainer); a block that can port Craft-app code names the source files
+    in its scope (`architecture.md` §9).
+  - done when: `cargo xtask tasks sync --check` parses them and `tasks sync --dry-run` lists one new
+    issue per block.
+- ⬜ **M9.R Check-in**
+  - after: M9.25
+  - owner: maintainer
+  - files: `docs/roadmap.md`, `docs/status.md`
+  - scope: the lead runs `/milestone-review M9.R` to prepare it: the check-in page (make an album
+    from photos in three folders, reorder it by dragging, sort it and undo, delete it and undo; find
+    Starred Photos and Recently Updated; search by word, tag, date and camera, combine the filters
+    and the age slider, save the results as an album; Show Duplicate Files; drag photos onto a
+    folder, copy with Ctrl, rename a batch with F2, Move to New Folder, Split Folder Here, delete to
+    the trash and undo; move and rename a folder; written as steps for the maintainer to try); the
+    questions: `color:` search (`organizing.md` §11), the planning decisions above that change
+    behaviour (undoing a delete on macOS is not offered; undoing a copy trashes the copies; folders
+    move only within the library; a same-name folder move merges; how Recently Updated counts;
+    English month names until M15; the Faces filter disabled until M13; the search budgets);
+    *Where we stand* and the `status.md` numbers (search index build and query at 100 k, Find
+    Duplicates on 10 k, a cross-volume move) on a `review/M9.R` branch, a pull request open. Only
+    the maintainer merges that pull request and closes this issue; nothing after it starts until
+    then.
+  - done when: prepared: page published, PR open, both linked on the issue.
+
+Waves (inside a wave, "‖" separates tasks whose `files` do not overlap):
+
+```text
+wave 1   M9.1 library albums + ops  ‖  M9.2 fs trash + transfers  ‖  M9.3 engine modules + undo
+         ‖  M9.4 ui state + stubs  ‖  M9.5 ui-kit icons, banner, pill, age
+         (once M8.R is closed)
+wave 2   M9.6 albums + fields on disk  ‖  M9.7 search facts on scan  ‖  M9.8 search grammar
+wave 3   M9.9 carry + journal  ‖  M9.10 album commands  ‖  M9.11 search on a worker
+wave 4   M9.12 search bench  ‖  M9.13 move + copy  ‖  M9.14 rename  ‖  M9.15 delete + folder move
+         ‖  M9.16 duplicates  ‖  M9.17 albums in the app  ‖  M9.18 Add to Album + photo menu
+wave 5   M9.19 move dialogs + notices  ‖  M9.20 rename, delete + folder dialogs
+         ‖  M9.21 interrupted file operations  ‖  M9.22 search mode
+wave 6   M9.23 drag and drop + clipboard  ‖  M9.24 data lessons + two volumes
+wave 7   M9.25 accept M9 → M9.R          (M9.26 lead: M11 blocks, any time after M8.26)
+```
 
 ### M10 — Preferences, MCP and Release 0.2
 
