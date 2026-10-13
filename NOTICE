@@ -101,6 +101,12 @@ file and revision in its first lines:
   apps/dalica/src/paths.rs                   PhotoCraft apps/photocraft/src/app_dirs.rs @ bb17dd55
   crates/ui/build.rs                         PhotoCraft crates/ui-egui/build.rs @ 184c226a
   crates/ui/src/credits.rs                   PhotoCraft crates/ui-egui/src/credits.rs @ 184c226a
+  crates/ui-kit/src/widgets/tabs.rs          craft-ui crates/ui/src/tabs/mod.rs @ 5c874d51
+                                             (github.com/storytold/craft-libs, MIT OR Apache-2.0)
+  crates/ui-kit/src/widgets/histogram.rs     PhotoCraft crates/ui-egui/src/rgb_histogram.rs @ 10fb9233
+  crates/ui-kit/src/input/wheel.rs           PhotoCraft crates/ui-egui/src/wheel_nav.rs @ 10fb9233
+  crates/ui-kit/src/input/flick.rs           PhotoCraft crates/ui-egui/src/flick_pan.rs @ 10fb9233
+  crates/ui-kit/tests/input.rs (tests)       PhotoCraft crates/ui-egui/src/wheel_nav.rs, flick_pan.rs @ 10fb9233
 
 Any other third-party code ever vendored will be listed here with its source and revision.
 

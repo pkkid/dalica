@@ -2640,7 +2640,7 @@ effect tabs show an empty state until M12.
     edit-view region at the rects of `editing.md` §2 at 1400 × 900 and 900 × 600 and Esc returns;
     Ctrl+9 hides and shows the panel; Ctrl+3 with nothing selected gives the toast; the frame's
     fingerprints at both sizes; `widget_ids` and `panic_hunt` green.
-- ⬜ **M7.5 `ui-kit`: tabs, tool buttons, the histogram, the Tuning slider and canvas input**
+- ✅ **M7.5 `ui-kit`: tabs, tool buttons, the histogram, the Tuning slider and canvas input**
   - after: M5.25, M6.R
   - files: `crates/ui-kit/src/widgets.rs`, `crates/ui-kit/src/widgets/tabs.rs`, `crates/ui-kit/src/widgets/tool_button.rs`, `crates/ui-kit/src/widgets/histogram.rs`, `crates/ui-kit/src/widgets/slider.rs`, `crates/ui-kit/src/input.rs`, `crates/ui-kit/src/input/**`, `crates/ui-kit/src/registry.rs`, `crates/ui-kit/src/theme.rs`, `crates/ui-kit/tests/edit_widgets.rs`, `crates/ui-kit/tests/input.rs`, `crates/ui-kit/tests/fingerprints/edit-widgets*.json`, `crates/ui-kit/tests/fingerprints/gallery*.json`, `NOTICE`, `docs/design-system.md`
   - scope: `design-system.md` §6 and `editing.md` §2, §5–§7: `tabs` (icon tabs 40 × 32 with

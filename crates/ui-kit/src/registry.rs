@@ -35,6 +35,12 @@ pub enum Role {
     /// A row of the autocomplete list under a text field (`<field id>/option/<index>`); active
     /// while highlighted.
     Suggestion,
+    /// A tab of a tab strip (`tab:edit/basic`); active while it is the tab shown.
+    Tab,
+    /// An edit-panel tool button (`tool:crop`); active while its tool is open.
+    Tool,
+    /// A painted plot with no input of its own (`histogram:edit`).
+    Histogram,
     /// A widget defined outside `ui-kit` with no role of its own yet.
     Other,
 }

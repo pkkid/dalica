@@ -27,9 +27,12 @@ mod dropdown;
 mod feedback;
 mod field;
 mod header;
+mod histogram;
 mod marks;
 mod slider;
 mod splitter;
+mod tabs;
+mod tool_button;
 mod tooltip;
 
 pub use autocomplete::{AutocompleteOut, MAX_SUGGESTIONS, VISIBLE_SUGGESTIONS, autocomplete, autocomplete_matches};
@@ -47,8 +50,11 @@ pub use dropdown::{dropdown, dropdown_popup_id};
 pub use feedback::{ProgressOut, TOAST_ERROR_SECS, TOAST_SECS, ToastKind, empty_state, progress_row, toast, toast_opacity};
 pub use field::{Ending, FieldOut, SearchOut, TextField, focus_field, search_field, text_field};
 pub use header::section_header;
-pub use slider::{SliderOut, SliderSpec, edit_slider_value, nudged, slider, typed_value, zoom_slider};
+pub use histogram::{HISTOGRAM_HEADROOM, MAX_BINS, histogram, histogram_curves, histogram_mesh, paint_histogram};
+pub use slider::{SliderOut, SliderSpec, TUNING_NUDGE, edit_slider_value, nudged, slider, tuning_nudged, tuning_slider, typed_value, zoom_slider};
 pub use splitter::{arrow_delta, split_position, splitter};
+pub use tabs::{TAB_MIN_WIDTH, TAB_OVERFLOW_WIDTH, Tab, TabFit, TabItem, TabsOut, fit as fit_tabs, tabs, tabs_overflow_id};
+pub use tool_button::{TOOL_BUTTON_H, tool_button, tool_button_width};
 pub use tooltip::{TOOLTIP_WIDTH, tooltip};
 
 /// What an automation id is attached to.
