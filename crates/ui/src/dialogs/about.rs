@@ -12,11 +12,12 @@
 
 use dalica_engine::CmdError;
 use dalica_ui_kit::{Tokens, fonts, widgets};
-use egui::{Id, RichText, TextureHandle, Ui, vec2};
+use egui::{RichText, Ui, vec2};
 use serde_json::Value;
 
 use super::{Button, Dialog, DialogKind, Look};
 use crate::app::App;
+use crate::app_icon;
 use crate::credits::{self, Baked};
 use crate::state::AboutTab;
 
@@ -43,9 +44,6 @@ pub const TABS: [(AboutTab, &str, &str); 3] = [
 pub const LICENCE: &str = env!("CARGO_PKG_LICENSE");
 /// Where the source lives.
 pub const REPOSITORY: &str = env!("CARGO_PKG_REPOSITORY");
-
-/// The 128 px app icon (`assets/app-icon/`, `docs/assets.md` §7), shown at [`ICON`] points.
-const ICON_PNG: &[u8] = include_bytes!("../../../../assets/app-icon/hicolor/128x128/apps/org.dalica.Dalica.png");
 
 pub fn dialog() -> Dialog {
     Dialog::new(DialogKind::About)
@@ -94,7 +92,8 @@ fn about_tab(ui: &mut Ui, t: &Tokens, baked: &Baked) {
     ui.add_space(8.0);
     ui.horizontal_top(|ui| {
         ui.add_space(8.0);
-        if let Some(icon) = icon(ui.ctx()) {
+        // The app icon (`assets/app-icon/`): the 128 px render at 1×, the 256 px one above 1.33×.
+        if let Some(icon) = app_icon::texture(ui.ctx(), ICON) {
             ui.add(egui::Image::new(&icon).fit_to_exact_size(vec2(ICON, ICON)));
         } else {
             ui.allocate_space(vec2(ICON, ICON));
@@ -130,51 +129,6 @@ pub fn facts(baked: &Baked) -> [(&'static str, String); 4] {
     [("Version", baked.version.to_string()), ("Commit", commit), ("Build date", date), ("Licence", LICENCE.to_string())]
 }
 
-/// The app icon's texture, decoded once per egui context; `None` (logged once) if the embedded PNG
-/// does not decode.
-fn icon(ctx: &egui::Context) -> Option<TextureHandle> {
-    let id = Id::new("dialog:about/icon");
-    if let Some(slot) = ctx.data(|d| d.get_temp::<Option<TextureHandle>>(id)) {
-        return slot;
-    }
-    let handle = match decode_png(ICON_PNG) {
-        Ok(image) => Some(ctx.load_texture("dalica-about-icon", image, egui::TextureOptions::LINEAR)),
-        Err(e) => {
-            log::warn!("dalica: the About icon does not decode: {e}");
-            None
-        }
-    };
-    ctx.data_mut(|d| d.insert_temp(id, handle.clone()));
-    handle
-}
-
-/// An 8-bit PNG as an egui image (palettes and 16-bit samples are expanded and stripped; grey and
-/// RGB get an opaque alpha). At most 64 MiB of pixels.
-pub fn decode_png(bytes: &[u8]) -> Result<egui::ColorImage, String> {
-    let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
-    decoder.set_transformations(png::Transformations::normalize_to_color8());
-    let mut reader = decoder.read_info().map_err(|e| e.to_string())?;
-    let size = reader.output_buffer_size().ok_or("the PNG is too large")?;
-    if size > 64 << 20 {
-        return Err("the PNG is too large".into());
-    }
-    let mut buf = vec![0; size];
-    let info = reader.next_frame(&mut buf).map_err(|e| e.to_string())?;
-    let (w, h) = (info.width as usize, info.height as usize);
-    let data = buf.get(..info.buffer_size()).ok_or("the PNG is truncated")?;
-    let rgba: Vec<u8> = match info.color_type {
-        png::ColorType::Rgba => data.to_vec(),
-        png::ColorType::Rgb => data.as_chunks::<3>().0.iter().flat_map(|&[r, g, b]| [r, g, b, 255]).collect(),
-        png::ColorType::GrayscaleAlpha => data.as_chunks::<2>().0.iter().flat_map(|&[g, a]| [g, g, g, a]).collect(),
-        png::ColorType::Grayscale => data.iter().flat_map(|&g| [g, g, g, 255]).collect(),
-        png::ColorType::Indexed => return Err("the PNG's palette was not expanded".into()),
-    };
-    if rgba.len() != w.saturating_mul(h).saturating_mul(4) {
-        return Err("the PNG's size does not match its pixels".into());
-    }
-    Ok(egui::ColorImage::from_rgba_unmultiplied([w, h], &rgba))
-}
-
 /// The dialog has no button but Close.
 pub fn act(_app: &mut App, d: &Dialog, action: &str) -> Result<Value, CmdError> {
     Err(CmdError::NotFound(format!("the {} dialog has no button `dialog.{action}`", d.kind.name())))
@@ -183,14 +137,6 @@ pub fn act(_app: &mut App, d: &Dialog, action: &str) -> Result<Value, CmdError> 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn the_icon_decodes_and_a_broken_png_is_an_error() {
-        let image = decode_png(ICON_PNG).unwrap();
-        assert_eq!(image.size, [128, 128]);
-        assert!(decode_png(b"not a png").is_err());
-        assert!(decode_png(&ICON_PNG[..ICON_PNG.len() / 2]).is_err());
-    }
 
     #[test]
     fn the_content_fits_the_smallest_window() {

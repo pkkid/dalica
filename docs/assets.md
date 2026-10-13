@@ -144,6 +144,10 @@ rows that start with `|` are read; the commented example in `ATTRIBUTION.md` is 
 - The window sets its own icon from a PNG embedded in the binary (`apps/dalica/src/icon.rs`):
   the 1024 px macOS-grid render on macOS, the 256 px full-tile hicolor render elsewhere. The
   hicolor and scalable files are named after the application id (`org.dalica.Dalica`).
+- Inside the window the icon is drawn from the same committed renders, never redrawn in code
+  (`crates/ui/src/app_icon.rs`): the title bar's top-left corner (`design-system.md` §11.1) and the
+  About tab each draw the smallest hicolor PNG (16–256 px) that covers the icon's size in physical
+  pixels, uploaded as a texture once.
 - Artwork derived from the icon (the macOS DMG background in `packaging/macos/dmg/`, installer
   bitmaps) references the canonical SVG rather than copying it, outlines any text so rendering
   needs no fonts, and gets its own `ATTRIBUTION.md` row.

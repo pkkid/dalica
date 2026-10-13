@@ -296,7 +296,7 @@ fn assert_controls(d: &Driver, w: f32, h: f32, pane: Option<&str>, case: &str) {
         got
     };
 
-    // The title bar (M3.6): the menus after the app mark, the drag gap, then Minimize, Maximize and
+    // The title bar (M3.6): the menus after the app icon, the drag gap, then Minimize, Maximize and
     // Close flush in the top-right corner, 46 × 24 each.
     let mut x = 8.0 + 16.0;
     for id in MENUS {

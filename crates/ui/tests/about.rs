@@ -421,3 +421,26 @@ fn every_widget_has_an_id_and_the_dialogs_match_their_fingerprints_at_both_sizes
         check_shot(&d, "dialog:releaseNotes", &format!("dialog-release-notes-{w}x{h}"));
     }
 }
+
+/// The pixels of `d`'s window inside the widget `id` that are the app icon's orange (`#d65d0e`).
+fn orange_in(d: &Driver, id: &str) -> usize {
+    let r = widget(d, id).unwrap().rect;
+    let shot = d.screenshot().unwrap();
+    let (x0, y0, x1, y1) = (r[0].round() as u32, r[1].round() as u32, (r[0] + r[2]).round() as u32, (r[1] + r[3]).round() as u32);
+    (y0..y1)
+        .flat_map(|y| (x0..x1).map(move |x| (x, y)))
+        .filter(|&(x, y)| shot.pixel(x, y).is_some_and(|p| p[..3].iter().zip([0xd6u8, 0x5d, 0x0e]).all(|(&g, o)| g.abs_diff(o) <= 8)))
+        .count()
+}
+
+/// The About tab shows the app icon (`assets/app-icon/`): its orange tile fills much of the 96 pt
+/// square; the Contributors tab, which has no icon, has none of it.
+#[test]
+fn the_about_tab_shows_the_app_icon() {
+    let (_dir, mut d) = driver(1400, 900);
+    open_about(&mut d);
+    let about = orange_in(&d, "dialog:about");
+    assert!(about >= 96 * 96 / 4, "the About tab shows the orange app icon ({about} orange pixels)");
+    click(&mut d, "tab:about.contributors");
+    assert_eq!(orange_in(&d, "dialog:about"), 0, "no icon on the Contributors tab");
+}
