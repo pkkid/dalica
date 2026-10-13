@@ -295,10 +295,11 @@ In `crates/meta/tests/` (synthetic files built in the test) and, behind the `cor
     walker (proptest), deep XMP nesting and huge node counts (bounded), overlapping and looping
     IFD offsets.
 
-## 9. Open questions
+## 9. Decided questions
 
-- `TODO(maintainer)`: should removing a tag in Dalica also remove matching leaf entries from
-  another application's `lr:hierarchicalSubject`? (Proposed: no, as now; revisit if users see tags
-  come back.)
-- `TODO(maintainer)`: write IPTC only when the file already has IPTC, or always? (Proposed: always,
-  for older tools that read only IPTC.)
+Both were answered by the maintainer at the M6.R review (2026-10-12), keeping what M6 built:
+
+- Removing a tag in Dalica leaves another application's `lr:hierarchicalSubject` as it is (its
+  leaf entries are not removed). Revisit if users see tags come back.
+- IPTC is always written when a caption or tags change, also into a file that had no IPTC, for
+  older tools that read only IPTC.
