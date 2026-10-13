@@ -77,9 +77,23 @@ impl App {
         App { picker: Some(picker), ..App::new(session) }
     }
 
-    /// Installs fonts and the theme; call once before the first frame.
+    /// Installs fonts, the theme and the input options; call once before the first frame.
+    /// egui's own Ctrl+= / Ctrl+− zoom of the whole window is off: those keys are the shortcuts'
+    /// (the edit view's photo zoom). egui's wheel modifiers stay as they are (Ctrl + wheel
+    /// zooms), because Ctrl + wheel is the light table's thumbnail size (`ui-layout.md` §5.5);
+    /// `wheel::configure` would make it scroll sideways.
     pub fn install(&self, ctx: &egui::Context) {
         self.tokens.apply(ctx);
+        ctx.options_mut(|o| o.zoom_with_keyboard = false);
+    }
+
+    /// Prepares one frame's raw input (the window's `raw_input_hook`): on Windows a touchpad pinch
+    /// arrives as Ctrl + wheel in fractions of a notch, and is turned back into a pinch
+    /// (`wheel::fold_legacy_pinch`).
+    pub fn raw_input(&self, ctx: &egui::Context, raw: &mut egui::RawInput) {
+        if cfg!(target_os = "windows") {
+            dalica_ui_kit::input::wheel::fold_legacy_pinch(ctx, raw);
+        }
     }
 
     pub fn tokens(&self) -> &Tokens {
@@ -404,6 +418,23 @@ pub(crate) mod tests {
         let found = s.execute("library.query", &json!({ "limit": 1000 })).unwrap();
         let ids = found["photos"].as_array().unwrap().iter().map(|p| PhotoId::new(p["id"].as_u64().unwrap())).collect();
         (dir, s, ids)
+    }
+
+    /// Installing turns off egui's keyboard zoom of the whole window before the first frame, and
+    /// leaves Ctrl + wheel zooming (the light table's thumbnail size).
+    #[test]
+    fn install_turns_off_keyboard_zoom() {
+        let ctx = egui::Context::default();
+        assert!(ctx.options(|o| o.zoom_with_keyboard), "egui's default");
+        App::new(None).install(&ctx);
+        let (keyboard, zoom) = ctx.options(|o| (o.zoom_with_keyboard, o.input_options.zoom_modifier));
+        assert!(!keyboard);
+        assert_eq!(zoom, egui::Modifiers::COMMAND);
+        // A frame's raw input with no pinch in it passes unchanged.
+        let mut raw = egui::RawInput::default();
+        raw.events.push(egui::Event::Key { key: egui::Key::A, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE });
+        App::new(None).raw_input(&ctx, &mut raw);
+        assert_eq!(raw.events.len(), 1);
     }
 
     /// `ui-layout.md` §2: the tree width and the side pane survive a restart through
