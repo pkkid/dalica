@@ -2764,7 +2764,7 @@ effect tabs show an empty state until M12.
     equals a direct count; closing cancels; the owner thread made no `fs` call; `cargo xtask bench
     edit_preview` meets `development.md` §8 (open ≤ 150 ms, drag ≤ 16 ms draft and ≤ 100 ms final,
     next/previous ≤ 50 ms; numbers in the PR).
-- ⬜ **M7.12 `edit`: suggested crops**
+- ✅ **M7.12 `edit`: suggested crops**
   - after: M7.7
   - files: `crates/edit/src/suggest.rs`, `crates/edit/tests/suggest.rs`
   - scope: `editing.md` §6.1: three proposed rectangles in a ratio from a proxy of the current
