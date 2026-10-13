@@ -10,6 +10,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 use dalica_edit::{Geometry, Point, Recipe};
 use dalica_engine::Session;
@@ -19,7 +20,7 @@ use dalica_ui::control::{Config, Connection, Control, Reply, Request, serve};
 use dalica_ui::headless::{PointerEvent, PointerKind};
 use dalica_ui::panels::edit::canvas::{self, View};
 use dalica_ui::panels::edit::straighten;
-use dalica_ui::{App, Driver};
+use dalica_ui::{App, Driver, DriverError};
 use egui::{Modifiers, PointerButton, Pos2, Rect, pos2};
 use serde_json::{Value, json};
 
@@ -56,7 +57,7 @@ fn setup((w, h): (u32, u32)) -> T {
     let (s, photo) = session(dir.path());
     let control = Control::new(Config::default());
     let mut d = Driver::new(App::with_picker(Some(s), control.picker()), w, h, 1.0);
-    d.settle(FRAMES).unwrap();
+    settle_driver(&mut d);
     let mut t = T { _dir: dir, control, conn: Connection::new(), d, photo };
     run(&mut t, "view.edit", json!({ "id": photo }));
     assert!(t.d.app().session().unwrap().preview().is_some(), "settling waits for the preview");
@@ -72,7 +73,28 @@ fn ok(t: &mut T, method: &str, params: Value) -> Value {
 }
 
 fn settle(t: &mut T) {
-    t.d.settle(FRAMES).unwrap();
+    settle_driver(&mut t.d);
+}
+
+/// Frames until nothing is pending. While the edit view waits for a preview it draws again at
+/// once, so the driver runs frames back to back and counts them as an animation; on a busy
+/// machine (a 3-core CI runner running these tests side by side) the preview's workers then get
+/// too little time to finish within one settle's frames. So when a settle ends with only that
+/// left and a preview still on its way, the preview is waited for in real time (bounded), and the
+/// settle runs again. Anything else still busy, or an animation with no preview pending, fails.
+fn settle_driver(d: &mut Driver) {
+    for _ in 0..10 {
+        let busy = match d.settle(FRAMES) {
+            Ok(_) => return,
+            Err(DriverError::NotSettled { busy, .. }) => busy,
+            Err(e) => panic!("{e}"),
+        };
+        let pending = d.app().session().map_or(0, Session::preview_pending);
+        assert!(busy == ["animation running"] && pending > 0, "not settled: {busy:?}, {pending} preview jobs pending");
+        let session = d.app_mut().session_mut().unwrap();
+        assert!(session.wait_preview(Duration::from_secs(60)), "the preview's {pending} jobs did not finish within 60 s");
+    }
+    panic!("not settled after ten waits for the preview");
 }
 
 fn run(t: &mut T, id: &str, params: Value) -> Value {
