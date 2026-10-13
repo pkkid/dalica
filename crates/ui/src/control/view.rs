@@ -24,6 +24,7 @@ pub const REGIONS: &[&str] = &[
     "trayButtons",
     "bottomControls",
     "actionButtons",
+    "editTopBar",
     "editPanel",
     "canvas",
     "filmstrip",
@@ -93,7 +94,16 @@ pub(super) fn set(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Error>
     let sets_tree = changes.contains_key("treeWidth");
     let mut merged = state_json(call)?;
     if let Some(obj) = merged.as_object_mut() {
-        obj.extend(changes);
+        for (key, value) in changes {
+            // `edit` merges field by field (`{"edit": {"zoom": 2}}` keeps the photo and the tab);
+            // every other field is replaced whole.
+            match (key.as_str(), value, obj.get_mut(&key)) {
+                ("edit", Value::Object(fields), Some(Value::Object(current))) => current.extend(fields),
+                (_, value, _) => {
+                    obj.insert(key, value);
+                }
+            }
+        }
     }
     let new: UiState = serde_json::from_value(merged).map_err(|e| call.bad(e))?;
     if !(new.thumb_size.is_finite() && (THUMB_MIN..=THUMB_MAX).contains(&new.thumb_size)) {
@@ -108,6 +118,7 @@ pub(super) fn set(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Error>
         return Err(call.bad(format!("`scroll.offset` is 0 … {SCROLL_OFFSET_MAX}, not {}", new.scroll.offset)));
     }
     new.check_m6().map_err(|e| call.bad(e))?;
+    new.check_m7().map_err(|e| call.bad(e))?;
     let tray = &new.tray;
     if tray.held.len() > MAX_IDS || tray.selected.len() > MAX_IDS || new.collapsed_folders.len() > MAX_IDS {
         return Err(Error::new(Code::Limit, format!("`tray.held`, `tray.selected` and `collapsedFolders` take at most {MAX_IDS} ids each")));
@@ -126,7 +137,10 @@ pub(super) fn set(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Error>
         return Err(Error::new(Code::NotFound, format!("no folder {f}")));
     }
     let captioned = new.caption_edit.as_ref().map(|e| e.photo);
-    if let Some(id) = tray.held.iter().chain(&tray.selected).chain(&captioned).find(|id| !library.is_some_and(|l| l.photo(**id).is_some())) {
+    let edited = new.edit.photo;
+    if let Some(id) =
+        tray.held.iter().chain(&tray.selected).chain(&captioned).chain(&edited).find(|id| !library.is_some_and(|l| l.photo(**id).is_some()))
+    {
         return Err(Error::new(Code::NotFound, format!("no photo {id}")));
     }
     // Repeated ids are dropped; every number is already in range.

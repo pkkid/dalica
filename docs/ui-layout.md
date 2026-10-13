@@ -414,6 +414,23 @@ When any search text or filter is active:
 | Photo viewer (standalone) | opening an image file from the OS | [`viewing.md`](viewing.md) |
 | Rooms: Import, Collage | toolbar/bottom buttons, Create menu | [`organizing.md`](organizing.md) §3, [`creating.md`](creating.md) |
 
+The edit view keeps the menu bar, the status line and the bottom area of §2 and replaces the
+rest (`editing.md` §2):
+
+| Region | Size | Notes |
+|---|---|---|
+| Edit top bar | 40 high, the whole width | Back to Library and Play on the left (240 wide with margins), the compare toggle and the two compare buttons on the right (220) |
+| Filmstrip | the top bar between its two groups | W − 460 wide: seven 56 pt thumbnails and the arrows at 900, nine at 1400 |
+| Edit panel | **280** wide, the height of the middle | hidden by Ctrl+9 / View ▸ Show Edit Controls; the photo area takes its width |
+| Photo area | the rest of the middle | the photo (`canvas`) above the caption bar |
+| Caption bar | 36 high, under the photo, the photo area's width | |
+| Side pane | **260** wide (large: as in §2) | the same panes as the library, toggled from the bottom bar |
+
+At 1400 × 900 the edit panel is `[0, 64, 280, 720]`, the photo `[280, 64, 1120, 684]` and the caption
+bar `[280, 748, 1120, 36]`; at 900 × 600 the photo is `[280, 64, 620, 384]`. `ui.inspect` → `regions`
+names them `editTopBar`, `filmstrip`, `editPanel`, `canvas` and `captionBar`
+(`control-protocol.md` §6.6).
+
 ## 11. Responsiveness rules
 
 - Window narrower than 1100: the action-button row overflows into More…; the toolbar's filter

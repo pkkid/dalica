@@ -1,10 +1,11 @@
 //! The regions of the window (`ui-layout.md` §2), one module each, so the tasks that fill them never
 //! share a file: the menu bar, the toolbar, the library tree (folders), the light table, the side
-//! pane, the status line and the bottom area. [`layout`] says where each one is; [`show`] gives
-//! each its rect and registers the regions.
+//! pane, the status line and the bottom area; the edit view's regions are in [`edit`]. [`layout`]
+//! says where each one is; [`show`] gives each its rect and registers the regions.
 
 pub mod activity;
 pub mod bottom;
+pub mod edit;
 pub mod folders;
 pub mod layout;
 pub mod light_table;
@@ -102,7 +103,10 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
     }
     // One central panel over the whole window, so egui counts every point as used (the pointer is
     // over egui anywhere); the regions are laid out inside it at the layout's rects.
-    egui::CentralPanel::default().frame(egui::Frame::NONE).show(ui, |ui| regions(p, app, ui));
+    egui::CentralPanel::default().frame(egui::Frame::NONE).show(ui, |ui| match app.state().view {
+        crate::state::View::Library => regions(p, app, ui),
+        crate::state::View::Edit => edit::show(p, app, ui),
+    });
 }
 
 fn regions(p: &mut Panels, app: &mut App, ui: &mut Ui) {

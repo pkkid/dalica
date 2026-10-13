@@ -23,7 +23,7 @@ use serde_json::{Map, Value, json};
 
 use crate::app::App;
 use crate::menu_catalog::{self, Entry, Item, MAC_APP_MENU, MENU_BAR, Mac, Mark, Menu};
-use crate::state::Section;
+use crate::state::{Section, View};
 
 pub use crate::commands::{THUMB_SMALL, UI_COMMANDS, UiCommand};
 
@@ -339,7 +339,16 @@ fn shortcut(facts: &Facts<'_>, i: &Item, id: &str, registered: bool) -> Option<S
     let text = match facts.app.session().filter(|_| registered) {
         Some(s) => {
             let keymap = s.keymap();
-            let key = [Context::Library, Context::Global].into_iter().find_map(|c| keymap.keys_for(id, c).into_iter().next());
+            // The binding of the view shown (Ctrl+1 is Small Thumbnails in the library, Library
+            // View in the edit view), then Global; a UI command with no default there shows its
+            // other view's (Show Edit Controls' Ctrl+9 in the library).
+            let (here, there) = match facts.app.state().view {
+                View::Library => (Context::Library, Context::EditView),
+                View::Edit => (Context::EditView, Context::Library),
+            };
+            let elsewhere = UI_COMMANDS.iter().find(|c| c.id == id).is_some_and(|c| c.keys.iter().all(|(k, _)| *k != here && *k != Context::Global));
+            let contexts: &[Context] = if elsewhere { &[here, Context::Global, there] } else { &[here, Context::Global] };
+            let key = contexts.iter().find_map(|c| keymap.keys_for(id, *c).into_iter().next());
             key?.to_string()
         }
         None => if mac { i.mac_shortcut.or(i.shortcut) } else { i.shortcut }?.to_string(),
@@ -355,7 +364,7 @@ pub fn checked(app: &App, id: &str, params: &Value) -> bool {
     if id == "view.colorManagement" {
         return app.session().is_none_or(dalica_engine::Session::color_management);
     }
-    crate::commands::view::checked(app.state(), id, params).unwrap_or(false)
+    crate::commands::edit_view::checked(app, id).or_else(|| crate::commands::view::checked(app.state(), id, params)).unwrap_or(false)
 }
 
 /// How `ui.menu.invoke` names an item.
@@ -792,12 +801,15 @@ mod tests {
                 "select.starred",
                 "select.invert",
                 "select.none",
+                "view.library",
                 "view.thumbsSmall",
                 "view.thumbsNormal",
+                "view.edit",
                 "pane.properties",
                 "pane.tags",
                 "pane.people",
                 "pane.places",
+                "edit.panelToggle",
                 "view.smallPictures",
                 "view.hiddenPictures",
                 "view.colorManagement",
@@ -815,6 +827,7 @@ mod tests {
                 "folder.hide",
                 "folder.unhide",
                 "folder.remove",
+                "view.edit",
                 "photo.rotate.cw",
                 "photo.rotate.ccw",
                 "photo.hide",

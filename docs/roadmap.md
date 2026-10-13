@@ -2617,7 +2617,7 @@ effect tabs show an empty state until M12.
     restart and an index rebuild; the library undo stack is unchanged by photo steps; every
     command's contract and graceful failures; `crates/engine/tests/settings_m7.rs` round-trips the
     new settings with unknown keys kept; `panic_hunt` green.
-- ⬜ **M7.4 `ui`: the edit view's state, frame and stub panels**
+- ✅ **M7.4 `ui`: the edit view's state, frame and stub panels**
   - after: M5.14, M6.6, M6.R
   - files: `crates/ui/src/state.rs`, `crates/ui/src/menus.rs`, `crates/ui/src/app.rs`, `crates/ui/src/commands/mod.rs`, `crates/ui/src/commands/edit_view.rs`, `crates/ui/src/commands/zoom.rs`, `crates/ui/src/commands/tools.rs`, `crates/ui/src/panels/mod.rs`, `crates/ui/src/panels/layout.rs`, `crates/ui/src/panels/edit.rs`, `crates/ui/src/panels/edit/**`, `crates/ui/src/dialogs/mod.rs`, `crates/ui/src/dialogs/custom_ratio.rs`, `crates/ui/src/control/**`, `crates/ui/tests/view_state_m7.rs`, `crates/ui/tests/fingerprints/edit-frame*.json`, `docs/control-protocol.md`, `docs/ui-layout.md`
   - scope: `editing.md` §1–§2 and control-protocol §6.5–§6.7: `View::Edit` and the `edit` object of
