@@ -13,8 +13,9 @@ use dalica_image::{Orientation, Rgba8};
 use dalica_scenes::{Rgb8, Scene, orient};
 use proptest::prelude::*;
 
-/// The largest rounding error one `1 − v` may add for `v` in 0..1 (half a unit in the last place of
-/// 1), with room for the two such steps a round trip takes.
+/// The rounding error a round trip may add, relative to the magnitude of the values (at least 1):
+/// each `1 − v` rounds by at most half a unit in the last place of its result, and a round trip
+/// takes two such steps.
 const TOLERANCE: f64 = 2.0 * f64::EPSILON;
 
 fn close(a: f64, b: f64) -> bool {
@@ -27,6 +28,19 @@ fn close_point(a: Point, b: Point) -> bool {
 
 fn close_rect(a: Rect, b: Rect) -> bool {
     close(a.x0, b.x0) && close(a.y0, b.y0) && close(a.x1, b.x1) && close(a.y1, b.y1)
+}
+
+/// Whether `shown` has the side lengths of `r` (swapped when `t` swaps width and height). A side is
+/// the difference of two mapped coordinates, so its rounding error scales with the coordinates'
+/// magnitude, not with the side or the area: each mapped coordinate is off by at most half a unit
+/// in its last place and each subtraction rounds once more, at most 3 × EPSILON × that magnitude.
+fn same_sides(t: Dihedral, r: Rect, shown: Rect) -> bool {
+    let scale = [r.x0, r.y0, r.x1, r.y1, shown.x0, shown.y0, shown.x1, shown.y1].iter().fold(1.0f64, |m, v| m.max(v.abs()));
+    let near = |a: f64, b: f64| (a - b).abs() <= 4.0 * f64::EPSILON * scale;
+    let (w, h) = (r.x1 - r.x0, r.y1 - r.y0);
+    let (sw, sh) = (shown.x1 - shown.x0, shown.y1 - shown.y0);
+    let (sw, sh) = if t.swaps() { (sh, sw) } else { (sw, sh) };
+    near(sw, w) && near(sh, h)
 }
 
 fn transform() -> impl Strategy<Value = Dihedral> {
@@ -76,10 +90,10 @@ proptest! {
         prop_assert!(close_rect(back, r), "{}: {r:?} came back as {back:?}", t.name());
         prop_assert_eq!(d.to_display(t).to_stored(t), d);
         prop_assert_eq!(d.to_stored(t).to_display(t), d);
-        // The displayed rectangle keeps its area and its corners in order.
+        // The displayed rectangle keeps its side lengths and its corners in order.
         let shown = r.to_display(t);
         prop_assert!(shown.x0 <= shown.x1 && shown.y0 <= shown.y1);
-        prop_assert!(close((shown.x1 - shown.x0) * (shown.y1 - shown.y0), (r.x1 - r.x0) * (r.y1 - r.y0)));
+        prop_assert!(same_sides(t, r, shown), "{}: {r:?} shown as {shown:?}", t.name());
     }
 
     #[test]
@@ -97,6 +111,24 @@ proptest! {
             let recipe = Recipe::parse(vec![op; times]).unwrap();
             prop_assert_eq!(recipe.orientation(), Dihedral::IDENTITY);
         }
+    }
+}
+
+/// Found on CI (Windows, run 38334724810): turning this rectangle by a half turn rounds
+/// `1 − (−1.0457…)` to the float spacing at 2 (4.4 × 10⁻¹⁶), so its height moves by that much and
+/// its area by 5.6 × 10⁻¹⁶. The mapping is right (each corner is the nearest float to the true
+/// value); the old area check's tolerance was scaled by the area (under 1) instead of by the
+/// coordinates (up to 3).
+#[test]
+fn a_rectangle_beyond_the_photo_keeps_its_sides_under_a_half_turn() {
+    let r = Rect::new(-1.2184016736378709, -1.5814521288832906, 0.0, -1.0457490300698644);
+    let shown = r.to_display(Dihedral::ROTATE_180);
+    assert_eq!(shown, Rect::new(1.0, 1.0 - r.y1, 1.0 - r.x0, 1.0 - r.y0));
+    assert!(same_sides(Dihedral::ROTATE_180, r, shown), "{shown:?}");
+    assert!(close_rect(shown.to_stored(Dihedral::ROTATE_180), r));
+    for t in Dihedral::ALL {
+        assert!(same_sides(t, r, r.to_display(t)), "{}", t.name());
+        assert!(close_rect(r.to_display(t).to_stored(t), r), "{}", t.name());
     }
 }
 

@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 782187329748d35a6ad380778c85670132239a5932a6158de5e5ce2df5a4876f # shrinks to t = Dihedral { quarters: 2, mirror: false }, r = Rect { x0: -1.2184016736378709, y0: -1.5814521288832906, x1: 0.0, y1: -1.0457490300698644 }, d = Rect { x0: 0.0, y0: 0.0, x1: 0.0, y1: 0.0 }
