@@ -243,7 +243,8 @@ fn nodes(facts: &Facts<'_>, entries: &'static [Entry], path: &str) -> Vec<Node> 
 }
 
 /// The parameters a click on the row passes to `id`: its fixed ones, plus the selection when the
-/// command takes `ids`, or the [current folder](current_folder) as `id` for [`FOLDER_COMMANDS`].
+/// command takes `ids`, or the [current folder](current_folder) as `id` for [`FOLDER_COMMANDS`],
+/// or in the edit view the open photo as `id` for Edit ▸ Undo / Redo.
 pub fn params_for(app: &App, id: &str, fixed: &Value) -> Value {
     let mut obj: Map<String, Value> = match crate::keys::params_for(app, id) {
         Value::Object(o) => o,
@@ -253,6 +254,13 @@ pub fn params_for(app: &App, id: &str, fixed: &Value) -> Value {
         && let Some(folder) = current_folder(app)
     {
         obj.insert("id".into(), folder.get().into());
+    }
+    // In the edit view Edit ▸ Undo / Redo walk the open photo's history: its enabled state and
+    // its run (`edit.undo {id}`) follow that history, never the library stack.
+    if matches!(id, "edit.undo" | "edit.redo")
+        && let Some(photo) = crate::commands::edit_view::open_photo(app)
+    {
+        obj.insert("id".into(), photo.get().into());
     }
     if let Value::Object(f) = fixed {
         for (k, v) in f {
@@ -289,6 +297,7 @@ fn item_node(facts: &Facts<'_>, i: &'static Item) -> ItemNode {
     };
     let undo = app.session().map(dalica_engine::Session::undo_stack);
     let label = match (id, undo.and_then(|u| if id == "edit.undo" { u.undo_label() } else { u.redo_label() })) {
+        _ if let Some(step) = photo_step(app, id) => step,
         ("edit.undo", Some(action)) => format!("Undo {action}"),
         ("edit.redo", Some(action)) => format!("Redo {action}"),
         _ => i.label.to_string(),
@@ -311,6 +320,19 @@ fn item_node(facts: &Facts<'_>, i: &'static Item) -> ItemNode {
         mark: i.mark,
         checked,
         dialog,
+    }
+}
+
+/// Edit ▸ Undo / Redo's label while the edit view shows a photo, whose history the rows walk
+/// there (`editing.md` §5.1; [`params_for`] passes the photo): "Undo Crop", "Redo Tuning", plain
+/// "Undo" / "Redo" when there is nothing that way. `None` for every other row and in the library.
+fn photo_step(app: &App, id: &str) -> Option<String> {
+    let photo = crate::commands::edit_view::open_photo(app)?;
+    let h = app.session()?.photo_history(photo)?;
+    match id {
+        "edit.undo" => Some(h.undo_text()),
+        "edit.redo" => Some(h.redo_text()),
+        _ => None,
     }
 }
 

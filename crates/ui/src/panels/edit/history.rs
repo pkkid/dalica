@@ -1,10 +1,91 @@
-//! The Undo / Redo pair under every tab (`editing.md` §5.1).
-//!
-//! A stub laid out by [`super`] (`panels/edit.rs`) until M7.16 fills it.
+//! The Undo / Redo pair under every tab (`editing.md` §5.1): two buttons filling the width,
+//! `button:edit.undo` and `button:edit.redo`. Undo reads "Undo " and the last edit's name ("Undo
+//! Crop"), Redo "Redo " and the next one's when there is one to redo, plain "Undo" / "Redo" drawn
+//! disabled otherwise; the labels are the photo's own history (`photo.history.state`). A click is a
+//! step of that history (`edit.history.undo` / `edit.history.redo`), never of the library stack.
 
-use egui::Ui;
+use dalica_core::PhotoId;
+use dalica_ui_kit::Tokens;
+use dalica_ui_kit::fonts;
+use dalica_ui_kit::registry::Role;
+use dalica_ui_kit::widgets::{self, Target, ToastKind};
+use egui::{Align2, CornerRadius, Id, Rect, Response, Sense, Stroke, StrokeKind, Ui, WidgetType, pos2, vec2};
+use serde_json::json;
 
 use crate::app::App;
 
-/// Draws this part into `ui`'s rect.
-pub fn show(_app: &mut App, _ui: &mut Ui) {}
+pub const UNDO_ID: &str = "button:edit.undo";
+pub const REDO_ID: &str = "button:edit.redo";
+/// The tooltips (`editing.md` §5.1 gives Undo's).
+pub const UNDO_TIP: &str = "Remove the latest edit";
+pub const REDO_TIP: &str = "Put back the edit removed last";
+/// The gap between the two buttons.
+pub const GAP: f32 = 6.0;
+
+/// What the pair shows for a photo: each button's label and whether it can run.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Pair {
+    pub undo: (String, bool),
+    pub redo: (String, bool),
+}
+
+impl Default for Pair {
+    fn default() -> Pair {
+        Pair { undo: ("Undo".into(), false), redo: ("Redo".into(), false) }
+    }
+}
+
+/// The pair for `photo` from its history (`photo.history.state`'s labels); both disabled without
+/// a photo or a library.
+pub fn pair(app: &App, photo: Option<PhotoId>) -> Pair {
+    let Some(h) = photo.and_then(|id| app.session()?.photo_history(id)) else { return Pair::default() };
+    Pair { undo: (h.undo_text(), h.undo_label.is_some()), redo: (h.redo_text(), h.redo_label.is_some()) }
+}
+
+/// Draws the pair into `ui`'s rect.
+pub fn show(app: &mut App, ui: &mut Ui) {
+    let t = *app.tokens();
+    let rect = ui.max_rect();
+    let half = ((rect.width() - GAP) / 2.0).max(0.0).floor();
+    let undo_rect = Rect::from_min_size(rect.min, vec2(half, rect.height()));
+    let redo_rect = Rect::from_min_max(pos2(rect.max.x - half, rect.min.y), rect.max);
+    let p = pair(app, app.state().edit.photo);
+    let undo = button(ui, &t, UNDO_ID, &p.undo.0, undo_rect, p.undo.1, UNDO_TIP).clicked();
+    let redo = button(ui, &t, REDO_ID, &p.redo.0, redo_rect, p.redo.1, REDO_TIP).clicked();
+    let command = if undo {
+        "edit.history.undo"
+    } else if redo {
+        "edit.history.redo"
+    } else {
+        return;
+    };
+    if let Err(e) = app.run(command, &json!({})) {
+        app.toast(&e.to_string(), ToastKind::Caution);
+    }
+}
+
+/// A button filling `rect` with a centred label, as `widgets::text_button` draws it: SemiBold
+/// `button_label` `text`, radius 4, fill `button` / `hover` / `pressed`, 1 pt `button_border`;
+/// `text_disabled` when disabled; the label elided to fit. The tooltip shows disabled too.
+fn button(ui: &mut Ui, t: &Tokens, id: &str, label: &str, rect: Rect, enabled: bool, tip: &str) -> Response {
+    let enabled = enabled && ui.is_enabled();
+    let r = ui.interact(rect, Id::new(id), if enabled { Sense::click() } else { Sense::hover() });
+    let p = ui.painter();
+    let fill = if enabled && r.is_pointer_button_down_on() {
+        t.pressed
+    } else if enabled && r.hovered() {
+        t.hover
+    } else {
+        t.button
+    };
+    p.rect(rect, CornerRadius::same(t.radius), fill, Stroke::new(1.0, t.button_border), StrokeKind::Inside);
+    widgets::focus_ring(p, t, &r, rect, t.radius);
+    let color = if enabled { t.text } else { t.text_disabled };
+    let mut job = egui::text::LayoutJob::simple_singleline(label.to_owned(), fonts::semibold(t.button_label), color);
+    job.wrap = egui::text::TextWrapping::truncate_at_width((rect.width() - 12.0).max(1.0));
+    let galley = p.layout_job(job);
+    p.galley(Align2::CENTER_CENTER.align_size_within_rect(galley.size(), rect).min.round(), galley, color);
+    widgets::register(ui.ctx(), id, Role::Button, label, Target::Widget(&r), false);
+    r.widget_info(|| egui::WidgetInfo::labeled(WidgetType::Button, enabled, label));
+    widgets::tooltip(r, t, tip, None)
+}

@@ -108,13 +108,18 @@ person's name, we use a descriptive name instead (e.g. **Auto Fix**). Never rena
 | 5 | brush + sky | "Even more effects" | 8 effects |
 
 While a tool or effect panel is open, clicking another tab is allowed, but the open panel stays and
-the rest of the edit panel is drawn disabled until Apply/Cancel. Esc = Cancel.
+the rest of the edit panel is drawn disabled until Apply/Cancel. Esc = Cancel. (In Dalica the tabs
+run along the panel's top edge on a `canvas` strip, the one shown joined to the panel; the tab
+content and Undo/Redo are what is drawn disabled; a Tuning session is not a panel and leaves them
+enabled. Until the effects arrive (M12) tabs 3–5 show "No effects yet".)
 
 ### 5.1 Undo / Redo
 
 - Two buttons under every tab. Undo reads **"Undo " + the last edit's name** ("Undo Crop", "Undo
   Tuning", "Undo Sepia", "Undo Save"); Redo reads **"Redo " + the next edit's name** when enabled,
-  "Redo" when disabled. Tooltip "Remove the latest edit".
+  "Redo" when disabled. Tooltip "Remove the latest edit" (Redo's, Dalica's: "Put back the edit
+  removed last"). In the edit view the Edit → Undo / Redo rows carry the same labels and are greyed
+  by this photo's history, not the library's.
 - History is **linear** per photo and persists across sessions (stored in the sidecar). In the edit
   view, Ctrl+Z / Ctrl+Y (Cmd+Z / Cmd+Shift+Z) and Edit → Undo / Redo walk **this photo's history**,
   never the library undo stack; back in the library they walk the library stack again
@@ -130,8 +135,10 @@ the rest of the edit panel is drawn disabled until Apply/Cancel. Esc = Cancel.
 Box at the bottom of the edit panel (≈ 248 × 150), titled **"Histogram & Camera Info"**: an RGB
 histogram (R, G, B as translucent overlapping areas, additive where they overlap, normalised to the
 mean so tall spikes clip), computed from the displayed preview and updated live while editing;
-below it two columns: camera make/model, focal length (+ 35 mm equivalent) | shutter, aperture, ISO.
-No EXIF: "No camera information".
+below it two columns: camera make/model, focal length (+ 35 mm equivalent, "35 mm (52 mm equiv.)") |
+shutter, aperture, ISO ("ISO 200"); each line only when the file has it. No EXIF: "No camera
+information"; while the file is still being read: "Reading camera information…". Until a preview of
+the photo is shown the histogram is an empty plate.
 
 ## 6. Tab 1 — Basic fixes
 
