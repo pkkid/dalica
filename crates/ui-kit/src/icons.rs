@@ -8,12 +8,15 @@
 //! 12 thumbnail badges; the caption glyphs read best at 10–12 inside their 46 × 24 buttons.
 //!
 //! The Folder Manager's folder states and root icons are a set of their own, [`FolderIcon`]
-//! ([`paint_folder`]; `icons/folder_modes.rs`).
+//! ([`paint_folder`]; `icons/folder_modes.rs`), and so are the edit view's, [`EditIcon`]
+//! ([`paint_edit`]; `icons/edit.rs`).
 
+mod edit;
 mod folder_modes;
 mod glyphs;
 mod pen;
 
+pub use edit::{EditIcon, paint_edit};
 pub use folder_modes::{FolderIcon, INHERITED_OPACITY, paint_folder, state_color};
 
 use egui::{Color32, Mesh, Painter, Pos2, Rect, Shape, Stroke, pos2};

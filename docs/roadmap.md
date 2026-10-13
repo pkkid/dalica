@@ -2660,7 +2660,7 @@ effect tabs show an empty state until M12.
     slider's tooltip, nudge and reset; `crates/ui-kit/tests/input.rs`: notched wheel, trackpad
     scroll, pinch and the folded Windows pinch classify as in the source (its tests ported), a
     flick glides and stops; gallery fingerprints at both sizes; `widget_ids` green.
-- ⬜ **M7.6 `ui-kit`: the edit view's icons**
+- ✅ **M7.6 `ui-kit`: the edit view's icons**
   - after: M5.18, M6.R
   - files: `crates/ui-kit/src/icons.rs`, `crates/ui-kit/src/icons/edit.rs`, `crates/ui-kit/tests/icons_edit.rs`, `crates/ui-kit/tests/fingerprints/icons-edit*.json`
   - scope: `design-system.md` §5 and `editing.md` §2, §5–§7: original icons drawn in code on the
