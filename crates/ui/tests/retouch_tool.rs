@@ -19,7 +19,7 @@ use dalica_scenes::fingerprint;
 use dalica_ui::control::{Config, Connection, Control, Reply, Request, serve};
 use dalica_ui::headless::{PointerEvent, PointerKind};
 use dalica_ui::panels::edit::canvas::{self, View};
-use dalica_ui::panels::edit::retouch;
+use dalica_ui::panels::edit::{histogram, retouch};
 use dalica_ui::state::{BRUSH_DEFAULT, Patch};
 use dalica_ui::{App, Driver};
 use dalica_ui_kit::WidgetInfo;
@@ -402,6 +402,30 @@ fn a_planted_blemish_is_gone_in_the_preview() {
     assert!(clean - blemish(&t) > 40.0);
 }
 
+/// A patch on a slow machine previews as a smaller draft and then the final of the same
+/// generation: the histogram box shows the final's bins, not the draft's.
+#[test]
+fn the_histogram_follows_the_final_after_a_smaller_draft() {
+    let mut t = setup((1400, 900));
+    click(&mut t, "tool:retouch");
+    {
+        let s = t.d.app_mut().session_mut().unwrap();
+        assert!(s.wait_preview(Duration::from_secs(30)));
+        // A full render taking 100 ms: the draft is a quarter of the size.
+        s.plant_preview_cost(100.0);
+    }
+    action(&mut t, "patch", json!({ "target": BLEMISH, "source": CLEAN }));
+    shown_recipe(&mut t);
+    let s = t.d.app().session().unwrap();
+    let p = s.preview().unwrap();
+    assert_eq!(p.quality, dalica_engine::Quality::Final);
+    let shown = histogram::shown_bins(t.d.ctx()).expect("the histogram box drew bins");
+    let widen = |c: &[u32]| c.iter().map(|&n| u64::from(n)).collect::<Vec<u64>>();
+    assert_eq!(shown[0], widen(&p.histogram.red), "the plot shows the final's bins");
+    let total: u64 = shown[0].iter().sum();
+    assert_eq!(total, u64::from(p.image.width) * u64::from(p.image.height));
+}
+
 /// The actions refuse bad parameters and change nothing; with Retouch closed they are `disabled`.
 #[test]
 fn the_actions_refuse_bad_parameters() {
@@ -480,13 +504,6 @@ fn check_region(t: &T, name: &str, rect: [f32; 4]) {
     }
 }
 
-/// The next draft is rendered at full size (as on a machine fast enough for it).
-fn fast_drafts(t: &mut T) {
-    let s = t.d.app_mut().session_mut().unwrap();
-    assert!(s.wait_preview(Duration::from_secs(30)));
-    s.plant_preview_cost(0.0);
-}
-
 /// The Retouch panel with one patch made, and the photo with a target waiting and its circle, at
 /// both sizes.
 #[test]
@@ -494,12 +511,8 @@ fn the_retouch_panel_matches_its_fingerprints() {
     for (w, h) in SIZES {
         let mut t = setup((w, h));
         click(&mut t, "tool:retouch");
-        // Each draft at full size, so it is the final too: the histogram box keeps the bins of the
-        // first preview of a generation, and a smaller draft's (on a loaded machine) would stay.
-        fast_drafts(&mut t);
         action(&mut t, "patch", json!({ "target": [0.7, 0.3], "source": [0.8, 0.3] }));
         click_photo(&mut t, BLEMISH);
-        fast_drafts(&mut t);
         hover_photo(&mut t, [0.9, 0.9]);
         shown_recipe(&mut t);
         let panel = widget(&t, "region:editPanel").rect;
