@@ -2,15 +2,18 @@
 //! another application) shown as toasts (`design-system.md` §6 `toast`) at the bottom of the light
 //! table. The app polls the session once a frame ([`Notices::poll`]), draws the toasts still showing
 //! ([`Notices::show`], `toast:<n>`) and reports them to `ui.inspect` → `toasts` ([`Notices::inspect`]).
-//! Each toast stays its kind's time (1.4 s, failures 6 s), then is dropped.
+//! Each toast stays its kind's time (1.4 s, cautions and failures 6 s), then is dropped. Its text
+//! wraps to at most three lines; only a longer one is cut short, in the middle, and never inside
+//! the file name it is about.
 //!
 //! Today the session reports failed metadata writes (`dalica_engine::metadata`): each becomes one
-//! failure toast naming the file and the fields (the folder sidecar keeps the values). The app's
-//! own confirmations come through [`Notices::push`].
+//! `caution` toast naming the file and the fields (nothing is lost: the folder sidecar keeps the
+//! values; `data-model.md` §5, `xmp-interop.md` §1). The app's own confirmations come through
+//! [`Notices::push`].
 
 use dalica_engine::Session;
 use dalica_ui_kit::Tokens;
-use dalica_ui_kit::widgets::{self, TOAST_ERROR_SECS, TOAST_SECS, ToastKind};
+use dalica_ui_kit::widgets::{self, ToastKind, ToastText};
 use egui::{Rect, Ui};
 use serde_json::{Value, json};
 
@@ -19,12 +22,13 @@ pub const MAX_TOASTS: usize = 8;
 /// The longest toast text kept, in characters.
 pub const MAX_TEXT: usize = 300;
 
-/// One toast: its number (the `<n>` of `toast:<n>`), text, kind and when it appeared (seconds on
-/// the frame clock).
+/// One toast: its number (the `<n>` of `toast:<n>`), text, how many characters at the start of
+/// the text stay whole if it is cut short, kind and when it appeared (seconds on the frame clock).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Toast {
     pub n: u64,
     pub text: String,
+    pub keep: usize,
     pub kind: ToastKind,
     pub shown_at: f64,
 }
@@ -32,10 +36,7 @@ pub struct Toast {
 impl Toast {
     /// How long it shows, in seconds.
     fn life(&self) -> f64 {
-        match self.kind {
-            ToastKind::Info => TOAST_SECS,
-            ToastKind::Error => TOAST_ERROR_SECS,
-        }
+        self.kind.life()
     }
 
     /// The seconds it still shows at `now` (0 once over).
@@ -57,23 +58,40 @@ pub struct Notices {
 impl Notices {
     /// Shows `text` as a toast of `kind` from `now` on.
     pub fn push(&mut self, text: &str, kind: ToastKind, now: f64) {
-        let mut text: String = text.chars().take(MAX_TEXT).collect();
-        text.retain(|c| !c.is_control());
+        self.push_keeping(text, "", kind, now);
+    }
+
+    /// Shows `text` as a toast of `kind` from `now` on; if it has to be cut short, the text up to
+    /// and including `whole` (a file name in it; its occurrence followed by ": " first) stays
+    /// whole.
+    pub fn push_keeping(&mut self, text: &str, whole: &str, kind: ToastKind, now: f64) {
+        let text = clean(text);
+        let whole = clean(whole);
+        let keep = if whole.is_empty() {
+            0
+        } else {
+            let at = text.find(&format!("{whole}: ")).or_else(|| text.find(&whole));
+            at.map_or(0, |i| text.get(..i).map_or(0, |s| s.chars().count()).saturating_add(whole.chars().count()))
+        };
         self.next = self.next.saturating_add(1);
         if self.toasts.len() >= MAX_TOASTS {
             self.toasts.remove(0);
         }
-        self.toasts.push(Toast { n: self.next, text, kind, shown_at: if now.is_finite() { now } else { 0.0 } });
+        self.toasts.push(Toast { n: self.next, text, keep, kind, shown_at: if now.is_finite() { now } else { 0.0 } });
     }
 
     /// Turns what `session` reported since the last poll into toasts, and drops the toasts whose
     /// time is over. Cheap when nothing happened: call it once a frame.
     pub fn poll(&mut self, session: &Session, now: f64) {
         self.toasts.retain(|t| t.remaining(now) > 0.0);
-        let fresh: Vec<(u64, String)> = session.metadata_events().filter(|e| e.seq > self.seen).map(|e| (e.seq, e.message())).collect();
-        for (seq, text) in fresh {
+        let fresh: Vec<(u64, String, String)> = session
+            .metadata_events()
+            .filter(|e| e.seq > self.seen)
+            .map(|e| (e.seq, e.message(), e.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()))
+            .collect();
+        for (seq, text, file) in fresh {
             self.seen = self.seen.max(seq);
-            self.push(&text, ToastKind::Error, now);
+            self.push_keeping(&text, &file, ToastKind::Caution, now);
         }
     }
 
@@ -85,11 +103,12 @@ impl Notices {
     /// Draws the newest toast still showing at the bottom of `area` (the light table).
     pub fn show(&self, ui: &Ui, t: &Tokens, area: Rect, now: f64) {
         if let Some(toast) = self.showing(now).last() {
-            widgets::toast(ui, t, &format!("toast:{}", toast.n), area, &toast.text, toast.kind, now - toast.shown_at, None);
+            let text = ToastText::new(&toast.text, toast.keep);
+            widgets::toast(ui, t, &format!("toast:{}", toast.n), area, text, toast.kind, now - toast.shown_at, None);
         }
     }
 
-    /// `ui.inspect` → `toasts`: `[{id, text, kind, remaining}]` (`kind` `info` or `error`,
+    /// `ui.inspect` → `toasts`: `[{id, text, kind, remaining}]` (`kind` `info`, `caution` or `error`,
     /// `remaining` in seconds).
     pub fn inspect(&self, now: f64) -> Value {
         let list: Vec<Value> = self
@@ -97,6 +116,7 @@ impl Notices {
             .map(|toast| {
                 let kind = match toast.kind {
                     ToastKind::Info => "info",
+                    ToastKind::Caution => "caution",
                     ToastKind::Error => "error",
                 };
                 json!({ "id": format!("toast:{}", toast.n), "text": toast.text, "kind": kind, "remaining": toast.remaining(now) })
@@ -104,6 +124,11 @@ impl Notices {
             .collect();
         Value::Array(list)
     }
+}
+
+/// `text` at most [`MAX_TEXT`] characters long, without control characters.
+fn clean(text: &str) -> String {
+    text.chars().take(MAX_TEXT).filter(|c| !c.is_control()).collect()
 }
 
 #[cfg(test)]
@@ -135,5 +160,18 @@ mod tests {
         h.push("a", ToastKind::Info, f64::NAN);
         assert_eq!(h.showing(f64::INFINITY).count(), 0);
         assert_eq!(h.showing(f64::NAN).count(), 0);
+    }
+
+    #[test]
+    fn the_file_name_is_what_stays_whole() {
+        let mut n = Notices::default();
+        n.push_keeping("Could not write the caption into a.jpg: the file is read-only", "a.jpg", ToastKind::Caution, 0.0);
+        n.push_keeping("Could not write the caption into caption: no", "caption", ToastKind::Caution, 0.0);
+        n.push_keeping("Could not write tags into b\u{7}.jpg", "b\u{7}.jpg", ToastKind::Caution, 0.0);
+        n.push_keeping("No file here", "c.jpg", ToastKind::Caution, 0.0);
+        n.push("Starred 1 photo", ToastKind::Info, 0.0);
+        let keeps: Vec<usize> = n.toasts.iter().map(|t| t.keep).collect();
+        assert_eq!(keeps, [38, 40, 31, 0, 0], "the name followed by \": \" first; control characters dropped from both");
+        assert_eq!(n.inspect(1.0)[0]["kind"], "caution");
     }
 }

@@ -47,7 +47,10 @@ pub use datetime::{
 };
 pub use dialog::{ButtonKind, DialogButton, DialogResponse, dialog};
 pub use dropdown::{dropdown, dropdown_popup_id};
-pub use feedback::{ProgressOut, TOAST_ERROR_SECS, TOAST_SECS, ToastKind, empty_state, progress_row, toast, toast_opacity};
+pub use feedback::{
+    ProgressOut, TOAST_ERROR_SECS, TOAST_LINES, TOAST_SECS, ToastKind, ToastText, elide_middle, empty_state, progress_row, toast, toast_galley,
+    toast_opacity, toast_text_width,
+};
 pub use field::{Ending, FieldOut, SearchOut, TextField, focus_field, search_field, text_field};
 pub use header::section_header;
 pub use histogram::{HISTOGRAM_HEADROOM, MAX_BINS, histogram, histogram_curves, histogram_mesh, paint_histogram};
