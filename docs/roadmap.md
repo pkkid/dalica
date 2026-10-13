@@ -2691,7 +2691,7 @@ effect tabs show an empty state until M12.
     keeps its ratio and stays inside the photo (proptest; the ported tests pass); ±10° leaves no
     empty corner and 0° is the identity; fingerprints per operation at three values; reversed,
     outside or NaN rectangles are `Err` or clamped, never a panic.
-- ⬜ **M7.8 `edit`: the Tuning operation**
+- ✅ **M7.8 `edit`: the Tuning operation**
   - after: M7.2
   - files: `crates/edit/src/ops/tone.rs`, `crates/edit/tests/tone.rs`, `crates/edit/tests/fingerprints/tone*.json`, `docs/data-model.md`
   - scope: `editing.md` §6.5 and §7: `tuning(fill,highlights,shadows,temp,neutral)` with typed
