@@ -147,7 +147,13 @@ latitude/longitude tags and DateTimeOriginal / DateTimeDigitized. Every Dalica X
   whatever its form (`iTXt`, `tEXt`, `zTXt`, a raw profile). EXIF goes back into its `eXIf`
   chunk, or into the "Raw profile type exif" text that held it, in the same chunk type,
   compression and hex layout. IPTC is written only into a raw profile the file already has (PNG
-  has no IPTC chunk). A block the file lacks goes into a new chunk just before the first `IDAT`
+  has no IPTC chunk): a "Raw profile type iptc" or "8bim" text holding either Photoshop image
+  resources (IPTC in resource 0x0404) or a bare IIM stream, the form ImageMagick writes under
+  `8bim`. Which form a profile holds is told by its first byte (an IIM dataset starts with 0x1C,
+  which no resource does), not by its name, and a rewritten profile keeps its form. The first
+  such profile is the one read; when a file has more than one, every copy that holds readable
+  IPTC is rewritten with the same edit, so no copy keeps an old caption for a reader that picks
+  another; a later profile of resources with no IPTC in it is copied as it is. A block the file lacks goes into a new chunk just before the first `IDAT`
   (`eXIf`, then `iTXt`). Every written chunk's CRC is recomputed; other chunks keep their bytes
   and their order.
 - **WebP.** The `EXIF` and `XMP ` chunks are replaced where they are; a missing `EXIF` goes just
@@ -162,15 +168,16 @@ latitude/longitude tags and DateTimeOriginal / DateTimeDigitized. Every Dalica X
   is appended (word aligned) and its old bytes zeroed. IFD0 is rewritten in its own place unless
   it gains an entry, when it is appended whole and only the header's IFD0 offset changes. Field
   types are kept; a new XMP value is BYTE and a new IPTC stream LONG (padded with zeros). IPTC is
-  written where the file keeps it (tag 33723, and resource 0x0404 of tag 34377 with its digest),
-  and a new 33723 starts only when no IPTC exists and there is something to write.
+  written where the file keeps it (tag 33723, and resource 0x0404 of tag 34377 with its digest,
+  or tag 34377 itself when it holds a bare IIM stream, as ImageMagick writes it), and a new 33723 starts only when no IPTC exists and there is something to write.
   ImageDescription follows the caption by the same rule (§3): a new caption is appended and
   pointed to, a cleared one removes the entry, and the old text is left where it was,
   unreferenced. A file whose IFD0 table or rewritten values share bytes with any other IFD, value,
   strip or tile, or whose IFD0 holds one of these tags twice, is refused. Place and date reach a
   TIFF only through the XMP mirrors: when no packet exists and the write starts none, or when EXIF
-  holds the value (EXIF wins on reading), the write fails naming the field and the sidecar keeps
-  the value.
+  holds the value (EXIF wins on reading), the write is refused before anything is written, with
+  its own error naming the field and why (`Error::Refused`, "the place cannot be written: …"; not
+  a failed check of a written file), and the sidecar keeps the value.
 - **Mirrors into a new packet.** A place or a date alone never starts a packet. A packet started
   for a caption, tags or a rating gets the place and the date (`exif:DateTimeOriginal`) in the
   same write, so writing the same values twice gives the same bytes.

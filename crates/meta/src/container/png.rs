@@ -7,7 +7,7 @@
 use std::borrow::Cow;
 
 use super::{BlockKind, Container, Scan, Text, be_u32, latin1, strip_exif_prefix, take};
-use crate::iptc::read::is_iim;
+use crate::iptc::read::{datasets, is_iim, resources};
 use crate::{Error, Limits, Problem, Result};
 
 /// The keyword of an XMP text chunk (XMP Part 3, 1.1.5).
@@ -93,15 +93,22 @@ fn text<'a>(out: &mut Scan<'a>, t: TextChunk<'a>, range: std::ops::Range<usize>,
                 }
                 // IPTC, by what the profile holds rather than its name: a bare IIM stream (the
                 // `iptc` profile, and ImageMagick's `8bim` one) or Photoshop resources. The first
-                // such profile is the one read and written; a later copy is listed only.
-                "iptc" | "8bim" if out.iptc.is_none() && out.photoshop.is_none() => {
+                // such profile is the one read; a later copy that holds readable IPTC is rewritten
+                // with it, so no copy keeps an old caption. Any other later copy is listed only.
+                "iptc" | "8bim" => {
                     let iim = is_iim(&data);
-                    if iim {
-                        out.iptc = Some(Cow::Owned(data));
+                    let kind = if iim { BlockKind::Iptc } else { BlockKind::Photoshop };
+                    if out.iptc.is_none() && out.photoshop.is_none() {
+                        if iim {
+                            out.iptc = Some(Cow::Owned(data));
+                        } else {
+                            out.photoshop = Some(Cow::Owned(data));
+                        }
+                        out.span(kind, range, true);
                     } else {
-                        out.photoshop = Some(Cow::Owned(data));
+                        let holds = holds_iptc(&data, limits);
+                        out.span(if holds { kind } else { BlockKind::Text }, range, holds);
                     }
-                    out.span(if iim { BlockKind::Iptc } else { BlockKind::Photoshop }, range, true);
                 }
                 "xmp" if out.xmp.is_none() => {
                     out.xmp = Some(Cow::Owned(data));
@@ -118,6 +125,15 @@ fn text<'a>(out: &mut Scan<'a>, t: TextChunk<'a>, range: std::ops::Range<usize>,
             out.span(BlockKind::Text, range, false);
         }
     }
+}
+
+/// Whether a later IPTC profile holds IPTC a write can rewrite: a bare IIM stream whose datasets
+/// read, or Photoshop resources that read and hold an IPTC resource whose datasets read.
+fn holds_iptc(data: &[u8], limits: &Limits) -> bool {
+    if is_iim(data) {
+        return datasets(data, limits).is_ok();
+    }
+    resources(data, limits).is_ok_and(|r| r.iter().any(|r| r.id == crate::iptc::RESOURCE_IPTC && datasets(r.data, limits).is_ok()))
 }
 
 /// The keyword and text of a `tEXt`, `zTXt` or `iTXt` chunk.

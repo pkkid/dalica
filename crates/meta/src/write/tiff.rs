@@ -171,13 +171,13 @@ fn mirrors_hold(before: &Metadata, merged: Option<&[u8]>, changes: &Changes, lim
     }
     let got = sources.resolve();
     let exif = &before.sources.exif;
-    let refuse = |field: &str, exif_holds: bool, mirror: &str| {
+    let refuse = |field: &'static str, exif_holds: bool, mirror: &str| {
         let why = if exif_holds {
             format!("this TIFF's EXIF holds the {field}, which comes first on reading, and Dalica writes a TIFF's {field} only to XMP")
         } else {
             format!("this TIFF has no {mirror} for it, and Dalica writes a TIFF's {field} only there")
         };
-        Err(Error::Verify(format!("the {field} cannot be written: {why}")))
+        Err(Error::Refused { field, why })
     };
     match changes.place {
         Some(Some(want)) if !got.place.is_some_and(|p| p.close_to(&want, PLACE_TOLERANCE)) => {
@@ -421,9 +421,9 @@ mod tests {
         let before = crate::read_scan(&scan, &options.limits);
         let place = Changes { place: Some(crate::Place::new(1.0, 2.0)), ..Changes::default() };
         let err = write(&file, &scan, &before, &place, &options).unwrap_err();
-        assert!(matches!(&err, Error::Verify(m) if m.starts_with("the place cannot be written: this TIFF has no XMP packet")), "{err}");
+        assert!(matches!(&err, Error::Refused { field: "place", why } if why.starts_with("this TIFF has no XMP packet")), "{err}");
         let date = Changes { date_taken: crate::DateTaken::parse_iso("2020-01-01T00:00:00"), ..Changes::default() };
-        assert!(matches!(write(&file, &scan, &before, &date, &options), Err(Error::Verify(m)) if m.starts_with("the date taken cannot be written")));
+        assert!(matches!(write(&file, &scan, &before, &date, &options), Err(Error::Refused { field: "date taken", .. })));
         // A caption alone starts a packet and is written.
         let caption = Changes { caption: Some(Some("x".into())), ..Changes::default() };
         assert!(write(&file, &scan, &before, &caption, &options).is_ok());

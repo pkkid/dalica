@@ -613,9 +613,10 @@ fn tiff_place_and_date_go_only_to_the_xmp_mirrors() {
 }
 
 /// The refusal of a TIFF place or date edit: the error the writer returns before writing anything,
-/// naming the field and why (not the verification's "does not read back" after a write).
-fn refusal(field: &str, why: &str) -> Error {
-    Error::Verify(format!("the {field} cannot be written: {why}"))
+/// naming the field and why (not the verification's "does not read back" after a write), its own
+/// variant so its notice never says the written file failed a check.
+fn refusal(field: &'static str, why: &str) -> Error {
+    Error::Refused { field, why: why.to_owned() }
 }
 
 #[test]
@@ -724,6 +725,88 @@ fn imagemagick_png_takes_iptc_in_its_8bim_profile() {
     assert!(sets.iter().any(|d| (d.record, d.number, d.data) == (2, 116, &b"(c) someone"[..])));
     assert_eq!(kinds(&png_chunks(&file)).len() + 1, kinds(&new).len(), "only the new XMP iTXt is added");
     assert_eq!(digest_outside_metadata(&file), digest_outside_metadata(&out));
+    same_pixels(&file, &out);
+    assert_eq!(write(&out, &c), out, "writing twice gives the same bytes");
+}
+
+/// The block a "Raw profile type" text chunk (`tEXt` or `zTXt`) holds, decoded.
+fn profile_bytes(data: &[u8]) -> Vec<u8> {
+    let nul = data.iter().position(|&c| c == 0).unwrap();
+    // A `zTXt` has its compression method (0) after the keyword; a `tEXt` profile starts "\n".
+    let text = if data.get(nul + 1) == Some(&0) { fdeflate::decompress_to_vec(&data[nul + 2..]).unwrap() } else { data[nul + 1..].to_vec() };
+    let text = String::from_utf8(text).unwrap();
+    let mut lines = text.split_whitespace();
+    lines.next(); // the name
+    let len: usize = lines.next().unwrap().parse().unwrap();
+    let hex: String = lines.collect();
+    let out: Vec<u8> = (0..hex.len() / 2).map(|i| u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16).unwrap()).collect();
+    assert_eq!(out.len(), len);
+    out
+}
+
+/// The caption of a bare IIM stream or of the IPTC resource of Photoshop resources.
+fn caption_in(block: &[u8]) -> Option<String> {
+    let stream = if dalica_meta::iptc::read::is_iim(block) {
+        block.to_vec()
+    } else {
+        resources(block, &l()).unwrap().into_iter().find(|r| r.id == 0x0404)?.data.to_vec()
+    };
+    datasets(&stream, &l()).unwrap().iter().find(|d| (d.record, d.number) == (2, 120)).map(|d| String::from_utf8_lossy(d.data).into_owned())
+}
+
+#[test]
+fn png_with_two_iptc_profiles_has_every_copy_rewritten() {
+    // An `iptc` profile and a later `8bim` one holding the same caption (one tool's copy and
+    // another's), and a third `8bim` profile of resources with no IPTC in it.
+    let old = b"old caption";
+    let iptc = iim(&[(2, 0, &[0, 4]), (2, 120, old), (2, 116, b"(c) someone")]);
+    let resolution = (0x03ed, &b"\x00\x48\x00\x00\x00\x01\x00\x01\x00\x48\x00\x00\x00\x01\x00\x01"[..]);
+    let ps = irb(&[resolution, (0x0404, &iim(&[(2, 0, &[0, 4]), (2, 120, old), (2, 5, b"Object name")]))]);
+    let no_iptc = irb(&[resolution]);
+    let (before, after) = png_foreign();
+    let mut chunks = before.clone();
+    chunks.push((b"zTXt", ztxt("Raw profile type iptc", &raw_profile("IPTC", &iptc))));
+    chunks.push((b"tEXt", text("Raw profile type 8bim", &raw_profile("8bim", &ps))));
+    chunks.push((b"zTXt", ztxt("Raw profile type 8bim", &raw_profile("8bim", &no_iptc))));
+    let file = real_png(&chunks, &after);
+    let c = caption_and_tags();
+    let out = write_owned(&file, &c, &opts()).unwrap();
+    assert_reads_back(&out, &c);
+    let (old_chunks, new) = (png_chunks(&file), png_chunks(&out));
+    let profiles =
+        |cs: &[([u8; 4], Vec<u8>)]| -> Vec<([u8; 4], Vec<u8>)> { cs.iter().filter(|c| c.1.starts_with(b"Raw profile type ")).cloned().collect() };
+    let (was, now) = (profiles(&old_chunks), profiles(&new));
+    assert_eq!(now.len(), 3);
+    let want = c.caption.clone().unwrap().unwrap();
+    // Each IPTC-holding copy, in its own chunk type and form, has the new caption; no old caption
+    // lingers in any of them; their other datasets and resources stay.
+    for (i, kind) in [(0, b"zTXt"), (1, b"tEXt")] {
+        assert_eq!(&now[i].0, kind);
+        assert_eq!(caption_in(&profile_bytes(&now[i].1)).as_deref(), Some(want.as_str()), "profile {i}");
+    }
+    assert!(new.iter().all(|c| !c.1.windows(old.len()).any(|w| w == old)), "an old caption is left");
+    let first = profile_bytes(&now[0].1);
+    assert!(datasets(&first, &l()).unwrap().iter().any(|d| (d.record, d.number, d.data) == (2, 116, &b"(c) someone"[..])));
+    let second = profile_bytes(&now[1].1);
+    assert!(!dalica_meta::iptc::read::is_iim(&second));
+    let res = resources(&second, &l()).unwrap();
+    assert!(res.iter().any(|r| r.id == 0x03ed && r.data == resolution.1));
+    let stream = res.iter().find(|r| r.id == 0x0404).unwrap().data;
+    assert!(datasets(stream, &l()).unwrap().iter().any(|d| (d.record, d.number, d.data) == (2, 5, &b"Object name"[..])));
+    // The profile without IPTC, and every other chunk, keep their bytes and their order.
+    assert_eq!(now[2], was[2]);
+    assert_eq!(kinds(&old_chunks).len() + 1, kinds(&new).len(), "only the new XMP iTXt is added");
+    let others = |cs: &[([u8; 4], Vec<u8>)]| -> Vec<([u8; 4], Vec<u8>)> {
+        cs.iter()
+            .filter(|c| {
+                !c.1.starts_with(b"Raw profile type iptc")
+                    && !(c.1.starts_with(b"Raw profile type 8bim") && caption_in(&profile_bytes(&c.1)).is_some())
+                    && !c.1.starts_with(b"XML:com")
+            })
+            .cloned()
+            .collect()
+    };
+    assert_eq!(others(&old_chunks), others(&new));
     same_pixels(&file, &out);
     assert_eq!(write(&out, &c), out, "writing twice gives the same bytes");
 }
@@ -882,7 +965,9 @@ fn a_failed_write_returns_an_error_and_no_bytes() {
     // that cannot be completed is an Err and hands back nothing, so the caller keeps its file.
     let dated = tiff_file(Tiff { exif: vec![ascii(0x9003, "2001:01:01 00:00:00")], ..Tiff::new() });
     let both = Changes { caption: Some(Some("kept back".into())), date_taken: DateTaken::parse_iso("2020-01-01T00:00:00"), ..Changes::default() };
-    assert!(matches!(write_owned(&dated, &both, &opts()), Err(Error::Verify(m)) if m.starts_with("the date taken cannot be written")));
+    let err = write_owned(&dated, &both, &opts()).unwrap_err();
+    assert!(matches!(&err, Error::Refused { field: "date taken", .. }), "{err:?}");
+    assert!(err.to_string().starts_with("the date taken cannot be written: "), "{err}");
     let many = WriteOptions { limits: Limits { max_segments: 0, max_ifd_entries: 3, ..l() }, ..opts() };
     for (name, file) in samples() {
         assert!(matches!(write_owned(&file, &caption("x"), &many), Err(Error::TooMany(_))), "{name}");

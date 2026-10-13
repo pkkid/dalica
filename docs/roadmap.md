@@ -3015,7 +3015,7 @@ effect tabs show an empty state until M12.
   - done when: a test that fails on main: adjust a date, let the write land, undo → the library
     and the file both read the original date; redo → both read the new one; the same with the
     write still queued; `cargo xtask ci` passes.
-- ⬜ **M7.31 `meta` + docs: refusals as their own error, and the API notes found mid-M7**
+- ✅ **M7.31 `meta` + docs: refusals as their own error, and the API notes found mid-M7**
   - after: M7.5, M7.6, M7.26, M7.27
   - files: `crates/meta/src/lib.rs`, `crates/meta/src/write/png.rs`, `crates/meta/tests/corpus.rs`, `crates/meta/tests/write_png_webp_tiff.rs`, `crates/meta/README.md`, `docs/xmp-interop.md`, `crates/ui-kit/README.md`, `docs/design-system.md`
   - scope: found mid-M7 by M7.26, M7.5, M7.6 and M7.27: a write refused up front (TIFF place or

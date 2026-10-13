@@ -184,14 +184,15 @@ fn imagemagick_bare_iptc_streams_read_as_iptc() {
     let s = scan(&both, &l()).unwrap();
     assert_eq!(s.iptc.as_deref(), Some(&iptc[..]));
     assert_eq!(s.spans.iter().filter(|s| s.kind == BlockKind::Iptc && s.rewritable).count(), 2);
-    // A second IPTC profile in a PNG is listed, not read or rewritten: the first one wins.
+    // A second IPTC profile in a PNG is not read (the first one wins) but is rewritable, as in a
+    // TIFF, so a write leaves no old caption in it.
     let two = png(&[
         (b"zTXt", ztxt("Raw profile type 8bim", &raw_profile("8bim", &iptc))),
         (b"zTXt", ztxt("Raw profile type iptc", &raw_profile("iptc", &other))),
     ]);
     let s = scan(&two, &l()).unwrap();
     assert_eq!(s.iptc.as_deref(), Some(&iptc[..]));
-    assert_eq!(s.spans.iter().filter(|s| s.kind == BlockKind::Iptc).count(), 1);
+    assert_eq!(s.spans.iter().filter(|s| s.kind == BlockKind::Iptc && s.rewritable).count(), 2);
 }
 
 #[test]
