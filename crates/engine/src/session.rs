@@ -131,6 +131,8 @@ pub struct Session {
     pub(crate) preview: Preview,
     /// The suggested-crop jobs running (`cmd/crop.rs`).
     pub(crate) crop_suggestions: crate::cmd::crop::Suggestions,
+    /// The Tuning wand and colour picker jobs running (`cmd/tuning.rs`).
+    pub(crate) tuning_wands: crate::cmd::tuning::Wands,
     _lock: LibraryLock,
 }
 
@@ -208,6 +210,7 @@ impl Session {
             histories: Histories::default(),
             preview: Preview::default(),
             crop_suggestions: crate::cmd::crop::Suggestions::default(),
+            tuning_wands: crate::cmd::tuning::Wands::default(),
             _lock: lock,
         };
         session.configure_thumbnails();
@@ -418,6 +421,7 @@ impl Session {
         n += self.poll_photo_metadata();
         n += self.poll_preview();
         n += self.poll_crop_suggestions();
+        n += self.poll_tuning_wands();
         self.jobs.prune(self.clock.now());
         n
     }
