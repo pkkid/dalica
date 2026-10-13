@@ -10,8 +10,8 @@ state (ready, claimed, in review) is on the task board ([`task-board.md`](task-b
 
 ## Where we stand
 
-*Honest assessment, 2026-10-10. Agents: read this before picking work. Update it only with
-measured facts, dated.*
+*Honest assessment, one dated entry per review, newest first (latest: 2026-10-13, M7.R). Agents:
+read this before picking work. Update it only with measured facts, dated.*
 
 *2026-10-13 (M7.R).* M7 is done: `cargo xtask accept M7` passes in 53 s (117 s with the release
 budgets), and the tests on `main` went from 1 858 to 2 242. Enter, Ctrl+3 or a double-click opens a
@@ -221,12 +221,12 @@ waits for.)
 |---|---|---|---|---|
 | Foundation | M0 | Skeleton and gates | an empty, fully gated workspace on 3 OSes | ✅ |
 | | M1 | Star a photo, end to end | folder → index → grid → star → sidecar → restart and rebuild | ✅ |
-| | M2 | Agent eyes | agents drive and screenshot the real window | ⬜ |
-| Library | M3 | Window shell | every region of the main window, at the right size, in the Craft look | ⬜ |
-| | M4 | Library browsing | the continuous light table at 100 k photos, the library tree, selection and the tray | ⬜ |
-| | M5 | Folders, scanning and formats | Folder Manager, first run, watching, offline drives; every listed format, RAW previews, ICC | ⬜ |
-| | M6 | Photo info, metadata and Release 0.1 | rotate, hide, captions, Properties, dates, tags written into files; installable preview | ⬜ |
-| Edit and output | M7 | Edit view and fixes | edit view, basic fixes, Tuning and Retouch; thumbnails show edits | ⬜ |
+| | M2 | Agent eyes | agents drive and screenshot the real window | ✅ |
+| Library | M3 | Window shell | every region of the main window, at the right size, in the Craft look | ✅ |
+| | M4 | Library browsing | the continuous light table at 100 k photos, the library tree, selection and the tray | ✅ |
+| | M5 | Folders, scanning and formats | Folder Manager, first run, watching, offline drives; every listed format, RAW previews, ICC | ✅ |
+| | M6 | Photo info, metadata and Release 0.1 | rotate, hide, captions, Properties, dates, tags written into files; installable preview | ✅ |
+| Edit and output | M7 | Edit view and fixes | edit view, basic fixes, Tuning and Retouch; thumbnails show edits | ✅ |
 | | M8 | Save and export | Save, Undo Save, Revert, Save a Copy, Save As; export | ⬜ |
 | Organize | M9 | Albums, search and file operations | lasting albums, instant search and filters, move/copy/rename/delete | ⬜ |
 | | M10 | Preferences, MCP and Release 0.5 | Options and shortcut editor, MCP and the P0 workflows; all P0 rows shipped | ⬜ |

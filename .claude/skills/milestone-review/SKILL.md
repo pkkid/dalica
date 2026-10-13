@@ -150,7 +150,8 @@ The review's id is `M<n>.R` (`M2.R`, `M6.R`, …) and its issue `#<issue>`.
    - write the dated *Where we stand* paragraph in `docs/roadmap.md` and the numbers in
      `docs/status.md`;
    - apply any reversals the maintainer asked for since the last review;
-   - tick the review's ✅ in `docs/roadmap.md`, so merging the PR is the approval.
+   - tick the review's ✅ in `docs/roadmap.md`, so merging the PR is the approval, and set the
+     milestone's row in the roadmap's *Overview* table to ✅ (its Status column).
 2. **Ask the questions** with the **AskUserQuestion** tool: the questions for the maintainer from
    §2, then the fingerprint question (step 6). Ask as few as possible, recommended option first,
    up to 4 per call, until everything is answered (a question the maintainer leaves open stays
