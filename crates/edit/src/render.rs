@@ -465,12 +465,41 @@ fn run_slots<'t>(
     Ok(())
 }
 
+/// `v / 255` for every 8-bit value, as `f32` (the same values the division gives, looked up).
+const UNIT: [f32; 256] = {
+    let mut t = [0.0f32; 256];
+    let mut i = 0;
+    while i < 256 {
+        t[i] = i as f32 / 255.0;
+        i += 1;
+    }
+    t
+};
+
 fn to_f32(p: &[u8; 4]) -> [f32; 3] {
-    [f32::from(p[0]) / 255.0, f32::from(p[1]) / 255.0, f32::from(p[2]) / 255.0]
+    [UNIT[p[0] as usize], UNIT[p[1] as usize], UNIT[p[2] as usize]]
 }
 
+/// `v × 255` rounded half away from zero and clamped to 0…255 (NaN gives 0). Written without
+/// `f32::round`, which is a library call on the baseline x86-64 target: the whole part by
+/// truncation and the fraction compared with ½ give the same value, exactly (the fraction of a
+/// value under 2²³ is exact in `f32`).
 fn to_u8(v: f32) -> u8 {
-    // NaN clamps to 0.
+    let v = v * 255.0;
+    if v.is_nan() || v <= 0.0 {
+        return 0;
+    }
+    if v >= 254.5 {
+        return 255;
+    }
+    let whole = v as u32;
+    let up = v - whole as f32 >= 0.5;
+    (whole + u32::from(up)) as u8
+}
+
+/// The rounding `to_u8` replaced, kept as the reference its test compares with.
+#[cfg(test)]
+fn to_u8_reference(v: f32) -> u8 {
     let v = (v * 255.0).round();
     if v >= 255.0 {
         255
@@ -483,6 +512,10 @@ fn to_u8(v: f32) -> u8 {
 
 /// Runs `passes` over `buf` band by band, each band read into working precision once.
 fn run_fused(buf: &mut Rgba8, win: Win, passes: &[Box<dyn Pass>]) {
+    // No pass: the 8-bit values go to working precision and back unchanged.
+    if passes.is_empty() {
+        return;
+    }
     run_bands(buf, win, None, |band| {
         for pass in passes {
             pass.run(band);
@@ -696,6 +729,21 @@ fn resample(src: &Rgba8, map: Affine, win: Win) -> Result<Rgba8> {
         return Ok(Rgba8 { width: win.w, height: win.h, data });
     }
     if one_to_one(&map) {
+        // A whole-pixel shift: rows inside the source are copied as they are (the same bytes the
+        // pixel-by-pixel path below gives).
+        let shift = map.a == 1.0 && map.e == 1.0 && map.b == 0.0 && map.d == 0.0;
+        let (sx, sy) = (i64::from(win.x0) + map.c as i64, i64::from(win.y0) + map.f as i64);
+        if shift && sx >= 0 && sy >= 0 && sx + i64::from(win.w) <= i64::from(src.width) && sy + i64::from(win.h) <= i64::from(src.height) {
+            let stride = src.width as usize * 4;
+            let (sx, sy) = (sx as usize, sy as usize);
+            data.par_chunks_mut(row).enumerate().for_each(|(j, line)| {
+                let at = (sy + j) * stride + sx * 4;
+                if let Some(from) = src.data.get(at..at + row) {
+                    line.copy_from_slice(from);
+                }
+            });
+            return Ok(Rgba8 { width: win.w, height: win.h, data });
+        }
         let raw = Raw(src);
         data.par_chunks_mut(row).enumerate().for_each(|(j, line)| {
             let y = f64::from(win.y0) + j as f64 + 0.5;
@@ -760,6 +808,53 @@ fn sample_into(data: &mut [u8], row: usize, plane: &impl Plane, map: Affine, fac
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A whole-pixel shift copies rows: the same bytes as reading each pixel, inside the source
+    /// and, through the per-pixel path, past its edges.
+    #[test]
+    fn a_whole_pixel_shift_copies_the_pixels_it_reads() {
+        let src = image(37, 23);
+        let raw = Raw(&src);
+        for (dx, dy, win) in [
+            (0.0, 0.0, Win { x0: 0, y0: 0, w: 37, h: 23 }),
+            (3.0, 5.0, Win { x0: 2, y0: 1, w: 20, h: 10 }),
+            (-4.0, 0.0, Win { x0: 0, y0: 0, w: 37, h: 23 }),
+            (10.0, 10.0, Win { x0: 20, y0: 5, w: 17, h: 18 }),
+        ] {
+            let map = Affine { a: 1.0, b: 0.0, c: dx, d: 0.0, e: 1.0, f: dy };
+            let out = resample(&src, map, win).unwrap();
+            for j in 0..win.h {
+                for i in 0..win.w {
+                    let p = raw.px(i64::from(win.x0 + i) + dx as i64, i64::from(win.y0 + j) + dy as i64);
+                    let at = ((j * win.w + i) * 4) as usize;
+                    assert_eq!(&out.data[at..at + 4], &p.map(|v| v as u8)[..], "{dx},{dy} at {i},{j}");
+                }
+            }
+        }
+    }
+
+    /// The fast paths give the same bytes: `to_u8` equals the rounding it replaced on every `f32`
+    /// near the 8-bit range (and on hostile values), the table equals the division, and an 8-bit
+    /// value survives the trip to working precision and back (so a render with no pass may skip
+    /// it).
+    #[test]
+    fn the_fast_conversions_are_exact() {
+        for v in 0..=255u8 {
+            assert_eq!(UNIT[usize::from(v)].to_bits(), (f32::from(v) / 255.0).to_bits());
+            assert_eq!(to_u8(UNIT[usize::from(v)]), v);
+        }
+        for x in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, -1.0, -0.0, 0.0, f32::MIN_POSITIVE, 1e30, -1e30] {
+            assert_eq!(to_u8(x), to_u8_reference(x), "{x}");
+        }
+        // Every f32 from −0.01 to 1.01 (the bit patterns walk through each of them).
+        let mut bits = 0u32;
+        while f32::from_bits(bits) <= 1.01 {
+            let x = f32::from_bits(bits);
+            assert_eq!(to_u8(x), to_u8_reference(x), "{x}");
+            assert_eq!(to_u8(-x), to_u8_reference(-x), "{x}");
+            bits += 1;
+        }
+    }
 
     fn image(w: u32, h: u32) -> Rgba8 {
         let mut data = Vec::new();

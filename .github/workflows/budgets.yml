@@ -2,6 +2,8 @@
 # release and runs the budgets the milestones' acceptance tests assert only with
 # `DALICA_ACCEPT_RELEASE=1` (M4: the 100 k scroll and the thumb at top speed, UI frame time
 # p95 ≤ 8 ms, cells visited flat), failing the run when one is missed (docs/development.md §8).
+# Since M7 a second step runs the edit view's preview bench, which judges its own budgets (open a
+# 24 MP JPEG ≤ 150 ms, a slider drag ≤ 16 ms draft and ≤ 100 ms final, next/previous ≤ 50 ms).
 # Its own file, so it never shares ci.yml's matrix; cached like ci.yml. A pull request that changes
 # this job runs it too, and "Run workflow" on the Actions tab takes a planted slowdown to prove
 # that a missed budget fails the run. Actions are pinned to full commit hashes
@@ -15,6 +17,7 @@ on:
     paths:
       - .github/workflows/budgets.yml
       - xtask/src/accept.rs
+      - crates/engine/benches/edit_preview.rs
   workflow_dispatch:
     inputs:
       plant_ms:
@@ -56,3 +59,9 @@ jobs:
         env:
           PLANT_MS: ${{ inputs.plant_ms || '0' }}
         run: cargo xtask budgets --plant-ms "$PLANT_MS"
+      # Runs after the step above even when it failed, so the log shows every budget.
+      - name: edit_preview budgets (M7)
+        if: ${{ !cancelled() }}
+        env:
+          PLANT_MS: ${{ inputs.plant_ms || '0' }}
+        run: cargo bench -p dalica-engine --bench edit_preview -- --check --plant-ms "$PLANT_MS" --json

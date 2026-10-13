@@ -437,6 +437,13 @@ impl Thumbs {
         self.cache.as_deref().map(Cache::dir)
     }
 
+    /// What the edit view's previews (`preview.rs`, M7.11) need to read and make the ladder's
+    /// unedited screen-size entry on their own workers: the cache (`None` when thumbnails are
+    /// off), the rendering, the screen size and the decode limits.
+    pub(crate) fn screen_source(&self) -> (Option<Arc<Cache>>, Render, u32, dalica_image::Limits) {
+        (self.cache.clone(), self.render, self.screen, self.limits)
+    }
+
     fn budget(&self) -> Budget {
         Budget { bytes: self.budget.load(Ordering::Relaxed), ..Budget::default() }
     }

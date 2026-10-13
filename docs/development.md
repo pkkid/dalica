@@ -176,7 +176,11 @@ one is missed. Today (M4) that is the 100 k scroll of `library_bench` in full (U
 through 100 k sketched photos (p95 ≤ 8 ms, no placeholder, cells flat); since M5 also the first
 screenful of a just-added folder of 1 k and of 10 k JPEGs (≤ 1 s each, `first_thumbnails`) and a
 scanned 20 k pass at top thumb speed (no placeholder, p95 ≤ 8 ms); the scanned 100 k pass runs in
-the release acceptance only. A milestone adds its budgets to `BUDGETS` in `xtask/src/accept.rs`. A pull request that changes the
+the release acceptance only. Since M7 the job also runs the `edit_preview` bench in its own step
+(`cargo bench -p dalica-engine --bench edit_preview -- --check --plant-ms …`, which fails on a
+missed budget itself): a 24 MP JPEG opened to its screen preview cold and with the screen entry
+cached (median ≤ 150 ms), a Tuning drag's drafts (p95 ≤ 16 ms) and finals (p95 ≤ 100 ms), and
+next/previous with the neighbours prefetched (p95 ≤ 50 ms). A milestone adds its budgets to `BUDGETS` in `xtask/src/accept.rs`. A pull request that changes the
 workflow or `xtask/src/accept.rs` runs the job too, and *Run workflow* on the Actions tab runs it on
 any branch with a planted slowdown (`plant_ms`). The same check locally:
 
@@ -506,7 +510,8 @@ baseline. A busy machine gives noisy numbers: check the load average before trus
 budgeted, baseline-compared run that feeds the scorecard.
 
 **Bench runs.** The benches `xtask bench` knows are registered in `xtask/src/bench.rs` (a
-`harness = false` bench target each): `library_bench` (`dalica-ui`) and `pack` (`dalica-thumbs`).
+`harness = false` bench target each): `library_bench` (`dalica-ui`), `pack` (`dalica-thumbs`),
+`first_thumbnails` and `edit_preview` (`dalica-engine`).
 A bench given `--json` prints one JSON object on its last line with a `rows` array; each row has a
 `name` (the key) and numbers. A row's **CPU-time fields** are those whose key names a time unit
 (`p50_ms`, `pack_us_per_read`): `xtask bench` compares them with the last run in the history that
@@ -532,6 +537,18 @@ time, layout plus tessellation, p50/p95/max by nearest rank; cells visited per f
 library's maximum more than 10 % over the smaller one's). Without `--bench` (`cargo test --benches`)
 it runs a smoke pass at 1 k and 10 k photos. CI runs `cargo xtask scorecard --check` on
 every PR; `cargo xtask perf` runs nightly on one fixed runner, never on pull requests.
+
+`edit_preview` (M7.11) writes four 24 MP JPEGs (`--width`, `--height`; 6000 × 4000) and fits
+the edit view's preview to `--fit` (2560 × 1600). Rows: `open cold` (a session on an empty
+thumbnail cache, from `Session::open_preview` to the poll that takes the final preview: the file
+decoded whole and halved to between one and two screen sizes, its histogram counted) and `open cached`
+(a new session on the cache the cold opens filled: the ladder's screen entry read instead), seven
+each; `drag` (40 steps of a Tuning drag: each step's draft and final, `draft_…` and `final_…`);
+`next previous` (forward through the photos and back with the neighbours prefetched while each is
+shown). The budgets hold on the budgets job's 2-vCPU runner: check them locally with
+`taskset -c 0,1` on the bench binary. With `--bench` or `--check` it exits non-zero when a budget of §8 is missed (in release
+only); `--plant-ms N` adds N ms to every judged time. Without `--bench` it runs a smoke pass on
+600 × 400 photos and judges nothing.
 
 **Adding a scenario.** Add a row to a bench (its name is the key: keep it stable), give the bench
 `--json` output, add a `[[scenario]]` to `perf/budgets.toml`, and run `cargo xtask scorecard`.

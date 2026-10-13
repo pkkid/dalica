@@ -857,6 +857,7 @@ dependencies = [
  "dalica-thumbs",
  "log",
  "proptest",
+ "rayon",
  "serde",
  "serde_json",
  "tempfile",
