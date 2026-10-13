@@ -426,6 +426,31 @@ fn the_histogram_follows_the_final_after_a_smaller_draft() {
     assert_eq!(total, u64::from(p.image.width) * u64::from(p.image.height));
 }
 
+/// With the edit panel hidden (Ctrl+9) the photo still takes patches, previews them, and − still
+/// resizes the brush.
+#[test]
+fn the_photo_takes_patches_with_the_edit_panel_hidden() {
+    let mut t = setup((1400, 900));
+    click(&mut t, "tool:retouch");
+    key(&mut t, "Ctrl+9");
+    assert_eq!(state(&mut t)["edit"]["panelVisible"], false);
+    assert!(t.d.widgets().iter().all(|w| w.id != retouch::APPLY_ID), "the panel is hidden");
+    click_photo(&mut t, BLEMISH);
+    click_photo(&mut t, CLEAN);
+    let made = patches(&mut t);
+    assert_eq!(made.len(), 1);
+    assert!(near(made[0].target, BLEMISH) && near(made[0].source, CLEAN), "{made:?}");
+    let shown = shown_recipe(&mut t);
+    assert!(shown.last().is_some_and(|op| op.starts_with("retouch(")), "{shown:?}");
+    key(&mut t, "-");
+    let brush = draft(&mut t)["brush"].as_f64().unwrap() as f32;
+    assert!((brush - BRUSH_DEFAULT / 1.2).abs() < 1e-5, "{brush}");
+    // Shown again, Apply records the patch.
+    key(&mut t, "Ctrl+9");
+    click(&mut t, retouch::APPLY_ID);
+    assert!(edits(&t).last().is_some_and(|op| op.starts_with("retouch(")));
+}
+
 /// The actions refuse bad parameters and change nothing; with Retouch closed they are `disabled`.
 #[test]
 fn the_actions_refuse_bad_parameters() {

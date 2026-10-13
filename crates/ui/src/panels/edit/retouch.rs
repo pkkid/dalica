@@ -37,10 +37,9 @@
 //! Patch, Redo Patch), `brush {size}` (the radius, a fraction of the longer side) or
 //! `brush {step}` (+ / − presses, ± 1 … 10).
 //!
-//! **The panel and the photo area.** The panel draws in the edit panel's content; the frame
-//! (`panels/edit.rs`) calls only Straighten in the photo area, so the circles are painted on a layer
-//! of their own just above the window's ([`overlay`]) and the clicks are read from the photo area's
-//! response, which egui works out at the start of each frame from the previous frame's rects.
+//! **The panel and the photo area.** The panel draws in the edit panel's content ([`show`]); the
+//! photo area's part ([`on_canvas`]) runs after the canvas, so it works with the edit panel hidden
+//! (Ctrl+9): the clicks are read from the photo area's response, the circles painted over the photo.
 //! Ids: `slider:retouch.brush`, `button:retouch.undoPatch`, `button:retouch.redoPatch`,
 //! `button:panel.reset`, `button:panel.apply`, `button:panel.cancel`.
 
@@ -56,8 +55,7 @@ use dalica_ui_kit::registry::Role;
 use dalica_ui_kit::widgets::{self, SliderSpec, Target, ToastKind};
 use dalica_ui_kit::{Tokens, fonts};
 use egui::{
-    Align2, CornerRadius, CursorIcon, Id, LayerId, Order, Pos2, Rect, Response, Sense, Stroke as Line, StrokeKind, Ui, UiBuilder, Vec2, WidgetType,
-    pos2, vec2,
+    Align2, CornerRadius, CursorIcon, Id, Pos2, Rect, Response, Sense, Stroke as Line, StrokeKind, Ui, UiBuilder, Vec2, WidgetType, pos2, vec2,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -355,6 +353,8 @@ impl Tool for Retouch {
         let (lo, hi) = brush_range(edit.photo.and_then(|p| geometry(app, p)).map(|(dims, _)| dims));
         edit.retouch = Some(RetouchDraft { brush: BRUSH_DEFAULT.clamp(lo, hi), ..RetouchDraft::default() });
         forget_pending();
+        // A cancel the tool did not see (`edit.tool.cancel` drops the candidate itself).
+        with_local(|l| l.candidate = None);
         Ok(())
     }
 
@@ -443,13 +443,21 @@ impl Tool for Retouch {
     }
 }
 
-/// Draws the Retouch panel in place of the tab's content, and the patches on the photo.
+/// Draws the Retouch panel in place of the tab's content.
 pub fn show(app: &mut App, ui: &mut Ui) {
     let Ok((photo, d)) = draft(app) else { return };
+    panel(app, ui, photo, &d);
+}
+
+/// The photo area's part of the tool, run after the canvas (`panels/edit.rs`), so it works with the
+/// edit panel hidden too: the − key, the clicks, the preview and the circles.
+pub fn on_canvas(app: &mut App, ui: &mut Ui) {
+    if draft(app).is_err() {
+        return;
+    }
     let ctx = ui.ctx().clone();
     minus_key(app, &ctx);
-    panel(app, ui, photo, &d);
-    overlay(app, &ctx, ui.layer_id());
+    overlay(app, ui);
 }
 
 /// What a click in the panel asks for.
@@ -628,14 +636,10 @@ fn minus_key(app: &mut App, ctx: &egui::Context) {
     let _ = step_brush(app, -steps);
 }
 
-/// The layer the circles are painted on, just above the window's own.
-fn overlay_layer() -> LayerId {
-    LayerId::new(Order::Background, Id::new("retouch:overlay"))
-}
-
 /// The photo area while Retouch is open: its clicks pick the target and the source, the preview
 /// shows the patches in effect (and the one under the pointer), and the circles are drawn.
-fn overlay(app: &mut App, ctx: &egui::Context, above: LayerId) {
+fn overlay(app: &mut App, ui: &Ui) {
+    let ctx = ui.ctx();
     let Ok((photo, _)) = draft(app) else { return };
     let Some(view) = canvas::view(ctx).filter(|v| v.photo == photo) else { return };
     let Some((dims, g)) = geometry(app, photo) else { return };
@@ -691,8 +695,7 @@ fn overlay(app: &mut App, ctx: &egui::Context, above: LayerId) {
     }
 
     // The circles: the waiting target, and the brush at the pointer.
-    ctx.set_sublayer(above, overlay_layer());
-    let painter = ctx.layer_painter(overlay_layer()).with_clip_rect(view.area);
+    let painter = ui.painter_at(view.area);
     let t = *app.tokens();
     let ring = |centre: Pos2, radius: f32| {
         painter.circle_stroke(centre, radius + 1.25, Line::new(1.0, t.face_box_outer));
