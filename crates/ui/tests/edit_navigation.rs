@@ -438,3 +438,27 @@ fn the_top_bar_caption_bar_and_status_line_match_their_fingerprints() {
         check_region(&t, &format!("region-status-edit-{w}x{h}"), widget(&t, "region:statusLine").rect);
     }
 }
+
+/// Edit ▸ Undo and Picture ▸ Rotate / Flip clicked in the menu bar while in the edit view are steps
+/// of the open photo's history; the library undo stack keeps its own last step.
+#[test]
+fn menu_bar_undo_rotate_and_flip_walk_the_photos_history_in_the_edit_view() {
+    let mut t = setup((1400, 900), 4);
+    let o = t.order.clone();
+    run(&mut t, "photo.star.toggle", json!({ "ids": [o[3]] }));
+    run(&mut t, "view.edit", json!({ "id": o[0] }));
+    menu(&mut t, "Picture/Rotate Clockwise");
+    assert_eq!(photo_edits(&mut t, o[0]), json!(["rotate(90)"]));
+    menu(&mut t, "Picture/Flip Horizontal");
+    assert_eq!(photo_edits(&mut t, o[0]), json!(["rotate(90)", "flip_h()"]));
+    ok(&mut t, "ui.menu.invoke", json!({ "id": "edit.undo", "wait": true }));
+    t.d.settle(FRAMES).unwrap();
+    assert_eq!(photo_edits(&mut t, o[0]), json!(["rotate(90)"]), "Edit ▸ Undo undid the flip");
+    // Edit ▸ Redo's row is still greyed by the library stack (nothing to redo there): the menus'
+    // enabled state and labels read the library stack, in a file this task does not own.
+    assert!(code(&mut t, "ui.menu.invoke", json!({ "id": "edit.redo" })) == "disabled");
+    assert!(t.d.app().session().unwrap().library().photo(dalica_core::PhotoId::new(o[3])).unwrap().star, "the star stays");
+    key(&mut t, "Esc");
+    assert_eq!(run(&mut t, "edit.undo", json!({})), json!({ "undone": "Star / Unstar" }), "the library stack ends with the star");
+    assert_eq!(code(&mut t, "engine.execute", json!({ "command": "edit.undo", "params": {} })), "disabled");
+}

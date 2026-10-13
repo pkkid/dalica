@@ -322,10 +322,17 @@ fn auto_fix(app: &mut App, params: &Value) -> Result<Value, CmdError> {
 
 /// What command `id` with `params` becomes in the edit view (`editing.md` §5.1, §10): the
 /// rotations, the flips, Edit ▸ Undo / Redo and the one-click fixes (`edit.apply {op}`) are steps
-/// of the open photo's own history, never library steps. `None` for every other command, and
-/// outside the edit view.
+/// of the open photo's own history, never library steps. [`App::run`] asks it first, so a menu
+/// row, a shortcut and a script all walk the photo's history. `None` for every other command,
+/// outside the edit view, and for `ids` that leave the open photo out (a script naming other
+/// photos still gets the library command).
 pub fn route(app: &App, id: &str, params: &Value) -> Option<(&'static str, Value)> {
     let photo = open_photo(app)?;
+    if let Some(ids) = params.get("ids").and_then(Value::as_array)
+        && !ids.iter().any(|v| v.as_u64() == Some(photo.get()))
+    {
+        return None;
+    }
     let apply = |op: &str| Some(("photo.history.apply", json!({ "id": photo, "op": op })));
     match id {
         "photo.rotate.cw" => apply("rotate(90)"),
@@ -536,6 +543,8 @@ mod tests {
             assert_eq!(route(&app, id, &params).map(|r| r.1), Some(want), "{id}");
         }
         assert_eq!(route(&app, "edit.apply", &json!({})), None, "no operation");
+        assert_eq!(route(&app, "photo.rotate.cw", &json!({ "ids": [ids[1].get()] })), None, "other photos named");
+        assert!(route(&app, "photo.rotate.cw", &json!({ "ids": [p] })).is_some());
         assert_eq!(route(&app, "photo.star.toggle", &json!({})), None);
         assert_eq!(params_for(&app, "photo.star.toggle"), json!({ "ids": [p] }), "the open photo");
         // Ctrl+Shift+E's Auto Fix is a step of the photo's history, undone there.
