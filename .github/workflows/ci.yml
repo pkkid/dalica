@@ -90,5 +90,7 @@ jobs:
         run: cargo xtask corpus --all
       - name: dalica-image corpus tests (clippy)
         run: cargo clippy -p dalica-image --all-targets --features corpus,heif -- -D warnings
+      - name: dalica-meta corpus tests (clippy)
+        run: cargo clippy -p dalica-meta --all-targets --features corpus -- -D warnings
       - name: cargo xtask test-corpus
         run: cargo xtask test-corpus

@@ -705,6 +705,12 @@ impl Thumbs {
         }
     }
 
+    /// Whether photo `id`'s answer is its embedded thumbnail standing in for the ladder's: it is in
+    /// memory and the photo's scan has not finished, so the scan's own downscale will replace it.
+    pub(crate) fn stand_in(&self, id: PhotoId) -> bool {
+        self.quick.contains(&id) && self.photos.get(&id).is_some_and(|st| !st.scanned)
+    }
+
     /// The embedded thumbnail in memory, as the size it stands in for, when it covers the cell.
     fn quick_image(&mut self, id: PhotoId, key: Key, need: u32) -> Option<Thumb> {
         let (k, image) = self.quick.get(&id)?;
@@ -1263,6 +1269,14 @@ impl Session {
     /// [`Session::set_scan_reader`] does for the scanner; jobs already queued are not affected.
     pub fn set_thumbnail_scan_hook(&mut self, hook: Option<ScanHook>) {
         self.thumbs.scan_hook = hook;
+    }
+
+    /// Whether what [`Session::thumbnail`] answers for photo `id` is its embedded thumbnail standing
+    /// in while the photo's scan runs: a cell drawing it keeps asking until the scan's own
+    /// downscale replaces it, and `ui.settle` waits for that, so a settled frame never depends on
+    /// which of the two jobs finished first.
+    pub fn thumbnail_stand_in(&self, id: PhotoId) -> bool {
+        self.thumbs.stand_in(id)
     }
 
     /// What photo `id` draws now in a cell of `need` device pixels, like
