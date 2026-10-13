@@ -520,10 +520,11 @@ fn the_edit_view_and_its_fixes_in_the_live_app() {
         assert!(d < 0.5, "{name} looks as before the restart: mean difference {d:.3}");
         same.push(format!("{name} {d:.3}"));
     }
-    // A known gap, measured and reported rather than asserted (found by this test, for the lead):
-    // the Photo Tray's mini thumbnail of the open photo keeps the picture it had before the edits
-    // while the edit view shows; the filmstrip and the light table follow them.
+    // The Photo Tray's mini of the open photo followed the edits in the edit view, as the
+    // filmstrip and the light table do.
     let tray = live::difference(&large.region(regions["tray"]).2, &before.region(regions["tray"]).2);
+    assert!(tray < 0.5, "the Photo Tray showed the edited photo before the restart: mean difference {tray:.2}");
+    same.push(format!("tray {tray:.3}"));
     assert_eq!((label(&mut c, "button:edit.undo"), label(&mut c, "button:edit.redo")), ("Undo Rotate".to_string(), "Redo Flip".to_string()));
     c.ok("ui.resize", json!({ "width": 900, "height": 600 }));
     click(&mut c, "tab:edit.tuning");
@@ -538,9 +539,6 @@ fn the_edit_view_and_its_fixes_in_the_live_app() {
     let diff = thumbnail_is_the_render(&mut c, home.path(), &edited, &again["IMG_0004.jpg"]);
     live::quit(app, c);
     println!("restart: the history and labels the same, redo walks; the window as before (mean difference per channel: {})", same.join(", "));
-    println!(
-        "known gap (not asserted): the Photo Tray's mini thumbnail of the open photo before the restart differs from after it by {tray:.1} per channel: in the edit view it kept the unedited picture"
-    );
 
     // 2. The renderer across M7's operations.
     let t2 = Instant::now();

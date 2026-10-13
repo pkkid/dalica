@@ -30,15 +30,15 @@ mod jobs;
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use dalica_core::PhotoId;
 use dalica_edit::{Recipe, Region};
 use dalica_image::Rgba8;
 use dalica_thumbs::ladder::{Render, Source};
-use dalica_thumbs::{Pool, Priority};
+use dalica_thumbs::{Pool, Priority, Submitted};
 
 pub use self::histogram::{BINS, Histogram};
 pub use self::jobs::halve;
@@ -149,6 +149,11 @@ enum Key {
     Store(PhotoId),
 }
 
+/// A preview job's work, as the pool runs it.
+type Work = Box<dyn FnOnce(&AtomicBool) -> Done + Send>;
+/// A job kept so it can be offered to the pool again (`Preview::deferred`).
+type Slot = Arc<Mutex<Option<Work>>>;
+
 enum Done {
     Loaded { photo: PhotoId, file: Source, render: Render, result: Result<(Arc<Screen>, Origin), String>, frame: Option<Result<Rendered, String>> },
     Rendered { generation: u64, result: Result<Rendered, String> },
@@ -195,6 +200,10 @@ pub(crate) struct Preview {
     loading: HashMap<PhotoId, Priority>,
     prefetching: HashSet<PhotoId>,
     outstanding: HashSet<Key>,
+    /// Jobs whose key was still running in the pool, cancelled, when they were submitted: the pool
+    /// keeps one job per key and a cancelled one delivers nothing, so they are offered again on
+    /// each poll until the old one has stopped (`outstanding` holds them meanwhile).
+    deferred: Vec<(Key, Priority, Slot)>,
     generation: u64,
     /// Milliseconds per output megapixel of the last renders.
     cost: Option<f64>,
@@ -211,16 +220,43 @@ impl Preview {
     }
 
     fn submit(&mut self, key: Key, priority: Priority, work: impl FnOnce(&AtomicBool) -> Done + Send + 'static) {
-        let pool = self.pool.get_or_insert_with(|| Pool::new(WORKERS));
-        let wrapped = move |cancel: &AtomicBool| {
+        let wrapped: Work = Box::new(move |cancel: &AtomicBool| {
             catch_unwind(AssertUnwindSafe(|| work(cancel))).unwrap_or_else(|panic| {
                 let message =
                     panic.downcast_ref::<&str>().map(|s| s.to_string()).or_else(|| panic.downcast_ref::<String>().cloned()).unwrap_or_default();
                 Done::Panicked(message)
             })
-        };
-        pool.submit(key, priority, wrapped);
-        self.outstanding.insert(key);
+        });
+        // A key already outstanding is running or queued for us: its result is on its way.
+        let fresh = self.outstanding.insert(key);
+        self.offer(key, priority, Arc::new(Mutex::new(Some(wrapped))), fresh);
+    }
+
+    /// Hands `slot`'s job to the pool. When the pool is still running a cancelled job of the same
+    /// key (`fresh`: nothing of ours is), it takes no new one and the old one delivers nothing, so
+    /// the job waits in `deferred`.
+    fn offer(&mut self, key: Key, priority: Priority, slot: Slot, fresh: bool) {
+        let pool = self.pool.get_or_insert_with(|| Pool::new(WORKERS));
+        let job = Arc::clone(&slot);
+        let submitted = pool.submit(key, priority, move |cancel: &AtomicBool| match job.lock().ok().and_then(|mut w| w.take()) {
+            Some(work) => work(cancel),
+            None => Done::Panicked("a preview job ran twice".into()),
+        });
+        if submitted == Submitted::Running && fresh {
+            self.deferred.push((key, priority, slot));
+        }
+    }
+
+    /// Offers the deferred jobs again; those cancelled meanwhile are dropped.
+    fn retry_deferred(&mut self) {
+        if self.deferred.is_empty() {
+            return;
+        }
+        for (key, priority, slot) in std::mem::take(&mut self.deferred) {
+            if self.outstanding.contains(&key) {
+                self.offer(key, priority, slot, true);
+            }
+        }
     }
 
     fn cancel(&mut self, key: Key) {
@@ -526,6 +562,7 @@ impl Session {
     pub fn wait_preview(&mut self, timeout: Duration) -> bool {
         let until = Instant::now() + timeout;
         loop {
+            self.preview.retry_deferred();
             self.check_preview_recipe();
             if self.preview.outstanding.is_empty() {
                 return true;
@@ -549,6 +586,7 @@ impl Session {
             if let Some(u) = self.preview.updates.pop_front() {
                 return Some(u);
             }
+            self.preview.retry_deferred();
             self.check_preview_recipe();
             let left = until.saturating_duration_since(Instant::now());
             if left.is_zero() || self.preview.outstanding.is_empty() && self.preview.updates.is_empty() {
@@ -567,6 +605,7 @@ impl Session {
         if self.preview.pool.is_none() {
             return 0;
         }
+        self.preview.retry_deferred();
         self.check_preview_recipe();
         let mut n = 0;
         while let Some((key, done)) = self.preview.pool.as_ref().and_then(Pool::try_recv) {
@@ -852,5 +891,71 @@ impl Session {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::mpsc;
+
+    use super::*;
+
+    /// A job submitted while the pool still runs a cancelled job of the same key (the photo opened
+    /// again while its earlier load runs on) is not lost: it runs once the old one stops, and it is
+    /// outstanding meanwhile. Before, the pool took no new job and the cancelled one delivered
+    /// nothing, so the key stayed outstanding for ever and the edit view never settled.
+    #[test]
+    fn a_job_submitted_while_its_cancelled_predecessor_runs_still_delivers() {
+        let mut p = Preview::default();
+        let key = Key::Store(PhotoId::new(7));
+        let (started_tx, started_rx) = mpsc::channel();
+        let (go_tx, go_rx) = mpsc::channel::<()>();
+        p.submit(key, Priority::PREFETCH, move |_| {
+            let _ = started_tx.send(());
+            let _ = go_rx.recv_timeout(Duration::from_secs(30));
+            Done::Panicked("the first job".into())
+        });
+        started_rx.recv_timeout(Duration::from_secs(30)).unwrap();
+        p.cancel(key);
+        p.submit(key, Priority::PREFETCH, |_| Done::Panicked("the second job".into()));
+        assert!(p.outstanding.contains(&key), "outstanding while it waits");
+        go_tx.send(()).unwrap();
+        let until = Instant::now() + Duration::from_secs(30);
+        let delivered = loop {
+            p.retry_deferred();
+            if let Some(got) = p.pool.as_ref().and_then(|pool| pool.recv_timeout(Duration::from_millis(20))) {
+                break Some(got);
+            }
+            if Instant::now() > until {
+                break None;
+            }
+        };
+        let (got, done) = delivered.expect("the second job delivered");
+        assert_eq!(got, key);
+        assert!(matches!(done, Done::Panicked(ref m) if m == "the second job"), "only the second job delivers");
+        assert!(p.deferred.is_empty());
+    }
+
+    /// A deferred job cancelled before it could run is dropped, and nothing stays outstanding.
+    #[test]
+    fn a_deferred_job_cancelled_before_it_runs_is_dropped() {
+        let mut p = Preview::default();
+        let key = Key::Full(PhotoId::new(3));
+        let (started_tx, started_rx) = mpsc::channel();
+        let (go_tx, go_rx) = mpsc::channel::<()>();
+        p.submit(key, Priority::EDIT, move |_| {
+            let _ = started_tx.send(());
+            let _ = go_rx.recv_timeout(Duration::from_secs(30));
+            Done::Panicked("the first job".into())
+        });
+        started_rx.recv_timeout(Duration::from_secs(30)).unwrap();
+        p.cancel(key);
+        p.submit(key, Priority::EDIT, |_| Done::Panicked("the second job".into()));
+        p.cancel(key);
+        go_tx.send(()).unwrap();
+        std::thread::sleep(Duration::from_millis(100));
+        p.retry_deferred();
+        assert!(p.outstanding.is_empty() && p.deferred.is_empty());
+        assert!(p.pool.as_ref().and_then(|pool| pool.recv_timeout(Duration::from_millis(200))).is_none(), "nothing delivers");
     }
 }

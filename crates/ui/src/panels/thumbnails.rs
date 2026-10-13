@@ -368,6 +368,8 @@ pub struct Thumbnails {
     /// The shapes of the photos painted lately, for the library revision they were read in.
     shapes: HashMap<PhotoId, PhotoShape>,
     shapes_revision: Option<u64>,
+    /// The last frame whose cells [`Thumbnails::end_frame`] asked for.
+    asked_in: Option<u64>,
 }
 
 impl Thumbnails {
@@ -393,6 +395,7 @@ impl Thumbnails {
             placeholder: Tokens::default().placeholder,
             shapes: HashMap::new(),
             shapes_revision: None,
+            asked_in: None,
         }
     }
 
@@ -449,6 +452,17 @@ impl Thumbnails {
         session.update_thumbnail_recipes();
         if self.ctx.is_none() {
             self.ctx = Some(ctx.clone());
+        }
+        // A frame that painted thumbnails without the light table (the edit view's Photo Tray)
+        // never reached `end_frame`: its cells still ask for and upload their better images here,
+        // so a recipe changed in the photo's own history shows there too. Only while the library
+        // is at the revision those cells were painted in: the uploads are tagged with the edits
+        // they were painted with; after a change the next frame paints and asks again.
+        let painted_now = self.shapes_revision.is_none_or(|r| r == session.library().revision());
+        if !self.cells.is_empty() && self.asked_in != Some(self.frame) && painted_now {
+            let (uploads, _, deferred) = self.ask_and_upload(session, true);
+            let waiting = session.thumbnails_pending() > 0 || deferred > 0 || uploads > 0;
+            self.pending = if waiting { self.cells.iter().filter(|c| c.better_to_come()).count() } else { 0 };
         }
         self.frame = self.frame.wrapping_add(1);
         self.cells.clear();
@@ -591,6 +605,36 @@ impl Thumbnails {
 
         // Requests and uploads, while the view moves slowly enough to look at.
         let slow = velocity.abs() / view_h <= REQUEST_MAX_SCREENS;
+        let (uploads, bytes, deferred) = self.ask_and_upload(session, slow);
+        let evicted = self.evict(visible);
+        if self.failed.len() > MAX_SKETCHES {
+            let drawn: std::collections::HashSet<PhotoId> = self.cells.iter().filter(|c| c.drawn == Drawn::Failed).map(|c| c.id).collect();
+            self.failed.retain(|id, _| drawn.contains(id));
+        }
+
+        let jobs = session.thumbnails_pending();
+        if let Some(ctx) = &self.ctx {
+            crate::perf::count(ctx, crate::perf::Counter::ThumbRequests, jobs.saturating_sub(jobs_before) as u64);
+        }
+        let waiting = jobs > 0 || deferred > 0 || uploads > 0 || !slow;
+        self.pending = if waiting { self.cells.iter().filter(|c| c.better_to_come()).count() } else { 0 };
+        let mut c = self.counting;
+        c.thumb_uploads = uploads as u64;
+        c.thumb_upload_bytes = bytes as u64;
+        c.thumb_uploads_deferred = deferred;
+        c.thumb_textures = self.textures.len() as u64;
+        c.thumb_texture_bytes = self.texture_bytes as u64;
+        c.thumb_evictions = evicted;
+        self.counts = c;
+        self.totals.add(&c);
+    }
+
+    /// Asks the session for the better images of this frame's cells that did not draw their
+    /// covering size (when `slow`: the view moves slowly enough to look at), and uploads what has
+    /// arrived within the per-frame caps. Returns the uploads, their bytes and those left for a
+    /// later frame.
+    fn ask_and_upload(&mut self, session: &mut Session, slow: bool) -> (usize, usize, u64) {
+        self.asked_in = Some(self.frame);
         let mut arrived: Vec<(PhotoId, Size, Arc<Rgba8>, bool, bool)> = Vec::new();
         if slow {
             for cell in self.cells.iter().filter(|c| c.better_to_come()) {
@@ -620,27 +664,7 @@ impl Thumbnails {
                 bytes = bytes.saturating_add(len);
             }
         }
-        let evicted = self.evict(visible);
-        if self.failed.len() > MAX_SKETCHES {
-            let drawn: std::collections::HashSet<PhotoId> = self.cells.iter().filter(|c| c.drawn == Drawn::Failed).map(|c| c.id).collect();
-            self.failed.retain(|id, _| drawn.contains(id));
-        }
-
-        let jobs = session.thumbnails_pending();
-        if let Some(ctx) = &self.ctx {
-            crate::perf::count(ctx, crate::perf::Counter::ThumbRequests, jobs.saturating_sub(jobs_before) as u64);
-        }
-        let waiting = jobs > 0 || deferred > 0 || uploads > 0 || !slow;
-        self.pending = if waiting { self.cells.iter().filter(|c| c.better_to_come()).count() } else { 0 };
-        let mut c = self.counting;
-        c.thumb_uploads = uploads as u64;
-        c.thumb_upload_bytes = bytes as u64;
-        c.thumb_uploads_deferred = deferred;
-        c.thumb_textures = self.textures.len() as u64;
-        c.thumb_texture_bytes = self.texture_bytes as u64;
-        c.thumb_evictions = evicted;
-        self.counts = c;
-        self.totals.add(&c);
+        (uploads, bytes, deferred)
     }
 
     /// The view's velocity with its bursts held: this frame's when it is faster than the last
