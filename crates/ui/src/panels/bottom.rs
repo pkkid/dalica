@@ -16,6 +16,12 @@
 //! The size slider drives the same view state as Ctrl+1 / Ctrl+2 (`UiState::thumb_size`), so the
 //! light table's cells follow it; the pane toggles open, switch and close `UiState::pane`, the
 //! state `pane.toggle` (Ctrl+0) flips.
+//!
+//! **In the edit view** (`editing.md` §2) the loupe and the size slider give way to the **Fit** │
+//! **1:1** buttons (`button:zoom.fit`, `button:zoom.1to1`: `edit.zoom.fit`, `edit.zoom.actual`)
+//! and the zoom slider (`slider:zoom`, 0 fit, ½ 100 %, 1 400 %: `edit.zoom.set`), and the star and
+//! rotate buttons act on the photo shown (the rotations a step of its history). The library view's
+//! frames also close the edit view's preview once it is left (`canvas::release`).
 
 use dalica_ui_kit::Tokens;
 use dalica_ui_kit::icons::{self, Icon};
@@ -25,8 +31,11 @@ use egui::{Id, Popup, Rect, RectAlign, Stroke, Ui, UiBuilder, Vec2, pos2, vec2};
 use serde_json::json;
 
 use super::Panels;
+use super::edit::canvas;
 use super::layout::{self, Layout};
 use crate::app::App;
+use crate::commands::edit_view::open_photo;
+use crate::commands::zoom as zoom_maths;
 use crate::state::{Pane, THUMB_MAX, THUMB_MIN, UiState};
 
 pub mod tray;
@@ -84,6 +93,15 @@ pub const ACTIONS: [(&str, Icon, &str, &str); 3] = [
 /// The More… button that holds the action buttons in a narrow window.
 pub const MORE: &str = "action:more";
 
+/// The edit view's Fit │ 1:1 buttons (id, label, tooltip, command) and its zoom slider.
+pub const ZOOM_BUTTONS: [(&str, &str, &str, &str); 2] = [
+    ("button:zoom.fit", "Fit", "Fit the photo to the window", "edit.zoom.fit"),
+    ("button:zoom.1to1", "1:1", "Show the photo at actual size", "edit.zoom.actual"),
+];
+pub const ZOOM_SLIDER: &str = "slider:zoom";
+/// One Fit │ 1:1 segment.
+pub const ZOOM_BUTTON: Vec2 = vec2(36.0, 24.0);
+
 /// The parts of the bottom area, as [`layout::compute`] places them.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Parts {
@@ -119,12 +137,21 @@ fn at<R>(ui: &mut Ui, salt: &str, rect: Rect, add: impl FnOnce(&mut Ui) -> R) ->
 fn ready(app: &App, id: &str) -> bool {
     let Some(session) = app.session() else { return false };
     let Some(spec) = session.spec(id) else { return false };
-    (spec.enabled)(session, &crate::keys::params_for(app, id)).is_ok()
+    (spec.enabled)(session, &params_for(app, id)).is_ok()
+}
+
+/// What a click passes command `id`: in the edit view the photo shown (`App::run` turns a rotation
+/// of it into a step of its history), else the photos the command acts on.
+fn params_for(app: &App, id: &str) -> serde_json::Value {
+    match open_photo(app) {
+        Some(photo) if crate::keys::acts_on_tray(id) => json!({ "ids": [photo] }),
+        _ => crate::keys::params_for(app, id),
+    }
 }
 
 /// Runs command `id` on the photos it acts on; a refusal lands on the status line.
 fn run(app: &mut App, id: &str) {
-    let params = crate::keys::params_for(app, id);
+    let params = params_for(app, id);
     let _ = app.run(id, &params);
 }
 
@@ -137,6 +164,7 @@ fn plate(ui: &mut Ui, t: &Tokens, id: &str, icon: Icon, tooltip: &str, size: Vec
 
 /// Paints and runs the bottom area in `ui`'s rect (the bottom region of [`super::layout`]).
 pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
+    canvas::release(app);
     let area = ui.max_rect();
     let parts = parts(area);
     tray::show(p, app, ui, parts.tray);
@@ -177,6 +205,9 @@ fn tray_buttons(app: &mut App, ui: &mut Ui, p: &Parts) {
 /// revision and tray contents, so a tray of 100 000 photos is not looked up each frame.
 fn all_starred(app: &App, ctx: &egui::Context) -> bool {
     let (Some(session), state) = (app.session(), app.state()) else { return false };
+    if let Some(photo) = open_photo(app) {
+        return session.library().photo(photo).is_some_and(|p| p.star);
+    }
     if crate::tray::is_empty(state) {
         return false;
     }
@@ -208,8 +239,8 @@ fn controls(app: &mut App, ui: &mut Ui, row: Rect) {
     let star = t.metrics.star_button;
     let y = (row.center().y - star.y / 2.0).round();
 
-    // Star and the two rotations, on the tray's photos.
-    let any = !crate::tray::is_empty(app.state());
+    // Star and the two rotations, on the tray's photos (the photo shown in the edit view).
+    let any = open_photo(app).is_some() || !crate::tray::is_empty(app.state());
     let on = all_starred(app, ui.ctx());
     let mut x = row.min.x + PAD;
     let star_clicked = at(ui, "star", Rect::from_min_size(pos2(x, y), star), |ui| {
@@ -240,6 +271,11 @@ fn controls(app: &mut App, ui: &mut Ui, row: Rect) {
         state.pane = if state.pane == Some(pane) { None } else { Some(pane) };
     }
 
+    if open_photo(app).is_some() {
+        zoom_controls(app, ui, &t, row, toggles_x);
+        return;
+    }
+
     // The shared zoom slider at this control's width.
     let mut st = t;
     st.metrics.zoom_slider.x = SIZE_SLIDER_W;
@@ -257,6 +293,37 @@ fn controls(app: &mut App, ui: &mut Ui, row: Rect) {
     // The loupe: drag it onto a photo to magnify (the light table's loupe, M4).
     let rect = Rect::from_min_size(pos2(slider_x - TOOL_GAP - LOUPE, (row.center().y - LOUPE / 2.0).round()), Vec2::splat(LOUPE));
     at(ui, "loupe", rect, |ui| widgets::icon_button(ui, &t, "button:loupe", Icon::Loupe, LOUPE, false, false, "Drag onto a photo to magnify it"));
+}
+
+/// The edit view's zoom controls left of the pane toggles (whose left edge is `right`): Fit │ 1:1
+/// and the zoom slider. The slider shows the zoom at the fitted scale the canvas last laid out.
+fn zoom_controls(app: &mut App, ui: &mut Ui, t: &Tokens, row: Rect, right: f32) {
+    let slider = t.metrics.zoom_slider;
+    let slider_x = right - TOOL_GAP - slider.x;
+    let fit = canvas::view(ui.ctx()).map_or(1.0, |v| v.fit);
+    let zoom = app.state().edit.zoom;
+    let mut v = zoom_maths::slider_at(zoom_maths::effective(zoom, fit), fit);
+    let rect = Rect::from_min_size(pos2(slider_x, (row.center().y - slider.y / 2.0).round()), slider);
+    let changed = at(ui, ZOOM_SLIDER, rect, |ui| widgets::zoom_slider(ui, t, ZOOM_SLIDER, &mut v, 0.0..=1.0, "Zoom").changed());
+    if changed && v.is_finite() {
+        let _ = app.run("edit.zoom.set", &json!({ "slider": v.clamp(0.0, 1.0) }));
+    }
+
+    let segments = ZOOM_BUTTONS.map(|(id, label, tooltip, _)| Segment { id, label: SegmentLabel::Text(label), tooltip });
+    let width = ZOOM_BUTTON.x * ZOOM_BUTTONS.len() as f32;
+    let rect = Rect::from_min_size(pos2(slider_x - TOOL_GAP - width, (row.center().y - ZOOM_BUTTON.y / 2.0).round()), vec2(width, ZOOM_BUTTON.y));
+    let active = if !zoom_maths::is_zoomed(zoom, fit) {
+        Some(0)
+    } else if (zoom_maths::effective(zoom, fit) - 1.0).abs() < 1e-4 {
+        Some(1)
+    } else {
+        None
+    };
+    if let Some(i) = at(ui, "zoomButtons", rect, |ui| widgets::segmented(ui, t, &segments, active, ZOOM_BUTTON))
+        && let Some(&(_, _, _, command)) = ZOOM_BUTTONS.get(i)
+    {
+        let _ = app.run(command, &json!({}));
+    }
 }
 
 /// The action-button row under its separator; behind More… when the window is narrow.

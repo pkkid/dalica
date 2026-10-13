@@ -2805,7 +2805,7 @@ effect tabs show an empty state until M12.
     apply in order; two sizes agree after downscale; a stroke outside the photo or after a crop is
     clipped; fingerprints; hostile strokes (NaN, huge radius, over the cap) are `Err` or clamped,
     never a panic.
-- ⬜ **M7.15 `ui`: the photo canvas, zoom and pan**
+- ✅ **M7.15 `ui`: the photo canvas, zoom and pan**
   - after: M6.24, M7.4, M7.5, M7.6, M7.11
   - files: `crates/ui/src/commands/zoom.rs`, `crates/ui/src/panels/edit/canvas.rs`, `crates/ui/src/panels/edit/zoom.rs`, `crates/ui/src/panels/edit/navigator.rs`, `crates/ui/src/panels/bottom.rs`, `crates/ui/src/panels/bottom/**`, `crates/ui/src/perf.rs`, `crates/ui/tests/zoom_maths.rs`, `crates/ui/tests/edit_canvas.rs`, `crates/ui/tests/fingerprints/edit-canvas*.json`, `docs/control-protocol.md`
   - scope: `editing.md` §2–§3: the photo from M7.11's preview, fitted with 24 pt padding and a
