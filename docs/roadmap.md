@@ -2971,7 +2971,7 @@ effect tabs show an empty state until M12.
     IPTC and take a caption write that verifies; the TIFF place/date cases are refused before any
     byte is written, naming the field; `cargo xtask test-corpus -p dalica-meta` with the metadata
     floors raised to the new measured counts.
-- ⬜ **M7.27 `ui` + `ui-kit`: caution toasts that show the whole message**
+- ✅ **M7.27 `ui` + `ui-kit`: caution toasts that show the whole message**
   - after: M6.R
   - files: `crates/ui-kit/src/widgets/feedback.rs`, `crates/ui-kit/tests/feedback.rs`, `crates/ui/src/notices.rs`, `crates/ui/tests/notices.rs`, `crates/ui/src/headless.rs`, `crates/ui/tests/fingerprints/toast*.json`
   - scope: found at M6.R: metadata write failures use the Error toast because ui-kit has no caution
