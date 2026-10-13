@@ -44,6 +44,7 @@ cargo xtask ci                                      # THE gate: run before every
 | `xtask budgets [--plant-ms N]` | builds in release and runs the frame budgets the milestones assert (§8 *The budgets job*): M4's 100 k scroll (`library_bench`) and thumb at top speed, UI frame time p95 ≤ 8 ms, cells visited flat; one line per budget, fails when one is missed; `--plant-ms` adds a planted slowdown to every frame | the `budgets` workflow |
 | `xtask version [set X.Y.Z[-pre]]` | prints `[workspace.package] version` from the root `Cargo.toml`; `set` checks that the new value is a semantic version (a hyphen makes it a pre-release, `0.2.0-rc.1`; no build metadata), rewrites that line and the version line of every workspace member in `Cargo.lock` and nothing else, then asks `cargo metadata --locked --offline` whether the lock file is current and puts both files back if not ([`releasing.md`](releasing.md) → Cutting a release) | |
 | `xtask contributors [--check] [--ref <rev>]` | regenerates `contributors/contributors.json` (About ▸ Contributors and Models) from `git log` on `main` (`origin/main` when it exists) and, through `gh` (read-only), each commit's GitHub username, the merged pull requests and, for verified `people.toml` entries that ask for it, the public profile name; models from `Co-Authored-By` trailers of known model vendors; never records an author name or email and never writes `people.toml`; `--check` verifies `people.toml` offline: malformed TOML, unknown tables and keys, and an entry added by someone other than its owner without `consent_source` ([`contributors.md`](contributors.md) → Refreshing) | `--check` ✓ |
+| `xtask clean [--dry-run] [--keep <name>]… [--only <name>]… [--older-than <days>]` | removes the cargo build dirs of the main checkout to free disk space, skipping any cargo is building in (§9 *Freeing disk space*) | |
 | `xtask perf` | *planned (from M4):* the budgeted benchmark run of §13 | |
 | `xtask scorecard [--check]` | *planned (after M1):* regenerate / verify `docs/scorecard.md` | |
 | `xtask snapshot <script>` | *planned (M2):* headless UI screenshot via the CPU rasterizer | |
@@ -200,6 +201,36 @@ slow reports and slow runs and check that the job fails.
 - Fonts: Inter is the only font committed (with its OFL text); others come from `CRAFT_FONTS_DIR`.
 - Shell gotcha seen on maintainer machines: `mv`/`cp` may be aliased to interactive mode — use
   `/bin/mv -f` and `/bin/cp -f` in scripts.
+
+### Freeing disk space
+
+Everything under the main checkout's `target/` is rebuildable cache (releases are built by
+GitHub): one cargo target dir per agent slot (`target/agent-<n>`), the lead's (`target/lead`), the
+merge queue's (`target/merge`), review measurements (`target/review-M<n>`), the maintainer's
+`target/website`, the main checkout's own `target/debug` and `target/release`, and old one-offs.
+Runs with a relative `CARGO_TARGET_DIR` also leave stray `target/` dirs in `apps/*`, `crates/*`,
+`tests/acceptance` and `xtask`. Together they reach hundreds of GB (about 630 GB on 2026-10-13).
+`[profile.dev] debug = "line-tables-only"`, with no debug info for dependencies, keeps each one
+smaller (a fresh `cargo test --workspace --no-run`: 16.6 GB, against 49.9 GB with full debug info;
+backtraces keep file:line in our crates).
+
+`cargo xtask clean` removes them, from any checkout, printing each dir with its size and the
+total freed:
+
+```sh
+cargo xtask clean --dry-run                    # list and size only
+cargo xtask clean --keep lead --keep website   # everything but these (repeatable; `*` matches)
+cargo xtask clean --only agent-3               # just these (repeatable)
+cargo xtask clean --older-than 7               # only dirs whose newest file is over 7 days old
+```
+
+It never removes a dir cargo is building in (it takes cargo's own build locks first and skips the
+dir when one is held), nor the target dir of the running `xtask` binary. It removes only immediate
+children of `<main>/target/` that hold a cargo profile and the fixed stray paths above; symlinks
+are refused, never followed, and each path is canonicalised and checked before
+`std::fs::remove_dir_all`. One failure is reported and the rest go on; the exit status is non-zero
+only if something could not be removed. `cargo xtask tasks prune` is the lighter tool: it removes
+only `incremental/` from idle agents' dirs.
 
 ## 10. Debugging tips
 

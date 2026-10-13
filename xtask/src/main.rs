@@ -7,6 +7,7 @@ mod accept;
 mod assets;
 mod bench;
 mod ci;
+mod clean;
 mod contributors;
 mod corpus;
 mod corpus_pins;
@@ -26,6 +27,7 @@ const USAGE: &str = "usage: cargo xtask <command>
 
 commands:
   ci        THE gate: fmt, clippy, tests, layers, deps, assets, names, parity, tasks sync --check, accept (finished milestones)
+  clean     cargo xtask clean [--dry-run] [--keep <name>]… [--only <name>]… [--older-than <days>]: remove the build dirs (target/*, stray */target); skips dirs in use
   accept    cargo xtask accept M<n> [--headless]: a milestone's acceptance test and its manual checks
   corpus    cargo xtask corpus [--all | <set>…] [--local] [--update-manifest]: the test corpora, fetched and sha256-verified
   test-corpus  cargo xtask test-corpus [-p <crate>] [-- args]: fetch, then the corpus tests with their floors (--release --features corpus)
@@ -45,6 +47,7 @@ commands:
 pub const COMMANDS: &[&str] = &[
     "ci",
     "accept",
+    "clean",
     "assets",
     "bench",
     "budgets",
@@ -90,6 +93,7 @@ fn main() -> ExitCode {
         Some("bench") => bench::run(&root, args.get(1..).unwrap_or(&[])),
         Some("budgets") => accept::budgets(&root, args.get(1..).unwrap_or(&[])),
         Some("ci") => ci::run(&root),
+        Some("clean") => clean::run(&root, args.get(1..).unwrap_or(&[])),
         Some("contributors") => contributors::run(&root, args.get(1..).unwrap_or(&[])),
         Some("corpus") => corpus::run(&root, args.get(1..).unwrap_or(&[])),
         Some("test-corpus") => corpus::test(&root, args.get(1..).unwrap_or(&[])),

@@ -214,8 +214,10 @@ All agents run on the maintainer's machine, so local locks make GitHub updates r
 
   On this machine (24 cores, 31 GB RAM, ~134 GB free on 2026-10-09) eight agents fit, but test
   runs are memory-bound: `cargo xtask ci` lowers test parallelism when free RAM is low. Disk is
-  the other limit: a long-lived target dir grows from ~3.5 GB to ~10 GB, mostly `incremental/`, so
-  the lead runs `cargo xtask tasks prune` at each review.
+  the other limit: a long-lived target dir grows from ~3.5 GB to 30 GB or more, so the lead frees
+  an idle slot's dir with `cargo xtask clean --only agent-<n>` and every build dir but its own with
+  `cargo xtask clean --keep lead --keep website` before each review (`development.md` §9);
+  `cargo xtask tasks prune` removes only `incremental/`.
 - **Fingerprint approvals:** fingerprint baselines are approved **in bulk at the next review**
   (the milestone's `M<n>.R`), not on each pull request (the maintainer's decision, 2026-10-10: in M3
   nearly every task touches fingerprints, and a per-PR approval stopped the build on each). A

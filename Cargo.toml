@@ -111,8 +111,14 @@ criterion = "0.8"
 
 [profile.dev]
 panic = "unwind"
-# Keeps the target directories of 8 parallel agents small.
+# Keeps the target directories of 8 parallel agents small: backtraces keep file:line in our crates,
+# and dependencies carry no debug info (their frames keep function names). `cargo test --workspace
+# --no-run` in a fresh target dir, 2026-10-13: full debug info 49.9 GB, line tables everywhere
+# 22.2 GB, line tables in workspace crates only 16.6 GB. Test builds inherit this profile.
 debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
 
 [profile.release]
 panic = "unwind"

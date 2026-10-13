@@ -53,7 +53,9 @@ Its jobs are to claim, dispatch, review, merge and keep the board true.
    (`tasks release <id> --reason …`) or report it before claiming anything.
 5. **Are resources available?**
    - `gh auth status` is OK.
-   - Free disk ≥ 60 GB (each agent target dir grows to about 5 GB, plus acceptance copies).
+   - Free disk ≥ 60 GB (each agent target dir grows to 30 GB or more, plus acceptance copies).
+     `cargo xtask clean --dry-run` shows what the build dirs take; `cargo xtask clean --keep lead
+     --keep website` frees them (all cache; dirs cargo is building in are skipped).
    - Free RAM: say how much.
 6. **Plan the parallelism.**
    - List the milestone's tasks in roadmap order with `after` and `files`.
@@ -106,7 +108,8 @@ once and report.
    `tasks merge` refuses while the latest finished run on `main` is red.
    - Conflict only in `Cargo.lock`: re-resolve it (`cargo update -w`, never hand-merge).
    - Any other conflict, or red CI after the rebase: send the task back to its slot.
-4. After each merge, fill free slots again (§2). A merge may have made new tasks Ready.
+4. After each merge, fill free slots again (§2). A merge may have made new tasks Ready. A slot
+   left with no next task gets its build dir freed: `cargo xtask clean --only agent-<k>`.
 5. **Sending a task back.** If the worker is still addressable, continue it with SendMessage, giving
    the conflict or CI output. Otherwise spawn a new worker on the same slot and branch. Tell it the
    claim is already its own and to read `git log origin/main..HEAD` and the PR first.
@@ -160,6 +163,8 @@ once and report.
   because every remaining task is blocked):
   - Let the running tasks finish; review and merge them as usual. Claim nothing listed after the
     review.
+  - After the last merge, free the build dirs (the agents', the merge queue's `target/merge`, old
+    one-offs): `cargo xtask clean --keep lead --keep website`.
   - Run `/milestone-review M<n>.R` to prepare it: the check-in page (questions first, then the UI
     changelog), the questions asked with AskUserQuestion and their answers applied, *Where we
     stand* and `docs/status.md` on a `review/M<n>.R` branch, a pull request, both linked on the

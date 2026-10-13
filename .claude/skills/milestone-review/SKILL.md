@@ -72,8 +72,10 @@ end; there are no mid-milestone reviews (maintainer rule, 2026-10-10).
     deleted baseline, say what replaced it.
   - Cross-check with `git log --name-status origin/main` over `**/fingerprints/*.json` since the
     previous review, in case a merge failed to record its lines; add any it missed.
-- **Measurements** on a clean checkout of `origin/main` at one named commit, with a target dir in
-  your scratchpad. Each number gets a unit, the machine and the commit:
+- **Measurements** on a clean checkout of `origin/main` at one named commit, with the target dir
+  `<main checkout>/target/review-M<n>` (record its size first, then free it with
+  `cargo xtask clean --only 'review-*'` once the measurements are done). Each number gets a unit,
+  the machine and the commit:
   - `cargo xtask ci` (cold and warm), and the test count;
   - `cargo xtask accept M<k>` for every finished milestone and this one;
   - `panic_hunt`, if there are commands;
