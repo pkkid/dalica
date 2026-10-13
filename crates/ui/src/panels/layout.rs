@@ -18,7 +18,7 @@ use egui::{Context, CursorIcon, Id, Rect, Sense, Ui, pos2, vec2};
 use crate::state::{LIGHT_TABLE_MIN, Pane, TREE_DEFAULT, TREE_MIN, UiState};
 
 /// Menu bar (the title row on Windows and Linux) height.
-pub const MENU_BAR: f32 = 24.0;
+pub const MENU_BAR: f32 = crate::titlebar::HEIGHT;
 /// Toolbar height.
 pub const TOOLBAR: f32 = 40.0;
 /// Splitter width between the tree and the light table, and its grip.
@@ -371,12 +371,12 @@ mod tests {
     #[test]
     fn the_default_window_is_laid_out_as_the_spec_says() {
         let l = compute(window(1400.0, 900.0), &UiState::default());
-        assert_eq!(xywh(l.menu_bar), [0.0, 0.0, 1400.0, 24.0]);
-        assert_eq!(xywh(l.toolbar), [0.0, 24.0, 1400.0, 40.0]);
-        assert_eq!(xywh(l.tree), [0.0, 64.0, 240.0, 900.0 - 64.0 - 116.0]);
-        assert_eq!(xywh(l.splitter), [240.0, 64.0, 8.0, 720.0]);
-        assert_eq!(xywh(l.light_table), [248.0, 64.0, 1400.0 - 248.0 - 16.0, 720.0]);
-        assert_eq!(xywh(l.scrollbar), [1384.0, 64.0, 16.0, 720.0]);
+        assert_eq!(xywh(l.menu_bar), [0.0, 0.0, 1400.0, 32.0]);
+        assert_eq!(xywh(l.toolbar), [0.0, 32.0, 1400.0, 40.0]);
+        assert_eq!(xywh(l.tree), [0.0, 72.0, 240.0, 900.0 - 72.0 - 116.0]);
+        assert_eq!(xywh(l.splitter), [240.0, 72.0, 8.0, 712.0]);
+        assert_eq!(xywh(l.light_table), [248.0, 72.0, 1400.0 - 248.0 - 16.0, 712.0]);
+        assert_eq!(xywh(l.scrollbar), [1384.0, 72.0, 16.0, 712.0]);
         assert_eq!(l.side_pane, None);
         assert_eq!(l.tab_strip, None);
         assert_eq!(xywh(l.status_line), [0.0, 784.0, 1400.0, 20.0]);
@@ -392,7 +392,7 @@ mod tests {
     fn the_side_pane_pushes_the_light_table_and_has_a_large_width() {
         let mut s = UiState { pane: Some(Pane::Tags), ..UiState::default() };
         let l = compute(window(1400.0, 900.0), &s);
-        assert_eq!(l.side_pane.map(xywh), Some([1120.0, 64.0, 280.0, 720.0]));
+        assert_eq!(l.side_pane.map(xywh), Some([1120.0, 72.0, 280.0, 712.0]));
         assert_eq!(l.scrollbar.max.x, 1120.0);
         assert_eq!(l.light_table.width(), 1120.0 - 16.0 - 248.0);
         s.pane_large = true;
@@ -480,11 +480,11 @@ mod tests {
     #[test]
     fn the_edit_view_is_laid_out_as_the_spec_says() {
         let l = compute_edit(window(1400.0, 900.0), &edit(true, None, false));
-        assert_eq!(xywh(l.menu_bar), [0.0, 0.0, 1400.0, 24.0]);
-        assert_eq!(xywh(l.top_bar), [0.0, 24.0, 1400.0, 40.0]);
-        assert_eq!(xywh(l.filmstrip), [240.0, 24.0, 1400.0 - 240.0 - 220.0, 40.0]);
-        assert_eq!(l.edit_panel.map(xywh), Some([0.0, 64.0, 280.0, 720.0]));
-        assert_eq!(xywh(l.canvas), [280.0, 64.0, 1120.0, 720.0 - 36.0]);
+        assert_eq!(xywh(l.menu_bar), [0.0, 0.0, 1400.0, 32.0]);
+        assert_eq!(xywh(l.top_bar), [0.0, 32.0, 1400.0, 40.0]);
+        assert_eq!(xywh(l.filmstrip), [240.0, 32.0, 1400.0 - 240.0 - 220.0, 40.0]);
+        assert_eq!(l.edit_panel.map(xywh), Some([0.0, 72.0, 280.0, 712.0]));
+        assert_eq!(xywh(l.canvas), [280.0, 72.0, 1120.0, 712.0 - 36.0]);
         assert_eq!(xywh(l.caption_bar), [280.0, 748.0, 1120.0, 36.0]);
         assert_eq!(l.side_pane, None);
         let lib = compute(window(1400.0, 900.0), &UiState::default());
@@ -492,8 +492,8 @@ mod tests {
 
         // The side pane is 260 (or its large width); the panel hidden gives the photo its width.
         let l = compute_edit(window(900.0, 600.0), &edit(true, Some(Pane::Tags), false));
-        assert_eq!(l.side_pane.map(xywh), Some([640.0, 64.0, 260.0, 420.0]));
-        assert_eq!(xywh(l.canvas), [280.0, 64.0, 360.0, 420.0 - 36.0]);
+        assert_eq!(l.side_pane.map(xywh), Some([640.0, 72.0, 260.0, 412.0]));
+        assert_eq!(xywh(l.canvas), [280.0, 72.0, 360.0, 412.0 - 36.0]);
         assert_eq!(l.filmstrip.width(), 900.0 - 460.0, "seven 56 pt thumbnails and the arrows fit at 900");
         let l = compute_edit(window(1400.0, 900.0), &edit(false, Some(Pane::Tags), true));
         assert_eq!(l.edit_panel, None);

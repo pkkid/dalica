@@ -71,7 +71,9 @@ fn glyph_pairs(t: &Tokens) -> Vec<Pair> {
         ("caution on chrome", t.caution, t.chrome),
         ("caution on grid_bg", t.caution, t.grid_bg),
         ("danger on chrome", t.danger, t.chrome),
-        ("on_accent on danger (close button)", t.on_accent, t.danger),
+        ("on_accent on danger", t.on_accent, t.danger),
+        ("on_accent on caption_close (the Close button hovered)", t.on_accent, t.caption_close),
+        ("on_accent on caption_close × 0.8 (the Close button held)", t.on_accent, over(t.caption_close.gamma_multiply(0.8), t.chrome)),
         ("photo_focus on grid_bg", t.photo_focus, t.grid_bg),
         ("photo_selected on grid_bg", t.photo_selected, t.grid_bg),
     ]

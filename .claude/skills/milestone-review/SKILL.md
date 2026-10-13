@@ -1,6 +1,6 @@
 ---
 name: milestone-review
-description: Prepare a review task (M<n>.R, and the release gates M6.R, M10.R, M15.R) for the maintainer - the few questions only they can answer (asked here), a UI changelog with before/after screenshots, a check-in page, docs on a review branch, a pull request - then stop. Never merges the PR or closes the review issue; only the maintainer does. Usually run by /milestone-start when the run reaches a review; the maintainer may run it directly.
+description: Prepare a review task (M<n>.R; from M7.R to M15.R every review is also a release gate, 0.2 … 1.0) for the maintainer - the few questions only they can answer (asked here), a UI changelog with before/after screenshots, a check-in page, docs on a review branch, a pull request - then stop. Never merges the PR or closes the review issue; only the maintainer does. Usually run by /milestone-start when the run reaches a review; the maintainer may run it directly.
 argument-hint: "[M<n>.R]  (default: the first open review task)"
 ---
 
@@ -30,7 +30,8 @@ needed them mid-milestone was recorded instead of asked. The review is where the
 - **You never merge the review's pull request and never close its issue.** Only the maintainer
   does. Do not `tasks claim`, `tasks submit` or `tasks merge` a review (they refuse), and do not
   use `gh pr merge` or `gh issue close` on it.
-- **Release gates** (M6.R, M10.R, M15.R) are prepared the same way, plus the release checklist and
+- **Release gates** (every review from M7.R to M15.R: M7 0.2, M8 0.3 … M15 1.0; maintainer rule,
+  2026-10-13) are prepared the same way, plus the version, the release notes, the release checklist and
   the sign-off questions of §5.
 
 **Scope.** For `M<n>.R`: every task of milestone M<n>. A milestone has exactly one review, at its
@@ -128,6 +129,13 @@ Publish one artifact page per check-in (load the `artifact-design` skill first).
 - **Numbers:** the few that matter (speed budgets met, test count, CI time per OS).
 - **Next:** what the next milestone builds, in two or three lines.
 
+**Images open larger on click** (maintainer, 2026-10-13: on-page screenshots are too small to judge).
+Every screenshot and fingerprint render on the page opens in a viewer when clicked: at its actual
+pixel size, scaled down only when it is larger than the window, never enlarged; an "Actual size"
+button for a shrunk image; ← → step through all the page's images, Esc or a click closes; each
+image is also reachable with Tab and Enter. Reuse the viewer from the M7 check-in page
+(`https://claude.ai/artifact/Ldg8NefEG3covr9etnCTfp`, its `.lb` styles and script).
+
 The page is linked on the review issue together with the pull request (§4).
 
 ## 4. Docs on a review branch, a pull request, and stop
@@ -183,8 +191,14 @@ The review's id is `M<n>.R` (`M2.R`, `M6.R`, …) and its issue `#<issue>`.
 
 ## 5. Release gates: the checklist and the sign-off questions
 
-For a release gate (M6.R, M10.R, M15.R), before §4's step 7:
+Every review from M7.R to M15.R is a release gate (M7 0.2, M8 0.3, M9 0.4, M10 0.5, M11 0.6, M12 0.7,
+M13 0.8, M14 0.9, M15 1.0; maintainer rule, 2026-10-13: every milestone is a point release published on
+GitHub). Before §4's step 7:
 
+- On the review branch: `cargo xtask version set <version>` (root `Cargo.toml` and `Cargo.lock`)
+  and the new `## <version> — <Month Year>` section at the top of `docs/whats-new.md`, written for
+  users by its own conventions (the comment at its top), with an honest "Not in this release yet".
+  The release-notes test checks the newest section against the build's version.
 - Add the release checklist (`docs/releasing.md`) to the page: packages built per OS, install
   steps, known issues.
 - Ask with the **AskUserQuestion** tool, recommended option first:
@@ -196,6 +210,13 @@ For a release gate (M6.R, M10.R, M15.R), before §4's step 7:
   merges) and say on the review PR what changed.
 - Still never merge the review PR or close the gate issue: the maintainer does both, then runs
   `/milestone-start M<n+1>`.
+- **Cutting the release** (the maintainer's standing go-ahead with this rule, once they answered
+  ship and merged the review PR): wait for `main`'s CI to be green on the merge, push `main` to
+  `release` (`git push origin main:release`), watch the Release workflow, check the draft
+  `Dalica v<version>` (every artifact and `SHA256SUMS.txt`; install one), add the honest deltas of
+  `releasing.md` step 5 to its notes (the newest `whats-new.md` section first), publish it, and
+  log it with `cargo xtask tasks log M<n>.R "RELEASED …"`. A hold or "ship after fixes" answer
+  means no push until the maintainer says so.
 
 The names rule applies everywhere: never name the reference application, in the dev log, the page
 or a commit.

@@ -572,7 +572,9 @@ pub fn first_run_fills_in() -> FirstRun {
     app.persist_view();
     app.set_session(s);
     assert_eq!(app.state().dialogs.iter().map(|d| d.kind).collect::<Vec<_>>(), [DialogKind::FirstRun], "the first-run panel");
-    let mut d = Driver::new(app, 1400, 900, 1.0);
+    // Tall enough that both folders' 20 cells are on screen at once (the light table 720 high, as
+    // at 1400 × 900 before the title bar grew to 32 pt): the test waits for every one.
+    let mut d = Driver::new(app, 1400, 908, 1.0);
     d.settle(FRAMES).unwrap();
     assert!(d.widgets().iter().any(|w| w.id == "dialog:firstRun"));
     let ui = dalica_fs::mark_ui_thread();

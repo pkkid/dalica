@@ -1,6 +1,6 @@
 //! The layout skeleton (M3.5): every region of `ui-layout.md` §2 is read back from the widget
 //! registry (`region:<name>`, the names of `control-protocol.md` §6.6) at 1400 × 900 and 900 × 600
-//! and matches the sizes the spec gives: menu bar 24, toolbar 40, tree 240 and an 8 pt splitter,
+//! and matches the sizes the spec gives: menu bar 32, toolbar 40, tree 240 and an 8 pt splitter,
 //! the light table and its 16 pt scroll bar, the side pane 280 when open (large: min(30 % W, 392)),
 //! status line 20, bottom area 96 split at 0.365·W. The expected rects are written out here from the
 //! spec, not taken from `panels::layout`, so a change to either shows.
@@ -80,16 +80,16 @@ fn tree_beside(requested: f32, w: f32, pane: f32) -> f32 {
 /// What `ui-layout.md` §2 and `design-system.md` §4 say, for a `w × h` window with the tree `tree`
 /// wide and a side pane `pane` wide (0 when closed).
 fn expected(w: f32, h: f32, tree: f32, pane: f32) -> Vec<(&'static str, [f32; 4])> {
-    let middle = h - 24.0 - 40.0 - 20.0 - 96.0;
+    let middle = h - 32.0 - 40.0 - 20.0 - 96.0;
     let split = 0.365 * w;
     let light = w - tree - 8.0 - 16.0 - pane;
     let mut v = vec![
-        ("menuBar", [0.0, 0.0, w, 24.0]),
-        ("toolbar", [0.0, 24.0, w, 40.0]),
-        ("tree", [0.0, 64.0, tree, middle]),
-        ("splitter", [tree, 64.0, 8.0, middle]),
-        ("lightTable", [tree + 8.0, 64.0, light, middle]),
-        ("scrollbar", [tree + 8.0 + light, 64.0, 16.0, middle]),
+        ("menuBar", [0.0, 0.0, w, 32.0]),
+        ("toolbar", [0.0, 32.0, w, 40.0]),
+        ("tree", [0.0, 72.0, tree, middle]),
+        ("splitter", [tree, 72.0, 8.0, middle]),
+        ("lightTable", [tree + 8.0, 72.0, light, middle]),
+        ("scrollbar", [tree + 8.0 + light, 72.0, 16.0, middle]),
         ("statusLine", [0.0, h - 116.0, w, 20.0]),
         // The tray box from x = 6 to 0.365·W − 56, 80 high, centred in the 96 pt area.
         ("tray", [6.0, h - 88.0, split - 56.0 - 6.0, 80.0]),
@@ -100,7 +100,7 @@ fn expected(w: f32, h: f32, tree: f32, pane: f32) -> Vec<(&'static str, [f32; 4]
         ("actionButtons", [split, h - 60.0, w - split, 60.0]),
     ];
     if pane > 0.0 {
-        v.push(("sidePane", [w - pane, 64.0, pane, middle]));
+        v.push(("sidePane", [w - pane, 72.0, pane, middle]));
     }
     v
 }
@@ -297,7 +297,7 @@ fn assert_controls(d: &Driver, w: f32, h: f32, pane: Option<&str>, case: &str) {
     };
 
     // The title bar (M3.6): the menus after the app icon, the drag gap, then Minimize, Maximize and
-    // Close flush in the top-right corner, 46 × 24 each.
+    // Close flush in the top-right corner, 46 × 31 each (the bar's divider below them).
     let mut x = 8.0 + 16.0;
     for id in MENUS {
         let m = place(id, "menuBar");
@@ -306,7 +306,7 @@ fn assert_controls(d: &Driver, w: f32, h: f32, pane: Option<&str>, case: &str) {
     }
     for (i, id) in ["button:window.minimize", "button:window.maximize", "button:window.close"].into_iter().enumerate() {
         let b = place(id, "menuBar");
-        assert_eq!(b, [w - 46.0 * (3 - i) as f32, 0.0, 46.0, 24.0], "{case}: `{id}`");
+        assert_eq!(b, [w - 46.0 * (3 - i) as f32, 0.0, 46.0, 31.0], "{case}: `{id}`");
     }
     let drag = place("titlebar:drag", "menuBar");
     assert!(drag[0] >= x - 0.01 && near([drag[0] + drag[2], 0.0, 0.0, 0.0], [w - 138.0, 0.0, 0.0, 0.0]), "{case}: the gap {drag:?}");
@@ -327,7 +327,7 @@ fn assert_controls(d: &Driver, w: f32, h: f32, pane: Option<&str>, case: &str) {
     assert!(rect("button:filter.starred")[0] >= splitter_right + 8.0 - 0.01, "{case}: the filters start 8 right of the splitter");
     let search = rect("field:search");
     assert!(search[0] + search[2] <= w - 64.0 + 0.01 && search[2] >= 160.0 - 36.0, "{case}: the search field {search:?}");
-    let filter_top = if w >= 1100.0 { 24.0 + 13.0 } else { 24.0 + 7.0 };
+    let filter_top = if w >= 1100.0 { 32.0 + 13.0 } else { 32.0 + 7.0 };
     assert_eq!(rect("button:filter.starred")[1], filter_top, "{case}: the filter caption shows from 1100 wide only");
 
     // The tree, the splitter, the light table's column (M3.5, M3.8).
@@ -517,14 +517,14 @@ fn the_splitter_leaves_the_light_table_480_beside_the_side_pane() {
     assert_controls(&d, 1400.0, 900.0, Some("tags"), "widest tree beside the pane");
 }
 
-/// The columns of `shot`'s title row (rows 4 … 20) inside `x0..x1` that are not the bar's fill.
+/// The columns of `shot`'s title row (rows 4 … 27) inside `x0..x1` that are not the bar's fill.
 fn title_ink(shot: &dalica_ui_kit::Image, x0: f32, x1: f32) -> Vec<u32> {
     let fill = dalica_ui_kit::Tokens::default().chrome.to_array();
     let px = |x: u32, y: u32| {
         let i = ((y * shot.width + x) * 4) as usize;
         [shot.rgba[i], shot.rgba[i + 1], shot.rgba[i + 2]]
     };
-    (x0.max(0.0) as u32..x1.max(0.0) as u32).filter(|&x| (4..20).any(|y| px(x, y).iter().zip(&fill).any(|(a, b)| a.abs_diff(*b) > 12))).collect()
+    (x0.max(0.0) as u32..x1.max(0.0) as u32).filter(|&x| (4..28).any(|y| px(x, y).iter().zip(&fill).any(|(a, b)| a.abs_diff(*b) > 12))).collect()
 }
 
 /// `design-system.md` §11.1 "Narrow windows", from 1400 down to the 900 minimum: each piece of
@@ -556,7 +556,8 @@ fn narrow_windows_drop_only_the_chrome_the_spec_lets_go_before_anything_overlaps
             let case = format!("{w}×700, title “{title}”");
             assert_eq!(widget(&d, "titlebar:drag").label, title, "{case}");
             assert_controls(&d, w, 700.0, None, &case);
-            // The title: centred in the gap with 16 to spare on each side, or not drawn at all.
+            // The title: centred on the window, slid into the gap with 16 to spare on each side, or
+            // not drawn at all.
             let drag = widget(&d, "titlebar:drag").rect;
             let ink = title_ink(&d.screenshot().unwrap(), drag[0], drag[0] + drag[2]);
             if let (Some(first), Some(last)) = (ink.first(), ink.last()) {
@@ -565,8 +566,9 @@ fn narrow_windows_drop_only_the_chrome_the_spec_lets_go_before_anything_overlaps
                     *first as f32 >= drag[0] + 16.0 - 1.0 && *last as f32 <= drag[0] + drag[2] - 16.0 + 1.0,
                     "{case}: {first}…{last} in {drag:?}"
                 );
-                let centre = (*first + *last) as f32 / 2.0;
-                assert!((centre - (drag[0] + drag[2] / 2.0)).abs() <= 2.0, "{case}: the title is centred in the gap");
+                let (centre, half) = ((*first + *last) as f32 / 2.0, (*last - *first) as f32 / 2.0);
+                let want = (w / 2.0).clamp(drag[0] + 16.0 + half, drag[0] + drag[2] - 16.0 - half);
+                assert!((centre - want).abs() <= 2.0, "{case}: the title is centred on the window, slid into the gap ({centre} vs {want})");
             } else if dropped_at.is_none() {
                 dropped_at = Some(w);
             }

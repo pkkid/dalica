@@ -95,6 +95,14 @@ pub struct View {
 thread_local! {
     /// The fitted scale of the photo the canvas last drew on this thread (the UI thread).
     static FITTED: Cell<Option<(PhotoId, f32)>> = const { Cell::new(None) };
+    /// The next zoom change is a step (Ctrl+=, Ctrl+−, [`note_step`]).
+    static STEPPED: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Marks the zoom change the canvas sees next as a step (Ctrl+=, Ctrl+−): it jumps about the
+/// pointer, also when it lands on 100 % (`editing.md` §3), where 1:1 would animate about the centre.
+pub fn note_step() {
+    STEPPED.with(|s| s.set(true));
 }
 
 /// The fitted scale the canvas last laid out for `photo`, if it is the photo it last drew.
@@ -340,6 +348,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
 
     // A change made outside the canvas: Fit and 1:1 animate, the others jump about the pointer.
     let zoom = app.state().edit.zoom;
+    let stepped = STEPPED.with(|s| s.replace(false));
     if zoom != seen {
         let target = maths::effective(zoom, fit);
         match zoom {
@@ -347,7 +356,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 c.anim = Some(Anim { from_scale: scale, from_centre: centre, start: now });
                 c.centre = Some(CENTRE);
             }
-            Zoom::Scale(1.0) => {
+            Zoom::Scale(1.0) if !stepped => {
                 c.anim = Some(Anim { from_scale: scale, from_centre: centre, start: now });
                 c.centre = Some(held(centre, target));
             }

@@ -7,6 +7,25 @@ and git.
 
 ## Current
 
+- **Milestone:** M7, the edit view, is done: M7.1–M7.31 are merged and `cargo xtask accept M7`
+  passes (53 s; 117 s with the release budgets). The edit view with its filmstrip, zoom and pan;
+  Basic Fixes (Crop with suggestions, Straighten, Retouch, Auto Fix, Auto Contrast, Auto Color,
+  Fill Light) and the Tuning tab; each photo's own Undo / Redo history; edits shown on every
+  thumbnail. Version 0.2.0: M7.R is the 0.2 release gate, published once the review PR is merged.
+  Next: M8, Save and export (0.3); its issues open when the M7.R review PR is merged.
+- **M7 review (2026-10-13):** the maintainer answered four questions: a real Windows file
+  identity for the read-before-write guard (new M8.27); the Tuning sliders show the photo's last
+  Tuning after later edits (new M8.28); starring in the edit view stays a library step and Fill
+  Light stays part of Tuning; ship 0.2 now, and every milestone up to M15 is a point release
+  published on GitHub (0.3 … 1.0); all 86 fingerprint baselines approved, with the look of Auto Fix,
+  Auto Contrast, Auto Color and the Tuning controls. Check-in pages now open every image larger on
+  click (a `/milestone-review` rule). Fix tasks M8.27–M8.30 carry what the run found.
+- **Numbers (M7.R, 53ca1f0, 2026-10-13):** tests 2 242 passed, 4 ignored; `cargo xtask ci` 412 s
+  cold, 196 s warm; accept M0–M7 5 / 6 / 12 / 39 / 52 / 62 / 66 / 53 s; edit view (release, 24 MP):
+  open p50 77.2 ms cold, 21.7 ms cached (budget 150), slider draft p95 8.4 ms (16), final p95
+  14.1 ms (100), next/previous p95 0.0 ms (prefetched; budget 50); GitHub CI Ubuntu 14:13, macOS
+  13:47, Windows 24:11, Budgets 6:34; parity ✅ 22 · 🟡 59 · ⬜ 63 · 🚫 16 (160 rows, 132 commands).
+  Run: 31 tasks + 1 red-main fix in 12 h 27 min with 7 workers; 12 send-backs on 9 tasks.
 - **Milestone:** M6, photo info, metadata and Release 0.1, is done: M6.2–M6.43 and the pulled M7.1
   are merged and `cargo xtask accept M6` passes (62 s standalone). Rotate, hide, captions, tags and
   quick tags, dates, folder info, the Properties pane, About and Release Notes; captions, tags and

@@ -33,7 +33,7 @@ Sizes are in points at 100 % UI scale. "W" is the window width.
 
 ```text
 ┌────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ File  Edit  View  Folder  Picture  Create  Tools  Help                                                 │ menu bar 24
+│ File  Edit  View  Folder  Picture  Create  Tools  Help                                                 │ menu bar 32
 ├────────────────────────────────────────────────────────────────────────────────────────────────────────┤
 │ [📷 Import][+📘][≣|⊢][▾]                  Filters                ┌─🔍───────────────────────────────┐ ◌   │ toolbar 40
 │                                     [★][☺][🎞][📍] ○────────     │ Search                         ⓧ │     │
@@ -60,7 +60,7 @@ Sizes are in points at 100 % UI scale. "W" is the window width.
 
 | Region | Size | Notes |
 |---|---|---|
-| Menu bar | 24 high | in-window on Windows/Linux, native on macOS (generated from the same menu model) |
+| Menu bar | 32 high (its last point a 1 pt `divider`) | in-window on Windows/Linux, where it is the title bar (`design-system.md` §11.1); native on macOS (generated from the same menu model) |
 | Toolbar | 40 high | §3 |
 | Tab strip (only when a second "room" is open) | 28 high | §8 |
 | Library tree | default **240** wide, min 200, max W − 480; resizable; width persisted | §4 |
@@ -426,8 +426,8 @@ rest (`editing.md` §2):
 | Caption bar | 36 high, under the photo, the photo area's width | |
 | Side pane | **260** wide (large: as in §2) | the same panes as the library, toggled from the bottom bar |
 
-At 1400 × 900 the edit panel is `[0, 64, 280, 720]`, the photo `[280, 64, 1120, 684]` and the caption
-bar `[280, 748, 1120, 36]`; at 900 × 600 the photo is `[280, 64, 620, 384]`. `ui.inspect` → `regions`
+At 1400 × 900 the edit panel is `[0, 72, 280, 712]`, the photo `[280, 72, 1120, 676]` and the caption
+bar `[280, 748, 1120, 36]`; at 900 × 600 the photo is `[280, 72, 620, 376]`. `ui.inspect` → `regions`
 names them `editTopBar`, `filmstrip`, `editPanel`, `canvas` and `captionBar`
 (`control-protocol.md` §6.6).
 

@@ -21,6 +21,94 @@ This file is the user-facing changelog. Help ▸ Release Notes compiles it into 
   its translation until the catalogs catch up (docs/localization.md → Release notes).
 -->
 
+## 0.2.0 — October 2026
+
+Dalica can now edit your photos. Open a photo in the edit view to crop, straighten, retouch and
+fix its light and colour, then step back through every change with Undo. Your edits are kept
+beside the photo, and every thumbnail shows them. The original file is never changed: there is no
+Save yet, so other applications still see the photo as it was. Save and Export come in the next
+release.
+
+### Editing
+
+- Open a photo in the edit view with Enter, a double-click, View ▸ Edit View (Ctrl+3) or Picture ▸
+  View and Edit. Esc, Ctrl+1 or Back to Library takes you back, with your place and selection kept.
+- ← and → (also Page Up, Page Down, Home and End) move through the photos of the folder. The
+  filmstrip at the top shows the photos around this one; click one to open it.
+- Zoom with the slider at the bottom right, the mouse wheel, a touchpad pinch, or Ctrl+= and Ctrl+−.
+  Zooming keeps the point under the pointer in place and stops at 100 % on its way. Click and hold
+  on the photo to see that spot at 100 %; a click fits the photo again; Fit and 1:1 sit beside the
+  slider. Drag to move around a zoomed photo; a small map of the photo shows where you are.
+- The edit panel on the right (hide it with View ▸ Show Edit Controls, Ctrl+9) has Basic Fixes:
+  - Crop: choose a shape (free, the photo's own, print sizes such as 4 × 6, or your own ratios
+    through Add Custom Ratio…), draw or drag the rectangle, or click one of three suggested crops.
+    Rotate swaps the shape between landscape and portrait; Preview shows the result.
+  - Straighten: drag the slider on the photo, up to 10° either way, or press ← and → for 0.1°
+    steps. A grid helps you line up the horizon, and the photo is enlarged just enough that no
+    corner is ever empty.
+  - Retouch: click a spot, then a clean area to copy from; the patch blends in. Change the brush
+    size with its slider or + and −. Undo Patch and Redo Patch step through your patches.
+  - Auto Fix (Ctrl+Shift+E), Auto Contrast and Auto Color: one click each.
+  - Fill Light: brightens the dark parts without washing out the bright ones.
+- The Tuning tab has Fill Light, Highlights, Shadows, Color Temperature and a neutral colour
+  picker: click something that should be grey or white to remove a colour cast. The two magic
+  wands set the light and the colour for you, and Reset puts every slider back.
+- Every edit is one step of the photo's own Undo and Redo, at the top of the edit panel (Ctrl+Z
+  and Ctrl+Y in the edit view; Cmd+Shift+Z on macOS). The buttons name the step ("Undo Crop").
+  A whole slider drag is one step. The history stays after you quit Dalica.
+- The Histogram & Camera Info box at the bottom of the panel shows the photo's colours and the
+  camera, lens and exposure.
+- The other tabs (effects) are empty in this release. Play, the A│B comparison and the trash
+  button in the edit view are greyed out until later releases.
+- The Tuning sliders show 0 again after you rotate or retouch a photo that you tuned earlier
+  (the tuning is still there); this is fixed in the next release.
+
+### Library
+
+- Edited photos show their edits everywhere: in the light table, the Photo Tray and the
+  filmstrip, with a small pencil badge at the corner. While a new thumbnail is being made, the old
+  one stays on screen.
+
+### Your photos and their files
+
+- Edits are kept in the folder's `.dalica.json`, like rotations, as a list of steps. Dalica keeps
+  any step it does not understand (from a newer version, say) where it is, and leaves it alone.
+- Writing captions, tags and dates into a photo keeps its modification date even if Dalica or the
+  computer stops in the middle of the write.
+- Undoing Tools ▸ Adjust Date and Time… now puts the original date back into the file too, also
+  after the new date was already written.
+- TIFF files: a place or date that cannot be written there is refused before anything is written,
+  with a message naming the field. Photos whose IPTC captions and keywords were written by
+  ImageMagick (PNG and TIFF) are now read and updated.
+- A caption or tag that cannot be written (for example into a read-only file) shows an amber
+  message with the whole text, the file name kept whole.
+
+### Agents
+
+- New commands: `view.edit`, `view.library`, `edit.panelToggle`, `edit.zoom.fit`,
+  `edit.zoom.actual`, `edit.zoom.in`, `edit.zoom.out`, `edit.zoom.set`, `edit.tool.open`,
+  `edit.tool.action`, `edit.tool.apply`, `edit.tool.cancel`, `edit.tool.reset`, `edit.autoFix`,
+  `edit.history.undo`, `edit.history.redo`, `photo.history.apply`, `photo.history.undo`,
+  `photo.history.redo`, `photo.history.state`, `photo.history.tuning`, `photo.crop.apply`,
+  `photo.crop.suggest`, `photo.straighten.apply`, `photo.tuning.auto`, `photo.tuning.pick`,
+  `crop.ratios.add`, `crop.ratios.list` and `crop.ratios.remove`.
+
+### Not in this release yet
+
+- No Save: edits live beside the photo and the file itself is not changed. Save, Save a Copy,
+  Save As and Export come in 0.3. No collages or slideshows yet either.
+- No albums, people, places on a map or search. Moving, renaming and deleting files from inside
+  Dalica come later; so does the Options dialog.
+- Videos are not listed.
+- HEIC and HEIF photos (from iPhones) are listed but not shown in these builds (the HEIC decoder
+  is left out); AVIF files are listed and never shown.
+- Open With: on Windows it starts Dalica on its library window, without the photo you chose. On
+  macOS, Dalica starts from Open With and ignores the file; on Linux it is not offered.
+- On Windows, `dalica.exe --version` typed in a console prints nothing; `dalica-cli --version` or
+  Help ▸ About Dalica tell you the version.
+- This release is not signed with a developer certificate, so Windows and macOS warn you before
+  its first start (see "Installing" under 0.1.0).
+
 ## 0.1.0 — October 2026
 
 The first preview of Dalica, an organizer for the photos in your own folders. You can browse,

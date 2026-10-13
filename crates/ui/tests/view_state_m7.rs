@@ -242,14 +242,14 @@ fn check_window(t: &T, name: &str) {
 /// left, 220 from the right), the edit panel 280, the photo area with the caption bar (36) under
 /// it, the library's status line (20) and bottom area (96).
 fn edit_regions(w: f32, h: f32) -> Value {
-    let mid = h - 64.0 - 116.0;
+    let mid = h - 72.0 - 116.0;
     json!({
-        "menuBar": [0.0, 0.0, w, 24.0],
-        "editTopBar": [0.0, 24.0, w, 40.0],
-        "filmstrip": [240.0, 24.0, w - 460.0, 40.0],
-        "editPanel": [0.0, 64.0, 280.0, mid],
-        "canvas": [280.0, 64.0, w - 280.0, mid - 36.0],
-        "captionBar": [280.0, 64.0 + mid - 36.0, w - 280.0, 36.0],
+        "menuBar": [0.0, 0.0, w, 32.0],
+        "editTopBar": [0.0, 32.0, w, 40.0],
+        "filmstrip": [240.0, 32.0, w - 460.0, 40.0],
+        "editPanel": [0.0, 72.0, 280.0, mid],
+        "canvas": [280.0, 72.0, w - 280.0, mid - 36.0],
+        "captionBar": [280.0, 72.0 + mid - 36.0, w - 280.0, 36.0],
         "statusLine": [0.0, h - 116.0, w, 20.0],
         "toolbar": null, "tree": null, "lightTable": null, "scrollbar": null, "splitter": null, "sidePane": null,
     })
@@ -321,12 +321,12 @@ fn ctrl9_hides_and_shows_the_edit_panel() {
     assert_eq!(checked(&mut t), (json!(true), json!(true), json!(ctrl9)));
     key(&mut t, "Ctrl+9");
     let r = regions(&mut t);
-    assert_eq!((&r["editPanel"], &r["canvas"]), (&Value::Null, &json!([0.0, 64.0, 1400.0, 684.0])));
+    assert_eq!((&r["editPanel"], &r["canvas"]), (&Value::Null, &json!([0.0, 72.0, 1400.0, 676.0])));
     assert_eq!(state(&mut t)["edit"]["panelVisible"], false);
     assert_eq!(checked(&mut t).1, json!(false));
     check_ids(&t, "panel hidden");
     key(&mut t, "Ctrl+9");
-    assert_eq!(regions(&mut t)["editPanel"], json!([0.0, 64.0, 280.0, 720.0]));
+    assert_eq!(regions(&mut t)["editPanel"], json!([0.0, 72.0, 280.0, 712.0]));
     assert_eq!(state(&mut t)["edit"]["panelVisible"], true);
 }
 

@@ -69,7 +69,7 @@ the project).
 ```
 
 - **Id:** `M<milestone>.<n>` for work, `M<n>.R` for the milestone's one review task, at its end (a
-  release gate in M6, M10 and M15). There are no mid-milestone reviews (maintainer rule,
+  release gate from M6 to M15: 0.1 … 1.0). There are no mid-milestone reviews (maintainer rule,
   2026-10-10: "I do not want any checkins mid milestones"): the parser refuses an open `M<n>.A`,
   `M<n>.B`, …; the finished `M1.A` stays as history. Ids are never reused or
   renumbered (the milestones were renumbered once, on 2026-10-10, before any task past M3
@@ -173,8 +173,8 @@ is developer tooling; the Dalica app itself never touches the network for this.
   (3) at the review the maintainer gets a short list of questions, as few as possible, and a
   changelog of what changed in the UI to check by eye; (4) the maintainer answers the questions,
   checks the UI, merges the review's pull request (which closes `M<n>.R`; feedback becomes tasks)
-  and starts the next milestone (`/milestone-start`). Releases (M6, M10, M15) are signed off the
-  same way. Blocked tasks' questions (only the kinds `AGENTS.md` §4 lists) and reserved decisions
+  and starts the next milestone (`/milestone-start`). Every review from M7.R to M15.R is also a
+  release (0.2 … 1.0, maintainer rule 2026-10-13), signed off the same way. Blocked tasks' questions (only the kinds `AGENTS.md` §4 lists) and reserved decisions
   are answered there.
 - **Lead (`agent-1`):** the integrator. Loop: `tasks status` → merge In Review tasks one at a time
   (`tasks merge`, re-resolving `Cargo.lock` if two branches both changed it) → copy reported

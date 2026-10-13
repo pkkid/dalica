@@ -115,6 +115,9 @@ file and revision in its first lines:
   crates/edit/tests/straighten.rs (tests)    PhotoCraft crates/ui-egui/src/crop_overlay.rs @ 32c918aa
   crates/edit/src/ops/retouch.rs             LightCraft crates/pipeline/src/spots.rs, crates/raster/src/blur.rs @ 76b53778
   crates/edit/tests/retouch.rs (tests)       LightCraft crates/pipeline/src/spots.rs @ 76b53778
+  crates/ui/src/titlebar.rs (title bar metrics, title placement, caption glyphs)
+                                             PhotoCraft crates/ui-egui/src/titlebar.rs @ a0627311,
+                                             crates/ui-egui/src/panels.rs @ b41e34c2
 
 Any other third-party code ever vendored will be listed here with its source and revision.
 
