@@ -308,12 +308,12 @@ fn the_tray_has_its_own_selection_and_menu() {
     select(&mut d, &s[0][3..4]);
     assert_eq!(d.state().tray.selected, [s[0][3]]);
 
-    // The tray menu: Hold and Remove from Tray live, the rest greyed until their commands.
+    // The tray menu: View and Edit (M7.4), Hold and Remove from Tray live, the rest greyed until their commands.
     select(&mut d, &s[0][0..3]);
     let item = format!("tray:item:{}", s[0][2].get());
     d.click_with(&item, &Click { button: PointerButton::Secondary, ..Click::default() }).unwrap();
     assert_eq!(d.state().tray.selected, [s[0][2]], "a right-click selects the mini first");
-    for (id, live) in [("menuitem:tray.hold", true), ("menuitem:tray.clear", true), ("menuitem:pane.properties", true), ("menuitem:view.edit", false)]
+    for (id, live) in [("menuitem:tray.hold", true), ("menuitem:tray.clear", true), ("menuitem:pane.properties", true), ("menuitem:view.edit", true)]
     {
         let w = widget(&d, id).unwrap_or_else(|| panic!("no {id}"));
         assert_eq!(w.enabled, live, "{id}");
