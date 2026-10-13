@@ -102,6 +102,8 @@ pub struct Session {
     worker: Option<JoinHandle<()>>,
     io_errors: Arc<Mutex<Vec<String>>>,
     collected: Option<Vec<Op>>,
+    /// The op a command asked its undo step to use instead of the collected inverses.
+    undo_op: Option<Op>,
     recovery: Vec<Recovery>,
     pub(crate) scan_warnings: Vec<String>,
     pub(crate) ops_since_snapshot: u64,
@@ -186,6 +188,7 @@ impl Session {
             worker: Some(worker),
             io_errors,
             collected: None,
+            undo_op: None,
             recovery,
             scan_warnings: Vec::new(),
             ops_since_snapshot: 0,
@@ -219,9 +222,14 @@ impl Session {
         let spec = *self.spec(id).ok_or_else(|| CmdError::UnknownCommand(id.to_string()))?;
         (spec.enabled)(self, params).map_err(|d| CmdError::Disabled(d.0))?;
         self.collected = Some(Vec::new());
+        self.undo_op = None;
         self.folders.change = None;
         let result = catch_unwind(AssertUnwindSafe(|| (spec.run)(self, params)));
         let mut inverses = self.collected.take().unwrap_or_default();
+        // A command that changed something may undo with an op of its own (`set_undo_op`).
+        if let Some(op) = self.undo_op.take().filter(|_| !inverses.is_empty()) {
+            inverses = vec![op];
+        }
         // The folder rules the command replaced (`folders.rs`): a rules-only change is a step too.
         let modes = self.folders.change.take().filter(|m| !m.is_empty());
         if spec.history == History::Library && (!inverses.is_empty() || modes.is_some()) {
@@ -280,6 +288,16 @@ impl Session {
             self.files_op_after(conflicts, &inverse);
         }
         Ok(inverse)
+    }
+
+    /// Inside `execute`: the command's undo step applies `op` instead of the inverses of the ops it
+    /// applied (Adjust Date undoes with the dates the photos had, written out, so the undo still
+    /// puts them back after a rescan read the written date back as the file's own). Ignored
+    /// outside `execute`, and when the command changed nothing.
+    pub(crate) fn set_undo_op(&mut self, op: Op) {
+        if self.collected.is_some() {
+            self.undo_op = Some(op);
+        }
     }
 
     /// Applies a derived op ([`Op::is_derived`]: sketches) and journals it, without an undo step
@@ -345,6 +363,7 @@ impl Session {
         if matches!(&op, Op::Batch { ops } if ops.is_empty()) {
             return Ok(op);
         }
+        let op = crate::cmd::dates::without_file_dates(&self.library, op);
         self.apply(op)
     }
 

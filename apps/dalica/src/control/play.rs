@@ -589,13 +589,20 @@ fn is_ours(data: &egui::UserData) -> bool {
 }
 
 /// What is still pending, as `ui.settle` lists it (the headless driver's list, without its queue).
+/// `jobs` also counts metadata writes into photo files still to land (their debounce included; not
+/// while a root is offline, whose writes wait for it), as the headless driver does.
 pub fn busy(app: &App, jobs: bool) -> Vec<String> {
-    let _ = jobs;
     let mut busy = Vec::new();
     match app.session() {
         None => busy.push("library: opening".into()),
         Some(s) if s.busy() => busy.push("library: scanning".into()),
         Some(_) => {}
+    }
+    if let Some(s) = app.session() {
+        let writes = s.pending_metadata_writes();
+        if jobs && writes > 0 && s.offline_roots().is_empty() {
+            busy.push(format!("metadata writes: {writes}"));
+        }
     }
     if let Some(p) = app.panels() {
         let pending = p.thumbnails.pending();
@@ -794,6 +801,22 @@ mod tests {
             Played::Settled(s) => assert!(!s.settled && s.busy == ["library: opening"]),
             other => panic!("{other:?}"),
         }
+    }
+
+    /// `ui.settle {jobs: true}` waits for metadata writes into photo files, as the headless
+    /// driver's settle does; without `jobs` it does not.
+    #[test]
+    fn settle_with_jobs_counts_metadata_writes() {
+        let dir = tempfile::tempdir().unwrap();
+        let spec = dalica_engine::synthetic::Spec::new(2, 1, 7);
+        let mut s = dalica_engine::synthetic::open_scanned(dir.path(), &spec, 64, Arc::new(dalica_core::SystemClock)).unwrap();
+        s.wait_idle();
+        let ids: Vec<_> = s.library().photos().map(|p| p.id).collect();
+        s.execute("photo.caption.set", &serde_json::json!({ "ids": ids, "caption": "Harbour" })).unwrap();
+        assert_eq!(s.pending_metadata_writes(), 2);
+        let app = App::new(Some(s));
+        assert_eq!(busy(&app, true), ["metadata writes: 2"]);
+        assert!(busy(&app, false).is_empty(), "without jobs the writes do not count");
     }
 
     /// `tests/acceptance/m2.md`: a screenshot of a minimised or covered window answers `timeout`

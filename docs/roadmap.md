@@ -3001,7 +3001,7 @@ effect tabs show an empty state until M12.
     `data-model.md` §4's library path (`…/dalica/library`, `…/Dalica/Library` on macOS and
     Windows); `control-protocol.md` §8 and `dalica-cli snapshot --demo` brought into agreement.
   - done when: `cargo xtask ci` passes and each item matches the code.
-- ⬜ **M7.30 `engine`: undoing Adjust Date after its write has landed**
+- ✅ **M7.30 `engine`: undoing Adjust Date after its write has landed**
   - after: M6.R, M7.27
   - files: `crates/engine/src/cmd/dates.rs`, `crates/engine/tests/dates_undo_written.rs`, `crates/ui/tests/adjust_date.rs`, `apps/dalica/src/control/play.rs`
   - scope: found mid-M7 by M7.27: once Adjust Date's metadata write has landed in the file, Undo
