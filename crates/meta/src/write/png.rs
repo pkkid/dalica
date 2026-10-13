@@ -11,7 +11,10 @@
 //!   held it: `eXIf`, or a "Raw profile type exif" text in the same chunk type, compression and
 //!   hex layout (with its `Exif\0\0` prefix when it had one).
 //! - IPTC is written only where the file already keeps it, a "Raw profile type iptc" or `8bim`
-//!   text (the PNG specification has no IPTC chunk); otherwise the caption and tags live in XMP.
+//!   text (the PNG specification has no IPTC chunk) holding a bare IIM stream (as ImageMagick
+//!   writes it) or Photoshop resources; otherwise the caption and tags live in XMP. A file with
+//!   more than one such profile has every copy that holds IPTC rewritten, each in its own form, so
+//!   no copy keeps an old caption for a reader that picks another.
 //! - A block the file lacks goes into a new chunk just before the first `IDAT`, where every reader
 //!   finds it before the image data: `eXIf` first, then the XMP `iTXt`.
 //! - Every chunk written gets its CRC computed again; every other chunk, and anything after `IEND`,
@@ -29,6 +32,8 @@ use super::{Changes, WriteOptions};
 use crate::container::png::{XMP_KEYWORD, inflate, raw_profile};
 use crate::container::{BlockKind, Scan, Span, be_u32, take};
 use crate::exif::edit::{ExifEdit, edit as edit_exif};
+use crate::iptc::RESOURCE_IPTC;
+use crate::iptc::read::{is_iim, resources};
 use crate::iptc::write::{IptcEdit, write_resources, write_stream};
 use crate::xmp::merge::merge_at;
 use crate::{Error, Limits, Metadata, Result};
@@ -69,16 +74,22 @@ pub(super) fn write(bytes: &[u8], scan: &Scan<'_>, _before: &Metadata, changes: 
     }
 
     let edit = IptcEdit::of(changes);
-    if !edit.is_empty()
-        && let Some(span) = rewritable(scan, &[BlockKind::Iptc, BlockKind::Photoshop])
-    {
-        let (old, new) = if span.kind == BlockKind::Photoshop {
-            (scan.photoshop.as_deref(), write_resources(scan.photoshop.as_deref(), &edit, limits)?.bytes)
-        } else {
-            (scan.iptc.as_deref(), write_stream(scan.iptc.as_deref(), &edit, limits)?.bytes)
-        };
-        if Some(new.as_slice()) != old {
-            replace.push((span.range.start, rewrite_block(bytes, span, &new, false, limits)?));
+    if !edit.is_empty() {
+        // Every IPTC-holding profile, so no copy keeps an old caption for a reader that picks a
+        // later one: the first is the one read, a later one is rewritten only when it holds IPTC.
+        let profiles = scan.spans.iter().filter(|s| s.rewritable && matches!(s.kind, BlockKind::Iptc | BlockKind::Photoshop));
+        for (n, span) in profiles.enumerate() {
+            let old = profile_block(bytes, span, limits)?;
+            let new = if is_iim(&old) {
+                write_stream(Some(&old), &edit, limits)?.bytes
+            } else if n == 0 || holds_iptc(&old, limits) {
+                write_resources(Some(&old), &edit, limits)?.bytes
+            } else {
+                continue;
+            };
+            if new != old {
+                replace.push((span.range.start, rewrite_block(bytes, span, &new, false, limits)?));
+            }
         }
     }
 
@@ -181,6 +192,19 @@ fn rewrite_block(bytes: &[u8], span: &Span, block: &[u8], exif: bool, limits: &L
     let prefix = if exif && decoded.starts_with(EXIF_PREFIX) { EXIF_PREFIX } else { &[] };
     let name = profile_name(&text.text).unwrap_or("generic");
     chunk(&kind, &text.with_text(&profile_text(name, &[prefix, block].concat())))
+}
+
+/// The block a raw profile text chunk at `span` holds, decoded.
+fn profile_block(bytes: &[u8], span: &Span, limits: &Limits) -> Result<Vec<u8>> {
+    let old = bytes.get(span.range.clone()).ok_or(Error::Truncated)?;
+    let kind: [u8; 4] = old.get(4..8).and_then(|k| k.try_into().ok()).ok_or(Error::Truncated)?;
+    let data = old.get(8..old.len().saturating_sub(4)).ok_or(Error::Truncated)?;
+    raw_profile(&TextChunk::parse(&kind, data, limits)?.text, limits)
+}
+
+/// Whether Photoshop image resources hold an IPTC stream.
+fn holds_iptc(block: &[u8], limits: &Limits) -> bool {
+    resources(block, limits).is_ok_and(|r| r.iter().any(|r| r.id == RESOURCE_IPTC))
 }
 
 /// A text chunk split into what stays (keyword, flags, language, translated keyword) and its text.

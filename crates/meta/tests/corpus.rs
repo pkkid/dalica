@@ -359,7 +359,7 @@ fn expected_refusal(rel: &str, bytes: &[u8], edit: Edit, error: &Error, limits: 
         return Some("refused_raw");
     }
     let m = dalica_meta::read(bytes, limits).ok()?;
-    if m.container != Some(Container::Tiff) || !edit.is_place_or_date() || !matches!(error, Error::Verify(_)) {
+    if m.container != Some(Container::Tiff) || !edit.is_place_or_date() || !matches!(error, Error::Refused { field: "place" | "date taken", .. }) {
         return None;
     }
     let x = &m.sources.xmp;

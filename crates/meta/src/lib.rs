@@ -53,6 +53,11 @@ pub enum Error {
     /// A write produced a file that failed its verification; nothing may be written.
     #[error("the written file failed its check: {0}")]
     Verify(String),
+    /// A field this file cannot take, refused before anything was written (a TIFF's place or date
+    /// with no XMP mirror to hold it, `xmp-interop.md` §4). `field` names it ("place", "date
+    /// taken"), `why` says why; the caller keeps the value in the library.
+    #[error("the {field} cannot be written: {why}")]
+    Refused { field: &'static str, why: String },
 }
 
 impl From<dalica_image::Error> for Error {
