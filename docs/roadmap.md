@@ -3001,8 +3001,36 @@ effect tabs show an empty state until M12.
     `data-model.md` §4's library path (`…/dalica/library`, `…/Dalica/Library` on macOS and
     Windows); `control-protocol.md` §8 and `dalica-cli snapshot --demo` brought into agreement.
   - done when: `cargo xtask ci` passes and each item matches the code.
+- ⬜ **M7.30 `engine`: undoing Adjust Date after its write has landed**
+  - after: M6.R, M7.27
+  - files: `crates/engine/src/cmd/dates.rs`, `crates/engine/tests/dates_undo_written.rs`, `crates/ui/tests/adjust_date.rs`, `apps/dalica/src/control/play.rs`
+  - scope: found mid-M7 by M7.27: once Adjust Date's metadata write has landed in the file, Undo
+    leaves the photo at the written date instead of the date it had (the file's EXIF now holds the
+    new date, so dropping the override falls back to it). Undo and Redo of a date step put the
+    file's date back through the same metadata write-back (queued, merged, verified, the file's
+    time kept), so the library and the file agree after undo whether or not the write had landed;
+    `adjust_date.rs` waits for metadata writes (`settle` with `jobs`) and checks both orders. The
+    windowed app's `ui.settle` (`control/play.rs`) counts queued metadata writes the way M7.27
+    made the headless driver do.
+  - done when: a test that fails on main: adjust a date, let the write land, undo → the library
+    and the file both read the original date; redo → both read the new one; the same with the
+    write still queued; `cargo xtask ci` passes.
+- ⬜ **M7.31 `meta` + docs: refusals as their own error, and the API notes found mid-M7**
+  - after: M7.5, M7.6, M7.26, M7.27
+  - files: `crates/meta/src/lib.rs`, `crates/meta/src/write/png.rs`, `crates/meta/tests/corpus.rs`, `crates/meta/tests/write_png_webp_tiff.rs`, `crates/meta/README.md`, `docs/xmp-interop.md`, `crates/ui-kit/README.md`, `docs/design-system.md`
+  - scope: found mid-M7 by M7.26, M7.5, M7.6 and M7.27: a write refused up front (TIFF place or
+    date with no mirror) returns its own `Error::Refused` naming the field, so its notice no longer
+    starts "the written file failed its check:" and the corpus counts refusals by that variant; a
+    PNG with a second IPTC-holding profile has every copy rewritten, so no old caption lingers;
+    `xmp-interop.md` and the `meta` README describe the bare IIM form ImageMagick writes; the
+    `ui-kit` README's API list names `EditIcon` / `paint_edit`, the tabs, tool buttons,
+    histogram, Tuning slider, input helpers and `ToastText`; `design-system.md` §6's toast row
+    names the caution kind.
+  - done when: a refusal test matches `Error::Refused` with the field's name; a two-profile PNG
+    caption write leaves no old caption; `cargo xtask test-corpus -p dalica-meta` keeps its
+    counts; `cargo xtask ci` passes.
 - ⬜ **M7.R Check-in**
-  - after: M7.23
+  - after: M7.23, M7.30, M7.31
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`
   - scope: the lead runs `/milestone-review M7.R` to prepare it: the check-in page (open a photo by
