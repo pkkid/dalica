@@ -13,6 +13,25 @@ state (ready, claimed, in review) is on the task board ([`task-board.md`](task-b
 *Honest assessment, 2026-10-10. Agents: read this before picking work. Update it only with
 measured facts, dated.*
 
+*2026-10-12 (M6.R, the Release 0.1 gate).* M6 is done: `cargo xtask accept M6` passes in 62 s
+standalone, and the tests on `main` went from 1 440 to 1 858. Users can rotate, flip, hide, caption,
+tag (with quick tags and Rename Tag) and re-date photos, describe folders and set their date and
+place, and read every photo's metadata in the Properties pane (Show All Metadata); the About window
+credits contributors and models, and Help ▸ Release Notes shows `whats-new.md`. Captions, tags and
+dates are written into JPEG, PNG, WebP and TIFF files about a second after a change (never into RAW
+pixels; an `.xmp` beside RAWs only when that option is on), atomically, keeping the file's time and
+every byte other applications wrote: the corpus of 53 files that exiv2, ImageMagick and Pillow wrote
+takes 441 writes with 0 failures. Values other applications wrote come in on scan as one undoable
+step; both-changed keeps Dalica's value and says so in Properties. A rebuild now keeps every M6
+field (a data-loss bug found and fixed before merge, M6.14). Our own corpus sets are published and
+pinned (`photos` 57, `heif` 3, `metadata` 53; every image set decodes in full). Version 0.1.0 builds
+16 unsigned packages on Linux, Windows and macOS in the release dry run; the maintainer signed off
+on shipping 0.1 (HEIF stays out of release builds until M10 decides; `dalica.exe --version` prints
+nothing in a console). The 10 k first screenful is 500 ms locally and 684–850 ms on the 4-CPU CI
+runner (budget 1 s; M5: 500–517 ms) after M6.32's import-on-scan regression was fixed (#312).
+Open: M7.25–M7.29 (file times across a crash, refusals for ImageMagick-written files, caution
+toasts, the accept M5 Windows flake, docs), the edit view (M7).
+
 *2026-10-12 (M5.R).* M5 is done: `cargo xtask accept M5` passes in 98 s (651 s with
 `DALICA_ACCEPT_RELEASE=1`), and the tests on `main` went from 822 to 1 440. The library now follows
 the user's folders: the Folder Manager (Scan Always, Scan Once, Remove, inherited by subfolders, one
@@ -2414,7 +2433,7 @@ replace at M6.R.
   - done when: tests: a root unmounted (emptied, or its device changed) just before a due write
     gets no sidecar, the edit is reported unsaved and lands when the files return; the existing
     offline and sidecar tests pass unchanged; the owner thread makes no `fs` call.
-- ⬜ **M6.R Release 0.1 gate**
+- ✅ **M6.R Release 0.1 gate**
   - after: M6.36
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`
@@ -2927,6 +2946,61 @@ effect tabs show an empty state until M12.
     scope (`architecture.md` §9).
   - done when: `cargo xtask tasks sync --check` parses them and `tasks sync --dry-run` lists one new
     issue per block.
+- ⬜ **M7.25 `fs` + `store`: a metadata write keeps the file's time even across a crash**
+  - after: M6.R
+  - files: `crates/fs/src/atomic.rs`, `crates/fs/src/times.rs`, `crates/fs/tests/times.rs`, `crates/fs/tests/atomic.rs`, `crates/store/src/metawrite/file.rs`, `crates/store/tests/metawrite.rs`
+  - scope: found at M6.R (M6.30's open item): the queue puts the photo's old modification time back
+    with `set_times` after the rename, so a process crash between the two leaves the new bytes (never
+    a torn file) with the write's time. Set the times on the temporary file before the rename
+    (`fs::atomic` gains a "times to keep" option with its fault point), keep the after-rename path
+    only where a platform needs it.
+  - done when: tests with fault injection: a crash at every point of a metadata write leaves the old
+    file with its old time or the new file with the old time; M6.30's metawrite suite passes
+    unchanged.
+- ⬜ **M7.26 `meta`: refusals named up front, and ImageMagick's IPTC profiles**
+  - after: M6.R
+  - files: `crates/meta/src/write/tiff.rs`, `crates/meta/src/container/png.rs`, `crates/meta/src/container/tiff.rs`, `crates/meta/src/iptc/read.rs`, `crates/meta/src/exif/mod.rs`, `crates/meta/src/iptc/mod.rs`, `crates/meta/tests/write_png_webp_tiff.rs`, `crates/meta/tests/read.rs`, `crates/image/fuzz/Cargo.lock`
+  - scope: found by M6.34's corpus at M6.R: a TIFF place or date edit that cannot be written
+    (EXIF holds the value, or no XMP mirror exists) fails as `Error::Verify` after writing; refuse
+    it before any write, naming the field. ImageMagick writes IPTC into PNG and TIFF as a bare IIM
+    stream inside a "Raw profile type 8bim" / tag 34377; it reads as a malformed Photoshop block, so
+    writes to real ImageMagick files are refused: read (and, where the merge rules allow, write)
+    that form. Also: the stale "arrives with M6.10" doc comments in `exif/mod.rs` and `iptc/mod.rs`,
+    and `crates/image/fuzz/Cargo.lock` missing M6.41's direct jxl dependencies.
+  - done when: `cargo test -p dalica-meta`: a synthetic ImageMagick-style PNG and TIFF read their
+    IPTC and take a caption write that verifies; the TIFF place/date cases are refused before any
+    byte is written, naming the field; `cargo xtask test-corpus -p dalica-meta` with the metadata
+    floors raised to the new measured counts.
+- ⬜ **M7.27 `ui` + `ui-kit`: caution toasts that show the whole message**
+  - after: M6.R
+  - files: `crates/ui-kit/src/widgets/feedback.rs`, `crates/ui-kit/tests/feedback.rs`, `crates/ui/src/notices.rs`, `crates/ui/tests/notices.rs`, `crates/ui/src/headless.rs`, `crates/ui/tests/fingerprints/toast*.json`
+  - scope: found at M6.R: metadata write failures use the Error toast because ui-kit has no caution
+    kind (the spec says caution), and the toast cuts its message short at both window sizes
+    ("Could not write the caption into IMG_0041.jpg: the file is read-only; the folder…"). Add the
+    caution kind; wrap the message to at most three lines and elide in the middle only past that
+    (the file name stays whole); headless `ui.settle` waits for pending metadata writes (M6.36
+    drove `ui.wait` instead).
+  - done when: tests: a read-only write failure shows one caution toast with the whole message at
+    1400×900 and 900×600 (fingerprints); `ui.settle` returns only after a queued metadata write has
+    landed.
+- ⬜ **M7.28 tests: the Windows "Access is denied" flake in accept M5**
+  - after: M6.R
+  - files: `tests/acceptance/m5_folders.rs`
+  - scope: seen on M5.20 (`m5_folders.rs:305`) and M6.6 (`:65`), Windows only: a file operation in
+    the folder scenarios fails with os error 5 while another handle (the watcher, a thumbnail read,
+    an indexer) still holds the file. Find the root cause as M6.36 did for the accept M1 flake (pin
+    to few CPUs, reason from the code); fix it without a retry loop or a looser check. Any product
+    file the cause lies in may be added to this block's `files` on its issue first.
+  - done when: the cause is named in the commit body, the scenario holds its handles
+    deterministically, and the M5 acceptance passes 20 runs pinned to 2 CPUs.
+- ⬜ **M7.29 Docs and housekeeping found at M6.R**
+  - after: M6.R
+  - files: `.gitignore`, `docs/security.md`, `docs/data-model.md`, `docs/control-protocol.md`
+  - scope: `dist/` (the packaging scripts' output) into `.gitignore`; `security.md` §4.3's
+    "Planned (M5)" and §7.1's sidecar and store fuzz targets marked "M1" that do not exist;
+    `data-model.md` §4's library path (`…/dalica/library`, `…/Dalica/Library` on macOS and
+    Windows); `control-protocol.md` §8 and `dalica-cli snapshot --demo` brought into agreement.
+  - done when: `cargo xtask ci` passes and each item matches the code.
 - ⬜ **M7.R Check-in**
   - after: M7.23
   - owner: maintainer
@@ -2960,6 +3034,8 @@ wave 4   M7.15 canvas, zoom + pan  ‖  M7.16 edit panel  ‖  M7.17 crop comman
          ‖  M7.18 Tuning commands
 wave 5   M7.19 Crop tool  ‖  M7.20 Straighten tool  ‖  M7.21 Tuning tab  ‖  M7.22 Retouch tool
 wave 6   M7.23 accept M7 → M7.R          (M7.24 lead: M9 blocks, any time after M6.37)
+         (M7.25–M7.29 from M6.R, any time: fs times, meta refusals + IPTC profiles, caution
+          toasts, the accept M5 Windows flake, docs and housekeeping)
 ```
 
 ### M8 — Save and export
@@ -3599,6 +3675,9 @@ One milestone in 3 feature areas (*Preferences and shortcuts*, *MCP and workflow
 
 #### Release 0.2 (P0 complete)
 
+- **Decide at M10.R:** whether release builds include the `heif` feature (HEIC/HEIF). 0.1 leaves it
+  out (the maintainer's answer at M6.R, 2026-10-12); measure the decoder against a larger HEIC
+  corpus (non-Apple, 10/12-bit, alpha) first.
 - **Done when:** every P0 parity row is ✅ with evidence; P0 workflows pass 100 %; performance
   budgets for P0 scenarios are enforced; an honest *Where we stand*; a 0.2 release.
 

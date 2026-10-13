@@ -7,7 +7,20 @@ and git.
 
 ## Current
 
-- **Milestone:** M5, folders, scanning and formats, is done: M5.1–M5.25 are merged (and M6.1,
+- **Milestone:** M6, photo info, metadata and Release 0.1, is done: M6.2–M6.43 and the pulled M7.1
+  are merged and `cargo xtask accept M6` passes (62 s standalone). Rotate, hide, captions, tags and
+  quick tags, dates, folder info, the Properties pane, About and Release Notes; captions, tags and
+  dates written into JPEG, PNG, WebP and TIFF and imported on scan; packages for Linux, Windows and
+  macOS at version 0.1.0. Next: shipping 0.1 (the maintainer creates the `release` environment and
+  pushes `release`), then M7, the edit view; its issues open when the M6.R review PR is merged.
+- **M6 review (2026-10-12, the Release 0.1 gate):** the maintainer signed off on shipping 0.1;
+  confirmed both xmp-interop.md §9 rules as built (a removed tag stays in `lr:hierarchicalSubject`;
+  IPTC is written whenever a JPEG's caption or tags change); kept HEIF out of release builds until
+  M10 decides; left `dalica.exe --version` in a console for later; approved the 53 fingerprint
+  baselines, asking that the title bar show the app icon (a fix PR with this review). Mid-run the
+  maintainer replaced the app icon (#313), approved publishing our corpus sets, and answered
+  reserved decision 11 (option b, M7.1). Fix tasks M7.25–M7.29 carry what the run found.
+- **Milestone (M5):** M5, folders, scanning and formats, is done: M5.1–M5.25 are merged (and M6.1,
   the application id `org.dalica.Dalica`) and `cargo xtask accept M5` passes (98 s; 651 s with the
   release budgets). The library follows the user's folders (Folder Manager, first run, watching,
   verification, offline volumes) and reads every format of `formats.md` §1. Next: M6, photo info,
@@ -125,3 +138,14 @@ and git.
 | 2026-10-12 | GitHub ubuntu / macos / windows | CI job `cargo xtask ci` (run 38234692409, 6d94f5f); tests | 8 min 49 s / 10 min 13 s / 19 min 43 s; 1 440 / 1 439 / 1 415 pass |
 | 2026-10-12 | — | M5 run: 25 tasks + M6.1 + 1 red-main fix, 7 workers, 21:20–05:40 (paused ~1 h on a push permission); 26 re-submits over 14 tasks (mostly neighbouring parity rows); median claim → merge 1.0 h; `main` red once on Windows (a test race, #222) | — |
 | 2026-10-12 | — | parity summary (M5.R) | 9 ✅ / 47 🟡 / 85 ⬜ / 16 🚫 (157 rows, 61 registered commands) |
+| 2026-10-12 | maintainer desktop (i7-13700K, 24 threads, 31 GB, Fedora 44) | local `cargo xtask ci` cold / warm (c12d1e3); tests | 423 s / 146 s; 1 858 pass, 4 ignored |
+| 2026-10-12 | same | `cargo xtask accept M0`–`M6` standalone, debug | 4.4 / 6.2 / 12.0 / 46.9 / 55.1 / 63.4 / 62.0 s |
+| 2026-10-12 | same | `panic_hunt` (98 registered commands) | 1.11 s |
+| 2026-10-12 | same | corpus (pinned 6239cad): PngSuite; raw; photos; heif; metadata writes | 162 of 176 (14/14 corrupt refused); 26 of 26 (15 embedded); 57 of 57 (41); 3 of 3; 441 writes, 325 written, 0 failures |
+| 2026-10-12 | same | first thumbnails, release: 1 k / 10 k JPEGs (budget 1 s) | 133.5 ms / 500 ms |
+| 2026-10-12 | GitHub ubuntu (4 CPUs) | Budgets job: first thumbnails 10 k (c12d1e3 / 033db0e / fix branch) | 850 / 801 / 684 ms (M6.32 alone: 1 217 ms, fixed by #312) |
+| 2026-10-12 | same | tag index, 100 k photos × 5 tags, release | 110 ms |
+| 2026-10-12 | GitHub ubuntu / macos / windows | CI job `cargo xtask ci` (run 38323360294, #310) | 7 min 25 s / 13 min 27 s / 16 min 07 s |
+| 2026-10-12 | GitHub release dry run (run 38333449479) | packages: Linux x86_64 (tar, deb, rpm, AppImage, Flatpak), Windows (MSI, zip), macOS (DMG, CLI zip) | tar 18 MB, deb 18, rpm 18, AppImage 17, Flatpak 12; MSI 12.7 MiB, zip 15.8 MiB; DMG 20.2 MB, CLI zip 12.6 MB |
+| 2026-10-12 | — | M6 run: 43 tasks + M7.1 + 2 red-main fixes (#312, #315), 7 workers, 09:56–21:43; ~30 send-backs (rebases, parity rows), 9 needs-file round-trips; 3 Windows flakes (accept M1 root-caused in M6.36); /home full once | — |
+| 2026-10-12 | — | parity summary (M6.R) | 15 ✅ / 55 🟡 / 74 ⬜ / 16 🚫 (160 rows, 98 registered commands) |
