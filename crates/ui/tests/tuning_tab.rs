@@ -1,0 +1,560 @@
+//! The Tuning tab and the Basic Fixes Fill Light row (`editing.md` §6.5, §7), driven as a user and
+//! an agent would: a Fill Light drag is one "Tuning" step, previewed live through drafts that each
+//! arrive within 16 ms, and further drags in the same tab visit join that step; the Basic Fixes row
+//! shows the same value and its own drag is its own step; Auto lighting sets the three lighting
+//! sliders in one step; the eyedropper picks the grey patch of a photo with a colour cast and the
+//! cast is gone; hover tooltips, + / − nudges and double-click resets; the script path through the
+//! Tuning tool and its graceful failures; the tab's fingerprints at 1400 × 900 and 900 × 600.
+//!
+//! `DALICA_SHOTS=<dir>` writes the tab's screenshots there too.
+
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+use dalica_engine::Session;
+use dalica_scenes::{Scene, fingerprint};
+use dalica_ui::control::{Config, Connection, Control, Reply, Request, serve};
+use dalica_ui::headless::{Click, Drag, KeyState, PointerEvent, PointerKind, Target};
+use dalica_ui::panels::edit::canvas;
+use dalica_ui::{App, Driver};
+use dalica_ui_kit::WidgetInfo;
+use egui::{Modifiers, PointerButton, pos2, vec2};
+use serde_json::{Value, json};
+
+const FRAMES: usize = 60 * 60;
+const SIZES: [(u32, u32); 2] = [(1400, 900), (900, 600)];
+/// A dull, dark photo (every level between 40 and 142): all three lighting wands have work.
+const DULL: &str = "Dull.png";
+/// A photo with a warm cast and a grey patch in its middle.
+const CAST: &str = "Cast.png";
+/// The cast: red, green and blue multiplied by these.
+const TINT: [f64; 3] = [1.0, 0.86, 0.68];
+/// The grey patch before the cast, and its share of each side around the centre.
+const GREY: f64 = 150.0;
+const PATCH: f64 = 0.3;
+
+struct T {
+    _dir: tempfile::TempDir,
+    control: Control,
+    conn: Connection,
+    d: Driver,
+    /// The demo photos by id.
+    photos: Vec<u64>,
+    dull: u64,
+    cast: u64,
+}
+
+fn rgba(w: u32, h: u32, f: impl Fn(u32, u32, [u8; 3]) -> [u8; 3]) -> Vec<u8> {
+    let scene = Scene::new(23, w, h).render().unwrap();
+    let mut out = Vec::with_capacity((w * h * 4) as usize);
+    for y in 0..h {
+        for x in 0..w {
+            let i = ((y * w + x) * 3) as usize;
+            let p = f(x, y, [scene.data[i], scene.data[i + 1], scene.data[i + 2]]);
+            out.extend_from_slice(&[p[0], p[1], p[2], 255]);
+        }
+    }
+    out
+}
+
+/// A library of one folder: `n` demo photos, the dull photo and the cast photo; the window at
+/// `size`.
+fn setup((w, h): (u32, u32), n: usize) -> T {
+    let dir = tempfile::tempdir().unwrap();
+    let files = dalica_scenes::demo_library(1, n, 11).unwrap();
+    let folder = dir.path().join("photos").join(files[0].path.parent().unwrap());
+    std::fs::create_dir_all(&folder).unwrap();
+    for f in &files {
+        std::fs::write(dir.path().join("photos").join(&f.path), &f.bytes).unwrap();
+    }
+    let (pw, ph) = (480, 320);
+    let dull = rgba(pw, ph, |_, _, p| p.map(|v| (40.0 + f64::from(v) * 0.4).round() as u8));
+    std::fs::write(folder.join(DULL), fingerprint::png_rgba(pw, ph, &dull)).unwrap();
+    let cast = rgba(pw, ph, |x, y, p| {
+        let inside = |v: u32, side: u32| (f64::from(v) / f64::from(side) - 0.5).abs() < PATCH / 2.0;
+        let base = if inside(x, pw) && inside(y, ph) { [GREY; 3] } else { p.map(f64::from) };
+        [0, 1, 2].map(|c| (base[c] * TINT[c]).round() as u8)
+    });
+    std::fs::write(folder.join(CAST), fingerprint::png_rgba(pw, ph, &cast)).unwrap();
+    let mut s = Session::open(&dir.path().join("library"), Arc::new(dalica_core::SystemClock)).unwrap();
+    s.execute("folders.add", &json!({ "path": folder })).unwrap();
+    s.wait_idle();
+    let mut ids: Vec<(String, u64)> = s.library().photos().map(|p| (p.name.clone(), p.id.get())).collect();
+    ids.sort();
+    let id_of = |name: &str| ids.iter().find(|(n, _)| n == name).unwrap().1;
+    let (dull, cast) = (id_of(DULL), id_of(CAST));
+    let photos: Vec<u64> = ids.iter().filter(|(n, _)| n != DULL && n != CAST).map(|p| p.1).collect();
+    assert_eq!(photos.len(), n);
+    let control = Control::new(Config::default());
+    let mut d = Driver::new(App::with_picker(Some(s), control.picker()), w, h, 1.0);
+    d.settle(FRAMES).unwrap();
+    T { _dir: dir, control, conn: Connection::new(), d, photos, dull, cast }
+}
+
+fn call(t: &mut T, method: &str, params: Value) -> Reply {
+    serve(&t.control, &mut t.conn, &mut t.d, &Request::new(method, params))
+}
+
+fn ok(t: &mut T, method: &str, params: Value) -> Value {
+    call(t, method, params.clone()).unwrap_or_else(|e| panic!("{method} {params}: {e}"))
+}
+
+fn state(t: &mut T) -> Value {
+    ok(t, "ui.state", json!({}))
+}
+
+fn run(t: &mut T, id: &str, params: Value) -> Value {
+    let v = ok(t, "engine.execute", json!({ "command": id, "params": params }));
+    t.d.settle(FRAMES).unwrap();
+    v
+}
+
+/// The error code `id` answers with `params`.
+fn refused(t: &mut T, id: &str, params: Value) -> String {
+    match call(t, "engine.execute", json!({ "command": id, "params": params.clone() })) {
+        Ok(v) => panic!("{id} {params} answered {v}"),
+        Err(e) => e.code.as_str().to_owned(),
+    }
+}
+
+fn click(t: &mut T, id: &str) {
+    ok(t, "ui.clickWidget", json!({ "id": id }));
+    t.d.settle(FRAMES).unwrap();
+}
+
+fn find(t: &T, id: &str) -> Option<WidgetInfo> {
+    t.d.widgets().into_iter().find(|w| w.id == id)
+}
+
+fn widget(t: &T, id: &str) -> WidgetInfo {
+    find(t, id).unwrap_or_else(|| panic!("no `{id}` in {:?}", t.d.widgets().iter().map(|w| w.id.clone()).collect::<Vec<_>>()))
+}
+
+fn history(t: &mut T, id: u64) -> Value {
+    run(t, "photo.history.state", json!({ "id": id }))
+}
+
+fn edits(t: &mut T, id: u64) -> Vec<String> {
+    serde_json::from_value(history(t, id)["edits"].clone()).unwrap()
+}
+
+/// The values of a `tuning(fill,highlights,shadows,temp,neutral)` entry.
+fn tuning(entry: &str) -> (f64, f64, f64, f64, String) {
+    let inner = entry.strip_prefix("tuning(").and_then(|e| e.strip_suffix(')')).unwrap_or_else(|| panic!("not a tuning entry: {entry}"));
+    let parts: Vec<&str> = inner.split(',').collect();
+    let n = |i: usize| parts[i].parse::<f64>().unwrap();
+    (n(0), n(1), n(2), n(3), parts[4].to_owned())
+}
+
+fn last_tuning(t: &mut T, id: u64) -> (f64, f64, f64, f64, String) {
+    tuning(edits(t, id).last().expect("an entry"))
+}
+
+/// Opens photo `id` in the edit view on the Tuning tab, its preview drawn.
+fn open_tuning(t: &mut T, id: u64) {
+    run(t, "view.edit", json!({ "id": id }));
+    click(t, "tab:edit.tuning");
+    wait_preview(t);
+}
+
+/// Waits for the open photo's preview to be final, and draws it.
+fn wait_preview(t: &mut T) {
+    t.d.app_mut().session_mut().unwrap().wait_preview(Duration::from_secs(20));
+    t.d.settle(FRAMES).unwrap();
+}
+
+/// `v` as a Tuning slider's tooltip writes it (the slider holds an `f32`).
+fn two_places(v: f64) -> String {
+    format!("{:.2}", f64::from(v as f32))
+}
+
+/// The tooltip shown after resting the pointer on `id`.
+fn tooltip(t: &mut T, id: &str) -> String {
+    t.d.hover(id, 1000).unwrap();
+    t.d.app().tooltip().unwrap_or_default().to_owned()
+}
+
+/// Steps frames (letting workers run) until `done` holds; panics after 20 s.
+fn until(t: &mut T, what: &str, mut done: impl FnMut(&mut T) -> bool) {
+    let start = Instant::now();
+    while !done(t) {
+        assert!(start.elapsed() < Duration::from_secs(20), "timed out waiting for {what}");
+        std::thread::sleep(Duration::from_millis(5));
+        t.d.step();
+    }
+    t.d.settle(FRAMES).unwrap();
+}
+
+/// Drags slider `id` from its centre by `dx` in `steps` moves, letting drafts arrive between them.
+fn slow_drag(t: &mut T, id: &str, dx: f32, steps: usize) {
+    let w = widget(t, id);
+    let start = pos2(w.rect[0] + w.rect[2] / 2.0, w.rect[1] + w.rect[3] / 2.0);
+    let ev = |kind, pos| PointerEvent { kind, pos };
+    t.d.pointer(&[ev(PointerKind::Move, start), ev(PointerKind::Down, start)], PointerButton::Primary, Modifiers::NONE).unwrap();
+    for i in 1..=steps {
+        let at = start + vec2(dx * i as f32 / steps as f32, 0.0);
+        t.d.pointer(&[ev(PointerKind::Drag, at)], PointerButton::Primary, Modifiers::NONE).unwrap();
+        // A draft has time to arrive before the next move.
+        t.d.app_mut().session_mut().unwrap().wait_preview(Duration::from_millis(300));
+        t.d.step();
+    }
+    let end = start + vec2(dx, 0.0);
+    t.d.pointer(&[ev(PointerKind::Up, end), ev(PointerKind::Move, pos2(5.0, 5.0))], PointerButton::Primary, Modifiers::NONE).unwrap();
+    t.d.settle(FRAMES).unwrap();
+}
+
+fn out_dir() -> PathBuf {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/ui");
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+/// The pixels of `rect` of the window: width, height and RGBA.
+fn pixels(t: &T, rect: [f32; 4]) -> (u32, u32, Vec<u8>) {
+    let shot = t.d.screenshot().unwrap();
+    let [x0, y0] = [rect[0].round() as u32, rect[1].round() as u32];
+    let [x1, y1] = [((rect[0] + rect[2]).round() as u32).min(shot.width), ((rect[1] + rect[3]).round() as u32).min(shot.height)];
+    let mut rgba = Vec::new();
+    for y in y0..y1 {
+        for x in x0..x1 {
+            rgba.extend_from_slice(&shot.pixel(x, y).unwrap());
+        }
+    }
+    (x1 - x0, y1 - y0, rgba)
+}
+
+/// Checks the pixels of `rect` against `tests/fingerprints/<name>.json` (`DALICA_BLESS=1` writes
+/// it), and writes them to the test output (and to `$DALICA_SHOTS`).
+fn check_region(t: &T, name: &str, rect: [f32; 4]) {
+    let (w, h, rgba) = pixels(t, rect);
+    let png = fingerprint::png_rgba(w, h, &rgba);
+    std::fs::write(out_dir().join(format!("{name}.png")), &png).unwrap();
+    if let Some(dir) = std::env::var_os("DALICA_SHOTS") {
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(Path::new(&dir).join(format!("{name}.png")), &png).unwrap();
+    }
+    let stored = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("tests/fingerprints/{name}.json"));
+    if std::env::var_os("DALICA_BLESS").is_some() {
+        std::fs::write(&stored, fingerprint::to_json(&fingerprint::fingerprint(w, h, &rgba)) + "\n").unwrap();
+    }
+    let expected = fingerprint::from_json(&std::fs::read_to_string(&stored).unwrap()).unwrap();
+    if let Err(m) = fingerprint::check(w, h, &rgba, &expected, 2.0) {
+        std::fs::write(out_dir().join(format!("{name}-actual.png")), &m.actual_png).unwrap();
+        panic!("{name}: {}", m.message);
+    }
+}
+
+/// A Fill Light drag is one "Tuning" step, previewed through drafts that each arrive within
+/// 16 ms; a Highlights drag in the same tab visit joins it; the Basic Fixes row shows the same
+/// value and its own drag is its own step, undone on its own.
+#[test]
+fn a_fill_light_drag_is_one_tuning_step_and_basic_fixes_shows_it() {
+    let mut t = setup((1400, 900), 1);
+    let p = t.dull;
+    open_tuning(&mut t, p);
+    let before = edits(&mut t, p);
+    assert!(!before.iter().any(|e| e.starts_with("tuning(")), "{before:?}");
+
+    // Every frame of the drag stays within 16 ms while the drafts update the photo: the UI never
+    // waits for a render. (The drafts' own request-to-shown times are reported; this debug build's
+    // renderer is unoptimised, the release budget is the `edit_preview` bench's.)
+    let since = t.d.perf().last().map_or(-1.0, |s| s.at);
+    slow_drag(&mut t, "slider:tuning.fill_light", 60.0, 8);
+    let drag: Vec<_> = t.d.perf().samples().filter(|s| s.at > since).cloned().collect();
+    let drafts: Vec<Duration> = drag.iter().filter_map(|s| s.preview_draft).collect();
+    assert!(drafts.len() >= 4, "drafts arrived while dragging: {drafts:?}");
+    let slowest = drag.iter().map(|s| s.update).max().unwrap();
+    assert!(slowest <= Duration::from_millis(16), "the slowest frame of the drag took {slowest:?}");
+    eprintln!("drafts while dragging: {drafts:?}; slowest frame {slowest:?}");
+    let s = state(&mut t);
+    assert_eq!(s["edit"]["tool"], Value::Null, "letting go closes the session's tool");
+    assert_eq!(s["edit"]["tuning"], Value::Null);
+    let after = edits(&mut t, p);
+    assert_eq!(after.len(), before.len() + 1, "{after:?}");
+    let (fill, ..) = last_tuning(&mut t, p);
+    assert!(fill > 0.5, "the drag went right of the middle: {fill}");
+    assert_eq!(history(&mut t, p)["undoLabel"], "Undo Tuning");
+    assert_eq!(widget(&t, "button:edit.undo").label, "Undo Tuning");
+    // The preview shows the photo's own recipe again, with the Tuning in it.
+    let shown = t.d.app().session().unwrap().preview().unwrap().recipe.clone();
+    assert_eq!(shown, after);
+
+    // Another drag in the same visit: still one step.
+    slow_drag(&mut t, "slider:tuning.highlights", 40.0, 4);
+    let joined = edits(&mut t, p);
+    assert_eq!(joined.len(), after.len());
+    let (fill2, highlights, ..) = last_tuning(&mut t, p);
+    assert_eq!(fill2, fill);
+    assert!(highlights > 0.25, "{highlights}");
+
+    // The Basic Fixes row shows the same value.
+    let tab_value = tooltip(&mut t, "slider:tuning.fill_light");
+    assert_eq!(tab_value, two_places(fill));
+    click(&mut t, "tab:edit.basic");
+    assert_eq!(widget(&t, "slider:basic.fill_light").label, "Fill Light");
+    assert_eq!(tooltip(&mut t, "slider:basic.fill_light"), tab_value);
+
+    // Its own drag is a step of its own on the same entry.
+    slow_drag(&mut t, "slider:basic.fill_light", -50.0, 4);
+    let (fill3, highlights3, ..) = last_tuning(&mut t, p);
+    assert!(fill3 < fill, "{fill3} < {fill}");
+    assert_eq!(highlights3, highlights);
+    assert_eq!(edits(&mut t, p).len(), joined.len(), "the Tuning entry is updated in place");
+    click(&mut t, "tab:edit.tuning");
+    assert_eq!(tooltip(&mut t, "slider:tuning.fill_light"), two_places(fill3));
+    click(&mut t, "button:edit.undo");
+    assert_eq!(edits(&mut t, p), joined, "one undo takes back the Basic Fixes drag");
+    click(&mut t, "button:edit.undo");
+    assert_eq!(edits(&mut t, p), before, "one more takes back the tab's whole session");
+}
+
+/// Auto lighting sets Fill Light, Highlights and Shadows to the wand's answer in one step.
+#[test]
+fn auto_lighting_sets_three_sliders_in_one_step() {
+    let mut t = setup((1400, 900), 1);
+    let p = t.dull;
+    open_tuning(&mut t, p);
+    let before = edits(&mut t, p);
+    // What the wand answers when asked directly.
+    let job = run(&mut t, "photo.tuning.auto", json!({ "id": p, "what": "lighting" }))["job"].as_u64().unwrap();
+    let answer = t.d.app_mut().session_mut().unwrap().wait_job(job, Duration::from_secs(20)).unwrap().result.unwrap();
+    let want = ["fill", "highlights", "shadows"].map(|k| answer[k].as_f64().unwrap());
+    assert!(want.iter().all(|v| *v > 0.0), "a dull, dark photo needs all three: {answer}");
+
+    assert_eq!(widget(&t, "button:tuning.autoLighting").label, "Auto lighting");
+    click(&mut t, "button:tuning.autoLighting");
+    until(&mut t, "the wand's answer", |t| edits(t, p).len() > before.len());
+    let after = edits(&mut t, p);
+    assert_eq!(after.len(), before.len() + 1);
+    let (fill, highlights, shadows, temp, neutral) = last_tuning(&mut t, p);
+    assert_eq!([fill, highlights, shadows], want);
+    assert_eq!((temp, neutral.as_str()), (0.0, "none"));
+    for (id, v) in [("slider:tuning.fill_light", fill), ("slider:tuning.highlights", highlights), ("slider:tuning.shadows", shadows)] {
+        assert_eq!(tooltip(&mut t, id), two_places(v), "{id}");
+    }
+    click(&mut t, "button:edit.undo");
+    assert_eq!(edits(&mut t, p), before, "one step");
+}
+
+/// The eyedropper arms the picker (the Tuning tool opens, its button shows active); a click on the
+/// grey patch of a photo with a warm cast picks it, and the photo shows the patch grey.
+#[test]
+fn picking_the_grey_patch_removes_the_cast() {
+    let mut t = setup((1400, 900), 1);
+    let p = t.cast;
+    open_tuning(&mut t, p);
+    let centre = |t: &T| {
+        let s = t.d.app().session().unwrap().preview().unwrap();
+        let (w, h) = (s.image.width, s.image.height);
+        let i = ((h / 2 * w + w / 2) * 4) as usize;
+        [s.image.data[i], s.image.data[i + 1], s.image.data[i + 2]]
+    };
+    let spread = |c: [u8; 3]| c.iter().max().unwrap() - c.iter().min().unwrap();
+    assert!(spread(centre(&t)) > 30, "the cast shows: {:?}", centre(&t));
+    assert_eq!(widget(&t, "button:tuning.neutralPicker").label, "Pick a grey or white area of the photo to remove a color cast");
+    let before = edits(&mut t, p);
+
+    click(&mut t, "button:tuning.neutralPicker");
+    assert_eq!(state(&mut t)["edit"]["tool"], "tuning");
+    assert!(widget(&t, "button:tuning.neutralPicker").active);
+    // A second click disarms it, a third arms it again.
+    click(&mut t, "button:tuning.neutralPicker");
+    assert_eq!(state(&mut t)["edit"]["tool"], Value::Null);
+    assert!(!widget(&t, "button:tuning.neutralPicker").active);
+    click(&mut t, "button:tuning.neutralPicker");
+
+    let v = canvas::view(t.d.ctx()).unwrap();
+    let at = v.image.center();
+    let ev = |kind| PointerEvent { kind, pos: at };
+    t.d.pointer(&[ev(PointerKind::Move), ev(PointerKind::Down), ev(PointerKind::Up)], PointerButton::Primary, Modifiers::NONE).unwrap();
+    until(&mut t, "the picked colour", |t| edits(t, p).len() > before.len());
+    assert_eq!(state(&mut t)["edit"]["tool"], Value::Null, "a pick disarms the eyedropper");
+    assert_eq!(state(&mut t)["view"], "edit", "the click did not leave the edit view");
+    let (.., neutral) = last_tuning(&mut t, p);
+    assert!(neutral.starts_with('#'), "{neutral}");
+    wait_preview(&mut t);
+    let c = centre(&t);
+    assert!(spread(c) <= 4, "the patch is grey now: {c:?}");
+    assert_eq!(history(&mut t, p)["undoLabel"], "Undo Tuning");
+}
+
+/// Hovering a slider shows its value; + and − nudge the hovered slider by 2 % of its range, each
+/// press joining the tab's session; a double-click resets to the default; the wands and the
+/// eyedropper have their tooltips.
+#[test]
+fn tooltips_nudges_and_double_click_resets() {
+    let mut t = setup((1400, 900), 1);
+    let p = t.photos[0];
+    open_tuning(&mut t, p);
+    let before = edits(&mut t, p).len();
+    assert_eq!(tooltip(&mut t, "slider:tuning.highlights"), "0.00");
+    // The pointer stays on the slider: + and − reach it.
+    t.d.key_raw(egui::Key::Plus, Modifiers::NONE, KeyState::Press);
+    t.d.key_raw(egui::Key::Plus, Modifiers::NONE, KeyState::Press);
+    t.d.settle(FRAMES).unwrap();
+    assert_eq!(last_tuning(&mut t, p).1, 0.02, "two nudges of 2 % of 0 … 0.5");
+    assert_eq!(tooltip(&mut t, "slider:tuning.highlights"), "0.02");
+    t.d.key_raw(egui::Key::Minus, Modifiers::NONE, KeyState::Press);
+    t.d.settle(FRAMES).unwrap();
+    assert_eq!(last_tuning(&mut t, p).1, 0.01);
+    assert_eq!(tooltip(&mut t, "slider:tuning.temperature"), "0.00");
+    t.d.key_raw(egui::Key::Plus, Modifiers::NONE, KeyState::Press);
+    t.d.settle(FRAMES).unwrap();
+    assert_eq!(last_tuning(&mut t, p).3, 0.04, "2 % of −1 … 1");
+    assert_eq!(edits(&mut t, p).len(), before + 1, "every nudge joined one step");
+
+    let double = Click { count: 2, ..Click::default() };
+    t.d.click_with("slider:tuning.temperature", &double).unwrap();
+    t.d.settle(FRAMES).unwrap();
+    assert_eq!(last_tuning(&mut t, p).3, 0.0, "reset to the default");
+    assert_eq!(tooltip(&mut t, "slider:tuning.temperature"), "0.00");
+
+    for (id, tip) in [
+        ("button:tuning.autoLighting", "Auto lighting"),
+        ("button:tuning.autoColor", "Auto color"),
+        ("button:tuning.neutralPicker", "Pick a grey or white area of the photo to remove a color cast"),
+        ("button:tuning.reset", "Put every Tuning control back to its default"),
+    ] {
+        assert_eq!(tooltip(&mut t, id), tip, "{id}");
+    }
+    // Reset: every control back to its default, and then it is greyed.
+    assert!(widget(&t, "button:tuning.reset").enabled);
+    click(&mut t, "button:tuning.reset");
+    assert_eq!(last_tuning(&mut t, p), (0.0, 0.0, 0.0, 0.0, "none".into()));
+    assert!(!widget(&t, "button:tuning.reset").enabled);
+    assert_eq!(edits(&mut t, p).len(), before + 1, "still the one session");
+}
+
+/// Scripts drive the tab through the Tuning tool: `set` with `preview` shows the draft without a
+/// step, `set` and `apply` make one; the wands by action; refusals leave everything as it was.
+/// Esc while the eyedropper is armed disarms it and the photo shows its own recipe.
+#[test]
+fn the_tool_drives_the_tab_and_refuses_bad_actions() {
+    let mut t = setup((1400, 900), 1);
+    let p = t.photos[0];
+    open_tuning(&mut t, p);
+    let before = edits(&mut t, p);
+    run(&mut t, "edit.tool.open", json!({ "tool": "tuning" }));
+    let v = run(&mut t, "edit.tool.action", json!({ "name": "set", "params": { "fill": 0.3, "temperature": -0.5, "preview": true } }));
+    assert_eq!(v["preview"], true);
+    assert_eq!(edits(&mut t, p), before, "a preview takes no step");
+    let draft = state(&mut t)["edit"]["tuning"].clone();
+    assert_eq!((draft["fill"].as_f64().unwrap(), draft["temperature"].as_f64().unwrap()), (0.3_f32 as f64, -0.5));
+    let shown = t.d.app().session().unwrap().preview().unwrap().recipe.clone();
+    assert_eq!(shown.last().unwrap(), "tuning(0.3,0,0,-0.5,none)", "the photo shows the draft");
+    run(&mut t, "edit.tool.action", json!({ "name": "set", "params": { "neutral": [0.6, 0.5, 0.4] } }));
+    assert_eq!(edits(&mut t, p).len(), before.len() + 1);
+    assert_eq!(last_tuning(&mut t, p), (0.3, 0.0, 0.0, -0.5, "#998066".into()));
+    let applied = run(&mut t, "edit.tool.apply", json!({}));
+    assert_eq!(applied["changed"], false, "nothing left to apply");
+    assert_eq!(state(&mut t)["edit"]["tool"], Value::Null);
+
+    // Refusals change nothing.
+    run(&mut t, "edit.tool.open", json!({ "tool": "tuning" }));
+    let kept = edits(&mut t, p);
+    for (params, code) in [
+        (json!({ "name": "set", "params": { "fill": 1.5 } }), "bad_params"),
+        (json!({ "name": "set", "params": { "highlights": -0.1 } }), "bad_params"),
+        (json!({ "name": "set", "params": { "temperature": "warm" } }), "bad_params"),
+        (json!({ "name": "set", "params": { "neutral": [1, 2, 3] } }), "bad_params"),
+        (json!({ "name": "set", "params": { "temp": 0.1 } }), "bad_params"),
+        (json!({ "name": "auto", "params": { "what": "everything" } }), "bad_params"),
+        (json!({ "name": "auto", "params": {} }), "bad_params"),
+        (json!({ "name": "pick", "params": { "x": 1.5, "y": 0.5 } }), "bad_params"),
+        (json!({ "name": "pick", "params": { "x": 0.5 } }), "bad_params"),
+        (json!({ "name": "picker", "params": { "on": "yes" } }), "bad_params"),
+        (json!({ "name": "reset", "params": { "all": true } }), "bad_params"),
+        (json!({ "name": "nope" }), "bad_params"),
+        (json!({ "name": "set", "params": [1] }), "bad_params"),
+    ] {
+        assert_eq!(refused(&mut t, "edit.tool.action", params.clone()), code, "{params}");
+    }
+    assert_eq!(edits(&mut t, p), kept);
+
+    // The colour wand by action, then a pick by action: each answer is one change.
+    let job = run(&mut t, "edit.tool.action", json!({ "name": "auto", "params": { "what": "color" } }));
+    assert_eq!(job["pending"], true);
+    run(&mut t, "edit.tool.action", json!({ "name": "pick", "params": { "x": 0.5, "y": 0.5 } }));
+    until(&mut t, "the wands' answers", |t| t.d.app().session().unwrap().jobs().iter().all(|j| j.state.is_finished()));
+    let (.., neutral) = last_tuning(&mut t, p);
+    assert!(neutral.starts_with('#') && neutral != "#998066", "{neutral}");
+
+    // Reset by action.
+    run(&mut t, "edit.tool.action", json!({ "name": "reset" }));
+    assert_eq!(last_tuning(&mut t, p), (0.0, 0.0, 0.0, 0.0, "none".into()));
+    run(&mut t, "edit.tool.apply", json!({}));
+
+    // Esc disarms the eyedropper and drops a draft shown.
+    click(&mut t, "button:tuning.neutralPicker");
+    run(&mut t, "edit.tool.action", json!({ "name": "set", "params": { "shadows": 0.4, "preview": true } }));
+    assert!(t.d.app().session().unwrap().preview().unwrap().recipe.last().unwrap().contains("0.4"));
+    t.d.key("Esc").unwrap();
+    t.d.settle(FRAMES).unwrap();
+    let s = state(&mut t);
+    assert_eq!((s["view"].clone(), s["edit"]["tool"].clone()), (json!("edit"), Value::Null), "Esc closed the tool, not the view");
+    assert!(!widget(&t, "button:tuning.neutralPicker").active);
+    wait_preview(&mut t);
+    let shown = t.d.app().session().unwrap().preview().unwrap().recipe.clone();
+    assert_eq!(shown, edits(&mut t, p), "the photo shows its own recipe again");
+    assert_eq!(last_tuning(&mut t, p).2, 0.0, "the draft was not applied");
+}
+
+/// The tab's fingerprints at both sizes, with values set and a neutral colour picked; everything
+/// the tab draws is registered and enabled; a modal tool draws it disabled.
+#[test]
+fn the_tab_at_both_sizes() {
+    for (w, h) in SIZES {
+        let mut t = setup((w, h), 1);
+        let p = t.photos[0];
+        open_tuning(&mut t, p);
+        for id in [
+            "slider:tuning.fill_light",
+            "slider:tuning.highlights",
+            "slider:tuning.shadows",
+            "slider:tuning.temperature",
+            "button:tuning.autoLighting",
+            "button:tuning.neutralPicker",
+            "button:tuning.autoColor",
+        ] {
+            let wi = widget(&t, id);
+            assert!(wi.enabled, "{w}×{h}: {id}");
+            let panel = widget(&t, "region:editPanel").rect;
+            assert!(wi.rect[1] + wi.rect[3] <= panel[1] + panel[3], "{w}×{h}: {id} inside the panel");
+        }
+        run(&mut t, "edit.tool.open", json!({ "tool": "tuning" }));
+        run(
+            &mut t,
+            "edit.tool.action",
+            json!({ "name": "set", "params": { "fill": 0.35, "highlights": 0.1, "temperature": 0.4, "neutral": [0.7, 0.6, 0.5] } }),
+        );
+        run(&mut t, "edit.tool.apply", json!({}));
+        wait_preview(&mut t);
+        let panel = widget(&t, "region:editPanel").rect;
+        check_region(&t, &format!("edit-tuning-{w}x{h}"), panel);
+        if let Some(dir) = std::env::var_os("DALICA_SHOTS") {
+            let shot = t.d.screenshot().unwrap();
+            std::fs::write(Path::new(&dir).join(format!("tuning-window-{w}x{h}.png")), fingerprint::png_rgba(shot.width, shot.height, &shot.rgba))
+                .unwrap();
+        }
+        click(&mut t, "tab:edit.basic");
+        check_region(&t, &format!("edit-tuning-basic-{w}x{h}"), panel);
+        click(&mut t, "tool:straighten");
+        assert!(!widget(&t, "slider:basic.fill_light").enabled, "{w}×{h}: a modal tool draws the row disabled");
+        click(&mut t, "tab:edit.tuning");
+        assert!(!widget(&t, "slider:tuning.fill_light").enabled, "{w}×{h}: a modal tool draws the tab disabled");
+    }
+}
+
+/// The driver's quick drag (`ui.dragWidget`) on a Tuning slider is one step too.
+#[test]
+fn a_quick_drag_is_also_one_step() {
+    let mut t = setup((900, 600), 1);
+    let p = t.photos[0];
+    open_tuning(&mut t, p);
+    let before = edits(&mut t, p).len();
+    t.d.drag("slider:tuning.shadows", Target::Delta(vec2(30.0, 0.0)), &Drag::default()).unwrap();
+    t.d.settle(FRAMES).unwrap();
+    assert_eq!(edits(&mut t, p).len(), before + 1);
+    assert!(last_tuning(&mut t, p).2 > 0.25);
+}

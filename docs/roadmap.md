@@ -2899,7 +2899,7 @@ effect tabs show an empty state until M12.
   - done when: `crates/ui/tests/straighten_tool.rs`: a drag to +3.5° previews live and Apply
     stores it; arrows nudge by 0.1° within ±10°; Esc leaves the recipe unchanged; the result has no
     empty corner; fingerprints at 0° and +5° at both sizes.
-- ⬜ **M7.21 `ui`: the Tuning tab and the Fill Light row**
+- ✅ **M7.21 `ui`: the Tuning tab and the Fill Light row**
   - after: M7.15, M7.16, M7.18
   - files: `crates/ui/src/panels/edit/tuning.rs`, `crates/ui/src/panels/edit/fill_light.rs`, `crates/ui/tests/tuning_tab.rs`, `crates/ui/tests/fingerprints/edit-tuning*.json`
   - scope: `editing.md` §6.5 and §7: Fill Light, Highlights and Shadows with the Auto lighting wand,
