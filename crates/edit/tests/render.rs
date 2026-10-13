@@ -178,7 +178,10 @@ fn the_render_key_follows_the_versions_of_the_operations_a_recipe_uses() {
     assert_ne!(key(&recipe(&["rotate(90)", "flip_h()"])).recipe_hash, key(&recipe(&["flip_h()", "rotate(90)"])).recipe_hash);
     // An unknown operation has no version; the renderer half ignores it.
     assert_eq!(key(&recipes[4]).renderer_version, key(&recipe(&["autofix()"])).renderer_version);
-    assert_eq!(version::versions(&recipes[3]).into_iter().collect::<Vec<_>>(), vec![("autofix", 0), ("crop", 0)]);
+    assert_eq!(
+        version::versions(&recipes[3]).into_iter().collect::<Vec<_>>(),
+        vec![("autofix", current("autofix").unwrap()), ("crop", current("crop").unwrap())]
+    );
 }
 
 #[test]

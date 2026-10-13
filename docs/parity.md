@@ -24,13 +24,13 @@ same commit.
 |---|---:|---:|---:|---:|
 | A. Library view | 13 | 15 | 4 | 1 |
 | B. Organizing | 2 | 8 | 32 | 0 |
-| C. Editing | 0 | 5 | 16 | 4 |
+| C. Editing | 0 | 7 | 14 | 4 |
 | D. Viewing | 0 | 1 | 5 | 2 |
 | E. Output | 0 | 0 | 2 | 9 |
 | F. Data | 1 | 17 | 2 | 0 |
 | G. Preferences and system | 0 | 7 | 7 | 0 |
 | H. Menus | 0 | 5 | 2 | 0 |
-| **All** | 16 | 58 | 70 | 16 |
+| **All** | 16 | 60 | 68 | 16 |
 <!-- /parity:summary -->
 
 ## Top gaps
@@ -133,8 +133,8 @@ same commit.
 | EDIT-TABS | Five icon tabs | P0 | ⬜ | |
 | EDIT-UNDO | Undo/Redo with action names, persistent, linear | P0 | 🟡 | engine: the photo's own linear history in its sidecar (`"edits"` / `"redo"`, survives a restart and a rebuild), a merged step (a second rotation, a cancelling flip) undone one at a time, labels "Undo Crop" / "Redo Tuning" (`cmd:photo.history.apply` `cmd:photo.history.undo` `cmd:photo.history.redo` `cmd:photo.history.state`, `cmd:edit.undo` / `cmd:edit.redo` with `{id}`), never on the library stack: `crates/engine/src/history.rs`, `crates/engine/src/cmd/history.rs`, `crates/engine/tests/photo_history.rs` (M7.3); the edit panel's Undo / Redo buttons and Ctrl+Z / Ctrl+Y routed in the edit view missing (M7.10, M7.16) |
 | EDIT-HIST | Histogram & camera info box | P1 | ⬜ | |
-| EDIT-CROP | Crop panel: ratios, custom ratios, suggestions, rotate, preview | P0 | ⬜ | ref 03 §6.1 |
-| EDIT-STRAIGHTEN | Straighten with grid and floating bar | P0 | ⬜ | |
+| EDIT-CROP | Crop panel: ratios, custom ratios, suggestions, rotate, preview | P0 | 🟡 | the operation: `crop(x0,y0,x1,y1)` in the stored frame, clamped into the picture or refused, at least one pixel at any size, only the last counts, the same with a straighten in either order: `crates/edit/src/ops/crop.rs`, `crates/edit/tests/crop.rs` (M7.7); the tools' maths (a ratio's largest centred rectangle, Rotate, edge, corner and move drags with the ratio locked unless Manual, a minimum size, inside the picture) and the thirds: `crates/edit/src/crop_geom.rs`, `crates/edit/src/guides.rs` (M7.7); the panel, its sizes and custom ratios, suggestions, Preview and the canvas drags missing (M7.12, M7.17, M7.19); ref 03 §6.1 |
+| EDIT-STRAIGHTEN | Straighten with grid and floating bar | P0 | 🟡 | the operation: `straighten(deg)` within ±10°, about the centre, enlarged the least that leaves no empty corner, 0° the identity: `crates/edit/src/ops/straighten.rs`, `crates/edit/tests/straighten.rs` (M7.7); the grid's lines: `crates/edit/src/guides.rs` (M7.7); the tool, its floating bar and slider, the arrow-key nudge and the dashed grid on the canvas missing (M7.17, M7.20) |
 | EDIT-REDEYE | Red eye auto + manual | OOS | 🚫 | dropped 2026-10-09 (dated feature); legacy `redeye` operations kept as `legacy:` entries |
 | EDIT-AUTOFIX | Auto Fix, Auto Contrast, Auto Color | P0 | ⬜ | |
 | EDIT-RETOUCH | Retouch patches | P1 | ⬜ | |
