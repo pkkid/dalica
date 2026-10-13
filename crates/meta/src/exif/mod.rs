@@ -1,5 +1,5 @@
 //! EXIF: the tags Dalica reads (Exif 2.32, TIFF 6.0), the IFDs they live in, and the summary the
-//! Properties pane shows. Reading is in [`read`]; editing in place arrives with M6.10.
+//! Properties pane shows. Reading is in [`read`]; editing in place in [`edit`].
 //!
 //! Provenance: tag numbers and value meanings from the public Exif 2.32 (CIPA DC-008) and TIFF 6.0
 //! specifications, and the XMP Part 3 / IPTC-NAA tag numbers for TIFF (700, 33723, 34377). No

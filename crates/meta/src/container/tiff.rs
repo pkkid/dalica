@@ -2,6 +2,8 @@
 //! Photoshop resources (34377) and the ICC profile (34675). Writes follow the append-only rule
 //! (`xmp-interop.md` §3), so the header's IFD0 pointer, IFD0 and the XMP, IPTC and Photoshop
 //! values are the rewritable spans; the EXIF and GPS IFDs are reported but stay where they are.
+//! Tag 34377 holding a bare IIM stream (as ImageMagick writes it) is reported as IPTC, read only
+//! when tag 33723 is absent.
 
 use std::borrow::Cow;
 use std::ops::Range;
@@ -10,6 +12,7 @@ use dalica_image::ifd::{Entry, Tiff, Visited};
 
 use super::{BlockKind, Container, Scan};
 use crate::exif::{TAG_EXIF_IFD, TAG_GPS_IFD, TAG_ICC, TAG_IPTC, TAG_PHOTOSHOP, TAG_XMP};
+use crate::iptc::read::is_iim;
 use crate::{Limits, Result};
 
 pub(crate) fn scan<'a>(b: &'a [u8], limits: &Limits) -> Result<Scan<'a>> {
@@ -31,6 +34,8 @@ pub(crate) fn scan<'a>(b: &'a [u8], limits: &Limits) -> Result<Scan<'a>> {
             _ => continue,
         };
         let Some(value) = tiff.value(e)? else { continue };
+        // ImageMagick puts a bare IIM stream where Photoshop resources belong.
+        let kind = if kind == BlockKind::Photoshop && is_iim(&value) { BlockKind::Iptc } else { kind };
         if let Some(range) = tiff.value_range(e)? {
             out.span(kind, range, rewritable);
         }
@@ -40,7 +45,10 @@ pub(crate) fn scan<'a>(b: &'a [u8], limits: &Limits) -> Result<Scan<'a>> {
             BlockKind::Photoshop => &mut out.photoshop,
             _ => continue,
         };
-        *slot = Some(value);
+        // Of two bare streams, the first is the one read (tag 33723 before tag 34377).
+        if kind != BlockKind::Iptc || slot.is_none() {
+            *slot = Some(value);
+        }
     }
     // The EXIF and GPS IFDs, for the record; a broken one is the EXIF reader's problem to report.
     for tag in [TAG_EXIF_IFD, TAG_GPS_IFD] {

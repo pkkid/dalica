@@ -1,5 +1,11 @@
 //! IPTC-IIM: the datasets Dalica reads (record 1 and 2 of IPTC-IIM 4.2) and the Photoshop image
-//! resources that carry them in JPEG APP13. Reading is in [`read`]; writing arrives with M6.10.
+//! resources that carry them in JPEG APP13. Reading is in [`read`], writing in [`write`].
+//!
+//! Where a file keeps IPTC: a bare IIM stream (TIFF tag 33723, a PNG "Raw profile type iptc"), or
+//! resource 0x0404 of Photoshop resources (JPEG APP13, TIFF tag 34377, a PNG "Raw profile type
+//! 8bim"). ImageMagick also writes a bare stream where resources belong (tag 34377, the `8bim`
+//! profile); the containers tell the two apart by their first byte ([`read::is_iim`]) and a write
+//! keeps the form it found.
 //!
 //! Provenance: dataset numbers and the 1:90 character-set escape from the public IPTC-IIM 4.2
 //! specification; resource ids from the public description of Photoshop image resource blocks. No

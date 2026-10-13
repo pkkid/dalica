@@ -7,6 +7,7 @@
 use std::borrow::Cow;
 
 use super::{BlockKind, Container, Scan, Text, be_u32, latin1, strip_exif_prefix, take};
+use crate::iptc::read::is_iim;
 use crate::{Error, Limits, Problem, Result};
 
 /// The keyword of an XMP text chunk (XMP Part 3, 1.1.5).
@@ -90,18 +91,17 @@ fn text<'a>(out: &mut Scan<'a>, t: TextChunk<'a>, range: std::ops::Range<usize>,
                     out.exif = Some(Cow::Owned(strip_exif_prefix(&data).to_vec()));
                     out.span(BlockKind::Exif, range, true);
                 }
-                "iptc" if out.iptc.is_none() && out.photoshop.is_none() => {
-                    let photoshop = data.starts_with(b"8BIM");
-                    if photoshop {
-                        out.photoshop = Some(Cow::Owned(data));
-                    } else {
+                // IPTC, by what the profile holds rather than its name: a bare IIM stream (the
+                // `iptc` profile, and ImageMagick's `8bim` one) or Photoshop resources. The first
+                // such profile is the one read and written; a later copy is listed only.
+                "iptc" | "8bim" if out.iptc.is_none() && out.photoshop.is_none() => {
+                    let iim = is_iim(&data);
+                    if iim {
                         out.iptc = Some(Cow::Owned(data));
+                    } else {
+                        out.photoshop = Some(Cow::Owned(data));
                     }
-                    out.span(if photoshop { BlockKind::Photoshop } else { BlockKind::Iptc }, range, true);
-                }
-                "8bim" if out.photoshop.is_none() => {
-                    out.photoshop = Some(Cow::Owned(data));
-                    out.span(BlockKind::Photoshop, range, true);
+                    out.span(if iim { BlockKind::Iptc } else { BlockKind::Photoshop }, range, true);
                 }
                 "xmp" if out.xmp.is_none() => {
                     out.xmp = Some(Cow::Owned(data));
