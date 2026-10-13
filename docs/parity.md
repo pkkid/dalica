@@ -24,13 +24,13 @@ same commit.
 |---|---:|---:|---:|---:|
 | A. Library view | 13 | 15 | 4 | 1 |
 | B. Organizing | 2 | 8 | 32 | 0 |
-| C. Editing | 0 | 7 | 14 | 4 |
+| C. Editing | 0 | 8 | 13 | 4 |
 | D. Viewing | 0 | 1 | 5 | 2 |
 | E. Output | 0 | 0 | 2 | 9 |
 | F. Data | 1 | 17 | 2 | 0 |
 | G. Preferences and system | 0 | 7 | 7 | 0 |
 | H. Menus | 0 | 5 | 2 | 0 |
-| **All** | 16 | 60 | 68 | 16 |
+| **All** | 16 | 61 | 67 | 16 |
 <!-- /parity:summary -->
 
 ## Top gaps
@@ -137,7 +137,7 @@ same commit.
 | EDIT-STRAIGHTEN | Straighten with grid and floating bar | P0 | 🟡 | the operation: `straighten(deg)` within ±10°, about the centre, enlarged the least that leaves no empty corner, 0° the identity: `crates/edit/src/ops/straighten.rs`, `crates/edit/tests/straighten.rs` (M7.7); the grid's lines: `crates/edit/src/guides.rs` (M7.7); the tool, its floating bar and slider, the arrow-key nudge and the dashed grid on the canvas missing (M7.17, M7.20) |
 | EDIT-REDEYE | Red eye auto + manual | OOS | 🚫 | dropped 2026-10-09 (dated feature); legacy `redeye` operations kept as `legacy:` entries |
 | EDIT-AUTOFIX | Auto Fix, Auto Contrast, Auto Color | P0 | ⬜ | |
-| EDIT-RETOUCH | Retouch patches | P1 | ⬜ | |
+| EDIT-RETOUCH | Retouch patches | P1 | 🟡 | the operation: `retouch(sx,sy,tx,ty,r;…)` in the stored frame, mapped through the crop and straighten, strokes applied in order, each patch healed (the source's detail in the target's tone, feathered edge), at most 1 000 strokes, radius 0.001–0.1 of the shorter side, reads bounded to the strokes' reach: `crates/edit/src/ops/retouch.rs`, `crates/edit/tests/retouch.rs` (M7.14); the tool (target and source clicks, brush size, Undo/Redo Patch, Apply/Cancel) missing (M7.22) |
 | EDIT-TEXT | Text tool with rotate/scale handle, colours, opacity | OOS | 🚫 | dropped 2026-10-09 (dated feature) |
 | EDIT-FILL | Fill Light slider | P0 | 🟡 | edit: rendered as Tuning's `fill` (lifts the shadows most, never darkens; `fill_light(a)` read as `tuning(a,0,0,0,none)` and kept as written): `crates/edit/src/ops/tone.rs`, `crates/edit/tests/tone.rs` (M7.8); the Fill Light row and its sessions missing (M7.18, M7.21) |
 | EDIT-TUNING | Tuning tab incl. auto wands and neutral picker | P0 | 🟡 | ref 03 §7. edit: `tuning(fill,highlights,shadows,temp,neutral)` typed, clamped and rendered (Highlights and Shadows keep to their side of the middle, temperature monotonic, the neutral colour made grey): `crates/edit/src/ops/tone.rs`, `crates/edit/tests/tone.rs` (M7.8); Tuning sessions, the picker and the auto wands (M7.13, M7.18) and the tab (M7.21) missing |

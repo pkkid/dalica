@@ -113,6 +113,8 @@ file and revision in its first lines:
   crates/edit/src/guides.rs                  LightCraft crates/ui-egui/src/panels/crop_overlay.rs @ 76b53778
                                              PhotoCraft crates/ui-egui/src/crop_overlay.rs @ 32c918aa
   crates/edit/tests/straighten.rs (tests)    PhotoCraft crates/ui-egui/src/crop_overlay.rs @ 32c918aa
+  crates/edit/src/ops/retouch.rs             LightCraft crates/pipeline/src/spots.rs, crates/raster/src/blur.rs @ 76b53778
+  crates/edit/tests/retouch.rs (tests)       LightCraft crates/pipeline/src/spots.rs @ 76b53778
 
 Any other third-party code ever vendored will be listed here with its source and revision.
 
