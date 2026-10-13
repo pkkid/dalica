@@ -439,8 +439,9 @@ fn the_top_bar_caption_bar_and_status_line_match_their_fingerprints() {
     }
 }
 
-/// Edit ▸ Undo and Picture ▸ Rotate / Flip clicked in the menu bar while in the edit view are steps
-/// of the open photo's history; the library undo stack keeps its own last step.
+/// Edit ▸ Undo / Redo and Picture ▸ Rotate / Flip clicked in the menu bar while in the edit view
+/// are steps of the open photo's history, and the Undo / Redo rows name and enable by it; the
+/// library undo stack keeps its own last step.
 #[test]
 fn menu_bar_undo_rotate_and_flip_walk_the_photos_history_in_the_edit_view() {
     let mut t = setup((1400, 900), 4);
@@ -454,9 +455,16 @@ fn menu_bar_undo_rotate_and_flip_walk_the_photos_history_in_the_edit_view() {
     ok(&mut t, "ui.menu.invoke", json!({ "id": "edit.undo", "wait": true }));
     t.d.settle(FRAMES).unwrap();
     assert_eq!(photo_edits(&mut t, o[0]), json!(["rotate(90)"]), "Edit ▸ Undo undid the flip");
-    // Edit ▸ Redo's row is still greyed by the library stack (nothing to redo there): the menus'
-    // enabled state and labels read the library stack, in a file this task does not own.
-    assert!(code(&mut t, "ui.menu.invoke", json!({ "id": "edit.redo" })) == "disabled");
+    // Edit ▸ Redo follows the photo's history too (the library stack has nothing to redo): it
+    // names the flip and puts it back.
+    let bar = dalica_ui::menus::bar(t.d.app(), dalica_ui::menus::Platform::current());
+    let redo = dalica_ui::menus::find(&bar, &dalica_ui::menus::Lookup::Id { id: "edit.redo".into(), params: Value::Null }).unwrap();
+    assert_eq!((redo.label.as_str(), redo.enabled), ("Redo Flip", true));
+    ok(&mut t, "ui.menu.invoke", json!({ "id": "edit.redo", "wait": true }));
+    t.d.settle(FRAMES).unwrap();
+    assert_eq!(photo_edits(&mut t, o[0]), json!(["rotate(90)", "flip_h()"]), "Edit ▸ Redo redid the flip");
+    ok(&mut t, "ui.menu.invoke", json!({ "id": "edit.undo", "wait": true }));
+    t.d.settle(FRAMES).unwrap();
     assert!(t.d.app().session().unwrap().library().photo(dalica_core::PhotoId::new(o[3])).unwrap().star, "the star stays");
     key(&mut t, "Esc");
     assert_eq!(run(&mut t, "edit.undo", json!({})), json!({ "undone": "Star / Unstar" }), "the library stack ends with the star");

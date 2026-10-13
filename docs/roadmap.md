@@ -2825,7 +2825,7 @@ effect tabs show an empty state until M12.
     click, double-click and the setting; pans stop at the photo's edges; zooming in requests the
     refined window and no frame waits for it (perf counters); canvas fingerprints fitted and at
     200 % at both sizes.
-- ⬜ **M7.16 `ui`: the edit panel, Basic Fixes, Undo / Redo and the histogram box**
+- ✅ **M7.16 `ui`: the edit panel, Basic Fixes, Undo / Redo and the histogram box**
   - after: M6.16, M7.3, M7.4, M7.5, M7.6, M7.10, M7.11, M7.13
   - files: `crates/ui/src/panels/edit/panel.rs`, `crates/ui/src/panels/edit/basic.rs`, `crates/ui/src/panels/edit/history.rs`, `crates/ui/src/panels/edit/histogram.rs`, `crates/ui/tests/edit_panel.rs`, `crates/ui/tests/fingerprints/edit-panel*.json`, `docs/editing.md`
   - scope: `editing.md` §2, §5–§6: the 280 pt panel with its five tabs and tooltips (`tab:edit.*`;
