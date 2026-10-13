@@ -51,8 +51,10 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
     }
     region(ui, "canvas", l.canvas, t.canvas, |ui| {
         canvas::show(app, ui);
-        if app.state().edit.tool == Some(ToolKind::Straighten) {
-            straighten::show(app, ui);
+        match app.state().edit.tool {
+            Some(ToolKind::Straighten) => straighten::show(app, ui),
+            Some(ToolKind::Crop) => crop::on_canvas(app, ui),
+            _ => {}
         }
     });
     region(ui, "captionBar", l.caption_bar, t.canvas, |ui| caption_bar::show(app, ui));

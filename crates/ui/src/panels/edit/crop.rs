@@ -784,10 +784,11 @@ enum Ask {
     Cancel,
 }
 
-/// Draws the Crop panel in place of the tab's content, runs the pointer on the photo and keeps the
-/// photo area showing the right recipe.
-pub fn show(app: &mut App, ui: &mut Ui) {
-    let Ok((id, draft)) = open_draft(app) else { return };
+/// The photo area's part of the tool, drawn after the canvas (`panels/edit.rs`), so it runs with
+/// the edit panel hidden too: keeps the photo area showing the right recipe, takes the suggestions
+/// as they arrive, and paints and runs the rectangle.
+pub fn on_canvas(app: &mut App, ui: &mut Ui) {
+    let Ok((id, _)) = open_draft(app) else { return };
     let ctx = ui.ctx().clone();
     let t = *app.tokens();
     let shown = shown(app, id);
@@ -796,6 +797,18 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     }
     let want = sync_candidate(app, id);
     poll_suggestions(app, &ctx, id, &shown);
+    overlay(app, &ctx, &t, id, &shown, &want);
+}
+
+/// Draws the Crop panel in place of the tab's content.
+pub fn show(app: &mut App, ui: &mut Ui) {
+    let Ok((id, draft)) = open_draft(app) else { return };
+    let ctx = ui.ctx().clone();
+    let t = *app.tokens();
+    let shown = shown(app, id);
+    if with(|x| x.photo != Some(id)) {
+        restart(id);
+    }
     let rows = rows(app);
     let now = ctx.input(|i| i.time);
 
@@ -854,9 +867,6 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     if button(ui, &t, CANCEL_ID, "Cancel", l.cancel, true, Look::Plain, "Close without cropping (Esc)").clicked() {
         asked = Some(Ask::Cancel);
     }
-
-    // The rectangle on the photo.
-    overlay(app, &ctx, &t, id, &shown, &want);
 
     let Some(asked) = asked else { return };
     let result = match asked {
@@ -1047,7 +1057,7 @@ fn layer() -> LayerId {
 }
 
 /// Paints the rectangle over the photo and runs the pointer on it (`editing.md` §6.1), from the
-/// canvas's layout of the last frame. Nothing is drawn or taken while Preview shows, while the
+/// canvas's layout of this frame. Nothing is drawn or taken while Preview shows, while the
 /// photo area still shows another recipe than `want`; under a dialog it is drawn and takes no input.
 fn overlay(app: &mut App, ctx: &egui::Context, t: &Tokens, id: PhotoId, shown: &Shown, want: &[String]) {
     let Some(view) = canvas::view(ctx).filter(|v| v.photo == id) else { return };

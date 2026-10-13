@@ -529,3 +529,20 @@ fn the_crop_panel_the_photo_and_the_dialog_match_their_fingerprints() {
         check_region(&t, &format!("dialog-custom-ratio-{tag}"), widget(&t, "dialog:customRatio").rect);
     }
 }
+
+#[test]
+fn with_the_edit_panel_hidden_the_rectangle_still_draws_and_drags() {
+    let mut t = setup((1400, 900));
+    open_crop(&mut t);
+    run(&mut t, "edit.panelToggle", json!({}));
+    assert!(!t.d.state().edit.panel_visible);
+    assert!(find(&t, crop::RATIO_ID).is_none(), "the panel is hidden");
+    assert_eq!(view(&t).size, (600.0, 400.0), "the whole photo shows");
+    let (a, b) = (at(&t, 0.2, 0.2), at(&t, 0.6, 0.8));
+    gesture(&mut t, a, b);
+    let [x, y, w, h] = rect(&t);
+    assert!(near(x, 0.2, 0.005) && near(y, 0.2, 0.005) && near(w, 0.4, 0.005) && near(h, 0.6, 0.005), "{:?}", rect(&t));
+    assert!(find(&t, crop::RECT_ID).is_some(), "the rectangle is drawn");
+    key(&mut t, "Enter");
+    assert_eq!(view(&t).size, (240.0, 240.0), "applied");
+}
