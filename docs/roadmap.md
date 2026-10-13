@@ -2324,7 +2324,7 @@ replace at M6.R.
     §4, §7 and §10 brought up to date with M6.
   - done when: `cargo xtask version` prints `0.1.0`; Help ▸ Release Notes shows the new section (a
     test through M6.20's dialog); `cargo xtask names` and `cargo xtask docs` pass.
-- ⬜ **M6.36 `accept M6`**
+- ✅ **M6.36 `accept M6`**
   - after: M6.35
   - files: `tests/acceptance/m6.rs`, `tests/acceptance/m6_*.rs`, `tests/acceptance/m6.md`, `tests/acceptance/fingerprints/m6-*.json`
   - scope: every *Done when* of M6's three areas: the command contract of every new command

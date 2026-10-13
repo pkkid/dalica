@@ -39,7 +39,9 @@
 //! **End of frame.** The view's speed and direction go to the session's prefetch
 //! ([`Session::prefetch_thumbnails`]: further ahead the faster it moves, stale prefetch cancelled).
 //! While the view moves no faster than [`REQUEST_MAX_SCREENS`] screens a second, every cell that
-//! did not draw its covering size asks the session for it ([`Session::thumbnail`], the visible
+//! did not draw its covering size, or drew a photo's embedded thumbnail standing in for it while the
+//! photo's scan runs ([`Session::thumbnail_stand_in`]; the scan's own downscale replaces it), asks
+//! the session for it ([`Session::thumbnail`], the visible
 //! priority) and what the session has in memory is uploaded: at most [`UPLOADS_PER_FRAME`]
 //! textures and [`UPLOAD_BYTES_PER_FRAME`] bytes a frame, cells showing their sketch first, the
 //! rest the next frame. Faster than that, cells keep their sketch or what is uploaded and nothing
@@ -51,8 +53,9 @@
 //! The view's speed is held for [`SPEED_HOLD_SECS`] (decaying), so the still frames between a
 //! wheel's steps do not count as stopping. The counters of the last frame ([`Counts`]) go out
 //! through `ui.inspect` → `perf`; [`Totals`] sums them over every frame (tests).
-//! [`Thumbnails::pending`] says how many cells on screen still wait for their covering size
-//! (`ui.settle` waits for it).
+//! [`Thumbnails::pending`] says how many cells on screen still wait for their covering size or show
+//! a stand-in for it (`ui.settle` waits for it, so a settled frame is the same whichever of a
+//! photo's embedded-thumbnail and scan jobs finished first).
 
 use std::collections::HashMap;
 use std::ops::Range;
@@ -230,6 +233,9 @@ struct Texture {
     bytes: usize,
     /// The frame it was last drawn in.
     drawn: u64,
+    /// It is the photo's embedded thumbnail standing in while the photo's scan runs
+    /// ([`Session::thumbnail_stand_in`]): the scan's own downscale replaces it.
+    stand_in: bool,
 }
 
 /// A sketch, decoded once into the colours of its mesh.
@@ -250,6 +256,16 @@ struct Cell {
     /// The image rect it was painted into, and the orientation it was turned by.
     rect: Rect,
     turn: Dihedral,
+    /// It drew an embedded thumbnail standing in for its ladder image: it keeps asking.
+    stand_in: bool,
+}
+
+impl Cell {
+    /// Something better is still to come: it waits for its covering size, or shows an embedded
+    /// thumbnail standing in for it.
+    fn better_to_come(&self) -> bool {
+        self.drawn.waiting() || self.stand_in
+    }
 }
 
 /// One photo painted in the last frame (tests, inspection): where, turned how, and what.
@@ -418,6 +434,7 @@ impl Thumbnails {
             Choice::Covers(size) | Choice::Smaller(size) => self.textures.get_mut(&(id, size)),
             Choice::Nothing => None,
         };
+        let mut stand_in = false;
         let drawn = if let Some(why) = photo.session.thumbnail_failure(id) {
             // A missing or unreadable file: the placeholder under the cell's "!", whatever was
             // drawn of it before.
@@ -428,6 +445,7 @@ impl Thumbnails {
             Drawn::Failed
         } else if let Some(tex) = texture {
             tex.drawn = frame;
+            stand_in = tex.stand_in;
             painter.add(textured(rect, tex.handle.id(), turn));
             if matches!(choice, Choice::Covers(_)) { Drawn::Image } else { Drawn::Upscaled }
         } else {
@@ -448,7 +466,7 @@ impl Thumbnails {
             Drawn::Failed => &mut c.failed_cells,
         };
         *slot = slot.saturating_add(1);
-        self.cells.push(Cell { id, need, drawn, rect, turn });
+        self.cells.push(Cell { id, need, drawn, rect, turn, stand_in });
         drawn
     }
 
@@ -498,27 +516,27 @@ impl Thumbnails {
 
         // Requests and uploads, while the view moves slowly enough to look at.
         let slow = velocity.abs() / view_h <= REQUEST_MAX_SCREENS;
-        let mut arrived: Vec<(PhotoId, Size, Arc<Rgba8>, Drawn)> = Vec::new();
+        let mut arrived: Vec<(PhotoId, Size, Arc<Rgba8>, Drawn, bool)> = Vec::new();
         if slow {
-            for cell in self.cells.iter().filter(|c| c.drawn.waiting()) {
+            for cell in self.cells.iter().filter(|c| c.better_to_come()) {
                 if let Thumb::Image { size, image, .. } = session.thumbnail(cell.id, cell.need) {
                     let current = self.textures.get(&(cell.id, size)).and_then(|t| t.source.upgrade()).is_some_and(|s| Arc::ptr_eq(&s, &image));
                     if !current {
-                        arrived.push((cell.id, size, image, cell.drawn));
+                        arrived.push((cell.id, size, image, cell.drawn, session.thumbnail_stand_in(cell.id)));
                     }
                 }
             }
         }
         // Cells with nothing better than a sketch first.
-        arrived.sort_by_key(|(_, _, _, drawn)| *drawn == Drawn::Upscaled);
+        arrived.sort_by_key(|(_, _, _, drawn, _)| matches!(drawn, Drawn::Upscaled | Drawn::Image));
         let (mut uploads, mut bytes, mut deferred) = (0usize, 0usize, 0u64);
-        for (id, size, image, _) in arrived {
+        for (id, size, image, _, stand_in) in arrived {
             let len = image.data.len();
             if uploads >= UPLOADS_PER_FRAME || (uploads > 0 && bytes.saturating_add(len) > UPLOAD_BYTES_PER_FRAME) {
                 deferred += 1;
                 continue;
             }
-            if self.upload(id, size, &image) {
+            if self.upload(id, size, &image, stand_in) {
                 uploads += 1;
                 bytes = bytes.saturating_add(len);
             }
@@ -534,7 +552,7 @@ impl Thumbnails {
             crate::perf::count(ctx, crate::perf::Counter::ThumbRequests, jobs.saturating_sub(jobs_before) as u64);
         }
         let waiting = jobs > 0 || deferred > 0 || uploads > 0 || !slow;
-        self.pending = if waiting { self.cells.iter().filter(|c| c.drawn.waiting()).count() } else { 0 };
+        self.pending = if waiting { self.cells.iter().filter(|c| c.better_to_come()).count() } else { 0 };
         let mut c = self.counting;
         c.thumb_uploads = uploads as u64;
         c.thumb_upload_bytes = bytes as u64;
@@ -560,7 +578,7 @@ impl Thumbnails {
 
     /// Uploads `image` as `id`'s `size` texture. `false` when it is malformed or there is no
     /// context yet.
-    fn upload(&mut self, id: PhotoId, size: Size, image: &Arc<Rgba8>) -> bool {
+    fn upload(&mut self, id: PhotoId, size: Size, image: &Arc<Rgba8>, stand_in: bool) -> bool {
         let Some(ctx) = &self.ctx else { return false };
         let dims = [image.width as usize, image.height as usize];
         if dims[0] == 0 || dims[1] == 0 || dims[0].saturating_mul(dims[1]).saturating_mul(4) != image.data.len() {
@@ -570,7 +588,7 @@ impl Thumbnails {
         let pixels = egui::ColorImage::from_rgba_unmultiplied(dims, &image.data);
         let handle = ctx.load_texture(format!("thumb:{id}:{size:?}"), pixels, egui::TextureOptions::LINEAR);
         let bytes = image.data.len();
-        let texture = Texture { handle, source: Arc::downgrade(image), bytes, drawn: self.frame };
+        let texture = Texture { handle, source: Arc::downgrade(image), bytes, drawn: self.frame, stand_in };
         if let Some(old) = self.textures.insert((id, size), texture) {
             self.texture_bytes = self.texture_bytes.saturating_sub(old.bytes);
         }
@@ -652,7 +670,8 @@ impl Thumbnails {
         self.failed.get(&id).map(String::as_str)
     }
 
-    /// Cells on screen still waiting for their covering size, while anything is on its way.
+    /// Cells on screen still waiting for their covering size (or showing an embedded thumbnail
+    /// standing in for it), while anything is on its way.
     pub fn pending(&self) -> usize {
         self.pending
     }
