@@ -285,19 +285,19 @@ fn overlap(a: Rect, b: Rect) -> bool {
 }
 
 /// The regions of `ui-layout.md` §2 for a `w × h` library window with the tree `tree` wide and a
-/// side pane `pane` wide (0: closed), as `design-system.md` §4 sizes them: menu bar 24, toolbar 40,
+/// side pane `pane` wide (0: closed), as `design-system.md` §4 sizes them: menu bar 32, toolbar 40,
 /// the middle row (tree, 8 pt splitter, light table, 16 pt scroll bar, side pane), status line 20,
 /// bottom area 96 split at 0.365·W with the tray box from x 6 to 0.365·W − 56, 80 high (centred in
 /// the 96). The tray buttons' column and the right half of the bottom area (controls row over the
 /// action buttons) are checked by [`check_bottom_right`].
 fn spec_regions(w: f64, h: f64, tree: f64, pane: f64) -> Vec<(&'static str, Option<Rect>)> {
-    let top = 24.0 + 40.0;
+    let top = 32.0 + 40.0;
     let middle = h - top - 20.0 - 96.0;
     let split = 0.365 * w;
     let light = w - tree - 8.0 - 16.0 - pane;
     vec![
-        ("menuBar", Some([0.0, 0.0, w, 24.0])),
-        ("toolbar", Some([0.0, 24.0, w, 40.0])),
+        ("menuBar", Some([0.0, 0.0, w, 32.0])),
+        ("toolbar", Some([0.0, 32.0, w, 40.0])),
         ("tabStrip", None),
         ("tree", Some([0.0, top, tree, middle])),
         ("splitter", Some([tree, top, 8.0, middle])),
@@ -426,8 +426,8 @@ fn check_window(c: &mut Client, w: f64, h: f64, tree: f64, pane: Option<(&str, f
         r
     };
 
-    // The title bar (`design-system.md` §11.1): the menus after the 16 pt app mark, left to right;
-    // the free gap that drags the window, holding the title; Minimize, Maximize and Close, 46 × 24,
+    // The title bar (`design-system.md` §11.1): the menus after the 18 pt app mark, left to right;
+    // the free gap that drags the window, holding the title; Minimize, Maximize and Close, 46 × 31,
     // flush in the top-right corner.
     let mut x = 16.0;
     for id in MENUS {
@@ -437,7 +437,7 @@ fn check_window(c: &mut Client, w: f64, h: f64, tree: f64, pane: Option<(&str, f
     }
     for (i, id) in ["button:window.minimize", "button:window.maximize", "button:window.close"].into_iter().enumerate() {
         let b = place(id, "menuBar");
-        assert!(near(b, [w - 46.0 * (3 - i) as f64, 0.0, 46.0, 24.0]), "{case}: `{id}` at {b:?}");
+        assert!(near(b, [w - 46.0 * (3 - i) as f64, 0.0, 46.0, 31.0]), "{case}: `{id}` at {b:?}");
     }
     let drag = place("titlebar:drag", "menuBar");
     assert!(drag[0] >= x - 0.01 && (drag[0] + drag[2] - (w - 138.0)).abs() < 0.01, "{case}: the drag gap {drag:?}");
@@ -462,9 +462,9 @@ fn check_window(c: &mut Client, w: f64, h: f64, tree: f64, pane: Option<(&str, f
     assert!(search[0] + search[2] <= w - 64.0 + 0.01, "{case}: the search field ends at W − 64: {search:?}");
     assert!(search[0] >= age[0] + age[2] + 12.0 - 0.01 && search[0] >= 0.4 * w - 28.0 - 0.01, "{case}: the search field starts at {search:?}");
     if w >= 1100.0 {
-        assert!((starred[1] + starred[3] - 63.0).abs() <= 1.0, "{case}: with the caption the toggles rest on the bottom rule: {starred:?}");
+        assert!((starred[1] + starred[3] - 71.0).abs() <= 1.0, "{case}: with the caption the toggles rest on the bottom rule: {starred:?}");
     } else {
-        assert!((starred[1] - (24.0 + (40.0 - 26.0) / 2.0)).abs() < 0.01, "{case}: without the caption the toggles are centred: {starred:?}");
+        assert!((starred[1] - (32.0 + (40.0 - 26.0) / 2.0)).abs() < 0.01, "{case}: without the caption the toggles are centred: {starred:?}");
     }
 
     // The tree (`ui-layout.md` §4): the Folders group header 30 high, rows 24 high, all inside the

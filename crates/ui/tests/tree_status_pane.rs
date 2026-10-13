@@ -215,7 +215,7 @@ fn the_side_pane_opens_widens_and_closes_by_id() {
     assert_eq!(ok(&mut t, "ui.state", json!({}))["pane"], "properties");
     let r = regions(&mut t);
     let pane = rect(&r["sidePane"]);
-    assert!(near(pane, [1120.0, 64.0, 280.0, 720.0]), "{pane:?}");
+    assert!(near(pane, [1120.0, 72.0, 280.0, 712.0]), "{pane:?}");
     assert_eq!(rect(&r["scrollbar"])[0] + 16.0, 1120.0, "the light table is pushed, not covered");
     let ids: Vec<String> =
         ok(&mut t, "ui.widgets", json!({ "region": "sidePane" })).as_array().unwrap().iter().map(|w| w["id"].as_str().unwrap().to_string()).collect();
@@ -299,7 +299,7 @@ fn regions_are_reported_and_filter_the_widgets() {
         assert_eq!(r[hidden], Value::Null, "{hidden}");
     }
     assert!(near(rect(&r["statusLine"]), [0.0, 484.0, 900.0, 20.0]));
-    assert!(near(rect(&r["tree"]), [0.0, 64.0, 240.0, 420.0]));
+    assert!(near(rect(&r["tree"]), [0.0, 72.0, 240.0, 412.0]));
 
     let tree: Vec<String> =
         ok(&mut t, "ui.widgets", json!({ "region": "tree" })).as_array().unwrap().iter().map(|w| w["id"].as_str().unwrap().to_string()).collect();

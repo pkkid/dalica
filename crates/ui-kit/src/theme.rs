@@ -100,6 +100,9 @@ pub struct Tokens {
     pub danger: Color32,
     /// `#e3a83c`: warnings: an offline folder, a missing or unreadable file.
     pub caution: Color32,
+    /// `#c42b1c`: the title bar's Close button hovered (Windows' own red, as in PhotoCraft), with a
+    /// white glyph.
+    pub caption_close: Color32,
     /// `#1c1c1c` (`canvas`): the header block above each folder's thumbnails.
     pub folder_header: Color32,
     /// `#262626`: the photo-tray well in the bottom area.
@@ -404,6 +407,7 @@ impl Tokens {
         pick: grey(0xf0),
         danger: Color32::from_rgb(0xe0, 0x4a, 0x4a),
         caution: Color32::from_rgb(0xe3, 0xa8, 0x3c),
+        caption_close: Color32::from_rgb(0xc4, 0x2b, 0x1c),
         folder_header: grey(0x1c),
         tray_bg: grey(0x26),
         drop_target: Color32::from_rgb(0x01, 0x65, 0xdd),
@@ -671,6 +675,7 @@ mod tests {
             (t.pick, "#f0f0f0"),
             (t.danger, "#e04a4a"),
             (t.caution, "#e3a83c"),
+            (t.caption_close, "#c42b1c"),
             (t.folder_header, "#1c1c1c"),
             (t.tray_bg, "#262626"),
             (t.drop_target, "#0165dd"),

@@ -18,7 +18,7 @@ use dalica_ui_kit::WidgetInfo;
 const FRAMES: usize = 60 * 60;
 const SIZES: [(f32, f32); 2] = [(1400.0, 900.0), (900.0, 600.0)];
 /// The toolbar region: under the 24 pt menu bar, 40 high.
-const TOP: f32 = 24.0;
+const TOP: f32 = 32.0;
 const HEIGHT: f32 = 40.0;
 
 /// A library in `root` with two folders of scenes photos, added and scanned.

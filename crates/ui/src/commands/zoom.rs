@@ -227,6 +227,7 @@ fn by(app: &mut App, params: &Value, factor: f32) -> Result<Value, CmdError> {
     editing(app)?;
     let fit = current_fit(app);
     let from = effective(app.state().edit.zoom, fit);
+    canvas::note_step();
     set_zoom(app, step(from, factor, fit))
 }
 

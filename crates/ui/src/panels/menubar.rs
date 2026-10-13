@@ -7,7 +7,7 @@ use egui::Ui;
 use super::Panels;
 use crate::app::App;
 
-pub const HEIGHT: f32 = 24.0;
+pub const HEIGHT: f32 = crate::titlebar::HEIGHT;
 
 pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
     // The region's whole row (the ui given here is inset for the menus): the caption buttons sit
