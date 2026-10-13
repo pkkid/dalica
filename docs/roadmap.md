@@ -2856,7 +2856,7 @@ effect tabs show an empty state until M12.
     the first crop and keeps the tuning; adding, listing and removing a custom ratio survives a
     restart; the suggestion job answers three rectangles without the owner thread touching `fs`;
     every command's contract and graceful failures; `panic_hunt` green.
-- ⬜ **M7.18 `engine`: Tuning sessions, the wands and the colour picker**
+- ✅ **M7.18 `engine`: Tuning sessions, the wands and the colour picker**
   - after: M7.3, M7.8, M7.13
   - files: `crates/engine/src/cmd/tuning.rs`, `crates/engine/tests/tuning_commands.rs`
   - scope: `editing.md` §6.5 and §7: `photo.history.tuning {id, session, fill?, highlights?,

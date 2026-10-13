@@ -70,6 +70,15 @@ fn value_for(key: &'static str, roots: Vec<PathBuf>) -> BoxedStrategy<Value> {
         "rect" => proptest::collection::vec(prop_oneof![4 => 0.0f64..1.0, 1 => any::<f64>()], 0..6).prop_map(|v| json!(v)).boxed(),
         "degrees" | "width" | "height" | "ratio" => prop_oneof![4 => -12.0f64..12.0, 1 => any::<f64>()].prop_map(|n| json!(n)).boxed(),
         "name" => "\\PC{0,12}".prop_map(|c| json!(c)).boxed(),
+        "session" => prop_oneof![0u64..4, any::<u64>()].prop_map(|n| json!(n)).boxed(),
+        "fill" | "highlights" | "shadows" | "temp" | "x" | "y" => prop_oneof![4 => -0.2f64..1.2, 1 => any::<f64>()].prop_map(|n| json!(n)).boxed(),
+        "neutral" => prop_oneof![
+            proptest::sample::select(vec!["#808080", "#A0B0c0", "none", "#12345", "red", ""]).prop_map(|c| json!(c)),
+            Just(Value::Null),
+            proptest::collection::vec(prop_oneof![4 => 0.0f64..1.0, 1 => any::<f64>()], 0..5).prop_map(|v| json!(v)),
+        ]
+        .boxed(),
+        "what" => proptest::sample::select(vec!["lighting", "color", "colour", ""]).prop_map(|c| json!(c)).boxed(),
         "folder" | "offset" | "limit" => prop_oneof![0u64..20, Just(10_000), Just(10_001), any::<u64>()].prop_map(|n| json!(n)).boxed(),
         "command" => prop_oneof![proptest::sample::select(commands).prop_map(|c| json!(c)), "\\PC{0,12}".prop_map(|c| json!(c))].boxed(),
         "context" => prop_oneof![
@@ -105,6 +114,9 @@ fn own_keys(id: &str) -> Vec<&'static str> {
         "crop.ratios.add" => vec!["name", "width", "height"],
         "crop.ratios.remove" => vec!["name"],
         "photo.crop.suggest" => vec!["id", "ratio"],
+        "photo.history.tuning" => vec!["id", "session", "fill", "highlights", "shadows", "temp", "neutral"],
+        "photo.tuning.auto" => vec!["id", "what"],
+        "photo.tuning.pick" => vec!["id", "x", "y"],
         "photo.history.undo" | "photo.history.redo" | "photo.history.state" | "edit.undo" | "edit.redo" => vec!["id"],
         _ => vec![],
     }
