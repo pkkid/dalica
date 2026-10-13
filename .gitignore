@@ -7,9 +7,12 @@
 # Test corpora, fetched by `cargo xtask corpus` (docs/development.md §11); never committed
 /corpus/
 
-# Rust build output
-/target
+# Rust build output (at any depth: cargo run from a subfolder with a relative target dir builds there)
+target/
 /target-*/
+
+# Wrangler's local cache (website/)
+.wrangler/
 
 # Release packages, written by packaging/ scripts (default $DIST: dist/release)
 /dist/
