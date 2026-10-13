@@ -13,6 +13,24 @@ state (ready, claimed, in review) is on the task board ([`task-board.md`](task-b
 *Honest assessment, 2026-10-10. Agents: read this before picking work. Update it only with
 measured facts, dated.*
 
+*2026-10-13 (M7.R).* M7 is done: `cargo xtask accept M7` passes in 53 s (117 s with the release
+budgets), and the tests on `main` went from 1 858 to 2 242. Enter, Ctrl+3 or a double-click opens a
+photo in the edit view: a filmstrip, ← → through the folder, zoom (wheel, pinch, Ctrl+= / Ctrl+−,
+hold for 100 %) and pan with a navigator, and an edit panel with Basic Fixes (Crop with three
+suggested crops and custom ratios, Straighten ±10° with no empty corner, Retouch, Auto Fix, Auto
+Contrast, Auto Color, Fill Light), a Tuning tab (Fill Light, Highlights, Shadows, Color
+Temperature, a neutral picker and two wands), Undo / Redo and a histogram. Every edit is a step
+in the photo's own history, which survives a restart; nothing touches the original file, and an
+operation Dalica does not know survives every tool. Thumbnails, the tray and the filmstrip show
+edits with a pencil badge and never fall back to a grey cell. Measured on release builds: a 24 MP
+JPEG opens in 77 ms (70 ms on the 2-CPU Budgets runner; budget 150), a slider draft takes 8.4 ms
+at p95 (budget 16) and its final 14.1 ms (budget 100); next/previous is a prefetched cache hit.
+The run found and fixed an Adjust Date undo that lost the original date once the write had landed
+(M7.30), a lost preview job that stalled the view (M7.23), and a Windows-only test failure that
+showed the read-before-write guard cannot see a same-size rewrite there; the maintainer chose a
+real Windows file identity (M8.27). Fix tasks M8.27–M8.30 carry what the review found; the 86
+fingerprint baselines and the look of Auto Fix and Tuning were approved.
+
 *2026-10-12 (M6.R, the Release 0.1 gate).* M6 is done: `cargo xtask accept M6` passes in 62 s
 standalone, and the tests on `main` went from 1 440 to 1 858. Users can rotate, flip, hide, caption,
 tag (with quick tags and Rename Tag) and re-date photos, describe folders and set their date and
@@ -3029,7 +3047,7 @@ effect tabs show an empty state until M12.
   - done when: a refusal test matches `Error::Refused` with the field's name; a two-profile PNG
     caption write leaves no old caption; `cargo xtask test-corpus -p dalica-meta` keeps its
     counts; `cargo xtask ci` passes.
-- ⬜ **M7.R Check-in**
+- ✅ **M7.R Check-in**
   - after: M7.23, M7.30, M7.31
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`
@@ -3609,8 +3627,55 @@ first measurement. No step of M8 needs a maintainer decision mid-run.
     in its scope (`architecture.md` §9).
   - done when: `cargo xtask tasks sync --check` parses them and `tasks sync --dry-run` lists one new
     issue per block.
+- ⬜ **M8.27 `fs`: a real file identity on Windows**
+  - after: M7.R
+  - files: `crates/fs/src/atomic.rs`, `crates/fs/src/identity.rs`, `crates/fs/tests/identity.rs`, `crates/fs/tests/atomic.rs`, `crates/fs/Cargo.toml`, `docs/security.md`
+  - scope: found at M7.R (red-main fix #372; maintainer, 2026-10-13: "a real file ID"): on Windows
+    `Identity` holds the creation time where Unix holds the inode (std has no stable file index),
+    and NTFS tunnelling hands a freed name's creation time to a file renamed onto it, so another
+    program's same-size rewrite that keeps the modification time passes the read-before-write
+    guard. Read the volume serial number and file index on Windows (`winapi-util`, already in
+    `Cargo.lock`; a dependency audit per `security.md` §8, no `unsafe` in our code), taken where the
+    identity is taken today (an open handle where one is needed); Unix unchanged. `security.md`
+    says what the guard sees on each OS.
+  - done when: a Windows test replaces a file with same-size bytes and the old modification time
+    and the identity changes; the same-size assertion in `crates/fs/tests/atomic.rs` holds on every
+    OS again; `cargo xtask deps` passes; CI green on the three OSes.
+- ⬜ **M8.28 `ui` + `engine`: the Tuning sliders show the photo's Tuning after later edits**
+  - after: M7.R
+  - files: `crates/ui/src/panels/edit/tuning.rs`, `crates/ui/src/panels/edit/fill_light.rs`, `crates/ui/tests/tuning_tab.rs`, `crates/engine/src/cmd/tuning.rs`, `crates/engine/tests/tuning_commands.rs`, `docs/editing.md`
+  - scope: found at M7.R (maintainer, 2026-10-13: "show the last Tuning entry"): after a rotate or
+    a retouch the Tuning tab and the Basic Fixes Fill Light row read 0, though the photo still
+    carries its `tuning(…)`. The sliders show the photo's last `tuning` entry wherever it sits; a
+    new Tuning session updates that entry in place when nothing after it depends on its pixels
+    (rotations, flips and other position-free steps), and appends a new entry otherwise; one step
+    either way, undoable as today. `editing.md` §7 says which.
+  - done when: Fill Light 0.3 → rotate → the tab and the row show 0.3; dragging Highlights then
+    leaves one `tuning` entry, one step, undone by one Undo; after a retouch that follows the
+    tuning, a new drag appends; an unknown operation between them survives; CI green.
+- ⬜ **M8.29 `ui`: the canvas rests while a preview renders, and old thumbnails keep their shape**
+  - after: M7.R
+  - files: `crates/ui/src/panels/edit/canvas.rs`, `crates/ui/src/headless.rs`, `crates/ui/src/panels/thumbnails.rs`, `crates/ui/tests/edit_canvas.rs`, `crates/ui/tests/edited_cells.rs`
+  - scope: found in M7 (M7.15, M7.23, M7.9): while a preview is pending the canvas asks for an
+    immediate repaint every frame, which spins a CPU on slow machines and starved the preview
+    workers on 3-core CI; repaint after a short delay instead and let the headless driver count a
+    pending preview as busy, so `ui.settle` still waits for it (and M7.23's real-time wait in
+    `straighten_tool.rs` can go). Drop the canvas's dead Ctrl+− fallback (`minus_key`; the keymap
+    has it since M7.20). While a cropped photo's new thumbnail renders, draw the old one at its own
+    shape (letterboxed) rather than stretched.
+  - done when: frames per second while a preview renders stay ≤ 1 per 16 ms and settle still waits
+    for the preview (a test); the old-texture frame of a newly cropped cell keeps its aspect (a
+    test); CI green on the three OSes with no flake in `straighten_tool.rs` over 3 runs.
+- ⬜ **M8.30 Docs left stale by M7**
+  - after: M7.R
+  - files: `crates/edit/README.md`, `docs/showcase.md`
+  - scope: found at M7.R: the `edit` README still says renderers "arrive with M7.8, M7.13 and
+    M7.14" and "`suggest`: empty until M7.12" and lacks `crop_geom`, `guides` and the retouch
+    limits; `showcase.md` runs `dalica-cli snapshot` with a positional folder, which exits 2 since
+    the M7.29 rewrite of `control-protocol.md` §8.
+  - done when: each line matches the code; `cargo xtask ci` passes.
 - ⬜ **M8.R Check-in**
-  - after: M8.25
+  - after: M8.25, M8.27, M8.28, M8.29, M8.30
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`
   - scope: the lead runs `/milestone-review M8.R` to prepare it: the check-in page (edit a photo
@@ -3641,6 +3706,8 @@ wave 5   M8.17 Save a Copy + Save As  ‖  M8.18 interrupted saves  ‖  M8.19 S
          ‖  M8.20 Export dialog  ‖  M8.21 progress, notices + Exported  ‖  M8.23 every format
          ‖  M8.24 200-photo export + bench
 wave 6   M8.22 Save As in the app
+         (fixes from M7.R, any wave: M8.27 Windows file id ‖ M8.28 Tuning sliders ‖ M8.29 canvas
+          rest + thumbnail shape ‖ M8.30 docs)
 wave 7   M8.25 accept M8 → M8.R          (M8.26 lead: M10 blocks, any time after M7.24)
 ```
 

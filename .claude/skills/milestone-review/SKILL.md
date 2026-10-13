@@ -128,6 +128,13 @@ Publish one artifact page per check-in (load the `artifact-design` skill first).
 - **Numbers:** the few that matter (speed budgets met, test count, CI time per OS).
 - **Next:** what the next milestone builds, in two or three lines.
 
+**Images open larger on click** (maintainer, 2026-10-13: on-page screenshots are too small to judge).
+Every screenshot and fingerprint render on the page opens in a viewer when clicked: at its actual
+pixel size, scaled down only when it is larger than the window, never enlarged; an "Actual size"
+button for a shrunk image; ← → step through all the page's images, Esc or a click closes; each
+image is also reachable with Tab and Enter. Reuse the viewer from the M7 check-in page
+(`https://claude.ai/artifact/Ldg8NefEG3covr9etnCTfp`, its `.lb` styles and script).
+
 The page is linked on the review issue together with the pull request (§4).
 
 ## 4. Docs on a review branch, a pull request, and stop
