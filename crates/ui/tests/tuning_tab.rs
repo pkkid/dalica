@@ -186,18 +186,30 @@ fn until(t: &mut T, what: &str, mut done: impl FnMut(&mut T) -> bool) {
     t.d.settle(FRAMES).unwrap();
 }
 
+/// What a [`slow_drag`] saw: the driver's clock just after the press and just before the release
+/// (the moves' frames lie between), and how many moves left their draft still rendering on the
+/// preview's workers when their frames were done.
+struct Dragged {
+    pressed: f64,
+    moved: f64,
+    rendering: usize,
+}
+
 /// Drags slider `id` from its centre by `dx` in `steps` moves, letting drafts arrive between them.
-/// Returns the driver's clock just after the press and just before the release: the moves'
-/// frames lie between.
-fn slow_drag(t: &mut T, id: &str, dx: f32, steps: usize) -> (f64, f64) {
+fn slow_drag(t: &mut T, id: &str, dx: f32, steps: usize) -> Dragged {
     let w = widget(t, id);
     let start = pos2(w.rect[0] + w.rect[2] / 2.0, w.rect[1] + w.rect[3] / 2.0);
     let ev = |kind, pos| PointerEvent { kind, pos };
     t.d.pointer(&[ev(PointerKind::Move, start), ev(PointerKind::Down, start)], PointerButton::Primary, Modifiers::NONE).unwrap();
     let pressed = t.d.perf().last().map_or(0.0, |s| s.at);
+    let mut rendering = 0;
     for i in 1..=steps {
         let at = start + vec2(dx * i as f32 / steps as f32, 0.0);
         t.d.pointer(&[ev(PointerKind::Drag, at)], PointerButton::Primary, Modifiers::NONE).unwrap();
+        // The frames are done and the move's draft is still on the workers: no frame waited for it.
+        if t.d.app().session().unwrap().preview_pending() > 0 {
+            rendering += 1;
+        }
         // A draft has time to arrive before the next move.
         t.d.app_mut().session_mut().unwrap().wait_preview(Duration::from_millis(300));
         t.d.step();
@@ -206,7 +218,14 @@ fn slow_drag(t: &mut T, id: &str, dx: f32, steps: usize) -> (f64, f64) {
     let end = start + vec2(dx, 0.0);
     t.d.pointer(&[ev(PointerKind::Up, end), ev(PointerKind::Move, pos2(5.0, 5.0))], PointerButton::Primary, Modifiers::NONE).unwrap();
     t.d.settle(FRAMES).unwrap();
-    (pressed, moved)
+    Dragged { pressed, moved, rendering }
+}
+
+/// The nearest-rank `q` quantile of `v` (sorted here).
+fn quantile(mut v: Vec<Duration>, q: f64) -> Duration {
+    v.sort();
+    let i = ((v.len() as f64 * q).ceil() as usize).clamp(1, v.len().max(1)) - 1;
+    v.get(i).copied().unwrap_or_default()
 }
 
 fn out_dir() -> PathBuf {
@@ -261,22 +280,26 @@ fn a_fill_light_drag_is_one_tuning_step_and_basic_fixes_shows_it() {
     let before = edits(&mut t, p);
     assert!(!before.iter().any(|e| e.starts_with("tuning(")), "{before:?}");
 
-    // The frames of the drag's moves stay within 16 ms while the drafts update the photo: the UI
-    // never waits for a render. Judged on the 90th percentile (a shared 2-core CI runner stalls a
-    // single frame now and then), every frame within two. (The drafts' own request-to-shown times
-    // are reported; this debug build's renderer is unoptimised, the release budget is the
-    // `edit_preview` bench's.)
-    let (pressed, moved) = slow_drag(&mut t, "slider:tuning.fill_light", 60.0, 8);
-    let drafts: Vec<Duration> = t.d.perf().samples().filter(|s| s.at > pressed).filter_map(|s| s.preview_draft).collect();
-    assert!(drafts.len() >= 4, "drafts arrived while dragging: {drafts:?}");
-    let mut frames: Vec<Duration> = t.d.perf().samples().filter(|s| s.at > pressed && s.at <= moved).map(|s| s.update).collect();
-    frames.sort();
-    assert!(frames.len() >= 8, "{frames:?}");
-    let p90 = frames[(frames.len() * 9).div_ceil(10) - 1];
-    let slowest = *frames.last().unwrap();
-    assert!(p90 <= Duration::from_millis(16), "the drag's frames: {frames:?}");
-    assert!(slowest <= Duration::from_millis(33), "the drag's frames: {frames:?}");
-    eprintln!("drafts while dragging: {drafts:?}; frames p90 {p90:?}, slowest {slowest:?}");
+    // What keeps every frame of a drag within 16 ms, checked structurally (this debug build's
+    // renderer is unoptimised and CI runners are shared, so wall-clock times say little here): a
+    // move's frame hands its draft to the preview's workers and ends while it renders, never
+    // waiting for it, and the drafts arrive during the drag. With `DALICA_ACCEPT_RELEASE=1` in a
+    // release build, the times themselves: the drag's frames and the drafts within 16 ms (p95).
+    let steps = 8;
+    let dragged = slow_drag(&mut t, "slider:tuning.fill_light", 60.0, steps);
+    assert!(dragged.rendering >= steps - 1, "the moves' frames ended while their drafts rendered: {} of {steps}", dragged.rendering);
+    let during = |s: &&dalica_ui::perf::Sample| s.at > dragged.pressed && s.at <= dragged.moved;
+    let drafts: Vec<Duration> = t.d.perf().samples().filter(during).filter_map(|s| s.preview_draft).collect();
+    assert!(drafts.len() >= steps / 2, "drafts arrived while dragging: {drafts:?}");
+    let frames: Vec<Duration> = t.d.perf().samples().filter(during).map(|s| s.update).collect();
+    let (frames_p95, drafts_p95) = (quantile(frames.clone(), 0.95), quantile(drafts.clone(), 0.95));
+    eprintln!("drag: frames p95 {frames_p95:?}, drafts p95 {drafts_p95:?} ({drafts:?})");
+    if std::env::var_os("DALICA_ACCEPT_RELEASE").is_some() {
+        let release = !cfg!(debug_assertions);
+        assert!(release, "DALICA_ACCEPT_RELEASE=1 checks times in a release build (`cargo test --release`)");
+        assert!(frames_p95 <= Duration::from_millis(16), "the drag's frames: {frames:?}");
+        assert!(drafts_p95 <= Duration::from_millis(16), "the drafts: {drafts:?}");
+    }
     let s = state(&mut t);
     assert_eq!(s["edit"]["tool"], Value::Null, "letting go closes the session's tool");
     assert_eq!(s["edit"]["tuning"], Value::Null);
@@ -291,7 +314,7 @@ fn a_fill_light_drag_is_one_tuning_step_and_basic_fixes_shows_it() {
     assert_eq!(shown, after);
 
     // Another drag in the same visit: still one step.
-    let _ = slow_drag(&mut t, "slider:tuning.highlights", 40.0, 4);
+    slow_drag(&mut t, "slider:tuning.highlights", 40.0, 4);
     let joined = edits(&mut t, p);
     assert_eq!(joined.len(), after.len());
     let (fill2, highlights, ..) = last_tuning(&mut t, p);
@@ -306,7 +329,7 @@ fn a_fill_light_drag_is_one_tuning_step_and_basic_fixes_shows_it() {
     assert_eq!(tooltip(&mut t, "slider:basic.fill_light"), tab_value);
 
     // Its own drag is a step of its own on the same entry.
-    let _ = slow_drag(&mut t, "slider:basic.fill_light", -50.0, 4);
+    slow_drag(&mut t, "slider:basic.fill_light", -50.0, 4);
     let (fill3, highlights3, ..) = last_tuning(&mut t, p);
     assert!(fill3 < fill, "{fill3} < {fill}");
     assert_eq!(highlights3, highlights);
