@@ -54,6 +54,7 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
         match app.state().edit.tool {
             Some(ToolKind::Straighten) => straighten::show(app, ui),
             Some(ToolKind::Crop) => crop::on_canvas(app, ui),
+            Some(ToolKind::Retouch) => retouch::on_canvas(app, ui),
             _ => {}
         }
     });

@@ -6,13 +6,15 @@
 //! A photo without them says "No camera information"; while the file is being read, "Reading
 //! camera information…". Until a preview of the photo is shown the plot is an empty plate.
 //!
-//! The plot's bins are kept per preview (photo and generation) and the camera lines per photo and
+//! The plot's bins are kept per preview (photo, generation and quality: a tool's final replaces its
+//! smaller draft of the same generation) and the camera lines per photo and
 //! library revision, asked again only while the engine is still reading the file: no frame reads
 //! the file or recounts a histogram.
 
 use std::sync::Arc;
 
 use dalica_core::PhotoId;
+use dalica_engine::Quality;
 use dalica_ui_kit::Tokens;
 use dalica_ui_kit::fonts;
 use dalica_ui_kit::registry::Role;
@@ -130,24 +132,35 @@ fn camera_of(app: &mut App, ctx: &egui::Context, id: PhotoId) -> Arc<Camera> {
 struct Bins {
     photo: PhotoId,
     generation: u64,
+    quality: Quality,
     bins: Arc<[Vec<u64>; 3]>,
+}
+
+/// The bins the plot drew last (red, green, blue), for tests and agents.
+pub fn shown_bins(ctx: &egui::Context) -> Option<Arc<[Vec<u64>; 3]>> {
+    ctx.data(|d| d.get_temp::<Bins>(bins_id())).map(|b| b.bins)
+}
+
+fn bins_id() -> Id {
+    Id::new("editPanel.histogram")
 }
 
 /// The red, green and blue bins of the preview shown of `id`, if one is shown; counted again only
 /// when another preview arrives.
 fn bins_of(app: &App, ctx: &egui::Context, id: PhotoId) -> Option<Arc<[Vec<u64>; 3]>> {
-    let key = Id::new("editPanel.histogram");
+    let key = bins_id();
     let preview = app.session()?.preview().filter(|p| p.photo == id)?;
     if let Some(k) = ctx.data(|d| d.get_temp::<Bins>(key))
         && k.photo == id
         && k.generation == preview.generation
+        && k.quality == preview.quality
     {
         return Some(k.bins);
     }
     let h = &preview.histogram;
     let widen = |c: &[u32]| c.iter().map(|&n| u64::from(n)).collect::<Vec<u64>>();
     let bins = Arc::new([widen(&h.red), widen(&h.green), widen(&h.blue)]);
-    ctx.data_mut(|d| d.insert_temp(key, Bins { photo: id, generation: preview.generation, bins: Arc::clone(&bins) }));
+    ctx.data_mut(|d| d.insert_temp(key, Bins { photo: id, generation: preview.generation, quality: preview.quality, bins: Arc::clone(&bins) }));
     Some(bins)
 }
 
