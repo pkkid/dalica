@@ -1,13 +1,17 @@
 //! The metadata a scan imports from the photo files (`xmp-interop.md` §5, §7).
 //!
-//! - **Reading, on the scan's thread.** When a walk finds a photo the model does not know at its
-//!   size and modification time ([`Known`]; [`ReadMetadata`] in the scan's options), it reads the
-//!   file's owned fields through `dalica-meta`, in the same pass as the header and the folder
-//!   sidecar: a JPEG only up to its image data, a PNG, WebP or TIFF whole (at most [`MAX_FILE`]),
-//!   a RAW through its `.xmp` sidecar whatever the write option says (`xmp_sidecar::Sidecars` over
-//!   the folder's names), else the XMP embedded in a TIFF-structured RAW such as a DNG. Each read
-//!   runs inside `catch_unwind`; a file whose metadata cannot be read brings none
-//!   ([`FoundPhoto::file`] stays `None`) and the scan goes on.
+//! - **Reading, in the same pass as the header.** When a walk finds a photo the model does not
+//!   know at its size and modification time ([`Known`]; [`ReadMetadata`] in the scan's options),
+//!   it reads the file's owned fields through `dalica-meta`. A JPEG, PNG, WebP or TIFF is read on
+//!   the reading thread, with its header and from the bytes the header read already holds
+//!   ([`crate::walk::HeaderBytesReader`]): a JPEG's metadata segments come before its image data,
+//!   so it is read again (only up to its image data) only when they do not fit; a PNG, WebP or
+//!   TIFF is read whole (at most [`MAX_FILE`]) when the header's bytes are not the whole file.
+//!   A RAW is read on the scan's thread once the folder's headers are in, through its `.xmp`
+//!   sidecar whatever the write option says (`xmp_sidecar::Sidecars` over the folder's names),
+//!   else the XMP embedded in a TIFF-structured RAW such as a DNG. Every read runs inside
+//!   `catch_unwind`; a file whose metadata cannot be read brings none ([`FoundPhoto::file`] stays
+//!   `None`) and the scan goes on.
 //! - **Deciding, in the diff** (a pure function of the model and what was read, on the owner
 //!   thread with no file access). Per photo and field the rules of `dalica_library::sync`:
 //!   - a photo Dalica has nothing for (no caption, tags, star, date or any other field, and never
@@ -127,8 +131,9 @@ impl ReadMetadata {
     }
 }
 
-/// Reads the owned fields of the photos in `photos` (one folder, `dir`) that `known` does not
-/// know, into [`FoundPhoto::file`]. `names` are every file name of the folder (for RAW sidecars).
+/// Reads the owned fields of the RAWs in `photos` (one folder, `dir`) that `known` does not know,
+/// into [`FoundPhoto::file`] (the other formats are read with their headers:
+/// [`read_with_header`]). `names` are every file name of the folder (for the `.xmp` sidecars).
 /// Returns `false` when `cancelled` stopped it before the end.
 pub(crate) fn read_folder(
     dir: &Path,
@@ -141,7 +146,7 @@ pub(crate) fn read_folder(
     let raws: Vec<&str> = photos.iter().filter(|p| matches!(p.format, Format::Raw(_))).map(|p| p.name.as_str()).collect();
     let sidecars = (!raws.is_empty()).then(|| Sidecars::new(names, |n| raws.contains(&n)));
     for p in photos.iter_mut() {
-        if known.knows(dir, &p.name, p.size, p.mtime) {
+        if !matches!(p.format, Format::Raw(_)) || known.knows(dir, &p.name, p.size, p.mtime) {
             continue;
         }
         if cancelled() {
@@ -153,6 +158,52 @@ pub(crate) fn read_folder(
         p.file = catch_unwind(AssertUnwindSafe(|| read_file(&path, format, sidecar.as_deref(), limits))).ok().flatten();
     }
     true
+}
+
+/// A photo's header and, for a JPEG, PNG, WebP or TIFF, its owned fields, on the reading thread
+/// (inside its `catch_unwind` and time budget). With `bytes` the header comes with the bytes it
+/// read and the fields are taken from them (read from the file again only when they are not
+/// enough); without, the header comes from `header` and the fields from the file. `size` is the
+/// file's size as listed. A RAW's fields are left to [`read_folder`].
+pub(crate) fn read_with_header(
+    path: &Path,
+    format: Format,
+    size: u64,
+    header: &crate::walk::HeaderReader,
+    bytes: Option<&crate::walk::HeaderBytesReader>,
+    limits: &dalica_image::Limits,
+) -> (dalica_image::Result<dalica_image::Header>, Option<FileValues>) {
+    let meta_limits = dalica_meta::Limits::default();
+    if !matches!(format, Format::Jpeg | Format::Png | Format::WebP | Format::Tiff) {
+        return (header(path, limits), None);
+    }
+    match bytes {
+        Some(read) => match read(path, limits) {
+            Ok((h, bytes)) => (Ok(h), from_bytes(path, format, size, &bytes, &meta_limits)),
+            Err(e) => (Err(e), None),
+        },
+        None => {
+            let h = header(path, limits);
+            let file = if h.is_ok() { read_file(path, format, None, &meta_limits) } else { None };
+            (h, file)
+        }
+    }
+}
+
+/// The owned fields from `bytes`, the start of the file the header read: a JPEG's whenever its
+/// metadata segments are all in them, any other format's when they are the whole file (`size`);
+/// otherwise read from the file.
+fn from_bytes(path: &Path, format: Format, size: u64, bytes: &[u8], limits: &dalica_meta::Limits) -> Option<FileValues> {
+    let whole = u64::try_from(bytes.len()).is_ok_and(|n| n >= size);
+    match format {
+        Format::Jpeg => match dalica_meta::container::scan(bytes, limits) {
+            Ok(scan) => Some(FileValues::of(&dalica_meta::read_scan(&scan, limits).owned)),
+            Err(dalica_meta::Error::Truncated) if !whole => read_file(path, format, None, limits),
+            Err(_) => None,
+        },
+        _ if whole => dalica_meta::read(bytes, limits).ok().map(|m| FileValues::of(&m.owned)),
+        _ => read_file(path, format, None, limits),
+    }
 }
 
 /// One photo's owned fields; `None` when they cannot be read (or its format holds none Dalica

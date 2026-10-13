@@ -421,6 +421,8 @@ impl Session {
         };
         if let Some(reader) = &self.scanning.reader {
             options.reader = Arc::clone(reader);
+            // A planted reader reads every header; the metadata is then read from the files.
+            options.bytes_reader = None;
         }
         options
     }

@@ -313,3 +313,26 @@ fn truncated_and_damaged_files_bring_nothing_and_never_panic() {
     let ops = diff(&mut lib, &scan);
     apply_all(&mut lib, ops);
 }
+
+/// The owned fields of a JPEG, PNG, WebP or TIFF come from the bytes its header read already holds,
+/// on the reading thread: the file is not read again (the first-thumbnails budget). A planted
+/// bytes reader handing back another file's bytes shows it; without one (a planted header reader)
+/// the fields are read from the file itself.
+#[test]
+fn the_owned_fields_come_from_the_bytes_the_header_read() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("Lisbon");
+    put(&dir.join("plain.jpg"), &plain_jpeg(7), 0);
+    let tagged = dalica_meta::write_owned(&plain_jpeg(8), &caption("From the header's bytes"), &options()).unwrap();
+    let bytes_reader: dalica_scan::HeaderBytesReader = Arc::new(move |path: &Path, limits: &dalica_image::Limits| {
+        let (header, _) = dalica_image::read_header_file(path, limits)?;
+        Ok((header, tagged.clone()))
+    });
+    let roots = [tmp.path().to_path_buf()];
+    let planted = Options { bytes_reader: Some(bytes_reader), ..reading(ReadMetadata::all()) };
+    let scan = scan_with(&roots, &planted);
+    assert_eq!(found(&scan, "plain.jpg").file.as_ref().unwrap().0.caption, "From the header's bytes", "not read again");
+    let without = Options { bytes_reader: None, ..reading(ReadMetadata::all()) };
+    let scan = scan_with(&roots, &without);
+    assert_eq!(found(&scan, "plain.jpg").file.as_ref().unwrap().0, Default::default(), "read from the file itself");
+}
