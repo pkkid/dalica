@@ -11,6 +11,14 @@
 //! - **[`prefetch`]**: the order to load the cells around the visible ones, further ahead the
 //!   faster the view moves.
 //!
+//! - **Edited photos** (§6.3, M7): the entries and the sketch of a photo with [`Edits`] are drawn by
+//!   `edit`'s renderer ([`render_edited`], the function the edit view uses) from a decode large
+//!   enough for what the edits keep of the picture. The recipe's rotations and flips are left out
+//!   of the pixels: the cell turns the picture as it paints it (M6), so a rotation never remakes a
+//!   thumbnail and a rotated photo's entries are its unedited ones. The [`Key`] of an edited photo
+//!   holds its recipe hash and the versions of the operations it uses ([`Source::key_edited`]), so
+//!   a new version of one operation remakes only the photos that use it.
+//!
 //! Both jobs run on pool workers, never on the thread that owns the session. Entries are JPEG at
 //! [`QUALITY`] (fastest to decode); the [`Key`] of a photo is content-addressed (§6.4), and the
 //! screen-size entry's key also holds the screen size, so a different display never reads a
@@ -21,6 +29,7 @@ use std::ops::Range;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use dalica_edit::{Recipe, RenderKey};
 use image::codecs::jpeg::JpegEncoder;
 use image::{ExtendedColorType, ImageEncoder};
 
@@ -46,6 +55,10 @@ pub const MAX_AHEAD_SCREENS: usize = 4;
 /// The sizes a scan makes for every photo.
 pub const SCAN_SIZES: [Size; 2] = [Size::S128, Size::S256];
 
+/// The longest side an edited photo is decoded at to render a thumbnail from (a tight crop of a
+/// large photo is drawn from at most this much of it).
+pub const MAX_EDIT_SOURCE: u32 = 4096;
+
 /// Why a ladder job failed.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum Error {
@@ -54,6 +67,9 @@ pub enum Error {
     Photo(#[from] crate::Error),
     #[error("cannot encode the thumbnail: {0}")]
     Encode(String),
+    /// The renderer refused the photo's edits.
+    #[error("cannot render the edits: {0}")]
+    Render(String),
     #[error("the thumbnail cache failed: {0}")]
     Cache(String),
     #[error("cancelled")]
@@ -88,6 +104,64 @@ impl Source {
     /// entries made one way are never read the other way.
     pub fn key_for(&self, render: &Render) -> Key {
         Key::new(&self.path, self.file_size, i128::from(self.mtime_ms) * 1_000_000, render.recipe_hash(), RENDERER_VERSION)
+    }
+
+    /// The photo's key when rendered with `render` and `edits` (`None`: unedited, the key of
+    /// [`Source::key_for`]): the edits' recipe hash joins the render options', and the versions of
+    /// the operations they use join [`RENDERER_VERSION`].
+    pub fn key_edited(&self, render: &Render, edits: Option<&Edits>) -> Key {
+        let Some(edits) = edits else { return self.key_for(render) };
+        let recipe = mix(render.recipe_hash(), edits.key.recipe_hash);
+        let version = mix(RENDERER_VERSION, edits.key.renderer_version);
+        Key::new(&self.path, self.file_size, i128::from(self.mtime_ms) * 1_000_000, recipe, version)
+    }
+}
+
+/// Two halves of a key folded into one (FNV-1a over both): stable on every platform.
+fn mix(a: u64, b: u64) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in a.to_le_bytes().into_iter().chain(b.to_le_bytes()) {
+        h = (h ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    h
+}
+
+/// A photo's edits as the ladder draws them: its recipe without the rotations and flips (the cell
+/// turns the picture as it paints it), and that recipe's render key.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Edits {
+    pub recipe: Recipe,
+    pub key: RenderKey,
+}
+
+impl Edits {
+    /// The edits of a photo whose recipe is `edits` (the operation strings as stored), with the
+    /// operations' current versions; `None` when nothing but rotations and flips is left (the
+    /// photo's pixels are its file's) or the recipe cannot be read (it renders as unedited).
+    pub fn of(edits: &[String]) -> Option<Edits> {
+        Edits::with_versions(edits, dalica_edit::ops::version)
+    }
+
+    /// [`Edits::of`] as if operation `name` had version `version(name)` (tests ask what a version
+    /// bump remakes).
+    pub fn with_versions(edits: &[String], version: impl Fn(&str) -> Option<u32>) -> Option<Edits> {
+        if edits.is_empty() {
+            return None;
+        }
+        Edits::from_recipe(&Recipe::parse(edits).ok()?, version)
+    }
+
+    /// The edits of `recipe`, read already.
+    pub fn from_recipe(recipe: &Recipe, version: impl Fn(&str) -> Option<u32>) -> Option<Edits> {
+        let mut pixels = Recipe::new();
+        for op in recipe.ops().iter().filter(|op| op.orientation().is_none()) {
+            pixels.push(op.clone()).ok()?;
+        }
+        if pixels.is_empty() {
+            return None;
+        }
+        let key = dalica_edit::version::key_with(&pixels, version);
+        Some(Edits { recipe: pixels, key })
     }
 }
 
@@ -238,7 +312,21 @@ pub fn scan_with(
     limits: &dalica_image::Limits,
     cancel: &AtomicBool,
 ) -> Result<Scanned, Error> {
-    let key = source.key_for(render);
+    scan_edited(cache, source, render, None, want_sketch, limits, cancel)
+}
+
+/// [`scan_with`] for a photo with `edits` (`None`: unedited): its entries under
+/// [`Source::key_edited`], drawn by [`render_edited`], and its sketch from the edited 128 entry.
+pub fn scan_edited(
+    cache: &Cache,
+    source: &Source,
+    render: &Render,
+    edits: Option<&Edits>,
+    want_sketch: bool,
+    limits: &dalica_image::Limits,
+    cancel: &AtomicBool,
+) -> Result<Scanned, Error> {
+    let key = source.key_edited(render, edits);
     if SCAN_SIZES.iter().all(|&s| cache.contains(s, key)) {
         if !want_sketch {
             return Ok(Scanned { images: Vec::new(), sketch: None, decoded: false });
@@ -251,7 +339,7 @@ pub fn scan_with(
     if cancel.load(Ordering::Relaxed) {
         return Err(Error::Cancelled);
     }
-    let large = crate::thumbnail_with(&source.path, 256, &render.decode_options(), limits)?;
+    let large = picture(source, render, edits, 256, limits)?;
     let small = dalica_image::resize::fit(&large, 128).map_err(|e| Error::Photo(e.into()))?;
     let sketch = if want_sketch { Some(sketch::encode(&small).map_err(|e| Error::Encode(e.to_string()))?) } else { None };
     let mut images = Vec::with_capacity(2);
@@ -286,15 +374,65 @@ pub fn fetch_with(
     limits: &dalica_image::Limits,
     cancel: &AtomicBool,
 ) -> Result<Fetched, Error> {
-    let key = entry_key(source.key_for(render), size, screen);
+    fetch_edited(cache, source, render, None, size, screen, limits, cancel)
+}
+
+/// [`fetch_with`] for a photo with `edits` (`None`: unedited): its entry under
+/// [`Source::key_edited`], drawn by [`render_edited`] when it is not cached.
+#[allow(clippy::too_many_arguments, reason = "the fetch job's inputs, each its own concern")]
+pub fn fetch_edited(
+    cache: &Cache,
+    source: &Source,
+    render: &Render,
+    edits: Option<&Edits>,
+    size: Size,
+    screen: u32,
+    limits: &dalica_image::Limits,
+    cancel: &AtomicBool,
+) -> Result<Fetched, Error> {
+    let key = entry_key(source.key_edited(render, edits), size, screen);
     if let Some(image) = load(cache, size, key, limits)? {
         return Ok(Fetched { image, decoded: false });
     }
     if cancel.load(Ordering::Relaxed) {
         return Err(Error::Cancelled);
     }
-    let image = crate::thumbnail_with(&source.path, pixels(size, screen), &render.decode_options(), limits)?;
+    let image = picture(source, render, edits, pixels(size, screen), limits)?;
     Ok(Fetched { image: store(cache, size, key, &image, limits)?, decoded: true })
+}
+
+/// The photo fitted to `long_side`: decoded, or drawn with its edits.
+fn picture(source: &Source, render: &Render, edits: Option<&Edits>, long_side: u32, limits: &dalica_image::Limits) -> Result<Rgba8, Error> {
+    match edits {
+        None => Ok(crate::thumbnail_with(&source.path, long_side, &render.decode_options(), limits)?),
+        Some(edits) => render_edited(source, render, edits, long_side, limits),
+    }
+}
+
+/// The photo at `source` with `edits`, fitted to `long_side` pixels (never enlarged), upright and
+/// before the recipe's rotations and flips: `edit::render` (the edit view's renderer) of the photo
+/// decoded to fit `long_side`, or, when the edits keep less than the whole picture (a crop), decoded
+/// larger in proportion (at most [`MAX_EDIT_SOURCE`]) so the kept part still covers it.
+pub fn render_edited(source: &Source, render: &Render, edits: &Edits, long_side: u32, limits: &dalica_image::Limits) -> Result<Rgba8, Error> {
+    let long_side = long_side.max(1);
+    let options = render.decode_options();
+    let mut decoded = crate::thumbnail_with(&source.path, long_side, &options, limits)?;
+    let have = decoded.width.max(decoded.height);
+    let geometry = dalica_edit::Geometry::new(&edits.recipe, dalica_image::Orientation::default(), decoded.width, decoded.height);
+    let (kw, kh) = geometry.size();
+    let kept = kw.max(kh);
+    // Decoded down to the long side (the file is at least that large), and the edits keep less
+    // than that: decode again, larger by what they cut away.
+    if have >= long_side && kept.is_finite() && kept >= 1.0 && kept < f64::from(long_side) {
+        let want = (f64::from(long_side) * f64::from(have) / kept).ceil().min(f64::from(MAX_EDIT_SOURCE.max(long_side)));
+        // `as` saturates; the cap keeps it small.
+        let want = want as u32;
+        if want > have {
+            decoded = crate::thumbnail_with(&source.path, want, &options, limits)?;
+        }
+    }
+    let target = dalica_edit::Target::Fit { width: long_side, height: long_side };
+    dalica_edit::render(dalica_edit::Source::upright(&decoded), &edits.recipe, target).map_err(|e| Error::Render(e.to_string()))
 }
 
 /// Stores `image` as the `size` entry of `key` and returns the entry's pixels as a later read

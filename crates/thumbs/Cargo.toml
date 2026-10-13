@@ -11,6 +11,8 @@ publish = false
 
 
 [dependencies]
+# The renderer the ladder draws edited photos with (`ladder.rs`, architecture.md §6.3).
+dalica-edit.workspace = true
 dalica-fs.workspace = true
 dalica-image.workspace = true
 # The ladder's JPEG encoder (`ladder.rs`; already in the product through `dalica-scenes`).

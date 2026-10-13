@@ -23,6 +23,17 @@
 //!   `settings.json`) chooses the decode options and joins the cache key
 //!   ([`dalica_thumbs::ladder::Render`]); switching it forgets the images in memory, so the cells on
 //!   screen are made again (or read from the cache, if they were made that way before).
+//! - **Edits** (`architecture.md` §6.3, M7): a photo with a recipe has its entries and sketch drawn
+//!   by `edit`'s renderer ([`dalica_thumbs::ladder::render_edited`]) under a key that holds its
+//!   recipe and the versions of the operations it uses ([`dalica_thumbs::ladder::Edits`]); its
+//!   rotations and flips stay out of the pixels (the cells turn the picture as they paint it), so
+//!   they never remake a thumbnail. When a photo's recipe changes, by either history, a scan or the
+//!   watcher, its entries are made dead and new ones queued at the visible priority: eagerly for
+//!   the photos M7.3's hook names ([`Session::update_thumbnail_recipes`], which the light table
+//!   calls each frame), and in any case the next time the photo is looked at (each photo remembers
+//!   the library revision it last read its recipe in, so a look costs one comparison while nothing
+//!   changed). Until the new entries land, whoever holds the old images keeps drawing them. The
+//!   embedded thumbnail serves only photos without edits.
 //! - **A photo that cannot be shown** answers its `formats.md` §1 reason
 //!   ([`Session::thumbnail_failure`](crate::Session::thumbnail_failure)), remembered by its file
 //!   (path, size, modification time) and not tried again until the file changes. A photo whose
@@ -52,7 +63,7 @@ use std::time::{Duration, Instant};
 
 use dalica_core::{FolderId, PhotoId};
 use dalica_library::{Library, Photo, Sketch};
-use dalica_thumbs::ladder::{self, Choice, Render, Source};
+use dalica_thumbs::ladder::{self, Choice, Edits, Render, Source};
 pub use dalica_thumbs::pack::Size;
 use dalica_thumbs::pack::{Cache, Key};
 use dalica_thumbs::upkeep::{self, Budget};
@@ -77,6 +88,12 @@ const STALL: Duration = Duration::from_secs(120);
 pub const UNAVAILABLE_RETRY: Duration = Duration::from_secs(30);
 /// The embedded-thumbnail job runs just above the visible cells' scans.
 const QUICK: Priority = Priority(Priority::VISIBLE.0 + 5);
+/// Changed recipes [`Session::update_thumbnail_recipes`] remakes at the visible priority at once;
+/// past it (a batch edit), the rest go in the background until a cell asks for them.
+pub const RECIPES_VISIBLE: usize = 64;
+
+/// The operations' versions, replaced in tests ([`Session::set_thumbnail_versions`]).
+pub type Versions = fn(&str) -> Option<u32>;
 
 /// What [`Session::set_thumbnail_scan_hook`](crate::Session::set_thumbnail_scan_hook) plants: called
 /// on a pool worker with the photo's path before a scan job reads it.
@@ -206,6 +223,10 @@ pub struct ThumbStats {
     pub prunes: u64,
     /// Entries made dead because their photo left the library or its file changed.
     pub forgotten: u64,
+    /// Photos whose entries were made again because their recipe changed.
+    pub remade: u64,
+    /// Colour sketches made (by scans that were asked for one).
+    pub sketches: u64,
 }
 
 /// Generations [`Session::thumbnails_refreshed_since`](crate::Session::thumbnails_refreshed_since)
@@ -263,11 +284,30 @@ struct PhotoState {
     unavailable: Option<Instant>,
     /// Its embedded thumbnail was asked for.
     quick_asked: bool,
+    /// Its edits as the ladder draws them (`None`: its pixels are its file's).
+    edits: Option<Arc<Edits>>,
+    /// A hash of its recipe as stored ([`recipe_sig`]), and the library revision it was read in.
+    sig: u64,
+    revision: u64,
+    /// Its recipe changed since its sketch was made: the next scan makes it again.
+    sketch_due: bool,
 }
 
 impl PhotoState {
-    fn new(key: Key, folder: FolderId, epoch: u32) -> PhotoState {
-        PhotoState { key, epoch, folder, scanned: false, failed: None, unavailable: None, quick_asked: false }
+    fn new(key: Key, folder: FolderId, epoch: u32, read: Read) -> PhotoState {
+        PhotoState {
+            key,
+            epoch,
+            folder,
+            scanned: false,
+            failed: None,
+            unavailable: None,
+            quick_asked: false,
+            edits: read.edits,
+            sig: read.sig,
+            revision: read.revision,
+            sketch_due: false,
+        }
     }
 
     /// Whether a cell may ask for its images now.
@@ -314,7 +354,16 @@ pub(crate) struct Thumbs {
     limits: dalica_image::Limits,
     /// Called on the worker before each scan job reads its photo (tests plant gates through it).
     scan_hook: Option<ScanHook>,
+    /// The operations' versions in place of `edit`'s (tests).
+    versions: Option<Versions>,
     stats: ThumbStats,
+}
+
+/// A photo's recipe as read from the library.
+struct Read {
+    edits: Option<Arc<Edits>>,
+    sig: u64,
+    revision: u64,
 }
 
 impl Thumbs {
@@ -377,6 +426,7 @@ impl Thumbs {
             screen: options.screen.clamp(1, ladder::MAX_SCREEN),
             limits: dalica_image::Limits::default(),
             scan_hook: None,
+            versions: None,
             stats: ThumbStats::default(),
         };
         (thumbs, notices)
@@ -423,20 +473,105 @@ impl Thumbs {
         self.quick = Lru::new(QUICK_MEMORY);
     }
 
-    /// Brings photo `id`'s key up to the current rendering, if it was switched since the photo was
-    /// last looked at.
-    fn fresh(&mut self, library: &Library, id: PhotoId) {
-        let (epoch, render) = (self.epoch, self.render);
-        if let Some(st) = self.photos.get_mut(&id)
-            && st.epoch != epoch
-        {
-            if let Some(source) = library.photo(id).and_then(|p| source(library, p)) {
-                st.key = source.key_for(&render);
+    /// Uses the operations' `versions` in place of `edit`'s from now on (`None`: `edit`'s), like a
+    /// switch of the rendering: each photo's key is made again the next time it is looked at.
+    pub(crate) fn set_versions(&mut self, versions: Option<Versions>) {
+        self.versions = versions;
+        self.epoch = self.epoch.wrapping_add(1);
+        self.bump(None);
+        self.memory = Lru::new(self.memory.budget());
+        self.quick = Lru::new(QUICK_MEMORY);
+    }
+
+    /// Photo `id`'s recipe as the library has it now.
+    fn read(&self, library: &Library, id: PhotoId) -> Read {
+        let text = &library.info(id).edits;
+        let edits = match self.versions {
+            Some(v) => Edits::with_versions(text, v),
+            None => Edits::of(text),
+        };
+        Read { edits: edits.map(Arc::new), sig: recipe_sig(text), revision: library.revision() }
+    }
+
+    /// Brings photo `id`'s key up to date: to the current rendering, if it was switched since the
+    /// photo was last looked at, and to its recipe, if that changed since (checked once per library
+    /// revision). A changed recipe makes the photo's entries dead and, with `queue`, its scan is
+    /// queued at that priority (else the next request queues it).
+    fn fresh(&mut self, library: &Library, id: PhotoId, queue: Option<Priority>) {
+        let (epoch, render, revision) = (self.epoch, self.render, library.revision());
+        let Some(st) = self.photos.get(&id) else { return };
+        if st.epoch == epoch && st.revision == revision {
+            return;
+        }
+        if st.epoch == epoch && st.sig == recipe_sig(&library.info(id).edits) {
+            if let Some(st) = self.photos.get_mut(&id) {
+                st.revision = revision;
             }
-            st.epoch = epoch;
+            return;
+        }
+        let read = self.read(library, id);
+        let source = library.photo(id).and_then(|p| source(library, p));
+        let Some(st) = self.photos.get_mut(&id) else { return };
+        let old = st.key;
+        let switched = st.epoch != epoch;
+        if let Some(source) = &source {
+            st.key = source.key_edited(&render, read.edits.as_deref());
+        }
+        (st.edits, st.sig, st.revision, st.epoch) = (read.edits, read.sig, read.revision, epoch);
+        if switched {
             st.scanned = false;
             st.quick_asked = false;
+            return;
         }
+        if st.key == old {
+            // A rotation or a flip: the same pixels.
+            return;
+        }
+        // The recipe changed: the old entries are dead, and new ones made.
+        st.scanned = false;
+        st.quick_asked = false;
+        st.sketch_due = true;
+        let edits = st.edits.clone();
+        self.stats.remade += 1;
+        self.cancel_jobs(id);
+        self.forget_images(id);
+        if !self.photos.values().any(|st| st.key == old) {
+            self.forget(entries_of(old, self.screen).to_vec());
+        }
+        if let (Some(priority), Some(source)) = (queue, source) {
+            self.submit_scan(id, source, edits, true, priority, false);
+        }
+    }
+
+    /// Cancels photo `id`'s scan and fetches that have not started (made for a key it no longer
+    /// has).
+    fn cancel_jobs(&mut self, id: PhotoId) {
+        let Some(pool) = &self.pool else { return };
+        for job in std::iter::once(Job::Scan(id)).chain(Size::ALL.map(|s| Job::Fetch(id, s))) {
+            if self.outstanding.contains_key(&job) && pool.cancel(&job) {
+                self.outstanding.remove(&job);
+                self.prefetching.remove(&job);
+                if matches!(job, Job::Scan(_)) {
+                    self.scans = self.scans.saturating_sub(1);
+                }
+            }
+        }
+    }
+
+    /// Takes the recipe changes M7.3's hook reported: each photo's entries are made again at once,
+    /// at the visible priority (past [`RECIPES_VISIBLE`], in the background). Returns how many
+    /// photos it looked at.
+    pub(crate) fn recipes_changed(&mut self, library: &Library, photos: &[PhotoId]) -> usize {
+        let mut n = 0;
+        for (i, &id) in photos.iter().enumerate() {
+            if !self.photos.contains_key(&id) {
+                continue;
+            }
+            let priority = if i < RECIPES_VISIBLE { Priority::VISIBLE } else { Priority::BACKGROUND };
+            self.fresh(library, id, Some(priority));
+            n += 1;
+        }
+        n
     }
 
     /// Brings the thumbnailer in line with the library after it was opened or scanned. Only the
@@ -467,8 +602,15 @@ impl Thumbs {
             let Some(list) = lists.get_mut(&photo.folder) else { continue };
             list.insert(photo.id);
             let Some(source) = source(library, photo) else { continue };
-            let key = source.key_for(&self.render);
             let epoch = self.epoch;
+            // The recipe is read again only when it changed (or the rendering did).
+            let read = match self.photos.get(&photo.id) {
+                Some(st) if st.epoch == epoch && st.sig == recipe_sig(&library.info(photo.id).edits) => {
+                    Read { edits: st.edits.clone(), sig: st.sig, revision: library.revision() }
+                }
+                _ => self.read(library, photo.id),
+            };
+            let key = source.key_edited(&self.render, read.edits.as_deref());
             let changed_file = match self.photos.get_mut(&photo.id) {
                 Some(st) if st.epoch != epoch && st.key != key => {
                     // Keyed for the other rendering: the same file, its entries not made this way.
@@ -477,13 +619,16 @@ impl Thumbs {
                     st.scanned = false;
                     st.quick_asked = false;
                     st.folder = photo.folder;
+                    (st.edits, st.sig, st.revision) = (read.edits, read.sig, read.revision);
                     continue;
                 }
                 Some(st) if st.key == key => {
                     st.epoch = epoch;
                     st.folder = photo.folder;
+                    (st.edits, st.sig, st.revision) = (read.edits, read.sig, read.revision);
                     continue;
                 }
+                // Its file or its recipe changed.
                 Some(st) => {
                     dead.push(st.key);
                     true
@@ -493,9 +638,10 @@ impl Thumbs {
             if changed_file {
                 self.forget_images(photo.id);
             }
-            self.photos.insert(photo.id, PhotoState::new(key, photo.folder, self.epoch));
+            let edits = read.edits.clone();
+            self.photos.insert(photo.id, PhotoState::new(key, photo.folder, self.epoch, read));
             let want_sketch = changed_file || library.sketch(photo.id).is_none();
-            self.submit_scan(photo.id, source, want_sketch, Priority::BACKGROUND, false);
+            self.submit_scan(photo.id, source, edits, want_sketch, Priority::BACKGROUND, false);
         }
         // Photos of the changed and gone folders that are no longer there.
         let seen: HashSet<PhotoId> = lists.values().flatten().copied().collect();
@@ -538,8 +684,10 @@ impl Thumbs {
     fn track(&mut self, library: &Library, id: PhotoId, priority: Priority) {
         let Some(photo) = library.photo(id) else { return };
         let Some(source) = source(library, photo) else { return };
-        self.photos.insert(id, PhotoState::new(source.key_for(&self.render), photo.folder, self.epoch));
-        self.submit_scan(id, source, library.sketch(id).is_none(), priority, false);
+        let read = self.read(library, id);
+        let edits = read.edits.clone();
+        self.photos.insert(id, PhotoState::new(source.key_edited(&self.render, edits.as_deref()), photo.folder, self.epoch, read));
+        self.submit_scan(id, source, edits, library.sketch(id).is_none(), priority, false);
     }
 
     fn forget_images(&mut self, id: PhotoId) {
@@ -551,7 +699,7 @@ impl Thumbs {
 
     /// Queues the scan of one photo; `refresh` first makes its entries dead, so they are made
     /// again (unless its folder cannot be reached: then nothing is touched).
-    fn submit_scan(&mut self, id: PhotoId, source: Source, want_sketch: bool, priority: Priority, refresh: bool) {
+    fn submit_scan(&mut self, id: PhotoId, source: Source, edits: Option<Arc<Edits>>, want_sketch: bool, priority: Priority, refresh: bool) {
         let Some(cache) = self.cache.clone() else { return };
         let (limits, in_flight, render, screen) = (self.limits, Arc::clone(&self.in_flight), self.render, self.screen);
         let (over, budget) = (Arc::clone(&self.over), Arc::clone(&self.budget));
@@ -560,7 +708,7 @@ impl Thumbs {
             if let Some(hook) = &hook {
                 hook(&source.path);
             }
-            let key = source.key_for(&render);
+            let key = source.key_edited(&render, edits.as_deref());
             if refresh {
                 if !reachable(&source.path) {
                     let result = Err(ladder::Error::Photo(dalica_thumbs::Error::Io("its folder cannot be reached".into())));
@@ -570,7 +718,7 @@ impl Thumbs {
                     return Done::Scanned { key, result: Err(e.into()), in_flight: 0, unavailable: false };
                 }
             }
-            let mut result = ladder::scan_with(&cache, &source, &render, want_sketch || refresh, &limits, cancel);
+            let mut result = ladder::scan_edited(&cache, &source, &render, edits.as_deref(), want_sketch || refresh, &limits, cancel);
             let unavailable = is_unreachable(&result, &source);
             let mut bytes = 0;
             if let Ok(s) = &mut result {
@@ -590,11 +738,12 @@ impl Thumbs {
         let job = Job::Fetch(id, size);
         let source = library.photo(id).and_then(|p| source(library, p))?;
         let cache = self.cache.clone()?;
+        let edits = self.photos.get(&id).and_then(|st| st.edits.clone());
         let (limits, screen, render) = (self.limits, self.screen, self.render);
         let (over, budget) = (Arc::clone(&self.over), Arc::clone(&self.budget));
         self.submit(job, priority, move |cancel| {
-            let key = source.key_for(&render);
-            let result = ladder::fetch_with(&cache, &source, &render, size, screen, &limits, cancel);
+            let key = source.key_edited(&render, edits.as_deref());
+            let result = ladder::fetch_edited(&cache, &source, &render, edits.as_deref(), size, screen, &limits, cancel);
             let unavailable = is_unreachable(&result, &source);
             if let Ok(f) = &result {
                 note_budget(&cache, &budget, &over, f.decoded);
@@ -604,10 +753,11 @@ impl Thumbs {
         Some(job)
     }
 
-    /// Queues the embedded thumbnail of a photo on screen, once.
+    /// Queues the embedded thumbnail of a photo on screen, once; never for a photo with edits (the
+    /// file's own small copy does not show them).
     fn submit_quick(&mut self, library: &Library, id: PhotoId, need: u32) {
         let Some(source) = library.photo(id).and_then(|p| source(library, p)) else { return };
-        if self.cache.is_none() {
+        if self.cache.is_none() || self.photos.get(&id).is_some_and(|st| st.edits.is_some()) {
             return;
         }
         let (limits, render) = (self.limits, self.render);
@@ -665,9 +815,10 @@ impl Thumbs {
         if !self.photos.contains_key(&id) {
             self.track(library, id, Priority::VISIBLE);
         }
-        self.fresh(library, id);
+        self.fresh(library, id, Some(Priority::VISIBLE));
         let Some(st) = self.photos.get(&id) else { return fallback(library, id) };
-        let (key, scanned, askable, quick_asked) = (st.key, st.scanned, st.askable(), st.quick_asked);
+        let (key, scanned, askable, quick_asked) = (st.key, st.scanned, st.askable(), st.quick_asked || st.edits.is_some());
+        let (edits, sketch_due) = (st.edits.clone(), st.sketch_due);
         let want = ladder::covering(need, self.screen);
         let found = self.best(id, key, need);
         let covers = matches!(found, Some((_, _, true)));
@@ -677,7 +828,7 @@ impl Thumbs {
                     self.submit_quick(library, id, need);
                 }
                 if let Some(source) = library.photo(id).and_then(|p| source(library, p)) {
-                    self.submit_scan(id, source, library.sketch(id).is_none(), Priority::VISIBLE, false);
+                    self.submit_scan(id, source, edits, sketch_due || library.sketch(id).is_none(), Priority::VISIBLE, false);
                 }
             } else {
                 if found.is_none()
@@ -697,7 +848,7 @@ impl Thumbs {
 
     /// What photo `id` draws now, without asking for anything (benches and tests).
     pub(crate) fn peek(&mut self, library: &Library, id: PhotoId, need: u32) -> Thumb {
-        self.fresh(library, id);
+        self.fresh(library, id, None);
         let Some(key) = self.photos.get(&id).map(|s| s.key) else { return fallback(library, id) };
         match self.best(id, key, need) {
             Some((size, image, covers)) => Thumb::Image { size, image, covers },
@@ -756,16 +907,17 @@ impl Thumbs {
             if !self.photos.contains_key(&id) {
                 self.track(library, id, Priority::PREFETCH);
             }
-            self.fresh(library, id);
+            self.fresh(library, id, Some(Priority::PREFETCH));
             let Some(st) = self.photos.get(&id) else { continue };
             if !st.askable() {
                 continue;
             }
             if !st.scanned {
                 // Raise its background scan; a scan is never cancelled.
+                let (edits, sketch_due) = (st.edits.clone(), st.sketch_due);
                 if let Some(source) = library.photo(id).and_then(|p| source(library, p)) {
-                    let want_sketch = library.sketch(id).is_none();
-                    self.submit_scan(id, source, want_sketch, Priority::PREFETCH, false);
+                    let want_sketch = sketch_due || library.sketch(id).is_none();
+                    self.submit_scan(id, source, edits, want_sketch, Priority::PREFETCH, false);
                 }
                 continue;
             }
@@ -808,8 +960,10 @@ impl Thumbs {
                 self.scans = self.scans.saturating_sub(1);
             }
             self.forget_images(id);
-            self.photos.insert(id, PhotoState::new(source.key_for(&self.render), photo.folder, self.epoch));
-            self.submit_scan(id, source, true, Priority::BACKGROUND, true);
+            let read = self.read(library, id);
+            let edits = read.edits.clone();
+            self.photos.insert(id, PhotoState::new(source.key_edited(&self.render, edits.as_deref()), photo.folder, self.epoch, read));
+            self.submit_scan(id, source, edits, true, Priority::BACKGROUND, true);
             n += 1;
         }
         if n > 0 {
@@ -941,10 +1095,14 @@ impl Thumbs {
         match (job, done) {
             (Job::Scan(id), Done::Scanned { key, result, in_flight, unavailable }) => {
                 self.in_flight.fetch_sub(in_flight, Ordering::SeqCst);
-                self.fresh(library, id);
+                self.fresh(library, id, None);
                 let Some(known) = self.photos.get(&id).map(|st| st.key) else { return };
                 if known != key {
-                    let Some(current) = library.photo(id).and_then(|p| source(library, p)).map(|s| s.key_for(&self.render)) else { return };
+                    let edits = self.photos.get(&id).and_then(|st| st.edits.clone());
+                    let Some(current) = library.photo(id).and_then(|p| source(library, p)).map(|s| s.key_edited(&self.render, edits.as_deref()))
+                    else {
+                        return;
+                    };
                     if current == known {
                         // Made the other way (colour management was switched meanwhile): only its
                         // sketch is of use.
@@ -964,7 +1122,7 @@ impl Thumbs {
                         }
                         self.forget_images(id);
                         if let Some(source) = library.photo(id).and_then(|p| source(library, p)) {
-                            self.submit_scan(id, source, true, Priority::BACKGROUND, false);
+                            self.submit_scan(id, source, edits, true, Priority::BACKGROUND, false);
                         }
                         return;
                     }
@@ -981,6 +1139,8 @@ impl Thumbs {
                         self.quick.remove(&id);
                         self.stats.decodes += u64::from(scanned.decoded);
                         if let Some(sketch) = scanned.sketch.as_deref().and_then(Sketch::new) {
+                            st.sketch_due = false;
+                            self.stats.sketches += 1;
                             self.sketches.push((id, Some(sketch)));
                         }
                         for (size, image) in scanned.images {
@@ -993,7 +1153,7 @@ impl Thumbs {
                 }
             }
             (Job::Fetch(id, _), Done::Fetched { key, size, result, unavailable }) => {
-                self.fresh(library, id);
+                self.fresh(library, id, None);
                 let Some(st) = self.photos.get_mut(&id) else { return };
                 if st.key != key {
                     return;
@@ -1014,7 +1174,7 @@ impl Thumbs {
                 }
             }
             (Job::Quick(id), Done::Quick { key, image }) => {
-                self.fresh(library, id);
+                self.fresh(library, id, None);
                 let Some(st) = self.photos.get(&id) else { return };
                 if st.key != key || st.scanned {
                     return;
@@ -1154,7 +1314,9 @@ fn reason(e: &ladder::Error) -> String {
     match e {
         ladder::Error::Photo(dalica_thumbs::Error::Image(i)) => i.reason(),
         ladder::Error::Photo(dalica_thumbs::Error::Io(_)) => dalica_image::Error::Io(String::new()).reason(),
-        ladder::Error::Encode(_) | ladder::Error::Cache(_) | ladder::Error::Cancelled => "The thumbnail could not be made".into(),
+        ladder::Error::Encode(_) | ladder::Error::Render(_) | ladder::Error::Cache(_) | ladder::Error::Cancelled => {
+            "The thumbnail could not be made".into()
+        }
     }
 }
 
@@ -1192,6 +1354,21 @@ fn crop_to_aspect(image: Rgba8, w: u32, h: u32) -> Option<Rgba8> {
         data.extend_from_slice(image.data.get(start..end)?);
     }
     Some(Rgba8 { width: u32::try_from(cw).ok()?, height: u32::try_from(ch).ok()?, data })
+}
+
+/// A hash of a recipe as stored (FNV-1a over its operation strings; 0 for none): enough to see
+/// that it changed without reading it.
+fn recipe_sig(edits: &[String]) -> u64 {
+    if edits.is_empty() {
+        return 0;
+    }
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for text in edits {
+        for b in (text.len() as u64).to_le_bytes().into_iter().chain(text.bytes()) {
+            h = (h ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    }
+    h
 }
 
 /// The sketch, else the placeholder.
@@ -1277,6 +1454,26 @@ impl Session {
     /// which of the two jobs finished first.
     pub fn thumbnail_stand_in(&self, id: PhotoId) -> bool {
         self.thumbs.stand_in(id)
+    }
+
+    /// Takes the recipe changes the session noted since the last call (M7.3's hook,
+    /// [`Session::take_recipe_changes`], which this drains): each changed photo's entries are made
+    /// dead and new ones queued at once, at the visible priority (past [`RECIPES_VISIBLE`] photos,
+    /// in the background). The light table calls it at the start of each frame; a photo whose
+    /// change nobody takes here is caught up the next time its thumbnail is asked for. Returns how
+    /// many photos it looked at.
+    pub fn update_thumbnail_recipes(&mut self) -> usize {
+        let changes = self.take_recipe_changes();
+        // Past the hook's limit (`overflow`) any photo may have changed: each is checked when it is
+        // next looked at, as every photo is after any op.
+        self.thumbs.recipes_changed(&self.library, &changes.photos)
+    }
+
+    /// Uses `versions` for the operations' renderer versions in thumbnail keys, in place of
+    /// `edit`'s (`None`: `edit`'s): what a version bump would remake, without building one (tests,
+    /// benches). Every photo's key is made again the next time it is looked at.
+    pub fn set_thumbnail_versions(&mut self, versions: Option<Versions>) {
+        self.thumbs.set_versions(versions);
     }
 
     /// What photo `id` draws now in a cell of `need` device pixels, like
