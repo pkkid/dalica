@@ -2913,7 +2913,7 @@ effect tabs show an empty state until M12.
     counter; Auto lighting sets three sliders in one step; picking the grey patch of a cast
     `scenes` photo removes the cast; hover tooltips, + / − nudges and double-click resets; tab
     fingerprints at both sizes.
-- ⬜ **M7.22 `ui`: the Retouch tool**
+- ✅ **M7.22 `ui`: the Retouch tool**
   - after: M7.14, M7.15, M7.16
   - files: `crates/ui/src/panels/edit/retouch.rs`, `crates/ui/tests/retouch_tool.rs`, `crates/ui/tests/fingerprints/edit-retouch*.json`
   - scope: `editing.md` §6.4: the Retouch panel (instruction, Brush size, Undo Patch │ Redo Patch,
