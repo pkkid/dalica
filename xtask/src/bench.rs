@@ -37,6 +37,11 @@ pub const BENCHES: &[Bench] = &[
         package: "dalica-engine",
         what: "first thumbnails after adding 1 k and 10 k JPEGs, the full scan, and the scanned 100 k light table at top thumb speed (writes about 3 GB)",
     },
+    Bench {
+        name: "edit_preview",
+        package: "dalica-engine",
+        what: "the edit view's preview of a 24 MP JPEG: open cold and from the cache, a Tuning drag's drafts and finals, next/previous prefetched",
+    },
 ];
 
 /// Time units a field may name, in milliseconds.

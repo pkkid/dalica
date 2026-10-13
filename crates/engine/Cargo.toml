@@ -39,3 +39,7 @@ tempfile.workspace = true
 [[bench]]
 name = "first_thumbnails"
 harness = false
+
+[[bench]]
+name = "edit_preview"
+harness = false

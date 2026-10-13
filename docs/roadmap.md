@@ -2744,7 +2744,7 @@ effect tabs show an empty state until M12.
     edit view undoes the photo's rotation and leaves the library stack alone; a caption typed in the
     bar is one library step; the status text; top bar, caption bar and status fingerprints at both
     sizes.
-- ⬜ **M7.11 `engine`: the edit view's preview renders and their benchmark**
+- ✅ **M7.11 `engine`: the edit view's preview renders and their benchmark**
   - after: M7.2, M7.3, M7.8
   - files: `crates/engine/src/preview.rs`, `crates/engine/src/preview/**`, `crates/engine/tests/preview.rs`, `crates/engine/benches/edit_preview.rs`, `xtask/src/bench.rs`, `.github/workflows/budgets.yml`, `docs/development.md`
   - scope: `editing.md` §3, §5.2 and `architecture.md` §5–§6, off the owner thread at `editMain`
