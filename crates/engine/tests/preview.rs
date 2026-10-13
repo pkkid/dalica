@@ -11,6 +11,7 @@ use std::time::Duration;
 
 use dalica_core::{PhotoId, SystemClock};
 use dalica_edit::{Recipe, Region, Target};
+use dalica_engine::preview::halve;
 use dalica_engine::{CacheDir, Histogram, Options, PreviewError, Quality, Session, ThumbOptions, UpdateKind};
 use dalica_fs::Expect;
 use dalica_image::Rgba8;
@@ -71,32 +72,24 @@ fn the_preview_has_the_recipes_displayed_size() {
     s.open_preview(ids[0], (300, 300)).unwrap();
     assert!(s.wait_preview(WAIT));
     let frame = s.preview().expect("a preview").clone();
-    assert_eq!((frame.image.width, frame.image.height), (225, 300), "480 × 640 displayed, fitted to 300 × 300");
+    assert_eq!((frame.image.width, frame.image.height), (240, 320), "480 × 640 displayed, halved once: the largest power of two covering 300 × 300");
     assert_eq!(frame.quality, Quality::Final);
     assert_eq!(frame.recipe, strings(&["rotate(90)", "tuning(0.3,0,0,0.2,none)"]));
     let source = decoded(&folder, 0);
-    let expected = dalica_edit::render(
-        dalica_edit::Source::upright(&source),
-        &recipe(&["rotate(90)", "tuning(0.3,0,0,0.2,none)"]),
-        Target::Fit { width: 300, height: 300 },
-    )
-    .unwrap();
+    let half = halve(&source).unwrap();
+    let expected =
+        dalica_edit::render(dalica_edit::Source::upright(&half), &recipe(&["rotate(90)", "tuning(0.3,0,0,0.2,none)"]), Target::Full).unwrap();
     assert!(*frame.image == expected, "the preview is the renderer's output");
-    // A tool's candidate, rendered from the source resampled once to the box's scale (a base):
-    // the renderer's picture.
+    // A tool's candidate: the renderer's picture of the halved source.
     let candidate = strings(&["rotate(90)", "tuning(0.5,0.1,0,-0.3,none)"]);
     s.set_preview_candidate(Some(&candidate)).unwrap();
     assert!(s.wait_preview(WAIT));
     let again = s.preview().unwrap();
-    let expected = dalica_edit::render(
-        dalica_edit::Source::upright(&source),
-        &recipe(&["rotate(90)", "tuning(0.5,0.1,0,-0.3,none)"]),
-        Target::Fit { width: 300, height: 300 },
-    )
-    .unwrap();
-    assert!(*again.image == expected, "a render through the base is the renderer's picture");
+    let expected =
+        dalica_edit::render(dalica_edit::Source::upright(&half), &recipe(&["rotate(90)", "tuning(0.5,0.1,0,-0.3,none)"]), Target::Full).unwrap();
+    assert!(*again.image == expected, "the candidate is the renderer's picture");
     s.set_preview_candidate(None).unwrap();
-    // A box larger than the photo never enlarges it.
+    // A box larger than the photo never enlarges it; an unedited photo is its source.
     s.set_preview_fit((4000, 4000)).unwrap();
     assert!(s.wait_preview(WAIT));
     let big = s.preview().unwrap();
@@ -108,25 +101,21 @@ fn the_preview_has_the_recipes_displayed_size() {
 }
 
 /// A crop keeps its part of the source: the preview has the cropped shape and is the renderer's
-/// output, also for a box smaller than the photo (where uncropped previews draw from a base).
+/// output at the largest power-of-two scale covering the box.
 #[test]
 fn a_cropped_preview_is_the_renderers_output() {
     let (_dir, folder, mut s, ids) = setup(1);
     apply(&mut s, ids[0], "crop(0,0,0.5,1)");
-    for fit in [(1000, 1000), (200, 200)] {
+    for (fit, scale) in [((1000, 1000), 1.0), ((200, 200), 0.5)] {
         s.open_preview(ids[0], fit).unwrap();
         assert!(s.wait_preview(WAIT));
         let frame = s.preview().unwrap();
-        let expected = dalica_edit::render(
-            dalica_edit::Source::upright(&decoded(&folder, 0)),
-            &recipe(&["crop(0,0,0.5,1)"]),
-            Target::Fit { width: fit.0, height: fit.1 },
-        )
-        .unwrap();
+        let expected =
+            dalica_edit::render(dalica_edit::Source::upright(&decoded(&folder, 0)), &recipe(&["crop(0,0,0.5,1)"]), Target::Scale(scale)).unwrap();
         assert_eq!((frame.image.width, frame.image.height), (expected.width, expected.height));
         assert!(*frame.image == expected, "{fit:?}");
     }
-    assert_eq!((s.preview().unwrap().image.width, s.preview().unwrap().image.height), (133, 200));
+    assert_eq!((s.preview().unwrap().image.width, s.preview().unwrap().image.height), (160, 240));
 }
 
 /// A history step on the open photo renders its preview again with the new recipe.
@@ -272,7 +261,7 @@ fn a_prefetched_neighbour_opens_without_a_decode() {
     assert_eq!(s.preview().unwrap().recipe, Vec::<String>::new());
     assert_eq!(s.preview_stats().decodes, decodes, "no photo was decoded again");
     s.open_preview(ids[2], (400, 400)).unwrap();
-    assert_eq!((s.preview().unwrap().image.width, s.preview().unwrap().image.height), (300, 400));
+    assert_eq!((s.preview().unwrap().image.width, s.preview().unwrap().image.height), (H, W));
 }
 
 /// A photo decoded for its preview is stored as the ladder's screen entry; the next session on that
@@ -387,7 +376,7 @@ fn graceful_failures() {
     s.open_preview(ids[0], (0, u32::MAX)).unwrap();
     assert!(s.wait_preview(WAIT));
     let frame = s.preview().unwrap();
-    assert_eq!(frame.image.width, 1, "an empty box is one pixel wide");
+    assert!(frame.image.width <= 2, "an empty box gives the source halved as far as it goes");
     let too_many: Vec<String> = (0..=dalica_edit::MAX_OPERATIONS).map(|_| "rotate(90)".to_string()).collect();
     assert!(matches!(s.set_preview_candidate(Some(&too_many)), Err(PreviewError::BadRecipe(_))));
     for bad in [

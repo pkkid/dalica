@@ -541,11 +541,12 @@ every PR; `cargo xtask perf` runs nightly on one fixed runner, never on pull req
 `edit_preview` (M7.11) writes four 24 MP JPEGs (`--width`, `--height`; 6000 × 4000) and fits
 the edit view's preview to `--fit` (2560 × 1600). Rows: `open cold` (a session on an empty
 thumbnail cache, from `Session::open_preview` to the poll that takes the final preview: the file
-decoded whole, the first preview rendered from that decode, its histogram counted) and `open cached`
+decoded whole and halved to between one and two screen sizes, its histogram counted) and `open cached`
 (a new session on the cache the cold opens filled: the ladder's screen entry read instead), seven
 each; `drag` (40 steps of a Tuning drag: each step's draft and final, `draft_…` and `final_…`);
 `next previous` (forward through the photos and back with the neighbours prefetched while each is
-shown). With `--bench` or `--check` it exits non-zero when a budget of §8 is missed (in release
+shown). The budgets hold on the budgets job's 2-vCPU runner: check them locally with
+`taskset -c 0,1` on the bench binary. With `--bench` or `--check` it exits non-zero when a budget of §8 is missed (in release
 only); `--plant-ms N` adds N ms to every judged time. Without `--bench` it runs a smoke pass on
 600 × 400 photos and judges nothing.
 

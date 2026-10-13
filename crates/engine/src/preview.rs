@@ -2,11 +2,14 @@
 //! owner thread on the preview's own workers, the open photo's at the edit view's priority:
 //!
 //! - **The source.** Per open photo, its screen-size picture (the ladder's unedited screen entry
-//!   when the thumbnail cache has it, else the file decoded to the screen size under the limits,
-//!   then stored as that entry in the background) is kept in memory: the last [`SOURCES`] photos'.
-//! - **The screen preview** of the photo's recipe ([`Session::open_preview`]), fitted to the photo
-//!   area's box in device pixels, never enlarged. A change of the photo's recipe (any history step)
-//!   renders it again.
+//!   when the thumbnail cache has it, else the file decoded under the limits and halved to between
+//!   one and two screen sizes, then stored as that entry in the background) is kept in memory: the
+//!   last [`SOURCES`] photos'.
+//! - **The screen preview** of the photo's recipe ([`Session::open_preview`]) at the largest
+//!   power-of-two scale of its source (1, ½, ¼ …) that still covers the photo area's box in device
+//!   pixels, never above the source's resolution; the edit view draws it fitted to the box. A
+//!   change of the photo's recipe (any history step) renders it again. Why powers of two: see
+//!   `preview/jobs.rs` (the renderer's fractional resample is what a 2-core machine cannot afford).
 //! - **A tool's candidate** ([`Session::set_preview_candidate`]) renders as a [`Quality::Draft`],
 //!   at a lower scale only when the measured cost of a full render would miss
 //!   [`DRAFT_TARGET_MS`], then as the [`Quality::Final`] (a full-scale draft is the final).
@@ -38,7 +41,8 @@ use dalica_thumbs::ladder::{Render, Source};
 use dalica_thumbs::{Pool, Priority};
 
 pub use self::histogram::{BINS, Histogram};
-use self::jobs::{Ask, Ladder, Origin, Read, Rendered, Screen};
+pub use self::jobs::halve;
+use self::jobs::{Ask, Ladder, Origin, Rendered, Screen};
 use crate::session::Session;
 
 /// The preview's worker threads (renders run their bands in parallel on top of these).
@@ -57,7 +61,7 @@ pub const MAX_FULL_BYTES: u64 = 1 << 30;
 pub const DRAFT_TARGET_MS: f64 = 12.0;
 /// The smallest draft scale.
 pub const MIN_DRAFT_SCALE: f64 = 0.25;
-/// The largest box a preview is fitted to, per side.
+/// The largest box a preview covers, per side.
 pub const MAX_FIT: u32 = 16_384;
 /// The most pixels of a refined window.
 pub const MAX_WINDOW_PIXELS: u64 = 1 << 26;
@@ -142,27 +146,14 @@ enum Key {
     Region(u64),
     /// Storing a photo's screen entry in the thumbnail cache.
     Store(PhotoId),
-    /// Making a photo's screen-size source from its whole decode.
-    Reduce(PhotoId),
-    /// Making a base of a photo's source at a scale (its bits).
-    Base(PhotoId, u64),
-}
-
-/// A photo read by a load job.
-enum Got {
-    Screen(Arc<Screen>, Origin),
-    /// The whole decode, its source still to be made from it.
-    Full(Arc<Rgba8>),
 }
 
 enum Done {
-    Loaded { photo: PhotoId, file: Source, render: Render, result: Result<Got, String>, frame: Option<Result<Rendered, String>> },
-    Reduced { file: Source, render: Render, result: Result<Arc<Rgba8>, String> },
-    Based(Result<(), String>),
+    Loaded { photo: PhotoId, file: Source, render: Render, result: Result<(Arc<Screen>, Origin), String>, frame: Option<Result<Rendered, String>> },
     Rendered { generation: u64, result: Result<Rendered, String> },
     Full { file: Source, result: Result<Arc<Rgba8>, String> },
     Region { generation: u64, region: Region, result: Result<Arc<Rgba8>, String> },
-    Stored(Result<(), String>),
+    Stored { file: Source, render: Render, result: Result<Option<Arc<Rgba8>>, String> },
     Panicked(String),
 }
 
@@ -183,8 +174,6 @@ struct Open {
     frame: Option<PreviewImage>,
     window: Option<Region>,
     full: Option<Arc<Rgba8>>,
-    /// The whole decode while the source is made from it (previews render from it meanwhile).
-    interim: Option<Arc<Rgba8>>,
     refined: Option<Refined>,
     /// The window's request: generation and when.
     window_asked: (u64, Instant),
@@ -283,20 +272,10 @@ impl Preview {
         self.ready.truncate(READY);
     }
 
-    /// What the open photo's previews render from: its source, else the whole decode it is
-    /// being made from.
-    fn render_source(&mut self, file: &Source, render: Render) -> Option<(Arc<Rgba8>, Option<Arc<Screen>>)> {
-        if let Some(screen) = self.source_of(file, render) {
-            return Some((Arc::clone(&screen.image), Some(screen)));
-        }
-        let open = self.open.as_ref().filter(|o| o.file == *file)?;
-        open.interim.clone().map(|full| (full, None))
-    }
-
     /// Remembers what a full-size render from a source took (a render from a whole decode, or a
     /// smaller draft, says nothing about the next one).
     fn note_cost(&mut self, r: &Rendered) {
-        if r.from_screen && r.scale >= 1.0 && r.ms.is_finite() {
+        if r.scale >= 1.0 && r.ms.is_finite() {
             self.cost = Some(r.ms);
         }
     }
@@ -365,7 +344,7 @@ impl Session {
         Ladder { cache, render, screen, limits }
     }
 
-    /// Opens photo `id` in the edit view's preview, fitted to `fit` (the photo area in device
+    /// Opens photo `id` in the edit view's preview, covering `fit` (the photo area in device
     /// pixels): its source is read (or taken from memory) and its recipe rendered at the edit
     /// view's priority. Opening another photo first closes the one open.
     pub fn open_preview(&mut self, id: PhotoId, fit: (u32, u32)) -> Result<(), PreviewError> {
@@ -388,7 +367,6 @@ impl Session {
                 frame: None,
                 window: None,
                 full: None,
-                interim: None,
                 refined: None,
                 window_asked: (0, Instant::now()),
                 failure: None,
@@ -409,11 +387,11 @@ impl Session {
         self.preview.cancel_where(|k| match k {
             Key::Load(id) | Key::Full(id) => *id == photo,
             Key::Render(..) | Key::Region(_) => true,
-            Key::Store(_) | Key::Reduce(_) | Key::Base(..) => false,
+            Key::Store(_) => false,
         });
     }
 
-    /// The photo area changed size: the preview is fitted to `fit` again.
+    /// The photo area changed size: the preview is made to cover `fit` again.
     pub fn set_preview_fit(&mut self, fit: (u32, u32)) -> Result<(), PreviewError> {
         let fit = clamp_fit(fit);
         let open = self.preview.open.as_mut().ok_or(PreviewError::NotOpen)?;
@@ -639,37 +617,23 @@ impl Session {
             self.show(generation, Quality::Final, rendered);
             return;
         }
-        let Some((image, screen)) = self.preview.render_source(&file, ladder.render) else {
-            // Its source is on its way (read, or made from the whole decode): rendered when it lands.
-            if self.preview.outstanding.contains(&Key::Reduce(photo)) {
-                return;
-            }
+        let Some(screen) = self.preview.source_of(&file, ladder.render) else {
             let ask = Ask { recipe: parse(&texts), texts, fit, scale: 1.0 };
             self.submit_load(photo, file, Some(ask), Priority::EDIT);
             return;
         };
         let scale = if draft { self.preview.draft_scale() } else { 1.0 };
-        self.submit_render(generation, draft, image, screen, Ask { recipe: parse(&texts), texts, fit, scale });
+        self.submit_render(generation, draft, screen, Ask { recipe: parse(&texts), texts, fit, scale });
     }
 
-    fn submit_render(&mut self, generation: u64, draft: bool, source: Arc<Rgba8>, screen: Option<Arc<Screen>>, ask: Ask) {
-        self.preview.submit(Key::Render(generation, draft), Priority::EDIT, move |_| Done::Rendered {
-            generation,
-            result: jobs::render(&source, screen.as_deref(), &ask),
-        });
-    }
-
-    /// Makes the base a render asked for, on the open photo's source.
-    fn submit_base(&mut self, photo: PhotoId, file: &Source, scale: Option<f64>) {
-        let Some(scale) = scale else { return };
-        let render = self.preview_ladder().render;
-        let Some(screen) = self.preview.source_of(file, render) else { return };
-        self.preview.submit(Key::Base(photo, scale.to_bits()), Priority::PREFETCH, move |_| Done::Based(jobs::make_base(&screen, scale)));
+    fn submit_render(&mut self, generation: u64, draft: bool, screen: Arc<Screen>, ask: Ask) {
+        self.preview
+            .submit(Key::Render(generation, draft), Priority::EDIT, move |_| Done::Rendered { generation, result: jobs::render(&screen, &ask) });
     }
 
     /// Reads photo `id`'s source (from memory when it is there) and renders `ask` from it.
     fn submit_load(&mut self, id: PhotoId, file: Source, ask: Option<Ask>, priority: Priority) {
-        if self.preview.loading.get(&id).is_some_and(|p| *p >= priority) || self.preview.outstanding.contains(&Key::Reduce(id)) {
+        if self.preview.loading.get(&id).is_some_and(|p| *p >= priority) {
             return;
         }
         let ladder = self.preview_ladder();
@@ -678,28 +642,27 @@ impl Session {
         let render = ladder.render;
         self.preview.submit(Key::Load(id), priority, move |_| {
             let result = match have {
-                Some(screen) => Ok(Got::Screen(screen, Origin::Memory)),
-                None => jobs::read(&file, &ladder, MAX_FULL_BYTES).map(|read| match read {
-                    Read::Screen(image, origin) => Got::Screen(Arc::new(Screen::new(Arc::new(image))), origin),
-                    Read::Full(full) => Got::Full(Arc::new(full)),
-                }),
+                Some(screen) => Ok((screen, Origin::Memory)),
+                None => jobs::read(&file, &ladder, MAX_FULL_BYTES).map(|(image, origin)| (Arc::new(Screen::new(Arc::new(image))), origin)),
             };
             let frame = match (&result, ask) {
-                (Ok(Got::Screen(screen, _)), Some(ask)) => Some(jobs::render(&screen.image, Some(screen), &ask)),
-                (Ok(Got::Full(full)), Some(ask)) => Some(jobs::render(full, None, &ask)),
+                (Ok((screen, _)), Some(ask)) => Some(jobs::render(screen, &ask)),
                 _ => None,
             };
             Done::Loaded { photo: id, file, render, result, frame }
         });
     }
 
-    /// Stores a decoded source as the ladder's screen entry, in the background.
+    /// Settles a decoded source in the background: fitted to the screen size and stored as the
+    /// ladder's screen entry.
     fn submit_store(&mut self, photo: PhotoId, file: &Source, image: Arc<Rgba8>) {
         let (ladder, file) = (self.preview_ladder(), file.clone());
-        if ladder.cache.is_none() {
-            return;
-        }
-        self.preview.submit(Key::Store(photo), Priority::BACKGROUND, move |_| Done::Stored(jobs::store(&file, &ladder, &image)));
+        let render = ladder.render;
+        self.preview.submit(Key::Store(photo), Priority::PREFETCH, move |_| Done::Stored {
+            result: jobs::settle(&file, &ladder, &image).map(|f| f.map(Arc::new)),
+            file,
+            render,
+        });
     }
 
     /// Asks for the open photo's refined window: the whole decode first, then the window.
@@ -711,7 +674,7 @@ impl Session {
         let Some(region) = open.window else { return };
         open.window_asked = (generation, Instant::now());
         let (photo, file, texts) = (open.photo, open.file.clone(), open.want.recipe.clone());
-        match open.full.clone().or_else(|| open.interim.clone()) {
+        match open.full.clone() {
             Some(full) => {
                 let recipe = parse(&texts);
                 self.preview.submit(Key::Region(generation), Priority::EDIT, move |_| Done::Region {
@@ -745,7 +708,7 @@ impl Session {
         self.preview.outstanding.remove(&key);
         match done {
             Done::Loaded { photo, file, render, result, frame } => {
-                let priority = self.preview.loading.remove(&photo).unwrap_or(Priority::PREFETCH);
+                self.preview.loading.remove(&photo);
                 self.preview.prefetching.remove(&photo);
                 let got = match result {
                     Ok(got) => got,
@@ -761,32 +724,16 @@ impl Session {
                     self.preview.stats.stale += 1;
                     return;
                 }
-                let is_open = self.preview.open.as_ref().is_some_and(|o| o.photo == photo && o.file == file);
-                match got {
-                    Got::Screen(screen, origin) => {
-                        match origin {
-                            Origin::Memory => {}
-                            Origin::Cache => self.preview.stats.cache_loads += 1,
-                            Origin::Decoded => {
-                                self.preview.stats.decodes += 1;
-                                self.submit_store(photo, &file, Arc::clone(&screen.image));
-                            }
-                        }
-                        self.preview.keep_source(file.clone(), render, screen);
-                    }
-                    Got::Full(full) => {
+                let (screen, origin) = got;
+                match origin {
+                    Origin::Memory => {}
+                    Origin::Cache => self.preview.stats.cache_loads += 1,
+                    Origin::Decoded => {
                         self.preview.stats.decodes += 1;
-                        let (ladder, reduce_file, whole) = (self.preview_ladder(), file.clone(), Arc::clone(&full));
-                        self.preview.submit(Key::Reduce(photo), priority, move |_| Done::Reduced {
-                            result: jobs::reduce(&whole, &ladder).map(Arc::new),
-                            file: reduce_file,
-                            render,
-                        });
-                        if is_open && let Some(open) = self.preview.open.as_mut() {
-                            open.interim = Some(full);
-                        }
+                        self.submit_store(photo, &file, Arc::clone(&screen.image));
                     }
                 }
+                self.preview.keep_source(file.clone(), render, screen);
                 let frame = match frame {
                     Some(Ok(r)) => {
                         self.preview.stats.renders += 1;
@@ -806,56 +753,11 @@ impl Session {
                 let Some(open) = self.preview.open.as_ref().filter(|o| o.photo == photo && o.file == file) else { return };
                 let (generation, wanted, fit, draft) = (open.want.generation, open.want.recipe.clone(), open.fit, open.want.draft);
                 match frame {
-                    Some(r) if r.recipe == wanted && r.fit == fit => {
-                        let base = r.wants_base;
-                        self.show(generation, Quality::Final, r);
-                        self.submit_base(photo, &file, base);
-                    }
+                    Some(r) if r.recipe == wanted && r.fit == fit => self.show(generation, Quality::Final, r),
                     _ => self.request_preview(draft),
                 }
                 if self.preview.open.as_ref().is_some_and(|o| o.window.is_some()) {
                     self.request_window();
-                }
-            }
-            Done::Reduced { file, render, result } => {
-                let Key::Reduce(photo) = key else { return };
-                let screen = match result {
-                    Ok(image) => Arc::new(Screen::new(image)),
-                    Err(e) => {
-                        self.preview.stats.failures += 1;
-                        log::warn!("preview: no screen-size source: {e}");
-                        return;
-                    }
-                };
-                if render != self.preview_ladder().render {
-                    self.preview.stats.stale += 1;
-                    return;
-                }
-                self.submit_store(photo, &file, Arc::clone(&screen.image));
-                self.preview.keep_source(file.clone(), render, screen);
-                let rendering = self.preview.outstanding.iter().any(|k| matches!(k, Key::Render(..)));
-                let Some(open) = self.preview.open.as_mut().filter(|o| o.photo == photo && o.file == file) else { return };
-                // The whole decode stays only while zoomed (its window renders from it).
-                let interim = open.interim.take();
-                if open.window.is_some() && open.full.is_none() {
-                    open.full = interim;
-                }
-                let current = open.frame.as_ref().is_some_and(|f| f.generation == open.want.generation);
-                let (draft, fit, texts) = (open.want.draft, open.fit, open.want.recipe.clone());
-                if !current && !rendering {
-                    self.request_preview(draft);
-                }
-                // The bases the next renders and a tool's drafts draw from, made before they ask.
-                let (width, height) = self.preview.source_of(&file, render).map_or((0, 0), |sc| (sc.image.width, sc.image.height));
-                let recipe = parse(&texts);
-                for scale in [1.0, 0.5] {
-                    let ask = Ask { recipe: recipe.clone(), texts: texts.clone(), fit, scale };
-                    self.submit_base(photo, &file, jobs::base_scale(&ask, width, height));
-                }
-            }
-            Done::Based(result) => {
-                if let Err(e) = result {
-                    log::warn!("preview: no base: {e}");
                 }
             }
             Done::Rendered { generation, result } => {
@@ -878,11 +780,7 @@ impl Session {
                 self.preview.note_cost(&rendered);
                 let Key::Render(_, draft) = key else { return };
                 if !draft {
-                    let base = rendered.wants_base;
                     self.show(generation, Quality::Final, rendered);
-                    if let Some((photo, file)) = self.preview.open.as_ref().map(|o| (o.photo, o.file.clone())) {
-                        self.submit_base(photo, &file, base);
-                    }
                     return;
                 }
                 let full_size = rendered.scale >= 1.0;
@@ -890,18 +788,14 @@ impl Session {
                     Ask { recipe: parse(&rendered.recipe), texts: rendered.recipe.clone(), fit: rendered.fit, scale: 1.0 },
                     self.preview.open.as_ref().map(|o| o.file.clone()),
                 );
-                let base = rendered.wants_base;
                 self.show(generation, Quality::Draft, rendered.clone());
-                if let Some((photo, file)) = self.preview.open.as_ref().map(|o| (o.photo, o.file.clone())) {
-                    self.submit_base(photo, &file, base);
-                }
                 if full_size {
                     // The draft was the full render: it is the final too.
                     self.show(generation, Quality::Final, rendered);
                 } else if let Some(file) = source
-                    && let Some((image, screen)) = self.preview.render_source(&file, self.preview_ladder().render)
+                    && let Some(screen) = self.preview.source_of(&file, self.preview_ladder().render)
                 {
-                    self.submit_render(generation, false, image, screen, ask);
+                    self.submit_render(generation, false, screen, ask);
                 }
             }
             Done::Full { file, result } => {
@@ -939,11 +833,16 @@ impl Session {
                     }
                 }
             }
-            Done::Stored(result) => {
-                if let Err(e) = result {
-                    log::warn!("preview: the screen entry was not stored: {e}");
+            Done::Stored { file, render, result } => match result {
+                // The renders from now on draw from the source fitted to the screen size.
+                Ok(Some(fitted)) => {
+                    if self.preview.sources.iter().any(|(f, r, _)| *f == file && *r == render) {
+                        self.preview.keep_source(file, render, Arc::new(Screen::new(fitted)));
+                    }
                 }
-            }
+                Ok(None) => {}
+                Err(e) => log::warn!("preview: the screen entry was not stored: {e}"),
+            },
             Done::Panicked(message) => {
                 self.preview.stats.failures += 1;
                 log::error!("preview: a job panicked: {message}");
