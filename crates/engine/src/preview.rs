@@ -127,6 +127,8 @@ pub struct PreviewStats {
     pub full_decodes: u64,
     /// Previews and windows rendered.
     pub renders: u64,
+    /// Previews asked for (each a new generation, superseding the one before).
+    pub requests: u64,
     /// Results of older requests dropped.
     pub stale: u64,
     /// Jobs cancelled (superseded, or the photo closed).
@@ -641,6 +643,7 @@ impl Session {
     fn request_preview(&mut self, draft: bool) {
         let ladder = self.preview_ladder();
         let generation = self.preview.next_generation();
+        self.preview.stats.requests += 1;
         self.preview.cancel_where(|k| matches!(k, Key::Render(..)));
         let Some(open) = self.preview.open.as_mut() else { return };
         let texts = open.candidate.clone().unwrap_or_else(|| self.library.info(open.photo).edits.clone());

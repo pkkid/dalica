@@ -138,8 +138,8 @@ enum Wand {
 struct Local {
     visit: Option<Visit>,
     pending: Vec<Pending>,
-    /// The photo whose preview shows a Tuning candidate this module set.
-    candidate: Option<PhotoId>,
+    /// The photo whose preview shows a Tuning candidate this module set, and that candidate.
+    candidate: Option<(PhotoId, Vec<String>)>,
     /// The photo the eyedropper is armed on.
     picking: Option<PhotoId>,
 }
@@ -260,14 +260,19 @@ fn candidate(app: &App, photo: PhotoId, d: &TuningDraft) -> Vec<String> {
     edits
 }
 
-/// Shows `d` on `photo` through the preview's candidate (rendered as drafts, then a final).
+/// Shows `d` on `photo` through the preview's candidate (rendered as drafts, then a final), when
+/// that changed: a slider held still during a drag reports its value every frame, and handing the
+/// same candidate again would cancel the draft rendering it before it could arrive.
 fn preview(app: &mut App, photo: PhotoId, d: &TuningDraft) {
     let recipe = candidate(app, photo, d);
+    if local(|l| l.candidate.as_ref().is_some_and(|(p, r)| *p == photo && *r == recipe)) {
+        return;
+    }
     if let Some(s) = app.session_mut()
         && s.preview_photo() == Some(photo)
         && s.set_preview_candidate(Some(&recipe)).is_ok()
     {
-        local(|l| l.candidate = Some(photo));
+        local(|l| l.candidate = Some((photo, recipe)));
     }
 }
 
@@ -380,7 +385,7 @@ pub fn poll(app: &mut App, ctx: &egui::Context) {
         local(|l| l.picking = None);
         drop_candidate(app);
     }
-    if local(|l| l.candidate.is_some_and(|c| Some(c) != photo)) {
+    if local(|l| l.candidate.as_ref().is_some_and(|(c, _)| Some(*c) != photo)) {
         drop_candidate(app);
     }
     let pending = local(|l| l.pending.clone());

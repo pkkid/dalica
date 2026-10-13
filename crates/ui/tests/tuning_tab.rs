@@ -33,6 +33,9 @@ const TINT: [f64; 3] = [1.0, 0.86, 0.68];
 /// The grey patch before the cast, and its share of each side around the centre.
 const GREY: f64 = 150.0;
 const PATCH: f64 = 0.3;
+/// How long a [`slow_drag`] move waits for its draft to arrive (a slow, shared CI runner's debug
+/// build can take hundreds of milliseconds per draft).
+const DRAFT_WAIT: Duration = Duration::from_secs(2);
 
 struct T {
     _dir: tempfile::TempDir,
@@ -210,9 +213,25 @@ fn slow_drag(t: &mut T, id: &str, dx: f32, steps: usize) -> Dragged {
         if t.d.app().session().unwrap().preview_pending() > 0 {
             rendering += 1;
         }
-        // A draft has time to arrive before the next move.
-        t.d.app_mut().session_mut().unwrap().wait_preview(Duration::from_millis(300));
-        t.d.step();
+        // The move's draft has time to arrive before the next move, however slow the machine: wait
+        // (on the session's own wait, a frame drawn after each slice) until a frame has shown a
+        // draft since this move, for at most 2 s. Slices of 100 ms keep a drag's frames well
+        // inside the perf window the drafts are counted from.
+        let (mark, since) = (t.d.perf().last().map_or(0.0, |s| s.at), Instant::now());
+        let requests = |t: &T| t.d.app().session().unwrap().preview_stats().requests;
+        let before = requests(t);
+        // Frames go on while the slider is held still (as the window's would).
+        for _ in 0..3 {
+            t.d.step();
+        }
+        let arrived = |t: &T| t.d.perf().samples().any(|s| s.at > mark && s.preview_draft.is_some());
+        while !arrived(t) && since.elapsed() < DRAFT_WAIT {
+            t.d.app_mut().session_mut().unwrap().wait_preview(Duration::from_millis(100));
+            t.d.step();
+        }
+        // The slider held still: its frames left the move's draft alone (asking for the same
+        // preview again would cancel it, and a draft slower than a frame would never arrive).
+        assert_eq!(requests(t), before, "frames of a slider held still asked again for move {i}'s preview, cancelling its draft");
     }
     let moved = t.d.perf().last().map_or(0.0, |s| s.at);
     let end = start + vec2(dx, 0.0);
