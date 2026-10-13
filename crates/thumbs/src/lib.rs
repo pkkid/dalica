@@ -2,7 +2,8 @@
 //!
 //! Layer L2; see `docs/architecture.md` §2, §5 and §6. The [`Pool`] of worker threads, the
 //! byte-budgeted [`Lru`], the thumbnail job ([`thumbnail`]: decode at size, upright), the colour
-//! [`sketch`], the packed disk cache ([`pack`]) and the size [`ladder`] with its scan and fetch jobs.
+//! [`sketch`], the packed disk cache ([`pack`]) and the size [`ladder`] with its scan and fetch jobs,
+//! which draw edited photos with `edit`'s renderer ([`ladder::Edits`]).
 
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]

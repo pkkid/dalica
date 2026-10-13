@@ -23,6 +23,15 @@
 //! were made is noticed when the session next scans or verifies it (the watcher, M5): until then
 //! its cached thumbnails show.
 //!
+//! **Edits** (M7, `architecture.md` §6.3): the session draws a photo's ladder images and sketch
+//! with its recipe's other operations applied (everything but the rotations and flips, which stay
+//! paint's). Each texture remembers the edits it shows (their render key); when the photo's recipe
+//! changes, its textures are stale but still drawn, turned by the new orientation, never a blank,
+//! and the cell asks for the new images until they arrive and replace them. A photo with edits
+//! shows the size they leave ([`Thumbnails::displayed`]: a crop's shape) and the edited badge
+//! ([`Thumbnails::edited`]). The start of each frame hands the session's recipe changes to the
+//! thumbnailer ([`Session::update_thumbnail_recipes`]), so the new images are on their way at once.
+//!
 //! **The painting API** (fixed by the light-table skeleton). Each frame the light table calls, in
 //! order:
 //!
@@ -63,12 +72,12 @@ use std::path::PathBuf;
 use std::sync::{Arc, Weak};
 
 use dalica_core::PhotoId;
-use dalica_edit::{Dihedral, Recipe};
+use dalica_edit::{Dihedral, Geometry, Recipe, RenderKey};
 use dalica_engine::thumbs::Size;
 use dalica_engine::{Refreshed, Session, Thumb};
 use dalica_library::Photo;
 use dalica_thumbs::Rgba8;
-use dalica_thumbs::ladder::{self, Choice};
+use dalica_thumbs::ladder::{self, Choice, Edits};
 use dalica_ui_kit::Tokens;
 use egui::epaint::Vertex;
 use egui::{Color32, Mesh, Painter, Pos2, Rect, Shape, TextureId, pos2};
@@ -96,9 +105,9 @@ pub const SKETCH_GRID: u32 = 8;
 const MAX_SKETCHES: usize = 4096;
 /// Without the display order, a texture not drawn for this many frames is evicted.
 const UNORDERED_FRAMES: u64 = 120;
-/// Orientations kept for one library revision, past which the cache starts again (a long scroll
+/// Photo shapes kept for one library revision, past which the cache starts again (a long scroll
 /// through a large library without any change).
-const MAX_ORIENTATIONS: usize = 1 << 16;
+const MAX_SHAPES: usize = 1 << 16;
 
 /// The photo a cell shows, with what the thumbnails may need to find its pixels.
 #[derive(Clone, Copy)]
@@ -121,6 +130,43 @@ pub fn recipe_orientation(edits: &[String]) -> Dihedral {
         return Dihedral::IDENTITY;
     }
     Recipe::parse(edits).map(|r| r.orientation()).unwrap_or(Dihedral::IDENTITY)
+}
+
+/// What a photo's recipe does to its thumbnail, read once per library revision.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PhotoShape {
+    /// Its rotations and flips added up, turned at paint.
+    pub turn: Dihedral,
+    /// The render key of its other operations (`None`: its pixels are its file's): what the
+    /// session's images of it show.
+    pub edits: Option<RenderKey>,
+    /// The size its edits leave of the upright picture (a crop, a straighten), before `turn`, when
+    /// that is not the file's.
+    pub kept: Option<(u32, u32)>,
+}
+
+impl PhotoShape {
+    /// A photo without a recipe.
+    pub const PLAIN: PhotoShape = PhotoShape { turn: Dihedral::IDENTITY, edits: None, kept: None };
+}
+
+/// The shape of a photo whose recipe is `edits` and whose upright picture is `width × height`
+/// (an unreadable recipe shows the photo as its file has it). Parses the recipe: callers cache it.
+pub fn shape_of(edits: &[String], width: u32, height: u32) -> PhotoShape {
+    if edits.is_empty() {
+        return PhotoShape::PLAIN;
+    }
+    let Ok(recipe) = Recipe::parse(edits) else { return PhotoShape::PLAIN };
+    let turn = recipe.orientation();
+    let Some(pixels) = Edits::from_recipe(&recipe, dalica_edit::ops::version) else { return PhotoShape { turn, ..PhotoShape::PLAIN } };
+    let kept = if width == 0 || height == 0 {
+        None
+    } else {
+        let (w, h) = Geometry::new(&pixels.recipe, dalica_image::Orientation::default(), width, height).size();
+        let round = |v: f64| if v.is_finite() && v >= 0.5 { Some(v.round().min(f64::from(u32::MAX)) as u32) } else { None };
+        round(w).zip(round(h)).filter(|&k| k != (width, height))
+    };
+    PhotoShape { turn, edits: Some(pixels.key), kept }
 }
 
 /// Where the point at `(x, y)` of the upright picture (each 0–1 across it) lands once turned by `d`
@@ -236,6 +282,8 @@ struct Texture {
     /// It is the photo's embedded thumbnail standing in while the photo's scan runs
     /// ([`Session::thumbnail_stand_in`]): the scan's own downscale replaces it.
     stand_in: bool,
+    /// The edits it shows ([`PhotoShape::edits`] when it was uploaded).
+    edits: Option<RenderKey>,
 }
 
 /// A sketch, decoded once into the colours of its mesh.
@@ -258,13 +306,15 @@ struct Cell {
     turn: Dihedral,
     /// It drew an embedded thumbnail standing in for its ladder image: it keeps asking.
     stand_in: bool,
+    /// It drew a texture made for the photo's earlier edits: it keeps asking.
+    stale: bool,
 }
 
 impl Cell {
     /// Something better is still to come: it waits for its covering size, or shows an embedded
-    /// thumbnail standing in for it.
+    /// thumbnail standing in for it or a texture of the photo's earlier edits.
     fn better_to_come(&self) -> bool {
-        self.drawn.waiting() || self.stand_in
+        self.drawn.waiting() || self.stand_in || self.stale
     }
 }
 
@@ -276,6 +326,8 @@ pub struct Painted {
     pub rect: Rect,
     pub turn: Dihedral,
     pub drawn: Drawn,
+    /// It drew a texture of the photo's earlier edits while the new one renders.
+    pub stale: bool,
 }
 
 /// The photos in display order, flattened from the sections.
@@ -313,9 +365,9 @@ pub struct Thumbnails {
     placeholder: Color32,
     /// The session's thumbnail generation the textures were made in.
     made_in: u64,
-    /// The net orientation of the photos painted lately, for the library revision it was read in.
-    orient: HashMap<PhotoId, Dihedral>,
-    orient_revision: Option<u64>,
+    /// The shapes of the photos painted lately, for the library revision they were read in.
+    shapes: HashMap<PhotoId, PhotoShape>,
+    shapes_revision: Option<u64>,
 }
 
 impl Thumbnails {
@@ -339,49 +391,62 @@ impl Thumbnails {
             ended: None,
             speed: 0.0,
             placeholder: Tokens::default().placeholder,
-            orient: HashMap::new(),
-            orient_revision: None,
+            shapes: HashMap::new(),
+            shapes_revision: None,
         }
     }
 
-    /// The net orientation of `photo`'s recipe (what its rotations and flips add up to), read once
-    /// per library revision: the cache is emptied when the revision moves, and only photos asked
-    /// about are parsed, so the cost is that of the cells on screen.
-    pub fn orientation(&mut self, photo: PhotoRef<'_>) -> Dihedral {
+    /// What `photo`'s recipe does to its thumbnail ([`PhotoShape`]), read once per library revision: the
+    /// cache is emptied when the revision moves, and only photos asked about are parsed, so the
+    /// cost is that of the cells on screen.
+    pub fn shape(&mut self, photo: PhotoRef<'_>) -> PhotoShape {
         let library = photo.session.library();
         let revision = library.revision();
-        if self.orient_revision != Some(revision) {
-            self.orient.clear();
-            self.orient_revision = Some(revision);
+        if self.shapes_revision != Some(revision) {
+            self.shapes.clear();
+            self.shapes_revision = Some(revision);
         }
         let id = photo.photo.id;
         let edits = &library.info(id).edits;
         if edits.is_empty() {
-            return Dihedral::IDENTITY;
+            return PhotoShape::PLAIN;
         }
-        if let Some(d) = self.orient.get(&id) {
-            return *d;
+        if let Some(s) = self.shapes.get(&id) {
+            return *s;
         }
-        if self.orient.len() >= MAX_ORIENTATIONS {
-            self.orient.clear();
+        if self.shapes.len() >= MAX_SHAPES {
+            self.shapes.clear();
         }
-        let d = recipe_orientation(edits);
-        self.orient.insert(id, d);
-        d
+        let s = shape_of(edits, photo.photo.width, photo.photo.height);
+        self.shapes.insert(id, s);
+        s
     }
 
-    /// The size `photo` shows at: its file's displayed size turned by its recipe (a landscape
-    /// turned a quarter is a portrait); 0 × 0 when the file's size is unknown. What callers
-    /// letterbox or crop it to.
+    /// The net orientation of `photo`'s recipe (what its rotations and flips add up to).
+    pub fn orientation(&mut self, photo: PhotoRef<'_>) -> Dihedral {
+        self.shape(photo).turn
+    }
+
+    /// Whether `photo`'s recipe changes its pixels (beyond rotations and flips): the edited badge.
+    pub fn edited(&mut self, photo: PhotoRef<'_>) -> bool {
+        self.shape(photo).edits.is_some()
+    }
+
+    /// The size `photo` shows at: what its edits keep of its file's displayed size (a crop's
+    /// shape), turned by its recipe (a landscape turned a quarter is a portrait); 0 × 0 when the
+    /// file's size is unknown. What callers letterbox or crop it to.
     pub fn displayed(&mut self, photo: PhotoRef<'_>) -> (u32, u32) {
-        let d = self.orientation(photo);
-        d.display_size(photo.photo.width, photo.photo.height)
+        let shape = self.shape(photo);
+        let (w, h) = shape.kept.unwrap_or((photo.photo.width, photo.photo.height));
+        shape.turn.display_size(w, h)
     }
 
     /// Starts a frame: notes the theme and, when the display's size is known, tells the session
     /// (the screen-size ladder entry). Returns the textures alive.
     pub fn begin_frame(&mut self, ctx: &egui::Context, session: &mut Session, t: &Tokens) -> usize {
         self.placeholder = t.placeholder;
+        // Recipes changed since the last frame: their new images are queued at once.
+        session.update_thumbnail_recipes();
         if self.ctx.is_none() {
             self.ctx = Some(ctx.clone());
         }
@@ -422,20 +487,29 @@ impl Thumbnails {
 
     /// Paints `photo` into `rect` (its letterboxed image at its displayed size, in points) for an
     /// image `device_px` device pixels on its long side: the best uploaded ladder size, else its
-    /// sketch, else the placeholder, turned by its recipe's orientation. Never touches the disk and
-    /// never decodes an image.
+    /// sketch, else the placeholder, turned by its recipe's orientation. A texture of the photo's
+    /// earlier edits is drawn only while none of its current ones is uploaded. Never touches the
+    /// disk and never decodes an image.
     pub fn paint(&mut self, painter: &Painter, photo: PhotoRef<'_>, rect: Rect, device_px: f32) -> Drawn {
         let id = photo.photo.id;
-        let turn = self.orientation(photo);
+        let shape = self.shape(photo);
+        let turn = shape.turn;
         let need = need_of(device_px);
         let frame = self.frame;
-        let choice = ladder::choose(need, self.screen, |s| self.textures.contains_key(&(id, s)));
+        let current = |t: &HashMap<(PhotoId, Size), Texture>, s: Size| t.get(&(id, s)).is_some_and(|t| t.edits == shape.edits);
+        let mut choice = ladder::choose(need, self.screen, |s| current(&self.textures, s));
+        let mut stale = false;
+        if choice == Choice::Nothing {
+            choice = ladder::choose(need, self.screen, |s| self.textures.contains_key(&(id, s)));
+            stale = choice != Choice::Nothing;
+        }
         let texture = match choice {
             Choice::Covers(size) | Choice::Smaller(size) => self.textures.get_mut(&(id, size)),
             Choice::Nothing => None,
         };
         let mut stand_in = false;
         let drawn = if let Some(why) = photo.session.thumbnail_failure(id) {
+            stale = false;
             // A missing or unreadable file: the placeholder under the cell's "!", whatever was
             // drawn of it before.
             painter.rect_filled(rect, 0, self.placeholder);
@@ -449,6 +523,7 @@ impl Thumbnails {
             painter.add(textured(rect, tex.handle.id(), turn));
             if matches!(choice, Choice::Covers(_)) { Drawn::Image } else { Drawn::Upscaled }
         } else {
+            stale = false;
             match photo.session.library().sketch(id) {
                 Some(sketch) if self.paint_sketch(painter, id, sketch, rect, turn) => Drawn::Sketch,
                 _ => {
@@ -466,7 +541,7 @@ impl Thumbnails {
             Drawn::Failed => &mut c.failed_cells,
         };
         *slot = slot.saturating_add(1);
-        self.cells.push(Cell { id, need, drawn, rect, turn, stand_in });
+        self.cells.push(Cell { id, need, drawn, rect, turn, stand_in, stale });
         drawn
     }
 
@@ -516,19 +591,20 @@ impl Thumbnails {
 
         // Requests and uploads, while the view moves slowly enough to look at.
         let slow = velocity.abs() / view_h <= REQUEST_MAX_SCREENS;
-        let mut arrived: Vec<(PhotoId, Size, Arc<Rgba8>, Drawn, bool)> = Vec::new();
+        let mut arrived: Vec<(PhotoId, Size, Arc<Rgba8>, bool, bool)> = Vec::new();
         if slow {
             for cell in self.cells.iter().filter(|c| c.better_to_come()) {
                 if let Thumb::Image { size, image, .. } = session.thumbnail(cell.id, cell.need) {
                     let current = self.textures.get(&(cell.id, size)).and_then(|t| t.source.upgrade()).is_some_and(|s| Arc::ptr_eq(&s, &image));
                     if !current {
-                        arrived.push((cell.id, size, image, cell.drawn, session.thumbnail_stand_in(cell.id)));
+                        // Cells with nothing better than a sketch, or only a stale texture, first.
+                        let first = matches!(cell.drawn, Drawn::Sketch | Drawn::Placeholder) || cell.stale;
+                        arrived.push((cell.id, size, image, first, session.thumbnail_stand_in(cell.id)));
                     }
                 }
             }
         }
-        // Cells with nothing better than a sketch first.
-        arrived.sort_by_key(|(_, _, _, drawn, _)| matches!(drawn, Drawn::Upscaled | Drawn::Image));
+        arrived.sort_by_key(|(_, _, _, first, _)| !first);
         let (mut uploads, mut bytes, mut deferred) = (0usize, 0usize, 0u64);
         for (id, size, image, _, stand_in) in arrived {
             let len = image.data.len();
@@ -536,7 +612,10 @@ impl Thumbnails {
                 deferred += 1;
                 continue;
             }
-            if self.upload(id, size, &image, stand_in) {
+            // The session answers for the photo's recipe as the library has it now: the edits
+            // this frame painted it with.
+            let edits = self.shapes.get(&id).and_then(|s| s.edits);
+            if self.upload(id, size, &image, stand_in, edits) {
                 uploads += 1;
                 bytes = bytes.saturating_add(len);
             }
@@ -578,7 +657,7 @@ impl Thumbnails {
 
     /// Uploads `image` as `id`'s `size` texture. `false` when it is malformed or there is no
     /// context yet.
-    fn upload(&mut self, id: PhotoId, size: Size, image: &Arc<Rgba8>, stand_in: bool) -> bool {
+    fn upload(&mut self, id: PhotoId, size: Size, image: &Arc<Rgba8>, stand_in: bool, edits: Option<RenderKey>) -> bool {
         let Some(ctx) = &self.ctx else { return false };
         let dims = [image.width as usize, image.height as usize];
         if dims[0] == 0 || dims[1] == 0 || dims[0].saturating_mul(dims[1]).saturating_mul(4) != image.data.len() {
@@ -588,7 +667,7 @@ impl Thumbnails {
         let pixels = egui::ColorImage::from_rgba_unmultiplied(dims, &image.data);
         let handle = ctx.load_texture(format!("thumb:{id}:{size:?}"), pixels, egui::TextureOptions::LINEAR);
         let bytes = image.data.len();
-        let texture = Texture { handle, source: Arc::downgrade(image), bytes, drawn: self.frame, stand_in };
+        let texture = Texture { handle, source: Arc::downgrade(image), bytes, drawn: self.frame, stand_in, edits };
         if let Some(old) = self.textures.insert((id, size), texture) {
             self.texture_bytes = self.texture_bytes.saturating_sub(old.bytes);
         }
@@ -608,8 +687,8 @@ impl Thumbnails {
     fn evict(&mut self, visible: Option<Range<usize>>) -> u64 {
         let frame = self.frame;
         let before = self.textures.len();
-        // A smaller size goes once its photo drew a covering one.
-        let covered: Vec<(PhotoId, u32)> = self.cells.iter().filter(|c| c.drawn == Drawn::Image).map(|c| (c.id, c.need)).collect();
+        // A smaller size goes once its photo drew a covering one of its current edits.
+        let covered: Vec<(PhotoId, u32)> = self.cells.iter().filter(|c| c.drawn == Drawn::Image && !c.stale).map(|c| (c.id, c.need)).collect();
         for (id, need) in covered {
             if let Choice::Covers(size) = ladder::choose(need, self.screen, |s| self.textures.contains_key(&(id, s))) {
                 let keep = ladder::pixels(size, self.screen);
@@ -688,7 +767,7 @@ impl Thumbnails {
 
     /// What the last frame painted, in paint order (the light table's cells, then the tray's).
     pub fn painted(&self) -> impl Iterator<Item = Painted> + '_ {
-        self.cells.iter().map(|c| Painted { photo: c.id, rect: c.rect, turn: c.turn, drawn: c.drawn })
+        self.cells.iter().map(|c| Painted { photo: c.id, rect: c.rect, turn: c.turn, drawn: c.drawn, stale: c.stale })
     }
 
     /// Thumbnail textures alive.

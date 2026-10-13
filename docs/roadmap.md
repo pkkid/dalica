@@ -2706,7 +2706,7 @@ effect tabs show an empty state until M12.
     colour of a cast `scenes` photo maps to grey; a fingerprint per control at three values; two
     sizes agree after downscale; the time of one Tuning render of a 2560-px preview printed;
     print(parse) round-trips and hostile values clamp.
-- ⬜ **M7.9 `engine` + `thumbs`: edits shown on every thumbnail**
+- ✅ **M7.9 `engine` + `thumbs`: edits shown on every thumbnail**
   - after: M5.16, M6.24, M6.25, M7.2, M7.3
   - files: `crates/engine/src/thumbs.rs`, `crates/engine/tests/edited_thumbs.rs`, `crates/thumbs/src/ladder.rs`, `crates/thumbs/src/sketch.rs`, `crates/thumbs/src/lib.rs`, `crates/thumbs/tests/recipe.rs`, `crates/thumbs/README.md`, `crates/ui/src/panels/thumbnails.rs`, `crates/ui/src/panels/light_table/cell.rs`, `crates/ui/tests/edited_cells.rs`, `crates/ui/tests/fingerprints/edited*.json`
   - scope: `architecture.md` §6.3–§6.5 and `editing.md` §9: ladder entries and the colour sketch
