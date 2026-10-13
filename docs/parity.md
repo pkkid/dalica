@@ -22,15 +22,15 @@ same commit.
 <!-- parity:summary -->
 | Section | ✅ | 🟡 | ⬜ | 🚫 |
 |---|---:|---:|---:|---:|
-| A. Library view | 12 | 16 | 4 | 1 |
+| A. Library view | 13 | 15 | 4 | 1 |
 | B. Organizing | 2 | 8 | 32 | 0 |
-| C. Editing | 0 | 4 | 17 | 4 |
+| C. Editing | 0 | 5 | 16 | 4 |
 | D. Viewing | 0 | 1 | 5 | 2 |
 | E. Output | 0 | 0 | 2 | 9 |
 | F. Data | 1 | 17 | 2 | 0 |
 | G. Preferences and system | 0 | 7 | 7 | 0 |
 | H. Menus | 0 | 5 | 2 | 0 |
-| **All** | 15 | 58 | 71 | 16 |
+| **All** | 16 | 58 | 70 | 16 |
 <!-- /parity:summary -->
 
 ## Top gaps
@@ -60,7 +60,7 @@ same commit.
 | LIB-LT-INSTANT | Thumbnails never blank while scrolling: colour sketch, packed size ladder, upscaled fallback | P0 | ✅ | the colour sketch (encode, decode, ≤ 26 bytes): `crates/thumbs/src/sketch.rs`, `crates/thumbs/tests/sketch.rs` (M4.1); the sketch in the index (M4.2); the packed cache (M4.3); the size ladder, scan-time 128/256 entries and sketches, best-available answers (covering, smaller scaled up, sketch, not scanned) and direction-aware prefetch: `crates/thumbs/src/ladder.rs`, `crates/engine/src/thumbs.rs`, `crates/thumbs/tests/ladder.rs`, `crates/engine/tests/thumbs.rs` (M4.8); drawing them on screen (covering size, smaller scaled up, the sketch as a mesh the same frame, the placeholder only for a photo never scanned; textures within ±1 screen and 600, capped uploads per frame, speed-gated requests, `placeholderCells` and friends in `ui.inspect`): `crates/ui/src/panels/thumbnails.rs`, `crates/ui/tests/never_blank.rs` (M4.12: a scanned 10 k library at the thumb's top speed draws no placeholder on any frame); at 100 k, the speed thumb held at its top speed through an index-only library draws every cell's sketch on every frame, no placeholder, within the frame budget in release: `tests/acceptance/m4_thumb.rs` (M4.18; a scanned library with files is measured at 10 k, as synthetic photo files stop at 20 k); the scanned 100 k pass (M5.16): 100 000 photo files scanned into the cache, the library reopened with nothing in memory and the light table's requests replayed at the thumb's top speed from top to bottom (the session's own calls at the light table's 1400 × 900 geometry; 5 655 frames over 3 770 screens): 0 placeholder cells, owner time per frame p95 0.43 ms in release (`crates/engine/benches/first_thumbnails.rs`, `cargo xtask bench first_thumbnails`); a photo on screen shows its embedded thumbnail while its scan runs (`crates/engine/tests/thumb_cache.rs`); ref 05 db3 tiers |
 | LIB-LT-HIDDEN | Hidden pictures shown translucent when enabled; small pictures toggle | P1 | ✅ | small pictures (< 64 px on both sides) are left out unless View ▸ Small Pictures (`cmd:view.smallPictures`): `crates/ui/src/panels/light_table.rs`, `crates/ui/tests/light_table.rs`, `crates/ui/tests/cells.rs`; hidden photos (`cmd:photo.hide`) are left out of the sections, the layout, every selection gesture (Ctrl+A, arrows, band) and the selection itself unless View ▸ Hidden Pictures (`cmd:view.hiddenPictures`), which shows them at 40 %: `crates/ui/src/panels/light_table.rs`, `crates/ui/src/panels/light_table/cell.rs` (`opacity`, `is_hidden`), `crates/ui/src/selection.rs` (`without_hidden`), `crates/ui/tests/hidden.rs`, `crates/ui/tests/cells.rs` (M6.24) |
 | LIB-SEL | Selection: click, Ctrl, Shift, rubber band, scoped to one section | P0 | 🟡 | click, Ctrl-click (toggles; in another section replaces), Shift-click (range from the anchor), right-click on an unselected photo selects it first, a click on empty space selects nothing, the rubber band from empty space (Ctrl adds) touching only the section it started in; a drag from a thumbnail starts no band (`cmd:select.set`, `cmd:select.section`): `crates/ui/src/selection.rs`, `crates/ui/src/panels/light_table/input.rs`, `crates/ui/tests/selection.rs`; held photos stay in the tray when the selection moves (LIB-TRAY-HOLD); a band held at the view's top or bottom edge scrolls it (faster the farther past the edge) and keeps selecting, never past its section's ends (`crates/ui/tests/band_autoscroll.rs`); dragging photos missing; ref 02 §7.5 |
-| LIB-SEL-KEYS | Keyboard navigation and selection keys | P0 | 🟡 | arrows move (Shift extends from the anchor), Home / End go to the section's first / last photo, all stop at the section's ends and scroll what they reach into view (`cmd:select.left` … `cmd:select.extendLast`); Ctrl+A / Ctrl+I / Ctrl+D and Select Starred per section (`cmd:select.all`, `cmd:select.invert`, `cmd:select.none`, `cmd:select.starred`): `crates/ui/src/commands/select.rs`, `crates/ui/tests/selection.rs`; Ctrl+Home / End, Ctrl+↑ / ↓ and PgUp / PgDn scroll (`cmd:scroll.pageUp` … `cmd:scroll.bottom`, M4.11); Ctrl+H holds (`cmd:tray.hold`, M4.16); Enter (M7) missing |
+| LIB-SEL-KEYS | Keyboard navigation and selection keys | P0 | ✅ | arrows move (Shift extends from the anchor), Home / End go to the section's first / last photo, all stop at the section's ends and scroll what they reach into view (`cmd:select.left` … `cmd:select.extendLast`); Ctrl+A / Ctrl+I / Ctrl+D and Select Starred per section (`cmd:select.all`, `cmd:select.invert`, `cmd:select.none`, `cmd:select.starred`): `crates/ui/src/commands/select.rs`, `crates/ui/tests/selection.rs`; Ctrl+Home / End, Ctrl+↑ / ↓ and PgUp / PgDn scroll (`cmd:scroll.pageUp` … `cmd:scroll.bottom`, M4.11); Ctrl+H holds (`cmd:tray.hold`, M4.16); Enter opens the focused photo in the edit view (`cmd:view.edit`, `crates/ui/tests/view_state_m7.rs`) |
 | LIB-HOVER | Tooltip on hover | P1 | 🟡 | thumbnails: after 600 ms of rest the file name over date taken, pixel size and file size, or why the photo cannot be shown: `crates/ui/src/panels/light_table/cell.rs`, `crates/ui/tests/cells.rs`; Ctrl+Alt full-screen preview missing |
 | LIB-PEEK | Ctrl+Alt full-screen peek with wheel stepping | P1 | ⬜ | |
 | LIB-LOUPE | Loupe magnifier over thumbnails | P2 | ⬜ | |
@@ -127,7 +127,7 @@ same commit.
 
 | Id | Feature | Tier | Status | Evidence / notes |
 |---|---|---|---|---|
-| EDIT-VIEW | Edit view layout, top bar, filmstrip, caption bar, status | P0 | ⬜ | ref 03 §3 |
+| EDIT-VIEW | Edit view layout, top bar, filmstrip, caption bar, status | P0 | 🟡 | the frame (M7.4): `cmd:view.edit` (Ctrl+3, Enter, View ▸ Edit View, Picture ▸ View and Edit; the toast with nothing selected), `cmd:view.library` (Esc, Ctrl+1, Back to Library), `cmd:edit.panelToggle` (Ctrl+9), the regions at `editing.md` §2's rects and the `edit` view state: `crates/ui/src/panels/edit.rs`, `crates/ui/src/panels/layout.rs`, `crates/ui/tests/view_state_m7.rs`; the photo, the filmstrip, Play, the compare toggle, the caption bar and the edit view's status text missing (M7.10, M7.15) · ref 03 §3 |
 | EDIT-ZOOM | Zoom slider mapping, Fit/1:1, click-hold zoom, pan | P0 | ⬜ | ref 03 §3.5 |
 | EDIT-COMPARE | A │ B and A │ A compare with dialogs | P2 | ⬜ | ref 03 §4 |
 | EDIT-TABS | Five icon tabs | P0 | ⬜ | |

@@ -8,7 +8,8 @@
 //! - **Opening**: [`open`] pushes a dialog (one of each kind at a time, at most
 //!   [`MAX_DIALOGS`]). Commands open theirs: `folders.manager` (Tools ▸ Folder Manager…), M6's
 //!   `section.properties`, `photo.adjustDate`, `quicktags.configure`, `tag.rename`, `app.about` and
-//!   `help.releaseNotes` (`crate::commands::{info, help}`), and every command of [`confirm::ASKS`]
+//!   `help.releaseNotes` (`crate::commands::{info, help}`), the Crop tool's Add Custom Ratio…
+//!   ([`custom_ratio`], M7), and every command of [`confirm::ASKS`]
 //!   run without `"confirm": true` when its question applies ([`asking`], called by
 //!   [`App::run`](crate::App::run)).
 //! - **Answering**: [`answer`] presses a button of the top dialog (none named: its default one),
@@ -36,6 +37,7 @@
 pub mod about;
 pub mod adjust_date;
 pub mod confirm;
+pub mod custom_ratio;
 pub mod first_run;
 pub mod folder_manager;
 pub mod folder_properties;
@@ -112,6 +114,7 @@ fn look(app: &App, d: &Dialog) -> Look {
         DialogKind::RenameTag => rename_tag::look(app, d),
         DialogKind::About => about::look(app, d),
         DialogKind::ReleaseNotes => release_notes::look(app, d),
+        DialogKind::CustomRatio => custom_ratio::look(app, d),
     }
 }
 
@@ -126,6 +129,7 @@ fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
         DialogKind::RenameTag => rename_tag::body(app, ui, d),
         DialogKind::About => about::body(app, ui, d),
         DialogKind::ReleaseNotes => release_notes::body(app, ui, d),
+        DialogKind::CustomRatio => custom_ratio::body(app, ui, d),
     }
 }
 
@@ -140,6 +144,7 @@ fn act(app: &mut App, d: &Dialog, action: &str) -> Result<Value, CmdError> {
         DialogKind::RenameTag => rename_tag::act(app, d, action),
         DialogKind::About => about::act(app, d, action),
         DialogKind::ReleaseNotes => release_notes::act(app, d, action),
+        DialogKind::CustomRatio => custom_ratio::act(app, d, action),
     }
 }
 

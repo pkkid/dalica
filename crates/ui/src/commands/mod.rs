@@ -13,7 +13,10 @@
 //! - [`caption`]: the inline caption editor (Picture ▸ Edit Caption);
 //! - [`info`]: the dialogs that edit what is known about photos and folders (Folder Properties,
 //!   Adjust Date and Time, Configure Quick Tags, Rename Tag);
-//! - [`help`]: the Help menu's windows (About Dalica, Release Notes).
+//! - [`help`]: the Help menu's windows (About Dalica, Release Notes);
+//! - [`edit_view`]: entering and leaving the edit view, its tabs and its panel toggle;
+//! - [`zoom`]: the edit view's zoom (M7.15);
+//! - [`tools`]: the edit view's tools, through one interface each tool module implements.
 //!
 //! A new command goes in its area's module (a new area gets a new module and one line in
 //! [`AREAS`]); its id is the one the menu catalog uses, so its menu item goes live. Every command
@@ -28,12 +31,15 @@
 
 pub mod caption;
 pub mod dialogs;
+pub mod edit_view;
 pub mod help;
 pub mod info;
 pub mod scroll;
 pub mod select;
+pub mod tools;
 pub mod tray;
 pub mod view;
+pub mod zoom;
 
 use dalica_engine::{CmdError, Context};
 use serde::Deserialize;
@@ -62,15 +68,26 @@ pub struct UiCommand {
 }
 
 /// Every area's commands, in the order [`UI_COMMANDS`] lists them.
-const AREAS: &[&[UiCommand]] =
-    &[select::COMMANDS, view::COMMANDS, scroll::COMMANDS, tray::COMMANDS, dialogs::COMMANDS, caption::COMMANDS, info::COMMANDS, help::COMMANDS];
+const AREAS: &[&[UiCommand]] = &[
+    select::COMMANDS,
+    view::COMMANDS,
+    scroll::COMMANDS,
+    tray::COMMANDS,
+    dialogs::COMMANDS,
+    caption::COMMANDS,
+    info::COMMANDS,
+    help::COMMANDS,
+    edit_view::COMMANDS,
+    zoom::COMMANDS,
+    tools::COMMANDS,
+];
 
 /// Whether a UI command can run now with its parameters; why not (the status line's text) when it
 /// cannot.
 pub type Check = fn(&App, &Value) -> Result<(), String>;
 
 /// The checks of the UI commands that cannot always run, by area.
-const CHECKS: &[&[(&str, Check)]] = &[caption::CHECKS, info::CHECKS];
+const CHECKS: &[&[(&str, Check)]] = &[caption::CHECKS, info::CHECKS, edit_view::CHECKS];
 
 /// Whether UI command `id` can run now with `params` (what a click passes: `{}`); why not when it
 /// cannot. Commands without a check always can.

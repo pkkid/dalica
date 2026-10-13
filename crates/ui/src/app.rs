@@ -41,6 +41,9 @@ pub struct App {
     tooltip: Option<String>,
     /// The toasts showing what the session reported (`crate::notices`).
     notices: Notices,
+    /// The frame clock's time at the start of the last frame (seconds): when a toast pushed by a
+    /// command between frames appears.
+    now: f64,
 }
 
 /// The persisted part of the view state: the window's (M3) and the library view's options (M4).
@@ -65,6 +68,7 @@ impl App {
             quit_requested: false,
             tooltip: None,
             notices: Notices::default(),
+            now: 0.0,
         }
     }
 
@@ -232,6 +236,12 @@ impl App {
         &mut self.notices
     }
 
+    /// Shows `text` as a toast from the last frame's time on (`crate::notices`): a command's own
+    /// message ("Select a photo to edit.").
+    pub fn toast(&mut self, text: &str, kind: dalica_ui_kit::widgets::ToastKind) {
+        self.notices.push(text, kind, self.now);
+    }
+
     /// The panels' state, once the first frame with a library has run.
     pub fn panels(&self) -> Option<&Panels> {
         self.panels.as_ref()
@@ -252,11 +262,16 @@ impl App {
         };
         session.poll();
         let now = ui.input(|i| i.time);
+        self.now = now;
         self.notices.poll(session, now);
         // Under an open dialog the window takes no keys: no shortcut runs and no panel sees a key
         // press or typed text; the dialog gets them back once the panels are drawn.
         let keys = if self.state.dialogs.is_empty() {
-            crate::keys::dispatch(self, ui.ctx());
+            // The edit view resolves keys in its own context, the open tool first.
+            match self.state.view {
+                crate::state::View::Library => crate::keys::dispatch(self, ui.ctx()),
+                crate::state::View::Edit => crate::commands::edit_view::dispatch(self, ui.ctx()),
+            };
             Vec::new()
         } else {
             ui.ctx().input_mut(|i| {
@@ -276,8 +291,12 @@ impl App {
         if !keys.is_empty() {
             ui.ctx().input_mut(|i| i.events.extend(keys));
         }
-        // Toasts at the bottom of the light table, over the panels and under any dialog.
-        let area = panels::layout::compute(ui.max_rect(), &self.state).light_table;
+        // Toasts at the bottom of the light table (the photo area in the edit view), over the panels
+        // and under any dialog.
+        let area = match self.state.view {
+            crate::state::View::Library => panels::layout::compute(ui.max_rect(), &self.state).light_table,
+            crate::state::View::Edit => panels::layout::compute_edit(ui.max_rect(), &self.state).toast_area(),
+        };
         self.notices.show(ui, &self.tokens, area, now);
         crate::dialogs::show(self, ui.ctx());
         self.tooltip = tooltip_text(ui.ctx());

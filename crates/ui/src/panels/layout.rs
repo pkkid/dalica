@@ -5,6 +5,10 @@
 //!
 //! The splitter between the tree and the light table lives here too: it is part of the layout, not
 //! of either pane.
+//!
+//! The edit view (`editing.md` §2) has a layout of its own, [`compute_edit`]: the menu bar, the
+//! edit top bar with the filmstrip in it, the edit panel, the photo area (the canvas and the
+//! caption bar under it), the optional side pane, and the library's status line and bottom area.
 
 use dalica_ui_kit::Tokens;
 use dalica_ui_kit::registry::Role;
@@ -43,6 +47,18 @@ pub const TRAY_BUTTON_GAP: f32 = 8.0;
 /// with 6 above and below. The action-button row (a 1 pt separator, then 64 × 56 buttons) is the
 /// rest of the bottom area.
 pub const CONTROLS_ROW: f32 = 36.0;
+
+/// The edit view's top bar height, edit panel width, side pane width and caption bar height
+/// (`editing.md` §2).
+pub const EDIT_TOP_BAR: f32 = 40.0;
+pub const EDIT_PANEL: f32 = 280.0;
+pub const EDIT_SIDE_PANE: f32 = 260.0;
+pub const CAPTION_BAR: f32 = 36.0;
+/// The top bar's groups either side of the filmstrip: Back to Library and Play on the left (8 +
+/// 140 + 8 + 76), the compare toggle and Switch Focus / Switch Layout on the right (8 + 132 + 8 +
+/// 2 × 32 + 8); the filmstrip takes the width between them.
+pub const TOP_LEFT_GROUP: f32 = 240.0;
+pub const TOP_RIGHT_GROUP: f32 = 220.0;
 
 /// Where every region of the library view is, in window points. `None` for a region not shown.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -168,6 +184,107 @@ pub fn compute(window: Rect, state: &UiState) -> Layout {
         tray_buttons,
         bottom_controls,
         action_buttons,
+    }
+}
+
+/// Where every region of the edit view is, in window points (`editing.md` §2). `None` for a region
+/// not shown: the edit panel while hidden (Ctrl+9), the side pane while closed.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct EditLayout {
+    pub window: Rect,
+    pub menu_bar: Rect,
+    /// The edit top bar, the whole width.
+    pub top_bar: Rect,
+    /// The filmstrip inside the top bar, between its left and right groups.
+    pub filmstrip: Rect,
+    pub edit_panel: Option<Rect>,
+    /// The photo area above the caption bar.
+    pub canvas: Rect,
+    /// The caption bar under the photo, the width of the photo area.
+    pub caption_bar: Rect,
+    pub side_pane: Option<Rect>,
+    pub status_line: Rect,
+    pub bottom: Rect,
+    pub tray: Rect,
+    pub tray_buttons: Rect,
+    pub bottom_controls: Rect,
+    pub action_buttons: Rect,
+}
+
+/// Lays out the edit view in `window` for `state` (`editing.md` §2). The rows are the library's
+/// with the edit top bar in place of the toolbar; the middle is the edit panel (280, or none while
+/// hidden), the photo area and the side pane (260, or its large width; none while closed). The
+/// bottom area is the library's ([`compute`] places its parts), so the tray stays where it was.
+/// A window too small for a region gives it no area, never a negative one.
+pub fn compute_edit(window: Rect, state: &UiState) -> EditLayout {
+    let lib = compute(window, &UiState { pane: None, ..UiState::default() });
+    let window = lib.window;
+    let (left, right) = (window.min.x, window.max.x.max(window.min.x));
+    let width = right - left;
+    let top_bar = lib.toolbar;
+    let (mid_top, mid_bottom) = (top_bar.max.y, lib.status_line.min.y);
+    let filmstrip = span((left + TOP_LEFT_GROUP).min(right), right - TOP_RIGHT_GROUP, top_bar.min.y, top_bar.max.y);
+
+    let panel_w = state.edit.panel_visible.then_some(EDIT_PANEL);
+    let edit_panel = panel_w.map(|w| span(left, (left + w).min(right), mid_top, mid_bottom));
+    let photo_left = edit_panel.map_or(left, |r| r.max.x);
+    let pane_w = state.pane.map(|_: Pane| if state.pane_large { side_pane_width(true, width) } else { EDIT_SIDE_PANE });
+    let pane_left = pane_w.map_or(right, |w| (right - w).max(photo_left));
+    let side_pane = pane_w.map(|_| span(pane_left, right, mid_top, mid_bottom));
+    let caption_top = (mid_bottom - CAPTION_BAR).max(mid_top);
+    let canvas = span(photo_left, pane_left, mid_top, caption_top);
+    let caption_bar = span(photo_left, pane_left, caption_top, mid_bottom);
+
+    EditLayout {
+        window,
+        menu_bar: lib.menu_bar,
+        top_bar,
+        filmstrip,
+        edit_panel,
+        canvas,
+        caption_bar,
+        side_pane,
+        status_line: lib.status_line,
+        bottom: lib.bottom,
+        tray: lib.tray,
+        tray_buttons: lib.tray_buttons,
+        bottom_controls: lib.bottom_controls,
+        action_buttons: lib.action_buttons,
+    }
+}
+
+impl EditLayout {
+    /// Every region of the edit view by its protocol name (`control-protocol.md` §6.6), with a
+    /// label; `None` for one not shown.
+    pub fn regions(&self) -> [(&'static str, &'static str, Option<Rect>); 12] {
+        [
+            ("menuBar", "Menu bar", Some(self.menu_bar)),
+            ("editTopBar", "Edit top bar", Some(self.top_bar)),
+            ("filmstrip", "Filmstrip", Some(self.filmstrip)),
+            ("editPanel", "Edit panel", self.edit_panel),
+            ("canvas", "Photo", Some(self.canvas)),
+            ("captionBar", "Caption bar", Some(self.caption_bar)),
+            ("sidePane", "Side pane", self.side_pane),
+            ("statusLine", "Status line", Some(self.status_line)),
+            ("tray", "Photo tray", Some(self.tray)),
+            ("trayButtons", "Tray buttons", Some(self.tray_buttons)),
+            ("bottomControls", "Bottom controls", Some(self.bottom_controls)),
+            ("actionButtons", "Action buttons", Some(self.action_buttons)),
+        ]
+    }
+
+    /// Registers every region shown as `region:<name>` for this pass, as [`Layout::register`] does.
+    pub fn register(&self, ctx: &Context) {
+        for (name, label, rect) in self.regions() {
+            if let Some(rect) = rect {
+                widgets::register(ctx, &format!("region:{name}"), Role::Other, label, Target::Painted { rect, clip: self.window }, false);
+            }
+        }
+    }
+
+    /// The area toasts show at the bottom of: the photo area.
+    pub fn toast_area(&self) -> Rect {
+        self.canvas
     }
 }
 
@@ -350,6 +467,62 @@ mod tests {
                 for r in all(&l) {
                     assert!(r.width() >= 0.0 && r.height() >= 0.0 && !r.any_nan(), "{w:?}: {r:?}");
                 }
+            }
+        }
+    }
+
+    fn edit(panel_visible: bool, pane: Option<Pane>, large: bool) -> UiState {
+        let mut s = UiState { pane, pane_large: large, ..UiState::default() };
+        s.edit.panel_visible = panel_visible;
+        s
+    }
+
+    #[test]
+    fn the_edit_view_is_laid_out_as_the_spec_says() {
+        let l = compute_edit(window(1400.0, 900.0), &edit(true, None, false));
+        assert_eq!(xywh(l.menu_bar), [0.0, 0.0, 1400.0, 24.0]);
+        assert_eq!(xywh(l.top_bar), [0.0, 24.0, 1400.0, 40.0]);
+        assert_eq!(xywh(l.filmstrip), [240.0, 24.0, 1400.0 - 240.0 - 220.0, 40.0]);
+        assert_eq!(l.edit_panel.map(xywh), Some([0.0, 64.0, 280.0, 720.0]));
+        assert_eq!(xywh(l.canvas), [280.0, 64.0, 1120.0, 720.0 - 36.0]);
+        assert_eq!(xywh(l.caption_bar), [280.0, 748.0, 1120.0, 36.0]);
+        assert_eq!(l.side_pane, None);
+        let lib = compute(window(1400.0, 900.0), &UiState::default());
+        assert_eq!((l.status_line, l.bottom, l.tray, l.bottom_controls), (lib.status_line, lib.bottom, lib.tray, lib.bottom_controls));
+
+        // The side pane is 260 (or its large width); the panel hidden gives the photo its width.
+        let l = compute_edit(window(900.0, 600.0), &edit(true, Some(Pane::Tags), false));
+        assert_eq!(l.side_pane.map(xywh), Some([640.0, 64.0, 260.0, 420.0]));
+        assert_eq!(xywh(l.canvas), [280.0, 64.0, 360.0, 420.0 - 36.0]);
+        assert_eq!(l.filmstrip.width(), 900.0 - 460.0, "seven 56 pt thumbnails and the arrows fit at 900");
+        let l = compute_edit(window(1400.0, 900.0), &edit(false, Some(Pane::Tags), true));
+        assert_eq!(l.edit_panel, None);
+        assert_eq!(l.side_pane.map(|r| r.width()), Some(392.0));
+        assert_eq!((l.canvas.min.x, l.canvas.width()), (0.0, 1400.0 - 392.0));
+    }
+
+    #[test]
+    fn the_edit_view_tiles_the_window_and_survives_hostile_windows() {
+        for (w, h) in [(1400.0, 900.0), (1100.0, 700.0), (900.0, 600.0)] {
+            for (panel, pane, large) in [(true, None, false), (true, Some(Pane::People), true), (false, Some(Pane::Places), false)] {
+                let l = compute_edit(window(w, h), &edit(panel, pane, large));
+                let rows = [l.menu_bar, l.top_bar, l.canvas, l.caption_bar, l.status_line, l.bottom];
+                assert_eq!(rows.iter().map(|r| r.height()).sum::<f32>(), h, "{w}×{h}");
+                let mut cols: Vec<Rect> = l.edit_panel.into_iter().collect();
+                cols.push(l.canvas);
+                cols.extend(l.side_pane);
+                assert_eq!(cols.iter().map(|r| r.width()).sum::<f32>(), w, "{w}×{h}");
+                for pair in cols.windows(2) {
+                    assert_eq!(pair[0].max.x, pair[1].min.x);
+                }
+                assert!(l.top_bar.contains_rect(l.filmstrip));
+                assert_eq!((l.caption_bar.min.x, l.caption_bar.max.x), (l.canvas.min.x, l.canvas.max.x));
+            }
+        }
+        for w in [window(0.0, 0.0), window(10.0, 10.0), window(-50.0, 300.0), window(f32::NAN, 900.0), window(1e9, 1e9)] {
+            let l = compute_edit(w, &edit(true, Some(Pane::People), true));
+            for r in l.regions().into_iter().filter_map(|(_, _, r)| r) {
+                assert!(r.width() >= 0.0 && r.height() >= 0.0 && !r.any_nan(), "{w:?}: {r:?}");
             }
         }
     }
