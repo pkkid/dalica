@@ -43,6 +43,14 @@ pub enum Counter {
     OpsApplied,
     /// Microseconds of per-frame logic before layout (polling the session, shortcuts).
     LogicMicros,
+    /// The edit view's preview (`editing.md` §3): microseconds from the request to the frame that
+    /// shows it, reported the frame a draft, a final preview or a refined window arrives.
+    PreviewDraftMicros,
+    PreviewFinalMicros,
+    PreviewRefinedMicros,
+    /// 1 when the photo canvas drew the scaled preview while the refined window of a zoomed view
+    /// was still on its way (the frame did not wait for it).
+    PreviewWaiting,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -113,6 +121,12 @@ pub struct Sample {
     /// Whole textures created or replaced this frame (partial updates of the font atlas excluded).
     pub textures_uploaded: u64,
     pub textures_freed: u64,
+    /// The edit view's preview times that arrived this frame (request to shown).
+    pub preview_draft: Option<Duration>,
+    pub preview_final: Option<Duration>,
+    pub preview_refined: Option<Duration>,
+    /// The canvas drew the scaled preview while a refined window was on its way.
+    pub preview_waiting: bool,
 }
 
 impl Sample {
@@ -127,6 +141,10 @@ impl Sample {
         self.thumb_requests = get(Counter::ThumbRequests);
         self.ops_applied = get(Counter::OpsApplied);
         self.logic = get(Counter::LogicMicros).map(Duration::from_micros);
+        self.preview_draft = get(Counter::PreviewDraftMicros).map(Duration::from_micros);
+        self.preview_final = get(Counter::PreviewFinalMicros).map(Duration::from_micros);
+        self.preview_refined = get(Counter::PreviewRefinedMicros).map(Duration::from_micros);
+        self.preview_waiting = get(Counter::PreviewWaiting).is_some_and(|n| n > 0);
     }
 }
 
@@ -156,6 +174,13 @@ pub struct Report {
     pub texture_bytes: u64,
     /// Textures freed since the last reset.
     pub texture_evictions: u64,
+    /// The edit view's preview: the latest draft, final preview and refined window in the window
+    /// of frames, each from its request to the frame that showed it (`null` when none arrived).
+    pub preview_draft_ms: Option<f64>,
+    pub preview_final_ms: Option<f64>,
+    pub preview_refined_ms: Option<f64>,
+    /// Frames in the window that drew the scaled preview while a refined window was on its way.
+    pub preview_waiting_frames: u64,
 }
 
 /// The rolling window, the live textures and the maxima.
@@ -261,6 +286,7 @@ impl Perf {
             _ => 0.0,
         };
         let last = self.samples.back().cloned().unwrap_or_default();
+        let latest = |f: &dyn Fn(&Sample) -> Option<Duration>| self.samples.iter().rev().find_map(f).map(ms);
         Report {
             frames: n,
             frame_ms: mean(&|s| ms(s.frame)),
@@ -278,6 +304,10 @@ impl Perf {
             textures: self.textures.len(),
             texture_bytes: self.textures.values().fold(0u64, |a, b| a.saturating_add(*b)),
             texture_evictions: self.evictions,
+            preview_draft_ms: latest(&|s| s.preview_draft),
+            preview_final_ms: latest(&|s| s.preview_final),
+            preview_refined_ms: latest(&|s| s.preview_refined),
+            preview_waiting_frames: self.samples.iter().filter(|s| s.preview_waiting).count() as u64,
         }
     }
 }
@@ -452,5 +482,37 @@ mod tests {
             assert!(v.get(k).is_some(), "{k}");
         }
         assert!(v["logicMs"].is_null() && v["thumbRequests"].is_null());
+        for k in ["previewDraftMs", "previewFinalMs", "previewRefinedMs"] {
+            assert!(v[k].is_null(), "{k}");
+        }
+        assert_eq!(v["previewWaitingFrames"], 0);
+    }
+
+    #[test]
+    fn preview_times_keep_the_latest_in_the_window_and_waiting_frames_are_counted() {
+        let ctx = Context::default();
+        let mut p = Perf::new(false);
+        let run = |f: &dyn Fn(&Context)| ctx.run_ui(egui::RawInput::default(), |ui| f(ui.ctx())).textures_delta.clear();
+        for (i, (draft, fin, waiting)) in
+            [(Some(4000), None, false), (None, Some(25_000), true), (Some(3000), None, true), (None, None, false)].into_iter().enumerate()
+        {
+            run(&|ctx| {
+                if let Some(d) = draft {
+                    count(ctx, Counter::PreviewDraftMicros, d);
+                }
+                if let Some(f) = fin {
+                    count(ctx, Counter::PreviewFinalMicros, f);
+                }
+                if waiting {
+                    count(ctx, Counter::PreviewWaiting, 1);
+                }
+            });
+            let mut s = frame(1, i as f64 / 60.0);
+            s.count(&reported(&ctx), &[]);
+            p.record(s);
+        }
+        let r = p.report();
+        assert_eq!((r.preview_draft_ms, r.preview_final_ms, r.preview_refined_ms), (Some(3.0), Some(25.0), None));
+        assert_eq!(r.preview_waiting_frames, 2);
     }
 }

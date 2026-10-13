@@ -323,25 +323,22 @@ fn an_open_tool_disables_the_grid_the_tab_content_and_undo() {
     assert!(widget(&t, "tool:autofix").enabled && widget(&t, "button:edit.undo").enabled);
 }
 
-/// The histogram is the shown preview's: an empty plate before a preview of the photo is shown,
-/// then its bins, and it changes when an edit renders a new preview.
+/// The histogram is the shown preview's (the photo canvas opens it): its bins, and it changes
+/// when an edit renders a new preview.
 #[test]
 fn the_histogram_follows_an_edit() {
     let mut t = setup((1400, 900), 2);
     let p = t.photos[0];
     open(&mut t, p);
     let plot = widget(&t, "histogram:edit").rect;
-    let (_, _, empty) = pixels(&t, plot);
-    assert!(empty.chunks(4).all(|px| px == &empty[..4]), "an empty plate before any preview");
-
     let wait = |t: &mut T| {
         assert!(t.d.app_mut().session_mut().unwrap().wait_preview(Duration::from_secs(30)), "the preview arrives");
         t.d.settle(FRAMES).unwrap();
     };
-    t.d.app_mut().session_mut().unwrap().open_preview(PhotoId::new(p), (480, 320)).unwrap();
     wait(&mut t);
+    assert_eq!(t.d.app().session().unwrap().preview_photo(), Some(PhotoId::new(p)), "the canvas opened the preview");
     let (_, _, before) = pixels(&t, plot);
-    assert_ne!(before, empty, "the preview's histogram is drawn");
+    assert!(!before.chunks(4).all(|px| px == &before[..4]), "the preview's histogram is drawn, not an empty plate");
 
     run(&mut t, "photo.history.tuning", json!({ "id": p, "session": "test", "fill": 1.0, "shadows": 0.5 }));
     wait(&mut t);
