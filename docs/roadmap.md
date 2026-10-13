@@ -2871,7 +2871,7 @@ effect tabs show an empty state until M12.
     and from Tuning edit the same value; the wands and the picker answer from a worker and the
     owner thread made no `fs` call; every command's contract and graceful failures; `panic_hunt`
     green.
-- ⬜ **M7.19 `ui`: the Crop tool**
+- ✅ **M7.19 `ui`: the Crop tool**
   - after: M7.15, M7.16, M7.17
   - files: `crates/ui/src/panels/edit/crop.rs`, `crates/ui/src/panels/edit/crop/**`, `crates/ui/src/dialogs/custom_ratio.rs`, `crates/ui/tests/crop_tool.rs`, `crates/ui/tests/fingerprints/edit-crop*.json`, `crates/ui/tests/fingerprints/dialog-custom-ratio*.json`
   - scope: `editing.md` §6.1: the "Crop Photo" panel (title, instruction, the size dropdown with
