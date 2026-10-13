@@ -2983,7 +2983,7 @@ effect tabs show an empty state until M12.
   - done when: tests: a read-only write failure shows one caution toast with the whole message at
     1400×900 and 900×600 (fingerprints); `ui.settle` returns only after a queued metadata write has
     landed.
-- ⬜ **M7.28 tests: the Windows "Access is denied" flake in accept M5**
+- ✅ **M7.28 tests: the Windows "Access is denied" flake in accept M5**
   - after: M6.R
   - files: `tests/acceptance/m5_folders.rs`
   - scope: seen on M5.20 (`m5_folders.rs:305`) and M6.6 (`:65`), Windows only: a file operation in
