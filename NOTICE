@@ -107,6 +107,12 @@ file and revision in its first lines:
   crates/ui-kit/src/input/wheel.rs           PhotoCraft crates/ui-egui/src/wheel_nav.rs @ 10fb9233
   crates/ui-kit/src/input/flick.rs           PhotoCraft crates/ui-egui/src/flick_pan.rs @ 10fb9233
   crates/ui-kit/tests/input.rs (tests)       PhotoCraft crates/ui-egui/src/wheel_nav.rs, flick_pan.rs @ 10fb9233
+  crates/edit/src/crop_geom.rs               LightCraft crates/geom/src/crop.rs, crates/geom/src/crop_drag.rs @ 76b53778
+  crates/edit/tests/crop.rs (tests)          LightCraft crates/geom/src/crop.rs, crates/geom/src/crop_drag.rs,
+                                             crates/ui-egui/src/panels/crop_overlay.rs @ 76b53778
+  crates/edit/src/guides.rs                  LightCraft crates/ui-egui/src/panels/crop_overlay.rs @ 76b53778
+                                             PhotoCraft crates/ui-egui/src/crop_overlay.rs @ 32c918aa
+  crates/edit/tests/straighten.rs (tests)    PhotoCraft crates/ui-egui/src/crop_overlay.rs @ 32c918aa
 
 Any other third-party code ever vendored will be listed here with its source and revision.
 

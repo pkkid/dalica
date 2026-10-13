@@ -27,8 +27,10 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 pub mod analysis;
+pub mod crop_geom;
 pub mod frame;
 pub mod geometry;
+pub mod guides;
 pub mod ops;
 pub mod recipe;
 pub mod render;

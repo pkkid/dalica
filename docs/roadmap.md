@@ -2671,7 +2671,7 @@ effect tabs show an empty state until M12.
   - done when: `crates/ui-kit/tests/icons_edit.rs`: every new icon stays inside its grid at 12, 16,
     20 and 28 px in rest, hover and disabled colours; the icon sheet's fingerprint at both scales;
     `cargo xtask assets` and `cargo xtask names` pass.
-- ⬜ **M7.7 `edit`: Crop and Straighten**
+- ✅ **M7.7 `edit`: Crop and Straighten**
   - after: M7.1, M7.2
   - files: `crates/edit/src/ops/crop.rs`, `crates/edit/src/ops/straighten.rs`, `crates/edit/src/crop_geom.rs`, `crates/edit/src/guides.rs`, `crates/edit/tests/crop.rs`, `crates/edit/tests/straighten.rs`, `crates/edit/tests/fingerprints/crop*.json`, `crates/edit/tests/fingerprints/straighten*.json`, `NOTICE`
   - scope: `editing.md` §6.1–§6.2 and `data-model.md` §3.1, in M7.1's frame: `crop(x0,y0,x1,y1)`
