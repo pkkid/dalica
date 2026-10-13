@@ -169,6 +169,12 @@ fn apply(app: &mut App, params: &Value) -> Result<Value, CmdError> {
 fn cancel(app: &mut App, params: &Value) -> Result<Value, CmdError> {
     no_params(params)?;
     let t = the_open_tool(app)?;
+    // The preview goes back to the photo's own recipe.
+    if let Some(s) = app.session_mut()
+        && s.preview_photo().is_some()
+    {
+        let _ = s.set_preview_candidate(None);
+    }
     app.state_mut().edit.close_tools();
     Ok(json!({ "cancelled": t.kind() }))
 }
@@ -249,8 +255,11 @@ mod tests {
         app.state_mut().edit.straighten = Some(crate::state::StraightenDraft { angle: 3.5 });
         app.run("edit.tool.reset", &json!({})).unwrap();
         assert_eq!(app.state().edit.straighten.map(|s| s.angle), Some(0.0));
-        assert!(matches!(app.run("edit.tool.apply", &json!({})), Err(CmdError::Disabled(_))), "a stub applies nothing");
-        assert_eq!(app.state().edit.tool, Some(ToolKind::Straighten), "a refused Apply keeps the tool");
+        // Apply with nothing changed succeeds, takes no step and closes the tool.
+        let applied = app.run("edit.tool.apply", &json!({})).unwrap();
+        assert_eq!((applied["changed"].clone(), applied["edits"].clone()), (json!(false), json!([])));
+        assert_eq!((app.state().edit.tool, app.state().edit.straighten), (None, None));
+        app.run("edit.tool.open", &json!({ "tool": "straighten" })).unwrap();
         assert!(matches!(app.run("edit.tool.action", &json!({ "name": "nope" })), Err(CmdError::BadParams(_))));
         app.run("edit.tool.cancel", &json!({})).unwrap();
         assert_eq!((app.state().edit.tool, app.state().edit.straighten), (None, None));

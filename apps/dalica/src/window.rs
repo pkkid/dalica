@@ -180,7 +180,9 @@ impl eframe::App for Window {
         self.native_menu(ctx);
     }
 
-    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+    fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        // The platform's own input first (a Windows touchpad pinch), then the control channel's.
+        self.app.raw_input(ctx, raw_input);
         if let Some(c) = &mut self.control {
             c.raw_input(raw_input);
         }

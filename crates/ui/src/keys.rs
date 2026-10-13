@@ -31,6 +31,8 @@ pub fn from_egui(key: egui::Key, modifiers: egui::Modifiers) -> Option<Key> {
     let code = match key {
         egui::Key::Escape => "Esc".to_string(),
         egui::Key::Plus => "Plus".to_string(),
+        // egui names Minus by the Unicode minus sign, which the keymap does not take.
+        egui::Key::Minus => "-".to_string(),
         // Punctuation goes by its character (`Ctrl+,`); arrows have symbols too, but go by name.
         k if k.symbol_or_name().len() == 1 && k.symbol_or_name().bytes().all(|b| b.is_ascii_punctuation()) => k.symbol_or_name().to_string(),
         k => k.name().to_string(),
@@ -131,6 +133,7 @@ mod tests {
             (egui::Key::Z, Modifiers { shift: true, ..ctrl }, "Ctrl+Shift+Z"),
             (egui::Key::Comma, ctrl, "Ctrl+,"),
             (egui::Key::Plus, ctrl, "Ctrl+Plus"),
+            (egui::Key::Minus, ctrl, "Ctrl+-"),
             (egui::Key::ArrowUp, Modifiers::SHIFT, "Shift+Up"),
             (egui::Key::A, Modifiers::ALT, "Alt+A"),
         ] {
@@ -166,6 +169,26 @@ mod tests {
         d.key("F11").unwrap();
         assert!(d.app().state().full_screen, "Global keys still work");
         assert!(d.ctx().egui_wants_keyboard_input(), "still typing");
+    }
+
+    /// Ctrl+− reaches the keymap and runs the edit view's `edit.zoom.out` once (×1/1.25).
+    #[test]
+    fn ctrl_minus_zooms_the_photo_out_through_the_keymap() {
+        let (_dir, s, ids) = crate::app::tests::session_with_photos(1);
+        let mut d = crate::headless::Driver::new(App::new(Some(s)), 900, 600, 1.0);
+        d.settle(3600).unwrap();
+        d.run("view.edit", &json!({ "id": ids[0].get() })).unwrap();
+        d.settle(3600).unwrap();
+        let key = from_egui(egui::Key::Minus, Modifiers { command: true, ctrl: true, ..Modifiers::NONE }).unwrap();
+        let bound = d.app().session().unwrap().keymap().resolve(&key, Context::EditView, false);
+        assert_eq!(bound.as_deref(), Some("edit.zoom.out"));
+        d.app_mut().state_mut().edit.zoom = crate::state::Zoom::Scale(2.0);
+        d.settle(3600).unwrap();
+        d.key("Ctrl+-").unwrap();
+        d.settle(3600).unwrap();
+        let crate::state::Zoom::Scale(z) = d.app().state().edit.zoom else { panic!("still zoomed") };
+        assert!((z - 2.0 / 1.25).abs() < 1e-4, "one step out, not two: {z}");
+        assert_eq!(d.ctx().zoom_factor(), 1.0, "never egui's zoom of the whole window");
     }
 
     /// UI commands' keys run them like the engine's: F11, Ctrl+1 / Ctrl+2, Ctrl+0, and a rebinding

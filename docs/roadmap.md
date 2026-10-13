@@ -2889,7 +2889,7 @@ effect tabs show an empty state until M12.
     cropped photo; Apply is one "Crop" step and the thumbnail follows; on a rotated photo the
     stored rectangle is in M7.1's frame; a suggestion click draws its rectangle; the dialog refuses
     0 × 5 and adds 3 × 2; Esc cancels; panel and dialog fingerprints at both sizes.
-- ⬜ **M7.20 `ui`: the Straighten tool**
+- ✅ **M7.20 `ui`: the Straighten tool**
   - after: M7.15, M7.16, M7.17
   - files: `crates/ui/src/panels/edit/straighten.rs`, `crates/ui/tests/straighten_tool.rs`, `crates/ui/tests/fingerprints/edit-straighten*.json`
   - scope: `editing.md` §6.2: the dashed white grid from M7.7's guides over the photo; the floating
