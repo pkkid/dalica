@@ -2993,7 +2993,7 @@ effect tabs show an empty state until M12.
     file the cause lies in may be added to this block's `files` on its issue first.
   - done when: the cause is named in the commit body, the scenario holds its handles
     deterministically, and the M5 acceptance passes 20 runs pinned to 2 CPUs.
-- ⬜ **M7.29 Docs and housekeeping found at M6.R**
+- ✅ **M7.29 Docs and housekeeping found at M6.R**
   - after: M6.R
   - files: `.gitignore`, `docs/security.md`, `docs/data-model.md`, `docs/control-protocol.md`
   - scope: `dist/` (the packaging scripts' output) into `.gitignore`; `security.md` §4.3's

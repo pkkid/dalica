@@ -11,6 +11,9 @@
 /target
 /target-*/
 
+# Release packages, written by packaging/ scripts (default $DIST: dist/release)
+/dist/
+
 # Editor / OS cruft
 *~
 .DS_Store
