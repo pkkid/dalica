@@ -229,8 +229,12 @@ rotations and flips (the *displayed frame*). **Built (M7.1: `dalica-edit` `frame
 
 ## 4. Library directory (index and global data)
 
-`<data>/Dalica/` (Linux `$XDG_DATA_HOME/dalica`, macOS `~/Library/Application Support/Dalica`,
-Windows `%LOCALAPPDATA%\Dalica`):
+The library folder (`apps/dalica/src/paths.rs`), in this order: `$DALICA_HOME` when it names an
+absolute folder (tests and agents); in portable mode (a `portable` file beside the executable)
+`data/library` next to it; else the platform's data folder: Linux `$XDG_DATA_HOME/dalica/library`
+(default `~/.local/share/dalica/library`), macOS `~/Library/Application Support/Dalica/Library`,
+Windows `%LOCALAPPDATA%\Dalica\Library`. `--library DIR` opens another folder as the library. It
+holds:
 
 | File | Contents | Rebuildable? |
 |---|---|---|

@@ -46,7 +46,7 @@ Principles:
 |---|---|---|---|
 | Image decoding | dimension, pixel and allocation limits charged to the memory budget; scaled decode; per-file panic guard; fuzz targets | M1 | decoders from dependencies are trusted to honour the limits we pass; we fuzz our wrappers to check |
 | Metadata (EXIF/XMP/IPTC/ICC) | IFD count/depth/entry limits, cycle detection, XML depth/node limits, no DTDs or entities, segment reassembly limits; merge-preserving writer; fuzz targets | **Implemented** (M6: reading M6.4 and M6.9, the merge writers M6.10, M6.17 and M6.18, `.xmp` sidecars for RAW M6.19, the write queue M6.30, write-back from commands M6.33, reading on scan M6.32; `crates/meta`, `crates/store/src/metawrite.rs`; fuzz targets in `crates/meta/fuzz`) | only the owned fields are written, into JPEG, PNG, WebP and TIFF; RAW files never (an `.xmp` sidecar beside them, opt-in); a field another application changed meanwhile is imported, never overwritten (`xmp-interop.md` §5) |
-| Folder sidecar `.dalica.json` | size/depth/entry limits, single-component names only, escaped values, unknown data preserved; fuzz + property tests | M1 | a sidecar is as private as its folder |
+| Folder sidecar `.dalica.json` | size/depth/entry limits, single-component names only, escaped values, unknown data preserved; fuzz + property tests | M1 (property tests; the fuzz targets are not written yet, §7.1) | a sidecar is as private as its folder |
 | Legacy sidecars and backups | read-only fallback when a folder has no `.dalica.json`, same limits, no path from them is ever opened | M14 | |
 | Library index, journal, settings | checksummed records, size and depth limits, `.corrupt-<time>` quarantine | M1 | |
 | Directory walks | depth 32, 1,000,000 entries, symlink-loop detection, off the UI thread | M1 | |
@@ -66,7 +66,7 @@ relying on it.
 1. M0–M2: the control channel ships with authentication, line validation and limits from its first
    commit; there is no unauthenticated phase. The never-crash lints, `panic_hunt` (M1) and the
    dependency check (§8) land with the workspace.
-2. M1: bounded decoders and walkers, the sidecar parser with its fuzz target, and one shared
+2. M1: bounded decoders and walkers, the sidecar parser (its fuzz target still to come, §7.1), and one shared
    atomic-write primitive with the path rules of §5.
 3. M6 and M8: metadata write-back with merge fuzzing; Save with originals backup.
 4. M10: MCP roots, read-only mode, and server proof for the bridge (§6.3).
@@ -330,7 +330,11 @@ rather than relying on defaults.
   run inside `catch_unwind` ("Damaged file", §4.2).
 - A file that fails, panics or exceeds a 10-second work budget is recorded by (path, size, mtime)
   and not retried until it changes; the tile shows a generic placeholder and the scan continues.
-  **Planned (M5).**
+  **Implemented** for the scan's header reads (M5.4: `crates/scan/src/walk.rs`, `BUDGET` and
+  `Failure`, given back to the next scan in `Options::failures`; the session keeps them for its
+  lifetime, not across restarts, `crates/engine/src/scanning.rs`); a thumbnail decode that fails
+  or panics draws the placeholder for good (`crates/engine/src/thumbs.rs`, "Damaged file"), with no
+  time budget of its own.
 - Work counters (not only byte counts) for highly fragmented but size-bounded files: number of
   JPEG scans, Huffman tables, PNG chunks, TIFF strips/tiles. **Implemented** in `dalica-image`
   (M5.1–M5.10: `Work` counts JPEG segments, PNG chunks, APP2 chunks, IFDs, ISOBMFF boxes and
@@ -751,9 +755,9 @@ its own entry points, because the limits are the ones Dalica passes.
 |---|---|---|
 | `crates/image` | `sniff`, `decode_any`, `decode_jpeg`, `decode_png`, `decode_tiff`, `decode_webp`, `decode_gif`, `decode_bmp`, `decode_jxl`, `decode_psd`, `decode_heif` (each format decoded explicitly, no sniffing), `raw_preview` (every RAW container's recognition and preview decode), `embedded_thumbnail` (EXIF thumbnails, thumbnail IFDs, PSD resources, RAW previews), `icc` | **Implemented** (M5.1, in `crates/image/fuzz/`; the targets reach each decoder as M5.6–M5.10 filled it; `decode_heif` reaches `heic-rs` only when built with `--features dalica-image/heif`, and the Fuzz workflow builds without it, so there it fuzzes our box walk); built on pull requests touching the crate, run when the Fuzz workflow is dispatched |
 | `crates/meta` | `exif` (IFDs and maker notes), `xmp` (including extended-XMP reassembly), `iptc`, `write_merge` (parse → merge-write → re-parse: no panic, foreign fields unchanged) | **Implemented** (M6.4, in `crates/meta/fuzz/`; `write_merge` reaches every container writer (JPEG M6.17, PNG, WebP and TIFF M6.18) and asserts that a returned write passes its verification, reads back and writes again to the same bytes; `xmp` reaches the XML reader (M6.9), the merge writer and extended-XMP reassembly with MD5 GUIDs, and writes its JPEG through `write_owned` (M6.17)); built on pull requests touching the crate, run when the Fuzz workflow is dispatched. Local runs before merging (stable with cargo-fuzz's flags): `write_merge` 2.8 M runs in 180 s and `xmp` 0.8 M in 60 s with no finding after the one idempotence finding M6.17 fixed (`tests/write_jpeg.rs` keeps its regression test). The metadata corpus (M6.34, `crates/meta/tests/corpus.rs`) runs the same write rules over files other applications wrote |
-| `crates/sidecar` | `parse`, `roundtrip` (parse → write → parse is stable, unknown data preserved), `recipe` (edit-operation list), `legacy` | M1 (`legacy`: M14) |
-| `crates/store` | `journal` (replay of journal records and snapshots), `json` (folders, albums, people, settings) | M1 |
-| `crates/ui` control | `request_line` (line validation, auth state machine, limits) | M2 |
+| `crates/sidecar` | `parse`, `roundtrip` (parse → write → parse is stable, unknown data preserved), `recipe` (edit-operation list), `legacy` | **Not written** (planned for M1, never landed; no task yet; `legacy`: M14). Until then `crates/sidecar/src/tests.rs` runs property tests: random bytes never panic, print → parse is the identity, any file name round-trips as a key |
+| `crates/store` | `journal` (replay of journal records and snapshots), `json` (folders, albums, people, settings) | **Not written** (planned for M1, never landed; no task yet). Until then the journal's tests cut it at every byte (`crates/store/src/lib.rs`) and tear its tail (`crates/store/tests/sketch.rs`) |
+| `crates/ui` control | `request_line` (line validation, auth state machine, limits) | **Not written** (planned for M2, never landed; no task yet) |
 | `crates/mcp` | `tool_args` | M10 |
 | video demuxer | `demux` (if a pure-Rust path is chosen) | M15 |
 
@@ -765,16 +769,17 @@ hostile parameters and must stay green.
 ```sh
 rustup toolchain install nightly
 cargo install cargo-fuzz --locked
-cd crates/sidecar
-cargo +nightly fuzz run parse -- -max_total_time=300
+cd crates/meta
+cargo +nightly fuzz run xmp -- -max_total_time=300
 ```
 
 Reproduce a crash, minimize it (`cargo fuzz tmin`), add a deterministic regression test that fails,
 then fix it. A time-limited run with no findings is evidence of that run only, not proof that a
 parser is secure.
 
-CI: a manually dispatched fuzz job lands with the first target (M1); a scheduled weekly run of every
-target for a fixed time lands by M15. Continuous hosted fuzzing is future work.
+CI: the Fuzz workflow (`.github/workflows/fuzz.yml`, M5.1, M6.4) builds the `image` and `meta`
+targets on pull requests touching those crates and runs them when dispatched by hand; a scheduled
+weekly run of every target for a fixed time lands by M15. Continuous hosted fuzzing is future work.
 
 ### 7.3 What counts as a finding
 

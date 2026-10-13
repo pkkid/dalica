@@ -3,9 +3,9 @@
 Adapted from LightCraft `docs/control-protocol.md` (revision 88ea1a8) and PhotoCraft
 `docs/control-protocol.md` (revision 59684266); MIT OR Apache-2.0.
 
-> **Status: Planned (M2; menu methods M3).** Nothing here exists yet. The control channel, widget
-> registry and `ui.screenshot` are milestone **M2**; the headless renderer and
-> `dalica-cli snapshot` are **M1** (see [`roadmap.md`](roadmap.md)). Methods and widget ids that
+> **Status: built** for what is not marked planned: the headless renderer and
+> `dalica-cli snapshot` (M1), the control channel, widget registry and `ui.screenshot` (M2), the
+> menu methods (M3); see [`roadmap.md`](roadmap.md). Methods and widget ids that
 > need a later region (edit view M7, panes M6, effects M12, people M13) say so; until then
 > they answer with the `unsupported` error.
 > Keep this file in sync with `crates/ui/src/control/` (the method table is in its `mod.rs`).
@@ -719,50 +719,58 @@ dithering). Thumbnails and previews come from the same job pool, drained while s
 - **In the running app (planned):** `ui.screenshot {headless: true}` would draw the current UI into
   an offscreen context from the logic tick; until then a window that draws no frames answers
   `timeout` after 2 s (§6.11). `--headless` runs the app on this renderer from the start.
-- **Without any window:** `dalica-cli snapshot` runs a whole app session headlessly and answers the
-  same requests through the same handler (no TCP, no token):
+- **Without any window:** `dalica-cli snapshot` (`apps/dalica-cli/src/snapshot.rs`) opens a
+  library, drives the real UI through the headless driver (below), waits for it to settle, paints
+  the last frame and writes one PNG. It does not go through the control handler: no TCP, no token,
+  and its script is a list of driver steps, not control requests.
 
 ```sh
 dalica-cli snapshot --demo -o grid.png --size 1400x900
-dalica-cli snapshot --demo --script tour.jsonl -o out.png --size 1400x900 [--scale 2] [--now 2026-06-10T12:00:00]
-dalica-cli snapshot --library DIR --script tour.jsonl -o shot.png      # an existing library, read-only
-dalica-cli snapshot ~/Pictures/samples --script tour.jsonl -o shot.png # these folders, Scan Once, in memory
-cargo xtask snapshot tour.jsonl                                         # same, output under target/snapshots/
+dalica-cli snapshot --demo-fresh --script tour.jsonl -o out.png --size 1400x900 [--scale 2]
+dalica-cli snapshot --library DIR --script tour.jsonl -o shot.png
 ```
 
-- **Script format:** one request per line, `{"method", "params"}` or the shorthand
-  `{"command", "params"}` for `engine.execute`; `#` comment lines and blank lines are skipped.
-  Replies are printed to standard output as JSON lines `{"line", "method", "ok", "result" | "code" +
-  "error", "ms"}`.
-- A failed request does not stop the script — the remaining lines and the final screenshot still
-  run — but the exit status is **1** when any request failed (2 for usage errors), so CI can judge
-  a snapshot by its exit status.
-- `ui.screenshot` without `path` writes `-o`, then `OUT-2.png`, `OUT-3.png`, …; a script without any
-  screenshot gets one at the end to `-o`. Each request runs frames until it is answered and its
-  input has played out (§5.2).
-- **Deterministic:** a virtual clock (16 ms per frame), a fixed "now" (`--now`, default
-  `2026-06-10T12:00:00` local), the seeded demo library and settled renders make the same script
-  produce the same pixels on every machine with the same fonts, which is what fingerprint tests
-  and the showcase rely on.
-- **Isolated:** a snapshot session never reads or writes the user's settings, window state or
-  library. `--library DIR` opens that library **read-only** (no sidecar, metadata or index writes;
-  a locked library is opened as a read-only copy of its snapshot). `--demo` uses the persistent demo
-  library (§1), so a script's stars stay in it; `--demo-fresh` writes the procedural photos into a
-  new temporary folder removed on exit, the clean slate a deterministic script wants.
-- **Paths:** the person running `snapshot` chose its output, so the working directory and the
-  directory of `-o` are write roots of a snapshot session, and relative `path` params resolve against
-  the working directory (the other rules of §5.7 still apply). `dalica-cli run --connect` likewise
-  makes relative `path` params absolute against its own working directory before sending them; the
-  app then checks them against its own roots.
-- Size: `--size WxH` in points (default 1400x900), `--scale` pixels per point (default 1). Limits as
-  in §4; they are checked before layout. `ui.resize` works inside scripts too.
-- A 1400 × 900 demo snapshot should take ≤ 2 s in a release build; `cargo xtask bench` tracks it.
+- **Library:** `--library DIR` (required, or `--demo` / `--demo-fresh` in its place, which
+  `dalica-cli` turns into `--library <the demo's library>` after making and scanning it). The
+  library is opened like any other, with its own settings: commands in the script change it, and
+  what they changed is flushed before the command exits (a failed flush exits 1). `--demo` is the
+  persistent demo library (§1), so a script's stars stay in it; `--demo-fresh` writes the
+  procedural photos into a new temporary folder removed on exit, the clean slate a repeatable
+  script wants. Neither touches the user's own library, settings or window state.
+- **Script format** (`--script FILE`, ≤ 16 MiB, UTF-8): one JSON object per line, one of
+  `{"click": widgetId}` (§7), `{"key": "Ctrl+8"}`, `{"command": id, "params": {...}}` (an engine
+  or UI command, run as a menu item would; `params` defaults to `{}`) or `{"settle": true}`; blank
+  lines and lines starting with `#` are skipped. A line that is not a JSON object is a usage error
+  (exit 2) before anything runs.
+- **Order and failure:** the library settles first, then the lines run in order, then it settles
+  again (each settle waits up to 18,000 frames for nothing visible to be pending, §6.12). The first
+  failing step (an unknown step, a missing or disabled widget, a refused command, a settle that
+  times out) stops the script: its reason goes to standard error with its line number, no PNG is
+  written and the exit status is **1**. Usage errors (a missing `--library` or `-o`, a bad `--size`
+  or `--scale`, an unreadable script) exit **2**; a library that cannot be opened exits **3**.
+- **Output:** on success the PNG is written atomically to `-o` (replacing a file there) and one
+  JSON line goes to standard output: `{"ok": true, "path", "width", "height", "scale", "frames",
+  "ms"}`.
+- **Size:** `--size WxH` is the image in **pixels**, each side 1 … 8,192 (default 1400x900);
+  `--scale` is pixels per point, 0.5 … 4 (default 1), so `--size 1400x900 --scale 2` lays out a
+  700 × 450-point window. Both are checked before anything is opened.
+- **Clock:** the driver's frames advance a virtual clock (1/60 s per frame), so animations and
+  settling do not depend on the machine's speed; the session itself reads the system clock, so a
+  view that shows "today" or relative dates follows the real date.
 
-**Rust test driver:** headless UI tests use the same driver directly:
-`Headless::new(app, size, scale)`, `request(method, params, timeout)` (runs frames until answered
-and the input has played out), `settle(timeout)`, `step_until(timeout, |h| condition)` and `paint()`.
-Assert on `library.inspect` / `ui.inspect` and perf counters, not on pixel counts, except in
-fingerprint tests (`architecture.md` §11).
+**Not built yet** (promised here before; planned, no task yet): folders named on the command line
+(scanned once, in memory); a read-only `--library`; control requests in scripts
+(`{"method", "params"}` with a JSON reply per line on standard output, a failed line not stopping
+the rest); several `ui.screenshot`s per script; a fixed "now" (`--now`); the working directory and
+the directory of `-o` as write roots for `path` params (§5.7); `cargo xtask snapshot` (listed as
+planned by `cargo xtask`); a snapshot row in `cargo xtask bench`.
+
+**Rust test driver:** headless UI tests use the same driver directly (`crates/ui/src/headless.rs`):
+`Driver::new(app, width, height, pixels_per_point)`, `click(id)`, `key(chord)`, `run(id, params)`,
+`settle(max_frames)` (or `settle_for(max_frames, jobs)` to wait for long jobs too),
+`step_until(done, max_frames)`, `wait(ms)` and `screenshot()`. Assert on `library.inspect` /
+`ui.inspect` and perf counters, not on pixel counts, except in fingerprint tests
+(`architecture.md` §11).
 
 ## 9. Examples
 
@@ -793,14 +801,15 @@ for line in open(sys.argv[2]):
     print(method, json.dumps(call(method, params))[:200])
 ```
 
-Inside the repository prefer `dalica-cli run --connect 127.0.0.1:7990 --script FILE.jsonl` (same
-script format as `snapshot`, token read from the default token file; `--keep-going` to continue
-after a failure).
+Planned, not built yet: `dalica-cli run --connect 127.0.0.1:7990 --script FILE.jsonl` (these
+request lines, token read from the default token file; `--keep-going` to continue after a
+failure). Until then use a client like the one above.
 
 ### 9.2 Tour: select across folders, hold, edit, look
 
 ```jsonl
-# tour.jsonl — demo library; works headless and against `dalica --control … --demo`
+# tour.jsonl — demo library, sent to `dalica --control … --demo` (a `dalica-cli snapshot` script
+# takes the step lines of §8 instead)
 {"method": "ui.resize", "params": {"width": 1400, "height": 900}}
 {"method": "ui.clickWidget", "params": {"id": "tree:folder:1"}}
 {"method": "ui.clickWidget", "params": {"id": "thumb:2"}}
@@ -843,8 +852,8 @@ after a failure).
 - Use your own port (18000–19999) and token file when running in parallel; never connect to the
   maintainer's instance on 7990 unless asked.
 - Prefer `--demo` or a scratch library. Never point automation at a real personal photo library
-  without the maintainer asking; when you must, start with `dalica-cli snapshot --library DIR`
-  (read-only).
+  without the maintainer asking; `dalica-cli snapshot --library DIR` is **not** read-only (§8), so
+  look at a copy of the library, not the library itself.
 - Inspect before retrying after a `timeout` or a dropped connection: the command may have run.
 
 ## 11. Security notes
