@@ -33,7 +33,7 @@ Columns: **Path** (backticked path pattern), **Asset** (title), **Creator**, **S
 | `assets/fonts/Inter-*.ttf` (Regular, SemiBold) | Inter 4.001 (static TTF) | The Inter Project Authors (Rasmus Andersson) | https://github.com/rsms/inter | SIL Open Font License 1.1 (`assets/fonts/OFL-Inter.txt`) | 2026-10-10 | none |
 | `assets/app-icon/` (the canonical SVG and every render of it) | Dalica app icon, a melting camera shutter (chosen by the maintainer, `assets/app-icon/README.md`) | the Dalica contributors | original work (hand-written SVG; renders by `packaging/icons.sh`) | MIT OR Apache-2.0 (`assets/app-icon/LICENSE.txt`) | 2026-10-12 | none |
 
-## Website (`website/`, served at dalica.org; not bundled in the app)
+## Website (`website/`, served at dalica.pkarma.com; not bundled in the app)
 
 | Path | Asset | Creator | Source | Licence | Added | Modifications |
 |---|---|---|---|---|---|---|

@@ -1,4 +1,4 @@
-# dalica.org
+# dalica.pkarma.com
 
 The project's website: one static page that says what Dalica is, hands visitors the right
 download and sends bug reports to GitHub. Plain HTML, CSS and JavaScript with no build step and no
@@ -29,16 +29,17 @@ Then open <http://localhost:8000>. The page uses root-relative paths (`/style.cs
 The site is a Worker with static assets on the Free plan. Installers are not hosted here: the
 download links point at GitHub Releases, which keep the files and their checksums.
 
-1. **Domain:** `dalica.org` must be an active zone in the Cloudflare account (Cloudflare Registrar,
-   or the registrar's nameservers pointed at Cloudflare).
+1. **Domain:** `pkarma.com` must be an active zone in the Cloudflare account. `wrangler.jsonc`
+   attaches `dalica.pkarma.com` as the Worker's custom domain, so a deploy creates its DNS record
+   and certificate; there is nothing to add by hand.
 2. **Connect the repository:** Workers & Pages → Create → Import a repository → `pkkid/dalica`.
    Root directory `website`, no build command, deploy command `npx wrangler deploy`, production
    branch `main`. Set the build watch paths to `website/**` so code changes never redeploy the
-   site; other branches get preview URLs.
-3. **Custom domains:** on the Worker, Settings → Domains & Routes → add `dalica.org` and
-   `www.dalica.org`. Then Rules → Redirect Rules: `www.dalica.org/*` → `https://dalica.org/${1}`
-   (301).
-4. **HTTPS:** SSL/TLS → Edge Certificates → Always Use HTTPS. Turn on HSTS once the site has run
+   site.
+3. **Redirects:** `dalica.pushingkarma.com` sends visitors here with a Redirect Rule on the
+   `pushingkarma.com` zone (301, path and query kept), backed by a proxied `AAAA dalica 100::`
+   placeholder record.
+4. **HTTPS:** Always Use HTTPS is on for the `pkarma.com` zone. Turn on HSTS once the site has run
    on HTTPS for a while.
 
 `npx wrangler deploy` from this folder deploys by hand.
@@ -48,7 +49,7 @@ download links point at GitHub Releases, which keep the files and their checksum
 - The page is dark only and uses one accent, Gruvbox orange (`#fe8019`, and `#d65d0e` for darker
   uses). Buttons stay quiet greys; screenshots have a 3 px corner radius.
 - On this website, and only here, the name is spelled **Dalíca** in visible text. Everywhere else
-  (code, docs, the app) it is Dalica, and addresses keep `dalica` (`dalica.org`, `dalica-cli`).
+  (code, docs, the app) it is Dalica, and addresses keep `dalica` (`dalica.pkarma.com`, `dalica-cli`).
 - Name only Dalica's own features. The rules on naming other software are in `AGENTS.md`.
 - The numbers in "Fast where it counts" come from the project's measurements (`docs/status.md`,
   `docs/roadmap.md` → Where we stand) and the command registry (`dalica-cli commands`). Update them
