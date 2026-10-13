@@ -7,7 +7,9 @@
 //! - the date and time fields refuse a day that does not exist and step with the arrows;
 //! - an adjusted date re-orders the light table and relabels what shows dates: the Date caption,
 //!   the tooltip, the status line and the section's date;
-//! - undo takes each step back whole;
+//! - undo takes each step back whole, in the library and in the files: with the date writes still
+//!   queued, and after they landed (`settle` waiting for metadata writes) and a rescan read them
+//!   back;
 //! - every widget has an id, and the dialog matches its fingerprints at 1400 × 900 and 900 × 600
 //!   (`tests/fingerprints/dialog-adjust-date-<w>x<h>.json`; `DALICA_BLESS=1` stores new ones,
 //!   renders go to `target/test-output/ui/`).
@@ -84,6 +86,21 @@ fn dt(s: &str) -> DateTime {
 /// The photo's effective date.
 fn date(d: &Driver, id: PhotoId) -> Option<DateTime> {
     d.app().session().unwrap().library().effective_date(id)
+}
+
+/// The date in the photo's file (EXIF DateTimeOriginal).
+fn file_date(d: &Driver, id: PhotoId) -> Option<DateTime> {
+    let lib = d.app().session().unwrap().library();
+    let p = lib.photo(id).unwrap();
+    let path = lib.folder(p.folder).unwrap().path.join(&p.name);
+    dalica_meta::read(&std::fs::read(path).unwrap(), &dalica_meta::Limits::default()).unwrap().owned.date_taken.map(|d| d.date_time())
+}
+
+/// Settles with the metadata writes: every date write has landed in its file.
+fn settle_writes(d: &mut Driver) {
+    let s = d.settle_for(FRAMES, true);
+    assert!(s.settled, "not settled: {:?}", s.busy);
+    assert_eq!(d.app().session().unwrap().pending_metadata_writes(), 0);
 }
 
 fn undo_steps(d: &Driver) -> (usize, Option<&'static str>) {
@@ -266,6 +283,12 @@ fn shift_three_photos_and_set_one_by_id_then_undo() {
     let taken = [4, 5, 6, 7].map(|day| Some(DateTime::new(Date::new(2026, 6, day).unwrap(), 10, 0, 0).unwrap()));
     assert_eq!(dates, taken);
     assert_eq!(undo_steps(&fx.d).0, 0);
+    // The writes, queued or not when undone, leave every file at the date it was taken.
+    settle_writes(&mut fx.d);
+    let files: Vec<Option<DateTime>> = ids.iter().map(|id| file_date(&fx.d, *id)).collect();
+    assert_eq!(files, taken, "the files read the original dates");
+    let dates: Vec<Option<DateTime>> = ids.iter().map(|id| date(&fx.d, *id)).collect();
+    assert_eq!(dates, taken);
 }
 
 /// An adjusted date re-orders the folder and relabels everything that shows a photo's date: the
@@ -278,7 +301,17 @@ fn an_adjusted_date_reorders_and_relabels() {
     let last = ids[3];
     fx.d.run("photo.dates.set", &json!({ "ids": [last], "set": "2026-05-30T08:15:00" })).unwrap();
     select(&mut fx.d, &[last]);
-    fx.d.settle(FRAMES).unwrap();
+    settle_writes(&mut fx.d);
+    assert_eq!(file_date(&fx.d, last), Some(dt("2026-05-30T08:15:00")), "the write landed");
+    // A rescan reads the written date back as the file's own.
+    let start = std::time::Instant::now();
+    while start.elapsed() < std::time::Duration::from_secs(30)
+        && fx.d.app().session().unwrap().library().photo(last).unwrap().date != Some(dt("2026-05-30T08:15:00"))
+    {
+        fx.d.step();
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+    assert_eq!(fx.d.app().session().unwrap().library().photo(last).unwrap().date, Some(dt("2026-05-30T08:15:00")), "read back");
 
     assert_eq!(order(&fx.d, folder), [ids[3], ids[0], ids[1], ids[2]], "re-ordered");
     let cells = &fx.d.app().panels().unwrap().light_table.cells;
@@ -303,7 +336,8 @@ fn an_adjusted_date_reorders_and_relabels() {
     assert!(tip.detail.starts_with("May 30, 2026 8:15 AM"), "the tooltip: {}", tip.detail);
 
     fx.d.run("edit.undo", &json!({})).unwrap();
-    fx.d.settle(FRAMES).unwrap();
+    settle_writes(&mut fx.d);
+    assert_eq!((date(&fx.d, last), file_date(&fx.d, last)), (Some(dt("2026-06-07T10:00:00")), Some(dt("2026-06-07T10:00:00"))), "undo: both");
     assert_eq!(order(&fx.d, folder), ids);
     let cells = &fx.d.app().panels().unwrap().light_table.cells;
     assert_eq!(cells.get(last).and_then(|s| s.caption.clone()).as_deref(), Some("June 7, 2026"));

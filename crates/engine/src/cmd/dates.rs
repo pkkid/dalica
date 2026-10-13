@@ -10,6 +10,16 @@
 //! date instead, so shifting there and back leaves nothing behind. All photos change in one
 //! library undo step (none when no date changes), and the folder's photos re-sort by the new
 //! dates ([`dalica_library::Library::photos_in`]).
+//!
+//! The undo step sets each photo's date back to the effective date it had, written out as a date
+//! of the user's (not "the file's date"): once the new date is written into the file and a rescan
+//! reads it back as the file's own, falling back to the file's date would keep the new one. So
+//! undo and redo change the effective date whether or not the write had landed, and the metadata
+//! write-back puts the file's date back (`metadata.rs`). Undo and redo apply a step's dates through
+//! [`without_file_dates`]: a date equal to the photo's own file date goes back to "the file's
+//! date", so when nothing was read back in between, undo restores the library exactly. When the
+//! file's date did change, the photo keeps a date of the user's (in its sidecar) that its file
+//! will hold once the write lands.
 
 use dalica_core::{Date, DateTime, PhotoId};
 use dalica_library::Op;
@@ -65,6 +75,8 @@ fn set(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
     }
     let lib = s.library();
     let mut changed: Vec<(PhotoId, Option<DateTime>)> = Vec::new();
+    // The undo: each changed photo's effective date before, written out.
+    let mut before: Vec<(PhotoId, Option<DateTime>)> = Vec::new();
     let mut dates = Vec::with_capacity(ids.len());
     for id in &ids {
         let photo = lib.photo(*id).ok_or_else(|| CmdError::NotFound(format!("no photo {id}")))?;
@@ -77,16 +89,39 @@ fn set(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
         };
         // Back to the file's own date: the user's date goes.
         let stored = Some(new).filter(|d| photo.date != Some(*d));
-        if lib.info(*id).date != stored {
+        let info = lib.info(*id);
+        if info.date != stored {
             changed.push((*id, stored));
+            before.push((*id, info.date.or(photo.date)));
         }
         dates.push(json!({ "id": id, "date": new }));
     }
     let n = changed.len();
     if n > 0 {
         s.apply(Op::SetDates { dates: changed })?;
+        s.set_undo_op(Op::SetDates { dates: before });
     }
     Ok(json!({ "ids": ids, "changed": n, "dates": dates }))
+}
+
+/// The most nested batches [`without_file_dates`] walks into; deeper ones are left as they are.
+const MAX_DEPTH: usize = 64;
+
+/// `op` with every date of `Op::SetDates` equal to its photo's own file date in `library` turned
+/// into `None` (the file's date), so a step never leaves a user's date that says what the file
+/// says. Undo and redo apply their steps through this (`Session::apply_step`).
+pub(crate) fn without_file_dates(library: &dalica_library::Library, op: Op) -> Op {
+    normalise(library, op, 0)
+}
+
+fn normalise(library: &dalica_library::Library, op: Op, depth: usize) -> Op {
+    match op {
+        Op::SetDates { dates } => Op::SetDates {
+            dates: dates.into_iter().map(|(id, d)| (id, d.filter(|d| library.photo(id).is_none_or(|p| p.date != Some(*d))))).collect(),
+        },
+        Op::Batch { ops } if depth < MAX_DEPTH => Op::Batch { ops: ops.into_iter().map(|o| normalise(library, o, depth + 1)).collect() },
+        other => other,
+    }
 }
 
 /// `date` moved by `secs` seconds, or `None` outside the years 1 to 9999.
