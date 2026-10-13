@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Dalíca · a photo organizer for the folders you already have</title>
+<meta name="description" content="Dalíca is a photo organizer for the folders you already have. Native on Linux, Windows and macOS.">
+<link rel="canonical" href="https://dalica.org/">
+<link rel="icon" href="/img/icon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#0f0f0f">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://dalica.org/">
+<meta property="og:title" content="Dalíca: a photo organizer for the folders you already have">
+<meta property="og:description" content="Star, caption and tag a lifetime of photos without importing a single one.">
+<meta property="og:image" content="https://dalica.org/img/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preload" href="/fonts/SchibstedGrotesk-Variable-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/style.css">
+<script src="/main.js" defer></script>
+</head>
+<body>
+<canvas id="hexfield" aria-hidden="true"></canvas>
+<nav><div class="wrap">
+  <a class="brand" href="#top"><img src="/img/icon.svg" alt="">Dalíca</a>
+  <ul><li><a href="#features">Features</a></li><li><a href="#screens">Screenshots</a></li><li><a href="#roadmap">Roadmap</a></li><li><a href="#bugs">Report a bug</a></li><li><a href="https://github.com/pkkid/dalica">GitHub</a></li><li><a href="#download">Download</a></li></ul>
+</div></nav>
+
+<header class="hero wrap" id="top">
+  <svg class="hero-icon" viewBox="0 0 512 512" role="img" aria-label="The Dalíca icon: a melting camera shutter">
+<defs><clipPath id="hi-tile"><rect width="512" height="512" rx="112"/></clipPath><clipPath id="hi-open"><polygon points="285.6,204.7 315.2,256.0 285.6,307.3 226.4,307.3 196.8,256.0 226.4,204.7"/></clipPath></defs>
+<g clip-path="url(#hi-tile)">
+<rect width="512" height="512" fill="#d65d0e"/>
+<g fill="#0b0b0c"><circle cx="256" cy="256" r="168"/><ellipse cx="256" cy="269.4" rx="163.0" ry="168.0"/></g><g class="drips" fill="#0b0b0c"><path d="M179.0 396.0 V447.0 A16.0 16.0 0 0 0 211.0 447.0 V396.0 Z"/><path d="M163.0 408.4 Q179.0 418.8 179.0 434.8 L179.0 388.8 L163.0 379.4 Z"/><path d="M227.0 433.9 Q211.0 431.3 211.0 447.3 L211.0 401.3 L227.0 404.9 Z"/><path d="M235.0 407.4 V464.0 A17.0 17.0 0 0 0 269.0 464.0 V407.4 Z"/><path d="M219.0 432.3 Q235.0 436.1 235.0 452.1 L235.0 406.1 L219.0 403.3 Z"/><path d="M285.0 433.9 Q269.0 436.9 269.0 452.9 L269.0 406.9 L285.0 404.9 Z"/><path d="M300.0 395.2 V480.0 A19.0 19.0 0 0 0 338.0 480.0 V395.2 Z"/><path d="M284.0 434.1 Q300.0 431.6 300.0 447.6 L300.0 401.6 L284.0 405.1 Z"/><path d="M354.0 404.9 Q338.0 416.1 338.0 432.1 L338.0 386.1 L354.0 375.9 Z"/><path d="M363.5 354.9 V442.5 A14.5 14.5 0 0 0 392.5 442.5 V354.9 Z"/><path d="M347.5 409.3 Q363.5 398.5 363.5 414.5 L363.5 368.5 L347.5 380.3 Z"/><path d="M408.5 338.9 Q392.5 367.4 392.5 383.4 L392.5 337.4 L408.5 309.9 Z"/></g>
+<g clip-path="url(#hi-open)"><rect x="196.8" y="196.8" width="118.5" height="118.5" fill="#d65d0e"/>
+<circle cx="272.6" cy="241.8" r="19.0" fill="#efe9dc"/>
+<path fill="#0b0b0c" d="M192.8 319.2 V279.7 C220.5 258.4 244.2 263.1 261.9 277.3 C279.7 291.5 297.5 270.2 319.2 265.5 V319.2 Z"/></g>
+<path fill="#efe9dc" d="M315.2 256.0 L285.6 307.3 Q261.1 349.8 236.5 392.4 A137.76 137.76 0 0 0 364.4 341.1 Q339.8 298.5 315.2 256.0 Z"/><path fill="#efe9dc" d="M285.6 307.3 L226.4 307.3 Q177.3 307.3 128.1 307.3 A137.76 137.76 0 0 0 236.5 392.4 Q261.1 349.8 285.6 307.3 Z"/><path fill="#efe9dc" d="M226.4 307.3 L196.8 256.0 Q172.2 213.5 147.6 170.9 A137.76 137.76 0 0 0 128.1 307.3 Q177.3 307.3 226.4 307.3 Z"/><path fill="#efe9dc" d="M196.8 256.0 L226.4 204.7 Q250.9 162.2 275.5 119.6 A137.76 137.76 0 0 0 147.6 170.9 Q172.2 213.5 196.8 256.0 Z"/><path fill="#efe9dc" d="M226.4 204.7 L285.6 204.7 Q334.7 204.7 383.9 204.7 A137.76 137.76 0 0 0 275.5 119.6 Q250.9 162.2 226.4 204.7 Z"/><path fill="#efe9dc" d="M285.6 204.7 L315.2 256.0 Q339.8 298.5 364.4 341.1 A137.76 137.76 0 0 0 383.9 204.7 Q334.7 204.7 285.6 204.7 Z"/>
+<path fill="none" stroke="#0b0b0c" stroke-width="8" stroke-linejoin="round" d="M315.2 256.0 L285.6 307.3 Q261.1 349.8 236.5 392.4 A137.76 137.76 0 0 0 364.4 341.1 Q339.8 298.5 315.2 256.0 Z"/><path fill="none" stroke="#0b0b0c" stroke-width="8" stroke-linejoin="round" d="M285.6 307.3 L226.4 307.3 Q177.3 307.3 128.1 307.3 A137.76 137.76 0 0 0 236.5 392.4 Q261.1 349.8 285.6 307.3 Z"/><path fill="none" stroke="#0b0b0c" stroke-width="8" stroke-linejoin="round" d="M226.4 307.3 L196.8 256.0 Q172.2 213.5 147.6 170.9 A137.76 137.76 0 0 0 128.1 307.3 Q177.3 307.3 226.4 307.3 Z"/><path fill="none" stroke="#0b0b0c" stroke-width="8" stroke-linejoin="round" d="M196.8 256.0 L226.4 204.7 Q250.9 162.2 275.5 119.6 A137.76 137.76 0 0 0 147.6 170.9 Q172.2 213.5 196.8 256.0 Z"/><path fill="none" stroke="#0b0b0c" stroke-width="8" stroke-linejoin="round" d="M226.4 204.7 L285.6 204.7 Q334.7 204.7 383.9 204.7 A137.76 137.76 0 0 0 275.5 119.6 Q250.9 162.2 226.4 204.7 Z"/><path fill="none" stroke="#0b0b0c" stroke-width="8" stroke-linejoin="round" d="M285.6 204.7 L315.2 256.0 Q339.8 298.5 364.4 341.1 A137.76 137.76 0 0 0 383.9 204.7 Q334.7 204.7 285.6 204.7 Z"/>
+</g>
+</svg>
+  <span class="label">Photo organizer · Preview 0.1</span>
+  <h1>Every photo you own, on <em>one light table.</em></h1>
+  <p class="lede">Dalíca shows all the photos in the folders you already have, in one long scrolling view. Star, caption and tag them, find them again, and never lose an original. Native on Linux, Windows and macOS.</p>
+  <div class="ctas">
+    <a class="btn primary" href="#download" id="dl-main">Download for Linux<small id="dl-sub">AppImage · x86_64 · 0.1.0</small></a>
+    <a class="btn" href="https://github.com/pkkid/dalica">View on GitHub<small>MIT or Apache-2.0</small></a>
+  </div>
+  <p class="label platforms">Linux · Windows · macOS · no account · no telemetry</p>
+  <div class="shot-hero">
+    <div class="frame"><img src="/img/tags.jpg" alt="Dalíca's library with the Tags pane open: three garden photos selected, their tags listed with partial counts" width="2000" height="1286"></div>
+  </div>
+  <div class="caption"><span class="label">The library and the Tags pane · three photos selected</span><span class="label">Captured in Dalíca</span></div>
+</header>
+
+
+<section class="wrap" id="numbers">
+  <div class="head" data-hex="left"><div><span class="label">Measured, not promised</span><h2>Fast where it counts.</h2></div><span class="label">From the project's own benchmarks</span></div>
+  <div class="stats">
+    <div class="stat-cell rise"><div class="big-num"><span class="count" data-to="100000" data-sep="1">100,000</span></div><h3>photos scroll smoothly</h3><p>0.26 ms per frame (p95), budget 8 ms</p></div>
+    <div class="stat-cell rise"><div class="big-num"><span class="count" data-to="0.5" data-dec="1">0.5</span><small>s</small></div><h3>to the first screen of thumbnails</h3><p>for a new folder of 10,000 JPEGs</p></div>
+    <div class="stat-cell rise"><div class="big-num"><span class="count" data-to="1800" data-sep="1">1,800</span><small>+</small></div><h3>automated tests</h3><p>run on Linux, Windows and macOS for every change</p></div>
+    <div class="stat-cell rise"><div class="big-num"><span class="count" data-to="98">98</span></div><h3>commands, all scriptable</h3><p>from the window, the keyboard or the command line</p></div>
+  </div>
+</section>
+
+<section class="wrap" id="features">
+  <div class="head" data-hex="right"><div><span class="label">What it does today</span><h2>Light organizing for heavy collections.</h2></div><span class="label">Preview 0.1</span></div>
+  <div class="grid">
+    <div class="feat"><span class="stat">no import step</span><h3>Your folders are the library</h3><p>Point Dalíca at the folders you already have. Nothing is copied into a catalog; renaming or moving in Dalíca does the same on disk.</p></div>
+    <div class="feat"><span class="stat">100 000 photos · smooth</span><h3>Fast at any size</h3><p>Thumbnails appear as fast as your disk allows, and a library of a hundred thousand photos scrolls without a stutter.</p></div>
+    <div class="feat"><span class="stat">XMP · IPTC</span><h3>Stars, captions and tags that travel</h3><p>What you add is written into the photo's own metadata, so other apps see it too. Other programs' fields are kept as they were.</p></div>
+    <div class="feat"><span class="stat">.dalica-originals/</span><h3>Originals stay untouched</h3><p>Pixels change only when you press Save, and the original is kept beside it, ready to restore.</p></div>
+    <div class="feat"><span class="stat">JPEG · HEIC · JXL · RAW</span><h3>Reads what you have</h3><p>JPEG, PNG, TIFF, WebP, GIF, BMP, JPEG XL, PSD, HEIC and the previews of 13 raw formats, colour-managed.</p></div>
+    <div class="feat"><span class="stat">0 network calls</span><h3>Private by default</h3><p>No account, no telemetry, no cloud. Dalíca goes online only when you ask it to, and face data never leaves your machine.</p></div>
+  </div>
+  <div class="next"><span class="label">Coming next</span><span class="chip">One-click Auto Fix</span><span class="chip">Tuning and effects</span><span class="chip">Export</span><span class="chip">Albums and search</span><span class="chip">Slideshow and collage</span><span class="chip">People and places</span></div>
+</section>
+
+<section class="wrap" id="files">
+  <div class="head" data-hex="right"><div><span class="label">No catalog</span><h2>Your files stay yours.</h2></div><span class="label">What Dalíca writes to disk</span></div>
+  <div class="story">
+    <div class="rise">
+      <h3>Everything lives next to your photos.</h3>
+      <p>Dalíca never copies your photos into a library of its own. What you add goes into one small, readable file per folder, and into the photos' own metadata.</p>
+      <ul><li>Move a folder to another disk and its stars and tags go with it.</li><li>The index Dalíca keeps for speed is a cache. Delete it and Dalíca rebuilds it from your folders.</li><li>Originals are only ever moved aside when you Save an edit, never overwritten.</li></ul>
+    </div>
+    <div class="panel rise"><div class="panel-bar"><i></i><i></i><i></i><span>~/Pictures</span></div><div class="tree"><div class="row"><span class="name dim">Pictures/</span><span class="what"></span></div><div class="row"><span class="name ">└─ Highlands and Coast/</span><span class="what">a folder you already had</span></div><div class="row"><span class="name ">   ├─ minolta_z1.jpg</span><span class="what">your photo; pixels untouched</span></div><div class="row"><span class="name dim">   ├─ pixel3_o6.jpg</span><span class="what"></span></div><div class="row"><span class="name ">   ├─ <b>.dalica.json</b></span><span class="what">stars, captions, tags as JSON</span></div><div class="row"><span class="name ">   └─ <b>.dalica-originals/</b></span><span class="what">appears only when you Save an edit</span></div><div class="row"><span class="name ">      ├─ minolta_z1.jpg</span><span class="what">the original, byte for byte</span></div><div class="row"><span class="name ">      └─ .dalica.json</span><span class="what">the edit, so it can be undone</span></div></div></div>
+  </div>
+</section>
+
+<section class="wrap" id="xmp">
+  <div class="head" data-hex="left"><div><span class="label">Standard metadata</span><h2>Tags that travel.</h2></div><span class="label">XMP · IPTC</span></div>
+  <div class="travel">
+    <div class="photo-card rise"><img src="/img/castle.jpg" alt="Castle ruins on a green cliff above the sea"><p class="cap">Castle ruins on the cliffs</p>
+      <div class="tags"><span>landscape</span><span>coast</span><span>history</span><span>favourites</span><span class="new">castle</span></div></div>
+    <div class="arrow" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h15M14 6l6 6-6 6"/></svg></div>
+    <div class="panel rise"><div class="panel-bar"><i></i><i></i><i></i><span>minolta_z1.jpg · XMP packet, as written</span></div>
+<pre class="code"><span class="c">&lt;rdf:Description xmlns:dc="http://purl.org/dc/elements/1.1/" …&gt;</span>
+  <span class="k">&lt;dc:description&gt;</span>&lt;rdf:Alt&gt;
+    &lt;rdf:li xml:lang="x-default"&gt;<span class="s">Castle ruins on the cliffs</span>&lt;/rdf:li&gt;
+  &lt;/rdf:Alt&gt;<span class="k">&lt;/dc:description&gt;</span>
+  <span class="k">&lt;dc:subject&gt;</span>&lt;rdf:Bag&gt;
+    &lt;rdf:li&gt;<span class="s">landscape</span>&lt;/rdf:li&gt;
+    &lt;rdf:li&gt;<span class="s">coast</span>&lt;/rdf:li&gt;
+    &lt;rdf:li&gt;<span class="s">history</span>&lt;/rdf:li&gt;
+    &lt;rdf:li&gt;<span class="s">favourites</span>&lt;/rdf:li&gt;
+<span class="hl">    &lt;rdf:li&gt;<span class="s">castle</span>&lt;/rdf:li&gt;</span>
+  &lt;/rdf:Bag&gt;<span class="k">&lt;/dc:subject&gt;</span>
+<span class="c">&lt;/rdf:Description&gt;</span></pre></div>
+  </div>
+  <p class="fine">Add a tag in Dalíca and it is written into the photo itself, as XMP <code>dc:subject</code> and IPTC keywords, so any photo app that reads standard metadata sees it. Fields written by other programs are kept exactly as they were.</p>
+</section>
+
+<section class="wrap" id="screens">
+  <div class="head"><div><span class="label">Screenshots</span><h2>Quiet chrome, loud photos.</h2></div><span class="label">Real captures · CC0 photos</span></div>
+  <div class="shots" data-hex="left">
+    <div class="shot"><div class="txt"><span class="label">Tags pane</span><h3>Tag a whole afternoon at once</h3><p>Select a run of photos and type. Partial counts show which tags only some of them have, and quick tags put your favourites one key away.</p></div><div class="frame"><img src="/img/crop-tags.jpg" alt="Close-up: three selected garden photos and the Tags pane showing favourites (1 of 3), flowers, garden and macro (1 of 3), with quick tag buttons below" width="2296" height="767" loading="lazy"></div></div>
+    <div class="shot"><div class="txt"><span class="label">Properties</span><h3>Everything the camera wrote down</h3><p>Camera, lens, exposure, dates and colour space for any photo, with the full metadata a click away.</p></div><div class="frame"><img src="/img/crop-props.jpg" alt="Close-up: a photo of castle ruins selected, and the Properties pane listing its size, dates, camera, exposure, aperture, ISO and focal length" width="1500" height="1130" loading="lazy"></div></div>
+    <div class="shot"><div class="txt"><span class="label">Tags under thumbnails</span><h3>See your folders the way you filed them</h3><p>Folders keep their own dates, places and descriptions. Show captions, tags, dates or file names under every thumbnail.</p></div><div class="frame"><img src="/img/crop-tree.jpg" alt="Close-up: the Old Churches folder header with its date and description, and the tag history shown under each thumbnail" width="1631" height="540" loading="lazy"></div></div>
+  </div>
+</section>
+
+<section class="wrap" id="agents">
+  <div class="head" data-hex="right"><div><span class="label">For scripts and AI agents</span><h2>Everything is a command.</h2></div><span class="label">dalica-cli</span></div>
+  <div class="story flip">
+    <div class="rise">
+      <h3>The window and the command line share one engine.</h3>
+      <p>Every action in Dalíca is a named command (98 of them today). Clicking, pressing a key and running <code>dalica-cli</code> all go through the same code, so whatever you can do by hand, a script can do too.</p>
+      <ul><li><code>commands</code> lists every command and its parameters as JSON.</li><li><code>run</code> executes them against a library and answers in JSON.</li><li><code>snapshot</code> renders the real window to a PNG without a display.</li><li>An MCP server for AI agents arrives with version 0.2.</li></ul>
+    </div>
+    <div class="panel rise"><div class="panel-bar"><i></i><i></i><i></i><span>terminal</span></div>
+<pre class="code"><span class="p">$</span> dalica-cli commands | jq length
+98
+<span class="p">$</span> dalica-cli run --demo --cmd photo.star.set \
+    --params '{"ids": [3], "on": true}'
+{"command":"photo.star.set","ok":true,
+ "result":{"ids":[3],"on":true}}
+<span class="p">$</span> dalica-cli snapshot --demo -o library.png --size 1400x900</pre></div>
+  </div>
+</section>
+
+<section class="wrap" id="roadmap">
+  <div class="head" data-hex="left"><div><span class="label">Where we are</span><h2>The road to 1.0.</h2></div><a class="label" href="https://github.com/pkkid/dalica/blob/main/docs/roadmap.md">The full roadmap →</a></div>
+  <ol class="timeline">
+    <li class="done"><span class="dot"></span><div><h4>Foundations</h4><p>Done</p></div></li>
+    <li class="done"><span class="dot"></span><div><h4>The window</h4><p>Done</p></div></li>
+    <li class="done"><span class="dot"></span><div><h4>Library browsing</h4><p>Done</p></div></li>
+    <li class="done"><span class="dot"></span><div><h4>Folders and formats</h4><p>Done</p></div></li>
+    <li class="now release"><span class="dot"></span><div><h4>Photo info and metadata</h4><p>Now · Release 0.1</p></div></li>
+    <li class="todo"><span class="dot"></span><div><h4>Editing and one-click fixes</h4><p>Next</p></div></li>
+    <li class="todo"><span class="dot"></span><div><h4>Save and export</h4><p>Planned</p></div></li>
+    <li class="todo"><span class="dot"></span><div><h4>Albums and search</h4><p>Planned</p></div></li>
+    <li class="todo release"><span class="dot"></span><div><h4>Preferences and MCP</h4><p>Release 0.2</p></div></li>
+    <li class="todo release"><span class="dot"></span><div><h4>Effects, people, places, video</h4><p>Toward 1.0</p></div></li>
+  </ol>
+</section>
+
+<section class="wrap" id="download">
+  <div class="head" data-hex="right"><div><span class="label">Download · version 0.1.0</span><h2>Get Dalíca.</h2></div><a class="label" href="https://github.com/pkkid/dalica/releases">All releases and checksums →</a></div>
+  <div class="dl">
+    <div class="os" data-os="linux"><h3>Linux <span class="label">Your system</span></h3><ul>
+      <li><a href="https://github.com/pkkid/dalica/releases"><span>AppImage</span><span>x86_64</span></a></li>
+      <li><a href="https://github.com/pkkid/dalica/releases"><span>Flatpak</span><span>x86_64</span></a></li>
+      <li><a href="https://github.com/pkkid/dalica/releases"><span>Debian / Ubuntu (.deb)</span><span>x86_64</span></a></li>
+      <li><a href="https://github.com/pkkid/dalica/releases"><span>Fedora / openSUSE (.rpm)</span><span>x86_64</span></a></li>
+      <li><a href="https://github.com/pkkid/dalica/releases"><span>Tarball</span><span>.tar.gz</span></a></li></ul></div>
+    <div class="os" data-os="win"><h3>Windows <span class="label">Your system</span></h3><ul>
+      <li><a href="https://github.com/pkkid/dalica/releases"><span>Installer (.msi)</span><span>x64</span></a></li>
+      <li><a href="https://github.com/pkkid/dalica/releases"><span>Portable (.zip)</span><span>x64</span></a></li></ul></div>
+    <div class="os" data-os="mac"><h3>macOS <span class="label">Your system</span></h3><ul>
+      <li><a href="https://github.com/pkkid/dalica/releases"><span>Disk image (.dmg)</span><span>Universal</span></a></li>
+      <li><a href="https://github.com/pkkid/dalica/releases"><span>Command-line tool</span><span>.zip</span></a></li></ul></div>
+  </div>
+  <p class="fine">Prefer to build it? Install Rust, then <code>git clone https://github.com/pkkid/dalica && cargo run --release -p dalica</code>. Dalíca also has a command-line tool, <code>dalica-cli</code>, for scripts and AI agents.</p>
+
+  <div class="bugs" id="bugs" data-hex="left"><div><span class="label">Found something broken?</span><h2>Report a bug.</h2><p>Bugs and ideas go on GitHub. Say what you did, what happened and which version you run. Please never attach personal photos.</p></div><a class="btn primary" href="https://github.com/pkkid/dalica/issues/new/choose">Open an issue<small>github.com/pkkid/dalica</small></a></div>
+</section>
+
+<footer class="wrap">
+  <div class="foot">
+    <div><a class="brand" href="#top"><img src="/img/icon.svg" alt="">Dalíca</a><p>A photo organizer for the folders you already have. Written in Rust, native on Linux, Windows and macOS.</p></div>
+    <div><h4>Get it</h4><ul><li><a href="#download">Download</a></li><li><a href="https://github.com/pkkid/dalica/releases">All releases</a></li><li><a href="https://github.com/pkkid/dalica">Build from source</a></li></ul></div>
+    <div><h4>Project</h4><ul><li><a href="https://github.com/pkkid/dalica">Source code</a></li><li><a href="#roadmap">Roadmap</a></li><li><a href="https://github.com/pkkid/dalica/graphs/contributors">Contributors</a></li></ul></div>
+    <div><h4>Help</h4><ul><li><a href="https://github.com/pkkid/dalica/issues/new/choose">Report a bug</a></li><li><a href="https://github.com/pkkid/dalica/blob/main/SECURITY.md">Security</a></li><li><a href="https://github.com/pkkid/dalica/blob/main/LICENSE-MIT">Licence: MIT or Apache-2.0</a></li></ul></div>
+  </div>
+  <div class="legal"><span>Screenshots are real captures of Dalíca. Photos are CC0 or public domain.</span><span>dalica.org</span></div>
+</footer>
+
+<div class="lightbox" id="lightbox" hidden><button type="button" id="lb-close">Close · Esc</button><img alt=""></div>
+</body>
+</html>

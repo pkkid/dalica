@@ -1,0 +1,14 @@
+# Served by Cloudflare with every response (Workers static assets read this file).
+# The site loads nothing from other hosts: fonts, images, CSS and JS are all files here.
+/*
+  Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
+  Referrer-Policy: strict-origin-when-cross-origin
+  X-Content-Type-Options: nosniff
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), interest-cohort=()
+  Cross-Origin-Opener-Policy: same-origin
+
+# Images and fonts keep their names when they change, so cache them for a week, not forever.
+/img/*
+  Cache-Control: public, max-age=604800
+/fonts/*
+  Cache-Control: public, max-age=2592000

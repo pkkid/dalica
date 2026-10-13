@@ -1,0 +1,10 @@
+// Cloudflare Workers static assets: dalica.org is the files in ./public, no server code.
+// Deploy: `npx wrangler deploy` from this folder (or Workers Builds with root directory `website`).
+{
+  "name": "dalica-website",
+  "compatibility_date": "2026-10-01",
+  "assets": {
+    "directory": "./public",
+    "not_found_handling": "404-page"
+  }
+}
