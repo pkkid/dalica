@@ -1,7 +1,9 @@
 //! TIFF write-back (`xmp-interop.md` §3–§4): XMP (tag 700) and IPTC (tag 33723, and resource
-//! 0x0404 of the Photoshop resources in tag 34377 when the file keeps IPTC there) by the
-//! append-only rule. The place and the date go to the XMP mirrors only; the EXIF and GPS IFDs are
-//! never written.
+//! 0x0404 of the Photoshop resources in tag 34377 when the file keeps IPTC there, or the bare IIM
+//! stream ImageMagick puts in tag 34377, kept in that form) by the append-only rule. The place and
+//! the date go to the XMP mirrors only; the EXIF and GPS IFDs are never written, so a place or date
+//! the file would not read back (the EXIF holds it, or no mirror takes it) is refused before
+//! anything is written, naming the field.
 //!
 //! The append-only rule: nothing outside IFD0's table and the old values of the tags Dalica writes
 //! changes or moves, so strips, tiles, maker notes and every other offset in the file stay valid.
@@ -34,14 +36,14 @@ use std::ops::Range;
 
 use dalica_image::ifd::{Entry, Ifd, Tiff, Visited, types};
 
-use super::{Changes, WriteOptions};
+use super::{Changes, PLACE_TOLERANCE, WriteOptions};
 use crate::exif::{TAG_EXIF_IFD, TAG_GPS_IFD, TAG_IMAGE_DESCRIPTION, TAG_INTEROP_IFD, TAG_IPTC, TAG_PHOTOSHOP, TAG_XMP};
 use crate::fields::clean_text;
 use crate::iptc::RESOURCE_IPTC;
-use crate::iptc::read::resources;
+use crate::iptc::read::{is_iim, resources};
 use crate::iptc::write::{IptcEdit, write_resources, write_stream};
-use crate::xmp::merge::merge_at;
-use crate::{Error, Limits, Metadata, Result, Scan};
+use crate::xmp::merge::{Merged, merge_at};
+use crate::{Error, Limits, Metadata, Result, Scan, xmp};
 
 /// SubIFDs (TIFF Technical Note 1): followed when locating everything the file references.
 const TAG_SUB_IFDS: u16 = 0x014a;
@@ -71,7 +73,9 @@ pub(super) fn write(bytes: &[u8], scan: &Scan<'_>, before: &Metadata, changes: &
             return Err(Error::Malformed(format!("IFD0 holds tag {tag} twice; not rewriting it")));
         }
     }
-    let wanted = wanted(&tiff, &ifd0, scan, before, changes, options)?;
+    let merged = merge_at(scan.xmp.as_deref(), changes, options.metadata_date.as_ref(), limits)?;
+    mirrors_hold(before, merged.as_ref().map(|m| m.bytes()), changes, limits)?;
+    let wanted = wanted(&tiff, &ifd0, merged, before, changes, options)?;
     if wanted.is_empty() {
         return Ok(bytes.to_vec());
     }
@@ -83,12 +87,12 @@ pub(super) fn write(bytes: &[u8], scan: &Scan<'_>, before: &Metadata, changes: &
 
 /// What to write: the merged XMP, the IPTC stream and resources, and ImageDescription; only the
 /// values that differ from the file's.
-fn wanted(tiff: &Tiff<'_>, ifd0: &Ifd, scan: &Scan<'_>, before: &Metadata, changes: &Changes, options: &WriteOptions) -> Result<Vec<Change>> {
+fn wanted(tiff: &Tiff<'_>, ifd0: &Ifd, merged: Option<Merged>, before: &Metadata, changes: &Changes, options: &WriteOptions) -> Result<Vec<Change>> {
     let limits = &options.limits;
     let mut out = Vec::new();
     let kind_of = |tag: u16, new: u16| ifd0.get(tag).map_or(new, |e| e.kind);
 
-    if let Some(merged) = merge_at(scan.xmp.as_deref(), changes, options.metadata_date.as_ref(), limits)? {
+    if let Some(merged) = merged {
         out.push(Change { tag: TAG_XMP, kind: kind_of(TAG_XMP, types::BYTE), value: Some(merged.into_bytes()) });
     }
 
@@ -100,24 +104,35 @@ fn wanted(tiff: &Tiff<'_>, ifd0: &Ifd, scan: &Scan<'_>, before: &Metadata, chang
                 None => None,
             })
         };
-        let in_resources = match scan.photoshop.as_deref() {
-            Some(ps) => resources(ps, limits)?.iter().any(|r| r.id == RESOURCE_IPTC),
-            None => false,
+        let old_iptc = old_value(TAG_IPTC)?;
+        let old_photoshop = old_value(TAG_PHOTOSHOP)?;
+        // Tag 34377 holds Photoshop resources, or (as ImageMagick writes it) a bare IIM stream.
+        let photoshop_iim = old_photoshop.as_deref().is_some_and(is_iim);
+        let in_resources = match old_photoshop.as_deref() {
+            Some(ps) if !photoshop_iim => resources(ps, limits)?.iter().any(|r| r.id == RESOURCE_IPTC),
+            _ => false,
         };
-        let bare = ifd0.get(TAG_IPTC).is_some();
-        // The bare stream: updated where it is, or started when nothing else holds IPTC and there
-        // is something to write (removing what is not there needs no stream).
-        if bare || (!in_resources && adds(&edit, limits)) {
-            let kind = kind_of(TAG_IPTC, types::LONG);
-            let new = padded(write_stream(scan.iptc.as_deref(), &edit, limits)?.bytes, kind)?;
-            if old_value(TAG_IPTC)?.as_deref() != Some(new.as_slice()) {
-                out.push(Change { tag: TAG_IPTC, kind, value: Some(new) });
+        // A bare stream: updated where it is (tag 33723, and tag 34377 in ImageMagick's form), or
+        // started in tag 33723 when nothing else holds IPTC and there is something to write
+        // (removing what is not there needs no stream).
+        let mut streams = Vec::new();
+        if old_iptc.is_some() || (!in_resources && !photoshop_iim && adds(&edit, limits)) {
+            streams.push((TAG_IPTC, old_iptc));
+        }
+        if photoshop_iim {
+            streams.push((TAG_PHOTOSHOP, old_photoshop.clone()));
+        }
+        for (tag, old) in streams {
+            let kind = kind_of(tag, types::LONG);
+            let new = padded(write_stream(old.as_deref(), &edit, limits)?.bytes, kind)?;
+            if old.as_deref() != Some(new.as_slice()) {
+                out.push(Change { tag, kind, value: Some(new) });
             }
         }
         if in_resources {
             let kind = kind_of(TAG_PHOTOSHOP, types::UNDEFINED);
-            let new = padded(write_resources(scan.photoshop.as_deref(), &edit, limits)?.bytes, kind)?;
-            if old_value(TAG_PHOTOSHOP)?.as_deref() != Some(new.as_slice()) {
+            let new = padded(write_resources(old_photoshop.as_deref(), &edit, limits)?.bytes, kind)?;
+            if old_photoshop.as_deref() != Some(new.as_slice()) {
                 out.push(Change { tag: TAG_PHOTOSHOP, kind, value: Some(new) });
             }
         }
@@ -138,6 +153,45 @@ fn wanted(tiff: &Tiff<'_>, ifd0: &Ifd, scan: &Scan<'_>, before: &Metadata, chang
         }
     }
     Ok(out)
+}
+
+/// Refuses, before anything is written, a place or a date this TIFF would not read back: they go
+/// only to the XMP mirrors (`xmp-interop.md` §4), so the write cannot land when the EXIF holds the
+/// field (EXIF wins on reading) or no mirror takes it (no packet, or a date with no XMP date
+/// property to update). The error names the field and why; the caller keeps the value elsewhere.
+fn mirrors_hold(before: &Metadata, merged: Option<&[u8]>, changes: &Changes, limits: &Limits) -> Result<()> {
+    if changes.place.is_none() && changes.date_taken.is_none() {
+        return Ok(());
+    }
+    // What the file would read: its EXIF and IPTC as they are (a TIFF's EXIF is never written and
+    // IPTC carries no place, nor a date Dalica writes), the XMP as merged.
+    let mut sources = before.sources.clone();
+    if let Some(packet) = merged {
+        sources.xmp = xmp::read(packet, None, limits)?;
+    }
+    let got = sources.resolve();
+    let exif = &before.sources.exif;
+    let refuse = |field: &str, exif_holds: bool, mirror: &str| {
+        let why = if exif_holds {
+            format!("this TIFF's EXIF holds the {field}, which comes first on reading, and Dalica writes a TIFF's {field} only to XMP")
+        } else {
+            format!("this TIFF has no {mirror} for it, and Dalica writes a TIFF's {field} only there")
+        };
+        Err(Error::Verify(format!("the {field} cannot be written: {why}")))
+    };
+    match changes.place {
+        Some(Some(want)) if !got.place.is_some_and(|p| p.close_to(&want, PLACE_TOLERANCE)) => {
+            return refuse("place", exif.place.is_some(), "XMP packet");
+        }
+        Some(None) if got.place.is_some() => return refuse("place", exif.place.is_some(), "XMP packet"),
+        _ => {}
+    }
+    if let Some(date) = &changes.date_taken
+        && got.date_taken.as_ref() != Some(date)
+    {
+        return refuse("date taken", exif.date_taken.is_some(), "XMP date property");
+    }
+    Ok(())
 }
 
 /// Whether an IPTC edit puts anything into a stream (a caption or at least one tag).
@@ -353,6 +407,26 @@ mod tests {
     fn offsets_stop_at_four_gigabytes() {
         assert_eq!(offset(0xffff_ffff), Ok(u32::MAX));
         assert_eq!(offset(0x1_0000_0000), Err(Error::TooMany("bytes in a TIFF file")));
+    }
+
+    #[test]
+    fn the_writer_itself_refuses_a_place_with_no_mirror() {
+        // A little-endian TIFF whose IFD0 holds only ImageWidth: no XMP packet, so no mirror. The
+        // writer answers before producing any bytes; `verify` never sees a written file.
+        let mut file = b"II*\0\x08\0\0\0\x01\0".to_vec();
+        file.extend([0x00, 0x01, 0x03, 0x00, 0x01, 0, 0, 0, 0x01, 0, 0, 0]);
+        file.extend([0, 0, 0, 0]);
+        let options = WriteOptions::default();
+        let scan = crate::container::scan(&file, &options.limits).unwrap();
+        let before = crate::read_scan(&scan, &options.limits);
+        let place = Changes { place: Some(crate::Place::new(1.0, 2.0)), ..Changes::default() };
+        let err = write(&file, &scan, &before, &place, &options).unwrap_err();
+        assert!(matches!(&err, Error::Verify(m) if m.starts_with("the place cannot be written: this TIFF has no XMP packet")), "{err}");
+        let date = Changes { date_taken: crate::DateTaken::parse_iso("2020-01-01T00:00:00"), ..Changes::default() };
+        assert!(matches!(write(&file, &scan, &before, &date, &options), Err(Error::Verify(m)) if m.starts_with("the date taken cannot be written")));
+        // A caption alone starts a packet and is written.
+        let caption = Changes { caption: Some(Some("x".into())), ..Changes::default() };
+        assert!(write(&file, &scan, &before, &caption, &options).is_ok());
     }
 
     #[test]

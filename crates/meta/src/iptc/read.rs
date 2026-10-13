@@ -62,6 +62,16 @@ pub fn resources<'a>(block: &'a [u8], limits: &Limits) -> Result<Vec<Resource<'a
     Ok(out)
 }
 
+/// Whether a block where Photoshop image resources are expected (a PNG "Raw profile type 8bim"
+/// or "iptc" text, TIFF tag 34377) holds a bare IIM stream instead, as ImageMagick writes it: it
+/// starts with the dataset tag marker 0x1C, which no resource signature does.
+pub fn is_iim(block: &[u8]) -> bool {
+    block.first() == Some(&IIM_MARKER)
+}
+
+/// The byte every IIM dataset starts with.
+const IIM_MARKER: u8 = 0x1c;
+
 /// One IPTC-IIM dataset.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Dataset<'a> {
@@ -78,7 +88,7 @@ pub fn datasets<'a>(stream: &'a [u8], limits: &Limits) -> Result<Vec<Dataset<'a>
     let mut at = 0usize;
     while at < stream.len() {
         let rest = stream.get(at..).unwrap_or_default();
-        if rest.first() != Some(&0x1c) {
+        if rest.first() != Some(&IIM_MARKER) {
             if rest.iter().all(|&b| b == 0) {
                 break;
             }
@@ -181,6 +191,14 @@ mod tests {
         assert_eq!(date_time("20260600", None), None);
         assert_eq!(date_time("2026", None), None);
         assert_eq!(date_time("20260604", Some("256000")), None);
+    }
+
+    #[test]
+    fn bare_streams_are_told_from_resources() {
+        assert!(is_iim(&[0x1c, 2, 120, 0, 0]));
+        assert!(!is_iim(b"8BIM\x04\x04"));
+        assert!(!is_iim(&[]));
+        assert!(!is_iim(&[0, 0x1c]));
     }
 
     #[test]

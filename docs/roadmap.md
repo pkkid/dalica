@@ -2957,7 +2957,7 @@ effect tabs show an empty state until M12.
   - done when: tests with fault injection: a crash at every point of a metadata write leaves the old
     file with its old time or the new file with the old time; M6.30's metawrite suite passes
     unchanged.
-- ⬜ **M7.26 `meta`: refusals named up front, and ImageMagick's IPTC profiles**
+- ✅ **M7.26 `meta`: refusals named up front, and ImageMagick's IPTC profiles**
   - after: M6.R
   - files: `crates/meta/src/write/tiff.rs`, `crates/meta/src/container/png.rs`, `crates/meta/src/container/tiff.rs`, `crates/meta/src/iptc/read.rs`, `crates/meta/src/exif/mod.rs`, `crates/meta/src/iptc/mod.rs`, `crates/meta/tests/write_png_webp_tiff.rs`, `crates/meta/tests/read.rs`, `crates/image/fuzz/Cargo.lock`
   - scope: found by M6.34's corpus at M6.R: a TIFF place or date edit that cannot be written

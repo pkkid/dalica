@@ -603,18 +603,59 @@ fn tiff_image_description_follows_the_caption() {
 
 #[test]
 fn tiff_place_and_date_go_only_to_the_xmp_mirrors() {
-    // No packet: there is no mirror, so a place does not read back and the write fails, naming it.
-    let bare = tiff_file(Tiff::new());
     let place = Changes { place: Some(Place::new(10.0, 20.0)), ..Changes::default() };
-    assert_eq!(write_owned(&bare, &place, &opts()), Err(Error::Verify("the place does not read back as written".into())));
-    // An EXIF date wins over the mirror: changing it would need EXIF, which a TIFF never gets.
-    let dated = tiff_file(Tiff { exif: vec![ascii(0x9003, "2001:01:01 00:00:00")], ..Tiff::new() });
     let date = Changes { date_taken: DateTaken::parse_iso("2020-01-01T00:00:00"), ..Changes::default() };
-    assert_eq!(write_owned(&dated, &date, &opts()), Err(Error::Verify("the date taken does not read back as written".into())));
-    // With a packet, the place goes to its mirror.
+    // With a packet, the place and the date go to their mirrors.
     let file = real_tiff(true, vec![]);
     let out = write(&file, &place);
     assert!(owned(&out).place.is_some_and(|p| p.close_to(&Place::new(10.0, 20.0).unwrap(), 1e-7)));
+    assert_reads_back(&write(&file, &date), &date);
+}
+
+/// The refusal of a TIFF place or date edit: the error the writer returns before writing anything,
+/// naming the field and why (not the verification's "does not read back" after a write).
+fn refusal(field: &str, why: &str) -> Error {
+    Error::Verify(format!("the {field} cannot be written: {why}"))
+}
+
+#[test]
+fn tiff_place_and_date_that_cannot_land_are_refused_up_front_naming_the_field() {
+    let place = Changes { place: Some(Place::new(10.0, 20.0)), ..Changes::default() };
+    let clear = Changes { place: Some(None), ..Changes::default() };
+    let date = Changes { date_taken: DateTaken::parse_iso("2020-01-01T00:00:00"), ..Changes::default() };
+    let no_packet = "this TIFF has no XMP packet for it, and Dalica writes a TIFF's place only there";
+    // No packet: no mirror takes a place, and a place alone never starts one.
+    let bare = tiff_file(Tiff::new());
+    assert_eq!(write_owned(&bare, &place, &opts()), Err(refusal("place", no_packet)));
+    // The EXIF holds the date (it wins on reading), and a TIFF's EXIF is never written.
+    let exif_date = "this TIFF's EXIF holds the date taken, which comes first on reading, and Dalica writes a TIFF's date taken only to XMP";
+    let dated = tiff_file(Tiff { exif: vec![ascii(0x9003, "2001:01:01 00:00:00")], ..Tiff::new() });
+    assert_eq!(write_owned(&dated, &date, &opts()), Err(refusal("date taken", exif_date)));
+    // Even beside a packet with a mirror, and with a caption in the same write: nothing is written.
+    let packet = xmp_packet(&format!("<rdf:Description rdf:about=\"\" {NS} exif:DateTimeOriginal=\"2001-01-01T00:00:00\"/>"));
+    let mirrored = tiff_file(Tiff { ifd0: vec![bytes(0x02bc, &packet)], exif: vec![ascii(0x9003, "2001:01:01 00:00:00")], ..Tiff::new() });
+    let with_caption = Changes { caption: Some(Some("kept back".into())), ..date.clone() };
+    assert_eq!(write_owned(&mirrored, &with_caption, &opts()), Err(refusal("date taken", exif_date)));
+    // The EXIF holds a place: neither a new place nor clearing it can land.
+    let exif_place = "this TIFF's EXIF holds the place, which comes first on reading, and Dalica writes a TIFF's place only to XMP";
+    let gps =
+        vec![ascii(0x0001, "N"), rationals(0x0002, &[(1, 1), (0, 1), (0, 1)]), ascii(0x0003, "E"), rationals(0x0004, &[(2, 1), (0, 1), (0, 1)])];
+    let placed = tiff_file(Tiff { ifd0: vec![bytes(0x02bc, &packet)], gps, ..Tiff::new() });
+    assert!(owned(&placed).place.is_some());
+    assert_eq!(write_owned(&placed, &place, &opts()), Err(refusal("place", exif_place)));
+    assert_eq!(write_owned(&placed, &clear, &opts()), Err(refusal("place", exif_place)));
+    // Asking for the place the EXIF already holds is no refusal: it reads back as asked.
+    let same = Changes { place: Some(owned(&placed).place), ..Changes::default() };
+    assert!(write_owned(&placed, &same, &opts()).is_ok());
+    // A packet without any date property: the date has no mirror to go to.
+    let undated = tiff_file(Tiff {
+        ifd0: vec![bytes(0x02bc, &xmp_packet(&format!("<rdf:Description rdf:about=\"\" {NS} dc:description=\"\"/>")))],
+        ..Tiff::new()
+    });
+    let no_date_mirror = "this TIFF has no XMP date property for it, and Dalica writes a TIFF's date taken only there";
+    assert_eq!(write_owned(&undated, &date, &opts()), Err(refusal("date taken", no_date_mirror)));
+    // The same edits pass where the mirrors take them; other containers are not affected.
+    assert!(write_owned(&real_tiff(false, vec![]), &date, &opts()).is_ok());
 }
 
 #[test]
@@ -650,6 +691,79 @@ fn tiff_iptc_is_updated_where_it_lives() {
     let bare = tiff_file(Tiff::new());
     let out = write(&bare, &Changes { tags: Some(vec![]), caption: Some(None), ..Changes::default() });
     assert_eq!(out, bare);
+}
+
+/// A caption, tags and a star: what an ImageMagick-written file takes into its IPTC and XMP.
+fn caption_and_tags() -> Changes {
+    Changes { caption: Some(Some("Nebel über der Brücke".into())), tags: Some(vec!["fog".into(), "Brücke".into()]), ..Changes::default() }
+}
+
+#[test]
+fn imagemagick_png_takes_iptc_in_its_8bim_profile() {
+    // ImageMagick keeps IPTC in a PNG as a bare IIM stream in a "Raw profile type 8bim" text.
+    let iptc = iim(&[(2, 0, &[0, 4]), (2, 120, b"Fog over the bridge"), (2, 25, b"fog"), (2, 116, b"(c) someone")]);
+    let (before, after) = png_foreign();
+    let mut chunks = before.clone();
+    chunks.push((b"zTXt", ztxt("Raw profile type 8bim", &raw_profile("8bim", &iptc))));
+    let file = real_png(&chunks, &after);
+    assert_eq!(owned(&file).caption.as_deref(), Some("Fog over the bridge"));
+    let c = caption_and_tags();
+    let out = write_owned(&file, &c, &opts()).unwrap();
+    verify(&file, &out, &c, &l()).unwrap();
+    assert_reads_back(&out, &c);
+    // Still a compressed 8bim profile holding a bare stream: 1:90 declared, the other datasets kept.
+    let new = png_chunks(&out);
+    let profile = new.iter().find(|c| c.1.starts_with(b"Raw profile type 8bim\0")).unwrap();
+    assert_eq!(&profile.0, b"zTXt");
+    let m = read(&out, &l()).unwrap();
+    assert_eq!(m.sources.iptc.caption, c.caption.clone().unwrap());
+    let stream = scan(&out, &l()).unwrap().iptc.unwrap().into_owned();
+    assert!(dalica_meta::iptc::read::is_iim(&stream));
+    let sets = datasets(&stream, &l()).unwrap();
+    assert!(sets.iter().any(|d| (d.record, d.number, d.data) == (1, 90, &b"\x1b%G"[..])));
+    assert!(sets.iter().any(|d| (d.record, d.number, d.data) == (2, 116, &b"(c) someone"[..])));
+    assert_eq!(kinds(&png_chunks(&file)).len() + 1, kinds(&new).len(), "only the new XMP iTXt is added");
+    assert_eq!(digest_outside_metadata(&file), digest_outside_metadata(&out));
+    same_pixels(&file, &out);
+    assert_eq!(write(&out, &c), out, "writing twice gives the same bytes");
+}
+
+#[test]
+fn imagemagick_tiff_takes_iptc_in_its_34377_stream() {
+    // ImageMagick keeps IPTC in a TIFF as a bare IIM stream in tag 34377 (Photoshop resources' tag).
+    let iptc = iim(&[(2, 0, &[0, 4]), (2, 120, b"Fog over the bridge"), (2, 25, b"fog"), (2, 116, b"(c) someone")]);
+    let c = caption_and_tags();
+    for big_endian in [false, true] {
+        let file = real_tiff(big_endian, vec![bytes(0x8649, &iptc)]);
+        assert_eq!(read(&file, &l()).unwrap().sources.iptc.caption.as_deref(), Some("Fog over the bridge"));
+        let out = write_owned(&file, &c, &opts()).unwrap();
+        verify(&file, &out, &c, &l()).unwrap();
+        assert_reads_back(&out, &c);
+        // The stream stays in tag 34377 in its own form and type; no tag 33723 is started.
+        assert!(entry(&out, 0x83bb).is_none());
+        assert_eq!(entry(&out, 0x8649).unwrap().0, BYTE);
+        let s = scan(&out, &l()).unwrap();
+        assert!(s.photoshop.is_none());
+        let stream = s.iptc.unwrap().into_owned();
+        let sets = datasets(&stream, &l()).unwrap();
+        assert!(sets.iter().any(|d| (d.record, d.number, d.data) == (1, 90, &b"\x1b%G"[..])));
+        assert!(sets.iter().any(|d| (d.record, d.number, d.data) == (2, 116, &b"(c) someone"[..])));
+        assert_eq!(read(&out, &l()).unwrap().sources.iptc.caption, c.caption.clone().unwrap());
+        assert_eq!(fixed_offsets(&file), fixed_offsets(&out));
+        kept_in_place(&file, &out);
+        same_pixels(&file, &out);
+        assert_eq!(write(&out, &c), out, "writing twice gives the same bytes");
+    }
+    // With tag 33723 too (ImageMagick writes both): both streams follow, so no old caption lingers.
+    let file = real_tiff(false, vec![undefined(0x83bb, &iptc), bytes(0x8649, &iptc)]);
+    let out = write(&file, &caption("one caption"));
+    let t = TiffReader::new(&out).unwrap();
+    let ifd = t.ifd(t.first_ifd().unwrap(), &mut Visited::default(), &l().ifd()).unwrap();
+    for tag in [0x83bb, 0x8649] {
+        let value = t.value(ifd.get(tag).unwrap()).unwrap().unwrap();
+        let caption = datasets(&value, &l()).unwrap().into_iter().find(|d| (d.record, d.number) == (2, 120)).unwrap().data.to_vec();
+        assert_eq!(caption, b"one caption", "tag {tag}");
+    }
 }
 
 #[test]
@@ -768,7 +882,7 @@ fn a_failed_write_returns_an_error_and_no_bytes() {
     // that cannot be completed is an Err and hands back nothing, so the caller keeps its file.
     let dated = tiff_file(Tiff { exif: vec![ascii(0x9003, "2001:01:01 00:00:00")], ..Tiff::new() });
     let both = Changes { caption: Some(Some("kept back".into())), date_taken: DateTaken::parse_iso("2020-01-01T00:00:00"), ..Changes::default() };
-    assert!(matches!(write_owned(&dated, &both, &opts()), Err(Error::Verify(_))));
+    assert!(matches!(write_owned(&dated, &both, &opts()), Err(Error::Verify(m)) if m.starts_with("the date taken cannot be written")));
     let many = WriteOptions { limits: Limits { max_segments: 0, max_ifd_entries: 3, ..l() }, ..opts() };
     for (name, file) in samples() {
         assert!(matches!(write_owned(&file, &caption("x"), &many), Err(Error::TooMany(_))), "{name}");

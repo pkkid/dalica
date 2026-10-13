@@ -128,7 +128,70 @@ fn every_container() -> Vec<(&'static str, Vec<u8>, bool)> {
         ("webp with prefix", webp(&[(b"EXIF", [&b"Exif\0\0"[..], &exif].concat()), (b"XMP ", xmp.clone())]), false),
         ("tiff", tiff_file(tiff), true),
         ("tiff big-endian", tiff_file(tiff_be), false),
+        (
+            "png ImageMagick",
+            png(&[
+                (b"eXIf", exif.clone()),
+                (b"iTXt", itxt("XML:com.adobe.xmp", &xmp, false)),
+                (b"zTXt", ztxt("Raw profile type 8bim", &raw_profile("8bim", &iptc))),
+            ]),
+            true,
+        ),
+        ("tiff ImageMagick", tiff_file(imagemagick_tiff(&iptc)), true),
     ]
+}
+
+/// A TIFF as ImageMagick writes IPTC into it: a bare IIM stream in tag 34377, where Photoshop
+/// resources belong, and no tag 33723.
+fn imagemagick_tiff(iptc: &[u8]) -> Tiff {
+    let mut tiff = exif_tiff(false);
+    tiff.ifd0.extend([bytes(0x02bc, &packet()), bytes(0x8649, iptc)]);
+    tiff
+}
+
+#[test]
+fn imagemagick_bare_iptc_streams_read_as_iptc() {
+    let iptc = iptc_stream();
+    let png_file = png(&[(b"zTXt", ztxt("Raw profile type 8bim", &raw_profile("8bim", &iptc)))]);
+    let tiff = tiff_file(imagemagick_tiff(&iptc));
+    for (name, file) in [("png", &png_file), ("tiff", &tiff)] {
+        let s = scan(file, &l()).unwrap();
+        // Read as the bare stream it is, not as damaged Photoshop resources, and rewritable.
+        assert_eq!(s.iptc.as_deref(), Some(&iptc[..]), "{name}");
+        assert_eq!(s.photoshop, None, "{name}");
+        assert!(s.spans.iter().any(|s| s.kind == BlockKind::Iptc && s.rewritable), "{name}");
+        assert!(!s.spans.iter().any(|s| s.kind == BlockKind::Photoshop), "{name}");
+        let m = read(file, &l()).unwrap();
+        assert!(m.problems.is_empty(), "{name}: {:?}", m.problems);
+        assert_eq!(m.sources.iptc, expected_iptc(), "{name}");
+        let list = listing(file, &l()).unwrap();
+        assert!(list.rows.iter().any(|r| r.group == "IPTC" && r.label == "Caption" && r.value == "Hafen am Abend — 港"), "{name}");
+    }
+    // Real resources under the same names still read as resources.
+    let ps = irb(&[(0x0404, &iptc)]);
+    let mut t = exif_tiff(false);
+    t.ifd0.push(undefined(0x8649, &ps));
+    for file in [png(&[(b"tEXt", text("Raw profile type iptc", &raw_profile("iptc", &ps)))]), tiff_file(t)] {
+        let s = scan(&file, &l()).unwrap();
+        assert!(s.photoshop.is_some() && s.iptc.is_none());
+        assert_eq!(read(&file, &l()).unwrap().sources.iptc, expected_iptc());
+    }
+    // A TIFF with both: tag 33723 is the stream read; the copy in 34377 is IPTC too, and rewritable.
+    let other = iim(&[(2, 120, b"the 34377 copy")]);
+    let mut both = exif_tiff(false);
+    both.ifd0.extend([undefined(0x83bb, &iptc), bytes(0x8649, &other)]);
+    let both = tiff_file(both);
+    let s = scan(&both, &l()).unwrap();
+    assert_eq!(s.iptc.as_deref(), Some(&iptc[..]));
+    assert_eq!(s.spans.iter().filter(|s| s.kind == BlockKind::Iptc && s.rewritable).count(), 2);
+    // A second IPTC profile in a PNG is listed, not read or rewritten: the first one wins.
+    let two = png(&[
+        (b"zTXt", ztxt("Raw profile type 8bim", &raw_profile("8bim", &iptc))),
+        (b"zTXt", ztxt("Raw profile type iptc", &raw_profile("iptc", &other))),
+    ]);
+    let s = scan(&two, &l()).unwrap();
+    assert_eq!(s.iptc.as_deref(), Some(&iptc[..]));
+    assert_eq!(s.spans.iter().filter(|s| s.kind == BlockKind::Iptc).count(), 1);
 }
 
 #[test]
