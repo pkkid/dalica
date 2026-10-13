@@ -8,8 +8,11 @@
 //!   the caller wrote ([`Identity`]), never through a link. It returns the file's new identity
 //!   (the modification time is part of it). Fault point [`SET_TIMES`] fails or "crashes" it.
 //!
-//! The times are set on the file after it replaced the old one, so a crash between the rename
-//! and this step leaves the new file (never a torn one) with the time of the write.
+//! A metadata write keeps the time with
+//! [`replace_keeping_times`](crate::atomic::replace_keeping_times), which sets it on the temporary
+//! file before the rename: a crash at any point leaves the old file with its old time or the new
+//! file with the old time. [`set_times`] after the rename is the fallback for a platform or file
+//! system that did not keep it, and for a write an earlier try made without it.
 
 use std::fs::{self, File, FileTimes, Metadata};
 use std::io;
@@ -34,6 +37,15 @@ pub struct Times {
 }
 
 impl Times {
+    /// The times to set on an open file: the modification time, and the access time when known.
+    pub(crate) fn file_times(&self) -> FileTimes {
+        let set = FileTimes::new().set_modified(self.modified);
+        match self.accessed {
+            Some(accessed) => set.set_accessed(accessed),
+            None => set,
+        }
+    }
+
     fn of(meta: &Metadata, path: &Path) -> Result<Times> {
         let modified = meta.modified().map_err(io_err("stat", path))?;
         Ok(Times { modified, accessed: meta.accessed().ok() })
@@ -79,11 +91,7 @@ pub fn set_times(path: &Path, times: &Times, expect: Identity) -> Result<Identit
     if Identity::of(&file.metadata().map_err(io_err("stat", path))?) != expect {
         return Err(Error::Changed(path.to_path_buf()));
     }
-    let mut set = FileTimes::new().set_modified(times.modified);
-    if let Some(accessed) = times.accessed {
-        set = set.set_accessed(accessed);
-    }
-    file.set_times(set).map_err(io_err("set times", path))?;
+    file.set_times(times.file_times()).map_err(io_err("set times", path))?;
     Ok(Identity::of(&file.metadata().map_err(io_err("stat", path))?))
 }
 

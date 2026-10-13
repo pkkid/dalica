@@ -1,13 +1,14 @@
 //! A file's times (`times`): `stat` without following links, `set_times` only on the version the
 //! caller wrote, never through a link, with its fault point; and the sequence a metadata write
-//! makes (atomic replace, then the old time put back) leaves the old or the new file at every
-//! fault point, with the old time once it is done.
+//! makes (an atomic replace keeping the time, then the old time put back where the platform did
+//! not keep it) leaves the old or the new file with the old time at every fault point.
 
 use std::fs;
 use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use dalica_fs::faults::{ATOMIC_POINTS, Fault, arm, disarm_all};
+use dalica_fs::atomic::{KEEP_TIMES, KEEPING_TIMES_POINTS, replace_keeping_times};
+use dalica_fs::faults::{Fault, arm, disarm_all};
 use dalica_fs::times::{SET_TIMES, TIMES_POINTS};
 use dalica_fs::{Error, Expect, Times, identity, mark_ui_thread, replace, set_times, stat};
 
@@ -145,15 +146,17 @@ fn a_fault_at_set_times_leaves_the_file_and_its_time_as_they_were() {
     }
 }
 
-/// The metadata write's sequence, `replace` then `set_times`, with an error or a crash at each of
-/// its points: the file holds exactly the old or the new bytes, and once the write is made again
-/// (as the metadata write queue does after a failure: it re-reads the file, and remembers the old
-/// time of a write it started until the time is back) it holds the new bytes with the old time.
+/// The metadata write's sequence, `replace_keeping_times` then `set_times` where the time was not
+/// kept, with an error or a crash at each of its points: the file holds exactly the old or the new
+/// bytes, with the old time, except after an error at the fallback `set_times` itself (only reached
+/// where the platform refused the time on the temporary file); once the write is made again (as
+/// the metadata write queue does after a failure: it re-reads the file, and remembers the old time
+/// of a write it started until the time is back) it holds the new bytes with the old time.
 #[test]
 fn every_fault_point_of_a_write_that_keeps_the_time_leaves_the_old_or_the_new_file() {
     let old: &[u8] = b"\xff\xd8\xff\xe1 old metadata, then the scan data";
     let new: &[u8] = b"\xff\xd8\xff\xe1 the new metadata, a little longer, then the scan data";
-    let points = ATOMIC_POINTS.iter().chain(TIMES_POINTS.iter());
+    let points = KEEPING_TIMES_POINTS.iter().chain(TIMES_POINTS.iter());
     for &point in points {
         for fault in [Fault::Error, Fault::Crash] {
             let dir = tempfile::tempdir().unwrap();
@@ -168,18 +171,29 @@ fn every_fault_point_of_a_write_that_keeps_the_time_leaves_the_old_or_the_new_fi
                     set_times(p, &Times { modified: old_time(), accessed: None }, before.identity)?;
                     return Ok(());
                 }
-                let written = replace(p, new, Expect::Unchanged(before.identity))?;
-                set_times(p, &before.times, written)?;
+                let written = replace_keeping_times(p, new, Expect::Unchanged(before.identity), &before.times)?;
+                if !written.modified_at(before.times.modified) {
+                    set_times(p, &before.times, written)?;
+                }
                 Ok(())
             };
+            // `set_times` is reached only where the time was not kept: an error at `KEEP_TIMES`
+            // stands for such a platform.
+            if point == SET_TIMES {
+                arm(KEEP_TIMES, Fault::Error);
+            }
             arm(point, fault);
             let first = write(&p);
             disarm_all();
-            assert!(first.is_err(), "{case}: the armed point fired");
             let now = fs::read(&p).unwrap();
             assert!(now == old || now == new, "{case}: never a torn file");
-            if now == old {
-                assert_eq!(modified(&p), old_time(), "{case}: the old file keeps its time");
+            if point == KEEP_TIMES && fault == Fault::Error {
+                assert!(first.is_ok(), "{case}: a platform that refuses the time is not an error");
+            } else {
+                assert!(first.is_err(), "{case}: the armed point fired");
+            }
+            if point != SET_TIMES {
+                assert_eq!(modified(&p), old_time(), "{case}: old or new, the file has its old time");
             }
             // The write again: the new bytes, the old time.
             write(&p).unwrap();

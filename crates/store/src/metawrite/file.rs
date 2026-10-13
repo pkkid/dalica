@@ -1,6 +1,7 @@
-//! One metadata write: re-read, decide per field, merge-write, replace atomically, put the time
-//! back, hand back the synced hashes (see the module above). A photo file (JPEG, PNG, WebP, TIFF)
-//! is rewritten in place; a RAW gets its `.xmp` sidecar.
+//! One metadata write: re-read, decide per field, merge-write, replace atomically keeping the
+//! time (put back after the rename only where the platform did not keep it), hand back the synced
+//! hashes (see the module above). A photo file (JPEG, PNG, WebP, TIFF) is rewritten in place; a
+//! RAW gets its `.xmp` sidecar.
 
 use std::path::{Path, PathBuf};
 
@@ -104,7 +105,15 @@ fn photo(
         return (written(result, &plan.to_write, Status::Unchanged), None);
     }
     let original = remembered.unwrap_or(stat.times);
-    let id = match dalica_fs::replace(path, &new, Expect::Unchanged(identity)) {
+    let keep = !options.update_modification_time;
+    // The time goes onto the new file before it takes the photo's place, so a crash at any point
+    // leaves the old file or the new one, both with the old time.
+    let replaced = if keep {
+        dalica_fs::atomic::replace_keeping_times(path, &new, Expect::Unchanged(identity), &original)
+    } else {
+        dalica_fs::replace(path, &new, Expect::Unchanged(identity))
+    };
+    let id = match replaced {
         Ok(id) => id,
         Err(e) => match landed(path, &new, e, options) {
             Ok(id) => id,
@@ -119,7 +128,8 @@ fn photo(
         result.synced = Some(values_of(&m.owned).hashes());
     }
     let mut result = written(result, &plan.to_write, Status::Written(path.clone()));
-    if options.update_modification_time {
+    // Put back after the rename only where the platform did not keep it through the rename.
+    if !keep || id.modified_at(original.modified) {
         return (result, None);
     }
     match dalica_fs::set_times(path, &original, id) {
