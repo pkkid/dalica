@@ -56,9 +56,10 @@ pub const MAX_PREFETCH: usize = 4;
 /// The largest full decode kept for a zoomed view, in bytes of RGBA (inside the memory budget of
 /// `architecture.md` §5).
 pub const MAX_FULL_BYTES: u64 = 1 << 30;
-/// A draft is rendered smaller when a full render is expected to take longer than this (it must
-/// reach the screen within the 16 ms frame).
-pub const DRAFT_TARGET_MS: f64 = 12.0;
+/// A draft is rendered smaller when a full render is expected to take longer than this: half the
+/// 16 ms frame, the rest left for the frame's own work and the wait for a worker (at 12 ms the
+/// budgets runner's drafts reached p95 12.3 ms).
+pub const DRAFT_TARGET_MS: f64 = 8.0;
 /// The smallest draft scale.
 pub const MIN_DRAFT_SCALE: f64 = 0.25;
 /// The largest box a preview covers, per side.

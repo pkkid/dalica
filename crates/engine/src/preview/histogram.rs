@@ -2,6 +2,7 @@
 //! workers from the very pixels the edit view draws, never on the owner thread.
 
 use dalica_image::Rgba8;
+use rayon::prelude::*;
 
 /// Bins per channel.
 pub const BINS: usize = 256;
@@ -26,17 +27,36 @@ impl Histogram {
     /// The histogram of `image`; a buffer that does not hold whole pixels counts the whole pixels
     /// it holds.
     pub fn of(image: &Rgba8) -> Histogram {
-        let (mut red, mut green, mut blue) = ([0u32; BINS], [0u32; BINS], [0u32; BINS]);
         let (pixels, _) = image.data.as_chunks::<4>();
-        for &[r, g, b, _] in pixels {
-            // A `u8` always indexes the 256 bins.
-            red[usize::from(r)] = red[usize::from(r)].saturating_add(1);
-            green[usize::from(g)] = green[usize::from(g)].saturating_add(1);
-            blue[usize::from(b)] = blue[usize::from(b)].saturating_add(1);
-        }
+        // Counted in parallel runs of rows' worth of pixels, then summed.
+        let counts = pixels
+            .par_chunks(RUN)
+            .map(|run| {
+                let mut c = [[0u32; BINS]; 3];
+                for &[r, g, b, _] in run {
+                    // A `u8` always indexes the 256 bins.
+                    c[0][usize::from(r)] += 1;
+                    c[1][usize::from(g)] += 1;
+                    c[2][usize::from(b)] += 1;
+                }
+                c
+            })
+            .reduce(
+                || [[0u32; BINS]; 3],
+                |mut a, b| {
+                    for (x, y) in a.iter_mut().flatten().zip(b.iter().flatten()) {
+                        *x = x.saturating_add(*y);
+                    }
+                    a
+                },
+            );
+        let [red, green, blue] = counts;
         Histogram { red: red.to_vec(), green: green.to_vec(), blue: blue.to_vec(), pixels: pixels.len() as u64 }
     }
 }
+
+/// Pixels per parallel run (a run counts at most this many, so its counts never overflow).
+const RUN: usize = 1 << 16;
 
 #[cfg(test)]
 mod tests {
