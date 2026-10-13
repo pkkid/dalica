@@ -27,8 +27,6 @@ pub enum Icon {
     StarOutline,
     /// A plus sign: add something.
     Plus,
-    /// Dalica's mark: a framed picture of a sun over two hills (title bar, About).
-    AppMark,
     /// A camera: Import.
     Import,
     /// A photo album (a book with a picture on its cover): albums in the tree.
@@ -103,11 +101,10 @@ pub enum Icon {
 
 impl Icon {
     /// Every icon, in declaration order.
-    pub const ALL: [Icon; 39] = [
+    pub const ALL: [Icon; 38] = [
         Icon::Star,
         Icon::StarOutline,
         Icon::Plus,
-        Icon::AppMark,
         Icon::Import,
         Icon::Album,
         Icon::NewAlbum,
@@ -151,7 +148,6 @@ impl Icon {
             Icon::Star => "star",
             Icon::StarOutline => "star-outline",
             Icon::Plus => "plus",
-            Icon::AppMark => "app-mark",
             Icon::Import => "import",
             Icon::Album => "album",
             Icon::NewAlbum => "new-album",

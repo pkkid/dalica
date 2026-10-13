@@ -52,13 +52,6 @@ pub(super) fn draw(p: &Pen, icon: Icon) {
     match icon {
         // Drawn by `icons::paint` (kept there so their pixels never move).
         Icon::Star | Icon::StarOutline | Icon::Plus => {}
-        Icon::AppMark => {
-            // A framed picture: a sun over two hills.
-            p.rect(2.5, 2.5, 17.5, 17.5, 3.5);
-            p.dot(13.2, 6.8, 1.7);
-            p.fill(&[(4.6, 15.4), (8.8, 8.6), (13.0, 15.4)]);
-            p.fill(&[(10.4, 15.4), (12.9, 11.6), (15.4, 15.4)]);
-        }
         Icon::Import => {
             // A camera: body, viewfinder hump, lens and flash.
             p.rect(2.5, 6.0, 17.5, 16.0, 2.0);

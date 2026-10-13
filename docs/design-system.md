@@ -303,7 +303,10 @@ Adapted from PhotoCraft `docs/ui-design.md` (revision 59684266) and LightCraft `
 
 - **Windows and Linux (default):** the window has no OS decorations, so there is one bar, not a
   title bar stacked over a menu bar. The 24 pt menu-bar row (`ui-layout.md` §2) *is* the title bar
-  (`crates/ui/src/titlebar.rs`): the app mark (16 pt, drawn in code), the menus, the window title
+  (`crates/ui/src/titlebar.rs`): the app icon (16 pt, 8 pt from the left edge, centred in the row;
+  the committed render from `assets/app-icon/`, never a glyph drawn in code: the smallest hicolor
+  PNG that covers its pixels, so 16 px at 1× and 32 px at 2×, `crates/ui/src/app_icon.rs`), the
+  menus, the window title
   centred in the free space (`text_dim`, "Dalica" or "<folder or album> — Dalica"), then Minimize,
   Maximize/Restore and Close flush in the top-right corner (46 × 24 each; hover `hover`, Close hover
   `danger` with a white glyph). The free gap between the menus and the caption buttons drags the
