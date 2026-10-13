@@ -2572,7 +2572,7 @@ effect tabs show an empty state until M12.
     compose to the identity; a rectangle on a rotated `scenes` photo covers the same pixels in both
     frames; under (a) an unknown operation between a crop and a rotation keeps its text;
     `data-model.md` §3.3 and item 11 say what was decided and when.
-- ⬜ **M7.2 `edit`: the renderer, one module per operation, per-operation versions**
+- ✅ **M7.2 `edit`: the renderer, one module per operation, per-operation versions**
   - after: M6.3, M6.R
   - files: `crates/edit/src/lib.rs`, `crates/edit/src/syntax.rs`, `crates/edit/src/render.rs`, `crates/edit/src/version.rs`, `crates/edit/src/ops/**`, `crates/edit/src/analysis.rs`, `crates/edit/src/suggest.rs`, `crates/edit/tests/render.rs`, `crates/edit/tests/common/**`, `crates/edit/tests/fingerprints/render*.json`, `crates/edit/README.md`
   - scope: `architecture.md` §6.3–§6.4 and `data-model.md` §3.1: `edit::render(source, &recipe,

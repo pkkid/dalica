@@ -13,6 +13,8 @@ publish = false
 # `Rgba8` and the EXIF `Orientation` the geometric operations compose with (the listed exception
 # `edit → image`, architecture.md §2).
 dalica-image.workspace = true
+# The renderer's bands and resampling rows, in parallel (architecture.md §1: rayon for pixel tiles).
+rayon.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]

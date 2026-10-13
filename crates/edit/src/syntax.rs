@@ -5,8 +5,9 @@
 //! from, for every string: an operation is only typed when its text is the one Dalica would print
 //! for it, and everything else is kept verbatim. Three kinds of verbatim text exist:
 //!
-//! - an operation of §3.1 whose parameters M6 does not need yet ([`Op::Listed`]): its name and the
-//!   text between the parentheses, typed by the module that renders it (M7);
+//! - an operation of §3.1 other than the rotations and flips ([`Op::Listed`]): its name and the
+//!   text between the parentheses, typed on demand by the module that renders it
+//!   ([`Op::typed`], `crate::ops`), so a parameter a module refuses never loses the entry;
 //! - an entry converted from the legacy organizer's sidecar that has no Dalica equivalent
 //!   ([`Op::Legacy`], `legacy:<name>(…)`, `data-model.md` §9);
 //! - anything else ([`Op::Unknown`]): an operation from a newer Dalica, a typed operation with a
@@ -17,6 +18,8 @@
 use std::fmt;
 
 use crate::Dihedral;
+use crate::ops::orient::Rotate;
+use crate::ops::{self, Operation, ParamError, Typed};
 
 /// The prefix of operations kept from the legacy organizer's sidecar.
 pub const LEGACY_PREFIX: &str = "legacy:";
@@ -135,11 +138,8 @@ impl Op {
             return unknown();
         };
         match name {
-            "rotate" => match params.parse::<u16>().ok().and_then(Turn::from_degrees) {
-                // Only the text Dalica prints is typed: `rotate(090)` stays verbatim.
-                Some(turn) if turn.degrees().to_string() == params => Op::Rotate(turn),
-                _ => unknown(),
-            },
+            // Only the text Dalica prints is typed: `rotate(090)` stays verbatim.
+            Rotate::NAME => Rotate::parse(params).map_or_else(|_| unknown(), |r| Op::Rotate(r.0)),
             "flip_h" if params.is_empty() => Op::FlipH,
             "flip_v" if params.is_empty() => Op::FlipV,
             _ => match LISTED.iter().find(|&&listed| listed == name) {
@@ -175,6 +175,29 @@ impl Op {
         }
     }
 
+    /// The operation's typed parameters, read by its module (`ops`): `None` for legacy and unknown
+    /// operations and for known ones without a module yet (the effects); `Some(Err)` when the
+    /// module refuses the parameter text (the operation is then kept and skipped by rendering).
+    pub fn typed(&self) -> Option<Result<Typed, ParamError>> {
+        match self {
+            Op::Rotate(turn) => Some(Ok(Typed::Rotate(Rotate(*turn)))),
+            Op::FlipH => Some(Ok(Typed::FlipH(ops::orient::FlipH))),
+            Op::FlipV => Some(Ok(Typed::FlipV(ops::orient::FlipV))),
+            Op::Listed { name, params } => Typed::parse(name, params),
+            Op::Legacy(_) | Op::Unknown(_) => None,
+        }
+    }
+
+    /// The history label ("Crop", "Tuning", "Rotate"; `editing.md` §5.1) of a known operation.
+    pub fn label(&self) -> Option<&'static str> {
+        ops::label(self.name()?)
+    }
+
+    /// The version of a known operation's renderer (0 while it renders nothing).
+    pub fn version(&self) -> Option<u32> {
+        ops::version(self.name()?)
+    }
+
     /// The rotation or mirroring this operation applies to the picture, for `rotate`, `flip_h` and
     /// `flip_v`.
     pub fn orientation(&self) -> Option<Dihedral> {
@@ -183,6 +206,26 @@ impl Op {
             Op::FlipH => Some(Dihedral::FLIP_H),
             Op::FlipV => Some(Dihedral::FLIP_V),
             Op::Listed { .. } | Op::Legacy(_) | Op::Unknown(_) => None,
+        }
+    }
+}
+
+impl From<Typed> for Op {
+    /// The recipe entry for typed parameters, as Dalica prints it.
+    fn from(t: Typed) -> Op {
+        match t {
+            Typed::Rotate(r) => Op::Rotate(r.0),
+            Typed::FlipH(_) => Op::FlipH,
+            Typed::FlipV(_) => Op::FlipV,
+            other => {
+                let name = other.name();
+                let params = other.params();
+                // Every typed name is listed; the lookup gives the `'static` name `Op` keeps.
+                match LISTED.iter().find(|&&listed| listed == name) {
+                    Some(&listed) => Op::Listed { name: listed, params },
+                    None => Op::Unknown(format!("{name}({params})")),
+                }
+            }
         }
     }
 }
