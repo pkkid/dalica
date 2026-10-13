@@ -166,8 +166,8 @@ name; an unknown operation is skipped (and preserved), it never aborts the rest 
 | `retouch(sx,sy,tx,ty,r;…)` | source/target points and radius per stroke | stored as parameters |
 | `autofix()` | — | the one-click fix (auto contrast + auto colour + fill) |
 | `autocontrast()` / `autocolor()` | — | |
-| `fill_light(a)` | 0..1 | Basic Fixes slider |
-| `tuning(fill,highlights,shadows,temp,neutral)` | 0..1, 0..0.5, 0..0.5, −1..1, `#rrggbb` or `none` | the whole Tuning tab is one operation, updated in place while the tab is open |
+| `fill_light(a)` | 0..1 | the Basic Fixes slider as older recipes store it: read and rendered as `tuning(a,0,0,0,none)` and kept as written; Dalica writes `tuning` |
+| `tuning(fill,highlights,shadows,temp,neutral)` | 0..1, 0..0.5, 0..0.5, −1..1, `#rrggbb` or `none`; defaults `0,0,0,0,none` (no change) | the whole Tuning tab is one operation, updated in place while the tab is open; the Basic Fixes Fill Light slider is its `fill`. Numbers out of range are clamped when read; `NaN`, a missing field or a bad colour leaves the entry kept and skipped |
 | effects | see [`editing.md`](editing.md) → Effects | e.g. `sharpen(a)`, `sepia()`, `bw()`, `warmify()`, `grain()`, `tint(color,preserve)`, `saturation(a)`, `soft_focus(x,y,size,amount)`, `glow(i,r)`, `filtered_bw(color)`, `focal_bw(x,y,size,sharpness)`, `graduated_tint(y,feather,shade,color)` … |
 | `trim(start,end)` | seconds | videos only |
 
