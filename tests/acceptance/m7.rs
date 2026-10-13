@@ -3,8 +3,8 @@
 //!
 //! 1. **The live app** (`m6_live.rs`'s helpers): the real `dalica` binary in `--headless` mode on a
 //!    fresh library, driven over its control channel as an agent would. A folder of six `scenes`
-//!    JPEGs (five 600 × 400, one 1800 × 1200), one of them with an unknown operation already in its
-//!    sidecar. Every way in and out of the edit view (Enter, Ctrl+3, a double-click, Back to
+//!    JPEGs (four 600 × 400, one 1800 × 1200, and the 300 × 200 one every tool edits, small so a
+//!    debug build on two cores keeps up), that one with an unknown operation already in its sidecar. Every way in and out of the edit view (Enter, Ctrl+3, a double-click, Back to
 //!    Library, Esc, Ctrl+1); ← / →, PgUp / PgDn, Home / End through the folder in light-table order,
 //!    staying put at the ends, and a filmstrip click. The zoom maths on the large photo: the
 //!    slider's ends and midpoint (fit, 400 %, 100 %), Fit and 1:1, Ctrl+= landing on 100 %, the
@@ -57,7 +57,7 @@ use serde_json::{Value, json};
 const PHOTOS: [(&str, u64, u32, u32); 6] = [
     ("IMG_0001.jpg", 21, 600, 400),
     ("IMG_0002.jpg", 33, 600, 400),
-    ("IMG_0003.jpg", 45, 600, 400),
+    ("IMG_0003.jpg", 45, 300, 200),
     ("IMG_0004.jpg", 77, 600, 400),
     ("IMG_0005.jpg", 90, 600, 400),
     ("IMG_0006.jpg", 61, 1800, 1200),
@@ -108,16 +108,37 @@ fn view(c: &mut Client) -> (String, Value) {
     (s["view"].as_str().unwrap_or_default().to_string(), s["edit"]["photo"].clone())
 }
 
+/// Frames until nothing is pending, background work included, however long it takes in real time
+/// (at most ten minutes). `ui.settle` counts frames, not time: in a debug build on a 2-core
+/// machine the renders queued by a run of edits (the preview, the neighbours, every edited
+/// thumbnail) can outlast one settle's frames without anything being wrong; the budgets are the
+/// benches' to judge.
+fn idle(c: &mut Client) {
+    for _ in 0..10 {
+        if c.ok("ui.settle", json!({ "timeoutMs": 60000, "jobs": true }))["settled"] == true {
+            return;
+        }
+    }
+    panic!("the app did not settle within ten minutes");
+}
+
+/// An engine or UI command that must succeed, then [`idle`]; its result.
+fn run(c: &mut Client, command: &str, params: Value) -> Value {
+    let r = c.ok("engine.execute", json!({ "command": command, "params": params }));
+    idle(c);
+    r
+}
+
 /// A key (egui's name, `ArrowLeft`) or a shortcut (`Ctrl+Shift+H`) pressed and released.
 fn key(c: &mut Client, combo: &str) {
     let field = if combo.contains('+') { "combo" } else { "key" };
     c.ok("ui.key", json!({ field: combo }));
-    c.settle();
+    idle(c);
 }
 
 fn click(c: &mut Client, id: &str) {
     c.ok("ui.clickWidget", json!({ "id": id }));
-    c.settle();
+    idle(c);
 }
 
 /// The photo's own history (`photo.history.state`).
@@ -153,10 +174,10 @@ fn regions(c: &mut Client) -> BTreeMap<&'static str, [f64; 4]> {
     out
 }
 
-/// The size `edits` show a 600 × 400 upright photo at (after its crop, straighten and turns).
+/// The size `edits` show the 300 × 200 upright [`EDITED`] photo at (after its crop, straighten and turns).
 fn displayed(edits: &[String]) -> (f64, f64) {
     let recipe = dalica_edit::Recipe::parse(edits).unwrap();
-    let (w, h) = dalica_edit::Geometry::new(&recipe, dalica_image::Orientation::UPRIGHT, 600, 400).display_size(1.0).unwrap();
+    let (w, h) = dalica_edit::Geometry::new(&recipe, dalica_image::Orientation::UPRIGHT, 300, 200).display_size(1.0).unwrap();
     (f64::from(w), f64::from(h))
 }
 
@@ -185,7 +206,7 @@ fn enter_leave_and_step(c: &mut Client, ids: &BTreeMap<String, Value>) {
     assert_eq!(view(c).0, "library", "Ctrl+1 leaves");
     // A double-click on a thumbnail; Back to Library.
     c.ok("ui.clickWidget", json!({ "id": format!("thumb:{}", id("IMG_0001.jpg")), "count": 2 }));
-    c.settle();
+    idle(c);
     assert_eq!(view(c), ("edit".into(), id("IMG_0001.jpg")), "a double-click opens the photo");
     // ← at the start stays put; → steps in light-table order; PgDn, End, Home, PgUp.
     key(c, "ArrowLeft");
@@ -221,22 +242,22 @@ fn enter_leave_and_step(c: &mut Client, ids: &BTreeMap<String, Value>) {
 /// Part 1a: the zoom maths on the large photo (its first open). Returns the preview's draft and final times.
 fn zoom_maths(c: &mut Client, large: &Value) -> Value {
     c.ok("ui.inspect", json!({ "resetPerf": true }));
-    c.run("view.edit", json!({ "id": large }));
-    c.settle_jobs();
+    run(c, "view.edit", json!({ "id": large }));
+    idle(c);
     let opened = c.ok("ui.inspect", json!({}))["perf"].clone();
     assert!(opened["previewFinalMs"].as_f64().is_some(), "the preview arrived: {opened}");
     assert_eq!(state(c)["edit"]["zoom"], "fit", "the photo opens fitted");
     assert!(!c.has("text:zoom"), "no read-out while fitted");
     // The slider's ends and midpoint.
-    c.run("edit.zoom.set", json!({ "slider": 0.5 }));
+    run(c, "edit.zoom.set", json!({ "slider": 0.5 }));
     let mid = zoom(c).unwrap_or(0.0);
     assert!((mid - 1.0).abs() < 1e-3, "the slider's midpoint is 100 %: {mid}");
     assert_eq!(label(c, "text:zoom"), "Zoomed to 100 %");
-    c.run("edit.zoom.set", json!({ "slider": 1.0 }));
+    run(c, "edit.zoom.set", json!({ "slider": 1.0 }));
     let end = zoom(c).unwrap_or(0.0);
     assert!((end - 4.0).abs() < 1e-3, "the slider's end is 400 %: {end}");
     assert_eq!(label(c, "text:zoom"), "Zoomed to 400 %");
-    c.run("edit.zoom.set", json!({ "slider": 0.0 }));
+    run(c, "edit.zoom.set", json!({ "slider": 0.0 }));
     let start = state(c)["edit"]["zoom"].clone();
     assert!(start == "fit" || start.as_f64().is_some_and(|z| z < 1.0), "the slider's start is fit: {start}");
     assert!(!c.has("text:zoom"));
@@ -260,13 +281,13 @@ fn zoom_maths(c: &mut Client, large: &Value) -> Value {
     assert!((steps[steps.len() - 1] - 1.0).abs() < 1e-3, "Ctrl+= lands on 100 % when it crosses it: {steps:?}");
     // Zoomed past the preview, the refined window arrives.
     c.ok("ui.inspect", json!({ "resetPerf": true }));
-    c.run("edit.zoom.set", json!({ "slider": 0.75 }));
-    c.settle_jobs();
+    run(c, "edit.zoom.set", json!({ "slider": 0.75 }));
+    idle(c);
     let perf = c.ok("ui.inspect", json!({}))["perf"].clone();
     assert!(perf["previewRefinedMs"].as_f64().is_some(), "the refined window arrived while zoomed: {perf}");
     assert!(c.has("navigator:edit"), "the navigator while zoomed");
     click(c, "button:zoom.fit");
-    c.run("view.library", json!({}));
+    run(c, "view.library", json!({}));
     println!(
         "zoom: slider 0 fit, 0.5 = 100 %, 1 = 400 %; Ctrl+= {:?}; refined window {:.1} ms after the zoom (debug build)",
         steps.iter().map(|z| format!("{:.0} %", z * 100.0)).collect::<Vec<_>>(),
@@ -286,14 +307,14 @@ fn slow_drag(c: &mut Client, id: &str, dx: f64, moves: usize) {
         c.ok("ui.wait", json!({ "ms": 20 }));
     }
     c.ok("ui.pointer", json!({ "events": [{ "kind": "up", "x": x + dx, "y": y }, { "kind": "move", "x": 2.0, "y": 2.0 }] }));
-    c.settle_jobs();
+    idle(c);
 }
 
 /// Part 1c: every tool on [`EDITED`], each as a user would; the unknown operation survives each.
 /// Returns the history after the last tool.
 fn every_tool(c: &mut Client, id: &Value) -> Value {
-    c.run("view.edit", json!({ "id": id }));
-    c.settle_jobs();
+    run(c, "view.edit", json!({ "id": id }));
+    idle(c);
     unknown_kept(c, id, "the sidecar's recipe");
     let steps = |c: &mut Client| edits(c, id).len();
     let mut log = Vec::new();
@@ -301,19 +322,19 @@ fn every_tool(c: &mut Client, id: &Value) -> Value {
     // Crop at 4 × 6, drawn on the photo, applied with Enter.
     click(c, "tool:crop");
     assert_eq!(state(c)["edit"]["tool"], "crop");
-    c.run("edit.tool.action", json!({ "name": "ratio", "params": { "ratio": "4:6" } }));
-    c.run("edit.tool.action", json!({ "name": "draw", "params": { "from": [0.15, 0.1], "to": [0.85, 0.9] } }));
+    run(c, "edit.tool.action", json!({ "name": "ratio", "params": { "ratio": "4:6" } }));
+    run(c, "edit.tool.action", json!({ "name": "draw", "params": { "from": [0.15, 0.1], "to": [0.85, 0.9] } }));
     key(c, "Enter");
     let e = unknown_kept(c, id, "Crop");
     assert!(e.last().is_some_and(|o| o.starts_with("crop(")) && e.len() == 2, "Crop is one step: {e:?}");
     let (w, h) = displayed(&e);
     assert!((w / h - 1.5).abs() < 0.02 || (h / w - 1.5).abs() < 0.02, "the crop holds 4 × 6: {w} × {h}");
     assert_eq!(label(c, "button:edit.undo"), "Undo Crop");
-    log.push(format!("Crop {} ({w} × {h} px of 600 × 400)", e[1]));
+    log.push(format!("Crop {} ({w} × {h} px of 300 × 200)", e[1]));
 
     // Straighten +3.5°, Apply.
     click(c, "tool:straighten");
-    c.run("edit.tool.action", json!({ "name": "set", "params": { "angle": 3.5 } }));
+    run(c, "edit.tool.action", json!({ "name": "set", "params": { "angle": 3.5 } }));
     click(c, "button:panel.apply");
     let e = unknown_kept(c, id, "Straighten");
     assert_eq!(e.last().map(String::as_str), Some("straighten(3.5)"), "{e:?}");
@@ -327,7 +348,7 @@ fn every_tool(c: &mut Client, id: &Value) -> Value {
     ] {
         let before = steps(c);
         click(c, tool);
-        c.settle_jobs();
+        idle(c);
         let e = unknown_kept(c, id, tool);
         assert_eq!((e.len(), e.last().map(String::as_str)), (before + 1, Some(op)), "{tool}: {e:?}");
         assert_eq!(label(c, "button:edit.undo"), undo);
@@ -359,8 +380,8 @@ fn every_tool(c: &mut Client, id: &Value) -> Value {
 
     // Retouch: two patches, Undo Patch, Redo Patch, Apply: one entry with two strokes.
     click(c, "tool:retouch");
-    c.run("edit.tool.action", json!({ "name": "patch", "params": { "target": [0.3, 0.6], "source": [0.55, 0.6] } }));
-    c.run("edit.tool.action", json!({ "name": "patch", "params": { "target": [0.7, 0.3], "source": [0.5, 0.35] } }));
+    run(c, "edit.tool.action", json!({ "name": "patch", "params": { "target": [0.3, 0.6], "source": [0.55, 0.6] } }));
+    run(c, "edit.tool.action", json!({ "name": "patch", "params": { "target": [0.7, 0.3], "source": [0.5, 0.35] } }));
     click(c, "button:retouch.undoPatch");
     assert_eq!(state(c)["edit"]["retouch"]["position"], 1, "Undo Patch");
     click(c, "button:retouch.redoPatch");
@@ -415,8 +436,8 @@ fn mean_difference(a: &Rgba8, b: &Rgba8) -> f64 {
 /// Part 1e: the light table's thumbnail of [`EDITED`] equals the edit view's render after
 /// downscale (both to 48 px across); the unedited neighbour's thumbnail does not.
 fn thumbnail_is_the_render(c: &mut Client, home: &Path, id: &Value, other: &Value) -> f64 {
-    c.run("view.edit", json!({ "id": id }));
-    c.settle_jobs();
+    run(c, "view.edit", json!({ "id": id }));
+    idle(c);
     c.park_pointer(900.0);
     let shot = live::screenshot(c, home, None, "m7-1400x900-canvas", 1400, 900);
     let displayed = displayed(&edits(c, id));
@@ -429,8 +450,8 @@ fn thumbnail_is_the_render(c: &mut Client, home: &Path, id: &Value, other: &Valu
     let shown = picture(&shot, inset(rect), w, h);
 
     click(c, "button:edit.back");
-    c.run("select.none", json!({}));
-    c.settle_jobs();
+    run(c, "select.none", json!({}));
+    idle(c);
     c.park_pointer(900.0);
     let lib = live::screenshot(c, home, None, "m7-1400x900-thumbnails", 1400, 900);
     let cell = lib.picture(c.rect(&format!("thumb:{id}")));
@@ -462,7 +483,7 @@ fn the_edit_view_and_its_fixes_in_the_live_app() {
     let t = Instant::now();
     let (app, mut c) = live::start(&exe, home.path());
     c.ok("engine.execute", json!({ "command": "folders.add", "params": { "path": folder } }));
-    c.settle_jobs();
+    idle(&mut c);
     let ids = photo_ids(&mut c);
     assert_eq!(ids.len(), PHOTOS.len(), "{ids:?}");
     let edited = ids[EDITED].clone();
@@ -473,7 +494,7 @@ fn the_edit_view_and_its_fixes_in_the_live_app() {
     let h = every_tool(&mut c, &edited);
 
     // The window before the restart (its fingerprint is taken after it, see below).
-    c.settle_jobs();
+    idle(&mut c);
     c.park_pointer(900.0);
     let before = live::screenshot(&mut c, home.path(), None, "m7-1400x900-before", 1400, 900);
     let regions = regions(&mut c);
@@ -483,12 +504,12 @@ fn the_edit_view_and_its_fixes_in_the_live_app() {
     // The app again: the history, its labels and the window are as they were; it still walks.
     let t = Instant::now();
     let (app, mut c) = live::start(&exe, home.path());
-    c.settle_jobs();
+    idle(&mut c);
     let again = photo_ids(&mut c);
     let edited = again[EDITED].clone();
     assert_eq!(history(&mut c, &edited), h, "the photo's history and its labels survive a restart");
-    c.run("view.edit", json!({ "id": edited }));
-    c.settle_jobs();
+    run(&mut c, "view.edit", json!({ "id": edited }));
+    idle(&mut c);
     c.park_pointer(900.0);
     // The edited photo with the Basic Fixes tab at 1400 × 900, the Tuning tab at 900 × 600.
     let large = live::screenshot(&mut c, home.path(), Some("m7-1400x900"), "m7-1400x900", 1400, 900);
@@ -506,7 +527,7 @@ fn the_edit_view_and_its_fixes_in_the_live_app() {
     assert_eq!((label(&mut c, "button:edit.undo"), label(&mut c, "button:edit.redo")), ("Undo Rotate".to_string(), "Redo Flip".to_string()));
     c.ok("ui.resize", json!({ "width": 900, "height": 600 }));
     click(&mut c, "tab:edit.tuning");
-    c.settle_jobs();
+    idle(&mut c);
     c.park_pointer(600.0);
     let small = live::screenshot(&mut c, home.path(), Some("m7-900x600"), "m7-900x600", 900, 600);
     c.ok("ui.resize", json!({ "width": 1400, "height": 900 }));
