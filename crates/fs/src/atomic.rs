@@ -10,7 +10,8 @@
 //!    before each step);
 //! 1. check the target against [`Expect`];
 //! 2. create `.<name>.dalica-tmp-<16 hex>` next to it with exclusive creation;
-//! 3. write, `fsync`, copy the target's permissions;
+//! 3. write, give it the times to keep (if asked: [`replace_keeping_times`]), `fsync`, copy the
+//!    target's permissions;
 //! 4. check the target again; if it changed, remove the temporary file and refuse;
 //! 5. rename over the target, then `fsync` the folder (Unix);
 //! 6. re-read the target (never through a link) and compare.
@@ -19,6 +20,12 @@
 //! A crash leaves at most a stray temporary file ([`is_temp_name`]; `stale` removes it a day
 //! later). Writes never go through a symbolic link (§5.6): a target that is a link is refused with
 //! [`Error::Link`].
+//!
+//! [`replace_keeping_times`] sets the times on the temporary file before the rename, so the file
+//! appears under the target's name already carrying them: a crash at any point leaves the old file
+//! with its old time or the new file with the old time (never the new file with the time of the
+//! write). A platform or file system that refuses the times on the temporary file is not an error
+//! there; the caller compares the returned identity's time and puts it back after the rename.
 
 use std::collections::hash_map::RandomState;
 use std::ffi::{OsStr, OsString};
@@ -27,11 +34,21 @@ use std::hash::{BuildHasher, Hasher};
 use std::io::{self, Read as _, Write as _};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::UNIX_EPOCH;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::dirfd::{Entry, Folder, Kind};
 use crate::faults::{self, Fault, points};
+use crate::times::Times;
 use crate::{Error, Result, guard, io_err};
+
+/// Fault point: giving the temporary file the times to keep ([`replace_keeping_times`]), between
+/// writing it and its `fsync`. An error is taken as a platform that refuses: the write goes on
+/// without the times (the caller puts them back after the rename).
+pub const KEEP_TIMES: &str = "atomic.keep_times";
+
+/// The points of [`replace_keeping_times`], in the order it reaches them.
+pub const KEEPING_TIMES_POINTS: [&str; 8] =
+    [points::OPEN_DIR, points::CREATE_TEMP, points::WRITE, KEEP_TIMES, points::FSYNC, points::RENAME, points::FSYNC_DIR, points::VERIFY];
 
 /// What identifies one version of a file: device, inode (creation time on Windows, where the file
 /// index is not available on stable Rust), size and modification time. A rewrite through a rename,
@@ -46,10 +63,7 @@ pub struct Identity {
 
 impl Identity {
     pub fn of(meta: &Metadata) -> Identity {
-        let mtime_ns = meta.modified().ok().map_or(0, |t| match t.duration_since(UNIX_EPOCH) {
-            Ok(d) => i128::try_from(d.as_nanos()).unwrap_or(i128::MAX),
-            Err(e) => -i128::try_from(e.duration().as_nanos()).unwrap_or(i128::MAX),
-        });
+        let mtime_ns = meta.modified().ok().map_or(0, nanos_since_epoch);
         let (dev, ino) = dev_ino(meta);
         Identity { dev, ino, size: meta.len(), mtime_ns }
     }
@@ -71,6 +85,18 @@ impl Identity {
     /// Modification time in nanoseconds since the Unix epoch (negative before it).
     pub(crate) fn mtime_ns(&self) -> i128 {
         self.mtime_ns
+    }
+
+    /// Whether this version's modification time is `time` (to the nanosecond the platform keeps).
+    pub fn modified_at(&self, time: SystemTime) -> bool {
+        self.mtime_ns == nanos_since_epoch(time)
+    }
+}
+
+fn nanos_since_epoch(t: SystemTime) -> i128 {
+    match t.duration_since(UNIX_EPOCH) {
+        Ok(d) => i128::try_from(d.as_nanos()).unwrap_or(i128::MAX),
+        Err(e) => -i128::try_from(e.duration().as_nanos()).unwrap_or(i128::MAX),
     }
 }
 
@@ -145,7 +171,16 @@ pub fn identity(path: &Path) -> Result<Option<Identity>> {
 /// Atomically replaces (or creates) `path` with `bytes`, if it still matches `expect`. Returns the
 /// new file's identity, to pass as the `expect` of the next write.
 pub fn replace(path: &Path, bytes: &[u8], expect: Expect) -> Result<Identity> {
-    replace_with(path, bytes, expect, false)
+    replace_with(path, bytes, expect, false, None)
+}
+
+/// [`replace`] that keeps `times` (a photo's modification time across a metadata write,
+/// `data-model.md` §2): the temporary file gets them before it is renamed over the target, so no
+/// crash can leave the new bytes with the time of the write. Returns the new file's identity;
+/// where the platform did not keep the time ([`Identity::modified_at`] says no), the caller puts
+/// it back with [`set_times`](crate::set_times). Fault point [`KEEP_TIMES`].
+pub fn replace_keeping_times(path: &Path, bytes: &[u8], expect: Expect, times: &Times) -> Result<Identity> {
+    replace_with(path, bytes, expect, false, Some(times))
 }
 
 /// [`replace`] for a file only its owner may read (a credential such as the control token,
@@ -153,10 +188,10 @@ pub fn replace(path: &Path, bytes: &[u8], expect: Expect) -> Result<Identity> {
 /// never readable by anyone else, not even for a moment. Elsewhere the file gets its folder's
 /// permissions.
 pub fn replace_private(path: &Path, bytes: &[u8], expect: Expect) -> Result<Identity> {
-    replace_with(path, bytes, expect, true)
+    replace_with(path, bytes, expect, true, None)
 }
 
-fn replace_with(path: &Path, bytes: &[u8], expect: Expect, private: bool) -> Result<Identity> {
+fn replace_with(path: &Path, bytes: &[u8], expect: Expect, private: bool, keep: Option<&Times>) -> Result<Identity> {
     guard::check()?;
     let name = path.file_name().ok_or_else(|| Error::Io {
         op: "replace",
@@ -195,6 +230,18 @@ fn replace_with(path: &Path, bytes: &[u8], expect: Expect, private: bool) -> Res
         });
     }
     file.write_all(bytes).map_err(|e| cleanup(io_err("write", &tmp_path)(e)))?;
+    if let Some(times) = keep {
+        // Before the `fsync`, so the times are as durable as the bytes. Best effort, like the
+        // permissions: a file system that refuses them leaves the caller's fallback to put the time
+        // back after the rename (an injected error stands for that).
+        match faults::hit(KEEP_TIMES) {
+            Some(Fault::Crash) => return Err(Error::Crashed(KEEP_TIMES)),
+            Some(Fault::Error) => {}
+            None => {
+                let _ = file.set_times(times.file_times());
+            }
+        }
+    }
     match faults::hit(points::FSYNC) {
         Some(Fault::Error) => return Err(cleanup(io_err("fsync", &tmp_path)(faults::injected(points::FSYNC)))),
         Some(Fault::Crash) => return Err(Error::Crashed(points::FSYNC)),

@@ -358,6 +358,79 @@ fn a_fault_at_every_step_leaves_the_old_or_the_new_file_and_the_time_restored() 
     assert_eq!(cases, 16);
 }
 
+/// M7.25: a crash (the process killed) at every point of a metadata write leaves the old file
+/// with its old time or the new file with the old time, right then, before any retry: the time is
+/// set on the temporary file before the rename, not put back after it.
+#[test]
+fn a_crash_at_every_point_leaves_the_old_or_the_new_file_with_the_old_time() {
+    use dalica_fs::atomic::{KEEP_TIMES, KEEPING_TIMES_POINTS};
+    let ours = values("Crash", &["kill"], true);
+    let fields = [Field::Caption, Field::Tags, Field::Rating];
+    let crash_points: Vec<&'static str> = KEEPING_TIMES_POINTS.iter().copied().chain([SET_TIMES]).collect();
+    assert!(crash_points.contains(&KEEP_TIMES));
+    let mut new_files = 0;
+    for &point in &crash_points {
+        let dir = tempfile::tempdir().unwrap();
+        let p = jpeg(dir.path(), "IMG.jpg", 21);
+        let old = fs::read(&p).unwrap();
+        let mut q = MetaWriteQueue::new();
+        q.enqueue(request(1, &p, &fields, ours.clone()), at(0));
+        arm(point, Fault::Crash);
+        let first = q.write(PhotoId::new(1), &Options::default(), at(1)).unwrap();
+        disarm_all();
+        let case = format!("crash at {point}: {:?}", first.status);
+        let now = fs::read(&p).unwrap();
+        if now == old {
+            assert!(q.is_pending(PhotoId::new(1)), "{case}: tried again");
+        } else {
+            assert_eq!(file_values(&p).caption.as_deref(), Some("Crash"), "{case}: the new file, whole");
+            new_files += 1;
+        }
+        assert_eq!(modified(&p), old_time(), "{case}: old or new, the file has its old time");
+        // The next pass finishes it, still with the old time.
+        if q.is_pending(PhotoId::new(1)) {
+            q.write(PhotoId::new(1), &Options::default(), at(3)).unwrap();
+        }
+        assert_eq!(q.pending(), 0, "{case}");
+        assert_eq!(file_values(&p).caption.as_deref(), Some("Crash"), "{case}");
+        assert_eq!(modified(&p), old_time(), "{case}");
+    }
+    // After the rename: the folder's fsync and the read-back; and the after-rename `set_times` is
+    // never reached where the platform keeps the time, so that write simply completes.
+    assert_eq!(new_files, 3);
+}
+
+/// Where the platform does not keep the time on the temporary file (an injected error at
+/// [`KEEP_TIMES`](dalica_fs::atomic::KEEP_TIMES) stands for it), the time is put back after the
+/// rename; if that fails, the queue remembers the time and the next pass puts it back.
+#[test]
+fn a_platform_that_does_not_keep_the_time_gets_it_put_back_after_the_rename() {
+    use dalica_fs::atomic::KEEP_TIMES;
+    for crash_after in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let p = jpeg(dir.path(), "IMG.jpg", 22);
+        let mut q = MetaWriteQueue::new();
+        q.enqueue(request(1, &p, &[Field::Caption], values("Fallback", &[], false)), at(0));
+        arm(KEEP_TIMES, Fault::Error);
+        if crash_after {
+            arm(SET_TIMES, Fault::Crash);
+        }
+        let first = q.write(PhotoId::new(1), &Options::default(), at(1)).unwrap();
+        disarm_all();
+        let case = format!("crash after the rename: {crash_after}: {:?}", first.status);
+        assert_eq!(file_values(&p).caption.as_deref(), Some("Fallback"), "{case}");
+        if crash_after {
+            assert!(matches!(first.status, Status::Requeued(_)), "{case}");
+            assert_ne!(modified(&p), old_time(), "{case}: the fallback's own crash window");
+            q.write(PhotoId::new(1), &Options::default(), at(3)).unwrap();
+        } else {
+            assert_eq!(first.status, Status::Written(p.clone()), "{case}");
+        }
+        assert_eq!(q.pending(), 0, "{case}");
+        assert_eq!(modified(&p), old_time(), "{case}");
+    }
+}
+
 #[test]
 fn a_disk_error_that_persists_fails_after_a_few_tries() {
     let dir = tempfile::tempdir().unwrap();

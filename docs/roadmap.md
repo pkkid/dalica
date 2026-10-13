@@ -2946,7 +2946,7 @@ effect tabs show an empty state until M12.
     scope (`architecture.md` §9).
   - done when: `cargo xtask tasks sync --check` parses them and `tasks sync --dry-run` lists one new
     issue per block.
-- ⬜ **M7.25 `fs` + `store`: a metadata write keeps the file's time even across a crash**
+- ✅ **M7.25 `fs` + `store`: a metadata write keeps the file's time even across a crash**
   - after: M6.R
   - files: `crates/fs/src/atomic.rs`, `crates/fs/src/times.rs`, `crates/fs/tests/times.rs`, `crates/fs/tests/atomic.rs`, `crates/store/src/metawrite/file.rs`, `crates/store/tests/metawrite.rs`
   - scope: found at M6.R (M6.30's open item): the queue puts the photo's old modification time back
