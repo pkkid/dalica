@@ -52,7 +52,11 @@ pub const KEEPING_TIMES_POINTS: [&str; 8] =
 
 /// What identifies one version of a file: device, inode (creation time on Windows, where the file
 /// index is not available on stable Rust), size and modification time. A rewrite through a rename,
-/// an append or an in-place edit changes it.
+/// an append or an in-place edit changes it, unless it keeps both the size and the modification
+/// time: an in-place edit that puts the time back keeps the inode anywhere, and on Windows NTFS
+/// "tunnels" the old creation time onto a file renamed over the same name within about 15
+/// seconds, so a same-size [`replace_keeping_times`] can leave the identity as it was there. It is
+/// a read-before-write guard against other programs' ordinary rewrites, not a content hash.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Identity {
     dev: u64,

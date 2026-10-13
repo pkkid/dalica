@@ -41,7 +41,18 @@ fn the_new_file_appears_with_the_times_kept() {
     assert_eq!(modified(&p), old_time(), "the time is kept through the rename");
     assert!(id.modified_at(old_time()), "the identity returned says so");
     assert_eq!(identity(&p).unwrap(), Some(id), "the identity returned is the file's now");
+    // On Unix the rename brings a new inode, so the identity is a new one even though the size and
+    // the time are the old ones. On Windows the inode stands in as the creation time, which NTFS
+    // tunnels from the replaced file onto the one renamed over its name: same size, same time and
+    // same creation time is the old identity there (atomic::Identity says so).
+    #[cfg(unix)]
     assert_ne!(id, before.identity, "a new version");
+    // On every platform a version of another size is a new identity, times kept or not.
+    let longer = replace_keeping_times(&p, b"new bytes, longer", Expect::Unchanged(id), &before.times).unwrap();
+    assert!(longer.modified_at(old_time()));
+    assert_ne!(longer, id, "a new version");
+    assert_eq!(identity(&p).unwrap(), Some(longer));
+    let id = longer;
     assert_eq!(temps(dir.path()), 0);
     // A plain replace gives the time of the write, and its identity says so.
     let id = replace(&p, b"plain", Expect::Unchanged(id)).unwrap();
