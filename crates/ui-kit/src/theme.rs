@@ -19,6 +19,25 @@ const fn v2(x: f32, y: f32) -> Vec2 {
 /// Histogram channel colours (photo content, not chrome: `design-system.md` §2).
 pub const HISTOGRAM: [Color32; 3] = [Color32::from_rgb(0xdf, 0x39, 0x39), Color32::from_rgb(0x44, 0xb0, 0x72), Color32::from_rgb(0x3b, 0x6f, 0xe0)];
 
+/// How opaque the histogram's channel areas are (`design-system.md` §6): translucent, so the
+/// canvas shows through and the outlines on top read.
+pub const HISTOGRAM_FILL_ALPHA: f32 = 0.55;
+
+/// The colour of the histogram where the channels in `mask` overlap (bit 0 red, 1 green, 2 blue):
+/// the [`HISTOGRAM`] colours of those channels added together (saturating, so all three make
+/// white), at [`HISTOGRAM_FILL_ALPHA`]. Exact, whatever order the channels are painted in.
+pub fn histogram_fill(mask: u8) -> Color32 {
+    let mut sum = [0u8; 3];
+    for (bit, color) in HISTOGRAM.iter().enumerate() {
+        if mask & (1 << bit) != 0 {
+            for (s, c) in sum.iter_mut().zip([color.r(), color.g(), color.b()]) {
+                *s = s.saturating_add(c);
+            }
+        }
+    }
+    Color32::from_rgb(sum[0], sum[1], sum[2]).gamma_multiply(HISTOGRAM_FILL_ALPHA)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Tokens {
     /// `#2d2d2d`: toolbar, side panes, bottom tray area, menu bar, dialogs (`panel_fill`, `window_fill`).
@@ -789,5 +808,18 @@ mod tests {
         // The formula itself: black on white is 21:1, a colour on itself 1:1.
         assert!((contrast(Color32::BLACK, Color32::WHITE) - 21.0).abs() < 1e-9);
         assert!((contrast(t.chrome, t.chrome) - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn histogram_overlaps_add_the_channel_colours() {
+        for (bit, c) in HISTOGRAM.iter().enumerate() {
+            assert_eq!(histogram_fill(1 << bit), c.gamma_multiply(HISTOGRAM_FILL_ALPHA));
+        }
+        // Red and green add; all three saturate to white.
+        let rg = Color32::from_rgb(0xff, 0x39 + 0xb0, 0x39 + 0x72);
+        assert_eq!(histogram_fill(3), rg.gamma_multiply(HISTOGRAM_FILL_ALPHA));
+        assert_eq!(histogram_fill(7), Color32::WHITE.gamma_multiply(HISTOGRAM_FILL_ALPHA));
+        // Bits above the three channels are ignored.
+        assert_eq!(histogram_fill(0xf9), histogram_fill(1));
     }
 }

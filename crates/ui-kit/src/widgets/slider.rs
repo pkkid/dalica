@@ -1,5 +1,6 @@
-//! The two sliders of `design-system.md` §6: the labelled [`slider`] of the edit panels (a control
-//! spec, drag, Shift = fine, double-click resets, ↑/↓ nudge, click the value to type one) and the
+//! The sliders of `design-system.md` §6: the labelled [`slider`] of the edit panels (a control
+//! spec, drag, Shift = fine, double-click resets, ↑/↓ nudge, click the value to type one), its
+//! Tuning variant [`tuning_slider`] (no value shown: it is a tooltip; + / − nudge 2 %), and the
 //! thin [`zoom_slider`] for the thumbnail size and edit zoom.
 //!
 //! Every number that reaches them may be hostile (a spec from a plug-in, a value from a sidecar):
@@ -105,6 +106,28 @@ pub fn nudged(spec: &SliderSpec<'_>, value: f64, steps: f64) -> f64 {
     spec.snap(spec.clamp(value) + unit * steps)
 }
 
+/// `value` moved by `steps` Tuning nudges (+ / −, `editing.md` §7): one nudge is 2 % of the range,
+/// then put on the spec's steps and clamped.
+pub fn tuning_nudged(spec: &SliderSpec<'_>, value: f64, steps: f64) -> f64 {
+    let (lo, hi) = spec.bounds();
+    if !steps.is_finite() {
+        return spec.clamp(value);
+    }
+    spec.snap(spec.clamp(value) + (hi - lo) * TUNING_NUDGE * steps)
+}
+
+/// The share of the range one + / − press moves a [`tuning_slider`].
+pub const TUNING_NUDGE: f64 = 0.02;
+
+/// Which slider row to draw.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Variant {
+    /// The value shown right of the label, click to type.
+    Labelled,
+    /// No value field: the value is a tooltip, + / − nudge 2 %.
+    Tuning,
+}
+
 /// What a [`slider`] did this pass.
 #[derive(Debug, Clone)]
 pub struct SliderOut {
@@ -147,6 +170,20 @@ pub fn edit_slider_value(ui: &Ui, spec: &SliderSpec<'_>, value: f64) {
 ///
 /// Registers `spec.id` on the track and `<spec.id>/value` on the value (or the field typing it).
 pub fn slider(ui: &mut Ui, t: &Tokens, spec: &SliderSpec<'_>, value: f64) -> SliderOut {
+    slider_row(ui, t, spec, value, Variant::Labelled)
+}
+
+/// The Tuning tab's slider (`editing.md` §7): the [`slider`] row without a value field. The value
+/// shows as a tooltip while the pointer is on the track or it is dragged; + and − nudge it by
+/// [`TUNING_NUDGE`] of the range while the pointer is on the row or it has the focus (↑ / ↓ still
+/// nudge finely); drag, click and double-click (reset to the default) work as in [`slider`].
+/// Registers `spec.id` on the track only.
+pub fn tuning_slider(ui: &mut Ui, t: &Tokens, spec: &SliderSpec<'_>, value: f64) -> SliderOut {
+    slider_row(ui, t, spec, value, Variant::Tuning)
+}
+
+fn slider_row(ui: &mut Ui, t: &Tokens, spec: &SliderSpec<'_>, value: f64, variant: Variant) -> SliderOut {
+    let tuning = variant == Variant::Tuning;
     let m = &t.metrics;
     let enabled = ui.is_enabled();
     let value = spec.clamp(value);
@@ -176,7 +213,7 @@ pub fn slider(ui: &mut Ui, t: &Tokens, spec: &SliderSpec<'_>, value: f64) -> Sli
 
     // The value, or the field typing one.
     let mut typing: Option<Typing> = ui.data(|d| d.get_temp(typing_id(spec.id)));
-    if !enabled {
+    if !enabled || tuning {
         typing = None;
         ui.data_mut(|d| d.remove::<Typing>(typing_id(spec.id)));
     }
@@ -217,7 +254,7 @@ pub fn slider(ui: &mut Ui, t: &Tokens, spec: &SliderSpec<'_>, value: f64) -> Sli
         } else {
             ui.data_mut(|d| d.insert_temp(typing_id(spec.id), state));
         }
-    } else {
+    } else if !tuning {
         let value_resp = ui.interact(value_rect, id.with("value"), if enabled { Sense::click() } else { Sense::hover() });
         register(ui.ctx(), &format!("{}/value", spec.id), Role::Other, spec.label, Target::Widget(&value_resp), false);
         if value_resp.clicked() {
@@ -266,6 +303,14 @@ pub fn slider(ui: &mut Ui, t: &Tokens, spec: &SliderSpec<'_>, value: f64) -> Sli
                 if up || down {
                     let steps = if up { 1.0 } else { -1.0 } * if shift { 5.0 } else { 1.0 };
                     set(&mut out, nudged(spec, value, steps), true);
+                } else if tuning {
+                    let (plus, minus) = ui.input_mut(|i| {
+                        let plus = i.consume_key(Modifiers::NONE, Key::Plus) || i.consume_key(Modifiers::NONE, Key::Equals);
+                        (plus, i.consume_key(Modifiers::NONE, Key::Minus))
+                    });
+                    if plus || minus {
+                        set(&mut out, tuning_nudged(spec, value, if plus { 1.0 } else { -1.0 }), true);
+                    }
                 }
             }
         }
@@ -277,7 +322,7 @@ pub fn slider(ui: &mut Ui, t: &Tokens, spec: &SliderSpec<'_>, value: f64) -> Sli
     let text_color = if enabled { t.text_label } else { t.text_disabled };
     let font = fonts::regular(t.detail);
     p.text(label_rect.left_center(), Align2::LEFT_CENTER, spec.label, font.clone(), text_color);
-    if !typing_now {
+    if !typing_now && !tuning {
         p.text(label_rect.right_center(), Align2::RIGHT_CENTER, spec.format(shown), font, text_color);
     }
     let y = line.center().y;
@@ -306,6 +351,9 @@ pub fn slider(ui: &mut Ui, t: &Tokens, spec: &SliderSpec<'_>, value: f64) -> Sli
     }
     register(ui.ctx(), spec.id, Role::Other, spec.label, Target::Widget(&resp), resp.dragged());
     resp.widget_info(|| egui::WidgetInfo::slider(enabled, shown, spec.label));
+    if tuning && enabled && (resp.hovered() || resp.dragged()) {
+        super::tooltip_now(&resp, t, &spec.format(shown), None);
+    }
     out
 }
 
@@ -444,6 +492,18 @@ mod tests {
         assert!((nudged(&stepless, 10.0, 1.0) - 10.5).abs() < 1e-9);
         let flat = SliderSpec { min: 1.0, max: 1.0, step: f64::NAN, ..s };
         assert_eq!(nudged(&flat, 7.0, 1.0), 1.0);
+    }
+
+    #[test]
+    fn tuning_nudges_are_two_percent_of_the_range() {
+        let fill = SliderSpec { min: 0.0, max: 1.0, step: 0.001, decimals: 3, ..EXPOSURE };
+        assert!((tuning_nudged(&fill, 0.5, 1.0) - 0.52).abs() < 1e-9);
+        assert!((tuning_nudged(&fill, 0.5, -1.0) - 0.48).abs() < 1e-9);
+        assert_eq!(tuning_nudged(&fill, 0.99, 1.0), 1.0, "clamped");
+        let temp = SliderSpec { min: -1.0, max: 1.0, step: 0.0, ..fill };
+        assert!((tuning_nudged(&temp, 0.0, 1.0) - 0.04).abs() < 1e-9);
+        assert_eq!(tuning_nudged(&temp, 0.3, f64::NAN), 0.3);
+        assert_eq!(tuning_nudged(&temp, f64::NAN, 1.0), temp.snap(temp.default + 0.04));
     }
 
     #[test]

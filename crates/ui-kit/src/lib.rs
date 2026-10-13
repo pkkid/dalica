@@ -7,6 +7,7 @@
 
 pub mod fonts;
 pub mod icons;
+pub mod input;
 pub mod raster;
 pub mod registry;
 pub mod theme;
