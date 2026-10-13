@@ -24,13 +24,13 @@ same commit.
 |---|---:|---:|---:|---:|
 | A. Library view | 13 | 15 | 4 | 1 |
 | B. Organizing | 2 | 8 | 32 | 0 |
-| C. Editing | 0 | 8 | 13 | 4 |
+| C. Editing | 0 | 9 | 12 | 4 |
 | D. Viewing | 0 | 1 | 5 | 2 |
 | E. Output | 0 | 0 | 2 | 9 |
 | F. Data | 1 | 17 | 2 | 0 |
 | G. Preferences and system | 0 | 7 | 7 | 0 |
 | H. Menus | 0 | 5 | 2 | 0 |
-| **All** | 16 | 61 | 67 | 16 |
+| **All** | 16 | 62 | 66 | 16 |
 <!-- /parity:summary -->
 
 ## Top gaps
@@ -136,11 +136,11 @@ same commit.
 | EDIT-CROP | Crop panel: ratios, custom ratios, suggestions, rotate, preview | P0 | 🟡 | the operation: `crop(x0,y0,x1,y1)` in the stored frame, clamped into the picture or refused, at least one pixel at any size, only the last counts, the same with a straighten in either order: `crates/edit/src/ops/crop.rs`, `crates/edit/tests/crop.rs` (M7.7); the tools' maths (a ratio's largest centred rectangle, Rotate, edge, corner and move drags with the ratio locked unless Manual, a minimum size, inside the picture) and the thirds: `crates/edit/src/crop_geom.rs`, `crates/edit/src/guides.rs` (M7.7); the three suggested rectangles (the salient subject on a thirds point, the horizon on a third line, the largest centred fit; distinct, in the ratio, deterministic; faces in M13): `crates/edit/src/suggest.rs`, `crates/edit/tests/suggest.rs` (M7.12); the commands landed (M7.17, `crates/engine/src/cmd/crop.rs`, `crates/engine/tests/crop_commands.rs`): `photo.crop.apply` as one "Crop" step of the photo's history (a re-opened crop appends, so later edits stay and undo brings the earlier crop back), `crop.ratios.list` / `.add` / `.remove` (the locale's photo sizes, the fixed ratios, custom ratios in the settings across restarts, the last ratio), `photo.crop.suggest` as an `analysis` job on a worker answering the three rectangles in the stored frame; the panel, its dropdown, Preview and the canvas drags missing (M7.19); ref 03 §6.1 |
 | EDIT-STRAIGHTEN | Straighten with grid and floating bar | P0 | 🟡 | the operation: `straighten(deg)` within ±10°, about the centre, enlarged the least that leaves no empty corner, 0° the identity: `crates/edit/src/ops/straighten.rs`, `crates/edit/tests/straighten.rs` (M7.7); the grid's lines: `crates/edit/src/guides.rs` (M7.7); `photo.straighten.apply` as one "Straighten" step of the photo's history, only the last counting (M7.17, `crates/engine/tests/crop_commands.rs`); the tool, its floating bar and slider, the arrow-key nudge and the dashed grid on the canvas missing (M7.20) |
 | EDIT-REDEYE | Red eye auto + manual | OOS | 🚫 | dropped 2026-10-09 (dated feature); legacy `redeye` operations kept as `legacy:` entries |
-| EDIT-AUTOFIX | Auto Fix, Auto Contrast, Auto Color | P0 | ⬜ | |
+| EDIT-AUTOFIX | Auto Fix, Auto Contrast, Auto Color | P0 | 🟡 | edit: `autofix()`, `autocontrast()`, `autocolor()` rendered from the 256 px proxy at their place in the pipeline (a planted cast removed, a low-contrast scene stretched with under 1.5 % clipped, a full-range neutral photo barely changed, a thumbnail and the full size agree): `crates/edit/src/ops/auto.rs`, `crates/edit/src/analysis.rs`, `crates/edit/tests/auto.rs` (M7.13); the commands and buttons (M7.16) missing |
 | EDIT-RETOUCH | Retouch patches | P1 | 🟡 | the operation: `retouch(sx,sy,tx,ty,r;…)` in the stored frame, mapped through the crop and straighten, strokes applied in order, each patch healed (the source's detail in the target's tone, feathered edge), at most 1 000 strokes, radius 0.001–0.1 of the shorter side, reads bounded to the strokes' reach: `crates/edit/src/ops/retouch.rs`, `crates/edit/tests/retouch.rs` (M7.14); the tool (target and source clicks, brush size, Undo/Redo Patch, Apply/Cancel) missing (M7.22) |
 | EDIT-TEXT | Text tool with rotate/scale handle, colours, opacity | OOS | 🚫 | dropped 2026-10-09 (dated feature) |
 | EDIT-FILL | Fill Light slider | P0 | 🟡 | edit: rendered as Tuning's `fill` (lifts the shadows most, never darkens; `fill_light(a)` read as `tuning(a,0,0,0,none)` and kept as written): `crates/edit/src/ops/tone.rs`, `crates/edit/tests/tone.rs` (M7.8); the Fill Light row and its sessions missing (M7.18, M7.21) |
-| EDIT-TUNING | Tuning tab incl. auto wands and neutral picker | P0 | 🟡 | ref 03 §7. edit: `tuning(fill,highlights,shadows,temp,neutral)` typed, clamped and rendered (Highlights and Shadows keep to their side of the middle, temperature monotonic, the neutral colour made grey): `crates/edit/src/ops/tone.rs`, `crates/edit/tests/tone.rs` (M7.8); Tuning sessions, the picker and the auto wands (M7.13, M7.18) and the tab (M7.21) missing |
+| EDIT-TUNING | Tuning tab incl. auto wands and neutral picker | P0 | 🟡 | ref 03 §7. edit: `tuning(fill,highlights,shadows,temp,neutral)` typed, clamped and rendered (Highlights and Shadows keep to their side of the middle, temperature monotonic, the neutral colour made grey): `crates/edit/src/ops/tone.rs`, `crates/edit/tests/tone.rs` (M7.8); the wands' values and the picker's colour (`analysis::auto_lighting`, `auto_neutral`, `color_at`, M7.13); Tuning sessions and the wand and picker commands (M7.18) and the tab (M7.21) missing |
 | EDIT-SAVE | Save / Undo Save / Revert / Save As / Save a Copy | P0 | ⬜ | data-model §6 |
 | EDIT-RECIPE-COPY | Copy/Paste All Edits | P1 | ⬜ | |
 | EDIT-BATCH | Batch Edit submenu | P1 | ⬜ | |

@@ -2775,7 +2775,7 @@ effect tabs show an empty state until M12.
     point in the first suggestion; a horizon scene puts the horizon near a third line; three
     distinct rectangles inside the photo in the asked ratio; a flat image gives centred crops; the
     same input gives the same output; proptest random images and ratios never panic.
-- ⬜ **M7.13 `edit`: Auto Contrast, Auto Color, Auto Fix and the Tuning wands**
+- ✅ **M7.13 `edit`: Auto Contrast, Auto Color, Auto Fix and the Tuning wands**
   - after: M7.8
   - files: `crates/edit/src/ops/auto.rs`, `crates/edit/src/analysis.rs`, `crates/edit/tests/auto.rs`, `crates/edit/tests/fingerprints/auto*.json`
   - scope: `editing.md` §6.3 and §7, analysed on the fixed-size proxy at the operation's place in

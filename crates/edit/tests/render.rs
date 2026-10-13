@@ -13,7 +13,7 @@ use dalica_edit::render::{MAX_PIXELS, MAX_SCALE};
 use dalica_edit::version::{self, key, key_with};
 use dalica_edit::{Error, Geometry, LISTED, Op, Point, Recipe, Region, Source, Target, Typed, render, render_region};
 use dalica_image::{Orientation, Rgba8};
-use dalica_scenes::orient;
+use dalica_scenes::{Kind, Scene, orient};
 use proptest::prelude::*;
 
 const GEOMETRY: [&str; 5] = ["rotate(90)", "rotate(180)", "rotate(270)", "flip_h()", "flip_v()"];
@@ -241,15 +241,26 @@ fn the_geometry_maps_points_between_the_stored_and_the_displayed_picture() {
 #[test]
 fn two_sizes_agree_after_downscale_and_renders_match_their_fingerprints() {
     let up = scene(21, 300, 200);
-    for (case, o, ops) in [
-        ("render-fit-upright", 1u8, vec![]),
-        ("render-fit-exif6-rotate90", 6, vec!["rotate(90)"]),
-        ("render-fit-exif3-flip_h", 3, vec!["flip_h()", "autofix()"]),
-    ] {
+    for (case, o, ops) in
+        [("render-fit-upright", 1u8, vec![]), ("render-fit-exif6-rotate90", 6, vec!["rotate(90)"]), ("render-fit-exif3-flip_h", 3, vec!["flip_h()"])]
+    {
         let file = stored(&up, o);
         let small = assert_two_sizes_agree(Source::new(&file, exif(o)), &recipe(&ops), 64, 240, 2.0);
         check_fingerprint(case, &small, 0.5);
     }
+    // An analysing operation (Auto Fix, from the fixed-size proxy) on soft blobs with the corner
+    // marker painted over: the fix stretches the picture, and at a hard edge such as the marker's
+    // it would magnify the two sizes' resampling differences past the tolerance.
+    let mut blobs = common::rgba(&Scene::new(5, 300, 200).with_kind(Kind::Blobs).render().unwrap());
+    let m = blobs.width.min(blobs.height) / 16;
+    for y in m..2 * m {
+        for x in m..2 * m {
+            let (from, to) = (((2 * m * blobs.width + x) * 4) as usize, ((y * blobs.width + x) * 4) as usize);
+            blobs.data.copy_within(from..from + 4, to);
+        }
+    }
+    let small = assert_two_sizes_agree(Source::upright(&blobs), &recipe(&["autofix()"]), 64, 240, 2.0);
+    check_fingerprint("render-fit-blobs-autofix", &small, 0.5);
     // A zoomed-in window, enlarged with bilinear taps.
     let file = stored(&up, 1);
     let zoom = render_region(Source::upright(&file), &recipe(&[]), Region { scale: 3.0, x: 300, y: 200, width: 96, height: 64 }).unwrap();
