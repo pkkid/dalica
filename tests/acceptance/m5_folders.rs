@@ -18,13 +18,24 @@
 //!
 //! The owner thread is marked as the UI thread while the window runs: it makes no `fs` call. The
 //! test's own file changes run on helper threads.
+//!
+//! **Changes outside Dalica wait for a quiet session** ([`Fx::outside`]). Windows refuses to
+//! rename or remove a folder while any handle under it is open ("Access is denied", os error 5),
+//! and the session has workers the frames do not wait for: the online check of the roots, which
+//! `poll` sends after every scan or rescan ends and which lists each root and looks for sample
+//! photos in its folders, and the I/O worker, which writes a sidecar once its debounce has passed
+//! on the session clock and first looks at the root it writes under. Either one can still be at
+//! work after `tick` has settled, holding a handle under the folder the scenario renames next
+//! (M7.28). So each change first waits for them (the check answered, every write landed), and the
+//! root checks, counted, prove that none ran during the change.
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use dalica_core::{PhotoId, Timestamp, VirtualClock};
-use dalica_engine::offline::{CHECK_EVERY, SETTLE};
+use dalica_engine::offline::{CHECK_EVERY, OnlineCheck, RootProbe, SETTLE};
 use dalica_engine::watching::{FULL_VERIFICATION, WatchMode};
 use dalica_engine::{CacheDir, CmdError, Options, Session, ThumbOptions};
 use dalica_fs::Expect;
@@ -87,6 +98,28 @@ fn sidecar(folder: &Path) -> Value {
     serde_json::from_slice(&bytes).unwrap()
 }
 
+/// The session's looks at the watched roots (the online checks, and the I/O worker's check right
+/// before a sidecar write), counted: begun, and still running.
+#[derive(Default)]
+struct Looks {
+    begun: AtomicU64,
+    running: AtomicU64,
+}
+
+impl Looks {
+    fn count<T>(&self, look: impl FnOnce() -> T) -> T {
+        self.begun.fetch_add(1, Ordering::SeqCst);
+        self.running.fetch_add(1, Ordering::SeqCst);
+        let out = look();
+        self.running.fetch_sub(1, Ordering::SeqCst);
+        out
+    }
+
+    fn now(&self) -> (u64, u64) {
+        (self.begun.load(Ordering::SeqCst), self.running.load(Ordering::SeqCst))
+    }
+}
+
 // ---------------------------------------------------------------------------------------------
 // The window on a session with a virtual clock
 // ---------------------------------------------------------------------------------------------
@@ -99,6 +132,7 @@ struct Fx {
     card: PathBuf,
     outside: PathBuf,
     clock: Arc<VirtualClock>,
+    looks: Arc<Looks>,
     d: Driver,
 }
 
@@ -121,6 +155,18 @@ impl Fx {
         let clock = Arc::new(VirtualClock::new(Timestamp::from_millis(1_700_000_000_000)));
         let options = Options { thumbs: ThumbOptions { cache: CacheDir::Off, ..ThumbOptions::default() } };
         let mut s = Session::open_with(&tmp.path().join("library"), clock.clone(), &options).unwrap();
+        // The default checks, counted.
+        let looks = Arc::new(Looks::default());
+        let check: OnlineCheck = Arc::new({
+            let looks = Arc::clone(&looks);
+            move |root: &Path| looks.count(|| dalica_scan::volumes::online(root))
+        });
+        let probe: RootProbe = Arc::new({
+            let looks = Arc::clone(&looks);
+            move |root: &Path, samples: &[PathBuf]| looks.count(|| dalica_scan::volumes::root_state(root, samples))
+        });
+        s.set_online_check(Some(check));
+        s.set_root_probe(Some(probe));
         s.set_watching(WatchMode::Polling);
         for root in [&pictures, &card] {
             s.execute("folders.add", &json!({ "path": root })).unwrap();
@@ -129,7 +175,38 @@ impl Fx {
         assert!(s.refresh_volumes(PATIENCE));
         let mut d = Driver::new(App::new(Some(s)), 1400, 900, 1.0);
         d.settle(FRAMES).unwrap();
-        Fx { outside: tmp.path().join("Elsewhere"), pictures, card, clock, d, _tmp: tmp }
+        Fx { outside: tmp.path().join("Elsewhere"), pictures, card, clock, looks, d, _tmp: tmp }
+    }
+
+    /// Changes the folders outside Dalica, on a helper thread, once the session is quiet: no
+    /// worker of its own holds a handle in them (see the module notes). Asserts that none of the
+    /// session's root checks ran during the change.
+    fn outside(&mut self, change: impl FnOnce() + Send) {
+        self.quiet();
+        let before = self.looks.now();
+        assert_eq!(before.1, 0, "no root check runs once the session is quiet");
+        off_owner(change);
+        assert_eq!(self.looks.now(), before, "no root check ran while the folders changed");
+    }
+
+    /// Waits for the session's workers that the frames do not wait for: scans, rescans and
+    /// thumbnails; the online check in flight (and one more, made on the disk as the session last
+    /// saw it, so it changes nothing); the metadata writes; then every sidecar write that is
+    /// waiting, so the I/O worker has nothing due until the clock moves. A write under a root
+    /// found offline cannot land and is the scenario's to check: only then may the flush report
+    /// it unsaved.
+    fn quiet(&mut self) {
+        let s = self.s_mut();
+        s.wait_idle();
+        assert!(s.refresh_volumes(PATIENCE), "the volume check answered");
+        assert!(s.flush_metadata(PATIENCE), "the metadata writes landed");
+        match s.flush() {
+            Ok(()) => {}
+            Err(CmdError::Unsaved(why)) => {
+                assert!(!s.offline_roots().is_empty(), "only a write under an offline root waits: {why}")
+            }
+            Err(e) => panic!("flush: {e}"),
+        }
     }
 
     fn s(&self) -> &Session {
@@ -249,16 +326,14 @@ pub fn the_library_follows_its_folders() -> Timings {
     phase(&mut t, "open and scan");
 
     // 1. Files, through the watcher: added, removed, renamed, rewritten.
-    put(&lisbon.join("IMG_0004.jpg"), 4);
-    remove(&porto.join("IMG_0002.jpg"));
-    rename(&lisbon.join("IMG_0002.jpg"), &lisbon.join("Tram.jpg"));
     let size = fx.s().library().photo(rewritten).unwrap().size;
-    off_owner({
+    fx.outside(|| {
+        put(&lisbon.join("IMG_0004.jpg"), 4);
+        remove(&porto.join("IMG_0002.jpg"));
+        rename(&lisbon.join("IMG_0002.jpg"), &lisbon.join("Tram.jpg"));
         let p = lisbon.join("IMG_0003.jpg");
-        move || {
-            let id = dalica_fs::identity(&p).unwrap().unwrap();
-            dalica_fs::replace(&p, &jpeg(99, 320, 240), Expect::Unchanged(id)).unwrap();
-        }
+        let id = dalica_fs::identity(&p).unwrap().unwrap();
+        dalica_fs::replace(&p, &jpeg(99, 320, 240), Expect::Unchanged(id)).unwrap();
     });
     fx.tick();
     assert_eq!(
@@ -285,18 +360,21 @@ pub fn the_library_follows_its_folders() -> Timings {
     phase(&mut t, "files through the watcher");
 
     // 2. Folders, through the watcher: added, removed, renamed, moved.
-    put(&fx.pictures.join("Sintra").join("IMG_0001.jpg"), 21);
+    let pictures = fx.pictures.clone();
+    fx.outside(|| put(&pictures.join("Sintra").join("IMG_0001.jpg"), 21));
     fx.tick();
     assert!(fx.rows().contains(&"Sintra (1)".to_string()), "an added folder: {:?}", fx.rows());
-    remove(&fx.pictures.join("Sintra"));
     let porto_id = fx.s().library().folder_by_path(&porto).unwrap();
-    rename(&porto, &fx.pictures.join("Porto 2026"));
+    fx.outside(|| {
+        remove(&pictures.join("Sintra"));
+        rename(&porto, &pictures.join("Porto 2026"));
+    });
     fx.tick();
     assert_eq!(fx.rows(), strs(&["CARD (1)", "Lisbon (4)", "Porto 2026 (1)", "Trip (2)"]), "removed and renamed folders");
     assert_eq!(fx.s().library().folder_by_path(&fx.pictures.join("Porto 2026")), Some(porto_id), "a renamed folder keeps its id");
     let lisbon_id = fx.s().library().folder_by_path(&lisbon).unwrap();
     let moved = fx.pictures.join("Archive").join("2026").join("Lisbon");
-    rename(&lisbon, &moved);
+    fx.outside(|| rename(&lisbon, &moved));
     fx.tick();
     assert_eq!(fx.s().library().folder_by_path(&moved), Some(lisbon_id), "a moved folder keeps its id");
     assert_eq!(fx.photo(&moved, "IMG_0001.jpg"), Some(starred));
@@ -311,11 +389,14 @@ pub fn the_library_follows_its_folders() -> Timings {
     fx.d.settle(FRAMES).unwrap();
     assert!(fx.s().watched_roots().is_empty(), "nothing watched");
     let porto = fx.pictures.join("Porto 2026");
-    put(&porto.join("IMG_0007.jpg"), 7);
-    remove(&moved.join("IMG_0004.jpg"));
-    rename(&moved.join("IMG_0003.jpg"), &moved.join("Castle.jpg"));
-    put(&fx.pictures.join("Cascais").join("IMG_0001.jpg"), 41);
-    rename(&fx.card.join("Trip"), &fx.card.join("Trip 2026"));
+    let card = fx.card.clone();
+    fx.outside(|| {
+        put(&porto.join("IMG_0007.jpg"), 7);
+        remove(&moved.join("IMG_0004.jpg"));
+        rename(&moved.join("IMG_0003.jpg"), &moved.join("Castle.jpg"));
+        put(&pictures.join("Cascais").join("IMG_0001.jpg"), 41);
+        rename(&card.join("Trip"), &card.join("Trip 2026"));
+    });
     let before = fx.listing();
     for _ in 0..3 {
         fx.clock.advance(Duration::from_secs(10));
@@ -349,12 +430,11 @@ pub fn the_library_follows_its_folders() -> Timings {
     //    dimmed; a star meanwhile waits; no folder is made at the old path; it lands on return.
     fx.s_mut().set_watching(WatchMode::Polling);
     fx.tick();
-    let card = fx.card.clone();
     let trip = card.join("Trip 2026");
     let on_card = fx.photo(&trip, "DSC_0002.jpg").unwrap();
     let count = fx.s().library().photos().count();
     let away = fx.outside.join("CARD");
-    rename(&card, &away);
+    fx.outside(|| rename(&card, &away));
     fx.check_volumes();
     fx.tick();
     assert_eq!(fx.s().root_online(&card), Some(false), "the card is offline");
@@ -370,7 +450,7 @@ pub fn the_library_follows_its_folders() -> Timings {
     assert!(matches!(fx.s_mut().flush(), Err(CmdError::Unsaved(_))), "its sidecar write waits");
     assert_eq!(fx.s().pending_writes().map(|p| p.sidecars), Some(1), "pendingWrites counts it");
     assert!(!exists(&card), "no folder is made at the old path");
-    rename(&away, &card);
+    fx.outside(|| rename(&away, &card));
     fx.check_volumes();
     fx.tick();
     assert_eq!(fx.s().root_online(&card), Some(true), "back online");
@@ -385,8 +465,10 @@ pub fn the_library_follows_its_folders() -> Timings {
     // 5. An emptied mount point: the card's files go, an empty folder stays at its path. Offline;
     //    a star meanwhile writes no sidecar into it; with the files back, the star is written.
     let at_root = fx.photo(&card, "DSC_0001.jpg").unwrap();
-    rename(&card, &away);
-    mkdir(&card);
+    fx.outside(|| {
+        rename(&card, &away);
+        mkdir(&card);
+    });
     fx.check_volumes();
     fx.tick();
     assert_eq!(fx.s().root_online(&card), Some(false), "an empty folder where the library has photos is offline");
@@ -396,8 +478,10 @@ pub fn the_library_follows_its_folders() -> Timings {
     assert!(matches!(fx.s_mut().flush(), Err(CmdError::Unsaved(_))), "reported unsaved");
     assert!(!exists(&card.join(".dalica.json")), "no sidecar in the empty mount point");
     assert!(!exists(&trip), "no folder made in it");
-    remove(&card);
-    rename(&away, &card);
+    fx.outside(|| {
+        remove(&card);
+        rename(&away, &card);
+    });
     fx.check_volumes();
     fx.tick();
     fx.s_mut().flush().unwrap();
