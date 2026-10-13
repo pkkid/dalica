@@ -6,8 +6,8 @@
 //!   (the effective one, [`Library::sort_date`]: the date set by the user, else the date taken,
 //!   else the file's), pixel size and file size ([`one`]). Several photos or a section selected as
 //!   a unit: how many, their date range and their size on disk, and their tags when they have
-//!   some, most used first ([`several`], [`selection_tags`]). The edit view (M7) prefixes the folder and adds the
-//!   photo's place in it ([`edit`]).
+//!   some, most used first ([`several`], [`selection_tags`]). The edit view prefixes the folder
+//!   and adds the photo's place in its section ([`edit_photo`]): "Lisbon › IMG_0361.jpg … (12 of 48)".
 //! - **How it is written**: sizes in decimal units with one decimal ([`size`]), dates in full
 //!   ([`date_time`], [`date_range`]), fields separated by wide spaces ([`SEP`]).
 //! - **Background work** ([`scanning`], [`with_activity`]): while a scan runs, "Scanning: 1,204
@@ -291,13 +291,25 @@ pub fn several(library: &Library, photos: &[&Photo], tag_counts: &[(String, usiz
     Line { rest, ..Line::default() }
 }
 
-/// The edit view's line (M7): "Folder › name", the photo's details, then its place in the folder
-/// "(12 of 48)".
+/// The edit view's line format: "Folder › name", the photo's details from its file (date taken,
+/// stored pixel size), then its place "(12 of 48)". The edit view itself shows [`edit_photo`],
+/// which reads the library.
 pub fn edit(folder: &str, p: &Photo, nth: usize, of: usize) -> Line {
-    // The file's date and size until the edit view reads the library's (M7).
     let mut line = Line { name: Some(p.name.clone()), rest: details(p, p.sort_date(), (p.width, p.height)), ..Line::default() };
     line.prefix = Some(folder.to_owned());
     line.rest.push(position(nth, of));
+    line
+}
+
+/// The edit view's line (`ui-layout.md` §6.1): "Folder › name", the photo's details as [`one`]
+/// gives them (its effective date, the size it shows at), then its place among its section's photos
+/// "(12 of 48)" (`nth` from 1; left out when the photo is on no section, `of` 0).
+pub fn edit_photo(library: &Library, folder: &str, p: &Photo, nth: usize, of: usize) -> Line {
+    let mut line = one(library, p);
+    line.prefix = Some(folder.to_owned());
+    if of > 0 {
+        line.rest.push(position(nth, of));
+    }
     line
 }
 
@@ -451,6 +463,12 @@ mod tests {
         assert_eq!(
             edit("Lisbon Weekend", &a, 12, 48).text(),
             "Lisbon Weekend › IMG_0361.jpg     June 4, 2026 7:42 PM     4000 × 3000     3.1 MB     (12 of 48)"
+        );
+        assert_eq!(edit_photo(&lib, "Lisbon Weekend", &a, 12, 48).text(), edit("Lisbon Weekend", &a, 12, 48).text());
+        assert_eq!(
+            edit_photo(&lib, "Lisbon", &a, 0, 0).text(),
+            "Lisbon › IMG_0361.jpg     June 4, 2026 7:42 PM     4000 × 3000     3.1 MB",
+            "on no section"
         );
     }
 
