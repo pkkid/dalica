@@ -150,6 +150,16 @@ pub fn default_reader() -> HeaderReader {
     Arc::new(|path: &Path, limits: &dalica_image::Limits| dalica_image::read_header_file(path, limits).map(|(h, _)| h))
 }
 
+/// Reads one file's header and hands back the bytes it read with it, so a scan that reads
+/// metadata ([`Options::metadata`]) takes the owned fields from the same bytes instead of reading
+/// the file again. The default is `dalica-image`'s.
+pub type HeaderBytesReader = Arc<dyn Fn(&Path, &dalica_image::Limits) -> dalica_image::Result<(Header, Vec<u8>)> + Send + Sync>;
+
+/// `dalica-image`'s header reader, with the bytes it read.
+pub fn default_bytes_reader() -> HeaderBytesReader {
+    Arc::new(|path: &Path, limits: &dalica_image::Limits| dalica_image::read_header_file(path, limits))
+}
+
 /// How to scan. Owned and `Send`, so a caller can move it to a scanning thread.
 #[derive(Clone)]
 pub struct Options {
@@ -170,6 +180,11 @@ pub struct Options {
     /// Whether to read the owned metadata of new and changed photos ([`crate::meta`]); off by
     /// default.
     pub metadata: ReadMetadata,
+    /// With [`Options::metadata`] on, the header reader for the photos whose metadata is read:
+    /// it hands back the bytes it read, and the reading thread takes the owned fields from them.
+    /// `None` (set it so when planting a [`Options::reader`]): those photos' headers go through
+    /// `reader` too, and their metadata is read from the file again.
+    pub bytes_reader: Option<HeaderBytesReader>,
 }
 
 impl Default for Options {
@@ -184,6 +199,7 @@ impl Default for Options {
             limits: dalica_image::Limits::default(),
             reader: default_reader(),
             metadata: ReadMetadata::Off,
+            bytes_reader: Some(default_bytes_reader()),
         }
     }
 }
@@ -205,6 +221,7 @@ impl fmt::Debug for Options {
                     ReadMetadata::NewOrChanged(known) => format!("new or changed ({} known)", known.len()),
                 },
             )
+            .field("bytes_reader", &self.bytes_reader.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -499,7 +516,18 @@ impl Scanner<'_> {
             }
             to_read.push((entry, name));
         }
-        let paths: Vec<PathBuf> = to_read.iter().map(|(e, _)| e.path.clone()).collect();
+        // Each file to read, with its size when its owned metadata is to be read too (new or
+        // changed: the reading thread takes it from the header's bytes).
+        let paths: Vec<(PathBuf, Option<u64>)> = to_read
+            .iter()
+            .map(|(e, name)| {
+                let meta = match &self.options.metadata {
+                    ReadMetadata::Off => None,
+                    ReadMetadata::NewOrChanged(known) => (!known.knows(dir, name, e.size, e.modified)).then_some(e.size),
+                };
+                (e.path.clone(), meta)
+            })
+            .collect();
         let cancel = self.cancel;
         // The receiver went away while the folder was read.
         let gone = Cell::new(false);
@@ -523,10 +551,10 @@ impl Scanner<'_> {
             };
             let (photo, failure) = match outcome {
                 Outcome::NotPhoto | Outcome::TypeOff | Outcome::Cancelled => (None, None),
-                Outcome::Header(h) => {
+                Outcome::Header(h, file) => {
                     let (width, height) = h.display_size();
                     let date = h.exif.as_ref().and_then(|e| e.date_time_original);
-                    (Some(FoundPhoto { width, height, date, ..unread(entry, name, h.format) }), None)
+                    (Some(FoundPhoto { width, height, date, file: file.map(|f| *f), ..unread(entry, name, h.format) }), None)
                 }
                 // Recognised, not decoded yet: listed (a format tile until its decoder arrives).
                 Outcome::HeaderError(f, dalica_image::Error::Unsupported(_)) => (Some(unread(entry, name, f)), None),
@@ -555,8 +583,8 @@ impl Scanner<'_> {
         if let ReadMetadata::NewOrChanged(known) = &self.options.metadata
             && !photos.is_empty()
         {
-            // Read here, on the scan's thread, in the same pass: what the files say comes in with
-            // the photos (`diff`).
+            // RAWs here, on the scan's thread, in the same pass (their `.xmp` sidecars need the
+            // folder's names); the other formats came with their headers.
             let cancel = self.cancel;
             let cancelled = || cancel.is_some_and(|c| c.load(Ordering::Relaxed));
             if !crate::meta::read_folder(dir, &names, &mut photos, known, &dalica_meta::Limits::default(), &cancelled) {
@@ -685,7 +713,8 @@ enum Outcome {
     NotPhoto,
     /// A format whose type is turned off.
     TypeOff,
-    Header(Header),
+    /// The header, and what the file says about the owned fields when they were read.
+    Header(Header, Option<Box<FileValues>>),
     /// Recognised as this format, but its header could not be read.
     HeaderError(Format, dalica_image::Error),
     /// The read panicked, ran out of time or could not open the file; the format if it was
@@ -700,7 +729,7 @@ enum Outcome {
 enum Reply {
     Sniffed(Option<Format>),
     TypeOff,
-    Header(dalica_image::Result<Header>),
+    Header(dalica_image::Result<Header>, Option<Box<FileValues>>),
     Io(String),
     Panicked(String),
     Cancelled,
@@ -710,6 +739,15 @@ enum Reply {
 struct Job {
     path: PathBuf,
     types: FileTypes,
+    /// The file's size, when its owned metadata is to be read with the header.
+    meta: Option<u64>,
+}
+
+/// The header readers a reading thread uses.
+#[derive(Clone)]
+struct Readers {
+    header: HeaderReader,
+    bytes: Option<HeaderBytesReader>,
 }
 
 /// The reading thread's two ends.
@@ -725,7 +763,7 @@ const READ_AHEAD: usize = 16;
 /// Reads headers on a worker thread, inside `catch_unwind`, each within the budget. A worker that
 /// overruns is abandoned (its thread ends when its read does) and a fresh one takes the next file.
 struct GuardedReader {
-    reader: HeaderReader,
+    reader: Readers,
     limits: dalica_image::Limits,
     budget: Duration,
     /// The scan's cancel flag, when it is shared: the reading thread stops at the next file.
@@ -740,7 +778,13 @@ const STOPPED: &str = "the reading thread stopped";
 
 impl GuardedReader {
     fn new(options: &Options) -> GuardedReader {
-        GuardedReader { reader: options.reader.clone(), limits: options.limits, budget: options.budget, cancel: options.cancel.clone(), worker: None }
+        GuardedReader {
+            reader: Readers { header: options.reader.clone(), bytes: options.bytes_reader.clone() },
+            limits: options.limits,
+            budget: options.budget,
+            cancel: options.cancel.clone(),
+            worker: None,
+        }
     }
 
     fn spawn(&self) -> Option<Worker> {
@@ -767,10 +811,16 @@ impl GuardedReader {
 
     /// Reads `paths` in order, handing each one's outcome to `on` with its index. Returns `false`
     /// when `cancelled` stopped it before the end.
-    fn read_all(&mut self, paths: &[PathBuf], types: FileTypes, cancelled: &dyn Fn() -> bool, on: &mut dyn FnMut(usize, Outcome)) -> bool {
+    fn read_all(
+        &mut self,
+        paths: &[(PathBuf, Option<u64>)],
+        types: FileTypes,
+        cancelled: &dyn Fn() -> bool,
+        on: &mut dyn FnMut(usize, Outcome),
+    ) -> bool {
         // Files handed to the current worker: `paths[i..sent]` are on their way.
         let mut sent = 0;
-        for (i, path) in paths.iter().enumerate() {
+        for (i, (path, meta)) in paths.iter().enumerate() {
             if cancelled() {
                 return false;
             }
@@ -782,15 +832,15 @@ impl GuardedReader {
                 // No thread to be had: read here, still inside `catch_unwind`, without the time budget.
                 None => {
                     let mut replies = Vec::new();
-                    run_job(&Job { path: path.clone(), types }, &self.reader, &self.limits, &mut |r| {
+                    run_job(&Job { path: path.clone(), types, meta: *meta }, &self.reader, &self.limits, &mut |r| {
                         replies.push(r);
                         true
                     });
                     outcome(replies.into_iter().map(Ok))
                 }
                 Some(worker) => {
-                    while let Some(next) = paths.get(sent).filter(|_| sent < i.saturating_add(READ_AHEAD)) {
-                        if worker.jobs.send(Job { path: next.clone(), types }).is_err() {
+                    while let Some((next, meta)) = paths.get(sent).filter(|_| sent < i.saturating_add(READ_AHEAD)) {
+                        if worker.jobs.send(Job { path: next.clone(), types, meta: *meta }).is_err() {
                             break;
                         }
                         sent += 1;
@@ -824,8 +874,8 @@ fn outcome(replies: impl Iterator<Item = Result<Reply, RecvTimeoutError>>) -> Ou
             Ok(Reply::Sniffed(Some(f))) => format = Some(f),
             Ok(Reply::TypeOff) => return Outcome::TypeOff,
             Ok(Reply::Cancelled) => return Outcome::Cancelled,
-            Ok(Reply::Header(Ok(h))) => return Outcome::Header(h),
-            Ok(Reply::Header(Err(e))) => {
+            Ok(Reply::Header(Ok(h), file)) => return Outcome::Header(h, file),
+            Ok(Reply::Header(Err(e), _)) => {
                 return match format {
                     Some(f) => Outcome::HeaderError(f, e),
                     None => Outcome::Failed(None, e.to_string()),
@@ -842,7 +892,7 @@ fn outcome(replies: impl Iterator<Item = Result<Reply, RecvTimeoutError>>) -> Ou
 
 /// Recognises one file and reads its header, sending each step to `reply` (which returns `false`
 /// when nobody listens any more). Returns whether the listener is still there.
-fn run_job(job: &Job, reader: &HeaderReader, limits: &dalica_image::Limits, reply: &mut dyn FnMut(Reply) -> bool) -> bool {
+fn run_job(job: &Job, reader: &Readers, limits: &dalica_image::Limits, reply: &mut dyn FnMut(Reply) -> bool) -> bool {
     let mut listening = true;
     let mut send = |r: Reply| {
         listening = listening && reply(r);
@@ -864,8 +914,12 @@ fn run_job(job: &Job, reader: &HeaderReader, limits: &dalica_image::Limits, repl
             Some(f) if !job.types.allows_format(f) => {
                 send(Reply::TypeOff);
             }
-            Some(_) => {
-                send(Reply::Header(reader(&job.path, limits)));
+            Some(f) => {
+                let (header, file) = match job.meta {
+                    Some(size) => crate::meta::read_with_header(&job.path, f, size, &reader.header, reader.bytes.as_ref(), limits),
+                    None => ((reader.header)(&job.path, limits), None),
+                };
+                send(Reply::Header(header, file.map(Box::new)));
             }
             None => {}
         }
