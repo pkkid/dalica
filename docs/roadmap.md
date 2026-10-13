@@ -2791,7 +2791,7 @@ effect tabs show an empty state until M12.
     clipping under a stated share; a full-range neutral photo barely changes; the result after a
     crop differs from before; thumbnail and full size agree after downscale; the wands' values on
     known scenes; fingerprints per operation; proptest random images never panic.
-- ⬜ **M7.14 `edit`: Retouch**
+- ✅ **M7.14 `edit`: Retouch**
   - after: M7.1, M7.2
   - files: `crates/edit/src/ops/retouch.rs`, `crates/edit/tests/retouch.rs`, `crates/edit/tests/fingerprints/retouch*.json`, `NOTICE`
   - scope: `editing.md` §6.4 and `data-model.md` §3.1: `retouch(sx,sy,tx,ty,r;…)` with typed
