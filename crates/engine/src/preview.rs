@@ -543,6 +543,23 @@ impl Session {
         self.preview.outstanding.len()
     }
 
+    /// The open photo's preview jobs queued or running (its source, its preview, its whole decode
+    /// and its refined window), what the edit view shows next; prefetching other photos and
+    /// storing cache entries are not counted. `ui.settle` waits for these (`control-protocol.md`
+    /// §6.12).
+    pub fn preview_busy(&self) -> usize {
+        let Some(open) = &self.preview.open else { return 0 };
+        self.preview
+            .outstanding
+            .iter()
+            .filter(|k| match k {
+                Key::Render(..) | Key::Region(_) => true,
+                Key::Load(id) | Key::Full(id) => *id == open.photo,
+                Key::Store(_) => false,
+            })
+            .count()
+    }
+
     pub fn preview_stats(&self) -> PreviewStats {
         self.preview.stats
     }

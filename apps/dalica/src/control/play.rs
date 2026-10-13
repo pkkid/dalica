@@ -598,6 +598,10 @@ pub fn busy(app: &App, jobs: bool) -> Vec<String> {
         Some(s) if s.busy() => busy.push("library: scanning".into()),
         Some(_) => {}
     }
+    let preview = app.session().map_or(0, dalica_engine::Session::preview_busy);
+    if preview > 0 {
+        busy.push(format!("edit preview: {preview}"));
+    }
     if let Some(s) = app.session() {
         let writes = s.pending_metadata_writes();
         if jobs && writes > 0 && s.offline_roots().is_empty() {
