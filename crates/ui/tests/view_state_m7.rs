@@ -316,7 +316,9 @@ fn ctrl9_hides_and_shows_the_edit_panel() {
         let item = view["children"].as_array().unwrap().iter().find(|i| i["id"] == "edit.panelToggle").cloned().unwrap();
         (item["enabled"].clone(), item["checked"].clone(), item["shortcut"].clone())
     };
-    assert_eq!(checked(&mut t), (json!(true), json!(true), json!("Ctrl+9")));
+    // The menus write the primary modifier as macOS names it.
+    let ctrl9 = if cfg!(target_os = "macos") { "Cmd+9" } else { "Ctrl+9" };
+    assert_eq!(checked(&mut t), (json!(true), json!(true), json!(ctrl9)));
     key(&mut t, "Ctrl+9");
     let r = regions(&mut t);
     assert_eq!((&r["editPanel"], &r["canvas"]), (&Value::Null, &json!([0.0, 64.0, 1400.0, 684.0])));
