@@ -33,6 +33,17 @@ Columns: **Path** (backticked path pattern), **Asset** (title), **Creator**, **S
 | `assets/fonts/Inter-*.ttf` (Regular, SemiBold) | Inter 4.001 (static TTF) | The Inter Project Authors (Rasmus Andersson) | https://github.com/rsms/inter | SIL Open Font License 1.1 (`assets/fonts/OFL-Inter.txt`) | 2026-10-10 | none |
 | `assets/app-icon/` (the canonical SVG and every render of it) | Dalica app icon, a magpie carrying a print (a candidate for the maintainer, `assets/app-icon/README.md`) | the Dalica contributors | original work (hand-written SVG; renders by `packaging/icons.sh`) | MIT OR Apache-2.0 (`assets/app-icon/LICENSE.txt`) | 2026-10-12 | none |
 
+## Website (`website/`, served at dalica.org; not bundled in the app)
+
+| Path | Asset | Creator | Source | Licence | Added | Modifications |
+|---|---|---|---|---|---|---|
+| `website/public/fonts/SchibstedGrotesk-Variable-latin.woff2` | Schibsted Grotesk (variable, weights 400–800) | The Schibsted Grotesk Project Authors | https://github.com/schibsted/schibsted-grotesk (the Latin subset served by Google Fonts, v7) | SIL Open Font License 1.1 (`website/public/fonts/OFL-SchibstedGrotesk.txt`) | 2026-10-12 | none (Google Fonts' Latin subset, unchanged) |
+| `website/public/fonts/IBMPlexMono-*.woff2` (Regular, Medium) | IBM Plex Mono 2.327 | IBM Corp. | https://github.com/IBM/plex (`packages/plex-mono/fonts/complete/woff2`) | SIL Open Font License 1.1 (`website/public/fonts/OFL-IBMPlexMono.txt`) | 2026-10-12 | none |
+| `website/public/img/icon.svg` | Copy of the Dalica app icon | the Dalica contributors | `assets/app-icon/dalica.svg` | MIT OR Apache-2.0 (`assets/app-icon/LICENSE.txt`) | 2026-10-12 | none (refresh it when the icon changes) |
+| `website/public/img/tags.jpg`, `website/public/img/crop-*.jpg` | Screenshots of Dalica (library, Tags pane, Properties pane, tags under thumbnails) | the Dalica contributors | original work: headless captures with `dalica-cli snapshot` at 2× scale; the photos shown are from the `photos` set of https://github.com/pkkid/dalica-corpus at `6239cad`, each CC0 or public domain with its source in that repository's `SOURCES.tsv` | MIT OR Apache-2.0 (`LICENSE-MIT`, `LICENSE-APACHE`); the photos in them CC0 / public domain | 2026-10-12 | cropped, JPEG |
+| `website/public/img/og.png` | Link-preview image (app icon, name and a screenshot) | the Dalica contributors | original work, composed with ImageMagick from the screenshot and icon above; text set in Inter (`assets/fonts/`) | MIT OR Apache-2.0 (`LICENSE-MIT`, `LICENSE-APACHE`) | 2026-10-12 | none |
+| `website/public/img/castle.jpg` | Dunluce Castle (`photos/minolta_z1.jpg` of the corpus) | Aph-ch (Wikimedia Commons uploader, "own photograph") | https://commons.wikimedia.org/wiki/File:Dunluce3.JPG | Public domain (Wikimedia Commons PD-self) | 2026-10-12 | square crop, resized to 900 px, metadata stripped |
+
 ## Optional build input: craft-fonts (not files in this repository)
 
 Builds made with `CRAFT_FONTS_DIR` embed fonts from
