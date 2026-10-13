@@ -67,6 +67,9 @@ fn value_for(key: &'static str, roots: Vec<PathBuf>) -> BoxedStrategy<Value> {
         .boxed(),
         "on" | "starred" | "replace" => any::<bool>().prop_map(Value::Bool).boxed(),
         "path" => path.boxed(),
+        "rect" => proptest::collection::vec(prop_oneof![4 => 0.0f64..1.0, 1 => any::<f64>()], 0..6).prop_map(|v| json!(v)).boxed(),
+        "degrees" | "width" | "height" | "ratio" => prop_oneof![4 => -12.0f64..12.0, 1 => any::<f64>()].prop_map(|n| json!(n)).boxed(),
+        "name" => "\\PC{0,12}".prop_map(|c| json!(c)).boxed(),
         "folder" | "offset" | "limit" => prop_oneof![0u64..20, Just(10_000), Just(10_001), any::<u64>()].prop_map(|n| json!(n)).boxed(),
         "command" => prop_oneof![proptest::sample::select(commands).prop_map(|c| json!(c)), "\\PC{0,12}".prop_map(|c| json!(c))].boxed(),
         "context" => prop_oneof![
@@ -97,6 +100,11 @@ fn own_keys(id: &str) -> Vec<&'static str> {
         "app.setShortcut" => vec!["command", "context", "key", "replace"],
         "app.resetShortcuts" => vec!["command"],
         "photo.history.apply" => vec!["id", "op"],
+        "photo.crop.apply" => vec!["id", "rect", "ratio"],
+        "photo.straighten.apply" => vec!["id", "degrees"],
+        "crop.ratios.add" => vec!["name", "width", "height"],
+        "crop.ratios.remove" => vec!["name"],
+        "photo.crop.suggest" => vec!["id", "ratio"],
         "photo.history.undo" | "photo.history.redo" | "photo.history.state" | "edit.undo" | "edit.redo" => vec!["id"],
         _ => vec![],
     }

@@ -47,6 +47,8 @@ pub enum JobKind {
     Duplicates,
     Faces,
     Collage,
+    /// A short look at one photo for the edit view (suggested crops; the Tuning wands).
+    Analysis,
 }
 
 /// Where a job is.

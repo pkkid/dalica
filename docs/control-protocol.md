@@ -662,7 +662,7 @@ while it waits (it never blocks one) and replies the final entry, or after `time
 at most 55 s; over 60 000 is `limit`) the running entry with `pending: true`; an unknown or expired
 job is `not_found`. `jobs.cancel` replies once a frame has polled the session; a finished job is not
 in `cancelled`. Kinds: `scan`, `import`, `export`, `save`,
-`batchEdit`, `metadataWrite`, `rebuild`, `duplicates`, `faces`, `collage`. `jobs.cancel` stops a job at its next photo boundary: photos already written stay
+`batchEdit`, `metadataWrite`, `rebuild`, `duplicates`, `faces`, `collage`, `analysis`. `jobs.cancel` stops a job at its next photo boundary: photos already written stay
 (each was written atomically), nothing is left half-written. Cancelling a job is never an undo of
 the photos it completed.
 

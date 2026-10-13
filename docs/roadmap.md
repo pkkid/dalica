@@ -2842,7 +2842,7 @@ effect tabs show an empty state until M12.
     buttons; an open tool disables the grid and the tabs' content; the histogram follows an edit;
     camera information for a JPEG with EXIF and the empty text without; panel fingerprints per tab
     at both sizes.
-- ⬜ **M7.17 `engine`: crop and straighten commands, ratios and suggestions**
+- ✅ **M7.17 `engine`: crop and straighten commands, ratios and suggestions**
   - after: M7.3, M7.7, M7.12
   - files: `crates/engine/src/cmd/crop.rs`, `crates/engine/tests/crop_commands.rs`
   - scope: `editing.md` §5.1 and §6.1–§6.2: applying a crop or a straighten checks its parameters

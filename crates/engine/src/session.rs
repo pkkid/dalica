@@ -129,6 +129,8 @@ pub struct Session {
     pub(crate) histories: Histories,
     /// The edit view's preview renders (`preview.rs`).
     pub(crate) preview: Preview,
+    /// The suggested-crop jobs running (`cmd/crop.rs`).
+    pub(crate) crop_suggestions: crate::cmd::crop::Suggestions,
     _lock: LibraryLock,
 }
 
@@ -205,6 +207,7 @@ impl Session {
             metadata_cache: MetadataCache::default(),
             histories: Histories::default(),
             preview: Preview::default(),
+            crop_suggestions: crate::cmd::crop::Suggestions::default(),
             _lock: lock,
         };
         session.configure_thumbnails();
@@ -414,6 +417,7 @@ impl Session {
         n += self.poll_metadata();
         n += self.poll_photo_metadata();
         n += self.poll_preview();
+        n += self.poll_crop_suggestions();
         self.jobs.prune(self.clock.now());
         n
     }
