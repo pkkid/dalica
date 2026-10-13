@@ -2722,7 +2722,7 @@ effect tabs show an empty state until M12.
     operation's version remakes only photos using it; an unedited photo still uses its embedded
     thumbnail; `crates/ui/tests/edited_cells.rs`: no cell draws a placeholder while its new
     thumbnail renders, the badge shows and goes with undo; the cell fingerprints at both sizes.
-- ⬜ **M7.10 `ui`: entering, leaving and moving between photos**
+- ✅ **M7.10 `ui`: entering, leaving and moving between photos**
   - after: M5.23, M6.25, M6.28, M7.3, M7.4, M7.5, M7.6
   - files: `crates/ui/src/commands/edit_view.rs`, `crates/ui/src/panels/edit/top_bar.rs`, `crates/ui/src/panels/edit/filmstrip.rs`, `crates/ui/src/panels/edit/caption_bar.rs`, `crates/ui/src/panels/light_table/input.rs`, `crates/ui/src/status_text.rs`, `crates/ui/src/panels/status.rs`, `crates/ui/tests/edit_navigation.rs`, `crates/ui/tests/fingerprints/edit-topbar*.json`, `crates/ui/tests/fingerprints/edit-caption*.json`, `crates/ui/tests/fingerprints/region-status*.json`
   - scope: `editing.md` §1–§2 and §12: entering by double-click, Enter, Ctrl+3, Picture ▸ View and

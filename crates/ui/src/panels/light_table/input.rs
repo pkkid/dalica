@@ -1,7 +1,8 @@
 //! The light table's pointer input on cells and empty space (`ui-layout.md` §5.4–§5.5), on the
 //! model of [`crate::selection`]: a click selects a photo, Ctrl-click toggles it (in another
 //! section it replaces the selection), Shift-click selects the range from the anchor, a right-click
-//! on an unselected photo selects it first, a click on empty space selects nothing, and a rubber
+//! on an unselected photo selects it first, a double-click opens the photo in the edit view
+//! (`view.edit`, `editing.md` §1), a click on empty space selects nothing, and a rubber
 //! band dragged from empty space selects the photos it touches in the section it started in (with
 //! Ctrl, added to the selection there). Pressing on a thumbnail and dragging never starts a band.
 //! A band held at the view's top or bottom edge scrolls it ([`autoscroll_speed`]: faster the
@@ -155,6 +156,10 @@ pub fn finish(ui: &mut Ui, f: &Frame<'_>, input: &mut Input, background: Option<
         pending.select(&[c.photo], mode);
     } else if let Some(c) = cells.iter().find(|c| c.response.secondary_clicked() && !sel.contains(c.photo)) {
         pending.select(&[c.photo], "replace");
+    }
+    // The double-click's first click selected the photo; the second opens it.
+    if let Some(c) = cells.iter().find(|c| c.response.double_clicked()) {
+        pending.actions.push(Action { command: "view.edit".into(), params: json!({ "id": c.photo.get() }) });
     }
     if let Some(bg) = background {
         band(ui, f, input, &bg, cells, command, &mut pending);

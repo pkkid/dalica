@@ -170,8 +170,12 @@ impl App {
     /// Runs command `id`: a UI-only one here, anything else in the engine. A command whose UI asks
     /// first, run without `"confirm": true` when its question applies, asks through the dialog host
     /// instead and replies `{dialog: <kind>}` (`crate::dialogs::asking`). A failure's message
-    /// becomes the status line.
+    /// becomes the status line. In the edit view the rotations, the flips, Edit ▸ Undo / Redo and
+    /// the one-click fixes are steps of the open photo's history (`commands::edit_view::route`).
     pub fn run(&mut self, id: &str, params: &Value) -> Result<Value, CmdError> {
+        if let Some((routed, p)) = crate::commands::edit_view::route(self, id, params) {
+            return self.run(routed, &p);
+        }
         let result = if let Some(ask) = crate::dialogs::asking(self, id, params) {
             crate::dialogs::ask(self, ask, params)
         } else {

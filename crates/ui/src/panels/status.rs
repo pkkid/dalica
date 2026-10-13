@@ -9,7 +9,12 @@
 //! Text too long for the line is fitted by [`Line::fit`]: the scan field goes first, then the
 //! prefix, then the name's middle.
 //!
-//! The line is rebuilt only when the library, the selection or the held photos change, and fitted
+//! In the edit view the line speaks of the photo shown, prefixed with its folder and ending with its
+//! place among its section's photos: "Lisbon › IMG_0361.jpg     June 4, 2026 7:42 PM     4000 × 3000
+//!     3.1 MB     (12 of 48)" ([`status_text::edit_photo`]).
+//!
+//! The line is rebuilt only when the library, the selection, the held photos, the photo shown or
+//! the sections change, and fitted
 //! only when it, the scan's count or the width changes (the scan's count is read from the
 //! session's in-memory progress each frame); the text drawn is written to
 //! [`UiState::status_line`](crate::state::UiState::status_line), which `ui.state` reports as
@@ -23,6 +28,9 @@ use egui::{Align2, Id, Ui};
 
 use super::Panels;
 use crate::app::App;
+use crate::commands::edit_view;
+use crate::panels::light_table::folder_name;
+use crate::state::Section;
 use crate::status_text::{self, Line};
 
 // The formatters' first home was here; callers still reach them through this module.
@@ -31,13 +39,16 @@ pub use crate::status_text::{MESSAGE_SECONDS, NO_SELECTION, SEP, date_range, dat
 /// Padding kept free at each end of the line when the text is fitted (points).
 pub const PAD: f32 = 8.0;
 
-/// The line and what it was built from: the library revision, the selection, the held photos. Kept
-/// in the context's data and compared in place, so an unchanged frame copies no list.
+/// The line and what it was built from: the library revision, the selection, the held photos, the
+/// photo the edit view shows and the sections' generation. Kept in the context's data and compared
+/// in place, so an unchanged frame copies no list.
 #[derive(Clone, Default)]
 struct Built {
     revision: Option<u64>,
     selection: Vec<PhotoId>,
     held: Vec<PhotoId>,
+    photo: Option<PhotoId>,
+    sections: u64,
     line: Line,
 }
 
@@ -49,22 +60,52 @@ struct Fitted {
     fitted: String,
 }
 
-/// The line for the tray in `app`, rebuilt only when the library, the selection or the held photos
-/// changed; `None` before the library is open.
-fn cached_line(app: &App, ctx: &egui::Context) -> Option<Line> {
+/// The line for the tray in `app` (in the edit view, for the photo shown), rebuilt only when the
+/// library, the selection, the held photos, the photo shown or the sections changed; `None` before
+/// the library is open.
+fn cached_line(p: &Panels, app: &App, ctx: &egui::Context) -> Option<Line> {
     let session = app.session()?;
     let state = app.state();
     let revision = session.library().revision();
+    let photo = edit_view::open_photo(app);
+    let sections = p.sections.generation();
     ctx.data_mut(|d| {
         let b = d.get_temp_mut_or_default::<Built>(Id::new("status:line"));
-        if b.revision != Some(revision) || b.selection != state.selection.ids || b.held != state.tray.held {
+        if b.revision != Some(revision)
+            || b.selection != state.selection.ids
+            || b.held != state.tray.held
+            || b.photo != photo
+            || b.sections != sections
+        {
             b.revision = Some(revision);
             b.selection.clone_from(&state.selection.ids);
             b.held.clone_from(&state.tray.held);
-            b.line = status_text::line(session.library(), state);
+            b.photo = photo;
+            b.sections = sections;
+            b.line = match photo.and_then(|id| edit_line(p, session.library(), id)) {
+                Some(line) => line,
+                None => status_text::line(session.library(), state),
+            };
         }
         Some(b.line.clone())
     })
+}
+
+/// The edit view's line for photo `id`: its section's title (else its folder's name) as the
+/// prefix, and its place among the section's photos in light-table order. `None` for a photo the
+/// library does not have.
+fn edit_line(p: &Panels, library: &dalica_library::Library, id: PhotoId) -> Option<Line> {
+    let photo = library.photo(id)?;
+    let section = p.sections.get(Section::Folder(photo.folder));
+    let place = section.and_then(|s| s.photos.iter().position(|x| *x == id).map(|i| (s, i)));
+    let line = match place {
+        Some((s, i)) => status_text::edit_photo(library, &s.title, photo, i.saturating_add(1), s.photos.len()),
+        None => {
+            let folder = library.folder(photo.folder).map(|f| folder_name(&f.path)).unwrap_or_default();
+            status_text::edit_photo(library, &folder, photo, 0, 0)
+        }
+    };
+    Some(line)
 }
 
 /// `line` fitted to `max` points in a font `size` points high, remembered while none of them
@@ -119,13 +160,13 @@ fn scan_field(app: &App) -> Option<String> {
 
 /// Paints the status line into `ui`'s rect (the status-line region of [`super::layout`]) and
 /// records the text drawn in the view state.
-pub fn show(_p: &Panels, app: &mut App, ui: &mut Ui) {
+pub fn show(p: &Panels, app: &mut App, ui: &mut Ui) {
     let t = *app.tokens();
     let rect = ui.max_rect();
     let ctx = ui.ctx().clone();
     expire_message(app, &ctx);
     let line = match app.state().status.as_str() {
-        "" => status_text::with_activity(cached_line(app, &ctx).unwrap_or_default(), scan_field(app)),
+        "" => status_text::with_activity(cached_line(p, app, &ctx).unwrap_or_default(), scan_field(app)),
         message => Line::plain(message),
     };
     let font = fonts::regular(t.small);
