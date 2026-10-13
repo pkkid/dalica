@@ -21,6 +21,11 @@ User-facing names say **Dalica**. Files, binaries and ids stay lowercase
 
 ## Cutting a release
 
+**When:** at every milestone review from M7 to M15 (maintainer rule, 2026-10-13): M7 ships 0.2,
+M8 0.3, M9 0.4, M10 0.5, M11 0.6, M12 0.7, M13 0.8, M14 0.9 and M15 1.0. The review branch carries
+steps 1's version and notes; after the maintainer merges it and signs off, the lead runs steps 2–6
+(`/milestone-review` §5).
+
 1. **Bump the version** on `main`. The only place it lives is `[workspace.package] version` in the
    root `Cargo.toml`:
 

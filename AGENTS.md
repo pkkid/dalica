@@ -194,8 +194,8 @@ L0       core · fs                    (only `fs` writes to disk)
   a published check-in page, *Where we stand* and `docs/status.md` on a `review/M<n>.R` branch, a
   pull request.
 - **Review tasks are stops** (maintainer rule, 2026-10-10; `roadmap.md` → How milestones work).
-  A milestone has exactly one review, at its end: `M<n>.R` (release gates in M6, M10 and M15
-  included); there are no mid-milestone reviews (maintainer rule, 2026-10-10: "I do not want any
+  A milestone has exactly one review, at its end: `M<n>.R` (from M7 to M15 every review is a
+  release gate: 0.2 … 1.0); there are no mid-milestone reviews (maintainer rule, 2026-10-10: "I do not want any
   checkins mid milestones"; the roadmap parser refuses an open `M<n>.A`). Every review is
   `owner: maintainer`, and nothing listed after an open one is claimed. When the run reaches one,
   the lead lets running tasks finish and merge, runs `/milestone-review` to prepare it (the

@@ -149,7 +149,7 @@ once and report.
   - The milestone ends with an `M<n+1>.R` review task, its only review: no mid-milestone reviews
     (maintainer rule, 2026-10-10; the parser refuses an open `M<n+1>.A`). Every review task is
     `owner: maintainer` (the parser refuses any other owner).
-    M6, M10 and M15 end with release gates.
+    From M7 to M15 every review is a release gate (0.2 … 1.0).
   - Merge the blocks like any task. No approval is needed. They stay planning text: `tasks sync`
     creates their issues only when the maintainer closes this milestone's review and the next
     milestone opens. To run one of them early, give its block `pulled: M<n>` (this milestone);

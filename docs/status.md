@@ -11,11 +11,13 @@ and git.
   passes (53 s; 117 s with the release budgets). The edit view with its filmstrip, zoom and pan;
   Basic Fixes (Crop with suggestions, Straighten, Retouch, Auto Fix, Auto Contrast, Auto Color,
   Fill Light) and the Tuning tab; each photo's own Undo / Redo history; edits shown on every
-  thumbnail. Next: M8, Save and export; its issues open when the M7.R review PR is merged.
+  thumbnail. Version 0.2.0: M7.R is the 0.2 release gate, published once the review PR is merged.
+  Next: M8, Save and export (0.3); its issues open when the M7.R review PR is merged.
 - **M7 review (2026-10-13):** the maintainer answered four questions: a real Windows file
   identity for the read-before-write guard (new M8.27); the Tuning sliders show the photo's last
   Tuning after later edits (new M8.28); starring in the edit view stays a library step and Fill
-  Light stays part of Tuning; all 86 fingerprint baselines approved, with the look of Auto Fix,
+  Light stays part of Tuning; ship 0.2 now, and every milestone up to M15 is a point release
+  published on GitHub (0.3 … 1.0); all 86 fingerprint baselines approved, with the look of Auto Fix,
   Auto Contrast, Auto Color and the Tuning controls. Check-in pages now open every image larger on
   click (a `/milestone-review` rule). Fix tasks M8.27–M8.30 carry what the run found.
 - **Numbers (M7.R, 53ca1f0, 2026-10-13):** tests 2 242 passed, 4 ignored; `cargo xtask ci` 412 s

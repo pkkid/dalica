@@ -29,7 +29,8 @@ The run found and fixed an Adjust Date undo that lost the original date once the
 (M7.30), a lost preview job that stalled the view (M7.23), and a Windows-only test failure that
 showed the read-before-write guard cannot see a same-size rewrite there; the maintainer chose a
 real Windows file identity (M8.27). Fix tasks M8.27–M8.30 carry what the review found; the 86
-fingerprint baselines and the look of Auto Fix and Tuning were approved.
+fingerprint baselines and the look of Auto Fix and Tuning were approved. M7.R is the 0.2 release
+gate (version 0.2.0): from here every milestone up to M15 publishes a point release, ending at 1.0.
 
 *2026-10-12 (M6.R, the Release 0.1 gate).* M6 is done: `cargo xtask accept M6` passes in 62 s
 standalone, and the tests on `main` went from 1 440 to 1 858. Users can rotate, flip, hide, caption,
@@ -185,8 +186,13 @@ waits for.)
   as few as possible, each with options and a recommendation, and a changelog of what changed in
   the UI so the maintainer can check it by eye. The maintainer answers, checks the UI, closes
   `M<n>.R` (by merging its pull request) and starts the next milestone.
-- **Releases are reviews too.** M6 (0.1), M10 (0.2) and M15 (1.0) end with a release gate `M<n>.R`;
-  its check-in adds the release checklist and the sign-off questions.
+- **Every milestone is a release, up to 1.0** (maintainer rule, 2026-10-13). M6 shipped 0.1; from
+  M7 on, each milestone's review `M<n>.R` is a release gate that publishes the next point release
+  on GitHub: M7 0.2, M8 0.3, M9 0.4, M10 0.5, M11 0.6, M12 0.7, M13 0.8, M14 0.9, M15 1.0. The
+  review branch sets the version (`cargo xtask version set`) and adds its section to
+  `whats-new.md`; the check-in adds the release checklist and the sign-off question; once the
+  maintainer has merged the review and said ship, the lead cuts the release (`releasing.md` →
+  Cutting a release) and publishes it. M16 and later releases are planned after 1.0.
 - **The lead plans ahead.** The lead writes the next milestone's task blocks while the current one
   runs, by the end of its first wave, so agents never wait for a plan. Task blocks need no
   approval; the check-in shows them.
@@ -223,7 +229,7 @@ waits for.)
 | Edit and output | M7 | Edit view and fixes | edit view, basic fixes, Tuning and Retouch; thumbnails show edits | ⬜ |
 | | M8 | Save and export | Save, Undo Save, Revert, Save a Copy, Save As; export | ⬜ |
 | Organize | M9 | Albums, search and file operations | lasting albums, instant search and filters, move/copy/rename/delete | ⬜ |
-| | M10 | Preferences, MCP and Release 0.2 | Options and shortcut editor, MCP and the P0 workflows; all P0 rows shipped | ⬜ |
+| | M10 | Preferences, MCP and Release 0.5 | Options and shortcut editor, MCP and the P0 workflows; all P0 rows shipped | ⬜ |
 | P1 parity | M11 | Import, compare and viewing | import from cards and drives, compare and batch edit, slideshow, the viewer | ⬜ |
 | | M12 | Effects | effect tiles, parameter panels and all 27 effects | ⬜ |
 | | M13 | People and places | local faces, the People pane, the Places pane and geotagging | ⬜ |
@@ -3047,7 +3053,7 @@ effect tabs show an empty state until M12.
   - done when: a refusal test matches `Error::Refused` with the field's name; a two-profile PNG
     caption write leaves no old caption; `cargo xtask test-corpus -p dalica-meta` keeps its
     counts; `cargo xtask ci` passes.
-- ✅ **M7.R Check-in**
+- ✅ **M7.R Release 0.2 gate**
   - after: M7.23, M7.30, M7.31
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`
@@ -3674,11 +3680,13 @@ first measurement. No step of M8 needs a maintainer decision mid-run.
     limits; `showcase.md` runs `dalica-cli snapshot` with a positional folder, which exits 2 since
     the M7.29 rewrite of `control-protocol.md` §8.
   - done when: each line matches the code; `cargo xtask ci` passes.
-- ⬜ **M8.R Check-in**
+- ⬜ **M8.R Release 0.3 gate**
   - after: M8.25, M8.27, M8.28, M8.29, M8.30
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`
-  - scope: the lead runs `/milestone-review M8.R` to prepare it: the check-in page (edit a photo
+  - scope: a release gate (Release 0.3): the lead runs `/milestone-review M8.R` to prepare it, with the
+    version set to 0.3.0 and its `whats-new.md` section on the review branch, the release checklist
+    and the sign-off question, and after the merge cuts and publishes 0.3.0 (`releasing.md`); the check-in page (edit a photo
     and save it from the folder header, find the original in `.dalica-originals/`, Undo Save from
     the edit panel, save again and Revert, Save a Copy, Save As PNG into a new folder, a
     rotate-only save, save a raw and see the JPEG beside it, export a tray at 1600 with a
@@ -4319,11 +4327,13 @@ mid-run.
     in its scope (`architecture.md` §9).
   - done when: `cargo xtask tasks sync --check` parses them and `tasks sync --dry-run` lists one new
     issue per block.
-- ⬜ **M9.R Check-in**
+- ⬜ **M9.R Release 0.4 gate**
   - after: M9.25
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`
-  - scope: the lead runs `/milestone-review M9.R` to prepare it: the check-in page (make an album
+  - scope: a release gate (Release 0.4): the lead runs `/milestone-review M9.R` to prepare it, with the
+    version set to 0.4.0 and its `whats-new.md` section on the review branch, the release checklist
+    and the sign-off question, and after the merge cuts and publishes 0.4.0 (`releasing.md`); the check-in page (make an album
     from photos in three folders, reorder it by dragging, sort it and undo, delete it and undo; find
     Starred Photos and Recently Updated; search by word, tag, date and camera, combine the filters
     and the age slider, save the results as an album; Show Duplicate Files; drag photos onto a
@@ -4355,9 +4365,9 @@ wave 6   M9.23 drag and drop + clipboard  ‖  M9.24 data lessons + two volumes
 wave 7   M9.25 accept M9 → M9.R          (M9.26 lead: M11 blocks, any time after M8.26)
 ```
 
-### M10 — Preferences, MCP and Release 0.2
+### M10 — Preferences, MCP and Release 0.5
 
-One milestone in 3 feature areas (*Preferences and shortcuts*, *MCP and workflows*, *Release 0.2 (P0 complete)*); one `cargo xtask accept M10` covers every *Done when* below. It ends with a release gate the maintainer owns.
+One milestone in 3 feature areas (*Preferences and shortcuts*, *MCP and workflows*, *Release 0.5 (P0 complete)*); one `cargo xtask accept M10` covers every *Done when* below. It ends with a release gate the maintainer owns.
 
 #### Preferences and shortcuts
 
@@ -4380,13 +4390,13 @@ One milestone in 3 feature areas (*Preferences and shortcuts*, *MCP and workflow
 - **Done when:** `cargo xtask accept M10`: every P0 workflow passes over MCP in CI; the behaviour
   pass rate is recorded in *Where we stand*.
 
-#### Release 0.2 (P0 complete)
+#### Release 0.5 (P0 complete)
 
 - **Decide at M10.R:** whether release builds include the `heif` feature (HEIC/HEIF). 0.1 leaves it
   out (the maintainer's answer at M6.R, 2026-10-12); measure the decoder against a larger HEIC
   corpus (non-Apple, 10/12-bit, alpha) first.
 - **Done when:** every P0 parity row is ✅ with evidence; P0 workflows pass 100 %; performance
-  budgets for P0 scenarios are enforced; an honest *Where we stand*; a 0.2 release.
+  budgets for P0 scenarios are enforced; an honest *Where we stand*; the 0.5 release.
 
 ### M11 – M14: P1 parity (outline; the lead details each one while the one before runs)
 
