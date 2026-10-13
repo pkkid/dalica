@@ -788,6 +788,7 @@ name = "dalica-acceptance"
 version = "0.1.0"
 dependencies = [
  "dalica-core",
+ "dalica-edit",
  "dalica-engine",
  "dalica-fs",
  "dalica-image",

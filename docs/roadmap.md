@@ -2924,7 +2924,7 @@ effect tabs show an empty state until M12.
   - done when: `crates/ui/tests/retouch_tool.rs`: two patches, Undo Patch, Redo Patch, Apply gives
     one "Retouch" entry with two strokes in M7.1's frame; Cancel leaves the recipe unchanged; the
     brush keys; a planted blemish is gone in the preview; panel fingerprints at both sizes.
-- ⬜ **M7.23 `accept M7`**
+- ✅ **M7.23 `accept M7`**
   - after: M7.9, M7.10, M7.19, M7.20, M7.21, M7.22
   - files: `tests/acceptance/m7.rs`, `tests/acceptance/m7_*.rs`, `tests/acceptance/m7.md`, `tests/acceptance/fingerprints/m7-*.json`
   - scope: every *Done when* of M7's three areas in the real `dalica --headless`: the zoom maths

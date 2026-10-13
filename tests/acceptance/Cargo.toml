@@ -17,6 +17,7 @@ serde_json.workspace = true
 
 [dev-dependencies]
 dalica-core.workspace = true
+dalica-edit.workspace = true
 dalica-engine.workspace = true
 dalica-fs.workspace = true
 dalica-image.workspace = true
@@ -63,3 +64,7 @@ path = "m5.rs"
 [[test]]
 name = "m6"
 path = "m6.rs"
+
+[[test]]
+name = "m7"
+path = "m7.rs"
