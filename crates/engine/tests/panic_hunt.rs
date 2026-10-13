@@ -44,6 +44,27 @@ fn value_for(key: &'static str, roots: Vec<PathBuf>) -> BoxedStrategy<Value> {
     let commands: Vec<&'static str> = dalica_engine::cmd::specs().iter().map(|s| s.id).collect();
     let plausible = match key {
         "ids" => ids.boxed(),
+        "id" => prop_oneof![4 => 0u64..12, 1 => any::<u64>()].prop_map(|n| json!(n)).boxed(),
+        "op" => prop_oneof![
+            proptest::sample::select(vec![
+                "rotate(90)",
+                "rotate(270)",
+                "rotate(45)",
+                "flip_h()",
+                "flip_v()",
+                "crop(0.1,0.1,0.9,0.9)",
+                "tuning(0.2,0,0,0,none)",
+                "autofix()",
+                "sepia()",
+                "future_op(1)",
+                "legacy:redeye(1)",
+                "",
+                "sepia(",
+            ])
+            .prop_map(|o| json!(o)),
+            "\\PC{0,24}".prop_map(|o| json!(o))
+        ]
+        .boxed(),
         "on" | "starred" | "replace" => any::<bool>().prop_map(Value::Bool).boxed(),
         "path" => path.boxed(),
         "folder" | "offset" | "limit" => prop_oneof![0u64..20, Just(10_000), Just(10_001), any::<u64>()].prop_map(|n| json!(n)).boxed(),
@@ -64,7 +85,7 @@ fn value_for(key: &'static str, roots: Vec<PathBuf>) -> BoxedStrategy<Value> {
     prop_oneof![4 => plausible, 1 => any_json()].boxed()
 }
 
-const KEYS: [&str; 12] = ["ids", "on", "path", "folder", "starred", "offset", "limit", "command", "context", "key", "replace", "zzz"];
+const KEYS: [&str; 14] = ["ids", "id", "op", "on", "path", "folder", "starred", "offset", "limit", "command", "context", "key", "replace", "zzz"];
 
 /// The keys command `id` accepts (so most generated parameters get past parsing).
 fn own_keys(id: &str) -> Vec<&'static str> {
@@ -75,6 +96,8 @@ fn own_keys(id: &str) -> Vec<&'static str> {
         "folders.add" => vec!["path"],
         "app.setShortcut" => vec!["command", "context", "key", "replace"],
         "app.resetShortcuts" => vec!["command"],
+        "photo.history.apply" => vec!["id", "op"],
+        "photo.history.undo" | "photo.history.redo" | "photo.history.state" | "edit.undo" | "edit.redo" => vec!["id"],
         _ => vec![],
     }
 }

@@ -24,13 +24,13 @@ same commit.
 |---|---:|---:|---:|---:|
 | A. Library view | 12 | 16 | 4 | 1 |
 | B. Organizing | 2 | 8 | 32 | 0 |
-| C. Editing | 0 | 1 | 20 | 4 |
+| C. Editing | 0 | 2 | 19 | 4 |
 | D. Viewing | 0 | 1 | 5 | 2 |
 | E. Output | 0 | 0 | 2 | 9 |
 | F. Data | 1 | 17 | 2 | 0 |
 | G. Preferences and system | 0 | 7 | 7 | 0 |
 | H. Menus | 0 | 5 | 2 | 0 |
-| **All** | 15 | 55 | 74 | 16 |
+| **All** | 15 | 56 | 73 | 16 |
 <!-- /parity:summary -->
 
 ## Top gaps
@@ -131,7 +131,7 @@ same commit.
 | EDIT-ZOOM | Zoom slider mapping, Fit/1:1, click-hold zoom, pan | P0 | ⬜ | ref 03 §3.5 |
 | EDIT-COMPARE | A │ B and A │ A compare with dialogs | P2 | ⬜ | ref 03 §4 |
 | EDIT-TABS | Five icon tabs | P0 | ⬜ | |
-| EDIT-UNDO | Undo/Redo with action names, persistent, linear | P0 | ⬜ | |
+| EDIT-UNDO | Undo/Redo with action names, persistent, linear | P0 | 🟡 | engine: the photo's own linear history in its sidecar (`"edits"` / `"redo"`, survives a restart and a rebuild), a merged step (a second rotation, a cancelling flip) undone one at a time, labels "Undo Crop" / "Redo Tuning" (`cmd:photo.history.apply` `cmd:photo.history.undo` `cmd:photo.history.redo` `cmd:photo.history.state`, `cmd:edit.undo` / `cmd:edit.redo` with `{id}`), never on the library stack: `crates/engine/src/history.rs`, `crates/engine/src/cmd/history.rs`, `crates/engine/tests/photo_history.rs` (M7.3); the edit panel's Undo / Redo buttons and Ctrl+Z / Ctrl+Y routed in the edit view missing (M7.10, M7.16) |
 | EDIT-HIST | Histogram & camera info box | P1 | ⬜ | |
 | EDIT-CROP | Crop panel: ratios, custom ratios, suggestions, rotate, preview | P0 | ⬜ | ref 03 §6.1 |
 | EDIT-STRAIGHTEN | Straighten with grid and floating bar | P0 | ⬜ | |
@@ -144,7 +144,7 @@ same commit.
 | EDIT-SAVE | Save / Undo Save / Revert / Save As / Save a Copy | P0 | ⬜ | data-model §6 |
 | EDIT-RECIPE-COPY | Copy/Paste All Edits | P1 | ⬜ | |
 | EDIT-BATCH | Batch Edit submenu | P1 | ⬜ | |
-| EDIT-FLIP | Flip H/V | P1 | 🟡 | library: `cmd:edit.flipH` `cmd:edit.flipV` (Ctrl+Shift+H / Ctrl+Shift+V) append `flip_h()` / `flip_v()` to the recipe, the same flip twice in a row cancels, one undo step: `crates/engine/src/cmd/rotate.rs`, `crates/engine/tests/rotate.rs`; the library's thumbnails drawn flipped at paint time (`crates/ui/src/panels/thumbnails.rs`, `crates/ui/tests/rotate.rs`, M6.24); the edit view's own history missing |
+| EDIT-FLIP | Flip H/V | P1 | 🟡 | library: `cmd:edit.flipH` `cmd:edit.flipV` (Ctrl+Shift+H / Ctrl+Shift+V) append `flip_h()` / `flip_v()` to the recipe, the same flip twice in a row cancels, one undo step: `crates/engine/src/cmd/rotate.rs`, `crates/engine/tests/rotate.rs`; the library's thumbnails drawn flipped at paint time (`crates/ui/src/panels/thumbnails.rs`, `crates/ui/tests/rotate.rs`, M6.24); edit view: a flip through `cmd:photo.history.apply` is a step of the photo's own history ("Undo Flip"; a cancelling flip comes back on undo): `crates/engine/src/history.rs`, `crates/engine/tests/photo_history.rs` (M7.3); Ctrl+Shift+H / Ctrl+Shift+V routed there in the edit view missing (M7.10) |
 | FX-TILES | Effect tile grid with live previews, 1-click badge | P1 | ⬜ | ref 03 §8 |
 | FX-SHIFT | Shift variants | OOS | 🚫 | dropped 2026-10-09 (dated feature) |
 | FX-T3 | Tab 3 effects (12) | P1 | ⬜ | ref 03 §9 |

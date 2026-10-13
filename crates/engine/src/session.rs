@@ -23,6 +23,8 @@
 //! | [`crate::thumbs`] | the thumbnail ladder |
 //! | [`crate::metadata`] | the metadata hook and the write-back into photo files (a worker thread of its own) |
 //! | [`crate::metadata_cache`] | what photo files say, read on workers for `photo.metadata` |
+//! | [`crate::history`] | the photo's own history; the recipe hook |
+//! | `preview` | the edit view's preview renders (stub until M7.11) |
 //!
 //! Thumbnails are made by the thumbnailer's own workers as scans land; their sketches come back
 //! through the same calls and are applied as derived ops: journaled, but never on the undo stack
@@ -45,11 +47,13 @@ use serde_json::Value;
 use crate::error::{CmdError, OpenError};
 pub use crate::folders::FOLDERS_FILE;
 use crate::folders::Folders;
+use crate::history::Histories;
 use crate::jobs::Jobs;
 use crate::keymap::Keymap;
 use crate::metadata::{Metadata, Origin};
 use crate::metadata_cache::MetadataCache;
 use crate::offline::Offline;
+use crate::preview::Preview;
 use crate::registry::{CommandInfo, CommandSpec, History};
 use crate::scanning::{PHOTOS_PER_POLL, ScanKind, Scanning};
 use crate::settings::Settings;
@@ -119,6 +123,10 @@ pub struct Session {
     pub(crate) metadata: Metadata,
     /// What photo files say, read on workers for `photo.metadata` (`metadata_cache.rs`).
     pub(crate) metadata_cache: MetadataCache,
+    /// The photo histories' memory of merged steps, and the recipe hook (`history.rs`).
+    pub(crate) histories: Histories,
+    /// The edit view's preview renders (`preview.rs`).
+    pub(crate) preview: Preview,
     _lock: LibraryLock,
 }
 
@@ -192,6 +200,8 @@ impl Session {
             offline: Offline::default(),
             metadata: Metadata::default(),
             metadata_cache: MetadataCache::default(),
+            histories: Histories::default(),
+            preview: Preview::default(),
             _lock: lock,
         };
         session.configure_thumbnails();
@@ -236,13 +246,14 @@ impl Session {
 
     /// Applies `op` to the model, journals it, marks the folders it touched for a sidecar write, and
     /// (inside `execute`) collects its inverse for the undo step, then tells the metadata hook which
-    /// photos' owned fields it changed (`metadata.rs`). Commands change the library only through
-    /// this.
+    /// photos' owned fields it changed (`metadata.rs`) and the recipe hook which photos' recipes it
+    /// changed (`history.rs`). Commands change the library only through this.
     pub(crate) fn apply(&mut self, op: Op) -> Result<Op, CmdError> {
         // An op from the files (outside `execute`): what it imports and its conflicts (`scanning.rs`).
         let files = if self.collected.is_none() { self.files_op_before(&op) } else { None };
         let before = self.all_folder_ids();
         let owned_before = crate::metadata::snapshot(&self.library, &crate::metadata::candidates(&self.library, &op));
+        let recipes_before = crate::history::recipes_before(&self.library, &op);
         let inverse = self.library.apply(op.clone()).map_err(|e| match e {
             dalica_library::Error::UnknownFolder(_) | dalica_library::Error::UnknownPhoto(_) => CmdError::NotFound(e.to_string()),
             other => CmdError::BadParams(other.to_string()),
@@ -264,6 +275,7 @@ impl Session {
         // scan's or the watcher's.
         let origin = if self.collected.is_some() { Origin::Command } else { Origin::Files };
         self.metadata_applied(owned_before, origin);
+        self.recipes_applied(recipes_before);
         if let Some(conflicts) = files {
             self.files_op_after(conflicts, &inverse);
         }
@@ -371,8 +383,9 @@ impl Session {
     /// Applies the results of finished background work: up to [`PHOTOS_PER_POLL`] photos of what
     /// the scans found (ending the scans that are complete), what the watcher and the online
     /// checks reported, and up to [`crate::thumbs::POLL_MAX`] thumbnail jobs (their sketches in
-    /// batches); then the metadata hook's turn and the photo metadata answers that arrived, and drops the jobs that expired. Returns how many things it handled. Call it each
-    /// frame; it never blocks and never touches the disk.
+    /// batches); then the metadata hook's turn, the photo metadata answers and the edit view's
+    /// preview renders that arrived, and drops the jobs that expired. Returns how many things it
+    /// handled. Call it each frame; it never blocks and never touches the disk.
     pub fn poll(&mut self) -> usize {
         let mut n = self.poll_scans(PHOTOS_PER_POLL);
         n += self.poll_watching();
@@ -381,6 +394,7 @@ impl Session {
         self.apply_sketches();
         n += self.poll_metadata();
         n += self.poll_photo_metadata();
+        n += self.poll_preview();
         self.jobs.prune(self.clock.now());
         n
     }

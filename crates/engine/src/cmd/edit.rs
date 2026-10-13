@@ -1,6 +1,8 @@
-//! Undo and redo. In the library they walk the library undo stack; the edit view's per-photo
-//! history arrives with the edit view (M7) and the same command ids (`architecture.md` §4).
+//! Undo and redo (`architecture.md` §4). Without parameters they walk the library undo stack; with
+//! `{id}` they walk that photo's own history, as `photo.history.undo` / `photo.history.redo` do (in
+//! the edit view the UI passes the open photo).
 
+use dalica_core::PhotoId;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -15,10 +17,14 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Undo",
             menu: "Edit/Undo",
             keys: &[(Context::Library, "Ctrl+Z")],
-            params: "{}: undo the last library step",
+            params: r#"{} | {"id":PhotoId}: undo the last library step, or the photo's last edit"#,
             effect: Effect::Library,
             history: History::None,
-            enabled: |s, _| if s.undo_stack().undo_label().is_some() { Ok(()) } else { Err(Disabled("Nothing to undo.".into())) },
+            enabled: |s, p| match photo(p) {
+                None if s.undo_stack().undo_label().is_none() => Err(Disabled("Nothing to undo.".into())),
+                Some(id) if s.photo_history(id).is_some_and(|h| h.undo_label.is_none()) => Err(Disabled("Nothing to undo.".into())),
+                _ => Ok(()),
+            },
             run: undo,
         },
         CommandSpec {
@@ -26,10 +32,14 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Redo",
             menu: "Edit/Redo",
             keys: &[(Context::Library, "win,linux:Ctrl+Y"), (Context::Library, "mac:Ctrl+Shift+Z")],
-            params: "{}: redo the last undone library step",
+            params: r#"{} | {"id":PhotoId}: redo the last undone library step, or the photo's last undone edit"#,
             effect: Effect::Library,
             history: History::None,
-            enabled: |s, _| if s.undo_stack().redo_label().is_some() { Ok(()) } else { Err(Disabled("Nothing to redo.".into())) },
+            enabled: |s, p| match photo(p) {
+                None if s.undo_stack().redo_label().is_none() => Err(Disabled("Nothing to redo.".into())),
+                Some(id) if s.photo_history(id).is_some_and(|h| h.redo_label.is_none()) => Err(Disabled("Nothing to redo.".into())),
+                _ => Ok(()),
+            },
             run: redo,
         },
     ]
@@ -37,10 +47,21 @@ pub fn specs() -> Vec<CommandSpec> {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Nothing {}
+struct Target {
+    #[serde(default)]
+    id: Option<PhotoId>,
+}
+
+/// The photo `p` names, if it names one (a malformed `id` is left to `run`, which reports it).
+fn photo(p: &Value) -> Option<PhotoId> {
+    p.get("id").and_then(Value::as_u64).map(PhotoId::new)
+}
 
 fn undo(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
-    let Nothing {} = params(p)?;
+    let Target { id } = params(p)?;
+    if let Some(id) = id {
+        return crate::cmd::history::undo_photo(s, id);
+    }
     match s.undo()? {
         Some(label) => Ok(json!({ "undone": label })),
         None => Err(CmdError::Disabled("Nothing to undo.".into())),
@@ -48,7 +69,10 @@ fn undo(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
 }
 
 fn redo(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
-    let Nothing {} = params(p)?;
+    let Target { id } = params(p)?;
+    if let Some(id) = id {
+        return crate::cmd::history::redo_photo(s, id);
+    }
     match s.redo()? {
         Some(label) => Ok(json!({ "redone": label })),
         None => Err(CmdError::Disabled("Nothing to redo.".into())),
@@ -82,5 +106,22 @@ mod tests {
         assert!(matches!(s.execute("edit.redo", &json!({})), Err(CmdError::Disabled(_))));
         hostile(&mut s, "edit.undo");
         hostile(&mut s, "edit.redo");
+    }
+
+    /// With `{id}` they walk the photo's own history and leave the library stack alone.
+    #[test]
+    fn with_a_photo_they_walk_its_history() {
+        let (_dirs, mut s, ids) = library(2);
+        s.execute("photo.star.toggle", &json!({ "ids": [ids[1]] })).unwrap();
+        assert_eq!(s.execute("edit.undo", &json!({ "id": ids[0] })), Err(CmdError::Disabled("Nothing to undo.".into())));
+        s.execute("photo.history.apply", &json!({ "id": ids[0], "op": "autofix()" })).unwrap();
+        assert_eq!(s.execute("edit.undo", &json!({ "id": ids[0] })).unwrap(), json!({ "id": ids[0], "undone": "Auto Fix" }));
+        assert!(s.library().info(ids[0]).edits.is_empty());
+        assert_eq!(s.execute("edit.redo", &json!({ "id": ids[0] })).unwrap(), json!({ "id": ids[0], "redone": "Auto Fix" }));
+        assert_eq!(s.execute("edit.redo", &json!({ "id": ids[0] })), Err(CmdError::Disabled("Nothing to redo.".into())));
+        assert_eq!(s.undo_stack().len(), 1, "only the star");
+        assert!(s.library().photo(ids[1]).unwrap().star);
+        assert!(matches!(s.execute("edit.undo", &json!({ "id": 999 })), Err(CmdError::NotFound(_))));
+        assert!(matches!(s.execute("edit.undo", &json!({ "id": "x" })), Err(CmdError::BadParams(_))));
     }
 }

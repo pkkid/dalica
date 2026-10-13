@@ -2596,7 +2596,7 @@ effect tabs show an empty state until M12.
     a full render; the render key changes when one operation's version does, and only for recipes
     that use it; proptest random recipes and hostile parameters (NaN, huge, zero sizes) never panic
     and stay within the allocation limit.
-- ⬜ **M7.3 `engine`: the photo's own history, M7's command modules and settings**
+- ✅ **M7.3 `engine`: the photo's own history, M7's command modules and settings**
   - after: M6.5, M6.8, M6.14, M6.R
   - files: `crates/engine/src/cmd/mod.rs`, `crates/engine/src/cmd/edit.rs`, `crates/engine/src/cmd/history.rs`, `crates/engine/src/cmd/crop.rs`, `crates/engine/src/cmd/tuning.rs`, `crates/engine/src/history.rs`, `crates/engine/src/preview.rs`, `crates/engine/src/session.rs`, `crates/engine/src/settings.rs`, `crates/engine/tests/photo_history.rs`, `crates/engine/tests/settings_m7.rs`, `crates/engine/README.md`, `docs/architecture.md`
   - scope: `architecture.md` §4 and `editing.md` §5.1, over the recipe and redo list M6.2 and M6.8
