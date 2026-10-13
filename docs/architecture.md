@@ -231,6 +231,23 @@ pub struct CommandSpec {
     goes into that photo's history and not onto the library stack.
   - Both are commands: `edit.undo` / `edit.redo` resolve to `library.undo` / `library.redo` or
     `photo.history.undo` / `photo.history.redo {id}` by context, so agents can call either directly.
+    `edit.undo {id}` / `edit.redo {id}` walk that photo's history; without `id`, the library stack.
+  - **The photo's history** (`crates/engine/src/history.rs`, `cmd/history.rs`): a step
+    (`photo.history.apply {id, op}`, `History::Photo`) appends to the recipe by `edit`'s rules and
+    clears the redo list; undo moves the last entry to the end of `"redo"`, redo moves it back.
+    `photo.history.state {id}` answers the recipe, the redo list and the button labels ("Undo
+    Crop", "Redo Tuning"; "Undo" / "Redo" when there is nothing).
+  - **Merged steps.** A step that merged into the entry before it (a second rotation turning
+    `rotate(90)` into `rotate(180)`, a flip cancelling the flip before it, a Tuning session updating
+    the last `tuning` entry) undoes to that entry's earlier value, and redo merges it again; the
+    redo list holds the operation the step applied (`rotate(90)`). The session remembers, per
+    photo, how each of its steps changed the end of the recipe; a step the memory no longer
+    matches (the recipe changed by a library step, another application, or a restart) undoes as
+    its plain last entry, so after a restart `rotate(180)` undoes in one step. Steps sharing a
+    `coalesce` key that each replace the entry the one before left are one step (a Tuning
+    session, M7.18).
+  - The session's recipe hook (`Session::take_recipe_changes`) lists every photo whose recipe
+    changed, by either history, a scan or the watcher, for the thumbnails (M7.9).
   - The menu label always names the step it will undo ("Undo Star", "Undo Crop"), so the user can
     see which history is active.
 - **Settings** (`settings.json`, engine): a typed struct; unknown keys preserved; damaged file kept

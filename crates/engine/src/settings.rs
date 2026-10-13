@@ -41,6 +41,12 @@
 //!   `useRecent` "Use the top two buttons for recently used tags" (on by default), `recent` the
 //!   recently used tags, most recent first (at most [`MAX_RECENT_TAGS`]).
 //!
+//! M7 adds `"edit"`, merged key by key the same way (M7.3; [`EditSettings`]): `{cropRatios,
+//! lastCropRatio, photoSizes, singleClickLeaves}`, the Crop panel's custom ratios (`{name, width,
+//! height}` each, at most [`MAX_CROP_RATIOS`]) and the last ratio used (`editing.md` §6.1), the
+//! photo sizes it lists (`"us"` or `"metric"`; unset, US when the system's region is the US), and
+//! "Single-click to leave the edit view" (off; `editing.md` §1).
+//!
 //! The command modules read them through [`Session::settings`](crate::Session::settings) and change
 //! them through [`Session::change_settings`](crate::Session::change_settings) with the typed
 //! accessors below. A value of the wrong type is the default and is reported once, when the library
@@ -244,6 +250,113 @@ fn recent_list<'a>(tags: impl IntoIterator<Item = &'a str>) -> Vec<String> {
         }
         if !out.contains(&t) {
             out.push(t);
+        }
+    }
+    out
+}
+
+/// The most custom crop ratios kept.
+pub const MAX_CROP_RATIOS: usize = 100;
+/// The longest custom ratio name, or stored last ratio, read, in bytes.
+pub const MAX_RATIO_NAME: usize = 256;
+/// The largest side of a custom crop ratio (`4 × 6` has sides 4 and 6).
+pub const MAX_RATIO_SIDE: f64 = 100_000.0;
+
+/// One custom crop ratio of the Crop panel (`editing.md` §6.1): "Width × Height" and a name.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CropRatio {
+    /// Trimmed, not empty, at most [`MAX_RATIO_NAME`] bytes; unique among the ratios.
+    pub name: String,
+    /// Finite, above 0, at most [`MAX_RATIO_SIDE`].
+    pub width: f64,
+    pub height: f64,
+}
+
+impl CropRatio {
+    /// The ratio as kept: the name trimmed; `None` when the name or a side is out of bounds.
+    pub fn checked(&self) -> Option<CropRatio> {
+        let name = self.name.trim();
+        let side = |v: f64| v.is_finite() && v > 0.0 && v <= MAX_RATIO_SIDE;
+        (!name.is_empty() && name.len() <= MAX_RATIO_NAME && side(self.width) && side(self.height)).then(|| CropRatio {
+            name: name.to_string(),
+            width: self.width,
+            height: self.height,
+        })
+    }
+}
+
+/// Which photo sizes the Crop panel lists (`editing.md` §6.1).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PhotoSizes {
+    /// "4 × 6", "5 × 7", "8 × 10", "8.5 × 11 (Letter)".
+    Us,
+    /// "10 × 15", "13 × 18", "20 × 25", "A4".
+    Metric,
+}
+
+impl PhotoSizes {
+    /// The stored text.
+    pub fn id(self) -> &'static str {
+        match self {
+            PhotoSizes::Us => "us",
+            PhotoSizes::Metric => "metric",
+        }
+    }
+
+    /// The sizes stored as `id`.
+    pub fn from_id(id: &str) -> Option<PhotoSizes> {
+        match id {
+            "us" => Some(PhotoSizes::Us),
+            "metric" => Some(PhotoSizes::Metric),
+            _ => None,
+        }
+    }
+
+    /// The sizes for a locale name such as `en_US.UTF-8` or `en-US`: US when its region is the US,
+    /// metric otherwise (and when there is none).
+    pub fn for_locale(locale: Option<&str>) -> PhotoSizes {
+        let region = locale.and_then(|l| l.split(['.', '@']).next()).and_then(|l| l.split(['_', '-']).nth(1));
+        if region.is_some_and(|r| r.eq_ignore_ascii_case("US")) { PhotoSizes::Us } else { PhotoSizes::Metric }
+    }
+
+    /// The system's default: from the locale the environment names for paper sizes (`LC_ALL`, then
+    /// `LC_PAPER`, then `LANG`, the first one set and not empty), metric when none is.
+    pub fn system() -> PhotoSizes {
+        let locale = ["LC_ALL", "LC_PAPER", "LANG"].into_iter().filter_map(|k| std::env::var(k).ok()).find(|v| !v.is_empty());
+        PhotoSizes::for_locale(locale.as_deref())
+    }
+}
+
+/// The edit view's settings (`"edit"` in `settings.json`).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct EditSettings {
+    /// The Crop panel's custom ratios, in the order added.
+    pub crop_ratios: Vec<CropRatio>,
+    /// The ratio last used in the Crop panel, by the Crop panel's own name for it.
+    pub last_crop_ratio: Option<String>,
+    /// The photo sizes listed; `None` follows the system ([`PhotoSizes::system`]).
+    pub photo_sizes: Option<PhotoSizes>,
+    /// "Single-click to leave the edit view" (off).
+    pub single_click_leaves: bool,
+}
+
+impl EditSettings {
+    /// The photo sizes listed: the stored choice, else the system's.
+    pub fn photo_sizes(&self) -> PhotoSizes {
+        self.photo_sizes.unwrap_or_else(PhotoSizes::system)
+    }
+}
+
+/// `ratios` as kept: each [`CropRatio::checked`], the first of equal names kept, at most
+/// [`MAX_CROP_RATIOS`].
+fn ratio_list<'a>(ratios: impl IntoIterator<Item = &'a CropRatio>) -> Vec<CropRatio> {
+    let mut out: Vec<CropRatio> = Vec::new();
+    for r in ratios.into_iter().filter_map(CropRatio::checked) {
+        if out.len() == MAX_CROP_RATIOS {
+            break;
+        }
+        if !out.iter().any(|o| o.name == r.name) {
+            out.push(r);
         }
     }
     out
@@ -557,6 +670,46 @@ impl Settings {
         self.merge("tags", &[("recent", Some(json!(list)))]);
     }
 
+    /// The edit view's settings; a value of the wrong type is its default, and a custom ratio
+    /// that is not a `{name, width, height}` in bounds is left out.
+    pub fn edit(&self) -> EditSettings {
+        self.read_edit(&mut Vec::new())
+    }
+
+    /// Stores the edit view's settings under `"edit"` (ratios and the last ratio kept by the
+    /// reading rules; `photo_sizes: None` removes the stored choice); other keys are kept, and so
+    /// are the unknown keys of each stored ratio whose name is kept.
+    pub fn set_edit(&mut self, e: &EditSettings) {
+        let stored: Vec<Map<String, Value>> = match self.field("edit", "cropRatios") {
+            Some(Value::Array(list)) => list.iter().filter_map(|v| v.as_object().cloned()).collect(),
+            _ => Vec::new(),
+        };
+        let ratios: Vec<Value> = ratio_list(&e.crop_ratios)
+            .into_iter()
+            .map(|r| {
+                let mut obj = stored
+                    .iter()
+                    .find(|o| o.get("name").and_then(Value::as_str).map(str::trim) == Some(r.name.as_str()))
+                    .cloned()
+                    .unwrap_or_default();
+                obj.insert("name".into(), json!(r.name));
+                obj.insert("width".into(), json!(r.width));
+                obj.insert("height".into(), json!(r.height));
+                Value::Object(obj)
+            })
+            .collect();
+        let last = e.last_crop_ratio.as_deref().map(str::trim).filter(|l| !l.is_empty() && l.len() <= MAX_RATIO_NAME).map(|l| json!(l));
+        self.merge(
+            "edit",
+            &[
+                ("cropRatios", Some(Value::Array(ratios))),
+                ("lastCropRatio", last),
+                ("photoSizes", e.photo_sizes.map(|p| json!(p.id()))),
+                ("singleClickLeaves", Some(json!(e.single_click_leaves))),
+            ],
+        );
+    }
+
     /// The stored settings this version reads with a value of the wrong type, one line each, by key
     /// (never by value): their defaults are used. The session reports them in its notices when it
     /// opens the library.
@@ -565,6 +718,7 @@ impl Settings {
         self.read_metadata_writes(&mut out);
         self.read_quick_tags(&mut out);
         self.read_recent_tags(&mut out);
+        self.read_edit(&mut out);
         out.into_iter().map(|p| format!("settings.json: {p}")).collect()
     }
 
@@ -657,6 +811,53 @@ impl Settings {
                 Vec::new()
             }
         }
+    }
+
+    fn read_edit(&self, problems: &mut Vec<String>) -> EditSettings {
+        let mut e = EditSettings::default();
+        let Some(obj) = self.object("edit", problems) else { return e };
+        match obj.get("singleClickLeaves") {
+            None => {}
+            Some(Value::Bool(b)) => e.single_click_leaves = *b,
+            Some(_) => problems.push("edit.singleClickLeaves is not true or false; the default (off) is used".into()),
+        }
+        match obj.get("photoSizes") {
+            None => {}
+            Some(v) => match v.as_str().and_then(PhotoSizes::from_id) {
+                Some(p) => e.photo_sizes = Some(p),
+                None => problems.push("edit.photoSizes is not \"us\" or \"metric\"; the system's sizes are used".into()),
+            },
+        }
+        match obj.get("lastCropRatio") {
+            None => {}
+            Some(Value::String(l)) if !l.trim().is_empty() && l.trim().len() <= MAX_RATIO_NAME => e.last_crop_ratio = Some(l.trim().to_string()),
+            Some(_) => problems.push("edit.lastCropRatio is not a ratio name; no ratio is remembered".into()),
+        }
+        match obj.get("cropRatios") {
+            None => {}
+            Some(Value::Array(list)) => {
+                let read = |v: &Value| -> Option<CropRatio> {
+                    let o = v.as_object()?;
+                    CropRatio { name: o.get("name")?.as_str()?.to_string(), width: o.get("width")?.as_f64()?, height: o.get("height")?.as_f64()? }
+                        .checked()
+                };
+                let parsed: Vec<Option<CropRatio>> = list.iter().map(read).collect();
+                let bad = parsed.iter().filter(|r| r.is_none()).count();
+                if bad > 0 {
+                    problems.push(match bad {
+                        1 => "edit.cropRatios: 1 entry is not a usable ratio; it is left out".to_string(),
+                        n => format!("edit.cropRatios: {n} entries are not usable ratios; they are left out"),
+                    });
+                }
+                let kept: Vec<CropRatio> = parsed.into_iter().flatten().collect();
+                if kept.len() > MAX_CROP_RATIOS {
+                    problems.push(format!("edit.cropRatios has more than {MAX_CROP_RATIOS} ratios; the rest are ignored"));
+                }
+                e.crop_ratios = ratio_list(&kept);
+            }
+            Some(_) => problems.push("edit.cropRatios is not a list; no custom ratios are used".into()),
+        }
+        e
     }
 
     /// Reads `<dir>/settings.json` without changing anything: unlike [`Settings::load`], a damaged

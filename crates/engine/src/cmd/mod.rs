@@ -3,17 +3,20 @@
 
 pub mod app;
 pub mod caption;
+pub mod crop;
 pub mod dates;
 pub mod edit;
 pub mod folder_info;
 pub mod folders;
 pub mod hide;
+pub mod history;
 pub mod info;
 pub mod library;
 pub mod photo;
 pub mod rotate;
 pub mod section;
 pub mod tags;
+pub mod tuning;
 pub mod view;
 
 #[cfg(test)]
@@ -40,6 +43,10 @@ pub fn specs() -> Vec<CommandSpec> {
         tags::specs(),
         dates::specs(),
         info::specs(),
+        // M7: the photo's own history (M7.3); empty until M7.17 (crop) and M7.18 (tuning).
+        history::specs(),
+        crop::specs(),
+        tuning::specs(),
     ]
     .concat();
     #[cfg(test)]
