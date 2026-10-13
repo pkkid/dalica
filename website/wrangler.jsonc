@@ -1,8 +1,12 @@
-// Cloudflare Workers static assets: dalica.org is the files in ./public, no server code.
+// Cloudflare Workers static assets: dalica.pkarma.com is the files in ./public, no server code.
 // Deploy: `npx wrangler deploy` from this folder (or Workers Builds with root directory `website`).
+// The custom domain below makes Cloudflare create the DNS record and certificate on deploy.
 {
   "name": "dalica-website",
   "compatibility_date": "2026-10-01",
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [{ "pattern": "dalica.pkarma.com", "custom_domain": true }],
   "assets": {
     "directory": "./public",
     "not_found_handling": "404-page"
