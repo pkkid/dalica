@@ -19,6 +19,8 @@ dalica-meta.workspace = true
 # The sRGB profile embedded in an output whose source had a profile (`data-model.md` §6); already
 # in the product graph under `dalica-image`.
 moxcms.workspace = true
+# The export watermark: Inter SemiBold's glyphs, laid out and rasterised (M8.11).
+ab_glyph.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]

@@ -67,6 +67,9 @@ jxl-oxide-common = "1.0"
 heic-rs = { version = "=0.1.1", default-features = false, features = ["std"] }
 moxcms = "0.9"
 fast_image_resize = "6"
+# The export watermark's glyphs (dalica-create, M8.11; as LightCraft): Inter outlines and their
+# coverage, pure Rust (Apache-2.0; ttf-parser MIT OR Apache-2.0). No `variable-fonts`: Inter is static.
+ab_glyph = { version = "0.2.32", default-features = false, features = ["std"] }
 # Test files (`dalica-scenes` formats, M5.2): zlib for Deflate TIFF strips (already under `png`), a
 # safe lossless JPEG XL encoder (MIT OR Apache-2.0 OR Zlib; single-threaded, so its bytes are
 # deterministic) with its core types, and `image`'s own TIFF backend for layouts `image` refuses.
