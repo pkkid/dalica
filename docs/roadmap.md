@@ -3304,7 +3304,7 @@ first measurement. No step of M8 needs a maintainer decision mid-run.
     oversized segment is `Err`; 16-bit PNG keeps 16 bits and alpha; scenes JPEGs saved at 50, 75,
     90 and 95 are estimated within 2 and the subsampling is read; truncated and random headers give
     `None`, never a panic; fingerprints; the time to encode 24 MP printed.
-- ⬜ **M8.7 `meta`: metadata carried to a new file**
+- ✅ **M8.7 `meta`: metadata carried to a new file**
   - after: M6.10, M6.17, M6.18, M7.R
   - files: `crates/meta/src/carry.rs`, `crates/meta/src/carry/**`, `crates/meta/tests/carry.rs`
   - scope: `data-model.md` §6 and `creating.md` §2: from a source file's bytes in any container
