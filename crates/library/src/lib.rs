@@ -27,6 +27,7 @@ pub mod albums;
 mod model;
 mod op;
 mod query;
+pub mod search;
 pub mod sync;
 pub mod tags;
 mod tree;

@@ -4019,7 +4019,7 @@ mid-run.
     truncated and hostile blocks give no facts and never a panic; `crates/engine/tests/facts.rs`:
     after a scan the facts are in the library, a file rewritten with another camera model updates
     them, and the undo stack is unchanged.
-- ⬜ **M9.8 `library`: the search grammar, matcher and index**
+- ✅ **M9.8 `library`: the search grammar, matcher and index**
   - after: M9.1
   - files: `crates/library/src/search.rs`, `crates/library/src/search/**`, `crates/library/tests/search.rs`, `crates/library/tests/search_props.rs`, `NOTICE`
   - scope: `organizing.md` §8.1–§8.2: the grammar (words split at space, dot, underscore and dash;
