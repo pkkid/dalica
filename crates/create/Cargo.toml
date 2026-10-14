@@ -10,3 +10,17 @@ authors.workspace = true
 publish = false
 
 [dependencies]
+# Decoding under the limits, the colour stage, resizing and the JPEG/PNG encoders (M8.6).
+dalica-image.workspace = true
+# The recipe and its CPU renderer (M7.2): the output pipeline renders at full size through it.
+dalica-edit.workspace = true
+# Metadata carried to the new file (M8.7) and the owned fields merged into it.
+dalica-meta.workspace = true
+# The sRGB profile embedded in an output whose source had a profile (`data-model.md` §6); already
+# in the product graph under `dalica-image`.
+moxcms.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+# Procedural photos, their JPEG/PNG files and the pixel fingerprints of the output tests.
+dalica-scenes.workspace = true

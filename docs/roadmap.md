@@ -3355,7 +3355,7 @@ first measurement. No step of M8 needs a maintainer decision mid-run.
     panic and keep what they cannot use; a record naming `../x` or `CON` is kept but never reaches a
     file; a damaged record is set aside as `.corrupt-<time>` and reported; journal replay and
     snapshots keep the new fields.
-- ⬜ **M8.10 `create`: the one output pipeline**
+- ✅ **M8.10 `create`: the one output pipeline**
   - after: M7.2, M8.6, M8.7
   - files: `crates/create/src/lib.rs`, `crates/create/src/output.rs`, `crates/create/src/output/**`, `crates/create/src/watermark.rs`, `crates/create/tests/output.rs`, `crates/create/tests/common/**`, `crates/create/tests/fingerprints/output*.json`, `crates/create/README.md`
   - scope: `architecture.md` §6 and `data-model.md` §6: `output::render(source bytes, recipe,

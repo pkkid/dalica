@@ -829,6 +829,14 @@ dependencies = [
 [[package]]
 name = "dalica-create"
 version = "0.2.0"
+dependencies = [
+ "dalica-edit",
+ "dalica-image",
+ "dalica-meta",
+ "dalica-scenes",
+ "moxcms 0.9.1",
+ "thiserror 2.0.21",
+]
 
 [[package]]
 name = "dalica-edit"
