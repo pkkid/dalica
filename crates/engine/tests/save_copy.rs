@@ -136,6 +136,8 @@ fn two_copies_are_001_and_002_with_the_edits_and_the_photo_untouched() {
         assert_eq!(owned.caption.as_deref(), Some("Tram 28"));
         assert_eq!(owned.rating, Some(5), "the star as a rating, whatever the write-back options say");
     }
+    // Every sidecar write has landed (a debounced one leaves a temporary file while it is written).
+    lib.s.flush().unwrap();
     assert_eq!(files(&lib.lisbon()), [".dalica.json", "IMG_0001-001.jpg", "IMG_0001-002.jpg", "IMG_0001.jpg", "IMG_0002.jpg"]);
     // The photo, its file and its recipe are untouched; neither copy is an undo step.
     assert_eq!(std::fs::read(&source).unwrap(), original);
@@ -234,6 +236,7 @@ fn an_existing_path_is_refused_and_unchanged() {
     assert_eq!(missing.result.unwrap()["failed"][0]["code"], "no_folder");
     assert!(!lib.dir.path().join("Nowhere").exists());
 
+    lib.s.flush().unwrap();
     assert_eq!(files(&lib.lisbon()), before, "nothing written");
     assert_eq!(lib.s.library().photos().count(), photos_before);
     assert_eq!(lib.s.settings().save().last_folder, None, "nothing remembered");
