@@ -33,6 +33,7 @@
 
 mod diff;
 pub mod meta;
+pub mod originals;
 pub mod rules;
 pub mod skip;
 pub mod volumes;

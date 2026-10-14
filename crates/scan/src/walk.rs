@@ -17,13 +17,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::time::{Duration, Instant};
 
-use dalica_core::{DateTime, Timestamp};
+use dalica_core::{Clock, DateTime, SystemClock, Timestamp};
 use dalica_fs::{Entry, Limits};
 use dalica_image::{Format, Header};
-use dalica_library::{FolderInfo, MAX_CAPTION, MAX_DESCRIPTION, MAX_OPERATION, MAX_OPERATIONS, MAX_PLACE, PhotoInfo};
+use dalica_library::{FolderInfo, MAX_CAPTION, MAX_DESCRIPTION, MAX_OPERATION, MAX_OPERATIONS, MAX_PLACE, PhotoInfo, Project, SavedAs};
 use dalica_sidecar::{Field, Sidecar};
 
 use crate::meta::{FileValues, ReadMetadata};
+use crate::originals::{self, Originals};
 use crate::skip::{FileTypes, SkipRules};
 
 /// Files between two progress reports inside one folder.
@@ -50,6 +51,9 @@ pub struct FoundPhoto {
     /// What the folder's sidecar says about the photo besides its star (caption, tags, hidden,
     /// recipe, redo list, date), as the model takes it ([`photo_info`]).
     pub info: PhotoInfo,
+    /// The copy a Save wrote beside the photo, from the folder's sidecar
+    /// ([`originals::saved_as`]).
+    pub saved_as: Option<SavedAs>,
     /// What the file itself says about the fields Dalica owns (caption, tags, rating, place,
     /// date), read when [`Options::metadata`] asks for it and the file is new or changed; `None`
     /// when not read or unreadable ([`crate::meta`]).
@@ -65,6 +69,11 @@ pub struct FoundFolder {
     /// What the folder's sidecar says about the folder (description, date, place, hidden), as
     /// the model takes it ([`folder_info`]).
     pub info: FolderInfo,
+    /// The folder's project mark, from its sidecar ([`originals::project`]).
+    pub project: Option<Project>,
+    /// The folder's originals record, read on the scan's thread ([`originals::read`]): the
+    /// photos' saved records.
+    pub originals: Originals,
 }
 
 /// Something a scan could not read; the scan went on without it.
@@ -592,6 +601,8 @@ impl Scanner<'_> {
             }
         }
         let mut info = FolderInfo::default();
+        let mut project = None;
+        let mut kept = Originals::Absent;
         if !photos.is_empty() {
             // Read here, on the scan's thread: everything the user said in the sidecar comes in
             // with the photos, in the same op (`diff`), so no sidecar write can run in between.
@@ -599,13 +610,37 @@ impl Scanner<'_> {
                 for p in &mut photos {
                     p.star = sidecar.star(&p.name) == Field::Value(true);
                     p.info = photo_info(&sidecar, &p.name);
+                    p.saved_as = originals::saved_as(&sidecar, &p.name);
                 }
                 info = folder_info(&sidecar);
+                project = originals::project(&sidecar);
             }
+            // The originals record too (the walk never enters `.dalica-originals`): the saved
+            // records come in with the photos, in the same pass.
+            kept = originals::read(dir, SystemClock.now());
+            self.originals_warnings(dir, &kept);
             photos.sort_by(|a, b| a.name.cmp(&b.name));
             self.summary.progress.found = self.summary.progress.found.saturating_add(photos.len());
         }
-        Some(FoundFolder { path: dir.to_path_buf(), photos, info })
+        Some(FoundFolder { path: dir.to_path_buf(), photos, info, project, originals: kept })
+    }
+
+    /// Reports what the originals record of `dir` could not give.
+    fn originals_warnings(&mut self, dir: &Path, kept: &Originals) {
+        let path = originals::record_path(dir);
+        match kept {
+            Originals::Absent => {}
+            Originals::Read { notes, .. } => {
+                for n in notes {
+                    self.warn(&path, n.clone());
+                }
+            }
+            Originals::Unreadable(why) => self.warn(&path, why.clone()),
+            Originals::SetAside { why, kept } => {
+                let kept = kept.as_ref().map(|k| format!("kept as {}", k.display())).unwrap_or_else(|| "could not be kept aside".into());
+                self.warn(&path, format!("{why}; {kept}"));
+            }
+        }
     }
 
     /// The folder's sidecar, if it has a readable one (a damaged one is the store's to set aside).
@@ -641,6 +676,7 @@ fn unread(entry: &Entry, name: &str, format: Format) -> FoundPhoto {
         date: None,
         star: false,
         info: PhotoInfo::default(),
+        saved_as: None,
         file: None,
     }
 }

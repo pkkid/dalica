@@ -3339,7 +3339,7 @@ first measurement. No step of M8 needs a maintainer decision mid-run.
     four quarter turns give the original coefficients; a partial-MCU size and a progressive file
     answer "not lossless here"; truncation at every offset and proptest random bytes never panic;
     the time for 24 MP printed.
-- ⬜ **M8.9 `sidecar` + `store` + `scan`: the originals record and M8's fields on disk**
+- ✅ **M8.9 `sidecar` + `store` + `scan`: the originals record and M8's fields on disk**
   - after: M6.8, M8.1
   - files: `crates/sidecar/src/originals.rs`, `crates/sidecar/src/fields.rs`, `crates/sidecar/src/print.rs`, `crates/sidecar/src/lib.rs`, `crates/sidecar/tests/originals.rs`, `crates/store/src/mapping.rs`, `crates/store/src/rebuild.rs`, `crates/store/tests/m8_fields.rs`, `crates/scan/src/originals.rs`, `crates/scan/tests/originals.rs`, `docs/data-model.md`
   - scope: `data-model.md` §2 and §6: `.dalica-originals/.dalica.json` parsed and printed (per

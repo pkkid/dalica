@@ -35,7 +35,9 @@ deletes files.
 | Tags | `"tags"` | XMP `dc:subject` + IPTC Keywords (default **on**) | yes | |
 | Hidden | `"hidden": true` | — | yes | |
 | Edit recipe, including 90° rotations and flips | `"edits"` (ordered), `"redo"` | — (until Save) | yes | |
-| Saved-edit backup | — | — | yes | `.dalica-originals/<file>` + `.dalica-originals/.dalica.json` |
+| Saved-edit backup and its record (the recipe saved, the original's size, time, pixel size and digest, pending or done) | — | — | yes (the record, read at scan and rebuild) | `.dalica-originals/<file>` + `.dalica-originals/.dalica.json` (§6) |
+| Copy saved beside (a format Dalica cannot write in place) | `"savedAs": { "name", "recipe" }` | — | yes | |
+| Project mark (a folder an export made) | `"folder": { "project": "exported" }` | — | yes | |
 | Album membership and order | `"albums": { "<album id>": "<position key>" }` per photo (§3.2) | — | yes | album definitions: §4 |
 | Folder description/date/place, hidden folder | `"folder"` object (`"hidden": true` in the folder's own sidecar, so it stays hidden when the folder moves) | — | yes | |
 | Custom folder sort order | `"folder": { "order" }` | — | yes | |
@@ -135,6 +137,19 @@ Format rules:
     field; a `photos` entry or `"folder"` that is not an object is never written over.
   - The last-synced metadata hashes (`xmp-interop.md` §5) are index-only: never in a sidecar, and
     empty again after a rebuild.
+- **The M8 fields** (built in M8.9: `dalica-sidecar` `fields`, `dalica-store` `mapping`). Per
+  photo: `savedAs`, the JPEG a Save wrote beside a photo Dalica cannot write in place (§6), an
+  object `{"name": "IMG_0001.jpg", "recipe": ["sepia()"]}`: the copy's file name in the same
+  folder and the recipe it was rendered with (an empty recipe is written as no key). Per folder,
+  in `"folder"`: `project`, the folder's project mark; `"exported"` (a folder an export made) is
+  the only kind so far. Both follow the M6 rules above; besides:
+  - `savedAs` is used only when `name` is one plain path component (`security.md` §5.4) and the
+    recipe is within the caps; otherwise, like a value of the wrong type, it is kept, reported
+    and not used. Writing a new copy keeps the keys of the `savedAs` object Dalica does not
+    know.
+  - A `project` kind Dalica does not know is kept and reported, and the folder is not marked.
+  - The saved record itself is never in the folder sidecar: it lives in the originals record
+    (§6), so the sidecar stays what the user decided.
 - Readers accept a BOM and CRLF; a duplicate key takes the later value. Nesting is bounded
   (`security.md` §8).
 - `dalica.missing` is Dalica's own bookkeeping for stale entries (§7): an object from a photo's
@@ -305,13 +320,73 @@ photos in the folder):
 3. Render the recipe at full resolution and write it under the original name (JPEG quality matched
    to the original's estimated quality, 90 if unknown; all metadata carried over; orientation
    normalised to "top-left" after applying rotation).
-4. Record the recipe, the original's mtime and dimensions in `.dalica-originals/.dalica.json`; clear
-   `"edits"` from the folder sidecar.
+4. Record the recipe, the original's size, mtime, dimensions and digest in
+   `.dalica-originals/.dalica.json` (the originals record, below); clear `"edits"` from the folder
+   sidecar.
 5. For files Dalica cannot write in their own format (RAW, PNG with alpha, GIF, video), Save writes
    a JPEG next to the source (`name.jpg`, or `name-001.jpg` on collision) and leaves the source
    untouched.
 A Save whose recipe holds only rotations and flips is **lossless** for JPEGs (DCT-domain rotation when dimensions allow; otherwise
-the EXIF orientation flag is updated instead).
+the EXIF orientation flag is updated instead). The DCT-domain transforms (`dalica-image`
+`jpeg_transform`, M8.8) keep the file's own quantisation tables: the transposing transforms
+(EXIF orientations 5–8, the quarter turns and the transposes) transpose each table along with the
+coefficients, so every coefficient keeps its own quantiser and nothing is requantised; the others
+copy the tables byte for byte. A file with data after its end-of-image marker (MPF secondary
+images, trailers) is refused and takes the orientation-flag fallback, since that data's offsets
+and orientation would go stale.
+
+**The originals record** (`.dalica-originals/.dalica.json`; built in M8.9: `dalica-sidecar`
+`originals`, `dalica-store` `mapping` and `rebuild`, `dalica-scan` `originals`). One per folder
+that has a kept original, written by Save, Undo Save and Revert through `fs`'s atomic replace
+(M8.12) and printed like the folder sidecar (UTF-8, two-space indentation, LF, keys sorted by
+their bytes at every level, unknown keys kept verbatim):
+
+```json
+{
+  "dalica": { "version": 1 },
+  "originals": {
+    "IMG_0001.jpg": {
+      "digest": "md5:9e107d9d372bb6826bd81d3542a419d6",
+      "height": 3000,
+      "mtime": 1780000000123,
+      "recipe": ["rotate(90)", "autofix()"],
+      "size": 2483112,
+      "state": "done",
+      "time": 1791000000000,
+      "width": 4000
+    }
+  }
+}
+```
+
+- One entry per kept original under `"originals"`, keyed by the photo's file name (the backup's
+  name in `.dalica-originals/`). `recipe`: the whole recipe the saved file holds (a second Save
+  renders it followed by the new edits, from the kept original, so quality loss never compounds);
+  `size`: the original's bytes; `mtime`: its modification time in milliseconds since 1970 (UTC);
+  `width`, `height`: its size in pixels as displayed (0 when unknown); `digest`: the original's
+  bytes hashed, written `md5:<32 lowercase hex digits>`; `state`: `pending` (written before
+  anything moves) or `done` (written last); `time`: when the Save was made, in milliseconds since
+  1970. `size`, `mtime` and `state` are required; the others may be absent (empty, 0, unknown).
+- The digest only confirms that a backup is still the original that was recorded, before Undo
+  Save or Revert moves it back (`fs` `originals`, M8.2); an empty digest, or one under an
+  algorithm Dalica does not know, cannot confirm it, and the backup is then left alone.
+- An entry is used only when its name is one plain path component (`security.md` §5.4: `../x`
+  and `CON` are not) and every key Dalica knows has the right type, with the recipe and the digest
+  (at most 256 bytes) within the library's caps. Anything else is kept in the file, reported once,
+  and never reaches a file or the model.
+- The record is index-only data for the library: the scan reads it on its worker for each folder
+  it walks (the walk itself still skips `.dalica-originals`, so the kept originals are never
+  photos of the library) and a rebuild reads it back, both turning it into the photos' saved
+  records as derived data (no undo step, no revision bump). A photo whose name has no usable entry
+  has no saved record; a record that cannot be read leaves the model's records as they are.
+- `.dalica-originals` or the record is never reached through a link; a file in place of the
+  folder is reported and nothing in it is read.
+- A damaged record (not JSON, not an object, past the limits of `security.md` §4.2) is renamed to
+  `.dalica.json.corrupt-<time>` beside it and reported; the photos keep their saved records in the
+  index, and the next Save starts a new record without writing over the old one.
+- A pending entry found at open or by a scan is a Save that was interrupted: it is repaired,
+  rolled forward when the new file is complete and verifies, else rolled back (the original moved
+  back to its name and the entry dropped).
 
 **Undo Save** (button in the edit panel for saved photos): restore the original from the backup and
 put the recipe back as unsaved edits.

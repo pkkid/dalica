@@ -16,12 +16,23 @@
 //! spellings the model would not choose (a tag list it cleaned, an EXIF-style date). An unusable
 //! value is written over only when the model holds a value of its own for that field (the user
 //! set one); otherwise it is kept.
+//!
+//! **M8's fields** follow the same rules: a photo's copy saved beside it (`savedAs`, from
+//! [`dalica_library::SavedAs`]) and a folder's project mark (`"folder": {"project": "exported"}`)
+//! live in the folder sidecar ([`PHOTO_DATA_M8`], [`FOLDER_DATA_M8`]); a `savedAs` whose name is
+//! not one plain path component, or a project kind Dalica does not know, is unusable (kept,
+//! reported). A photo's saved record ([`dalica_library::Saved`], [`SAVED_FIELDS`]) lives in the
+//! originals record `.dalica-originals/.dalica.json` ([`read_originals`], [`originals_entry`]).
 
 use std::path::PathBuf;
 
-use dalica_core::{Date, DateTime, FolderId};
-use dalica_library::{FolderInfo, Library, MAX_CAPTION, MAX_DESCRIPTION, MAX_OPERATION, MAX_OPERATIONS, MAX_PLACE, PhotoInfo};
-use dalica_sidecar::{Field, FolderValue, PhotoValue, Sidecar, WrongType};
+use dalica_core::{Date, DateTime, FolderId, Timestamp};
+use dalica_library::{
+    FolderInfo, Library, MAX_CAPTION, MAX_DESCRIPTION, MAX_DIGEST, MAX_FILE_NAME, MAX_OPERATION, MAX_OPERATIONS, MAX_PLACE, PhotoInfo, Project,
+    SaveState, Saved, SavedAs,
+};
+use dalica_sidecar::originals::{self, Entry, Originals, State};
+use dalica_sidecar::{Field, FolderValue, PhotoValue, Sidecar, WrongType, plain_name};
 
 /// Where a model field's value comes from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -38,6 +49,9 @@ pub enum Source {
     FolderSidecar(&'static str),
     /// A struct whose fields have a table of their own (named here).
     Fields(&'static str),
+    /// Dalica's own record of a Save: written to and read from the photo's entry in the folder's
+    /// originals record (`.dalica-originals/.dalica.json`, `originals.<name>.<key>`).
+    Originals(&'static str),
 }
 
 /// Every field of [`dalica_library::Photo`] and where it lives.
@@ -78,6 +92,28 @@ pub const FOLDER_FIELDS: [(&str, Source); 2] = [("id", Source::Index), ("path", 
 /// Folder data the model keeps beside [`dalica_library::Folder`].
 pub const FOLDER_DATA: [(&str, Source); 1] = [("info", Source::Fields("FOLDER_INFO_FIELDS"))];
 
+/// Per-photo data M8 adds beside [`dalica_library::Photo`], and where it lives.
+pub const PHOTO_DATA_M8: [(&str, Source); 2] = [("saved", Source::Fields("SAVED_FIELDS")), ("savedAs", Source::Fields("SAVED_AS_FIELDS"))];
+
+/// Every field of [`dalica_library::Saved`]: each under its own key in the photo's entry of the
+/// originals record. The model reads it at scan and rebuild (no undo step, no revision bump).
+pub const SAVED_FIELDS: [(&str, Source); 8] = [
+    ("recipe", Source::Originals("recipe")),
+    ("size", Source::Originals("size")),
+    ("mtime", Source::Originals("mtime")),
+    ("width", Source::Originals("width")),
+    ("height", Source::Originals("height")),
+    ("digest", Source::Originals("digest")),
+    ("state", Source::Originals("state")),
+    ("time", Source::Originals("time")),
+];
+
+/// Every field of [`dalica_library::SavedAs`]: one object under the photo's `savedAs` key.
+pub const SAVED_AS_FIELDS: [(&str, Source); 2] = [("name", Source::Sidecar("savedAs")), ("recipe", Source::Sidecar("savedAs"))];
+
+/// Folder data M8 adds beside [`dalica_library::Folder`]: the project mark, in `"folder"`.
+pub const FOLDER_DATA_M8: [(&str, Source); 1] = [("project", Source::FolderSidecar("project"))];
+
 /// Every field of [`dalica_library::FolderInfo`] (Folder Properties, Hide Folder).
 pub const FOLDER_INFO_FIELDS: [(&str, Source); 4] = [
     ("description", Source::FolderSidecar("description")),
@@ -91,6 +127,8 @@ pub const FOLDER_INFO_FIELDS: [(&str, Source); 4] = [
 pub struct PhotoState {
     pub star: bool,
     pub info: PhotoInfo,
+    /// The copy a Save wrote beside the photo (M8).
+    pub saved_as: Option<SavedAs>,
 }
 
 /// What a folder's sidecar should say, taken from the model: enough to write it on any thread.
@@ -102,14 +140,20 @@ pub struct FolderState {
     pub folder: FolderInfo,
     /// (file name, state) for every photo in the folder.
     pub photos: Vec<(String, PhotoState)>,
+    /// The folder's project mark (M8).
+    pub project: Option<Project>,
 }
 
 /// The sidecar-relevant state of `folder`, or `None` if it is not in the model.
 pub fn folder_state(library: &Library, folder: FolderId) -> Option<FolderState> {
     let f = library.folder(folder)?;
-    let photos =
-        library.photos_in(folder).into_iter().map(|p| (p.name.clone(), PhotoState { star: p.star, info: library.info(p.id).clone() })).collect();
-    Some(FolderState { id: folder, path: f.path.clone(), folder: library.folder_info(folder).clone(), photos })
+    let photos = library.photos_in(folder).into_iter().map(|p| (p.name.clone(), photo_state(library, p))).collect();
+    Some(FolderState { id: folder, path: f.path.clone(), folder: library.folder_info(folder).clone(), photos, project: library.project(folder) })
+}
+
+/// The sidecar-relevant state of `photo`.
+pub fn photo_state(library: &Library, photo: &dalica_library::Photo) -> PhotoState {
+    PhotoState { star: photo.star, info: library.info(photo.id).clone(), saved_as: library.saved_as(photo.id).cloned() }
 }
 
 /// What one sidecar key gives the model.
@@ -197,6 +241,7 @@ pub struct PhotoReading {
     pub edits: Reading<Vec<String>>,
     pub redo: Reading<Vec<String>>,
     pub date: Reading<Option<DateTime>>,
+    pub saved_as: Reading<Option<SavedAs>>,
     /// Values past a cap, one sentence each (values of the wrong type are
     /// [`Sidecar::problems`]).
     pub notes: Vec<String>,
@@ -217,6 +262,7 @@ impl PhotoReading {
                 redo: self.redo.or_else(|| o.redo.clone()),
                 date: self.date.or(o.date),
             },
+            saved_as: self.saved_as.or_else(|| own.saved_as.clone()),
         }
     }
 }
@@ -228,6 +274,8 @@ pub struct FolderReading {
     pub date: Reading<Option<Date>>,
     pub place: Reading<String>,
     pub hidden: Reading<bool>,
+    /// The project mark (M8; [`FolderReading::merged`] leaves it out: see [`FolderReading::project`]).
+    pub project: Reading<Option<Project>>,
     /// Values past a cap, one sentence each.
     pub notes: Vec<String>,
 }
@@ -261,7 +309,44 @@ pub fn read_photo(sidecar: &Sidecar, name: &str) -> PhotoReading {
         edits: operations(f.edits, "recipe", &mut notes),
         redo: operations(f.redo, "redo list", &mut notes),
         date: dated(f.date),
+        saved_as: saved_as(sidecar.saved_as(name), &mut notes),
         notes,
+    }
+}
+
+/// A `savedAs` the model can take: a plain file name within the cap and a recipe within the caps.
+fn saved_as(f: Field<dalica_sidecar::SavedAs>, notes: &mut Vec<String>) -> Reading<Option<SavedAs>> {
+    match f {
+        Field::Absent => Reading::Usable(None),
+        Field::WrongType(_) => Reading::Unusable,
+        Field::Value(v) if !plain_name(&v.name) || v.name.len() > MAX_FILE_NAME => {
+            notes.push("the copy saved beside it is not named by a plain file name: kept in the file, not used".into());
+            Reading::Unusable
+        }
+        Field::Value(v) => match operations(Field::Value(v.recipe), "copy's recipe", notes) {
+            Reading::Usable(recipe) => Reading::Usable(Some(SavedAs { name: v.name, recipe })),
+            Reading::Unusable => Reading::Unusable,
+        },
+    }
+}
+
+/// The spelling of a project kind in the sidecar.
+pub fn project_text(project: Project) -> &'static str {
+    match project {
+        Project::Exported => "exported",
+    }
+}
+
+/// A project mark the model can take.
+fn project(f: Field<String>, notes: &mut Vec<String>) -> Reading<Option<Project>> {
+    match f {
+        Field::Absent => Reading::Usable(None),
+        Field::Value(s) if s == project_text(Project::Exported) => Reading::Usable(Some(Project::Exported)),
+        Field::Value(s) => {
+            notes.push(format!("the folder's project kind {s:?} is not one Dalica knows: kept in the file, not used"));
+            Reading::Unusable
+        }
+        Field::WrongType(_) => Reading::Unusable,
     }
 }
 
@@ -274,6 +359,7 @@ pub fn read_folder(sidecar: &Sidecar) -> FolderReading {
         date: dated(f.date),
         place: capped(f.place, MAX_PLACE, dalica_library::clean_place, "folder place", &mut notes),
         hidden: plain(f.hidden),
+        project: project(sidecar.project(), &mut notes),
         notes,
     }
 }
@@ -299,7 +385,11 @@ pub fn apply(state: &FolderState, sidecar: &mut Sidecar) -> Vec<WrongType> {
     if differs(&r.hidden, &info.hidden) {
         folder.push(FolderValue::Hidden(info.hidden));
     }
-    if let Some(e) = folder.iter().find_map(|v| sidecar.set_folder(v).err()) {
+    let mut folder_refused = folder.iter().find_map(|v| sidecar.set_folder(v).err());
+    if folder_refused.is_none() && differs(&r.project, &state.project) {
+        folder_refused = sidecar.set_project(state.project.map(project_text)).err();
+    }
+    if let Some(e) = folder_refused {
         refused.push(e);
     }
     for (name, photo) in &state.photos {
@@ -328,7 +418,12 @@ pub fn apply(state: &FolderState, sidecar: &mut Sidecar) -> Vec<WrongType> {
             values.push(PhotoValue::Date(i.date));
         }
         // Every key of one photo goes into the same entry: its first refusal says it all.
-        if let Some(e) = values.iter().find_map(|v| sidecar.set_photo(name, v).err()) {
+        let mut photo_refused = values.iter().find_map(|v| sidecar.set_photo(name, v).err());
+        if photo_refused.is_none() && differs(&r.saved_as, &photo.saved_as) {
+            let copy = photo.saved_as.as_ref().map(|c| dalica_sidecar::SavedAs { name: c.name.clone(), recipe: c.recipe.clone() });
+            photo_refused = sidecar.set_saved_as(name, copy.as_ref()).err();
+        }
+        if let Some(e) = photo_refused {
             refused.push(e);
         }
     }
@@ -340,5 +435,72 @@ pub fn star_of(sidecar: &Sidecar, name: &str) -> Option<bool> {
     match plain(sidecar.star(name)) {
         Reading::Usable(on) => Some(on),
         Reading::Unusable => None,
+    }
+}
+
+/// What a folder's originals record gives the model: the saved records it may use, by photo file
+/// name, and why the others are not used.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct OriginalsReading {
+    /// (file name, record) for every entry with a plain name and values within the caps, in name
+    /// order.
+    pub saved: Vec<(String, Saved)>,
+    /// One sentence per entry or value not used (it stays in the file).
+    pub notes: Vec<String>,
+}
+
+/// Reads an originals record ([`Originals`]): entries whose name is not one plain path component
+/// or that hold a value of the wrong type are kept in the file and reported, never used; so is
+/// one with a digest or a recipe past the library's caps.
+pub fn read_originals(record: &Originals) -> OriginalsReading {
+    let mut out = OriginalsReading::default();
+    for p in record.problems() {
+        out.notes.push(format!("{}{} should be {}", originals::DIR_NAME, p.pointer, p.expected));
+    }
+    for (name, entry) in record.entries() {
+        if entry.digest.len() > MAX_DIGEST {
+            out.notes.push(format!("{name}: the digest is longer than {MAX_DIGEST} bytes: kept in the file, not used"));
+            continue;
+        }
+        let mut notes = Vec::new();
+        match operations(Field::Value(entry.recipe.clone()), "saved recipe", &mut notes) {
+            Reading::Usable(_) => out.saved.push((name, saved_of(entry))),
+            Reading::Unusable => out.notes.extend(notes.into_iter().map(|n| format!("{name}: {n}"))),
+        }
+    }
+    out
+}
+
+/// The model's record for an originals record entry (no caps checked: see [`read_originals`]).
+pub fn saved_of(entry: Entry) -> Saved {
+    Saved {
+        recipe: entry.recipe,
+        size: entry.size,
+        mtime: Timestamp::from_millis(entry.mtime),
+        width: entry.width,
+        height: entry.height,
+        digest: entry.digest,
+        state: match entry.state {
+            State::Pending => SaveState::Pending,
+            State::Done => SaveState::Done,
+        },
+        time: entry.time.map(Timestamp::from_millis),
+    }
+}
+
+/// The originals record entry for a model record: what a Save writes ([`Originals::set`]).
+pub fn originals_entry(saved: &Saved) -> Entry {
+    Entry {
+        recipe: saved.recipe.clone(),
+        size: saved.size,
+        mtime: saved.mtime.as_millis(),
+        width: saved.width,
+        height: saved.height,
+        digest: saved.digest.clone(),
+        state: match saved.state {
+            SaveState::Pending => State::Pending,
+            SaveState::Done => State::Done,
+        },
+        time: saved.time.map(Timestamp::as_millis),
     }
 }

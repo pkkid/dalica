@@ -1,6 +1,9 @@
 //! Typed access to the keys Dalica reads and writes (`data-model.md` §3): per photo (`star`,
 //! `caption`, `tags`, `hidden`, `edits`, `redo`, `date` under `photos.<name>`) and per folder
-//! (`description`, `date`, `place`, `hidden` under `"folder"`).
+//! (`description`, `date`, `place`, `hidden` under `"folder"`). M8 adds `savedAs` per photo (an
+//! object: the copy's file `name` and the `recipe` it holds) and `project` in `"folder"`
+//! ([`M8_PHOTO_KEYS`], [`M8_FOLDER_KEYS`]); writing `savedAs` keeps the keys of its object that
+//! Dalica does not know.
 //!
 //! Reading never fails: each key is [`Field::Absent`], a value of the right type, or
 //! [`Field::WrongType`] holding what is there (kept, reported by [`Sidecar::problems`]). A date
@@ -20,6 +23,23 @@ pub const PHOTO_KEYS: [&str; 7] = ["star", "caption", "tags", "hidden", "edits",
 pub const FOLDER_KEYS: [&str; 4] = ["description", "date", "place", "hidden"];
 /// The key of the folder object.
 pub const FOLDER: &str = "folder";
+/// The photo keys M8 adds (`data-model.md` §3, §6): the copy a Save wrote beside the photo.
+pub const M8_PHOTO_KEYS: [&str; 1] = [SAVED_AS];
+/// The `"folder"` keys M8 adds: the project mark (`"project": "exported"`).
+pub const M8_FOLDER_KEYS: [&str; 1] = [PROJECT];
+/// A photo's copy saved beside it.
+pub const SAVED_AS: &str = "savedAs";
+/// A folder's project mark, in `"folder"`.
+pub const PROJECT: &str = "project";
+
+/// What a photo's `savedAs` says: the JPEG a Save wrote beside it (a file name in the same folder,
+/// as written: whether it may reach a file is the reader's to check, [`crate::plain_name`]) and
+/// the recipe it was rendered with.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SavedAs {
+    pub name: String,
+    pub recipe: Vec<String>,
+}
 
 /// What a photo's entry says, key by key.
 #[derive(Clone, Debug, PartialEq)]
@@ -149,6 +169,24 @@ fn read_parsed<T: std::str::FromStr>(v: Option<&Value>) -> Field<T> {
     }
 }
 
+/// `savedAs`: an object with a non-empty string `name` and, if present, a list of strings
+/// `recipe` (absent reads as empty); other keys in it are allowed and kept.
+fn read_saved_as(v: Option<&Value>) -> Field<SavedAs> {
+    let Some(v) = v else { return Field::Absent };
+    let wrong = || Field::WrongType(v.clone());
+    let Some(o) = v.as_object() else { return wrong() };
+    let name = match o.get("name") {
+        Some(Value::String(n)) if !n.is_empty() => n.clone(),
+        _ => return wrong(),
+    };
+    let recipe = match read_list(o.get("recipe")) {
+        Field::Absent => Vec::new(),
+        Field::Value(l) => l,
+        Field::WrongType(_) => return wrong(),
+    };
+    Field::Value(SavedAs { name, recipe })
+}
+
 /// What a value at a known key should be, if the one there is not that.
 fn photo_problem(key: &str, v: &Value) -> Option<&'static str> {
     let ok = match key {
@@ -156,12 +194,14 @@ fn photo_problem(key: &str, v: &Value) -> Option<&'static str> {
         "caption" => v.is_string(),
         "tags" | "edits" | "redo" => v.as_array().is_some_and(|a| a.iter().all(Value::is_string)),
         "date" => v.as_str().is_some_and(|s| s.parse::<DateTime>().is_ok()),
+        SAVED_AS => matches!(read_saved_as(Some(v)), Field::Value(_)),
         _ => true,
     };
     (!ok).then_some(match key {
         "star" | "hidden" => "true or false",
         "caption" => "a string",
         "date" => "a date and time (2026-06-04T19:42:10)",
+        SAVED_AS => "an object with a file name (\"name\") and a list of strings (\"recipe\")",
         _ => "a list of strings",
     })
 }
@@ -169,7 +209,7 @@ fn photo_problem(key: &str, v: &Value) -> Option<&'static str> {
 fn folder_problem(key: &str, v: &Value) -> Option<&'static str> {
     let ok = match key {
         "hidden" => v.is_boolean(),
-        "description" | "place" => v.is_string(),
+        "description" | "place" | PROJECT => v.is_string(),
         "date" => v.as_str().is_some_and(|s| s.parse::<Date>().is_ok()),
         _ => true,
     };
@@ -292,8 +332,8 @@ impl Sidecar {
         match self.root.get(FOLDER) {
             None => {}
             Some(Value::Object(folder)) => {
-                for key in FOLDER_KEYS {
-                    if let Some(expected) = folder.get(key).and_then(|v| folder_problem(key, v)) {
+                for key in FOLDER_KEYS.iter().chain(&M8_FOLDER_KEYS) {
+                    if let Some(expected) = folder.get(*key).and_then(|v| folder_problem(key, v)) {
                         out.push(Problem { pointer: format!("/{FOLDER}/{key}"), expected });
                     }
                 }
@@ -307,8 +347,8 @@ impl Sidecar {
                     let at = format!("/photos/{}", escape(name));
                     match entry {
                         Value::Object(e) => {
-                            for key in PHOTO_KEYS {
-                                if let Some(expected) = e.get(key).and_then(|v| photo_problem(key, v)) {
+                            for key in PHOTO_KEYS.iter().chain(&M8_PHOTO_KEYS) {
+                                if let Some(expected) = e.get(*key).and_then(|v| photo_problem(key, v)) {
                                     out.push(Problem { pointer: format!("{at}/{key}"), expected });
                                 }
                             }
@@ -318,6 +358,73 @@ impl Sidecar {
                 }
             }
             Some(_) => out.push(Problem { pointer: "/photos".into(), expected: "an object" }),
+        }
+    }
+
+    /// Photo `name`'s `savedAs`: absent, the copy saved beside it, or a value of another shape
+    /// (kept, not used).
+    pub fn saved_as(&self, name: &str) -> Field<SavedAs> {
+        read_saved_as(self.photo_entry(name).and_then(|e| e.get(SAVED_AS)))
+    }
+
+    /// Sets or clears photo `name`'s `savedAs`. Setting writes `name` and `recipe` into the object
+    /// already there (its other keys are kept; an empty recipe is written as no key) or a new one,
+    /// creating the entry if needed; clearing removes the key, and the entry when nothing else is
+    /// left in it. Refused if `photos`, the entry or the `savedAs` there is not an object (a value
+    /// of the wrong type is replaced only by clearing it first).
+    pub fn set_saved_as(&mut self, name: &str, value: Option<&SavedAs>) -> Result<(), WrongType> {
+        let entry_pointer = || format!("/photos/{}", escape(name));
+        let Some(value) = value else {
+            match self.root.get_mut("photos") {
+                None => return Ok(()),
+                Some(Value::Object(photos)) => match photos.get_mut(name) {
+                    None => return Ok(()),
+                    Some(Value::Object(entry)) => {
+                        if put(entry, SAVED_AS, None) {
+                            photos.remove(name);
+                        }
+                        return Ok(());
+                    }
+                    Some(_) => return Err(WrongType { pointer: entry_pointer() }),
+                },
+                Some(_) => return Err(WrongType { pointer: "/photos".into() }),
+            }
+        };
+        let photos = self.root.entry("photos").or_insert_with(|| Value::Object(Map::new()));
+        let Value::Object(photos) = photos else { return Err(WrongType { pointer: "/photos".into() }) };
+        let entry = photos.entry(name).or_insert_with(|| Value::Object(Map::new()));
+        let Value::Object(entry) = entry else { return Err(WrongType { pointer: entry_pointer() }) };
+        let object = entry.entry(SAVED_AS).or_insert_with(|| Value::Object(Map::new()));
+        let Value::Object(object) = object else { return Err(WrongType { pointer: format!("{}/{SAVED_AS}", entry_pointer()) }) };
+        object.insert("name".into(), Value::String(value.name.clone()));
+        put(object, "recipe", list(&value.recipe));
+        Ok(())
+    }
+
+    /// The `"folder"` object's `project` mark, as written (`"exported"` is the one Dalica knows).
+    pub fn project(&self) -> Field<String> {
+        read_text(self.folder_object().and_then(|f| f.get(PROJECT)))
+    }
+
+    /// Sets or clears the folder's `project` mark, the way [`Sidecar::set_folder`] sets its keys.
+    pub fn set_project(&mut self, project: Option<&str>) -> Result<(), WrongType> {
+        let value = project.and_then(text);
+        let refused = || WrongType { pointer: format!("/{FOLDER}") };
+        match (self.root.get_mut(FOLDER), value) {
+            (None, None) => Ok(()),
+            (Some(Value::Object(folder)), value) => {
+                if put(folder, PROJECT, value) {
+                    self.root.remove(FOLDER);
+                }
+                Ok(())
+            }
+            (Some(_), _) => Err(refused()),
+            (None, Some(v)) => {
+                let mut folder = Map::new();
+                folder.insert(PROJECT.into(), v);
+                self.root.insert(FOLDER.into(), Value::Object(folder));
+                Ok(())
+            }
         }
     }
 }
