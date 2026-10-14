@@ -52,6 +52,25 @@ Watermark:                [ ] Add watermark  [© Ana Costa 2026                 
   library scrolls to the export folder); the export folder appears in the library in the
   **Exported** project group. If the chosen location is not inside a watched folder, the export
   folder is added to the watched folders as Scan Always so it can appear there.
+- File names: each photo keeps its own stem, sanitized (`security.md` §5.4; `Photo` when nothing
+  is left), with `.jpg`, or `.png` for a source with transparency. "Add numbers" puts `001-`,
+  `002-`, … in front in tray order (four digits from 1,000 photos, so the names sort in tray
+  order); a name that is taken in the export folder gets `-001`, `-002`, … as it is written,
+  never replacing a file. The export folder's name is sanitized too (the fallback is
+  "Export 2026-06-04"); a taken name becomes `<name>-001`. Videos are skipped and counted until
+  they can be decoded (M15); a file that cannot be read as a picture is skipped with its reason.
+- Cancel stops before the next step of the photo being exported (reading, rendering, writing): a
+  file is written whole to a temporary name and given its own in one step, so only complete files
+  are ever left in the export folder.
+
+**Built (M8.13, `dalica-create` `export`):** `ExportOptions` (size: original or a long side
+100–4000; the quality presets; numbers; watermark text; remove location) and the request it makes
+of the output pipeline (no EXIF thumbnail; every owned field written, stars as ratings too);
+`export::plan` (the location made when missing, the export folder under a free sanitized name,
+each photo's stem and number, videos skipped); `export::export_one` (read under 1 GiB, render
+through `output::render`, write through `fs::create::new_file`, cancel asked before each step) and
+`export::run` (the whole plan on one thread). The command and its job (M8.16) and the dialog (M8.20)
+follow.
 
 ## 3. Collage (room)
 

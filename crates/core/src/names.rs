@@ -8,7 +8,12 @@
 //!
 //! Callers that create files try [`candidates`] in order with exclusive creation (never "check,
 //! then create"); [`next_free`] is for in-memory planning only.
+//!
+//! Every name Dalica makes up for a new file or folder (an export folder named after an album, an
+//! exported photo's stem, later import folders and collage files) first goes through
+//! [`sanitize`], the one sanitizer `security.md` §5.4 asks for.
 
+use crate::dates::Date;
 use crate::error::{Error, excerpt};
 
 /// The longest file name, in bytes, on the file systems Dalica writes to.
@@ -34,7 +39,7 @@ pub fn numbered(name: &str, n: u32) -> String {
     let (stem, ext) = if ext_len + number.len() >= MAX_NAME_BYTES { (name, None) } else { (stem, ext) };
     let ext_len = ext.map_or(0, |e| e.len() + 1);
     let room = MAX_NAME_BYTES.saturating_sub(number.len() + ext_len);
-    let stem = truncate(stem, room);
+    let stem = fit(stem, room);
     match ext {
         Some(ext) => format!("{stem}{number}.{ext}"),
         None => format!("{stem}{number}"),
@@ -51,8 +56,76 @@ pub fn next_free(name: &str, mut taken: impl FnMut(&str) -> bool) -> Result<Stri
     candidates(name).find(|c| !taken(c)).ok_or_else(|| Error::NamesExhausted(excerpt(name)))
 }
 
+/// The name [`sanitize`] gives when neither the name nor the fallback leaves anything.
+pub const FALLBACK: &str = "Untitled";
+
+/// Characters a generated name never holds besides control and bidirectional ones: the path
+/// separators and the characters Windows refuses in a name.
+pub const FORBIDDEN: [char; 9] = ['/', '\\', ':', '*', '?', '"', '<', '>', '|'];
+
+/// Windows device names, refused as a name's stem (the text before its first dot) in any case.
+const RESERVED: [&str; 30] = [
+    "CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9", "COM¹", "COM²", "COM³",
+    "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9", "LPT¹", "LPT²", "LPT³",
+];
+
+/// Whether `c` sets or changes the direction of text (marks, embeddings, overrides, isolates):
+/// such a character can make `photo\u{202E}gpj.exe` look like `photoexe.jpg`.
+pub fn is_bidi_control(c: char) -> bool {
+    matches!(c, '\u{061C}' | '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}')
+}
+
+/// Whether `name`'s stem (the text before its first dot, trailing spaces ignored) is a Windows
+/// device name such as `CON`, `nul.txt` or `COM1`.
+pub fn is_reserved(name: &str) -> bool {
+    let stem = name.split('.').next().unwrap_or(name).trim_end();
+    RESERVED.iter().any(|r| r.eq_ignore_ascii_case(stem))
+}
+
+/// `name` made fit for a new file or folder (`security.md` §5.4):
+///
+/// 1. path separators, `: * ? " < > |`, control characters and bidirectional controls removed;
+/// 2. leading dots, dashes and white space and trailing dots and white space stripped (no hidden
+///    file, nothing read as an option, nothing Windows would silently drop);
+/// 3. cut to [`MAX_NAME_BYTES`] on a character boundary (then trailing dots and spaces stripped
+///    again);
+/// 4. a Windows device name (`CON`, `aux.jpg`, `COM1`) gets a leading `_` (`_CON`).
+///
+/// When nothing is left, `fallback` goes through the same steps (callers pass a name such as
+/// [`dated`]`("Export", today)`), and when that leaves nothing too, [`FALLBACK`]. Never empty, never
+/// a path, and running it again changes nothing.
+pub fn sanitize(name: &str, fallback: &str) -> String {
+    clean(name).or_else(|| clean(fallback)).unwrap_or_else(|| FALLBACK.to_string())
+}
+
+fn clean(name: &str) -> Option<String> {
+    let kept: String = name.chars().filter(|&c| !FORBIDDEN.contains(&c) && !c.is_control() && !is_bidi_control(c)).collect();
+    let trimmed = trim_end(fit(trim_start(&kept), MAX_NAME_BYTES));
+    if trimmed.is_empty() {
+        return None;
+    }
+    if !is_reserved(trimmed) {
+        return Some(trimmed.to_string());
+    }
+    let prefixed = format!("_{trimmed}");
+    Some(trim_end(fit(&prefixed, MAX_NAME_BYTES)).to_string())
+}
+
+fn trim_start(s: &str) -> &str {
+    s.trim_start_matches(|c: char| c == '.' || c == '-' || c.is_whitespace())
+}
+
+fn trim_end(s: &str) -> &str {
+    s.trim_end_matches(|c: char| c == '.' || c.is_whitespace())
+}
+
+/// `"<word> <date>"`, such as `Export 2026-06-04`: the fallback name of an export of a mixed tray.
+pub fn dated(word: &str, date: Date) -> String {
+    format!("{word} {date}")
+}
+
 /// The longest prefix of `s` of at most `max` bytes that ends on a character boundary.
-fn truncate(s: &str, max: usize) -> &str {
+pub fn fit(s: &str, max: usize) -> &str {
     if s.len() <= max {
         return s;
     }
