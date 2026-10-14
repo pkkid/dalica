@@ -14,7 +14,9 @@
 //!   while View ▸ Hidden Pictures shows them); they stay put at the ends.
 //! - `edit.history.undo`, `edit.history.redo` (Ctrl+Z, Ctrl+Y / Cmd+Shift+Z) and `edit.autoFix`
 //!   (Ctrl+Shift+E): steps of the open photo's own history (`photo.history.*`), never the library
-//!   undo stack (`editing.md` §5.1).
+//!   undo stack (`editing.md` §5.1). After a Save, with no edit made since, Undo is Undo Save, as
+//!   the Undo button and Edit ▸ Undo read: Ctrl+Z runs `photo.undoSave` on the open photo exactly
+//!   when `photo.history.state` answers `undoSave` ([`undoes_save`]).
 //! - `edit.panelToggle {on?}`: shows or hides the edit panel (Ctrl+9, View ▸ Show Edit Controls).
 //! - `edit.tab {tab}`: the edit panel's tab.
 //!
@@ -308,8 +310,22 @@ fn on_open_photo(app: &mut App, params: &Value, command: &str, extra: Value) -> 
     app.run(command, &p)
 }
 
+/// Undo on the open photo: Undo Save when [`undoes_save`], else its last edit undone.
 fn history_undo(app: &mut App, params: &Value) -> Result<Value, CmdError> {
+    no_params(params)?;
+    let id = open_photo(app).ok_or_else(|| CmdError::Disabled(NOT_EDITING.into()))?;
+    if undoes_save(app, id) {
+        return app.run("photo.undoSave", &json!({ "ids": [id] }));
+    }
     on_open_photo(app, params, "photo.history.undo", json!({}))
+}
+
+/// Whether photo `id`'s Undo is Undo Save: it is saved and has no edit since, which is when
+/// `photo.history.state` answers `undoSave` and the Undo button reads "Undo Save"
+/// (`editing.md` §5.1).
+pub fn undoes_save(app: &App, id: PhotoId) -> bool {
+    let Some(s) = app.session() else { return false };
+    s.photo_history(id).is_some_and(|h| h.edits.is_empty()) && s.library().can_undo_save(id)
 }
 
 fn history_redo(app: &mut App, params: &Value) -> Result<Value, CmdError> {
@@ -322,7 +338,7 @@ fn auto_fix(app: &mut App, params: &Value) -> Result<Value, CmdError> {
 
 /// What command `id` with `params` becomes in the edit view (`editing.md` §5.1, §10): the
 /// rotations, the flips, Edit ▸ Undo / Redo and the one-click fixes (`edit.apply {op}`) are steps
-/// of the open photo's own history, never library steps. [`App::run`] asks it first, so a menu
+/// of the open photo's own history, never library steps; Undo after a Save is Undo Save. [`App::run`] asks it first, so a menu
 /// row, a shortcut and a script all walk the photo's history. `None` for every other command,
 /// outside the edit view, and for `ids` that leave the open photo out (a script naming other
 /// photos still gets the library command).
@@ -339,6 +355,7 @@ pub fn route(app: &App, id: &str, params: &Value) -> Option<(&'static str, Value
         "photo.rotate.ccw" => apply("rotate(270)"),
         "edit.flipH" => apply("flip_h()"),
         "edit.flipV" => apply("flip_v()"),
+        "edit.undo" if undoes_save(app, photo) => Some(("photo.undoSave", json!({ "ids": [photo] }))),
         "edit.undo" => Some(("photo.history.undo", json!({ "id": photo }))),
         "edit.redo" => Some(("photo.history.redo", json!({ "id": photo }))),
         "edit.apply" => {
@@ -556,5 +573,38 @@ mod tests {
         app.run("edit.history.undo", &json!({})).unwrap();
         assert_eq!(app.run("photo.history.state", &json!({ "id": p })).unwrap()["edits"], json!([]));
         assert!(app.run("edit.undo", &json!({})).is_err(), "the library stack holds nothing");
+    }
+
+    /// After a Save with no edit since, Undo (Ctrl+Z, Edit ▸ Undo, a script's `edit.undo`) is Undo
+    /// Save, as `photo.history.state` says; with an edit since, it undoes that edit.
+    #[test]
+    fn undo_after_a_save_is_undo_save_until_the_next_edit() {
+        let (_dir, mut s, ids) = session_with_photos(1);
+        let p = ids[0];
+        s.execute("photo.history.apply", &json!({ "id": p, "op": "rotate(90)" })).unwrap();
+        s.execute("photo.save", &json!({ "ids": [p], "confirm": true })).unwrap();
+        s.wait_idle();
+        assert!(s.library().can_undo_save(p));
+        let mut app = App::new(Some(s));
+        assert_eq!(route(&app, "edit.undo", &json!({})), None, "not open: the library's Undo is its own");
+        app.run("view.edit", &json!({ "id": p })).unwrap();
+        assert_eq!(app.run("photo.history.state", &json!({ "id": p })).unwrap()["undoSave"], json!(true));
+        assert!(undoes_save(&app, p));
+        assert_eq!(route(&app, "edit.undo", &json!({})), Some(("photo.undoSave", json!({ "ids": [p] }))));
+        // An edit since: Undo undoes it.
+        app.run("edit.autoFix", &json!({})).unwrap();
+        assert!(!undoes_save(&app, p));
+        assert_eq!(route(&app, "edit.undo", &json!({})).map(|r| r.0), Some("photo.history.undo"));
+        app.run("edit.history.undo", &json!({})).unwrap();
+        assert_eq!(app.run("photo.history.state", &json!({ "id": p })).unwrap()["edits"], json!([]));
+        // Undo Save again: a save job; the edit comes back unsaved once it has run.
+        let reply = app.run("edit.history.undo", &json!({})).unwrap();
+        assert_eq!(reply["pending"], json!(true), "{reply}");
+        let s = app.session_mut().unwrap();
+        s.wait_idle();
+        assert!(!s.library().can_undo_save(p) && s.library().has_unsaved_edits(p));
+        assert_eq!(s.library().info(p).edits, ["rotate(90)"]);
+        assert!(!undoes_save(&app, p));
+        assert!(app.run("edit.history.undo", &json!({ "x": 1 })).is_err(), "params are refused before anything runs");
     }
 }

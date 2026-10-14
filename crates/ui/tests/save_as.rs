@@ -223,6 +223,8 @@ fn a_taken_name_is_refused_and_the_picker_returns() {
         assert_eq!(asked.params, json!({ "id": photo }));
         assert!(lisbon.join("Second Try.jpg").is_file());
         assert!(t.toasts().iter().any(|m| m.contains("already exists")), "the toast says why: {:?}", t.toasts());
+        let taken_toast = t.toasts().into_iter().find(|m| m.contains("already exists")).unwrap();
+        assert!(taken_toast.contains("IMG_0002.jpg") && !taken_toast.contains("IMG_0001.jpg"), "it names the file tried: {taken_toast}");
 
         // The taken name again, then cancel: the status line keeps the reason, nothing is written.
         t.picker.push_save(&taken);

@@ -361,8 +361,9 @@ fn browse_sets_the_export_location_and_never_adds_a_watched_folder() {
         (&waiting["command"], &waiting["kind"], &waiting["title"]),
         (&json!("output.export.location"), &json!("folder"), &json!("Export Location"))
     );
-    // One file dialog at a time: Browse… waits while it is open.
-    t.d.settle(FRAMES).unwrap();
+    // One file dialog at a time: Browse… waits while it is open, which settling reports as busy.
+    let s = t.d.settle_for(2 * dalica_ui::headless::QUIET_FRAMES, false);
+    assert_eq!(s.busy, ["file dialog: waiting for an answer"], "{s:?}");
     assert!(!t.d.widgets().iter().find(|w| w.id == "button:dialog.browse").unwrap().enabled);
     // A folder outside every write root and watched folder is refused; the picker stays open.
     let elsewhere = dir.join("elsewhere");

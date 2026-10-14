@@ -20,11 +20,14 @@
 //!   a unit and the light table scrolled to it ([`act`]; while the folder's scan is still bringing
 //!   it in, it waits for it).
 //!
+//!   A file operation's job (kind `files`: photos or folders moved, copied, renamed or trashed)
+//!   gives no toast of its own here ([`job_toast`]); its notice comes from its `FileOpEvent`.
+//!
 //! The app's own confirmations come through [`Notices::push`].
 
 use std::path::{Path, PathBuf};
 
-use dalica_engine::{FileJobEvent, JobKind, Session};
+use dalica_engine::{FileJobEvent, JobId, JobKind, Session};
 use dalica_ui_kit::Tokens;
 use dalica_ui_kit::widgets::{self, ToastKind, ToastText};
 use egui::{Rect, Ui};
@@ -46,6 +49,8 @@ pub const ACTION_SECS: f64 = 6.0;
 /// How many frames a Show Folder waits for its folder once no scan runs (the light table takes
 /// in a folder the frame after the library has it).
 const SHOW_FOLDER_FRAMES: u32 = 30;
+/// The most files tried kept for jobs not ended yet ([`Notices::name_tried`]).
+const MAX_TRIED: usize = 8;
 /// Why Show Folder found nothing.
 pub const NOT_IN_LIBRARY: &str = "The folder is not in the library.";
 
@@ -111,6 +116,9 @@ pub struct Notices {
     /// A Show Folder pressed and not done yet: the folder, and the frames it may still wait once
     /// no scan runs.
     want: Option<(PathBuf, u32)>,
+    /// The file each running job tried to write, when the app knows it (Save As's chosen path):
+    /// its failure names that file ([`Notices::name_tried`]).
+    tried: Vec<(JobId, PathBuf)>,
 }
 
 impl Notices {
@@ -143,6 +151,17 @@ impl Notices {
         self.toasts.push(Toast { n: self.next, text, keep, kind, shown_at: if now.is_finite() { now } else { 0.0 }, action });
     }
 
+    /// Notes that file job `job` writes `path` (Save As's chosen path), so a failure of it names
+    /// the file tried, not the photo it was saving. Kept until the job's end is shown; at most
+    /// [`MAX_TRIED`] jobs (the oldest dropped).
+    pub fn name_tried(&mut self, job: JobId, path: &Path) {
+        self.tried.retain(|(j, _)| *j != job);
+        if self.tried.len() >= MAX_TRIED {
+            self.tried.remove(0);
+        }
+        self.tried.push((job, path.to_path_buf()));
+    }
+
     /// Turns what `session` reported since the last poll into toasts, and drops the toasts whose
     /// time is over. Cheap when nothing happened: call it once a frame.
     pub fn poll(&mut self, session: &Session, now: f64) {
@@ -156,11 +175,17 @@ impl Notices {
             self.seen = self.seen.max(seq);
             self.push_keeping(&text, &file, ToastKind::Caution, now);
         }
-        let ended: Vec<(u64, JobToast)> =
-            session.file_job_events().filter(|e| self.seen_jobs.is_none_or(|s| e.seq > s)).map(|e| (e.seq, event_toast(e))).collect();
-        for (seq, t) in ended {
+        let ended: Vec<(u64, JobId, Option<JobToast>)> = session
+            .file_job_events()
+            .filter(|e| self.seen_jobs.is_none_or(|s| e.seq > s))
+            .map(|e| (e.seq, e.job, job_toast(e, self.tried.iter().find(|(j, _)| *j == e.job).map(|(_, p)| p.as_path()))))
+            .collect();
+        for (seq, job, t) in ended {
+            self.tried.retain(|(j, _)| *j != job);
             self.seen_jobs = Some(self.seen_jobs.map_or(seq, |s| s.max(seq)));
-            self.push_with(&t.text, &t.whole, t.kind, t.action, now);
+            if let Some(t) = t {
+                self.push_with(&t.text, &t.whole, t.kind, t.action, now);
+            }
         }
     }
 
@@ -213,10 +238,25 @@ impl Notices {
     }
 }
 
+/// The toast file job `e`'s end shows, if any: none for a file operation (moved, copied, renamed
+/// or trashed files, kind `files`), whose notice comes from its own event
+/// (`dalica_engine::FileOpEvent`), not from the job's generic end; [`event_toast`] for the others,
+/// its failure naming `tried` when the app knows the file the job tried to write.
+pub fn job_toast(e: &FileJobEvent, tried: Option<&Path>) -> Option<JobToast> {
+    (e.kind != JobKind::Files).then(|| tried_toast(e, tried))
+}
+
 /// What file job `e`'s end shows: its message, `info`; with failures, `caution`, the first file
 /// that failed and why after the message ("Could not save IMG_0041.jpg: …" alone when nothing was
 /// done), "and n more" when several did; Show Folder when the job names a folder.
 pub fn event_toast(e: &FileJobEvent) -> JobToast {
+    tried_toast(e, None)
+}
+
+/// [`event_toast`], the first failure naming `tried` (the file the job tried to write: Save As's
+/// chosen name, "Could not save Second Try.jpg: a file of that name already exists") rather than
+/// the photo it was saving.
+fn tried_toast(e: &FileJobEvent, tried: Option<&Path>) -> JobToast {
     let action = e.folder.clone().map(Action::ShowFolder);
     let Some(first) = e.failures.first() else {
         return JobToast { text: e.message.clone(), whole: String::new(), kind: ToastKind::Info, action };
@@ -226,7 +266,8 @@ pub fn event_toast(e: &FileJobEvent) -> JobToast {
         JobKind::Import => "import",
         _ => "save",
     };
-    let name = first.file.file_name().map_or_else(|| first.file.to_string_lossy().into_owned(), |n| n.to_string_lossy().into_owned());
+    let file = tried.unwrap_or(&first.file);
+    let name = file.file_name().map_or_else(|| file.to_string_lossy().into_owned(), |n| n.to_string_lossy().into_owned());
     let mut detail = format!("Could not {verb} {name}: {}", first.reason.trim_end_matches('.'));
     let more = e.failures.len().saturating_sub(1);
     if more > 0 {
@@ -339,6 +380,38 @@ mod tests {
         assert_eq!(some.text, "Saving: 2 of 3 done, 1 failed. Could not save IMG_1.jpg: busy");
         let copy = event_toast(&event(JobKind::Save, "Saved a copy as IMG_1-001.jpg", 1, 1, &[], None));
         assert_eq!((copy.text.as_str(), copy.kind, copy.action), ("Saved a copy as IMG_1-001.jpg", ToastKind::Info, None));
+    }
+
+    #[test]
+    fn a_file_operation_job_gives_no_generic_toast() {
+        let moved = event(JobKind::Files, "Moved 3 photos", 3, 3, &[], None);
+        assert_eq!(job_toast(&moved, None), None, "its FileOpEvent words it");
+        let failed = event(JobKind::Files, "Moved 2 of 3 photos", 2, 3, &[("/a/b.jpg", "busy")], None);
+        assert_eq!(job_toast(&failed, None), None);
+        let exported = event(JobKind::Export, "Exported 1 picture", 1, 1, &[], None);
+        assert_eq!(job_toast(&exported, None), Some(event_toast(&exported)));
+    }
+
+    #[test]
+    fn a_save_as_that_failed_names_the_file_tried() {
+        let taken = event(JobKind::Save, "Save As failed: taken.", 0, 1, &[("/a/IMG_0001.jpg", "A file of that name already exists")], None);
+        assert_eq!(
+            event_toast(&taken).text,
+            "Could not save IMG_0001.jpg: A file of that name already exists",
+            "the photo, when nothing else is known"
+        );
+        let t = job_toast(&taken, Some(Path::new("/b/IMG_0002.jpg"))).unwrap();
+        assert_eq!((t.text.as_str(), t.whole.as_str()), ("Could not save IMG_0002.jpg: A file of that name already exists", "IMG_0002.jpg"));
+        let saved = event(JobKind::Save, "Saved as IMG_0002.jpg", 1, 1, &[], None);
+        assert_eq!(job_toast(&saved, Some(Path::new("/b/IMG_0002.jpg"))).unwrap().text, "Saved as IMG_0002.jpg");
+        // The names tried are bounded and replaced per job.
+        let mut n = Notices::default();
+        for job in 0..20 {
+            n.name_tried(job, Path::new("/b/x.jpg"));
+        }
+        n.name_tried(19, Path::new("/b/y.jpg"));
+        assert_eq!(n.tried.len(), MAX_TRIED);
+        assert_eq!(n.tried.last(), Some(&(19, PathBuf::from("/b/y.jpg"))));
     }
 
     #[test]

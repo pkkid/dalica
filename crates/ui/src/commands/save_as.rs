@@ -197,6 +197,9 @@ pub fn ran(app: &mut App, id: &str, params: &Value, result: &Result<Value, CmdEr
         Ok(reply) => {
             if let Some(job) = reply.get("job").and_then(Value::as_u64) {
                 let path = reply.get("path").and_then(Value::as_str).map(PathBuf::from).or(tried);
+                if let Some(p) = &path {
+                    app.notices_mut().name_tried(job, p);
+                }
                 app.save_as.job = Some(Followed { job, id: asked, path });
             }
         }

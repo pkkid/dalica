@@ -4345,7 +4345,7 @@ mid-run.
     in its scope (`architecture.md` §9).
   - done when: `cargo xtask tasks sync --check` parses them and `tasks sync --dry-run` lists one new
     issue per block.
-- ⬜ **M9.27 `ui`: Ctrl+Z undoes a Save, settling waits for file jobs, the window rests while busy**
+- ✅ **M9.27 `ui`: Ctrl+Z undoes a Save, settling waits for file jobs, the window rests while busy**
   - after: M8.R
   - files: `crates/ui/src/commands/edit_view.rs`, `crates/ui/src/headless.rs`, `crates/ui/src/control/input.rs`, `crates/ui/src/notices.rs`, `crates/ui/tests/save_ui.rs`, `crates/ui/tests/save_as.rs`, `apps/dalica/src/window.rs`, `docs/control-protocol.md`
   - scope: found in the M8 run (M8.19, M8.22, M8.25): in the edit view Ctrl+Z after a Save says
