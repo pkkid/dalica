@@ -86,6 +86,9 @@ tempfile = "3"
 directories = "6"
 # Writes relative to a held folder handle (dalica-fs, Unix only; security.md §5.6). Safe API only.
 rustix = { version = "1.1.5", default-features = false, features = ["std", "fs"] }
+# A file's volume serial number and file index on Windows (dalica-fs `Identity`, security.md §5.2):
+# a safe wrapper over `GetFileInformationByHandle`; already in the graph through walkdir/same-file.
+winapi-util = "0.1.11"
 
 # Parallelism, serialization, errors, logging
 rayon = "1.12"

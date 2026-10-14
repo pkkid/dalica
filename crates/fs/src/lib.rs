@@ -15,6 +15,7 @@ mod dirfd;
 pub mod dirs;
 pub mod faults;
 pub mod guard;
+mod identity;
 pub mod lock;
 pub mod originals;
 pub mod pack;

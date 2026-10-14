@@ -197,7 +197,7 @@ fn check_backup(backups: &Folder, name: &OsStr, kept: &Recorded<'_>) -> Result<I
         _ => return Err(Error::Changed(path)),
     };
     let file = backups.open_read(name)?;
-    let opened = Identity::of(&file.metadata().map_err(io_err("stat", &path))?);
+    let opened = Identity::of_file(&file).map_err(io_err("stat", &path))?;
     if opened != entry.identity {
         return Err(Error::Changed(path));
     }

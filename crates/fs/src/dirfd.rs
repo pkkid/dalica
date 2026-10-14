@@ -131,7 +131,7 @@ fn validate(dir: &Path) -> Result<(Identity, bool)> {
     if !meta.is_dir() {
         return Err(Error::Io { op: "open", path: dir.to_path_buf(), source: io::Error::other("not a folder") });
     }
-    Ok((Identity::of(&meta), was_link))
+    Ok((Identity::of_path(dir, &meta, was_link).map_err(io_err("open", dir))?, was_link))
 }
 
 fn not_a_folder(path: &Path) -> Error {
@@ -367,7 +367,12 @@ mod imp {
                     } else {
                         Kind::Other
                     };
-                    Ok(Some(Entry { identity: Identity::of(&m), kind, perms: m.permissions() }))
+                    match Identity::of_path(&path, &m, false) {
+                        Ok(identity) => Ok(Some(Entry { identity, kind, perms: m.permissions() })),
+                        // Removed between the two looks.
+                        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+                        Err(e) => Err(io_err("stat", &path)(e)),
+                    }
                 }
                 Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
                 Err(e) => Err(io_err("stat", &path)(e)),
@@ -394,8 +399,7 @@ mod imp {
                 None => return Err(io_err("open", &path)(io::ErrorKind::NotFound.into())),
             };
             let file = File::open(&path).map_err(io_err("open", &path))?;
-            let opened = file.metadata().map_err(io_err("stat", &path))?;
-            if Identity::of(&opened) != before {
+            if Identity::of_file(&file).map_err(io_err("stat", &path))? != before {
                 return Err(Error::Changed(path));
             }
             self.check()?;

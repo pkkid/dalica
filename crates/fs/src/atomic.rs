@@ -34,12 +34,15 @@ use std::hash::{BuildHasher, Hasher};
 use std::io::{self, Read as _, Write as _};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::UNIX_EPOCH;
 
 use crate::dirfd::{Entry, Folder, Kind};
 use crate::faults::{self, Fault, points};
 use crate::times::Times;
 use crate::{Error, Result, guard, io_err};
+
+/// One version of a file (`identity` module): kept here too, where callers have always found it.
+pub use crate::identity::Identity;
 
 /// Fault point: giving the temporary file the times to keep ([`replace_keeping_times`]), between
 /// writing it and its `fsync`. An error is taken as a platform that refuses: the write goes on
@@ -49,77 +52,6 @@ pub const KEEP_TIMES: &str = "atomic.keep_times";
 /// The points of [`replace_keeping_times`], in the order it reaches them.
 pub const KEEPING_TIMES_POINTS: [&str; 8] =
     [points::OPEN_DIR, points::CREATE_TEMP, points::WRITE, KEEP_TIMES, points::FSYNC, points::RENAME, points::FSYNC_DIR, points::VERIFY];
-
-/// What identifies one version of a file: device, inode (creation time on Windows, where the file
-/// index is not available on stable Rust), size and modification time. A rewrite through a rename,
-/// an append or an in-place edit changes it, unless it keeps both the size and the modification
-/// time: an in-place edit that puts the time back keeps the inode anywhere, and on Windows NTFS
-/// "tunnels" the old creation time onto a file renamed over the same name within about 15
-/// seconds, so a same-size [`replace_keeping_times`] can leave the identity as it was there. It is
-/// a read-before-write guard against other programs' ordinary rewrites, not a content hash.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct Identity {
-    dev: u64,
-    ino: u64,
-    size: u64,
-    mtime_ns: i128,
-}
-
-impl Identity {
-    pub fn of(meta: &Metadata) -> Identity {
-        let mtime_ns = meta.modified().ok().map_or(0, nanos_since_epoch);
-        let (dev, ino) = dev_ino(meta);
-        Identity { dev, ino, size: meta.len(), mtime_ns }
-    }
-
-    pub fn size(&self) -> u64 {
-        self.size
-    }
-
-    #[cfg(unix)]
-    pub(crate) fn from_parts(dev: u64, ino: u64, size: u64, mtime_ns: i128) -> Identity {
-        Identity { dev, ino, size, mtime_ns }
-    }
-
-    /// The same file or folder (device and inode), whatever its size and time now.
-    pub(crate) fn same_object(&self, other: &Identity) -> bool {
-        (self.dev, self.ino) == (other.dev, other.ino)
-    }
-
-    /// Modification time in nanoseconds since the Unix epoch (negative before it).
-    pub(crate) fn mtime_ns(&self) -> i128 {
-        self.mtime_ns
-    }
-
-    /// Whether this version's modification time is `time` (to the nanosecond the platform keeps).
-    pub fn modified_at(&self, time: SystemTime) -> bool {
-        self.mtime_ns == nanos_since_epoch(time)
-    }
-}
-
-fn nanos_since_epoch(t: SystemTime) -> i128 {
-    match t.duration_since(UNIX_EPOCH) {
-        Ok(d) => i128::try_from(d.as_nanos()).unwrap_or(i128::MAX),
-        Err(e) => -i128::try_from(e.duration().as_nanos()).unwrap_or(i128::MAX),
-    }
-}
-
-#[cfg(unix)]
-fn dev_ino(meta: &Metadata) -> (u64, u64) {
-    use std::os::unix::fs::MetadataExt;
-    (meta.dev(), meta.ino())
-}
-
-#[cfg(windows)]
-fn dev_ino(meta: &Metadata) -> (u64, u64) {
-    use std::os::windows::fs::MetadataExt;
-    (0, meta.creation_time())
-}
-
-#[cfg(not(any(unix, windows)))]
-fn dev_ino(_meta: &Metadata) -> (u64, u64) {
-    (0, 0)
-}
 
 /// A file's content together with the identity it had while it was read.
 #[derive(Clone, Debug)]
@@ -145,31 +77,38 @@ pub fn read(path: &Path, limit: u64) -> Result<Option<Read>> {
     if before.is_dir() {
         return Err(Error::Io { op: "read", path: path.to_path_buf(), source: io::Error::other("is a folder") });
     }
+    let before = Identity::of_path(path, &before, false).map_err(io_err("stat", path))?;
     let file = File::open(path).map_err(io_err("open", path))?;
-    let opened = file.metadata().map_err(io_err("stat", path))?;
+    let opened = Identity::of_file(&file).map_err(io_err("stat", path))?;
     // The path was swapped (for a link or another file) between the check and the open.
-    if Identity::of(&opened) != Identity::of(&before) {
+    if opened != before {
         return Err(Error::Changed(path.to_path_buf()));
     }
-    if opened.len() > limit {
+    if opened.size() > limit {
         return Err(Error::TooLarge { path: path.to_path_buf(), limit });
     }
-    let mut bytes = Vec::with_capacity(usize::try_from(opened.len()).unwrap_or(0));
+    let mut bytes = Vec::with_capacity(usize::try_from(opened.size()).unwrap_or(0));
     file.take(limit.saturating_add(1)).read_to_end(&mut bytes).map_err(io_err("read", path))?;
     if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > limit {
         return Err(Error::TooLarge { path: path.to_path_buf(), limit });
     }
-    let after = fs::symlink_metadata(path).map_err(io_err("stat", path))?;
-    if Identity::of(&after) != Identity::of(&opened) {
+    let after = fs::symlink_metadata(path).and_then(|m| Identity::of_path(path, &m, false)).map_err(io_err("stat", path))?;
+    if after != opened {
         return Err(Error::Changed(path.to_path_buf()));
     }
-    Ok(Some(Read { bytes, identity: Identity::of(&opened) }))
+    Ok(Some(Read { bytes, identity: opened }))
 }
 
 /// The identity of `path` without following a final link, or `None` when it does not exist.
 pub fn identity(path: &Path) -> Result<Option<Identity>> {
     guard::check()?;
-    Ok(target_meta(path)?.as_ref().map(Identity::of))
+    let Some(meta) = target_meta(path)? else { return Ok(None) };
+    match Identity::of_path(path, &meta, false) {
+        Ok(id) => Ok(Some(id)),
+        // Removed between the two looks (only Windows looks twice).
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(io_err("stat", path)(e)),
+    }
 }
 
 /// Atomically replaces (or creates) `path` with `bytes`, if it still matches `expect`. Returns the
@@ -282,14 +221,14 @@ fn replace_with(path: &Path, bytes: &[u8], expect: Expect, private: bool, keep: 
         None => {}
     }
     let back = folder.open_read(name)?;
-    let meta = back.metadata().map_err(io_err("verify", path))?;
+    let written = Identity::of_file(&back).map_err(io_err("verify", path))?;
     let mut read_back = Vec::with_capacity(bytes.len());
     // One byte past the expected length is enough to tell a longer file apart.
     back.take(u64::try_from(bytes.len()).unwrap_or(u64::MAX).saturating_add(1)).read_to_end(&mut read_back).map_err(io_err("verify", path))?;
     if read_back != bytes {
         return Err(Error::VerifyFailed(path.to_path_buf()));
     }
-    Ok(Identity::of(&meta))
+    Ok(written)
 }
 
 /// Whether `name` has the shape of this module's temporary files: `.<name>.dalica-tmp-<16 hex>`.
