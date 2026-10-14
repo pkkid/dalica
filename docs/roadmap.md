@@ -3624,7 +3624,7 @@ first measurement. No step of M8 needs a maintainer decision mid-run.
     `.dalica-originals/`, Undo Save, Revert, a rotate-only save, Save As PNG, export a folder at
     1600 with a watermark and open the files in another application).
   - done when: `cargo xtask accept M8` passes everything in M8's *Done when*.
-- ⬜ **M8.26 Lead: task blocks for M10**
+- ✅ **M8.26 Lead: task blocks for M10**
   - after: M7.24
   - owner: lead
   - files: `docs/roadmap.md`
@@ -4397,6 +4397,634 @@ One milestone in 3 feature areas (*Preferences and shortcuts*, *MCP and workflow
   corpus (non-Apple, 10/12-bit, alpha) first.
 - **Done when:** every P0 parity row is ✅ with evidence; P0 workflows pass 100 %; performance
   budgets for P0 scenarios are enforced; an honest *Where we stand*; the 0.5 release.
+
+#### M10 tasks
+
+M10 completes the core for Release 0.5: the Options dialog with its General, File Types, Export and
+Keyboard Shortcuts tabs, UI scale and font size, the shortcut editor, the MCP server in both modes,
+the workflow acceptance tests of every P0 flow, and an audit that brings every P0 parity row to ✅.
+Its first wave lists the M9 work each task extends and starts once the maintainer has closed M9.R.
+Four tasks lay the ground the others share, so later tasks never share a file: M10.1 registers one
+engine command module per area and adds the options catalogue (one table of every option: key,
+type, default, range, tab, group, when it applies, whether its feature exists yet) that the
+dialog, `options.list` and MCP all read, M10's settings, the new rows of `menus-and-shortcuts.md`
+§1.9 and `Session::execute_group` (several commands as one library undo step); M10.2 adds M10's
+view state, the UI commands `app.preferences` and `app.shortcuts`, the Options dialog with stub
+tabs, the hook that applies UI scale and font size, and stubs for the control methods still to
+come; M10.3 gives `ui-kit` the dialog's text tabs, checkbox rows, key cells and the editor's
+icons; and M10.4 builds the MCP server's core and `dalica-cli mcp` (framing, the shared tools,
+progress and cancellation, the headless backend), with one stub module per later group of tools.
+M10.21–M10.24 (the P0 parity gate and workflow statistics, the budgets left, the P0 formats, HEIF
+measured on a wider set) start beside them, since no other task touches their files. Each task
+updates its `parity.md` rows (`PREF-DIALOG`, `PREF-GENERAL`, `PREF-FILETYPES`, `PREF-EXPORT`
+after M10.2 splits the combined `PREF-…` row into one row per tab, `PREF-KEYMAP`, `SYS-MCP`,
+`SYS-CONTROL`, `SYS-HEADLESS`, `SYS-COMMANDS`, `SYS-WINDOW` for the title-bar option, the Tools
+menu row and the generated `KEY-*` rows; new rows where none fit: `PREF-SCALE` for UI scale and
+font size, a Help menu row) and names its commands there; the audit (M10.26) closes every P0 row
+left. First fingerprints of the Options tabs, the shortcut editor, the new widgets and icons and
+the window at 150 % and Large text are approved in bulk on the M10.R review page.
+
+Whole-window baselines belong to no task, as in M5–M9: the finished milestones'
+`tests/acceptance/fingerprints/m1-*.json` … `m9-*.json` and any `crates/ui/tests/fingerprints/`
+file not named in a task's `files` change whenever the window does. A task whose change moves them
+re-blesses them on its branch (diff images on the PR, the reason in the commit body), they never
+count as a `files` overlap, and on a rebase conflict the worker re-blesses after the rebase.
+
+Decisions taken while planning (the check-in lists them for reversal): Options shows the four tabs
+whose options exist (General, File Types, Export, Keyboard Shortcuts); Slideshow, Network, People
+and Photo Viewer join with their milestones (M11, M13). Inside a tab every option of
+`menus-and-shortcuts.md` §5 is listed, and one whose feature does not exist yet (Language until
+M15, the import rows until M11, the previous organizer's data until M14) is drawn disabled with
+its reason ("Arrives with Import"); its setting is stored only once its feature reads it. Every
+option lives in the engine's `settings.json` and changes only through `options.set {values}`
+(checked as a whole before anything is written, no undo step, one atomic write, a failed write an
+error the dialog shows) and is read with `options.list {tab?}`; the dialog's draft is UI view
+state, as PhotoCraft's `prefs_ui.rs` working copy, Apply sends the changed values in one call, and
+UI scale and font size preview live from the draft and revert on Cancel. The dialog is 720 × 540
+points at 100 % (never larger than the window), text tabs along its top, OK / Cancel / Apply at the
+bottom right. UI scale is applied as egui's zoom through `ui-kit`'s existing `UiScale::factor`
+(the OS scale and the window's monitor, the 4K rule) and font size through
+`Tokens::with_font_size`; the headless driver takes both, so fingerprints can be made at 150 % and
+Large. A File Types change rescans the watched folders: a type turned off leaves the light table
+and the index, but its sidecar entries stay on disk and are never pruned as missing while the file
+exists, so turning it back on brings everything back; the small-picture threshold (64 px,
+16–1024) works the same way. The shortcut editor edits a draft keymap; Apply runs `app.setShortcut`
+per changed binding and `app.resetShortcuts` for Reset All; a conflict asks inline [Replace]
+[Cancel] (as PhotoCraft does, rather than LightCraft's silent take); two slots per (command,
+context), so `app.setShortcut` gains `slot` (0 or 1); hold gestures are listed, not editable; the
+rows come from a new `keymap.list` query. The MCP server is a port of LightCraft's hand-written
+`crates/mcp` (no async runtime, no new dependency), with PhotoCraft's
+`crates/automation/src/workspace.rs` as the pattern for roots; tool annotations are derived, so
+`CommandSpec` gains no field: `readOnlyHint` and `idempotentHint` for `Query` commands,
+`destructiveHint` for `External` commands and for those whose params doc names `confirm` (a test
+checks that every command answering `needs_confirm` is marked). Headless MCP keeps its own
+selection and tray (ids, held photos, one section at a time, `ui-layout.md` §5.4), since the light
+table's selection lives in `ui`; connect mode uses the app's. `apply_edit` appends through
+`photo.history.apply` as one step of each photo's own history until M11's Batch Edit gives the
+one-library-step form (W07 waits for it); `set_recipe` runs a new engine command `edit.recipe.set`
+that refuses to drop an operation it cannot read unless `dropUnknown`; `list_edit_ops` reads a new
+catalogue of operations in `edit`; `set_metadata`'s `geo` answers "not available until Places
+(M13)". The automation path policy moves from `ui`'s control channel into `engine`
+(`automation.rs`), so the control channel and MCP share one implementation; `--read-only` is an
+engine switch. `library.inspect` becomes the engine query of `control-protocol.md` §6.4, the control
+method adds the UI's fields and MCP's `doc_inspect` returns it. The workflow tests live in
+`crates/mcp/tests/workflows/` (one module per workflow, `wNN_<slug>`); the P0 workflows are those
+of M10 or earlier (W01–W06, W08, W09, W12); W07, W10 and W11 stay ignored naming their milestones;
+`cargo xtask stats` prints the pass rate and `stats --check` (in `cargo xtask ci`) holds its floor;
+the run in connect mode against `dalica --headless --control` is part of `accept M10`. A P0 row is
+✅ once its P0 behaviour is measured; parts of a P0 row's note that belong to a later milestone's
+feature (faces and people, places, the slideshow, video, the previous organizer's data, Batch
+Edit's Undo All Edits) move to that feature's row, or a new row where none fits, and the moves are
+a question at M10.R; two checks only a person can make (the Windows touchpad pinch on real
+hardware, the macOS build used by hand) keep their rows 🟡 "awaiting the M10.R manual check",
+which `cargo xtask parity --p0` accepts by that note. `cargo xtask parity` generates the `KEY-*`
+rows from the keymap: one per documented (context, key), tier P0 when a P0 row cites its command,
+✅ when bound as documented. The wider HEIF set is made locally with libheif's `heif-enc` (a tool
+on the maintainer's machine, never a dependency) from `scenes` images at 8, 10 and 12 bits, 4:2:0,
+4:2:2 and 4:4:4, with alpha, grids and rotations, plus openly licensed non-Apple files where they
+can be found; publishing it to `dalica-corpus` is a question at M10.R. The P0 budgets not enforced
+yet (scan throughput, cold start and idle memory at 100 k) join the budgets job at the values of
+`development.md` §8 and are never loosened: a miss is fixed in its task or blocks with its numbers.
+No other step of M10 needs a maintainer decision mid-run.
+
+- ⬜ **M10.1 `engine`: M10's command modules, the options catalogue and settings**
+  - after: M9.3, M9.R
+  - files: `crates/engine/src/cmd/mod.rs`, `crates/engine/src/cmd/options.rs`, `crates/engine/src/cmd/keymap.rs`, `crates/engine/src/cmd/inspect.rs`, `crates/engine/src/cmd/recipe.rs`, `crates/engine/src/options.rs`, `crates/engine/src/settings.rs`, `crates/engine/src/session.rs`, `crates/engine/src/undo.rs`, `crates/engine/tests/settings_m10.rs`, `crates/engine/tests/options_catalogue.rs`, `crates/engine/tests/execute_group.rs`, `crates/engine/README.md`, `docs/menus-and-shortcuts.md`, `docs/data-model.md`
+  - scope: the engine's ground for M10 so M10.5–M10.7, M10.9 and the MCP tasks never share a
+    file: empty `cmd/options.rs`, `keymap.rs`, `inspect.rs` and `recipe.rs` joined into the
+    registry once; `options.rs`, the options catalogue: one row per option of
+    `menus-and-shortcuts.md` §5 General, File Types and Export (settings key, type, default, range
+    or choices, tab, group, English label and hint, applies `now | rescan | restart`, whether its
+    feature exists yet and the reason when not); every new setting with its default behind a typed
+    accessor: Interface (use animations on, show tooltips on, single click returns to the library
+    off, merged with M7's edit setting where one exists, UI scale `auto` or 75–300 in steps of 25,
+    font size `small`, language `system`) and the small-picture threshold (64; 16–1024), while the
+    settings that exist (`fileTypes`, the `files` group, M8's export and M9's ask-first settings)
+    are listed in the catalogue, not duplicated; `Session::execute_group(steps, label)`: several
+    library commands as one library undo step, every step's `enabled` checked before any runs and
+    an error in a step undoing the steps already run; `menus-and-shortcuts.md` §1.9 gains
+    `options.list`, `options.set`, `keymap.list`, `library.inspect`, `edit.recipe.set` and
+    `app.setShortcut`'s `slot`; `data-model.md` §4 lists the new settings keys.
+  - done when: `crates/engine/tests/settings_m10.rs` round-trips every new setting with unknown
+    keys kept and wrong types falling back (reported); `crates/engine/tests/options_catalogue.rs`:
+    every option of §5's three tabs is in the catalogue once, each default equals its accessor's,
+    keys are unique; `crates/engine/tests/execute_group.rs`: a star, a caption and a tag in one
+    group are one undo step and undo restores all three, a failing third step leaves the model and
+    the sidecars unchanged; every existing engine test and `panic_hunt` pass unchanged.
+- ⬜ **M10.2 `ui`: M10's view state, UI commands, the Options dialog's stubs and control stubs**
+  - after: M9.4, M9.R
+  - files: `crates/ui/src/state.rs`, `crates/ui/src/menus.rs`, `crates/ui/src/app.rs`, `crates/ui/src/keys.rs`, `crates/ui/src/commands/mod.rs`, `crates/ui/src/commands/options.rs`, `crates/ui/src/dialogs/mod.rs`, `crates/ui/src/dialogs/options.rs`, `crates/ui/src/dialogs/options/general.rs`, `crates/ui/src/dialogs/options/file_types.rs`, `crates/ui/src/dialogs/options/export.rs`, `crates/ui/src/dialogs/options/shortcuts.rs`, `crates/ui/src/scale.rs`, `crates/ui/src/control/mod.rs`, `crates/ui/src/control/view.rs`, `crates/ui/src/control/batch.rs`, `crates/ui/src/control/inspect.rs`, `crates/ui/tests/view_state_m10.rs`, `docs/control-protocol.md`
+  - scope: every M10 field of `UiState` in one go: the Options dialog (its tab, the draft of
+    option values, the last Apply's error, the font size and scale being previewed) and the
+    shortcut editor (search text, Context filter, "Show commands without a shortcut", the row
+    recording, a pending conflict, its draft of changed bindings); UI commands `app.preferences`
+    (Ctrl+,; Dalica ▸ Preferences… on macOS) and `app.shortcuts` (Ctrl+/; opens the Keyboard
+    Shortcuts tab) in `commands/options.rs`; `DialogKind::Options` on the dialog host with the
+    frame in `dialogs/options.rs` and four stub tab bodies, so M10.10–M10.12 never share a file;
+    a hook in `keys.rs` that sends key presses to the editor, not the keymap, while a row records;
+    `scale.rs` with a stub `apply(ctx, state, settings)` that `app.rs` calls every frame; the
+    `batch` and `library.inspect` entries of `control/mod.rs` pointing at stub modules, so M10.7
+    and M10.8 never share a file; the `PREF-…` row split into one row per tab, `PREF-SCALE` and a
+    Help menu row added; control-protocol §6.5 and §6.6 updated.
+  - done when: `crates/ui/tests/view_state_m10.rs`: each new field round-trips through `ui.state`
+    / `ui.set` (bad values are `bad_params`, nothing changes); Ctrl+, opens `dialog:options` on
+    General and Ctrl+/ on Keyboard Shortcuts, Esc closes it; Tools ▸ Options…, Help ▸ Keyboard
+    Shortcuts… and the macOS Preferences… item light up; every command's graceful-failure test;
+    `panic_hunt` and `widget_ids` stay green.
+- ⬜ **M10.3 `ui-kit`: text tabs, checkbox rows, key cells and the editor's icons**
+  - after: M9.5, M9.R
+  - files: `crates/ui-kit/src/widgets.rs`, `crates/ui-kit/src/widgets/tabs.rs`, `crates/ui-kit/src/widgets/checkbox.rs`, `crates/ui-kit/src/widgets/key_cell.rs`, `crates/ui-kit/src/widgets/list_row.rs`, `crates/ui-kit/src/icons.rs`, `crates/ui-kit/src/icons/options.rs`, `crates/ui-kit/tests/options_widgets.rs`, `crates/ui-kit/tests/icons_options.rs`, `crates/ui-kit/tests/fingerprints/options-widgets*.json`, `crates/ui-kit/tests/fingerprints/icons-options*.json`, `crates/ui-kit/tests/fingerprints/gallery*.json`, `docs/design-system.md`
+  - scope: `design-system.md` §5–§6 and §11.3: the text variant of `tabs` (a dialog's tab strip,
+    the open tab joined to the page; the edit panel's icon tabs unchanged); `checkbox` on M8.5's
+    form rows (a hint line under it, "Applies at next launch.", a disabled state with its reason as
+    the tooltip), replacing the egui checkbox the dialogs call today; `key_cell` (one or two keys
+    as key caps, ⌘ ⌥ ⇧ glyphs on macOS, "Press the new shortcut…" while recording, a conflict
+    state); `list_row` (a 24-high row with columns, hover, selection and a modified mark) for the
+    shortcut editor's list; the icons `Restore` (↺) and `Clear` (×), our own drawings on the
+    20-unit grid; the widget gallery gains them.
+  - done when: `crates/ui-kit/tests/options_widgets.rs`: a strip of four tabs fits at both window
+    sizes and elides from its end; a disabled checkbox ignores clicks and shows its reason; key
+    caps read "Ctrl+Shift+S" on Linux and "⇧⌘S" on macOS; a row's columns align at both font
+    sizes; `crates/ui-kit/tests/icons_options.rs`: both icons stay in their grid at 12, 16, 20 and
+    28 px in rest, hover and disabled colours; gallery and icon fingerprints; `widget_ids`,
+    `cargo xtask assets` and `cargo xtask names` pass.
+- ⬜ **M10.4 `mcp` + `dalica-cli`: the MCP server's core and headless mode**
+  - after: M9.3, M9.R
+  - files: `crates/mcp/Cargo.toml`, `crates/mcp/README.md`, `crates/mcp/src/lib.rs`, `crates/mcp/src/server.rs`, `crates/mcp/src/jsonrpc.rs`, `crates/mcp/src/backend.rs`, `crates/mcp/src/headless.rs`, `crates/mcp/src/tray.rs`, `crates/mcp/src/progress.rs`, `crates/mcp/src/roots.rs`, `crates/mcp/src/resources.rs`, `crates/mcp/src/connect.rs`, `crates/mcp/src/tools/mod.rs`, `crates/mcp/src/tools/core.rs`, `crates/mcp/src/tools/inspect.rs`, `crates/mcp/src/tools/organize.rs`, `crates/mcp/src/tools/edit.rs`, `crates/mcp/src/tools/output.rs`, `crates/mcp/src/tools/commands.rs`, `crates/mcp/src/tools/ui.rs`, `crates/mcp/tests/server.rs`, `crates/mcp/tests/common/**`, `apps/dalica-cli/src/main.rs`, `apps/dalica-cli/src/mcp.rs`, `apps/dalica-cli/tests/mcp_cli.rs`, `docs/mcp.md`, `NOTICE`
+  - scope: `mcp.md` §1, §3, §4.1, §6 and §10, ported from LightCraft `crates/mcp/src/lib.rs`,
+    `server.rs`, `tools.rs`, `backend.rs`, `headless.rs` and `progress.rs` at b3d392b4 (headers
+    and `NOTICE` rows, `architecture.md` §9): newline-delimited JSON-RPC 2.0 over stdio with a
+    reader thread, so `ping` and `notifications/cancelled` are read while a tool runs;
+    `initialize` (protocol `2025-06-18`; `2025-03-26` and `2024-11-05` accepted; `serverInfo`,
+    capabilities, the `instructions` string); `tools/list` and `tools/call` dispatching to the
+    tool groups; the shared tools `command_list`, `command_run` (with `wait`), `command_batch`
+    (≤ 256 steps) and `render_preview`; the `Backend` trait with the headless backend (an engine
+    `Session` from `--demo`, `--library DIR`, folders, or an empty in-memory library); `tray.rs`,
+    headless MCP's own selection and tray; progress notifications (≤ 10 per second plus the final
+    one) and cancellation between photos; tool errors as `isError` with the control-protocol code,
+    protocol errors `-32700`, `-32600`, `-32601`, `-32602`, `-32002`; strict arguments for the
+    helper tools; a panic in a tool turned into `isError: internal`; the limits (1 MiB lines,
+    8 MiB results); stub modules for the later tool groups (`inspect`, `organize`, `edit`,
+    `output`, `commands`, `ui`), resources, roots (today's default write roots) and connect mode;
+    `dalica-cli mcp [--demo] [--library DIR] [--compact] [FOLDERS…]`; `mcp.md`'s status line,
+    and §9's location moved to `crates/mcp/tests/workflows/`.
+  - done when: `crates/mcp/tests/server.rs` through the real framing on in-process pipes:
+    `initialize` per protocol revision; each shared tool on a demo session; an unknown key in a
+    helper's arguments is `-32602` naming it; a parse error answers with `id: null` and the next
+    line is still read; an over-long line is `-32700`; a planted panic is `isError: internal` and
+    the session keeps serving; a progress token gives strictly increasing notifications, a cancel
+    stops a 50-photo job before its next photo with the finished ones kept, `ping` is answered
+    during a job; `apps/dalica-cli/tests/mcp_cli.rs`: `dalica-cli mcp --demo` answers
+    `initialize` on real stdio and logs only to standard error.
+- ⬜ **M10.21 `xtask`: the P0 parity gate, `KEY-*` rows from the keymap, and workflow statistics**
+  - after: M9.R
+  - files: `xtask/src/parity.rs`, `xtask/src/parity/**`, `xtask/src/stats.rs`, `xtask/src/ci.rs`, `docs/parity.md`, `docs/process.md`
+  - scope: `parity.md` and `process.md` §5: `cargo xtask parity --p0` lists every P0 row that is
+    not ✅ and fails while one remains, except a 🟡 row whose note ends "awaiting the M<n>.R manual
+    check" for the current milestone, which it lists apart; `cargo xtask parity --write` generates
+    section I's rows from the bindings `dalica-cli commands --json` lists (the registry and
+    `UI_COMMANDS`): one `KEY-<context>-<key>` row per key documented in `menus-and-shortcuts.md`
+    §2 and `editing.md` §12, tier P0 when a P0 row cites its command and P1 otherwise, ✅ when the
+    keymap binds it as documented and ⬜ with the command's milestone otherwise, and a documented
+    key with no binding fails the check; `cargo xtask stats` runs the workflow tests and prints
+    passing / total with the ignored ones and their reasons, and `stats --check` holds a floor (the
+    workflows passing today; M10.20 raises it) and joins `cargo xtask ci`.
+  - done when: `xtask` tests: a planted P0 ⬜ row fails `--p0`, an "awaiting" row of the current
+    milestone is listed apart while one of another milestone fails; a documented key removed from
+    a planted keymap fails; the generated rows are stable between two runs; `stats` counts a
+    planted ignored workflow and `--check` fails under the floor; `cargo xtask ci` passes.
+- ⬜ **M10.22 `engine` + `ui`: the P0 budgets left: scan throughput, cold start and idle memory**
+  - after: M9.12, M9.R
+  - files: `crates/engine/benches/scan_throughput.rs`, `crates/ui/benches/cold_start.rs`, `xtask/src/bench.rs`, `xtask/src/accept.rs`, `.github/workflows/budgets.yml`, `docs/development.md`
+  - scope: `development.md` §8's P0 scenarios that no job enforces yet, each bench registered in
+    `xtask/src/bench.rs`, joined to `BUDGETS` and the release-budgets job (M5.24) and documented in
+    §8 and §13 with its machine: `scan_throughput` (a first scan of 5 000 `scenes` JPEGs with
+    embedded thumbnails on the temporary disk, photos per second to "embedded thumbnails
+    available"; budget ≥ 500); `cold_start` (a fresh process per run, the bench re-executing
+    itself, opening a 100 k index-only synthetic library to the first settled frame with every
+    visible cell drawn from its sketch; budget ≤ 2 s) and idle memory (resident memory after that
+    frame and 5 s idle, read in-process; budget ≤ 600 MiB); a missed budget is fixed in this task
+    (before and after numbers in the PR) or blocks with its numbers, never loosened.
+  - done when: `cargo xtask bench scan_throughput` and `cargo xtask bench cold_start` print their
+    numbers (in the PR); `cargo xtask budgets` passes with them and `--plant-ms` makes each fail.
+- ⬜ **M10.23 `image` + `scenes`: the P0 formats measured**
+  - after: M6.38, M9.R
+  - files: `crates/image/src/formats/jpeg.rs`, `crates/image/src/formats/png.rs`, `crates/image/src/formats/tiff.rs`, `crates/image/src/decode.rs`, `crates/image/tests/p0_formats.rs`, `crates/scenes/src/formats/**`
+  - scope: what the P0 rows `DATA-FMT-JPEG`, `DATA-FMT-PNG`, `DATA-FMT-TIFF`, `DATA-FMT-COLOR`
+    and `DATA-FMT-RAW-TIFF` list as not measured, each measured with procedural files where
+    `scenes` can make them and with `photos` corpus files otherwise: 12-bit and DCT-scaled JPEG
+    decodes and arithmetic coding answering its message; PNG palette, low bit depths and
+    interlacing measured exactly; TIFF's thumbnail-IFD fast path called by `decode_thumbnail`; a
+    decode found wrong is fixed here; each row's note rewritten to what was measured.
+  - done when: `cargo test -p dalica-image --test p0_formats` measures every item those rows' notes
+    name; `cargo xtask test-corpus` passes with its floors unchanged or raised.
+- ⬜ **M10.24 `image` + `xtask`: HEIF measured on a wider set, for the M10.R decision**
+  - after: M6.42, M9.R
+  - files: `crates/image/src/formats/heif.rs`, `crates/image/tests/heif_wide.rs`, `xtask/src/corpus.rs`, `xtask/src/corpus_pins.rs`, `docs/formats.md`
+  - scope: Release 0.5's open question (the `heif` feature in release builds): a `heif-wide`
+    corpus set made by `cargo xtask corpus make heif-wide` from `scenes` images through libheif's
+    `heif-enc` where it is installed (8, 10 and 12 bits; 4:2:0, 4:2:2 and 4:4:4; alpha; grids;
+    `irot` and `imir`; an ICC profile), plus openly licensed non-Apple files with their provenance
+    where they can be found; every file decoded with the `heif` feature, with its error against the
+    source image, its time, and what it answers when unsupported; fixes only in our wrapper
+    `heif.rs`, a decoder bug in the crate recorded; the set stays local until the maintainer
+    answers whether to publish it; `formats.md`'s HEIF section records the measurements and a
+    recommendation.
+  - done when: `cargo test -p dalica-image --features heif --test heif_wide` (skipped with a message
+    when the set is absent) passes on the local set; the table of results is in the PR and in
+    `formats.md`; no file panics.
+- ⬜ **M10.5 `engine`: `options.list` and `options.set`, and applying them**
+  - after: M10.1
+  - files: `crates/engine/src/cmd/options.rs`, `crates/engine/src/scanning.rs`, `crates/store/src/stale.rs`, `crates/store/tests/stale.rs`, `crates/engine/tests/options_set.rs`, `crates/engine/tests/file_types.rs`
+  - scope: `menus-and-shortcuts.md` §5 and `design-system.md` §11.3, with PhotoCraft
+    `crates/engine/src/prefs.rs` (`Preferences::get`, `set`, `reset`) at 583425b4 as the pattern:
+    `options.list {tab?}` (query: the catalogue rows with their current values and availability);
+    `options.set {values}` (every key and value checked against the catalogue before anything
+    changes: an unknown key, a wrong type or a value out of range is `bad_params` naming it; no
+    undo step; one atomic write of `settings.json` through the I/O worker; a failed write an error
+    with its reason, the session keeping the old values; the result lists the changed keys and
+    those that apply at next launch); effects: a File Types or threshold change starts one rescan
+    job of the watched folders, the photos of a type turned off leave the index while their
+    sidecar entries are neither pruned nor marked missing as long as their file exists (`store`'s
+    `stale` checks the disk, not the listing), the metadata write options act from the next write
+    and the export defaults from the next `export.defaults`; rows `PREF-GENERAL`,
+    `PREF-FILETYPES`, `PREF-EXPORT` (engine half).
+  - done when: `crates/engine/tests/options_set.rs`: each option round-trips through
+    `options.set` and `options.list` with unknown keys in `settings.json` kept; a batch with one
+    bad value changes nothing; a read-only settings file fails with its reason and the old values
+    stay; `restart` lists the system title bar; `crates/engine/tests/file_types.rs` on temp
+    folders: turning PNG off removes the PNGs from the library, after 31 days on a virtual clock
+    and a sidecar write in their folder their entries are still on disk, and turning PNG back on
+    brings them back with their stars, captions and recipes; the threshold hides and shows 40 px
+    photos; each command's contract and graceful failures; `panic_hunt` green.
+- ⬜ **M10.6 `engine`: the keymap listing, two keys per context and named conflicts**
+  - after: M10.1
+  - files: `crates/engine/src/cmd/keymap.rs`, `crates/engine/src/cmd/app.rs`, `crates/engine/src/keymap.rs`, `crates/engine/tests/keymap_m10.rs`
+  - scope: `menus-and-shortcuts.md` §2.0, with LightCraft `crates/ui-egui/src/shortcuts.rs`
+    (`parse`, `format`, `ALIASES`, `conflicts`) at b3d392b4 as the pattern for lenient parsing and
+    labels: `keymap.list {context?, search?, withoutKeys?}` (query: one row per command and
+    context: id, label, menu path, context, keys in effect, default keys, modified, editable (hold
+    gestures are not)); search matching labels, menu paths and keys ignoring case and spelling
+    ("ctrl+1" finds both Ctrl+1 bindings); `app.setShortcut {command, context, key, slot?,
+    replace?}` with two slots per (command, context), a conflict answered as a `conflict` error
+    naming the other command's label, its context and the key unless `replace`, which takes the
+    key from the other command; `app.resetShortcuts {command?}` as today; `Key::pretty(platform)`
+    for the labels on screen (`Ctrl+Shift+S`; `⇧⌘S` on macOS); row `PREF-KEYMAP` (engine half).
+  - done when: `crates/engine/tests/keymap_m10.rs`: the listing covers every command of the
+    registry and `UI_COMMANDS` once per context it has keys in, and the ones without keys when
+    asked; search by name, menu path and key; a second key in slot 1 resolves beside the first; a
+    conflict names the other binding and `replace` moves the key; Ctrl+1 in Library and in Edit
+    view is no conflict; Star rebound to F8 resolves F8 to `photo.star.toggle` in Library and
+    Ctrl+8 no longer does; the rebinding survives a restart with unknown settings keys kept;
+    `app.resetShortcuts {}` restores every default binding exactly; each command's contract and
+    graceful failures; `panic_hunt` green.
+- ⬜ **M10.7 `engine` + `ui` + `mcp`: `library.inspect` everywhere**
+  - after: M10.1, M10.2, M10.4
+  - files: `crates/engine/src/cmd/inspect.rs`, `crates/engine/tests/library_inspect.rs`, `crates/ui/src/control/inspect.rs`, `crates/ui/tests/control_inspect.rs`, `crates/mcp/src/tools/inspect.rs`, `crates/mcp/tests/inspect.rs`
+  - scope: `control-protocol.md` §6.4 and `mcp.md` §4.1, one implementation for three surfaces:
+    the engine query `library.inspect {photos?, section?, offset?, limit?}` (revision, demo,
+    watched folders, counts, the tree, sections, search, view settings, undo, unsaved edits,
+    pending writes, problems, scan; with `photos` the photo list paged, default 200, at most
+    1 000; people names withheld unless allowed); the control method of that name returning it
+    plus the UI's fields (`current`, `visibleSections`, `selection`, `tray`, `scroll`); MCP's
+    `doc_inspect` returning the engine's JSON headless and the control method's in connect mode;
+    rows `SYS-CONTROL`, `SYS-MCP`.
+  - done when: `crates/engine/tests/library_inspect.rs` on a demo library: every key of §6.4
+    present, counts matching `library.query`, paging and a section restricting the photos, a
+    hostile offset and limit `bad_params`, people fields absent by default;
+    `crates/ui/tests/control_inspect.rs`: the method adds the UI fields and agrees with
+    `ui.inspect` on the selection; `crates/mcp/tests/inspect.rs`: `doc_inspect` equals the engine
+    query; graceful failures; `panic_hunt` green.
+- ⬜ **M10.8 `ui`: `batch`, replies that wait for their job, and the headless capture in the window**
+  - after: M10.2
+  - files: `crates/ui/src/control/batch.rs`, `crates/ui/src/control/engine.rs`, `crates/ui/src/control/jobs.rs`, `crates/ui/src/control/screenshot.rs`, `crates/ui/tests/control_batch.rs`, `crates/ui/tests/control_wait.rs`, `apps/dalica/src/control/play.rs`, `apps/dalica/tests/control_m10.rs`, `docs/control-protocol.md`
+  - scope: `control-protocol.md` §5.3, §6.3 and §6.11, the missing parts of `SYS-CONTROL`:
+    `batch {steps, stopOnError?}` (command and method steps in order with the semantics of
+    separate requests; `batch`, `auth` and `app.quit` refused as steps; at most 256 steps; a
+    `limit` stop when the reply would pass 8 MiB); `engine.execute` of a command that starts a job
+    waits for the job and replies with its result, `wait: false` replies `{job, pending: true}` at
+    once, and a job still running 55 s into the deadline replies the same; the scans
+    (`folders.add`, `library.rebuild`) name their job; `ui.screenshot {headless: true}` in the
+    window renders the CPU capture as `--headless` does; §5.3's "Planned, not built yet" note goes.
+  - done when: `crates/ui/tests/control_batch.rs`: a mixed batch runs in order with one undo step
+    per command, `stopOnError` stops at the first failure and `false` goes on, forbidden steps are
+    refused, a 257-step batch is `limit`, an oversized aggregate stops with `limit`;
+    `crates/ui/tests/control_wait.rs`: `folders.add` replies after its scan with the job's result,
+    `wait: false` gives `{job, pending: true}` and `jobs.wait` then returns the result;
+    `apps/dalica/tests/control_m10.rs`: a headless capture through a windowed session's handlers
+    equals `--headless`'s byte for byte; graceful failures; `panic_hunt` green.
+- ⬜ **M10.9 `edit` + `engine`: the edit-operation catalogue and `edit.recipe.set`**
+  - after: M10.1
+  - files: `crates/edit/src/catalog.rs`, `crates/edit/tests/catalog.rs`, `crates/engine/src/cmd/recipe.rs`, `crates/engine/tests/recipe_set.rs`, `docs/editing.md`
+  - scope: `mcp.md` §4.2, `data-model.md` §3.1 and `editing.md`'s operation tables:
+    `edit::catalog()` (every operation of those tables: name, English label, parameters with type,
+    range and default, whether it changes the canvas size, its milestone, whether this build
+    renders it; checked against the parser, so an operation the parser knows and the catalogue
+    lacks fails a test); `edit.recipe.set {ids, recipe, label?, dropUnknown?}` (`recipe` the
+    string form or an operation list) replacing each photo's recipe as one step of its own
+    history, refusing by name to drop an unknown or `legacy:` operation unless `dropUnknown`,
+    every operation validated before any photo changes; rows `EDIT-UNDO` (the agent path),
+    `SYS-MCP`.
+  - done when: `cargo test -p dalica-edit --test catalog`: every operation the parser knows is
+    listed with ranges matching its clamps, defaults render deterministically;
+    `crates/engine/tests/recipe_set.rs`: a recipe set on two photos is one step of each history
+    and undo restores both, an unknown operation is refused and kept and replaced with
+    `dropUnknown`, a bad parameter changes no photo; each command's contract and graceful
+    failures; `panic_hunt` green.
+- ⬜ **M10.13 `mcp`: the organizing helper tools**
+  - after: M10.1, M10.4
+  - files: `crates/mcp/src/tools/organize.rs`, `crates/mcp/tests/organize_tools.rs`
+  - scope: `mcp.md` §4.2, photo tools acting on the headless tray (M10.4) when `ids` is omitted:
+    `scan_folder {path, mode?, wait?}` (`folders.add` / `folders.set`, waiting for its scan job
+    with progress per batch; `{folder, section, photos, videos, skipped, problems}`);
+    `query_photos` on `library.query` with M9's grammar and filters, paged ≤ 1 000; `photo_info`
+    from `photo.inspect`, `photo.metadata` and `photo.history.state`; `select_photos {ids,
+    section?, mode?, hold?}`; `set_metadata` through `Session::execute_group` as one undo step
+    (`geo` answers "not available until Places (M13)"); `create_album` on `album.create` (the tray
+    by default); `jobs_list` and `jobs_cancel`; row `SYS-MCP`.
+  - done when: `crates/mcp/tests/organize_tools.rs` on `scenes` folders: `scan_folder` of 200
+    photos answers the counts with increasing progress; `query_photos` with words, `tag:`, `-word`
+    and filters equals `library.query`; `photo_info` lists every field of §4.2; `select_photos`
+    with an unknown id is an error and the selection is unchanged; `set_metadata` with star,
+    caption and tags is one undo step that one `cmd_edit_undo` restores; `create_album` from the
+    tray; each tool's strict arguments and graceful failures.
+- ⬜ **M10.16 `engine` + `mcp`: roots, permissions and read-only sessions**
+  - after: M10.1, M10.4
+  - files: `crates/engine/src/automation.rs`, `crates/engine/src/session.rs`, `crates/engine/tests/automation_roots.rs`, `crates/engine/tests/read_only.rs`, `crates/ui/src/control/paths.rs`, `crates/mcp/src/roots.rs`, `crates/mcp/tests/roots.rs`, `docs/security.md`, `NOTICE`
+  - scope: `mcp.md` §5 and `control-protocol.md` §5.6–§5.7, with PhotoCraft
+    `crates/automation/src/workspace.rs` (`AuthorizedWorkspace`) at 583425b4 as the pattern: the
+    path policy moved from `ui`'s `control/paths.rs` into `engine` (`automation.rs`: read and
+    write roots, the default write roots (the OS temporary directory and
+    `<cache>/Dalica/automation/`), never inside a watched folder or `.dalica-originals/`, never
+    over an existing file, links resolved before the check), the control channel calling it; MCP's
+    client roots (`roots/list` after `initialize` and on `notifications/roots/list_changed`,
+    `file://` roots as read roots only, `--no-client-roots`); `--automation-read-root`,
+    `--automation-write-root`, `--automation-allow-external` and `--automation-allow-people` in
+    headless mode; `--read-only` as an engine switch (sidecar, metadata and index writes stay in
+    memory; file jobs and exports refused with `read_only`); `security.md`'s automation section
+    updated; rows `SYS-MCP`, `SYS-CONTROL`.
+  - done when: `crates/engine/tests/automation_roots.rs`: allowed and refused paths (`..`, a link
+    out of a root, a watched folder, `.dalica-originals/`, an existing file) and the control
+    channel's path tests passing unchanged; `crates/mcp/tests/roots.rs`: a client root becomes a
+    read root and never a write root, a `list_changed` refresh drops a removed root;
+    `crates/engine/tests/read_only.rs`: starring and captioning changes no byte on disk (the
+    folder's sha256 before and after) and an export is refused; the owner thread made no `fs`
+    call; `panic_hunt` green.
+- ⬜ **M10.25 `ui`: the window's last P0 gaps**
+  - after: M10.2
+  - files: `crates/ui/src/dialogs/folder_properties.rs`, `crates/ui/src/dialogs/folder_manager.rs`, `crates/ui/src/dialogs/folder_manager/**`, `crates/ui/src/menus.rs`, `crates/ui/tests/folder_properties.rs`, `crates/ui/tests/folder_manager.rs`, `crates/ui/tests/menu_checks.rs`, `crates/ui/tests/fingerprints/dialog-folder-properties-*.json`, `crates/ui/tests/fingerprints/dialog-folder-manager-*.json`
+  - scope: gaps named in P0 rows' notes that no other M10 task closes: Folder Properties' date on
+    `ui-kit`'s date fields (M6.29's `datetime`) instead of typed text (`ORG-FOLDERPROPS`); a
+    resizable Folder Manager keeping its size for the session (`ORG-FOLDERMGR`); every checkable
+    menu item's mark read from the view state (`SYS-COMMANDS`); any other P0 gap in these files
+    the audit's first pass names.
+  - done when: `crates/ui/tests/folder_properties.rs`: the date fields step and refuse an
+    impossible date, OK runs `folder.info.set` once; `crates/ui/tests/folder_manager.rs`: the
+    dialog resizes within the window and its list follows; `crates/ui/tests/menu_checks.rs` lists
+    every checkable item and toggles each through its command and through `ui.set`; fingerprints
+    at both sizes.
+- ⬜ **M10.10 `ui`: the Options dialog, its General tab, UI scale and font size**
+  - after: M10.2, M10.3, M10.5
+  - files: `crates/ui/src/dialogs/options.rs`, `crates/ui/src/dialogs/options/general.rs`, `crates/ui/src/scale.rs`, `crates/ui-kit/src/widgets/tooltip.rs`, `crates/ui/src/panels/light_table.rs`, `crates/ui/src/panels/edit/canvas.rs`, `crates/ui/src/commands/zoom.rs`, `crates/ui/src/commands/scroll.rs`, `crates/ui/tests/options_dialog.rs`, `crates/ui/tests/ui_scale.rs`, `crates/ui/tests/fingerprints/dialog-options-general-*.json`, `crates/ui/tests/fingerprints/ui-scale-*.json`, `docs/design-system.md`
+  - scope: `design-system.md` §11.3–§11.5 and `menus-and-shortcuts.md` §5 General, with PhotoCraft
+    `crates/ui-egui/src/prefs_ui.rs` (`prefs_body`, `preferences_changed`, `apply`, `confirm`,
+    `sync_display_scale`) and `crates/ui-egui/src/dialogs.rs` (`show`'s OK / Cancel / Apply) at
+    583425b4 as the pattern: the dialog frame with M10.3's text tabs, filled from `options.list`;
+    OK, Cancel and Apply (Apply disabled while the draft equals the saved values, OK applies and
+    closes, Cancel and Esc discard the changes since the last successful Apply, a failed Apply
+    shows its error in the dialog and keeps the draft, "Applies at next launch." under the system
+    title bar option); the General tab's Interface, Files and Import groups on M8.5's form rows,
+    options whose feature does not exist drawn disabled with their reason; `scale.rs` applying UI
+    scale as egui's zoom (Auto from the native scale and the window's monitor with the 4K rule,
+    updated when the window moves to another monitor; the headless driver takes a given scale)
+    and font size through `Tokens::with_font_size`, previewing live from the draft and reverting
+    on Cancel, `keys.rs`'s zoom assertion holding at every scale; "Show tooltips" off stops
+    tooltips; "Use animations" off makes the light table's scroll to a section, the zoom and the
+    pan glide jump to their end; rows `PREF-DIALOG`, `PREF-GENERAL`, `PREF-SCALE`, `SYS-WINDOW`.
+  - done when: `crates/ui/tests/options_dialog.rs` (headless, by id): Apply's state follows the
+    draft; a checkbox applied then the dialog cancelled keeps the applied value; Cancel after an
+    unapplied change keeps the old value; a planted write failure shows the error and keeps the
+    draft; Large font previews and reverts on Cancel; every option of the tab reaches
+    `options.set` with its key; `crates/ui/tests/ui_scale.rs`: the factor for system scales 100,
+    125 and 150 % and a 3840 px monitor, a fixed 150 % on a 200 % system; fingerprints of the
+    General tab and of the main window at 150 % and Large at both window sizes.
+- ⬜ **M10.14 `mcp`: the edit, render and export helper tools**
+  - after: M10.4, M10.9
+  - files: `crates/mcp/src/tools/edit.rs`, `crates/mcp/src/tools/output.rs`, `crates/mcp/tests/edit_tools.rs`, `crates/mcp/tests/output_tools.rs`
+  - scope: `mcp.md` §4.2 and §10: `list_edit_ops {op?}` from `edit::catalog()`; `get_recipe {id}`
+    (`{recipe, ops, redo, saved}`); `set_recipe {id, recipe, label?, drop_unknown?}` through
+    `edit.recipe.set`; `apply_edit {ids?, op, params?}` through `photo.history.apply` on each
+    photo, with the edit view's rules (only the last crop counts, Tuning merges into a trailing
+    `tuning`); `render_photo {id?, size?, format?, before?, recipe?, path?}` by `edit::render`
+    (long edge ≤ 2048, PNG ≤ 5 MiB, `path` only inside a write root, M10.4's default policy until
+    M10.16; nothing changes in the library); `export` through `export.run` with M8's options
+    mapped, progress and cancellation per photo; row `SYS-MCP`.
+  - done when: `crates/mcp/tests/edit_tools.rs` and `output_tools.rs`: `list_edit_ops` matches the
+    catalogue; `set_recipe` refuses an unknown operation unless `drop_unknown`; `apply_edit {op:
+    "crop"}` twice keeps one crop; `render_photo` with `before` equals the decoded original and
+    with `recipe` changes nothing; a 2049 px request and a `path` outside the write roots are
+    refused; `export` of 5 photos at 1600 px writes 5 decodable JPEGs ≤ 1600 on the long edge and a
+    cancel leaves only complete files; each tool's strict arguments and graceful failures.
+- ⬜ **M10.15 `mcp`: one tool per command, and the resources**
+  - after: M10.4, M10.7
+  - files: `crates/mcp/src/tools/commands.rs`, `crates/mcp/src/resources.rs`, `crates/mcp/tests/command_tools.rs`, `crates/mcp/tests/resources.rs`, `docs/mcp.md`, `docs/architecture.md`
+  - scope: `mcp.md` §4.4 and §7, after LightCraft `crates/mcp/src/tools.rs` (`command_tools`,
+    `command_tool_name`, `annotations`) at b3d392b4: `cmd_` + the command id with `.` → `_` for
+    every engine command (and the app's `UI_COMMANDS` in connect mode), the description from the
+    label, menu path, shortcut and params doc, a loose argument object; the annotations derived as
+    decided above, `openWorldHint` false everywhere; `--compact` leaves these tools out while
+    `command_run` still reaches every command; `resources/list` and `resources/read` for
+    `dalica://library`, `dalica://commands`, `dalica://selection`, `dalica://photo/{id}` (a
+    template) and `dalica://edit-ops`, live and never cached, an unknown URI `-32002`; `mcp.md`
+    §4.4 and `architecture.md` §3 say how the hints are derived; row `SYS-MCP`.
+  - done when: `crates/mcp/tests/command_tools.rs`: one `cmd_` tool per registry entry;
+    `cmd_photo_star_toggle` stars and undoes; every command answering `needs_confirm` is
+    `destructiveHint` and every `Query` `readOnlyHint`; `--compact` lists only the helpers;
+    `cmd_photo_delete` without `confirm` answers `needs_confirm` and changes nothing;
+    `crates/mcp/tests/resources.rs`: each URI reads, a photo URI with a bad id is `-32002`, a
+    change between two reads shows.
+- ⬜ **M10.11 `ui`: the File Types and Export tabs**
+  - after: M10.10
+  - files: `crates/ui/src/dialogs/options/file_types.rs`, `crates/ui/src/dialogs/options/export.rs`, `crates/ui/tests/options_tabs.rs`, `crates/ui/tests/fingerprints/dialog-options-file-types-*.json`, `crates/ui/tests/fingerprints/dialog-options-export-*.json`
+  - scope: `menus-and-shortcuts.md` §5 File Types and Export: "Show JPEG files and:" with one
+    checkbox per type (HEIC/HEIF disabled with "HEIC support isn't included in this build" in a
+    build without `heif`; RAW formats with a list… popup of the raw kinds) and the small-picture
+    threshold; an applied File Types change says "Rescanning your folders…" through the activity
+    indicator; Export: the default location with Browse… (the folder picker), the default size and
+    quality (M8.5's slider with stops and the quality dropdown), remove location, the default
+    watermark text: the same settings the Export dialog starts from; rows `PREF-FILETYPES`,
+    `PREF-EXPORT`.
+  - done when: `crates/ui/tests/options_tabs.rs` (headless, a temp library): PNG turned off and
+    applied hides the PNGs and turned on shows them with their stars; the HEIC row's state follows
+    the feature; a size set here is the next Export dialog's default; Browse… with the scripted
+    picker fills the location and cancel changes nothing; fingerprints of both tabs at both
+    sizes.
+- ⬜ **M10.12 `ui`: the shortcut editor and Help ▸ Keyboard Shortcuts**
+  - after: M10.6, M10.10
+  - files: `crates/ui/src/dialogs/options/shortcuts.rs`, `crates/ui/src/dialogs/options/shortcuts/**`, `crates/ui/tests/shortcut_editor.rs`, `crates/ui/tests/fingerprints/dialog-options-shortcuts-*.json`, `NOTICE`
+  - scope: `menus-and-shortcuts.md` §2.0, ported from LightCraft
+    `crates/ui-egui/src/panels/keymap.rs` (`body`, `row`, `capture`, `fixed_keys`) at b3d392b4 and
+    PhotoCraft `crates/ui-egui/src/prefs_ui.rs` (`shortcuts_body`, `shortcut_text`,
+    `is_modifier_key`) with the tests of `crates/ui-egui/src/shortcut_capture_tests.rs` at
+    583425b4 (headers and `NOTICE` rows): the search field, the Context filter and "Show commands
+    without a shortcut"; one `list_row` per command and context from `keymap.list` (menu path and
+    label, context, both key cells, ↺ when it differs from the default); a click on a key cell
+    records the first non-modifier key with its modifiers, Esc cancels, Backspace removes; a
+    conflict shows inline ("Ctrl+1 is already Small Thumbnails in Library." [Replace] [Cancel]);
+    Reset All asks "Restore all default shortcuts?" [Reset All] [Cancel]; changes stay in the
+    draft until Apply or OK run `app.setShortcut` and `app.resetShortcuts`, and the menus show the
+    keys in effect right after; Help ▸ Keyboard Shortcuts… (Ctrl+/) opens this tab; rows
+    `PREF-KEYMAP`, the Help menu row.
+  - done when: `crates/ui/tests/shortcut_editor.rs` (headless, by id): "ctrl+1" lists both
+    bindings; the Library filter hides Edit view rows; recording F8 on Star, Apply, then F8 on a
+    selected photo stars it and Ctrl+8 no longer does; Esc cancels recording and Backspace
+    removes; recording Ctrl+1 on Star in Library asks and Replace takes it from Small Thumbnails;
+    Cancel before Apply changes nothing; Reset All restores every default and the ↺ marks go;
+    Ctrl+/ opens this tab; the editor's fingerprints at both sizes.
+- ⬜ **M10.17 `mcp` + `dalica-cli`: connect mode**
+  - after: M10.8, M10.13, M10.15
+  - files: `crates/mcp/src/connect.rs`, `crates/mcp/src/tools/ui.rs`, `crates/mcp/tests/connect.rs`, `apps/dalica-cli/src/run.rs`, `apps/dalica-cli/tests/run_connect.rs`
+  - scope: `mcp.md` §1 and §4.3, after LightCraft `crates/mcp/src/backend.rs` (`Remote`) at
+    b3d392b4: `--connect [HOST:PORT]` and `--control-token-file`, loopback only; starting before
+    the app runs and connecting on the first call; one authenticated connection; a request that
+    fails in transit drops it and answers that the operation may have completed, never resending;
+    reply lines with a mismatched `id` skipped; the helper tools forwarded as `engine.execute`,
+    `render_*` through the app's session, jobs cancelled through `jobs.cancel`; the UI tools of
+    §4.3 (`screenshot` as image content after a settle, `inspect_ui`, `list_widgets`, `click`,
+    `drag`, `press_key`, `type_text`, `scroll`, `menu_invoke`, `settle`, `control_call`), which in
+    headless mode answer `isError` explaining `--control` and `--connect`; `tools/list` with
+    `listChanged`; `dalica-cli run --connect HOST:PORT [--script FILE] [--keep-going]` on the same
+    client; rows `SYS-MCP`, `SYS-HEADLESS`.
+  - done when: `crates/mcp/tests/connect.rs` against an in-process fake control server: auth
+    first; a dropped connection answers "may have completed" and the next call reconnects; a
+    mismatched id is skipped; a reply timeout never resends; each UI tool maps to its method;
+    headless UI tools answer how to connect; `apps/dalica-cli/tests/run_connect.rs`: a script over
+    the fake server prints one JSON line per step and exits non-zero on a failure without
+    `--keep-going`.
+- ⬜ **M10.18 `mcp`: the workflow harness and the M6 and M8 workflows**
+  - after: M10.13, M10.14, M10.15
+  - files: `crates/mcp/tests/workflows/main.rs`, `crates/mcp/tests/workflows/harness.rs`, `crates/mcp/tests/workflows/w01_organize_export.rs`, `crates/mcp/tests/workflows/w02_tray_across_folders.rs`, `crates/mcp/tests/workflows/w03_save_undo_revert.rs`, `crates/mcp/tests/workflows/w04_rebuild_loses_nothing.rs`, `crates/mcp/tests/workflows/w05_move_carries_data.rs`, `crates/mcp/tests/workflows/w06_search_save_results.rs`, `crates/mcp/tests/workflows/w07_batch_edit_one_step.rs`, `crates/mcp/tests/workflows/w08_foreign_metadata.rs`, `crates/mcp/tests/workflows/w09_hidden_photos.rs`, `crates/mcp/tests/workflows/w10_import_duplicates.rs`, `crates/mcp/tests/workflows/w11_effects_stack.rs`, `crates/mcp/tests/workflows/w12_destructive_asks.rs`
+  - scope: `mcp.md` §9, with PhotoCraft `crates/automation/tests/agent_tasks.rs` at 583425b4 as
+    the pattern: `harness.rs` (the server over the real JSON-RPC framing on in-process pipes,
+    `scenes` folders in a temporary directory, checks through public state only (`doc_inspect`,
+    `photo_info`, `query_photos`) and the files on disk (sidecars, XMP and IPTC read back by
+    `dalica-meta`, sha256 of originals), an OS trash redirected to a test directory); one module
+    per workflow, W01, W04, W05, W06 and W12 as `#[ignore = "M10.19: …"]` or `"M10.20: …"` stubs
+    for those tasks and W07, W10, W11 ignored with their milestones (M11, M12); this task's
+    workflows: W02 (tray across folders, rotate the tray, both folders' sidecars, one undo), W03
+    (Save, Undo Save, Revert to the exact original bytes), W08 (foreign metadata byte-identical,
+    pixels untouched, modification time unchanged) and W09 (hidden photos leave and come back);
+    row `SYS-MCP`.
+  - done when: `cargo test -p dalica-mcp --test workflows` runs W02, W03, W08 and W09 green on the
+    three OSes and lists the other eight as ignored with their reasons.
+- ⬜ **M10.19 `mcp`: the M9 workflows**
+  - after: M10.18
+  - files: `crates/mcp/tests/workflows/w04_rebuild_loses_nothing.rs`, `crates/mcp/tests/workflows/w05_move_carries_data.rs`, `crates/mcp/tests/workflows/w06_search_save_results.rs`, `crates/mcp/tests/workflows/w12_destructive_asks.rs`
+  - scope: `mcp.md` §9: W04 (star, caption, tag, hide, edit and album, then `library.rebuild
+    {confirm}`: `doc_inspect` and `photo_info` equal before and after); W05 (a move of 3 starred,
+    captioned, saved photos carries their sidecar entries and originals backups, nothing left
+    behind, undo moves them back); W06 (10 tagged, 2 captioned "tram", `query_photos` and `tag:`
+    queries, the search saved as an album); W12 (`cmd_photo_delete` without `confirm` answers
+    `needs_confirm` with the file still there; with `confirm` the file is in the test trash and the
+    undo record keeps its sidecar entry).
+  - done when: `cargo test -p dalica-mcp --test workflows` runs W04, W05, W06 and W12 green on the
+    three OSes, with the files on disk checked after each step and after undo.
+- ⬜ **M10.20 `mcp`: W01, the stdio smoke run and the workflow floor**
+  - after: M10.17, M10.18, M10.21
+  - files: `crates/mcp/tests/workflows/w01_organize_export.rs`, `apps/dalica-cli/tests/mcp_process.rs`, `xtask/src/stats.rs`, `docs/mcp.md`, `docs/process.md`
+  - scope: `mcp.md` §9 and `process.md` §5: W01, the headline (`scan_folder` 200 photos → star 5
+    → `create_album` from them → caption 3 → crop and Auto Fix one → `export` the album at 1600 px
+    → 5 JPEGs with the long edge ≤ 1600, captions in XMP and IPTC, the crop visible in the output,
+    originals byte-identical); a smoke subset (W02, W03) through `dalica-cli mcp` spawned with real
+    stdio; the floor in `xtask/src/stats.rs` raised to the nine P0 workflows; `mcp.md`'s status
+    line says what is built and `process.md` §5 names the stats command; row `SYS-MCP`.
+  - done when: `cargo test -p dalica-mcp --test workflows` runs W01 green on the three OSes;
+    `apps/dalica-cli/tests/mcp_process.rs` passes; `cargo xtask stats` prints 9 / 12 passing and
+    `cargo xtask stats --check` fails when a P0 workflow is ignored (a planted `#[ignore]`).
+- ⬜ **M10.26 `docs`: the P0 parity audit**
+  - after: M10.8, M10.11, M10.12, M10.16, M10.19, M10.20, M10.21, M10.22, M10.23, M10.25
+  - files: `docs/parity.md`
+  - scope: `process.md` §5 and the decisions above: every P0 row re-measured (its cited tests run,
+    its evidence checked against the code), turned ✅ only with that evidence; parts of a note that
+    belong to a later milestone's feature moved to that feature's row or a new row (face-aware crop
+    suggestions, the People group, person sections, the Remove Faces question, face, people and
+    place fields in sidecars and metadata: M13; Undo All Edits: M11; slideshow music and the
+    Slideshow and Collage buttons: M11, M14; video badges: M15; the previous organizer's notice
+    and `data-model.md` §10.11: M14; Help Contents: a new `SYS-HELP` row), listed in the PR for the
+    M10.R question; the two manual checks keep `EDIT-ZOOM` (the Windows touchpad pinch) and
+    `SYS-WINDOW` (the macOS build by hand) 🟡 "awaiting the M10.R manual check"; any other gap
+    gets a fix task from the lead, and this task waits for it.
+  - done when: `cargo xtask parity --p0` passes, listing only the two awaiting rows; the summary is
+    regenerated; the PR lists every row changed with its evidence and every part moved with its new
+    row.
+- ⬜ **M10.27 `accept M10`**
+  - after: M10.12, M10.16, M10.20, M10.26
+  - files: `tests/acceptance/m10.rs`, `tests/acceptance/m10_*.rs`, `tests/acceptance/m10.md`, `tests/acceptance/fingerprints/m10-*.json`
+  - scope: every *Done when* of M10's three areas in the real `dalica --headless` over the control
+    channel and through `dalica-cli mcp`: settings round-tripping through `options.set` with unknown
+    keys kept; the keymap conflict tests; Star rebound to F8 through `app.setShortcut` and F8
+    pressed headless starring the photo; Reset All restoring every default; every P0 workflow over
+    MCP (the workflow tests, the stdio smoke run, and W01 and W02 in connect mode against `dalica
+    --headless --control`, showing both modes agree) with the pass rate printed; `cargo xtask
+    parity --p0`; the P0 budgets (the release budgets with `DALICA_ACCEPT_RELEASE=1`; inside
+    `cargo xtask ci` a smaller debug run checks the paths and prints its times); fingerprints of the
+    Options tabs, the shortcut editor and the window at 150 % and Large; the manual checks in
+    `m10.md` (Options at 150 % and Large, a File Types round trip, a rebind with a conflict, Reset
+    All, `claude mcp add dalica -- dalica-cli mcp --demo` with a W01-like request, connect mode to a
+    running `dalica --control`, the Windows touchpad pinch, the macOS build by hand).
+  - done when: `cargo xtask accept M10` passes everything in M10's *Done when*.
+- ⬜ **M10.28 Lead: task blocks for M12**
+  - after: M9.26
+  - owner: lead
+  - files: `docs/roadmap.md`
+  - scope: write every M12 task block from M12's outline rows and the spec, with waves and the
+    `M12.R` release gate (owner: maintainer); a block that can port Craft-app code names the source
+    files in its scope (`architecture.md` §9).
+  - done when: `cargo xtask tasks sync --check` parses them and `tasks sync --dry-run` lists one new
+    issue per block.
+- ⬜ **M10.R Release 0.5 gate**
+  - after: M10.24, M10.27
+  - owner: maintainer
+  - files: `docs/roadmap.md`, `docs/status.md`
+  - scope: a release gate (Release 0.5, P0 complete): the lead runs `/milestone-review M10.R` to
+    prepare it, with the version set to 0.5.0 and its `whats-new.md` section on the review branch,
+    the release checklist and the sign-off question, and after the merge cuts and publishes 0.5.0
+    (`releasing.md`) with the release notes' honest deltas (P0 rows, the workflow pass rate, the
+    budgets); the check-in page (open Options with Ctrl+, and try Apply, OK and Cancel, set UI scale
+    150 % and font size Large, turn PNG off and on again and see the stars come back, set export
+    defaults and open Export, rebind Star to F8, try a conflict and Replace, Reset All, Help ▸
+    Keyboard Shortcuts, add `dalica-cli mcp --demo` to Claude Code and ask for the W01 task, connect
+    to a running `dalica --control`, and the two manual checks: the Windows touchpad pinch on real
+    hardware and the macOS build used by hand; written as steps for the maintainer to try); the
+    questions: whether release builds include the `heif` feature (with M10.24's measurements),
+    publishing the `heif-wide` set to `dalica-corpus`, the parts of P0 rows the audit moved to
+    later rows, the planning decisions above that change behaviour (four tabs shown and unavailable
+    options disabled; File Types rescanning while keeping data; conflicts asked before replacing;
+    `apply_edit` as per-photo steps until M11; headless MCP's own tray; derived destructive hints),
+    the look of the Options dialog (approved with its fingerprints); *Where we stand* and the
+    `status.md` numbers (the workflow pass rate as the headline, the P0 rows, scan throughput, cold
+    start, idle memory, the HEIF results) on a `review/M10.R` branch, a pull request open. Only the
+    maintainer merges that pull request and closes this issue; nothing after it starts until then.
+  - done when: prepared: page published, PR open, both linked on the issue.
+
+Waves (inside a wave, "‖" separates tasks whose `files` do not overlap):
+
+```text
+wave 1   M10.1 engine modules + options catalogue  ‖  M10.2 ui state + stubs  ‖  M10.3 ui-kit widgets
+         ‖  M10.4 mcp core + headless  ‖  M10.21 P0 gate, KEY rows, stats  ‖  M10.22 P0 budgets
+         ‖  M10.23 P0 formats  ‖  M10.24 HEIF wider set
+         (once M9.R is closed)
+wave 2   M10.5 options commands  ‖  M10.6 keymap listing  ‖  M10.7 library.inspect
+         ‖  M10.8 batch, waits, capture  ‖  M10.9 op catalogue + recipe.set  ‖  M10.13 organize tools
+         ‖  M10.16 roots + read-only  ‖  M10.25 window P0 gaps
+wave 3   M10.10 Options + General + scale  ‖  M10.14 edit + output tools
+         ‖  M10.15 command tools + resources
+wave 4   M10.11 File Types + Export tabs  ‖  M10.12 shortcut editor  ‖  M10.17 connect mode
+         ‖  M10.18 workflow harness + W02 W03 W08 W09
+wave 5   M10.19 W04 W05 W06 W12  ‖  M10.20 W01, stdio smoke, floor
+wave 6   M10.26 P0 parity audit
+wave 7   M10.27 accept M10 → M10.R          (M10.28 lead: M12 blocks, any time after M9.26)
+```
 
 ### M11 – M14: P1 parity (outline; the lead details each one while the one before runs)
 
