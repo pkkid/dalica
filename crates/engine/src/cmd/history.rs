@@ -1,5 +1,6 @@
 //! The photo's own history (`architecture.md` §4, `editing.md` §5.1): `photo.history.apply`,
-//! `photo.history.undo`, `photo.history.redo` and the `photo.history.state` query. Each takes the
+//! `photo.history.undo`, `photo.history.redo` and the `photo.history.state` query (which names
+//! Undo Save for a saved photo with no newer edits, M8.15). Each takes the
 //! photo explicitly; in the edit view the UI routes Edit ▸ Undo / Redo, the rotations, the flips
 //! and the one-click fixes here for the open photo. A photo step is never a library undo step.
 //! The rules (merging, the redo list, the labels) are in [`crate::history`].
@@ -60,7 +61,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Photo History",
             menu: "",
             keys: &[],
-            params: r#"{"id":PhotoId}: the photo's recipe ("edits") and redo list, whether each way is possible, and the button labels ("Undo Crop", "Redo Tuning"; "Undo" / "Redo" when there is nothing)"#,
+            params: r#"{"id":PhotoId}: the photo's recipe ("edits") and redo list, whether each way is possible, and the button labels ("Undo Crop", "Redo Tuning"; "Undo" / "Redo" when there is nothing); a saved photo with no newer edits answers "undoLabel": "Undo Save", "canUndo": true and "undoSave": true (its Undo runs photo.undoSave)"#,
             effect: Effect::Query,
             history: History::None,
             enabled: crate::registry::always,
@@ -159,8 +160,20 @@ pub(crate) fn redo_photo(s: &mut Session, id: PhotoId) -> Result<Value, CmdError
 
 fn state(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
     let Id { id } = params(p)?;
-    Ok(state_json(id, &history_of(s, id)?))
+    let h = history_of(s, id)?;
+    let mut v = state_json(id, &h);
+    // A saved photo without newer edits: Undo reads "Undo Save" and runs `photo.undoSave`
+    // (`editing.md` §5.1), which `photo.history.undo` does not.
+    if h.edits.is_empty() && s.library().can_undo_save(id) {
+        v["canUndo"] = json!(true);
+        v["undoLabel"] = json!(UNDO_SAVE);
+        v["undoSave"] = json!(true);
+    }
+    Ok(v)
 }
+
+/// The Undo button's label for a saved photo whose edits are all saved.
+pub const UNDO_SAVE: &str = "Undo Save";
 
 #[cfg(test)]
 mod tests {

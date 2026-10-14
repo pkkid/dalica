@@ -3448,7 +3448,7 @@ first measurement. No step of M8 needs a maintainer decision mid-run.
     orientation; a flip after a rotation; a PNG with alpha, a TIFF, a WebP and a raw each get a
     JPEG beside and stay byte-identical; copies take the next free number and Save As refuses an
     existing path.
-- ⬜ **M8.15 `engine`: Save, Undo Save and Revert**
+- ✅ **M8.15 `engine`: Save, Undo Save and Revert**
   - after: M8.3, M8.9, M8.12
   - files: `crates/engine/src/cmd/save.rs`, `crates/engine/src/cmd/history.rs`, `crates/engine/tests/save.rs`
   - scope: `data-model.md` §6, `editing.md` §5.1 and `control-protocol.md` §5.5: `photo.save {ids,

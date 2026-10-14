@@ -12,7 +12,7 @@ publish = false
 
 [dependencies]
 dalica-core.workspace = true
-# Export: its plan and files through the one output pipeline (`cmd/export.rs`, M8.16).
+# Export and Save through the one output pipeline (`cmd/export.rs`, M8.16; `cmd/save.rs`, M8.15).
 dalica-create.workspace = true
 # Edit recipes: rotations and flips appended with their merge and cancel rules (`cmd/rotate.rs`).
 dalica-edit.workspace = true
@@ -25,6 +25,8 @@ dalica-meta.workspace = true
 dalica-scan.workspace = true
 # The demo library's photos (`demo.rs`).
 dalica-scenes.workspace = true
+# The originals record's entries a Save answers (`cmd/save.rs`).
+dalica-sidecar.workspace = true
 dalica-store.workspace = true
 # Sketches of synthetic libraries (`synthetic.rs`) and the thumbnail ladder (`thumbs.rs`).
 dalica-thumbs.workspace = true
@@ -37,7 +39,6 @@ thiserror.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
-dalica-sidecar.workspace = true
 tempfile.workspace = true
 
 [[bench]]

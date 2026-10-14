@@ -824,6 +824,8 @@ mod tests {
             live,
             [
                 "folders.manager",
+                "photo.save",
+                "photo.revert",
                 "photo.saveAs",
                 "output.export",
                 "app.quit",

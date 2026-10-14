@@ -65,7 +65,8 @@ fn value_for(key: &'static str, roots: Vec<PathBuf>) -> BoxedStrategy<Value> {
             "\\PC{0,24}".prop_map(|o| json!(o))
         ]
         .boxed(),
-        "on" | "starred" | "replace" => any::<bool>().prop_map(Value::Bool).boxed(),
+        "on" | "starred" | "replace" | "confirm" | "dontAsk" => any::<bool>().prop_map(Value::Bool).boxed(),
+        "action" => proptest::sample::select(vec!["revert", "undoSave", "", "delete"]).prop_map(|a| json!(a)).boxed(),
         "path" => path.boxed(),
         "rect" => proptest::collection::vec(prop_oneof![4 => 0.0f64..1.0, 1 => any::<f64>()], 0..6).prop_map(|v| json!(v)).boxed(),
         "degrees" | "width" | "height" | "ratio" => prop_oneof![4 => -12.0f64..12.0, 1 => any::<f64>()].prop_map(|n| json!(n)).boxed(),
@@ -118,6 +119,9 @@ fn own_keys(id: &str) -> Vec<&'static str> {
         "photo.tuning.auto" => vec!["id", "what"],
         "photo.tuning.pick" => vec!["id", "x", "y"],
         "photo.history.undo" | "photo.history.redo" | "photo.history.state" | "edit.undo" | "edit.redo" => vec!["id"],
+        "photo.save" => vec!["ids", "confirm", "dontAsk"],
+        "photo.undoSave" => vec!["ids"],
+        "photo.revert" => vec!["ids", "confirm", "action"],
         _ => vec![],
     }
 }
