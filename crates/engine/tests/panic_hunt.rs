@@ -79,6 +79,7 @@ fn value_for(key: &'static str, roots: Vec<PathBuf>) -> BoxedStrategy<Value> {
             proptest::collection::vec(prop_oneof![4 => 0.0f64..1.0, 1 => any::<f64>()], 0..5).prop_map(|v| json!(v)),
         ]
         .boxed(),
+        "format" => proptest::sample::select(vec!["jpeg", "png", "tiff", ""]).prop_map(|f| json!(f)).boxed(),
         "what" => proptest::sample::select(vec!["lighting", "color", "colour", ""]).prop_map(|c| json!(c)).boxed(),
         "folder" | "offset" | "limit" => prop_oneof![0u64..20, Just(10_000), Just(10_001), any::<u64>()].prop_map(|n| json!(n)).boxed(),
         "command" => prop_oneof![proptest::sample::select(commands).prop_map(|c| json!(c)), "\\PC{0,12}".prop_map(|c| json!(c))].boxed(),
@@ -122,6 +123,8 @@ fn own_keys(id: &str) -> Vec<&'static str> {
         "photo.save" => vec!["ids", "confirm", "dontAsk"],
         "photo.undoSave" => vec!["ids"],
         "photo.revert" => vec!["ids", "confirm", "action"],
+        "photo.saveCopy" => vec!["ids"],
+        "photo.saveTo" => vec!["id", "path", "format"],
         _ => vec![],
     }
 }
