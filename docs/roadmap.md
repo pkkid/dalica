@@ -3284,7 +3284,7 @@ first measurement. No step of M8 needs a maintainer decision mid-run.
     descriptions and the checked item; `crates/ui-kit/tests/icons_output.rs`: both icons stay in
     their grid at 12, 16, 20 and 28 px in rest, hover and disabled colours; gallery and icon
     fingerprints; `widget_ids`, `cargo xtask assets` and `cargo xtask names` pass.
-- ⬜ **M8.6 `image`: JPEG and PNG encoders and the JPEG quality estimate**
+- ✅ **M8.6 `image`: JPEG and PNG encoders and the JPEG quality estimate**
   - after: M5.1, M7.R
   - files: `crates/image/src/encode.rs`, `crates/image/src/encode/**`, `crates/image/src/jpeg_quality.rs`, `crates/image/tests/encode.rs`, `crates/image/tests/jpeg_quality.rs`, `crates/image/tests/fingerprints/encode*.json`, `crates/image/README.md`, `NOTICE`
   - scope: `formats.md` §1 and `data-model.md` §6: `encode::jpeg(image, quality, subsampling,

@@ -115,6 +115,12 @@ file and revision in its first lines:
   crates/edit/tests/straighten.rs (tests)    PhotoCraft crates/ui-egui/src/crop_overlay.rs @ 32c918aa
   crates/edit/src/ops/retouch.rs             LightCraft crates/pipeline/src/spots.rs, crates/raster/src/blur.rs @ 76b53778
   crates/edit/tests/retouch.rs (tests)       LightCraft crates/pipeline/src/spots.rs @ 76b53778
+  crates/image/src/encode.rs                 LightCraft crates/codecs/src/encode.rs @ 25ef65c8
+  crates/image/src/encode/app.rs             LightCraft crates/codecs/src/encode.rs @ 25ef65c8
+  crates/image/src/encode/jpeg.rs            LightCraft crates/codecs/src/jpeg_par.rs @ 25ef65c8
+  crates/image/tests/encode.rs (tests)       LightCraft crates/codecs/src/jpeg_par.rs @ 25ef65c8
+  crates/image/src/jpeg_quality.rs           PhotoCraft crates/codecs/src/source_settings.rs @ bb17dd55
+  crates/image/tests/jpeg_quality.rs (tests) PhotoCraft crates/codecs/tests/source_settings.rs @ bb17dd55
   crates/ui/src/titlebar.rs (title bar metrics, title placement, caption glyphs)
                                              PhotoCraft crates/ui-egui/src/titlebar.rs @ a0627311,
                                              crates/ui-egui/src/panels.rs @ b41e34c2
