@@ -388,6 +388,44 @@ their bytes at every level, unknown keys kept verbatim):
   rolled forward when the new file is complete and verifies, else rolled back (the original moved
   back to its name and the entry dropped).
 
+**How a Save in place runs** (`dalica-create` `save`, M8.12; on a worker, every disk step through
+`dalica-fs`). The record's entry is the journal: it is written before anything moves and marked
+done last, so at every moment the original's bytes are at the photo's name or in
+`.dalica-originals/` with an entry naming them.
+
+1. **Refuse** a recipe holding an operation Dalica cannot render: an unknown or `legacy:`
+   operation, a known one without a renderer yet (the effects until M12), or parameters its module
+   refuses. The error names the operation; baking pixels never drops one.
+2. **Read** the photo whole with its identity; a read-only file, a name that is not one plain
+   component, and a file whose size or modification time is not what the library last saw are
+   refused. Read the folder's record: a `done` entry means the photo was saved before, and its kept
+   original is read and checked against the entry's size and digest; a `pending` entry is an
+   interrupted Save, repaired first; a backup that no entry names is never replaced.
+3. **Render** through the one output pipeline at Match quality, with a fresh EXIF thumbnail and the
+   owned fields merged under the write-back options: from the photo on its first Save, else from the
+   kept original with the recorded recipe followed by the new edits. Nothing on disk has changed.
+4. **Write the entry `pending`** (the whole recipe; the original's size, modification time, pixel
+   size and digest; the time) through the atomic replace, over the version of the record just read.
+5. **Keep the original:** a first Save moves the photo into `.dalica-originals/` by one rename that
+   never replaces, after checking its identity once more; a later Save checks the kept original
+   again and leaves it.
+6. **Commit** the new file at the photo's name: where nothing is (a first Save just freed the
+   name), or over the saved file only while it is still the version read in step 2.
+7. **Verify** the file on disk: the bytes written, the pixel size, orientation 1, the owned fields.
+8. **Mark the entry `done`.**
+
+An entry's states are therefore: none (never saved, or Undo Save or Revert done), `pending`
+(steps 4–7: a Save under way or interrupted) and `done` (a saved photo whose original is kept). A
+refusal or failure up to step 5 takes the entry back to what it was and changes nothing; a failed
+step 6 of a first Save moves the original back when nothing took its name, and a failed step 6 of a
+later Save that wrote nothing takes the entry back. Any other failure leaves the entry `pending`
+for the repair above.
+
+**Undo Save and Revert** move the kept original back over the saved file, only while the backup is
+still the recorded original (its size and digest) and the saved file is the version the library
+last saw (a saved file that is gone takes the original back into its free name), then drop the
+entry. Undo Save answers the recorded recipe to put back; Revert answers none.
+
 **Undo Save** (button in the edit panel for saved photos): restore the original from the backup and
 put the recipe back as unsaved edits.
 
