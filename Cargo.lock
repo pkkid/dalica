@@ -804,6 +804,7 @@ name = "dalica-acceptance"
 version = "0.2.0"
 dependencies = [
  "dalica-core",
+ "dalica-create",
  "dalica-edit",
  "dalica-engine",
  "dalica-fs",

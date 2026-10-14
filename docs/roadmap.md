@@ -3609,7 +3609,7 @@ first measurement. No step of M8 needs a maintainer decision mid-run.
     the right size, quality bounds, watermark region and no GPS; a Cancel half-way leaves only
     complete files; `cargo xtask bench save_export` prints the three numbers (in the PR) and
     `cargo xtask budgets` passes with them.
-- ⬜ **M8.25 `accept M8`**
+- ✅ **M8.25 `accept M8`**
   - after: M8.18, M8.19, M8.20, M8.21, M8.22, M8.23, M8.24
   - files: `tests/acceptance/m8.rs`, `tests/acceptance/m8_*.rs`, `tests/acceptance/m8.md`, `tests/acceptance/fingerprints/m8-*.json`
   - scope: every *Done when* of M8's two areas in the real `dalica --headless` over the control
