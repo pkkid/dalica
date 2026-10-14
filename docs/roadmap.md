@@ -4336,7 +4336,7 @@ mid-run.
     reorder it, search your own photos, drag photos onto a folder and undo, rename a batch, delete
     to the trash and restore it).
   - done when: `cargo xtask accept M9` passes everything in M9's *Done when*.
-- ⬜ **M9.26 Lead: task blocks for M11**
+- ✅ **M9.26 Lead: task blocks for M11**
   - after: M8.26
   - owner: lead
   - files: `docs/roadmap.md`
@@ -5096,14 +5096,711 @@ wave 6   M10.26 P0 parity audit
 wave 7   M10.27 accept M10 → M10.R          (M10.28 lead: M12 blocks, any time after M9.26)
 ```
 
-### M11 – M14: P1 parity (outline; the lead details each one while the one before runs)
+### M11 — Import, compare and viewing
+
+One milestone in 4 feature areas (*Rooms and import*, *Compare and batch edit*, *Slideshow and quick preview*, *Photo viewer*); one `cargo xtask accept M11` covers every *Done when* below. It ends with a release gate the maintainer owns (Release 0.6).
+
+#### Rooms and import
+
+- **In:** the room tab strip (`ui-layout.md` §8; Library and Import here, Collage joins in M14);
+  the Import room (`organizing.md` §3): sources (cards and removable drives, a folder, recent
+  sources), the import tray grouped by capture time with the clock that selects a group, Exclude
+  duplicates, the preview with star, exclude, rotate and stepping, the destination strip (Import
+  to, Folder name with Date taken and Today's date, After copying), the hint line, Import All /
+  Import Selected / Cancel; copying that verifies every file and never overwrites one; removing the
+  copied files from a card only after verification and an explicit question; Options ▸ General's
+  import rows.
+- **Out:** cameras and phones over MTP/PTP (M15).
+- **Reuse** (`architecture.md` §9): LightCraft `crates/engine/src/devices.rs` (volumes with a
+  `DCIM` folder, a cached device list refreshed off the calling thread) for cards; LightCraft
+  `crates/engine/src/import.rs` (duplicates by content against the library and within the batch)
+  and `crates/ui-egui/src/import.rs` (the review grid filled from a worker) as the pattern;
+  `ui-kit`'s tab strip (`fit`, ported from craft-ui `tabs` in M7) for the room tabs.
+- **Done when:** `cargo xtask accept M11`: a simulated card imports into dated folders with every
+  copy verified; a second import of the same card skips every photo as a duplicate; no file is
+  ever overwritten (a planted name clash gets `-001`); removal from the card happens only after
+  verification and the question, and is refused over automation; W10 passes over MCP.
+
+#### Compare and batch edit
+
+- **In:** the compare toggle's A│B and A│A (`editing.md` §4) with Switch Focus, Switch Layout and
+  both questions; before/after while `\` or Show original is held; Edit ▸ Copy All Edits and Paste
+  All Edits; Picture ▸ Batch Edit ▸ (`editing.md` §9) and Undo All Edits.
+- **Out:** Batch Edit's effects (Sepia, Sharpen, Warmify, Film Grain, Black and White) render
+  with the effects (M12); until then they are greyed with their reason.
+- **Reuse:** LightCraft `crates/ui-egui/src/panels/compare.rs` (the pair, synced zoom and pan,
+  switching sides) and `tests_before_after.rs` as the pattern.
+- **Done when:** `cargo xtask accept M11`: a batch of 100 photos is one undo step and one undo
+  restores every recipe; a version kept from A│A is one step of the photo's history; W07 passes
+  over MCP.
+
+#### Slideshow and quick preview
+
+- **In:** the slideshow (`viewing.md` §1): what plays from each entry, full-screen presentation at
+  screen resolution, the seven transitions, captions, the control bar with its keys and mouse,
+  Loop, Options ▸ Slideshow; the Ctrl+Alt quick full-screen preview with wheel stepping (§2).
+- **Out:** slideshow music (a question at M11.R: playing sound needs a dependency only the
+  maintainer can allow) and videos with their sound (M15); Pan and Zoom toward a face (M13; toward
+  the centre until then).
+- **Done when:** `cargo xtask accept M11`: transitions never wait on disk (the prefetch test, with
+  a slowed decoder); each transition has a fingerprint at its midpoint; keys, wheel and the bar
+  follow `viewing.md` §1.3–§1.4.
+
+#### Photo viewer
+
+- **In:** `dalica --view FILE` as the standalone viewer (`viewing.md` §3): the borderless
+  full-screen window over a translucent backdrop (opaque where the platform cannot), the filmstrip
+  of the file's folder, the control bar (zoom, 1:1, Open in Dalica, Play, rotate, star, More), keys
+  and mouse, Settings… and Options ▸ Photo Viewer (Interface), Tools ▸ Configure Photo Viewer….
+- **Out:** default-viewer registration and the File Types tab, Open With ▸ and Show in File
+  Manager (OS integration, M15).
+- **Reuse:** LightCraft `crates/ui-egui/src/panels/detail.rs` (filmstrip, zoom and pan) as the
+  pattern.
+- **Done when:** `cargo xtask accept M11`: `dalica --view` opens a photo, steps through its folder,
+  stars it from the viewer (the star lands in the folder's sidecar) and opens it in the edit view.
+
+#### M11 tasks
+
+M11 brings photos in and shows them off: the Import room for cards, drives and folders, compare and
+batch editing, the slideshow with its transitions, the quick full-screen preview and the standalone
+photo viewer. Its first wave lists the M10 work each task extends and starts once the maintainer has
+closed M10.R. Six tasks lay the ground the others share, so later tasks never share a file: M11.1
+registers one engine command module per area, with stub state for the import session, A│A's
+variant and the viewer, and adds M11's settings and the Slideshow and Photo Viewer rows of the
+options catalogue; M11.2 adds M11's view state, UI commands with stub handlers, the rooms' frame,
+stub panels and dialogs and the two new Options tabs; M11.3 gives `ui-kit` the room tabs, the
+overlay bar, the stepper, the caption plate, the import tray's group header and the icons; M11.4
+writes the slideshow's sequencing and transition geometry as pure code in `create`, where
+`architecture.md` §2 puts it; M11.5 finds cards and drives and lists an import source in `scan`;
+M11.6 gives `fs` the import copy and the removal of a card's copied files. Import's listing (M11.7)
+and its copying (M11.8) are separate engine modules, and the room's two halves (M11.15, M11.20)
+follow them; compare needs the preview's second pane (M11.10) before its UI (M11.16), and the
+slideshow, the quick preview and the viewer read previews only through the API M11.10 leaves. Each
+task updates its `parity.md` rows (`LIB-ROOMS`, `IMP-ROOM`, `IMP-DEVICES`, `IMP-DUP`, `IMP-NAMING`,
+`IMP-AFTER`, `EDIT-COMPARE`, `EDIT-RECIPE-COPY`, `EDIT-BATCH`, the Undo All Edits part of
+`EDIT-UNDO`, the compare toggle and the caption bar's slideshow toggle in `EDIT-VIEW`,
+`VIEW-SLIDESHOW`, Loop in `VIEW-MUSIC`, `VIEW-VIEWER`, `LIB-PEEK`, the Ctrl+Alt part of
+`LIB-HOVER`, the Slideshow button in `LIB-ACTIONS`, Import… in `LIB-EMPTY`, `PREF-SLIDESHOW` and
+`PREF-VIEWER` (the rows M10.2 split out), `SYS-MCP`, the File, Edit, View, Folder / Album, Picture
+and Tools menu rows, and the generated `KEY-*` rows of the Slideshow, Photo viewer and Import
+contexts; new rows where none fit: `EDIT-BEFOREAFTER` for the before/after hold) and names its
+commands there; first fingerprints of the room tabs, the Import room, compare, the slideshow and its
+bar, the quick preview, the viewer, the dialogs and the new widgets and icons are approved in bulk
+on the M11.R review page.
+
+Whole-window baselines belong to no task, as in M5–M10: the finished milestones'
+`tests/acceptance/fingerprints/m1-*.json` … `m10-*.json` and any `crates/ui/tests/fingerprints/`
+file not named in a task's `files` change whenever the window does. A task whose change moves them
+re-blesses them on its branch (diff images on the PR, the reason in the commit body), they never
+count as a `files` overlap, and on a rebase conflict the worker re-blesses after the rebase.
+
+Decisions taken while planning (the check-in lists them for reversal): a room replaces the toolbar,
+the tree, the light table, the side pane and the bottom area; the menu bar, the tab strip (28 high,
+shown only while a room is open) and the status line stay; Ctrl+M opens Import or brings it to the
+front; closing Import while it copies asks "Stop importing?" [Stop Import] [Keep Importing], and
+otherwise closes at once; the listing lives in the engine's session, so the room reopens on the
+last source while it is still there. Sources: cards are mounted volumes holding a `DCIM` folder
+(LightCraft's rule; the source is that folder), drives are the other removable volumes of M5.4's
+volume list (the source is the volume's root), plus Folder… through the picker and the last 8
+sources; the volume list refreshes at most every 2 s off the owner thread. A source is read as an
+untrusted tree (M5's bounded walk, at most 100 000 files, names validated, sizes never trusted for
+allocation): the files Dalica can show by content under the File Types setting, each with its
+capture time (EXIF, else the file's time), grouped where capture times are more than 2 hours apart,
+its thumbnail from the embedded one or a scaled decode, kept in memory only and never in the
+thumbnail cache. A candidate is a duplicate when a library photo, or an earlier file of the same
+listing, has its size and MD5 digest (M9's digests, cached by size and modification time) and its
+bytes compared in full; duplicates and excluded files are never copied and never removed from the
+card. Every copy goes through `fs` as a new file that never replaces one (M9.2's copy phase): fsync,
+a byte-for-byte check against the source, the source's modification time kept; a clashing name gets
+`-001` (`core::names`), folder names go through `core::names::sanitize` (M8.13); "Date taken"
+uses the capture date, else the file's date; "Today's date" is the session clock's; an existing
+folder name imports into that folder; a destination inside the source is refused. The photos
+copied enter the library with the stars and rotations set in the room, the destination becomes a
+watched folder (Scan Always) unless one already covers it, and the whole import is one library
+undo step "Import" whose undo sends the copies still unchanged to the trash (M9's rule for an
+undone copy); once source files were removed from the card that undo is disabled ("The originals
+were removed from the card"). Removal from a card happens only after "Delete copied files from the
+card" and the question, only for the files this import copied and verified, each re-checked
+unchanged since its copy, to the OS trash when the card has one and otherwise deleted permanently
+(the only permanent deletion in Dalica, `security.md` §5.7); `import.removeFromSource` is refused
+over the control channel and MCP by M10.16's automation policy. Cancel stops after the current
+file and keeps what was copied as the undo step. Batch Edit is the engine command `edit.apply {ids,
+op, params?}`: it appends to each recipe with the edit view's merge rules as one library undo step
+(`SetRecipes`), and an operation this build cannot render (the five effects until M12) is greyed
+with "Arrives with Effects"; MCP's `apply_edit` moves to it. Copy All Edits keeps the recipe in the
+engine's session (never saved), so the CLI and MCP can paste too; Paste All Edits replaces recipes
+as one library step in the library and as one step of the open photo's history in the edit view,
+as rotations do (undo follows the view). Undo All Edits removes unsaved edits (recipe and redo
+list) as one library step, or one history step in the edit view, so it can be undone: its question
+reads "Remove all edits from %d pictures?" [Remove Edits] [Cancel] without "You can't undo this",
+and says that saved photos keep their saved changes (Revert takes them back). Compare: the edit
+view's preview gets a second pane; A│B's sides are two photos, each with its own history, and the
+filmstrip chooses the focused side's photo; A│A's right side is a variant the engine holds for the
+session only (it starts as a copy of the recipe and has its own undo), written nowhere until kept,
+and keeping it is one step of the photo's history (`edit.recipe.set`); zoom and pan are synced
+between the sides, as in LightCraft's compare; "Don't ask again" remembers Apply for the switch
+question and the side chosen for the keep question; before/after shows the focused side's source
+unedited while held. Slideshow: in the edit view it plays the current folder or album from the
+current photo; in the library two or more photos in the tray play in tray order, else the section
+of the focused photo from that photo, else the first visible section from its start; a section's ▶
+and Folder ▸ View Slideshow play that section; a search plays its results; videos are left out until
+M15. It asks the OS for full screen through the view state and gives the window back as it was
+(a window already full screen stays so); headless it fills the window. The photo shown and the
+next two are screen-size previews of the edit view's kind, so a photo is never shown above twice
+its pixels and the next one is ready before its transition; Pan and Zoom moves toward the centre
+until faces (M13); timing runs on the session clock. Music: playing sound needs either a crate
+that links the system audio library on Linux (a `*-sys` or C build entry) or an MPL-2.0 decoder,
+both the maintainer's to allow (`AGENTS.md` §4), so "Play music during slideshows", its folder and
+Folder Properties' Music are drawn disabled ("Arrives with sound support") and how to play music
+is a question at M11.R; Loop and the other options work. The quick preview fills the window, not
+the OS screen (a peek, not a mode), from the best thumbnail in the cache, refined in place.
+Viewer: `dalica --view FILE` opens the library as usual and shows the viewer in a borderless
+window filling the screen, transparent where the platform allows and opaque black otherwise or
+when "Translucent background" is off; the folder is listed from disk on a worker in name order;
+photos of watched folders are the library's own; viewing changes nothing, and the first change to
+a photo of an unwatched folder (star, rotate, delete) adds its folder as Scan Once, as Open File…
+would, in the same undo step; when another Dalica holds the library the viewer opens read-only
+(edits shown, changes and Open in Dalica disabled with "Dalica is already open"), and handing the
+file to the running Dalica instead is a question at M11.R; Open in Dalica turns the same window
+into the main window on the edit view of that photo; Esc and × quit. Options gains the Slideshow
+and Photo Viewer tabs (the viewer's File Types drawn disabled "Arrives with OS integration"), and
+General's import rows become live. M11's budgets join `development.md` §8 at 1.5 × their first
+measurement, plus two absolute ones (a transition frame within 16 ms at p95, zero waits on disk),
+and are never loosened. No other step of M11 needs a maintainer decision mid-run.
+
+- ⬜ **M11.1 `engine`: M11's command modules, settings and options rows**
+  - after: M10.1, M10.5, M10.R
+  - files: `crates/engine/src/cmd/mod.rs`, `crates/engine/src/cmd/import.rs`, `crates/engine/src/cmd/import_run.rs`, `crates/engine/src/cmd/batch.rs`, `crates/engine/src/cmd/compare.rs`, `crates/engine/src/cmd/slideshow.rs`, `crates/engine/src/cmd/viewer.rs`, `crates/engine/src/import.rs`, `crates/engine/src/import_run.rs`, `crates/engine/src/variant.rs`, `crates/engine/src/viewer.rs`, `crates/engine/src/options.rs`, `crates/engine/src/settings.rs`, `crates/engine/src/session.rs`, `crates/engine/src/jobs.rs`, `crates/engine/tests/settings_m11.rs`, `crates/engine/tests/options_catalogue.rs`, `crates/engine/README.md`, `docs/menus-and-shortcuts.md`, `docs/data-model.md`
+  - scope: the engine's ground for M11 so M11.7–M11.12 never share a file: empty
+    `cmd/import.rs`, `import_run.rs`, `batch.rs`, `compare.rs`, `slideshow.rs` and `viewer.rs`
+    joined into the registry once; stubs `import.rs` (the import session: source, listing
+    generation, candidates), `import_run.rs`, `variant.rs` (A│A's variant) and `viewer.rs`, each a
+    field of `Session` once; `JobKind::Import`; every M11 setting with its default behind a typed
+    accessor: Slideshow (loop off, display time 3 s in 1–60, transition `dissolve` of the seven,
+    show captions on, play music off and its folder, play video sound off), Photo Viewer (wheel
+    `zoom | navigate`, hide controls on, translucent background on), import (save imported
+    pictures in the Pictures folder, detect duplicates on, after copying `leave`, the last 8
+    sources, destinations and folder names), compare (ask before applying on a switch on; keep
+    which version `ask | left | right`); the options catalogue gains the Slideshow and Photo Viewer
+    tabs' rows (music and video sound unavailable with their reasons, the viewer's File Types
+    "Arrives with OS integration") and General's import rows become available;
+    `menus-and-shortcuts.md` §1.9 lists the new commands (`import.*`, `edit.apply`,
+    `edit.copyRecipe`, `edit.pasteRecipe`, `edit.undoAll`, `edit.variant.*`, `slideshow.list`,
+    `viewer.list`) and §5's Slideshow and Photo Viewer tabs say what this build offers;
+    `data-model.md` §4 lists the new settings keys.
+  - done when: `crates/engine/tests/settings_m11.rs` round-trips every new setting with unknown
+    keys kept and wrong types or out-of-range values falling back (reported);
+    `crates/engine/tests/options_catalogue.rs` covers the six tabs now shown, every option once,
+    each default equal to its accessor's; every existing engine test and `panic_hunt` pass
+    unchanged.
+- ⬜ **M11.2 `ui`: M11's view state, UI commands, the rooms' frame and stubs**
+  - after: M10.2, M10.R
+  - files: `crates/ui/src/state.rs`, `crates/ui/src/menus.rs`, `crates/ui/src/menu_catalog.rs`, `crates/ui/src/app.rs`, `crates/ui/src/keys.rs`, `crates/ui/src/commands/mod.rs`, `crates/ui/src/commands/rooms.rs`, `crates/ui/src/commands/import.rs`, `crates/ui/src/commands/slideshow.rs`, `crates/ui/src/commands/peek.rs`, `crates/ui/src/commands/compare.rs`, `crates/ui/src/commands/batch.rs`, `crates/ui/src/commands/viewer.rs`, `crates/ui/src/panels/mod.rs`, `crates/ui/src/panels/layout.rs`, `crates/ui/src/panels/rooms.rs`, `crates/ui/src/panels/import.rs`, `crates/ui/src/panels/import/**`, `crates/ui/src/panels/slideshow.rs`, `crates/ui/src/panels/slideshow/**`, `crates/ui/src/panels/peek.rs`, `crates/ui/src/panels/viewer.rs`, `crates/ui/src/panels/viewer/**`, `crates/ui/src/panels/edit.rs`, `crates/ui/src/panels/edit/compare.rs`, `crates/ui/src/panels/edit/top_bar.rs`, `crates/ui/src/panels/edit/caption_bar.rs`, `crates/ui/src/dialogs/mod.rs`, `crates/ui/src/dialogs/keep_version.rs`, `crates/ui/src/dialogs/apply_changes.rs`, `crates/ui/src/dialogs/undo_all.rs`, `crates/ui/src/dialogs/remove_from_card.rs`, `crates/ui/src/dialogs/viewer_settings.rs`, `crates/ui/src/dialogs/options.rs`, `crates/ui/src/dialogs/options/slideshow.rs`, `crates/ui/src/dialogs/options/viewer.rs`, `crates/ui/src/control/**`, `crates/ui/tests/view_state_m11.rs`, `docs/control-protocol.md`
+  - scope: every M11 field of `UiState` in one go (`control-protocol.md` §6.5 already names
+    `room` and `slideshow`): the rooms (open, active); the Import room (focus, selection, the item
+    in the preview, the destination draft: place, folder name, after copying); the slideshow
+    (`null`, or its photos, index, playing, bar shown, zoom and pan, the transition running, where
+    it started); the quick preview (`null` or its photo); `edit.compare` with the focused side and
+    the layout; the photo viewer (photo, backdrop, controls shown, zoom); UI commands with stub
+    handlers, so M11.13–M11.21 never share a file: `import.open` (Ctrl+M; the stub opens an empty
+    room), `room.select`, `room.close`; `view.slideshow` (Ctrl+4), `section.slideshow`,
+    `slideshow.exit`, `.next`, `.previous`, `.first`, `.last`, `.pause`, `.zoomIn`, `.zoomOut`,
+    `.transition`, `.captions`, `.displayTime`; `peek` (Ctrl+Alt held, listed and not editable);
+    `edit.compare {mode}`, `edit.switchFocus`, `edit.switchLayout`, `edit.showOriginal` (`\` held);
+    `viewer.next`, `.previous`, `.zoomIn`, `.zoomOut`, `.actualSize`, `.background` (Space),
+    `.openInDalica` (E), `.close` and `viewer.settings`; the Slideshow, Photo viewer and Import key
+    contexts made active by the view in `keys.rs`, with the keys of `viewing.md` §1.4 and §3.2 and
+    `menus-and-shortcuts.md` §2.4 as their defaults; the tab strip's region in `layout.rs` (28
+    high under the menu bar while a room is open; a room's content in place of the toolbar, tree,
+    light table, side pane and bottom area); stub panels `rooms.rs`, `import.rs` (and its
+    folder), `slideshow.rs` (and its folder), `peek.rs`, `viewer.rs` (and its folder) and
+    `edit/compare.rs`; the edit top bar's Play and compare toggle and the caption bar's slideshow
+    toggle wired to their commands (live as each command is); stub dialogs `keepVersion`,
+    `applyChanges`, `undoAllEdits`, `removeFromCard`, `viewerSettings`; the Options dialog's
+    Slideshow and Photo Viewer tabs with stub bodies; control stubs for the new state;
+    `control-protocol.md` §6.5 and §7 gain the fields and widget ids.
+  - done when: `crates/ui/tests/view_state_m11.rs`: each new field round-trips through `ui.state`
+    / `ui.set` (bad values are `bad_params`, nothing changes); Ctrl+M opens the Import tab and the
+    strip appears 28 high, closing it removes the strip; a Slideshow-context key does nothing in
+    the library; every command's graceful-failure test; `panic_hunt` and `widget_ids` stay green.
+- ⬜ **M11.3 `ui-kit`: room tabs, the overlay bar, the stepper, the caption plate and the icons**
+  - after: M10.3, M10.R
+  - files: `crates/ui-kit/src/widgets.rs`, `crates/ui-kit/src/widgets/tabs.rs`, `crates/ui-kit/src/widgets/overlay_bar.rs`, `crates/ui-kit/src/widgets/stepper.rs`, `crates/ui-kit/src/widgets/caption_plate.rs`, `crates/ui-kit/src/widgets/group_header.rs`, `crates/ui-kit/src/widgets/badges.rs`, `crates/ui-kit/src/theme.rs`, `crates/ui-kit/src/icons.rs`, `crates/ui-kit/src/icons/viewing.rs`, `crates/ui-kit/tests/viewing_widgets.rs`, `crates/ui-kit/tests/icons_viewing.rs`, `crates/ui-kit/tests/fingerprints/viewing-widgets*.json`, `crates/ui-kit/tests/fingerprints/icons-viewing*.json`, `crates/ui-kit/tests/fingerprints/gallery*.json`, `docs/design-system.md`
+  - scope: `design-system.md` §5–§6, `ui-layout.md` §8 and `viewing.md` §1.2–§1.3 and §3.1: the
+    room variant of `tabs` (icon and label, 190 × 28, the active tab joined to the content below,
+    a close × on every tab but Library, shrinking and the overflow menu through the existing
+    `fit`); `overlay_bar` (the rounded translucent panel of the slideshow and the viewer, `black
+    α170`, radius 10, light-on-dark buttons, fading in and out over 0.2 s on the clock it is
+    given); `stepper` (`[−] 3 seconds [+]` within a range); `caption_plate` (22 pt Inter on `black
+    α160`, at most 70 % of the width, two lines, then elided); `group_header` (the import tray's
+    time header with the clock button that selects its group); the excluded ⊘ mark for a cell
+    (`danger`, the cell dimmed); the overlay colours as tokens; the icons it lacks, our own
+    drawings on the 20-unit grid: Library, Import (camera), Exit, Pause, Previous, Next,
+    Transition, Captions, Clock, Exclude, Actual size (1:1), Open in Dalica, More (⋯), Close,
+    Switch Focus (⇄), Switch Layout (⇅), Show Original; the widget gallery gains them.
+  - done when: `crates/ui-kit/tests/viewing_widgets.rs`: three room tabs fit at both window sizes,
+    more elide and then overflow with the active one kept, Library has no ×; the stepper stops at
+    its ends; the caption plate wraps at two lines; the overlay bar's opacity follows a virtual
+    clock; `crates/ui-kit/tests/icons_viewing.rs`: every new icon stays in its grid at 12, 16, 20
+    and 28 px in rest, hover and disabled colours; gallery and icon fingerprints; `widget_ids`,
+    contrast, `cargo xtask assets` and `cargo xtask names` pass.
+- ⬜ **M11.4 `create`: slideshow sequencing and transition geometry**
+  - after: M10.R
+  - files: `crates/create/src/slideshow.rs`, `crates/create/src/slideshow/**`, `crates/create/tests/slideshow.rs`, `crates/create/README.md`
+  - scope: `viewing.md` §1 as pure code (no I/O, no egui; `architecture.md` §2 puts slideshow
+    sequencing in `create`): the show's state machine on a `Clock` (playing, paused, zoomed and
+    therefore paused, at the end without Loop with the bar shown and Play restarting, wrapping with
+    Loop; display time 1–60 s; the bar shown for 2 s at start and for 2.5 s after a mouse move;
+    Space toggles pause and shows the bar, a mouse move shows it without pausing; next, previous
+    (none before the first without Loop), first, last, the wheel, a click advancing only while the
+    bar is hidden); the transitions Cut, Pan and Zoom, Dissolve, Wipe, Circle, Push and Rectangle
+    as geometry for a progress 0…1 over 0.8 s (Pan and Zoom over the whole display time, a 5–10 %
+    zoom and pan toward a given point): for the outgoing and the incoming photo, its rectangle, its
+    opacity and its clip (a rectangle or a circle), so the UI only paints; the fit (centred, never
+    above twice the photo's pixels); the caption plate's place.
+  - done when: `cargo test -p dalica-create --test slideshow`: a virtual clock drives a 5-photo
+    show through play, pause, a mouse move, its end and Loop exactly as §1.2 says; at progress 0
+    every transition shows only the outgoing photo and at 1 only the incoming one, clips stay
+    inside the screen and opacities in 0…1 (property-tested over sizes and progress); Push's two
+    rectangles never overlap; Pan and Zoom stays within 5–10 %; the fit never goes past 2×; hostile
+    sizes (zero, huge) answer without a panic.
+- ⬜ **M11.5 `scan`: cards and drives, and listing an import source**
+  - after: M5.4, M10.R
+  - files: `crates/scan/src/devices.rs`, `crates/scan/src/import.rs`, `crates/scan/src/import/**`, `crates/scan/tests/devices.rs`, `crates/scan/tests/import_source.rs`, `crates/scan/README.md`, `docs/security.md`, `NOTICE`
+  - scope: `organizing.md` §3 and `security.md` §5.9: `devices.rs`, ported from LightCraft
+    `crates/engine/src/devices.rs` (`DeviceWatch`, `devices_in`, `dcim_in`) at 3b4279fc with a
+    header and a `NOTICE` row: cards (mounted volumes holding a `DCIM` folder, under the platform's
+    mount parents or on a drive letter) and drives (the other removable volumes of M5.4's
+    `volumes`), each with its display name ("Removable drive (E:)" or the volume's own name), its
+    root and the folder to import from; `DALICA_DEVICE_ROOTS` replaces the mount parents in tests;
+    a cached list refreshed off the calling thread at most every 2 s; `import.rs`: listing a source
+    as an untrusted tree (M5's bounded walk with its limits, at most 100 000 files, names
+    validated, sizes never trusted for allocation): the files Dalica can show by content under the
+    File Types setting, each with its size, modification time, capture time (EXIF through `meta`,
+    else the file's time), its MD5 digest computed while it is read, and a thumbnail of at most
+    256 px from the embedded one or a scaled decode; groups split where capture times are more
+    than 2 hours apart; results in batches with progress, and cancellation between files;
+    `security.md` §5.9's device line marked built.
+  - done when: `cargo test -p dalica-scan --test devices --test import_source`: with temp folders
+    as mount parents, a volume holding `DCIM` or `dcim` is a card and a removable one without it a
+    drive, a symlinked startup disk is skipped; a source of `scenes` photos with EXIF times lists
+    every photo with its time, digest and thumbnail, grouped at 2-hour gaps; a FIFO, a link loop, a
+    tree past the depth limit and a file whose header lies about its size are bounded and reported;
+    cancel stops between files; a non-UTF-8 name is listed and never opened by its lossy form.
+- ⬜ **M11.6 `fs`: import copies that keep their time, and removing a card's copied files**
+  - after: M9.2, M10.R
+  - files: `crates/fs/src/transfer.rs`, `crates/fs/src/remove.rs`, `crates/fs/src/faults.rs`, `crates/fs/tests/import_copy.rs`, `crates/fs/tests/remove.rs`
+  - scope: `organizing.md` §3 and `security.md` §5.7: an import copy through M9.2's copy phase
+    into a destination folder (a new file, fsync, a commit that never replaces, a byte-for-byte
+    check of the copy against the source, the source's modification time set on the copy),
+    answering `Exists` on a clash for the caller to rename, reporting bytes as it goes for a speed
+    read-out, and stopping cleanly between files; `remove.rs`: removing a source file after its
+    import, only with the identity (size, modification time, file id) recorded when it was copied
+    and only while it still matches: to the OS trash when the volume has one, otherwise deleted
+    permanently (the only permanent deletion in Dalica), refusing a link, a folder and anything
+    outside the given root; fault points at every step.
+  - done when: `cargo test -p dalica-fs --test import_copy --test remove`: a copy keeps the bytes
+    and the time and never replaces a file created at the target between the check and the commit
+    (a racing thread); a byte flipped in the copy (a fault point) fails the check, removes the
+    partial copy and leaves the source; removing a file changed since its copy is refused; a volume
+    with a trash gets the file there, and one without (a `faults` switch) deletes it; every fault
+    point as Error and as Crash leaves the source whole or the copy verified (`--features faults`);
+    hostile names are refused.
+- ⬜ **M11.7 `engine`: import sources, listing and duplicates**
+  - after: M11.1, M11.5
+  - files: `crates/engine/src/cmd/import.rs`, `crates/engine/src/import.rs`, `crates/engine/src/import/**`, `crates/engine/tests/import_list.rs`
+  - scope: `organizing.md` §3 items 1–3 on M11.5's listing: `import.sources` (query: cards, drives
+    and recent sources from the cached list, never waiting on the disk); `import.open {source}` (a
+    card, a drive, or a folder path checked by the automation read policy; starts the listing job
+    and drops an older listing); `import.list {offset?, limit?}` (query: the status text ("Loading
+    112 of 340 files…", "340 files", "No pictures found") and the candidates in capture order with
+    id, name, size, capture time, group, duplicate (of a library photo or of an earlier
+    candidate), excluded, the star and rotation chosen, whether the thumbnail is ready; paged, at
+    most 1 000); `import.exclude {ids, on}`, `import.excludeAll {on}`, `import.mark {ids, star?,
+    rotate?}` (the room's choices; no undo step), `import.options {excludeDuplicates}` and
+    `import.close`; duplicates: the same size and MD5 digest as a library photo (M9's cached
+    digests, computed on a worker for library photos of that size when missing) or as an earlier
+    candidate, confirmed byte for byte; the candidates' thumbnails kept in memory (capped, least
+    recently used dropped); rows `IMP-DEVICES`, `IMP-DUP` (engine half).
+  - done when: `crates/engine/tests/import_list.rs` on temp folders through `DALICA_DEVICE_ROOTS`:
+    a card appears in `import.sources` within one refresh of its folder being made and leaves when
+    it is removed; listing 300 `scenes` photos streams in batches with rising counts; 20 already
+    in the library and 3 repeated on the card are duplicates while a same-size file with other
+    bytes is not; Exclude All and Include All; the owner thread made no `fs` call; each command's
+    contract and graceful failures; `panic_hunt` green.
+- ⬜ **M11.9 `engine`: Batch Edit, Copy and Paste All Edits, and Undo All Edits**
+  - after: M10.9, M11.1
+  - files: `crates/engine/src/cmd/batch.rs`, `crates/engine/tests/batch_edit.rs`, `docs/editing.md`
+  - scope: `editing.md` §5.1 and §9: `edit.apply {ids, op, params?}` appends one operation of
+    M10.9's catalogue to each photo's recipe with the edit view's rules (consecutive rotations
+    merge, only the last crop counts, Tuning merges into a trailing `tuning`) as one library undo
+    step through `SetRecipes` ("Undo Auto Fix"), clearing the redo lists as any new edit does; an
+    operation this build cannot render is disabled with "Arrives with Effects"; `edit.copyRecipe
+    {id}` (one photo with edits; the recipe kept in the session); `edit.pasteRecipe {ids}`
+    replacing each recipe with the copied one as one library step, or `{id, history: true}` as one
+    step of that photo's history (the edit view); `edit.undoAll {ids, confirm}` (`needs_confirm`
+    without) removing every unsaved edit as one library step, or `{id, history: true}` as one
+    history step ("Remove Edits"), saved photos keeping their saved pixels and named in the answer;
+    `editing.md` §5.1 and §9 updated (the question's text, the effects greyed until M12); rows
+    `EDIT-BATCH`, `EDIT-RECIPE-COPY`, `EDIT-UNDO` (engine half).
+  - done when: `crates/engine/tests/batch_edit.rs`: Auto Fix on 100 photos is one undo step and one
+    `edit.undo` restores all 100 recipes and redo lists exactly; two Batch Rotate Clockwise merge
+    per photo; Paste on 5 photos replaces their recipes and keeps an unknown operation of the
+    copied recipe; Paste with `history` is a step of that photo's history and not of the library;
+    Undo All Edits with `confirm` empties the unsaved recipes, undo brings them back and a saved
+    photo's file is untouched; Sepia answers `disabled` with its reason; each command's contract
+    and graceful failures; `panic_hunt` green.
+- ⬜ **M11.10 `engine`: two preview panes, and A│A's variant**
+  - after: M11.1
+  - files: `crates/engine/src/preview.rs`, `crates/engine/src/preview/**`, `crates/engine/src/variant.rs`, `crates/engine/src/cmd/compare.rs`, `crates/engine/src/cmd/history.rs`, `crates/engine/src/history.rs`, `crates/engine/tests/preview_panes.rs`, `crates/engine/tests/variant.rs`
+  - scope: `editing.md` §4: the edit view's preview gains a second pane (`open_preview` and the
+    calls beside it take a pane, 0 or 1; each pane has its photo, recipe, candidate, window and
+    generation; both render at the edit view's priority, the focused one first; the neighbours'
+    prefetch is kept), so compare shows two photos or one photo twice; a pane can show its source
+    unedited (before/after); `variant.rs`: A│A's right side, a scratch history of one photo held
+    in the session only (`edit.variant.open {id}` starts it as a copy of the photo's recipe;
+    `photo.history.apply`, `.undo`, `.redo` and `.state` take `variant: true`; the variant's pane
+    renders its recipe; `edit.variant.close {keep: left | right}` drops it, or makes its recipe one
+    step of the photo's own history through `edit.recipe.set`); nothing of a variant reaches a
+    sidecar until it is kept; row `EDIT-COMPARE` (engine half).
+  - done when: `crates/engine/tests/preview_panes.rs`: two photos open in two panes render both, a
+    change to one recipe renders only its pane again, closing a pane cancels its jobs, the
+    unedited pane equals the decoded source; `crates/engine/tests/variant.rs`: Auto Fix on the
+    variant leaves the photo's sidecar unchanged; keeping the right side is one history step that
+    one undo removes; keeping the left drops the variant; a restart has no variant; graceful
+    failures; `panic_hunt` green.
+- ⬜ **M11.12 `engine` + `dalica`: the viewer's session and `dalica --view`**
+  - after: M11.1
+  - files: `crates/engine/src/viewer.rs`, `crates/engine/src/cmd/viewer.rs`, `crates/engine/tests/viewer.rs`, `apps/dalica/src/main.rs`, `apps/dalica/src/viewer.rs`, `apps/dalica/src/window.rs`, `apps/dalica/tests/view.rs`, `docs/viewing.md`
+  - scope: `viewing.md` §3 and the decisions above: `Session::open_viewer` and `viewer.list
+    {path}` (query, read on a worker: the photos Dalica can show in the file's folder, in name
+    order, and the file's place among them; photos of watched folders are the library's own,
+    others are shown from their file and their folder's sidecar, read only); the first change to a
+    photo of an unwatched folder (star, rotate, delete) adds its folder as Scan Once in the same
+    undo step; a library another Dalica holds opens the viewer read-only (changes disabled with
+    "Dalica is already open"); `dalica --view FILE` opens the viewer in a borderless window filling
+    the screen, transparent where the platform allows and opaque black otherwise; `--view` with
+    `--headless` serves the viewer's state over the control channel; Esc and × quit; Open in
+    Dalica turns the window into the main window (decorations, its saved size) on the edit view of
+    that photo; `viewing.md` §3 records what was decided; row `VIEW-VIEWER` (engine and app
+    halves).
+  - done when: `crates/engine/tests/viewer.rs`: a folder of 12 photos lists in name order with the
+    file's place; a file Dalica cannot show is refused with its reason; starring a photo of an
+    unwatched folder adds the folder as Scan Once and one undo removes both; a locked library gives
+    a read-only viewer whose star is `disabled`; `apps/dalica/tests/view.rs`: `dalica --view FILE
+    --headless` reports `view: "viewer"` on that photo, an odd file name still opens, Esc quits;
+    graceful failures; `panic_hunt` green.
+- ⬜ **M11.13 `ui`: the room tab strip**
+  - after: M11.2, M11.3
+  - files: `crates/ui/src/panels/rooms.rs`, `crates/ui/src/commands/rooms.rs`, `crates/ui/tests/rooms.rs`, `crates/ui/tests/fingerprints/rooms-*.json`, `docs/ui-layout.md`
+  - scope: `ui-layout.md` §8 with M11.3's room tabs: the strip between the menu bar and the
+    content while a room is open (`[▦ Library] [📷 Import ×]`); a click brings a room to the front,
+    × closes it (Import while copying asks "Stop importing?" [Stop Import] [Keep Importing]); the
+    front room's keyboard context; the Library tab brings back the library or the edit view as it
+    was left, scroll and selection kept; `ui-layout.md` §8 says what a room replaces; row
+    `LIB-ROOMS`.
+  - done when: `crates/ui/tests/rooms.rs` (headless, by id): opening Import shows the strip and the
+    room, Library returns with the light table's scroll and selection kept, × closes Import and the
+    strip goes; the question while a (fake) import job runs; Import-context keys act only in the
+    room; fingerprints of the strip at both window sizes.
+- ⬜ **M11.8 `engine`: importing: copy, verify, name, enter, undo and card removal**
+  - after: M11.6, M11.7
+  - files: `crates/engine/src/cmd/import_run.rs`, `crates/engine/src/import_run.rs`, `crates/engine/src/automation.rs`, `crates/engine/tests/import_run.rs`, `crates/engine/tests/import_remove.rs`, `docs/organizing.md`, `docs/data-model.md`, `docs/security.md`
+  - scope: `organizing.md` §3 items 4–6 and the decisions above: `import.run {ids?, destination,
+    folderName, after}` (`ids` omitted: every candidate not excluded; `folderName` a text,
+    `{dateTaken: true}` or `{today: true}`) as an `import` job: each file copied by M11.6 into
+    `<destination>/<folder>` (made exclusively when new, imported into when it exists), a clashing
+    name getting `-001`; progress "Copying 45 of 340 at 38 MB/s"; Cancel after the current file;
+    the photos copied enter the library with the stars and rotations chosen, the destination
+    watched (Scan Always) unless a watched folder covers it, the files marked as Dalica's own so
+    the watcher imports nothing, all as one library undo step "Import" whose undo trashes the
+    copies still unchanged and whose redo copies again; the result (folders, imported, skipped as
+    duplicates or excluded, failed with reasons, bytes, speed) and a session event for the toast;
+    the recent destinations and folder names updated; `import.removeFromSource {confirm}` for the
+    last finished import from a card or drive (`needs_confirm` without), removing through M11.6
+    only the files it copied and verified, refused for the control channel and MCP in M10.16's
+    automation policy, after which Undo Import is disabled with its reason; `organizing.md` §3,
+    `data-model.md` §8 (an import row) and `security.md` §5.7 updated; rows `IMP-ROOM` (engine
+    half), `IMP-NAMING`, `IMP-AFTER`.
+  - done when: `crates/engine/tests/import_run.rs` on a temp card: 120 photos over three capture
+    dates with `dateTaken` land in three `YYYY-MM-DD` folders with the source's bytes and times; a
+    planted clash gets `-001` and nothing is overwritten; a second import of the card copies
+    nothing and reports 120 duplicates; Cancel after 10 keeps 10, entered as one step; undo trashes
+    the copies and redo brings them back; stars and rotations chosen in the room are in the
+    destination's sidecar; `crates/engine/tests/import_remove.rs`: removal deletes exactly the
+    verified copied files (one changed on the card since its copy stays), is refused through the
+    automation policy and without `confirm`, and disables the undo with its reason; the owner
+    thread made no `fs` call; graceful failures; `panic_hunt` green.
+- ⬜ **M11.11 `engine`: what a slideshow plays, and transitions that never wait on disk**
+  - after: M11.4, M11.10
+  - files: `crates/engine/src/cmd/slideshow.rs`, `crates/engine/tests/slideshow.rs`
+  - scope: `viewing.md` §1.1–§1.2 with M11.4's sequencing: `slideshow.list {section?, ids?,
+    search?, start?}` (query: the photos to play in the display order of the section, the album,
+    the search results or the given ids, the index to start from, hidden photos only while shown,
+    videos left out and counted); the screen-size preview of the photo shown, and of the next two
+    prefetched through M11.10's panes at the display's size, so the next photo is ready before its
+    transition starts; row `VIEW-SLIDESHOW` (engine half).
+  - done when: `crates/engine/tests/slideshow.rs`: the lists of a folder, an album (in album
+    order), a search and the tray's ids, each starting at the photo asked for; with every decode
+    slowed by a planted 1.5 s delay and a 3 s display time, 30 advances find the next preview
+    ready every time (zero waits); a photo deleted from the list is skipped without a stall;
+    graceful failures; `panic_hunt` green.
+- ⬜ **M11.14 `ui`: the quick full-screen preview**
+  - after: M11.2, M11.10
+  - files: `crates/ui/src/panels/peek.rs`, `crates/ui/src/commands/peek.rs`, `crates/ui/tests/peek.rs`, `crates/ui/tests/fingerprints/peek-*.json`
+  - scope: `viewing.md` §2: Ctrl+Alt (Cmd+Option) held while the pointer is over a thumbnail, or in
+    the edit view, fills the window with the photo on black at once from the best thumbnail in the
+    cache, refined in place by the screen-size preview; the wheel steps through the section's
+    neighbours (prefetched); releasing returns with the last photo shown focused and scrolled into
+    view; nothing else is drawn; the control channel's `ui.key {state: "down"}` drives it; rows
+    `LIB-PEEK`, `LIB-HOVER`.
+  - done when: `crates/ui/tests/peek.rs`: holding over a thumbnail shows that photo on the first
+    frame (never a grey frame), the wheel steps three photos and release focuses the third;
+    holding over empty space does nothing; in the edit view it shows the current photo;
+    fingerprints at both window sizes.
+- ⬜ **M11.15 `ui`: the Import room: sources, the import tray and the preview**
+  - after: M11.7, M11.13
+  - files: `crates/ui/src/panels/import.rs`, `crates/ui/src/panels/import/source.rs`, `crates/ui/src/panels/import/tray.rs`, `crates/ui/src/panels/import/preview.rs`, `crates/ui/src/commands/import.rs`, `crates/ui/tests/import_room.rs`, `crates/ui/tests/fingerprints/import-room-*.json`
+  - scope: `organizing.md` §3 items 1–3, with LightCraft `crates/ui-egui/src/import.rs`
+    (`ImportDialog`, `poll_scan`) at 3b4279fc as the pattern: the room's layout; "Import from:"
+    (cards and drives from `import.sources`, Folder… through the picker, recent sources; the list
+    follows a card plugged in while the room is open); the import tray: its status line, "Exclude
+    duplicates" with its tooltip and its default, thumbnails appearing as they load, grouped by
+    capture time under M11.3's group header whose clock selects the group, duplicates and excluded
+    files dimmed with ⊘, selection by click, Ctrl, Shift, the arrows and Ctrl+A, the context menu
+    (Exclude, Include, Exclude All, Include All), X toggling exclude; the preview (about 35 % of
+    the width: the selected item large, "filename · date time · size", star, exclude or include,
+    previous and next, rotate left and right through `import.mark`); `import.open` opening the
+    room and bringing it to the front; rows `IMP-ROOM`, `IMP-DUP`.
+  - done when: `crates/ui/tests/import_room.rs` (headless, by id, a temp card through
+    `DALICA_DEVICE_ROOTS`): Ctrl+M lists the card and its photos arrive group by group; a clock
+    selects its group; X excludes and the cell dims; Exclude duplicates leaves the library's
+    photos out of the count; the preview's star and rotation reach `import.list`; Folder… with the
+    scripted picker lists that folder; fingerprints at both window sizes.
+- ⬜ **M11.16 `ui`: compare, before/after and their two questions**
+  - after: M11.2, M11.3, M11.10
+  - files: `crates/ui/src/panels/edit/compare.rs`, `crates/ui/src/panels/edit/canvas.rs`, `crates/ui/src/panels/edit/filmstrip.rs`, `crates/ui/src/panels/edit/panel.rs`, `crates/ui/src/commands/compare.rs`, `crates/ui/src/dialogs/apply_changes.rs`, `crates/ui/src/dialogs/keep_version.rs`, `crates/ui/tests/compare.rs`, `crates/ui/tests/fingerprints/edit-compare-*.json`, `crates/ui/tests/fingerprints/dialog-keep-version-*.json`
+  - scope: `editing.md` §4, with LightCraft `crates/ui-egui/src/panels/compare.rs`
+    (`compare_pair`, `set_photo`, `swap`, synced zoom and pan) and `tests_before_after.rs` at
+    3b4279fc as the pattern: the toggle's A, A│B and A│A live; two canvases side by side, or above
+    and below after ⇅, each from its pane, zoom and pan synced; the focused side's grey "Selected"
+    pill; a click focuses a side and the filmstrip opens the focused side's photo; ⇄ switches the
+    focus; tools, Undo and Redo act on the focused side (the variant in A│A); the switch question
+    "Apply changes to the current photo?" [Apply] [Discard] [Cancel] with "Don't ask again, always
+    apply"; leaving A│A with differing sides asks "Keep which version?" [Left] [Right] (or [Top]
+    [Bottom]) [Cancel] with "Don't ask again"; before/after: `\` held, or the edit panel header's
+    "Show original" pressed and held, shows the focused side unedited while held; rows
+    `EDIT-COMPARE`, `EDIT-VIEW` (the toggle), a new `EDIT-BEFOREAFTER`.
+  - done when: `crates/ui/tests/compare.rs` (headless, by id): A│B shows two photos and the
+    filmstrip changes the focused one; Auto Fix on A│A's right side leaves the left's recipe in
+    the sidecar unchanged, and "Keep which version?" → Right makes it one history step; Cancel stays
+    in A│A; switching with a crop panel open asks and Discard drops it; `\` down shows the original
+    and up restores it; zooming one side zooms both; fingerprints of A│B side by side and above
+    and below, A│A and the keep question at both window sizes.
+- ⬜ **M11.17 `ui`: the photo viewer**
+  - after: M11.2, M11.3, M11.10, M11.12
+  - files: `crates/ui/src/panels/viewer.rs`, `crates/ui/src/panels/viewer/**`, `crates/ui/src/commands/viewer.rs`, `crates/ui/src/dialogs/viewer_settings.rs`, `crates/ui/src/dialogs/options/viewer.rs`, `crates/ui/tests/viewer.rs`, `crates/ui/tests/fingerprints/viewer-*.json`, `crates/ui/tests/fingerprints/dialog-viewer-settings-*.json`, `crates/ui/tests/fingerprints/dialog-options-viewer-*.json`
+  - scope: `viewing.md` §3, with LightCraft `crates/ui-egui/src/panels/detail.rs` (the filmstrip,
+    zoom and pan) at 3b4279fc as the pattern: the backdrop (`black α210`, or opaque; Space toggles
+    it); the photo fitted above the strip with "filename (W × H)" in white SemiBold; the filmstrip
+    of the folder centred on the current photo, the others dimmed, a click jumping; M11.3's overlay
+    bar with +, −, 1:1, Open in Dalica, a large Play (a slideshow of the folder through
+    `view.slideshow`), rotate left and right, star and ⋯ (Open With ▸ and Show in File Manager
+    drawn disabled "Arrives with OS integration", Settings…); "close ✕" at the top right; the
+    controls hiding after 3 s without a mouse move when the setting says so; keys and wheel per
+    §3.2 and the wheel setting; Delete asking, then trashing; the read-only viewer's controls
+    disabled with their reason; the Settings dialog and Options ▸ Photo Viewer (File Types drawn
+    disabled with its reason, Interface live through `options.set`); Tools ▸ Configure Photo
+    Viewer…; rows `VIEW-VIEWER`, `PREF-VIEWER`, the Tools menu row.
+  - done when: `crates/ui/tests/viewer.rs` (headless, a viewer session): → steps through the folder
+    and the filmstrip follows; 1 toggles 100 %; Ctrl+8 stars (the star in the sidecar); E opens the
+    edit view on the photo; Space toggles the backdrop; the wheel zooms, and navigates once the
+    setting changes; the controls hide after 3 s on a virtual clock; fingerprints of the viewer,
+    its Settings dialog and the Options tab at both window sizes.
+- ⬜ **M11.18 `ui`: Batch Edit, Copy and Paste All Edits, and Undo All Edits in the window**
+  - after: M11.2, M11.9
+  - files: `crates/ui/src/commands/batch.rs`, `crates/ui/src/dialogs/undo_all.rs`, `crates/ui/tests/batch_ui.rs`, `crates/ui/tests/fingerprints/dialog-undo-all-*.json`
+  - scope: `editing.md` §9 and `menus-and-shortcuts.md` §1.2 and §1.5: Picture ▸ Batch Edit ▸ on
+    the tray (Rename… opening M9's dialog, the rotations, Auto Contrast, Auto Color and Auto Fix
+    through `edit.apply`, the effects greyed with their reason); Edit ▸ Copy All Edits and Paste
+    All Edits, in the library on the tray and in the edit view on the open photo (a step of its
+    history); Picture ▸ Undo All Edits… asking "Remove all edits from %d pictures?" [Remove Edits]
+    [Cancel] (naming saved photos when there are), then `edit.undoAll`; thumbnails, the tray and
+    the filmstrip showing the new edits; rows `EDIT-BATCH`, `EDIT-RECIPE-COPY`, `EDIT-UNDO`, the
+    Edit and Picture menu rows.
+  - done when: `crates/ui/tests/batch_ui.rs` (headless, by id): Batch Edit ▸ Auto Fix on 20 held
+    photos, then one Ctrl+Z restores all 20; Copy All Edits on one photo and Paste All Edits on
+    three selected gives them its recipe; in the edit view a Paste is undone by the photo's Undo
+    button; Undo All Edits asks and removes; Sepia is greyed with "Arrives with Effects"; the
+    question's fingerprints at both window sizes.
+- ⬜ **M11.19 `ui`: the slideshow: what plays, the show, transitions and keys**
+  - after: M11.2, M11.3, M11.4, M11.11
+  - files: `crates/ui/src/panels/slideshow.rs`, `crates/ui/src/panels/slideshow/show.rs`, `crates/ui/src/panels/slideshow/transition.rs`, `crates/ui/src/commands/slideshow.rs`, `crates/ui/tests/slideshow.rs`, `crates/ui/tests/fingerprints/slideshow-*.json`
+  - scope: `viewing.md` §1.1–§1.4 with M11.4's state machine and M11.11's list: the entries (View
+    ▸ Slideshow and Ctrl+4, a section header's ▶ and Folder ▸ View Slideshow, the edit top bar's
+    Play, the bottom area's Slideshow button, the viewer's Play) and what each plays, as decided
+    above; full screen on pure black (the OS full screen asked through the view state and given
+    back on exit), the photo from its screen-size preview placed by M11.4's fit; the seven
+    transitions painted from M11.4's geometry; the caption on M11.3's plate while captions are on;
+    the keys and mouse of §1.4 in the Slideshow context; Exit (Esc) back to where the show started
+    with the last photo shown selected and scrolled into view; the end without Loop and with it;
+    rotate and star acting on the photo shown through the library's commands; rows
+    `VIEW-SLIDESHOW`, `LIB-ACTIONS` (Slideshow), the View and Folder / Album menu rows.
+  - done when: `crates/ui/tests/slideshow.rs` (headless, a virtual clock): Ctrl+4 with a photo
+    selected plays its section from it; three display times advance three photos; Space pauses and
+    a mouse move does not; → ← Home End; Esc returns to the library with the last photo selected;
+    started from the edit view's Play it returns to the edit view; Ctrl+8 stars and Ctrl+R rotates
+    the photo shown, one undo step each; no frame waits on a preview over 30 advances (M11.11's
+    slowed decoder); a fingerprint of each transition at its midpoint and of a captioned photo at
+    both window sizes.
+- ⬜ **M11.20 `ui`: the Import room: destination, importing and finishing**
+  - after: M11.8, M11.15
+  - files: `crates/ui/src/panels/import/destination.rs`, `crates/ui/src/panels/import/progress.rs`, `crates/ui/src/commands/import.rs`, `crates/ui/src/dialogs/remove_from_card.rs`, `crates/ui/tests/import_run_ui.rs`, `crates/ui/tests/fingerprints/import-destination-*.json`, `crates/ui/tests/fingerprints/dialog-remove-from-card-*.json`
+  - scope: `organizing.md` §3 items 4–6 and its flow: the destination strip ("Import to:" with the
+    default, recent destinations and Choose…; the "Folder name:" combo with free text, Date taken
+    (YYYY-MM-DD), Today's date and recent names; "After copying:" for cards and drives only); the
+    hint line with its light bulb in each state; Import All, Import Selected (n) and Cancel, the
+    import buttons disabled until a folder name is set; Enter imports the selection; while
+    importing, the progress in the room ("Copying 45 of 340 at 38 MB/s"), the status line and the
+    activity indicator, Cancel after the current file; then, when chosen, the question "Remove the
+    imported files from the card? This cannot be undone." [Remove Imported Files] [Keep Files];
+    finishing: the room closes, the library selects and scrolls to the new folder, the toast
+    "Imported 340 pictures into 2026-06-04" ("into 3 folders" for several); failures listed with
+    their files; rows `IMP-ROOM`, `IMP-NAMING`, `IMP-AFTER`, `LIB-EMPTY` (Import…).
+  - done when: `crates/ui/tests/import_run_ui.rs` (headless, a temp card): the import buttons stay
+    disabled until a folder name; Date taken imports into dated folders, the library selects the
+    first and the toast names them; Cancel part-way keeps what was copied; with "Delete copied
+    files from the card" the question appears, Keep Files keeps them and Remove Imported Files
+    removes only the copied ones; the empty library's Import… opens the room; fingerprints of the
+    strip in its states and of the question at both window sizes.
+- ⬜ **M11.22 `mcp`: Batch Edit as one step, and the workflows W07 and W10**
+  - after: M11.8, M11.9
+  - files: `crates/mcp/src/tools/edit.rs`, `crates/mcp/tests/edit_tools.rs`, `crates/mcp/tests/workflows/w07_batch_edit_one_step.rs`, `crates/mcp/tests/workflows/w10_import_duplicates.rs`, `xtask/src/stats.rs`, `docs/mcp.md`
+  - scope: `mcp.md` §4.2 and §9: `apply_edit` runs `edit.apply`, one library undo step for all its
+    photos as §4.2 says, instead of M10's per-photo steps; W07 (Auto Fix on 20 photos, 20 recipes
+    ending in `autofix()`, one `cmd_edit_undo` removing all 20) and W10 (a card-like folder
+    imported twice through the `cmd_import_*` tools: the second skips every photo and reports them
+    as duplicates; the folders named as configured; each copy's bytes equal to its source)
+    un-ignored; the floor in `xtask/src/stats.rs` raised to the eleven workflows now required;
+    `mcp.md`'s status line; row `SYS-MCP`.
+  - done when: `cargo test -p dalica-mcp --test workflows` runs W07 and W10 green on the three OSes;
+    `crates/mcp/tests/edit_tools.rs`: `apply_edit` on 3 photos is one undo step; `cargo xtask
+    stats` prints 11 / 12 passing and `stats --check` fails below that.
+- ⬜ **M11.21 `ui`: the slideshow's control bar, zoom, and Options ▸ Slideshow**
+  - after: M11.19
+  - files: `crates/ui/src/panels/slideshow/bar.rs`, `crates/ui/src/panels/slideshow/zoom.rs`, `crates/ui/src/commands/slideshow.rs`, `crates/ui/src/dialogs/options/slideshow.rs`, `crates/ui/src/dialogs/folder_properties.rs`, `crates/ui/tests/slideshow_bar.rs`, `crates/ui/tests/fingerprints/slideshow-bar-*.json`, `crates/ui/tests/fingerprints/dialog-options-slideshow-*.json`, `docs/viewing.md`
+  - scope: `viewing.md` §1.3 and §1.5: the bar on M11.3's overlay bar, shown for 2 s at start and
+    on a mouse move, hiding after 2.5 s: Exit, Zoom (the magnifier and its slider; zooming pauses,
+    a drag pans, + and − step), rotate left and right, Previous (disabled on the first photo
+    without Loop), Play / Pause, Next, Star, the Transition drop-up of the seven, the Captions
+    toggle and Display time `[−] 3 seconds [+]`, each kept through `options.set`; the edit view
+    caption bar's slideshow toggle bound to the same captions setting; Options ▸ Slideshow (Loop,
+    Display time, Transition and Show captions live; Play music, its folder and Play video sound
+    drawn disabled with their reasons) and Folder Properties' Music with the same reason;
+    `viewing.md` §1 records the decisions above; rows `VIEW-SLIDESHOW`, `VIEW-MUSIC` (Loop),
+    `PREF-SLIDESHOW`, `EDIT-VIEW` (the caption bar's toggle).
+  - done when: `crates/ui/tests/slideshow_bar.rs` (headless, a virtual clock): the bar shows at
+    start, hides after 2 s and comes back on a mouse move; Previous is greyed on the first photo
+    without Loop; Wipe chosen in the drop-up is the next transition and survives a restart; + and
+    − change the display time within 1–60; zooming pauses and a drag pans; the captions toggles of
+    the edit view and of the bar change one setting; Options ▸ Slideshow's Loop wraps the show;
+    fingerprints of the bar and the tab at both window sizes.
+- ⬜ **M11.23 `engine` + `ui` + `xtask`: M11's budgets: import, batch edit and the slideshow**
+  - after: M11.8, M11.9, M11.19
+  - files: `crates/engine/benches/import.rs`, `crates/engine/benches/batch_edit.rs`, `crates/ui/benches/slideshow.rs`, `xtask/src/bench.rs`, `.github/workflows/budgets.yml`, `docs/development.md`
+  - scope: `development.md` §8: benches registered in `xtask/src/bench.rs`, joined to `BUDGETS` and
+    the release-budgets job, each documented in §8 and §13 with its machine: `import` (listing,
+    then importing, 1 000 `scenes` JPEGs from a temp card: time to the first thumbnails, files per
+    second, MB/s), `batch_edit` (Auto Fix on 1 000 photos as one step, then its undo), `slideshow`
+    (an advance to the first frame of its transition with prefetch, and a transition frame's
+    paint, headless); budgets at 1.5 × their first measurement, plus a transition frame within
+    16 ms at p95 and zero waits on disk whatever the first numbers; a missed budget is fixed in
+    this task (before and after numbers in the PR) or blocks with its numbers, never loosened.
+  - done when: `cargo xtask bench import`, `bench batch_edit` and `bench slideshow` print their
+    numbers (in the PR); `cargo xtask budgets` passes with them and `--plant-ms` makes each fail.
+- ⬜ **M11.24 `accept M11`**
+  - after: M11.14, M11.16, M11.17, M11.18, M11.20, M11.21, M11.22, M11.23
+  - files: `tests/acceptance/m11.rs`, `tests/acceptance/m11_*.rs`, `tests/acceptance/m11.md`, `tests/acceptance/fingerprints/m11-*.json`
+  - scope: every *Done when* of M11's four areas in the real `dalica --headless` over the control
+    channel, through `dalica-cli mcp`, and with `dalica --view FILE --headless`: a simulated card (a
+    temp folder through `DALICA_DEVICE_ROOTS`) imported into dated folders with every copy
+    verified, a second import skipping every photo as a duplicate, a planted clash getting `-001`,
+    removal from the card only after the question and refused over the control channel; a 100-photo
+    batch as one undo step; a version kept from A│A as one history step; the slideshow's zero waits
+    on a slowed decoder, a fingerprint per transition, its keys, wheel and bar; `dalica --view`
+    opening, stepping, starring and Open in Dalica; W07 and W10 over MCP; the M11 budgets (the
+    release budgets with `DALICA_ACCEPT_RELEASE=1`; inside `cargo xtask ci` a smaller debug run
+    checks the paths and prints its times); fingerprints of the room tabs, the Import room,
+    compare, the slideshow and its bar and the viewer; the manual checks in `m11.md` (import from a
+    real card or USB stick and remove the copies from it, a slideshow on a real screen with each
+    transition, the viewer from the file manager's Open with on each OS with its translucent
+    backdrop, Ctrl+Alt over a thumbnail).
+  - done when: `cargo xtask accept M11` passes everything in M11's *Done when*.
+- ⬜ **M11.25 Lead: task blocks for M13**
+  - after: M10.28
+  - owner: lead
+  - files: `docs/roadmap.md`
+  - scope: write every M13 task block from M13's outline rows and the spec (`faces.md`,
+    `organizing.md` §6–§7, `xmp-interop.md` §8.5), with waves and the `M13.R` release gate (owner:
+    maintainer); tasks that hinge on reserved decisions 4, 5 and 9 (map tiles, face models, the TLS
+    stack) wait for the maintainer's answers, asked at the review before M13 (M12.R), never
+    guessed; a block that can port Craft-app code names the source files in its scope
+    (`architecture.md` §9).
+  - done when: `cargo xtask tasks sync --check` parses them and `tasks sync --dry-run` lists one new
+    issue per block.
+- ⬜ **M11.R Release 0.6 gate**
+  - after: M11.24
+  - owner: maintainer
+  - files: `docs/roadmap.md`, `docs/status.md`
+  - scope: a release gate (Release 0.6): the lead runs `/milestone-review M11.R` to prepare it, with
+    the version set to 0.6.0 and its `whats-new.md` section on the review branch, the release
+    checklist and the sign-off question, and after the merge cuts and publishes 0.6.0
+    (`releasing.md`); the check-in page (open Import with Ctrl+M on a card or USB stick with
+    photos, see them grouped by time, exclude a few, star and rotate one in the preview, import
+    into Date taken folders, import again and see every photo skipped as a duplicate, try "Delete
+    copied files from the card" on a test stick, undo an import; compare two photos in A│B, try two
+    edits in A│A and keep one, hold `\`; Copy All Edits and Paste All Edits; Batch Edit ▸ Auto Fix
+    on 20 photos and one Ctrl+Z; Undo All Edits; play a slideshow from a folder, an album and a
+    search with each transition, captions, Loop, the display time, zoom, rotate and star, then Esc;
+    hold Ctrl+Alt over a thumbnail and turn the wheel; open a photo with `dalica --view` and from
+    the file manager's Open with, step, zoom, 1:1, star, Space, E, and once more with Dalica
+    already open; written as steps for the maintainer to try); the questions: how slideshow music
+    should play (a crate linking the system audio library on Linux, an MPL-2.0 decoder, or music
+    later with M15's video sound), whether `dalica --view` should hand the file to a Dalica already
+    running instead of opening read-only, the planning decisions above that change behaviour (an
+    import is one undo step that trashes unchanged copies and cannot be undone once the card was
+    emptied; duplicates and excluded files stay on the card; Undo All Edits can be undone; Batch
+    Edit's effects greyed until M12; what Ctrl+4 and the Slideshow button play; the slideshow takes
+    the OS full screen and leaves videos out until M15; compare's zoom synced; a room replaces
+    everything but the menu bar, the strip and the status line; the viewer's first change adds its
+    folder as Scan Once), the look of the Import room, the slideshow bar and the viewer (approved
+    with their fingerprints); *Where we stand* and the `status.md` numbers (the workflow pass rate,
+    import files per second and MB/s, Batch Edit of 1 000 photos, the slideshow's advance and
+    transition frame at p95, waits on disk) on a `review/M11.R` branch, a pull request open. Only
+    the maintainer merges that pull request and closes this issue; nothing after it starts until
+    then.
+  - done when: prepared: page published, PR open, both linked on the issue.
+
+Waves (inside a wave, "‖" separates tasks whose `files` do not overlap):
+
+```text
+wave 1   M11.1 engine modules + settings  ‖  M11.2 ui state + stubs  ‖  M11.3 ui-kit tabs, bars, icons
+         ‖  M11.4 slideshow sequencing  ‖  M11.5 cards + import listing  ‖  M11.6 import copy + removal
+         (once M10.R is closed)
+wave 2   M11.7 import sources + duplicates  ‖  M11.9 batch edit + recipes  ‖  M11.10 preview panes + variant
+         ‖  M11.12 viewer session + --view  ‖  M11.13 room tab strip
+wave 3   M11.8 importing + undo + removal  ‖  M11.11 slideshow list + prefetch  ‖  M11.14 quick preview
+         ‖  M11.15 import room: tray + preview  ‖  M11.16 compare + before/after  ‖  M11.17 photo viewer
+         ‖  M11.18 batch edit in the window
+wave 4   M11.19 slideshow  ‖  M11.20 import room: destination + finish  ‖  M11.22 apply_edit, W07, W10
+wave 5   M11.21 slideshow bar + Options  ‖  M11.23 M11 budgets
+wave 6   M11.24 accept M11 → M11.R          (M11.25 lead: M13 blocks, any time after M10.28)
+```
+
+### M12 – M14: P1 parity (outline; the lead details each one while the one before runs)
 
 | # | In | Done when (sketch) |
 |---|---|---|
-| M11 Import | rooms/tab strip (craft-ui `tabs` and PhotoCraft's `tab_strip.rs` overflow menu); sources (cards, removable drives, folders); time grouping; exclude duplicates; destination and folder naming; copy-verify; optional removal from the card | import of a simulated card into dated folders; duplicates skipped; no file overwritten |
-| M11 Compare and batch edit | A│B, A│A (LightCraft's `panels/compare.rs` as the pattern), before/after hold, Copy/Paste All Edits, Batch Edit ▸, Undo All Edits | batch of 100 photos is one undo step |
-| M11 Slideshow and quick preview | slideshow, control bar, transitions, captions, music; Ctrl+Alt preview | transitions never wait on disk (prefetch test) |
-| M11 Photo viewer | `dalica --view`, filmstrip (LightCraft's `panels/detail.rs` as the pattern), controls, settings | open, navigate, star from the viewer |
 | M12 Effects I | effect tiles, parameter panels (colour parameters from PhotoCraft's `color_picker_ui.rs` colour maths and `widgets.rs` `swatch_popup`), crosshair control, Fade; the 12 effects of tab 3 | a fingerprint and an invariant per effect |
 | M12 Effects II | the 15 effects of tabs 4–5, canvas-enlarging effects, Soften's paint mask | as M12 |
 | M13 People I | LightCraft's `crates/faces` pipeline and `panels/faces.rs` as the starting point; consented model download (decisions 5 and 9), detection, embeddings, clustering, Unnamed, naming, ignore, person albums | a public-domain face set groups as expected (floors) |
