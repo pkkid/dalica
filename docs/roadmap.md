@@ -4041,7 +4041,7 @@ mid-run.
     after its photo's update; an index updated through random op sequences equals one built from
     scratch (proptest); hostile queries (10 000 words, 1 MiB, control and bidirectional characters)
     are bounded and never panic; the times to build and to query 100 k synthetic photos printed.
-- ⬜ **M9.9 `store`: sidecar entries travel with their files, and the file-operation journal**
+- ✅ **M9.9 `store`: sidecar entries travel with their files, and the file-operation journal**
   - after: M9.2, M9.6
   - files: `crates/store/src/carry.rs`, `crates/store/src/intents.rs`, `crates/store/src/writer.rs`, `crates/store/tests/carry.rs`, `crates/store/tests/intents.rs`, `docs/data-model.md`
   - scope: `data-model.md` §8: a moved photo's whole entry (unknown keys included) leaves the

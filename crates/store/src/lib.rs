@@ -11,6 +11,8 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 pub mod albums;
+pub mod carry;
+pub mod intents;
 pub mod journal;
 pub mod mapping;
 pub mod metawrite;
@@ -28,7 +30,7 @@ pub use journal::Journal;
 pub use mapping::FolderState;
 pub use metawrite::{FileResult, MetaWriteQueue};
 pub use rebuild::{Import, import_sidecars};
-pub use writer::{Outcome, SidecarWriter, write_folder};
+pub use writer::{CarryReport, Outcome, SidecarWriter, write_folder};
 
 /// The largest index file read (journals are snapshotted long before this).
 pub const MAX_FILE: u64 = 1 << 30;

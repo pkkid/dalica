@@ -28,6 +28,12 @@
 //! device and the library's files there); a root that fails is treated like a missing folder: the
 //! write fails, nothing is written, the folder waits and is looked at again (and checked again)
 //! when it is marked dirty or after [`WAIT_RETRY`]. Each root is checked at most once per pass.
+//!
+//! **Carrying entries** (M9.9, `data-model.md` §8): [`SidecarWriter::carry`] moves a photo's entry
+//! with its file ([`crate::carry`]) in order with the writes: the two folders' pending debounced
+//! changes are written first, then the entries are carried, then the destination is written again
+//! from the model so the model's values stand over the carried keys. A star made just before a
+//! move, still waiting for its write, therefore lands in the destination.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -41,6 +47,7 @@ use dalica_library::Library;
 use dalica_sidecar::{FILE_NAME, Limits, Sidecar};
 use serde_json::Value;
 
+use crate::carry::{self, Carried, Carry, CarryError};
 use crate::mapping::{self, FolderState};
 
 /// The shortest time between two writes of one folder's sidecar.
@@ -81,6 +88,16 @@ pub enum Outcome {
     /// The write failed (an offline volume, a concurrent change, a full disk…); the folder stays
     /// dirty. A folder that is not there is never created.
     Failed(String),
+}
+
+/// What [`SidecarWriter::carry`] did.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CarryReport {
+    /// The carry itself.
+    pub carried: Result<Carried, CarryError>,
+    /// The sidecar writes made on the way: the folders' pending changes before the carry, the
+    /// destination's model values after it.
+    pub writes: BTreeMap<FolderId, Outcome>,
 }
 
 /// Writes one folder's sidecar now. Any thread but the UI thread may call it. A folder that is not
@@ -317,6 +334,63 @@ impl SidecarWriter {
     pub fn flush_with(&mut self, state_of: impl Fn(FolderId) -> Option<FolderState>, now: Timestamp) -> BTreeMap<FolderId, Outcome> {
         let all: Vec<FolderId> = self.dirty.iter().copied().collect();
         self.write(&state_of, &all, now, true)
+    }
+
+    /// Carries the sidecar entries of `carry` from folder `from` to folder `to` (the same folder for
+    /// a rename) in order with this writer's writes (`data-model.md` §8, [`crate::carry`]): first
+    /// the pending writes of both folders, from `state_of`; then the entries; then, when anything
+    /// was carried, the destination is written from `state_of` again, so the model's values (a
+    /// star still in the debounce, a cleared caption) stand over the carried keys while the keys
+    /// the model does not know arrive as they were. Call it after the model holds the photos in
+    /// their new folder (their states sent), so the source's next write no longer names them.
+    ///
+    /// Refused with nothing carried: a read-only folder (an earlier damaged sidecar), a folder
+    /// under a held root or whose guarded root fails its check, a folder that is not there. A
+    /// damaged sidecar met on the way is kept aside and its folder becomes read-only, as a write
+    /// would make it.
+    pub fn carry(
+        &mut self,
+        carry: &Carry,
+        from: FolderId,
+        to: FolderId,
+        state_of: impl Fn(FolderId) -> Option<FolderState>,
+        now: Timestamp,
+    ) -> CarryReport {
+        let folders: Vec<(FolderId, &Path)> = if from == to { vec![(from, &carry.from)] } else { vec![(from, &carry.from), (to, &carry.to)] };
+        let mut writes = BTreeMap::new();
+        let mut verdicts = HashMap::new();
+        for &(f, path) in &folders {
+            let refused = if self.read_only.contains(&f) {
+                Some(CarryError::ReadOnly(path.to_path_buf()))
+            } else if self.held.iter().any(|r| path.starts_with(r)) || self.failed_root(path, &mut verdicts).is_some() {
+                Some(CarryError::Missing(path.to_path_buf()))
+            } else {
+                None
+            };
+            if let Some(e) = refused {
+                return CarryReport { carried: Err(e), writes };
+            }
+        }
+        let pending: Vec<FolderId> = folders.iter().map(|(f, _)| *f).filter(|f| self.dirty.contains(f)).collect();
+        writes.extend(self.write(&state_of, &pending, now, true));
+        // A pending write that found a damaged sidecar kept it aside: nothing goes there now.
+        if let Some(&(_, path)) = folders.iter().find(|(f, _)| self.read_only.contains(f)) {
+            return CarryReport { carried: Err(CarryError::ReadOnly(path.to_path_buf())), writes };
+        }
+        let carried = carry::entries(carry, now);
+        if let Err(CarryError::SetAside { path, .. }) = &carried {
+            for &(f, folder) in &folders {
+                if path.parent() == Some(folder) {
+                    self.read_only.insert(f);
+                    self.dirty.remove(&f);
+                }
+            }
+        }
+        if matches!(&carried, Ok(c) if c.changed()) || matches!(&carried, Err(CarryError::SourceKept { .. })) {
+            self.mark_dirty(to);
+            writes.extend(self.write(&state_of, &[to], now, true));
+        }
+        CarryReport { carried, writes }
     }
 
     /// Writes `folders`. A folder under a held root waits; it is reported (as not there) only by
