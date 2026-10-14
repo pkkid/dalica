@@ -75,11 +75,15 @@ pub const DIALOGS: &[(&str, &str)] = &[
     ("photo.adjustDate", "adjustDate"),
     ("help.releaseNotes", "releaseNotes"),
     ("app.about", "about"),
+    ("output.export", "export"),
+    ("photo.revert", "revert"),
+    ("photo.saveAs", FILE_PICKER),
 ];
 
-/// The native folder picker (the stub over automation, `control-protocol.md` §5.6): an item of
-/// [`DIALOGS`] naming it opens the picker instead of running its command. No item does since File ▸
-/// Add Folder… opens the Folder Manager; the picker stays for the items that will pick files.
+/// A native file picker (the stub over automation, `control-protocol.md` §5.6): an item of
+/// [`DIALOGS`] naming it runs its command, which opens the picker (File ▸ Save As…: the save
+/// picker), and replies `{dialog: "filePicker"}`. File ▸ Add Folder… opens the Folder Manager
+/// instead.
 pub const FILE_PICKER: &str = "filePicker";
 
 /// Engine commands a menu row runs on the current folder (the fourth menu's rows): a click passes
@@ -99,7 +103,7 @@ pub fn current_folder(app: &App) -> Option<FolderId> {
 /// Whether the dialog `dialog` (of [`DIALOGS`]) can open now; why not, if it cannot.
 fn dialog_ready(app: &App, dialog: &str) -> Result<(), String> {
     match crate::dialogs::DialogKind::from_name(dialog) {
-        _ if dialog == FILE_PICKER => app.can_pick_folder(),
+        _ if dialog == FILE_PICKER => app.can_pick(),
         Some(kind) => crate::dialogs::can_open(app, kind),
         None => Err("Not available yet.".into()),
     }
@@ -261,6 +265,10 @@ pub fn params_for(app: &App, id: &str, fixed: &Value) -> Value {
         && let Some(photo) = crate::commands::edit_view::open_photo(app)
     {
         obj.insert("id".into(), photo.get().into());
+    }
+    // In the edit view File ▸ Save, Revert… and Save a Copy act on the open photo.
+    if let Some(ids) = crate::commands::save::open_photo_ids(app, id) {
+        obj.insert("ids".into(), ids);
     }
     if let Value::Object(f) = fixed {
         for (k, v) in f {
@@ -521,7 +529,7 @@ pub fn nodes_json(nodes: &[Node]) -> Value {
     )
 }
 
-/// Runs a menu item as a click does: the file-picker item opens the picker (`{dialog:
+/// Runs a menu item as a click does: a file-picker item's command opens the picker (`{dialog:
 /// "filePicker"}`), any other runs its command (an in-app dialog item's command opens its dialog and
 /// replies `{dialog: kind}`) with [`params_for`] plus `extra` (the caller's parameters win). A disabled or
 /// not-yet-live item is refused with the reason, which the status line shows.
@@ -531,7 +539,7 @@ pub fn activate(app: &mut App, item: &ItemNode, extra: &Value) -> Result<Value, 
         app.state_mut().status = why.clone();
         return Err(CmdError::Disabled(why));
     }
-    if item.dialog == Some(FILE_PICKER) {
+    if item.dialog == Some(FILE_PICKER) && item.id == "folders.add" {
         app.add_folder();
         return Ok(json!({ "dialog": FILE_PICKER }));
     }
@@ -816,6 +824,8 @@ mod tests {
             live,
             [
                 "folders.manager",
+                "photo.saveAs",
+                "output.export",
                 "app.quit",
                 "edit.undo",
                 "edit.redo",
@@ -919,7 +929,9 @@ mod tests {
             assert_eq!((item.id, item.dialog, item.live, item.enabled), ("folders.manager", Some("folderManager"), true, true), "{}", item.label);
             assert_eq!(item.widget, "menuitem:folders.manager");
         }
-        assert!(!menus.iter().flat_map(|m| items(&m.children)).any(|i| i.dialog == Some(FILE_PICKER) || i.id == "folders.add"));
+        assert!(!menus.iter().flat_map(|m| items(&m.children)).any(|i| i.id == "folders.add"));
+        let pickers: Vec<&str> = menus.iter().flat_map(|m| items(&m.children)).filter(|i| i.dialog == Some(FILE_PICKER)).map(|i| i.id).collect();
+        assert_eq!(pickers, ["photo.saveAs"], "only Save As… opens a native picker");
         assert_eq!(activate(&mut app, &add, &Value::Null).unwrap(), json!({ "dialog": "folderManager" }));
         assert_eq!(app.state().dialogs.iter().map(|d| d.kind.name()).collect::<Vec<_>>(), ["folderManager"]);
         // Open: both rows say why they cannot open it again.

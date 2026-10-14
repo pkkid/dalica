@@ -432,10 +432,19 @@ pub enum DialogKind {
     ReleaseNotes,
     /// The Crop tool's Add Custom Ratio… (`editing.md` §6.1).
     CustomRatio,
+    /// The first-time explanation of Save (`photo.save`, `data-model.md` §6); its draft is
+    /// [`UiState::save_explain`].
+    SaveExplain,
+    /// "Revert to the original?" with [Revert] [Undo Save] [Cancel] (`photo.revert`); its draft is
+    /// [`UiState::revert`].
+    Revert,
+    /// File ▸ Export Pictures to Folder… (`output.export`, `creating.md` §2); its draft is
+    /// [`UiState::export`].
+    Export,
 }
 
 impl DialogKind {
-    pub const ALL: [DialogKind; 12] = [
+    pub const ALL: [DialogKind; 15] = [
         DialogKind::ClearTray,
         DialogKind::FolderManager,
         DialogKind::FirstRun,
@@ -448,6 +457,9 @@ impl DialogKind {
         DialogKind::About,
         DialogKind::ReleaseNotes,
         DialogKind::CustomRatio,
+        DialogKind::SaveExplain,
+        DialogKind::Revert,
+        DialogKind::Export,
     ];
 
     /// The kind as the protocol writes it (`clearTray`), the `<kind>` of `dialog:<kind>`.
@@ -465,6 +477,9 @@ impl DialogKind {
             DialogKind::About => "about",
             DialogKind::ReleaseNotes => "releaseNotes",
             DialogKind::CustomRatio => "customRatio",
+            DialogKind::SaveExplain => "saveExplain",
+            DialogKind::Revert => "revert",
+            DialogKind::Export => "export",
         }
     }
 
@@ -838,6 +853,203 @@ impl EditState {
     }
 }
 
+/// The Export dialog's image-quality presets (`creating.md` §2): Automatic keeps the original's
+/// quality, Normal is 85, Maximum 95, Minimum 60, Custom the dialog's own value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum Quality {
+    #[default]
+    Automatic,
+    Normal,
+    Maximum,
+    Minimum,
+    Custom,
+}
+
+impl Quality {
+    pub const ALL: [Quality; 5] = [Quality::Automatic, Quality::Normal, Quality::Maximum, Quality::Minimum, Quality::Custom];
+
+    /// The preset as the protocol writes it (`automatic`), the parameter `export.run` takes.
+    pub fn name(self) -> &'static str {
+        match self {
+            Quality::Automatic => "automatic",
+            Quality::Normal => "normal",
+            Quality::Maximum => "maximum",
+            Quality::Minimum => "minimum",
+            Quality::Custom => "custom",
+        }
+    }
+}
+
+/// How the Export dialog exports videos (`creating.md` §2): their first frame as a photo, or the
+/// whole video unresized. The row stays disabled until videos are decoded (M15).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum Videos {
+    #[default]
+    FirstFrame,
+    FullVideo,
+}
+
+/// The Export dialog's size range (the slider's ends, `creating.md` §2) and its default, in pixels
+/// of the longest side.
+pub const RESIZE_MIN: u32 = 100;
+pub const RESIZE_MAX: u32 = 4000;
+pub const RESIZE_DEFAULT: u32 = 1600;
+/// The longest text the Export dialog's size field keeps, in characters.
+pub const MAX_RESIZE_TEXT: usize = 16;
+/// The custom JPEG quality's range and default.
+pub const CUSTOM_MIN: u8 = 1;
+pub const CUSTOM_MAX: u8 = 100;
+pub const CUSTOM_DEFAULT: u8 = 75;
+/// The longest export location kept, in bytes (the control channel's longest path).
+pub const MAX_LOCATION: usize = 4096;
+
+/// The Export dialog's draft (`creating.md` §2, `control-protocol.md` §6.5): what it exports (the
+/// photos named, or a section from its header) and every control's value. Nothing is applied
+/// before its Export button, which runs `export.run`. `resize` is the size field's text as typed,
+/// so a draft can hold what the field shows ("abc", "0"); [`ExportDraft::pixels`] says whether it is
+/// a size Export takes.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields, default)]
+pub struct ExportDraft {
+    /// The photos exported (the tray's, when opened from the menu or the bottom bar).
+    pub ids: Vec<PhotoId>,
+    /// The section exported, when opened from a section header.
+    pub section: Option<Section>,
+    /// Export location: the folder the export folder is made in.
+    pub location: String,
+    /// Name of exported folder.
+    pub folder_name: String,
+    /// Add numbers to file names to keep the order.
+    pub numbers: bool,
+    /// Use original size (else Resize to `resize`).
+    pub original_size: bool,
+    /// The Resize to field's text: digits for a size of the longest side.
+    pub resize: String,
+    pub quality: Quality,
+    /// The Custom preset's quality, `CUSTOM_MIN ..= CUSTOM_MAX`.
+    pub custom: u8,
+    pub videos: Videos,
+    /// Add watermark, and its text.
+    pub watermark: bool,
+    pub watermark_text: String,
+}
+
+impl Default for ExportDraft {
+    fn default() -> ExportDraft {
+        ExportDraft {
+            ids: Vec::new(),
+            section: None,
+            location: String::new(),
+            folder_name: String::new(),
+            numbers: false,
+            original_size: false,
+            resize: RESIZE_DEFAULT.to_string(),
+            quality: Quality::Automatic,
+            custom: CUSTOM_DEFAULT,
+            videos: Videos::FirstFrame,
+            watermark: false,
+            watermark_text: String::new(),
+        }
+    }
+}
+
+impl ExportDraft {
+    /// The Resize to field as a size Export takes: digits only, `RESIZE_MIN ..= RESIZE_MAX`.
+    pub fn pixels(&self) -> Option<u32> {
+        let text = self.resize.trim();
+        if text.is_empty() || !text.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        text.parse::<u32>().ok().filter(|v| (RESIZE_MIN..=RESIZE_MAX).contains(v))
+    }
+
+    /// Why Export cannot run with this draft, if it cannot (the Export button is disabled then):
+    /// nothing to export, no location or folder name, a size that is not one, a watermark with no
+    /// text.
+    pub fn ready(&self) -> Result<(), String> {
+        if self.ids.is_empty() && self.section.is_none() {
+            return Err("There is nothing to export.".into());
+        }
+        if self.location.trim().is_empty() {
+            return Err("Choose where to export to.".into());
+        }
+        if self.folder_name.trim().is_empty() {
+            return Err("Name the exported folder.".into());
+        }
+        if !self.original_size && self.pixels().is_none() {
+            return Err(format!("Resize to a size of {RESIZE_MIN} … {RESIZE_MAX} pixels."));
+        }
+        if self.watermark && self.watermark_text.trim().is_empty() {
+            return Err("Type the watermark's text.".into());
+        }
+        Ok(())
+    }
+
+    /// Why this draft cannot be held, if it cannot: too many photos, a text too long, a custom
+    /// quality out of range. What `ui.set` refuses (`bad_params`).
+    pub fn check(&self) -> Result<(), String> {
+        if self.ids.len() > MAX_IDS {
+            return Err(format!("`export.ids` holds at most {MAX_IDS} photos"));
+        }
+        if self.location.len() > MAX_LOCATION {
+            return Err(format!("`export.location` is at most {MAX_LOCATION} bytes"));
+        }
+        for (name, text) in [("folderName", &self.folder_name), ("watermarkText", &self.watermark_text)] {
+            if text.chars().count() > MAX_DRAFT {
+                return Err(format!("`export.{name}` is at most {MAX_DRAFT} characters"));
+            }
+        }
+        if self.resize.chars().count() > MAX_RESIZE_TEXT {
+            return Err(format!("`export.resize` is the size field's text, at most {MAX_RESIZE_TEXT} characters"));
+        }
+        if !(CUSTOM_MIN..=CUSTOM_MAX).contains(&self.custom) {
+            return Err(format!("`export.custom` is {CUSTOM_MIN} … {CUSTOM_MAX}, not {}", self.custom));
+        }
+        Ok(())
+    }
+
+    /// This draft with its texts cut to their limits, repeated ids dropped and the custom quality
+    /// in range.
+    pub fn sanitized(mut self) -> ExportDraft {
+        self.ids.truncate(MAX_IDS);
+        dedup(&mut self.ids);
+        cut_bytes(&mut self.location, MAX_LOCATION);
+        cut(&mut self.folder_name);
+        cut(&mut self.watermark_text);
+        if let Some((at, _)) = self.resize.char_indices().nth(MAX_RESIZE_TEXT) {
+            self.resize.truncate(at);
+        }
+        self.custom = self.custom.clamp(CUSTOM_MIN, CUSTOM_MAX);
+        self
+    }
+}
+
+/// The first-time explanation of Save while it is open: its "Don't show this again" checkbox.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SaveExplain {
+    pub dont_show: bool,
+}
+
+/// The Revert question while it is open: the photos it would revert.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RevertQuestion {
+    pub photos: Vec<PhotoId>,
+}
+
+/// The export progress window ("Exporting 12 of 48…", `creating.md` §2): the export job it follows
+/// and whether it is shown (the job goes on in the background while it is hidden). It is not a
+/// dialog of the stack: the window under it keeps taking input.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ExportProgress {
+    pub job: dalica_engine::JobId,
+    pub shown: bool,
+}
+
 /// The most dialogs open at once (a confirmation over a dialog over a dialog is already rare).
 pub const MAX_DIALOGS: usize = 8;
 
@@ -903,6 +1115,18 @@ pub struct UiState {
     /// The edit view's state: the photo it shows, the tab, the open tool and its draft.
     #[serde(default)]
     pub edit: EditState,
+    /// The Export dialog's draft while it is open (`output.export`).
+    #[serde(default)]
+    pub export: Option<ExportDraft>,
+    /// The first-time Save explanation's checkbox while it is open (`photo.save`).
+    #[serde(default)]
+    pub save_explain: Option<SaveExplain>,
+    /// The Revert question's photos while it is open (`photo.revert`).
+    #[serde(default)]
+    pub revert: Option<RevertQuestion>,
+    /// The export progress window: the job it follows, shown or hidden.
+    #[serde(default)]
+    pub export_progress: Option<ExportProgress>,
     /// The status line's text as last drawn (`ui-layout.md` §6.1): `"No selection"`, the photo or
     /// the pictures selected, or a transient [`UiState::status`] message. Written by the status line
     /// each frame; `ui.state` reports it as `status`, and `ui.set` cannot change it.
@@ -937,10 +1161,27 @@ impl UiState {
         cut(&mut self.tags_pane.draft);
         self.tags_pane.highlight = self.tags_pane.highlight.filter(|h| *h < MAX_HIGHLIGHT);
         self.edit = std::mem::take(&mut self.edit).sanitized();
+        self.export = self.export.take().map(ExportDraft::sanitized);
+        if let Some(r) = &mut self.revert {
+            r.photos.truncate(MAX_IDS);
+            dedup(&mut r.photos);
+        }
         if self.view == View::Edit && self.edit.photo.is_none() {
             self.view = View::Library;
         }
         self
+    }
+
+    /// Why the M8 fields of this state cannot be used, if they cannot: the Export draft's
+    /// ([`ExportDraft::check`]), too many photos to revert. What `ui.set` refuses (`bad_params`).
+    pub fn check_m8(&self) -> Result<(), String> {
+        if let Some(e) = &self.export {
+            e.check()?;
+        }
+        match &self.revert {
+            Some(r) if r.photos.len() > MAX_IDS => Err(format!("`revert.photos` holds at most {MAX_IDS} photos")),
+            _ => Ok(()),
+        }
     }
 
     /// Why the M7 fields of this state cannot be used, if they cannot ([`EditState::check`]), or
@@ -976,6 +1217,14 @@ impl UiState {
 /// Cuts `text` to [`MAX_DRAFT`] characters.
 fn cut(text: &mut String) {
     if let Some((at, _)) = text.char_indices().nth(MAX_DRAFT) {
+        text.truncate(at);
+    }
+}
+
+/// Cuts `text` to at most `max` bytes, at a character boundary.
+fn cut_bytes(text: &mut String, max: usize) {
+    if text.len() > max {
+        let at = (0..=max).rev().find(|i| text.is_char_boundary(*i)).unwrap_or(0);
         text.truncate(at);
     }
 }
@@ -1016,6 +1265,10 @@ impl Default for UiState {
             tags_pane: TagsPane::default(),
             about: About::default(),
             edit: EditState::default(),
+            export: None,
+            save_explain: None,
+            revert: None,
+            export_progress: None,
             status_line: String::new(),
             status: String::new(),
         }
@@ -1295,6 +1548,46 @@ mod tests {
         let s =
             UiState { view: View::Edit, edit: EditState { tool: Some(ToolKind::Retouch), ..EditState::default() }, ..UiState::default() }.sanitized();
         assert_eq!((s.view, s.edit.tool), (View::Library, None));
+    }
+
+    #[test]
+    fn the_m8_fields_have_their_protocol_names_and_are_bounded() {
+        let v = serde_json::to_value(UiState::default()).unwrap();
+        for k in ["export", "saveExplain", "revert", "exportProgress"] {
+            assert_eq!(v[k], serde_json::Value::Null, "{k}");
+        }
+        assert_eq!(
+            serde_json::to_value(ExportDraft::default()).unwrap(),
+            serde_json::json!({ "ids": [], "section": null, "location": "", "folderName": "", "numbers": false, "originalSize": false,
+                                "resize": "1600", "quality": "automatic", "custom": 75, "videos": "firstFrame", "watermark": false, "watermarkText": "" })
+        );
+        for q in Quality::ALL {
+            assert_eq!(serde_json::to_value(q).unwrap(), q.name());
+        }
+        for k in [DialogKind::SaveExplain, DialogKind::Revert, DialogKind::Export] {
+            assert_eq!(DialogKind::from_name(k.name()), Some(k));
+        }
+        let ok = ExportDraft { resize: "4000".into(), ..ExportDraft::default() };
+        assert_eq!(ok.pixels(), Some(4000));
+        for bad in ["", "0", "99", "4001", "abc", "-5", "1e3"] {
+            assert_eq!(ExportDraft { resize: bad.into(), ..ExportDraft::default() }.pixels(), None, "{bad:?}");
+        }
+        let hostile = ExportDraft {
+            ids: vec![PhotoId::new(1), PhotoId::new(1)],
+            location: "é".repeat(MAX_LOCATION),
+            folder_name: "x".repeat(MAX_DRAFT + 1),
+            resize: "9".repeat(40),
+            custom: 0,
+            ..ExportDraft::default()
+        };
+        assert!(hostile.check().is_err());
+        let s = UiState { export: Some(hostile), revert: Some(RevertQuestion { photos: vec![PhotoId::new(2); 3] }), ..UiState::default() };
+        assert!(s.check_m8().is_err());
+        let s = s.sanitized();
+        assert_eq!(s.check_m8(), Ok(()));
+        let e = s.export.as_ref().unwrap();
+        assert_eq!((e.ids.len(), e.location.len() <= MAX_LOCATION, e.resize.len(), e.custom), (1, true, MAX_RESIZE_TEXT, CUSTOM_MIN));
+        assert_eq!(s.revert.as_ref().map(|r| r.photos.len()), Some(1));
     }
 
     #[test]
