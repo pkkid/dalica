@@ -74,6 +74,9 @@ files, resized and watermarked if you like.
 
 - On Windows, Dalica now recognises a file by its real file identity, so a file replaced by
   another program with the same size and time is never written over.
+- Opening never waits for folder checks or thumbnails: they carry on in the background, shown by
+  the activity indicator. While a library opens, the window says what Dalica is doing and counts
+  the seconds if it takes a while. (issue #451)
 
 ### Not in this release yet
 
