@@ -17,7 +17,8 @@
 
 use std::path::PathBuf;
 use std::sync::LazyLock;
-use std::time::Instant;
+
+use allocation_counter::AllocationInfo;
 
 use dalica_image::{
     Budget, DecodeOptions, Error, Format, Header, Limits, Orientation, Rgba8, decode, decode_as, decode_thumbnail, decode_with, formats, read_header,
@@ -461,11 +462,23 @@ fn a_display_p3_image_converts_to_srgb() {
     assert_eq!(decode_with(&bytes, &ON, &Limits::default()), decode_with(&bytes, &OFF, &Limits::default()));
 }
 
-/// A declared size past the limits is refused from the header alone; allocating for it would
-/// abort the test process, so passing at all shows nothing was allocated.
+/// What `run` allocated on this thread (`allocation-counter`'s global allocator counts each
+/// thread's allocations apart, so tests running beside it do not count).
+fn allocations<T>(run: impl FnOnce() -> T) -> (T, AllocationInfo) {
+    let mut out = None;
+    let info = allocation_counter::measure(|| out = Some(run()));
+    (out.expect("the closure ran"), info)
+}
+
+/// The most bytes a refusal may hold at once: the header's few small structures, nothing sized by
+/// the image (the smallest declared below, 70 000 × 2, would take 560 KB of samples).
+const REFUSAL_PEAK: u64 = 64 << 10;
+
+/// A declared size past the limits is refused from the header alone: the decode and the
+/// thumbnail allocate exactly what reading the header does, so no decoder ran and nothing was
+/// reserved for the image (counted, not timed, so a loaded machine cannot fail it).
 #[test]
 fn a_declared_size_past_the_limits_is_refused_before_allocating() {
-    let start = Instant::now();
     let small = Scene::new(65, 16, 16).render().unwrap();
     let real = codestream(&small.data, Meta { width: 16, height: 16, grey: false, bits: 8, alpha: false, orientation: 0, p3: false });
     let plain = image_header(Meta { width: 16, height: 16, grey: false, bits: 8, alpha: false, orientation: 0, p3: false });
@@ -475,11 +488,20 @@ fn a_declared_size_past_the_limits_is_refused_before_allocating() {
         let bytes =
             [image_header(Meta { width: w, height: h, grey: false, bits: 8, alpha: false, orientation: 0, p3: false }), real[plain.len()..].to_vec()]
                 .concat();
-        assert_eq!(read_header(&bytes, &Limits::default()).map(|h| (h.width, h.height)), Ok((w, h)));
-        assert!(matches!(decode(&bytes, &Limits::default()), Err(Error::TooLarge { .. })), "{w} × {h}");
-        assert!(matches!(decode_thumbnail(&bytes, 64, &Limits::default()), Err(Error::TooLarge { .. })), "{w} × {h}");
+        let (header, read) = allocations(|| read_header(&bytes, &Limits::default()));
+        assert_eq!(header.map(|h| (h.width, h.height)), Ok((w, h)));
+        assert!(read.bytes_max < REFUSAL_PEAK, "{w} × {h}: the header held {read:?}");
+        let (decoded, refused) = allocations(|| decode(&bytes, &Limits::default()));
+        assert!(matches!(decoded, Err(Error::TooLarge { .. })), "{w} × {h}");
+        assert_eq!((refused.count_total, refused.bytes_total), (read.count_total, read.bytes_total), "{w} × {h}: the decode allocated {refused:?}");
+        let (thumb, refused) = allocations(|| decode_thumbnail(&bytes, 64, &Limits::default()));
+        assert!(matches!(thumb, Err(Error::TooLarge { .. })), "{w} × {h}");
+        assert_eq!(
+            (refused.count_total, refused.bytes_total),
+            (read.count_total, read.bytes_total),
+            "{w} × {h}: the thumbnail allocated {refused:?}"
+        );
     }
-    assert!(start.elapsed().as_millis() < 500, "{:?}", start.elapsed());
 }
 
 /// The decoder's own buffers are charged to the decode's allocation limit: with room for the
@@ -577,7 +599,6 @@ fn an_embedded_profile_decodes_and_is_charged_to_the_budget() {
 /// have reserved the size and then found the file damaged or cut short instead.
 #[test]
 fn a_declared_profile_past_the_limit_is_refused_before_the_decoder_reserves_it() {
-    let start = Instant::now();
     let pixels = Scene::new(70, 16, 16).render().unwrap().data;
     let m = Meta { width: 16, height: 16, ..RGB8 };
     const BIG: u64 = 200 << 20;
@@ -592,14 +613,19 @@ fn a_declared_profile_past_the_limit_is_refused_before_the_decoder_reserves_it()
         assert!(bytes.len() < 4096, "{name}: {} bytes", bytes.len());
         for file in [bytes.clone(), container(&bytes), container_parts(&bytes, 5)] {
             let too_large = Error::TooLarge { width: 0, height: 0 };
-            assert_eq!(read_header(&file, &Limits::default()).unwrap_err(), too_large, "{name}");
-            assert_eq!(decode(&file, &Limits::default()).unwrap_err(), too_large, "{name}");
-            assert_eq!(decode_thumbnail(&file, 8, &Limits::default()).unwrap_err(), too_large, "{name}");
-            assert_eq!(formats::embedded_thumbnail(Format::JpegXl, &file, &Limits::default()).unwrap_err(), too_large, "{name}");
+            // Each refusal holds a few KiB at most: nothing sized by the 200 MiB declared.
+            let refused = |(result, info): (Result<(), Error>, AllocationInfo), what: &str| {
+                assert_eq!(result, Err(too_large.clone()), "{name}: {what}");
+                assert!(info.bytes_max < REFUSAL_PEAK, "{name}: {what} held {info:?}");
+            };
+            refused(allocations(|| read_header(&file, &Limits::default()).map(drop)), "the header");
+            refused(allocations(|| decode(&file, &Limits::default()).map(drop)), "the decode");
+            refused(allocations(|| decode_thumbnail(&file, 8, &Limits::default()).map(drop)), "the thumbnail");
+            refused(allocations(|| formats::embedded_thumbnail(Format::JpegXl, &file, &Limits::default()).map(drop)), "the embedded thumbnail");
             assert_eq!(too_large.reason(), "Too large to display");
             // With `max_icc` raised: the header's 64 MiB allowance refuses it, and so does the
             // decode's budget.
-            assert_eq!(read_header(&file, &raised), Err(Error::TooLarge { width: 0, height: 0 }), "{name}");
+            refused(allocations(|| read_header(&file, &raised).map(drop)), "the header, raised");
             let header = Header {
                 format: Format::JpegXl,
                 width: 16,
@@ -610,7 +636,9 @@ fn a_declared_profile_past_the_limit_is_refused_before_the_decoder_reserves_it()
                 thumbnail: None,
             };
             let mut budget = Budget::new(&raised, 16, 16);
-            assert_eq!(formats::jxl::decode(&file, &header, &mut budget, &raised).unwrap_err(), Error::TooLarge { width: 16, height: 16 }, "{name}");
+            let (result, info) = allocations(|| formats::jxl::decode(&file, &header, &mut budget, &raised).map(drop));
+            assert_eq!(result, Err(Error::TooLarge { width: 16, height: 16 }), "{name}");
+            assert!(info.bytes_max < REFUSAL_PEAK, "{name}: the decode, raised, held {info:?}");
             assert_eq!(budget.left(), 128 << 20, "{name}");
         }
     }
@@ -620,8 +648,9 @@ fn a_declared_profile_past_the_limit_is_refused_before_the_decoder_reserves_it()
     let at = codestream_icc(&pixels, m, 1000 + 65_536, &[]);
     assert_ne!(read_header(&at, &small), Err(Error::TooLarge { width: 0, height: 0 }));
     let past = codestream_icc(&pixels, m, 1000 + 65_537, &[]);
-    assert_eq!(read_header(&past, &small), Err(Error::TooLarge { width: 0, height: 0 }));
-    assert!(start.elapsed().as_millis() < 2000, "{:?}", start.elapsed());
+    let (result, info) = allocations(|| read_header(&past, &small).map(drop));
+    assert_eq!(result, Err(Error::TooLarge { width: 0, height: 0 }));
+    assert!(info.bytes_max < REFUSAL_PEAK, "{info:?}");
 }
 
 #[test]

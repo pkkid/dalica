@@ -23,6 +23,7 @@ use std::sync::Arc;
 use std::time::{Duration, UNIX_EPOCH};
 
 use dalica_core::{DateTime, PhotoId};
+use dalica_engine::settings::MetadataWrites;
 use dalica_engine::{Field, Fields, Session};
 use dalica_scenes::fingerprint;
 use dalica_ui::headless::{PointerEvent, PointerKind};
@@ -171,6 +172,12 @@ fn write(path: &Path, bytes: &[u8]) {
 
 /// `<OUTER>/Lisbon` holding `tagged.jpg` (EXIF, XMP, IPTC), `plain.png` (none) and `other.jpg`,
 /// shown at `w × h` with Dalica's caption and tags on the tagged photo.
+///
+/// Captions and tags are not written into the files (Options → General → Files): the pane is
+/// checked against the files as written here. With the write-back on, it would rewrite
+/// `tagged.jpg` once its debounce ran out, on the clock, at some frame of the test: on a loaded
+/// machine after the pane had read the file, so the pane read it again in the middle of a check
+/// (the listing vanished under the scroll, the IPTC caption and the XMP fields changed).
 fn setup(w: u32, h: u32) -> T {
     let dir = tempfile::tempdir().unwrap();
     let folder = dir.path().join(OUTER).join("Lisbon");
@@ -179,12 +186,14 @@ fn setup(w: u32, h: u32) -> T {
     write(&folder.join("plain.png"), &dalica_scenes::png(&dalica_scenes::Scene::new(3, 64, 48)).unwrap());
     write(&folder.join("other.jpg"), &dalica_scenes::jpeg(&dalica_scenes::Scene::new(5, 90, 60), 80, None).unwrap());
     let mut s = Session::open(&dir.path().join("library"), Arc::new(dalica_core::SystemClock)).unwrap();
+    s.change_settings(|st| st.set_metadata_writes(&MetadataWrites { captions_tags_places: false, ..MetadataWrites::default() }));
     s.execute("folders.add", &json!({ "path": folder })).unwrap();
     s.wait_idle();
     let id = |s: &Session, name: &str| s.library().photos().find(|p| p.name == name).unwrap().id;
     let (tagged, plain, other) = (id(&s, "tagged.jpg"), id(&s, "plain.png"), id(&s, "other.jpg"));
     s.execute("photo.caption.set", &json!({ "ids": [tagged], "caption": "Tram 28 at sunset" })).unwrap();
     s.execute("photo.tags.add", &json!({ "ids": [tagged], "tags": "lisbon, tram" })).unwrap();
+    assert_eq!(s.pending_metadata_writes(), 0, "nothing waits to be written into the files");
     let mut d = Driver::new(App::new(Some(s)), w, h, 1.0);
     d.settle(FRAMES).unwrap();
     T { _dir: dir, d, folder, tagged, plain, other }
