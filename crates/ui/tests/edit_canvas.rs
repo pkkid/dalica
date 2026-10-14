@@ -13,13 +13,14 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 use dalica_engine::Session;
 use dalica_scenes::{Scene, fingerprint};
 use dalica_ui::control::{Config, Connection, Control, Reply, Request, serve};
 use dalica_ui::headless::{Click, Drag, PointerEvent, PointerKind, Target};
 use dalica_ui::panels::edit::canvas::{self, View};
-use dalica_ui::{App, Driver};
+use dalica_ui::{App, Driver, DriverError};
 use egui::{Modifiers, PointerButton, Pos2, pos2, vec2};
 use serde_json::{Value, json};
 
@@ -92,7 +93,31 @@ fn ok(t: &mut T, method: &str, params: Value) -> Value {
 }
 
 fn settle(t: &mut T) {
-    t.d.settle(FRAMES).unwrap();
+    settle_driver(&mut t.d);
+}
+
+/// Frames until nothing is pending (`ui.settle`'s rule), the open photo's preview awaited in real
+/// time rather than counted in frames: while `Session::preview_busy` lists jobs, the session waits
+/// for them (bounded) before the frames run, and a settle that ends with only the preview still busy
+/// (`edit preview: N`, with the frames a tool animates meanwhile) waits for it and settles again. A
+/// loaded machine's slow render is then never mistaken for a hang; anything else still busy fails.
+fn settle_driver(d: &mut Driver) {
+    for _ in 0..10 {
+        let pending = d.app().session().map_or(0, Session::preview_busy);
+        if pending > 0 {
+            let session = d.app_mut().session_mut().unwrap();
+            assert!(session.wait_preview(Duration::from_secs(60)), "the preview's {pending} jobs did not finish within 60 s");
+        }
+        let busy = match d.settle(FRAMES) {
+            Ok(_) => return,
+            Err(DriverError::NotSettled { busy, .. }) => busy,
+            Err(e) => panic!("{e}"),
+        };
+        let pending = d.app().session().map_or(0, Session::preview_busy);
+        let preview_only = busy.iter().all(|b| b.starts_with("edit preview: ") || b == "animation running");
+        assert!(pending > 0 && preview_only, "not settled: {busy:?}, {pending} preview jobs pending");
+    }
+    panic!("not settled after ten waits for the preview");
 }
 
 fn run(t: &mut T, id: &str, params: Value) -> Value {
@@ -189,7 +214,8 @@ fn settling_waits_for_the_open_photos_final_preview() {
 /// the view's change (the window's new title asks for one at once, and egui runs one more after
 /// any such request), every frame asks for the next one no sooner than 16 ms later, never at once,
 /// so a live window draws at most one frame per 16 ms and the wait leaves the CPU to the workers.
-/// `ui.settle` still waits for the preview (`Session::preview_busy`).
+/// `ui.settle` still waits for the preview: every one of those frames lists it as busy
+/// (`Session::preview_busy`), and the settle after it ends with the Final shown.
 #[test]
 fn the_canvas_rests_while_a_preview_renders_and_settling_still_waits_for_it() {
     const OPENING: usize = 2;
@@ -216,9 +242,13 @@ fn the_canvas_rests_while_a_preview_renders_and_settling_still_waits_for_it() {
             assert!(delay.is_none_or(|d| d.as_secs_f64() >= 0.016), "frame {n}: the next frame after {delay:?}, asked by {causes:?}");
             rested += 1;
         }
-        std::thread::sleep(std::time::Duration::from_millis(1));
+        let listed = t.d.busy(false);
+        assert!(listed.iter().any(|b| b.starts_with("edit preview: ")), "frame {n}: settling would not wait: {listed:?}");
+        std::thread::sleep(Duration::from_millis(1));
     }
     assert!(rested > 0, "frames ran while the preview rendered");
+    // A slow machine's render is awaited in real time, so the settle's frame budget never runs out.
+    assert!(t.d.app_mut().session_mut().unwrap().wait_preview(Duration::from_secs(60)), "the preview finished");
     let settled = ok(&mut t, "ui.settle", json!({ "timeoutMs": 60000 }));
     assert_eq!(settled["settled"], true, "{settled}");
     let shown = t.d.app().session().unwrap().preview().map(|p| (p.photo.get(), p.quality));
@@ -407,18 +437,52 @@ fn drags_pan_and_stop_at_the_photos_edges() {
     assert!((v.image.center() - v.area.center()).length() < 2.0, "{v:?}");
 }
 
+/// Waits for the preview's jobs in real time and runs one frame, until `done` holds (at most ten
+/// rounds): the frame that shows or reports what landed, however long the render took.
+fn until_preview(t: &mut T, what: &str, mut done: impl FnMut(&mut T) -> bool) {
+    for _ in 0..10 {
+        if done(t) {
+            return;
+        }
+        let session = t.d.app_mut().session_mut().unwrap();
+        assert!(session.wait_preview(Duration::from_secs(60)), "{what}: the preview's jobs did not finish within 60 s");
+        t.d.step();
+    }
+    assert!(done(t), "{what}: not after ten waits for the preview");
+}
+
+fn perf_has(t: &mut T, key: &str) -> bool {
+    ok(t, "ui.inspect", json!({}))["perf"][key].is_number()
+}
+
 #[test]
 fn zooming_in_asks_for_the_refined_window_and_no_frame_waits_for_it() {
-    let mut t = setup((1400, 900));
+    let dir = tempfile::tempdir().unwrap();
+    let (s, ids) = session(dir.path());
+    let control = Control::new(Config::default());
+    let mut d = Driver::new(App::with_picker(Some(s), control.picker()), 1400, 900, 1.0);
+    d.settle(FRAMES).unwrap();
+    let mut t = T { _dir: dir, control, conn: Connection::new(), d, ids };
+    let photo = t.ids[0];
+    // The open's final preview time is reported by the frame that shows it (read then, as the perf
+    // window holds the last 240 frames), and a perf reset keeps it.
+    ok(&mut t, "engine.execute", json!({ "command": "view.edit", "params": { "id": photo } }));
+    until_preview(&mut t, "the open's final", |t| perf_has(t, "previewFinalMs"));
     ok(&mut t, "ui.inspect", json!({ "resetPerf": true }));
     let perf = ok(&mut t, "ui.inspect", json!({}))["perf"].clone();
     assert!(perf["previewFinalMs"].is_number(), "the open's final preview time: {perf}");
+    settle(&mut t);
     // One frame after the zoom: the window is asked for and the frame drew the scaled preview.
     ok(&mut t, "ui.set", json!({ "edit": { "zoom": 2.0 } }));
     t.d.step();
     let v = view(&t);
     assert!(v.zoomed && v.refining && !v.refined, "{v:?}");
     assert!(t.d.app().session().unwrap().preview_refined().is_none(), "the frame did not wait");
+    // The frame that draws the refined window reports its time; the frames before it waited.
+    until_preview(&mut t, "the refined window", |t| view(t).refined);
+    let perf = ok(&mut t, "ui.inspect", json!({}))["perf"].clone();
+    assert!(perf["previewWaitingFrames"].as_u64().unwrap() >= 1, "{perf}");
+    assert!(perf["previewRefinedMs"].is_number(), "{perf}");
     settle(&mut t);
     let v = view(&t);
     assert!(v.refined && !v.refining, "{v:?}");
@@ -426,9 +490,6 @@ fn zooming_in_asks_for_the_refined_window_and_no_frame_waits_for_it() {
     assert_eq!(r.scale, 2.0);
     let visible = v.image.intersect(v.area);
     assert_eq!((r.width as f32, r.height as f32), (visible.width().ceil(), visible.height().ceil()), "the visible window");
-    let perf = ok(&mut t, "ui.inspect", json!({}))["perf"].clone();
-    assert!(perf["previewWaitingFrames"].as_u64().unwrap() >= 1, "{perf}");
-    assert!(perf["previewRefinedMs"].is_number(), "{perf}");
     // Back to fit: the window and the whole decode are let go.
     key(&mut t, "Ctrl+-");
     set_zoom(&mut t, json!("fit"));

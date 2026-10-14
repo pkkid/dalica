@@ -76,23 +76,26 @@ fn settle(t: &mut T) {
     settle_driver(&mut t.d);
 }
 
-/// Frames until nothing is pending. While the edit view waits for a preview it draws again at
-/// once, so the driver runs frames back to back and counts them as an animation; on a busy
-/// machine (a 3-core CI runner running these tests side by side) the preview's workers then get
-/// too little time to finish within one settle's frames. So when a settle ends with only that
-/// left and a preview still on its way, the preview is waited for in real time (bounded), and the
-/// settle runs again. Anything else still busy, or an animation with no preview pending, fails.
+/// Frames until nothing is pending (`ui.settle`'s rule), the open photo's preview awaited in real
+/// time rather than counted in frames: while `Session::preview_busy` lists jobs, the session waits
+/// for them (bounded) before the frames run, and a settle that ends with only the preview still busy
+/// (`edit preview: N`, with the frames a tool animates meanwhile) waits for it and settles again. A
+/// loaded machine's slow render is then never mistaken for a hang; anything else still busy fails.
 fn settle_driver(d: &mut Driver) {
     for _ in 0..10 {
+        let pending = d.app().session().map_or(0, Session::preview_busy);
+        if pending > 0 {
+            let session = d.app_mut().session_mut().unwrap();
+            assert!(session.wait_preview(Duration::from_secs(60)), "the preview's {pending} jobs did not finish within 60 s");
+        }
         let busy = match d.settle(FRAMES) {
             Ok(_) => return,
             Err(DriverError::NotSettled { busy, .. }) => busy,
             Err(e) => panic!("{e}"),
         };
-        let pending = d.app().session().map_or(0, Session::preview_pending);
-        assert!(busy == ["animation running"] && pending > 0, "not settled: {busy:?}, {pending} preview jobs pending");
-        let session = d.app_mut().session_mut().unwrap();
-        assert!(session.wait_preview(Duration::from_secs(60)), "the preview's {pending} jobs did not finish within 60 s");
+        let pending = d.app().session().map_or(0, Session::preview_busy);
+        let preview_only = busy.iter().all(|b| b.starts_with("edit preview: ") || b == "animation running");
+        assert!(pending > 0 && preview_only, "not settled: {busy:?}, {pending} preview jobs pending");
     }
     panic!("not settled after ten waits for the preview");
 }
