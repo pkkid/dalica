@@ -10,8 +10,25 @@ state (ready, claimed, in review) is on the task board ([`task-board.md`](task-b
 
 ## Where we stand
 
-*Honest assessment, one dated entry per review, newest first (latest: 2026-10-13, M7.R). Agents:
+*Honest assessment, one dated entry per review, newest first (latest: 2026-10-14, M8.R). Agents:
 read this before picking work. Update it only with measured facts, dated.*
+
+*2026-10-14 (M8.R, the Release 0.3 gate).* M8 is done: `cargo xtask accept M8` passes in 105 s
+(148 s with the release budgets), and the tests on `main` went from 2 242 to 2 662. Save (the
+folder header's "n edited" button, File ▸ Save, Ctrl+S) writes a photo's edits into the file after
+moving the original into the folder's `.dalica-originals/`; Undo Save and Revert put it back byte
+for byte, and a second Save renders from the kept original. JPEGs keep their quality (estimated
+from their tables: 0 error over 33 files), their subsampling and their metadata; rotate-only saves
+are lossless in the DCT domain; formats Dalica cannot write get a JPEG beside them. Save a Copy,
+Save As and Export to Folder (sizes, quality, numbered names, a watermark; in the background with
+Cancel; exported folders under Projects) all go through one output pipeline. Measured on release
+builds: a 24 MP Save in 292 ms and a lossless rotation in 357 ms (budgets 1050 and 815 ms on two
+cores), a 200-photo mixed export in 6.8 s (budget 24 s). Fault injection of every step of Save,
+Undo Save and Revert (208 cases) found one way a failed Save could orphan the original; it was
+fixed before anything shipped, and an interrupted Save is now always finished or undone at the next
+start. The run also found and fixed a watcher rescan racing a Save. Edits other than rotations are
+still rendered at 8 bits, so an edited 16-bit PNG saves with 8-bit precision. Fix tasks
+M9.27–M9.30 carry the rest. M8.R is the 0.3 release gate (version 0.3.0).
 
 *2026-10-13 (M7.R).* M7 is done: `cargo xtask accept M7` passes in 53 s (117 s with the release
 budgets), and the tests on `main` went from 1 858 to 2 242. Enter, Ctrl+3 or a double-click opens a
@@ -227,7 +244,7 @@ waits for.)
 | | M5 | Folders, scanning and formats | Folder Manager, first run, watching, offline drives; every listed format, RAW previews, ICC | ✅ |
 | | M6 | Photo info, metadata and Release 0.1 | rotate, hide, captions, Properties, dates, tags written into files; installable preview | ✅ |
 | Edit and output | M7 | Edit view and fixes | edit view, basic fixes, Tuning and Retouch; thumbnails show edits | ✅ |
-| | M8 | Save and export | Save, Undo Save, Revert, Save a Copy, Save As; export | ⬜ |
+| | M8 | Save and export | Save, Undo Save, Revert, Save a Copy, Save As; export | ✅ |
 | Organize | M9 | Albums, search and file operations | lasting albums, instant search and filters, move/copy/rename/delete | ⬜ |
 | | M10 | Preferences, MCP and Release 0.5 | Options and shortcut editor, MCP and the P0 workflows; all P0 rows shipped | ⬜ |
 | P1 parity | M11 | Import, compare and viewing | import from cards and drives, compare and batch edit, slideshow, the viewer | ⬜ |
@@ -3177,8 +3194,9 @@ Numbered export names are `001-<name>`; an export folder whose name is taken bec
 disabled). An export marks its folder `"project": "exported"` in the folder's sidecar, and the tree
 lists those folders and the folders under the projects directory (`Pictures/Dalica`) in Projects,
 so an export made elsewhere is listed too and the mark survives moves and rebuilds. The watermark is
-drawn with Inter SemiBold from `assets/fonts/` through `ab_glyph` (already in the tree through
-egui), ported from LightCraft. The save and export budgets join `development.md` §8 at 1.5 × their
+drawn with Inter SemiBold from `assets/fonts/` through `ab_glyph`, ported from LightCraft (M8.11
+found it was not in the tree after all — egui 0.36 draws text with skrifa — and added it, audited:
+pure Rust, Apache-2.0 / MIT). The save and export budgets join `development.md` §8 at 1.5 × their
 first measurement. No step of M8 needs a maintainer decision mid-run.
 
 - ✅ **M8.1 `library`: M8's model fields, ops and queries**
@@ -3680,7 +3698,7 @@ first measurement. No step of M8 needs a maintainer decision mid-run.
     limits; `showcase.md` runs `dalica-cli snapshot` with a positional folder, which exits 2 since
     the M7.29 rewrite of `control-protocol.md` §8.
   - done when: each line matches the code; `cargo xtask ci` passes.
-- ⬜ **M8.R Release 0.3 gate**
+- ✅ **M8.R Release 0.3 gate**
   - after: M8.25, M8.27, M8.28, M8.29, M8.30
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`
@@ -4327,8 +4345,58 @@ mid-run.
     in its scope (`architecture.md` §9).
   - done when: `cargo xtask tasks sync --check` parses them and `tasks sync --dry-run` lists one new
     issue per block.
+- ⬜ **M9.27 `ui`: Ctrl+Z undoes a Save, settling waits for file jobs, the window rests while busy**
+  - after: M8.R
+  - files: `crates/ui/src/commands/edit_view.rs`, `crates/ui/src/headless.rs`, `crates/ui/src/control/input.rs`, `crates/ui/src/notices.rs`, `crates/ui/tests/save_ui.rs`, `crates/ui/tests/save_as.rs`, `apps/dalica/src/window.rs`, `docs/control-protocol.md`
+  - scope: found in the M8 run (M8.19, M8.22, M8.25): in the edit view Ctrl+Z after a Save says
+    "Nothing to undo" although the Undo button and Edit ▸ Undo read "Undo Save"; route the key
+    to `photo.undoSave` exactly when `photo.history.state` has `undoSave`. `ui.settle {jobs: true}`
+    (and the driver's `busy(true)`) does not wait for save and export file jobs; count them. The
+    "already exists" toast of Save As names the source photo; name the file the user tried. The
+    window polls with `request_repaint_after(16 ms)` while busy, which egui turns into an immediate
+    repaint (it subtracts the predicted frame time); poll at ≥ 33 ms as the edit canvas does (M8.29).
+  - done when: Ctrl+Z after a Save in the edit view restores the original's exact bytes with the
+    edits back as unsaved, and Ctrl+Z with no Save still undoes the last edit; `ui.settle` with
+    `jobs` returns only after a running export ends (test); the toast names the name tried; CI green
+    on the three OSes.
+- ⬜ **M9.28 `engine`: the projects directory, scans and write-backs that never race a Save**
+  - after: M8.R
+  - files: `crates/engine/src/settings.rs`, `crates/engine/src/scanning.rs`, `crates/engine/src/watching.rs`, `crates/engine/src/filejobs.rs`, `crates/engine/src/cmd/save.rs`, `crates/engine/tests/save.rs`, `crates/engine/tests/filejobs.rs`, `docs/data-model.md`
+  - scope: found in the M8 run (M8.15-fix #448, M8.22): `Session::projects_dir()` is the export
+    location's parent, so a custom location such as `~/Desktop/Out` makes `~/Desktop` a projects
+    folder; it is always `<Pictures>/Dalica` (`creating.md` §2). A full scan (start-up or the
+    verification pass) already running when a file job starts is not put off as a watcher rescan
+    is. A Save of a photo whose metadata write-back is still pending can be refused as "changed on
+    disk" (no data at risk): flush that photo's pending writes on the worker before it is read.
+  - done when: tests: a custom export location leaves the projects directory at
+    `<Pictures>/Dalica`; a full scan running when a Save starts is put off and finds the Save's
+    writes unchanged; a caption set immediately before Save is written and the Save succeeds; CI
+    green on the three OSes.
+- ⬜ **M9.29 tests: the flaky waits of M8's run become structural**
+  - after: M8.R
+  - files: `crates/ui/tests/export_dialog.rs`, `crates/ui/tests/properties_pane.rs`, `crates/image/tests/jxl.rs`
+  - scope: tests that failed on loaded runners in the M8 run and passed on re-run:
+    `export_dialog.rs` `browse_picks_the_export_location` ("the picker closed", Windows),
+    `properties_pane.rs` "the listing scrolled into view" (Ubuntu and a loaded local machine), and
+    `jxl.rs` `a_declared_size_past_the_limits_is_refused_before_allocating`, whose 500 ms
+    wall-clock bound read 548 ms on macOS. Wait on the event each checks (the picker's answer,
+    the scroll settling) rather than on frames; replace the wall-clock bound with a check that the
+    refusal allocates nothing (an allocation counter), so nothing is loosened.
+  - done when: each test passes 20 of 20 runs pinned to one core beside a CPU load, and fails
+    without its fix where the cause is reproducible; CI green on the three OSes.
+- ⬜ **M9.30 `create` + `engine`: tidy the save path and tighten the rotate budget**
+  - after: M8.R
+  - files: `crates/create/src/save.rs`, `crates/create/tests/save.rs`, `crates/engine/benches/save_export.rs`, `xtask/src/accept.rs`, `docs/development.md`
+  - scope: found in the M8 run (M8.14, M8.24): `create::save::Error::NotYet` is unused since
+    M8.14; a Save that ends beside decodes the source twice (check the format before rendering in
+    place); the rotate-only Save budget (815 ms) was set from the rendered Save before lossless
+    rotation landed — measure the lossless rotation on two cores and set its budget at 1.5 × that
+    first measurement (`development.md` §8).
+  - done when: no unused error variant; a beside Save decodes once (a decode counter in the test);
+    `cargo xtask bench save_export` prints the new rotation number and `cargo xtask budgets` passes
+    with the tightened budget.
 - ⬜ **M9.R Release 0.4 gate**
-  - after: M9.25
+  - after: M9.25, M9.27, M9.28, M9.29, M9.30
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`
   - scope: a release gate (Release 0.4): the lead runs `/milestone-review M9.R` to prepare it, with the
@@ -4362,6 +4430,8 @@ wave 4   M9.12 search bench  ‖  M9.13 move + copy  ‖  M9.14 rename  ‖  M9.
 wave 5   M9.19 move dialogs + notices  ‖  M9.20 rename, delete + folder dialogs
          ‖  M9.21 interrupted file operations  ‖  M9.22 search mode
 wave 6   M9.23 drag and drop + clipboard  ‖  M9.24 data lessons + two volumes
+         (fixes from M8.R, any wave: M9.27 Undo Save key, settle, toast ‖ M9.28 projects dir, scans,
+          write-backs ‖ M9.29 flaky waits ‖ M9.30 save path + rotate budget)
 wave 7   M9.25 accept M9 → M9.R          (M9.26 lead: M11 blocks, any time after M8.26)
 ```
 

@@ -7,6 +7,23 @@ and git.
 
 ## Current
 
+- **Milestone:** M8, save and export, is done: M8.1–M8.30 are merged and `cargo xtask accept M8`
+  passes (105 s alone; 148 s with the release budgets). Save writes edits into the photo and keeps
+  the original in `.dalica-originals/` (Undo Save and Revert bring it back byte for byte); a second
+  Save renders from the kept original; rotate-only JPEG saves are lossless; formats Dalica cannot
+  write get a JPEG beside them; Save a Copy and Save As; Export to Folder with sizes, quality,
+  numbered names and a watermark, in the background with Cancel; exported folders under Projects;
+  an interrupted Save is repaired at the next start. Version 0.3.0: M8.R is the 0.3 release gate,
+  published once the review PR is merged. Next: M9, albums, search and file operations (0.4); its
+  issues open when the M8.R review PR is merged.
+- **Numbers (M8.R, 8b5bcf5, 2026-10-14):** tests 2 662 passed, 4 ignored; `cargo xtask ci` 602 s
+  cold, 308 s warm; accept M0–M8 alone 5 / 6 / 12 / 42 / 53 / 62 / 69 / 57 / 105 s; release
+  (24 cores): Save of a 24 MP JPEG p50 292 ms (budget 1050 ms on 2 cores), lossless rotation p50
+  357 ms (budget 815), 200-photo mixed export 6.8 s, 34 ms per photo (budget 24 s); JPEG quality
+  estimate error 0 over 33 files; GitHub CI Ubuntu 16:51, macOS 24:06, Windows 32:22, Budgets 8:39;
+  parity ✅ 24 · 🟡 62 · ⬜ 60 · 🚫 16 (162 rows, 142 commands). Run: 30 tasks and 3 red-main or
+  flake fixes in about 11 h 45 min with 7 workers; 23 send-backs. Fault injection found and fixed a
+  failed-Save path that orphaned the original (never shipped).
 - **Milestone:** M7, the edit view, is done: M7.1–M7.31 are merged and `cargo xtask accept M7`
   passes (53 s; 117 s with the release budgets). The edit view with its filmstrip, zoom and pan;
   Basic Fixes (Crop with suggestions, Straighten, Retouch, Auto Fix, Auto Contrast, Auto Color,
