@@ -3220,7 +3220,7 @@ first measurement. No step of M8 needs a maintainer decision mid-run.
     `taken.jpg` and `taken-001.jpg` present a new file lands at `taken-002.jpg` and never replaces
     either; two threads racing for one name get two names; every fault point as Error and as Crash
     leaves the source and any existing file intact (`--features faults`); hostile names are refused.
-- ⬜ **M8.3 `engine`: M8's command modules, the file-job runner and settings**
+- ✅ **M8.3 `engine`: M8's command modules, the file-job runner and settings**
   - after: M5.5, M7.3, M7.R
   - files: `crates/engine/src/cmd/mod.rs`, `crates/engine/src/cmd/save.rs`, `crates/engine/src/cmd/save_copy.rs`, `crates/engine/src/cmd/export.rs`, `crates/engine/src/filejobs.rs`, `crates/engine/src/save_recovery.rs`, `crates/engine/src/jobs.rs`, `crates/engine/src/session.rs`, `crates/engine/src/settings.rs`, `crates/engine/tests/filejobs.rs`, `crates/engine/tests/settings_m8.rs`, `crates/engine/README.md`, `docs/architecture.md`
   - scope: the engine's ground for M8 so M8.15–M8.18, M8.23 and M8.24 never share a file: empty

@@ -47,6 +47,19 @@
 //! photo sizes it lists (`"us"` or `"metric"`; unset, US when the system's region is the US), and
 //! "Single-click to leave the edit view" (off; `editing.md` §1).
 //!
+//! M8 adds two more, merged key by key the same way (M8.3; `data-model.md` §6, `creating.md` §2):
+//!
+//! - `"save"`: `{explain, lastFolder, lastFormat}` ([`SaveSettings`]): the first-time Save
+//!   explanation (on), the folder and format Save As last used (none; `"jpeg"` or `"png"`, JPEG).
+//! - `"export"`: `{location, resize, size, quality, customQuality, numbers, watermark,
+//!   watermarkText, removeLocation}` ([`ExportSettings`]): the export location (unset:
+//!   `<Pictures>/Dalica/Exports`, [`default_export_location`]), "Resize to" 1600 (on; sizes in
+//!   [`EXPORT_SIZE_RANGE`]), quality Automatic (`"automatic"`, `"normal"`, `"maximum"`,
+//!   `"minimum"` or `"custom"`) with the Custom value 75, numbers off, the watermark off with empty
+//!   text, and Options → Export → "Remove location from exported photos" off. The projects
+//!   directory the tree lists in Projects is the export location's parent
+//!   ([`Session::projects_dir`](crate::Session::projects_dir)).
+//!
 //! The command modules read them through [`Session::settings`](crate::Session::settings) and change
 //! them through [`Session::change_settings`](crate::Session::change_settings) with the typed
 //! accessors below. A value of the wrong type is the default and is reported once, when the library
@@ -57,7 +70,7 @@
 //! dropped (the default is used), never trusted.
 
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use dalica_core::{DateTime, Timestamp};
 use dalica_scan::{FileType, FileTypes};
@@ -344,6 +357,176 @@ impl EditSettings {
     /// The photo sizes listed: the stored choice, else the system's.
     pub fn photo_sizes(&self) -> PhotoSizes {
         self.photo_sizes.unwrap_or_else(PhotoSizes::system)
+    }
+}
+
+/// The longest stored folder path read (the export location, the last Save As folder), in bytes.
+pub const MAX_PATH_BYTES: usize = 4096;
+/// The longest stored watermark text read, in bytes.
+pub const MAX_WATERMARK_BYTES: usize = 1024;
+/// The export's "Resize to" size in pixels of the long side: the dialog slider's range
+/// (`creating.md` §2); a stored size outside it is the default.
+pub const EXPORT_SIZE_RANGE: std::ops::RangeInclusive<u32> = 100..=4000;
+/// The default "Resize to" size.
+pub const EXPORT_SIZE_DEFAULT: u32 = 1600;
+/// The range of the Custom export quality.
+pub const QUALITY_RANGE: std::ops::RangeInclusive<u8> = 1..=100;
+/// The default Custom export quality.
+pub const CUSTOM_QUALITY_DEFAULT: u8 = 75;
+
+/// A stored folder worth keeping: absolute, valid Unicode, not empty, at most [`MAX_PATH_BYTES`].
+fn folder_path(p: &Path) -> Option<&str> {
+    p.to_str().filter(|s| !s.is_empty() && s.len() <= MAX_PATH_BYTES && !s.contains('\0') && p.is_absolute())
+}
+
+/// Where exports go when no location is stored: `<Pictures>/Dalica/Exports` (`creating.md` §2).
+pub fn default_export_location(pictures: &Path) -> PathBuf {
+    pictures.join("Dalica").join("Exports")
+}
+
+/// The format Save As writes (`"save"` → `lastFormat` in `settings.json`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SaveFormat {
+    #[default]
+    Jpeg,
+    Png,
+}
+
+impl SaveFormat {
+    /// The stored text.
+    pub fn id(self) -> &'static str {
+        match self {
+            SaveFormat::Jpeg => "jpeg",
+            SaveFormat::Png => "png",
+        }
+    }
+
+    pub fn from_id(id: &str) -> Option<SaveFormat> {
+        match id {
+            "jpeg" => Some(SaveFormat::Jpeg),
+            "png" => Some(SaveFormat::Png),
+            _ => None,
+        }
+    }
+}
+
+/// Save's settings (`"save"` in `settings.json`; `data-model.md` §6).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SaveSettings {
+    /// Explain what Save does before the first one (`explain`; on). "Don't ask again" turns it off.
+    pub explain: bool,
+    /// The folder Save As last wrote into (`lastFolder`); `None` until the first Save As.
+    pub last_folder: Option<PathBuf>,
+    /// The format Save As last wrote (`lastFormat`; JPEG).
+    pub last_format: SaveFormat,
+}
+
+impl Default for SaveSettings {
+    fn default() -> Self {
+        SaveSettings { explain: true, last_folder: None, last_format: SaveFormat::Jpeg }
+    }
+}
+
+/// The export's "Image quality" (`creating.md` §2).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ExportQuality {
+    /// Keeps the original's quality (estimated from its quantisation tables).
+    #[default]
+    Automatic,
+    /// 85.
+    Normal,
+    /// 95.
+    Maximum,
+    /// 60.
+    Minimum,
+    /// The Custom slider's value ([`ExportSettings::custom_quality`]).
+    Custom,
+}
+
+impl ExportQuality {
+    pub const ALL: [ExportQuality; 5] =
+        [ExportQuality::Automatic, ExportQuality::Normal, ExportQuality::Maximum, ExportQuality::Minimum, ExportQuality::Custom];
+
+    /// The stored text.
+    pub fn id(self) -> &'static str {
+        match self {
+            ExportQuality::Automatic => "automatic",
+            ExportQuality::Normal => "normal",
+            ExportQuality::Maximum => "maximum",
+            ExportQuality::Minimum => "minimum",
+            ExportQuality::Custom => "custom",
+        }
+    }
+
+    pub fn from_id(id: &str) -> Option<ExportQuality> {
+        ExportQuality::ALL.into_iter().find(|q| q.id() == id)
+    }
+
+    /// The JPEG quality of a preset; `None` for Automatic and Custom.
+    pub fn preset(self) -> Option<u8> {
+        match self {
+            ExportQuality::Normal => Some(85),
+            ExportQuality::Maximum => Some(95),
+            ExportQuality::Minimum => Some(60),
+            ExportQuality::Automatic | ExportQuality::Custom => None,
+        }
+    }
+}
+
+/// The Export dialog's choices and Options → Export, remembered between exports (`"export"` in
+/// `settings.json`; `creating.md` §2).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExportSettings {
+    /// The export location as the user chose it (`location`); `None`: `<Pictures>/Dalica/Exports`
+    /// ([`Session::export_location`](crate::Session::export_location)).
+    pub location: Option<PathBuf>,
+    /// "Resize to" (on) rather than "Use original size" (`resize`).
+    pub resize: bool,
+    /// The long side to resize to, in [`EXPORT_SIZE_RANGE`] (`size`; 1600).
+    pub size: u32,
+    /// `quality`: Automatic.
+    pub quality: ExportQuality,
+    /// The Custom slider's value, in [`QUALITY_RANGE`] (`customQuality`; 75), kept while another
+    /// preset is chosen.
+    pub custom_quality: u8,
+    /// "Add numbers to file names to keep the order" (`numbers`; off).
+    pub numbers: bool,
+    /// "Add watermark" (`watermark`; off).
+    pub watermark: bool,
+    /// The watermark's text (`watermarkText`; empty), at most [`MAX_WATERMARK_BYTES`].
+    pub watermark_text: String,
+    /// Options → Export → "Remove location from exported photos" (`removeLocation`; off).
+    pub remove_location: bool,
+}
+
+impl Default for ExportSettings {
+    fn default() -> Self {
+        ExportSettings {
+            location: None,
+            resize: true,
+            size: EXPORT_SIZE_DEFAULT,
+            quality: ExportQuality::Automatic,
+            custom_quality: CUSTOM_QUALITY_DEFAULT,
+            numbers: false,
+            watermark: false,
+            watermark_text: String::new(),
+            remove_location: false,
+        }
+    }
+}
+
+impl ExportSettings {
+    /// The JPEG quality chosen: a preset's, the Custom value, or `None` for Automatic.
+    pub fn jpeg_quality(&self) -> Option<u8> {
+        match self.quality {
+            ExportQuality::Custom => Some(self.custom_quality),
+            q => q.preset(),
+        }
+    }
+
+    /// The long side to resize to; `None` for the original size.
+    pub fn long_side(&self) -> Option<u32> {
+        self.resize.then_some(self.size)
     }
 }
 
@@ -710,6 +893,45 @@ impl Settings {
         );
     }
 
+    /// Save's settings; a value of the wrong type is its default.
+    pub fn save(&self) -> SaveSettings {
+        self.read_save(&mut Vec::new())
+    }
+
+    /// Stores Save's settings under `"save"` (a last folder that is not an absolute path of valid
+    /// Unicode, or `None`, removes the stored one); other keys are kept.
+    pub fn set_save(&mut self, s: &SaveSettings) {
+        let folder = s.last_folder.as_deref().and_then(folder_path).map(|f| json!(f));
+        self.merge("save", &[("explain", Some(json!(s.explain))), ("lastFolder", folder), ("lastFormat", Some(json!(s.last_format.id())))]);
+    }
+
+    /// The export's settings; a value of the wrong type or out of its range is its default.
+    pub fn export(&self) -> ExportSettings {
+        self.read_export(&mut Vec::new())
+    }
+
+    /// Stores the export's settings under `"export"` (numbers out of range as their defaults, the
+    /// watermark text cut at [`MAX_WATERMARK_BYTES`] on a character boundary, a location that is not
+    /// an absolute path of valid Unicode, or `None`, removed); other keys are kept.
+    pub fn set_export(&mut self, e: &ExportSettings) {
+        let size = if EXPORT_SIZE_RANGE.contains(&e.size) { e.size } else { EXPORT_SIZE_DEFAULT };
+        let custom = if QUALITY_RANGE.contains(&e.custom_quality) { e.custom_quality } else { CUSTOM_QUALITY_DEFAULT };
+        self.merge(
+            "export",
+            &[
+                ("location", e.location.as_deref().and_then(folder_path).map(|l| json!(l))),
+                ("resize", Some(json!(e.resize))),
+                ("size", Some(json!(size))),
+                ("quality", Some(json!(e.quality.id()))),
+                ("customQuality", Some(json!(custom))),
+                ("numbers", Some(json!(e.numbers))),
+                ("watermark", Some(json!(e.watermark))),
+                ("watermarkText", Some(json!(cut_text(&e.watermark_text, MAX_WATERMARK_BYTES)))),
+                ("removeLocation", Some(json!(e.remove_location))),
+            ],
+        );
+    }
+
     /// The stored settings this version reads with a value of the wrong type, one line each, by key
     /// (never by value): their defaults are used. The session reports them in its notices when it
     /// opens the library.
@@ -719,7 +941,89 @@ impl Settings {
         self.read_quick_tags(&mut out);
         self.read_recent_tags(&mut out);
         self.read_edit(&mut out);
+        self.read_save(&mut out);
+        self.read_export(&mut out);
         out.into_iter().map(|p| format!("settings.json: {p}")).collect()
+    }
+
+    /// A boolean field of `obj`: `None` when absent; a value that is not a boolean is reported and
+    /// gives `default`.
+    fn flag(obj: &Map<String, Value>, object: &str, key: &str, default: bool, problems: &mut Vec<String>) -> bool {
+        match obj.get(key) {
+            None => default,
+            Some(Value::Bool(b)) => *b,
+            Some(_) => {
+                let d = if default { "on" } else { "off" };
+                problems.push(format!("{object}.{key} is not true or false; the default ({d}) is used"));
+                default
+            }
+        }
+    }
+
+    fn read_save(&self, problems: &mut Vec<String>) -> SaveSettings {
+        let mut s = SaveSettings::default();
+        let Some(obj) = self.object("save", problems) else { return s };
+        s.explain = Settings::flag(obj, "save", "explain", true, problems);
+        match obj.get("lastFolder") {
+            None | Some(Value::Null) => {}
+            Some(Value::String(f)) if folder_path(Path::new(f)).is_some() => s.last_folder = Some(PathBuf::from(f)),
+            Some(_) => problems.push("save.lastFolder is not an absolute folder path; no folder is remembered".into()),
+        }
+        match obj.get("lastFormat") {
+            None => {}
+            Some(v) => match v.as_str().and_then(SaveFormat::from_id) {
+                Some(f) => s.last_format = f,
+                None => problems.push("save.lastFormat is not \"jpeg\" or \"png\"; the default (jpeg) is used".into()),
+            },
+        }
+        s
+    }
+
+    fn read_export(&self, problems: &mut Vec<String>) -> ExportSettings {
+        let mut e = ExportSettings::default();
+        let Some(obj) = self.object("export", problems) else { return e };
+        match obj.get("location") {
+            None | Some(Value::Null) => {}
+            Some(Value::String(l)) if folder_path(Path::new(l)).is_some() => e.location = Some(PathBuf::from(l)),
+            Some(_) => problems.push("export.location is not an absolute folder path; the default location is used".into()),
+        }
+        e.resize = Settings::flag(obj, "export", "resize", true, problems);
+        match obj.get("size") {
+            None => {}
+            Some(v) => match v.as_u64().and_then(|n| u32::try_from(n).ok()).filter(|n| EXPORT_SIZE_RANGE.contains(n)) {
+                Some(n) => e.size = n,
+                None => problems.push(format!(
+                    "export.size is not a whole number of pixels from {} to {}; the default ({EXPORT_SIZE_DEFAULT}) is used",
+                    EXPORT_SIZE_RANGE.start(),
+                    EXPORT_SIZE_RANGE.end()
+                )),
+            },
+        }
+        match obj.get("quality") {
+            None => {}
+            Some(v) => match v.as_str().and_then(ExportQuality::from_id) {
+                Some(q) => e.quality = q,
+                None => problems.push("export.quality is not a known quality; the default (automatic) is used".into()),
+            },
+        }
+        match obj.get("customQuality") {
+            None => {}
+            Some(v) => match v.as_u64().and_then(|n| u8::try_from(n).ok()).filter(|n| QUALITY_RANGE.contains(n)) {
+                Some(n) => e.custom_quality = n,
+                None => {
+                    problems.push(format!("export.customQuality is not a whole number from 1 to 100; the default ({CUSTOM_QUALITY_DEFAULT}) is used"))
+                }
+            },
+        }
+        e.numbers = Settings::flag(obj, "export", "numbers", false, problems);
+        e.watermark = Settings::flag(obj, "export", "watermark", false, problems);
+        match obj.get("watermarkText") {
+            None => {}
+            Some(Value::String(t)) if t.len() <= MAX_WATERMARK_BYTES => e.watermark_text = t.clone(),
+            Some(_) => problems.push(format!("export.watermarkText is not text of at most {MAX_WATERMARK_BYTES} bytes; no text is used")),
+        }
+        e.remove_location = Settings::flag(obj, "export", "removeLocation", false, problems);
+        e
     }
 
     /// The object under `key`, `None` when absent; a value there that is not an object is reported
@@ -868,6 +1172,30 @@ impl Settings {
             Ok(Some(r)) => Settings::parse(&r.bytes).unwrap_or_default(),
             _ => Settings::default(),
         }
+    }
+}
+
+/// `text` cut to at most `max` bytes on a character boundary.
+fn cut_text(text: &str, max: usize) -> &str {
+    let mut end = text.len().min(max);
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    text.get(..end).unwrap_or_default()
+}
+
+impl crate::Session {
+    /// Where exports go: the stored location, else `<Pictures>/Dalica/Exports` under the Pictures
+    /// folder known when the library opened ([`crate::Session::set_pictures_dir`]); `None` when
+    /// neither is known.
+    pub fn export_location(&self) -> Option<PathBuf> {
+        self.settings().export().location.or_else(|| self.pictures_dir.as_deref().map(default_export_location))
+    }
+
+    /// The projects directory: the export location's parent (`Pictures/Dalica` by default). The
+    /// library tree lists the folders under it in Projects (`TreeOptions::projects_dir`).
+    pub fn projects_dir(&self) -> Option<PathBuf> {
+        self.export_location()?.parent().map(Path::to_path_buf)
     }
 }
 

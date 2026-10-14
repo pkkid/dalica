@@ -6,6 +6,7 @@ pub mod caption;
 pub mod crop;
 pub mod dates;
 pub mod edit;
+pub mod export;
 pub mod folder_info;
 pub mod folders;
 pub mod hide;
@@ -14,6 +15,8 @@ pub mod info;
 pub mod library;
 pub mod photo;
 pub mod rotate;
+pub mod save;
+pub mod save_copy;
 pub mod section;
 pub mod tags;
 pub mod tuning;
@@ -47,6 +50,10 @@ pub fn specs() -> Vec<CommandSpec> {
         history::specs(),
         crop::specs(),
         tuning::specs(),
+        // M8: empty until M8.15 (save), M8.17 (save_copy) and M8.16 (export).
+        save::specs(),
+        save_copy::specs(),
+        export::specs(),
     ]
     .concat();
     #[cfg(test)]
