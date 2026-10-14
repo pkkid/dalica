@@ -17,6 +17,14 @@ Its jobs are to claim, dispatch, review, merge and keep the board true.
 
 - **Workers** are subagents named `agent-2` … `agent-<workers+1>`. Each subagent does **one task**
   and returns.
+- **The lead session stays the orchestrator** (maintainer rule, 2026-10-14). Every bug fix or change
+  that is asked for in this chat, during the run or after it (at the review included), goes to a
+  subagent, never into this session. The lead reads enough to write the subagent a precise prompt
+  (the symptom, what is known of the cause, the branch to commit to, the files it may change, the
+  gates to pass), dispatches it in the background, reviews what comes back and merges or commits
+  it, so this chat stays free to answer and dispatch. The lead itself only runs `cargo xtask tasks`,
+  merges, the board and short read-only checks. Measurements, screenshots and investigations that
+  take more than a few commands go to subagents too.
 - A slot (`agent-<k>`) keeps its worktree, target dir, port and scratch dir from task to task, so
   builds stay warm.
 - **Run until the milestone's review task** (`M<n>.R`, release gates included; a milestone has
