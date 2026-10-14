@@ -116,7 +116,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
 /// Looks the open photo's section up again when the library, the tree options or the photo changed.
 fn refresh(strip: &mut Strip, app: &App, photo: PhotoId) {
     let Some(session) = app.session() else { return };
-    let key = (session.library().revision(), tree_options(app.state()), photo);
+    let key = (session.library().revision(), tree_options(app), photo);
     if strip.key.as_ref() == Some(&key) {
         return;
     }

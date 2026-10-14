@@ -34,6 +34,8 @@ pub struct App {
     /// A folder dialog other than Add Folder (the Export dialog's Browse…) while it is open, and
     /// what its answer runs.
     folder_request: Option<(Pending, FolderRequest)>,
+    /// The Save As job its picker started, and a picker to open again (`crate::commands::save_as`).
+    pub(crate) save_as: crate::commands::save_as::Following,
     /// Restore the view state from the library's settings and save it when it changes
     /// ([`App::persist_view`]); off for headless and snapshot sessions, which never read or write
     /// the user's settings (`control-protocol.md` §8).
@@ -70,6 +72,7 @@ impl App {
             folder_dialog_open: false,
             save_dialog: None,
             folder_request: None,
+            save_as: Default::default(),
             persist_view: false,
             saved_view: None,
             quit_requested: false,
@@ -216,6 +219,7 @@ impl App {
             Ok(_) => self.state.status.clear(),
             Err(e) => self.state.status = e.to_string(),
         }
+        crate::commands::save_as::ran(self, id, params, &result);
         result
     }
 
@@ -299,6 +303,12 @@ impl App {
         {
             let _ = self.run(request.command, &request.params_with(&path));
         }
+        crate::commands::save_as::closed(self);
+    }
+
+    /// What Save As follows (`crate::commands::save_as`).
+    pub fn save_as(&self) -> &crate::commands::save_as::Following {
+        &self.save_as
     }
 
     /// Opens the folder picker (File ▸ Add Folder…) unless [`App::can_pick_folder`] says no: now
@@ -357,6 +367,7 @@ impl App {
         self.now = now;
         self.notices.poll(session, now);
         self.poll_save_dialog();
+        crate::commands::save_as::follow(self);
         self.poll_folder_request();
         // Under an open dialog the window takes no keys: no shortcut runs and no panel sees a key
         // press or typed text; the dialog gets them back once the panels are drawn.

@@ -464,8 +464,14 @@ format (JPEG, or PNG; JPEG quality as for Save). It never overwrites an existing
 asks for another name), never touches the original or its edits, and if the chosen folder is not
 watched it is added as Scan Always so the new file appears in the library. The format follows
 the chosen name's extension (`.jpg` or `.png`); a name without one takes the format chosen, else
-the last one used. The copy, from either command, is a new photo without edits that keeps the
-photo's caption, tags, star and date (`photo.saveCopy`, `photo.saveTo`; M8.17).
+the last one used. The dialog suggests the photo's name with the extension of the format Save As
+last wrote, in the folder it last wrote into (the photo's own folder until then), numbered like
+Save a Copy's (`IMG_0041-001.jpg`) when the library already knows a file of that name there. The
+app follows the save it started: a name that turns out to be taken opens the dialog again, titled
+"Choose Another Name", with that name in its folder; a folder that is gone opens it again in the
+photo's folder; the status line and a toast give the reason. The copy, from either command, is a
+new photo without edits that keeps the photo's caption, tags, star and date (`photo.saveCopy`,
+`photo.saveTo`; M8.17; the app's half M8.22).
 
 **Export** never changes originals: it renders copies into a chosen folder (see
 [`creating.md`](creating.md) → Export), adds the export folder to the library as an

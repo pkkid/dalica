@@ -228,7 +228,7 @@ impl<'a> Table<'a> {
         let library = session.library();
         let Some(p) = app.panels() else {
             let mut fresh = Sections::default();
-            fresh.refresh(library, session.roots(), &tree_options(app.state()));
+            fresh.refresh(library, session.roots(), &tree_options(app));
             return Some(Table { sections: Source::Fresh(Box::new(fresh)), layout: None, view: None, library });
         };
         let lt = &p.light_table;
