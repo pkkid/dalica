@@ -14,11 +14,12 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
-use dalica_core::{PhotoId, SystemClock};
+use dalica_core::{Clock, PhotoId, SystemClock, Timestamp, VirtualClock};
 use dalica_edit::Recipe;
 use dalica_engine::cmd::save::{self as save_cmd, Action, NOTHING_SAVED, NOTHING_TO_SAVE, OFFLINE, REVERT_QUESTION, SAVE_EXPLANATION};
 use dalica_engine::offline::OnlineCheck;
-use dalica_engine::{CacheDir, CmdError, Effect, History, JobEntry, JobState, Options, Session, Thumb, ThumbOptions};
+use dalica_engine::watching::WatchMode;
+use dalica_engine::{CacheDir, CmdError, Effect, History, JobEntry, JobKind, JobState, Options, Session, Thumb, ThumbOptions};
 use dalica_fs::Expect;
 use dalica_image::Limits;
 use dalica_library::SaveState;
@@ -40,6 +41,11 @@ impl Lib {
     /// A library watching `Pictures/Lisbon` with `n` photos `IMG_0001.jpg`… (ids in name order),
     /// with `sidecar` as the folder's `.dalica.json` when given, scanned.
     fn new(n: usize, sidecar: Option<Value>) -> Lib {
+        Lib::open(n, sidecar, Arc::new(SystemClock), WatchMode::Native)
+    }
+
+    /// [`Lib::new`] on `clock`, watched as `mode`.
+    fn open(n: usize, sidecar: Option<Value>, clock: Arc<dyn Clock>, mode: WatchMode) -> Lib {
         let dir = tempfile::tempdir().unwrap();
         let lisbon = dir.path().join("Pictures").join("Lisbon");
         dalica_fs::create_dir_all(&lisbon).unwrap();
@@ -51,7 +57,8 @@ impl Lib {
             dalica_fs::replace(&lisbon.join(".dalica.json"), &serde_json::to_vec_pretty(&file).unwrap(), Expect::Absent).unwrap();
         }
         let options = Options { thumbs: ThumbOptions { cache: CacheDir::Temp, workers: 2, ..ThumbOptions::default() } };
-        let mut s = Session::open_with(&dir.path().join("library"), Arc::new(SystemClock), &options).unwrap();
+        let mut s = Session::open_with(&dir.path().join("library"), clock, &options).unwrap();
+        s.set_watching(mode);
         s.execute("folders.add", &json!({ "path": lisbon })).unwrap();
         s.wait_idle();
         let mut photos: Vec<(String, PhotoId)> = s.library().photos().map(|p| (p.name.clone(), p.id)).collect();
@@ -85,6 +92,8 @@ impl Lib {
         assert_eq!(reply["pending"], json!(true), "{reply}");
         let entry = self.s.wait_job(job_id(&reply), PATIENCE).unwrap();
         assert!(entry.state.is_finished(), "{cmd}: {entry:?}");
+        // Shown with a failing test's output: which photo failed and why.
+        eprintln!("{cmd} {params}: {} {}", entry.label, entry.result.as_ref().map_or(String::new(), |r| r["failed"].to_string()));
         entry
     }
 
@@ -209,6 +218,7 @@ fn the_explanation_is_asked_until_dont_ask() {
     assert!(!lib.s.settings().save().explain);
     let done = lib.job("photo.save", json!({ "ids": [ids[2]] }));
     assert_eq!(done.state, JobState::Done);
+    assert_eq!(done.result.unwrap()["failed"], json!([]));
     assert!(lib.s.library().saved(ids[2]).is_some());
 }
 
@@ -351,7 +361,8 @@ fn the_owner_thread_makes_no_fs_call() {
         let reply = lib.s.execute(cmd, &params).unwrap();
         let entry = lib.s.wait_job(job_id(&reply), PATIENCE).unwrap();
         assert_eq!(entry.state, JobState::Done, "{cmd}: {entry:?}");
-        assert!(entry.result.unwrap()["failed"].as_array().unwrap().is_empty());
+        let failed = entry.result.unwrap()["failed"].clone();
+        assert_eq!(failed, json!([]), "{cmd}: every photo done");
     };
     run("photo.save", json!({ "ids": ids, "confirm": true, "dontAsk": true }));
     run("photo.undoSave", json!({ "ids": [ids[0]] }));
@@ -359,6 +370,111 @@ fn the_owner_thread_makes_no_fs_call() {
     drop(ui);
     assert_eq!(lib.edits(ids[0]), [AUTOFIX]);
     assert!(lib.edits(ids[1]).is_empty());
+}
+
+/// Drives the polling watcher on virtual time until it reports a dirty folder (each tick waited
+/// for); returns whether it did.
+fn report(clock: &VirtualClock, s: &mut Session) -> bool {
+    let before = s.watch_reports();
+    for _ in 0..8 {
+        clock.advance(Duration::from_secs(1));
+        assert!(s.wait_watching(PATIENCE), "the watcher answered");
+        if s.watch_reports() > before {
+            return true;
+        }
+    }
+    false
+}
+
+/// A few ticks of the polling watcher, each one's rescan waited for.
+fn settle(clock: &VirtualClock, s: &mut Session) {
+    for _ in 0..4 {
+        clock.advance(Duration::from_secs(1));
+        assert!(s.wait_watching(PATIENCE), "the watcher answered");
+        s.wait_idle();
+    }
+}
+
+/// Writes a new photo `path` on a helper thread: the test's own file changes never count against
+/// the owner.
+fn put_photo(path: PathBuf, seed: u64) {
+    std::thread::scope(|s| {
+        s.spawn(move || {
+            let bytes = dalica_scenes::jpeg(&dalica_scenes::Scene::new(seed, W, H), 85, None).unwrap();
+            dalica_fs::replace(&path, &bytes, Expect::Absent).unwrap();
+        })
+        .join()
+        .unwrap()
+    });
+}
+
+/// The watcher's rescans never overlap a save job. Main went red on Windows where one did: a
+/// rescan of the folder read the originals record after Revert had dropped the photo's entry and
+/// applied it before the job's result, so the Revert, done on disk, was reported failed ("no
+/// finished save"); read the other way round, a rescan puts a saved file's old size back and the
+/// next Undo Save is refused as changed on disk. A rescan running when a save job starts is put
+/// off, none starts while the job writes, and the folders are verified after it, finding the
+/// outside changes and the job's own writes as the job left them.
+#[test]
+fn rescans_wait_for_a_save_job_and_find_its_writes_unchanged() {
+    let clock = Arc::new(VirtualClock::new(Timestamp::from_millis(1_700_000_000_000)));
+    let mut lib = Lib::open(2, None, clock.clone(), WatchMode::Polling);
+    let (a, b) = (lib.ids[0], lib.ids[1]);
+    let original = read(&lib.path(b));
+    lib.edit(a, AUTOFIX);
+    lib.edit(b, AUTOFIX);
+    lib.s.flush().unwrap();
+    settle(&clock, &mut lib.s);
+    assert_eq!(lib.save(&[a, b]).result.unwrap()["failed"], json!([]));
+    settle(&clock, &mut lib.s);
+    let ui = dalica_fs::mark_ui_thread();
+    let lisbon = lib.lisbon();
+
+    // A change from outside starts a rescan of the folder.
+    put_photo(lisbon.join("IMG_0009.jpg"), 9);
+    assert!(report(&clock, &mut lib.s), "the change was reported");
+    assert!(lib.s.busy(), "its rescan runs");
+
+    // Revert starts (held before it touches the disk): the rescan is put off.
+    let gate = Arc::new(Gate::default());
+    let hook = Arc::clone(&gate);
+    let job = job_id(&save_cmd::start(&mut lib.s, Action::Revert, &[b], Some(Arc::new(move |i| hook.pass(i)))).unwrap());
+    assert!(!lib.s.busy(), "a save job puts the running rescan off");
+    assert!(
+        lib.s.jobs().iter().any(|j| j.kind == JobKind::Scan && j.state == JobState::Cancelled && j.label.starts_with("Check put off")),
+        "{:?}",
+        lib.s.jobs()
+    );
+    gate.wait_started(0);
+    // While it writes, what the watcher reports waits.
+    put_photo(lisbon.join("IMG_0010.jpg"), 10);
+    assert!(report(&clock, &mut lib.s), "the change was reported");
+    assert!(!lib.s.busy(), "no rescan starts while a save job runs");
+    gate.open(1);
+    let done = lib.s.wait_job(job, PATIENCE).unwrap();
+    assert_eq!((done.state, done.result.unwrap()["failed"].clone()), (JobState::Done, json!([])));
+
+    // Undo Save right after, with the folder's rescan due: nothing in between is refused.
+    let done = lib.job("photo.undoSave", json!({ "ids": [a] }));
+    assert_eq!((done.state, done.result.unwrap()["failed"].clone()), (JobState::Done, json!([])));
+
+    // Then the folder is verified: the outside changes come in, and Dalica's own writes stay as
+    // the jobs left them.
+    settle(&clock, &mut lib.s);
+    drop(ui);
+    assert_eq!(dalica_fs::guard::refused(), 0, "the owner thread made no fs call");
+    let names: Vec<String> = lib.s.library().photos().map(|p| p.name.clone()).collect();
+    assert!(names.iter().any(|n| n == "IMG_0009.jpg") && names.iter().any(|n| n == "IMG_0010.jpg"), "{names:?}");
+    assert_eq!(read(&lib.path(b)), original, "Revert put the original back");
+    assert!(lib.s.library().saved(b).is_none() && lib.edits(b).is_empty());
+    assert!(lib.s.library().saved(a).is_none());
+    assert_eq!(lib.edits(a), [AUTOFIX], "Undo Save gave the edits back");
+    for id in [a, b] {
+        let on_disk = std::fs::metadata(lib.path(id)).unwrap();
+        let photo = lib.s.library().photo(id).unwrap();
+        assert_eq!(photo.size, on_disk.len(), "photo {id}: the model has the file the job left");
+        assert_eq!(photo.mtime, Timestamp::from_system_time(on_disk.modified().unwrap()), "photo {id}");
+    }
 }
 
 #[test]

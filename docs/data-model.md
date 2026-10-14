@@ -501,7 +501,11 @@ their folder header.
     changed the library meanwhile, so an edit made in between is never overwritten. A file renamed
     in place (same size and modification time) keeps its photo id and star; a renamed or moved
     folder keeps its folder and photo ids, stars and sketches; a folder moved in from elsewhere
-    brings its stars in its sidecar.
+    brings its stars in its sidecar. Rescans and the verification pass wait while a file job
+    (Save, Undo Save, Revert, Save a Copy, Export) is writing, and a rescan running when one starts
+    is put off, its folders verified again after the job: a rescan overlapping the job's writes
+    would read some files before them and some after, and could put back a version the job's
+    result has moved the library past (a saved photo's old size, a record without its entry).
   - **Verification pass:** each Scan Always unit (and each Scan Once unit not indexed yet) is
     scanned whole 6 hours after a scan last walked it, 60 s after the session's first frame if no
     scan walked it since the session opened (changes made while the app was closed), and again a

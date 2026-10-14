@@ -19,9 +19,12 @@
 //!   file; a new file in a folder of the library is added as a photo; a new file or folder outside
 //!   the library has its folder scanned when the job ends, added as Scan Always when no watched
 //!   folder covers it), then the caller's function turns the item's result into ops, applied as
-//!   changes from the files (no undo step: Save's way back is Undo Save). Because the model takes
-//!   the new size and time of every file the job wrote, the watcher's rescan finds nothing changed
-//!   there and imports nothing from Dalica's own write. The thumbnails follow (`sync_thumbnails`).
+//!   changes from the files (no undo step: Save's way back is Undo Save). The watcher's rescans
+//!   wait while a file job runs, and one running when it starts is put off
+//!   (`Session::put_off_rescan`), so no rescan reads the files half-written and applies that
+//!   over the job's results. Because the model takes the new size and time of every file the job
+//!   wrote, the rescan after the job finds nothing changed there and imports nothing from Dalica's
+//!   own write. The thumbnails follow (`sync_thumbnails`).
 //! - **Ending.** When every started item is applied, the job ends (`done`, or `cancelled` when
 //!   Cancel left items unstarted) and a [`FileJobEvent`] (the message, the failures with their file
 //!   and reason, the folder to show) is kept for the UI's notices ([`Session::file_job_events`]).
@@ -331,6 +334,8 @@ impl Session {
     /// Returns its id; its results are applied by [`Session::poll`]. Never touches the disk.
     pub fn start_file_job<I: FileItem, R: Send + 'static>(&mut self, job: FileJob<I, R>) -> JobId {
         let FileJob { kind, label, items, workers, work, apply, finish } = job;
+        // No rescan overlaps the job's writes: one running now is put off until no file job runs.
+        self.put_off_rescan();
         let total = items.len();
         let now = self.clock.now();
         let (id, cancel) = self.jobs.start(kind, progress_label(&label, 0, total), true, now);

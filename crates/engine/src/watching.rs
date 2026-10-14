@@ -15,8 +15,9 @@
 //!   edit made meanwhile is never overwritten. Folder renames and moves keep their ids, photos and
 //!   stars; a folder moved in from elsewhere brings its stars in its sidecar. Rescans wait while a
 //!   scan runs (the scan sees the same changes; a folder it removed is found again by the rescan
-//!   after it). Only scopes walked to the end remove anything, and a unit that holds no entries at
-//!   all (an unmounted volume's empty mount point) removes nothing.
+//!   after it) and while a file job writes; a rescan running when a file job starts is put off
+//!   (`Session::put_off_rescan`). Only scopes walked to the end remove anything, and a unit that
+//!   holds no entries at all (an unmounted volume's empty mount point) removes nothing.
 //! - **The verification pass** runs on the session clock: each unit of
 //!   `Rules::verification` is rescanned whole (a region scan, [`crate::scanning`]) once
 //!   [`FULL_VERIFICATION`] has passed since a scan last walked it, and [`FIRST_VERIFICATION`]
@@ -154,6 +155,9 @@ struct RescanJob {
     /// The job's cancel flag, which the thread's walks check.
     cancel: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
+    /// The dirty folders it verifies, reported again when a file job puts it off
+    /// (`Session::put_off_rescan`).
+    dirty: Vec<DirtyFolder>,
 }
 
 impl Drop for RescanJob {
@@ -410,6 +414,30 @@ impl Session {
         }
     }
 
+    /// A file job is starting: the running rescan, if any, is let go with its results not applied
+    /// yet, and its dirty folders are reported again, to be verified once no file job runs.
+    ///
+    /// A rescan that overlaps a file job reads some files before the job writes them and others
+    /// after, while the job's results reach the model only when the owner applies them: applied
+    /// in either order, the rescan would put a version the model has moved past back into it (a
+    /// saved photo's old size and time, an originals record without the entry a Save just wrote)
+    /// or take away what the job's own result still needs (Revert of a record the rescan already
+    /// dropped). Verified after the job, the folders hold what the job's results put in the
+    /// model, so the rescan finds nothing to change.
+    pub(crate) fn put_off_rescan(&mut self) {
+        let Some(mut job) = self.watching.rescan.take() else { return };
+        // The thread stops at its next file and is not waited for (as Cancel does).
+        job.cancel.store(true, Ordering::Relaxed);
+        job.rx = None;
+        job.thread = None;
+        let mut dirty = std::mem::take(&mut job.dirty);
+        dirty.append(&mut self.watching.dirty);
+        self.watching.dirty = dirty;
+        let now = self.clock.now();
+        let result = json!({ "folders": job.folders, "units": job.done, "changed": job.changed, "cancelled": true });
+        self.jobs.finish(job.job, Outcome::Cancelled(result), "Check put off while files are written", now);
+    }
+
     /// Whether a rescan of dirty folders is running (counted by [`Session::busy`]).
     pub(crate) fn rescanning(&self) -> bool {
         self.watching.rescan.is_some()
@@ -439,9 +467,9 @@ impl Session {
     }
 
     /// Starts the verification of every unit whose time has come, unless something is being
-    /// scanned. Returns how many it started.
+    /// scanned or a file job is writing. Returns how many it started.
     fn verify_if_due(&mut self, now: Timestamp) -> usize {
-        if self.busy() {
+        if self.busy() || self.file_jobs_running() {
             return 0;
         }
         let first = self.watching.first_poll.unwrap_or(now).saturating_add(FIRST_VERIFICATION);
@@ -644,9 +672,10 @@ impl Session {
             .collect()
     }
 
-    /// Starts the rescan of the dirty folders, unless one runs or a scan does.
+    /// Starts the rescan of the dirty folders, unless one runs, a scan does, or a file job is
+    /// writing (`Session::put_off_rescan`).
     fn start_rescan(&mut self) {
-        if self.watching.rescan.is_some() || self.watching.dirty.is_empty() || !self.scans_idle() {
+        if self.watching.rescan.is_some() || self.watching.dirty.is_empty() || !self.scans_idle() || self.file_jobs_running() {
             return;
         }
         let dirty = std::mem::take(&mut self.watching.dirty);
@@ -662,6 +691,7 @@ impl Session {
         options.cancel = Some(Arc::clone(&cancel));
         let known = watch::known_folders(&self.library);
         let count = units.len();
+        let reported = dirty.clone();
         let (tx, rx) = mpsc::channel();
         let spawned = std::thread::Builder::new().name("dalica-rescan".into()).spawn(move || rescan_units(units, &known, &options, now, &tx));
         match spawned {
@@ -680,6 +710,7 @@ impl Session {
                     cancelled: false,
                     cancel,
                     thread: Some(thread),
+                    dirty: reported,
                 };
                 self.jobs.progress(job, r.progress(), format!("Checking changed folders: 0 of {count}"));
                 self.watching.rescan = Some(r);
