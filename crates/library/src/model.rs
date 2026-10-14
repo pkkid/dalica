@@ -1,9 +1,11 @@
 //! The model's data: folders, photos, what the user said about them (M6: captions, tags, hidden,
-//! recipes, dates, folder info), their sketches and synced hashes, and the [`Library`] that owns
-//! them with its revisions and its tag index.
+//! recipes, dates, folder info), their sketches and synced hashes, what Save and Export leave
+//! (M8: saved records, copies saved beside, project marks), and the [`Library`] that owns them
+//! with its revisions and its tag index.
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
+use std::sync::OnceLock;
 
 use dalica_core::{Date, DateTime, FolderId, PhotoId, Timestamp};
 use serde::{Deserialize, Serialize};
@@ -135,6 +137,100 @@ pub struct Synced {
     pub date: Option<u64>,
 }
 
+/// The most bytes of a [`Saved::digest`] (`security.md` §4.4: input-derived text is capped).
+pub const MAX_DIGEST: usize = 256;
+/// The most bytes of a [`SavedAs::name`]: a file name, with room for any platform's.
+pub const MAX_FILE_NAME: usize = 1024;
+
+/// Where a Save stands (`data-model.md` §6): its record is written as pending before anything
+/// moves and marked done last, so a pending record found at open or scan is a Save to repair.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SaveState {
+    #[default]
+    Pending,
+    Done,
+}
+
+/// A photo's saved record (`data-model.md` §6): the photo was saved in place and its original is
+/// kept in the folder's `.dalica-originals/`. Read from `.dalica-originals/.dalica.json`, so it is
+/// index-only like the [`Sketch`]: never in the folder sidecar, and
+/// [`Op::SetSaved`](crate::Op::SetSaved) alone is derived (no undo step, no revision bump), so
+/// loading records moves no cache. A Save, Undo Save or Revert sets or clears it in one batch with
+/// the recipe ([`Library::save_op`], [`Library::undo_save_op`], [`Library::revert_op`]), which is
+/// not derived.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Saved {
+    /// The whole recipe the saved file holds (operation strings, opaque here): a second Save
+    /// renders this followed by the new edits from the kept original and records them all.
+    pub recipe: Vec<String>,
+    /// The kept original's bytes on disk.
+    pub size: u64,
+    /// The kept original's modification time.
+    pub mtime: Timestamp,
+    /// The kept original's size in pixels (as displayed); 0 × 0 when unknown.
+    pub width: u32,
+    pub height: u32,
+    /// The kept original's digest, as text (opaque here: the writer's), at most [`MAX_DIGEST`]
+    /// bytes.
+    pub digest: String,
+    pub state: SaveState,
+    /// When the Save was made, if known.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub time: Option<Timestamp>,
+}
+
+impl Saved {
+    /// Whether the Save finished, so Undo Save and Revert apply.
+    pub fn is_done(&self) -> bool {
+        self.state == SaveState::Done
+    }
+
+    pub(crate) fn check(&self) -> crate::Result<()> {
+        crate::tags::check_list(&self.recipe)?;
+        if self.digest.len() > MAX_DIGEST {
+            return Err(crate::Error::TooLong { what: "digest", max: MAX_DIGEST });
+        }
+        Ok(())
+    }
+}
+
+/// The JPEG a Save wrote beside a photo Dalica cannot write in place (`data-model.md` §6): a new,
+/// unedited photo of its own. The source keeps its recipe and this record, so it counts as unsaved
+/// again only once its recipe differs from the one the copy holds. Kept in the folder sidecar
+/// (`savedAs`), so its op is an ordinary, undoable one.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SavedAs {
+    /// The copy's file name in the same folder: not empty, at most [`MAX_FILE_NAME`] bytes.
+    pub name: String,
+    /// The recipe the copy was rendered with.
+    pub recipe: Vec<String>,
+}
+
+impl SavedAs {
+    pub(crate) fn check(&self) -> crate::Result<()> {
+        if self.name.is_empty() {
+            return Err(crate::Error::BadText { what: "file name", why: "empty" });
+        }
+        if self.name.len() > MAX_FILE_NAME {
+            return Err(crate::Error::TooLong { what: "file name", max: MAX_FILE_NAME });
+        }
+        crate::tags::check_list(&self.recipe)
+    }
+}
+
+/// What kind of project folder a folder is (`organizing.md` §10, `creating.md` §2): the tree lists
+/// marked folders in Projects wherever they are. Kept in the folder sidecar
+/// (`"project": "exported"`), so the mark survives moves and rebuilds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Project {
+    /// A folder an export made.
+    Exported,
+}
+
 /// The most bytes a [`Sketch`] holds.
 pub const MAX_SKETCH: usize = 32;
 
@@ -253,7 +349,8 @@ mod base64 {
 }
 
 /// The data that ops change: everything except counters and indexes. Two libraries with equal
-/// models show the same photos with the same stars, info, sketches and synced hashes.
+/// models show the same photos with the same stars, info, sketches, synced hashes, saved records,
+/// copies saved beside and project marks.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Model {
     pub(crate) folders: BTreeMap<FolderId, Folder>,
@@ -266,6 +363,13 @@ pub struct Model {
     pub(crate) sketches: BTreeMap<PhotoId, Sketch>,
     /// Derived data: only photos in `photos`, never all `None`.
     pub(crate) synced: BTreeMap<PhotoId, Synced>,
+    /// Saved records (M8; index-only, from `.dalica-originals/.dalica.json`): only photos in
+    /// `photos`.
+    pub(crate) saved: BTreeMap<PhotoId, Saved>,
+    /// Copies saved beside photos (M8; folder sidecar): only photos in `photos`.
+    pub(crate) saved_as: BTreeMap<PhotoId, SavedAs>,
+    /// Project marks of folders (M8; folder sidecar): only folders in `folders`.
+    pub(crate) projects: BTreeMap<FolderId, Project>,
 }
 
 /// The library: the model, its revision counters and the next free ids.
@@ -283,6 +387,9 @@ pub struct Library {
     pub(crate) next_photo: u64,
     /// Every tag in use, kept in step with `model.photo_info` by every op.
     pub(crate) tags: TagIndex,
+    /// Each folder's count of photos with unsaved edits, worked out on first use after each
+    /// revision (cleared by every op that bumps the revision; a derived op cannot change it).
+    pub(crate) unsaved: OnceLock<HashMap<FolderId, usize>>,
 }
 
 static EMPTY_PHOTO_INFO: PhotoInfo = PhotoInfo::EMPTY;
@@ -383,6 +490,36 @@ impl Library {
     /// Every photo's synced hashes, by photo id.
     pub fn synced_all(&self) -> impl Iterator<Item = (PhotoId, &Synced)> {
         self.model.synced.iter().map(|(id, s)| (*id, s))
+    }
+
+    /// Photo `id`'s saved record, if it was saved in place (pending or done).
+    pub fn saved(&self, id: PhotoId) -> Option<&Saved> {
+        self.model.saved.get(&id)
+    }
+
+    /// Every saved record, by photo id.
+    pub fn saved_all(&self) -> impl Iterator<Item = (PhotoId, &Saved)> {
+        self.model.saved.iter().map(|(id, s)| (*id, s))
+    }
+
+    /// The copy saved beside photo `id`, if any.
+    pub fn saved_as(&self, id: PhotoId) -> Option<&SavedAs> {
+        self.model.saved_as.get(&id)
+    }
+
+    /// Every copy saved beside a photo, by photo id.
+    pub fn saved_as_all(&self) -> impl Iterator<Item = (PhotoId, &SavedAs)> {
+        self.model.saved_as.iter().map(|(id, s)| (*id, s))
+    }
+
+    /// Folder `id`'s project mark, if it has one.
+    pub fn project(&self, id: FolderId) -> Option<Project> {
+        self.model.projects.get(&id).copied()
+    }
+
+    /// Every folder with a project mark, by folder id.
+    pub fn projects(&self) -> impl Iterator<Item = (FolderId, Project)> {
+        self.model.projects.iter().map(|(id, p)| (*id, *p))
     }
 
     /// The tag index: every tag in use with its count.

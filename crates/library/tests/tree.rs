@@ -1,7 +1,7 @@
 //! `dalica-library` tree model (`ui-layout.md` §4, `organizing.md` §10) on hand-built libraries:
 //! rows and order in flat and tree mode for every sort and its reverse, year dividers, counts,
-//! groups, collapsed groups and nodes, sections, offline roots, and the build time of a 5 k-folder
-//! library.
+//! groups (Projects holding folders with the Exported mark wherever they are), collapsed groups
+//! and nodes, sections, offline roots, and the build time of a 5 k-folder library.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -708,4 +708,39 @@ fn folder_dates_and_sorts_use_effective_dates() {
     assert_eq!(lines(&t, Group::Folders).get(1).map(String::as_str), Some("  Beach (3)"));
     let row = folder_rows(&t).into_iter().find(|r| r.folder == Some(beach)).cloned();
     assert_eq!(row.and_then(|r| r.date).map(|d| d.to_string()), Some("2027-01-01T00:00:00".into()));
+}
+
+/// A folder with the Exported mark lists in Projects wherever it is (an export made elsewhere) in
+/// flat mode, and stays under its parent in tree mode; a hidden one still goes to Hidden Folders.
+#[test]
+fn exported_folders_list_in_projects_wherever_they_are() {
+    let (mut fx, options) = every_group();
+    let outside = fx.folder("Trip/Exports/Lisbon");
+    fx.photos(outside, &[p(2026, 3, 5), p(2026, 3, 6)]);
+    let flat = |fx: &Fx| fx.tree(&[base()], &options);
+    assert_eq!(lines(&flat(&fx), Group::Projects), ["Exported (1)"]);
+    assert_eq!(lines(&flat(&fx), Group::Folders), ["Lisbon (2)", "Trip (2)"]);
+
+    let undo = fx.lib.apply(Op::SetProjects { projects: vec![(outside, Some(dalica_library::Project::Exported))] }).unwrap();
+    let t = flat(&fx);
+    assert_eq!(lines(&t, Group::Projects), ["Lisbon (2)", "Exported (1)"], "sorted with the folders under the projects directory");
+    assert_eq!(lines(&t, Group::Folders), ["Trip (2)"]);
+    assert_eq!(t.group(Group::Projects).map(|g| g.count), Some(2));
+    // No projects directory known: the mark alone puts it there.
+    let t = fx.tree(&[base()], &TreeOptions { projects_dir: None, ..options.clone() });
+    assert_eq!(lines(&t, Group::Projects), ["Lisbon (2)"]);
+    // Tree mode: under its parent, as on disk.
+    let t = fx.tree(&[base()], &TreeOptions { mode: TreeMode::Tree, sort: FolderSort::Name, ..options.clone() });
+    assert_eq!(groups(&t), [Group::Folders]);
+    assert_eq!(
+        lines(&t, Group::Folders),
+        ["photos (0)", "  Dalica (0)", "    Exported (1)", "  icons (3)", "  Secret (1)", "  Trip (2)", "    Exports (0)", "      Lisbon (2)"]
+    );
+    // Hidden wins over the mark.
+    fx.lib.apply(Op::SetFoldersHidden { hidden: vec![(outside, true)] }).unwrap();
+    assert_eq!(lines(&flat(&fx), Group::Hidden), ["Secret (1)", "Lisbon (2)"]);
+    fx.lib.apply(Op::SetFoldersHidden { hidden: vec![(outside, false)] }).unwrap();
+    // Undoing the mark puts it back in Folders.
+    fx.lib.apply(undo).unwrap();
+    assert_eq!(lines(&flat(&fx), Group::Folders), ["Lisbon (2)", "Trip (2)"]);
 }

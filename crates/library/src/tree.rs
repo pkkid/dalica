@@ -5,7 +5,9 @@
 //!   has rows. Projects, Other and Hidden Folders exist in flat mode only; tree mode has Albums,
 //!   People and Folders. Albums and People stay empty until the model holds albums and people.
 //! - **Flat mode:** every folder with something to show is one row. Projects are the folders under
-//!   the projects directory, Other the folders where most photos are small pictures, Hidden Folders
+//!   the projects directory and the folders with a project mark ([`crate::Project`], such as an
+//!   export made elsewhere) wherever they are; tree mode keeps those under their parents. Other is
+//!   the folders where most photos are small pictures, Hidden Folders
 //!   the hidden ones (Hide Folder; only with Hidden Pictures on, sections included); the rest are
 //!   Folders. Sorted by date, the
 //!   Folders group gets a year divider before each year when its folders span more than one year.
@@ -398,7 +400,7 @@ fn flat(library: &Library, options: &TreeOptions, shown: &dyn Fn(FolderId) -> St
         }
         let group = if library.is_folder_hidden(f.id) {
             Group::Hidden
-        } else if options.projects_dir.as_deref().is_some_and(|d| f.path.starts_with(d)) {
+        } else if library.project(f.id).is_some() || options.projects_dir.as_deref().is_some_and(|d| f.path.starts_with(d)) {
             Group::Projects
         } else if s.small.saturating_mul(2) > s.all {
             Group::Other
