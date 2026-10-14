@@ -12,19 +12,26 @@
 //! ([`fields`]), and the originals record `.dalica-originals/.dalica.json` ([`originals`]), parsed
 //! and printed the same way.
 //!
+//! M9 adds a photo's `albums` (album id → position key), the folder's `sort` and `reverse` in
+//! `"folder"` and the top-level `albums` names ([`fields`]), and the library's `albums.json`
+//! ([`albums`]), parsed and printed the same way. Ids, keys and names that cannot be used are kept
+//! verbatim and reported, never used.
+//!
 //! Printing is deterministic: keys sorted by their bytes at every level, two-space indentation,
 //! LF line endings, a final newline.
 
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+pub mod albums;
 pub mod fields;
 pub mod originals;
 mod print;
 
 use serde_json::{Map, Value};
 
-pub use fields::{FolderFields, FolderValue, PhotoFields, PhotoValue, SavedAs};
+pub use albums::AlbumsFile;
+pub use fields::{AlbumNames, FolderFields, FolderValue, PhotoAlbums, PhotoFields, PhotoValue, SavedAs};
 pub use originals::Originals;
 
 /// The sidecar's file name.

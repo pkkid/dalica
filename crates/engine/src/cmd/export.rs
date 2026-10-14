@@ -371,6 +371,7 @@ impl Shared {
             folder: FolderInfo::default(),
             photos: Vec::new(),
             project: Some(Project::Exported),
+            ..FolderState::default()
         };
         match dalica_store::writer::write_folder(&state, self.now) {
             dalica_store::writer::Outcome::Written | dalica_store::writer::Outcome::Unchanged => {}

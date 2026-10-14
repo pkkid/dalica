@@ -3987,7 +3987,7 @@ mid-run.
     specified at 1 day, 2 weeks, 3 months and 5 years; `crates/ui-kit/tests/icons_albums.rs`: each
     icon stays in its grid at 12, 16, 20 and 28 px in rest, hover and disabled colours; gallery and
     icon fingerprints; `widget_ids`, `cargo xtask assets` and `cargo xtask names` pass.
-- ⬜ **M9.6 `sidecar` + `store`: albums and M9's fields on disk and in the index**
+- ✅ **M9.6 `sidecar` + `store`: albums and M9's fields on disk and in the index**
   - after: M9.1, M8.9
   - files: `crates/sidecar/src/fields.rs`, `crates/sidecar/src/print.rs`, `crates/sidecar/src/lib.rs`, `crates/sidecar/src/albums.rs`, `crates/sidecar/tests/albums.rs`, `crates/store/src/mapping.rs`, `crates/store/src/journal.rs`, `crates/store/src/snapshot.rs`, `crates/store/src/rebuild.rs`, `crates/store/src/albums.rs`, `crates/store/tests/m9_fields.rs`, `crates/store/tests/albums.rs`, `docs/data-model.md`
   - scope: `data-model.md` §2–§4: a photo's `"albums"` (album id → position key) and the folder's

@@ -4,7 +4,10 @@
 //! applied [`Op`]. Each append is synced to disk. Sketch batches ([`Op::SetSketches`]) are records
 //! like any other: replay restores them, and a torn batch is lost whole while the ones before it
 //! are kept. M6's ops (captions, tags, hidden flags, recipes, dates, folder info, synced hashes)
-//! are records the same way; replay applies them in order.
+//! are records the same way; replay applies them in order. So are M8's (saved records, copies
+//! saved beside, project marks) and M9's (albums, memberships and their keys, covers, folder sorts,
+//! moves and renames, and the index-only search facts, digests and first-indexed and last-changed
+//! times): every [`Op`] is one record, whatever it changes.
 //!
 //! Reading stops cleanly at the first line that is torn (no newline), fails its checksum or does
 //! not parse: everything before it is kept, nothing after it is trusted.
