@@ -26,6 +26,7 @@ mod dialog;
 mod dropdown;
 mod feedback;
 mod field;
+mod form;
 mod header;
 mod histogram;
 mod marks;
@@ -46,15 +47,19 @@ pub use datetime::{
     days_in_month, time_field,
 };
 pub use dialog::{ButtonKind, DialogButton, DialogResponse, dialog};
-pub use dropdown::{dropdown, dropdown_popup_id};
+pub use dropdown::{DROPDOWN_ITEM_MAX_W, DROPDOWN_ITEM_MIN_W, dropdown, dropdown_item, dropdown_popup_id};
 pub use feedback::{
     ProgressOut, TOAST_ERROR_SECS, TOAST_LINES, TOAST_SECS, ToastKind, ToastText, elide_middle, empty_state, progress_row, toast, toast_galley,
     toast_opacity, toast_text_width,
 };
 pub use field::{Ending, FieldOut, SearchOut, TextField, focus_field, search_field, text_field};
+pub use form::{CHECK_BOX, CHOICE_LABEL_X, FORM_GAP, FORM_LABEL_MAX, FORM_ROW_GAP, Form, RADIO_R, checkbox, form_group, hint, radio, radio_row};
 pub use header::section_header;
 pub use histogram::{HISTOGRAM_HEADROOM, MAX_BINS, histogram, histogram_curves, histogram_mesh, paint_histogram};
-pub use slider::{SliderOut, SliderSpec, TUNING_NUDGE, edit_slider_value, nudged, slider, tuning_nudged, tuning_slider, typed_value, zoom_slider};
+pub use slider::{
+    STOP_SNAP, STOPS_FIELD_W, STOPS_TRACK_MIN, SliderOut, SliderSpec, StopsSlider, TUNING_NUDGE, edit_slider_value, next_stop, nudged, slider,
+    snap_to_stop, stops_slider, tuning_nudged, tuning_slider, typed_value, zoom_slider,
+};
 pub use splitter::{arrow_delta, split_position, splitter};
 pub use tabs::{TAB_MIN_WIDTH, TAB_OVERFLOW_WIDTH, Tab, TabFit, TabItem, TabsOut, fit as fit_tabs, tabs, tabs_overflow_id};
 pub use tool_button::{TOOL_BUTTON_H, tool_button, tool_button_width};

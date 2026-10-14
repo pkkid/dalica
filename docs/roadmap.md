@@ -3268,7 +3268,7 @@ first measurement. No step of M8 needs a maintainer decision mid-run.
     `ui.filePicker {cancel: true}` changes nothing; an `export.run` path outside every write root
     is `path_denied`; the menu items light up; every command's graceful-failure test; `panic_hunt`
     and `widget_ids` stay green.
-- ⬜ **M8.5 `ui-kit`: the Export dialog's widgets and the Save and project icons**
+- ✅ **M8.5 `ui-kit`: the Export dialog's widgets and the Save and project icons**
   - after: M5.25, M7.5, M7.6, M7.R
   - files: `crates/ui-kit/src/widgets.rs`, `crates/ui-kit/src/widgets/form.rs`, `crates/ui-kit/src/widgets/slider.rs`, `crates/ui-kit/src/widgets/dropdown.rs`, `crates/ui-kit/src/icons.rs`, `crates/ui-kit/src/icons/output.rs`, `crates/ui-kit/tests/form_widgets.rs`, `crates/ui-kit/tests/icons_output.rs`, `crates/ui-kit/tests/fingerprints/form-widgets*.json`, `crates/ui-kit/tests/fingerprints/icons-output*.json`, `crates/ui-kit/tests/fingerprints/gallery*.json`, `docs/design-system.md`
   - scope: `creating.md` §2 and `design-system.md` §5–§6: `form` rows (labels right-aligned in one

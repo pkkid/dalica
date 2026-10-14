@@ -15,7 +15,9 @@
     spinner at a phase), `stroke_width`; the folder-tree marks `FolderIcon`, `paint_folder`,
     `state_color`, `INHERITED_OPACITY`; the edit view's glyphs `EditIcon` (+ `EditIcon::ALL`,
     `name`, `from_name`: the tabs, the Basic Fixes tools and the edit panel's buttons, M7.6) and
-    `paint_edit`.
+    `paint_edit`; Save's and Export's glyphs `OutputIcon` (`Save`, a disk, and `Project`, a
+    briefcase for the tree's project rows; + `OutputIcon::ALL`, `name`, `from_name`, M8.5) and
+    `paint_output`.
   - `input` (M7.5, the edit canvas's pointer input, ported from PhotoCraft): `wheel` (`Wheel`,
     `read` for one frame's wheel input: a notch zooms ×`NOTCH` around the pointer, a trackpad
     pans, a pinch zooms; `configure`, `fold_legacy_pinch` / `legacy_pinch_to_zoom` for Windows'
@@ -26,7 +28,9 @@
     `label_in`; buttons `text_button`, `icon_button`, `star_toggle`, `primary_button`,
     `action_button`, `toggle_filter`, `segmented` (+ `Segment`, `SegmentLabel`); fields
     `text_field` (+ `FieldOut`, `Ending`, `TextField`, `focus_field`; Esc reverts, Return or a click away commits once, the Cut/Copy/Paste/Select All menu: M5.25), `search_field` (+ `SearchOut`), `autocomplete` (type-ahead list under a field, `Role::Suggestion` rows: M5.25); `slider` (+ `SliderSpec`, `SliderOut`,
-    `typed_value`, `nudged`, `edit_slider_value`), `tuning_slider` (the Tuning tab's variant, value
+    `typed_value`, `nudged`, `edit_slider_value`), `stops_slider` (+ `StopsSlider`,
+    `snap_to_stop`, `next_stop`, `STOP_SNAP`, `STOPS_FIELD_W`, `STOPS_TRACK_MIN`: the export
+    size's slider with a linked number field and ticks, snapping near its stops, M8.5), `tuning_slider` (the Tuning tab's variant, value
     as a tooltip, + / − nudges: + `tuning_nudged`, `TUNING_NUDGE`, M7.5), `zoom_slider`; the edit
     panel's `tabs` (+ `Tab`, `TabItem`, `TabsOut`, `fit_tabs` / `TabFit`, `tabs_overflow_id`,
     `TAB_MIN_WIDTH`, `TAB_OVERFLOW_WIDTH`: icon tabs that shrink, then overflow into a menu, M7.5),
@@ -34,7 +38,12 @@
     `histogram` (+ `paint_histogram`, `histogram_curves`, `histogram_mesh`, `MAX_BINS`,
     `HISTOGRAM_HEADROOM`, M7.5); `date_field` / `time_field` (+ `PickedDate`, `PickedTime`,
     `PickerOut`, `DatePart`, `TimePart`, `days_in_month`, M6.29); `dropdown` (+
-    `dropdown_popup_id`); `dialog` (+ `DialogButton`, `ButtonKind`, `DialogResponse`);
+    `dropdown_popup_id`; `dropdown_item` + `DROPDOWN_ITEM_MIN_W` / `DROPDOWN_ITEM_MAX_W`: a menu
+    row with a description line and a check mark, M8.5); the form of settings dialogs (M8.5):
+    `Form` (`new`, `row`: labels right-aligned in one column, controls left-aligned `FORM_GAP`
+    after it, rows `FORM_ROW_GAP` apart, `FORM_LABEL_MAX`), `hint`, `form_group` (rows disabled
+    together), `checkbox`, `radio`, `radio_row` (a radio and the controls it enables; +
+    `CHECK_BOX`, `RADIO_R`, `CHOICE_LABEL_X`); `dialog` (+ `DialogButton`, `ButtonKind`, `DialogResponse`);
     `section_header`; `splitter` (+ `arrow_delta`, `split_position`); `tooltip` (+
     `TOOLTIP_WIDTH`); `progress_row` (+ `ProgressOut`), `toast` (+ `ToastKind` `Info` / `Caution` / `Error`,
     `toast_opacity`, `TOAST_SECS`, `TOAST_ERROR_SECS`; M7.27: `ToastText` (the text and how many

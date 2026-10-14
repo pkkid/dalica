@@ -1,7 +1,8 @@
 //! The sliders of `design-system.md` §6: the labelled [`slider`] of the edit panels (a control
 //! spec, drag, Shift = fine, double-click resets, ↑/↓ nudge, click the value to type one), its
 //! Tuning variant [`tuning_slider`] (no value shown: it is a tooltip; + / − nudge 2 %), and the
-//! thin [`zoom_slider`] for the thumbnail size and edit zoom.
+//! thin [`zoom_slider`] for the thumbnail size and edit zoom; and the [`stops_slider`] of the
+//! Export dialog (snaps near given stops, a linked number field beside it).
 //!
 //! Every number that reaches them may be hostile (a spec from a plug-in, a value from a sidecar):
 //! ranges are ordered, NaN never propagates, and nothing panics.
@@ -357,6 +358,194 @@ fn slider_row(ui: &mut Ui, t: &Tokens, spec: &SliderSpec<'_>, value: f64, varian
     out
 }
 
+/// How near, in points, a drag or click must come to a stop for a [`stops_slider`] to snap to it.
+pub const STOP_SNAP: f32 = 6.0;
+/// The width of a [`stops_slider`]'s number field.
+pub const STOPS_FIELD_W: f32 = 56.0;
+/// The narrowest a [`stops_slider`]'s track gets.
+pub const STOPS_TRACK_MIN: f32 = 60.0;
+/// How far below the track's middle a stop's tick starts, and how long it is.
+const TICK: (f32, f32) = (4.0, 4.0);
+
+/// What a [`stops_slider`] edits: the control spec, the values it snaps to, and its layout.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct StopsSlider<'a> {
+    /// The control spec (id, range, default, step); `unit` is shown after the number field.
+    pub spec: SliderSpec<'a>,
+    /// The values a drag snaps to when it comes within [`STOP_SNAP`] of them, drawn as ticks under
+    /// the track (export sizes: 480, 640, … 3840). Values outside the range are pulled into it.
+    pub stops: &'a [f64],
+    /// Show the linked number field (and the unit) before the track.
+    pub field: bool,
+    /// The track's width; not finite: all the width left on the line (at least
+    /// [`STOPS_TRACK_MIN`]).
+    pub track_w: f32,
+}
+
+/// `v` snapped to the stop nearest it when that stop is within `reach` (in value units), else put on
+/// the spec's steps; always inside the range.
+pub fn snap_to_stop(spec: &SliderSpec<'_>, stops: &[f64], v: f64, reach: f64) -> f64 {
+    let v = spec.clamp(v);
+    let reach = if reach.is_finite() { reach.abs() } else { 0.0 };
+    let nearest = stops.iter().copied().filter(|s| s.is_finite()).map(|s| spec.clamp(s)).min_by(|a, b| (a - v).abs().total_cmp(&(b - v).abs()));
+    match nearest {
+        Some(stop) if (stop - v).abs() <= reach => stop,
+        _ => spec.snap(v),
+    }
+}
+
+/// The value one key press moves a [`stops_slider`] to: the next stop above `value` (`up`) or below
+/// it, and past the last stop the end of the range; with no stops a [`nudged`] step.
+pub fn next_stop(spec: &SliderSpec<'_>, stops: &[f64], value: f64, up: bool) -> f64 {
+    let value = spec.clamp(value);
+    if !stops.iter().any(|s| s.is_finite()) {
+        return nudged(spec, value, if up { 1.0 } else { -1.0 });
+    }
+    let (lo, hi) = spec.bounds();
+    let marks = stops.iter().copied().filter(|s| s.is_finite()).map(|s| spec.clamp(s)).chain([lo, hi]);
+    let next =
+        if up { marks.filter(|&s| s > value + 1e-9).min_by(f64::total_cmp) } else { marks.filter(|&s| s < value - 1e-9).max_by(f64::total_cmp) };
+    next.unwrap_or(value)
+}
+
+/// The value as the number field shows it: the spec's decimals, without the unit.
+fn number(spec: &SliderSpec<'_>, v: f64) -> String {
+    let shown = spec.format(v);
+    shown.strip_suffix(spec.unit).unwrap_or(&shown).to_owned()
+}
+
+/// The slider with stops (`design-system.md` §6, `creating.md` §2: `[1600] pixels ───○───`), on one
+/// 24 pt line: a linked number field ([`STOPS_FIELD_W`] wide, registered `<spec.id>/value`; typing
+/// a value and pressing Return or clicking away sets it exactly, on the spec's steps and clamped,
+/// Esc keeps the old one) and the spec's unit after it, when `field` is set; then the 2 pt track
+/// with a tick under it for each stop and the hollow ring thumb of [`slider`]. A drag or click sets
+/// the value, snapping to a stop within [`STOP_SNAP`] points; a double-click resets to the default;
+/// ↑ / ↓ (while the pointer is on the track or it has the focus) and ← / → (with the focus) go to
+/// the next stop. Registers `spec.id` on the track.
+pub fn stops_slider(ui: &mut Ui, t: &Tokens, s: &StopsSlider<'_>, value: f64) -> SliderOut {
+    ui.horizontal(|ui| stops_line(ui, t, s, value)).inner
+}
+
+fn stops_line(ui: &mut Ui, t: &Tokens, s: &StopsSlider<'_>, value: f64) -> SliderOut {
+    let spec = &s.spec;
+    let m = &t.metrics;
+    let enabled = ui.is_enabled();
+    let value = spec.clamp(value);
+    let line_h = m.text_field_h;
+    let mut changed: Option<f64> = None;
+    let mut one_shot = false;
+
+    // The number field and the unit.
+    if s.field {
+        let field_id = format!("{}/value", spec.id);
+        let buffer = Id::new(spec.id).with("stops-typing");
+        let mut text = ui.data(|d| d.get_temp::<String>(buffer)).unwrap_or_else(|| number(spec, value));
+        let f = super::TextField::new(&field_id, "", STOPS_FIELD_W).select_on_focus(true).show(ui, t, &mut text);
+        if f.committed()
+            && let Some(v) = typed_value(spec, &text)
+        {
+            changed = Some(v);
+            one_shot = true;
+        }
+        if f.editing && f.ending.is_none() {
+            ui.data_mut(|d| d.insert_temp(buffer, text));
+        } else {
+            ui.data_mut(|d| d.remove::<String>(buffer));
+        }
+        let unit = spec.unit.trim();
+        if !unit.is_empty() {
+            let color = if enabled { t.text_label } else { t.text_disabled };
+            let galley = ui.painter().layout_no_wrap(unit.to_owned(), fonts::regular(t.body), color);
+            let (_, rect) = ui.allocate_space(vec2(galley.size().x.ceil(), line_h));
+            ui.painter().galley(pos2(rect.min.x, rect.center().y - galley.size().y / 2.0).round(), galley, color);
+        }
+    }
+
+    // The track.
+    let width = if s.track_w.is_finite() { s.track_w } else { ui.available_width() };
+    let width = if width.is_finite() { width.max(STOPS_TRACK_MIN) } else { STOPS_TRACK_MIN };
+    let (_, rect) = ui.allocate_space(vec2(width, line_h));
+    let resp = ui.interact(rect, Id::new(spec.id), if enabled { Sense::click_and_drag() } else { Sense::hover() });
+    let ring = m.slider_ring;
+    let (x0, x1) = (rect.min.x + ring + 1.0, rect.max.x - ring - 1.0);
+    let span = (x1 - x0).max(1.0);
+    let to_x = |v: f64| x0 + spec.fraction(v) * (x1 - x0);
+    let from_x = |x: f32| spec.at_fraction((x - x0) / span);
+    let (lo, hi) = spec.bounds();
+    let reach = f64::from(STOP_SNAP) * (hi - lo) / f64::from(span);
+    let mut out = SliderOut { value: None, drag_started: false, drag_stopped: false, reset: false, response: resp.clone() };
+    if enabled && changed.is_none() {
+        if resp.double_clicked() {
+            out.reset = true;
+            changed = Some(spec.snap(spec.default));
+            one_shot = true;
+        } else {
+            out.drag_started = resp.drag_started();
+            if (resp.dragged() || resp.drag_started() || resp.clicked())
+                && let Some(p) = resp.interact_pointer_pos()
+            {
+                changed = Some(snap_to_stop(spec, s.stops, from_x(p.x), reach));
+                one_shot = resp.clicked();
+            }
+            out.drag_stopped = resp.drag_stopped();
+            let hovered = ui.rect_contains_pointer(rect);
+            if changed.is_none() && (resp.has_focus() || hovered) {
+                let focus = resp.has_focus();
+                let (up, down) = ui.input_mut(|i| {
+                    let up = i.consume_key(Modifiers::NONE, Key::ArrowUp) || (focus && i.consume_key(Modifiers::NONE, Key::ArrowRight));
+                    let down = i.consume_key(Modifiers::NONE, Key::ArrowDown) || (focus && i.consume_key(Modifiers::NONE, Key::ArrowLeft));
+                    (up, down)
+                });
+                if up || down {
+                    changed = Some(next_stop(spec, s.stops, value, up));
+                    one_shot = true;
+                }
+            }
+        }
+    }
+    if let Some(v) = changed {
+        if (v - value).abs() > 1e-12 {
+            out.value = Some(v);
+        }
+        if one_shot {
+            out.drag_started = true;
+            out.drag_stopped = true;
+        }
+    }
+    let shown = out.value.unwrap_or(value);
+
+    // Paint: the track, the ticks, the ring.
+    let p = ui.painter();
+    let y = rect.center().y;
+    let guide = if enabled { t.track } else { t.text_disabled.gamma_multiply(0.6) };
+    let half = m.slider_track / 2.0;
+    p.rect_filled(Rect::from_min_max(pos2(x0, y - half), pos2(x1, y + half)), 1.0, guide);
+    for &stop in s.stops.iter().filter(|s| s.is_finite()) {
+        let x = to_x(stop);
+        p.line_segment([pos2(x, y + TICK.0), pos2(x, y + TICK.0 + TICK.1)], Stroke::new(1.0, guide));
+    }
+    let hot = enabled && (resp.hovered() || resp.dragged() || resp.is_pointer_button_down_on());
+    let ring_color = if !enabled {
+        t.text_disabled
+    } else if hot {
+        t.thumb_hover
+    } else {
+        t.thumb
+    };
+    let c = pos2(to_x(shown), y);
+    p.circle_filled(c, ring, ui.visuals().panel_fill);
+    p.circle_stroke(c, ring - 1.0, Stroke::new(2.0, ring_color));
+    if resp.has_focus() {
+        p.circle_stroke(c, ring + 2.0, Stroke::new(t.focus_width, t.accent));
+    }
+    if hot {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+    }
+    register(ui.ctx(), spec.id, Role::Other, spec.label, Target::Widget(&resp), resp.dragged());
+    resp.widget_info(|| egui::WidgetInfo::slider(enabled, shown, spec.label));
+    out
+}
+
 /// `(low, high)` of a zoom slider's range: ordered, `(0, 1)` if an end is not finite.
 fn zoom_bounds(range: &RangeInclusive<f32>) -> (f32, f32) {
     let (a, b) = (*range.start(), *range.end());
@@ -504,6 +693,35 @@ mod tests {
         assert!((tuning_nudged(&temp, 0.0, 1.0) - 0.04).abs() < 1e-9);
         assert_eq!(tuning_nudged(&temp, 0.3, f64::NAN), 0.3);
         assert_eq!(tuning_nudged(&temp, f64::NAN, 1.0), temp.snap(temp.default + 0.04));
+    }
+
+    const SIZE: SliderSpec<'static> =
+        SliderSpec { id: "slider:export.size", label: "Resize to", min: 100.0, max: 4000.0, default: 1600.0, step: 1.0, decimals: 0, unit: "pixels" };
+    const STOPS: [f64; 8] = [480.0, 640.0, 800.0, 1024.0, 1280.0, 1600.0, 2048.0, 3840.0];
+
+    #[test]
+    fn values_snap_to_a_stop_within_reach_only() {
+        assert_eq!(snap_to_stop(&SIZE, &STOPS, 1640.0, 50.0), 1600.0);
+        assert_eq!(snap_to_stop(&SIZE, &STOPS, 1560.2, 50.0), 1600.0);
+        assert_eq!(snap_to_stop(&SIZE, &STOPS, 1700.4, 50.0), 1700.0, "out of reach: on the steps");
+        assert_eq!(snap_to_stop(&SIZE, &STOPS, 1150.0, 200.0), 1024.0, "the nearest stop wins");
+        assert_eq!(snap_to_stop(&SIZE, &[], 1640.0, 50.0), 1640.0);
+        // Hostile input: NaN stops and reach, stops outside the range, a NaN value.
+        assert_eq!(snap_to_stop(&SIZE, &[f64::NAN, 9000.0], 3990.0, 50.0), 4000.0, "a stop past the end is the end");
+        assert_eq!(snap_to_stop(&SIZE, &STOPS, 1610.0, f64::NAN), 1610.0);
+        assert_eq!(snap_to_stop(&SIZE, &STOPS, f64::NAN, 1.0), 1600.0, "NaN is the default, a stop");
+    }
+
+    #[test]
+    fn keys_step_from_stop_to_stop_then_to_the_ends() {
+        assert_eq!(next_stop(&SIZE, &STOPS, 1600.0, true), 2048.0);
+        assert_eq!(next_stop(&SIZE, &STOPS, 1600.0, false), 1280.0);
+        assert_eq!(next_stop(&SIZE, &STOPS, 1700.0, false), 1600.0);
+        assert_eq!(next_stop(&SIZE, &STOPS, 3840.0, true), 4000.0);
+        assert_eq!(next_stop(&SIZE, &STOPS, 4000.0, true), 4000.0);
+        assert_eq!(next_stop(&SIZE, &STOPS, 480.0, false), 100.0);
+        assert_eq!(next_stop(&SIZE, &[], 1600.0, true), nudged(&SIZE, 1600.0, 1.0), "no stops: a nudge");
+        assert_eq!(number(&SIZE, 1600.0), "1600");
     }
 
     #[test]
