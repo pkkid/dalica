@@ -311,7 +311,7 @@ fn run_headless(
     source: window::Source,
     demo: bool,
 ) -> (ExitCode, Option<control::TokenFileGuard>) {
-    let session = match window::open(source) {
+    let session = match window::open(source, &|_| {}) {
         Ok(s) => s,
         Err(e) => {
             log::error!("dalica: cannot open the library: {e}");

@@ -51,6 +51,10 @@ pub struct App {
     /// The frame clock's time at the start of the last frame (seconds): when a toast pushed by a
     /// command between frames appears.
     now: f64,
+    /// While the library opens: what the opening is doing ([`App::set_opening_detail`]) and the
+    /// frame clock's time of the first opening frame.
+    opening_detail: Option<String>,
+    opening_since: Option<f64>,
 }
 
 /// The persisted part of the view state: the window's (M3) and the library view's options (M4).
@@ -79,6 +83,8 @@ impl App {
             tooltip: None,
             notices: Notices::default(),
             now: 0.0,
+            opening_detail: None,
+            opening_since: None,
         }
     }
 
@@ -344,6 +350,12 @@ impl App {
         self.notices.push(text, kind, self.now);
     }
 
+    /// What opening the library is doing ("Reading the library…"), shown under "Opening the
+    /// library…" until a session arrives; `None` shows the title alone.
+    pub fn set_opening_detail(&mut self, detail: Option<String>) {
+        self.opening_detail = detail;
+    }
+
     /// The panels' state, once the first frame with a library has run.
     pub fn panels(&self) -> Option<&Panels> {
         self.panels.as_ref()
@@ -356,10 +368,18 @@ impl App {
         }
         let Some(session) = &mut self.session else {
             let t = self.tokens;
+            let now = ui.input(|i| i.time);
+            let since = *self.opening_since.get_or_insert(now);
+            let detail = opening_detail(self.opening_detail.as_deref(), now - since);
             egui::CentralPanel::default().frame(Frame::new().fill(t.chrome)).show(ui, |ui| {
-                let rect = ui.max_rect();
-                ui.painter().text(rect.center(), Align2::CENTER_CENTER, "Opening the library…", fonts::semibold(18.0), t.text_label);
+                let c = ui.max_rect().center();
+                ui.painter().text(c - egui::vec2(0.0, 12.0), Align2::CENTER_CENTER, "Opening the library…", fonts::semibold(18.0), t.text_label);
+                if let Some(detail) = &detail {
+                    ui.painter().text(c + egui::vec2(0.0, 14.0), Align2::CENTER_CENTER, detail, fonts::regular(t.body), t.text_dim);
+                }
             });
+            // The seconds count up while a step takes long, so the window is seen to be working.
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(500));
             return;
         };
         session.poll();
@@ -481,6 +501,20 @@ fn apply_view(state: &mut UiState, (v, o): &Persisted) {
     *state = std::mem::take(state).sanitized();
 }
 
+/// The line under "Opening the library…": the step, with the seconds it has taken once they pass
+/// [`OPENING_COUNT_AFTER`], so a slow opening is seen to be working.
+fn opening_detail(detail: Option<&str>, elapsed: f64) -> Option<String> {
+    let seconds = (elapsed >= OPENING_COUNT_AFTER).then(|| format!("{} s", elapsed.floor() as u64));
+    match (detail, seconds) {
+        (Some(d), Some(s)) => Some(format!("{d}  {s}")),
+        (Some(d), None) => Some(d.to_string()),
+        (None, s) => s,
+    }
+}
+
+/// Seconds of opening before the opening screen counts them.
+const OPENING_COUNT_AFTER: f64 = 3.0;
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -488,6 +522,15 @@ pub(crate) mod tests {
     use dalica_core::PhotoId;
     use serde_json::json;
     use std::sync::Arc;
+
+    /// The opening screen names the step, and counts the seconds once an opening takes a while.
+    #[test]
+    fn the_opening_line_names_the_step_and_counts_slow_seconds() {
+        assert_eq!(opening_detail(None, 0.5), None);
+        assert_eq!(opening_detail(Some("Reading the library…"), 1.0).as_deref(), Some("Reading the library…"));
+        assert_eq!(opening_detail(Some("Reading the library…"), 12.7).as_deref(), Some("Reading the library…  12 s"));
+        assert_eq!(opening_detail(None, 4.2).as_deref(), Some("4 s"));
+    }
 
     /// A session on a fresh library holding one folder of `n` scenes photos; and their ids.
     pub(crate) fn session_with_photos(n: usize) -> (tempfile::TempDir, Session, Vec<PhotoId>) {

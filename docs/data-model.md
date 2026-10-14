@@ -483,6 +483,14 @@ their folder header.
 
 ## 7. Scanning and watching
 
+Scans never stop or block the user (maintainer, 2026-10-14). Opening a library reads its index and
+shows it; scans, rescans, the verification pass and thumbnails all run in the background, shown by
+the activity indicator (click it for their status). Closing the app mid-scan is safe: what was
+found is already in the index, and the verification pass walks the folders again after the next
+start. The opening screen names what it is doing and counts the seconds when it takes a while. The
+one exception is a brand-new demo, which scans its three small folders before it shows them, so its
+ids are the same everywhere (`control-protocol.md` §5.4).
+
 - **Folder Manager** modes per folder: **Scan Always** (watched: `notify` events + periodic
   verification), **Scan Once** (indexed once, then frozen — for removable or slow media),
   **Remove from Dalica** (not indexed; nothing on disk changes). Setting a mode on a folder applies
