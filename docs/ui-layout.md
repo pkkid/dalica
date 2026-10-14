@@ -207,7 +207,10 @@ Add a description
   turn on).
 - **Badges** (`design-system.md` §7): a right-aligned row inside the image's bottom-right corner in
   the order edited ✎ · geotag 📍 · held 📌 · star ★ (star rightmost); videos: a film-sprocket edge
-  on the left side of the image and a duration pill "1:23" at its bottom-left.
+  on the left side of the image and a duration pill "1:23" at its bottom-left. The edited mark
+  shows on every photo with edits not yet saved into its file, a rotation or flip alone included:
+  exactly the photos the section header counts as "%d edited", so it goes after a Save
+  (maintainer, 2026-10-14).
 - **Hidden** photos (only visible with View → Hidden Pictures) are drawn at 40 % opacity.
 - **Small pictures** (< 64 px on both sides) are omitted unless View → Small Pictures.
 - **Empty states**: no watched folders → "No pictures yet" + [Add a Folder…] [Import…]; search with

@@ -33,6 +33,9 @@ files, resized and watermarked if you like.
 - Save (File ▸ Save, Ctrl+S) writes a photo's edits into the file. A folder's header shows how
   many of its photos have unsaved edits ("2 edited") with a Save button that saves them all. The
   first time, Dalica explains what Save does; tick the box to stop it asking.
+- Every photo with unsaved changes shows the pencil mark in the library, a photo you only rotated
+  or flipped included, so the marks always match the header's count. The mark goes once the photo
+  is saved. (issue #454)
 - Before the first Save, the original file is moved into a hidden `.dalica-originals` folder next
   to the photo. It stays there however often you save again: each Save starts from that original,
   so quality never wears down. Undo Save (the edit panel's Undo button reads "Undo Save") puts the

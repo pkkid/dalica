@@ -3,7 +3,7 @@
 //! (never the placeholder, never its sketch) while the new thumbnail renders, held at a gate so the
 //! frames in between are seen; the new texture then replaces it. After a crop the old texture
 //! keeps its own shape, letterboxed inside the new one. The edited badge shows with the
-//! edit and goes with its undo; a rotation alone shows none. The cell fingerprints at
+//! edit, a rotation alone included, and goes with its undo or a Save. The cell fingerprints at
 //! 1400 × 900 and 900 × 600 (`edited-cell-*.json`). Renders go to `target/test-output/ui/`;
 //! `DALICA_BLESS=1` stores new fingerprints.
 
@@ -170,13 +170,22 @@ fn an_edited_cell_keeps_its_old_texture_until_the_new_one_lands_and_shows_the_ba
     assert_eq!(region(&d.screenshot().unwrap(), cell_rect(&d, id), 1.0), original, "the cell as it was");
     assert_eq!(session(&mut d).thumbnail_stats().remade, 2);
 
-    // A rotation alone is no edit: no badge, and nothing is made again.
+    // A rotation alone is an unsaved edit too: the badge shows, as the section header counts it,
+    // while nothing is made again (the cell turns the picture as it paints it).
     session(&mut d).set_thumbnail_scan_hook(None);
     session(&mut d).execute("photo.rotate.cw", &json!({ "ids": [id] })).unwrap();
     d.settle(FRAMES).unwrap();
     let turned = painted(&d, id);
-    assert!(!turned.stale && !badges(&d, id).edited);
+    assert!(!turned.stale && badges(&d, id).edited, "a rotated photo carries the edited badge");
+    assert!(session(&mut d).library().has_unsaved_edits(id));
     assert_eq!(session(&mut d).thumbnail_stats().remade, 2);
+
+    // Saved into the file, the photo has nothing unsaved: the badge goes.
+    session(&mut d).execute("photo.save", &json!({ "ids": [id], "confirm": true, "dontAsk": true })).unwrap();
+    session(&mut d).wait_idle();
+    d.settle(FRAMES).unwrap();
+    assert!(!session(&mut d).library().has_unsaved_edits(id), "saved");
+    assert!(!badges(&d, id).edited, "no badge after a Save");
 }
 
 /// A crop changes the cell's shape at once; while the cropped thumbnail renders, the old texture is

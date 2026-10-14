@@ -238,9 +238,9 @@ pub fn is_hidden(library: &Library, photo: &Photo) -> bool {
     library.is_hidden(photo.id)
 }
 
-/// What `photo`'s badges show: what the model knows. Starred, held, and edited when its recipe
-/// changes its pixels (`edited`, [`Thumbnails::edited`]: rotations and flips alone are no edit);
-/// geotagged and videos once the model carries them.
+/// What `photo`'s badges show: what the model knows. Starred, held, and edited when it has edits
+/// not yet saved into its file, rotations and flips included (`edited`, [`Thumbnails::edited`],
+/// the folder header's "n edited" test); geotagged and videos once the model carries them.
 pub fn badges_of(photo: &Photo, edited: bool, held: bool) -> Badges {
     Badges { starred: photo.star, edited, held, ..Badges::default() }
 }
