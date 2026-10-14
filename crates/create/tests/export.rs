@@ -349,3 +349,30 @@ proptest::proptest! {
         }
     }
 }
+
+#[test]
+fn the_watermark_is_drawn_bottom_right_when_asked() {
+    let f = fixture();
+    let src = f.put("w.png", &png(40, 400, 300));
+    let plain = options(Size::Original, QualityPreset::Maximum);
+    let marked = ExportOptions { watermark: Some("© Ana Costa 2026".into()), ..plain.clone() };
+    let (_, a) = export(&f.out, "Plain", vec![photo(&src)], &plain);
+    let (_, b) = export(&f.out, "Marked", vec![photo(&src)], &marked);
+    let (a, b) = (decode(&std::fs::read(&a.written[0].path).unwrap()), decode(&std::fs::read(&b.written[0].path).unwrap()));
+    // The text box: 3 % of the long side high, near the bottom-right corner.
+    let p = dalica_create::watermark::layout(400, 300, "© Ana Costa 2026").unwrap();
+    let changed = |x0: u32, y0: u32, x1: u32, y1: u32| {
+        let mut n = 0;
+        for y in y0..y1 {
+            for x in x0..x1 {
+                let i = ((y * 400 + x) * 4) as usize;
+                n += usize::from((0..3).any(|c| a.data[i + c].abs_diff(b.data[i + c]) > 24));
+            }
+        }
+        n
+    };
+    let (x0, y0) = (p.x.floor() as u32, p.y.floor() as u32);
+    let (x1, y1) = (((p.x + p.width).ceil() as u32).min(400), ((p.y + p.height).ceil() as u32).min(300));
+    assert!(changed(x0, y0, x1, y1) > 50, "the text is in its box");
+    assert_eq!(changed(0, 0, 200, 150), 0, "the rest of the picture is unchanged");
+}
