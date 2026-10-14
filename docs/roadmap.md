@@ -4006,7 +4006,7 @@ mid-run.
     proptest round trips with hostile ids, keys and wrong types never panic and keep what they
     cannot use; a damaged `albums.json` is set aside and reported; journal replay and snapshots
     keep the new fields.
-- ⬜ **M9.7 `scan` + `engine`: search facts read on scan**
+- ✅ **M9.7 `scan` + `engine`: search facts read on scan**
   - after: M9.1, M6.32
   - files: `crates/scan/src/meta.rs`, `crates/scan/src/facts.rs`, `crates/scan/tests/facts.rs`, `crates/engine/src/scanning.rs`, `crates/engine/tests/facts.rs`
   - scope: `organizing.md` §8: the scan's metadata pass (M6.32) also reads each new or changed

@@ -54,6 +54,14 @@
 //!   op applied outside a command, so the watcher's rescans get the same. All of it is tagged
 //!   [`crate::metadata::Origin::Files`]: never written back. A folder's sync op is diffed again
 //!   when the model changed since its diff, so an edit made meanwhile is never overwritten.
+//! - **Search facts and first-indexed times** (M9.7, `organizing.md` §8, `roadmap.md` M9):
+//!   the same read gives each new or changed photo's search facts (camera make and model, video,
+//!   GPS location: `dalica_scan::facts`), which ride in the diff's sync op as `SetFacts` (derived:
+//!   no undo step, no revision of their own). Each op from the files that adds photos (a scan's or
+//!   the watcher's, applied through [`Session::apply`]) is followed by the derived op recording
+//!   when this library first indexed them ([`Library::first_indexed_op`], the session's clock),
+//!   journaled with no undo step; a rebuild records none (after a rebuild only the file's time
+//!   counts for Recently Updated).
 //!
 //! Seams: [`crate::watching`] starts the periodic verification through
 //! [`Session::start_verification`]'s units and runs its own incremental rescans of dirty folders
@@ -135,6 +143,33 @@ pub(crate) struct Scanning {
     /// Scans a file job put off ([`Session::put_off_scans`]): started again, in order, once no
     /// file job runs.
     put_off: Vec<(Plan, ScanKind)>,
+    /// A rebuild's op is being applied to the live model (a rebuild of an empty model fills it in
+    /// place): the photos it adds get no first-indexed time.
+    rebuilding: bool,
+}
+
+/// What [`Session::files_op_before`] learns of an op from the files, for
+/// [`Session::files_op_after`].
+pub(crate) struct FromFiles {
+    /// For a diff's sync op: the fields of each photo changed both in another application and in
+    /// Dalica since the last sync, judged on the model before the op.
+    conflicts: Vec<(PhotoId, Fields)>,
+    /// The photos the op adds: their first-indexed time is recorded once it applied.
+    added: Vec<PhotoId>,
+}
+
+/// The photos `op` adds (in nested batches too; walked without recursion).
+fn added_photos(op: &Op) -> Vec<PhotoId> {
+    let mut out = Vec::new();
+    let mut stack = vec![op];
+    while let Some(op) = stack.pop() {
+        match op {
+            Op::AddPhotos { photos } => out.extend(photos.iter().map(|p| p.id)),
+            Op::Batch { ops } => stack.extend(ops),
+            _ => {}
+        }
+    }
+    out
 }
 
 /// One running scan, as the owner sees it.
@@ -453,30 +488,43 @@ impl Session {
 
     /// Before an op from the files (a scan's or the watcher's, applied outside a command): for a
     /// diff's sync op, the fields of each photo that changed both in another application and in
-    /// Dalica since the last sync, judged on the model before the op. `None` for any other op.
-    pub(crate) fn files_op_before(&self, op: &Op) -> Option<Vec<(PhotoId, Fields)>> {
-        let parts = dalica_scan::meta::sync_parts(op)?;
-        let mut out = Vec::new();
+    /// Dalica since the last sync, judged on the model before the op; for an op that adds photos,
+    /// which (none while a rebuild applies). `None` for any other op.
+    pub(crate) fn files_op_before(&self, op: &Op) -> Option<FromFiles> {
+        let added = if self.scanning.rebuilding { Vec::new() } else { added_photos(op) };
+        let Some(parts) = dalica_scan::meta::sync_parts(op) else {
+            return (!added.is_empty()).then_some(FromFiles { conflicts: Vec::new(), added });
+        };
+        let mut conflicts = Vec::new();
         for (id, file) in parts.synced {
             let Some(file) = file else { continue };
             let fields = dalica_scan::meta::conflicts(&self.library, *id, file);
             if !fields.is_empty() {
-                out.push((*id, Fields::of(&fields.into_iter().map(engine_field).collect::<Vec<_>>())));
+                conflicts.push((*id, Fields::of(&fields.into_iter().map(engine_field).collect::<Vec<_>>())));
             }
         }
-        Some(out)
+        Some(FromFiles { conflicts, added })
     }
 
     /// After an op from the files was applied (`inverse` undoes it): a sync op's imports become
     /// one undo step ("Import from Files"; the synced hashes stay those of the files), and the
     /// conflicts found before it are noted for Properties ("Changed in another application;
-    /// Dalica's value kept").
-    pub(crate) fn files_op_after(&mut self, conflicts: Vec<(PhotoId, Fields)>, inverse: &Op) {
+    /// Dalica's value kept"); the photos it added get their first-indexed time (derived: journaled,
+    /// no undo step).
+    pub(crate) fn files_op_after(&mut self, from: FromFiles, inverse: &Op) {
         if let Some(op) = dalica_scan::meta::undo_of_import(inverse) {
             self.undo.push(Step { label: IMPORT_LABEL, op, modes: None });
         }
-        for (id, fields) in conflicts {
+        for (id, fields) in from.conflicts {
             self.note_changed_elsewhere(id, fields);
+        }
+        if !from.added.is_empty() {
+            let op = self.library.first_indexed_op(&from.added, self.clock.now());
+            if !matches!(&op, Op::SetFirstIndexed { indexed } if indexed.is_empty())
+                && let Err(e) = self.apply_derived(op)
+            {
+                self.scan_warnings.push(format!("first-indexed times not applied: {e}"));
+            }
         }
     }
 
@@ -657,7 +705,13 @@ impl Session {
                 applied += n;
                 let result = match &mut job.fresh {
                     Some(fresh) => fresh.apply(op).map(|_| ()).map_err(|e| e.to_string()),
-                    None => self.apply(op).map(|_| ()).map_err(|e| e.to_string()),
+                    None => {
+                        // A rebuild filling an empty model in place records no first-indexed time.
+                        self.scanning.rebuilding = job.kind == ScanKind::Rebuild;
+                        let applied = self.apply(op).map(|_| ()).map_err(|e| e.to_string());
+                        self.scanning.rebuilding = false;
+                        applied
+                    }
                 };
                 job.revision = self.library.revision();
                 if let Err(e) = result {

@@ -32,6 +32,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 mod diff;
+pub mod facts;
 pub mod meta;
 pub mod originals;
 pub mod rules;
