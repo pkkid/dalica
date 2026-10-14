@@ -23,11 +23,14 @@
 //!   - both changed (`Conflict`): Dalica's value is kept; the engine notes it for Properties when
 //!     it applies the sync op ([`sync_parts`] gives it the hashes it needs);
 //!   - the last-synced hashes become those of what was read (`Op::SetSynced`, index-only).
+//!   - the search facts read (camera, video, GPS location: [`crate::facts`]) become the photo's
+//!     (`Op::SetFacts`, index-only): a new photo's when it has any, a known one's when they changed
+//!     (cleared when its file says nothing any more).
 //! - **The sync op** ([`sync_parts`]): the diff's last op for the photos it read,
-//!   `Batch[Batch(imports), Batch(first-scan fills), SetSynced]`. A caller applying it outside a
-//!   command makes its first part one undoable step ([`undo_of_import`]); the rest is not undone
-//!   (the synced hashes stay those of the file, so undoing an import writes Dalica's old value
-//!   back rather than importing again).
+//!   `Batch[Batch(imports), Batch(first-scan fills), SetSynced, SetFacts]`. A caller applying it
+//!   outside a command makes its first part one undoable step ([`undo_of_import`]); the rest is not
+//!   undone (the synced hashes stay those of the file, so undoing an import writes Dalica's old
+//!   value back rather than importing again; the facts are derived data).
 //!
 //! The model holds no place per photo yet: a place is read and its hash synced, never imported and
 //! never reported as a conflict.
@@ -41,9 +44,9 @@ use std::sync::Arc;
 use dalica_core::{DateTime, PhotoId, Timestamp};
 use dalica_image::{Format, RawKind};
 use dalica_library::sync::{self, Decision, Field, Values};
-use dalica_library::{Library, Op, Photo, PhotoInfo, Synced, clean_caption, clean_tags};
+use dalica_library::{Facts, Library, Op, Photo, PhotoInfo, Synced, clean_caption, clean_tags};
 use dalica_meta::xmp_sidecar::{self, Sidecars};
-use dalica_meta::{DateTaken, OwnedFields};
+use dalica_meta::{DateTaken, Metadata, OwnedFields};
 
 use crate::walk::FoundPhoto;
 
@@ -55,24 +58,34 @@ pub const MAX_FILE: u64 = 1 << 30;
 /// The first part of a JPEG read for its metadata; doubled until the metadata segments are in.
 const JPEG_FIRST: u64 = 256 * 1024;
 
-/// What a file says about the fields Dalica owns, cleaned as the library stores them (caption and
-/// tags through `clean_caption` / `clean_tags`, a rating of 5 as a star, the date to the second).
+/// What a file says: the fields Dalica owns, cleaned as the library stores them (caption and tags
+/// through `clean_caption` / `clean_tags`, a rating of 5 as a star, the date to the second), and
+/// its search facts ([`crate::facts`]: camera, video, GPS location), derived data the diff sets
+/// without an undo step.
 #[derive(Clone, Debug, Default, PartialEq)]
-pub struct FileValues(pub Values);
+pub struct FileValues(pub Values, pub Facts);
 
 /// The place is a `dalica_meta::Place`: always finite, so equality is an equivalence.
 impl Eq for FileValues {}
 
 impl FileValues {
-    /// A file's owned fields in the library's terms.
+    /// A file's owned fields in the library's terms, with the facts they tell (a GPS location);
+    /// the camera needs the EXIF summary: [`FileValues::read`].
     pub fn of(owned: &OwnedFields) -> FileValues {
-        FileValues(Values {
+        let values = Values {
             caption: owned.caption.as_deref().map(clean_caption).unwrap_or_default(),
             tags: clean_tags(owned.tags.iter().map(String::as_str)),
             star: owned.starred(),
             place: owned.place.map(|p| (p.latitude(), p.longitude())),
             date: owned.date_taken.as_ref().map(DateTaken::date_time),
-        })
+        };
+        FileValues(values, Facts { geotagged: owned.place.is_some(), ..Facts::default() })
+    }
+
+    /// What a file of `format` whose metadata reads as `metadata` says: its owned fields and every
+    /// search fact.
+    pub fn read(format: Format, metadata: &Metadata) -> FileValues {
+        FileValues(FileValues::of(&metadata.owned).0, crate::facts::of(format, metadata))
     }
 }
 
@@ -155,16 +168,24 @@ pub(crate) fn read_folder(
         let path = dir.join(&p.name);
         let sidecar = sidecars.as_ref().and_then(|s| s.get(&p.name)).and_then(|n| n.existing.as_deref()).map(|n| dir.join(n));
         let format = p.format;
-        p.file = catch_unwind(AssertUnwindSafe(|| read_file(&path, format, sidecar.as_deref(), limits))).ok().flatten();
+        // The camera the header's EXIF gave on the reading thread ([`read_with_header`]), for the
+        // containers `dalica-meta` does not read.
+        let header = p.file.take().map(|f| f.1).unwrap_or_default();
+        p.file = catch_unwind(AssertUnwindSafe(|| read_file(&path, format, sidecar.as_deref(), limits)))
+            .ok()
+            .flatten()
+            .map(|FileValues(values, facts)| FileValues(values, crate::facts::with_camera_of(facts, &header)));
     }
     true
 }
 
-/// A photo's header and, for a JPEG, PNG, WebP or TIFF, its owned fields, on the reading thread
-/// (inside its `catch_unwind` and time budget). With `bytes` the header comes with the bytes it
-/// read and the fields are taken from them (read from the file again only when they are not
-/// enough); without, the header comes from `header` and the fields from the file. `size` is the
-/// file's size as listed. A RAW's fields are left to [`read_folder`].
+/// A photo's header and, for a JPEG, PNG, WebP or TIFF, its owned fields and search facts, on the
+/// reading thread (inside its `catch_unwind` and time budget). With `bytes` the header comes with
+/// the bytes it read and the fields are taken from them (read from the file again only when they
+/// are not enough); without, the header comes from `header` and the fields from the file. `size`
+/// is the file's size as listed. A RAW's fields are left to [`read_folder`]; here it brings only
+/// the camera of its header's EXIF (facts alone, which [`read_folder`] completes), so a container
+/// `dalica-meta` does not read (CR3, RAF …) still has its camera.
 pub(crate) fn read_with_header(
     path: &Path,
     format: Format,
@@ -174,6 +195,11 @@ pub(crate) fn read_with_header(
     limits: &dalica_image::Limits,
 ) -> (dalica_image::Result<dalica_image::Header>, Option<FileValues>) {
     let meta_limits = dalica_meta::Limits::default();
+    if let Format::Raw(_) = format {
+        let h = header(path, limits);
+        let facts = h.as_ref().ok().map(crate::facts::of_header).filter(|f| !f.is_empty());
+        return (h, facts.map(|f| FileValues(Values::default(), f)));
+    }
     if !matches!(format, Format::Jpeg | Format::Png | Format::WebP | Format::Tiff) {
         return (header(path, limits), None);
     }
@@ -197,11 +223,11 @@ fn from_bytes(path: &Path, format: Format, size: u64, bytes: &[u8], limits: &dal
     let whole = u64::try_from(bytes.len()).is_ok_and(|n| n >= size);
     match format {
         Format::Jpeg => match dalica_meta::container::scan(bytes, limits) {
-            Ok(scan) => Some(FileValues::of(&dalica_meta::read_scan(&scan, limits).owned)),
+            Ok(scan) => Some(FileValues::read(format, &dalica_meta::read_scan(&scan, limits))),
             Err(dalica_meta::Error::Truncated) if !whole => read_file(path, format, None, limits),
             Err(_) => None,
         },
-        _ if whole => dalica_meta::read(bytes, limits).ok().map(|m| FileValues::of(&m.owned)),
+        _ if whole => dalica_meta::read(bytes, limits).ok().map(|m| FileValues::read(format, &m)),
         _ => read_file(path, format, None, limits),
     }
 }
@@ -212,11 +238,11 @@ fn read_file(path: &Path, format: Format, sidecar: Option<&Path>, limits: &dalic
     match format {
         Format::Jpeg => {
             let bytes = prefix(path, JPEG_FIRST, MAX_FILE)?;
-            dalica_meta::read(&bytes, limits).ok().map(|m| FileValues::of(&m.owned))
+            dalica_meta::read(&bytes, limits).ok().map(|m| FileValues::read(format, &m))
         }
         Format::Png | Format::WebP | Format::Tiff => {
             let bytes = dalica_fs::read(path, MAX_FILE).ok()??.bytes;
-            dalica_meta::read(&bytes, limits).ok().map(|m| FileValues::of(&m.owned))
+            dalica_meta::read(&bytes, limits).ok().map(|m| FileValues::read(format, &m))
         }
         Format::Raw(kind) => {
             let max_xmp = u64::try_from(limits.max_xmp).unwrap_or(u64::MAX);
@@ -231,7 +257,7 @@ fn read_file(path: &Path, format: Format, sidecar: Option<&Path>, limits: &dalic
                 _ => None,
             };
             let read = xmp_sidecar::read(raw.as_deref(), sidecar.as_deref(), limits);
-            Some(FileValues::of(&read.metadata.owned))
+            Some(FileValues::read(format, &read.metadata))
         }
         _ => None,
     }
@@ -300,13 +326,17 @@ pub(crate) struct Sync {
     fills: Vec<(PhotoId, PhotoInfo)>,
     fill_stars: Vec<(PhotoId, bool)>,
     synced: Vec<(PhotoId, Option<Synced>)>,
+    facts: Vec<(PhotoId, Facts)>,
 }
 
 impl Sync {
     /// A photo new to the model, read: its fill (if any) rides with its `AddPhotos`; here only its
-    /// synced hashes.
+    /// synced hashes and its search facts.
     pub(crate) fn new_photo(&mut self, id: PhotoId, file: &FileValues) {
         self.synced.push((id, Some(file.0.hashes())));
+        if !file.1.is_empty() {
+            self.facts.push((id, file.1.clone()));
+        }
     }
 
     /// A photo the model knows (`photo`, under its id), read again: its file now says `file` and
@@ -344,11 +374,14 @@ impl Sync {
         if synced != Some(&hashes) {
             self.synced.push((id, Some(hashes)));
         }
+        if library.facts(id) != &file.1 {
+            self.facts.push((id, file.1.clone()));
+        }
     }
 
     /// The sync op, or `None` when there is nothing to change.
     pub(crate) fn op(self) -> Option<Op> {
-        let Sync { captions, tags, stars, dates, fills, fill_stars, synced } = self;
+        let Sync { captions, tags, stars, dates, fills, fill_stars, synced, facts } = self;
         let mut imports = Vec::new();
         if !captions.is_empty() {
             imports.push(Op::SetCaptions { captions });
@@ -369,10 +402,10 @@ impl Sync {
         if !fill_stars.is_empty() {
             first.push(Op::SetStars { stars: fill_stars });
         }
-        if imports.is_empty() && first.is_empty() && synced.is_empty() {
+        if imports.is_empty() && first.is_empty() && synced.is_empty() && facts.is_empty() {
             return None;
         }
-        Some(Op::Batch { ops: vec![Op::Batch { ops: imports }, Op::Batch { ops: first }, Op::SetSynced { synced }] })
+        Some(Op::Batch { ops: vec![Op::Batch { ops: imports }, Op::Batch { ops: first }, Op::SetSynced { synced }, Op::SetFacts { facts }] })
     }
 }
 
@@ -385,12 +418,12 @@ pub struct SyncParts<'a> {
     pub synced: &'a [(PhotoId, Option<Synced>)],
 }
 
-/// `op`'s parts if it is a diff's sync op (`Batch[Batch(imports), Batch(fills), SetSynced]`; no
-/// other op the diff makes has this shape).
+/// `op`'s parts if it is a diff's sync op (`Batch[Batch(imports), Batch(fills), SetSynced,
+/// SetFacts]`; no other op the diff makes has this shape).
 pub fn sync_parts(op: &Op) -> Option<SyncParts<'_>> {
     match op {
         Op::Batch { ops } => match ops.as_slice() {
-            [Op::Batch { ops: imports }, Op::Batch { .. }, Op::SetSynced { synced }] => Some(SyncParts { imports, synced }),
+            [Op::Batch { ops: imports }, Op::Batch { .. }, Op::SetSynced { synced }, Op::SetFacts { .. }] => Some(SyncParts { imports, synced }),
             _ => None,
         },
         _ => None,
@@ -403,7 +436,9 @@ pub fn undo_of_import(inverse: &Op) -> Option<Op> {
     match inverse {
         // The inverse of a batch lists its parts' inverses in reverse order.
         Op::Batch { ops } => match ops.as_slice() {
-            [Op::SetSynced { .. }, Op::Batch { .. }, Op::Batch { ops: undo }] if !undo.is_empty() => Some(Op::Batch { ops: undo.clone() }),
+            [Op::SetFacts { .. }, Op::SetSynced { .. }, Op::Batch { .. }, Op::Batch { ops: undo }] if !undo.is_empty() => {
+                Some(Op::Batch { ops: undo.clone() })
+            }
             _ => None,
         },
         _ => None,
@@ -487,14 +522,21 @@ mod tests {
         assert_eq!(parts.imports, &[Op::SetCaptions { captions: vec![(id, "new".into())] }][..]);
         let inverse = Op::Batch {
             ops: vec![
+                Op::SetFacts { facts: vec![] },
                 Op::SetSynced { synced: vec![(id, None)] },
                 Op::Batch { ops: vec![] },
                 Op::Batch { ops: vec![Op::SetCaptions { captions: vec![(id, "old".into())] }] },
             ],
         };
         assert_eq!(undo_of_import(&inverse), Some(Op::Batch { ops: vec![Op::SetCaptions { captions: vec![(id, "old".into())] }] }));
-        let nothing = Op::Batch { ops: vec![Op::SetSynced { synced: vec![] }, Op::Batch { ops: vec![] }, Op::Batch { ops: vec![] }] };
+        let nothing = Op::Batch {
+            ops: vec![Op::SetFacts { facts: vec![] }, Op::SetSynced { synced: vec![] }, Op::Batch { ops: vec![] }, Op::Batch { ops: vec![] }],
+        };
         assert_eq!(undo_of_import(&nothing), None);
+        // Facts alone make a sync op too.
+        let mut s = Sync::default();
+        s.facts.push((id, Facts { model: "X100V".into(), ..Facts::default() }));
+        assert!(sync_parts(&s.op().unwrap()).is_some_and(|p| p.imports.is_empty() && p.synced.is_empty()));
         // Other shapes are not sync ops.
         assert_eq!(sync_parts(&Op::SetSynced { synced: vec![] }), None);
         assert_eq!(sync_parts(&Op::Batch { ops: vec![Op::AddPhotos { photos: vec![] }, Op::SetPhotoInfo { photos: vec![] }] }), None);
@@ -506,7 +548,8 @@ mod tests {
     fn a_first_fill_takes_every_value_and_only_for_a_photo_dalica_has_nothing_for() {
         let date: DateTime = "2026-06-04T19:42:10".parse().unwrap();
         let other: DateTime = "2020-01-01T00:00:00".parse().unwrap();
-        let file = FileValues(Values { caption: "Tram".into(), tags: vec!["a".into()], star: true, place: Some((1.0, 2.0)), date: Some(date) });
+        let values = Values { caption: "Tram".into(), tags: vec!["a".into()], star: true, place: Some((1.0, 2.0)), date: Some(date) };
+        let file = FileValues(values, Facts::default());
         let (star, info) = first_fill(false, &PhotoInfo::default(), &file, Some(date)).unwrap();
         assert!(star);
         assert_eq!(
