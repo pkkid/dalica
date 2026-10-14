@@ -39,3 +39,6 @@ dalica-scenes.workspace = true
 # Temporary export locations and the export plan's property tests.
 tempfile.workspace = true
 proptest.workspace = true
+# The decoder's YCbCr samples before colour conversion, to check a lossless rotation within 1 level
+# (M8.14, as M8.8's tests do); already in the product graph under `dalica-image`.
+zune-jpeg.workspace = true
