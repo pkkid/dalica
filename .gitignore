@@ -20,3 +20,8 @@ target/
 # Editor / OS cruft
 *~
 .DS_Store
+
+# Claude Code's local files (skills and aitools.json in .claude/ are shared)
+/.claude/launch.json
+/.claude/worktrees/
+/.claude/settings.local.json
