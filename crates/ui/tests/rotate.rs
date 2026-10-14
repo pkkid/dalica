@@ -103,7 +103,10 @@ fn image_pixels(d: &Driver, p: &Painted) -> (u32, u32, Vec<u8>) {
 /// Mean absolute difference per channel of two equally sized RGBA buffers, `b` mirrored
 /// left-right.
 fn mirrored_difference(w: u32, a: &[u8], b: &[u8]) -> f64 {
-    let (w, h) = (w as usize, a.len() / 4 / w as usize);
+    // The bottom strip holds the badge row (the edited mark of a rotated photo), drawn the same way
+    // round on both: compare the photo above it.
+    let badges = (dalica_ui_kit::widgets::BADGE_PLATE + dalica_ui_kit::widgets::BADGE_INSET).ceil() as usize;
+    let (w, h) = (w as usize, (a.len() / 4 / w as usize).saturating_sub(badges));
     let mut sum = 0u64;
     for y in 0..h {
         for x in 0..w {

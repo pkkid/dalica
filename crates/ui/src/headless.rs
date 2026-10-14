@@ -165,6 +165,9 @@ pub struct Driver {
     /// Textures the last frame released, freed before the next frame's uploads.
     to_free: egui::TexturesDelta,
     perf: Perf,
+    /// The window commands the app sent (`StartDrag`, `Maximized`, …), oldest first, until taken
+    /// ([`Driver::take_window_commands`]): a headless run has no OS window to obey them.
+    window_commands: Vec<egui::ViewportCommand>,
     /// Test-only UI drawn over the app each frame (widgets M1's window does not have yet).
     #[cfg(test)]
     overlay: Option<Overlay>,
@@ -222,6 +225,7 @@ impl Driver {
             primitives: Vec::new(),
             to_free: egui::TexturesDelta::default(),
             perf: Perf::new(perf::profile_from_env()),
+            window_commands: Vec::new(),
             #[cfg(test)]
             overlay: None,
         };
@@ -249,6 +253,9 @@ impl Driver {
         });
         let layout = started.elapsed();
         let delay = out.viewport_output.get(&ViewportId::ROOT).map(|v| v.repaint_delay);
+        if let Some(v) = out.viewport_output.get(&ViewportId::ROOT) {
+            self.window_commands.extend(v.commands.iter().cloned());
+        }
         self.animating = delay.is_some_and(|d| d.is_zero());
         // egui says "until input" with `Duration::MAX`.
         self.repaint = delay.filter(|d| *d < Duration::MAX);
@@ -476,6 +483,11 @@ impl Driver {
             self.step();
         }
         Ok(())
+    }
+
+    /// The window commands the app sent since the last call, oldest first.
+    pub fn take_window_commands(&mut self) -> Vec<egui::ViewportCommand> {
+        std::mem::take(&mut self.window_commands)
     }
 
     /// Plays a raw gesture (`ui.pointer`, screen space): one frame per event, then one more. The

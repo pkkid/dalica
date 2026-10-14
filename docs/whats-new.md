@@ -21,6 +21,78 @@ This file is the user-facing changelog. Help ▸ Release Notes compiles it into 
   its translation until the catalogs catch up (docs/localization.md → Release notes).
 -->
 
+## 0.3.0 — October 2026
+
+Your edits can now leave Dalica. Save writes them into the photo itself, and the original is kept
+safely beside it, so you can always go back. Save a Copy and Save As write a new file and leave
+the photo as it is, and Export to Folder turns a selection, a folder or the tray into finished
+files, resized and watermarked if you like.
+
+### Saving
+
+- Save (File ▸ Save, Ctrl+S) writes a photo's edits into the file. A folder's header shows how
+  many of its photos have unsaved edits ("2 edited") with a Save button that saves them all. The
+  first time, Dalica explains what Save does; tick the box to stop it asking.
+- Every photo with unsaved changes shows the pencil mark in the library, a photo you only rotated
+  or flipped included, so the marks always match the header's count. The mark goes once the photo
+  is saved. (issue #454)
+- Before the first Save, the original file is moved into a hidden `.dalica-originals` folder next
+  to the photo. It stays there however often you save again: each Save starts from that original,
+  so quality never wears down. Undo Save (the edit panel's Undo button reads "Undo Save") puts the
+  original back and keeps your edits, unsaved; File ▸ Revert… puts the original back and drops the
+  edits.
+- A JPEG is saved at the quality it already had, with its colour layout kept, and keeps its camera
+  details, caption, tags and star. A photo you only rotated or flipped is turned without
+  re-compressing it at all, when its size allows; otherwise its orientation flag is changed.
+- PNG files are saved in place too. Formats Dalica cannot write (RAW, TIFF, WebP, HEIC, PNG with
+  transparency and others) get a JPEG beside them, a new photo of its own; the original file is
+  never changed and keeps its edits.
+- Save a Copy (File ▸ Save a Copy) writes `name-001.jpg`, `name-002.jpg` and so on beside the
+  photo. Save As (File ▸ Save As…) asks where, as JPEG or PNG, and
+  never writes over an existing file: pick another name if it is taken. Copies carry the caption,
+  tags and star.
+- If Dalica or the computer stops in the middle of a Save, the next start finishes or undoes it, so
+  the original is never lost.
+
+### Export
+
+- File ▸ Export Pictures to Folder… (Ctrl+Shift+S, or the Export button at the bottom and on a
+  folder's header) writes the selected photos, the tray or a folder into a new folder, with your
+  edits applied. Choose the size (the original, or a long side from 100 to 4000 pixels; photos are
+  never enlarged), the quality (Automatic keeps each JPEG's own, or Normal, Maximum, Minimum or
+  your own), numbered names (`001-…`) and a watermark of your own text in the bottom-right corner.
+- Exports run in the background with a progress window; Cancel stops after the current photo and
+  leaves only complete files. When it ends, Show Folder takes you to the new folder.
+- Exported folders are listed under Projects in the folder tree, wherever you put them.
+- Exports keep the photos' details (camera, dates, caption, tags, star).
+
+### Editing
+
+- The Tuning sliders show the photo's current Tuning even after you rotate or flip it later, and a
+  drag after those edits stays one step of Undo.
+- The edit view stays quiet while a preview is rendering, and a cropped thumbnail keeps its new
+  shape while its new picture is made.
+
+### Reliability
+
+- On Windows, Dalica now recognises a file by its real file identity, so a file replaced by
+  another program with the same size and time is never written over.
+- Opening never waits for folder checks or thumbnails: they carry on in the background, shown by
+  the activity indicator. While a library opens, the window says what Dalica is doing and counts
+  the seconds if it takes a while. (issue #451)
+- Every press and drag on the title bar moves the window; before, only every other one did on
+  Linux. (issue #453)
+
+### Not in this release yet
+
+- Edits beyond rotating and flipping are saved with 8 bits per channel: a 16-bit PNG stays 16-bit
+  but its finer steps are not kept through other edits.
+- Removing the GPS position from exports (keeping the place names) is built, but its switch lives
+  in Options, which comes in a later release; until then only automation can turn it on
+  (`export.run` with `removeLocation`).
+- Videos are skipped (and counted) by Export until Dalica can show them.
+- In the edit view, Ctrl+Z after a Save does not yet undo the Save; use the Undo Save button.
+
 ## 0.2.0 — October 2026
 
 Dalica can now edit your photos. Open a photo in the edit view to crop, straighten, retouch and

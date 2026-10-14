@@ -432,9 +432,11 @@ impl Thumbnails {
         self.shape(photo).turn
     }
 
-    /// Whether `photo`'s recipe changes its pixels (beyond rotations and flips): the edited badge.
-    pub fn edited(&mut self, photo: PhotoRef<'_>) -> bool {
-        self.shape(photo).edits.is_some()
+    /// Whether `photo` has edits not yet saved into its file, rotations and flips included: the
+    /// edited badge. The same test as the folder header's "n edited" count
+    /// (`Library::has_unsaved_edits`), so the two always agree and the badge goes after a Save.
+    pub fn edited(&self, photo: PhotoRef<'_>) -> bool {
+        photo.session.library().has_unsaved_edits(photo.photo.id)
     }
 
     /// The size `photo` shows at: what its edits keep of its file's displayed size (a crop's
