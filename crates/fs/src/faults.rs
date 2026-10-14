@@ -85,6 +85,73 @@ pub mod points {
     pub const NEW_MKDIR: &str = "create.mkdir";
     /// `fsync` of the parent after making the new folder.
     pub const NEW_MKDIR_FSYNC: &str = "create.mkdir_fsync";
+
+    /// Opening the source and destination folders of a move, a rename or a copy (`transfer`).
+    pub const MOVE_OPEN_DIR: &str = "transfer.open_dir";
+    /// Re-checking the source's identity right before it moves or is copied.
+    pub const MOVE_CHECK: &str = "transfer.check";
+    /// Armed as an error, the two folders answer that they are on different volumes, so a move
+    /// takes the cross-volume path (copy, verify, then the source to the trash); armed as a crash,
+    /// the operation stops there.
+    pub const MOVE_CROSS_VOLUME: &str = "transfer.cross_volume";
+    /// The rename that never replaces a file (one volume).
+    pub const MOVE_RENAME: &str = "transfer.rename";
+    /// `fsync` of both folders after the rename.
+    pub const MOVE_FSYNC_DIR: &str = "transfer.fsync_dir";
+    /// Checking that the file under the new name is the one that moved (or the verified copy).
+    pub const MOVE_VERIFY: &str = "transfer.verify";
+
+    /// Creating the copy's temporary file in the destination folder.
+    pub const COPY_TEMP: &str = "transfer.copy_temp";
+    /// Writing the source's bytes into the temporary file.
+    pub const COPY_WRITE: &str = "transfer.copy_write";
+    /// `fsync` of the temporary file.
+    pub const COPY_FSYNC: &str = "transfer.copy_fsync";
+    /// Armed as an error, one byte of the copy (of a file, or of the first file of a tree) is
+    /// flipped on disk before it is verified, which the verification must catch; armed as a crash,
+    /// the operation stops there.
+    pub const COPY_FLIP: &str = "transfer.copy_flip";
+    /// Comparing the copy byte for byte with the source.
+    pub const COPY_VERIFY: &str = "transfer.copy_verify";
+    /// Giving the verified copy its name, never replacing a file.
+    pub const COPY_COMMIT: &str = "transfer.copy_commit";
+    /// `fsync` of the destination folder after the copy got its name.
+    pub const COPY_FSYNC_DIR: &str = "transfer.copy_fsync_dir";
+
+    /// Re-checking, before the source of a cross-volume move goes to the trash, that the source is
+    /// unchanged and its verified copy is still in place.
+    pub const FINISH_CHECK: &str = "transfer.finish_check";
+
+    /// Making a folder whose name must be free (`transfer::new_folder`).
+    pub const FOLDER_MKDIR: &str = "transfer.mkdir";
+    /// `fsync` of the parent after making it.
+    pub const FOLDER_MKDIR_FSYNC: &str = "transfer.mkdir_fsync";
+    /// Re-checking a folder's identity right before it is renamed, moved or copied.
+    pub const FOLDER_CHECK: &str = "transfer.folder_check";
+    /// Renaming or moving a folder in one step that never replaces one (one volume).
+    pub const FOLDER_RENAME: &str = "transfer.folder_rename";
+    /// `fsync` of both parents after the folder moved.
+    pub const FOLDER_FSYNC_DIR: &str = "transfer.folder_fsync_dir";
+
+    /// Making the temporary folder a cross-volume folder move copies the tree into, or a folder
+    /// of the tree inside it.
+    pub const TREE_MKDIR: &str = "transfer.tree_mkdir";
+    /// Writing one file of the tree into the copy.
+    pub const TREE_WRITE: &str = "transfer.tree_write";
+    /// `fsync` of one copied file.
+    pub const TREE_FSYNC: &str = "transfer.tree_fsync";
+    /// Comparing one copied file byte for byte with its source.
+    pub const TREE_VERIFY: &str = "transfer.tree_verify";
+    /// Giving the verified copy of the tree its name, never replacing a folder.
+    pub const TREE_COMMIT: &str = "transfer.tree_commit";
+
+    /// Armed as an error, the volume answers that it has no trash (`trash::send` returns
+    /// `Sent::NoTrash` and the item stays); armed as a crash, the operation stops there.
+    pub const TRASH_NO_TRASH: &str = "trash.no_trash";
+    /// Handing the item to the OS trash.
+    pub const TRASH_SEND: &str = "trash.send";
+    /// Moving items back out of the OS trash.
+    pub const TRASH_RESTORE: &str = "trash.restore";
 }
 
 /// The atomic-replace points, in order.
@@ -114,6 +181,49 @@ pub const NEW_FILE_DIRECT_POINTS: [&str; 4] = [points::NEW_DIRECT_WRITE, points:
 
 /// The points of making a new folder, in order.
 pub const NEW_FOLDER_POINTS: [&str; 2] = [points::NEW_MKDIR, points::NEW_MKDIR_FSYNC];
+
+/// The points of moving or renaming a file on one volume, in order.
+pub const MOVE_POINTS: [&str; 5] = [points::MOVE_OPEN_DIR, points::MOVE_CHECK, points::MOVE_RENAME, points::MOVE_FSYNC_DIR, points::MOVE_VERIFY];
+
+/// The points of copying a file (the first phase of a cross-volume move, after
+/// [`points::MOVE_CROSS_VOLUME`] armed as an error), in order.
+pub const COPY_POINTS: [&str; 9] = [
+    points::MOVE_OPEN_DIR,
+    points::MOVE_CHECK,
+    points::COPY_TEMP,
+    points::COPY_WRITE,
+    points::COPY_FSYNC,
+    points::COPY_VERIFY,
+    points::COPY_COMMIT,
+    points::COPY_FSYNC_DIR,
+    points::MOVE_VERIFY,
+];
+
+/// The points a cross-volume move reaches after [`COPY_POINTS`]: the second phase, in order.
+pub const FINISH_POINTS: [&str; 2] = [points::FINISH_CHECK, points::TRASH_SEND];
+
+/// The points of making a folder whose name must be free, in order.
+pub const FOLDER_NEW_POINTS: [&str; 2] = [points::FOLDER_MKDIR, points::FOLDER_MKDIR_FSYNC];
+
+/// The points of renaming or moving a folder on one volume, in order.
+pub const FOLDER_MOVE_POINTS: [&str; 4] = [points::MOVE_OPEN_DIR, points::FOLDER_CHECK, points::FOLDER_RENAME, points::FOLDER_FSYNC_DIR];
+
+/// The points of moving a folder across volumes (after [`points::MOVE_CROSS_VOLUME`] armed as an
+/// error), in order: the tree copied and verified file by file, then the source tree to the trash.
+pub const TREE_POINTS: [&str; 9] = [
+    points::MOVE_OPEN_DIR,
+    points::FOLDER_CHECK,
+    points::TREE_MKDIR,
+    points::TREE_WRITE,
+    points::TREE_FSYNC,
+    points::TREE_VERIFY,
+    points::TREE_COMMIT,
+    points::FINISH_CHECK,
+    points::TRASH_SEND,
+];
+
+/// The points of sending an item to the OS trash, and of bringing items back.
+pub const TRASH_POINTS: [&str; 2] = [points::TRASH_SEND, points::TRASH_RESTORE];
 
 /// How an armed fault point fails.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -3886,7 +3886,7 @@ mid-run.
     drops into the middle re-key before 512 bytes with the order unchanged; equal keys sort by path
     then name; Recently Updated follows a virtual clock; the section filter drops sections without
     matches in flat and tree mode; loading facts or digests bumps no revision.
-- ⬜ **M9.2 `fs`: the OS trash, and moves and copies that never replace a file**
+- ✅ **M9.2 `fs`: the OS trash, and moves and copies that never replace a file**
   - after: M8.2, M8.R
   - files: `crates/fs/src/trash.rs`, `crates/fs/src/transfer.rs`, `crates/fs/src/transfer/**`, `crates/fs/src/faults.rs`, `crates/fs/tests/trash.rs`, `crates/fs/tests/transfer.rs`, `docs/security.md`, `NOTICE`
   - scope: `security.md` §5.3 and §5.7 and `data-model.md` §8: `transfer.rs` moves a file to

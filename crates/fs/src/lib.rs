@@ -21,6 +21,8 @@ pub mod originals;
 pub mod pack;
 pub mod stale;
 pub mod times;
+pub mod transfer;
+pub mod trash;
 pub mod walk;
 
 use std::io;

@@ -16,10 +16,14 @@ faults = []
 [dependencies]
 dalica-core.workspace = true
 thiserror.workspace = true
+# The OS trash (`trash` module, security.md §5.7): the freedesktop.org trash on Linux and the BSDs,
+# the Recycle Bin through the shell on Windows, `NSFileManager` on macOS. Pure Rust (MIT).
+trash.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 # Every step of an atomic replace relative to one held folder handle (security.md §5.6).
-rustix.workspace = true
+# `process` for the user id that names a volume's own trash folder (`.Trash-<uid>`).
+rustix = { workspace = true, features = ["process"] }
 
 [target.'cfg(windows)'.dependencies]
 # The file identity (volume serial number and file index) through a handle (security.md §5.2).
