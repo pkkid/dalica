@@ -35,9 +35,10 @@ const TINT: [f64; 3] = [1.0, 0.86, 0.68];
 /// The grey patch before the cast, and its share of each side around the centre.
 const GREY: f64 = 150.0;
 const PATCH: f64 = 0.3;
-/// How long a [`slow_drag`] move waits for its draft to arrive (a slow, shared CI runner's debug
-/// build can take hundreds of milliseconds per draft).
-const DRAFT_WAIT: Duration = Duration::from_secs(2);
+/// The longest a [`slow_drag`] move waits for its draft to arrive: only a guard against a hang,
+/// as the move waits for the draft itself (however slow a shared CI runner's debug build is), not
+/// for a time.
+const DRAFT_WAIT: Duration = Duration::from_secs(60);
 
 struct T {
     _dir: tempfile::TempDir,
@@ -191,55 +192,72 @@ fn until(t: &mut T, what: &str, mut done: impl FnMut(&mut T) -> bool) {
     t.d.settle(FRAMES).unwrap();
 }
 
-/// What a [`slow_drag`] saw: the driver's clock just after the press and just before the release
-/// (the moves' frames lie between), and how many moves left their draft still rendering on the
-/// preview's workers when their frames were done.
+/// What a [`slow_drag`] saw: every frame's time and every draft's time (request to shown) from
+/// the press to the last move, gathered as they happen (the perf window holds only the last
+/// frames), and how many moves left their draft still rendering on the preview's workers when
+/// their frames were done.
 struct Dragged {
-    pressed: f64,
-    moved: f64,
+    frames: Vec<Duration>,
+    drafts: Vec<Duration>,
     rendering: usize,
 }
 
-/// Drags slider `id` from its centre by `dx` in `steps` moves, letting drafts arrive between them.
+/// The frames drawn since `seen` (a perf sample's clock time), gathered into `d`; `seen` moves on.
+fn gather(t: &T, seen: &mut f64, d: &mut Dragged) {
+    let from = *seen;
+    for s in t.d.perf().samples().filter(|s| s.at > from) {
+        d.frames.push(s.update);
+        d.drafts.extend(s.preview_draft);
+        *seen = s.at;
+    }
+}
+
+/// Drags slider `id` from its centre by `dx` in `steps` moves, each move's draft arriving before the
+/// next move. Waits for each draft itself, so the drag proves the same on a fast machine and on a
+/// loaded one: a draft that lands within the move's own frames is counted, and a draft that never
+/// arrives (dropped, or cancelled by the frames of the slider held still) fails the drag.
 fn slow_drag(t: &mut T, id: &str, dx: f32, steps: usize) -> Dragged {
     let w = widget(t, id);
     let start = pos2(w.rect[0] + w.rect[2] / 2.0, w.rect[1] + w.rect[3] / 2.0);
     let ev = |kind, pos| PointerEvent { kind, pos };
     t.d.pointer(&[ev(PointerKind::Move, start), ev(PointerKind::Down, start)], PointerButton::Primary, Modifiers::NONE).unwrap();
-    let pressed = t.d.perf().last().map_or(0.0, |s| s.at);
-    let mut rendering = 0;
+    let mut seen = t.d.perf().last().map_or(0.0, |s| s.at);
+    let mut dragged = Dragged { frames: Vec::new(), drafts: Vec::new(), rendering: 0 };
+    let requests = |t: &T| t.d.app().session().unwrap().preview_stats().requests;
     for i in 1..=steps {
         let at = start + vec2(dx * i as f32 / steps as f32, 0.0);
+        let drafts_before = dragged.drafts.len();
         t.d.pointer(&[ev(PointerKind::Drag, at)], PointerButton::Primary, Modifiers::NONE).unwrap();
         // The frames are done and the move's draft is still on the workers: no frame waited for it.
         if t.d.app().session().unwrap().preview_pending() > 0 {
-            rendering += 1;
+            dragged.rendering += 1;
         }
-        // The move's draft has time to arrive before the next move, however slow the machine: wait
-        // (on the session's own wait, a frame drawn after each slice) until a frame has shown a
-        // draft since this move, for at most 2 s. Slices of 100 ms keep a drag's frames well
-        // inside the perf window the drafts are counted from.
-        let (mark, since) = (t.d.perf().last().map_or(0.0, |s| s.at), Instant::now());
-        let requests = |t: &T| t.d.app().session().unwrap().preview_stats().requests;
+        gather(t, &mut seen, &mut dragged);
         let before = requests(t);
         // Frames go on while the slider is held still (as the window's would).
         for _ in 0..3 {
             t.d.step();
         }
-        let arrived = |t: &T| t.d.perf().samples().any(|s| s.at > mark && s.preview_draft.is_some());
-        while !arrived(t) && since.elapsed() < DRAFT_WAIT {
+        gather(t, &mut seen, &mut dragged);
+        // Wait for the move's draft (on the session's own wait, a frame drawn after each slice of
+        // 100 ms), whenever it lands: within the move's frames, the held-still frames or later.
+        let since = Instant::now();
+        while dragged.drafts.len() == drafts_before {
+            assert!(since.elapsed() < DRAFT_WAIT, "move {i}'s draft did not arrive within {DRAFT_WAIT:?}");
+            let idle = t.d.app().session().unwrap().preview_pending() == 0;
             t.d.app_mut().session_mut().unwrap().wait_preview(Duration::from_millis(100));
             t.d.step();
+            gather(t, &mut seen, &mut dragged);
+            assert!(!idle || dragged.drafts.len() > drafts_before, "move {i}'s draft was dropped: no preview job is left and no frame showed it");
         }
         // The slider held still: its frames left the move's draft alone (asking for the same
         // preview again would cancel it, and a draft slower than a frame would never arrive).
         assert_eq!(requests(t), before, "frames of a slider held still asked again for move {i}'s preview, cancelling its draft");
     }
-    let moved = t.d.perf().last().map_or(0.0, |s| s.at);
     let end = start + vec2(dx, 0.0);
     t.d.pointer(&[ev(PointerKind::Up, end), ev(PointerKind::Move, pos2(5.0, 5.0))], PointerButton::Primary, Modifiers::NONE).unwrap();
     t.d.settle(FRAMES).unwrap();
-    Dragged { pressed, moved, rendering }
+    dragged
 }
 
 /// The nearest-rank `q` quantile of `v` (sorted here).
@@ -309,10 +327,8 @@ fn a_fill_light_drag_is_one_tuning_step_and_basic_fixes_shows_it() {
     let steps = 8;
     let dragged = slow_drag(&mut t, "slider:tuning.fill_light", 60.0, steps);
     assert!(dragged.rendering >= steps - 1, "the moves' frames ended while their drafts rendered: {} of {steps}", dragged.rendering);
-    let during = |s: &&dalica_ui::perf::Sample| s.at > dragged.pressed && s.at <= dragged.moved;
-    let drafts: Vec<Duration> = t.d.perf().samples().filter(during).filter_map(|s| s.preview_draft).collect();
-    assert!(drafts.len() >= steps / 2, "drafts arrived while dragging: {drafts:?}");
-    let frames: Vec<Duration> = t.d.perf().samples().filter(during).map(|s| s.update).collect();
+    let Dragged { frames, drafts, .. } = dragged;
+    assert!(drafts.len() >= steps, "every move's draft arrived while dragging: {drafts:?}");
     let (frames_p95, drafts_p95) = (quantile(frames.clone(), 0.95), quantile(drafts.clone(), 0.95));
     eprintln!("drag: frames p95 {frames_p95:?}, drafts p95 {drafts_p95:?} ({drafts:?})");
     if std::env::var_os("DALICA_ACCEPT_RELEASE").is_some() {
