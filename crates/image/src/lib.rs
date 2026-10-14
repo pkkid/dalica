@@ -24,6 +24,7 @@ pub mod exif;
 pub mod formats;
 pub mod ifd;
 pub mod jpeg_quality;
+pub mod jpeg_transform;
 pub mod limits;
 pub mod orient;
 pub mod resize;
