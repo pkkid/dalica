@@ -32,6 +32,17 @@
 //!   export progress window ([`export_progress`]) is drawn here too, but it is no dialog of the
 //!   stack: the window under it keeps taking input.
 //!
+//! - **M9's dialogs** (stubs: their drafts and buttons are final, their bodies show the draft as
+//!   text until M9.17–M9.20 draw them): Album Properties ([`album_properties`], `album.new` and
+//!   `section.properties` on an album), the new-folder dialog ([`new_folder`], Move to New
+//!   Folder… and Split Folder Here…), Rename Files ([`rename_files`], F2), the copy question
+//!   ([`copy_confirm`], asked by the UI before `photo.copyTo`) and the collision question
+//!   ([`collision`]); and the confirmations of [`confirm::ASKS`] for `album.delete`,
+//!   `album.remove` ([`remove_from_album`]), `photo.delete` and `folder.delete` ([`delete`]) and
+//!   `photo.moveTo` ([`move_confirm`], with "Don't ask again"). Their drafts are fields of the view
+//!   state (`albumProperties`, `newFolder`, `renameFiles`, `moveFiles`, `copyFiles`, `collision`,
+//!   `deletePhotos`, `deleteFolder`), set when they open and cleared when they close.
+//!
 //! Each kind lives in a module of its own with the same three functions, which the host
 //! dispatches to: `look` (title, width, buttons), `body` (draws the draft and edits it in place)
 //! and `act` (what a button other than Cancel does). A new kind adds its [`DialogKind`] variant,
@@ -43,15 +54,23 @@
 
 pub mod about;
 pub mod adjust_date;
+pub mod album_properties;
+pub mod collision;
 pub mod confirm;
+pub mod copy_confirm;
 pub mod custom_ratio;
+pub mod delete;
 pub mod export;
 pub mod export_progress;
 pub mod first_run;
 pub mod folder_manager;
 pub mod folder_properties;
+pub mod move_confirm;
+pub mod new_folder;
 pub mod quick_tags;
 pub mod release_notes;
+pub mod remove_from_album;
+pub mod rename_files;
 pub mod rename_tag;
 pub mod revert;
 pub mod save_explain;
@@ -116,7 +135,7 @@ pub fn widget_id(kind: DialogKind) -> String {
 
 fn look(app: &App, d: &Dialog) -> Look {
     match d.kind {
-        DialogKind::ClearTray | DialogKind::RemoveFolder | DialogKind::WatchDrive => confirm::look(d),
+        DialogKind::ClearTray | DialogKind::RemoveFolder | DialogKind::WatchDrive | DialogKind::DeleteAlbum => confirm::look(d),
         DialogKind::FolderManager => folder_manager::look(app, d),
         DialogKind::FirstRun => first_run::look(app, d),
         DialogKind::FolderProperties => folder_properties::look(app, d),
@@ -129,12 +148,20 @@ fn look(app: &App, d: &Dialog) -> Look {
         DialogKind::SaveExplain => save_explain::look(app, d),
         DialogKind::Revert => revert::look(app, d),
         DialogKind::Export => export::look(app, d),
+        DialogKind::AlbumProperties => album_properties::look(app, d),
+        DialogKind::RemoveFromAlbum => remove_from_album::look(app, d),
+        DialogKind::MoveFiles => move_confirm::look(app, d),
+        DialogKind::CopyFiles => copy_confirm::look(app, d),
+        DialogKind::Collision => collision::look(app, d),
+        DialogKind::NewFolder => new_folder::look(app, d),
+        DialogKind::RenameFiles => rename_files::look(app, d),
+        DialogKind::DeletePhotos | DialogKind::DeleteFolder => delete::look(app, d),
     }
 }
 
 fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
     match d.kind {
-        DialogKind::ClearTray | DialogKind::RemoveFolder | DialogKind::WatchDrive => confirm::body(app, ui, d),
+        DialogKind::ClearTray | DialogKind::RemoveFolder | DialogKind::WatchDrive | DialogKind::DeleteAlbum => confirm::body(app, ui, d),
         DialogKind::FolderManager => folder_manager::body(app, ui, d),
         DialogKind::FirstRun => first_run::body(app, ui, d),
         DialogKind::FolderProperties => folder_properties::body(app, ui, d),
@@ -147,12 +174,20 @@ fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
         DialogKind::SaveExplain => save_explain::body(app, ui, d),
         DialogKind::Revert => revert::body(app, ui, d),
         DialogKind::Export => export::body(app, ui, d),
+        DialogKind::AlbumProperties => album_properties::body(app, ui, d),
+        DialogKind::RemoveFromAlbum => remove_from_album::body(app, ui, d),
+        DialogKind::MoveFiles => move_confirm::body(app, ui, d),
+        DialogKind::CopyFiles => copy_confirm::body(app, ui, d),
+        DialogKind::Collision => collision::body(app, ui, d),
+        DialogKind::NewFolder => new_folder::body(app, ui, d),
+        DialogKind::RenameFiles => rename_files::body(app, ui, d),
+        DialogKind::DeletePhotos | DialogKind::DeleteFolder => delete::body(app, ui, d),
     }
 }
 
 fn act(app: &mut App, d: &Dialog, action: &str) -> Result<Value, CmdError> {
     match d.kind {
-        DialogKind::ClearTray | DialogKind::RemoveFolder | DialogKind::WatchDrive => confirm::act(app, d, action),
+        DialogKind::ClearTray | DialogKind::RemoveFolder | DialogKind::WatchDrive | DialogKind::DeleteAlbum => confirm::act(app, d, action),
         DialogKind::FolderManager => folder_manager::act(app, d, action),
         DialogKind::FirstRun => first_run::act(app, d, action),
         DialogKind::FolderProperties => folder_properties::act(app, d, action),
@@ -165,6 +200,14 @@ fn act(app: &mut App, d: &Dialog, action: &str) -> Result<Value, CmdError> {
         DialogKind::SaveExplain => save_explain::act(app, d, action),
         DialogKind::Revert => revert::act(app, d, action),
         DialogKind::Export => export::act(app, d, action),
+        DialogKind::AlbumProperties => album_properties::act(app, d, action),
+        DialogKind::RemoveFromAlbum => remove_from_album::act(app, d, action),
+        DialogKind::MoveFiles => move_confirm::act(app, d, action),
+        DialogKind::CopyFiles => copy_confirm::act(app, d, action),
+        DialogKind::Collision => collision::act(app, d, action),
+        DialogKind::NewFolder => new_folder::act(app, d, action),
+        DialogKind::RenameFiles => rename_files::act(app, d, action),
+        DialogKind::DeletePhotos | DialogKind::DeleteFolder => delete::act(app, d, action),
     }
 }
 
@@ -183,6 +226,17 @@ pub fn draft_lines(app: &App, ui: &mut Ui, d: &Dialog, keys: &[&str]) {
             None => String::new(),
         };
         let mut line: String = format!("{key}: {value}").chars().take(LINE_CHARS).collect();
+        line.retain(|c| !c.is_control());
+        ui.label(egui::RichText::new(line).font(dalica_ui_kit::fonts::regular(t.body)).color(t.text_label));
+    }
+}
+
+/// Draws `lines` as read-only text, one per row, each cut to one line: the body of a stub dialog
+/// whose own layout arrives later, so its draft is visible on screen and in screenshots.
+pub fn text_lines(app: &App, ui: &mut Ui, lines: &[String]) {
+    let t = *app.tokens();
+    for line in lines {
+        let mut line: String = line.chars().take(LINE_CHARS).collect();
         line.retain(|c| !c.is_control());
         ui.label(egui::RichText::new(line).font(dalica_ui_kit::fonts::regular(t.body)).color(t.text_label));
     }
@@ -213,14 +267,22 @@ pub fn open(app: &mut App, dialog: Dialog) -> Result<Value, CmdError> {
     Ok(json!({ "dialog": kind.name() }))
 }
 
-/// Takes the dialog of `kind` off the stack, and its draft out of the view state (M8's dialogs
-/// keep theirs there).
+/// Takes the dialog of `kind` off the stack, and its draft out of the view state (M8's and M9's
+/// dialogs keep theirs there).
 fn close(app: &mut App, kind: DialogKind) -> Option<Dialog> {
     let state = app.state_mut();
     match kind {
         DialogKind::SaveExplain => state.save_explain = None,
         DialogKind::Revert => state.revert = None,
         DialogKind::Export => state.export = None,
+        DialogKind::AlbumProperties => state.album_properties = None,
+        DialogKind::RenameFiles => state.rename_files = None,
+        DialogKind::NewFolder => state.new_folder = None,
+        DialogKind::MoveFiles => state.move_files = None,
+        DialogKind::CopyFiles => state.copy_files = None,
+        DialogKind::Collision => state.collision = None,
+        DialogKind::DeletePhotos => state.delete_photos = None,
+        DialogKind::DeleteFolder => state.delete_folder = None,
         _ => {}
     }
     let dialogs = &mut state.dialogs;
@@ -297,12 +359,15 @@ pub fn asking(app: &App, command: &str, params: &Value) -> Option<&'static confi
 }
 
 /// Asks through the host: opens the confirmation `ask` for running its command with `params`, and
-/// for M8's questions their draft in the view state (`saveExplain`, `revert`).
+/// for M8's and M9's questions their draft in the view state (`saveExplain`, `revert`,
+/// `moveFiles`, `deletePhotos`, `deleteFolder`).
 pub fn ask(app: &mut App, ask: &confirm::Ask, params: &Value) -> Result<Value, CmdError> {
     let reply = open(app, confirm::dialog(ask, params))?;
     match ask.kind {
         DialogKind::SaveExplain => save_explain::opened(app, params),
         DialogKind::Revert => revert::opened(app, params),
+        DialogKind::MoveFiles => move_confirm::opened(app, params),
+        DialogKind::DeletePhotos | DialogKind::DeleteFolder => delete::opened(app, ask.kind, params),
         _ => {}
     }
     Ok(reply)

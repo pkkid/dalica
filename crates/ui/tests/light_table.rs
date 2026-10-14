@@ -277,13 +277,7 @@ fn section_scroll_to_brings_the_header_to_the_top_in_0_2_s() {
     assert_eq!(info(&d).sticky, None);
 
     // A tree row's click does the same.
-    d.click(&format!(
-        "tree:folder:{}",
-        match order[2] {
-            Section::Folder(f) => f.get(),
-        }
-    ))
-    .unwrap();
+    d.click(&format!("tree:folder:{}", order[2].folder().unwrap().get())).unwrap();
     d.settle(FRAMES).unwrap();
     assert_eq!(header_top(&d, order[2]), Some(area_top));
 }
@@ -300,7 +294,7 @@ fn section_scroll_to_fails_gracefully() {
         (json!("folder:1"), true),
         (json!({ "section": 12 }), true),
         (json!({ "section": "" }), true),
-        (json!({ "section": "album:a91c0e" }), true),
+        (json!({ "section": "album:x" }), true),
         (json!({ "section": "folder:-1" }), true),
         (json!({ "section": "folder:1", "offset": 3 }), true),
         (json!({ "section": "folder:99999" }), false),

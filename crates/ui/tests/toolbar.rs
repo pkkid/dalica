@@ -179,8 +179,8 @@ fn controls_without_a_command_are_disabled_and_the_view_options_popup_opens() {
     let mut d = driver(dir.path(), (1400.0, 900.0));
     for (id, _) in CONTROLS {
         let wi = widget(&d, id);
-        // ▾ and Flat | Tree (`view.folderView`) have their commands.
-        let want = matches!(id, "button:toolbar.viewOptions" | "button:tree.flat" | "button:tree.tree");
+        // ▾, Flat | Tree (`view.folderView`) and New Album (`album.new`) have their commands.
+        let want = matches!(id, "button:toolbar.viewOptions" | "button:tree.flat" | "button:tree.tree" | "button:toolbar.newAlbum");
         assert_eq!(wi.enabled, want, "`{id}` enabled: {}", wi.enabled);
     }
     let before = d.state().clone();

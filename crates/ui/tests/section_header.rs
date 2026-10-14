@@ -56,9 +56,7 @@ fn get<'a>(widgets: &'a [WidgetInfo], id: &str) -> &'a WidgetInfo {
 }
 
 fn folder_of(s: Section) -> FolderId {
-    match s {
-        Section::Folder(f) => f,
-    }
+    s.folder().unwrap()
 }
 
 /// Writes the last frame to `target/test-output/ui/<name>.png`, to look at.

@@ -3940,7 +3940,7 @@ mid-run.
     `rebase` moves nested entries and keeps the others; `crates/engine/tests/settings_m9.rs`
     round-trips every new setting with unknown keys kept and wrong types falling back (reported);
     every existing engine test and `panic_hunt` pass unchanged.
-- ⬜ **M9.4 `ui`: M9's view state, UI commands, the photo context menu's frame and stub dialogs**
+- ✅ **M9.4 `ui`: M9's view state, UI commands, the photo context menu's frame and stub dialogs**
   - after: M8.4, M8.R
   - files: `crates/ui/src/state.rs`, `crates/ui/src/menus.rs`, `crates/ui/src/menu_catalog.rs`, `crates/ui/src/app.rs`, `crates/ui/src/keys.rs`, `crates/ui/src/commands/mod.rs`, `crates/ui/src/commands/albums.rs`, `crates/ui/src/commands/search.rs`, `crates/ui/src/commands/files.rs`, `crates/ui/src/commands/rename.rs`, `crates/ui/src/commands/folder_ops.rs`, `crates/ui/src/commands/clipboard.rs`, `crates/ui/src/dialogs/mod.rs`, `crates/ui/src/dialogs/confirm.rs`, `crates/ui/src/dialogs/album_properties.rs`, `crates/ui/src/dialogs/remove_from_album.rs`, `crates/ui/src/dialogs/move_confirm.rs`, `crates/ui/src/dialogs/copy_confirm.rs`, `crates/ui/src/dialogs/collision.rs`, `crates/ui/src/dialogs/new_folder.rs`, `crates/ui/src/dialogs/rename_files.rs`, `crates/ui/src/dialogs/delete.rs`, `crates/ui/src/panels/mod.rs`, `crates/ui/src/panels/layout.rs`, `crates/ui/src/panels/search_banner.rs`, `crates/ui/src/panels/light_table/context_menu.rs`, `crates/ui/src/panels/light_table/input.rs`, `crates/ui/src/drag.rs`, `crates/ui/src/control/**`, `crates/ui/tests/view_state_m9.rs`, `docs/control-protocol.md`
   - scope: every M9 field of `UiState` in one go: the search field's text, the autocomplete

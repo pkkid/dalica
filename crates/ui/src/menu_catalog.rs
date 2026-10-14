@@ -74,6 +74,9 @@ pub struct Menu {
     /// The title shown while the current section is an album or person (the fourth menu).
     pub album_title: Option<&'static str>,
     pub entries: &'static [Entry],
+    /// The rows shown while the current section is an album (the fourth menu's Album variant,
+    /// `organizing.md` §9.2); `None`: the same rows.
+    pub album_entries: Option<&'static [Entry]>,
 }
 
 /// A plain item running `id`.
@@ -252,6 +255,92 @@ pub const SECTION: &[Entry] = &[
     item("Delete…", "folder.delete").album("album.delete").e(),
 ];
 
+/// Album ▸ Sort Album By (`organizing.md` §4.3): rewrites the album's order.
+pub const ALBUM_SORT: &[Entry] = SORT;
+
+/// The fourth menu's Album variant, also an album section's context menu (`organizing.md` §9.2):
+/// Album Properties…, Delete Album…, the selection rows, Refresh Thumbnails and Sort Album By.
+pub const ALBUM_SECTION: &[Entry] = &[
+    item("Album Properties…", "section.properties").e(),
+    item("Delete Album…", "album.delete").e(),
+    SEP,
+    item("Select All", "select.all").key("Ctrl+A").e(),
+    item("Select None", "select.none").key("Ctrl+D").e(),
+    item("Invert Selection", "select.invert").key("Ctrl+I").e(),
+    SEP,
+    item("Refresh Thumbnails", "section.refreshThumbs").e(),
+    Entry::Submenu("Sort Album By", ALBUM_SORT),
+];
+
+/// The photo menu's Add to Album ▸: the albums by name (M9.18 adds them), then New Album….
+pub const ADD_TO_ALBUM: &[Entry] = &[item("New Album…", "album.new").e()];
+
+/// The photo menu's Open With ▸: the system's handlers (OS integration, M15).
+pub const OPEN_WITH: &[Entry] = &[item("Choose Application…", "photo.openWith").e()];
+
+/// The photo context menu of a thumbnail in a folder (`organizing.md` §9.1), in order.
+pub const PHOTO: &[Entry] = &[
+    item("View and Edit", "view.edit").key("Enter").e(),
+    Entry::Submenu("Add to Album", ADD_TO_ALBUM),
+    SEP,
+    item("Rotate Clockwise", "photo.rotate.cw").key("Ctrl+R").e(),
+    item("Rotate Counterclockwise", "photo.rotate.ccw").key("Ctrl+Shift+R").e(),
+    SEP,
+    item("Undo All Edits…", "edit.undoAll").e(),
+    SEP,
+    item("Hide", "photo.hide").e(),
+    SEP,
+    item("Move to New Folder…", "photo.moveToNewFolder").e(),
+    item("Split Folder Here…", "photo.splitFolder").e(),
+    SEP,
+    item("Open in External Editor", "photo.openExternal").key("Ctrl+Shift+O").e(),
+    Entry::Submenu("Open With", OPEN_WITH),
+    SEP,
+    item("Save", "photo.save").key("Ctrl+S").e(),
+    item("Revert…", "photo.revert").e(),
+    SEP,
+    item("Locate on Disk", "photo.locate").key("Ctrl+Enter").e(),
+    item("Delete from Disk…", "photo.delete").key("Delete").e(),
+    item("Copy Path", "photo.copyPath").e(),
+    SEP,
+    item("Find Faces Again", "faces.reset").e(),
+    SEP,
+    item("Properties", "pane.properties").key("Alt+Enter").mac_key("Cmd+I").e(),
+];
+
+/// The photo context menu of a thumbnail in an album: Delete from Disk becomes Remove from Album,
+/// and Show in Folder and Set as Album Cover join (`organizing.md` §4.3, §9.1).
+pub const PHOTO_IN_ALBUM: &[Entry] = &[
+    item("View and Edit", "view.edit").key("Enter").e(),
+    Entry::Submenu("Add to Album", ADD_TO_ALBUM),
+    SEP,
+    item("Rotate Clockwise", "photo.rotate.cw").key("Ctrl+R").e(),
+    item("Rotate Counterclockwise", "photo.rotate.ccw").key("Ctrl+Shift+R").e(),
+    SEP,
+    item("Undo All Edits…", "edit.undoAll").e(),
+    SEP,
+    item("Hide", "photo.hide").e(),
+    SEP,
+    item("Move to New Folder…", "photo.moveToNewFolder").e(),
+    item("Split Folder Here…", "photo.splitFolder").e(),
+    SEP,
+    item("Open in External Editor", "photo.openExternal").key("Ctrl+Shift+O").e(),
+    Entry::Submenu("Open With", OPEN_WITH),
+    SEP,
+    item("Save", "photo.save").key("Ctrl+S").e(),
+    item("Revert…", "photo.revert").e(),
+    SEP,
+    item("Show in Folder", "photo.showInFolder").e(),
+    item("Set as Album Cover", "album.setCover").e(),
+    item("Locate on Disk", "photo.locate").key("Ctrl+Enter").e(),
+    item("Remove from Album", "album.remove").key("Delete").e(),
+    item("Copy Path", "photo.copyPath").e(),
+    SEP,
+    item("Find Faces Again", "faces.reset").e(),
+    SEP,
+    item("Properties", "pane.properties").key("Alt+Enter").mac_key("Cmd+I").e(),
+];
+
 /// Picture ▸ Batch Edit (`editing.md` §9): applies to the selection or the tray.
 pub const BATCH_EDIT: &[Entry] = &[
     item("Rename…", "photo.rename").part("batch", "").key("F2").e(),
@@ -349,20 +438,21 @@ pub const HELP: &[Entry] = &[
 
 /// The menu bar, left to right.
 pub const MENU_BAR: &[Menu] = &[
-    Menu { key: "File", album_title: None, entries: FILE },
-    Menu { key: "Edit", album_title: None, entries: EDIT },
-    Menu { key: "View", album_title: None, entries: VIEW },
-    Menu { key: "Folder", album_title: Some("Album"), entries: SECTION },
-    Menu { key: "Picture", album_title: None, entries: PICTURE },
-    Menu { key: "Create", album_title: None, entries: CREATE },
-    Menu { key: "Tools", album_title: None, entries: TOOLS },
-    Menu { key: "Help", album_title: None, entries: HELP },
+    Menu { key: "File", album_title: None, entries: FILE, album_entries: None },
+    Menu { key: "Edit", album_title: None, entries: EDIT, album_entries: None },
+    Menu { key: "View", album_title: None, entries: VIEW, album_entries: None },
+    Menu { key: "Folder", album_title: Some("Album"), entries: SECTION, album_entries: Some(ALBUM_SECTION) },
+    Menu { key: "Picture", album_title: None, entries: PICTURE, album_entries: None },
+    Menu { key: "Create", album_title: None, entries: CREATE, album_entries: None },
+    Menu { key: "Tools", album_title: None, entries: TOOLS, album_entries: None },
+    Menu { key: "Help", album_title: None, entries: HELP, album_entries: None },
 ];
 
 /// The macOS application menu, first on the bar there: About, Preferences…, Hide, Quit.
 pub const MAC_APP_MENU: Menu = Menu {
     key: "Dalica",
     album_title: None,
+    album_entries: None,
     entries: &[
         item("About Dalica", "app.about").e(),
         SEP,
@@ -424,6 +514,45 @@ mod tests {
         for menu in MENU_BAR.iter().chain([&MAC_APP_MENU]) {
             check(menu.key, menu.entries);
         }
+        check("Album", ALBUM_SECTION);
+        check("Photo", PHOTO);
+        check("Photo in an album", PHOTO_IN_ALBUM);
+    }
+
+    /// The photo menu reads as `organizing.md` §9.1 says, and in an album Delete from Disk becomes
+    /// Remove from Album with Show in Folder and Set as Album Cover beside it.
+    #[test]
+    fn the_photo_menu_lists_its_rows_in_order() {
+        let labels = |e: &'static [Entry]| items(e).iter().map(|i| i.label).collect::<Vec<_>>();
+        assert_eq!(
+            labels(PHOTO),
+            [
+                "View and Edit",
+                "New Album…",
+                "Rotate Clockwise",
+                "Rotate Counterclockwise",
+                "Undo All Edits…",
+                "Hide",
+                "Move to New Folder…",
+                "Split Folder Here…",
+                "Open in External Editor",
+                "Choose Application…",
+                "Save",
+                "Revert…",
+                "Locate on Disk",
+                "Delete from Disk…",
+                "Copy Path",
+                "Find Faces Again",
+                "Properties"
+            ]
+        );
+        let album = labels(PHOTO_IN_ALBUM);
+        assert!(!album.contains(&"Delete from Disk…"));
+        for row in ["Remove from Album", "Show in Folder", "Set as Album Cover"] {
+            assert!(album.contains(&row), "{row}");
+        }
+        let section = labels(ALBUM_SECTION);
+        assert_eq!(section[..2], ["Album Properties…", "Delete Album…"]);
     }
 
     #[test]

@@ -2,9 +2,10 @@
 //! ([`UI_COMMANDS`], defined in [`crate::commands`]) and the running app, and the in-window menus
 //! drawn from it.
 //!
-//! - **The model** ([`bar`], [`section_menu`]) is the catalog with the app's state applied: an
+//! - **The model** ([`bar`], [`section_menu`], [`photo_menu`]) is the catalog with the app's state applied: an
 //!   item is *live* when its command is registered (a UI command or an engine command; an item
-//!   that opens a dialog also needs that dialog), *enabled* when live and its command's `enabled`
+//!   that opens a dialog also needs that dialog; an opener's item, `crate::commands::OPENERS`,
+//!   is live with its dialog), *enabled* when live and its command's `enabled`
 //!   accepts the parameters a click would pass, and shows the shortcut in effect. The same model
 //!   feeds the menus drawn here, `ui.menu.tree` / `ui.menu.invoke` (`control-protocol.md` §6.10)
 //!   and the native macOS menu bar.
@@ -55,10 +56,13 @@ pub enum SectionKind {
     Album,
 }
 
-/// The current section's kind. Albums and people arrive with their milestones; until then every
-/// section is a folder.
-pub fn section_kind(_app: &App) -> SectionKind {
-    SectionKind::Folder
+/// The current section's kind: an album when the selection is in an album section (people join
+/// with M13), else a folder.
+pub fn section_kind(app: &App) -> SectionKind {
+    match app.state().selection.section {
+        Some(Section::Album(_)) => SectionKind::Album,
+        _ => SectionKind::Folder,
+    }
 }
 
 /// Items that open a dialog Dalica already has, and the dialog: `ui.menu.invoke` replies
@@ -78,7 +82,24 @@ pub const DIALOGS: &[(&str, &str)] = &[
     ("output.export", "export"),
     ("photo.revert", "revert"),
     ("photo.saveAs", FILE_PICKER),
+    ("album.new", "albumProperties"),
+    ("album.delete", "deleteAlbum"),
+    ("photo.splitFolder", "newFolder"),
+    ("photo.moveToNewFolder", "newFolder"),
+    ("photo.rename", "renameFiles"),
+    ("photo.delete", "deletePhotos"),
+    ("folder.delete", "deleteFolder"),
+    ("folder.move", FILE_PICKER),
 ];
+
+/// The dialog an item running `id` opens in a section of `kind`: [`DIALOGS`]'s, but Album
+/// Properties for `section.properties` on an album.
+fn dialog_for(kind: SectionKind, id: &str) -> Option<&'static str> {
+    if kind == SectionKind::Album && id == "section.properties" {
+        return Some("albumProperties");
+    }
+    DIALOGS.iter().find(|(c, _)| *c == id).map(|(_, d)| *d)
+}
 
 /// A native file picker (the stub over automation, `control-protocol.md` §5.6): an item of
 /// [`DIALOGS`] naming it runs its command, which opens the picker (File ▸ Save As…: the save
@@ -91,13 +112,14 @@ pub const FILE_PICKER: &str = "filePicker";
 const FOLDER_COMMANDS: &[&str] = &["folder.remove"];
 
 /// The folder the fourth menu acts on: the selected section's, else the folder selected in the
-/// tree (a right-click on a row or a section header selects it first).
+/// tree (a right-click on a row or a section header selects it first). A selection in an album
+/// names no folder.
 pub fn current_folder(app: &App) -> Option<FolderId> {
     let state = app.state();
-    let section = state.selection.section.map(|s| match s {
-        Section::Folder(f) => f,
-    });
-    section.or(state.folder)
+    match state.selection.section {
+        Some(s) => s.folder(),
+        None => state.folder,
+    }
 }
 
 /// Whether the dialog `dialog` (of [`DIALOGS`]) can open now; why not, if it cannot.
@@ -206,14 +228,27 @@ pub fn menu(app: &App, menu: &Menu, platform: Platform) -> MenuNode {
 }
 
 /// The section context menu (tree row, section header, empty light-table space): the fourth menu's
-/// rows (`menus-and-shortcuts.md` §1.4).
+/// rows (`menus-and-shortcuts.md` §1.4), its Album variant on an album section.
 pub fn section_menu(app: &App, platform: Platform) -> Vec<Node> {
     let facts = Facts::new(app, platform);
-    nodes(&facts, menu_catalog::SECTION, "Folder")
+    let entries = if facts.kind == SectionKind::Album { menu_catalog::ALBUM_SECTION } else { menu_catalog::SECTION };
+    nodes(&facts, entries, "Folder")
+}
+
+/// The photo context menu (a thumbnail, `organizing.md` §9.1) for the current selection, its album
+/// variant when the selection is in an album; rows whose commands do not exist yet are greyed.
+pub fn photo_menu(app: &App, platform: Platform) -> Vec<Node> {
+    let facts = Facts::new(app, platform);
+    let entries = if facts.kind == SectionKind::Album { menu_catalog::PHOTO_IN_ALBUM } else { menu_catalog::PHOTO };
+    nodes(&facts, entries, "Photo")
 }
 
 fn menu_node(facts: &Facts<'_>, menu: &Menu) -> MenuNode {
-    MenuNode { key: menu.key, title: title(menu, facts.kind), children: nodes(facts, menu.entries, menu.key) }
+    let entries = match (facts.kind, menu.album_entries) {
+        (SectionKind::Album, Some(e)) => e,
+        _ => menu.entries,
+    };
+    MenuNode { key: menu.key, title: title(menu, facts.kind), children: nodes(facts, entries, menu.key) }
 }
 
 /// The rows of `entries` under the widget path `path`; separators tidied after macOS removed the
@@ -286,10 +321,12 @@ fn item_node(facts: &Facts<'_>, i: &'static Item) -> ItemNode {
     // keeps its widget id and runs `photo.undoSave` on the open photo (`editing.md` §5.1).
     let id = if row == "edit.undo" && undo_save_photo(app).is_some() { UNDO_SAVE } else { row };
     let params: Value = if i.params.is_empty() { Value::Null } else { serde_json::from_str(i.params).unwrap_or(Value::Null) };
-    let dialog = DIALOGS.iter().find(|(c, _)| *c == id).map(|(_, d)| *d);
+    let dialog = dialog_for(facts.kind, id);
     let ui_command = UI_COMMANDS.iter().any(|c| c.id == id);
     let spec = facts.spec(id);
-    let registered = ui_command || spec.is_some();
+    // An opener's item is live with its dialog, before its engine command is (the dialog's
+    // default button then says the command is not there yet).
+    let registered = ui_command || spec.is_some() || crate::commands::opener(id).is_some();
     let live = registered && (dialog.is_some() || !i.label.ends_with('…'));
     let refuse = |why: &str| (false, Some(why.to_string()));
     let (enabled, reason) = if !live {
@@ -366,6 +403,10 @@ fn photo_step(app: &App, id: &str) -> Option<String> {
 fn command_ready(app: &App, id: &str, params: &Value, ui_command: bool, spec: Option<&CommandSpec>) -> Result<(), String> {
     if ui_command {
         return crate::commands::enabled(app, id, params);
+    }
+    // An opener asks whether its dialog can open for what a click passes.
+    if let Some(o) = crate::commands::opener(id) {
+        return (o.check)(app, &params_for(app, id, params));
     }
     let (Some(session), Some(spec)) = (app.session(), spec) else { return Err("The library is still opening.".into()) };
     let params = params_for(app, id, params);
@@ -564,6 +605,14 @@ pub fn activate(app: &mut App, item: &ItemNode, extra: &Value) -> Result<Value, 
         for (k, v) in e {
             p.insert(k.clone(), v.clone());
         }
+    }
+    // A `…` item whose engine command takes input opens its dialog (`crate::commands::OPENERS`).
+    if let Some(o) = crate::commands::opener(item.id) {
+        let r = (o.open)(app, &params);
+        if let Err(e) = &r {
+            app.state_mut().status = e.to_string();
+        }
+        return r;
     }
     app.run(item.id, &params)
 }
@@ -839,7 +888,10 @@ mod tests {
         assert_eq!(
             live,
             [
+                "album.new",
                 "folders.manager",
+                "photo.moveToNewFolder",
+                "photo.rename",
                 "photo.save",
                 "photo.revert",
                 "photo.saveAs",
@@ -848,6 +900,9 @@ mod tests {
                 "app.quit",
                 "edit.undo",
                 "edit.redo",
+                "photo.cut",
+                "photo.copy",
+                "photo.paste",
                 "select.all",
                 "select.starred",
                 "select.invert",
@@ -878,7 +933,9 @@ mod tests {
                 "folder.hide",
                 "folder.unhide",
                 "folder.remove",
+                "folder.move",
                 "view.edit",
+                "photo.rename",
                 "photo.rotate.cw",
                 "photo.rotate.ccw",
                 "photo.hide",
@@ -950,7 +1007,7 @@ mod tests {
         }
         assert!(!menus.iter().flat_map(|m| items(&m.children)).any(|i| i.id == "folders.add"));
         let pickers: Vec<&str> = menus.iter().flat_map(|m| items(&m.children)).filter(|i| i.dialog == Some(FILE_PICKER)).map(|i| i.id).collect();
-        assert_eq!(pickers, ["photo.saveAs"], "only Save As… opens a native picker");
+        assert_eq!(pickers, ["photo.saveAs", "folder.move"], "only Save As… and Folder ▸ Move… open a native picker");
         assert_eq!(activate(&mut app, &add, &Value::Null).unwrap(), json!({ "dialog": "folderManager" }));
         assert_eq!(app.state().dialogs.iter().map(|d| d.kind.name()).collect::<Vec<_>>(), ["folderManager"]);
         // Open: both rows say why they cannot open it again.
@@ -1014,8 +1071,9 @@ mod tests {
         let star = find(&menus, &Lookup::Id { id: "photo.star.toggle".into(), params: Value::Null }).cloned().unwrap();
         assert!(matches!(activate(&mut app, &star, &Value::Null), Err(CmdError::Disabled(m)) if m == "Select some photos first."));
         assert_eq!(app.state().status, "Select some photos first.");
-        let album = find(&menus, &Lookup::Id { id: "album.new".into(), params: Value::Null }).cloned().unwrap();
-        assert!(matches!(activate(&mut app, &album, &Value::Null), Err(CmdError::Disabled(_))));
+        let rename = find(&menus, &Lookup::Id { id: "photo.rename".into(), params: Value::Null }).cloned().unwrap();
+        assert!(matches!(activate(&mut app, &rename, &Value::Null), Err(CmdError::Disabled(_))));
+        assert!(app.state().dialogs.is_empty());
     }
 
     #[test]
@@ -1163,8 +1221,25 @@ mod tests {
         assert_eq!((m.key, m.title), ("Folder", "Album"));
         let all = items(&m.children);
         assert!(all.iter().any(|i| i.id == "album.delete") && !all.iter().any(|i| i.id == "folder.delete"));
-        assert_eq!(section_kind(&app), SectionKind::Folder, "every section is a folder until albums exist");
+        assert_eq!(section_kind(&app), SectionKind::Folder, "no section selected");
         assert_eq!(bar(&app, Platform::Other)[3].title, "Folder");
+        // A selection in an album section: the fourth menu reads Album with the album rows, the
+        // section menu is the same, and the photo menu is its album variant.
+        let mut app = App::new(None);
+        let album = crate::state::Section::Album(crate::state::AlbumSection::Recent);
+        app.state_mut().selection = crate::state::Selection::new(vec![], None, Some(album), true);
+        assert_eq!(section_kind(&app), SectionKind::Album);
+        let m = &bar(&app, Platform::Other)[3];
+        assert_eq!(m.title, "Album");
+        let ids: Vec<&str> = items(&m.children).iter().map(|i| i.id).collect();
+        assert_eq!(ids[..2], ["section.properties", "album.delete"]);
+        assert!(!ids.contains(&"folder.remove") && ids.contains(&"select.invert"));
+        assert_eq!(section_menu(&app, Platform::Other), m.children);
+        let props = items(&m.children).into_iter().find(|i| i.id == "section.properties").unwrap();
+        assert_eq!((props.dialog, props.enabled), (Some("albumProperties"), false), "Recently Updated has no properties");
+        let photo: Vec<&str> = items(&photo_menu(&app, Platform::Other)).iter().map(|i| i.id).collect();
+        assert!(photo.contains(&"album.remove") && !photo.contains(&"photo.delete"));
+        assert_eq!(current_folder(&app), None, "an album names no folder");
     }
 
     #[test]

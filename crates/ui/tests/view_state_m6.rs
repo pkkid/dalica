@@ -173,7 +173,7 @@ fn bad_m6_values_are_refused_and_change_nothing() {
         json!({ "captionEdit": { "photo": photo, "draft": "", "extra": 1 } }),
         json!({ "captionEdit": { "photo": photo, "draft": long } }),
         json!({ "captionEdit": 5 }),
-        json!({ "descriptionEdit": { "section": "album:a91c0e", "draft": "" } }),
+        json!({ "descriptionEdit": { "section": "album:x", "draft": "" } }),
         json!({ "descriptionEdit": { "section": folder, "draft": "" } }),
         json!({ "descriptionEdit": { "section": format!("folder:{folder}"), "draft": long } }),
         json!({ "descriptionEdit": { "draft": "" } }),

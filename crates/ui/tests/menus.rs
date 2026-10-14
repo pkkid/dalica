@@ -324,7 +324,7 @@ fn the_menu_tree_lists_every_item_of_the_spec_in_order() {
     let section = ok(&mut t, "ui.menu.tree", json!({ "context": "section" }));
     let folder = menus.iter().find(|m| m["widget"] == "menu:Folder").unwrap();
     assert_eq!(section, folder["children"]);
-    for c in ["photo", "treeGroup", "tag", "face"] {
+    for c in ["treeGroup", "tag", "face"] {
         assert_eq!(code(&mut t, "ui.menu.tree", json!({ "context": c })), "unsupported", "{c}");
     }
     for bad in [json!({ "context": "nope" }), json!({ "context": 3 }), json!({ "extra": 1 }), json!([1])] {
@@ -387,7 +387,7 @@ fn invoking_items_runs_refuses_or_opens_them_like_a_click() {
         assert_eq!(code(&mut t, "ui.menu.invoke", bad.clone()), "not_found", "{bad}");
     }
     // Catalog items without a command yet, and `…` items whose dialog is not built.
-    for p in ["File/New Album…", "View/Slideshow", "Help/Rebuild Library…", "View/Folder View/Simplified Tree View"] {
+    for p in ["File/Import From…", "View/Slideshow", "Help/Rebuild Library…", "View/Folder View/Simplified Tree View"] {
         assert_eq!(code(&mut t, "ui.menu.invoke", json!({ "path": p })), "unsupported", "{p}");
     }
     assert_eq!(code(&mut t, "ui.menu.invoke", json!({ "id": "section.sort", "params": { "by": "name" } })), "unsupported");

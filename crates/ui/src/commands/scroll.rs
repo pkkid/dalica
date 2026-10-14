@@ -84,9 +84,15 @@ struct ScrollTo {
 
 fn scroll_to(app: &mut App, params: &Value) -> Result<Value, CmdError> {
     let p: ScrollTo = parse(params)?;
-    let Section::Folder(folder) = p.section;
-    if !app.session().is_some_and(|s| s.library().folder(folder).is_some()) {
-        return Err(CmdError::NotFound(format!("no folder {folder}")));
+    match p.section {
+        Section::Folder(folder) if !app.session().is_some_and(|s| s.library().folder(folder).is_some()) => {
+            return Err(CmdError::NotFound(format!("no folder {folder}")));
+        }
+        // An album section is scrolled to while the light table shows it.
+        Section::Album(_) if !app.panels().is_some_and(|ps| ps.sections.get(p.section).is_some()) => {
+            return Err(CmdError::NotFound(format!("no section {}", p.section)));
+        }
+        _ => {}
     }
     app.state_mut().scroll = ScrollAnchor { section: Some(p.section), offset: 0.0 };
     Ok(json!({ "section": p.section }))

@@ -9,6 +9,11 @@
 //! farther past the edge) and keeps selecting the rows that come in, never beyond its section's
 //! ends. Every change goes through `select.set`, which makes the section's folder the tree's folder.
 //!
+//! A right-click on a photo opens the photo context menu ([`super::context_menu`]) for the
+//! selection, after selecting the photo when it was not. A press on a thumbnail dragged past
+//! egui's threshold starts a drag of photos (`crate::drag`): the selection when the photo is
+//! selected, else that photo alone; releasing the button ends it.
+//!
 //! **Boundary.** Two calls a frame and one after it. [`begin`] runs before any cell is laid out
 //! (an interaction it creates on the empty space sits under the cells, so cells win their clicks);
 //! [`finish`] runs after the last cell with the cells' [`CellOut`]s and what [`begin`] returned, and
@@ -65,6 +70,8 @@ pub fn autoscroll_speed(y: f32, top: f32, bottom: f32) -> f32 {
 #[derive(Debug, Default)]
 pub struct Input {
     band: Option<Band>,
+    /// A drag of photos started on a thumbnail is in progress.
+    dragging: bool,
 }
 
 impl Input {
@@ -113,6 +120,15 @@ impl Autoscroll {
     }
 }
 
+/// What a drag of photos did this frame.
+#[derive(Debug, Clone, PartialEq)]
+pub enum DragEvent {
+    /// Started on thumbnail `from` (`thumb:12`) carrying `ids`.
+    Start { from: String, ids: Vec<PhotoId> },
+    /// Ended: the button was released.
+    End,
+}
+
 /// What this frame's input asks for: commands, in order, and a scroll.
 #[derive(Debug, Default)]
 pub struct Pending {
@@ -120,6 +136,11 @@ pub struct Pending {
     /// A band held at an edge: the parent moves the view as the user's own scroll, so the anchor
     /// follows.
     pub scroll: Option<Autoscroll>,
+    /// The thumbnail whose photo menu was asked for this frame or is open: drawn on it once the
+    /// actions ran ([`apply`]).
+    pub menu: Option<Response>,
+    /// A drag of photos started or ended.
+    pub drag: Option<DragEvent>,
 }
 
 impl Pending {
@@ -157,17 +178,41 @@ pub fn finish(ui: &mut Ui, f: &Frame<'_>, input: &mut Input, background: Option<
     } else if let Some(c) = cells.iter().find(|c| c.response.secondary_clicked() && !sel.contains(c.photo)) {
         pending.select(&[c.photo], "replace");
     }
+    // The photo menu: asked for by this right-click, or open from an earlier one.
+    pending.menu = cells.iter().find(|c| c.response.secondary_clicked() || c.response.context_menu_opened()).map(|c| c.response.clone());
     // The double-click's first click selected the photo; the second opens it.
     if let Some(c) = cells.iter().find(|c| c.response.double_clicked()) {
         pending.actions.push(Action { command: "view.edit".into(), params: json!({ "id": c.photo.get() }) });
     }
     if let Some(bg) = background {
+        pending.drag = thumb_drag(ui, f, input, &bg, cells);
         band(ui, f, input, &bg, cells, command, &mut pending);
         if bg.clicked() && !command && !shift && !sel.ids.is_empty() {
             pending.actions.push(Action { command: "select.none".into(), params: json!({}) });
         }
     }
     pending
+}
+
+/// A drag of photos: a press on a thumbnail moved past the drag threshold (the cells sense clicks
+/// only, so the light table's own space senses the drag) carries the selection when the photo is
+/// selected, else that photo; releasing the button ends it.
+fn thumb_drag(ui: &Ui, f: &Frame<'_>, input: &mut Input, bg: &Response, cells: &[CellOut]) -> Option<DragEvent> {
+    if bg.drag_started() {
+        let origin = ui.input(|i| i.pointer.press_origin());
+        let cell = origin.and_then(|o| cells.iter().find(|c| c.rect.contains(o)));
+        if let Some(c) = cell {
+            let sel = &f.state.selection;
+            let ids = if sel.contains(c.photo) { sel.ids.clone() } else { vec![c.photo] };
+            input.dragging = true;
+            return Some(DragEvent::Start { from: format!("thumb:{}", c.photo), ids });
+        }
+    }
+    if input.dragging && (!bg.dragged() || bg.drag_stopped()) {
+        input.dragging = false;
+        return Some(DragEvent::End);
+    }
+    None
 }
 
 /// The rubber band: started by a drag from empty space, it selects the photos it touches in its
@@ -223,10 +268,19 @@ fn autoscroll(f: &Frame<'_>, index: usize, count: usize, y: f32, dt: f32) -> Opt
     Some(Autoscroll { step, limit })
 }
 
-/// Runs what [`finish`] collected.
+/// Runs what [`finish`] collected: the commands, the drag, then the photo menu (built for the
+/// selection the commands left).
 pub fn apply(app: &mut App, pending: Pending) {
     for a in pending.actions {
         let _ = app.run(&a.command, &a.params);
+    }
+    match pending.drag {
+        Some(DragEvent::Start { from, ids }) => crate::drag::start(app, from, ids),
+        Some(DragEvent::End) => crate::drag::end(app),
+        None => {}
+    }
+    if let Some(r) = pending.menu {
+        super::context_menu::show(&r, app);
     }
 }
 

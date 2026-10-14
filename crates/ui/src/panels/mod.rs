@@ -1,6 +1,7 @@
 //! The regions of the window (`ui-layout.md` §2), one module each, so the tasks that fill them never
-//! share a file: the menu bar, the toolbar, the library tree (folders), the light table, the side
-//! pane, the status line and the bottom area; the edit view's regions are in [`edit`]. [`layout`]
+//! share a file: the menu bar, the toolbar, the library tree (folders), the filter banner of search
+//! mode ([`search_banner`]), the light table, the side pane, the status line and the bottom area;
+//! the edit view's regions are in [`edit`]. [`layout`]
 //! says where each one is; [`show`] gives each its rect and registers the regions.
 
 pub mod activity;
@@ -11,6 +12,7 @@ pub mod layout;
 pub mod light_table;
 pub mod menubar;
 pub mod properties;
+pub mod search_banner;
 pub mod side_pane;
 pub mod status;
 pub mod tags;
@@ -128,6 +130,10 @@ fn regions(p: &mut Panels, app: &mut App, ui: &mut Ui) {
         let _ = app.run("section.scrollTo", &serde_json::json!({ "section": crate::state::Section::Folder(folder) }));
     }
     layout::splitter(ui, &t, &l, app.state_mut());
+    // Search mode: the filter banner over the light table.
+    if let Some(rect) = l.banner {
+        region(ui, "banner", rect, t.filter_banner, |ui| search_banner::show(app, ui));
+    }
     // The light table and its scroll bar, side by side.
     region(ui, "lightTable", l.light_table.union(l.scrollbar), t.grid_bg, |ui| light_table::show(p, app, ui, l.light_table, l.scrollbar));
     if let Some(rect) = l.side_pane {

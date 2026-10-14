@@ -67,8 +67,10 @@ fn targets(app: &App, params: &Value) -> Result<(Vec<PhotoId>, Option<Section>),
     let p: Export = parse_object(params)?;
     let library = app.session().map(dalica_engine::Session::library);
     if let Some(section) = p.section {
-        let Section::Folder(f) = section;
-        if !library.is_some_and(|l| l.folder(f).is_some()) {
+        // An album section is the engine's to check (`export.defaults`, `export.run`).
+        if let Section::Folder(f) = section
+            && !library.is_some_and(|l| l.folder(f).is_some())
+        {
             return Err(CmdError::NotFound(format!("no folder {f}")));
         }
     }
@@ -101,7 +103,7 @@ fn can_export(app: &App, params: &Value) -> Result<(), String> {
 fn folder_name(app: &App, ids: &[PhotoId], section: Option<Section>) -> String {
     let Some(library) = app.session().map(dalica_engine::Session::library) else { return String::new() };
     let folder = match section {
-        Some(Section::Folder(f)) => Some(f),
+        Some(s) => s.folder(),
         None => {
             let mut folders = ids.iter().filter_map(|id| library.photo(*id).map(|p| p.folder));
             let first = folders.next();

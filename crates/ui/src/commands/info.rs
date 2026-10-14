@@ -20,7 +20,7 @@ use serde_json::Value;
 use super::{Check, UiCommand, no_params, parse, parse_object};
 use crate::app::App;
 use crate::dialogs::{self, adjust_date, folder_properties, quick_tags, rename_tag};
-use crate::state::{MAX_DRAFT, MAX_IDS, Section};
+use crate::state::{MAX_DRAFT, MAX_IDS};
 
 pub const COMMANDS: &[UiCommand] = &[
     UiCommand {
@@ -64,10 +64,11 @@ pub const CHECKS: &[(&str, Check)] = &[("section.properties", can_show_propertie
 /// selected folder's.
 fn current_folder(app: &App) -> Option<FolderId> {
     let state = app.state();
-    let section = state.selection.section.map(|s| match s {
-        Section::Folder(f) => f,
-    });
-    section.or(state.folder)
+    // A selection in an album names no folder.
+    match state.selection.section {
+        Some(s) => s.folder(),
+        None => state.folder,
+    }
 }
 
 fn can_show_properties(app: &App, _params: &Value) -> Result<(), String> {

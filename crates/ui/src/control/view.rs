@@ -16,6 +16,7 @@ pub const REGIONS: &[&str] = &[
     "tabStrip",
     "tree",
     "splitter",
+    "banner",
     "lightTable",
     "scrollbar",
     "sidePane",
@@ -120,6 +121,7 @@ pub(super) fn set(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Error>
     new.check_m6().map_err(|e| call.bad(e))?;
     new.check_m7().map_err(|e| call.bad(e))?;
     new.check_m8().map_err(|e| call.bad(e))?;
+    new.check_m9().map_err(|e| call.bad(e))?;
     let tray = &new.tray;
     if tray.held.len() > MAX_IDS || tray.selected.len() > MAX_IDS || new.collapsed_folders.len() > MAX_IDS {
         return Err(Error::new(Code::Limit, format!("`tray.held`, `tray.selected` and `collapsedFolders` take at most {MAX_IDS} ids each")));
@@ -129,14 +131,19 @@ pub(super) fn set(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Error>
     }
     let library = call.host.app().session().map(dalica_engine::Session::library);
     let has_folder = |f| library.is_some_and(|l| l.folder(f).is_some());
-    let folder_of = |s: Section| match s {
-        Section::Folder(f) => f,
-    };
-    let section = new.scroll.section.map(folder_of);
-    let described = new.description_edit.as_ref().map(|e| folder_of(e.section));
-    let exported = new.export.as_ref().and_then(|e| e.section).map(folder_of);
-    if let Some(f) = new.folder.iter().chain(&section).chain(&described).chain(&exported).chain(&new.collapsed_folders).find(|f| !has_folder(**f)) {
+    // The sections named: a folder's must be in the library, an album's on the light table.
+    let sections: Vec<Section> = [new.scroll.section, new.description_edit.as_ref().map(|e| e.section), new.export.as_ref().and_then(|e| e.section)]
+        .into_iter()
+        .chain([new.search.saved_scroll.and_then(|a| a.section)])
+        .flatten()
+        .collect();
+    let folders: Vec<_> = sections.iter().filter_map(|s| s.folder()).chain(new.m9_folders()).collect();
+    if let Some(f) = new.folder.iter().chain(&folders).chain(&new.collapsed_folders).find(|f| !has_folder(**f)) {
         return Err(Error::new(Code::NotFound, format!("no folder {f}")));
+    }
+    let shown = |s: &Section| call.host.app().panels().is_some_and(|p| p.sections.get(*s).is_some());
+    if let Some(s) = sections.iter().find(|s| s.is_album() && !shown(s)) {
+        return Err(Error::new(Code::NotFound, format!("no section {s}")));
     }
     let captioned = new.caption_edit.as_ref().map(|e| e.photo);
     let edited = new.edit.photo;
@@ -150,6 +157,7 @@ pub(super) fn set(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Error>
         .chain(&edited)
         .chain(export_ids)
         .chain(reverted)
+        .chain(new.m9_photos())
         .find(|id| !library.is_some_and(|l| l.photo(**id).is_some()))
     {
         return Err(Error::new(Code::NotFound, format!("no photo {id}")));
@@ -205,6 +213,7 @@ pub(super) fn inspect(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Er
         "toasts": call.host.app().notices().inspect(call.host.ctx().input(|i| i.time)),
         "jobs": super::jobs::list(call.host),
         "dialog": crate::dialogs::inspect(call.host.app()),
+        "drag": crate::drag::inspect(call.host.app()),
         "popup": popup(&widgets),
         "tooltip": call.host.app().tooltip(),
         "animations": animations(call),

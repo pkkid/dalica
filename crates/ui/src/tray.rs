@@ -144,6 +144,7 @@ pub fn token(state: &UiState) -> Option<Section> {
 pub fn token_label(section: Section, count: usize) -> String {
     let kind = match section {
         Section::Folder(_) => "Folder",
+        Section::Album(_) => "Album",
     };
     let noun = if count == 1 { "photo" } else { "photos" };
     format!("{kind} selected — {count} {noun}")

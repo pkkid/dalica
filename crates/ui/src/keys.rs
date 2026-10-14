@@ -4,7 +4,13 @@
 //! field has the focus a key resolves Text input, then Global: the view's shortcuts are off while
 //! typing. Plain arrows go to the library tree instead while it has the focus. [`join_keymap`]
 //! adds the UI commands to the session's keymap, so their keys are resolved, conflict-checked and
-//! rebindable like the engine's.
+//! rebindable like the engine's; the openers' keys (F2 for Rename…, `crate::commands::OPENERS`)
+//! join them, and a key bound to an opener opens its dialog.
+//!
+//! The Delete key is routed by section (`menus-and-shortcuts.md` §2.2), as Ctrl+1 is by view: in
+//! an album section Delete removes the selected photos from the album (`album.remove`, which asks
+//! first), anywhere else it deletes them from disk (`photo.delete`, which asks first);
+//! Ctrl+Delete always deletes from disk ([`delete_route`]).
 
 use dalica_engine::keymap::DefaultKeys;
 use dalica_engine::{Context, Key, Session};
@@ -12,9 +18,31 @@ use serde_json::{Value, json};
 
 use crate::app::{App, UI_COMMANDS};
 
-/// Every UI command with its default keys, as the session's keymap takes them.
+/// Every UI command with its default keys, and every opener with its own, as the session's
+/// keymap takes them.
 pub fn ui_keys() -> Vec<(&'static str, DefaultKeys)> {
-    UI_COMMANDS.iter().map(|c| (c.id, c.keys)).collect()
+    let openers = crate::commands::OPENERS.iter().filter(|o| !o.keys.is_empty()).map(|o| (o.id, o.keys));
+    UI_COMMANDS.iter().map(|c| (c.id, c.keys)).chain(openers).collect()
+}
+
+/// The command a press of `key` runs in the library, given what the keymap binds it to: Delete
+/// and Ctrl+Delete are routed by section ([`delete_route`]); every other key runs its binding.
+pub fn route(app: &App, key: &Key, bound: Option<String>) -> Option<String> {
+    delete_route(app, key, bound.as_deref()).map(str::to_string).or(bound)
+}
+
+/// What Delete and Ctrl+Delete run (`menus-and-shortcuts.md` §2.2), unless the user bound them to
+/// another command: Delete in an album section is Remove from Album (`album.remove`), elsewhere
+/// Delete from Disk (`photo.delete`); Ctrl+Delete is always Delete from Disk. `None` for other
+/// keys and for a Delete key the user gave another command.
+pub fn delete_route(app: &App, key: &Key, bound: Option<&str>) -> Option<&'static str> {
+    let text = key.to_string();
+    let (plain, ctrl) = (text == "Delete", text == "Ctrl+Delete");
+    if !(plain || ctrl) || bound.is_some_and(|b| b != "photo.delete" && b != "album.remove") {
+        return None;
+    }
+    let in_album = app.state().selection.section.is_some_and(crate::state::Section::is_album);
+    Some(if plain && in_album { "album.remove" } else { "photo.delete" })
 }
 
 /// Adds the UI commands to `session`'s keymap (`Session::add_ui_keys`). A default that does not
@@ -81,10 +109,35 @@ pub fn targets(app: &App, id: &str) -> Vec<dalica_core::PhotoId> {
 }
 
 /// The parameters a shortcut passes to `id`: for commands that take `ids`, the photos it acts on
-/// ([`targets`]).
+/// ([`targets`]); Remove from Album passes the album of the selected section too, and Delete from
+/// Disk its photos whether or not the engine has registered it yet (the question counts them).
 pub fn params_for(app: &App, id: &str) -> Value {
     let takes_ids = app.session().and_then(|s| s.spec(id)).is_some_and(|spec| spec.params.contains("\"ids\""));
-    if takes_ids { json!({ "ids": targets(app, id) }) } else { json!({}) }
+    match id {
+        "album.remove" => {
+            let album = app.state().selection.section.and_then(|s| s.to_string().strip_prefix("album:").map(str::to_string));
+            json!({ "album": album, "ids": targets(app, id) })
+        }
+        "photo.delete" => json!({ "ids": targets(app, id) }),
+        _ if takes_ids => json!({ "ids": targets(app, id) }),
+        _ => json!({}),
+    }
+}
+
+/// Runs `id` as a key press runs it: an opener opens its dialog, any other command runs through
+/// [`App::run`] with [`params_for`].
+pub fn run_key(app: &mut App, id: &str) -> Result<Value, dalica_engine::CmdError> {
+    let params = params_for(app, id);
+    match crate::commands::opener(id) {
+        Some(o) => {
+            let r = (o.open)(app, &params);
+            if let Err(e) = &r {
+                app.state_mut().status = e.to_string();
+            }
+            r
+        }
+        None => app.run(id, &params),
+    }
 }
 
 /// Runs the commands bound to this frame's key presses. Returns the ids that ran (or were refused;
@@ -110,9 +163,11 @@ pub fn dispatch(app: &mut App, ctx: &egui::Context) -> Vec<String> {
     let view = if text_input { Context::Global } else { Context::Library };
     let mut ran = Vec::new();
     for key in presses {
-        let Some(id) = app.session().and_then(|s| s.keymap().resolve(&key, view, text_input)) else { continue };
-        let params = params_for(app, &id);
-        let _ = app.run(&id, &params);
+        let bound = app.session().and_then(|s| s.keymap().resolve(&key, view, text_input));
+        // Delete and Ctrl+Delete are the library's, never a text field's.
+        let routed = if text_input { bound } else { route(app, &key, bound) };
+        let Some(id) = routed else { continue };
+        let _ = run_key(app, &id);
         ran.push(id);
     }
     ran
@@ -169,6 +224,29 @@ mod tests {
         d.key("F11").unwrap();
         assert!(d.app().state().full_screen, "Global keys still work");
         assert!(d.ctx().egui_wants_keyboard_input(), "still typing");
+    }
+
+    /// F2 (an opener's key) opens Rename Files for the selection; Delete and Ctrl+Delete follow
+    /// the section.
+    #[test]
+    fn f2_opens_rename_files_and_delete_follows_the_section() {
+        assert!(ui_keys().iter().any(|(id, keys)| *id == "photo.rename" && keys.iter().any(|(_, k)| *k == "F2")));
+        let (_dir, s, ids) = crate::app::tests::session_with_photos(2);
+        let mut d = crate::headless::Driver::new(App::new(Some(s)), 900, 600, 1.0);
+        d.settle(3600).unwrap();
+        d.key("F2").unwrap();
+        assert!(d.app().state().dialogs.is_empty(), "nothing selected: nothing to rename");
+        d.run("select.set", &json!({ "ids": [ids[1]] })).unwrap();
+        d.key("F2").unwrap();
+        assert_eq!(d.app().state().rename_files.as_ref().map(|r| r.ids.clone()), Some(vec![ids[1]]));
+        let (del, ctrl) = (Key::parse("Delete").unwrap(), Key::parse("Ctrl+Delete").unwrap());
+        assert_eq!(delete_route(d.app(), &del, None), Some("photo.delete"));
+        assert_eq!(delete_route(d.app(), &Key::parse("F2").unwrap(), None), None);
+        let album = crate::state::Section::Album(crate::state::AlbumSection::Search);
+        d.app_mut().state_mut().selection = crate::state::Selection::new(vec![ids[0]], None, Some(album), false);
+        assert_eq!(delete_route(d.app(), &del, Some("photo.delete")), Some("album.remove"));
+        assert_eq!(delete_route(d.app(), &ctrl, None), Some("photo.delete"));
+        assert_eq!(delete_route(d.app(), &del, Some("pane.toggle")), None, "the user's own binding");
     }
 
     /// Ctrl+− reaches the keymap and runs the edit view's `edit.zoom.out` once (×1/1.25).

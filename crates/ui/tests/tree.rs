@@ -317,7 +317,7 @@ fn a_row_click_scrolls_its_header_to_the_top_in_0_2_s_and_selects_the_folder() {
     let mut d = synthetic_driver(dir.path(), &Spec::new(400, 12, synthetic::SEED), (1400, 900));
     let order = sections(&d);
     let target = order[6];
-    let Section::Folder(folder) = target;
+    let folder = target.folder().unwrap();
     let area_top = info(&d).area.unwrap().min.y;
     let header_top = |d: &Driver| info(d).headers.iter().find(|(s, _)| *s == target).map(|(_, r)| r.min.y);
     assert_ne!(header_top(&d), Some(area_top));
