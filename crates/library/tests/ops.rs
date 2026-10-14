@@ -1,12 +1,14 @@
 //! `dalica-library` ops (`architecture.md` §11): for random op sequences, applying an op and then
 //! its inverse restores the model (and the tag index), each apply bumps the revision once (derived
-//! ops: never), and a refused op changes nothing. Every op is in the mix, M6's included.
+//! ops: never), and a refused op changes nothing. Every op is in the mix, M6's and M8's included
+//! (saved records, copies saved beside, the Exported mark, and the batches of a Save, an Undo Save,
+//! a Revert and a Save beside), and the cached unsaved counts always equal fresh ones.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 
 use dalica_core::{DateTime, FolderId, PhotoId, Timestamp};
-use dalica_library::{Folder, FolderInfo, Library, Op, Photo, PhotoInfo, Recipe, Synced, clean_tags};
+use dalica_library::{Folder, FolderInfo, Library, Op, Photo, PhotoInfo, Project, Recipe, SaveState, Saved, SavedAs, Synced, clean_tags};
 use proptest::prelude::*;
 
 /// A recipe for an op, turned into a real one against the current library (indices wrap around
@@ -31,6 +33,15 @@ enum Seed {
     SetFolderInfo(Vec<(u8, u8)>),
     SetFoldersHidden(Vec<(u8, bool)>),
     SetSynced(Vec<(u8, Option<u8>)>),
+    SetSaved(Vec<(u8, Option<u8>)>),
+    SetSavedAs(Vec<(u8, Option<u8>)>),
+    SetProjects(Vec<(u8, bool)>),
+    /// The batches M8's file changes apply (when the library refuses to build one, an op on an
+    /// unknown photo).
+    Save(Vec<(u8, u8)>),
+    UndoSave(Vec<u8>),
+    Revert(Vec<u8>),
+    SaveBeside(u8, u8),
     Batch(Vec<Seed>),
     UnknownPhoto,
     UnknownFolder,
@@ -73,6 +84,29 @@ fn photo_info(n: u8, tags: &[u8]) -> PhotoInfo {
     }
 }
 
+/// A saved record, done or pending.
+fn saved(n: u8) -> Saved {
+    Saved {
+        recipe: recipe(n).edits,
+        size: u64::from(n) * 1000,
+        mtime: Timestamp::from_millis(1_700_000_000_000 + i64::from(n)),
+        width: u32::from(n),
+        height: 7,
+        digest: format!("d{n}"),
+        state: if n.is_multiple_of(3) { SaveState::Pending } else { SaveState::Done },
+        time: if n.is_multiple_of(2) { Some(Timestamp::from_millis(i64::from(n))) } else { None },
+    }
+}
+
+fn saved_as(n: u8) -> SavedAs {
+    SavedAs { name: format!("copy{}.jpg", n % 4), recipe: recipe(n).edits }
+}
+
+/// An op every library refuses (its photo is unknown).
+fn refused() -> Op {
+    Op::SetStars { stars: vec![(PhotoId::new(u64::MAX), true)] }
+}
+
 fn folder_info(n: u8) -> FolderInfo {
     FolderInfo {
         description: CAPTIONS[usize::from(n) % CAPTIONS.len()].to_string(),
@@ -102,6 +136,13 @@ fn leaf() -> impl Strategy<Value = Seed> {
         proptest::collection::vec((any::<u8>(), any::<u8>()), 0..3).prop_map(Seed::SetFolderInfo),
         proptest::collection::vec((any::<u8>(), any::<bool>()), 0..3).prop_map(Seed::SetFoldersHidden),
         proptest::collection::vec((any::<u8>(), proptest::option::of(any::<u8>())), 0..4).prop_map(Seed::SetSynced),
+        proptest::collection::vec((any::<u8>(), proptest::option::of(any::<u8>())), 0..4).prop_map(Seed::SetSaved),
+        proptest::collection::vec((any::<u8>(), proptest::option::of(any::<u8>())), 0..4).prop_map(Seed::SetSavedAs),
+        proptest::collection::vec((any::<u8>(), any::<bool>()), 0..3).prop_map(Seed::SetProjects),
+        proptest::collection::vec((any::<u8>(), any::<u8>()), 0..3).prop_map(Seed::Save),
+        proptest::collection::vec(any::<u8>(), 0..3).prop_map(Seed::UndoSave),
+        proptest::collection::vec(any::<u8>(), 0..3).prop_map(Seed::Revert),
+        (any::<u8>(), any::<u8>()).prop_map(|(i, n)| Seed::SaveBeside(i, n)),
         Just(Seed::UnknownPhoto),
         Just(Seed::UnknownFolder),
         any::<u8>().prop_map(Seed::BadText),
@@ -181,15 +222,31 @@ fn build(lib: &mut Library, seed: &Seed) -> Op {
                 })
                 .collect(),
         },
+        Seed::SetSaved(list) => Op::SetSaved { saved: list.iter().filter_map(|(i, n)| Some((pick(&photos, *i)?, n.map(saved)))).collect() },
+        Seed::SetSavedAs(list) => Op::SetSavedAs { saved_as: list.iter().filter_map(|(i, n)| Some((pick(&photos, *i)?, n.map(saved_as)))).collect() },
+        Seed::SetProjects(list) => {
+            Op::SetProjects { projects: list.iter().filter_map(|(i, on)| Some((pick(&folders, *i)?, on.then_some(Project::Exported)))).collect() }
+        }
+        Seed::Save(list) => {
+            lib.save_op(list.iter().filter_map(|(i, n)| Some((pick(&photos, *i)?, saved(*n)))).collect()).unwrap_or_else(|_| refused())
+        }
+        Seed::UndoSave(list) => lib.undo_save_op(&list.iter().filter_map(|i| pick(&photos, *i)).collect::<Vec<_>>()).unwrap_or_else(|_| refused()),
+        Seed::Revert(list) => lib.revert_op(&list.iter().filter_map(|i| pick(&photos, *i)).collect::<Vec<_>>()).unwrap_or_else(|_| refused()),
+        Seed::SaveBeside(i, n) => match pick(&photos, *i) {
+            Some(id) => lib.save_beside_op(id, saved_as(*n).name).unwrap_or_else(|_| refused()),
+            None => refused(),
+        },
         Seed::Batch(seeds) => Op::Batch { ops: seeds.iter().map(|s| build(lib, s)).collect() },
         Seed::UnknownPhoto => Op::SetStars { stars: vec![(PhotoId::new(u64::MAX), true)] },
         Seed::UnknownFolder => Op::SetFoldersHidden { hidden: vec![(FolderId::new(u64::MAX), true)] },
         Seed::BadText(n) => {
             let id = pick(&photos, *n).unwrap_or(PhotoId::new(1));
-            match n % 4 {
+            match n % 6 {
                 0 => Op::AddTags { ids: vec![id], tags: vec![" padded ".into()] },
                 1 => Op::SetCaptions { captions: vec![(id, "x".repeat(dalica_library::MAX_CAPTION + 1))] },
                 2 => Op::SetTags { tags: vec![(id, vec!["dog".into(), "DOG".into()])] },
+                3 => Op::SetSaved { saved: vec![(id, Some(Saved { digest: "x".repeat(dalica_library::MAX_DIGEST + 1), ..saved(*n) }))] },
+                4 => Op::SetSavedAs { saved_as: vec![(id, Some(SavedAs { name: String::new(), recipe: vec![] }))] },
                 _ => Op::RenameTag { from: "dog".into(), to: "two\nlines".into() },
             }
         }
@@ -238,6 +295,21 @@ fn check_invariants(lib: &Library) -> Result<(), TestCaseError> {
     for (id, s) in lib.synced_all() {
         prop_assert!(lib.photo(id).is_some() && *s != Synced::default());
     }
+    for (id, _) in lib.saved_all() {
+        prop_assert!(lib.photo(id).is_some());
+    }
+    for (id, _) in lib.saved_as_all() {
+        prop_assert!(lib.photo(id).is_some());
+    }
+    for (id, _) in lib.projects() {
+        prop_assert!(lib.folder(id).is_some());
+    }
+    // The cached unsaved counts are the ones counted afresh.
+    let mut fresh: HashMap<FolderId, usize> = HashMap::new();
+    for p in lib.photos().filter(|p| lib.has_unsaved_edits(p.id)) {
+        *fresh.entry(p.folder).or_default() += 1;
+    }
+    prop_assert_eq!(lib.unsaved_counts(), &fresh);
     let counts: Vec<(String, usize)> = lib.tag_index().counts().into_iter().map(|c| (c.tag, c.count)).collect();
     prop_assert_eq!(counts, expected_counts(lib));
     Ok(())

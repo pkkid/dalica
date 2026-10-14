@@ -22,7 +22,10 @@ pub mod sync;
 pub mod tags;
 mod tree;
 
-pub use model::{Folder, FolderInfo, Library, MAX_SKETCH, Model, Photo, PhotoInfo, Recipe, Sketch, Synced};
+pub use model::{
+    Folder, FolderInfo, Library, MAX_DIGEST, MAX_FILE_NAME, MAX_SKETCH, Model, Photo, PhotoInfo, Project, Recipe, SaveState, Saved, SavedAs, Sketch,
+    Synced,
+};
 pub use op::Op;
 pub use tags::{
     MAX_CAPTION, MAX_DESCRIPTION, MAX_OPERATION, MAX_OPERATIONS, MAX_PLACE, MAX_TAG, MAX_TAGS, PartialCount, TagCount, TagIndex, clean_caption,
@@ -49,6 +52,9 @@ pub enum Error {
     NameTaken { folder: FolderId, name: String },
     #[error("an update cannot move photo {0} to another folder")]
     FolderChange(PhotoId),
+    /// Undo Save or Revert of a photo with no finished save (`data-model.md` §6).
+    #[error("photo {0} has no finished save")]
+    NotSaved(PhotoId),
     /// Text past its cap (`security.md` §4.4). The text itself is never in the message.
     #[error("a {what} longer than {max} bytes")]
     TooLong { what: &'static str, max: usize },

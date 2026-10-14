@@ -3181,7 +3181,7 @@ drawn with Inter SemiBold from `assets/fonts/` through `ab_glyph` (already in th
 egui), ported from LightCraft. The save and export budgets join `development.md` §8 at 1.5 × their
 first measurement. No step of M8 needs a maintainer decision mid-run.
 
-- ⬜ **M8.1 `library`: M8's model fields, ops and queries**
+- ✅ **M8.1 `library`: M8's model fields, ops and queries**
   - after: M6.2, M7.3, M7.R
   - files: `crates/library/src/model.rs`, `crates/library/src/op.rs`, `crates/library/src/query.rs`, `crates/library/src/tree.rs`, `crates/library/tests/m8_fields.rs`, `crates/library/tests/ops.rs`, `crates/library/tests/tree.rs`, `crates/library/README.md`
   - scope: `data-model.md` §6 as pure model: each photo gains a saved record (the recipe saved,

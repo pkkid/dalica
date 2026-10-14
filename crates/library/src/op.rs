@@ -9,13 +9,20 @@
 //! The M6 ops on what the user says about photos and folders each change one field over any
 //! number of photos or folders, and refuse text past the caps of [`crate::tags`]. Tag ops follow
 //! the case rule there; their inverse is [`Op::SetTags`] with the lists as they were.
+//!
+//! M8's ops: [`Op::SetSaved`] (the saved records, index-only like synced hashes, so derived),
+//! [`Op::SetSavedAs`] (copies saved beside photos) and [`Op::SetProjects`] (the Exported mark).
+//! A Save, an Undo Save and a Revert are each one batch of the record and the recipe, built by
+//! [`Library::save_op`], [`Library::undo_save_op`] and [`Library::revert_op`]; such a batch is not
+//! derived (its recipe change bumps the revision). Removing a photo takes its record and its copy
+//! saved beside; removing a folder takes its mark; the inverse puts them back.
 
 use std::collections::{BTreeSet, HashSet};
 
 use dalica_core::{DateTime, FolderId, PhotoId};
 use serde::{Deserialize, Serialize};
 
-use crate::model::{Folder, FolderInfo, Library, Photo, PhotoInfo, Recipe, Sketch, Synced};
+use crate::model::{Folder, FolderInfo, Library, Photo, PhotoInfo, Project, Recipe, Saved, SavedAs, Sketch, Synced};
 use crate::tags::{self, fold};
 use crate::{Error, Result};
 
@@ -107,6 +114,20 @@ pub enum Op {
     SetSynced {
         synced: Vec<(PhotoId, Option<Synced>)>,
     },
+    /// Saved records (`None` clears one), applied in order. Derived data (the record lives in
+    /// `.dalica-originals/.dalica.json`): see [`Op::is_derived`].
+    SetSaved {
+        saved: Vec<(PhotoId, Option<Saved>)>,
+    },
+    /// Copies saved beside photos (`None` clears one), applied in order.
+    SetSavedAs {
+        #[serde(rename = "savedAs")]
+        saved_as: Vec<(PhotoId, Option<SavedAs>)>,
+    },
+    /// Project marks of folders (`None` clears one), applied in order.
+    SetProjects {
+        projects: Vec<(FolderId, Option<Project>)>,
+    },
     /// Several ops as one: all or nothing, one revision.
     Batch {
         ops: Vec<Op>,
@@ -114,14 +135,14 @@ pub enum Op {
 }
 
 impl Op {
-    /// Whether the op changes only derived data (sketches, synced hashes): [`Op::SetSketches`],
-    /// [`Op::SetSynced`], or a non-empty batch of nothing else. Such an op bumps neither
-    /// [`Library::revision`] nor any folder revision (one with sketches bumps
-    /// [`Library::thumbnail_revision`]), and its inverse is derived too. It is journaled like any op
-    /// but never goes on an undo stack: undo is for what the user did.
+    /// Whether the op changes only derived data (sketches, synced hashes, saved records):
+    /// [`Op::SetSketches`], [`Op::SetSynced`], [`Op::SetSaved`], or a non-empty batch of nothing
+    /// else. Such an op bumps neither [`Library::revision`] nor any folder revision (one with
+    /// sketches bumps [`Library::thumbnail_revision`]), and its inverse is derived too. It is
+    /// journaled like any op but never goes on an undo stack: undo is for what the user did.
     pub fn is_derived(&self) -> bool {
         match self {
-            Op::SetSketches { .. } | Op::SetSynced { .. } => true,
+            Op::SetSketches { .. } | Op::SetSynced { .. } | Op::SetSaved { .. } => true,
             Op::Batch { ops } => !ops.is_empty() && ops.iter().all(Op::is_derived),
             _ => false,
         }
@@ -153,6 +174,7 @@ impl Library {
         }
         if !derived {
             self.revision += 1;
+            self.unsaved = std::sync::OnceLock::new();
             for folder in fx.touched {
                 self.touch(folder);
             }
@@ -185,6 +207,9 @@ impl Library {
                 self.model.folders.remove(&id);
                 if let Some(info) = self.model.folder_info.remove(&id) {
                     ops.insert(1, Op::SetFolderInfo { folders: vec![(id, info)] });
+                }
+                if let Some(project) = self.model.projects.remove(&id) {
+                    ops.insert(1, Op::SetProjects { projects: vec![(id, Some(project))] });
                 }
                 fx.touched.insert(id);
                 Ok(if ops.len() == 1 { ops.swap_remove(0) } else { Op::Batch { ops } })
@@ -399,6 +424,54 @@ impl Library {
                 undo.reverse();
                 Ok(Op::SetSynced { synced: undo })
             }
+            Op::SetSaved { saved } => {
+                self.check_photos(saved.iter().map(|(id, _)| *id))?;
+                for s in saved.iter().filter_map(|(_, s)| s.as_ref()) {
+                    s.check()?;
+                }
+                let mut undo = Vec::with_capacity(saved.len());
+                for (id, s) in saved {
+                    let old = match s {
+                        Some(s) => self.model.saved.insert(id, s),
+                        None => self.model.saved.remove(&id),
+                    };
+                    undo.push((id, old));
+                }
+                undo.reverse();
+                Ok(Op::SetSaved { saved: undo })
+            }
+            Op::SetSavedAs { saved_as } => {
+                self.check_photos(saved_as.iter().map(|(id, _)| *id))?;
+                for s in saved_as.iter().filter_map(|(_, s)| s.as_ref()) {
+                    s.check()?;
+                }
+                let mut undo = Vec::with_capacity(saved_as.len());
+                for (id, s) in saved_as {
+                    let Some(folder) = self.model.photos.get(&id).map(|p| p.folder) else { continue };
+                    let old = match s {
+                        Some(s) => self.model.saved_as.insert(id, s),
+                        None => self.model.saved_as.remove(&id),
+                    };
+                    touched.insert(folder);
+                    undo.push((id, old));
+                }
+                undo.reverse();
+                Ok(Op::SetSavedAs { saved_as: undo })
+            }
+            Op::SetProjects { projects } => {
+                self.check_folders(projects.iter().map(|(id, _)| *id))?;
+                let mut undo = Vec::with_capacity(projects.len());
+                for (id, p) in projects {
+                    let old = match p {
+                        Some(p) => self.model.projects.insert(id, p),
+                        None => self.model.projects.remove(&id),
+                    };
+                    touched.insert(id);
+                    undo.push((id, old));
+                }
+                undo.reverse();
+                Ok(Op::SetProjects { projects: undo })
+            }
             Op::Batch { ops } => {
                 let mut inverses = Vec::with_capacity(ops.len());
                 for op in ops {
@@ -420,22 +493,30 @@ impl Library {
         }
     }
 
-    /// Removes the photos `ids` (all known, no repeats) with their info, synced hashes and
-    /// sketches, and returns the ops that put them back, in order: [`Op::AddPhotos`] first, then
-    /// only what there was.
+    /// Removes the photos `ids` (all known, no repeats) with their info, synced hashes, saved
+    /// records, copies saved beside and sketches, and returns the ops that put them back, in
+    /// order: [`Op::AddPhotos`] first, then only what there was.
     fn remove_photos(&mut self, ids: &[PhotoId], fx: &mut Effects) -> Vec<Op> {
         let sketches: Vec<(PhotoId, Option<Sketch>)> = ids.iter().filter_map(|id| Some((*id, Some(self.model.sketches.remove(id)?)))).collect();
         let synced: Vec<(PhotoId, Option<Synced>)> = ids.iter().filter_map(|id| Some((*id, Some(self.model.synced.remove(id)?)))).collect();
+        let saved: Vec<(PhotoId, Option<Saved>)> = ids.iter().filter_map(|id| Some((*id, Some(self.model.saved.remove(id)?)))).collect();
+        let saved_as: Vec<(PhotoId, Option<SavedAs>)> = ids.iter().filter_map(|id| Some((*id, Some(self.model.saved_as.remove(id)?)))).collect();
         let infos: Vec<(PhotoId, PhotoInfo)> = ids.iter().filter_map(|id| Some((*id, self.put_info(*id, PhotoInfo::default())?))).collect();
         let photos: Vec<Photo> = ids.iter().filter_map(|id| self.remove_photo(*id)).collect();
         fx.touched.extend(photos.iter().map(|p| p.folder));
-        let mut ops = Vec::with_capacity(4);
+        let mut ops = Vec::with_capacity(6);
         ops.push(Op::AddPhotos { photos });
         if !infos.is_empty() {
             ops.push(Op::SetPhotoInfo { photos: infos });
         }
         if !synced.is_empty() {
             ops.push(Op::SetSynced { synced });
+        }
+        if !saved.is_empty() {
+            ops.push(Op::SetSaved { saved });
+        }
+        if !saved_as.is_empty() {
+            ops.push(Op::SetSavedAs { saved_as });
         }
         if !sketches.is_empty() {
             fx.sketches = true;
@@ -551,5 +632,75 @@ impl Library {
         let p = self.model.photos.remove(&id)?;
         self.by_name.remove(&(p.folder, p.name.clone()));
         Some(p)
+    }
+}
+
+/// The ops of M8's file changes (`data-model.md` §6), built from the current model so the caller
+/// applies them once the files on disk say so. Each is one op (a batch where it changes two
+/// things) whose inverse is exact.
+impl Library {
+    /// The op a finished in-place Save applies: each photo's record set as given (the whole recipe
+    /// the saved file holds; [`crate::SaveState::Done`] once the file is committed) and its recipe
+    /// and redo list cleared. A photo whose save was beside it takes [`Library::save_beside_op`]
+    /// instead.
+    pub fn save_op(&self, saves: Vec<(PhotoId, Saved)>) -> Result<Op> {
+        self.check_photos(saves.iter().map(|(id, _)| *id))?;
+        let recipes = saves.iter().map(|(id, _)| (*id, Recipe::default())).collect();
+        let saved = saves.into_iter().map(|(id, s)| (id, Some(s))).collect();
+        Ok(Op::Batch { ops: vec![Op::SetSaved { saved }, Op::SetRecipes { recipes }] })
+    }
+
+    /// The op Undo Save applies once the original is back: each photo's record cleared and the
+    /// recorded recipe put back as unsaved edits in front of any edits made since the save (the
+    /// redo list stays). Every photo must have a done record ([`Library::can_undo_save`]); repeats
+    /// count once.
+    pub fn undo_save_op(&self, ids: &[PhotoId]) -> Result<Op> {
+        let ids = self.saved_photos(ids)?;
+        let mut recipes = Vec::with_capacity(ids.len());
+        for &id in &ids {
+            let info = self.info(id);
+            let mut edits = self.saved(id).map(|s| s.recipe.clone()).unwrap_or_default();
+            edits.extend(info.edits.iter().cloned());
+            recipes.push((id, Recipe { edits, redo: info.redo.clone() }));
+        }
+        let saved = ids.iter().map(|&id| (id, None)).collect();
+        Ok(Op::Batch { ops: vec![Op::SetSaved { saved }, Op::SetRecipes { recipes }] })
+    }
+
+    /// The op Revert applies once the original is back: each photo's record, recipe and redo list
+    /// cleared. Every photo must have a done record ([`Library::can_revert`]); repeats count once.
+    pub fn revert_op(&self, ids: &[PhotoId]) -> Result<Op> {
+        let ids = self.saved_photos(ids)?;
+        let recipes = ids.iter().map(|&id| (id, Recipe::default())).collect();
+        let saved = ids.iter().map(|&id| (id, None)).collect();
+        Ok(Op::Batch { ops: vec![Op::SetSaved { saved }, Op::SetRecipes { recipes }] })
+    }
+
+    /// The op a Save beside the photo applies: the copy named `name` holds the photo's current
+    /// recipe, which stays (so the photo no longer counts as unsaved until its recipe changes).
+    /// The caller adds the copy itself as a new photo in the same batch.
+    pub fn save_beside_op(&self, id: PhotoId, name: String) -> Result<Op> {
+        self.check_photos(std::iter::once(id))?;
+        let saved_as = SavedAs { name, recipe: self.info(id).edits.clone() };
+        saved_as.check()?;
+        Ok(Op::SetSavedAs { saved_as: vec![(id, Some(saved_as))] })
+    }
+
+    /// `ids` without repeats, each known and with a done record.
+    fn saved_photos(&self, ids: &[PhotoId]) -> Result<Vec<PhotoId>> {
+        let mut seen = HashSet::with_capacity(ids.len());
+        let mut out = Vec::with_capacity(ids.len());
+        for &id in ids {
+            if !self.model.photos.contains_key(&id) {
+                return Err(Error::UnknownPhoto(id));
+            }
+            if !self.saved(id).is_some_and(Saved::is_done) {
+                return Err(Error::NotSaved(id));
+            }
+            if seen.insert(id) {
+                out.push(id);
+            }
+        }
+        Ok(out)
     }
 }

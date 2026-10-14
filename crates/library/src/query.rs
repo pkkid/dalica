@@ -1,11 +1,16 @@
 //! Read-only queries over the model.
+//!
+//! M8's queries (`data-model.md` §6) say what Save, Undo Save and Revert may do: whether a photo
+//! has unsaved edits, each folder's count of them (worked out once per revision), whether a photo
+//! has a finished save to undo or revert, and which operation of a recipe cannot be rendered.
 
 use std::cmp::Ordering;
+use std::collections::HashMap;
 use std::path::Path;
 
 use dalica_core::{DateTime, FolderId, PhotoId};
 
-use crate::model::{Folder, Library, Photo};
+use crate::model::{Folder, Library, Photo, Saved};
 
 impl Photo {
     /// The date the file gives: its capture date, else its modification time (UTC). The library
@@ -78,6 +83,64 @@ impl Library {
     /// Starred photos, by effective sort date.
     pub fn starred(&self) -> Vec<&Photo> {
         in_photo_order(self, self.model.photos.values().filter(|p| p.star))
+    }
+
+    /// Whether photo `id` has unsaved edits (the *edited* badge): its recipe is not empty and is
+    /// not the one the copy saved beside it holds. The redo list does not count.
+    pub fn has_unsaved_edits(&self, id: PhotoId) -> bool {
+        let edits = &self.info(id).edits;
+        !edits.is_empty() && self.saved_as(id).is_none_or(|s| s.recipe != *edits)
+    }
+
+    /// How many photos of `folder` have unsaved edits (hidden ones included: Save in the folder
+    /// header saves them all). Cached per revision.
+    pub fn unsaved_count(&self, folder: FolderId) -> usize {
+        self.unsaved_counts().get(&folder).copied().unwrap_or(0)
+    }
+
+    /// Every folder's count of photos with unsaved edits (folders without any are left out),
+    /// worked out on the first call after each revision.
+    pub fn unsaved_counts(&self) -> &HashMap<FolderId, usize> {
+        self.unsaved.get_or_init(|| {
+            let mut counts: HashMap<FolderId, usize> = HashMap::new();
+            for (&id, info) in &self.model.photo_info {
+                if info.edits.is_empty() || !self.has_unsaved_edits(id) {
+                    continue;
+                }
+                if let Some(p) = self.model.photos.get(&id) {
+                    let n = counts.entry(p.folder).or_insert(0);
+                    *n = n.saturating_add(1);
+                }
+            }
+            counts
+        })
+    }
+
+    /// The photos of `folder` with unsaved edits, in display order.
+    pub fn unsaved_in(&self, folder: FolderId) -> Vec<PhotoId> {
+        if self.unsaved_count(folder) == 0 {
+            return Vec::new();
+        }
+        self.photos_in(folder).into_iter().map(|p| p.id).filter(|&id| self.has_unsaved_edits(id)).collect()
+    }
+
+    /// Whether Undo Save applies to photo `id`: it was saved in place and the save finished.
+    pub fn can_undo_save(&self, id: PhotoId) -> bool {
+        self.saved(id).is_some_and(Saved::is_done)
+    }
+
+    /// Whether Revert applies to photo `id`: the same as Undo Save (a finished in-place save).
+    pub fn can_revert(&self, id: PhotoId) -> bool {
+        self.can_undo_save(id)
+    }
+
+    /// The first operation a Save of photo `id` would render that cannot be rendered, if any:
+    /// the recorded recipe of an earlier save, then the recipe. `renders` is `edit`'s parse (an
+    /// unknown or `legacy:` operation cannot be rendered); the library leaves operations opaque.
+    /// A Save refuses a photo with one, so baking pixels never drops an operation.
+    pub fn unrenderable(&self, id: PhotoId, renders: impl Fn(&str) -> bool) -> Option<&str> {
+        let saved = self.saved(id).map(|s| s.recipe.as_slice()).unwrap_or_default();
+        saved.iter().chain(&self.info(id).edits).map(String::as_str).find(|op| !renders(op))
     }
 }
 
