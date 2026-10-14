@@ -94,6 +94,16 @@ impl Lib {
         id
     }
 
+    /// Lands every pending metadata write-back (the caption, tags and star the test set are
+    /// written into the files after a debounce) and waits for the rescan, so the bytes read next
+    /// are the ones the Save starts from.
+    fn settle(&mut self) {
+        assert!(self.s.flush_metadata(PATIENCE), "the metadata writes landed");
+        self.s.wait_idle();
+        assert_eq!(self.s.pending_metadata_writes(), 0);
+        self.s.flush().unwrap();
+    }
+
     fn edits(&self, id: PhotoId) -> Vec<String> {
         self.s.library().info(id).edits.clone()
     }
@@ -423,7 +433,7 @@ fn jpegs_save_in_place_with_their_quality_matched_and_metadata_kept() {
     let ids: Vec<PhotoId> = files.iter().map(|(name, _)| lib.edit(name, &[TUNING])).collect();
     lib.s.execute("photo.caption.set", &json!({ "ids": [ids[0]], "caption": "Alfama" })).unwrap();
     lib.s.execute("photo.tags.add", &json!({ "ids": [ids[0]], "tags": ["tram"] })).unwrap();
-    lib.s.wait_idle();
+    lib.settle();
     let before: Vec<Vec<u8>> = files.iter().map(|(name, _)| read(&lib.path(name))).collect();
 
     let result = lib.save(&ids);
@@ -569,8 +579,9 @@ fn formats_dalica_cannot_write_get_a_jpeg_beside_and_stay_byte_identical() {
     let ids: Vec<PhotoId> = sources.iter().map(|(name, _, ops)| lib.edit(name, ops)).collect();
     lib.s.execute("photo.caption.set", &json!({ "ids": ids, "caption": "Beside" })).unwrap();
     lib.s.execute("photo.star.set", &json!({ "ids": ids, "on": true })).unwrap();
-    lib.s.wait_idle();
+    lib.settle();
     let before: Vec<Vec<u8>> = sources.iter().map(|(name, ..)| read(&lib.path(name))).collect();
+    assert_ne!(before[0], files[0].1, "the caption was written back into alpha.png before the Save, not during it");
 
     let result = lib.save(&ids);
     assert_eq!(result["done"], json!(sources.len()));
@@ -606,6 +617,7 @@ fn formats_dalica_cannot_write_get_a_jpeg_beside_and_stay_byte_identical() {
     }
 
     // Another edit and Save: the next free name, the first copy untouched.
+    lib.settle(); // the copies' owned fields, written back after a debounce
     let first = read(&lib.path("tiff8.jpg"));
     let tiff = lib.edit("tiff8.tif", &["autofix()"]);
     assert!(lib.s.library().has_unsaved_edits(tiff));
