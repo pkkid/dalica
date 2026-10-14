@@ -51,7 +51,7 @@ fn nothing_stored_means_the_defaults() {
 }
 
 #[test]
-fn the_export_location_defaults_under_pictures_and_the_projects_directory_is_its_parent() {
+fn the_export_location_defaults_under_pictures_and_the_projects_directory_stays_there() {
     let dir = tempfile::tempdir().unwrap();
     let pictures = dir.path().join("Pictures");
     let mut s = open(&dir.path().join("library"));
@@ -60,14 +60,18 @@ fn the_export_location_defaults_under_pictures_and_the_projects_directory_is_its
     assert_eq!(default_export_location(&pictures), exports);
     assert_eq!(s.export_location(), Some(exports));
     assert_eq!(s.projects_dir(), Some(pictures.join("Dalica")));
-    // A chosen location wins, and the projects directory follows it.
-    let chosen = dir.path().join("Shared").join("Out");
+    // A chosen location wins for exports; the projects directory stays `<Pictures>/Dalica`
+    // (M9.28: `Desktop/Out` must not make the Desktop a projects folder).
+    let chosen = dir.path().join("Desktop").join("Out");
     s.change_settings(|st| st.set_export(&ExportSettings { location: Some(chosen.clone()), ..ExportSettings::default() }));
-    assert_eq!(s.export_location(), Some(chosen));
-    assert_eq!(s.projects_dir(), Some(dir.path().join("Shared")));
-    // No Pictures folder known and none chosen: no location.
-    s.change_settings(|st| st.set_export(&ExportSettings::default()));
+    assert_eq!(s.export_location(), Some(chosen.clone()));
+    assert_eq!(s.projects_dir(), Some(pictures.join("Dalica")));
+    // No Pictures folder known: the chosen location still holds exports, and there is no projects
+    // directory.
     s.set_pictures_dir(None);
+    assert_eq!((s.export_location(), s.projects_dir()), (Some(chosen), None));
+    // Nor any location when none is chosen.
+    s.change_settings(|st| st.set_export(&ExportSettings::default()));
     assert_eq!((s.export_location(), s.projects_dir()), (None, None));
 }
 

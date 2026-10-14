@@ -307,6 +307,12 @@ re-reading. A failed write shows a `caution` toast and leaves the sidecar as the
   `photo.metadata` ("Changed in another application; Dalica's value kept"); a file Dalica wrote
   takes its new size and time in the library, so a rescan does not mistake the write for an
   outside change; a failed write becomes one toast naming the file and the fields.
+- **Before a Save, Undo Save or Revert reads a photo**, its own queued write is made at once on
+  the writer thread (only that photo's; one waiting for an offline volume is not tried), and the
+  Save expects the version Dalica's own writes left the file at, starting from the version the
+  library knew. A caption set just before Save is therefore written and the Save goes ahead; a
+  version no write of Dalica's explains (a change made elsewhere) is still refused as changed on
+  disk.
 - `library.inspect` → `pendingWrites.metadata` counts the photos still to write.
 
 ## 6. Save, Undo Save, Revert, Save a Copy, Export
@@ -539,10 +545,13 @@ ids are the same everywhere (`control-protocol.md` §5.4).
     in place (same size and modification time) keeps its photo id and star; a renamed or moved
     folder keeps its folder and photo ids, stars and sketches; a folder moved in from elsewhere
     brings its stars in its sidecar. Rescans and the verification pass wait while a file job
-    (Save, Undo Save, Revert, Save a Copy, Export) is writing, and a rescan running when one starts
-    is put off, its folders verified again after the job: a rescan overlapping the job's writes
-    would read some files before them and some after, and could put back a version the job's
-    result has moved the library past (a saved photo's old size, a record without its entry).
+    (Save, Undo Save, Revert, Save a Copy, Export, a move, copy, rename or delete) is writing, and
+    a rescan or a full scan (start-up, the verification pass, a folder just added, a rebuild)
+    running when one starts is put off, its job ending as "put off while files are written", and
+    walks again after the job: a scan overlapping the job's writes would read some files before
+    them and some after, and could put back a version the job's result has moved the library past
+    (a saved photo's old size, a record without its entry). What a put-off scan already applied
+    stays; it removes nothing, and a put-off rebuild keeps the old model.
   - **Verification pass:** each Scan Always unit (and each Scan Once unit not indexed yet) is
     scanned whole 6 hours after a scan last walked it, 60 s after the session's first frame if no
     scan walked it since the session opened (changes made while the app was closed), and again a

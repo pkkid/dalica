@@ -26,6 +26,11 @@
 //! feature), by extension); the disk is touched only on the job's worker. One worker: two Saves in one
 //! folder would race for its originals record. Cancel stops between photos. None of the three is a
 //! library undo step: a Save's way back is Undo Save.
+//!
+//! Each photo is read only once its own metadata write-back is settled (M9.28): the worker has the
+//! photo's queued write made first, on the writer thread ([`crate::metadata::WriteFlusher`]), and
+//! expects the version Dalica's own writes left the file at, so a caption set just before Save is
+//! written and the Save is not refused as changed on disk; a change made elsewhere still is.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -45,6 +50,7 @@ use serde_json::{Value, json};
 use crate::error::CmdError;
 use crate::filejobs::{Done, FileChange, FileItem, FileJob, Notice, Tally};
 use crate::jobs::{JobId, JobKind, JobProgress, Outcome};
+use crate::metadata::{SETTLE_PATIENCE, WriteFlusher};
 use crate::registry::{CommandSpec, Context, Disabled, Effect, History, params};
 use crate::session::Session;
 use crate::settings::SaveSettings;
@@ -320,6 +326,8 @@ struct Item {
     /// Why it fails without touching the disk, if it does.
     refused: Option<String>,
     before: Option<BeforeItem>,
+    /// Settles the photo's queued metadata write before the photo is read.
+    flusher: Option<WriteFlusher>,
 }
 
 impl FileItem for Item {
@@ -366,12 +374,18 @@ fn saved_of(entry: Entry) -> Saved {
 }
 
 /// One item, on the job's worker.
-fn work(item: Item) -> Result<Done<Did>, String> {
+fn work(mut item: Item) -> Result<Done<Did>, String> {
     if let Some(before) = &item.before {
         before(item.index);
     }
     if let Some(reason) = item.refused {
         return Err(reason);
+    }
+    // The photo's own write-back lands first; the file is then expected at the version it left.
+    if let (Some(flusher), Some(seen)) = (&item.flusher, item.options.seen)
+        && let Some((size, mtime)) = flusher.settle(item.id, item.path.clone(), (seen.size, seen.mtime), SETTLE_PATIENCE)
+    {
+        item.options.seen = Some(Seen { size, mtime });
     }
     let replaced = vec![FileChange::Replaced { photo: item.id, path: item.path.clone() }];
     match item.action {
@@ -504,6 +518,7 @@ fn message(action: Action, done: usize, total: usize, failed: usize, cancelled: 
 /// failed, cancelled}`.
 pub fn start(s: &mut Session, action: Action, ids: &[PhotoId], before: Option<BeforeItem>) -> Result<Value, CmdError> {
     let now = s.clock.now();
+    let flusher = s.metadata_flusher();
     let mut items = Vec::with_capacity(ids.len());
     for (index, &id) in ids.iter().enumerate() {
         let lib = s.library();
@@ -529,6 +544,7 @@ pub fn start(s: &mut Session, action: Action, ids: &[PhotoId], before: Option<Be
             options,
             refused,
             before: before.clone(),
+            flusher: flusher.clone(),
         });
     }
     let total = items.len();

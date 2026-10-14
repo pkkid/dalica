@@ -4359,7 +4359,7 @@ mid-run.
     edits back as unsaved, and Ctrl+Z with no Save still undoes the last edit; `ui.settle` with
     `jobs` returns only after a running export ends (test); the toast names the name tried; CI green
     on the three OSes.
-- ⬜ **M9.28 `engine`: the projects directory, scans and write-backs that never race a Save**
+- ✅ **M9.28 `engine`: the projects directory, scans and write-backs that never race a Save**
   - after: M8.R
   - files: `crates/engine/src/settings.rs`, `crates/engine/src/scanning.rs`, `crates/engine/src/watching.rs`, `crates/engine/src/filejobs.rs`, `crates/engine/src/cmd/save.rs`, `crates/engine/tests/save.rs`, `crates/engine/tests/filejobs.rs`, `docs/data-model.md`
   - scope: found in the M8 run (M8.15-fix #448, M8.22): `Session::projects_dir()` is the export

@@ -16,7 +16,8 @@
 //!   stars; a folder moved in from elsewhere brings its stars in its sidecar. Rescans wait while a
 //!   scan runs (the scan sees the same changes; a folder it removed is found again by the rescan
 //!   after it) and while a file job writes; a rescan running when a file job starts is put off
-//!   (`Session::put_off_rescan`). Only scopes walked to the end remove anything, and a unit that
+//!   (`Session::put_off_rescan`), as a full scan is (`Session::put_off_scans`, M9.28). Only
+//!   scopes walked to the end remove anything, and a unit that
 //!   holds no entries at all (an unmounted volume's empty mount point) removes nothing.
 //! - **The verification pass** runs on the session clock: each unit of
 //!   `Rules::verification` is rescanned whole (a region scan, [`crate::scanning`]) once

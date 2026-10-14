@@ -626,9 +626,14 @@ fn a_png_with_transparency_gets_a_jpeg_beside_it_as_a_new_photo() {
     lib.s.execute("photo.caption.set", &json!({ "ids": [id], "caption": "Tiles" })).unwrap();
     lib.s.execute("photo.tags.add", &json!({ "ids": [id], "tags": ["azulejo"] })).unwrap();
     lib.s.execute("photo.star.set", &json!({ "ids": [id], "on": true })).unwrap();
+    // The caption's write-back reaches the source (the Save settles it first, M9.28): its pixels
+    // stay, and the Save itself leaves the file as the write-back left it.
+    assert!(lib.s.flush_metadata(PATIENCE));
+    let written = read(&path);
+    assert_eq!(decode(&written).data, decode(&png).data, "the write-back never touches pixels");
     let done = lib.save(&[id]);
     assert_eq!((done.state, done.label.as_str()), (JobState::Done, "Saved 1 photo"), "{:?}", done.result);
-    assert_eq!(read(&path), png, "the source is untouched");
+    assert_eq!(read(&path), written, "the source is untouched");
     assert!(!lib.lisbon().join(".dalica-originals").join("alpha.png").exists());
     let copy = lib.s.library().photos().find(|p| p.name == "alpha.jpg").unwrap().clone();
     assert!(copy.star && (copy.width, copy.height) == (96, 64));
@@ -659,4 +664,151 @@ fn a_rotate_only_save_turns_the_photo_and_undo_save_brings_the_original_back() {
     lib.job("photo.undoSave", json!({ "ids": [a] }));
     assert_eq!(read(&lib.path(a)), original);
     assert_eq!(lib.edits(a), ["rotate(90)"]);
+}
+
+/// A header reader for scans that holds the read of one file until opened, and says when a scan
+/// reached it: a scan held there has listed its folder (each file's size and time) already.
+#[derive(Clone, Default)]
+struct ScanGate {
+    state: Arc<(Mutex<(bool, bool)>, Condvar)>,
+}
+
+impl ScanGate {
+    fn reader(&self, name: &'static str) -> dalica_scan::HeaderReader {
+        let gate = self.clone();
+        let inner = dalica_scan::default_reader();
+        Arc::new(move |path: &Path, limits: &Limits| {
+            if path.file_name().is_some_and(|n| n == name) {
+                let (lock, cv) = &*gate.state;
+                let mut st = lock.lock().unwrap();
+                st.0 = true;
+                cv.notify_all();
+                let _ = cv.wait_timeout_while(st, PATIENCE, |st| !st.1).unwrap();
+            }
+            inner(path, limits)
+        })
+    }
+
+    fn wait_reached(&self) {
+        let (lock, cv) = &*self.state;
+        let st = lock.lock().unwrap();
+        let st = cv.wait_timeout_while(st, PATIENCE, |st| !st.0).unwrap().0;
+        assert!(st.0, "the scan reached the held file");
+    }
+
+    fn open(&self) {
+        let (lock, cv) = &*self.state;
+        lock.lock().unwrap().1 = true;
+        cv.notify_all();
+    }
+}
+
+/// M9.28: a full scan (the verification pass, as at start-up) already running when a Save starts
+/// is put off, as a watcher rescan is. Held after it listed the folder (the photo's old size and
+/// time) and applied after the Save, it would put the saved photo's old version back and drop its
+/// record, and the next Undo Save would be refused as changed on disk. Put off, it walks again
+/// once the Save is done and finds the Save's writes unchanged.
+#[test]
+fn a_full_scan_running_when_a_save_starts_is_put_off_and_finds_its_writes_unchanged() {
+    let clock = Arc::new(VirtualClock::new(Timestamp::from_millis(1_700_000_000_000)));
+    let mut lib = Lib::open(2, None, clock, WatchMode::Off);
+    let a = lib.ids[0];
+    let original = read(&lib.path(a));
+    lib.edit(a, AUTOFIX);
+    lib.s.flush().unwrap();
+    let earlier: Vec<dalica_engine::JobId> = lib.s.jobs().iter().map(|j| j.job).collect();
+    let gate = ScanGate::default();
+    lib.s.set_scan_reader(Some(gate.reader("IMG_0002.jpg")));
+    let scans = lib.s.start_verification();
+    assert_eq!(scans.len(), 1, "one unit");
+    gate.wait_reached();
+
+    // The Save starts while the scan holds the folder's listing: the scan is put off.
+    let reply = save_cmd::start(&mut lib.s, Action::Save, &[a], None).unwrap();
+    let put_off = lib.s.jobs().iter().find(|j| j.job == scans[0]).cloned().unwrap();
+    assert_eq!(put_off.state, JobState::Cancelled, "{put_off:?}");
+    assert_eq!(put_off.label, "Scan put off while files are written");
+    assert_eq!(put_off.result.as_ref().unwrap()["putOff"], json!(true));
+    assert!(lib.s.busy(), "the scan waits to walk again");
+    let done = lib.s.wait_job(job_id(&reply), PATIENCE).unwrap();
+    assert_eq!((done.state, done.result.unwrap()["failed"].clone()), (JobState::Done, json!([])));
+    let saved = lib.s.library().photo(a).unwrap().clone();
+    let record = lib.s.library().saved(a).cloned().unwrap();
+    let steps = lib.s.undo_stack().len();
+
+    // The scan walks again after the Save; the held walk goes on and is dropped.
+    gate.open();
+    lib.s.wait_idle();
+    assert!(!lib.s.busy());
+    let again: Vec<JobEntry> =
+        lib.s.jobs().iter().filter(|j| j.kind == JobKind::Scan && j.job != scans[0] && !earlier.contains(&j.job)).cloned().collect();
+    assert_eq!(again.len(), 1, "{again:?}");
+    assert_eq!(again[0].state, JobState::Done, "{:?}", again[0]);
+    assert_eq!(lib.s.library().photo(a), Some(&saved), "the scan found the saved file unchanged");
+    assert_eq!(lib.s.library().saved(a), Some(&record), "and the Save's record");
+    assert_eq!(lib.s.undo_stack().len(), steps, "nothing imported from Dalica's own write");
+    let on_disk = std::fs::metadata(lib.path(a)).unwrap();
+    assert_eq!((saved.size, saved.mtime), (on_disk.len(), Timestamp::from_system_time(on_disk.modified().unwrap())));
+
+    // Undo Save right after is not refused.
+    let done = lib.job("photo.undoSave", json!({ "ids": [a] }));
+    assert_eq!((done.state, done.result.unwrap()["failed"].clone()), (JobState::Done, json!([])));
+    assert_eq!(read(&lib.path(a)), original);
+}
+
+/// M9.28: a caption whose write-back lands after a Save started (its photo's size and time then
+/// differ from what the Save expects) is settled before the photo is read: it is written, and the
+/// Save succeeds with the caption in the saved file. A photo changed elsewhere meanwhile is still
+/// refused as changed on disk. And a caption set just before Save, with its write still queued,
+/// is written by the Save's worker before the read.
+#[test]
+fn a_caption_set_immediately_before_save_is_written_and_the_save_succeeds() {
+    let clock = Arc::new(VirtualClock::new(Timestamp::from_millis(1_700_000_000_000)));
+    let mut lib = Lib::open(3, None, clock, WatchMode::Off);
+    let (a, b, c) = (lib.ids[0], lib.ids[1], lib.ids[2]);
+    for id in [a, b, c] {
+        lib.edit(id, AUTOFIX);
+    }
+    let caption = |path: &Path| dalica_meta::read(&read(path), &dalica_meta::Limits::default()).unwrap().owned.caption;
+
+    // Held before it reads anything: a's caption is written meanwhile, b is changed elsewhere.
+    lib.s.execute("photo.caption.set", &json!({ "ids": [a], "caption": "Tram 28" })).unwrap();
+    let gate = Arc::new(Gate::default());
+    let hook = Arc::clone(&gate);
+    let job = job_id(&save_cmd::start(&mut lib.s, Action::Save, &[a, b], Some(Arc::new(move |i| hook.pass(i)))).unwrap());
+    gate.wait_started(0);
+    assert!(lib.s.flush_metadata(PATIENCE), "a's write-back landed");
+    assert_eq!(caption(&lib.path(a)).as_deref(), Some("Tram 28"));
+    let outside = dalica_scenes::jpeg(&dalica_scenes::Scene::new(99, W, H), 70, None).unwrap();
+    let path_b = lib.path(b);
+    std::thread::scope(|s| {
+        s.spawn(|| {
+            let identity = dalica_fs::read(&path_b, u64::MAX).unwrap().unwrap().identity;
+            dalica_fs::replace(&path_b, &outside, Expect::Unchanged(identity)).unwrap();
+        });
+    });
+    gate.open(2);
+    let done = lib.s.wait_job(job, PATIENCE).unwrap();
+    let result = done.result.unwrap();
+    assert_eq!(result["photos"], json!([a]), "{result}");
+    let failed = result["failed"].as_array().unwrap();
+    assert_eq!(failed.len(), 1, "{result}");
+    assert!(failed[0]["file"].as_str().unwrap().ends_with("IMG_0002.jpg"), "{result}");
+    assert!(failed[0]["reason"].as_str().unwrap().contains("changed on disk"), "{result}");
+    assert!(lib.s.library().saved(a).is_some() && !lib.s.library().has_unsaved_edits(a));
+    assert_eq!(caption(&lib.path(a)).as_deref(), Some("Tram 28"), "the saved file holds the caption");
+    assert_eq!(read(&path_b), outside, "the outside change is left alone");
+
+    // Set just before Save, the write still queued (the session clock never moves, so it is never
+    // due on its own): the Save's worker writes it before the read.
+    lib.s.execute("photo.caption.set", &json!({ "ids": [c], "caption": "Alfama" })).unwrap();
+    assert_eq!(lib.s.pending_metadata_writes(), 1);
+    let done = lib.save(&[c]);
+    assert_eq!((done.state, done.result.unwrap()["failed"].clone()), (JobState::Done, json!([])));
+    assert_eq!(caption(&lib.path(c)).as_deref(), Some("Alfama"));
+    lib.s.poll();
+    assert_eq!(lib.s.pending_metadata_writes(), 0, "the write was made, not left queued");
+    let on_disk = std::fs::metadata(lib.path(c)).unwrap();
+    let photo = lib.s.library().photo(c).unwrap();
+    assert_eq!((photo.size, photo.mtime), (on_disk.len(), Timestamp::from_system_time(on_disk.modified().unwrap())));
 }

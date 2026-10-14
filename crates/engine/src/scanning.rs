@@ -15,6 +15,10 @@
 //! - **Rebuild** scans (`library.rebuild`, and a damaged index at open) build a fresh model to the
 //!   side and swap it in at the end, clearing the undo stack (ids change); a cancelled rebuild
 //!   keeps the old model. A rebuild of an empty model fills it in place, like a merge.
+//! - **Put off** ([`Session::put_off_scans`], M9.28): a file job starting lets every running scan
+//!   go (its job ends as "put off while files are written"; what it read and did not apply is
+//!   dropped, nothing is removed, a rebuild keeps the old model) and starts it again from the start
+//!   once no file job runs, so no scan applies a listing older than the job's writes.
 //! - **Cancel** ([`Session::cancel_jobs`]): the walk stops before its next file; the folder being
 //!   applied is finished, folders read but not yet applied are dropped, nothing is removed, and the
 //!   job ends as `cancelled` with what it indexed.
@@ -60,6 +64,7 @@
 use std::collections::{HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 
 use dalica_core::PhotoId;
@@ -127,6 +132,9 @@ pub(crate) struct Scanning {
     /// The files the model knows, at the library revision they were listed at: scans read the
     /// metadata of the others.
     known: Option<(u64, Arc<Known>)>,
+    /// Scans a file job put off ([`Session::put_off_scans`]): started again, in order, once no
+    /// file job runs.
+    put_off: Vec<(Plan, ScanKind)>,
 }
 
 /// One running scan, as the owner sees it.
@@ -156,6 +164,8 @@ struct ScanJob {
     stopped: bool,
     /// A rebuild's model, swapped in at the end.
     fresh: Option<Library>,
+    /// The job's cancel flag, which the walk checks before each file.
+    cancel: Arc<AtomicBool>,
     synced: bool,
     /// The library revision after the current folder's diff or the last op of ours: another value
     /// means the model changed meanwhile, and the folder's sync op is diffed again.
@@ -163,7 +173,7 @@ struct ScanJob {
 }
 
 impl ScanJob {
-    fn new(job: JobId, kind: ScanKind, plan: Plan, rx: Receiver<Streamed>, fresh: Option<Library>) -> ScanJob {
+    fn new(job: JobId, kind: ScanKind, plan: Plan, rx: Receiver<Streamed>, fresh: Option<Library>, cancel: Arc<AtomicBool>) -> ScanJob {
         ScanJob {
             job,
             kind,
@@ -181,6 +191,7 @@ impl ScanJob {
             lost: false,
             stopped: false,
             fresh,
+            cancel,
             synced: false,
             revision: 0,
         }
@@ -364,7 +375,7 @@ impl Session {
             self.undo.clear();
         }
         let mut options = self.scan_options();
-        options.cancel = Some(cancel);
+        options.cancel = Some(Arc::clone(&cancel));
         options.excluded = plan.excluded.clone();
         if kind == ScanKind::Rebuild {
             // The rebuilt model knows nothing: every photo's metadata is read.
@@ -389,7 +400,7 @@ impl Session {
         });
         match spawned {
             Ok(_) => {
-                let scan = ScanJob::new(job, kind, plan, rx, fresh);
+                let scan = ScanJob::new(job, kind, plan, rx, fresh, cancel);
                 self.jobs.progress(job, scan.progress(), scan.label());
                 self.scanning.running.push(scan);
             }
@@ -489,17 +500,82 @@ impl Session {
         p
     }
 
-    /// Whether a scan is still running (the watcher's rescans of dirty folders included).
-    /// Thumbnail jobs are counted apart ([`Session::thumbnails_pending`]).
+    /// Whether a scan is still running or waits to run again after a file job (the watcher's
+    /// rescans of dirty folders included). Thumbnail jobs are counted apart
+    /// ([`Session::thumbnails_pending`]).
     pub fn busy(&self) -> bool {
-        !self.scanning.running.is_empty() || self.rescanning()
+        !self.scanning.running.is_empty() || !self.scanning.put_off.is_empty() || self.rescanning()
+    }
+
+    /// A file job is starting: every running scan is let go with what it read and did not apply
+    /// yet, its job ends as put off, and it starts again from the start once no file job runs
+    /// ([`Session::resume_put_off_scans`]), as the watcher's rescans are put off
+    /// ([`Session::put_off_rescan`]).
+    ///
+    /// A scan overlapping a file job lists some files before the job writes them and others
+    /// after, while the job's results reach the model only when the owner applies them: a folder
+    /// listed before a Save and applied after it would put the saved photo's old size and time
+    /// back (the next Undo Save refused as changed on disk) and drop the record the Save just
+    /// wrote. Walked again after the job, the folders hold what its results put in the model, so
+    /// the scan finds nothing to change. What a scan already applied stays (each folder's diff is
+    /// idempotent); nothing is removed for a scan put off, and a rebuild keeps the old model.
+    pub(crate) fn put_off_scans(&mut self) {
+        if self.scanning.running.is_empty() {
+            return;
+        }
+        let now = self.clock.now();
+        for mut job in std::mem::take(&mut self.scanning.running) {
+            // The walk stops before its next file (its sends fail too); it is not waited for.
+            job.cancel.store(true, Ordering::Relaxed);
+            job.stop();
+            job.current = None;
+            job.pending.clear();
+            job.fresh = None;
+            let what = if job.kind == ScanKind::Rebuild { "Rebuild" } else { "Scan" };
+            let result = json!({
+                "roots": job.plan.roots,
+                "folders": job.folders,
+                "found": job.walker.found.max(job.indexed),
+                "indexed": job.indexed,
+                "cancelled": true,
+                "putOff": true,
+            });
+            let label = format!("{what} put off while files are written");
+            self.jobs.progress(job.job, job.progress(), label.clone());
+            self.jobs.finish(job.job, Outcome::Cancelled(result), label, now);
+            let again = (job.plan, job.kind);
+            if !self.scanning.put_off.contains(&again) {
+                self.scanning.put_off.push(again);
+            }
+        }
+        self.sync_thumbnails();
+    }
+
+    /// Starts the scans a file job put off again, once no file job runs. Returns how many it
+    /// started.
+    pub(crate) fn resume_put_off_scans(&mut self) -> usize {
+        if self.scanning.put_off.is_empty() || self.file_jobs_running() {
+            return 0;
+        }
+        let mut n = 0;
+        for (plan, kind) in std::mem::take(&mut self.scanning.put_off) {
+            match kind {
+                // A rebuild walks every unit as the rules are now.
+                ScanKind::Rebuild => self.start_rebuild(),
+                ScanKind::Merge => {
+                    self.start_plan(plan, kind);
+                }
+            }
+            n += 1;
+        }
+        n
     }
 
     /// Takes in what the scans found and applies up to `photos` of it; ends the scans that are
     /// complete. Returns how many folders were applied and scans ended.
     /// The Folder Manager's browse answers are taken in here too (`folders.rs`).
     pub(crate) fn poll_scans(&mut self, photos: usize) -> usize {
-        let browsed = self.poll_browse(false);
+        let browsed = self.poll_browse(false) + self.resume_put_off_scans();
         if self.scanning.running.is_empty() {
             return browsed;
         }
@@ -541,6 +617,8 @@ impl Session {
     pub(crate) fn wait_scans(&mut self) {
         self.poll_browse(true);
         loop {
+            // Scans a file job put off start again (unless one still runs: then they wait for it).
+            self.resume_put_off_scans();
             while !self.scanning.running.is_empty() {
                 for job in &mut self.scanning.running {
                     job.receive(true, &mut self.scan_warnings);
