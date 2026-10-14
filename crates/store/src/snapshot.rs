@@ -14,11 +14,18 @@
 //! M8's fields too: `saved` (`[photo id, record]` pairs: the saved records read from the
 //! originals records, index-only like the synced hashes), `savedAs` (`[photo id, copy]` pairs)
 //! and `projects` (`[folder id, kind]` pairs), each left out when empty.
+//!
+//! M9's fields too: `folderSorts` (`[folder id, sort]` pairs), `albums` (`[album id, info]`
+//! pairs), `members` (`[album id, photo id, position key]` triples), `covers` (`[album id, photo
+//! id]` pairs), and the index-only `facts` (`[photo id, facts]`), `digests` (`[photo id, digest]`),
+//! `firstIndexed` and `lastChanged` (`[photo id, time in milliseconds]`), each left out when empty.
 
 use std::path::Path;
 
-use dalica_core::{FolderId, PhotoId};
-use dalica_library::{Folder, FolderInfo, Library, Op, Photo, PhotoInfo, Project, Saved, SavedAs, Sketch, Synced};
+use dalica_core::{AlbumId, FolderId, PhotoId, PosKey, Timestamp};
+use dalica_library::{
+    AlbumInfo, ContentDigest, Facts, Folder, FolderInfo, Library, Op, Photo, PhotoInfo, PhotoSort, Project, Saved, SavedAs, Sketch, Synced,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::journal::{decode, encode, write_whole};
@@ -50,6 +57,22 @@ struct Snapshot {
     saved_as: Vec<(PhotoId, SavedAs)>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     projects: Vec<(FolderId, Project)>,
+    #[serde(rename = "folderSorts", default, skip_serializing_if = "Vec::is_empty")]
+    folder_sorts: Vec<(FolderId, PhotoSort)>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    albums: Vec<(AlbumId, AlbumInfo)>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    members: Vec<(AlbumId, PhotoId, PosKey)>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    covers: Vec<(AlbumId, PhotoId)>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    facts: Vec<(PhotoId, Facts)>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    digests: Vec<(PhotoId, ContentDigest)>,
+    #[serde(rename = "firstIndexed", default, skip_serializing_if = "Vec::is_empty")]
+    first_indexed: Vec<(PhotoId, Timestamp)>,
+    #[serde(rename = "lastChanged", default, skip_serializing_if = "Vec::is_empty")]
+    last_changed: Vec<(PhotoId, Timestamp)>,
 }
 
 /// Writes the model of `library` as of op `seq`.
@@ -66,6 +89,14 @@ pub fn write(path: &Path, library: &Library, seq: u64) -> Result<()> {
         saved: library.saved_all().map(|(id, s)| (id, s.clone())).collect(),
         saved_as: library.saved_as_all().map(|(id, s)| (id, s.clone())).collect(),
         projects: library.projects().collect(),
+        folder_sorts: library.folder_sorts().collect(),
+        albums: library.albums().map(|(id, i)| (id.clone(), i.clone())).collect(),
+        members: library.memberships().flat_map(|(a, m)| m.iter().map(move |(p, k)| (a.clone(), *p, k.clone()))).collect(),
+        covers: library.albums().filter_map(|(id, _)| Some((id.clone(), library.cover_set(id)?))).collect(),
+        facts: library.facts_all().map(|(id, f)| (id, f.clone())).collect(),
+        digests: library.digests().map(|(id, d)| (id, d.clone())).collect(),
+        first_indexed: library.first_indexed_all().collect(),
+        last_changed: library.last_changed_all().collect(),
     };
     let json = serde_json::to_vec(&snap).map_err(|e| Error::Json(e.to_string()))?;
     write_whole(path, &encode(&json))
@@ -102,6 +133,30 @@ pub fn read(bytes: &[u8]) -> std::result::Result<(Library, u64), String> {
     }
     if !snap.projects.is_empty() {
         ops.push(Op::SetProjects { projects: snap.projects.into_iter().map(|(id, p)| (id, Some(p))).collect() });
+    }
+    if !snap.folder_sorts.is_empty() {
+        ops.push(Op::SetFolderSorts { sorts: snap.folder_sorts });
+    }
+    if !snap.albums.is_empty() {
+        ops.push(Op::CreateAlbums { albums: snap.albums });
+    }
+    if !snap.members.is_empty() {
+        ops.push(Op::AddMembers { members: snap.members });
+    }
+    if !snap.covers.is_empty() {
+        ops.push(Op::SetCovers { covers: snap.covers.into_iter().map(|(a, p)| (a, Some(p))).collect() });
+    }
+    if !snap.facts.is_empty() {
+        ops.push(Op::SetFacts { facts: snap.facts });
+    }
+    if !snap.digests.is_empty() {
+        ops.push(Op::SetDigests { digests: snap.digests.into_iter().map(|(id, d)| (id, Some(d))).collect() });
+    }
+    if !snap.first_indexed.is_empty() {
+        ops.push(Op::SetFirstIndexed { indexed: snap.first_indexed.into_iter().map(|(id, t)| (id, Some(t))).collect() });
+    }
+    if !snap.last_changed.is_empty() {
+        ops.push(Op::SetLastChanged { changed: snap.last_changed.into_iter().map(|(id, t)| (id, Some(t))).collect() });
     }
     library.apply(Op::Batch { ops }).map_err(|e| format!("inconsistent snapshot: {e}"))?;
     Ok((library, snap.seq))

@@ -23,13 +23,28 @@
 //! not one plain path component, or a project kind Dalica does not know, is unusable (kept,
 //! reported). A photo's saved record ([`dalica_library::Saved`], [`SAVED_FIELDS`]) lives in the
 //! originals record `.dalica-originals/.dalica.json` ([`read_originals`], [`originals_entry`]).
+//!
+//! **M9's fields** follow them too. A photo's album memberships with their position keys
+//! (`photos.<name>.albums`, [`read_photo`] → [`PhotoReading::albums`]), the folder's photo sort
+//! (`"folder": {"sort", "reverse"}`, [`read_folder`] → [`FolderReading::photo_sort`]) and the
+//! names of the albums with members in the folder (the top-level `"albums"`,
+//! [`read_album_names`]) live in the folder sidecar ([`PHOTO_DATA_M9`], [`FOLDER_DATA_M9`]); the
+//! album definitions and covers live in `albums.json` ([`ALBUM_INFO_FIELDS`], [`LIBRARY_DATA_M9`],
+//! [`crate::albums`]). The model is the truth for the memberships of its own albums and for the
+//! folder's album names; a membership of an album the model does not have (deleted here, or never
+//! in this library) is kept as it is, and an entry whose id is not an album id, or whose key or
+//! name cannot be used, is kept verbatim and reported, never used and never written over. A sort the model cannot hold (`manual`, `modified`, anything else) is kept
+//! and reported. Search facts, content digests and the first-indexed and last-changed times are
+//! index-only ([`FACTS_FIELDS`], [`CONTENT_DIGEST_FIELDS`]). These are the rules a scan reading a
+//! folder sidecar follows too.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
-use dalica_core::{Date, DateTime, FolderId, Timestamp};
+use dalica_core::{AlbumId, Date, DateTime, FolderId, PosKey, Timestamp};
 use dalica_library::{
-    FolderInfo, Library, MAX_CAPTION, MAX_DESCRIPTION, MAX_DIGEST, MAX_FILE_NAME, MAX_OPERATION, MAX_OPERATIONS, MAX_PLACE, PhotoInfo, Project,
-    SaveState, Saved, SavedAs,
+    FolderInfo, Library, MAX_CAPTION, MAX_DESCRIPTION, MAX_DIGEST, MAX_FILE_NAME, MAX_OPERATION, MAX_OPERATIONS, MAX_PLACE, PhotoInfo, PhotoSort,
+    Project, SaveState, Saved, SavedAs, SortBy,
 };
 use dalica_sidecar::originals::{self, Entry, Originals, State};
 use dalica_sidecar::{Field, FolderValue, PhotoValue, Sidecar, WrongType, plain_name};
@@ -52,6 +67,11 @@ pub enum Source {
     /// Dalica's own record of a Save: written to and read from the photo's entry in the folder's
     /// originals record (`.dalica-originals/.dalica.json`, `originals.<name>.<key>`).
     Originals(&'static str),
+    /// Written to and read from the folder sidecar's top level (`<key>`, M9: the album names).
+    TopSidecar(&'static str),
+    /// Written to and read from the album's entry in `albums.json` in the library directory
+    /// (`albums.<id>.<key>`, M9).
+    Albums(&'static str),
 }
 
 /// Every field of [`dalica_library::Photo`] and where it lives.
@@ -114,6 +134,45 @@ pub const SAVED_AS_FIELDS: [(&str, Source); 2] = [("name", Source::Sidecar("save
 /// Folder data M8 adds beside [`dalica_library::Folder`]: the project mark, in `"folder"`.
 pub const FOLDER_DATA_M8: [(&str, Source); 1] = [("project", Source::FolderSidecar("project"))];
 
+/// Per-photo data M9 adds beside [`dalica_library::Photo`], and where it lives: the album
+/// memberships (album id → position key, `photos.<name>.albums`; the order is also copied into
+/// `albums.json`), and the index-only search facts, content digest and times.
+pub const PHOTO_DATA_M9: [(&str, Source); 5] = [
+    ("albums", Source::Sidecar("albums")),
+    ("facts", Source::Fields("FACTS_FIELDS")),
+    ("digest", Source::Fields("CONTENT_DIGEST_FIELDS")),
+    ("firstIndexed", Source::Index),
+    ("lastChanged", Source::Index),
+];
+
+/// Every field of [`dalica_library::Facts`]: read from the file on scan, kept by the index only.
+pub const FACTS_FIELDS: [(&str, Source); 4] =
+    [("make", Source::Index), ("model", Source::Index), ("video", Source::Index), ("geotagged", Source::Index)];
+
+/// Every field of [`dalica_library::ContentDigest`]: made from the file, kept by the index only.
+pub const CONTENT_DIGEST_FIELDS: [(&str, Source); 3] = [("size", Source::Index), ("mtime", Source::Index), ("digest", Source::Index)];
+
+/// Folder data M9 adds beside [`dalica_library::Folder`]: its photo sort, and the names of the
+/// albums with members in it (mirrored from [`ALBUM_INFO_FIELDS`]'s `name`).
+pub const FOLDER_DATA_M9: [(&str, Source); 2] = [("sort", Source::Fields("PHOTO_SORT_FIELDS")), ("albumNames", Source::TopSidecar("albums"))];
+
+/// Every field of [`dalica_library::PhotoSort`] as a folder holds it, in `"folder"`.
+pub const PHOTO_SORT_FIELDS: [(&str, Source); 2] = [("by", Source::FolderSidecar("sort")), ("reverse", Source::FolderSidecar("reverse"))];
+
+/// Library data M9 adds: the user albums, their memberships and their covers.
+pub const LIBRARY_DATA_M9: [(&str, Source); 3] =
+    [("albums", Source::Fields("ALBUM_INFO_FIELDS")), ("members", Source::Sidecar("albums")), ("covers", Source::Albums("cover"))];
+
+/// Every field of [`dalica_library::AlbumInfo`] (Album Properties), each under its own key of the
+/// album's entry in `albums.json`; the name is also mirrored in each member folder's sidecar.
+pub const ALBUM_INFO_FIELDS: [(&str, Source); 5] = [
+    ("name", Source::Albums("name")),
+    ("description", Source::Albums("description")),
+    ("date", Source::Albums("date")),
+    ("useNewest", Source::Albums("useNewest")),
+    ("place", Source::Albums("place")),
+];
+
 /// Every field of [`dalica_library::FolderInfo`] (Folder Properties, Hide Folder).
 pub const FOLDER_INFO_FIELDS: [(&str, Source); 4] = [
     ("description", Source::FolderSidecar("description")),
@@ -129,6 +188,8 @@ pub struct PhotoState {
     pub info: PhotoInfo,
     /// The copy a Save wrote beside the photo (M8).
     pub saved_as: Option<SavedAs>,
+    /// The albums the photo belongs to, with its position key in each (M9).
+    pub albums: BTreeMap<AlbumId, PosKey>,
 }
 
 /// What a folder's sidecar should say, taken from the model: enough to write it on any thread.
@@ -142,18 +203,56 @@ pub struct FolderState {
     pub photos: Vec<(String, PhotoState)>,
     /// The folder's project mark (M8).
     pub project: Option<Project>,
+    /// The folder's photo sort (M9; the default, by date, is written as no key).
+    pub sort: PhotoSort,
+    /// The name of every album with a member in the folder (M9).
+    pub album_names: BTreeMap<AlbumId, String>,
+    /// Every album the model has (M9): a photo's memberships of other albums are kept as they
+    /// are in the file (an album deleted here, or one this library never had).
+    pub known_albums: BTreeSet<AlbumId>,
+}
+
+impl Default for FolderState {
+    /// A folder with nothing to say (id 0, an empty path): fill in what the caller has.
+    fn default() -> FolderState {
+        FolderState {
+            id: FolderId::new(0),
+            path: PathBuf::new(),
+            folder: FolderInfo::default(),
+            photos: Vec::new(),
+            project: None,
+            sort: PhotoSort::default(),
+            album_names: BTreeMap::new(),
+            known_albums: BTreeSet::new(),
+        }
+    }
 }
 
 /// The sidecar-relevant state of `folder`, or `None` if it is not in the model.
 pub fn folder_state(library: &Library, folder: FolderId) -> Option<FolderState> {
     let f = library.folder(folder)?;
-    let photos = library.photos_in(folder).into_iter().map(|p| (p.name.clone(), photo_state(library, p))).collect();
-    Some(FolderState { id: folder, path: f.path.clone(), folder: library.folder_info(folder).clone(), photos, project: library.project(folder) })
+    let photos: Vec<(String, PhotoState)> = library.photos_in(folder).into_iter().map(|p| (p.name.clone(), photo_state(library, p))).collect();
+    let album_names = photos.iter().flat_map(|(_, p)| p.albums.keys()).filter_map(|id| Some((id.clone(), library.album(id)?.name.clone()))).collect();
+    Some(FolderState {
+        id: folder,
+        path: f.path.clone(),
+        folder: library.folder_info(folder).clone(),
+        photos,
+        project: library.project(folder),
+        sort: library.folder_sort(folder),
+        album_names,
+        known_albums: library.albums().map(|(id, _)| id.clone()).collect(),
+    })
 }
 
 /// The sidecar-relevant state of `photo`.
 pub fn photo_state(library: &Library, photo: &dalica_library::Photo) -> PhotoState {
-    PhotoState { star: photo.star, info: library.info(photo.id).clone(), saved_as: library.saved_as(photo.id).cloned() }
+    PhotoState {
+        star: photo.star,
+        info: library.info(photo.id).clone(),
+        saved_as: library.saved_as(photo.id).cloned(),
+        albums: library.albums_of(photo.id).into_iter().map(|(a, k)| (a.clone(), k.clone())).collect(),
+    }
 }
 
 /// What one sidecar key gives the model.
@@ -242,6 +341,9 @@ pub struct PhotoReading {
     pub redo: Reading<Vec<String>>,
     pub date: Reading<Option<DateTime>>,
     pub saved_as: Reading<Option<SavedAs>>,
+    /// The photo's usable memberships (M9): entries Dalica cannot use are left out (they stay in
+    /// the file and are noted); `albums` of the wrong type is unusable.
+    pub albums: Reading<BTreeMap<AlbumId, PosKey>>,
     /// Values past a cap, one sentence each (values of the wrong type are
     /// [`Sidecar::problems`]).
     pub notes: Vec<String>,
@@ -263,6 +365,7 @@ impl PhotoReading {
                 date: self.date.or(o.date),
             },
             saved_as: self.saved_as.or_else(|| own.saved_as.clone()),
+            albums: self.albums.or_else(|| own.albums.clone()),
         }
     }
 }
@@ -276,6 +379,10 @@ pub struct FolderReading {
     pub hidden: Reading<bool>,
     /// The project mark (M8; [`FolderReading::merged`] leaves it out: see [`FolderReading::project`]).
     pub project: Reading<Option<Project>>,
+    /// What the folder's photos sort by (M9; [`FolderReading::photo_sort`]).
+    pub sort: Reading<SortBy>,
+    /// Whether that sort is reversed (M9).
+    pub reverse: Reading<bool>,
     /// Values past a cap, one sentence each.
     pub notes: Vec<String>,
 }
@@ -290,6 +397,12 @@ impl FolderReading {
             place: self.place.or_else(|| own.place.clone()),
             hidden: self.hidden.or(own.hidden),
         }
+    }
+
+    /// The photo sort the model takes from the sidecar, keeping `own`'s parts wherever the
+    /// reading is unusable.
+    pub fn photo_sort(&self, own: PhotoSort) -> PhotoSort {
+        PhotoSort { by: self.sort.clone().or(own.by), reverse: self.reverse.clone().or(own.reverse) }
     }
 }
 
@@ -310,8 +423,84 @@ pub fn read_photo(sidecar: &Sidecar, name: &str) -> PhotoReading {
         redo: operations(f.redo, "redo list", &mut notes),
         date: dated(f.date),
         saved_as: saved_as(sidecar.saved_as(name), &mut notes),
+        albums: memberships(sidecar.photo_albums(name), &mut notes),
         notes,
     }
+}
+
+/// A photo's usable memberships: the entries with an album id and a position key.
+fn memberships(f: Field<dalica_sidecar::PhotoAlbums>, notes: &mut Vec<String>) -> Reading<BTreeMap<AlbumId, PosKey>> {
+    match f {
+        Field::Absent => Reading::Usable(BTreeMap::new()),
+        Field::Value(v) => {
+            for id in &v.bad {
+                notes.push(format!("the album entry {id:?} is not an album id with a position key: kept in the file, not used"));
+            }
+            Reading::Usable(v.members)
+        }
+        Field::WrongType(_) => Reading::Unusable,
+    }
+}
+
+/// The spelling of a photo sort in the folder sidecar's `sort`; the default (by date) is written
+/// as no key.
+pub fn sort_text(by: SortBy) -> Option<&'static str> {
+    match by {
+        SortBy::Date => None,
+        SortBy::Name => Some("name"),
+        SortBy::Size => Some("size"),
+    }
+}
+
+/// A folder `sort` the model can hold: `date` (or none), `name`, `size`.
+fn sort_by(f: Field<String>, notes: &mut Vec<String>) -> Reading<SortBy> {
+    match f {
+        Field::Absent => Reading::Usable(SortBy::Date),
+        Field::Value(s) => match s.as_str() {
+            "date" => Reading::Usable(SortBy::Date),
+            "name" => Reading::Usable(SortBy::Name),
+            "size" => Reading::Usable(SortBy::Size),
+            _ => {
+                notes.push(format!("the folder's sort {s:?} is not one Dalica can sort by: kept in the file, not used"));
+                Reading::Unusable
+            }
+        },
+        Field::WrongType(_) => Reading::Unusable,
+    }
+}
+
+/// What the folder sidecar's top-level `"albums"` says (M9): the name of each album with a usable
+/// id and name, cleaned the way the library cleans album names, with one sentence per name that
+/// was cut or is nothing once cleaned (not used), and one per entry Dalica cannot use (left out,
+/// kept in the file); an `"albums"` of the wrong type is unusable.
+pub fn read_album_names(sidecar: &Sidecar) -> (Reading<BTreeMap<AlbumId, String>>, Vec<String>) {
+    let mut notes = Vec::new();
+    let names = match sidecar.album_names() {
+        Field::Absent => Reading::Usable(BTreeMap::new()),
+        Field::WrongType(_) => Reading::Unusable,
+        Field::Value(v) => {
+            for id in &v.bad {
+                notes.push(format!("the folder's album entry {id:?} is not an album id with a name: kept in the file, not used"));
+            }
+            let mut out = BTreeMap::new();
+            for (id, raw) in v.names {
+                match dalica_library::clean_album_name(&raw) {
+                    Some(name) => {
+                        if raw.len() > dalica_library::MAX_ALBUM_NAME {
+                            notes.push(format!(
+                                "album {id}'s name is longer than {} bytes: shown cut, kept whole in the file",
+                                dalica_library::MAX_ALBUM_NAME
+                            ));
+                        }
+                        out.insert(id, name);
+                    }
+                    None => notes.push(format!("album {id}'s name is empty once cleaned: kept in the file, not used")),
+                }
+            }
+            Reading::Usable(out)
+        }
+    };
+    (names, notes)
 }
 
 /// A `savedAs` the model can take: a plain file name within the cap and a recipe within the caps.
@@ -360,6 +549,8 @@ pub fn read_folder(sidecar: &Sidecar) -> FolderReading {
         place: capped(f.place, MAX_PLACE, dalica_library::clean_place, "folder place", &mut notes),
         hidden: plain(f.hidden),
         project: project(sidecar.project(), &mut notes),
+        sort: sort_by(sidecar.folder_sort(), &mut notes),
+        reverse: plain(sidecar.folder_reverse()),
         notes,
     }
 }
@@ -388,6 +579,15 @@ pub fn apply(state: &FolderState, sidecar: &mut Sidecar) -> Vec<WrongType> {
     let mut folder_refused = folder.iter().find_map(|v| sidecar.set_folder(v).err());
     if folder_refused.is_none() && differs(&r.project, &state.project) {
         folder_refused = sidecar.set_project(state.project.map(project_text)).err();
+    }
+    if folder_refused.is_none() && differs(&r.sort, &state.sort.by) {
+        folder_refused = sidecar.set_folder_sort(sort_text(state.sort.by)).err();
+    }
+    if folder_refused.is_none() && differs(&r.reverse, &state.sort.reverse) {
+        folder_refused = sidecar.set_folder_reverse(state.sort.reverse).err();
+    }
+    if differs(&read_album_names(sidecar).0, &state.album_names) {
+        sidecar.set_album_names(&state.album_names);
     }
     if let Some(e) = folder_refused {
         refused.push(e);
@@ -422,6 +622,16 @@ pub fn apply(state: &FolderState, sidecar: &mut Sidecar) -> Vec<WrongType> {
         if photo_refused.is_none() && differs(&r.saved_as, &photo.saved_as) {
             let copy = photo.saved_as.as_ref().map(|c| dalica_sidecar::SavedAs { name: c.name.clone(), recipe: c.recipe.clone() });
             photo_refused = sidecar.set_saved_as(name, copy.as_ref()).err();
+        }
+        // Only memberships of the model's albums are the model's to write.
+        let known = |a: &AlbumId| state.known_albums.contains(a);
+        let ours = match r.albums {
+            Reading::Usable(m) => Reading::Usable(m.into_iter().filter(|(a, _)| known(a)).collect()),
+            Reading::Unusable => Reading::Unusable,
+        };
+        let members: BTreeMap<AlbumId, PosKey> = photo.albums.iter().filter(|(a, _)| known(a)).map(|(a, k)| (a.clone(), k.clone())).collect();
+        if photo_refused.is_none() && differs(&ours, &members) {
+            photo_refused = sidecar.set_photo_albums(name, &members, known).err();
         }
         if let Some(e) = photo_refused {
             refused.push(e);

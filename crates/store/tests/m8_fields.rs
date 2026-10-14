@@ -480,7 +480,7 @@ proptest! {
             .filter(|(n, ..)| seen.insert(n.clone()))
             .map(|(n, star, saved_as)| (n, PhotoState { star, saved_as, ..PhotoState::default() }))
             .collect();
-        let state = dalica_store::FolderState { id: FolderId::new(1), path: "/x".into(), folder: Default::default(), photos: photos.clone(), project };
+        let state = dalica_store::FolderState { id: FolderId::new(1), path: "/x".into(), photos: photos.clone(), project, ..Default::default() };
         prop_assert!(mapping::apply(&state, &mut sidecar).is_empty());
         let back = Sidecar::parse(&sidecar.print(), &Limits::default()).unwrap();
         prop_assert_eq!(&back, &sidecar);

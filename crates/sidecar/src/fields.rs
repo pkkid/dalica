@@ -5,6 +5,14 @@
 //! ([`M8_PHOTO_KEYS`], [`M8_FOLDER_KEYS`]); writing `savedAs` keeps the keys of its object that
 //! Dalica does not know.
 //!
+//! M9 adds a photo's `albums` (an object from album id to position key, `data-model.md` §3.2), the
+//! folder's `sort` and `reverse` in `"folder"`, and the top-level `albums` object (album id →
+//! `{"name": …}`, the names of the albums with members in the folder) ([`M9_PHOTO_KEYS`],
+//! [`M9_FOLDER_KEYS`], [`M9_TOP_KEYS`]). An entry of either `albums` object whose id is not an
+//! album id, or whose key or name is not usable, is kept verbatim: reading leaves it out and lists
+//! it ([`PhotoAlbums::bad`], [`AlbumNames::bad`], for the reader to report), and writing never
+//! touches it. An `albums` that is not an object is a [`Problem`].
+//!
 //! Reading never fails: each key is [`Field::Absent`], a value of the right type, or
 //! [`Field::WrongType`] holding what is there (kept, reported by [`Sidecar::problems`]). A date
 //! that does not parse counts as a value of the wrong type. Writing sets one key or clears it:
@@ -12,7 +20,9 @@
 //! left in it, and never creates anything. A write is refused ([`WrongType`]) when the object it
 //! goes into is not an object; the value there is kept.
 
-use dalica_core::{Date, DateTime};
+use std::collections::BTreeMap;
+
+use dalica_core::{AlbumId, Date, DateTime, PosKey};
 use serde_json::{Map, Value};
 
 use crate::{Field, Problem, Sidecar, WrongType, escape};
@@ -31,6 +41,36 @@ pub const M8_FOLDER_KEYS: [&str; 1] = [PROJECT];
 pub const SAVED_AS: &str = "savedAs";
 /// A folder's project mark, in `"folder"`.
 pub const PROJECT: &str = "project";
+/// The photo keys M9 adds: the photo's album memberships with their position keys.
+pub const M9_PHOTO_KEYS: [&str; 1] = [ALBUMS];
+/// The `"folder"` keys M9 adds: the folder's photo sort and whether it is reversed.
+pub const M9_FOLDER_KEYS: [&str; 2] = [SORT, REVERSE];
+/// The top-level keys M9 adds: the names of the albums with members in the folder.
+pub const M9_TOP_KEYS: [&str; 1] = [ALBUMS];
+/// A photo's memberships (`photos.<name>.albums`), and the folder's album names (top level).
+pub const ALBUMS: &str = "albums";
+/// A folder's photo sort, in `"folder"` (`manual | name | date | size | modified`).
+pub const SORT: &str = "sort";
+/// Whether a folder's photo sort is reversed, in `"folder"`.
+pub const REVERSE: &str = "reverse";
+
+/// What a photo's `albums` object says: the usable memberships, and the ids of the entries that
+/// are kept but not used (an id that is not an album id, or a value that is not a position key).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PhotoAlbums {
+    pub members: BTreeMap<AlbumId, PosKey>,
+    /// The keys of the entries left out, in file order.
+    pub bad: Vec<String>,
+}
+
+/// What the top-level `albums` object says: each usable album's name as written, and the ids of
+/// the entries kept but not used (an id that is not an album id, or no non-empty string `name`).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct AlbumNames {
+    pub names: BTreeMap<AlbumId, String>,
+    /// The keys of the entries left out, in file order.
+    pub bad: Vec<String>,
+}
 
 /// What a photo's `savedAs` says: the JPEG a Save wrote beside it (a file name in the same folder,
 /// as written: whether it may reach a file is the reader's to check, [`crate::plain_name`]) and
@@ -195,6 +235,7 @@ fn photo_problem(key: &str, v: &Value) -> Option<&'static str> {
         "tags" | "edits" | "redo" => v.as_array().is_some_and(|a| a.iter().all(Value::is_string)),
         "date" => v.as_str().is_some_and(|s| s.parse::<DateTime>().is_ok()),
         SAVED_AS => matches!(read_saved_as(Some(v)), Field::Value(_)),
+        ALBUMS => v.is_object(),
         _ => true,
     };
     (!ok).then_some(match key {
@@ -202,19 +243,20 @@ fn photo_problem(key: &str, v: &Value) -> Option<&'static str> {
         "caption" => "a string",
         "date" => "a date and time (2026-06-04T19:42:10)",
         SAVED_AS => "an object with a file name (\"name\") and a list of strings (\"recipe\")",
+        ALBUMS => "an object from album id to position key",
         _ => "a list of strings",
     })
 }
 
 fn folder_problem(key: &str, v: &Value) -> Option<&'static str> {
     let ok = match key {
-        "hidden" => v.is_boolean(),
-        "description" | "place" | PROJECT => v.is_string(),
+        "hidden" | REVERSE => v.is_boolean(),
+        "description" | "place" | PROJECT | SORT => v.is_string(),
         "date" => v.as_str().is_some_and(|s| s.parse::<Date>().is_ok()),
         _ => true,
     };
     (!ok).then_some(match key {
-        "hidden" => "true or false",
+        "hidden" | REVERSE => "true or false",
         "date" => "a date (2026-06-04)",
         _ => "a string",
     })
@@ -332,7 +374,7 @@ impl Sidecar {
         match self.root.get(FOLDER) {
             None => {}
             Some(Value::Object(folder)) => {
-                for key in FOLDER_KEYS.iter().chain(&M8_FOLDER_KEYS) {
+                for key in FOLDER_KEYS.iter().chain(&M8_FOLDER_KEYS).chain(&M9_FOLDER_KEYS) {
                     if let Some(expected) = folder.get(*key).and_then(|v| folder_problem(key, v)) {
                         out.push(Problem { pointer: format!("/{FOLDER}/{key}"), expected });
                     }
@@ -347,7 +389,7 @@ impl Sidecar {
                     let at = format!("/photos/{}", escape(name));
                     match entry {
                         Value::Object(e) => {
-                            for key in PHOTO_KEYS.iter().chain(&M8_PHOTO_KEYS) {
+                            for key in PHOTO_KEYS.iter().chain(&M8_PHOTO_KEYS).chain(&M9_PHOTO_KEYS) {
                                 if let Some(expected) = e.get(*key).and_then(|v| photo_problem(key, v)) {
                                     out.push(Problem { pointer: format!("{at}/{key}"), expected });
                                 }
@@ -358,6 +400,11 @@ impl Sidecar {
                 }
             }
             Some(_) => out.push(Problem { pointer: "/photos".into(), expected: "an object" }),
+        }
+        match self.root.get(ALBUMS) {
+            None => {}
+            Some(Value::Object(_)) => {}
+            Some(_) => out.push(Problem { pointer: format!("/{ALBUMS}"), expected: "an object from album id to {\"name\": …}" }),
         }
     }
 
@@ -408,12 +455,17 @@ impl Sidecar {
 
     /// Sets or clears the folder's `project` mark, the way [`Sidecar::set_folder`] sets its keys.
     pub fn set_project(&mut self, project: Option<&str>) -> Result<(), WrongType> {
-        let value = project.and_then(text);
+        self.set_folder_key(PROJECT, project.and_then(text))
+    }
+
+    /// Sets or clears one key of the `"folder"` object (`None` removes it, then the object when
+    /// it is left empty). Refused if `"folder"` is not an object.
+    fn set_folder_key(&mut self, key: &str, value: Option<Value>) -> Result<(), WrongType> {
         let refused = || WrongType { pointer: format!("/{FOLDER}") };
         match (self.root.get_mut(FOLDER), value) {
             (None, None) => Ok(()),
             (Some(Value::Object(folder)), value) => {
-                if put(folder, PROJECT, value) {
+                if put(folder, key, value) {
                     self.root.remove(FOLDER);
                 }
                 Ok(())
@@ -421,10 +473,158 @@ impl Sidecar {
             (Some(_), _) => Err(refused()),
             (None, Some(v)) => {
                 let mut folder = Map::new();
-                folder.insert(PROJECT.into(), v);
+                folder.insert(key.into(), v);
                 self.root.insert(FOLDER.into(), Value::Object(folder));
                 Ok(())
             }
         }
     }
+
+    /// Photo `name`'s `albums`: absent, its memberships (with the entries left out), or a value
+    /// that is not an object (kept, not used).
+    pub fn photo_albums(&self, name: &str) -> Field<PhotoAlbums> {
+        match self.photo_entry(name).and_then(|e| e.get(ALBUMS)) {
+            None => Field::Absent,
+            Some(Value::Object(m)) => {
+                let mut out = PhotoAlbums::default();
+                for (id, v) in m {
+                    match membership(id, v) {
+                        Some((album, key)) => {
+                            out.members.insert(album, key);
+                        }
+                        None => out.bad.push(id.clone()),
+                    }
+                }
+                Field::Value(out)
+            }
+            Some(other) => Field::WrongType(other.clone()),
+        }
+    }
+
+    /// Makes photo `name`'s usable memberships of the albums `managed` answers for exactly
+    /// `members` (each of which must be managed): usable entries of managed albums not in it go,
+    /// its entries are set (over an unusable entry of the same id too), and the other entries
+    /// (usable ones of albums not managed, and those left out by reading) are kept verbatim. The
+    /// key goes when nothing is left in it, and the photo's entry when nothing is left in that;
+    /// clearing never creates anything. A value of the wrong type is written over only by
+    /// memberships. Refused if `photos` or the entry is not an object.
+    pub fn set_photo_albums(&mut self, name: &str, members: &BTreeMap<AlbumId, PosKey>, managed: impl Fn(&AlbumId) -> bool) -> Result<(), WrongType> {
+        let entry_pointer = || format!("/photos/{}", escape(name));
+        if members.is_empty() && !self.root.get("photos").and_then(Value::as_object).is_some_and(|p| p.contains_key(name)) {
+            // Nothing to clear (or a `photos` of the wrong type, which clearing never touches).
+            return match self.root.get("photos") {
+                None | Some(Value::Object(_)) => Ok(()),
+                Some(_) => Err(WrongType { pointer: "/photos".into() }),
+            };
+        }
+        let photos = self.root.entry("photos").or_insert_with(|| Value::Object(Map::new()));
+        let Value::Object(photos) = photos else { return Err(WrongType { pointer: "/photos".into() }) };
+        let entry = photos.entry(name).or_insert_with(|| Value::Object(Map::new()));
+        let Value::Object(entry) = entry else { return Err(WrongType { pointer: entry_pointer() }) };
+        let had = entry.contains_key(ALBUMS);
+        let mut object = match entry.remove(ALBUMS) {
+            Some(Value::Object(m)) => m,
+            Some(other) if members.is_empty() => {
+                entry.insert(ALBUMS.into(), other);
+                return Ok(());
+            }
+            _ => Map::new(),
+        };
+        object.retain(|id, v| match membership(id, v) {
+            Some((album, _)) => !managed(&album) && !members.contains_key(&album),
+            None => !AlbumId::parse(id).is_ok_and(|a| members.contains_key(&a)),
+        });
+        for (album, key) in members {
+            object.insert(album.as_str().into(), Value::String(key.as_str().into()));
+        }
+        if !object.is_empty() {
+            entry.insert(ALBUMS.into(), Value::Object(object));
+        }
+        if had && entry.is_empty() {
+            photos.remove(name);
+        }
+        Ok(())
+    }
+
+    /// The folder's album names (the top-level `albums`): absent, the usable names as written
+    /// (with the entries left out), or a value that is not an object (kept, not used).
+    pub fn album_names(&self) -> Field<AlbumNames> {
+        match self.root.get(ALBUMS) {
+            None => Field::Absent,
+            Some(Value::Object(m)) => {
+                let mut out = AlbumNames::default();
+                for (id, v) in m {
+                    match album_name(id, v) {
+                        Some((album, name)) => {
+                            out.names.insert(album, name);
+                        }
+                        None => out.bad.push(id.clone()),
+                    }
+                }
+                Field::Value(out)
+            }
+            Some(other) => Field::WrongType(other.clone()),
+        }
+    }
+
+    /// Makes the folder's usable album names exactly `names`: usable entries not in it go, each
+    /// of its albums gets its `name` set in the object already there (other keys of that object
+    /// kept) or a new one, and the entries left out by reading are kept verbatim (one with the id
+    /// of an album in `names` is replaced). The key goes when nothing is left in it. A value of
+    /// the wrong type is written over only by names.
+    pub fn set_album_names(&mut self, names: &BTreeMap<AlbumId, String>) {
+        let mut object = match self.root.remove(ALBUMS) {
+            Some(Value::Object(m)) => m,
+            Some(other) if names.is_empty() => {
+                self.root.insert(ALBUMS.into(), other);
+                return;
+            }
+            _ => Map::new(),
+        };
+        object.retain(|id, v| match AlbumId::parse(id) {
+            Ok(a) if names.contains_key(&a) => v.is_object(),
+            Ok(_) => album_name(id, v).is_none(),
+            Err(_) => true,
+        });
+        for (album, name) in names {
+            let slot = object.entry(album.as_str()).or_insert_with(|| Value::Object(Map::new()));
+            if let Value::Object(o) = slot {
+                o.insert("name".into(), Value::String(name.clone()));
+            }
+        }
+        if !object.is_empty() {
+            self.root.insert(ALBUMS.into(), Value::Object(object));
+        }
+    }
+
+    /// The folder's `sort`, as written.
+    pub fn folder_sort(&self) -> Field<String> {
+        read_text(self.folder_object().and_then(|f| f.get(SORT)))
+    }
+
+    /// Sets or clears the folder's `sort` (`None` or `""` removes it).
+    pub fn set_folder_sort(&mut self, sort: Option<&str>) -> Result<(), WrongType> {
+        self.set_folder_key(SORT, sort.and_then(text))
+    }
+
+    /// The folder's `reverse` flag.
+    pub fn folder_reverse(&self) -> Field<bool> {
+        read_bool(self.folder_object().and_then(|f| f.get(REVERSE)))
+    }
+
+    /// Sets or clears the folder's `reverse` flag (`false` removes it).
+    pub fn set_folder_reverse(&mut self, on: bool) -> Result<(), WrongType> {
+        self.set_folder_key(REVERSE, flag(on))
+    }
+}
+
+/// A usable membership: an album id with a position key.
+fn membership(id: &str, v: &Value) -> Option<(AlbumId, PosKey)> {
+    Some((AlbumId::parse(id).ok()?, PosKey::parse(v.as_str()?).ok()?))
+}
+
+/// A usable album name entry: an album id with an object holding a non-empty string `name`.
+fn album_name(id: &str, v: &Value) -> Option<(AlbumId, String)> {
+    let name = v.as_object()?.get("name")?.as_str().filter(|n| !n.is_empty())?;
+    Some((AlbumId::parse(id).ok()?, name.to_string()))
 }

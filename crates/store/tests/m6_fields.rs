@@ -467,9 +467,9 @@ proptest! {
         let photos: Vec<(String, PhotoState)> = photos
             .into_iter()
             .filter(|(n, ..)| seen.insert(n.clone()))
-            .map(|(n, star, info)| (n, PhotoState { star, info, saved_as: None }))
+            .map(|(n, star, info)| (n, PhotoState { star, info, ..PhotoState::default() }))
             .collect();
-        let state = FolderState { id: FolderId::new(1), path: "/x".into(), folder: folder.clone(), photos: photos.clone(), project: None };
+        let state = FolderState { id: FolderId::new(1), path: "/x".into(), folder: folder.clone(), photos: photos.clone(), ..FolderState::default() };
         prop_assert!(mapping::apply(&state, &mut sidecar).is_empty());
         let back = Sidecar::parse(&sidecar.print(), &Limits::default()).unwrap();
         prop_assert_eq!(&back, &sidecar);

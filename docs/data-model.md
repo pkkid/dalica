@@ -38,8 +38,10 @@ deletes files.
 | Saved-edit backup and its record (the recipe saved, the original's size, time, pixel size and digest, pending or done) | — | — | yes (the record, read at scan and rebuild) | `.dalica-originals/<file>` + `.dalica-originals/.dalica.json` (§6) |
 | Copy saved beside (a format Dalica cannot write in place) | `"savedAs": { "name", "recipe" }` | — | yes | |
 | Project mark (a folder an export made) | `"folder": { "project": "exported" }` | — | yes | |
-| Album membership and order | `"albums": { "<album id>": "<position key>" }` per photo (§3.2) | — | yes | album definitions: §4 |
+| Album membership and order | `"albums": { "<album id>": "<position key>" }` per photo (§3.2); the album names at the top level | — | yes | album definitions, covers and a copy of the order: `albums.json` (§4) |
+| Search facts (camera, video, geotagged), content digests, first-indexed and last-changed times | — | read from the file (facts, digests) | yes (only there) | |
 | Folder description/date/place, hidden folder | `"folder"` object (`"hidden": true` in the folder's own sidecar, so it stays hidden when the folder moves) | — | yes | |
+| Folder photo sort (Sort Folder By, Reverse Order) | `"folder": { "sort", "reverse" }` | — | yes | |
 | Custom folder sort order | `"folder": { "order" }` | — | yes | |
 | Face rectangles + person | `"faces"` | XMP MWG Regions when "Store people names in photos" is on (default **off**) | yes | |
 | People (names) | `"people"` entries for people present in the folder | (as above) | yes | `people.json` in the library dir |
@@ -78,7 +80,8 @@ atomically, keys sorted deterministically (photos by file name) so diffs are min
     "date": "2026-06-04",
     "place": "Lisbon, Portugal",
     "hidden": true,
-    "sort": "manual",
+    "sort": "name",
+    "reverse": true,
     "order": ["IMG_0003.jpg", "IMG_0001.jpg", "IMG_0002.jpg"]
   },
   "photos": {
@@ -93,7 +96,7 @@ atomically, keys sorted deterministically (photos by file name) so diffs are min
         { "rect": [0.41, 0.22, 0.52, 0.38], "person": "p7f3a2c" },
         { "rect": [0.70, 0.30, 0.78, 0.44], "person": "ignored" }
       ],
-      "albums": { "a91c0e": "V", "a77d02": "b3" },
+      "albums": { "a91c0e": "a1", "a77d02": "bz0" },
       "geo": [38.7116, -9.1389],
       "date": "2026-06-04T19:42:10"
     }
@@ -150,6 +153,31 @@ Format rules:
   - A `project` kind Dalica does not know is kept and reported, and the folder is not marked.
   - The saved record itself is never in the folder sidecar: it lives in the originals record
     (§6), so the sidecar stays what the user decided.
+- **The M9 fields** (built in M9.6: `dalica-sidecar` `fields` and `albums`, `dalica-store`
+  `mapping`, `albums` and `rebuild`). Per photo: `albums`, an object from album id to position key
+  (§3.2). Per folder, in `"folder"`: `sort` (`name`, `size`; `date`, the default, is written as no
+  key) and `reverse` (written only when `true`). At the top level: `albums`, an object from album
+  id to `{"name": …}` naming every album with a member in the folder, so an album can be
+  recovered when `albums.json` is lost. Each follows the M6 rules above; besides:
+  - An entry of either `albums` object whose id is not an album id, whose position key does not
+    parse (`dalica-core` `poskey`, at most 512 bytes) or whose name is not a non-empty string is
+    kept verbatim, reported once and never used; a write never touches it (a membership the model
+    sets for the same album replaces it). An `albums` that is not an object is a value of the
+    wrong type.
+  - The model is the truth for the memberships of its own albums and for the folder's album
+    names: a write sets and clears those. A membership of an album the library does not have
+    (deleted here, or never in this library) is kept as written; with no name for it anywhere it
+    is reported and not used.
+  - Album names are cleaned as Album Properties cleans them (control characters made spaces,
+    trimmed, cut to 1 KiB); a name that is nothing once cleaned is not used.
+  - A `sort` Dalica cannot sort by yet (`manual`, `modified`, anything else) is kept, reported and
+    not used, and the folder keeps its own sort until the user sorts it.
+  - The search facts, content digests and first-indexed and last-changed times are index-only:
+    never in a sidecar, and empty again after a rebuild (Recently Updated then counts the file's
+    time alone).
+  - A scan reading a folder sidecar follows the same rules: `dalica-store` `mapping::read_photo`
+    (`albums`), `mapping::read_folder` (`sort`, `reverse`, `FolderReading::photo_sort`) and
+    `mapping::read_album_names`.
 - Readers accept a BOM and CRLF; a duplicate key takes the later value. Nesting is bounded
   (`security.md` §8).
 - `dalica.missing` is Dalica's own bookkeeping for stale entries (§7): an object from a photo's
@@ -254,12 +282,52 @@ holds:
 | File | Contents | Rebuildable? |
 |---|---|---|
 | `folders.json` | the Folder Manager's settings, one entry per folder that sets its own: `{"version": 2, "folders": [{"path", "mode"?: "always" \| "once" \| "remove", "faces"?: bool, "indexed"?: true}]}` (`indexed`: a Scan Once folder's first scan finished; an entry without `mode` sets only the faces flag; the `remove` entries are the exclusions). A v1 file (M1: `{"version": 1, "folders": [{"path"}]}`, every folder watched) is read as Scan Always entries and written back as v2 at once, atomically; keys and entries this version does not know are kept verbatim | no — small, backed up with settings |
-| `albums.json` | album definitions (id, name, description, date, place, cover) and a copy of the order | yes, from sidecars (each member folder carries the album's name; each member its position key, §3.2) |
+| `albums.json` | album definitions (id, name, description, date, use the newest photo's date, place, cover) and a copy of the order, below | yes, from sidecars (each member folder carries the album's name; each member its position key, §3.2) |
 | `people.json` | people (id, name, nickname), merges, settings | yes, from sidecars (names are mirrored per folder) |
-| `index.log` + `index.snap` | the library index: one record per photo (path, size, mtime, dimensions, dates, EXIF summary, content hash, colour sketch, face descriptors), what the user said about photos and folders (as in the sidecars), the last-synced metadata hashes; journal + snapshot as in LightCraft | yes, by rescanning (the synced hashes start empty) |
+| `index.log` + `index.snap` | the library index: one record per photo (path, size, mtime, dimensions, dates, EXIF summary, content hash, colour sketch, face descriptors), what the user said about photos, folders and albums (as in the sidecars and `albums.json`), the last-synced metadata hashes, the search facts, content digests and first-indexed and last-changed times; journal + snapshot as in LightCraft | yes, by rescanning (the synced hashes, facts, digests and times start empty) |
 | `pending-writes.json` | the folders whose sidecar write waits for an offline volume (§7): `{"version": 1, "folders": [path, …]}`, written through the I/O worker when the list changes; a damaged file is kept as `.corrupt-<time>` and the list found again by the next online checks (M5.13) | yes, partly: the journal keeps the edits; a lost list is rebuilt for roots found offline |
 | `lock` | single-process lock | — |
 | `settings.json` | preferences (atomic write; damaged file kept as `.corrupt-<time>`); unknown keys kept; `"keymap"` holds the user's shortcut overrides (`menus-and-shortcuts.md` §2.0) | no |
+
+**`albums.json`** (built in M9.6: `dalica-sidecar` `albums`, `dalica-store` `albums` and
+`rebuild`), printed like the folder sidecar (UTF-8, two-space indentation, LF, keys sorted by
+their bytes at every level, unknown keys and entries kept verbatim):
+
+```json
+{
+  "albums": {
+    "a91c0e": {
+      "cover": "/home/ana/Pictures/Lisbon/IMG_0002.jpg",
+      "date": "2026-06-04",
+      "description": "The best of the year",
+      "name": "Best of 2026",
+      "order": [["/home/ana/Pictures/Lisbon/IMG_0002.jpg", "a0"], ["/home/ana/Pictures/Porto/IMG_0107.jpg", "a1"]],
+      "place": "Portugal",
+      "useNewest": true
+    }
+  },
+  "dalica": { "version": 1 }
+}
+```
+
+- One entry per album under `"albums"`, keyed by its id. `name` is required; `description`,
+  `place`, `date`, `useNewest`, `cover` (the cover photo's absolute path) and `order` (the members
+  in album order, each `[absolute path, position key]`) are absent when empty. Photos are named
+  by path because photo ids belong to one index. A path that is not UTF-8 is left out of the copy.
+- The memberships live in the folder sidecars; the order here is a copy, used only for the photos
+  of a folder whose sidecar is damaged or cannot be read.
+- An entry whose id is not an album id, that is not an object or that has no usable name is kept
+  and reported, never used; a known key of the wrong type reads as empty and is reported; text
+  past the library's caps is shown cut and kept whole.
+- It is written after album changes, merged into the file on disk (entries of albums the library
+  no longer has go), only when its bytes change, through the atomic replace over the version just
+  read. A damaged file is set aside as `albums.json.corrupt-<time>` and reported, and a new one
+  written.
+- **Rebuilding the albums:** definitions and covers come from `albums.json`; an album it lacks
+  whose name a folder's top-level `"albums"` carries is created under that name (dated by its
+  newest photo; description, place and cover empty), so losing `albums.json` loses no album and no
+  order. Memberships come from every folder sidecar, sorted by key (§3.2). Deleting an album
+  removes its name from the folders, so it never comes back from them.
 
 `<cache>/thumbs/` in Dalica's cache folder (`control-protocol.md` §2.1: Linux
 `$XDG_CACHE_HOME/dalica/thumbs`, macOS `~/Library/Caches/Dalica/thumbs`, Windows
