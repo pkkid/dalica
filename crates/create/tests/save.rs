@@ -3,7 +3,7 @@
 //! second Save keeps the first original and renders from it; the saved file keeps the original's
 //! quality, gets orientation 1 and carries the metadata; a photo changed since it was read, a link
 //! in place of `.dalica-originals`, a mismatched backup, a read-only folder or file and an
-//! unknown operation are refused with nothing moved.
+//! unknown operation are refused with nothing moved; a Save beside decodes its source once.
 
 mod common;
 
@@ -17,6 +17,7 @@ use dalica_fs::TempDir;
 use dalica_fs::faults::{self, Fault, points};
 use dalica_image::{Limits, jpeg_quality, read_header};
 use dalica_meta::{Changes, WriteOptions};
+use dalica_scenes::formats::{Tiff, tiff};
 use dalica_sidecar::originals::{Entry, Originals, State};
 
 const NAME: &str = "IMG_0001.jpg";
@@ -460,4 +461,44 @@ fn the_dispatch_saves_jpegs_in_place_and_what_cannot_be_written_in_place_beside(
     let saving = save::save(dir, "alpha.png", &recipe(&["rotate(90)"]), &Changes::default(), &options()).unwrap();
     assert!(matches!(saving, Saving::Beside(ref b) if b.name == "alpha.jpg"), "{saving:?}");
     assert_eq!(read(dir.join("alpha.png")), png);
+}
+
+/// The decodes `f` made on this thread (`save::decodes_on_this_thread`).
+fn decodes<T>(f: impl FnOnce() -> T) -> (T, u64) {
+    let before = save::decodes_on_this_thread();
+    let out = f();
+    (out, save::decodes_on_this_thread() - before)
+}
+
+/// M9.30: the format is checked before rendering in place, so a Save that ends beside decodes its
+/// source once (twice before: the Save in place rendered it, then the JPEG beside). A JPEG decodes
+/// once, `in_place` refuses a TIFF without decoding it, and a transparent PNG, the one format whose
+/// pixels decide, is the only Save that still renders twice.
+#[test]
+fn a_save_beside_decodes_its_source_once() {
+    let tmp = folder();
+    let dir = tmp.path();
+    let tif = tiff(&scene(42, 96, 64), &Tiff::default()).unwrap();
+    std::fs::write(dir.join("scan.tif"), &tif).unwrap();
+    let edit = recipe(&["tuning(0.300,0.100,0.050,0.200,none)"]);
+
+    let (saving, n) = decodes(|| save::save(dir, "scan.tif", &edit, &Changes::default(), &options()).unwrap());
+    assert!(matches!(saving, Saving::Beside(ref b) if b.name == "scan.jpg"), "{saving:?}");
+    assert_eq!(n, 1, "a TIFF saved beside decodes once");
+    assert_eq!(read(dir.join("scan.tif")), tif, "the TIFF is untouched");
+    assert!(!dir.join(".dalica-originals").exists(), "no originals record for a Save beside");
+
+    let (err, n) = decodes(|| save::in_place(dir, "scan.tif", &edit, &Changes::default(), &options()).unwrap_err());
+    assert!(matches!(err, Error::Output(output::Error::NotInPlace(_))), "{err:?}");
+    assert_eq!(n, 0, "in_place refuses a TIFF from its header");
+
+    photo(dir);
+    let (saving, n) = decodes(|| save::save(dir, NAME, &edit, &Changes::default(), &options()).unwrap());
+    assert!(matches!(saving, Saving::InPlace(_)), "{saving:?}");
+    assert_eq!(n, 1, "a JPEG saved in place decodes once");
+
+    std::fs::write(dir.join("alpha.png"), png_rgba(&with_alpha(3, 64, 48))).unwrap();
+    let (saving, n) = decodes(|| save::save(dir, "alpha.png", &edit, &Changes::default(), &options()).unwrap());
+    assert!(matches!(saving, Saving::Beside(ref b) if b.name == "alpha.jpg"), "{saving:?}");
+    assert_eq!(n, 2, "a transparent PNG is found out by its pixels, then rendered for the JPEG");
 }

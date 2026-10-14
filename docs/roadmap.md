@@ -4384,7 +4384,7 @@ mid-run.
     refusal allocates nothing (an allocation counter), so nothing is loosened.
   - done when: each test passes 20 of 20 runs pinned to one core beside a CPU load, and fails
     without its fix where the cause is reproducible; CI green on the three OSes.
-- ⬜ **M9.30 `create` + `engine`: tidy the save path and tighten the rotate budget**
+- ✅ **M9.30 `create` + `engine`: tidy the save path and tighten the rotate budget**
   - after: M8.R
   - files: `crates/create/src/save.rs`, `crates/create/tests/save.rs`, `crates/engine/benches/save_export.rs`, `xtask/src/accept.rs`, `docs/development.md`
   - scope: found in the M8 run (M8.14, M8.24): `create::save::Error::NotYet` is unused since
