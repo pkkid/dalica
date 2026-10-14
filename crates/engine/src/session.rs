@@ -25,6 +25,8 @@
 //! | [`crate::metadata_cache`] | what photo files say, read on workers for `photo.metadata` |
 //! | [`crate::history`] | the photo's own history; the recipe hook |
 //! | `preview` | the edit view's preview renders (stub until M7.11) |
+//! | [`crate::filejobs`] | jobs that write photo files (Save, Save a Copy, Save As, Export) and bring what they wrote into the library |
+//! | `save_recovery` | repairing an interrupted Save, at open and when a scan reads a pending record (stub until M8.18) |
 //!
 //! Thumbnails are made by the thumbnailer's own workers as scans land; their sketches come back
 //! through the same calls and are applied as derived ops: journaled, but never on the undo stack
@@ -133,6 +135,11 @@ pub struct Session {
     pub(crate) crop_suggestions: crate::cmd::crop::Suggestions,
     /// The Tuning wand and colour picker jobs running (`cmd/tuning.rs`).
     pub(crate) tuning_wands: crate::cmd::tuning::Wands,
+    /// The jobs that write photo files, and their events (`filejobs.rs`).
+    pub(crate) file_jobs: crate::filejobs::FileJobs,
+    /// The user's Pictures folder as known when the library opened: the default export location
+    /// lies under it (`settings.rs`).
+    pub(crate) pictures_dir: Option<PathBuf>,
     _lock: LibraryLock,
 }
 
@@ -181,6 +188,8 @@ impl Session {
         notices.extend(settings.problems());
         notices.extend(thumb_notes);
         let jobs = Jobs::new(clock.now());
+        // Read here, off the UI thread (the XDG user-dirs file may move it).
+        let pictures_dir = dalica_scan::Places::system().pictures;
         let mut session = Session {
             dir: dir.to_path_buf(),
             library: opened.library,
@@ -211,6 +220,8 @@ impl Session {
             preview: Preview::default(),
             crop_suggestions: crate::cmd::crop::Suggestions::default(),
             tuning_wands: crate::cmd::tuning::Wands::default(),
+            file_jobs: crate::filejobs::FileJobs::default(),
+            pictures_dir,
             _lock: lock,
         };
         session.configure_thumbnails();
@@ -218,6 +229,7 @@ impl Session {
         if session.recovery.iter().any(|r| matches!(r, Recovery::RebuildNeeded { .. })) && !session.folders.roots.is_empty() {
             session.start_scan(session.folders.roots.clone(), ScanKind::Rebuild);
         }
+        session.recover_saves_at_open();
         Ok(session)
     }
 
@@ -272,6 +284,10 @@ impl Session {
             dalica_library::Error::UnknownFolder(_) | dalica_library::Error::UnknownPhoto(_) => CmdError::NotFound(e.to_string()),
             other => CmdError::BadParams(other.to_string()),
         })?;
+        // A scan's op may bring a pending Save record (`save_recovery.rs`).
+        if self.collected.is_none() {
+            self.note_save_records(&op);
+        }
         self.send(Msg::Journal(vec![op]));
         let rev = self.library.revision();
         let touched: BTreeSet<FolderId> = self.all_folder_ids().into_iter().filter(|f| self.library.folder_revision(*f) == rev).collect();
@@ -422,13 +438,16 @@ impl Session {
         n += self.poll_preview();
         n += self.poll_crop_suggestions();
         n += self.poll_tuning_wands();
+        n += self.poll_file_jobs();
         self.jobs.prune(self.clock.now());
         n
     }
 
-    /// Blocks until all background work — scans, then the thumbnails and sketches they started —
+    /// Blocks until all background work — file jobs, scans, then the thumbnails and sketches they started —
     /// has finished and its results are applied.
     pub fn wait_idle(&mut self) {
+        // File jobs first: the folders they wrote outside the library are scanned when they end.
+        self.finish_file_jobs();
         self.wait_scans();
         self.thumbs.wait(&self.library);
         self.apply_sketches();
@@ -446,6 +465,12 @@ impl Session {
         let _ = done.recv();
         let errors = std::mem::take(&mut *self.io_errors.lock().unwrap_or_else(PoisonError::into_inner));
         if errors.is_empty() { Ok(()) } else { Err(CmdError::Unsaved(errors.join("; "))) }
+    }
+
+    /// Uses `dir` as the user's Pictures folder (tests, demos): the default export location lies
+    /// under it ([`Session::export_location`]).
+    pub fn set_pictures_dir(&mut self, dir: Option<PathBuf>) {
+        self.pictures_dir = dir;
     }
 
     pub fn library(&self) -> &Library {
@@ -603,6 +628,8 @@ impl Session {
 impl Drop for Session {
     /// Stops the I/O worker after it has written everything pending.
     fn drop(&mut self) {
+        // File jobs finish the items they are writing and start no other.
+        self.file_jobs.cancel_all();
         drop(self.io.take());
         if let Some(w) = self.worker.take() {
             let _ = w.join();

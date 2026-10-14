@@ -278,6 +278,20 @@ decodes images, touches the file system, waits on a lock held by a worker, or bl
 - **Jobs:** long work (scan, import, export, save, collage, batch edit, metadata writes) runs as an
   engine job on a worker with an `AtomicBool` cancel and progress reports. A job gets owned inputs
   when it is submitted and returns `Op`s or files; the owner applies the result as one undo step.
+- **File jobs** (engine `filejobs.rs`, M8.3; prior art LightCraft's export batch): every job that
+  writes photo files (Save, Save a Copy, Save As, Export) runs through one runner. A command builds
+  a `FileJob` (kind, label, owned items that each name their file, the work for one item) and
+  `Session::start_file_job` lists it as a job and runs the items on up to `workers` threads, each
+  item's panic its own failure; Cancel is checked before each item (the running ones finish, no
+  other starts). The work writes through `fs` and says what it did (`FileChange`: a file replaced
+  in place, a new file, a new folder); the worker reads those files back as a scan would (size,
+  time, pixel size, date). `poll()` applies the results once and in item order: a replaced file
+  keeps its photo's id and takes the new file's facts (so the watcher's rescan finds Dalica's own
+  write unchanged and imports nothing), a new file in a library folder is added as a photo, folders
+  outside the library are scanned when the job ends (added as Scan Always when no watched folder
+  covers them); then the caller's function turns the item into ops, applied as changes from the
+  files with no undo step. Each finished job leaves a `FileJobEvent` (message, failures with file
+  and reason, the folder to show) for the UI's notices.
 - **Job pool** (crate `thumbs`; prior art LightCraft `preview/src/pool.rs`): prioritised, per-slot
   de-duplicating; workers = cores − 1 clamped 2..8. Priorities (high → low): edit-view main image,
   hovered photo, visible thumbnails, filmstrip, effect-tile previews, prefetch (next/previous

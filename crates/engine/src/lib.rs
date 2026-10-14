@@ -10,6 +10,7 @@
 pub mod cmd;
 pub mod demo;
 pub mod error;
+pub mod filejobs;
 pub mod folders;
 pub mod history;
 pub mod jobs;
@@ -19,6 +20,7 @@ pub mod metadata_cache;
 pub mod offline;
 pub mod preview;
 pub mod registry;
+pub mod save_recovery;
 pub mod scanning;
 pub mod session;
 pub mod settings;
@@ -28,6 +30,7 @@ pub mod undo;
 pub mod watching;
 
 pub use error::{CmdError, OpenError};
+pub use filejobs::{Applied, Done, FileChange, FileItem, FileJob, FileJobEvent, ItemFailure, Notice, Tally};
 pub use history::{PhotoHistory, RecipeChanges};
 pub use jobs::{JobEntry, JobId, JobKind, JobProgress, JobState};
 pub use keymap::{Binding, Key, Keymap, Override};
