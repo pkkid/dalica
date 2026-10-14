@@ -22,7 +22,8 @@
 //!
 //! Every check that needs no disk runs on the owner thread before the job starts (unknown photos,
 //! offline folders, recipes holding an operation Dalica cannot render, which fail with the
-//! operation's name); the disk is touched only on the job's worker. One worker: two Saves in one
+//! operation's name, files of a format this build cannot decode (AVIF; HEIC without the `heif`
+//! feature), by extension); the disk is touched only on the job's worker. One worker: two Saves in one
 //! folder would race for its originals record. Cancel stops between photos. None of the three is a
 //! library undo step: a Save's way back is Undo Save.
 
@@ -30,9 +31,11 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
+use dalica_core::names::split_ext;
 use dalica_core::{DateTime, PhotoId, Timestamp};
 use dalica_create::save::{self, Saving, Seen};
 use dalica_edit::Recipe;
+use dalica_image::Format;
 use dalica_library::{Op, SaveState, Saved, SavedAs};
 use dalica_meta::{Changes, DateTaken, WriteOptions};
 use dalica_sidecar::originals::{Entry, State};
@@ -136,6 +139,9 @@ fn save_refusal(s: &Session, id: PhotoId) -> Option<String> {
     if s.is_folder_offline(photo.folder) {
         return Some(OFFLINE.into());
     }
+    if let Some(reason) = unreadable(&photo.name) {
+        return Some(reason);
+    }
     if let Some(op) = lib.unrenderable(id, save::renders) {
         let shown: String = op.chars().take(64).collect();
         return Some(format!("the edit {shown:?} cannot be rendered by this version of Dalica, so the photo is not saved"));
@@ -144,6 +150,19 @@ fn save_refusal(s: &Session, id: PhotoId) -> Option<String> {
         return Some("an earlier Save of this photo did not finish and is repaired first".into());
     }
     None
+}
+
+/// Why a photo of this file name can never be saved by this build, judged by its extension
+/// without reading the disk (`formats.md` §1): a format the build cannot decode, AVIF always and
+/// HEIC without the `heif` feature. A file whose content is another format than its extension
+/// says still fails in the job, with the same reason.
+fn unreadable(name: &str) -> Option<String> {
+    let format = match split_ext(name).1?.to_ascii_lowercase().as_str() {
+        "avif" => Format::Avif,
+        "heic" | "heif" => Format::Heif,
+        _ => return None,
+    };
+    (!format.supported()).then(|| format!("{}, so Dalica cannot save its edits", dalica_image::Error::Unsupported(format).reason()))
 }
 
 /// Enabled for photos with unsaved edits, at least one of which can be saved now; otherwise the
@@ -648,6 +667,16 @@ mod tests {
         assert!(s.library().has_unsaved_edits(ids[0]));
         // Undo Save of a photo saved only beside it: nothing to bring back.
         assert_eq!(s.execute("photo.undoSave", &json!({ "ids": [ids[0]] })), Err(CmdError::Disabled(NOTHING_SAVED.into())));
+    }
+
+    #[test]
+    fn formats_this_build_cannot_decode_are_refused_by_extension() {
+        assert_eq!(unreadable("still.AVIF").as_deref(), Some("AVIF files can't be displayed, so Dalica cannot save its edits"));
+        assert_eq!(unreadable("iphone.heic").is_some(), !Format::Heif.supported());
+        assert_eq!(unreadable("iphone.HEIF").is_some(), !Format::Heif.supported());
+        for name in ["a.jpg", "b.png", "c.tif", "d.webp", "noext", "avif"] {
+            assert_eq!(unreadable(name), None, "{name}");
+        }
     }
 
     #[test]

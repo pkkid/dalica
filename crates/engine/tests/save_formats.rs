@@ -13,8 +13,9 @@
 //! - **PNG with transparency, TIFF, WebP, GIF, BMP, JPEG XL, PSD, a raw** and, with the `heif`
 //!   feature, **HEIC** get `<stem>.jpg` beside them (then `<stem>-001.jpg`) as a new unedited
 //!   photo, the source byte-identical and recording the copy; Undo Save does not apply.
-//! - **AVIF** and **video** cannot be saved: the photo fails with its reason and nothing is
-//!   written; so does HEIC in a build without the `heif` feature.
+//! - **AVIF** cannot be saved, nor HEIC in a build without the `heif` feature: `photo.save` is
+//!   disabled with the reason, or leaves such a photo out with the reason beside savable ones, and
+//!   nothing is written. A **video** is not listed before M15, so Save never reaches one.
 //! - **Rotate-only** Saves of JPEGs: an MCU-sized baseline file is turned in its coefficients
 //!   (orientation 1, its own quantisation tables); a partial-MCU size and a progressive file keep
 //!   their entropy-coded data byte for byte and take the orientation flag.
@@ -617,10 +618,11 @@ fn formats_dalica_cannot_write_get_a_jpeg_beside_and_stay_byte_identical() {
 
 // --- formats that cannot be saved ---------------------------------------------------------------
 
-/// AVIF (never decoded) cannot be saved, nor HEIC in a build without the `heif` feature: the
-/// photo fails with the reason its tile shows, keeps its edits, and nothing is written or kept. A
-/// video is not listed until M15 decodes videos, so Save never reaches one; its file stays as it
-/// is.
+/// AVIF (never decoded) cannot be saved, nor HEIC in a build without the `heif` feature:
+/// `photo.save` is disabled up front with the reason when every photo named is such a file, and
+/// beside a photo that can be saved such a file is left out with the reason while the other is
+/// saved. Nothing of it is written or kept, and it keeps its edits. A video is not listed until
+/// M15 decodes videos, so Save never reaches one; its file stays as it is.
 #[test]
 fn avif_and_video_cannot_be_saved_and_nothing_is_written() {
     #[allow(unused_mut)]
@@ -629,25 +631,44 @@ fn avif_and_video_cannot_be_saved_and_nothing_is_written() {
     refused.push(("iphone.heic", heic::build(64, 48), "HEIC support isn't included in this build"));
     let mut files: Vec<(&str, Vec<u8>)> = refused.iter().map(|(name, bytes, _)| (*name, bytes.clone())).collect();
     files.push(("clip.mp4", mp4()));
+    files.push(("fine.jpg", camera(51, 160, 120, 85)));
     let mut lib = Lib::new(&files);
     assert!(!lib.has("clip.mp4"), "videos are not listed yet");
-    for (name, bytes, why) in &refused {
+    let fine = lib.edit("fine.jpg", &[TUNING]);
+    let mut ids = Vec::new();
+    for (name, _, why) in &refused {
         let id = lib.edit(name, &[TUNING]);
-        let done = lib.job("photo.save", json!({ "ids": [id], "confirm": true }));
-        assert_eq!((done.state, done.label.as_str()), (JobState::Done, "Saved 0 of 1 photo; 1 failed"), "{name}");
-        let result = done.result.unwrap();
-        assert_eq!(result["photos"], json!([]), "{name}");
-        assert_eq!(result["failed"], json!([{ "file": lib.path(name), "reason": why }]), "{name}");
+        let reason = format!("{why}, so Dalica cannot save its edits");
+        // Alone: disabled up front with the reason, no job started.
+        assert_eq!(lib.s.execute("photo.save", &json!({ "ids": [id], "confirm": true })), Err(CmdError::Disabled(reason)), "{name}");
+        assert!(!lib.s.file_jobs_running(), "{name}");
+        ids.push(id);
+    }
+    assert!(matches!(lib.s.execute("photo.save", &json!({ "ids": ids, "confirm": true })), Err(CmdError::Disabled(_))), "all of them: disabled");
+
+    // Beside a photo that can be saved: left out with the reason, the other saved.
+    let mut all = ids.clone();
+    all.push(fine);
+    let done = lib.job("photo.save", json!({ "ids": all, "confirm": true }));
+    let n = refused.len();
+    assert_eq!(done.label, format!("Saved 1 of {} photos; {n} failed", n + 1));
+    let result = done.result.unwrap();
+    assert_eq!(result["photos"], json!([fine]));
+    let failed: Vec<Value> =
+        refused.iter().map(|(name, _, why)| json!({ "file": lib.path(name), "reason": format!("{why}, so Dalica cannot save its edits") })).collect();
+    assert_eq!(result["failed"], json!(failed));
+    assert!(lib.s.library().can_undo_save(fine));
+    for ((name, bytes, _), id) in refused.iter().zip(&ids) {
         assert_eq!(&read(&lib.path(name)), bytes, "{name}: untouched");
-        assert_eq!(lib.edits(id), [TUNING], "{name}: keeps its edits");
-        assert!(lib.s.library().has_unsaved_edits(id), "{name}: still unsaved");
-        assert!(lib.s.library().saved(id).is_none() && lib.s.library().saved_as(id).is_none(), "{name}");
+        assert_eq!(lib.edits(*id), [TUNING], "{name}: keeps its edits");
+        assert!(lib.s.library().has_unsaved_edits(*id), "{name}: still unsaved");
+        assert!(lib.s.library().saved(*id).is_none() && lib.s.library().saved_as(*id).is_none(), "{name}");
+        assert!(!lib.kept(name).exists(), "{name}: nothing kept");
     }
     assert_eq!(read(&lib.path("clip.mp4")), mp4());
     let mut want: Vec<String> = files.iter().map(|(name, _)| name.to_string()).collect();
     want.sort();
     assert_eq!(lib.names(), want, "nothing written beside");
-    assert!(!lib.folder().join(".dalica-originals").exists(), "nothing kept");
 }
 
 // --- rotate-only Saves --------------------------------------------------------------------------

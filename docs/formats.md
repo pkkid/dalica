@@ -40,8 +40,8 @@ and the per-type toggles are in [`data-model.md`](data-model.md) §7 and Options
 | WebP | yes: lossy and lossless, alpha; first frame of animations | scaled decode | XMP, EXIF chunks | JPEG copy beside it | |
 | GIF | first frame | scaled decode | — (sidecar only) | JPEG copy beside it | animation shown as its first frame |
 | BMP | yes | scaled decode | — (sidecar only) | JPEG copy beside it | |
-| HEIC / HEIF | only with the `heif` feature (§3) | — (the thumbnail item is HEVC too) | — (sidecar only) | JPEG copy beside it (with the `heif` feature; without it Save fails with the tile's text) | iPhone/Mac photos: grids, 8–12-bit, alpha, ICC, EXIF, XMP |
-| AVIF | **no**: recognised and listed, shown as a format tile | — | — (sidecar only) | — (Save fails with the tile's text; nothing is written) | no permissively licensed pure-Rust AV1 decoder exists today |
+| HEIC / HEIF | only with the `heif` feature (§3) | — (the thumbnail item is HEVC too) | — (sidecar only) | JPEG copy beside it (with the `heif` feature; without it Save is disabled with the tile's text) | iPhone/Mac photos: grids, 8–12-bit, alpha, ICC, EXIF, XMP |
+| AVIF | **no**: recognised and listed, shown as a format tile | — | — (sidecar only) | — (Save is disabled with the tile's text, or leaves the photo out with it beside photos it can save; nothing is written) | no permissively licensed pure-Rust AV1 decoder exists today |
 | JPEG XL | yes (`jxl-oxide`) | scaled decode | — (sidecar only) | JPEG copy beside it | orientation applied by the decoder |
 | PSD / PSB | merged composite only (8/16/32-bit gray, RGB, CMYK, indexed) | embedded thumbnail resource or composite | — (sidecar only) | JPEG copy beside it | layers are not read; ZIP-compressed composites and Lab unsupported |
 | RAW | **embedded preview only** (§2) | embedded preview | `.xmp` sidecar when enabled | JPEG copy beside it, rendered from the embedded preview | RAW development is out of scope (`product.md`) |
