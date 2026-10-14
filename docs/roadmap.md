@@ -3647,9 +3647,9 @@ first measurement. No step of M8 needs a maintainer decision mid-run.
   - done when: a Windows test replaces a file with same-size bytes and the old modification time
     and the identity changes; the same-size assertion in `crates/fs/tests/atomic.rs` holds on every
     OS again; `cargo xtask deps` passes; CI green on the three OSes.
-- ⬜ **M8.28 `ui` + `engine`: the Tuning sliders show the photo's Tuning after later edits**
+- ✅ **M8.28 `ui` + `engine`: the Tuning sliders show the photo's Tuning after later edits**
   - after: M7.R
-  - files: `crates/ui/src/panels/edit/tuning.rs`, `crates/ui/src/panels/edit/fill_light.rs`, `crates/ui/tests/tuning_tab.rs`, `crates/engine/src/cmd/tuning.rs`, `crates/engine/tests/tuning_commands.rs`, `docs/editing.md`
+  - files: `crates/ui/src/panels/edit/tuning.rs`, `crates/ui/src/panels/edit/fill_light.rs`, `crates/ui/tests/tuning_tab.rs`, `crates/engine/src/cmd/tuning.rs`, `crates/engine/src/history.rs`, `crates/engine/tests/tuning_commands.rs`, `docs/editing.md`
   - scope: found at M7.R (maintainer, 2026-10-13: "show the last Tuning entry"): after a rotate or
     a retouch the Tuning tab and the Basic Fixes Fill Light row read 0, though the photo still
     carries its `tuning(…)`. The sliders show the photo's last `tuning` entry wherever it sits; a

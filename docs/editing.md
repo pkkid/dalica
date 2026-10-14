@@ -197,7 +197,8 @@ patches as one "Retouch" edit. **+** / **−** resize the brush; the wheel zooms
 ### 6.5 Fill Light (slider)
 
 Brightens shadows and the foreground. 0–1, default 0. Shares its value with Tuning → Fill Light
-(they are the same parameter of the Tuning operation).
+(they are the same parameter of the Tuning operation, and follow the same rules after later edits,
+§7).
 
 ## 7. Tab 2 — Tuning
 
@@ -214,6 +215,20 @@ Brightens shadows and the foreground. 0–1, default 0. Shares its value with Tu
 All five controls are **one "Tuning" edit**, updated live while dragging (one undo step per tab
 session). Sliders show no numbers (as in the reference), but hovering shows the value as a tooltip.
 **+**/**−** nudge the hovered slider by 2 %; double-click resets it.
+
+**After later edits.** The controls (and the Basic Fixes Fill Light row) show the photo's **last
+Tuning edit wherever it sits** in its edit list, not only when it is the latest edit. Which edit a
+new tab session changes depends on what came after that Tuning:
+- **Only rotations and flips after it** (they move pixels but never read their values): the
+  session updates that Tuning edit **in place**, the rotations and flips kept after it. It is one
+  "Undo Tuning" step, and one Undo puts the earlier values back where they were.
+- **Anything else after it** (Retouch, Crop, Straighten, Auto Fix, Auto Contrast, Auto Color, an
+  effect, or an edit Dalica does not know): those edits were made on the tuned pixels, so the
+  session **appends a new Tuning edit** instead, and every edit in between keeps its text and its
+  place. The new edit starts from the defaults and holds only the controls the session moved, so
+  the earlier Tuning is not applied twice. Once it exists, the controls show it. Reset then has
+  nothing to clear in it; Undo takes back the earlier Tuning.
+- **No Tuning yet:** the session appends one.
 
 ## 8. Effects (tabs 3–5)
 
