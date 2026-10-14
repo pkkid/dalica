@@ -3595,7 +3595,7 @@ first measurement. No step of M8 needs a maintainer decision mid-run.
   - done when: `crates/engine/tests/save_formats.rs`: one case per row of the table, each checking
     the files on disk after the save and after Undo Save where it applies; `cargo test -p
     dalica-engine --features heif --test save_formats` runs the HEIC case.
-- ⬜ **M8.24 `engine`: a 200-photo mixed export and the save and export benchmark**
+- ✅ **M8.24 `engine`: a 200-photo mixed export and the save and export benchmark**
   - after: M8.11, M8.16
   - files: `crates/engine/tests/export_mixed.rs`, `crates/engine/benches/save_export.rs`, `xtask/src/bench.rs`, `xtask/src/accept.rs`, `.github/workflows/budgets.yml`, `docs/development.md`
   - scope: `creating.md` §2: a mixed tray of 200 `scenes` photos (JPEG in all eight orientations,

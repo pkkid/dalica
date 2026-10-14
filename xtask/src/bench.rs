@@ -42,6 +42,11 @@ pub const BENCHES: &[Bench] = &[
         package: "dalica-engine",
         what: "the edit view's preview of a 24 MP JPEG: open cold and from the cache, a Tuning drag's drafts and finals, next/previous prefetched",
     },
+    Bench {
+        name: "save_export",
+        package: "dalica-engine",
+        what: "Save of a 24 MP JPEG (rendered, and rotate-only) and the 200-photo mixed export at 1600 px with a watermark",
+    },
 ];
 
 /// Time units a field may name, in milliseconds.
