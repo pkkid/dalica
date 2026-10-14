@@ -351,7 +351,8 @@ fn the_owner_thread_makes_no_fs_call() {
         let reply = lib.s.execute(cmd, &params).unwrap();
         let entry = lib.s.wait_job(job_id(&reply), PATIENCE).unwrap();
         assert_eq!(entry.state, JobState::Done, "{cmd}: {entry:?}");
-        assert!(entry.result.unwrap()["failed"].as_array().unwrap().is_empty());
+        let failed = entry.result.unwrap()["failed"].clone();
+        assert_eq!(failed, json!([]), "{cmd}: every photo done");
     };
     run("photo.save", json!({ "ids": ids, "confirm": true, "dontAsk": true }));
     run("photo.undoSave", json!({ "ids": [ids[0]] }));
