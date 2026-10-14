@@ -5,7 +5,10 @@
 //! the open photo). Save and Revert ask first through the host (`crate::dialogs::save_explain`,
 //! `crate::dialogs::revert`).
 //!
-//! M8.19 builds the rest on this: the section header's Save, the edit panel's Undo Save.
+//! The other ways in (M8.19): the section header's Save text button and disk button run
+//! `photo.save` with the folder's photos that have unsaved edits
+//! (`crate::panels::light_table::header`), and the edit panel's Undo reads "Undo Save" for a saved
+//! photo without newer edits and runs `photo.undoSave` on it (`crate::panels::edit::history`).
 
 use dalica_core::PhotoId;
 use serde_json::{Value, json};

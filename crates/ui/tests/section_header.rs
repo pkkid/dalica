@@ -1,6 +1,7 @@
 //! The section header block (M4.9, `ui-layout.md` §5.2), driven headlessly: every
 //! `section:<id>/…` part is registered with its size at 1400 × 900 and 900 × 600; the buttons wait
-//! for their commands, and Select Starred (live since M4.13) for a starred photo in its section;
+//! for their commands, Select Starred (live since M4.13) for a starred photo in its section and
+//! Save (M8.19) for an unsaved edit in its folder;
 //! the pinned form shows the first line only and owns the ids of what it covers; a right-click
 //! opens the section menu with the items not yet there disabled.
 
@@ -139,6 +140,8 @@ fn every_part_is_there_with_its_size_at_both_window_sizes() {
                     assert_eq!(button.enabled, section == first, "{case}: Select Starred needs a starred photo in the section");
                 } else if b == Button::Export {
                     assert!(button.enabled, "{case}: Export opens the Export dialog (output.export, M8.4)");
+                } else if b == Button::Save {
+                    assert!(!button.enabled, "{case}: Save needs an unsaved edit in the folder (M8.19, `save_ui.rs`)");
                 } else {
                     assert!(!button.enabled, "{case}: {b:?} waits for {}", b.command());
                 }
@@ -238,4 +241,42 @@ fn a_right_click_opens_the_section_menu_with_later_items_disabled() {
     );
     ids_are_sound(&d, "menu open");
     save(&d, "section-header-menu");
+}
+
+/// With unsaved edits the first line ends with the Save text button, in the pinned form too, which
+/// then owns `/saveEdited`; a click on it asks the first-time explanation of Save for the folder's
+/// edited photos (M8.19).
+#[test]
+fn a_pinned_header_keeps_its_save_button() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut d = Driver::new(App::new(Some(session(dir.path(), 3, 90))), 1400, 900, 1.0);
+    d.settle(FRAMES).unwrap();
+    let target = d.app().panels().unwrap().sections.list[1].id;
+    let photos = d.app().panels().unwrap().sections.get(target).unwrap().photos.clone();
+    for p in &photos[..2] {
+        d.run("photo.history.apply", &json!({ "id": p, "op": "autofix()" })).unwrap();
+    }
+    d.run("section.scrollTo", &json!({ "section": target })).unwrap();
+    d.settle(FRAMES).unwrap();
+    let id = format!("section:{target}/saveEdited");
+    assert!(get(&d.widgets(), &id).enabled, "the block's Save");
+    let cell = d.widgets().into_iter().find(|w| w.id.starts_with("thumb:")).unwrap();
+    d.scroll(Some(&cell.id), vec2(0.0, -110.0)).unwrap();
+    d.settle(FRAMES).unwrap();
+    ids_are_sound(&d, "pinned with edits");
+    let (pinned, band) = info(&d).sticky.expect("the header is pinned");
+    assert_eq!(pinned, target);
+    let button = get(&d.widgets(), &id).clone();
+    assert!(button.enabled && band.contains_rect(rect(&button)), "the pinned line's Save: {button:?}");
+    assert_eq!(d.app().panels().unwrap().light_table.headers.edited(target), Some(2));
+    save(&d, "section-header-pinned-edited");
+    d.click(&id).unwrap();
+    d.settle(FRAMES).unwrap();
+    let dialog = d.state().dialogs.last().expect("the explanation");
+    assert_eq!(dialog.kind.name(), "saveExplain");
+    let mut asked: Vec<u64> = serde_json::from_value(dialog.command.as_ref().unwrap().params["ids"].clone()).unwrap();
+    asked.sort_unstable();
+    let mut edited: Vec<u64> = photos[..2].iter().map(|p| p.get()).collect();
+    edited.sort_unstable();
+    assert_eq!(asked, edited, "Save names the folder's edited photos");
 }

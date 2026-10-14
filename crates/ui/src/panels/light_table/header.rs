@@ -39,19 +39,26 @@
 //! **Buttons** are live only when their command is registered (a UI command or one the session
 //! has) and its `enabled` accepts the parameters a click passes; Select Starred also needs a starred
 //! photo in the section, Save an unsaved edit. A disabled button says why in its tooltip.
+//!
+//! **Save** (`data-model.md` §6): with unsaved edits in the section's folder (hidden photos
+//! included, `Library::unsaved_count`) the first line ends with "%d edited" and the Save text button
+//! (`/saveEdited`, in the pinned form too); it and the disk button (`/save`, the `ui-kit`
+//! [`OutputIcon::Save`]) run `photo.save` with those photos' ids, whatever is selected. The
+//! command's first-time explanation asks through the dialog host
+//! (`crate::dialogs::save_explain`). Their ids are worked out once per library revision.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use dalica_core::{Date, FolderId};
+use dalica_core::{Date, FolderId, PhotoId};
 use dalica_engine::Session;
 use dalica_ui_kit::Tokens;
 use dalica_ui_kit::fonts;
-use dalica_ui_kit::icons::{self, Icon};
+use dalica_ui_kit::icons::{self, Icon, OutputIcon};
 use dalica_ui_kit::registry::Role;
 use dalica_ui_kit::widgets::{self, Target, TextField};
 use egui::text::{LayoutJob, TextWrapping};
-use egui::{Align, Color32, CursorIcon, FontId, Galley, Id, Painter, Rect, Response, Sense, Stroke, Ui, UiBuilder, Vec2, pos2, vec2};
+use egui::{Align, Color32, CursorIcon, FontId, Galley, Id, Painter, Rect, Response, Sense, Ui, UiBuilder, Vec2, pos2, vec2};
 use serde_json::{Value, json};
 
 use super::{Frame, Section};
@@ -84,6 +91,13 @@ const DESCRIPTION_H: f32 = 18.0;
 pub const STICKY_ICON: f32 = 20.0;
 /// What the description row says when the section has none.
 pub const PLACEHOLDER: &str = "Add a description";
+/// The label of the Save text button at the top right.
+pub const SAVE_LABEL: &str = "Save";
+
+/// What the first line says beside Save: "3 edited".
+pub fn edited_text(count: usize) -> String {
+    format!("{count} edited")
+}
 /// The inline description editor's automation id (`control-protocol.md` §7).
 pub const DESCRIPTION_FIELD: &str = "field:section.description";
 /// The widest the inline description editor gets (points).
@@ -162,14 +176,19 @@ impl Button {
 /// edit. Otherwise the reason, for its tooltip.
 pub fn button_enabled(button: Button, live: bool, starred: bool, edited: usize) -> Result<(), &'static str> {
     if !live {
-        return Err("Not available yet.");
+        return Err(NOT_YET);
     }
     match button {
         Button::SelectStarred if !starred => Err("No photo in this folder is starred."),
-        Button::Save if edited == 0 => Err("No photo in this folder has unsaved edits."),
+        Button::Save if edited == 0 => Err(NO_EDITS),
         _ => Ok(()),
     }
 }
+
+/// A button whose command is not there yet says so.
+const NOT_YET: &str = "Not available yet.";
+/// Save's tooltip when the folder has no unsaved edits.
+pub const NO_EDITS: &str = "No photo in this folder has unsaved edits.";
 
 /// The day of the week of `d` (proleptic Gregorian).
 pub fn weekday(d: Date) -> &'static str {
@@ -211,16 +230,17 @@ struct Facts {
     shown: Arc<str>,
     /// The section holds a starred photo.
     starred: bool,
-    /// Photos with unsaved edits. Edit recipes arrive with the edit view (M7); until then none.
-    edited: usize,
 }
 
 /// What the headers keep between frames: each section's [`Facts`] for the sections' generation,
-/// and the section whose inline description editor was given the focus.
+/// each section's photos with unsaved edits for the library's revision, and the section whose
+/// inline description editor was given the focus.
 #[derive(Debug, Default)]
 pub struct Headers {
     generation: Option<u64>,
     facts: HashMap<state::Section, Facts>,
+    revision: Option<u64>,
+    unsaved: HashMap<state::Section, Arc<[PhotoId]>>,
     focused: Option<state::Section>,
 }
 
@@ -229,6 +249,12 @@ impl Headers {
     /// description (`""`: none, the placeholder shows).
     pub fn shown(&self, section: state::Section) -> Option<(&str, &str)> {
         self.facts.get(&section).map(|f| (f.date.as_str(), &*f.description))
+    }
+
+    /// The count of photos with unsaved edits the header of `section` showed ("2 edited") when it
+    /// was last drawn in this library revision; 0: no count and no Save text button.
+    pub fn edited(&self, section: state::Section) -> Option<usize> {
+        self.unsaved.get(&section).map(|ids| ids.len())
     }
 
     fn facts(&mut self, session: &Session, generation: u64, section: &Section) -> Facts {
@@ -253,11 +279,37 @@ impl Headers {
                     description: Arc::from(info.description.as_str()),
                     shown: Arc::from(info.description.replace(['\n', '\r', '\t'], " ")),
                     starred,
-                    edited: 0,
                 }
             })
             .clone()
     }
+
+    /// The photos of `section`'s folder with unsaved edits (hidden ones included), in display
+    /// order: what its Save saves. Worked out once per library revision.
+    fn unsaved(&mut self, session: &Session, section: &Section) -> Arc<[PhotoId]> {
+        let library = session.library();
+        if self.revision != Some(library.revision()) || self.unsaved.len() >= MAX_FACTS {
+            self.unsaved.clear();
+            self.revision = Some(library.revision());
+        }
+        self.unsaved.entry(section.id).or_insert_with(|| Arc::from(library.unsaved_in(section.folder))).clone()
+    }
+}
+
+/// The parameters of the section's Save: the ids of its photos with unsaved edits.
+pub fn save_params(ids: &[PhotoId]) -> Value {
+    json!({ "ids": ids })
+}
+
+/// Whether the section's Save takes clicks: it has photos with unsaved edits and `photo.save`
+/// accepts them (none offline, none holding an edit Dalica cannot render). Otherwise why not, for
+/// the tooltip.
+pub fn save_enabled(session: &Session, ids: &[PhotoId]) -> Result<(), String> {
+    if ids.is_empty() {
+        return Err(NO_EDITS.into());
+    }
+    let spec = session.spec(Button::Save.command()).ok_or_else(|| NOT_YET.to_string())?;
+    (spec.enabled)(session, &save_params(ids)).map_err(|d| d.0)
 }
 
 /// What the description row asks for.
@@ -313,33 +365,16 @@ fn one_line(painter: &Painter, text: &str, font: FontId, color: Color32, max: f3
     painter.layout_job(job)
 }
 
-/// Paints a header button's glyph: an icon of the set, or the disk of Save (drawn here until the
-/// icon set has one).
+/// Paints a header button's glyph: an icon of the set, the disk of Save.
 fn paint_glyph(painter: &Painter, rect: Rect, b: Button, color: Color32) {
     let icon = match b {
         Button::Play => Icon::Slideshow,
         Button::Collage => Icon::Collage,
         Button::SelectStarred => Icon::Star,
         Button::Export => Icon::Export,
-        Button::Save => return paint_save(painter, rect, color),
+        Button::Save => return icons::paint_output(painter, rect, OutputIcon::Save, color),
     };
     icons::paint(painter, rect, icon, color);
-}
-
-/// A disk on the 20 × 20 icon grid (`design-system.md` §5): a body with a clipped corner, the
-/// shutter at the top and the label below.
-fn paint_save(painter: &Painter, rect: Rect, color: Color32) {
-    let side = rect.width().min(rect.height());
-    if !(side.is_finite() && side > 0.0) {
-        return;
-    }
-    let o = rect.center() - Vec2::splat(side / 2.0);
-    let k = side / 20.0;
-    let p = |x: f32, y: f32| o + vec2(x * k, y * k);
-    let stroke = Stroke::new(icons::stroke_width(side), color);
-    painter.add(egui::Shape::closed_line(vec![p(3.0, 3.0), p(14.0, 3.0), p(17.0, 6.0), p(17.0, 17.0), p(3.0, 17.0)], stroke));
-    painter.add(egui::Shape::line(vec![p(6.5, 3.0), p(6.5, 7.0), p(12.5, 7.0), p(12.5, 3.0)], stroke));
-    painter.add(egui::Shape::line(vec![p(6.0, 17.0), p(6.0, 11.0), p(14.0, 11.0), p(14.0, 17.0)], stroke));
 }
 
 /// A 26 × 22 header button: `hover × 0.7` hovered, `pressed` held (radius 4), the glyph `icon` at
@@ -395,6 +430,8 @@ pub fn button_rects(origin: egui::Pos2, height: f32) -> ([(Button, Rect); 5], [R
 pub fn show(ui: &mut Ui, f: &Frame<'_>, headers: &mut Headers, section: &Section, rect: Rect, form: Form) -> HeaderOut {
     let t = f.t;
     let facts = headers.facts(f.session, f.sections.generation(), section);
+    let unsaved = headers.unsaved(f.session, section);
+    let save_state = if unsaved.is_empty() { Err(NO_EDITS.to_string()) } else { save_enabled(f.session, &unsaved) };
     // The editor closed (or moved to another section): it takes the focus again when it opens.
     if f.state.description_edit.as_ref().map(|e| e.section) != headers.focused {
         headers.focused = None;
@@ -441,12 +478,12 @@ pub fn show(ui: &mut Ui, f: &Frame<'_>, headers: &mut Headers, section: &Section
     let line_mid = line_top + TITLE_H / 2.0;
     let text_x = icon.max.x + ICON_GAP;
     let mut right = rect.max.x - PADDING;
-    if facts.edited > 0 {
-        let label = "Save";
+    if !unsaved.is_empty() {
+        let label = SAVE_LABEL;
         let w = (painter.layout_no_wrap(label.to_owned(), fonts::semibold(t.button_label), t.text).size().x + 18.0).max(37.0).round();
         let slot = Rect::from_min_size(pos2(right - w, (line_mid - t.metrics.button_h / 2.0).round()), vec2(w, t.metrics.button_h));
         if takes_input(slot) {
-            let is_live = live(f.session, Button::Save.command(), || params(f, section));
+            let is_live = save_state.is_ok();
             let r = ui
                 .scope_builder(UiBuilder::new().max_rect(slot).layout(egui::Layout::left_to_right(Align::Center)), |ui| {
                     if !is_live {
@@ -455,12 +492,13 @@ pub fn show(ui: &mut Ui, f: &Frame<'_>, headers: &mut Headers, section: &Section
                     widgets::text_button(ui, t, &part_id("saveEdited"), label, false)
                 })
                 .inner;
+            let r = widgets::tooltip(r, t, Button::Save.tooltip(), save_state.as_ref().err().map(String::as_str));
             if r.clicked() {
-                out.commands.push((Button::Save.command().to_string(), params(f, section)));
+                out.commands.push((Button::Save.command().to_string(), save_params(&unsaved)));
             }
             track(&r, &mut out, is_live);
         }
-        let g = painter.layout_no_wrap(format!("{} edited", facts.edited), fonts::regular(t.detail), t.text_dim);
+        let g = painter.layout_no_wrap(edited_text(unsaved.len()), fonts::regular(t.detail), t.text_dim);
         let x = slot.min.x - 8.0 - g.size().x;
         painter.galley(pos2(x, line_mid - g.size().y / 2.0).round(), g, t.text_dim);
         right = x - 12.0;
@@ -519,11 +557,17 @@ pub fn show(ui: &mut Ui, f: &Frame<'_>, headers: &mut Headers, section: &Section
             paint_glyph(&painter, Rect::from_center_size(r.center(), Vec2::splat(GLYPH)), b, t.text_disabled);
             continue;
         }
-        // Select Starred acts on the section alone; the others also on a selection inside it.
-        let p =
-            if b == Button::SelectStarred { json!({ "section": section.id }) } else { row_params.get_or_insert_with(|| params(f, section)).clone() };
-        let is_live = live(f.session, b.command(), || p.clone());
-        let enabled = button_enabled(b, is_live, facts.starred, facts.edited);
+        // Select Starred acts on the section alone, Save on its photos with unsaved edits; the
+        // others also on a selection inside it.
+        let p = match b {
+            Button::SelectStarred => json!({ "section": section.id }),
+            Button::Save => save_params(&unsaved),
+            _ => row_params.get_or_insert_with(|| params(f, section)).clone(),
+        };
+        let enabled = match b {
+            Button::Save => save_state.as_ref().map(|_| ()).map_err(String::as_str),
+            _ => button_enabled(b, live(f.session, b.command(), || p.clone()), facts.starred, 0),
+        };
         let resp = button(ui, t, &part_id(b.part()), egui_id(b.part()), r, b, enabled);
         if resp.clicked() {
             out.commands.push((b.command().to_string(), p));

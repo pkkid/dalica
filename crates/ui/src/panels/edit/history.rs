@@ -3,6 +3,11 @@
 //! Crop"), Redo "Redo " and the next one's when there is one to redo, plain "Undo" / "Redo" drawn
 //! disabled otherwise; the labels are the photo's own history (`photo.history.state`). A click is a
 //! step of that history (`edit.history.undo` / `edit.history.redo`), never of the library stack.
+//!
+//! A photo saved in place whose edits are all saved (no newer ones) has nothing left to undo in its
+//! history, but its Save can be undone: Undo then reads "Undo Save", as `photo.history.state`
+//! answers (`undoSave: true`), and a click runs `photo.undoSave` on it, which puts the original
+//! back and its saved edits back as unsaved edits (`data-model.md` §6, M8.19).
 
 use dalica_core::PhotoId;
 use dalica_ui_kit::Tokens;
@@ -15,6 +20,8 @@ use serde_json::json;
 use crate::app::App;
 
 pub const UNDO_ID: &str = "button:edit.undo";
+/// Undo's label for a saved photo without newer edits.
+pub use dalica_engine::cmd::history::UNDO_SAVE;
 pub const REDO_ID: &str = "button:edit.redo";
 /// The tooltips (`editing.md` §5.1 gives Undo's).
 pub const UNDO_TIP: &str = "Remove the latest edit";
@@ -22,24 +29,31 @@ pub const REDO_TIP: &str = "Put back the edit removed last";
 /// The gap between the two buttons.
 pub const GAP: f32 = 6.0;
 
-/// What the pair shows for a photo: each button's label and whether it can run.
+/// What the pair shows for a photo: each button's label and whether it can run, and whether Undo
+/// is Undo Save.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Pair {
     pub undo: (String, bool),
     pub redo: (String, bool),
+    pub undo_save: bool,
 }
 
 impl Default for Pair {
     fn default() -> Pair {
-        Pair { undo: ("Undo".into(), false), redo: ("Redo".into(), false) }
+        Pair { undo: ("Undo".into(), false), redo: ("Redo".into(), false), undo_save: false }
     }
 }
 
-/// The pair for `photo` from its history (`photo.history.state`'s labels); both disabled without
-/// a photo or a library.
+/// The pair for `photo` from its history (`photo.history.state`'s labels: "Undo Save" for a saved
+/// photo without newer edits); both disabled without a photo or a library.
 pub fn pair(app: &App, photo: Option<PhotoId>) -> Pair {
-    let Some(h) = photo.and_then(|id| app.session()?.photo_history(id)) else { return Pair::default() };
-    Pair { undo: (h.undo_text(), h.undo_label.is_some()), redo: (h.redo_text(), h.redo_label.is_some()) }
+    let Some((id, s)) = photo.zip(app.session()) else { return Pair::default() };
+    let Some(h) = s.photo_history(id) else { return Pair::default() };
+    let redo = (h.redo_text(), h.redo_label.is_some());
+    if h.edits.is_empty() && s.library().can_undo_save(id) {
+        return Pair { undo: (UNDO_SAVE.into(), true), redo, undo_save: true };
+    }
+    Pair { undo: (h.undo_text(), h.undo_label.is_some()), redo, undo_save: false }
 }
 
 /// Draws the pair into `ui`'s rect.
@@ -52,14 +66,13 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let p = pair(app, app.state().edit.photo);
     let undo = button(ui, &t, UNDO_ID, &p.undo.0, undo_rect, p.undo.1, UNDO_TIP).clicked();
     let redo = button(ui, &t, REDO_ID, &p.redo.0, redo_rect, p.redo.1, REDO_TIP).clicked();
-    let command = if undo {
-        "edit.history.undo"
-    } else if redo {
-        "edit.history.redo"
-    } else {
-        return;
+    let run = match (undo, redo, app.state().edit.photo) {
+        (true, _, Some(photo)) if p.undo_save => app.run("photo.undoSave", &json!({ "ids": [photo] })),
+        (true, _, _) => app.run("edit.history.undo", &json!({})),
+        (false, true, _) => app.run("edit.history.redo", &json!({})),
+        _ => return,
     };
-    if let Err(e) = app.run(command, &json!({})) {
+    if let Err(e) = run {
         app.toast(&e.to_string(), ToastKind::Caution);
     }
 }
