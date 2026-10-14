@@ -21,6 +21,10 @@ thiserror.workspace = true
 # Every step of an atomic replace relative to one held folder handle (security.md §5.6).
 rustix.workspace = true
 
+[target.'cfg(windows)'.dependencies]
+# The file identity (volume serial number and file index) through a handle (security.md §5.2).
+winapi-util.workspace = true
+
 [dev-dependencies]
 # Tests always build with the fault points, so `cargo test` (and `cargo xtask ci`) runs the fault loops.
 dalica-fs = { path = ".", features = ["faults"] }

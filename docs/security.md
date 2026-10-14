@@ -394,8 +394,8 @@ The shared primitive (our own; prior art LightCraft `safe_file.rs`). **Built (M1
 against the old (the fields written read back, every byte outside the rewritten blocks unchanged),
 then `fs::replace` writes them expecting the identity it read.**
 
-1. Read the target and record its identity: device, inode (file index on Windows), size and
-   modification time.
+1. Read the target and record its identity: device and inode (volume serial number, file index
+   and creation time on Windows), size and modification time (§5.3 says what it catches).
 2. Create the temporary file **in the same directory** with exclusive creation (`create_new`), so
    the final rename stays on one volume (§5.8 for its name).
 3. Write, `fsync` the file, copy the target's permission bits.
@@ -422,6 +422,28 @@ bytes, and then nothing moves; any other backup is refused with nothing moved. `
 (Undo Save, Revert) moves the backup back only while it is still the recorded one and the saved
 file is still the version recorded, `Expect::Unchanged`, or absent after a Save that stopped before
 writing it, `Expect::Absent`). The Save commands that call them are planned (M8).**
+
+**What the identity sees** (`dalica-fs` `Identity`; the same on every OS since M8.27). A version of
+a file is the object on disk plus its size and modification time:
+
+- **Unix** (Linux, macOS): device and inode from `stat`/`fstat`, at no extra cost.
+- **Windows:** volume serial number, file index and creation time, read with
+  `GetFileInformationByHandle` (through `winapi-util`, a safe wrapper; no `unsafe` in Dalica) from
+  a handle: the file Dalica has open, or the name opened with no data access, every sharing mode
+  and without following a final link or junction, so the look never blocks another program. Size
+  and modification time come from the same call. Until M8.27 the creation time stood in for the
+  file index (stable Rust exposes no index), and NTFS "tunnels" a replaced file's creation time
+  onto a file renamed over its name within about 15 seconds, so a same-size replacement that kept
+  the modification time looked unchanged; the file index tells it apart.
+
+So another program's rewrite through a new file renamed over the name (editors, sync clients,
+`exiftool`) is always a new identity; so is any change of size or modification time. What the
+guard cannot see, on any OS: an edit made in place, through the same file, that keeps the size and
+puts the modification time back; it is a guard against ordinary rewrites, not a content hash. Two
+names of one file (hard links) have one identity. On volumes whose file index is not unique or
+not stable (FAT and exFAT may renumber a file, ReFS ids are 128-bit, some network shares report
+0), the creation time, size and time still count, and an index that changes on its own makes Dalica
+refuse the write as changed (it re-reads), never write over a file it did not read.
 
 ### 5.4 Names
 
@@ -495,8 +517,8 @@ embedded, never loaded by a referenced name. **Planned (M1, M14).**
   decision (the bullet above). Windows has no handle-relative calls on stable Rust, so it compares
   the folder's identity again before each step that creates, renames or removes a file, refuses a
   folder that turned into a link or junction, and compares the file's identity before and after
-  opening it. Its folder identity is the creation time (stable Rust exposes no file index), so
-  there a folder replaced by another *real* folder of the same name is not always detected.
+  opening it. Its folder identity is the volume serial number, file index and creation time
+  (§5.3, M8.27), so a folder replaced by another real folder of the same name is detected there too.
 
 ### 5.7 Trash, never delete
 
@@ -776,7 +798,7 @@ its own entry points, because the limits are the ones Dalica passes.
 | Crate | Targets | Lands |
 |---|---|---|
 | `crates/image` | `sniff`, `decode_any`, `decode_jpeg`, `decode_png`, `decode_tiff`, `decode_webp`, `decode_gif`, `decode_bmp`, `decode_jxl`, `decode_psd`, `decode_heif` (each format decoded explicitly, no sniffing), `raw_preview` (every RAW container's recognition and preview decode), `embedded_thumbnail` (EXIF thumbnails, thumbnail IFDs, PSD resources, RAW previews), `icc` | **Implemented** (M5.1, in `crates/image/fuzz/`; the targets reach each decoder as M5.6–M5.10 filled it; `decode_heif` reaches `heic-rs` only when built with `--features dalica-image/heif`, and the Fuzz workflow builds without it, so there it fuzzes our box walk); built on pull requests touching the crate, run when the Fuzz workflow is dispatched |
-| `crates/meta` | `exif` (IFDs and maker notes), `xmp` (including extended-XMP reassembly), `iptc`, `write_merge` (parse → merge-write → re-parse: no panic, foreign fields unchanged) | **Implemented** (M6.4, in `crates/meta/fuzz/`; `write_merge` reaches every container writer (JPEG M6.17, PNG, WebP and TIFF M6.18) and asserts that a returned write passes its verification, reads back and writes again to the same bytes; `xmp` reaches the XML reader (M6.9), the merge writer and extended-XMP reassembly with MD5 GUIDs, and writes its JPEG through `write_owned` (M6.17)); built on pull requests touching the crate, run when the Fuzz workflow is dispatched. Local runs before merging (stable with cargo-fuzz's flags): `write_merge` 2.8 M runs in 180 s and `xmp` 0.8 M in 60 s with no finding after the one idempotence finding M6.17 fixed (`tests/write_jpeg.rs` keeps its regression test). The metadata corpus (M6.34, `crates/meta/tests/corpus.rs`) runs the same write rules over files other applications wrote |
+| `crates/meta` | `exif` (IFDs and maker notes), `xmp` (including extended-XMP reassembly), `iptc`, `write_merge` (parse → merge-write → re-parse: no panic, foreign fields unchanged), `carry` (any file as the source of a rendered copy's metadata: an error, or a JPEG or PNG whose metadata reads back, orientation 1, the size asked, no GPS when the location was removed; setting the orientation reads back as asked) | **Implemented** (M6.4, in `crates/meta/fuzz/`; `carry` M8.7; `write_merge` reaches every container writer (JPEG M6.17, PNG, WebP and TIFF M6.18) and asserts that a returned write passes its verification, reads back and writes again to the same bytes; `xmp` reaches the XML reader (M6.9), the merge writer and extended-XMP reassembly with MD5 GUIDs, and writes its JPEG through `write_owned` (M6.17)); built on pull requests touching the crate, run when the Fuzz workflow is dispatched. Local runs before merging (stable with cargo-fuzz's flags): `write_merge` 2.8 M runs in 180 s and `xmp` 0.8 M in 60 s with no finding after the one idempotence finding M6.17 fixed (`tests/write_jpeg.rs` keeps its regression test). The metadata corpus (M6.34, `crates/meta/tests/corpus.rs`) runs the same write rules over files other applications wrote |
 | `crates/sidecar` | `parse`, `roundtrip` (parse → write → parse is stable, unknown data preserved), `recipe` (edit-operation list), `legacy` | **Not written** (planned for M1, never landed; no task yet; `legacy`: M14). Until then `crates/sidecar/src/tests.rs` runs property tests: random bytes never panic, print → parse is the identity, any file name round-trips as a key |
 | `crates/store` | `journal` (replay of journal records and snapshots), `json` (folders, albums, people, settings) | **Not written** (planned for M1, never landed; no task yet). Until then the journal's tests cut it at every byte (`crates/store/src/lib.rs`) and tear its tail (`crates/store/tests/sketch.rs`) |
 | `crates/ui` control | `request_line` (line validation, auth state machine, limits) | **Not written** (planned for M2, never landed; no task yet) |

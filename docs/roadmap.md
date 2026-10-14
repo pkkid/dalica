@@ -3633,7 +3633,7 @@ first measurement. No step of M8 needs a maintainer decision mid-run.
     in its scope (`architecture.md` §9).
   - done when: `cargo xtask tasks sync --check` parses them and `tasks sync --dry-run` lists one new
     issue per block.
-- ⬜ **M8.27 `fs`: a real file identity on Windows**
+- ✅ **M8.27 `fs`: a real file identity on Windows**
   - after: M7.R
   - files: `crates/fs/src/atomic.rs`, `crates/fs/src/identity.rs`, `crates/fs/tests/identity.rs`, `crates/fs/tests/atomic.rs`, `crates/fs/Cargo.toml`, `docs/security.md`
   - scope: found at M7.R (red-main fix #372; maintainer, 2026-10-13: "a real file ID"): on Windows

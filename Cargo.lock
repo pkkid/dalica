@@ -882,6 +882,7 @@ dependencies = [
  "rustix 1.1.5",
  "tempfile",
  "thiserror 2.0.21",
+ "winapi-util",
 ]
 
 [[package]]

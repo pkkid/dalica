@@ -156,13 +156,13 @@ pub fn new_file(folder: &Path, name: &str, bytes: &[u8]) -> Result<Created> {
     dir.sync()?;
     faults::at(points::NEW_VERIFY, "verify", &path)?;
     let back = dir.open_read(OsStr::new(&name))?;
-    let meta = back.metadata().map_err(io_err("verify", &path))?;
+    let identity = Identity::of_file(&back).map_err(io_err("verify", &path))?;
     let mut read_back = Vec::with_capacity(bytes.len());
     back.take(u64::try_from(bytes.len()).unwrap_or(u64::MAX).saturating_add(1)).read_to_end(&mut read_back).map_err(io_err("verify", &path))?;
     if read_back != bytes {
         return Err(Error::VerifyFailed(path));
     }
-    Ok(Created { name, identity: Identity::of(&meta) })
+    Ok(Created { name, identity })
 }
 
 /// A volume without hard links or a non-replacing rename: the bytes go straight into the first

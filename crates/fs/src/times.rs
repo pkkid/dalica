@@ -69,7 +69,8 @@ pub struct Stat {
 pub fn stat(path: &Path) -> Result<Option<Stat>> {
     guard::check()?;
     let Some(meta) = target(path)? else { return Ok(None) };
-    Ok(Some(Stat { identity: Identity::of(&meta), times: Times::of(&meta, path)?, is_file: meta.is_file(), writable: writable(path, &meta) }))
+    let identity = Identity::of_path(path, &meta, false).map_err(io_err("stat", path))?;
+    Ok(Some(Stat { identity, times: Times::of(&meta, path)?, is_file: meta.is_file(), writable: writable(path, &meta) }))
 }
 
 /// Sets `path`'s modification time (and access time, when given) to `times`, if it is still the
@@ -77,8 +78,8 @@ pub fn stat(path: &Path) -> Result<Option<Stat>> {
 /// a link since is refused ([`Error::Changed`], [`Error::Link`]) and left as it is.
 pub fn set_times(path: &Path, times: &Times, expect: Identity) -> Result<Identity> {
     guard::check()?;
-    match target(path)? {
-        Some(meta) if Identity::of(&meta) == expect => {}
+    match target(path)?.map(|meta| Identity::of_path(path, &meta, false)) {
+        Some(Ok(id)) if id == expect => {}
         _ => return Err(Error::Changed(path.to_path_buf())),
     }
     match faults::hit(SET_TIMES) {
@@ -88,11 +89,11 @@ pub fn set_times(path: &Path, times: &Times, expect: Identity) -> Result<Identit
     }
     let file = open_for_times(path)?;
     // The path was swapped between the check and the open.
-    if Identity::of(&file.metadata().map_err(io_err("stat", path))?) != expect {
+    if Identity::of_file(&file).map_err(io_err("stat", path))? != expect {
         return Err(Error::Changed(path.to_path_buf()));
     }
     file.set_times(times.file_times()).map_err(io_err("set times", path))?;
-    Ok(Identity::of(&file.metadata().map_err(io_err("stat", path))?))
+    Identity::of_file(&file).map_err(io_err("stat", path))
 }
 
 /// Metadata of `path` without following a final link; `None` if it does not exist.
