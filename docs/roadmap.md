@@ -3490,7 +3490,7 @@ first measurement. No step of M8 needs a maintainer decision mid-run.
     rebuild; a second export of the same name makes `<name>-001`; videos are skipped and counted;
     the owner thread made no `fs` call; each command's contract and graceful failures;
     `panic_hunt` green.
-- ⬜ **M8.17 `engine`: Save a Copy and Save As**
+- ✅ **M8.17 `engine`: Save a Copy and Save As**
   - after: M8.3, M8.14
   - files: `crates/engine/src/cmd/save_copy.rs`, `crates/engine/tests/save_copy.rs`
   - scope: `data-model.md` §6: `photo.saveCopy {ids}` (photos with edits): `<stem>-001.jpg` (the

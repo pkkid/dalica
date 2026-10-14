@@ -827,6 +827,7 @@ mod tests {
                 "photo.save",
                 "photo.revert",
                 "photo.saveAs",
+                "photo.saveCopy",
                 "output.export",
                 "app.quit",
                 "edit.undo",
