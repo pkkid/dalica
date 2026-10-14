@@ -44,6 +44,14 @@ impl Picker for RfdPicker {
         rfd::FileDialog::new().set_title("Add Folder").pick_folder()
     }
 
+    fn pick_folder_for(&self, request: &dalica_ui::picker::FolderRequest) -> Option<PathBuf> {
+        let mut dialog = rfd::FileDialog::new().set_title(request.title);
+        if let Some(folder) = &request.folder {
+            dialog = dialog.set_directory(folder);
+        }
+        dialog.pick_folder()
+    }
+
     fn pick_save(&self, request: &dalica_ui::picker::SaveRequest) -> Option<PathBuf> {
         let mut dialog = rfd::FileDialog::new().set_title(request.title).set_file_name(&request.name);
         if let Some(folder) = &request.folder {

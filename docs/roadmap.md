@@ -3538,7 +3538,7 @@ first measurement. No step of M8 needs a maintainer decision mid-run.
     checkbox ticked the next Save asks nothing; Ctrl+S in the edit view saves the open photo; the
     Undo button reads "Undo Save" and brings the edits back; each Revert button does its action
     and Cancel nothing; header, dialog and panel fingerprints at both sizes.
-- ⬜ **M8.20 `ui`: the Export dialog**
+- ✅ **M8.20 `ui`: the Export dialog**
   - after: M8.4, M8.5, M8.16
   - files: `crates/ui/src/dialogs/export.rs`, `crates/ui/src/commands/export.rs`, `crates/ui/src/panels/bottom.rs`, `crates/ui/tests/export_dialog.rs`, `crates/ui/tests/bottom.rs`, `crates/ui/tests/fingerprints/dialog-export-1400x900.json`, `crates/ui/tests/fingerprints/dialog-export-900x600.json`
   - scope: `creating.md` §2: "Export to Folder" on M8.5's form rows: Export location with Browse…

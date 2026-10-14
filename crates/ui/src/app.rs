@@ -12,7 +12,7 @@ use serde_json::Value;
 pub use crate::commands::{UI_COMMANDS, UiCommand};
 use crate::notices::Notices;
 use crate::panels::{self, Panels};
-use crate::picker::{Pending, Picker, SaveRequest};
+use crate::picker::{FolderRequest, Pending, Picker, SaveRequest};
 use crate::state::{THUMB_DEFAULT, TREE_DEFAULT, UiState};
 use dalica_engine::settings::{ViewOptions, ViewState};
 
@@ -31,6 +31,9 @@ pub struct App {
     folder_dialog_open: bool,
     /// The save dialog (File ▸ Save As…) while it is open, and what its answer runs.
     save_dialog: Option<(Pending, SaveRequest)>,
+    /// A folder dialog other than Add Folder (the Export dialog's Browse…) while it is open, and
+    /// what its answer runs.
+    folder_request: Option<(Pending, FolderRequest)>,
     /// Restore the view state from the library's settings and save it when it changes
     /// ([`App::persist_view`]); off for headless and snapshot sessions, which never read or write
     /// the user's settings (`control-protocol.md` §8).
@@ -66,6 +69,7 @@ impl App {
             want_folder_picker: false,
             folder_dialog_open: false,
             save_dialog: None,
+            folder_request: None,
             persist_view: false,
             saved_view: None,
             quit_requested: false,
@@ -217,7 +221,10 @@ impl App {
 
     /// Nothing is running in the background: no scan, no thumbnail on its way, no open dialog.
     pub fn idle(&self) -> bool {
-        self.session.as_ref().is_some_and(|s| !s.busy()) && self.panels.as_ref().is_none_or(Panels::idle) && self.save_dialog.is_none()
+        self.session.as_ref().is_some_and(|s| !s.busy())
+            && self.panels.as_ref().is_none_or(Panels::idle)
+            && self.save_dialog.is_none()
+            && self.folder_request.is_none()
     }
 
     /// Whether File ▸ Add Folder… can open the folder picker now; why not, if it cannot.
@@ -228,7 +235,7 @@ impl App {
             Err("There is no folder dialog here.".into())
         } else if self.want_folder_picker || self.panels.as_ref().map_or(self.folder_dialog_open, |p| p.dialog.is_some()) {
             Err("A folder dialog is already open.".into())
-        } else if self.save_dialog.is_some() {
+        } else if self.save_dialog.is_some() || self.folder_request.is_some() {
             Err("A file dialog is already open.".into())
         } else {
             Ok(())
@@ -250,6 +257,33 @@ impl App {
         let pending = Pending::pick_save(picker, request.clone()).ok_or("The file dialog could not open.")?;
         self.save_dialog = Some((pending, request));
         Ok(())
+    }
+
+    /// Opens the folder picker for `request` (the Export dialog's Browse…) on its own thread; the
+    /// frame that sees its answer runs the request's command with the folder chosen
+    /// ([`FolderRequest::params_with`]), and a cancel runs nothing. Refused while another file
+    /// dialog is open or there is no picker.
+    pub fn pick_folder_for(&mut self, request: FolderRequest) -> Result<(), String> {
+        self.can_pick()?;
+        let picker = self.picker.as_ref().ok_or("There is no file dialog here.")?;
+        let pending = Pending::pick_folder_for(picker, request.clone()).ok_or("The file dialog could not open.")?;
+        self.folder_request = Some((pending, request));
+        Ok(())
+    }
+
+    /// The folder picker's request (not Add Folder's) while it is open.
+    pub fn folder_request(&self) -> Option<&FolderRequest> {
+        self.folder_request.as_ref().map(|(_, r)| r)
+    }
+
+    /// Runs the folder picker's answer once it has one.
+    fn poll_folder_request(&mut self) {
+        let Some(answer) = self.folder_request.as_ref().and_then(|(p, _)| p.poll()) else { return };
+        if let Some((_, request)) = self.folder_request.take()
+            && let Some(path) = answer
+        {
+            let _ = self.run(request.command, &request.params_with(&path));
+        }
     }
 
     /// The save picker's request while it is open.
@@ -323,6 +357,7 @@ impl App {
         self.now = now;
         self.notices.poll(session, now);
         self.poll_save_dialog();
+        self.poll_folder_request();
         // Under an open dialog the window takes no keys: no shortcut runs and no panel sees a key
         // press or typed text; the dialog gets them back once the panels are drawn.
         let keys = if self.state.dialogs.is_empty() {

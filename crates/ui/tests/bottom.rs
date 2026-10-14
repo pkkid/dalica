@@ -312,3 +312,38 @@ fn a_hostile_thumbnail_size_does_not_break_the_slider() {
         assert_eq!(d.state().thumb_size, 64.0, "{bad}: dragged to the left end");
     }
 }
+
+/// M8.20: Export (the UI command `output.export`) is live while the tray holds photos, on the row
+/// at 1400 × 900 and in More… at 900 × 600, and opens the Export dialog for the tray's photos.
+#[test]
+fn export_is_live_with_a_tray_and_opens_the_export_dialog() {
+    for (w, h) in SIZES {
+        let dir = tempfile::tempdir().unwrap();
+        let mut d = driver(dir.path(), (w, h));
+        let narrow = w < 1100.0;
+        let open_more = |d: &mut Driver| {
+            if narrow {
+                d.click("action:more").unwrap();
+                d.settle(FRAMES).unwrap();
+            }
+        };
+        open_more(&mut d);
+        assert!(!widget(&d, "action:export").enabled, "{w}: an empty tray, nothing to export");
+        if narrow {
+            d.key("Esc").unwrap();
+            d.settle(FRAMES).unwrap();
+        }
+        let first = d.widgets().into_iter().find(|w| w.role == Role::Thumbnail).unwrap().id;
+        d.click(&first).unwrap();
+        d.settle(FRAMES).unwrap();
+        let tray = d.state().selection.ids.clone();
+        assert_eq!(tray.len(), 1);
+        open_more(&mut d);
+        assert!(widget(&d, "action:export").enabled, "{w}: live with a tray");
+        assert!(!widget(&d, "action:collage").enabled && !widget(&d, "action:slideshow").enabled, "{w}: the others still wait");
+        d.click("action:export").unwrap();
+        d.settle(FRAMES).unwrap();
+        assert!(widgets(&d).contains_key("dialog:export"), "{w}: the Export dialog");
+        assert_eq!(d.state().export.as_ref().map(|e| e.ids.clone()), Some(tray), "{w}: for the tray's photos");
+    }
+}
