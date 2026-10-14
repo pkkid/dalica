@@ -168,7 +168,7 @@
 // version, and the file sizes in bytes, which the jq one-liner there prints from GitHub.
 var RELEASE = {
   version: "0.3.0",
-  sizes: {}
+  sizes: {"SHA256SUMS.txt":1605,"dalica-cli-{v}-macos-universal.zip":16704790,"dalica-{v}-linux-aarch64.AppImage":18979336,"dalica-{v}-linux-aarch64.AppImage.zsync":65117,"dalica-{v}-linux-aarch64.deb":20897868,"dalica-{v}-linux-aarch64.flatpak":12295304,"dalica-{v}-linux-aarch64.rpm":20697925,"dalica-{v}-linux-aarch64.tar.gz":19927382,"dalica-{v}-linux-x86_64.AppImage":21027320,"dalica-{v}-linux-x86_64.AppImage.zsync":72115,"dalica-{v}-linux-x86_64.deb":22656438,"dalica-{v}-linux-x86_64.flatpak":14417272,"dalica-{v}-linux-x86_64.rpm":22515958,"dalica-{v}-linux-x86_64.tar.gz":22101631,"dalica-{v}-macos-universal.dmg":24518967,"dalica-{v}-windows-x64-portable.zip":20730451,"dalica-{v}-windows-x64.msi":16216064}
 };
 
 // Download links: every [data-file] names its file with {v} for the version. Without this script
