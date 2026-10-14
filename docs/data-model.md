@@ -416,7 +416,9 @@ done last, so at every moment the original's bytes are at the photo's name or in
 
 An entry's states are therefore: none (never saved, or Undo Save or Revert done), `pending`
 (steps 4–7: a Save under way or interrupted) and `done` (a saved photo whose original is kept). A
-refusal or failure up to step 5 takes the entry back to what it was and changes nothing; a failed
+refusal or failure up to step 5 takes the entry back to what it was and changes nothing (a first
+Save whose move into the backup was made before a later part of step 5 failed, its `fsync` or its
+check, moves the original back first); a failed
 step 6 of a first Save moves the original back when nothing took its name, and a failed step 6 of a
 later Save that wrote nothing takes the entry back. Any other failure leaves the entry `pending`
 for the repair above.
