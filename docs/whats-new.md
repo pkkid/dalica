@@ -77,6 +77,8 @@ files, resized and watermarked if you like.
 - Opening never waits for folder checks or thumbnails: they carry on in the background, shown by
   the activity indicator. While a library opens, the window says what Dalica is doing and counts
   the seconds if it takes a while. (issue #451)
+- Every press and drag on the title bar moves the window; before, only every other one did on
+  Linux. (issue #453)
 
 ### Not in this release yet
 

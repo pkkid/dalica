@@ -175,6 +175,10 @@ pub fn show(ui: &mut Ui, app: &mut App, bar: Rect, section: Option<&str>) {
             ctx.send_viewport_cmd(ViewportCommand::Maximized(!maximized));
         } else if r.drag_started_by(PointerButton::Primary) {
             ctx.send_viewport_cmd(ViewportCommand::StartDrag);
+            // The window manager moves the window from here and keeps the button's release, so
+            // egui would wait for it and take the next press as its end: every other drag would be
+            // lost. The drag is over as far as egui is concerned.
+            ctx.stop_dragging();
         }
     }
     if let Some([min, max, close]) = p.captions {
