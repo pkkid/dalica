@@ -9,6 +9,10 @@ repository.workspace = true
 authors.workspace = true
 publish = false
 
+[features]
+# `dalica-fs`'s named fault points, so tests can fail or "crash" every step of a Save (M8.18).
+faults = ["dalica-fs/faults"]
+
 [dependencies]
 # The name sanitizer and collision names (M8.13).
 dalica-core.workspace = true

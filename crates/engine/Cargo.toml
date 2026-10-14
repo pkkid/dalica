@@ -38,6 +38,8 @@ serde_json.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+# Fault points, to plant a Save stopped at an exact step before a session reopens (M8.18).
+dalica-fs = { workspace = true, features = ["faults"] }
 proptest.workspace = true
 tempfile.workspace = true
 

@@ -49,6 +49,7 @@ pub mod copy;
 mod journal;
 pub mod lossless;
 mod record;
+pub mod recover;
 mod restore;
 
 use std::path::{Path, PathBuf};

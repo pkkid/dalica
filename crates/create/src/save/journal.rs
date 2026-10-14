@@ -104,9 +104,20 @@ pub(super) fn commit(photo: &Photo, base: Base, recipe: Vec<String>, new: &NewFi
     undo.record.set(&photo.name, &entry)?;
     undo.record.store()?;
 
-    // 5. Keep the original (first Save) or check the kept one (a later Save).
+    // 5. Keep the original (first Save) or check the kept one (a later Save). A first Save's
+    // step after the move can fail (its fsync, its check): the original is then in the backup and
+    // goes back to its name before the entry does.
     if let Err(e) = backup::back_up(&photo.folder, &photo.name, photo.identity, (!first).then_some(&kept)) {
-        return Err(undo.entry_only(e.into()));
+        let e = Error::from(e);
+        if e.crashed() {
+            return Err(e);
+        }
+        let backup_path = photo.folder.join(backup::DIR_NAME).join(&photo.name);
+        return Err(match (first, dalica_fs::identity(&backup_path)) {
+            (true, Ok(Some(id))) if id == photo.identity => undo.original_back(Expect::Absent, &kept, e),
+            (true, Err(_)) => incomplete(photo, &e),
+            _ => undo.entry_only(e),
+        });
     }
 
     // 6. The new file at the photo's name: where nothing is (first Save), or over the saved file
