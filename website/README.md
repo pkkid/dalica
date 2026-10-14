@@ -36,10 +36,7 @@ download links point at GitHub Releases, which keep the files and their checksum
    Root directory `website`, no build command, deploy command `npx wrangler deploy`, production
    branch `main`. Set the build watch paths to `website/**` so code changes never redeploy the
    site.
-3. **Redirects:** `dalica.pushingkarma.com` sends visitors here with a Redirect Rule on the
-   `pushingkarma.com` zone (301, path and query kept), backed by a proxied `AAAA dalica 100::`
-   placeholder record.
-4. **HTTPS:** Always Use HTTPS is on for the `pkarma.com` zone. Turn on HSTS once the site has run
+3. **HTTPS:** Always Use HTTPS is on for the `pkarma.com` zone. Turn on HSTS once the site has run
    on HTTPS for a while.
 
 `npx wrangler deploy` from this folder deploys by hand.
