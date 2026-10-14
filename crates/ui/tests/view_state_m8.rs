@@ -405,8 +405,9 @@ fn the_file_menus_save_and_export_rows_light_up() {
                 let prompt = e.prompt.clone().unwrap();
                 assert_eq!((prompt["dialog"].clone(), prompt["buttons"].clone()), (json!(dialog), buttons), "{id}");
             }
-            // Before the engine registers the command (M8.15) it is unknown first.
-            Err(e) => assert_eq!(e.code.as_str(), "unknown_command", "{id}: {e}"),
+            // Revert applies only to a saved photo (M8.15): this one has unsaved edits only.
+            Err(e) if id == "photo.revert" => assert_eq!(e.code.as_str(), "disabled", "{id}: {e}"),
+            Err(e) => panic!("{id}: {e}"),
             Ok(v) => panic!("{id} ran without asking: {v}"),
         }
     }
