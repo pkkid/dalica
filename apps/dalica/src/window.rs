@@ -5,8 +5,8 @@
 //! answered from the logic tick ([`crate::control::play`]).
 
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, TryRecvError};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use dalica_core::app_id::APP_ID;
@@ -82,12 +82,17 @@ impl Source {
     }
 }
 
-/// Opens the library of `source` (off the UI thread: it reads and may write the disk).
-pub fn open(source: Source) -> Result<Session, String> {
+/// Opens the library of `source` (off the UI thread: it reads and may write the disk), telling
+/// `report` what it is doing for the opening screen. It reads the index and returns: scans and
+/// thumbnails go on in the background (`data-model.md` §7).
+pub fn open(source: Source, report: &dyn Fn(&str)) -> Result<Session, String> {
     let clock = Arc::new(dalica_core::SystemClock);
     match source {
-        Source::Library(dir) => Session::open(&dir, clock).map_err(|e| e.to_string()),
-        Source::Demo(dir) => dalica_engine::demo::open(&dir, clock).map_err(|e| e.to_string()),
+        Source::Library(dir) => {
+            report("Reading the library…");
+            Session::open(&dir, clock).map_err(|e| e.to_string())
+        }
+        Source::Demo(dir) => dalica_engine::demo::open_reporting(&dir, clock, &|step| report(&step.describe())).map_err(|e| e.to_string()),
     }
 }
 
@@ -100,6 +105,8 @@ pub struct ControlSetup {
 pub struct Window {
     app: App,
     opening: Option<Receiver<Result<Session, String>>>,
+    /// What the opening thread is doing, for the opening screen.
+    opening_step: Arc<Mutex<Option<String>>>,
     failed: Option<String>,
     control: Option<WindowControl>,
     perf: Perf,
@@ -156,8 +163,14 @@ impl Window {
         };
         let (tx, rx) = mpsc::channel();
         let ctx = ctx.clone();
+        let opening_step = Arc::new(Mutex::new(None));
+        let step = Arc::clone(&opening_step);
         let spawned = std::thread::Builder::new().name("dalica-open".into()).spawn(move || {
-            let _ = tx.send(open(source));
+            let report = |what: &str| {
+                *step.lock().unwrap_or_else(PoisonError::into_inner) = Some(what.to_string());
+                ctx.request_repaint();
+            };
+            let _ = tx.send(open(source, &report));
             ctx.request_repaint();
         });
         if let Err(e) = spawned {
@@ -167,6 +180,7 @@ impl Window {
         let window = Window {
             app,
             opening: Some(rx),
+            opening_step,
             failed,
             control,
             perf,
@@ -344,7 +358,10 @@ impl Window {
                     self.failed = Some(e.to_string());
                     self.opening = None;
                 }
-                Err(TryRecvError::Empty) => {}
+                Err(TryRecvError::Empty) => {
+                    let step = self.opening_step.lock().unwrap_or_else(PoisonError::into_inner).clone();
+                    self.app.set_opening_detail(step);
+                }
                 Err(TryRecvError::Disconnected) => {
                     self.failed = Some("opening the library stopped unexpectedly".into());
                     self.opening = None;

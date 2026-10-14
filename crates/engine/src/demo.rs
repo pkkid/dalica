@@ -94,33 +94,71 @@ pub fn write_photos(dir: &Path) -> Result<Vec<PathBuf>, DemoError> {
     Ok(folders.into_iter().map(|(_, path)| path).collect())
 }
 
-/// Opens the demo library in `dir` (making it on first use) and waits until its folders are
-/// scanned. A demo whose ids are not in order (one made before ids were deterministic) has its
-/// index set aside and is indexed again; its stars come back from the sidecars. Off the UI thread.
+/// What opening a demo is doing, for the window's opening screen ([`open_reporting`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Step {
+    /// Making the demo photos (first use) or finding them complete.
+    Photos,
+    /// Reading the library's index.
+    Index,
+    /// Adding the demo's folder `n` of `of`, each scanned before the next (first use).
+    Folder { n: usize, of: usize },
+    /// The index's ids were out of order: indexing the demo again.
+    Reindex,
+}
+
+impl Step {
+    /// The step as the opening screen says it.
+    pub fn describe(self) -> String {
+        match self {
+            Step::Photos => "Making the demo photos…".to_string(),
+            Step::Index => "Reading the library…".to_string(),
+            Step::Folder { n, of } => format!("Adding the demo folders ({n} of {of})…"),
+            Step::Reindex => "Indexing the demo again…".to_string(),
+        }
+    }
+}
+
+/// Opens the demo library in `dir` (making it on first use), as [`open_reporting`] without a
+/// report.
 pub fn open(dir: &Path, clock: Arc<dyn Clock>) -> Result<Session, DemoError> {
+    open_reporting(dir, clock, &|_| {})
+}
+
+/// Opens the demo library in `dir`, making it on first use, and calls `report` as each [`Step`]
+/// starts. A new demo has its three small folders scanned before it returns, so its ids are the
+/// same everywhere (well under a second); a demo opened again waits for nothing: scans, rescans
+/// and thumbnails run in the background, as in any library (`data-model.md` §7). A demo whose ids
+/// are not in order (one made before ids were deterministic, or one whose folders
+/// were changed) has its index set aside and is indexed again; its stars come back from the
+/// sidecars. Off the UI thread.
+pub fn open_reporting(dir: &Path, clock: Arc<dyn Clock>, report: &dyn Fn(Step)) -> Result<Session, DemoError> {
+    report(Step::Photos);
     let folders = write_photos(dir)?;
-    let session = open_library(dir, &folders, Arc::clone(&clock))?;
+    let session = open_library(dir, &folders, Arc::clone(&clock), report)?;
     if ids_in_order(&session) {
         return Ok(session);
     }
+    report(Step::Reindex);
     let stamp = clock.now().as_secs();
     drop(session);
     let kept = dalica_fs::set_aside(&library_dir(dir), &format!("unordered-{stamp}"))?;
     log::info!("demo: ids were not in tree order; kept the old index as {} and indexed the demo again", kept.display());
-    open_library(dir, &folders, clock)
+    open_library(dir, &folders, clock, report)
 }
 
 /// Opens the library in `dir`; a new one gets `folders` added one at a time, each scanned before
 /// the next, so folder and photo ids are handed out in tree and light-table order.
-fn open_library(dir: &Path, folders: &[PathBuf], clock: Arc<dyn Clock>) -> Result<Session, DemoError> {
+fn open_library(dir: &Path, folders: &[PathBuf], clock: Arc<dyn Clock>, report: &dyn Fn(Step)) -> Result<Session, DemoError> {
+    report(Step::Index);
     let mut session = Session::open(&library_dir(dir), clock)?;
     if session.roots().is_empty() {
-        for folder in folders {
+        for (n, folder) in (1..).zip(folders) {
+            report(Step::Folder { n, of: folders.len() });
             session.execute("folders.add", &json!({ "path": folder }))?;
             session.wait_idle();
         }
     }
-    session.wait_idle();
     Ok(session)
 }
 
@@ -168,6 +206,24 @@ mod tests {
             .map(|p| (p["id"].as_u64().unwrap(), by_id[&p["folder"].as_u64().unwrap()].join(p["name"].as_str().unwrap())))
             .collect();
         (folders, photos)
+    }
+
+    /// A new demo scans its folders before it returns; one opened again waits for nothing (no
+    /// folder step, no wait): its scans and thumbnails go on in the background.
+    #[test]
+    fn a_reopened_demo_waits_for_nothing_and_says_what_it_does() {
+        let dir = fresh_dir().unwrap();
+        let steps = std::sync::Mutex::new(Vec::new());
+        let note = |s: Step| steps.lock().unwrap().push(s);
+        drop(open_reporting(dir.path(), clock(), &note).unwrap());
+        let first: Vec<Step> = std::mem::take(&mut *steps.lock().unwrap());
+        let folders = (1..=FOLDERS).map(|n| Step::Folder { n, of: FOLDERS });
+        assert_eq!(first, [Step::Photos, Step::Index].into_iter().chain(folders).collect::<Vec<_>>());
+        let mut s = open_reporting(dir.path(), clock(), &note).unwrap();
+        assert_eq!(*steps.lock().unwrap(), [Step::Photos, Step::Index]);
+        assert_eq!(s.library().photos().count(), PHOTOS, "the index is there at once");
+        s.wait_idle();
+        assert_eq!(Step::Folder { n: 2, of: 3 }.describe(), "Adding the demo folders (2 of 3)…");
     }
 
     #[test]
