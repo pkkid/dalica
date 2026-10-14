@@ -218,8 +218,23 @@ GitHub). Before §4's step 7:
   `release` (`git push origin main:release`), watch the Release workflow, check the draft
   `Dalica v<version>` (every artifact and `SHA256SUMS.txt`; install one), add the honest deltas of
   `releasing.md` step 5 to its notes (the newest `whats-new.md` section first), publish it, and
-  log it with `cargo xtask tasks log M<n>.R "RELEASED …"`. A hold or "ship after fixes" answer
-  means no push until the maintainer says so.
+  log it with `cargo xtask tasks log M<n>.R "RELEASED …"`. Then update the website (next
+  bullet). A hold or "ship after fixes" answer means no push until the maintainer says so.
+- **Updating the website** (same go-ahead, once the release is published): the site offers the
+  new version (`website/README.md` → Releasing a new version).
+  - Branch `website/<version>` from `main`. Change only `website/public` (and its README and
+    `ATTRIBUTION.md` rows for new images).
+  - The headline and the feature cards from the new `docs/whats-new.md` section; the road to 1.0
+    (this release shipped, the next one next); the numbers from *Where we stand*.
+  - `RELEASE` in `main.js`: the version and the file sizes from the published release. Check every
+    download link returns 200.
+  - Fresh screenshots of the release's features with `dalica-cli snapshot` (`website/README.md` →
+    Images), with new file names. Look at the page at desktop and phone width.
+  - Open a pull request. Merge it once `cargo xtask ci` is green locally (website files and
+    Markdown only) and its checks pass.
+  - Deploy with `npx wrangler deploy` from `website/`, check it live at
+    https://dalica.pkarma.com (the version, a download link, the new screenshots), and log it with
+    `cargo xtask tasks log M<n>.R "WEBSITE: …"`.
 
 The names rule applies everywhere: never name the reference application, in the dev log, the page
 or a commit.
