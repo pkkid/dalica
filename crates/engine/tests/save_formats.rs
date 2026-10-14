@@ -127,8 +127,11 @@ impl Lib {
         result
     }
 
-    /// The names in the folder, Dalica's own files left out.
-    fn names(&self) -> Vec<String> {
+    /// The names in the folder, Dalica's own files left out, once every pending write has landed:
+    /// the folder's sidecar is written on a debounce, and a listing taken while it is being
+    /// replaced would see its temporary file (`..dalica.json.dalica-tmp-…`).
+    fn names(&mut self) -> Vec<String> {
+        self.settle();
         let mut names: Vec<String> = std::fs::read_dir(self.folder())
             .unwrap()
             .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
