@@ -3505,7 +3505,7 @@ first measurement. No step of M8 needs a maintainer decision mid-run.
     unwatched folder adds it and the photo appears; an existing path is refused and unchanged; the
     owner thread made no `fs` call; each command's contract and graceful failures; `panic_hunt`
     green.
-- ⬜ **M8.18 `create` + `engine`: a Save interrupted at any step never loses the original**
+- ✅ **M8.18 `create` + `engine`: a Save interrupted at any step never loses the original**
   - after: M8.14, M8.15
   - files: `crates/create/src/save/recover.rs`, `crates/create/tests/save_faults.rs`, `crates/engine/src/save_recovery.rs`, `crates/engine/tests/save_recovery.rs`
   - scope: `data-model.md` §6 and §10.5, `architecture.md` §8: `save::recover(folder)` for a

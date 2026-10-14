@@ -386,7 +386,28 @@ their bytes at every level, unknown keys kept verbatim):
   index, and the next Save starts a new record without writing over the old one.
 - A pending entry found at open or by a scan is a Save that was interrupted: it is repaired,
   rolled forward when the new file is complete and verifies, else rolled back (the original moved
-  back to its name and the entry dropped).
+  back to its name and the entry dropped). A `done` entry whose kept original is gone from the
+  backup while the file at the name is that original is an Undo Save or Revert that stopped
+  before dropping it; the repair drops it (`dalica-create` `save::recover`, M8.18):
+  - **Forward** only when the kept original is the recorded one and the file at the name holds
+    the recorded recipe: it is not the original, not the version the library last saw there (an
+    earlier Save's file), it decodes whole, and its pixels are the original rendered again with
+    the recipe through the output pipeline within a small tolerance (`TOLERANCE`, 3 levels on
+    average). The check is by content, so it never depends on clocks.
+  - **Back** otherwise, when the recorded original is in hand: moved back over whatever is at the
+    name (that is a rendering the recipe can make again) or found still there, then the entry
+    dropped. The library puts the recorded recipe back as unsaved edits, in front of the edits not
+    in it, so an interrupted Save, Undo Save or Revert never loses an edit.
+  - **Left** as found, with the reason, when the recorded original is neither kept nor at its
+    name, or the backup is not the recorded one: nothing is moved or dropped.
+  - The record follows the files (an entry is marked or dropped only after the move), so a repair
+    that is itself interrupted is finished by the next. The atomic-replace temporary files of the
+    record and of the photos it names are removed by their shape, only those older than the
+    repair.
+  - The engine checks, reading only, the folders that can hold one when a session opens (photos
+    with unsaved edits or a saved record) and repairs those that need it in one file job; a scan
+    that reads a pending entry starts the same job unless a file job is running. Each repair is
+    logged and listed in the session's warnings, and the job's end is a notice.
 
 **How a Save in place runs** (`dalica-create` `save`, M8.12; on a worker, every disk step through
 `dalica-fs`). The record's entry is the journal: it is written before anything moves and marked
