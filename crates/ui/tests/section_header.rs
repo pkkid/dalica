@@ -137,6 +137,8 @@ fn every_part_is_there_with_its_size_at_both_window_sizes() {
                 assert_eq!((button.role, button.label.as_str()), (Role::IconButton, b.tooltip()));
                 if b == Button::SelectStarred {
                     assert_eq!(button.enabled, section == first, "{case}: Select Starred needs a starred photo in the section");
+                } else if b == Button::Export {
+                    assert!(button.enabled, "{case}: Export opens the Export dialog (output.export, M8.4)");
                 } else {
                     assert!(!button.enabled, "{case}: {b:?} waits for {}", b.command());
                 }
