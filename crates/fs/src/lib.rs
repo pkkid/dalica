@@ -10,11 +10,13 @@
 pub mod append;
 pub mod aside;
 pub mod atomic;
+pub mod create;
 mod dirfd;
 pub mod dirs;
 pub mod faults;
 pub mod guard;
 pub mod lock;
+pub mod originals;
 pub mod pack;
 pub mod stale;
 pub mod times;

@@ -40,6 +40,51 @@ pub mod points {
     pub const ROTATE: &str = "append.rotate";
     /// Removing one stale temporary file (`stale::remove_stale_temps`).
     pub const STALE_REMOVE: &str = "stale.remove";
+
+    /// Opening (or making) `<folder>/.dalica-originals/` (`originals::back_up`).
+    pub const BACKUP_OPEN_DIR: &str = "originals.open_dir";
+    /// Re-checking the photo's identity right before it moves into the backup.
+    pub const BACKUP_CHECK: &str = "originals.check";
+    /// Moving the photo into the backup (one rename that never replaces).
+    pub const BACKUP_MOVE: &str = "originals.move";
+    /// `fsync` of the backup folder and the photo's folder after the move.
+    pub const BACKUP_FSYNC_DIR: &str = "originals.fsync_dir";
+    /// Checking that the backup is the photo that moved.
+    pub const BACKUP_VERIFY: &str = "originals.verify";
+    /// Re-checking the saved file and the backup right before the backup moves back
+    /// (`originals::restore`).
+    pub const RESTORE_CHECK: &str = "originals.restore_check";
+    /// Moving the backup back over the saved file.
+    pub const RESTORE_MOVE: &str = "originals.restore_move";
+    /// `fsync` of both folders after moving the backup back.
+    pub const RESTORE_FSYNC_DIR: &str = "originals.restore_fsync_dir";
+    /// Checking that the photo is the backup that moved back.
+    pub const RESTORE_VERIFY: &str = "originals.restore_verify";
+
+    /// Creating the temporary file of a new file (`create::new_file`).
+    pub const NEW_TEMP: &str = "create.temp";
+    /// Writing the new file's bytes into the temporary file.
+    pub const NEW_WRITE: &str = "create.write";
+    /// `fsync` of the temporary file.
+    pub const NEW_FSYNC: &str = "create.fsync";
+    /// Giving the temporary file the first free name, never replacing a file.
+    pub const NEW_COMMIT: &str = "create.commit";
+    /// Armed as an error, the volume answers that it can neither rename without replacing nor
+    /// make hard links, so the new file is written under its name by exclusive creation instead
+    /// (armed as a crash, the operation stops there).
+    pub const NEW_NO_LINKS: &str = "create.no_links";
+    /// Writing the bytes into the exclusively created file (volumes without links).
+    pub const NEW_DIRECT_WRITE: &str = "create.direct_write";
+    /// `fsync` of the exclusively created file (volumes without links).
+    pub const NEW_DIRECT_FSYNC: &str = "create.direct_fsync";
+    /// `fsync` of the folder after the new file got its name.
+    pub const NEW_FSYNC_DIR: &str = "create.fsync_dir";
+    /// Re-reading the new file to verify it.
+    pub const NEW_VERIFY: &str = "create.verify";
+    /// Making a new folder under the first free name (`create::new_folder`).
+    pub const NEW_MKDIR: &str = "create.mkdir";
+    /// `fsync` of the parent after making the new folder.
+    pub const NEW_MKDIR_FSYNC: &str = "create.mkdir_fsync";
 }
 
 /// The atomic-replace points, in order.
@@ -51,6 +96,24 @@ pub const APPEND_POINTS: [&str; 3] = [points::APPEND_WRITE, points::APPEND_FSYNC
 
 /// The stale-temporary cleanup points.
 pub const STALE_POINTS: [&str; 1] = [points::STALE_REMOVE];
+
+/// The points of moving a photo into its originals backup, in order.
+pub const BACKUP_POINTS: [&str; 5] =
+    [points::BACKUP_OPEN_DIR, points::BACKUP_CHECK, points::BACKUP_MOVE, points::BACKUP_FSYNC_DIR, points::BACKUP_VERIFY];
+
+/// The points of moving a backup back over the saved file, in order.
+pub const RESTORE_POINTS: [&str; 4] = [points::RESTORE_CHECK, points::RESTORE_MOVE, points::RESTORE_FSYNC_DIR, points::RESTORE_VERIFY];
+
+/// The points of writing a new file, in order, on a volume with links.
+pub const NEW_FILE_POINTS: [&str; 6] =
+    [points::NEW_TEMP, points::NEW_WRITE, points::NEW_FSYNC, points::NEW_COMMIT, points::NEW_FSYNC_DIR, points::NEW_VERIFY];
+
+/// The points a new file reaches, in order, once [`points::NEW_NO_LINKS`] armed as an error sent
+/// it to exclusive creation.
+pub const NEW_FILE_DIRECT_POINTS: [&str; 4] = [points::NEW_DIRECT_WRITE, points::NEW_DIRECT_FSYNC, points::NEW_FSYNC_DIR, points::NEW_VERIFY];
+
+/// The points of making a new folder, in order.
+pub const NEW_FOLDER_POINTS: [&str; 2] = [points::NEW_MKDIR, points::NEW_MKDIR_FSYNC];
 
 /// How an armed fault point fails.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -154,6 +217,16 @@ pub(crate) fn hit(_point: &'static str) -> Option<Fault> {
 /// The I/O error an armed [`Fault::Error`] returns.
 pub(crate) fn injected(point: &'static str) -> std::io::Error {
     std::io::Error::other(format!("injected fault at {point}"))
+}
+
+/// The fault armed at `point` as the error it stands for (the step `op` on `path` failing, or a
+/// crash), or `Ok` when nothing is armed. For steps whose caller has nothing to clean up.
+pub(crate) fn at(point: &'static str, op: &'static str, path: &std::path::Path) -> crate::Result<()> {
+    match hit(point) {
+        Some(Fault::Error) => Err(crate::io_err(op, path)(injected(point))),
+        Some(Fault::Crash) => Err(crate::Error::Crashed(point)),
+        None => Ok(()),
+    }
 }
 
 #[cfg(all(test, feature = "faults"))]

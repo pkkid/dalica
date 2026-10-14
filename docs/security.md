@@ -415,7 +415,13 @@ the content it is replacing. This covers external edits, sync clients and a coll
 the file on a share. Save also checks the original's identity immediately before moving it into
 `.dalica-originals/`, and refuses if a backup with that name already exists but does not match the
 recorded original (the first original is the one kept). **Built for every `fs::replace` (M1.2:
-`Expect::Unchanged`); Save's checks are planned (M8).**
+`Expect::Unchanged`). Save's checks built (M8.2: `dalica-fs` `originals::back_up` re-checks the
+photo's identity right before one rename that never replaces moves it into the backup; a backup
+that exists must be the recorded one, its size and the record owner's digest checked over its
+bytes, and then nothing moves; any other backup is refused with nothing moved. `originals::restore`
+(Undo Save, Revert) moves the backup back only while it is still the recorded one and the saved
+file is still the version recorded, `Expect::Unchanged`, or absent after a Save that stopped before
+writing it, `Expect::Absent`). The Save commands that call them are planned (M8).**
 
 ### 5.4 Names
 
@@ -432,7 +438,16 @@ bidirectional characters; strip leading `.` and `-` and trailing dots and spaces
 device names; limit to 255 bytes on a character boundary; never empty (fallback such as
 `Export 2026-06-04`). Collisions are resolved with `-001`, `-002`, … using exclusive creation in a
 loop, not "check then create". Dates from EXIF are parsed and re-formatted, never copied as text.
-**Planned (M8, M11, M14).**
+**The collision loop built (M8.2: `dalica-fs` `create::new_file` writes a temporary file, then
+gives it the first free name of `core::names::candidates` in one step that never replaces a file:
+`renameat2(RENAME_NOREPLACE)` on Linux and Android, `renameatx_np(RENAME_EXCL)` on Apple systems,
+a hard link then an unlink of the temporary name on other systems, Windows included, and where the
+volume refuses the flag; on a volume without hard links the bytes go straight into the first name
+exclusive creation gives. `create::new_folder` makes `<name>`, `<name>-001`, … with `mkdir`, which
+fails on a taken name. Both refuse a name that is not one plain component, with nothing written:
+separators, `.`/`..`, drive and stream prefixes, reserved device names, Dalica's own `.dalica*`
+and temporary names, control characters, a trailing dot or space, more than 255 bytes); the
+sanitizer is planned (M8, M11, M14).**
 
 **Names from the file system.** File names that are not valid UTF-8 are indexed and shown with a
 lossy display form, but the lossy form is never written into a sidecar and never used to open a
@@ -456,7 +471,11 @@ embedded, never loaded by a referenced name. **Planned (M1, M14).**
   folder links are followed after the real tree, so a real folder always wins over a link to it).**
 - **Writes never go through a link.** Sidecars, photos on Save or metadata write-back, the
   `.dalica-originals` directory and its contents are opened without following a final symlink
-  (`O_NOFOLLOW`-style). If the target is a link, or a folder reached through a link resolves
+  (`O_NOFOLLOW`-style). **Built for the originals backup (M8.2: `.dalica-originals` is opened or
+  made relative to the photo's held folder with `O_DIRECTORY | O_NOFOLLOW`, a link or a file in
+  its place is refused with nothing moved, and a link in place of the photo or of its backup is
+  refused too; the move is `renameat` between the two held handles, so a backup folder swapped for
+  a link mid-move leaves the photo in the folder that was opened).** If the target is a link, or a folder reached through a link resolves
   outside every watched root, Dalica does not write there: the folder is treated as read-only and
   shows a `caution` notice. The exact UI and how user data for such folders is kept are settled in
   M1 (`data-model.md` §7). **Planned (M1).**
@@ -509,6 +528,9 @@ embedded, never loaded by a referenced name. **Planned (M1, M14).**
 - Other scratch files (render and export scratch, decoded previews spilled to disk) go to
   `<cache>/Dalica/tmp/`, created `0700` on Unix, with random names, never to a predictable name in
   a shared system temp directory. **Planned (M7).**
+- New files (`create::new_file`, M8.2) use the same temporary shape, so a crash before the new
+  name is given leaves only a stray temporary file that this cleanup removes; on a volume without
+  hard links a crash can leave a torn file under the new name, never under an existing one.
 - A crash leaves at most a stray temporary file, never a truncated target.
 
 ### 5.9 Network shares, synced folders and removable media
