@@ -141,9 +141,9 @@ fn an_export_folder_outside_every_watched_root_is_listed_in_projects() {
 }
 
 /// A folder under the projects directory (`Pictures/Dalica`) is listed in Projects without the
-/// Exported mark, beside a folder outside it that stays under Folders. An export location chosen
-/// inside the watched `Pictures` (whose parent, the projects directory, is then `Pictures` itself)
-/// makes no folder a project.
+/// Exported mark, beside a folder outside it that stays under Folders. The projects directory stays
+/// `Pictures/Dalica` whatever export location is chosen (M9.28): a location inside the watched
+/// `Pictures` neither makes every folder of it a project nor takes Prints out of Projects.
 #[test]
 fn a_folder_under_the_projects_directory_is_listed_in_projects() {
     let dir = tempfile::tempdir().unwrap();
@@ -168,11 +168,12 @@ fn a_folder_under_the_projects_directory_is_listed_in_projects() {
     assert!(widget(&d, &row).rect[1] < folders_header.rect[1] && is_project(&d, &row), "Prints is a project");
     assert!(widget(&d, &other).rect[1] > folders_header.rect[1] && !is_project(&d, &other), "Holiday is a folder");
 
-    // The export location moved into Pictures: its parent is the watched folder itself.
+    // The export location moved into Pictures: the projects directory does not follow it.
     let session = d.app_mut().session_mut().unwrap();
     let export = session.settings().export();
     session.change_settings(|st| st.set_export(&dalica_engine::settings::ExportSettings { location: Some(pictures.join("Exports")), ..export }));
+    assert_eq!(d.app().session().unwrap().projects_dir(), Some(pictures.join("Dalica")));
     d.settle(FRAMES).unwrap();
-    assert!(!has(&d, "tree:group:projects"), "no folder of the library becomes a project");
-    assert!(!is_project(&d, &row));
+    assert_eq!(widget(&d, "tree:group:projects").label, "Projects (1)", "only Prints is a project");
+    assert!(is_project(&d, &row) && !is_project(&d, &other));
 }

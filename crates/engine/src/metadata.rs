@@ -25,6 +25,15 @@
 //! [`Session::pending_metadata_writes`] counts the photos still to write (`library.inspect` →
 //! `pendingWrites.metadata`); [`Session::flush_metadata`] writes them all now (the CLI, tests). When
 //! the session closes, the worker writes what is still queued before it stops.
+//!
+//! **Before a Save reads a photo** (M9.28): a file job's worker holds a [`WriteFlusher`]
+//! ([`Session::metadata_flusher`]) and, through it, has that one photo's queued write made at once
+//! on the writer thread, between two writes, and learns the version Dalica's own writes left the
+//! file at, starting from the version the library knew ([`WriteFlusher::settle`]). The Save then
+//! expects that version, so a caption set just before Save is written and the Save is not refused
+//! as "changed on disk"; a version no write of Dalica's explains (a change made elsewhere) is still
+//! refused. A write waiting for an offline volume is not tried (the Save of such a photo is refused
+//! anyway), and nothing else in the queue is written early.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -58,6 +67,13 @@ pub const JOB_LABEL: &str = "Writing metadata";
 pub const IMPORT_LABEL: &str = "Import Metadata";
 /// How long the writer sleeps when it has nothing to do (it wakes at once for a message).
 const TICK: Duration = Duration::from_millis(100);
+/// The most photos whose last own write the writer remembers for [`WriteFlusher::settle`]; past
+/// it the oldest are forgotten (a Save of one of them is then refused as changed on disk, never
+/// let through).
+pub const MAX_OWN_WRITES: usize = 4096;
+/// The longest [`WriteFlusher::settle`] waits for the writer (one file write ahead of it, as a
+/// rule); past it the Save goes on with the version the library knew.
+pub const SETTLE_PATIENCE: Duration = Duration::from_secs(60);
 
 /// File extensions that are never RAW files (so a photo with one never needs an `.xmp` sidecar
 /// name worked out). Anything else may be a RAW: the queue tells by the file's content.
@@ -337,6 +353,35 @@ enum ToWorker {
     Guard(Vec<(PathBuf, RootCheck)>),
     /// Write everything queued now, then answer.
     Flush(Sender<()>),
+    /// Write `photo`'s queued request now (unless it waits for its volume), then answer the version
+    /// Dalica's own writes left `path` at, starting from `seen` ([`WriteFlusher::settle`]).
+    Settle {
+        photo: PhotoId,
+        path: PathBuf,
+        seen: Version,
+        ack: Sender<Option<Version>>,
+    },
+}
+
+/// A handle a file job's worker uses to have one photo's queued metadata write made before it
+/// reads the photo ([`Session::metadata_flusher`]). Cloneable and `Send`; it never touches the
+/// disk itself.
+#[derive(Clone, Debug)]
+pub(crate) struct WriteFlusher {
+    tx: Sender<ToWorker>,
+}
+
+impl WriteFlusher {
+    /// On a worker thread (never the owner's): has photo `photo` (at `path`)'s queued write made
+    /// now and waits for it (at most `patience`). Returns the version the file is at when that is
+    /// `seen` (the version the library knew) or a version Dalica's own writes made from it;
+    /// `None` when the file is at a version none of them explains (changed elsewhere, or gone), or
+    /// the writer did not answer in time: the caller then keeps expecting `seen`.
+    pub(crate) fn settle(&self, photo: PhotoId, path: PathBuf, seen: Version, patience: Duration) -> Option<Version> {
+        let (ack, answer) = mpsc::channel();
+        self.tx.send(ToWorker::Settle { photo, path, seen, ack }).ok()?;
+        answer.recv_timeout(patience).ok().flatten()
+    }
 }
 
 enum FromWorker {
@@ -809,6 +854,18 @@ impl Session {
         ok
     }
 
+    /// The handle a file job's worker settles a photo's queued write with before it reads the
+    /// photo ([`WriteFlusher::settle`]), starting the writer if it is not running (a write queued
+    /// while the job runs must go through it too). `None` when the writer cannot start: nothing
+    /// is written behind the job's back then. Never touches the disk.
+    pub(crate) fn metadata_flusher(&mut self) -> Option<WriteFlusher> {
+        if !self.start_metadata_writer() {
+            return None;
+        }
+        let tx = self.metadata.writer.worker.as_ref()?.tx.as_ref()?.clone();
+        Some(WriteFlusher { tx })
+    }
+
     /// The changes the metadata hook recorded since the last call, oldest first, and how many
     /// older ones were dropped to stay within [`MAX_PENDING`] photo entries.
     pub fn take_metadata_changes(&mut self) -> (Vec<MetadataChange>, u64) {
@@ -851,6 +908,11 @@ struct Work {
     waiting: BTreeSet<PhotoId>,
     /// Photos found due, to write one by one (taken from the queue once per batch, not per file).
     ready: VecDeque<PhotoId>,
+    /// The last run of Dalica's own writes of each photo: the version the file was at before the
+    /// first and after the last (consecutive writes chained), at most [`MAX_OWN_WRITES`] photos.
+    own: HashMap<PhotoId, (Version, Version)>,
+    /// The photos of `own`, oldest first.
+    own_order: VecDeque<PhotoId>,
     tx: Sender<FromWorker>,
     clock: Arc<dyn Clock>,
 }
@@ -867,6 +929,8 @@ fn work(rx: Receiver<ToWorker>, tx: Sender<FromWorker>, clock: Arc<dyn Clock>) {
         files: BTreeMap::new(),
         waiting: BTreeSet::new(),
         ready: VecDeque::new(),
+        own: HashMap::new(),
+        own_order: VecDeque::new(),
         tx,
         clock,
     };
@@ -930,6 +994,40 @@ impl Work {
                 self.idle_if_done();
                 let _ = ack.send(());
             }
+            ToWorker::Settle { photo, path, seen, ack } => {
+                if self.files.contains_key(&photo) && !self.waiting.contains(&photo) {
+                    self.write(photo, self.clock.now());
+                    self.idle_if_done();
+                }
+                let _ = ack.send(self.settled(photo, &path, seen));
+            }
+        }
+    }
+
+    /// The version `path` is at, when it is `seen` or a version Dalica's own writes of `photo`
+    /// made from `seen`; `None` otherwise.
+    fn settled(&self, photo: PhotoId, path: &std::path::Path, seen: Version) -> Option<Version> {
+        let now = Work::version(path)?;
+        if now == seen {
+            return Some(seen);
+        }
+        self.own.get(&photo).filter(|(before, after)| *before == seen && *after == now).map(|(_, after)| *after)
+    }
+
+    /// Remembers that Dalica's write of `photo` took its file from `before` to `after`, chained to
+    /// the last one when that ended at `before`.
+    fn note_own_write(&mut self, photo: PhotoId, before: Version, after: Version) {
+        let first = match self.own.get(&photo) {
+            Some((first, last)) if *last == before => *first,
+            _ => before,
+        };
+        if self.own.insert(photo, (first, after)).is_none() {
+            self.own_order.push_back(photo);
+            while self.own_order.len() > MAX_OWN_WRITES {
+                if let Some(old) = self.own_order.pop_front() {
+                    self.own.remove(&old);
+                }
+            }
         }
     }
 
@@ -980,16 +1078,21 @@ impl Work {
     /// Writes queued `photo` and reports it.
     fn write(&mut self, photo: PhotoId, now: Timestamp) {
         let Some((path, known)) = self.files.get(&photo).cloned() else { return };
-        let matched = Work::version(&path) == Some(known);
+        let found = Work::version(&path);
+        let matched = found == Some(known);
         let (queue, options) = (&mut self.queue, &self.options);
         let result = catch_unwind(AssertUnwindSafe(|| queue.write(photo, options, now)));
         let job = self.job.as_ref().map(|(id, _)| *id);
         match result {
             Ok(Some(result)) => {
-                let after = match &result.status {
-                    Status::Written(p) if *p == path && matched => Work::version(&path),
+                let written = match &result.status {
+                    Status::Written(p) if *p == path => Work::version(&path),
                     _ => None,
                 };
+                if let (Some(before), Some(after)) = (found, written) {
+                    self.note_own_write(photo, before, after);
+                }
+                let after = written.filter(|_| matched);
                 let pending = self.queue.is_pending(photo);
                 if !pending {
                     self.forget(photo);
@@ -1155,6 +1258,70 @@ mod tests {
             "Could not write the caption, tags and date taken into IMG_0001.jpg: the file is read-only"
         );
         assert_eq!(e(Vec::new()).message(), "Could not write metadata into IMG_0001.jpg: the file is read-only");
+    }
+
+    /// The Save's handle (M9.28): one photo's queued write is made at once and the version Dalica's
+    /// own writes left the file at comes back; nothing else is written early, a write waiting for an
+    /// offline volume is not tried (and nothing waits for it), and a change made elsewhere is never
+    /// explained away.
+    #[test]
+    fn a_flusher_settles_one_photos_write_and_never_explains_an_outside_change() {
+        use dalica_core::VirtualClock;
+        use dalica_fs::Expect;
+        use serde_json::json;
+
+        let patience = Duration::from_secs(120);
+        let dir = tempfile::tempdir().unwrap();
+        let lisbon = dir.path().join("Pictures").join("Lisbon");
+        dalica_fs::create_dir_all(&lisbon).unwrap();
+        for i in 0..2u64 {
+            let bytes = dalica_scenes::jpeg(&dalica_scenes::Scene::new(i, 120, 80), 80, None).unwrap();
+            dalica_fs::replace(&lisbon.join(format!("IMG_{:04}.jpg", i + 1)), &bytes, Expect::Absent).unwrap();
+        }
+        // A clock that never moves: no write is due on its own, only what the handle asks for lands.
+        let clock = Arc::new(VirtualClock::new(Timestamp::from_millis(1_700_000_000_000)));
+        let mut s = Session::open(&dir.path().join("library"), clock).unwrap();
+        s.execute("folders.add", &json!({ "path": lisbon })).unwrap();
+        s.wait_idle();
+        let mut photos: Vec<Photo> = s.library().photos().cloned().collect();
+        photos.sort_by(|x, y| x.name.cmp(&y.name));
+        let (a, b) = (photos[0].clone(), photos[1].clone());
+        let (path_a, path_b) = (lisbon.join(&a.name), lisbon.join(&b.name));
+        let version = |p: &std::path::Path| Work::version(p).unwrap();
+        let seen_a = (a.size, a.mtime);
+        assert_eq!(version(&path_a), seen_a);
+        let file_b = std::fs::read(&path_b).unwrap();
+
+        // Captions on both photos: two writes queued, neither due.
+        s.execute("photo.caption.set", &json!({ "ids": [a.id, b.id], "caption": "Tram 28" })).unwrap();
+        assert_eq!(s.pending_metadata_writes(), 2);
+        let flusher = s.metadata_flusher().unwrap();
+        let settled = flusher.settle(a.id, path_a.clone(), seen_a, patience).unwrap();
+        assert_ne!(settled, seen_a, "the caption was written into the file");
+        assert_eq!(settled, version(&path_a));
+        let read = dalica_meta::read(&std::fs::read(&path_a).unwrap(), &dalica_meta::Limits::default()).unwrap();
+        assert_eq!(read.owned.caption.as_deref(), Some("Tram 28"));
+        assert_eq!(std::fs::read(&path_b).unwrap(), file_b, "only that photo's write was made");
+        // Settled again (the write already made): the same version; from it, itself.
+        assert_eq!(flusher.settle(a.id, path_a.clone(), seen_a, patience), Some(settled));
+        assert_eq!(flusher.settle(a.id, path_a.clone(), settled, patience), Some(settled));
+        s.poll_metadata();
+        assert_eq!(s.pending_metadata_writes(), 1, "b's write still waits for its debounce");
+        assert_eq!((s.library().photo(a.id).unwrap().size, s.library().photo(a.id).unwrap().mtime), settled, "the model took the new version");
+
+        // A change made elsewhere is not Dalica's: no version explains it.
+        let other = dalica_scenes::jpeg(&dalica_scenes::Scene::new(9, 160, 90), 80, None).unwrap();
+        let identity = dalica_fs::read(&path_a, u64::MAX).unwrap().unwrap().identity;
+        dalica_fs::replace(&path_a, &other, Expect::Unchanged(identity)).unwrap();
+        assert_eq!(flusher.settle(a.id, path_a.clone(), settled, patience), None);
+        assert_eq!(flusher.settle(a.id, path_a.clone(), seen_a, patience), None);
+        assert_eq!(flusher.settle(a.id, lisbon.join("gone.jpg"), seen_a, patience), None, "a missing file");
+
+        // A write waiting for an offline volume is not tried: the answer comes at once, b unchanged.
+        s.metadata_hold(vec![lisbon.clone()]);
+        let seen_b = (b.size, b.mtime);
+        assert_eq!(flusher.settle(b.id, path_b.clone(), seen_b, patience), Some(seen_b));
+        assert_eq!(std::fs::read(&path_b).unwrap(), file_b);
     }
 
     #[test]

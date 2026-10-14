@@ -57,8 +57,8 @@
 //!   [`EXPORT_SIZE_RANGE`]), quality Automatic (`"automatic"`, `"normal"`, `"maximum"`,
 //!   `"minimum"` or `"custom"`) with the Custom value 75, numbers off, the watermark off with empty
 //!   text, and Options → Export → "Remove location from exported photos" off. The projects
-//!   directory the tree lists in Projects is the export location's parent
-//!   ([`Session::projects_dir`](crate::Session::projects_dir)).
+//!   directory the tree lists in Projects is always `<Pictures>/Dalica`, whatever location is
+//!   chosen ([`Session::projects_dir`](crate::Session::projects_dir), M9.28).
 //!
 //! M9 adds `"organize"`, merged key by key the same way (M9.3; `organizing.md` §4 and §9,
 //! `menus-and-shortcuts.md` §5; [`OrganizeSettings`]): `{askBeforeMoving,
@@ -388,7 +388,13 @@ fn folder_path(p: &Path) -> Option<&str> {
 
 /// Where exports go when no location is stored: `<Pictures>/Dalica/Exports` (`creating.md` §2).
 pub fn default_export_location(pictures: &Path) -> PathBuf {
-    pictures.join("Dalica").join("Exports")
+    projects_dir_under(pictures).join("Exports")
+}
+
+/// The projects directory under the Pictures folder `pictures`: `<Pictures>/Dalica`
+/// ([`Session::projects_dir`](crate::Session::projects_dir)).
+pub fn projects_dir_under(pictures: &Path) -> PathBuf {
+    pictures.join("Dalica")
 }
 
 /// The format Save As writes (`"save"` → `lastFormat` in `settings.json`).
@@ -1283,10 +1289,13 @@ impl crate::Session {
         self.settings().export().location.or_else(|| self.pictures_dir.as_deref().map(default_export_location))
     }
 
-    /// The projects directory: the export location's parent (`Pictures/Dalica` by default). The
-    /// library tree lists the folders under it in Projects (`TreeOptions::projects_dir`).
+    /// The projects directory: always `<Pictures>/Dalica` under the Pictures folder known when the
+    /// library opened, whatever export location is chosen (`creating.md` §2: a location such as
+    /// `~/Desktop/Out` must not make `~/Desktop` a projects folder); `None` when no Pictures folder
+    /// is known. The library tree lists the folders under it in Projects
+    /// (`TreeOptions::projects_dir`).
     pub fn projects_dir(&self) -> Option<PathBuf> {
-        self.export_location()?.parent().map(Path::to_path_buf)
+        self.pictures_dir.as_deref().map(projects_dir_under)
     }
 }
 
