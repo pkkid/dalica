@@ -26,11 +26,11 @@ same commit.
 | B. Organizing | 2 | 8 | 32 | 0 |
 | C. Editing | 7 | 5 | 9 | 4 |
 | D. Viewing | 0 | 1 | 5 | 2 |
-| E. Output | 0 | 0 | 2 | 9 |
+| E. Output | 0 | 1 | 1 | 9 |
 | F. Data | 1 | 18 | 1 | 0 |
 | G. Preferences and system | 0 | 7 | 7 | 0 |
 | H. Menus | 0 | 5 | 2 | 0 |
-| **All** | 23 | 59 | 62 | 16 |
+| **All** | 23 | 60 | 61 | 16 |
 <!-- /parity:summary -->
 
 ## Top gaps
@@ -170,7 +170,7 @@ same commit.
 
 | Id | Feature | Tier | Status | Evidence / notes |
 |---|---|---|---|---|
-| OUT-EXPORT | Export dialog: size, quality, watermark, numbering, videos | P0 | ⬜ | ref 07 §4.1 |
+| OUT-EXPORT | Export dialog: size, quality, watermark, numbering, videos | P0 | 🟡 | the export job: `cmd:export.run` (the tray's photos or a section's, rendered with their current edits through the one output pipeline; size 100–4000 or the original, the quality presets or a custom value, numbers, watermark, Remove location; a taken folder name gets `-001`; videos skipped and counted; Cancel leaves only complete files; a folder outside every watched folder added as Scan Always; the folder marked Exported in its sidecar; the options used remembered) and `cmd:export.defaults`: `crates/engine/src/cmd/export.rs`, `crates/engine/tests/export.rs` (M8.16); the plan, names and files: `crates/create/src/export.rs` (M8.13); the dialog (M8.20) and the progress window and toast (M8.21) missing; the videos row stays disabled until M15; ref 07 §4.1 |
 | OUT-EMAIL | Email via default app / save attachments | OOS | 🚫 | dropped 2026-10-09 (dated feature); share by exporting |
 | OUT-PRINT | Print room: layouts, fit, borders/text, review, copies | OOS | 🚫 | dropped 2026-10-09 (dated feature) |
 | OUT-CONTACT | Printed contact sheet | OOS | 🚫 | dropped 2026-10-09 (dated feature); the collage room keeps its Contact Sheet style |

@@ -3470,7 +3470,7 @@ first measurement. No step of M8 needs a maintainer decision mid-run.
     the thumbnails show the saved pixels; the watcher imports nothing for Dalica's own write; the
     owner thread made no `fs` call; each command's contract and graceful failures; `panic_hunt`
     green.
-- ⬜ **M8.16 `engine`: the export command and job**
+- ✅ **M8.16 `engine`: the export command and job**
   - after: M8.3, M8.9, M8.11, M8.13
   - files: `crates/engine/src/cmd/export.rs`, `crates/engine/tests/export.rs`
   - scope: `creating.md` §2 and `data-model.md` §6: `export.defaults {ids? | section? | album?}`
