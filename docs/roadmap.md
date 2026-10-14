@@ -3522,7 +3522,7 @@ first measurement. No step of M8 needs a maintainer decision mid-run.
     the folder is wholly saved or wholly original with its sidecars consistent;
     `crates/engine/tests/save_recovery.rs`: a session reopened after a planted crash repairs the
     folder and shows the photo with its edits; the owner thread made no `fs` call.
-- ⬜ **M8.19 `ui`: Save, Undo Save and Revert in the app**
+- ✅ **M8.19 `ui`: Save, Undo Save and Revert in the app**
   - after: M8.4, M8.5, M8.15
   - files: `crates/ui/src/commands/save.rs`, `crates/ui/src/dialogs/save_explain.rs`, `crates/ui/src/dialogs/revert.rs`, `crates/ui/src/panels/light_table/header.rs`, `crates/ui/src/panels/edit/history.rs`, `crates/ui/tests/save_ui.rs`, `crates/ui/tests/section_header.rs`, `crates/ui/tests/fingerprints/region-header-*.json`, `crates/ui/tests/fingerprints/dialog-save-explain-*.json`, `crates/ui/tests/fingerprints/dialog-revert-*.json`, `crates/ui/tests/fingerprints/edit-undo-save-*.json`
   - scope: `ui-layout.md` §5.2, `data-model.md` §6 and `editing.md` §5.1: the section header's
