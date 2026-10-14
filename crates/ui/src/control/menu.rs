@@ -33,6 +33,7 @@ pub(super) fn tree(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Error
     let reply = match t.context.as_deref() {
         None => menus::tree_json(&menus::bar(app, platform)),
         Some("section") => menus::nodes_json(&menus::section_menu(app, platform)),
+        Some("photo") => menus::nodes_json(&menus::photo_menu(app, platform)),
         Some("tray") => menus::nodes_json(&crate::panels::bottom::tray::context_nodes(app, &tray_targets(app))),
         Some(c) if CONTEXTS.contains(&c) => {
             return Err(Error::new(Code::Unsupported, format!("the {c} context menu is not built yet; it comes with its region")));

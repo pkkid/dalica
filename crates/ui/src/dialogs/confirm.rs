@@ -13,6 +13,15 @@
 //! default button sets the radio in the Folder Manager's draft instead
 //! ([`super::folder_manager::drive_confirmed`]); Cancel leaves the radio as it was.
 //!
+//! M9's rows: Delete Album (`album.delete`; the dialog names the album when the UI knows it),
+//! Remove from Album (`album.remove`, [`super::remove_from_album`]), the delete questions
+//! (`photo.delete`, `folder.delete`, [`super::delete`]) and the first-time move question
+//! (`photo.moveTo`, [`super::move_confirm`], with "Don't ask again"). Each asks only once its
+//! command is registered ([`registered`]): until then running it is the engine's
+//! `unknown_command`, never a question whose answer could not run. The settings that skip them
+//! ("Remove from albums without asking", "Delete without asking", "Ask before moving") are the
+//! engine's (M9.3) and are read where those modules ask.
+//!
 //! To route another command's question through the host: give the command a `confirm` parameter,
 //! add its [`DialogKind`] variant (the `<kind>` of `dialog:<kind>`), a row here and the variant to
 //! the arms of `super::{look, body, act}` that send confirmations to this module.
@@ -23,7 +32,7 @@ use dalica_ui_kit::widgets::ButtonKind;
 use egui::{RichText, Ui};
 use serde_json::{Map, Value, json};
 
-use super::{Button, Dialog, DialogCommand, DialogKind, Look, folder_manager, revert, save_explain};
+use super::{Button, Dialog, DialogCommand, DialogKind, Look, delete, folder_manager, move_confirm, remove_from_album, revert, save_explain};
 use crate::app::App;
 use crate::tray;
 
@@ -57,6 +66,10 @@ pub const REMOVE_QUESTION: &str = "Remove this folder and its subfolders from Da
 pub const REMOVE_TITLE: &str = "Remove Folder";
 /// The Watch Drive dialog's title and default button.
 pub const DRIVE_TITLE: &str = "Watch Drive";
+/// The Delete Album dialog's title and default button, and its question when the album's name is
+/// not known (`organizing.md` §4.3).
+pub const DELETE_ALBUM_TITLE: &str = "Delete Album";
+pub const DELETE_ALBUM_QUESTION: &str = "Delete this album? The pictures in it are not deleted.";
 
 /// Every command that asks through the host.
 pub static ASKS: &[Ask] = &[
@@ -115,7 +128,83 @@ pub static ASKS: &[Ask] = &[
         text_for: None,
         extra: &[("undoSave", revert::UNDO_SAVE)],
     },
+    Ask {
+        command: "album.delete",
+        kind: DialogKind::DeleteAlbum,
+        title: DELETE_ALBUM_TITLE,
+        text: DELETE_ALBUM_QUESTION,
+        action: "deleteAlbum",
+        label: DELETE_ALBUM_TITLE,
+        asks: album_delete_asks,
+        text_for: Some(album_delete_text),
+        extra: &[],
+    },
+    Ask {
+        command: "album.remove",
+        kind: DialogKind::RemoveFromAlbum,
+        title: remove_from_album::TITLE,
+        text: remove_from_album::TEXT,
+        action: "remove",
+        label: remove_from_album::REMOVE,
+        asks: remove_from_album::asks,
+        text_for: Some(remove_from_album::text_for),
+        extra: &[],
+    },
+    Ask {
+        command: "photo.delete",
+        kind: DialogKind::DeletePhotos,
+        title: delete::PHOTOS_TITLE,
+        text: delete::PHOTOS_TEXT,
+        action: "moveToTrash",
+        label: delete::MOVE_TO_TRASH,
+        asks: delete::photos_ask,
+        text_for: Some(delete::photos_text),
+        extra: &[],
+    },
+    Ask {
+        command: "folder.delete",
+        kind: DialogKind::DeleteFolder,
+        title: delete::FOLDER_TITLE,
+        text: delete::FOLDER_TEXT,
+        action: "moveToTrash",
+        label: delete::MOVE_TO_TRASH,
+        asks: delete::folder_asks,
+        text_for: Some(delete::folder_text),
+        extra: &[],
+    },
+    Ask {
+        command: "photo.moveTo",
+        kind: DialogKind::MoveFiles,
+        title: move_confirm::TITLE,
+        text: move_confirm::TEXT,
+        action: "move",
+        label: move_confirm::MOVE,
+        asks: move_confirm::asks,
+        text_for: None,
+        extra: &[],
+    },
 ];
+
+/// Whether `command` is one of the open library's: a question is asked only for a command whose
+/// answer can run.
+pub fn registered(app: &App, command: &str) -> bool {
+    app.session().is_some_and(|s| s.spec(command).is_some())
+}
+
+/// The user album `params.album` names, if it is one.
+fn named_album(params: &Value) -> Option<dalica_core::AlbumId> {
+    params.get("album")?.as_str().and_then(|a| dalica_core::AlbumId::parse(a).ok())
+}
+
+/// `album.delete` asks when it names an album (a missing or bad one is the command's to refuse).
+fn album_delete_asks(app: &App, params: &Value) -> bool {
+    registered(app, "album.delete") && named_album(params).is_some()
+}
+
+fn album_delete_text(app: &App, params: &Value) -> Option<String> {
+    let name = crate::commands::albums::album_name(app, &named_album(params)?)?;
+    Some(format!("Delete the album \"{name}\"? The pictures in it are not deleted."))
+}
 
 /// `tray.clear` asks when no photos are named and it would empty a tray holding held photos.
 fn tray_clear_asks(app: &App, params: &Value) -> bool {

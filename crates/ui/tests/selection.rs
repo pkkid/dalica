@@ -106,7 +106,7 @@ fn clicks_select_toggle_and_range_inside_one_section() {
     let mut d = driver(dir.path(), 2, 16, (1400, 900), 64.0);
     let s = sections(&d);
     let ((a, pa), (b, pb)) = (s[0].clone(), s[1].clone());
-    let Section::Folder(fb) = b;
+    let fb = b.folder().unwrap();
 
     click(&mut d, pa[1], egui::Modifiers::NONE);
     assert_eq!(sel(&d), Selection::new(vec![pa[1]], Some(pa[1]), Some(a), false));
@@ -269,7 +269,7 @@ fn the_selection_commands_work_per_section() {
     let mut d = driver(dir.path(), 2, 16, (1400, 900), 64.0);
     let s = sections(&d);
     let ((a, pa), (b, pb)) = (s[0].clone(), s[1].clone());
-    let Section::Folder(fb) = b;
+    let fb = b.folder().unwrap();
 
     click(&mut d, pa[2], egui::Modifiers::NONE);
     d.key("Ctrl+I").unwrap();

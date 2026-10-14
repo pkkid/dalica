@@ -184,7 +184,7 @@ fn bad_values_are_refused_and_change_nothing() {
         json!({ "tray": { "held": [], "selected": [], "pinned": [] } }),
         json!({ "tray": [] }),
         json!({ "tray": { "held": [], "selected": [p[2]] } }),
-        json!({ "scroll": { "section": "album:a91c0e", "offset": 0 } }),
+        json!({ "scroll": { "section": "album:x", "offset": 0 } }),
         json!({ "scroll": { "section": "folder:x", "offset": 0 } }),
         json!({ "scroll": { "section": null, "offset": -1 } }),
         json!({ "scroll": { "section": null, "offset": 2e9 } }),

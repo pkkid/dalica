@@ -53,9 +53,9 @@ pub fn heading(app: &App, state: &UiState) -> String {
     let sel = &state.selection;
     let library = app.session().map(dalica_engine::Session::library);
     let folder_name = |s: &Section| {
-        let Section::Folder(f) = s;
+        let f = s.folder()?;
         library
-            .and_then(|l| l.folder(*f))
+            .and_then(|l| l.folder(f))
             .map(|f| f.path.file_name().map_or_else(|| f.path.display().to_string(), |n| n.to_string_lossy().into_owned()))
     };
     if sel.whole
@@ -85,7 +85,7 @@ pub enum Subject {
 /// What the pane describes for `state`.
 pub fn subject(state: &UiState) -> Subject {
     let sel = &state.selection;
-    let folder = sel.section.as_ref().filter(|_| sel.whole).map(|Section::Folder(f)| *f);
+    let folder = sel.section.as_ref().filter(|_| sel.whole).and_then(|s| s.folder());
     match (sel.ids.as_slice(), folder) {
         ([], None) => Subject::Nothing,
         ([one], None) => Subject::Photo(*one),

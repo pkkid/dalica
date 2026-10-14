@@ -202,6 +202,7 @@ impl App {
     /// instead and replies `{dialog: <kind>}` (`crate::dialogs::asking`). A failure's message
     /// becomes the status line. In the edit view the rotations, the flips, Edit ▸ Undo / Redo and
     /// the one-click fixes are steps of the open photo's history (`commands::edit_view::route`).
+    /// On an album section `section.properties` opens Album Properties (`commands::albums::route`).
     pub fn run(&mut self, id: &str, params: &Value) -> Result<Value, CmdError> {
         if let Some((routed, p)) = crate::commands::edit_view::route(self, id, params) {
             return self.run(routed, &p);
@@ -209,7 +210,10 @@ impl App {
         if let Some(p) = crate::commands::save::route(self, id, params) {
             return self.run(id, &p);
         }
-        let result = if let Some(ask) = crate::dialogs::asking(self, id, params) {
+        let routed = crate::commands::albums::route(self, id, params);
+        let result = if let Some(r) = routed {
+            r
+        } else if let Some(ask) = crate::dialogs::asking(self, id, params) {
             crate::dialogs::ask(self, ask, params)
         } else {
             match UI_COMMANDS.iter().find(|c| c.id == id) {

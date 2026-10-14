@@ -6,7 +6,7 @@ use std::collections::HashSet;
 use std::fmt;
 use std::str::FromStr;
 
-use dalica_core::{FolderId, PhotoId};
+use dalica_core::{AlbumId, FolderId, PhotoId};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// Which view fills the window.
@@ -19,17 +19,86 @@ pub enum View {
     Edit,
 }
 
-/// A section of the light table: the photos of one folder (albums join in M9). In the protocol
-/// it is written as in its widget id, `"folder:12"` (`control-protocol.md` §7).
+/// A user album's id ([`AlbumId`]: `a` and 4 to 16 lowercase hex digits) in a form that is `Copy`,
+/// so a [`Section`] stays a plain value: the digits as a number and how many there are (leading
+/// zeros count: `a0012` and `a12` are different albums). [`AlbumKey::id`] gives the id back.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct AlbumKey {
+    value: u64,
+    digits: u8,
+}
+
+impl AlbumKey {
+    /// The key of `id`.
+    pub fn of(id: &AlbumId) -> AlbumKey {
+        let hex = id.as_str().get(1..).unwrap_or("");
+        // `AlbumId::parse` admits 4 to 16 lowercase hex digits only, so they fit a u64.
+        let value = u64::from_str_radix(hex, 16).unwrap_or(0);
+        AlbumKey { value, digits: u8::try_from(hex.len()).unwrap_or(16) }
+    }
+
+    /// The album id it stands for. Every key is made from a valid id, so this is always `Some`.
+    pub fn id(self) -> Option<AlbumId> {
+        AlbumId::parse(&self.to_string()).ok()
+    }
+}
+
+impl fmt::Display for AlbumKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "a{:0width$x}", self.value, width = usize::from(self.digits))
+    }
+}
+
+/// The album sections (`control-protocol.md` §5.4): a user album, Starred Photos, Recently
+/// Updated, and the temporary search-results album.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum AlbumSection {
+    User(AlbumKey),
+    Starred,
+    Recent,
+    Search,
+}
+
+/// A section of the light table: the photos of one folder or one album. In the protocol it is
+/// written as in its widget id, `"folder:12"`, `"album:a91c0e"`, `"album:starred"`,
+/// `"album:recent"`, `"album:search"` (`control-protocol.md` §5.4, §7).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Section {
     Folder(FolderId),
+    Album(AlbumSection),
+}
+
+impl Section {
+    /// The folder of a folder section; `None` for an album.
+    pub fn folder(self) -> Option<FolderId> {
+        match self {
+            Section::Folder(f) => Some(f),
+            Section::Album(_) => None,
+        }
+    }
+
+    /// Whether this is an album section (a user album or an automatic one).
+    pub fn is_album(self) -> bool {
+        matches!(self, Section::Album(_))
+    }
+
+    /// The user album of an album section; `None` for a folder and the automatic albums.
+    pub fn user_album(self) -> Option<AlbumId> {
+        match self {
+            Section::Album(AlbumSection::User(k)) => k.id(),
+            _ => None,
+        }
+    }
 }
 
 impl fmt::Display for Section {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Section::Folder(id) => write!(f, "folder:{id}"),
+            Section::Album(AlbumSection::User(k)) => write!(f, "album:{k}"),
+            Section::Album(AlbumSection::Starred) => f.write_str("album:starred"),
+            Section::Album(AlbumSection::Recent) => f.write_str("album:recent"),
+            Section::Album(AlbumSection::Search) => f.write_str("album:search"),
         }
     }
 }
@@ -38,9 +107,18 @@ impl FromStr for Section {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Section, String> {
-        let bad = || format!("`{}` is not a section; sections are written `folder:<FolderId>`", s.chars().take(40).collect::<String>());
+        let bad = || {
+            format!(
+                "`{}` is not a section; sections are written `folder:<FolderId>`, `album:<AlbumId>`, `album:starred`, `album:recent` or `album:search`",
+                s.chars().take(40).collect::<String>()
+            )
+        };
         match s.split_once(':') {
             Some(("folder", id)) => id.parse::<FolderId>().map(Section::Folder).map_err(|_| bad()),
+            Some(("album", "starred")) => Ok(Section::Album(AlbumSection::Starred)),
+            Some(("album", "recent")) => Ok(Section::Album(AlbumSection::Recent)),
+            Some(("album", "search")) => Ok(Section::Album(AlbumSection::Search)),
+            Some(("album", id)) => AlbumId::parse(id).map(|a| Section::Album(AlbumSection::User(AlbumKey::of(&a)))).map_err(|_| bad()),
             _ => Err(bad()),
         }
     }
@@ -441,10 +519,37 @@ pub enum DialogKind {
     /// File ▸ Export Pictures to Folder… (`output.export`, `creating.md` §2); its draft is
     /// [`UiState::export`].
     Export,
+    /// Album Properties, for a new album (`album.new`) or an album section
+    /// (`section.properties`); its draft is [`UiState::album_properties`].
+    AlbumProperties,
+    /// "Remove the %d selected pictures from this album?" (`album.remove`, `organizing.md` §4.3).
+    RemoveFromAlbum,
+    /// "Delete the album …? The pictures in it are not deleted." (`album.delete`).
+    DeleteAlbum,
+    /// The first-time move question with "Don't ask again" (`photo.moveTo`, `organizing.md` §9);
+    /// its draft is [`UiState::move_files`].
+    MoveFiles,
+    /// "Copy %d files to %s?" (asked by the UI before `photo.copyTo`); its draft is
+    /// [`UiState::copy_files`].
+    CopyFiles,
+    /// "The folder already has files with the same names." [Rename Duplicates] [Skip Duplicates]
+    /// [Cancel]; its draft is [`UiState::collision`].
+    Collision,
+    /// The new-folder dialog of Move to New Folder… and Split Folder Here…; its draft is
+    /// [`UiState::new_folder`].
+    NewFolder,
+    /// Rename Files (File ▸ Rename…, F2); its draft is [`UiState::rename_files`].
+    RenameFiles,
+    /// "Move the selected pictures to the trash?" (`photo.delete`); its draft is
+    /// [`UiState::delete_photos`].
+    DeletePhotos,
+    /// "Move the folder … and everything in it … to the trash?" (`folder.delete`); its draft is
+    /// [`UiState::delete_folder`].
+    DeleteFolder,
 }
 
 impl DialogKind {
-    pub const ALL: [DialogKind; 15] = [
+    pub const ALL: [DialogKind; 25] = [
         DialogKind::ClearTray,
         DialogKind::FolderManager,
         DialogKind::FirstRun,
@@ -460,6 +565,16 @@ impl DialogKind {
         DialogKind::SaveExplain,
         DialogKind::Revert,
         DialogKind::Export,
+        DialogKind::AlbumProperties,
+        DialogKind::RemoveFromAlbum,
+        DialogKind::DeleteAlbum,
+        DialogKind::MoveFiles,
+        DialogKind::CopyFiles,
+        DialogKind::Collision,
+        DialogKind::NewFolder,
+        DialogKind::RenameFiles,
+        DialogKind::DeletePhotos,
+        DialogKind::DeleteFolder,
     ];
 
     /// The kind as the protocol writes it (`clearTray`), the `<kind>` of `dialog:<kind>`.
@@ -480,6 +595,16 @@ impl DialogKind {
             DialogKind::SaveExplain => "saveExplain",
             DialogKind::Revert => "revert",
             DialogKind::Export => "export",
+            DialogKind::AlbumProperties => "albumProperties",
+            DialogKind::RemoveFromAlbum => "removeFromAlbum",
+            DialogKind::DeleteAlbum => "deleteAlbum",
+            DialogKind::MoveFiles => "moveFiles",
+            DialogKind::CopyFiles => "copyFiles",
+            DialogKind::Collision => "collision",
+            DialogKind::NewFolder => "newFolder",
+            DialogKind::RenameFiles => "renameFiles",
+            DialogKind::DeletePhotos => "deletePhotos",
+            DialogKind::DeleteFolder => "deleteFolder",
         }
     }
 
@@ -1050,6 +1175,262 @@ pub struct ExportProgress {
     pub shown: bool,
 }
 
+/// The search toggles of the toolbar (`organizing.md` §8.2), combinable with each other and with
+/// the text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Filters {
+    pub starred: bool,
+    pub faces: bool,
+    pub videos: bool,
+    pub geotagged: bool,
+}
+
+impl Filters {
+    /// Whether any toggle is on.
+    pub fn any(&self) -> bool {
+        self.starred || self.faces || self.videos || self.geotagged
+    }
+}
+
+/// The search box, the filter toggles and the age slider (`organizing.md` §8, `ui-layout.md` §9):
+/// what is typed, the highlighted row of the autocomplete list (`None`: none), the toggles, the age
+/// slider's position (0 = everything … [`AGE_MAX`] = only the newest; the slider's own logarithmic
+/// map turns it into an age), and the light table's scroll anchor saved when search mode started
+/// (restored when it ends).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", deny_unknown_fields, default)]
+pub struct SearchState {
+    pub text: String,
+    pub highlight: Option<usize>,
+    pub filters: Filters,
+    pub age: f32,
+    pub saved_scroll: Option<ScrollAnchor>,
+}
+
+/// The age slider's far end; 0 is everything.
+pub const AGE_MAX: f32 = 1.0;
+
+impl SearchState {
+    /// Search mode: some text, a filter or an age is set (the light table shows the matches under
+    /// the filter banner).
+    pub fn active(&self) -> bool {
+        !self.text.trim().is_empty() || self.filters.any() || self.age > 0.0
+    }
+}
+
+/// What Edit ▸ Cut and Edit ▸ Copy keep for Paste (`menus-and-shortcuts.md` §1.2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ClipOp {
+    Cut,
+    Copy,
+}
+
+/// The photos cut or copied, waiting for Paste into a folder.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Clipboard {
+    pub op: ClipOp,
+    pub ids: Vec<PhotoId>,
+}
+
+/// What a drop would do where the pointer is (`ui-layout.md` §5.5): move or copy to a folder, add
+/// to an album, reorder within an album, hold in the tray.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum DragOp {
+    Move,
+    Copy,
+    Add,
+    Reorder,
+    Hold,
+}
+
+/// A drag of photos in progress (`ui.inspect` → `drag`, `control-protocol.md` §6.6): where it
+/// started (a widget id, `thumb:12`), the photos it carries, the drop target under the pointer (a
+/// widget id, `null` for none), what a drop there would do, and the drag pill's text. Not part of
+/// `ui.state`: a drag lives only while the button is held.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Drag {
+    pub from: String,
+    pub ids: Vec<PhotoId>,
+    pub target: Option<String>,
+    pub op: Option<DragOp>,
+    pub pill: String,
+}
+
+/// The longest date text a dialog's date field keeps, in characters (`YYYY-MM-DD` as typed).
+pub const MAX_DATE_TEXT: usize = 64;
+
+/// Album Properties' draft (`organizing.md` §4.2): the album edited (`null` for a new one, which
+/// is made with `ids`), its name, date as typed with "Use the date of the newest photo", place and
+/// description. OK runs `album.create` or `album.info.set`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields, default)]
+pub struct AlbumDraft {
+    pub album: Option<AlbumId>,
+    pub ids: Vec<PhotoId>,
+    pub name: String,
+    pub date: String,
+    pub use_newest: bool,
+    pub place: String,
+    pub description: String,
+}
+
+/// The name a new album starts with, selected.
+pub const NEW_ALBUM_NAME: &str = "New Album";
+
+impl AlbumDraft {
+    /// This draft within its limits: the photos cut to [`MAX_IDS`] without repeats, the texts to
+    /// [`MAX_DRAFT`] characters, the date to [`MAX_DATE_TEXT`].
+    pub fn sanitized(mut self) -> AlbumDraft {
+        self.ids.truncate(MAX_IDS);
+        dedup(&mut self.ids);
+        for t in [&mut self.name, &mut self.place, &mut self.description] {
+            cut(t);
+        }
+        cut_chars(&mut self.date, MAX_DATE_TEXT);
+        self
+    }
+}
+
+impl Default for AlbumDraft {
+    fn default() -> AlbumDraft {
+        AlbumDraft {
+            album: None,
+            ids: Vec::new(),
+            name: NEW_ALBUM_NAME.into(),
+            date: String::new(),
+            use_newest: true,
+            place: String::new(),
+            description: String::new(),
+        }
+    }
+}
+
+/// Rename Files' draft (`organizing.md` §9): the photos, the new name, and whether the date taken
+/// and the image size join it. Rename runs `photo.rename`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", deny_unknown_fields, default)]
+pub struct RenameDraft {
+    pub ids: Vec<PhotoId>,
+    pub name: String,
+    pub add_date: bool,
+    pub add_size: bool,
+}
+
+/// The new-folder dialog's draft (Move to New Folder…, Split Folder Here…): the photos moved, and
+/// the folder's name, date as typed with "Use the date of the oldest photo", place and
+/// description. OK runs `photo.moveToNewFolder`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields, default)]
+pub struct NewFolderDraft {
+    pub ids: Vec<PhotoId>,
+    pub name: String,
+    pub date: String,
+    pub use_oldest: bool,
+    pub place: String,
+    pub description: String,
+}
+
+/// The name a new folder starts with.
+pub const NEW_FOLDER_NAME: &str = "New Folder";
+
+impl NewFolderDraft {
+    /// This draft within its limits, as [`AlbumDraft::sanitized`].
+    pub fn sanitized(mut self) -> NewFolderDraft {
+        self.ids.truncate(MAX_IDS);
+        dedup(&mut self.ids);
+        for t in [&mut self.name, &mut self.place, &mut self.description] {
+            cut(t);
+        }
+        cut_chars(&mut self.date, MAX_DATE_TEXT);
+        self
+    }
+}
+
+impl RenameDraft {
+    /// This draft within its limits: the photos cut to [`MAX_IDS`] without repeats, the name to
+    /// [`MAX_DRAFT`] characters.
+    pub fn sanitized(mut self) -> RenameDraft {
+        self.ids.truncate(MAX_IDS);
+        dedup(&mut self.ids);
+        cut(&mut self.name);
+        self
+    }
+}
+
+impl Default for NewFolderDraft {
+    fn default() -> NewFolderDraft {
+        NewFolderDraft {
+            ids: Vec::new(),
+            name: NEW_FOLDER_NAME.into(),
+            date: String::new(),
+            use_oldest: true,
+            place: String::new(),
+            description: String::new(),
+        }
+    }
+}
+
+/// The first-time move question while it is open: the photos, the folder they go to, and its
+/// "Don't ask again".
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MoveQuestion {
+    pub ids: Vec<PhotoId>,
+    pub folder: FolderId,
+    #[serde(default)]
+    pub dont_ask: bool,
+}
+
+/// The copy question while it is open: the photos and the folder they are copied to.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CopyQuestion {
+    pub ids: Vec<PhotoId>,
+    pub folder: FolderId,
+}
+
+/// Whether a file operation moves or copies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum FileOp {
+    Move,
+    Copy,
+}
+
+/// The most clashing file names the collision question keeps (it names a few and counts the rest).
+pub const MAX_CLASHES: usize = 1000;
+
+/// The collision question while it is open: the move or copy it interrupts, and the names that
+/// clash in the destination.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CollisionQuestion {
+    pub op: FileOp,
+    pub ids: Vec<PhotoId>,
+    pub folder: FolderId,
+    #[serde(default)]
+    pub files: Vec<String>,
+}
+
+/// The delete question for photos while it is open.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DeletePhotos {
+    pub ids: Vec<PhotoId>,
+}
+
+/// The delete question for a folder while it is open.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DeleteFolder {
+    pub folder: FolderId,
+}
+
 /// The most dialogs open at once (a confirmation over a dialog over a dialog is already rare).
 pub const MAX_DIALOGS: usize = 8;
 
@@ -1127,6 +1508,42 @@ pub struct UiState {
     /// The export progress window: the job it follows, shown or hidden.
     #[serde(default)]
     pub export_progress: Option<ExportProgress>,
+    /// The search box, the filters and the age slider, and the scroll anchor search mode saved.
+    #[serde(default)]
+    pub search: SearchState,
+    /// The photos cut or copied for Paste (Edit ▸ Cut / Copy).
+    #[serde(default)]
+    pub clipboard: Option<Clipboard>,
+    /// Album Properties' draft while it is open (`album.new`, `section.properties` on an album).
+    #[serde(default)]
+    pub album_properties: Option<AlbumDraft>,
+    /// Rename Files' draft while it is open (`photo.rename` from the menu or F2).
+    #[serde(default)]
+    pub rename_files: Option<RenameDraft>,
+    /// The new-folder dialog's draft while it is open (Move to New Folder…, Split Folder Here…).
+    #[serde(default)]
+    pub new_folder: Option<NewFolderDraft>,
+    /// The first-time move question while it is open (`photo.moveTo`).
+    #[serde(default)]
+    pub move_files: Option<MoveQuestion>,
+    /// The copy question while it is open (Paste after Copy, a Ctrl-drag).
+    #[serde(default)]
+    pub copy_files: Option<CopyQuestion>,
+    /// The collision question while it is open (a move or copy onto files of the same names).
+    #[serde(default)]
+    pub collision: Option<CollisionQuestion>,
+    /// The delete question for photos while it is open (`photo.delete`).
+    #[serde(default)]
+    pub delete_photos: Option<DeletePhotos>,
+    /// The delete question for a folder while it is open (`folder.delete`).
+    #[serde(default)]
+    pub delete_folder: Option<DeleteFolder>,
+    /// A drag of photos in progress (`crate::drag`); `ui.inspect` reports it, `ui.state` does not.
+    #[serde(skip)]
+    pub drag: Option<Drag>,
+    /// Edit ▸ Find (Ctrl+F, F3) asked the toolbar to focus the search field; the toolbar takes it.
+    #[serde(skip)]
+    pub focus_search: bool,
     /// The status line's text as last drawn (`ui-layout.md` §6.1): `"No selection"`, the photo or
     /// the pictures selected, or a transient [`UiState::status`] message. Written by the status line
     /// each frame; `ui.state` reports it as `status`, and `ui.set` cannot change it.
@@ -1166,10 +1583,140 @@ impl UiState {
             r.photos.truncate(MAX_IDS);
             dedup(&mut r.photos);
         }
+        self.sanitize_m9();
         if self.view == View::Edit && self.edit.photo.is_none() {
             self.view = View::Library;
         }
         self
+    }
+
+    /// Every M9 field within its limits: lists cut to [`MAX_IDS`] without repeats, texts to their
+    /// lengths, the highlight below [`MAX_HIGHLIGHT`], the age in its range.
+    fn sanitize_m9(&mut self) {
+        let ids = |v: &mut Vec<PhotoId>| {
+            v.truncate(MAX_IDS);
+            dedup(v);
+        };
+        let s = &mut self.search;
+        cut(&mut s.text);
+        s.highlight = s.highlight.filter(|h| *h < MAX_HIGHLIGHT);
+        s.age = clamp_or(s.age, 0.0, AGE_MAX, 0.0);
+        if let Some(a) = &mut s.saved_scroll {
+            a.offset = clamp_or(a.offset, 0.0, SCROLL_OFFSET_MAX, 0.0);
+        }
+        if let Some(c) = &mut self.clipboard {
+            ids(&mut c.ids);
+        }
+        self.album_properties = self.album_properties.take().map(AlbumDraft::sanitized);
+        self.rename_files = self.rename_files.take().map(RenameDraft::sanitized);
+        self.new_folder = self.new_folder.take().map(NewFolderDraft::sanitized);
+        if let Some(q) = &mut self.move_files {
+            ids(&mut q.ids);
+        }
+        if let Some(q) = &mut self.copy_files {
+            ids(&mut q.ids);
+        }
+        if let Some(q) = &mut self.collision {
+            ids(&mut q.ids);
+            q.files.truncate(MAX_CLASHES);
+            for f in &mut q.files {
+                cut(f);
+            }
+        }
+        if let Some(q) = &mut self.delete_photos {
+            ids(&mut q.ids);
+        }
+        if let Some(d) = &mut self.drag {
+            ids(&mut d.ids);
+        }
+    }
+
+    /// Why the M9 fields of this state cannot be used, if they cannot: a list longer than
+    /// [`MAX_IDS`] (or [`MAX_CLASHES`] names), a text over its length, a highlight past
+    /// [`MAX_HIGHLIGHT`], an age outside 0 … [`AGE_MAX`], a scroll offset out of range. What
+    /// `ui.set` refuses (`bad_params`) before it changes anything.
+    pub fn check_m9(&self) -> Result<(), String> {
+        let long = |name: &str, text: &str, max: usize| {
+            if text.chars().count() > max { Err(format!("`{name}` is at most {max} characters")) } else { Ok(()) }
+        };
+        let many = |name: &str, n: usize| if n > MAX_IDS { Err(format!("`{name}` holds at most {MAX_IDS} photos")) } else { Ok(()) };
+        let s = &self.search;
+        long("search.text", &s.text, MAX_DRAFT)?;
+        if s.highlight.is_some_and(|h| h >= MAX_HIGHLIGHT) {
+            return Err(format!("`search.highlight` is 0 … {}, or null", MAX_HIGHLIGHT - 1));
+        }
+        if !within(s.age, 0.0, AGE_MAX) {
+            return Err(format!("`search.age` is the age slider's position, 0 (everything) … {AGE_MAX}, not {}", s.age));
+        }
+        if s.saved_scroll.is_some_and(|a| !within(a.offset, 0.0, SCROLL_OFFSET_MAX)) {
+            return Err(format!("`search.savedScroll.offset` is 0 … {SCROLL_OFFSET_MAX}"));
+        }
+        if let Some(c) = &self.clipboard {
+            many("clipboard.ids", c.ids.len())?;
+        }
+        if let Some(d) = &self.album_properties {
+            many("albumProperties.ids", d.ids.len())?;
+            long("albumProperties.name", &d.name, MAX_DRAFT)?;
+            long("albumProperties.date", &d.date, MAX_DATE_TEXT)?;
+            long("albumProperties.place", &d.place, MAX_DRAFT)?;
+            long("albumProperties.description", &d.description, MAX_DRAFT)?;
+        }
+        if let Some(d) = &self.rename_files {
+            many("renameFiles.ids", d.ids.len())?;
+            long("renameFiles.name", &d.name, MAX_DRAFT)?;
+        }
+        if let Some(d) = &self.new_folder {
+            many("newFolder.ids", d.ids.len())?;
+            long("newFolder.name", &d.name, MAX_DRAFT)?;
+            long("newFolder.date", &d.date, MAX_DATE_TEXT)?;
+            long("newFolder.place", &d.place, MAX_DRAFT)?;
+            long("newFolder.description", &d.description, MAX_DRAFT)?;
+        }
+        if let Some(q) = &self.move_files {
+            many("moveFiles.ids", q.ids.len())?;
+        }
+        if let Some(q) = &self.copy_files {
+            many("copyFiles.ids", q.ids.len())?;
+        }
+        if let Some(q) = &self.collision {
+            many("collision.ids", q.ids.len())?;
+            if q.files.len() > MAX_CLASHES {
+                return Err(format!("`collision.files` holds at most {MAX_CLASHES} names"));
+            }
+            for f in &q.files {
+                long("collision.files", f, MAX_DRAFT)?;
+            }
+        }
+        if let Some(q) = &self.delete_photos {
+            many("deletePhotos.ids", q.ids.len())?;
+        }
+        Ok(())
+    }
+
+    /// Every photo the M9 fields name (the clipboard and the drafts), for `ui.set` to check that
+    /// they exist.
+    pub fn m9_photos(&self) -> impl Iterator<Item = &PhotoId> {
+        let lists: [&[PhotoId]; 8] = [
+            self.clipboard.as_ref().map_or(&[], |c| c.ids.as_slice()),
+            self.album_properties.as_ref().map_or(&[], |d| d.ids.as_slice()),
+            self.rename_files.as_ref().map_or(&[], |d| d.ids.as_slice()),
+            self.new_folder.as_ref().map_or(&[], |d| d.ids.as_slice()),
+            self.move_files.as_ref().map_or(&[], |q| q.ids.as_slice()),
+            self.copy_files.as_ref().map_or(&[], |q| q.ids.as_slice()),
+            self.collision.as_ref().map_or(&[], |q| q.ids.as_slice()),
+            self.delete_photos.as_ref().map_or(&[], |q| q.ids.as_slice()),
+        ];
+        lists.into_iter().flatten()
+    }
+
+    /// Every folder the M9 drafts name, for `ui.set` to check that they exist.
+    pub fn m9_folders(&self) -> Vec<FolderId> {
+        let mut out = Vec::new();
+        out.extend(self.move_files.as_ref().map(|q| q.folder));
+        out.extend(self.copy_files.as_ref().map(|q| q.folder));
+        out.extend(self.collision.as_ref().map(|q| q.folder));
+        out.extend(self.delete_folder.map(|q| q.folder));
+        out
     }
 
     /// Why the M8 fields of this state cannot be used, if they cannot: the Export draft's
@@ -1217,6 +1764,13 @@ impl UiState {
 /// Cuts `text` to [`MAX_DRAFT`] characters.
 fn cut(text: &mut String) {
     if let Some((at, _)) = text.char_indices().nth(MAX_DRAFT) {
+        text.truncate(at);
+    }
+}
+
+/// Cuts `text` to `max` characters.
+fn cut_chars(text: &mut String, max: usize) {
+    if let Some((at, _)) = text.char_indices().nth(max) {
         text.truncate(at);
     }
 }
@@ -1269,6 +1823,18 @@ impl Default for UiState {
             save_explain: None,
             revert: None,
             export_progress: None,
+            search: SearchState::default(),
+            clipboard: None,
+            album_properties: None,
+            rename_files: None,
+            new_folder: None,
+            move_files: None,
+            copy_files: None,
+            collision: None,
+            delete_photos: None,
+            delete_folder: None,
+            drag: None,
+            focus_search: false,
             status_line: String::new(),
             status: String::new(),
         }
@@ -1591,14 +2157,161 @@ mod tests {
     }
 
     #[test]
+    fn the_m9_fields_have_their_protocol_names_and_are_bounded() {
+        let v = serde_json::to_value(UiState::default()).unwrap();
+        assert_eq!(
+            v["search"],
+            serde_json::json!({ "text": "", "highlight": null, "filters": { "starred": false, "faces": false, "videos": false, "geotagged": false },
+                                "age": 0.0, "savedScroll": null })
+        );
+        for k in ["clipboard", "albumProperties", "renameFiles", "newFolder", "moveFiles", "copyFiles", "collision", "deletePhotos", "deleteFolder"] {
+            assert_eq!(v[k], serde_json::Value::Null, "{k}");
+        }
+        assert!(v.get("drag").is_none() && v.get("focusSearch").is_none(), "the drag and the focus request are not view state");
+        assert_eq!(
+            serde_json::to_value(AlbumDraft::default()).unwrap(),
+            serde_json::json!({ "album": null, "ids": [], "name": "New Album", "date": "", "useNewest": true, "place": "", "description": "" })
+        );
+        assert_eq!(
+            serde_json::to_value(NewFolderDraft::default()).unwrap(),
+            serde_json::json!({ "ids": [], "name": "New Folder", "date": "", "useOldest": true, "place": "", "description": "" })
+        );
+        let names: Vec<&str> = DialogKind::ALL[15..].iter().map(|k| k.name()).collect();
+        assert_eq!(
+            names,
+            [
+                "albumProperties",
+                "removeFromAlbum",
+                "deleteAlbum",
+                "moveFiles",
+                "copyFiles",
+                "collision",
+                "newFolder",
+                "renameFiles",
+                "deletePhotos",
+                "deleteFolder"
+            ]
+        );
+        // Every field round-trips.
+        let p = |n| PhotoId::new(n);
+        let s = UiState {
+            search: SearchState {
+                text: "lisbon".into(),
+                highlight: Some(2),
+                filters: Filters { starred: true, ..Filters::default() },
+                age: 0.25,
+                saved_scroll: Some(ScrollAnchor { section: Some(Section::Folder(FolderId::new(3))), offset: 40.0 }),
+            },
+            clipboard: Some(Clipboard { op: ClipOp::Cut, ids: vec![p(1)] }),
+            album_properties: Some(AlbumDraft { album: Some(AlbumId::parse("a91c0e").unwrap()), ..AlbumDraft::default() }),
+            rename_files: Some(RenameDraft { ids: vec![p(2)], name: "Lisbon".into(), add_date: true, add_size: false }),
+            new_folder: Some(NewFolderDraft { ids: vec![p(3)], ..NewFolderDraft::default() }),
+            move_files: Some(MoveQuestion { ids: vec![p(1)], folder: FolderId::new(2), dont_ask: true }),
+            copy_files: Some(CopyQuestion { ids: vec![p(1)], folder: FolderId::new(2) }),
+            collision: Some(CollisionQuestion { op: FileOp::Copy, ids: vec![p(1)], folder: FolderId::new(2), files: vec!["IMG_1.jpg".into()] }),
+            delete_photos: Some(DeletePhotos { ids: vec![p(4)] }),
+            delete_folder: Some(DeleteFolder { folder: FolderId::new(5) }),
+            ..UiState::default()
+        };
+        let v = serde_json::to_value(&s).unwrap();
+        assert_eq!(v["clipboard"], serde_json::json!({ "op": "cut", "ids": [1] }));
+        assert_eq!(v["moveFiles"], serde_json::json!({ "ids": [1], "folder": 2, "dontAsk": true }));
+        assert_eq!(v["collision"]["op"], "copy");
+        assert_eq!(v["albumProperties"]["album"], "a91c0e");
+        assert_eq!(serde_json::from_value::<UiState>(v).unwrap(), s);
+        assert_eq!(s.check_m9(), Ok(()));
+        assert_eq!(s.clone().sanitized(), s, "values in range are kept");
+        assert_eq!(s.m9_photos().count(), 7);
+        assert_eq!(s.m9_folders(), [FolderId::new(2), FolderId::new(2), FolderId::new(2), FolderId::new(5)]);
+        assert!(s.search.active());
+        assert!(!SearchState::default().active());
+        // Hostile values are refused by the check and made safe by sanitizing.
+        let long = "x".repeat(MAX_DRAFT + 1);
+        let hostile = UiState {
+            search: SearchState { text: long.clone(), highlight: Some(MAX_HIGHLIGHT), age: f32::NAN, ..SearchState::default() },
+            album_properties: Some(AlbumDraft {
+                name: long.clone(),
+                date: "1".repeat(MAX_DATE_TEXT + 1),
+                ids: vec![p(1), p(1)],
+                ..AlbumDraft::default()
+            }),
+            rename_files: Some(RenameDraft { name: long.clone(), ..RenameDraft::default() }),
+            collision: Some(CollisionQuestion {
+                op: FileOp::Move,
+                ids: vec![],
+                folder: FolderId::new(1),
+                files: vec![long.clone(); MAX_CLASHES + 1],
+            }),
+            ..UiState::default()
+        };
+        assert!(hostile.check_m9().is_err());
+        for (bad, field) in [
+            (UiState { search: SearchState { age: 1.5, ..SearchState::default() }, ..UiState::default() }, "search.age"),
+            (UiState { search: SearchState { highlight: Some(MAX_HIGHLIGHT), ..SearchState::default() }, ..UiState::default() }, "search.highlight"),
+            (
+                UiState { new_folder: Some(NewFolderDraft { description: long.clone(), ..NewFolderDraft::default() }), ..UiState::default() },
+                "newFolder.description",
+            ),
+        ] {
+            assert!(bad.check_m9().unwrap_err().contains(field), "{field}");
+        }
+        let safe = hostile.sanitized();
+        assert_eq!(safe.check_m9(), Ok(()));
+        assert_eq!((safe.search.text.chars().count(), safe.search.highlight, safe.search.age), (MAX_DRAFT, None, 0.0));
+        let d = safe.album_properties.as_ref().unwrap();
+        assert_eq!((d.name.chars().count(), d.date.chars().count(), d.ids.len()), (MAX_DRAFT, MAX_DATE_TEXT, 1));
+        assert_eq!(safe.collision.as_ref().map(|c| c.files.len()), Some(MAX_CLASHES));
+        // A bad value in a draft is a deserialisation error (`bad_params` in ui.set).
+        for bad in [
+            serde_json::json!({ "clipboard": { "op": "paste", "ids": [] } }),
+            serde_json::json!({ "search": { "filters": { "people": true } } }),
+            serde_json::json!({ "albumProperties": { "album": "b1234" } }),
+            serde_json::json!({ "moveFiles": { "ids": [1] } }),
+        ] {
+            let mut merged = serde_json::to_value(UiState::default()).unwrap();
+            merged.as_object_mut().unwrap().extend(bad.as_object().unwrap().clone());
+            assert!(serde_json::from_value::<UiState>(merged).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
     fn a_section_is_written_as_its_widget_id() {
         let s = Section::Folder(FolderId::new(12));
         assert_eq!(s.to_string(), "folder:12");
         assert_eq!(serde_json::to_value(s).unwrap(), "folder:12");
         assert_eq!(serde_json::from_value::<Section>("folder:12".into()).unwrap(), s);
-        for bad in ["", "folder:", "folder:-1", "folder:1.5", "folder: 1", "album:a91c0e", "12", "folder:99999999999999999999999", ":12"] {
+        for bad in [
+            "",
+            "folder:",
+            "folder:-1",
+            "folder:1.5",
+            "folder: 1",
+            "12",
+            "folder:99999999999999999999999",
+            ":12",
+            "album:",
+            "album:A91C0E",
+            "album:a12",
+            "album:91c0e0",
+            "album:Starred",
+            "person:p1234",
+            format!("album:a{}", "f".repeat(17)).as_str(),
+        ] {
             assert!(bad.parse::<Section>().is_err(), "{bad:?}");
         }
+        // Album sections: user albums by id (leading zeros kept), and the automatic ones.
+        for text in ["album:a91c0e", "album:a0012", "album:a00000000000000f", "album:starred", "album:recent", "album:search"] {
+            let s: Section = text.parse().unwrap();
+            assert_eq!(s.to_string(), text);
+            assert!(s.is_album() && s.folder().is_none());
+            assert_eq!(serde_json::from_value::<Section>(serde_json::to_value(s).unwrap()).unwrap(), s);
+        }
+        let a: Section = "album:a0012".parse().unwrap();
+        assert_ne!(a, "album:a00012".parse::<Section>().unwrap(), "leading zeros make another album");
+        assert_eq!(a.user_album().map(|id| id.as_str().to_string()).as_deref(), Some("a0012"));
+        assert_eq!(Section::Album(AlbumSection::Starred).user_album(), None);
+        assert_eq!(s.folder(), Some(FolderId::new(12)));
+        assert!(!s.is_album());
         assert!(serde_json::from_value::<Section>(serde_json::json!(12)).is_err());
     }
 

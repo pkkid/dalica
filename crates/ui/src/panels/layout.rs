@@ -26,6 +26,9 @@ pub const SPLITTER: f32 = 8.0;
 pub const GRIP: egui::Vec2 = vec2(8.0, 48.0);
 /// Light-table scroll bar width.
 pub const SCROLLBAR: f32 = 16.0;
+/// The filter banner's height: across the top of the light table and its scroll bar in search
+/// mode (`ui-layout.md` §9, `organizing.md` §8.1).
+pub const BANNER: f32 = 32.0;
 /// Side pane width, and the cap of its large width (min(30 % W, 392)).
 pub const SIDE_PANE: f32 = 280.0;
 pub const SIDE_PANE_LARGE_MAX: f32 = 392.0;
@@ -70,6 +73,9 @@ pub struct Layout {
     pub tab_strip: Option<Rect>,
     pub tree: Rect,
     pub splitter: Rect,
+    /// The filter banner over the light table and its scroll bar, in search mode only
+    /// ([`crate::state::SearchState::active`]); the light table starts under it.
+    pub banner: Option<Rect>,
     pub light_table: Rect,
     pub scrollbar: Rect,
     pub side_pane: Option<Rect>,
@@ -156,8 +162,11 @@ pub fn compute(window: Rect, state: &UiState) -> Layout {
     let pane_left = pane_w.map_or(right, |w| (right - w).max(splitter.max.x));
     let side_pane = pane_w.map(|_| span(pane_left, right, mid_top, mid_bottom));
     let scroll_left = (pane_left - SCROLLBAR).max(splitter.max.x);
-    let light_table = span(splitter.max.x, scroll_left, mid_top, mid_bottom);
-    let scrollbar = span(scroll_left, pane_left, mid_top, mid_bottom);
+    // Search mode reserves the banner's rows at the top of the light table and its scroll bar.
+    let banner = state.search.active().then(|| span(splitter.max.x, pane_left, mid_top, (mid_top + BANNER).min(mid_bottom)));
+    let grid_top = banner.map_or(mid_top, |b| b.max.y);
+    let light_table = span(splitter.max.x, scroll_left, grid_top, mid_bottom);
+    let scrollbar = span(scroll_left, pane_left, grid_top, mid_bottom);
 
     // The bottom area: the tray and its buttons left of the split, two rows of controls right of it.
     let split = (left + BOTTOM_SPLIT * width).min(right);
@@ -175,6 +184,7 @@ pub fn compute(window: Rect, state: &UiState) -> Layout {
         tab_strip: None,
         tree,
         splitter,
+        banner,
         light_table,
         scrollbar,
         side_pane,
@@ -291,13 +301,14 @@ impl EditLayout {
 impl Layout {
     /// Every region by its protocol name (`control-protocol.md` §6.6), in that order, with a label;
     /// `None` for one not shown. The edit view's regions join with the edit view (M7).
-    pub fn regions(&self) -> [(&'static str, &'static str, Option<Rect>); 13] {
+    pub fn regions(&self) -> [(&'static str, &'static str, Option<Rect>); 14] {
         [
             ("menuBar", "Menu bar", Some(self.menu_bar)),
             ("toolbar", "Toolbar", Some(self.toolbar)),
             ("tabStrip", "Room tabs", self.tab_strip),
             ("tree", "Library tree", Some(self.tree)),
             ("splitter", "Splitter", Some(self.splitter)),
+            ("banner", "Filter banner", self.banner),
             ("lightTable", "Light table", Some(self.light_table)),
             ("scrollbar", "Light-table scroll bar", Some(self.scrollbar)),
             ("sidePane", "Side pane", self.side_pane),
@@ -386,6 +397,33 @@ mod tests {
         assert_eq!(xywh(l.tray_buttons), [split - 48.0, 812.0, 34.0, 80.0]);
         assert_eq!(xywh(l.bottom_controls), [split, 804.0, 1400.0 - split, 36.0]);
         assert_eq!(xywh(l.action_buttons), [split, 840.0, 1400.0 - split, 60.0]);
+    }
+
+    /// Search mode reserves the 32-high banner at the light table's top, over the scroll bar too;
+    /// outside it there is no banner and the light table starts under the toolbar.
+    #[test]
+    fn search_mode_reserves_the_banner_over_the_light_table() {
+        let l = compute(window(1400.0, 900.0), &UiState::default());
+        assert_eq!(l.banner, None);
+        let mut s = UiState::default();
+        s.search.text = "lisbon".into();
+        let l = compute(window(1400.0, 900.0), &s);
+        assert_eq!(l.banner.map(xywh), Some([248.0, 72.0, 1400.0 - 248.0, 32.0]));
+        assert_eq!(xywh(l.light_table), [248.0, 104.0, 1400.0 - 248.0 - 16.0, 712.0 - 32.0]);
+        assert_eq!(xywh(l.scrollbar), [1384.0, 104.0, 16.0, 680.0]);
+        // A filter alone, or the age slider, is search mode too; blank text is not.
+        for edit in [|s: &mut UiState| s.search.filters.starred = true, |s: &mut UiState| s.search.age = 0.5] {
+            let mut s = UiState::default();
+            edit(&mut s);
+            assert!(compute(window(900.0, 600.0), &s).banner.is_some());
+        }
+        let blank = UiState { search: crate::state::SearchState { text: "   ".into(), ..Default::default() }, ..UiState::default() };
+        assert_eq!(compute(window(900.0, 600.0), &blank).banner, None);
+        // With the side pane the banner stops at the pane; in a tiny window it never inverts.
+        let pane = UiState { pane: Some(Pane::Tags), ..s.clone() };
+        assert_eq!(compute(window(1400.0, 900.0), &pane).banner.map(|r| r.max.x), Some(1120.0));
+        let tiny = compute(window(10.0, 80.0), &s);
+        assert!(tiny.banner.is_some_and(|r| r.height() >= 0.0 && r.width() >= 0.0) && tiny.light_table.height() >= 0.0);
     }
 
     #[test]

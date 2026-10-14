@@ -227,6 +227,20 @@ question has no default button: Enter and a bare `ui.dialog.confirm` revert noth
 button (`{button: "dialog.revert"}`). In the edit view these commands, and `photo.undoSave` and
 `photo.saveCopy`, act on the photo shown when they are run without `ids` (File ▸ Save, Ctrl+S).
 
+M9's questions ask through the host the same way, each once its engine command is registered
+(until then running it is `unknown_command`, never a question whose answer could not run):
+`album.delete` (`{dialog: "deleteAlbum"}`, [Delete Album] [Cancel]), `album.remove`
+(`{dialog: "removeFromAlbum"}`, "Remove the %d selected pictures from this album? The files are not
+deleted." [Remove] [Cancel]), `photo.delete` (`{dialog: "deletePhotos"}`, "Move the %d selected
+pictures to the trash?" [Move to Trash] [Cancel]; its draft is `deletePhotos`), `folder.delete`
+(`{dialog: "deleteFolder"}`, naming the folder; its draft is `deleteFolder`) and `photo.moveTo`
+(`{dialog: "moveFiles"}`, "Move these files on disk? The files will be moved, not copied." [Move]
+[Cancel] with "Don't ask again", `check:dialog.dontAsk`, the view state's `moveFiles.dontAsk`; Move
+runs `photo.moveTo` with `"confirm": true`, and `"dontAsk": true` when the box is ticked). Copying
+never asks in the engine: the UI asks "Copy %d files to %s?" (`dialog:copyFiles`) before it runs
+`photo.copyTo`, and a name clash asks [Rename Duplicates] [Skip Duplicates] [Cancel]
+(`dialog:collision`, which runs the move or copy again with `"collisions": "rename" | "skip"`).
+
 ### 5.6 Effects outside Dalica are refused by default
 
 Automation must not reach beyond the app. Without `--automation-allow-external`, these refuse with
@@ -447,7 +461,11 @@ The view state: what `UI_COMMANDS` change and what is persisted between sessions
  "captionEdit": null, "descriptionEdit": null, "propertiesShowAll": false,
  "tagsPane": {"draft": "", "highlight": null},
  "about": {"tab": "about", "list": "grabBag", "sort": "firstCommit", "ascending": true, "names": "username"},
- "export": null, "saveExplain": null, "revert": null, "exportProgress": null}
+ "export": null, "saveExplain": null, "revert": null, "exportProgress": null,
+ "search": {"text": "", "highlight": null, "filters": {"starred": false, "faces": false, "videos": false, "geotagged": false},
+            "age": 0, "savedScroll": null},
+ "clipboard": null, "albumProperties": null, "renameFiles": null, "newFolder": null, "moveFiles": null,
+ "copyFiles": null, "collision": null, "deletePhotos": null, "deleteFolder": null}
 ```
 
 `view` is `library | edit | slideshow | viewer`; `room` is the active tab (`library`,
@@ -465,7 +483,7 @@ The view state: what `UI_COMMANDS` change and what is persisted between sessions
 | `selection` | `ids`, `anchor`, `section` (the section the photos are in, written as its widget id, `"folder:12"`; `null` for none), `whole` (the section selected as a unit) | the `select.*` commands only (read-only here) |
 | `tray` | `held` (photos kept by Hold), `selected` (the tray's own selection: photos the tray shows) | the `tray.*` commands |
 | `scroll` | `section` (the section at the top of the light table, `null` for the top of the library) and `offset` (points below that section's top, 0 … 10⁹) | the scroll commands, the scroll bar |
-| `dialogs` | the open in-app dialogs, bottom first (the last takes input): `{kind, fields, command?}`, `kind` as in `dialog:<kind>` (`clearTray`, `folderManager`, `firstRun`, `removeFolder`, `watchDrive`; M6: `folderProperties`, `adjustDate`, `quickTags`, `renameTag`, `about`, `releaseNotes`; M7: `customRatio`; M8: `saveExplain`, `revert`, `export`), `fields` its draft (nothing is applied before its default button), `command` what a confirmation runs when confirmed | read-only here: the commands that open them (`folders.manager`, a `tray.clear` that asks), their buttons, `ui.dialog.confirm`, `ui.dialog.cancel` |
+| `dialogs` | the open in-app dialogs, bottom first (the last takes input): `{kind, fields, command?}`, `kind` as in `dialog:<kind>` (`clearTray`, `folderManager`, `firstRun`, `removeFolder`, `watchDrive`; M6: `folderProperties`, `adjustDate`, `quickTags`, `renameTag`, `about`, `releaseNotes`; M7: `customRatio`; M8: `saveExplain`, `revert`, `export`; M9: `albumProperties`, `removeFromAlbum`, `deleteAlbum`, `moveFiles`, `copyFiles`, `collision`, `newFolder`, `renameFiles`, `deletePhotos`, `deleteFolder`), `fields` its draft (nothing is applied before its default button), `command` what a confirmation runs when confirmed | read-only here: the commands that open them (`folders.manager`, a `tray.clear` that asks), their buttons, `ui.dialog.confirm`, `ui.dialog.cancel` |
 | `activity` | bool: the activity popover under `indicator:activity` is open (its rows are `jobs.list`'s) | `ui.set`; a click on the indicator (M5.19) |
 
 M6's fields (all start fresh; none is persisted):
@@ -505,6 +523,32 @@ are replaced whole.
 | `revert` | `null`, or `{photos: [PhotoId]}` while the Revert question is open: the photos it reverts (those named, else the tray's) | `photo.revert` without `confirm` (§5.5) |
 | `exportProgress` | `null`, or `{job, shown}`: the export job the progress window follows ("Exporting 12 of 48…"; a job `jobs.list` lists) and whether the window is shown. The window is not modal: the app under it keeps taking input, and the job runs on while it is hidden | the export job starting and ending (M8.21), its Hide |
 
+M9's fields (all start fresh; none is persisted): the search box and its filters, the clipboard,
+and the drafts of M9's dialogs, `null` while they are closed (opening sets them, closing clears
+them). Every one is replaced whole by `ui.set`. Texts are at most 4096 characters (dates 64), lists
+at most 1 000 000 photos; photos and folders must exist (`not_found`), and a section named in
+`savedScroll` must be shown (a folder of the library, an album section the light table shows).
+
+| Field | Values | Changed by |
+|---|---|---|
+| `search` | `{text, highlight, filters: {starred, faces, videos, geotagged}, age, savedScroll}`: what is typed in the search field, the highlighted autocomplete row (0 … 99, `null` for none), the filter toggles, the age slider's position (0 = everything … 1 = only the newest; the slider's logarithmic map turns it into an age) and the scroll anchor saved when search mode began (`null` outside it). Search mode is some text, a filter or an age: the light table then shows the 32-high filter banner (`region:banner`) above it | the toolbar's search field, filters and age slider (M9.22), `search.focus` (Ctrl+F, F3: the focus to the field) |
+| `clipboard` | `null`, or `{op: "cut" \| "copy", ids}`: the photos Paste moves or copies | `photo.cut {ids?}` (Ctrl+X), `photo.copy {ids?}` (Ctrl+C): the photos named, else the selection; `photo.paste {folder?}` (Ctrl+V) into the folder named, else the current one (disabled in an album and with nothing kept): after Cut `photo.moveTo`, which then empties it, after Copy the copy question |
+| `albumProperties` | `null`, or `{album, ids, name, date, useNewest, place, description}`: the album edited (`null` for a new one, made with `ids`), the date as typed with "Use the date of the newest photo"; OK (enabled while the name is not blank) runs `album.create` or `album.info.set` | `album.new {ids?}` (File ▸ New Album…, Ctrl+N, the toolbar's New Album: the photos named, else the tray's), `section.properties` on an album section (Album ▸ Album Properties…) |
+| `renameFiles` | `null`, or `{ids, name, addDate, addSize}`; Rename (enabled while the name is not blank) runs `photo.rename` | File ▸ Rename… and F2 (the selection) |
+| `newFolder` | `null`, or `{ids, name, date, useOldest, place, description}` (name "New Folder"); OK runs `photo.moveToNewFolder` | File ▸ Move to New Folder… (the selection, photos of one folder), the photo menu's Split Folder Here… (`photo.splitFolder {id?}`: the photo and every photo after it in its folder) |
+| `moveFiles`, `copyFiles` | `null`, or `{ids, folder, dontAsk}` / `{ids, folder}` while the move or copy question is open | `photo.moveTo` without `confirm` (§5.5), Paste after Copy |
+| `collision` | `null`, or `{op: "move" \| "copy", ids, folder, files}`: the clash and the names that clash (at most 1000) | a move or copy onto files of the same names (M9.19) |
+| `deletePhotos`, `deleteFolder` | `null`, or `{ids}` / `{folder}` while the delete question is open | `photo.delete`, `folder.delete` without `confirm` (§5.5) |
+
+The `…` items whose engine command takes input (File ▸ Rename… and Batch Edit ▸ Rename…, F2, File ▸
+Move to New Folder…, Folder ▸ Move…) open their dialog when clicked, pressed or invoked with
+`ui.menu.invoke` (`{dialog: "renameFiles"}`, `{dialog: "newFolder"}`, `{dialog: "filePicker"}`: the
+folder picker for where the folder goes, `filePicker {command: "folder.move", kind: "folder"}`),
+and the dialog's default button runs the engine command with the input; `engine.execute` runs the
+engine command itself (`photo.rename {ids, name}`), never the dialog. The Delete key is routed by
+section, as Ctrl+1 is by view: in an album section it runs `album.remove {album, ids}` (Remove from
+Album), anywhere else `photo.delete`; Ctrl+Delete always runs `photo.delete`.
+
 A draft is non-null while its tool is open; nothing in it is applied before the tool's Apply
 (`edit.tool.apply`, one step of the photo's history). `ui.set` merges `edit` field by field
 (`{"edit": {"zoom": 2}}` keeps the photo and the tab); every other field is replaced whole. The
@@ -536,7 +580,7 @@ Everything in `ui.state`, plus:
 | Field | Content |
 |---|---|
 | `window` | `{width, height, pixelsPerPoint, focused, drawing}` — `drawing` false while the compositor delivers no frames |
-| `regions` | `[x, y, w, h]` per region of `ui-layout.md` §2: `menuBar`, `toolbar`, `tabStrip`, `tree`, `splitter`, `lightTable`, `scrollbar`, `sidePane`, `statusLine`, `tray`, `trayButtons`, `bottomControls`, `actionButtons`; in the edit view (`editing.md` §2) `menuBar`, `editTopBar`, `filmstrip` (inside the top bar), `editPanel` (`null` while hidden), `canvas` (the photo area above the caption bar), `captionBar`, `sidePane` and the bottom area's four, while the library's own are `null`; `null` when not shown |
+| `regions` | `[x, y, w, h]` per region of `ui-layout.md` §2: `menuBar`, `toolbar`, `tabStrip`, `tree`, `splitter`, `banner` (the filter banner, in search mode only: the 32 rows over the light table and its scroll bar, which start under it), `lightTable`, `scrollbar`, `sidePane`, `statusLine`, `tray`, `trayButtons`, `bottomControls`, `actionButtons`; in the edit view (`editing.md` §2) `menuBar`, `editTopBar`, `filmstrip` (inside the top bar), `editPanel` (`null` while hidden), `canvas` (the photo area above the caption bar), `captionBar`, `sidePane` and the bottom area's four, while the library's own are `null`; `null` when not shown |
 | `scroll`, `scrollViews` | `scroll` is `ui.state`'s anchor (`{section, offset}`); `scrollViews` is `{lightTable, tree, topSection, sticky}` — the light table's and the tree's offsets in points as last drawn, the section at the top, the pinned header (section ids as in `ui.state`, `null` for none) |
 | `hovered` / `focused` | widget ids |
 | `popup` | the open menu, context menu or popup as last drawn, `null` when none: `{kind, menu?, items: [{widget, id, label, enabled, checked}]}`; `kind` is `menu` (with `menu`, the bar menu's key: `File`), `viewOptions` (the toolbar's popup) or `contextMenu`; `id` is the row's command (`null` for a submenu row) |
@@ -544,7 +588,7 @@ Everything in `ui.state`, plus:
 | `filePicker` | the stubbed picker waiting for `ui.filePicker` (§5.6): `{command, kind, title}`, and for the save picker `name`, `folder` and `params` |
 | `status`, `toasts` | the status-line text as drawn; the toasts showing, oldest first: `[{id, text, kind, remaining}]` (`id` the toast's widget `toast:<n>`, `kind` `info` or `error`, `remaining` in seconds) |
 | `tooltip` | the text of the tooltip the last frame showed (its lines joined with `\n`), `null` when none |
-| `drag` | a drag in progress: `{from, ids, target, op, pill}` |
+| `drag` | a drag of photos in progress, `null` when none: `{from, ids, target, op, pill}`: the widget it started on (`thumb:12`), the photos it carries (the selection when the photo was selected, else that photo), the drop target under the pointer (a widget id, `null` for none), what a drop there would do (`move`, `copy`, `add`, `reorder`, `hold`, `null`) and the drag pill's text ("Move 3 photos"); it ends when the button is released. Not part of `ui.state` |
 | `animations` | running animations: `[{kind, region}]`, today `{kind: "scrollToSection", region: "lightTable"}` while the light table eases to a section (pane slides and fades join as they are built) |
 | `jobs` | same entries as `jobs.list` |
 | `notices` | warnings waiting to be shown (damaged settings file kept aside, …) |
@@ -631,14 +675,21 @@ model as the in-window menus and the native macOS menu bar:
 `ui.menu.tree {context: "photo" | "section" | "tray" | "treeGroup" | "tag" | "face"}` returns that
 context menu's model for the current selection without opening it. `tray` is the tray menu as it
 opens on the tray's empty space: for the tray-selected photos, or with none every photo in the tray.
+`photo` is the thumbnail's menu (`organizing.md` §9.1), which a right-click on a thumbnail opens
+after selecting the photo when it was not; in an album section Delete from Disk… becomes Remove from
+Album and Show in Folder and Set as Album Cover join. On an album section the fourth menu reads
+**Album** with the album rows of `organizing.md` §9.2 (Album Properties…, Delete Album…, Select
+All, Select None, Invert Selection, Refresh Thumbnails, Sort Album By ▸), and `section` returns the
+same rows.
 
 Each item carries `id`, `label` (as shown: Undo names the action it undoes), `enabled`, `live`
-(its command is registered, and for an item ending in `…` its dialog exists), `widget`, and when
+(its command is registered, and for an item ending in `…` its dialog exists; an item whose `…`
+dialog collects the input of an engine command, Rename… for one, is live with its dialog), `widget`, and when
 they apply `shortcut` (the binding in effect, `Cmd` on macOS), `params` (the fixed parameters of a
 row that shares its command), `checked` (checkable rows; radio rows add `radio: true`), `dialog`
 (the dialog the item opens) and `reason` (why it is disabled). A submenu is `{label, widget,
-children}`. Context menus are modelled as their regions arrive: `section` (the fourth menu's rows)
-and `tray` answer now, the others are `unsupported` until then.
+children}`. Context menus are modelled as their regions arrive: `section` (the fourth menu's rows),
+`tray` and `photo` answer now, the others are `unsupported` until then.
 
 `ui.menu.invoke {path: "Picture/Batch Edit/Rotate Clockwise"}` (labels as shown, without a
 trailing `…`, separated by `/`; a literal `/` in a label is `\/`) or `{id: "photo.rotate.cw"}`
@@ -649,7 +700,8 @@ behaves like clicking the item: items whose label ends in `…` open their dialo
 selection as `ids` when it takes them, the row's fixed parameters, then `params`. File ▸ Add
 Folder… and Tools ▸ Folder Manager… both reply `{dialog: "folderManager"}` once a frame has drawn
 it; Folder ▸ Remove from Dalica… replies `{dialog: "removeFolder"}`, asking about the selected folder. A command that
-asks first (§5.5) opens its question and replies `{dialog: <kind>}`.
+asks first (§5.5) opens its question and replies `{dialog: <kind>}`. Context-menu rows are driven
+by clicking them (`ui.clickWidget {id: "menuitem:photo.splitFolder"}` once the menu is open).
 
 Dialogs are driven through their widgets (`field:dialog.<name>`, `button:dialog.<action>`) or the
 shortcuts `ui.dialog.confirm` (the default button, or `{button: "dialog.undoSave"}`, with or without
@@ -711,7 +763,7 @@ slideshow timing).
 while it waits (it never blocks one) and replies the final entry, or after `timeoutMs` (default and
 at most 55 s; over 60 000 is `limit`) the running entry with `pending: true`; an unknown or expired
 job is `not_found`. `jobs.cancel` replies once a frame has polled the session; a finished job is not
-in `cancelled`. Kinds: `scan`, `import`, `export`, `save`,
+in `cancelled`. Kinds: `scan`, `import`, `export`, `save`, `files` (a move, copy, rename or delete of files, M9),
 `batchEdit`, `metadataWrite`, `rebuild`, `duplicates`, `faces`, `collage`, `analysis`. `jobs.cancel` stops a job at its next photo boundary: photos already written stay
 (each was written atomically), nothing is left half-written. Cancelling a job is never an undo of
 the photos it completed.
@@ -728,7 +780,7 @@ recipe operation and parameter names of `data-model.md` §3.1 and `editing.md` (
 
 | Region (milestone) | Ids |
 |---|---|
-| Regions (M3) | `region:<name>` for each region of §6.6 shown (`region:menuBar`, `region:toolbar`, `region:tree`, `region:splitter`, `region:lightTable`, `region:scrollbar`, `region:sidePane`, `region:statusLine`, `region:tray`, `region:trayButtons`, `region:bottomControls`, `region:actionButtons`): the region's rect, no input of its own (role `other`); a region not shown is not listed |
+| Regions (M3) | `region:<name>` for each region of §6.6 shown (`region:menuBar`, `region:toolbar`, `region:tree`, `region:splitter`, `region:banner` (M9, search mode), `region:lightTable`, `region:scrollbar`, `region:sidePane`, `region:statusLine`, `region:tray`, `region:trayButtons`, `region:bottomControls`, `region:actionButtons`): the region's rect, no input of its own (role `other`); a region not shown is not listed |
 | Menu bar (M3) | `menu:File` … `menu:Help` (title by its English label; the fourth is `menu:Folder` whatever its shown title; macOS adds `menu:Dalica`), `menuitem:<command id>` for open menu and context-menu items (`menuitem:<command id>/<variant>` for rows of one command that differ by a parameter, `menus-and-shortcuts.md` §1), `submenu:<menu>/<label>…` (`submenu:View/Thumbnail Caption`), and on a menu taller than the window its scroll arrows `button:menu.scrollUp/<depth>` and `button:menu.scrollDown/<depth>` (depth 1 for a menu of the bar or a context menu) |
 | Title bar (M3) | Windows and Linux, unless the system title bar is chosen (`design-system.md` §11.1): `button:window.minimize`, `button:window.maximize` (labelled Restore while maximized), `button:window.close`, `titlebar:drag` (the free gap: drag moves, double-click maximizes; also on macOS, beside the traffic lights); in a real window, while neither maximized nor full screen, the resize edges `resize:n`, `resize:s`, `resize:e`, `resize:w`, `resize:ne`, `resize:nw`, `resize:se`, `resize:sw` |
 | Toolbar (M3) | `button:toolbar.import`, `button:toolbar.newAlbum`, `button:tree.flat`, `button:tree.tree`, `button:toolbar.viewOptions`, `button:filter.starred`, `button:filter.faces`, `button:filter.videos`, `button:filter.geotagged`, `slider:age`, `field:search`, `button:search.clear`, `indicator:activity` |
@@ -746,7 +798,7 @@ recipe operation and parameter names of `data-model.md` §3.1 and `editing.md` (
 | Edit tools (M7) | `tool:crop`, `tool:straighten`, `tool:autofix`, `tool:autocontrast`, `tool:autocolor`, `tool:retouch`; `slider:basic.fill_light`; tool panels: `slider:straighten.angle`, `choice:crop.ratio` (its rows `choice:crop.ratio/manual`, `/current`, `/<W:H>` such as `/4:3`, `/custom/<name>` and `/add`), `button:crop.removeRatio`, `button:crop.suggestion/1` … `/3`, `button:crop.rotate`, `button:crop.preview`, the rectangle on the photo `crop:edit`, Retouch's `slider:retouch.brush`, `button:retouch.undoPatch` and `button:retouch.redoPatch`, `button:panel.apply`, `button:panel.cancel`, `button:panel.reset` |
 | Tuning (M7) | `slider:tuning.fill_light`, `slider:tuning.highlights`, `slider:tuning.shadows`, `slider:tuning.temperature`, `button:tuning.autoLighting` (the Auto lighting wand), `button:tuning.neutralPicker` (the eyedropper, active while armed), `button:tuning.autoColor` (the Auto color wand), `button:tuning.reset` (left out when the tab is too short for it) |
 | Effects (M12) | `effect:<name>` per tile (`effect:sharpen`, `effect:sepia`, `effect:bw`, `effect:soft_focus`, `effect:graduated_tint`, …); effect panels: `slider:effect.<param>` (`slider:effect.amount`, `slider:effect.fade`), `color:effect.<param>`, `check:effect.<param>`, `crosshair:effect` |
-| Dialogs (M3+) | `dialog:<kind>` (the dialog: `dialog:clearTray`, `dialog:folderManager`, `dialog:firstRun`; M6: `dialog:folderProperties`, `dialog:adjustDate`, `dialog:quickTags`, `dialog:renameTag`, `dialog:about`, `dialog:releaseNotes`; M7: `dialog:customRatio` with `field:dialog.width`, `field:dialog.height`, `field:dialog.name`; M8: `dialog:saveExplain` with `button:dialog.save`, `dialog:revert` with `button:dialog.revert` and `button:dialog.undoSave`, `dialog:export` with `button:dialog.export` and its form (M8.20): `field:dialog.location`, `button:dialog.browse`, `field:dialog.folderName`, `check:dialog.numbers`, `choice:dialog.size/<original\|resize>`, the size field `slider:dialog.size/value` (its text as typed) and the slider `slider:dialog.size`, the quality dropdown `choice:dialog.quality` with its items `choice:dialog.quality/<automatic\|normal\|maximum\|minimum\|custom>` and the custom slider `slider:dialog.quality`, `choice:dialog.videos/<firstFrame\|fullVideo>` (disabled until M15), `check:dialog.watermark`, `field:dialog.watermarkText`, and the export progress window `dialog:exportProgress`, which is no dialog of the stack and has no backdrop), `dialog:<kind>/backdrop`, `field:dialog.<name>`, `check:dialog.<name>`, `choice:dialog.<name>`, `button:dialog.ok`, `button:dialog.cancel`, `button:dialog.<action>` (`button:dialog.undoSave`, `button:dialog.clearTray`, `button:dialog.help`, `button:dialog.continue`); M6's dialogs: Folder Properties `field:dialog.name` (disabled until renaming), `field:dialog.date`, `check:dialog.useOldest`, `field:dialog.place`, `field:dialog.description`, `field:dialog.music` and `button:dialog.browse` (disabled until slideshows); Adjust Date `field:dialog.date`, `field:dialog.time`, `choice:dialog.mode/<shift\|set>` (several photos); Rename Tag `field:dialog.to`; Configure Quick Tags `check:dialog.useRecent`, `field:dialog.slot1` … `field:dialog.slot10`, `button:dialog.fillCommon` |
+| Dialogs (M3+) | `dialog:<kind>` (the dialog: `dialog:clearTray`, `dialog:folderManager`, `dialog:firstRun`; M6: `dialog:folderProperties`, `dialog:adjustDate`, `dialog:quickTags`, `dialog:renameTag`, `dialog:about`, `dialog:releaseNotes`; M7: `dialog:customRatio` with `field:dialog.width`, `field:dialog.height`, `field:dialog.name`; M8: `dialog:saveExplain` with `button:dialog.save`, `dialog:revert` with `button:dialog.revert` and `button:dialog.undoSave`, `dialog:export` with `button:dialog.export` and its form (M8.20): `field:dialog.location`, `button:dialog.browse`, `field:dialog.folderName`, `check:dialog.numbers`, `choice:dialog.size/<original\|resize>`, the size field `slider:dialog.size/value` (its text as typed) and the slider `slider:dialog.size`, the quality dropdown `choice:dialog.quality` with its items `choice:dialog.quality/<automatic\|normal\|maximum\|minimum\|custom>` and the custom slider `slider:dialog.quality`, `choice:dialog.videos/<firstFrame\|fullVideo>` (disabled until M15), `check:dialog.watermark`, `field:dialog.watermarkText`, and the export progress window `dialog:exportProgress`, which is no dialog of the stack and has no backdrop; M9: `dialog:albumProperties` and `dialog:newFolder` with `button:dialog.ok`, `dialog:renameFiles` with `button:dialog.rename`, `dialog:moveFiles` with `button:dialog.move` and `check:dialog.dontAsk`, `dialog:copyFiles` with `button:dialog.copy`, `dialog:collision` with `button:dialog.renameDuplicates` and `button:dialog.skipDuplicates`, `dialog:removeFromAlbum` with `button:dialog.remove`, `dialog:deleteAlbum` with `button:dialog.deleteAlbum`, `dialog:deletePhotos` and `dialog:deleteFolder` with `button:dialog.moveToTrash`), `dialog:<kind>/backdrop`, `field:dialog.<name>`, `check:dialog.<name>`, `choice:dialog.<name>`, `button:dialog.ok`, `button:dialog.cancel`, `button:dialog.<action>` (`button:dialog.undoSave`, `button:dialog.clearTray`, `button:dialog.help`, `button:dialog.continue`); M6's dialogs: Folder Properties `field:dialog.name` (disabled until renaming), `field:dialog.date`, `check:dialog.useOldest`, `field:dialog.place`, `field:dialog.description`, `field:dialog.music` and `button:dialog.browse` (disabled until slideshows); Adjust Date `field:dialog.date`, `field:dialog.time`, `choice:dialog.mode/<shift\|set>` (several photos); Rename Tag `field:dialog.to`; Configure Quick Tags `check:dialog.useRecent`, `field:dialog.slot1` … `field:dialog.slot10`, `button:dialog.fillCommon` |
 | Folder Manager and first run (M5) | rows `choice:dialog.folder/<roothash>[/<pathhash>]`, `button:dialog.expand/…` (and `…/loading` while a listing is read), `choice:dialog.mode/<always\|once\|remove>`, `check:dialog.faces`, `button:dialog.reveal/<hash>` (the watched list), `choice:dialog.start/<places\|choose>` (first run); stacked questions `dialog:removeFolder`, `dialog:watchDrive`, whose buttons are `dialog:<kind>/<action>` while another dialog is under them |
 | Activity and tree scroll bar (M5) | `indicator:activity` popover `popover:activity`, its rows `job:<n>` and `job:<n>/cancel`; the tree's `scroll:tree`, `scroll:tree/thumb` |
 | Toasts (M3) | `toast:<n>`, `button:toast.<action>` (`button:toast.showFolder`) |

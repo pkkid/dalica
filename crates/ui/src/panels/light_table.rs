@@ -34,6 +34,7 @@
 
 pub mod caption_edit;
 pub mod cell;
+pub mod context_menu;
 pub mod header;
 pub mod input;
 pub mod layout;

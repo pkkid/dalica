@@ -20,7 +20,18 @@
 //! - [`export`]: File ▸ Export Pictures to Folder… (`output.export`, the Export dialog);
 //! - [`save_as`]: File ▸ Save As… (`photo.saveAs`, the save picker);
 //! - [`save`]: no UI command, but which photos the engine's Save, Undo Save, Revert and Save a
-//!   Copy act on in the edit view ([`save::route`], called by [`App::run`]).
+//!   Copy act on in the edit view ([`save::route`], called by [`App::run`]);
+//! - M9's areas, so the tasks that fill them never share a file: [`albums`] (New Album…, Album
+//!   Properties of an album section, Show in Folder), [`search`] (Ctrl+F / F3 to the search
+//!   field), [`files`] (Move to New Folder…, Split Folder Here…), [`rename`] (Rename…, F2),
+//!   [`folder_ops`] (Folder ▸ Move…) and [`clipboard`] (Cut, Copy, Paste).
+//!
+//! **Openers** ([`OPENERS`]): a menu item ending in `…` whose *engine* command takes input
+//! (`photo.rename {ids, name}`, `photo.moveToNewFolder`, `folder.move`) opens its dialog in the UI,
+//! and the dialog's default button runs that same engine command with the input. The opener is
+//! not a UI command (the id is the engine's): a click, its key and `ui.menu.invoke` call
+//! [`Opener::open`] ([`opener`]), while `engine.execute` runs the engine command, never a dialog
+//! (`control-protocol.md` §5.3). Its keys join the keymap with the UI commands'.
 //!
 //! A new command goes in its area's module (a new area gets a new module and one line in
 //! [`AREAS`]); its id is the one the menu catalog uses, so its menu item goes live. Every command
@@ -33,15 +44,21 @@
 //! (`photo.caption.set`, `folder.info.set`, `photo.dates.set`, `tags.quick.set`, `tags.rename`,
 //! `export.run`, `photo.saveTo`), the way `folders.manager` runs `folders.set`.
 
+pub mod albums;
 pub mod caption;
+pub mod clipboard;
 pub mod dialogs;
 pub mod edit_view;
 pub mod export;
+pub mod files;
+pub mod folder_ops;
 pub mod help;
 pub mod info;
+pub mod rename;
 pub mod save;
 pub mod save_as;
 pub mod scroll;
+pub mod search;
 pub mod select;
 pub mod tools;
 pub mod tray;
@@ -89,6 +106,10 @@ const AREAS: &[&[UiCommand]] = &[
     tools::COMMANDS,
     export::COMMANDS,
     save_as::COMMANDS,
+    albums::COMMANDS,
+    search::COMMANDS,
+    files::COMMANDS,
+    clipboard::COMMANDS,
 ];
 
 /// Whether a UI command can run now with its parameters; why not (the status line's text) when it
@@ -96,15 +117,45 @@ const AREAS: &[&[UiCommand]] = &[
 pub type Check = fn(&App, &Value) -> Result<(), String>;
 
 /// The checks of the UI commands that cannot always run, by area.
-const CHECKS: &[&[(&str, Check)]] = &[caption::CHECKS, info::CHECKS, edit_view::CHECKS, export::CHECKS, save_as::CHECKS];
+const CHECKS: &[&[(&str, Check)]] =
+    &[caption::CHECKS, info::CHECKS, edit_view::CHECKS, export::CHECKS, save_as::CHECKS, albums::CHECKS, files::CHECKS, clipboard::CHECKS];
 
 /// Whether UI command `id` can run now with `params` (what a click passes: `{}`); why not when it
-/// cannot. Commands without a check always can.
+/// cannot. Commands without a check always can. On an album section `section.properties` is Album
+/// Properties' ([`albums::enabled_route`]).
 pub fn enabled(app: &App, id: &str, params: &Value) -> Result<(), String> {
+    if let Some(r) = albums::enabled_route(app, id, params) {
+        return r;
+    }
     match CHECKS.iter().flat_map(|a| a.iter()).find(|(c, _)| *c == id) {
         Some((_, check)) => check(app, params),
         None => Ok(()),
     }
+}
+
+/// The opener of a `…` menu item whose engine command takes input: the click, its key and
+/// `ui.menu.invoke` open the dialog that collects the input; the dialog's default button runs the
+/// engine command `id` with it.
+#[derive(Clone, Copy)]
+pub struct Opener {
+    /// The engine command (and the menu item's id).
+    pub id: &'static str,
+    /// The dialog it opens (`dialog:<kind>`, or `filePicker`).
+    pub dialog: &'static str,
+    /// Default keys, joined to the keymap with the UI commands' (F2 for Rename…).
+    pub keys: &'static [(Context, &'static str)],
+    /// Opens the dialog for what a click passes (the selection as `ids`, the current folder).
+    pub open: fn(&mut App, &Value) -> Result<Value, CmdError>,
+    /// Whether it can open now; why not.
+    pub check: Check,
+}
+
+/// Every opener.
+pub const OPENERS: &[Opener] = &[rename::RENAME, files::MOVE_TO_NEW_FOLDER, folder_ops::MOVE];
+
+/// The opener of `id`, if it has one.
+pub fn opener(id: &str) -> Option<&'static Opener> {
+    OPENERS.iter().find(|o| o.id == id)
 }
 
 /// Every UI command: the areas' lists joined.
@@ -193,6 +244,21 @@ mod tests {
         ids.sort_unstable();
         ids.dedup();
         assert_eq!(ids.len(), got.len(), "ids are unique");
+    }
+
+    #[test]
+    fn openers_are_engine_ids_with_a_dialog_and_no_ui_command() {
+        for o in OPENERS {
+            assert!(!UI_COMMANDS.iter().any(|c| c.id == o.id), "{} is a UI command too", o.id);
+            assert!(crate::menus::DIALOGS.iter().any(|(c, d)| *c == o.id && *d == o.dialog), "{} names its dialog in menus::DIALOGS", o.id);
+            assert!(
+                crate::menu_catalog::MENU_BAR.iter().any(|m| crate::menu_catalog::items(m.entries).iter().any(|i| i.id == o.id)),
+                "{} has a menu item",
+                o.id
+            );
+        }
+        assert_eq!(opener("photo.rename").map(|o| o.dialog), Some("renameFiles"));
+        assert!(opener("photo.star.toggle").is_none());
     }
 
     #[test]
