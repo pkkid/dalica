@@ -10,6 +10,10 @@ authors.workspace = true
 publish = false
 
 [dependencies]
+# The name sanitizer and collision names (M8.13).
+dalica-core.workspace = true
+# Reading sources under a size limit, the export folder and its files, never replacing one (M8.2).
+dalica-fs.workspace = true
 # Decoding under the limits, the colour stage, resizing and the JPEG/PNG encoders (M8.6).
 dalica-image.workspace = true
 # The recipe and its CPU renderer (M7.2): the output pipeline renders at full size through it.
@@ -26,3 +30,6 @@ thiserror.workspace = true
 [dev-dependencies]
 # Procedural photos, their JPEG/PNG files and the pixel fingerprints of the output tests.
 dalica-scenes.workspace = true
+# Temporary export locations and the export plan's property tests.
+tempfile.workspace = true
+proptest.workspace = true

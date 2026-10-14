@@ -360,19 +360,18 @@ fn crc32(bytes: &[u8]) -> u32 {
 
 #[test]
 fn nothing_is_written_to_disk() {
-    // The pipeline's signature is bytes in, bytes out; its source never names a file call (the
-    // `layers` gate refuses file writes outside `fs` too, and `create` does not depend on `fs`).
+    // The pipeline's signature is bytes in, bytes out; its sources never name a file call or
+    // `fs` (the `layers` gate refuses file writes outside `fs` too). `create` uses `fs` only in
+    // `export` and `save`, which write what the pipeline gives them.
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let mut files = vec![dir.join("output.rs"), dir.join("watermark.rs")];
     files.extend(std::fs::read_dir(dir.join("output")).unwrap().map(|e| e.unwrap().path()));
     for file in files {
         let text = std::fs::read_to_string(&file).unwrap();
-        for call in ["std::fs", "File::", "OpenOptions", "dalica_fs", "create_dir", "write_all"] {
+        for call in ["std::fs", "File::", "OpenOptions", "dalica_fs", "fs::", "create_dir", "write_all"] {
             assert!(!text.contains(call), "{} names {call}", file.display());
         }
     }
-    let manifest = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml")).unwrap();
-    assert!(!manifest.contains("dalica-fs"));
 }
 
 #[test]

@@ -469,7 +469,15 @@ exclusive creation gives. `create::new_folder` makes `<name>`, `<name>-001`, …
 fails on a taken name. Both refuse a name that is not one plain component, with nothing written:
 separators, `.`/`..`, drive and stream prefixes, reserved device names, Dalica's own `.dalica*`
 and temporary names, control characters, a trailing dot or space, more than 255 bytes); the
-sanitizer is planned (M8, M11, M14).**
+sanitizer is built too (M8.13: `dalica-core` `names::sanitize(name, fallback)` removes the
+separators, `: * ? " < > |`, control characters and the bidirectional marks, embeddings,
+overrides and isolates (U+061C, U+200E–U+200F, U+202A–U+202E, U+2066–U+2069); strips leading
+dots, dashes and white space and trailing dots and white space; cuts to 255 bytes on a character
+boundary; gives a Windows device name (`CON`, `nul.txt`, `COM1`, `LPT¹`, `CONIN$`, … in any case)
+a leading `_`; and takes the fallback, sanitized the same way, then `Untitled`, when nothing is
+left. Its result always passes `create::new_file`'s check, and a second pass changes nothing
+(property-tested). Export uses it for the export folder's name and each exported photo's stem;
+import folders (M11) and collage files (M14) will.)**
 
 **Names from the file system.** File names that are not valid UTF-8 are indexed and shown with a
 lossy display form, but the lossy form is never written into a sidecar and never used to open a

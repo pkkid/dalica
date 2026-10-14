@@ -3409,7 +3409,7 @@ first measurement. No step of M8 needs a maintainer decision mid-run.
     orientation 1 and its metadata carried; a photo changed since it was read, a
     `.dalica-originals` link and a mismatched backup are refused with nothing moved; a read-only
     folder fails with its reason and nothing changed; an unknown operation is refused by name.
-- ⬜ **M8.13 `create`: export planning and files**
+- ✅ **M8.13 `create`: export planning and files**
   - after: M8.2, M8.10
   - files: `crates/create/src/export.rs`, `crates/create/src/export/**`, `crates/create/tests/export.rs`, `crates/create/tests/fingerprints/export*.json`, `crates/core/src/names.rs`, `crates/core/tests/sanitize.rs`, `docs/creating.md`, `docs/security.md`
   - scope: `creating.md` §2 and `security.md` §5.4: `ExportOptions` (original size or a long side

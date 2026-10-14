@@ -847,11 +847,15 @@ name = "dalica-create"
 version = "0.2.0"
 dependencies = [
  "ab_glyph",
+ "dalica-core",
  "dalica-edit",
+ "dalica-fs",
  "dalica-image",
  "dalica-meta",
  "dalica-scenes",
  "moxcms 0.9.1",
+ "proptest",
+ "tempfile",
  "thiserror 2.0.21",
 ]
 
