@@ -3245,7 +3245,7 @@ first measurement. No step of M8 needs a maintainer decision mid-run.
     a replaced one keeps its id, no `fs` call on the owner thread; `crates/engine/tests/settings_m8.rs`
     round-trips every new setting with unknown keys kept and wrong types falling back (reported);
     every existing engine test and `panic_hunt` pass unchanged.
-- ⬜ **M8.4 `ui`: M8's view state, UI commands, the save picker and stub dialogs**
+- ✅ **M8.4 `ui`: M8's view state, UI commands, the save picker and stub dialogs**
   - after: M5.14, M7.4, M7.R
   - files: `crates/ui/src/state.rs`, `crates/ui/src/menus.rs`, `crates/ui/src/app.rs`, `crates/ui/src/picker.rs`, `crates/ui/src/commands/mod.rs`, `crates/ui/src/commands/save.rs`, `crates/ui/src/commands/save_as.rs`, `crates/ui/src/commands/export.rs`, `crates/ui/src/dialogs/mod.rs`, `crates/ui/src/dialogs/confirm.rs`, `crates/ui/src/dialogs/save_explain.rs`, `crates/ui/src/dialogs/revert.rs`, `crates/ui/src/dialogs/export.rs`, `crates/ui/src/dialogs/export_progress.rs`, `crates/ui/src/control/**`, `crates/ui/tests/view_state_m8.rs`, `docs/control-protocol.md`
   - scope: every M8 field of `UiState` in one go: the Export dialog's draft (location, folder name,

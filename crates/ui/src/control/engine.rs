@@ -7,7 +7,7 @@ use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
 use super::host::Input;
-use super::{Call, Code, Error, METHODS, Next, Outcome, paths};
+use super::{Call, Code, Config, Error, METHODS, Method, Next, Outcome, bad_params, paths};
 use crate::app::UI_COMMANDS;
 
 #[derive(Deserialize)]
@@ -43,6 +43,10 @@ const CONFIRM: &[(&str, &str)] = &[(
 /// Commands that read a path the user would pick (§5.7 reading), and the parameter.
 const READ_PATHS: &[(&str, &str)] = &[("folders.add", "path")];
 
+/// Commands that make new files at a path (§5.7 writing), the parameter, and what it names: the
+/// folder an export folder is made in, the file Save As writes.
+const WRITE_PATHS: &[(&str, &str, paths::Output)] = &[("export.run", "dir", paths::Output::Folder), ("photo.saveTo", "path", paths::Output::File)];
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Execute {
@@ -62,11 +66,11 @@ struct Known {
     spec: Option<CommandSpec>,
 }
 
-fn known(call: &Call<'_>, id: &str) -> Option<Known> {
+fn known(host: &dyn super::Host, id: &str) -> Option<Known> {
     if let Some(c) = UI_COMMANDS.iter().find(|c| c.id == id) {
         return Some(Known { label: c.label, effect: None, spec: None });
     }
-    let spec = match call.host.app().session() {
+    let spec = match host.app().session() {
         Some(s) => s.spec(id).copied(),
         None => dalica_engine::cmd::specs().into_iter().find(|s| s.id == id),
     }?;
@@ -85,23 +89,53 @@ pub(super) fn external_allowed(effect: Option<Effect>, allow_external: bool, id:
 }
 
 /// `engine.execute {command, params?, wait?}`: one command, one undo step, never a dialog (§6.1).
+/// A path where a command makes new files ([`WRITE_PATHS`]) is checked against the automation
+/// roots first, before anything else about the command (§5.7).
 pub(super) fn execute(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Error> {
     let e: Execute = call.params(params)?;
     let id = e.command;
-    let mut cmd_params: Map<String, Value> = match &e.params {
+    let cmd_params: Map<String, Value> = match &e.params {
         Value::Null => Map::new(),
         Value::Object(o) => o.clone(),
         other => return Err(call.bad(format!("`params` must be an object, not {other}"))),
     };
-    let Some(k) = known(call, &id) else {
+    let config = call.control.config().clone();
+    let method = call.method;
+    if let Some((_, param, kind)) = WRITE_PATHS.iter().find(|(c, _, _)| *c == id)
+        && let Some(path) = cmd_params.get(*param)
+    {
+        let Some(path) = path.as_str().map(PathBuf::from) else {
+            return Err(call.bad(format!("`{param}` must be a path, not {path}")));
+        };
+        paths::lexical(&path, param)?;
+        let watched = call.host.app().session().map(|s| s.roots().to_vec()).unwrap_or_default();
+        let kind = *kind;
+        return Ok(Outcome::Work(Box::new(move || match paths::check_output(&path, &config.effective_write_roots(), &watched, kind) {
+            Err(e) => Next::Reply(Err(e)),
+            Ok(_) => Next::Resume(Box::new(move |host| checked(host, &config, method, id, cmd_params).unwrap_or_else(Outcome::from))),
+        })));
+    }
+    checked(call.host, &config, method, id, cmd_params)
+}
+
+/// The rest of `engine.execute` once its paths to write are checked: the command must exist, be
+/// allowed and enabled, and not ask first; a path it reads is checked; then it runs.
+fn checked(
+    host: &mut dyn super::Host,
+    config: &Config,
+    method: &'static Method,
+    id: String,
+    mut cmd_params: Map<String, Value>,
+) -> Result<Outcome, Error> {
+    let Some(k) = known(host, &id) else {
         return Err(Error::new(Code::UnknownCommand, format!("no command `{id}` (engine.commands lists them)")));
     };
-    external_allowed(k.effect, call.control.config().allow_external, &id)?;
-    if let (Some(spec), Some(session)) = (&k.spec, call.host.app().session()) {
+    external_allowed(k.effect, config.allow_external, &id)?;
+    if let (Some(spec), Some(session)) = (&k.spec, host.app().session()) {
         (spec.enabled)(session, &Value::Object(cmd_params.clone())).map_err(|d| Error::new(Code::Disabled, d.0))?;
     }
     // A command that asks through the dialog host, when its question applies (§5.5).
-    if let Some(ask) = crate::dialogs::asking(call.host.app(), &id, &Value::Object(cmd_params.clone())) {
+    if let Some(ask) = crate::dialogs::asking(host.app(), &id, &Value::Object(cmd_params.clone())) {
         let mut err = Error::new(
             Code::NeedsConfirm,
             format!("`{id}` asks first in the app; send \"confirm\": true in its params to go ahead (prompt holds the question)"),
@@ -121,7 +155,7 @@ pub(super) fn execute(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Er
                     Some(json!({ "title": k.label.trim_end_matches('…'), "text": question, "buttons": [k.label.trim_end_matches('…'), "Cancel"] }));
                 return Err(err);
             }
-            Some(other) => return Err(call.bad(format!("`confirm` must be true or false, not {other}"))),
+            Some(other) => return Err(bad_params(method, format!("`confirm` must be true or false, not {other}"))),
         }
     }
     let cmd_params = Value::Object(cmd_params);
@@ -129,14 +163,14 @@ pub(super) fn execute(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Er
         && let Some(path) = cmd_params.get(*param).and_then(Value::as_str).map(PathBuf::from)
     {
         paths::lexical(&path, param)?;
-        let config = call.control.config().clone();
-        let watched = call.host.app().session().map(|s| s.roots().to_vec()).unwrap_or_default();
+        let config = config.clone();
+        let watched = host.app().session().map(|s| s.roots().to_vec()).unwrap_or_default();
         return Ok(Outcome::Work(Box::new(move || match paths::check_read(&path, &config.read_roots, &watched, config.demo) {
             Err(e) => Next::Reply(Err(e)),
             Ok(_) => Next::Resume(Box::new(move |host| run_command(host, &id, &cmd_params))),
         })));
     }
-    Ok(run_command(call.host, &id, &cmd_params))
+    Ok(run_command(host, &id, &cmd_params))
 }
 
 /// Runs the command, then lets one frame run so widgets show its effect.

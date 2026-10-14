@@ -5,8 +5,10 @@
 //! buttons ([`prompt`]), and the default button runs the command again with `"confirm": true`.
 //!
 //! The rows: Clear Tray (`tray.clear` with held photos), Remove Folder (`folder.remove`, the folder
-//! context menu's Remove from Dalica…; the dialog names the folder) and Watch Drive (`folders.set`
-//! setting a volume root or the home folder to Scan Always). The Folder Manager asks Watch Drive
+//! context menu's Remove from Dalica…; the dialog names the folder), Watch Drive (`folders.set`
+//! setting a volume root or the home folder to Scan Always), and M8's Save explanation
+//! (`photo.save`) and Revert question (`photo.revert`), which [`super::save_explain`] and
+//! [`super::revert`] draw and answer. The Folder Manager asks Watch Drive
 //! too, when such a folder's Scan Always radio is clicked: that dialog has no command, and its
 //! default button sets the radio in the Folder Manager's draft instead
 //! ([`super::folder_manager::drive_confirmed`]); Cancel leaves the radio as it was.
@@ -21,7 +23,7 @@ use dalica_ui_kit::widgets::ButtonKind;
 use egui::{RichText, Ui};
 use serde_json::{Map, Value, json};
 
-use super::{Button, Dialog, DialogCommand, DialogKind, Look, folder_manager};
+use super::{Button, Dialog, DialogCommand, DialogKind, Look, folder_manager, revert, save_explain};
 use crate::app::App;
 use crate::tray;
 
@@ -44,6 +46,9 @@ pub struct Ask {
     /// The question for these parameters when it names what it asks about (Remove Folder names the
     /// folder); `None`, or a `None` answer: [`Ask::text`].
     pub text_for: Option<fn(&App, &Value) -> Option<String>>,
+    /// Its other buttons besides the default one and Cancel, as (action, label): Revert's Undo
+    /// Save.
+    pub extra: &'static [(&'static str, &'static str)],
 }
 
 /// The Remove Folder question when the folder is not known.
@@ -64,6 +69,7 @@ pub static ASKS: &[Ask] = &[
         label: tray::CLEAR_TITLE,
         asks: tray_clear_asks,
         text_for: None,
+        extra: &[],
     },
     Ask {
         command: "folder.remove",
@@ -74,6 +80,7 @@ pub static ASKS: &[Ask] = &[
         label: REMOVE_TITLE,
         asks: folder_remove_asks,
         text_for: Some(folder_remove_text),
+        extra: &[],
     },
     Ask {
         command: "folders.set",
@@ -84,6 +91,29 @@ pub static ASKS: &[Ask] = &[
         label: DRIVE_TITLE,
         asks: folder_manager::watches_a_drive,
         text_for: None,
+        extra: &[],
+    },
+    Ask {
+        command: "photo.save",
+        kind: DialogKind::SaveExplain,
+        title: save_explain::TITLE,
+        text: save_explain::TEXT,
+        action: "save",
+        label: save_explain::TITLE,
+        asks: save_explain::asks,
+        text_for: None,
+        extra: &[],
+    },
+    Ask {
+        command: "photo.revert",
+        kind: DialogKind::Revert,
+        title: revert::TITLE,
+        text: revert::TEXT,
+        action: "revert",
+        label: revert::TITLE,
+        asks: revert::asks,
+        text_for: None,
+        extra: &[("undoSave", revert::UNDO_SAVE)],
     },
 ];
 
@@ -121,7 +151,23 @@ pub fn dialog(ask: &Ask, params: &Value) -> Dialog {
 
 /// `needs_confirm`'s `prompt` (`control-protocol.md` §5.5): the dialog's title, text and buttons.
 pub fn prompt(ask: &Ask) -> Value {
-    json!({ "title": ask.title, "text": ask.text, "buttons": [ask.label, "Cancel"], "dialog": ask.kind.name() })
+    let buttons: Vec<&str> = std::iter::once(ask.label).chain(ask.extra.iter().map(|(_, label)| *label)).chain(["Cancel"]).collect();
+    json!({ "title": ask.title, "text": ask.text, "buttons": buttons, "dialog": ask.kind.name() })
+}
+
+/// The parameters a confirmation's button runs its command with: what was asked about, plus
+/// `"confirm": true` and `extra` (a button's own parameters, a checkbox's answer).
+pub fn confirmed_params(d: &Dialog, extra: &[(&str, Value)]) -> Result<(String, Value), CmdError> {
+    let c = d.command.as_ref().ok_or_else(|| CmdError::Internal(format!("the {} confirmation has no command", d.kind.name())))?;
+    let mut params = match &c.params {
+        Value::Object(o) => o.clone(),
+        _ => Map::new(),
+    };
+    params.insert("confirm".into(), Value::Bool(true));
+    for (k, v) in extra {
+        params.insert((*k).into(), v.clone());
+    }
+    Ok((c.id.clone(), Value::Object(params)))
 }
 
 pub fn look(d: &Dialog) -> Look {
@@ -148,11 +194,6 @@ pub fn act(app: &mut App, d: &Dialog, _action: &str) -> Result<Value, CmdError> 
     if d.command.is_none() && d.kind == DialogKind::WatchDrive {
         return folder_manager::drive_confirmed(app, d);
     }
-    let c = d.command.as_ref().ok_or_else(|| CmdError::Internal(format!("the {} confirmation has no command", d.kind.name())))?;
-    let mut params = match &c.params {
-        Value::Object(o) => o.clone(),
-        _ => Map::new(),
-    };
-    params.insert("confirm".into(), Value::Bool(true));
-    app.run(&c.id, &Value::Object(params))
+    let (id, params) = confirmed_params(d, &[])?;
+    app.run(&id, &params)
 }

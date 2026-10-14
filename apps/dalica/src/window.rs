@@ -35,12 +35,24 @@ pub fn viewport(frame: &FrameSetup) -> ViewportBuilder {
     }
 }
 
-/// Native folder dialogs through `rfd` (the XDG portal on Linux). Called on a dialog thread.
+/// Native folder and save dialogs through `rfd` (the XDG portal on Linux). Called on a dialog
+/// thread.
 pub struct RfdPicker;
 
 impl Picker for RfdPicker {
     fn pick_folder(&self) -> Option<PathBuf> {
         rfd::FileDialog::new().set_title("Add Folder").pick_folder()
+    }
+
+    fn pick_save(&self, request: &dalica_ui::picker::SaveRequest) -> Option<PathBuf> {
+        let mut dialog = rfd::FileDialog::new().set_title(request.title).set_file_name(&request.name);
+        if let Some(folder) = &request.folder {
+            dialog = dialog.set_directory(folder);
+        }
+        for f in request.filters {
+            dialog = dialog.add_filter(f.name, f.extensions);
+        }
+        dialog.save_file()
     }
 }
 

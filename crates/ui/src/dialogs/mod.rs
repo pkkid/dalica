@@ -25,6 +25,13 @@
 //! - **First run**: the window offers the first-run panel when it opens a new library
 //!   ([`first_run::offer`]).
 //!
+//! - **M8's dialogs**: Save's first-time explanation ([`save_explain`]) and the Revert question
+//!   ([`revert`]) are confirmations of [`confirm::ASKS`] with modules of their own; the Export
+//!   dialog ([`export`], `output.export`). Their drafts are fields of the view state
+//!   (`saveExplain`, `revert`, `export`), set when they open and cleared when they close. The
+//!   export progress window ([`export_progress`]) is drawn here too, but it is no dialog of the
+//!   stack: the window under it keeps taking input.
+//!
 //! Each kind lives in a module of its own with the same three functions, which the host
 //! dispatches to: `look` (title, width, buttons), `body` (draws the draft and edits it in place)
 //! and `act` (what a button other than Cancel does). A new kind adds its [`DialogKind`] variant,
@@ -38,12 +45,16 @@ pub mod about;
 pub mod adjust_date;
 pub mod confirm;
 pub mod custom_ratio;
+pub mod export;
+pub mod export_progress;
 pub mod first_run;
 pub mod folder_manager;
 pub mod folder_properties;
 pub mod quick_tags;
 pub mod release_notes;
 pub mod rename_tag;
+pub mod revert;
+pub mod save_explain;
 
 use dalica_engine::CmdError;
 use dalica_ui_kit::widgets::{self, ButtonKind, DialogButton};
@@ -115,6 +126,9 @@ fn look(app: &App, d: &Dialog) -> Look {
         DialogKind::About => about::look(app, d),
         DialogKind::ReleaseNotes => release_notes::look(app, d),
         DialogKind::CustomRatio => custom_ratio::look(app, d),
+        DialogKind::SaveExplain => save_explain::look(app, d),
+        DialogKind::Revert => revert::look(app, d),
+        DialogKind::Export => export::look(app, d),
     }
 }
 
@@ -130,6 +144,9 @@ fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
         DialogKind::About => about::body(app, ui, d),
         DialogKind::ReleaseNotes => release_notes::body(app, ui, d),
         DialogKind::CustomRatio => custom_ratio::body(app, ui, d),
+        DialogKind::SaveExplain => save_explain::body(app, ui, d),
+        DialogKind::Revert => revert::body(app, ui, d),
+        DialogKind::Export => export::body(app, ui, d),
     }
 }
 
@@ -145,6 +162,9 @@ fn act(app: &mut App, d: &Dialog, action: &str) -> Result<Value, CmdError> {
         DialogKind::About => about::act(app, d, action),
         DialogKind::ReleaseNotes => release_notes::act(app, d, action),
         DialogKind::CustomRatio => custom_ratio::act(app, d, action),
+        DialogKind::SaveExplain => save_explain::act(app, d, action),
+        DialogKind::Revert => revert::act(app, d, action),
+        DialogKind::Export => export::act(app, d, action),
     }
 }
 
@@ -193,9 +213,17 @@ pub fn open(app: &mut App, dialog: Dialog) -> Result<Value, CmdError> {
     Ok(json!({ "dialog": kind.name() }))
 }
 
-/// Takes the dialog of `kind` off the stack.
+/// Takes the dialog of `kind` off the stack, and its draft out of the view state (M8's dialogs
+/// keep theirs there).
 fn close(app: &mut App, kind: DialogKind) -> Option<Dialog> {
-    let dialogs = &mut app.state_mut().dialogs;
+    let state = app.state_mut();
+    match kind {
+        DialogKind::SaveExplain => state.save_explain = None,
+        DialogKind::Revert => state.revert = None,
+        DialogKind::Export => state.export = None,
+        _ => {}
+    }
+    let dialogs = &mut state.dialogs;
     let at = dialogs.iter().position(|d| d.kind == kind)?;
     Some(dialogs.remove(at))
 }
@@ -268,14 +296,23 @@ pub fn asking(app: &App, command: &str, params: &Value) -> Option<&'static confi
     (ask.asks)(app, params).then_some(ask)
 }
 
-/// Asks through the host: opens the confirmation `ask` for running its command with `params`.
+/// Asks through the host: opens the confirmation `ask` for running its command with `params`, and
+/// for M8's questions their draft in the view state (`saveExplain`, `revert`).
 pub fn ask(app: &mut App, ask: &confirm::Ask, params: &Value) -> Result<Value, CmdError> {
-    open(app, confirm::dialog(ask, params))
+    let reply = open(app, confirm::dialog(ask, params))?;
+    match ask.kind {
+        DialogKind::SaveExplain => save_explain::opened(app, params),
+        DialogKind::Revert => revert::opened(app, params),
+        _ => {}
+    }
+    Ok(reply)
 }
 
 /// Draws every open dialog, bottom first; the top one takes input. Call once per frame, after the
 /// panels (the backdrop covers them).
 pub fn show(app: &mut App, ctx: &egui::Context) {
+    // The export progress window is not modal: under the dialogs, over the panels.
+    export_progress::show(app, ctx);
     let count = app.state().dialogs.len();
     let t = *app.tokens();
     for i in 0..count {

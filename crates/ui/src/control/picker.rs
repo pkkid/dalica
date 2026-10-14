@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 
 use super::host::Input;
 use super::{Call, Code, DEFAULT_SETTLE_MS, Error, Next, Outcome, paths};
-use crate::picker::Picker;
+use crate::picker::{Picker, SaveRequest};
 
 /// What a picker asks for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -28,6 +28,15 @@ pub struct PickerRequest {
     pub command: &'static str,
     pub kind: PickerKind,
     pub title: &'static str,
+    /// A save dialog's suggested file name.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// A save dialog's starting folder.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub folder: Option<PathBuf>,
+    /// The command's other parameters (the answer adds `path`).
+    #[serde(skip_serializing_if = "Value::is_null")]
+    pub params: Value,
 }
 
 #[derive(Default)]
@@ -72,17 +81,42 @@ impl StubPicker {
     }
 }
 
-impl Picker for StubPicker {
-    fn pick_folder(&self) -> Option<PathBuf> {
+impl StubPicker {
+    /// Shows `request` as waiting and blocks (on the dialog's own thread) until it is answered.
+    fn wait_for(&self, request: PickerRequest) -> Option<PathBuf> {
         let mut s = self.lock();
         s.answer = None;
-        s.waiting = Some(PickerRequest { command: "folders.add", kind: PickerKind::Folder, title: "Add Folder" });
+        s.waiting = Some(request);
         loop {
             if let Some(answer) = s.answer.take() {
                 return answer;
             }
             s = self.answered.wait(s).unwrap_or_else(PoisonError::into_inner);
         }
+    }
+}
+
+impl Picker for StubPicker {
+    fn pick_folder(&self) -> Option<PathBuf> {
+        self.wait_for(PickerRequest {
+            command: "folders.add",
+            kind: PickerKind::Folder,
+            title: "Add Folder",
+            name: None,
+            folder: None,
+            params: Value::Null,
+        })
+    }
+
+    fn pick_save(&self, request: &SaveRequest) -> Option<PathBuf> {
+        self.wait_for(PickerRequest {
+            command: request.command,
+            kind: PickerKind::Save,
+            title: request.title,
+            name: Some(request.name.clone()),
+            folder: request.folder.clone(),
+            params: request.params.clone(),
+        })
     }
 }
 
@@ -94,7 +128,9 @@ struct Answer {
 }
 
 /// `ui.filePicker {path} | {cancel: true}`: closes the stubbed picker and runs its command with the
-/// path, as the real picker would; replies the command's result once the dialog has closed.
+/// path (and a save dialog's other parameters), as the real picker would; replies the command's
+/// result once the dialog has closed. A folder to add is checked as a read (§5.7 reading), a file
+/// to save to as a new file written (§5.7 writing: [`paths::check_output`]).
 pub(super) fn answer(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Error> {
     let a: Answer = call.params(params)?;
     let path = match (a.path, a.cancel) {
@@ -115,7 +151,11 @@ pub(super) fn answer(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Err
     let watched = call.host.app().session().map(|s| s.roots().to_vec()).unwrap_or_default();
     let stub = call.control.picker.clone();
     Ok(Outcome::Work(Box::new(move || {
-        if let Err(e) = paths::check_read(&path, &config.read_roots, &watched, config.demo) {
+        let checked = match waiting.kind {
+            PickerKind::Save => paths::check_output(&path, &config.effective_write_roots(), &watched, paths::Output::File).map(|_| ()),
+            PickerKind::Folder | PickerKind::File => paths::check_read(&path, &config.read_roots, &watched, config.demo).map(|_| ()),
+        };
+        if let Err(e) = checked {
             return Next::Reply(Err(e));
         }
         Next::Resume(Box::new(move |host| {
@@ -124,7 +164,12 @@ pub(super) fn answer(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Err
             }
             // The dialog closes as cancelled; the command runs here, so its result is the reply.
             stub.answer(None);
-            let result = host.app_mut().run(waiting.command, &json!({ "path": path }));
+            let mut params = match &waiting.params {
+                Value::Object(o) => o.clone(),
+                _ => serde_json::Map::new(),
+            };
+            params.insert("path".into(), json!(path));
+            let result = host.app_mut().run(waiting.command, &Value::Object(params));
             Outcome::Play(settle, Box::new(move |_, _| Outcome::Reply(result.map_err(Error::from))))
         }))
     })))

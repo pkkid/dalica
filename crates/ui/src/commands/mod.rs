@@ -16,7 +16,11 @@
 //! - [`help`]: the Help menu's windows (About Dalica, Release Notes);
 //! - [`edit_view`]: entering and leaving the edit view, its tabs and its panel toggle;
 //! - [`zoom`]: the edit view's zoom (M7.15);
-//! - [`tools`]: the edit view's tools, through one interface each tool module implements.
+//! - [`tools`]: the edit view's tools, through one interface each tool module implements;
+//! - [`export`]: File ▸ Export Pictures to Folder… (`output.export`, the Export dialog);
+//! - [`save_as`]: File ▸ Save As… (`photo.saveAs`, the save picker);
+//! - [`save`]: no UI command, but which photos the engine's Save, Undo Save, Revert and Save a
+//!   Copy act on in the edit view ([`save::route`], called by [`App::run`]).
 //!
 //! A new command goes in its area's module (a new area gets a new module and one line in
 //! [`AREAS`]); its id is the one the menu catalog uses, so its menu item goes live. Every command
@@ -26,14 +30,17 @@
 //!
 //! Each command that opens an editor or a dialog changes only the view state; what the editor or
 //! dialog changes in the library is one engine command run when it is confirmed
-//! (`photo.caption.set`, `folder.info.set`, `photo.dates.set`, `tags.quick.set`, `tags.rename`),
-//! the way `folders.manager` runs `folders.set`.
+//! (`photo.caption.set`, `folder.info.set`, `photo.dates.set`, `tags.quick.set`, `tags.rename`,
+//! `export.run`, `photo.saveTo`), the way `folders.manager` runs `folders.set`.
 
 pub mod caption;
 pub mod dialogs;
 pub mod edit_view;
+pub mod export;
 pub mod help;
 pub mod info;
+pub mod save;
+pub mod save_as;
 pub mod scroll;
 pub mod select;
 pub mod tools;
@@ -80,6 +87,8 @@ const AREAS: &[&[UiCommand]] = &[
     edit_view::COMMANDS,
     zoom::COMMANDS,
     tools::COMMANDS,
+    export::COMMANDS,
+    save_as::COMMANDS,
 ];
 
 /// Whether a UI command can run now with its parameters; why not (the status line's text) when it
@@ -87,7 +96,7 @@ const AREAS: &[&[UiCommand]] = &[
 pub type Check = fn(&App, &Value) -> Result<(), String>;
 
 /// The checks of the UI commands that cannot always run, by area.
-const CHECKS: &[&[(&str, Check)]] = &[caption::CHECKS, info::CHECKS, edit_view::CHECKS];
+const CHECKS: &[&[(&str, Check)]] = &[caption::CHECKS, info::CHECKS, edit_view::CHECKS, export::CHECKS, save_as::CHECKS];
 
 /// Whether UI command `id` can run now with `params` (what a click passes: `{}`); why not when it
 /// cannot. Commands without a check always can.
