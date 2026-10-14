@@ -4082,7 +4082,7 @@ mid-run.
     keeps the files and removes every membership, and undo brings them back; Sort Album By and
     Reverse Order; Starred Photos and Recently Updated follow stars and edits on a virtual clock;
     each command's contract and graceful failures; `panic_hunt` green.
-- ⬜ **M9.11 `engine`: search on a worker, suggestions and Save Search as Album**
+- ✅ **M9.11 `engine`: search on a worker, suggestions and Save Search as Album**
   - after: M9.3, M9.7, M9.8
   - files: `crates/engine/src/cmd/search.rs`, `crates/engine/src/cmd/library.rs`, `crates/engine/src/search.rs`, `crates/engine/tests/search.rs`
   - scope: `organizing.md` §8 and `ui-layout.md` §9: `search.set {text?, filters?, age?}` (no undo
