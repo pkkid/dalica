@@ -26,8 +26,14 @@ moxcms.workspace = true
 # The export watermark: Inter SemiBold's glyphs, laid out and rasterised (M8.11).
 ab_glyph.workspace = true
 thiserror.workspace = true
+# Save in place (M8.12; `core` and `fs` above also give it the clock's timestamps, the originals
+# backup and atomic writes): the originals record's format, and its `md5:` digests.
+dalica-sidecar.workspace = true
+md5.workspace = true
 
 [dev-dependencies]
+# Fault points and hooks, to change a photo at the exact moment between Save's read and its move.
+dalica-fs = { workspace = true, features = ["faults"] }
 # Procedural photos, their JPEG/PNG files and the pixel fingerprints of the output tests.
 dalica-scenes.workspace = true
 # Temporary export locations and the export plan's property tests.

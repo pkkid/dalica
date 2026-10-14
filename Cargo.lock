@@ -853,6 +853,8 @@ dependencies = [
  "dalica-image",
  "dalica-meta",
  "dalica-scenes",
+ "dalica-sidecar",
+ "md5",
  "moxcms 0.9.1",
  "proptest",
  "tempfile",

@@ -3388,7 +3388,7 @@ first measurement. No step of M8 needs a maintainer decision mid-run.
     side at three sizes and two sizes agree after downscale; it stays inside the bottom-right
     margins; empty text draws nothing; very long text shrinks to fit; a character without a glyph
     draws the font's fallback without a panic; fingerprints on a light and a dark scene.
-- ⬜ **M8.12 `create`: Save in place, Undo Save and Revert**
+- ✅ **M8.12 `create`: Save in place, Undo Save and Revert**
   - after: M8.2, M8.9, M8.10
   - files: `crates/create/src/save.rs`, `crates/create/src/save/**`, `crates/create/tests/save.rs`, `docs/data-model.md`
   - scope: `data-model.md` §6, §10.9 and `security.md` §5.3: `save::in_place(folder, name,
