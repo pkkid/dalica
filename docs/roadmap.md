@@ -3374,7 +3374,7 @@ first measurement. No step of M8 needs a maintainer decision mid-run.
     alpha stays PNG with alpha and a 16-bit one 16-bit; EXIF, XMP and IPTC carried with the owned
     fields; GPS removed when asked; the decoded output equals `edit::render` (fingerprints); an
     undecodable source and hostile sizes are `Err`, never a panic; nothing is written to disk.
-- ⬜ **M8.11 `create`: the export watermark**
+- ✅ **M8.11 `create`: the export watermark**
   - after: M8.10
   - files: `crates/create/src/watermark.rs`, `crates/create/tests/watermark.rs`, `crates/create/tests/fingerprints/watermark*.json`, `NOTICE`
   - scope: `creating.md` §2: white text with a soft shadow, bottom-right, 3 % of the long side
