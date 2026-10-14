@@ -49,3 +49,10 @@ path = "fuzz_targets/write_merge.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "carry"
+path = "fuzz_targets/carry.rs"
+test = false
+doc = false
+bench = false
