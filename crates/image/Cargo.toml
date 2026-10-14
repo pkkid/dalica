@@ -58,3 +58,6 @@ serde_json.workspace = true
 # Lossless JPEG XL codestreams of oriented and re-tagged pixels (tests/jxl.rs).
 zune-jpegxl.workspace = true
 zune-core.workspace = true
+# The refusal of a declared size past the limits allocates nothing (tests/jxl.rs); it installs
+# its counting allocator in the test binaries that use it.
+allocation-counter.workspace = true

@@ -4372,7 +4372,7 @@ mid-run.
     `<Pictures>/Dalica`; a full scan running when a Save starts is put off and finds the Save's
     writes unchanged; a caption set immediately before Save is written and the Save succeeds; CI
     green on the three OSes.
-- ⬜ **M9.29 tests: the flaky waits of M8's run become structural**
+- ✅ **M9.29 tests: the flaky waits of M8's run become structural**
   - after: M8.R
   - files: `crates/ui/tests/export_dialog.rs`, `crates/ui/tests/properties_pane.rs`, `crates/image/tests/jxl.rs`
   - scope: tests that failed on loaded runners in the M8 run and passed on re-run:

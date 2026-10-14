@@ -17,7 +17,7 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use dalica_core::{FolderId, PhotoId};
 use dalica_engine::{JobKind, Session};
@@ -28,7 +28,7 @@ use dalica_ui::dialogs::export::{
 };
 use dalica_ui::headless::{Drag, Target};
 use dalica_ui::state::{ExportDraft, Quality, Section};
-use dalica_ui::{App, Driver, DriverError, ScriptedPicker};
+use dalica_ui::{App, Driver, DriverError, Picker, ScriptedPicker};
 use dalica_ui_kit::{Tokens, WidgetInfo, registry};
 use egui::pos2;
 use serde_json::{Value, json};
@@ -38,6 +38,9 @@ const SIZES: [(u32, u32); 2] = [(1400, 900), (900, 600)];
 const PATIENCE: Duration = Duration::from_secs(300);
 const EXPORT: &str = "button:dialog.export";
 const DIALOG: &str = "dialog:export";
+/// How long the test's folder picker takes to answer, as a person would: longer than a settled
+/// frame loop, so a test that does not wait for the answer fails on any machine.
+const THINKING: Duration = Duration::from_millis(150);
 
 fn put_jpeg(path: &Path, seed: u64) {
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -65,7 +68,7 @@ fn fixture(size: (u32, u32)) -> Fx {
 }
 
 /// The library, in a window whose file dialogs are `picker`'s (none: no file dialog).
-fn fixture_with((w, h): (u32, u32), picker: Option<ScriptedPicker>) -> Fx {
+fn fixture_with((w, h): (u32, u32), picker: Option<Arc<dyn Picker>>) -> Fx {
     let dir = tempfile::tempdir().unwrap();
     let photos = dir.path().join("Photos");
     for i in 0..3 {
@@ -87,12 +90,37 @@ fn fixture_with((w, h): (u32, u32), picker: Option<ScriptedPicker>) -> Fx {
     // IMG_* (Lisbon Weekend) sort before PRT_* (Porto).
     let ids = named.into_iter().map(|(_, id)| id).collect();
     let app = match picker {
-        Some(p) => App::with_picker(Some(s), Arc::new(p)),
+        Some(p) => App::with_picker(Some(s), p),
         None => App::new(Some(s)),
     };
     let mut d = Driver::new(app, w, h, 1.0);
     d.settle(FRAMES).unwrap();
     Fx { dir, lisbon, ids, d }
+}
+
+/// A [`ScriptedPicker`] that answers after [`THINKING`].
+struct Thinking(ScriptedPicker);
+
+impl Picker for Thinking {
+    fn pick_folder(&self) -> Option<PathBuf> {
+        std::thread::sleep(THINKING);
+        self.0.pick_folder()
+    }
+}
+
+/// Clicks Browse… and waits for the event the test checks: the picker's answer, run by a frame
+/// (the app's folder request is gone). `settle` alone does not wait for a folder request, so it
+/// may return while the dialog thread is still picking.
+fn browse(d: &mut Driver) {
+    d.click(BROWSE_ID).unwrap();
+    assert!(d.app().folder_request().is_some(), "Browse… opened the picker");
+    let deadline = Instant::now() + PATIENCE;
+    while d.app().folder_request().is_some() {
+        assert!(Instant::now() < deadline, "the picker never answered");
+        std::thread::sleep(Duration::from_millis(1));
+        d.step();
+    }
+    d.settle(FRAMES).unwrap();
 }
 
 fn widget(d: &Driver, id: &str) -> Option<WidgetInfo> {
@@ -410,23 +438,20 @@ fn browse_picks_the_export_location() {
     assert!(!enabled(&fx.d, BROWSE_ID), "no file dialog here");
 
     let picker = ScriptedPicker::new();
-    let mut fx = fixture_with(SIZES[0], Some(picker.clone()));
+    let mut fx = fixture_with(SIZES[0], Some(Arc::new(Thinking(picker.clone()))));
     select(&mut fx.d, &ids[..1]);
     fx.d.run("output.export", &json!({})).unwrap();
     fx.d.settle(FRAMES).unwrap();
     let before = draft(&fx.d);
     assert!(enabled(&fx.d, BROWSE_ID));
     // Cancelled (nothing queued): nothing changes.
-    fx.d.click(BROWSE_ID).unwrap();
-    fx.d.settle(FRAMES).unwrap();
+    browse(&mut fx.d);
     assert_eq!(draft(&fx.d), before);
-    assert!(fx.d.app().folder_request().is_none(), "the picker closed");
     // A folder chosen becomes the location; the dialog stays open and no folder is watched.
     let roots = fx.d.app().session().unwrap().roots().to_vec();
     let chosen = fx.out().join("Exports");
     picker.push_folder(&chosen);
-    fx.d.click(BROWSE_ID).unwrap();
-    fx.d.settle(FRAMES).unwrap();
+    browse(&mut fx.d);
     assert_eq!(PathBuf::from(draft(&fx.d).location), chosen);
     assert!(widget(&fx.d, DIALOG).is_some());
     assert_eq!(fx.d.app().session().unwrap().roots(), roots.as_slice(), "no watched folder added");
@@ -479,7 +504,7 @@ fn check_region(d: &Driver, id: &str, name: &str) {
 #[test]
 fn the_dialog_matches_its_fingerprints_at_both_sizes() {
     for (w, h) in SIZES {
-        let mut fx = fixture_with((w, h), Some(ScriptedPicker::new()));
+        let mut fx = fixture_with((w, h), Some(Arc::new(ScriptedPicker::new())));
         let ids = fx.ids.clone();
         select(&mut fx.d, &ids[..3]);
         fx.d.run("output.export", &json!({})).unwrap();

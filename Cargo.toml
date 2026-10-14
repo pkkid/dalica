@@ -114,6 +114,10 @@ getrandom = "0.4"
 proptest = "1.11"
 insta = { version = "1.49", features = ["json"] }
 criterion = "0.8"
+# Counts the allocations a closure makes on its own thread, through a global allocator it installs
+# (dalica-image's `tests/jxl.rs` only). No dependencies, no build script; its `unsafe` is the
+# allocator's, forwarding to `System` (MIT OR Apache-2.0).
+allocation-counter = "0.8.1"
 
 [profile.dev]
 panic = "unwind"
