@@ -69,8 +69,21 @@ of the output pipeline (no EXIF thumbnail; every owned field written, stars as r
 `export::plan` (the location made when missing, the export folder under a free sanitized name,
 each photo's stem and number, videos skipped); `export::export_one` (read under 1 GiB, render
 through `output::render`, write through `fs::create::new_file`, cancel asked before each step) and
-`export::run` (the whole plan on one thread). The command and its job (M8.16) and the dialog (M8.20)
-follow.
+`export::run` (the whole plan on one thread).
+
+**Built (M8.16, `dalica-engine` `cmd/export.rs`):** `export.defaults {ids? | section? | album?}` (the
+location, the suggested folder name, the remembered options, how many pictures and whether videos are
+among them) and `export.run {ids | section | album, dir, folderName, numbers?, size?, quality?,
+watermark?, removeLocation?}`: options left out come from the settings and the ones used are
+remembered (an unset location stays the default); the photos' current recipes are rendered, so
+unsaved edits are exported, with the library's caption, tags, star and a date the user set. It runs as
+an `export` file job ("Exporting 12 of 48", two photos at a time; Cancel lets the photos being written
+finish and starts no other). The first photo makes the export folder and writes its
+`"project": "exported"` mark into its new sidecar, so the scan that brings the folder in (added as
+Scan Always when no watched folder covers it) gives it the mark and a rebuild keeps it. The job's
+result is `{total, done, written, skipped, failed, cancelled, folder, name}` and its message
+"Exported 48 pictures" (with "; 2 skipped, 1 failed" when so). A section exports its visible photos
+in display order; `album` names none until albums exist. The dialog (M8.20) follows.
 
 ## 3. Collage (room)
 

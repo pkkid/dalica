@@ -12,6 +12,8 @@ publish = false
 
 [dependencies]
 dalica-core.workspace = true
+# Export: its plan and files through the one output pipeline (`cmd/export.rs`, M8.16).
+dalica-create.workspace = true
 # Edit recipes: rotations and flips appended with their merge and cancel rules (`cmd/rotate.rs`).
 dalica-edit.workspace = true
 dalica-fs.workspace = true
