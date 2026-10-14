@@ -220,6 +220,27 @@ pub struct CommandSpec {
 - File operations (move, rename, delete-to-trash, save, save a copy) are commands whose ops record
   their inverse where possible (move back, rename back; restoring from the trash is best effort
   and never promised in the UI).
+- **File-operation undo steps** (engine `fileops.rs`, M9.3): a move, copy, rename or delete of real
+  files is a file job of kind `files` on the file-job runner (§5), one item after another on one
+  thread. A command module describes it with a `Driver` (the items; the work for one item, through
+  `fs`, which may skip it on a clash; the library ops a finished item brings; the item that
+  reverses it, or why there is none) and starts it with `Session::start_file_op`. The operation is
+  entered in the file-operation journal (`file-ops.json`, every item `pending`) through the I/O
+  worker before its first item runs, each item marked `done` after it, and leaves the journal once
+  its results are in the library; one whose entry cannot be written moves nothing. Each finished
+  item's ops are applied as one batch and their inverse kept with the item; when the job ends, the
+  items that finished are **one undo step of their own kind** (Cancel keeps what finished as that
+  step). Undo runs the reverse items, last first, as a file job in turn ("Undo Move"): the step stays
+  on the stack while it runs (Undo waits and says so), each reversed item applies its kept inverse,
+  the items reversed go to the redo stack as one step and any it could not reverse stay on the undo
+  stack; a new command meanwhile leaves no redo step. Redo runs the items as they were done (the
+  name a clash gave included) and applies the ops undo kept. A step with an item that has no way
+  back (a trash the platform cannot restore from) cannot be undone and says why
+  (`UndoStack::undo_blocked`). Because the runner puts off the watcher's rescans while a job runs
+  and each item puts both of its ends in the model before any rescan reads them, the watcher
+  imports nothing from Dalica's own moves. Each finished operation, undo and redo leaves a
+  `FileOpEvent` (kind, direction, done, skipped and failed items with file and reason, the
+  destination) for the UI's notices.
 - **Two undo histories, chosen by the view** (maintainer decision, 2026-10-09):
   - **Library view:** Edit → Undo / Redo (Ctrl+Z / Ctrl+Y) walk the **library undo stack**: every
     library-level op (stars, captions, tags, hide, rotations made in the library, moves, renames,
@@ -279,7 +300,8 @@ decodes images, touches the file system, waits on a lock held by a worker, or bl
   engine job on a worker with an `AtomicBool` cancel and progress reports. A job gets owned inputs
   when it is submitted and returns `Op`s or files; the owner applies the result as one undo step.
 - **File jobs** (engine `filejobs.rs`, M8.3; prior art LightCraft's export batch): every job that
-  writes photo files (Save, Save a Copy, Save As, Export) runs through one runner. A command builds
+  writes photo files (Save, Save a Copy, Save As, Export), and every file operation (move, copy,
+  rename, trash; §4), runs through one runner. A command builds
   a `FileJob` (kind, label, owned items that each name their file, the work for one item) and
   `Session::start_file_job` lists it as a job and runs the items on up to `workers` threads, each
   item's panic its own failure; Cancel is checked before each item (the running ones finish, no

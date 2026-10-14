@@ -20,6 +20,9 @@
 //!   are read on worker threads ([`dalica_scan::volumes`] reads the disk, and a sleeping network
 //!   volume can stall it). The command answers from what the workers brought back, or says the
 //!   answer is pending and asks a worker; [`Session::poll`] takes the answers in.
+//! - **Moved and renamed folders** (M9): when Dalica moves or renames a folder, the entries at and
+//!   under it follow it ([`Session::rebase_folders`]): each keeps its rule and its unknown keys
+//!   under the new path, and `folders.json` is written again.
 //! - **The drive question:** setting a volume root or the home folder to Scan Always needs
 //!   `confirm`. Which folders those are is known without touching the disk: a path with no parent,
 //!   the home folder (from the environment, or the places a worker read) and the volumes the last
@@ -217,6 +220,42 @@ impl Folders {
         bytes
     }
 
+    /// Moves the entries at and under `from` to the same place under `to` (rules and unknown keys;
+    /// an entry already at a new path is replaced, as the folder there is the moved one). Entries
+    /// it cannot read are kept as they are. Returns how many entries moved.
+    pub(crate) fn rebase(&mut self, from: &Path, to: &Path) -> usize {
+        if from == to {
+            return 0;
+        }
+        let moved: Vec<(PathBuf, PathBuf, Rule)> = self
+            .rules
+            .iter()
+            .filter_map(|(p, rule)| {
+                let rest = p.strip_prefix(from).ok()?;
+                let new = if rest.as_os_str().is_empty() { to.to_path_buf() } else { to.join(rest) };
+                Some((p.to_path_buf(), new, *rule))
+            })
+            .collect();
+        let mut extras = Vec::new();
+        for (old, _, _) in &moved {
+            self.rules.set(old.clone(), Rule::default());
+            extras.push(self.entry_extra.remove(old));
+        }
+        for ((_, new, rule), extra) in moved.iter().zip(extras) {
+            self.rules.set(new.clone(), *rule);
+            match extra {
+                Some(e) => {
+                    self.entry_extra.insert(new.clone(), e);
+                }
+                None => {
+                    self.entry_extra.remove(new);
+                }
+            }
+        }
+        self.refresh_roots();
+        moved.len()
+    }
+
     /// Brings the list of units in line with the rules.
     pub(crate) fn refresh_roots(&mut self) {
         self.roots = self.rules.units();
@@ -402,6 +441,19 @@ impl Session {
         self.change_rules(modes.0).before
     }
 
+    /// A folder Dalica moved or renamed from `from` to `to`: the watched-folder entries at and under
+    /// it follow it, keeping their rules and unknown keys, and `folders.json` is written through the
+    /// I/O worker when any moved; the watcher follows at the next poll. Nothing else changes: the
+    /// library's folders follow through the operation's own ops. Returns how many entries moved.
+    /// Never touches the disk.
+    pub fn rebase_folders(&mut self, from: &Path, to: &Path) -> usize {
+        let n = self.folders.rebase(from, to);
+        if n > 0 {
+            self.save_folders();
+        }
+        n
+    }
+
     /// Writes `folders.json` through the I/O worker.
     pub(crate) fn save_folders(&mut self) {
         self.folders.saved = true;
@@ -581,5 +633,35 @@ mod tests {
         assert!(entries.contains(&json!({ "path": "rel" })));
         assert!(Folders::parse(b"[]").is_none());
         assert!(Folders::parse(br#"{"folders":3}"#).is_none());
+    }
+
+    #[test]
+    fn rebase_moves_the_entries_at_and_under_a_folder_and_keeps_the_others() {
+        let file = br#"{"version":2,"folders":[
+            {"path":"/p/a","mode":"always","note":"kept"},
+            {"path":"/p/a/b","mode":"remove"},
+            {"path":"/p/a/b/c","faces":true},
+            {"path":"/p/ab","mode":"once"},
+            {"path":"/q","mode":"always"},
+            {"path":"/q/z/a","mode":"once","stale":1},
+            {"path":"/p/a/x","mode":"sometimes"}]}"#;
+        let (mut f, _) = Folders::parse(file).unwrap();
+        assert_eq!(f.rebase(Path::new("/p/a"), Path::new("/q/z/a")), 3);
+        let rule = |p: &str| f.rules.get(Path::new(p)).copied();
+        assert_eq!(rule("/q/z/a"), Some(Rule { mode: Some(Mode::Always), faces: None, indexed: false }), "the moved entry replaces a stale one");
+        assert_eq!(rule("/q/z/a/b").and_then(|r| r.mode), Some(Mode::Remove));
+        assert_eq!(rule("/q/z/a/b/c").and_then(|r| r.faces), Some(true));
+        assert_eq!(rule("/p/a"), None);
+        assert_eq!(rule("/p/a/b"), None);
+        assert_eq!(rule("/p/ab").and_then(|r| r.mode), Some(Mode::Once), "a sibling whose name starts the same stays");
+        assert_eq!(rule("/q").and_then(|r| r.mode), Some(Mode::Always));
+        assert_eq!(f.roots, [PathBuf::from("/p/ab"), PathBuf::from("/q"), PathBuf::from("/q/z/a")], "the units follow");
+        let written: Value = serde_json::from_slice(&f.to_json()).unwrap();
+        let entries = written["folders"].as_array().unwrap();
+        assert!(entries.contains(&json!({ "path": "/q/z/a", "mode": "always", "note": "kept" })), "unknown keys travel");
+        assert!(entries.contains(&json!({ "path": "/p/a/x", "mode": "sometimes" })), "an entry it cannot read is kept as it is");
+        assert!(!entries.iter().any(|e| e.get("stale").is_some()));
+        assert_eq!(f.rebase(Path::new("/nowhere"), Path::new("/q/n")), 0);
+        assert_eq!(f.rebase(Path::new("/q"), Path::new("/q")), 0);
     }
 }

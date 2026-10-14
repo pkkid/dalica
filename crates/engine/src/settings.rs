@@ -60,6 +60,13 @@
 //!   directory the tree lists in Projects is the export location's parent
 //!   ([`Session::projects_dir`](crate::Session::projects_dir)).
 //!
+//! M9 adds `"organize"`, merged key by key the same way (M9.3; `organizing.md` §4 and §9,
+//! `menus-and-shortcuts.md` §5; [`OrganizeSettings`]): `{askBeforeMoving,
+//! removeFromAlbumsWithoutAsking, deleteWithoutAsking, recentDays, lastMoveFolder}`: the first-time
+//! move question (on; its "Don't ask again" turns it off), Options → General → Files → "Remove from
+//! albums without asking" and "Delete from disk without asking" (off, off), the days Recently
+//! Updated covers (30, in [`RECENT_DAYS_RANGE`]) and the folder Move Folder last moved into (none).
+//!
 //! The command modules read them through [`Session::settings`](crate::Session::settings) and change
 //! them through [`Session::change_settings`](crate::Session::change_settings) with the typed
 //! accessors below. A value of the wrong type is the default and is reported once, when the library
@@ -424,6 +431,42 @@ pub struct SaveSettings {
 impl Default for SaveSettings {
     fn default() -> Self {
         SaveSettings { explain: true, last_folder: None, last_format: SaveFormat::Jpeg }
+    }
+}
+
+/// The days Recently Updated covers by default (`organizing.md` §4.1), and the range a stored
+/// value must lie in.
+pub const RECENT_DAYS_DEFAULT: u32 = 30;
+pub const RECENT_DAYS_RANGE: std::ops::RangeInclusive<u32> = 1..=3650;
+
+/// Organizing's settings (`"organize"` in `settings.json`; `organizing.md` §4 and §9).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OrganizeSettings {
+    /// Ask "Move these files on disk?" before a move (`askBeforeMoving`; on). "Don't ask again"
+    /// turns it off.
+    pub ask_before_moving: bool,
+    /// Options → General → Files → "Remove from albums without asking"
+    /// (`removeFromAlbumsWithoutAsking`; off).
+    pub remove_from_albums_without_asking: bool,
+    /// Options → General → Files → "Delete from disk without asking" (`deleteWithoutAsking`; off).
+    pub delete_without_asking: bool,
+    /// The days Recently Updated covers (`recentDays`; [`RECENT_DAYS_DEFAULT`], in
+    /// [`RECENT_DAYS_RANGE`]).
+    pub recent_days: u32,
+    /// The folder Move Folder last moved a folder into (`lastMoveFolder`; absolute, at most
+    /// [`MAX_PATH_BYTES`]); `None` until the first one.
+    pub last_move_folder: Option<PathBuf>,
+}
+
+impl Default for OrganizeSettings {
+    fn default() -> Self {
+        OrganizeSettings {
+            ask_before_moving: true,
+            remove_from_albums_without_asking: false,
+            delete_without_asking: false,
+            recent_days: RECENT_DAYS_DEFAULT,
+            last_move_folder: None,
+        }
     }
 }
 
@@ -932,6 +975,53 @@ impl Settings {
         );
     }
 
+    /// Organizing's settings; a value of the wrong type or out of its range is its default.
+    pub fn organize(&self) -> OrganizeSettings {
+        self.read_organize(&mut Vec::new())
+    }
+
+    /// Stores organizing's settings under `"organize"` (days out of range as the default, a last
+    /// folder that is not an absolute path of valid Unicode, or `None`, removed); other keys are
+    /// kept.
+    pub fn set_organize(&mut self, o: &OrganizeSettings) {
+        let days = if RECENT_DAYS_RANGE.contains(&o.recent_days) { o.recent_days } else { RECENT_DAYS_DEFAULT };
+        self.merge(
+            "organize",
+            &[
+                ("askBeforeMoving", Some(json!(o.ask_before_moving))),
+                ("removeFromAlbumsWithoutAsking", Some(json!(o.remove_from_albums_without_asking))),
+                ("deleteWithoutAsking", Some(json!(o.delete_without_asking))),
+                ("recentDays", Some(json!(days))),
+                ("lastMoveFolder", o.last_move_folder.as_deref().and_then(folder_path).map(|f| json!(f))),
+            ],
+        );
+    }
+
+    fn read_organize(&self, problems: &mut Vec<String>) -> OrganizeSettings {
+        let mut o = OrganizeSettings::default();
+        let Some(obj) = self.object("organize", problems) else { return o };
+        o.ask_before_moving = Settings::flag(obj, "organize", "askBeforeMoving", true, problems);
+        o.remove_from_albums_without_asking = Settings::flag(obj, "organize", "removeFromAlbumsWithoutAsking", false, problems);
+        o.delete_without_asking = Settings::flag(obj, "organize", "deleteWithoutAsking", false, problems);
+        match obj.get("recentDays") {
+            None => {}
+            Some(v) => match v.as_u64().and_then(|n| u32::try_from(n).ok()).filter(|n| RECENT_DAYS_RANGE.contains(n)) {
+                Some(n) => o.recent_days = n,
+                None => problems.push(format!(
+                    "organize.recentDays is not a whole number of days from {} to {}; the default ({RECENT_DAYS_DEFAULT}) is used",
+                    RECENT_DAYS_RANGE.start(),
+                    RECENT_DAYS_RANGE.end()
+                )),
+            },
+        }
+        match obj.get("lastMoveFolder") {
+            None | Some(Value::Null) => {}
+            Some(Value::String(f)) if folder_path(Path::new(f)).is_some() => o.last_move_folder = Some(PathBuf::from(f)),
+            Some(_) => problems.push("organize.lastMoveFolder is not an absolute folder path; no folder is remembered".into()),
+        }
+        o
+    }
+
     /// The stored settings this version reads with a value of the wrong type, one line each, by key
     /// (never by value): their defaults are used. The session reports them in its notices when it
     /// opens the library.
@@ -943,6 +1033,7 @@ impl Settings {
         self.read_edit(&mut out);
         self.read_save(&mut out);
         self.read_export(&mut out);
+        self.read_organize(&mut out);
         out.into_iter().map(|p| format!("settings.json: {p}")).collect()
     }
 

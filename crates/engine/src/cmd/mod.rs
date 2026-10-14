@@ -1,22 +1,29 @@
 //! The commands, one module per area (`architecture.md` §3). New areas add a module and one line
 //! in [`specs`].
 
+pub mod albums;
 pub mod app;
 pub mod caption;
 pub mod crop;
 pub mod dates;
+pub mod delete;
+pub mod duplicates;
 pub mod edit;
 pub mod export;
+pub mod files;
 pub mod folder_info;
+pub mod folder_ops;
 pub mod folders;
 pub mod hide;
 pub mod history;
 pub mod info;
 pub mod library;
 pub mod photo;
+pub mod rename;
 pub mod rotate;
 pub mod save;
 pub mod save_copy;
+pub mod search;
 pub mod section;
 pub mod tags;
 pub mod tuning;
@@ -54,6 +61,15 @@ pub fn specs() -> Vec<CommandSpec> {
         save::specs(),
         save_copy::specs(),
         export::specs(),
+        // M9: empty until M9.10 (albums), M9.11 (search), M9.13 (files), M9.14 (rename), M9.15
+        // (delete, folder_ops) and M9.16 (duplicates).
+        albums::specs(),
+        search::specs(),
+        files::specs(),
+        rename::specs(),
+        delete::specs(),
+        folder_ops::specs(),
+        duplicates::specs(),
     ]
     .concat();
     #[cfg(test)]

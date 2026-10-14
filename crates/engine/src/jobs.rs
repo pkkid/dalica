@@ -49,6 +49,9 @@ pub enum JobKind {
     Collage,
     /// A short look at one photo for the edit view (suggested crops; the Tuning wands).
     Analysis,
+    /// A file operation: photos or folders moved, copied, renamed or sent to the trash, or such an
+    /// operation undone or redone (`fileops.rs`).
+    Files,
 }
 
 /// Where a job is.
