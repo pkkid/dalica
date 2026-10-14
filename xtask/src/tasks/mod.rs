@@ -12,7 +12,7 @@ mod git;
 mod github;
 mod glob;
 mod lock;
-mod prune;
+pub(crate) mod prune;
 #[cfg(test)]
 mod repo_tests;
 pub mod roadmap;

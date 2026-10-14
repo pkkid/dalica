@@ -96,7 +96,7 @@ pub fn prune(target_root: &Path, busy: &BTreeMap<String, String>, dry_run: bool)
 }
 
 /// A directory, and not a symlink to one.
-fn is_real_dir(path: &Path) -> bool {
+pub(crate) fn is_real_dir(path: &Path) -> bool {
     std::fs::symlink_metadata(path).is_ok_and(|m| m.is_dir())
 }
 
@@ -129,7 +129,7 @@ fn find_incremental(dir: &Path, depth: usize, visited: &mut usize, found: &mut V
 /// Closing alone is not enough: the lock belongs to the open file, and a child process spawned
 /// meanwhile (by another thread) holds a copy of every open file until its exec closes them, so
 /// the lock could outlive prune for a moment and make a cargo starting then wait.
-struct Held(Vec<File>);
+pub(crate) struct Held(Vec<File>);
 
 impl Drop for Held {
     fn drop(&mut self) {
@@ -142,7 +142,7 @@ impl Drop for Held {
 /// Takes cargo's locks of `profile` without waiting. Err says why not (cargo is building there),
 /// and has released the locks already taken. A dry run opens only lock files that exist,
 /// read-only, and creates nothing.
-fn lock_profile(profile: &Path, dry_run: bool) -> Result<Held, String> {
+pub(crate) fn lock_profile(profile: &Path, dry_run: bool) -> Result<Held, String> {
     let mut held = Held(Vec::new());
     for name in CARGO_LOCKS {
         let path = profile.join(name);
