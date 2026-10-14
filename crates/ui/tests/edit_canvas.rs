@@ -45,6 +45,22 @@ fn session(dir: &Path) -> (Session, Vec<u64>) {
     (s, ids)
 }
 
+/// A session on a library under `dir` holding one large scenes JPEG (4000 × 3000), whose preview
+/// takes many frames to decode and render.
+fn large_session(dir: &Path) -> (Session, Vec<u64>) {
+    let folder = dir.join("photos").join("Large");
+    std::fs::create_dir_all(&folder).unwrap();
+    let bytes = dalica_scenes::jpeg(&Scene::new(7, 4000, 3000), 90, None).unwrap();
+    std::fs::write(folder.join("IMG_0001.jpg"), bytes).unwrap();
+    let mut s = Session::open(&dir.join("library"), Arc::new(dalica_core::SystemClock)).unwrap();
+    s.execute("folders.add", &json!({ "path": folder })).unwrap();
+    s.wait_idle();
+    let found = s.execute("library.query", &json!({ "limit": 10 })).unwrap();
+    let ids: Vec<u64> = found["photos"].as_array().unwrap().iter().map(|p| p["id"].as_u64().unwrap()).collect();
+    assert_eq!(ids.len(), 1);
+    (s, ids)
+}
+
 struct T {
     _dir: tempfile::TempDir,
     control: Control,
@@ -167,6 +183,46 @@ fn settling_waits_for_the_open_photos_final_preview() {
     let shown = t.d.app().session().unwrap().preview().map(|p| (p.photo.get(), p.quality));
     assert_eq!(shown, Some((photo, dalica_engine::Quality::Final)));
     assert!(ok(&mut t, "ui.inspect", json!({}))["perf"]["previewFinalMs"].as_f64().is_some());
+}
+
+/// While the open photo's preview renders and nothing moves, the canvas rests: past the frames of
+/// the view's change (the window's new title asks for one at once, and egui runs one more after
+/// any such request), every frame asks for the next one no sooner than 16 ms later, never at once,
+/// so a live window draws at most one frame per 16 ms and the wait leaves the CPU to the workers.
+/// `ui.settle` still waits for the preview (`Session::preview_busy`).
+#[test]
+fn the_canvas_rests_while_a_preview_renders_and_settling_still_waits_for_it() {
+    const OPENING: usize = 2;
+    let dir = tempfile::tempdir().unwrap();
+    let (s, ids) = large_session(dir.path());
+    let control = Control::new(Config::default());
+    let mut d = Driver::new(App::with_picker(Some(s), control.picker()), 1400, 900, 1.0);
+    d.settle(FRAMES).unwrap();
+    let mut t = T { _dir: dir, control, conn: Connection::new(), d, ids };
+    let photo = t.ids[0];
+    ok(&mut t, "engine.execute", json!({ "command": "view.edit", "params": { "id": photo } }));
+    let busy = |t: &T| t.d.app().session().map_or(0, Session::preview_busy);
+    assert!(busy(&t) > 0, "the preview is on its way");
+    // Frames while it renders, a millisecond apart in real time.
+    let mut rested = 0;
+    for n in 0..10_000 {
+        t.d.step();
+        if busy(&t) == 0 {
+            break;
+        }
+        let delay = t.d.repaint_delay();
+        if n >= OPENING {
+            let causes = t.d.ctx().repaint_causes();
+            assert!(delay.is_none_or(|d| d.as_secs_f64() >= 0.016), "frame {n}: the next frame after {delay:?}, asked by {causes:?}");
+            rested += 1;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    assert!(rested > 0, "frames ran while the preview rendered");
+    let settled = ok(&mut t, "ui.settle", json!({ "timeoutMs": 60000 }));
+    assert_eq!(settled["settled"], true, "{settled}");
+    let shown = t.d.app().session().unwrap().preview().map(|p| (p.photo.get(), p.quality));
+    assert_eq!(shown, Some((photo, dalica_engine::Quality::Final)));
 }
 
 #[test]

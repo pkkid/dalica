@@ -1,7 +1,8 @@
 //! Edited photos in the light table (`roadmap.md` M7.9; `architecture.md` §6.5, `editing.md` §9),
 //! driven headlessly: when a photo's recipe changes, its cell keeps drawing the texture it had
 //! (never the placeholder, never its sketch) while the new thumbnail renders, held at a gate so the
-//! frames in between are seen; the new texture then replaces it. The edited badge shows with the
+//! frames in between are seen; the new texture then replaces it. After a crop the old texture
+//! keeps its own shape, letterboxed inside the new one. The edited badge shows with the
 //! edit and goes with its undo; a rotation alone shows none. The cell fingerprints at
 //! 1400 × 900 and 900 × 600 (`edited-cell-*.json`). Renders go to `target/test-output/ui/`;
 //! `DALICA_BLESS=1` stores new fingerprints.
@@ -14,6 +15,7 @@ use dalica_core::PhotoId;
 use dalica_engine::Session;
 use dalica_engine::thumbs::ScanHook;
 use dalica_scenes::{Scene, fingerprint};
+use dalica_ui::panels::light_table::cell::letterbox;
 use dalica_ui::panels::thumbnails::{Drawn, Painted};
 use dalica_ui::{App, Driver};
 use dalica_ui_kit::raster::Image;
@@ -175,6 +177,51 @@ fn an_edited_cell_keeps_its_old_texture_until_the_new_one_lands_and_shows_the_ba
     let turned = painted(&d, id);
     assert!(!turned.stale && !badges(&d, id).edited);
     assert_eq!(session(&mut d).thumbnail_stats().remade, 2);
+}
+
+/// A crop changes the cell's shape at once; while the cropped thumbnail renders, the old texture is
+/// drawn at its own shape (3:2), letterboxed inside the new one (3:4) on the placeholder, never
+/// stretched to it; the cropped texture then fills the new shape.
+#[test]
+fn a_newly_cropped_cell_draws_its_old_texture_at_its_own_shape() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut d = Driver::new(App::new(Some(library(dir.path()))), 1400, 900, 1.0);
+    d.settle(FRAMES).unwrap();
+    let id = first_photo(&d);
+    let before = painted(&d, id);
+    assert_eq!((before.drawn, before.stale), (Drawn::Image, false));
+    let aspect = |r: egui::Rect| r.width() / r.height();
+    assert!((aspect(before.rect) - 1.5).abs() < 0.01, "{before:?}");
+    let [x, y, w, h] = cell_rect(&d, id);
+    let cell = egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(w, h));
+    let cropped = letterbox(cell, 300, 400);
+
+    // The middle half across: 300 × 400 of the 600 × 400 photo, its new thumbnail held at the gate.
+    let gate = Gate::default();
+    session(&mut d).set_thumbnail_scan_hook(Some(gate.hook()));
+    session(&mut d).execute("photo.history.apply", &json!({ "id": id, "op": "crop(0.25,0,0.75,1)" })).unwrap();
+    let placeholder = dalica_ui_kit::Tokens::default().placeholder.to_array();
+    for n in 0..10 {
+        d.step();
+        let p = painted(&d, id);
+        assert!(matches!(p.drawn, Drawn::Image | Drawn::Upscaled) && p.stale, "frame {n}: the old texture, {p:?}");
+        assert!((aspect(p.rect) - 1.5).abs() < 0.01, "frame {n}: drawn at its own shape, not stretched: {p:?}");
+        assert!((p.rect.width() - cropped.width()).abs() < 0.01, "frame {n}: as wide as the new shape {cropped:?}: {p:?}");
+        assert!(cropped.contains_rect(p.rect) && (p.rect.center() - cropped.center()).length() < 0.01, "frame {n}: {p:?}");
+    }
+    // The bars above and below it inside the new shape are the placeholder.
+    let shot = d.screenshot().unwrap();
+    let (w, h, rgba) = region(&shot, [x, y, w, h], 1.0);
+    std::fs::write(out_dir().join("cropped-cell-held-1400x900.png"), fingerprint::png_rgba(w, h, &rgba)).unwrap();
+    let p = painted(&d, id);
+    let bar = |y: f32| shot.pixel(cropped.center().x.round() as u32, y.round() as u32).unwrap();
+    assert_eq!(bar((cropped.top() + p.rect.top()) / 2.0), placeholder, "the bar above");
+    assert_eq!(bar((p.rect.bottom() + cropped.bottom()) / 2.0), placeholder, "the bar below");
+    gate.open();
+    d.settle(FRAMES).unwrap();
+    let after = painted(&d, id);
+    assert_eq!((after.drawn, after.stale), (Drawn::Image, false), "the cropped texture");
+    assert!((after.rect.min - cropped.min).length() < 0.01 && (after.rect.max - cropped.max).length() < 0.01, "{after:?} fills {cropped:?}");
 }
 
 #[test]

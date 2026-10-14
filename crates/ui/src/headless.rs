@@ -158,6 +158,8 @@ pub struct Driver {
     held: Modifiers,
     /// The last frame asked for another one at once (an animation is running).
     animating: bool,
+    /// How long the last frame asked to rest before the next one (`None`: until input).
+    repaint: Option<Duration>,
     /// The last frame, tessellated, painted on demand by [`Driver::screenshot`].
     primitives: Vec<ClippedPrimitive>,
     /// Textures the last frame released, freed before the next frame's uploads.
@@ -216,6 +218,7 @@ impl Driver {
             pointer: None,
             held: Modifiers::NONE,
             animating: false,
+            repaint: None,
             primitives: Vec::new(),
             to_free: egui::TexturesDelta::default(),
             perf: Perf::new(perf::profile_from_env()),
@@ -245,7 +248,10 @@ impl Driver {
             }
         });
         let layout = started.elapsed();
-        self.animating = out.viewport_output.get(&ViewportId::ROOT).is_some_and(|v| v.repaint_delay.is_zero());
+        let delay = out.viewport_output.get(&ViewportId::ROOT).map(|v| v.repaint_delay);
+        self.animating = delay.is_some_and(|d| d.is_zero());
+        // egui says "until input" with `Duration::MAX`.
+        self.repaint = delay.filter(|d| *d < Duration::MAX);
         let (uploaded, freed) = self.perf.observe_textures(&out.textures_delta);
         self.raster.free_textures(&mut self.to_free);
         let mut delta = out.textures_delta;
@@ -607,6 +613,12 @@ impl Driver {
     /// Where the pointer rests, if it is over the window.
     pub fn pointer_pos(&self) -> Option<Pos2> {
         self.pointer
+    }
+
+    /// How long the last frame asked to rest before the next one: zero while something animates,
+    /// `None` when it waits for input. A live window draws no more often than this.
+    pub fn repaint_delay(&self) -> Option<Duration> {
+        self.repaint
     }
 
     /// Frames run so far.
