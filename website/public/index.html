@@ -11,7 +11,7 @@
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://dalica.pkarma.com/">
 <meta property="og:title" content="Dalíca: a photo organizer for the folders you already have">
-<meta property="og:description" content="Star, tag, crop and fix a lifetime of photos without importing a single one.">
+<meta property="og:description" content="Star, tag, fix, save and export a lifetime of photos without importing a single one.">
 <meta property="og:image" content="https://dalica.pkarma.com/img/og.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
@@ -52,16 +52,16 @@
 </svg>
   <span class="label">Photo organizer · Preview<span data-v="short"></span></span>
   <h1>Every photo you own, on <em>one light table.</em></h1>
-  <p class="lede">Dalíca shows all the photos in the folders you already have, in one long scrolling view. Star, caption and tag them, crop and fix them, and never lose an original. Native on Linux, Windows and macOS.</p>
+  <p class="lede">Dalíca shows all the photos in the folders you already have, in one long scrolling view. Star, caption and tag them, crop and fix them, then save your edits or export a finished set, and never lose an original. Native on Linux, Windows and macOS.</p>
   <div class="ctas">
     <a class="btn primary" href="#download" id="dl-main">Download for Linux<small id="dl-sub">AppImage · x86_64</small></a>
     <a class="btn" href="https://github.com/pkkid/dalica">View on GitHub<small>MIT or Apache-2.0</small></a>
   </div>
   <p class="label platforms">Linux · Windows · macOS · no account · no telemetry</p>
   <div class="shot-hero">
-    <div class="frame"><img src="/img/edit-view.jpg" alt="Dalíca's edit view: castle ruins on a sea cliff, the filmstrip of the folder above it, Basic Fixes on the left with Undo Auto Fix and the histogram with camera info below" width="2000" height="1286"></div>
+    <div class="frame"><img src="/img/export-dialog.jpg" alt="Dalíca's Export to Folder dialog over the library: photos resized to 1600 pixels at automatic quality, numbered file names and a watermark reading © 2026 Hill Walkers; behind it, the Hills folder with 2 edited photos and a Save button, and an earlier export listed under Projects" width="2000" height="1286"></div>
   </div>
-  <div class="caption"><span class="label">The edit view · Basic Fixes · after Auto Fix</span><span class="label">Captured in Dalíca</span></div>
+  <div class="caption"><span class="label">Export to Folder · resized, numbered, watermarked</span><span class="label">Captured in Dalíca</span></div>
 </header>
 
 
@@ -69,9 +69,9 @@
   <div class="head" data-hex="left"><div><span class="label">Measured, not promised</span><h2>Fast where it counts.</h2></div><span class="label">From the project's own benchmarks</span></div>
   <div class="stats">
     <div class="stat-cell rise"><div class="big-num"><span class="count" data-to="100000" data-sep="1">100,000</span></div><h3>photos scroll smoothly</h3><p>0.26 ms per frame (p95), budget 8 ms</p></div>
-    <div class="stat-cell rise"><div class="big-num"><span class="count" data-to="77">77</span><small>ms</small></div><h3>to open a 24 MP photo for editing</h3><p>release build, budget 150 ms</p></div>
-    <div class="stat-cell rise"><div class="big-num"><span class="count" data-to="2200" data-sep="1">2,200</span><small>+</small></div><h3>automated tests</h3><p>run on Linux, Windows and macOS for every change</p></div>
-    <div class="stat-cell rise"><div class="big-num"><span class="count" data-to="132">132</span></div><h3>commands, all scriptable</h3><p>from the window, the keyboard or the command line</p></div>
+    <div class="stat-cell rise"><div class="big-num"><span class="count" data-to="292">292</span><small>ms</small></div><h3>to save the edits of a 24 MP photo</h3><p>release build, budget 1,050 ms on two cores</p></div>
+    <div class="stat-cell rise"><div class="big-num"><span class="count" data-to="2600" data-sep="1">2,600</span><small>+</small></div><h3>automated tests</h3><p>run on Linux, Windows and macOS for every change</p></div>
+    <div class="stat-cell rise"><div class="big-num"><span class="count" data-to="142">142</span></div><h3>commands, all scriptable</h3><p>from the window, the keyboard or the command line</p></div>
   </div>
 </section>
 
@@ -79,13 +79,13 @@
   <div class="head" data-hex="right"><div><span class="label">What it does today</span><h2>Light organizing for heavy collections.</h2></div><span class="label">Preview<span data-v="short"></span></span></div>
   <div class="grid">
     <div class="feat"><span class="stat">no import step</span><h3>Your folders are the library</h3><p>Point Dalíca at the folders you already have. Nothing is copied into a catalog, and a hundred thousand photos scroll without a stutter.</p></div>
-    <div class="feat"><span class="stat">crop · straighten · retouch</span><h3>Fix a photo in a click</h3><p>Auto Fix, Auto Contrast, Auto Color and Fill Light, three suggested crops, a horizon you can level and a brush for dust and blemishes.</p></div>
-    <div class="feat"><span class="stat">fill light · shadows · temperature</span><h3>Tune the light and colour</h3><p>Highlights, Shadows and Color Temperature, a picker that removes a colour cast, and two wands that set it all for you.</p></div>
-    <div class="feat"><span class="stat">undo · even after a restart</span><h3>Every edit can be taken back</h3><p>Each photo keeps its own Undo and Redo. Edits are stored beside the photo and shown on every thumbnail; the original file is never changed.</p></div>
-    <div class="feat"><span class="stat">XMP · IPTC</span><h3>Stars, captions and tags that travel</h3><p>What you add is written into the photo's own metadata, so other apps see it too. Other programs' fields are kept as they were.</p></div>
-    <div class="feat"><span class="stat">JPEG · JXL · PSD · RAW</span><h3>Reads what you have, privately</h3><p>JPEG, PNG, TIFF, WebP, JPEG XL, PSD and the previews of 13 raw formats, colour-managed. No account, no telemetry, no cloud.</p></div>
+    <div class="feat"><span class="stat">crop · straighten · tune</span><h3>Fix a photo in a click</h3><p>Auto Fix, three suggested crops, a horizon you can level, a brush for dust, and Fill Light, Highlights, Shadows and Color Temperature by hand or by wand.</p></div>
+    <div class="feat"><span class="stat">save · undo save · revert</span><h3>Save, and keep the original</h3><p>Save writes your edits into the photo. The original goes into a hidden <code>.dalica-originals</code> folder beside it, and Undo Save or Revert brings it back, byte for byte.</p></div>
+    <div class="feat"><span class="stat">size · quality · watermark</span><h3>Export a finished set</h3><p>Turn a selection, a folder or the tray into a new folder of finished photos: resized, at the quality you pick, numbered in order and watermarked. It runs in the background.</p></div>
+    <div class="feat"><span class="stat">no quality lost</span><h3>JPEGs stay as good as they were</h3><p>A JPEG is saved at the quality it already had, with its camera details, caption, tags and star. A photo you only rotated is turned without re-compressing it.</p></div>
+    <div class="feat"><span class="stat">JPEG · JXL · PSD · RAW</span><h3>Reads what you have, privately</h3><p>JPEG, PNG, TIFF, WebP, JPEG XL, PSD and the previews of 13 raw formats, colour-managed. Stars, captions and tags go into the photos' own metadata.</p></div>
   </div>
-  <div class="next"><span class="label">Coming next</span><span class="chip">Save and export</span><span class="chip">Albums and search</span><span class="chip">MCP for AI agents</span><span class="chip">Import and slideshow</span><span class="chip">Effects</span><span class="chip">People and places</span></div>
+  <div class="next"><span class="label">Coming next</span><span class="chip">Albums and search</span><span class="chip">MCP for AI agents</span><span class="chip">Import and slideshow</span><span class="chip">Effects</span><span class="chip">People and places</span><span class="chip">Collage</span></div>
 </section>
 
 <section class="wrap" id="files">
@@ -94,7 +94,7 @@
     <div class="rise">
       <h3>Everything lives next to your photos.</h3>
       <p>Dalíca never copies your photos into a library of its own. What you add, edits included, goes into one small, readable file per folder, and into the photos' own metadata.</p>
-      <ul><li>Move a folder to another disk and its stars, tags and edits go with it.</li><li>The index Dalíca keeps for speed is a cache. Delete it and Dalíca rebuilds it from your folders.</li><li>Originals are only ever moved aside when you Save an edit, never overwritten.</li></ul>
+      <ul><li>Move a folder to another disk and its stars, tags and edits go with it.</li><li>The index Dalíca keeps for speed is a cache. Delete it and Dalíca rebuilds it from your folders.</li><li>Originals are only ever moved aside when you Save an edit, never overwritten. Each Save starts again from the original, so quality never wears down.</li><li>Save a Copy and Save As write a new file and leave the photo as it is.</li></ul>
     </div>
     <div class="panel rise"><div class="panel-bar"><i></i><i></i><i></i><span>~/Pictures</span></div><div class="tree"><div class="row"><span class="name dim">Pictures/</span><span class="what"></span></div><div class="row"><span class="name ">└─ Highlands and Coast/</span><span class="what">a folder you already had</span></div><div class="row"><span class="name ">   ├─ minolta_z1.jpg</span><span class="what">your photo; pixels untouched</span></div><div class="row"><span class="name dim">   ├─ pixel3_o6.jpg</span><span class="what"></span></div><div class="row"><span class="name ">   ├─ <b>.dalica.json</b></span><span class="what">stars, captions, tags and edits</span></div><div class="row"><span class="name ">   └─ <b>.dalica-originals/</b></span><span class="what">appears only when you Save an edit</span></div><div class="row"><span class="name ">      ├─ minolta_z1.jpg</span><span class="what">the original, byte for byte</span></div><div class="row"><span class="name ">      └─ .dalica.json</span><span class="what">the edit, so it can be undone</span></div></div></div>
   </div>
@@ -124,12 +124,12 @@
 </section>
 
 <section class="wrap" id="screens">
-  <div class="head"><div><span class="label">Screenshots</span><h2>Quiet chrome, loud photos.</h2></div><span class="label">Real captures · CC0 photos</span></div>
+  <div class="head"><div><span class="label">Screenshots</span><h2>Quiet chrome, loud photos.</h2></div><span class="label">Real captures · generated and CC0 photos</span></div>
   <div class="shots" data-hex="left">
+    <div class="shot"><div class="txt"><span class="label">Save</span><h3>Saving asks once, and says how to go back</h3><p>A folder's header counts the photos with unsaved edits and saves them all in one go. The first time, Dalíca explains where the original goes; tick the box and it never asks again.</p></div><div class="frame"><img src="/img/crop-save.jpg" alt="Close-up: the Save dialog over the Hills folder, explaining that the original is kept unchanged in a hidden .dalica-originals folder so Undo Save and Revert can bring it back, with a Don't show this again box; the folder header behind it reads 2 edited, with a Save button" width="1520" height="820" loading="lazy"></div></div>
+    <div class="shot"><div class="txt"><span class="label">Export</span><h3>Exports run in the background</h3><p>A small window counts the photos as they are written, and you can keep working. Cancel stops after the current photo and leaves only complete files.</p></div><div class="frame"><img src="/img/crop-export.jpg" alt="Close-up: the Exporting window at the top right of the library, reading Exporting 18 of 60 with a progress bar and a Cancel button, over a row of thumbnails" width="1500" height="560" loading="lazy"></div></div>
+    <div class="shot"><div class="txt"><span class="label">Projects</span><h3>Every export is easy to find again</h3><p>Exported folders are listed under Projects in the folder tree, wherever you put them. Show Folder opens the new folder as soon as the export ends.</p></div><div class="frame"><img src="/img/crop-projects.jpg" alt="Close-up: the folder tree with Hills for the web under Projects above the three folders, the Hills folder with 2 edited and a Save button, pencil badges on the edited thumbnails, and a notice reading Exported 20 pictures with a Show Folder button" width="2000" height="825" loading="lazy"></div></div>
     <div class="shot"><div class="txt"><span class="label">Crop</span><h3>Three crops to start from</h3><p>Pick a shape, from the photo's own to 4 × 6 prints or a ratio of your own, and Dalíca suggests three crops. Click one, or drag the rectangle where you want it.</p></div><div class="frame"><img src="/img/crop-crop.jpg" alt="Close-up: the Crop Photo panel with the 16:9 shape chosen and three suggested crops of a mountain summit, and the crop rectangle drawn on the photo with the rest dimmed" width="1500" height="765" loading="lazy"></div></div>
-    <div class="shot"><div class="txt"><span class="label">Tuning</span><h3>Light and colour, by hand or by wand</h3><p>Fill Light, Highlights, Shadows and Color Temperature on one tab. The wands set the light or the colour for you; Reset puts every slider back.</p></div><div class="frame"><img src="/img/crop-tuning.jpg" alt="Close-up: the Tuning tab with Fill Light, Highlights, Shadows and Color Temperature sliders, the Neutral Color Picker and two wand buttons, beside a photo of purple flowers in front of a white house" width="1500" height="645" loading="lazy"></div></div>
-    <div class="shot"><div class="txt"><span class="label">Edited thumbnails</span><h3>See what you changed at a glance</h3><p>Edited photos show their edits everywhere, in the light table, the tray and the filmstrip, with a small pencil badge. Undo any of it, any time.</p></div><div class="frame"><img src="/img/crop-edited.jpg" alt="Close-up: the Highlands and Coast folder with its date, place and description, and five landscape thumbnails; two carry a pencil badge for an edit and two a star" width="1500" height="475" loading="lazy"></div></div>
-    <div class="shot"><div class="txt"><span class="label">Tags pane</span><h3>Tag a whole afternoon at once</h3><p>Select a run of photos and type. Partial counts show which tags only some of them have, and quick tags put your favourites one key away.</p></div><div class="frame"><img src="/img/crop-tags.jpg" alt="Close-up: three selected garden photos and the Tags pane showing favourites (1 of 3), flowers, garden and macro (1 of 3), with quick tag buttons below" width="2296" height="767" loading="lazy"></div></div>
   </div>
 </section>
 
@@ -138,14 +138,14 @@
   <div class="story flip">
     <div class="rise">
       <h3>The window and the command line share one engine.</h3>
-      <p>Every action in Dalíca is a named command, 132 of them today. Clicking, pressing a key and running <code>dalica-cli</code> all go through the same code, so whatever you can do by hand, a script can do too, edits included.</p>
+      <p>Every action in Dalíca is a named command, 142 of them today. Clicking, pressing a key and running <code>dalica-cli</code> all go through the same code, so whatever you can do by hand, a script can do too, edits included.</p>
       <ul class="cli-list">
         <li><code>commands</code> lists every command and its parameters as JSON.</li>
         <li><code>run</code> executes one command, or a JSON-lines script from a file or stdin, and answers in JSON.</li>
         <li><code>inspect</code> prints the library: folders, photos, stars.</li>
         <li><code>snapshot</code> renders the real window to a PNG, with no display or GPU.</li>
         <li><code>dalica --control</code> lets a script drive the open window over a local, token-protected socket.</li>
-        <li>New in 0.2: <code>photo.crop.apply</code>, <code>photo.straighten.apply</code>, <code>photo.history.*</code>, <code>edit.zoom.*</code> and more. An MCP server for AI agents follows in 0.5.</li>
+        <li>New in 0.3: <code>photo.save</code>, <code>photo.undoSave</code>, <code>photo.revert</code>, <code>photo.saveCopy</code>, <code>photo.saveTo</code> and <code>export.run</code>. An MCP server for AI agents follows in 0.5.</li>
       </ul>
       <p class="fine">Try it on the built-in demo library of generated photos; your own library is never touched. <a href="https://github.com/pkkid/dalica/blob/main/docs/control-protocol.md">The control protocol →</a></p>
     </div>
@@ -153,14 +153,17 @@
 <pre class="code"><span class="p">$</span> dalica-cli inspect --demo | jq .photos
 60
 <span class="p">$</span> dalica-cli run --demo - &lt;&lt;'EOF'
-{"command":"photo.crop.apply","params":{"id":3,"rect":[0.1,0.1,0.8,0.8]}}
-{"command":"photo.straighten.apply","params":{"id":3,"degrees":2}}
-{"command":"photo.history.undo","params":{"id":3}}
+{"command":"photo.rotate.cw","params":{"ids":[3]}}
+{"command":"photo.save","params":{"ids":[3],"confirm":true}}
+{"command":"export.run","params":{"section":"folder:1",
+  "dir":"/tmp/web","folderName":"Garden","size":1600,
+  "watermark":"© 2026 Hill Walkers"}}
 EOF
-<span class="c">{"command":"photo.crop.apply","ok":true,"result":{…"Undo Crop"}}</span>
-<span class="c">{"command":"photo.straighten.apply","ok":true,…}</span>
-<span class="c">{"command":"photo.history.undo","ok":true,</span>
-<span class="c"> "result":{"id":3,"undone":"Straighten"}}</span>
+<span class="c">{"command":"photo.rotate.cw","ok":true,…"rotate(90)"}}</span>
+<span class="c">{"command":"photo.save","ok":true,</span>
+<span class="c"> "result":{"job":1,"pending":true,"total":1}}</span>
+<span class="c">{"command":"export.run","ok":true,</span>
+<span class="c"> "result":{"job":2,"pending":true,"total":20,…}}</span>
 <span class="p">$</span> echo '{"command":"view.edit","params":{"id":3}}' &gt; edit.jsonl
 <span class="p">$</span> dalica-cli snapshot --demo --script edit.jsonl -o edit.png</pre></div>
   </div>
@@ -171,8 +174,8 @@ EOF
   <ol class="releases">
     <li class="done"><span class="ver">0.1</span><span class="state">Shipped</span><h4>Photo info and metadata</h4><p>Browse, star, rotate, hide and re-date; captions, Properties, tags written into files; installable on all three systems.</p></li>
     <li class="done"><span class="ver">0.2</span><span class="state">Shipped</span><h4>Edit view and fixes</h4><p>The edit view, Basic Fixes, Tuning and Retouch; each photo's own undo; thumbnails show edits.</p></li>
-    <li class="soon"><span class="ver">0.3</span><span class="state">Next</span><h4>Save and export</h4><p>Save, Undo Save, Revert, Save a Copy and Save As; export.</p></li>
-    <li><span class="ver">0.4</span><span class="state">Planned</span><h4>Albums, search and file operations</h4><p>Lasting albums, instant search and filters; move, copy, rename and delete.</p></li>
+    <li class="done"><span class="ver">0.3</span><span class="state">Shipped</span><h4>Save and export</h4><p>Save, Undo Save, Revert, Save a Copy and Save As; export.</p></li>
+    <li class="soon"><span class="ver">0.4</span><span class="state">Next</span><h4>Albums, search and file operations</h4><p>Lasting albums, instant search and filters; move, copy, rename and delete.</p></li>
     <li><span class="ver">0.5</span><span class="state">Planned</span><h4>Preferences, MCP and the core workflows</h4><p>Options and a shortcut editor, an MCP server for AI agents, every core workflow shipped.</p></li>
     <li><span class="ver">0.6</span><span class="state">Planned</span><h4>Import, compare and viewing</h4><p>Import from cards and drives, compare and batch edit, slideshow, the viewer.</p></li>
     <li><span class="ver">0.7</span><span class="state">Planned</span><h4>Effects</h4><p>Effect tiles, parameter panels and all 27 effects.</p></li>
