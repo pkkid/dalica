@@ -1,7 +1,9 @@
 //! Tuning commands (`roadmap.md` M7.18; `editing.md` §6.5, §7) on a temporary library: a Tuning
 //! session of any number of changes is one history step that one undo removes; a second session
 //! after another edit appends a new entry, and one right after updates the same entry as its own
-//! step; the Basic Fixes Fill Light and the Tuning tab edit the same value; the wands and the
+//! step; a session updates the photo's Tuning in place past rotations and flips and appends after
+//! a retouch or an unknown entry (M8.28); the Basic Fixes Fill Light and the Tuning tab edit the
+//! same value; the wands and the
 //! colour picker answer from a worker without the owner thread touching `fs`; every command's
 //! contract and graceful failures.
 
@@ -178,6 +180,80 @@ fn fill_light_from_basic_fixes_and_from_tuning_edit_the_same_value() {
     assert_eq!(edits(&t, id), list(&["tuning(0.3,0,0,0.5,none)"]));
     t.execute("photo.history.undo", &json!({ "id": id })).unwrap();
     assert_eq!(edits(&t, id), list(&["fill_light(0.3)"]));
+}
+
+/// M8.28: the photo's Tuning is shown after later edits; a session updates it in place while only
+/// rotations and flips follow it (one step, one undo), and appends once a step that depends on its
+/// pixels (a retouch) follows.
+#[test]
+fn a_session_updates_the_tuning_in_place_past_rotations_and_appends_after_a_retouch() {
+    let (_lib, _d, folder, mut s, ids) = setup(1, 96, 64);
+    let id = ids[0];
+    // Fill Light 0.3 on Basic Fixes, then a rotation in the edit view.
+    tune(&mut s, id, json!("basic"), json!({ "fill": 0.3 }));
+    s.execute("photo.history.apply", &json!({ "id": id, "op": "rotate(90)" })).unwrap();
+    let v = tune(&mut s, id, json!("tab"), json!({}));
+    assert_eq!((v["changed"].clone(), v["tuning"]["fill"].clone()), (json!(false), json!(0.3)), "the tab shows 0.3");
+    // Dragging Highlights: one entry, updated in place, one step.
+    for h in [0.05, 0.1, 0.2] {
+        let v = tune(&mut s, id, json!("tab"), json!({ "fill": 0.3, "highlights": h }));
+        assert_eq!(v["tuning"]["highlights"], json!(h));
+    }
+    assert_eq!(edits(&s, id), list(&["tuning(0.3,0.2,0,0,none)", "rotate(90)"]));
+    assert_eq!(labels(&mut s, id), ("Undo Tuning".into(), "Redo".into()));
+    assert_eq!(sidecar_entry(&mut s, &folder, "IMG_0001.jpg")["edits"], json!(edits(&s, id)));
+    s.execute("photo.history.undo", &json!({ "id": id })).unwrap();
+    assert_eq!(edits(&s, id), list(&["tuning(0.3,0,0,0,none)", "rotate(90)"]), "one undo, the rotation kept");
+    assert_eq!(labels(&mut s, id), ("Undo Rotate".into(), "Redo Tuning".into()));
+    s.execute("photo.history.redo", &json!({ "id": id })).unwrap();
+    assert_eq!(edits(&s, id), list(&["tuning(0.3,0.2,0,0,none)", "rotate(90)"]));
+
+    // Flips and a library rotation are position-free too.
+    s.execute("edit.flipH", &json!({ "ids": [id] })).unwrap();
+    s.execute("photo.rotate.cw", &json!({ "ids": [id] })).unwrap();
+    let v = tune(&mut s, id, json!("tab-2"), json!({ "shadows": 0.1 }));
+    assert_eq!(v["edits"], json!(["tuning(0.3,0.2,0.1,0,none)", "rotate(90)", "flip_h()", "rotate(90)"]));
+
+    // A retouch depends on the Tuning's pixels: the sliders still show it, and a new drag appends
+    // a new entry from the defaults.
+    s.execute("photo.history.apply", &json!({ "id": id, "op": "retouch(0.2,0.2,0.6,0.6,0.05)" })).unwrap();
+    let v = tune(&mut s, id, json!("tab-3"), json!({}));
+    assert_eq!((v["changed"].clone(), v["tuning"]["fill"].clone()), (json!(false), json!(0.3)));
+    let v = tune(&mut s, id, json!("tab-3"), json!({ "highlights": 0.05 }));
+    assert_eq!(v["edits"].as_array().map(Vec::len), Some(6));
+    assert_eq!(v["edits"][0], json!("tuning(0.3,0.2,0.1,0,none)"));
+    assert_eq!(v["edits"][5], json!("tuning(0,0.05,0,0,none)"));
+    assert_eq!(v["tuning"]["highlights"], json!(0.05));
+    tune(&mut s, id, json!("tab-3"), json!({ "highlights": 0.1 }));
+    assert_eq!(edits(&s, id).len(), 6);
+    s.execute("photo.history.undo", &json!({ "id": id })).unwrap();
+    assert_eq!(edits(&s, id).len(), 5);
+    assert_eq!(labels(&mut s, id), ("Undo Retouch".into(), "Redo Tuning".into()));
+}
+
+/// An unknown or legacy entry after the Tuning may depend on its pixels: a session appends, and
+/// the unknown entry keeps its text and place.
+#[test]
+fn an_unknown_entry_after_the_tuning_survives_and_makes_the_session_append() {
+    let (lib, disk) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let folder = disk.path().join("Lisbon");
+    dalica_fs::create_dir_all(&folder).unwrap();
+    let bytes = dalica_scenes::jpeg(&dalica_scenes::Scene::new(3, 96, 64), 90, None).unwrap();
+    dalica_fs::replace(&folder.join("IMG_0001.jpg"), &bytes, Expect::Absent).unwrap();
+    let sidecar = json!({ "photos": { "IMG_0001.jpg": { "edits": ["tuning(0.3,0,0,0,none)", "rotate(90)", "future_op(1;2)", "flip_v()"] } } });
+    dalica_fs::replace(&folder.join(".dalica.json"), serde_json::to_vec_pretty(&sidecar).unwrap().as_slice(), Expect::Absent).unwrap();
+    let mut s = open(lib.path());
+    s.execute("folders.add", &json!({ "path": folder })).unwrap();
+    s.wait_idle();
+    let id = s.library().photos().map(|p| p.id).next().unwrap();
+    assert_eq!(edits(&s, id).len(), 4, "the sidecar was read");
+    let v = tune(&mut s, id, json!("tab"), json!({}));
+    assert_eq!(v["tuning"]["fill"], json!(0.3));
+    tune(&mut s, id, json!("tab"), json!({ "temp": 0.5 }));
+    assert_eq!(edits(&s, id), list(&["tuning(0.3,0,0,0,none)", "rotate(90)", "future_op(1;2)", "flip_v()", "tuning(0,0,0,0.5,none)"]));
+    s.execute("photo.history.undo", &json!({ "id": id })).unwrap();
+    assert_eq!(edits(&s, id), list(&["tuning(0.3,0,0,0,none)", "rotate(90)", "future_op(1;2)", "flip_v()"]));
+    assert_eq!(sidecar_entry(&mut s, &folder, "IMG_0001.jpg")["edits"], json!(edits(&s, id)));
 }
 
 /// Starts `command` and waits for its job's result.

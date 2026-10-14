@@ -1,19 +1,24 @@
 //! The Tuning tab and the Basic Fixes Fill Light (`editing.md` §6.5, §7): Tuning sessions as one
 //! step of the photo's history, the auto wands and the neutral colour picker.
 //!
+//! - **The photo's Tuning** ([`shown_tuning`]) is its last `tuning` entry (or an older
+//!   `fill_light(a)`, read as Tuning with only `fill`) wherever it sits in the recipe: what the
+//!   sliders show, after a rotation or a retouch too.
 //! - `photo.history.tuning {id, session, fill?, highlights?, shadows?, temp?, neutral?}` is one
 //!   change of a Tuning session (a slider moved, a colour picked, a wand's values applied). The
-//!   values given replace those of the `tuning` entry the session edits; the others are kept. When
-//!   the photo's last entry is a `tuning` (or an older `fill_light(a)`, read as Tuning with only
-//!   `fill`), the change updates it in place ([`Change::ReplaceLast`]); otherwise it appends a new
-//!   `tuning` entry. All the changes of one session (the same `session` key) are one "Tuning" step
-//!   of the photo's history (the coalesce key of `architecture.md` §3), so a drag of sixty changes
-//!   is undone at once. The Basic Fixes Fill Light slider is the same command with only `fill`
-//!   (`editing.md` §6.5): both edit the same value.
+//!   values given replace those of the `tuning` entry the session edits; the others are kept. The
+//!   session edits the photo's Tuning entry in place ([`session_entry`], [`Change::ReplaceAt`])
+//!   when every entry after it is a rotation or a flip, which do not depend on its pixels;
+//!   otherwise (a retouch, a crop, an Auto Fix, an effect, an unknown or legacy entry after it, or
+//!   no Tuning at all) it appends a new `tuning` entry, which starts from the defaults so the
+//!   earlier Tuning is not applied twice. All the changes of one session (the same `session` key)
+//!   are one "Tuning" step of the photo's history (the coalesce key of `architecture.md` §3), so a
+//!   drag of sixty changes is undone at once. The Basic Fixes Fill Light slider is the same
+//!   command with only `fill` (`editing.md` §6.5): both edit the same value.
 //! - `photo.tuning.auto {id, what: lighting | color}` and `photo.tuning.pick {id, x, y}` start
 //!   `analysis` jobs: a worker renders the picture the session's `tuning` entry receives (the
-//!   photo's recipe without a trailing `tuning` entry, cropped, straightened and turned as the edit
-//!   view shows it) and answers `edit::analysis`'s values (`auto_lighting`, `auto_neutral`,
+//!   photo's recipe without the entry the session edits in place, cropped, straightened and turned
+//!   as the edit view shows it) and answers `edit::analysis`'s values (`auto_lighting`, `auto_neutral`,
 //!   `color_at`), which the UI then applies as a session change. The owner thread only starts the
 //!   worker and, in [`Session::poll`], finishes the job with what came back.
 //!
@@ -57,7 +62,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Tuning",
             menu: "",
             keys: &[],
-            params: r##"{"id":PhotoId, "session":string (1…64 characters) | integer (a new key for each Tuning tab session or Fill Light drag), "fill"?:0…1, "highlights"?:0…0.5, "shadows"?:0…0.5, "temp"?:−1…1, "neutral"?:"#rrggbb" | [r,g,b] (each 0…1) | "none" | null}: one change of a Tuning session: the values given replace those of the photo's last entry when it is a tuning (or fill_light) entry, else a new tuning entry is appended; a session's changes are one "Tuning" step; values equal to the current ones take no step; answers the history as photo.history.state does, with "changed" and "tuning": {fill, highlights, shadows, temp, neutral, rgb}"##,
+            params: r##"{"id":PhotoId, "session":string (1…64 characters) | integer (a new key for each Tuning tab session or Fill Light drag), "fill"?:0…1, "highlights"?:0…0.5, "shadows"?:0…0.5, "temp"?:−1…1, "neutral"?:"#rrggbb" | [r,g,b] (each 0…1) | "none" | null}: one change of a Tuning session: the values given replace those of the photo's last tuning (or fill_light) entry, in place, when only rotations and flips follow it; else a new tuning entry (from the defaults) is appended; a session's changes are one "Tuning" step; values equal to the current ones take no step; answers the history as photo.history.state does, with "changed" and "tuning": {fill, highlights, shadows, temp, neutral, rgb}"##,
             effect: Effect::Library,
             history: History::Photo,
             enabled: always,
@@ -180,13 +185,53 @@ fn tuning_json(t: &Tuning) -> Value {
     json!({ "fill": t.fill, "highlights": t.highlights, "shadows": t.shadows, "temp": t.temp, "neutral": neutral, "rgb": rgb })
 }
 
-/// The Tuning the photo's last entry holds, when it is a readable `tuning` or `fill_light` entry.
-fn last_tuning(edits: &[String]) -> Option<Tuning> {
-    match EditOp::parse(edits.last()?).typed()?.ok()? {
+/// The Tuning an entry holds, when it is a readable `tuning` or `fill_light` entry.
+pub fn tuning_in(entry: &str) -> Option<Tuning> {
+    match EditOp::parse(entry).typed()?.ok()? {
         Typed::Tuning(t) => Some(t),
         Typed::FillLight(f) => Some(f.as_tuning()),
         _ => None,
     }
+}
+
+/// Whether an entry leaves the pixels' values alone, so a Tuning before it can change without
+/// changing what it did: a readable rotation or flip. Anything else (an unknown or legacy entry
+/// included) may depend on them.
+fn position_free(entry: &str) -> bool {
+    matches!(EditOp::parse(entry).typed(), Some(Ok(Typed::Rotate(_) | Typed::FlipH(_) | Typed::FlipV(_))))
+}
+
+/// The photo's Tuning as the sliders show it: its last `tuning` (or `fill_light`) entry, wherever
+/// it sits; `None` when it has none.
+pub fn shown_tuning(edits: &[String]) -> Option<Tuning> {
+    edits.iter().rev().find_map(|e| tuning_in(e))
+}
+
+/// The entry a new Tuning session edits in place, by index, with its Tuning: the photo's last
+/// `tuning` entry when only rotations and flips follow it. `None` when the session appends a new
+/// entry (starting from the defaults).
+pub fn session_entry(edits: &[String]) -> Option<(usize, Tuning)> {
+    for (i, e) in edits.iter().enumerate().rev() {
+        if let Some(t) = tuning_in(e) {
+            return Some((i, t));
+        }
+        if !position_free(e) {
+            return None;
+        }
+    }
+    None
+}
+
+/// `edits` as a Tuning session holding `t` leaves them: the session's entry set to `t` in place,
+/// or `t` appended.
+pub fn with_tuning(edits: &[String], t: &Tuning) -> Vec<String> {
+    let entry = format!("tuning({t})");
+    let mut out = edits.to_vec();
+    match session_entry(edits).and_then(|(i, _)| out.get_mut(i)) {
+        Some(slot) => *slot = entry,
+        None => out.push(entry),
+    }
+    out
 }
 
 fn tuning_change(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
@@ -203,8 +248,8 @@ fn tuning_change(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
     let neutral = neutral.map(neutral_of).transpose()?;
     history_of(s, id)?;
 
-    let current = last_tuning(&s.library().info(id).edits);
-    let before = current.unwrap_or_default();
+    let target = session_entry(&s.library().info(id).edits);
+    let before = target.map(|(_, t)| t).unwrap_or_default();
     let mut after = before;
     after.fill = fill.unwrap_or(after.fill);
     after.highlights = highlights.unwrap_or(after.highlights);
@@ -218,10 +263,13 @@ fn tuning_change(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
         false
     } else {
         let op = EditOp::parse(&format!("tuning({after})"));
-        let change = if current.is_some() { Change::ReplaceLast(op) } else { Change::Append(op) };
+        let change = match target {
+            Some((i, _)) => Change::ReplaceAt(i, op),
+            None => Change::Append(op),
+        };
         s.photo_step(id, change, Some(&format!("tuning:{key}")))?.is_some()
     };
-    let shown = last_tuning(&s.library().info(id).edits).unwrap_or_default();
+    let shown = shown_tuning(&s.library().info(id).edits).unwrap_or_default();
     let mut out = state_json(id, &history_of(s, id)?);
     if let Some(o) = out.as_object_mut() {
         o.insert("changed".into(), json!(changed));
@@ -375,12 +423,13 @@ fn work(request: &Request, cancel: &AtomicBool, answer: &Sender<Outcome>) {
     let _ = answer.send(outcome);
 }
 
-/// The recipe the session's `tuning` entry receives: `edits` without a trailing `tuning` or
-/// `fill_light` entry.
-fn before_tuning(edits: &[String]) -> &[String] {
-    match edits.split_last() {
-        Some((_, rest)) if last_tuning(edits).is_some() => rest,
-        _ => edits,
+/// The recipe the session's `tuning` entry receives, as the edit view shows it: `edits` without
+/// the entry the session edits in place (the rotations and flips after it kept); all of `edits`
+/// when the session appends.
+fn before_tuning(edits: &[String]) -> Vec<String> {
+    match session_entry(edits) {
+        Some((i, _)) => edits.iter().enumerate().filter(|(j, _)| *j != i).map(|(_, e)| e.clone()).collect(),
+        None => edits.to_vec(),
     }
 }
 
@@ -461,13 +510,36 @@ mod tests {
     }
 
     #[test]
-    fn the_last_entry_is_read_as_tuning() {
-        assert_eq!(last_tuning(&text(&["crop(0,0,1,1)", "tuning(0.2,0.1,0,0.5,#808080)"])).map(|t| t.neutral), Some(Some([128; 3])));
-        assert_eq!(last_tuning(&text(&["fill_light(0.4)"])).map(|t| t.fill), Some(0.4));
-        assert_eq!(last_tuning(&text(&["tuning(0.2,0,0,0,none)", "crop(0,0,1,1)"])), None);
-        assert_eq!(last_tuning(&text(&["tuning(nonsense)"])), None);
-        assert_eq!(last_tuning(&[]), None);
-        assert_eq!(before_tuning(&text(&["crop(0,0,1,1)", "fill_light(0.4)"])), &text(&["crop(0,0,1,1)"])[..]);
+    fn the_last_tuning_entry_is_shown_wherever_it_sits() {
+        assert_eq!(shown_tuning(&text(&["crop(0,0,1,1)", "tuning(0.2,0.1,0,0.5,#808080)"])).map(|t| t.neutral), Some(Some([128; 3])));
+        assert_eq!(shown_tuning(&text(&["fill_light(0.4)"])).map(|t| t.fill), Some(0.4));
+        assert_eq!(shown_tuning(&text(&["tuning(0.2,0,0,0,none)", "crop(0,0,1,1)"])).map(|t| t.fill), Some(0.2));
+        assert_eq!(shown_tuning(&text(&["tuning(0.2,0,0,0,none)", "tuning(0.5,0,0,0,none)", "sepia()"])).map(|t| t.fill), Some(0.5));
+        assert_eq!(shown_tuning(&text(&["tuning(nonsense)"])), None);
+        assert_eq!(shown_tuning(&[]), None);
+    }
+
+    #[test]
+    fn a_session_edits_in_place_only_past_rotations_and_flips() {
+        let at = |items: &[&str]| session_entry(&text(items)).map(|(i, t)| (i, t.fill));
+        assert_eq!(at(&["crop(0,0,1,1)", "fill_light(0.4)"]), Some((1, 0.4)));
+        assert_eq!(at(&["tuning(0.3,0,0,0,none)", "rotate(90)", "flip_h()", "flip_v()"]), Some((0, 0.3)));
+        assert_eq!(at(&["tuning(0.3,0,0,0,none)", "rotate(90)", "tuning(0.1,0,0,0,none)", "flip_h()"]), Some((2, 0.1)));
+        for after in
+            ["sepia()", "crop(0,0,1,1)", "retouch(0.5,0.5,0.4,0.4,0.05)", "autofix()", "future_op(1)", "legacy:redeye(1)", "rotate(nonsense)"]
+        {
+            assert_eq!(at(&["tuning(0.3,0,0,0,none)", "rotate(90)", after]), None, "{after}");
+        }
+        assert_eq!(at(&["rotate(90)"]), None);
+        assert_eq!(at(&[]), None);
+        let t = Tuning { fill: 0.5, ..Tuning::default() };
+        assert_eq!(with_tuning(&text(&["tuning(0.3,0,0,0,none)", "rotate(90)"]), &t), text(&["tuning(0.5,0,0,0,none)", "rotate(90)"]));
+        assert_eq!(
+            with_tuning(&text(&["tuning(0.3,0,0,0,none)", "sepia()"]), &t),
+            text(&["tuning(0.3,0,0,0,none)", "sepia()", "tuning(0.5,0,0,0,none)"])
+        );
+        assert_eq!(before_tuning(&text(&["crop(0,0,1,1)", "fill_light(0.4)"])), text(&["crop(0,0,1,1)"]));
+        assert_eq!(before_tuning(&text(&["crop(0,0,1,1)", "tuning(0.2,0,0,0,none)", "rotate(90)"])), text(&["crop(0,0,1,1)", "rotate(90)"]));
         assert_eq!(before_tuning(&text(&["tuning(0.2,0,0,0,none)", "sepia()"])).len(), 2);
     }
 

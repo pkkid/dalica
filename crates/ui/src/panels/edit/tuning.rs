@@ -19,6 +19,13 @@
 //! change starts a new one. The Basic Fixes Fill Light row ([`super::fill_light`]) edits the same
 //! `fill`, each of its drags its own session.
 //!
+//! **The photo's Tuning after later edits** (`editing.md` §7). The sliders show the photo's last
+//! `tuning` entry wherever it sits (`cmd::tuning::shown_tuning`). A session edits that entry in
+//! place while only rotations and flips follow it; after anything else (a retouch, a crop, an
+//! effect, an unknown entry) it appends a new entry from the defaults holding only the controls
+//! the session moved ([`stored`]), so the earlier Tuning is not applied twice, and the sliders then
+//! show the new entry.
+//!
 //! **Live while dragging.** A drag opens the Tuning tool (`edit.tool.open {tool: "tuning"}`): its
 //! draft (`edit.tuning`) holds the values being dragged, and the photo shows them through the
 //! preview's candidate recipe, rendered as drafts (`Session::set_preview_candidate`). Letting go
@@ -43,9 +50,8 @@ use std::cell::RefCell;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use dalica_core::PhotoId;
-use dalica_edit::Op as EditOp;
-use dalica_edit::Typed;
 use dalica_edit::ops::tone;
+use dalica_engine::cmd::tuning::{session_entry, shown_tuning, with_tuning};
 use dalica_engine::{CmdError, JobId, JobState};
 use dalica_ui_kit::Tokens;
 use dalica_ui_kit::fonts;
@@ -183,20 +189,16 @@ fn session_key(app: &App, photo: PhotoId) -> u64 {
 
 // --- values ------------------------------------------------------------------------------------
 
-/// The Tuning photo `id`'s recipe ends with (a `tuning` entry, or an older `fill_light`), as a
-/// draft; the defaults when it ends with something else.
-pub fn current(app: &App, id: PhotoId) -> TuningDraft {
-    let last = app.session().and_then(|s| s.library().info(id).edits.last().and_then(|l| last_tuning(l)));
-    last.map_or(DEFAULTS, |t| draft_of(&t))
+/// Photo `id`'s recipe (empty without a session).
+fn edits_of(app: &App, id: PhotoId) -> Vec<String> {
+    app.session().map(|s| s.library().info(id).edits.clone()).unwrap_or_default()
 }
 
-/// The Tuning an entry holds, when it is a readable `tuning` or `fill_light` entry.
-fn last_tuning(text: &str) -> Option<tone::Tuning> {
-    match EditOp::parse(text).typed()?.ok()? {
-        Typed::Tuning(t) => Some(t),
-        Typed::FillLight(f) => Some(f.as_tuning()),
-        _ => None,
-    }
+/// Photo `id`'s Tuning as a draft: its last `tuning` entry (or an older `fill_light`) wherever it
+/// sits in the recipe, a rotation or a retouch after it included; the defaults when it has none.
+pub fn current(app: &App, id: PhotoId) -> TuningDraft {
+    let last = app.session().and_then(|s| shown_tuning(&s.library().info(id).edits));
+    last.map_or(DEFAULTS, |t| draft_of(&t))
 }
 
 /// `v` of the range `(lo, hi)` as the draft keeps it: inside the range, 0 when not a number.
@@ -220,9 +222,10 @@ fn param(v: f32, (lo, hi): (f64, f64)) -> f64 {
     ((v * 1000.0).round() / 1000.0).clamp(lo, hi) + 0.0
 }
 
-/// A colour of the draft as one byte per channel (a channel that is not a number is mid grey).
+/// A colour of the draft as one byte per channel (a channel that is not a number is mid grey),
+/// rounded in `f64` as the engine rounds an `[r, g, b]` it is given.
 fn bytes(c: [f32; 3]) -> [u8; 3] {
-    c.map(|v| if v.is_finite() { (v.clamp(0.0, 1.0) * 255.0).round() as u8 } else { 128 })
+    c.map(|v| if v.is_finite() { (f64::from(v.clamp(0.0, 1.0)) * 255.0).round() as u8 } else { 128 })
 }
 
 fn tuning_of(d: &TuningDraft) -> tone::Tuning {
@@ -249,15 +252,39 @@ fn same(a: &TuningDraft, b: &TuningDraft) -> bool {
     tuning_of(a) == tuning_of(b)
 }
 
-/// `photo`'s recipe with its last `tuning` entry set to `d` (appended when it does not end with
-/// one): what the session's change would store.
-fn candidate(app: &App, photo: PhotoId, d: &TuningDraft) -> Vec<String> {
-    let mut edits = app.session().map(|s| s.library().info(photo).edits.clone()).unwrap_or_default();
-    if edits.last().is_some_and(|l| last_tuning(l).is_some()) {
-        edits.pop();
+/// `new` where it differs from `shown`, else `base`.
+fn moved<T: PartialEq>(new: T, shown: T, base: T) -> T {
+    if new == shown { base } else { new }
+}
+
+/// The Tuning a session's change to `d` stores in `edits`: `d` when the session edits the shown
+/// entry in place; when it appends a new entry (a step that depends on the shown entry's pixels
+/// follows it), only the controls `d` moved from the shown values, over the defaults.
+fn stored_in(edits: &[String], d: &TuningDraft) -> tone::Tuning {
+    let t = tuning_of(d);
+    if session_entry(edits).is_some() {
+        return t;
     }
-    edits.push(format!("tuning({})", tuning_of(d)));
-    edits
+    let shown = tuning_of(&shown_tuning(edits).map_or(DEFAULTS, |s| draft_of(&s)));
+    let base = tone::Tuning::default();
+    tone::Tuning {
+        fill: moved(t.fill, shown.fill, base.fill),
+        highlights: moved(t.highlights, shown.highlights, base.highlights),
+        shadows: moved(t.shadows, shown.shadows, base.shadows),
+        temp: moved(t.temp, shown.temp, base.temp),
+        neutral: moved(t.neutral, shown.neutral, base.neutral),
+    }
+}
+
+/// [`stored_in`] for `photo`'s recipe now.
+fn stored(app: &App, photo: PhotoId, d: &TuningDraft) -> tone::Tuning {
+    stored_in(&edits_of(app, photo), d)
+}
+
+/// `photo`'s recipe with the session's change to `d` made: what the change would store.
+fn candidate(app: &App, photo: PhotoId, d: &TuningDraft) -> Vec<String> {
+    let edits = edits_of(app, photo);
+    with_tuning(&edits, &stored_in(&edits, d))
 }
 
 /// Shows `d` on `photo` through the preview's candidate (rendered as drafts, then a final), when
@@ -285,12 +312,17 @@ fn drop_candidate(app: &mut App) {
     }
 }
 
-/// One change of the session: `d` becomes `photo`'s Tuning (`photo.history.tuning`), and the open
-/// tool's draft follows. Answers the engine's answer.
+/// One change of the session: `d` becomes `photo`'s Tuning (`photo.history.tuning`; [`stored`]),
+/// and the open tool's draft follows. Answers the engine's answer.
 fn commit(app: &mut App, photo: PhotoId, d: &TuningDraft) -> Result<Value, CmdError> {
+    let t = stored(app, photo, d);
+    commit_tuning(app, photo, &t)
+}
+
+/// One change of the session storing `t` as the session's entry.
+fn commit_tuning(app: &mut App, photo: PhotoId, t: &tone::Tuning) -> Result<Value, CmdError> {
     let key = session_key(app, photo);
-    let t = tuning_of(d);
-    let neutral = d.neutral.map_or(Value::Null, |c| json!(c.map(|v| if v.is_finite() { f64::from(v.clamp(0.0, 1.0)) } else { 0.5 })));
+    let neutral = t.neutral.map_or(Value::Null, |c| json!(format!("#{:02x}{:02x}{:02x}", c[0], c[1], c[2])));
     let params = json!({
         "id": photo, "session": key, "fill": t.fill, "highlights": t.highlights, "shadows": t.shadows, "temp": t.temp, "neutral": neutral,
     });
@@ -420,19 +452,22 @@ pub fn poll(app: &mut App, ctx: &egui::Context) {
     }
 }
 
-/// Applies a finished job's `result` to the photo's Tuning as one change.
+/// Applies a finished job's `result` to the photo's Tuning as one change: its values set on the
+/// entry the session edits (the wands answer for the picture that entry receives).
 fn answer(app: &mut App, p: &Pending, result: &Value) {
-    let mut d = shown(app, p.photo);
+    let mut t = stored(app, p.photo, &shown(app, p.photo));
     let num = |k: &str| result.get(k).and_then(Value::as_f64).unwrap_or(0.0);
     match p.what {
         Wand::Lighting => {
-            d.fill = within(num("fill"), tone::FILL);
-            d.highlights = within(num("highlights"), tone::HIGHLIGHTS);
-            d.shadows = within(num("shadows"), tone::SHADOWS);
+            t.fill = param(within(num("fill"), tone::FILL), tone::FILL);
+            t.highlights = param(within(num("highlights"), tone::HIGHLIGHTS), tone::HIGHLIGHTS);
+            t.shadows = param(within(num("shadows"), tone::SHADOWS), tone::SHADOWS);
         }
-        Wand::Color | Wand::Pick => d.neutral = rgb(result.get("rgb")),
+        Wand::Color | Wand::Pick => t.neutral = rgb(result.get("rgb")).map(bytes),
     }
-    change(app, p.photo, &d);
+    if let Err(e) = commit_tuning(app, p.photo, &t) {
+        app.toast(&e.to_string(), ToastKind::Caution);
+    }
 }
 
 /// A colour `[r, g, b]` (each 0 … 1) of an answer.
@@ -523,7 +558,7 @@ impl Tool for Tuning {
                 no_params(params)?;
                 app.state_mut().edit.tuning = Some(DEFAULTS);
                 let out = commit(app, photo, &DEFAULTS)?;
-                Ok(json!({ "tuning": DEFAULTS, "changed": out.get("changed").cloned().unwrap_or(json!(false)) }))
+                Ok(json!({ "tuning": shown(app, photo), "changed": out.get("changed").cloned().unwrap_or(json!(false)) }))
             }
             _ => Err(CmdError::BadParams(format!(
                 "Tuning has no action `{}` (set, auto, pick, picker, reset)",
@@ -932,10 +967,26 @@ mod tests {
         let w = tuning_of(&wild);
         assert_eq!((w.fill, w.highlights, w.shadows, w.temp), (0.0, 0.5, 0.0, 0.0));
         assert_eq!(w.neutral, Some([128, 255, 0]));
-        assert!(last_tuning(&format!("tuning({w})")).is_some());
-        assert_eq!(last_tuning("fill_light(0.3)").map(|t| t.fill), Some(0.3));
-        assert_eq!(last_tuning("autofix()"), None);
+        assert!(shown_tuning(&[format!("tuning({w})")]).is_some());
+        assert_eq!(shown_tuning(&["fill_light(0.3)".to_string()]).map(|t| t.fill), Some(0.3));
+        assert_eq!(shown_tuning(&["autofix()".to_string()]), None);
         assert!(same(&TuningDraft { fill: 0.1, ..DEFAULTS }, &TuningDraft { fill: 0.100_000_1, ..DEFAULTS }));
+    }
+
+    /// After a step that depends on the shown Tuning's pixels, a session stores only the controls
+    /// it moved, over the defaults; in place it stores the draft whole.
+    #[test]
+    fn an_appended_entry_holds_only_the_moved_controls() {
+        let text = |items: &[&str]| items.iter().map(|t| t.to_string()).collect::<Vec<_>>();
+        let d = TuningDraft { fill: 0.3, highlights: 0.2, neutral: Some([0.5, 0.5, 0.5]), ..DEFAULTS };
+        let rotated = text(&["tuning(0.3,0,0,0,#808080)", "rotate(90)"]);
+        assert_eq!(stored_in(&rotated, &d), tone::Tuning { fill: 0.3, highlights: 0.2, shadows: 0.0, temp: 0.0, neutral: Some([128; 3]) });
+        let retouched = text(&["tuning(0.3,0,0,0,#808080)", "retouch(0.2,0.2,0.6,0.6,0.05)"]);
+        assert_eq!(stored_in(&retouched, &d), tone::Tuning { highlights: 0.2, ..tone::Tuning::default() });
+        assert_eq!(stored_in(&retouched, &DEFAULTS), tone::Tuning { neutral: None, ..tone::Tuning::default() });
+        assert_eq!(stored_in(&[], &d), tuning_of(&d));
+        assert_eq!(moved(1, 1, 0), 0);
+        assert_eq!(moved(2, 1, 0), 2);
     }
 
     #[test]

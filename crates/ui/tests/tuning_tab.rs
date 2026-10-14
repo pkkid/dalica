@@ -4,7 +4,9 @@
 //! shows the same value and its own drag is its own step; Auto lighting sets the three lighting
 //! sliders in one step; the eyedropper picks the grey patch of a photo with a colour cast and the
 //! cast is gone; hover tooltips, + / − nudges and double-click resets; the script path through the
-//! Tuning tool and its graceful failures; the tab's fingerprints at 1400 × 900 and 900 × 600.
+//! Tuning tool and its graceful failures; the tab's fingerprints at 1400 × 900 and 900 × 600; after
+//! a rotation the tab and the row still show the photo's Tuning and a drag updates it in place, and
+//! after a retouch a drag adds a new entry (M8.28).
 //!
 //! `DALICA_SHOTS=<dir>` writes the tab's screenshots there too.
 
@@ -609,4 +611,53 @@ fn a_quick_drag_is_also_one_step() {
     t.d.settle(FRAMES).unwrap();
     assert_eq!(edits(&mut t, p).len(), before + 1);
     assert!(last_tuning(&mut t, p).2 > 0.25);
+}
+
+/// M8.28: Fill Light 0.3, then a rotation: the tab and the Basic Fixes row show 0.3; a Highlights
+/// drag updates that entry in place as one step that one Undo takes back; after a retouch the
+/// sliders still show it, and a drag adds a new entry holding only what it moved.
+#[test]
+fn the_sliders_show_the_photos_tuning_after_later_edits() {
+    let mut t = setup((1400, 900), 1);
+    let p = t.photos[0];
+    run(&mut t, "view.edit", json!({ "id": p }));
+    run(&mut t, "photo.history.tuning", json!({ "id": p, "session": "basic", "fill": 0.3 }));
+    run(&mut t, "photo.history.apply", json!({ "id": p, "op": "rotate(90)" }));
+    click(&mut t, "tab:edit.basic");
+    assert_eq!(tooltip(&mut t, "slider:basic.fill_light"), "0.30", "the row after a rotation");
+    click(&mut t, "tab:edit.tuning");
+    wait_preview(&mut t);
+    assert_eq!(tooltip(&mut t, "slider:tuning.fill_light"), "0.30", "the tab after a rotation");
+
+    t.d.drag("slider:tuning.highlights", Target::Delta(vec2(30.0, 0.0)), &Drag::default()).unwrap();
+    t.d.settle(FRAMES).unwrap();
+    let dragged = edits(&mut t, p);
+    assert_eq!(dragged.len(), 2, "{dragged:?}");
+    assert_eq!(dragged[1], "rotate(90)");
+    let (fill, highlights, ..) = tuning(&dragged[0]);
+    assert_eq!(fill, 0.3);
+    assert!(highlights > 0.25, "{highlights}");
+    assert_eq!(widget(&t, "button:edit.undo").label, "Undo Tuning");
+    // The preview shows the photo's own recipe, the entry updated where it sits.
+    assert_eq!(t.d.app().session().unwrap().preview().unwrap().recipe, dragged);
+    click(&mut t, "button:edit.undo");
+    assert_eq!(edits(&mut t, p), ["tuning(0.3,0,0,0,none)", "rotate(90)"], "one Undo");
+    click(&mut t, "button:edit.redo");
+    assert_eq!(edits(&mut t, p), dragged);
+
+    // A retouch after it: the sliders still show it; a drag appends a new entry.
+    run(&mut t, "photo.history.apply", json!({ "id": p, "op": "retouch(0.2,0.2,0.6,0.6,0.05)" }));
+    assert_eq!(tooltip(&mut t, "slider:tuning.fill_light"), "0.30", "the tab after a retouch");
+    t.d.drag("slider:tuning.shadows", Target::Delta(vec2(30.0, 0.0)), &Drag::default()).unwrap();
+    t.d.settle(FRAMES).unwrap();
+    let appended = edits(&mut t, p);
+    assert_eq!(appended.len(), 4, "{appended:?}");
+    assert_eq!(appended[..3], dragged.iter().cloned().chain(["retouch(0.2,0.2,0.6,0.6,0.05)".to_string()]).collect::<Vec<_>>()[..]);
+    let (fill, highlights, shadows, ..) = tuning(&appended[3]);
+    assert_eq!((fill, highlights), (0.0, 0.0), "only the moved control, so the earlier Tuning is not applied twice");
+    assert!(shadows > 0.25, "{shadows}");
+    assert_eq!(tooltip(&mut t, "slider:tuning.fill_light"), "0.00", "the sliders show the new entry");
+    click(&mut t, "button:edit.undo");
+    assert_eq!(edits(&mut t, p).len(), 3, "one Undo");
+    assert_eq!(tooltip(&mut t, "slider:tuning.fill_light"), "0.30");
 }
