@@ -8,6 +8,10 @@
 //! dropped and never fatal. A file that is not JSON, or breaks the limits of `security.md` §4.2,
 //! is a [`ParseError`]: the caller sets it aside as `.dalica.json.corrupt-<time>`.
 //!
+//! M8 adds a photo's `savedAs` (the copy a Save wrote beside it) and the folder's `project` mark
+//! ([`fields`]), and the originals record `.dalica-originals/.dalica.json` ([`originals`]), parsed
+//! and printed the same way.
+//!
 //! Printing is deterministic: keys sorted by their bytes at every level, two-space indentation,
 //! LF line endings, a final newline.
 
@@ -15,11 +19,13 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 pub mod fields;
+pub mod originals;
 mod print;
 
 use serde_json::{Map, Value};
 
-pub use fields::{FolderFields, FolderValue, PhotoFields, PhotoValue};
+pub use fields::{FolderFields, FolderValue, PhotoFields, PhotoValue, SavedAs};
+pub use originals::Originals;
 
 /// The sidecar's file name.
 pub const FILE_NAME: &str = ".dalica.json";
@@ -94,27 +100,13 @@ impl Default for Sidecar {
 impl Sidecar {
     /// An empty sidecar: `{"dalica": {"version": 1}}`.
     pub fn new() -> Sidecar {
-        let mut dalica = Map::new();
-        dalica.insert("version".into(), Value::from(VERSION));
-        let mut root = Map::new();
-        root.insert("dalica".into(), Value::Object(dalica));
-        Sidecar { root }
+        Sidecar { root: new_root() }
     }
 
     /// Parses a sidecar. Accepts a UTF-8 BOM and CRLF line endings; a duplicate key takes the
     /// later value.
     pub fn parse(bytes: &[u8], limits: &Limits) -> Result<Sidecar, ParseError> {
-        if bytes.len() > limits.max_bytes {
-            return Err(ParseError::Limit(format!("{} bytes", bytes.len())));
-        }
-        let bytes = bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(bytes);
-        let value: Value =
-            serde_json::from_slice(bytes).map_err(|e| ParseError::Json { line: e.line(), column: e.column(), message: e.to_string() })?;
-        check_limits(&value, limits, 0, false)?;
-        match value {
-            Value::Object(root) => Ok(Sidecar { root }),
-            _ => Err(ParseError::NotAnObject),
-        }
+        parse_root(bytes, limits, "photos").map(|root| Sidecar { root })
     }
 
     /// The document as it is written to disk.
@@ -146,35 +138,66 @@ impl Sidecar {
     /// Every value of the wrong type at a place Dalica reads.
     pub fn problems(&self) -> Vec<Problem> {
         let mut out = Vec::new();
-        match self.root.get("dalica") {
-            None | Some(Value::Object(_)) => {}
-            Some(_) => out.push(Problem { pointer: "/dalica".into(), expected: "an object" }),
-        }
-        if let Some(v) = self.root.get("dalica").and_then(|d| d.get("version"))
-            && v.as_u64().is_none()
-        {
-            out.push(Problem { pointer: "/dalica/version".into(), expected: "a non-negative integer" });
-        }
+        dalica_problems(&self.root, &mut out);
         self.field_problems(&mut out);
         out
     }
 }
 
+/// Parses a whole document whose top-level object `entries` is keyed by file names: a UTF-8 BOM
+/// and CRLF accepted, a duplicate key takes the later value, the limits checked.
+pub(crate) fn parse_root(bytes: &[u8], limits: &Limits, entries: &str) -> Result<Map<String, Value>, ParseError> {
+    if bytes.len() > limits.max_bytes {
+        return Err(ParseError::Limit(format!("{} bytes", bytes.len())));
+    }
+    let bytes = bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(bytes);
+    let value: Value = serde_json::from_slice(bytes).map_err(|e| ParseError::Json { line: e.line(), column: e.column(), message: e.to_string() })?;
+    check_limits(&value, limits, 0, false, entries)?;
+    match value {
+        Value::Object(root) => Ok(root),
+        _ => Err(ParseError::NotAnObject),
+    }
+}
+
+/// `{"dalica": {"version": 1}}`, the start of every document Dalica writes.
+pub(crate) fn new_root() -> Map<String, Value> {
+    let mut dalica = Map::new();
+    dalica.insert("version".into(), Value::from(VERSION));
+    let mut root = Map::new();
+    root.insert("dalica".into(), Value::Object(dalica));
+    root
+}
+
+/// The problems of the `"dalica"` object itself.
+pub(crate) fn dalica_problems(root: &Map<String, Value>, out: &mut Vec<Problem>) {
+    match root.get("dalica") {
+        None | Some(Value::Object(_)) => {}
+        Some(_) => out.push(Problem { pointer: "/dalica".into(), expected: "an object" }),
+    }
+    if let Some(v) = root.get("dalica").and_then(|d| d.get("version"))
+        && v.as_u64().is_none()
+    {
+        out.push(Problem { pointer: "/dalica/version".into(), expected: "a non-negative integer" });
+    }
+}
+
 /// A JSON-pointer token (RFC 6901): `~` → `~0`, `/` → `~1`.
-fn escape(token: &str) -> String {
+pub(crate) fn escape(token: &str) -> String {
     token.replace('~', "~0").replace('/', "~1")
 }
 
-fn check_limits(v: &Value, l: &Limits, depth: usize, in_photos: bool) -> Result<(), ParseError> {
+/// Checks `v` against `l`; `entries` names the top-level object whose keys are file names
+/// (`photos` in a folder sidecar, `originals` in the originals record).
+pub(crate) fn check_limits(v: &Value, l: &Limits, depth: usize, in_photos: bool, entries: &str) -> Result<(), ParseError> {
     if depth > l.max_depth {
         return Err(ParseError::Limit(format!("nesting deeper than {}", l.max_depth)));
     }
     match v {
         Value::String(s) if s.len() > l.max_string => Err(ParseError::Limit(format!("a string of {} bytes", s.len()))),
         Value::Array(a) if a.len() > l.max_list => Err(ParseError::Limit(format!("a list of {} entries", a.len()))),
-        Value::Array(a) => a.iter().try_for_each(|x| check_limits(x, l, depth + 1, false)),
+        Value::Array(a) => a.iter().try_for_each(|x| check_limits(x, l, depth + 1, false, entries)),
         Value::Object(m) => {
-            let photos_here = depth == 0 && m.get("photos").is_some_and(|p| p.as_object().is_some_and(|p| p.len() > l.max_photos));
+            let photos_here = depth == 0 && m.get(entries).is_some_and(|p| p.as_object().is_some_and(|p| p.len() > l.max_photos));
             if photos_here {
                 return Err(ParseError::Limit(format!("more than {} photos", l.max_photos)));
             }
@@ -185,7 +208,7 @@ fn check_limits(v: &Value, l: &Limits, depth: usize, in_photos: bool) -> Result<
                 if k.len() > l.max_string {
                     return Err(ParseError::Limit(format!("a key of {} bytes", k.len())));
                 }
-                check_limits(x, l, depth + 1, in_photos || (depth == 0 && k == "photos"))?;
+                check_limits(x, l, depth + 1, in_photos || (depth == 0 && k == entries), entries)?;
             }
             Ok(())
         }

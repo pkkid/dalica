@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 
 use dalica_core::{FolderId, PhotoId, Timestamp};
-use dalica_library::{Folder, Library, Op, Photo, PhotoInfo};
+use dalica_library::{Folder, Library, Op, Photo, PhotoInfo, Saved, SavedAs};
 
 use crate::meta::{Sync, first_fill};
 use crate::walk::{FoundFolder, FoundPhoto, Scan};
@@ -20,6 +20,11 @@ pub const BATCH: usize = 500;
 /// (its star, and its [`FolderInfo`](dalica_library::FolderInfo) or [`PhotoInfo`]) in the same op as the one that adds it
 /// (`AddFolder` or `AddPhotos` batched with `SetFolderInfo` or `SetPhotoInfo`), so no sidecar
 /// write can see it without them; for folders and photos already known, the model's word stands.
+/// A new photo's copy saved beside it comes in its `AddPhotos` batch (`SetSavedAs`) and a new
+/// folder's project mark in its `AddFolder` batch (`SetProjects`). The saved records are the
+/// originals record's word for every photo of a folder the scan read (known or new): one
+/// derived `SetSaved` after the adds sets or clears them ([`crate::originals`]); a record that
+/// could not be read changes none.
 /// Photos whose files were read ([`FoundPhoto::file`]) follow `xmp-interop.md` §5 ([`crate::meta`]):
 /// a new photo Dalica has nothing for brings every value its file has in its `AddPhotos` batch, and
 /// a last sync op ([`crate::meta::sync_parts`]) imports what changed in another application and
@@ -44,7 +49,8 @@ fn diff_in(library: &mut Library, folders: &[FoundFolder], covered: &dyn Fn(&Pat
     let mut ops = Vec::new();
     let mut removes = Vec::new();
     let mut updates = Vec::new();
-    let mut adds: Vec<(Photo, PhotoInfo)> = Vec::new();
+    let mut adds: Vec<(Photo, PhotoInfo, Option<SavedAs>)> = Vec::new();
+    let mut saved: Vec<(PhotoId, Option<Saved>)> = Vec::new();
     let mut sync = Sync::default();
     // Folders known but gone from disk where the scan looked.
     let found: BTreeMap<&Path, ()> = folders.iter().map(|f| (f.path.as_path(), ())).collect();
@@ -62,11 +68,14 @@ fn diff_in(library: &mut Library, folders: &[FoundFolder], covered: &dyn Fn(&Pat
                 }
                 None => {
                     let id = library.next_folder_id();
-                    let add = Op::AddFolder { folder: Folder { id, path: found.path.clone() } };
-                    ops.push(match found.info.is_empty() {
-                        true => add,
-                        false => Op::Batch { ops: vec![add, Op::SetFolderInfo { folders: vec![(id, found.info.clone())] }] },
-                    });
+                    let mut batch = vec![Op::AddFolder { folder: Folder { id, path: found.path.clone() } }];
+                    if !found.info.is_empty() {
+                        batch.push(Op::SetFolderInfo { folders: vec![(id, found.info.clone())] });
+                    }
+                    if let Some(project) = found.project {
+                        batch.push(Op::SetProjects { projects: vec![(id, Some(project))] });
+                    }
+                    ops.push(if batch.len() == 1 { batch.swap_remove(0) } else { Op::Batch { ops: batch } });
                     id
                 }
             },
@@ -86,7 +95,10 @@ fn diff_in(library: &mut Library, folders: &[FoundFolder], covered: &dyn Fn(&Pat
             None => true,
         });
         removes.extend(gone.iter().map(|p| p.id));
+        // Each photo's id once the ops are applied, for its saved record.
+        let mut ids: Vec<(&str, PhotoId)> = Vec::with_capacity(found.photos.len());
         for (id, f) in renamed {
+            ids.push((f.name.as_str(), id));
             if let Some(old) = library.photo(id) {
                 updates.push(photo(old.id, folder, f, old.star));
                 if let Some(file) = &f.file {
@@ -96,6 +108,7 @@ fn diff_in(library: &mut Library, folders: &[FoundFolder], covered: &dyn Fn(&Pat
         }
         for f in &found.photos {
             if let Some(old) = known.get(f.name.as_str()) {
+                ids.push((f.name.as_str(), old.id));
                 if (old.size, old.mtime, old.width, old.height, old.date) != (f.size, f.mtime, f.width, f.height, f.date) {
                     updates.push(photo(old.id, folder, f, old.star));
                 }
@@ -113,8 +126,10 @@ fn diff_in(library: &mut Library, folders: &[FoundFolder], covered: &dyn Fn(&Pat
                 }
                 None => (f.star, f.info.clone()),
             };
-            adds.push((photo(id, folder, f, star), info));
+            ids.push((f.name.as_str(), id));
+            adds.push((photo(id, folder, f, star), info, f.saved_as.clone()));
         }
+        saved.extend(crate::originals::changes(library, &ids, &found.originals));
     }
     // Removals first, so a rename's new name is free; then updates (renames, changes); then adds.
     for chunk in removes.chunks(BATCH) {
@@ -125,6 +140,9 @@ fn diff_in(library: &mut Library, folders: &[FoundFolder], covered: &dyn Fn(&Pat
     }
     for chunk in adds.chunks(BATCH) {
         ops.push(add_photos(chunk));
+    }
+    for chunk in saved.chunks(BATCH) {
+        ops.push(Op::SetSaved { saved: chunk.to_vec() });
     }
     // What the files said, once every photo read is in the model.
     ops.extend(sync.op());
@@ -205,12 +223,20 @@ fn move_folder(library: &Library, old: FolderId, found: &FoundFolder) -> Op {
     Op::Batch { ops }
 }
 
-/// One `AddPhotos` op, batched with the `SetPhotoInfo` of those that bring something from their
-/// sidecar.
-fn add_photos(chunk: &[(Photo, PhotoInfo)]) -> Op {
-    let add = Op::AddPhotos { photos: chunk.iter().map(|(p, _)| p.clone()).collect() };
-    let infos: Vec<(PhotoId, PhotoInfo)> = chunk.iter().filter(|(_, i)| !i.is_empty()).map(|(p, i)| (p.id, i.clone())).collect();
-    if infos.is_empty() { add } else { Op::Batch { ops: vec![add, Op::SetPhotoInfo { photos: infos }] } }
+/// One `AddPhotos` op, batched with the `SetPhotoInfo` and `SetSavedAs` of those that bring
+/// something from their sidecar.
+fn add_photos(chunk: &[(Photo, PhotoInfo, Option<SavedAs>)]) -> Op {
+    let add = Op::AddPhotos { photos: chunk.iter().map(|(p, ..)| p.clone()).collect() };
+    let infos: Vec<(PhotoId, PhotoInfo)> = chunk.iter().filter(|(_, i, _)| !i.is_empty()).map(|(p, i, _)| (p.id, i.clone())).collect();
+    let copies: Vec<(PhotoId, Option<SavedAs>)> = chunk.iter().filter_map(|(p, _, c)| Some((p.id, Some(c.clone()?)))).collect();
+    let mut ops = vec![add];
+    if !infos.is_empty() {
+        ops.push(Op::SetPhotoInfo { photos: infos });
+    }
+    if !copies.is_empty() {
+        ops.push(Op::SetSavedAs { saved_as: copies });
+    }
+    if ops.len() == 1 { ops.swap_remove(0) } else { Op::Batch { ops } }
 }
 
 fn photo(id: PhotoId, folder: FolderId, f: &FoundPhoto, star: bool) -> Photo {

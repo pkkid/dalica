@@ -10,11 +10,15 @@
 //! recipe, redo list, date), `folderInfo` (`[folder id, info]` pairs: description, date, place,
 //! hidden) and `synced` (`[photo id, hashes]` pairs, derived data that only the index keeps), each
 //! left out when empty. Loading puts them back with the same ops the journal records.
+//!
+//! M8's fields too: `saved` (`[photo id, record]` pairs: the saved records read from the
+//! originals records, index-only like the synced hashes), `savedAs` (`[photo id, copy]` pairs)
+//! and `projects` (`[folder id, kind]` pairs), each left out when empty.
 
 use std::path::Path;
 
 use dalica_core::{FolderId, PhotoId};
-use dalica_library::{Folder, FolderInfo, Library, Op, Photo, PhotoInfo, Sketch, Synced};
+use dalica_library::{Folder, FolderInfo, Library, Op, Photo, PhotoInfo, Project, Saved, SavedAs, Sketch, Synced};
 use serde::{Deserialize, Serialize};
 
 use crate::journal::{decode, encode, write_whole};
@@ -40,6 +44,12 @@ struct Snapshot {
     folder_info: Vec<(FolderId, FolderInfo)>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     synced: Vec<(PhotoId, Synced)>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    saved: Vec<(PhotoId, Saved)>,
+    #[serde(rename = "savedAs", default, skip_serializing_if = "Vec::is_empty")]
+    saved_as: Vec<(PhotoId, SavedAs)>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    projects: Vec<(FolderId, Project)>,
 }
 
 /// Writes the model of `library` as of op `seq`.
@@ -53,6 +63,9 @@ pub fn write(path: &Path, library: &Library, seq: u64) -> Result<()> {
         photo_info: library.infos().map(|(id, i)| (id, i.clone())).collect(),
         folder_info: library.folder_infos().map(|(id, i)| (id, i.clone())).collect(),
         synced: library.synced_all().map(|(id, s)| (id, *s)).collect(),
+        saved: library.saved_all().map(|(id, s)| (id, s.clone())).collect(),
+        saved_as: library.saved_as_all().map(|(id, s)| (id, s.clone())).collect(),
+        projects: library.projects().collect(),
     };
     let json = serde_json::to_vec(&snap).map_err(|e| Error::Json(e.to_string()))?;
     write_whole(path, &encode(&json))
@@ -80,6 +93,15 @@ pub fn read(bytes: &[u8]) -> std::result::Result<(Library, u64), String> {
     }
     if !snap.synced.is_empty() {
         ops.push(Op::SetSynced { synced: snap.synced.into_iter().map(|(id, s)| (id, Some(s))).collect() });
+    }
+    if !snap.saved.is_empty() {
+        ops.push(Op::SetSaved { saved: snap.saved.into_iter().map(|(id, s)| (id, Some(s))).collect() });
+    }
+    if !snap.saved_as.is_empty() {
+        ops.push(Op::SetSavedAs { saved_as: snap.saved_as.into_iter().map(|(id, s)| (id, Some(s))).collect() });
+    }
+    if !snap.projects.is_empty() {
+        ops.push(Op::SetProjects { projects: snap.projects.into_iter().map(|(id, p)| (id, Some(p))).collect() });
     }
     library.apply(Op::Batch { ops }).map_err(|e| format!("inconsistent snapshot: {e}"))?;
     Ok((library, snap.seq))
