@@ -34,22 +34,27 @@ and the per-type toggles are in [`data-model.md`](data-model.md) §7 and Options
 
 | Format | Show (decode) | Thumbnail fast path | Metadata write | Save edits in place | Notes |
 |---|---|---|---|---|---|
-| JPEG | yes: baseline, progressive, CMYK/YCCK, 12-bit | embedded EXIF thumbnail or MPF preview; DCT-domain 1/2–1/8 scaled decode | XMP, IPTC, EXIF | yes (JPEG; rotate-only Save is lossless where dimensions allow, `data-model.md` §6) | arithmetic coding unsupported |
-| PNG | yes: 1–16-bit, palette, transparency, interlaced | scaled decode | XMP (`iTXt`), EXIF (`eXIf`) | PNG without alpha: yes; with alpha: JPEG copy beside it | |
+| JPEG | yes: baseline, progressive, CMYK/YCCK, 12-bit | embedded EXIF thumbnail or MPF preview; DCT-domain 1/2–1/8 scaled decode | XMP, IPTC, EXIF | yes, as a baseline JPEG at the original's quality and chroma subsampling (4:2:2 written as 4:4:4), its metadata kept; progressive, CMYK and YCCK files too. A rotate-only Save turns a baseline file whose size is whole MCUs in its coefficients, losslessly; other sizes and progressive files keep their pixel data and take the EXIF orientation flag (`data-model.md` §6) | arithmetic coding unsupported |
+| PNG | yes: 1–16-bit, palette, transparency, interlaced | scaled decode | XMP (`iTXt`), EXIF (`eXIf`) | without transparency: yes, as PNG (8- or 16-bit; an alpha channel that is all opaque is left out). A 16-bit PNG stays 16-bit: exact for a rotate-only Save, other edits rendered at 8 bits and widened back. With transparency (an alpha sample below opaque): JPEG copy beside it | |
 | TIFF | yes: 8/16-bit int, float, gray/RGB/CMYK/palette, LZW/Deflate/PackBits/JPEG; first full-resolution page | embedded thumbnail IFD if present, else scaled decode | XMP and IPTC tags (append-only) | JPEG copy beside it | multi-page: first page; Lab/YCbCr unsupported; a file cut inside a strip or tile is "Damaged file" |
 | WebP | yes: lossy and lossless, alpha; first frame of animations | scaled decode | XMP, EXIF chunks | JPEG copy beside it | |
 | GIF | first frame | scaled decode | — (sidecar only) | JPEG copy beside it | animation shown as its first frame |
 | BMP | yes | scaled decode | — (sidecar only) | JPEG copy beside it | |
-| HEIC / HEIF | only with the `heif` feature (§3) | — (the thumbnail item is HEVC too) | — (sidecar only) | JPEG copy beside it | iPhone/Mac photos: grids, 8–12-bit, alpha, ICC, EXIF, XMP |
-| AVIF | **no**: recognised and listed, shown as a format tile | — | — (sidecar only) | — | no permissively licensed pure-Rust AV1 decoder exists today |
+| HEIC / HEIF | only with the `heif` feature (§3) | — (the thumbnail item is HEVC too) | — (sidecar only) | JPEG copy beside it (with the `heif` feature; without it Save fails with the tile's text) | iPhone/Mac photos: grids, 8–12-bit, alpha, ICC, EXIF, XMP |
+| AVIF | **no**: recognised and listed, shown as a format tile | — | — (sidecar only) | — (Save fails with the tile's text; nothing is written) | no permissively licensed pure-Rust AV1 decoder exists today |
 | JPEG XL | yes (`jxl-oxide`) | scaled decode | — (sidecar only) | JPEG copy beside it | orientation applied by the decoder |
 | PSD / PSB | merged composite only (8/16/32-bit gray, RGB, CMYK, indexed) | embedded thumbnail resource or composite | — (sidecar only) | JPEG copy beside it | layers are not read; ZIP-compressed composites and Lab unsupported |
-| RAW | **embedded preview only** (§2) | embedded preview | `.xmp` sidecar when enabled | JPEG copy beside it | RAW development is out of scope (`product.md`) |
-| Video (MP4, MOV, M4V, MKV) | poster frame when decodable (M15), otherwise a generic video tile | — | — (sidecar only) | — | |
+| RAW | **embedded preview only** (§2) | embedded preview | `.xmp` sidecar when enabled | JPEG copy beside it, rendered from the embedded preview | RAW development is out of scope (`product.md`) |
+| Video (MP4, MOV, M4V, MKV) | poster frame when decodable (M15), otherwise a generic video tile | — | — (sidecar only) | — (videos are not listed before M15, so Save never reaches one) | |
 
 "JPEG copy beside it": Save of a format Dalica cannot write in place writes `name.jpg` (or
-`name-001.jpg`) next to the source and leaves the source untouched (`data-model.md` §6). Export
-writes JPEG (PNG for sources with transparency), as in [`creating.md`](creating.md).
+`name-001.jpg`, the next free number) next to the source and leaves the source byte-identical
+(`data-model.md` §6): the copy is a new, unedited photo with the source's caption, tags and star,
+transparency drawn over white; the source keeps its edits and records the copy, and Undo Save and
+Revert apply only to saves in place. Export writes JPEG (PNG for sources with transparency), as in
+[`creating.md`](creating.md). The "Save edits in place" column is measured, one case per row,
+through `photo.save` and Undo Save by `crates/engine/tests/save_formats.rs` (the HEIC case with
+`cargo test -p dalica-engine --features heif --test save_formats`).
 
 A file the decoder refuses (unsupported variant, damaged, over a limit) is still listed: its cell
 shows the embedded thumbnail if one exists, otherwise a `caution` "!" with the reason in the tooltip
@@ -202,6 +207,8 @@ Images smaller than 64 × 64 are indexed but hidden unless View → Small Pictur
 
 - Round trips for every format Dalica writes (JPEG, PNG) and metadata preservation per container
   ([`xmp-interop.md`](xmp-interop.md) §8).
+- Save of every format of §1 through the engine's commands, checking the files on disk after the
+  Save and after Undo Save (`crates/engine/tests/save_formats.rs`).
 - Magic-number detection, including negatives (a `.jpg` that is really a PNG, a truncated header).
 - Orientation 1–8 for every container that carries it.
 - Limits: header-declared bombs are refused before allocating; images exactly at each limit decode.

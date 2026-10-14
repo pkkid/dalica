@@ -9,6 +9,10 @@ repository.workspace = true
 authors.workspace = true
 publish = false
 
+[features]
+# HEIF/HEIC decoding (formats.md §3), off by default; with it `tests/save_formats.rs` runs its HEIC
+# case: `cargo test -p dalica-engine --features heif --test save_formats`.
+heif = ["dalica-image/heif"]
 
 [dependencies]
 dalica-core.workspace = true
