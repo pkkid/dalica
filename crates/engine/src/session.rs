@@ -27,6 +27,11 @@
 //! | `preview` | the edit view's preview renders (stub until M7.11) |
 //! | [`crate::filejobs`] | jobs that write photo files (Save, Save a Copy, Save As, Export) and bring what they wrote into the library |
 //! | `save_recovery` | repairing an interrupted Save, at open and when a scan reads a pending record (stub until M8.18) |
+//! | [`crate::fileops`] | file operations (move, copy, rename, trash) as file jobs and library undo steps |
+//! | `fileops_recovery` | repairing an interrupted file operation at open (stub until M9.21) |
+//! | `albums_file` | `albums.json`, read at open and written after album changes (stub until M9.10) |
+//! | [`crate::search`] | search mode's state; the query worker (stub until M9.11) |
+//! | `duplicates` | Find Duplicates (stub until M9.16) |
 //!
 //! Thumbnails are made by the thumbnailer's own workers as scans land; their sketches come back
 //! through the same calls and are applied as derived ops: journaled, but never on the undo stack
@@ -47,6 +52,7 @@ use dalica_store::{FolderState, Recovery, SidecarWriter, Store};
 use serde_json::Value;
 
 use crate::error::{CmdError, OpenError};
+use crate::fileops::Direction;
 pub use crate::folders::FOLDERS_FILE;
 use crate::folders::Folders;
 use crate::history::Histories;
@@ -60,7 +66,7 @@ use crate::registry::{CommandInfo, CommandSpec, History};
 use crate::scanning::{PHOTOS_PER_POLL, ScanKind, Scanning};
 use crate::settings::Settings;
 use crate::thumbs::{Thumb, ThumbOptions, ThumbStats, Thumbs};
-use crate::undo::{Step, UndoStack};
+use crate::undo::{Entry, Step, UndoStack};
 use crate::watching::Watching;
 
 /// A snapshot is taken after this many ops (the store's own threshold, counted here so the worker
@@ -82,6 +88,9 @@ pub(crate) enum Msg {
     /// (`offline.rs`, M6.43).
     Guard(Vec<(PathBuf, dalica_store::writer::RootCheck)>),
     Flush(Sender<()>),
+    /// Runs a piece of work on the I/O worker, in order with the writes before it (the
+    /// file-operation journal, `fileops.rs`).
+    Run(Box<dyn FnOnce() + Send>),
 }
 
 /// How a session is opened.
@@ -140,6 +149,12 @@ pub struct Session {
     /// The user's Pictures folder as known when the library opened: the default export location
     /// lies under it (`settings.rs`).
     pub(crate) pictures_dir: Option<PathBuf>,
+    /// File operations: the journal writer and their events (`fileops.rs`).
+    pub(crate) fileops: crate::fileops::FileOps,
+    /// Search mode (`search.rs`).
+    pub(crate) search: crate::search::SearchState,
+    /// Find Duplicates (`duplicates.rs`).
+    pub(crate) duplicates: crate::duplicates::Duplicates,
     _lock: LibraryLock,
 }
 
@@ -222,6 +237,9 @@ impl Session {
             tuning_wands: crate::cmd::tuning::Wands::default(),
             file_jobs: crate::filejobs::FileJobs::default(),
             pictures_dir,
+            fileops: crate::fileops::FileOps::default(),
+            search: crate::search::SearchState::default(),
+            duplicates: crate::duplicates::Duplicates::default(),
             _lock: lock,
         };
         session.configure_thumbnails();
@@ -230,6 +248,8 @@ impl Session {
             session.start_scan(session.folders.roots.clone(), ScanKind::Rebuild);
         }
         session.recover_saves_at_open();
+        session.recover_file_ops_at_open();
+        session.read_albums_at_open();
         Ok(session)
     }
 
@@ -288,6 +308,9 @@ impl Session {
         if self.collected.is_none() {
             self.note_save_records(&op);
         }
+        // `albums.json` (`albums_file.rs`) and the search index (`search.rs`) follow every op.
+        self.albums_applied(&op);
+        self.search_applied(&op);
         self.send(Msg::Journal(vec![op]));
         let rev = self.library.revision();
         let touched: BTreeSet<FolderId> = self.all_folder_ids().into_iter().filter(|f| self.library.folder_revision(*f) == rev).collect();
@@ -320,6 +343,22 @@ impl Session {
         if self.collected.is_some() {
             self.undo_op = Some(op);
         }
+    }
+
+    /// Applies `op` as a command's change (`Origin::Command`, the files' import hooks left out)
+    /// outside `execute`, and returns its inverse without collecting it: a file operation's results
+    /// as its job brings them (`fileops.rs`), the operation keeping the inverse for its undo step.
+    pub(crate) fn apply_own(&mut self, op: Op) -> Result<Op, CmdError> {
+        let saved = self.collected.replace(Vec::new());
+        let result = self.apply(op);
+        self.collected = saved;
+        result
+    }
+
+    /// A sender to the I/O worker, for work that must run there in order with the session's
+    /// writes (the file-operation journal); `None` once it stopped.
+    pub(crate) fn io_sender(&self) -> Option<Sender<Msg>> {
+        self.io.clone()
     }
 
     /// Applies a derived op ([`Op::is_derived`]: sketches) and journals it, without an undo step
@@ -389,9 +428,19 @@ impl Session {
         self.apply(op)
     }
 
-    /// Undoes the last library step. `Ok(None)` when there is nothing to undo.
+    /// Undoes the last library step. `Ok(None)` when there is nothing to undo. A file step starts
+    /// its reverse as a file job and stays on the stack until it ends (`fileops.rs`); `Disabled`
+    /// with the reason while it runs or when it cannot be undone.
     pub(crate) fn undo(&mut self) -> Result<Option<&'static str>, CmdError> {
-        let Some(step) = self.undo.pop_undo() else { return Ok(None) };
+        match self.undo.last(false) {
+            None => return Ok(None),
+            Some(Entry::Files(f)) => {
+                let f = f.clone();
+                return self.run_file_step(f, Direction::Undo);
+            }
+            Some(Entry::Step(_)) => {}
+        }
+        let Some(Entry::Step(step)) = self.undo.pop_undo() else { return Ok(None) };
         match self.apply_step(step.op.clone()) {
             Ok(redo) => {
                 let modes = step.modes.clone().map(|m| self.swap_modes(m));
@@ -405,9 +454,18 @@ impl Session {
         }
     }
 
-    /// Redoes the last undone step. `Ok(None)` when there is nothing to redo.
+    /// Redoes the last undone step. `Ok(None)` when there is nothing to redo. A file step runs its
+    /// items again as a file job, as for [`Session::undo`].
     pub(crate) fn redo(&mut self) -> Result<Option<&'static str>, CmdError> {
-        let Some(step) = self.undo.pop_redo() else { return Ok(None) };
+        match self.undo.last(true) {
+            None => return Ok(None),
+            Some(Entry::Files(f)) => {
+                let f = f.clone();
+                return self.run_file_step(f, Direction::Redo);
+            }
+            Some(Entry::Step(_)) => {}
+        }
+        let Some(Entry::Step(step)) = self.undo.pop_redo() else { return Ok(None) };
         match self.apply_step(step.op.clone()) {
             Ok(undo) => {
                 let modes = step.modes.clone().map(|m| self.swap_modes(m));
@@ -439,6 +497,8 @@ impl Session {
         n += self.poll_crop_suggestions();
         n += self.poll_tuning_wands();
         n += self.poll_file_jobs();
+        n += self.poll_search();
+        n += self.poll_duplicates();
         self.jobs.prune(self.clock.now());
         n
     }
@@ -689,6 +749,11 @@ fn io_worker(mut store: Store, rx: Receiver<Msg>, clock: &dyn Clock, errors: &Mu
             Ok(Msg::Snapshot(library)) => {
                 if let Err(e) = store.snapshot(&library) {
                     fail(format!("snapshot: {e}"));
+                }
+            }
+            Ok(Msg::Run(work)) => {
+                if catch_unwind(AssertUnwindSafe(work)).is_err() {
+                    fail("work on the I/O worker panicked".into());
                 }
             }
             Ok(Msg::Hold(roots)) => writer.hold(roots),

@@ -3913,7 +3913,7 @@ mid-run.
     trashed file comes back on Linux and Windows and is `Unsupported` on macOS; a volume without a
     trash gives `NoTrash` and the file stays; every fault point as Error and as Crash leaves the
     source whole (`--features faults`); hostile names are refused.
-- ⬜ **M9.3 `engine`: M9's command modules, file operations on the undo stack, and settings**
+- ✅ **M9.3 `engine`: M9's command modules, file operations on the undo stack, and settings**
   - after: M8.3, M8.R
   - files: `crates/engine/src/cmd/mod.rs`, `crates/engine/src/cmd/albums.rs`, `crates/engine/src/cmd/search.rs`, `crates/engine/src/cmd/files.rs`, `crates/engine/src/cmd/rename.rs`, `crates/engine/src/cmd/delete.rs`, `crates/engine/src/cmd/folder_ops.rs`, `crates/engine/src/cmd/duplicates.rs`, `crates/engine/src/fileops.rs`, `crates/engine/src/fileops_recovery.rs`, `crates/engine/src/albums_file.rs`, `crates/engine/src/search.rs`, `crates/engine/src/duplicates.rs`, `crates/engine/src/undo.rs`, `crates/engine/src/jobs.rs`, `crates/engine/src/folders.rs`, `crates/engine/src/session.rs`, `crates/engine/src/settings.rs`, `crates/engine/tests/fileops.rs`, `crates/engine/tests/settings_m9.rs`, `crates/engine/README.md`, `docs/architecture.md`
   - scope: the engine's ground for M9 so M9.10–M9.16 and M9.21 never share a file: empty
