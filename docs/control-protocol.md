@@ -245,7 +245,11 @@ The save picker (File ▸ Save As…, `photo.saveAs`, `ui.menu.invoke` replies `
 "photo.saveTo", kind: "save", title: "Save As", name: "IMG_0041.jpg", folder, params: {id}}`.
 `ui.filePicker {path}` runs `command` with `params` plus `path`, once the path passes the writing
 rule of §5.7 (a refused path is the reply and the picker stays open); `{cancel: true}` closes it
-and changes nothing. One native picker is open at a time.
+and changes nothing. One native picker is open at a time. The app follows the save its picker's
+answer started: when the job ends with the code `exists` (or `no_folder`), or `photo.saveTo`
+refuses the name (`bad_params`), the picker opens again, so `filePicker` reappears: titled
+"Choose Another Name" with the name tried, in its folder, for a taken name; "Save As" in the
+photo's folder for a missing one. A `photo.saveTo` an agent runs itself opens no picker.
 
 The Export dialog's *Browse…* (`button:dialog.browse`, M8.20) opens a folder picker for the export
 location: `filePicker: {command: "output.export.location", kind: "folder", title: "Export

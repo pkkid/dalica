@@ -139,3 +139,40 @@ fn an_export_folder_outside_every_watched_root_is_listed_in_projects() {
         assert!(has(&d, "tree:group:projects") && is_project(&d, &row));
     }
 }
+
+/// A folder under the projects directory (`Pictures/Dalica`) is listed in Projects without the
+/// Exported mark, beside a folder outside it that stays under Folders. An export location chosen
+/// inside the watched `Pictures` (whose parent, the projects directory, is then `Pictures` itself)
+/// makes no folder a project.
+#[test]
+fn a_folder_under_the_projects_directory_is_listed_in_projects() {
+    let dir = tempfile::tempdir().unwrap();
+    let pictures = dir.path().join("Pictures");
+    let (prints, holiday) = (pictures.join("Dalica").join("Prints"), pictures.join("Holiday"));
+    for (i, folder) in [&prints, &holiday].into_iter().enumerate() {
+        dalica_fs::create_dir_all(folder).unwrap();
+        let bytes = dalica_scenes::jpeg(&dalica_scenes::Scene::new(i as u64, 240, 160), 85, None).unwrap();
+        dalica_fs::replace(&folder.join("IMG_0001.jpg"), &bytes, Expect::Absent).unwrap();
+    }
+    let mut s = Session::open(&dir.path().join("library"), Arc::new(SystemClock)).unwrap();
+    s.set_pictures_dir(Some(pictures.clone()));
+    s.execute("folders.add", &json!({ "path": pictures })).unwrap();
+    s.wait_idle();
+    assert_eq!(s.projects_dir(), Some(pictures.join("Dalica")));
+    let (p, h) = (s.library().folder_by_path(&prints).unwrap(), s.library().folder_by_path(&holiday).unwrap());
+    assert!(s.library().project(p).is_none(), "no Exported mark");
+    let mut d = driver(s, (1400, 900));
+    let (row, other) = (format!("tree:folder:{p}"), format!("tree:folder:{h}"));
+    assert_eq!(widget(&d, "tree:group:projects").label, "Projects (1)");
+    let folders_header = widget(&d, "tree:group:folders");
+    assert!(widget(&d, &row).rect[1] < folders_header.rect[1] && is_project(&d, &row), "Prints is a project");
+    assert!(widget(&d, &other).rect[1] > folders_header.rect[1] && !is_project(&d, &other), "Holiday is a folder");
+
+    // The export location moved into Pictures: its parent is the watched folder itself.
+    let session = d.app_mut().session_mut().unwrap();
+    let export = session.settings().export();
+    session.change_settings(|st| st.set_export(&dalica_engine::settings::ExportSettings { location: Some(pictures.join("Exports")), ..export }));
+    d.settle(FRAMES).unwrap();
+    assert!(!has(&d, "tree:group:projects"), "no folder of the library becomes a project");
+    assert!(!is_project(&d, &row));
+}

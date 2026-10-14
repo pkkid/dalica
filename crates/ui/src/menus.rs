@@ -14,7 +14,7 @@
 //! - **Running an item** ([`activate`]): a dialog item opens its dialog, any other runs its
 //!   command through [`App::run`] with the selection where the command takes `ids`.
 
-use dalica_core::FolderId;
+use dalica_core::{FolderId, PhotoId};
 use dalica_engine::{CmdError, CommandSpec, Context};
 use dalica_ui_kit::registry::Role;
 use dalica_ui_kit::widgets::{self, Target};
@@ -281,7 +281,10 @@ pub fn params_for(app: &App, id: &str, fixed: &Value) -> Value {
 fn item_node(facts: &Facts<'_>, i: &'static Item) -> ItemNode {
     let app = facts.app;
     let album = facts.kind == SectionKind::Album;
-    let id = if album { i.album_id.unwrap_or(i.id) } else { i.id };
+    let row = if album { i.album_id.unwrap_or(i.id) } else { i.id };
+    // After a Save in the edit view, with no edit made since, Edit ▸ Undo is Undo Save: the row
+    // keeps its widget id and runs `photo.undoSave` on the open photo (`editing.md` §5.1).
+    let id = if row == "edit.undo" && undo_save_photo(app).is_some() { UNDO_SAVE } else { row };
     let params: Value = if i.params.is_empty() { Value::Null } else { serde_json::from_str(i.params).unwrap_or(Value::Null) };
     let dialog = DIALOGS.iter().find(|(c, _)| *c == id).map(|(_, d)| *d);
     let ui_command = UI_COMMANDS.iter().any(|c| c.id == id);
@@ -305,14 +308,15 @@ fn item_node(facts: &Facts<'_>, i: &'static Item) -> ItemNode {
     };
     let undo = app.session().map(dalica_engine::Session::undo_stack);
     let label = match (id, undo.and_then(|u| if id == "edit.undo" { u.undo_label() } else { u.redo_label() })) {
+        _ if id == UNDO_SAVE => dalica_engine::cmd::history::UNDO_SAVE.to_string(),
         _ if let Some(step) = photo_step(app, id) => step,
         ("edit.undo", Some(action)) => format!("Undo {action}"),
         ("edit.redo", Some(action)) => format!("Redo {action}"),
         _ => i.label.to_string(),
     };
     let widget = match i.part {
-        Some(part) => format!("menuitem:{id}/{part}"),
-        None => format!("menuitem:{id}"),
+        Some(part) => format!("menuitem:{row}/{part}"),
+        None => format!("menuitem:{row}"),
     };
     let checked = checked(app, id, &params);
     ItemNode {
@@ -329,6 +333,18 @@ fn item_node(facts: &Facts<'_>, i: &'static Item) -> ItemNode {
         checked,
         dialog,
     }
+}
+
+/// The command Edit ▸ Undo runs on a saved photo whose edits are all saved.
+const UNDO_SAVE: &str = "photo.undoSave";
+
+/// The photo the edit view shows when it is saved and has no edits since (its Undo is Undo Save,
+/// as `photo.history.state` answers `undoSave`); `None` otherwise and in the library.
+fn undo_save_photo(app: &App) -> Option<PhotoId> {
+    let photo = crate::commands::edit_view::open_photo(app)?;
+    let session = app.session()?;
+    let h = session.photo_history(photo)?;
+    (h.edits.is_empty() && session.library().can_undo_save(photo)).then_some(photo)
 }
 
 /// Edit ▸ Undo / Redo's label while the edit view shows a photo, whose history the rows walk
@@ -470,7 +486,7 @@ pub fn find_id<'m>(nodes: &'m [Node], id: &str, params: &Value) -> Option<&'m It
         _ => true,
     };
     nodes.iter().find_map(|n| match n {
-        Node::Item(i) if i.id == id && fits(&i.params) => Some(i),
+        Node::Item(i) if (i.id == id || i.widget.strip_prefix("menuitem:") == Some(id)) && fits(&i.params) => Some(i),
         Node::Submenu { children, .. } => find_id(children, id, params),
         _ => None,
     })

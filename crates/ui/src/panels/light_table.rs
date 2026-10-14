@@ -129,9 +129,24 @@ impl Sections {
     }
 }
 
-/// The tree options the view state asks for (`organizing.md` §10). Folded tree-mode folders keep
-/// their sections, so they are left out.
-pub fn tree_options(s: &UiState) -> TreeOptions {
+/// The tree options `app` shows: what the view state asks for (`organizing.md` §10; folded
+/// tree-mode folders keep their sections, so they are left out) and the projects directory, whose
+/// folders the flat tree lists in Projects ([`projects_dir`]).
+pub fn tree_options(app: &App) -> TreeOptions {
+    TreeOptions { projects_dir: app.session().and_then(projects_dir), ..view_tree_options(app.state()) }
+}
+
+/// The projects directory the tree lists in Projects (`Pictures/Dalica` by default; the export
+/// location's parent, `creating.md` §2), unless it is itself a watched folder: an export location
+/// chosen inside a watched folder (`Pictures/Exports`, with `Pictures` watched) must not make every
+/// folder of it a project.
+pub fn projects_dir(session: &Session) -> Option<PathBuf> {
+    let dir = session.projects_dir()?;
+    (!session.roots().contains(&dir)).then_some(dir)
+}
+
+/// The tree options the view state alone asks for.
+fn view_tree_options(s: &UiState) -> TreeOptions {
     use dalica_library::{FolderSort as LibSort, Group as LibGroup, TreeMode as LibMode};
     let group = |g: state::Group| match g {
         state::Group::Albums => LibGroup::Albums,
@@ -374,7 +389,7 @@ impl LightTable {
 /// frame, before any region reads them.
 pub fn refresh(p: &mut Panels, app: &App) {
     if let Some(session) = app.session() {
-        p.sections.refresh(session.library(), session.roots(), &tree_options(app.state()));
+        p.sections.refresh(session.library(), session.roots(), &tree_options(app));
     }
 }
 

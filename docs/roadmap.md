@@ -3571,7 +3571,7 @@ first measurement. No step of M8 needs a maintainer decision mid-run.
     Show Folder scrolls to and selects the folder; a read-only file's failed Save gives one toast;
     `crates/ui/tests/tree_projects.rs`: an export folder outside every watched root appears in
     Projects in flat mode; window and tree fingerprints at both sizes.
-- ⬜ **M8.22 `ui`: Save As in the app**
+- ✅ **M8.22 `ui`: Save As in the app**
   - after: M8.4, M8.17
   - files: `crates/ui/src/commands/save_as.rs`, `crates/ui/tests/save_as.rs`
   - scope: `data-model.md` §6 and `menus-and-shortcuts.md` §1: File ▸ Save As… opens the save

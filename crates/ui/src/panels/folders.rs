@@ -168,7 +168,7 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
     let library = session.library();
     let state = app.state();
     let heights = Heights::from_metrics(&t.metrics);
-    let mut options = light_table::tree_options(state);
+    let mut options = light_table::tree_options(app);
     options.offline_roots = session.offline_roots();
     let key = ModelKey {
         revision: library.revision(),
