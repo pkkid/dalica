@@ -3582,7 +3582,7 @@ first measurement. No step of M8 needs a maintainer decision mid-run.
   - done when: `crates/ui/tests/save_as.rs` (headless, the scripted picker): Save As to a new path
     writes it and the photo appears; an existing path is refused and the picker returns; cancel
     writes nothing; Save a Copy from the edit view writes `-001`; the menu items' enabled states.
-- ⬜ **M8.23 `engine`: every format saves as specified**
+- ✅ **M8.23 `engine`: every format saves as specified**
   - after: M8.14, M8.15
   - files: `crates/engine/tests/save_formats.rs`, `docs/formats.md`
   - scope: `formats.md` §1's "Save edits in place" column through `photo.save` on `scenes` files
