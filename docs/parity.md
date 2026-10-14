@@ -24,13 +24,13 @@ same commit.
 |---|---:|---:|---:|---:|
 | A. Library view | 13 | 15 | 4 | 1 |
 | B. Organizing | 2 | 8 | 32 | 0 |
-| C. Editing | 7 | 7 | 8 | 4 |
+| C. Editing | 8 | 6 | 8 | 4 |
 | D. Viewing | 0 | 1 | 5 | 2 |
 | E. Output | 0 | 1 | 1 | 9 |
 | F. Data | 1 | 19 | 1 | 0 |
 | G. Preferences and system | 0 | 7 | 7 | 0 |
 | H. Menus | 0 | 5 | 2 | 0 |
-| **All** | 23 | 63 | 60 | 16 |
+| **All** | 24 | 62 | 60 | 16 |
 <!-- /parity:summary -->
 
 ## Top gaps
