@@ -3672,7 +3672,7 @@ first measurement. No step of M8 needs a maintainer decision mid-run.
   - done when: frames per second while a preview renders stay ≤ 1 per 16 ms and settle still waits
     for the preview (a test); the old-texture frame of a newly cropped cell keeps its aspect (a
     test); CI green on the three OSes with no flake in `straighten_tool.rs` over 3 runs.
-- ⬜ **M8.30 Docs left stale by M7**
+- ✅ **M8.30 Docs left stale by M7**
   - after: M7.R
   - files: `crates/edit/README.md`, `docs/showcase.md`
   - scope: found at M7.R: the `edit` README still says renderers "arrive with M7.8, M7.13 and

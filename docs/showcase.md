@@ -3,24 +3,27 @@
 Adapted from LightCraft `docs/showcase/README.md` (revision 88ea1a8) and PhotoCraft
 `docs/images/SOURCES.md` (revision 59684266); MIT OR Apache-2.0.
 
-> **Status: Planned (M2).** The mechanism (headless snapshots and the control channel) lands in M2;
-> the first real showcase shots come with M4 (library view) and M7 (edit view). Nothing exists yet.
+> **Status: the tools exist; the showcase does not yet.** `dalica-cli snapshot` (headless) and the
+> control channel can make the shots of every feature built so far. No `docs/showcase/` scripts,
+> `docs/images/` or `cargo xtask showcase` exist yet: the website's 0.2 screenshots were made by
+> hand with the same commands (`website/README.md` → Images).
 
 The screenshots in the README and in `docs/images/` are **produced by scripts**, never captured by
-hand: each one is a JSON-lines script of control-protocol requests
-([`control-protocol.md`](control-protocol.md)) that sets up the UI and takes a screenshot. Anyone can
-re-run them after a UI change and get the same picture, and reviewers can see exactly what a
-screenshot shows. Image rules are in [`assets.md`](assets.md) §6; this file is the procedure.
+hand: each one is a JSON-lines script of `dalica-cli snapshot` steps
+([`control-protocol.md`](control-protocol.md) §8) that sets up the UI, and the snapshot of its last
+frame is the shot. Anyone can re-run them after a UI change and get the same picture, and reviewers
+can see exactly what a screenshot shows. Image rules are in [`assets.md`](assets.md) §6; this file
+is the procedure.
 
 ## 1. Layout
 
 ```text
 docs/showcase/
-  demo-library.jsonl      # one script per shot (or per related group of shots)
+  demo-library.jsonl      # one snapshot script per shot (a script makes one PNG)
   demo-edit.jsonl
   pd-library.jsonl        # shots using the public-domain set
   pd-edit.jsonl
-  pd-setup.jsonl          # shared setup for the public-domain set: captions, tags, stars, albums
+  pd-setup.jsonl          # `dalica-cli run` script for the public-domain set: captions, tags, stars, edits
 docs/images/
   library.jpg  edit-tuning.jpg  effects.jpg  tray.jpg  search.jpg  small-window.jpg  …
   SOURCES.md              # every image: what it shows, the photos in it, their sources and licences
@@ -55,19 +58,29 @@ and year when known.
 
 ## 3. Producing the shots
 
-The default is **headless** — no window, no GPU, deterministic, works over SSH and in CI:
+The default is **headless**: no window, no GPU, deterministic, works over SSH and in CI. Each
+`snapshot` run opens one library, plays one script and writes one PNG; `--size` is in pixels and
+`--scale` in pixels per point, so a sharp 1400 × 900-point shot is `--size 2800x1800 --scale 2`.
 
 ```sh
 cargo build --release -p dalica-cli
-# procedural demo library
-target/release/dalica-cli snapshot --demo --script docs/showcase/demo-library.jsonl \
+# procedural demo library: --demo-fresh, so the script starts from the same state every run
+target/release/dalica-cli snapshot --demo-fresh --script docs/showcase/demo-library.jsonl \
     -o docs/images/library.png --size 1400x900
-# public-domain set (fetch it first: cargo xtask corpus --all)
-target/release/dalica-cli snapshot corpus/showcase --script docs/showcase/pd-edit.jsonl \
-    -o docs/images/edit-tuning.png --size 1400x900 --scale 2
+# public-domain set (fetch it first: cargo xtask corpus --all): build a scratch library once,
+# then shoot from it. Never point --library at a real library: snapshot writes to it.
+LIB="$(mktemp -d)/library"
+target/release/dalica-cli run --library "$LIB" --cmd folders.add \
+    --params "{\"path\": \"$PWD/corpus/showcase\"}"
+target/release/dalica-cli run --library "$LIB" docs/showcase/pd-setup.jsonl
+target/release/dalica-cli snapshot --library "$LIB" --script docs/showcase/pd-edit.jsonl \
+    -o docs/images/edit-tuning.png --size 2800x1800 --scale 2
 # all scripts, then convert to JPEG and check sizes (planned)
 cargo xtask showcase [NAME…]
 ```
+
+`folders.add` takes an absolute path, which is why it is given on the command line rather than in
+a checked-in script. `run` waits for the scan before its next line and before it exits.
 
 `cargo xtask showcase` (planned; to be added to `development.md` §3 when it lands) runs every script in
 `docs/showcase/`, encodes each PNG as JPEG quality 85 with the pure-Rust encoder (the README images
@@ -76,55 +89,58 @@ fails if any script request failed (non-zero `snapshot` exit status). It never t
 `docs/images/SOURCES.md` or `ATTRIBUTION.md`: those are edited by hand in the same commit.
 
 **Windowed variant**, to check that the window and the headless renderer agree, or for anything
-headless cannot show yet:
+headless cannot show yet (hover, several shots from one session). The window is driven with
+control requests (`{"method": …, "params": …}` lines, `control-protocol.md` §6), not snapshot
+steps, so it needs its own script; `dalica-cli` cannot send them yet (`run --connect` is planned,
+`control-protocol.md` §9.1), so use a small client such as the one in §9.1:
 
 ```sh
-cargo run --release -p dalica -- --control 18042 --demo &
-target/release/dalica-cli run --connect 127.0.0.1:18042 --script docs/showcase/demo-library.jsonl
+cargo run --release -p dalica -- --control 18042 --demo-fresh \
+    --automation-write-root "$PWD/docs/images" &
+python3 dalica_ctl.py 18042 docs/showcase/demo-library.window.jsonl
 ```
 
-Screenshot paths in the scripts are relative to the repository root; run the commands from there.
-`snapshot` treats its working directory as a write root; for the windowed run, start the app with
-`--automation-write-root "$PWD/docs/images"` (`control-protocol.md` §5.7, §8). Never use OS screenshot tools or OS-level synthetic input to stage a
-shot (`AGENTS.md` §5): if a state cannot be reached through the control channel, add the missing
-method or widget id.
+`ui.screenshot` paths are absolute and must lie inside an `--automation-write-root`
+(`control-protocol.md` §5.7). A `snapshot` writes its `-o` file wherever it is told, replacing a
+file there. Never use OS screenshot tools or OS-level synthetic input to stage a shot (`AGENTS.md`
+§3, §5): if a state cannot be reached through a script step or the control channel, add the missing
+command or widget id.
 
 ## 4. Writing a script
 
-- Start with `ui.resize` (1400 × 900 is the default hero size; add a 900 × 600 shot for the
-  minimum window when the layout matters).
-- Put the library in a known state with `engine.execute` (stars, captions, tags, albums, edits),
-  then reach the view **the way a user would** — `ui.clickWidget` on tree rows and thumbnails,
-  `ui.key`, `ui.menu.invoke` — so the screenshot also exercises the UI path.
-- Use deterministic ids (`control-protocol.md` §5.4) and never depend on timing: `ui.settle` before
-  every `ui.screenshot`, `ui.wait` only for things that are time-based by design (tooltips). No
-  `sleep` lines.
-- Hover states, open menus and tooltips are fine when they explain a feature; a stray hover
-  highlight is not — end with the pointer over empty space (`ui.pointer` move) before the shot.
-- Keep each script short and commented; one shot per `ui.screenshot`, with a `path` naming the
-  output.
+A snapshot script has one step per line (`control-protocol.md` §8): `{"click": widgetId}`,
+`{"key": "Ctrl+8"}`, `{"command": id, "params": {...}}` (an engine or UI command, run as a menu
+item would) or `{"settle": true}`; blank lines and `#` lines are comments.
 
-Example (`docs/showcase/demo-library.jsonl`):
+- Pick the size on the command line: 1400 × 900 is the default hero size; run the same script
+  again at 900 × 600 for the minimum window when the layout matters.
+- Put the library in a known state with commands (stars, captions, tags, edits), then reach the
+  view **the way a user would** where a widget exists (`click` on tree rows, buttons and toggles,
+  `key` for shortcuts), so the shot also exercises the UI path. Steps a click cannot express go
+  through the UI commands: `select.set` (with `"mode": "toggle"` for a Ctrl-click), `view.edit`,
+  `edit.tab`, `edit.tool.open`.
+- Use deterministic ids (`control-protocol.md` §5.4; `--demo-fresh` gives the same ids every run)
+  and never depend on timing: `snapshot` settles before the first step and after the last, and a
+  `{"settle": true}` line waits for background work in between. No `sleep` lines.
+- A failing step (an unknown widget, a refused command) stops the script with exit status 1 and
+  writes no PNG; a line that is not a JSON object exits 2 before anything runs.
+- Keep each script short and commented, one shot per script.
+
+Example (`docs/showcase/demo-library.jsonl`, run with `--demo-fresh` at 1400x900 and at 900x600):
 
 ```jsonl
-# Hero: the library view with a held tray, demo library, 1400 x 900
-{"method": "ui.resize", "params": {"width": 1400, "height": 900}}
+# Hero: the library view with a held tray, demo library
 {"command": "photo.star.toggle", "params": {"ids": [2, 5, 9]}}
-{"command": "album.new", "params": {"name": "Best of the coast", "ids": [2, 5, 9, 14]}}
 {"command": "photo.caption.set", "params": {"ids": [5], "caption": "Low tide, late afternoon"}}
-{"method": "ui.clickWidget", "params": {"id": "tree:folder:2"}}
-{"method": "ui.clickWidget", "params": {"id": "thumb:14"}}
-{"method": "ui.clickWidget", "params": {"id": "thumb:16", "ctrl": true}}
-{"method": "ui.clickWidget", "params": {"id": "button:tray.hold"}}
-{"method": "ui.clickWidget", "params": {"id": "toggle:pane.tags"}}
-{"method": "ui.pointer", "params": {"events": [{"kind": "move", "x": 700, "y": 880}]}}
-{"method": "ui.settle"}
-{"method": "ui.screenshot", "params": {"path": "docs/images/library.png"}}
-# The same at the minimum window size
-{"method": "ui.resize", "params": {"width": 900, "height": 600}}
-{"method": "ui.settle"}
-{"method": "ui.screenshot", "params": {"path": "docs/images/small-window.png"}}
+{"click": "tree:folder:2"}
+{"command": "select.set", "params": {"ids": [24]}}
+{"command": "select.set", "params": {"ids": [26], "mode": "toggle"}}
+{"click": "button:tray.hold"}
+{"click": "toggle:pane.tags"}
+{"settle": true}
 ```
+
+An album joins the hero script when albums land (M9).
 
 ## 5. Planned shots
 
