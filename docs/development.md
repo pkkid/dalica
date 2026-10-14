@@ -167,15 +167,16 @@ cargo run --release -p dalica -- --control 7990 --demo
 | Cold start to a usable library of 100 k photos | ≤ 2 s |
 | Idle memory with 100 k photos | ≤ 600 MiB |
 | Save a 24 MP JPEG with an edit (render, encode, write, verify; median) | ≤ 1 050 ms |
-| Save a 24 MP JPEG turned a quarter (rotate-only; median) | ≤ 815 ms |
+| Save a 24 MP JPEG turned a quarter (rotate-only, lossless; median) | ≤ 455 ms |
 | Export the 200-photo mixed tray at 1600 px, Normal, watermark, location removed (median) | ≤ 24 s |
 
 The save and export budgets (M8.24) are 1.5 × their first measurement: release, two cores
 (`taskset -c 0,1`, as the budgets job's runner), 2026-10-14, a 24-core Linux workstation under
-other agents' builds (load average 7): Save 701 ms, rotate-only Save 542 ms, the export 16.0 s
-(80 ms a photo, two at a time). The rotate-only Save renders until the lossless rotation of M8.14
-is in; its first measurement then sets a tighter budget. On all 24 cores the same run took 274 ms,
-335 ms and 6.9 s.
+other agents' builds (load average 7): Save 701 ms, the export 16.0 s (80 ms a photo, two at a
+time). On all 24 cores the same run took 274 ms and 6.9 s. The rotate-only Save's first budget
+(815 ms, from a rendered Save of 542 ms) predates the lossless rotation of M8.14; M9.30 measured
+the lossless rotation the same way (2026-10-14, load average 5): 303 ms (a second run 307 ms), so
+its budget is 455 ms (1.5 × 303, rounded up to 5 ms as the others).
 
 Measure, don't guess: record numbers in `docs/status.md` → Metrics with the machine and date.
 

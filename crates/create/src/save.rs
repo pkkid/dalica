@@ -52,12 +52,13 @@ mod record;
 pub mod recover;
 mod restore;
 
+use std::cell::Cell;
 use std::path::{Path, PathBuf};
 
 use dalica_core::Timestamp;
 use dalica_edit::{Op, Recipe};
 use dalica_fs::{Identity, originals as backup};
-use dalica_image::{Header, Limits};
+use dalica_image::{Format, Header, Limits};
 use dalica_meta::{Changes, WriteOptions};
 use dalica_sidecar::originals::{Entry, State};
 
@@ -107,9 +108,6 @@ pub enum Error {
     /// a Save's entry stays `pending`.
     #[error("the change to {name} stopped part-way ({reason}); it is repaired at the next scan")]
     Incomplete { name: String, reason: String },
-    /// A part of Save built by a later task.
-    #[error("{0} is not available yet")]
-    NotYet(&'static str),
     #[error(transparent)]
     Output(#[from] output::Error),
     #[error(transparent)]
@@ -207,16 +205,54 @@ pub fn check_recipe(recipe: &Recipe) -> Result<()> {
 /// Save: the photo `name` in `folder` with the new edits `recipe` (`photo.save`, M8.15). Routes
 /// to the lossless rotation of a JPEG (M8.14), a JPEG beside a format Dalica cannot write in place
 /// (M8.14), or [`in_place`].
+///
+/// The format is checked from the header before anything renders, so a Save that ends beside
+/// decodes its source once (M9.30). Only a PNG needs its pixels to decide (transparency sends it
+/// beside): it tries the Save in place, and a transparent one is rendered again for the JPEG.
 pub fn save(folder: &Path, name: &str, recipe: &Recipe, changes: &Changes, options: &Options) -> Result<Saving> {
     check_recipe(recipe)?;
     let photo = Photo::read(folder, name, options)?;
     if let Some(saved) = lossless::save(&photo, recipe, changes, options)? {
         return Ok(Saving::InPlace(saved));
     }
+    let format = photo.header.format;
+    if !may_save_in_place(format) {
+        return save_beside(&photo, recipe, options, format);
+    }
     match render_in_place(&photo, recipe, changes, options) {
-        Err(Error::Output(output::Error::NotInPlace(format))) => beside::save(&photo, recipe, options, format).map(Saving::Beside),
+        Err(Error::Output(output::Error::NotInPlace(format))) => save_beside(&photo, recipe, options, format),
         other => other.map(Saving::InPlace),
     }
+}
+
+/// Whether a photo of `format` can be saved in place when it has no transparency (JPEG and PNG):
+/// any other format goes beside without being decoded first.
+fn may_save_in_place(format: Format) -> bool {
+    output::target(format, false, Purpose::InPlace).is_some()
+}
+
+/// The JPEG beside `photo` ([`beside`]: one render of the source).
+fn save_beside(photo: &Photo, recipe: &Recipe, options: &Options, format: Format) -> Result<Saving> {
+    count_decode();
+    beside::save(photo, recipe, options, format).map(Saving::Beside)
+}
+
+thread_local! {
+    /// The sources Save has decoded on this thread ([`decodes_on_this_thread`]).
+    static DECODES: Cell<u64> = const { Cell::new(0) };
+}
+
+/// Counts one decode of the source: each render through the output pipeline reads it once.
+fn count_decode() {
+    DECODES.with(|n| n.set(n.get().saturating_add(1)));
+}
+
+/// How many times Save has decoded a photo's pixels on the calling thread (one per render
+/// through the output pipeline, in place or beside). Tests read it to check that a Save decodes
+/// its source once; Save runs on one thread, so a test reads its own Saves only.
+#[doc(hidden)]
+pub fn decodes_on_this_thread() -> u64 {
+    DECODES.with(Cell::get)
 }
 
 /// Saves the photo `name` in `folder` in place with the new edits `recipe` and the library's owned
@@ -225,6 +261,9 @@ pub fn save(folder: &Path, name: &str, recipe: &Recipe, changes: &Changes, optio
 pub fn in_place(folder: &Path, name: &str, recipe: &Recipe, changes: &Changes, options: &Options) -> Result<Saved> {
     check_recipe(recipe)?;
     let photo = Photo::read(folder, name, options)?;
+    if !may_save_in_place(photo.header.format) {
+        return Err(output::Error::NotInPlace(photo.header.format).into());
+    }
     render_in_place(&photo, recipe, changes, options)
 }
 
@@ -244,6 +283,7 @@ fn render_in_place(photo: &Photo, recipe: &Recipe, changes: &Changes, options: &
         threads: options.threads,
         ..Spec::new(Purpose::InPlace)
     };
+    count_decode();
     let out = output::render(base.source(photo), &whole, &spec)?;
     let new = journal::NewFile {
         bytes: &out.bytes,

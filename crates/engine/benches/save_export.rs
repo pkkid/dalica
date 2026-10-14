@@ -14,8 +14,9 @@
 //!   rendered at full size, encoded at the original's quality with a fresh EXIF thumbnail, the
 //!   original moved into `.dalica-originals/`, the new file written and verified, the record marked
 //!   done. Each sample saves a fresh copy (written first, not timed). Budget [`SAVE_BUDGET_MS`].
-//! - `save rotate-only`: the same JPEG saved with only a quarter turn: the lossless rotation
-//!   once `create` has it (M8.14), a rendered Save before. Budget [`ROTATE_BUDGET_MS`].
+//! - `save rotate-only`: the same JPEG saved with only a quarter turn: the lossless rotation in
+//!   the DCT domain (M8.14; the 6000 × 4000 JPEG is whole MCUs), journaled and verified like a
+//!   rendered Save. Budget [`ROTATE_BUDGET_MS`].
 //! - `export 200 mixed`: the mixed tray of `tests/export_mixed.rs` (200 photos of every format,
 //!   125 of them edited, 56 with GPS; `--scale` 5: 1500 to 2400 pixels on the long side) in a
 //!   library, exported by `export.run` at 1600 pixels, Normal, with a watermark and the location
@@ -45,10 +46,11 @@ use serde_json::{Value, json};
 
 /// The budgets (`development.md` §8), judged on the median: 1.5 × the first measurement, taken in
 /// release on two cores (`taskset -c 0,1`, as the budgets job's runner) on 2026-10-14: Save 701 ms,
-/// rotate-only Save 542 ms (rendered: the lossless rotation is not in yet), the export 16.0 s.
-/// `xtask/src/accept.rs` holds the same numbers.
+/// the export 16.0 s, and the lossless rotation of a rotate-only Save 303 ms (M9.30; 815 ms before,
+/// set from the rendered Save before the lossless rotation landed). `xtask/src/accept.rs` holds
+/// the same numbers.
 const SAVE_BUDGET_MS: f64 = 1050.0;
-const ROTATE_BUDGET_MS: f64 = 815.0;
+const ROTATE_BUDGET_MS: f64 = 455.0;
 const EXPORT_BUDGET_MS: f64 = 24000.0;
 /// The Tuning edit of the rendered Save.
 const TUNING: &str = "tuning(0.300,0.100,0.050,0.200,none)";

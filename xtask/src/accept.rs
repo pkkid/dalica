@@ -142,9 +142,10 @@ pub const BUDGETS: &[Budget] = &[
 
 /// The save and export budgets, in milliseconds, judged on the median (`docs/development.md` §8:
 /// 1.5 × the first measurement on the budgets job's runner; `save_export` → `SAVE_BUDGET_MS`,
-/// `ROTATE_BUDGET_MS`, `EXPORT_BUDGET_MS`).
+/// `ROTATE_BUDGET_MS`, `EXPORT_BUDGET_MS`). The rotate-only Save's budget is 1.5 × the first
+/// measurement of the lossless rotation (303 ms, M9.30); 815 ms before, from the rendered Save.
 pub const SAVE_MS: f64 = 1050.0;
-pub const ROTATE_SAVE_MS: f64 = 815.0;
+pub const ROTATE_SAVE_MS: f64 = 455.0;
 pub const EXPORT_200_MS: f64 = 24000.0;
 
 /// `save_export --json` in release: each row's median within its budget. A planted slowdown of
@@ -443,6 +444,10 @@ mod tests {
         assert!(e.starts_with("save: median") && e.contains("over the"), "{e}");
         let e = judge_save_export(&save_export_out("release", 300.0, ROTATE_SAVE_MS + 1.0, 15_000.0), 0.0).unwrap_err();
         assert!(e.starts_with("save rotate-only: median"), "{e}");
+        // M9.30: the rotate-only budget is the lossless rotation's (1.5 × 303 ms); the rendered
+        // rotation's first measurement (542 ms), within the old 815 ms, no longer passes.
+        let e = judge_save_export(&save_export_out("release", 300.0, 542.0, 15_000.0), 0.0).unwrap_err();
+        assert!(e.starts_with("save rotate-only: median 542 ms"), "{e}");
         let e = judge_save_export(&save_export_out("release", 300.0, 150.0, EXPORT_200_MS + 1.0), 0.0).unwrap_err();
         assert!(e.starts_with("export 200 mixed: median"), "{e}");
         let e = judge_save_export(&save_export_out("release", SAVE_MS - 5.0, 150.0, 15_000.0), 8.0).unwrap_err();
