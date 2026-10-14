@@ -226,6 +226,9 @@ state's `saveExplain.dontShow`, and Save then runs `photo.save` with `"confirm":
 question has no default button: Enter and a bare `ui.dialog.confirm` revert nothing; name the
 button (`{button: "dialog.revert"}`). In the edit view these commands, and `photo.undoSave` and
 `photo.saveCopy`, act on the photo shown when they are run without `ids` (File ▸ Save, Ctrl+S).
+There Undo after a Save, with no edit made since, is Undo Save: exactly when `photo.history.state`
+answers `undoSave`, Ctrl+Z (`edit.history.undo`), Edit ▸ Undo and `edit.undo` run `photo.undoSave`
+on the photo shown; otherwise they undo its last edit.
 
 M9's questions ask through the host the same way, each once its engine command is registered
 (until then running it is `unknown_command`, never a question whose answer could not run):
@@ -263,7 +266,8 @@ and changes nothing. One native picker is open at a time. The app follows the sa
 answer started: when the job ends with the code `exists` (or `no_folder`), or `photo.saveTo`
 refuses the name (`bad_params`), the picker opens again, so `filePicker` reappears: titled
 "Choose Another Name" with the name tried, in its folder, for a taken name; "Save As" in the
-photo's folder for a missing one. A `photo.saveTo` an agent runs itself opens no picker.
+photo's folder for a missing one; the toast of the failed save names the file tried, not the
+photo. A `photo.saveTo` an agent runs itself opens no picker.
 
 The Export dialog's *Browse…* (`button:dialog.browse`, M8.20) opens a folder picker for the export
 location: `filePicker: {command: "output.export.location", kind: "folder", title: "Export
@@ -741,8 +745,12 @@ under it takes no input: its backdrop takes the clicks, and no shortcut runs and
 
 `ui.settle {timeoutMs: 5000}` runs frames until nothing visible is pending for 12 consecutive
 frames: no queued synthetic input, no high-priority (`editMain`, `hover`, `visible`, `filmstrip`)
-jobs in flight, no running animation, no pending `fs_cached` answers, no scanner `Op` batch waiting.
-Background thumbnail generation and long jobs are not waited for unless `jobs: true`. Reply:
+jobs in flight, no running animation, no pending `fs_cached` answers, no scanner `Op` batch waiting,
+no open file dialog (Add Folder's, the Save As picker, a folder picker such as the Export dialog's
+Browse…) whose answer has not run yet. Background thumbnail generation and long jobs are not waited
+for unless `jobs: true`: then also every metadata write still to land and every file job (Save,
+Undo Save, Revert, Save a Copy, Save As, Export, file operations) until its results are in the
+library (`busy`: `"file jobs: Exporting 12 of 48"`). Reply:
 `{settled, frames, ms, busy: ["visible thumbnails: 12", …]}` (`busy` says what was still running when
 `settled` is false). Tests use `step_until(condition)` rather than counting quiet frames
 (`development.md` §6); scripts use `ui.settle` before every screenshot.

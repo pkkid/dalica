@@ -296,9 +296,12 @@ impl Driver {
 
     /// What is still pending, as `ui.settle` lists it: queued input, a library opening or
     /// scanning, the open photo's edit-view preview on its way, a photo's metadata being read for
-    /// the Properties pane, visible thumbnails on their way, an open file dialog, a running animation. `jobs` also counts long jobs and
-    /// background generation: metadata writes into photo files still to land (their debounce
-    /// included; not while a root is offline, whose writes wait for it). Scans always count.
+    /// the Properties pane, visible thumbnails on their way, an open file dialog (Add Folder's, the
+    /// Save As picker, a folder picker such as the Export dialog's Browse…, until its answer has
+    /// run), a running animation. `jobs` also counts long jobs and background generation: metadata
+    /// writes into photo files still to land (their debounce included; not while a root is
+    /// offline, whose writes wait for it) and file jobs (Save, Undo Save, Revert, Save a Copy, Save
+    /// As, Export, file operations) until their results are in the library. Scans always count.
     pub fn busy(&self, jobs: bool) -> Vec<String> {
         let mut busy = Vec::new();
         if !self.events.is_empty() {
@@ -322,15 +325,19 @@ impl Driver {
             if jobs && writes > 0 && s.offline_roots().is_empty() {
                 busy.push(format!("metadata writes: {writes}"));
             }
+            if jobs && s.file_jobs_running() {
+                busy.push(format!("file jobs: {}", file_jobs(s)));
+            }
         }
         if let Some(p) = self.app.panels() {
             let pending = p.thumbnails.pending();
             if pending > 0 {
                 busy.push(format!("visible thumbnails: {pending}"));
             }
-            if p.dialog.is_some() {
-                busy.push("file dialog: waiting for an answer".into());
-            }
+        }
+        let folder_dialog = self.app.panels().is_some_and(|p| p.dialog.is_some());
+        if folder_dialog || self.app.save_dialog().is_some() || self.app.folder_request().is_some() {
+            busy.push("file dialog: waiting for an answer".into());
         }
         if self.animating {
             busy.push("animation running".into());
@@ -690,6 +697,19 @@ impl Drop for Driver {
     }
 }
 
+/// The file jobs still running, by what their progress says ("Exporting 3 of 12; Saving 0 of 1"),
+/// for [`Driver::busy`]; "running" while the last one's results are being taken in.
+fn file_jobs(s: &dalica_engine::Session) -> String {
+    use dalica_engine::JobKind;
+    let labels: Vec<String> = s
+        .jobs()
+        .into_iter()
+        .filter(|j| !j.state.is_finished() && matches!(j.kind, JobKind::Save | JobKind::Export | JobKind::Files))
+        .map(|j| j.label)
+        .collect();
+    if labels.is_empty() { "running".into() } else { labels.join("; ") }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1021,6 +1041,58 @@ mod tests {
         // Already settled: exactly the quiet frames.
         assert_eq!(d.settle(QUIET_FRAMES).unwrap(), QUIET_FRAMES);
         assert!(d.settle(QUIET_FRAMES - 1).is_err(), "fewer frames than the quiet run cannot settle");
+    }
+
+    /// A picker whose dialogs stay open until the test answers them.
+    struct Gate(Mutex<std::sync::mpsc::Receiver<std::path::PathBuf>>);
+
+    impl crate::picker::Picker for Gate {
+        fn pick_folder(&self) -> Option<std::path::PathBuf> {
+            self.0.lock().ok()?.recv().ok()
+        }
+
+        fn pick_save(&self, _: &crate::picker::SaveRequest) -> Option<std::path::PathBuf> {
+            self.0.lock().ok()?.recv().ok()
+        }
+    }
+
+    /// An open Save As picker and an open folder picker for a request (the Export dialog's
+    /// Browse…) are busy until their answer has run, as Add Folder's is.
+    #[test]
+    fn settle_waits_for_an_open_save_or_folder_picker_until_its_answer_has_run() {
+        use crate::picker::{FolderRequest, Picker, SaveRequest};
+        let (dir, session) = library(1, 2);
+        let (answer, rx) = std::sync::mpsc::channel();
+        let picker: Arc<dyn Picker> = Arc::new(Gate(Mutex::new(rx)));
+        let mut d = Driver::new(App::with_picker(Some(session), picker), 900, 600, 1.0);
+        d.settle(3600).unwrap();
+        for (n, save) in [(0, true), (1, false)] {
+            let folder = dir.path().join(format!("picked-{n}"));
+            std::fs::create_dir_all(&folder).unwrap();
+            // The answer adds the folder chosen, so the test sees that it has run.
+            let opened = if save {
+                let request = SaveRequest {
+                    title: "Save As",
+                    name: "a.jpg".into(),
+                    folder: None,
+                    filters: &[],
+                    command: "folders.add",
+                    params: serde_json::json!({}),
+                };
+                d.app_mut().pick_save(request)
+            } else {
+                let request =
+                    FolderRequest { title: "Export Location", folder: None, command: "folders.add", params: serde_json::json!({}), output: true };
+                d.app_mut().pick_folder_for(request)
+            };
+            opened.unwrap();
+            let s = d.settle_for(2 * QUIET_FRAMES, false);
+            assert!(!s.settled && s.busy == ["file dialog: waiting for an answer"], "save {save}: {s:?}");
+            answer.send(folder.clone()).unwrap();
+            let s = d.settle_for(3600, false);
+            assert!(s.settled, "save {save}: {s:?}");
+            assert!(d.app().session().unwrap().roots().contains(&folder), "save {save}: the answer ran before the settle returned");
+        }
     }
 
     /// The M2.2 done-when, part 3: cells visited per frame stay flat between a 200- and a 2 000-photo

@@ -348,3 +348,73 @@ fn each_revert_button_does_its_action_and_cancel_nothing() {
         assert!(!exists(&t.dir.path().join("Pictures").join("Lisbon").join(".dalica-originals").join("IMG_0001.jpg")), "{case}");
     }
 }
+
+/// Ctrl+Z in the edit view: with no Save it undoes the last edit; after a Save (Undo reads "Undo
+/// Save") it is Undo Save, as the Undo button and Edit ▸ Undo are: the original's exact bytes come
+/// back and the edits come back as unsaved edits; the next Ctrl+Z undoes an edit again.
+#[test]
+fn ctrl_z_in_the_edit_view_undoes_a_save_and_otherwise_the_last_edit() {
+    let mut t = T::new(1, SIZES[0]);
+    let a = t.ids[0];
+    let original = t.bytes(a);
+    t.d.run("view.edit", &json!({ "id": a })).unwrap();
+    t.d.settle(FRAMES).unwrap();
+    t.edit(a, AUTOFIX);
+    t.edit(a, TUNING);
+
+    // No Save: Ctrl+Z undoes the last edit.
+    t.d.key("Ctrl+Z").unwrap();
+    t.d.settle(FRAMES).unwrap();
+    assert_eq!(t.edits(a), [AUTOFIX]);
+    assert_eq!(t.widget(UNDO_ID).unwrap().label, "Undo Auto Fix");
+
+    // Saved: Undo reads "Undo Save", and Ctrl+Z does what it says.
+    t.d.run("photo.save", &json!({ "ids": [a], "confirm": true })).unwrap();
+    t.until("a saved", |t| t.saved(a));
+    assert_ne!(t.bytes(a), original);
+    assert_eq!(t.widget(UNDO_ID).unwrap().label, UNDO_SAVE);
+    t.d.key("Ctrl+Z").unwrap();
+    t.until("the save undone", |t| !t.saved(a) && t.unsaved(a));
+    assert!(!t.d.state().status.contains("Nothing to undo"), "{}", t.d.state().status);
+    assert_eq!(t.bytes(a), original, "the original's exact bytes are back");
+    assert_eq!(t.edits(a), [AUTOFIX], "the edits are back, unsaved");
+    assert_eq!(t.widget(UNDO_ID).unwrap().label, "Undo Auto Fix");
+
+    // Nothing saved any more: Ctrl+Z undoes the edit.
+    t.d.key("Ctrl+Z").unwrap();
+    t.d.settle(FRAMES).unwrap();
+    assert_eq!(t.edits(a), Vec::<String>::new());
+    assert_eq!(t.bytes(a), original);
+}
+
+/// `ui.settle` with `jobs` over the control channel returns only once a running export and a
+/// running Save have ended and their results are in the library; without `jobs` they are not
+/// waited for.
+#[test]
+fn ui_settle_with_jobs_waits_for_a_running_export_and_save() {
+    use dalica_ui::control::{Config, Connection, Control, MAX_WAIT_MS, Request, serve};
+    let mut t = T::new(3, SIZES[1]);
+    let a = t.ids[0];
+    t.edit(a, AUTOFIX);
+    let out = t.dir.path().join("Out");
+    let export =
+        t.d.run("export.run", &json!({ "ids": t.ids, "dir": out, "folderName": "Lisbon", "size": "original" })).unwrap()["job"].as_u64().unwrap();
+    let save = t.d.run("photo.save", &json!({ "ids": [a], "confirm": true })).unwrap()["job"].as_u64().unwrap();
+
+    // No frame has run: both jobs are still running, and only `jobs` counts them.
+    let busy = t.d.busy(true);
+    assert!(busy.iter().any(|b| b.starts_with("file jobs: ")), "{busy:?}");
+    assert!(!t.d.busy(false).iter().any(|b| b.starts_with("file jobs")), "{:?}", t.d.busy(false));
+
+    let control = Control::new(Config::default());
+    let s = serve(&control, &mut Connection::new(), &mut t.d, &Request::new("ui.settle", json!({ "timeoutMs": MAX_WAIT_MS, "jobs": true }))).unwrap();
+    assert_eq!(s["settled"], json!(true), "{s}");
+    assert!(!t.session().file_jobs_running(), "no file job runs once settled");
+    for job in [export, save] {
+        assert!(t.session().job(job).is_none_or(|e| e.state.is_finished()), "job {job}: {:?}", t.session().job(job));
+    }
+    assert!(t.saved(a) && !t.unsaved(a), "the Save's result is in the library");
+    let written =
+        std::fs::read_dir(out.join("Lisbon")).unwrap().filter(|e| e.as_ref().unwrap().path().extension().is_some_and(|x| x == "jpg")).count();
+    assert_eq!(written, 3, "every exported file is written");
+}

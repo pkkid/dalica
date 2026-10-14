@@ -22,6 +22,12 @@ use crate::control::play::WindowControl;
 use crate::control::{Listening, TokenFileGuard};
 use crate::frame::{FrameSetup, Tracker};
 
+/// How long the window rests between frames while work runs on other threads and nothing else
+/// asks for a frame. egui takes one predicted frame time off a delayed repaint, so 16 ms would
+/// repaint at once and spin; two 60 Hz frames leave at least 16 ms between them, as the edit
+/// canvas does while a preview is on its way (`PREVIEW_POLL`).
+pub const BUSY_POLL: Duration = Duration::from_millis(33);
+
 /// The OS window to make: the frame's chrome and placement ([`FrameSetup::viewport`]), named with
 /// the application id ([`APP_ID`]). eframe turns it into the Wayland app id and the X11 class
 /// (`WM_CLASS`), which the desktop matches with Dalica's desktop file and icon; without it eframe
@@ -391,8 +397,9 @@ impl Window {
         }
         titlebar::resize_edges(ui);
         if !self.app.idle() {
-            // Scans, thumbnails and dialogs finish on other threads: keep polling while they run.
-            ui.ctx().request_repaint_after(Duration::from_millis(16));
+            // Scans, thumbnails and dialogs finish on other threads: keep polling while they run,
+            // resting between frames so the poll does not spin a CPU their workers need.
+            ui.ctx().request_repaint_after(BUSY_POLL);
         }
     }
 
@@ -411,6 +418,37 @@ impl Window {
 #[cfg(test)]
 mod tests {
     use super::{FullscreenAction as A, FullscreenSync};
+
+    /// The window rests while busy: egui takes its predicted frame time (1/60 s) off a delayed
+    /// repaint, so the old 16 ms poll repainted at once; the busy poll leaves a real wait, and is
+    /// never shorter than the edit canvas's.
+    #[test]
+    fn the_busy_poll_rests_between_frames() {
+        use std::time::Duration;
+        // The repaint a pass of a quiet context asks for, after `after` is asked for in it (its
+        // first passes ask for one at once on their own).
+        let delay = |after: Option<Duration>| {
+            let ctx = egui::Context::default();
+            let pass = |after: Option<Duration>| {
+                let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                    if let Some(after) = after {
+                        ui.ctx().request_repaint_after(after);
+                    }
+                });
+                out.textures_delta.clear();
+                out.viewport_output.get(&egui::ViewportId::ROOT).map(|v| v.repaint_delay)
+            };
+            for _ in 0..4 {
+                pass(None);
+            }
+            pass(after)
+        };
+        assert_eq!(delay(None), Some(Duration::MAX), "quiet: no repaint");
+        assert_eq!(delay(Some(Duration::from_millis(16))), Some(Duration::ZERO), "16 ms is an immediate repaint");
+        let rest = delay(Some(super::BUSY_POLL)).unwrap();
+        assert!(rest >= Duration::from_millis(16), "the window waits about a frame: {rest:?}");
+        assert!(super::BUSY_POLL >= dalica_ui::panels::edit::canvas::PREVIEW_POLL);
+    }
     use crate::frame::{FrameSetup, Os, chrome_for};
 
     #[test]
