@@ -443,21 +443,21 @@ fn a_damaged_record_is_set_aside_and_the_save_starts_a_new_one() {
 }
 
 #[test]
-fn the_dispatch_saves_jpegs_in_place_and_refuses_what_cannot_be_written_in_place() {
+fn the_dispatch_saves_jpegs_in_place_and_what_cannot_be_written_in_place_beside() {
     let tmp = folder();
     let dir = tmp.path();
     photo(dir);
     let saving = save::save(dir, NAME, &recipe(&["rotate(90)"]), &Changes::default(), &options()).unwrap();
     assert!(matches!(saving, Saving::InPlace(ref s) if s.first), "{saving:?}");
 
-    // A PNG with transparency goes beside it (M8.14); until then nothing is written.
+    // A PNG with transparency gets a JPEG beside it (M8.14, `tests/save_beside.rs`) and stays as
+    // it is; `in_place` alone refuses it with nothing written.
     let png = png_rgba(&with_alpha(3, 64, 48));
     std::fs::write(dir.join("alpha.png"), &png).unwrap();
-    let err = save::save(dir, "alpha.png", &recipe(&["rotate(90)"]), &Changes::default(), &options()).unwrap_err();
+    let err = save::in_place(dir, "alpha.png", &recipe(&["rotate(90)"]), &Changes::default(), &options()).unwrap_err();
     assert!(matches!(err, Error::Output(output::Error::NotInPlace(_))), "{err:?}");
-    assert_eq!(read(dir.join("alpha.png")), png);
     assert_eq!(std::fs::read_dir(dir).unwrap().count(), 3, "IMG, alpha.png and .dalica-originals only");
-
-    let copy = save::copy::copy(dir, NAME, &recipe(&[]), &Changes::default(), &save::copy::Destination::Numbered, &options());
-    assert!(matches!(copy, Err(Error::NotYet(_))));
+    let saving = save::save(dir, "alpha.png", &recipe(&["rotate(90)"]), &Changes::default(), &options()).unwrap();
+    assert!(matches!(saving, Saving::Beside(ref b) if b.name == "alpha.jpg"), "{saving:?}");
+    assert_eq!(read(dir.join("alpha.png")), png);
 }

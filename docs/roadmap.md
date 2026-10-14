@@ -3430,7 +3430,7 @@ first measurement. No step of M8 needs a maintainer decision mid-run.
     `-001` and numbers keep the order; `CON`, `../x`, bidirectional text, a 300-byte name and an
     empty name sanitize as specified (proptest: never empty, never a separator); a cancel during a
     file leaves only complete, decodable files; a PNG with alpha exports as PNG.
-- ⬜ **M8.14 `create`: lossless rotation, the orientation fallback, JPEG beside and copies**
+- ✅ **M8.14 `create`: lossless rotation, the orientation fallback, JPEG beside and copies**
   - after: M8.8, M8.12
   - files: `crates/create/src/save/lossless.rs`, `crates/create/src/save/beside.rs`, `crates/create/src/save/copy.rs`, `crates/create/tests/save_lossless.rs`, `crates/create/tests/save_beside.rs`
   - scope: `data-model.md` §6 and `formats.md` §1: a JPEG whose recipe holds only rotations and

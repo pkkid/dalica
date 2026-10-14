@@ -859,6 +859,7 @@ dependencies = [
  "proptest",
  "tempfile",
  "thiserror 2.0.21",
+ "zune-jpeg",
 ]
 
 [[package]]
