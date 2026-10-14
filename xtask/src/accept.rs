@@ -131,7 +131,51 @@ pub const BUDGETS: &[Budget] = &[
         cargo: &["bench", "-p", "dalica-engine", "--bench", "first_thumbnails", "--", "--photos", "0", "--scroll", SCROLL_PHOTOS, "--json"],
         judge: judge_scanned_scroll,
     },
+    Budget {
+        milestone: 8,
+        name: "save and export",
+        what: "save_export: Save of a 24 MP JPEG with a Tuning edit and with only a quarter turn (render or lossless rotation, encode, write, verify), and the 200-photo mixed export at 1600 px, Normal, with a watermark and the location removed; medians within 1.5 × their first measurement",
+        cargo: &["bench", "-p", "dalica-engine", "--bench", "save_export", "--", "--json"],
+        judge: judge_save_export,
+    },
 ];
+
+/// The save and export budgets, in milliseconds, judged on the median (`docs/development.md` §8:
+/// 1.5 × the first measurement on the budgets job's runner; `save_export` → `SAVE_BUDGET_MS`,
+/// `ROTATE_BUDGET_MS`, `EXPORT_BUDGET_MS`).
+pub const SAVE_MS: f64 = 1050.0;
+pub const ROTATE_SAVE_MS: f64 = 815.0;
+pub const EXPORT_200_MS: f64 = 24000.0;
+
+/// `save_export --json` in release: each row's median within its budget. A planted slowdown of
+/// `plant` ms is added to each median (one planted delay per measured operation).
+pub fn judge_save_export(stdout: &str, plant: f64) -> Result<String, String> {
+    let report = crate::bench::parse_report(stdout).ok_or("save_export printed no JSON report with `rows`")?;
+    let mode = report.get("mode").and_then(serde_json::Value::as_str).unwrap_or("?");
+    if mode != "release" {
+        return Err(format!("save_export ran in a {mode} build; the budgets hold in release only"));
+    }
+    let mut parts = Vec::new();
+    for (name, budget) in [("save", SAVE_MS), ("save rotate-only", ROTATE_SAVE_MS), ("export 200 mixed", EXPORT_200_MS)] {
+        let row = report
+            .get("rows")
+            .and_then(serde_json::Value::as_array)
+            .and_then(|rows| rows.iter().find(|r| r.get("name").and_then(serde_json::Value::as_str) == Some(name)))
+            .ok_or(format!("save_export: no row `{name}`"))?;
+        let p50 = row
+            .get("p50_ms")
+            .and_then(serde_json::Value::as_f64)
+            .filter(|v| v.is_finite())
+            .ok_or(format!("save_export: `{name}` without `p50_ms`"))?;
+        let judged = p50 + plant;
+        let planted = if plant > 0.0 { format!(" ({p50:.0} ms measured + {plant:.2} ms planted)") } else { String::new() };
+        if judged > budget {
+            return Err(format!("{name}: median {judged:.0} ms{planted}, over the {budget:.0} ms budget"));
+        }
+        parts.push(format!("{name} {judged:.0} ms{planted} ≤ {budget:.0} ms"));
+    }
+    Ok(format!("medians: {}", parts.join("; ")))
+}
 
 /// `p95 + plant` against [`FRAME_BUDGET_MS`]: a planted slowdown of `plant` ms in every frame moves
 /// every percentile of the frame times by exactly `plant`.
@@ -379,6 +423,38 @@ mod tests {
         format!("20000 photos written in 5.1 s\n{}\n", serde_json::json!({ "rows": [row] }))
     }
 
+    /// What `save_export --json` prints, with each row's median.
+    fn save_export_out(mode: &str, save: f64, rotate: f64, export: f64) -> String {
+        let row = |name: &str, p50: f64| serde_json::json!({ "name": name, "p50_ms": p50, "p95_ms": p50 * 1.1, "max_ms": p50 * 1.2, "samples": 7 });
+        let report = serde_json::json!({ "bench": "save_export", "mode": mode, "threads": 4,
+            "rows": [row("save", save), row("save rotate-only", rotate), row("export 200 mixed", export)] });
+        format!("a 6000 × 4000 JPEG written in 0.4 s\n{report}\n")
+    }
+
+    #[test]
+    fn the_save_and_export_budgets_judge_each_median_in_release() {
+        let line = judge_save_export(&save_export_out("release", 300.0, 150.0, 15_000.0), 0.0).unwrap();
+        assert!(
+            line.contains("save 300 ms ≤") && line.contains("save rotate-only 150 ms ≤") && line.contains("export 200 mixed 15000 ms ≤"),
+            "{line}"
+        );
+        assert!(judge_save_export(&save_export_out("release", SAVE_MS, ROTATE_SAVE_MS, EXPORT_200_MS), 0.0).is_ok(), "the budgets themselves hold");
+        let e = judge_save_export(&save_export_out("release", SAVE_MS + 1.0, 150.0, 15_000.0), 0.0).unwrap_err();
+        assert!(e.starts_with("save: median") && e.contains("over the"), "{e}");
+        let e = judge_save_export(&save_export_out("release", 300.0, ROTATE_SAVE_MS + 1.0, 15_000.0), 0.0).unwrap_err();
+        assert!(e.starts_with("save rotate-only: median"), "{e}");
+        let e = judge_save_export(&save_export_out("release", 300.0, 150.0, EXPORT_200_MS + 1.0), 0.0).unwrap_err();
+        assert!(e.starts_with("export 200 mixed: median"), "{e}");
+        let e = judge_save_export(&save_export_out("release", SAVE_MS - 5.0, 150.0, 15_000.0), 8.0).unwrap_err();
+        assert!(e.contains("measured + 8.00 ms planted"), "a planted slowdown adds to the median: {e}");
+        assert!(judge_save_export(&save_export_out("debug", 300.0, 150.0, 15_000.0), 0.0).unwrap_err().contains("debug build"));
+        assert!(judge_save_export("no report\n", 0.0).unwrap_err().contains("no JSON report"));
+        let no_export = "{\"mode\":\"release\",\"rows\":[{\"name\":\"save\",\"p50_ms\":1},{\"name\":\"save rotate-only\",\"p50_ms\":1}]}";
+        assert!(judge_save_export(no_export, 0.0).unwrap_err().contains("no row `export 200 mixed`"));
+        let no_time = "{\"mode\":\"release\",\"rows\":[{\"name\":\"save\",\"p50_ms\":null}]}";
+        assert!(judge_save_export(no_time, 0.0).unwrap_err().contains("without `p50_ms`"));
+    }
+
     #[test]
     fn the_first_thumbnails_budget_holds_within_a_second_and_a_planted_slowdown_adds_to_it() {
         let line = judge_first_thumbnails(&first_out(100.0, 517.0), 0.0).unwrap();
@@ -472,6 +548,8 @@ mod tests {
             move |args: &[&str]| -> Result<(bool, String), String> {
                 Ok(if args.contains(&"library_bench") {
                     (true, bench_out("release", scroll_p95, 40, 42))
+                } else if args.contains(&"save_export") {
+                    (true, save_export_out("release", 300.0, 150.0, 15_000.0))
                 } else if args.contains(&"first_thumbnails") && args.contains(&"0") && args.contains(&"20000") {
                     (true, scroll_out(0.45, 0))
                 } else if args.contains(&"first_thumbnails") {
@@ -483,26 +561,26 @@ mod tests {
         };
         assert_eq!(budgets_with(0.0, fake(2.0, 3.0, 517.0)), Ok(()));
         // 8 ms planted per frame: every frame budget misses; a first screenful well inside its
-        // second does not.
+        // second does not, nor the save and export medians well inside theirs.
         let e = budgets_with(8.0, fake(2.0, 3.0, 517.0)).unwrap_err();
         assert!(
-            e.contains("3 of 4 missed")
+            e.contains("3 of 5 missed")
                 && e.contains("M4 light table scroll")
                 && e.contains("M4 thumb at top speed")
                 && e.contains("M5 scanned scroll"),
             "{e}"
         );
         let e = budgets_with(0.0, fake(2.0, 8.5, 517.0)).unwrap_err();
-        assert!(e.contains("1 of 4 missed") && e.contains("M4 thumb at top speed"), "{e}");
+        assert!(e.contains("1 of 5 missed") && e.contains("M4 thumb at top speed"), "{e}");
         let e = budgets_with(0.0, fake(2.0, 3.0, 1100.0)).unwrap_err();
-        assert!(e.contains("1 of 4 missed") && e.contains("M5 first thumbnails: 10000 JPEGs"), "{e}");
+        assert!(e.contains("1 of 5 missed") && e.contains("M5 first thumbnails: 10000 JPEGs"), "{e}");
         let mut ran = Vec::new();
         let e = budgets_with(0.0, |args: &[&str]| {
             ran.push(args.join(" "));
             Ok((false, String::new()))
         })
         .unwrap_err();
-        assert!(e.contains("4 of 4 missed") && e.contains("failed"), "{e}");
+        assert!(e.contains("5 of 5 missed") && e.contains("failed"), "{e}");
         assert_eq!(ran.len(), BUDGETS.len(), "every budget runs after one fails");
         assert!(budgets_with(0.0, |_: &[&str]| Err("cannot run cargo: gone".to_string())).unwrap_err().contains("cannot run cargo"));
     }
@@ -516,6 +594,14 @@ mod tests {
         }
         assert!(crate::bench::BENCHES.iter().any(|b| b.name == "library_bench" && b.package == "dalica-ui"));
         assert!(crate::bench::BENCHES.iter().any(|b| b.name == "first_thumbnails" && b.package == "dalica-engine"));
+        assert!(crate::bench::BENCHES.iter().any(|b| b.name == "save_export" && b.package == "dalica-engine"));
+        let save_export = std::fs::read_to_string(root.join("crates").join("engine").join("benches").join("save_export.rs")).unwrap();
+        for (constant, ours) in [("SAVE_BUDGET_MS", SAVE_MS), ("ROTATE_BUDGET_MS", ROTATE_SAVE_MS), ("EXPORT_BUDGET_MS", EXPORT_200_MS)] {
+            assert!(save_export.contains(&format!("const {constant}: f64 = {ours:?};")), "the bench's {constant} is ours: {ours}");
+        }
+        for printed in ["row(\"save\",", "row(\"save rotate-only\",", "row(\"export 200 mixed\",", "\"p50_ms\"", "\"mode\": mode"] {
+            assert!(save_export.contains(printed), "save_export prints {printed}");
+        }
         let bench = std::fs::read_to_string(root.join("crates").join("engine").join("benches").join("first_thumbnails.rs")).unwrap();
         for printed in [
             "\"name\": format!(\"first thumbnails {n}\")",

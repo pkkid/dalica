@@ -166,6 +166,16 @@ cargo run --release -p dalica -- --control 7990 --demo
 | Next/previous photo in the edit view (prefetched) | ≤ 50 ms |
 | Cold start to a usable library of 100 k photos | ≤ 2 s |
 | Idle memory with 100 k photos | ≤ 600 MiB |
+| Save a 24 MP JPEG with an edit (render, encode, write, verify; median) | ≤ 1 050 ms |
+| Save a 24 MP JPEG turned a quarter (rotate-only; median) | ≤ 815 ms |
+| Export the 200-photo mixed tray at 1600 px, Normal, watermark, location removed (median) | ≤ 24 s |
+
+The save and export budgets (M8.24) are 1.5 × their first measurement: release, two cores
+(`taskset -c 0,1`, as the budgets job's runner), 2026-10-14, a 24-core Linux workstation under
+other agents' builds (load average 7): Save 701 ms, rotate-only Save 542 ms, the export 16.0 s
+(80 ms a photo, two at a time). The rotate-only Save renders until the lossless rotation of M8.14
+is in; its first measurement then sets a tighter budget. On all 24 cores the same run took 274 ms,
+335 ms and 6.9 s.
 
 Measure, don't guess: record numbers in `docs/status.md` → Metrics with the machine and date.
 
@@ -181,7 +191,9 @@ the release acceptance only. Since M7 the job also runs the `edit_preview` bench
 (`cargo bench -p dalica-engine --bench edit_preview -- --check --plant-ms …`, which fails on a
 missed budget itself): a 24 MP JPEG opened to its screen preview cold and with the screen entry
 cached (median ≤ 150 ms), a Tuning drag's drafts (p95 ≤ 16 ms) and finals (p95 ≤ 100 ms), and
-next/previous with the neighbours prefetched (p95 ≤ 50 ms). A milestone adds its budgets to `BUDGETS` in `xtask/src/accept.rs`. A pull request that changes the
+next/previous with the neighbours prefetched (p95 ≤ 50 ms). Since M8 `cargo xtask budgets` also
+runs the `save_export` bench and judges its medians: Save of a 24 MP JPEG with an edit and with
+only a quarter turn, and the 200-photo mixed export. A milestone adds its budgets to `BUDGETS` in `xtask/src/accept.rs`. A pull request that changes the
 workflow or `xtask/src/accept.rs` runs the job too, and *Run workflow* on the Actions tab runs it on
 any branch with a planted slowdown (`plant_ms`). The same check locally:
 
@@ -542,7 +554,7 @@ budgeted, baseline-compared run that feeds the scorecard.
 
 **Bench runs.** The benches `xtask bench` knows are registered in `xtask/src/bench.rs` (a
 `harness = false` bench target each): `library_bench` (`dalica-ui`), `pack` (`dalica-thumbs`),
-`first_thumbnails` and `edit_preview` (`dalica-engine`).
+`first_thumbnails`, `edit_preview` and `save_export` (`dalica-engine`).
 A bench given `--json` prints one JSON object on its last line with a `rows` array; each row has a
 `name` (the key) and numbers. A row's **CPU-time fields** are those whose key names a time unit
 (`p50_ms`, `pack_us_per_read`): `xtask bench` compares them with the last run in the history that
@@ -580,6 +592,17 @@ shown). The budgets hold on the budgets job's 2-vCPU runner: check them locally 
 `taskset -c 0,1` on the bench binary. With `--bench` or `--check` it exits non-zero when a budget of §8 is missed (in release
 only); `--plant-ms N` adds N ms to every judged time. Without `--bench` it runs a smoke pass on
 600 × 400 photos and judges nothing.
+
+`save_export` (M8.24) writes a `--width × --height` JPEG (6000 × 4000) and saves fresh copies of
+it through `create::save::save`, the path `photo.save` runs on its worker: `save` with a Tuning
+edit (read, render at full size, encode at the original's quality, the original kept in
+`.dalica-originals/`, the new file written and verified) and `save rotate-only` with a quarter
+turn, seven each. `export 200 mixed` builds the mixed tray of `crates/engine/tests/export_mixed.rs`
+at `--scale` 5 (200 photos of every format, 1500 to 2400 pixels long, 125 edited, 56 with
+GPS), and times `export.run` at 1600 pixels, Normal, with a watermark and the location removed,
+from the command to the end of its job, three times (`per_photo_ms` is the median over 200). Rows
+carry `p50_ms`, `p95_ms`, `max_ms` and their `budget_ms`; `cargo xtask budgets` judges the
+medians. Without `--bench` it runs a smoke pass (600 × 400 saves, the tray at `--scale` 1).
 
 **Adding a scenario.** Add a row to a bench (its name is the key: keep it stable), give the bench
 `--json` output, add a `[[scenario]]` to `perf/budgets.toml`, and run `cargo xtask scorecard`.

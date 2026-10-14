@@ -47,3 +47,7 @@ harness = false
 [[bench]]
 name = "edit_preview"
 harness = false
+
+[[bench]]
+name = "save_export"
+harness = false
