@@ -1,13 +1,15 @@
 //! Drawing the tree pane's items (`ui-layout.md` §4, `design-system.md` §3–§4): a group header is
 //! ui-kit's `section_header`; a row is its selection or hover fill, the focus bar, the disclosure
 //! triangle (tree mode), the 16 pt icon, the name elided in the middle and the count in `text_dim`;
-//! a year divider is the year in `text_dim` 11 pt with a 1 pt rule to the right edge.
+//! a year divider is the year in `text_dim` 11 pt with a 1 pt rule to the right edge. A row of the
+//! Projects group (an export folder) has the project icon (`OutputIcon::Project`, a briefcase) in
+//! place of the folder.
 //!
 //! An offline row (under a watched root whose volume is offline, `data-model.md` §7) is dimmed —
 //! its icon, name and count in `text_disabled` — and carries the "offline" marker at its right end,
 //! 11 pt in `caution` (`design-system.md` §2); the name gives way to it.
 
-use dalica_ui_kit::icons::{self, Icon};
+use dalica_ui_kit::icons::{self, Icon, OutputIcon};
 use dalica_ui_kit::{Tokens, fonts};
 use egui::{FontId, Painter, Rect, pos2, vec2};
 
@@ -94,7 +96,11 @@ pub fn row(painter: &Painter, t: &Tokens, rect: Rect, row: &Row, look: Look, tre
     } else {
         (t.icon, if look.selected { t.text } else { t.text_label }, t.text_dim)
     };
-    icons::paint(painter, icon, Icon::Folder, icon_color);
+    if row.project {
+        icons::paint_output(painter, icon, OutputIcon::Project, icon_color);
+    } else {
+        icons::paint(painter, icon, Icon::Folder, icon_color);
+    }
     // The "offline" marker at the right end; the count right after the name; the name gives way,
     // elided in the middle.
     let mut right = rect.max.x - RIGHT;

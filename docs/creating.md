@@ -85,6 +85,17 @@ result is `{total, done, written, skipped, failed, cancelled, folder, name}` and
 "Exported 48 pictures" (with "; 2 skipped, 1 failed" when so). A section exports its visible photos
 in display order; `album` names none until albums exist. The dialog (M8.20) follows.
 
+**Built (M8.21, `dalica-ui`):** the progress window (`dialog:exportProgress`) opens on any export job
+that starts (the dialog's, or `export.run` over automation), shows the job's line ("Exporting 12 of
+48…"), a bar and [Cancel] (`button:exportProgress.cancel`, which runs `jobs.cancel`; the line then
+reads "Cancelling…"), and closes when the job ends; a window set aside stays aside while its job
+runs. Every file job that ends gives one toast: its message, or with failures a `caution` naming
+the first file that failed and why ("Could not save IMG_0041.jpg: the file is read-only"). A job
+that names a folder (an export's) adds Show Folder (`button:toast.showFolder`), and the toast then
+stays 6 s: it goes back to the library, selects the folder as a unit and scrolls the light table to
+it, waiting for the scan that brings the folder in. The tree lists the export folders in Projects
+with the project icon (flat mode).
+
 ## 3. Collage (room)
 
 ```text
