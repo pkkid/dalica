@@ -156,23 +156,40 @@ fn check_region(d: &Driver, id: &str, name: &str) {
     }
 }
 
+/// Sets `caption` on `ids` without a flush and checks the writes are queued, then `ui.settle` with
+/// `jobs`: it must settle with nothing left to write.
+fn caption_and_settle(d: &mut Driver, ids: &[PhotoId], caption: &str) {
+    session(d).execute("photo.caption.set", &json!({ "ids": ids, "caption": caption })).unwrap();
+    assert!(session(d).pending_metadata_writes() > 0, "the writes are queued, not written");
+    assert!(d.busy(true).iter().any(|b| b.starts_with("metadata writes: ")), "{:?}", d.busy(true));
+    assert!(!d.busy(false).iter().any(|b| b.starts_with("metadata writes")), "a long job: only with `jobs`");
+    let s = d.settle_for(FRAMES, true);
+    assert!(s.settled, "{s:?}");
+    assert_eq!(session(d).pending_metadata_writes(), 0, "settled means written");
+}
+
 /// Without a flush: `ui.settle` with `jobs` returns only once the queued (debounced) write has
-/// landed, and the caution toast it gives shows the whole message, wrapped within three lines, at
-/// both sizes.
+/// landed, and the caution toast a failed one gives shows the whole message, wrapped within three
+/// lines, at both sizes.
+///
+/// The writable photo settles first, the read-only one after it. Captioning both at once made the
+/// toast's presence depend on disk speed: the failed write landed first, and while `settle` waited
+/// for the other file's write it ran frames as fast as it could, each 1/60 s of frame time, so a
+/// write taking about a second of wall time used up the toast's 6 s before `settle` returned (seen
+/// on Windows CI: `settle` came back with no toast). Now the failure is the last write `settle`
+/// waits for, so the toast is checked a fixed few frames after it appeared, whatever the disk.
 #[test]
 fn settle_waits_for_the_write_and_the_caution_toast_shows_the_whole_message() {
     for size in [(1400, 900), (900, 600)] {
         let (_l, _d, folder, mut d, a, b) = setup(size);
-        session(&mut d).execute("photo.caption.set", &json!({ "ids": [a, b], "caption": "Tram 28" })).unwrap();
-        assert!(session(&mut d).pending_metadata_writes() > 0, "the writes are queued, not written");
-        assert!(d.busy(true).iter().any(|b| b.starts_with("metadata writes: ")), "{:?}", d.busy(true));
-        assert!(!d.busy(false).iter().any(|b| b.starts_with("metadata writes")), "a long job: only with `jobs`");
-        let s = d.settle_for(FRAMES, true);
-        assert!(s.settled, "{s:?}");
-        assert_eq!(session(&mut d).pending_metadata_writes(), 0, "settled means written");
+        caption_and_settle(&mut d, &[b], "Tram 28");
         assert!(std::fs::read(folder.join("b.jpg")).unwrap().windows(7).any(|w| w == b"Tram 28"), "b.jpg holds the caption");
+        assert_eq!(toasts(&d), Vec::<Value>::new(), "a write that works gives no toast");
+        caption_and_settle(&mut d, &[a], "Tram 28");
         let list = toasts(&d);
         assert_eq!(list.len(), 1, "{list:?}");
+        let remaining = list[0]["remaining"].as_f64().unwrap();
+        assert!(remaining > 5.0, "checked soon after the failure landed, not near the toast's end: {remaining} s left");
         assert_eq!((list[0]["text"].as_str(), list[0]["kind"].as_str()), (Some(MESSAGE), Some("caution")));
         let (text, lines) = shown(&d, MESSAGE);
         assert_eq!(text, MESSAGE, "the whole message shows");
