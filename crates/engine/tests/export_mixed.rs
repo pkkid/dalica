@@ -316,6 +316,7 @@ fn a_mixed_tray_of_200_exports_whole_with_a_watermark_and_no_location() {
     let mut want: Vec<String> = lib.photos.iter().map(tray::Photo::exported).collect();
     want.push(".dalica.json".into());
     want.sort();
+    lib.s.flush().unwrap(); // the folder's sidecar is written on a debounce: list it once it has landed
     assert_eq!(files(&marked), want, "one file per photo, under its own name");
 
     // The same export without the watermark, to find it by difference.
@@ -381,6 +382,7 @@ fn a_cancel_half_way_through_the_mixed_tray_leaves_only_complete_files() {
 
     // Only complete files: each decodes whole at its size; nothing else is in the folder.
     let out = lib.out().join("Mixed");
+    lib.s.flush().unwrap(); // the folder's sidecar has landed: its temporary file is not mistaken for the export's
     let names = files(&out);
     assert_eq!(names.len(), written + 1, "{names:?}");
     for name in names.iter().filter(|n| *n != ".dalica.json") {

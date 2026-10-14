@@ -142,6 +142,7 @@ fn an_export_of_edited_and_unedited_photos_writes_decodable_files_with_the_edits
     assert_eq!(result["written"], json!(written));
     assert_eq!((result["done"].clone(), result["skipped"].clone(), result["failed"].clone()), (json!(3), json!([]), json!([])));
     assert_eq!((result["folder"].clone(), result["name"].clone(), result["cancelled"].clone()), (json!(out), json!("Lisbon"), json!(false)));
+    lib.s.flush().unwrap(); // the folder's sidecar is written on a debounce: list it once it has landed
     assert_eq!(files(&out), [".dalica.json", "IMG_0001.jpg", "IMG_0002.jpg", "IMG_0003.jpg"]);
 
     // Decodable, of the size asked for, the unsaved rotation applied.
@@ -184,6 +185,7 @@ fn a_second_export_of_the_same_name_makes_name_001_with_the_remembered_options()
     let (_, first) =
         lib.export(json!({ "ids": ids, "dir": dir, "folderName": "Lisbon", "size": 120, "quality": 70, "numbers": true, "watermark": "© Ana" }));
     assert_eq!(first.result.unwrap()["name"], "Lisbon");
+    lib.s.flush().unwrap();
     assert_eq!(files(&dir.join("Lisbon")), [".dalica.json", "001-IMG_0001.jpg", "002-IMG_0002.jpg"]);
     // The options used are the next defaults.
     let d = lib.s.execute("export.defaults", &json!({ "section": format!("folder:{}", lib.s.library().photo(ids[0]).unwrap().folder) })).unwrap();
@@ -197,6 +199,7 @@ fn a_second_export_of_the_same_name_makes_name_001_with_the_remembered_options()
     let (_, second) = lib.export(json!({ "ids": [ids[1]], "dir": dir, "folderName": "Lisbon", "watermark": null }));
     let second_dir = dir.join("Lisbon-001");
     assert_eq!(second.result.unwrap()["name"], "Lisbon-001");
+    lib.s.flush().unwrap();
     assert_eq!(files(&second_dir), [".dalica.json", "001-IMG_0002.jpg"]);
     assert_eq!(decoded_size(&second_dir.join("001-IMG_0002.jpg")), (120, 90));
     assert_eq!(lib.s.execute("export.defaults", &json!({})).unwrap()["watermark"], false);
@@ -246,6 +249,7 @@ fn cancel_leaves_only_complete_files_and_the_job_reports_cancelled() {
     assert!(done.label.starts_with("Export cancelled: "), "{}", done.label);
     // Only complete files: each one decodes whole at full size; no temporary file is left.
     let out = dir.join("Big");
+    lib.s.flush().unwrap(); // the folder's sidecar has landed: its temporary file is not mistaken for the export's
     let names = files(&out);
     assert_eq!(names.len(), written + 1, "{names:?}");
     for name in names.iter().filter(|n| *n != ".dalica.json") {
