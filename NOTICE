@@ -125,6 +125,8 @@ file and revision in its first lines:
   crates/ui/src/titlebar.rs (title bar metrics, title placement, caption glyphs)
                                              PhotoCraft crates/ui-egui/src/titlebar.rs @ a0627311,
                                              crates/ui-egui/src/panels.rs @ b41e34c2
+  crates/fs/src/transfer.rs                  LightCraft crates/engine/src/import_move.rs @ b7091805
+  crates/fs/src/transfer/copy.rs             LightCraft crates/engine/src/import_move.rs @ b7091805
 
 Any other third-party code ever vendored will be listed here with its source and revision.
 

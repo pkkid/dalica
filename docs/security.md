@@ -510,7 +510,12 @@ embedded, never loaded by a referenced name. **Planned (M1, M14).**
   shows a `caution` notice. The exact UI and how user data for such folders is kept are settled in
   M1 (`data-model.md` §7). **Planned (M1).**
 - Moves and renames inside Dalica operate on the link, not its target, and never follow a link
-  out of the source or destination folder. **Planned (M9).**
+  out of the source or destination folder. **Built in `fs` (M9.2: `dalica-fs` `transfer` refuses
+  a link in place of either folder, of the file or folder being moved, or inside a folder tree
+  copied across volumes, with nothing moved; both folders are opened once and held without
+  following a link, so a folder swapped for a link before the opening is refused and one swapped
+  after it leaves the move in the folder that was opened. `trash::send` sends a link to the trash
+  as itself, never its target).** The commands that call them are planned (M9).
 - Where the platform allows, the write path holds a directory handle and works relative to it,
   so a component swapped for a link after validation cannot redirect the write. Canonicalization
   alone is insufficient because links can change after the check. **Built (M5.3: `dalica-fs`
@@ -532,10 +537,24 @@ embedded, never loaded by a referenced name. **Planned (M1, M14).**
 
 - Deleting a photo, video or folder moves it to the **OS trash** after confirmation
   (`data-model.md` §8). Dalica has no permanent-delete path for library content, in the UI or over
-  automation. **Planned (M9).**
+  automation. **Built in `fs` (M9.2: `dalica-fs` `trash::send` hands a file or folder to the
+  `trash` crate, called under `catch_unwind`: the freedesktop.org trash on Linux and the BSDs, the
+  Recycle Bin through the shell on Windows, `NSFileManager` on macOS, never the Finder.
+  `trash::restore` brings items back to their old path on Linux and Windows, found by that path
+  and, where the trashed object can be looked at, by its identity, and never replaces what is at
+  the old path; macOS answers `Unsupported`, so undoing a delete there is disabled with its
+  reason).** The delete commands are planned (M9.15).
 - If the platform trash is unavailable for a volume (some network shares and removable media), the
   delete fails with an explanation that points to the file manager. It never falls back to a
-  permanent delete. **Planned (M9).**
+  permanent delete. **Built in `fs` (M9.2: `trash::send` answers `Sent::NoTrash` with the item in
+  place. On Linux and the BSDs Dalica first checks that a trash on the item's own volume takes it
+  by a rename: the home trash when it is on that volume, else the volume's `.Trash/<uid>` or its
+  `.Trash-<uid>`, made owner-only when missing; the crate's own fallback, a copy into the home
+  trash on another volume and a delete, is never reached that way. One gap remains: a volume the
+  mount table does not list on its own, such as a btrfs subvolume inside another mount, is trashed
+  where the crate's mount table says. On Windows the shell is asked to warn instead of deleting
+  permanently, cannot show the warning, and aborts; on macOS `NSFileManager` refuses).** The
+  explanation is the delete command's (M9.15).
 - "Remove from Dalica", "Rebuild library" and cache pruning never touch photos. Caches list and
   delete only files of their own naming shape. Stale sidecar entries are pruned, not files.
 - **Camera and card import** ("Delete copied files from the card"): cards usually have no trash,
@@ -544,7 +563,16 @@ embedded, never loaded by a referenced name. **Planned (M1, M14).**
   the import listed, after an explicit confirmation, and they are refused over automation.
   **Planned (M11).**
 - Moving across volumes is copy + verify (hash) + delete-to-trash of the source, never delete
-  before verify. **Planned (M9).**
+  before verify. **Built in `fs` (M9.2: `dalica-fs` `transfer` copies into a temporary file in the
+  destination, `fsync`s it, keeps the source's modification time (and its permissions on Unix), compares it byte
+  for byte with the source (stronger than a hash, and the source is on disk to compare with), gives
+  it its name by a rename that never replaces, then checks the source unchanged and the copy still
+  the verified one before the source goes to the trash; a volume without a trash keeps the source
+  beside its copy and says so. A folder is copied the same way file by file into a temporary folder
+  beside the target, bounded in depth and entries, then given its name. On one volume a move is one
+  rename that never replaces, after the source's identity is checked right before it; a taken name
+  is `Exists` for the caller to rename or skip, also when the file appeared between the check and
+  the rename).** The move commands are planned (M9.13, M9.15).
 
 ### 5.8 Temporary files
 
