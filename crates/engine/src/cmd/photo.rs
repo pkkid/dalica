@@ -1,5 +1,6 @@
 //! Photo commands: stars and inspection, and the helpers the other photo areas share (`ids`
-//! parameters: [`Ids`], [`has_ids`], [`known`]).
+//! parameters: [`Ids`], [`has_ids`], [`known`]). A star change stamps the photos' last-changed
+//! time (Recently Updated); `photo.inspect` lists the albums each photo is in.
 
 use dalica_core::PhotoId;
 use dalica_library::Op;
@@ -39,7 +40,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Inspect Photos",
             menu: "",
             keys: &[],
-            params: r#"{"ids":[PhotoId]}: everything known about each photo: the file's fields, its caption, tags, hidden flag, recipe (edits, redo), effective date and displayed size"#,
+            params: r#"{"ids":[PhotoId]}: everything known about each photo: the file's fields, its caption, tags, hidden flag, recipe (edits, redo), effective date, displayed size and albums ([{id, name, key}])"#,
             effect: Effect::Query,
             history: History::None,
             enabled: crate::registry::always,
@@ -95,7 +96,9 @@ pub(crate) fn known(s: &Session, ids: Vec<PhotoId>) -> Result<Vec<PhotoId>, CmdE
 fn set(s: &mut Session, ids: Vec<PhotoId>, on: bool) -> Result<Value, CmdError> {
     let changed: Vec<(PhotoId, bool)> = ids.iter().filter(|id| s.library().photo(**id).is_some_and(|p| p.star != on)).map(|id| (*id, on)).collect();
     if !changed.is_empty() {
-        s.apply(Op::SetStars { stars: changed })?;
+        // Starred photos count as updated (Recently Updated, `organizing.md` §4.1).
+        let op = s.library().stamped(Op::SetStars { stars: changed }, s.clock().now());
+        s.apply(op)?;
     }
     Ok(json!({ "ids": ids, "on": on }))
 }
@@ -137,6 +140,7 @@ fn inspect(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
                 "recipe": { "edits": info.edits, "redo": info.redo },
                 "dateSet": info.date, "effectiveDate": lib.effective_date(p.id),
                 "displayed": { "width": dw, "height": dh },
+                "albums": crate::cmd::albums::albums_of(lib, p.id),
             }))
         })
         .collect();
@@ -240,6 +244,7 @@ mod tests {
             "dateSet",
             "effectiveDate",
             "displayed",
+            "albums",
         ] {
             assert!(arr[0].get(key).is_some(), "{key}");
         }
@@ -247,6 +252,7 @@ mod tests {
         assert_eq!(arr[0]["displayed"], json!({ "width": 120, "height": 80 }));
         assert_eq!(arr[0]["recipe"], json!({ "edits": [], "redo": [] }));
         assert_eq!((&arr[0]["caption"], &arr[0]["tags"], &arr[0]["hidden"]), (&json!(""), &json!([]), &json!(false)));
+        assert_eq!(arr[0]["albums"], json!([]));
         assert_eq!(s.library().revision(), rev);
         assert_eq!(s.undo_stack().len(), 0);
     }

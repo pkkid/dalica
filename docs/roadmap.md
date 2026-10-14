@@ -4061,7 +4061,7 @@ mid-run.
     move that renamed a duplicate keeps both entries; the backup and its record travel and a copy
     duplicates them; the journal round-trips and `plan` answers every item state; hostile journals
     never panic and are set aside.
-- ⬜ **M9.10 `engine`: album commands**
+- ✅ **M9.10 `engine`: album commands**
   - after: M9.3, M9.6
   - files: `crates/engine/src/cmd/albums.rs`, `crates/engine/src/cmd/section.rs`, `crates/engine/src/cmd/photo.rs`, `crates/engine/src/albums_file.rs`, `crates/engine/tests/albums.rs`
   - scope: `organizing.md` §4 and `data-model.md` §3.2: `album.create {name, date?, useNewest?,

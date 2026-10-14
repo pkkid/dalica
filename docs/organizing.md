@@ -207,6 +207,28 @@ status line; Cancel stops after the current file (already-copied files stay). Th
   are not deleted." [Delete Album] [Cancel].
 - Album Properties: double-click the album name or its header, or context menu → Album Properties….
 
+### 4.4 The album commands (engine, M9.10)
+
+Every surface (menus, keys, drops, the control channel, MCP) runs the same commands; each change
+is one library undo step, and none when nothing changes. Albums are named by id (`"a91c0e"`),
+sections as in their widget id (`album:a91c0e`, `album:starred`, `album:recent`, `folder:12`).
+
+| Command | What it does |
+|---|---|
+| `album.create {name, date?, useNewest?, place?, description?, ids?}` | Album Properties' OK for a new album: the name cleaned as the library cleans it, "Use the date of the newest photo" on unless a date is given, the photos added in the order given; replies the new id |
+| `album.info.set {album, name?, date?, useNewest?, place?, description?}` | Album Properties' OK for an existing album: only the fields given change |
+| `album.add {album, ids, before? \| after?}` | adds the photos at the end, or right before / after a member (a drop between two thumbnails), in the order given; photos already in the album stay where they are |
+| `album.reorder {album, ids, before? \| after?}` | moves members there; only the moved photos' sidecars are rewritten |
+| `album.remove {album, ids, confirm?}` | Remove from Album; asks first ("Remove the %d selected pictures…") unless "Remove from albums without asking" is on |
+| `album.setCover {album, id}` | Set as Album Cover (a member) |
+| `album.delete {album, confirm}` | Delete Album…; always asks; the photos stay |
+| `albums.list` | Starred Photos, Recently Updated, then the user albums by name, with counts, covers and dates |
+| `section.sort {section?, ids?, by?, reverse?}` | Sort By ▸ on a folder (its sort; "reverse": true alone turns its direction around) or on a user album (its keys rewritten by date, name or size, or its order turned around) |
+
+Starred Photos and Recently Updated keep their own order. A star change and every album change
+stamp the photos' last-changed time, which Recently Updated reads with the session's clock.
+`photo.inspect` lists each photo's albums.
+
 ## 5. Stars, tags, captions
 
 ### 5.1 Stars

@@ -1,6 +1,7 @@
 //! Undo and redo (`architecture.md` §4). Without parameters they walk the library undo stack; with
 //! `{id}` they walk that photo's own history, as `photo.history.undo` / `photo.history.redo` do (in
-//! the edit view the UI passes the open photo).
+//! the edit view the UI passes the open photo). A file step that cannot run now (its undo still
+//! running, or an item with no way back) disables them with the reason, so the menu says why.
 
 use dalica_core::PhotoId;
 use serde::Deserialize;
@@ -22,6 +23,8 @@ pub fn specs() -> Vec<CommandSpec> {
             history: History::None,
             enabled: |s, p| match photo(p) {
                 None if s.undo_stack().undo_label().is_none() => Err(Disabled("Nothing to undo.".into())),
+                // A file step whose undo runs, or that has no way back, says why.
+                None => s.undo_stack().undo_blocked().map_or(Ok(()), |why| Err(Disabled(why))),
                 Some(id) if s.photo_history(id).is_some_and(|h| h.undo_label.is_none()) => Err(Disabled("Nothing to undo.".into())),
                 _ => Ok(()),
             },
@@ -37,6 +40,7 @@ pub fn specs() -> Vec<CommandSpec> {
             history: History::None,
             enabled: |s, p| match photo(p) {
                 None if s.undo_stack().redo_label().is_none() => Err(Disabled("Nothing to redo.".into())),
+                None => s.undo_stack().redo_blocked().map_or(Ok(()), |why| Err(Disabled(why))),
                 Some(id) if s.photo_history(id).is_some_and(|h| h.redo_label.is_none()) => Err(Disabled("Nothing to redo.".into())),
                 _ => Ok(()),
             },
@@ -106,6 +110,39 @@ mod tests {
         assert!(matches!(s.execute("edit.redo", &json!({})), Err(CmdError::Disabled(_))));
         hostile(&mut s, "edit.undo");
         hostile(&mut s, "edit.redo");
+    }
+
+    /// A file step that cannot be undone or redone now disables the command with the reason (Edit ▸
+    /// Undo greyed with why), not only its run.
+    #[test]
+    fn a_blocked_file_step_disables_them_with_the_reason() {
+        use std::sync::Arc;
+
+        use crate::fileops::{Batch, Direction};
+        use crate::jobs::JobId;
+        use crate::undo::FileStep;
+
+        struct Stuck;
+        impl Batch for Stuck {
+            fn len(&self) -> usize {
+                1
+            }
+            fn blocked(&self, dir: Direction) -> Option<String> {
+                Some(if dir == Direction::Undo { "Restore it from the Trash.".into() } else { "Redo Delete is still running.".into() })
+            }
+            fn start(&self, _: &mut crate::session::Session, _: u64, _: Direction, _: u64) -> JobId {
+                panic!("a blocked step never starts")
+            }
+        }
+        let (_dirs, mut s, _) = library(1);
+        let step = || FileStep { id: 1, label: "Delete", batch: Arc::new(Stuck), running: None };
+        s.undo.push_files(step());
+        let why = |s: &crate::session::Session, id: &str| s.commands().into_iter().find(|c| c.id == id).map(|c| c.enabled);
+        assert_eq!(why(&s, "edit.undo"), Some(false));
+        assert_eq!(s.execute("edit.undo", &json!({})), Err(CmdError::Disabled("Restore it from the Trash.".into())));
+        s.undo.clear();
+        s.undo.push_redo(crate::undo::Step { label: "Star / Unstar", op: dalica_library::Op::Batch { ops: Vec::new() }, modes: None });
+        assert_eq!(why(&s, "edit.redo"), Some(true), "a plain step is never blocked");
     }
 
     /// With `{id}` they walk the photo's own history and leave the library stack alone.

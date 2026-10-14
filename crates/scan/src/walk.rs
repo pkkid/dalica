@@ -8,7 +8,7 @@
 //! is read ([`scan_streaming`]), so a caller can show them while the walk goes on.
 
 use std::cell::Cell;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
@@ -17,10 +17,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::time::{Duration, Instant};
 
-use dalica_core::{Clock, DateTime, SystemClock, Timestamp};
+use dalica_core::{AlbumId, Clock, DateTime, PosKey, SystemClock, Timestamp};
 use dalica_fs::{Entry, Limits};
 use dalica_image::{Format, Header};
-use dalica_library::{FolderInfo, MAX_CAPTION, MAX_DESCRIPTION, MAX_OPERATION, MAX_OPERATIONS, MAX_PLACE, PhotoInfo, Project, SavedAs};
+use dalica_library::{
+    FolderInfo, MAX_CAPTION, MAX_DESCRIPTION, MAX_OPERATION, MAX_OPERATIONS, MAX_PLACE, PhotoInfo, PhotoSort, Project, SavedAs, SortBy,
+};
 use dalica_sidecar::{Field, Sidecar};
 
 use crate::meta::{FileValues, ReadMetadata};
@@ -54,6 +56,9 @@ pub struct FoundPhoto {
     /// The copy a Save wrote beside the photo, from the folder's sidecar
     /// ([`originals::saved_as`]).
     pub saved_as: Option<SavedAs>,
+    /// The albums the folder's sidecar puts the photo in, with its position key in each
+    /// ([`photo_albums`], M9): entries Dalica cannot use are left out.
+    pub albums: BTreeMap<AlbumId, PosKey>,
     /// What the file itself says about the fields Dalica owns (caption, tags, rating, place,
     /// date), read when [`Options::metadata`] asks for it and the file is new or changed; `None`
     /// when not read or unreadable ([`crate::meta`]).
@@ -74,6 +79,14 @@ pub struct FoundFolder {
     /// The folder's originals record, read on the scan's thread ([`originals::read`]): the
     /// photos' saved records.
     pub originals: Originals,
+    /// The folder's photo sort from its sidecar ([`folder_sort`], M9; the default when it says
+    /// none, or one Dalica cannot sort by).
+    pub sort: PhotoSort,
+    /// The names the folder's sidecar gives the albums with members in it ([`album_names`], M9).
+    pub album_names: BTreeMap<AlbumId, String>,
+    /// The folder has a sidecar that could not be read or parsed (warned): its photos say nothing,
+    /// and their album memberships come from `albums.json`'s copy of the order (M9).
+    pub sidecar_unread: bool,
 }
 
 /// Something a scan could not read; the scan went on without it.
@@ -603,17 +616,27 @@ impl Scanner<'_> {
         let mut info = FolderInfo::default();
         let mut project = None;
         let mut kept = Originals::Absent;
+        let mut sort = PhotoSort::default();
+        let mut names = BTreeMap::new();
+        let mut sidecar_unread = false;
         if !photos.is_empty() {
             // Read here, on the scan's thread: everything the user said in the sidecar comes in
             // with the photos, in the same op (`diff`), so no sidecar write can run in between.
-            if let Some(sidecar) = self.read_sidecar(dir) {
-                for p in &mut photos {
-                    p.star = sidecar.star(&p.name) == Field::Value(true);
-                    p.info = photo_info(&sidecar, &p.name);
-                    p.saved_as = originals::saved_as(&sidecar, &p.name);
+            match self.read_sidecar(dir) {
+                Read::Sidecar(sidecar) => {
+                    for p in &mut photos {
+                        p.star = sidecar.star(&p.name) == Field::Value(true);
+                        p.info = photo_info(&sidecar, &p.name);
+                        p.saved_as = originals::saved_as(&sidecar, &p.name);
+                        p.albums = photo_albums(&sidecar, &p.name);
+                    }
+                    info = folder_info(&sidecar);
+                    project = originals::project(&sidecar);
+                    sort = folder_sort(&sidecar);
+                    names = album_names(&sidecar);
                 }
-                info = folder_info(&sidecar);
-                project = originals::project(&sidecar);
+                Read::Absent => {}
+                Read::Unread => sidecar_unread = true,
             }
             // The originals record too (the walk never enters `.dalica-originals`): the saved
             // records come in with the photos, in the same pass.
@@ -622,7 +645,7 @@ impl Scanner<'_> {
             photos.sort_by(|a, b| a.name.cmp(&b.name));
             self.summary.progress.found = self.summary.progress.found.saturating_add(photos.len());
         }
-        Some(FoundFolder { path: dir.to_path_buf(), photos, info, project, originals: kept })
+        Some(FoundFolder { path: dir.to_path_buf(), photos, info, project, originals: kept, sort, album_names: names, sidecar_unread })
     }
 
     /// Reports what the originals record of `dir` could not give.
@@ -644,24 +667,32 @@ impl Scanner<'_> {
     }
 
     /// The folder's sidecar, if it has a readable one (a damaged one is the store's to set aside).
-    fn read_sidecar(&mut self, folder: &Path) -> Option<Sidecar> {
+    fn read_sidecar(&mut self, folder: &Path) -> Read {
         let path = folder.join(dalica_sidecar::FILE_NAME);
         let limits = dalica_sidecar::Limits::default();
         match dalica_fs::read(&path, limits.max_bytes as u64) {
-            Ok(None) => None,
+            Ok(None) => Read::Absent,
             Ok(Some(r)) => match Sidecar::parse(&r.bytes, &limits) {
-                Ok(s) => Some(s),
+                Ok(s) => Read::Sidecar(s),
                 Err(e) => {
                     self.warn(&path, e.to_string());
-                    None
+                    Read::Unread
                 }
             },
             Err(e) => {
                 self.warn(&path, e.to_string());
-                None
+                Read::Unread
             }
         }
     }
+}
+
+/// What reading a folder's sidecar gave.
+enum Read {
+    Sidecar(Sidecar),
+    Absent,
+    /// There is one, but it could not be read or parsed (warned).
+    Unread,
 }
 
 /// A photo whose header was not read: listed at 0 × 0.
@@ -677,6 +708,7 @@ fn unread(entry: &Entry, name: &str, format: Format) -> FoundPhoto {
         star: false,
         info: PhotoInfo::default(),
         saved_as: None,
+        albums: BTreeMap::new(),
         file: None,
     }
 }
@@ -708,6 +740,43 @@ pub fn folder_info(sidecar: &Sidecar) -> FolderInfo {
         date: usable_value(f.date),
         place: cut(usable(f.place), MAX_PLACE, dalica_library::clean_place),
         hidden: usable(f.hidden),
+    }
+}
+
+/// The albums `sidecar` puts photo `name` in, with its position key in each (`data-model.md` §3,
+/// §3.2; the rules of `dalica-store`'s `mapping::read_photo`): entries whose id is not an album id
+/// or whose key does not parse are left out (the file keeps them), and an `albums` of the wrong
+/// type gives none.
+pub fn photo_albums(sidecar: &Sidecar, name: &str) -> BTreeMap<AlbumId, PosKey> {
+    match sidecar.photo_albums(name) {
+        Field::Value(v) => v.members,
+        Field::Absent | Field::WrongType(_) => BTreeMap::new(),
+    }
+}
+
+/// The photo sort `sidecar` gives its folder, as a folder new to the model takes it (the rules of
+/// `dalica-store`'s `mapping::read_folder` and `FolderReading::photo_sort`): `sort` `date` (or
+/// none), `name` or `size`, and `reverse`; a sort Dalica cannot sort by, or a value of the wrong
+/// type, leaves that part at its default.
+pub fn folder_sort(sidecar: &Sidecar) -> PhotoSort {
+    let by = match sidecar.folder_sort() {
+        Field::Value(s) => match s.as_str() {
+            "name" => SortBy::Name,
+            "size" => SortBy::Size,
+            _ => SortBy::Date,
+        },
+        Field::Absent | Field::WrongType(_) => SortBy::Date,
+    };
+    PhotoSort { by, reverse: usable(sidecar.folder_reverse()) }
+}
+
+/// The names `sidecar`'s top-level `"albums"` gives the albums with members in the folder (the
+/// rules of `dalica-store`'s `mapping::read_album_names`): each cleaned the way the library cleans
+/// album names; an entry Dalica cannot use, or a name that is nothing once cleaned, is left out.
+pub fn album_names(sidecar: &Sidecar) -> BTreeMap<AlbumId, String> {
+    match sidecar.album_names() {
+        Field::Value(v) => v.names.into_iter().filter_map(|(id, raw)| Some((id, dalica_library::clean_album_name(&raw)?))).collect(),
+        Field::Absent | Field::WrongType(_) => BTreeMap::new(),
     }
 }
 

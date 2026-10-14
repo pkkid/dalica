@@ -390,7 +390,8 @@ fn invoking_items_runs_refuses_or_opens_them_like_a_click() {
     for p in ["File/Import From…", "View/Slideshow", "Help/Rebuild Library…", "View/Folder View/Simplified Tree View"] {
         assert_eq!(code(&mut t, "ui.menu.invoke", json!({ "path": p })), "unsupported", "{p}");
     }
-    assert_eq!(code(&mut t, "ui.menu.invoke", json!({ "id": "section.sort", "params": { "by": "name" } })), "unsupported");
+    // A command since M9.10: with no folder or photo selected it says so.
+    assert_eq!(code(&mut t, "ui.menu.invoke", json!({ "id": "section.sort", "params": { "by": "name" } })), "disabled");
     // Bad parameters change nothing.
     for bad in [
         json!({}),
