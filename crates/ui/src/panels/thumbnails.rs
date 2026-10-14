@@ -27,9 +27,10 @@
 //! with its recipe's other operations applied (everything but the rotations and flips, which stay
 //! paint's). Each texture remembers the edits it shows (their render key); when the photo's recipe
 //! changes, its textures are stale but still drawn, turned by the new orientation, never a blank,
-//! and the cell asks for the new images until they arrive and replace them. A photo with edits
-//! shows the size they leave ([`Thumbnails::displayed`]: a crop's shape) and the edited badge
-//! ([`Thumbnails::edited`]). The start of each frame hands the session's recipe changes to the
+//! and the cell asks for the new images until they arrive and replace them; one of another shape
+//! (before a crop) is letterboxed inside the new shape, on the placeholder, never stretched to it.
+//! A photo with edits shows the size they leave ([`Thumbnails::displayed`]: a crop's shape) and
+//! the edited badge ([`Thumbnails::edited`]). The start of each frame hands the session's recipe changes to the
 //! thumbnailer ([`Session::update_thumbnail_recipes`]), so the new images are on their way at once.
 //!
 //! **The painting API** (fixed by the light-table skeleton). Each frame the light table calls, in
@@ -322,7 +323,8 @@ impl Cell {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Painted {
     pub photo: PhotoId,
-    /// The image rect, in points (the letterboxed image of a cell; a tray mini's crop).
+    /// The image rect, in points (the letterboxed image of a cell; a tray mini's crop); for a stale
+    /// texture of another shape, where it was drawn inside that rect.
     pub rect: Rect,
     pub turn: Dihedral,
     pub drawn: Drawn,
@@ -502,8 +504,9 @@ impl Thumbnails {
     /// Paints `photo` into `rect` (its letterboxed image at its displayed size, in points) for an
     /// image `device_px` device pixels on its long side: the best uploaded ladder size, else its
     /// sketch, else the placeholder, turned by its recipe's orientation. A texture of the photo's
-    /// earlier edits is drawn only while none of its current ones is uploaded. Never touches the
-    /// disk and never decodes an image.
+    /// earlier edits is drawn only while none of its current ones is uploaded, at its own shape
+    /// letterboxed inside `rect` ([`fit_within`]). Never touches the disk and never decodes an
+    /// image.
     pub fn paint(&mut self, painter: &Painter, photo: PhotoRef<'_>, rect: Rect, device_px: f32) -> Drawn {
         let id = photo.photo.id;
         let shape = self.shape(photo);
@@ -522,6 +525,7 @@ impl Thumbnails {
             Choice::Nothing => None,
         };
         let mut stand_in = false;
+        let mut drawn_at = rect;
         let drawn = if let Some(why) = photo.session.thumbnail_failure(id) {
             stale = false;
             // A missing or unreadable file: the placeholder under the cell's "!", whatever was
@@ -534,7 +538,18 @@ impl Thumbnails {
         } else if let Some(tex) = texture {
             tex.drawn = frame;
             stand_in = tex.stand_in;
-            painter.add(textured(rect, tex.handle.id(), turn));
+            if stale {
+                // The earlier edits' picture keeps its own shape (a crop's new one may differ): it
+                // is letterboxed inside the new shape, on the placeholder, never stretched.
+                let [w, h] = tex.handle.size();
+                let (w, h) = turn.display_size(u32::try_from(w).unwrap_or(u32::MAX), u32::try_from(h).unwrap_or(u32::MAX));
+                let own = fit_within(rect, w, h);
+                if own != rect {
+                    painter.rect_filled(rect, 0, self.placeholder);
+                    drawn_at = own;
+                }
+            }
+            painter.add(textured(drawn_at, tex.handle.id(), turn));
             if matches!(choice, Choice::Covers(_)) { Drawn::Image } else { Drawn::Upscaled }
         } else {
             stale = false;
@@ -555,7 +570,7 @@ impl Thumbnails {
             Drawn::Failed => &mut c.failed_cells,
         };
         *slot = slot.saturating_add(1);
-        self.cells.push(Cell { id, need, drawn, rect, turn, stand_in, stale });
+        self.cells.push(Cell { id, need, drawn, rect: drawn_at, turn, stand_in, stale });
         drawn
     }
 
@@ -811,6 +826,25 @@ fn need_of(device_px: f32) -> u32 {
     if device_px.is_finite() && device_px >= 1.0 { device_px.ceil().min(ladder::MAX_SCREEN as f32) as u32 } else { 1 }
 }
 
+/// How far a texture's shape may stray from its rect's before it is letterboxed rather than drawn
+/// over the whole rect (a ladder image's rounding stays well inside it; a crop's new shape does not).
+const SHAPE_SLACK: f32 = 0.02;
+
+/// `rect` narrowed to the shape of a `width × height` picture, centred in it (letterboxed); `rect`
+/// itself when the shapes agree within [`SHAPE_SLACK`] or either is empty.
+pub fn fit_within(rect: Rect, width: u32, height: u32) -> Rect {
+    if width == 0 || height == 0 || !rect.is_positive() || !rect.is_finite() {
+        return rect;
+    }
+    let (w, h) = (width as f32, height as f32);
+    let ratio = (w / h) / (rect.width() / rect.height());
+    if !ratio.is_finite() || (ratio - 1.0).abs() <= SHAPE_SLACK {
+        return rect;
+    }
+    let scale = (rect.width() / w).min(rect.height() / h);
+    Rect::from_center_size(rect.center(), egui::vec2(w * scale, h * scale))
+}
+
 /// The point of `rect` at `(x, y)` (each 0–1 across it).
 fn at(rect: Rect, (x, y): (f32, f32)) -> Pos2 {
     pos2(rect.left() + rect.width() * x, rect.top() + rect.height() * y)
@@ -941,6 +975,32 @@ mod tests {
         assert_eq!(recipe_orientation(&ops(&["autofix()", "legacy:x", "rotate(45)"])), Dihedral::IDENTITY);
         let too_many = vec!["rotate(90)".to_string(); dalica_edit::MAX_OPERATIONS + 1];
         assert_eq!(recipe_orientation(&too_many), Dihedral::IDENTITY);
+    }
+
+    #[test]
+    fn a_picture_of_another_shape_is_letterboxed_inside_the_rect_and_a_near_one_fills_it() {
+        // A 2:1 cell rect (a crop's new shape) and the 3:2 picture before it: full height, centred.
+        let rect = Rect::from_min_size(pos2(10.0, 20.0), vec2(144.0, 72.0));
+        let fit = fit_within(rect, 600, 400);
+        assert_eq!((fit.size(), fit.center()), (vec2(108.0, 72.0), rect.center()));
+        // A portrait inside a landscape rect, and a landscape inside a portrait one.
+        assert_eq!(fit_within(rect, 300, 400).size(), vec2(54.0, 72.0));
+        let tall = Rect::from_min_size(pos2(0.0, 0.0), vec2(72.0, 144.0));
+        assert_eq!(fit_within(tall, 600, 400).size(), vec2(72.0, 48.0));
+        // A ladder image's rounding (256 × 171 of a 3:2 photo) is the same shape: the whole rect.
+        let cell = Rect::from_min_size(pos2(0.0, 0.0), vec2(144.0, 96.0));
+        assert_eq!(fit_within(cell, 256, 171), cell);
+        assert_eq!(fit_within(cell, 64, 43), cell);
+        // Hostile sizes and rects leave the rect as it is.
+        for (w, h) in [(0, 400), (600, 0), (0, 0)] {
+            assert_eq!(fit_within(cell, w, h), cell);
+        }
+        let flat = Rect::from_min_size(pos2(0.0, 0.0), vec2(144.0, 0.0));
+        assert_eq!(fit_within(flat, 600, 400), flat);
+        let wild = Rect::from_min_size(pos2(0.0, 0.0), vec2(f32::INFINITY, 10.0));
+        assert_eq!(fit_within(wild, 600, 400), wild);
+        let huge = fit_within(cell, u32::MAX, 1);
+        assert!(huge.is_finite() && cell.contains_rect(huge), "{huge:?}");
     }
 
     #[test]

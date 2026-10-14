@@ -3659,7 +3659,7 @@ first measurement. No step of M8 needs a maintainer decision mid-run.
   - done when: Fill Light 0.3 → rotate → the tab and the row show 0.3; dragging Highlights then
     leaves one `tuning` entry, one step, undone by one Undo; after a retouch that follows the
     tuning, a new drag appends; an unknown operation between them survives; CI green.
-- ⬜ **M8.29 `ui`: the canvas rests while a preview renders, and old thumbnails keep their shape**
+- ✅ **M8.29 `ui`: the canvas rests while a preview renders, and old thumbnails keep their shape**
   - after: M7.R
   - files: `crates/ui/src/panels/edit/canvas.rs`, `crates/ui/src/headless.rs`, `crates/ui/src/panels/thumbnails.rs`, `crates/ui/tests/edit_canvas.rs`, `crates/ui/tests/edited_cells.rs`
   - scope: found in M7 (M7.15, M7.23, M7.9): while a preview is pending the canvas asks for an

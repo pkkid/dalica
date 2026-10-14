@@ -7,8 +7,9 @@
 //! rendered at the largest power-of-two scale of its source that covers the box, so it is drawn
 //! fitted (scaled down to the box). Zoomed past it, the visible window is asked for at full
 //! resolution (`Session::set_preview_window`) once the view stands still; until it arrives the
-//! scaled preview is drawn, and no frame waits for it. Leaving the edit view closes the preview
-//! ([`release`], from the bottom area, the one part drawn in both views).
+//! scaled preview is drawn, and no frame waits for it. While a preview is on its way and nothing
+//! animates, the canvas draws again every [`PREVIEW_POLL`] rather than at once. Leaving the edit
+//! view closes the preview ([`release`], from the bottom area, the one part drawn in both views).
 //!
 //! **Zoom** (`commands::zoom`): the edit state's `zoom` is `Fit` or a scale (1 is 100 %). Fit and
 //! 1:1 set from outside the canvas (the bottom area's buttons, `ui.set`) animate [`ANIMATION`]
@@ -61,6 +62,10 @@ pub const ANIMATION: f64 = 0.22;
 pub const HOLD: f64 = 0.3;
 /// How far the pointer may move during the hold, in points.
 pub const HOLD_SLOP: f32 = 4.0;
+/// How long the canvas rests between frames while a preview is on its way and nothing moves, so
+/// the wait does not spin a CPU the preview's workers need. Two 60 Hz frames: egui takes one
+/// predicted frame time off a delayed repaint, which leaves at least 16 ms between frames.
+pub const PREVIEW_POLL: std::time::Duration = std::time::Duration::from_millis(33);
 /// The message drawn when the photo cannot be shown.
 pub const CANNOT_SHOW: &str = "This photo cannot be shown.";
 
@@ -335,7 +340,6 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let fit = maths::fit_scale(size, (boxed.width() * ppp, boxed.height() * ppp));
     FITTED.with(|f| f.set(Some((photo, fit))));
 
-    minus_key(app, &ctx);
     let response = ui.interact(area, id, Sense::click_and_drag());
     let pointer = response.hover_pos();
     let tool_open = app.state().edit.tool.is_some();
@@ -523,9 +527,13 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         }
     }
 
-    // Waiting for a preview or animating: draw again at once (settling waits for it too).
-    if animating || pending {
+    // Animating: draw again at once. Waiting for a preview: look again after [`PREVIEW_POLL`],
+    // so the wait leaves the CPU to the workers rendering it (`ui.settle` counts the open photo's
+    // preview as busy on its own: `Session::preview_busy`).
+    if animating {
         ctx.request_repaint();
+    } else if pending {
+        ctx.request_repaint_after(PREVIEW_POLL);
     }
     if let Some(p) = c.press {
         let left = HOLD - (now - p.time);
@@ -535,25 +543,6 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         d.insert_temp(id, c);
         d.insert_temp(view_id(), Some(v));
     });
-}
-
-/// Ctrl+− as `edit.zoom.out`, while the shortcut dispatch cannot see it: `keys::from_egui` names
-/// egui's Minus key by its symbol, the Unicode minus, which the keymap does not parse. Once it
-/// does, the keymap runs the binding and this does nothing.
-fn minus_key(app: &mut App, ctx: &egui::Context) {
-    let lost = |m: &egui::Modifiers| m.command && !m.alt && !m.shift && crate::keys::from_egui(egui::Key::Minus, *m).is_none();
-    let presses = ctx.input(|i| {
-        i.events
-            .iter()
-            .filter(|e| matches!(e, egui::Event::Key { key: egui::Key::Minus, pressed: true, repeat: false, modifiers, .. } if lost(modifiers)))
-            .count()
-    });
-    if presses == 0 || ctx.egui_wants_keyboard_input() || !app.state().dialogs.is_empty() {
-        return;
-    }
-    for _ in 0..presses.min(8) {
-        let _ = app.run("edit.zoom.out", &json!({}));
-    }
 }
 
 /// What the pointer did to the photo this frame.
