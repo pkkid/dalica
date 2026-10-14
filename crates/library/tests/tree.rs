@@ -1,14 +1,21 @@
 //! `dalica-library` tree model (`ui-layout.md` §4, `organizing.md` §10) on hand-built libraries:
 //! rows and order in flat and tree mode for every sort and its reverse, year dividers, counts,
 //! groups (Projects holding folders with the Exported mark wherever they are), collapsed groups
-//! and nodes, sections, offline roots, and the build time of a 5 k-folder library.
+//! and nodes, sections, offline roots, and the build time of a 5 k-folder library. M9: the Albums
+//! group (automatic albums, then user albums in the folder sort), the section filter of search
+//! mode in flat and tree mode with the search album, each section's photos in its order, and
+//! section names.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Instant;
 
-use dalica_core::{FolderId, PhotoId};
-use dalica_library::{Folder, FolderRow, FolderSort, Group, Library, Op, Photo, Row, SectionId, Tree, TreeMode, TreeOptions};
+use dalica_core::{AlbumId, FolderId, PhotoId, Timestamp};
+use dalica_library::{
+    AlbumInfo, AlbumRef, AlbumTree, Folder, FolderRow, FolderSort, Group, Library, Op, Photo, PhotoSort, Row, Section, SectionFilter, SectionId,
+    SortBy, Tree, TreeMode, TreeOptions, section_photos,
+};
 use proptest::prelude::*;
 use serde_json::json;
 
@@ -743,4 +750,177 @@ fn exported_folders_list_in_projects_wherever_they_are() {
     // Undoing the mark puts it back in Folders.
     fx.lib.apply(undo).unwrap();
     assert_eq!(lines(&flat(&fx), Group::Folders), ["Lisbon (2)", "Trip (2)"]);
+}
+
+// M9: the Albums group, album sections, the section filter of search mode and section photos.
+
+fn aid(s: &str) -> AlbumId {
+    AlbumId::parse(s).unwrap()
+}
+
+/// The photos of `folder` in id order.
+fn ids_in(fx: &Fx, folder: FolderId) -> Vec<PhotoId> {
+    fx.lib.photos().filter(|p| p.folder == folder).map(|p| p.id).collect()
+}
+
+fn folder_named(fx: &Fx, name: &str) -> FolderId {
+    fx.lib.folders().find(|f| f.path.file_name().is_some_and(|n| n == name)).unwrap().id
+}
+
+/// The five folders with three albums: `Zoo` (empty), `alpha` (two Beach photos and one Easter
+/// photo, dated by its newest photo) and `Mid` (one Concert photo, its own date 2025-06-01);
+/// two Beach photos and an Easter photo starred.
+fn with_albums() -> (Fx, [AlbumId; 3]) {
+    let mut fx = five_folders();
+    let (beach, easter, concert) = (folder_named(&fx, "Beach"), folder_named(&fx, "Easter"), folder_named(&fx, "Concert"));
+    let albums = [aid("a0001"), aid("a0002"), aid("a0003")];
+    let mid = AlbumInfo { date: "2025-06-01".parse().ok(), use_newest: false, ..AlbumInfo::named("Mid") };
+    fx.lib
+        .apply(Op::CreateAlbums {
+            albums: vec![(albums[0].clone(), AlbumInfo::named("Zoo")), (albums[1].clone(), AlbumInfo::named("alpha")), (albums[2].clone(), mid)],
+        })
+        .unwrap();
+    let b = ids_in(&fx, beach);
+    let e = ids_in(&fx, easter);
+    let c = ids_in(&fx, concert);
+    let op = fx.lib.album_add_op(&albums[1], &[e[0], b[1], b[0]], None).unwrap();
+    fx.lib.apply(op).unwrap();
+    let op = fx.lib.album_add_op(&albums[2], &c[..1], None).unwrap();
+    fx.lib.apply(op).unwrap();
+    fx.lib.apply(Op::SetStars { stars: vec![(b[0], true), (b[2], true), (e[1], true)] }).unwrap();
+    (fx, albums)
+}
+
+fn album_lines(t: &AlbumTree) -> Vec<String> {
+    t.rows.iter().map(|r| format!("{} ({})", r.name, r.count)).collect()
+}
+
+#[test]
+fn the_albums_group_lists_automatic_then_user_albums_in_the_folder_sort() {
+    let (fx, albums) = with_albums();
+    // No album, no star, no clock: no group.
+    assert_eq!(AlbumTree::build(&five_folders().lib, &TreeOptions::default()).count, 0);
+
+    // Every photo's file time is within 30 days of this now.
+    let now = Timestamp::from_millis(600_000);
+    let options = TreeOptions { now: Some(now), ..TreeOptions::default() };
+    let t = AlbumTree::build(&fx.lib, &options);
+    assert_eq!(t.revision, fx.lib.revision());
+    // By date: the undated empty album first, then newest first (alpha: Easter 2026-04; Mid: its
+    // own 2025-06-01).
+    assert_eq!(album_lines(&t), ["Starred Photos (3)", "Recently Updated (11)", "Zoo (0)", "alpha (3)", "Mid (1)"]);
+    assert_eq!(t.count, 5);
+    let sections: Vec<String> = t.sections.iter().map(Section::to_string).collect();
+    assert_eq!(sections, ["album:starred", "album:recent", "album:a0002", "album:a0003"], "an empty album has no section");
+    let alpha = &t.rows[3];
+    assert_eq!(
+        (alpha.album.clone(), alpha.cover, alpha.date),
+        (AlbumRef::User(albums[1].clone()), fx.lib.album_cover(&albums[1]), fx.lib.album_date(&albums[1]))
+    );
+
+    let by_name = |reverse| album_lines(&AlbumTree::build(&fx.lib, &TreeOptions { sort: FolderSort::Name, reverse, ..options.clone() }));
+    assert_eq!(by_name(false)[2..], ["alpha (3)", "Mid (1)", "Zoo (0)"], "ignoring case");
+    assert_eq!(by_name(true)[2..], ["Zoo (0)", "Mid (1)", "alpha (3)"], "the automatic albums stay first");
+    let by_size = album_lines(&AlbumTree::build(&fx.lib, &TreeOptions { sort: FolderSort::Size, ..options.clone() }));
+    assert_eq!(by_size[2..], ["alpha (3)", "Mid (1)", "Zoo (0)"]);
+
+    // Recently Updated follows the clock; collapsed, the group keeps its count only.
+    let later = TreeOptions { now: Some(Timestamp::from_millis(31 * 86_400_000)), ..options.clone() };
+    assert!(!album_lines(&AlbumTree::build(&fx.lib, &later)).iter().any(|l| l.starts_with("Recently")));
+    let collapsed = TreeOptions { collapsed_groups: [Group::Albums].into(), ..options.clone() };
+    let t = AlbumTree::build(&fx.lib, &collapsed);
+    assert!(t.collapsed && t.count == 5 && t.rows.is_empty() && t.sections.is_empty());
+    // A hidden photo leaves the counts unless Hidden Pictures is on.
+    let mut fx = fx;
+    let starred = fx.lib.starred_photos()[0];
+    fx.lib.apply(Op::SetHidden { hidden: vec![(starred, true)] }).unwrap();
+    assert_eq!(album_lines(&AlbumTree::build(&fx.lib, &options))[0], "Starred Photos (2)");
+    assert_eq!(album_lines(&AlbumTree::build(&fx.lib, &TreeOptions { hidden_pictures: true, ..options }))[0], "Starred Photos (3)");
+}
+
+#[test]
+fn the_section_filter_drops_sections_without_matches_in_flat_and_tree_mode() {
+    let (fx, albums) = with_albums();
+    let (beach, dunes) = (folder_named(&fx, "Beach"), folder_named(&fx, "Dunes"));
+    let b = ids_in(&fx, beach);
+    let d = ids_in(&fx, dunes);
+    // The search found the second Beach photo, the Dunes photo and the first Beach photo, in
+    // that order.
+    let filter = Arc::new(SectionFilter::new([b[1], d[0], b[0], b[1]]));
+    assert_eq!(filter.len(), 3);
+    let searching = |mode| TreeOptions { mode, filter: Some(filter.clone()), search: Some("beach".into()), ..TreeOptions::default() };
+
+    let flat = Tree::build(&fx.lib, &[base()], &searching(TreeMode::Flat));
+    assert_eq!(lines(&flat, Group::Folders), ["2026", "Dunes (1)", "2024", "Beach (2)"]);
+    assert_eq!(flat.sections, [SectionId::Folder(dunes), SectionId::Folder(beach)]);
+    let tree = Tree::build(&fx.lib, &[base()], &searching(TreeMode::Tree));
+    assert_eq!(lines(&tree, Group::Folders), ["photos (0)", "  Dunes (1)", "  Beach (2)"]);
+    assert_eq!(tree.sections, flat.sections);
+    // Nothing found: no folder at all.
+    let none = TreeOptions { filter: Some(Arc::new(SectionFilter::new([]))), ..TreeOptions::default() };
+    assert!(Tree::build(&fx.lib, &[base()], &none).groups.is_empty());
+
+    // The search album first, listing every match; albums without one drop out, the others count
+    // their matches.
+    let t = AlbumTree::build(&fx.lib, &searching(TreeMode::Flat));
+    assert_eq!(album_lines(&t), ["Search results for \"beach\" (3)", "Starred Photos (1)", "alpha (2)"]);
+    assert_eq!(t.rows[0].cover, Some(b[1]), "the first match");
+    assert_eq!(
+        t.sections_with(&flat).iter().map(Section::to_string).collect::<Vec<_>>(),
+        ["album:search".to_string(), "album:starred".into(), format!("album:{}", albums[1]), format!("folder:{dunes}"), format!("folder:{beach}"),]
+    );
+    // A search with no match still shows its album, empty.
+    let t = AlbumTree::build(&fx.lib, &TreeOptions { search: Some("zzz".into()), ..none });
+    assert_eq!(album_lines(&t), ["Search results for \"zzz\" (0)"]);
+    assert!(t.sections.is_empty());
+}
+
+#[test]
+fn section_photos_come_in_each_sections_order() {
+    let (mut fx, albums) = with_albums();
+    let beach = folder_named(&fx, "Beach");
+    let b = ids_in(&fx, beach);
+    let e = ids_in(&fx, folder_named(&fx, "Easter"));
+    fx.lib.apply(Op::SetFolderSorts { sorts: vec![(beach, PhotoSort::new(SortBy::Date, true))] }).unwrap();
+    let now = Timestamp::from_millis(600_000);
+    let options = TreeOptions { now: Some(now), ..TreeOptions::default() };
+    let sections = [
+        Section::Folder(beach),
+        Section::Album(AlbumRef::User(albums[1].clone())),
+        Section::Album(AlbumRef::Starred),
+        Section::Album(AlbumRef::Recent),
+        Section::Album(AlbumRef::User(albums[0].clone())),
+        Section::Album(AlbumRef::Search),
+    ];
+    let got = section_photos(&fx.lib, &sections, &options);
+    assert_eq!(got.iter().map(|(s, _)| s.clone()).collect::<Vec<_>>(), sections);
+    assert_eq!(got[0].1, [b[2], b[1], b[0]], "the folder's own sort: newest first");
+    assert_eq!(got[1].1, [e[0], b[1], b[0]], "the album's order");
+    assert_eq!(got[2].1, [b[0], b[2], e[1]], "Starred Photos by date");
+    // Newest file time first: Beach's files are the newest.
+    assert_eq!(got[3].1[..3], [b[0], b[1], b[2]]);
+    assert!(got[4].1.is_empty() && got[5].1.is_empty(), "an empty album; no search");
+
+    // A hidden photo leaves every section unless Hidden Pictures is on; the filter narrows them.
+    fx.lib.apply(Op::SetHidden { hidden: vec![(b[1], true)] }).unwrap();
+    let got = section_photos(&fx.lib, &sections[..2], &options);
+    assert_eq!((got[0].1.clone(), got[1].1.clone()), (vec![b[2], b[0]], vec![e[0], b[0]]));
+    let shown = section_photos(&fx.lib, &sections[..2], &TreeOptions { hidden_pictures: true, ..options.clone() });
+    assert_eq!(shown[0].1, [b[2], b[1], b[0]]);
+    let filtered = TreeOptions { filter: Some(Arc::new(SectionFilter::new([b[0], e[0]]))), ..options };
+    let got = section_photos(&fx.lib, &[sections[0].clone(), sections[1].clone(), sections[5].clone()], &filtered);
+    assert_eq!((got[0].1.clone(), got[1].1.clone(), got[2].1.clone()), (vec![b[0]], vec![e[0], b[0]], vec![b[0], e[0]]));
+}
+
+#[test]
+fn section_names_round_trip() {
+    let names = ["folder:12", "album:starred", "album:recent", "album:search", "album:a91c0e"];
+    for name in names {
+        let section: Section = name.parse().unwrap();
+        assert_eq!(section.to_string(), name);
+    }
+    assert_eq!(Section::from(SectionId::Folder(FolderId::new(3))), Section::Folder(FolderId::new(3)));
+    for bad in ["", "folder:", "folder:x", "folder:-1", "album:", "album:A91C0E", "album:../x", "people:p1234", "starred"] {
+        assert!(bad.parse::<Section>().is_err(), "{bad:?}");
+    }
 }

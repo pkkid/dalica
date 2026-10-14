@@ -11,10 +11,19 @@
 //! last-synced metadata hashes ([`Synced`], derived like sketches) and the tag index
 //! ([`tags`]). Ids are assigned by the caller through [`Library::next_folder_id`] /
 //! [`Library::next_photo_id`] and carried inside ops, so replaying a journal gives the same ids.
+//!
+//! M9 adds albums ([`AlbumInfo`], memberships with position keys, covers; the keys of adds, drops
+//! and Sort Album By in [`albums`]), each photo's search facts ([`Facts`]), content digest
+//! ([`ContentDigest`]), first-indexed and last-changed times (all index-only, like sketches), each
+//! folder's photo sort ([`PhotoSort`]), moves and renames of photos and folders as ops with exact
+//! inverses, the automatic albums (Starred Photos, Recently Updated) and the Albums group of the
+//! tree with its sections and a section filter for search mode ([`AlbumTree`], [`Section`],
+//! [`SectionFilter`]).
 
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+pub mod albums;
 mod model;
 mod op;
 mod query;
@@ -22,18 +31,23 @@ pub mod sync;
 pub mod tags;
 mod tree;
 
+pub use albums::{Anchor, album_id_from, clean_album_name};
 pub use model::{
-    Folder, FolderInfo, Library, MAX_DIGEST, MAX_FILE_NAME, MAX_SKETCH, Model, Photo, PhotoInfo, Project, Recipe, SaveState, Saved, SavedAs, Sketch,
-    Synced,
+    AlbumInfo, ContentDigest, Facts, Folder, FolderInfo, Library, MAX_ALBUM_NAME, MAX_CAMERA, MAX_DIGEST, MAX_FILE_NAME, MAX_SKETCH, Model, Photo,
+    PhotoInfo, PhotoSort, Project, Recipe, SaveState, Saved, SavedAs, Sketch, SortBy, Synced,
 };
 pub use op::Op;
+pub use query::AlbumStats;
 pub use tags::{
     MAX_CAPTION, MAX_DESCRIPTION, MAX_OPERATION, MAX_OPERATIONS, MAX_PLACE, MAX_TAG, MAX_TAGS, PartialCount, TagCount, TagIndex, clean_caption,
     clean_description, clean_place, clean_tag, clean_tags,
 };
-pub use tree::{FolderRow, FolderSort, Group, GroupRows, Row, SMALL_PICTURE_PX, SectionId, Tree, TreeMode, TreeOptions};
+pub use tree::{
+    AlbumRef, AlbumRow, AlbumTree, FolderRow, FolderSort, Group, GroupRows, RECENT_DAYS, Row, SMALL_PICTURE_PX, Section, SectionFilter, SectionId,
+    Tree, TreeMode, TreeOptions, section_photos,
+};
 
-use dalica_core::{FolderId, PhotoId};
+use dalica_core::{AlbumId, FolderId, PhotoId};
 
 /// Why an op was refused. A refused op changes nothing.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
@@ -62,6 +76,17 @@ pub enum Error {
     TooMany { what: &'static str, max: usize },
     #[error("a {what} that is not clean: {why}")]
     BadText { what: &'static str, why: &'static str },
+    #[error("no album {0}")]
+    UnknownAlbum(AlbumId),
+    #[error("album {0} exists already")]
+    AlbumExists(AlbumId),
+    #[error("photo {photo} is in album {album} already")]
+    AlreadyMember { album: AlbumId, photo: PhotoId },
+    #[error("photo {photo} is not in album {album}")]
+    NotMember { album: AlbumId, photo: PhotoId },
+    /// A folder moved inside itself, or onto a folder it is inside (`data-model.md` §8).
+    #[error("folder {0} cannot move inside itself or onto a folder it is in")]
+    FolderIntoItself(FolderId),
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;

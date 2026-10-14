@@ -3858,7 +3858,7 @@ test machine has one, saying which ran. Copy Path, Locate on Disk, Show Tag as A
 out to other applications stay out (M15 or later). No step of M9 needs a maintainer decision
 mid-run.
 
-- ⬜ **M9.1 `library`: albums, search facts and file-operation ops**
+- ✅ **M9.1 `library`: albums, search facts and file-operation ops**
   - after: M8.1, M8.R
   - files: `crates/library/src/model.rs`, `crates/library/src/op.rs`, `crates/library/src/query.rs`, `crates/library/src/tree.rs`, `crates/library/src/albums.rs`, `crates/library/tests/m9_fields.rs`, `crates/library/tests/albums.rs`, `crates/library/tests/ops.rs`, `crates/library/tests/tree.rs`, `crates/library/README.md`
   - scope: `data-model.md` §2–§4 and §8 and `organizing.md` §4 as pure model: albums (id, name,
