@@ -88,7 +88,15 @@ Screenshots are real captures of Dalica, taken headlessly with `dalica-cli snaps
 from copies of corpus photos in four folders (`folders.add`, `folder.info.set`,
 `photo.tags.add`, `photo.star.set`, a crop, a straighten, a tuning and Auto Fix), then shown with
 script steps such as `{"command": "view.edit", "params": {"id": 3}}` and
-`{"command": "edit.tool.open", "params": {"tool": "crop"}}`. The photos inside them, and `img/castle.jpg`, come from the `photos` set of the
+`{"command": "edit.tool.open", "params": {"tool": "crop"}}`. The 0.3 shots (`export-dialog.jpg`,
+`crop-save.jpg`, `crop-export.jpg`, `crop-projects.jpg`) use the generated demo library
+(`dalica-cli snapshot --demo-fresh`): a crop on two photos of the Hills folder, then steps such as
+`{"command": "photo.save", "params": {"ids": [25, 27]}}` (which opens the Save dialog),
+`export.run` with a size, numbers and a watermark, and `output.export` with
+`output.export.location`. Run them with `HOME` and the `XDG_*` folders pointed at a scratch
+folder, so no real path shows in the Export dialog. The export progress window is caught while
+the export is still running: export all 60 demo photos so the last frame comes before it ends.
+The photos inside the 0.2 shots, and `img/castle.jpg`, come from the `photos` set of the
 project's own corpus ([pkkid/dalica-corpus](https://github.com/pkkid/dalica-corpus) at
 `6239cad`), where every file is CC0 or public domain with its source listed in `SOURCES.tsv`.
 Never use personal photos. Images, like the fonts, have rows in `ATTRIBUTION.md`.
