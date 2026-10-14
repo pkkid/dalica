@@ -1,4 +1,4 @@
-/* dalica.org: the download button picks the visitor's system, the hex field behind the page, and the
+/* dalica.pkarma.com: the download button picks the visitor's system, the hex field behind the page, and the
    small interactions (count-up numbers, gentle reveals, click to enlarge). No third-party code. */
 /* Hex field: a flat-top hex grid drawn faintly where a soft mask allows (a wide glow at the top of
    the page, patches beside sections), dots that walk the grid's edges leaving short trails, and
@@ -164,18 +164,49 @@
   requestAnimationFrame(frame);
 })();
 
+// The release on offer. Bump these two at each release (website/README.md → Releasing): the
+// version, and the file sizes in bytes, which the jq one-liner there prints from GitHub.
+var RELEASE = {
+  version: "0.2.0",
+  sizes: {"SHA256SUMS.txt":1605,"dalica-cli-{v}-macos-universal.zip":14968959,"dalica-{v}-linux-aarch64.AppImage":17500680,"dalica-{v}-linux-aarch64.AppImage.zsync":60063,"dalica-{v}-linux-aarch64.deb":19205550,"dalica-{v}-linux-aarch64.flatpak":11545616,"dalica-{v}-linux-aarch64.rpm":19026032,"dalica-{v}-linux-aarch64.tar.gz":18306400,"dalica-{v}-linux-x86_64.AppImage":19470840,"dalica-{v}-linux-x86_64.AppImage.zsync":66795,"dalica-{v}-linux-x86_64.deb":20919306,"dalica-{v}-linux-x86_64.flatpak":13577904,"dalica-{v}-linux-x86_64.rpm":20787197,"dalica-{v}-linux-x86_64.tar.gz":20401854,"dalica-{v}-macos-universal.dmg":22692066,"dalica-{v}-windows-x64-portable.zip":18909425,"dalica-{v}-windows-x64.msi":15179776}
+};
+
+// Download links: every [data-file] names its file with {v} for the version. Without this script
+// the links fall back to the latest release's page on GitHub, which lists the same files.
 (function () {
+  var v = RELEASE.version, tag = "v" + v, base = "https://github.com/pkkid/dalica/releases/download/" + tag + "/";
+  document.querySelectorAll("[data-v]").forEach(function (el) {
+    el.textContent = el.dataset.v === "short" ? " " + v.split(".").slice(0, 2).join(".") : v;
+  });
+  var notes = document.getElementById("dl-notes"); if (notes) notes.href = "https://github.com/pkkid/dalica/releases/tag/" + tag;
+  function fill(a) {
+    var key = a.dataset.file, file = key.replace("{v}", v), bytes = RELEASE.sizes[key];
+    a.href = base + file;
+    a.title = file;
+    var name = a.querySelector(".fname"); if (name) name.textContent = file;
+    var size = a.querySelector(".size"); if (size && bytes) size.textContent = (bytes / 1e6).toFixed(1) + " MB";
+  }
+  document.querySelectorAll("[data-file]").forEach(fill);
+
+  // The hero button names the visitor's system; its card is lifted a little.
   var ua = navigator.userAgent, os = /Mac/.test(ua) ? "mac" : /Win/.test(ua) ? "win" : "linux";
-  var names = { linux: ["Linux", "AppImage · x86_64 · 0.1.0"], win: ["Windows", "Installer · x64 · 0.1.0"], mac: ["macOS", "Disk image · Universal · 0.1.0"] };
+  var arm = os === "linux" && /aarch64|arm64/i.test(ua);
+  var names = { linux: ["Linux", "AppImage · " + (arm ? "ARM64" : "x86_64")], win: ["Windows", "Installer · x64"], mac: ["macOS", "Disk image · Universal"] };
   document.getElementById("dl-main").firstChild.nodeValue = "Download for " + names[os][0];
-  document.getElementById("dl-sub").textContent = names[os][1];
+  document.getElementById("dl-sub").textContent = names[os][1] + " · " + v;
   var card = document.querySelector('.os[data-os="' + os + '"]'); if (card) card.classList.add("mine");
+  if (arm && card) {
+    // ARM64 Linux: the AppImage on offer is the aarch64 one, and its list starts open.
+    var get = card.querySelector(".get"), det = card.querySelector("details.arm");
+    if (get) { get.dataset.file = "dalica-{v}-linux-aarch64.AppImage"; fill(get); }
+    if (det) det.open = true;
+  }
 })();
 (function () {
   var reduce = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   // Gentle reveal: anything below the fold starts a little low and rises into place.
-  var risers = [].slice.call(document.querySelectorAll(".rise, .shot, .os, .feat"));
+  var risers = [].slice.call(document.querySelectorAll(".rise, .shot, .os, .feat, .releases li"));
   if (!reduce && "IntersectionObserver" in window) {
     risers.forEach(function (el) { if (el.getBoundingClientRect().top > innerHeight) { el.classList.add("rise", "low"); } });
     var io = new IntersectionObserver(function (entries) {

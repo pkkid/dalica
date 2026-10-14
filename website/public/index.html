@@ -4,14 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Dalíca · a photo organizer for the folders you already have</title>
-<meta name="description" content="Dalíca is a photo organizer for the folders you already have. Native on Linux, Windows and macOS.">
+<meta name="description" content="Dalíca is a photo organizer with simple editing for the folders you already have. Native on Linux, Windows and macOS.">
 <link rel="canonical" href="https://dalica.pkarma.com/">
 <link rel="icon" href="/img/icon.svg" type="image/svg+xml">
 <meta name="theme-color" content="#0f0f0f">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://dalica.pkarma.com/">
 <meta property="og:title" content="Dalíca: a photo organizer for the folders you already have">
-<meta property="og:description" content="Star, caption and tag a lifetime of photos without importing a single one.">
+<meta property="og:description" content="Star, tag, crop and fix a lifetime of photos without importing a single one.">
 <meta property="og:image" content="https://dalica.pkarma.com/img/og.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
@@ -21,10 +21,20 @@
 <script src="/main.js" defer></script>
 </head>
 <body>
+<svg class="sprite" aria-hidden="true" focusable="false"><defs>
+<!-- Linux (Tux), Apple and Windows marks: Simple Icons (simpleicons.org), CC0 1.0; see ATTRIBUTION.md -->
+<symbol id="i-linux" viewBox="0 0 24 24"><path fill="currentColor" d="M12.504 0c-.155 0-.315.008-.48.021-4.226.333-3.105 4.807-3.17 6.298-.076 1.092-.3 1.953-1.05 3.02-.885 1.051-2.127 2.75-2.716 4.521-.278.832-.41 1.684-.287 2.489a.424.424 0 00-.11.135c-.26.268-.45.6-.663.839-.199.199-.485.267-.797.4-.313.136-.658.269-.864.68-.09.189-.136.394-.132.602 0 .199.027.4.055.536.058.399.116.728.04.97-.249.68-.28 1.145-.106 1.484.174.334.535.47.94.601.81.2 1.91.135 2.774.6.926.466 1.866.67 2.616.47.526-.116.97-.464 1.208-.946.587-.003 1.23-.269 2.26-.334.699-.058 1.574.267 2.577.2.025.134.063.198.114.333l.003.003c.391.778 1.113 1.132 1.884 1.071.771-.06 1.592-.536 2.257-1.306.631-.765 1.683-1.084 2.378-1.503.348-.199.629-.469.649-.853.023-.4-.2-.811-.714-1.376v-.097l-.003-.003c-.17-.2-.25-.535-.338-.926-.085-.401-.182-.786-.492-1.046h-.003c-.059-.054-.123-.067-.188-.135a.357.357 0 00-.19-.064c.431-1.278.264-2.55-.173-3.694-.533-1.41-1.465-2.638-2.175-3.483-.796-1.005-1.576-1.957-1.56-3.368.026-2.152.236-6.133-3.544-6.139zm.529 3.405h.013c.213 0 .396.062.584.198.19.135.33.332.438.533.105.259.158.459.166.724 0-.02.006-.04.006-.06v.105a.086.086 0 01-.004-.021l-.004-.024a1.807 1.807 0 01-.15.706.953.953 0 01-.213.335.71.71 0 00-.088-.042c-.104-.045-.198-.064-.284-.133a1.312 1.312 0 00-.22-.066c.05-.06.146-.133.183-.198.053-.128.082-.264.088-.402v-.02a1.21 1.21 0 00-.061-.4c-.045-.134-.101-.2-.183-.333-.084-.066-.167-.132-.267-.132h-.016c-.093 0-.176.03-.262.132a.8.8 0 00-.205.334 1.18 1.18 0 00-.09.4v.019c.002.089.008.179.02.267-.193-.067-.438-.135-.607-.202a1.635 1.635 0 01-.018-.2v-.02a1.772 1.772 0 01.15-.768c.082-.22.232-.406.43-.533a.985.985 0 01.594-.2zm-2.962.059h.036c.142 0 .27.048.399.135.146.129.264.288.344.465.09.199.14.4.153.667v.004c.007.134.006.2-.002.266v.08c-.03.007-.056.018-.083.024-.152.055-.274.135-.393.2.012-.09.013-.18.003-.267v-.015c-.012-.133-.04-.2-.082-.333a.613.613 0 00-.166-.267.248.248 0 00-.183-.064h-.021c-.071.006-.13.04-.186.132a.552.552 0 00-.12.27.944.944 0 00-.023.33v.015c.012.135.037.2.08.334.046.134.098.2.166.268.01.009.02.018.034.024-.07.057-.117.07-.176.136a.304.304 0 01-.131.068 2.62 2.62 0 01-.275-.402 1.772 1.772 0 01-.155-.667 1.759 1.759 0 01.08-.668 1.43 1.43 0 01.283-.535c.128-.133.26-.2.418-.2zm1.37 1.706c.332 0 .733.065 1.216.399.293.2.523.269 1.052.468h.003c.255.136.405.266.478.399v-.131a.571.571 0 01.016.47c-.123.31-.516.643-1.063.842v.002c-.268.135-.501.333-.775.465-.276.135-.588.292-1.012.267a1.139 1.139 0 01-.448-.067 3.566 3.566 0 01-.322-.198c-.195-.135-.363-.332-.612-.465v-.005h-.005c-.4-.246-.616-.512-.686-.71-.07-.268-.005-.47.193-.6.224-.135.38-.271.483-.336.104-.074.143-.102.176-.131h.002v-.003c.169-.202.436-.47.839-.601.139-.036.294-.065.466-.065zm2.8 2.142c.358 1.417 1.196 3.475 1.735 4.473.286.534.855 1.659 1.102 3.024.156-.005.33.018.513.064.646-1.671-.546-3.467-1.089-3.966-.22-.2-.232-.335-.123-.335.59.534 1.365 1.572 1.646 2.757.13.535.16 1.104.021 1.67.067.028.135.06.205.067 1.032.534 1.413.938 1.23 1.537v-.043c-.06-.003-.12 0-.18 0h-.016c.151-.467-.182-.825-1.065-1.224-.915-.4-1.646-.336-1.77.465-.008.043-.013.066-.018.135-.068.023-.139.053-.209.064-.43.268-.662.669-.793 1.187-.13.533-.17 1.156-.205 1.869v.003c-.02.334-.17.838-.319 1.35-1.5 1.072-3.58 1.538-5.348.334a2.645 2.645 0 00-.402-.533 1.45 1.45 0 00-.275-.333c.182 0 .338-.03.465-.067a.615.615 0 00.314-.334c.108-.267 0-.697-.345-1.163-.345-.467-.931-.995-1.788-1.521-.63-.4-.986-.87-1.15-1.396-.165-.534-.143-1.085-.015-1.645.245-1.07.873-2.11 1.274-2.763.107-.065.037.135-.408.974-.396.751-1.14 2.497-.122 3.854a8.123 8.123 0 01.647-2.876c.564-1.278 1.743-3.504 1.836-5.268.048.036.217.135.289.202.218.133.38.333.59.465.21.201.477.335.876.335.039.003.075.006.11.006.412 0 .73-.134.997-.268.29-.134.52-.334.74-.4h.005c.467-.135.835-.402 1.044-.7zm2.185 8.958c.037.6.343 1.245.882 1.377.588.134 1.434-.333 1.791-.765l.211-.01c.315-.007.577.01.847.268l.003.003c.208.199.305.53.391.876.085.4.154.78.409 1.066.486.527.645.906.636 1.14l.003-.007v.018l-.003-.012c-.015.262-.185.396-.498.595-.63.401-1.746.712-2.457 1.57-.618.737-1.37 1.14-2.036 1.191-.664.053-1.237-.2-1.574-.898l-.005-.003c-.21-.4-.12-1.025.056-1.69.176-.668.428-1.344.463-1.897.037-.714.076-1.335.195-1.814.12-.465.308-.797.641-.984l.045-.022zm-10.814.049h.01c.053 0 .105.005.157.014.376.055.706.333 1.023.752l.91 1.664.003.003c.243.533.754 1.064 1.189 1.637.434.598.77 1.131.729 1.57v.006c-.057.744-.48 1.148-1.125 1.294-.645.135-1.52.002-2.395-.464-.968-.536-2.118-.469-2.857-.602-.369-.066-.61-.2-.723-.4-.11-.2-.113-.602.123-1.23v-.004l.002-.003c.117-.334.03-.752-.027-1.118-.055-.401-.083-.71.043-.94.16-.334.396-.4.69-.533.294-.135.64-.202.915-.47h.002v-.002c.256-.268.445-.601.668-.838.19-.201.38-.336.663-.336zm7.159-9.074c-.435.201-.945.535-1.488.535-.542 0-.97-.267-1.28-.466-.154-.134-.28-.268-.373-.335-.164-.134-.144-.333-.074-.333.109.016.129.134.199.2.096.066.215.2.36.333.292.2.68.467 1.167.467.485 0 1.053-.267 1.398-.466.195-.135.445-.334.648-.467.156-.136.149-.267.279-.267.128.016.034.134-.147.332a8.097 8.097 0 01-.69.468zm-1.082-1.583V5.64c-.006-.02.013-.042.029-.05.074-.043.18-.027.26.004.063 0 .16.067.15.135-.006.049-.085.066-.135.066-.055 0-.092-.043-.141-.068-.052-.018-.146-.008-.163-.065zm-.551 0c-.02.058-.113.049-.166.066-.047.025-.086.068-.14.068-.05 0-.13-.02-.136-.068-.01-.066.088-.133.15-.133.08-.031.184-.047.259-.005.019.009.036.03.03.05v.02h.003z"/></symbol>
+<symbol id="i-apple" viewBox="0 0 24 24"><path fill="currentColor" d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701"/></symbol>
+<symbol id="i-windows" viewBox="0 0 24 24"><path fill="currentColor" d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.9-1.801"/></symbol>
+<!-- drawn for this site -->
+<symbol id="i-down" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M12 3v13M6 10l6 6 6-6M5 21h14"/></symbol>
+<symbol id="i-check" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M20 6 9 17l-5-5"/></symbol>
+<symbol id="i-shield" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M12 3 4 6v6c0 4.4 3.4 8.2 8 9 4.6-.8 8-4.6 8-9V6l-8-3zM12 8v5M12 16.5v.5"/></symbol>
+</defs></svg>
 <canvas id="hexfield" aria-hidden="true"></canvas>
 <nav><div class="wrap">
   <a class="brand" href="#top"><img src="/img/icon.svg" alt="">Dalíca</a>
-  <ul><li><a href="#features">Features</a></li><li><a href="#screens">Screenshots</a></li><li><a href="#roadmap">Roadmap</a></li><li><a href="#bugs">Report a bug</a></li><li><a href="https://github.com/pkkid/dalica">GitHub</a></li><li><a href="#download">Download</a></li></ul>
+  <ul><li><a href="#features">Features</a></li><li><a href="#screens">Screenshots</a></li><li><a href="#agents">CLI</a></li><li><a href="#roadmap">Roadmap</a></li><li><a href="#bugs">Report a bug</a></li><li><a href="https://github.com/pkkid/dalica">GitHub</a></li><li><a href="#download">Download</a></li></ul>
 </div></nav>
 
 <header class="hero wrap" id="top">
@@ -40,18 +50,18 @@
 <path fill="none" stroke="#0b0b0c" stroke-width="8" stroke-linejoin="round" d="M315.2 256.0 L285.6 307.3 Q261.1 349.8 236.5 392.4 A137.76 137.76 0 0 0 364.4 341.1 Q339.8 298.5 315.2 256.0 Z"/><path fill="none" stroke="#0b0b0c" stroke-width="8" stroke-linejoin="round" d="M285.6 307.3 L226.4 307.3 Q177.3 307.3 128.1 307.3 A137.76 137.76 0 0 0 236.5 392.4 Q261.1 349.8 285.6 307.3 Z"/><path fill="none" stroke="#0b0b0c" stroke-width="8" stroke-linejoin="round" d="M226.4 307.3 L196.8 256.0 Q172.2 213.5 147.6 170.9 A137.76 137.76 0 0 0 128.1 307.3 Q177.3 307.3 226.4 307.3 Z"/><path fill="none" stroke="#0b0b0c" stroke-width="8" stroke-linejoin="round" d="M196.8 256.0 L226.4 204.7 Q250.9 162.2 275.5 119.6 A137.76 137.76 0 0 0 147.6 170.9 Q172.2 213.5 196.8 256.0 Z"/><path fill="none" stroke="#0b0b0c" stroke-width="8" stroke-linejoin="round" d="M226.4 204.7 L285.6 204.7 Q334.7 204.7 383.9 204.7 A137.76 137.76 0 0 0 275.5 119.6 Q250.9 162.2 226.4 204.7 Z"/><path fill="none" stroke="#0b0b0c" stroke-width="8" stroke-linejoin="round" d="M285.6 204.7 L315.2 256.0 Q339.8 298.5 364.4 341.1 A137.76 137.76 0 0 0 383.9 204.7 Q334.7 204.7 285.6 204.7 Z"/>
 </g>
 </svg>
-  <span class="label">Photo organizer · Preview 0.1</span>
+  <span class="label">Photo organizer · Preview<span data-v="short"></span></span>
   <h1>Every photo you own, on <em>one light table.</em></h1>
-  <p class="lede">Dalíca shows all the photos in the folders you already have, in one long scrolling view. Star, caption and tag them, find them again, and never lose an original. Native on Linux, Windows and macOS.</p>
+  <p class="lede">Dalíca shows all the photos in the folders you already have, in one long scrolling view. Star, caption and tag them, crop and fix them, and never lose an original. Native on Linux, Windows and macOS.</p>
   <div class="ctas">
-    <a class="btn primary" href="#download" id="dl-main">Download for Linux<small id="dl-sub">AppImage · x86_64 · 0.1.0</small></a>
+    <a class="btn primary" href="#download" id="dl-main">Download for Linux<small id="dl-sub">AppImage · x86_64</small></a>
     <a class="btn" href="https://github.com/pkkid/dalica">View on GitHub<small>MIT or Apache-2.0</small></a>
   </div>
   <p class="label platforms">Linux · Windows · macOS · no account · no telemetry</p>
   <div class="shot-hero">
-    <div class="frame"><img src="/img/tags.jpg" alt="Dalíca's library with the Tags pane open: three garden photos selected, their tags listed with partial counts" width="2000" height="1286"></div>
+    <div class="frame"><img src="/img/edit-view.jpg" alt="Dalíca's edit view: castle ruins on a sea cliff, the filmstrip of the folder above it, Basic Fixes on the left with Undo Auto Fix and the histogram with camera info below" width="2000" height="1286"></div>
   </div>
-  <div class="caption"><span class="label">The library and the Tags pane · three photos selected</span><span class="label">Captured in Dalíca</span></div>
+  <div class="caption"><span class="label">The edit view · Basic Fixes · after Auto Fix</span><span class="label">Captured in Dalíca</span></div>
 </header>
 
 
@@ -59,23 +69,23 @@
   <div class="head" data-hex="left"><div><span class="label">Measured, not promised</span><h2>Fast where it counts.</h2></div><span class="label">From the project's own benchmarks</span></div>
   <div class="stats">
     <div class="stat-cell rise"><div class="big-num"><span class="count" data-to="100000" data-sep="1">100,000</span></div><h3>photos scroll smoothly</h3><p>0.26 ms per frame (p95), budget 8 ms</p></div>
-    <div class="stat-cell rise"><div class="big-num"><span class="count" data-to="0.5" data-dec="1">0.5</span><small>s</small></div><h3>to the first screen of thumbnails</h3><p>for a new folder of 10,000 JPEGs</p></div>
-    <div class="stat-cell rise"><div class="big-num"><span class="count" data-to="1800" data-sep="1">1,800</span><small>+</small></div><h3>automated tests</h3><p>run on Linux, Windows and macOS for every change</p></div>
-    <div class="stat-cell rise"><div class="big-num"><span class="count" data-to="98">98</span></div><h3>commands, all scriptable</h3><p>from the window, the keyboard or the command line</p></div>
+    <div class="stat-cell rise"><div class="big-num"><span class="count" data-to="77">77</span><small>ms</small></div><h3>to open a 24 MP photo for editing</h3><p>release build, budget 150 ms</p></div>
+    <div class="stat-cell rise"><div class="big-num"><span class="count" data-to="2200" data-sep="1">2,200</span><small>+</small></div><h3>automated tests</h3><p>run on Linux, Windows and macOS for every change</p></div>
+    <div class="stat-cell rise"><div class="big-num"><span class="count" data-to="132">132</span></div><h3>commands, all scriptable</h3><p>from the window, the keyboard or the command line</p></div>
   </div>
 </section>
 
 <section class="wrap" id="features">
-  <div class="head" data-hex="right"><div><span class="label">What it does today</span><h2>Light organizing for heavy collections.</h2></div><span class="label">Preview 0.1</span></div>
+  <div class="head" data-hex="right"><div><span class="label">What it does today</span><h2>Light organizing for heavy collections.</h2></div><span class="label">Preview<span data-v="short"></span></span></div>
   <div class="grid">
-    <div class="feat"><span class="stat">no import step</span><h3>Your folders are the library</h3><p>Point Dalíca at the folders you already have. Nothing is copied into a catalog; renaming or moving in Dalíca does the same on disk.</p></div>
-    <div class="feat"><span class="stat">100 000 photos · smooth</span><h3>Fast at any size</h3><p>Thumbnails appear as fast as your disk allows, and a library of a hundred thousand photos scrolls without a stutter.</p></div>
+    <div class="feat"><span class="stat">no import step</span><h3>Your folders are the library</h3><p>Point Dalíca at the folders you already have. Nothing is copied into a catalog, and a hundred thousand photos scroll without a stutter.</p></div>
+    <div class="feat"><span class="stat">crop · straighten · retouch</span><h3>Fix a photo in a click</h3><p>Auto Fix, Auto Contrast, Auto Color and Fill Light, three suggested crops, a horizon you can level and a brush for dust and blemishes.</p></div>
+    <div class="feat"><span class="stat">fill light · shadows · temperature</span><h3>Tune the light and colour</h3><p>Highlights, Shadows and Color Temperature, a picker that removes a colour cast, and two wands that set it all for you.</p></div>
+    <div class="feat"><span class="stat">undo · even after a restart</span><h3>Every edit can be taken back</h3><p>Each photo keeps its own Undo and Redo. Edits are stored beside the photo and shown on every thumbnail; the original file is never changed.</p></div>
     <div class="feat"><span class="stat">XMP · IPTC</span><h3>Stars, captions and tags that travel</h3><p>What you add is written into the photo's own metadata, so other apps see it too. Other programs' fields are kept as they were.</p></div>
-    <div class="feat"><span class="stat">.dalica-originals/</span><h3>Originals stay untouched</h3><p>Pixels change only when you press Save, and the original is kept beside it, ready to restore.</p></div>
-    <div class="feat"><span class="stat">JPEG · HEIC · JXL · RAW</span><h3>Reads what you have</h3><p>JPEG, PNG, TIFF, WebP, GIF, BMP, JPEG XL, PSD, HEIC and the previews of 13 raw formats, colour-managed.</p></div>
-    <div class="feat"><span class="stat">0 network calls</span><h3>Private by default</h3><p>No account, no telemetry, no cloud. Dalíca goes online only when you ask it to, and face data never leaves your machine.</p></div>
+    <div class="feat"><span class="stat">JPEG · JXL · PSD · RAW</span><h3>Reads what you have, privately</h3><p>JPEG, PNG, TIFF, WebP, JPEG XL, PSD and the previews of 13 raw formats, colour-managed. No account, no telemetry, no cloud.</p></div>
   </div>
-  <div class="next"><span class="label">Coming next</span><span class="chip">One-click Auto Fix</span><span class="chip">Tuning and effects</span><span class="chip">Export</span><span class="chip">Albums and search</span><span class="chip">Slideshow and collage</span><span class="chip">People and places</span></div>
+  <div class="next"><span class="label">Coming next</span><span class="chip">Save and export</span><span class="chip">Albums and search</span><span class="chip">MCP for AI agents</span><span class="chip">Import and slideshow</span><span class="chip">Effects</span><span class="chip">People and places</span></div>
 </section>
 
 <section class="wrap" id="files">
@@ -83,10 +93,10 @@
   <div class="story">
     <div class="rise">
       <h3>Everything lives next to your photos.</h3>
-      <p>Dalíca never copies your photos into a library of its own. What you add goes into one small, readable file per folder, and into the photos' own metadata.</p>
-      <ul><li>Move a folder to another disk and its stars and tags go with it.</li><li>The index Dalíca keeps for speed is a cache. Delete it and Dalíca rebuilds it from your folders.</li><li>Originals are only ever moved aside when you Save an edit, never overwritten.</li></ul>
+      <p>Dalíca never copies your photos into a library of its own. What you add, edits included, goes into one small, readable file per folder, and into the photos' own metadata.</p>
+      <ul><li>Move a folder to another disk and its stars, tags and edits go with it.</li><li>The index Dalíca keeps for speed is a cache. Delete it and Dalíca rebuilds it from your folders.</li><li>Originals are only ever moved aside when you Save an edit, never overwritten.</li></ul>
     </div>
-    <div class="panel rise"><div class="panel-bar"><i></i><i></i><i></i><span>~/Pictures</span></div><div class="tree"><div class="row"><span class="name dim">Pictures/</span><span class="what"></span></div><div class="row"><span class="name ">└─ Highlands and Coast/</span><span class="what">a folder you already had</span></div><div class="row"><span class="name ">   ├─ minolta_z1.jpg</span><span class="what">your photo; pixels untouched</span></div><div class="row"><span class="name dim">   ├─ pixel3_o6.jpg</span><span class="what"></span></div><div class="row"><span class="name ">   ├─ <b>.dalica.json</b></span><span class="what">stars, captions, tags as JSON</span></div><div class="row"><span class="name ">   └─ <b>.dalica-originals/</b></span><span class="what">appears only when you Save an edit</span></div><div class="row"><span class="name ">      ├─ minolta_z1.jpg</span><span class="what">the original, byte for byte</span></div><div class="row"><span class="name ">      └─ .dalica.json</span><span class="what">the edit, so it can be undone</span></div></div></div>
+    <div class="panel rise"><div class="panel-bar"><i></i><i></i><i></i><span>~/Pictures</span></div><div class="tree"><div class="row"><span class="name dim">Pictures/</span><span class="what"></span></div><div class="row"><span class="name ">└─ Highlands and Coast/</span><span class="what">a folder you already had</span></div><div class="row"><span class="name ">   ├─ minolta_z1.jpg</span><span class="what">your photo; pixels untouched</span></div><div class="row"><span class="name dim">   ├─ pixel3_o6.jpg</span><span class="what"></span></div><div class="row"><span class="name ">   ├─ <b>.dalica.json</b></span><span class="what">stars, captions, tags and edits</span></div><div class="row"><span class="name ">   └─ <b>.dalica-originals/</b></span><span class="what">appears only when you Save an edit</span></div><div class="row"><span class="name ">      ├─ minolta_z1.jpg</span><span class="what">the original, byte for byte</span></div><div class="row"><span class="name ">      └─ .dalica.json</span><span class="what">the edit, so it can be undone</span></div></div></div>
   </div>
 </section>
 
@@ -116,76 +126,138 @@
 <section class="wrap" id="screens">
   <div class="head"><div><span class="label">Screenshots</span><h2>Quiet chrome, loud photos.</h2></div><span class="label">Real captures · CC0 photos</span></div>
   <div class="shots" data-hex="left">
+    <div class="shot"><div class="txt"><span class="label">Crop</span><h3>Three crops to start from</h3><p>Pick a shape, from the photo's own to 4 × 6 prints or a ratio of your own, and Dalíca suggests three crops. Click one, or drag the rectangle where you want it.</p></div><div class="frame"><img src="/img/crop-crop.jpg" alt="Close-up: the Crop Photo panel with the 16:9 shape chosen and three suggested crops of a mountain summit, and the crop rectangle drawn on the photo with the rest dimmed" width="1500" height="765" loading="lazy"></div></div>
+    <div class="shot"><div class="txt"><span class="label">Tuning</span><h3>Light and colour, by hand or by wand</h3><p>Fill Light, Highlights, Shadows and Color Temperature on one tab. The wands set the light or the colour for you; Reset puts every slider back.</p></div><div class="frame"><img src="/img/crop-tuning.jpg" alt="Close-up: the Tuning tab with Fill Light, Highlights, Shadows and Color Temperature sliders, the Neutral Color Picker and two wand buttons, beside a photo of purple flowers in front of a white house" width="1500" height="645" loading="lazy"></div></div>
+    <div class="shot"><div class="txt"><span class="label">Edited thumbnails</span><h3>See what you changed at a glance</h3><p>Edited photos show their edits everywhere, in the light table, the tray and the filmstrip, with a small pencil badge. Undo any of it, any time.</p></div><div class="frame"><img src="/img/crop-edited.jpg" alt="Close-up: the Highlands and Coast folder with its date, place and description, and five landscape thumbnails; two carry a pencil badge for an edit and two a star" width="1500" height="475" loading="lazy"></div></div>
     <div class="shot"><div class="txt"><span class="label">Tags pane</span><h3>Tag a whole afternoon at once</h3><p>Select a run of photos and type. Partial counts show which tags only some of them have, and quick tags put your favourites one key away.</p></div><div class="frame"><img src="/img/crop-tags.jpg" alt="Close-up: three selected garden photos and the Tags pane showing favourites (1 of 3), flowers, garden and macro (1 of 3), with quick tag buttons below" width="2296" height="767" loading="lazy"></div></div>
-    <div class="shot"><div class="txt"><span class="label">Properties</span><h3>Everything the camera wrote down</h3><p>Camera, lens, exposure, dates and colour space for any photo, with the full metadata a click away.</p></div><div class="frame"><img src="/img/crop-props.jpg" alt="Close-up: a photo of castle ruins selected, and the Properties pane listing its size, dates, camera, exposure, aperture, ISO and focal length" width="1500" height="1130" loading="lazy"></div></div>
-    <div class="shot"><div class="txt"><span class="label">Tags under thumbnails</span><h3>See your folders the way you filed them</h3><p>Folders keep their own dates, places and descriptions. Show captions, tags, dates or file names under every thumbnail.</p></div><div class="frame"><img src="/img/crop-tree.jpg" alt="Close-up: the Old Churches folder header with its date and description, and the tag history shown under each thumbnail" width="1631" height="540" loading="lazy"></div></div>
   </div>
 </section>
 
 <section class="wrap" id="agents">
-  <div class="head" data-hex="right"><div><span class="label">For scripts and AI agents</span><h2>Everything is a command.</h2></div><span class="label">dalica-cli</span></div>
+  <div class="head" data-hex="right"><div><span class="label">For scripts and AI agents</span><h2>Everything is a command.</h2></div><span class="label">dalica-cli · control channel</span></div>
   <div class="story flip">
     <div class="rise">
       <h3>The window and the command line share one engine.</h3>
-      <p>Every action in Dalíca is a named command (98 of them today). Clicking, pressing a key and running <code>dalica-cli</code> all go through the same code, so whatever you can do by hand, a script can do too.</p>
-      <ul><li><code>commands</code> lists every command and its parameters as JSON.</li><li><code>run</code> executes them against a library and answers in JSON.</li><li><code>snapshot</code> renders the real window to a PNG without a display.</li><li>An MCP server for AI agents arrives with version 0.2.</li></ul>
+      <p>Every action in Dalíca is a named command, 132 of them today. Clicking, pressing a key and running <code>dalica-cli</code> all go through the same code, so whatever you can do by hand, a script can do too, edits included.</p>
+      <ul class="cli-list">
+        <li><code>commands</code> lists every command and its parameters as JSON.</li>
+        <li><code>run</code> executes one command, or a JSON-lines script from a file or stdin, and answers in JSON.</li>
+        <li><code>inspect</code> prints the library: folders, photos, stars.</li>
+        <li><code>snapshot</code> renders the real window to a PNG, with no display or GPU.</li>
+        <li><code>dalica --control</code> lets a script drive the open window over a local, token-protected socket.</li>
+        <li>New in 0.2: <code>photo.crop.apply</code>, <code>photo.straighten.apply</code>, <code>photo.history.*</code>, <code>edit.zoom.*</code> and more. An MCP server for AI agents follows in 0.5.</li>
+      </ul>
+      <p class="fine">Try it on the built-in demo library of generated photos; your own library is never touched. <a href="https://github.com/pkkid/dalica/blob/main/docs/control-protocol.md">The control protocol →</a></p>
     </div>
-    <div class="panel rise"><div class="panel-bar"><i></i><i></i><i></i><span>terminal</span></div>
-<pre class="code"><span class="p">$</span> dalica-cli commands | jq length
-98
-<span class="p">$</span> dalica-cli run --demo --cmd photo.star.set \
-    --params '{"ids": [3], "on": true}'
-{"command":"photo.star.set","ok":true,
- "result":{"ids":[3],"on":true}}
-<span class="p">$</span> dalica-cli snapshot --demo -o library.png --size 1400x900</pre></div>
+    <div class="panel rise"><div class="panel-bar"><i></i><i></i><i></i><span>terminal · dalica-cli</span></div>
+<pre class="code"><span class="p">$</span> dalica-cli inspect --demo | jq .photos
+60
+<span class="p">$</span> dalica-cli run --demo - &lt;&lt;'EOF'
+{"command":"photo.crop.apply","params":{"id":3,"rect":[0.1,0.1,0.8,0.8]}}
+{"command":"photo.straighten.apply","params":{"id":3,"degrees":2}}
+{"command":"photo.history.undo","params":{"id":3}}
+EOF
+<span class="c">{"command":"photo.crop.apply","ok":true,"result":{…"Undo Crop"}}</span>
+<span class="c">{"command":"photo.straighten.apply","ok":true,…}</span>
+<span class="c">{"command":"photo.history.undo","ok":true,</span>
+<span class="c"> "result":{"id":3,"undone":"Straighten"}}</span>
+<span class="p">$</span> echo '{"command":"view.edit","params":{"id":3}}' &gt; edit.jsonl
+<span class="p">$</span> dalica-cli snapshot --demo --script edit.jsonl -o edit.png</pre></div>
   </div>
 </section>
 
 <section class="wrap" id="roadmap">
-  <div class="head" data-hex="left"><div><span class="label">Where we are</span><h2>The road to 1.0.</h2></div><a class="label" href="https://github.com/pkkid/dalica/blob/main/docs/roadmap.md">The full roadmap →</a></div>
-  <ol class="timeline">
-    <li class="done"><span class="dot"></span><div><h4>Foundations</h4><p>Done</p></div></li>
-    <li class="done"><span class="dot"></span><div><h4>The window</h4><p>Done</p></div></li>
-    <li class="done"><span class="dot"></span><div><h4>Library browsing</h4><p>Done</p></div></li>
-    <li class="done"><span class="dot"></span><div><h4>Folders and formats</h4><p>Done</p></div></li>
-    <li class="now release"><span class="dot"></span><div><h4>Photo info and metadata</h4><p>Now · Release 0.1</p></div></li>
-    <li class="todo"><span class="dot"></span><div><h4>Editing and one-click fixes</h4><p>Next</p></div></li>
-    <li class="todo"><span class="dot"></span><div><h4>Save and export</h4><p>Planned</p></div></li>
-    <li class="todo"><span class="dot"></span><div><h4>Albums and search</h4><p>Planned</p></div></li>
-    <li class="todo release"><span class="dot"></span><div><h4>Preferences and MCP</h4><p>Release 0.2</p></div></li>
-    <li class="todo release"><span class="dot"></span><div><h4>Effects, people, places, video</h4><p>Toward 1.0</p></div></li>
+  <div class="head" data-hex="left"><div><span class="label">A release with every milestone</span><h2>The road to 1.0.</h2></div><a class="label" href="https://github.com/pkkid/dalica/blob/main/docs/roadmap.md">The full roadmap →</a></div>
+  <ol class="releases">
+    <li class="done"><span class="ver">0.1</span><span class="state">Shipped</span><h4>Photo info and metadata</h4><p>Browse, star, rotate, hide and re-date; captions, Properties, tags written into files; installable on all three systems.</p></li>
+    <li class="done"><span class="ver">0.2</span><span class="state">Shipped</span><h4>Edit view and fixes</h4><p>The edit view, Basic Fixes, Tuning and Retouch; each photo's own undo; thumbnails show edits.</p></li>
+    <li class="soon"><span class="ver">0.3</span><span class="state">Next</span><h4>Save and export</h4><p>Save, Undo Save, Revert, Save a Copy and Save As; export.</p></li>
+    <li><span class="ver">0.4</span><span class="state">Planned</span><h4>Albums, search and file operations</h4><p>Lasting albums, instant search and filters; move, copy, rename and delete.</p></li>
+    <li><span class="ver">0.5</span><span class="state">Planned</span><h4>Preferences, MCP and the core workflows</h4><p>Options and a shortcut editor, an MCP server for AI agents, every core workflow shipped.</p></li>
+    <li><span class="ver">0.6</span><span class="state">Planned</span><h4>Import, compare and viewing</h4><p>Import from cards and drives, compare and batch edit, slideshow, the viewer.</p></li>
+    <li><span class="ver">0.7</span><span class="state">Planned</span><h4>Effects</h4><p>Effect tiles, parameter panels and all 27 effects.</p></li>
+    <li><span class="ver">0.8</span><span class="state">Planned</span><h4>People and places</h4><p>Faces found on your own machine, the People pane, the Places pane and geotagging.</p></li>
+    <li><span class="ver">0.9</span><span class="state">Planned</span><h4>Collage and older data</h4><p>The collage room; reading the data an older organizer left in your folders.</p></li>
+    <li class="final"><span class="ver">1.0</span><span class="state">Planned</span><h4>The honest 1.0</h4><p>Video, localisation, OS integration and signed packages.</p></li>
   </ol>
 </section>
 
 <section class="wrap" id="download">
-  <div class="head" data-hex="right"><div><span class="label">Download · version 0.1.0</span><h2>Get Dalíca.</h2></div><a class="label" href="https://github.com/pkkid/dalica/releases">All releases and checksums →</a></div>
+  <div class="head" data-hex="right"><div><span class="label">Download · version <span data-v="full">latest</span></span><h2>Get Dalíca.</h2></div><a class="label" id="dl-notes" href="https://github.com/pkkid/dalica/releases/latest">Release notes on GitHub →</a></div>
   <div class="dl">
-    <div class="os" data-os="linux"><h3>Linux <span class="label">Your system</span></h3><ul>
-      <li><a href="https://github.com/pkkid/dalica/releases"><span>AppImage</span><span>x86_64</span></a></li>
-      <li><a href="https://github.com/pkkid/dalica/releases"><span>Flatpak</span><span>x86_64</span></a></li>
-      <li><a href="https://github.com/pkkid/dalica/releases"><span>Debian / Ubuntu (.deb)</span><span>x86_64</span></a></li>
-      <li><a href="https://github.com/pkkid/dalica/releases"><span>Fedora / openSUSE (.rpm)</span><span>x86_64</span></a></li>
-      <li><a href="https://github.com/pkkid/dalica/releases"><span>Tarball</span><span>.tar.gz</span></a></li></ul></div>
-    <div class="os" data-os="win"><h3>Windows <span class="label">Your system</span></h3><ul>
-      <li><a href="https://github.com/pkkid/dalica/releases"><span>Installer (.msi)</span><span>x64</span></a></li>
-      <li><a href="https://github.com/pkkid/dalica/releases"><span>Portable (.zip)</span><span>x64</span></a></li></ul></div>
-    <div class="os" data-os="mac"><h3>macOS <span class="label">Your system</span></h3><ul>
-      <li><a href="https://github.com/pkkid/dalica/releases"><span>Disk image (.dmg)</span><span>Universal</span></a></li>
-      <li><a href="https://github.com/pkkid/dalica/releases"><span>Command-line tool</span><span>.zip</span></a></li></ul></div>
+    <article class="os" data-os="linux">
+      <div class="os-head"><span class="os-icon"><svg aria-hidden="true"><use href="#i-linux"/></svg></span><div><h3>Linux</h3><p>x86_64 and ARM64</p></div><span class="label mine-tag">Your system</span></div>
+      <a class="get" data-file="dalica-{v}-linux-x86_64.AppImage" href="https://github.com/pkkid/dalica/releases/latest"><svg aria-hidden="true"><use href="#i-down"/></svg><span><b>AppImage</b><small>Runs on most distributions and updates itself.</small><code class="fname">linux-x86_64.AppImage</code></span><span class="size"></span></a>
+      <ul class="files">
+        <li><a data-file="dalica-{v}-linux-x86_64.flatpak" href="https://github.com/pkkid/dalica/releases/latest"><span><b>Flatpak</b><small>Sandboxed: sees your Pictures folder, no network.</small><code class="fname">linux-x86_64.flatpak</code></span><span class="size"></span></a></li>
+        <li><a data-file="dalica-{v}-linux-x86_64.deb" href="https://github.com/pkkid/dalica/releases/latest"><span><b>Debian package</b><small>Debian, Ubuntu and derivatives.</small><code class="fname">linux-x86_64.deb</code></span><span class="size"></span></a></li>
+        <li><a data-file="dalica-{v}-linux-x86_64.rpm" href="https://github.com/pkkid/dalica/releases/latest"><span><b>RPM package</b><small>Fedora, openSUSE and RHEL.</small><code class="fname">linux-x86_64.rpm</code></span><span class="size"></span></a></li>
+        <li><a data-file="dalica-{v}-linux-x86_64.tar.gz" href="https://github.com/pkkid/dalica/releases/latest"><span><b>Tarball</b><small>bin/ and share/, to unpack into /opt or ~/.local.</small><code class="fname">linux-x86_64.tar.gz</code></span><span class="size"></span></a></li>
+      </ul>
+      <details class="arm"><summary>ARM64 (aarch64) builds</summary><ul class="files">
+        <li><a data-file="dalica-{v}-linux-aarch64.AppImage" href="https://github.com/pkkid/dalica/releases/latest"><span><b>AppImage</b><small>Runs on most distributions and updates itself.</small><code class="fname">linux-aarch64.AppImage</code></span><span class="size"></span></a></li>
+        <li><a data-file="dalica-{v}-linux-aarch64.flatpak" href="https://github.com/pkkid/dalica/releases/latest"><span><b>Flatpak</b><small>Sandboxed: sees your Pictures folder, no network.</small><code class="fname">linux-aarch64.flatpak</code></span><span class="size"></span></a></li>
+        <li><a data-file="dalica-{v}-linux-aarch64.deb" href="https://github.com/pkkid/dalica/releases/latest"><span><b>Debian package</b><small>Debian, Ubuntu and derivatives.</small><code class="fname">linux-aarch64.deb</code></span><span class="size"></span></a></li>
+        <li><a data-file="dalica-{v}-linux-aarch64.rpm" href="https://github.com/pkkid/dalica/releases/latest"><span><b>RPM package</b><small>Fedora, openSUSE and RHEL.</small><code class="fname">linux-aarch64.rpm</code></span><span class="size"></span></a></li>
+        <li><a data-file="dalica-{v}-linux-aarch64.tar.gz" href="https://github.com/pkkid/dalica/releases/latest"><span><b>Tarball</b><small>bin/ and share/, to unpack into /opt or ~/.local.</small><code class="fname">linux-aarch64.tar.gz</code></span><span class="size"></span></a></li>
+      </ul></details>
+    </article>
+    <article class="os" data-os="win">
+      <div class="os-head"><span class="os-icon"><svg aria-hidden="true"><use href="#i-windows"/></svg></span><div><h3>Windows</h3><p>64-bit (x64)</p></div><span class="label mine-tag">Your system</span></div>
+      <a class="get" data-file="dalica-{v}-windows-x64.msi" href="https://github.com/pkkid/dalica/releases/latest"><svg aria-hidden="true"><use href="#i-down"/></svg><span><b>MSI installer</b><small>Adds a Start Menu shortcut and Open With for photos.</small><code class="fname">windows-x64.msi</code></span><span class="size"></span></a>
+      <ul class="files">
+        <li><a data-file="dalica-{v}-windows-x64-portable.zip" href="https://github.com/pkkid/dalica/releases/latest"><span><b>Portable zip</b><small>No install; keeps its library and log beside dalica.exe.</small><code class="fname">windows-x64-portable.zip</code></span><span class="size"></span></a></li>
+      </ul>
+    </article>
+    <article class="os" data-os="mac">
+      <div class="os-head"><span class="os-icon"><svg aria-hidden="true"><use href="#i-apple"/></svg></span><div><h3>macOS</h3><p>macOS 11+ · Apple silicon and Intel</p></div><span class="label mine-tag">Your system</span></div>
+      <a class="get" data-file="dalica-{v}-macos-universal.dmg" href="https://github.com/pkkid/dalica/releases/latest"><svg aria-hidden="true"><use href="#i-down"/></svg><span><b>Disk image</b><small>Drag Dalica.app to Applications. Universal.</small><code class="fname">macos-universal.dmg</code></span><span class="size"></span></a>
+      <ul class="files">
+        <li><a data-file="dalica-cli-{v}-macos-universal.zip" href="https://github.com/pkkid/dalica/releases/latest"><span><b>Command-line tool</b><small>dalica-cli for scripts and agents. Universal.</small><code class="fname">cli-macos-universal.zip</code></span><span class="size"></span></a></li>
+      </ul>
+    </article>
   </div>
-  <p class="fine">Prefer to build it? Install Rust, then <code>git clone https://github.com/pkkid/dalica && cargo run --release -p dalica</code>. Dalíca also has a command-line tool, <code>dalica-cli</code>, for scripts and AI agents.</p>
+  <div class="dl-notes">
+    <p><svg aria-hidden="true"><use href="#i-check"/></svg><span>Every file is listed with its SHA-256 in <a data-file="SHA256SUMS.txt" href="https://github.com/pkkid/dalica/releases/latest"><code>SHA256SUMS.txt</code></a>. Check yours with <code>sha256sum -c SHA256SUMS.txt --ignore-missing</code>.</span></p>
+    <p><svg aria-hidden="true"><use href="#i-shield"/></svg><span>Builds are not signed with a developer certificate until 1.0, so Windows and macOS warn you before the first start. On macOS, allow it in System Settings ▸ Privacy &amp; Security.</span></p>
+  </div>
 
-  <div class="bugs" id="bugs" data-hex="left"><div><span class="label">Found something broken?</span><h2>Report a bug.</h2><p>Bugs and ideas go on GitHub. Say what you did, what happened and which version you run. Please never attach personal photos.</p></div><a class="btn primary" href="https://github.com/pkkid/dalica/issues/new/choose">Open an issue<small>github.com/pkkid/dalica</small></a></div>
+  <div class="build" id="build">
+    <div class="rise">
+      <span class="label">Prefer to build it?</span>
+      <h3>Build from source.</h3>
+      <p>Dalíca is pure Rust: no C or C++ libraries to install. You need the Rust toolchain; <code>rustup</code> reads <code>rust-toolchain.toml</code> and fetches Rust 1.98 for you.</p>
+      <dl class="prereq">
+        <dt><svg aria-hidden="true"><use href="#i-linux"/></svg>Linux</dt><dd>Rust from <a href="https://rustup.rs">rustup.rs</a>. To run it, a Wayland or X11 desktop, xkbcommon and a Vulkan driver; most desktops have them (Debian and Ubuntu: <code>libxkbcommon-x11-0 libvulkan1 mesa-vulkan-drivers</code>).</dd>
+        <dt><svg aria-hidden="true"><use href="#i-windows"/></svg>Windows</dt><dd>Rust from rustup with the MSVC toolchain, and the Visual Studio Build Tools (Desktop development with C++) for the linker.</dd>
+        <dt><svg aria-hidden="true"><use href="#i-apple"/></svg>macOS</dt><dd>Rust from rustup and the Xcode Command Line Tools (<code>xcode-select --install</code>).</dd>
+      </dl>
+      <p class="fine">More in <a href="https://github.com/pkkid/dalica/blob/main/docs/development.md">docs/development.md</a>, including how the gates and tests work.</p>
+    </div>
+    <div class="panel rise"><div class="panel-bar"><i></i><i></i><i></i><span>terminal</span></div>
+<pre class="code"><span class="p">$</span> git clone https://github.com/pkkid/dalica
+<span class="p">$</span> cd dalica
+<span class="c"># the app, on a demo library of generated photos</span>
+<span class="p">$</span> cargo run --release -p dalica -- --demo
+<span class="c"># the app on your own folders, with HEIC photos shown</span>
+<span class="p">$</span> cargo run --release -p dalica --features heif
+<span class="c"># the command-line tool: target/release/dalica-cli</span>
+<span class="p">$</span> cargo build --release -p dalica-cli
+<span class="c"># contributors: every gate, before each commit</span>
+<span class="p">$</span> cargo xtask ci</pre></div>
+  </div>
+
+  <div class="bugs" id="bugs" data-hex="left"><div><span class="label">Found something broken?</span><h2>Report a bug.</h2><p>Bugs and ideas go on GitHub. Say what you did, what happened and which version you run (Help ▸ About Dalíca). Please never attach personal photos.</p></div><a class="btn primary" href="https://github.com/pkkid/dalica/issues/new/choose">Open an issue<small>github.com/pkkid/dalica</small></a></div>
 </section>
 
 <footer class="wrap">
   <div class="foot">
-    <div><a class="brand" href="#top"><img src="/img/icon.svg" alt="">Dalíca</a><p>A photo organizer for the folders you already have. Written in Rust, native on Linux, Windows and macOS.</p></div>
-    <div><h4>Get it</h4><ul><li><a href="#download">Download</a></li><li><a href="https://github.com/pkkid/dalica/releases">All releases</a></li><li><a href="https://github.com/pkkid/dalica">Build from source</a></li></ul></div>
+    <div><a class="brand" href="#top"><img src="/img/icon.svg" alt="">Dalíca</a><p>A photo organizer with simple editing, for the folders you already have. Written in Rust, native on Linux, Windows and macOS.</p></div>
+    <div><h4>Get it</h4><ul><li><a href="#download">Download</a></li><li><a href="https://github.com/pkkid/dalica/releases">All releases</a></li><li><a href="#build">Build from source</a></li></ul></div>
     <div><h4>Project</h4><ul><li><a href="https://github.com/pkkid/dalica">Source code</a></li><li><a href="#roadmap">Roadmap</a></li><li><a href="https://github.com/pkkid/dalica/graphs/contributors">Contributors</a></li></ul></div>
     <div><h4>Help</h4><ul><li><a href="https://github.com/pkkid/dalica/issues/new/choose">Report a bug</a></li><li><a href="https://github.com/pkkid/dalica/blob/main/SECURITY.md">Security</a></li><li><a href="https://github.com/pkkid/dalica/blob/main/LICENSE-MIT">Licence: MIT or Apache-2.0</a></li></ul></div>
   </div>
-  <div class="legal"><span>Screenshots are real captures of Dalíca. Photos are CC0 or public domain.</span><span>dalica.pkarma.com</span></div>
+  <div class="legal"><span>Screenshots are real captures of Dalíca. Photos are CC0 or public domain. System logos from Simple Icons (CC0); they are trademarks of their owners.</span><span>dalica.pkarma.com</span></div>
 </footer>
 
 <div class="lightbox" id="lightbox" hidden><button type="button" id="lb-close">Close · Esc</button><img alt=""></div>

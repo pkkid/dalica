@@ -8,10 +8,10 @@ third-party requests; Cloudflare serves the files in `public/` as they are.
 |---|---|
 | `public/index.html` | the page |
 | `public/style.css` | all styles, including the self-hosted `@font-face` rules |
-| `public/main.js` | the download button that picks the visitor's system, the animated hex grid behind the page, the count-up numbers, the scroll reveals and the click-to-enlarge screenshots |
+| `public/main.js` | the release on offer (`RELEASE`: version and file sizes) and the download links built from it, the download button that picks the visitor's system, the animated hex grid behind the page, the count-up numbers, the scroll reveals and the click-to-enlarge screenshots |
 | `public/404.html` | the not-found page |
 | `public/_headers` | security headers (a strict Content-Security-Policy: everything is served from this site) and cache lifetimes |
-| `public/img/` | screenshots of Dalica, the link-preview image `og.png`, the app icon and one photo |
+| `public/img/` | screenshots of Dalica, the link-preview image `og.png`, the app icon, one photo, and the CC0 licence of the system logos inlined in the page |
 | `public/fonts/` | Schibsted Grotesk and IBM Plex Mono, with their OFL licence texts |
 | `wrangler.jsonc` | the Cloudflare configuration: a Worker with static assets only |
 
@@ -53,13 +53,45 @@ download links point at GitHub Releases, which keep the files and their checksum
 - Name only Dalica's own features. The rules on naming other software are in `AGENTS.md`.
 - The numbers in "Fast where it counts" come from the project's measurements (`docs/status.md`,
   `docs/roadmap.md` → Where we stand) and the command registry (`dalica-cli commands`). Update them
-  when those change, and update the roadmap timeline when a milestone closes.
-- The version (`0.1.0`) appears in the hero button and the download section.
+  when those change.
+- The road to 1.0 lists every release with the roadmap's own words (`docs/roadmap.md` →
+  Overview). When a release ships, move its card from "Next" to "Shipped" (`class="done"`) and
+  mark the following one `class="soon"`.
+- The Linux, Apple and Windows logos are Simple Icons path data (CC0), inlined as `<symbol>`s at
+  the top of `index.html`; the download arrow and the note icons are drawn for this page.
+
+## Releasing a new version
+
+Every milestone ends in a release (`docs/roadmap.md` → How milestones work), and the page offers
+exactly one. The version lives in one place, `RELEASE` at the top of the download code in
+`public/main.js`; the links and labels in the HTML hold no copy of it. Each download link names its file with `{v}` for the
+version (`data-file="dalica-{v}-windows-x64.msi"`), and the script fills in the address, the file
+name, the size and every "Preview 0.x" label. Without JavaScript, the links open the latest
+release's page on GitHub instead.
+
+1. Once the release is published on GitHub, print its sizes (for 0.3.0):
+
+   ```sh
+   gh release view v0.3.0 -R pkkid/dalica --json assets \
+     --jq '[.assets[] | {key: (.name | sub("0\\.3\\.0"; "{v}")), value: .size}] | from_entries'
+   ```
+
+2. In `RELEASE`, set `version: "0.3.0"` and replace `sizes` with that output.
+3. If the release added, renamed or dropped a file, change its row in the download section.
+4. Check every link: serve the page, or run
+   `for f in $(grep -o 'data-file="[^"]*"' public/index.html | cut -d'"' -f2 | sed 's/{v}/0.3.0/'); do curl -sIL -o /dev/null -w "%{http_code} $f\n" https://github.com/pkkid/dalica/releases/download/v0.3.0/$f; done`
+   (every line should say 200).
+5. Update the road to 1.0, the feature grid and "Coming next" if the release changed them, and
+   the numbers from the review's *Where we stand*.
 
 ## Images
 
-Screenshots are real captures of Dalica, taken headlessly with `dalica-cli snapshot` at 2× scale
-and cropped. The photos inside them, and `img/castle.jpg`, come from the `photos` set of the
+Screenshots are real captures of Dalica, taken headlessly with `dalica-cli snapshot --size
+2800x1800 --scale 2` and cropped. For the 0.2 shots, a library was built with `dalica-cli run`
+from copies of corpus photos in four folders (`folders.add`, `folder.info.set`,
+`photo.tags.add`, `photo.star.set`, a crop, a straighten, a tuning and Auto Fix), then shown with
+script steps such as `{"command": "view.edit", "params": {"id": 3}}` and
+`{"command": "edit.tool.open", "params": {"tool": "crop"}}`. The photos inside them, and `img/castle.jpg`, come from the `photos` set of the
 project's own corpus ([pkkid/dalica-corpus](https://github.com/pkkid/dalica-corpus) at
 `6239cad`), where every file is CC0 or public domain with its source listed in `SOURCES.tsv`.
 Never use personal photos. Images, like the fonts, have rows in `ATTRIBUTION.md`.
