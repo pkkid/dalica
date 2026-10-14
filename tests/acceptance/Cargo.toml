@@ -17,9 +17,11 @@ serde_json.workspace = true
 
 [dev-dependencies]
 dalica-core.workspace = true
+# Save run straight through `create` with a planted crash (`faults`), as a killed Save leaves the disk (M8).
+dalica-create = { workspace = true, features = ["faults"] }
 dalica-edit.workspace = true
 dalica-engine.workspace = true
-dalica-fs.workspace = true
+dalica-fs = { workspace = true, features = ["faults"] }
 dalica-image.workspace = true
 dalica-meta.workspace = true
 dalica-scan.workspace = true
@@ -68,3 +70,7 @@ path = "m6.rs"
 [[test]]
 name = "m7"
 path = "m7.rs"
+
+[[test]]
+name = "m8"
+path = "m8.rs"
