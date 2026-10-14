@@ -3200,9 +3200,9 @@ first measurement. No step of M8 needs a maintainer decision mid-run.
     edits, a Save, an Undo Save and a recipe change after a beside save; a folder with the mark
     outside `projects_dir` lists in Projects in flat mode and under its parent in tree mode;
     loading a record bumps no revision.
-- ⬜ **M8.2 `fs`: the originals backup and new files that never replace one**
+- ✅ **M8.2 `fs`: the originals backup and new files that never replace one**
   - after: M5.3, M7.R
-  - files: `crates/fs/src/originals.rs`, `crates/fs/src/create.rs`, `crates/fs/src/faults.rs`, `crates/fs/tests/originals.rs`, `crates/fs/tests/create.rs`, `docs/security.md`
+  - files: `crates/fs/src/originals.rs`, `crates/fs/src/create.rs`, `crates/fs/src/faults.rs`, `crates/fs/tests/originals.rs`, `crates/fs/tests/create.rs`, `crates/fs/src/dirfd.rs`, `crates/fs/README.md`, `docs/security.md`
   - scope: `security.md` §5.1–§5.6 and `data-model.md` §6: `originals.rs` opens or creates
     `<folder>/.dalica-originals/` through the held folder handle (M5.3) and refuses a link; moves a
     photo into it by rename after re-checking the photo's identity right before (§5.3); refuses
