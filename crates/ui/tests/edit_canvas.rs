@@ -146,6 +146,29 @@ fn the_photo_is_fitted_with_padding_never_above_100_percent() {
     }
 }
 
+/// `ui.settle` waits for the open photo's preview (`control-protocol.md` §6.12): right after the
+/// edit view opens the photo it lists the preview as busy, and once settled the final is shown and
+/// its time reported.
+#[test]
+fn settling_waits_for_the_open_photos_final_preview() {
+    let dir = tempfile::tempdir().unwrap();
+    let (s, ids) = session(dir.path());
+    let control = Control::new(Config::default());
+    let mut d = Driver::new(App::with_picker(Some(s), control.picker()), 1400, 900, 1.0);
+    d.settle(FRAMES).unwrap();
+    let mut t = T { _dir: dir, control, conn: Connection::new(), d, ids };
+    let photo = t.ids[2];
+    ok(&mut t, "engine.execute", json!({ "command": "view.edit", "params": { "id": photo } }));
+    // The frame that opened the photo asked for its preview; the answer is applied in a later one.
+    let busy = t.d.busy(false);
+    assert!(busy.iter().any(|b| b.starts_with("edit preview")), "{busy:?}");
+    let settled = ok(&mut t, "ui.settle", json!({ "timeoutMs": 60000 }));
+    assert_eq!(settled["settled"], true, "{settled}");
+    let shown = t.d.app().session().unwrap().preview().map(|p| (p.photo.get(), p.quality));
+    assert_eq!(shown, Some((photo, dalica_engine::Quality::Final)));
+    assert!(ok(&mut t, "ui.inspect", json!({}))["perf"]["previewFinalMs"].as_f64().is_some());
+}
+
 #[test]
 fn ctrl_equals_steps_about_the_pointer_and_snaps_to_100_percent() {
     let mut t = setup((1400, 900));

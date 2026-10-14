@@ -409,3 +409,27 @@ fn graceful_failures() {
         assert!(s.preview_failure().is_some());
     }
 }
+
+/// `ui.settle` waits for what the edit view shows next (`control-protocol.md` §6.12): the open
+/// photo's preview is busy from its first open until its final has arrived, and again while a
+/// tool's candidate renders; prefetching the neighbours is not.
+#[test]
+fn the_open_photos_preview_is_busy_until_its_final_arrives() {
+    let (_dir, _folder, mut s, ids) = setup(3);
+    assert_eq!(s.preview_busy(), 0, "nothing open");
+    s.open_preview(ids[0], (300, 300)).unwrap();
+    assert!(s.preview_busy() > 0, "the first open reads the photo");
+    assert!(s.wait_preview(WAIT));
+    assert_eq!(s.preview().map(|p| p.quality), Some(Quality::Final));
+    assert_eq!(s.preview_busy(), 0, "the final arrived");
+    s.prefetch_previews(&[ids[1], ids[2]]);
+    assert!(s.preview_pending() > 0, "the neighbours are prefetched");
+    assert_eq!(s.preview_busy(), 0, "prefetching is not what the edit view shows");
+    assert!(s.wait_preview(WAIT));
+    s.set_preview_candidate(Some(&strings(&["tuning(0.4,0,0,0,none)"]))).unwrap();
+    assert!(s.preview_busy() > 0, "a candidate renders");
+    assert!(s.wait_preview(WAIT));
+    assert_eq!(s.preview_busy(), 0);
+    s.close_preview();
+    assert_eq!(s.preview_busy(), 0);
+}
