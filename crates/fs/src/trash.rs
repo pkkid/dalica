@@ -190,6 +190,14 @@ fn comparable(path: &Path) -> String {
 }
 
 /// Restores `items` from one listing of the trash (Linux and the BSDs, Windows).
+///
+/// A listed item stands for one of `items` when its name is the item's name (on Windows the shell
+/// lists a display name, which leaves out the extension of a known file type while the system
+/// hides those, and ignores case) and its folder is the item's folder (compared as recorded, then
+/// resolved, so a short `RUNNER~1` name or another case still matches). Among those, the one with
+/// the item's identity wins; where none can be looked at, or on Windows where the shell may not
+/// say, the newest of the same size. It is restored under the item's own name, never the display
+/// name.
 #[cfg(any(windows, all(unix, not(target_vendor = "apple"), not(target_os = "android"))))]
 fn restore_listed(items: &[Trashed]) -> Result<Vec<Restore>> {
     use ::trash::TrashItem;
@@ -197,16 +205,26 @@ fn restore_listed(items: &[Trashed]) -> Result<Vec<Restore>> {
     let mut listed: Vec<TrashItem> = catch(::trash::os_limited::list).map_err(|e| io_err("list the trash", &first)(io::Error::other(e)))?;
     let mut out = Vec::with_capacity(items.len());
     for item in items {
-        let want = comparable(&item.original);
-        let same_path: Vec<usize> = listed.iter().enumerate().filter(|(_, t)| comparable(&t.original_path()) == want).map(|(i, _)| i).collect();
-        // The one with the item's identity; where no candidate can be looked at (a shell item
-        // without a file path), the newest of that path.
-        let ids: Vec<(usize, Option<Identity>)> = same_path.iter().map(|&i| (i, listed.get(i).and_then(platform::in_trash_identity))).collect();
-        let pick = match ids.iter().find(|(_, id)| id.is_some_and(|id| id.same_object(&item.identity))) {
-            Some(&(i, _)) => Some(i),
-            None if ids.iter().all(|(_, id)| id.is_none()) => {
-                same_path.iter().copied().max_by_key(|&i| listed.get(i).map_or(i64::MIN, |t| t.time_deleted))
-            }
+        let (Some(parent), Some(name)) = (item.original.parent(), item.original.file_name()) else {
+            out.push(Restore::NotInTrash);
+            continue;
+        };
+        let parent_key = comparable(parent);
+        let candidates: Vec<usize> = listed
+            .iter()
+            .enumerate()
+            .filter(|(_, t)| platform::name_matches(&t.name, name) && same_folder(&t.original_parent, &parent_key))
+            .map(|(i, _)| i)
+            .collect();
+        let ids: Vec<(usize, Option<Identity>)> = candidates.iter().map(|&i| (i, listed.get(i).and_then(platform::in_trash_identity))).collect();
+        let by_identity = ids.iter().find(|(_, id)| id.is_some_and(|id| id.same_object(&item.identity))).map(|&(i, _)| i);
+        let pick = match by_identity {
+            Some(i) => Some(i),
+            None if !platform::IDENTITY_SURVIVES || ids.iter().all(|(_, id)| id.is_none()) => candidates
+                .iter()
+                .copied()
+                .filter(|&i| listed.get(i).is_some_and(|t| size_fits(t, item)))
+                .max_by_key(|&i| listed.get(i).map_or(i64::MIN, |t| t.time_deleted)),
             None => None,
         };
         let Some(pick) = pick.filter(|&i| i < listed.len()) else {
@@ -221,7 +239,9 @@ fn restore_listed(items: &[Trashed]) -> Result<Vec<Restore>> {
             Err(e) if e.kind() == io::ErrorKind::NotFound => {}
             Err(e) => return Err(io_err("restore", &item.original)(e)),
         }
-        let chosen = listed.swap_remove(pick);
+        let mut chosen = listed.swap_remove(pick);
+        // The item's own name: the listed one may be a display name without its extension.
+        chosen.name = name.to_os_string();
         match catch(|| ::trash::os_limited::restore_all([chosen])) {
             Ok(()) => out.push(Restore::Restored),
             Err(CrateError::Trash(::trash::Error::RestoreCollision { .. })) => out.push(Restore::Exists),
@@ -229,6 +249,26 @@ fn restore_listed(items: &[Trashed]) -> Result<Vec<Restore>> {
         }
     }
     Ok(out)
+}
+
+/// The folder a listed item came from is the one `key` ([`comparable`]) names: as recorded, or
+/// once resolved (short names, case, links).
+#[cfg(any(windows, all(unix, not(target_vendor = "apple"), not(target_os = "android"))))]
+fn same_folder(listed: &Path, key: &str) -> bool {
+    comparable(listed) == key || std::fs::canonicalize(listed).is_ok_and(|p| comparable(&p) == key)
+}
+
+/// Whether a listed item can be `item` by its size (a file of the same size, or a folder); an
+/// item whose size cannot be read is not ruled out.
+#[cfg(any(windows, all(unix, not(target_vendor = "apple"), not(target_os = "android"))))]
+fn size_fits(listed: &::trash::TrashItem, item: &Trashed) -> bool {
+    match catch(|| ::trash::os_limited::metadata(listed)) {
+        Ok(m) => match m.size {
+            ::trash::TrashItemSize::Bytes(n) => !item.folder && n == item.identity.size(),
+            ::trash::TrashItemSize::Entries(_) => item.folder,
+        },
+        Err(_) => true,
+    }
 }
 
 /// Linux and the BSDs: the freedesktop.org trash.
@@ -309,6 +349,14 @@ mod platform {
         false
     }
 
+    /// The trashed object is renamed into `files/`, so its identity is the item's.
+    pub(super) const IDENTITY_SURVIVES: bool = true;
+
+    /// The trash records the item's own name.
+    pub(super) fn name_matches(listed: &std::ffi::OsStr, name: &std::ffi::OsStr) -> bool {
+        listed == name
+    }
+
     /// The identity of the trashed object a listed item stands for: `<trash>/files/<name>` for
     /// `<trash>/info/<name>.trashinfo`.
     pub(super) fn in_trash_identity(item: &::trash::TrashItem) -> Option<Identity> {
@@ -345,6 +393,17 @@ mod platform {
     /// it to warn about, and no warning can be shown).
     pub(super) fn means_no_trash(e: &CrateError) -> bool {
         matches!(e, CrateError::Trash(::trash::Error::Unknown { description }) if description.contains("aborted"))
+    }
+
+    /// The shell's item id need not be a file system path, so an identity that cannot be matched
+    /// does not rule an item out.
+    pub(super) const IDENTITY_SURVIVES: bool = false;
+
+    /// The shell lists a display name: case ignored, and without the extension of a known file
+    /// type while the system hides those.
+    pub(super) fn name_matches(listed: &std::ffi::OsStr, name: &std::ffi::OsStr) -> bool {
+        let (listed, name) = (listed.to_string_lossy().to_lowercase(), name.to_string_lossy().to_lowercase());
+        listed == name || Path::new(&name).file_stem().is_some_and(|stem| stem.to_string_lossy() == listed)
     }
 
     /// The Recycle Bin's own file for a listed item, when its id is a file system path.
@@ -415,6 +474,25 @@ mod tests {
         } else {
             assert_eq!(comparable(p), r"\\?\C:\Photos\A.jpg");
         }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_shell_display_name_matches_with_or_without_its_extension() {
+        use std::ffi::OsStr;
+        assert!(platform::name_matches(OsStr::new("photo"), OsStr::new("Photo.jpg")));
+        assert!(platform::name_matches(OsStr::new("PHOTO.JPG"), OsStr::new("photo.jpg")));
+        assert!(platform::name_matches(OsStr::new("Trip"), OsStr::new("Trip")));
+        assert!(!platform::name_matches(OsStr::new("other"), OsStr::new("photo.jpg")));
+    }
+
+    #[cfg(all(unix, not(target_vendor = "apple"), not(target_os = "android")))]
+    #[test]
+    fn a_freedesktop_name_matches_exactly() {
+        use std::ffi::OsStr;
+        assert!(platform::name_matches(OsStr::new("photo.jpg"), OsStr::new("photo.jpg")));
+        assert!(!platform::name_matches(OsStr::new("photo"), OsStr::new("photo.jpg")));
+        assert!(!platform::name_matches(OsStr::new("Photo.jpg"), OsStr::new("photo.jpg")));
     }
 
     #[test]

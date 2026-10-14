@@ -13,6 +13,26 @@ use dalica_fs::{Error, guard, identity};
 /// Whether this platform can list its trash, so restoring works.
 const RESTORES: bool = cfg!(any(windows, all(unix, not(target_vendor = "apple"), not(target_os = "android"))));
 
+/// What the platform's trash lists for items that came from under `dir` (for failure messages).
+#[cfg(any(windows, all(unix, not(target_vendor = "apple"), not(target_os = "android"))))]
+fn listing(dir: &Path) -> String {
+    let mark = dir.file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
+    match ::trash::os_limited::list() {
+        Ok(items) => items
+            .iter()
+            .filter(|t| t.original_parent.to_string_lossy().to_lowercase().contains(&mark))
+            .map(|t| format!("{{id {:?}, name {:?}, parent {:?}, deleted {}}}", t.id, t.name, t.original_parent, t.time_deleted))
+            .collect::<Vec<_>>()
+            .join("; "),
+        Err(e) => format!("listing failed: {e}"),
+    }
+}
+
+#[cfg(not(any(windows, all(unix, not(target_vendor = "apple"), not(target_os = "android")))))]
+fn listing(_dir: &Path) -> String {
+    String::from("(this platform cannot list its trash)")
+}
+
 fn trashed(path: &Path) -> Trashed {
     match send(path).unwrap() {
         Sent::Trashed(t) => t,
@@ -31,9 +51,10 @@ fn a_trashed_file_comes_back_where_the_platform_allows() {
     assert_eq!(t.original, fs::canonicalize(dir.path()).unwrap().join("photo.jpg"));
     assert_eq!(t.identity, before);
     assert!(!t.folder);
+    let listed = listing(dir.path());
     let back = restore(std::slice::from_ref(&t)).unwrap();
     if RESTORES {
-        assert_eq!(back, [Restore::Restored]);
+        assert_eq!(back, [Restore::Restored], "trashed {t:?}; the trash listed: {listed}");
         assert_eq!(fs::read(&photo).unwrap(), b"the photo");
         // Restored once; a second time it is no longer in the trash.
         assert_eq!(restore(std::slice::from_ref(&t)).unwrap(), [Restore::NotInTrash]);
@@ -53,9 +74,10 @@ fn a_trashed_folder_comes_back_with_everything_in_it() {
     let t = trashed(&trip);
     assert!(t.folder);
     assert!(!trip.exists());
+    let listed = listing(dir.path());
     let back = restore(std::slice::from_ref(&t)).unwrap();
     if RESTORES {
-        assert_eq!(back, [Restore::Restored]);
+        assert_eq!(back, [Restore::Restored], "trashed {t:?}; the trash listed: {listed}");
         assert_eq!(fs::read(trip.join("a.jpg")).unwrap(), b"a");
         assert_eq!(fs::read(trip.join("Day 2").join("b.jpg")).unwrap(), b"b");
     } else {
@@ -73,11 +95,12 @@ fn restoring_never_replaces_what_is_at_the_old_path() {
     fs::write(&photo, b"trashed").unwrap();
     let t = trashed(&photo);
     fs::write(&photo, b"a new file of the same name").unwrap();
-    assert_eq!(restore(std::slice::from_ref(&t)).unwrap(), [Restore::Exists]);
+    assert_eq!(restore(std::slice::from_ref(&t)).unwrap(), [Restore::Exists], "trashed {t:?}; the trash listed: {}", listing(dir.path()));
     assert_eq!(fs::read(&photo).unwrap(), b"a new file of the same name");
     // Once the name is free again, it comes back (and leaves the trash).
     fs::rename(&photo, dir.path().join("kept.jpg")).unwrap();
-    assert_eq!(restore(std::slice::from_ref(&t)).unwrap(), [Restore::Restored]);
+    let listed = listing(dir.path());
+    assert_eq!(restore(std::slice::from_ref(&t)).unwrap(), [Restore::Restored], "trashed {t:?}; the trash listed: {listed}");
     assert_eq!(fs::read(&photo).unwrap(), b"trashed");
 }
 
