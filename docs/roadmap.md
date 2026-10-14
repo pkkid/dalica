@@ -3321,7 +3321,7 @@ first measurement. No step of M8 needs a maintainer decision mid-run.
     foreign properties byte-identical; maker notes still parse; GPS gone from EXIF and XMP when
     asked and kept otherwise; the owned fields merged; `set_orientation` changes only that tag's
     value; truncated and hostile blocks are `Err`, never a panic.
-- ⬜ **M8.8 `image`: lossless JPEG rotation and flips**
+- ✅ **M8.8 `image`: lossless JPEG rotation and flips**
   - after: M5.1, M7.R
   - files: `crates/image/src/jpeg_transform.rs`, `crates/image/src/jpeg_transform/**`, `crates/image/tests/jpeg_transform.rs`
   - scope: `data-model.md` §6, our own from ITU-T T.81 (a provenance header naming its sections):
