@@ -3,7 +3,8 @@
 //!
 //! - **Groups** in order Albums, People, Projects, Folders, Other, Hidden Folders, each only when it
 //!   has rows. Projects, Other and Hidden Folders exist in flat mode only; tree mode has Albums,
-//!   People and Folders. Albums and People stay empty until the model holds albums and people.
+//!   People and Folders. [`Tree`] holds the folder groups; the Albums group is an [`AlbumTree`]
+//!   (below), and People stays empty until the model holds people.
 //! - **Flat mode:** every folder with something to show is one row. Projects are the folders under
 //!   the projects directory and the folders with a project mark ([`crate::Project`], such as an
 //!   export made elsewhere) wherever they are; tree mode keeps those under their parents. Other is
@@ -35,6 +36,19 @@
 //!   row order; a collapsed group drops its rows and its sections. Collapsing a tree node hides the
 //!   rows below it but keeps their sections (the light table still shows the whole library).
 //!
+//! - **The section filter** ([`TreeOptions::filter`], search mode): only the photos in the set
+//!   count and show; folders, directories and albums left with none drop out with their sections.
+//!
+//! **The Albums group** is built apart ([`AlbumTree::build`]) so the folder rows keep their types:
+//! the search album first while searching (named after the search, listing every photo of the
+//! filter in its order), Starred Photos and Recently Updated when they hold a photo shown, then
+//! the user albums (an empty one too, except in search mode) in the tree's folder sort: by date
+//! (the album's date, newest first), by recent changes (its newest member's file time), by size
+//! (its members' bytes) or by name. [`AlbumTree::sections_with`] puts the album sections before
+//! the folder sections, and [`section_photos`] lists each section's photos in its order: an
+//! album's by position key, Starred Photos by date, Recently Updated newest first, a folder's in
+//! its own photo sort ([`crate::PhotoSort`]).
+//!
 //! Work is one pass over the photos and one sort per level: no per-frame cost. Callers cache the
 //! tree per (library revision, roots, options); [`Tree::revision`] says which revision it shows.
 
@@ -42,14 +56,18 @@ use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
+use std::sync::Arc;
 
-use dalica_core::{Date, DateTime, FolderId, Timestamp};
+use dalica_core::{AlbumId, Date, DateTime, FolderId, PhotoId, Timestamp};
 use serde::{Deserialize, Serialize};
 
 use crate::model::{Library, Photo};
 
 /// The default small-picture threshold (`formats.md` §6): smaller than this on both sides.
 pub const SMALL_PICTURE_PX: u32 = 64;
+/// How many days back Recently Updated looks by default (the setting's default).
+pub const RECENT_DAYS: u32 = 30;
 
 /// How the Folders group lays out folders.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -122,6 +140,122 @@ impl fmt::Display for SectionId {
     }
 }
 
+/// An entry of the Albums group, in display order.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AlbumRef {
+    /// The temporary album of the current search ("Search results for …").
+    Search,
+    /// Starred Photos.
+    Starred,
+    /// Recently Updated.
+    Recent,
+    /// A user album.
+    User(AlbumId),
+}
+
+impl fmt::Display for AlbumRef {
+    /// `search`, `starred`, `recent` or the album id: the part after `album:` in a section name.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            AlbumRef::Search => f.write_str("search"),
+            AlbumRef::Starred => f.write_str("starred"),
+            AlbumRef::Recent => f.write_str("recent"),
+            AlbumRef::User(id) => write!(f, "{id}"),
+        }
+    }
+}
+
+/// A light-table section of any kind: an album's or a folder's. [`SectionId`] names the folder
+/// sections [`Tree`] lists; this one adds the albums of [`AlbumTree`].
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Section {
+    Album(AlbumRef),
+    Folder(FolderId),
+}
+
+impl From<SectionId> for Section {
+    fn from(id: SectionId) -> Section {
+        match id {
+            SectionId::Folder(f) => Section::Folder(f),
+        }
+    }
+}
+
+impl fmt::Display for Section {
+    /// `folder:12`, `album:starred`, `album:recent`, `album:search` or `album:a91c0e`.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Section::Album(a) => write!(f, "album:{a}"),
+            Section::Folder(id) => write!(f, "folder:{id}"),
+        }
+    }
+}
+
+impl FromStr for Section {
+    type Err = crate::Error;
+
+    /// Reads what [`Section`]'s `Display` writes.
+    fn from_str(s: &str) -> Result<Section, crate::Error> {
+        let bad = crate::Error::BadText { what: "section", why: "not folder:<id>, album:<id>, album:starred, album:recent or album:search" };
+        match s.split_once(':') {
+            Some(("folder", id)) => id.parse().map(Section::Folder).map_err(|_| bad),
+            Some(("album", "search")) => Ok(Section::Album(AlbumRef::Search)),
+            Some(("album", "starred")) => Ok(Section::Album(AlbumRef::Starred)),
+            Some(("album", "recent")) => Ok(Section::Album(AlbumRef::Recent)),
+            Some(("album", id)) => AlbumId::parse(id).map(|id| Section::Album(AlbumRef::User(id))).map_err(|_| bad),
+            _ => Err(bad),
+        }
+    }
+}
+
+/// The photos search mode shows (`organizing.md` §8.1), in the order the search gives them: the
+/// tree's sections without one of them drop out, and the search album lists them all.
+#[derive(Clone, Debug, Default)]
+pub struct SectionFilter {
+    order: Vec<PhotoId>,
+    set: HashSet<PhotoId>,
+}
+
+impl SectionFilter {
+    /// The filter of `ids`, in that order (a repeat counts once, at its first place).
+    pub fn new(ids: impl IntoIterator<Item = PhotoId>) -> SectionFilter {
+        let mut out = SectionFilter::default();
+        for id in ids {
+            if out.set.insert(id) {
+                out.order.push(id);
+            }
+        }
+        out
+    }
+
+    pub fn contains(&self, id: PhotoId) -> bool {
+        self.set.contains(&id)
+    }
+
+    /// The photos in the search's order.
+    pub fn ids(&self) -> &[PhotoId] {
+        &self.order
+    }
+
+    pub fn len(&self) -> usize {
+        self.order.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.order.is_empty()
+    }
+}
+
+impl PartialEq for SectionFilter {
+    fn eq(&self, other: &SectionFilter) -> bool {
+        self.order == other.order
+    }
+}
+
+impl Eq for SectionFilter {}
+
 /// What the tree depends on besides the library and the watched roots.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TreeOptions {
@@ -144,6 +278,14 @@ pub struct TreeOptions {
     /// Watched roots whose volume is offline (the session's online checks): the rows under them
     /// stay, and [`TreeOptions::is_offline`] marks them.
     pub offline_roots: BTreeSet<PathBuf>,
+    /// Search mode: only these photos count and show.
+    pub filter: Option<Arc<SectionFilter>>,
+    /// The search text while searching: the Albums group then starts with the search album.
+    pub search: Option<String>,
+    /// Now, for Recently Updated (no such album without it).
+    pub now: Option<Timestamp>,
+    /// How many days back Recently Updated looks.
+    pub recent_days: u32,
 }
 
 impl TreeOptions {
@@ -167,6 +309,10 @@ impl Default for TreeOptions {
             projects_dir: None,
             small_threshold: SMALL_PICTURE_PX,
             offline_roots: BTreeSet::new(),
+            filter: None,
+            search: None,
+            now: None,
+            recent_days: RECENT_DAYS,
         }
     }
 }
@@ -338,7 +484,8 @@ impl Tree {
                 s.small = s.small.saturating_add(1);
             }
             let info = library.info(p.id);
-            if (!small || options.small_pictures) && (options.hidden_pictures || !info.hidden) {
+            let in_filter = options.filter.as_ref().is_none_or(|f| f.contains(p.id));
+            if in_filter && (!small || options.small_pictures) && (options.hidden_pictures || !info.hidden) {
                 s.add_shown(p, info.date.or_else(|| p.sort_date()));
             }
         }
@@ -570,4 +717,155 @@ fn tree(library: &Library, roots: &[PathBuf], options: &TreeOptions, shown: &dyn
         stack.extend(kids.iter().rev().map(|&k| (k, below)));
     }
     (rows, (sections, folded))
+}
+
+/// Whether `p` shows under `options`: small pictures only with Small Pictures on, hidden photos
+/// and photos of hidden folders only with Hidden Pictures on, and only photos of the filter.
+fn visible(library: &Library, p: &Photo, options: &TreeOptions) -> bool {
+    let small = is_small(p, options.small_threshold);
+    let hidden = library.is_hidden(p.id) || library.is_folder_hidden(p.folder);
+    (!small || options.small_pictures) && (options.hidden_pictures || !hidden) && options.filter.as_ref().is_none_or(|f| f.contains(p.id))
+}
+
+/// One row of the Albums group.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AlbumRow {
+    pub album: AlbumRef,
+    /// A user album's name; the automatic albums' names in English until localisation (M15):
+    /// `Search results for "x"`, `Starred Photos`, `Recently Updated`.
+    pub name: String,
+    /// The photos it shows.
+    pub count: usize,
+    /// A user album's date ([`Library::album_date`]); `None` for the automatic ones.
+    pub date: Option<DateTime>,
+    /// The photo it shows as its icon: a user album's cover ([`Library::album_cover`]), else the
+    /// first photo it shows.
+    pub cover: Option<PhotoId>,
+}
+
+impl AlbumRow {
+    /// The section this row scrolls to, if it shows photos.
+    pub fn section(&self) -> Option<Section> {
+        (self.count > 0).then(|| Section::Album(self.album.clone()))
+    }
+}
+
+/// The Albums group for one library revision and one set of options.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AlbumTree {
+    /// The library revision it shows.
+    pub revision: u64,
+    pub collapsed: bool,
+    /// The header count: its rows, those of a collapsed group included. Zero: no group.
+    pub count: usize,
+    /// Empty when collapsed.
+    pub rows: Vec<AlbumRow>,
+    /// The album sections, in row order (none when collapsed).
+    pub sections: Vec<Section>,
+}
+
+impl AlbumTree {
+    /// The Albums group of `library` for `options` (see the module docs).
+    pub fn build(library: &Library, options: &TreeOptions) -> AlbumTree {
+        let shown = |id: &PhotoId| library.photo(*id).is_some_and(|p| visible(library, p, options));
+        let first_shown = |ids: &[PhotoId]| ids.iter().find(|id| shown(id)).copied();
+        let mut rows = Vec::new();
+        if let Some(text) = &options.search {
+            let ids = options.filter.as_ref().map(|f| f.ids()).unwrap_or_default();
+            let count = ids.iter().filter(|id| shown(id)).count();
+            rows.push(AlbumRow {
+                album: AlbumRef::Search,
+                name: format!("Search results for \"{text}\""),
+                count,
+                date: None,
+                cover: first_shown(ids),
+            });
+        }
+        let starred = library.starred_photos();
+        let count = starred.iter().filter(|id| shown(id)).count();
+        if count > 0 {
+            rows.push(AlbumRow { album: AlbumRef::Starred, name: "Starred Photos".into(), count, date: None, cover: first_shown(starred) });
+        }
+        if let Some(now) = options.now {
+            let recent = library.recently_updated(now, options.recent_days);
+            let count = recent.iter().filter(|id| shown(id)).count();
+            if count > 0 {
+                rows.push(AlbumRow { album: AlbumRef::Recent, name: "Recently Updated".into(), count, date: None, cover: first_shown(&recent) });
+            }
+        }
+        let mut keys: Vec<(Key, AlbumRow)> = Vec::with_capacity(library.model.albums.len());
+        for (id, info) in library.albums() {
+            let mut stats = Stats::default();
+            for p in library.album_members(id).iter().filter_map(|m| library.photo(*m)).filter(|p| visible(library, p, options)) {
+                stats.add_shown(p, None);
+            }
+            if stats.count == 0 && options.filter.is_some() {
+                continue;
+            }
+            let album = library.album_stats(id);
+            stats.date = album.date;
+            let fold = info.name.to_lowercase();
+            let key = Key { stats, fold, name: info.name.clone(), path: PathBuf::from(id.as_str()), folder: None };
+            let row =
+                AlbumRow { album: AlbumRef::User(id.clone()), name: info.name.clone(), count: stats.count, date: album.date, cover: album.cover };
+            keys.push((key, row));
+        }
+        keys.sort_by(|(a, _), (b, _)| compare(a, b, options.sort, options.reverse));
+        rows.extend(keys.into_iter().map(|(_, row)| row));
+        let collapsed = options.collapsed_groups.contains(&Group::Albums);
+        let count = rows.len();
+        if collapsed || count == 0 {
+            return AlbumTree { revision: library.revision(), collapsed, count, rows: Vec::new(), sections: Vec::new() };
+        }
+        let sections = rows.iter().filter_map(AlbumRow::section).collect();
+        AlbumTree { revision: library.revision(), collapsed, count, rows, sections }
+    }
+
+    /// Every light-table section in order: the album sections, then `folders`' sections.
+    pub fn sections_with(&self, folders: &Tree) -> Vec<Section> {
+        self.sections.iter().cloned().chain(folders.sections.iter().map(|s| Section::from(*s))).collect()
+    }
+}
+
+/// The photos of each of `sections` that show under `options`, in the section's order: a user
+/// album's by position key, Starred Photos by date, Recently Updated newest first (none without
+/// [`TreeOptions::now`]), the search album in the filter's order, a folder's in its own photo
+/// sort. One pass over the photos for all the folders asked for.
+pub fn section_photos(library: &Library, sections: &[Section], options: &TreeOptions) -> Vec<(Section, Vec<PhotoId>)> {
+    let shown = |ids: &[PhotoId]| -> Vec<PhotoId> {
+        ids.iter().copied().filter(|id| library.photo(*id).is_some_and(|p| visible(library, p, options))).collect()
+    };
+    let wanted: HashSet<FolderId> = sections
+        .iter()
+        .filter_map(|s| match s {
+            Section::Folder(id) => Some(*id),
+            Section::Album(_) => None,
+        })
+        .collect();
+    let mut by_folder: HashMap<FolderId, Vec<&Photo>> = HashMap::with_capacity(wanted.len());
+    if !wanted.is_empty() {
+        for p in library.photos().filter(|p| wanted.contains(&p.folder) && visible(library, p, options)) {
+            by_folder.entry(p.folder).or_default().push(p);
+        }
+    }
+    sections
+        .iter()
+        .map(|s| {
+            let ids = match s {
+                Section::Folder(id) => {
+                    let photos = by_folder.get(id).map(Vec::as_slice).unwrap_or_default();
+                    library.sorted(photos.iter().copied(), library.folder_sort(*id))
+                }
+                Section::Album(AlbumRef::User(a)) => shown(library.album_members(a)),
+                Section::Album(AlbumRef::Starred) => shown(library.starred_photos()),
+                Section::Album(AlbumRef::Recent) => {
+                    options.now.map(|now| shown(&library.recently_updated(now, options.recent_days))).unwrap_or_default()
+                }
+                Section::Album(AlbumRef::Search) => shown(options.filter.as_ref().map(|f| f.ids()).unwrap_or_default()),
+            };
+            (s.clone(), ids)
+        })
+        .collect()
 }

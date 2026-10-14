@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 462ec79d3b3258f777709b779102c8fad6911de6d2caca8ebc60588a5a8c6953 # shrinks to seeds = [Stamped(AddFolder(96), 0), MoveFolder(0, 27)]

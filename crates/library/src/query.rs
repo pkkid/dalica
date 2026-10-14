@@ -3,14 +3,46 @@
 //! M8's queries (`data-model.md` §6) say what Save, Undo Save and Revert may do: whether a photo
 //! has unsaved edits, each folder's count of them (worked out once per revision), whether a photo
 //! has a finished save to undo or revert, and which operation of a recipe cannot be rendered.
+//!
+//! M9's queries (`organizing.md` §4, `data-model.md` §3.2) are worked out on first use after each
+//! change they read and kept until the next ([`Cache`]): an album's members in order (by position
+//! key; equal keys by folder path, then file name), Starred Photos (by date, like a folder),
+//! Recently Updated (the photos updated within some days of a given now, newest first), and each
+//! album's date, count and cover. Photo orders ([`PhotoSort`]) sort a folder's photos and Sort
+//! Album By.
 
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::OnceLock;
+use std::time::Duration;
 
-use dalica_core::{DateTime, FolderId, PhotoId};
+use dalica_core::{AlbumId, DateTime, FolderId, PhotoId, PosKey, Timestamp};
 
-use crate::model::{Folder, Library, Photo, Saved};
+use crate::model::{Folder, Library, Photo, PhotoSort, Saved, SortBy};
+
+/// The album queries' answers, each worked out on first use. Every op that bumps the revision
+/// drops them, and so does a derived op that sets first-indexed or last-changed times.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct Cache {
+    /// One slot per album, each sorted on first use (a drop into one album sorts only that one).
+    members: OnceLock<HashMap<AlbumId, OnceLock<Vec<PhotoId>>>>,
+    starred: OnceLock<Vec<PhotoId>>,
+    /// Every photo with its updated time, newest first.
+    updated: OnceLock<Vec<(Timestamp, PhotoId)>>,
+    albums: OnceLock<HashMap<AlbumId, AlbumStats>>,
+}
+
+/// What the tree shows of an album beside its name.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct AlbumStats {
+    /// Its members, hidden ones included.
+    pub count: usize,
+    /// Its own date (at midnight) unless it uses its newest photo's; that one otherwise.
+    pub date: Option<DateTime>,
+    /// The cover the user set, else the first member; `None` for an empty album.
+    pub cover: Option<PhotoId>,
+}
 
 impl Photo {
     /// The date the file gives: its capture date, else its modification time (UTC). The library
@@ -141,6 +173,105 @@ impl Library {
     pub fn unrenderable(&self, id: PhotoId, renders: impl Fn(&str) -> bool) -> Option<&str> {
         let saved = self.saved(id).map(|s| s.recipe.as_slice()).unwrap_or_default();
         saved.iter().chain(&self.info(id).edits).map(String::as_str).find(|op| !renders(op))
+    }
+}
+
+/// M9's queries: photo orders, album members, Starred Photos, Recently Updated and album stats.
+impl Library {
+    /// `photos` in the order `sort` gives: by effective date ([`Library::sort_date`]), by file
+    /// name ignoring case, or by bytes; ties by file name, then id; `reverse` turns all of it
+    /// around. Each key is worked out once.
+    pub fn sorted<'a>(&self, photos: impl Iterator<Item = &'a Photo>, sort: PhotoSort) -> Vec<PhotoId> {
+        let mut out: Vec<PhotoId> = match sort.by {
+            SortBy::Date => in_photo_order(self, photos).into_iter().map(|p| p.id).collect(),
+            SortBy::Name => {
+                let mut keyed: Vec<(String, &Photo)> = photos.map(|p| (p.name.to_lowercase(), p)).collect();
+                keyed.sort_by(|(fa, a), (fb, b)| fa.cmp(fb).then_with(|| a.name.cmp(&b.name)).then_with(|| a.id.cmp(&b.id)));
+                keyed.into_iter().map(|(_, p)| p.id).collect()
+            }
+            SortBy::Size => {
+                let mut list: Vec<&Photo> = photos.collect();
+                list.sort_by(|a, b| a.size.cmp(&b.size).then_with(|| a.name.cmp(&b.name)).then_with(|| a.id.cmp(&b.id)));
+                list.into_iter().map(|p| p.id).collect()
+            }
+        };
+        if sort.reverse {
+            out.reverse();
+        }
+        out
+    }
+
+    /// The photos of `folder` in its own photo sort ([`Library::folder_sort`]).
+    pub fn photos_sorted(&self, folder: FolderId) -> Vec<PhotoId> {
+        self.sorted(self.model.photos.values().filter(|p| p.folder == folder), self.folder_sort(folder))
+    }
+
+    /// Album `id`'s members in album order: by position key, equal keys by folder path, then file
+    /// name, then id (`data-model.md` §3.2). Empty for an unknown or empty album.
+    pub fn album_members(&self, id: &AlbumId) -> &[PhotoId] {
+        let slots = self.cache.members.get_or_init(|| self.model.members.keys().map(|a| (a.clone(), OnceLock::new())).collect());
+        let Some((slot, members)) = slots.get(id).zip(self.model.members.get(id)) else { return &[] };
+        slot.get_or_init(|| {
+            let mut keyed: Vec<(&PosKey, Option<&Path>, &str, PhotoId)> = members
+                .iter()
+                .map(|(id, key)| {
+                    let p = self.model.photos.get(id);
+                    let path = p.and_then(|p| self.model.folders.get(&p.folder)).map(|f| f.path.as_path());
+                    (key, path, p.map_or("", |p| p.name.as_str()), *id)
+                })
+                .collect();
+            keyed.sort();
+            keyed.into_iter().map(|(_, _, _, id)| id).collect()
+        })
+    }
+
+    /// Starred Photos: every starred photo, by date like a folder (hidden ones included).
+    pub fn starred_photos(&self) -> &[PhotoId] {
+        self.cache.starred.get_or_init(|| in_photo_order(self, self.model.photos.values().filter(|p| p.star)).into_iter().map(|p| p.id).collect())
+    }
+
+    /// Recently Updated: the photos whose updated time ([`Library::updated_time`]) is within
+    /// `days` days before `now` (or after it), newest first, then by file name and id. The sort is
+    /// worked out once per change; each call only cuts it.
+    pub fn recently_updated(&self, now: Timestamp, days: u32) -> Vec<PhotoId> {
+        let all = self.cache.updated.get_or_init(|| {
+            let mut list: Vec<(Timestamp, &Photo)> = self.model.photos.values().map(|p| (self.updated_time(p), p)).collect();
+            list.sort_by(|(ta, a), (tb, b)| tb.cmp(ta).then_with(|| a.name.cmp(&b.name)).then_with(|| a.id.cmp(&b.id)));
+            list.into_iter().map(|(t, p)| (t, p.id)).collect()
+        });
+        let since = now.saturating_sub(Duration::from_secs(u64::from(days).saturating_mul(86_400)));
+        all.iter().take_while(|(t, _)| *t >= since).map(|(_, id)| *id).collect()
+    }
+
+    /// Album `id`'s count, date and cover (all zero for an unknown album).
+    pub fn album_stats(&self, id: &AlbumId) -> AlbumStats {
+        let all = self.cache.albums.get_or_init(|| {
+            let mut out = HashMap::with_capacity(self.model.albums.len());
+            for (album, info) in &self.model.albums {
+                let members = self.album_members(album);
+                let own = info.date.filter(|_| !info.use_newest).and_then(|d| DateTime::new(d, 0, 0, 0).ok());
+                let date = own.or_else(|| members.iter().filter_map(|id| self.model.photos.get(id)).filter_map(|p| self.sort_date(p)).max());
+                let cover = self.model.covers.get(album).copied().or_else(|| members.first().copied());
+                out.insert(album.clone(), AlbumStats { count: members.len(), date, cover });
+            }
+            out
+        });
+        all.get(id).copied().unwrap_or_default()
+    }
+
+    /// Album `id`'s date: its own unless it uses its newest photo's or has none.
+    pub fn album_date(&self, id: &AlbumId) -> Option<DateTime> {
+        self.album_stats(id).date
+    }
+
+    /// Album `id`'s cover: the one set, else its first member.
+    pub fn album_cover(&self, id: &AlbumId) -> Option<PhotoId> {
+        self.album_stats(id).cover
+    }
+
+    /// How many photos album `id` holds.
+    pub fn album_count(&self, id: &AlbumId) -> usize {
+        self.album_stats(id).count
     }
 }
 

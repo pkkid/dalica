@@ -1,13 +1,18 @@
 //! The model's data: folders, photos, what the user said about them (M6: captions, tags, hidden,
 //! recipes, dates, folder info), their sketches and synced hashes, what Save and Export leave
-//! (M8: saved records, copies saved beside, project marks), and the [`Library`] that owns them
-//! with its revisions and its tag index.
+//! (M8: saved records, copies saved beside, project marks), albums and what search reads (M9:
+//! album info, memberships with position keys, covers, folder photo sorts, search facts, content
+//! digests, first-indexed and last-changed times), and the [`Library`] that owns them with its
+//! revisions, its indexes and its tag index.
+//!
+//! M9's fields are held in maps of their own beside [`Photo`] and [`FolderInfo`], as M8's are, so
+//! the struct literals other crates build keep compiling.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
-use dalica_core::{Date, DateTime, FolderId, PhotoId, Timestamp};
+use dalica_core::{AlbumId, Date, DateTime, FolderId, PhotoId, PosKey, Timestamp};
 use serde::{Deserialize, Serialize};
 
 use crate::tags::TagIndex;
@@ -231,6 +236,148 @@ pub enum Project {
     Exported,
 }
 
+/// The most bytes of an album name (UTF-8).
+pub const MAX_ALBUM_NAME: usize = 1024;
+/// The most bytes of a camera make or model in a photo's [`Facts`].
+pub const MAX_CAMERA: usize = 256;
+
+/// What the user says about an album (Album Properties, `organizing.md` §4.2), kept in
+/// `albums.json`; the name is also mirrored in each member folder's sidecar (`data-model.md` §3.2).
+/// The cover is set apart ([`Op::SetCovers`](crate::Op::SetCovers)).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AlbumInfo {
+    /// Clean ([`clean_album_name`](crate::clean_album_name)): not empty, trimmed, no control
+    /// characters, at most [`MAX_ALBUM_NAME`] bytes.
+    pub name: String,
+    /// At most [`MAX_DESCRIPTION`](crate::MAX_DESCRIPTION) bytes; empty for none.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub description: String,
+    /// The date the user typed. The album's date is this one unless `use_newest` is on or there is
+    /// none, when it is its newest photo's ([`Library::album_date`]).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub date: Option<Date>,
+    /// "Use the date of the newest photo".
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub use_newest: bool,
+    /// At most [`MAX_PLACE`](crate::MAX_PLACE) bytes; empty for none.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub place: String,
+}
+
+impl AlbumInfo {
+    /// An album called `name` with nothing else said, dated by its newest photo.
+    pub fn named(name: impl Into<String>) -> AlbumInfo {
+        AlbumInfo { name: name.into(), use_newest: true, ..AlbumInfo::default() }
+    }
+
+    pub(crate) fn check(&self) -> crate::Result<()> {
+        if self.name.len() > MAX_ALBUM_NAME {
+            return Err(crate::Error::TooLong { what: "album name", max: MAX_ALBUM_NAME });
+        }
+        if crate::albums::clean_album_name(&self.name).as_deref() != Some(self.name.as_str()) {
+            return Err(crate::Error::BadText { what: "album name", why: "empty, untrimmed or with control characters" });
+        }
+        if self.description.len() > crate::MAX_DESCRIPTION {
+            return Err(crate::Error::TooLong { what: "album description", max: crate::MAX_DESCRIPTION });
+        }
+        if self.place.len() > crate::MAX_PLACE {
+            return Err(crate::Error::TooLong { what: "album place", max: crate::MAX_PLACE });
+        }
+        Ok(())
+    }
+}
+
+/// What a photo's file says that search reads besides its name and dates (`organizing.md` §8.1):
+/// the camera, whether it is a video, whether it holds a GPS location. Read on scan (M9.7) and
+/// index-only like the [`Sketch`]: [`Op::SetFacts`](crate::Op::SetFacts) is derived (no undo
+/// step, no revision bump). The default (nothing known) is not stored.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Facts {
+    /// The camera make as read (EXIF `Make`, trimmed), at most [`MAX_CAMERA`] bytes.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub make: String,
+    /// The camera model as read (EXIF `Model`, trimmed), at most [`MAX_CAMERA`] bytes.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub model: String,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub video: bool,
+    /// The file holds a GPS location (EXIF or XMP).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub geotagged: bool,
+}
+
+impl Facts {
+    pub fn is_empty(&self) -> bool {
+        *self == Facts::default()
+    }
+
+    pub(crate) fn check(&self) -> crate::Result<()> {
+        if self.make.len() > MAX_CAMERA || self.model.len() > MAX_CAMERA {
+            return Err(crate::Error::TooLong { what: "camera make or model", max: MAX_CAMERA });
+        }
+        Ok(())
+    }
+}
+
+/// A photo's content digest (Find Duplicates, `organizing.md` §8.3), valid while the file keeps
+/// the size and modification time it was made from ([`Library::content_digest`]). Index-only and
+/// derived like [`Facts`].
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ContentDigest {
+    /// The file's bytes when the digest was made.
+    pub size: u64,
+    /// The file's modification time when the digest was made.
+    pub mtime: Timestamp,
+    /// The digest as text (opaque here: the engine's), at most [`MAX_DIGEST`] bytes.
+    pub digest: String,
+}
+
+impl ContentDigest {
+    pub(crate) fn check(&self) -> crate::Result<()> {
+        if self.digest.len() > MAX_DIGEST {
+            return Err(crate::Error::TooLong { what: "digest", max: MAX_DIGEST });
+        }
+        Ok(())
+    }
+}
+
+/// What photos are sorted by inside a folder (Sort Folder By ▸) or once by Sort Album By ▸.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SortBy {
+    /// The effective date ([`Library::sort_date`]), oldest first (the default).
+    #[default]
+    Date,
+    /// The file name, A to Z, ignoring case.
+    Name,
+    /// The file's bytes, smallest first.
+    Size,
+}
+
+/// A photo order: a key and whether it is turned around (Reverse Order). Ties fall back to the
+/// file name, then the id, and turn around with it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PhotoSort {
+    pub by: SortBy,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub reverse: bool,
+}
+
+impl PhotoSort {
+    pub const fn new(by: SortBy, reverse: bool) -> PhotoSort {
+        PhotoSort { by, reverse }
+    }
+
+    /// Whether this is the default order (by date, oldest first), which a folder holds unsaid.
+    pub fn is_default(&self) -> bool {
+        *self == PhotoSort::default()
+    }
+}
+
 /// The most bytes a [`Sketch`] holds.
 pub const MAX_SKETCH: usize = 32;
 
@@ -370,6 +517,24 @@ pub struct Model {
     pub(crate) saved_as: BTreeMap<PhotoId, SavedAs>,
     /// Project marks of folders (M8; folder sidecar): only folders in `folders`.
     pub(crate) projects: BTreeMap<FolderId, Project>,
+    /// Photo sorts of folders (M9; folder sidecar): only folders in `folders`, never the default.
+    pub(crate) folder_sorts: BTreeMap<FolderId, PhotoSort>,
+    /// User albums (M9; `albums.json`).
+    pub(crate) albums: BTreeMap<AlbumId, AlbumInfo>,
+    /// Each album's members with their position keys (M9; photo sidecar entries): only albums in
+    /// `albums` and photos in `photos`, never an empty inner map.
+    pub(crate) members: BTreeMap<AlbumId, BTreeMap<PhotoId, PosKey>>,
+    /// Covers set by the user: only albums in `albums`, each a member of its album.
+    pub(crate) covers: BTreeMap<AlbumId, PhotoId>,
+    /// Search facts (M9; index-only): only photos in `photos`, never empty.
+    pub(crate) facts: BTreeMap<PhotoId, Facts>,
+    /// Content digests (M9; index-only): only photos in `photos`.
+    pub(crate) digests: BTreeMap<PhotoId, ContentDigest>,
+    /// When this library first indexed each photo (M9; index-only): only photos in `photos`.
+    pub(crate) indexed: BTreeMap<PhotoId, Timestamp>,
+    /// When Dalica last changed what is said about each photo (M9; index-only): only photos in
+    /// `photos`.
+    pub(crate) changed: BTreeMap<PhotoId, Timestamp>,
 }
 
 /// The library: the model, its revision counters and the next free ids.
@@ -380,6 +545,9 @@ pub struct Library {
     pub(crate) by_name: HashMap<(FolderId, String), PhotoId>,
     /// Absolute path → folder.
     pub(crate) by_path: HashMap<PathBuf, FolderId>,
+    /// Each album's members by (position key, photo), kept in step with `model.members` by every
+    /// op, so a drop finds its neighbours without sorting the album.
+    pub(crate) by_key: HashMap<AlbumId, BTreeSet<(PosKey, PhotoId)>>,
     pub(crate) revision: u64,
     pub(crate) thumbnail_revision: u64,
     pub(crate) folder_revisions: HashMap<FolderId, u64>,
@@ -390,6 +558,9 @@ pub struct Library {
     /// Each folder's count of photos with unsaved edits, worked out on first use after each
     /// revision (cleared by every op that bumps the revision; a derived op cannot change it).
     pub(crate) unsaved: OnceLock<HashMap<FolderId, usize>>,
+    /// The album queries (members in order, Starred Photos, Recently Updated, album dates, counts
+    /// and covers), worked out on first use after each change they read.
+    pub(crate) cache: crate::query::Cache,
 }
 
 static EMPTY_PHOTO_INFO: PhotoInfo = PhotoInfo::EMPTY;
@@ -520,6 +691,106 @@ impl Library {
     /// Every folder with a project mark, by folder id.
     pub fn projects(&self) -> impl Iterator<Item = (FolderId, Project)> {
         self.model.projects.iter().map(|(id, p)| (*id, *p))
+    }
+
+    /// Folder `id`'s photo sort (the default, by date, when none is set or the id is unknown).
+    pub fn folder_sort(&self, id: FolderId) -> PhotoSort {
+        self.model.folder_sorts.get(&id).copied().unwrap_or_default()
+    }
+
+    /// Every folder with a photo sort of its own, by folder id.
+    pub fn folder_sorts(&self) -> impl Iterator<Item = (FolderId, PhotoSort)> {
+        self.model.folder_sorts.iter().map(|(id, s)| (*id, *s))
+    }
+
+    /// User album `id`, if there is one.
+    pub fn album(&self, id: &AlbumId) -> Option<&AlbumInfo> {
+        self.model.albums.get(id)
+    }
+
+    /// Every user album, by id.
+    pub fn albums(&self) -> impl Iterator<Item = (&AlbumId, &AlbumInfo)> {
+        self.model.albums.iter()
+    }
+
+    /// The cover the user set for album `id`, if any (the album shows its first photo otherwise:
+    /// [`Library::album_cover`]).
+    pub fn cover_set(&self, id: &AlbumId) -> Option<PhotoId> {
+        self.model.covers.get(id).copied()
+    }
+
+    /// Every album's members with their position keys, by album id (unordered within an album:
+    /// [`Library::album_members`] gives the album order).
+    pub fn memberships(&self) -> impl Iterator<Item = (&AlbumId, &BTreeMap<PhotoId, PosKey>)> {
+        self.model.members.iter()
+    }
+
+    /// Photo `photo`'s position key in album `album`, if it is a member.
+    pub fn member_key(&self, album: &AlbumId, photo: PhotoId) -> Option<&PosKey> {
+        self.model.members.get(album).and_then(|m| m.get(&photo))
+    }
+
+    /// The albums photo `id` belongs to, by album id, with its key in each.
+    pub fn albums_of(&self, id: PhotoId) -> Vec<(&AlbumId, &PosKey)> {
+        self.model.members.iter().filter_map(|(a, m)| Some((a, m.get(&id)?))).collect()
+    }
+
+    /// Photo `id`'s search facts ([`Facts`] default when none were read).
+    pub fn facts(&self, id: PhotoId) -> &Facts {
+        static EMPTY: Facts = Facts { make: String::new(), model: String::new(), video: false, geotagged: false };
+        self.model.facts.get(&id).unwrap_or(&EMPTY)
+    }
+
+    /// Every photo's search facts, by photo id.
+    pub fn facts_all(&self) -> impl Iterator<Item = (PhotoId, &Facts)> {
+        self.model.facts.iter().map(|(id, f)| (*id, f))
+    }
+
+    /// Photo `id`'s stored digest record, whether or not the file still matches it.
+    pub fn digest_record(&self, id: PhotoId) -> Option<&ContentDigest> {
+        self.model.digests.get(&id)
+    }
+
+    /// Every stored digest record, by photo id.
+    pub fn digests(&self) -> impl Iterator<Item = (PhotoId, &ContentDigest)> {
+        self.model.digests.iter().map(|(id, d)| (*id, d))
+    }
+
+    /// Photo `id`'s content digest, when one was made from the file as it is now (same size and
+    /// modification time); a digest of an older file is no answer.
+    pub fn content_digest(&self, id: PhotoId) -> Option<&str> {
+        let p = self.model.photos.get(&id)?;
+        self.model.digests.get(&id).filter(|d| d.size == p.size && d.mtime == p.mtime).map(|d| d.digest.as_str())
+    }
+
+    /// When this library first indexed photo `id`, if it recorded it.
+    pub fn first_indexed(&self, id: PhotoId) -> Option<Timestamp> {
+        self.model.indexed.get(&id).copied()
+    }
+
+    /// Every recorded first-indexed time, by photo id.
+    pub fn first_indexed_all(&self) -> impl Iterator<Item = (PhotoId, Timestamp)> {
+        self.model.indexed.iter().map(|(id, t)| (*id, *t))
+    }
+
+    /// When Dalica last changed what is said about photo `id`, if it recorded it.
+    pub fn last_changed(&self, id: PhotoId) -> Option<Timestamp> {
+        self.model.changed.get(&id).copied()
+    }
+
+    /// Every recorded last-changed time, by photo id.
+    pub fn last_changed_all(&self) -> impl Iterator<Item = (PhotoId, Timestamp)> {
+        self.model.changed.iter().map(|(id, t)| (*id, *t))
+    }
+
+    /// When `photo` was last updated for Recently Updated: the latest of its file's modification
+    /// time, the time this library first indexed it and the last time Dalica changed its data.
+    pub fn updated_time(&self, photo: &Photo) -> Timestamp {
+        let mut t = photo.mtime;
+        for other in [self.model.indexed.get(&photo.id), self.model.changed.get(&photo.id)].into_iter().flatten() {
+            t = t.max(*other);
+        }
+        t
     }
 
     /// The tag index: every tag in use with its count.

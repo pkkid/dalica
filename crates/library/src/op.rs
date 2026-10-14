@@ -16,13 +16,29 @@
 //! [`Library::save_op`], [`Library::undo_save_op`] and [`Library::revert_op`]; such a batch is not
 //! derived (its recipe change bumps the revision). Removing a photo takes its record and its copy
 //! saved beside; removing a folder takes its mark; the inverse puts them back.
+//!
+//! M9's ops: albums ([`Op::CreateAlbums`], [`Op::DeleteAlbums`] with every membership and cover in
+//! the inverse, [`Op::SetAlbumInfo`], [`Op::AddMembers`] at position keys, [`Op::RemoveMembers`],
+//! [`Op::SetMemberKeys`] for reorders and re-keys, [`Op::SetCovers`]), photos moved or renamed
+//! keeping their id and data ([`Op::MovePhotos`]), folders renamed or moved with their subtrees
+//! ([`Op::MoveFolder`]; an empty folder is an [`Op::AddFolder`]), folder photo sorts
+//! ([`Op::SetFolderSorts`]), and the index-only search facts, digests, first-indexed and
+//! last-changed times ([`Op::SetFacts`], [`Op::SetDigests`], [`Op::SetFirstIndexed`],
+//! [`Op::SetLastChanged`]: derived). [`Library::stamped`] adds the last-changed time to the op of a
+//! change, so the journal replays it and the inverse puts the old time back. A cover leaving its
+//! album (removed from it, or the photo removed) is cleared in the same op, and its inverse sets it
+//! again. Removing a photo takes everything said about it, memberships included.
 
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::path::PathBuf;
 
-use dalica_core::{DateTime, FolderId, PhotoId};
+use dalica_core::{AlbumId, DateTime, FolderId, PhotoId, PosKey, Timestamp};
 use serde::{Deserialize, Serialize};
 
-use crate::model::{Folder, FolderInfo, Library, Photo, PhotoInfo, Project, Recipe, Saved, SavedAs, Sketch, Synced};
+use crate::model::{
+    AlbumInfo, ContentDigest, Facts, Folder, FolderInfo, Library, MAX_FILE_NAME, Photo, PhotoInfo, PhotoSort, Project, Recipe, Saved, SavedAs,
+    Sketch, Synced,
+};
 use crate::tags::{self, fold};
 use crate::{Error, Result};
 
@@ -128,6 +144,72 @@ pub enum Op {
     SetProjects {
         projects: Vec<(FolderId, Option<Project>)>,
     },
+    /// Photos moved to another folder and/or renamed, all at once: (photo, its folder, its file
+    /// name) afterwards. A photo keeps its id and everything said about it. Each name must be one
+    /// plain path component and free in its folder afterwards (photos of the same op may swap
+    /// names).
+    MovePhotos {
+        moves: Vec<(PhotoId, FolderId, String)>,
+    },
+    /// Folder `id` renamed or moved to `path`, with every library folder under its old path
+    /// (ids kept). Refused when `path` lies inside the folder or the folder inside `path`, or when
+    /// a library folder that is not moved already lies at or under `path`.
+    MoveFolder {
+        id: FolderId,
+        path: PathBuf,
+    },
+    /// Photo sorts of folders (Sort Folder By; the default clears one), applied in order.
+    SetFolderSorts {
+        sorts: Vec<(FolderId, PhotoSort)>,
+    },
+    /// New user albums (new ids, no members yet).
+    CreateAlbums {
+        albums: Vec<(AlbumId, AlbumInfo)>,
+    },
+    /// User albums deleted with every membership and cover; the photos stay.
+    DeleteAlbums {
+        ids: Vec<AlbumId>,
+    },
+    /// Album Properties, applied in order.
+    SetAlbumInfo {
+        albums: Vec<(AlbumId, AlbumInfo)>,
+    },
+    /// Photos added to albums at the given position keys (each not yet a member).
+    AddMembers {
+        members: Vec<(AlbumId, PhotoId, PosKey)>,
+    },
+    /// Photos removed from albums (each a member). A cover that leaves its album is cleared, so
+    /// the album shows its first photo again.
+    RemoveMembers {
+        members: Vec<(AlbumId, PhotoId)>,
+    },
+    /// New position keys for members (a reorder, Sort Album By, or a whole album re-keyed).
+    SetMemberKeys {
+        keys: Vec<(AlbumId, PhotoId, PosKey)>,
+    },
+    /// Album covers (`None` goes back to the first photo), applied in order; a cover must be a
+    /// member of its album.
+    SetCovers {
+        covers: Vec<(AlbumId, Option<PhotoId>)>,
+    },
+    /// Search facts (the default clears them), applied in order. Derived data: see
+    /// [`Op::is_derived`].
+    SetFacts {
+        facts: Vec<(PhotoId, Facts)>,
+    },
+    /// Content digests (`None` clears one), applied in order. Derived data.
+    SetDigests {
+        digests: Vec<(PhotoId, Option<ContentDigest>)>,
+    },
+    /// When this library first indexed photos (`None` clears one), applied in order. Derived data.
+    SetFirstIndexed {
+        indexed: Vec<(PhotoId, Option<Timestamp>)>,
+    },
+    /// When Dalica last changed what is said about photos (`None` clears one), applied in order.
+    /// Derived data; [`Library::stamped`] adds it to the op of a change.
+    SetLastChanged {
+        changed: Vec<(PhotoId, Option<Timestamp>)>,
+    },
     /// Several ops as one: all or nothing, one revision.
     Batch {
         ops: Vec<Op>,
@@ -135,14 +217,22 @@ pub enum Op {
 }
 
 impl Op {
-    /// Whether the op changes only derived data (sketches, synced hashes, saved records):
-    /// [`Op::SetSketches`], [`Op::SetSynced`], [`Op::SetSaved`], or a non-empty batch of nothing
-    /// else. Such an op bumps neither [`Library::revision`] nor any folder revision (one with
-    /// sketches bumps [`Library::thumbnail_revision`]), and its inverse is derived too. It is
-    /// journaled like any op but never goes on an undo stack: undo is for what the user did.
+    /// Whether the op changes only derived data (sketches, synced hashes, saved records, search
+    /// facts, digests, first-indexed and last-changed times): [`Op::SetSketches`],
+    /// [`Op::SetSynced`], [`Op::SetSaved`], [`Op::SetFacts`], [`Op::SetDigests`],
+    /// [`Op::SetFirstIndexed`], [`Op::SetLastChanged`], or a non-empty batch of nothing else. Such
+    /// an op bumps neither [`Library::revision`] nor any folder revision (one with sketches bumps
+    /// [`Library::thumbnail_revision`]), and its inverse is derived too. It is journaled like any
+    /// op but never goes on an undo stack: undo is for what the user did.
     pub fn is_derived(&self) -> bool {
         match self {
-            Op::SetSketches { .. } | Op::SetSynced { .. } | Op::SetSaved { .. } => true,
+            Op::SetSketches { .. }
+            | Op::SetSynced { .. }
+            | Op::SetSaved { .. }
+            | Op::SetFacts { .. }
+            | Op::SetDigests { .. }
+            | Op::SetFirstIndexed { .. }
+            | Op::SetLastChanged { .. } => true,
             Op::Batch { ops } => !ops.is_empty() && ops.iter().all(Op::is_derived),
             _ => false,
         }
@@ -158,6 +248,9 @@ struct Effects {
     sketches: bool,
     /// Whether a [`Op::SetSketches`] ran (even an empty one).
     sketch_op: bool,
+    /// Whether a first-indexed or last-changed time was set, cleared or removed with its photo
+    /// (Recently Updated reads them, so its cache goes even when the op is derived).
+    times: bool,
 }
 
 impl Library {
@@ -171,6 +264,9 @@ impl Library {
         let inverse = self.apply_inner(op, &mut fx)?;
         if fx.sketches || (derived && fx.sketch_op) {
             self.thumbnail_revision += 1;
+        }
+        if !derived || fx.times {
+            self.cache = crate::query::Cache::default();
         }
         if !derived {
             self.revision += 1;
@@ -210,6 +306,9 @@ impl Library {
                 }
                 if let Some(project) = self.model.projects.remove(&id) {
                     ops.insert(1, Op::SetProjects { projects: vec![(id, Some(project))] });
+                }
+                if let Some(sort) = self.model.folder_sorts.remove(&id) {
+                    ops.insert(1, Op::SetFolderSorts { sorts: vec![(id, sort)] });
                 }
                 fx.touched.insert(id);
                 Ok(if ops.len() == 1 { ops.swap_remove(0) } else { Op::Batch { ops } })
@@ -472,6 +571,190 @@ impl Library {
                 undo.reverse();
                 Ok(Op::SetProjects { projects: undo })
             }
+            Op::MovePhotos { moves } => self.move_photos(moves, touched),
+            Op::MoveFolder { id, path } => self.move_folder(id, path, touched),
+            Op::SetFolderSorts { sorts } => {
+                self.check_folders(sorts.iter().map(|(id, _)| *id))?;
+                let mut undo = Vec::with_capacity(sorts.len());
+                for (id, sort) in sorts {
+                    let old = if sort.is_default() { self.model.folder_sorts.remove(&id) } else { self.model.folder_sorts.insert(id, sort) };
+                    touched.insert(id);
+                    undo.push((id, old.unwrap_or_default()));
+                }
+                undo.reverse();
+                Ok(Op::SetFolderSorts { sorts: undo })
+            }
+            Op::CreateAlbums { albums } => {
+                let mut seen = HashSet::with_capacity(albums.len());
+                for (id, info) in &albums {
+                    if self.model.albums.contains_key(id) || !seen.insert(id) {
+                        return Err(Error::AlbumExists(id.clone()));
+                    }
+                    info.check()?;
+                }
+                let ids = albums.iter().map(|(id, _)| id.clone()).collect();
+                self.model.albums.extend(albums);
+                Ok(Op::DeleteAlbums { ids })
+            }
+            Op::DeleteAlbums { ids } => {
+                let mut seen = HashSet::with_capacity(ids.len());
+                for id in &ids {
+                    if !self.model.albums.contains_key(id) || !seen.insert(id) {
+                        return Err(Error::UnknownAlbum(id.clone()));
+                    }
+                }
+                let (mut infos, mut members, mut covers) = (Vec::new(), Vec::new(), Vec::new());
+                for id in ids {
+                    if let Some(cover) = self.model.covers.remove(&id) {
+                        covers.push((id.clone(), Some(cover)));
+                    }
+                    self.by_key.remove(&id);
+                    for (photo, key) in self.model.members.remove(&id).unwrap_or_default() {
+                        touched.extend(self.model.photos.get(&photo).map(|p| p.folder));
+                        members.push((id.clone(), photo, key));
+                    }
+                    if let Some(info) = self.model.albums.remove(&id) {
+                        infos.push((id, info));
+                    }
+                }
+                let mut ops = vec![Op::CreateAlbums { albums: infos }];
+                if !members.is_empty() {
+                    ops.push(Op::AddMembers { members });
+                }
+                if !covers.is_empty() {
+                    ops.push(Op::SetCovers { covers });
+                }
+                Ok(if ops.len() == 1 { ops.swap_remove(0) } else { Op::Batch { ops } })
+            }
+            Op::SetAlbumInfo { albums } => {
+                for (id, info) in &albums {
+                    if !self.model.albums.contains_key(id) {
+                        return Err(Error::UnknownAlbum(id.clone()));
+                    }
+                    info.check()?;
+                }
+                let mut undo = Vec::with_capacity(albums.len());
+                for (id, info) in albums {
+                    // The name is mirrored in every member folder's sidecar.
+                    touched.extend(self.member_folders(&id));
+                    if let Some(old) = self.model.albums.insert(id.clone(), info) {
+                        undo.push((id, old));
+                    }
+                }
+                undo.reverse();
+                Ok(Op::SetAlbumInfo { albums: undo })
+            }
+            Op::AddMembers { members } => {
+                let mut seen = HashSet::with_capacity(members.len());
+                for (album, photo, _) in &members {
+                    if !self.model.albums.contains_key(album) {
+                        return Err(Error::UnknownAlbum(album.clone()));
+                    }
+                    if !self.model.photos.contains_key(photo) {
+                        return Err(Error::UnknownPhoto(*photo));
+                    }
+                    if self.member_key(album, *photo).is_some() || !seen.insert((album, *photo)) {
+                        return Err(Error::AlreadyMember { album: album.clone(), photo: *photo });
+                    }
+                }
+                let mut undo = Vec::with_capacity(members.len());
+                for (album, photo, key) in members {
+                    touched.extend(self.model.photos.get(&photo).map(|p| p.folder));
+                    self.by_key.entry(album.clone()).or_default().insert((key.clone(), photo));
+                    self.model.members.entry(album.clone()).or_default().insert(photo, key);
+                    undo.push((album, photo));
+                }
+                undo.reverse();
+                Ok(Op::RemoveMembers { members: undo })
+            }
+            Op::RemoveMembers { members } => {
+                self.check_members(members.iter().map(|(a, p)| (a, *p)))?;
+                let mut undo = Vec::with_capacity(members.len());
+                let mut covers = Vec::new();
+                for (album, photo) in members {
+                    if self.model.covers.get(&album) == Some(&photo) {
+                        self.model.covers.remove(&album);
+                        covers.push((album.clone(), Some(photo)));
+                    }
+                    if let Some(key) = self.take_member(&album, photo) {
+                        touched.extend(self.model.photos.get(&photo).map(|p| p.folder));
+                        undo.push((album, photo, key));
+                    }
+                }
+                undo.reverse();
+                let add = Op::AddMembers { members: undo };
+                Ok(if covers.is_empty() { add } else { Op::Batch { ops: vec![add, Op::SetCovers { covers }] } })
+            }
+            Op::SetMemberKeys { keys } => {
+                self.check_members(keys.iter().map(|(a, p, _)| (a, *p)))?;
+                let mut undo = Vec::with_capacity(keys.len());
+                for (album, photo, key) in keys {
+                    let old = self.model.members.get_mut(&album).and_then(|m| m.insert(photo, key.clone()));
+                    if let (Some(index), Some(old)) = (self.by_key.get_mut(&album), &old) {
+                        index.remove(&(old.clone(), photo));
+                        index.insert((key, photo));
+                    }
+                    touched.extend(self.model.photos.get(&photo).map(|p| p.folder));
+                    if let Some(old) = old {
+                        undo.push((album, photo, old));
+                    }
+                }
+                undo.reverse();
+                Ok(Op::SetMemberKeys { keys: undo })
+            }
+            Op::SetCovers { covers } => {
+                for (album, cover) in &covers {
+                    if !self.model.albums.contains_key(album) {
+                        return Err(Error::UnknownAlbum(album.clone()));
+                    }
+                    if let Some(photo) = cover
+                        && self.member_key(album, *photo).is_none()
+                    {
+                        return Err(Error::NotMember { album: album.clone(), photo: *photo });
+                    }
+                }
+                let mut undo = Vec::with_capacity(covers.len());
+                for (album, cover) in covers {
+                    let old = match cover {
+                        Some(p) => self.model.covers.insert(album.clone(), p),
+                        None => self.model.covers.remove(&album),
+                    };
+                    undo.push((album, old));
+                }
+                undo.reverse();
+                Ok(Op::SetCovers { covers: undo })
+            }
+            Op::SetFacts { facts } => {
+                self.check_photos(facts.iter().map(|(id, _)| *id))?;
+                for (_, f) in &facts {
+                    f.check()?;
+                }
+                let mut undo = Vec::with_capacity(facts.len());
+                for (id, f) in facts {
+                    let old = if f.is_empty() { self.model.facts.remove(&id) } else { self.model.facts.insert(id, f) };
+                    undo.push((id, old.unwrap_or_default()));
+                }
+                undo.reverse();
+                Ok(Op::SetFacts { facts: undo })
+            }
+            Op::SetDigests { digests } => {
+                self.check_photos(digests.iter().map(|(id, _)| *id))?;
+                for d in digests.iter().filter_map(|(_, d)| d.as_ref()) {
+                    d.check()?;
+                }
+                let undo = set_all(&mut self.model.digests, digests);
+                Ok(Op::SetDigests { digests: undo })
+            }
+            Op::SetFirstIndexed { indexed } => {
+                self.check_photos(indexed.iter().map(|(id, _)| *id))?;
+                fx.times = true;
+                Ok(Op::SetFirstIndexed { indexed: set_all(&mut self.model.indexed, indexed) })
+            }
+            Op::SetLastChanged { changed } => {
+                self.check_photos(changed.iter().map(|(id, _)| *id))?;
+                fx.times = true;
+                Ok(Op::SetLastChanged { changed: set_all(&mut self.model.changed, changed) })
+            }
             Op::Batch { ops } => {
                 let mut inverses = Vec::with_capacity(ops.len());
                 for op in ops {
@@ -494,18 +777,68 @@ impl Library {
     }
 
     /// Removes the photos `ids` (all known, no repeats) with their info, synced hashes, saved
-    /// records, copies saved beside and sketches, and returns the ops that put them back, in
-    /// order: [`Op::AddPhotos`] first, then only what there was.
+    /// records, copies saved beside, sketches, search facts, digests, times, album memberships and
+    /// the covers they were, and returns the ops that put them back, in order: [`Op::AddPhotos`]
+    /// first, then only what there was (memberships before covers).
     fn remove_photos(&mut self, ids: &[PhotoId], fx: &mut Effects) -> Vec<Op> {
         let sketches: Vec<(PhotoId, Option<Sketch>)> = ids.iter().filter_map(|id| Some((*id, Some(self.model.sketches.remove(id)?)))).collect();
         let synced: Vec<(PhotoId, Option<Synced>)> = ids.iter().filter_map(|id| Some((*id, Some(self.model.synced.remove(id)?)))).collect();
         let saved: Vec<(PhotoId, Option<Saved>)> = ids.iter().filter_map(|id| Some((*id, Some(self.model.saved.remove(id)?)))).collect();
         let saved_as: Vec<(PhotoId, Option<SavedAs>)> = ids.iter().filter_map(|id| Some((*id, Some(self.model.saved_as.remove(id)?)))).collect();
+        let facts: Vec<(PhotoId, Facts)> = ids.iter().filter_map(|id| Some((*id, self.model.facts.remove(id)?))).collect();
+        let digests: Vec<(PhotoId, Option<ContentDigest>)> = ids.iter().filter_map(|id| Some((*id, Some(self.model.digests.remove(id)?)))).collect();
+        let indexed: Vec<(PhotoId, Option<Timestamp>)> = ids.iter().filter_map(|id| Some((*id, Some(self.model.indexed.remove(id)?)))).collect();
+        let changed: Vec<(PhotoId, Option<Timestamp>)> = ids.iter().filter_map(|id| Some((*id, Some(self.model.changed.remove(id)?)))).collect();
+        fx.times |= !indexed.is_empty() || !changed.is_empty();
+        let gone: HashSet<PhotoId> = ids.iter().copied().collect();
+        let mut covers = Vec::new();
+        self.model.covers.retain(|album, photo| {
+            let keep = !gone.contains(photo);
+            if !keep {
+                covers.push((album.clone(), Some(*photo)));
+            }
+            keep
+        });
+        let mut members = Vec::new();
+        for (album, m) in &mut self.model.members {
+            m.retain(|photo, key| {
+                let keep = !gone.contains(photo);
+                if !keep {
+                    members.push((album.clone(), *photo, key.clone()));
+                }
+                keep
+            });
+        }
+        self.model.members.retain(|_, m| !m.is_empty());
+        for (album, photo, key) in &members {
+            if let Some(index) = self.by_key.get_mut(album) {
+                index.remove(&(key.clone(), *photo));
+            }
+        }
+        self.by_key.retain(|_, index| !index.is_empty());
         let infos: Vec<(PhotoId, PhotoInfo)> = ids.iter().filter_map(|id| Some((*id, self.put_info(*id, PhotoInfo::default())?))).collect();
         let photos: Vec<Photo> = ids.iter().filter_map(|id| self.remove_photo(*id)).collect();
         fx.touched.extend(photos.iter().map(|p| p.folder));
-        let mut ops = Vec::with_capacity(6);
+        let mut ops = Vec::with_capacity(12);
         ops.push(Op::AddPhotos { photos });
+        if !facts.is_empty() {
+            ops.push(Op::SetFacts { facts });
+        }
+        if !digests.is_empty() {
+            ops.push(Op::SetDigests { digests });
+        }
+        if !indexed.is_empty() {
+            ops.push(Op::SetFirstIndexed { indexed });
+        }
+        if !changed.is_empty() {
+            ops.push(Op::SetLastChanged { changed });
+        }
+        if !members.is_empty() {
+            ops.push(Op::AddMembers { members });
+        }
+        if !covers.is_empty() {
+            ops.push(Op::SetCovers { covers });
+        }
         if !infos.is_empty() {
             ops.push(Op::SetPhotoInfo { photos: infos });
         }
@@ -632,6 +965,211 @@ impl Library {
         let p = self.model.photos.remove(&id)?;
         self.by_name.remove(&(p.folder, p.name.clone()));
         Some(p)
+    }
+
+    /// [`Op::MovePhotos`].
+    fn move_photos(&mut self, moves: Vec<(PhotoId, FolderId, String)>, touched: &mut BTreeSet<FolderId>) -> Result<Op> {
+        let mut moving = HashSet::with_capacity(moves.len());
+        for (id, folder, name) in &moves {
+            if !self.model.photos.contains_key(id) {
+                return Err(Error::UnknownPhoto(*id));
+            }
+            if !moving.insert(*id) {
+                return Err(Error::PhotoExists(*id));
+            }
+            if !self.model.folders.contains_key(folder) {
+                return Err(Error::UnknownFolder(*folder));
+            }
+            check_file_name(name)?;
+        }
+        // A place is free when no photo holds it, or the one holding it moves too (a swap).
+        let mut targets = HashSet::with_capacity(moves.len());
+        for (_, folder, name) in &moves {
+            let held = self.by_name.get(&(*folder, name.clone())).is_some_and(|other| !moving.contains(other));
+            if held || !targets.insert((*folder, name.as_str())) {
+                return Err(Error::NameTaken { folder: *folder, name: name.clone() });
+            }
+        }
+        let mut undo = Vec::with_capacity(moves.len());
+        for (id, _, _) in &moves {
+            if let Some(p) = self.model.photos.get(id) {
+                self.by_name.remove(&(p.folder, p.name.clone()));
+            }
+        }
+        for (id, folder, name) in moves {
+            let Some(p) = self.model.photos.get_mut(&id) else { continue };
+            touched.insert(p.folder);
+            touched.insert(folder);
+            let old_folder = std::mem::replace(&mut p.folder, folder);
+            let old_name = std::mem::replace(&mut p.name, name.clone());
+            self.by_name.insert((folder, name), id);
+            undo.push((id, old_folder, old_name));
+        }
+        undo.reverse();
+        Ok(Op::MovePhotos { moves: undo })
+    }
+
+    /// [`Op::MoveFolder`].
+    fn move_folder(&mut self, id: FolderId, path: PathBuf, touched: &mut BTreeSet<FolderId>) -> Result<Op> {
+        let old = self.model.folders.get(&id).map(|f| f.path.clone()).ok_or(Error::UnknownFolder(id))?;
+        if path.as_os_str().is_empty() {
+            return Err(Error::BadText { what: "folder path", why: "empty" });
+        }
+        // Into itself, or onto the path of a folder it is inside: impossible on disk, and the
+        // inverse of the second would be the first.
+        if path != old && (path.starts_with(&old) || old.starts_with(&path)) {
+            return Err(Error::FolderIntoItself(id));
+        }
+        let mut moved = Vec::new();
+        for f in self.model.folders.values() {
+            if let Ok(rest) = f.path.strip_prefix(&old) {
+                let to = if rest.as_os_str().is_empty() { path.clone() } else { path.join(rest) };
+                moved.push((f.id, f.path.clone(), to));
+            } else if f.path.starts_with(&path) {
+                // Moving back would take this folder along: refused, so the inverse is exact.
+                return Err(Error::FolderPathExists(f.id));
+            }
+        }
+        for (_, from, _) in &moved {
+            self.by_path.remove(from);
+        }
+        for (fid, _, to) in moved {
+            if let Some(f) = self.model.folders.get_mut(&fid) {
+                f.path = to.clone();
+            }
+            self.by_path.insert(to, fid);
+            touched.insert(fid);
+        }
+        Ok(Op::MoveFolder { id, path: old })
+    }
+
+    /// The folders of album `id`'s members.
+    fn member_folders(&self, id: &AlbumId) -> BTreeSet<FolderId> {
+        let members = self.model.members.get(id).into_iter().flat_map(BTreeMap::keys);
+        members.filter_map(|p| self.model.photos.get(p).map(|p| p.folder)).collect()
+    }
+
+    /// Checks that every (album, photo) pair is a membership, each once.
+    fn check_members<'a>(&self, pairs: impl Iterator<Item = (&'a AlbumId, PhotoId)>) -> Result<()> {
+        let mut seen = HashSet::new();
+        for (album, photo) in pairs {
+            if !self.model.albums.contains_key(album) {
+                return Err(Error::UnknownAlbum(album.clone()));
+            }
+            if self.member_key(album, photo).is_none() || !seen.insert((album, photo)) {
+                return Err(Error::NotMember { album: album.clone(), photo });
+            }
+        }
+        Ok(())
+    }
+
+    /// Removes one membership (dropping an album's map once it is empty); returns its key.
+    fn take_member(&mut self, album: &AlbumId, photo: PhotoId) -> Option<PosKey> {
+        let m = self.model.members.get_mut(album)?;
+        let key = m.remove(&photo);
+        if m.is_empty() {
+            self.model.members.remove(album);
+        }
+        if let (Some(index), Some(key)) = (self.by_key.get_mut(album), &key) {
+            index.remove(&(key.clone(), photo));
+            if index.is_empty() {
+                self.by_key.remove(album);
+            }
+        }
+        key
+    }
+}
+
+/// Sets or clears each entry of `map` in order; returns the entries that undo it.
+fn set_all<T>(map: &mut BTreeMap<PhotoId, T>, items: Vec<(PhotoId, Option<T>)>) -> Vec<(PhotoId, Option<T>)> {
+    let mut undo = Vec::with_capacity(items.len());
+    for (id, value) in items {
+        let old = match value {
+            Some(v) => map.insert(id, v),
+            None => map.remove(&id),
+        };
+        undo.push((id, old));
+    }
+    undo.reverse();
+    undo
+}
+
+/// Checks a file name an op gives a photo: one plain path component (`security.md` §5.4) of at
+/// most [`MAX_FILE_NAME`] bytes.
+fn check_file_name(name: &str) -> Result<()> {
+    if name.len() > MAX_FILE_NAME {
+        return Err(Error::TooLong { what: "file name", max: MAX_FILE_NAME });
+    }
+    if name.is_empty() || name == "." || name == ".." || name.contains(['/', '\0']) {
+        return Err(Error::BadText { what: "file name", why: "not one plain path component" });
+    }
+    Ok(())
+}
+
+/// The last-changed stamp (M9): which photos an op changes what is said about.
+impl Library {
+    /// `op` with the last-changed time of every photo whose data it changes (star, caption, tags,
+    /// hidden, recipe, date, copy saved beside, album memberships and keys, moves and renames)
+    /// set to `at`, as one batch, so the journal replays the same times and the inverse puts the
+    /// old ones back exactly. Photos the op removes are left out; an op that changes no photo's
+    /// data (scans, folder info, derived data) comes back as it was. The engine stamps the ops of
+    /// commands with its clock (Recently Updated, `organizing.md` §4.1).
+    pub fn stamped(&self, op: Op, at: Timestamp) -> Op {
+        let ids = self.changed_by(&op);
+        if ids.is_empty() {
+            return op;
+        }
+        let changed = Op::SetLastChanged { changed: ids.into_iter().map(|id| (id, Some(at))).collect() };
+        Op::Batch { ops: vec![op, changed] }
+    }
+
+    /// The photos whose data `op` changes that exist once it applied. Walks nested batches without
+    /// recursion.
+    fn changed_by(&self, op: &Op) -> BTreeSet<PhotoId> {
+        let (mut ids, mut added, mut removed) = (BTreeSet::new(), HashSet::new(), HashSet::new());
+        let mut stack = vec![op];
+        while let Some(op) = stack.pop() {
+            match op {
+                Op::SetStars { stars } => ids.extend(stars.iter().map(|(id, _)| *id)),
+                Op::SetCaptions { captions } => ids.extend(captions.iter().map(|(id, _)| *id)),
+                Op::AddTags { ids: list, .. } | Op::RemoveTags { ids: list, .. } => ids.extend(list.iter().copied()),
+                Op::RenameTag { from, .. } => {
+                    let from = fold(from);
+                    ids.extend(self.model.photo_info.iter().filter(|(_, i)| i.tags.iter().any(|t| fold(t) == from)).map(|(id, _)| *id));
+                }
+                Op::SetTags { tags } => ids.extend(tags.iter().map(|(id, _)| *id)),
+                Op::SetHidden { hidden } => ids.extend(hidden.iter().map(|(id, _)| *id)),
+                Op::SetRecipes { recipes } => ids.extend(recipes.iter().map(|(id, _)| *id)),
+                Op::SetDates { dates } => ids.extend(dates.iter().map(|(id, _)| *id)),
+                Op::SetPhotoInfo { photos } => ids.extend(photos.iter().map(|(id, _)| *id)),
+                Op::SetSavedAs { saved_as } => ids.extend(saved_as.iter().map(|(id, _)| *id)),
+                Op::MovePhotos { moves } => ids.extend(moves.iter().map(|(id, _, _)| *id)),
+                Op::AddMembers { members } | Op::SetMemberKeys { keys: members } => ids.extend(members.iter().map(|(_, id, _)| *id)),
+                Op::RemoveMembers { members } => ids.extend(members.iter().map(|(_, id)| *id)),
+                Op::DeleteAlbums { ids: albums } => {
+                    ids.extend(albums.iter().filter_map(|a| self.model.members.get(a)).flat_map(|m| m.keys().copied()));
+                }
+                Op::AddPhotos { photos } => added.extend(photos.iter().map(|p| p.id)),
+                Op::RemovePhotos { ids: list } => removed.extend(list.iter().copied()),
+                Op::RemoveFolder { id } => removed.extend(self.model.photos.values().filter(|p| p.folder == *id).map(|p| p.id)),
+                Op::Batch { ops } => stack.extend(ops),
+                _ => {}
+            }
+        }
+        ids.retain(|id| !removed.contains(id) && (added.contains(id) || self.model.photos.contains_key(id)));
+        ids
+    }
+
+    /// The derived op that records `at` as the first-indexed time of each of `ids` that has none
+    /// yet (unknown photos and repeats are left out): a scan applies it for the photos it adds.
+    pub fn first_indexed_op(&self, ids: &[PhotoId], at: Timestamp) -> Op {
+        let mut seen = HashSet::with_capacity(ids.len());
+        let indexed = ids
+            .iter()
+            .filter(|id| self.model.photos.contains_key(id) && !self.model.indexed.contains_key(id) && seen.insert(**id))
+            .map(|id| (*id, Some(at)))
+            .collect();
+        Op::SetFirstIndexed { indexed }
     }
 }
 

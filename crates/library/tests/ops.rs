@@ -2,13 +2,21 @@
 //! its inverse restores the model (and the tag index), each apply bumps the revision once (derived
 //! ops: never), and a refused op changes nothing. Every op is in the mix, M6's and M8's included
 //! (saved records, copies saved beside, the Exported mark, and the batches of a Save, an Undo Save,
-//! a Revert and a Save beside), and the cached unsaved counts always equal fresh ones.
+//! a Revert and a Save beside), and the cached unsaved counts always equal fresh ones. M9's ops join
+//! the mix: albums (created, deleted, info, members added, removed and re-keyed, covers, and the
+//! ops of an add, a drop, a reorder and Sort Album By), photos moved and renamed, folders moved
+//! with their subtrees, folder photo sorts, search facts, digests, first-indexed and last-changed
+//! times, and stamped ops; the cached album order, Starred Photos and Recently Updated always equal
+//! fresh ones.
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 
-use dalica_core::{DateTime, FolderId, PhotoId, Timestamp};
-use dalica_library::{Folder, FolderInfo, Library, Op, Photo, PhotoInfo, Project, Recipe, SaveState, Saved, SavedAs, Synced, clean_tags};
+use dalica_core::{AlbumId, DateTime, FolderId, PhotoId, PosKey, Timestamp};
+use dalica_library::{
+    AlbumInfo, Anchor, ContentDigest, Facts, Folder, FolderInfo, Library, Op, Photo, PhotoInfo, PhotoSort, Project, Recipe, SaveState, Saved,
+    SavedAs, SortBy, Synced, clean_tags,
+};
 use proptest::prelude::*;
 
 /// A recipe for an op, turned into a real one against the current library (indices wrap around
@@ -42,6 +50,25 @@ enum Seed {
     UndoSave(Vec<u8>),
     Revert(Vec<u8>),
     SaveBeside(u8, u8),
+    // M9.
+    CreateAlbums(Vec<(u8, u8)>),
+    DeleteAlbums(Vec<u8>),
+    SetAlbumInfo(Vec<(u8, u8)>),
+    AddMembers(Vec<(u8, u8, u8)>),
+    RemoveMembers(Vec<(u8, u8)>),
+    SetMemberKeys(Vec<(u8, u8, u8)>),
+    SetCovers(Vec<(u8, Option<u8>)>),
+    /// An album's add, reorder and sort ops (album, photos, anchor (before?, member), kind).
+    AlbumOp(u8, Vec<u8>, Option<(bool, u8)>, u8),
+    MovePhotos(Vec<(u8, u8, u8)>),
+    MoveFolder(u8, u8),
+    SetFolderSorts(Vec<(u8, u8)>),
+    SetFacts(Vec<(u8, u8)>),
+    SetDigests(Vec<(u8, Option<u8>)>),
+    SetFirstIndexed(Vec<(u8, Option<u8>)>),
+    SetLastChanged(Vec<(u8, Option<u8>)>),
+    /// A seed's op stamped with a last-changed time.
+    Stamped(Box<Seed>, u8),
     Batch(Vec<Seed>),
     UnknownPhoto,
     UnknownFolder,
@@ -116,7 +143,81 @@ fn folder_info(n: u8) -> FolderInfo {
     }
 }
 
+/// Album ids from a small set, so clashes and unknown albums happen.
+fn album(n: u8) -> AlbumId {
+    AlbumId::parse(&format!("a{:04x}", n % 5)).unwrap()
+}
+
+/// Keys from a small set, so equal keys happen.
+fn key(n: u8) -> PosKey {
+    PosKey::parse(["a0", "a1", "a2", "b00", "Zz"][usize::from(n) % 5]).unwrap()
+}
+
+fn album_info(n: u8) -> AlbumInfo {
+    AlbumInfo {
+        name: ["Best of 2026", "Trams", "Ünïcode ✓", "x"][usize::from(n) % 4].into(),
+        description: CAPTIONS[usize::from(n) % CAPTIONS.len()].to_string(),
+        date: if n.is_multiple_of(2) { date(u16::from(n)).map(|d| d.date()) } else { None },
+        use_newest: n.is_multiple_of(3),
+        place: if n.is_multiple_of(5) { "Lisbon, Portugal".into() } else { String::new() },
+    }
+}
+
+fn facts(n: u8) -> Facts {
+    Facts {
+        make: ["", "Canon", "NIKON CORPORATION"][usize::from(n) % 3].into(),
+        model: ["", "EOS 5D", "Z 6"][usize::from(n / 3) % 3].into(),
+        video: n.is_multiple_of(4),
+        geotagged: n.is_multiple_of(5),
+    }
+}
+
+fn time(n: u8) -> Timestamp {
+    Timestamp::from_millis(1_700_000_000_000 + i64::from(n) * 86_400_000)
+}
+
+fn sort(n: u8) -> PhotoSort {
+    PhotoSort::new([SortBy::Date, SortBy::Name, SortBy::Size][usize::from(n) % 3], n.is_multiple_of(2))
+}
+
+fn pick_album(albums: &[AlbumId], i: u8) -> AlbumId {
+    if albums.is_empty() || i.is_multiple_of(7) { album(i) } else { albums[usize::from(i) % albums.len()].clone() }
+}
+
+fn m9_leaf() -> impl Strategy<Value = Seed> {
+    let list2 = || proptest::collection::vec((any::<u8>(), any::<u8>()), 0..4);
+    let list3 = || proptest::collection::vec((any::<u8>(), any::<u8>(), any::<u8>()), 0..4);
+    let opt = || proptest::collection::vec((any::<u8>(), proptest::option::of(any::<u8>())), 0..4);
+    prop_oneof![
+        list2().prop_map(Seed::CreateAlbums),
+        proptest::collection::vec(any::<u8>(), 0..3).prop_map(Seed::DeleteAlbums),
+        list2().prop_map(Seed::SetAlbumInfo),
+        list3().prop_map(Seed::AddMembers),
+        list2().prop_map(Seed::RemoveMembers),
+        list3().prop_map(Seed::SetMemberKeys),
+        opt().prop_map(Seed::SetCovers),
+        (any::<u8>(), proptest::collection::vec(any::<u8>(), 0..4), proptest::option::of((any::<bool>(), any::<u8>())), any::<u8>())
+            .prop_map(|(a, ids, at, kind)| Seed::AlbumOp(a, ids, at, kind)),
+        list3().prop_map(Seed::MovePhotos),
+        (any::<u8>(), any::<u8>()).prop_map(|(f, p)| Seed::MoveFolder(f, p)),
+        list2().prop_map(Seed::SetFolderSorts),
+        list2().prop_map(Seed::SetFacts),
+        opt().prop_map(Seed::SetDigests),
+        opt().prop_map(Seed::SetFirstIndexed),
+        opt().prop_map(Seed::SetLastChanged),
+    ]
+}
+
 fn leaf() -> impl Strategy<Value = Seed> {
+    prop_oneof![
+        3 => old_leaf(),
+        2 => m9_leaf(),
+        1 => (old_leaf(), any::<u8>()).prop_map(|(s, t)| Seed::Stamped(Box::new(s), t)),
+        1 => (m9_leaf(), any::<u8>()).prop_map(|(s, t)| Seed::Stamped(Box::new(s), t)),
+    ]
+}
+
+fn old_leaf() -> impl Strategy<Value = Seed> {
     prop_oneof![
         any::<u8>().prop_map(Seed::AddFolder),
         any::<u8>().prop_map(Seed::RemoveFolder),
@@ -157,13 +258,30 @@ fn pick<T: Copy>(items: &[T], i: u8) -> Option<T> {
     if items.is_empty() { None } else { items.get(usize::from(i) % items.len()).copied() }
 }
 
+/// Folder paths: six tops and three nested folders, so moves take subtrees along.
+fn folder_path(n: u8) -> PathBuf {
+    match n % 9 {
+        k @ 0..6 => PathBuf::from(format!("/photos/f{k}")),
+        k => PathBuf::from(format!("/photos/f{}/sub", k - 6)),
+    }
+}
+
+/// A membership: the `i`th member of a picked album (or a pair that is none).
+fn member(lib: &Library, albums: &[AlbumId], a: u8, i: u8) -> Option<(AlbumId, PhotoId)> {
+    let a = pick_album(albums, a);
+    let members = lib.album_members(&a).to_vec();
+    let photo = pick(&members, i).or_else(|| lib.photos().next().map(|p| p.id))?;
+    Some((a, photo))
+}
+
 fn build(lib: &mut Library, seed: &Seed) -> Op {
     let folders: Vec<FolderId> = lib.folders().map(|f| f.id).collect();
     let photos: Vec<PhotoId> = lib.photos().map(|p| p.id).collect();
+    let albums: Vec<AlbumId> = lib.albums().map(|(id, _)| id.clone()).collect();
     match seed {
         Seed::AddFolder(n) => {
             let id = lib.next_folder_id();
-            Op::AddFolder { folder: Folder { id, path: PathBuf::from(format!("/photos/f{}", n % 6)) } }
+            Op::AddFolder { folder: Folder { id, path: folder_path(*n) } }
         }
         Seed::RemoveFolder(i) => Op::RemoveFolder { id: pick(&folders, *i).unwrap_or(FolderId::new(999)) },
         Seed::AddPhotos(list) => Op::AddPhotos {
@@ -236,6 +354,58 @@ fn build(lib: &mut Library, seed: &Seed) -> Op {
             Some(id) => lib.save_beside_op(id, saved_as(*n).name).unwrap_or_else(|_| refused()),
             None => refused(),
         },
+        Seed::CreateAlbums(list) => Op::CreateAlbums { albums: list.iter().map(|(a, n)| (album(*a), album_info(*n))).collect() },
+        Seed::DeleteAlbums(list) => Op::DeleteAlbums { ids: list.iter().map(|a| pick_album(&albums, *a)).collect() },
+        Seed::SetAlbumInfo(list) => Op::SetAlbumInfo { albums: list.iter().map(|(a, n)| (pick_album(&albums, *a), album_info(*n))).collect() },
+        Seed::AddMembers(list) => {
+            Op::AddMembers { members: list.iter().filter_map(|(a, i, k)| Some((pick_album(&albums, *a), pick(&photos, *i)?, key(*k)))).collect() }
+        }
+        Seed::RemoveMembers(list) => Op::RemoveMembers { members: list.iter().filter_map(|(a, i)| member(lib, &albums, *a, *i)).collect() },
+        Seed::SetMemberKeys(list) => {
+            Op::SetMemberKeys { keys: list.iter().filter_map(|(a, i, k)| member(lib, &albums, *a, *i).map(|(a, p)| (a, p, key(*k)))).collect() }
+        }
+        Seed::SetCovers(list) => Op::SetCovers {
+            covers: list.iter().map(|(a, i)| (pick_album(&albums, *a), i.and_then(|i| member(lib, &albums, *a, i).map(|(_, p)| p)))).collect(),
+        },
+        Seed::AlbumOp(a, ids, at, kind) => {
+            let a = pick_album(&albums, *a);
+            let members = lib.album_members(&a).to_vec();
+            let anchor = at.and_then(|(before, i)| {
+                let m = pick(&members, i)?;
+                Some(if before { Anchor::Before(m) } else { Anchor::After(m) })
+            });
+            let result = match kind % 4 {
+                0 => lib.album_add_op(&a, &ids.iter().filter_map(|i| pick(&photos, *i)).collect::<Vec<_>>(), anchor),
+                1 => lib.album_reorder_op(&a, &ids.iter().filter_map(|i| pick(&members, *i)).collect::<Vec<_>>(), anchor),
+                2 => lib.album_sort_op(&a, sort(*kind)),
+                _ => lib.album_rekey_op(&a),
+            };
+            result.unwrap_or_else(|_| refused())
+        }
+        Seed::MovePhotos(list) => Op::MovePhotos {
+            moves: list.iter().filter_map(|(i, f, n)| Some((pick(&photos, *i)?, pick(&folders, *f)?, format!("n{}.jpg", n % 12)))).collect(),
+        },
+        Seed::MoveFolder(f, n) => Op::MoveFolder { id: pick(&folders, *f).unwrap_or(FolderId::new(999)), path: folder_path(*n) },
+        Seed::SetFolderSorts(list) => Op::SetFolderSorts { sorts: list.iter().filter_map(|(f, n)| Some((pick(&folders, *f)?, sort(*n)))).collect() },
+        Seed::SetFacts(list) => Op::SetFacts { facts: list.iter().filter_map(|(i, n)| Some((pick(&photos, *i)?, facts(*n)))).collect() },
+        Seed::SetDigests(list) => Op::SetDigests {
+            digests: list
+                .iter()
+                .filter_map(|(i, n)| {
+                    Some((pick(&photos, *i)?, n.map(|n| ContentDigest { size: u64::from(n), mtime: time(n), digest: format!("md5:{n}") })))
+                })
+                .collect(),
+        },
+        Seed::SetFirstIndexed(list) => {
+            Op::SetFirstIndexed { indexed: list.iter().filter_map(|(i, n)| Some((pick(&photos, *i)?, n.map(time)))).collect() }
+        }
+        Seed::SetLastChanged(list) => {
+            Op::SetLastChanged { changed: list.iter().filter_map(|(i, n)| Some((pick(&photos, *i)?, n.map(time)))).collect() }
+        }
+        Seed::Stamped(seed, t) => {
+            let op = build(lib, seed);
+            lib.stamped(op, time(*t))
+        }
         Seed::Batch(seeds) => Op::Batch { ops: seeds.iter().map(|s| build(lib, s)).collect() },
         Seed::UnknownPhoto => Op::SetStars { stars: vec![(PhotoId::new(u64::MAX), true)] },
         Seed::UnknownFolder => Op::SetFoldersHidden { hidden: vec![(FolderId::new(u64::MAX), true)] },
@@ -304,6 +474,63 @@ fn check_invariants(lib: &Library) -> Result<(), TestCaseError> {
     for (id, _) in lib.projects() {
         prop_assert!(lib.folder(id).is_some());
     }
+    // M9: memberships only of albums and photos there are, never an empty album map, covers in
+    // their albums, index-only data only for photos there are, no default sort stored.
+    for (album, members) in lib.memberships() {
+        prop_assert!(lib.album(album).is_some() && !members.is_empty());
+        let mut fresh: Vec<(PosKey, PathBuf, String, PhotoId)> = Vec::new();
+        for (id, key) in members {
+            let p = lib.photo(*id);
+            prop_assert!(p.is_some());
+            let p = p.unwrap();
+            fresh.push((key.clone(), lib.folder(p.folder).unwrap().path.clone(), p.name.clone(), *id));
+        }
+        fresh.sort();
+        prop_assert_eq!(lib.album_members(album), &fresh.into_iter().map(|(.., id)| id).collect::<Vec<_>>()[..]);
+        prop_assert_eq!(lib.album_count(album), members.len());
+    }
+    // Drops find their neighbours through an index kept beside the memberships: an add at the
+    // end lands last and a move before the first lands first, whatever ops came before.
+    for (album, _) in lib.albums() {
+        let members = lib.album_members(album).to_vec();
+        if let Some(outsider) = lib.photos().map(|p| p.id).find(|id| !members.contains(id)) {
+            let mut copy = lib.clone();
+            copy.apply(copy.album_add_op(album, &[outsider], None).unwrap()).unwrap();
+            prop_assert_eq!(copy.album_members(album).last(), Some(&outsider));
+        }
+        if let [first, .., last] = members[..] {
+            let mut copy = lib.clone();
+            copy.apply(copy.album_reorder_op(album, &[last], Some(Anchor::Before(first))).unwrap()).unwrap();
+            prop_assert_eq!(copy.album_members(album).first(), Some(&last));
+        }
+    }
+    for (album, _) in lib.albums() {
+        if let Some(cover) = lib.cover_set(album) {
+            prop_assert!(lib.member_key(album, cover).is_some());
+        }
+        prop_assert_eq!(lib.album_cover(album), lib.cover_set(album).or_else(|| lib.album_members(album).first().copied()));
+    }
+    for (id, f) in lib.facts_all() {
+        prop_assert!(lib.photo(id).is_some() && !f.is_empty());
+    }
+    for (id, _) in lib.digests() {
+        prop_assert!(lib.photo(id).is_some());
+    }
+    for (id, _) in lib.first_indexed_all().chain(lib.last_changed_all()) {
+        prop_assert!(lib.photo(id).is_some());
+    }
+    for (id, sort) in lib.folder_sorts() {
+        prop_assert!(lib.folder(id).is_some() && !sort.is_default());
+    }
+    // The cached automatic albums are the ones worked out afresh.
+    let mut starred: Vec<&Photo> = lib.photos().filter(|p| p.star).collect();
+    starred.sort_by_key(|p| (lib.sort_date(p), p.name.clone(), p.id));
+    prop_assert_eq!(lib.starred_photos(), &starred.iter().map(|p| p.id).collect::<Vec<_>>()[..]);
+    let now = time(40);
+    let since = Timestamp::from_millis(now.as_millis() - 30 * 86_400_000);
+    let mut recent: Vec<&Photo> = lib.photos().filter(|p| lib.updated_time(p) >= since).collect();
+    recent.sort_by_key(|p| (std::cmp::Reverse(lib.updated_time(p)), p.name.clone(), p.id));
+    prop_assert_eq!(lib.recently_updated(now, 30), recent.iter().map(|p| p.id).collect::<Vec<_>>());
     // The cached unsaved counts are the ones counted afresh.
     let mut fresh: HashMap<FolderId, usize> = HashMap::new();
     for p in lib.photos().filter(|p| lib.has_unsaved_edits(p.id)) {
