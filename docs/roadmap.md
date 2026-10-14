@@ -3967,7 +3967,7 @@ mid-run.
     `dialog:<kind>` and Esc closes it; `ui.menu.tree {context: "photo"}` lists §9.1's rows in order;
     Delete and Ctrl+Delete route by section; the menu items light up; every command's
     graceful-failure test; `panic_hunt` and `widget_ids` stay green.
-- ⬜ **M9.5 `ui-kit`: album icons, the filter banner, the drag pill and the age slider**
+- ✅ **M9.5 `ui-kit`: album icons, the filter banner, the drag pill and the age slider**
   - after: M8.5, M8.R
   - files: `crates/ui-kit/src/widgets.rs`, `crates/ui-kit/src/widgets/banner.rs`, `crates/ui-kit/src/widgets/drag_pill.rs`, `crates/ui-kit/src/widgets/age_slider.rs`, `crates/ui-kit/src/icons.rs`, `crates/ui-kit/src/icons/albums.rs`, `crates/ui-kit/tests/m9_widgets.rs`, `crates/ui-kit/tests/icons_albums.rs`, `crates/ui-kit/tests/fingerprints/m9-widgets*.json`, `crates/ui-kit/tests/fingerprints/icons-albums*.json`, `crates/ui-kit/tests/fingerprints/gallery*.json`, `docs/design-system.md`
   - scope: `design-system.md` §5–§6 and `ui-layout.md` §4, §5.5 and §9: `filter_banner` (32 high in

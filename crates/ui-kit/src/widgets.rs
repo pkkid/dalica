@@ -18,11 +18,14 @@ use crate::fonts;
 use crate::icons::{self, Icon};
 use crate::registry::{self, Role, WidgetInfo};
 
+mod age_slider;
 mod autocomplete;
 mod badges;
+mod banner;
 mod buttons;
 mod datetime;
 mod dialog;
+mod drag_pill;
 mod dropdown;
 mod feedback;
 mod field;
@@ -36,17 +39,23 @@ mod tabs;
 mod tool_button;
 mod tooltip;
 
+pub use age_slider::{AGE_MAX_DAYS, age_days, age_label, age_position, age_slider, age_snapped};
 pub use autocomplete::{AutocompleteOut, MAX_SUGGESTIONS, VISIBLE_SUGGESTIONS, autocomplete, autocomplete_matches};
 pub use badges::{
     BADGE_GAP, BADGE_GLYPH, BADGE_INSET, BADGE_PLATE, Badge, BadgeRects, Badges, PHOTO_SHADOW, Video, badge_row, badges, duration_text, failed_mark,
     photo_shadow, star_badge,
 };
+pub use banner::{BANNER_H, BANNER_PAD, BANNER_TEXT_GAP, BannerOut, filter_banner};
 pub use buttons::{Segment, SegmentLabel, action_button, primary_button, segmented, toggle_filter};
 pub use datetime::{
     DATE_HINT, DATE_WIDTH, DatePart, MAX_YEAR, MIN_YEAR, PickedDate, PickedTime, PickerOut, TIME_HINT, TIME_WIDTH, TimePart, date_field,
     days_in_month, time_field,
 };
 pub use dialog::{ButtonKind, DialogButton, DialogResponse, dialog};
+pub use drag_pill::{
+    DragOp, DragPill, MARKER_CAP, MARKER_W, PILL_H, PILL_MARGIN, PILL_MAX_W, PILL_OFFSET, PILL_THUMB, PillThumb, drag_pill, drag_pill_rect,
+    drag_pill_text, drop_target, insertion_marker,
+};
 pub use dropdown::{DROPDOWN_ITEM_MAX_W, DROPDOWN_ITEM_MIN_W, dropdown, dropdown_item, dropdown_popup_id};
 pub use feedback::{
     ProgressOut, TOAST_ERROR_SECS, TOAST_LINES, TOAST_SECS, ToastKind, ToastText, elide_middle, empty_state, progress_row, toast, toast_galley,
