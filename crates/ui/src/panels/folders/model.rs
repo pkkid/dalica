@@ -14,6 +14,9 @@
 //!   `tree:disclosure:dir:<hash>`.
 //! - **Moving** ([`Model::step`]): ↑/↓ go to the previous or next row that has a section (a row
 //!   with photos); directories and empty folders are passed over.
+//! - **Projects:** the rows of the Projects group (the folders an export made, marked Exported
+//!   wherever they are, and the folders under the projects directory) are flagged
+//!   [`Row::project`], so they are drawn with the project icon.
 //! - **Offline** ([`Model::mark_offline`]): rows under a watched root whose volume is offline
 //!   (`data-model.md` §7) keep their place, count and section and are marked, once per build, so
 //!   a frame never tests a path.
@@ -70,6 +73,9 @@ pub struct Row {
     pub disclosure: Option<String>,
     /// Under a watched root whose volume is offline: drawn dimmed with the "offline" marker.
     pub offline: bool,
+    /// A row of the Projects group (an export folder, a folder under the projects directory):
+    /// drawn with the project icon.
+    pub project: bool,
 }
 
 /// The marker an offline row carries.
@@ -191,6 +197,7 @@ impl Model {
                             id,
                             disclosure: f.has_children.then_some(disclosure),
                             offline: false,
+                            project: g.group == Group::Projects,
                         };
                         push(&mut items, Kind::Row(row), h.row);
                     }
@@ -377,6 +384,22 @@ mod tests {
         assert_eq!(m.row(4).unwrap().label(), "y (5)");
         let Kind::Header { title, .. } = &m.items[6].kind else { panic!() };
         assert_eq!(title, "Hidden Folders (2)");
+    }
+
+    #[test]
+    fn rows_of_the_projects_group_are_flagged() {
+        let mut t = tree();
+        t.mode = TreeMode::Flat;
+        t.groups.insert(
+            0,
+            GroupRows { group: Group::Projects, collapsed: false, count: 7, rows: vec![folder(Some(9), "/x/Exports/Lisbon", 7, 0, false)] },
+        );
+        let m = Model::build(&t, Heights::default());
+        let flagged: Vec<(String, bool)> = (0..m.items.len()).filter_map(|i| m.row(i)).map(|r| (r.name.clone(), r.project)).collect();
+        assert_eq!(flagged[0], ("Lisbon".into(), true), "the export folder");
+        assert!(flagged[1..].iter().all(|(_, p)| !p), "the Folders group's rows are no projects: {flagged:?}");
+        let Kind::Header { title, .. } = &m.items[0].kind else { panic!() };
+        assert_eq!(title, "Projects (7)");
     }
 
     #[test]

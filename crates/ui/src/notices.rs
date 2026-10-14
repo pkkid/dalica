@@ -1,29 +1,74 @@
 //! Notices: what the session reports on its own (a metadata write that failed, a file changed in
-//! another application) shown as toasts (`design-system.md` §6 `toast`) at the bottom of the light
-//! table. The app polls the session once a frame ([`Notices::poll`]), draws the toasts still showing
-//! ([`Notices::show`], `toast:<n>`) and reports them to `ui.inspect` → `toasts` ([`Notices::inspect`]).
-//! Each toast stays its kind's time (1.4 s, cautions and failures 6 s), then is dropped. Its text
-//! wraps to at most three lines; only a longer one is cut short, in the middle, and never inside
-//! the file name it is about.
+//! another application, a file job that ended) shown as toasts (`design-system.md` §6 `toast`) at
+//! the bottom of the light table. The app polls the session once a frame ([`Notices::poll`]), draws
+//! the toasts still showing ([`Notices::show`], `toast:<n>`) and reports them to `ui.inspect` →
+//! `toasts` ([`Notices::inspect`]). Each toast stays its kind's time (1.4 s, cautions and failures
+//! 6 s; one with an action 6 s too, so there is time to press it), then is dropped. Its text wraps
+//! to at most three lines; only a longer one is cut short, in the middle, and never inside the file
+//! name it is about.
 //!
-//! Today the session reports failed metadata writes (`dalica_engine::metadata`): each becomes one
-//! `caution` toast naming the file and the fields (nothing is lost: the folder sidecar keeps the
-//! values; `data-model.md` §5, `xmp-interop.md` §1). The app's own confirmations come through
-//! [`Notices::push`].
+//! - **Metadata writes** that failed (`dalica_engine::metadata`): each becomes one `caution` toast
+//!   naming the file and the fields (nothing is lost: the folder sidecar keeps the values;
+//!   `data-model.md` §5, `xmp-interop.md` §1).
+//! - **File jobs** (Save, Save a Copy, Save As, Export; `dalica_engine::filejobs`): each job that
+//!   ends becomes one toast ([`event_toast`]): its message ("Exported 48 pictures", with "; 2
+//!   skipped" when some were skipped; a saved copy's name), `info`; when items failed, `caution`,
+//!   naming the first file that failed and why ("Could not save IMG_0041.jpg: the file is
+//!   read-only", "and 2 more" after it). A job that names a folder (an export's) gets the
+//!   **Show Folder** button (`button:toast.showFolder`; `creating.md` §2): until OS integration
+//!   (M15) it brings the folder up in the library: back from the edit view, the folder selected as
+//!   a unit and the light table scrolled to it ([`act`]; while the folder's scan is still bringing
+//!   it in, it waits for it).
+//!
+//! The app's own confirmations come through [`Notices::push`].
 
-use dalica_engine::Session;
+use std::path::{Path, PathBuf};
+
+use dalica_engine::{FileJobEvent, JobKind, Session};
 use dalica_ui_kit::Tokens;
 use dalica_ui_kit::widgets::{self, ToastKind, ToastText};
 use egui::{Rect, Ui};
 use serde_json::{Value, json};
+
+use crate::app::App;
+use crate::state::Section;
 
 /// The most toasts kept at once; a new one beyond it drops the oldest.
 pub const MAX_TOASTS: usize = 8;
 /// The longest toast text kept, in characters.
 pub const MAX_TEXT: usize = 300;
 
+/// The Show Folder button's automation id and label.
+pub const SHOW_FOLDER_ID: &str = "button:toast.showFolder";
+pub const SHOW_FOLDER: &str = "Show Folder";
+/// How long a toast with an action shows at least, in seconds.
+pub const ACTION_SECS: f64 = 6.0;
+/// How many frames a Show Folder waits for its folder once no scan runs (the light table takes
+/// in a folder the frame after the library has it).
+const SHOW_FOLDER_FRAMES: u32 = 30;
+/// Why Show Folder found nothing.
+pub const NOT_IN_LIBRARY: &str = "The folder is not in the library.";
+
+/// What a toast's button does.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Action {
+    /// Brings this folder up in the library ([`act`]).
+    ShowFolder(PathBuf),
+}
+
+/// What a finished file job shows: the text, the part of it kept whole (the failed file's name),
+/// the kind and the button.
+#[derive(Debug, Clone, PartialEq)]
+pub struct JobToast {
+    pub text: String,
+    pub whole: String,
+    pub kind: ToastKind,
+    pub action: Option<Action>,
+}
+
 /// One toast: its number (the `<n>` of `toast:<n>`), text, how many characters at the start of
-/// the text stay whole if it is cut short, kind and when it appeared (seconds on the frame clock).
+/// the text stay whole if it is cut short, kind, when it appeared (seconds on the frame clock) and
+/// its button, if any.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Toast {
     pub n: u64,
@@ -31,12 +76,20 @@ pub struct Toast {
     pub keep: usize,
     pub kind: ToastKind,
     pub shown_at: f64,
+    pub action: Option<Action>,
 }
 
 impl Toast {
-    /// How long it shows, in seconds.
+    /// How long it shows, in seconds: its kind's time, at least [`ACTION_SECS`] with a button.
     fn life(&self) -> f64 {
-        self.kind.life()
+        if self.action.is_some() { self.kind.life().max(ACTION_SECS) } else { self.kind.life() }
+    }
+
+    /// Its age as its kind's fade counts it: the extra time a button gives comes first, so the
+    /// toast fades over the last moments of its whole life.
+    fn fade_age(&self, now: f64) -> f64 {
+        let age = now - self.shown_at - (self.life() - self.kind.life());
+        if age.is_finite() { age.max(0.0) } else { f64::INFINITY }
     }
 
     /// The seconds it still shows at `now` (0 once over).
@@ -53,6 +106,11 @@ pub struct Notices {
     next: u64,
     /// The number of the last session event shown ([`dalica_engine::MetadataEvent::seq`]).
     seen: u64,
+    /// The number of the last file-job event shown ([`FileJobEvent::seq`], which starts at 0).
+    seen_jobs: Option<u64>,
+    /// A Show Folder pressed and not done yet: the folder, and the frames it may still wait once
+    /// no scan runs.
+    want: Option<(PathBuf, u32)>,
 }
 
 impl Notices {
@@ -65,6 +123,11 @@ impl Notices {
     /// and including `whole` (a file name in it; its occurrence followed by ": " first) stays
     /// whole.
     pub fn push_keeping(&mut self, text: &str, whole: &str, kind: ToastKind, now: f64) {
+        self.push_with(text, whole, kind, None, now);
+    }
+
+    /// [`Notices::push_keeping`] with a button.
+    pub fn push_with(&mut self, text: &str, whole: &str, kind: ToastKind, action: Option<Action>, now: f64) {
         let text = clean(text);
         let whole = clean(whole);
         let keep = if whole.is_empty() {
@@ -77,7 +140,7 @@ impl Notices {
         if self.toasts.len() >= MAX_TOASTS {
             self.toasts.remove(0);
         }
-        self.toasts.push(Toast { n: self.next, text, keep, kind, shown_at: if now.is_finite() { now } else { 0.0 } });
+        self.toasts.push(Toast { n: self.next, text, keep, kind, shown_at: if now.is_finite() { now } else { 0.0 }, action });
     }
 
     /// Turns what `session` reported since the last poll into toasts, and drops the toasts whose
@@ -93,6 +156,17 @@ impl Notices {
             self.seen = self.seen.max(seq);
             self.push_keeping(&text, &file, ToastKind::Caution, now);
         }
+        let ended: Vec<(u64, JobToast)> =
+            session.file_job_events().filter(|e| self.seen_jobs.is_none_or(|s| e.seq > s)).map(|e| (e.seq, event_toast(e))).collect();
+        for (seq, t) in ended {
+            self.seen_jobs = Some(self.seen_jobs.map_or(seq, |s| s.max(seq)));
+            self.push_with(&t.text, &t.whole, t.kind, t.action, now);
+        }
+    }
+
+    /// The folder a Show Folder pressed asks for, while it waits ([`act`]).
+    pub fn wanted(&self) -> Option<&Path> {
+        self.want.as_ref().map(|(p, _)| p.as_path())
     }
 
     /// The toasts still showing at `now`, oldest first.
@@ -100,11 +174,20 @@ impl Notices {
         self.toasts.iter().filter(move |t| t.remaining(now) > 0.0)
     }
 
-    /// Draws the newest toast still showing at the bottom of `area` (the light table).
-    pub fn show(&self, ui: &Ui, t: &Tokens, area: Rect, now: f64) {
-        if let Some(toast) = self.showing(now).last() {
-            let text = ToastText::new(&toast.text, toast.keep);
-            widgets::toast(ui, t, &format!("toast:{}", toast.n), area, text, toast.kind, now - toast.shown_at, None);
+    /// Draws the newest toast still showing at the bottom of `area` (the light table), with its
+    /// button. A button pressed does its work this frame ([`act`]) and the toast goes.
+    pub fn show(&mut self, ui: &Ui, t: &Tokens, area: Rect, now: f64) {
+        let Some(toast) = self.showing(now).last() else { return };
+        let text = ToastText::new(&toast.text, toast.keep);
+        let button = toast.action.as_ref().map(|_| (SHOW_FOLDER_ID, SHOW_FOLDER));
+        let pressed =
+            widgets::toast(ui, t, &format!("toast:{}", toast.n), area, text, toast.kind, toast.fade_age(now), button).is_some_and(|r| r.clicked());
+        if pressed {
+            let (n, action) = (toast.n, toast.action.clone());
+            self.toasts.retain(|t| t.n != n);
+            if let Some(Action::ShowFolder(path)) = action {
+                self.want = Some((path, SHOW_FOLDER_FRAMES));
+            }
         }
     }
 
@@ -119,10 +202,64 @@ impl Notices {
                     ToastKind::Caution => "caution",
                     ToastKind::Error => "error",
                 };
-                json!({ "id": format!("toast:{}", toast.n), "text": toast.text, "kind": kind, "remaining": toast.remaining(now) })
+                let mut v = json!({ "id": format!("toast:{}", toast.n), "text": toast.text, "kind": kind, "remaining": toast.remaining(now) });
+                if let (Some(Action::ShowFolder(folder)), Some(o)) = (&toast.action, v.as_object_mut()) {
+                    o.insert("action".into(), json!({ "id": SHOW_FOLDER_ID, "folder": folder }));
+                }
+                v
             })
             .collect();
         Value::Array(list)
+    }
+}
+
+/// What file job `e`'s end shows: its message, `info`; with failures, `caution`, the first file
+/// that failed and why after the message ("Could not save IMG_0041.jpg: …" alone when nothing was
+/// done), "and n more" when several did; Show Folder when the job names a folder.
+pub fn event_toast(e: &FileJobEvent) -> JobToast {
+    let action = e.folder.clone().map(Action::ShowFolder);
+    let Some(first) = e.failures.first() else {
+        return JobToast { text: e.message.clone(), whole: String::new(), kind: ToastKind::Info, action };
+    };
+    let verb = match e.kind {
+        JobKind::Export => "export",
+        JobKind::Import => "import",
+        _ => "save",
+    };
+    let name = first.file.file_name().map_or_else(|| first.file.to_string_lossy().into_owned(), |n| n.to_string_lossy().into_owned());
+    let mut detail = format!("Could not {verb} {name}: {}", first.reason.trim_end_matches('.'));
+    let more = e.failures.len().saturating_sub(1);
+    if more > 0 {
+        detail.push_str(&format!(", and {more} more"));
+    }
+    // A Save that did nothing says only what failed; an export (or a Save that did some) keeps
+    // its counts in front.
+    let text = if e.done == 0 && e.kind != JobKind::Export { detail } else { format!("{}. {detail}", e.message.trim_end_matches('.')) };
+    JobToast { text, whole: name, kind: ToastKind::Caution, action }
+}
+
+/// Does what a toast's button asked for (once a frame, after the toasts are drawn): Show Folder
+/// goes back to the library, selects the folder as a unit and scrolls the light table to it. A
+/// folder not in the library yet is waited for while a scan runs (an export's folder comes in by
+/// the scan its job starts at its end), then a few frames more; past that the toast says so.
+pub fn act(app: &mut App) {
+    let Some((path, frames)) = app.notices_mut().want.take() else { return };
+    let folder = app.session().and_then(|s| s.library().folder_by_path(&path));
+    let scanning = app.session().is_some_and(Session::busy);
+    let shown = folder.is_some_and(|folder| {
+        let section = Section::Folder(folder);
+        if app.state().view == crate::state::View::Edit && app.run("view.library", &json!({})).is_err() {
+            return false;
+        }
+        app.run("select.section", &json!({ "section": section })).is_ok() && app.run("section.scrollTo", &json!({ "section": section })).is_ok()
+    });
+    if shown {
+        return;
+    }
+    if scanning || frames > 0 {
+        app.notices_mut().want = Some((path, if scanning { frames } else { frames.saturating_sub(1) }));
+    } else {
+        app.toast(NOT_IN_LIBRARY, ToastKind::Caution);
     }
 }
 
@@ -160,6 +297,82 @@ mod tests {
         h.push("a", ToastKind::Info, f64::NAN);
         assert_eq!(h.showing(f64::INFINITY).count(), 0);
         assert_eq!(h.showing(f64::NAN).count(), 0);
+    }
+
+    fn event(kind: JobKind, message: &str, done: usize, total: usize, failures: &[(&str, &str)], folder: Option<&str>) -> FileJobEvent {
+        FileJobEvent {
+            seq: 0,
+            job: 1,
+            kind,
+            message: message.into(),
+            done,
+            total,
+            cancelled: false,
+            failures: failures.iter().map(|(f, r)| dalica_engine::ItemFailure { file: PathBuf::from(f), reason: (*r).into() }).collect(),
+            folder: folder.map(PathBuf::from),
+        }
+    }
+
+    #[test]
+    fn a_file_job_gives_one_toast_worded_by_how_it_ended() {
+        let exported = event_toast(&event(JobKind::Export, "Exported 48 pictures", 48, 48, &[], Some("/p/Lisbon")));
+        assert_eq!((exported.text.as_str(), exported.kind), ("Exported 48 pictures", ToastKind::Info));
+        assert_eq!(exported.action, Some(Action::ShowFolder(PathBuf::from("/p/Lisbon"))));
+        // Skipped items are counted in the message and are no caution.
+        let skipped = event_toast(&event(JobKind::Export, "Exported 46 pictures; 2 skipped", 48, 48, &[], Some("/p/L")));
+        assert_eq!((skipped.text.as_str(), skipped.kind), ("Exported 46 pictures; 2 skipped", ToastKind::Info));
+        let failed = event_toast(&event(
+            JobKind::Export,
+            "Exported 46 pictures; 2 failed",
+            46,
+            48,
+            &[("/a/b.jpg", "no space left."), ("/a/c.jpg", "x")],
+            Some("/p/L"),
+        ));
+        assert_eq!(failed.text, "Exported 46 pictures; 2 failed. Could not export b.jpg: no space left, and 1 more");
+        assert_eq!((failed.whole.as_str(), failed.kind), ("b.jpg", ToastKind::Caution));
+        assert!(failed.action.is_some(), "what was written can still be shown");
+        // A Save that did nothing says what failed; one that did some keeps its message.
+        let save = event_toast(&event(JobKind::Save, "Saving: 0 of 1 done, 1 failed", 0, 1, &[("/a/IMG_1.jpg", "the file is read-only")], None));
+        assert_eq!((save.text.as_str(), save.kind, save.action), ("Could not save IMG_1.jpg: the file is read-only", ToastKind::Caution, None));
+        let some = event_toast(&event(JobKind::Save, "Saving: 2 of 3 done, 1 failed", 2, 3, &[("/a/IMG_1.jpg", "busy")], None));
+        assert_eq!(some.text, "Saving: 2 of 3 done, 1 failed. Could not save IMG_1.jpg: busy");
+        let copy = event_toast(&event(JobKind::Save, "Saved a copy as IMG_1-001.jpg", 1, 1, &[], None));
+        assert_eq!((copy.text.as_str(), copy.kind, copy.action), ("Saved a copy as IMG_1-001.jpg", ToastKind::Info, None));
+    }
+
+    #[test]
+    fn a_toast_with_a_button_stays_long_enough_to_press_it() {
+        let mut n = Notices::default();
+        n.push_with("Exported 3 pictures", "", ToastKind::Info, Some(Action::ShowFolder(PathBuf::from("/p/L"))), 10.0);
+        n.push("Starred 1 photo", ToastKind::Info, 10.0);
+        let v = n.inspect(15.0);
+        assert_eq!(v.as_array().map(Vec::len), Some(1), "the plain toast is over, the one with a button is not: {v}");
+        assert_eq!(v[0]["action"], json!({ "id": SHOW_FOLDER_ID, "folder": "/p/L" }));
+        assert!(n.inspect(10.5)[1].get("action").is_none());
+        // It fades over its kind's last moments, not before.
+        let t = n.toasts.first().unwrap();
+        assert_eq!(t.fade_age(10.0), 0.0);
+        assert_eq!(t.fade_age(14.6), 0.0);
+        assert!((t.fade_age(15.9) - 1.3).abs() < 1e-9);
+        assert_eq!(t.fade_age(f64::NAN), f64::INFINITY);
+        assert_eq!(n.showing(16.1).count(), 0);
+        assert_eq!(n.wanted(), None);
+    }
+
+    #[test]
+    fn show_folder_waits_a_little_then_says_the_folder_is_missing() {
+        let mut app = App::new(None);
+        act(&mut app);
+        assert_eq!(app.notices().showing(0.0).count(), 0, "nothing asked, nothing done");
+        app.notices_mut().want = Some((PathBuf::from("/nowhere"), 2));
+        act(&mut app);
+        act(&mut app);
+        assert_eq!(app.notices().wanted(), Some(Path::new("/nowhere")), "still waiting");
+        act(&mut app);
+        assert_eq!(app.notices().wanted(), None);
+        let toasts: Vec<(&str, ToastKind)> = app.notices().showing(0.0).map(|t| (t.text.as_str(), t.kind)).collect();
+        assert_eq!(toasts, [(NOT_IN_LIBRARY, ToastKind::Caution)]);
     }
 
     #[test]

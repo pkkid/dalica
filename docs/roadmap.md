@@ -3556,7 +3556,7 @@ first measurement. No step of M8 needs a maintainer decision mid-run.
     value; a size of 0, 99999 or letters disables Export; Export starts an export job with the
     dialog's values and they are the next defaults; Cancel changes nothing; the bottom bar's
     Export is live with a tray; dialog fingerprints at both sizes.
-- ⬜ **M8.21 `ui`: export progress, file-job notices and the Exported group**
+- ✅ **M8.21 `ui`: export progress, file-job notices and the Exported group**
   - after: M8.4, M8.5, M8.16
   - files: `crates/ui/src/dialogs/export_progress.rs`, `crates/ui/src/notices.rs`, `crates/ui/src/panels/folders/model.rs`, `crates/ui/src/panels/folders/paint.rs`, `crates/ui/tests/export_progress.rs`, `crates/ui/tests/tree_projects.rs`, `crates/ui/tests/fingerprints/dialog-export-progress-*.json`, `crates/ui/tests/fingerprints/region-tree-projects-*.json`
   - scope: `creating.md` §2 and `ui-layout.md` §4: the small progress window ("Exporting 12 of
