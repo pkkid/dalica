@@ -83,7 +83,15 @@ finish and starts no other). The first photo makes the export folder and writes 
 Scan Always when no watched folder covers it) gives it the mark and a rebuild keeps it. The job's
 result is `{total, done, written, skipped, failed, cancelled, folder, name}` and its message
 "Exported 48 pictures" (with "; 2 skipped, 1 failed" when so). A section exports its visible photos
-in display order; `album` names none until albums exist. The dialog (M8.20) follows.
+in display order; `album` names none until albums exist.
+
+**Built (M8.20, `dalica-ui` `dialogs/export.rs`):** the dialog on the form widgets, its draft filled
+from `export.defaults`. The size field keeps its text as typed (Export takes digits 100 … 4000; 0,
+99999 or letters disable it) and the slider stands at its size; a drag snaps within a few points of
+a stop and writes the value into the field. Custom enables its slider and the dropdown reads
+"Custom (75)". Browse… opens the folder picker in the location typed. Export sends every option
+(the watermark as its text or `false`), so the values used become the next defaults; Remove
+location is left to the Options setting. Return in a field chooses Export, as in every dialog.
 
 **Built (M8.21, `dalica-ui`):** the progress window (`dialog:exportProgress`) opens on any export job
 that starts (the dialog's, or `export.run` over automation), shows the job's line ("Exporting 12 of

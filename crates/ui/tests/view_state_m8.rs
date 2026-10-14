@@ -32,6 +32,9 @@ fn session(dir: &Path) -> (Session, Vec<u64>, u64) {
         roots.insert(path.parent().unwrap().to_path_buf());
     }
     let mut s = Session::open(&dir.join("library"), Arc::new(dalica_core::SystemClock)).unwrap();
+    // The user's Pictures folder inside the temp dir, so the Export dialog's default location
+    // never names the machine's own.
+    s.set_pictures_dir(Some(dir.join("Pictures")));
     for r in &roots {
         s.execute("folders.add", &json!({ "path": r })).unwrap();
     }
@@ -267,8 +270,12 @@ fn ctrl_shift_s_with_a_tray_opens_the_export_dialog_and_esc_closes_it() {
     assert!(!v["export"]["folderName"].as_str().unwrap().is_empty(), "the photos' folder names it");
     let widgets = t.d.widgets();
     assert!(widgets.iter().any(|w| w.id == "dialog:export"));
-    // No location yet: Export is disabled.
-    assert!(!widgets.iter().find(|w| w.id == "button:dialog.export").unwrap().enabled);
+    // The default location (under the Pictures folder): Export is enabled; with no location, not.
+    assert_eq!(PathBuf::from(v["export"]["location"].as_str().unwrap()), t.dir.path().join("Pictures").join("Dalica").join("Exports"));
+    assert!(widgets.iter().find(|w| w.id == "button:dialog.export").unwrap().enabled);
+    ok(&mut t, "ui.set", json!({ "export": { "location": "" } }));
+    t.d.settle(FRAMES).unwrap();
+    assert!(!t.d.widgets().iter().find(|w| w.id == "button:dialog.export").unwrap().enabled, "no location, no Export");
     check_ids(&t, "export dialog");
     key(&mut t, "Escape");
     assert!(kinds(&mut t).is_empty());
@@ -333,6 +340,52 @@ fn save_as_opens_the_save_picker_and_cancel_changes_nothing() {
         Err(e) => assert_eq!(e.code.as_str(), "unknown_command", "{e}"),
     }
     assert!(t.control.stub().waiting().is_none());
+}
+
+/// The Export dialog's Browse… opens the folder picker (the stub over automation) for the export
+/// location: its answer runs `output.export.location`, checked as a place to write, and never adds
+/// a watched folder; a cancel changes nothing.
+#[test]
+fn browse_sets_the_export_location_and_never_adds_a_watched_folder() {
+    let mut t = setup((1400, 900));
+    let (a, dir) = (t.ids[0], t.dir.path().to_path_buf());
+    run(&mut t, "select.set", json!({ "ids": [a] }));
+    key(&mut t, "Ctrl+Shift+S");
+    assert_eq!(kinds(&mut t), ["export"]);
+    let roots = run(&mut t, "folders.list", json!({}));
+    let location = state(&mut t)["export"]["location"].clone();
+    ok(&mut t, "ui.clickWidget", json!({ "id": "button:dialog.browse" }));
+    assert!(picker_open(&t), "Browse… opened the picker");
+    let waiting = ok(&mut t, "ui.inspect", json!({}))["filePicker"].clone();
+    assert_eq!(
+        (&waiting["command"], &waiting["kind"], &waiting["title"]),
+        (&json!("output.export.location"), &json!("folder"), &json!("Export Location"))
+    );
+    // One file dialog at a time: Browse… waits while it is open.
+    t.d.settle(FRAMES).unwrap();
+    assert!(!t.d.widgets().iter().find(|w| w.id == "button:dialog.browse").unwrap().enabled);
+    // A folder outside every write root and watched folder is refused; the picker stays open.
+    let elsewhere = dir.join("elsewhere");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    assert_eq!(code(&mut t, "ui.filePicker", json!({ "path": elsewhere })), "path_denied");
+    assert!(t.control.stub().waiting().is_some());
+    // Cancel: nothing changed.
+    assert_eq!(ok(&mut t, "ui.filePicker", json!({ "cancel": true })), json!({}));
+    t.d.settle(FRAMES).unwrap();
+    assert_eq!(state(&mut t)["export"]["location"], location);
+    // A folder in the write root (not made yet) becomes the location; no watched folder is added.
+    ok(&mut t, "ui.clickWidget", json!({ "id": "button:dialog.browse" }));
+    assert!(picker_open(&t));
+    let chosen = out(&dir).join("Exports");
+    assert_eq!(ok(&mut t, "ui.filePicker", json!({ "path": chosen })), json!({ "location": chosen }));
+    t.d.settle(FRAMES).unwrap();
+    assert_eq!(state(&mut t)["export"]["location"], json!(chosen));
+    assert_eq!(kinds(&mut t), ["export"], "the dialog stays open");
+    assert_eq!(run(&mut t, "folders.list", json!({})), roots, "no watched folder added");
+    assert!(!chosen.exists(), "nothing made yet");
+    // Closed, the location cannot be set.
+    key(&mut t, "Escape");
+    assert_eq!(run_code(&mut t, "output.export.location", json!({ "path": chosen })), "disabled");
 }
 
 /// An `export.run` or `photo.saveTo` path outside every write root and watched folder is

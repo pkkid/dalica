@@ -2,10 +2,12 @@
 //! [`ScriptedPicker`]. A dialog never runs on the UI thread: [`Pending`] runs it on its own thread
 //! and the frame loop polls for the answer.
 //!
-//! Two dialogs: a folder to add, and a file to save to ([`SaveRequest`]: File ▸ Save As…, with a
-//! suggested name, a starting folder and the JPEG and PNG filters). A save request also names the
-//! command its answer runs and that command's other parameters, so the in-app stub that stands in
-//! for the picker over automation (`control-protocol.md` §5.6) can show and run it.
+//! Three dialogs: a folder to add, a folder for something else ([`FolderRequest`]: the Export
+//! dialog's Browse…, with a title and a starting folder), and a file to save to ([`SaveRequest`]:
+//! File ▸ Save As…, with a suggested name, a starting folder and the JPEG and PNG filters). A
+//! folder or save request also names the command its answer runs and that command's other
+//! parameters, so the in-app stub that stands in for the picker over automation
+//! (`control-protocol.md` §5.6) can show and run it.
 
 use std::collections::VecDeque;
 use std::path::PathBuf;
@@ -43,19 +45,54 @@ pub struct SaveRequest {
 impl SaveRequest {
     /// The parameters the answer `path` runs [`SaveRequest::command`] with: `params` plus `path`.
     pub fn params_with(&self, path: &std::path::Path) -> Value {
-        let mut obj = match &self.params {
-            Value::Object(o) => o.clone(),
-            _ => serde_json::Map::new(),
-        };
-        obj.insert("path".into(), Value::String(path.to_string_lossy().into_owned()));
-        Value::Object(obj)
+        with_path(&self.params, path)
     }
+}
+
+/// A folder dialog that is not Add Folder (the Export dialog's Browse…): what it shows and what
+/// its answer runs.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FolderRequest {
+    /// The dialog's title ("Export Location").
+    pub title: &'static str,
+    /// The folder it opens in, when known.
+    pub folder: Option<PathBuf>,
+    /// The command the chosen folder runs (`output.export.location`), with `params` plus `path`.
+    pub command: &'static str,
+    pub params: Value,
+    /// The folder is where new files will be made (an export location), not one to read: over
+    /// automation its answer is checked as a place to write (`control-protocol.md` §5.7).
+    pub output: bool,
+}
+
+impl FolderRequest {
+    /// The parameters the answer `path` runs [`FolderRequest::command`] with: `params` plus `path`.
+    pub fn params_with(&self, path: &std::path::Path) -> Value {
+        with_path(&self.params, path)
+    }
+}
+
+/// `params` (an object, else an empty one) plus `path`.
+fn with_path(params: &Value, path: &std::path::Path) -> Value {
+    let mut obj = match params {
+        Value::Object(o) => o.clone(),
+        _ => serde_json::Map::new(),
+    };
+    obj.insert("path".into(), Value::String(path.to_string_lossy().into_owned()));
+    Value::Object(obj)
 }
 
 /// Asks the user for things the OS has dialogs for. Called off the UI thread; may block.
 pub trait Picker: Send + Sync {
     /// A folder to add, or `None` if the user cancelled.
     fn pick_folder(&self) -> Option<PathBuf>;
+
+    /// A folder for `request` (not one to add), or `None` if the user cancelled. By default the
+    /// folder dialog of [`Picker::pick_folder`].
+    fn pick_folder_for(&self, request: &FolderRequest) -> Option<PathBuf> {
+        let _ = request;
+        self.pick_folder()
+    }
 
     /// A file to save to, or `None` if the user cancelled. A picker with no save dialog cancels.
     fn pick_save(&self, request: &SaveRequest) -> Option<PathBuf> {
@@ -115,6 +152,12 @@ impl Pending {
     pub fn pick_folder(picker: &Arc<dyn Picker>) -> Option<Pending> {
         let picker = Arc::clone(picker);
         Pending::spawn(move || picker.pick_folder())
+    }
+
+    /// Starts `pick_folder_for` on a new thread. `None` if the thread could not start.
+    pub fn pick_folder_for(picker: &Arc<dyn Picker>, request: FolderRequest) -> Option<Pending> {
+        let picker = Arc::clone(picker);
+        Pending::spawn(move || picker.pick_folder_for(&request))
     }
 
     /// Starts `pick_save` on a new thread. `None` if the thread could not start.

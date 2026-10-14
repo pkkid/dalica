@@ -11,7 +11,8 @@
 //! shortcuts and menu items act on ([`crate::keys::targets`]): star in one undo step
 //! (`photo.star.toggle` stars them all unless all are starred). A button whose command is not
 //! registered yet is drawn disabled; it comes alive by itself when the command lands and is enabled
-//! for what it acts on (`CommandSpec::enabled`).
+//! for what it acts on (`CommandSpec::enabled`, or a UI command's own check: Export, the UI command
+//! `output.export`, is live while the tray holds photos and opens the Export dialog for them).
 //!
 //! The size slider drives the same view state as Ctrl+1 / Ctrl+2 (`UiState::thumb_size`), so the
 //! light table's cells follow it; the pane toggles open, switch and close `UiState::pane`, the
@@ -136,6 +137,10 @@ fn at<R>(ui: &mut Ui, salt: &str, rect: Rect, add: impl FnOnce(&mut Ui) -> R) ->
 /// acts on, [`crate::keys::targets`]: the tray's for star and rotate, else the selection).
 fn ready(app: &App, id: &str) -> bool {
     let Some(session) = app.session() else { return false };
+    // A UI command (Export opens its dialog for the tray) asks its own check.
+    if crate::commands::UI_COMMANDS.iter().any(|c| c.id == id) {
+        return crate::commands::enabled(app, id, &params_for(app, id)).is_ok();
+    }
     let Some(spec) = session.spec(id) else { return false };
     (spec.enabled)(session, &params_for(app, id)).is_ok()
 }

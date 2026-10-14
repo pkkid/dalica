@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 
 use super::host::Input;
 use super::{Call, Code, DEFAULT_SETTLE_MS, Error, Next, Outcome, paths};
-use crate::picker::{Picker, SaveRequest};
+use crate::picker::{FolderRequest, Picker, SaveRequest};
 
 /// What a picker asks for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -37,6 +37,10 @@ pub struct PickerRequest {
     /// The command's other parameters (the answer adds `path`).
     #[serde(skip_serializing_if = "Value::is_null")]
     pub params: Value,
+    /// A folder where new files will be made (an export location): its answer is checked as a
+    /// place to write (§5.7 writing), not to read.
+    #[serde(skip)]
+    pub output: bool,
 }
 
 #[derive(Default)]
@@ -105,6 +109,19 @@ impl Picker for StubPicker {
             name: None,
             folder: None,
             params: Value::Null,
+            output: false,
+        })
+    }
+
+    fn pick_folder_for(&self, request: &FolderRequest) -> Option<PathBuf> {
+        self.wait_for(PickerRequest {
+            command: request.command,
+            kind: PickerKind::Folder,
+            title: request.title,
+            name: None,
+            folder: request.folder.clone(),
+            params: request.params.clone(),
+            output: request.output,
         })
     }
 
@@ -116,6 +133,7 @@ impl Picker for StubPicker {
             name: Some(request.name.clone()),
             folder: request.folder.clone(),
             params: request.params.clone(),
+            output: false,
         })
     }
 }
@@ -128,9 +146,10 @@ struct Answer {
 }
 
 /// `ui.filePicker {path} | {cancel: true}`: closes the stubbed picker and runs its command with the
-/// path (and a save dialog's other parameters), as the real picker would; replies the command's
-/// result once the dialog has closed. A folder to add is checked as a read (§5.7 reading), a file
-/// to save to as a new file written (§5.7 writing: [`paths::check_output`]).
+/// path (and a folder or save request's other parameters), as the real picker would; replies the
+/// command's result once the dialog has closed. A folder to add is checked as a read (§5.7
+/// reading); an export location as a folder new files are made in and a file to save to as a new
+/// file written (§5.7 writing: [`paths::check_output`]).
 pub(super) fn answer(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Error> {
     let a: Answer = call.params(params)?;
     let path = match (a.path, a.cancel) {
@@ -153,6 +172,9 @@ pub(super) fn answer(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Err
     Ok(Outcome::Work(Box::new(move || {
         let checked = match waiting.kind {
             PickerKind::Save => paths::check_output(&path, &config.effective_write_roots(), &watched, paths::Output::File).map(|_| ()),
+            PickerKind::Folder if waiting.output => {
+                paths::check_output(&path, &config.effective_write_roots(), &watched, paths::Output::Folder).map(|_| ())
+            }
             PickerKind::Folder | PickerKind::File => paths::check_read(&path, &config.read_roots, &watched, config.demo).map(|_| ()),
         };
         if let Err(e) = checked {
