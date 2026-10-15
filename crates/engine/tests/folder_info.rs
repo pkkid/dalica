@@ -6,25 +6,15 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::common::open;
+use crate::common::{jpeg, lisbon, open};
 use dalica_core::{Date, FolderId};
 use dalica_engine::Session;
-use dalica_fs::Expect;
 use dalica_library::{FolderInfo, MAX_DESCRIPTION, MAX_PLACE};
 use serde_json::{Value, json};
 
 /// A library watching one folder `Lisbon` of two photos.
 fn setup() -> (tempfile::TempDir, tempfile::TempDir, PathBuf, Session, FolderId) {
-    let (lib, disk) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
-    let folder = disk.path().join("Lisbon");
-    dalica_fs::create_dir_all(&folder).unwrap();
-    for i in 0..2 {
-        let bytes = dalica_scenes::jpeg(&dalica_scenes::Scene::new(i, 96, 64), 80, None).unwrap();
-        dalica_fs::replace(&folder.join(format!("IMG_{:04}.jpg", i + 1)), &bytes, Expect::Absent).unwrap();
-    }
-    let mut s = open(lib.path());
-    s.execute("folders.add", &json!({ "path": folder })).unwrap();
-    s.wait_idle();
+    let (lib, disk, folder, s, _) = lisbon(&[jpeg(0), jpeg(1)], None);
     let id = s.library().folder_by_path(&folder).unwrap();
     (lib, disk, folder, s, id)
 }

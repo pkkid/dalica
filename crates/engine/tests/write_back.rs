@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::common::open_with;
+use crate::common::{jpeg, open_with};
 use dalica_core::{Clock, DateTime, PhotoId, SystemClock, Timestamp, VirtualClock};
 use dalica_engine::settings::MetadataWrites;
 use dalica_engine::{Field, Fields, JobKind, JobState, MetadataChange, Origin, Session};
@@ -23,10 +23,6 @@ use serde_json::{Value, json};
 const WAIT: Duration = Duration::from_secs(30);
 
 // Photo files.
-
-fn jpeg(seed: u64) -> Vec<u8> {
-    dalica_scenes::jpeg(&dalica_scenes::Scene::new(seed, 96, 64), 80, None).unwrap()
-}
 
 fn png(seed: u64) -> Vec<u8> {
     dalica_scenes::png(&dalica_scenes::Scene::new(seed, 48, 32)).unwrap()

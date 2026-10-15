@@ -9,10 +9,9 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use crate::common::open;
+use crate::common::{jpeg, lisbon, open};
 use dalica_core::PhotoId;
 use dalica_engine::{CmdError, Context, Key, Session};
-use dalica_fs::Expect;
 use dalica_library::PhotoInfo;
 use serde_json::{Value, json};
 
@@ -20,18 +19,7 @@ const COMMANDS: [&str; 4] = ["photo.rotate.cw", "photo.rotate.ccw", "edit.flipH"
 
 /// A library watching one folder `Lisbon` of `n` 96 × 64 photos `IMG_0001.jpg`…; ids in name order.
 fn setup(n: usize) -> (tempfile::TempDir, tempfile::TempDir, PathBuf, Session, Vec<PhotoId>) {
-    let (lib, disk) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
-    let folder = disk.path().join("Lisbon");
-    dalica_fs::create_dir_all(&folder).unwrap();
-    for i in 0..n {
-        let bytes = dalica_scenes::jpeg(&dalica_scenes::Scene::new(i as u64, 96, 64), 80, None).unwrap();
-        dalica_fs::replace(&folder.join(format!("IMG_{:04}.jpg", i + 1)), &bytes, Expect::Absent).unwrap();
-    }
-    let mut s = open(lib.path());
-    s.execute("folders.add", &json!({ "path": folder })).unwrap();
-    s.wait_idle();
-    let ids = by_name(&s).into_values().collect();
-    (lib, disk, folder, s, ids)
+    lisbon(&(0..n as u64).map(jpeg).collect::<Vec<_>>(), None)
 }
 
 fn by_name(s: &Session) -> BTreeMap<String, PhotoId> {

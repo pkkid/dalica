@@ -6,8 +6,9 @@ use std::cell::Cell;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
-use dalica_core::{Clock, SystemClock, Timestamp, VirtualClock};
+use dalica_core::{Clock, PhotoId, SystemClock, Timestamp, VirtualClock};
 use dalica_engine::{CacheDir, Options, Session, ThumbOptions};
+use dalica_fs::Expect;
 use serde_json::Value;
 
 /// Full strength (`DALICA_FULL_TESTS=1`, the review gate) or quick (a task's gate).
@@ -160,4 +161,25 @@ pub fn names(folder: &Path) -> Vec<String> {
 /// `root/<rel>` for `"Trips/Porto"`.
 pub fn under(root: &Path, rel: &str) -> PathBuf {
     rel.split('/').filter(|c| !c.is_empty()).fold(root.to_path_buf(), |p, c| p.join(c))
+}
+
+/// A library watching `<disk>/Lisbon`, which holds `photos` as `IMG_0001.jpg`, `IMG_0002.jpg` … and,
+/// when given, `sidecar` as its `.dalica.json`, scanned: the library's folder, the disk's, the
+/// `Lisbon` folder, the session and the photos' ids in name order.
+pub fn lisbon(photos: &[Vec<u8>], sidecar: Option<&Value>) -> (tempfile::TempDir, tempfile::TempDir, PathBuf, Session, Vec<PhotoId>) {
+    let (lib, disk) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let folder = disk.path().join("Lisbon");
+    dalica_fs::create_dir_all(&folder).unwrap();
+    for (i, bytes) in photos.iter().enumerate() {
+        dalica_fs::replace(&folder.join(format!("IMG_{:04}.jpg", i + 1)), bytes, Expect::Absent).unwrap();
+    }
+    if let Some(sidecar) = sidecar {
+        dalica_fs::replace(&folder.join(".dalica.json"), serde_json::to_vec_pretty(sidecar).unwrap().as_slice(), Expect::Absent).unwrap();
+    }
+    let mut s = open(lib.path());
+    s.execute("folders.add", &serde_json::json!({ "path": folder })).unwrap();
+    s.wait_idle();
+    let mut ids: Vec<(String, PhotoId)> = s.library().photos().map(|p| (p.name.clone(), p.id)).collect();
+    ids.sort();
+    (lib, disk, folder, s, ids.into_iter().map(|(_, id)| id).collect())
 }

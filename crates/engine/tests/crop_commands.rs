@@ -8,10 +8,9 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use crate::common::open;
+use crate::common::{lisbon, open};
 use dalica_core::PhotoId;
 use dalica_engine::{CmdError, JobKind, JobState, Session};
-use dalica_fs::Expect;
 use serde_json::{Value, json};
 
 const WAIT: Duration = Duration::from_secs(60);
@@ -19,19 +18,9 @@ const WAIT: Duration = Duration::from_secs(60);
 /// A library watching one folder `Lisbon` of `n` `width × height` photos `IMG_0001.jpg`…, ids in
 /// name order.
 fn setup(n: usize, width: u32, height: u32) -> (tempfile::TempDir, tempfile::TempDir, PathBuf, Session, Vec<PhotoId>) {
-    let (lib, disk) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
-    let folder = disk.path().join("Lisbon");
-    dalica_fs::create_dir_all(&folder).unwrap();
-    for i in 0..n {
-        let bytes = dalica_scenes::jpeg(&dalica_scenes::Scene::new(i as u64 + 7, width, height), 85, None).unwrap();
-        dalica_fs::replace(&folder.join(format!("IMG_{:04}.jpg", i + 1)), &bytes, Expect::Absent).unwrap();
-    }
-    let mut s = open(lib.path());
-    s.execute("folders.add", &json!({ "path": folder })).unwrap();
-    s.wait_idle();
-    let mut photos: Vec<(String, PhotoId)> = s.library().photos().map(|p| (p.name.clone(), p.id)).collect();
-    photos.sort();
-    (lib, disk, folder, s, photos.into_iter().map(|(_, id)| id).collect())
+    let photos: Vec<Vec<u8>> =
+        (0..n as u64).map(|i| dalica_scenes::jpeg(&dalica_scenes::Scene::new(i + 7, width, height), 85, None).unwrap()).collect();
+    lisbon(&photos, None)
 }
 
 fn edits(s: &Session, id: PhotoId) -> Vec<String> {

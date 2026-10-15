@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
-use crate::common::off_owner;
+use crate::common::{exists, off_owner};
 use dalica_core::{Clock, PhotoId, SystemClock, Timestamp, VirtualClock};
 #[cfg(unix)]
 use dalica_engine::offline::RootProbe;
@@ -53,11 +53,6 @@ fn rename(from: &Path, to: &Path) {
 fn remove(path: &Path) {
     let path = path.to_path_buf();
     off_owner(move || if path.is_dir() { std::fs::remove_dir_all(path).unwrap() } else { std::fs::remove_file(path).unwrap() });
-}
-
-fn exists(path: &Path) -> bool {
-    let path = path.to_path_buf();
-    off_owner(move || path.exists())
 }
 
 struct Fx {

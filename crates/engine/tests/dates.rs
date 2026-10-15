@@ -9,10 +9,9 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use crate::common::open;
+use crate::common::{lisbon, open};
 use dalica_core::{DateTime, PhotoId};
 use dalica_engine::{CmdError, Session};
-use dalica_fs::Expect;
 use serde_json::{Value, json};
 
 fn dt(s: &str) -> DateTime {
@@ -25,19 +24,15 @@ const TAKEN: [Option<&str>; 4] = [Some("2026-01-31T23:30:00"), Some("2026-01-31T
 /// A library watching `Lisbon` with `IMG_0001.jpg` … `IMG_0004.jpg` (dates as in [`TAKEN`]); ids in
 /// name order.
 fn setup() -> (tempfile::TempDir, tempfile::TempDir, PathBuf, Session, Vec<PhotoId>) {
-    let (lib, disk) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
-    let folder = disk.path().join("Lisbon");
-    dalica_fs::create_dir_all(&folder).unwrap();
-    for (i, taken) in TAKEN.iter().enumerate() {
-        let exif = dalica_scenes::Exif { date_time_original: taken.map(dt), ..dalica_scenes::Exif::default() };
-        let bytes = dalica_scenes::jpeg(&dalica_scenes::Scene::new(i as u64, 96, 64), 80, Some(&exif)).unwrap();
-        dalica_fs::replace(&folder.join(format!("IMG_{:04}.jpg", i + 1)), &bytes, Expect::Absent).unwrap();
-    }
-    let mut s = open(lib.path());
-    s.execute("folders.add", &json!({ "path": folder })).unwrap();
-    s.wait_idle();
-    let ids = by_name(&s).into_values().collect();
-    (lib, disk, folder, s, ids)
+    let photos: Vec<Vec<u8>> = TAKEN
+        .iter()
+        .enumerate()
+        .map(|(i, taken)| {
+            let exif = dalica_scenes::Exif { date_time_original: taken.map(dt), ..dalica_scenes::Exif::default() };
+            dalica_scenes::jpeg(&dalica_scenes::Scene::new(i as u64, 96, 64), 80, Some(&exif)).unwrap()
+        })
+        .collect();
+    lisbon(&photos, None)
 }
 
 fn by_name(s: &Session) -> BTreeMap<String, PhotoId> {
