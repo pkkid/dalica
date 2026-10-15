@@ -10,7 +10,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use crate::common::{FaultLock, entry, exists, jpeg, off_owner, options, read_opt, shared, virtual_clock};
+use crate::common::{FaultLock, entry, exists, jpeg, off_owner, options, read_opt, shared, virtual_clock, wait_files};
 use dalica_core::{FolderId, PhotoId};
 use dalica_engine::fileops::{ItemState, Journal, JournalEntry, OpId};
 use dalica_engine::watching::WatchMode;
@@ -76,7 +76,7 @@ impl Lib {
     }
 
     fn wait(&mut self) -> FileOpEvent {
-        assert!(self.s.wait_file_jobs(PATIENCE), "the file jobs ended");
+        wait_files(&mut self.s);
         self.s.flush().unwrap();
         self.s.file_op_events().last().cloned().unwrap()
     }

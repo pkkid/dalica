@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use crate::common::{entry, jpeg, off_owner, options, read_json, shared};
+use crate::common::{entry, jpeg, off_owner, options, read_json, shared, wait_files};
 use dalica_core::{PhotoId, Timestamp, VirtualClock};
 use dalica_engine::watching::WatchMode;
 use dalica_engine::{Driver, FileOp, FileOpKind, Ran, Session};
@@ -164,7 +164,7 @@ impl Lib {
     fn run(&mut self, items: Vec<Item>) {
         let (driver, _) = self.driver();
         self.s.start_file_op(FileOp::new(driver, FileOpKind::Move, "Move", items));
-        assert!(self.s.wait_file_jobs(PATIENCE));
+        wait_files(&mut self.s);
         let e = self.s.file_op_events().last().unwrap();
         assert!(e.failures.is_empty() && e.skipped.is_empty(), "{e:?}");
     }

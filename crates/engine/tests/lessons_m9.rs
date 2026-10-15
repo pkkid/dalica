@@ -22,7 +22,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::common::{entry, files, off_owner, options, read_opt, shared, under};
+use crate::common::{entry, files, off_owner, options, read_opt, shared, under, wait_files};
 use dalica_core::{AlbumId, FolderId, PhotoId, Timestamp, VirtualClock};
 use dalica_engine::cmd::delete::RESTORES;
 use dalica_engine::watching::{FIRST_VERIFICATION, WatchMode};
@@ -148,7 +148,7 @@ impl Lib {
     /// Everything the commands sent on its way is written: file jobs, metadata write-backs and
     /// sidecars.
     fn settle_writes(&mut self) {
-        assert!(self.s.wait_file_jobs(PATIENCE), "the file jobs ended");
+        wait_files(&mut self.s);
         assert!(self.s.flush_metadata(PATIENCE), "the metadata writes ended");
         self.s.wait_idle();
         self.s.flush().unwrap();

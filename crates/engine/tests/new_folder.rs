@@ -7,16 +7,13 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
 
-use crate::common::{exists, off_owner, shared};
+use crate::common::{exists, off_owner, shared, wait_files};
 use dalica_core::{Date, FolderId, PhotoId, Timestamp, VirtualClock};
 use dalica_engine::watching::WatchMode;
 use dalica_engine::{CacheDir, CmdError, FileOpEvent, Options, Session, ThumbOptions};
 use dalica_fs::Expect;
 use serde_json::{Value, json};
-
-const PATIENCE: Duration = Duration::from_secs(120);
 
 fn sidecar(folder: &Path) -> Option<Value> {
     let path = folder.join(".dalica.json");
@@ -81,7 +78,7 @@ impl Lib {
     }
 
     fn wait(&mut self) -> FileOpEvent {
-        assert!(self.s.wait_file_jobs(PATIENCE), "the file jobs ended");
+        wait_files(&mut self.s);
         self.s.flush().unwrap();
         self.s.file_op_events().last().cloned().unwrap()
     }

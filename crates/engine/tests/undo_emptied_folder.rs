@@ -13,15 +13,13 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::common::{exists, jpeg, shared};
+use crate::common::{exists, jpeg, shared, wait_files};
 use dalica_core::{FolderId, PhotoId, Timestamp, VirtualClock};
 use dalica_engine::cmd::delete::RESTORES;
 use dalica_engine::watching::WatchMode;
 use dalica_engine::{CacheDir, FileOpEvent, Options, Session, ThumbOptions};
 use dalica_fs::Expect;
 use serde_json::{Value, json};
-
-const PATIENCE: Duration = Duration::from_secs(120);
 
 /// A library watching `Pictures` (`Lisbon` with two photos, `Porto` with one) on a virtual clock,
 /// the watcher polling.
@@ -85,8 +83,10 @@ impl Lib {
     /// clean.
     fn run(&mut self, id: &str, p: Value) -> FileOpEvent {
         let before = self.s.file_op_events().count();
+        // A caption still being written into a photo would change the file under the operation.
+        assert!(self.s.flush_metadata(Duration::from_secs(120)), "the metadata writes ended");
         self.s.execute(id, &p).unwrap_or_else(|e| panic!("{id} {p}: {e:?}"));
-        assert!(self.s.wait_file_jobs(PATIENCE), "the file jobs ended");
+        wait_files(&mut self.s);
         self.s.wait_idle();
         self.s.flush().unwrap();
         let events: Vec<FileOpEvent> = self.s.file_op_events().cloned().collect();

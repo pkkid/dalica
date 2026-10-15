@@ -183,3 +183,16 @@ pub fn lisbon(photos: &[Vec<u8>], sidecar: Option<&Value>) -> (tempfile::TempDir
     ids.sort();
     (lib, disk, folder, s, ids.into_iter().map(|(_, id)| id).collect())
 }
+
+/// Waits for the session's file jobs, then for a check of its watched folders made after them.
+///
+/// A check sent while a job renamed, moved or emptied a watched folder can find that folder gone
+/// (or empty) and hold its sidecar writes as offline until the next check answers, so a flush
+/// right after the job reports them unsaved. That race is the product's (the writes are delayed,
+/// never lost: `rename.rs` `a_check_that_saw_a_renamed_watched_folder_gone_only_delays_its_writes`);
+/// the file-operation tests wait for the next check before they flush.
+pub fn wait_files(s: &mut Session) {
+    let patience = std::time::Duration::from_secs(120);
+    assert!(s.wait_file_jobs(patience), "the file jobs ended");
+    assert!(s.refresh_volumes(patience), "the watched folders were checked");
+}

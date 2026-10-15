@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::common::{entry, exclusive, names, off_owner, options, read_opt};
+use crate::common::{entry, exclusive, names, off_owner, options, read_opt, wait_files};
 use dalica_core::{AlbumId, FolderId, PhotoId, SystemClock};
 use dalica_engine::cmd::delete::RESTORES;
 use dalica_engine::watching::WatchMode;
@@ -187,7 +187,7 @@ impl Lib {
         let before = self.s.file_op_events().count();
         self.v.arm();
         self.s.execute(id, &p).unwrap_or_else(|e| panic!("{id} {p}: {e:?}"));
-        assert!(self.s.wait_file_jobs(PATIENCE), "the file jobs ended");
+        wait_files(&mut self.s);
         faults::disarm_all();
         assert!(self.s.flush_metadata(PATIENCE), "the metadata writes ended");
         self.s.wait_idle();
