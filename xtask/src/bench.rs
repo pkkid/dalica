@@ -47,6 +47,11 @@ pub const BENCHES: &[Bench] = &[
         package: "dalica-engine",
         what: "Save of a 24 MP JPEG (rendered, and rotate-only) and the 200-photo mixed export at 1600 px with a watermark",
     },
+    Bench {
+        name: "search",
+        package: "dalica-engine",
+        what: "search of a synthetic 100 k library with captions, tags, folders and albums: the index built, one word, three words and Starred, a -word, search.set to its result applied",
+    },
 ];
 
 /// Time units a field may name, in milliseconds.

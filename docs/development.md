@@ -169,6 +169,11 @@ cargo run --release -p dalica -- --control 7990 --demo
 | Save a 24 MP JPEG with an edit (render, encode, write, verify; median) | ≤ 1 050 ms |
 | Save a 24 MP JPEG turned a quarter (rotate-only, lossless; median) | ≤ 455 ms |
 | Export the 200-photo mixed tray at 1600 px, Normal, watermark, location removed (median) | ≤ 24 s |
+| Build the search index of a 100 k-photo library (median) | ≤ 630 ms |
+| Search 100 k photos for one word (median) | ≤ 1.7 ms |
+| Search 100 k photos for three words with Starred on (median) | ≤ 0.6 ms |
+| Search 100 k photos for a lone `-word` (median) | ≤ 5.1 ms |
+| `search.set` to its result applied, 100 k photos, debounce excluded (median) | ≤ 22.3 ms |
 
 The save and export budgets (M8.24) are 1.5 × their first measurement: release, two cores
 (`taskset -c 0,1`, as the budgets job's runner), 2026-10-14, a 24-core Linux workstation under
@@ -177,6 +182,17 @@ time). On all 24 cores the same run took 274 ms and 6.9 s. The rotate-only Save'
 (815 ms, from a rendered Save of 542 ms) predates the lossless rotation of M8.14; M9.30 measured
 the lossless rotation the same way (2026-10-14, load average 5): 303 ms (a second run 307 ms), so
 its budget is 455 ms (1.5 × 303, rounded up to 5 ms as the others).
+
+The search budgets (M9.12, the `search` bench) are 1.5 × their first measurement and a query's never
+above 100 ms. The library is the synthetic 100 k one (1 000 folders) with a three-word caption on
+every photo, one or two of 30 tags, search facts, and 100 albums of 300 photos. Measured in release
+on two cores (`taskset -c 0,1`), 2026-10-14, the same workstation (load average 3.5): the index
+built in 417 ms, one word 1.12 ms (13 441 matches), three words and Starred 0.38 ms, a lone `-word`
+3.39 ms (86 559 matches, nearly the whole library), and `search.set` to its result applied by
+`poll` 14.9 ms (the worker's scope, query and suggestions, the reply, the result applied); three
+more runs were within 12 %. Rounded up to 5 ms for the build and 0.1 ms for a query. The first
+search of a session, which also copies the library to the worker and builds its index, took 757 ms;
+it is printed, not budgeted.
 
 Measure, don't guess: record numbers in `docs/status.md` → Metrics with the machine and date.
 
@@ -194,7 +210,9 @@ missed budget itself): a 24 MP JPEG opened to its screen preview cold and with t
 cached (median ≤ 150 ms), a Tuning drag's drafts (p95 ≤ 16 ms) and finals (p95 ≤ 100 ms), and
 next/previous with the neighbours prefetched (p95 ≤ 50 ms). Since M8 `cargo xtask budgets` also
 runs the `save_export` bench and judges its medians: Save of a 24 MP JPEG with an edit and with
-only a quarter turn, and the 200-photo mixed export. A milestone adds its budgets to `BUDGETS` in `xtask/src/accept.rs`. A pull request that changes the
+only a quarter turn, and the 200-photo mixed export. Since M9 it also runs the `search` bench and
+judges its medians: the index of the 100 k library built, one word, three words with Starred, a
+lone `-word`, and `search.set` to its result applied. A milestone adds its budgets to `BUDGETS` in `xtask/src/accept.rs`. A pull request that changes the
 workflow or `xtask/src/accept.rs` runs the job too, and *Run workflow* on the Actions tab runs it on
 any branch with a planted slowdown (`plant_ms`). The same check locally:
 
@@ -555,7 +573,7 @@ budgeted, baseline-compared run that feeds the scorecard.
 
 **Bench runs.** The benches `xtask bench` knows are registered in `xtask/src/bench.rs` (a
 `harness = false` bench target each): `library_bench` (`dalica-ui`), `pack` (`dalica-thumbs`),
-`first_thumbnails`, `edit_preview` and `save_export` (`dalica-engine`).
+`first_thumbnails`, `edit_preview`, `save_export` and `search` (`dalica-engine`).
 A bench given `--json` prints one JSON object on its last line with a `rows` array; each row has a
 `name` (the key) and numbers. A row's **CPU-time fields** are those whose key names a time unit
 (`p50_ms`, `pack_us_per_read`): `xtask bench` compares them with the last run in the history that
@@ -604,6 +622,19 @@ GPS), and times `export.run` at 1600 pixels, Normal, with a watermark and the lo
 from the command to the end of its job, three times (`per_photo_ms` is the median over 200). Rows
 carry `p50_ms`, `p95_ms`, `max_ms` and their `budget_ms`; `cargo xtask budgets` judges the
 medians. Without `--bench` it runs a smoke pass (600 × 400 saves, the tray at `--scale` 1).
+
+`search` (M9.12) builds the synthetic library of `--photos` photos (100 000, in 1 000 folders) in
+memory with what search reads added (a three-word caption on every photo, one or two of 30 tags,
+search facts, 100 albums of 300 photos), writes it as an index snapshot and opens a session on it
+on a virtual clock. Rows: `index build` (`SearchIndex::from_library`, what the worker does with a
+fresh copy; `--builds` 5), `one word`, `three words and a filter` (Starred on) and `a -word` (a lone
+negation, nearly every photo) (`SearchIndex::search` in the scope the worker builds; `--samples`
+50 each, with `matches`), `search.set to applied` (from the command to the result applied by
+`Session::poll`, the virtual clock moved past the debounce at once; `search.clear`, untimed,
+between samples), and `first search` (the session's first, which also starts the worker and builds
+its index; printed, not budgeted). Rows carry `p50_ms`, `p95_ms`, `max_ms` and their `budget_ms`;
+`cargo xtask budgets` judges the medians over 100 k photos in release. Without `--bench` it runs a
+smoke pass over 2 000 photos, two samples each.
 
 **Adding a scenario.** Add a row to a bench (its name is the key: keep it stable), give the bench
 `--json` output, add a `[[scenario]]` to `perf/budgets.toml`, and run `cargo xtask scorecard`.

@@ -4101,7 +4101,7 @@ mid-run.
     Search as Album makes an album in that order and undo removes it; `album:search` lists the
     results; a query on a 100 k synthetic library answers off the owner thread (time printed); each
     command's contract and graceful failures; `panic_hunt` green.
-- ⬜ **M9.12 `engine`: the 100 k search benchmark and its budgets**
+- ✅ **M9.12 `engine`: the 100 k search benchmark and its budgets**
   - after: M9.11
   - files: `crates/engine/benches/search.rs`, `xtask/src/bench.rs`, `xtask/src/accept.rs`, `.github/workflows/budgets.yml`, `docs/development.md`
   - scope: the `search` bench (registered in `xtask/src/bench.rs`) over a synthetic 100 k library

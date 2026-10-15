@@ -6,6 +6,9 @@
 # 24 MP JPEG ≤ 150 ms, a slider drag ≤ 16 ms draft and ≤ 100 ms final, next/previous ≤ 50 ms).
 # Since M8 `cargo xtask budgets` also runs the save_export bench: Save of a 24 MP JPEG, rendered
 # and rotate-only, and the 200-photo mixed export, each median within 1.5 × its first measurement.
+# Since M9 also the search bench over a synthetic 100 k library: the index built, three queries and
+# search.set to its result applied, each median within 1.5 × its first measurement (a query never
+# above 100 ms).
 # Its own file, so it never shares ci.yml's matrix; cached like ci.yml. A pull request that changes
 # this job runs it too, and "Run workflow" on the Actions tab takes a planted slowdown to prove
 # that a missed budget fails the run. Actions are pinned to full commit hashes
@@ -21,6 +24,7 @@ on:
       - xtask/src/accept.rs
       - crates/engine/benches/edit_preview.rs
       - crates/engine/benches/save_export.rs
+      - crates/engine/benches/search.rs
       - crates/engine/tests/export_mixed.rs
   workflow_dispatch:
     inputs:
