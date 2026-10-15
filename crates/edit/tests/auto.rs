@@ -5,11 +5,7 @@
 //! agree after downscale; the wands' values on known scenes; the Neutral Color Picker's colour;
 //! fingerprints `fingerprints/auto-*.json`, one per operation; proptest random images never panic.
 
-mod common;
-
-use std::time::Instant;
-
-use common::{assert_two_sizes_agree, check_fingerprint, recipe, scene};
+use crate::common::{self, assert_two_sizes_agree, cases, check_fingerprint, pixels, recipe, run, scene};
 use dalica_edit::analysis::{self, Lighting, PROXY_EDGE};
 use dalica_edit::ops::Operation;
 use dalica_edit::ops::auto::{AutoColor, AutoContrast, AutoFix};
@@ -20,14 +16,6 @@ use dalica_scenes::{Kind, Scene};
 use proptest::prelude::*;
 
 const OPS: [&str; 3] = ["autofix()", "autocontrast()", "autocolor()"];
-
-fn run(img: &Rgba8, ops: &[&str]) -> Rgba8 {
-    render(Source::upright(img), &recipe(ops), Target::Full).unwrap()
-}
-
-fn pixels(img: &Rgba8) -> impl Iterator<Item = [u8; 3]> + '_ {
-    img.data.chunks(4).map(|p| [p[0], p[1], p[2]])
-}
 
 /// Each channel's mean, 0–255.
 fn means(img: &Rgba8) -> [f64; 3] {
@@ -335,34 +323,17 @@ fn every_fix_matches_its_fingerprint() {
 }
 
 #[test]
-fn one_auto_fix_render_of_a_2560_pixel_preview_is_timed() {
-    // Auto Fix on a 2560 × 1707 picture (`Target::Full`): the proxy render, the analysis and the
-    // pass; printed for the PR (budgets come with M7.11).
-    let img = scene(5, 2560, 1707);
-    let time = |ops: &[&str]| {
-        let r = recipe(ops);
-        let mut best = f64::INFINITY;
-        let mut out = render(Source::upright(&img), &r, Target::Full).unwrap();
-        for _ in 0..5 {
-            let t = Instant::now();
-            out = render(Source::upright(&img), &r, Target::Full).unwrap();
-            best = best.min(t.elapsed().as_secs_f64() * 1000.0);
-        }
-        (best, out)
-    };
-    let (base, _) = time(&[]);
-    let (fixed, out) = time(&["autofix()"]);
-    assert_eq!((out.width, out.height), (2560, 1707));
+fn an_auto_fix_render_keeps_the_size_and_changes_the_picture() {
+    // Auto Fix at full size (`Target::Full`) on a 1.3 MP picture: the proxy render, the analysis
+    // and the pass. Speed: the release benches.
+    let img = scene(5, 1400, 933);
+    let out = run(&img, &["autofix()"]);
+    assert_eq!((out.width, out.height), (1400, 933));
     assert_ne!(out, img);
-    let t = Instant::now();
-    let _ = analysis::auto_lighting(&img);
-    let _ = analysis::auto_neutral(&img);
-    let wands = t.elapsed().as_secs_f64() * 1000.0;
-    println!("2560 × 1707: copy {base:.1} ms, with Auto Fix {fixed:.1} ms (Auto Fix ≈ {:.1} ms); both wands {wands:.1} ms", fixed - base);
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(200))]
+    #![proptest_config(ProptestConfig::with_cases(cases(200)))]
 
     #[test]
     fn random_images_never_panic(

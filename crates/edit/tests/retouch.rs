@@ -9,38 +9,13 @@
 //! `a_window_grows_to_hold_the_spots_that_touch_it_and_their_sources`) at 76b53778 (MIT OR
 //! Apache-2.0; `NOTICE`).
 
-mod common;
-
-use common::{assert_two_sizes_agree, check_fingerprint, recipe, scene};
+use crate::common::{self, assert_two_sizes_agree, cases, check_fingerprint, exif, recipe, run, scene, stored, window};
 use dalica_edit::ops::retouch::{MAX_RADIUS, MAX_STROKES, MIN_RADIUS, Retouch, Stroke};
 use dalica_edit::ops::{Adjust, Operation, Prepare, Reach};
 use dalica_edit::{Geometry, Op, Point, Region, Source, Target, Typed, render, render_region};
 use dalica_image::{Orientation, Rgba8};
-use dalica_scenes::{Kind, Scene, orient};
+use dalica_scenes::{Kind, Scene};
 use proptest::prelude::*;
-
-fn run(img: &Rgba8, ops: &[&str]) -> Rgba8 {
-    render(Source::upright(img), &recipe(ops), Target::Full).unwrap()
-}
-
-fn stored(up: &Rgba8, o: u8) -> Rgba8 {
-    let rgb = dalica_scenes::Rgb8 { width: up.width, height: up.height, data: up.data.chunks(4).flat_map(|p| [p[0], p[1], p[2]]).collect() };
-    common::rgba(&orient::store(&rgb, o).unwrap())
-}
-
-fn exif(o: u8) -> Orientation {
-    Orientation::new(o).unwrap()
-}
-
-/// The window `(x, y, w, h)` of `img`.
-fn window(img: &Rgba8, x: u32, y: u32, w: u32, h: u32) -> Rgba8 {
-    let mut data = Vec::new();
-    for row in y..y + h {
-        let at = ((row * img.width + x) * 4) as usize;
-        data.extend_from_slice(&img.data[at..at + (w * 4) as usize]);
-    }
-    Rgba8 { width: w, height: h, data }
-}
 
 /// The mean grey level (mean of R, G, B) of the pixels whose centre lies between `r0` and `r1`
 /// pixels from `(cx, cy)`.
@@ -364,7 +339,7 @@ fn stroke_text() -> impl Strategy<Value = String> {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(120))]
+    #![proptest_config(ProptestConfig::with_cases(cases(120)))]
 
     #[test]
     fn hostile_strokes_never_panic(

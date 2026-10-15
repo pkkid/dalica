@@ -846,14 +846,29 @@ mod tests {
         for x in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, -1.0, -0.0, 0.0, f32::MIN_POSITIVE, 1e30, -1e30] {
             assert_eq!(to_u8(x), to_u8_reference(x), "{x}");
         }
-        // Every f32 from −0.01 to 1.01 (the bit patterns walk through each of them).
-        let mut bits = 0u32;
-        while f32::from_bits(bits) <= 1.01 {
+        let check = |bits: u32| {
             let x = f32::from_bits(bits);
             assert_eq!(to_u8(x), to_u8_reference(x), "{x}");
             assert_eq!(to_u8(-x), to_u8_reference(-x), "{x}");
-            bits += 1;
+        };
+        let end = 1.01f32.to_bits();
+        if full() {
+            // Every f32 from −1.01 to 1.01 (the bit patterns walk through each of them).
+            (0..=end).for_each(check);
+        } else {
+            // Quick: 64 values either side of every rounding edge (k + 0.5) / 255 and of 0 and 1,
+            // where the two roundings could part, and every 4099th value in between.
+            let edges = (0..=255u16).map(|k| ((f32::from(k) + 0.5) / 255.0).to_bits()).chain([0, 1.0f32.to_bits()]);
+            for edge in edges {
+                (edge.saturating_sub(64)..=(edge + 64).min(end)).for_each(check);
+            }
+            (0..=end).step_by(4099).for_each(check);
         }
+    }
+
+    /// Full strength (`DALICA_FULL_TESTS=1`, the review gate) or quick (a task's gate).
+    fn full() -> bool {
+        std::env::var_os("DALICA_FULL_TESTS").is_some_and(|v| v == "1")
     }
 
     fn image(w: u32, h: u32) -> Rgba8 {
@@ -992,29 +1007,5 @@ mod tests {
                 }
             }
         }
-    }
-
-    /// A tone curve, the kind of pass the tone operations run.
-    struct Curve;
-    impl Pass for Curve {
-        fn run(&self, band: &mut Band<'_>) {
-            for p in band.pixels.iter_mut() {
-                for v in p.iter_mut() {
-                    *v = *v + 0.3 * *v * (1.0 - *v) * (1.0 - *v);
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn the_working_precision_is_timed() {
-        // Three fused curve passes over a 2560-pixel preview: the working-precision cost of a
-        // slider drag (printed for the PR).
-        let mut img = image(2560, 1707);
-        let win = Win { x0: 0, y0: 0, w: 2560, h: 1707 };
-        let passes: Vec<Box<dyn Pass>> = vec![Box::new(Curve), Box::new(Curve), Box::new(Curve)];
-        let t = std::time::Instant::now();
-        run_fused(&mut img, win, &passes);
-        println!("f32 bands, 3 fused passes, 2560 × 1707: {:.1} ms", t.elapsed().as_secs_f64() * 1000.0);
     }
 }

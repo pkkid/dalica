@@ -9,25 +9,13 @@
 //! `crates/geom/src/crop_drag.rs` at revision 76b53778 (MIT OR Apache-2.0; `NOTICE`), the thirds
 //! test from LightCraft `crates/ui-egui/src/panels/crop_overlay.rs` at the same revision.
 
-mod common;
-
-use common::{assert_two_sizes_agree, check_fingerprint, recipe, scene};
+use crate::common::{self, assert_two_sizes_agree, cases, check_fingerprint, recipe, scene, window};
 use dalica_edit::crop_geom::{self, CropBox, Handle, MIN_CROP_FRACTION, crop_fit_angle, drag, max_inscribed_scale, ratio_rect};
 use dalica_edit::ops::Operation;
 use dalica_edit::ops::crop::Crop;
 use dalica_edit::{Geometry, Op, Point, Rect, Source, Target, Typed, guides, render};
-use dalica_image::{Orientation, Rgba8};
+use dalica_image::Orientation;
 use proptest::prelude::*;
-
-/// The window `(x, y, w, h)` of `img`.
-fn window(img: &Rgba8, x: u32, y: u32, w: u32, h: u32) -> Rgba8 {
-    let mut data = Vec::new();
-    for row in y..y + h {
-        let at = ((row * img.width + x) * 4) as usize;
-        data.extend_from_slice(&img.data[at..at + (w * 4) as usize]);
-    }
-    Rgba8 { width: w, height: h, data }
-}
 
 fn typed_crop(text: &str) -> Option<Crop> {
     match Op::parse(text).typed() {
@@ -479,7 +467,7 @@ fn any_handle() -> impl Strategy<Value = Handle> {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(256))]
+    #![proptest_config(ProptestConfig::with_cases(cases(256)))]
 
     /// Whatever the pointer does, the crop stays inside the picture and keeps a minimum size; the
     /// anchor and the ratio hold (ported).
