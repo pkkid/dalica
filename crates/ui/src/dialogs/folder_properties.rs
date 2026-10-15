@@ -3,7 +3,7 @@
 //!
 //! ```text
 //! Folder Properties
-//! Name:                  [Lisbon Weekend                 ]   (read-only until renaming, M9)
+//! Name:                  [Lisbon Weekend                 ]
 //! Date:                  [2026-06-04]  Thursday, June 4, 2026
 //!                        [x] Use the date of the oldest photo
 //! Place:                 [Lisbon, Portugal               ]
@@ -18,10 +18,16 @@
 //! description. It starts from what the library holds: the date set in Folder Properties (the box
 //! off), else the oldest photo's (the box on, the field disabled). Turning the box on shows the
 //! oldest photo's date again; while it is off the field takes a date, and OK is disabled until it
-//! reads as one. OK runs `folder.info.set` once (one undo step, none when nothing changed), with
-//! `date: "oldest"` while the box is on; Cancel changes nothing.
+//! reads as one. The name renames the folder on disk (M9.20): OK is disabled while it is blank.
 //!
-//! Widget ids (`control-protocol.md` §7, the dialog row): `field:dialog.name` (disabled),
+//! OK runs `folder.rename {folder, name}` first when the name changed (a file job, one undo step
+//! "Rename Folder"; the folder keeps its id, so the tree row and the section title follow it once
+//! the job is done), then `folder.info.set` once (one undo step, none when nothing changed), with
+//! `date: "oldest"` while the box is on. A rename the engine refuses (a name another library folder
+//! has, an offline folder) leaves the dialog open with the reason and changes nothing; Cancel
+//! changes nothing.
+//!
+//! Widget ids (`control-protocol.md` §7, the dialog row): `field:dialog.name`,
 //! `field:dialog.date`, `check:dialog.useOldest`, `field:dialog.place`, `field:dialog.description`,
 //! `field:dialog.music` and `button:dialog.browse` (both disabled), `button:dialog.cancel`,
 //! `button:dialog.ok`.
@@ -57,6 +63,10 @@ pub const MUSIC_HINT: &str = "Arrives with slideshows";
 pub const DATE_HINT: &str = "YYYY-MM-DD";
 /// Why OK is disabled when the Date field does not read as a day.
 pub const BAD_DATE: &str = "Type the date as YYYY-MM-DD.";
+/// Why OK is disabled while the Name field is blank.
+pub const NO_NAME: &str = "Enter the folder's name.";
+/// What the Name field says while it is empty.
+pub const NAME_HINT: &str = "Folder name";
 
 pub const NAME_ID: &str = "field:dialog.name";
 pub const DATE_ID: &str = "field:dialog.date";
@@ -120,8 +130,15 @@ pub fn chosen_date(fields: &Map<String, Value>) -> Result<Option<Date>, &'static
     text(fields, "date").trim().parse::<Date>().map(Some).map_err(|_| BAD_DATE)
 }
 
+/// The name the draft gives, trimmed: `Err` (why, for the dialog) while it is blank.
+pub fn chosen_name(fields: &Map<String, Value>) -> Result<String, &'static str> {
+    let name = text(fields, "name");
+    let name = name.trim();
+    if name.is_empty() { Err(NO_NAME) } else { Ok(name.to_string()) }
+}
+
 pub fn look(_app: &App, d: &Dialog) -> Look {
-    let ok = Button::new("ok", "OK", ButtonKind::Default).enabled(chosen_date(&d.fields).is_ok());
+    let ok = Button::new("ok", "OK", ButtonKind::Default).enabled(chosen_date(&d.fields).is_ok() && chosen_name(&d.fields).is_ok());
     Look { title: TITLE.into(), width: WIDTH, buttons: vec![Button::cancel(), ok] }
 }
 
@@ -165,13 +182,7 @@ pub fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
     ui.spacing_mut().item_spacing.y = GAP;
     let fields = &mut d.fields;
 
-    row(ui, &t, "Name:", |ui| {
-        // Renaming on disk arrives with the file operations (M9): shown, not edited.
-        ui.add_enabled_ui(false, |ui| {
-            let mut name = text(fields, "name");
-            TextField::new(NAME_ID, "", full).show(ui, &t, &mut name);
-        });
-    });
+    row(ui, &t, "Name:", |ui| field(ui, &t, fields, "name", NAME_ID, NAME_HINT, full));
 
     let oldest = use_oldest(fields);
     row(ui, &t, "Date:", |ui| {
@@ -210,8 +221,20 @@ pub fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
     });
 }
 
-/// OK: `folder.info.set {id, description, place, date}`, `date` being `"oldest"` while "Use the
-/// date of the oldest photo" is on.
+/// The `folder.rename` the draft asks for: `Some(params)` when its name is not the folder's now.
+pub fn rename_params(app: &App, fields: &Map<String, Value>) -> Result<Option<Value>, CmdError> {
+    let folder: FolderId = fields
+        .get("folder")
+        .and_then(|v| serde_json::from_value(v.clone()).ok())
+        .ok_or_else(|| CmdError::Internal("the Folder Properties draft has no folder".into()))?;
+    let name = chosen_name(fields).map_err(|why| CmdError::Disabled(why.into()))?;
+    let now = app.session().and_then(|s| s.library().folder(folder)).map(|f| folder_name(&f.path));
+    Ok((now.as_deref() != Some(name.as_str())).then(|| json!({ "folder": folder, "name": name })))
+}
+
+/// OK: `folder.rename {folder, name}` when the name changed, then `folder.info.set {id,
+/// description, place, date}`, `date` being `"oldest"` while "Use the date of the oldest photo" is
+/// on. The reply is `folder.info.set`'s, with the rename's under `rename` when there was one.
 pub fn act(app: &mut App, d: &Dialog, _action: &str) -> Result<Value, CmdError> {
     let f = &d.fields;
     let id = f.get("folder").cloned().ok_or_else(|| CmdError::Internal("the Folder Properties draft has no folder".into()))?;
@@ -220,7 +243,17 @@ pub fn act(app: &mut App, d: &Dialog, _action: &str) -> Result<Value, CmdError> 
         Ok(Some(day)) => json!(day.to_string()),
         Err(why) => return Err(CmdError::BadParams(why.into())),
     };
-    app.run("folder.info.set", &json!({ "id": id, "description": text(f, "description"), "place": text(f, "place"), "date": date }))
+    // The rename first: a refusal (a name taken, an offline folder) changes nothing at all.
+    let renamed = match rename_params(app, f)? {
+        Some(params) => Some(app.run("folder.rename", &params)?),
+        None => None,
+    };
+    let mut reply =
+        app.run("folder.info.set", &json!({ "id": id, "description": text(f, "description"), "place": text(f, "place"), "date": date }))?;
+    if let (Some(r), Some(o)) = (renamed, reply.as_object_mut()) {
+        o.insert("rename".into(), r);
+    }
+    Ok(reply)
 }
 
 #[cfg(test)]

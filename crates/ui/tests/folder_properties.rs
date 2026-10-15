@@ -8,6 +8,9 @@
 //!   from the library, Cancel changes nothing, OK sets the date and place (and description) in one
 //!   undo step, which undo takes back; OK is disabled while the date does not read;
 //! - the header's date line shows the folder's date and " · place";
+//! - renaming in Folder Properties (M9.20) renames the folder on disk as its own undo step; the
+//!   section title and the tree row follow it, undo puts the name back, a blank name greys OK and
+//!   a name another library folder has is refused with nothing changed;
 //! - every widget has an id, and the header and the dialog match their fingerprints at 1400 × 900
 //!   and 900 × 600 (`tests/fingerprints/region-header-info-<w>x<h>.json`,
 //!   `dialog-folder-properties-<w>x<h>.json`; `DALICA_BLESS=1` stores new ones, renders go to
@@ -271,7 +274,7 @@ fn folder_properties_ok_sets_date_and_place_in_one_undo_step_and_cancel_changes_
     );
     check_ids(&fx.d);
     for (id, enabled) in
-        [(NAME_ID, false), (DATE_ID, false), (USE_OLDEST_ID, true), (PLACE_ID, true), (DESCRIPTION_ID, true), (MUSIC_ID, false), (BROWSE_ID, false)]
+        [(NAME_ID, true), (DATE_ID, false), (USE_OLDEST_ID, true), (PLACE_ID, true), (DESCRIPTION_ID, true), (MUSIC_ID, false), (BROWSE_ID, false)]
     {
         assert_eq!(widget(&fx.d, id).unwrap_or_else(|| panic!("no {id}")).enabled, enabled, "{id}");
     }
@@ -327,6 +330,86 @@ fn folder_properties_ok_sets_date_and_place_in_one_undo_step_and_cancel_changes_
     fx.d.settle(FRAMES).unwrap();
     assert!(info(&fx.d, folder).is_empty(), "{:?}", info(&fx.d, folder));
     assert_eq!(shown(&fx.d, folder), ("Thursday, June 4, 2026".to_string(), String::new()));
+}
+
+/// Runs frames until the file jobs are done and their results are in the library.
+fn settle_jobs(d: &mut Driver) {
+    let s = d.settle_for(FRAMES, true);
+    assert!(s.settled, "still busy: {:?}", s.busy);
+}
+
+/// The Name field renames the folder on disk: OK runs `folder.rename` (its own undo step) and then
+/// `folder.info.set`; the section title and the tree row follow, and undo puts the name back. A
+/// blank name greys OK; a name another library folder has is refused and nothing changes.
+#[test]
+fn renaming_in_folder_properties_renames_on_disk_and_the_title_follows() {
+    let mut fx = fixture((1400, 900));
+    let folder = fx.lisbon;
+    let photos = fx.dir.path().join("photos");
+    let (old, new) = (photos.join("Lisbon Weekend"), photos.join("Lisbon 2026"));
+    let title = |d: &Driver| widget(d, &part(folder, "title")).unwrap().label;
+    let row = |d: &Driver| widget(d, &format!("tree:folder:{}", folder.get())).unwrap().label;
+    assert_eq!(title(&fx.d), "Lisbon Weekend");
+    let open = |fx: &mut Fx| {
+        fx.d.run("section.properties", &json!({ "folder": folder })).unwrap();
+        fx.d.settle(FRAMES).unwrap();
+        assert!(has(&fx.d, "dialog:folderProperties"));
+    };
+
+    // A blank name greys OK; a name the library's other folder has is refused, nothing changed.
+    open(&mut fx);
+    retype(&mut fx.d, NAME_ID, "  ");
+    assert!(!widget(&fx.d, "button:dialog.ok").unwrap().enabled, "OK waits for a name");
+    retype(&mut fx.d, NAME_ID, "Porto");
+    retype(&mut fx.d, PLACE_ID, "Lisbon, Portugal");
+    fx.d.click("button:dialog.ok").unwrap();
+    settle_jobs(&mut fx.d);
+    assert!(has(&fx.d, "dialog:folderProperties"), "the dialog stays open with the reason");
+    assert!(fx.d.state().status.contains("Porto"), "{}", fx.d.state().status);
+    assert!(info(&fx.d, folder).is_empty() && undo_steps(&fx.d).0 == 0, "nothing changed");
+    assert!(old.is_dir());
+    fx.d.click("button:dialog.cancel").unwrap();
+    fx.d.settle(FRAMES).unwrap();
+
+    // A new name and a place: the folder is renamed on disk, then its place is set.
+    open(&mut fx);
+    retype(&mut fx.d, NAME_ID, "Lisbon 2026");
+    assert_eq!(fields(&fx.d)["name"], "Lisbon 2026");
+    retype(&mut fx.d, PLACE_ID, "Lisbon, Portugal");
+    fx.d.click("button:dialog.ok").unwrap();
+    settle_jobs(&mut fx.d);
+    assert!(fx.d.state().dialogs.is_empty(), "OK closes the dialog");
+    assert!(new.is_dir() && !old.exists(), "renamed on disk");
+    assert_eq!(std::fs::read_dir(&new).unwrap().filter(|e| e.as_ref().unwrap().path().extension().is_some_and(|x| x == "jpg")).count(), 3);
+    let lib = fx.d.app().session().unwrap().library();
+    assert_eq!(lib.folder(folder).unwrap().path, new, "the folder keeps its id");
+    assert_eq!(info(&fx.d, folder).place, "Lisbon, Portugal");
+    fx.d.settle(FRAMES).unwrap();
+    assert_eq!(title(&fx.d), "Lisbon 2026", "the section title follows");
+    assert!(row(&fx.d).contains("Lisbon 2026"), "the tree row follows: {}", row(&fx.d));
+    // The rename's step lands when its file job ends, after the information's.
+    assert_eq!(undo_steps(&fx.d), (2, Some("Rename Folder")), "the rename and the information, one step each");
+
+    // Undo puts the name back, then takes back the place.
+    fx.d.run("edit.undo", &json!({})).unwrap();
+    settle_jobs(&mut fx.d);
+    assert!(old.is_dir() && !new.exists(), "undo puts the name back");
+    assert_eq!(title(&fx.d), "Lisbon Weekend");
+    assert_eq!(undo_steps(&fx.d).1, Some("Folder Properties"));
+    fx.d.run("edit.undo", &json!({})).unwrap();
+    settle_jobs(&mut fx.d);
+    assert!(info(&fx.d, folder).is_empty());
+
+    // Only the name changed: one step, the rename.
+    open(&mut fx);
+    retype(&mut fx.d, NAME_ID, "Lisboa");
+    fx.d.click("button:dialog.ok").unwrap();
+    settle_jobs(&mut fx.d);
+    assert!(photos.join("Lisboa").is_dir());
+    assert_eq!(undo_steps(&fx.d).1, Some("Rename Folder"), "nothing else to set: no second step");
+    fx.d.run("edit.undo", &json!({})).unwrap();
+    settle_jobs(&mut fx.d);
+    assert_eq!(undo_steps(&fx.d).1, None, "the only step was the rename");
 }
 
 /// A description longer than an inline editor keeps opens Folder Properties instead, so nothing is

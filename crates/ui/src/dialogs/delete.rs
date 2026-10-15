@@ -9,9 +9,14 @@
 //!   it (including non-picture files) to the trash?" with [Move to Trash] [Cancel]; its draft is
 //!   `deleteFolder {folder}`.
 //!
-//! Move to Trash (the default) runs the command with `"confirm": true`; deletes always go to the OS
-//! trash. Each asks once its command is registered (M9.15); the engine's "Delete without asking"
-//! and the explanation shown when a volume has no trash join with M9.20.
+//! Move to Trash (the default) runs the command with `"confirm": true`; Cancel deletes nothing.
+//! Each asks once its command is registered (M9.15), unless Options → "Delete from disk without
+//! asking" (`"organize"` → `deleteWithoutAsking`) is on: then the command runs at once, as the
+//! engine allows. Deletes always go to the OS trash, never permanently (`security.md` §5.7): a
+//! photo or folder on a drive without a trash stays where it is, and the operation's notice gives
+//! the engine's explanation (`dalica_engine::cmd::delete::no_trash`, pointing to the file manager)
+//! as the reason that item failed. Undo brings the items back from the trash where the system
+//! allows it; on macOS Edit ▸ Undo is greyed with the engine's reason.
 
 use dalica_core::{FolderId, PhotoId};
 use dalica_engine::CmdError;
@@ -45,30 +50,27 @@ fn folder(app: &App, params: &Value) -> Option<(FolderId, String)> {
     Some((id, name))
 }
 
-/// Whether `photo.delete` asks first: once the command exists.
+/// Whether Options → "Delete from disk without asking" is on: the questions are skipped.
+pub fn without_asking(app: &App) -> bool {
+    app.session().is_some_and(|s| s.settings().organize().delete_without_asking)
+}
+
+/// Whether `photo.delete` asks first: once the command exists, unless "Delete from disk without
+/// asking" is on.
 pub fn photos_ask(app: &App, _params: &Value) -> bool {
-    confirm::registered(app, "photo.delete")
+    confirm::registered(app, "photo.delete") && !without_asking(app)
 }
 
 /// Whether `folder.delete` asks first: once the command exists, for a folder of the library (a
-/// bad one is the command's to refuse).
+/// bad one is the command's to refuse), unless "Delete from disk without asking" is on.
 pub fn folder_asks(app: &App, params: &Value) -> bool {
-    confirm::registered(app, "folder.delete") && folder(app, params).is_some()
+    confirm::registered(app, "folder.delete") && folder(app, params).is_some() && !without_asking(app)
 }
 
 /// "Move the selected picture to the trash?" for one photo, "Move the %d selected pictures to the
-/// trash?" for several.
-pub fn photos_question(n: usize) -> String {
-    match n {
-        1 => "Move the selected picture to the trash?".into(),
-        n => format!("Move the {n} selected pictures to the trash?"),
-    }
-}
-
-/// The folder question, naming the folder.
-pub fn folder_question(name: &str) -> String {
-    format!("Move the folder \"{name}\" and everything in it (including non-picture files) to the trash?")
-}
+/// trash?" for several; and the folder question, naming the folder: the engine's own texts, the
+/// ones its refusal without `"confirm"` gives.
+pub use dalica_engine::cmd::delete::{folder_question, photos_question};
 
 pub fn photos_text(app: &App, params: &Value) -> Option<String> {
     Some(photos_question(photos(app, params).len()))
