@@ -8,6 +8,10 @@
 //! - [`webp()`] (lossless, alpha, EXIF and ICC chunks), [`gif()`] (one or several frames),
 //!   [`bmp()`], [`jpeg_icc()`] (JPEG with an APP2 profile): the pinned `image` crate's encoders.
 //! - [`jxl()`]: lossless JPEG XL through `zune-jpegxl` (safe, pure Rust).
+//! - [`png_layout()`]: our own PNG writer for every colour type and bit depth (1–16), palettes,
+//!   `tRNS` and Adam7 interlacing; [`png_image`] gives its exact samples and the expected RGBA.
+//! - [`jpeg_dc()`]: our own DC-only JPEG writer for 12-bit (SOF1) and arithmetic-coded (SOF9)
+//!   frames, with [`jpeg_dc_reference`] (the block means a decoder shows).
 //!
 //! No encoder we use writes a CMYK JPEG or a lossy WebP; tests of those rely on hand-built
 //! bytes and the corpus. Every writer is deterministic: the same scene and options give the same
@@ -21,11 +25,15 @@ use crate::orient;
 use crate::render::{Rgb8, Scene};
 
 pub mod codecs;
+pub mod jpeg_dc;
 pub mod pack;
+pub mod png;
 pub mod psd;
 pub mod tiff;
 
 pub use codecs::{Webp, bmp, gif, jpeg_icc, jxl, webp};
+pub use jpeg_dc::{Coding, JpegDc, jpeg_dc, jpeg_dc_reference};
+pub use png::{Png, PngColour, PngImage, png_image, png_layout};
 pub use psd::{Psd, psd};
 pub use tiff::{Compression, Tiff, tiff};
 

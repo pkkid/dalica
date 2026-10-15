@@ -4701,7 +4701,7 @@ No other step of M10 needs a maintainer decision mid-run.
     (before and after numbers in the PR) or blocks with its numbers, never loosened.
   - done when: `cargo xtask bench scan_throughput` and `cargo xtask bench cold_start` print their
     numbers (in the PR); `cargo xtask budgets` passes with them and `--plant-ms` makes each fail.
-- ⬜ **M10.23 `image` + `scenes`: the P0 formats measured**
+- ✅ **M10.23 `image` + `scenes`: the P0 formats measured**
   - after: M6.38, M9.R
   - files: `crates/image/src/formats/jpeg.rs`, `crates/image/src/formats/png.rs`, `crates/image/src/formats/tiff.rs`, `crates/image/src/decode.rs`, `crates/image/tests/p0_formats.rs`, `crates/scenes/src/formats/**`
   - scope: what the P0 rows `DATA-FMT-JPEG`, `DATA-FMT-PNG`, `DATA-FMT-TIFF`, `DATA-FMT-COLOR`

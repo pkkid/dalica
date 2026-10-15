@@ -17,7 +17,9 @@ and the per-type toggles are in [`data-model.md`](data-model.md) §7 and Options
 > TIFF-structured raws (M5.9), previews of CR3, RAF, CRW, MRW and X3F, and HEIF behind its feature
 > (M5.10); AVIF is recognised and never decoded. Not built yet: JPEG DCT-domain scaled decoding
 > (`zune-jpeg` 0.5 has none: thumbnails decode in full and are fitted, and past 64 MP the embedded
-> thumbnail is used) and MPF previews. LightCraft's `codecs` and `raw` crates are prior art only
+> thumbnail is used), 12-bit JPEG (no pure-Rust decoder we could use decodes 12-bit DCT samples:
+> such files are listed with their size and answer "This kind of JPEG isn't supported", measured
+> in M10.23) and MPF previews. LightCraft's `codecs` and `raw` crates are prior art only
 > (`architecture.md` §9). Everything is pure Rust; no C decoder is linked, ever.
 >
 > Measured on real files (M5.15, `development.md` §11): PngSuite decodes all 162 valid files and
@@ -34,7 +36,7 @@ and the per-type toggles are in [`data-model.md`](data-model.md) §7 and Options
 
 | Format | Show (decode) | Thumbnail fast path | Metadata write | Save edits in place | Notes |
 |---|---|---|---|---|---|
-| JPEG | yes: baseline, progressive, CMYK/YCCK, 12-bit | embedded EXIF thumbnail or MPF preview; DCT-domain 1/2–1/8 scaled decode | XMP, IPTC, EXIF | yes, as a baseline JPEG at the original's quality and chroma subsampling (4:2:2 written as 4:4:4), its metadata kept; progressive, CMYK and YCCK files too. A rotate-only Save turns a baseline file whose size is whole MCUs in its coefficients, losslessly; other sizes and progressive files keep their pixel data and take the EXIF orientation flag (`data-model.md` §6) | arithmetic coding unsupported |
+| JPEG | yes: baseline, progressive, CMYK/YCCK (12-bit: not yet, see the status above) | embedded EXIF thumbnail or MPF preview; DCT-domain 1/2–1/8 scaled decode | XMP, IPTC, EXIF | yes, as a baseline JPEG at the original's quality and chroma subsampling (4:2:2 written as 4:4:4), its metadata kept; progressive, CMYK and YCCK files too. A rotate-only Save turns a baseline file whose size is whole MCUs in its coefficients, losslessly; other sizes and progressive files keep their pixel data and take the EXIF orientation flag (`data-model.md` §6) | arithmetic coding, lossless and hierarchical frames unsupported ("This kind of JPEG isn't supported"); 12-bit not decoded yet (the same message) |
 | PNG | yes: 1–16-bit, palette, transparency, interlaced | scaled decode | XMP (`iTXt`), EXIF (`eXIf`) | without transparency: yes, as PNG (8- or 16-bit; an alpha channel that is all opaque is left out). A 16-bit PNG stays 16-bit: exact for a rotate-only Save, other edits rendered at 8 bits and widened back. With transparency (an alpha sample below opaque): JPEG copy beside it | |
 | TIFF | yes: 8/16-bit int, float, gray/RGB/CMYK/palette, LZW/Deflate/PackBits/JPEG; first full-resolution page | embedded thumbnail IFD if present, else scaled decode | XMP and IPTC tags (append-only) | JPEG copy beside it | multi-page: first page; Lab/YCbCr unsupported; a file cut inside a strip or tile is "Damaged file" |
 | WebP | yes: lossy and lossless, alpha; first frame of animations | scaled decode | XMP, EXIF chunks | JPEG copy beside it | |
