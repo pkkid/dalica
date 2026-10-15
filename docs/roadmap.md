@@ -5019,6 +5019,58 @@ No other step of M10 needs a maintainer decision mid-run.
   - done when: `cargo test -p dalica-mcp --test workflows` runs W01 green (on all three OSes at the review);
     `apps/dalica-cli/tests/mcp_process.rs` passes; `cargo xtask stats` prints 9 / 12 passing and
     `cargo xtask stats --check` fails when a P0 workflow is ignored (a planted `#[ignore]`).
+- ⬜ **M10.29 `fs` + `store`: real crashes, a full disk and read-only folders**
+  - after: M9.R
+  - files: `crates/fs/src/faults.rs`, `crates/fs/tests/crash.rs`, `crates/fs/tests/refusals.rs`, `crates/fs/tests/all.rs`, `crates/store/tests/crash.rs`, `crates/store/tests/all.rs`, `crates/fs/README.md`
+  - scope: the data-safety cases the test audit of 2026-10-15 found untested (maintainer decision,
+    2026-10-15, testing rework): a child process killed at a random moment (SIGKILL,
+    `TerminateProcess`) while it writes, after the pattern of `crates/fs/tests/lock.rs`, for the
+    atomic replace, the originals backup before a Save, the journal append and the intents file,
+    then the parent checks that the old or the new bytes are there and nothing torn (50 kills at
+    full strength, 5 quick); `Fault::Full` with the real error kind (`StorageFull`), so the cleanup
+    and the reason the user sees are checked, plus one real case on Unix through a child under
+    `RLIMIT_FSIZE`; a read-only folder (a locked card, a read-only share) refuses a Save before
+    anything is written; an identity with inode 0 (some shares) never lets a rename replace; the
+    parent folder removed between opening it and the rename, for the atomic replace and a
+    transfer.
+  - done when: `cargo test -p dalica-fs -p dalica-store` passes quick; the kill tests run 50 times
+    each with `DALICA_FULL_TESTS=1` and never find a torn file; each refusal leaves the folder
+    byte-identical and names the reason.
+- ⬜ **M10.30 `engine`: undo under faults and a day in the life**
+  - after: M9.R
+  - files: `crates/engine/tests/undo_faults.rs`, `crates/engine/tests/day_in_the_life.rs`, `crates/engine/tests/effects.rs`, `crates/engine/tests/all.rs`
+  - scope: undo and redo of a move, a rename and a delete interrupted at the file-job points
+    (one point per class quick, every point at full strength), as the forward operations already
+    are; one end-to-end run: scan a folder, star, caption and tag, move to another folder, rename,
+    undo the whole chain, quit, reopen and rebuild from the sidecars, then every photo's bytes and
+    data compared with the start; a property test that a command whose spec says `Effect::Query`
+    never changes the model or the undo stack and one with `History::None` never adds a step.
+  - done when: `cargo test -p dalica-engine` passes quick and with `DALICA_FULL_TESTS=1`; a
+    planted bug (undo of a move that skips the sidecar entry) fails `undo_faults`.
+- ⬜ **M10.31 `ui` + `dalica`: closing the window, display scales and a monkey test**
+  - after: M9.R
+  - files: `crates/ui/src/app.rs`, `apps/dalica/src/window.rs`, `crates/ui/tests/shutdown.rs`, `crates/ui/tests/scale.rs`, `crates/ui/tests/monkey.rs`, `crates/ui/tests/all.rs`
+  - scope: the windowed exit (placement and view state saved, pending metadata writes flushed) and
+    the headless exit share one `App::shutdown`, tested headless with writes still pending; five
+    flows that depend on hit-testing and rounding (a crop drag, a straighten drag, a tray drag, the
+    tree splitter, a dialog's buttons) at scale 1.5 and 2.0 as well as 1.0; a seeded monkey run
+    (random clicks on registered widgets, keys, drags and window sizes from 600 to 2000 px wide)
+    that asserts no panic, `state.check()` passing, no unregistered widget and no disk access on
+    the UI thread (200 frames quick, 2 000 at full strength).
+  - done when: `cargo test -p dalica-ui -p dalica` passes quick and at full strength; closing with
+    a caption still pending leaves it in the sidecar.
+- ⬜ **M10.32 `meta` + `image`: metadata written to real camera files, and colour without a profile**
+  - after: M9.R
+  - files: `crates/meta/tests/corpus.rs`, `crates/meta/tests/write_jpeg.rs`, `crates/image/tests/corpus.rs`, `crates/image/src/formats/jpeg.rs`
+  - scope: the metadata write-back invariants run over the real camera and phone JPEGs of the
+    corpus (`development.md` §11), not only over files other programs wrote into our scenes: after
+    a caption and a tag are written, every image an MPF index lists still starts with FFD8 at its
+    offset, data after EOI (motion-photo and other trailers) is kept byte for byte, and the image
+    data is unchanged; a JPEG marked Adobe RGB in EXIF (ColorSpace 2 or the R03 interop index)
+    without an embedded profile decodes as Adobe RGB, with per-file decoded fingerprints in the
+    corpus floors.
+  - done when: `cargo xtask test-corpus` passes with the new floors; a write that shifts the
+    secondary images without fixing the MPF offsets fails the corpus test.
 - ⬜ **M10.26 `docs`: the P0 parity audit**
   - after: M10.8, M10.11, M10.12, M10.16, M10.19, M10.20, M10.21, M10.22, M10.23, M10.25
   - files: `docs/parity.md`
@@ -5061,7 +5113,7 @@ No other step of M10 needs a maintainer decision mid-run.
   - done when: `cargo xtask tasks sync --check` parses them and `tasks sync --dry-run` lists one new
     issue per block.
 - ⬜ **M10.R Release 0.5 gate**
-  - after: M10.24, M10.27
+  - after: M10.24, M10.27, M10.29, M10.30, M10.31, M10.32
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`
   - scope: a release gate (Release 0.5, P0 complete): the lead runs `/milestone-review M10.R` to
