@@ -21,6 +21,103 @@ This file is the user-facing changelog. Help ▸ Release Notes compiles it into 
   its translation until the catalogs catch up (docs/localization.md → Release notes).
 -->
 
+## 0.4.0 — October 2026
+
+Your library can now be organised. Albums gather photos from any folders in an order you choose,
+search finds photos as you type, and photos and folders can be moved, copied, renamed and deleted
+from inside Dalica. Captions, tags, stars, edits and album places travel with every file, and
+nothing is deleted outright: it goes to the system's trash.
+
+### Albums
+
+- File ▸ New Album… (Ctrl+N, or the New Album button) makes an album from the selected photos and
+  the tray. Albums are listed under Albums in the folder tree, and each has its own section in the
+  library with its name, date, place and description; click the description to edit it.
+- An album can hold photos from any number of folders. Drag photos onto an album in the tree, use
+  Add to Album ▸ in a photo's right-click menu, or Add to Album ▾ under the tray. Drag photos
+  between others inside an album to change their order.
+- Album ▸ Album Properties… (or a double-click on the album) changes its name, date, place and
+  description. Album ▸ Sort Album By sorts it by name, date or size, or reverses it; Set as Album
+  Cover picks the photo that stands for it. Remove from Album (Delete, in an album) takes photos
+  out of the album only; the files stay where they are.
+- Starred Photos lists every starred photo in one place.
+- Every album change can be undone with Edit ▸ Undo. Albums are kept in each folder's `.dalica.json`
+  and in an `albums.json` in the library, so an album and its order come back even if the index is
+  rebuilt or `albums.json` is lost.
+
+### Search
+
+- Type in the search field (Ctrl+F) to search as you type: words match the start of words in a
+  photo's name, caption, tags, folder, place and albums, ignoring case. `-word` leaves photos out,
+  `tag:beach` and `camera:canon` search one field, and dates such as `2026`, `2026-06` or `June`
+  find photos taken then. Suggestions of tags, folders and albums appear as you type.
+- The filter buttons next to the field show only starred photos, videos or photos with a place, and
+  the age slider shows only photos up to a day, a week, months or years old. They combine with the
+  text.
+- While you search, a banner says what is shown ("Showing 20 pictures in 1 folder"); Show All or
+  Esc brings the whole library back where you left it. Tools ▸ Experimental ▸ Save Search
+  Results… keeps the results as an album. In the Tags pane, a tag's menu has
+  Search for This Tag.
+- Tools ▸ Experimental ▸ Show Duplicate Files (Ctrl+F6) finds files that are exactly the same, byte
+  for byte, wherever they are in the library.
+
+### Moving, copying and renaming
+
+- Drag photos onto a folder in the tree to move them there; hold Ctrl (Cmd on a Mac) to copy
+  instead. A label under the pointer says what will happen. Edit ▸ Cut, Copy and Paste do the
+  same from the keyboard.
+- Dalica asks the first time you move photos (tick the box to stop it asking). If a photo of the
+  same name is already there, it asks whether to rename yours (`IMG_0001-001.jpg`) or skip it; it
+  never writes over a file.
+- File ▸ Move to New Folder… and Split Folder Here… (in a photo's right-click menu) make a new folder
+  beside the current one, with its date, place and description.
+- File ▸ Rename… (F2) renames one photo or a batch: type a name, and Dalica numbers them in order
+  (`Lisbon-001.jpg`), adding the date and size if you like; the dialog shows an example as you
+  type. Folders are renamed in Folder Properties, and moved with Folder ▸ Move….
+- A moved, copied or renamed photo keeps its caption, tags, star, edits, album places and its saved
+  original. Moving to another drive copies the photo, checks the copy byte for byte, and only then
+  sends the original to the trash.
+- Every move, copy and rename can be undone with Edit ▸ Undo. A notice says what was done ("Moved 3
+  photos to Lisbon") or what failed and why.
+
+### Deleting
+
+- File ▸ Delete from Disk… (Delete in a folder, Ctrl+Delete anywhere) sends photos to the system's
+  trash after asking; Folder ▸ Delete… does the same for a folder and everything in it. On Linux
+  and Windows Edit ▸ Undo brings them back. Dalica never deletes a file outright: on a drive
+  without a trash, the photo stays and the notice says why.
+
+### Editing
+
+- In the edit view, Ctrl+Z after a Save now undoes the Save, the same as the Undo Save button.
+- After a Save, the edit view, the tray and the thumbnails show the saved picture at once; before,
+  they could keep the old one until Dalica restarted.
+
+### Reliability
+
+- If Dalica or the computer stops in the middle of a move, copy, rename or delete, the next start
+  finishes or undoes it, so every photo is in one place with its details. The repair is reported.
+- A folder you move or rename outside Dalica, while it runs or between sessions, keeps its photos'
+  captions, tags, stars, edits and album places.
+- Exports now always list under Projects from `Pictures/Dalica`, whatever export folder you choose.
+- A caption or tag set just before a Save is written first, so the Save no longer stops with
+  "changed on disk".
+
+### Not in this release yet
+
+- Recently Updated is not shown yet: how it should count newly added photos is still being
+  decided.
+- Show Duplicate Files lists all the duplicates together in one section rather than one section
+  per group.
+- `color:` and `person:` searches find nothing yet, and the Faces filter is greyed until Dalica
+  finds faces. Month names are recognised in English only, and accented letters must be typed as
+  they are.
+- On a Mac, deleting cannot be undone from Dalica; restore the photo from the Trash in Finder.
+- On Linux, a photo whose file name is longer than about 245 bytes cannot be sent to the trash; the
+  delete stops and the photo stays.
+- Photos in a folder cannot yet be put in an order of your own by dragging, and photos cannot be
+  dragged out to other applications.
+
 ## 0.3.0 — October 2026
 
 Your edits can now leave Dalica. Save writes them into the photo itself, and the original is kept
