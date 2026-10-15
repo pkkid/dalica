@@ -8,6 +8,8 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 publish = false
+# One test binary (tests/all.rs) instead of one per file: one link, the tests run in parallel.
+autotests = false
 
 [features]
 # HEIF/HEIC decoding (formats.md §3), off by default: `cargo build -p dalica --features heif`.
@@ -40,3 +42,7 @@ winresource.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+
+[[test]]
+name = "all"
+path = "tests/all.rs"

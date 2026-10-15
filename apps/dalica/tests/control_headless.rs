@@ -6,17 +6,13 @@
 //! goes with it).
 
 use std::io::{BufRead, BufReader, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::TcpStream;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, ExitStatus, Stdio};
+use std::process::{Child, ExitStatus, Stdio};
 use std::time::{Duration, Instant};
 
+use crate::common::{dalica, free_port};
 use serde_json::{Value, json};
-
-/// A port nobody listens on now (the OS picks it; it is free again once the probe closes).
-fn free_port() -> u16 {
-    TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
-}
 
 /// A `dalica` process, killed if a test ends without quitting it.
 struct App {
@@ -43,42 +39,6 @@ impl App {
             std::thread::sleep(Duration::from_millis(50));
         }
     }
-}
-
-/// `dalica ARGS` with every folder it could touch inside `home`.
-fn dalica(home: &Path, args: &[&str]) -> Command {
-    let mut c = Command::new(env!("CARGO_BIN_EXE_dalica"));
-    let tmp = home.join("tmp");
-    std::fs::create_dir_all(&tmp).unwrap();
-    // Standard error (the log) goes to a file: a pipe nobody reads could fill and stall the app.
-    let log = std::fs::OpenOptions::new().create(true).append(true).open(home.join("stderr.log")).unwrap();
-    c.args(args).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::from(log));
-    for (k, v) in [
-        ("HOME", home.to_path_buf()),
-        ("XDG_CONFIG_HOME", home.join("config")),
-        ("XDG_CACHE_HOME", home.join("cache")),
-        ("DALICA_CACHE_DIR", home.join("dalica-cache")),
-        ("XDG_DATA_HOME", home.join("data")),
-        ("XDG_RUNTIME_DIR", home.join("run")),
-        ("APPDATA", home.join("appdata")),
-        ("LOCALAPPDATA", home.join("localappdata")),
-        ("TMPDIR", tmp.clone()),
-        ("TMP", tmp.clone()),
-        ("TEMP", tmp),
-    ] {
-        c.env(k, v);
-    }
-    for k in [
-        "DALICA_HOME",
-        "DALICA_CONTROL_PORT",
-        "DALICA_CONTROL_TOKEN_FILE",
-        "DALICA_AUTOMATION_READ_ROOT",
-        "DALICA_AUTOMATION_WRITE_ROOT",
-        "DALICA_PROFILE",
-    ] {
-        c.env_remove(k);
-    }
-    c
 }
 
 /// Where the app makes its default token file for `port` with the folders of [`dalica`].
@@ -161,12 +121,12 @@ fn an_agent_stars_a_photo_by_click_and_key_and_takes_a_screenshot() {
     let started = Instant::now();
     let p = port.to_string();
     let args = ["--headless", "--control", &p, "--demo-fresh", "--control-token-file", token_file.to_str().unwrap()];
-    let mut app = App { child: dalica(home.path(), &args).spawn().unwrap() };
+    let mut app = App { child: dalica(home.path(), args).spawn().unwrap() };
     let token = token(&token_file, &mut app);
     let ready = ms(started);
 
     // A second instance on the same port exits 2 instead of starting without its channel.
-    let second = dalica(home.path(), &["--headless", "--control", &p, "--demo-fresh"]).stderr(Stdio::piped()).output().unwrap();
+    let second = dalica(home.path(), ["--headless", "--control", &p, "--demo-fresh"]).stderr(Stdio::piped()).output().unwrap();
     let why = String::from_utf8_lossy(&second.stderr);
     assert_eq!(second.status.code(), Some(2), "{why}");
     assert!(why.contains(&format!("127.0.0.1:{port}")), "{why}");
@@ -225,7 +185,7 @@ fn the_default_token_file_is_made_private_for_the_launch_and_removed_at_exit() {
     let home = tempfile::tempdir().unwrap();
     let port = free_port();
     let p = port.to_string();
-    let mut app = App { child: dalica(home.path(), &["--control", &p, "--headless", "--demo-fresh"]).spawn().unwrap() };
+    let mut app = App { child: dalica(home.path(), ["--control", &p, "--headless", "--demo-fresh"]).spawn().unwrap() };
     let file = default_token_file(home.path(), port);
     let token = token(&file, &mut app);
     #[cfg(unix)]
