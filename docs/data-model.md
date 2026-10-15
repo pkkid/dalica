@@ -855,7 +855,10 @@ Rules:
 Each of these is a regression test in `crates/fs` / `crates/sidecar` / `crates/store` / `crates/engine`:
 
 1. Rebuilding the index loses nothing (every user-visible field survives delete-index + rescan).
-2. Moving a folder outside Dalica keeps all its data.
+2. Moving a folder outside Dalica keeps all its data: while Dalica watches (the watcher's rescan)
+   and between sessions (the next session's verification pass), the folder and its photos keep
+   their ids, stars, captions, tags, recipes, album memberships in their order, the albums' covers
+   and their first-indexed times.
 3. Moving photos between folders inside Dalica carries their data and their originals backup.
 4. An unknown edit operation does not drop the operations after it.
 5. A crash during a sidecar write leaves either the old or the new file, never a torn one.
