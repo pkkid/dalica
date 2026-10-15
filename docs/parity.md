@@ -23,14 +23,14 @@ same commit.
 | Section | ✅ | 🟡 | ⬜ | 🚫 |
 |---|---:|---:|---:|---:|
 | A. Library view | 13 | 15 | 4 | 1 |
-| B. Organizing | 2 | 8 | 32 | 0 |
+| B. Organizing | 2 | 11 | 29 | 0 |
 | C. Editing | 8 | 6 | 8 | 4 |
 | D. Viewing | 0 | 1 | 5 | 2 |
 | E. Output | 0 | 1 | 1 | 9 |
 | F. Data | 1 | 19 | 1 | 0 |
 | G. Preferences and system | 0 | 7 | 7 | 0 |
 | H. Menus | 0 | 5 | 2 | 0 |
-| **All** | 24 | 62 | 60 | 16 |
+| **All** | 24 | 65 | 57 | 16 |
 <!-- /parity:summary -->
 
 ## Top gaps
@@ -108,10 +108,10 @@ same commit.
 | PPL-XMP | Write people names to photos (XMP regions) | P2 | ⬜ | |
 | GEO-PANE | Places pane with map, drag to geotag, search | P1 | ⬜ | ref 04 §7 |
 | GEO-WRITE | EXIF GPS write/clear | P1 | ⬜ | |
-| SRCH-LIVE | Live search with operators and autocomplete | P0 | ⬜ | ref 04 §8 |
-| SRCH-FILTERS | Filter toggles + age slider | P0 | ⬜ | |
-| SRCH-BANNER | Search mode banner + Show All | P0 | ⬜ | |
-| SRCH-SAVE | Save search as album, show tag as album | P2 | ⬜ | |
+| SRCH-LIVE | Live search with operators and autocomplete | P0 | 🟡 | ref 04 §8; the grammar, matcher and index (M9.8): `crates/library/src/search.rs`, `crates/library/tests/search.rs`, `crates/library/tests/search_props.rs`; the engine (M9.11): `cmd:search.set` debounced 120 ms on the session clock and run on the search worker against the index, which follows every op photo by photo, stale answers dropped, `cmd:search.clear`, `cmd:search.suggest` (tags, folders, albums with counts), `cmd:library.query` with the grammar in `text` and `album:search` as a section: `crates/engine/src/search.rs`, `crates/engine/src/cmd/search.rs`, `crates/engine/tests/search.rs` (a 100 k query answered off the owner thread); missing: the search field and its dropdown (M9.22), people names (M13), colours |
+| SRCH-FILTERS | Filter toggles + age slider | P0 | 🟡 | Starred, Videos, Geotagged and the age (days back on the session clock) combining with text in `cmd:search.set` and `cmd:library.query`; Faces matches nothing until M13 and is reported as unavailable: `crates/engine/tests/search.rs`; the slider widget (M9.5): `crates/ui-kit/src/widgets/age_slider.rs`; missing: the toolbar buttons wired to the search (M9.22) |
+| SRCH-BANNER | Search mode banner + Show All | P0 | ⬜ | the banner's numbers (matches, folders, bytes, seconds) come from `cmd:search.set` / `Session::search_inspect` (M9.11); the banner itself is M9.22 |
+| SRCH-SAVE | Save search as album, show tag as album | P2 | 🟡 | Save: `cmd:search.saveAsAlbum` makes a user album of the matches in light-table order as one undo step: `crates/engine/tests/search.rs`; missing: its name dialog (M9.22) and Show Tag as Album |
 | SRCH-COLOR | Colour search | P2 | ⬜ | |
 | SRCH-DUP | Find duplicates | P2 | ⬜ | |
 | FILE-MOVE | Move/copy photos with collision dialog | P0 | ⬜ | ref 04 §9 |

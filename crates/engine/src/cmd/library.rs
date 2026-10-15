@@ -1,9 +1,20 @@
 //! Library commands: queries and rebuilding the index.
+//!
+//! - `library.query` lists photos in light-table order, paged: all of them, a folder's, a
+//!   section's (`folder:12`, `album:starred`, `album:recent`, `album:<id>`, and `album:search`, the
+//!   search mode's matches), and those a search finds (`text` in the search box's grammar, the
+//!   filter buttons, the age), asked of the search worker (`search.rs`); the lists combine.
+//! - `library.rebuild` rebuilds the index from the watched folders, in the background.
 
-use dalica_core::FolderId;
+use std::collections::HashSet;
+
+use dalica_core::{FolderId, PhotoId};
+use dalica_library::search::{Age, Filters, Query as SearchQuery};
+use dalica_library::{AlbumRef, Section, section_photos};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use crate::cmd::search::{FilterParams, check_text};
 use crate::error::CmdError;
 use crate::registry::{CommandSpec, Effect, History, always, params};
 use crate::session::Session;
@@ -15,7 +26,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Query Library",
             menu: "",
             keys: &[],
-            params: r#"{"folder"?:FolderId, "starred"?:bool, "offset"?:int=0, "limit"?:int=1000 (max 10000)}: photos in display order, and the total"#,
+            params: r#"{"folder"?:FolderId, "section"?:"folder:<id>"|"album:<id>"|"album:starred"|"album:recent"|"album:search", "text"?:string (the search box's grammar), "filters"?:{"starred"?:bool, "faces"?:bool, "videos"?:bool, "geotagged"?:bool}, "age"?:days (0: every age), "starred"?:bool, "offset"?:int=0, "limit"?:int=1000 (max 10000)}: photos in light-table order (a section's in its own order), every condition given applying, and the total; with text, filters or age also truncated and unavailable"#,
             effect: Effect::Query,
             history: History::None,
             enabled: always,
@@ -42,10 +53,30 @@ const MAX_LIMIT: usize = 10_000;
 #[serde(deny_unknown_fields)]
 struct Query {
     folder: Option<FolderId>,
+    section: Option<String>,
+    text: Option<String>,
+    filters: Option<FilterParams>,
+    age: Option<u32>,
     starred: Option<bool>,
     #[serde(default)]
     offset: usize,
     limit: Option<usize>,
+}
+
+/// The photos of `section` in its order: `album:search` lists the search mode's matches.
+fn section_ids(s: &mut Session, text: &str) -> Result<Vec<PhotoId>, CmdError> {
+    let section: Section = text.parse().map_err(|e: dalica_library::Error| CmdError::BadParams(e.to_string()))?;
+    let lib = s.library();
+    match &section {
+        Section::Album(AlbumRef::Search) => {
+            return s.search_results_now()?.ok_or_else(|| CmdError::NotFound("no album:search: not searching".into()));
+        }
+        Section::Folder(f) if lib.folder(*f).is_none() => return Err(CmdError::NotFound(format!("no folder {f}"))),
+        Section::Album(AlbumRef::User(a)) if lib.album(a).is_none() => return Err(CmdError::NotFound(format!("no album {a}"))),
+        _ => {}
+    }
+    let options = s.search_tree_options();
+    Ok(section_photos(s.library(), std::slice::from_ref(&section), &options).into_iter().flat_map(|(_, ids)| ids).collect())
 }
 
 fn query(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
@@ -54,21 +85,63 @@ fn query(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
     if limit > MAX_LIMIT {
         return Err(CmdError::Limit(format!("limit is at most {MAX_LIMIT}")));
     }
-    let lib = s.library();
-    let folders: Vec<FolderId> = match q.folder {
-        Some(f) if lib.folder(f).is_none() => return Err(CmdError::NotFound(format!("no folder {f}"))),
-        Some(f) => vec![f],
-        None => lib.folders_in_display_order().iter().map(|f| f.id).collect(),
+    if let Some(text) = &q.text {
+        check_text(text)?;
+    }
+    if let Some(f) = q.folder
+        && s.library().folder(f).is_none()
+    {
+        return Err(CmdError::NotFound(format!("no folder {f}")));
+    }
+    let search = SearchQuery {
+        text: q.text.unwrap_or_default(),
+        filters: q.filters.unwrap_or_default().over(Filters::default()),
+        age: q.age.filter(|d| *d > 0).map(|days| Age { days, now: s.clock().now() }),
     };
-    let matching: Vec<Value> = folders
+    let section = match &q.section {
+        Some(text) => Some(section_ids(s, text)?),
+        None => None,
+    };
+    let mut found = None;
+    let mut ids: Vec<PhotoId> = match section {
+        Some(ids) => ids,
+        None if search.is_active() => {
+            let r = s.ask_search(search.clone())?;
+            let ids = r.photos().to_vec();
+            found = Some(r);
+            ids
+        }
+        None => {
+            let lib = s.library();
+            let folders: Vec<FolderId> = match q.folder {
+                Some(f) => vec![f],
+                None => lib.folders_in_display_order().iter().map(|f| f.id).collect(),
+            };
+            folders.into_iter().flat_map(|f| lib.photos_in(f)).map(|p| p.id).collect()
+        }
+    };
+    if search.is_active() && found.is_none() {
+        let r = s.ask_search(search)?;
+        let matched: HashSet<PhotoId> = r.photos().iter().copied().collect();
+        ids.retain(|id| matched.contains(id));
+        found = Some(r);
+    }
+    let lib = s.library();
+    let matching: Vec<Value> = ids
         .into_iter()
-        .flat_map(|f| lib.photos_in(f))
+        .filter_map(|id| lib.photo(id))
+        .filter(|p| q.folder.is_none_or(|f| p.folder == f))
         .filter(|p| q.starred.is_none_or(|want| p.star == want))
         .map(|p| json!({ "id": p.id, "folder": p.folder, "name": p.name, "star": p.star, "width": p.width, "height": p.height, "date": p.date }))
         .collect();
     let total = matching.len();
     let page: Vec<Value> = matching.into_iter().skip(q.offset).take(limit).collect();
-    Ok(json!({ "total": total, "offset": q.offset, "photos": page }))
+    let mut out = json!({ "total": total, "offset": q.offset, "photos": page });
+    if let Some(r) = found {
+        out["truncated"] = json!(r.truncated);
+        out["unavailable"] = json!(r.unavailable);
+    }
+    Ok(out)
 }
 
 #[derive(Deserialize)]

@@ -321,9 +321,10 @@ Manager.
 ### 8.1 Search box (toolbar, right)
 
 - **Instant**: results narrow on every keystroke (debounced 120 ms, computed on a worker for big
-  libraries). Matches words (prefix match on tokens split at space, dot, underscore, dash) in file
-  names, captions, tags, people names, folder and album names, places, descriptions, dates (month
-  names, years, `2026-06`), camera make/model, and dimensions. Several words = AND. Operators:
+  libraries). Matches words (prefix match on tokens split at whitespace and at every ASCII
+  punctuation character, so `(beach)` and `beach,` find `beach`) in file names, captions, tags,
+  people names, folder and album names, places, descriptions, dates (month names, years,
+  `2026-06`), camera make/model, and dimensions (`4000x3000`). Several words = AND. Operators:
   `-word` (NOT), `tag:word`, `person:name`, `camera:x`, `color:green` (a later milestone, decided at
   the M9 review; dominant colour).
 - Autocomplete dropdown lists matching tags, folders, albums and people with counts.
@@ -333,12 +334,45 @@ Manager.
   Show All.
 - Tools → **Save Search as Album…** creates a user album from the results.
 
+How the search reads the text and answers (decided while building it, M9.8 and M9.11):
+
+- **Caps.** The search reads at most 1 KiB of text, 32 words and 64 bytes of each word; anything
+  past a cap is left out and the result says the text was `truncated` (commands refuse more than
+  16 KiB outright). A longer word still matches on its first 64 bytes.
+- **Dates.** A date written in the box (`2026-06`, `2026-06-04`, and the unfinished `2026-0` while
+  typing) stays one word, matched against the photo's date words, instead of splitting at the dash
+  into numbers that would match file names. Date words come from the effective date (the user's
+  date, else the file's); the age slider reads the sort date (that, else the file time), so a photo
+  without a date still ages.
+- **Operators.** An operator with no value (`tag:` alone, a lone `-`) narrows nothing.
+  `person:` and `color:` are read but match nothing until their milestones, and the result lists
+  them as `unavailable` (the Faces filter too). An unknown `name:value` is read as plain words.
+- **Hidden and small pictures** count only when View ▸ Hidden Pictures and Small Pictures show
+  them, so the banner counts what the light table shows.
+- **Order.** Results come in light-table order: by folder in the order the tree lists the folders
+  (the stored view options: flat or tree mode, the folder sort and its direction, every group
+  expanded), each folder's photos in its own sort. The search album lists them in that order, and
+  Save Search as Album keeps it.
+- **Autocomplete** reads the last word of the text (a leading `-` ignored): after `tag:` it offers
+  tags only, after another operator nothing. Tags come first, then folders, then albums, each kind
+  by how many photos it shows (most first), then by name; at most 100, and an entry with no photo
+  shown is left out.
+- **On a worker.** The worker keeps its own copy of the library and the search index and follows
+  every change photo by photo, never rebuilding the index for one; a rebuild of the library gives
+  it a fresh copy. A query runs 120 ms after the last change to the text, the filters or the age;
+  while searching, a change to the library runs it again 120 ms later (at most that often during a
+  scan). An answer to an older query is dropped. The window's thread never runs a query.
+- **Save Search as Album** makes a user album named as the user types it (dated by its newest
+  photo) holding the current matches, as one undo step; it is greyed out outside search mode, and
+  refuses a search with no matches.
+
 ### 8.2 Filter buttons (toolbar, left of the search box)
 
 Toggle buttons, combinable with each other and with text: **Starred**, **Faces** (photos with
 faces), **Videos**, **Geotagged**. Then the **age slider**: one handle, leftmost = everything;
 moving right shows only newer items, label "Pictures up to 3 months old" (days/weeks/months/years
-on a logarithmic scale; the end is always today). Any active filter shows the filter banner.
+on a logarithmic scale; the end is always today). Any active filter shows the filter banner. The
+age counts whole days back from the session's clock; a photo dated after now always passes.
 
 ### 8.3 Duplicates
 
