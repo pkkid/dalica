@@ -15,6 +15,7 @@ mod edited_thumbs;
 mod execute_group;
 mod export;
 mod export_mixed;
+mod export_sections;
 mod facts;
 mod filejobs;
 mod fileops;
