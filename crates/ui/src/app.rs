@@ -60,6 +60,10 @@ pub struct App {
 /// The persisted part of the view state: the window's (M3) and the library view's options (M4).
 type Persisted = (ViewState, ViewOptions);
 
+/// How long [`App::shutdown`] waits for the queued metadata writes before it goes on to the
+/// sidecars; the session's own close finishes any still running.
+pub const SHUTDOWN_METADATA_WAIT: std::time::Duration = std::time::Duration::from_secs(60);
+
 impl App {
     /// An app showing `session`, or the "opening" state while it is `None`.
     pub fn new(mut session: Option<Session>) -> App {
@@ -195,6 +199,35 @@ impl App {
     /// Takes the session out, to flush and close it.
     pub fn take_session(&mut self) -> Option<Session> {
         self.session.take()
+    }
+
+    /// What closing does, the window's (its Close button, File ▸ Exit, the system's close) and the
+    /// headless app's (`app.quit`) alike: the text an inline editor holds is committed, as a click
+    /// elsewhere would commit it (the caption under a cell, a section's description; one undo step
+    /// each, nothing when unchanged); the view state is saved, when it is persisted; the metadata
+    /// writes still waiting for their debounce are made now, so their results reach the sidecars;
+    /// then every journal record, sidecar and settings write lands (`control-protocol.md` §5.8).
+    ///
+    /// Call it once the frames are over and the thread is no longer marked as the UI thread: it
+    /// blocks until the writes have landed. `Err(Unsaved)` names what could not be written. Metadata
+    /// writes still running after [`SHUTDOWN_METADATA_WAIT`] are not an error: dropping the session
+    /// finishes them before it returns.
+    pub fn shutdown(&mut self) -> Result<(), CmdError> {
+        if let Some(edit) = self.state.caption_edit.take() {
+            crate::panels::light_table::caption_edit::commit(self, edit.photo, &edit.draft);
+        }
+        if let Some(edit) = self.state.description_edit.take()
+            && let Some(owner) = crate::panels::light_table::header::Owner::of(edit.section)
+        {
+            let (id, params) = owner.set_description(&edit.draft);
+            let _ = self.run(id, &params);
+        }
+        self.save_view();
+        let Some(session) = &mut self.session else { return Ok(()) };
+        if !session.flush_metadata(SHUTDOWN_METADATA_WAIT) {
+            log::warn!("dalica: metadata writes are still running; they finish before the library closes");
+        }
+        session.flush()
     }
 
     /// Runs command `id`: a UI-only one here, anything else in the engine. A command whose UI asks
