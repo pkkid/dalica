@@ -479,7 +479,7 @@ fn the_new_menu_items_light_up() {
     }
     key(&mut t, "Ctrl+X");
     assert_eq!(state(&mut t)["clipboard"], json!({ "op": "cut", "ids": [first] }));
-    assert_eq!(state_of(&item(&mut t, "photo.paste")), (true, false, json!("Not available yet.")), "moving arrives with M9.13");
+    assert_eq!(state_of(&item(&mut t, "photo.paste")), (true, true, Value::Null), "Paste moves the cut photos (M9.13)");
     key(&mut t, "Ctrl+C");
     assert_eq!(state(&mut t)["clipboard"]["op"], json!("copy"));
     // Ctrl+F asks for the search field; it opens nothing.

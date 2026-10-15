@@ -167,9 +167,9 @@ mod tests {
         assert_eq!(app.state().clipboard, Some(Clipboard { op: ClipOp::Cut, ids: vec![ids[0]] }));
         app.run("photo.copy", &json!({ "ids": [ids[1]] })).unwrap();
         assert_eq!(app.state().clipboard, Some(Clipboard { op: ClipOp::Copy, ids: vec![ids[1]] }));
-        // Into the current folder; until the engine can copy, Paste says it is not available.
-        assert_eq!(can_paste(&app, &json!({})), Err(NOT_YET.into()));
-        assert!(matches!(app.run("photo.paste", &json!({ "folder": folder })), Err(CmdError::Disabled(_))));
+        // Into the current folder, now that the engine can copy (M9.13).
+        assert_eq!(can_paste(&app, &json!({})), Ok(()));
+        assert_eq!(can_paste(&app, &json!({ "folder": folder })), Ok(()));
         // In an album there is nowhere to paste.
         app.state_mut().selection = Selection::new(vec![], None, Some(Section::Album(AlbumSection::Starred)), true);
         assert_eq!(can_paste(&app, &json!({})), Err(IN_ALBUM.into()));
