@@ -7,9 +7,9 @@
 //! column over the open submenu, the same on every OS)
 //! (`DALICA_BLESS=1` stores it; renders go to `target/test-output/ui/`).
 //!
-//! Album sections reach the light table with M9.17: until then the tests put the selection in an
-//! album section directly, as selecting one does, and right-click its photo's cell in its folder
-//! (a right-click on a selected photo keeps the selection).
+//! In an album the tests click and right-click the photo's copy in the album's section
+//! (`thumb:<PhotoId>/in/<album>`), as a person does; the enabled-state checks of cases a click cannot
+//! reach (a photo of the selection outside the album) put the selection there directly.
 
 use std::collections::{BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
@@ -85,11 +85,31 @@ fn widget(d: &Driver, id: &str) -> Option<WidgetInfo> {
     d.widgets().into_iter().find(|w| w.id == id)
 }
 
-/// Right-clicks photo `id`'s cell: the photo menu opens.
+/// Right-clicks photo `id`'s cell in its folder: the photo menu opens.
 fn open_menu(t: &mut T, id: PhotoId) {
-    t.d.click_with(&format!("thumb:{}", id.get()), &Click { button: PointerButton::Secondary, ..Click::default() }).unwrap();
+    open_menu_on(t, &format!("thumb:{}", id.get()));
+}
+
+/// The cell of photo `id`'s copy in album `album`'s section.
+fn cell_in(id: PhotoId, album: &AlbumId) -> String {
+    format!("thumb:{}/in/{album}", id.get())
+}
+
+/// Right-clicks the cell `cell`: the photo menu opens (for the selection when the photo is
+/// selected, else for the photo, selected first).
+fn open_menu_on(t: &mut T, cell: &str) {
+    t.d.click_with(cell, &Click { button: PointerButton::Secondary, ..Click::default() }).unwrap();
     t.d.settle(FRAMES).unwrap();
     assert!(widget(&t.d, "menuitem:view.edit").is_some(), "the photo menu is open");
+}
+
+/// Selects the photos of `cells` as a person does: a click on the first, Ctrl-clicks on the rest.
+fn select_cells(t: &mut T, cells: &[String]) {
+    for (k, cell) in cells.iter().enumerate() {
+        let modifiers = if k == 0 { egui::Modifiers::NONE } else { egui::Modifiers::COMMAND };
+        t.d.click_with(cell, &Click { modifiers, ..Click::default() }).unwrap();
+    }
+    t.d.settle(FRAMES).unwrap();
 }
 
 /// The photo menu's model as `ui.menu.tree {context: "photo"}` returns it.
@@ -227,8 +247,10 @@ fn remove_from_album_asks_removes_and_leaves_the_files() {
         })
         .collect();
     assert!(paths.iter().all(|p| p.is_file()));
-    select_in(&mut t, section(&trams), &[a, b], a);
-    open_menu(&mut t, a);
+    let (cell_a, cell_b) = (cell_in(a, &trams), cell_in(b, &trams));
+    select_cells(&mut t, &[cell_a.clone(), cell_b.clone()]);
+    assert_eq!(t.d.state().selection.section, Some(section(&trams)), "selected in the album");
+    open_menu_on(&mut t, &cell_a);
     t.d.click("menuitem:album.remove").unwrap();
     t.d.settle(FRAMES).unwrap();
     let dialog = widget(&t.d, "dialog:removeFromAlbum").expect("Remove from Album asks first");
@@ -238,8 +260,8 @@ fn remove_from_album_asks_removes_and_leaves_the_files() {
     t.d.settle(FRAMES).unwrap();
     assert!(widget(&t.d, "dialog:removeFromAlbum").is_none());
     assert_eq!(t.d.app().session().unwrap().library().album_members(&trams), [a, b]);
-    // Again, and Remove.
-    open_menu(&mut t, a);
+    // Again, and Remove: the album's section empties.
+    open_menu_on(&mut t, &cell_a);
     t.d.click("menuitem:album.remove").unwrap();
     t.d.settle(FRAMES).unwrap();
     t.d.click("button:dialog.remove").unwrap();
@@ -250,6 +272,7 @@ fn remove_from_album_asks_removes_and_leaves_the_files() {
     for p in &paths {
         assert!(p.is_file(), "{} is still on disk", p.display());
     }
+    assert!(widget(&t.d, &cell_a).is_none() && widget(&t.d, &format!("thumb:{}", a.get())).is_some(), "out of the album, still in its folder");
     // Undo brings them back; with the setting on, the photos leave without a question.
     t.d.key("Ctrl+Z").unwrap();
     t.d.settle(FRAMES).unwrap();
@@ -258,8 +281,9 @@ fn remove_from_album_asks_removes_and_leaves_the_files() {
     let mut o = session.settings().organize();
     o.remove_from_albums_without_asking = true;
     session.change_settings(|st| st.set_organize(&o));
-    select_in(&mut t, section(&trams), &[b], b);
-    open_menu(&mut t, b);
+    t.d.settle(FRAMES).unwrap();
+    select_cells(&mut t, std::slice::from_ref(&cell_b));
+    open_menu_on(&mut t, &cell_b);
     t.d.click("menuitem:album.remove").unwrap();
     t.d.settle(FRAMES).unwrap();
     assert!(widget(&t.d, "dialog:removeFromAlbum").is_none(), "no question");
@@ -280,14 +304,22 @@ fn set_as_album_cover_and_show_in_folder() {
         row["cover"].as_u64().unwrap()
     };
     assert_eq!(cover(&mut t), a.get(), "the first photo until one is set");
-    select_in(&mut t, section(&trams), &[b], b);
-    open_menu(&mut t, b);
+    let cell_b = cell_in(b, &trams);
+    open_menu_on(&mut t, &cell_b);
+    assert_eq!(t.d.state().selection.section, Some(section(&trams)), "the right-click selected it in the album");
     t.d.click("menuitem:album.setCover").unwrap();
     t.d.settle(FRAMES).unwrap();
     assert_eq!(cover(&mut t), b.get());
     assert_eq!(t.d.app().session().unwrap().library().album_cover(&trams), Some(b));
+    // The album selected as a unit (its tree row) shows the new cover in the tray's token.
+    t.d.click(&format!("tree:album:{trams}")).unwrap();
+    t.d.settle(FRAMES).unwrap();
+    assert_eq!(widget(&t.d, "tray:token").expect("the album token").label, "Album selected — 2 photos");
+    let state = t.d.state().clone();
+    assert_eq!(dalica_ui::panels::bottom::tray::token_cover(&state, t.d.app().session().unwrap()), Some(b));
     // Show in Folder: the photo alone, selected in its folder's section.
-    open_menu(&mut t, b);
+    select_cells(&mut t, std::slice::from_ref(&cell_b));
+    open_menu_on(&mut t, &cell_b);
     t.d.click("menuitem:photo.showInFolder").unwrap();
     t.d.settle(FRAMES).unwrap();
     let folder = t.d.app().session().unwrap().library().photo(b).unwrap().folder;
@@ -338,11 +370,12 @@ fn bounds(rects: &[[f32; 4]], margin: f32) -> [f32; 4] {
 
 /// The width of the photo menu's label column that is fingerprinted: the shortcut column is left
 /// out, as macOS writes Cmd and so draws the menu wider.
-const LABELS: f32 = 190.0;
+const LABELS: f32 = 182.0;
 
 /// Checks the open menus of the last frame against `tests/fingerprints/<name>.json`: the photo
 /// menu's label column (its rows' left part, [`LABELS`] wide) over the open Add to Album ▸ (its
-/// rows' bounding box), each with a margin, stacked into one image.
+/// rows' bounding box), inside the menus' frames so nothing behind them shows, stacked into one
+/// image.
 fn check_menu(d: &Driver, name: &str) {
     let shot = d.screenshot().unwrap();
     std::fs::write(out_dir().join(format!("{name}-window.png")), fingerprint::png_rgba(shot.width, shot.height, &shot.rgba)).unwrap();
@@ -351,9 +384,9 @@ fn check_menu(d: &Driver, name: &str) {
     let in_sub = |id: &str| id == "menuitem:album.new" || id.starts_with("menuitem:album.add/");
     let main: Vec<[f32; 4]> = rows.iter().filter(|(id, _)| !in_sub(id)).map(|(_, r)| *r).collect();
     let sub: Vec<[f32; 4]> = rows.iter().filter(|(id, _)| in_sub(id)).map(|(_, r)| *r).collect();
-    let mut m = bounds(&main, 8.0);
+    let mut m = bounds(&main, 0.0);
     m[2] = m[0] + LABELS;
-    let parts = [crop(&shot, m), crop(&shot, bounds(&sub, 8.0))];
+    let parts = [crop(&shot, m), crop(&shot, bounds(&sub, 0.0))];
     let w = parts.iter().map(|p| p.0).max().unwrap();
     let h: u32 = parts.iter().map(|p| p.1).sum();
     let mut rgba = Vec::with_capacity((w * h * 4) as usize);

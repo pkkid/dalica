@@ -87,7 +87,8 @@ fn add_to_album_adds_the_photos_and_edit_undo_takes_them_out() {
     menus::activate(d.app_mut(), &undo, &json!(null)).unwrap();
     d.settle(FRAMES).unwrap();
     assert_eq!(members(&d, &album), [s[1][0]]);
-    assert!(d.app().panels().unwrap().sections.list[0].photos == s[0], "the folder keeps its photos");
+    let folder = dalica_ui::state::Section::Folder(d.app().session().unwrap().library().photo(s[0][0]).unwrap().folder);
+    assert_eq!(d.app().panels().unwrap().sections.get(folder).unwrap().photos, s[0], "the folder keeps its photos");
 
     // A photo already in the album stays where it is.
     open_add_to_album(&mut d, &s[1][0..2]);
