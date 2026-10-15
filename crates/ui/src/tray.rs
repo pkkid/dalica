@@ -273,6 +273,10 @@ mod tests {
         assert_eq!(token(&state(vec![], ids(1..=3), false)), None);
         assert_eq!(token_label(Section::Folder(FolderId::new(1)), 48), "Folder selected — 48 photos");
         assert_eq!(token_label(Section::Folder(FolderId::new(1)), 1), "Folder selected — 1 photo");
+        let album = Section::Album(crate::state::AlbumSection::Starred);
+        assert_eq!(token_label(album, 40), "Album selected — 40 photos");
+        let s = UiState { selection: Selection::new(ids(1..=40), None, Some(album), true), ..UiState::default() };
+        assert_eq!(token(&s), Some(album), "an album section selected as a unit is one token");
     }
 
     #[test]
