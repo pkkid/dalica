@@ -120,6 +120,44 @@ fn the_os_trash_round_trips() {
     faults::real_trash(false);
 }
 
+/// Linux and the BSDs: a 255-byte name, too long for the record the `trash` crate would make
+/// (`<name>.trashinfo`), goes to the OS trash under a shortened name, is listed under its own, and
+/// comes back with its bytes (a file and a folder).
+#[cfg(all(unix, not(target_vendor = "apple"), not(target_os = "android")))]
+#[test]
+fn a_255_byte_name_goes_to_the_os_trash_and_comes_back() {
+    faults::real_trash(true);
+    let dir = tempfile::tempdir().unwrap();
+    let parent = fs::canonicalize(dir.path()).unwrap();
+    for folder in [false, true] {
+        let name = format!("{}{}", if folder { "f" } else { "p" }, "é".repeat(125)) + if folder { "abcd" } else { ".jpg" };
+        assert_eq!(name.len(), 255);
+        let path = dir.path().join(&name);
+        if folder {
+            fs::create_dir(&path).unwrap();
+            fs::write(path.join("a.jpg"), b"inside").unwrap();
+        } else {
+            fs::write(&path, b"the photo").unwrap();
+        }
+        let t = trashed(&path);
+        assert!(fs::symlink_metadata(&path).is_err(), "{name}");
+        assert_eq!((t.original.clone(), t.folder), (parent.join(&name), folder));
+        let listed = ::trash::os_limited::list().unwrap();
+        assert!(
+            listed.iter().any(|i| i.name == std::ffi::OsStr::new(&name) && i.original_parent == parent),
+            "listed under its own name: {}",
+            listing(dir.path())
+        );
+        assert_eq!(restore(std::slice::from_ref(&t)).unwrap(), [Restore::Restored], "the trash listed: {}", listing(dir.path()));
+        if folder {
+            assert_eq!(fs::read(path.join("a.jpg")).unwrap(), b"inside");
+        } else {
+            assert_eq!(fs::read(&path).unwrap(), b"the photo");
+        }
+    }
+    faults::real_trash(false);
+}
+
 /// The stand-in trash every other test uses gives the OS trash's answers.
 #[test]
 fn the_stand_in_trash_round_trips_as_the_os_trash_does() {

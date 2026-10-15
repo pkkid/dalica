@@ -17,6 +17,13 @@
 //!   (`dalica_scan::diff_found`): one holding most of a gone folder's photos is that folder renamed
 //!   or moved on disk (between sessions, `data-model.md` §10.2) and keeps its ids and everything
 //!   said about it, as the watcher's rescans keep them. Every other folder lands as it is read.
+//!   **Across regions** (the verification pass scans each unit on its own): a merge scan whose walk
+//!   is over offers the folders holding photos it found gone to the other merge scans, and keeps
+//!   them in the library while one runs; a folder at an unknown path sharing photos with a known
+//!   folder where another merge scan still walks is held until every merge walk is over; folders
+//!   at unknown paths pair with the folders gone here and those offered. The offered folders no
+//!   scan paired leave the library once no merge scan runs (a scan cancelled or put off withdraws
+//!   its own).
 //! - **Rebuild** scans (`library.rebuild`, and a damaged index at open) build a fresh model to the
 //!   side and swap it in at the end, clearing the undo stack (ids change); a cancelled rebuild
 //!   keeps the old model. A rebuild of an empty model fills it in place, like a merge. Its thread
@@ -171,6 +178,14 @@ pub(crate) struct Scanning {
     applying: bool,
     /// `albums.json` (`albums_file.rs`): kept here because the scans decide when it may be written.
     pub(crate) albums_file: crate::albums_file::AlbumsFile,
+    /// The merge scans whose walk still runs, with what they walk: a folder another merge scan
+    /// finds at a path the model does not know may be one of theirs, moved there on disk.
+    walking: Vec<(JobId, Plan)>,
+    /// Folders holding photos that a merge scan, its walk ended, found gone where it looked, with
+    /// the path they had: another merge scan pairs a folder moved into its own region with them
+    /// (`dalica_scan::diff_found`), and while one runs they stay in the library; once none runs,
+    /// those still at that path leave it.
+    gone: Vec<(JobId, FolderId, PathBuf)>,
 }
 
 impl Scanning {
@@ -283,9 +298,11 @@ struct ScanJob {
     /// modification time) with a known folder the walk has not found yet: maybe that folder moved
     /// on disk, so they wait until the walk ends and the folders gone are known.
     held: Vec<FoundFolder>,
-    /// The photos of the known folders where the scan looks, by (size, modification time): made
-    /// for the first folder at an unknown path.
+    /// The photos of the known folders where the scan looks, or another merge scan still walks,
+    /// by (size, modification time): made for the first folder at an unknown path.
     known_keys: Option<HashMap<(u64, Timestamp), Vec<FolderId>>>,
+    /// The end of the walk was taken into account ([`Session::note_walk_end`]).
+    walk_noted: bool,
 }
 
 impl ScanJob {
@@ -313,6 +330,7 @@ impl ScanJob {
             albums: None,
             held: Vec::new(),
             known_keys: None,
+            walk_noted: false,
         }
     }
 
@@ -387,14 +405,17 @@ impl ScanJob {
     }
 
     /// Whether `folder` (at a path `lib` does not know) shares a photo with a known folder where
-    /// the scan looks that the walk has not found yet: then it may be that folder, moved on disk.
-    fn may_be_moved(&mut self, lib: &Library, folder: &FoundFolder) -> bool {
-        let plan = &self.plan;
+    /// the scan looks that the walk has not found yet, or one where another merge scan still walks
+    /// (`walking`): then it may be that folder, moved on disk.
+    fn may_be_moved(&mut self, lib: &Library, folder: &FoundFolder, walking: &[(JobId, Plan)]) -> bool {
+        let (job, plan) = (self.job, &self.plan);
         let keys = self.known_keys.get_or_insert_with(|| {
             let mut out: HashMap<(u64, Timestamp), Vec<FolderId>> = HashMap::new();
+            let covers =
+                |plan: &Plan, path: &Path| plan.roots.iter().any(|r| path.starts_with(r)) && !plan.excluded.iter().any(|x| path.starts_with(x));
             let looked: HashSet<FolderId> = lib
                 .folders()
-                .filter(|f| plan.roots.iter().any(|r| f.path.starts_with(r)) && !plan.excluded.iter().any(|x| f.path.starts_with(x)))
+                .filter(|f| covers(plan, &f.path) || walking.iter().any(|(id, other)| *id != job && covers(other, &f.path)))
                 .map(|f| f.id)
                 .collect();
             for p in lib.photos().filter(|p| looked.contains(&p.folder)) {
@@ -582,6 +603,9 @@ impl Session {
         });
         match spawned {
             Ok(_) => {
+                if kind == ScanKind::Merge {
+                    self.scanning.walking.push((job, plan.clone()));
+                }
                 let scan = ScanJob::new(job, kind, plan, rx, fresh, cancel);
                 self.jobs.progress(job, scan.progress(), scan.label());
                 self.scanning.running.push(scan);
@@ -730,7 +754,10 @@ impl Session {
             return;
         }
         let now = self.clock.now();
+        self.scanning.walking.clear();
         for mut job in std::mem::take(&mut self.scanning.running) {
+            // What it found gone is found again when it starts again.
+            self.scanning.gone.retain(|(id, ..)| *id != job.job);
             // The walk stops before its next file (its sends fail too); it is not waited for.
             job.cancel.store(true, Ordering::Relaxed);
             job.stop();
@@ -805,6 +832,7 @@ impl Session {
             if !job.stopped && self.jobs.cancel_requested(job.job) {
                 job.stop();
             }
+            self.note_walk_end(&mut job);
             n += self.advance(&mut job, &mut budget);
             if job.is_complete() {
                 complete.push(job);
@@ -906,10 +934,11 @@ impl Session {
                 folders += 1;
                 continue;
             }
-            // The walk is over: the folders held back take their turn, now that the folders gone
-            // are known.
+            // The walk is over, and every other merge scan's too: the folders held back take their
+            // turn, now that the folders gone are known.
             let walk_over = job.rx.is_none();
-            if walk_over && job.queue.is_empty() && !job.held.is_empty() {
+            let others_walk = self.scanning.walking.iter().any(|(id, _)| *id != job.job);
+            if walk_over && !others_walk && job.queue.is_empty() && !job.held.is_empty() {
                 job.queue.extend(job.held.drain(..));
             }
             let Some(next) = job.queue.front() else { break };
@@ -926,20 +955,31 @@ impl Session {
             // photos is still to be found, it waits; once the walk is over it is paired with a
             // folder gone, as the watcher's rescans pair them, and keeps that folder's ids.
             let unknown = job.kind == ScanKind::Merge && job.fresh.is_none() && self.library.folder_by_path(&folder.path).is_none();
-            if unknown && !walk_over && job.may_be_moved(&self.library, &folder) {
+            if unknown && (!walk_over || others_walk) && job.may_be_moved(&self.library, &folder, &self.scanning.walking) {
                 job.held.push(folder);
                 continue;
             }
             let scan = Scan { folders: vec![folder], ..Scan::default() };
+            // A folder at an unknown path pairs with the folders gone where this scan looked (once
+            // its walk is over) and with those other merge scans found gone (another Scan Always
+            // folder's region: a folder moved from one into the other).
+            let gone = match (&job.fresh, unknown) {
+                (None, true) => {
+                    let mut gone = match (&job.summary, walk_over) {
+                        (Some(s), true) => gone_folders(&self.library, s, &job.empty, &job.plan, &job.seen),
+                        _ => Vec::new(),
+                    };
+                    gone.extend(self.gone_elsewhere());
+                    gone
+                }
+                _ => Vec::new(),
+            };
             let ops = match &mut job.fresh {
                 Some(fresh) => dalica_scan::diff(fresh, &scan),
-                None if unknown && walk_over => {
-                    let gone = job.summary.as_ref().map(|s| gone_folders(&self.library, s, &job.empty, &job.plan, &job.seen)).unwrap_or_default();
-                    match scan.folders.first() {
-                        Some(found) => dalica_scan::diff_found(&mut self.library, found, &gone),
-                        None => Vec::new(),
-                    }
-                }
+                None if !gone.is_empty() => match scan.folders.first() {
+                    Some(found) => dalica_scan::diff_found(&mut self.library, found, &gone),
+                    None => Vec::new(),
+                },
                 None => dalica_scan::diff(&mut self.library, &scan),
             };
             let folder = scan.folders.into_iter().next();
@@ -1037,6 +1077,8 @@ impl Session {
                         self.send(Msg::Dirty(left));
                     }
                     self.undo.clear();
+                    // What merge scans found gone names folders of the model replaced.
+                    self.scanning.gone.clear();
                     self.ops_since_snapshot = 0;
                     self.send(Msg::Snapshot(Box::new(self.library.clone())));
                     replaced = true;
@@ -1054,15 +1096,33 @@ impl Session {
                         }
                     }
                     // Folders under a root walked to the end that hold no photos any more (the
-                    // subtrees it left out belong to other scans).
+                    // subtrees it left out belong to other scans). One that held photos stays while
+                    // another merge scan runs: it may be a folder moved into that one's region.
                     let gone = gone_folders(&self.library, s, &job.empty, &job.plan, &job.seen);
+                    let others = self.scanning.running.iter().any(|j| j.kind == ScanKind::Merge && j.fresh.is_none());
                     for id in gone {
+                        let path = self.library.folder(id).map(|f| f.path.clone());
+                        if let Some(path) = path.filter(|_| others && !self.library.photos_in(id).is_empty()) {
+                            if !self.scanning.gone.iter().any(|(_, g, _)| *g == id) {
+                                self.scanning.gone.push((job.job, id, path));
+                            }
+                            continue;
+                        }
+                        self.scanning.gone.retain(|(_, g, _)| *g != id);
                         if let Err(e) = self.apply(Op::RemoveFolder { id }) {
                             self.scan_warnings.push(format!("scan result not applied: {e}"));
                         }
                     }
                 }
             }
+        }
+        self.scanning.walking.retain(|(id, _)| *id != job.job);
+        if cancelled || summary.is_none() {
+            // What a scan that did not finish found gone is not trusted.
+            self.scanning.gone.retain(|(id, ..)| *id != job.job);
+        }
+        if !self.scanning.running.iter().any(|j| j.kind == ScanKind::Merge && j.fresh.is_none()) {
+            self.remove_gone_elsewhere();
         }
         if let Some(s) = summary.as_ref().filter(|_| !cancelled) {
             let walked = Plan { roots: s.walked.clone(), excluded: job.plan.excluded.clone() };
@@ -1096,6 +1156,43 @@ impl Session {
         self.jobs.progress(job.job, job.progress(), label.clone());
         self.jobs.finish(job.job, outcome, label, self.clock.now());
         replaced
+    }
+
+    /// `job`'s walk ended (or was let go): it no longer walks, and a merge scan's folders gone
+    /// where it walked to the end that hold photos are offered to the other merge scans
+    /// ([`Scanning`]'s `gone`), which may find them moved into their regions.
+    fn note_walk_end(&mut self, job: &mut ScanJob) {
+        if job.rx.is_some() || job.walk_noted {
+            return;
+        }
+        job.walk_noted = true;
+        self.scanning.walking.retain(|(id, _)| *id != job.job);
+        if job.stopped || job.kind != ScanKind::Merge || job.fresh.is_some() {
+            return;
+        }
+        let Some(s) = job.summary.as_ref().filter(|s| !s.cancelled) else { return };
+        for id in gone_folders(&self.library, s, &job.empty, &job.plan, &job.seen) {
+            let Some(folder) = self.library.folder(id) else { continue };
+            if !self.library.photos_in(id).is_empty() && !self.scanning.gone.iter().any(|(_, g, _)| *g == id) {
+                self.scanning.gone.push((job.job, id, folder.path.clone()));
+            }
+        }
+    }
+
+    /// The folders merge scans found gone that are still where they were (not paired since).
+    fn gone_elsewhere(&self) -> Vec<FolderId> {
+        let lib = &self.library;
+        self.scanning.gone.iter().filter(|(_, id, path)| lib.folder(*id).is_some_and(|f| &f.path == path)).map(|(_, id, _)| *id).collect()
+    }
+
+    /// No merge scan runs any more: the folders found gone that no scan paired leave the library.
+    fn remove_gone_elsewhere(&mut self) {
+        for id in self.gone_elsewhere() {
+            if let Err(e) = self.apply(Op::RemoveFolder { id }) {
+                self.scan_warnings.push(format!("scan result not applied: {e}"));
+            }
+        }
+        self.scanning.gone.clear();
     }
 
     /// Keeps the failures in effect: those under the roots `summary` walked to the end are

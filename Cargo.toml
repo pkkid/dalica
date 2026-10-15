@@ -85,6 +85,10 @@ quick-xml = "0.42"
 md5 = { version = "0.8.1", default-features = false }
 notify = "8"
 trash = "5.2"
+# The local time of a freedesktop trash record (`DeletionDate`) that dalica-fs writes itself for a
+# name too long for the trash crate's record (Linux and the BSDs); already in the graph through
+# `trash`, with the same features (MIT OR Apache-2.0).
+chrono = { version = "0.4.31", default-features = false, features = ["clock"] }
 tempfile = "3"
 directories = "6"
 # Writes relative to a held folder handle (dalica-fs, Unix only; security.md §5.6). Safe API only.

@@ -5157,7 +5157,7 @@ No other step of M10 needs a maintainer decision mid-run.
     items).
   - done when: tests: an album over three folders exports in album order; the search results export
     the matches; Starred Photos exports; an unknown album id fails gracefully; CI green.
-- ⬜ **M10.32 `fs` + `engine`: the file-operation follow-ups from M9**
+- ✅ **M10.32 `fs` + `engine`: the file-operation follow-ups from M9**
   - after: M9.R
   - files: `crates/fs/src/trash.rs`, `crates/fs/tests/trash.rs`, `crates/engine/src/fileops.rs`, `crates/engine/src/cmd/files.rs`, `crates/engine/src/scanning.rs`, `crates/scan/src/diff.rs`, `crates/engine/tests/file_followups.rs`
   - scope: three gaps M9's run found, none losing data today: on Linux a file whose name makes its

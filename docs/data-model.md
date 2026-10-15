@@ -675,7 +675,12 @@ ids are the same everywhere (`control-protocol.md` §5.4).
     scanned whole 6 hours after a scan last walked it, 60 s after the session's first frame if no
     scan walked it since the session opened (changes made while the app was closed), and again a
     minute later if it could not be walked (offline). It catches anything the events missed; with
-    the watcher switched off it alone finds every change.
+    the watcher switched off it alone finds every change. Each unit is its own scan, and a folder
+    moved from one unit into another is still one folder that moved (§10.2): a folder holding
+    photos that one scan finds gone stays in the library while another merge scan runs, a folder
+    another scan finds at an unknown path waits until every running merge scan's walk is over and
+    then pairs with it (by its photos, as a rename), and only the folders no scan paired leave the
+    library, once no merge scan runs.
   - **Never remove what was not seen:** only what a scan walked to the end may leave the library.
     A root that cannot be walked (offline) keeps everything, and so does a walked root that holds
     no entries at all (the empty mount point an unmounted volume leaves behind; a warning says so
