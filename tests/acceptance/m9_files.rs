@@ -108,7 +108,9 @@ fn moves(c: &mut Client, home: &Path, root: &Path) {
     let original = read(&lisbon.join(".dalica-originals").join("IMG_0002.jpg")).expect("the save kept the original");
     let trip =
         run(c, "album.create", json!({ "name": "Trip", "ids": [all["Porto/PORTO_0001.jpg"].id, two, one] }))["album"].as_str().unwrap().to_string();
-    app::flush(c);
+    // The album, the last change, in both entries: written with everything before it.
+    let in_trip = |n: &str| entry(&lisbon, n).is_some_and(|e| e["albums"].get(&trip).is_some());
+    app::flush_until(c, || in_trip("IMG_0001.jpg") && in_trip("IMG_0002.jpg"));
     let all = app::photos(c, root);
     let said_before: Vec<Value> = ["Lisbon/IMG_0001.jpg", "Lisbon/IMG_0002.jpg"].iter().map(|r| said(&all[*r])).collect();
     let entries: Vec<Value> = ["IMG_0001.jpg", "IMG_0002.jpg"].iter().map(|n| carried(&entry(&lisbon, n).unwrap())).collect();
@@ -121,8 +123,10 @@ fn moves(c: &mut Client, home: &Path, root: &Path) {
     assert_eq!(refused["code"], "needs_confirm", "the first move asks: {refused}");
     assert!(lisbon.join("IMG_0001.jpg").is_file(), "nothing moved before the answer");
 
+    let names = ["IMG_0001.jpg", "IMG_0002.jpg"];
+    let entry_is = |folder: &Path, i: usize| entry(folder, names[i]).map(|e| carried(&e)).as_ref() == Some(&entries[i]);
     let check_moved = |c: &mut Client, case: &str| {
-        app::flush(c);
+        app::flush_until(c, || (0..2).all(|i| entry_is(&porto, i) && entry(&lisbon, names[i]).is_none()));
         for (i, n) in ["IMG_0001.jpg", "IMG_0002.jpg"].into_iter().enumerate() {
             let (rel, p) = find(c, root, if i == 0 { &one } else { &two });
             assert_eq!(rel, format!("Porto/{n}"), "{case}: the same photo, now in Porto");
@@ -142,7 +146,7 @@ fn moves(c: &mut Client, home: &Path, root: &Path) {
         assert_eq!(app::photos(c, root).len(), count, "{case}: no photo new or lost");
     };
     let check_home = |c: &mut Client, case: &str| {
-        app::flush(c);
+        app::flush_until(c, || (0..2).all(|i| entry_is(&lisbon, i)));
         for (i, n) in ["IMG_0001.jpg", "IMG_0002.jpg"].into_iter().enumerate() {
             let (rel, p) = find(c, root, if i == 0 { &one } else { &two });
             assert_eq!(rel, format!("Lisbon/{n}"), "{case}");
@@ -230,7 +234,7 @@ fn the_other_operations(c: &mut Client, home: &Path, root: &Path) {
 
     // Copy: a new photo with the source's data; undo sends the copy to the trash.
     run(c, "photo.copyTo", json!({ "ids": [four], "folder": porto_id }));
-    app::flush(c);
+    app::flush_until(c, || entry(&porto, "IMG_0004.jpg").is_some_and(|e| e["caption"] == "Alfama"));
     assert!(read(&porto.join("IMG_0004.jpg")).unwrap() == four_bytes && lisbon.join("IMG_0004.jpg").is_file(), "copied");
     assert_eq!(entry(&porto, "IMG_0004.jpg").unwrap()["caption"], "Alfama", "the copy has the source's entry");
     assert_eq!(app::photos(c, root).len(), count + 1, "a new photo");
@@ -268,8 +272,7 @@ fn the_other_operations(c: &mut Client, home: &Path, root: &Path) {
         .find(|n| n.starts_with("Lisbon") && *n != "Lisbon")
         .cloned()
         .unwrap_or_else(|| panic!("a new folder beside Lisbon: {made:?} ({r})"));
-    // The new folder's sidecar may still be on its way (its atomic write's temporary file).
-    let moved: Vec<String> = files(&root.join(&new)).into_iter().filter(|n| !n.starts_with('.')).collect();
+    let moved = files(&root.join(&new));
     assert_eq!(moved, ["IMG_0003.jpg", "IMG_0004.jpg"], "the photos moved into {new}");
     undo(c);
     assert!(!root.join(&new).exists(), "Edit ▸ Undo moved them back and removed the empty folder");
@@ -292,7 +295,7 @@ fn the_other_operations(c: &mut Client, home: &Path, root: &Path) {
     }
     resize(c, (1400, 900));
     click(c, "button:dialog.rename");
-    app::flush(c);
+    app::flush_until(c, || entry(&lisbon, "Lisbon-001.jpg").is_some_and(|e| e["star"] == true));
     for (i, id) in ids.iter().enumerate() {
         let (rel, p) = find(c, root, id);
         assert_eq!(rel, format!("Lisbon/Lisbon-{:03}.jpg", i + 1), "renamed in light-table order");
@@ -375,7 +378,7 @@ fn hard_names_round_trip(c: &mut Client, root: &Path) {
     app::flush(c);
     let bytes: Vec<Vec<u8>> = names.iter().map(|n| read(&odd.join(n)).unwrap()).collect();
     let at_home = |c: &mut Client, case: &str| {
-        app::flush(c);
+        app::flush_until(c, || names.iter().all(|n| entry(&odd, n).is_some_and(|e| e["star"] == true)));
         assert_eq!(files(&odd), names, "{case}: the exact names");
         for (i, n) in names.iter().enumerate() {
             assert!(read(&odd.join(n)).unwrap() == bytes[i], "{case}: {n}");
@@ -597,7 +600,7 @@ pub fn two_volumes(exe: &Path) -> &'static str {
     let bytes: Vec<Vec<u8>> = ["IMG_0001.jpg", "IMG_0002.jpg"].iter().map(|n| read(&lisbon.join(n)).unwrap()).collect();
     let porto_id = ids["Porto/PORTO_0001.jpg"].folder;
     run(c, "photo.moveTo", json!({ "ids": [one, two], "folder": porto_id, "confirm": true }));
-    app::flush(c);
+    app::flush_until(c, || entry(&porto, "IMG_0001.jpg").is_some_and(|e| e["caption"] == "Across"));
     for (i, n) in ["IMG_0001.jpg", "IMG_0002.jpg"].iter().enumerate() {
         assert!(read(&porto.join(n)).unwrap() == bytes[i], "{n}: the same bytes on the other file system");
         assert!(!lisbon.join(n).exists(), "{n}: the source left");
@@ -621,7 +624,7 @@ pub fn two_volumes(exe: &Path) -> &'static str {
         idle(c);
     }
     undo(c);
-    app::flush(c);
+    app::flush_until(c, || entry(&lisbon, "IMG_0001.jpg").is_some_and(|e| e["caption"] == "Across"));
     for (i, n) in ["IMG_0001.jpg", "IMG_0002.jpg"].iter().enumerate() {
         assert!(read(&lisbon.join(n)).unwrap() == bytes[i], "{n}: back, byte for byte");
         assert!(!porto.join(n).exists(), "{n}: gone from the other file system");
