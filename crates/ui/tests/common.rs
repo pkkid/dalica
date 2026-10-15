@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use dalica_core::{Clock, Date, DateTime};
 use dalica_engine::Session;
@@ -25,12 +25,6 @@ pub const SMALL: (u32, u32) = (900, 600);
 /// Full strength (`DALICA_FULL_TESTS=1`, the review gate) or quick (a task's gate).
 pub fn full() -> bool {
     std::env::var_os("DALICA_FULL_TESTS").is_some_and(|v| v == "1")
-}
-
-/// One lock for what is global to the test process (none of the tests may change it unlocked).
-pub fn process_lock() -> MutexGuard<'static, ()> {
-    static LOCK: Mutex<()> = Mutex::new(());
-    LOCK.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// A driver whose every frame checks the automation ids (`control-protocol.md` §7): an
