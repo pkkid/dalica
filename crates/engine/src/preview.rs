@@ -213,6 +213,8 @@ pub(crate) struct Preview {
     fit: Option<(u32, u32)>,
     updates: VecDeque<PreviewUpdate>,
     stats: PreviewStats,
+    /// Finished jobs are left unapplied by [`Session::poll`] (tests: [`Session::hold_preview`]).
+    held: bool,
 }
 
 impl Preview {
@@ -576,6 +578,16 @@ impl Session {
         self.preview.cost = Some(ms).filter(|c| c.is_finite() && *c >= 0.0);
     }
 
+    /// Tests: while `held`, [`Session::poll`] applies no finished preview job, so the open photo's
+    /// preview stays on its way (`preview_busy` above 0) for as many frames as a test needs,
+    /// however fast the machine renders it; [`Session::wait_preview`] and
+    /// [`Session::wait_preview_update`] still apply them. A frame cannot tell a held result from a
+    /// render still running: both are a job outstanding.
+    #[doc(hidden)]
+    pub fn hold_preview(&mut self, held: bool) {
+        self.preview.held = held;
+    }
+
     /// Waits up to `timeout` until every preview job has finished and been applied (CLI, tests,
     /// benches). Returns whether it got there.
     pub fn wait_preview(&mut self, timeout: Duration) -> bool {
@@ -621,7 +633,7 @@ impl Session {
     /// Applies the preview renders that finished; returns how many. Never blocks and never touches
     /// the disk.
     pub(crate) fn poll_preview(&mut self) -> usize {
-        if self.preview.pool.is_none() {
+        if self.preview.pool.is_none() || self.preview.held {
             return 0;
         }
         self.preview.retry_deferred();

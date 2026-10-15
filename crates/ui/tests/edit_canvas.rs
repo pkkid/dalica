@@ -216,9 +216,15 @@ fn settling_waits_for_the_open_photos_final_preview() {
 /// so a live window draws at most one frame per 16 ms and the wait leaves the CPU to the workers.
 /// `ui.settle` still waits for the preview: every one of those frames lists it as busy
 /// (`Session::preview_busy`), and the settle after it ends with the Final shown.
+///
+/// The render is held structurally, not raced: `Session::hold_preview` keeps its finished jobs
+/// unapplied for exactly [`RENDERING`] frames, so a fast machine (the macOS runners decoded the
+/// photo within the two opening frames, leaving none to check) and a loaded one see the same
+/// frames, and every one of them is checked.
 #[test]
 fn the_canvas_rests_while_a_preview_renders_and_settling_still_waits_for_it() {
     const OPENING: usize = 2;
+    const RENDERING: usize = 40;
     let dir = tempfile::tempdir().unwrap();
     let (s, ids) = large_session(dir.path());
     let control = Control::new(Config::default());
@@ -226,16 +232,15 @@ fn the_canvas_rests_while_a_preview_renders_and_settling_still_waits_for_it() {
     d.settle(FRAMES).unwrap();
     let mut t = T { _dir: dir, control, conn: Connection::new(), d, ids };
     let photo = t.ids[0];
+    t.d.app_mut().session_mut().unwrap().hold_preview(true);
     ok(&mut t, "engine.execute", json!({ "command": "view.edit", "params": { "id": photo } }));
     let busy = |t: &T| t.d.app().session().map_or(0, Session::preview_busy);
     assert!(busy(&t) > 0, "the preview is on its way");
     // Frames while it renders, a millisecond apart in real time.
     let mut rested = 0;
-    for n in 0..10_000 {
+    for n in 0..OPENING + RENDERING {
         t.d.step();
-        if busy(&t) == 0 {
-            break;
-        }
+        assert!(busy(&t) > 0, "frame {n}: the held preview is still on its way");
         let delay = t.d.repaint_delay();
         if n >= OPENING {
             let causes = t.d.ctx().repaint_causes();
@@ -246,9 +251,12 @@ fn the_canvas_rests_while_a_preview_renders_and_settling_still_waits_for_it() {
         assert!(listed.iter().any(|b| b.starts_with("edit preview: ")), "frame {n}: settling would not wait: {listed:?}");
         std::thread::sleep(Duration::from_millis(1));
     }
-    assert!(rested > 0, "frames ran while the preview rendered");
-    // A slow machine's render is awaited in real time, so the settle's frame budget never runs out.
-    assert!(t.d.app_mut().session_mut().unwrap().wait_preview(Duration::from_secs(60)), "the preview finished");
+    assert_eq!(rested, RENDERING, "every frame while the preview rendered rested");
+    // Released: a slow machine's render is awaited in real time, so the settle's frame budget never
+    // runs out.
+    let session = t.d.app_mut().session_mut().unwrap();
+    session.hold_preview(false);
+    assert!(session.wait_preview(Duration::from_secs(60)), "the preview finished");
     let settled = ok(&mut t, "ui.settle", json!({ "timeoutMs": 60000 }));
     assert_eq!(settled["settled"], true, "{settled}");
     let shown = t.d.app().session().unwrap().preview().map(|p| (p.photo.get(), p.quality));
