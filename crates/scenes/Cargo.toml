@@ -8,7 +8,12 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 publish = false
+# Every integration test in one binary (tests/all.rs), linked once; see tests/all.rs.
+autotests = false
 
+[[test]]
+name = "all"
+path = "tests/all.rs"
 
 [dependencies]
 dalica-core.workspace = true

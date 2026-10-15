@@ -5,6 +5,7 @@
 
 use std::io::Cursor;
 
+use crate::common::fnv;
 use dalica_scenes::formats::{self, Colour, Compression, Depth, Psd, SampleData, Samples, Tiff, Webp};
 use dalica_scenes::icc::{self, Space, Version};
 use dalica_scenes::{ByteOrder, Exif, Kind, Rgb8, Scene, orient};
@@ -12,11 +13,6 @@ use image::{AnimationDecoder, ImageDecoder, ImageFormat, ImageReader};
 
 fn scene() -> Scene {
     Scene::new(11, 96, 64).with_kind(Kind::Blobs)
-}
-
-/// FNV-1a, 64-bit.
-fn fnv(bytes: &[u8]) -> u64 {
-    bytes.iter().fold(0xcbf2_9ce4_8422_2325, |h, &b| (h ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01b3))
 }
 
 fn decoder(bytes: &[u8]) -> Box<dyn ImageDecoder + '_> {
@@ -44,8 +40,11 @@ fn tiff_layouts() -> Vec<(Colour, Depth)> {
 // ---------------------------------------------------------------------------------------------
 // Determinism
 
+/// Every writer gives the same bytes on every platform and in every build profile (CI runs this on
+/// Linux, Windows and macOS), and another seed gives other bytes. A change here changes such test
+/// files: only on purpose, with the reason in the commit (print the table with `--nocapture`).
 #[test]
-fn every_writer_gives_the_same_bytes_for_the_same_seed() {
+fn golden_hashes_of_every_writer_hold_everywhere() {
     let s = scene();
     let other = Scene { seed: 12, ..s };
     let exif = Exif { orientation: 6, thumbnail: Some(32), ..Exif::default() };
@@ -80,17 +79,98 @@ fn every_writer_gives_the_same_bytes_for_the_same_seed() {
     for (colour, depth, alpha) in [(Colour::Rgb, Depth::Sixteen, false), (Colour::Grey, Depth::Eight, true)] {
         writers.push((format!("JXL {colour:?} {depth:?}"), Box::new(move |s| formats::jxl(s, colour, depth, alpha).unwrap())));
     }
+    let mut got: Vec<(String, u64)> = Vec::new();
     for (name, write) in &writers {
-        let a = write(&s);
-        assert_eq!(a, write(&s), "{name}");
-        assert_ne!(a, write(&other), "{name}: another seed, other bytes");
+        let hash = fnv(&write(&s));
+        assert_ne!(hash, fnv(&write(&other)), "{name}: another seed, other bytes");
+        got.push((name.clone(), hash));
     }
     for space in Space::ALL {
         for version in Version::ALL {
-            assert_eq!(icc::rgb(space, version), icc::rgb(space, version));
+            got.push((format!("ICC {space:?} {version:?}"), fnv(&icc::rgb(space, version))));
         }
     }
+    let table: String = got.iter().map(|(name, hash)| format!("    (\"{name}\", {hash:#018x}),\n")).collect();
+    println!("{table}");
+    let want: Vec<(String, u64)> = WRITERS_GOLDEN.iter().map(|&(name, hash)| (name.to_owned(), hash)).collect();
+    assert_eq!(got, want, "the table, to review and paste:\n{table}");
 }
+
+/// (writer, FNV-1a of its file of `scene()`), recorded 2026-10-15 from the writers as they were.
+const WRITERS_GOLDEN: &[(&str, u64)] = &[
+    ("TIFF Grey Eight None", 0xcaaecf78b311e2e8),
+    ("TIFF Grey Eight Lzw", 0xf612a0c98ebf5146),
+    ("TIFF Grey Eight Deflate", 0xae9f7688e7fd0f5a),
+    ("TIFF Grey Eight PackBits", 0x2af5d3681f6e49bd),
+    ("TIFF Grey Sixteen None", 0xdc3ec709ecf8938e),
+    ("TIFF Grey Sixteen Lzw", 0xef7c838ecda4e869),
+    ("TIFF Grey Sixteen Deflate", 0x2535926ee22d9e47),
+    ("TIFF Grey Sixteen PackBits", 0xeb0b938b46c165bd),
+    ("TIFF Grey Float None", 0x07dd6ee6a409b4c2),
+    ("TIFF Grey Float Lzw", 0xc3d452fc488feb4d),
+    ("TIFF Grey Float Deflate", 0xadadab1c4276a74e),
+    ("TIFF Grey Float PackBits", 0x59761d33c11e1b9f),
+    ("TIFF Rgb Eight None", 0xb3766580fa5c78ae),
+    ("TIFF Rgb Eight Lzw", 0x5922fb66b9529614),
+    ("TIFF Rgb Eight Deflate", 0xc5703540fe05aac9),
+    ("TIFF Rgb Eight PackBits", 0x05b2c2737639405f),
+    ("TIFF Rgb Sixteen None", 0xa9f4331ce3657a0b),
+    ("TIFF Rgb Sixteen Lzw", 0xe97a4339f731e11d),
+    ("TIFF Rgb Sixteen Deflate", 0xe4a811def109ba9b),
+    ("TIFF Rgb Sixteen PackBits", 0xf1bb11df54f53bc7),
+    ("TIFF Rgb Float None", 0x3f5f44b08496728c),
+    ("TIFF Rgb Float Lzw", 0xa314d042ac40868e),
+    ("TIFF Rgb Float Deflate", 0x897f2fe9c6ba18bc),
+    ("TIFF Rgb Float PackBits", 0xb9fb336bed441aef),
+    ("TIFF Cmyk Eight None", 0x6eefa17181b41ea9),
+    ("TIFF Cmyk Eight Lzw", 0x85ef19984214b8de),
+    ("TIFF Cmyk Eight Deflate", 0x35110e71a24eac73),
+    ("TIFF Cmyk Eight PackBits", 0x0cec27a32f069003),
+    ("TIFF Cmyk Sixteen None", 0xf1f5feba6097eddb),
+    ("TIFF Cmyk Sixteen Lzw", 0xbd703ed3ad0bb579),
+    ("TIFF Cmyk Sixteen Deflate", 0x10a307a60d591ed1),
+    ("TIFF Cmyk Sixteen PackBits", 0x9b7f7381b6a3de9a),
+    ("TIFF Palette Eight None", 0x5cd6aa91a3ea3059),
+    ("TIFF Palette Eight Lzw", 0xa37a6c429694b5a8),
+    ("TIFF Palette Eight Deflate", 0x483ac5949d414b91),
+    ("TIFF Palette Eight PackBits", 0x025ea4f3ee75c9a1),
+    ("PSD Grey Eight rle false", 0x1d2f1771363b1ffa),
+    ("PSD Grey Eight rle true", 0x2d2e53c25dc064ad),
+    ("PSD Grey Sixteen rle false", 0xd2dda9af058a2c16),
+    ("PSD Grey Sixteen rle true", 0xe2b157e3960c8223),
+    ("PSD Grey Float rle false", 0x210205cf6ad04862),
+    ("PSD Grey Float rle true", 0xaa5fb734c8878545),
+    ("PSD Rgb Eight rle false", 0x0504a81d4e017799),
+    ("PSD Rgb Eight rle true", 0xd665aececbce626b),
+    ("PSD Rgb Sixteen rle false", 0xad8f118b9e1fa5a1),
+    ("PSD Rgb Sixteen rle true", 0xbb50a2103d716992),
+    ("PSD Rgb Float rle false", 0x946ba3ed0b2d476c),
+    ("PSD Rgb Float rle true", 0x0d971084ea4c343b),
+    ("PSD Cmyk Eight rle false", 0xf4f9d251b445e32f),
+    ("PSD Cmyk Eight rle true", 0x909f37eda454a359),
+    ("PSD Cmyk Sixteen rle false", 0x45f7900c4332dcd4),
+    ("PSD Cmyk Sixteen rle true", 0x955e907c1c874b27),
+    ("PSD Palette Eight rle false", 0xe346ca4467f040cb),
+    ("PSD Palette Eight rle true", 0x8b4113f243759bae),
+    ("WebP", 0x9e67c4bba8c8b880),
+    ("GIF", 0x8763475d68b036cc),
+    ("BMP Rgb", 0x7e977e2de8067205),
+    ("BMP Grey", 0xd459628de5335be1),
+    ("BMP Palette", 0xef9297a65f3a1682),
+    ("JPEG ICC", 0x609d8bb046b59b65),
+    ("JXL Rgb Sixteen", 0x9c6e7e8c58557f46),
+    ("JXL Grey Eight", 0xde509a7da3286b62),
+    ("ICC Srgb V2", 0x2f45a7839a9ae9a0),
+    ("ICC Srgb V4", 0x5b70fa9917e8ea4b),
+    ("ICC DisplayP3 V2", 0x6398b326e303d5a4),
+    ("ICC DisplayP3 V4", 0xba084813725055f3),
+    ("ICC AdobeRgb V2", 0x504837a6287be04b),
+    ("ICC AdobeRgb V4", 0x550b2a8024fd6d3f),
+    ("ICC ProPhoto V2", 0xe78df965b5ca5583),
+    ("ICC ProPhoto V4", 0xe94dcc03223060ef),
+    ("ICC Rec2020 V2", 0xf0b4f16f0f4e0b8d),
+    ("ICC Rec2020 V4", 0x5f9dce578f5fcf34),
+];
 
 /// Our own writers (TIFF, PSD, ICC) give the same bytes on every platform and in every build
 /// profile (CI runs this on Linux, Windows and macOS). A change here changes every such test file:

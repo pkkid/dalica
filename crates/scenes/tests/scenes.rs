@@ -3,12 +3,13 @@
 //! (`architecture.md` §11: "determinism (same seed → same bytes) and that its EXIF block decodes").
 
 use std::io::Cursor;
-use std::time::Instant;
 
 use dalica_core::DateTime;
 use dalica_scenes::exif::{TAG_DATE_TIME_ORIGINAL, TAG_EXIF_IFD, TAG_MAKE, TAG_ORIENTATION, TAG_THUMB_LENGTH, TAG_THUMB_OFFSET};
 use dalica_scenes::{ByteOrder, Exif, Kind, Rgb8, Scene, demo_library, jpeg, orient, png};
 use image::{ImageDecoder, ImageReader};
+
+use crate::common::{fnv, full};
 
 /// Width, height, EXIF orientation, raw EXIF and RGB pixels as the `image` crate decodes them.
 fn decode(bytes: &[u8]) -> (u32, u32, u8, Option<Vec<u8>>, Vec<u8>) {
@@ -44,20 +45,6 @@ fn ifd(t: &[u8], at: usize) -> (Vec<(u16, u32)>, u32) {
 
 fn value(entries: &[(u16, u32)], tag: u16) -> u32 {
     entries.iter().find(|e| e.0 == tag).unwrap().1
-}
-
-#[test]
-fn the_same_seed_gives_identical_bytes() {
-    let exif = Exif { orientation: 6, thumbnail: Some(160), date_time_original: "2026-06-04T19:42:10".parse().ok(), ..Exif::default() };
-    for kind in Kind::ALL {
-        let s = Scene::new(42, 300, 200).with_kind(kind);
-        assert_eq!(jpeg(&s, 90, Some(&exif)).unwrap(), jpeg(&s, 90, Some(&exif)).unwrap());
-        assert_eq!(png(&s).unwrap(), png(&s).unwrap());
-        assert_ne!(png(&s).unwrap(), png(&Scene { seed: 43, ..s }).unwrap());
-    }
-    let a = demo_library(2, 24, 7).unwrap();
-    assert_eq!(a, demo_library(2, 24, 7).unwrap());
-    assert_ne!(a, demo_library(2, 24, 8).unwrap());
 }
 
 #[test]
@@ -116,11 +103,10 @@ fn the_exif_block_carries_date_camera_and_a_decodable_thumbnail() {
 
 #[test]
 fn the_demo_library_is_spread_over_folders_with_dates_and_orientations() {
-    let start = Instant::now();
-    let files = demo_library(3, 200, 1).unwrap();
-    let elapsed = start.elapsed();
-    println!("demo_library(3, 200): {} files, {} KiB, {elapsed:?}", files.len(), files.iter().map(|f| f.bytes.len()).sum::<usize>() / 1024);
-    assert_eq!(files.len(), 200);
+    // Quick: enough photos for three folders, every orientation and a portrait one.
+    let n = if full() { 200 } else { 24 };
+    let files = demo_library(3, n, 1).unwrap();
+    assert_eq!(files.len(), n);
     let folders: std::collections::BTreeSet<_> = files.iter().map(|f| f.path.parent().unwrap().to_owned()).collect();
     assert_eq!(folders.len(), 3, "{folders:?}");
     assert!(folders.iter().next().unwrap().to_string_lossy().starts_with("2026-06-04 "));
@@ -144,29 +130,41 @@ fn the_demo_library_is_spread_over_folders_with_dates_and_orientations() {
     assert!(demo_library(1, dalica_scenes::demo::MAX_PHOTOS + 1, 1).is_err());
 }
 
-/// FNV-1a, 64-bit.
-fn fnv(bytes: &[u8]) -> u64 {
-    bytes.iter().fold(0xcbf2_9ce4_8422_2325, |h, &b| (h ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01b3))
-}
-
 /// The same scene renders the same pixels and file bytes on every platform and in every build
-/// profile (CI runs this on Linux, Windows and macOS, in debug). A change here changes every test
-/// photo: only on purpose, with the reason in the commit.
+/// profile (CI runs this on Linux, Windows and macOS, in debug), and another seed renders other
+/// pixels. A change here changes every test photo: only on purpose, with the reason in the commit.
 #[test]
 fn golden_hashes_hold_everywhere() {
-    let got: Vec<(Kind, u64, u64)> = Kind::ALL
+    let exif = Exif { orientation: 6, thumbnail: Some(32), ..Exif::default() };
+    let got: Vec<(Kind, u64, u64, u64)> = Kind::ALL
         .iter()
         .map(|&k| {
             let s = Scene::new(2026, 96, 64).with_kind(k);
-            (k, fnv(&s.render().unwrap().data), fnv(&jpeg(&s, 90, Some(&Exif { orientation: 6, thumbnail: Some(32), ..Exif::default() })).unwrap()))
+            let pixels = fnv(&s.render().unwrap().data);
+            assert_ne!(pixels, fnv(&Scene { seed: 2027, ..s }.render().unwrap().data), "{k:?}: another seed, other pixels");
+            (k, pixels, fnv(&jpeg(&s, 90, Some(&exif)).unwrap()), fnv(&png(&s).unwrap()))
         })
         .collect();
-    assert_eq!(got, GOLDEN);
+    assert_eq!(got, GOLDEN, "{got:#x?}");
+    // The demo library: its names and its files' bytes, and another seed gives other photos.
+    let demo = |seed| {
+        let files = demo_library(2, 5, seed).unwrap();
+        // The path's parts joined by `/`, as on every platform.
+        let path = |f: &dalica_scenes::DemoFile| f.path.iter().map(|c| c.to_string_lossy()).collect::<Vec<_>>().join("/").into_bytes();
+        fnv(&files.iter().flat_map(|f| [path(f), f.bytes.clone()]).flatten().collect::<Vec<u8>>())
+    };
+    let library = demo(7);
+    assert_ne!(library, demo(8), "another seed, other photos");
+    assert_eq!(library, DEMO_GOLDEN, "{library:#x}");
 }
 
-/// (kind, pixels, JPEG bytes), the same in debug, optimised-dev and release builds (2026-10-10).
-const GOLDEN: [(Kind, u64, u64); 3] = [
-    (Kind::Gradient, 0x878b_31ee_05e3_aebe, 0x58e3_4fbb_68f2_3e39),
-    (Kind::Horizon, 0x4441_da02_02ea_7917, 0x9754_ad58_68e1_d463),
-    (Kind::Blobs, 0xa995_69c0_77fb_2dc8, 0x685f_6475_5955_c36d),
+/// (kind, pixels, JPEG bytes, PNG bytes), the same in debug, optimised-dev and release builds
+/// (2026-10-10; PNG 2026-10-15).
+const GOLDEN: [(Kind, u64, u64, u64); 3] = [
+    (Kind::Gradient, 0x878b_31ee_05e3_aebe, 0x58e3_4fbb_68f2_3e39, 0xc1f7_17c6_e61a_cfa2),
+    (Kind::Horizon, 0x4441_da02_02ea_7917, 0x9754_ad58_68e1_d463, 0x3317_9c93_af58_9f5d),
+    (Kind::Blobs, 0xa995_69c0_77fb_2dc8, 0x685f_6475_5955_c36d, 0xf914_5b6d_68e1_8cf7),
 ];
+
+/// `demo_library(2, 5, 7)`: its paths (joined by `/`) and bytes in order (2026-10-15).
+const DEMO_GOLDEN: u64 = 0x7b45_1044_589d_a5f6;
