@@ -15,6 +15,7 @@ mod encode;
 mod jpeg_quality;
 mod jpeg_transform;
 mod jxl;
+mod p0_formats;
 mod psd;
 mod raw_containers;
 mod raw_tiff;

@@ -23,7 +23,8 @@ use crate::{Error, Format, Header, Orientation, Result};
 /// Whether this build decodes JPEG files.
 pub const DECODES: bool = true;
 
-/// The tile text for a JPEG variant the decoder refuses (arithmetic coding, 2-component frames).
+/// The tile text for a JPEG variant the decoder refuses: arithmetic coding, 12-bit samples,
+/// lossless and hierarchical frames (none of which `zune-jpeg` 0.5 decodes), 2-component frames.
 pub const REASON: &str = "This kind of JPEG isn't supported";
 
 /// The APP2 identifier of an ICC profile chunk (ICC.1 Annex B.4).
@@ -36,6 +37,8 @@ const ICC_HEADER: usize = ICC_TAG.len() + 2;
 struct Segments<'a> {
     /// Frame size and component count, from the first SOF.
     frame: Option<(u16, u16, u8)>,
+    /// The first SOF's marker code (the coding process) and sample precision.
+    process: Option<(u8, u8)>,
     /// The EXIF TIFF block and its offset in the file.
     exif: Option<(&'a [u8], usize)>,
     /// APP2 ICC chunks: (sequence number, count, data), in file order.
@@ -84,6 +87,7 @@ fn segments<'a>(b: &'a [u8], limits: &Limits, to_scan: bool) -> Result<Segments<
                         return Err(Error::Malformed(format!("frame size {width} × {height}")));
                     }
                     seg.frame = Some((width, height, components));
+                    seg.process = Some((marker, *data.first().ok_or(Error::Truncated)?));
                 }
                 if !to_scan {
                     return Ok(seg);
@@ -154,6 +158,11 @@ pub fn embedded_thumbnail(bytes: &[u8], limits: &Limits) -> Result<Option<Range<
 
 pub fn decode(bytes: &[u8], header: &Header, budget: &mut Budget, limits: &Limits) -> Result<Decoded> {
     let seg = segments(bytes, limits, true)?;
+    if let Some((marker, precision)) = seg.process
+        && !decodable(marker, precision)
+    {
+        return Err(Error::Unsupported(Format::Jpeg));
+    }
     // An unusable profile is not a damaged photo: it is dropped here, logged, and shown as sRGB.
     let icc = reassemble_icc(&seg.icc, limits.max_icc).unwrap_or_else(|reason| {
         log::warn!("JPEG: ignoring the embedded colour profile: {reason}");
@@ -188,6 +197,14 @@ pub fn decode(bytes: &[u8], header: &Header, budget: &mut Budget, limits: &Limit
     Ok(Decoded { width, height, model, alpha, samples: Samples::U8(data), icc, orientation: header.orientation })
 }
 
+/// Whether `zune-jpeg` decodes a frame of this SOF marker and sample precision: Huffman-coded
+/// baseline, extended sequential or progressive DCT at 8 bits. Arithmetic coding (SOF9–11,
+/// SOF13–15), lossless (SOF3), hierarchical (SOF5–7) and 12-bit frames are a kind of JPEG Dalica
+/// does not decode yet ([`REASON`]), not a damaged file.
+fn decodable(marker: u8, precision: u8) -> bool {
+    matches!(marker, 0xc0..=0xc2) && precision == 8
+}
+
 /// Turns 4-channel JPEG samples into ink amounts: YCCK's YCbCr part back to (inverted) CMY with
 /// the JFIF equations (T.871 §7), then Adobe's inversion undone.
 fn to_ink(data: &mut [u8], ycck: bool, adobe: bool) {
@@ -209,7 +226,11 @@ fn to_ink(data: &mut [u8], ycck: bool, adobe: bool) {
 }
 
 fn jpeg_err(e: zune_jpeg::errors::DecodeErrors) -> Error {
-    Error::Malformed(format!("JPEG: {e:?}"))
+    match e {
+        // A coding process the decoder names as unsupported is a kind of JPEG, not damage.
+        zune_jpeg::errors::DecodeErrors::Unsupported(_) => Error::Unsupported(Format::Jpeg),
+        other => Error::Malformed(format!("JPEG: {other:?}")),
+    }
 }
 
 #[cfg(test)]
@@ -231,6 +252,17 @@ mod tests {
         assert!(reassemble_icc(&[(1, 0, a)], 100).is_err());
         assert!(reassemble_icc(&[(1, 2, a), (2, 2, b)], 4).is_err());
         assert_eq!(reassemble_icc(&[(1, 2, a), (2, 2, b)], 5), Ok(Some(b"abcde".to_vec())));
+    }
+
+    #[test]
+    fn only_8_bit_huffman_dct_frames_are_decodable() {
+        for marker in [0xc0, 0xc1, 0xc2] {
+            assert!(decodable(marker, 8), "{marker:#x}");
+            assert!(!decodable(marker, 12), "{marker:#x} at 12 bits");
+        }
+        for marker in [0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf] {
+            assert!(!decodable(marker, 8), "{marker:#x}");
+        }
     }
 
     #[test]
