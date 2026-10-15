@@ -682,11 +682,11 @@ impl<R: Send + 'static> Poll for Running<R> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn the_session_stays_send() {
-        fn send<T: Send>() {}
+    /// The session stays `Send` (checked when the tests compile).
+    const _: () = {
+        const fn send<T: Send>() {}
         send::<Session>();
-    }
+    };
 
     #[test]
     fn default_messages_say_what_happened() {

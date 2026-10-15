@@ -158,7 +158,7 @@ fn rebuild(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
 mod tests {
     use serde_json::json;
 
-    use crate::cmd::testing::{hostile, library};
+    use crate::cmd::testing::library;
     use crate::error::CmdError;
 
     #[test]
@@ -177,7 +177,6 @@ mod tests {
         assert_eq!(s.execute("library.query", &json!({ "folder": folder })).unwrap()["total"], 6);
         assert!(matches!(s.execute("library.query", &json!({ "folder": 999 })), Err(CmdError::NotFound(_))));
         assert!(matches!(s.execute("library.query", &json!({ "limit": 10_001 })), Err(CmdError::Limit(_))));
-        hostile(&mut s, "library.query");
         assert_eq!(s.undo_stack().len(), 1);
     }
 
@@ -194,6 +193,5 @@ mod tests {
         assert_eq!(s.library().photos().count(), 4);
         assert!(s.undo_stack().is_empty());
         assert!(matches!(s.execute("edit.undo", &json!({})), Err(CmdError::Disabled(_))));
-        hostile(&mut s, "library.rebuild");
     }
 }

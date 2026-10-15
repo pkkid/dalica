@@ -1,4 +1,5 @@
-//! A 200-photo export of a mixed tray (`roadmap.md` M8.24; `creating.md` §2) through
+//! A 200-photo export of a mixed tray (36 in a task's gate: two of each kind) (`roadmap.md` M8.24;
+//! `creating.md` §2) through
 //! `export.run` and its job, on temporary folders: JPEGs in all eight orientations, CMYK, PNG with
 //! and without alpha, 16-bit TIFF, WebP, GIF, BMP, JPEG XL, PSD and raw previews, edited and
 //! unedited, some with GPS, exported at 1600 pixels, Normal quality, with a watermark and the
@@ -7,7 +8,8 @@
 //! box (against the same export without it) and no GPS left anywhere; a Cancel half-way leaves only
 //! complete files.
 //!
-//! The tray itself is [`tray`], which `benches/save_export.rs` shares for the timed export.
+//! The tray itself is [`tray`], which `benches/save_export.rs` shares for the timed export (always
+//! the 200 photos).
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -16,6 +18,8 @@ use std::time::{Duration, Instant};
 use dalica_core::{PhotoId, SystemClock};
 use dalica_engine::{CacheDir, JobEntry, JobState, Options, Session, ThumbOptions};
 use serde_json::{Value, json};
+
+use crate::common::pick;
 
 /// The tray: 200 photos written from `dalica-scenes`, in name order, with the edits each gets.
 pub mod tray {
@@ -182,10 +186,11 @@ pub mod tray {
         i.is_multiple_of(3) && (kind.starts_with("jpeg") || kind.starts_with("png") || kind.starts_with("tiff") || kind == "webp")
     }
 
-    /// Writes the tray into `dir` (which exists) at `scale` and answers its photos in name order.
-    pub fn build(dir: &Path, scale: u32) -> Vec<Photo> {
-        let mut photos = Vec::with_capacity(PHOTOS);
-        for i in 0..PHOTOS {
+    /// Writes the first `n` photos of the tray ([`PHOTOS`] for all) into `dir` (which exists) at
+    /// `scale` and answers them in name order.
+    pub fn build(dir: &Path, scale: u32, n: usize) -> Vec<Photo> {
+        let mut photos = Vec::with_capacity(n);
+        for i in 0..n {
             let kind = KINDS[i % KINDS.len()];
             let (w, h) = size(i, scale);
             let scene = Scene::new(i as u64 + 1, w, h);
@@ -206,6 +211,12 @@ pub mod tray {
 
 const PATIENCE: Duration = Duration::from_secs(600);
 
+/// The photos of the tray the tests export: all 200 at the review gate, two of each kind in a
+/// task's gate.
+fn photos() -> usize {
+    pick(2 * tray::KINDS.len(), tray::PHOTOS)
+}
+
 struct Lib {
     dir: tempfile::TempDir,
     s: Session,
@@ -219,7 +230,7 @@ impl Lib {
         let dir = tempfile::tempdir().unwrap();
         let mixed = dir.path().join("Photos").join("Mixed");
         dalica_fs::create_dir_all(&mixed).unwrap();
-        let photos = tray::build(&mixed, 1);
+        let photos = tray::build(&mixed, 1, self::photos());
         let options = Options { thumbs: ThumbOptions { cache: CacheDir::Off, workers: 1, ..ThumbOptions::default() } };
         let mut s = Session::open_with(&dir.path().join("library"), Arc::new(SystemClock), &options).unwrap();
         s.set_pictures_dir(Some(dir.path().join("Pictures")));
@@ -288,16 +299,18 @@ fn changed(a: &dalica_image::Rgba8, b: &dalica_image::Rgba8, (x0, y0, x1, y1): (
 
 #[test]
 fn a_mixed_tray_of_200_exports_whole_with_a_watermark_and_no_location() {
+    let n = photos();
     let started = Instant::now();
     let mut lib = Lib::new();
     let built = started.elapsed().as_secs_f64();
-    assert_eq!(lib.photos.len(), tray::PHOTOS);
+    assert_eq!(lib.photos.len(), n);
     for kind in tray::KINDS {
-        assert!(lib.photos.iter().filter(|p| p.kind == kind).count() >= 10, "{kind} is in the tray");
+        assert!(lib.photos.iter().filter(|p| p.kind == kind).count() >= n / tray::KINDS.len(), "{kind} is in the tray");
     }
     let edited = lib.photos.iter().filter(|p| !p.edits.is_empty()).count();
     let located = lib.photos.iter().filter(|p| p.gps).count();
-    assert!((60..140).contains(&edited) && located >= 30, "{edited} edited, {located} with GPS");
+    assert!((3 * n / 10..7 * n / 10).contains(&edited) && located >= 3 * n / 20, "{edited} edited, {located} with GPS");
+    assert!(lib.photos.iter().any(|p| p.display.0.max(p.display.1) > tray::LONG_SIDE), "a photo the export makes smaller");
     // The places are really there, in the files the export reads.
     for p in lib.photos.iter().filter(|p| p.gps) {
         let bytes = std::fs::read(lib.dir.path().join("Photos").join("Mixed").join(&p.name)).unwrap();
@@ -307,11 +320,11 @@ fn a_mixed_tray_of_200_exports_whole_with_a_watermark_and_no_location() {
 
     let (done, marked_secs) = lib.export("Mixed", true);
     assert_eq!(done.state, JobState::Done);
-    assert_eq!(done.label, "Exported 200 pictures");
+    assert_eq!(done.label, format!("Exported {n} pictures"));
     let result = done.result.unwrap();
-    assert_eq!((result["total"].clone(), result["done"].clone()), (json!(200), json!(200)));
+    assert_eq!((result["total"].clone(), result["done"].clone()), (json!(n), json!(n)));
     assert_eq!((result["skipped"].clone(), result["failed"].clone(), result["cancelled"].clone()), (json!([]), json!([]), json!(false)));
-    assert_eq!(result["written"].as_array().unwrap().len(), 200);
+    assert_eq!(result["written"].as_array().unwrap().len(), n);
     let marked = lib.out().join("Mixed");
     let mut want: Vec<String> = lib.photos.iter().map(tray::Photo::exported).collect();
     want.push(".dalica.json".into());
@@ -355,18 +368,19 @@ fn a_mixed_tray_of_200_exports_whole_with_a_watermark_and_no_location() {
         assert_eq!(changed(&img, &unmarked, (0, 0, w / 2, h / 2)), 0, "{name}: the rest is unchanged");
     }
     eprintln!(
-        "mixed export: tray built and scanned in {built:.1} s; 200 photos exported in {marked_secs:.1} s with the watermark, {plain_secs:.1} s without; \
+        "mixed export: tray built and scanned in {built:.1} s; {n} photos exported in {marked_secs:.1} s with the watermark, {plain_secs:.1} s without; \
          at least {least_marked} pixels of watermark"
     );
 }
 
 #[test]
 fn a_cancel_half_way_through_the_mixed_tray_leaves_only_complete_files() {
+    let n = photos();
     let mut lib = Lib::new();
     let reply = lib.s.execute("export.run", &lib.params("Mixed", true)).unwrap();
     let job = reply["job"].as_u64().unwrap();
     let start = Instant::now();
-    while lib.s.job(job).unwrap().progress.done < 100 {
+    while lib.s.job(job).unwrap().progress.done < (n / 2) as u64 {
         assert!(start.elapsed() < PATIENCE, "timed out");
         lib.s.poll();
         std::thread::sleep(Duration::from_millis(2));
@@ -378,7 +392,7 @@ fn a_cancel_half_way_through_the_mixed_tray_leaves_only_complete_files() {
     let result = done.result.unwrap();
     assert_eq!(result["cancelled"], true);
     let written = result["written"].as_array().unwrap().len();
-    assert!((100..200).contains(&written), "{written} written");
+    assert!((n / 2..n).contains(&written), "{written} written");
 
     // Only complete files: each decodes whole at its size; nothing else is in the folder.
     let out = lib.out().join("Mixed");

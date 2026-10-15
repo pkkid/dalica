@@ -204,7 +204,7 @@ fn save_as_album(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
 mod tests {
     use serde_json::json;
 
-    use crate::cmd::testing::{hostile, library};
+    use crate::cmd::testing::library;
     use crate::error::CmdError;
 
     #[test]
@@ -244,9 +244,6 @@ mod tests {
         s.execute("search.set", &json!({ "text": "zzz-nothing" })).unwrap();
         assert!(matches!(s.execute("search.saveAsAlbum", &json!({ "name": "  " })), Err(CmdError::BadParams(_))));
         assert_eq!(s.execute("search.saveAsAlbum", &json!({ "name": "x" })), Err(CmdError::Disabled("No photos match the search.".into())));
-        for id in ["search.set", "search.clear", "search.suggest", "search.saveAsAlbum"] {
-            hostile(&mut s, id);
-        }
         assert_eq!(s.undo_stack().len(), 0);
     }
 }

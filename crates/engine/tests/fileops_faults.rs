@@ -13,12 +13,19 @@
 //! delete, and otherwise gone from the folders), each with its caption and star in the model and
 //! its sidecar entry (a key only another program knows included) and its originals backup beside
 //! it; nothing is left in the journal; the owner thread made no `fs` call.
+//!
+//! The full sweep (`DALICA_FULL_TESTS=1`, the review gate) arms every point, each child making its
+//! library through the session; a task's gate makes each operation's library once ([`template`])
+//! and copies its folder into every case, and arms one point per class (a step before the operation's commit, the commit, a step after it), each as an
+//! Error and as a Crash, and follows a point's writes after the last item twice instead of
+//! [`MAX_NTH`] times: `dalica-fs` and `dalica-store` sweep every point of a move, a copy and an
+//! atomic write on their own. The children of all the sweeps share [`SLOTS`], one per processor.
 
 use std::collections::{BTreeMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
 use dalica_core::{Timestamp, VirtualClock};
@@ -32,6 +39,11 @@ use dalica_store::intents::Intents;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+#[allow(dead_code)]
+mod common;
+
+use common::{entry, full, jpeg};
+
 const PATIENCE: Duration = Duration::from_secs(120);
 /// The environment variable that makes this binary's [`child`] run one case.
 const CASE: &str = "DALICA_FILEOPS_FAULT_CASE";
@@ -39,8 +51,10 @@ const CASE: &str = "DALICA_FILEOPS_FAULT_CASE";
 const CRASHED: i32 = 70;
 /// The armed step was never reached.
 const NOT_REACHED: i32 = 71;
-/// The most writes of one point counted after the last item.
+/// The most writes of one point counted after the last item (the full sweep).
 const MAX_NTH: usize = 16;
+/// The same in a task's gate.
+const QUICK_NTH: usize = 2;
 
 /// The operations of the sweep.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -126,7 +140,24 @@ impl Operation {
             seen.push(*p);
             new
         });
+        if !full() {
+            let quick = self.quick_points();
+            v.retain(|p| quick.contains(p));
+        }
         v
+    }
+
+    /// A task's gate: one job-thread point per class, a step before the commit, the commit and a
+    /// step after it (a delete has only its two).
+    fn quick_points(self) -> [&'static str; 3] {
+        match self {
+            Operation::Move | Operation::Rename => [points::MOVE_CHECK, points::MOVE_RENAME, points::MOVE_VERIFY],
+            Operation::MoveAcross => [points::COPY_WRITE, points::COPY_COMMIT, points::TRASH_SEND],
+            Operation::Copy => [points::COPY_WRITE, points::COPY_COMMIT, points::MOVE_VERIFY],
+            Operation::Delete => [points::TRASH_NO_TRASH, points::TRASH_SEND, points::TRASH_SEND],
+            Operation::MoveFolder => [points::FOLDER_CHECK, points::FOLDER_RENAME, points::FOLDER_FSYNC_DIR],
+            Operation::MoveFolderAcross => [points::TREE_WRITE, points::TREE_COMMIT, points::TRASH_SEND],
+        }
     }
 
     /// How many times its photo `i` is listed after the repair when items before `done` had
@@ -163,10 +194,6 @@ fn point(name: &str) -> &'static str {
     all.into_iter().find(|p| *p == name).unwrap_or_else(|| panic!("no fault point {name}"))
 }
 
-fn jpeg(seed: u64) -> Vec<u8> {
-    dalica_scenes::jpeg(&dalica_scenes::Scene::new(seed, 96, 64), 80, None).unwrap()
-}
-
 fn open(library: &Path) -> Session {
     let clock = Arc::new(VirtualClock::new(Timestamp::from_millis(1_790_000_000_000)));
     let options = Options { thumbs: ThumbOptions { cache: CacheDir::Off, workers: 1, ..ThumbOptions::default() } };
@@ -191,9 +218,10 @@ struct Reference {
 const OTHER: &str = "x-other";
 
 /// `Pictures/Lisbon` (IMG_0001, IMG_0002 with a saved original and a foreign key), `Pictures/Porto`
-/// (PORTO_0001) and `Pictures/Archive` (OLD_0001), every photo starred and captioned: the session,
-/// and what it says about each photo.
-fn setup(root: &Path) -> (Session, Vec<Reference>) {
+/// (PORTO_0001) and `Pictures/Archive` (OLD_0001), every photo starred and captioned through the
+/// session (the foreign key and the original written behind its back), and `refs.json`, what it
+/// says about each photo: the session.
+fn prepare(root: &Path) -> Session {
     let pictures = root.join("Pictures");
     let files = [("Lisbon", "IMG_0001.jpg", 1), ("Lisbon", "IMG_0002.jpg", 2), ("Porto", "PORTO_0001.jpg", 3), ("Archive", "OLD_0001.jpg", 4)];
     for (folder, name, seed) in files {
@@ -235,7 +263,41 @@ fn setup(root: &Path) -> (Session, Vec<Reference>) {
             r.backup = Some(b"the original of IMG_0002".to_vec());
         }
     }
-    (s, refs)
+    std::fs::write(root.join("refs.json"), serde_json::to_vec(&refs).unwrap()).unwrap();
+    s
+}
+
+/// The full sweep's library ([`prepare`], in the child) or a task's gate's: [`template`]'s copy
+/// (made by the parent) added to a new library and scanned, its sidecars bringing the stars, the
+/// captions and the foreign key.
+fn setup(root: &Path) -> Session {
+    if full() {
+        return prepare(root);
+    }
+    let mut s = open(&root.join("library"));
+    s.execute("folders.add", &json!({ "path": root.join("Pictures") })).unwrap();
+    s.wait_idle();
+    s
+}
+
+/// A task's gate: the library of [`prepare`] made once per operation under `root`, without its
+/// index (a library keeps absolute paths), to be copied into each case.
+fn template(root: &Path) {
+    drop(prepare(root));
+    std::fs::remove_dir_all(root.join("library")).unwrap();
+}
+
+/// Copies the folder `from` into `to`, everything in it included.
+fn copy_tree(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for e in std::fs::read_dir(from).unwrap() {
+        let e = e.unwrap();
+        if e.file_type().unwrap().is_dir() {
+            copy_tree(&e.path(), &to.join(e.file_name()));
+        } else {
+            std::fs::copy(e.path(), to.join(e.file_name())).unwrap();
+        }
+    }
 }
 
 // --- the child ----------------------------------------------------------------------------------
@@ -369,13 +431,12 @@ fn spawn(case: &Case) -> (i32, String) {
 fn child() {
     let Ok(text) = std::env::var(CASE) else { return };
     let case: Case = serde_json::from_str(&text).unwrap();
-    let (mut s, refs) = setup(&case.root);
+    let mut s = setup(&case.root);
     if case.crash && case.on == On::Job {
         static LOGGER: CrashLogger = CrashLogger;
         log::set_logger(&LOGGER).unwrap();
         log::set_max_level(log::LevelFilter::Warn);
     }
-    std::fs::write(case.root.join("refs.json"), serde_json::to_vec(&refs).unwrap()).unwrap();
     let library = case.root.join("library");
     let items = case.op.items();
     let probe = Arc::new(Probe {
@@ -417,11 +478,6 @@ fn child() {
 }
 
 // --- the parent ---------------------------------------------------------------------------------
-
-fn entry(folder: &Path, name: &str) -> Option<Value> {
-    let bytes = std::fs::read(folder.join(".dalica.json")).ok()?;
-    serde_json::from_slice::<Value>(&bytes).ok()?.get("photos")?.get(name).cloned()
-}
 
 fn record(folder: &Path, name: &str) -> Option<Value> {
     let bytes = std::fs::read(folder.join(".dalica-originals").join(".dalica.json")).ok()?;
@@ -535,6 +591,34 @@ fn verify(case: &Case) -> Result<Vec<RepairOutcome>, String> {
     if problems.is_empty() { Ok(repairs) } else { Err(problems.join("\n  ")) }
 }
 
+fn processors() -> usize {
+    std::thread::available_parallelism().map_or(2, |n| n.get()).max(2)
+}
+
+/// The children running at once, across every sweep of this process: one per processor.
+struct Slots {
+    used: Mutex<usize>,
+    freed: Condvar,
+}
+
+static SLOTS: Slots = Slots { used: Mutex::new(0), freed: Condvar::new() };
+
+impl Slots {
+    /// Runs `f` once a slot is free.
+    fn with<T>(&self, f: impl FnOnce() -> T) -> T {
+        let mut used = self.used.lock().unwrap();
+        while *used >= processors() {
+            used = self.freed.wait(used).unwrap();
+        }
+        *used += 1;
+        drop(used);
+        let out = f();
+        *self.used.lock().unwrap() -= 1;
+        self.freed.notify_one();
+        out
+    }
+}
+
 /// What one case gave.
 struct Outcome {
     case: Case,
@@ -544,11 +628,14 @@ struct Outcome {
     verified: Result<Vec<RepairOutcome>, String>,
 }
 
-/// Runs `case` in a child, then verifies the library.
-fn run(mut case: Case) -> Outcome {
+/// Runs `case` in a child (on a copy of `template` in a task's gate), then verifies the library.
+fn run(mut case: Case, template: Option<&Path>) -> Outcome {
     let dir = tempfile::tempdir().unwrap();
     case.root = dir.path().to_path_buf();
-    let (code, printed) = spawn(&case);
+    if let Some(template) = template {
+        copy_tree(template, &case.root);
+    }
+    let (code, printed) = SLOTS.with(|| spawn(&case));
     let verified = verify(&case);
     Outcome { case, code, printed, verified }
 }
@@ -570,7 +657,9 @@ fn cases(op: Operation) -> Vec<Case> {
             v.push(case(p, crash, On::Job, last, 1));
         }
     }
-    for p in faults::ATOMIC_POINTS {
+    // A task's gate: before the commit, the commit, after it.
+    let atomic: &[&'static str] = if full() { &faults::ATOMIC_POINTS } else { &[points::WRITE, points::RENAME, points::FSYNC_DIR] };
+    for &p in atomic {
         for crash in [false, true] {
             v.push(case(p, crash, On::Io, None, 1));
             v.push(case(p, crash, On::Io, Some(items - 1), 1));
@@ -582,10 +671,16 @@ fn cases(op: Operation) -> Vec<Case> {
 /// Runs every case of `op` on a few threads; a Crash on the I/O worker after the last item that
 /// fired is followed by the next write of its point. Panics with every case that lost something.
 fn sweep(op: Operation) {
+    let made = tempfile::tempdir().unwrap();
+    let template = (!full()).then(|| {
+        template(made.path());
+        made.path()
+    });
     let queue: Mutex<VecDeque<Case>> = Mutex::new(cases(op).into());
     let outcomes: Mutex<Vec<Outcome>> = Mutex::new(Vec::new());
     let busy = AtomicUsize::new(0);
-    let threads = std::thread::available_parallelism().map_or(2, |n| n.get()).clamp(2, 6);
+    let threads = processors();
+    let max_nth = if full() { MAX_NTH } else { QUICK_NTH };
     std::thread::scope(|scope| {
         for _ in 0..threads {
             scope.spawn(|| {
@@ -599,9 +694,9 @@ fn sweep(op: Operation) {
                         continue;
                     };
                     busy.fetch_add(1, Ordering::SeqCst);
-                    let o = run(case);
+                    let o = run(case, template);
                     // The next write of the same point, while this one was reached.
-                    if o.case.on == On::Io && o.case.after.is_some() && o.code != NOT_REACHED && o.case.nth < MAX_NTH {
+                    if o.case.on == On::Io && o.case.after.is_some() && o.code != NOT_REACHED && o.case.nth < max_nth {
                         let mut more = o.case.clone();
                         more.nth += 1;
                         queue.lock().unwrap().push_back(more);

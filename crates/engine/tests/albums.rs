@@ -18,8 +18,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::common::{open, open_with};
 use dalica_core::{AlbumId, Clock, PhotoId, SystemClock, Timestamp, VirtualClock};
-use dalica_engine::{CacheDir, CmdError, Options, Session, ThumbOptions};
+use dalica_engine::{CmdError, Session};
 use dalica_fs::Expect;
 use serde_json::{Value, json};
 
@@ -33,17 +34,6 @@ const FILES: [&str; 7] = [
     "Sintra/IMG_0202.jpg",
 ];
 const FOLDERS: [&str; 3] = ["Lisbon", "Porto", "Sintra"];
-
-fn open_with(library: &Path, clock: Arc<dyn Clock>) -> Session {
-    let options = Options { thumbs: ThumbOptions { cache: CacheDir::Off, workers: 1, ..ThumbOptions::default() } };
-    let mut s = Session::open_with(library, clock, &options).unwrap();
-    s.wait_idle();
-    s
-}
-
-fn open(library: &Path) -> Session {
-    open_with(library, Arc::new(SystemClock))
-}
 
 /// The photo files under `root` (sizes differ: the scene number sets the picture).
 fn write_photos(root: &Path) {

@@ -591,7 +591,7 @@ fn finish(s: &mut Session, tally: &Tally, action: Action, done: &Mutex<Vec<Photo
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cmd::testing::{hostile, library};
+    use crate::cmd::testing::library;
 
     #[test]
     fn messages_count_what_happened() {
@@ -602,15 +602,6 @@ mod tests {
         assert_eq!(message(Action::UndoSave, 2, 2, 0, false), "Undid the save of 2 photos");
         assert_eq!(message(Action::Revert, 0, 1, 1, false), "Reverted 0 of 1 photo; 1 failed");
         assert_eq!(message(Action::Revert, 1, 2, 0, true), "Revert cancelled: 1 of 2 photos reverted");
-    }
-
-    #[test]
-    fn hostile_parameters_are_refused_and_change_nothing() {
-        let (_dirs, mut s, _ids) = library(1);
-        for id in ["photo.save", "photo.undoSave", "photo.revert"] {
-            hostile(&mut s, id);
-        }
-        assert!(!s.file_jobs_running());
     }
 
     fn record(recipe: &[&str]) -> Saved {

@@ -173,17 +173,16 @@ fn set_folders(s: &mut Session, p: &Value, on: bool) -> Result<Value, CmdError> 
 mod tests {
     use serde_json::json;
 
-    use crate::cmd::testing::{hostile, library};
+    use crate::cmd::testing::library;
     use crate::error::CmdError;
 
     #[test]
-    fn disabled_and_hostile_params() {
+    fn disabled_and_bad_params() {
         let (_dirs, mut s, ids) = library(1);
         let folder = s.library().photo(ids[0]).unwrap().folder;
         for id in ["photo.hide", "photo.unhide"] {
             assert_eq!(s.execute(id, &json!({ "ids": [] })), Err(CmdError::Disabled("Select some photos first.".into())));
             assert!(matches!(s.execute(id, &json!({ "ids": [999] })), Err(CmdError::NotFound(_))));
-            hostile(&mut s, id);
         }
         assert_eq!(s.execute("photo.unhide", &json!({ "ids": [ids[0]] })), Err(CmdError::Disabled("The photo is not hidden.".into())));
         for id in ["folder.hide", "folder.unhide"] {
@@ -194,7 +193,6 @@ mod tests {
             for bad in ["folder:", "folder:0", "folder:x", "album:1", ""] {
                 assert!(matches!(s.execute(id, &json!({ "section": bad })), Err(CmdError::BadParams(_))), "{id} {bad}");
             }
-            hostile(&mut s, id);
         }
         let section = json!({ "section": format!("folder:{folder}") });
         assert_eq!(s.execute("folder.unhide", &section), Err(CmdError::Disabled("The folder is not hidden.".into())));

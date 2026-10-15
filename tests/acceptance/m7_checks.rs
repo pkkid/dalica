@@ -61,7 +61,7 @@ pub fn crate_suites() {
     println!("Edit view shell:");
     println!("  the coordinate frame, the photo's history (restart and rebuild), M7's settings");
     suites("dalica-edit", &["frame", "recipe", "geometry"]);
-    suites("dalica-engine", &["photo_history", "settings_m7"]);
+    suites("dalica-engine", &["photo_history", "settings"]);
     println!("  the view's state and frame, entering, leaving and navigation, zoom maths and the canvas");
     suites("dalica-ui", &["view_state_m7", "edit_navigation", "zoom_maths", "edit_canvas", "edit_panel"]);
     suites("dalica-ui-kit", &["edit_widgets", "input", "icons_edit"]);

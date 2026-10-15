@@ -8,9 +8,10 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use crate::common::{entry, jpeg, off_owner, options, read_json, shared};
 use dalica_core::{PhotoId, Timestamp, VirtualClock};
 use dalica_engine::watching::WatchMode;
-use dalica_engine::{CacheDir, Driver, FileOp, FileOpKind, Options, Ran, Session, ThumbOptions};
+use dalica_engine::{Driver, FileOp, FileOpKind, Ran, Session};
 use dalica_fs::Expect;
 use dalica_fs::transfer::{self, Outcome};
 use dalica_library::Op;
@@ -18,20 +19,6 @@ use dalica_store::carry::{Carry, Mode};
 use serde_json::{Value, json};
 
 const PATIENCE: Duration = Duration::from_secs(120);
-
-/// Runs `f` on a helper thread: the test's own file access never counts against the owner.
-fn off_owner<T: Send>(f: impl FnOnce() -> T + Send) -> T {
-    std::thread::scope(|s| s.spawn(f).join().unwrap())
-}
-
-fn read_json(path: &Path) -> Option<Value> {
-    let path = path.to_path_buf();
-    off_owner(move || std::fs::read(path).ok().map(|b| serde_json::from_slice(&b).unwrap()))
-}
-
-fn entry(folder: &Path, name: &str) -> Option<Value> {
-    read_json(&folder.join(".dalica.json")).and_then(|v| v.get("photos").and_then(|p| p.get(name)).cloned())
-}
 
 /// `file-ops.json` as the tests read it: per operation, its id and each item's source and state.
 type Journal = Vec<(u64, Vec<(PathBuf, String)>)>;
@@ -115,14 +102,6 @@ impl Driver for Move {
     }
 }
 
-fn options() -> Options {
-    Options { thumbs: ThumbOptions { cache: CacheDir::Off, workers: 1, ..ThumbOptions::default() } }
-}
-
-fn jpeg(seed: u64) -> Vec<u8> {
-    dalica_scenes::jpeg(&dalica_scenes::Scene::new(seed, 96, 64), 80, None).unwrap()
-}
-
 struct Lib {
     dir: tempfile::TempDir,
     clock: Arc<VirtualClock>,
@@ -195,6 +174,7 @@ impl Lib {
 /// journal is empty once the operation's results are in the library.
 #[test]
 fn file_ops_json_holds_the_operation_before_any_item_runs_and_is_empty_after() {
+    let _faults = shared();
     let mut l = Lib::new(|_| {});
     assert!(l.s.file_ops_left().is_empty());
     let (driver, seen) = l.driver();
@@ -221,6 +201,7 @@ fn file_ops_json_holds_the_operation_before_any_item_runs_and_is_empty_after() {
 /// before the move whose write still waits in the debounce. Its originals backup and record go too.
 #[test]
 fn a_move_carries_the_entry_its_unknown_keys_a_debounced_star_and_the_backup() {
+    let _faults = shared();
     let mut l = Lib::new(|_| {});
     let (lisbon, porto) = (l.folder("Lisbon"), l.folder("Porto"));
     let (one, two) = (l.photo("Lisbon", "IMG_0001.jpg"), l.photo("Lisbon", "IMG_0002.jpg"));
@@ -273,6 +254,7 @@ fn a_move_carries_the_entry_its_unknown_keys_a_debounced_star_and_the_backup() {
 /// operations take the ids after it.
 #[test]
 fn journal_ids_continue_past_an_operation_left_from_an_earlier_session() {
+    let _faults = shared();
     let left_from = Arc::new(Mutex::new(PathBuf::new()));
     let lf = Arc::clone(&left_from);
     let mut l = Lib::new(move |library| {
@@ -303,6 +285,7 @@ fn journal_ids_continue_past_an_operation_left_from_an_earlier_session() {
 /// A damaged journal is kept aside with a notice, and operations still run.
 #[test]
 fn a_damaged_journal_is_kept_aside_with_a_notice() {
+    let _faults = shared();
     let mut l = Lib::new(|library| std::fs::write(library.join("file-ops.json"), b"{ torn").unwrap());
     assert!(l.s.notices().iter().any(|n| n.contains("file-operation journal was damaged")), "{:?}", l.s.notices());
     let kept: Vec<String> = {

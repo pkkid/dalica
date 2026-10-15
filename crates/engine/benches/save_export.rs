@@ -31,6 +31,11 @@
 #[allow(dead_code, unused_imports)]
 mod mixed;
 
+/// What `tests/export_mixed.rs` reads from the tests' shared helpers.
+#[path = "../tests/common.rs"]
+#[allow(dead_code)]
+mod common;
+
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -142,7 +147,7 @@ fn exports(root: &Path, scale: u32, samples: usize) -> Vec<f64> {
     let mixed = root.join("Photos").join("Mixed");
     dalica_fs::create_dir_all(&mixed).unwrap();
     let written = Instant::now();
-    let photos = tray::build(&mixed, scale);
+    let photos = tray::build(&mixed, scale, tray::PHOTOS);
     eprintln!("the mixed tray of {} photos written in {:.1} s", photos.len(), written.elapsed().as_secs_f64());
     let options = Options { thumbs: ThumbOptions { cache: CacheDir::Off, ..ThumbOptions::default() } };
     let mut s = Session::open_with(&root.join("library"), Arc::new(SystemClock), &options).unwrap();

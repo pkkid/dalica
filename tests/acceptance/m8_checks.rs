@@ -72,7 +72,7 @@ pub fn crate_suites() {
     println!("  Save in place, Undo Save, Revert, lossless and beside saves, copies; a fault at every step of a Save");
     suites("dalica-create", &["output", "save", "save_lossless", "save_beside", "save_faults"]);
     println!("  the commands, the file-job runner, settings, repair of an interrupted Save");
-    suites("dalica-engine", &["save", "save_copy", "save_recovery", "filejobs", "settings_m8"]);
+    suites("dalica-engine", &["save", "save_copy", "save_recovery", "filejobs", "settings"]);
     println!("  every format of formats.md §1 saves as specified (M8.23)");
     suites("dalica-engine", &["save_formats"]);
     println!("  the header's count and Save, the explanation, Undo Save, the Revert question, Save As");

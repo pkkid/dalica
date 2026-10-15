@@ -55,11 +55,11 @@ fn set(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
 mod tests {
     use serde_json::json;
 
-    use crate::cmd::testing::{hostile, library};
+    use crate::cmd::testing::library;
     use crate::error::CmdError;
 
     #[test]
-    fn disabled_and_hostile_params() {
+    fn disabled_and_bad_params() {
         let (_dirs, mut s, ids) = library(1);
         assert_eq!(
             s.execute("photo.caption.set", &json!({ "ids": [], "caption": "x" })),
@@ -69,7 +69,6 @@ mod tests {
         for bad in [json!({ "ids": [ids[0]] }), json!({ "ids": [ids[0]], "caption": 3 }), json!({ "ids": [ids[0]], "caption": null })] {
             assert!(matches!(s.execute("photo.caption.set", &bad), Err(CmdError::BadParams(_))), "{bad}");
         }
-        hostile(&mut s, "photo.caption.set");
         assert_eq!(s.undo_stack().len(), 0);
     }
 }

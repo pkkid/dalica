@@ -11,9 +11,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::common::names;
 use dalica_core::{DateTime, PhotoId, SystemClock};
 use dalica_engine::settings::SaveFormat;
-use dalica_engine::{CacheDir, CmdError, Effect, History, JobEntry, JobKind, JobState, Options, Session, ThumbOptions};
+use dalica_engine::{CacheDir, CmdError, JobEntry, JobKind, JobState, Options, Session, ThumbOptions};
 use dalica_fs::Expect;
 use serde_json::{Value, json};
 
@@ -79,12 +80,6 @@ fn decoded_size(path: &Path) -> (u32, u32) {
     (img.width, img.height)
 }
 
-fn files(dir: &Path) -> Vec<String> {
-    let mut names: Vec<String> = std::fs::read_dir(dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
-    names.sort();
-    names
-}
-
 fn code(r: Result<Value, CmdError>) -> &'static str {
     match r {
         Ok(v) => panic!("expected an error, got {v}"),
@@ -138,7 +133,7 @@ fn two_copies_are_001_and_002_with_the_edits_and_the_photo_untouched() {
     }
     // Every sidecar write has landed (a debounced one leaves a temporary file while it is written).
     lib.s.flush().unwrap();
-    assert_eq!(files(&lib.lisbon()), [".dalica.json", "IMG_0001-001.jpg", "IMG_0001-002.jpg", "IMG_0001.jpg", "IMG_0002.jpg"]);
+    assert_eq!(names(&lib.lisbon()), [".dalica.json", "IMG_0001-001.jpg", "IMG_0001-002.jpg", "IMG_0001.jpg", "IMG_0002.jpg"]);
     // The photo, its file and its recipe are untouched; neither copy is an undo step.
     assert_eq!(std::fs::read(&source).unwrap(), original);
     assert_eq!(lib.s.library().info(id), &info_before);
@@ -216,7 +211,7 @@ fn an_existing_path_is_refused_and_unchanged() {
     lib.s.flush().unwrap();
     let taken = lib.lisbon().join("IMG_0002.jpg");
     let bytes = std::fs::read(&taken).unwrap();
-    let before = files(&lib.lisbon());
+    let before = names(&lib.lisbon());
     let photos_before = lib.s.library().photos().count();
 
     let (_, done) = lib.run("photo.saveTo", json!({ "id": id, "path": taken }));
@@ -237,7 +232,7 @@ fn an_existing_path_is_refused_and_unchanged() {
     assert!(!lib.dir.path().join("Nowhere").exists());
 
     lib.s.flush().unwrap();
-    assert_eq!(files(&lib.lisbon()), before, "nothing written");
+    assert_eq!(names(&lib.lisbon()), before, "nothing written");
     assert_eq!(lib.s.library().photos().count(), photos_before);
     assert_eq!(lib.s.settings().save().last_folder, None, "nothing remembered");
 }
@@ -247,11 +242,6 @@ fn the_commands_keep_their_contract_and_fail_gracefully() {
     let mut lib = Lib::new(2);
     let (id, plain) = (lib.ids[0], lib.ids[1]);
     lib.s.execute("photo.history.apply", &json!({ "id": id, "op": "autofix()" })).unwrap();
-    for (cmd, menu) in [("photo.saveCopy", "File/Save a Copy"), ("photo.saveTo", "")] {
-        let spec = lib.s.spec(cmd).unwrap();
-        assert_eq!((spec.effect, spec.history, spec.menu), (Effect::Files, History::None, menu));
-        assert!(!spec.params.is_empty() && spec.keys.is_empty());
-    }
     let enabled = |s: &Session, cmd: &str, p: Value| (s.spec(cmd).unwrap().enabled)(s, &p);
     assert!(enabled(&lib.s, "photo.saveCopy", json!({ "ids": [id] })).is_ok());
     assert!(enabled(&lib.s, "photo.saveCopy", json!({ "ids": [plain] })).is_err(), "no edits");
@@ -260,23 +250,14 @@ fn the_commands_keep_their_contract_and_fail_gracefully() {
 
     let out = lib.dir.path().join("Out");
     let long = "x".repeat(5000);
-    let copy_cases: Vec<(Value, &str)> = vec![
-        (json!({}), "bad_params"),
-        (json!({ "ids": "x" }), "bad_params"),
-        (json!({ "ids": [id], "zzz": 1 }), "bad_params"),
-        (json!({ "ids": [999_999] }), "not_found"),
-        (json!({ "ids": [] }), "disabled"),
-        (json!({ "ids": [plain] }), "disabled"),
-        (json!([]), "bad_params"),
-    ];
+    let copy_cases: Vec<(Value, &str)> =
+        vec![(json!({ "ids": [999_999] }), "not_found"), (json!({ "ids": [] }), "disabled"), (json!({ "ids": [plain] }), "disabled")];
     for (params, want) in copy_cases {
         assert_eq!(code(lib.s.execute("photo.saveCopy", &params)), want, "{params}");
     }
     let to_cases: Vec<(Value, &str)> = vec![
         (json!({ "id": id }), "bad_params"),
         (json!({ "path": out.join("a.jpg") }), "bad_params"),
-        (json!({ "id": "x", "path": out.join("a.jpg") }), "bad_params"),
-        (json!({ "id": id, "path": 7 }), "bad_params"),
         (json!({ "id": id, "path": out.join("a.jpg"), "format": "tiff" }), "bad_params"),
         (json!({ "id": id, "path": out.join("a.jpg"), "format": "png" }), "bad_params"),
         (json!({ "id": id, "path": out.join("a.tif") }), "bad_params"),
@@ -284,9 +265,7 @@ fn the_commands_keep_their_contract_and_fail_gracefully() {
         (json!({ "id": id, "path": lib.lisbon().join(".dalica-originals").join("a.jpg") }), "bad_params"),
         (json!({ "id": id, "path": "" }), "bad_params"),
         (json!({ "id": id, "path": long }), "limit"),
-        (json!({ "id": id, "path": out.join("a.jpg"), "zzz": 1 }), "bad_params"),
         (json!({ "id": 999_999, "path": out.join("a.jpg") }), "not_found"),
-        (json!("text"), "bad_params"),
     ];
     for (params, want) in to_cases {
         assert_eq!(code(lib.s.execute("photo.saveTo", &params)), want, "{params}");

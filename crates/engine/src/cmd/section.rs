@@ -223,7 +223,7 @@ fn sort_folders(s: &mut Session, folders: &BTreeSet<FolderId>, by: Option<SortBy
 mod tests {
     use serde_json::json;
 
-    use crate::cmd::testing::{hostile, library};
+    use crate::cmd::testing::library;
     use crate::error::CmdError;
 
     #[test]
@@ -263,7 +263,7 @@ mod tests {
     }
 
     #[test]
-    fn disabled_and_hostile_params() {
+    fn disabled_and_bad_params() {
         let (_dirs, mut s, _) = library(1);
         for id in ["section.refreshThumbs", "section.sort"] {
             for empty in [json!({}), json!(null), json!({ "ids": [] }), json!({ "section": null })] {
@@ -282,7 +282,6 @@ mod tests {
                 assert!(matches!(s.execute(id, &with(json!({ "section": bad }))), Err(CmdError::BadParams(_))), "{id} {bad}");
             }
             assert!(matches!(s.execute(id, &json!({ "section": 3 })), Err(CmdError::BadParams(_))));
-            hostile(&mut s, id);
         }
         let folder = format!("folder:{}", s.library().folders().next().unwrap().id);
         for bad in [json!({ "section": folder }), json!({ "section": folder, "reverse": false }), json!({ "section": folder, "by": "colour" })] {

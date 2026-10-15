@@ -16,6 +16,8 @@ use dalica_library::search::{Age, Filters, Query, SearchIndex};
 use dalica_library::{AlbumInfo, Facts, Folder, Library, Op, Photo};
 use serde_json::{Value, json};
 
+use crate::common::pick;
+
 /// 2026-06-10T00:00:00 UTC.
 const NOW: i64 = 1_781_049_600;
 
@@ -459,12 +461,15 @@ fn a_rebuild_that_replaces_the_library_gives_the_worker_a_fresh_copy() {
     assert_eq!(s.search_stats().builds, 2, "{:?}", s.search_stats());
 }
 
+/// 100 000 photos at the review gate (timed; the `search` bench judges the times in release), 5 000
+/// in a task's gate.
 #[test]
 fn a_query_on_a_100k_library_answers_off_the_owner_thread() {
+    let (spec, label) = pick((Spec::new(5_000, 100, synthetic::SEED), "5 000"), (Spec::PHOTOS_100K, "100 k"));
     let tmp = tempfile::tempdir().unwrap();
     let clock = Arc::new(VirtualClock::new(Timestamp::from_millis(NOW * 1000)));
     let t = Instant::now();
-    let mut s = synthetic::open(tmp.path(), &Spec::PHOTOS_100K, clock.clone()).unwrap();
+    let mut s = synthetic::open(tmp.path(), &spec, clock.clone()).unwrap();
     let opened = t.elapsed();
     let t = Instant::now();
     s.execute("search.set", &json!({ "text": "harbour" })).unwrap();
@@ -494,7 +499,7 @@ fn a_query_on_a_100k_library_answers_off_the_owner_thread() {
     let want = SearchIndex::from_library(s.library()).search(&query, &scope);
     assert_eq!(r2.photos(), want.ids.as_slice());
     println!(
-        "100 k photos: opened {opened:.2?}; first search.set (starts the worker, copies the library) {first_set:.2?}; poll {poll:.2?}; \
+        "{label} photos: opened {opened:.2?}; first search.set (starts the worker, copies the library) {first_set:.2?}; poll {poll:.2?}; \
          index built and first query answered {waited:.2?} (query {:.1} ms, {} matches); next keystroke on the owner thread {owner:.2?}, \
          its query {:.1} ms on the worker ({} matches)",
         r.seconds * 1000.0,
@@ -508,22 +513,7 @@ fn a_query_on_a_100k_library_answers_off_the_owner_thread() {
 fn every_command_fails_gracefully() {
     let mut fx = fixture();
     let model = fx.s.library().model().clone();
-    for (id, bad) in [
-        ("search.set", json!({ "age": -1 })),
-        ("search.set", json!({ "age": "old" })),
-        ("search.set", json!({ "text": ["a"] })),
-        ("search.set", json!({ "filters": { "starred": 1 } })),
-        ("search.set", json!({ "text": "a", "more": 1 })),
-        ("search.clear", json!({ "text": "" })),
-        ("search.suggest", json!({})),
-        ("search.suggest", json!({ "text": null })),
-        ("search.suggest", json!({ "text": "a", "limit": -1 })),
-        ("search.saveAsAlbum", json!({})),
-    ] {
-        assert!(fx.s.execute(id, &bad).is_err(), "{id} {bad}");
-    }
-    // Save Search as Album only while searching, with a name, and with matches.
-    assert_eq!(fx.s.execute("search.saveAsAlbum", &json!({ "name": "x" })).unwrap_err().code(), "disabled");
+    // Save Search as Album with a name and with matches (`cmd::search`'s tests: only while searching).
     fx.s.execute("search.set", &json!({ "text": "zzzz" })).unwrap();
     assert_eq!(fx.s.execute("search.saveAsAlbum", &json!({ "name": "\u{7}" })).unwrap_err().code(), "bad_params");
     assert_eq!(fx.s.execute("search.saveAsAlbum", &json!({ "name": "x" })).unwrap_err().code(), "disabled");

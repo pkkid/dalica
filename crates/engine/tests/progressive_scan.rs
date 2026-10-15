@@ -1,5 +1,6 @@
 //! Scans as jobs, applied progressively (`roadmap.md` M5.5; `architecture.md` §5): on a temporary
-//! library of 2 000 `scenes` photos in 40 folders, the first batch lands (with its thumbnail jobs
+//! library of 2 000 `scenes` photos in 40 folders (800 in 4 folders in a task's gate: more than one
+//! batch of 500 lands before the held last folder), the first batch lands (with its thumbnail jobs
 //! queued) while the walk is still going, each poll applies at most one batch, progress rises to
 //! the totals, and a cancelled scan stops within one folder and keeps what it applied. A gated
 //! header reader holds the walk at a chosen folder, so "before the walk ends" is certain rather
@@ -16,6 +17,8 @@ use dalica_engine::{CacheDir, JobKind, JobState, Options, ScanProgress, Session,
 use dalica_fs::Expect;
 use dalica_scan::HeaderReader;
 use serde_json::json;
+
+use crate::common::pick;
 
 /// How long a test waits for something that should take a moment.
 const PATIENCE: Duration = Duration::from_secs(120);
@@ -37,6 +40,24 @@ fn tree(root: &Path, folders: usize, per: usize) -> PathBuf {
 fn open(library: &Path) -> Session {
     let options = Options { thumbs: ThumbOptions { cache: CacheDir::Temp, workers: 2, ..ThumbOptions::default() } };
     Session::open_with(library, Arc::new(SystemClock), &options).unwrap()
+}
+
+/// The library's folders and photos per folder.
+fn size() -> (usize, usize) {
+    pick((4, 200), (40, 50))
+}
+
+/// `n` with a comma between thousands, as the job's label shows it.
+fn thousands(n: usize) -> String {
+    let digits = n.to_string();
+    let mut out = String::new();
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
 }
 
 /// A header reader that holds every file of one folder until it is opened, and records every
@@ -109,10 +130,13 @@ fn poll_until(s: &mut Session, progress: &mut Vec<ScanProgress>, mut done: impl 
 /// totals. The owner thread makes no `fs` call throughout.
 #[test]
 fn the_first_batch_lands_with_its_thumbnails_queued_before_the_walk_ends() {
+    let (folders, per) = size();
+    let total = folders * per;
+    let held = (folders - 1) * per;
     let dir = tempfile::tempdir().unwrap();
-    let root = tree(&dir.path().join("Pictures"), 40, 50);
+    let root = tree(&dir.path().join("Pictures"), folders, per);
     let mut s = open(&dir.path().join("library"));
-    let gate = Gate::new("F39");
+    let gate = Gate::new(&format!("F{:02}", folders - 1));
     s.set_scan_reader(Some(gate.reader()));
     let refused = dalica_fs::guard::refused();
     let ui = dalica_fs::mark_ui_thread();
@@ -128,20 +152,20 @@ fn the_first_batch_lands_with_its_thumbnails_queued_before_the_walk_ends() {
     assert!(stats.jobs + stats.scanned + stats.failed >= first, "the first batch's thumbnails are not queued: {stats:?} for {first} photos");
     assert_eq!(s.job(job).unwrap().state, JobState::Running);
 
-    // Everything before the held folder lands while the walk waits in it. The owner can apply
-    // F38 before the walk has opened F39's first file (a slow open on Windows), so wait for both;
-    // F39 itself cannot land before the gate opens, so the count stays at 39 folders.
+    // Everything before the held folder lands while the walk waits in it. The owner can apply the
+    // one before it before the walk has opened the held folder's first file (a slow open on
+    // Windows), so wait for both; the held folder cannot land before the gate opens.
     let mut counts = vec![first];
     poll_until(&mut s, &mut progress, |s| {
         counts.push(s.library().photos().count());
-        gate.reached() && s.library().photos().count() == 39 * 50
+        gate.reached() && s.library().photos().count() == held
     });
     assert!(gate.reached());
-    assert_eq!(s.library().photos().count(), 39 * 50, "nothing of the held folder landed");
+    assert_eq!(s.library().photos().count(), held, "nothing of the held folder landed");
     assert_eq!(s.job(job).unwrap().state, JobState::Running, "the walk has not finished");
-    assert_eq!(s.library().folders().count(), 39);
+    assert_eq!(s.library().folders().count(), folders - 1);
     let entry = s.job(job).unwrap();
-    assert_eq!((entry.progress.done, entry.label.as_str()), (1950, "Scanning: 1,950 pictures found"));
+    assert_eq!((entry.progress.done, entry.label.clone()), (held as u64, format!("Scanning: {} pictures found", thousands(held))));
 
     gate.open();
     poll_until(&mut s, &mut progress, |s| {
@@ -152,26 +176,26 @@ fn the_first_batch_lands_with_its_thumbnails_queued_before_the_walk_ends() {
     assert_eq!(dalica_fs::guard::refused(), refused, "the owner thread touched the disk");
 
     let steps: HashSet<usize> = counts.iter().copied().collect();
-    assert!(steps.len() > 2000 / PHOTOS_PER_POLL, "the library filled in {} steps", steps.len());
+    assert!(steps.len() > total / PHOTOS_PER_POLL, "the library filled in {} steps", steps.len());
     for pair in counts.windows(2) {
         assert!(pair[1] - pair[0] <= PHOTOS_PER_POLL, "one poll applied {} photos", pair[1] - pair[0]);
     }
     for pair in progress.windows(2) {
         assert!(pair[1].found >= pair[0].found && pair[1].indexed >= pair[0].indexed, "progress went back: {pair:?}");
     }
-    assert!(progress.iter().any(|p| p.running && p.indexed > 0 && p.indexed < 2000), "no progress was seen between start and end");
-    assert_eq!(s.scan_progress(), ScanProgress { running: false, folders_queued: 0, found: 2000, indexed: 2000 });
+    assert!(progress.iter().any(|p| p.running && p.indexed > 0 && p.indexed < total), "no progress was seen between start and end");
+    assert_eq!(s.scan_progress(), ScanProgress { running: false, folders_queued: 0, found: total, indexed: total });
     let entry = s.job(job).unwrap();
     assert_eq!(entry.state, JobState::Done);
-    assert_eq!((entry.progress.done, entry.progress.total), (2000, 2000));
+    assert_eq!((entry.progress.done, entry.progress.total), (total as u64, total as u64));
     let result = entry.result.unwrap();
-    assert_eq!((result["folders"].clone(), result["found"].clone(), result["indexed"].clone()), (json!(40), json!(2000), json!(2000)));
+    assert_eq!((result["folders"].clone(), result["found"].clone(), result["indexed"].clone()), (json!(folders), json!(total), json!(total)));
     assert_eq!(result["walked"], json!([root]));
-    assert_eq!(s.library().photos().count(), 2000);
-    assert_eq!(s.library().folders().count(), 40);
+    assert_eq!(s.library().photos().count(), total);
+    assert_eq!(s.library().folders().count(), folders);
     assert!(!s.busy());
     s.wait_idle();
-    assert_eq!(s.library().sketch_count(), 2000);
+    assert_eq!(s.library().sketch_count(), total);
     assert!(s.scan_warnings().is_empty(), "{:?}", s.scan_warnings());
 }
 
@@ -180,15 +204,17 @@ fn the_first_batch_lands_with_its_thumbnails_queued_before_the_walk_ends() {
 /// already there keep their ids.
 #[test]
 fn a_cancelled_scan_stops_within_one_folder_and_keeps_what_it_applied() {
+    let (folders, per) = size();
+    let half = folders / 2;
     let dir = tempfile::tempdir().unwrap();
-    let root = tree(&dir.path().join("Pictures"), 40, 50);
+    let root = tree(&dir.path().join("Pictures"), folders, per);
     let mut s = open(&dir.path().join("library"));
-    let gate = Gate::new("F20");
+    let gate = Gate::new(&format!("F{half:02}"));
     s.set_scan_reader(Some(gate.reader()));
     s.execute("folders.add", &json!({ "path": root })).unwrap();
     let job = last_job(&s);
     let mut progress = Vec::new();
-    poll_until(&mut s, &mut progress, |s| gate.reached() && s.library().photos().count() == 20 * 50);
+    poll_until(&mut s, &mut progress, |s| gate.reached() && s.library().photos().count() == half * per);
     let kept: Vec<(PathBuf, PhotoId)> = {
         let lib = s.library();
         let mut v: Vec<_> = lib.photos().map(|p| (lib.folder(p.folder).unwrap().path.join(&p.name), p.id)).collect();
@@ -201,18 +227,18 @@ fn a_cancelled_scan_stops_within_one_folder_and_keeps_what_it_applied() {
     let entry = s.wait_job(job, PATIENCE).unwrap();
     assert_eq!(entry.state, JobState::Cancelled, "{entry:?}");
     assert_eq!(entry.result.as_ref().unwrap()["cancelled"], true);
-    assert_eq!(entry.result.as_ref().unwrap()["indexed"], 1000);
+    assert_eq!(entry.result.as_ref().unwrap()["indexed"], half * per);
     assert!(entry.label.starts_with("Scan cancelled"), "{}", entry.label);
     assert!(!s.busy() && !s.scan_progress().running);
     // Nothing past the folder it was reading.
     let read = gate.folders_read();
-    for f in 21..40 {
+    for f in half + 1..folders {
         assert!(!read.contains(&format!("F{f:02}")), "F{f:02} was read after the cancel: {read:?}");
     }
     // What was applied stays; the held folder never landed.
-    assert_eq!(s.library().folders().count(), 20);
-    assert_eq!(s.library().photos().count(), 1000);
-    assert!(s.library().folder_by_path(&root.join("F20")).is_none());
+    assert_eq!(s.library().folders().count(), half);
+    assert_eq!(s.library().photos().count(), half * per);
+    assert!(s.library().folder_by_path(&root.join(format!("F{half:02}"))).is_none());
     // Cancelling again: it has finished, so nothing is cancelled.
     assert_eq!(s.cancel_jobs(Some(job)).unwrap(), Vec::<u64>::new());
 
@@ -220,7 +246,7 @@ fn a_cancelled_scan_stops_within_one_folder_and_keeps_what_it_applied() {
     s.set_scan_reader(None);
     s.execute("folders.add", &json!({ "path": root })).unwrap();
     s.wait_idle();
-    assert_eq!(s.library().photos().count(), 2000);
+    assert_eq!(s.library().photos().count(), folders * per);
     let lib = s.library();
     for (path, id) in kept {
         let p = lib.photo(id).unwrap();

@@ -4,42 +4,20 @@
 //! rotations undo one at a time; an operation Dalica does not know survives undo and redo; the
 //! history and its labels survive a restart and a rebuild of the index; photo steps never touch
 //! the library undo stack and library steps never walk a photo's history; the sidecar after each
-//! command; the owner thread makes no `fs` call; graceful failures.
+//! command; the owner thread makes no `fs` call (bad parameters: `cmd::history`'s tests).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
-use dalica_core::{PhotoId, SystemClock};
-use dalica_engine::{CacheDir, CmdError, History, Options, Session, ThumbOptions};
-use dalica_fs::Expect;
+use crate::common::{jpeg, lisbon, open};
+use dalica_core::PhotoId;
+use dalica_engine::{CmdError, History, Session};
 use serde_json::{Value, json};
-
-fn open(library: &Path) -> Session {
-    let options = Options { thumbs: ThumbOptions { cache: CacheDir::Off, workers: 1, ..ThumbOptions::default() } };
-    let mut s = Session::open_with(library, Arc::new(SystemClock), &options).unwrap();
-    s.wait_idle();
-    s
-}
 
 /// A library watching one folder `Lisbon` of `n` photos `IMG_0001.jpg`…, with `sidecar` written
 /// beside them first (unless `Null`); ids in name order.
 fn setup(n: usize, sidecar: &Value) -> (tempfile::TempDir, tempfile::TempDir, PathBuf, Session, Vec<PhotoId>) {
-    let (lib, disk) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
-    let folder = disk.path().join("Lisbon");
-    dalica_fs::create_dir_all(&folder).unwrap();
-    for i in 0..n {
-        let bytes = dalica_scenes::jpeg(&dalica_scenes::Scene::new(i as u64, 96, 64), 80, None).unwrap();
-        dalica_fs::replace(&folder.join(format!("IMG_{:04}.jpg", i + 1)), &bytes, Expect::Absent).unwrap();
-    }
-    if !sidecar.is_null() {
-        dalica_fs::replace(&folder.join(".dalica.json"), serde_json::to_vec_pretty(sidecar).unwrap().as_slice(), Expect::Absent).unwrap();
-    }
-    let mut s = open(lib.path());
-    s.execute("folders.add", &json!({ "path": folder })).unwrap();
-    s.wait_idle();
-    let ids = by_name(&s).into_values().collect();
-    (lib, disk, folder, s, ids)
+    lisbon(&(0..n as u64).map(jpeg).collect::<Vec<_>>(), Some(sidecar).filter(|v| !v.is_null()))
 }
 
 fn by_name(s: &Session) -> BTreeMap<String, PhotoId> {
@@ -300,32 +278,4 @@ fn the_owner_thread_makes_no_fs_call() {
     s.flush().unwrap();
     drop(ui);
     assert_eq!(sidecar_entry(&mut s, &folder, "IMG_0001.jpg")["edits"], json!(["autocontrast()", "autocolor()"]));
-}
-
-#[test]
-fn graceful_failures_change_nothing() {
-    let (_lib, _d, _f, mut s, ids) = setup(1, &Value::Null);
-    apply(&mut s, ids[0], "sharpen(0.6)");
-    let model = s.library().model().clone();
-    let bad: [(&str, Value); 12] = [
-        ("photo.history.apply", json!({ "id": ids[0] })),
-        ("photo.history.apply", json!({ "op": "sepia()" })),
-        ("photo.history.apply", json!({ "id": ids[0], "op": "nonsense" })),
-        ("photo.history.apply", json!({ "id": ids[0], "op": "future_op(1)" })),
-        ("photo.history.apply", json!({ "id": ids[0], "op": ["sepia()"] })),
-        ("photo.history.apply", json!({ "id": 12345, "op": "sepia()" })),
-        ("photo.history.apply", json!({ "id": ids[0], "op": "sepia()", "extra": 1 })),
-        ("photo.history.undo", json!({ "id": -1 })),
-        ("photo.history.redo", json!({ "id": ids[0] })),
-        ("photo.history.state", json!({ "id": 1.5 })),
-        ("photo.history.state", json!(["x"])),
-        ("edit.redo", json!({ "id": ids[0] })),
-    ];
-    for (cmd, p) in bad {
-        let r = s.execute(cmd, &p);
-        assert!(r.is_err(), "{cmd} accepted {p}");
-        assert!(!matches!(r, Err(CmdError::Internal(_))), "{cmd} panicked on {p}");
-        assert_eq!(s.library().model(), &model, "{cmd} changed the model on {p}");
-    }
-    assert_eq!(s.undo_stack().len(), 0);
 }

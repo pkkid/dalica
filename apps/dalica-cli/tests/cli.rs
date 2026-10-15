@@ -1,5 +1,7 @@
 //! The CLI: `commands` prints the engine's registry, `run` executes scripts on a library (exit codes
-//! 0 / 1 / 2 / 3), `inspect` summarises one, and both binaries print the workspace version.
+//! 0 / 1 / 2 / 3), `inspect` summarises one, and it prints the workspace version (the app's own
+//! `--version` line is `apps/dalica`'s unit tests: building the app here cost a task's gate a
+//! minute).
 
 use std::path::Path;
 use std::process::Command;
@@ -140,18 +142,6 @@ fn cli_version_is_the_workspace_version() {
     // `<version> (<commit>, <date>)`, or `<version> (dev build)` without the build variables.
     let out = out.trim();
     assert!(out.starts_with(&format!("dalica-cli {} (", workspace_version())) && out.ends_with(')'), "{out}");
-}
-
-#[test]
-fn app_version_is_the_workspace_version() {
-    // `dalica` is another package's binary, so build and run it through cargo (cargo has released
-    // the build lock by the time tests run).
-    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
-    let out = Command::new(cargo).args(["run", "--quiet", "-p", "dalica", "--", "--version"]).output().unwrap();
-    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
-    let out = String::from_utf8(out.stdout).unwrap();
-    let out = out.trim();
-    assert!(out.starts_with(&format!("dalica {} (", workspace_version())) && out.ends_with(')'), "{out}");
 }
 
 #[test]
