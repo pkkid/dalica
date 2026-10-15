@@ -180,7 +180,15 @@ waits for.)
 - **Every milestone has an acceptance check:** `cargo xtask accept M<n>` runs that milestone's
   acceptance tests and scripts (`dalica-cli run` / `snapshot` scripts under `tests/acceptance/`)
   and prints what a human should look at. Its *Done when* lines say what it proves. Acceptance
-  checks of earlier milestones keep running in `cargo xtask ci`, so nothing silently regresses.
+  checks of earlier milestones keep running at every review (`cargo xtask ci --full`), so nothing
+  silently regresses.
+- **Test little during a milestone, everything at its review** (maintainer decision, 2026-10-15).
+  A task's gate (`cargo xtask ci`) compiles everything and tests only the packages the task
+  changed, quick; a merge runs no tests. The review runs the full list once: every test at full
+  strength and every finished milestone's acceptance (`cargo xtask ci --full`), then, on the
+  review's pull request, CI on Linux, Windows and macOS, the corpus job, the release budgets and
+  fuzzing. What fails there becomes fix tasks, merged before the review closes
+  (`development.md` §3). A *done when* that names other systems or budgets is checked there.
 - **Every review task is a stop.** A milestone has exactly one review, at its end: the review task
   `M<n>.R`. There are no mid-milestone reviews (the maintainer's decision, 2026-10-10: "I do not
   want any checkins mid milestones"); the roadmap parser refuses an open `M<n>.A`, `M<n>.B`, …
@@ -4985,8 +4993,8 @@ No other step of M10 needs a maintainer decision mid-run.
     (Save, Undo Save, Revert to the exact original bytes), W08 (foreign metadata byte-identical,
     pixels untouched, modification time unchanged) and W09 (hidden photos leave and come back);
     row `SYS-MCP`.
-  - done when: `cargo test -p dalica-mcp --test workflows` runs W02, W03, W08 and W09 green on the
-    three OSes and lists the other eight as ignored with their reasons.
+  - done when: `cargo test -p dalica-mcp --test workflows` runs W02, W03, W08 and W09 green (on all
+    three OSes at the review) and lists the other eight as ignored with their reasons.
 - ⬜ **M10.19 `mcp`: the M9 workflows**
   - after: M10.18
   - files: `crates/mcp/tests/workflows/w04_rebuild_loses_nothing.rs`, `crates/mcp/tests/workflows/w05_move_carries_data.rs`, `crates/mcp/tests/workflows/w06_search_save_results.rs`, `crates/mcp/tests/workflows/w12_destructive_asks.rs`
@@ -4997,8 +5005,8 @@ No other step of M10 needs a maintainer decision mid-run.
     queries, the search saved as an album); W12 (`cmd_photo_delete` without `confirm` answers
     `needs_confirm` with the file still there; with `confirm` the file is in the test trash and the
     undo record keeps its sidecar entry).
-  - done when: `cargo test -p dalica-mcp --test workflows` runs W04, W05, W06 and W12 green on the
-    three OSes, with the files on disk checked after each step and after undo.
+  - done when: `cargo test -p dalica-mcp --test workflows` runs W04, W05, W06 and W12 green (on all
+    three OSes at the review), with the files on disk checked after each step and after undo.
 - ⬜ **M10.20 `mcp`: W01, the stdio smoke run and the workflow floor**
   - after: M10.17, M10.18, M10.21
   - files: `crates/mcp/tests/workflows/w01_organize_export.rs`, `apps/dalica-cli/tests/mcp_process.rs`, `xtask/src/stats.rs`, `docs/mcp.md`, `docs/process.md`
@@ -5008,7 +5016,7 @@ No other step of M10 needs a maintainer decision mid-run.
     originals byte-identical); a smoke subset (W02, W03) through `dalica-cli mcp` spawned with real
     stdio; the floor in `xtask/src/stats.rs` raised to the nine P0 workflows; `mcp.md`'s status
     line says what is built and `process.md` §5 names the stats command; row `SYS-MCP`.
-  - done when: `cargo test -p dalica-mcp --test workflows` runs W01 green on the three OSes;
+  - done when: `cargo test -p dalica-mcp --test workflows` runs W01 green (on all three OSes at the review);
     `apps/dalica-cli/tests/mcp_process.rs` passes; `cargo xtask stats` prints 9 / 12 passing and
     `cargo xtask stats --check` fails when a P0 workflow is ignored (a planted `#[ignore]`).
 - ⬜ **M10.26 `docs`: the P0 parity audit**
@@ -5683,7 +5691,7 @@ and are never loosened. No other step of M11 needs a maintainer decision mid-run
     as duplicates; the folders named as configured; each copy's bytes equal to its source)
     un-ignored; the floor in `xtask/src/stats.rs` raised to the eleven workflows now required;
     `mcp.md`'s status line; row `SYS-MCP`.
-  - done when: `cargo test -p dalica-mcp --test workflows` runs W07 and W10 green on the three OSes;
+  - done when: `cargo test -p dalica-mcp --test workflows` runs W07 and W10 green (on all three OSes at the review);
     `crates/mcp/tests/edit_tools.rs`: `apply_edit` on 3 photos is one undo step; `cargo xtask
     stats` prints 11 / 12 passing and `stats --check` fails below that.
 - ⬜ **M11.21 `ui`: the slideshow's control bar, zoom, and Options ▸ Slideshow**
@@ -5729,8 +5737,8 @@ and are never loosened. No other step of M11 needs a maintainer decision mid-run
     batch as one undo step; a version kept from A│A as one history step; the slideshow's zero waits
     on a slowed decoder, a fingerprint per transition, its keys, wheel and bar; `dalica --view`
     opening, stepping, starring and Open in Dalica; W07 and W10 over MCP; the M11 budgets (the
-    release budgets with `DALICA_ACCEPT_RELEASE=1`; inside `cargo xtask ci` a smaller debug run
-    checks the paths and prints its times); fingerprints of the room tabs, the Import room,
+    release budgets with `DALICA_ACCEPT_RELEASE=1`; inside `cargo xtask ci --full` a smaller debug
+    run checks the paths and prints its times); fingerprints of the room tabs, the Import room,
     compare, the slideshow and its bar and the viewer; the manual checks in `m11.md` (import from a
     real card or USB stick and remove the copies from it, a slideshow on a real screen with each
     transition, the viewer from the file manager's Open with on each OS with its translucent

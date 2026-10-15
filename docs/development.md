@@ -21,22 +21,23 @@ Mechanics for building, running, testing and verifying Dalica. Rules about *what
 cargo run --release -p dalica                       # open the app (default library)
 cargo run --release -p dalica -- --control 7990     # with the JSON-lines control server
 cargo run --release -p dalica -- --demo             # procedural demo library, no personal photos
-cargo test -p <crate>                               # tests for one crate
-cargo xtask ci                                      # THE gate: run before every commit
+cargo test -p <crate>                               # tests for one crate, quick
+cargo xtask ci                                      # a task's gate: run before submit (minutes)
+cargo xtask ci --full                               # the review gate: every test at full strength (once per milestone)
 ```
 
 ## 3. `cargo xtask`
 
 | Command | What it does | In `ci` |
 |---|---|---|
-| `xtask ci` | fmt check, clippy `-D warnings` (all targets, the acceptance package included), tests, `layers`, `deps`, `assets`, `names`, `parity`, `docs`, `contributors --check`, `tasks sync --check`, then `accept` for every milestone whose blocks are all ✅; each acceptance test runs once (below); runs every step, prints a table, and on a clean worktree records the green commit for `tasks submit` | — |
+| `xtask ci [--merge \| --full [--platform]]` | the gates (below): plain, a task's gate (fmt check, clippy `-D warnings` over the whole workspace with all targets, the static checks `layers`, `deps`, `assets`, `names`, `parity`, `docs`, `contributors --check`, `tasks sync --check`, and the tests of the packages the branch changed, quick); `--merge`, the same without tests; `--full`, the review gate; runs every step, prints a table with each step's time, and on a clean worktree records the green commit for `tasks submit` | — |
 | `xtask layers` | checks crate dependencies against the layer table in `xtask/src/layers.rs` (`architecture.md` §2); unregistered crates fail; UI crates only in L5; only `crates/fs` calls `std::fs` write functions | ✓ |
 | `xtask deps` | offline dependency audit (`security.md` §8): licence allow-list over the whole graph; on the product graph of `dalica` and `dalica-cli` for Linux, Windows and macOS, no banned crate, no C build script (reviewed exceptions are checked against the resolved features) and `*-sys` only from the allow-list; sources; duplicate versions warn | ✓ |
 | `xtask assets` | every image/icon/font/sound file is matched by a row in `ATTRIBUTION.md`; referenced licence files exist; forbidden file names/extensions fail | ✓ |
 | `xtask names` | fails if the reference product's name appears in any tracked file other than `AGENTS.md` | ✓ |
-| `xtask parity [--write]` | ids, tiers and statuses of `docs/parity.md`; every `cmd:` id (from `dalica-cli commands`) and path it cites exists; the summary is current (`--write` refreshes it) | ✓ |
+| `xtask parity [--write]` | ids, tiers and statuses of `docs/parity.md`; every `cmd:` id (from `dalica-cli commands`) and path it cites exists; the summary is current (`--write` refreshes it) | ✓ (the `cmd:` ids against the registry only in `--full`) |
 | `xtask docs` | every `cargo xtask …` command named in `AGENTS.md`, this file and `task-board.md` exists or is registered as planned | ✓ |
-| `xtask accept M<n> [--headless]` | runs a milestone's acceptance test (`tests/acceptance/m<n>.rs`) and prints what a human should look at (`m<n>.md`) (`roadmap.md` → How milestones work); run on its own it checks the whole *Done when*, the crate suites it names included; finished milestones' checks run inside `ci` | ✓ (all finished milestones) |
+| `xtask accept M<n> [--headless]` | runs a milestone's acceptance test (`tests/acceptance/m<n>.rs`) at full strength and prints what a human should look at (`m<n>.md`) (`roadmap.md` → How milestones work); run on its own it checks the whole *Done when*, the crate suites it names included | `--full` (all finished milestones) |
 | `xtask tasks <sub>` | the task board: `setup`, `sync`, `next`, `claim`, `env`, `submit`, `release`, `block`, `merge`, `status`, `log` ([`task-board.md`](task-board.md)); `sync --check` parses the roadmap offline, `setup`/`sync --dry-run` show the GitHub writes without making them | `sync --check` ✓ |
 | `xtask corpus [--all \| <set>…] [--local] [--update-manifest]` | the test corpora of §11: without arguments, each set's pin and state (present, missing, stale, not published yet); with `--all` or set names, fetches what is missing or stale into the gitignored `corpus/`, every download checked against its pin and every file against `xtask/corpus/<set>.sha256` | |
 | `xtask test-corpus [-p <crate>] [-- args]` | fetches like `corpus --all`, then runs each corpus crate's `tests/corpus.rs` with `--release --features corpus,heif`, holding every set to its committed floors; sets not published yet are reported as skipped (§11) | the CI `corpus` job |
@@ -56,23 +57,64 @@ Running a planned command says where it is planned and exits with status 2.
 `CARGO_BUILD_JOBS` or the CPU count, so it doesn't take the machine down when several agents run it
 at once.
 
-**What `ci` runs, and only once.** Its steps, in order:
+**Three gates: test little during a milestone, everything once at its review** (maintainer
+decision, 2026-10-15).
+
+| Gate | Who runs it | Steps |
+|---|---|---|
+| `cargo xtask ci` | a worker, before `tasks submit` (minutes) | fmt, clippy over the whole workspace with all targets (every crate and every test still compiles), the static checks, and the tests of only the packages the branch changed against `origin/main`, quick |
+| `cargo xtask ci --merge` | `tasks merge`, after its rebase | fmt, clippy, the static checks; no tests (the worker's gate ran them on the same changes, and tasks never share files) |
+| `cargo xtask ci --full` | the lead at the review (`/milestone-review`), and the review's GitHub run on Linux | every test of every package at full strength, the heif decoder's tests, `parity` with every cited `cmd:` id checked against the registered commands, and the acceptance test of every finished milestone |
+| `cargo xtask ci --full --platform` | the review's GitHub run on Windows and macOS | `--full` without what gives the same answer on every system: fmt, the static checks, the heif tests, and the pure packages (`dalica-core`, `-library`, `-scenes`, `-edit`, `-image`, `-meta`, `-sidecar`, `xtask`) |
+
+**Which packages a task's gate tests.** A file belongs to the workspace member whose directory
+holds it; the gate tests those packages. A change to the root `Cargo.toml`, `Cargo.lock`,
+`clippy.toml`, the toolchain file, `deny.toml`, `.cargo/` or a file outside every package tests
+every package; a change only to docs (Markdown, `docs/`, `.github/`, `.claude/`) tests none.
+Dependents of a changed package are not tested: clippy still compiles them and their tests, and a
+behaviour break there surfaces at the review.
+
+**Quick and full strength.** `DALICA_FULL_TESTS=1` runs tests at full strength: every fault
+point, full proptest case counts, full-size scale tests, exhaustive walks. `ci --full`, a
+standalone `cargo xtask accept M<n>` and the corpus job set it. Unset (a task's gate, a plain
+`cargo test`), tests run quick: one fault point per class, at most 32 proptest cases, small sizes.
+A test with a heavy variant reads the variable and picks its size; the quick variant still checks
+the same behaviour.
+
+**What `ci --full` runs, and only once.** Its test steps, in order:
 
 1. `test`: `cargo test --workspace --exclude dalica-acceptance`, every crate's suites.
-2. `test acceptance`: the acceptance package's library and every `[[test]]` target of
+2. `test heif`: `dalica-image`'s `heif` tests with the optional decoder (Linux only).
+3. `test acceptance`: the acceptance package's library and every `[[test]]` target of
    `tests/acceptance/Cargo.toml` that no `accept` step runs (`m0_skeleton`, and the acceptance
    test of a milestone still in progress). A finished milestone's headless half (`m1_headless`) is
    left out too: `m1.rs` runs the same steps first, so it would repeat them; it stays for
-   `cargo xtask accept M1 --headless`.
-3. `accept M<k>` for each finished milestone (every block ✅), each running `m<k>.rs` once.
+   `cargo xtask accept M1 --headless`. A task's gate runs this step when the branch changed the
+   acceptance package.
+4. `accept M<k>` for each finished milestone (every block ✅), each running `m<k>.rs` once.
 
 An acceptance test re-runs the crate suites its milestone's *Done when* names (`cargo test -p …`),
 so one `cargo xtask accept M<n>` checks everything. Inside `ci` those suites already ran in step 1,
-so `ci` sets `DALICA_SUITES_RAN=1` on steps 2 and 3, and the tests skip them, printing `suites: run
+so `ci` sets `DALICA_SUITES_RAN=1` on steps 3 and 4, and the tests skip them, printing `suites: run
 by the ci test step`. A standalone `cargo xtask accept` clears the variable. What only an acceptance
-test runs (the live app, its screenshots, `panic_hunt -- --ignored` in M1, the debug benches in M4)
-always runs. Nested cargo runs in acceptance tests never see `DALICA_BLESS`
-(`dalica_acceptance::cargo`), so blessing a milestone's own baselines never rewrites a crate's.
+test runs (the live app, its screenshots, the debug benches in M4) always runs. Nested cargo runs in
+acceptance tests never see `DALICA_BLESS` (`dalica_acceptance::cargo`), so blessing a milestone's
+own baselines never rewrites a crate's.
+
+**On GitHub.** CI (`.github/workflows/ci.yml`: Linux `ci --full`, Windows and macOS
+`ci --full --platform`, and the corpus job of §11), Budgets (§8) and Fuzz (`security.md` §7) run
+only on the pull request of a `review/M<n>.R` branch and when dispatched by hand (*Run workflow* on
+the Actions tab, any branch). A task's pull request and a push to `main` run no tests: every merge
+is decided by the local gates (the packaging lint and the release dry run still run when
+`packaging/`, the workflows or the app icon change; `releasing.md`). The lead dispatches CI on
+`main` by hand after merging a task that is specific to one system (a Windows path fix, a macOS
+menu); `tasks merge` refuses while the latest finished run on `main` is red. What fails at the review becomes fix tasks, merged before the
+review closes.
+
+**A shared compiler cache (optional).** When `sccache` is installed, `cargo xtask tasks env`
+exports `RUSTC_WRAPPER=sccache` (with a 40 GB cache), so the eight agents' target directories share
+compiled dependencies instead of building them once each and again after each cold rebase. Workspace
+crates build incrementally, which sccache passes by. Without sccache nothing changes.
 
 **Optimised crates in dev and test builds.** The root `Cargo.toml` raises `opt-level` to 3 for the
 crates that tests spend their time in: the test-photo generator and codecs (`dalica-scenes`,
@@ -107,18 +149,21 @@ threads): `dalica-ui --test never_blank` 31 → 11 s, `--test layout` 26 → 3 s
    changes, `sidecar`/`meta` for persistence), with unit tests.
 4. Add the command in `crates/engine/src/cmd/<area>.rs`: id, label, menu path, default shortcut,
    params doc string, `enabled`, `run` (exactly one undo step; coalesce drags/typing).
-5. Tests: behaviour, undo/redo, disabled state, bad params (must return `Err`, never panic), and a
-   headless UI test if it has UI.
+5. Tests: behaviour, undo/redo, disabled state, and a headless UI test if it has UI. Bad params
+   (must return `Err`, never panic) need no test of their own: one engine test loops over every
+   registered command, and `panic_hunt` generates params from each command's spec.
 6. UI: compose existing widgets; register automation ids; verify by screenshot.
-7. `cargo xtask ci`; tick the task's ✅ and update its parity row; commit with the task id; `cargo xtask
-   tasks log` and `tasks submit` (`AGENTS.md` §5).
+7. `cargo xtask ci` (the task gate); tick the task's ✅ and update its parity row; commit with the
+   task id; `cargo xtask tasks log` and `tasks submit` (`AGENTS.md` §5).
 
 ## 6. Tests
 
 - **Unit/property tests** next to the code (`proptest` for parsers, sidecar round trips, geometry).
 - **Round-trip tests** for every writer: sidecar, XMP/IPTC write-back, Save-with-backup, export.
 - **Malformed-input tests** for every reader (truncated JPEG/EXIF, hostile sidecars, huge counts).
-- **`panic_hunt`**: fuzzes every registered command with hostile params; must stay green.
+- **Hostile params, every command:** one engine test loops over every registered command with
+  empty, out-of-range and wrong-type params, and **`panic_hunt`** (an ordinary `dalica-engine`
+  test) generates params from each command's spec; both must stay green.
 - **Headless UI tests**: drive the real UI through the headless driver (click by automation id,
   `step_until(condition)`, never "N quiet frames"), assert state and counters (cells visited per
   frame, jobs requested).
@@ -127,6 +172,28 @@ threads): `dalica-ui --test never_blank` 31 → 11 s, `--test layout` 26 → 3 s
 - **Library-scale tests**: a synthetic 100 k-photo library must scroll with < 8 ms/frame UI time.
 - Test photos are procedural (`dalica-scenes`, M1) or CC0 from the pinned corpus. Never commit
   media; never use personal photos.
+
+**Writing tests** (maintainer decision, 2026-10-15). Every test costs every run, so:
+
+- **One test per behaviour,** at the lowest crate that fits; never re-test at a higher layer what a
+  lower crate proves.
+- **Fault points:** exhaustive only in `crates/fs`; a consumer tests one point per class (an error
+  before the commit, an error after it, a crash). Under the test-only `faults` feature `fs` skips
+  fsync and uses a per-process fake trash; one test of the real fsync order and one real-trash
+  round trip per OS remain.
+- **Heavy variants** (scale, exhaustive walks, many proptest cases) run only at full strength
+  (`DALICA_FULL_TESTS=1`, §3); quick runs use one fault point per class, at most 32 proptest cases
+  and small sizes.
+- **Fingerprints** only where pixels are the feature, at one window size (`architecture.md` §11).
+- **No per-milestone catch-up test files** (`*_m9.rs`, `lessons_m9.rs`, `m9_fields.rs`): a test
+  goes in the file of the behaviour it checks.
+- **One integration-test binary per crate:** `autotests = false` and
+  `[[test]] name = "all", path = "tests/all.rs"` in its `Cargo.toml`, each test file a `mod` of
+  `tests/all.rs`, shared helpers in `tests/common.rs`. Separate `[[test]]` targets only for a test
+  that runs its own binary as a child process, installs a process-wide logger, or needs
+  `required-features`.
+- **Fixtures:** a library template built once per process and copied for each test; index-only
+  synthetic libraries where pixels don't matter; tiny images.
 
 ## 7. Driving the app (for agents and tests)
 
@@ -196,8 +263,9 @@ it is printed, not budgeted.
 
 Measure, don't guess: record numbers in `docs/status.md` → Metrics with the machine and date.
 
-**The budgets job.** `.github/workflows/budgets.yml` runs `cargo xtask budgets` on every push to
-`main`, on Linux only (`ubuntu-latest`), with its own release cache: it builds in release and runs
+**The budgets job.** `.github/workflows/budgets.yml` runs `cargo xtask budgets` once per milestone,
+on the pull request of its `review/M<n>.R` branch (and when dispatched by hand), on Linux only
+(`ubuntu-latest`), with its own release cache: it builds in release and runs
 the budgets the acceptance tests assert only with `DALICA_ACCEPT_RELEASE=1`, and the run fails when
 one is missed. Today (M4) that is the 100 k scroll of `library_bench` in full (UI frame time p95
 ≤ 8 ms; cells visited per frame flat from 10 k to 100 k) and `m4.rs`'s thumb held at its top speed
@@ -212,9 +280,9 @@ next/previous with the neighbours prefetched (p95 ≤ 50 ms). Since M8 `cargo xt
 runs the `save_export` bench and judges its medians: Save of a 24 MP JPEG with an edit and with
 only a quarter turn, and the 200-photo mixed export. Since M9 it also runs the `search` bench and
 judges its medians: the index of the 100 k library built, one word, three words with Starred, a
-lone `-word`, and `search.set` to its result applied. A milestone adds its budgets to `BUDGETS` in `xtask/src/accept.rs`. A pull request that changes the
-workflow or `xtask/src/accept.rs` runs the job too, and *Run workflow* on the Actions tab runs it on
-any branch with a planted slowdown (`plant_ms`). The same check locally:
+lone `-word`, and `search.set` to its result applied. A milestone adds its budgets to `BUDGETS` in `xtask/src/accept.rs`. Budgets are judged only at the
+review (maintainer decision, 2026-10-15); *Run workflow* on the Actions tab runs the job on any
+branch, with a planted slowdown (`plant_ms`) if asked. The same check locally:
 
 ```sh
 cargo xtask budgets                  # release build, then every budget; exit 1 when one is missed
@@ -315,7 +383,8 @@ tests and agents should read. For a whole-process view use an external sampling 
   the regression test that panicked before the fix (AGENTS.md §2), usually by replaying the command
   and params from the log through `Session::execute` or by adding the input file's shape to the
   malformed-input tests.
-- `cargo test -p dalica-engine --test panic_hunt -- --ignored` reproduces most command-level panics.
+- `panic_hunt` (a `dalica-engine` test; `DALICA_FULL_TESTS=1` for its full case count) reproduces
+  most command-level panics.
 
 ### Headless snapshot
 
@@ -335,7 +404,8 @@ cargo xtask snapshot /tmp/tour.jsonl          # same, with the default output pa
 
 Each line is one control-protocol call, applied in order; input calls reply only after the app has
 processed them, so a following `ui.state` or `ui.inspect` observes their effect. Render at
-1400 × 900 and 900 × 600 (and `--scale 2` for high-DPI checks), then look at the PNG.
+1400 × 900 (900 × 600 too when the task changes layout; `--scale 2` for high-DPI checks), then
+look at the PNG.
 
 ### Environment variables
 
@@ -344,7 +414,9 @@ processed them, so a following `ui.state` or `ui.inspect` observes their effect.
 | `RUST_LOG` | log levels for standard error and the log file (see *Logs*) |
 | `RUST_BACKTRACE=1` | full backtraces in panic reports |
 | `DALICA_PROFILE=1` | per-stage timings (see *Profiling*) |
+| `DALICA_FULL_TESTS=1` | tests at full strength: every fault point, full proptest case counts, full-size scale tests, exhaustive walks; set by `cargo xtask ci --full`, a standalone `cargo xtask accept` and the corpus job; unset, tests run quick (§3) |
 | `DALICA_SUITES_RAN=1` | set by `cargo xtask ci` on its acceptance steps: the acceptance tests skip the crate suites its test step already ran (§3) |
+| `RUSTC_WRAPPER=sccache` | exported by `cargo xtask tasks env` when sccache is installed: one compiler cache for every agent's target dir (§3) |
 | `DALICA_CACHE_DIR` | an absolute folder used in place of Dalica's cache folder for the thumbnail cache (`<dir>/thumbs`); every test that launches `dalica` or `dalica-cli` on a library sets it to a temporary folder ([`data-model.md`](data-model.md) §4) |
 | `DALICA_HOME` | an absolute folder used as the default library (its settings and index) when `dalica` is started without `--library`; wins over portable mode (below) |
 | `DALICA_BUILD_SHA`, `DALICA_BUILD_DATE` | **build time:** the commit and date `dalica --version`, `dalica-cli --version` and About report (`dalica_core::build`); CI and the packaging scripts set them, a plain `cargo build` reports `<version> (dev build)`; changing either rebuilds `dalica-core` ([`releasing.md`](releasing.md)) |
@@ -420,7 +492,7 @@ cargo xtask corpus --update-manifest raw   # after moving a pin: refetch from th
   `cargo xtask test-corpus` and add the set's floors at the measured counts. Before pushing there,
   `--local --update-manifest <set>` tests a clone's files (it warns when the clone is not at the pin).
 
-**Opt-in locally, strict when opted in, always in CI.**
+**Opt-in locally, strict when opted in, always at the review.**
 
 - The corpus tests sit in each crate's `tests/corpus.rs` behind a `corpus` cargo feature
   (`dalica-image` and `dalica-meta` today; `dalica-thumbs` and later `dalica-faces` when their
@@ -436,10 +508,12 @@ cargo xtask corpus --update-manifest raw   # after moving a pin: refetch from th
   all fail; a count above its floor is printed so the PR that improved it raises it. Never lower
   one. A file that newly fails is investigated, and a synthetic reproduction goes into the crate's
   ordinary tests (corpus files are never committed or quoted).
-- If you touch `image`, `meta`, `thumbs` or `scan`, run `cargo xtask test-corpus` before you finish.
-- The CI `corpus` job (Linux) runs `cargo xtask corpus --all`, clippy of `dalica-image` with the
-  `corpus` and `heif` features, and `cargo xtask test-corpus` on every PR and on main, with
-  `corpus/` cached under a key of `corpus_pins.rs` plus the manifests; `--all` re-hashes a restored
+- The corpus tests run once per milestone, at the review (maintainer decision, 2026-10-15); run
+  `cargo xtask test-corpus` yourself only when a task's *done when* asks for corpus numbers (a new
+  set, a raised floor).
+- The CI `corpus` job (Linux) runs `cargo xtask corpus --all`, clippy of `dalica-image` (with the
+  `corpus` and `heif` features) and of `dalica-meta` (with `corpus`), and `cargo xtask test-corpus`
+  at full strength, on the review's pull request and when dispatched, with `corpus/` cached under a key of `corpus_pins.rs` plus the manifests; `--all` re-hashes a restored
   cache before the tests run.
 - **Bumping a pin:** for our own sets, commit and push in `dalica-corpus`, then in a PR here update
   the commit in `corpus_pins.rs`; for an upstream file or archive, change its URL and sha256. Run
@@ -597,8 +671,8 @@ time, layout plus tessellation, p50/p95/max by nearest rank; cells visited per f
 `sections refresh <n>` (rebuilding the light table's sections, once per library revision) and
 `layout <n>`. It exits non-zero when the cells visited per frame grow with the library (the larger
 library's maximum more than 10 % over the smaller one's). Without `--bench` (`cargo test --benches`)
-it runs a smoke pass at 1 k and 10 k photos. CI runs `cargo xtask scorecard --check` on
-every PR; `cargo xtask perf` runs nightly on one fixed runner, never on pull requests.
+it runs a smoke pass at 1 k and 10 k photos. Once it exists, the review gate runs `cargo xtask scorecard --check`; `cargo xtask perf` runs
+nightly on one fixed runner, never on pull requests.
 
 `edit_preview` (M7.11) writes four 24 MP JPEGs (`--width`, `--height`; 6000 × 4000) and fits
 the edit view's preview to `--fit` (2560 × 1600). Rows: `open cold` (a session on an empty

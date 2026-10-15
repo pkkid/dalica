@@ -33,6 +33,11 @@ honest assessment (docs/roadmap.md) ──┘                                   
 6. **Gate and submit.** `cargo xtask ci` green; one task id per commit; tick the task and update
    its parity row; dev-log entry; `cargo xtask tasks submit`. The lead merges, keeps
    `docs/status.md`, and updates the roadmap's *Where we stand* at milestone reviews.
+7. **Test fully once, at the review** (maintainer decision, 2026-10-15). During a milestone a
+   task's gate tests only the packages it changed, quick, and a merge runs no tests. The full list
+   (every test at full strength, every milestone's acceptance, Windows and macOS, budgets, corpus,
+   fuzzing) runs once, at the milestone's review; what fails there becomes fix tasks merged before
+   the review closes (`development.md` §3).
 
 ## 2. Private reference notes (`notes/`)
 
@@ -116,15 +121,17 @@ Rules:
   (`cargo xtask tasks env <agent>`). Never `rm -rf` shared paths; keep every `Cargo.toml` valid at
   all times (write to a temp file, then move it into place).
 - New commands go in new modules (`engine/src/cmd/<area>.rs`) rather than growing shared files.
-- The lead merges **one branch at a time** (`cargo xtask tasks merge`: rebase, `cargo xtask ci`,
-  squash-merge), then the next. Two individually green branches can still break each other.
-  GitHub's three-OS CI checks `main` after each merge; a red `main` is fixed before the next merge.
+- The lead merges **one branch at a time** (`cargo xtask tasks merge`: rebase,
+  `cargo xtask ci --merge`, squash-merge), then the next. Two individually green branches can still
+  break each other: the merge gate proves everything still builds, and the review's full run finds
+  the rest. GitHub runs CI on `main` only when the lead dispatches it; a red run there is fixed
+  before the next merge.
 - When running many sessions, use a notification hook (Claude Code `Stop` / permission-request
   hooks) so the maintainer hears when an agent needs input.
 
 ### Code review
 
-- No AI review bot is required. Every PR gets: green CI, a self-review by the authoring agent
+- No AI review bot is required. Every PR gets: a green local gate, a self-review by the authoring agent
   (`/code-review` at high effort before opening the PR), before/after screenshots for UI changes,
   and a maintainer review (human, optionally assisted by a Claude Code or Codex review pass).
 - Risky areas (anything that writes to the user's photo folders, sidecar/metadata writers, delete
@@ -151,8 +158,8 @@ to 🟡 with a note. Floors (tests that only allow numbers to rise) protect meas
 
 ## 6. Visual verification
 
-- Every UI change is verified by screenshot at 1400 × 900 and 900 × 600, compared with the
-  reference screenshots in the notes and the specs in `ui-layout.md` / `design-system.md`.
+- Every UI change is verified by screenshot at 1400 × 900 (and at 900 × 600 when it changes
+  layout), compared with the reference screenshots in the notes and the specs in `ui-layout.md` / `design-system.md`.
 - Use the control channel (`ui.clickWidget`, `ui.key`, `ui.menu.invoke`, `ui.screenshot`) or
   `dalica-cli snapshot --script`. **Never** use OS-level synthetic input (xdotool, osascript,
   AutoHotkey): it reaches whatever window is focused, including the user's terminal.

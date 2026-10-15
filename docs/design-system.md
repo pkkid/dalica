@@ -325,7 +325,8 @@ underneath, pushed up by the next header).
 ## 10. Verification
 
 Visual changes are not done until they have been looked at: render with the headless snapshot
-(`dalica-cli snapshot …`) or the running app's `ui.screenshot`, at 1400 × 900 and 900 × 600, and
+(`dalica-cli snapshot …`) or the running app's `ui.screenshot`, at 1400 × 900 (and 900 × 600 when
+the layout changes), and
 compare against the reference layout notes (see [`process.md`](process.md)). Attach before/after
 screenshots to PRs.
 

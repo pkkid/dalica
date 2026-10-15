@@ -99,21 +99,29 @@ L0       core · fs                    (only `fs` writes to disk)
   `#![forbid(unsafe_code)]` and the clippy `deny` list; `clippy.toml` allows them in tests only.
 - Input-derived numbers are hostile (headers, EXIF/XMP, sidecars, file sizes, command params):
   `get()` not indexing, checked arithmetic, capped allocations, bounded recursion and walks.
-- Every new command gets a graceful-failure test (empty, out-of-range, wrong-type params → `Err`);
-  `panic_hunt` must stay green.
+- Every command must fail gracefully on hostile params (empty, out-of-range, wrong-type → `Err`).
+  One engine test loops over every registered command, and `panic_hunt` generates params from each
+  command's spec, so a new command needs no hostile-params test of its own; both must stay green.
 
 ### Every change comes with tests
 
 - New behaviour has a test that fails without it, at the lowest crate that fits. Every crash or
   data-safety fix lands with a regression test that failed before the fix.
-- Commands follow the command test contract (`architecture.md` §3); pixel output uses fingerprint
-  tests (`architecture.md` §11). Test photos are procedural (`scenes`) or public domain; never
-  personal photos; never commit media.
+- **One test per behaviour** (maintainer decision, 2026-10-15): never re-test at a higher layer what
+  a lower crate proves. Fault points are enumerated exhaustively only in `crates/fs`; a consumer
+  tests one point per class (an error before the commit, an error after it, a crash). No
+  per-milestone catch-up test files (`*_m9.rs`, `lessons_m9.rs`, `m9_fields.rs`). Heavy variants
+  (scale, exhaustive walks, many proptest cases) run only at full strength
+  (`DALICA_FULL_TESTS=1`, the review gate); a plain run is quick (`development.md` §6).
+- Commands follow the command test contract (`architecture.md` §3); fingerprint tests only where
+  pixels are the feature, at one window size (`architecture.md` §11). Test photos are procedural
+  (`scenes`) or public domain; never personal photos; never commit media.
 
 ### Never lower a quality metric
 
 - Floors only rise: corpus floors, performance budgets, parity counts, workflow pass rates,
-  acceptance checks of finished milestones.
+  acceptance checks of finished milestones. They are checked once per milestone, at its review
+  (`cargo xtask ci --full` and the review's GitHub run), not per task, and they hold all the same.
 - Never weaken a gate to make a commit pass: no `#[ignore]` or deleted tests, no relaxed lint, no
   `xtask` check loosened, no `DALICA_BLESS` fingerprint update without looking at the diff images
   and saying why in the commit body. If a gate is wrong, raise it on the task's issue.
@@ -138,7 +146,8 @@ L0       core · fs                    (only `fs` writes to disk)
 - **Nothing silently dropped:** every user-visible model field round-trips through the sidecar (a
   test fails when one is added without a mapping).
 - **Performance is a feature:** no per-frame work proportional to the library; cache per revision;
-  measure with `DALICA_PROFILE=1` and `cargo xtask bench`, and report before/after numbers.
+  measure with `DALICA_PROFILE=1` and `cargo xtask bench` when you change a hot path, and report
+  before/after numbers. The budgets are judged at the review.
 - **Privacy:** no network without a user action, no telemetry; face data never leaves the machine.
 - **Never send OS-level synthetic input** (xdotool, ydotool, osascript, AutoHotkey). Drive the app
   through the control channel or `dalica-cli snapshot`.
@@ -190,8 +199,8 @@ L0       core · fs                    (only `fs` writes to disk)
   `cargo xtask tasks release <id> --reason "…"`.
 - **The lead** (`agent-1`) merges In Review tasks one at a time with `cargo xtask tasks merge
   <id>`, releases stale claims, writes the next milestone's task blocks while the current one runs,
-  takes the `owner: lead` tasks, and prepares each review task (`/milestone-review`): `accept M<n>`,
-  a published check-in page, *Where we stand* and `docs/status.md` on a `review/M<n>.R` branch, a
+  takes the `owner: lead` tasks, and prepares each review task (`/milestone-review`):
+  `cargo xtask ci --full`, a published check-in page, *Where we stand* and `docs/status.md` on a `review/M<n>.R` branch, a
   pull request.
 - **Review tasks are stops** (maintainer rule, 2026-10-10; `roadmap.md` → How milestones work).
   A milestone has exactly one review, at its end: `M<n>.R` (from M7 to M15 every review is a
@@ -212,9 +221,9 @@ L0       core · fs                    (only `fs` writes to disk)
   `merge`, with pull requests), so the board's live paths are proven by one agent before eight use
   them; the maintainer gave the standing go-ahead for those `submit`/`merge` pushes at the M0 review
   (2026-10-09). Two more standing go-aheads (2026-10-10): **fixing a red `main`** (push a fix
-  branch, open a PR, squash-merge it once its GitHub CI is green on all three OSes, then tell the
-  maintainer) and **board housekeeping** (GitHub writes that only bring the board in line with
-  `roadmap.md` and `task-board.md`: labels `tasks setup` defines, renaming milestones, closing
+  branch, open a PR, dispatch CI on it, squash-merge it once that run is green on all three OSes,
+  then tell the maintainer) and **board housekeeping** (GitHub writes that only bring the board in
+  line with `roadmap.md` and `task-board.md`: labels `tasks setup` defines, renaming milestones, closing
   empty ones). Any other push still needs the go-ahead. Parallel workers start at M2.
 
 ## 5. Before you finish a task
@@ -223,36 +232,36 @@ Run, in your worktree, with your agent environment loaded:
 
 ```sh
 cargo fmt --all
-cargo clippy -p <crates you touched> --all-targets -- -D warnings
-cargo test -p <crates you touched>
-cargo xtask ci                                               # fmt, clippy, tests, layers, deps, assets, names, parity, docs, roadmap parse, finished milestones' acceptance
-cargo xtask accept M<n>                                      # the current milestone, once its acceptance test exists
-cargo test -p dalica-engine --test panic_hunt -- --ignored   # if you added or changed commands
+cargo xtask ci                                               # the task gate: fmt, clippy (whole workspace), static checks, the changed packages' tests (quick)
 cargo xtask parity --write                                   # if parity rows changed; commit the regenerated summary
-cargo xtask bench                                            # before and after touching a hot path; put both numbers in the PR (planned, M4)
-cargo xtask test-corpus                                      # if you touched a decoder, metadata or sidecar reader/writer (planned, M5)
 cargo xtask tasks log <id> "Landed: …  Open: …  Numbers: …"  # the dev-log entry (required by submit)
 cargo xtask tasks submit <id> --body-file <evidence.md>   # the PR body: evidence per *done when*, numbers, screenshots
 ```
 
-- **Portable paths:** CI runs on Windows too. Paths in messages use `/` (as git prints them); tests
-  build expected paths with `Path::join`, never by hard-coding a separator. Tests that create files
-  leave out names Windows forbids (`" * ? < > | :`, trailing dots or spaces) on Windows.
-- **Watch `main`'s CI.** Local `cargo xtask ci` does not cover Windows or macOS: after a push to
-  `main`, watch its run (`gh run watch <id> --exit-status`) before the next push (`tasks merge`
-  already waits for it). Before merging a change to code, tests, fingerprints, `Cargo.*` or
-  workflows, wait for its pull request's checks on all three OSes.
-- **Doc and plan changes merge on the local gate** (maintainer rule, 2026-10-11): a change that
-  touches only Markdown (`docs/**`, `AGENTS.md`, `README.md`, crate READMEs) merges once
-  `cargo xtask ci` is green locally on that commit, without waiting for GitHub's three-OS run.
-  The local run is still required: the roadmap parser, `names`, `docs`, `parity` and the
-  acceptance tests read these files (M16's new milestone failed the roadmap test).
+- **Test little during a milestone, everything at its review** (maintainer decision, 2026-10-15).
+  `cargo xtask ci` takes minutes: clippy compiles every crate and every test, and only the packages
+  your branch changed against `origin/main` run their tests, quick (a change to the root
+  `Cargo.toml`, `Cargo.lock`, `clippy.toml`, the toolchain or a file outside every package tests
+  every package; docs alone test none). Dependents are not tested; a behaviour break there surfaces
+  at the review. The acceptance tests, `panic_hunt` at full strength, the benches and budgets, the
+  corpus tests, fuzzing and the Windows and macOS runs all run once, at the review
+  (`cargo xtask ci --full` and the review's GitHub run; `development.md` §3).
+- **Portable paths:** the review runs on Windows too. Paths in messages use `/` (as git prints
+  them); tests build expected paths with `Path::join`, never by hard-coding a separator. Tests that
+  create files leave out names Windows forbids (`" * ? < > | :`, trailing dots or spaces) on
+  Windows.
+- **Every merge is on the local gate** (maintainer decision, 2026-10-15; it extends the rule of
+  2026-10-11 for doc changes to everything): GitHub runs no tests on a task's pull request or on
+  `main`. The worker's `cargo xtask ci` must be green on the submitted commit (`tasks submit`
+  checks), and `tasks merge` runs `cargo xtask ci --merge` after its rebase. Docs need the local run
+  too: the roadmap parser, `names`, `docs` and `parity` read them.
 - **Nested cargo in tests is fine** (cargo releases the build lock while tests run); a test that
   copies the tree and builds it uses its own target directory (see `tests/acceptance/m0.rs`).
 
 And:
-- **Look at what you built.** After any user-visible change, take screenshots at 1400 × 900 and
-  900 × 600 (`dalica-cli snapshot --script …`, or the control channel on your own port) and compare
+- **Look at what you built.** After any user-visible change, take screenshots at 1400 × 900, and at
+  900 × 600 too when the task changes layout (`dalica-cli snapshot --script …`, or the control
+  channel on your own port), and compare
   them with `docs/ui-layout.md` (and the reference screenshots in `notes/`, if you have them).
   Attach before/after images to the PR. Check `ui.inspect` → perf.
 - **Update the docs in the same branch:** tick your task's ✅ in `roadmap.md`, update its parity
@@ -303,16 +312,20 @@ And:
   is red, tell the lead (comment on the most recent merged task) and wait.
 - **Your own resources** (from `cargo xtask tasks env agent-<n>`): worktree
   `../dalica.worktrees/agent-<n>`, `CARGO_TARGET_DIR=<main checkout>/target/agent-<n>` (keep it
-  warm between tasks), `CARGO_BUILD_JOBS=3`, control port `18000 + 10·n` (never 7990), scratch
+  warm between tasks), `CARGO_BUILD_JOBS=3`, `RUSTC_WRAPPER=sccache` when sccache is installed (the
+  eight target directories then share compiled dependencies), control port `18000 + 10·n` (never 7990), scratch
   directory `<scratchpad>/agent-<n>/`. Never `rm -rf` shared paths. Never share a
   `CARGO_TARGET_DIR` between two checkouts: cargo can reuse a binary or test built in the other one.
 - **Keep every `Cargo.toml` valid at all times:** the `crates/*` glob means one broken manifest
   breaks everyone. Write new or rewritten manifests to a temp file outside `crates/`, then move
   them into place.
-- **Only the lead merges**, one branch at a time (`tasks merge`: rebase, `cargo xtask ci`,
-  squash-merge); a review task's pull request only the maintainer merges (§4). Two individually green branches can still break each other. The local gate
-  decides a merge; GitHub's Linux/Windows/macOS run checks `main` after it, and `tasks merge`
-  refuses while the latest finished run on `main` is red: fixing it comes first.
+- **Only the lead merges**, one branch at a time (`tasks merge`: rebase, `cargo xtask ci --merge`,
+  squash-merge); a review task's pull request only the maintainer merges (§4). Two individually
+  green branches can still break each other: the merge gate's clippy proves everything still
+  builds, and the review's full run finds the rest. The local gate decides a merge; GitHub checks
+  `main` only when the lead dispatches CI by hand (for a task specific to one system, such as a
+  Windows path fix), and `tasks merge` refuses while the latest finished run on `main` is red:
+  fixing it comes first.
 
 ## 8. Contributor credits (About window)
 

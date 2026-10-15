@@ -833,16 +833,16 @@ its own entry points, because the limits are the ones Dalica passes.
 
 | Crate | Targets | Lands |
 |---|---|---|
-| `crates/image` | `sniff`, `decode_any`, `decode_jpeg`, `decode_png`, `decode_tiff`, `decode_webp`, `decode_gif`, `decode_bmp`, `decode_jxl`, `decode_psd`, `decode_heif` (each format decoded explicitly, no sniffing), `raw_preview` (every RAW container's recognition and preview decode), `embedded_thumbnail` (EXIF thumbnails, thumbnail IFDs, PSD resources, RAW previews), `icc` | **Implemented** (M5.1, in `crates/image/fuzz/`; the targets reach each decoder as M5.6–M5.10 filled it; `decode_heif` reaches `heic-rs` only when built with `--features dalica-image/heif`, and the Fuzz workflow builds without it, so there it fuzzes our box walk); built on pull requests touching the crate, run when the Fuzz workflow is dispatched |
-| `crates/meta` | `exif` (IFDs and maker notes), `xmp` (including extended-XMP reassembly), `iptc`, `write_merge` (parse → merge-write → re-parse: no panic, foreign fields unchanged), `carry` (any file as the source of a rendered copy's metadata: an error, or a JPEG or PNG whose metadata reads back, orientation 1, the size asked, no GPS when the location was removed; setting the orientation reads back as asked) | **Implemented** (M6.4, in `crates/meta/fuzz/`; `carry` M8.7; `write_merge` reaches every container writer (JPEG M6.17, PNG, WebP and TIFF M6.18) and asserts that a returned write passes its verification, reads back and writes again to the same bytes; `xmp` reaches the XML reader (M6.9), the merge writer and extended-XMP reassembly with MD5 GUIDs, and writes its JPEG through `write_owned` (M6.17)); built on pull requests touching the crate, run when the Fuzz workflow is dispatched. Local runs before merging (stable with cargo-fuzz's flags): `write_merge` 2.8 M runs in 180 s and `xmp` 0.8 M in 60 s with no finding after the one idempotence finding M6.17 fixed (`tests/write_jpeg.rs` keeps its regression test). The metadata corpus (M6.34, `crates/meta/tests/corpus.rs`) runs the same write rules over files other applications wrote |
+| `crates/image` | `sniff`, `decode_any`, `decode_jpeg`, `decode_png`, `decode_tiff`, `decode_webp`, `decode_gif`, `decode_bmp`, `decode_jxl`, `decode_psd`, `decode_heif` (each format decoded explicitly, no sniffing), `raw_preview` (every RAW container's recognition and preview decode), `embedded_thumbnail` (EXIF thumbnails, thumbnail IFDs, PSD resources, RAW previews), `icc` | **Implemented** (M5.1, in `crates/image/fuzz/`; the targets reach each decoder as M5.6–M5.10 filled it; `decode_heif` reaches `heic-rs` only when built with `--features dalica-image/heif`, and the Fuzz workflow builds without it, so there it fuzzes our box walk); built and run for 60 s each at every milestone review and when the Fuzz workflow is dispatched |
+| `crates/meta` | `exif` (IFDs and maker notes), `xmp` (including extended-XMP reassembly), `iptc`, `write_merge` (parse → merge-write → re-parse: no panic, foreign fields unchanged), `carry` (any file as the source of a rendered copy's metadata: an error, or a JPEG or PNG whose metadata reads back, orientation 1, the size asked, no GPS when the location was removed; setting the orientation reads back as asked) | **Implemented** (M6.4, in `crates/meta/fuzz/`; `carry` M8.7; `write_merge` reaches every container writer (JPEG M6.17, PNG, WebP and TIFF M6.18) and asserts that a returned write passes its verification, reads back and writes again to the same bytes; `xmp` reaches the XML reader (M6.9), the merge writer and extended-XMP reassembly with MD5 GUIDs, and writes its JPEG through `write_owned` (M6.17)); built and run for 60 s each at every milestone review and when the Fuzz workflow is dispatched. Local runs before merging (stable with cargo-fuzz's flags): `write_merge` 2.8 M runs in 180 s and `xmp` 0.8 M in 60 s with no finding after the one idempotence finding M6.17 fixed (`tests/write_jpeg.rs` keeps its regression test). The metadata corpus (M6.34, `crates/meta/tests/corpus.rs`) runs the same write rules over files other applications wrote |
 | `crates/sidecar` | `parse`, `roundtrip` (parse → write → parse is stable, unknown data preserved), `recipe` (edit-operation list), `legacy` | **Not written** (planned for M1, never landed; no task yet; `legacy`: M14). Until then `crates/sidecar/src/tests.rs` runs property tests: random bytes never panic, print → parse is the identity, any file name round-trips as a key |
 | `crates/store` | `journal` (replay of journal records and snapshots), `json` (folders, albums, people, settings) | **Not written** (planned for M1, never landed; no task yet). Until then the journal's tests cut it at every byte (`crates/store/src/lib.rs`) and tear its tail (`crates/store/tests/sketch.rs`) |
 | `crates/ui` control | `request_line` (line validation, auth state machine, limits) | **Not written** (planned for M2, never landed; no task yet) |
 | `crates/mcp` | `tool_args` | M10 |
 | video demuxer | `demux` (if a pure-Rust path is chosen) | M15 |
 
-Command parameters are fuzzed by `panic_hunt` (M1), which runs every registered command with
-hostile parameters and must stay green.
+Command parameters are fuzzed by `panic_hunt` (M1, an ordinary `dalica-engine` test), which runs
+every registered command with hostile parameters generated from its spec and must stay green.
 
 ### 7.2 Running
 
@@ -857,9 +857,12 @@ Reproduce a crash, minimize it (`cargo fuzz tmin`), add a deterministic regressi
 then fix it. A time-limited run with no findings is evidence of that run only, not proof that a
 parser is secure.
 
-CI: the Fuzz workflow (`.github/workflows/fuzz.yml`, M5.1, M6.4) builds the `image` and `meta`
-targets on pull requests touching those crates and runs them when dispatched by hand; a scheduled
-weekly run of every target for a fixed time lands by M15. Continuous hosted fuzzing is future work.
+CI: the Fuzz workflow (`.github/workflows/fuzz.yml`, M5.1, M6.4) builds every `image` and `meta`
+target and runs each for 60 s on the pull request of every milestone review (maintainer decision,
+2026-10-15; before that the targets were built but never run), and for a chosen time when
+dispatched by hand. A crash fails the review's run and keeps its input as an artifact; the fix is a
+task merged before the review closes. A scheduled weekly run of every target for a fixed time lands
+by M15. Continuous hosted fuzzing is future work.
 
 ### 7.3 What counts as a finding
 
@@ -963,9 +966,10 @@ writes outside the library).
 
 ## 9. Security testing
 
-- `cargo xtask ci` on every commit (never-crash lints, `#![forbid(unsafe_code)]`, tests, `xtask
-  deps`).
-- `cargo test -p dalica-engine --test panic_hunt -- --ignored` when commands are added or changed.
+- `cargo xtask ci` on every task (never-crash lints, `#![forbid(unsafe_code)]`, the changed
+  packages' tests, `xtask deps`); `cargo xtask ci --full` and fuzzing at every milestone review.
+- Every command's hostile params: one engine test over every registered command, and `panic_hunt`
+  (full case count at the review).
 - Malformed-input and boundary tests for every reader (§4.5); fault-injection tests for every
   writer (§5.12).
 - Control-channel tests: unauthenticated methods refused, wrong token closes, an HTTP request line
