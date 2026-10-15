@@ -9,8 +9,9 @@
 //! on the folder's next write once the time has passed. An entry is stale only when all of these
 //! hold, checked again at every write:
 //!
-//! - it is an object holding Dalica's own data (a key the model writes, [`crate::mapping`]), so an
-//!   entry only another program wrote is never touched;
+//! - it is an object holding Dalica's own data (a key the model writes, [`crate::mapping`]: the
+//!   star, M6's fields, `savedAs` and M9's `albums`), so an entry only another program wrote is
+//!   never touched;
 //! - its name is a plain file name ([`dalica_sidecar::plain_name`]): a hostile key never reaches
 //!   a path;
 //! - the model holds no photo of that name in the folder, and
@@ -28,7 +29,7 @@ use std::time::Duration;
 use dalica_core::{DateTime, Timestamp};
 use serde_json::{Map, Value};
 
-use crate::mapping::{PHOTO_FIELDS, PHOTO_INFO_FIELDS, SAVED_AS_FIELDS, Source};
+use crate::mapping::{PHOTO_DATA_M9, PHOTO_FIELDS, PHOTO_INFO_FIELDS, SAVED_AS_FIELDS, Source};
 
 /// How long an entry whose file is gone is kept.
 pub const PRUNE_AFTER: Duration = Duration::from_secs(30 * 24 * 60 * 60);
@@ -69,12 +70,13 @@ fn read_stamp(v: &Value) -> Option<String> {
 
 /// The keys under `photos.<name>` that hold Dalica's own data: the star and every field of what
 /// the user said about the photo (caption, tags, hidden, recipe, redo list, date), and the copy a
-/// Save wrote beside it (`savedAs`, M8).
+/// Save wrote beside it (`savedAs`, M8), and its album memberships (`albums`, M9).
 fn dalica_keys() -> impl Iterator<Item = &'static str> {
     let mut keys: Vec<&'static str> = PHOTO_FIELDS
         .iter()
         .chain(&PHOTO_INFO_FIELDS)
         .chain(&SAVED_AS_FIELDS)
+        .chain(&PHOTO_DATA_M9)
         .filter_map(|(_, s)| match s {
             Source::Sidecar(key) => Some(*key),
             _ => None,
@@ -217,6 +219,19 @@ mod tests {
         let s = sweep(&mut root, &model, |_| false, at(30));
         assert_eq!(s.pruned, ["a.jpg"]);
         assert_eq!(Value::Object(root), json!({ "dalica": { "version": 1 }, "photos": { "b.jpg": { "star": true } } }));
+    }
+
+    /// An entry holding only album memberships (M9) is Dalica's data like a star: marked when its
+    /// file is gone, pruned thirty days later.
+    #[test]
+    fn an_entry_holding_only_albums_is_marked_and_pruned() {
+        let mut root =
+            doc(json!({ "dalica": { "version": 1 }, "photos": { "a.jpg": { "albums": { "a91c0e": "a1" } }, "theirs.jpg": { "album": "x" } } }));
+        let s = sweep(&mut root, &BTreeSet::new(), |_| false, T0);
+        assert_eq!(s.marked, ["a.jpg"], "another program's key is not Dalica's");
+        let s = sweep(&mut root, &BTreeSet::new(), |_| false, at(30));
+        assert_eq!(s.pruned, ["a.jpg"]);
+        assert_eq!(Value::Object(root), json!({ "dalica": { "version": 1 }, "photos": { "theirs.jpg": { "album": "x" } } }));
     }
 
     #[test]

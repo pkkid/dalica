@@ -286,6 +286,7 @@ holds:
 | `people.json` | people (id, name, nickname), merges, settings | yes, from sidecars (names are mirrored per folder) |
 | `index.log` + `index.snap` | the library index: one record per photo (path, size, mtime, dimensions, dates, EXIF summary, content hash, colour sketch, face descriptors), what the user said about photos, folders and albums (as in the sidecars and `albums.json`), the last-synced metadata hashes, the search facts, content digests and first-indexed and last-changed times; journal + snapshot as in LightCraft | yes, by rescanning (the synced hashes, facts, digests and times start empty) |
 | `pending-writes.json` | the folders whose sidecar write waits for an offline volume (§7): `{"version": 1, "folders": [path, …]}`, written through the I/O worker when the list changes; a damaged file is kept as `.corrupt-<time>` and the list found again by the next online checks (M5.13) | yes, partly: the journal keeps the edits; a lost list is rebuilt for roots found offline |
+| `file-ops.json` | the file-operation journal: the moves, copies, renames and trashes in progress and each item's state (§8), written through the I/O worker; a damaged file is kept as `.corrupt-<time>` and the operations that read are kept (M9.9) | no — repaired from at the next open, then empty |
 | `lock` | single-process lock | — |
 | `settings.json` | preferences (atomic write; damaged file kept as `.corrupt-<time>`); unknown keys kept; `"keymap"` holds the user's shortcut overrides (`menus-and-shortcuts.md` §2.0) | no |
 
@@ -669,6 +670,89 @@ ids are the same everywhere (`control-protocol.md` §5.4).
 
 Merging folders (moving a folder onto one that exists) merges sidecars entry by entry; it
 never overwrites one sidecar with another.
+
+**The files themselves** move through `dalica-fs` (built in M9.2: `transfer`, `trash`): a move or
+rename is one rename that never replaces a file (a taken name is reported, nothing changes, and
+the operation renames to `-001` or skips); across volumes the file is copied to a temporary name,
+`fsync`ed, compared byte for byte, given its name by the same rename that never replaces, and only
+then is the source sent to the OS trash (never deleted; a volume without a trash keeps the source
+and the move is reported as a copy). Folders move the same way, a tree copied file by file. Delete
+is always the OS trash.
+
+**Entries travel with their files** (built in M9.9: `dalica-store` `carry`, `SidecarWriter::carry`):
+
+- A moved photo's whole entry under `photos`, keys Dalica does not know included, leaves the source
+  folder's sidecar and enters the destination's under the new name; a renamed photo's stays in its
+  folder under the new name; a copied photo's is duplicated. A folder merge carries the entry of
+  every photo it moves, in one pass; what the source sidecar says about its own folder stays in it.
+- Sidecars are merged entry by entry and never replaced. When the destination already has an entry
+  under the new name (a stale one, §7), the two are merged key by key with the carried keys
+  winning. The top-level album names the carried memberships need are copied where the
+  destination lacks them; the stale marks of the names involved are dropped.
+- The carry is sequenced with the folders' debounced writes: the pending writes of both folders go
+  first, then the carry, then the destination is written again from the model, so the model's
+  values (a star made just before the move, a caption cleared) stand over the carried keys while
+  the keys the model does not know arrive unchanged.
+- The destination is written before the source: an interruption between the two leaves the entry
+  in both files, never in neither, and carrying again finishes (an entry no longer in the source
+  is not carried twice).
+- A photo's originals backup (`.dalica-originals/<name>`, §6) moves, or is copied, with it through
+  `dalica-fs` under the new name, then its originals-record entry travels like a sidecar entry. A
+  backup of that name already in the destination is never touched: the photo's backup and record
+  stay where they were, and the operation reports it.
+- Refused, with nothing written: a folder that is not there (never created), a read-only folder (an
+  earlier damaged sidecar), a damaged sidecar or record met on the way (kept aside as
+  `.dalica.json.corrupt-<time>`; the folder becomes read-only), an entry or `photos` of the wrong
+  type where the entry must go, a name that is not one plain path component.
+
+**The file-operation journal** `file-ops.json` in the library directory (built in M9.9:
+`dalica-store` `intents`) records what an operation set out to do, so a crash at any step can be
+finished or undone at the next open:
+
+```json
+{"version": 1, "ops": [{"id": 7, "kind": "move", "direction": "do", "items": [
+  {"from": "/home/ana/Pictures/Lisbon/IMG_0001.jpg", "to": "/home/ana/Pictures/Porto/IMG_0001.jpg", "state": "pending"}]}]}
+```
+
+- `kind` is `move | copy | rename | trash | moveFolder | renameFolder | trashFolder`, `direction`
+  `do | undo | redo` (an undo journals the reverse items). Each item names its absolute UTF-8
+  `from` and, except for a trash, its `to`; `state` is `pending`, `placed` (a cross-volume copy in
+  place and verified, its source not yet in the trash) or `done` (its files are done).
+- Written through the I/O worker, atomically over the version it last wrote: before an operation
+  starts (every item `pending`; nothing moves until it is on disk), after each item, and when the
+  operation's results are in the library, which removes it. The name a clash gave is written before
+  the file moves there. The progress of an operation of more than 64 items is written in batches
+  (at most 64 rewrites per pass over its items), which is safe because recovery decides from the
+  disk and the state only refines it.
+- A journal that cannot be read whole (not JSON, another version, over 256 MiB, an operation with
+  a wrong type, a relative path or `..`, a duplicate id, an item without the `to` its kind needs,
+  more than 4 096 operations or 1 000 000 items) is kept aside as `file-ops.json.corrupt-<time>`
+  and reported; the operations that read are written to a new journal.
+
+**The order of one item's steps:** the journal entry is on disk → the file moves (one rename, or
+copy and verify, `placed`, then the source to the trash) → its backup and record move → the item
+is `done` → its library ops are applied and the folders' new states go to the writer → its entry
+is carried → when every item has its results in the library, the operation leaves the journal.
+
+**Repair at open** (`intents::plan`, pure; M9.21 runs it on a worker): for each item, from what is
+on disk at `from` and `to` (and whether `to` is a verified copy of `from`):
+
+| Kind | On disk | Decision |
+|---|---|---|
+| move, rename (also of folders) | source there, destination not | back: it never moved; nothing to change |
+| | destination there, source not | forward: carry the entry and backup |
+| | both, item `done` | forward: carry (its volume had no trash; the source stays) |
+| | both, destination verifies | forward: send the source to the trash, then carry |
+| | both, destination does not verify | back: the destination is not the photo's copy |
+| copy | destination there and verifies, or the item `done` | forward: duplicate the entry and backup |
+| | otherwise with the source there | back |
+| trash | the source gone / still there | forward (in the trash; recovery leaves its entry to the stale sweep, §7, so a photo restored from the trash within 30 days gets its data back) / back |
+| any | neither side there | lost: reported, nothing to do |
+| any | a side cannot be looked at (offline volume) | wait: the operation stays in the journal |
+
+Rolling back never removes anything: a partial copy has a temporary name, which the stale-temporary
+sweep removes. Carrying is harmless when it was done before, so a forward item is always carried
+again. Folder moves carry nothing (the sidecar is inside the folder).
 
 ## 9. Legacy sidecars (read-only compatibility)
 
