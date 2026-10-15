@@ -32,10 +32,10 @@ same commit.
 | D. Viewing | 0 | 1 | 5 | 2 |
 | E. Output | 0 | 1 | 1 | 9 |
 | F. Data | 4 | 16 | 1 | 0 |
-| G. Preferences and system | 0 | 8 | 13 | 0 |
+| G. Preferences and system | 0 | 9 | 12 | 0 |
 | H. Menus | 0 | 6 | 2 | 0 |
 | I. Keyboard shortcuts | 65 | 5 | 15 | 0 |
-| **All** | 98 | 75 | 67 | 16 |
+| **All** | 98 | 76 | 66 | 16 |
 <!-- /parity:summary -->
 
 ## Top gaps
@@ -228,7 +228,7 @@ same commit.
 | PREF-VIEWER | Photo Viewer options | P1 | ⬜ | `menus-and-shortcuts.md` §5 Photo Viewer, `viewing.md` §3.3; the tab joins with the viewer |
 | PREF-EXPORT | Export: default location, size and quality, remove location, watermark text | P1 | ⬜ | `menus-and-shortcuts.md` §5 Export; the tab is a stub (`crates/ui/src/dialogs/options/export.rs`) |
 | PREF-SCALE | UI scale (Auto with the 4K rule, 75–300 %) and UI font size (Small, Medium, Large), previewed live from the dialog | P1 | ⬜ | `design-system.md` §11.4–§11.5; the view state's `options.previewScale` / `previewFontSize` and the per-frame hook `crates/ui/src/scale.rs` (a stub: every window at 100 % and Small) |
-| PREF-KEYMAP | Keyboard contexts and the shortcut editor (search, record, conflicts, reset) | P1 | ⬜ | `menus-and-shortcuts.md` §2.0 |
+| PREF-KEYMAP | Keyboard contexts and the shortcut editor (search, record, conflicts, reset) | P1 | 🟡 | `menus-and-shortcuts.md` §2.0; the engine half (M10.6): `keymap.list {context?, search?, withoutKeys?}` (`crates/engine/src/cmd/keymap.rs`: one row per command and context with keys in effect, defaults, modified, editable; search by label, menu path and key in any spelling), `app.setShortcut` with two slots per context and conflicts named by label, context and key, `replace` taking the key (`crates/engine/src/cmd/app.rs`), `Key::parse_lenient` and `Key::pretty(platform)` (`⇧⌘S` on macOS; `crates/engine/src/keymap.rs`), measured by `crates/engine/tests/keymap.rs`; missing: the editor in the window (M10.12), UI commands listed by id until the app passes their labels to the engine |
 | SYS-UPDATES | Check for updates | — | ⬜ | deferred, not planned yet (2026-10-09) |
 | SYS-ABOUT | About Dalica (version, credits, models) and Release Notes | P1 | 🟡 | Help ▸ About Dalica (`app.about`; Dalica ▸ About Dalica on macOS) with the tabs About (icon, version, commit, build date, licence), Contributors (grab bag or table, ten sorts, the Username → Display name → Real name toggle with the `@username` fallback) and Models, from `contributors/contributors.json` and verified `contributors/people.toml` names compiled in by `crates/ui/build.rs` (`crates/ui/src/credits.rs`, `crates/ui/src/dialogs/about.rs`); Help ▸ Release Notes shows `docs/whats-new.md` compiled in, comments left out (`crates/ui/src/dialogs/release_notes.rs`); measured by `crates/ui/tests/about.rs` (each tab by id, every sort and the name toggle, no email in the compiled tables, fingerprints at both window sizes); missing: translated labels (SYS-I18N), names are not links to GitHub profiles |
 | SYS-COMMANDS | Command registry, menu catalog, UI_COMMANDS | P0 | 🟡 | the registry (`crates/engine/src/registry.rs`); the catalog of every item of `menus-and-shortcuts.md` §1 (`crates/ui/src/menu_catalog.rs`) and the menu model, `UI_COMMANDS` and menus bounded by the window (`crates/ui/src/menus.rs`), measured by `crates/ui/tests/menus.rs`; the in-window menu row (`crates/ui/src/titlebar.rs`) and the macOS menu bar generated from the same model (`apps/dalica/src/native_menu.rs`, the same items checked on every OS); missing: check marks fed by the view state (M4; the thumbnail-size radio group already answers) |

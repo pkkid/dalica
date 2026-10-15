@@ -4751,7 +4751,7 @@ No other step of M10 needs a maintainer decision mid-run.
     and a sidecar write in their folder their entries are still on disk, and turning PNG back on
     brings them back with their stars, captions and recipes; the threshold hides and shows 40 px
     photos; each command's contract and graceful failures; `panic_hunt` green.
-- ⬜ **M10.6 `engine`: the keymap listing, two keys per context and named conflicts**
+- ✅ **M10.6 `engine`: the keymap listing, two keys per context and named conflicts**
   - after: M10.1
   - files: `crates/engine/src/cmd/keymap.rs`, `crates/engine/src/cmd/app.rs`, `crates/engine/src/keymap.rs`, `crates/engine/tests/keymap.rs`
   - scope: `menus-and-shortcuts.md` §2.0, with LightCraft `crates/ui-egui/src/shortcuts.rs`
