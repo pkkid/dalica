@@ -22,6 +22,7 @@ pub mod keymap;
 pub mod metadata;
 pub mod metadata_cache;
 pub mod offline;
+pub mod options;
 pub mod preview;
 pub mod registry;
 pub mod save_recovery;

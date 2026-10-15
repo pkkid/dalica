@@ -1,5 +1,5 @@
-//! The settings in `settings.json` (`roadmap.md` M6.5, M7.3, M8.3, M9.3; `data-model.md` §6,
-//! `menus-and-shortcuts.md` §5, `xmp-interop.md` §2, `editing.md` §1, `creating.md` §2,
+//! The settings in `settings.json` (`roadmap.md` M6.5, M7.3, M8.3, M9.3, M10.1; `data-model.md` §4
+//! and §6, `menus-and-shortcuts.md` §5, `xmp-interop.md` §2, `editing.md` §1, `creating.md` §2,
 //! `organizing.md` §4 and §9), each a row of [`rows`]: nothing stored means its default; every
 //! setting round-trips through its documented key with unknown keys kept at every level; a value of
 //! the wrong type is its default and is reported once by key (never by value) when the library
@@ -10,9 +10,10 @@
 use std::path::{Path, PathBuf};
 
 use dalica_engine::settings::{
-    CUSTOM_QUALITY_DEFAULT, CropRatio, EXPORT_SIZE_DEFAULT, EXPORT_SIZE_RANGE, EditSettings, ExportQuality, ExportSettings, FILE, MAX_CROP_RATIOS,
-    MAX_PATH_BYTES, MAX_RATIO_NAME, MAX_RECENT_TAGS, MAX_TAG_BYTES, MAX_WATERMARK_BYTES, MetadataWrites, OrganizeSettings, PhotoSizes, QuickTags,
-    RECENT_DAYS_DEFAULT, RECENT_DAYS_RANGE, SaveFormat, SaveSettings, Settings, default_export_location,
+    CUSTOM_QUALITY_DEFAULT, CropRatio, EXPORT_SIZE_DEFAULT, EXPORT_SIZE_RANGE, EditSettings, ExportQuality, ExportSettings, FILE, FontSize,
+    InterfaceSettings, MAX_CROP_RATIOS, MAX_PATH_BYTES, MAX_RATIO_NAME, MAX_RECENT_TAGS, MAX_TAG_BYTES, MAX_WATERMARK_BYTES, MetadataWrites,
+    OrganizeSettings, PhotoSizes, QuickTags, RECENT_DAYS_DEFAULT, RECENT_DAYS_RANGE, SMALL_PICTURE_DEFAULT, SaveFormat, SaveSettings, Settings,
+    UiScaleSetting, default_export_location,
 };
 use dalica_fs::Expect;
 use serde_json::{Value, json};
@@ -73,11 +74,18 @@ fn rows(dir: &Path) -> Vec<Row> {
         row("organize.lastMoveFolder", json!(dir.join("Trips")), json!("relative/secret-folder"), json!(null), |s| {
             json!(s.organize().last_move_folder)
         }),
+        row("interface.animations", json!(false), json!("no"), json!(true), |s| json!(s.interface().animations)),
+        row("interface.tooltips", json!(false), json!(0), json!(true), |s| json!(s.interface().tooltips)),
+        row("interface.systemTitleBar", json!(true), json!("on"), json!(false), |s| json!(s.interface().system_title_bar)),
+        row("interface.uiScale", json!(150), json!(160), json!("auto"), |s| s.interface().ui_scale.to_json()),
+        row("interface.fontSize", json!("large"), json!("huge"), json!("small"), |s| json!(s.interface().font_size.id())),
+        row("interface.language", json!("pt-BR"), json!("secret language"), json!("system"), |s| json!(s.interface().language)),
+        row("fileTypes.smallPictureThreshold", json!(128), json!(8), json!(SMALL_PICTURE_DEFAULT), |s| json!(s.small_picture_threshold())),
     ]
 }
 
 /// The sections of the rows.
-const SECTIONS: [&str; 6] = ["files", "tags", "edit", "save", "export", "organize"];
+const SECTIONS: [&str; 8] = ["files", "tags", "edit", "save", "export", "organize", "interface", "fileTypes"];
 
 /// A `settings.json` holding `value(row)` for every row, an unknown key in every section and one at
 /// the top.
@@ -122,6 +130,7 @@ fn nothing_stored_means_the_defaults() {
         (MetadataWrites::default(), QuickTags::default(), EditSettings::default())
     );
     assert_eq!((s.settings().save(), s.settings().export(), s.settings().organize()), Default::default());
+    assert_eq!(s.settings().interface(), InterfaceSettings::default());
     assert_eq!(s.settings().edit().photo_sizes(), PhotoSizes::system());
     assert!(s.notices().is_empty(), "{:?}", s.notices());
 }
@@ -147,6 +156,8 @@ fn every_setting_round_trips_with_unknown_keys_kept() {
         st.set_save(&wanted.save());
         st.set_export(&wanted.export());
         st.set_organize(&wanted.organize());
+        st.set_interface(&wanted.interface());
+        st.set_small_picture_threshold(wanted.small_picture_threshold());
     });
     s.flush().unwrap();
     drop(ui);
@@ -193,7 +204,8 @@ fn a_section_that_is_not_an_object_is_reported_once_and_replaced_on_the_next_wri
     let dir = tempfile::tempdir().unwrap();
     let lib = dir.path().join("library");
     let mut written = json!({});
-    for (section, bad) in SECTIONS.iter().zip([json!(true), json!(["beach"]), json!("nope"), json!([]), json!("big"), json!([true])]) {
+    let bad = [json!(true), json!(["beach"]), json!("nope"), json!([]), json!("big"), json!([true]), json!(3), json!("all")];
+    for (section, bad) in SECTIONS.iter().zip(bad) {
         written[section] = bad;
     }
     write_settings(&lib, &written);
@@ -363,6 +375,32 @@ fn values_out_of_range_are_never_stored() {
     assert_eq!((st.save(), st.export(), st.organize()), Default::default());
     assert_eq!((st.get("save").unwrap()["futureFlag"].clone(), st.get("export").unwrap()["futurePreset"].clone()), (json!(true), json!("web")));
     assert_eq!(st.get("organize").unwrap()["futureKey"], json!("kept"));
+
+    // The UI scale, the language and the small-picture threshold out of range are their defaults.
+    let mut st = Settings::default();
+    let odd =
+        InterfaceSettings { ui_scale: UiScaleSetting::Percent(130), language: "not a tag!".into(), font_size: FontSize::Large, ..Default::default() };
+    st.set_interface(&odd);
+    assert_eq!(st.interface(), InterfaceSettings { font_size: FontSize::Large, ..InterfaceSettings::default() });
+    st.set_small_picture_threshold(4);
+    assert_eq!(st.small_picture_threshold(), SMALL_PICTURE_DEFAULT);
+    for (scale, want) in [
+        (json!(75), UiScaleSetting::Percent(75)),
+        (json!(300), UiScaleSetting::Percent(300)),
+        (json!(50), UiScaleSetting::Auto),
+        (json!(325), UiScaleSetting::Auto),
+        (json!(110), UiScaleSetting::Auto),
+        (json!(150.5), UiScaleSetting::Auto),
+    ] {
+        let st = Settings::parse(&serde_json::to_vec(&json!({ "interface": { "uiScale": scale } })).unwrap()).unwrap();
+        assert_eq!(st.interface().ui_scale, want, "{scale}");
+    }
+    assert_eq!((UiScaleSetting::Percent(150).factor(), UiScaleSetting::Auto.factor()), (Some(1.5), None));
+    for (px, want) in [(json!(16), 16), (json!(1024), 1024), (json!(15), 64), (json!(1025), 64), (json!(-64), 64)] {
+        let st = Settings::parse(&serde_json::to_vec(&json!({ "fileTypes": { "smallPictureThreshold": px, "png": false } })).unwrap()).unwrap();
+        assert_eq!(st.small_picture_threshold(), want, "{px}");
+        assert!(!st.file_types().allows(dalica_scan::FileType::Png), "the type flags beside it still read");
+    }
 
     // Read from a file: numbers at and past the edges.
     for (size, want) in [

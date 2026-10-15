@@ -62,7 +62,7 @@ use crate::metadata::{Metadata, Origin};
 use crate::metadata_cache::MetadataCache;
 use crate::offline::Offline;
 use crate::preview::Preview;
-use crate::registry::{CommandInfo, CommandSpec, History};
+use crate::registry::{CommandInfo, CommandSpec, Effect, History};
 use crate::scanning::{PHOTOS_PER_POLL, ScanKind, Scanning};
 use crate::settings::Settings;
 use crate::thumbs::{Thumb, ThumbOptions, ThumbStats, Thumbs};
@@ -74,6 +74,8 @@ use crate::watching::Watching;
 const SNAPSHOT_EVERY: u64 = dalica_store::SNAPSHOT_OPS;
 /// How often the I/O worker wakes to write sidecars that became due.
 const TICK: Duration = Duration::from_millis(100);
+/// The most commands one [`Session::execute_group`] runs.
+pub const MAX_GROUP_STEPS: usize = 256;
 
 /// Work for the I/O worker.
 pub(crate) enum Msg {
@@ -126,6 +128,9 @@ pub struct Session {
     collected: Option<Vec<Op>>,
     /// The op a command asked its undo step to use instead of the collected inverses.
     undo_op: Option<Op>,
+    /// Inside [`Session::execute_group`]: the steps its commands made so far, kept here instead of
+    /// on the undo stack until the group ends.
+    group: Option<Vec<Step>>,
     recovery: Vec<Recovery>,
     pub(crate) scan_warnings: Vec<String>,
     pub(crate) ops_since_snapshot: u64,
@@ -228,6 +233,7 @@ impl Session {
             io_errors,
             collected: None,
             undo_op: None,
+            group: None,
             recovery,
             scan_warnings: Vec::new(),
             ops_since_snapshot: 0,
@@ -289,7 +295,11 @@ impl Session {
                 inverses.reverse();
                 Op::Batch { ops: inverses }
             };
-            self.undo.push(Step { label: spec.label, op, modes });
+            let step = Step { label: spec.label, op, modes };
+            match &mut self.group {
+                Some(group) => group.push(step),
+                None => self.undo.push(step),
+            }
         }
         match result {
             Ok(r) => r,
@@ -300,6 +310,68 @@ impl Session {
                 Err(CmdError::Internal(format!("{id}: {message}")))
             }
         }
+    }
+
+    /// Runs several library commands as **one** library undo step labelled `label` (an agent's "set
+    /// the star, the caption and the tags" is one Edit ▸ Undo): `steps` are `(command id, params)`,
+    /// run in order through [`Session::execute`], and their results are returned in that order.
+    ///
+    /// Before any runs, every step is checked: its command must exist, change the library alone
+    /// (`Effect::Library` on the library history: no file operations, queries or view commands), and
+    /// be enabled for its params; at most [`MAX_GROUP_STEPS`] steps. When a step fails, the steps
+    /// already run (and what the failing one changed) are undone at once, nothing is left on the
+    /// undo stack, and its error is returned with the step named. A group that changes nothing
+    /// records no step. Not re-entrant: a group inside a group is an internal error.
+    pub fn execute_group(&mut self, steps: &[(&str, Value)], label: &'static str) -> Result<Vec<Value>, CmdError> {
+        if self.group.is_some() {
+            return Err(CmdError::Internal("a group of commands cannot run inside another".into()));
+        }
+        if steps.len() > MAX_GROUP_STEPS {
+            return Err(CmdError::Limit(format!("at most {MAX_GROUP_STEPS} commands in one group")));
+        }
+        for (n, (id, params)) in steps.iter().enumerate() {
+            let spec = *self.spec(id).ok_or_else(|| CmdError::UnknownCommand((*id).to_string()))?;
+            if spec.effect != Effect::Library || spec.history != History::Library {
+                return Err(in_step(CmdError::BadParams("only commands that change the library alone can be grouped".into()), n, id));
+            }
+            (spec.enabled)(self, params).map_err(|d| in_step(CmdError::Disabled(d.0), n, id))?;
+        }
+        self.group = Some(Vec::new());
+        let mut results = Vec::with_capacity(steps.len());
+        let mut failed = None;
+        for (n, (id, params)) in steps.iter().enumerate() {
+            match self.execute(id, params) {
+                Ok(r) => results.push(r),
+                Err(e) => {
+                    failed = Some(in_step(e, n, id));
+                    break;
+                }
+            }
+        }
+        let done = self.group.take().unwrap_or_default();
+        if let Some(e) = failed {
+            self.roll_back(done);
+            return Err(e);
+        }
+        if let Some(step) = one_step(done, label) {
+            self.undo.push(step);
+        }
+        Ok(results)
+    }
+
+    /// Undoes `done` (a failed group's steps), last first, as a command's change, recording no step.
+    fn roll_back(&mut self, done: Vec<Step>) {
+        let saved = self.collected.replace(Vec::new());
+        for step in done.into_iter().rev() {
+            if let Err(e) = self.apply_step(step.op) {
+                log::error!("undoing a failed group's step {}: {e}", step.label);
+                self.scan_warnings.push(format!("{} could not be undone: {e}", step.label));
+            }
+            if let Some(modes) = step.modes {
+                self.swap_modes(modes);
+            }
+        }
+        self.collected = saved;
     }
 
     /// Applies `op` to the model, journals it, marks the folders it touched for a sidecar write, and
@@ -695,6 +767,40 @@ impl Session {
             })
             .collect()
     }
+}
+
+/// `e` naming the group's step `n` (counted from 1) and its command; the error's kind is kept.
+fn in_step(e: CmdError, n: usize, id: &str) -> CmdError {
+    let at = |m: String| format!("step {} ({id}): {m}", n.saturating_add(1));
+    match e {
+        CmdError::UnknownCommand(c) => CmdError::UnknownCommand(c),
+        CmdError::BadParams(m) => CmdError::BadParams(at(m)),
+        CmdError::Disabled(m) => CmdError::Disabled(at(m)),
+        CmdError::NotFound(m) => CmdError::NotFound(at(m)),
+        CmdError::Limit(m) => CmdError::Limit(at(m)),
+        CmdError::Unsaved(m) => CmdError::Unsaved(at(m)),
+        CmdError::Internal(m) => CmdError::Internal(at(m)),
+    }
+}
+
+/// A group's steps as one: their ops undone last first, and for each folder the rules from before
+/// the first step that changed them. `None` when no step changed anything.
+fn one_step(mut done: Vec<Step>, label: &'static str) -> Option<Step> {
+    if done.len() <= 1 {
+        return done.pop().map(|s| Step { label, ..s });
+    }
+    let mut rules: Vec<(PathBuf, dalica_scan::Rule)> = Vec::new();
+    let mut any_rules = false;
+    for modes in done.iter().filter_map(|s| s.modes.as_ref()) {
+        any_rules = true;
+        for (path, rule) in &modes.0 {
+            if !rules.iter().any(|(p, _)| p == path) {
+                rules.push((path.clone(), *rule));
+            }
+        }
+    }
+    let ops = done.into_iter().rev().map(|s| s.op).collect();
+    Some(Step { label, op: Op::Batch { ops }, modes: any_rules.then_some(crate::folders::Modes(rules)) })
 }
 
 impl Drop for Session {

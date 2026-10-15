@@ -194,8 +194,11 @@ commands change nothing and record no undo step.
 | Command id | Purpose |
 |---|---|
 | `photo.caption.set` | set captions (`{ids, caption}`); the inline caption editors call it |
-| `app.setShortcut` | bind or unbind a key (`{command, context, key}`; `key: null` removes the user's binding); the shortcut editor calls it |
+| `app.setShortcut` | bind or unbind a key (`{command, context, key, slot?}`; `key: null` removes the user's binding; `slot` 0 or 1, a command having up to two keys per context, §2.0); the shortcut editor calls it |
 | `app.resetShortcuts` | drop user overrides (`{command?}`: one command, or all when omitted) |
+| `keymap.list` | query: one row per command and context with its keys in effect, its default keys, whether it differs from the default and whether it can be edited (`{context?, search?, withoutKeys?}`); the shortcut editor's list |
+| `options.list` | query: the options catalogue's rows (§5) with their values in effect and whether they can be changed yet (`{tab?}`: `general`, `fileTypes` or `export`) |
+| `options.set` | change options (`{values}`: `{key: value}`, every key and value checked against the catalogue before anything changes; one atomic write of `settings.json`; no undo step); the Options dialog's Apply and OK |
 | `photo.star.set` | set or clear stars explicitly (`{ids, on}`) |
 | `photo.tags.add` / `photo.tags.remove` | add or remove tags (`{ids, tags}`: text with commas separating tags, or a list of whole tags); the Tags pane. Tags added here are the recently used ones |
 | `photo.tags.toggle` | remove a tag from all the photos when all hold it, else add it to all (`{ids, tag}`); the quick tag buttons |
@@ -206,9 +209,10 @@ commands change nothing and record no undo step.
 | `photo.geo.set` | Places pane drop |
 | `photo.inspect` | query: everything known about photos (`{ids}`) |
 | `library.query` | query: search with the search-box grammar, filters and paging |
+| `library.inspect` | query: the library's state for agents (`control-protocol.md` §6.4: counts, tree, sections, search, undo, unsaved edits, pending writes, problems; `{photos?, section?, offset?, limit?}`) |
 | `library.rebuild` | delete and rebuild the index (confirmation; Help → Rebuild Library…) |
 | `edit.apply` | append an edit operation to recipes (`{ids, op, params}`) |
-| `edit.recipe.set` | replace recipes (used by Paste All Edits and agents) |
+| `edit.recipe.set` | replace recipes, each one step of its photo's history (`{ids, recipe, label?, dropUnknown?}`; refuses to drop an operation it cannot read unless `dropUnknown`); used by Paste All Edits and agents |
 | `section.scrollTo` | scroll the light table to a section (tree click) |
 | `tray.hold` / `tray.clear` | tray buttons (Hold: Ctrl+H) |
 | `tray.select` | the tray's own selection (`{ids, mode}`: click, Ctrl-click, rubber band in the tray) |
@@ -354,31 +358,56 @@ Tabs: **General · File Types · Slideshow · Network · People · Photo Viewer 
 Shortcuts** (§2.0). Buttons [OK] [Cancel] [Apply] (Apply disabled until something changes; Cancel discards
 changes since the last Apply).
 
+Every option of the General, File Types and Export tabs is a row of the engine's options catalogue
+(`crates/engine/src/options.rs`), stored in `settings.json` under the key given here
+(`interface.animations` is `{"interface": {"animations": …}}`; `data-model.md` §4). The dialog, the
+`options.list {tab?}` and `options.set {values}` commands (§1.9) and MCP all read that catalogue: its
+type, default, range or choices, group, label and hint, when a change applies (at once, after a
+rescan, at the next launch), and whether its feature exists yet. An option whose feature arrives
+later is shown disabled with its reason ("Arrives with Import") and its setting is stored only once
+its feature reads it. A test fails when a row of these three tables and the catalogue disagree.
+
 ### General
 
-| Group | Option | Default |
-|---|---|---|
-| Interface | Use animations (smooth transitions when rotating, applying edits, previewing) | on |
-| | Show tooltips | on |
-| | Use system title bar (Windows/Linux; applies at next launch) | off |
-| | Single click on the photo returns to the library | off |
-| | UI scale (Auto, 75–300 %) / UI font size (Small, Medium, Large) | Auto / Small |
-| | Language | System |
-| Files | Detect duplicates while importing | on |
-| | Delete from disk without asking | off |
-| | Remove from albums without asking | off |
-| | Write captions, tags and places into photo files | on |
-| | Write stars as ratings (XMP) | off |
-| | Update file modification time on metadata changes | off |
-| | Write XMP sidecars for RAW files | off |
-| | Read photo data left by the previous organizer (`data-model.md` §9) | on |
-| Import | Save imported pictures in | ~/Pictures |
+| Group | Option | Key | Default |
+|---|---|---|---|
+| Interface | Use animations (smooth transitions when rotating, applying edits, previewing) | `interface.animations` | on |
+| | Show tooltips | `interface.tooltips` | on |
+| | Use system title bar (Windows/Linux; applies at next launch) | `interface.systemTitleBar` | off |
+| | Single click on the photo returns to the library | `edit.singleClickLeaves` | off |
+| | UI scale (Auto, 75–300 % in steps of 25) | `interface.uiScale` | Auto |
+| | UI font size (Small, Medium, Large) | `interface.fontSize` | Small |
+| | Language (arrives with translations; applies at next launch) | `interface.language` | System |
+| Files | Detect duplicates while importing (arrives with Import) | `import.detectDuplicates` | on |
+| | Delete from disk without asking | `organize.deleteWithoutAsking` | off |
+| | Remove from albums without asking | `organize.removeFromAlbumsWithoutAsking` | off |
+| | Write captions, tags and places into photo files | `files.writeCaptionsTagsPlaces` | on |
+| | Write stars as ratings (XMP) | `files.writeStarsAsRatings` | off |
+| | Update file modification time on metadata changes | `files.updateModificationTime` | off |
+| | Write XMP sidecars for RAW files | `files.writeRawXmpSidecars` | off |
+| | Write date changes to files (`xmp-interop.md` §2) | `files.writeDates` | on |
+| | Read photo data left by the previous organizer (`data-model.md` §9; arrives with it) | `files.readLegacyData` | on |
+| Import | Save imported pictures in (arrives with Import) | `import.folder` | ~/Pictures |
 
 ### File Types
 
-"Show JPEG files and:" ☑ PNG ☑ GIF ☑ BMP ☑ TIFF ☑ WebP ☑ HEIC/HEIF ☑ AVIF ☑ JPEG XL ☑ PSD ☑ RAW formats
-(list…) ☑ Videos (MP4, MOV, M4V, MKV). Small-picture threshold
-(64 px).
+"Show JPEG files and:" one checkbox per type (JPEG is always shown); a change rescans the watched
+folders.
+
+| Group | Option | Key | Default |
+|---|---|---|---|
+| Show JPEG files and: | PNG | `fileTypes.png` | on |
+| | GIF | `fileTypes.gif` | on |
+| | BMP | `fileTypes.bmp` | on |
+| | TIFF | `fileTypes.tiff` | on |
+| | WebP | `fileTypes.webp` | on |
+| | HEIC/HEIF (disabled, "HEIC support isn't included in this build", in a build without it) | `fileTypes.heif` | on |
+| | AVIF | `fileTypes.avif` | on |
+| | JPEG XL | `fileTypes.jxl` | on |
+| | PSD | `fileTypes.psd` | on |
+| | RAW formats (list…) | `fileTypes.raw` | on |
+| | Videos (MP4, MOV, M4V, MKV) | `fileTypes.video` | on |
+| Small pictures | Small-picture threshold (16–1024 px) | `fileTypes.smallPictureThreshold` | 64 px |
 
 ### Slideshow
 
@@ -401,8 +430,17 @@ As [`viewing.md`](viewing.md) §3.3.
 
 ### Export
 
-Default export location · Default size and quality · Remove location from exported photos (off) ·
-Default watermark text.
+The defaults the Export dialog starts from (`creating.md` §2).
+
+| Group | Option | Key | Default |
+|---|---|---|---|
+| Location | Default export location | `export.location` | Pictures/Dalica/Exports |
+| Size and quality | Resize to (off: use the original size) | `export.resize` | on |
+| | Size (100–4000 px) | `export.size` | 1600 px |
+| | Image quality (Automatic, Normal, Maximum, Minimum, Custom) | `export.quality` | Automatic |
+| | Custom quality (1–100) | `export.customQuality` | 75 |
+| Privacy | Remove location from exported photos | `export.removeLocation` | off |
+| Watermark | Default watermark text | `export.watermarkText` | empty |
 
 ### Keyboard Shortcuts
 

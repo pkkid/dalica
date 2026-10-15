@@ -67,6 +67,16 @@
 //! albums without asking" and "Delete from disk without asking" (off, off), the days Recently
 //! Updated covers (30, in [`RECENT_DAYS_RANGE`]) and the folder Move Folder last moved into (none).
 //!
+//! M10 adds the rest of Options → General → Interface to `"interface"`, merged key by key the same
+//! way (M10.1; `menus-and-shortcuts.md` §5; [`InterfaceSettings`]): `{animations, tooltips,
+//! uiScale, fontSize, language}` beside `systemTitleBar`: use animations (on), show tooltips (on),
+//! the UI scale (`"auto"` or a percentage in [`UI_SCALE_RANGE`] in steps of [`UI_SCALE_STEP`];
+//! auto), the font size (`"small"`, `"medium"` or `"large"`; small) and the language (`"system"`
+//! or a language tag; system). "Single click on the photo returns to the library" is M7's
+//! `edit.singleClickLeaves`. Options → File Types gains the small-picture threshold,
+//! `"fileTypes"` → `smallPictureThreshold` (64 px, in [`SMALL_PICTURE_RANGE`]). Every option the
+//! Options dialog shows is a row of the catalogue in [`crate::options`].
+//!
 //! The command modules read them through [`Session::settings`](crate::Session::settings) and change
 //! them through [`Session::change_settings`](crate::Session::change_settings) with the typed
 //! accessors below. A value of the wrong type is the default and is reported once, when the library
@@ -382,7 +392,7 @@ pub const QUALITY_RANGE: std::ops::RangeInclusive<u8> = 1..=100;
 pub const CUSTOM_QUALITY_DEFAULT: u8 = 75;
 
 /// A stored folder worth keeping: absolute, valid Unicode, not empty, at most [`MAX_PATH_BYTES`].
-fn folder_path(p: &Path) -> Option<&str> {
+pub(crate) fn folder_path(p: &Path) -> Option<&str> {
     p.to_str().filter(|s| !s.is_empty() && s.len() <= MAX_PATH_BYTES && !s.contains('\0') && p.is_absolute())
 }
 
@@ -472,6 +482,123 @@ impl Default for OrganizeSettings {
             delete_without_asking: false,
             recent_days: RECENT_DAYS_DEFAULT,
             last_move_folder: None,
+        }
+    }
+}
+
+/// The UI scale's range and step in percent (Options → General → Interface).
+pub const UI_SCALE_RANGE: std::ops::RangeInclusive<u16> = 75..=300;
+pub const UI_SCALE_STEP: u16 = 25;
+/// The longest stored language tag read, in bytes.
+pub const MAX_LANGUAGE_BYTES: usize = 35;
+/// The small-picture threshold in pixels (Options → File Types): a picture smaller than this on both
+/// sides is a small picture. Its default and range.
+pub const SMALL_PICTURE_DEFAULT: u32 = 64;
+pub const SMALL_PICTURE_RANGE: std::ops::RangeInclusive<u32> = 16..=1024;
+
+/// The UI scale (`"interface"` → `uiScale`): the system's, or a fixed percentage.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum UiScaleSetting {
+    /// From the system's scale and the window's monitor (`design-system.md` §11.4).
+    #[default]
+    Auto,
+    /// A percentage in [`UI_SCALE_RANGE`], a multiple of [`UI_SCALE_STEP`].
+    Percent(u16),
+}
+
+impl UiScaleSetting {
+    /// The stored value: `"auto"` or the percentage.
+    pub fn to_json(self) -> Value {
+        match self {
+            UiScaleSetting::Auto => json!("auto"),
+            UiScaleSetting::Percent(p) => json!(p),
+        }
+    }
+
+    /// The setting stored as `v`; `None` unless it is `"auto"` or a whole percentage in range and
+    /// on a step.
+    pub fn from_json(v: &Value) -> Option<UiScaleSetting> {
+        match v {
+            Value::String(s) if s == "auto" => Some(UiScaleSetting::Auto),
+            _ => v
+                .as_u64()
+                .and_then(|n| u16::try_from(n).ok())
+                .filter(|p| UI_SCALE_RANGE.contains(p) && p % UI_SCALE_STEP == 0)
+                .map(UiScaleSetting::Percent),
+        }
+    }
+
+    /// The factor a fixed percentage gives (`Percent(150)` → 1.5); `None` for Auto.
+    pub fn factor(self) -> Option<f32> {
+        match self {
+            UiScaleSetting::Auto => None,
+            UiScaleSetting::Percent(p) => Some(f32::from(p) / 100.0),
+        }
+    }
+}
+
+/// The UI font size (`"interface"` → `fontSize`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum FontSize {
+    #[default]
+    Small,
+    Medium,
+    Large,
+}
+
+impl FontSize {
+    pub const ALL: [FontSize; 3] = [FontSize::Small, FontSize::Medium, FontSize::Large];
+
+    /// The stored text.
+    pub fn id(self) -> &'static str {
+        match self {
+            FontSize::Small => "small",
+            FontSize::Medium => "medium",
+            FontSize::Large => "large",
+        }
+    }
+
+    pub fn from_id(id: &str) -> Option<FontSize> {
+        FontSize::ALL.into_iter().find(|f| f.id() == id)
+    }
+}
+
+/// A stored language worth keeping: `"system"`, or a tag of ASCII letters, digits and `-` (`pt-BR`)
+/// starting with a letter, at most [`MAX_LANGUAGE_BYTES`].
+pub fn language_ok(tag: &str) -> bool {
+    tag == "system"
+        || (tag.len() <= MAX_LANGUAGE_BYTES
+            && tag.starts_with(|c: char| c.is_ascii_alphabetic())
+            && tag.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'))
+}
+
+/// Options → General → Interface (`"interface"` in `settings.json`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InterfaceSettings {
+    /// Use animations (`animations`; on): smooth transitions when rotating, applying edits and
+    /// previewing.
+    pub animations: bool,
+    /// Show tooltips (`tooltips`; on).
+    pub tooltips: bool,
+    /// Use system title bar (`systemTitleBar`; off; Windows and Linux, applies at next launch).
+    pub system_title_bar: bool,
+    /// UI scale (`uiScale`; auto).
+    pub ui_scale: UiScaleSetting,
+    /// UI font size (`fontSize`; small).
+    pub font_size: FontSize,
+    /// The language (`language`): `"system"` (the default) or a language tag.
+    pub language: String,
+}
+
+impl Default for InterfaceSettings {
+    fn default() -> Self {
+        InterfaceSettings {
+            animations: true,
+            tooltips: true,
+            system_title_bar: false,
+            ui_scale: UiScaleSetting::Auto,
+            font_size: FontSize::Small,
+            language: "system".into(),
         }
     }
 }
@@ -786,11 +913,100 @@ impl Settings {
 
     /// Options → General → Interface → Use system title bar (Windows and Linux; default off).
     pub fn system_title_bar(&self) -> bool {
-        self.field("interface", "systemTitleBar").and_then(Value::as_bool).unwrap_or(false)
+        self.interface().system_title_bar
     }
 
     pub fn set_system_title_bar(&mut self, on: bool) {
         self.merge("interface", &[("systemTitleBar", Some(json!(on)))]);
+    }
+
+    /// Options → General → Interface; a value of the wrong type or out of its range is its default.
+    pub fn interface(&self) -> InterfaceSettings {
+        self.read_interface(&mut Vec::new())
+    }
+
+    /// Stores every Interface option under `"interface"` (a language that is not `"system"` or a
+    /// tag is stored as `"system"`); other keys are kept.
+    pub fn set_interface(&mut self, i: &InterfaceSettings) {
+        let language = if language_ok(&i.language) { i.language.as_str() } else { "system" };
+        let scale = match i.ui_scale {
+            UiScaleSetting::Percent(p) if UiScaleSetting::from_json(&json!(p)).is_none() => UiScaleSetting::Auto,
+            s => s,
+        };
+        self.merge(
+            "interface",
+            &[
+                ("animations", Some(json!(i.animations))),
+                ("tooltips", Some(json!(i.tooltips))),
+                ("systemTitleBar", Some(json!(i.system_title_bar))),
+                ("uiScale", Some(scale.to_json())),
+                ("fontSize", Some(json!(i.font_size.id()))),
+                ("language", Some(json!(language))),
+            ],
+        );
+    }
+
+    /// Options → File Types → the small-picture threshold in pixels; a value that is not a whole
+    /// number in [`SMALL_PICTURE_RANGE`] is the default.
+    pub fn small_picture_threshold(&self) -> u32 {
+        self.read_small_picture_threshold(&mut Vec::new())
+    }
+
+    /// Stores the small-picture threshold under `"fileTypes"` (out of range: the default); the
+    /// type flags and other keys are kept.
+    pub fn set_small_picture_threshold(&mut self, px: u32) {
+        let px = if SMALL_PICTURE_RANGE.contains(&px) { px } else { SMALL_PICTURE_DEFAULT };
+        self.merge("fileTypes", &[("smallPictureThreshold", Some(json!(px)))]);
+    }
+
+    fn read_interface(&self, problems: &mut Vec<String>) -> InterfaceSettings {
+        let mut i = InterfaceSettings::default();
+        let Some(obj) = self.object("interface", problems) else { return i };
+        i.animations = Settings::flag(obj, "interface", "animations", true, problems);
+        i.tooltips = Settings::flag(obj, "interface", "tooltips", true, problems);
+        i.system_title_bar = Settings::flag(obj, "interface", "systemTitleBar", false, problems);
+        match obj.get("uiScale") {
+            None => {}
+            Some(v) => match UiScaleSetting::from_json(v) {
+                Some(s) => i.ui_scale = s,
+                None => problems.push(format!(
+                    "interface.uiScale is not \"auto\" or a percentage from {} to {} in steps of {UI_SCALE_STEP}; the default (auto) is used",
+                    UI_SCALE_RANGE.start(),
+                    UI_SCALE_RANGE.end()
+                )),
+            },
+        }
+        match obj.get("fontSize") {
+            None => {}
+            Some(v) => match v.as_str().and_then(FontSize::from_id) {
+                Some(f) => i.font_size = f,
+                None => problems.push("interface.fontSize is not \"small\", \"medium\" or \"large\"; the default (small) is used".into()),
+            },
+        }
+        match obj.get("language") {
+            None => {}
+            Some(Value::String(l)) if language_ok(l) => i.language = l.clone(),
+            Some(_) => problems.push("interface.language is not \"system\" or a language tag; the default (system) is used".into()),
+        }
+        i
+    }
+
+    fn read_small_picture_threshold(&self, problems: &mut Vec<String>) -> u32 {
+        let Some(obj) = self.object("fileTypes", problems) else { return SMALL_PICTURE_DEFAULT };
+        match obj.get("smallPictureThreshold") {
+            None => SMALL_PICTURE_DEFAULT,
+            Some(v) => match v.as_u64().and_then(|n| u32::try_from(n).ok()).filter(|n| SMALL_PICTURE_RANGE.contains(n)) {
+                Some(n) => n,
+                None => {
+                    problems.push(format!(
+                        "fileTypes.smallPictureThreshold is not a whole number of pixels from {} to {}; the default ({SMALL_PICTURE_DEFAULT}) is used",
+                        SMALL_PICTURE_RANGE.start(),
+                        SMALL_PICTURE_RANGE.end()
+                    ));
+                    SMALL_PICTURE_DEFAULT
+                }
+            },
+        }
     }
 
     /// The speed-control thumb's curve; each value that is not a number in its range is the default.
@@ -1040,6 +1256,8 @@ impl Settings {
         self.read_save(&mut out);
         self.read_export(&mut out);
         self.read_organize(&mut out);
+        self.read_interface(&mut out);
+        self.read_small_picture_threshold(&mut out);
         out.into_iter().map(|p| format!("settings.json: {p}")).collect()
     }
 
