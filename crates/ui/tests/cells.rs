@@ -7,6 +7,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::common::{FRAMES, new_driver};
 use dalica_core::PhotoId;
 use dalica_engine::Session;
 use dalica_library::Photo;
@@ -19,11 +20,9 @@ use dalica_ui_kit::widgets::{Badge, Badges};
 use egui::{Rect, pos2, vec2};
 use serde_json::json;
 
-const FRAMES: usize = 60 * 60;
-
 /// Writes `n` demo photos (and `tiny` 32 × 32 PNGs) into one folder under `dir`; returns it.
 fn photos(dir: &Path, n: usize, tiny: usize) -> PathBuf {
-    let files = dalica_scenes::demo_library(1, n, 7).unwrap();
+    let files = crate::common::demo_library(1, n, 7).unwrap();
     let folder = dir.join("photos").join(files[0].path.parent().unwrap());
     std::fs::create_dir_all(&folder).unwrap();
     for f in &files {
@@ -44,7 +43,7 @@ fn session(dir: &Path, folder: &Path) -> Session {
 }
 
 fn driver(session: Session, size: (u32, u32)) -> Driver {
-    let mut d = Driver::new(App::new(Some(session)), size.0, size.1, 1.0);
+    let mut d = new_driver(App::new(Some(session)), size.0, size.1, 1.0);
     d.settle(FRAMES).unwrap();
     d
 }

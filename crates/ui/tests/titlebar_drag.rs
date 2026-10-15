@@ -4,14 +4,15 @@
 
 use std::sync::Arc;
 
+use crate::common::new_driver;
 use dalica_ui::headless::{PointerEvent, PointerKind};
 use dalica_ui::{App, Driver};
 use egui::{PointerButton, ViewportCommand};
 
 fn driver() -> (dalica_fs::TempDir, Driver) {
     let dir = dalica_engine::demo::fresh_dir().unwrap();
-    let session = dalica_engine::demo::open(dir.path(), Arc::new(dalica_core::SystemClock)).unwrap();
-    let d = Driver::new(App::new(Some(session)), 1400, 900, 1.0);
+    let session = crate::common::demo_open(dir.path(), Arc::new(dalica_core::SystemClock));
+    let d = new_driver(App::new(Some(session)), 1400, 900, 1.0);
     (dir, d)
 }
 

@@ -8,6 +8,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use crate::common::{FRAMES, new_driver};
 use dalica_engine::{CmdError, Session};
 use dalica_ui::control::{Config, Connection, Control, Reply, Request, serve};
 use dalica_ui::menus::{self, Lookup, Platform};
@@ -15,12 +16,10 @@ use dalica_ui::state::{Caption, FolderSort, Group, Pane, TreeMode};
 use dalica_ui::{App, Driver, UI_COMMANDS};
 use serde_json::{Value, json};
 
-const FRAMES: usize = 60 * 60;
-
 /// A session on a library under `dir` holding `folders` folders of 3 scenes photos each; its photo
 /// ids (in display order) and folder ids.
 fn session(dir: &Path, folders: usize) -> (Session, Vec<(u64, u64)>, Vec<u64>) {
-    let files = dalica_scenes::demo_library(folders, folders * 3, 5).unwrap();
+    let files = crate::common::demo_library(folders, folders * 3, 5).unwrap();
     let mut roots = std::collections::BTreeSet::new();
     for f in &files {
         let path = dir.join("photos").join(&f.path);
@@ -58,7 +57,7 @@ fn setup() -> T {
     let dir = tempfile::tempdir().unwrap();
     let (s, homes, folders) = session(dir.path(), 2);
     let control = Control::new(Config::default());
-    let mut d = Driver::new(App::with_picker(Some(s), control.picker()), 1400, 900, 1.0);
+    let mut d = new_driver(App::with_picker(Some(s), control.picker()), 1400, 900, 1.0);
     d.settle(FRAMES).unwrap();
     let photos = homes.iter().map(|(p, _)| *p).collect();
     T { _dir: dir, control, conn: Connection::new(), d, photos, homes, folders }

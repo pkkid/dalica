@@ -10,6 +10,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use crate::common::{FRAMES, new_driver, widget};
 use dalica_engine::settings::ThumbSpeed;
 use dalica_engine::synthetic::{self, Spec};
 use dalica_engine::{CmdError, Context, Key, Session};
@@ -23,13 +24,12 @@ use dalica_ui_kit::registry::WidgetInfo;
 use egui::{Modifiers, PointerButton, Pos2, vec2};
 use serde_json::json;
 
-const FRAMES: usize = 60 * 60;
 const SCROLL_COMMANDS: [&str; 6] = ["scroll.pageUp", "scroll.pageDown", "scroll.prevSection", "scroll.nextSection", "scroll.top", "scroll.bottom"];
 
 /// An index-only synthetic library of `photos` photos in `folders` folders, shown at `size`.
 fn driver(dir: &Path, photos: usize, folders: usize, size: (u32, u32)) -> Driver {
     let session = synthetic::open(dir, &Spec::new(photos, folders, synthetic::SEED), Arc::new(dalica_core::SystemClock)).unwrap();
-    let mut d = Driver::new(App::new(Some(session)), size.0, size.1, 1.0);
+    let mut d = new_driver(App::new(Some(session)), size.0, size.1, 1.0);
     d.settle(FRAMES).unwrap();
     d
 }
@@ -52,10 +52,6 @@ fn offset(d: &Driver) -> f64 {
 
 fn view_h(d: &Driver) -> f32 {
     info(d).area.unwrap().height()
-}
-
-fn widget(d: &Driver, id: &str) -> WidgetInfo {
-    d.widgets().into_iter().find(|w| w.id == id).unwrap_or_else(|| panic!("no `{id}`"))
 }
 
 fn center(w: &WidgetInfo) -> Pos2 {
@@ -423,7 +419,7 @@ fn the_scroll_commands_fail_gracefully() {
     // Without a library, and with nothing to scroll: refused, never a panic.
     let mut opening = App::new(None);
     let dir = tempfile::tempdir().unwrap();
-    let mut empty = Driver::new(App::new(Some(Session::open(dir.path(), Arc::new(dalica_core::SystemClock)).unwrap())), 900, 600, 1.0);
+    let mut empty = new_driver(App::new(Some(Session::open(dir.path(), Arc::new(dalica_core::SystemClock)).unwrap())), 900, 600, 1.0);
     empty.settle(FRAMES).unwrap();
     for id in SCROLL_COMMANDS {
         assert!(matches!(opening.run(id, &json!({})), Err(CmdError::Disabled(_))), "{id}");

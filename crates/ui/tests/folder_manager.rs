@@ -8,34 +8,24 @@
 //! - Cancel changes nothing; OK applies the draft as one undo step, which undo takes back.
 //! - Scan Always on a volume root asks first: Cancel reverts the radio, Watch Drive sets it.
 //! - The library's selected folder is pre-selected and revealed; the watched list reveals too.
-//! - Every widget has an id at 1400 × 900 and 900 × 600, and the dialog matches its fingerprints
-//!   (`tests/fingerprints/dialog-folder-manager-<w>x<h>.json`; `DALICA_BLESS=1` stores new ones,
+//! - Every widget has an id (the driver checks every frame); it fits 900 × 600, and the dialog matches its fingerprints
+//!   (`tests/fingerprints/dialog-folder-manager-1400x900.json`; `DALICA_BLESS=1` stores new ones,
 //!   renders go to `target/test-output/ui/`).
 
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::common::{FRAMES, LARGE, check_sizes, check_small, new_driver, put_jpeg, shot, try_widget};
 use dalica_core::FolderId;
 use dalica_engine::Session;
 use dalica_scan::{Places, Volume, VolumeKind};
-use dalica_scenes::fingerprint;
 use dalica_ui::dialogs::folder_manager::draft::Draft;
 use dalica_ui::dialogs::folder_manager::{self, State, expand_id, mode_id, reveal_id, row_id};
 use dalica_ui::state::DialogKind;
 use dalica_ui::{App, Driver};
-use dalica_ui_kit::registry::{self, Role};
-use dalica_ui_kit::{Tokens, WidgetInfo};
+use dalica_ui_kit::Tokens;
+use dalica_ui_kit::registry::Role;
 use serde_json::json;
-
-const FRAMES: usize = 60 * 60;
-const SIZES: [(u32, u32); 2] = [(1400, 900), (900, 600)];
-
-fn put_jpeg(path: &Path, seed: u64) {
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    let jpeg = dalica_scenes::encode::jpeg(&dalica_scenes::Scene::new(seed, 96, 64), 80, None).unwrap();
-    std::fs::write(path, jpeg).unwrap();
-}
 
 struct Fx {
     _dir: tempfile::TempDir,
@@ -66,17 +56,13 @@ fn fixture((w, h): (u32, u32)) -> Fx {
     s.execute("folders.set", &json!({ "changes": [{ "path": pictures, "mode": "always" }] })).unwrap();
     s.wait_idle();
     assert_eq!(s.library().photos().count(), 5);
-    let mut d = Driver::new(App::new(Some(s)), w, h, 1.0);
+    let mut d = new_driver(App::new(Some(s)), w, h, 1.0);
     d.settle(FRAMES).unwrap();
     Fx { _dir: dir, home, pictures, card, d }
 }
 
-fn widget(d: &Driver, id: &str) -> Option<WidgetInfo> {
-    d.widgets().into_iter().find(|w| w.id == id)
-}
-
 fn has(d: &Driver, id: &str) -> bool {
-    widget(d, id).is_some()
+    try_widget(d, id).is_some()
 }
 
 /// Runs frames (yielding to the workers) until widget `id` is drawn; the frames it took.
@@ -116,7 +102,7 @@ fn photos(d: &Driver) -> usize {
 }
 
 fn active(d: &Driver, id: &str) -> bool {
-    widget(d, id).unwrap_or_else(|| panic!("no `{id}`")).active
+    try_widget(d, id).unwrap_or_else(|| panic!("no `{id}`")).active
 }
 
 /// Expanding a root lists its children without blocking a frame: the frame after the click shows a
@@ -124,7 +110,7 @@ fn active(d: &Driver, id: &str) -> bool {
 /// the disk meanwhile.
 #[test]
 fn expanding_a_root_lists_its_children_without_blocking_a_frame() {
-    let mut fx = fixture(SIZES[0]);
+    let mut fx = fixture(LARGE);
     open(&mut fx);
     let home = fx.home.clone();
     // The roots: the places that exist, then the volume, each with its name.
@@ -141,7 +127,7 @@ fn expanding_a_root_lists_its_children_without_blocking_a_frame() {
     let frames = wait_for(&mut fx.d, &child);
     assert!(!has(&fx.d, &loading));
     let children: Vec<String> = ["Desktop", "Documents", "Pictures"].iter().map(|n| row_id(&home, &home.join(n))).collect();
-    let ys: Vec<f32> = children.iter().map(|id| widget(&fx.d, id).unwrap().rect[1]).collect();
+    let ys: Vec<f32> = children.iter().map(|id| try_widget(&fx.d, id).unwrap().rect[1]).collect();
     assert!(ys.windows(2).all(|w| w[0] < w[1]), "sorted by name: {ys:?}");
     assert_eq!(dalica_fs::guard::refused(), refused, "the UI thread touched the disk");
     drop(ui);
@@ -163,7 +149,7 @@ fn expanding_a_root_lists_its_children_without_blocking_a_frame() {
 
 /// The most colourful pixel of row `id`'s state icon (a row at `depth`), as RGB.
 fn state_ink(d: &Driver, id: &str, depth: usize) -> [u8; 3] {
-    let w = widget(d, id).unwrap_or_else(|| panic!("no `{id}`"));
+    let w = try_widget(d, id).unwrap_or_else(|| panic!("no `{id}`"));
     let row = egui::Rect::from_min_size(egui::pos2(w.rect[0], w.rect[1]), egui::vec2(w.rect[2], w.rect[3]));
     let r = folder_manager::tree::state_rect(&Tokens::default(), row, depth);
     let shot = d.screenshot().unwrap();
@@ -185,7 +171,7 @@ fn state_ink(d: &Driver, id: &str, depth: usize) -> [u8; 3] {
 /// its folders sets it (full).
 #[test]
 fn rows_show_their_state_and_inherited_states_at_half_opacity() {
-    let mut fx = fixture(SIZES[0]);
+    let mut fx = fixture(LARGE);
     open(&mut fx);
     let (pics, docs) = (fx.pictures.clone(), fx.home.join("Documents"));
     fx.d.click(&expand_id(&pics, &pics)).unwrap();
@@ -215,13 +201,13 @@ fn rows_show_their_state_and_inherited_states_at_half_opacity() {
 /// modes and the faces flag set), and one undo takes it all back.
 #[test]
 fn cancel_changes_nothing_and_ok_applies_one_undo_step() {
-    let mut fx = fixture(SIZES[0]);
+    let mut fx = fixture(LARGE);
     let pics = fx.pictures.clone();
     let (old, trip, docs) = (pics.join("Old"), pics.join("2026-01 Trip"), fx.home.join("Documents"));
     let steps = undo_steps(&fx.d);
     open(&mut fx);
-    assert!(!widget(&fx.d, &mode_id(State::Always)).unwrap().enabled, "the radios wait for a selection");
-    assert!(!widget(&fx.d, folder_manager::FACES_ID).unwrap().enabled);
+    assert!(!try_widget(&fx.d, &mode_id(State::Always)).unwrap().enabled, "the radios wait for a selection");
+    assert!(!try_widget(&fx.d, folder_manager::FACES_ID).unwrap().enabled);
     fx.d.click(&expand_id(&pics, &pics)).unwrap();
     wait_for(&mut fx.d, &row_id(&pics, &old));
     fx.d.click(&row_id(&pics, &old)).unwrap();
@@ -273,7 +259,7 @@ fn cancel_changes_nothing_and_ok_applies_one_undo_step() {
 /// Manager, Cancel (Esc) leaves the radio as it was, Watch Drive sets it, and OK watches the drive.
 #[test]
 fn the_drive_confirmation_reverts_on_cancel_and_watch_drive_sets_the_radio() {
-    let mut fx = fixture(SIZES[0]);
+    let mut fx = fixture(LARGE);
     let card = fx.card.clone();
     open(&mut fx);
     fx.d.click(&row_id(&card, &card)).unwrap();
@@ -312,7 +298,7 @@ fn the_drive_confirmation_reverts_on_cancel_and_watch_drive_sets_the_radio() {
 /// same question is `needs_confirm`.
 #[test]
 fn folders_set_on_a_drive_asks_through_the_host() {
-    let mut fx = fixture(SIZES[0]);
+    let mut fx = fixture(LARGE);
     let home = fx.home.clone();
     open(&mut fx);
     let params = json!({ "changes": [{ "path": home, "mode": "always" }] });
@@ -331,7 +317,7 @@ fn folders_set_on_a_drive_asks_through_the_host() {
 /// `needs_confirm` prompt.
 #[test]
 fn remove_folder_asks_through_the_host() {
-    let mut fx = fixture(SIZES[0]);
+    let mut fx = fixture(LARGE);
     let old = fx.pictures.join("Old");
     let id = fx.d.app().session().unwrap().library().folders().find(|f| f.path == old).unwrap().id.get();
     let steps = undo_steps(&fx.d);
@@ -374,7 +360,7 @@ fn remove_folder_asks_through_the_host() {
 /// folder selects and reveals it.
 #[test]
 fn the_selected_library_folder_is_preselected_and_the_watched_list_reveals() {
-    let mut fx = fixture(SIZES[0]);
+    let mut fx = fixture(LARGE);
     let (pics, old) = (fx.pictures.clone(), fx.pictures.join("Old"));
     let id: FolderId = fx.d.app().session().unwrap().library().folders().find(|f| f.path == old).unwrap().id;
     fx.d.app_mut().state_mut().folder = Some(id);
@@ -384,9 +370,9 @@ fn the_selected_library_folder_is_preselected_and_the_watched_list_reveals() {
     assert_eq!(dr.selected.as_deref(), Some(old.to_string_lossy().as_ref()));
     assert!(dr.is_expanded(&pics) && dr.reveal.is_none(), "{dr:?}");
     assert!(active(&fx.d, &row_id(&pics, &old)), "its row is selected");
-    assert!(widget(&fx.d, &mode_id(State::Always)).unwrap().enabled && active(&fx.d, &mode_id(State::Always)));
+    assert!(try_widget(&fx.d, &mode_id(State::Always)).unwrap().enabled && active(&fx.d, &mode_id(State::Always)));
     // The watched list: Pictures, by its name; a click selects it in the tree.
-    let w = widget(&fx.d, &reveal_id(&pics)).unwrap();
+    let w = try_widget(&fx.d, &reveal_id(&pics)).unwrap();
     assert_eq!(w.label, "Pictures");
     fx.d.click(&reveal_id(&pics)).unwrap();
     fx.d.step();
@@ -394,87 +380,29 @@ fn the_selected_library_folder_is_preselected_and_the_watched_list_reveals() {
     assert!(active(&fx.d, &row_id(&pics, &pics)));
 }
 
-/// Checks the last frame: no unregistered interactive widget, unique ids in the grammar, every
-/// rect on screen.
-fn check_ids(d: &Driver, (w, h): (u32, u32)) {
-    assert_eq!(d.app().panels().unwrap().unregistered_widgets(), [], "{w}×{h}: interactive widgets without an id");
-    let mut seen = HashSet::new();
-    for wi in d.widgets() {
-        assert!(registry::is_valid_id(&wi.id), "{w}×{h}: `{}` breaks the id grammar", wi.id);
-        assert!(seen.insert(wi.id.clone()), "{w}×{h}: `{}` is registered twice", wi.id);
-        let [x, y, rw, rh] = wi.rect;
-        assert!(
-            rw > 0.0 && rh > 0.0 && x >= 0.0 && y >= 0.0 && x + rw <= w as f32 + 0.01 && y + rh <= h as f32 + 0.01,
-            "{w}×{h}: `{}` at {:?}",
-            wi.id,
-            wi.rect
-        );
-    }
-}
-
-fn out_dir() -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/ui");
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
-/// Checks the region `id` covers in the last frame against `tests/fingerprints/<name>.json`, and
-/// writes it and the whole window to the test output.
-pub fn check_region(d: &Driver, id: &str, name: &str) {
-    let shot = d.screenshot().unwrap();
-    std::fs::write(out_dir().join(format!("{name}-window.png")), fingerprint::png_rgba(shot.width, shot.height, &shot.rgba)).unwrap();
-    let r = widget(d, id).unwrap().rect;
-    let (x0, y0, w, h) = (r[0].round() as u32, r[1].round() as u32, r[2].round() as u32, r[3].round() as u32);
-    let mut rgba = Vec::with_capacity((w * h * 4) as usize);
-    for y in y0..y0 + h {
-        for x in x0..x0 + w {
-            rgba.extend_from_slice(&shot.pixel(x, y).unwrap());
-        }
-    }
-    std::fs::write(out_dir().join(format!("{name}.png")), fingerprint::png_rgba(w, h, &rgba)).unwrap();
-    let stored = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("tests/fingerprints/{name}.json"));
-    if std::env::var_os("DALICA_BLESS").is_some() {
-        std::fs::write(&stored, fingerprint::to_json(&fingerprint::fingerprint(w, h, &rgba)) + "\n").unwrap();
-    }
-    let expected = fingerprint::from_json(&std::fs::read_to_string(&stored).unwrap()).unwrap();
-    if let Err(m) = fingerprint::check(w, h, &rgba, &expected, 2.0) {
-        std::fs::write(out_dir().join(format!("{name}-actual.png")), &m.actual_png).unwrap();
-        panic!("{name}: {}", m.message);
-    }
-}
-
-/// Every widget of the dialog has an id at both window sizes (the tree expanded, a spinner row
-/// gone, the Watch Drive question over it), and the dialog matches its fingerprint at both sizes:
-/// Home expanded, Pictures/Old selected, Documents set to Scan Once in the draft.
+/// The dialog matches its fingerprint and fits the small window (Home expanded, Pictures/Old
+/// selected, Documents set to Scan Once in the draft), and so does the Watch Drive question over it.
 #[test]
-fn every_widget_has_an_id_and_the_dialog_matches_its_fingerprints_at_both_sizes() {
-    for size in SIZES {
-        let mut fx = fixture(size);
-        let (home, pics, docs) = (fx.home.clone(), fx.pictures.clone(), fx.home.join("Documents"));
-        open(&mut fx);
-        check_ids(&fx.d, size);
-        fx.d.click(&expand_id(&home, &home)).unwrap();
-        check_ids(&fx.d, size);
-        wait_for(&mut fx.d, &row_id(&home, &docs));
-        fx.d.click(&expand_id(&pics, &pics)).unwrap();
-        wait_for(&mut fx.d, &row_id(&pics, &pics.join("Old")));
-        fx.d.click(&row_id(&home, &docs)).unwrap();
-        fx.d.click(&mode_id(State::Once)).unwrap();
-        fx.d.click(&row_id(&pics, &pics.join("Old"))).unwrap();
-        fx.d.settle(FRAMES).unwrap();
-        check_ids(&fx.d, size);
-        let (w, h) = size;
-        check_region(&fx.d, "dialog:folderManager", &format!("dialog-folder-manager-{w}x{h}"));
-        // The Watch Drive question over it.
-        fx.d.click(&row_id(&home, &home)).unwrap();
-        fx.d.click(&mode_id(State::Always)).unwrap();
-        assert!(has(&fx.d, "dialog:watchDrive"));
-        // Faded in, over the Folder Manager.
-        fx.d.settle(FRAMES).unwrap();
-        check_ids(&fx.d, size);
-        assert!(has(&fx.d, "dialog:folderManager/ok") && !has(&fx.d, "button:dialog.ok"), "the buttons under the question are its parts");
-        let shot = fx.d.screenshot().unwrap();
-        std::fs::write(out_dir().join(format!("dialog-watch-drive-{w}x{h}-window.png")), fingerprint::png_rgba(shot.width, shot.height, &shot.rgba))
-            .unwrap();
-    }
+fn the_dialog_matches_its_fingerprint_and_fits_the_small_window() {
+    let mut fx = fixture(LARGE);
+    let (home, pics, docs) = (fx.home.clone(), fx.pictures.clone(), fx.home.join("Documents"));
+    open(&mut fx);
+    fx.d.click(&expand_id(&home, &home)).unwrap();
+    wait_for(&mut fx.d, &row_id(&home, &docs));
+    fx.d.click(&expand_id(&pics, &pics)).unwrap();
+    wait_for(&mut fx.d, &row_id(&pics, &pics.join("Old")));
+    fx.d.click(&row_id(&home, &docs)).unwrap();
+    fx.d.click(&mode_id(State::Once)).unwrap();
+    fx.d.click(&row_id(&pics, &pics.join("Old"))).unwrap();
+    fx.d.settle(FRAMES).unwrap();
+    check_sizes(&mut fx.d, "dialog:folderManager", "dialog-folder-manager");
+    // The Watch Drive question over it.
+    fx.d.click(&row_id(&home, &home)).unwrap();
+    fx.d.click(&mode_id(State::Always)).unwrap();
+    assert!(has(&fx.d, "dialog:watchDrive"));
+    // Faded in, over the Folder Manager.
+    fx.d.settle(FRAMES).unwrap();
+    assert!(has(&fx.d, "dialog:folderManager/ok") && !has(&fx.d, "button:dialog.ok"), "the buttons under the question are its parts");
+    shot(&fx.d, "dialog-watch-drive-1400x900-window");
+    check_small(&mut fx.d, "dialog:watchDrive");
 }

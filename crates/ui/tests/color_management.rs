@@ -5,6 +5,7 @@
 
 use std::sync::Arc;
 
+use crate::common::{FRAMES, new_driver};
 use dalica_core::PhotoId;
 use dalica_engine::{CacheDir, Options, Session, ThumbOptions};
 use dalica_scenes::Scene;
@@ -13,8 +14,6 @@ use dalica_ui::control::{Config, Connection, Control, Request, serve};
 use dalica_ui::{App, Driver};
 use dalica_ui_kit::Image;
 use serde_json::{Value, json};
-
-const FRAMES: usize = 60 * 60;
 
 struct T {
     _dir: tempfile::TempDir,
@@ -39,7 +38,7 @@ fn setup() -> T {
     let id = |name: &str| s.library().photos().find(|p| p.name == name).unwrap().id;
     let (tagged, plain) = (id("IMG_0001.jpg"), id("IMG_0002.jpg"));
     let control = Control::new(Config::default());
-    let mut d = Driver::new(App::new(Some(s)), 1400, 900, 1.0);
+    let mut d = new_driver(App::new(Some(s)), 1400, 900, 1.0);
     d.settle_for(FRAMES, true);
     T { _dir: dir, control, conn: Connection::new(), d, tagged, plain }
 }
@@ -166,7 +165,7 @@ fn a_refresh_drops_only_its_sections_textures() {
     }
     s.wait_idle();
     let a = s.library().folder_by_path(&folders[0]).unwrap();
-    let mut d = Driver::new(App::new(Some(s)), 1400, 900, 1.0);
+    let mut d = new_driver(App::new(Some(s)), 1400, 900, 1.0);
     d.settle_for(FRAMES, true);
     assert_eq!(textures(&d), 8, "both folders on screen, every cell covered");
     let before = uploads(&d);
@@ -191,26 +190,25 @@ fn a_refresh_drops_only_its_sections_textures() {
 /// Switching colour management drops every texture at once: every frame from the switch until each
 /// cell is covered again (each timed whole: the app's frame, the session's poll, uploads) stays
 /// within the light table's 8 ms frame budget (`development.md` §8), asserted in a release build on
-/// a scanned library (1 000 photos; `DALICA_CM_PHOTOS` sets another count, e.g. 10 000).
+/// a scanned library (1 000 photos, 200 in a task's quick run; `DALICA_CM_PHOTOS` sets another
+/// count, e.g. 10 000).
 #[test]
 #[cfg(not(windows))]
 fn the_frames_after_a_whole_drop_stay_within_the_budget() {
     use dalica_engine::synthetic::{self, Spec};
-    let photos: usize = std::env::var("DALICA_CM_PHOTOS").ok().and_then(|v| v.parse().ok()).unwrap_or(1_000);
+    let photos: usize =
+        std::env::var("DALICA_CM_PHOTOS").ok().and_then(|v| v.parse().ok()).unwrap_or(if crate::common::full() { 1_000 } else { 200 });
     let dir = tempfile::tempdir().unwrap();
-    let cache = dir.path().join("cache");
-    dalica_engine::thumbs::set_process_cache_dir(Some(cache.clone()));
-    let first = synthetic::open_scanned(
-        &dir.path().join("lib"),
-        &Spec::new(photos, photos.div_ceil(100), synthetic::SEED),
-        synthetic::DEFAULT_FILE_SIDE,
-        Arc::new(dalica_core::SystemClock),
-    );
-    dalica_engine::thumbs::set_process_cache_dir(None);
-    drop(first.unwrap());
-    let options = Options { thumbs: ThumbOptions { cache: CacheDir::At(cache), ..ThumbOptions::default() } };
-    let session = Session::open_with(&synthetic::library_dir(&dir.path().join("lib")), Arc::new(dalica_core::SystemClock), &options).unwrap();
-    let mut d = Driver::new(App::new(Some(session)), 1400, 900, 1.0);
+    let lib = dir.path().join("lib");
+    // The thumbnails go to `cache` (named in the options, not set for the whole test process).
+    let options = Options { thumbs: ThumbOptions { cache: CacheDir::At(dir.path().join("cache")), ..ThumbOptions::default() } };
+    synthetic::write_photos(&lib, &Spec::new(photos, photos.div_ceil(100), synthetic::SEED), synthetic::DEFAULT_FILE_SIDE).unwrap();
+    let mut first = Session::open_with(&synthetic::library_dir(&lib), Arc::new(dalica_core::SystemClock), &options).unwrap();
+    first.execute("folders.add", &json!({ "path": synthetic::photos_dir(&lib) })).unwrap();
+    first.wait_idle();
+    drop(first);
+    let session = Session::open_with(&synthetic::library_dir(&lib), Arc::new(dalica_core::SystemClock), &options).unwrap();
+    let mut d = new_driver(App::new(Some(session)), 1400, 900, 1.0);
     d.settle_for(FRAMES, true);
     let covered = textures(&d);
     assert!(covered > 20, "{covered} textures");

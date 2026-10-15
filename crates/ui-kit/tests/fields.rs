@@ -5,14 +5,12 @@
 //! The behaviour tests of the text field are ported from LightCraft
 //! `crates/ui-egui/src/text_field.rs` at revision 76b53778 (MIT OR Apache-2.0; `NOTICE`), with
 //! Dalica's ids (`<field>/cut` …). The gallery renders every state of the fields and the list with
-//! the CPU rasterizer: a sheet of states (`fingerprints/fields-states.json`) and a window at both
-//! sizes with a field at its bottom-right corner, its list kept inside the window
-//! (`fingerprints/fields-window-<w>x<h>.json`). The renders go to `target/test-output/ui-kit/`;
+//! the CPU rasterizer: a sheet of states (`fingerprints/fields-states.json`) and a window
+//! with a field at its bottom-right corner, its list kept inside the window
+//! (`fingerprints/fields-window-1400x900.json`). The renders go to `target/test-output/ui-kit/`;
 //! `DALICA_BLESS=1` stores new fingerprints (commit them only after looking at the PNGs).
 
-use std::path::PathBuf;
-
-use dalica_scenes::fingerprint;
+use crate::common::{check, out_dir};
 use dalica_ui_kit::widgets::{Ending, TextField, autocomplete, focus_field, search_field, text_field};
 use dalica_ui_kit::{Image, Rasterizer, Role, Tokens, WidgetInfo, fonts, registry};
 use egui::text_edit::TextEditState;
@@ -699,12 +697,6 @@ fn the_list_and_the_menu_stay_inside_the_window() {
 
 // ---- The gallery ----
 
-fn out_dir() -> PathBuf {
-    let out = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/ui-kit");
-    std::fs::create_dir_all(&out).unwrap();
-    out
-}
-
 /// One state of the gallery: a field in a tile, driven into the state.
 fn tile(name: &'static str) -> (Rig, Image) {
     const TILE: (u32, u32) = (260, 190);
@@ -783,26 +775,8 @@ fn window(size: (u32, u32)) -> Image {
     rig.render()
 }
 
-fn check(name: &str, img: &Image, failures: &mut Vec<String>) {
-    let out = out_dir();
-    std::fs::write(out.join(format!("{name}.png")), fingerprint::png_rgba(img.width, img.height, &img.rgba)).unwrap();
-    let stored = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("tests/fingerprints/{name}.json"));
-    if std::env::var_os("DALICA_BLESS").is_some() {
-        std::fs::write(&stored, fingerprint::to_json(&fingerprint::fingerprint(img.width, img.height, &img.rgba)) + "\n").unwrap();
-    }
-    match std::fs::read_to_string(&stored).map_err(|e| e.to_string()).and_then(|s| fingerprint::from_json(&s)) {
-        Ok(expected) => {
-            if let Err(m) = fingerprint::check(img.width, img.height, &img.rgba, &expected, 2.0) {
-                std::fs::write(out.join(format!("{name}-actual.png")), &m.actual_png).unwrap();
-                failures.push(format!("{name}: {}", m.message));
-            }
-        }
-        Err(e) => failures.push(format!("{name}: no fingerprint ({e}); run with DALICA_BLESS=1 and look at the PNG")),
-    }
-}
-
 /// Every state renders identically twice, registers its ids and matches its fingerprint; so does
-/// the window at both sizes.
+/// the window.
 #[test]
 fn every_state_renders_identically_twice_and_matches_its_fingerprint() {
     let (a, rigs) = sheet();
@@ -823,11 +797,10 @@ fn every_state_renders_identically_twice_and_matches_its_fingerprint() {
     }
     let mut failures = Vec::new();
     check("fields-states", &a, &mut failures);
-    for size in [(1400, 900), (900, 600)] {
-        let one = window(size);
-        let two = window(size);
-        assert!(one.rgba == two.rgba, "two renders of the {size:?} window differ");
-        check(&format!("fields-window-{}x{}", size.0, size.1), &one, &mut failures);
-    }
+    // The window at one size: one fingerprint per state (the app's tests check the layout of
+    // the small window).
+    let (one, two) = (window((1400, 900)), window((1400, 900)));
+    assert!(one.rgba == two.rgba, "two renders of the window differ");
+    check("fields-window-1400x900", &one, &mut failures);
     assert!(failures.is_empty(), "{} (renders in {})", failures.join("\n"), out_dir().display());
 }

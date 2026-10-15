@@ -3,7 +3,7 @@
 //! in a folder and in an album; in an album Remove from Album asks (unless "Remove from albums
 //! without asking" is on), removes and leaves the files, Set as Album Cover changes the cover the
 //! tree shows (`albums.list`), and Show in Folder selects the photo in its folder. The open menu
-//! with Add to Album ▸ open is fingerprinted at both sizes as `menu-photo-<w>x<h>.json` (its label
+//! with Add to Album ▸ open is fingerprinted at 1400 × 900 as `menu-photo-1400x900.json` (its label
 //! column over the open submenu, the same on every OS)
 //! (`DALICA_BLESS=1` stores it; renders go to `target/test-output/ui/`).
 //!
@@ -11,10 +11,11 @@
 //! (`thumb:<PhotoId>/in/<album>`), as a person does; the enabled-state checks of cases a click cannot
 //! reach (a photo of the selection outside the album) put the selection there directly.
 
-use std::collections::{BTreeSet, HashSet};
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::common::{FRAMES, LARGE, check_pixels, new_driver, out_dir, try_widget};
 use dalica_core::{AlbumId, PhotoId};
 use dalica_engine::Session;
 use dalica_scenes::fingerprint;
@@ -22,16 +23,12 @@ use dalica_ui::headless::Click;
 use dalica_ui::menus::{self, Platform};
 use dalica_ui::state::{AlbumKey, AlbumSection, Section, Selection};
 use dalica_ui::{App, Driver, ScriptedPicker};
-use dalica_ui_kit::{WidgetInfo, registry};
 use egui::PointerButton;
 use serde_json::{Value, json};
 
-const FRAMES: usize = 60 * 60;
-const SIZES: [(u32, u32); 2] = [(1400, 900), (900, 600)];
-
 /// A library in `root` with two folders of 4 scenes photos each, added and scanned.
 fn session(root: &Path) -> Session {
-    let files = dalica_scenes::demo_library(2, 8, 13).unwrap();
+    let files = crate::common::demo_library(2, 8, 13).unwrap();
     let mut folders = BTreeSet::new();
     for f in &files {
         let path = root.join("photos").join(&f.path);
@@ -62,7 +59,7 @@ fn setup((w, h): (u32, u32)) -> T {
     let mut session = session(dir.path());
     let found = session.execute("library.query", &json!({ "limit": 1000 })).unwrap();
     assert_eq!(found["photos"].as_array().unwrap().len(), 8);
-    let mut d = Driver::new(App::with_picker(Some(session), Arc::new(ScriptedPicker::new())), w, h, 1.0);
+    let mut d = new_driver(App::with_picker(Some(session), Arc::new(ScriptedPicker::new())), w, h, 1.0);
     d.settle(FRAMES).unwrap();
     let s: Vec<Vec<PhotoId>> = d.app().panels().unwrap().sections.list.iter().map(|s| s.photos.clone()).collect();
     let trams = d.run("album.create", &json!({ "name": "Trams", "ids": [s[0][0], s[0][1]] })).unwrap()["album"].as_str().unwrap().to_string();
@@ -81,10 +78,6 @@ fn select_in(t: &mut T, section: Section, ids: &[PhotoId], focus: PhotoId) {
     t.d.settle(FRAMES).unwrap();
 }
 
-fn widget(d: &Driver, id: &str) -> Option<WidgetInfo> {
-    d.widgets().into_iter().find(|w| w.id == id)
-}
-
 /// Right-clicks photo `id`'s cell in its folder: the photo menu opens.
 fn open_menu(t: &mut T, id: PhotoId) {
     open_menu_on(t, &format!("thumb:{}", id.get()));
@@ -100,7 +93,7 @@ fn cell_in(id: PhotoId, album: &AlbumId) -> String {
 fn open_menu_on(t: &mut T, cell: &str) {
     t.d.click_with(cell, &Click { button: PointerButton::Secondary, ..Click::default() }).unwrap();
     t.d.settle(FRAMES).unwrap();
-    assert!(widget(&t.d, "menuitem:view.edit").is_some(), "the photo menu is open");
+    assert!(try_widget(&t.d, "menuitem:view.edit").is_some(), "the photo menu is open");
 }
 
 /// Selects the photos of `cells` as a person does: a click on the first, Ctrl-clicks on the rest.
@@ -222,7 +215,7 @@ fn the_rows_in_order_and_their_states_in_a_folder_and_in_an_album() {
     open_menu(&mut t, a);
     t.d.click("submenu:Photo/Add to Album").unwrap();
     t.d.settle(FRAMES).unwrap();
-    let shown = |d: &Driver, id: &str| widget(d, id).unwrap_or_else(|| panic!("{id} is not drawn"));
+    let shown = |d: &Driver, id: &str| try_widget(d, id).unwrap_or_else(|| panic!("{id} is not drawn"));
     assert_eq!(shown(&t.d, &format!("menuitem:album.add/{trams}")).label, "Trams");
     assert_eq!(shown(&t.d, &format!("menuitem:album.add/{beach}")).label, "Beach");
     assert!(shown(&t.d, "menuitem:album.new").enabled);
@@ -253,12 +246,12 @@ fn remove_from_album_asks_removes_and_leaves_the_files() {
     open_menu_on(&mut t, &cell_a);
     t.d.click("menuitem:album.remove").unwrap();
     t.d.settle(FRAMES).unwrap();
-    let dialog = widget(&t.d, "dialog:removeFromAlbum").expect("Remove from Album asks first");
+    let dialog = try_widget(&t.d, "dialog:removeFromAlbum").expect("Remove from Album asks first");
     assert_eq!(dialog.label, "Remove from Album");
     assert_eq!(t.d.app().session().unwrap().library().album_members(&trams), [a, b], "nothing removed yet");
     t.d.click("button:dialog.cancel").unwrap();
     t.d.settle(FRAMES).unwrap();
-    assert!(widget(&t.d, "dialog:removeFromAlbum").is_none());
+    assert!(try_widget(&t.d, "dialog:removeFromAlbum").is_none());
     assert_eq!(t.d.app().session().unwrap().library().album_members(&trams), [a, b]);
     // Again, and Remove: the album's section empties.
     open_menu_on(&mut t, &cell_a);
@@ -272,7 +265,10 @@ fn remove_from_album_asks_removes_and_leaves_the_files() {
     for p in &paths {
         assert!(p.is_file(), "{} is still on disk", p.display());
     }
-    assert!(widget(&t.d, &cell_a).is_none() && widget(&t.d, &format!("thumb:{}", a.get())).is_some(), "out of the album, still in its folder");
+    assert!(
+        try_widget(&t.d, &cell_a).is_none() && try_widget(&t.d, &format!("thumb:{}", a.get())).is_some(),
+        "out of the album, still in its folder"
+    );
     // Undo brings them back; with the setting on, the photos leave without a question.
     t.d.key("Ctrl+Z").unwrap();
     t.d.settle(FRAMES).unwrap();
@@ -286,7 +282,7 @@ fn remove_from_album_asks_removes_and_leaves_the_files() {
     open_menu_on(&mut t, &cell_b);
     t.d.click("menuitem:album.remove").unwrap();
     t.d.settle(FRAMES).unwrap();
-    assert!(widget(&t.d, "dialog:removeFromAlbum").is_none(), "no question");
+    assert!(try_widget(&t.d, "dialog:removeFromAlbum").is_none(), "no question");
     assert_eq!(t.d.app().session().unwrap().library().album_members(&trams), [a]);
     assert!(paths[1].is_file());
 }
@@ -314,7 +310,7 @@ fn set_as_album_cover_and_show_in_folder() {
     // The album selected as a unit (its tree row) shows the new cover in the tray's token.
     t.d.click(&format!("tree:album:{trams}")).unwrap();
     t.d.settle(FRAMES).unwrap();
-    assert_eq!(widget(&t.d, "tray:token").expect("the album token").label, "Album selected — 2 photos");
+    assert_eq!(try_widget(&t.d, "tray:token").expect("the album token").label, "Album selected — 2 photos");
     let state = t.d.state().clone();
     assert_eq!(dalica_ui::panels::bottom::tray::token_cover(&state, t.d.app().session().unwrap()), Some(b));
     // Show in Folder: the photo alone, selected in its folder's section.
@@ -325,25 +321,6 @@ fn set_as_album_cover_and_show_in_folder() {
     let folder = t.d.app().session().unwrap().library().photo(b).unwrap().folder;
     let sel = &t.d.state().selection;
     assert_eq!((sel.ids.as_slice(), sel.section), ([b].as_slice(), Some(Section::Folder(folder))));
-}
-
-/// Every interactive widget of the open menu has a valid, unique id inside the window.
-fn check_ids(d: &Driver, what: &str) {
-    let (w, h, _) = d.size();
-    assert_eq!(d.app().panels().unwrap().unregistered_widgets(), [], "{what}: interactive widgets without an id");
-    let mut seen = HashSet::new();
-    for wi in d.widgets() {
-        assert!(registry::is_valid_id(&wi.id), "{what}: `{}` breaks the id grammar", wi.id);
-        assert!(seen.insert(wi.id.clone()), "{what}: `{}` is registered twice", wi.id);
-        let [x, y, rw, rh] = wi.rect;
-        assert!(x >= 0.0 && y >= 0.0 && x + rw <= w as f32 + 0.01 && y + rh <= h as f32 + 0.01, "{what}: `{}` at {:?}", wi.id, wi.rect);
-    }
-}
-
-fn out_dir() -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/ui");
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
 }
 
 /// The pixels of `shot` in `[x0, x1) × [y0, y1)` (clamped to the image): width, height, RGBA.
@@ -397,34 +374,21 @@ fn check_menu(d: &Driver, name: &str) {
             rgba.extend(std::iter::repeat_n([0u8, 0, 0, 255], (w - pw) as usize).flatten());
         }
     }
-    std::fs::write(out_dir().join(format!("{name}.png")), fingerprint::png_rgba(w, h, &rgba)).unwrap();
-    let stored = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("tests/fingerprints/{name}.json"));
-    if std::env::var_os("DALICA_BLESS").is_some() {
-        std::fs::write(&stored, fingerprint::to_json(&fingerprint::fingerprint(w, h, &rgba)) + "\n").unwrap();
-    }
-    let expected = fingerprint::from_json(&std::fs::read_to_string(&stored).unwrap_or_else(|e| panic!("{}: {e}", stored.display()))).unwrap();
-    if let Err(m) = fingerprint::check(w, h, &rgba, &expected, 2.0) {
-        std::fs::write(out_dir().join(format!("{name}-actual.png")), &m.actual_png).unwrap();
-        panic!("{name}: {}", m.message);
-    }
+    check_pixels(name, w, h, &rgba);
 }
 
-/// The photo menu with Add to Album ▸ open, at both sizes: View and Edit bold, the albums by name
-/// over New Album….
+/// The photo menu with Add to Album ▸ open: View and Edit bold, the albums by name over New
+/// Album…. (One size: the menu does not depend on the window's.)
 #[test]
-fn the_open_menu_matches_its_fingerprints_at_both_sizes() {
-    for size in SIZES {
-        let mut t = setup(size);
-        let a = t.s[0][0];
-        t.d.run("select.set", &json!({ "ids": [a.get()] })).unwrap();
-        open_menu(&mut t, a);
-        t.d.click("submenu:Photo/Add to Album").unwrap();
-        t.d.settle(FRAMES).unwrap();
-        // Rest the pointer on the submenu's first album, as a person choosing one would.
-        t.d.hover(&format!("menuitem:album.add/{}", t.beach), 0).unwrap();
-        t.d.settle(FRAMES).unwrap();
-        let name = format!("menu-photo-{}x{}", size.0, size.1);
-        check_ids(&t.d, &name);
-        check_menu(&t.d, &name);
-    }
+fn the_open_menu_matches_its_fingerprint() {
+    let mut t = setup(LARGE);
+    let a = t.s[0][0];
+    t.d.run("select.set", &json!({ "ids": [a.get()] })).unwrap();
+    open_menu(&mut t, a);
+    t.d.click("submenu:Photo/Add to Album").unwrap();
+    t.d.settle(FRAMES).unwrap();
+    // Rest the pointer on the submenu's first album, as a person choosing one would.
+    t.d.hover(&format!("menuitem:album.add/{}", t.beach), 0).unwrap();
+    t.d.settle(FRAMES).unwrap();
+    check_menu(&t.d, "menu-photo-1400x900");
 }

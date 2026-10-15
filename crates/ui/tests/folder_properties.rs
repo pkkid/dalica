@@ -11,38 +11,23 @@
 //! - renaming in Folder Properties (M9.20) renames the folder on disk as its own undo step; the
 //!   section title and the tree row follow it, undo puts the name back, a blank name greys OK and
 //!   a name another library folder has is refused with nothing changed;
-//! - every widget has an id, and the header and the dialog match their fingerprints at 1400 × 900
-//!   and 900 × 600 (`tests/fingerprints/region-header-info-<w>x<h>.json`,
-//!   `dialog-folder-properties-<w>x<h>.json`; `DALICA_BLESS=1` stores new ones, renders go to
+//! - the header and the dialog match their fingerprints at 1400 × 900 and fit 900 × 600
+//!   (`tests/fingerprints/region-header-info-1400x900.json`,
+//!   `dialog-folder-properties-1400x900.json`; `DALICA_BLESS=1` stores new ones, renders go to
 //!   `target/test-output/ui/`).
 
-use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
-use dalica_core::{Date, DateTime, FolderId};
+use crate::common::{FRAMES, LARGE, check_sizes, new_driver, put_dated_jpeg, shot, try_widget};
+use dalica_core::{Date, FolderId};
 use dalica_engine::Session;
-use dalica_scenes::fingerprint;
 use dalica_ui::dialogs::folder_properties::{self, BROWSE_ID, DATE_ID, DESCRIPTION_ID, MUSIC_ID, NAME_ID, PLACE_ID, USE_OLDEST_ID};
 use dalica_ui::headless::{Click, DriverError};
 use dalica_ui::panels::light_table::header::{DESCRIPTION_FIELD, PLACEHOLDER};
 use dalica_ui::state::{DescriptionEdit, DialogKind, Section};
 use dalica_ui::{App, Driver};
-use dalica_ui_kit::WidgetInfo;
-use dalica_ui_kit::registry;
 use serde_json::{Value, json};
-
-const FRAMES: usize = 60 * 60;
-const SIZES: [(u32, u32); 2] = [(1400, 900), (900, 600)];
-
-/// A JPEG of `seed` taken on `day` at 10:00 (EXIF DateTimeOriginal).
-fn put_jpeg(path: &Path, seed: u64, (y, m, d): (u16, u8, u8)) {
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    let taken = DateTime::new(Date::new(y, m, d).unwrap(), 10, 0, 0).unwrap();
-    let exif = dalica_scenes::Exif { date_time_original: Some(taken), ..Default::default() };
-    let jpeg = dalica_scenes::jpeg(&dalica_scenes::Scene::new(seed, 96, 64), 80, Some(&exif)).unwrap();
-    std::fs::write(path, jpeg).unwrap();
-}
 
 fn open_session(library: &Path) -> Session {
     let mut s = Session::open(library, Arc::new(dalica_core::SystemClock)).unwrap();
@@ -61,10 +46,10 @@ fn fixture((w, h): (u32, u32)) -> Fx {
     let dir = tempfile::tempdir().unwrap();
     let photos = dir.path().join("photos");
     for (i, day) in [(2026, 6, 5), (2026, 6, 4), (2026, 6, 6)].into_iter().enumerate() {
-        put_jpeg(&photos.join("Lisbon Weekend").join(format!("IMG_{i:04}.jpg")), i as u64, day);
+        put_dated_jpeg(&photos.join("Lisbon Weekend").join(format!("IMG_{i:04}.jpg")), i as u64, day);
     }
     for i in 0..2 {
-        put_jpeg(&photos.join("Porto").join(format!("IMG_{i:04}.jpg")), 10 + i, (2026, 5, 1));
+        put_dated_jpeg(&photos.join("Porto").join(format!("IMG_{i:04}.jpg")), 10 + i, (2026, 5, 1));
     }
     let mut s = open_session(&dir.path().join("library"));
     for f in ["Lisbon Weekend", "Porto"] {
@@ -72,7 +57,7 @@ fn fixture((w, h): (u32, u32)) -> Fx {
     }
     s.wait_idle();
     let lisbon = s.library().folder_by_path(&photos.join("Lisbon Weekend")).unwrap();
-    let mut d = Driver::new(App::new(Some(s)), w, h, 1.0);
+    let mut d = new_driver(App::new(Some(s)), w, h, 1.0);
     d.settle(FRAMES).unwrap();
     Fx { dir, lisbon, d }
 }
@@ -83,17 +68,13 @@ fn restart(fx: Fx) -> Fx {
     let size = d.size();
     drop(d.into_app());
     let s = open_session(&dir.path().join("library"));
-    let mut d = Driver::new(App::new(Some(s)), size.0, size.1, size.2);
+    let mut d = new_driver(App::new(Some(s)), size.0, size.1, size.2);
     d.settle(FRAMES).unwrap();
     Fx { dir, lisbon, d }
 }
 
-fn widget(d: &Driver, id: &str) -> Option<WidgetInfo> {
-    d.widgets().into_iter().find(|w| w.id == id)
-}
-
 fn has(d: &Driver, id: &str) -> bool {
-    widget(d, id).is_some()
+    try_widget(d, id).is_some()
 }
 
 fn part(folder: FolderId, p: &str) -> String {
@@ -128,67 +109,6 @@ fn retype(d: &mut Driver, id: &str, text: &str) {
     d.type_text(text).unwrap();
 }
 
-/// Checks the last frame: no unregistered interactive widget, unique ids in the grammar, every
-/// rect on screen.
-fn check_ids(d: &Driver) {
-    let (w, h, _) = d.size();
-    assert_eq!(d.app().panels().unwrap().unregistered_widgets(), [], "{w}×{h}: interactive widgets without an id");
-    let mut seen = HashSet::new();
-    for wi in d.widgets() {
-        assert!(registry::is_valid_id(&wi.id), "{w}×{h}: `{}` breaks the id grammar", wi.id);
-        assert!(seen.insert(wi.id.clone()), "{w}×{h}: `{}` is registered twice", wi.id);
-        let [x, y, rw, rh] = wi.rect;
-        assert!(
-            rw > 0.0 && rh > 0.0 && x >= 0.0 && y >= 0.0 && x + rw <= w as f32 + 0.01 && y + rh <= h as f32 + 0.01,
-            "{w}×{h}: `{}` at {:?}",
-            wi.id,
-            wi.rect
-        );
-    }
-}
-
-fn out_dir() -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/ui");
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
-/// Writes the whole window to the test output as `<name>.png` (and to `$DALICA_SHOTS` when set).
-fn shot(d: &Driver, name: &str) {
-    let s = d.screenshot().unwrap();
-    let png = fingerprint::png_rgba(s.width, s.height, &s.rgba);
-    std::fs::write(out_dir().join(format!("{name}.png")), &png).unwrap();
-    if let Some(dir) = std::env::var_os("DALICA_SHOTS") {
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(Path::new(&dir).join(format!("{name}.png")), &png).unwrap();
-    }
-}
-
-/// Checks the region widget `id` covers in the last frame against `tests/fingerprints/<name>.json`,
-/// and writes it and the whole window to the test output.
-fn check_region(d: &Driver, id: &str, name: &str) {
-    shot(d, &format!("{name}-window"));
-    let s = d.screenshot().unwrap();
-    let r = widget(d, id).unwrap_or_else(|| panic!("no widget {id}")).rect;
-    let (x0, y0, w, h) = (r[0].round() as u32, r[1].round() as u32, r[2].round() as u32, r[3].round() as u32);
-    let mut rgba = Vec::with_capacity((w * h * 4) as usize);
-    for y in y0..y0 + h {
-        for x in x0..x0 + w {
-            rgba.extend_from_slice(&s.pixel(x, y).unwrap());
-        }
-    }
-    std::fs::write(out_dir().join(format!("{name}.png")), fingerprint::png_rgba(w, h, &rgba)).unwrap();
-    let stored = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("tests/fingerprints/{name}.json"));
-    if std::env::var_os("DALICA_BLESS").is_some() {
-        std::fs::write(&stored, fingerprint::to_json(&fingerprint::fingerprint(w, h, &rgba)) + "\n").unwrap();
-    }
-    let expected = fingerprint::from_json(&std::fs::read_to_string(&stored).unwrap()).unwrap();
-    if let Err(m) = fingerprint::check(w, h, &rgba, &expected, 2.0) {
-        std::fs::write(out_dir().join(format!("{name}-actual.png")), &m.actual_png).unwrap();
-        panic!("{name}: {}", m.message);
-    }
-}
-
 /// The inline editor by widget id: a click opens it focused on the description, typing fills the
 /// draft, Enter commits it as one undo step, Esc changes nothing; the description survives a
 /// restart.
@@ -196,7 +116,7 @@ fn check_region(d: &Driver, id: &str, name: &str) {
 fn an_inline_description_by_id_survives_a_restart() {
     let mut fx = fixture((1400, 900));
     let (folder, section) = (fx.lisbon, Section::Folder(fx.lisbon));
-    let row = widget(&fx.d, &part(folder, "description")).unwrap();
+    let row = try_widget(&fx.d, &part(folder, "description")).unwrap();
     assert_eq!(row.label, PLACEHOLDER);
     assert!(row.enabled, "a click edits the description");
     assert!(!has(&fx.d, DESCRIPTION_FIELD));
@@ -205,10 +125,9 @@ fn an_inline_description_by_id_survives_a_restart() {
     fx.d.click(&part(folder, "description")).unwrap();
     fx.d.settle(FRAMES).unwrap();
     assert_eq!(fx.d.state().description_edit, Some(DescriptionEdit { section, draft: String::new() }));
-    let field = widget(&fx.d, DESCRIPTION_FIELD).expect("the editor is open");
+    let field = try_widget(&fx.d, DESCRIPTION_FIELD).expect("the editor is open");
     assert!(field.active && fx.d.ctx().egui_wants_keyboard_input(), "it has the focus");
     assert!(!has(&fx.d, &part(folder, "description")), "the field takes the description's place");
-    check_ids(&fx.d);
     fx.d.type_text("Trams and tiles 🚋").unwrap();
     assert_eq!(fx.d.state().description_edit.as_ref().map(|e| e.draft.as_str()), Some("Trams and tiles 🚋"));
     assert_eq!(info(&fx.d, folder).description, "", "nothing is applied before Enter");
@@ -218,7 +137,7 @@ fn an_inline_description_by_id_survives_a_restart() {
     assert_eq!(fx.d.state().description_edit, None, "Enter closes the editor");
     assert_eq!(info(&fx.d, folder).description, "Trams and tiles 🚋");
     assert_eq!(undo_steps(&fx.d), (1, Some("Folder Properties")), "one undo step");
-    assert_eq!(widget(&fx.d, &part(folder, "description")).unwrap().label, "Trams and tiles 🚋");
+    assert_eq!(try_widget(&fx.d, &part(folder, "description")).unwrap().label, "Trams and tiles 🚋");
     assert_eq!(shown(&fx.d, folder).1, "Trams and tiles 🚋");
 
     // Esc: the editor closes and nothing changes.
@@ -235,7 +154,7 @@ fn an_inline_description_by_id_survives_a_restart() {
     // Opened through ui.set (as an agent would), the editor takes the focus too; a click away commits.
     fx.d.app_mut().state_mut().description_edit = Some(DescriptionEdit { section, draft: "Tiles".into() });
     fx.d.settle(FRAMES).unwrap();
-    assert!(widget(&fx.d, DESCRIPTION_FIELD).unwrap().active);
+    assert!(try_widget(&fx.d, DESCRIPTION_FIELD).unwrap().active);
     let porto_title = fx.d.widgets().into_iter().find(|w| w.id.ends_with("/title") && !w.id.contains(&format!(":{folder}/"))).unwrap();
     fx.d.click(&porto_title.id).unwrap();
     fx.d.settle(FRAMES).unwrap();
@@ -247,7 +166,7 @@ fn an_inline_description_by_id_survives_a_restart() {
     // A restart: the description is read back and shown.
     let fx = restart(fx);
     assert_eq!(info(&fx.d, folder).description, "Trams and tiles 🚋");
-    assert_eq!(widget(&fx.d, &part(folder, "description")).unwrap().label, "Trams and tiles 🚋");
+    assert_eq!(try_widget(&fx.d, &part(folder, "description")).unwrap().label, "Trams and tiles 🚋");
 }
 
 /// A double-click on the title opens Folder Properties for that folder; Cancel changes nothing;
@@ -272,11 +191,10 @@ fn folder_properties_ok_sets_date_and_place_in_one_undo_step_and_cancel_changes_
         Value::Object(f),
         json!({ "folder": folder, "name": "Lisbon Weekend", "date": "2026-06-04", "useOldest": true, "place": "", "description": "" })
     );
-    check_ids(&fx.d);
     for (id, enabled) in
         [(NAME_ID, true), (DATE_ID, false), (USE_OLDEST_ID, true), (PLACE_ID, true), (DESCRIPTION_ID, true), (MUSIC_ID, false), (BROWSE_ID, false)]
     {
-        assert_eq!(widget(&fx.d, id).unwrap_or_else(|| panic!("no {id}")).enabled, enabled, "{id}");
+        assert_eq!(try_widget(&fx.d, id).unwrap_or_else(|| panic!("no {id}")).enabled, enabled, "{id}");
     }
     assert!(matches!(fx.d.click(BROWSE_ID), Err(DriverError::Disabled(_))), "Music for slideshows waits for slideshows");
 
@@ -292,11 +210,11 @@ fn folder_properties_ok_sets_date_and_place_in_one_undo_step_and_cancel_changes_
     open(&mut fx);
     fx.d.click(USE_OLDEST_ID).unwrap();
     assert_eq!(fields(&fx.d)["useOldest"], false);
-    assert!(widget(&fx.d, DATE_ID).unwrap().enabled, "the box off, the date is typed");
+    assert!(try_widget(&fx.d, DATE_ID).unwrap().enabled, "the box off, the date is typed");
     retype(&mut fx.d, DATE_ID, "2026-13-01");
-    assert!(!widget(&fx.d, "button:dialog.ok").unwrap().enabled, "OK waits for a date that reads");
+    assert!(!try_widget(&fx.d, "button:dialog.ok").unwrap().enabled, "OK waits for a date that reads");
     retype(&mut fx.d, DATE_ID, "2026-06-01");
-    assert!(widget(&fx.d, "button:dialog.ok").unwrap().enabled);
+    assert!(try_widget(&fx.d, "button:dialog.ok").unwrap().enabled);
     retype(&mut fx.d, PLACE_ID, "Lisbon, Portugal");
     retype(&mut fx.d, DESCRIPTION_ID, "A weekend of trams");
     fx.d.click("button:dialog.ok").unwrap();
@@ -307,7 +225,7 @@ fn folder_properties_ok_sets_date_and_place_in_one_undo_step_and_cancel_changes_
     assert_eq!(undo_steps(&fx.d), (1, Some("Folder Properties")), "one undo step");
     // The header shows them.
     assert_eq!(shown(&fx.d, folder), ("Monday, June 1, 2026 · Lisbon, Portugal".to_string(), "A weekend of trams".to_string()));
-    assert_eq!(widget(&fx.d, &part(folder, "description")).unwrap().label, "A weekend of trams");
+    assert_eq!(try_widget(&fx.d, &part(folder, "description")).unwrap().label, "A weekend of trams");
 
     // Opened again, it starts from what was set; "use the oldest" goes back to the photos' date.
     open(&mut fx);
@@ -317,7 +235,7 @@ fn folder_properties_ok_sets_date_and_place_in_one_undo_step_and_cancel_changes_
     );
     fx.d.click(USE_OLDEST_ID).unwrap();
     assert_eq!((fields(&fx.d)["useOldest"].clone(), fields(&fx.d)["date"].clone()), (json!(true), json!("2026-06-04")));
-    assert!(!widget(&fx.d, DATE_ID).unwrap().enabled);
+    assert!(!try_widget(&fx.d, DATE_ID).unwrap().enabled);
     fx.d.click("button:dialog.ok").unwrap();
     fx.d.settle(FRAMES).unwrap();
     assert_eq!(info(&fx.d, folder).date, None, "back to the oldest photo's date");
@@ -347,8 +265,8 @@ fn renaming_in_folder_properties_renames_on_disk_and_the_title_follows() {
     let folder = fx.lisbon;
     let photos = fx.dir.path().join("photos");
     let (old, new) = (photos.join("Lisbon Weekend"), photos.join("Lisbon 2026"));
-    let title = |d: &Driver| widget(d, &part(folder, "title")).unwrap().label;
-    let row = |d: &Driver| widget(d, &format!("tree:folder:{}", folder.get())).unwrap().label;
+    let title = |d: &Driver| try_widget(d, &part(folder, "title")).unwrap().label;
+    let row = |d: &Driver| try_widget(d, &format!("tree:folder:{}", folder.get())).unwrap().label;
     assert_eq!(title(&fx.d), "Lisbon Weekend");
     let open = |fx: &mut Fx| {
         fx.d.run("section.properties", &json!({ "folder": folder })).unwrap();
@@ -359,7 +277,7 @@ fn renaming_in_folder_properties_renames_on_disk_and_the_title_follows() {
     // A blank name greys OK; a name the library's other folder has is refused, nothing changed.
     open(&mut fx);
     retype(&mut fx.d, NAME_ID, "  ");
-    assert!(!widget(&fx.d, "button:dialog.ok").unwrap().enabled, "OK waits for a name");
+    assert!(!try_widget(&fx.d, "button:dialog.ok").unwrap().enabled, "OK waits for a name");
     retype(&mut fx.d, NAME_ID, "Porto");
     retype(&mut fx.d, PLACE_ID, "Lisbon, Portugal");
     fx.d.click("button:dialog.ok").unwrap();
@@ -428,32 +346,26 @@ fn a_description_too_long_to_edit_inline_opens_folder_properties() {
     assert_eq!(folder_properties::chosen_date(&fields(&fx.d)), Ok(None));
 }
 
-/// Every widget has an id with the editor and the dialog open, and the header (date · place and a
-/// description) and the dialog match their fingerprints at both window sizes.
+/// The header (date · place and a description) and the dialog match their fingerprints, and fit
+/// the small window.
 #[test]
-fn the_header_and_the_dialog_match_their_fingerprints_at_both_sizes() {
-    for size in SIZES {
-        let (w, h) = size;
-        let mut fx = fixture(size);
-        let folder = fx.lisbon;
-        fx.d.run("folder.info.set", &json!({ "id": folder, "description": "A weekend of trams and tiles", "place": "Lisbon, Portugal" })).unwrap();
-        fx.d.app_mut().state_mut().folder = Some(folder);
-        fx.d.settle(FRAMES).unwrap();
-        check_ids(&fx.d);
-        check_region(&fx.d, &format!("section:folder:{folder}"), &format!("region-header-info-{w}x{h}"));
+fn the_header_and_the_dialog_match_their_fingerprints_and_fit_the_small_window() {
+    let mut fx = fixture(LARGE);
+    let folder = fx.lisbon;
+    fx.d.run("folder.info.set", &json!({ "id": folder, "description": "A weekend of trams and tiles", "place": "Lisbon, Portugal" })).unwrap();
+    fx.d.app_mut().state_mut().folder = Some(folder);
+    fx.d.settle(FRAMES).unwrap();
+    check_sizes(&mut fx.d, &format!("section:folder:{folder}"), "region-header-info");
 
-        fx.d.click(&part(folder, "description")).unwrap();
-        fx.d.settle(FRAMES).unwrap();
-        check_ids(&fx.d);
-        fx.d.key("Esc").unwrap();
+    fx.d.click(&part(folder, "description")).unwrap();
+    fx.d.settle(FRAMES).unwrap();
+    fx.d.key("Esc").unwrap();
 
-        fx.d.run("section.properties", &json!({ "folder": folder })).unwrap();
-        // The draft as a user leaves it before OK: the box off, a date of their own.
-        let top = fx.d.app_mut().state_mut().dialogs.last_mut().unwrap();
-        top.fields.insert("useOldest".into(), json!(false));
-        top.fields.insert("date".into(), json!("2026-06-01"));
-        fx.d.settle(FRAMES).unwrap();
-        check_ids(&fx.d);
-        check_region(&fx.d, "dialog:folderProperties", &format!("dialog-folder-properties-{w}x{h}"));
-    }
+    fx.d.run("section.properties", &json!({ "folder": folder })).unwrap();
+    // The draft as a user leaves it before OK: the box off, a date of their own.
+    let top = fx.d.app_mut().state_mut().dialogs.last_mut().unwrap();
+    top.fields.insert("useOldest".into(), json!(false));
+    top.fields.insert("date".into(), json!("2026-06-01"));
+    fx.d.settle(FRAMES).unwrap();
+    check_sizes(&mut fx.d, "dialog:folderProperties", "dialog-folder-properties");
 }

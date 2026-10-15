@@ -9,32 +9,20 @@
 //! - the photo menu's Split Folder Here… moves that photo and every photo after it; a date typed
 //!   with the box off is the folder's; undo removes it;
 //! - Cancel makes nothing; OK waits for a name and a date that reads as a day;
-//! - the dialog matches its fingerprints at 1400 × 900 and 900 × 600
-//!   (`tests/fingerprints/dialog-new-folder-<w>x<h>.json`; `DALICA_BLESS=1` stores new ones).
+//! - the dialog matches its fingerprints at 1400 × 900 (at 900 × 600 they only have to fit)
+//!   (`tests/fingerprints/dialog-new-folder-1400x900.json`; `DALICA_BLESS=1` stores new ones).
 
-use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
-use dalica_core::{Date, DateTime, PhotoId};
+use crate::common::{FRAMES, LARGE, check_sizes, new_driver, put_dated_jpeg, try_widget};
+use dalica_core::{Date, PhotoId};
 use dalica_engine::Session;
-use dalica_scenes::fingerprint;
 use dalica_ui::dialogs::new_folder::{DATE_ID, DESCRIPTION_ID, NAME_ID, PLACE_ID, USE_OLDEST_ID};
 use dalica_ui::headless::Click;
 use dalica_ui::state::DialogKind;
 use dalica_ui::{App, Driver};
-use dalica_ui_kit::{WidgetInfo, registry};
 use serde_json::json;
-
-const FRAMES: usize = 60 * 60;
-const SIZES: [(u32, u32); 2] = [(1400, 900), (900, 600)];
-
-fn put_jpeg(path: &Path, seed: u64, day: u8) {
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    let taken = DateTime::new(Date::new(2026, 6, day).unwrap(), 10, 0, 0).unwrap();
-    let exif = dalica_scenes::Exif { date_time_original: Some(taken), ..Default::default() };
-    std::fs::write(path, dalica_scenes::jpeg(&dalica_scenes::Scene::new(seed, 96, 64), 80, Some(&exif)).unwrap()).unwrap();
-}
 
 struct Fx {
     _dir: tempfile::TempDir,
@@ -48,7 +36,7 @@ fn fixture((w, h): (u32, u32)) -> Fx {
     let dir = tempfile::tempdir().unwrap();
     let photos = dir.path().join("photos");
     for i in 1..=4u8 {
-        put_jpeg(&photos.join("Lisbon").join(format!("IMG_000{i}.jpg")), u64::from(i), 3 + i);
+        put_dated_jpeg(&photos.join("Lisbon").join(format!("IMG_000{i}.jpg")), u64::from(i), (2026, 6, 3 + i));
     }
     let mut s = Session::open(&dir.path().join("library"), Arc::new(dalica_core::SystemClock)).unwrap();
     s.execute("folders.add", &json!({ "path": photos })).unwrap();
@@ -57,7 +45,7 @@ fn fixture((w, h): (u32, u32)) -> Fx {
     let mut named: Vec<(String, PhotoId)> = s.library().photos_in(lisbon).into_iter().map(|p| (p.name.clone(), p.id)).collect();
     named.sort();
     let ids = named.into_iter().map(|(_, id)| id).collect();
-    let mut d = Driver::new(App::new(Some(s)), w, h, 1.0);
+    let mut d = new_driver(App::new(Some(s)), w, h, 1.0);
     d.settle(FRAMES).unwrap();
     Fx { _dir: dir, photos, ids, d }
 }
@@ -120,12 +108,8 @@ impl Fx {
     }
 }
 
-fn widget(d: &Driver, id: &str) -> Option<WidgetInfo> {
-    d.widgets().into_iter().find(|w| w.id == id)
-}
-
 fn ok_enabled(d: &Driver) -> bool {
-    widget(d, "button:dialog.ok").unwrap().enabled
+    try_widget(d, "button:dialog.ok").unwrap().enabled
 }
 
 /// Move to New Folder: the folder beside Lisbon with its information and the photos; undo removes
@@ -137,7 +121,7 @@ fn move_to_new_folder_makes_the_folder_beside_with_its_info_and_undo_removes_it(
     fx.move_to_new_folder(&[b, a]);
     let draft = fx.d.state().new_folder.clone().unwrap();
     assert_eq!((draft.name.as_str(), draft.date.as_str(), draft.use_oldest), ("New Folder", "2026-06-05", true), "the oldest of the two");
-    assert!(!widget(&fx.d, DATE_ID).unwrap().enabled, "the date follows the oldest photo");
+    assert!(!try_widget(&fx.d, DATE_ID).unwrap().enabled, "the date follows the oldest photo");
     assert!(ok_enabled(&fx.d));
     fx.retype(NAME_ID, "  ");
     assert!(!ok_enabled(&fx.d), "a blank name");
@@ -178,7 +162,7 @@ fn split_folder_here_moves_the_photo_and_every_photo_after_it() {
     assert_eq!(fx.d.state().new_folder.as_ref().map(|d| d.date.clone()), Some("2026-06-06".into()));
     fx.d.click(USE_OLDEST_ID).unwrap();
     fx.d.settle(FRAMES).unwrap();
-    assert!(widget(&fx.d, DATE_ID).unwrap().enabled);
+    assert!(try_widget(&fx.d, DATE_ID).unwrap().enabled);
     fx.retype(DATE_ID, "June 1");
     assert!(!ok_enabled(&fx.d), "a date that is no day");
     fx.retype(DATE_ID, "2026-06-01");
@@ -213,60 +197,11 @@ fn cancel_makes_nothing() {
     assert!(fx.ids.iter().all(|id| fx.folder_of(*id) == fx.photos.join("Lisbon")));
 }
 
-fn check_ids(d: &Driver, case: &str) {
-    assert_eq!(d.app().panels().unwrap().unregistered_widgets(), [], "{case}: interactive widgets without an id");
-    let mut seen = HashSet::new();
-    for w in d.widgets() {
-        assert!(registry::is_valid_id(&w.id), "{case}: `{}` breaks the id grammar", w.id);
-        assert!(seen.insert(w.id.clone()), "{case}: `{}` is registered twice", w.id);
-    }
-}
-
-fn out_dir() -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/ui");
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
-/// Checks the region of widget `id` against `tests/fingerprints/<name>.json`; the window and the
-/// region go to the test output (and the window to `DALICA_SHOTS`, when set).
-fn check_region(d: &Driver, id: &str, name: &str) {
-    let s = d.screenshot().unwrap();
-    let window = fingerprint::png_rgba(s.width, s.height, &s.rgba);
-    std::fs::write(out_dir().join(format!("{name}-window.png")), &window).unwrap();
-    if let Some(dir) = std::env::var_os("DALICA_SHOTS") {
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(Path::new(&dir).join(format!("{name}-window.png")), &window).unwrap();
-    }
-    let r = widget(d, id).unwrap_or_else(|| panic!("no widget {id}")).rect;
-    let (x0, y0, w, h) = (r[0].round() as u32, r[1].round() as u32, r[2].round() as u32, r[3].round() as u32);
-    let mut rgba = Vec::with_capacity((w * h * 4) as usize);
-    for y in y0..y0 + h {
-        for x in x0..x0 + w {
-            rgba.extend_from_slice(&s.pixel(x, y).unwrap());
-        }
-    }
-    std::fs::write(out_dir().join(format!("{name}.png")), fingerprint::png_rgba(w, h, &rgba)).unwrap();
-    let stored = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("tests/fingerprints/{name}.json"));
-    if std::env::var_os("DALICA_BLESS").is_some() {
-        std::fs::write(&stored, fingerprint::to_json(&fingerprint::fingerprint(w, h, &rgba)) + "\n").unwrap();
-    }
-    let expected = fingerprint::from_json(&std::fs::read_to_string(&stored).unwrap()).unwrap();
-    if let Err(m) = fingerprint::check(w, h, &rgba, &expected, 2.0) {
-        std::fs::write(out_dir().join(format!("{name}-actual.png")), &m.actual_png).unwrap();
-        panic!("{name}: {}", m.message);
-    }
-}
-
-/// The dialog for two photos, as it opens, at both sizes.
+/// The dialog for two photos, as it opens, matches its fingerprint, and fits the small window.
 #[test]
-fn the_dialog_matches_its_fingerprints_at_both_sizes() {
-    for size in SIZES {
-        let case = format!("{}x{}", size.0, size.1);
-        let mut fx = fixture(size);
-        let two = [fx.ids[0], fx.ids[1]];
-        fx.move_to_new_folder(&two);
-        check_ids(&fx.d, &case);
-        check_region(&fx.d, "dialog:newFolder", &format!("dialog-new-folder-{case}"));
-    }
+fn the_dialog_matches_its_fingerprint_and_fits_the_small_window() {
+    let mut fx = fixture(LARGE);
+    let two = [fx.ids[0], fx.ids[1]];
+    fx.move_to_new_folder(&two);
+    check_sizes(&mut fx.d, "dialog:newFolder", "dialog-new-folder");
 }

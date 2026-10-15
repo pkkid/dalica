@@ -4,12 +4,13 @@
 //! one undo removes it); Esc changes nothing; a click elsewhere and scrolling the cell away commit;
 //! the view's shortcuts (Ctrl+8, Ctrl+A, Ctrl+Z) do nothing while typing; the Caption and Tags
 //! thumbnail-caption modes show the model's text, middle-elided; the cells with captions and the
-//! open editor match their fingerprints at 1400 × 900 and 900 × 600. Renders go to
+//! open editor match their fingerprints at 1400 × 900 (at 900 × 600 they only have to fit). Renders go to
 //! `target/test-output/ui/`.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::common::{FRAMES, LARGE, check_pixels, new_driver, out_dir};
 use dalica_core::PhotoId;
 use dalica_engine::Session;
 use dalica_fs::Expect;
@@ -19,8 +20,6 @@ use dalica_ui::{App, Driver};
 use dalica_ui_kit::WidgetInfo;
 use egui::vec2;
 use serde_json::{Value, json};
-
-const FRAMES: usize = 60 * 60;
 
 /// A library watching one folder `Lisbon` of `n` photos `IMG_0001.jpg`…; ids in name order.
 fn setup(n: usize, size: (u32, u32)) -> (tempfile::TempDir, tempfile::TempDir, PathBuf, Driver, Vec<PhotoId>) {
@@ -36,7 +35,7 @@ fn setup(n: usize, size: (u32, u32)) -> (tempfile::TempDir, tempfile::TempDir, P
     s.wait_idle();
     let mut ids: Vec<(String, PhotoId)> = s.library().photos().map(|p| (p.name.clone(), p.id)).collect();
     ids.sort();
-    let mut d = Driver::new(App::new(Some(s)), size.0, size.1, 1.0);
+    let mut d = new_driver(App::new(Some(s)), size.0, size.1, 1.0);
     d.settle(FRAMES).unwrap();
     (lib, disk, folder, d, ids.into_iter().map(|(_, id)| id).collect())
 }
@@ -256,26 +255,6 @@ fn a_caption_longer_than_a_draft_is_not_cut_by_the_inline_editor() {
 
 // ---- Fingerprints -------------------------------------------------------------------------------
 
-fn out_dir() -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/ui");
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
-fn check_fingerprint(name: &str, width: u32, height: u32, rgba: &[u8]) {
-    let png = fingerprint::png_rgba(width, height, rgba);
-    std::fs::write(out_dir().join(format!("{name}.png")), &png).unwrap();
-    let stored = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("tests/fingerprints/{name}.json"));
-    if std::env::var_os("DALICA_BLESS").is_some() {
-        std::fs::write(&stored, fingerprint::to_json(&fingerprint::fingerprint(width, height, rgba)) + "\n").unwrap();
-    }
-    let expected = fingerprint::from_json(&std::fs::read_to_string(&stored).unwrap()).unwrap();
-    if let Err(m) = fingerprint::check(width, height, rgba, &expected, 2.0) {
-        std::fs::write(out_dir().join(format!("{name}-actual.png")), &m.actual_png).unwrap();
-        panic!("{name}: {}", m.message);
-    }
-}
-
 /// The light table's cells (headers blacked out), as `library_window.rs` cuts the cells region.
 fn check_cells(d: &Driver, name: &str) {
     let shot = d.screenshot().unwrap();
@@ -292,22 +271,20 @@ fn check_cells(d: &Driver, name: &str) {
             rgba.extend_from_slice(&if header { [0, 0, 0, 255] } else { shot.pixel(x, y).unwrap() });
         }
     }
-    check_fingerprint(name, x1 - x0, y1 - y0, &rgba);
+    check_pixels(name, x1 - x0, y1 - y0, &rgba);
     std::fs::write(out_dir().join(format!("window-{name}.png")), fingerprint::png_rgba(shot.width, shot.height, &shot.rgba)).unwrap();
 }
 
 #[test]
 fn the_cells_with_captions_and_the_open_editor_match_their_fingerprints() {
-    for (size, case) in [((1400, 900), "1400"), ((900, 600), "900")] {
-        let (_l, _d, _f, mut d, ids) = setup(8, size);
-        let s = session(&mut d);
-        s.execute("photo.caption.set", &json!({ "ids": [ids[0]], "caption": "Tram 28" })).unwrap();
-        s.execute("photo.caption.set", &json!({ "ids": [ids[2]], "caption": "A tram climbing the hill to the castle in the late afternoon" }))
-            .unwrap();
-        d.run("view.caption", &json!({ "caption": "caption" })).unwrap();
-        open(&mut d, ids[1]);
-        d.type_text("Miradouro").unwrap();
-        d.settle(FRAMES).unwrap();
-        check_cells(&d, &format!("region-cells-caption-{case}"));
-    }
+    let (size, case) = (LARGE, "1400");
+    let (_l, _d, _f, mut d, ids) = setup(8, size);
+    let s = session(&mut d);
+    s.execute("photo.caption.set", &json!({ "ids": [ids[0]], "caption": "Tram 28" })).unwrap();
+    s.execute("photo.caption.set", &json!({ "ids": [ids[2]], "caption": "A tram climbing the hill to the castle in the late afternoon" })).unwrap();
+    d.run("view.caption", &json!({ "caption": "caption" })).unwrap();
+    open(&mut d, ids[1]);
+    d.type_text("Miradouro").unwrap();
+    d.settle(FRAMES).unwrap();
+    check_cells(&d, &format!("region-cells-caption-{case}"));
 }

@@ -8,6 +8,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::common::{FRAMES, new_driver, put_jpeg};
 use dalica_core::{FolderId, PhotoId};
 use dalica_engine::Session;
 use dalica_ui::commands::clipboard;
@@ -15,13 +16,6 @@ use dalica_ui::menus::{self, Lookup, Platform};
 use dalica_ui::state::{AlbumSection, DialogKind, Section, Selection};
 use dalica_ui::{App, Driver};
 use serde_json::json;
-
-const FRAMES: usize = 60 * 60;
-
-fn put_jpeg(path: &Path, seed: u64) {
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    std::fs::write(path, dalica_scenes::jpeg(&dalica_scenes::Scene::new(seed, 96, 64), 80, None).unwrap()).unwrap();
-}
 
 struct Fx {
     _dir: tempfile::TempDir,
@@ -44,7 +38,7 @@ fn fixture() -> Fx {
     }
     s.wait_idle();
     let (lisbon_id, porto_id) = (s.library().folder_by_path(&lisbon).unwrap(), s.library().folder_by_path(&porto).unwrap());
-    let mut d = Driver::new(App::new(Some(s)), 1400, 900, 1.0);
+    let mut d = new_driver(App::new(Some(s)), 1400, 900, 1.0);
     d.settle(FRAMES).unwrap();
     Fx { _dir: dir, lisbon, porto, lisbon_id, porto_id, d }
 }

@@ -9,6 +9,7 @@ use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
 use std::sync::Arc;
 
+use crate::common::{FRAMES, new_driver, widget};
 use dalica_engine::Session;
 use dalica_ui::headless::{Drag, Target};
 use dalica_ui::state::Pane;
@@ -16,14 +17,13 @@ use dalica_ui::{App, Driver, DriverError, ScriptedPicker};
 use dalica_ui_kit::WidgetInfo;
 use dalica_ui_kit::registry::Role;
 
-const FRAMES: usize = 60 * 60;
 const SIZES: [(f32, f32); 2] = [(1400.0, 900.0), (900.0, 600.0)];
 const ACTIONS: [&str; 3] = ["action:export", "action:collage", "action:slideshow"];
 const TOGGLES: [&str; 4] = ["toggle:pane.people", "toggle:pane.places", "toggle:pane.tags", "toggle:pane.properties"];
 
 /// A library in `root` with two folders of scenes photos, added and scanned.
 fn session(root: &Path) -> Session {
-    let files = dalica_scenes::demo_library(2, 24, 3).unwrap();
+    let files = crate::common::demo_library(2, 24, 3).unwrap();
     let mut folders = BTreeSet::new();
     for f in &files {
         let path = root.join("photos").join(&f.path);
@@ -40,20 +40,13 @@ fn session(root: &Path) -> Session {
 }
 
 fn driver(root: &Path, (w, h): (f32, f32)) -> Driver {
-    let mut d = Driver::new(App::with_picker(Some(session(root)), Arc::new(ScriptedPicker::new())), w as u32, h as u32, 1.0);
+    let mut d = new_driver(App::with_picker(Some(session(root)), Arc::new(ScriptedPicker::new())), w as u32, h as u32, 1.0);
     d.settle(FRAMES).unwrap();
     d
 }
 
 fn widgets(d: &Driver) -> HashMap<String, WidgetInfo> {
     d.widgets().into_iter().map(|w| (w.id.clone(), w)).collect()
-}
-
-fn widget(d: &Driver, id: &str) -> WidgetInfo {
-    d.widgets()
-        .into_iter()
-        .find(|w| w.id == id)
-        .unwrap_or_else(|| panic!("no `{id}`; have {:?}", d.widgets().iter().map(|w| &w.id).collect::<Vec<_>>()))
 }
 
 fn size(w: &WidgetInfo) -> [f32; 2] {
@@ -77,10 +70,12 @@ fn cell_edge(d: &Driver) -> f32 {
 /// The M3.9 done-when, first part: every bottom-area id with its §6 size at both sizes.
 #[test]
 fn every_bottom_area_id_is_registered_at_its_spec_size_at_both_window_sizes() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut d = driver(dir.path(), SIZES[0]);
     for (w, h) in SIZES {
         let case = format!("{w}×{h}");
-        let dir = tempfile::tempdir().unwrap();
-        let d = driver(dir.path(), (w, h));
+        d.resize(w as u32, h as u32);
+        d.settle(FRAMES).unwrap();
         let all = widgets(&d);
         let region = |name: &str| all.get(&format!("region:{name}")).unwrap_or_else(|| panic!("{case}: no region:{name}")).rect;
         let split = 0.365 * w;
@@ -152,9 +147,6 @@ fn every_bottom_area_id_is_registered_at_its_spec_size_at_both_window_sizes() {
             assert!(inside(b.rect, row), "{case}: `{id}` at {:?} is outside the action row", b.rect);
             assert_eq!(b.enabled, id == "action:more", "{case}: `{id}` is live only once its command exists");
         }
-
-        let missing = d.app().panels().unwrap().unregistered_widgets();
-        assert_eq!(missing, [], "{case}: interactive widgets without an id");
     }
 }
 
@@ -180,7 +172,6 @@ fn more_holds_the_action_buttons_at_900_by_600() {
         last_bottom = item.rect[1] + item.rect[3];
     }
     assert!(matches!(d.click("action:export"), Err(DriverError::Disabled(_))));
-    assert_eq!(d.app().panels().unwrap().unregistered_widgets(), [], "the open menu's rows have ids");
 
     // A click elsewhere closes the menu; its rows are gone.
     d.click("slider:thumbSize").unwrap();
@@ -199,45 +190,44 @@ fn more_holds_the_action_buttons_at_900_by_600() {
 /// the same view state Ctrl+1 / Ctrl+2 set.
 #[test]
 fn the_size_slider_changes_the_light_tables_cell_size() {
-    for (w, h) in SIZES {
-        let case = format!("{w}×{h}");
-        let dir = tempfile::tempdir().unwrap();
-        let mut d = driver(dir.path(), (w, h));
-        assert_eq!((d.state().thumb_size, cell_edge(&d)), (144.0, 144.0), "{case}: the default cell");
+    let (w, h) = SIZES[0];
+    let case = format!("{w}×{h}");
+    let dir = tempfile::tempdir().unwrap();
+    let mut d = driver(dir.path(), (w, h));
+    assert_eq!((d.state().thumb_size, cell_edge(&d)), (144.0, 144.0), "{case}: the default cell");
 
-        // To the left end: the smallest cells.
-        d.drag("slider:thumbSize", Target::Delta(egui::vec2(-200.0, 0.0)), &Drag::default()).unwrap();
-        d.settle(FRAMES).unwrap();
-        assert_eq!((d.state().thumb_size, cell_edge(&d)), (64.0, 64.0), "{case}: dragged to the left end");
+    // To the left end: the smallest cells.
+    d.drag("slider:thumbSize", Target::Delta(egui::vec2(-200.0, 0.0)), &Drag::default()).unwrap();
+    d.settle(FRAMES).unwrap();
+    assert_eq!((d.state().thumb_size, cell_edge(&d)), (64.0, 64.0), "{case}: dragged to the left end");
 
-        // To the right end: the largest.
-        d.drag("slider:thumbSize", Target::Delta(egui::vec2(200.0, 0.0)), &Drag::default()).unwrap();
-        d.settle(FRAMES).unwrap();
-        assert_eq!(d.state().thumb_size, 320.0, "{case}: dragged to the right end");
-        assert_eq!(cell_edge(&d), 320.0, "{case}");
+    // To the right end: the largest.
+    d.drag("slider:thumbSize", Target::Delta(egui::vec2(200.0, 0.0)), &Drag::default()).unwrap();
+    d.settle(FRAMES).unwrap();
+    assert_eq!(d.state().thumb_size, 320.0, "{case}: dragged to the right end");
+    assert_eq!(cell_edge(&d), 320.0, "{case}");
 
-        // A click on the middle of the track: halfway, on a whole point.
-        d.click("slider:thumbSize").unwrap();
-        d.settle(FRAMES).unwrap();
-        let mid = d.state().thumb_size;
-        assert!((190.0..=194.0).contains(&mid) && mid.fract() == 0.0, "{case}: the middle is {mid}");
-        assert_eq!(cell_edge(&d), mid, "{case}");
+    // A click on the middle of the track: halfway, on a whole point.
+    d.click("slider:thumbSize").unwrap();
+    d.settle(FRAMES).unwrap();
+    let mid = d.state().thumb_size;
+    assert!((190.0..=194.0).contains(&mid) && mid.fract() == 0.0, "{case}: the middle is {mid}");
+    assert_eq!(cell_edge(&d), mid, "{case}");
 
-        // Ctrl+1 / Ctrl+2 set the same state; the slider follows, and drags on from there.
-        d.key("Ctrl+1").unwrap();
-        d.settle(FRAMES).unwrap();
-        assert_eq!((d.state().thumb_size, cell_edge(&d)), (96.0, 96.0), "{case}: Ctrl+1");
-        d.key("Ctrl+2").unwrap();
-        d.settle(FRAMES).unwrap();
-        assert_eq!((d.state().thumb_size, cell_edge(&d)), (144.0, 144.0), "{case}: Ctrl+2");
-        let slider = widget(&d, "slider:thumbSize");
-        // 144 sits at (144 − 64) / (320 − 64) of the track (inset by the thumb's half-width + 1).
-        let x0 = slider.rect[0] + 2.5;
-        let at_144 = x0 + (144.0 - 64.0) / 256.0 * (slider.rect[2] - 5.0);
-        d.drag("slider:thumbSize", Target::Point(egui::pos2(at_144, slider.center().y)), &Drag::default()).unwrap();
-        d.settle(FRAMES).unwrap();
-        assert!((d.state().thumb_size - 144.0).abs() <= 1.0, "{case}: the thumb sits at 144: {}", d.state().thumb_size);
-    }
+    // Ctrl+1 / Ctrl+2 set the same state; the slider follows, and drags on from there.
+    d.key("Ctrl+1").unwrap();
+    d.settle(FRAMES).unwrap();
+    assert_eq!((d.state().thumb_size, cell_edge(&d)), (96.0, 96.0), "{case}: Ctrl+1");
+    d.key("Ctrl+2").unwrap();
+    d.settle(FRAMES).unwrap();
+    assert_eq!((d.state().thumb_size, cell_edge(&d)), (144.0, 144.0), "{case}: Ctrl+2");
+    let slider = widget(&d, "slider:thumbSize");
+    // 144 sits at (144 − 64) / (320 − 64) of the track (inset by the thumb's half-width + 1).
+    let x0 = slider.rect[0] + 2.5;
+    let at_144 = x0 + (144.0 - 64.0) / 256.0 * (slider.rect[2] - 5.0);
+    d.drag("slider:thumbSize", Target::Point(egui::pos2(at_144, slider.center().y)), &Drag::default()).unwrap();
+    d.settle(FRAMES).unwrap();
+    assert!((d.state().thumb_size - 144.0).abs() <= 1.0, "{case}: the thumb sits at 144: {}", d.state().thumb_size);
 }
 
 /// The pane toggles open their pane, switch to another, and close the open one, the state

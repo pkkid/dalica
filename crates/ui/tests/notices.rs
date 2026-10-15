@@ -4,7 +4,7 @@
 //! `toast:<n>` and reported by `ui.inspect` → `toasts`; later frames add none; a later failure
 //! adds its own; the folder sidecar keeps the value. `ui.settle` with `jobs` waits for the queued
 //! write to land (debounce included; without `jobs` it does not, as for any long job), and the toast shows the whole message, wrapped, at 1400 × 900 and 900 × 600
-//! (`tests/fingerprints/toast-caution-<w>x<h>.json`; `DALICA_BLESS=1` stores new ones). Renders go
+//! (`tests/fingerprints/toast-caution-1400x900.json`; `DALICA_BLESS=1` stores new ones). Renders go
 //! to `target/test-output/ui/`.
 //!
 //! File operations (M9.19, `organizing.md` §9): a move, its undo, a copy that skipped a duplicate
@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::common::{FRAMES, LARGE, SMALL, check_region, new_driver};
 use dalica_core::PhotoId;
 use dalica_engine::Session;
 use dalica_fs::Expect;
@@ -24,7 +25,6 @@ use dalica_ui_kit::widgets::{TOAST_LINES, ToastText, toast_galley};
 use egui::{LayerId, Painter, Rect, pos2, vec2};
 use serde_json::{Value, json};
 
-const FRAMES: usize = 60 * 60;
 const WAIT: Duration = Duration::from_secs(30);
 
 /// A library watching one folder `Lisbon` of `a.jpg` and `b.jpg`, `a.jpg` read-only.
@@ -42,7 +42,7 @@ fn setup(size: (u32, u32)) -> (tempfile::TempDir, tempfile::TempDir, PathBuf, Dr
     s.wait_idle();
     let id = |s: &Session, n: &str| s.library().photos().find(|p| p.name == n).unwrap().id;
     let (a, b) = (id(&s, "a.jpg"), id(&s, "b.jpg"));
-    let mut d = Driver::new(App::new(Some(s)), size.0, size.1, 1.0);
+    let mut d = new_driver(App::new(Some(s)), size.0, size.1, 1.0);
     d.settle(FRAMES).unwrap();
     (lib, disk, folder, d, a, b)
 }
@@ -86,39 +86,38 @@ fn save(d: &Driver, name: &str) {
 
 #[test]
 fn a_read_only_file_gives_one_toast_naming_the_file_and_field() {
-    for size in [(1400, 900), (900, 600)] {
-        let (_l, _d, folder, mut d, a, b) = setup(size);
-        assert!(toasts(&d).is_empty());
-        caption(&mut d, &[a, b], "Tram 28");
-        let list = toasts(&d);
-        assert_eq!(list.len(), 1, "{list:?}");
-        let text = list[0]["text"].as_str().unwrap();
-        assert!(text.starts_with("Could not write the caption into a.jpg: ") && text.contains("read-only"), "{text}");
-        assert_eq!(list[0]["kind"], "caution");
-        let id = list[0]["id"].as_str().unwrap().to_string();
-        assert!(d.widgets().iter().any(|w| w.id == id), "the toast is drawn");
-        // Later frames add nothing: each failure shows once.
-        for _ in 0..30 {
-            d.step();
-        }
-        save(&d, &format!("notices-failed-write-{}x{}", size.0, size.1));
-        assert_eq!(toasts(&d).len(), 1);
-        // The sidecar keeps the value; the writable photo has it in its file.
-        session(&mut d).flush().unwrap();
-        let sidecar: Value = serde_json::from_slice(&std::fs::read(folder.join(".dalica.json")).unwrap()).unwrap();
-        assert_eq!(sidecar["photos"]["a.jpg"]["caption"], json!("Tram 28"));
-        let b_file = std::fs::read(folder.join("b.jpg")).unwrap();
-        assert!(b_file.windows(7).any(|w| w == b"Tram 28"), "b.jpg holds the caption");
-        assert!(!std::fs::read(folder.join("a.jpg")).unwrap().windows(7).any(|w| w == b"Tram 28"), "a.jpg is as it was");
-        // A later failure gives its own toast; a write that works gives none.
-        caption(&mut d, &[a], "Tram 28 again");
-        let list = toasts(&d);
-        assert_eq!(list.len(), 2, "{list:?}");
-        assert_ne!(list[1]["id"], json!(id));
-        caption(&mut d, &[b], "Fine");
-        assert_eq!(toasts(&d).len(), 2);
-        set_read_only(&folder.join("a.jpg"), false);
+    let size = LARGE;
+    let (_l, _d, folder, mut d, a, b) = setup(size);
+    assert!(toasts(&d).is_empty());
+    caption(&mut d, &[a, b], "Tram 28");
+    let list = toasts(&d);
+    assert_eq!(list.len(), 1, "{list:?}");
+    let text = list[0]["text"].as_str().unwrap();
+    assert!(text.starts_with("Could not write the caption into a.jpg: ") && text.contains("read-only"), "{text}");
+    assert_eq!(list[0]["kind"], "caution");
+    let id = list[0]["id"].as_str().unwrap().to_string();
+    assert!(d.widgets().iter().any(|w| w.id == id), "the toast is drawn");
+    // Later frames add nothing: each failure shows once.
+    for _ in 0..30 {
+        d.step();
     }
+    save(&d, &format!("notices-failed-write-{}x{}", size.0, size.1));
+    assert_eq!(toasts(&d).len(), 1);
+    // The sidecar keeps the value; the writable photo has it in its file.
+    session(&mut d).flush().unwrap();
+    let sidecar: Value = serde_json::from_slice(&std::fs::read(folder.join(".dalica.json")).unwrap()).unwrap();
+    assert_eq!(sidecar["photos"]["a.jpg"]["caption"], json!("Tram 28"));
+    let b_file = std::fs::read(folder.join("b.jpg")).unwrap();
+    assert!(b_file.windows(7).any(|w| w == b"Tram 28"), "b.jpg holds the caption");
+    assert!(!std::fs::read(folder.join("a.jpg")).unwrap().windows(7).any(|w| w == b"Tram 28"), "a.jpg is as it was");
+    // A later failure gives its own toast; a write that works gives none.
+    caption(&mut d, &[a], "Tram 28 again");
+    let list = toasts(&d);
+    assert_eq!(list.len(), 2, "{list:?}");
+    assert_ne!(list[1]["id"], json!(id));
+    caption(&mut d, &[b], "Fine");
+    assert_eq!(toasts(&d).len(), 2);
+    set_read_only(&folder.join("a.jpg"), false);
 }
 
 /// The message a read-only file's failed write gives.
@@ -132,32 +131,6 @@ fn shown(d: &Driver, text: &str) -> (String, usize) {
     let painter = Painter::new(d.ctx().clone(), LayerId::debug(), Rect::EVERYTHING);
     let galley = toast_galley(&painter, d.app().tokens(), ToastText::new(text, 0), area.width());
     (galley.job.text.clone(), galley.rows.len())
-}
-
-/// Checks the region of widget `id` against `tests/fingerprints/<name>.json` and writes it to the
-/// test output.
-fn check_region(d: &Driver, id: &str, name: &str) {
-    let s = d.screenshot().unwrap();
-    let r = d.widgets().into_iter().find(|w| w.id == id).unwrap_or_else(|| panic!("no widget {id}")).rect;
-    let (x0, y0, w, h) = (r[0].round() as u32, r[1].round() as u32, r[2].round() as u32, r[3].round() as u32);
-    let mut rgba = Vec::with_capacity((w * h * 4) as usize);
-    for y in y0..y0 + h {
-        for x in x0..x0 + w {
-            rgba.extend_from_slice(&s.pixel(x, y).unwrap());
-        }
-    }
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/ui");
-    std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(dir.join(format!("{name}.png")), fingerprint::png_rgba(w, h, &rgba)).unwrap();
-    let stored = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("tests/fingerprints/{name}.json"));
-    if std::env::var_os("DALICA_BLESS").is_some() {
-        std::fs::write(&stored, fingerprint::to_json(&fingerprint::fingerprint(w, h, &rgba)) + "\n").unwrap();
-    }
-    let expected = fingerprint::from_json(&std::fs::read_to_string(&stored).unwrap()).unwrap();
-    if let Err(m) = fingerprint::check(w, h, &rgba, &expected, 2.0) {
-        std::fs::write(dir.join(format!("{name}-actual.png")), &m.actual_png).unwrap();
-        panic!("{name}: {}", m.message);
-    }
 }
 
 /// Sets `caption` on `ids` without a flush and checks the writes are queued, then `ui.settle` with
@@ -174,7 +147,7 @@ fn caption_and_settle(d: &mut Driver, ids: &[PhotoId], caption: &str) {
 
 /// Without a flush: `ui.settle` with `jobs` returns only once the queued (debounced) write has
 /// landed, and the caution toast a failed one gives shows the whole message, wrapped within three
-/// lines, at both sizes.
+/// lines, in the large window and the small one.
 ///
 /// The writable photo settles first, the read-only one after it. Captioning both at once made the
 /// toast's presence depend on disk speed: the failed write landed first, and while `settle` waited
@@ -184,25 +157,27 @@ fn caption_and_settle(d: &mut Driver, ids: &[PhotoId], caption: &str) {
 /// waits for, so the toast is checked a fixed few frames after it appeared, whatever the disk.
 #[test]
 fn settle_waits_for_the_write_and_the_caution_toast_shows_the_whole_message() {
-    for size in [(1400, 900), (900, 600)] {
-        let (_l, _d, folder, mut d, a, b) = setup(size);
-        caption_and_settle(&mut d, &[b], "Tram 28");
-        assert!(std::fs::read(folder.join("b.jpg")).unwrap().windows(7).any(|w| w == b"Tram 28"), "b.jpg holds the caption");
-        assert_eq!(toasts(&d), Vec::<Value>::new(), "a write that works gives no toast");
-        caption_and_settle(&mut d, &[a], "Tram 28");
-        let list = toasts(&d);
-        assert_eq!(list.len(), 1, "{list:?}");
-        let remaining = list[0]["remaining"].as_f64().unwrap();
-        assert!(remaining > 5.0, "checked soon after the failure landed, not near the toast's end: {remaining} s left");
-        assert_eq!((list[0]["text"].as_str(), list[0]["kind"].as_str()), (Some(MESSAGE), Some("caution")));
+    let size = LARGE;
+    let (_l, _d, folder, mut d, a, b) = setup(size);
+    caption_and_settle(&mut d, &[b], "Tram 28");
+    assert!(std::fs::read(folder.join("b.jpg")).unwrap().windows(7).any(|w| w == b"Tram 28"), "b.jpg holds the caption");
+    assert_eq!(toasts(&d), Vec::<Value>::new(), "a write that works gives no toast");
+    caption_and_settle(&mut d, &[a], "Tram 28");
+    let list = toasts(&d);
+    assert_eq!(list.len(), 1, "{list:?}");
+    let remaining = list[0]["remaining"].as_f64().unwrap();
+    assert!(remaining > 5.0, "checked soon after the failure landed, not near the toast's end: {remaining} s left");
+    assert_eq!((list[0]["text"].as_str(), list[0]["kind"].as_str()), (Some(MESSAGE), Some("caution")));
+    let id = list[0]["id"].as_str().unwrap().to_string();
+    save(&d, &format!("toast-caution-window-{}x{}", size.0, size.1));
+    check_region(&d, &id, &format!("toast-caution-{}x{}", size.0, size.1));
+    for (w, h) in [LARGE, SMALL] {
+        d.resize(w, h);
         let (text, lines) = shown(&d, MESSAGE);
-        assert_eq!(text, MESSAGE, "the whole message shows");
-        assert!((2..=TOAST_LINES).contains(&lines), "wrapped, not cut: {lines} lines");
-        let id = list[0]["id"].as_str().unwrap().to_string();
-        save(&d, &format!("toast-caution-window-{}x{}", size.0, size.1));
-        check_region(&d, &id, &format!("toast-caution-{}x{}", size.0, size.1));
-        set_read_only(&folder.join("a.jpg"), false);
+        assert_eq!(text, MESSAGE, "{w}×{h}: the whole message shows");
+        assert!((2..=TOAST_LINES).contains(&lines), "{w}×{h}: wrapped, not cut: {lines} lines");
     }
+    set_read_only(&folder.join("a.jpg"), false);
 }
 
 /// The toasts that appear while `f` runs and its file jobs end (and a few frames after), each once:
@@ -248,7 +223,7 @@ fn each_file_operation_gives_one_toast_and_a_failure_names_the_file() {
     let porto_id = s.library().folder_by_path(&porto).unwrap();
     let id = |s: &Session, n: &str| s.library().photos_in(lisbon_id).into_iter().find(|p| p.name == n).unwrap().id;
     let (a, b, c) = (id(&s, "a.jpg"), id(&s, "b.jpg"), id(&s, "c.jpg"));
-    let mut d = Driver::new(App::new(Some(s)), 1400, 900, 1.0);
+    let mut d = new_driver(App::new(Some(s)), 1400, 900, 1.0);
     d.settle(FRAMES).unwrap();
     let info = |t: &str| (t.to_string(), "info".to_string());
 

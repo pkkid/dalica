@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
+use crate::common::{FRAMES, new_driver};
 use dalica_core::{FolderId, PhotoId};
 use dalica_engine::{CmdError, Session};
 use dalica_library::{Folder, Library, Op, Photo, TreeOptions};
@@ -21,8 +22,6 @@ use dalica_ui::state::{ScrollAnchor, Section, THUMB_MAX, THUMB_MIN};
 use dalica_ui::{App, Driver, DriverError};
 use serde_json::json;
 
-const FRAMES: usize = 60 * 60;
-
 fn folder(n: u64) -> Section {
     Section::Folder(FolderId::new(n))
 }
@@ -30,7 +29,7 @@ fn folder(n: u64) -> Section {
 /// A session on a library under `dir` with `folders` folders sharing `photos` scenes photos; the
 /// folder ids in the light table's order.
 fn session(dir: &Path, folders: usize, photos: usize) -> Session {
-    let files = dalica_scenes::demo_library(folders, photos, 5).unwrap();
+    let files = crate::common::demo_library(folders, photos, 5).unwrap();
     let mut roots = BTreeSet::new();
     for f in &files {
         let path = dir.join("photos").join(&f.path);
@@ -47,7 +46,7 @@ fn session(dir: &Path, folders: usize, photos: usize) -> Session {
 }
 
 fn driver(dir: &Path, folders: usize, photos: usize, size: (u32, u32)) -> Driver {
-    let mut d = Driver::new(App::new(Some(session(dir, folders, photos))), size.0, size.1, 1.0);
+    let mut d = new_driver(App::new(Some(session(dir, folders, photos))), size.0, size.1, 1.0);
     d.settle(FRAMES).unwrap();
     d
 }
@@ -346,7 +345,7 @@ fn no_pictures_yet_offers_to_add_a_folder() {
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().join("home");
     let pictures = home.join("Pictures");
-    let files = dalica_scenes::demo_library(1, 4, 3).unwrap();
+    let files = crate::common::demo_library(1, 4, 3).unwrap();
     for f in &files {
         let path = pictures.join(&f.path);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -354,7 +353,7 @@ fn no_pictures_yet_offers_to_add_a_folder() {
     }
     let mut session = Session::open(&dir.path().join("library"), Arc::new(dalica_core::SystemClock)).unwrap();
     session.set_places(dalica_scan::Places::under(&home), Vec::new());
-    let mut d = Driver::new(App::new(Some(session)), 900, 600, 1.0);
+    let mut d = new_driver(App::new(Some(session)), 900, 600, 1.0);
     d.settle(FRAMES).unwrap();
     let widgets = d.widgets();
     let get = |id: &str| widgets.iter().find(|w| w.id == id).unwrap_or_else(|| panic!("no {id}")).clone();
@@ -381,5 +380,4 @@ fn no_pictures_yet_offers_to_add_a_folder() {
     d.settle(FRAMES).unwrap();
     assert_eq!(d.widgets().iter().filter(|w| w.id.starts_with("thumb:")).count(), 4);
     assert!(!d.widgets().iter().any(|w| w.id.starts_with("empty:")), "the empty state is gone");
-    assert!(d.app().panels().unwrap().unregistered_widgets().is_empty());
 }

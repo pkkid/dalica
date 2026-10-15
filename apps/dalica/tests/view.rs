@@ -8,6 +8,7 @@
 //! ("cannot listen on 127.0.0.1:<port>: the port is in use"); on exactly that exit the launch is
 //! made again with a fresh port, at most [`LAUNCHES`] times. Any other early exit fails the test.
 
+use crate::common::{free_port, sandbox};
 use std::ffi::OsString;
 use std::net::TcpListener;
 use std::path::Path;
@@ -16,11 +17,6 @@ use std::time::{Duration, Instant};
 
 /// The most launches of one test, each on a fresh port.
 const LAUNCHES: usize = 5;
-
-/// A port nobody listens on now.
-fn free_port() -> u16 {
-    TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
-}
 
 /// How a launch ended.
 enum Launch {
@@ -64,10 +60,9 @@ fn opens_on(home: &Path, file: OsString, mut ports: impl Iterator<Item = u16>) -
 /// One launch of `dalica --view FILE` with `--control port`.
 fn launch(home: &Path, file: &OsString, port: u16) -> Launch {
     let library = home.join("library");
-    let tmp = home.join("tmp");
-    std::fs::create_dir_all(&tmp).unwrap();
     let stderr = home.join("stderr.log");
     let mut c = Command::new(env!("CARGO_BIN_EXE_dalica"));
+    sandbox(&mut c, home);
     c.arg("--view")
         .arg(file)
         .arg("--library")
@@ -77,24 +72,6 @@ fn launch(home: &Path, file: &OsString, port: u16) -> Launch {
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::from(std::fs::File::create(&stderr).unwrap()));
-    for (k, v) in [
-        ("HOME", home.to_path_buf()),
-        ("XDG_CONFIG_HOME", home.join("config")),
-        ("XDG_CACHE_HOME", home.join("cache")),
-        ("DALICA_CACHE_DIR", home.join("dalica-cache")),
-        ("XDG_DATA_HOME", home.join("data")),
-        ("XDG_RUNTIME_DIR", home.join("run")),
-        ("APPDATA", home.join("appdata")),
-        ("LOCALAPPDATA", home.join("localappdata")),
-        ("TMPDIR", tmp.clone()),
-        ("TMP", tmp.clone()),
-        ("TEMP", tmp),
-    ] {
-        c.env(k, v);
-    }
-    for k in ["DALICA_HOME", "DALICA_CONTROL_PORT", "DALICA_CONTROL_TOKEN_FILE", "DALICA_PROFILE"] {
-        c.env_remove(k);
-    }
     let mut app = App(c.spawn().unwrap());
     let end = Instant::now() + Duration::from_secs(120);
     loop {
