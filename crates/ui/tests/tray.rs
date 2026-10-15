@@ -4,7 +4,9 @@
 //! asks first only when photos are held; the minis shrink with their count; the tray has its own
 //! selection (click, Ctrl-click, rubber band) and menu; every tray command fails gracefully. The
 //! held scenario is fingerprinted as `region-tray-held.json` (`DALICA_BLESS=1` stores it; renders
-//! go to `target/test-output/ui/`).
+//! go to `target/test-output/ui/`). M9.18: an album section selected as a unit is one album token
+//! with the album's cover (`region-tray-album-<w>x<h>.json` at both sizes), and Add to Album ▾
+//! adds the tray's photos to an album or opens Album Properties for them.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -366,4 +368,100 @@ fn tray_commands_fail_gracefully() {
     let mut empty = App::new(None);
     assert!(matches!(empty.run("tray.hold", &json!({ "ids": [1] })), Err(CmdError::NotFound(_))));
     assert!(matches!(empty.run("tray.clear", &json!({})), Err(CmdError::Disabled(_))));
+}
+
+/// An album section selected as a unit is one token, "Album selected — 3 photos", showing the
+/// album's cover; at both sizes.
+#[test]
+fn an_album_selected_as_a_unit_is_one_album_token() {
+    use dalica_ui::state::{AlbumKey, AlbumSection, Section, Selection};
+    let dir = tempfile::tempdir().unwrap();
+    let mut d = driver(dir.path(), 4);
+    let s = sections(&d);
+    let members = [s[1][0], s[0][2], s[0][0]];
+    let album = d.run("album.create", &json!({ "name": "Trams", "ids": n(&members) })).unwrap()["album"].as_str().unwrap().to_string();
+    d.run("album.setCover", &json!({ "album": album, "id": s[0][2].get() })).unwrap();
+    let id = dalica_core::AlbumId::parse(&album).unwrap();
+    // Selecting the album section as a unit (its tree row or header) selects its photos so.
+    d.app_mut().state_mut().selection = Selection::new(members.to_vec(), None, Some(Section::Album(AlbumSection::User(AlbumKey::of(&id)))), true);
+    for (w, h) in [(1400, 900), (900, 600)] {
+        d.resize(w, h);
+        d.settle(FRAMES).unwrap();
+        let token = widget(&d, "tray:token").expect("the album token is drawn");
+        assert_eq!(token.label, "Album selected — 3 photos");
+        assert!(minis(&d).is_empty(), "the album's photos are not minis");
+        check_bottom(&d, &format!("region-tray-album-{w}x{h}"));
+    }
+}
+
+/// The Add to Album ▾ popup's rows, top to bottom.
+fn popup_rows(d: &Driver) -> Vec<(String, String, bool)> {
+    let mut rows: Vec<WidgetInfo> = d.widgets().into_iter().filter(|w| w.id.starts_with("menuitem:album.")).collect();
+    rows.sort_by(|a, b| a.rect[1].total_cmp(&b.rect[1]));
+    rows.into_iter().map(|w| (w.id, w.label, w.enabled)).collect()
+}
+
+/// Add to Album ▾ is live while the tray has photos: New Album…, then the albums (the most recent
+/// first); an album adds the tray's photos (held ones first) in one step; New Album… opens Album
+/// Properties for them.
+#[test]
+fn add_to_album_adds_the_tray_photos() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut d = driver(dir.path(), 4);
+    let s = sections(&d);
+    let old = d.run("album.create", &json!({ "name": "Older", "date": "2001-05-01" })).unwrap()["album"].as_str().unwrap().to_string();
+    let new = d.run("album.create", &json!({ "name": "Newer", "date": "2024-05-01" })).unwrap()["album"].as_str().unwrap().to_string();
+    d.settle(FRAMES).unwrap();
+    assert!(matches!(d.click("button:tray.addToAlbum"), Err(DriverError::Disabled(_))), "an empty tray");
+    // One held photo of the first folder and two selected in the second: three in the tray.
+    select(&mut d, &s[0][0..1]);
+    d.click("button:tray.hold").unwrap();
+    select(&mut d, &s[1][1..3]);
+    assert!(widget(&d, "button:tray.addToAlbum").unwrap().enabled);
+    d.click("button:tray.addToAlbum").unwrap();
+    d.settle(FRAMES).unwrap();
+    let shot = d.screenshot().unwrap();
+    std::fs::write(out_dir().join("tray-add-to-album-1400x900-window.png"), fingerprint::png_rgba(shot.width, shot.height, &shot.rgba)).unwrap();
+    let rows = popup_rows(&d);
+    let ids: Vec<&str> = rows.iter().map(|r| r.0.as_str()).collect();
+    assert_eq!(ids, ["menuitem:album.new".to_string(), format!("menuitem:album.add/{new}"), format!("menuitem:album.add/{old}")]);
+    assert_eq!(rows.iter().map(|r| r.1.as_str()).collect::<Vec<_>>(), ["New Album…", "Newer", "Older"]);
+    assert!(rows.iter().all(|r| r.2), "all live");
+    let button = widget(&d, "button:tray.addToAlbum").unwrap().rect;
+    let new_album = widget(&d, "menuitem:album.new").unwrap().rect;
+    assert!(new_album[1] + new_album[3] <= button[1] + 0.5, "the popup opens upward: {new_album:?} over {button:?}");
+    // A second click closes it.
+    d.click("button:tray.addToAlbum").unwrap();
+    d.settle(FRAMES).unwrap();
+    assert!(popup_rows(&d).is_empty());
+
+    // An album: the tray's photos, held first, in one step.
+    let steps = d.app().session().unwrap().undo_stack().len();
+    d.click("button:tray.addToAlbum").unwrap();
+    d.settle(FRAMES).unwrap();
+    d.click(&format!("menuitem:album.add/{old}")).unwrap();
+    d.settle(FRAMES).unwrap();
+    assert!(popup_rows(&d).is_empty(), "the popup closed");
+    let album = dalica_core::AlbumId::parse(&old).unwrap();
+    let want = [s[0][0], s[1][1], s[1][2]];
+    assert_eq!(d.app().session().unwrap().library().album_members(&album), want);
+    assert_eq!(d.app().session().unwrap().undo_stack().len(), steps + 1);
+    d.key("Ctrl+Z").unwrap();
+    d.settle(FRAMES).unwrap();
+    assert!(d.app().session().unwrap().library().album_members(&album).is_empty(), "one undo takes them all out");
+
+    // New Album…: Album Properties for the tray's photos.
+    d.click("button:tray.addToAlbum").unwrap();
+    d.settle(FRAMES).unwrap();
+    d.click("menuitem:album.new").unwrap();
+    d.settle(FRAMES).unwrap();
+    assert!(widget(&d, "dialog:albumProperties").is_some());
+    let draft = d.state().album_properties.clone().unwrap();
+    assert_eq!((draft.album, draft.ids), (None, want.to_vec()));
+    d.click("button:dialog.cancel").unwrap();
+    d.settle(FRAMES).unwrap();
+    // Without photos it is disabled again.
+    d.run("tray.clear", &json!({ "confirm": true })).unwrap();
+    d.settle(FRAMES).unwrap();
+    assert!(!widget(&d, "button:tray.addToAlbum").unwrap().enabled);
 }

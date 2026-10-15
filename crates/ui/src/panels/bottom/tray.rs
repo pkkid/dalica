@@ -12,6 +12,12 @@
 //! first). Every change goes through the `tray.*` commands. The Clear button asks
 //! "Clear all photos from the tray?" (through the dialog host) before it empties a tray that holds
 //! held photos.
+//!
+//! **Add to Album ▾** ([`album_popup`]; the button is drawn with the tray's other buttons in
+//! `super::tray_buttons`) opens a menu upward: New Album… (Album Properties for the tray's photos,
+//! `album.new`), then the user albums, the most recent first, each adding the tray's photos
+//! (`album.add`). An album section selected as a unit is one token like a folder's ("Album
+//! selected — 40 photos") with the album's cover ([`token_cover`]).
 
 use std::collections::HashSet;
 
@@ -21,14 +27,20 @@ use dalica_ui_kit::icons::{self, Icon};
 use dalica_ui_kit::registry::Role;
 use dalica_ui_kit::widgets::{self, Target};
 use dalica_ui_kit::{Tokens, fonts};
-use egui::{Align2, CornerRadius, Id, Pos2, Rect, Response, Sense, Stroke, StrokeKind, Ui, Vec2, pos2};
+use egui::{
+    Align, Align2, CornerRadius, Id, Layout, Popup, PopupKind, Pos2, Rect, RectAlign, Response, Sense, SetOpenCommand, Stroke, StrokeKind, Ui, Vec2,
+    pos2,
+};
 use serde_json::{Value, json};
 
 use super::super::Panels;
 use super::super::thumbnails::PhotoRef;
 use crate::app::App;
+use crate::dialogs::DialogKind;
 use crate::menu_catalog::Mark;
 use crate::menus::{self, ItemNode, Node};
+use crate::panels::light_table::context_menu;
+use crate::state::{Section, UiState};
 use crate::{selection, tray};
 
 /// The pill's padding either side of its text.
@@ -76,8 +88,8 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui, rect: Rect) {
     let session = app.session();
     let ppp = ctx.pixels_per_point();
     if let (Some((cover, pill)), Some((_, label))) = (parts.token, &token) {
-        if let (Some(session), Some(&first)) = (session, state.selection.ids.first())
-            && let Some(photo) = session.library().photo(first)
+        if let Some(session) = session
+            && let Some(photo) = token_cover(state, session).and_then(|id| session.library().photo(id))
         {
             let cell = cover.intersect(clip);
             let photo = PhotoRef { session, photo };
@@ -169,6 +181,89 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui, rect: Rect) {
     if let Some((response, targets)) = menu {
         let nodes = context_nodes(app, &targets);
         menus::context_menu(&response, app, &nodes);
+    }
+}
+
+/// The photo the token shows: a user album's cover when it is selected, else the section's first
+/// photo.
+pub fn token_cover(state: &UiState, session: &dalica_engine::Session) -> Option<PhotoId> {
+    let sel = &state.selection;
+    let cover = sel.section.and_then(Section::user_album).and_then(|a| session.library().album_cover(&a)).filter(|c| sel.contains(*c));
+    cover.or_else(|| sel.ids.first().copied())
+}
+
+/// The id of Add to Album ▾'s popup.
+pub fn album_popup_id() -> Id {
+    Id::new("tray.addToAlbum.popup")
+}
+
+/// Whether Add to Album ▾ can open: the tray has photos to add.
+pub fn add_to_album_enabled(app: &App) -> bool {
+    !tray::is_empty(app.state())
+}
+
+/// The rows of Add to Album ▾ (`ui-layout.md` §6.2): New Album…, then the user albums, the most
+/// recent first ([`context_menu::albums_by_date`]); they act on the tray's photos.
+pub fn album_nodes(app: &App) -> Vec<Node> {
+    let empty = tray::is_empty(app.state());
+    let new_ready = if empty { Err(tray::EMPTY.to_string()) } else { crate::dialogs::can_open(app, DialogKind::AlbumProperties) };
+    let mut out = vec![Node::Item(ItemNode {
+        id: "album.new",
+        label: "New Album…".into(),
+        catalog_label: "New Album…",
+        params: Value::Null,
+        widget: "menuitem:album.new".into(),
+        shortcut: None,
+        live: true,
+        enabled: new_ready.is_ok(),
+        reason: new_ready.err(),
+        mark: Mark::None,
+        checked: false,
+        dialog: Some("albumProperties"),
+    })];
+    let albums = context_menu::albums_by_date(app);
+    if !albums.is_empty() {
+        let live = app.session().is_some_and(|s| s.spec("album.add").is_some());
+        let ready = if empty { Err(tray::EMPTY.to_string()) } else { Ok(()) };
+        out.push(Node::Separator);
+        out.extend(context_menu::album_rows(&albums, live, &ready));
+    }
+    out
+}
+
+/// Add to Album ▾'s popup over the button `button`: a click on the button (`clicked`) opens it, or
+/// closes it when open; it opens upward and is bounded by the window above the button. A row
+/// clicked runs on the tray's photos: New Album… opens Album Properties for them, an album adds
+/// them (one undo step); a refusal is on the status line.
+pub fn album_popup(app: &mut App, ui: &Ui, button: Rect, clicked: bool) {
+    let id = album_popup_id();
+    let ctx = ui.ctx().clone();
+    if !clicked && !Popup::is_id_open(&ctx, id) {
+        return;
+    }
+    let nodes = album_nodes(app);
+    // The rows may take the room above the button: `menus::level` measures it down from `top`.
+    let screen = ctx.content_rect();
+    let top = screen.bottom() - (button.top() - screen.top());
+    let mut picked: Option<ItemNode> = None;
+    Popup::new(id, ctx, button, ui.layer_id())
+        .kind(PopupKind::Menu)
+        .layout(Layout::top_down_justified(Align::Min))
+        .style(egui::containers::menu::menu_style)
+        .gap(2.0)
+        .align(RectAlign::TOP_END)
+        .open_memory(clicked.then_some(SetOpenCommand::Toggle))
+        .show(|ui| picked = menus::popup_rows(ui, &nodes, top));
+    let Some(item) = picked.filter(|i| i.enabled) else { return };
+    let r = match item.id {
+        "album.add" => {
+            let album = item.params.get("album").cloned().unwrap_or(Value::Null);
+            app.run("album.add", &json!({ "album": album, "ids": tray::photos(app.state()) }))
+        }
+        id => app.run(id, &json!({})),
+    };
+    if let Err(e) = r {
+        app.state_mut().status = e.to_string();
     }
 }
 
@@ -334,4 +429,38 @@ pub fn context_nodes(app: &App, targets: &[PhotoId]) -> Vec<Node> {
             }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::tests::session_with_photos;
+    use crate::state::{AlbumKey, AlbumSection, Selection};
+
+    #[test]
+    fn the_album_token_shows_the_album_cover_and_the_popup_lists_new_album_then_the_albums() {
+        let (_dir, mut s, ids) = session_with_photos(3);
+        let a = s.execute("album.create", &json!({ "name": "Trams", "ids": [ids[0], ids[1]] })).unwrap()["album"].as_str().unwrap().to_string();
+        let album = dalica_core::AlbumId::parse(&a).unwrap();
+        s.execute("album.setCover", &json!({ "album": a, "id": ids[1] })).unwrap();
+        let section = Section::Album(AlbumSection::User(AlbumKey::of(&album)));
+        let mut state = UiState { selection: Selection::new(vec![ids[0], ids[1]], None, Some(section), true), ..UiState::default() };
+        assert_eq!(token_cover(&state, &s), Some(ids[1]), "the album's cover");
+        state.selection = Selection::new(vec![ids[0]], None, Some(section), true);
+        assert_eq!(token_cover(&state, &s), Some(ids[0]), "a cover outside the selection is not shown");
+        state.selection = Selection::new(vec![ids[2], ids[0]], None, Some(Section::Album(AlbumSection::Starred)), true);
+        assert_eq!(token_cover(&state, &s), Some(ids[2]), "an automatic album shows its first photo");
+
+        let mut app = App::new(Some(s));
+        assert!(!add_to_album_enabled(&app), "an empty tray");
+        let labels = |app: &App| -> Vec<(String, bool)> {
+            album_nodes(app).iter().map(|n| if let Node::Item(i) = n { (i.label.clone(), i.enabled) } else { ("—".into(), false) }).collect()
+        };
+        assert_eq!(labels(&app), [("New Album…".to_string(), false), ("—".into(), false), ("Trams".into(), false)]);
+        app.run("select.set", &json!({ "ids": [ids[2]] })).unwrap();
+        assert!(add_to_album_enabled(&app));
+        assert_eq!(labels(&app), [("New Album…".to_string(), true), ("—".into(), false), ("Trams".into(), true)]);
+        // No library: New Album… only, never a panic.
+        assert_eq!(album_nodes(&App::new(None)).len(), 1);
+    }
 }

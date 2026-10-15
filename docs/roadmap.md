@@ -4209,7 +4209,7 @@ mid-run.
     reads Album on an album section; Starred Photos and Recently Updated list as expected;
     `crates/ui/tests/section_header.rs` covers album headers; tree, header and dialog fingerprints
     at both sizes.
-- ⬜ **M9.18 `ui`: Add to Album, the photo context menu and the album token**
+- ✅ **M9.18 `ui`: Add to Album, the photo context menu and the album token**
   - after: M9.4, M9.5, M9.10
   - files: `crates/ui/src/panels/light_table/context_menu.rs`, `crates/ui/src/panels/bottom/tray.rs`, `crates/ui/src/tray.rs`, `crates/ui/src/dialogs/remove_from_album.rs`, `crates/ui/tests/photo_menu.rs`, `crates/ui/tests/add_to_album.rs`, `crates/ui/tests/tray.rs`, `crates/ui/tests/fingerprints/region-tray-album-*.json`, `crates/ui/tests/fingerprints/menu-photo-*.json`
   - scope: `organizing.md` §4.3 and §9.1, `ui-layout.md` §6.2: the photo context menu's rows, live

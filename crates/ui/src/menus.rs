@@ -241,7 +241,10 @@ pub fn section_menu(app: &App, platform: Platform) -> Vec<Node> {
 pub fn photo_menu(app: &App, platform: Platform) -> Vec<Node> {
     let facts = Facts::new(app, platform);
     let entries = if facts.kind == SectionKind::Album { menu_catalog::PHOTO_IN_ALBUM } else { menu_catalog::PHOTO };
-    nodes(&facts, entries, "Photo")
+    let mut rows = nodes(&facts, entries, "Photo");
+    // Add to Album ▸'s albums and the album rows' states (`crate::panels::light_table::context_menu`).
+    crate::panels::light_table::context_menu::finish(app, &mut rows);
+    rows
 }
 
 fn menu_node(facts: &Facts<'_>, menu: &Menu) -> MenuNode {
@@ -320,6 +323,10 @@ pub fn params_for(app: &App, id: &str, fixed: &Value) -> Value {
     // In the edit view File ▸ Save, Revert… and Save a Copy act on the open photo.
     if let Some(ids) = crate::commands::save::open_photo_ids(app, id) {
         obj.insert("ids".into(), ids);
+    }
+    // Set as Album Cover: the album shown and its focused photo.
+    for (k, v) in crate::panels::light_table::context_menu::album_params(app, id) {
+        obj.insert(k, v);
     }
     if let Value::Object(f) = fixed {
         for (k, v) in f {
@@ -736,7 +743,7 @@ pub fn level(ui: &mut Ui, depth: usize, top: f32, rows: impl FnOnce(&mut Ui)) {
 }
 
 /// Draws the rows of a menu level; a clicked item lands in `clicked` and closes the menu.
-fn rows(ui: &mut Ui, nodes: &[Node], clicked: &mut Option<ItemNode>, depth: usize, top: f32) {
+fn rows(ui: &mut Ui, nodes: &[Node], clicked: &mut Option<ItemNode>, depth: usize, top: f32, bold: Option<&str>) {
     ui.set_min_width(MIN_WIDTH);
     ui.spacing_mut().button_padding.x = GUTTER;
     let tokens = dalica_ui_kit::Tokens::default();
@@ -748,11 +755,17 @@ fn rows(ui: &mut Ui, nodes: &[Node], clicked: &mut Option<ItemNode>, depth: usiz
             Node::Submenu { label, widget, children } => {
                 let button = egui::Button::new(*label).right_text("›");
                 let (r, inner) = egui::containers::menu::SubMenuButton::from_button(button)
-                    .ui(ui, |ui| level(ui, depth + 1, top, |ui| self::rows(ui, children, clicked, depth + 1, top)));
+                    .ui(ui, |ui| level(ui, depth + 1, top, |ui| self::rows(ui, children, clicked, depth + 1, top, None)));
                 widgets::register(ui.ctx(), widget, Role::MenuItem, label, Target::Widget(&r), inner.is_some());
             }
             Node::Item(i) => {
-                let mut b = egui::Button::new(i.label.as_str());
+                // The default row of a context menu (View and Edit, what a double-click does) is bold.
+                let mut b = if bold == Some(i.widget.as_str()) {
+                    let size = ui.style().text_styles.get(&egui::TextStyle::Button).map_or(tokens.body, |f| f.size);
+                    egui::Button::new(egui::RichText::new(i.label.as_str()).font(dalica_ui_kit::fonts::semibold(size)))
+                } else {
+                    egui::Button::new(i.label.as_str())
+                };
                 if let Some(s) = &i.shortcut {
                     b = b.shortcut_text(s.as_str());
                 }
@@ -798,7 +811,7 @@ pub fn show_bar(ui: &mut Ui, app: &mut App) -> Option<&'static str> {
                 let shown = title(m, kind);
                 let r = ui.menu_button(shown, |ui| {
                     let model = menu(app, m, platform);
-                    level(ui, 1, top, |ui| rows(ui, &model.children, &mut clicked, 1, top));
+                    level(ui, 1, top, |ui| rows(ui, &model.children, &mut clicked, 1, top, None));
                 });
                 widgets::register(ui.ctx(), &format!("menu:{}", m.key), Role::Menu, shown, Target::Widget(&r.response), r.inner.is_some());
             }
@@ -812,12 +825,25 @@ pub fn show_bar(ui: &mut Ui, app: &mut App) -> Option<&'static str> {
 /// A context menu on `response` (right-click) showing `nodes`, bounded by the window like every
 /// menu. A clicked item runs through [`activate`]; returns its command id.
 pub fn context_menu(response: &egui::Response, app: &mut App, nodes: &[Node]) -> Option<&'static str> {
+    context_menu_bold(response, app, nodes, None)
+}
+
+/// [`context_menu`] with its default row (the widget id `bold`) drawn bold.
+pub fn context_menu_bold(response: &egui::Response, app: &mut App, nodes: &[Node], bold: Option<&str>) -> Option<&'static str> {
     let mut clicked: Option<ItemNode> = None;
     let top = response.ctx.content_rect().top();
-    response.context_menu(|ui| level(ui, 1, top, |ui| rows(ui, nodes, &mut clicked, 1, top)));
+    response.context_menu(|ui| level(ui, 1, top, |ui| rows(ui, nodes, &mut clicked, 1, top, bold)));
     let item = clicked?;
     let _ = activate(app, &item, &Value::Null);
     Some(item.id)
+}
+
+/// Draws `nodes` as the rows of a popup menu level (bounded by the window below `top`, like every
+/// menu) and returns the item clicked, which closes the popup; the caller runs it.
+pub fn popup_rows(ui: &mut Ui, nodes: &[Node], top: f32) -> Option<ItemNode> {
+    let mut clicked: Option<ItemNode> = None;
+    level(ui, 1, top, |ui| rows(ui, nodes, &mut clicked, 1, top, None));
+    clicked
 }
 
 #[cfg(test)]

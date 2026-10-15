@@ -2,7 +2,7 @@
 //!
 //! Left of the split, the Photo Tray ([`tray`]): a sunken box showing the selection and the held
 //! photos (empty: the "Selection" watermark) and its three stacked buttons Hold, Clear and Add to
-//! Album (disabled until albums). Right of it, the controls row (star, rotate counterclockwise and
+//! Album ▾. Right of it, the controls row (star, rotate counterclockwise and
 //! clockwise; the loupe, the thumbnail-size slider and the four side-pane toggles at the right) and,
 //! under a 1 pt separator, the action buttons Export ┆ Collage, Slideshow, which go behind a
 //! **More…** button that opens a vertical menu when the window is narrower than [`OVERFLOW_BELOW`].
@@ -179,21 +179,24 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
 }
 
 /// The tray's three stacked buttons: Hold while the tray has photos that are not held, Clear while
-/// it has any, Add to Album once albums exist.
+/// it has any, Add to Album ▾ while it has any (its popup: [`tray::album_popup`]).
 fn tray_buttons(app: &mut App, ui: &mut Ui, p: &Parts) {
     let t = *app.tokens();
     let state = app.state();
     let count = crate::tray::count(state);
-    // Add to Album ▾ waits for albums (M9): its popup lists them.
-    let enabled = [count > state.tray.held.len(), count > 0, false];
+    let enabled = [count > state.tray.held.len(), count > 0, tray::add_to_album_enabled(app)];
     let size = t.metrics.tray_button;
     let mut y = p.tray_buttons.min.y;
     let mut clicked = None;
+    let mut album_button = Rect::NOTHING;
     for (i, (id, icon, tooltip)) in TRAY_BUTTONS.into_iter().enumerate() {
         let rect = Rect::from_min_size(pos2(p.tray_buttons.min.x, y), size);
         let on = enabled.get(i).copied().unwrap_or(false);
         if at(ui, id, rect, |ui| plate(ui, &t, id, icon, tooltip, size, on)) {
             clicked = Some(id);
+        }
+        if id == "button:tray.addToAlbum" {
+            album_button = rect;
         }
         y += size.y + GAP;
     }
@@ -204,6 +207,7 @@ fn tray_buttons(app: &mut App, ui: &mut Ui, p: &Parts) {
         Some("button:tray.clear") => tray::clear_clicked(app),
         _ => {}
     }
+    tray::album_popup(app, ui, album_button, clicked == Some("button:tray.addToAlbum"));
 }
 
 /// Whether every photo in the tray is starred (the star button's state). Cached per library
