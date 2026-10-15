@@ -13,8 +13,23 @@
 //!   finished, and the operation leaves the journal when its results are in the library (and the
 //!   index journal holds them). Every journal call goes through the session's I/O worker, the first
 //!   one waited for by the file job's thread, so nothing moves before the entry is written. The
-//!   writer is a stub that keeps the entries in memory ([`MemoryJournal`]) until M9.9 gives
-//!   `file-ops.json`; M9.21 repairs what an interrupted operation left from it at open.
+//!   session's journal is `file-ops.json` in the library directory ([`StoreJournal`], `dalica-store`'s
+//!   `intents`), opened with the library: its problems become notices, the operation ids continue
+//!   past those an earlier session left ([`Session::file_ops_left`], which M9.21 repairs), and a
+//!   journal that cannot be opened refuses every operation ([`NoJournal`]). Tests may plug in
+//!   [`MemoryJournal`] ([`Session::set_file_op_journal`]).
+//! - **Entries travel with their files** (`data-model.md` §8). A driver whose items move, copy or
+//!   rename photos says which with [`Driver::carry`] (the photos of one item, by name, from one
+//!   folder to another; `None` for a trash or a folder move, whose sidecar is inside it). For each
+//!   item done this module then, in order: carries the photos' originals backups and their record
+//!   entries on the job's thread right after the item's work ([`dalica_store::carry::backups`]);
+//!   applies the item's library ops (their folders' new states go to the I/O worker); and carries
+//!   the sidecar entries on the I/O worker after those states ([`Session::carry_entries`],
+//!   `SidecarWriter::carry`: the folders' pending writes first, then the entries, then the
+//!   destination from the model). Undo and redo carry the same way, with the item that ran. A
+//!   carry that fails or leaves an entry behind is reported by [`Session::flush`] like an unsaved
+//!   write; a backup that could not travel is logged. A copied photo needs the source's data in
+//!   the model too (its ops), or the destination's next write clears the duplicated values.
 //! - **Dalica's own changes.** File jobs put off the watcher's rescans while they run (M8.3), and
 //!   each finished item's ops put both of its ends in the model (the source gone, the target with
 //!   the file's facts) before any rescan reads the folders, so the rescan after the operation finds
@@ -40,6 +55,8 @@ use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use dalica_library::Op;
+use dalica_store::carry::Carry;
+use dalica_store::intents::{self, Intent, Intents};
 use serde::Serialize;
 
 use crate::error::CmdError;
@@ -122,6 +139,16 @@ pub trait Driver: Send + Sync + 'static {
     fn settled(&self, item: &Self::Item, done: &Self::Done) -> Self::Item {
         let _ = done;
         item.clone()
+    }
+    /// The photos whose sidecar entries and originals backups travel with `item` as done (`done`
+    /// gives the name a clash chose): `Carry::one(Mode::Move, from_folder, name, to_folder,
+    /// new_name)` for a move, `Mode::Copy` for a copy, `Carry::rename` for a rename; several names
+    /// for a folder merge. Called on the job's thread for every item done in any direction (undo
+    /// passes its reverse item); see the module docs for what follows. `None` (the default): the
+    /// item carries nothing.
+    fn carry(&self, item: &Self::Item, done: &Self::Done) -> Option<Carry> {
+        let _ = (item, done);
+        None
     }
 }
 
@@ -218,6 +245,86 @@ impl Journal for MemoryJournal {
     }
 }
 
+/// The journal `file-ops.json` in the library directory (`dalica-store`'s [`Intents`]): what the
+/// session uses once the library is open.
+#[derive(Debug)]
+pub struct StoreJournal {
+    intents: Mutex<Intents>,
+}
+
+impl StoreJournal {
+    pub fn new(intents: Intents) -> StoreJournal {
+        StoreJournal { intents: Mutex::new(intents) }
+    }
+
+    fn with<T>(&self, f: impl FnOnce(&mut Intents) -> Result<T, intents::Error>) -> Result<T, String> {
+        f(&mut self.intents.lock().unwrap_or_else(PoisonError::into_inner)).map_err(|e| e.to_string())
+    }
+}
+
+fn store_kind(kind: FileOpKind) -> intents::Kind {
+    match kind {
+        FileOpKind::Move => intents::Kind::Move,
+        FileOpKind::Copy => intents::Kind::Copy,
+        FileOpKind::Rename => intents::Kind::Rename,
+        FileOpKind::Trash => intents::Kind::Trash,
+        FileOpKind::MoveFolder => intents::Kind::MoveFolder,
+        FileOpKind::RenameFolder => intents::Kind::RenameFolder,
+        FileOpKind::TrashFolder => intents::Kind::TrashFolder,
+    }
+}
+
+fn store_state(state: ItemState) -> intents::State {
+    match state {
+        ItemState::Pending => intents::State::Pending,
+        ItemState::Placed => intents::State::Placed,
+        ItemState::Done => intents::State::Done,
+    }
+}
+
+impl Journal for StoreJournal {
+    fn begin(&self, entry: &JournalEntry) -> Result<(), String> {
+        let intent = Intent {
+            id: entry.id,
+            kind: store_kind(entry.kind),
+            direction: match entry.direction {
+                Direction::Do => intents::Direction::Do,
+                Direction::Undo => intents::Direction::Undo,
+                Direction::Redo => intents::Direction::Redo,
+            },
+            items: entry.items.iter().map(|i| intents::Item { from: i.from.clone(), to: i.to.clone(), state: store_state(i.state) }).collect(),
+        };
+        self.with(|j| j.begin(intent))
+    }
+
+    fn item(&self, op: OpId, index: usize, state: ItemState) -> Result<(), String> {
+        self.with(|j| j.item(op, index, store_state(state)))
+    }
+
+    fn end(&self, op: OpId) -> Result<(), String> {
+        self.with(|j| j.end(op))
+    }
+}
+
+/// The journal of a library whose `file-ops.json` could not be opened: every operation is refused
+/// with the reason, so nothing moves without a journal.
+#[derive(Debug)]
+pub struct NoJournal(pub String);
+
+impl Journal for NoJournal {
+    fn begin(&self, _: &JournalEntry) -> Result<(), String> {
+        Err(self.0.clone())
+    }
+
+    fn item(&self, _: OpId, _: usize, _: ItemState) -> Result<(), String> {
+        Err(self.0.clone())
+    }
+
+    fn end(&self, _: OpId) -> Result<(), String> {
+        Err(self.0.clone())
+    }
+}
+
 /// A finished file operation, undo or redo, for the UI's notices.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FileOpEvent {
@@ -248,11 +355,13 @@ pub(crate) struct FileOps {
     journal: Arc<dyn Journal>,
     events: VecDeque<FileOpEvent>,
     next_seq: u64,
+    /// The operations an earlier session left in the journal (for M9.21's repair).
+    left: Vec<Intent>,
 }
 
 impl Default for FileOps {
     fn default() -> Self {
-        FileOps { next: 1, journal: Arc::new(MemoryJournal::default()), events: VecDeque::new(), next_seq: 0 }
+        FileOps { next: 1, journal: Arc::new(MemoryJournal::default()), events: VecDeque::new(), next_seq: 0, left: Vec::new() }
     }
 }
 
@@ -323,6 +432,12 @@ impl<D: Driver> Batch for Steps<D> {
     }
 }
 
+/// What an item's work gives the owner thread: what it did, and the entries to carry after its ops.
+struct Worked<T> {
+    ran: Ran<T>,
+    carry: Option<Carry>,
+}
+
 /// One job item: its place, the item to run (an `Err` fails with its reason) and the file it is
 /// about.
 struct Slot<I> {
@@ -385,9 +500,9 @@ impl<D: Driver> Run<D> {
     /// One item's result, on the owner thread: its library ops applied and its entry kept. The
     /// item's files are done either way; a library change that fails is the item's failure, and
     /// its entry is kept without one so that undo still moves the files back.
-    fn applied(&mut self, s: &mut Session, a: Applied<Ran<D::Done>>) -> Result<Vec<Op>, String> {
-        let Applied { index, file, value, .. } = a;
-        let done = match value {
+    fn applied(&mut self, s: &mut Session, a: Applied<Worked<D::Done>>) -> Result<Vec<Op>, String> {
+        let Applied { index, file, value: Worked { ran, carry }, .. } = a;
+        let done = match ran {
             Ran::Done(d) => d,
             Ran::Skipped(reason) => {
                 self.skipped.push(ItemFailure { file, reason });
@@ -420,6 +535,11 @@ impl<D: Driver> Run<D> {
         };
         if let Some(slot) = self.results.get_mut(index) {
             *slot = Some(Entry { forward, back, op });
+        }
+        // After the ops (their folders' states are on their way to the I/O worker): the entries
+        // follow the files, even when the library could not.
+        if let Some(carry) = carry {
+            s.carry_entries(carry);
         }
         match failed {
             None => Ok(Vec::new()),
@@ -535,11 +655,12 @@ fn launch<D: Driver>(s: &mut Session, steps: Steps<D>, dir: Direction, step: Opt
             .collect(),
     };
     let writer = Writer { io: s.io_sender(), journal: Arc::clone(&s.fileops.journal) };
+    let clock = Arc::clone(&s.clock);
     // The entry is written once, before the first item's work; an operation whose entry could not
     // be written moves nothing.
     let begun: Arc<Mutex<Option<Result<(), String>>>> = Arc::new(Mutex::new(None));
     let work_driver = Arc::clone(&driver);
-    let work = move |slot: Slot<D::Item>| -> Result<Done<Ran<D::Done>>, String> {
+    let work = move |slot: Slot<D::Item>| -> Result<Done<Worked<D::Done>>, String> {
         {
             let mut b = begun.lock().unwrap_or_else(PoisonError::into_inner);
             if b.is_none() {
@@ -553,10 +674,25 @@ fn launch<D: Driver>(s: &mut Session, steps: Steps<D>, dir: Direction, step: Opt
         let Slot { index, item, .. } = slot;
         let item = item?;
         let ran = work_driver.run(&item)?;
+        let carry = match &ran {
+            Ran::Done(done) => work_driver.carry(&item, done),
+            Ran::Skipped(_) => None,
+        };
+        // The backups follow the files at once, on this thread (`data-model.md` §8).
+        if let Some(c) = &carry {
+            match dalica_store::carry::backups(c, clock.now()) {
+                Ok(out) => {
+                    for r in out.refused {
+                        log::warn!("file operation {op}: the originals backup of {} stayed in {}: {}", r.name, c.from.display(), r.reason);
+                    }
+                }
+                Err(e) => log::warn!("file operation {op}: originals backups not carried: {e}"),
+            }
+        }
         if let Err(e) = writer.call(move |j| j.item(op, index, ItemState::Done)) {
             log::warn!("file operation {op}: item {index} not marked done in the journal: {e}");
         }
-        Ok(Done { changes: Vec::new(), value: ran })
+        Ok(Done { changes: Vec::new(), value: Worked { ran, carry } })
     };
     let total = steps.entries.len();
     let label = job_label(dir, steps.kind, steps.label);
@@ -564,7 +700,7 @@ fn launch<D: Driver>(s: &mut Session, steps: Steps<D>, dir: Direction, step: Opt
     let shared = Arc::new(Mutex::new(Some(run)));
     let (on_applied, on_finish) = (Arc::clone(&shared), Arc::clone(&shared));
     let job = FileJob::new(JobKind::Files, label, slots, work)
-        .on_applied(move |s: &mut Session, a: Applied<Ran<D::Done>>| {
+        .on_applied(move |s: &mut Session, a: Applied<Worked<D::Done>>| {
             let mut guard = on_applied.lock().unwrap_or_else(PoisonError::into_inner);
             match guard.as_mut() {
                 Some(run) => run.applied(s, a),
@@ -602,9 +738,50 @@ impl Session {
         self.fileops.events.iter()
     }
 
-    /// Uses `journal` as the file-operation journal from now on (M9.9's `file-ops.json`; tests).
+    /// Uses `journal` as the file-operation journal from now on (the session opens `file-ops.json`
+    /// itself; tests plug in a [`MemoryJournal`]).
     pub fn set_file_op_journal(&mut self, journal: Arc<dyn Journal>) {
         self.fileops.journal = journal;
+    }
+
+    /// At open: `file-ops.json` becomes the journal. Its problems (a damaged file kept aside)
+    /// become notices; the operations an earlier session left are kept for the repair
+    /// ([`Session::file_ops_left`]) and the ids continue past them. A journal that cannot be opened
+    /// refuses every operation ([`NoJournal`]), with a notice.
+    pub(crate) fn open_file_op_journal(&mut self) {
+        match Intents::open(&self.dir, self.clock.now()) {
+            Ok(opened) => {
+                for intents::Problem::SetAside { why, kept, kept_ops } in opened.problems {
+                    self.notices.push(format!(
+                        "The file-operation journal was damaged ({why}); it was kept as {} and {kept_ops} operation(s) in it were read.",
+                        kept.display()
+                    ));
+                }
+                self.fileops.left = opened.intents.ops().cloned().collect();
+                self.fileops.next = self.fileops.next.max(opened.intents.next_id());
+                self.fileops.journal = Arc::new(StoreJournal::new(opened.intents));
+            }
+            Err(e) => {
+                let why = format!("the file-operation journal could not be opened: {e}");
+                self.notices.push(format!("{why}; files cannot be moved, copied, renamed or deleted until it can."));
+                self.fileops.journal = Arc::new(NoJournal(why));
+            }
+        }
+    }
+
+    /// The operations an earlier session left in `file-ops.json` (interrupted), as found at open.
+    pub fn file_ops_left(&self) -> &[Intent] {
+        &self.fileops.left
+    }
+
+    /// Carries the sidecar entries `carry` names on the I/O worker, in order with the sidecar
+    /// writes (`SidecarWriter::carry`). Call it after the ops that put the photos in their new
+    /// folder were applied; file operations do it for every item whose [`Driver::carry`] names
+    /// photos.
+    pub(crate) fn carry_entries(&mut self, carry: Carry) {
+        let from = self.library.folder_by_path(&carry.from);
+        let to = self.library.folder_by_path(&carry.to);
+        self.send(Msg::Carry { carry, from, to });
     }
 
     /// Undoes (or redoes) file step `step`: starts its reverse (or its items again) as a file job.

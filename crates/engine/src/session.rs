@@ -91,6 +91,14 @@ pub(crate) enum Msg {
     /// Runs a piece of work on the I/O worker, in order with the writes before it (the
     /// file-operation journal, `fileops.rs`).
     Run(Box<dyn FnOnce() + Send>),
+    /// Carries photos' sidecar entries with their files, in order with the sidecar writes
+    /// (`fileops.rs`, `dalica-store`'s `SidecarWriter::carry`): the two folders' ids, `None` for a
+    /// folder the library does not have.
+    Carry {
+        carry: dalica_store::carry::Carry,
+        from: Option<FolderId>,
+        to: Option<FolderId>,
+    },
 }
 
 /// How a session is opened.
@@ -120,7 +128,7 @@ pub struct Session {
     pub(crate) ops_since_snapshot: u64,
     settings: Settings,
     keymap: Keymap,
-    notices: Vec<String>,
+    pub(crate) notices: Vec<String>,
     pub(crate) thumbs: Thumbs,
     /// The watched folders (`folders.rs`).
     pub(crate) folders: Folders,
@@ -248,6 +256,7 @@ impl Session {
             session.start_scan(session.folders.roots.clone(), ScanKind::Rebuild);
         }
         session.recover_saves_at_open();
+        session.open_file_op_journal();
         session.recover_file_ops_at_open();
         session.read_albums_at_open();
         Ok(session)
@@ -705,9 +714,7 @@ fn io_worker(mut store: Store, rx: Receiver<Msg>, clock: &dyn Clock, errors: &Mu
         log::warn!("{e}");
         errors.lock().unwrap_or_else(PoisonError::into_inner).push(e);
     };
-    let write = |writer: &mut SidecarWriter, states: &HashMap<FolderId, Option<FolderState>>, all: bool| {
-        let state_of = |f: FolderId| states.get(&f).cloned().flatten();
-        let outcomes = if all { writer.flush_with(state_of, clock.now()) } else { writer.write_due_with(state_of, clock.now()) };
+    let report = |outcomes: std::collections::BTreeMap<FolderId, dalica_store::Outcome>| {
         for (folder, outcome) in outcomes {
             match outcome {
                 dalica_store::Outcome::Failed(e) => fail(format!("sidecar of folder {folder}: {e}")),
@@ -723,6 +730,10 @@ fn io_worker(mut store: Store, rx: Receiver<Msg>, clock: &dyn Clock, errors: &Mu
                 dalica_store::Outcome::ReadOnly => {}
             }
         }
+    };
+    let write = |writer: &mut SidecarWriter, states: &HashMap<FolderId, Option<FolderState>>, all: bool| {
+        let state_of = |f: FolderId| states.get(&f).cloned().flatten();
+        report(if all { writer.flush_with(state_of, clock.now()) } else { writer.write_due_with(state_of, clock.now()) });
     };
     loop {
         match rx.recv_timeout(TICK) {
@@ -754,6 +765,35 @@ fn io_worker(mut store: Store, rx: Receiver<Msg>, clock: &dyn Clock, errors: &Mu
             Ok(Msg::Run(work)) => {
                 if catch_unwind(AssertUnwindSafe(work)).is_err() {
                     fail("work on the I/O worker panicked".into());
+                }
+            }
+            Ok(Msg::Carry { carry, from, to }) => {
+                let now = clock.now();
+                let carried = match (from, to) {
+                    (Some(from), Some(to)) => {
+                        let r = writer.carry(&carry, from, to, |f| states.get(&f).cloned().flatten(), now);
+                        report(r.writes);
+                        r.carried
+                    }
+                    // A folder the library does not have is never written by the writer: nothing to
+                    // sequence with there; a destination in the library is written from the model
+                    // after the carry, as the writer would.
+                    (_, to) => {
+                        let r = dalica_store::carry::entries(&carry, now);
+                        if let Some(to) = to.filter(|_| r.is_ok()) {
+                            writer.mark_dirty(to);
+                        }
+                        r
+                    }
+                };
+                let what = format!("sidecar entries from {} to {}", carry.from.display(), carry.to.display());
+                match carried {
+                    Ok(c) => {
+                        for r in c.refused {
+                            fail(format!("{what}: {} stayed: {}", r.name, r.reason));
+                        }
+                    }
+                    Err(e) => fail(format!("{what}: {e}")),
                 }
             }
             Ok(Msg::Hold(roots)) => writer.hold(roots),
