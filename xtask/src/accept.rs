@@ -138,6 +138,13 @@ pub const BUDGETS: &[Budget] = &[
         cargo: &["bench", "-p", "dalica-engine", "--bench", "save_export", "--", "--json"],
         judge: judge_save_export,
     },
+    Budget {
+        milestone: 9,
+        name: "search",
+        what: "search: a synthetic 100 k library with captions, tags, folders and albums: the search index built, a one-word query, three words with Starred, a lone `-word`, and search.set to its result applied (debounce excluded); medians within 1.5 × their first measurement, a query never above 100 ms",
+        cargo: &["bench", "-p", "dalica-engine", "--bench", "search", "--", "--json"],
+        judge: judge_search,
+    },
 ];
 
 /// The save and export budgets, in milliseconds, judged on the median (`docs/development.md` §8:
@@ -176,6 +183,57 @@ pub fn judge_save_export(stdout: &str, plant: f64) -> Result<String, String> {
         parts.push(format!("{name} {judged:.0} ms{planted} ≤ {budget:.0} ms"));
     }
     Ok(format!("medians: {}", parts.join("; ")))
+}
+
+/// The search budgets, in milliseconds, judged on the median (`docs/development.md` §8: 1.5 × the
+/// first measurement, release on two cores, 2026-10-14; a query never above [`SEARCH_QUERY_CAP_MS`];
+/// `search` → `INDEX_BUDGET_MS`, `WORD_BUDGET_MS`, `FILTER_BUDGET_MS`, `NOT_BUDGET_MS`,
+/// `APPLIED_BUDGET_MS`). The rows in the order the bench prints them, each with its budget and
+/// whether it is a query.
+pub const SEARCH_BUDGETS: [(&str, f64, bool); 5] = [
+    ("index build", 630.0, false),
+    ("one word", 1.7, true),
+    ("three words and a filter", 0.6, true),
+    ("a -word", 5.1, true),
+    ("search.set to applied", 22.3, true),
+];
+/// No search query's budget is above this (`docs/roadmap.md` M9.12).
+pub const SEARCH_QUERY_CAP_MS: f64 = 100.0;
+/// The library the search budgets hold for.
+pub const SEARCH_PHOTOS: u64 = 100_000;
+
+/// `search --json` in release over the 100 k library: each row's median within its budget. A
+/// planted slowdown of `plant` ms is added to each median (one planted delay per measured
+/// operation).
+pub fn judge_search(stdout: &str, plant: f64) -> Result<String, String> {
+    let report = crate::bench::parse_report(stdout).ok_or("search printed no JSON report with `rows`")?;
+    let mode = report.get("mode").and_then(serde_json::Value::as_str).unwrap_or("?");
+    if mode != "release" {
+        return Err(format!("search ran in a {mode} build; the budgets hold in release only"));
+    }
+    let photos = report.get("photos").and_then(serde_json::Value::as_u64).unwrap_or(0);
+    if photos < SEARCH_PHOTOS {
+        return Err(format!("search ran over {photos} photos; the budgets hold for {SEARCH_PHOTOS}"));
+    }
+    let mut parts = Vec::new();
+    for (name, budget, query) in SEARCH_BUDGETS {
+        let budget = if query { budget.min(SEARCH_QUERY_CAP_MS) } else { budget };
+        let row = report
+            .get("rows")
+            .and_then(serde_json::Value::as_array)
+            .and_then(|rows| rows.iter().find(|r| r.get("name").and_then(serde_json::Value::as_str) == Some(name)))
+            .ok_or(format!("search: no row `{name}`"))?;
+        let p50 =
+            row.get("p50_ms").and_then(serde_json::Value::as_f64).filter(|v| v.is_finite()).ok_or(format!("search: `{name}` without `p50_ms`"))?;
+        let judged = p50 + plant;
+        let planted = if plant > 0.0 { format!(" ({p50:.2} ms measured + {plant:.2} ms planted)") } else { String::new() };
+        if judged > budget {
+            return Err(format!("{name}: median {judged:.2} ms{planted}, over the {budget} ms budget"));
+        }
+        let matches = row.get("matches").and_then(serde_json::Value::as_u64).map(|m| format!(", {m} matches")).unwrap_or_default();
+        parts.push(format!("{name} {judged:.2} ms{planted} ≤ {budget} ms{matches}"));
+    }
+    Ok(format!("{photos} photos, medians: {}", parts.join("; ")))
 }
 
 /// `p95 + plant` against [`FRAME_BUDGET_MS`]: a planted slowdown of `plant` ms in every frame moves
@@ -432,6 +490,66 @@ mod tests {
         format!("a 6000 × 4000 JPEG written in 0.4 s\n{report}\n")
     }
 
+    /// What `search --json` prints over `photos` photos, with each row's median (in
+    /// [`SEARCH_BUDGETS`] order).
+    fn search_out(mode: &str, photos: u64, p50: [f64; 5]) -> String {
+        let mut rows: Vec<serde_json::Value> = SEARCH_BUDGETS
+            .iter()
+            .zip(p50)
+            .map(|((name, budget, query), p50)| {
+                let mut r =
+                    serde_json::json!({ "name": name, "p50_ms": p50, "p95_ms": p50 * 1.2, "max_ms": p50 * 1.5, "samples": 50, "budget_ms": budget });
+                if *query {
+                    r["matches"] = serde_json::json!(13441);
+                }
+                r
+            })
+            .collect();
+        rows.push(serde_json::json!({ "name": "first search", "p50_ms": 750.0, "p95_ms": 750.0, "max_ms": 750.0, "samples": 1 }));
+        let report =
+            serde_json::json!({ "bench": "search", "mode": mode, "threads": 2, "photos": photos, "folders": 1000, "albums": 100, "rows": rows });
+        format!("a library of {photos} photos in 1000 folders, 100 albums, made and opened in 0.8 s\n{report}\n")
+    }
+
+    /// The first measurement (2026-10-14, release, two cores).
+    const SEARCH_MEASURED: [f64; 5] = [417.396, 1.118, 0.379, 3.386, 14.859];
+
+    #[test]
+    fn the_search_budgets_judge_each_median_over_100k_photos_in_release() {
+        let line = judge_search(&search_out("release", 100_000, SEARCH_MEASURED), 0.0).unwrap();
+        assert!(line.starts_with("100000 photos, medians: index build 417.40 ms ≤ 630 ms;"), "{line}");
+        assert!(line.contains("one word 1.12 ms ≤ 1.7 ms, 13441 matches") && line.contains("search.set to applied 14.86 ms ≤ 22.3 ms"), "{line}");
+        let at_budget = SEARCH_BUDGETS.map(|(_, b, _)| b);
+        assert!(judge_search(&search_out("release", 100_000, at_budget), 0.0).is_ok(), "the budgets themselves hold");
+        for (i, (name, budget, _)) in SEARCH_BUDGETS.iter().enumerate() {
+            let mut slow = SEARCH_MEASURED;
+            slow[i] = budget + 0.01;
+            let e = judge_search(&search_out("release", 100_000, slow), 0.0).unwrap_err();
+            assert!(e.starts_with(&format!("{name}: median")) && e.contains("over the"), "{e}");
+        }
+        let e = judge_search(&search_out("release", 100_000, SEARCH_MEASURED), 8.0).unwrap_err();
+        assert!(e.contains("one word: median 9.12 ms (1.12 ms measured + 8.00 ms planted)"), "a planted slowdown adds to the median: {e}");
+        assert!(judge_search(&search_out("debug", 100_000, SEARCH_MEASURED), 0.0).unwrap_err().contains("debug build"));
+        assert!(judge_search(&search_out("release", 2_000, SEARCH_MEASURED), 0.0).unwrap_err().contains("over 2000 photos"));
+        assert!(judge_search("no report\n", 0.0).unwrap_err().contains("no JSON report"));
+        let no_rows = "{\"mode\":\"release\",\"photos\":100000,\"rows\":[{\"name\":\"index build\",\"p50_ms\":1}]}";
+        assert!(judge_search(no_rows, 0.0).unwrap_err().contains("no row `one word`"));
+        let no_time = "{\"mode\":\"release\",\"photos\":100000,\"rows\":[{\"name\":\"index build\",\"p50_ms\":null}]}";
+        assert!(judge_search(no_time, 0.0).unwrap_err().contains("without `p50_ms`"));
+    }
+
+    /// 1.5 × the first measurement, rounded up (5 ms for the build, 0.1 ms for a query), and no
+    /// query's budget above 100 ms.
+    #[test]
+    fn the_search_budgets_are_one_and_a_half_times_the_first_measurement() {
+        for ((name, budget, query), measured) in SEARCH_BUDGETS.iter().zip(SEARCH_MEASURED) {
+            let step = if *query { 0.1 } else { 5.0 };
+            let want = (measured * 1.5 / step).ceil() * step;
+            assert!((budget - want).abs() < 1e-9, "{name}: {budget} ms, 1.5 × {measured} rounded up is {want}");
+            assert!(!query || *budget <= SEARCH_QUERY_CAP_MS, "{name}: {budget} ms is over the {SEARCH_QUERY_CAP_MS} ms cap");
+        }
+    }
+
     #[test]
     fn the_save_and_export_budgets_judge_each_median_in_release() {
         let line = judge_save_export(&save_export_out("release", 300.0, 150.0, 15_000.0), 0.0).unwrap();
@@ -555,6 +673,8 @@ mod tests {
                     (true, bench_out("release", scroll_p95, 40, 42))
                 } else if args.contains(&"save_export") {
                     (true, save_export_out("release", 300.0, 150.0, 15_000.0))
+                } else if args.contains(&"search") {
+                    (true, search_out("release", 100_000, SEARCH_MEASURED))
                 } else if args.contains(&"first_thumbnails") && args.contains(&"0") && args.contains(&"20000") {
                     (true, scroll_out(0.45, 0))
                 } else if args.contains(&"first_thumbnails") {
@@ -565,27 +685,29 @@ mod tests {
             }
         };
         assert_eq!(budgets_with(0.0, fake(2.0, 3.0, 517.0)), Ok(()));
-        // 8 ms planted per frame: every frame budget misses; a first screenful well inside its
-        // second does not, nor the save and export medians well inside theirs.
+        // 8 ms planted per frame: every frame budget misses, and the search queries' (a few ms);
+        // a first screenful well inside its second does not, nor the save and export medians well
+        // inside theirs.
         let e = budgets_with(8.0, fake(2.0, 3.0, 517.0)).unwrap_err();
         assert!(
-            e.contains("3 of 5 missed")
+            e.contains("4 of 6 missed")
                 && e.contains("M4 light table scroll")
                 && e.contains("M4 thumb at top speed")
-                && e.contains("M5 scanned scroll"),
+                && e.contains("M5 scanned scroll")
+                && e.contains("M9 search: one word"),
             "{e}"
         );
         let e = budgets_with(0.0, fake(2.0, 8.5, 517.0)).unwrap_err();
-        assert!(e.contains("1 of 5 missed") && e.contains("M4 thumb at top speed"), "{e}");
+        assert!(e.contains("1 of 6 missed") && e.contains("M4 thumb at top speed"), "{e}");
         let e = budgets_with(0.0, fake(2.0, 3.0, 1100.0)).unwrap_err();
-        assert!(e.contains("1 of 5 missed") && e.contains("M5 first thumbnails: 10000 JPEGs"), "{e}");
+        assert!(e.contains("1 of 6 missed") && e.contains("M5 first thumbnails: 10000 JPEGs"), "{e}");
         let mut ran = Vec::new();
         let e = budgets_with(0.0, |args: &[&str]| {
             ran.push(args.join(" "));
             Ok((false, String::new()))
         })
         .unwrap_err();
-        assert!(e.contains("5 of 5 missed") && e.contains("failed"), "{e}");
+        assert!(e.contains("6 of 6 missed") && e.contains("failed"), "{e}");
         assert_eq!(ran.len(), BUDGETS.len(), "every budget runs after one fails");
         assert!(budgets_with(0.0, |_: &[&str]| Err("cannot run cargo: gone".to_string())).unwrap_err().contains("cannot run cargo"));
     }
@@ -606,6 +728,17 @@ mod tests {
         }
         for printed in ["row(\"save\",", "row(\"save rotate-only\",", "row(\"export 200 mixed\",", "\"p50_ms\"", "\"mode\": mode"] {
             assert!(save_export.contains(printed), "save_export prints {printed}");
+        }
+        assert!(crate::bench::BENCHES.iter().any(|b| b.name == "search" && b.package == "dalica-engine"));
+        let search = std::fs::read_to_string(root.join("crates").join("engine").join("benches").join("search.rs")).unwrap();
+        let constants = ["INDEX_BUDGET_MS", "WORD_BUDGET_MS", "FILTER_BUDGET_MS", "NOT_BUDGET_MS", "APPLIED_BUDGET_MS"];
+        for (constant, (name, ours, _)) in constants.iter().zip(SEARCH_BUDGETS) {
+            assert!(search.contains(&format!("const {constant}: f64 = {ours:?};")), "the bench's {constant} is ours for `{name}`: {ours}");
+            assert!(search.contains(&format!("\"{name}\"")), "search prints the row `{name}`");
+        }
+        assert!(search.contains(&format!("const QUERY_CAP_MS: f64 = {SEARCH_QUERY_CAP_MS:?};")), "the bench's query cap is ours");
+        for printed in ["\"p50_ms\"", "\"mode\": mode", "\"photos\": photos", "Spec::PHOTOS_100K.photos"] {
+            assert!(search.contains(printed), "search prints {printed}");
         }
         let bench = std::fs::read_to_string(root.join("crates").join("engine").join("benches").join("first_thumbnails.rs")).unwrap();
         for printed in [

@@ -58,3 +58,7 @@ harness = false
 [[bench]]
 name = "save_export"
 harness = false
+
+[[bench]]
+name = "search"
+harness = false
