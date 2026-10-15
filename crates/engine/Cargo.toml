@@ -13,6 +13,8 @@ publish = false
 # HEIF/HEIC decoding (formats.md §3), off by default; with it `tests/save_formats.rs` runs its HEIC
 # case: `cargo test -p dalica-engine --features heif --test save_formats`.
 heif = ["dalica-image/heif"]
+# Planted failures for tests (`cmd::rename::planted`) on top of `fs`'s fault points.
+faults = ["dalica-fs/faults"]
 
 [dependencies]
 dalica-core.workspace = true
@@ -44,6 +46,8 @@ thiserror.workspace = true
 [dev-dependencies]
 # Fault points, to plant a Save stopped at an exact step before a session reopens (M8.18).
 dalica-fs = { workspace = true, features = ["faults"] }
+# The engine's own planted failures (`tests/rename.rs`).
+dalica-engine = { path = ".", features = ["faults"] }
 proptest.workspace = true
 tempfile.workspace = true
 

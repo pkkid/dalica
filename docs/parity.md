@@ -23,14 +23,14 @@ same commit.
 | Section | ✅ | 🟡 | ⬜ | 🚫 |
 |---|---:|---:|---:|---:|
 | A. Library view | 13 | 15 | 4 | 1 |
-| B. Organizing | 2 | 15 | 25 | 0 |
+| B. Organizing | 2 | 16 | 24 | 0 |
 | C. Editing | 8 | 6 | 8 | 4 |
 | D. Viewing | 0 | 1 | 5 | 2 |
 | E. Output | 0 | 1 | 1 | 9 |
 | F. Data | 1 | 19 | 1 | 0 |
 | G. Preferences and system | 0 | 7 | 7 | 0 |
 | H. Menus | 0 | 5 | 2 | 0 |
-| **All** | 24 | 69 | 53 | 16 |
+| **All** | 24 | 70 | 52 | 16 |
 <!-- /parity:summary -->
 
 ## Top gaps
@@ -116,7 +116,7 @@ same commit.
 | SRCH-DUP | Find duplicates | P2 | ⬜ | |
 | FILE-MOVE | Move/copy photos with collision dialog | P0 | ⬜ | ref 04 §9 |
 | FILE-NEWFOLDER | Move to new folder, split folder | P1 | ⬜ | |
-| FILE-RENAME | Rename / batch rename dialog | P0 | ⬜ | |
+| FILE-RENAME | Rename / batch rename dialog | P0 | 🟡 | engine (M9.14): `photo.rename {ids, name, addDate?, addSize?}` (`cmd:photo.rename`) as a file operation that is one undo step: one photo takes the sanitized name with its own extension, several get `-001`, `-002` … in light-table order, the date taken and the pixel size join the name when asked, a name another file or photo of the batch holds takes the next free number (decided by file identity, so a change of letter case renames in place), all or nothing per folder (a failed rename moves the folder's renamed files back), sidecar entries and originals backups travelling with the files; `folder.rename {folder, name}` (`cmd:folder.rename`) renames a folder with its ids and sidecar: `crates/engine/src/cmd/rename.rs`, `crates/engine/tests/rename.rs`; missing: the Rename Files dialog (M9.20) |
 | FILE-DELETE | Delete to trash with confirmations | P0 | ⬜ | |
 | FILE-FOLDEROPS | Move / rename / delete folder | P1 | ⬜ | |
 | FILE-COPYPATH | Copy Path | P1 | ⬜ | |
