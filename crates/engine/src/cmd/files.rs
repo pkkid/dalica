@@ -368,8 +368,9 @@ impl Files {
             match holds(path)? {
                 Holds::Gone => return Ok(Ran::Done(Did::RemovedFolder)),
                 Holds::Bookkeeping => break,
-                Holds::Entries if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(20)),
-                Holds::Entries | Holds::Other => return Err(format!("The folder {} is not empty, so it stays.", file_name(path))),
+                Holds::Entries | Holds::Busy(_) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(20)),
+                Holds::Entries => return Err(format!("The folder {} still holds photo entries, so it stays.", file_name(path))),
+                Holds::Busy(what) | Holds::Other(what) => return Err(format!("The folder {} is not empty ({what}), so it stays.", file_name(path))),
             }
         }
         match trash::send(path).map_err(fs_err)? {
@@ -401,19 +402,23 @@ enum Holds {
     Bookkeeping,
     /// Its sidecar still has photo entries.
     Entries,
-    Other,
+    /// Something passing: a temporary file of a write in progress, an entry or the sidecar that
+    /// could not be read just now.
+    Busy(String),
+    /// Something else, named.
+    Other(String),
 }
 
 fn holds(path: &Path) -> Result<Holds, String> {
     match dalica_fs::stat(path).map_err(fs_err)? {
         None => return Ok(Holds::Gone),
-        Some(st) if st.is_file => return Ok(Holds::Other),
+        Some(st) if st.is_file => return Ok(Holds::Other("a file".into())),
         Some(_) => {}
     }
     let limits = dalica_fs::Limits { max_depth: 2, max_entries: 16, cancel: None };
     let walk = dalica_fs::walk(path, limits, |_| false).map_err(fs_err)?;
-    if !walk.warnings.is_empty() {
-        return Ok(Holds::Other);
+    if let Some(w) = walk.warnings.first() {
+        return Ok(Holds::Busy(format!("{w:?}")));
     }
     let (sidecar, originals) = (dalica_sidecar::FILE_NAME, dalica_fs::originals::DIR_NAME);
     for e in &walk.entries {
@@ -426,13 +431,19 @@ fn holds(path: &Path) -> Result<Holds, String> {
             _ => false,
         };
         if !ok {
-            return Ok(Holds::Other);
+            let shown = parts.join("/");
+            let temp = e.path.file_name().is_some_and(dalica_fs::atomic::is_temp_name);
+            return Ok(if temp { Holds::Busy(shown) } else { Holds::Other(shown) });
         }
     }
     let limit = u64::try_from(dalica_sidecar::Limits::default().max_bytes).unwrap_or(u64::MAX);
-    let Some(read) = dalica_fs::read(&path.join(sidecar), limit).map_err(fs_err)? else { return Ok(Holds::Bookkeeping) };
+    let read = match dalica_fs::read(&path.join(sidecar), limit) {
+        Ok(Some(read)) => read,
+        Ok(None) => return Ok(Holds::Bookkeeping),
+        Err(e) => return Ok(Holds::Busy(fs_err(e))),
+    };
     // An unreadable sidecar is not Dalica's bookkeeping to throw away.
-    let Ok(root) = serde_json::from_slice::<Value>(&read.bytes) else { return Ok(Holds::Other) };
+    let Ok(root) = serde_json::from_slice::<Value>(&read.bytes) else { return Ok(Holds::Other(format!("an unreadable {sidecar}"))) };
     Ok(match root.get("photos").and_then(Value::as_object) {
         Some(photos) if !photos.is_empty() => Holds::Entries,
         _ => Holds::Bookkeeping,
@@ -837,6 +848,28 @@ mod tests {
         assert_eq!(names, ["a-002.jpg", "a-001.jpg", "a-003.jpg", "a-004.jpg"]);
         let names: Vec<String> = names_for("a.jpg", "a.jpg").take(3).collect();
         assert_eq!(names, ["a.jpg", "a-001.jpg", "a-002.jpg"]);
+    }
+
+    #[test]
+    fn a_made_folder_is_bookkeeping_only_with_its_sidecar_and_waits_out_a_write_in_progress() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().join("Trams");
+        assert!(matches!(holds(&folder), Ok(Holds::Gone)));
+        std::fs::create_dir(&folder).unwrap();
+        assert!(matches!(holds(&folder), Ok(Holds::Bookkeeping)));
+        std::fs::write(folder.join(".dalica.json"), br#"{"folder": {"place": "Lisbon"}, "photos": {"a.jpg": {"star": true}}}"#).unwrap();
+        assert!(matches!(holds(&folder), Ok(Holds::Entries)));
+        std::fs::write(folder.join(".dalica.json"), br#"{"folder": {"place": "Lisbon"}, "photos": {}}"#).unwrap();
+        std::fs::create_dir(folder.join(".dalica-originals")).unwrap();
+        std::fs::write(folder.join(".dalica-originals").join(".dalica.json"), b"{}").unwrap();
+        assert!(matches!(holds(&folder), Ok(Holds::Bookkeeping)));
+        // A sidecar write in progress is passing; anything else stays.
+        let temp = folder.join("..dalica.json.dalica-tmp-0123456789abcdef");
+        std::fs::write(&temp, b"{").unwrap();
+        assert!(matches!(holds(&folder), Ok(Holds::Busy(_))));
+        std::fs::remove_file(&temp).unwrap();
+        std::fs::write(folder.join("notes.txt"), b"mine").unwrap();
+        assert!(matches!(holds(&folder), Ok(Holds::Other(what)) if what == "notes.txt"));
     }
 
     #[test]
