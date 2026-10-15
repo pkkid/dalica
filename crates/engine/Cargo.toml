@@ -13,7 +13,7 @@ autotests = false
 
 [features]
 # HEIF/HEIC decoding (formats.md §3), off by default; with it `tests/save_formats.rs` runs its HEIC
-# case: `cargo test -p dalica-engine --features heif --test save_formats`.
+# case: `cargo test -p dalica-engine --features heif --test all save_formats::`.
 heif = ["dalica-image/heif"]
 # Planted failures for tests (`cmd::rename::planted`) on top of `fs`'s fault points.
 faults = ["dalica-fs/faults"]

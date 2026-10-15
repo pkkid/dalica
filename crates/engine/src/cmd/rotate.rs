@@ -92,7 +92,7 @@ fn appended(s: &Session, id: PhotoId, op: &EditOp) -> Result<(PhotoId, Recipe), 
 mod tests {
     use serde_json::json;
 
-    use crate::cmd::testing::{hostile, library};
+    use crate::cmd::testing::library;
     use crate::error::CmdError;
 
     #[test]
@@ -153,12 +153,11 @@ mod tests {
     }
 
     #[test]
-    fn disabled_and_hostile_params() {
+    fn disabled_and_unknown_photos() {
         let (_dirs, mut s, _) = library(1);
         for id in ["photo.rotate.cw", "photo.rotate.ccw", "edit.flipH", "edit.flipV"] {
             assert_eq!(s.execute(id, &json!({ "ids": [] })), Err(CmdError::Disabled("Select some photos first.".into())));
             assert!(matches!(s.execute(id, &json!({ "ids": [999] })), Err(CmdError::NotFound(_))));
-            hostile(&mut s, id);
         }
     }
 }

@@ -468,7 +468,7 @@ pub(crate) fn albums_of(lib: &Library, id: PhotoId) -> Value {
 mod tests {
     use serde_json::{Value, json};
 
-    use crate::cmd::testing::{hostile, library};
+    use crate::cmd::testing::library;
     use crate::error::CmdError;
 
     fn new_album(s: &mut crate::session::Session, ids: &[dalica_core::PhotoId]) -> String {
@@ -574,9 +574,6 @@ mod tests {
         for (id, p, code) in cases {
             let e = s.execute(id, &p).unwrap_err();
             assert_eq!(e.code(), code, "{id} {p}: {e}");
-        }
-        for id in ["album.create", "album.info.set", "album.add", "album.remove", "album.reorder", "album.setCover", "album.delete", "albums.list"] {
-            hostile(&mut s, id);
         }
         assert_eq!(s.library().model(), &model);
         assert_eq!(s.undo_stack().len(), steps);

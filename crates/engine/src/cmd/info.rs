@@ -180,7 +180,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::cmd::testing::{hostile, library};
+    use crate::cmd::testing::library;
 
     #[test]
     fn sizes_read_like_the_status_line() {
@@ -193,7 +193,7 @@ mod tests {
     }
 
     #[test]
-    fn hostile_params_and_unknown_photos() {
+    fn bad_params_and_unknown_photos() {
         let (_dirs, mut s, ids) = library(1);
         assert!(matches!(s.execute("photo.metadata", &json!({ "id": 999 })), Err(CmdError::NotFound(_))));
         for bad in [
@@ -206,6 +206,5 @@ mod tests {
         ] {
             assert!(matches!(s.execute("photo.metadata", &bad), Err(CmdError::BadParams(_))), "{bad}");
         }
-        hostile(&mut s, "photo.metadata");
     }
 }

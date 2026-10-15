@@ -556,7 +556,6 @@ fn finish(s: &mut Session, tally: &Tally, kind: Kind, report: &Mutex<Report>, co
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cmd::testing::{hostile, library};
     use crate::filejobs::ItemFailure;
 
     fn failure() -> ItemFailure {
@@ -601,14 +600,5 @@ mod tests {
             assert!(matches!(d(p, f), Err(CmdError::BadParams(_))), "{p:?} {f:?}: {:?}", d(p, f));
         }
         assert!(matches!(d(&"x".repeat(MAX_PATH_BYTES + 1), None), Err(CmdError::Limit(_))));
-    }
-
-    #[test]
-    fn hostile_parameters_are_refused_and_change_nothing() {
-        let (_dirs, mut s, _ids) = library(1);
-        for id in ["photo.saveCopy", "photo.saveTo"] {
-            hostile(&mut s, id);
-        }
-        assert!(!s.file_jobs_running());
     }
 }

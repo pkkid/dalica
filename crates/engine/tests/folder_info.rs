@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 use crate::common::open;
 use dalica_core::{Date, FolderId};
-use dalica_engine::{CmdError, Session};
+use dalica_engine::Session;
 use dalica_fs::Expect;
 use dalica_library::{FolderInfo, MAX_DESCRIPTION, MAX_PLACE};
 use serde_json::{Value, json};
@@ -111,38 +111,6 @@ fn the_hidden_flag_is_left_alone_and_texts_are_capped() {
     // A place is one line: control characters become spaces.
     s.execute("folder.info.set", &json!({ "id": id, "place": "Lisbon\nPortugal" })).unwrap();
     assert_eq!(info(&s, id).place, "Lisbon Portugal");
-}
-
-#[test]
-fn hostile_params_change_nothing() {
-    let (_l, _d, _f, mut s, id) = setup();
-    let m = s.library().model().clone();
-    // No disabled case: any folder of the library takes its info; a missing one is NotFound.
-    let spec = *s.spec("folder.info.set").unwrap();
-    assert!((spec.enabled)(&s, &json!({ "id": id })).is_ok());
-    assert!(matches!(s.execute("folder.info.set", &json!({ "id": 999, "description": "x" })), Err(CmdError::NotFound(_))));
-    for bad in [
-        json!({}),
-        json!(null),
-        json!({ "description": "x" }),
-        json!({ "id": id, "date": "2026-02-30" }),
-        json!({ "id": id, "date": "June" }),
-        json!({ "id": id, "date": 2026 }),
-        json!({ "id": id, "date": ["2026-06-04"] }),
-        json!({ "id": id, "description": 5 }),
-        json!({ "id": id, "place": {} }),
-        json!({ "id": id, "hidden": false }),
-        json!({ "id": id, "name": "Porto" }),
-        json!({ "id": "folder:1" }),
-        json!({ "id": -1 }),
-        json!({ "id": 1.5 }),
-        json!([id]),
-    ] {
-        let r = s.execute("folder.info.set", &bad);
-        assert!(matches!(r, Err(CmdError::BadParams(_))), "{bad}: {r:?}");
-    }
-    assert_eq!(s.library().model(), &m);
-    assert_eq!(s.undo_stack().len(), 0);
 }
 
 #[test]

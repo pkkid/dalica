@@ -108,27 +108,15 @@ fn a_caption_past_the_cap_is_cut_at_a_character_boundary() {
     assert_eq!(s.library().caption(ids[0]), "line one\nline two");
 }
 
+/// Disabled with no photo, and too many photos (`cmd::caption`'s tests: unknown photos and bad
+/// parameters).
 #[test]
-fn disabled_and_hostile_params_change_nothing() {
+fn disabled_and_too_many_change_nothing() {
     let (_l, _d, _f, mut s, ids) = setup(1);
     let m = s.library().model().clone();
-    assert_eq!(s.execute("photo.caption.set", &json!({ "ids": [], "caption": "x" })), Err(CmdError::Disabled("Select some photos first.".into())));
     let spec = *s.spec("photo.caption.set").unwrap();
     assert!((spec.enabled)(&s, &json!({ "ids": [], "caption": "x" })).is_err());
     assert!((spec.enabled)(&s, &json!({ "ids": [ids[0]], "caption": "x" })).is_ok());
-    for bad in [
-        json!({ "ids": [999], "caption": "x" }),
-        json!({ "ids": [ids[0]] }),
-        json!({ "caption": "x" }),
-        json!({ "ids": [ids[0]], "caption": 7 }),
-        json!({ "ids": [ids[0]], "caption": ["x"] }),
-        json!({ "ids": [ids[0]], "caption": "x", "extra": true }),
-        json!({ "ids": [-1], "caption": "x" }),
-        json!({ "ids": "all", "caption": "x" }),
-        json!("caption"),
-    ] {
-        assert!(s.execute("photo.caption.set", &bad).is_err(), "{bad}");
-    }
     let too_many: Vec<u64> = vec![ids[0].get(); 100_001];
     assert!(matches!(s.execute("photo.caption.set", &json!({ "ids": too_many, "caption": "x" })), Err(CmdError::Limit(_))));
     assert_eq!(s.library().model(), &m);

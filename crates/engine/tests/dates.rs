@@ -199,30 +199,20 @@ fn dates_survive_a_restart_and_a_rebuild_of_the_index() {
 }
 
 #[test]
-fn disabled_hostile_and_out_of_range_params_change_nothing() {
+fn disabled_bad_and_out_of_range_dates_change_nothing() {
     let (_l, _d, _f, mut s, ids) = setup();
     let m = s.library().model().clone();
-    assert_eq!(s.execute("photo.dates.set", &json!({ "ids": [], "shift": 60 })), Err(CmdError::Disabled("Select some photos first.".into())));
     let spec = *s.spec("photo.dates.set").unwrap();
     assert!((spec.enabled)(&s, &json!({ "ids": [], "shift": 60 })).is_err());
     assert!((spec.enabled)(&s, &json!({ "ids": [ids[0]], "shift": 60 })).is_ok());
+    // Dates `cmd::dates`'s tests do not try.
     for bad in [
-        json!(null),
-        json!({ "ids": [ids[0]] }),
-        json!({ "shift": 60 }),
-        json!({ "ids": [ids[0]], "shift": 60, "set": "2026-01-01T00:00:00" }),
-        json!({ "ids": [ids[0]], "shift": "60" }),
-        json!({ "ids": [ids[0]], "shift": 0.5 }),
         json!({ "ids": [ids[0]], "set": "2026-13-01T00:00:00" }),
         json!({ "ids": [ids[0]], "set": "2026-01-01" }),
         json!({ "ids": [ids[0]], "set": "0000:00:00 00:00:00" }),
-        json!({ "ids": [ids[0]], "set": ["2026-01-01T00:00:00"] }),
-        json!({ "ids": [ids[0]], "shift": 60, "zzz": 1 }),
-        json!({ "ids": "all", "shift": 60 }),
     ] {
         assert!(matches!(s.execute("photo.dates.set", &bad), Err(CmdError::BadParams(_))), "{bad}");
     }
-    assert!(matches!(s.execute("photo.dates.set", &json!({ "ids": [999_999], "shift": 60 })), Err(CmdError::NotFound(_))));
     // Past year 9999 or before year 1: refused for the whole selection, nothing changes.
     for shift in [i64::MAX, i64::MIN, 400_000_000_000, -100_000_000_000] {
         assert!(matches!(s.execute("photo.dates.set", &json!({ "ids": [ids[1], ids[0]], "shift": shift })), Err(CmdError::Limit(_))), "{shift}");

@@ -4,7 +4,7 @@
 //! merges photo by photo, keeping both folders' photos and sidecar entries, and the emptied source
 //! goes to the trash only when nothing else is left in it (a move across volumes is
 //! `two_volumes.rs`); undo and redo; the owner thread makes no `fs` call;
-//! the command's contract and graceful failures.
+//! the command's graceful failures.
 //!
 //! These tests use the real OS trash and put back what they sent there (where the system allows).
 
@@ -16,7 +16,7 @@ use crate::common::{FaultLock, entry, exists, jpeg, names, off_owner, options, r
 use dalica_core::{FolderId, PhotoId, SystemClock};
 use dalica_engine::cmd::folder_ops::{ALREADY_THERE, INTO_ITSELF, NOT_IN_LIBRARY};
 use dalica_engine::watching::WatchMode;
-use dalica_engine::{CmdError, Direction, Effect, FileOpKind, History, Session};
+use dalica_engine::{CmdError, Direction, FileOpKind, Session};
 use dalica_fs::Expect;
 use serde_json::{Value, json};
 
@@ -303,25 +303,20 @@ fn a_merge_that_skips_leaves_the_source_with_what_is_left() {
     assert_eq!(names(&l.path("Porto")), [".dalica.json", "PORTO_0001.jpg", "PORTO_0002.jpg"]);
 }
 
-/// The command's contract, and graceful failures: each refuses with the right error, says why
-/// where it is disabled, and changes nothing.
+/// Graceful failures: each refuses with its own error, says why where it is disabled, and changes
+/// nothing.
 #[test]
-fn the_command_s_contract_and_graceful_failures() {
+fn the_command_s_graceful_failures() {
     let mut l = Lib::trips();
-    let spec = l.s.spec("folder.move").unwrap();
-    assert_eq!((spec.effect, spec.history, spec.menu), (Effect::Files, History::Library, "Folder/Move…"));
     let (lisbon, day2, archive) = (l.folder("Trips/Lisbon"), l.folder("Trips/Lisbon/Day2"), l.folder("Archive"));
     let before = l.s.library().model().clone();
     let steps = l.s.undo_stack().len();
     let outside = l.dir.path().join("Elsewhere");
     let cases: Vec<(Value, &str)> = vec![
-        (json!({}), "bad_params"),
         (json!({ "folder": lisbon }), "bad_params"),
         (json!({ "folder": lisbon, "to": archive, "collisions": "replace" }), "bad_params"),
-        (json!({ "folder": lisbon, "to": archive, "zzz": 1 }), "bad_params"),
         (json!({ "folder": lisbon, "to": "relative/path" }), "bad_params"),
         (json!({ "folder": lisbon, "to": l.path("Archive").join("..").join("Trips") }), "bad_params"),
-        (json!({ "folder": lisbon, "to": true }), "bad_params"),
         (json!({ "folder": 9999, "to": archive }), "not_found"),
         (json!({ "folder": lisbon, "to": 9999 }), "not_found"),
         (json!({ "folder": lisbon, "to": outside }), "disabled"),

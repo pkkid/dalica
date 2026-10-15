@@ -153,7 +153,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::cmd::testing::{hostile, library};
+    use crate::cmd::testing::library;
 
     fn dt(s: &str) -> DateTime {
         s.parse().unwrap()
@@ -184,7 +184,7 @@ mod tests {
     }
 
     #[test]
-    fn disabled_and_hostile_params() {
+    fn disabled_and_bad_params() {
         let (_dirs, mut s, ids) = library(1);
         assert_eq!(s.execute("photo.dates.set", &json!({ "ids": [], "shift": 60 })), Err(CmdError::Disabled("Select some photos first.".into())));
         assert!(matches!(s.execute("photo.dates.set", &json!({ "ids": [999], "shift": 60 })), Err(CmdError::NotFound(_))));
@@ -202,7 +202,6 @@ mod tests {
             assert!(matches!(s.execute("photo.dates.set", &bad), Err(CmdError::BadParams(_))), "{bad}");
         }
         assert!(matches!(s.execute("photo.dates.set", &json!({ "ids": [ids[0]], "shift": i64::MAX })), Err(CmdError::Limit(_))));
-        hostile(&mut s, "photo.dates.set");
         assert_eq!(s.undo_stack().len(), 0);
     }
 }

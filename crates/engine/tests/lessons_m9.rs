@@ -7,23 +7,22 @@
 //!   the watcher), keeps its id and its photos' ids, stars, captions, tags, recipes, album
 //!   memberships in their order and the album's cover, shows nothing as new, and a write at its
 //!   new path keeps all of it on disk;
-//! - §10.3: photos moved between folders inside Dalica carry their data, their album places and
-//!   their originals backup, while the watcher sees the move too; undo and redo;
+//! - §10.3 (photos moved inside Dalica carry their data) is `move_copy.rs`, `fileops_store.rs` and,
+//!   with the watcher on, `undo_emptied_folder.rs`;
 //! - §10.7: names with `]`, `"` (not on Windows), `;`, `=`, non-ASCII and very long names through
-//!   move, copy, rename and delete, and the undo of each;
+//!   move, copy and delete, and the undo of each (renames: `rename.rs`);
 //! - §10.12: an album whose members live in several folders, after M9's file operations moved and
 //!   renamed some of them, keeps its exact order once `albums.json` and the index are deleted and
 //!   the library is rebuilt.
 //!
-//! These tests use the real OS trash and put back what they sent there (where the system allows),
-//! so they run one at a time ([`serial`]).
+//! These tests use the real OS trash and put back what they sent there (where the system allows).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::common::{entry, exists, files, off_owner, options, read_opt, shared, under};
+use crate::common::{entry, files, off_owner, options, read_opt, shared, under};
 use dalica_core::{AlbumId, FolderId, PhotoId, Timestamp, VirtualClock};
 use dalica_engine::cmd::delete::RESTORES;
 use dalica_engine::watching::{FIRST_VERIFICATION, WatchMode};
@@ -172,10 +171,6 @@ impl Lib {
         self.run("edit.undo", json!({}))
     }
 
-    fn redo(&mut self) -> FileOpEvent {
-        self.run("edit.redo", json!({}))
-    }
-
     /// Lets the polling watcher sweep a few times on the virtual clock and applies what it found.
     fn settle_watcher(&mut self) {
         for _ in 0..4 {
@@ -303,87 +298,11 @@ fn a_folder_moved_outside_dalica_keeps_all_its_data() {
     }
 }
 
-/// `data-model.md` §10.3, while the watcher watches: photos moved between folders with
-/// `photo.moveTo` carry their star, caption, tags, recipe (one saved, so with its kept original
-/// and its saved record) and album places; the watcher, which sees the files go and come, changes
-/// none of it and makes no new id; undo and redo move everything back and forth.
-#[test]
-fn photos_moved_inside_dalica_carry_their_data_and_backup_while_watched() {
-    let _faults = shared();
-    let mut l = Lib::trips();
-    l.s.set_watching(WatchMode::Polling);
-    l.settle_watcher();
-    let (one, two) = (l.photo("Trips/Lisbon/IMG_0001.jpg"), l.photo("Trips/Lisbon/IMG_0002.jpg"));
-    let (lisbon_id, porto_id) = (l.folder("Trips/Lisbon"), l.folder("Trips/Porto"));
-    let (lisbon, porto) = (l.path("Trips/Lisbon"), l.path("Trips/Porto"));
-    l.s.execute("photo.star.set", &json!({ "ids": [one], "on": true })).unwrap();
-    l.s.execute("photo.caption.set", &json!({ "ids": [one], "caption": "Tram 28" })).unwrap();
-    l.s.execute("photo.history.apply", &json!({ "id": one, "op": "sepia()" })).unwrap();
-    l.s.execute("photo.tags.add", &json!({ "ids": [two], "tags": "lisbon, tram" })).unwrap();
-    l.s.execute("photo.history.apply", &json!({ "id": two, "op": "autofix()" })).unwrap();
-    // Saved: the original (with the tags written into it) goes to `.dalica-originals/` with its
-    // record.
-    l.settle_writes();
-    let original = read_opt(&lisbon.join("IMG_0002.jpg")).unwrap();
-    let reply = l.s.execute("photo.save", &json!({ "ids": [two], "confirm": true })).unwrap();
-    let job: dalica_engine::JobId = serde_json::from_value(reply["job"].clone()).unwrap();
-    assert!(l.s.wait_job(job, PATIENCE).unwrap().state.is_finished());
-    let trip = l.album("Trip", &["Trips/Porto/IMG_0101.jpg", "Trips/Lisbon/IMG_0002.jpg", "Trips/Sintra/IMG_0201.jpg", "Trips/Lisbon/IMG_0001.jpg"]);
-    l.s.execute("album.setCover", &json!({ "album": trip, "id": two })).unwrap();
-    l.settle_writes();
-    l.settle_watcher();
-    let saved = l.s.library().saved(two).cloned();
-    assert!(saved.is_some(), "the save left its record");
-    assert!(read_opt(&lisbon.join(".dalica-originals").join("IMG_0002.jpg")).unwrap() == original, "the kept original");
-    let photos_before: Vec<_> = l.s.library().photos().map(|p| p.id).collect();
-    let (lisbon_said, members) = (said(&l, lisbon_id), l.s.library().album_members(&trip).to_vec());
-    let moved_bytes = read_opt(&lisbon.join("IMG_0002.jpg")).unwrap();
-
-    l.run("photo.moveTo", json!({ "ids": [one, two], "folder": porto_id, "confirm": true }));
-    l.settle_watcher();
-    let check_moved = |l: &Lib, case: &str| {
-        let lib = l.s.library();
-        assert_eq!((lib.photo(one).unwrap().folder, lib.photo(two).unwrap().folder), (porto_id, porto_id), "{case}");
-        assert_eq!(lib.photos().map(|p| p.id).collect::<Vec<_>>(), photos_before, "{case}: no photo new or lost");
-        let in_porto = said(l, porto_id);
-        for name in ["IMG_0001.jpg", "IMG_0002.jpg"] {
-            assert_eq!(in_porto.get(name), lisbon_said.get(name), "{case}: {name}'s star, caption, tags and recipe");
-        }
-        assert_eq!(lib.album_members(&trip), members, "{case}: the album's order");
-        assert_eq!(lib.cover_set(&trip), Some(two), "{case}: the cover");
-        assert_eq!(lib.saved(two).cloned(), saved, "{case}: the saved record");
-        assert!(read_opt(&porto.join(".dalica-originals").join("IMG_0002.jpg")).unwrap() == original, "{case}: the kept original");
-        assert!(!exists(&lisbon.join(".dalica-originals").join("IMG_0002.jpg")), "{case}");
-        assert!(read_opt(&porto.join("IMG_0002.jpg")).unwrap() == moved_bytes, "{case}");
-        let e = entry(&porto, "IMG_0001.jpg").unwrap();
-        assert_eq!((e["star"].clone(), e["caption"].clone(), e["edits"].clone()), (json!(true), json!("Tram 28"), json!(["sepia()"])), "{case}: {e}");
-        assert!(e["albums"].get(trip.as_str()).is_some(), "{case}: {e}");
-        assert_eq!(entry(&lisbon, "IMG_0001.jpg"), None, "{case}");
-    };
-    check_moved(&l, "moved");
-
-    l.undo();
-    l.settle_watcher();
-    let lib = l.s.library();
-    assert_eq!((lib.photo(one).unwrap().folder, lib.photo(two).unwrap().folder), (lisbon_id, lisbon_id));
-    assert_eq!(lib.photos().map(|p| p.id).collect::<Vec<_>>(), photos_before);
-    assert_eq!(said(&l, lisbon_id), lisbon_said, "undo: everything back");
-    assert_eq!((lib.album_members(&trip), lib.cover_set(&trip)), (&members[..], Some(two)));
-    assert_eq!(lib.saved(two).cloned(), saved);
-    assert!(read_opt(&lisbon.join(".dalica-originals").join("IMG_0002.jpg")).unwrap() == original, "the kept original");
-    assert!(!exists(&porto.join("IMG_0001.jpg")) && !exists(&porto.join(".dalica-originals").join("IMG_0002.jpg")));
-    assert_eq!(entry(&lisbon, "IMG_0001.jpg").unwrap()["caption"], "Tram 28");
-
-    l.redo();
-    l.settle_watcher();
-    check_moved(&l, "redone");
-}
-
 /// The names `data-model.md` §10.7 lists: `]`, `"` (not on Windows, which refuses it), `;`, `=`,
 /// non-ASCII and a very long one: 243 bytes (few UTF-16 units, so paths stay short on Windows).
 /// Not 255: the freedesktop trash names its record `<name>.trashinfo`, so a name over 245 bytes
 /// cannot go to the trash there (delete, and the undo of a copy, fail with the file left in
-/// place); the 255-byte name goes through the renames.
+/// place); the 255-byte name goes through the renames (`rename.rs`).
 fn hard_names() -> Vec<String> {
     let long = format!("{}xx.jpg", "長".repeat(79));
     assert_eq!(long.len(), 243);
@@ -396,10 +315,10 @@ fn hard_names() -> Vec<String> {
 }
 
 /// `data-model.md` §10.7 through M9's file operations: photos with hard names, in and into a
-/// folder with a hard name, are moved, copied, renamed and deleted, and each undo gives back the
-/// exact names, bytes and sidecar entries.
+/// folder with a hard name, are moved, copied and deleted, and each undo gives back the exact
+/// names, bytes and sidecar entries.
 #[test]
-fn hard_names_survive_move_copy_rename_delete_and_their_undo() {
+fn hard_names_survive_move_copy_delete_and_their_undo() {
     let _faults = shared();
     let names = hard_names();
     let mut files_: Vec<String> = names.iter().map(|n| format!("Odd/{n}")).collect();
@@ -462,27 +381,6 @@ fn hard_names_survive_move_copy_rename_delete_and_their_undo() {
     assert_eq!(files(&dest), ["IMG_0001.jpg"], "copy undone");
     at_home(&l, "copy undone");
     untrash(&copies);
-
-    // Rename into hard names (a batch, then one), and back; the folder too.
-    l.run("photo.rename", json!({ "ids": ids, "name": "Tram ]28; a=b ç 東京" }));
-    let renamed = files(&odd);
-    assert_eq!(renamed.len(), names.len());
-    assert!(renamed.iter().all(|n| n.starts_with("Tram ]28; a=b ç 東京-00")), "{renamed:?}");
-    l.undo();
-    at_home(&l, "batch rename undone");
-    let long = format!("{}yy", "東".repeat(83));
-    l.run("photo.rename", json!({ "ids": [ids[0]], "name": long }));
-    assert_eq!(format!("{long}.jpg").len(), 255);
-    assert!(files(&odd).contains(&format!("{long}.jpg")));
-    assert_eq!(entry(&odd, &format!("{long}.jpg")).unwrap()["tags"], entries[0]["tags"]);
-    l.undo();
-    at_home(&l, "rename undone");
-    l.run("folder.rename", json!({ "folder": odd_id, "name": "Odd ]; ç=1 \u{6771}" }));
-    let odd2 = l.path("Odd ]; ç=1 \u{6771}");
-    assert_eq!(files(&odd2), names);
-    assert_eq!(l.s.library().folder(odd_id).map(|f| f.path.clone()), Some(odd2.clone()));
-    l.undo();
-    at_home(&l, "folder rename undone");
 
     // Delete to the trash, and its undo where the system can list its trash.
     l.run("photo.delete", json!({ "ids": ids, "confirm": true }));

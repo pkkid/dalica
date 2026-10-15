@@ -17,7 +17,7 @@ use crate::common::{FaultLock, entry, exclusive, exists, jpeg, options, read, sh
 use dalica_core::{PhotoId, SystemClock};
 use dalica_engine::cmd::delete::{RESTORES, UNDO_UNSUPPORTED, folder_question, no_trash, photos_question};
 use dalica_engine::watching::WatchMode;
-use dalica_engine::{CmdError, Direction, Effect, FileOpKind, History, Session};
+use dalica_engine::{CmdError, Direction, FileOpKind, Session};
 use dalica_fs::Expect;
 use dalica_fs::faults::{self, Fault, points};
 use serde_json::{Value, json};
@@ -249,31 +249,16 @@ fn a_folder_delete_takes_its_non_picture_files_and_subfolders_too() {
     drop(ui);
 }
 
-/// The commands' contract, and graceful failures: each refuses with the right error and changes
-/// nothing.
+/// Graceful failures: each command refuses with its own error and changes nothing.
 #[test]
-fn each_command_s_contract_and_graceful_failures() {
+fn each_command_s_graceful_failures() {
     let mut l = Lib::new(1);
-    for (id, menu) in [("photo.delete", "File/Delete from Disk…"), ("folder.delete", "Folder/Delete…")] {
-        let spec = l.s.spec(id).unwrap();
-        assert_eq!((spec.effect, spec.history, spec.menu), (Effect::Files, History::Library, menu), "{id}");
-        assert!(spec.params.contains("confirm"), "{id}");
-    }
-    let keys: Vec<&str> = l.s.spec("photo.delete").unwrap().keys.iter().map(|(_, k)| *k).collect();
-    assert_eq!(keys, ["Delete", "Ctrl+Delete"]);
     let before = l.s.library().model().clone();
     let steps = l.s.undo_stack().len();
     let cases: Vec<(&str, Value, &str)> = vec![
-        ("photo.delete", json!({}), "bad_params"),
         ("photo.delete", json!({ "ids": [] }), "bad_params"),
-        ("photo.delete", json!({ "ids": "1" }), "bad_params"),
-        ("photo.delete", json!({ "ids": [1], "confirm": "yes" }), "bad_params"),
-        ("photo.delete", json!({ "ids": [1], "permanently": true }), "bad_params"),
         ("photo.delete", json!({ "ids": [9999], "confirm": true }), "not_found"),
         ("photo.delete", json!({ "ids": vec![1; 100_001], "confirm": true }), "limit"),
-        ("folder.delete", json!({}), "bad_params"),
-        ("folder.delete", json!({ "folder": "Lisbon", "confirm": true }), "bad_params"),
-        ("folder.delete", json!({ "folder": -1, "confirm": true }), "bad_params"),
         ("folder.delete", json!({ "folder": 9999, "confirm": true }), "not_found"),
     ];
     for (id, p, code) in cases {

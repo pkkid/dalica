@@ -233,13 +233,7 @@ fn graceful_failures_change_nothing() {
         (json!({ "ids": [], "name": "x" }), "disabled"),
         (json!({ "ids": [ids[0], porto], "name": "x" }), "disabled"),
         (json!({ "ids": [ids[0]] }), "bad_params"),
-        (json!({ "ids": [ids[0]], "name": 7 }), "bad_params"),
         (json!({ "ids": [ids[0]], "name": "x", "date": "June", "useOldest": false }), "bad_params"),
-        (json!({ "ids": [ids[0]], "name": "x", "date": 20260604 }), "bad_params"),
-        (json!({ "ids": [ids[0]], "name": "x", "useOldest": "yes" }), "bad_params"),
-        (json!({ "ids": [ids[0]], "name": "x", "hidden": true }), "bad_params"),
-        (json!({ "ids": "1", "name": "x" }), "bad_params"),
-        (json!("x"), "bad_params"),
         (json!({ "ids": vec![ids[0]; 100_001], "name": "x" }), "limit"),
     ];
     for (p, code) in cases {

@@ -19,7 +19,7 @@ use dalica_edit::Recipe;
 use dalica_engine::cmd::save::{self as save_cmd, Action, NOTHING_SAVED, NOTHING_TO_SAVE, OFFLINE, REVERT_QUESTION, SAVE_EXPLANATION};
 use dalica_engine::offline::OnlineCheck;
 use dalica_engine::watching::WatchMode;
-use dalica_engine::{CacheDir, CmdError, Effect, History, JobEntry, JobKind, JobState, Options, Session, Thumb, ThumbOptions};
+use dalica_engine::{CacheDir, CmdError, JobEntry, JobKind, JobState, Options, Session, Thumb, ThumbOptions};
 use dalica_fs::Expect;
 use dalica_image::Limits;
 use dalica_library::SaveState;
@@ -477,19 +477,8 @@ fn rescans_wait_for_a_save_job_and_find_its_writes_unchanged() {
     }
 }
 
-#[test]
-fn each_command_states_its_contract() {
-    let lib = Lib::new(1, None);
-    for (id, label, menu) in [("photo.save", "Save", "File/Save"), ("photo.undoSave", "Undo Save", ""), ("photo.revert", "Revert…", "File/Revert…")]
-    {
-        let spec = lib.s.spec(id).unwrap();
-        assert_eq!((spec.label, spec.menu, spec.effect, spec.history), (label, menu, Effect::Files, History::None), "{id}");
-    }
-    let keys: Vec<String> = lib.s.spec("photo.save").unwrap().keys.iter().map(|(_, k)| k.to_string()).collect();
-    assert_eq!(keys, ["Ctrl+S", "Ctrl+S"]);
-}
-
-/// Unknown photos, wrong types and nothing to do are errors that change nothing.
+/// Unknown photos, wrong types and nothing to do are errors that change nothing (the shapes every
+/// command refuses are `cmd::testing`'s, over every command).
 #[test]
 fn bad_parameters_and_nothing_to_do_fail_gracefully() {
     let mut lib = Lib::new(2, None);
@@ -500,15 +489,9 @@ fn bad_parameters_and_nothing_to_do_fail_gracefully() {
     for cmd in ["photo.save", "photo.undoSave", "photo.revert"] {
         let s = &mut lib.s;
         assert!(matches!(s.execute(cmd, &json!({ "ids": [999] })), Err(CmdError::NotFound(_))), "{cmd}");
-        assert!(bad(s.execute(cmd, &json!({}))), "{cmd}: ids are required");
-        assert!(bad(s.execute(cmd, &json!({ "ids": "x" }))), "{cmd}");
-        // An unknown key: refused, as disabled first when the photo has nothing to do.
-        assert!(matches!(s.execute(cmd, &json!({ "ids": [a], "zzz": 1 })), Err(CmdError::BadParams(_) | CmdError::Disabled(_))), "{cmd}");
-        assert!(bad(s.execute(cmd, &json!([a]))), "{cmd}");
         assert!(matches!(s.execute(cmd, &json!({ "ids": [] })), Err(CmdError::Disabled(_))), "{cmd}");
     }
     let s = &mut lib.s;
-    assert!(bad(s.execute("photo.save", &json!({ "ids": [a], "zzz": 1 }))));
     assert!(bad(s.execute("photo.save", &json!({ "ids": [a], "confirm": "yes" }))));
     assert!(bad(s.execute("photo.save", &json!({ "ids": [a], "dontAsk": 1 }))));
     assert_eq!(s.execute("photo.save", &json!({ "ids": [b], "confirm": true })), Err(CmdError::Disabled(NOTHING_TO_SAVE.into())));

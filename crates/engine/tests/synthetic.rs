@@ -3,8 +3,8 @@
 //! specs and occupied folders are refused without touching anything. A task's gate runs the two
 //! presets' tests at a tenth of their size (the review gate at full size).
 //!
-//! Timings: `cargo test --release -p dalica-engine --test synthetic -- --nocapture` prints the
-//! generation and open times of the 100 k-photo library.
+//! Timings: `DALICA_FULL_TESTS=1 cargo test --release -p dalica-engine --test all synthetic:: --
+//! --nocapture` prints the generation and open times of the 100 k-photo library.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};

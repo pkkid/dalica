@@ -550,7 +550,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::cmd::testing::{hostile, library};
+    use crate::cmd::testing::library;
 
     fn tags(s: &Session, id: PhotoId) -> Vec<String> {
         s.library().tags_of(id).to_vec()
@@ -620,9 +620,6 @@ mod tests {
         for (id, p, code) in refused {
             let r = s.execute(id, &p);
             assert_eq!(r.as_ref().map_err(CmdError::code).err(), Some(code), "{id} {p}: {r:?}");
-        }
-        for spec in specs() {
-            hostile(&mut s, spec.id);
         }
         assert_eq!(s.library().model(), &model);
         assert_eq!(s.undo_stack().len(), steps);

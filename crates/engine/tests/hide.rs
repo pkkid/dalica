@@ -163,37 +163,26 @@ fn hiding_folders_writes_the_folder_object_and_unhide_follows_the_flag() {
     assert!(hidden(&s).0.is_empty());
 }
 
+/// A list with one unknown photo, too many photos, and a section where photos are asked for
+/// (`cmd::hide`'s tests: the disabled reasons, unknown photos and folders, bad sections).
 #[test]
-fn disabled_and_hostile_params_change_nothing() {
+fn unknown_and_too_many_change_nothing() {
     let (_l, _d, root, mut s) = setup();
     let lisbon = folder(&s, &root, "Lisbon");
     let a = photo(&s, "IMG_0001.jpg");
     let m = s.library().model().clone();
     for cmd in ["photo.hide", "photo.unhide"] {
-        assert_eq!(s.execute(cmd, &json!({ "ids": [] })), Err(CmdError::Disabled("Select some photos first.".into())));
-        for bad in
-            [json!({ "ids": [999] }), json!({ "ids": [a, 999] }), json!({}), json!({ "ids": [a], "on": true }), json!({ "section": section(lisbon) })]
-        {
+        for bad in [json!({ "ids": [a, 999] }), json!({ "section": section(lisbon) })] {
             assert!(s.execute(cmd, &bad).is_err(), "{cmd} {bad}");
         }
         let too_many: Vec<u64> = vec![a.get(); 100_001];
         assert!(matches!(s.execute(cmd, &json!({ "ids": too_many })), Err(CmdError::Limit(_))));
     }
-    assert_eq!(s.execute("photo.unhide", &json!({ "ids": [a] })), Err(CmdError::Disabled("The photo is not hidden.".into())));
     for cmd in ["folder.hide", "folder.unhide"] {
-        assert_eq!(s.execute(cmd, &json!({})), Err(CmdError::Disabled("Select a folder or a photo first.".into())));
-        for bad in [
-            json!({ "section": "folder:999" }),
-            json!({ "section": "folder:x" }),
-            json!({ "section": lisbon.get() }),
-            json!({ "ids": [999] }),
-            json!({ "id": lisbon }),
-            json!({ "section": section(lisbon), "hidden": true }),
-        ] {
+        for bad in [json!({ "section": lisbon.get() }), json!({ "ids": [999] }), json!({ "id": lisbon })] {
             assert!(s.execute(cmd, &bad).is_err(), "{cmd} {bad}");
         }
     }
-    assert_eq!(s.execute("folder.unhide", &json!({ "section": section(lisbon) })), Err(CmdError::Disabled("The folder is not hidden.".into())));
     assert_eq!(s.library().model(), &m);
     assert_eq!(s.undo_stack().len(), 0);
 }

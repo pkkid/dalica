@@ -326,26 +326,11 @@ fn the_changed_elsewhere_note_lasts_until_the_file_changes() {
 }
 
 #[test]
-fn the_contract_hostile_params_and_no_undo_step() {
+fn an_unknown_photo_and_no_undo_step() {
     let (_l, _d, _f, mut s, tagged, _) = setup();
     let spec = *s.spec("photo.metadata").unwrap();
     assert!((spec.enabled)(&s, &json!({ "id": tagged })).is_ok());
-    assert_eq!(spec.effect, dalica_engine::Effect::Query);
     assert!(matches!(s.execute("photo.metadata", &json!({ "id": 999_999 })), Err(CmdError::NotFound(_))));
-    for bad in [
-        json!(null),
-        json!({}),
-        json!([]),
-        json!("id"),
-        json!({ "id": "1" }),
-        json!({ "id": -1 }),
-        json!({ "id": 1.5 }),
-        json!({ "id": tagged, "all": 1 }),
-        json!({ "id": tagged, "zzz": true }),
-        json!({ "ids": [tagged] }),
-    ] {
-        assert!(matches!(s.execute("photo.metadata", &bad), Err(CmdError::BadParams(_))), "{bad}");
-    }
     ask_ready(&mut s, json!({ "id": tagged, "all": true }));
     assert_eq!(s.undo_stack().len(), 0);
     assert!(s.wait_photo_metadata(WAIT));

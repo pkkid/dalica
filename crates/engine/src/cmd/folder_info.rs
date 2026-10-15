@@ -84,11 +84,11 @@ fn set(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
 mod tests {
     use serde_json::json;
 
-    use crate::cmd::testing::{hostile, library};
+    use crate::cmd::testing::library;
     use crate::error::CmdError;
 
     #[test]
-    fn hostile_params() {
+    fn bad_params() {
         let (_dirs, mut s, ids) = library(1);
         let folder = s.library().photo(ids[0]).unwrap().folder;
         assert!(matches!(s.execute("folder.info.set", &json!({ "id": 999, "description": "x" })), Err(CmdError::NotFound(_))));
@@ -106,7 +106,6 @@ mod tests {
         ] {
             assert!(matches!(s.execute("folder.info.set", &bad), Err(CmdError::BadParams(_))), "{bad}");
         }
-        hostile(&mut s, "folder.info.set");
         assert_eq!(s.undo_stack().len(), 0);
     }
 }

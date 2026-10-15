@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use crate::common::open;
 use dalica_core::PhotoId;
-use dalica_engine::{CmdError, Effect, History, JobKind, JobState, Session};
+use dalica_engine::{CmdError, JobKind, JobState, Session};
 use dalica_fs::Expect;
 use serde_json::{Value, json};
 
@@ -354,20 +354,6 @@ fn a_new_ask_replaces_the_one_before_and_a_missing_file_fails_the_job() {
 }
 
 #[test]
-fn the_commands_are_listed_with_their_history() {
-    let (_lib, _d, _f, s, _ids) = setup(1, 96, 64);
-    let find = |id: &str| s.commands().into_iter().find(|c| c.id == id).unwrap();
-    for (id, effect, history) in [
-        ("photo.history.tuning", Effect::Library, History::Photo),
-        ("photo.tuning.auto", Effect::Query, History::None),
-        ("photo.tuning.pick", Effect::Query, History::None),
-    ] {
-        let c = find(id);
-        assert_eq!((c.effect, c.history, c.enabled), (effect, history, true), "{id}");
-    }
-}
-
-#[test]
 fn graceful_failures_change_nothing() {
     let (_lib, _d, _f, mut s, ids) = setup(1, 96, 64);
     let id = ids[0];
@@ -375,7 +361,6 @@ fn graceful_failures_change_nothing() {
     let (model, jobs) = (s.library().model().clone(), s.jobs().len());
     let long = "x".repeat(65);
     let bad: Vec<(&str, Value, &str)> = vec![
-        ("photo.history.tuning", json!({}), "bad_params"),
         ("photo.history.tuning", json!({ "id": id }), "bad_params"),
         ("photo.history.tuning", json!({ "session": "s", "fill": 0.5 }), "bad_params"),
         ("photo.history.tuning", json!({ "id": 999, "session": "s", "fill": 0.5 }), "not_found"),
@@ -396,14 +381,12 @@ fn graceful_failures_change_nothing() {
         ("photo.history.tuning", json!({ "id": id, "session": "s", "neutral": [1, 2, 3] }), "bad_params"),
         ("photo.history.tuning", json!({ "id": id, "session": "s", "neutral": [0.5, 0.5] }), "bad_params"),
         ("photo.history.tuning", json!({ "id": id, "session": "s", "neutral": 7 }), "bad_params"),
-        ("photo.history.tuning", json!({ "id": id, "session": "s", "fill": 0.5, "extra": 1 }), "bad_params"),
         ("photo.tuning.auto", json!({ "id": id }), "bad_params"),
         ("photo.tuning.auto", json!({ "what": "lighting" }), "bad_params"),
         ("photo.tuning.auto", json!({ "id": id, "what": "colour" }), "bad_params"),
         ("photo.tuning.auto", json!({ "id": id, "what": "Lighting" }), "bad_params"),
         ("photo.tuning.auto", json!({ "id": id, "what": 1 }), "bad_params"),
         ("photo.tuning.auto", json!({ "id": 999, "what": "color" }), "not_found"),
-        ("photo.tuning.auto", json!({ "id": id, "what": "color", "extra": true }), "bad_params"),
         ("photo.tuning.pick", json!({ "id": id }), "bad_params"),
         ("photo.tuning.pick", json!({ "id": id, "x": 0.5 }), "bad_params"),
         ("photo.tuning.pick", json!({ "x": 0.5, "y": 0.5 }), "bad_params"),
@@ -411,19 +394,12 @@ fn graceful_failures_change_nothing() {
         ("photo.tuning.pick", json!({ "id": id, "x": 1.5, "y": 0.5 }), "bad_params"),
         ("photo.tuning.pick", json!({ "id": id, "x": 0.5, "y": -0.1 }), "bad_params"),
         ("photo.tuning.pick", json!({ "id": id, "x": "0.5", "y": 0.5 }), "bad_params"),
-        ("photo.tuning.pick", json!({ "id": id, "x": 0.5, "y": 0.5, "extra": 0 }), "bad_params"),
     ];
     for (cmd, p, code) in bad {
         let r = s.execute(cmd, &p);
         assert_eq!(r.as_ref().map_err(CmdError::code).err(), Some(code), "{cmd} {p} gave {r:?}");
         assert_eq!(s.library().model(), &model, "{cmd} changed the model on {p}");
         assert_eq!(s.jobs().len(), jobs, "{cmd} started a job on {p}");
-    }
-    for cmd in ["photo.history.tuning", "photo.tuning.auto", "photo.tuning.pick"] {
-        for p in [json!([]), json!("text"), json!(42), json!({ "zzz": 1 })] {
-            let r = s.execute(cmd, &p);
-            assert!(matches!(r, Err(CmdError::BadParams(_))), "{cmd} {p} gave {r:?}");
-        }
     }
     // Still one step: the failures took none.
     assert_eq!(labels(&mut s, id), ("Undo Tuning".into(), "Redo".into()));

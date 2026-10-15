@@ -4,7 +4,7 @@
 //! rotations undo one at a time; an operation Dalica does not know survives undo and redo; the
 //! history and its labels survive a restart and a rebuild of the index; photo steps never touch
 //! the library undo stack and library steps never walk a photo's history; the sidecar after each
-//! command; the owner thread makes no `fs` call; graceful failures.
+//! command; the owner thread makes no `fs` call (bad parameters: `cmd::history`'s tests).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -293,32 +293,4 @@ fn the_owner_thread_makes_no_fs_call() {
     s.flush().unwrap();
     drop(ui);
     assert_eq!(sidecar_entry(&mut s, &folder, "IMG_0001.jpg")["edits"], json!(["autocontrast()", "autocolor()"]));
-}
-
-#[test]
-fn graceful_failures_change_nothing() {
-    let (_lib, _d, _f, mut s, ids) = setup(1, &Value::Null);
-    apply(&mut s, ids[0], "sharpen(0.6)");
-    let model = s.library().model().clone();
-    let bad: [(&str, Value); 12] = [
-        ("photo.history.apply", json!({ "id": ids[0] })),
-        ("photo.history.apply", json!({ "op": "sepia()" })),
-        ("photo.history.apply", json!({ "id": ids[0], "op": "nonsense" })),
-        ("photo.history.apply", json!({ "id": ids[0], "op": "future_op(1)" })),
-        ("photo.history.apply", json!({ "id": ids[0], "op": ["sepia()"] })),
-        ("photo.history.apply", json!({ "id": 12345, "op": "sepia()" })),
-        ("photo.history.apply", json!({ "id": ids[0], "op": "sepia()", "extra": 1 })),
-        ("photo.history.undo", json!({ "id": -1 })),
-        ("photo.history.redo", json!({ "id": ids[0] })),
-        ("photo.history.state", json!({ "id": 1.5 })),
-        ("photo.history.state", json!(["x"])),
-        ("edit.redo", json!({ "id": ids[0] })),
-    ];
-    for (cmd, p) in bad {
-        let r = s.execute(cmd, &p);
-        assert!(r.is_err(), "{cmd} accepted {p}");
-        assert!(!matches!(r, Err(CmdError::Internal(_))), "{cmd} panicked on {p}");
-        assert_eq!(s.library().model(), &model, "{cmd} changed the model on {p}");
-    }
-    assert_eq!(s.undo_stack().len(), 0);
 }

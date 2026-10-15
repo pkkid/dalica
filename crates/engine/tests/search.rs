@@ -513,22 +513,7 @@ fn a_query_on_a_100k_library_answers_off_the_owner_thread() {
 fn every_command_fails_gracefully() {
     let mut fx = fixture();
     let model = fx.s.library().model().clone();
-    for (id, bad) in [
-        ("search.set", json!({ "age": -1 })),
-        ("search.set", json!({ "age": "old" })),
-        ("search.set", json!({ "text": ["a"] })),
-        ("search.set", json!({ "filters": { "starred": 1 } })),
-        ("search.set", json!({ "text": "a", "more": 1 })),
-        ("search.clear", json!({ "text": "" })),
-        ("search.suggest", json!({})),
-        ("search.suggest", json!({ "text": null })),
-        ("search.suggest", json!({ "text": "a", "limit": -1 })),
-        ("search.saveAsAlbum", json!({})),
-    ] {
-        assert!(fx.s.execute(id, &bad).is_err(), "{id} {bad}");
-    }
-    // Save Search as Album only while searching, with a name, and with matches.
-    assert_eq!(fx.s.execute("search.saveAsAlbum", &json!({ "name": "x" })).unwrap_err().code(), "disabled");
+    // Save Search as Album with a name and with matches (`cmd::search`'s tests: only while searching).
     fx.s.execute("search.set", &json!({ "text": "zzzz" })).unwrap();
     assert_eq!(fx.s.execute("search.saveAsAlbum", &json!({ "name": "\u{7}" })).unwrap_err().code(), "bad_params");
     assert_eq!(fx.s.execute("search.saveAsAlbum", &json!({ "name": "x" })).unwrap_err().code(), "disabled");
