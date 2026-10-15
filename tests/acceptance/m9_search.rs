@@ -278,10 +278,11 @@ pub fn search(exe: &Path, home: &Path) {
         std::fs::copy(app::under(&root, from), dupes.join(name)).unwrap();
     }
     run(c, "folders.add", json!({ "path": dupes }));
+    // It replies {job} at once; the groups are on show once the job ended.
     let r = c.ok("engine.execute", json!({ "command": "search.duplicates", "params": {} }));
-    if let Some(job) = r.get("job").filter(|_| r["pending"] == true) {
-        app::wait_job(c, &job.clone());
-    }
+    let job = r.get("job").cloned().unwrap_or_else(|| panic!("search.duplicates runs as a job: {r}"));
+    let entry = app::wait_job(c, &job);
+    assert_eq!(entry["state"], "done", "{entry}");
     let s = answered(c);
     assert_eq!((s["mode"].as_str(), s["banner"].as_str()), (Some("duplicates"), Some("2 duplicate groups (5 files)")), "{s}");
     let groups: Vec<u64> = s["groups"].as_array().unwrap().iter().map(|g| g["count"].as_u64().unwrap()).collect();

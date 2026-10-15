@@ -36,16 +36,15 @@ fn in_trash(home: &Path, name: &str) -> Option<bool> {
     cfg!(target_os = "linux").then(|| home.join("data").join("Trash").join("files").join(name).exists())
 }
 
-/// The names `data-model.md` §10.7 lists: `]`, `"` (not on Windows, which refuses it), `;`, `=`,
-/// non-ASCII and a very long one (243 bytes: the freedesktop trash names its record
-/// `<name>.trashinfo`, so a longer name cannot go to the trash there).
+/// The names `data-model.md` §10.7 lists: `]`, `"`, `;`, `=`, non-ASCII and a very long one (243
+/// bytes: the freedesktop trash names its record `<name>.trashinfo`, so a longer name cannot go to
+/// the trash there). Windows refuses `"`: an apostrophe takes its place there, so every system has
+/// the same five photos, in the same order, and the same window for the fingerprints.
 fn hard_names() -> Vec<String> {
     let long = format!("{}xx.jpg", "長".repeat(79));
     assert_eq!(long.len(), 243);
-    let mut v = vec!["a]b.jpg".to_string(), "c;d=e.jpg".into(), "Praça à noite 東京.jpg".into(), long];
-    if !cfg!(windows) {
-        v.push("q\"uote.jpg".into());
-    }
+    let quote = if cfg!(windows) { "q'uote.jpg" } else { "q\"uote.jpg" };
+    let mut v = vec!["a]b.jpg".to_string(), "c;d=e.jpg".into(), "Praça à noite 東京.jpg".into(), long, quote.into()];
     v.sort();
     v
 }
