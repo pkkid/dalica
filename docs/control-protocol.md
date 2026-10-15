@@ -441,7 +441,25 @@ and the CLI return the same JSON; the control method adds the UI-only fields (`c
 
 - `photos: true` (or a section id) adds `photos: [{id, section, path, name, star, caption, tags,
   hidden, rotate, edited, recipe, geo, date, width, height, bytes, video, held, selected}]` in
-  light-table order, paged by `offset` / `limit` (default 200). `section` restricts the listing.
+  light-table order (a photo in an album and its folder is listed in both sections), paged by
+  `offset` (at most 10⁹) / `limit` (default 200, at most 1 000), and `page: {offset, limit,
+  total}`. `section` restricts the listing; `offset` and `limit` without a listing, a larger value
+  or a section that is not a section id are `bad_params`, an unknown folder or album (or
+  `album:search` outside search mode) `not_found`. `rotate` is the recipe's clockwise turn in
+  degrees, `edited` whether the photo has unsaved edits, `recipe` its operation strings, `geo`
+  whether its file holds a location, `date` its effective date; `held` and `selected` come from
+  the window, so the engine query (headless MCP, the CLI) leaves them out.
+- The engine query builds `tree` and `sections` from the stored view settings with every group
+  expanded; the control method uses the window's own (its collapsed groups too). `counts.photos`
+  counts every photo and video (`library.query`'s total), `videos` the videos among them, `hidden`
+  the photos hidden by Hide or in a hidden folder. A section is `{section, name, count, shown, date,
+  place, description, edited}`: `count` every photo it holds, `shown` those the view shows, `edited`
+  those shown with unsaved edits. A year divider of the flat Folders group is `{divider: 2026}`;
+  `year` on a folder row is its date's. `problems` entries are `{kind, text, path}` (`index`,
+  `notice`, `unreadable`, `scan`, `offline`; at most 1 000), and `fileOpRepairs` lists the repairs
+  of interrupted file operations. `current` is the section the top of the light table is in,
+  `visibleSections` those on screen as last drawn, `selection.focus` the anchor. Before the
+  library has opened the method is `disabled`.
 - `search` is search mode (`organizing.md` §8, `ui-layout.md` §9): `active` and `mode` (`"search"`,
   `"duplicates"` for Find Duplicates' groups, `null` while not searching); the query, `age` in days
   (0: every age; the toolbar's slider is a position in `ui.state` → `search.age`, turned into days

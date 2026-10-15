@@ -14,6 +14,7 @@ mod cells;
 mod clipboard;
 mod color_management;
 mod common;
+mod control_inspect;
 mod crop_tool;
 mod delete_dialogs;
 mod dialogs;

@@ -4772,7 +4772,7 @@ No other step of M10 needs a maintainer decision mid-run.
     Ctrl+8 no longer does; the rebinding survives a restart with unknown settings keys kept;
     `app.resetShortcuts {}` restores every default binding exactly; each command's contract and
     graceful failures; `panic_hunt` green.
-- ⬜ **M10.7 `engine` + `ui` + `mcp`: `library.inspect` everywhere**
+- ✅ **M10.7 `engine` + `ui` + `mcp`: `library.inspect` everywhere**
   - after: M10.1, M10.2, M10.4
   - files: `crates/engine/src/cmd/inspect.rs`, `crates/engine/tests/library_inspect.rs`, `crates/ui/src/control/inspect.rs`, `crates/ui/tests/control_inspect.rs`, `crates/mcp/src/tools/inspect.rs`, `crates/mcp/tests/inspect.rs`
   - scope: `control-protocol.md` §6.4 and `mcp.md` §4.1, one implementation for three surfaces:
