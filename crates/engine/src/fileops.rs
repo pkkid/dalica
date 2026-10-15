@@ -57,6 +57,7 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::fmt;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -380,11 +381,20 @@ pub(crate) struct FileOps {
     next_seq: u64,
     /// The operations an earlier session left in the journal (for M9.21's repair).
     left: Vec<Intent>,
+    /// The repairs made of them (`fileops_recovery.rs`), oldest first.
+    pub(crate) repairs: VecDeque<crate::fileops_recovery::FileOpRepair>,
 }
 
 impl Default for FileOps {
     fn default() -> Self {
-        FileOps { next: 1, journal: Arc::new(MemoryJournal::default()), events: VecDeque::new(), next_seq: 0, left: Vec::new() }
+        FileOps {
+            next: 1,
+            journal: Arc::new(MemoryJournal::default()),
+            events: VecDeque::new(),
+            next_seq: 0,
+            left: Vec::new(),
+            repairs: VecDeque::new(),
+        }
     }
 }
 
@@ -455,10 +465,19 @@ impl<D: Driver> Batch for Steps<D> {
     }
 }
 
-/// What an item's work gives the owner thread: what it did, and the entries to carry after its ops.
+/// What an item's work gives the owner thread: what it did (or why it failed although its file or
+/// folder moved), and the entries to carry after its ops.
 struct Worked<T> {
-    ran: Ran<T>,
+    ran: Result<Ran<T>, MovedAnyway>,
     carry: Option<Carry>,
+}
+
+/// An item whose driver failed after its file or folder had moved (a step after the rename: the
+/// folders' `fsync`, the check after it): the library follows the disk, and the item is reported
+/// failed.
+struct MovedAnyway {
+    reason: String,
+    moved: crate::fileops_recovery::Moved,
 }
 
 /// One job item: its place, the item to run (an `Err` fails with its reason) and the file it is
@@ -499,6 +518,8 @@ impl Writer {
 thread_local! {
     /// The item a file job's thread is running, for [`retarget`].
     static RUNNING: std::cell::RefCell<Option<(Writer, OpId, usize)>> = const { std::cell::RefCell::new(None) };
+    /// Where [`retarget`] last sent the running item.
+    static RETARGETED: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) };
 }
 
 /// Called from [`Driver::run`]: the running item goes to `to` instead of its target (the name a
@@ -508,8 +529,12 @@ pub fn retarget(to: &Path) -> Result<(), String> {
     let running = RUNNING.with(|r| r.borrow().clone());
     match running {
         Some((writer, op, index)) => {
-            let to = to.to_path_buf();
-            writer.call(move |j| j.retarget(op, index, &to))
+            let path = to.to_path_buf();
+            let written = writer.call(move |j| j.retarget(op, index, &path));
+            if written.is_ok() {
+                RETARGETED.with(|r| *r.borrow_mut() = Some(to.to_path_buf()));
+            }
+            written
         }
         None => Ok(()),
     }
@@ -527,6 +552,9 @@ struct Run<D: Driver> {
     results: Vec<Option<Entry<D::Item>>>,
     skipped: Vec<ItemFailure>,
     job: JobId,
+    /// Set when an entry or a backup could not be carried: the operation then stays in the journal,
+    /// so the next open carries again (`fileops_recovery.rs`).
+    unfinished: Arc<AtomicBool>,
 }
 
 /// The ops as one op (all or nothing): `None` for none.
@@ -545,10 +573,18 @@ impl<D: Driver> Run<D> {
     fn applied(&mut self, s: &mut Session, a: Applied<Worked<D::Done>>) -> Result<Vec<Op>, String> {
         let Applied { index, file, value: Worked { ran, carry }, .. } = a;
         let done = match ran {
-            Ran::Done(d) => d,
-            Ran::Skipped(reason) => {
+            Ok(Ran::Done(d)) => d,
+            Ok(Ran::Skipped(reason)) => {
                 self.skipped.push(ItemFailure { file, reason });
                 return Ok(Vec::new());
+            }
+            Err(MovedAnyway { reason, moved }) => {
+                // The disk decides: the library follows the file (or folder) where it went.
+                s.follow_moved(store_kind(self.steps.kind), &moved);
+                if let Some(carry) = carry {
+                    s.carry_entries(carry, Some(Arc::clone(&self.unfinished)));
+                }
+                return Err(format!("{reason}; it moved all the same, and the library followed it"));
             }
         };
         let Some(entry) = self.steps.entries.get(index).cloned() else { return Err(format!("no item {index} in this operation")) };
@@ -586,7 +622,7 @@ impl<D: Driver> Run<D> {
         // After the ops (their folders' states are on their way to the I/O worker): the entries
         // follow the files, even when the library could not.
         if let Some(carry) = carry {
-            s.carry_entries(carry);
+            s.carry_entries(carry, Some(Arc::clone(&self.unfinished)));
         }
         if let Some(item) = &ran {
             driver.followed(s, item, &done);
@@ -599,7 +635,7 @@ impl<D: Driver> Run<D> {
 
     /// The job ended: the step recorded or moved, the event kept, the journal entry ended.
     fn finish(self, s: &mut Session, tally: &Tally) -> Notice {
-        let Run { op, dir, step, steps, results, skipped, job } = self;
+        let Run { op, dir, step, steps, results, skipped, job, unfinished } = self;
         let mut done = Vec::new();
         let mut rest = Vec::new();
         for (entry, result) in steps.entries.iter().zip(results) {
@@ -650,8 +686,12 @@ impl<D: Driver> Run<D> {
         };
         s.push_file_op_event(event);
         let journal = Arc::clone(&s.fileops.journal);
+        // After every carry sent before (the I/O worker runs them in order): one that did not finish
+        // leaves the operation in the journal for the next open to carry again.
         s.send(Msg::Run(Box::new(move || {
-            if let Err(e) = journal.end(op) {
+            if unfinished.load(Ordering::SeqCst) {
+                log::warn!("file operation {op}: an entry or a backup was not carried; the operation stays in the journal, and the next start carries it again");
+            } else if let Err(e) = journal.end(op) {
                 log::warn!("file operation {op}: not ended in the journal: {e}");
             }
         })));
@@ -706,6 +746,9 @@ fn launch<D: Driver>(s: &mut Session, steps: Steps<D>, dir: Direction, step: Opt
     };
     let writer = Writer { io: s.io_sender(), journal: Arc::clone(&s.fileops.journal) };
     let clock = Arc::clone(&s.clock);
+    let kind = steps.kind;
+    let unfinished = Arc::new(AtomicBool::new(false));
+    let work_unfinished = Arc::clone(&unfinished);
     // The entry is written once, before the first item's work; an operation whose entry could not
     // be written moves nothing.
     let begun: Arc<Mutex<Option<Result<(), String>>>> = Arc::new(Mutex::new(None));
@@ -723,33 +766,57 @@ fn launch<D: Driver>(s: &mut Session, steps: Steps<D>, dir: Direction, step: Opt
         }
         let Slot { index, item, .. } = slot;
         let item = item?;
+        // What is at the item's ends before it runs: a failure after its file moved is seen.
+        let before = crate::fileops_recovery::Before::look(kind, work_driver.source(&item), work_driver.target(&item));
         RUNNING.with(|r| *r.borrow_mut() = Some((writer.clone(), op, index)));
+        RETARGETED.with(|r| *r.borrow_mut() = None);
         let ran = work_driver.run(&item);
         RUNNING.with(|r| *r.borrow_mut() = None);
-        let ran = ran?;
-        let carry = match &ran {
-            Ran::Done(done) => work_driver.carry(&item, done),
-            Ran::Skipped(_) => None,
+        let retargeted = RETARGETED.with(|r| r.borrow_mut().take());
+        let (ran, carry) = match ran {
+            Ok(ran) => {
+                let carry = match &ran {
+                    Ran::Done(done) => work_driver.carry(&item, done),
+                    Ran::Skipped(_) => None,
+                };
+                (Ok(ran), carry)
+            }
+            Err(reason) => match before.and_then(|b| b.moved_anyway(retargeted.as_deref())) {
+                Some(moved) => {
+                    let carry = moved.carry();
+                    (Err(MovedAnyway { reason, moved }), carry)
+                }
+                None => return Err(reason),
+            },
         };
-        // The backups follow the files at once, on this thread (`data-model.md` §8).
+        // The backups follow the files at once, on this thread (`data-model.md` §8). One that could
+        // not travel leaves the operation in the journal, so the next open carries it again.
         if let Some(c) = &carry {
             match dalica_store::carry::backups(c, clock.now()) {
                 Ok(out) => {
                     for r in out.refused {
+                        work_unfinished.store(true, Ordering::SeqCst);
                         log::warn!("file operation {op}: the originals backup of {} stayed in {}: {}", r.name, c.from.display(), r.reason);
                     }
                 }
-                Err(e) => log::warn!("file operation {op}: originals backups not carried: {e}"),
+                Err(e) => {
+                    work_unfinished.store(true, Ordering::SeqCst);
+                    log::warn!("file operation {op}: originals backups not carried: {e}");
+                }
             }
         }
-        if let Err(e) = writer.call(move |j| j.item(op, index, ItemState::Done)) {
+        // An item that failed although its file moved stays pending: the next open decides from
+        // the disk, as for any item.
+        if ran.is_ok()
+            && let Err(e) = writer.call(move |j| j.item(op, index, ItemState::Done))
+        {
             log::warn!("file operation {op}: item {index} not marked done in the journal: {e}");
         }
         Ok(Done { changes: Vec::new(), value: Worked { ran, carry } })
     };
     let total = steps.entries.len();
     let label = job_label(dir, steps.kind, steps.label);
-    let run = Run { op, dir, step, steps, results: (0..total).map(|_| None).collect(), skipped: Vec::new(), job: 0 };
+    let run = Run { op, dir, step, steps, results: (0..total).map(|_| None).collect(), skipped: Vec::new(), job: 0, unfinished };
     let shared = Arc::new(Mutex::new(Some(run)));
     let (on_applied, on_finish) = (Arc::clone(&shared), Arc::clone(&shared));
     let job = FileJob::new(JobKind::Files, label, slots, work)
@@ -822,19 +889,32 @@ impl Session {
         }
     }
 
-    /// The operations an earlier session left in `file-ops.json` (interrupted), as found at open.
+    /// The operations an earlier session left in `file-ops.json` (interrupted), as found at open
+    /// and not yet repaired.
     pub fn file_ops_left(&self) -> &[Intent] {
         &self.fileops.left
+    }
+
+    /// Operation `op` an earlier session left was repaired (`fileops_recovery.rs`): it leaves the
+    /// journal on the I/O worker, after the library ops sent before, and [`Session::file_ops_left`].
+    pub(crate) fn end_left_file_op(&mut self, op: OpId) {
+        self.fileops.left.retain(|i| i.id != op);
+        let journal = Arc::clone(&self.fileops.journal);
+        self.send(Msg::Run(Box::new(move || {
+            if let Err(e) = journal.end(op) {
+                log::warn!("interrupted file operation {op}: repaired, but not ended in the journal: {e}");
+            }
+        })));
     }
 
     /// Carries the sidecar entries `carry` names on the I/O worker, in order with the sidecar
     /// writes (`SidecarWriter::carry`). Call it after the ops that put the photos in their new
     /// folder were applied; file operations do it for every item whose [`Driver::carry`] names
-    /// photos.
-    pub(crate) fn carry_entries(&mut self, carry: Carry) {
+    /// photos. `unfinished` is set when the carry fails or leaves an entry behind.
+    pub(crate) fn carry_entries(&mut self, carry: Carry, unfinished: Option<Arc<AtomicBool>>) {
         let from = self.library.folder_by_path(&carry.from);
         let to = self.library.folder_by_path(&carry.to);
-        self.send(Msg::Carry { carry, from, to });
+        self.send(Msg::Carry { carry, from, to, unfinished });
     }
 
     /// Undoes (or redoes) file step `step`: starts its reverse (or its items again) as a file job.

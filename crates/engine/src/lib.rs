@@ -14,7 +14,7 @@ pub mod duplicates;
 pub mod error;
 pub mod filejobs;
 pub mod fileops;
-mod fileops_recovery;
+pub mod fileops_recovery;
 pub mod folders;
 pub mod history;
 pub mod jobs;

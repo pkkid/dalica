@@ -266,7 +266,16 @@ fn rename_all(dir: &Path, pairs: &[Pair]) -> Result<Vec<Pair>, Failed> {
     for p in pairs.iter().filter(|p| p.from != p.to) {
         #[cfg(feature = "faults")]
         planted::reach(&dir.join(&p.from));
+        let before = dalica_fs::identity(&dir.join(&p.from)).ok().flatten();
         if let Err(e) = rename_one(dir, &p.from, &p.to) {
+            // A step after the rename may have failed (the folder's `fsync`, the check after it):
+            // a file that got its new name all the same goes back with the others.
+            let moved = before.is_some()
+                && matches!(dalica_fs::identity(&dir.join(&p.from)), Ok(None))
+                && matches!(dalica_fs::identity(&dir.join(&p.to)), Ok(now) if now == before);
+            if moved {
+                done.push(p.clone());
+            }
             let mut why = format!("{} could not be renamed {}: {e}", p.from, p.to);
             let mut stuck = Vec::new();
             for d in done.iter().rev() {
@@ -291,17 +300,27 @@ pub mod planted {
     use std::sync::{Mutex, PoisonError};
 
     static FILES: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+    static AFTER: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
 
     /// The next rename of the file at `path` by `photo.rename` fails.
     pub fn fail_rename_of(path: &Path) {
         FILES.lock().unwrap_or_else(PoisonError::into_inner).push(path.to_path_buf());
     }
 
+    /// The next rename of the file at `path` by `photo.rename` fails after the file got its new
+    /// name (the check after the rename fails).
+    pub fn fail_after_rename_of(path: &Path) {
+        AFTER.lock().unwrap_or_else(PoisonError::into_inner).push(path.to_path_buf());
+    }
+
     pub(super) fn reach(path: &Path) {
-        let mut files = FILES.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Some(i) = files.iter().position(|p| p == path) {
-            files.remove(i);
-            dalica_fs::faults::arm(dalica_fs::faults::points::MOVE_RENAME, dalica_fs::faults::Fault::Error);
+        use dalica_fs::faults::{Fault, arm, points};
+        for (list, point) in [(&FILES, points::MOVE_RENAME), (&AFTER, points::MOVE_VERIFY)] {
+            let mut files = list.lock().unwrap_or_else(PoisonError::into_inner);
+            if let Some(i) = files.iter().position(|p| p == path) {
+                files.remove(i);
+                arm(point, Fault::Error);
+            }
         }
     }
 }
