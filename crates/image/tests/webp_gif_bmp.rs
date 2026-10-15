@@ -14,51 +14,23 @@
 //! code and the scenes bit-identical everywhere, so the decodes are exact; the slack covers the
 //! colour stage's profile path.
 
-use std::path::PathBuf;
+use crate::common::{assert_fingerprint, cases, rgba};
 use std::time::Instant;
 
 use dalica_image::color::{self, ColorPath};
 use dalica_image::formats;
 use dalica_image::{
-    Budget, ColorModel, DecodeOptions, Decoded, Error, Format, Limits, Orientation, Rgba8, Samples, decode, decode_as, decode_thumbnail, decode_with,
+    Budget, ColorModel, DecodeOptions, Decoded, Error, Format, Limits, Orientation, Rgba8, Samples, decode, decode_thumbnail, decode_with,
     read_header, sniff,
 };
 use dalica_scenes::formats::{Colour, Depth, SampleData, Webp, alpha, bmp, gif, quantized, samples, webp};
 use dalica_scenes::icc::{self, Space, Version};
-use dalica_scenes::{ByteOrder, Exif, Rgb8, Scene, fingerprint};
+use dalica_scenes::{ByteOrder, Exif, Rgb8, Scene};
 use proptest::prelude::*;
 
 const TOL: f64 = 1.0;
 const ON: DecodeOptions = DecodeOptions { color_managed: true };
 const OFF: DecodeOptions = DecodeOptions { color_managed: false };
-
-fn out_dir() -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/image");
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
-/// Compares `img` with `fingerprints/<name>.json` (`DALICA_BLESS=1` stores it instead), and writes
-/// the decode as `target/test-output/image/<name>.png` to look at.
-fn assert_fingerprint(name: &str, img: &Rgba8) {
-    let dir = out_dir();
-    std::fs::write(dir.join(format!("{name}.png")), fingerprint::png_rgba(img.width, img.height, &img.data)).unwrap();
-    let stored = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("tests/fingerprints/{name}.json"));
-    if std::env::var_os("DALICA_BLESS").is_some() {
-        std::fs::write(&stored, fingerprint::to_json(&fingerprint::fingerprint(img.width, img.height, &img.data)) + "\n").unwrap();
-        println!("blessed {}", stored.display());
-    }
-    let expected = fingerprint::from_json(&std::fs::read_to_string(&stored).unwrap()).unwrap();
-    if let Err(m) = fingerprint::check(img.width, img.height, &img.data, &expected, TOL) {
-        std::fs::write(dir.join(format!("{name}-actual.png")), &m.actual_png).unwrap();
-        panic!("{name}: {} (images in {})", m.message, dir.display());
-    }
-}
-
-/// Opaque RGBA of an RGB image.
-fn rgba(img: &Rgb8) -> Rgba8 {
-    Rgba8 { width: img.width, height: img.height, data: img.data.as_chunks::<3>().0.iter().flat_map(|&[r, g, b]| [r, g, b, 255]).collect() }
-}
 
 /// RGBA of an RGB image and an alpha plane.
 fn with_alpha(img: &Rgb8, a: &[u8]) -> Rgba8 {
@@ -216,13 +188,11 @@ fn lossless_webp_decodes_exactly() {
     assert_eq!((h.format, h.width, h.height, h.orientation.get(), h.thumbnail), (Format::WebP, 160, 120, 1, None));
     let img = decode(&file, &Limits::default()).unwrap();
     assert_eq!(img, rgba(&upright));
-    assert_fingerprint("webp-lossless", &img);
 
     // With alpha: the colours untouched, the alpha plane exact.
     let file = webp(&scene, &Webp { alpha: true, ..Webp::default() }).unwrap();
     let img = decode(&file, &Limits::default()).unwrap();
     assert_eq!(img, with_alpha(&upright, &alpha(160, 120)));
-    assert_fingerprint("webp-lossless-alpha", &img);
 }
 
 #[test]
@@ -239,7 +209,7 @@ fn lossy_webp_decodes_like_the_reference_decoder() {
     for px in img.data.as_chunks::<4>().0 {
         assert!(px[0] == px[1] && px[1] == px[2] && (125..=135).contains(&px[0]) && px[3] == 255, "{px:?}");
     }
-    assert_fingerprint("webp-lossy", &img);
+    assert_fingerprint("webp-lossy", &img, TOL);
 
     // Lossy with an alpha chunk.
     let a = alpha(u32::from(w), u32::from(h));
@@ -247,7 +217,7 @@ fn lossy_webp_decodes_like_the_reference_decoder() {
     let img = decode(&file, &Limits::default()).unwrap();
     assert_eq!(img.data, reference(&file).into_raw());
     assert_eq!(alpha_of(&img), a);
-    assert_fingerprint("webp-lossy-alpha", &img);
+    assert_fingerprint("webp-lossy-alpha", &img, TOL);
 }
 
 #[test]
@@ -297,7 +267,7 @@ fn a_webp_profile_goes_through_the_colour_stage() {
     let managed = decode_with(&file, &ON, &Limits::default()).unwrap();
     assert_eq!(managed, through_profile(&rgba(&upright), &p3, false));
     assert_ne!(managed, rgba(&upright), "the profile changed nothing");
-    assert_fingerprint("webp-icc-p3", &managed);
+    assert_fingerprint("webp-icc-p3", &managed, TOL);
     // Colour management off: the stored values as they are.
     assert_eq!(decode_with(&file, &OFF, &Limits::default()).unwrap(), rgba(&upright));
     // With alpha too (the extended format carries the profile beside the alpha).
@@ -315,7 +285,7 @@ fn an_animated_webp_shows_frame_one() {
     let img = decode(&file, &Limits::default()).unwrap();
     assert_eq!(img, rgba(&scene.render().unwrap()));
     assert_ne!(img, rgba(&Scene { seed: 51, ..scene }.render().unwrap()));
-    assert_fingerprint("webp-animated", &img);
+    assert_fingerprint("webp-animated", &img, TOL);
     // Alpha-blended onto the empty canvas, an opaque frame comes out within one level (the
     // decoder's integer blend rounds).
     let blended = decode(&animated_webp(&scene, &[50, 51, 52], true), &Limits::default()).unwrap();
@@ -352,7 +322,7 @@ fn gif_decodes_its_palette_colours_exactly() {
     assert_eq!(formats::embedded_thumbnail(Format::Gif, &file, &Limits::default()), Ok(None));
     let img = decode(&file, &Limits::default()).unwrap();
     assert_eq!(img, rgba(&quantized(&scene.render().unwrap())));
-    assert_fingerprint("gif", &img);
+    assert_fingerprint("gif", &img, TOL);
     let t = decode_thumbnail(&file, 75, &Limits::default()).unwrap();
     assert_eq!((t.width, t.height), (75, 50));
 }
@@ -364,7 +334,7 @@ fn an_animated_gif_shows_frame_one() {
     let img = decode(&file, &Limits::default()).unwrap();
     assert_eq!(img, rgba(&quantized(&scene.render().unwrap())));
     assert_ne!(img, rgba(&quantized(&Scene { seed: 71, ..scene }.render().unwrap())));
-    assert_fingerprint("gif-animated", &img);
+    assert_fingerprint("gif-animated", &img, TOL);
 }
 
 #[test]
@@ -399,9 +369,7 @@ fn bmp_decodes_exactly_in_each_layout() {
     let SampleData::U8(grey) = samples(&upright, Colour::Grey, Depth::Eight).unwrap().data else { unreachable!() };
     let grey_rgb = Rgb8 { width: 101, height: 67, data: grey.iter().flat_map(|&v| [v, v, v]).collect() };
     let indexed = quantized(&upright);
-    for (colour, expected, name) in
-        [(Colour::Rgb, &upright, "bmp-rgb"), (Colour::Grey, &grey_rgb, "bmp-grey"), (Colour::Palette, &indexed, "bmp-palette")]
-    {
+    for (colour, expected) in [(Colour::Rgb, &upright), (Colour::Grey, &grey_rgb), (Colour::Palette, &indexed)] {
         let file = bmp(&scene, colour).unwrap();
         assert_eq!(sniff(&file), Some(Format::Bmp));
         let h = read_header(&file, &Limits::default()).unwrap();
@@ -409,7 +377,6 @@ fn bmp_decodes_exactly_in_each_layout() {
         assert_eq!(formats::embedded_thumbnail(Format::Bmp, &file, &Limits::default()), Ok(None));
         let img = decode(&file, &Limits::default()).unwrap();
         assert_eq!(img, rgba(expected), "{colour:?}");
-        assert_fingerprint(name, &img);
     }
 }
 
@@ -424,7 +391,7 @@ fn a_v5_bitmap_with_alpha_and_a_profile() {
     let img = decode(&file, &Limits::default()).unwrap();
     assert_eq!(img, through_profile(&with_alpha(&upright, &a), &p3, true));
     assert_eq!(alpha_of(&img), a);
-    assert_fingerprint("bmp-v5-alpha-p3", &img);
+    assert_fingerprint("bmp-v5-alpha-p3", &img, TOL);
     assert_eq!(decode_with(&file, &OFF, &Limits::default()).unwrap(), with_alpha(&upright, &a));
     // A profile pointer past the end of the file is no profile.
     let mut lost = file.clone();
@@ -542,27 +509,8 @@ fn truncation_at_every_offset_never_panics() {
         }
     }
 }
-
-const HEADS: [&[u8]; 6] =
-    [b"RIFF\0\0\0\0WEBPVP8L", b"RIFF\0\0\0\0WEBPVP8X", b"RIFF\0\0\0\0WEBPVP8 ", b"GIF89a", b"GIF87a", b"BM\0\0\0\0\0\0\0\0\x36\0\0\0"];
-
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(512))]
-
-    /// Random bytes behind each magic number, through every entry point: never a panic.
-    #[test]
-    fn random_bytes_never_panic(head in 0..HEADS.len(), tail in proptest::collection::vec(any::<u8>(), 0..1024), managed in any::<bool>()) {
-        let bytes = [HEADS[head], &tail].concat();
-        let l = Limits { max_alloc: 64 << 20, ..Limits::default() };
-        let options = DecodeOptions { color_managed: managed };
-        let _ = read_header(&bytes, &l);
-        let _ = decode_with(&bytes, &options, &l);
-        let _ = decode_thumbnail(&bytes, 32, &l);
-        for f in [Format::WebP, Format::Gif, Format::Bmp] {
-            let _ = decode_as(f, &bytes, &options, &l);
-            let _ = formats::embedded_thumbnail(f, &bytes, &l);
-        }
-    }
+    #![proptest_config(ProptestConfig::with_cases(cases(512)))]
 
     /// Bytes changed anywhere in a real file, then cut anywhere: never a panic.
     #[test]

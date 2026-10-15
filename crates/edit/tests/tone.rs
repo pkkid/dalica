@@ -3,32 +3,21 @@
 //! the middle; Color Temperature moves the red/blue balance monotonically; the Neutral colour of a
 //! cast photo becomes grey; `fill_light(a)` renders as Tuning with only `fill` and stays as
 //! written; print and parse round-trip and hostile values clamp. Fingerprints:
-//! `fingerprints/tone-*.json`, one per control at three values, each checked at two sizes.
+//! `fingerprints/tone-*.json`, one per control, each checked at two sizes (the invariants above
+//! cover the other values).
 
-mod common;
-
-use std::time::Instant;
-
-use common::{assert_two_sizes_agree, check_fingerprint, recipe, scene};
+use crate::common::{self, assert_two_sizes_agree, cases, check_fingerprint, pixels, recipe, run, scene};
 use dalica_edit::ops::Operation;
 use dalica_edit::ops::tone::{FillLight, Tuning, luma};
-use dalica_edit::{Op, Source, Target, Typed, render};
+use dalica_edit::{Op, Source, Typed};
 use dalica_image::Rgba8;
 use dalica_scenes::{Kind, Scene};
 use proptest::prelude::*;
-
-fn run(img: &Rgba8, ops: &[&str]) -> Rgba8 {
-    render(Source::upright(img), &recipe(ops), Target::Full).unwrap()
-}
 
 /// Every grey level, four rows of 256.
 fn grey_ramp() -> Rgba8 {
     let data = (0..4).flat_map(|_| (0..=255u8).flat_map(|v| [v, v, v, 255])).collect();
     Rgba8 { width: 256, height: 4, data }
-}
-
-fn pixels(img: &Rgba8) -> impl Iterator<Item = [u8; 3]> + '_ {
-    img.data.chunks(4).map(|p| [p[0], p[1], p[2]])
 }
 
 fn luma8(p: [u8; 3]) -> f32 {
@@ -242,7 +231,7 @@ fn print_and_parse_round_trip_and_hostile_values_clamp() {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(300))]
+    #![proptest_config(ProptestConfig::with_cases(cases(300)))]
 
     #[test]
     fn typed_values_print_and_read_back(
@@ -271,26 +260,16 @@ proptest! {
 }
 
 #[test]
-fn every_control_at_three_values_agrees_at_two_sizes_and_matches_its_fingerprint() {
+fn every_control_agrees_at_two_sizes_and_matches_its_fingerprint() {
     // Blobs over a gradient with about a third of the picture dark and a third bright, so every
     // control has something to move.
     let up = common::rgba(&Scene::new(5, 300, 200).with_kind(Kind::Blobs).render().unwrap());
     let cases = [
-        ("tone-fill-0.25", "tuning(0.25,0,0,0,none)"),
-        ("tone-fill-0.5", "tuning(0.5,0,0,0,none)"),
         ("tone-fill-1", "tuning(1,0,0,0,none)"),
-        ("tone-highlights-0.1", "tuning(0,0.1,0,0,none)"),
-        ("tone-highlights-0.25", "tuning(0,0.25,0,0,none)"),
         ("tone-highlights-0.5", "tuning(0,0.5,0,0,none)"),
-        ("tone-shadows-0.1", "tuning(0,0,0.1,0,none)"),
-        ("tone-shadows-0.25", "tuning(0,0,0.25,0,none)"),
         ("tone-shadows-0.5", "tuning(0,0,0.5,0,none)"),
-        ("tone-temp-cool-1", "tuning(0,0,0,-1,none)"),
-        ("tone-temp-warm-0.5", "tuning(0,0,0,0.5,none)"),
         ("tone-temp-warm-1", "tuning(0,0,0,1,none)"),
         ("tone-neutral-c8a080", "tuning(0,0,0,0,#c8a080)"),
-        ("tone-neutral-8090b0", "tuning(0,0,0,0,#8090b0)"),
-        ("tone-neutral-a0b090", "tuning(0,0,0,0,#a0b090)"),
     ];
     for (case, op) in cases {
         let small = assert_two_sizes_agree(Source::upright(&up), &recipe(&[op]), 64, 240, 2.0);
@@ -299,26 +278,11 @@ fn every_control_at_three_values_agrees_at_two_sizes_and_matches_its_fingerprint
 }
 
 #[test]
-fn one_tuning_render_of_a_2560_pixel_preview_is_timed() {
-    // The tone stage alone on a 2560 × 1707 picture (no resampling: `Target::Full`), every
-    // control on; printed for the PR (budgets come with M7.11).
-    let img = scene(5, 2560, 1707);
-    let all = recipe(&["tuning(0.4,0.2,0.2,0.3,#c8b4a0)"]);
-    let none = recipe(&[]);
-    // The best of five runs of each, after a warm-up.
-    let time = |r| {
-        let mut best = f64::INFINITY;
-        let mut out = render(Source::upright(&img), r, Target::Full).unwrap();
-        for _ in 0..5 {
-            let t = Instant::now();
-            out = render(Source::upright(&img), r, Target::Full).unwrap();
-            best = best.min(t.elapsed().as_secs_f64() * 1000.0);
-        }
-        (best, out)
-    };
-    let (base, _) = time(&none);
-    let (tuned, out) = time(&all);
-    assert_eq!((out.width, out.height), (2560, 1707));
+fn a_tuning_render_with_every_control_keeps_the_size_and_changes_the_picture() {
+    // The tone stage alone (no resampling: `Target::Full`), every control on, on a 1.3 MP picture.
+    // Speed: the release benches.
+    let img = scene(5, 1400, 933);
+    let out = run(&img, &["tuning(0.4,0.2,0.2,0.3,#c8b4a0)"]);
+    assert_eq!((out.width, out.height), (1400, 933));
     assert_ne!(out, img);
-    println!("2560 × 1707: copy {base:.1} ms, with Tuning {tuned:.1} ms (Tuning ≈ {:.1} ms)", tuned - base);
 }

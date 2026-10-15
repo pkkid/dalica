@@ -6,7 +6,7 @@
 //! hostile sizes and bad requests are `Err`, never a panic; and the pipeline never touches the
 //! disk.
 
-mod common;
+use crate::common;
 
 use common::*;
 use dalica_create::output::{Choice, Error, OutFormat, Purpose, Quality, Spec, render};
@@ -16,10 +16,6 @@ use dalica_meta::{Changes, Place};
 
 fn spec(purpose: Purpose) -> Spec {
     Spec { threads: 2, ..Spec::new(purpose) }
-}
-
-fn meta(bytes: &[u8]) -> dalica_meta::Metadata {
-    dalica_meta::read(bytes, &dalica_meta::Limits::default()).unwrap()
 }
 
 /// How far a re-encode at the same quality may stray from its source, decoded: the PSNR floor
@@ -375,20 +371,16 @@ fn nothing_is_written_to_disk() {
 }
 
 #[test]
-fn a_24_mp_save_is_timed() {
-    // A 6000 × 4000 JPEG through the whole pipeline: an empty recipe at Match (Save) and an
-    // export to 2048 pixels; `--release` gives the numbers worth comparing.
-    let source = jpeg(19, 6000, 4000, 90, 1);
-    for (name, s) in [("save", spec(Purpose::InPlace)), ("export 2048", Spec { long_side: Some(2048), ..spec(Purpose::Export) })] {
+fn a_large_save_and_export_keep_and_fit_the_size() {
+    // A 1600 × 1200 JPEG through the whole pipeline: an empty recipe at Match (Save) keeps its
+    // size; an export to 1024 pixels fits the long side. Speed: the release benches.
+    let source = jpeg(19, 1600, 1200, 90, 1);
+    for (name, s, size) in
+        [("save", spec(Purpose::InPlace), (1600, 1200)), ("export 1024", Spec { long_side: Some(1024), ..spec(Purpose::Export) }, (1024, 768))]
+    {
         let s = Spec { threads: 4, thumbnail: name == "save", ..s };
-        let t = std::time::Instant::now();
         let out = render(&source, &recipe(&[]), &s).unwrap();
-        println!(
-            "24 MP {name}: {} × {} in {:.0} ms, {} bytes",
-            out.report.width,
-            out.report.height,
-            t.elapsed().as_secs_f64() * 1000.0,
-            out.bytes.len()
-        );
+        assert_eq!((out.report.width, out.report.height), size, "{name}");
+        assert_eq!(read_header(&out.bytes, &Limits::default()).unwrap().format, Format::Jpeg, "{name}");
     }
 }

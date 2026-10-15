@@ -6,6 +6,8 @@ use dalica_edit::{Dihedral, Error, LISTED, MAX_OPERATIONS, Op, Recipe, Stage, Tu
 use dalica_image::Orientation;
 use proptest::prelude::*;
 
+use crate::common::cases;
+
 /// One example of every operation of `data-model.md` §3.1, with typical parameters.
 const EVERY_OPERATION: &[&str] = &[
     "rotate(90)",
@@ -223,6 +225,8 @@ fn op_text() -> impl Strategy<Value = String> {
 }
 
 proptest! {
+    #![proptest_config(ProptestConfig::with_cases(cases(256)))]
+
     #[test]
     fn any_string_parses_and_prints_back_unchanged(text in op_text()) {
         let op = Op::parse(&text);

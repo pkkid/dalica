@@ -4,8 +4,9 @@
 //! (test 6), the size checks (test 7, with the unit tests of each writer), and hostile input
 //! (test 10). The images are real enough to decode, and decode to the same pixels after a write.
 
-mod build;
+use crate::build;
 
+use crate::common::{caption, cases, l, xmp_text};
 use build::*;
 use dalica_image::ifd::{Tiff as TiffReader, Visited};
 use dalica_meta::container::payload_digest;
@@ -17,23 +18,11 @@ const NS: &str = "xmlns:dc=\"http://purl.org/dc/elements/1.1/\" xmlns:xmp=\"http
 /// Another application's description: history, a document id and an unknown namespace.
 const FOREIGN: &str = "<rdf:Description rdf:about=\"\" xmlns:xmpMM=\"http://ns.adobe.com/xap/1.0/mm/\" xmlns:zz=\"urn:example:unknown\" xmpMM:DocumentID=\"xmp.did:0042\" zz:Setting=\"+0.35\"><xmpMM:History><rdf:Seq><rdf:li rdf:parseType=\"Resource\"><zz:action>saved</zz:action></rdf:li></rdf:Seq></xmpMM:History></rdf:Description>";
 
-fn l() -> Limits {
-    Limits::default()
-}
-
 /// The time of the write, as the engine passes it from the Session's clock.
 const WRITTEN_AT: &str = "2026-10-12T09:30:00+02:00";
 
 fn opts() -> WriteOptions {
     WriteOptions { stars_as_ratings: true, metadata_date: DateTaken::parse_iso(WRITTEN_AT), ..WriteOptions::default() }
-}
-
-fn xmp_text(bytes: &[u8]) -> String {
-    String::from_utf8(scan(bytes, &l()).unwrap().xmp.unwrap().into_owned()).unwrap()
-}
-
-fn caption(c: &str) -> Changes {
-    Changes { caption: Some(Some(c.to_owned())), ..Changes::default() }
 }
 
 /// Every owned field: an RTL caption with emoji and markup, tags with `/`, `,` and non-ASCII, a
@@ -1008,16 +997,7 @@ fn every_written_block_is_where_the_scan_finds_it() {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(256))]
-
-    #[test]
-    fn random_bytes_never_panic(prefix in 0usize..3, body in proptest::collection::vec(any::<u8>(), 0..1024)) {
-        let magic: [&[u8]; 3] = [b"\x89PNG\r\n\x1a\n", b"RIFF\xff\x0f\0\0WEBP", b"II*\0\x08\0\0\0"];
-        let file = [magic[prefix], &body].concat();
-        if let Ok(out) = write_owned(&file, &everything(), &opts()) {
-            prop_assert!(read(&out, &l()).is_ok());
-        }
-    }
+    #![proptest_config(ProptestConfig::with_cases(cases(256)))]
 
     #[test]
     fn mutated_files_never_panic(which in 0usize..6, edits in proptest::collection::vec((any::<usize>(), any::<u8>()), 1..8)) {

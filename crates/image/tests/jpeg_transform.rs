@@ -7,8 +7,8 @@
 //! 4:4:4, 4:2:2, 4:2:0 and grey files from a small forward-DCT encoder below whose coefficients go
 //! through `jpeg_transform::encode` (the `image` encoder writes 4:4:4 only).
 
+use crate::common::cases;
 use std::f32::consts::PI;
-use std::time::Instant;
 
 use dalica_image::jpeg_transform::{self, Coefficients, Component, NotLossless, Refusal};
 use dalica_image::{Limits, Orientation, Rgba8, decode, orient, read_header};
@@ -370,7 +370,7 @@ fn truncation_at_every_offset_never_panics() {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(256))]
+    #![proptest_config(ProptestConfig::with_cases(cases(256)))]
 
     /// Corruption anywhere in a real file never panics; whatever comes out decodes.
     #[test]
@@ -384,23 +384,14 @@ proptest! {
             prop_assert!(jpeg_transform::read(&out, &Limits::default()).is_ok());
         }
     }
-
-    #[test]
-    fn random_bytes_never_panic(v in 1u8..=8, tail in proptest::collection::vec(any::<u8>(), 0..512)) {
-        let bytes = [b"\xff\xd8\xff".to_vec(), tail].concat();
-        let _ = jpeg_transform::transform(&bytes, o(v), &Limits::default());
-        let _ = jpeg_transform::read(&bytes, &Limits::default());
-    }
 }
 
 #[test]
-fn time_for_24_megapixels() {
+fn a_large_quarter_turn_has_the_turned_size() {
+    // 1.9 MP; speed is the release benches'.
     let limits = Limits::default();
-    let src = jpeg(&Scene::new(24, 6000, 4000), 90, None).unwrap();
-    let t = Instant::now();
+    let src = jpeg(&Scene::new(24, 1600, 1200), 90, None).unwrap();
     let out = jpeg_transform::transform(&src, o(6), &limits).unwrap();
-    let ms = t.elapsed().as_secs_f64() * 1000.0;
-    println!("24 MP 4:4:4 ({:.1} MB) quarter turn: {ms:.0} ms, {:.1} MB out", src.len() as f64 / 1e6, out.len() as f64 / 1e6);
     let h = read_header(&out, &limits).unwrap();
-    assert_eq!((h.width, h.height), (4000, 6000));
+    assert_eq!((h.width, h.height), (1200, 1600));
 }

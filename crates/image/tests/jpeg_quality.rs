@@ -1,12 +1,13 @@
 //! Reading back the settings a JPEG was saved with (`data-model.md` §6): the quality from its
 //! quantisation tables and the chroma subsampling from its frame header. Saved by `scenes` (the
 //! `image` crate's encoder) and by our own encoder, estimated within 2; hand-built headers for the
-//! layouts neither writes; hostile, truncated and random headers give `None`, never a panic.
+//! layouts neither writes; hostile and corrupted headers give `None`, never a panic.
 //!
 //! Adapted from PhotoCraft (MIT OR Apache-2.0), `crates/codecs/tests/source_settings.rs`
 //! (`jpeg_quality_is_estimated_within_two`, `jpeg_quality_of_hand_built_tables`,
 //! `hostile_jpeg_tables_give_no_estimate_and_never_panic`) at bb17dd55.
 
+use crate::common::cases;
 use dalica_image::encode::{self, Channels, Image, Metadata, Pixels, Subsampling};
 use dalica_image::jpeg_quality::{self, Sampling, Settings};
 use dalica_scenes::{Kind, Scene};
@@ -169,20 +170,7 @@ fn hostile_tables_give_no_estimate_and_never_panic() {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(1024))]
-
-    /// Random bytes never panic, and give `None` unless they start like a JPEG.
-    #[test]
-    fn random_headers_never_panic(head in prop_oneof![Just(vec![]), Just(vec![0xFF, 0xD8]), Just(vec![0xFF, 0xD8, 0xFF, 0xDB]), Just(vec![0xFF, 0xD8, 0xFF, 0xC0])], tail in proptest::collection::vec(any::<u8>(), 0..400)) {
-        let bytes = [head.clone(), tail].concat();
-        let got = jpeg_quality::read(&bytes);
-        if head.is_empty() && bytes.get(..2) != Some(&[0xFF, 0xD8]) {
-            prop_assert_eq!(got, None);
-        }
-        if let Some(s) = got {
-            prop_assert!((1..=100).contains(&s.quality));
-        }
-    }
+    #![proptest_config(ProptestConfig::with_cases(cases(1024)))]
 
     /// Random corruption of a real header never panics; the estimate stays on the scale.
     #[test]

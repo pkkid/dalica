@@ -7,9 +7,7 @@
 //! The grid test is ported from PhotoCraft `crates/ui-egui/src/crop_overlay.rs`
 //! (`grid_spacing_is_bounded`) at revision 32c918aa (MIT OR Apache-2.0; `NOTICE`).
 
-mod common;
-
-use common::{assert_two_sizes_agree, check_fingerprint, recipe, scene};
+use crate::common::{assert_two_sizes_agree, cases, check_fingerprint, recipe, scene};
 use dalica_edit::guides::{self, GRID_MAX};
 use dalica_edit::ops::Operation;
 use dalica_edit::ops::straighten::{MAX_DEGREES, Straighten};
@@ -151,7 +149,7 @@ fn the_grid_spacing_is_bounded() {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(128))]
+    #![proptest_config(ProptestConfig::with_cases(cases(128)))]
 
     /// Any straighten text renders or is refused without panicking; an accepted one is in range
     /// and prints back; every output corner lies inside the picture.

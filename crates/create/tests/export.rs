@@ -4,7 +4,7 @@
 //! and numbers keep the tray order; the export folder takes a free name; videos and undecodable
 //! files are skipped with their reason; a cancel at any step leaves only complete, decodable files.
 
-mod common;
+use crate::common;
 
 use std::cell::Cell;
 use std::path::{Path, PathBuf};
@@ -68,10 +68,6 @@ fn listing(folder: &Path) -> Vec<String> {
     let mut names: Vec<String> = std::fs::read_dir(folder).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
     names.sort();
     names
-}
-
-fn meta(bytes: &[u8]) -> dalica_meta::Metadata {
-    dalica_meta::read(bytes, &dalica_meta::Limits::default()).unwrap()
 }
 
 #[test]
@@ -333,7 +329,7 @@ fn a_cancel_from_another_thread_leaves_only_complete_files() {
 }
 
 proptest::proptest! {
-    #![proptest_config(proptest::prelude::ProptestConfig::with_cases(2048))]
+    #![proptest_config(proptest::prelude::ProptestConfig::with_cases(cases(2048)))]
 
     /// Whatever a source is called, its planned name (numbered or not, with either extension) is
     /// one plain component `fs` accepts for a new file.

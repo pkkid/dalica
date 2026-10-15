@@ -7,7 +7,7 @@
 //! Save brings its exact bytes back; a later Save starts again from it; the owned fields are
 //! merged; a damaged file is refused with nothing changed.
 
-mod common;
+use crate::common;
 
 use std::path::Path;
 
@@ -16,13 +16,9 @@ use dalica_core::Timestamp;
 use dalica_create::save::lossless::{self, Method};
 use dalica_create::save::{self, Error, Options, Saved, Saving};
 use dalica_edit::Recipe;
-use dalica_fs::TempDir;
 use dalica_image::{Limits, Orientation, Rgba8, jpeg_quality, jpeg_transform, orient, read_header};
 use dalica_meta::Changes;
 use dalica_scenes::Exif;
-
-const NAME: &str = "IMG_0001.jpg";
-const NOW: Timestamp = Timestamp::from_millis(1_791_000_000_000);
 
 /// The zig-zag order of an 8 × 8 block (ITU-T T.81 Figure A.6): position `k` of a DQT table
 /// holds the quantiser of natural index `ZIGZAG[k]`.
@@ -31,23 +27,11 @@ const ZIGZAG: [usize; 64] = [
     36, 29, 22, 15, 23, 30, 37, 44, 51, 58, 59, 52, 45, 38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63,
 ];
 
-fn folder() -> TempDir {
-    TempDir::new("dalica-lossless-test").unwrap()
-}
-
-fn options() -> Options {
-    Options { threads: 2, ..Options::new(NOW) }
-}
-
 /// A camera-like JPEG of the scene: quality 80, stored for EXIF orientation `o`, with a 160-pixel
 /// EXIF thumbnail.
 fn camera(seed: u64, width: u32, height: u32, o: u8) -> Vec<u8> {
     let exif = Exif { orientation: o, thumbnail: Some(160), make: Some("Dalicam".into()), model: Some("Model 7".into()), ..Exif::default() };
     dalica_scenes::jpeg(&scene(seed, width, height), 80, Some(&exif)).unwrap()
-}
-
-fn read(path: impl AsRef<Path>) -> Vec<u8> {
-    std::fs::read(path).unwrap()
 }
 
 /// Saves `bytes` as `NAME` in `dir` with `ops` through the dispatch; the in-place result.
@@ -384,12 +368,10 @@ fn a_damaged_jpeg_is_refused_with_nothing_changed() {
 }
 
 #[test]
-fn a_24_megapixel_turn_is_timed() {
-    let original = camera(32, 6000, 4000, 1);
-    let start = std::time::Instant::now();
+fn a_large_turn_is_lossless() {
+    // A 1600 × 1200 camera JPEG (whole MCUs) turned a quarter. Speed: the release benches.
+    let original = camera(32, 1600, 1200, 1);
     let turned = lossless::turn(&original, &recipe(&["rotate(90)"]), &Changes::default(), &options()).unwrap().unwrap();
-    let elapsed = start.elapsed();
     assert_eq!(turned.method, Method::Transformed);
-    assert_eq!((turned.width, turned.height), (4000, 6000));
-    println!("lossless quarter turn of a 6000 × 4000 JPEG ({} bytes): {elapsed:.2?}", original.len());
+    assert_eq!((turned.width, turned.height), (1200, 1600));
 }

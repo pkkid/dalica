@@ -14,12 +14,11 @@
 //! q95 51.7 / 49.8, q90 50.8 / 48.9, q75 47.8 / 46.9, q50 44.6 / 43.2; the floors in
 //! `QUALITY_FLOORS` are those values less about 1 dB, for decoders' rounding on other CPUs.
 
-use std::path::PathBuf;
-use std::time::Instant;
+use crate::common::{assert_fingerprint, cases};
 
 use dalica_image::encode::{self, Channels, EncodeError, Image, Metadata, Pixels, Subsampling};
 use dalica_image::{Budget, ColorModel, DecodeOptions, Format, Limits, Rgba8, Samples, decode_with, formats, read_header};
-use dalica_scenes::{Exif as SceneExif, Kind, Scene, fingerprint};
+use dalica_scenes::{Exif as SceneExif, Kind, Scene};
 use proptest::prelude::*;
 
 const OFF: DecodeOptions = DecodeOptions { color_managed: false };
@@ -37,12 +36,6 @@ const QUALITY_FLOORS: [(u8, Subsampling, f64); 10] = [
     (75, Subsampling::S420, 45.5),
     (50, Subsampling::S420, 42.0),
 ];
-
-fn out_dir() -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/image");
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
 
 /// A scenes photo as RGB bytes.
 fn photo(seed: u64, w: u32, h: u32, kind: Kind) -> Vec<u8> {
@@ -84,21 +77,6 @@ fn segments(b: &[u8]) -> Vec<(u8, &[u8])> {
         i += 2 + len;
     }
     out
-}
-
-fn assert_fingerprint(name: &str, img: &Rgba8, tol: f64) {
-    let dir = out_dir();
-    std::fs::write(dir.join(format!("{name}.png")), fingerprint::png_rgba(img.width, img.height, &img.data)).unwrap();
-    let stored = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("tests/fingerprints/{name}.json"));
-    if std::env::var_os("DALICA_BLESS").is_some() {
-        std::fs::write(&stored, fingerprint::to_json(&fingerprint::fingerprint(img.width, img.height, &img.data)) + "\n").unwrap();
-        println!("blessed {}", stored.display());
-    }
-    let expected = fingerprint::from_json(&std::fs::read_to_string(&stored).unwrap()).unwrap();
-    if let Err(m) = fingerprint::check(img.width, img.height, &img.data, &expected, tol) {
-        std::fs::write(dir.join(format!("{name}-actual.png")), &m.actual_png).unwrap();
-        panic!("{name}: {} (images in {})", m.message, dir.display());
-    }
 }
 
 // ---- JPEG: error, size and decoders ------------------------------------------------------------
@@ -421,42 +399,8 @@ fn encoded_scenes_match_their_fingerprints() {
     assert_fingerprint("encode-png-rgb8", &decode(&bytes), 0.0);
 }
 
-#[test]
-fn time_to_encode_24_megapixels() {
-    let (w, h) = (6000u32, 4000u32);
-    // A 1500 × 1000 scenes photo tiled 4 × 4 (rendering one scene this size is slow in debug).
-    let tile = photo(9, 1500, 1000, Kind::Horizon);
-    let mut src = Vec::with_capacity((w * h * 3) as usize);
-    for y in 0..h as usize {
-        let row = &tile[(y % 1000) * 4500..(y % 1000 + 1) * 4500];
-        for _ in 0..4 {
-            src.extend_from_slice(row);
-        }
-    }
-    assert_eq!(src.len(), (w * h * 3) as usize);
-    let img = rgb_image(&src, w, h);
-    let threads = std::thread::available_parallelism().map_or(4, |n| n.get());
-    let t = Instant::now();
-    let one = encode::jpeg(&img, 90, Subsampling::S420, &Metadata::default()).unwrap();
-    let single = t.elapsed();
-    let t = Instant::now();
-    let many = encode::jpeg_with_threads(&img, 90, Subsampling::S420, &Metadata::default(), threads).unwrap();
-    let parallel = t.elapsed();
-    assert_eq!(one, many);
-    println!(
-        "24 MP JPEG q90 4:2:0 ({} bytes): {:.0} ms on one thread, {:.0} ms on {threads} threads ({} build)",
-        one.len(),
-        single.as_secs_f64() * 1000.0,
-        parallel.as_secs_f64() * 1000.0,
-        if cfg!(debug_assertions) { "debug" } else { "release" }
-    );
-    let t = Instant::now();
-    let png = encode::png(&img, &Metadata::default()).unwrap();
-    println!("24 MP PNG 8-bit RGB ({} bytes): {:.0} ms", png.len(), t.elapsed().as_secs_f64() * 1000.0);
-}
-
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(64))]
+    #![proptest_config(ProptestConfig::with_cases(cases(64)))]
 
     /// Any size, layout, depth, quality and subsampling encodes without a panic and decodes to
     /// that size.
