@@ -15,6 +15,12 @@
 //! | [`header`] | the [`Frame`], the section, its rect and [`header::Form`] | [`header::HeaderOut`], applied by [`header::apply`] |
 //! | [`cell`] | the [`Frame`], the [`Thumbnails`](super::thumbnails::Thumbnails), a [`cell::CellIn`] | a [`cell::CellOut`]; the inline caption editor's result ([`caption_edit`]) is applied by [`cell::apply`] |
 //!
+//! **Search mode** (`ui-layout.md` §9): the sections are built with the engine's matches as the
+//! tree options' filter ([`tree_options`]), so only matching sections and photos show; in Find
+//! Duplicates' mode the first section is the groups' (`album:search`, titled
+//! [`DUPLICATES_TITLE`]), each group's identical files side by side, largest group first. With no
+//! match the light table shows the empty state [`NO_MATCHES_ID`] under the banner.
+//!
 //! Each part keeps what it needs between frames in its own state struct ([`scrollbar::Scrollbar`],
 //! [`input::Input`], [`header::Headers`], [`cell::Cells`]), held here by [`LightTable`]. A frame:
 //! the background; the scroll bar's input and the wheel; the scroll resolved (anchor, animation);
@@ -62,6 +68,13 @@ pub const SCROLL_SECONDS: f64 = 0.2;
 pub const EMPTY_ID: &str = "empty:lightTable";
 pub const ADD_FOLDER_ID: &str = "button:empty.addFolder";
 pub const IMPORT_ID: &str = "button:empty.import";
+/// The empty state of a search that matches nothing (`control-protocol.md` §7).
+pub const NO_MATCHES_ID: &str = "empty:search";
+/// What it says.
+pub const NO_MATCHES_TITLE: &str = "No matching pictures";
+pub const NO_MATCHES_BODY: &str = "Try fewer words or other filters, or click Show All to see every picture.";
+/// The title of Find Duplicates' section.
+pub const DUPLICATES_TITLE: &str = "Duplicate Files";
 
 /// One section of the light table: a folder's or an album's photos as the light table shows them.
 #[derive(Debug, Clone, PartialEq)]
@@ -115,6 +128,17 @@ struct ModelKey {
     revision: u64,
     roots: Vec<PathBuf>,
     options: TreeOptions,
+    /// The engine's search generation while Find Duplicates' groups are shown.
+    duplicates: Option<u64>,
+}
+
+/// Find Duplicates' groups as the light table shows them: the search generation they answer, the
+/// groups' photos one group after another, and the banner's text for the section's subtitle.
+#[derive(Debug, Clone, Copy)]
+pub struct Duplicates<'a> {
+    pub generation: u64,
+    pub groups: &'a [Vec<PhotoId>],
+    pub files: usize,
 }
 
 /// The sections in tree order ([`dalica_library::Tree`]), rebuilt when the library's revision,
@@ -131,14 +155,39 @@ impl Sections {
     /// Rebuilds the sections when `library`, `roots` or `options` differ from the last build.
     /// Returns whether it rebuilt. One pass over the photos and one sort per folder.
     pub fn refresh(&mut self, library: &Library, roots: &[PathBuf], options: &TreeOptions) -> bool {
-        let fresh = self.key.as_ref().is_some_and(|k| k.revision == library.revision() && k.roots == roots && k.options == *options);
+        self.refresh_with(library, roots, options, None)
+    }
+
+    /// [`Sections::refresh`], with Find Duplicates' groups as the first section while they are
+    /// shown (rebuilt when their generation changes).
+    pub fn refresh_with(&mut self, library: &Library, roots: &[PathBuf], options: &TreeOptions, duplicates: Option<Duplicates<'_>>) -> bool {
+        let generation = duplicates.map(|d| d.generation);
+        let fresh = self
+            .key
+            .as_ref()
+            .is_some_and(|k| k.revision == library.revision() && k.roots == roots && k.options == *options && k.duplicates == generation);
         if fresh {
             return false;
         }
         self.list = build(library, roots, options);
+        if let Some(d) = duplicates {
+            let ids: Vec<PhotoId> = d.groups.iter().flatten().copied().collect();
+            let shown = section_photos(
+                library,
+                &[dalica_library::Section::Album(AlbumRef::Search)],
+                &TreeOptions { filter: Some(std::sync::Arc::new(dalica_library::SectionFilter::new(ids))), ..options.clone() },
+            );
+            let photos = shown.into_iter().next().map(|(_, ids)| ids).unwrap_or_default();
+            if !photos.is_empty() {
+                let subtitle = dalica_engine::duplicates::banner(d.groups.len(), d.files);
+                let id = state::Section::Album(state::AlbumSection::Search);
+                self.list.retain(|s| s.id != id);
+                self.list.insert(0, Section { id, folder: None, title: DUPLICATES_TITLE.into(), subtitle, photos });
+            }
+        }
         self.index = self.list.iter().enumerate().map(|(i, s)| (s.id, i)).collect();
         self.generation = self.generation.wrapping_add(1);
-        self.key = Some(ModelKey { revision: library.revision(), roots: roots.to_vec(), options: options.clone() });
+        self.key = Some(ModelKey { revision: library.revision(), roots: roots.to_vec(), options: options.clone(), duplicates: generation });
         true
     }
 
@@ -189,10 +238,9 @@ pub fn tree_options(app: &App) -> TreeOptions {
 /// The step Recently Updated's clock moves by in the tree (an hour, in milliseconds).
 pub const RECENT_STEP_MS: i64 = 3_600_000;
 
-/// The projects directory the tree lists in Projects (`Pictures/Dalica` by default; the export
-/// location's parent, `creating.md` §2), unless it is itself a watched folder: an export location
-/// chosen inside a watched folder (`Pictures/Exports`, with `Pictures` watched) must not make every
-/// folder of it a project.
+/// The projects directory the tree lists in Projects (always `<Pictures>/Dalica`, whatever export
+/// location is chosen, `creating.md` §2), unless it is itself a watched folder: a watched
+/// `<Pictures>/Dalica` must not make every folder of it a project.
 pub fn projects_dir(session: &Session) -> Option<PathBuf> {
     let dir = session.projects_dir()?;
     (!session.roots().contains(&dir)).then_some(dir)
@@ -461,11 +509,21 @@ impl LightTable {
     }
 }
 
-/// Rebuilds the sections for the current library and view state. The panels call it once per
-/// frame, before any region reads them.
-pub fn refresh(p: &mut Panels, app: &App) {
+/// Brings the view state's search and the engine's in step
+/// ([`crate::commands::search::sync`]), then rebuilds the sections for the current library and view
+/// state. The panels call it once per frame, before any region reads them.
+pub fn refresh(p: &mut Panels, app: &mut App) {
+    if let Some(ctx) = p.ctx.clone() {
+        crate::commands::search::sync(app, &ctx);
+    }
     if let Some(session) = app.session() {
-        p.sections.refresh(session.library(), session.roots(), &tree_options(app));
+        let search = session.search_state();
+        let duplicates = search.result.as_ref().filter(|_| search.mode == Some(dalica_engine::search::SearchMode::Duplicates)).map(|r| Duplicates {
+            generation: search.generation,
+            groups: &r.groups,
+            files: r.count(),
+        });
+        p.sections.refresh_with(session.library(), session.roots(), &tree_options(app), duplicates);
     }
 }
 
@@ -477,8 +535,18 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui, area: Rect, bar: Rect) {
     if p.sections.list.is_empty() {
         p.light_table.info = FrameInfo { area: Some(area), ..FrameInfo::default() };
         perf::count(ui.ctx(), Counter::CellsVisited, 0);
-        if session.roots().is_empty() && session.library().folders().next().is_none() {
+        let no_library = session.roots().is_empty() && session.library().folders().next().is_none();
+        let no_matches = app.state().search.active() && !session.search_state().pending();
+        // No cell this frame: the thumbnails asked for by the last one are no longer wanted.
+        if let Some(s) = app.session_mut() {
+            p.thumbnails.set_order(&p.sections);
+            p.thumbnails.end_frame(s, &Motion { offset: 0.0, view_h: area.height(), velocity: 0.0 });
+        }
+        if no_library {
             empty_state(app, ui, area);
+        } else if no_matches {
+            let mut child = ui.new_child(UiBuilder::new().id_salt("lightTable.noMatches").max_rect(area));
+            widgets::empty_state(&mut child, &t, NO_MATCHES_ID, NO_MATCHES_TITLE, NO_MATCHES_BODY, None);
         }
         return;
     }

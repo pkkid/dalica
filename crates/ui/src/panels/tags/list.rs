@@ -4,9 +4,10 @@
 //! selection changed). Each row is `tag:<tag text>`; hovering it shows × (`tag:<tag text>/remove`),
 //! which removes the tag from every selected photo (`photo.tags.remove`, one undo step); a
 //! right-click opens the tag menu (`menus-and-shortcuts.md` §4): Add to All Selected
-//! (`photo.tags.add`), Search for This Tag (greyed until search arrives), Remove from Selected
-//! (`photo.tags.remove`) and Rename Tag… (`tag.rename`, whose dialog asks before it renames the tag
-//! on every photo). With nothing selected, or no tags on the selection, the list says "None".
+//! (`photo.tags.add`), Search for This Tag (`search.tag`: the search field reads `tag:<tag>`),
+//! Remove from Selected (`photo.tags.remove`) and Rename Tag… (`tag.rename`, whose dialog asks
+//! before it renames the tag on every photo). With nothing selected, or no tags on the selection,
+//! the list says "None".
 //!
 //! The rows scroll (with the wheel) when they would push the quick tags below out of the pane.
 
@@ -30,10 +31,8 @@ use crate::state::DialogKind;
 const QUICK_ROOM: f32 = 165.0;
 /// The edge of a row's × (points).
 const REMOVE: f32 = 18.0;
-/// The command Search for This Tag will run (M9); greyed until then.
+/// The command Search for This Tag runs (`crate::commands::search`).
 pub const SEARCH_TAG: &str = "search.tag";
-/// Why Search for This Tag is greyed.
-pub const SEARCH_LATER: &str = "Not available yet.";
 /// Why Add to All Selected is greyed when every selected photo holds the tag.
 pub const ALL_HOLD: &str = "Every selected photo has this tag.";
 /// Why the tag menu's items are greyed with nothing selected.
@@ -125,7 +124,7 @@ pub fn menu(app: &App, row: &Row, selected: &[PhotoId]) -> Vec<Node> {
     let remove = if none { Err(SELECT_FIRST.to_owned()) } else { Ok(()) };
     let items: [(&'static str, &'static str, Value, Result<(), String>); 4] = [
         ("photo.tags.add", "Add to All Selected", ids.clone(), add),
-        (SEARCH_TAG, "Search for This Tag", json!({ "tag": row.tag }), Err(SEARCH_LATER.to_owned())),
+        (SEARCH_TAG, "Search for This Tag", json!({ "tag": row.tag }), crate::commands::enabled(app, SEARCH_TAG, &json!({ "tag": row.tag }))),
         ("photo.tags.remove", "Remove from Selected", ids, remove),
         ("tag.rename", "Rename Tag…", json!({ "tag": row.tag }), crate::dialogs::can_open(app, DialogKind::RenameTag)),
     ];
@@ -140,7 +139,7 @@ pub fn menu(app: &App, row: &Row, selected: &[PhotoId]) -> Vec<Node> {
                 params,
                 widget: format!("menuitem:{id}"),
                 shortcut: None,
-                live: id != SEARCH_TAG,
+                live: true,
                 enabled: reason.is_none(),
                 reason,
                 mark: Mark::None,
@@ -279,7 +278,7 @@ mod tests {
             enabled(menu(&app, &row(2), &ids)),
             [
                 widget("menuitem:photo.tags.add", false),
-                widget("menuitem:search.tag", false),
+                widget("menuitem:search.tag", true),
                 widget("menuitem:photo.tags.remove", true),
                 widget("menuitem:tag.rename", true),
             ]

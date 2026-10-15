@@ -23,7 +23,7 @@
 //!   Copy act on in the edit view ([`save::route`], called by [`App::run`]);
 //! - M9's areas, so the tasks that fill them never share a file: [`albums`] (New Album…, Album
 //!   Properties of an album section, Show in Folder), [`search`] (Ctrl+F / F3 to the search
-//!   field), [`files`] (Move to New Folder…, Split Folder Here…), [`rename`] (Rename…, F2),
+//!   field, Search for This Tag, Save Search Results…), [`files`] (Move to New Folder…, Split Folder Here…), [`rename`] (Rename…, F2),
 //!   [`folder_ops`] (Folder ▸ Move…) and [`clipboard`] (Cut, Copy, Paste).
 //!
 //! **Openers** ([`OPENERS`]): a menu item ending in `…` whose *engine* command takes input
@@ -117,8 +117,17 @@ const AREAS: &[&[UiCommand]] = &[
 pub type Check = fn(&App, &Value) -> Result<(), String>;
 
 /// The checks of the UI commands that cannot always run, by area.
-const CHECKS: &[&[(&str, Check)]] =
-    &[caption::CHECKS, info::CHECKS, edit_view::CHECKS, export::CHECKS, save_as::CHECKS, albums::CHECKS, files::CHECKS, clipboard::CHECKS];
+const CHECKS: &[&[(&str, Check)]] = &[
+    caption::CHECKS,
+    info::CHECKS,
+    edit_view::CHECKS,
+    export::CHECKS,
+    save_as::CHECKS,
+    albums::CHECKS,
+    search::CHECKS,
+    files::CHECKS,
+    clipboard::CHECKS,
+];
 
 /// Whether UI command `id` can run now with `params` (what a click passes: `{}`); why not when it
 /// cannot. Commands without a check always can. On an album section `section.properties` is Album
@@ -151,7 +160,7 @@ pub struct Opener {
 }
 
 /// Every opener.
-pub const OPENERS: &[Opener] = &[rename::RENAME, files::MOVE_TO_NEW_FOLDER, folder_ops::MOVE];
+pub const OPENERS: &[Opener] = &[rename::RENAME, files::MOVE_TO_NEW_FOLDER, folder_ops::MOVE, search::SAVE_RESULTS];
 
 /// The opener of `id`, if it has one.
 pub fn opener(id: &str) -> Option<&'static Opener> {

@@ -1197,7 +1197,9 @@ impl Filters {
 /// what is typed, the highlighted row of the autocomplete list (`None`: none), the toggles, the age
 /// slider's position (0 = everything … [`AGE_MAX`] = only the newest; the slider's own logarithmic
 /// map turns it into an age), and the light table's scroll anchor saved when search mode started
-/// (restored when it ends).
+/// (restored when it ends). `duplicates` mirrors the engine's Find Duplicates mode (no text,
+/// filters or age, yet the banner shows); it is not view state of its own, so `ui.state` leaves it
+/// out and the panels set it from the session every frame (`crate::commands::search::sync`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase", deny_unknown_fields, default)]
 pub struct SearchState {
@@ -1206,16 +1208,18 @@ pub struct SearchState {
     pub filters: Filters,
     pub age: f32,
     pub saved_scroll: Option<ScrollAnchor>,
+    #[serde(skip)]
+    pub duplicates: bool,
 }
 
 /// The age slider's far end; 0 is everything.
 pub const AGE_MAX: f32 = 1.0;
 
 impl SearchState {
-    /// Search mode: some text, a filter or an age is set (the light table shows the matches under
-    /// the filter banner).
+    /// Search mode: some text, a filter or an age is set, or Find Duplicates' groups are shown (the
+    /// light table shows the matches under the filter banner).
     pub fn active(&self) -> bool {
-        !self.text.trim().is_empty() || self.filters.any() || self.age > 0.0
+        !self.text.trim().is_empty() || self.filters.any() || self.age > 0.0 || self.duplicates
     }
 }
 
@@ -2201,6 +2205,7 @@ mod tests {
                 filters: Filters { starred: true, ..Filters::default() },
                 age: 0.25,
                 saved_scroll: Some(ScrollAnchor { section: Some(Section::Folder(FolderId::new(3))), offset: 40.0 }),
+                duplicates: false,
             },
             clipboard: Some(Clipboard { op: ClipOp::Cut, ids: vec![p(1)] }),
             album_properties: Some(AlbumDraft { album: Some(AlbumId::parse("a91c0e").unwrap()), ..AlbumDraft::default() }),

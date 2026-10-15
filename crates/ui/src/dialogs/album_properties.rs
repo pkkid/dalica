@@ -1,7 +1,9 @@
 //! Album Properties (`organizing.md` §4.2): opened by File ▸ New Album… (`album.new`, Ctrl+N, the
-//! toolbar's New Album) for a new album with the tray's photos, and by `section.properties` on an
+//! toolbar's New Album) for a new album with the tray's photos, by `section.properties` on an
 //! album section for that album (`crate::commands::albums`: the Album menu's Album Properties…, a
-//! double-click on the album's tree row or header title).
+//! double-click on the album's tree row or header title), and by Tools ▸ Experimental ▸ Save
+//! Search Results… for a new album of the search's matches ([`open_for_search`]: named
+//! `Search results for "x"`, its dialog carrying the command `search.saveAsAlbum`).
 //!
 //! ```text
 //! Album Properties
@@ -19,7 +21,10 @@
 //! then disabled), Place and Description. OK (enabled while the name is not blank and, with the box
 //! off, the date reads as a day or is empty) runs `album.create {name, date?, useNewest, place,
 //! description, ids}` for a new album, then selects it as a unit and scrolls to it, or
-//! `album.info.set {album, …}` for an existing one ([`run_params`]); Cancel and Esc change nothing.
+//! `album.info.set {album, …}` for an existing one ([`run_params`]); for Save Search Results… it
+//! runs `search.saveAsAlbum {name}` (the matches in light-table order, one undo step), then, when a
+//! date, place or description was given, `album.info.set` with them (a second step), and selects
+//! the album as New Album does. Cancel and Esc change nothing.
 //!
 //! Widget ids (`control-protocol.md` §7): `dialog:albumProperties`, `field:dialog.name`,
 //! `field:dialog.date`, `check:dialog.useNewest`, `field:dialog.place`, `field:dialog.description`,
@@ -36,9 +41,10 @@ use serde_json::{Map, Value, json};
 
 use super::{Button, Dialog, DialogKind, Look};
 use crate::app::App;
+use crate::commands::search::SAVE_COMMAND;
 use crate::panels::light_table::header::weekday;
 use crate::panels::light_table::long_date;
-use crate::state::{AlbumDraft, AlbumKey, AlbumSection, ScrollAnchor, Section, Selection};
+use crate::state::{AlbumDraft, AlbumKey, AlbumSection, DialogCommand, ScrollAnchor, Section, Selection};
 
 /// The dialog's title and width (points).
 pub const TITLE: &str = "Album Properties";
@@ -67,6 +73,27 @@ pub fn open(app: &mut App, draft: AlbumDraft) -> Result<Value, CmdError> {
     let reply = super::open(app, Dialog::new(DialogKind::AlbumProperties))?;
     app.state_mut().album_properties = Some(draft.sanitized());
     Ok(reply)
+}
+
+/// Opens the dialog for Save Search Results… with `draft` (a new album's, named for the search):
+/// its OK runs `search.saveAsAlbum`. Replies `{dialog: "albumProperties"}`.
+pub fn open_for_search(app: &mut App, draft: AlbumDraft) -> Result<Value, CmdError> {
+    let command = DialogCommand { id: SAVE_COMMAND.into(), params: json!({}) };
+    let reply = super::open(app, Dialog { command: Some(command), ..Dialog::new(DialogKind::AlbumProperties) })?;
+    app.state_mut().album_properties = Some(AlbumDraft { album: None, ids: Vec::new(), ..draft }.sanitized());
+    Ok(reply)
+}
+
+/// Whether `d` is Save Search Results…' dialog.
+fn saves_search(d: &Dialog) -> bool {
+    d.command.as_ref().is_some_and(|c| c.id == SAVE_COMMAND)
+}
+
+/// The newest effective date of the search's matches (the engine's last answer): on opening Save
+/// Search Results… and on a click of its box, never per frame.
+pub fn newest_match(session: &dalica_engine::Session) -> Option<Date> {
+    let result = session.search_state().result.as_ref()?;
+    newest_date(session.library(), result.photos())
 }
 
 /// The newest effective date of `ids` (a new album's date while "Use the date of the newest photo"
@@ -197,7 +224,8 @@ fn opening(ui: &Ui) -> bool {
     pass.saturating_sub(first) < 2
 }
 
-pub fn body(app: &mut App, ui: &mut Ui, _d: &mut Dialog) {
+pub fn body(app: &mut App, ui: &mut Ui, dialog: &mut Dialog) {
+    let search = saves_search(dialog);
     let Some(before) = app.state().album_properties.clone() else { return };
     let t = *app.tokens();
     let mut d = before.clone();
@@ -223,7 +251,7 @@ pub fn body(app: &mut App, ui: &mut Ui, _d: &mut Dialog) {
             d.use_newest = on;
             if on {
                 // Back to the newest photo's date: a pass over the album's photos, on this click.
-                let date = app.session().and_then(|s| newest_for(s.library(), &d));
+                let date = app.session().and_then(|s| if search { newest_match(s) } else { newest_for(s.library(), &d) });
                 d.date = date.map(|d| d.to_string()).unwrap_or_default();
             }
         }
@@ -235,10 +263,14 @@ pub fn body(app: &mut App, ui: &mut Ui, _d: &mut Dialog) {
     }
 }
 
-/// OK: creates the album (then selects it as a unit and scrolls to it) or sets its information.
-pub fn act(app: &mut App, _d: &Dialog, _action: &str) -> Result<Value, CmdError> {
+/// OK: creates the album (then selects it as a unit and scrolls to it) or sets its information;
+/// for Save Search Results… saves the search as an album ([`save_search`]).
+pub fn act(app: &mut App, d: &Dialog, _action: &str) -> Result<Value, CmdError> {
     let draft = app.state().album_properties.clone().ok_or_else(|| CmdError::Internal("Album Properties has no draft".into()))?;
     ready(&draft).map_err(CmdError::Disabled)?;
+    if saves_search(d) {
+        return save_search(app, &draft);
+    }
     let (id, params) = run_params(&draft);
     let reply = app.run(id, &params)?;
     if draft.album.is_none()
@@ -246,6 +278,21 @@ pub fn act(app: &mut App, _d: &Dialog, _action: &str) -> Result<Value, CmdError>
     {
         select_new(app, &album);
     }
+    Ok(reply)
+}
+
+/// Save Search Results…' OK: `search.saveAsAlbum {name}`, then the date, place and description
+/// typed (`album.info.set`, only when one was given), then the album selected and scrolled to.
+fn save_search(app: &mut App, draft: &AlbumDraft) -> Result<Value, CmdError> {
+    let reply = app.run(SAVE_COMMAND, &json!({ "name": draft.name.trim() }))?;
+    let Some(album) = reply.get("album").and_then(Value::as_str).and_then(|a| AlbumId::parse(a).ok()) else { return Ok(reply) };
+    let typed = !draft.use_newest || !draft.place.trim().is_empty() || !draft.description.trim().is_empty();
+    if typed {
+        let (id, params) = run_params(&AlbumDraft { album: Some(album.clone()), ..draft.clone() });
+        // The album is made: a refusal here leaves it named, and says why on the status line.
+        let _ = app.run(id, &params);
+    }
+    select_new(app, &album);
     Ok(reply)
 }
 

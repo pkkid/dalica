@@ -1,59 +1,71 @@
 //! The filter banner (`ui-layout.md` §9, `organizing.md` §8.1): in search mode, 32 high across the
-//! top of the light table and its scroll bar ([`super::layout::Layout::banner`]), in the
-//! `filter_banner` colour, with [Show All] at its left and "Showing 33 pictures in 4 folders
-//! (0.01 s)" after it (or, in duplicates mode, "12 duplicate groups (31 files)").
-//!
-//! A stub until M9.22: it paints the banner's colour and what is searched for; Show All and the
-//! counts arrive with the engine's search (M9.11) and M9.5's `filter_banner` widget.
+//! top of the light table and its scroll bar ([`super::layout::Layout::banner`]), `ui-kit`'s
+//! [`widgets::filter_banner`]: [Show All] at its left (`button:search.showAll`, which leaves search
+//! mode and brings the scroll position back), and what is shown after it ([`text`]): "Showing 33
+//! pictures in 4 folders (0.01 s) · 439.8 MB", "Searching…" until the first answer, or in Find
+//! Duplicates' mode "12 duplicate groups (31 files)". The banner itself is `banner:search`.
 
-use dalica_ui_kit::fonts;
-use egui::{Align2, Ui, pos2};
+use dalica_engine::Session;
+use dalica_engine::search::SearchMode;
+use dalica_ui_kit::widgets;
+use egui::Ui;
 
 use crate::app::App;
-use crate::state::SearchState;
+use crate::status_text;
 
-/// The text the stub shows for `search`: what is searched for.
-pub fn text(search: &SearchState) -> String {
-    let mut parts: Vec<String> = Vec::new();
-    let typed = search.text.trim();
-    if !typed.is_empty() {
-        parts.push(format!("\"{}\"", typed.chars().take(80).collect::<String>()));
-    }
-    let f = &search.filters;
-    for (on, name) in [(f.starred, "starred"), (f.faces, "with faces"), (f.videos, "videos"), (f.geotagged, "geotagged")] {
-        if on {
-            parts.push(name.into());
-        }
-    }
-    if search.age > 0.0 {
-        parts.push("by age".into());
-    }
-    format!("Searching: {}", parts.join(", "))
+/// Automation ids (`control-protocol.md` §7).
+pub const BANNER_ID: &str = "banner:search";
+pub const SHOW_ALL_ID: &str = "button:search.showAll";
+
+/// What the banner says until the first answer of a search arrives.
+pub const SEARCHING: &str = "Searching…";
+
+/// `n` and the word for one or many: `1 picture`, `33 pictures`.
+fn count(n: usize, one: &str, many: &str) -> String {
+    format!("{n} {}", if n == 1 { one } else { many })
 }
 
-/// Paints the banner into `ui`'s rect.
+/// The banner's line for a search's numbers: "Showing 33 pictures in 4 folders (0.01 s) ·
+/// 439.8 MB".
+pub fn line(matches: usize, folders: usize, seconds: f64, bytes: u64) -> String {
+    let seconds = if seconds.is_finite() { seconds.max(0.0) } else { 0.0 };
+    format!(
+        "Showing {} in {} ({seconds:.2} s) · {}",
+        count(matches, "picture", "pictures"),
+        count(folders, "folder", "folders"),
+        status_text::size(bytes)
+    )
+}
+
+/// What the banner says for `session`'s search: the numbers of its last answer, [`SEARCHING`]
+/// before the first one, or Find Duplicates' groups and files.
+pub fn text(session: &Session) -> String {
+    let s = session.search_state();
+    match (s.mode, s.result.as_ref()) {
+        (Some(SearchMode::Duplicates), Some(r)) => dalica_engine::duplicates::banner(r.groups.len(), r.count()),
+        (Some(SearchMode::Search), Some(r)) => line(r.count(), r.folders, r.seconds, r.bytes),
+        _ => SEARCHING.to_string(),
+    }
+}
+
+/// Paints the banner into `ui`'s rect; Show All leaves search mode.
 pub fn show(app: &mut App, ui: &mut Ui) {
     let t = *app.tokens();
-    let rect = ui.max_rect();
-    ui.painter().rect_filled(rect, 0, t.filter_banner);
-    let line = text(&app.state().search);
-    ui.painter().text(pos2(rect.min.x + 12.0, rect.center().y), Align2::LEFT_CENTER, line, fonts::regular(t.body), t.text);
+    let line = app.session().map_or_else(|| SEARCHING.to_string(), text);
+    let out = widgets::filter_banner(ui, &t, BANNER_ID, SHOW_ALL_ID, &line);
+    if out.show_all.clicked() {
+        crate::commands::search::clear(app);
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::Filters;
 
     #[test]
-    fn the_stub_says_what_is_searched_for() {
-        let s = SearchState {
-            text: " lisbon ".into(),
-            filters: Filters { starred: true, videos: true, ..Filters::default() },
-            age: 0.3,
-            ..SearchState::default()
-        };
-        assert_eq!(text(&s), "Searching: \"lisbon\", starred, videos, by age");
-        assert_eq!(text(&SearchState::default()), "Searching: ");
+    fn the_line_counts_in_words() {
+        assert_eq!(line(33, 4, 0.0123, 439_800_000), "Showing 33 pictures in 4 folders (0.01 s) · 439.8 MB");
+        assert_eq!(line(1, 1, 0.5, 900), "Showing 1 picture in 1 folder (0.50 s) · 900 bytes");
+        assert_eq!(line(0, 0, f64::NAN, 0), "Showing 0 pictures in 0 folders (0.00 s) · 0 bytes");
     }
 }
