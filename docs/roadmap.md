@@ -4224,7 +4224,7 @@ mid-run.
     Remove from Album asks, removes and leaves the files; Set as Album Cover changes the tree's
     cover; Show in Folder selects the photo in its folder; `crates/ui/tests/tray.rs`: the album
     token and Add to Album ▾ live; tray and menu fingerprints at both sizes.
-- ⬜ **M9.19 `ui`: the move and copy questions, Move to New Folder, Split Folder Here and file notices**
+- ✅ **M9.19 `ui`: the move and copy questions, Move to New Folder, Split Folder Here and file notices**
   - after: M9.4, M9.5, M9.13
   - files: `crates/ui/src/dialogs/move_confirm.rs`, `crates/ui/src/dialogs/copy_confirm.rs`, `crates/ui/src/dialogs/collision.rs`, `crates/ui/src/dialogs/new_folder.rs`, `crates/ui/src/commands/files.rs`, `crates/ui/src/notices.rs`, `crates/ui/tests/move_dialogs.rs`, `crates/ui/tests/new_folder.rs`, `crates/ui/tests/notices.rs`, `crates/ui/tests/fingerprints/dialog-move-*.json`, `crates/ui/tests/fingerprints/dialog-copy-*.json`, `crates/ui/tests/fingerprints/dialog-collision-*.json`, `crates/ui/tests/fingerprints/dialog-new-folder-*.json`
   - scope: `organizing.md` §9: the first-time move question with "Don't ask again", the copy

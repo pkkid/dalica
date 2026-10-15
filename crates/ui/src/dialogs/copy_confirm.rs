@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 
 use super::{Button, Dialog, DialogKind, Look, confirm};
 use crate::app::App;
-use crate::state::CopyQuestion;
+use crate::state::{CopyQuestion, FileOp};
 
 /// The dialog's title and its default button.
 pub const TITLE: &str = "Copy Files";
@@ -50,10 +50,10 @@ pub fn body(app: &mut App, ui: &mut Ui, _d: &mut Dialog) {
     ui.add(Label::new(RichText::new(text).font(fonts::regular(t.body)).color(t.text)).wrap());
 }
 
-/// Copy: runs `photo.copyTo {ids, folder}`.
+/// Copy: runs `photo.copyTo {ids, folder}`, the collision question first when names clash.
 pub fn act(app: &mut App, _d: &Dialog, _action: &str) -> Result<Value, CmdError> {
     let q = app.state().copy_files.clone().ok_or_else(|| CmdError::Internal("the copy question has no draft".into()))?;
-    app.run("photo.copyTo", &json!({ "ids": q.ids, "folder": q.folder }))
+    super::collision::run_or_ask(app, FileOp::Copy, json!({ "ids": q.ids, "folder": q.folder }))
 }
 
 #[cfg(test)]
