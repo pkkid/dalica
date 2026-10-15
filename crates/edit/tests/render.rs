@@ -15,6 +15,27 @@ use dalica_scenes::{Kind, Scene};
 use proptest::prelude::*;
 
 #[test]
+fn rotations_and_flips_render_exactly_as_before() {
+    // Recipes of up to two operations reach every transform; longer ones only compose them, which
+    // `geometry.rs` proves pixel-exact with the full set.
+    let up = scene(29, 48, 32);
+    let all = recipes(2);
+    assert_eq!(all.len(), 31);
+    for o in 1..=8u8 {
+        let file = stored(&up, o);
+        let source = Source::new(&file, exif(o));
+        for ops in &all {
+            let r = recipe(ops);
+            // M6.3: the EXIF orientation and the recipe's turns, as one pixel-exact transform.
+            let before = r.display(exif(o)).apply(file.clone()).unwrap();
+            assert_eq!(render(source, &r, Target::Full).unwrap(), before, "EXIF {o} + {ops:?}");
+            // A box at least as large as the picture does not enlarge it.
+            assert_eq!(render(source, &r, Target::Fit { width: 4000, height: 4000 }).unwrap(), before, "EXIF {o} + {ops:?}");
+        }
+    }
+}
+
+#[test]
 fn operations_dalica_cannot_render_are_skipped_and_print_back_unchanged() {
     let img = scene(3, 40, 30);
     let source = Source::upright(&img);
