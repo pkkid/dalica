@@ -2,7 +2,8 @@
 //! `data-model.md` §7) on temporary folders: turning PNG off starts one scan and the PNGs leave the
 //! library; 31 days later on a virtual clock, after a sidecar write in their folder, their entries
 //! are still on disk and not marked missing (their files are there); turning PNG back on brings
-//! them back with their stars, captions and recipes.
+//! them back with their stars, captions and recipes. The small-picture threshold hides and shows
+//! a 40 px photo in what the library lists.
 
 use std::collections::BTreeMap;
 use std::time::Duration;
@@ -12,7 +13,7 @@ use dalica_engine::{JobKind, Session};
 use dalica_fs::Expect;
 use serde_json::json;
 
-use crate::common::{jpeg, open_with, read_json, virtual_clock};
+use crate::common::{jpeg, jpeg_of, lisbon, open_with, read_json, virtual_clock};
 
 fn by_name(s: &Session) -> BTreeMap<String, PhotoId> {
     s.library().photos().map(|p| (p.name.clone(), p.id)).collect()
@@ -71,4 +72,21 @@ fn a_type_turned_off_leaves_the_library_keeps_its_sidecar_entries_and_comes_back
     assert!(lib.photo(ids["b.png"]).unwrap().star);
     assert_eq!(lib.caption(ids["c.png"]), "Fishing boats");
     assert_eq!(lib.info(ids["b.png"]).edits, ["sepia()"]);
+}
+
+#[test]
+fn the_small_picture_threshold_hides_and_shows_a_40_px_photo() {
+    let (_lib, _disk, _folder, mut s, ids) = lisbon(&[jpeg(1), jpeg_of(2, 40, 40)], None);
+    let section = format!("folder:{}", s.library().photo(ids[0]).unwrap().folder);
+    let listed = |s: &mut Session, px: u32| -> Vec<String> {
+        let v = s.execute("options.set", &json!({ "values": { "fileTypes.smallPictureThreshold": px } })).unwrap();
+        s.wait_idle();
+        assert_eq!(v["rescan"], json!(v["changed"] != json!([])));
+        let q = s.execute("library.query", &json!({ "section": section })).unwrap();
+        q["photos"].as_array().unwrap().iter().map(|p| p["name"].as_str().unwrap().to_string()).collect()
+    };
+    assert_eq!(listed(&mut s, 64), ["IMG_0001.jpg"], "smaller than 64 on both sides: hidden");
+    assert_eq!(listed(&mut s, 32), ["IMG_0001.jpg", "IMG_0002.jpg"], "not smaller than 32: shown");
+    assert_eq!(listed(&mut s, 41), ["IMG_0001.jpg"]);
+    assert_eq!(s.library().photos().count(), 2, "a small picture stays in the library");
 }

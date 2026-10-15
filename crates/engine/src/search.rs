@@ -429,7 +429,8 @@ impl Session {
     }
 
     /// The tree options the search orders its results by: the stored view options (tree or flat
-    /// mode, the folder sort and its direction, Small and Hidden Pictures), the projects folder
+    /// mode, the folder sort and its direction, Small and Hidden Pictures), Options → File Types'
+    /// small-picture threshold, the projects folder
     /// (unless it is watched itself), the session clock for Recently Updated; every group
     /// expanded.
     pub fn search_tree_options(&self) -> TreeOptions {
@@ -445,6 +446,7 @@ impl Session {
             },
             reverse: v.folder_sort_reverse,
             small_pictures: v.small_pictures,
+            small_threshold: self.settings().small_picture_threshold(),
             hidden_pictures: v.hidden_pictures,
             projects_dir,
             now: Some(self.clock.now()),
