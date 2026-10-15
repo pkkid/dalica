@@ -260,7 +260,7 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), String> {
     };
     let test_acceptance = test_all || picked.contains(ACCEPTANCE);
     let crate_tests: Option<Vec<String>> = if test_all {
-        let mut args: Vec<String> = ["test", "--workspace", "--exclude", ACCEPTANCE].iter().map(|s| s.to_string()).collect();
+        let mut args: Vec<String> = ["test", "--no-fail-fast", "--workspace", "--exclude", ACCEPTANCE].iter().map(|s| s.to_string()).collect();
         if platform {
             for p in PURE {
                 args.extend(["--exclude".to_string(), (*p).to_string()]);
@@ -270,7 +270,7 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), String> {
     } else {
         let packages: Vec<&String> = picked.iter().filter(|p| p.as_str() != ACCEPTANCE).collect();
         (!packages.is_empty()).then(|| {
-            let mut args = vec!["test".to_string()];
+            let mut args = vec!["test".to_string(), "--no-fail-fast".to_string()];
             for p in packages {
                 args.extend(["-p".to_string(), p.clone()]);
             }
@@ -302,7 +302,13 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), String> {
         // The optional HEIF decoder (`docs/formats.md` §3) is off by default: its own tests, once.
         steps.push((
             "test heif".into(),
-            Box::new(|| cargo_env(root, &["test", "-p", "dalica-image", "--features", "heif", "--test", "heif", "-j", &n, "--", &threads], strength)),
+            Box::new(|| {
+                cargo_env(
+                    root,
+                    &["test", "--no-fail-fast", "-p", "dalica-image", "--features", "heif", "--test", "heif", "-j", &n, "--", &threads],
+                    strength,
+                )
+            }),
         ));
     }
     if test_acceptance {
@@ -317,7 +323,7 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), String> {
                 let manifest = std::fs::read_to_string(&manifest).map_err(|e| format!("{}: {e}", manifest.display()))?;
                 let rest = acceptance_rest(&manifest, accepted);
                 println!("ci: {ACCEPTANCE}: the library and {} (each finished milestone's test runs in the review gate)", rest.join(", "));
-                let mut args = vec!["test", "-p", ACCEPTANCE, "-j", n, "--lib"];
+                let mut args = vec!["test", "--no-fail-fast", "-p", ACCEPTANCE, "-j", n, "--lib"];
                 for test in &rest {
                     args.extend(["--test", test.as_str()]);
                 }

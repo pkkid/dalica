@@ -597,11 +597,14 @@ mod tests {
 
     /// A connection that does not authenticate in time is answered `unauthorized` and closed, the
     /// clock running from the accept: a client that sends nothing, an unterminated `auth` line, or
-    /// only blank lines (which do not restart the clock). Here the window is 0.6 s; the app's is
+    /// only blank lines (which do not restart the clock). Here the window is 1.5 s; the app's is
     /// [`AUTH_WITHIN`], checked end to end in `tests/control_security.rs` at the review gate.
     #[test]
     fn a_connection_that_does_not_authenticate_in_time_is_closed() {
-        let within = Duration::from_millis(600);
+        // Every client's writes end well inside the window: writing to a socket the server has
+        // already closed resets it on Windows (the reply is lost) and makes macOS report an error
+        // instead of the end of the stream.
+        let within = Duration::from_millis(1500);
         let (port, token) = server_with(within, |m| {
             if let Msg::Request(p) = m {
                 p.reply(Ok(json!({})));
@@ -618,7 +621,7 @@ mod tests {
                     let opened = Instant::now();
                     for (i, w) in writes.iter().enumerate() {
                         if i > 0 {
-                            std::thread::sleep(Duration::from_millis(100));
+                            std::thread::sleep(Duration::from_millis(50));
                         }
                         // The server may close first (the blank lines outlast the window).
                         let _ = s.write_all(w);
