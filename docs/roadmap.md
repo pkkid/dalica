@@ -4111,7 +4111,7 @@ mid-run.
     `development.md` §8 and the release-budgets job (`BUDGETS`, M5.24).
   - done when: `cargo xtask bench search` prints the numbers (in the PR) and `cargo xtask budgets`
     passes with them.
-- ⬜ **M9.13 `engine`: move and copy photos, and Move to New Folder**
+- ✅ **M9.13 `engine`: move and copy photos, and Move to New Folder**
   - after: M9.9, M8.13
   - files: `crates/engine/src/cmd/files.rs`, `crates/engine/tests/move_copy.rs`, `crates/engine/tests/new_folder.rs`
   - scope: `organizing.md` §9 and `data-model.md` §8: `photo.moveTo {ids, folder, collisions?,

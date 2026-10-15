@@ -12,7 +12,9 @@
 //!   journal with every item `pending` ([`Journal`]); each item is marked `done` once its work
 //!   finished, and the operation leaves the journal when its results are in the library (and the
 //!   index journal holds them). Every journal call goes through the session's I/O worker, the first
-//!   one waited for by the file job's thread, so nothing moves before the entry is written. The
+//!   one waited for by the file job's thread, so nothing moves before the entry is written; an item
+//!   that goes elsewhere than its target (the name a clash gave) is retargeted from its driver's
+//!   `run` ([`retarget`]) before its file moves there. The
 //!   session's journal is `file-ops.json` in the library directory ([`StoreJournal`], `dalica-store`'s
 //!   `intents`), opened with the library: its problems become notices, the operation ids continue
 //!   past those an earlier session left ([`Session::file_ops_left`], which M9.21 repairs), and a
@@ -222,6 +224,12 @@ pub trait Journal: Send + Sync + 'static {
     fn item(&self, op: OpId, index: usize, state: ItemState) -> Result<(), String>;
     /// Operation `op` is over and its results are in the library: it leaves the journal.
     fn end(&self, op: OpId) -> Result<(), String>;
+    /// Item `index` of operation `op` goes to `to` instead of its target (the name a clash gave);
+    /// on disk when this returns. Drivers reach it through [`retarget`]. Nothing by default.
+    fn retarget(&self, op: OpId, index: usize, to: &Path) -> Result<(), String> {
+        let _ = (op, index, to);
+        Ok(())
+    }
 }
 
 /// The stub journal: the entries in memory (until M9.9 writes `file-ops.json`).
@@ -314,6 +322,10 @@ impl Journal for StoreJournal {
 
     fn end(&self, op: OpId) -> Result<(), String> {
         self.with(|j| j.end(op))
+    }
+
+    fn retarget(&self, op: OpId, index: usize, to: &Path) -> Result<(), String> {
+        self.with(|j| j.retarget(op, index, to.to_path_buf()))
     }
 }
 
@@ -481,6 +493,25 @@ impl Writer {
         })))
         .map_err(|_| stopped())?;
         rx.recv().unwrap_or_else(|_| Err("the file-operation journal could not be written".into()))
+    }
+}
+
+thread_local! {
+    /// The item a file job's thread is running, for [`retarget`].
+    static RUNNING: std::cell::RefCell<Option<(Writer, OpId, usize)>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Called from [`Driver::run`]: the running item goes to `to` instead of its target (the name a
+/// clash gave). The journal holds it when this returns, so call it before the file moves there;
+/// an `Err` means it could not be written and the file must not move. Outside a run, nothing.
+pub fn retarget(to: &Path) -> Result<(), String> {
+    let running = RUNNING.with(|r| r.borrow().clone());
+    match running {
+        Some((writer, op, index)) => {
+            let to = to.to_path_buf();
+            writer.call(move |j| j.retarget(op, index, &to))
+        }
+        None => Ok(()),
     }
 }
 
@@ -692,7 +723,10 @@ fn launch<D: Driver>(s: &mut Session, steps: Steps<D>, dir: Direction, step: Opt
         }
         let Slot { index, item, .. } = slot;
         let item = item?;
-        let ran = work_driver.run(&item)?;
+        RUNNING.with(|r| *r.borrow_mut() = Some((writer.clone(), op, index)));
+        let ran = work_driver.run(&item);
+        RUNNING.with(|r| *r.borrow_mut() = None);
+        let ran = ran?;
         let carry = match &ran {
             Ran::Done(done) => work_driver.carry(&item, done),
             Ran::Skipped(_) => None,
@@ -852,5 +886,23 @@ mod tests {
         assert_eq!(j.entries()[0].items[0].state, ItemState::Done);
         j.end(7).unwrap();
         assert!(j.entries().is_empty());
+    }
+
+    #[test]
+    fn retargeting_writes_the_new_target_to_the_store_journal() {
+        let dir = tempfile::tempdir().unwrap();
+        let opened = Intents::open(dir.path(), dalica_core::Timestamp::from_millis(0)).unwrap();
+        let j = StoreJournal::new(opened.intents);
+        let (from, to, renamed) = (dir.path().join("a").join("x.jpg"), dir.path().join("b").join("x.jpg"), dir.path().join("b").join("x-001.jpg"));
+        let item = JournalItem { from, to: Some(to), state: ItemState::Pending };
+        j.begin(&JournalEntry { id: 3, kind: FileOpKind::Move, direction: Direction::Do, items: vec![item] }).unwrap();
+        j.retarget(3, 0, &renamed).unwrap();
+        let on_disk: serde_json::Value = serde_json::from_slice(&std::fs::read(dir.path().join("file-ops.json")).unwrap()).unwrap();
+        assert_eq!(on_disk["ops"][0]["items"][0]["to"], serde_json::json!(renamed));
+        assert!(j.retarget(4, 0, &renamed).is_err(), "an unknown operation");
+        assert!(j.retarget(3, 0, Path::new("relative.jpg")).is_err(), "a relative path");
+        // The memory journal and a call outside a file job's item record nothing.
+        assert_eq!(MemoryJournal::default().retarget(3, 0, &renamed), Ok(()));
+        assert_eq!(retarget(&renamed), Ok(()));
     }
 }
