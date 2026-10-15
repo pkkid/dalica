@@ -35,7 +35,7 @@ impl Key {
     /// (`Cmd` and `Ctrl` are the same; `Option` is `Alt`); the key name in any case.
     pub fn parse(text: &str) -> Result<Key, String> {
         let bad = || format!("`{text}` is not a key");
-        if text.len() > 64 {
+        if text.len() > MAX_KEY_TEXT {
             return Err(bad());
         }
         let mut parts: Vec<&str> = text.split('+').collect();
@@ -45,22 +45,114 @@ impl Key {
             parts.push("Plus");
         }
         let (code, mods) = parts.split_last().ok_or_else(bad)?;
+        Key::from_parts(mods, code).ok_or_else(bad)
+    }
+
+    /// [`Key::parse`], and also the spellings people type or read on screen: `-` or spaces
+    /// between the parts (`ctrl-1`, `Ctrl 1`) and the macOS symbols [`Key::pretty`] writes
+    /// (`⇧⌘S`, `⌥↩`). The search of `keymap.list` and `app.setShortcut` take keys this way.
+    pub fn parse_lenient(text: &str) -> Result<Key, String> {
+        let bad = || format!("`{text}` is not a key");
+        let text = text.trim();
+        if let Ok(key) = Key::parse(text) {
+            return Ok(key);
+        }
+        if text.len() > MAX_KEY_TEXT || text.is_empty() {
+            return Err(bad());
+        }
+        // macOS symbols: the modifiers first, then the key (a name or its symbol).
+        let rest = text.trim_start_matches(['⌃', '⌥', '⇧', '⌘']);
+        let symbols = text.strip_suffix(rest).unwrap_or_default();
+        if !symbols.is_empty() {
+            let mods: Vec<&str> = symbols
+                .chars()
+                .map(|c| match c {
+                    '⌥' => "Alt",
+                    '⇧' => "Shift",
+                    _ => "Ctrl",
+                })
+                .collect();
+            let code = rest.trim();
+            return Key::from_parts(&mods, from_symbol(code).unwrap_or(code)).ok_or_else(bad);
+        }
+        if let Some(code) = from_symbol(text) {
+            return Key::from_parts(&[], code).ok_or_else(bad);
+        }
+        // `-` or spaces between the parts; a separator as the last character after another is
+        // the key itself (`ctrl -`, `ctrl--`).
+        let is_sep = |c: char| c == '-' || c == '+' || c.is_whitespace();
+        let (body, code) = match text.strip_suffix(['-', '+']).filter(|body| body.ends_with(is_sep)) {
+            Some(body) => (body, if text.ends_with('+') { "Plus" } else { "-" }),
+            None => match text.rsplit_once(is_sep) {
+                Some((body, code)) => (body, code),
+                None => ("", text),
+            },
+        };
+        let mods: Vec<&str> = body.split(is_sep).filter(|m| !m.is_empty()).collect();
+        Key::from_parts(&mods, code).ok_or_else(bad)
+    }
+
+    /// The key from its modifier names and its key name; `None` when one is not a key's.
+    fn from_parts(mods: &[&str], code: &str) -> Option<Key> {
         let mut key = Key { ctrl: false, alt: false, shift: false, code: String::new() };
         for m in mods {
             let flag = match m.trim().to_ascii_lowercase().as_str() {
                 "ctrl" | "cmd" | "control" | "command" => &mut key.ctrl,
                 "alt" | "option" | "opt" => &mut key.alt,
                 "shift" => &mut key.shift,
-                _ => return Err(bad()),
+                _ => return None,
             };
             if *flag {
-                return Err(bad());
+                return None;
             }
             *flag = true;
         }
-        key.code = canonical_code(code.trim()).ok_or_else(bad)?;
-        Ok(key)
+        key.code = canonical_code(code.trim())?;
+        Some(key)
     }
+
+    /// The key as the screen shows it on `platform`: `Ctrl+Shift+S` on Windows and Linux, `⇧⌘S`
+    /// on macOS (Option ⌥, Shift ⇧, Command ⌘ in Apple's order, and the symbols of the named
+    /// keys: `↩`, `⎋`, `⌫`, arrows …). [`Key::parse_lenient`] reads both back.
+    pub fn pretty(&self, platform: Platform) -> String {
+        if platform != Platform::Mac {
+            return self.to_string();
+        }
+        let mut out = String::new();
+        for (on, symbol) in [(self.alt, '⌥'), (self.shift, '⇧'), (self.ctrl, '⌘')] {
+            if on {
+                out.push(symbol);
+            }
+        }
+        out.push_str(SYMBOLS.iter().find(|(name, _)| *name == self.code).map_or(self.code.as_str(), |(_, symbol)| symbol));
+        out
+    }
+}
+
+/// The longest key text taken (`Ctrl+Alt+Shift+PageDown` is 23 bytes).
+const MAX_KEY_TEXT: usize = 64;
+
+/// The macOS symbols of named keys ([`Key::pretty`]).
+const SYMBOLS: [(&str, &str); 14] = [
+    ("Enter", "↩"),
+    ("Esc", "⎋"),
+    ("Tab", "⇥"),
+    ("Backspace", "⌫"),
+    ("Delete", "⌦"),
+    ("Home", "↖"),
+    ("End", "↘"),
+    ("PageUp", "⇞"),
+    ("PageDown", "⇟"),
+    ("Up", "↑"),
+    ("Down", "↓"),
+    ("Left", "←"),
+    ("Right", "→"),
+    ("Plus", "+"),
+];
+
+/// The key name of a macOS key symbol.
+fn from_symbol(text: &str) -> Option<&'static str> {
+    SYMBOLS.iter().find(|(_, symbol)| *symbol == text).map(|(name, _)| *name)
 }
 
 fn canonical_code(code: &str) -> Option<String> {
@@ -169,6 +261,84 @@ pub struct Override {
     pub command: String,
     pub context: Context,
     pub keys: Vec<Key>,
+}
+
+/// How many keys a command may have in one context (Star: Ctrl+8 and F4).
+pub const KEYS_PER_CONTEXT: usize = 2;
+
+/// Commands run by holding a key rather than pressing it (`menus-and-shortcuts.md` §2.0: the
+/// quick full-screen preview's Ctrl+Alt, Show original's `\`): listed, never rebound. None is a
+/// keymap command yet; their tasks add their ids here.
+pub const HOLD_GESTURES: &[&str] = &[];
+
+/// Whether `command` is a hold gesture ([`HOLD_GESTURES`]).
+pub fn is_hold(command: &str) -> bool {
+    HOLD_GESTURES.contains(&command)
+}
+
+/// Every context, in the order the editor's Context filter lists them.
+pub const CONTEXTS: [Context; 8] = [
+    Context::Global,
+    Context::Library,
+    Context::EditView,
+    Context::Slideshow,
+    Context::PhotoViewer,
+    Context::Import,
+    Context::Collage,
+    Context::TextInput,
+];
+
+/// The name a context goes by on screen (`Edit view`).
+pub fn context_label(context: Context) -> &'static str {
+    match context {
+        Context::Global => "Global",
+        Context::Library => "Library",
+        Context::EditView => "Edit view",
+        Context::Slideshow => "Slideshow",
+        Context::PhotoViewer => "Photo viewer",
+        Context::Import => "Import",
+        Context::Collage => "Collage",
+        Context::TextInput => "Text input",
+    }
+}
+
+/// Why [`Keymap::set`] refused.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SetError {
+    /// The key is another command's in a context active at the same time: that binding.
+    Conflict(Binding),
+    /// No such key slot (they are 0 and 1).
+    Slot(usize),
+}
+
+impl fmt::Display for SetError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SetError::Conflict(b) => write!(f, "{} is already {} in {}.", b.key, b.command, context_label(b.context)),
+            SetError::Slot(n) => write!(f, "slot must be 0 or 1, not {n}"),
+        }
+    }
+}
+
+/// One row of the shortcut editor ([`Keymap::rows`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Row {
+    pub command: String,
+    /// `None` for a command without keys anywhere.
+    pub context: Option<Context>,
+    /// The keys in effect.
+    pub keys: Vec<Key>,
+    /// The default keys.
+    pub defaults: Vec<Key>,
+    /// Hold gestures are listed but not editable.
+    pub editable: bool,
+}
+
+impl Row {
+    /// Whether the keys in effect differ from the defaults (the editor's ↺).
+    pub fn modified(&self) -> bool {
+        self.keys != self.defaults
+    }
 }
 
 /// Whether bindings in contexts `a` and `b` can be active at the same time.
@@ -296,30 +466,111 @@ impl Keymap {
         out
     }
 
-    /// Binds `key` (or, with `None`, no key) to `command` in `context`, replacing its keys there.
-    /// A clash with another command is refused with the editor's message, unless `replace`, which
-    /// removes the key from the other command.
-    pub fn set(&mut self, command: &str, context: Context, key: Option<Key>, replace: bool) -> Result<(), String> {
+    /// The binding of another command that `key` would clash with if `command` had it in
+    /// `context`: the same key in a context that can be active at the same time.
+    pub fn clash(&self, command: &str, context: Context, key: &Key) -> Option<Binding> {
+        self.bindings().into_iter().find(|b| &b.key == key && overlapping(b.context, context) && b.command != command)
+    }
+
+    /// Binds `key` (or, with `None`, no key) to `command` in `context`. Without a `slot` it
+    /// replaces the command's keys there; with one (0 or 1, [`KEYS_PER_CONTEXT`]) it sets or
+    /// removes that key only, the other kept (a key set in a slot past the last one is added
+    /// after it). A clash with another command is refused ([`SetError::Conflict`]), unless
+    /// `replace`, which removes the key from the other command. Keys equal to the defaults are no
+    /// override.
+    pub fn set(&mut self, command: &str, context: Context, slot: Option<usize>, key: Option<Key>, replace: bool) -> Result<(), SetError> {
+        if let Some(slot) = slot.filter(|s| *s >= KEYS_PER_CONTEXT) {
+            return Err(SetError::Slot(slot));
+        }
         if let Some(k) = &key {
-            let clashes: Vec<Binding> =
-                self.bindings().into_iter().filter(|b| &b.key == k && overlapping(b.context, context) && b.command != command).collect();
-            if let Some(c) = clashes.first()
+            if let Some(c) = self.clash(command, context, k)
                 && !replace
             {
-                return Err(format!("{k} is already {} in {:?}.", c.command, c.context));
+                return Err(SetError::Conflict(c));
             }
+            let clashes: Vec<Binding> =
+                self.bindings().into_iter().filter(|b| &b.key == k && overlapping(b.context, context) && b.command != command).collect();
             for c in clashes {
                 let keys = self.keys_for(&c.command, c.context).into_iter().filter(|x| x != k).collect();
                 self.put(Override { command: c.command, context: c.context, keys });
             }
         }
-        self.put(Override { command: command.to_string(), context, keys: key.into_iter().collect() });
+        let keys = match slot {
+            None => key.into_iter().collect(),
+            Some(slot) => {
+                let mut keys = self.keys_for(command, context);
+                match key {
+                    Some(k) => {
+                        // A key the command already has in the other slot moves to this one.
+                        if let Some(at) = keys.iter().position(|x| *x == k) {
+                            keys.remove(at);
+                        }
+                        match keys.get_mut(slot) {
+                            Some(old) => *old = k,
+                            None => keys.push(k),
+                        }
+                    }
+                    None if slot < keys.len() => {
+                        keys.remove(slot);
+                    }
+                    None => {}
+                }
+                keys
+            }
+        };
+        self.put(Override { command: command.to_string(), context, keys });
         Ok(())
     }
 
+    /// Stores `o`, or drops the override when its keys are the defaults.
     fn put(&mut self, o: Override) {
         self.overrides.retain(|x| !(x.command == o.command && x.context == o.context));
-        self.overrides.push(o);
+        if o.keys != self.default_keys_for(&o.command, o.context) {
+            self.overrides.push(o);
+        }
+    }
+
+    /// The default keys of `command` in `context` on this keymap's platform.
+    pub fn default_keys_for(&self, command: &str, context: Context) -> Vec<Key> {
+        self.defaults.iter().filter(|b| b.command == command && b.context == context).map(|b| b.key.clone()).collect()
+    }
+
+    /// Every command that may be bound, in the order they joined.
+    pub fn commands(&self) -> &[String] {
+        &self.commands
+    }
+
+    /// The shortcut editor's rows (`keymap.list`): one per command and context it has keys in
+    /// (by default or by the user, also when the user removed them all), contexts in their
+    /// order; with `without_keys`, one row with no context for each command that has none.
+    pub fn rows(&self, without_keys: bool) -> Vec<Row> {
+        let bindings = self.bindings();
+        let mut out = Vec::new();
+        for command in &self.commands {
+            let mut contexts: Vec<Context> = self
+                .defaults
+                .iter()
+                .filter(|b| &b.command == command)
+                .map(|b| b.context)
+                .chain(self.overrides.iter().filter(|o| &o.command == command).map(|o| o.context))
+                .collect();
+            contexts.sort();
+            contexts.dedup();
+            if contexts.is_empty() && without_keys {
+                out.push(Row { command: command.clone(), context: None, keys: Vec::new(), defaults: Vec::new(), editable: !is_hold(command) });
+            }
+            for context in contexts {
+                let keys = bindings.iter().filter(|b| &b.command == command && b.context == context).map(|b| b.key.clone()).collect();
+                out.push(Row {
+                    command: command.clone(),
+                    context: Some(context),
+                    keys,
+                    defaults: self.default_keys_for(command, context),
+                    editable: !is_hold(command),
+                });
+            }
+        }
+        out
     }
 
     /// Drops the user's overrides for `command` (all contexts), or all of them.
