@@ -6,9 +6,16 @@
 //! - Evidence: every `cmd:<id>` is a registered command (from `dalica-cli commands`), every
 //!   backticked path exists (bare `*.md` names are looked up in `docs/`).
 //! - The summary between the `parity:summary` markers matches the rows; `--write` refreshes it.
+//! - With the registry (`cargo xtask parity`, the review gate): section I's `KEY-*` rows between the
+//!   `parity:keys` markers match the keymap ([`keys`]); `--write` regenerates them, and a documented
+//!   key whose registered command no context binds fails.
+//! - `--p0` lists the P0 rows that are not ✅ and fails while one remains ([`p0`]).
 //!
 //! `tasks merge` also uses this module to resolve rebase conflicts in the file: the summary is
 //! regenerated, and edits to different rows by the two sides are merged row by row.
+
+mod keys;
+mod p0;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -417,9 +424,9 @@ pub fn merge_rows(base: &str, ours: &str, theirs: &str) -> Result<String, String
     Ok(text)
 }
 
-/// Ids of registered commands, from `dalica-cli commands` (a JSON array of objects with `id`, or of
-/// strings). An empty registry before the CLI prints anything.
-pub fn registered_commands(root: &Path) -> Result<BTreeSet<String>, String> {
+/// The registry as `dalica-cli commands` prints it: one JSON object per command (`id`, `keys`, …).
+/// Empty before the CLI prints anything.
+pub fn registry_list(root: &Path) -> Result<Vec<serde_json::Value>, String> {
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
     let out = Command::new(cargo)
         .current_dir(root)
@@ -431,25 +438,85 @@ pub fn registered_commands(root: &Path) -> Result<BTreeSet<String>, String> {
     }
     let text = String::from_utf8_lossy(&out.stdout);
     if text.trim().is_empty() {
-        return Ok(BTreeSet::new());
+        return Ok(Vec::new());
     }
     let v: serde_json::Value = serde_json::from_str(&text).map_err(|e| format!("dalica-cli commands printed invalid JSON: {e}"))?;
-    Ok(v.as_array().into_iter().flatten().filter_map(|c| c.as_str().or_else(|| c.get("id").and_then(|i| i.as_str())).map(str::to_string)).collect())
+    Ok(v.as_array().cloned().unwrap_or_default())
 }
 
-/// Checks `docs/parity.md` (with `write`, refreshes its summary). With `registry`, every cited
-/// `cmd:` id is checked against the registered commands, which builds and runs `dalica-cli` (the
-/// review gate); without it, the rows and their cited paths only (a task's gate).
+/// Ids of the commands in a registry listing (objects with `id`, or strings).
+pub fn command_ids(list: &[serde_json::Value]) -> BTreeSet<String> {
+    list.iter().filter_map(|c| c.as_str().or_else(|| c.get("id").and_then(|i| i.as_str())).map(str::to_string)).collect()
+}
+
+/// `text` with section I's `KEY-*` rows regenerated from the registry `list`, and the problems the
+/// rows show (a documented key whose registered command no context binds). `menus` and `editing`
+/// are `menus-and-shortcuts.md` and `editing.md`.
+pub fn with_key_rows(
+    text: &str,
+    list: &[serde_json::Value],
+    menus: &str,
+    editing: &str,
+    roadmap: Option<&crate::tasks::roadmap::Roadmap>,
+) -> Result<(String, Vec<String>), String> {
+    let documented = keys::documented(menus, editing);
+    let bindings = keys::bindings(list);
+    let registered = command_ids(list);
+    let menu_keys = keys::menu_keys(menus);
+    let p0_cited = keys::p0_cited(&parse_rows(text));
+    let rows = keys::rows(&keys::Inputs {
+        documented: &documented,
+        bindings: &bindings,
+        registered: &registered,
+        menu_keys: &menu_keys,
+        p0_cited: &p0_cited,
+        roadmap,
+    });
+    let problems = rows.iter().filter_map(|r| r.problem.as_ref()).map(|p| format!("docs/parity.md: {p}")).collect();
+    let text = keys::with_block(text, &keys::block(&rows)).ok_or("docs/parity.md: the parity:keys markers are missing")?;
+    Ok((text, problems))
+}
+
+/// `cargo xtask parity [--write] [--p0]`.
+pub fn main(root: &Path, args: &[String]) -> Result<(), String> {
+    if let Some(a) = args.iter().find(|a| !["--write", "--p0"].contains(&a.as_str())) {
+        return Err(format!("parity: unknown argument `{a}` (usage: cargo xtask parity [--write] [--p0])"));
+    }
+    let has = |f: &str| args.iter().any(|a| a == f);
+    match (has("--p0"), has("--write")) {
+        (true, true) => Err("parity: --p0 reads the rows as they are; run --write first".into()),
+        (true, false) => p0::run(root),
+        (false, write) => run(root, write, true),
+    }
+}
+
+/// Checks `docs/parity.md` (with `write`, refreshes its generated parts). With `registry`, every
+/// cited `cmd:` id is checked against the registered commands and the `KEY-*` rows against the
+/// keymap, which builds and runs `dalica-cli` (the review gate); without it, the rows and their
+/// cited paths only (a task's gate).
 pub fn run(root: &Path, write: bool, registry: bool) -> Result<(), String> {
     let path = root.join("docs").join("parity.md");
     let text = std::fs::read_to_string(&path).map_err(|e| format!("cannot read docs/parity.md: {e}"))?;
-    let commands = if registry { registered_commands(root)? } else { parse_rows(&text).iter().flat_map(|r| cited_commands(&r.evidence)).collect() };
-    let mut problems = check(root, &text, &commands);
-    let refreshed = with_summary(&text).ok_or("docs/parity.md: the parity:summary markers are missing")?;
+    let mut problems = Vec::new();
+    let (commands, generated) = if registry {
+        let list = registry_list(root)?;
+        let read = |p: &str| std::fs::read_to_string(root.join(p)).map_err(|e| format!("cannot read {p}: {e}"));
+        let roadmap = crate::tasks::load_roadmap(root).ok();
+        let (generated, key_problems) =
+            with_key_rows(&text, &list, &read("docs/menus-and-shortcuts.md")?, &read("docs/editing.md")?, roadmap.as_ref())?;
+        problems.extend(key_problems);
+        (command_ids(&list), generated)
+    } else {
+        (parse_rows(&text).iter().flat_map(|r| cited_commands(&r.evidence)).collect(), text.clone())
+    };
+    problems.extend(check(root, &generated, &commands));
+    let refreshed = with_summary(&generated).ok_or("docs/parity.md: the parity:summary markers are missing")?;
     if refreshed != text {
         if write {
             std::fs::write(&path, &refreshed).map_err(|e| format!("cannot write docs/parity.md: {e}"))?;
-            println!("parity: summary refreshed");
+            println!("parity: {} refreshed", if generated != text { "KEY rows and summary" } else { "summary" });
+        } else if generated != text {
+            problems.push("docs/parity.md: the KEY rows are stale; run `cargo xtask parity --write` and commit them".into());
         } else {
             problems.push("docs/parity.md: the summary is stale; run `cargo xtask parity --write` and commit it".into());
         }
@@ -461,7 +528,7 @@ pub fn run(root: &Path, write: bool, registry: bool) -> Result<(), String> {
         if registry {
             println!("parity: ok ({} rows, {} registered commands)", parse_rows(&refreshed).len(), commands.len());
         } else {
-            println!("parity: ok ({} rows; cited commands are checked in the review gate)", parse_rows(&refreshed).len());
+            println!("parity: ok ({} rows; cited commands and KEY rows are checked in the review gate)", parse_rows(&refreshed).len());
         }
         Ok(())
     } else {

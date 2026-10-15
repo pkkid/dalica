@@ -4670,7 +4670,7 @@ No other step of M10 needs a maintainer decision mid-run.
     stops a 50-photo job before its next photo with the finished ones kept, `ping` is answered
     during a job; `apps/dalica-cli/tests/mcp_cli.rs`: `dalica-cli mcp --demo` answers
     `initialize` on real stdio and logs only to standard error.
-- ⬜ **M10.21 `xtask`: the P0 parity gate, `KEY-*` rows from the keymap, and workflow statistics**
+- ✅ **M10.21 `xtask`: the P0 parity gate, `KEY-*` rows from the keymap, and workflow statistics**
   - after: M9.R
   - files: `xtask/src/parity.rs`, `xtask/src/parity/**`, `xtask/src/stats.rs`, `xtask/src/ci.rs`, `docs/parity.md`, `docs/process.md`
   - scope: `parity.md` and `process.md` §5: `cargo xtask parity --p0` lists every P0 row that is

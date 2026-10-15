@@ -17,6 +17,7 @@ mod layers;
 mod metadata;
 mod names;
 mod parity;
+mod stats;
 mod tasks;
 mod test_layout;
 mod version;
@@ -42,7 +43,8 @@ commands:
   deps      audit dependencies: licences, banned and *-sys crates, C builds, sources (docs/security.md §8)
   layers    check crate dependencies against the layer table (docs/architecture.md §2)
   names     the reference product's name appears in no file but AGENTS.md
-  parity    docs/parity.md is well formed and its evidence exists; --write refreshes the summary
+  parity    docs/parity.md is well formed and its evidence exists; --write regenerates the KEY rows and the summary; --p0: the P0 rows not ✅
+  stats     cargo xtask stats [--check]: the workflow tests' pass rate (passing / total, the ignored ones and why); --check holds the floor
   test-layout  one test binary per crate, no per-milestone test files, no literal proptest counts over 32, no small-size baselines
   tasks     the task board (docs/task-board.md); `cargo xtask tasks` for its commands
   version   cargo xtask version [set X.Y.Z[-pre]]: print or set [workspace.package] version (Cargo.toml and Cargo.lock)";
@@ -63,6 +65,7 @@ pub const COMMANDS: &[&str] = &[
     "layers",
     "names",
     "parity",
+    "stats",
     "tasks",
     "test-layout",
     "version",
@@ -73,7 +76,6 @@ pub const PLANNED: &[(&str, &str)] = &[
     ("perf", "with the performance budgets (docs/development.md §13), from M4"),
     ("scorecard", "after M1 (docs/development.md §13)"),
     ("snapshot", "with the headless snapshot scripts (M2)"),
-    ("stats", "not scheduled yet"),
 ];
 
 /// The workspace root: the parent of this crate's manifest directory, as cargo reports it when it
@@ -102,7 +104,8 @@ fn main() -> ExitCode {
         Some("contributors") => contributors::run(&root, args.get(1..).unwrap_or(&[])),
         Some("corpus") => corpus::run(&root, args.get(1..).unwrap_or(&[])),
         Some("test-corpus") => corpus::test(&root, args.get(1..).unwrap_or(&[])),
-        Some("parity") => parity::run(&root, args.iter().any(|a| a == "--write"), true),
+        Some("parity") => parity::main(&root, args.get(1..).unwrap_or(&[])),
+        Some("stats") => stats::run(&root, args.get(1..).unwrap_or(&[])),
         Some("deps") => deps::run(&root),
         Some("docs") => docs::run(&root),
         Some("names") => names::run(&root),

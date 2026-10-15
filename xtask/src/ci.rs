@@ -13,9 +13,13 @@
 //!   share files.
 //! - **`cargo xtask ci --full`** (the review gate, `M<n>.R`): every test of every package at full
 //!   strength (`DALICA_FULL_TESTS=1`), the heif decoder's tests, the parity check against the
-//!   registered commands, and the acceptance test of every finished milestone. With `--platform`
-//!   (the Windows and macOS runs of the review) it leaves out what is the same on every system: the
-//!   format and static checks, the heif tests and the packages in [`PURE`].
+//!   registered commands (and the `KEY-*` rows against the keymap), and the acceptance test of
+//!   every finished milestone. With `--platform` (the Windows and macOS runs of the review) it
+//!   leaves out what is the same on every system: the format and static checks, the heif tests and
+//!   the packages in [`PURE`].
+//!
+//! `stats --check` (the workflow floor, `crate::stats`) runs in the review gate and in a task gate
+//! that tests `dalica-mcp`.
 
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -297,6 +301,10 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), String> {
                 cargo_env(root, &all, strength)
             }),
         ));
+    }
+    // The workflow pass rate holds its floor wherever the workflows' package is tested.
+    if full || test_all || picked.contains(crate::stats::PACKAGE) {
+        steps.push(("stats --check".into(), Box::new(move || crate::stats::check(root, strength))));
     }
     if full && !platform {
         // The optional HEIF decoder (`docs/formats.md` §3) is off by default: its own tests, once.
