@@ -5147,7 +5147,7 @@ No other step of M10 needs a maintainer decision mid-run.
     setting's days; undo of the change restores the earlier time; a rebuild keeps the list (or, if
     index-only was chosen, the commit body says why); the row and section show; CI green on the
     three OSes.
-- ⬜ **M10.31 `engine`: Export takes album sections and search results**
+- ✅ **M10.31 `engine`: Export takes album sections and search results**
   - after: M9.R
   - files: `crates/engine/src/cmd/export.rs`, `crates/engine/tests/export_sections.rs`, `docs/creating.md`
   - scope: `export.run` with `section` set to a user album, `album:starred` or `album:search`

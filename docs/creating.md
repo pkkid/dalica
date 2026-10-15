@@ -82,8 +82,18 @@ finish and starts no other). The first photo makes the export folder and writes 
 `"project": "exported"` mark into its new sidecar, so the scan that brings the folder in (added as
 Scan Always when no watched folder covers it) gives it the mark and a rebuild keeps it. The job's
 result is `{total, done, written, skipped, failed, cancelled, folder, name}` and its message
-"Exported 48 pictures" (with "; 2 skipped, 1 failed" when so). A section exports its visible photos
-in display order; `album` names none until albums exist.
+"Exported 48 pictures" (with "; 2 skipped, 1 failed" when so). A folder section exports its visible
+photos in display order.
+
+**Built (M10.31, `dalica-engine` `cmd/export.rs`):** `section` also names an album section, as its
+widget id spells it, and `album` names one by the part after `album:`: a user album (`album:a91c0e`)
+exports its photos in the album's order (across every folder they come from), Starred Photos
+(`album:starred`) and Recently Updated (`album:recent`) as the light table shows them, and the search
+results (`album:search`) the current matches in light-table order. The suggested folder name is the
+album's name ("Starred Photos", "Recently Updated"; the search's text for the search results). An
+album the library does not have is `not_found`; the search results while not searching are
+`disabled` ("There are no search results."), and neither starts a job. So the Export button of an
+album's section header and of the search results works through `export.run` like a folder's.
 
 **Built (M8.20, `dalica-ui` `dialogs/export.rs`):** the dialog on the form widgets, its draft filled
 from `export.defaults`. The size field keeps its text as typed (Export takes digits 100 … 4000; 0,

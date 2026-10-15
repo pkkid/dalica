@@ -1,11 +1,18 @@
 //! Export (`creating.md` §2, `data-model.md` §6): `export.defaults` and `export.run`, run as a file
 //! job ([`crate::filejobs`]).
 //!
+//! - **What is exported** is named one of three ways: `ids` (in tray order), `section` (a
+//!   light-table section in its display order: `folder:12` its visible photos, `album:a91c0e` a
+//!   user album by position, `album:starred` Starred Photos, `album:recent` Recently Updated, as
+//!   the light table shows them, and `album:search` the search's matches through
+//!   `Session::search_results_now`, refused while not searching), or `album` (`a91c0e`, `starred`,
+//!   `recent` or `search`: the section `album:<it>`).
 //! - `export.defaults {ids? | section? | album?}` (query) answers what the Export dialog starts
 //!   from: the location (the stored one, else `<Pictures>/Dalica/Exports`), the suggested folder
-//!   name (the section's name, the folder's when every photo named lies in one, else
-//!   "Export 2026-06-04"), the size, the quality, numbers, the watermark, Remove location, how many
-//!   pictures there are and whether videos are among them.
+//!   name (the section's name: the folder's, the album's, "Starred Photos", the search's text; the
+//!   folder's when every photo named lies in one; else "Export 2026-06-04"), the size, the
+//!   quality, numbers, the watermark, Remove location, how many pictures there are and whether
+//!   videos are among them.
 //! - `export.run {ids | section | album, dir, folderName, numbers?, size?, quality?, watermark?,
 //!   removeLocation?}` checks everything on the owner thread without touching the disk (the
 //!   options, the photos, each photo's current recipe, so unsaved edits are exported, and its
@@ -29,12 +36,13 @@
 
 use std::collections::HashSet;
 use std::path::{Component, Path, PathBuf};
+use std::str::FromStr;
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
 use dalica_core::{DateTime, FolderId, PhotoId, Timestamp};
 use dalica_create::export::{self, Destination, ExportOptions, Kind, Planned, QualityPreset, Size};
 use dalica_edit::Recipe;
-use dalica_library::{FolderInfo, Op, Project};
+use dalica_library::{AlbumRef, FolderInfo, Op, Project, Section};
 use dalica_meta::{Changes, DateTaken};
 use dalica_store::mapping::FolderState;
 use serde::Deserialize;
@@ -70,7 +78,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Export Defaults",
             menu: "",
             keys: &[],
-            params: r#"{"ids"?:[PhotoId], "section"?:"folder:<FolderId>", "album"?:AlbumId (at most one)}: what the Export dialog starts from: {location: path|null, folderName, fallbackName, resize:bool, size, quality:"automatic"|"normal"|"maximum"|"minimum"|"custom", customQuality, numbers, watermark:bool, watermarkText, removeLocation, count, videos:bool}"#,
+            params: r#"{"ids"?:[PhotoId], "section"?:"folder:<FolderId>"|"album:<AlbumId>"|"album:starred"|"album:recent"|"album:search", "album"?:AlbumId|"starred"|"recent"|"search" (at most one)}: what the Export dialog starts from: {location: path|null, folderName, fallbackName, resize:bool, size, quality:"automatic"|"normal"|"maximum"|"minimum"|"custom", customQuality, numbers, watermark:bool, watermarkText, removeLocation, count, videos:bool}"#,
             effect: Effect::Query,
             history: History::None,
             enabled: always,
@@ -81,7 +89,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Export",
             menu: "",
             keys: &[],
-            params: r#"{"ids"?:[PhotoId] (in tray order) | "section"?:"folder:<FolderId>" (its visible photos) | "album"?:AlbumId (exactly one of the three), "dir":string (absolute; the folder the export folder is made in, made when missing), "folderName":string (sanitized; a taken name becomes "<name>-001"), "numbers"?:bool, "size"?:100…4000|"original", "quality"?:"automatic"|"normal"|"maximum"|"minimum"|"custom"|1…100, "watermark"?:string (its text) | true (the stored text) | false | null, "removeLocation"?:bool}: renders the photos with their current edits into a new folder as an export job (no undo step); options left out come from the settings and the ones used are remembered. Replies {job, pending:true, total, videos}; the job's result is {total, done, written:[path], skipped:[{file, reason}], failed:[{file, reason}], cancelled, folder, name}"#,
+            params: r#"{"ids"?:[PhotoId] (in tray order) | "section"?:"folder:<FolderId>"|"album:<AlbumId>"|"album:starred"|"album:recent"|"album:search" (its photos in display order; the search's matches) | "album"?:AlbumId|"starred"|"recent"|"search" (exactly one of the three), "dir":string (absolute; the folder the export folder is made in, made when missing), "folderName":string (sanitized; a taken name becomes "<name>-001"), "numbers"?:bool, "size"?:100…4000|"original", "quality"?:"automatic"|"normal"|"maximum"|"minimum"|"custom"|1…100, "watermark"?:string (its text) | true (the stored text) | false | null, "removeLocation"?:bool}: renders the photos with their current edits into a new folder as an export job (no undo step); options left out come from the settings and the ones used are remembered. Replies {job, pending:true, total, videos}; the job's result is {total, done, written:[path], skipped:[{file, reason}], failed:[{file, reason}], cancelled, folder, name}"#,
             effect: Effect::Files,
             history: History::None,
             enabled: has_target,
@@ -98,39 +106,83 @@ fn has_target(_: &Session, p: &Value) -> Result<(), Disabled> {
     if ids || named("section") || named("album") { Ok(()) } else { Err(Disabled(NOTHING.into())) }
 }
 
-/// What an export names: photos in order, and the folder they came from, if one.
+/// What an export names: photos in order, and the name its folder is given by default, if one.
 struct Target {
     photos: Vec<PhotoId>,
-    /// The folder named as the section, or the one folder every photo named lies in.
-    folder: Option<FolderId>,
+    /// The section's name (a folder's, an album's, the search's text), or that of the one folder
+    /// every photo named lies in.
+    name: Option<String>,
 }
 
-/// `"folder:12"` → folder 12.
-fn parse_section(text: &str) -> Result<FolderId, CmdError> {
-    let id = text.strip_prefix("folder:").and_then(|n| n.parse::<u64>().ok()).filter(|n| *n > 0);
-    id.map(FolderId::new).ok_or_else(|| CmdError::BadParams(format!("section must be \"folder:<id>\", not {text:?}")))
+/// Why `album:search` names nothing.
+const NOT_SEARCHING: &str = "There are no search results.";
+/// The name of the Starred Photos album, its export folder's default name.
+const STARRED: &str = "Starred Photos";
+/// The name of the Recently Updated album.
+const RECENT: &str = "Recently Updated";
+
+/// `"folder:12"`, `"album:a91c0e"`, `"album:starred"`, `"album:recent"` or `"album:search"` → the
+/// section (the forms its widget id spells).
+fn parse_section(text: &str) -> Result<Section, CmdError> {
+    let bad = || {
+        let shown: String = text.chars().take(40).collect();
+        CmdError::BadParams(format!(
+            "section must be \"folder:<id>\", \"album:<id>\", \"album:starred\", \"album:recent\" or \"album:search\", not {shown:?}"
+        ))
+    };
+    match text.strip_prefix("folder:") {
+        Some(n) => n.parse::<u64>().ok().filter(|n| *n > 0).map(|n| Section::Folder(FolderId::new(n))).ok_or_else(bad),
+        None => Section::from_str(text).ok().filter(|s| matches!(s, Section::Album(_))).ok_or_else(bad),
+    }
 }
 
-/// The photos of `ids` (duplicates dropped, order kept), of `section` (its visible photos in
-/// display order), or of `album`; at most one may be given.
-fn target(s: &Session, ids: Option<Vec<PhotoId>>, section: Option<String>, album: Option<String>) -> Result<Target, CmdError> {
+/// The photos of `section` in its display order, with its name: a folder's visible photos; an
+/// album's as the light table shows it (a user album by position, Starred Photos, Recently
+/// Updated); the search's matches in light-table order.
+fn section_target(s: &mut Session, section: &Section) -> Result<Target, CmdError> {
+    let lib = s.library();
+    let name = match section {
+        Section::Folder(f) => {
+            let folder = lib.folder(*f).ok_or_else(|| CmdError::NotFound(format!("no folder {f}")))?;
+            let photos = lib.photos_in(*f).into_iter().filter(|p| !lib.info(p.id).hidden).map(|p| p.id).collect();
+            let name = folder.path.file_name().map(|n| n.to_string_lossy().into_owned());
+            return Ok(Target { photos, name });
+        }
+        Section::Album(AlbumRef::Search) => {
+            let photos = s.search_results_now()?.ok_or_else(|| CmdError::Disabled(NOT_SEARCHING.into()))?;
+            let text = s.search.text.trim();
+            return Ok(Target { photos, name: (!text.is_empty()).then(|| text.to_string()) });
+        }
+        Section::Album(AlbumRef::User(a)) => lib.album(a).ok_or_else(|| CmdError::NotFound(format!("no album {a}")))?.name.clone(),
+        Section::Album(AlbumRef::Starred) => STARRED.into(),
+        Section::Album(AlbumRef::Recent) => RECENT.into(),
+    };
+    let options = s.search_tree_options();
+    let photos = dalica_library::section_photos(s.library(), std::slice::from_ref(section), &options).into_iter().flat_map(|(_, ids)| ids).collect();
+    Ok(Target { photos, name: Some(name) })
+}
+
+/// The photos of `ids` (duplicates dropped, order kept), of `section` (in its display order), or
+/// of `album` (an album id, `starred`, `recent` or `search`: the section `album:<it>`); at most one
+/// may be given.
+fn target(s: &mut Session, ids: Option<Vec<PhotoId>>, section: Option<String>, album: Option<String>) -> Result<Target, CmdError> {
     let given = usize::from(ids.is_some()) + usize::from(section.is_some()) + usize::from(album.is_some());
     if given > 1 {
         return Err(CmdError::BadParams("name the photos by one of ids, section or album".into()));
     }
-    if let Some(album) = album {
-        // Albums arrive later (M10); until then no id names one.
-        return Err(CmdError::NotFound(format!("no album {album:?}")));
+    let section = match (section, album) {
+        (Some(text), _) => Some(parse_section(&text)?),
+        (None, Some(album)) => {
+            let shown: String = album.chars().take(40).collect();
+            let bad = || CmdError::BadParams(format!("album must be an album id, \"starred\", \"recent\" or \"search\", not {shown:?}"));
+            Some(parse_section(&format!("album:{album}")).map_err(|_| bad())?)
+        }
+        (None, None) => None,
+    };
+    if let Some(section) = section {
+        return section_target(s, &section);
     }
     let lib = s.library();
-    if let Some(text) = section {
-        let folder = parse_section(&text)?;
-        if lib.folder(folder).is_none() {
-            return Err(CmdError::NotFound(format!("no folder {folder}")));
-        }
-        let photos = lib.photos_in(folder).into_iter().filter(|p| !lib.info(p.id).hidden).map(|p| p.id).collect();
-        return Ok(Target { photos, folder: Some(folder) });
-    }
     let ids = ids.unwrap_or_default();
     if ids.len() > MAX_IDS {
         return Err(CmdError::Limit(format!("at most {MAX_IDS} photos at once")));
@@ -146,7 +198,8 @@ fn target(s: &Session, ids: Option<Vec<PhotoId>>, section: Option<String>, album
         }
     }
     let folder = if folders.len() == 1 { folders.into_iter().next() } else { None };
-    Ok(Target { photos, folder })
+    let name = folder.and_then(|f| lib.folder(f)).and_then(|f| f.path.file_name()).map(|n| n.to_string_lossy().into_owned());
+    Ok(Target { photos, name })
 }
 
 /// Whether the photo's file is a video (by its extension, as the scan lists them).
@@ -164,13 +217,8 @@ fn fallback_name(now: Timestamp) -> String {
 }
 
 /// The suggested folder name: the section's (or the one folder's) name, else the fallback.
-fn suggested_name(s: &Session, target: &Target, fallback: &str) -> String {
-    target
-        .folder
-        .and_then(|f| s.library().folder(f))
-        .and_then(|f| f.path.file_name())
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_else(|| fallback.to_string())
+fn suggested_name(target: &Target, fallback: &str) -> String {
+    target.name.clone().filter(|n| !n.trim().is_empty()).unwrap_or_else(|| fallback.to_string())
 }
 
 // --- export.defaults ----------------------------------------------------------------------------
@@ -191,7 +239,7 @@ fn defaults(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
     let e = s.settings().export();
     Ok(json!({
         "location": s.export_location(),
-        "folderName": suggested_name(s, &target, &fallback),
+        "folderName": suggested_name(&target, &fallback),
         "fallbackName": fallback,
         "resize": e.resize,
         "size": e.size,
