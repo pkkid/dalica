@@ -64,6 +64,11 @@ path = "tests/all.rs"
 name = "fileops_faults"
 path = "tests/fileops_faults.rs"
 
+# Its own process too, for the same reasons: undo and redo of file operations interrupted at any step.
+[[test]]
+name = "undo_faults"
+path = "tests/undo_faults.rs"
+
 [[bench]]
 name = "first_thumbnails"
 harness = false
