@@ -97,11 +97,15 @@ fn a_renamed_away_root_reports_offline() {
     assert!(!online(&dir.path().join("file")));
 }
 
+/// At full strength 10 000 folders against the default cap; in a task's gate 40 against a cap of
+/// 16, the same checks.
 #[test]
 fn children_of_a_10_000_folder_tree_stay_within_the_cap() {
     let dir = tempfile::tempdir().unwrap();
     let r = dir.path();
-    for i in 0..10_000 {
+    let (n, cap) = if crate::common::full() { (10_000, CHILDREN_CAP) } else { (40, 16) };
+    let list_capped = |p: &std::path::Path| if cap == CHILDREN_CAP { children(p) } else { children_capped(p, cap) };
+    for i in 0..n {
         std::fs::create_dir(r.join(format!("f{i:05}"))).unwrap();
     }
     std::fs::create_dir(r.join(".hidden")).unwrap();
@@ -109,21 +113,21 @@ fn children_of_a_10_000_folder_tree_stay_within_the_cap() {
     std::fs::write(r.join("a-file.jpg"), b"x").unwrap();
     std::fs::create_dir_all(r.join("f00000/inner")).unwrap();
     let start = Instant::now();
-    let list = children(r).unwrap();
-    println!("children of 10 000 folders (cap {CHILDREN_CAP}): {:?}", start.elapsed());
-    assert_eq!(list.folders.len(), CHILDREN_CAP);
+    let list = list_capped(r).unwrap();
+    println!("children of {n} folders (cap {cap}): {:?}", start.elapsed());
+    assert_eq!(list.folders.len(), cap);
     assert!(list.truncated);
     assert!(list.folders.windows(2).all(|w| w[0].name < w[1].name));
     assert_eq!(list.folders[0].name, "f00000");
     assert_eq!(list.folders[0].path, r.join("f00000"));
     // A higher cap lists them all, still without the skipped ones, files or grandchildren.
-    let all = children_capped(r, 20_000).unwrap();
-    assert_eq!(all.folders.len(), 10_000);
+    let all = children_capped(r, 2 * n).unwrap();
+    assert_eq!(all.folders.len(), n);
     assert!(!all.truncated);
     assert!(all.folders.iter().all(|c| c.name.starts_with('f') && !c.is_link));
     // Exactly at the cap is not truncated.
-    let exact = children_capped(r, 10_000).unwrap();
-    assert_eq!((exact.folders.len(), exact.truncated), (10_000, false));
+    let exact = children_capped(r, n).unwrap();
+    assert_eq!((exact.folders.len(), exact.truncated), (n, false));
     // An unreadable folder is an error, not a panic.
     assert!(children(&r.join("missing")).is_err());
 }

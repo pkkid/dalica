@@ -2,16 +2,12 @@
 
 use std::path::Path;
 
+use crate::common::put;
 use dalica_scan::skip::{
     FOLDER_SUFFIXES, FOLDERS_ANYWHERE, MACOS_AT_HOME, MACOS_AT_ROOT, UNIX_AT_HOME, UNIX_AT_ROOT, WINDOWS_ANYWHERE, WINDOWS_AT_ROOT,
 };
 use dalica_scan::{FileType, FileTypes, Options, Platform, Skip, SkipRules, scan_with};
 use dalica_scenes::{Scene, jpeg, png};
-
-fn put(path: &Path, bytes: &[u8]) {
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    std::fs::write(path, bytes).unwrap();
-}
 
 fn photo() -> Vec<u8> {
     jpeg(&Scene::new(1, 16, 16), 80, None).unwrap()
