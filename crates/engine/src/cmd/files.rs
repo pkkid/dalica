@@ -32,7 +32,9 @@
 //!   watched folders (a folder beside a watched root is refused).
 //! - **Undo.** A move undoes by moving each photo back under the name it had; a copy by sending each
 //!   copy still unchanged since it was made to the trash (a changed copy stays and says so; one
-//!   already gone counts as undone). Redo runs the items again with the names they got. A move
+//!   already gone counts as undone), with the kept original it brought and that original's entry in
+//!   the originals record (the originals folder too when nothing else is left in it). Redo runs the
+//!   items again with the names they got. A move
 //!   whose source's volume had no trash became a copy (the source and its entry kept) and cannot
 //!   be undone.
 //! - **The journal.** Every item names a `from` and a `to`: a photo's file and where it goes; the
@@ -356,7 +358,16 @@ impl Files {
             None => Ok(Ran::Done(Did::Uncopied)),
             Some(id) if id != expect => Err(format!("The copy {} changed since it was made, so it stays.", file_name(path))),
             Some(_) => match trash::send(path).map_err(fs_err)? {
-                Sent::Trashed(_) => Ok(Ran::Done(Did::Uncopied)),
+                Sent::Trashed(_) => {
+                    // The copy is gone: what went wrong with its kept original is only logged.
+                    if let (Some(folder), Some(name)) = (path.parent(), path.file_name()) {
+                        let name = name.to_string_lossy();
+                        if let Err(e) = uncopy_backup(folder, &name) {
+                            log::warn!("undoing the copy {}: its kept original stays: {e}", path.display());
+                        }
+                    }
+                    Ok(Ran::Done(Did::Uncopied))
+                }
                 Sent::NoTrash => Err(format!("The copy {} stays: its drive has no trash.", file_name(path))),
             },
         }
@@ -378,6 +389,45 @@ impl Files {
             Sent::NoTrash => Err(format!("The folder {} stays: its drive has no trash.", file_name(path))),
         }
     }
+}
+
+/// After an unchanged copy `name` in `folder` went to the trash (its undo): the kept original the
+/// copy brought (`.dalica-originals/<name>`, the backup of the record's size) goes to the trash
+/// too, and its entry leaves the originals record. A record left with nothing but its version, in
+/// an originals folder that holds nothing else, goes to the trash with the folder. A backup of
+/// another size, a record Dalica cannot read or one that changed meanwhile stays as it is.
+fn uncopy_backup(folder: &Path, name: &str) -> Result<(), String> {
+    use dalica_sidecar::originals::{DIR_NAME, FILE_NAME};
+    use dalica_sidecar::{Field, Limits, Originals};
+    let dir = folder.join(DIR_NAME);
+    let record = dir.join(FILE_NAME);
+    let limits = Limits::default();
+    let Some(read) = dalica_fs::read(&record, u64::try_from(limits.max_bytes).unwrap_or(u64::MAX)).map_err(fs_err)? else { return Ok(()) };
+    let mut doc = Originals::parse(&read.bytes, &limits).map_err(|e| format!("{} cannot be read: {e}", record.display()))?;
+    let Field::Value(entry) = doc.entry(name) else { return Ok(()) };
+    let backup = dir.join(name);
+    match dalica_fs::identity(&backup).map_err(fs_err)? {
+        Some(id) if id.size() == entry.size => match trash::send(&backup).map_err(fs_err)? {
+            Sent::Trashed(_) => {}
+            Sent::NoTrash => return Err("its drive has no trash".into()),
+        },
+        Some(_) => return Err(format!("{} is not the one recorded", backup.display())),
+        // A record without its backup: the entry still goes.
+        None => {}
+    }
+    doc.remove(name).map_err(|e| e.to_string())?;
+    let limits = dalica_fs::Limits { max_depth: 1, max_entries: 4, cancel: None };
+    let only_record = || {
+        dalica_fs::walk(&dir, limits, |_| false)
+            .is_ok_and(|w| w.warnings.is_empty() && w.entries.len() == 1 && w.entries.iter().all(|e| e.path == record && e.is_file && !e.is_link))
+    };
+    if doc.print() == Originals::new().print() && only_record() {
+        return match trash::send(&dir).map_err(fs_err)? {
+            Sent::Trashed(_) => Ok(()),
+            Sent::NoTrash => Err("its drive has no trash".into()),
+        };
+    }
+    dalica_fs::replace(&record, &doc.print(), dalica_fs::Expect::Unchanged(read.identity)).map(|_| ()).map_err(fs_err)
 }
 
 /// Whether `folder` holds anything of photo `name` to carry: an entry in its sidecar, or a backup

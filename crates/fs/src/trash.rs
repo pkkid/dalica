@@ -16,6 +16,11 @@
 //!   One gap stays: a volume the system does not list as a mount point of its own (a btrfs
 //!   subvolume inside another mount) is trashed where the crate's mount table says, which may be
 //!   the home trash on another volume, by the crate's copy and delete.
+//!   A name longer than 240 bytes leaves no room for the crate's record,
+//!   `info/<name>.trashinfo`, within the 255 bytes a name may have. Dalica trashes such an item
+//!   itself, in the trash the check found: under a shortened name that is free in that trash
+//!   (`<the name's first 200 bytes>~<n>.<extension>`), with a record of that name holding the
+//!   item's whole path. It is listed and restored under its own name, as any other item.
 //! - **Windows:** the shell is asked to recycle without any dialog and to warn instead of deleting
 //!   permanently; that warning cannot be shown, so the shell aborts, which is `NoTrash`.
 //! - **macOS:** `NSFileManager` refuses a volume without a trash (`NSFeatureUnsupportedError`),
@@ -115,7 +120,10 @@ pub fn send(path: &Path) -> Result<Sent> {
     if stand_in {
         return stand_in::send(item);
     }
-    let sent = catch(|| platform::context().delete(&item.original));
+    let sent = match platform::send_long_name(&item.original, &meta) {
+        Some(own) => own.map_err(CrateError::Own),
+        None => catch(|| platform::context().delete(&item.original)),
+    };
     let still_there = match std::fs::symlink_metadata(&item.original) {
         Ok(m) => Identity::of_path(&item.original, &m, false).is_ok_and(|id| id.same_object(&item.identity)),
         Err(e) if e.kind() == io::ErrorKind::NotFound => false,
@@ -317,11 +325,14 @@ mod stand_in {
     }
 }
 
-/// The error of a `trash` crate call, or of a panic inside it.
+/// The error of a `trash` crate call, or of a panic inside it, or of Dalica's own send of an item
+/// whose name is too long for the crate's record.
 #[derive(Debug)]
 pub(crate) enum CrateError {
     Trash(::trash::Error),
     Panicked,
+    #[cfg_attr(not(all(unix, not(target_vendor = "apple"), not(target_os = "android"))), allow(dead_code))]
+    Own(Error),
 }
 
 impl std::fmt::Display for CrateError {
@@ -329,6 +340,7 @@ impl std::fmt::Display for CrateError {
         match self {
             CrateError::Trash(e) => write!(f, "{e}"),
             CrateError::Panicked => f.write_str("the system trash library failed unexpectedly"),
+            CrateError::Own(e) => write!(f, "{e}"),
         }
     }
 }
@@ -462,28 +474,39 @@ fn size_fits(listed: &::trash::TrashItem, item: &Trashed) -> bool {
 /// Linux and the BSDs: the freedesktop.org trash.
 #[cfg(all(unix, not(target_vendor = "apple"), not(target_os = "android")))]
 mod platform {
+    use std::ffi::{OsStr, OsString};
+    use std::fmt::Write as _;
     use std::fs::{self, DirBuilder, Metadata};
-    use std::io;
+    use std::io::{self, Write as _};
+    use std::os::unix::ffi::{OsStrExt, OsStringExt as _};
     use std::os::unix::fs::{DirBuilderExt as _, MetadataExt as _, PermissionsExt as _};
     use std::path::{Path, PathBuf};
 
     use super::{CrateError, Restore, Trashed};
-    use crate::Result;
     use crate::atomic::Identity;
+    use crate::dirfd::{Folder, NoReplace};
+    use crate::{Result, io_err};
 
     pub(super) fn context() -> ::trash::TrashContext {
         ::trash::TrashContext::default()
     }
 
-    /// Whether a trash on the item's own volume takes it by a rename (see the module docs): the
-    /// home trash on that volume, the volume's `.Trash/<uid>` or its `.Trash-<uid>` (made when
-    /// missing). Never a trash on another volume, which would mean a copy and a delete.
+    /// Whether a trash on the item's own volume takes it by a rename (see the module docs).
     pub(super) fn usable_trash(item: &Path, meta: &Metadata) -> Result<bool> {
+        Ok(trash_folder(item, meta).is_some())
+    }
+
+    /// The trash on the item's own volume that takes it by a rename: the home trash on that
+    /// volume, the volume's `.Trash/<uid>` or its `.Trash-<uid>` (made when missing). Never a
+    /// trash on another volume, which would mean a copy and a delete.
+    fn trash_folder(item: &Path, meta: &Metadata) -> Option<PathBuf> {
         let dev = meta.dev();
-        if home_trash().and_then(|h| nearest_existing(&h)).is_some_and(|m| m.dev() == dev) {
-            return Ok(true);
+        if let Some(home) = home_trash()
+            && nearest_existing(&home).is_some_and(|m| m.dev() == dev)
+        {
+            return Some(home);
         }
-        let Some(top) = item.parent().map(|p| volume_top(p, dev)) else { return Ok(false) };
+        let top = volume_top(item.parent()?, dev);
         let uid = rustix::process::getuid().as_raw().to_string();
         let shared = top.join(".Trash");
         if let Ok(m) = fs::symlink_metadata(&shared)
@@ -491,19 +514,120 @@ mod platform {
             && m.permissions().mode() & 0o1000 != 0
             && fs::symlink_metadata(shared.join(&uid)).is_ok_and(|m| m.is_dir())
         {
-            return Ok(true);
+            return Some(shared.join(&uid));
         }
         let own = top.join(format!(".Trash-{uid}"));
         match fs::symlink_metadata(&own) {
-            Ok(m) => return Ok(m.is_dir() && m.dev() == dev),
+            Ok(m) => return (m.is_dir() && m.dev() == dev).then_some(own),
             Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-            Err(_) => return Ok(false),
+            Err(_) => return None,
         }
-        Ok(match DirBuilder::new().mode(0o700).create(&own) {
+        let made = match DirBuilder::new().mode(0o700).create(&own) {
             Ok(()) => true,
             Err(e) if e.kind() == io::ErrorKind::AlreadyExists => fs::symlink_metadata(&own).is_ok_and(|m| m.is_dir() && m.dev() == dev),
             Err(_) => false,
-        })
+        };
+        made.then_some(own)
+    }
+
+    /// The longest name the `trash` crate's record takes: `info/<name>.trashinfo`, with a `.<n>`
+    /// the crate adds when the name is taken, within the 255 bytes a name may have.
+    pub(super) const LONGEST_RECORDED: usize = 240;
+    /// How much of a long name its name in the trash keeps.
+    const SHORT_STEM: usize = 200;
+    /// The longest extension a shortened name keeps.
+    const SHORT_EXTENSION: usize = 16;
+    /// How many shortened names are tried before the send fails.
+    const SHORT_TRIES: u32 = 1000;
+
+    /// Sends an item whose name is too long for the crate's record (longer than
+    /// [`LONGEST_RECORDED`] bytes) to the trash on its own volume, which the check before found;
+    /// `None` for any other name (the crate sends it). See the module docs.
+    pub(super) fn send_long_name(item: &Path, meta: &Metadata) -> Option<Result<()>> {
+        let name = item.file_name()?;
+        if name.len() <= LONGEST_RECORDED {
+            return None;
+        }
+        Some(send_shortened(item, name, meta))
+    }
+
+    fn send_shortened(item: &Path, name: &OsStr, meta: &Metadata) -> Result<()> {
+        let fail = |why: &str| io_err("trash", item)(io::Error::other(why.to_string()));
+        let trash = trash_folder(item, meta).ok_or_else(|| fail("no trash on the item's volume"))?;
+        let parent = item.parent().ok_or_else(|| fail("not a file or folder name"))?;
+        let (files, info) = (trash.join("files"), trash.join("info"));
+        for dir in [&files, &info] {
+            DirBuilder::new().recursive(true).mode(0o700).create(dir).map_err(io_err("create folder", dir))?;
+        }
+        let (source, files, info) = (Folder::open(parent)?, Folder::open(&files)?, Folder::open(&info)?);
+        let record = record(item, &chrono::Local::now().format("%Y-%m-%dT%H:%M:%S").to_string());
+        for n in 1..=SHORT_TRIES {
+            let short = shortened(name, n);
+            let mut record_name = short.clone();
+            record_name.push(".trashinfo");
+            // The record is made first, exclusively: the name is this item's in the trash.
+            let Some(mut file) = info.create_new(&record_name, true)? else { continue };
+            let at = info.join(&record_name);
+            let written = file.write_all(record.as_bytes()).and_then(|()| crate::faults::fsync(&at, || file.sync_all()));
+            drop(file);
+            if let Err(e) = written {
+                let _ = info.remove(&record_name);
+                return Err(io_err("write", &at)(e));
+            }
+            let moved = source.rename_noreplace(name, &files, &short);
+            match moved {
+                Ok(NoReplace::Done) => {
+                    files.sync()?;
+                    return Ok(());
+                }
+                Ok(NoReplace::Taken) => {
+                    let _ = info.remove(&record_name);
+                }
+                Ok(NoReplace::Unsupported) => {
+                    let _ = info.remove(&record_name);
+                    return Err(fail("this volume cannot move the item into its trash without risking another item there"));
+                }
+                Err(e) => {
+                    let _ = info.remove(&record_name);
+                    return Err(e);
+                }
+            }
+        }
+        Err(fail("no free name in the trash"))
+    }
+
+    /// The item's name in the trash: its first [`SHORT_STEM`] bytes (whole characters when the name
+    /// is UTF-8), `~<n>`, and its extension when that is short.
+    pub(super) fn shortened(name: &OsStr, n: u32) -> OsString {
+        let bytes = name.as_bytes();
+        let mut cut = SHORT_STEM.min(bytes.len());
+        if let Ok(text) = std::str::from_utf8(bytes) {
+            while cut > 0 && !text.is_char_boundary(cut) {
+                cut -= 1;
+            }
+        }
+        let mut out = bytes.get(..cut).unwrap_or_default().to_vec();
+        out.extend_from_slice(format!("~{n}").as_bytes());
+        if let Some(ext) = Path::new(name).extension().map(OsStrExt::as_bytes).filter(|e| e.len() <= SHORT_EXTENSION) {
+            out.push(b'.');
+            out.extend_from_slice(ext);
+        }
+        OsString::from_vec(out)
+    }
+
+    /// The freedesktop.org record of `item` (absolute) sent at `when` (local time,
+    /// `YYYY-MM-DDThh:mm:ss`): its path with every byte but letters, digits, `-._~` and `/`
+    /// percent-encoded.
+    pub(super) fn record(item: &Path, when: &str) -> String {
+        let mut path = String::new();
+        for &b in item.as_os_str().as_bytes() {
+            if b.is_ascii_alphanumeric() || b"-._~/".contains(&b) {
+                path.push(char::from(b));
+            } else {
+                let _ = write!(path, "%{b:02X}");
+            }
+        }
+        format!("[Trash Info]\nPath={path}\nDeletionDate={when}\n")
     }
 
     /// The home trash, as the freedesktop.org specification places it.
@@ -577,6 +701,11 @@ mod platform {
         Ok(true)
     }
 
+    /// The shell takes every name the volume allows.
+    pub(super) fn send_long_name(_item: &Path, _meta: &Metadata) -> Option<Result<()>> {
+        None
+    }
+
     /// The shell aborts the operation (it would have to delete permanently, which the crate asks
     /// it to warn about, and no warning can be shown).
     pub(super) fn means_no_trash(e: &CrateError) -> bool {
@@ -630,6 +759,11 @@ mod platform {
         Ok(true)
     }
 
+    /// `NSFileManager` takes every name the volume allows.
+    pub(super) fn send_long_name(_item: &Path, _meta: &Metadata) -> Option<Result<()>> {
+        None
+    }
+
     /// `NSFileManager` answers `NSFeatureUnsupportedError` (3328) for a volume without a trash.
     pub(super) fn means_no_trash(e: &CrateError) -> bool {
         matches!(e, CrateError::Trash(::trash::Error::Unknown { description }) if description.contains("3328"))
@@ -681,6 +815,26 @@ mod tests {
         assert!(platform::name_matches(OsStr::new("photo.jpg"), OsStr::new("photo.jpg")));
         assert!(!platform::name_matches(OsStr::new("photo"), OsStr::new("photo.jpg")));
         assert!(!platform::name_matches(OsStr::new("Photo.jpg"), OsStr::new("photo.jpg")));
+    }
+
+    /// A long name's name in the trash keeps its start (whole characters) and its extension, numbered;
+    /// its record holds the whole path, percent-encoded.
+    #[cfg(all(unix, not(target_vendor = "apple"), not(target_os = "android")))]
+    #[test]
+    fn a_long_name_is_shortened_in_the_trash_and_recorded_whole() {
+        use std::ffi::OsStr;
+        use std::os::unix::ffi::OsStrExt as _;
+        // 'é' is two bytes: 199 'a's put one across the 200-byte cut, which moves before it.
+        let name = format!("{}é{}.jpeg", "a".repeat(199), "b".repeat(60));
+        let short = platform::shortened(OsStr::new(&name), 3);
+        assert_eq!(short, OsStr::new(&format!("{}~3.jpeg", "a".repeat(199))));
+        // A name that is not UTF-8 is cut at 200 bytes; a long extension is left out.
+        let raw: Vec<u8> = [vec![0xff_u8; 250], b".".to_vec(), vec![b'x'; 20]].concat();
+        let short = platform::shortened(OsStr::from_bytes(&raw), 1);
+        assert_eq!(short.as_bytes(), [vec![0xff_u8; 200], b"~1".to_vec()].concat());
+        assert!(platform::shortened(OsStr::new(&"x".repeat(255)), 999).len() + ".trashinfo".len() < 255);
+        let record = platform::record(Path::new("/photos/a b%=é.jpg"), "2026-10-15T09:30:00");
+        assert_eq!(record, "[Trash Info]\nPath=/photos/a%20b%25%3D%C3%A9.jpg\nDeletionDate=2026-10-15T09:30:00\n");
     }
 
     #[test]

@@ -20,6 +20,7 @@ mod export;
 mod export_mixed;
 mod export_sections;
 mod facts;
+mod file_followups;
 mod filejobs;
 mod fileops;
 mod fileops_recovery;

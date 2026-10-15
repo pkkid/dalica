@@ -27,6 +27,10 @@ trash.workspace = true
 # `process` for the user id that names a volume's own trash folder (`.Trash-<uid>`).
 rustix = { workspace = true, features = ["process"] }
 
+[target.'cfg(all(unix, not(target_vendor = "apple"), not(target_os = "android")))'.dependencies]
+# The local time in the trash record `trash.rs` writes itself for a name too long for the crate's.
+chrono.workspace = true
+
 [target.'cfg(windows)'.dependencies]
 # The file identity (volume serial number and file index) through a handle (security.md §5.2).
 winapi-util.workspace = true
