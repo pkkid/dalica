@@ -25,7 +25,7 @@ use serde_json::json;
 
 /// A session on a library under `dir` with `folders` folders sharing `photos` scenes photos.
 fn session(dir: &Path, folders: usize, photos: usize) -> Session {
-    let files = dalica_scenes::demo_library(folders, photos, 5).unwrap();
+    let files = crate::common::demo_library(folders, photos, 5).unwrap();
     let mut roots = BTreeSet::new();
     for f in &files {
         let path = dir.join("photos").join(&f.path);

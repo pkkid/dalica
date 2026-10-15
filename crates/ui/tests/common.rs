@@ -4,10 +4,13 @@
 
 #![allow(dead_code)]
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
 
-use dalica_core::{Date, DateTime};
+use dalica_core::{Clock, Date, DateTime};
+use dalica_engine::Session;
+use dalica_scenes::DemoFile;
 use dalica_scenes::fingerprint;
 use dalica_ui::{App, Driver};
 use dalica_ui_kit::{Image, WidgetInfo};
@@ -195,4 +198,40 @@ pub fn put_dated_jpeg(path: &Path, seed: u64, (y, m, d): (u16, u8, u8)) {
     let taken = DateTime::new(Date::new(y, m, d).unwrap(), 10, 0, 0).unwrap();
     let exif = dalica_scenes::Exif { date_time_original: Some(taken), ..Default::default() };
     std::fs::write(path, dalica_scenes::jpeg(&dalica_scenes::Scene::new(seed, 96, 64), 80, Some(&exif)).unwrap()).unwrap();
+}
+
+/// `dalica_scenes::demo_library`, encoded once per process for each `(folders, photos, seed)` and
+/// cloned for every test that asks again (encoding the JPEGs is the expensive part of a fixture).
+pub fn demo_library(folders: usize, photos: usize, seed: u64) -> Result<Vec<DemoFile>, String> {
+    type Made = Arc<OnceLock<Result<Vec<DemoFile>, String>>>;
+    type Sets = HashMap<(usize, usize, u64), Made>;
+    static MADE: Mutex<Option<Sets>> = Mutex::new(None);
+    let made =
+        Arc::clone(MADE.lock().unwrap_or_else(PoisonError::into_inner).get_or_insert_with(HashMap::new).entry((folders, photos, seed)).or_default());
+    made.get_or_init(|| dalica_scenes::demo_library(folders, photos, seed).map_err(|e| e.to_string())).clone()
+}
+
+/// What `dalica_engine::demo::open` makes in a fresh `dir` (the demo photos under `dir/photos`,
+/// a library in `dir` with their folders added in tree order, each scanned before the next), from
+/// the photos [`demo_library`] encoded once per process.
+pub fn demo_open(dir: &Path, clock: Arc<dyn Clock>) -> Session {
+    use dalica_engine::demo;
+    let root = demo::photos_dir(dir);
+    let mut dates: std::collections::BTreeMap<PathBuf, DateTime> = std::collections::BTreeMap::new();
+    for f in demo_library(demo::FOLDERS, demo::PHOTOS, demo::SEED).unwrap() {
+        let path = root.join(&f.path);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, &f.bytes).unwrap();
+        let date = dates.entry(path.parent().unwrap().to_path_buf()).or_insert(f.date_time_original);
+        *date = (*date).min(f.date_time_original);
+    }
+    // Tree order: newest date first, then path.
+    let mut folders: Vec<(DateTime, PathBuf)> = dates.into_iter().map(|(path, date)| (date, path)).collect();
+    folders.sort_by(|(da, pa), (db, pb)| db.cmp(da).then_with(|| pa.cmp(pb)));
+    let mut session = Session::open(&demo::library_dir(dir), clock).unwrap();
+    for (_, folder) in folders {
+        session.execute("folders.add", &serde_json::json!({ "path": folder })).unwrap();
+        session.wait_idle();
+    }
+    session
 }

@@ -25,7 +25,7 @@ use dalica_ui::{App, Driver};
 
 /// A folder of `n` scenes photos in `root`; returns its path.
 fn photos(root: &Path, n: usize) -> PathBuf {
-    let files = dalica_scenes::demo_library(1, n, 11).unwrap();
+    let files = crate::common::demo_library(1, n, 11).unwrap();
     for f in &files {
         let path = root.join(&f.path);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();

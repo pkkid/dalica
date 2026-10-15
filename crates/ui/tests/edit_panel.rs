@@ -39,7 +39,7 @@ struct T {
 /// make and model) and one JPEG without EXIF, the window at `size`.
 fn setup((w, h): (u32, u32), n: usize) -> T {
     let dir = tempfile::tempdir().unwrap();
-    let files = dalica_scenes::demo_library(1, n, 11).unwrap();
+    let files = crate::common::demo_library(1, n, 11).unwrap();
     let folder = dir.path().join("photos").join(files[0].path.parent().unwrap());
     std::fs::create_dir_all(&folder).unwrap();
     for f in &files {

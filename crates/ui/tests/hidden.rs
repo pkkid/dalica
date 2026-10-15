@@ -25,7 +25,7 @@ use serde_json::json;
 /// `folders` folders of `photos` demo photos each under `dir`, watched and scanned.
 fn library(dir: &Path, folders: usize, photos: usize) -> Session {
     let root = dir.join("photos");
-    for f in dalica_scenes::demo_library(folders, photos, 11).unwrap() {
+    for f in crate::common::demo_library(folders, photos, 11).unwrap() {
         let path = root.join(&f.path);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, &f.bytes).unwrap();

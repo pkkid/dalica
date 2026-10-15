@@ -33,7 +33,7 @@ struct T {
 /// A library of ten photos in one folder, shown at `w × h`.
 fn setup(w: u32, h: u32) -> T {
     let dir = tempfile::tempdir().unwrap();
-    let files = dalica_scenes::demo_library(1, 10, 28).unwrap();
+    let files = crate::common::demo_library(1, 10, 28).unwrap();
     for f in &files {
         let path = dir.path().join("photos").join(&f.path);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();

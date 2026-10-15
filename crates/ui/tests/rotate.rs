@@ -11,7 +11,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::common::{FRAMES, new_driver, out_dir};
+use crate::common::{FRAMES, full, new_driver, out_dir};
 use dalica_core::PhotoId;
 use dalica_edit::Dihedral;
 use dalica_engine::Session;
@@ -115,7 +115,10 @@ fn mirrored_difference(w: u32, a: &[u8], b: &[u8]) -> f64 {
 
 #[test]
 fn a_rotation_from_the_bottom_bar_turns_the_cell_from_the_cached_thumbnail_for_every_exif_orientation() {
-    for o in 1..=8u8 {
+    // Every orientation with DALICA_FULL_TESTS=1; a task's quick run takes one that keeps the
+    // axes and one that swaps them.
+    let orientations: Vec<u8> = if full() { (1..=8).collect() } else { vec![1, 6] };
+    for o in orientations {
         let dir = tempfile::tempdir().unwrap();
         let mut d = new_driver(App::new(Some(library(dir.path(), o))), 1400, 900, 1.0);
         d.settle(FRAMES).unwrap();

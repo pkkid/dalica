@@ -45,7 +45,7 @@ struct Fx {
 fn fixture((w, h): (u32, u32)) -> Fx {
     let dir = tempfile::tempdir().unwrap();
     let clock = Arc::new(VirtualClock::new(Timestamp::from_millis(NOW_SECS * 1000)));
-    let session = dalica_engine::demo::open(dir.path(), clock).unwrap();
+    let session = crate::common::demo_open(dir.path(), clock);
     let mut d = new_driver(App::new(Some(session)), w, h, 1.0);
     d.settle(FRAMES).unwrap();
     Fx { dir, d }

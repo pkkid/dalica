@@ -19,7 +19,7 @@ use dalica_ui_kit::registry::Role;
 
 /// A library in `root` with two folders of 30 scenes photos each, both added and scanned.
 fn session(root: &Path) -> Session {
-    let files = dalica_scenes::demo_library(2, 60, 5).unwrap();
+    let files = crate::common::demo_library(2, 60, 5).unwrap();
     let mut folders = BTreeSet::new();
     for f in &files {
         let path = root.join("photos").join(&f.path);

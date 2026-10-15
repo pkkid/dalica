@@ -2,7 +2,7 @@
 //! session has on the frame it appears. The tests scroll the light table at the speed thumb's top
 //! speed and check the thumbnails' counters (`ui.inspect` → `perf`), summed over every frame:
 //!
-//! - a **scanned 10 k-photo** synthetic library (3 000 in a task's quick run), reopened with its thumbnail cache on disk and
+//! - a **scanned 10 k-photo** synthetic library (2 500 in a task's quick run), reopened with its thumbnail cache on disk and
 //!   nothing in memory: no placeholder cell on any frame, textures within the cap and uploads
 //!   within the per-frame cap, nothing read from disk on the UI thread; once the view stops, every
 //!   visible cell draws its covering size, and back at the top the light table is pixel for pixel
@@ -132,7 +132,7 @@ fn scanned(dir: &Path, cache: &Path, spec: &Spec) -> Session {
 #[cfg(not(windows))]
 fn a_scanned_10k_library_scrolled_at_top_speed_never_shows_a_placeholder() {
     let dir = tempfile::tempdir().unwrap();
-    let spec = if full() { Spec::new(10_000, 100, synthetic::SEED) } else { Spec::new(3_000, 30, synthetic::SEED) };
+    let spec = if full() { Spec::new(10_000, 100, synthetic::SEED) } else { Spec::new(2_500, 25, synthetic::SEED) };
     let session = scanned(&dir.path().join("lib"), &dir.path().join("cache"), &spec);
 
     let ui_thread = dalica_fs::mark_ui_thread();

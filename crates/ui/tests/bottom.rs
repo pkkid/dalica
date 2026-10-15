@@ -23,7 +23,7 @@ const TOGGLES: [&str; 4] = ["toggle:pane.people", "toggle:pane.places", "toggle:
 
 /// A library in `root` with two folders of scenes photos, added and scanned.
 fn session(root: &Path) -> Session {
-    let files = dalica_scenes::demo_library(2, 24, 3).unwrap();
+    let files = crate::common::demo_library(2, 24, 3).unwrap();
     let mut folders = BTreeSet::new();
     for f in &files {
         let path = root.join("photos").join(&f.path);

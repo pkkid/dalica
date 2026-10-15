@@ -29,7 +29,7 @@ struct T {
 /// channel.
 fn setup(folders: usize, photos: usize, (w, h): (u32, u32)) -> T {
     let dir = tempfile::tempdir().unwrap();
-    let files = dalica_scenes::demo_library(folders, photos, 5).unwrap();
+    let files = crate::common::demo_library(folders, photos, 5).unwrap();
     let mut roots = BTreeSet::new();
     for f in &files {
         let path = dir.path().join("photos").join(&f.path);

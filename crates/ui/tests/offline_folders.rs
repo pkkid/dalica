@@ -26,7 +26,7 @@ use dalica_ui_kit::WidgetInfo;
 
 /// `n` folders of scenes photos under `root` (one photo each when `n` is the photo count).
 fn demo(root: &Path, folders: usize, photos: usize, seed: u64) -> Vec<PathBuf> {
-    let files = dalica_scenes::demo_library(folders, photos, seed).unwrap();
+    let files = crate::common::demo_library(folders, photos, seed).unwrap();
     let mut dirs = Vec::new();
     for f in &files {
         let path = root.join(&f.path);

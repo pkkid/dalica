@@ -94,7 +94,7 @@ fn first_run_is_offered_only_for_a_new_library_and_never_for_the_demo() {
     let s = d.into_app().take_session().unwrap();
     drop(s);
     let demo = tempfile::tempdir().unwrap();
-    let mut app = App::new(Some(dalica_engine::demo::open(demo.path(), Arc::new(dalica_core::SystemClock)).unwrap()));
+    let mut app = App::new(Some(crate::common::demo_open(demo.path(), Arc::new(dalica_core::SystemClock))));
     assert!(!first_run::offer(&mut app), "never for the demo library");
     app.persist_view();
     assert!(app.state().dialogs.is_empty());

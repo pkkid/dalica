@@ -14,7 +14,7 @@ use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
 use std::sync::Arc;
 
-use crate::common::{FRAMES, new_driver, shot, widget};
+use crate::common::{FRAMES, full, new_driver, shot, widget};
 use dalica_engine::Session;
 use dalica_ui::headless::{Drag, Target};
 use dalica_ui::state::Pane;
@@ -32,7 +32,7 @@ fn session(root: &Path) -> Session {
 
 /// [`session`], with the first folder called `first` when given.
 fn session_named(root: &Path, first: Option<&str>) -> Session {
-    let files = dalica_scenes::demo_library(2, 24, 3).unwrap();
+    let files = crate::common::demo_library(2, 24, 3).unwrap();
     let mut folders = BTreeSet::new();
     let first_folder = files.first().and_then(|f| f.path.components().next()).map(|c| c.as_os_str().to_owned());
     for f in &files {
@@ -536,12 +536,15 @@ fn narrow_windows_drop_only_the_chrome_the_spec_lets_go_before_anything_overlaps
     d.settle(FRAMES).unwrap();
     assert!(d.state().folder.is_some());
 
+    // Every 25 pt from 1400 down to 900 with DALICA_FULL_TESTS=1; a task's quick run samples the
+    // widths around 1100 and the long title's drop (at 925 today).
+    let widths: Vec<u32> = if full() { (900..=1400).rev().step_by(25).collect() } else { vec![1400, 1200, 1100, 1000, 950, 925, 900] };
     for (selected, title) in [(true, format!("{LONG} — Dalica")), (false, "Dalica".to_string())] {
         if !selected {
             d.app_mut().state_mut().folder = None;
         }
         let mut dropped_at = None;
-        for w in (900..=1400).rev().step_by(25) {
+        for &w in &widths {
             let w = w as f32;
             d.resize(w as u32, 700);
             d.settle(FRAMES).unwrap();

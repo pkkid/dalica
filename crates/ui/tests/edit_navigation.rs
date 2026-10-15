@@ -33,7 +33,7 @@ struct T {
 /// `size`, and the photos in the order the light table shows them.
 fn setup((w, h): (u32, u32), n: usize) -> T {
     let dir = tempfile::tempdir().unwrap();
-    let files = dalica_scenes::demo_library(1, n, 11).unwrap();
+    let files = crate::common::demo_library(1, n, 11).unwrap();
     let mut roots = std::collections::BTreeSet::new();
     for f in &files {
         let path = dir.path().join("photos").join(&f.path);

@@ -29,7 +29,7 @@ fn folder(n: u64) -> Section {
 /// A session on a library under `dir` with `folders` folders sharing `photos` scenes photos; the
 /// folder ids in the light table's order.
 fn session(dir: &Path, folders: usize, photos: usize) -> Session {
-    let files = dalica_scenes::demo_library(folders, photos, 5).unwrap();
+    let files = crate::common::demo_library(folders, photos, 5).unwrap();
     let mut roots = BTreeSet::new();
     for f in &files {
         let path = dir.join("photos").join(&f.path);
@@ -345,7 +345,7 @@ fn no_pictures_yet_offers_to_add_a_folder() {
     let dir = tempfile::tempdir().unwrap();
     let home = dir.path().join("home");
     let pictures = home.join("Pictures");
-    let files = dalica_scenes::demo_library(1, 4, 3).unwrap();
+    let files = crate::common::demo_library(1, 4, 3).unwrap();
     for f in &files {
         let path = pictures.join(&f.path);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();

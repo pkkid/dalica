@@ -240,7 +240,7 @@ struct T {
 
 fn setup(n: usize) -> T {
     let dir = tempfile::tempdir().unwrap();
-    let files = dalica_scenes::demo_library(1, n.max(1), 3).unwrap();
+    let files = crate::common::demo_library(1, n.max(1), 3).unwrap();
     for f in &files {
         let path = dir.path().join("photos").join(&f.path);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();

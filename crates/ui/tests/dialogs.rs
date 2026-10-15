@@ -21,7 +21,7 @@ use serde_json::{Value, json};
 
 /// A library in `root` with two folders of `per` scenes photos each, added and scanned.
 fn session(root: &Path, per: usize) -> Session {
-    let files = dalica_scenes::demo_library(2, 2 * per, 13).unwrap();
+    let files = crate::common::demo_library(2, 2 * per, 13).unwrap();
     let mut folders = BTreeSet::new();
     for f in &files {
         let path = root.join("photos").join(&f.path);

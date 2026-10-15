@@ -19,7 +19,7 @@ use serde_json::{Value, json};
 /// A session on a library under `dir` holding `folders` folders of 3 scenes photos each; its photo
 /// ids (in display order) and folder ids.
 fn session(dir: &Path, folders: usize) -> (Session, Vec<(u64, u64)>, Vec<u64>) {
-    let files = dalica_scenes::demo_library(folders, folders * 3, 5).unwrap();
+    let files = crate::common::demo_library(folders, folders * 3, 5).unwrap();
     let mut roots = std::collections::BTreeSet::new();
     for f in &files {
         let path = dir.join("photos").join(&f.path);
