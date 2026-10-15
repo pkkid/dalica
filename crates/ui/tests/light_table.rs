@@ -236,7 +236,7 @@ fn small_pictures_are_left_out_unless_asked_for() {
     assert!(counts(&sections).iter().all(|&(_, n)| n == 4), "{:?}", counts(&sections));
     sections.refresh(&lib, &[], &TreeOptions { small_pictures: true, ..TreeOptions::default() });
     let with = counts(&sections);
-    assert!(with.contains(&(FolderId::new(1), 7)), "{with:?}");
+    assert!(with.contains(&(Some(FolderId::new(1)), 7)), "{with:?}");
     assert!(sections.get(folder(1)).unwrap().photos.contains(&PhotoId::new(1000)));
 }
 

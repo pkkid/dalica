@@ -3,7 +3,9 @@
 //! - `select.set`: photos by id: `replace`, `toggle` (Ctrl-click) or `range` (Shift-click: from the
 //!   anchor to the one id given, inside its section). A script may select photos of several
 //!   folders with `replace` or `toggle` (the selection then has no section); the gestures and every
-//!   other command keep it inside one section.
+//!   other command keep it inside one section. `section` names the section the photos are selected
+//!   in: a photo of an album is also shown in the album's section, and a click there selects it in
+//!   the album (`thumb:<PhotoId>/in/<album>`).
 //! - `select.none` (Ctrl+D); `select.all` (Ctrl+A), `select.invert` (Ctrl+I) and `select.starred`
 //!   in the current section or the one named; `select.section`: a whole section as a unit (the
 //!   tree's rows).
@@ -68,7 +70,7 @@ pub const COMMANDS: &[UiCommand] = &[
         label: "Select",
         menu: "",
         keys: &[],
-        params: r#"{"ids": [PhotoId], "mode": "replace" | "toggle" | "range" = "replace"}: range = from the anchor to the one id given, inside its section"#,
+        params: r#"{"ids": [PhotoId], "mode": "replace" | "toggle" | "range" = "replace", "section"?: "folder:<FolderId>" | "album:<AlbumId>" | "album:starred" | "album:search"}: range = from the anchor to the one id given, inside its section; section = the light-table section the photos are selected in (default: the folder they share)"#,
         run: select_set,
     },
     UiCommand {
@@ -133,6 +135,8 @@ struct SelectSet {
     ids: Vec<PhotoId>,
     #[serde(default)]
     mode: Mode,
+    #[serde(default)]
+    section: Option<Section>,
 }
 
 fn select_set(app: &mut App, params: &Value) -> Result<Value, CmdError> {
@@ -151,7 +155,7 @@ fn select_set(app: &mut App, params: &Value) -> Result<Value, CmdError> {
                 return Err(CmdError::BadParams("a range takes exactly one id: the end it runs to from the anchor".into()));
             };
             let table = Table::of(app).ok_or_else(|| CmdError::NotFound(format!("no photo {to}")))?;
-            match table.section_of(to).and_then(|s| table.scope(s)) {
+            match p.section.or_else(|| table.section_of(to)).and_then(|s| table.scope(s)) {
                 Some(scope) => selection::shift_click(&app.state().selection, &scope, to),
                 None => loose(vec![to], Some(to), &folder),
             }
@@ -177,9 +181,25 @@ fn select_set(app: &mut App, params: &Value) -> Result<Value, CmdError> {
             loose(ids, anchor, &folder)
         }
     };
+    let sel = match p.section {
+        Some(section) => in_named_section(app, sel, section)?,
+        None => sel,
+    };
     let state = app.state_mut();
     selection::commit(state, sel);
     Ok(json!({ "selection": state.selection.ids }))
+}
+
+/// `sel` as a selection in `section`: the light table must show the section and every photo of
+/// `sel` in it (`not_found` otherwise).
+fn in_named_section(app: &App, mut sel: Selection, section: Section) -> Result<Selection, CmdError> {
+    let table = Table::of(app).ok_or_else(opening)?;
+    let scope = table.scope(section).ok_or_else(|| CmdError::NotFound(format!("no section {section} on the light table")))?;
+    if let Some(id) = sel.ids.iter().find(|id| scope.index(**id).is_none()) {
+        return Err(CmdError::NotFound(format!("photo {id} is not in {section}")));
+    }
+    sel.section = (!sel.ids.is_empty()).then_some(section);
+    Ok(sel)
 }
 
 /// A selection of `ids` as a script gave them: its section is the folder they all share, if any.

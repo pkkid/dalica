@@ -13,6 +13,6 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
     // The region's whole row (the ui given here is inset for the menus): the caption buttons sit
     // flush in its corner.
     let bar = ui.clip_rect();
-    let section = app.state().folder.and_then(|f| p.sections.list.iter().find(|s| s.folder == f)).map(|s| s.title.clone());
+    let section = app.state().folder.and_then(|f| p.sections.list.iter().find(|s| s.folder == Some(f))).map(|s| s.title.clone());
     crate::titlebar::show(ui, app, bar, section.as_deref());
 }

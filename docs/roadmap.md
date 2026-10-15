@@ -4189,7 +4189,7 @@ mid-run.
     no file whose digest is cached (counted); Cancel stops it; the owner thread made no `fs` call;
     each command's contract and graceful failures; `panic_hunt` green; the time for 10 k photos
     printed.
-- ⬜ **M9.17 `ui`: albums in the tree, album sections, Album Properties and the Album menu**
+- ✅ **M9.17 `ui`: albums in the tree, album sections, Album Properties and the Album menu**
   - after: M9.4, M9.5, M9.10
   - files: `crates/ui/src/panels/folders/model.rs`, `crates/ui/src/panels/folders/paint.rs`, `crates/ui/src/panels/light_table/header.rs`, `crates/ui/src/commands/albums.rs`, `crates/ui/src/dialogs/album_properties.rs`, `crates/ui/tests/albums_tree.rs`, `crates/ui/tests/album_properties.rs`, `crates/ui/tests/section_header.rs`, `crates/ui/tests/fingerprints/region-tree-albums-*.json`, `crates/ui/tests/fingerprints/region-header-album-*.json`, `crates/ui/tests/fingerprints/dialog-album-properties-*.json`
   - scope: `organizing.md` §4, `ui-layout.md` §4 and §5.2: the Albums group's rows (M9.5's icons,

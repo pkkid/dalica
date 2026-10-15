@@ -5,15 +5,25 @@
 //! Projects group (an export folder) has the project icon (`OutputIcon::Project`, a briefcase) in
 //! place of the folder.
 //!
+//! An album row has the album icon: the book (`Icon::Album`) for a user album, `AlbumIcon`'s
+//! Starred, Recent and Search books for Starred Photos, Recently Updated and the search results.
+//! The search results' row is highlighted with the `filter_banner` fill (the search banner's
+//! colour) while it is not the selected row. In search mode a group header shows a magnifier in
+//! place of its disclosure triangle ([`search_header`]), otherwise as ui-kit's `section_header`.
+//!
 //! An offline row (under a watched root whose volume is offline, `data-model.md` §7) is dimmed —
 //! its icon, name and count in `text_disabled` — and carries the "offline" marker at its right end,
 //! 11 pt in `caution` (`design-system.md` §2); the name gives way to it.
 
-use dalica_ui_kit::icons::{self, Icon, OutputIcon};
+use dalica_ui_kit::icons::{self, AlbumIcon, Icon, OutputIcon};
+use dalica_ui_kit::registry::Role;
+use dalica_ui_kit::widgets::{self, Target};
 use dalica_ui_kit::{Tokens, fonts};
-use egui::{FontId, Painter, Rect, pos2, vec2};
+use egui::text::{LayoutJob, TextWrapping};
+use egui::{FontId, Id, Painter, Rect, Response, Sense, Ui, pos2, vec2};
 
 use super::model::{OFFLINE, Row};
+use crate::state::AlbumSection;
 
 /// Where a row's disclosure triangle is centred and where its icon starts, before the indent.
 const DISCLOSURE_X: f32 = 12.0;
@@ -75,6 +85,10 @@ pub fn elide_middle(painter: &Painter, text: &str, font: &FontId, max_w: f32) ->
 
 /// Paints `row` in `rect`.
 pub fn row(painter: &Painter, t: &Tokens, rect: Rect, row: &Row, look: Look, tree_mode: bool) {
+    let search_album = row.album == Some(AlbumSection::Search);
+    if search_album && !look.selected {
+        painter.rect_filled(rect, 0, t.filter_banner);
+    }
     if look.selected {
         painter.rect_filled(rect, 0, t.canvas);
         if look.focused {
@@ -96,10 +110,13 @@ pub fn row(painter: &Painter, t: &Tokens, rect: Rect, row: &Row, look: Look, tre
     } else {
         (t.icon, if look.selected { t.text } else { t.text_label }, t.text_dim)
     };
-    if row.project {
-        icons::paint_output(painter, icon, OutputIcon::Project, icon_color);
-    } else {
-        icons::paint(painter, icon, Icon::Folder, icon_color);
+    match row.album {
+        Some(AlbumSection::User(_)) => icons::paint(painter, icon, Icon::Album, icon_color),
+        Some(AlbumSection::Starred) => icons::paint_album(painter, icon, AlbumIcon::Starred, icon_color),
+        Some(AlbumSection::Recent) => icons::paint_album(painter, icon, AlbumIcon::Recent, icon_color),
+        Some(AlbumSection::Search) => icons::paint_album(painter, icon, AlbumIcon::Search, icon_color),
+        None if row.project => icons::paint_output(painter, icon, OutputIcon::Project, icon_color),
+        None => icons::paint(painter, icon, Icon::Folder, icon_color),
     }
     // The "offline" marker at the right end; the count right after the name; the name gives way,
     // elided in the middle.
@@ -120,6 +137,31 @@ pub fn row(painter: &Painter, t: &Tokens, rect: Rect, row: &Row, look: Look, tre
     let name_w = name.size().x;
     painter.galley(pos2(x, rect.center().y - name.size().y / 2.0).round(), name, name_color);
     painter.galley(pos2(x + name_w + COUNT_GAP, rect.center().y - count.size().y / 2.0).round(), count, count_color);
+}
+
+/// A group header in search mode, `rect` (30 high, the pane's width): as ui-kit's `section_header`
+/// (no fill at rest, `hover × 0.5` hovered, `pressed × 0.6` held, the SemiBold 13 title in
+/// `text_label`, `text` hovered) with a 12 pt magnifier where the disclosure triangle goes. A click
+/// still folds the group. Registered as `id`, a toggle whose active state is `open`.
+pub fn search_header(ui: &mut Ui, t: &Tokens, id: &str, title: &str, open: bool, rect: Rect) -> Response {
+    let r = ui.interact(rect, Id::new(id), Sense::click());
+    let p = ui.painter();
+    if r.is_pointer_button_down_on() {
+        p.rect_filled(rect, t.radius, t.pressed.gamma_multiply(0.6));
+    } else if r.hovered() {
+        p.rect_filled(rect, t.radius, t.hover.gamma_multiply(0.5));
+    }
+    let (glyph, text) = if r.hovered() { (t.text, t.text) } else { (t.icon, t.text_label) };
+    let mark = Rect::from_center_size(pos2(rect.min.x + DISCLOSURE_X, rect.center().y), vec2(t.metrics.icon_badge, t.metrics.icon_badge));
+    icons::paint(p, mark, Icon::Search, glyph);
+    let x = rect.min.x + ICON_LEFT;
+    let mut job = LayoutJob::simple_singleline(title.to_owned(), fonts::semibold(t.body), text);
+    job.wrap = TextWrapping::truncate_at_width((rect.max.x - x - 6.0).max(1.0));
+    let galley = p.layout_job(job);
+    p.galley(pos2(x, rect.center().y - galley.size().y / 2.0).round(), galley, text);
+    widgets::focus_ring(p, t, &r, rect, t.radius);
+    widgets::register(ui.ctx(), id, Role::Toggle, title, Target::Widget(&r), open);
+    r
 }
 
 /// Paints a year divider in `rect`.

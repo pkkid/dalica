@@ -1,19 +1,25 @@
 //! The tree pane's rows as laid out (`ui-layout.md` §4): a pure function of a
-//! [`dalica_library::Tree`] and the row heights, built once per tree and read every frame.
+//! [`dalica_library::Tree`], its Albums group ([`dalica_library::AlbumTree`]) and the row heights,
+//! built once per tree and read every frame.
 //!
-//! - **Items** stack from the top: a group header (30) per group, then its rows: folder and
-//!   directory rows (24) and, in flat mode sorted by date, year dividers (18). Each item knows its
+//! - **Items** stack from the top: a group header (30) per group, then its rows: album rows (24:
+//!   the search results while searching, Starred Photos, Recently Updated, then the user albums),
+//!   folder and directory rows (24) and, in flat mode sorted by date, year dividers (18). The
+//!   Albums group comes first, when it has rows. Each item knows its
 //!   content offset, so the rows a frame draws are found by binary search ([`Model::visible`]): a
 //!   frame's work is the rows on screen, never the library's.
 //! - **Docked headers:** the collapsed groups after the last open one ([`Model::docked`]) sit at the
 //!   bottom of the pane while everything fits in it, and follow the list once it is taller.
-//! - **Ids** (`control-protocol.md` §7): `tree:group:<group>`, `tree:folder:<FolderId>` for a
-//!   library folder's row, and for a directory between a watched root and its folders (no library
+//! - **Ids** (`control-protocol.md` §7): `tree:group:<group>`, `tree:album:<AlbumId>` for a user
+//!   album's row (`tree:album:starred`, `tree:album:recent`, `tree:album:search` for the automatic
+//!   ones), `tree:folder:<FolderId>` for a library folder's row, and for a directory between a watched root and its folders (no library
 //!   folder of its own) `tree:dir:<hash>`, sixteen hex digits of the FNV-1a hash of its path
 //!   ([`dir_id`]); their disclosure triangles `tree:disclosure:<FolderId>` and
 //!   `tree:disclosure:dir:<hash>`.
 //! - **Moving** ([`Model::step`]): ↑/↓ go to the previous or next row that has a section (a row
-//!   with photos); directories and empty folders are passed over.
+//!   with photos); directories, empty folders and empty albums are passed over.
+//! - **Search mode** ([`Model::search`]): the group headers show a magnifier in place of their
+//!   disclosure triangle, and the search album's row is highlighted.
 //! - **Projects:** the rows of the Projects group (the folders an export made, marked Exported
 //!   wherever they are, and the folders under the projects directory) are flagged
 //!   [`Row::project`], so they are drawn with the project icon.
@@ -26,9 +32,10 @@ use std::ops::Range;
 use std::path::{Path, PathBuf};
 
 use dalica_core::FolderId;
-use dalica_library::{Group, Row as TreeRow, Tree, TreeMode};
+use dalica_library::{AlbumTree, Group, Row as TreeRow, Tree, TreeMode};
 
-use crate::state::Section;
+use crate::panels::light_table::album_section;
+use crate::state::{AlbumSection, Section};
 
 /// The heights of the pane's items and the indent per tree level (`design-system.md` §4).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -52,11 +59,13 @@ impl Heights {
     }
 }
 
-/// A folder or directory row.
+/// A folder, directory or album row.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Row {
-    /// The library folder, `None` for a directory that is not one.
+    /// The library folder, `None` for a directory that is not one and for an album.
     pub folder: Option<FolderId>,
+    /// The album of an album row.
+    pub album: Option<AlbumSection>,
     pub path: PathBuf,
     pub name: String,
     /// Photos shown directly in it.
@@ -122,8 +131,12 @@ pub struct Model {
     /// there are none): they dock at the bottom of the pane while the content fits.
     pub docked: usize,
     pub mode: TreeMode,
+    /// Search mode: the headers show a magnifier, the search album's row is highlighted.
+    pub search: bool,
     /// Each library folder's row.
     by_folder: HashMap<FolderId, usize>,
+    /// Each row's section.
+    by_section: HashMap<Section, usize>,
 }
 
 /// A group's name in its header.
@@ -161,13 +174,44 @@ pub fn dir_id(path: &Path) -> String {
 impl Model {
     /// The items of `tree` with heights `h`.
     pub fn build(tree: &Tree, h: Heights) -> Model {
-        let mut items = Vec::with_capacity(tree.groups.iter().map(|g| g.rows.len() + 1).sum());
+        Model::with_albums(tree, &AlbumTree::default(), false, h)
+    }
+
+    /// The items of `albums` (the Albums group, first) and `tree` with heights `h`; `search`: in
+    /// search mode.
+    pub fn with_albums(tree: &Tree, albums: &AlbumTree, search: bool, h: Heights) -> Model {
+        let rows = albums.rows.len() + tree.groups.iter().map(|g| g.rows.len() + 1).sum::<usize>();
+        let mut items = Vec::with_capacity(rows + 1);
         let mut by_folder = HashMap::new();
         let mut y = 0.0f32;
         let mut push = |items: &mut Vec<Item>, kind: Kind, height: f32| {
             items.push(Item { kind, top: y, height });
             y += height;
         };
+        if albums.count > 0 {
+            let header = Kind::Header { group: Group::Albums, title: group_title(Group::Albums, albums.count), collapsed: albums.collapsed };
+            push(&mut items, header, h.header);
+            for a in &albums.rows {
+                let album = album_section(&a.album);
+                let id = format!("tree:album:{}", a.album);
+                let row = Row {
+                    folder: None,
+                    album: Some(album),
+                    path: PathBuf::new(),
+                    name: a.name.clone(),
+                    count: a.count,
+                    depth: 0,
+                    has_children: false,
+                    expanded: false,
+                    section: a.section().map(|_| Section::Album(album)),
+                    id,
+                    disclosure: None,
+                    offline: false,
+                    project: false,
+                };
+                push(&mut items, Kind::Row(row), h.row);
+            }
+        }
         for g in &tree.groups {
             push(&mut items, Kind::Header { group: g.group, title: group_title(g.group, g.count), collapsed: g.collapsed }, h.header);
             for r in &g.rows {
@@ -187,6 +231,7 @@ impl Model {
                         }
                         let row = Row {
                             folder: f.folder,
+                            album: None,
                             path: f.path.clone(),
                             name: f.name.clone(),
                             count: f.count,
@@ -209,7 +254,9 @@ impl Model {
         while docked > 0 && matches!(items.get(docked - 1), Some(Item { kind: Kind::Header { collapsed: true, .. }, .. })) {
             docked -= 1;
         }
-        Model { items, height: y, docked, mode: tree.mode, by_folder }
+        let by_section =
+            items.iter().enumerate().filter_map(|(i, it)| if let Kind::Row(r) = &it.kind { r.section.map(|s| (s, i)) } else { None }).collect();
+        Model { items, height: y, docked, mode: tree.mode, search, by_folder, by_section }
     }
 
     /// Marks the rows `is_offline` says are under an offline root (`TreeOptions::is_offline`);
@@ -261,6 +308,11 @@ impl Model {
     /// The item of `folder`'s row, if it is shown.
     pub fn row_of(&self, folder: FolderId) -> Option<usize> {
         self.by_folder.get(&folder).copied()
+    }
+
+    /// The item of the row that scrolls to `section` (a folder's or an album's), if it is shown.
+    pub fn row_of_section(&self, section: Section) -> Option<usize> {
+        self.by_section.get(&section).copied()
     }
 
     pub fn row(&self, i: usize) -> Option<&Row> {

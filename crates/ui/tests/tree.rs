@@ -23,7 +23,7 @@ use dalica_engine::synthetic::{self, Spec};
 use dalica_library::Library;
 use dalica_ui::panels::folders::{self, model::Kind};
 use dalica_ui::panels::light_table::FrameInfo;
-use dalica_ui::state::{Group, Section};
+use dalica_ui::state::{AlbumSection, Group, Section};
 use dalica_ui::{App, Driver};
 use dalica_ui_kit::registry::Role;
 use serde_json::json;
@@ -96,6 +96,11 @@ fn items(d: &Driver) -> Vec<String> {
         })
         .collect()
 }
+
+/// The Albums group's rows of the synthetic fixtures, which star some photos: Starred Photos
+/// (`organizing.md` §4.1; Recently Updated waits for the M9 review,
+/// `light_table::SHOW_RECENTLY_UPDATED`).
+const ALBUM_ROWS: [&str; 1] = ["tree:album:starred"];
 
 /// The tree rows registered last frame, top to bottom.
 fn row_widgets(d: &Driver) -> Vec<dalica_ui_kit::WidgetInfo> {
@@ -229,7 +234,8 @@ fn rows_and_their_order_in_both_modes_and_every_sort() {
                 }
                 d.settle(FRAMES).unwrap();
                 let case = format!("{mode} {sort} reverse={reverse}");
-                let want = if mode == "flat" { expected_flat(&lib, sort, reverse) } else { expected_tree(&lib, &root, sort, reverse) };
+                let folders = if mode == "flat" { expected_flat(&lib, sort, reverse) } else { expected_tree(&lib, &root, sort, reverse) };
+                let want: Vec<String> = ALBUM_ROWS.iter().map(|r| r.to_string()).chain(folders).collect();
                 let got = items(&d);
                 assert_eq!(got, want, "{case}");
                 if mode == "tree" || sort != "date" {
@@ -241,8 +247,13 @@ fn rows_and_their_order_in_both_modes_and_every_sort() {
                 let ids: Vec<&str> = rows.iter().map(|w| w.id.as_str()).collect();
                 let model_rows: Vec<&str> = got.iter().filter(|t| !t.starts_with("year:")).map(String::as_str).collect();
                 assert_eq!(ids, model_rows, "{case}: every row fits and is drawn");
+                // The Albums header, its rows, the Folders header, then the folders' rows.
                 let mut y = tree_rect[1] + 30.0;
-                for t in &got {
+                for (i, t) in got.iter().enumerate() {
+                    if i == ALBUM_ROWS.len() {
+                        assert_eq!(widget(&d, "tree:group:folders").rect, [tree_rect[0], y, tree_rect[2], 30.0], "{case}");
+                        y += 30.0;
+                    }
                     if t.starts_with("year:") {
                         y += 18.0;
                         continue;
@@ -251,16 +262,18 @@ fn rows_and_their_order_in_both_modes_and_every_sort() {
                     assert_eq!(w.rect, [tree_rect[0], y, tree_rect[2], 24.0], "{case}: {t}");
                     y += 24.0;
                 }
-                assert_eq!(widget(&d, "tree:group:folders").rect, [tree_rect[0], tree_rect[1], tree_rect[2], 30.0], "{case}");
+                assert_eq!(widget(&d, "tree:group:albums").rect, [tree_rect[0], tree_rect[1], tree_rect[2], 30.0], "{case}");
                 assert_eq!(folders::info(d.ctx()).rows_visited, got.len(), "{case}: rows and dividers laid out");
 
                 if sort == "date" && !reverse {
                     save(&d, &format!("tree-{mode}-1400x900"));
                 }
 
-                // The light table shows the folders' sections in the same order.
+                // The light table shows the sections in the same order: Starred Photos, then the
+                // folders.
                 let order: Vec<String> = sections(&d).iter().map(|s| format!("tree:{s}")).collect();
-                assert_eq!(order, model_rows.iter().filter(|t| t.starts_with("tree:folder:")).map(|t| t.to_string()).collect::<Vec<_>>(), "{case}");
+                let with_sections = |t: &&&str| t.starts_with("tree:folder:") || **t == "tree:album:starred";
+                assert_eq!(order, model_rows.iter().filter(with_sections).map(|t| t.to_string()).collect::<Vec<_>>(), "{case}");
 
                 // The toolbar's Flat | Tree pair and the popup's sort rows read the view state.
                 assert_eq!(widget(&d, "button:tree.tree").active, mode == "tree", "{case}");
@@ -351,23 +364,24 @@ fn collapsing_folders_removes_its_sections_and_docks_its_header() {
     let dir = tempfile::tempdir().unwrap();
     let mut d = synthetic_driver(dir.path(), &Spec::new(60, 5, synthetic::SEED), (1400, 900));
     let before = sections(&d);
-    assert_eq!(before.len(), 5);
+    assert_eq!(before.len(), 6, "Starred Photos and five folders: {before:?}");
     let tree = region(&d, "tree");
     d.click("tree:group:folders").unwrap();
     d.settle(FRAMES).unwrap();
     assert_eq!(d.state().collapsed_groups, [Group::Folders]);
-    assert_eq!(sections(&d), [], "its sections leave the light table");
-    assert!(row_widgets(&d).is_empty(), "and its rows the pane");
+    assert_eq!(sections(&d), [Section::Album(AlbumSection::Starred)], "its sections leave the light table");
+    let rows: Vec<String> = row_widgets(&d).into_iter().map(|w| w.id).collect();
+    assert_eq!(rows, ALBUM_ROWS, "and its rows the pane");
     let header = widget(&d, "tree:group:folders");
     assert!(!header.active);
     assert_eq!(header.rect, [tree[0], tree[1] + tree[3] - 30.0, tree[2], 30.0], "docked at the bottom");
     assert_eq!(header.label, "Folders (5)", "the count stays");
-    assert_eq!(folders::info(d.ctx()).rows_visited, 0);
+    assert_eq!(folders::info(d.ctx()).rows_visited, ALBUM_ROWS.len(), "the albums' rows only");
     save(&d, "tree-folders-collapsed-1400x900");
     d.click("tree:group:folders").unwrap();
     d.settle(FRAMES).unwrap();
     assert_eq!(sections(&d), before);
-    assert_eq!(widget(&d, "tree:group:folders").rect, [tree[0], tree[1], tree[2], 30.0]);
+    assert_eq!(widget(&d, "tree:group:folders").rect, [tree[0], tree[1] + 30.0 + 24.0 * ALBUM_ROWS.len() as f32, tree[2], 30.0]);
 }
 
 /// The arrows of the focused pane (and the lead's condition for touching the shortcut dispatch):

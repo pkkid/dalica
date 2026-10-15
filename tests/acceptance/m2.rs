@@ -172,7 +172,7 @@ impl Client {
     fn star_badges(&mut self) -> Vec<String> {
         let widgets = self.ok("ui.widgets", json!({ "filter": "/star" }));
         let ids = widgets.as_array().unwrap().iter().filter_map(|w| w["id"].as_str()).map(str::to_string);
-        ids.filter(|id| id.starts_with("thumb:")).collect()
+        ids.filter(|id| id.starts_with("thumb:") && id.ends_with("/star")).collect()
     }
 }
 
@@ -242,7 +242,8 @@ fn agent_eyes() {
     let key = ms(t);
     assert_eq!(c.photo_1()["star"], true, "Ctrl+8 starred the clicked photo");
     c.ok("ui.settle", json!({ "timeoutMs": 30000 }));
-    assert_eq!(c.star_badges(), ["thumb:1/star"], "exactly photo 1's star badge is drawn");
+    // Its cell in its folder and its copy in Starred Photos, first on the light table (M9.17).
+    assert_eq!(c.star_badges(), ["thumb:1/in/starred/star", "thumb:1/star"], "exactly photo 1's star badges are drawn");
     let end = Instant::now() + Duration::from_secs(30);
     while starred_in_sidecar(&photo_path) != Some(true) {
         assert!(Instant::now() < end, "the star never reached {}", photo_path.with_file_name(".dalica.json").display());

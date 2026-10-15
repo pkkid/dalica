@@ -1,17 +1,21 @@
 //! The library tree pane (`ui-layout.md` §4), left of the light table and as wide as the splitter
 //! leaves it (200 … W − 480).
 //!
-//! - **What it shows** is [`dalica_library::Tree`] for the view state (Flat | Tree, the folder
+//! - **What it shows** is the Albums group ([`dalica_library::AlbumTree`]: album rows with their
+//!   icons, names and counts, the search results first and highlighted while searching), then
+//!   [`dalica_library::Tree`] for the view state (Flat | Tree, the folder
 //!   sort, the collapsed groups and tree folders, Small and Hidden Pictures), laid out by
 //!   [`model::Model`]: group headers (30, disclosure, title with the count), folder rows (24: the
 //!   disclosure triangle in tree mode, indented 16 per level, the folder icon, the name elided in
 //!   the middle, the count in `text_dim`) and year dividers (18). The model is rebuilt only when the
 //!   library's revision, the watched roots or those options change; a frame lays out and paints
 //!   the rows on screen only, so its work does not grow with the library.
-//! - **Clicks:** a row with photos selects its folder as a unit (what `select.section` does) and
-//!   scrolls the light table to its section (`section.scrollTo`, through [`Panels::scroll_to`]);
-//!   a row without photos folds or unfolds its children. A double-click on a library folder's row
-//!   opens its Folder Properties (`section.properties`). A header runs `view.groupCollapse` (its
+//! - **Clicks:** a row with photos selects its folder or album as a unit (what `select.section`
+//!   does) and scrolls the light table to its section (`section.scrollTo`, through
+//!   [`Panels::scroll_to`]); a row without photos folds or unfolds its children. A double-click on
+//!   a library folder's row opens its Folder Properties, on a user album's its Album Properties
+//!   (`section.properties`). The selected row is the album the selection is in, else the folder
+//!   selected. In search mode the group headers show a magnifier in place of their triangle. A header runs `view.groupCollapse` (its
 //!   sections leave the light table); a disclosure triangle `view.folderCollapse`.
 //! - **Hidden folders** (Hide Folder): with View ▸ Hidden Pictures off they leave the tree and
 //!   their sections leave the light table; with it on, flat mode lists them in the Hidden Folders
@@ -48,7 +52,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use dalica_core::FolderId;
-use dalica_library::{Group, Tree, TreeMode, TreeOptions};
+use dalica_library::{AlbumTree, Group, Tree, TreeMode, TreeOptions};
 use dalica_ui_kit::registry::Role;
 use dalica_ui_kit::widgets::{self, Target};
 use egui::{Context, Id, Modifiers, Rect, Sense, Ui, UiBuilder, pos2, vec2};
@@ -59,7 +63,7 @@ use super::{Panels, light_table};
 use crate::app::App;
 use crate::perf::{self, Counter};
 use crate::selection::{self, Scope};
-use crate::state::Section;
+use crate::state::{AlbumSection, Section};
 
 /// What the pane's tree was built from: the library's revision, the watched roots, the view
 /// state's tree options and folded folders, the pane's folded directories, the row heights.
@@ -120,7 +124,7 @@ enum Action {
     Fold(usize, Option<bool>),
     /// Fold or unfold a group.
     Group(Group),
-    /// Open item `i`'s Folder Properties.
+    /// Open item `i`'s Folder or Album Properties.
     Properties(usize),
 }
 
@@ -185,7 +189,8 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
         options.collapsed_folders =
             key.folded.iter().filter_map(|id| library.folder(*id)).map(|f| f.path.clone()).chain(key.dirs.iter().cloned()).collect();
         let tree = Tree::build(library, &key.roots, &options);
-        let mut model = Model::build(&tree, heights);
+        let albums = AlbumTree::build(library, &options);
+        let mut model = Model::with_albums(&tree, &albums, options.filter.is_some(), heights);
         if !options.offline_roots.is_empty() {
             model.mark_offline(|path| options.is_offline(path));
         }
@@ -222,7 +227,8 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
                 })
                 .collect()
         });
-        let mut cursor = state.folder.and_then(|f| model.row_of(f));
+        let mut cursor =
+            selected_album(state).and_then(|a| model.row_of_section(Section::Album(a))).or_else(|| state.folder.and_then(|f| model.row_of(f)));
         for k in keys {
             match k {
                 egui::Key::ArrowDown | egui::Key::ArrowUp => {
@@ -267,14 +273,21 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
     // The items on screen.
     let painter = ui.painter().clone();
     let selected_folder = state.folder;
+    let selected_album = selected_album(state);
     let mut visited = 0usize;
     for i in model.visible(pane.offset, view_h) {
         let (Some(item), Some(top)) = (model.items.get(i), model.screen_top(i, pane.offset, view_h)) else { continue };
         let r = Rect::from_min_size(pos2(rows.min.x, rows.min.y + top), vec2(rows.width(), item.height));
         match &item.kind {
             Kind::Header { group, title, collapsed } => {
-                let mut child = ui.new_child(UiBuilder::new().id_salt(("tree-header", group.id())).max_rect(r));
-                if widgets::section_header(&mut child, &t, &format!("tree:group:{}", group.id()), title, !collapsed).clicked() {
+                let id = format!("tree:group:{}", group.id());
+                let clicked = if model.search {
+                    paint::search_header(ui, &t, &id, title, !collapsed, r).clicked()
+                } else {
+                    let mut child = ui.new_child(UiBuilder::new().id_salt(("tree-header", group.id())).max_rect(r));
+                    widgets::section_header(&mut child, &t, &id, title, !collapsed).clicked()
+                };
+                if clicked {
                     actions.push(Action::Group(*group));
                 }
             }
@@ -285,7 +298,10 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
             Kind::Row(row) => {
                 visited += 1;
                 let response = ui.interact(r, Id::new(("tree-row", &row.id)), Sense::click());
-                let selected = row.folder.is_some() && row.folder == selected_folder;
+                let selected = match row.album {
+                    Some(album) => selected_album == Some(album),
+                    None => selected_album.is_none() && row.folder.is_some() && row.folder == selected_folder,
+                };
                 let look = paint::Look { selected, hovered: response.hovered(), focused, indent: heights.indent };
                 paint::row(&painter, &t, r, row, look, tree_mode);
                 widgets::register(&ctx, &row.id, Role::TreeRow, &row.label(), Target::Widget(&response), selected);
@@ -308,7 +324,7 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
                     }
                 }
                 // The second click of a double-click also selects (as the first did), then opens.
-                if response.double_clicked() && !folded && row.folder.is_some() {
+                if response.double_clicked() && !folded && (row.folder.is_some() || matches!(row.album, Some(AlbumSection::User(_)))) {
                     actions.push(Action::Properties(i));
                 }
             }
@@ -367,21 +383,35 @@ fn apply(p: &mut Panels, app: &mut App, pane: &mut Pane, model: &Model, action: 
             }
         }
         Action::Select(i) => {
-            let Some(Section::Folder(folder)) = model.row(i).and_then(|r| r.section) else { return };
-            select_folder(p, app, folder);
+            let Some(section) = model.row(i).and_then(|r| r.section) else { return };
+            select_section(p, app, section);
         }
         Action::Properties(i) => {
-            let Some(folder) = model.row(i).and_then(|r| r.folder) else { return };
+            let Some(row) = model.row(i) else { return };
             // A refusal (no library) lands on the status line.
-            let _ = app.run("section.properties", &json!({ "folder": folder }));
+            if let Some(folder) = row.folder {
+                let _ = app.run("section.properties", &json!({ "folder": folder }));
+            } else if let Some(section @ Section::Album(AlbumSection::User(_))) = row.section {
+                // Album Properties is the selected album's: the double-click's first click selected
+                // it, and selecting it again here keeps that true whatever ran in between.
+                select_section(p, app, section);
+                let _ = app.run("section.properties", &json!({}));
+            }
         }
     }
 }
 
-/// Selects `folder`'s section as a unit, as `select.section` does, and asks the light table to
-/// scroll to it. The panels' sections are this frame's, so nothing is rebuilt for it.
-fn select_folder(p: &mut Panels, app: &mut App, folder: FolderId) {
-    let section = Section::Folder(folder);
+/// The album section the selection is in, if any: its tree row is the selected one.
+fn selected_album(state: &crate::state::UiState) -> Option<AlbumSection> {
+    match state.selection.section {
+        Some(Section::Album(a)) => Some(a),
+        _ => None,
+    }
+}
+
+/// Selects `section` (a folder's or an album's) as a unit, as `select.section` does, and asks the
+/// light table to scroll to it. The panels' sections are this frame's, so nothing is rebuilt for it.
+fn select_section(p: &mut Panels, app: &mut App, section: Section) {
     match p.sections.get(section) {
         Some(s) => {
             let scope = Scope { section, folder: s.folder, photos: &s.photos, cols: 1 };
@@ -394,5 +424,14 @@ fn select_folder(p: &mut Panels, app: &mut App, folder: FolderId) {
             }
         }
     }
-    p.scroll_to = Some(0.0);
+    match section {
+        // The panels scroll to the tree's folder once the pane is drawn.
+        Section::Folder(_) => p.scroll_to = Some(0.0),
+        // An album's section, which this frame's sections hold: the light table eases there, as
+        // `section.scrollTo` asks (the command waits for the panels, which are drawing now).
+        Section::Album(_) if p.sections.get(section).is_some() => {
+            app.state_mut().scroll = crate::state::ScrollAnchor { section: Some(section), offset: 0.0 };
+        }
+        Section::Album(_) => {}
+    }
 }

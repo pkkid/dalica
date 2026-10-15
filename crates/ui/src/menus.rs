@@ -283,7 +283,8 @@ fn nodes(facts: &Facts<'_>, entries: &'static [Entry], path: &str) -> Vec<Node> 
 
 /// The parameters a click on the row passes to `id`: its fixed ones, plus the selection when the
 /// command takes `ids`, or the [current folder](current_folder) as `id` for [`FOLDER_COMMANDS`],
-/// or in the edit view the open photo as `id` for Edit ▸ Undo / Redo.
+/// in an album the album for Delete Album… and its section for Sort Album By, or in the edit view
+/// the open photo as `id` for Edit ▸ Undo / Redo.
 pub fn params_for(app: &App, id: &str, fixed: &Value) -> Value {
     let mut obj: Map<String, Value> = match crate::keys::params_for(app, id) {
         Value::Object(o) => o,
@@ -293,6 +294,20 @@ pub fn params_for(app: &App, id: &str, fixed: &Value) -> Value {
         && let Some(folder) = current_folder(app)
     {
         obj.insert("id".into(), folder.get().into());
+    }
+    // The Album menu's rows act on the selected user album: Delete Album… names it, Sort Album By
+    // sorts its section rather than the selected photos' folders.
+    if let Some(album) = app.state().selection.section.and_then(crate::state::Section::user_album) {
+        match id {
+            "album.delete" => {
+                obj.insert("album".into(), album.as_str().into());
+            }
+            "section.sort" => {
+                obj.remove("ids");
+                obj.insert("section".into(), format!("album:{album}").into());
+            }
+            _ => {}
+        }
     }
     // In the edit view Edit ▸ Undo / Redo walk the open photo's history: its enabled state and
     // its run (`edit.undo {id}`) follow that history, never the library stack.

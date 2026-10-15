@@ -195,7 +195,9 @@ fn click_a_thumbnail_press_ctrl_8_and_the_badge_shows() {
     let cell = widgets.iter().find(|w| &w.id == target).unwrap();
     let inside = |r: [f32; 4], o: [f32; 4]| r[0] >= o[0] && r[1] >= o[1] && r[0] + r[2] <= o[0] + o[2] && r[1] + r[3] <= o[1] + o[3];
     assert!(inside(badge.rect, cell.rect), "badge {:?} inside cell {:?}", badge.rect, cell.rect);
-    assert_eq!(widgets.iter().filter(|w| w.id.starts_with("thumb:") && w.id.ends_with("/star")).count(), 1);
+    // Its cell in the folder, and its copy in Starred Photos (`thumb:<id>/in/starred`), above it.
+    let stars: Vec<&str> = widgets.iter().map(|w| w.id.as_str()).filter(|w| w.starts_with("thumb:") && w.ends_with("/star")).collect();
+    assert_eq!(stars, [format!("{target}/in/starred/star"), format!("{target}/star")], "{stars:?}");
 
     // The screenshot shows it: a light star glyph in the middle of the badge's dark plate.
     let shot = d.screenshot().unwrap();
@@ -233,7 +235,8 @@ fn the_star_button_toggles_the_selection() {
     let first = d.widgets().into_iter().find(|w| w.id.starts_with("thumb:")).unwrap();
     d.click(&first.id).unwrap();
     d.click("button:star").unwrap();
-    assert!(d.widgets().iter().any(|w| w.id == format!("{}/star", first.id)));
+    // Starred Photos shows it at the top of the light table, its badge on.
+    assert!(d.widgets().iter().any(|w| w.id == format!("{}/in/starred/star", first.id)));
     assert!(d.widgets().iter().any(|w| w.id == "button:star" && w.active));
     d.click("button:star").unwrap();
     assert!(!d.widgets().iter().any(|w| w.id.ends_with("/star") && w.id.starts_with("thumb:")));
