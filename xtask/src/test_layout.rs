@@ -21,6 +21,7 @@ use crate::tasks;
 /// Separate test targets allowed beside `all`: (package directory, test name, why).
 pub const SEPARATE: &[(&str, &str, &str)] = &[
     ("crates/engine", "fileops_faults", "re-execs its own binary per case and installs a process-wide logger"),
+    ("crates/engine", "undo_faults", "re-execs its own binary per case and installs a process-wide logger"),
     ("crates/image", "heif", "half of it needs the `heif` feature"),
     ("crates/image", "corpus", "needs the `corpus` feature and the fetched corpus"),
     ("crates/meta", "corpus", "needs the `corpus` feature and the fetched corpus"),

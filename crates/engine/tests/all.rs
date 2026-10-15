@@ -1,6 +1,7 @@
 //! The engine's integration tests, one binary: every file here is a module (`mod layout;` is
 //! `tests/layout.rs`), run one with `cargo test -p dalica-engine --test all <file>::`. Helpers they
-//! share are in `common.rs`. `fileops_faults.rs` is its own binary (it re-runs itself per case).
+//! share are in `common.rs`. `fileops_faults.rs` and `undo_faults.rs` are binaries of their own
+//! (each re-runs itself per case).
 
 mod common;
 
@@ -9,9 +10,11 @@ mod captions;
 mod crop_commands;
 mod dates;
 mod dates_undo_written;
+mod day_in_the_life;
 mod delete;
 mod duplicates;
 mod edited_thumbs;
+mod effects;
 mod execute_group;
 mod export;
 mod export_mixed;

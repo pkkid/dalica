@@ -5052,7 +5052,7 @@ No other step of M10 needs a maintainer decision mid-run.
   - done when: `cargo test -p dalica-fs -p dalica-store` passes quick; the kill tests run 50 times
     each with `DALICA_FULL_TESTS=1` and never find a torn file; each refusal leaves the folder
     byte-identical and names the reason.
-- ⬜ **M10.35 `engine`: undo under faults and a day in the life**
+- ✅ **M10.35 `engine`: undo under faults and a day in the life**
   - after: M9.R
   - files: `crates/engine/tests/undo_faults.rs`, `crates/engine/tests/day_in_the_life.rs`, `crates/engine/tests/effects.rs`, `crates/engine/tests/all.rs`
   - scope: undo and redo of a move, a rename and a delete interrupted at the file-job points
