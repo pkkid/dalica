@@ -4155,7 +4155,7 @@ mid-run.
     renamed watched folder its `folders.json` entry; names with `]`, `"`, `;`, `=`, non-ASCII and
     255 bytes round-trip (`data-model.md` §10.7); each command's contract and graceful failures;
     `panic_hunt` green.
-- ⬜ **M9.15 `engine`: delete to the trash, and move folders**
+- ✅ **M9.15 `engine`: delete to the trash, and move folders**
   - after: M9.9, M8.13
   - files: `crates/engine/src/cmd/delete.rs`, `crates/engine/src/cmd/folder_ops.rs`, `crates/engine/tests/delete.rs`, `crates/engine/tests/folder_move.rs`
   - scope: `organizing.md` §9 and `security.md` §5.7: `photo.delete {ids, confirm}` and
