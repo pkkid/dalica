@@ -45,7 +45,7 @@ pub(super) fn place(src: &Folder, name: &OsStr, expect: Identity, dest: &Folder,
     let first = stream(&mut input, &mut out, expect.size(), points::COPY_WRITE, &src.join(name), &tmp_path).map_err(cleanup)?;
     keep_attributes(&out, &entry, modified);
     faults::at(points::COPY_FSYNC, "fsync", &tmp_path).map_err(cleanup)?;
-    out.sync_all().map_err(|e| cleanup(io_err("fsync", &tmp_path)(e)))?;
+    faults::fsync(&tmp_path, || out.sync_all()).map_err(|e| cleanup(io_err("fsync", &tmp_path)(e)))?;
     flip_switch(&mut out, first, &tmp_path).map_err(cleanup)?;
     drop(out);
     // By name, not through the write-only handle (which may not read attributes on Windows).
@@ -153,7 +153,7 @@ pub(super) fn flip_switch(out: &mut File, first: Option<u8>, path: &Path) -> Res
                 Some(_) => out.seek(SeekFrom::Start(0)).and_then(|_| out.write_all(&[byte])),
                 None => out.write_all(&[byte]),
             };
-            r.and_then(|()| out.sync_all()).map_err(io_err("write", path))
+            r.and_then(|()| faults::fsync(path, || out.sync_all())).map_err(io_err("write", path))
         }
         Some(Fault::Crash) => Err(Error::Crashed(points::COPY_FLIP)),
         None => Ok(()),

@@ -164,7 +164,7 @@ impl PackFile {
     pub fn sync(&self) -> Result<()> {
         guard::check()?;
         fault_at(points::SYNC, "fsync", &self.path)?;
-        self.file.sync_data().map_err(io_err("fsync", &self.path))
+        faults::fsync(&self.path, || self.file.sync_data()).map_err(io_err("fsync", &self.path))
     }
 
     /// Cuts the file to `len` bytes (a torn tail); never grows it.
@@ -339,7 +339,7 @@ impl TempFile {
             Some(Fault::Crash) => return Err(self.crash(points::TEMP_SYNC)),
             None => {}
         }
-        file.sync_all().map_err(io_err("fsync", &self.tmp))?;
+        faults::fsync(&self.tmp, || file.sync_all()).map_err(io_err("fsync", &self.tmp))?;
         drop(file);
         match faults::hit(points::TEMP_RENAME) {
             Some(Fault::Error) => return Err(io_err("rename", &self.target)(faults::injected(points::TEMP_RENAME))),
@@ -395,7 +395,7 @@ fn random_hex() -> String {
 /// Makes a rename durable: `fsync` the folder on Unix (Windows journals renames itself).
 #[cfg(unix)]
 fn sync_dir(dir: &Path) -> Result<()> {
-    File::open(dir).and_then(|d| d.sync_all()).map_err(io_err("fsync", dir))
+    File::open(dir).and_then(|d| faults::fsync(dir, || d.sync_all())).map_err(io_err("fsync", dir))
 }
 
 #[cfg(not(unix))]

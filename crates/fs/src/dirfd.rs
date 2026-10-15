@@ -279,7 +279,7 @@ mod imp {
 
         /// Makes renames in the folder durable (`fsync` of the held handle).
         pub(crate) fn sync(&self) -> Result<()> {
-            self.handle.sync_all().map_err(io_err("fsync", &self.path))
+            crate::faults::fsync(&self.path, || self.handle.sync_all()).map_err(io_err("fsync", &self.path))
         }
 
         /// The names in the folder that pass `keep` (never `.` or `..`), read through the held

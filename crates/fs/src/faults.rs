@@ -14,6 +14,21 @@
 //! [`run_at`] plants a change instead of a failure: the hook runs when the calling thread next
 //! reaches the point, just before the step, so a test can swap a folder for a link at the exact
 //! moment between validation and write (`security.md` §5.6).
+//!
+//! **Test builds skip the slow, lasting effects of real I/O.** With the feature on in a debug build
+//! (every `cargo test`; never a release build, a bench or a budget, which keep the product's I/O):
+//!
+//! - **No real `fsync`.** Every `sync_all`/`sync_data` goes through [`fsync`], which skips the
+//!   system call unless the calling thread turned real syncing on with [`real_syncs`]. A simulated
+//!   [`Fault::Crash`] never drops the page cache, so a real sync adds no coverage, only time (a
+//!   pack or journal test on Windows or macOS spends most of its time there). The fault points at
+//!   the sync steps are still reached and an armed error still fails them. One `fs` test turns
+//!   real syncing on and checks every kind of sync works and comes in its order (the temporary
+//!   file, the rename, the folder), recorded by [`synced`].
+//! - **A stand-in trash** (`trash` module): `trash::send` and `trash::restore` use a folder of this
+//!   process under the system temporary folder instead of the OS trash, which the tests would
+//!   otherwise fill (and which costs seconds per item through the Windows shell). A test opts back
+//!   in to the OS trash with [`real_trash`].
 
 /// The fault points, in the order an atomic replace or an append reaches them.
 pub mod points {
@@ -262,6 +277,34 @@ mod armed {
         HOOKS.with(|h| h.borrow_mut().push((point, hook)));
     }
 
+    // A thread that turned real syncing on (`super::real_syncs`), with what it synced since; and a
+    // thread that opted in to the OS trash (`super::real_trash`).
+    thread_local! {
+        static SYNCS: RefCell<Option<Vec<std::path::PathBuf>>> = const { RefCell::new(None) };
+        static REAL_TRASH: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    }
+
+    pub fn real_syncs(on: bool) {
+        SYNCS.with(|s| *s.borrow_mut() = on.then(Vec::new));
+    }
+
+    pub fn synced() -> Vec<std::path::PathBuf> {
+        SYNCS.with(|s| s.borrow().clone().unwrap_or_default())
+    }
+
+    /// Whether the calling thread syncs for real, noting `what` when it does.
+    pub fn sync_now(what: &std::path::Path) -> bool {
+        SYNCS.with(|s| s.borrow_mut().as_mut().map(|list| list.push(what.to_path_buf())).is_some())
+    }
+
+    pub fn real_trash(on: bool) {
+        REAL_TRASH.with(|t| t.set(on));
+    }
+
+    pub fn uses_real_trash() -> bool {
+        REAL_TRASH.with(std::cell::Cell::get)
+    }
+
     pub fn disarm_all() {
         LOCAL.with(|l| l.borrow_mut().clear());
         HOOKS.with(|h| h.borrow_mut().clear());
@@ -322,6 +365,57 @@ pub(crate) fn hit(point: &'static str) -> Option<Fault> {
 #[inline(always)]
 pub(crate) fn hit(_point: &'static str) -> Option<Fault> {
     None
+}
+
+/// Turns real `fsync` on (or back off) for the calling thread, and starts a new record of what it
+/// syncs ([`synced`]). Test builds skip real syncs by default (the module docs); this is for the
+/// test that checks real syncing works.
+#[cfg(feature = "faults")]
+pub fn real_syncs(on: bool) {
+    armed::real_syncs(on);
+}
+
+/// What the calling thread synced for real since it called [`real_syncs`]`(true)`, in order: each
+/// file or folder synced. (An optimised build always syncs; it records only while turned on.)
+#[cfg(feature = "faults")]
+pub fn synced() -> Vec<std::path::PathBuf> {
+    armed::synced()
+}
+
+/// Sends the calling thread's `trash::send` and `trash::restore` to the OS trash (`true`) or back
+/// to this process's stand-in trash (`false`, the default in test builds; the module docs). An
+/// optimised build always uses the OS trash.
+#[cfg(feature = "faults")]
+pub fn real_trash(on: bool) {
+    armed::real_trash(on);
+}
+
+/// Makes `what` durable through `sync` (its `sync_all` or `sync_data`). In a test build (the
+/// feature on, a debug build) the system call is skipped unless the calling thread turned real
+/// syncing on ([`real_syncs`]); everywhere else it always runs.
+#[inline]
+pub(crate) fn fsync(what: &std::path::Path, sync: impl FnOnce() -> std::io::Result<()>) -> std::io::Result<()> {
+    #[cfg(feature = "faults")]
+    if !armed::sync_now(what) && cfg!(debug_assertions) {
+        return Ok(());
+    }
+    #[cfg(not(feature = "faults"))]
+    let _ = what;
+    sync()
+}
+
+/// Whether `trash::send` and `trash::restore` use this process's stand-in trash: a test build whose
+/// calling thread has not opted in to the OS trash ([`real_trash`]).
+#[inline]
+pub(crate) fn stand_in_trash() -> bool {
+    #[cfg(feature = "faults")]
+    {
+        cfg!(debug_assertions) && !armed::uses_real_trash()
+    }
+    #[cfg(not(feature = "faults"))]
+    {
+        false
+    }
 }
 
 /// The I/O error an armed [`Fault::Error`] returns.
