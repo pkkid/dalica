@@ -46,7 +46,9 @@
 //!   A folder the rules do not index when its turn comes (it was removed meanwhile, or it lies in
 //!   a removed folder a rebuild walks for a unit inside it) is dropped, never applied. A Scan Once
 //!   unit a finished scan walked is marked indexed (frozen); [`Session::start_verification`] leaves
-//!   it out from then on. Options → File Types (`settings.json` → `fileTypes`) go to every scan.
+//!   it out from then on. Options → File Types (`settings.json` → `fileTypes`) go to every scan;
+//!   changing them restarts the running scans and scans every unit once
+//!   ([`Session::rescan_for_file_types`], M10.5).
 //!
 //! - **Upkeep while scanning** (M5.17, `security.md` §5.8, `data-model.md` §7): each folder handed
 //!   out has its stale `.dalica-tmp-*` files removed on the scan's thread
@@ -750,11 +752,53 @@ impl Session {
     /// the scan finds nothing to change. What a scan already applied stays (each folder's diff is
     /// idempotent); nothing is removed for a scan put off, and a rebuild keeps the old model.
     pub(crate) fn put_off_scans(&mut self) {
+        for again in self.let_scans_go("put off while files are written", "putOff") {
+            if !self.scanning.put_off.contains(&again) {
+                self.scanning.put_off.push(again);
+            }
+        }
+    }
+
+    /// Options → File Types or the small-picture threshold changed (`options.set`, M10.5): one
+    /// scan of every unit ([`dalica_scan::Rules::everything`], Scan Once units already indexed
+    /// too, so a type turned back on comes back everywhere) merges the folders as the new types
+    /// list them: photos of a type turned off leave the library, while their sidecar entries stay
+    /// on disk, never marked missing as long as their files exist (`dalica-store`'s `stale` asks
+    /// the disk, not the listing), so turning the type back on brings back everything said about
+    /// them. The scans running list files with the old types: they are let go first (their jobs
+    /// end as restarted; what they applied stays, nothing is removed for them), and a rebuild
+    /// among them (or put off by a file job) starts again instead of the merge, since it walks
+    /// every unit too. While a file job runs, the scan waits with the scans it put off. Returns
+    /// the job started, `None` when no folder is watched or a file job runs.
+    pub(crate) fn rescan_for_file_types(&mut self) -> Option<JobId> {
+        let plan = self.folders.rules.everything();
+        if plan.roots.is_empty() {
+            return None;
+        }
+        let stopped = self.let_scans_go("started again for the new file types", "restarted");
+        let rebuild = stopped.iter().chain(&self.scanning.put_off).any(|(_, k)| *k == ScanKind::Rebuild);
+        // The merge scans a file job put off walk regions of the units: the scan below covers them.
+        self.scanning.put_off.retain(|(_, k)| *k == ScanKind::Rebuild);
+        if !rebuild {
+            self.scanning.put_off.push((plan, ScanKind::Merge));
+        }
+        if self.resume_put_off_scans() == 0 {
+            return None;
+        }
+        self.scanning.running.last().map(|j| j.job)
+    }
+
+    /// Lets every running scan go: its walk stops, what it read and did not apply is dropped
+    /// (nothing is removed for it, a rebuild keeps the old model) and its job ends as cancelled,
+    /// labelled "Scan <why>" with `<flag>: true` in its result. Returns each scan's plan and kind,
+    /// to start again.
+    fn let_scans_go(&mut self, why: &str, flag: &str) -> Vec<(Plan, ScanKind)> {
         if self.scanning.running.is_empty() {
-            return;
+            return Vec::new();
         }
         let now = self.clock.now();
         self.scanning.walking.clear();
+        let mut stopped = Vec::new();
         for mut job in std::mem::take(&mut self.scanning.running) {
             // What it found gone is found again when it starts again.
             self.scanning.gone.retain(|(id, ..)| *id != job.job);
@@ -765,23 +809,23 @@ impl Session {
             job.pending.clear();
             job.fresh = None;
             let what = if job.kind == ScanKind::Rebuild { "Rebuild" } else { "Scan" };
-            let result = json!({
+            let mut result = json!({
                 "roots": job.plan.roots,
                 "folders": job.folders,
                 "found": job.walker.found.max(job.indexed),
                 "indexed": job.indexed,
                 "cancelled": true,
-                "putOff": true,
             });
-            let label = format!("{what} put off while files are written");
+            if let Some(r) = result.as_object_mut() {
+                r.insert(flag.into(), json!(true));
+            }
+            let label = format!("{what} {why}");
             self.jobs.progress(job.job, job.progress(), label.clone());
             self.jobs.finish(job.job, Outcome::Cancelled(result), label, now);
-            let again = (job.plan, job.kind);
-            if !self.scanning.put_off.contains(&again) {
-                self.scanning.put_off.push(again);
-            }
+            stopped.push((job.plan, job.kind));
         }
         self.sync_thumbnails();
+        stopped
     }
 
     /// Starts the scans a file job put off again, once no file job runs. Returns how many it

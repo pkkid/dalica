@@ -4727,7 +4727,7 @@ No other step of M10 needs a maintainer decision mid-run.
   - done when: `cargo test -p dalica-image --features heif --test heif_wide` (skipped with a message
     when the set is absent) passes on the local set; the table of results is in the PR and in
     `formats.md`; no file panics.
-- ⬜ **M10.5 `engine`: `options.list` and `options.set`, and applying them**
+- ✅ **M10.5 `engine`: `options.list` and `options.set`, and applying them**
   - after: M10.1
   - files: `crates/engine/src/cmd/options.rs`, `crates/engine/src/scanning.rs`, `crates/store/src/stale.rs`, `crates/store/tests/stale.rs`, `crates/engine/tests/options_set.rs`, `crates/engine/tests/file_types.rs`
   - scope: `menus-and-shortcuts.md` §5 and `design-system.md` §11.3, with PhotoCraft
