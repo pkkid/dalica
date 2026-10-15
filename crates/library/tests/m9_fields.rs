@@ -2,8 +2,8 @@
 //! first-indexed times are index-only (loading them bumps no revision); the last-changed time is
 //! stamped on the op of a change and undone with it; Recently Updated follows a virtual clock;
 //! photos moved or renamed keep their id and everything said about them; folders move with their
-//! subtrees; a removed photo takes all of it and comes back whole; folder photo sorts; journal
-//! names, refusals and caps.
+//! subtrees; folder photo sorts; journal names, refusals and caps. A removed photo taking all of
+//! it and coming back whole is a property of every op (`ops.rs`).
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -17,17 +17,8 @@ use dalica_library::{
 const DAY: Duration = Duration::from_secs(86_400);
 
 fn photo(id: PhotoId, folder: FolderId, name: &str, size: u64, day: u8) -> Photo {
-    Photo {
-        id,
-        folder,
-        name: name.into(),
-        size,
-        mtime: Timestamp::from_millis(1_600_000_000_000),
-        width: 4,
-        height: 3,
-        date: format!("2026-06-{day:02}T12:00:00").parse().ok(),
-        star: false,
-    }
+    let date = format!("2026-06-{day:02}T12:00:00").parse().ok();
+    Photo { size, date, mtime: Timestamp::from_millis(1_600_000_000_000), ..crate::common::photo(id, folder, name) }
 }
 
 /// Folders `/p/a` and `/p/b`; photos `c.jpg` (100 B, June 3), `a.jpg` (300 B, June 1) and
@@ -341,35 +332,6 @@ fn folders_move_with_their_subtree() {
         assert_eq!((lib.model().clone(), lib.revision()), before);
     }
     assert!(lib.apply(Op::MoveFolder { id: a, path: PathBuf::new() }).is_err());
-}
-
-#[test]
-fn a_removed_photo_takes_everything_and_comes_back_whole() {
-    let (mut lib, [a, _], ids) = library();
-    let album = AlbumId::parse("a0abc").unwrap();
-    lib.apply(Op::CreateAlbums { albums: vec![(album.clone(), AlbumInfo::named("Gone"))] }).unwrap();
-    let add = lib.album_add_op(&album, &ids[..3], None).unwrap();
-    lib.apply(add).unwrap();
-    lib.apply(Op::SetCovers { covers: vec![(album.clone(), Some(ids[1]))] }).unwrap();
-    lib.apply(Op::SetFacts { facts: vec![(ids[1], Facts { geotagged: true, ..Facts::default() })] }).unwrap();
-    lib.apply(Op::SetDigests { digests: vec![(ids[1], Some(ContentDigest::default()))] }).unwrap();
-    lib.apply(Op::SetFirstIndexed { indexed: vec![(ids[1], Some(ms(0)))] }).unwrap();
-    lib.apply(Op::SetLastChanged { changed: vec![(ids[1], Some(ms(1)))] }).unwrap();
-    lib.apply(Op::SetFolderSorts { sorts: vec![(a, PhotoSort::new(SortBy::Name, true))] }).unwrap();
-    let before = lib.model().clone();
-
-    let undo = lib.apply(Op::RemovePhotos { ids: vec![ids[1]] }).unwrap();
-    assert!(lib.albums_of(ids[1]).is_empty() && lib.facts_all().count() == 0 && lib.digests().count() == 0);
-    assert_eq!(lib.album_cover(&album), Some(ids[0]), "the cover left: the first photo again");
-    assert!(lib.first_indexed(ids[1]).is_none() && lib.last_changed(ids[1]).is_none());
-    lib.apply(undo).unwrap();
-    assert_eq!(lib.model(), &before);
-
-    // A removed folder takes its photos' memberships and its own sort.
-    let undo = lib.apply(Op::RemoveFolder { id: a }).unwrap();
-    assert!(lib.album_members(&album).is_empty() && lib.folder_sorts().count() == 0);
-    lib.apply(undo).unwrap();
-    assert_eq!(lib.model(), &before);
 }
 
 #[test]

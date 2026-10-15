@@ -2,17 +2,15 @@
 //! one bumps no revision), the copy saved beside it, a folder's Exported mark; the ops of a Save,
 //! an Undo Save, a Revert and a Save beside with their exact inverses; the unsaved-edit queries
 //! (per photo, per folder, cached per revision), whether Undo Save and Revert apply, the
-//! operations that cannot be rendered, journal names, and removal and restore.
+//! operations that cannot be rendered, and journal names (removal and restore: `ops.rs`).
 
 use std::path::PathBuf;
 
 use dalica_core::{FolderId, PhotoId, Timestamp};
-use dalica_library::{Error, Folder, Library, MAX_DIGEST, MAX_FILE_NAME, MAX_OPERATIONS, Op, Photo, Project, Recipe, SaveState, Saved, SavedAs};
+use dalica_library::{Error, Folder, Library, MAX_DIGEST, MAX_FILE_NAME, MAX_OPERATIONS, Op, Project, Recipe, SaveState, Saved, SavedAs};
 use serde_json::json;
 
-fn photo(id: PhotoId, folder: FolderId, name: &str) -> Photo {
-    Photo { id, folder, name: name.into(), size: 10, mtime: Timestamp::from_millis(1_700_000_000_000), width: 4, height: 3, date: None, star: false }
-}
+use crate::common::photo;
 
 /// Two folders, three photos in the first and one in the second.
 fn library() -> (Library, [FolderId; 2], [PhotoId; 4]) {
@@ -194,7 +192,15 @@ fn undo_save_and_revert_need_a_finished_save() {
     assert_eq!(lib.undo_save_op(&[PhotoId::new(999)]), Err(Error::UnknownPhoto(PhotoId::new(999))));
     assert_eq!(lib.save_op(vec![(PhotoId::new(999), done(&[]))]), Err(Error::UnknownPhoto(PhotoId::new(999))));
     assert_eq!(lib.save_beside_op(PhotoId::new(999), "x.jpg".into()), Err(Error::UnknownPhoto(PhotoId::new(999))));
-    assert!(lib.undo_save_op(&[]).is_ok() && lib.revert_op(&[ids[0]]).is_ok());
+    // Nothing to undo is an op that changes nothing; a finished save reverts to the original.
+    let before = (lib.model().clone(), lib.saved(ids[0]).cloned());
+    let nothing = lib.undo_save_op(&[]).unwrap();
+    lib.apply(nothing).unwrap();
+    assert_eq!((lib.model().clone(), lib.saved(ids[0]).cloned()), before);
+    edit(&mut lib, ids[0], &["sepia()"], &["glow()"]);
+    let revert = lib.revert_op(&[ids[0], ids[0]]).unwrap();
+    lib.apply(revert).unwrap();
+    assert!(lib.saved(ids[0]).is_none() && lib.info(ids[0]).edits.is_empty() && lib.info(ids[0]).redo.is_empty());
 }
 
 /// A recipe of more operations than the cap after Undo Save puts the recorded one in front is
@@ -256,31 +262,6 @@ fn the_first_operation_that_cannot_be_rendered() {
     lib.apply(Op::SetSaved { saved: vec![(ids[1], Some(done(&["future_op(2)"])))] }).unwrap();
     assert_eq!(lib.unrenderable(ids[1], renders), Some("future_op(2)"));
     assert_eq!(lib.unrenderable(ids[2], |_| false), None, "no recipe, nothing to render");
-}
-
-/// Removing photos takes their record and copy saved beside; removing a folder takes its mark;
-/// the inverse puts everything back.
-#[test]
-fn removal_takes_the_new_fields_and_the_inverse_restores_them() {
-    let (mut lib, [a, b], ids) = library();
-    edit(&mut lib, ids[2], &["sepia()"], &[]);
-    lib.apply(Op::Batch {
-        ops: vec![
-            Op::SetSaved { saved: vec![(ids[0], Some(done(&["bw()"]))), (ids[3], Some(done(&["sepia()"])))] },
-            lib.save_beside_op(ids[2], "3.jpg".into()).unwrap(),
-            Op::SetProjects { projects: vec![(a, Some(Project::Exported)), (b, Some(Project::Exported))] },
-        ],
-    })
-    .unwrap();
-    let before = lib.model().clone();
-    let undo = lib.apply(Op::RemovePhotos { ids: vec![ids[0], ids[2]] }).unwrap();
-    assert!(lib.saved(ids[0]).is_none() && lib.saved_as(ids[2]).is_none());
-    lib.apply(undo).unwrap();
-    assert_eq!(lib.model(), &before);
-    let undo = lib.apply(Op::RemoveFolder { id: b }).unwrap();
-    assert!(lib.project(b).is_none() && lib.saved(ids[3]).is_none());
-    lib.apply(undo).unwrap();
-    assert_eq!(lib.model(), &before);
 }
 
 /// The journal names and shapes of the new ops and fields (`data-model.md` §4).

@@ -1,25 +1,16 @@
 //! `dalica-library` M6 fields (`data-model.md` §2–§3, `xmp-interop.md` §5): what each photo and
 //! folder gains, the op that changes each field with its exact inverse, the journal names of the
-//! new ops, removal and restore with photos and folders, and synced hashes as derived data.
+//! new ops, and synced hashes as derived data. Removal and restore, and refused ops changing
+//! nothing, are properties of every op (`ops.rs`).
 
 use std::path::PathBuf;
 
-use dalica_core::{Date, DateTime, FolderId, PhotoId, Timestamp};
+use dalica_core::{Date, DateTime, FolderId, PhotoId};
 use dalica_library::{Error, Folder, FolderInfo, Library, Op, Photo, PhotoInfo, Recipe, Synced};
 use serde_json::json;
 
 fn photo(id: PhotoId, folder: FolderId, name: &str, date: Option<&str>) -> Photo {
-    Photo {
-        id,
-        folder,
-        name: name.into(),
-        size: 10,
-        mtime: Timestamp::from_millis(1_700_000_000_000),
-        width: 4,
-        height: 3,
-        date: date.map(|d| d.parse().unwrap()),
-        star: false,
-    }
+    Photo { date: date.map(|d| d.parse().unwrap()), ..crate::common::photo(id, folder, name) }
 }
 
 /// Two folders, three photos in the first and one in the second.
@@ -219,66 +210,6 @@ fn synced_hashes_are_derived_data() {
     assert!(!Op::Batch { ops: vec![Op::SetSynced { synced: vec![] }, Op::SetHidden { hidden: vec![] }] }.is_derived());
     lib.apply(inverse).unwrap();
     assert_eq!(lib.synced(ids[0]), None);
-}
-
-#[test]
-fn removing_photos_and_folders_takes_their_info_and_brings_it_back() {
-    let (mut lib, [a, b], ids) = library();
-    lib.apply(Op::Batch {
-        ops: vec![
-            Op::SetCaptions { captions: vec![(ids[0], "c".into()), (ids[3], "d".into())] },
-            Op::AddTags { ids: ids.to_vec(), tags: vec!["beach".into()] },
-            Op::SetHidden { hidden: vec![(ids[1], true)] },
-            Op::SetSynced { synced: vec![(ids[0], Some(Synced { date: Some(1), ..Synced::default() }))] },
-            Op::SetFolderInfo { folders: vec![(b, FolderInfo { place: "Porto".into(), hidden: true, ..FolderInfo::default() })] },
-        ],
-    })
-    .unwrap();
-    let before = lib.model().clone();
-    let index = lib.tag_index().clone();
-    // Removing photos drops their info and synced hashes and the tag counts go down.
-    let undo = lib.apply(Op::RemovePhotos { ids: vec![ids[0], ids[1]] }).unwrap();
-    assert_eq!(lib.tag_index().count("beach"), 2);
-    assert!(lib.infos().all(|(id, _)| id != ids[0] && id != ids[1]) && lib.synced_all().next().is_none());
-    lib.apply(undo).unwrap();
-    assert_eq!((lib.model(), lib.tag_index()), (&before, &index));
-    // Removing a folder drops its info and its photos' info.
-    let undo = lib.apply(Op::RemoveFolder { id: b }).unwrap();
-    assert!(lib.folder_infos().next().is_none() && lib.tag_index().count("beach") == 3);
-    lib.apply(undo).unwrap();
-    assert_eq!((lib.model(), lib.tag_index()), (&before, &index));
-    // A folder with nothing said and no photos still comes back as a plain AddFolder.
-    let empty = lib.next_folder_id();
-    lib.apply(Op::AddFolder { folder: Folder { id: empty, path: PathBuf::from("/photos/empty") } }).unwrap();
-    assert!(matches!(lib.apply(Op::RemoveFolder { id: empty }).unwrap(), Op::AddFolder { .. }));
-    let _ = a;
-}
-
-#[test]
-fn refused_ops_change_nothing() {
-    let (mut lib, [a, _], ids) = library();
-    let (gone, nowhere) = (PhotoId::new(999), FolderId::new(999));
-    let before = (lib.model().clone(), lib.revision());
-    let cases = [
-        Op::SetCaptions { captions: vec![(ids[0], "ok".into()), (gone, "x".into())] },
-        Op::AddTags { ids: vec![ids[0], gone], tags: vec!["t".into()] },
-        Op::RemoveTags { ids: vec![gone], tags: vec!["t".into()] },
-        Op::SetTags { tags: vec![(gone, vec![])] },
-        Op::SetHidden { hidden: vec![(gone, true)] },
-        Op::SetRecipes { recipes: vec![(gone, Recipe::default())] },
-        Op::SetDates { dates: vec![(gone, None)] },
-        Op::SetPhotoInfo { photos: vec![(gone, PhotoInfo::default())] },
-        Op::SetFolderInfo { folders: vec![(nowhere, FolderInfo::default())] },
-        Op::SetFoldersHidden { hidden: vec![(a, true), (nowhere, true)] },
-        Op::SetSynced { synced: vec![(gone, None)] },
-        // A batch whose second op fails undoes its first, tag index included.
-        Op::Batch { ops: vec![Op::AddTags { ids: ids.to_vec(), tags: vec!["x".into()] }, Op::SetHidden { hidden: vec![(gone, true)] }] },
-    ];
-    for op in cases {
-        assert!(lib.apply(op.clone()).is_err(), "{op:?}");
-        assert_eq!((lib.model().clone(), lib.revision()), before, "{op:?}");
-        assert!(lib.tag_index().is_empty(), "{op:?}");
-    }
 }
 
 #[test]

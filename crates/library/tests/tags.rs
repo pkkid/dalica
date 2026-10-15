@@ -1,27 +1,17 @@
 //! `dalica-library` tags (`organizing.md` §5.2, `security.md` §4.4): counts per tag, partial counts
 //! over a set of photos, prefix lookup, the case rule, renames that merge, the caps, and the build
-//! time of a 100 k-photo tag index.
+//! time of a 100 k-photo tag index (at full strength; smaller in a task's gate).
 
 use std::path::PathBuf;
 use std::time::Instant;
 
-use dalica_core::{FolderId, PhotoId, Timestamp};
+use dalica_core::{FolderId, PhotoId};
 use dalica_library::{
     Error, Folder, Library, MAX_CAPTION, MAX_TAG, MAX_TAGS, Op, PartialCount, Photo, PhotoInfo, TagCount, clean_caption, clean_tag, clean_tags,
 };
 
 fn photo(id: PhotoId, folder: FolderId, n: usize) -> Photo {
-    Photo {
-        id,
-        folder,
-        name: format!("IMG_{n:06}.jpg"),
-        size: 1000,
-        mtime: Timestamp::from_millis(1_700_000_000_000),
-        width: 480,
-        height: 320,
-        date: None,
-        star: false,
-    }
+    Photo { size: 1000, width: 480, height: 320, ..crate::common::photo(id, folder, &format!("IMG_{n:06}.jpg")) }
 }
 
 fn library(n: usize) -> (Library, Vec<PhotoId>) {
@@ -224,11 +214,13 @@ fn caps_and_clean_text() {
     }
 }
 
+/// At full strength 100 k photos; in a task's gate 4 000 (every word of the vocabulary still used),
+/// the same checks.
 #[test]
 fn a_100k_photo_tag_index_builds_quickly() {
-    const PHOTOS: usize = 100_000;
+    let n: usize = if crate::common::full() { 100_000 } else { 4_000 };
     const VOCABULARY: usize = 2_000;
-    let (mut lib, ids) = library(PHOTOS);
+    let (mut lib, ids) = library(n);
     // Five tags per photo out of a 2 000-tag vocabulary, some sharing a spelling in other cases.
     let lists: Vec<(PhotoId, Vec<String>)> = ids
         .iter()
@@ -248,17 +240,18 @@ fn a_100k_photo_tag_index_builds_quickly() {
     let all = lib.tag_index().counts();
     let listed = start.elapsed();
     let start = Instant::now();
-    let selection = lib.tag_counts_in(&ids[..10_000]);
+    let selection = lib.tag_counts_in(&ids[..n / 10]);
     let partial = start.elapsed();
     let start = Instant::now();
     let hits = lib.tag_index().with_prefix("tag 1", 20);
     let prefix = start.elapsed();
     println!(
-        "{PHOTOS} photos × 5 tags ({} tags): index built in {built:?}, all counts in {listed:?}, partial counts over 10 000 in {partial:?}, prefix lookup in {prefix:?}",
-        all.len()
+        "{n} photos × 5 tags ({} tags): index built in {built:?}, all counts in {listed:?}, partial counts over {} in {partial:?}, prefix lookup in {prefix:?}",
+        all.len(),
+        n / 10
     );
     assert_eq!(all.len(), VOCABULARY);
-    assert_eq!(all.iter().map(|c| c.count).sum::<usize>(), PHOTOS * 5);
+    assert_eq!(all.iter().map(|c| c.count).sum::<usize>(), n * 5);
     assert!(!selection.is_empty() && hits.len() == 20);
     // Generous: catches quadratic work even in an unoptimised build on a slow runner.
     assert!(built.as_secs_f64() < 10.0, "building took {built:?}");

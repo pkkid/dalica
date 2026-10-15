@@ -421,14 +421,15 @@ fn a_photo_without_a_capture_date_sorts_by_its_file_time() {
     assert_eq!(lines(&t, Group::Folders), ["2027", "scans (1)", "2026", "trip (1)"]);
 }
 
+/// At full strength 5 000 folders; in a task's gate 500, the same checks.
 #[test]
 fn five_thousand_folders_build_quickly() {
-    const FOLDERS: usize = 5_000;
+    let folders_n: usize = if crate::common::full() { 5_000 } else { 500 };
     const PER: usize = 20;
     let mut fx = Fx::new();
-    let mut photos = Vec::with_capacity(FOLDERS * PER);
-    let mut folders = Vec::with_capacity(FOLDERS);
-    for i in 0..FOLDERS {
+    let mut photos = Vec::with_capacity(folders_n * PER);
+    let mut folders = Vec::with_capacity(folders_n);
+    for i in 0..folders_n {
         let id = fx.lib.next_folder_id();
         let year = 2000 + (i % 27);
         folders.push(Folder { id, path: base().join(format!("{year}")).join(format!("event {i:04}")) });
@@ -449,8 +450,8 @@ fn five_thousand_folders_build_quickly() {
             let start = Instant::now();
             let t = fx.tree(&[base()], &opts(mode, sort, false));
             let took = start.elapsed();
-            println!("5k folders, {} photos, {mode:?} by {sort:?}: {took:?}", FOLDERS * PER);
-            assert_eq!(t.sections.len(), FOLDERS);
+            println!("{folders_n} folders, {} photos, {mode:?} by {sort:?}: {took:?}", folders_n * PER);
+            assert_eq!(t.sections.len(), folders_n);
             // Generous: catches quadratic work even in an unoptimised build on a slow runner.
             assert!(took.as_secs_f64() < 5.0, "{mode:?} {sort:?} took {took:?}");
         }
@@ -526,7 +527,7 @@ fn shown(photo: &Photo, small_pictures: bool) -> bool {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(256))]
+    #![proptest_config(crate::common::cases(256, 32))]
 
     #[test]
     fn every_shown_photo_is_counted_once_and_sections_follow_rows(

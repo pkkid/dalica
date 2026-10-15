@@ -9,17 +9,8 @@ use dalica_library::{Folder, Library, MAX_SKETCH, Op, Photo, Sketch};
 use proptest::prelude::*;
 
 fn photo(id: PhotoId, folder: FolderId, n: u8) -> Photo {
-    Photo {
-        id,
-        folder,
-        name: format!("n{n}.jpg"),
-        size: 100,
-        mtime: Timestamp::from_millis(1_700_000_000_000 + i64::from(n) * 1000),
-        width: 480,
-        height: 320,
-        date: None,
-        star: false,
-    }
+    let mtime = Timestamp::from_millis(1_700_000_000_000 + i64::from(n) * 1000);
+    Photo { size: 100, mtime, width: 480, height: 320, ..crate::common::photo(id, folder, &format!("n{n}.jpg")) }
 }
 
 fn sketch(seed: u8, len: usize) -> Sketch {
@@ -102,7 +93,7 @@ fn build(lib: &mut Library, seed: &Seed) -> Op {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(512))]
+    #![proptest_config(crate::common::cases(512, 32))]
 
     /// The library property test with sketch ops in the mix: an op then its inverse restores the
     /// model (sketches included), derived ops move only the thumbnail revision, every inverse
