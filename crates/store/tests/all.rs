@@ -5,6 +5,7 @@ mod common;
 
 mod albums;
 mod carry;
+mod crash;
 mod fields;
 mod intents;
 mod m6_fields;

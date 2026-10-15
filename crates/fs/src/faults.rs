@@ -7,6 +7,13 @@
 //!   been killed, and returns [`crate::Error::Crashed`]. A crash during a write first writes half
 //!   the bytes, so a torn temporary file is left behind.
 //!
+//! A full disk is an error of its own: [`arm_full`] (or [`arm_full_global`]) arms a point to fail
+//! as [`Fault::Error`] does, cleanup included, but with the error the OS gives when the volume is
+//! full ([`disk_full`]: `ENOSPC` on Unix, `ERROR_DISK_FULL` on Windows, both
+//! [`std::io::ErrorKind::StorageFull`]), so a test sees the reason the user would read. It is not a
+//! third [`Fault`] variant: every step matches the two kinds of failure, and a full disk is the
+//! first kind with a different message.
+//!
 //! A fault fires once. [`arm`] applies to the calling thread only, so parallel tests do not see
 //! each other's faults; [`arm_global`] applies to whichever thread reaches the point first, for
 //! tests whose writes happen on a worker thread. Without the feature, [`hit`] is a constant `None`.
@@ -259,18 +266,40 @@ mod armed {
     /// A change a test plants at a point ([`super::run_at`]).
     type Hook = Box<dyn FnOnce()>;
 
+    /// What a point is armed with: one of the two kinds of failure, or a full disk (an error whose
+    /// reason is the OS's own, [`super::disk_full`]).
+    #[derive(Clone, Copy)]
+    pub enum Armed {
+        Fault(Fault),
+        Full,
+    }
+
     thread_local! {
-        static LOCAL: RefCell<Vec<(&'static str, Fault)>> = const { RefCell::new(Vec::new()) };
+        static LOCAL: RefCell<Vec<(&'static str, Armed)>> = const { RefCell::new(Vec::new()) };
         static HOOKS: RefCell<Vec<(&'static str, Hook)>> = const { RefCell::new(Vec::new()) };
+        /// The point whose last firing on this thread was a full disk, until `injected` makes the
+        /// error for it (it fires as `Fault::Error`, so the step cleans up as after any error).
+        static FULL: std::cell::Cell<Option<&'static str>> = const { std::cell::Cell::new(None) };
     }
-    static GLOBAL: Mutex<Vec<(&'static str, Fault)>> = Mutex::new(Vec::new());
+    static GLOBAL: Mutex<Vec<(&'static str, Armed)>> = Mutex::new(Vec::new());
 
-    pub fn arm(point: &'static str, fault: Fault) {
-        LOCAL.with(|l| l.borrow_mut().push((point, fault)));
+    pub fn arm(point: &'static str, armed: Armed) {
+        LOCAL.with(|l| l.borrow_mut().push((point, armed)));
     }
 
-    pub fn arm_global(point: &'static str, fault: Fault) {
-        GLOBAL.lock().unwrap_or_else(PoisonError::into_inner).push((point, fault));
+    pub fn arm_global(point: &'static str, armed: Armed) {
+        GLOBAL.lock().unwrap_or_else(PoisonError::into_inner).push((point, armed));
+    }
+
+    /// Whether `point` just fired as a full disk on this thread (once).
+    pub fn full_at(point: &str) -> bool {
+        FULL.with(|f| match f.get() {
+            Some(p) if p == point => {
+                f.set(None);
+                true
+            }
+            _ => false,
+        })
     }
 
     pub fn run_at(point: &'static str, hook: Hook) {
@@ -311,12 +340,12 @@ mod armed {
         GLOBAL.lock().unwrap_or_else(PoisonError::into_inner).clear();
     }
 
-    fn take(list: &mut Vec<(&'static str, Fault)>, point: &str) -> Option<Fault> {
+    fn take(list: &mut Vec<(&'static str, Armed)>, point: &str) -> Option<Armed> {
         let i = list.iter().position(|(p, _)| *p == point)?;
         Some(list.remove(i).1)
     }
 
-    pub fn hit(point: &str) -> Option<Fault> {
+    pub fn hit(point: &'static str) -> Option<Fault> {
         // Taken out first and run after the borrow ends, so a hook may itself reach fault points.
         let hook = HOOKS.with(|h| {
             let mut h = h.borrow_mut();
@@ -326,20 +355,65 @@ mod armed {
         if let Some(hook) = hook {
             hook();
         }
-        LOCAL.with(|l| take(&mut l.borrow_mut(), point)).or_else(|| take(&mut GLOBAL.lock().unwrap_or_else(PoisonError::into_inner), point))
+        let armed =
+            LOCAL.with(|l| take(&mut l.borrow_mut(), point)).or_else(|| take(&mut GLOBAL.lock().unwrap_or_else(PoisonError::into_inner), point))?;
+        Some(match armed {
+            Armed::Fault(fault) => {
+                FULL.with(|f| f.set(None));
+                fault
+            }
+            Armed::Full => {
+                FULL.with(|f| f.set(Some(point)));
+                Fault::Error
+            }
+        })
     }
 }
 
 /// Arms `point` to fail with `fault` the next time the calling thread reaches it.
 #[cfg(feature = "faults")]
 pub fn arm(point: &'static str, fault: Fault) {
-    armed::arm(point, fault);
+    armed::arm(point, armed::Armed::Fault(fault));
 }
 
 /// Arms `point` to fail with `fault` the next time any thread reaches it.
 #[cfg(feature = "faults")]
 pub fn arm_global(point: &'static str, fault: Fault) {
-    armed::arm_global(point, fault);
+    armed::arm_global(point, armed::Armed::Fault(fault));
+}
+
+/// Arms `point` to fail as a full disk the next time the calling thread reaches it: the step fails
+/// and cleans up as for [`Fault::Error`], with the OS's full-disk error ([`disk_full`]).
+#[cfg(feature = "faults")]
+pub fn arm_full(point: &'static str) {
+    armed::arm(point, armed::Armed::Full);
+}
+
+/// Arms `point` to fail as a full disk the next time any thread reaches it ([`arm_full`]).
+#[cfg(feature = "faults")]
+pub fn arm_full_global(point: &'static str) {
+    armed::arm_global(point, armed::Armed::Full);
+}
+
+/// The error the OS gives when a write finds the volume full, as std reads it from the OS:
+/// `ENOSPC` on Unix, `ERROR_DISK_FULL` on Windows; [`std::io::ErrorKind::StorageFull`] either way.
+/// What a point armed with [`arm_full`] fails with.
+#[cfg(feature = "faults")]
+pub fn disk_full() -> std::io::Error {
+    #[cfg(unix)]
+    {
+        std::io::Error::from_raw_os_error(rustix::io::Errno::NOSPC.raw_os_error())
+    }
+    #[cfg(windows)]
+    {
+        /// `ERROR_DISK_FULL` (winerror.h), which std reads as `StorageFull`.
+        const ERROR_DISK_FULL: i32 = 112;
+        std::io::Error::from_raw_os_error(ERROR_DISK_FULL)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        std::io::ErrorKind::StorageFull.into()
+    }
 }
 
 /// Runs `hook` when the calling thread next reaches `point`, just before that step (once). Tests use
@@ -418,8 +492,13 @@ pub(crate) fn stand_in_trash() -> bool {
     }
 }
 
-/// The I/O error an armed [`Fault::Error`] returns.
+/// The I/O error an armed [`Fault::Error`] returns: [`disk_full`] when the point was armed with
+/// [`arm_full`].
 pub(crate) fn injected(point: &'static str) -> std::io::Error {
+    #[cfg(feature = "faults")]
+    if armed::full_at(point) {
+        return disk_full();
+    }
     std::io::Error::other(format!("injected fault at {point}"))
 }
 
@@ -444,6 +523,28 @@ mod tests {
         assert!(std::thread::spawn(|| hit(points::RENAME)).join().unwrap().is_none());
         assert_eq!(hit(points::RENAME), Some(Fault::Error));
         assert_eq!(hit(points::RENAME), None);
+    }
+
+    /// A full disk fires once, as an error, and only the error made for its own point is the
+    /// OS's full-disk error.
+    #[test]
+    fn a_full_disk_fires_once_as_the_oss_own_error() {
+        arm_full(points::WRITE);
+        assert_eq!(hit(points::WRITE), Some(Fault::Error));
+        assert_eq!(injected(points::RENAME).kind(), std::io::ErrorKind::Other);
+        let e = injected(points::WRITE);
+        assert_eq!(e.kind(), std::io::ErrorKind::StorageFull);
+        assert_eq!(e.to_string(), disk_full().to_string());
+        assert!(e.raw_os_error().is_some() || cfg!(not(any(unix, windows))), "{e:?}");
+        // Used up: the next error made for that point is an ordinary injected one.
+        assert_eq!(injected(points::WRITE).kind(), std::io::ErrorKind::Other);
+        assert_eq!(hit(points::WRITE), None);
+        // An ordinary error that fires after a full disk at the same point is ordinary.
+        arm_full(points::RENAME);
+        arm(points::RENAME, Fault::Error);
+        assert_eq!(hit(points::RENAME), Some(Fault::Error));
+        assert_eq!(hit(points::RENAME), Some(Fault::Error));
+        assert_eq!(injected(points::RENAME).kind(), std::io::ErrorKind::Other);
     }
 
     #[test]

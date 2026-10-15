@@ -5035,7 +5035,7 @@ No other step of M10 needs a maintainer decision mid-run.
   - done when: `cargo test -p dalica-mcp --test workflows` runs W01 green (on all three OSes at the review);
     `apps/dalica-cli/tests/mcp_process.rs` passes; `cargo xtask stats` prints 9 / 12 passing and
     `cargo xtask stats --check` fails when a P0 workflow is ignored (a planted `#[ignore]`).
-- ⬜ **M10.34 `fs` + `store`: real crashes, a full disk and read-only folders**
+- ✅ **M10.34 `fs` + `store`: real crashes, a full disk and read-only folders**
   - after: M9.R
   - files: `crates/fs/src/faults.rs`, `crates/fs/tests/crash.rs`, `crates/fs/tests/refusals.rs`, `crates/fs/tests/all.rs`, `crates/store/tests/crash.rs`, `crates/store/tests/all.rs`, `crates/fs/README.md`
   - scope: the data-safety cases the test audit of 2026-10-15 found untested (maintainer decision,
