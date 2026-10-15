@@ -90,6 +90,8 @@ nothing is deleted outright: it goes to the system's trash.
 ### Editing
 
 - In the edit view, Ctrl+Z after a Save now undoes the Save, the same as the Undo Save button.
+- After a Save, the edit view, the tray and the thumbnails show the saved picture at once; before,
+  they could keep the old one until Dalica restarted.
 
 ### Reliability
 

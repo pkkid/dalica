@@ -5126,15 +5126,19 @@ No other step of M10 needs a maintainer decision mid-run.
     on the three OSes.
 - ⬜ **M10.33 `ui` + `engine` + docs: small follow-ups from M9**
   - after: M9.R
-  - files: `crates/ui/tests/drag.rs`, `crates/engine/tests/panic_hunt.rs`, `crates/ui/src/headless.rs`, `crates/ui/src/dialogs/new_folder.rs`, `crates/ui/tests/new_folder.rs`, `crates/engine/tests/albums.rs`, `crates/engine/README.md`, `docs/security.md`
-  - scope: the drag test `the_tree_scrolls_near_its_edge_during_a_drag` drags the first visible
-    thumbnail, not the lowest id, which can be off screen on Windows; `panic_hunt` builds valid
+  - files: `tests/acceptance/m9_files.rs`, `crates/engine/tests/panic_hunt.rs`, `crates/ui/src/headless.rs`, `crates/ui/src/dialogs/new_folder.rs`, `crates/ui/tests/new_folder.rs`, `crates/engine/tests/albums.rs`, `crates/engine/README.md`, `docs/security.md`
+  - scope: M9's live file-operations acceptance test fails now and then on Windows: right after
+    `app::flush` it sees a sidecar write still in flight (a `.dalica.json.dalica-tmp-…` file in the
+    folder listing, or the entry not yet there); find whether flush returns before the sidecar
+    writer's rename on Windows (then the fix belongs in the engine: ask the lead for the file) or the
+    test reads too early; `panic_hunt` builds valid
     parameters for M9's commands (rename, move, copy, delete, folder and album commands); `ui.settle`
     and the driver's busy check wait for a search still running; Split Folder Here's dialog is
     titled as a new folder, not "Folder Properties"; stale text: `security.md` §5.7 (deletes are
     built), the engine README's rename line, the comment of M9.10's folder-rename test, and the
     Tags row of `parity.md` (Search for This Tag is built).
-  - done when: the drag test passes 20/20 pinned to one core beside a busy loop; `panic_hunt` green,
+  - done when: `file_operations_their_undo_and_the_data_lessons_in_the_live_app` passes 20/20 on
+    Windows CI (a matrix rerun) or the cause is shown fixed by a test; `panic_hunt` green,
     printing how many M9 commands it reached with valid parameters; a settle test with a search
     pending; the dialog's title test; CI green.
 - ⬜ **M10.R Release 0.5 gate**

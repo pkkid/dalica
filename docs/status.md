@@ -20,7 +20,9 @@ and git.
   stand as built (delete undo on Linux and Windows only, copies' undo trashes them, folders move within the library,
   same-name folders merge, English month names, Faces greyed until M13, duplicates in one section); all 83
   fingerprint baselines approved; ship 0.4 after fixing the picture that stayed the pre-Save one until a restart (a
-  separate fix PR merged before the release). Fix tasks M10.29–M10.33 carry the rest of the run's follow-ups.
+  separate fix PR, #521, merged 2026-10-15; it also fixed the flaky drag test and re-blessed the two M8 header
+  baselines, whose old images had the stale picture in them; those two are approved at the next review). Fix tasks
+  M10.29–M10.33 carry the rest of the run's follow-ups.
 - **Numbers (M9.R, 9023bea, 2026-10-15):** tests 3 098 passed, 4 ignored; `cargo xtask ci` 837 s cold, 417 s warm;
   accept M0–M9 alone 7 / 8 / 12 / 53 / 57 / 66 / 89 / 100 / 111 / 93 s; release (24 cores, p50): search at 100 k photos
   index build 428 ms (budget 630), one word 1.1 ms (1.7), three words and a filter 0.37 ms (0.6), `-word` 3.2 ms (5.1),
