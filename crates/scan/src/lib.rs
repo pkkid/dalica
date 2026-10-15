@@ -41,7 +41,7 @@ pub mod volumes;
 mod walk;
 pub mod watch;
 
-pub use diff::{BATCH, diff, diff_rescan};
+pub use diff::{BATCH, diff, diff_found, diff_rescan};
 pub use meta::{FileValues, Known, ReadMetadata};
 pub use rules::{Effective, Mode, Plan, Rule, Rules, folder_path};
 pub use skip::{FileType, FileTypes, Platform, Skip, SkipRules, skipped};

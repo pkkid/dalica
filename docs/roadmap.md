@@ -4310,7 +4310,7 @@ mid-run.
     onto the tray it holds; a reorder within an album survives a restart; onto its own folder and
     with Esc nothing changes; `crates/ui/tests/clipboard.rs`: Cut then Paste moves, Copy then Paste
     copies, Paste is disabled in an album; pill fingerprints for move, copy and add.
-- ⬜ **M9.24 `engine`: M9's data lessons end to end, and a move across two file systems**
+- ✅ **M9.24 `engine`: M9's data lessons end to end, and a move across two file systems**
   - after: M9.10, M9.21
   - files: `crates/engine/tests/lessons_m9.rs`, `crates/engine/tests/two_volumes.rs`
   - scope: `data-model.md` §10 through the commands and a real watcher: §10.2 (a folder moved

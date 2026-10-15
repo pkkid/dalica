@@ -42,20 +42,40 @@ pub fn diff_rescan(library: &mut Library, rescan: &Rescan) -> Vec<Op> {
     diff_in(library, &rescan.scan.folders, &|path: &Path| rescan.covers(path))
 }
 
+/// [`diff`] for one folder a streaming scan found at a path the model does not know, diffed once
+/// the walk has ended: `gone` are the folders the model holds where the walk looked and did not
+/// find. When `found` holds most of the photos of one of them (as [`diff`] judges a rename), it is
+/// that folder renamed or moved on disk, and it keeps its id, its photos' ids and their stars;
+/// else it is a new folder. Unlike [`diff`], the folders of `gone` it does not pair with stay in
+/// the model (the scan removes those at its end, after every such folder had its turn).
+pub fn diff_found(library: &mut Library, found: &FoundFolder, gone: &[FolderId]) -> Vec<Op> {
+    let mut gone = gone.to_vec();
+    gone.sort();
+    gone.dedup();
+    diff_with(library, std::slice::from_ref(found), gone, false)
+}
+
 /// A photo's (size, modification time): what renames are recognised by.
 type Key = (u64, Timestamp);
 
 fn diff_in(library: &mut Library, folders: &[FoundFolder], covered: &dyn Fn(&Path) -> bool) -> Vec<Op> {
+    // Folders known but gone from disk where the scan looked.
+    let found: BTreeMap<&Path, ()> = folders.iter().map(|f| (f.path.as_path(), ())).collect();
+    let mut gone: Vec<FolderId> = library.folders().filter(|f| covered(&f.path) && !found.contains_key(f.path.as_path())).map(|f| f.id).collect();
+    gone.sort();
+    diff_with(library, folders, gone, true)
+}
+
+/// The diff of `folders` against the model, `gone` (sorted) the known folders not found where the
+/// scan looked: each may pair with a new folder as its rename; those that do not are removed when
+/// `remove_gone`.
+fn diff_with(library: &mut Library, folders: &[FoundFolder], mut gone: Vec<FolderId>, remove_gone: bool) -> Vec<Op> {
     let mut ops = Vec::new();
     let mut removes = Vec::new();
     let mut updates = Vec::new();
     let mut adds: Vec<(Photo, PhotoInfo, Option<SavedAs>)> = Vec::new();
     let mut saved: Vec<(PhotoId, Option<Saved>)> = Vec::new();
     let mut sync = Sync::default();
-    // Folders known but gone from disk where the scan looked.
-    let found: BTreeMap<&Path, ()> = folders.iter().map(|f| (f.path.as_path(), ())).collect();
-    let mut gone: Vec<FolderId> = library.folders().filter(|f| covered(&f.path) && !found.contains_key(f.path.as_path())).map(|f| f.id).collect();
-    gone.sort();
     let mut renames = folder_renames(library, folders, &gone);
     gone.retain(|id| !renames.values().any(|old| old == id));
     for found in folders {
@@ -146,7 +166,9 @@ fn diff_in(library: &mut Library, folders: &[FoundFolder], covered: &dyn Fn(&Pat
     }
     // What the files said, once every photo read is in the model.
     ops.extend(sync.op());
-    ops.extend(gone.into_iter().map(|id| Op::RemoveFolder { id }));
+    if remove_gone {
+        ops.extend(gone.into_iter().map(|id| Op::RemoveFolder { id }));
+    }
     ops
 }
 

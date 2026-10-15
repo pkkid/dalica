@@ -11,7 +11,12 @@
 //! the job closes with what it found.
 //!
 //! - **Merge** scans (`folders.add`, rescans) apply to the live model: journaled and written to the
-//!   sidecars like any change, never on the undo stack.
+//!   sidecars like any change, never on the undo stack. A folder at a path the model does not know
+//!   that shares photos (by size and modification time) with a known folder the walk has not
+//!   reached yet is held back until the walk ends; then it is diffed against the folders gone
+//!   (`dalica_scan::diff_found`): one holding most of a gone folder's photos is that folder renamed
+//!   or moved on disk (between sessions, `data-model.md` §10.2) and keeps its ids and everything
+//!   said about it, as the watcher's rescans keep them. Every other folder lands as it is read.
 //! - **Rebuild** scans (`library.rebuild`, and a damaged index at open) build a fresh model to the
 //!   side and swap it in at the end, clearing the undo stack (ids change); a cancelled rebuild
 //!   keeps the old model. A rebuild of an empty model fills it in place, like a merge. Its thread
@@ -88,7 +93,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 
-use dalica_core::{AlbumId, FolderId, PhotoId, PosKey};
+use dalica_core::{AlbumId, FolderId, PhotoId, PosKey, Timestamp};
 use dalica_library::{AlbumInfo, Library, Op};
 use dalica_scan::{Event, Failure, FoundFolder, HeaderReader, Known, Plan, Progress, ReadMetadata, Scan, Summary};
 use dalica_store::albums::{AlbumsRead, AlbumsReading};
@@ -274,6 +279,13 @@ struct ScanJob {
     /// definitions of the albums it brings back, their covers, and the order for folders whose
     /// sidecar cannot be read.
     albums: Option<AlbumsReading>,
+    /// A merge scan's folders at paths the model does not know that share photos (by size and
+    /// modification time) with a known folder the walk has not found yet: maybe that folder moved
+    /// on disk, so they wait until the walk ends and the folders gone are known.
+    held: Vec<FoundFolder>,
+    /// The photos of the known folders where the scan looks, by (size, modification time): made
+    /// for the first folder at an unknown path.
+    known_keys: Option<HashMap<(u64, Timestamp), Vec<FolderId>>>,
 }
 
 impl ScanJob {
@@ -299,6 +311,8 @@ impl ScanJob {
             synced: false,
             revision: 0,
             albums: None,
+            held: Vec::new(),
+            known_keys: None,
         }
     }
 
@@ -360,11 +374,42 @@ impl ScanJob {
         self.stopped = true;
         self.rx = None;
         self.queue.clear();
+        self.held.clear();
     }
 
     /// Everything taken in is applied and nothing more comes.
     fn is_complete(&self) -> bool {
-        (self.stopped || self.summary.is_some() || self.lost) && self.queue.is_empty() && self.pending.is_empty() && self.current.is_none()
+        (self.stopped || self.summary.is_some() || self.lost)
+            && self.queue.is_empty()
+            && self.held.is_empty()
+            && self.pending.is_empty()
+            && self.current.is_none()
+    }
+
+    /// Whether `folder` (at a path `lib` does not know) shares a photo with a known folder where
+    /// the scan looks that the walk has not found yet: then it may be that folder, moved on disk.
+    fn may_be_moved(&mut self, lib: &Library, folder: &FoundFolder) -> bool {
+        let plan = &self.plan;
+        let keys = self.known_keys.get_or_insert_with(|| {
+            let mut out: HashMap<(u64, Timestamp), Vec<FolderId>> = HashMap::new();
+            let looked: HashSet<FolderId> = lib
+                .folders()
+                .filter(|f| plan.roots.iter().any(|r| f.path.starts_with(r)) && !plan.excluded.iter().any(|x| f.path.starts_with(x)))
+                .map(|f| f.id)
+                .collect();
+            for p in lib.photos().filter(|p| looked.contains(&p.folder)) {
+                let ids = out.entry((p.size, p.mtime)).or_default();
+                if !ids.contains(&p.folder) {
+                    ids.push(p.folder);
+                }
+            }
+            out
+        });
+        let seen = &self.seen;
+        folder
+            .photos
+            .iter()
+            .any(|p| keys.get(&(p.size, p.mtime)).is_some_and(|ids| ids.iter().any(|id| lib.folder(*id).is_some_and(|f| !seen.contains(&f.path)))))
     }
 
     /// After the model was replaced: the folder being applied is diffed again against the new one.
@@ -861,6 +906,12 @@ impl Session {
                 folders += 1;
                 continue;
             }
+            // The walk is over: the folders held back take their turn, now that the folders gone
+            // are known.
+            let walk_over = job.rx.is_none();
+            if walk_over && job.queue.is_empty() && !job.held.is_empty() {
+                job.queue.extend(job.held.drain(..));
+            }
             let Some(next) = job.queue.front() else { break };
             if !budget.fits(next.photos.len().max(1)) {
                 break;
@@ -870,9 +921,25 @@ impl Session {
                 // Removed meanwhile, or inside a removed folder a rebuild walked for a unit in it.
                 continue;
             }
+            // A folder at a path the model does not know may be a known folder moved or renamed on
+            // disk (`data-model.md` §10.2): while the walk runs and a known folder sharing its
+            // photos is still to be found, it waits; once the walk is over it is paired with a
+            // folder gone, as the watcher's rescans pair them, and keeps that folder's ids.
+            let unknown = job.kind == ScanKind::Merge && job.fresh.is_none() && self.library.folder_by_path(&folder.path).is_none();
+            if unknown && !walk_over && job.may_be_moved(&self.library, &folder) {
+                job.held.push(folder);
+                continue;
+            }
             let scan = Scan { folders: vec![folder], ..Scan::default() };
             let ops = match &mut job.fresh {
                 Some(fresh) => dalica_scan::diff(fresh, &scan),
+                None if unknown && walk_over => {
+                    let gone = job.summary.as_ref().map(|s| gone_folders(&self.library, s, &job.empty, &job.plan, &job.seen)).unwrap_or_default();
+                    match scan.folders.first() {
+                        Some(found) => dalica_scan::diff_found(&mut self.library, found, &gone),
+                        None => Vec::new(),
+                    }
+                }
                 None => dalica_scan::diff(&mut self.library, &scan),
             };
             let folder = scan.folders.into_iter().next();
@@ -988,18 +1055,7 @@ impl Session {
                     }
                     // Folders under a root walked to the end that hold no photos any more (the
                     // subtrees it left out belong to other scans).
-                    let excluded = &job.plan.excluded;
-                    let empty = &job.empty;
-                    let gone: Vec<_> = self
-                        .library
-                        .folders()
-                        .filter(|f| {
-                            s.walked.iter().any(|root| f.path.starts_with(root) && !empty.contains(root))
-                                && !excluded.iter().any(|x| f.path.starts_with(x))
-                                && !job.seen.contains(&f.path)
-                        })
-                        .map(|f| f.id)
-                        .collect();
+                    let gone = gone_folders(&self.library, s, &job.empty, &job.plan, &job.seen);
                     for id in gone {
                         if let Err(e) = self.apply(Op::RemoveFolder { id }) {
                             self.scan_warnings.push(format!("scan result not applied: {e}"));
@@ -1079,6 +1135,20 @@ impl Session {
     pub fn scan_failures(&self) -> &[Failure] {
         &self.scanning.failures
     }
+}
+
+/// The folders of `lib` under the roots `summary` walked to the end (but those that held no entries
+/// at all, `empty`), outside the subtrees `plan` leaves out, that the walk did not find (`seen`):
+/// gone from disk, or moved there.
+fn gone_folders(lib: &Library, summary: &Summary, empty: &[PathBuf], plan: &Plan, seen: &HashSet<PathBuf>) -> Vec<FolderId> {
+    lib.folders()
+        .filter(|f| {
+            summary.walked.iter().any(|root| f.path.starts_with(root) && !empty.contains(root))
+                && !plan.excluded.iter().any(|x| f.path.starts_with(x))
+                && !seen.contains(&f.path)
+        })
+        .map(|f| f.id)
+        .collect()
 }
 
 /// `op`, one of the ops a scan applies for `folder`, with what the folder's sidecar says about
