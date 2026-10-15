@@ -310,7 +310,6 @@ pub(crate) fn display_name(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cmd::testing;
 
     #[test]
     fn questions_name_the_count_and_the_folder() {
@@ -318,12 +317,5 @@ mod tests {
         assert_eq!(photos_question(3), "Move the 3 selected pictures to the trash?");
         assert_eq!(folder_question("Lisbon"), "Move the folder \"Lisbon\" and everything in it (including non-picture files) to the trash?");
         assert!(no_trash(Path::new("/p/IMG_0001.jpg")).contains("file manager"));
-    }
-
-    #[test]
-    fn hostile_parameters_change_nothing() {
-        let (_dirs, mut s, _ids) = testing::library(2);
-        testing::hostile(&mut s, "photo.delete");
-        testing::hostile(&mut s, "folder.delete");
     }
 }

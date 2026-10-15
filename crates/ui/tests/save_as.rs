@@ -20,6 +20,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use crate::common::{FRAMES, LARGE, new_driver, out_dir};
 use dalica_core::PhotoId;
 use dalica_engine::{JobKind, Session};
 use dalica_fs::Expect;
@@ -29,9 +30,7 @@ use dalica_ui::menus::{self, ItemNode, Lookup, Platform};
 use dalica_ui::{App, Driver, ScriptedPicker};
 use serde_json::{Value, json};
 
-const FRAMES: usize = 60 * 60;
 const PATIENCE: Duration = Duration::from_secs(300);
-const SIZES: [(u32, u32); 2] = [(1400, 900), (900, 600)];
 
 struct T {
     dir: tempfile::TempDir,
@@ -61,7 +60,7 @@ impl T {
         let ids: Vec<PhotoId> = photos.into_iter().map(|(_, id)| id).collect();
         s.execute("photo.history.apply", &json!({ "id": ids[0], "op": "rotate(90)" })).unwrap();
         let picker = ScriptedPicker::new();
-        let mut d = Driver::new(App::with_picker(Some(s), Arc::new(picker.clone())), size.0, size.1, 1.0);
+        let mut d = new_driver(App::with_picker(Some(s), Arc::new(picker.clone())), size.0, size.1, 1.0);
         d.settle(FRAMES).unwrap();
         T { dir, d, picker, ids }
     }
@@ -142,12 +141,6 @@ fn decoded_size(path: &Path) -> (u32, u32) {
     (img.width, img.height)
 }
 
-fn out_dir() -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/ui");
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
 /// Writes the last frame to `target/test-output/ui/<name>.png`.
 fn save_window(d: &Driver, name: &str) {
     let shot = d.screenshot().unwrap();
@@ -204,55 +197,54 @@ fn save_as_to_a_new_path_writes_it_and_the_photo_appears() {
 /// is not JPEG or PNG open the picker again too; cancelling it then writes nothing.
 #[test]
 fn a_taken_name_is_refused_and_the_picker_returns() {
-    for size in SIZES {
-        let mut t = T::new(2, size);
-        let (photo, lisbon) = (t.ids[0], t.lisbon());
-        t.select(&[photo]);
-        let taken = lisbon.join("IMG_0002.jpg");
-        let before = std::fs::read(&taken).unwrap();
+    let size = LARGE;
+    let mut t = T::new(2, size);
+    let (photo, lisbon) = (t.ids[0], t.lisbon());
+    t.select(&[photo]);
+    let taken = lisbon.join("IMG_0002.jpg");
+    let before = std::fs::read(&taken).unwrap();
 
-        // The taken name, then a free one.
-        t.picker.push_save(&taken);
-        t.picker.push_save(lisbon.join("Second Try.jpg"));
-        t.click(&["File", "Save As…"]);
-        t.until("the second answer", |d| d.app().session().unwrap().library().photos().any(|p| p.name == "Second Try.jpg"));
-        t.until_done();
-        assert_eq!(std::fs::read(&taken).unwrap(), before, "never replaced");
-        let asked = t.picker.last_save().unwrap();
-        assert_eq!((asked.title, asked.name.as_str(), asked.folder.as_deref()), (ANOTHER_NAME, "IMG_0002.jpg", Some(lisbon.as_path())));
-        assert_eq!(asked.params, json!({ "id": photo }));
-        assert!(lisbon.join("Second Try.jpg").is_file());
-        assert!(t.toasts().iter().any(|m| m.contains("already exists")), "the toast says why: {:?}", t.toasts());
-        let taken_toast = t.toasts().into_iter().find(|m| m.contains("already exists")).unwrap();
-        assert!(taken_toast.contains("IMG_0002.jpg") && !taken_toast.contains("IMG_0001.jpg"), "it names the file tried: {taken_toast}");
+    // The taken name, then a free one.
+    t.picker.push_save(&taken);
+    t.picker.push_save(lisbon.join("Second Try.jpg"));
+    t.click(&["File", "Save As…"]);
+    t.until("the second answer", |d| d.app().session().unwrap().library().photos().any(|p| p.name == "Second Try.jpg"));
+    t.until_done();
+    assert_eq!(std::fs::read(&taken).unwrap(), before, "never replaced");
+    let asked = t.picker.last_save().unwrap();
+    assert_eq!((asked.title, asked.name.as_str(), asked.folder.as_deref()), (ANOTHER_NAME, "IMG_0002.jpg", Some(lisbon.as_path())));
+    assert_eq!(asked.params, json!({ "id": photo }));
+    assert!(lisbon.join("Second Try.jpg").is_file());
+    assert!(t.toasts().iter().any(|m| m.contains("already exists")), "the toast says why: {:?}", t.toasts());
+    let taken_toast = t.toasts().into_iter().find(|m| m.contains("already exists")).unwrap();
+    assert!(taken_toast.contains("IMG_0002.jpg") && !taken_toast.contains("IMG_0001.jpg"), "it names the file tried: {taken_toast}");
 
-        // The taken name again, then cancel: the status line keeps the reason, nothing is written.
-        t.picker.push_save(&taken);
-        t.click(&["File", "Save As…"]);
-        t.until_done();
-        assert_eq!(t.picker.last_save().unwrap().title, ANOTHER_NAME);
-        assert!(t.d.state().status.contains("already exists"), "{}", t.d.state().status);
-        assert_eq!(std::fs::read(&taken).unwrap(), before);
-        t.until("the new photo's thumbnail", |d| d.app().idle());
-        save_window(&t.d, &format!("save-as-another-name-{}", size.0));
+    // The taken name again, then cancel: the status line keeps the reason, nothing is written.
+    t.picker.push_save(&taken);
+    t.click(&["File", "Save As…"]);
+    t.until_done();
+    assert_eq!(t.picker.last_save().unwrap().title, ANOTHER_NAME);
+    assert!(t.d.state().status.contains("already exists"), "{}", t.d.state().status);
+    assert_eq!(std::fs::read(&taken).unwrap(), before);
+    t.until("the new photo's thumbnail", |d| d.app().idle());
+    save_window(&t.d, &format!("save-as-another-name-{}", size.0));
 
-        // A folder that is gone: asked again in the photo's folder, with the name tried.
-        let gone = t.dir.path().join("Gone").join("x.jpg");
-        t.picker.push_save(&gone);
-        t.click(&["File", "Save As…"]);
-        t.until_done();
-        let asked = t.picker.last_save().unwrap();
-        assert_eq!((asked.title, asked.name.as_str(), asked.folder.as_deref()), (TITLE, "x.jpg", Some(lisbon.as_path())));
-        assert!(!t.dir.path().join("Gone").exists());
+    // A folder that is gone: asked again in the photo's folder, with the name tried.
+    let gone = t.dir.path().join("Gone").join("x.jpg");
+    t.picker.push_save(&gone);
+    t.click(&["File", "Save As…"]);
+    t.until_done();
+    let asked = t.picker.last_save().unwrap();
+    assert_eq!((asked.title, asked.name.as_str(), asked.folder.as_deref()), (TITLE, "x.jpg", Some(lisbon.as_path())));
+    assert!(!t.dir.path().join("Gone").exists());
 
-        // A TIFF name is refused by the command: asked again where it was tried.
-        t.picker.push_save(lisbon.join("a.tif"));
-        t.click(&["File", "Save As…"]);
-        t.until_done();
-        let asked = t.picker.last_save().unwrap();
-        assert_eq!((asked.title, asked.name.as_str(), asked.folder.as_deref()), (TITLE, "a.tif", Some(lisbon.as_path())));
-        assert_eq!(files(&lisbon), ["IMG_0001.jpg", "IMG_0002.jpg", "Second Try.jpg"]);
-    }
+    // A TIFF name is refused by the command: asked again where it was tried.
+    t.picker.push_save(lisbon.join("a.tif"));
+    t.click(&["File", "Save As…"]);
+    t.until_done();
+    let asked = t.picker.last_save().unwrap();
+    assert_eq!((asked.title, asked.name.as_str(), asked.folder.as_deref()), (TITLE, "a.tif", Some(lisbon.as_path())));
+    assert_eq!(files(&lisbon), ["IMG_0001.jpg", "IMG_0002.jpg", "Second Try.jpg"]);
 }
 
 /// Cancelling the picker writes nothing and starts no job.
@@ -294,54 +286,53 @@ fn save_a_copy_writes_numbered_copies_from_the_edit_view_and_the_library() {
 /// library and the edit view; otherwise they are greyed with the reason.
 #[test]
 fn the_menu_rows_follow_the_photos_and_their_edits() {
-    for size in SIZES {
-        let mut t = T::new(2, size);
-        let state = |t: &T| {
-            let (a, c) = (t.row(&["File", "Save As…"]), t.row(&["File", "Save a Copy"]));
-            ((a.enabled, a.reason), (c.enabled, c.reason))
-        };
-        // Nothing selected.
-        let ((a, why), (c, _)) = state(&t);
-        assert!(!a && !c);
-        assert_eq!(why.as_deref(), Some(ONE_PHOTO));
-        // A photo without edits.
-        t.select(&[t.ids[1]]);
-        let ((a, why), (c, copy_why)) = state(&t);
-        assert!(!a && !c);
-        assert_eq!(why.as_deref(), Some(NO_EDITS));
-        assert_eq!(copy_why.as_deref(), Some(dalica_engine::cmd::save_copy::NO_EDITS));
-        // Two photos, one with edits: Save a Copy only.
-        t.select(&[t.ids[0], t.ids[1]]);
-        let ((a, _), (c, _)) = state(&t);
-        assert!(!a && c);
-        // One photo with edits.
-        t.select(&[t.ids[0]]);
-        let ((a, _), (c, _)) = state(&t);
-        assert!(a && c);
-        // Captured with the File menu open.
-        t.d.click("menu:File").unwrap();
-        t.d.settle(FRAMES).unwrap();
-        save_window(&t.d, &format!("save-as-file-menu-{}", size.0));
-        t.d.key("Escape").unwrap();
-        t.d.settle(FRAMES).unwrap();
-        // While the picker is open (until the next frame sees its answer) Save As waits for it.
-        let row = t.row(&["File", "Save As…"]);
-        menus::activate(t.d.app_mut(), &row, &Value::Null).unwrap();
-        let open = t.row(&["File", "Save As…"]);
-        assert_eq!((open.enabled, open.reason.as_deref()), (false, Some("A file dialog is already open.")), "one dialog at a time");
-        t.until_done();
-        // The edit view: the open photo decides.
-        t.d.run("view.edit", &json!({ "id": t.ids[0] })).unwrap();
-        t.d.settle(FRAMES).unwrap();
-        let ((a, _), (c, _)) = state(&t);
-        assert!(a && c, "the open photo has edits");
-        t.d.run("edit.next", &json!({})).unwrap();
-        t.d.settle(FRAMES).unwrap();
-        assert_eq!(t.d.state().edit.photo, Some(t.ids[1]));
-        let ((a, why), (c, _)) = state(&t);
-        assert!(!a && !c, "the open photo has none");
-        assert_eq!(why.as_deref(), Some(NO_EDITS));
-    }
+    let size = LARGE;
+    let mut t = T::new(2, size);
+    let state = |t: &T| {
+        let (a, c) = (t.row(&["File", "Save As…"]), t.row(&["File", "Save a Copy"]));
+        ((a.enabled, a.reason), (c.enabled, c.reason))
+    };
+    // Nothing selected.
+    let ((a, why), (c, _)) = state(&t);
+    assert!(!a && !c);
+    assert_eq!(why.as_deref(), Some(ONE_PHOTO));
+    // A photo without edits.
+    t.select(&[t.ids[1]]);
+    let ((a, why), (c, copy_why)) = state(&t);
+    assert!(!a && !c);
+    assert_eq!(why.as_deref(), Some(NO_EDITS));
+    assert_eq!(copy_why.as_deref(), Some(dalica_engine::cmd::save_copy::NO_EDITS));
+    // Two photos, one with edits: Save a Copy only.
+    t.select(&[t.ids[0], t.ids[1]]);
+    let ((a, _), (c, _)) = state(&t);
+    assert!(!a && c);
+    // One photo with edits.
+    t.select(&[t.ids[0]]);
+    let ((a, _), (c, _)) = state(&t);
+    assert!(a && c);
+    // Captured with the File menu open.
+    t.d.click("menu:File").unwrap();
+    t.d.settle(FRAMES).unwrap();
+    save_window(&t.d, &format!("save-as-file-menu-{}", size.0));
+    t.d.key("Escape").unwrap();
+    t.d.settle(FRAMES).unwrap();
+    // While the picker is open (until the next frame sees its answer) Save As waits for it.
+    let row = t.row(&["File", "Save As…"]);
+    menus::activate(t.d.app_mut(), &row, &Value::Null).unwrap();
+    let open = t.row(&["File", "Save As…"]);
+    assert_eq!((open.enabled, open.reason.as_deref()), (false, Some("A file dialog is already open.")), "one dialog at a time");
+    t.until_done();
+    // The edit view: the open photo decides.
+    t.d.run("view.edit", &json!({ "id": t.ids[0] })).unwrap();
+    t.d.settle(FRAMES).unwrap();
+    let ((a, _), (c, _)) = state(&t);
+    assert!(a && c, "the open photo has edits");
+    t.d.run("edit.next", &json!({})).unwrap();
+    t.d.settle(FRAMES).unwrap();
+    assert_eq!(t.d.state().edit.photo, Some(t.ids[1]));
+    let ((a, why), (c, _)) = state(&t);
+    assert!(!a && !c, "the open photo has none");
+    assert_eq!(why.as_deref(), Some(NO_EDITS));
 }
 
 /// After a Save in the edit view, Edit ▸ Undo reads "Undo Save" and is live (`photo.history.state`

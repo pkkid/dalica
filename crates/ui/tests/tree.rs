@@ -17,6 +17,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::common::{FRAMES, full, new_driver, widget};
 use dalica_core::{DateTime, FolderId, PhotoId, Timestamp};
 use dalica_engine::Session;
 use dalica_engine::synthetic::{self, Spec};
@@ -28,8 +29,6 @@ use dalica_ui::{App, Driver};
 use dalica_ui_kit::registry::Role;
 use serde_json::json;
 
-const FRAMES: usize = 60 * 60;
-
 fn clock() -> Arc<dyn dalica_core::Clock> {
     Arc::new(dalica_core::SystemClock)
 }
@@ -37,7 +36,7 @@ fn clock() -> Arc<dyn dalica_core::Clock> {
 /// An index-only synthetic library of `spec` in a `w × h` window.
 fn synthetic_driver(dir: &Path, spec: &Spec, (w, h): (u32, u32)) -> Driver {
     let s = synthetic::open(dir, spec, clock()).unwrap();
-    let mut d = Driver::new(App::new(Some(s)), w, h, 1.0);
+    let mut d = new_driver(App::new(Some(s)), w, h, 1.0);
     d.settle(FRAMES).unwrap();
     d
 }
@@ -45,7 +44,7 @@ fn synthetic_driver(dir: &Path, spec: &Spec, (w, h): (u32, u32)) -> Driver {
 /// A watched root `photos` holding `Trip` (3 photos), `Trip/Day 2` (3, taken later) and `Home`
 /// (2, taken last): a folder with photos that has a child, under a directory that is no folder.
 fn nested_driver(dir: &Path) -> Driver {
-    let files = dalica_scenes::demo_library(1, 8, 3).unwrap();
+    let files = crate::common::demo_library(1, 8, 3).unwrap();
     let root = dir.join("photos");
     for (i, f) in files.iter().enumerate() {
         let folder = match i {
@@ -59,7 +58,7 @@ fn nested_driver(dir: &Path) -> Driver {
     let mut s = Session::open(&dir.join("library"), clock()).unwrap();
     s.execute("folders.add", &json!({ "path": root })).unwrap();
     s.wait_idle();
-    let mut d = Driver::new(App::new(Some(s)), 1400, 900, 1.0);
+    let mut d = new_driver(App::new(Some(s)), 1400, 900, 1.0);
     d.settle(FRAMES).unwrap();
     d
 }
@@ -107,10 +106,6 @@ fn row_widgets(d: &Driver) -> Vec<dalica_ui_kit::WidgetInfo> {
     let mut rows: Vec<_> = d.widgets().into_iter().filter(|w| w.role == Role::TreeRow).collect();
     rows.sort_by(|a, b| a.rect[1].total_cmp(&b.rect[1]));
     rows
-}
-
-fn widget(d: &Driver, id: &str) -> dalica_ui_kit::WidgetInfo {
-    d.widgets().into_iter().find(|w| w.id == id).unwrap_or_else(|| panic!("no `{id}`"))
 }
 
 fn region(d: &Driver, name: &str) -> [f32; 4] {
@@ -499,8 +494,10 @@ fn tree_mode_folds_with_the_arrows_and_the_disclosure_triangles() {
     assert_eq!(d.state().folder, Some(trip), "a directory without photos selects nothing");
 }
 
-/// The done-when, part 4: a 5 000-folder synthetic library lays out as many rows a frame as a
-/// 50-folder one wherever the pane is scrolled, and the pane's frames stay within the 8 ms budget.
+/// The done-when, part 4: a 5 000-folder synthetic library (1 000 in a task's quick run) lays out
+/// as many rows a frame as a 50-folder one wherever the pane is scrolled; with
+/// `DALICA_FULL_TESTS=1` the pane's frames also stay within the 8 ms budget (wall-clock time, so
+/// not in the quick run, where a busy machine would make it flaky).
 #[test]
 fn a_5k_folder_library_stays_within_the_frame_budget_with_rows_visited_flat() {
     let run = |spec: &Spec| {
@@ -537,13 +534,15 @@ fn a_5k_folder_library_stays_within_the_frame_budget_with_rows_visited_flat() {
         (visited, p95, build.view_h)
     };
     let (small, _, view_h) = run(&Spec::new(1_000, 50, synthetic::SEED));
-    let (big, p95, _) = run(&Spec::FOLDERS_5K);
+    let (big, p95, _) = run(&if full() { Spec::FOLDERS_5K } else { Spec::new(20_000, 1_000, synthetic::SEED) });
     let most = (view_h / 18.0).ceil() as usize + 1;
     // Dividers are shorter than rows, and the small library has one every few rows: a pane of it
     // holds a few more items than a pane of the big one, never fewer.
     assert!(small.iter().chain(&big).all(|n| (1..=most).contains(n)), "one pane of rows at most ({most}): {small:?} {big:?}");
     assert!(big.iter().max() <= small.iter().max(), "flat: {small:?} against {big:?}");
-    assert!(p95 <= Duration::from_millis(8), "the pane's p95 frame time is {p95:?}");
+    if full() {
+        assert!(p95 <= Duration::from_millis(8), "the pane's p95 frame time is {p95:?}");
+    }
 }
 
 /// A folder of photos whose header the click asked for: the photos of the selection are that

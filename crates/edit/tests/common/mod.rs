@@ -9,8 +9,62 @@
 use std::path::PathBuf;
 
 use dalica_edit::{Recipe, Source, Target, render};
-use dalica_image::Rgba8;
-use dalica_scenes::{Rgb8, Scene, fingerprint};
+use dalica_image::{Orientation, Rgba8};
+use dalica_scenes::{Rgb8, Scene, fingerprint, orient};
+
+/// Full strength (`DALICA_FULL_TESTS=1`, the review gate) or quick (a task's gate).
+pub fn full() -> bool {
+    std::env::var_os("DALICA_FULL_TESTS").is_some_and(|v| v == "1")
+}
+
+/// A property test's case count: `n` in full mode, at most 32 in quick mode.
+pub fn cases(n: u32) -> u32 {
+    if full() { n } else { n.min(32) }
+}
+
+/// The geometric operations.
+pub const GEOMETRY: [&str; 5] = ["rotate(90)", "rotate(180)", "rotate(270)", "flip_h()", "flip_v()"];
+
+/// Every sequence of up to `max` operations from `GEOMETRY`, the empty one first.
+pub fn recipes(max: usize) -> Vec<Vec<&'static str>> {
+    let mut all = vec![vec![]];
+    let mut last = vec![vec![]];
+    for _ in 0..max {
+        last = last.iter().flat_map(|r: &Vec<&str>| GEOMETRY.iter().map(move |op| [r.clone(), vec![*op]].concat())).collect();
+        all.extend(last.iter().cloned());
+    }
+    all
+}
+
+/// `recipe` rendered at full size on the upright `img`.
+pub fn run(img: &Rgba8, ops: &[&str]) -> Rgba8 {
+    render(Source::upright(img), &recipe(ops), Target::Full).unwrap()
+}
+
+/// The RGB of each pixel.
+pub fn pixels(img: &Rgba8) -> impl Iterator<Item = [u8; 3]> + '_ {
+    img.data.chunks(4).map(|p| [p[0], p[1], p[2]])
+}
+
+/// The upright `up` as a file stores it under EXIF orientation `o`.
+pub fn stored(up: &Rgba8, o: u8) -> Rgba8 {
+    let rgb = Rgb8 { width: up.width, height: up.height, data: up.data.chunks(4).flat_map(|p| [p[0], p[1], p[2]]).collect() };
+    rgba(&orient::store(&rgb, o).unwrap())
+}
+
+pub fn exif(o: u8) -> Orientation {
+    Orientation::new(o).unwrap()
+}
+
+/// The window `(x, y, w, h)` of `img`.
+pub fn window(img: &Rgba8, x: u32, y: u32, w: u32, h: u32) -> Rgba8 {
+    let mut data = Vec::new();
+    for row in y..y + h {
+        let at = ((row * img.width + x) * 4) as usize;
+        data.extend_from_slice(&img.data[at..at + (w * 4) as usize]);
+    }
+    Rgba8 { width: w, height: h, data }
+}
 
 /// An RGB scene as opaque RGBA.
 pub fn rgba(img: &Rgb8) -> Rgba8 {

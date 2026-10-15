@@ -571,6 +571,12 @@ fn table(ui: &mut Ui, t: &Tokens, salt: &str, columns: &[Column<'_>], rows: &[Ve
     clicked
 }
 
+/// `build.rs`, compiled into the unit tests to test its parser and generator on fixtures.
+#[cfg(test)]
+#[path = "../build.rs"]
+#[allow(dead_code)]
+mod build_script;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -646,5 +652,106 @@ mod tests {
         assert_eq!((v.sort, v.ascending), (CreditsSort::Name, true));
         assert_eq!(SORTS.len(), 10);
         assert!(SORTS.iter().all(|s| sort_row(s.0) == *s));
+    }
+
+    #[test]
+    fn build_rs_takes_names_only_from_verified_entries_and_never_an_email() {
+        let toml = r#"
+    # A comment, and the template's own lines commented out:
+    #   [people.your-github-username]
+    [people.alice]
+    real_name = "Alice Liddell"   # her own entry
+    display_name = 'Al'
+    consent_source = "PR #1"
+
+    [people.bob]
+    display_name = "bob@example.org"
+    real_name = "Robert \"Bob\" Tables"
+
+    [people.carol]
+    sync_github_name = true
+
+    [people.dave]
+    real_name = "Dave"
+
+    [people.erin]
+    real_name = "Erin <erin@mail.example.com>"
+
+    [other]
+    what = "x"
+    "#;
+        let people = super::build_script::parse_people(toml);
+        assert_eq!(people.entries.keys().map(String::as_str).collect::<Vec<_>>(), ["alice", "bob", "carol", "dave", "erin"]);
+        assert_eq!(people.entries["alice"].display_name.as_deref(), Some("Al"));
+        assert_eq!(people.entries["bob"].real_name.as_deref(), Some("Robert \"Bob\" Tables"));
+        assert!(people.entries["carol"].sync_github_name);
+        assert_eq!(people.problems.iter().map(|p| p.0).collect::<Vec<_>>(), [22, 23], "the unknown table and its key are reported");
+        let json = serde_json::json!({
+            "schema": 1,
+            "commits": 9,
+            "contributors": [
+                { "login": "alice", "people_entry": true, "github_name": null, "prs": 2, "commits": 4, "lines_added": 10, "lines_deleted": 1, "binary_added": 0, "binary_deleted": 0, "first_commit": "2026-10-01T00:00:00Z", "last_commit": "2026-10-02T00:00:00Z" },
+                { "login": "bob", "people_entry": true, "prs": 1, "commits": 1 },
+                { "login": "carol", "people_entry": true, "github_name": "Carol from GitHub", "commits": 1 },
+                { "login": "dave", "people_entry": false, "commits": 1 },
+                { "login": "erin", "people_entry": true, "commits": 1, "first_commit": "erin@mail.example.com" },
+                { "login": "not a@login.example.com", "commits": 1 },
+                { "login": "frank", "commits": "lots", "prs": -1 },
+            ],
+            "models": [
+                { "company": "Anthropic", "model": "Claude Opus", "version": "5.5", "commits": 8, "lines_added": 9, "lines_deleted": 1 },
+                { "company": "noreply@anthropic.com", "model": "X", "version": "1", "commits": 1 },
+            ],
+        });
+        let (code, dropped) = super::build_script::generate(&json, &people.entries);
+        let line =
+            |login: &str| code.lines().find(|l| l.contains(&format!("login: {login:?}"))).unwrap_or_else(|| panic!("{login}: {code}")).to_string();
+        assert!(line("alice").contains(r#"display_name: Some("Al"), real_name: Some("Alice Liddell"), prs: 2, commits: 4"#), "{code}");
+        assert!(line("bob").contains(r#"display_name: None, real_name: Some("Robert \"Bob\" Tables")"#), "the email display name is dropped: {code}");
+        assert!(line("carol").contains(r#"display_name: Some("Carol from GitHub")"#), "synced from GitHub: {code}");
+        assert!(line("dave").contains("display_name: None, real_name: None"), "an unverified entry shows no name: {code}");
+        assert!(line("erin").contains("real_name: None") && line("erin").contains(r#"first_commit: """#), "{code}");
+        assert!(line("frank").contains("prs: 0, commits: 0"), "bad numbers count as 0: {code}");
+        assert!(!code.contains("not a@login"), "an invalid username is skipped: {code}");
+        assert!(code.contains("pub static TOTAL_COMMITS: u64 = 9;") && code.contains(r#"company: "", model: "X""#), "{code}");
+        assert_eq!(dropped.len(), 4, "{dropped:?}");
+        assert!(!code.lines().any(super::build_script::looks_like_email), "{code}");
+        // Nothing breaks the build: missing files and garbage give empty tables.
+        let (empty, _) = super::build_script::generate(&serde_json::Value::Null, &std::collections::BTreeMap::new());
+        assert!(empty.contains("TOTAL_COMMITS: u64 = 0;") && empty.contains("CONTRIBUTORS: &[Contributor] = &[\n];"));
+        for odd in
+            ["[", "[people.]", "x", "real_name = \"unclosed", "[people.a]\nreal_name = \"\\u12\"", "= =", "[people.a]\nsync_github_name = maybe"]
+        {
+            let _ = super::build_script::parse_people(odd);
+        }
+        for (s, email) in [("a@b.co", true), ("<x@y.org>", true), ("@pkkid", false), ("Bob @ home", false), ("x@localhost", false), ("Ann", false)] {
+            assert_eq!(super::build_script::looks_like_email(s), email, "{s}");
+        }
+    }
+
+    #[test]
+    fn no_email_reaches_the_binary() {
+        let b = super::Baked::compiled();
+        let mut strings: Vec<&str> = vec![super::compiled::SOURCE];
+        for c in b.contributors {
+            strings.extend([c.login, c.first_commit, c.last_commit]);
+            strings.extend(c.display_name);
+            strings.extend(c.real_name);
+            assert!(super::build_script::valid_login(c.login), "{}", c.login);
+        }
+        for m in b.models {
+            strings.extend([m.company, m.model, m.version]);
+        }
+        for s in strings {
+            assert!(!super::build_script::looks_like_email(s) && !s.contains("noreply"), "{s}");
+        }
+        // The compiled tables are the committed file's, at least its contributors and models.
+        let json: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../contributors/contributors.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(b.contributors.len(), json["contributors"].as_array().unwrap().len());
+        assert_eq!(b.models.len(), json["models"].as_array().unwrap().len());
+        assert_eq!(b.total_commits, json["commits"].as_u64().unwrap());
     }
 }

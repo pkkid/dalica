@@ -4,6 +4,7 @@
 
 use std::path::Path;
 
+use crate::common::put;
 use dalica_core::{FolderId, PhotoId, Timestamp};
 use dalica_library::{Folder, Library, Op, Photo, Project, SaveState, Saved, SavedAs};
 use dalica_scan::originals::{self, Originals};
@@ -12,11 +13,6 @@ use dalica_scenes::{Scene, jpeg};
 use dalica_sidecar::{Limits, Sidecar};
 
 const NOW: Timestamp = Timestamp::from_millis(1_791_000_000_000);
-
-fn put(path: &Path, bytes: &[u8]) {
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    std::fs::write(path, bytes).unwrap();
-}
 
 fn record(dir: &Path, text: &str) {
     put(&dir.join(".dalica-originals").join(".dalica.json"), text.as_bytes());

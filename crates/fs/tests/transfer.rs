@@ -6,21 +6,17 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Barrier};
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 
+use crate::common::{names, old_time, temps};
 use dalica_fs::faults::{
     COPY_POINTS, FINISH_POINTS, FOLDER_MOVE_POINTS, FOLDER_NEW_POINTS, Fault, MOVE_POINTS, TREE_POINTS, arm, disarm_all, points, run_at,
 };
 use dalica_fs::transfer::{Finished, FolderMoved, Moved, Outcome, copy_file, finish_move, move_file, move_folder, new_folder};
 use dalica_fs::trash::{self, Trashed};
-use dalica_fs::{Error, Identity, atomic::is_temp_name, guard, identity};
+use dalica_fs::{Error, Identity, guard, identity};
 
 const JPEG: &[u8] = b"\xff\xd8\xff\xe0 the photo's own bytes \xff\xd9";
-
-/// A time well in the past, to see that a move keeps it.
-fn old_time() -> SystemTime {
-    SystemTime::UNIX_EPOCH + Duration::from_secs(1_500_000_000)
-}
 
 fn write_old(path: &Path, bytes: &[u8]) {
     fs::write(path, bytes).unwrap();
@@ -33,17 +29,6 @@ fn id(path: &Path) -> Identity {
 
 fn mtime(path: &Path) -> SystemTime {
     fs::metadata(path).unwrap().modified().unwrap()
-}
-
-/// Every name in `dir`, sorted.
-fn names(dir: &Path) -> Vec<String> {
-    let mut v: Vec<String> = fs::read_dir(dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
-    v.sort();
-    v
-}
-
-fn temps(dir: &Path) -> usize {
-    fs::read_dir(dir).unwrap().filter(|e| is_temp_name(&e.as_ref().unwrap().file_name())).count()
 }
 
 /// Puts a trashed test item back where it was (inside a temporary folder that is removed after the

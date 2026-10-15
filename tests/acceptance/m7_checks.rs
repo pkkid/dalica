@@ -20,14 +20,14 @@ pub const STEP_MS: f64 = 50.0;
 /// run never sees [`RELEASE`] (`tuning_tab` would then insist on a release build); `release` sets it.
 pub fn cargo(args: &[&str], release: bool) -> String {
     let started = Instant::now();
-    let mut cmd = dalica_acceptance::cargo();
-    cmd.args(args);
-    if release {
-        cmd.env(RELEASE, "1");
-    } else {
-        cmd.env_remove(RELEASE);
-    }
-    let out = cmd.output().unwrap();
+    let out = dalica_acceptance::cargo_split(args, |cmd| {
+        if release {
+            cmd.env(RELEASE, "1");
+        } else {
+            cmd.env_remove(RELEASE);
+        }
+    })
+    .unwrap();
     let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
     let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
     assert!(out.status.success(), "cargo {}:\n{stdout}\n{stderr}", args.join(" "));
@@ -61,10 +61,10 @@ pub fn crate_suites() {
     println!("Edit view shell:");
     println!("  the coordinate frame, the photo's history (restart and rebuild), M7's settings");
     suites("dalica-edit", &["frame", "recipe", "geometry"]);
-    suites("dalica-engine", &["photo_history", "settings_m7"]);
+    suites("dalica-engine", &["photo_history", "settings"]);
     println!("  the view's state and frame, entering, leaving and navigation, zoom maths and the canvas");
-    suites("dalica-ui", &["view_state_m7", "edit_navigation", "zoom_maths", "edit_canvas", "edit_panel"]);
-    suites("dalica-ui-kit", &["edit_widgets", "input", "icons_edit"]);
+    suites("dalica-ui", &["view_state", "edit_navigation", "zoom_maths", "edit_canvas", "edit_panel"]);
+    suites("dalica-ui-kit", &["edit_widgets", "input", "icons"]);
     println!("  the preview renders (draft before final, refined window, prefetch, histogram, cancel)");
     suites("dalica-engine", &["preview"]);
     println!("Basic fixes:");
@@ -81,9 +81,9 @@ pub fn crate_suites() {
     suites("dalica-ui", &["tuning_tab", "retouch_tool", "widget_ids"]);
 }
 
-/// `panic_hunt -- --ignored`: every command, M7's included, hostile params, never a panic.
+/// `panic_hunt` (once per review gate; `dalica_acceptance::panic_hunt`): every command, M7's included, hostile params, never a panic.
 pub fn panic_hunt() {
-    cargo_test(&["-p", "dalica-engine", "--test", "panic_hunt", "--", "--ignored"], false);
+    dalica_acceptance::panic_hunt().unwrap();
 }
 
 /// The JSON report a bench printed (its line starting with `{`).

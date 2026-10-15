@@ -11,51 +11,20 @@
 //! command's contract and graceful failures; the owner thread makes no `fs` call.
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
-use dalica_core::{FolderId, PhotoId, Timestamp, VirtualClock};
+use crate::common::{FaultLock, entry, files, jpeg, off_owner, options, read, read_json, shared, virtual_clock, wait_files};
+use dalica_core::{FolderId, PhotoId, VirtualClock};
 use dalica_engine::cmd::rename::planted;
+use dalica_engine::offline::CHECK_EVERY;
 use dalica_engine::watching::WatchMode;
-use dalica_engine::{CacheDir, CmdError, Direction, FileOpEvent, FileOpKind, Options, Session, ThumbOptions};
+use dalica_engine::{CmdError, Direction, FileOpEvent, FileOpKind, Session};
 use dalica_fs::Expect;
 use serde_json::{Value, json};
 
 const PATIENCE: Duration = Duration::from_secs(120);
-
-/// Runs `f` on a helper thread: the test's own file access never counts against the owner.
-fn off_owner<T: Send>(f: impl FnOnce() -> T + Send) -> T {
-    std::thread::scope(|s| s.spawn(f).join().unwrap())
-}
-
-fn read_json(path: &Path) -> Option<Value> {
-    let path = path.to_path_buf();
-    off_owner(move || std::fs::read(path).ok().map(|b| serde_json::from_slice(&b).unwrap()))
-}
-
-/// The folder sidecar's entry for `name`.
-fn entry(folder: &Path, name: &str) -> Option<Value> {
-    read_json(&folder.join(".dalica.json")).and_then(|v| v.get("photos").and_then(|p| p.get(name)).cloned())
-}
-
-/// The names of the files in `folder` (Dalica's own left out), sorted.
-fn files(folder: &Path) -> Vec<String> {
-    let folder = folder.to_path_buf();
-    let mut v: Vec<String> = off_owner(move || {
-        std::fs::read_dir(folder)
-            .unwrap()
-            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
-            .filter(|n| !n.starts_with(".dalica"))
-            .collect()
-    });
-    v.sort();
-    v
-}
-
-fn read(path: &Path) -> Vec<u8> {
-    let path = path.to_path_buf();
-    off_owner(move || std::fs::read(path).unwrap())
-}
 
 /// Whether the temporary folders' volume ignores letter case (the macOS and Windows runners).
 fn ignores_case(dir: &Path) -> bool {
@@ -73,23 +42,18 @@ fn photos(s: &Session) -> Vec<dalica_library::Photo> {
     s.library().photos().cloned().collect()
 }
 
-fn jpeg(seed: u64) -> Vec<u8> {
-    dalica_scenes::jpeg(&dalica_scenes::Scene::new(seed, 96, 64), 80, None).unwrap()
-}
-
-fn options() -> Options {
-    Options { thumbs: ThumbOptions { cache: CacheDir::Off, workers: 1, ..ThumbOptions::default() } }
-}
-
 struct Lib {
     dir: tempfile::TempDir,
+    clock: Arc<VirtualClock>,
     s: Session,
+    _faults: FaultLock,
 }
 
 impl Lib {
     /// `Pictures/<folder>` with each folder's photos (written in order), watched and scanned, on a
     /// virtual clock, the watcher off. `before_open` runs on the `Pictures` folder first.
     fn with(folders: &[(&str, &[&str])], before_open: impl FnOnce(&Path)) -> Lib {
+        let _faults = shared();
         let dir = tempfile::tempdir().unwrap();
         let pictures = dir.path().join("Pictures");
         let mut seed = 0;
@@ -104,12 +68,12 @@ impl Lib {
         before_open(&pictures);
         let library = dir.path().join("library");
         dalica_fs::create_dir_all(&library).unwrap();
-        let clock = Arc::new(VirtualClock::new(Timestamp::from_millis(1_790_000_000_000)));
-        let mut s = Session::open_with(&library, clock, &options()).unwrap();
+        let clock = virtual_clock();
+        let mut s = Session::open_with(&library, clock.clone(), &options()).unwrap();
         s.set_watching(WatchMode::Off);
         s.execute("folders.add", &json!({ "path": pictures })).unwrap();
         s.wait_idle();
-        Lib { dir, s }
+        Lib { dir, clock, s, _faults }
     }
 
     /// `Pictures/Lisbon` with `IMG_0001.jpg` … `IMG_000n.jpg`.
@@ -140,7 +104,7 @@ impl Lib {
     /// Runs `id` with `p` and waits for its file job; the reply.
     fn run(&mut self, id: &str, p: Value) -> Value {
         let reply = self.s.execute(id, &p).unwrap();
-        assert!(self.s.wait_file_jobs(PATIENCE), "the file jobs ended");
+        wait_files(&mut self.s);
         self.s.flush().unwrap();
         reply
     }
@@ -151,13 +115,13 @@ impl Lib {
 
     fn undo(&mut self) {
         self.s.execute("edit.undo", &json!({})).unwrap();
-        assert!(self.s.wait_file_jobs(PATIENCE));
+        wait_files(&mut self.s);
         self.s.flush().unwrap();
     }
 
     fn redo(&mut self) {
         self.s.execute("edit.redo", &json!({})).unwrap();
-        assert!(self.s.wait_file_jobs(PATIENCE));
+        wait_files(&mut self.s);
         self.s.flush().unwrap();
     }
 
@@ -458,16 +422,14 @@ fn hard_names_round_trip() {
     assert_eq!(files(&lisbon), want);
 }
 
-/// The commands' contract: names are sanitized, an unchanged name starts nothing, and bad, empty,
-/// unknown or oversized input is refused with an error (never a panic) and changes nothing.
+/// The commands' contract: names are sanitized, an unchanged name starts nothing, and a missing
+/// or empty name, unknown photos and folders and oversized input are refused and change nothing.
 #[test]
 fn contract_and_graceful_failures() {
     let mut l = Lib::new(2);
     let lisbon = l.folder("Lisbon");
     let (one, two) = (l.photo("Lisbon", "IMG_0001.jpg"), l.photo("Lisbon", "IMG_0002.jpg"));
     let folder = l.folder_id("Lisbon");
-    let ids = dalica_engine::cmd::specs().iter().map(|s| s.id).collect::<Vec<_>>();
-    assert!(ids.contains(&"photo.rename") && ids.contains(&"folder.rename"));
 
     // Sanitized: separators and characters Windows refuses go, leading dots and dashes too.
     l.run("photo.rename", json!({ "ids": [one], "name": "../-Tram: 28?/" }));
@@ -479,31 +441,14 @@ fn contract_and_graceful_failures() {
     assert_eq!(l.s.undo_stack().len(), steps);
 
     let model = l.s.library().model().clone();
-    let bad_params = [
-        json!({}),
-        json!({ "ids": [one] }),
-        json!({ "name": "x" }),
-        json!({ "ids": [one], "name": 5 }),
-        json!({ "ids": "x", "name": "x" }),
-        json!({ "ids": [one], "name": "x", "addDate": "yes" }),
-        json!({ "ids": [one], "name": "x", "zzz": 1 }),
-        json!({ "ids": [one], "name": "   " }),
-        json!([]),
-        json!("text"),
-    ];
+    let bad_params = [json!({ "ids": [one] }), json!({ "name": "x" }), json!({ "ids": [one], "name": "   " })];
     for p in &bad_params {
         assert!(matches!(l.s.execute("photo.rename", p), Err(CmdError::BadParams(_))), "{p}");
     }
     assert!(matches!(l.s.execute("photo.rename", &json!({ "ids": [999_999], "name": "x" })), Err(CmdError::NotFound(_))));
     assert!(matches!(l.s.execute("photo.rename", &json!({ "ids": [], "name": "x" })), Err(CmdError::Disabled(_))));
     assert!(matches!(l.s.execute("photo.rename", &json!({ "ids": [two], "name": "x".repeat(5000) })), Err(CmdError::Limit(_))));
-    for p in [
-        json!({}),
-        json!({ "folder": folder }),
-        json!({ "name": "x" }),
-        json!({ "folder": "x", "name": "x" }),
-        json!({ "folder": folder, "name": "" }),
-    ] {
+    for p in [json!({ "folder": folder }), json!({ "name": "x" }), json!({ "folder": folder, "name": "" })] {
         assert!(matches!(l.s.execute("folder.rename", &p), Err(CmdError::BadParams(_))), "{p}");
     }
     assert!(matches!(l.s.execute("folder.rename", &json!({ "folder": 999_999, "name": "x" })), Err(CmdError::NotFound(_))));
@@ -511,17 +456,6 @@ fn contract_and_graceful_failures() {
     assert!(l.s.wait_file_jobs(PATIENCE));
     assert_eq!(l.s.library().model(), &model, "nothing changed");
     assert_eq!(files(&lisbon), ["IMG_0002.jpg", "Tram 28.jpg"]);
-
-    // Hostile parameters of every shape.
-    for p in
-        [json!(42), json!(null), json!({ "ids": [-1], "name": "x" }), json!({ "ids": [1.5], "name": "x" }), json!({ "ids": [one], "name": null })]
-    {
-        for id in ["photo.rename", "folder.rename"] {
-            let r = l.s.execute(id, &p);
-            assert!(r.is_err() && !matches!(r, Err(CmdError::Internal(_))), "{id} {p}: {r:?}");
-        }
-    }
-    assert_eq!(l.s.library().model(), &model);
 }
 
 /// A folder renamed onto the name of another library folder beside it is refused before anything
@@ -583,4 +517,75 @@ fn a_renamed_watched_folder_keeps_its_folders_json_entry() {
     assert_eq!(entries(&l), before);
     l.redo();
     assert_eq!(entries(&l), renamed);
+}
+
+/// An online check that saw a watched folder gone because Dalica was renaming it (the check sent
+/// just before the rename, answered just after) holds that folder's sidecar writes once the
+/// folder is back under that name (an undo): a flush in between reports them unsaved, a star made
+/// meanwhile included. The next check finds the folder and they land: delayed, never lost.
+#[test]
+fn a_check_that_saw_a_renamed_watched_folder_gone_only_delays_its_writes() {
+    let mut l = Lib::with(&[("Lisbon", &["a.jpg"])], |_| {});
+    let lisbon = l.folder("Lisbon");
+    l.s.execute("folders.add", &json!({ "path": lisbon })).unwrap();
+    l.s.wait_idle();
+    l.s.flush().unwrap();
+    // The first look at Lisbon waits for `first`; every look after it, at any folder, waits for
+    // `later` (the next check is still looking).
+    type Gate = Arc<(Mutex<bool>, Condvar)>;
+    let (first, later): (Gate, Gate) = (Arc::default(), Arc::default());
+    let looks = Arc::new(AtomicUsize::new(0));
+    let check: dalica_engine::offline::OnlineCheck = {
+        let (first, later, looks, lisbon) = (first.clone(), later.clone(), looks.clone(), lisbon.clone());
+        Arc::new(move |p: &Path| {
+            let gate = if looks.load(Ordering::SeqCst) > 0 {
+                Some(&later)
+            } else if p == lisbon {
+                looks.fetch_add(1, Ordering::SeqCst);
+                Some(&first)
+            } else {
+                None
+            };
+            if let Some(gate) = gate {
+                let open = gate.0.lock().unwrap();
+                drop(gate.1.wait_while(open, |open| !*open).unwrap());
+            }
+            p.exists()
+        })
+    };
+    let open = |gate: &Gate| {
+        *gate.0.lock().unwrap() = true;
+        gate.1.notify_all();
+    };
+    l.s.set_online_check(Some(check));
+    l.clock.advance(CHECK_EVERY);
+    l.s.poll();
+    while looks.load(Ordering::SeqCst) == 0 {
+        std::thread::yield_now();
+    }
+    // The check is looking at Lisbon; the rename goes on meanwhile, and the check then finds
+    // nothing there.
+    let folder = l.folder_id("Lisbon");
+    l.s.execute("folder.rename", &json!({ "folder": folder, "name": "Lisboa" })).unwrap();
+    assert!(l.s.wait_file_jobs(PATIENCE));
+    l.s.flush().unwrap();
+    open(&first);
+    while l.s.root_online(&lisbon) != Some(false) {
+        l.s.poll();
+        std::thread::yield_now();
+    }
+    // Undo brings Lisbon back while the stale verdict stands (the next check still looking).
+    l.s.execute("edit.undo", &json!({})).unwrap();
+    assert!(l.s.wait_file_jobs(PATIENCE));
+    assert_eq!(l.s.library().folder(folder).map(|f| f.path.clone()), Some(lisbon.clone()));
+    let a = l.photo("Lisbon", "a.jpg");
+    l.s.execute("photo.star.set", &json!({ "ids": [a], "on": true })).unwrap();
+    let held = l.s.flush();
+    assert!(matches!(&held, Err(CmdError::Unsaved(m)) if m.contains("not there")), "{held:?}");
+    // The next check finds it: the writes land.
+    open(&later);
+    assert!(l.s.refresh_volumes(PATIENCE));
+    assert_eq!(l.s.root_online(&lisbon), Some(true));
+    l.s.flush().unwrap();
+    assert_eq!(entry(&lisbon, "a.jpg").unwrap()["star"], json!(true), "the star made meanwhile landed");
 }

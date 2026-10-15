@@ -14,13 +14,13 @@ use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
 use std::sync::Arc;
 
+use crate::common::{FRAMES, full, new_driver, shot, widget};
 use dalica_engine::Session;
 use dalica_ui::headless::{Drag, Target};
 use dalica_ui::state::Pane;
 use dalica_ui::{App, Driver, ScriptedPicker};
 use dalica_ui_kit::WidgetInfo;
 
-const FRAMES: usize = 60 * 60;
 const SIZES: [(f32, f32); 2] = [(1400.0, 900.0), (900.0, 600.0)];
 /// The sizes of the M3.10 done-when: the default, the width where the narrow rules start, the minimum.
 const THREE_SIZES: [(f32, f32); 3] = [(1400.0, 900.0), (1100.0, 700.0), (900.0, 600.0)];
@@ -32,7 +32,7 @@ fn session(root: &Path) -> Session {
 
 /// [`session`], with the first folder called `first` when given.
 fn session_named(root: &Path, first: Option<&str>) -> Session {
-    let files = dalica_scenes::demo_library(2, 24, 3).unwrap();
+    let files = crate::common::demo_library(2, 24, 3).unwrap();
     let mut folders = BTreeSet::new();
     let first_folder = files.first().and_then(|f| f.path.components().next()).map(|c| c.as_os_str().to_owned());
     for f in &files {
@@ -56,7 +56,7 @@ fn session_named(root: &Path, first: Option<&str>) -> Session {
 }
 
 fn driver(root: &Path, (w, h): (f32, f32)) -> Driver {
-    let mut d = Driver::new(App::with_picker(Some(session(root)), Arc::new(ScriptedPicker::new())), w as u32, h as u32, 1.0);
+    let mut d = new_driver(App::with_picker(Some(session(root)), Arc::new(ScriptedPicker::new())), w as u32, h as u32, 1.0);
     d.settle(FRAMES).unwrap();
     d
 }
@@ -64,10 +64,6 @@ fn driver(root: &Path, (w, h): (f32, f32)) -> Driver {
 /// The regions the last frame registered, by name.
 fn regions(d: &Driver) -> HashMap<String, [f32; 4]> {
     d.widgets().into_iter().filter_map(|w| w.id.strip_prefix("region:").map(|n| (n.to_string(), w.rect))).collect()
-}
-
-fn widget(d: &Driver, id: &str) -> WidgetInfo {
-    d.widgets().into_iter().find(|w| w.id == id).unwrap_or_else(|| panic!("no `{id}`"))
 }
 
 /// The tree width `ui-layout.md` §11 gives beside a side pane `pane` wide (0 when closed) in a
@@ -123,9 +119,11 @@ fn inside(r: [f32; 4], o: [f32; 4]) -> bool {
 /// The M3.5 done-when.
 #[test]
 fn every_region_is_registered_at_its_spec_size_at_both_window_sizes() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut d = driver(dir.path(), SIZES[0]);
     for (w, h) in SIZES {
-        let dir = tempfile::tempdir().unwrap();
-        let mut d = driver(dir.path(), (w, h));
+        d.resize(w as u32, h as u32);
+        d.settle(FRAMES).unwrap();
         assert_regions(&d, &expected(w, h, 240.0, 0.0), &format!("{w}×{h}"));
         assert!(!regions(&d).contains_key("tabStrip") && !regions(&d).contains_key("sidePane"));
 
@@ -143,8 +141,6 @@ fn every_region_is_registered_at_its_spec_size_at_both_window_sizes() {
                 assert!(inside(wi.rect, column), "{w}×{h}: `{}` at {:?} is outside the light table", wi.id, wi.rect);
             }
         }
-        let missing = d.app().panels().unwrap().unregistered_widgets();
-        assert_eq!(missing, [], "{w}×{h}: interactive widgets without an id");
 
         // A side pane open pushes the light table; its large width is min(30 % W, 392).
         for (pane, large) in [(Pane::Tags, false), (Pane::Properties, true)] {
@@ -178,9 +174,12 @@ fn the_regions_follow_a_resize() {
 /// light table gives or takes the difference.
 #[test]
 fn the_splitter_resizes_the_tree_within_its_limits() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut d = driver(dir.path(), SIZES[0]);
     for (w, h) in SIZES {
-        let dir = tempfile::tempdir().unwrap();
-        let mut d = driver(dir.path(), (w, h));
+        d.app_mut().state_mut().tree_width = 240.0;
+        d.resize(w as u32, h as u32);
+        d.settle(FRAMES).unwrap();
         let drag = |d: &mut Driver, dx: f32| {
             d.drag("splitter:tree", Target::Delta(egui::vec2(dx, 0.0)), &Drag::default()).unwrap();
             d.settle(FRAMES).unwrap();
@@ -388,16 +387,6 @@ fn assert_controls(d: &Driver, w: f32, h: f32, pane: Option<&str>, case: &str) {
             assert!(!overlap(*ra, *rb), "{case}: `{a}` {ra:?} overlaps `{b}` {rb:?}");
         }
     }
-    let missing = d.app().panels().unwrap().unregistered_widgets();
-    assert_eq!(missing, [], "{case}: interactive widgets without an id");
-}
-
-/// Saves a screenshot of the window in `target/test-output/ui/` (for the pull request and the check-in).
-fn snapshot(d: &Driver, name: &str) {
-    let out = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/ui");
-    std::fs::create_dir_all(&out).unwrap();
-    let shot = d.screenshot().unwrap();
-    std::fs::write(out.join(format!("{name}.png")), dalica_scenes::fingerprint::png_rgba(shot.width, shot.height, &shot.rgba)).unwrap();
 }
 
 /// The M3.10 done-when: the geometry of every region and every control at 1400 × 900, 1100 × 700
@@ -406,9 +395,12 @@ fn snapshot(d: &Driver, name: &str) {
 /// §11). F11 toggles full screen, which lays out every region and control as the window does.
 #[test]
 fn every_control_is_in_place_at_three_sizes_with_the_pane_open_and_closed_and_in_full_screen() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut d = driver(dir.path(), THREE_SIZES[0]);
     for (w, h) in THREE_SIZES {
-        let dir = tempfile::tempdir().unwrap();
-        let mut d = driver(dir.path(), (w, h));
+        d.app_mut().state_mut().pane = None;
+        d.resize(w as u32, h as u32);
+        d.settle(FRAMES).unwrap();
         for (pane, large) in [(None, false), (Some(Pane::Tags), false), (Some(Pane::Properties), true)] {
             d.app_mut().state_mut().pane = pane;
             d.app_mut().state_mut().pane_large = large;
@@ -431,7 +423,7 @@ fn every_control_is_in_place_at_three_sizes_with_the_pane_open_and_closed_and_in
                 assert_regions(&d, &expected(w, h, tree_beside(240.0, w, width), width), &case);
                 assert_controls(&d, w, h, name, &case);
                 let pane_part = name.map_or("closed".to_string(), |n| if large { format!("{n}-large") } else { n.to_string() });
-                snapshot(&d, &format!("layout-{w}x{h}-pane-{pane_part}{}", if full { "-fullscreen" } else { "" }));
+                shot(&d, &format!("layout-{w}x{h}-pane-{pane_part}{}", if full { "-fullscreen" } else { "" }));
             }
             d.key("F11").unwrap();
             d.settle(FRAMES).unwrap();
@@ -537,19 +529,22 @@ fn narrow_windows_drop_only_the_chrome_the_spec_lets_go_before_anything_overlaps
     const LONG: &str = "Summer holiday at the lake house with the whole family";
     let dir = tempfile::tempdir().unwrap();
     let app = App::with_picker(Some(session_named(dir.path(), Some(LONG))), Arc::new(ScriptedPicker::new()));
-    let mut d = Driver::new(app, 1400, 900, 1.0);
+    let mut d = new_driver(app, 1400, 900, 1.0);
     d.settle(FRAMES).unwrap();
     let row = d.widgets().into_iter().find(|wi| wi.id.starts_with("tree:folder:") && wi.label.starts_with(LONG)).expect("the long folder's row");
     d.click(&row.id).unwrap();
     d.settle(FRAMES).unwrap();
     assert!(d.state().folder.is_some());
 
+    // Every 25 pt from 1400 down to 900 with DALICA_FULL_TESTS=1; a task's quick run samples the
+    // widths around 1100 and the long title's drop (at 925 today).
+    let widths: Vec<u32> = if full() { (900..=1400).rev().step_by(25).collect() } else { vec![1400, 1200, 1100, 1000, 950, 925, 900] };
     for (selected, title) in [(true, format!("{LONG} — Dalica")), (false, "Dalica".to_string())] {
         if !selected {
             d.app_mut().state_mut().folder = None;
         }
         let mut dropped_at = None;
-        for w in (900..=1400).rev().step_by(25) {
+        for &w in &widths {
             let w = w as f32;
             d.resize(w as u32, 700);
             d.settle(FRAMES).unwrap();

@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::common::{entry, jpeg, shared};
 use dalica_core::{PhotoId, Timestamp, VirtualClock};
 use dalica_engine::fileops_recovery::RepairOutcome;
 use dalica_engine::watching::WatchMode;
@@ -22,21 +23,12 @@ use serde_json::{Value, json};
 
 const PATIENCE: Duration = Duration::from_secs(120);
 
-fn jpeg(seed: u64) -> Vec<u8> {
-    dalica_scenes::jpeg(&dalica_scenes::Scene::new(seed, 96, 64), 80, None).unwrap()
-}
-
 fn open(library: &Path) -> Session {
     let clock = Arc::new(VirtualClock::new(Timestamp::from_millis(1_790_000_000_000)));
     let options = Options { thumbs: ThumbOptions { cache: CacheDir::Off, workers: 1, ..ThumbOptions::default() } };
     let mut s = Session::open_with(library, clock, &options).unwrap();
     s.set_watching(WatchMode::Off);
     s
-}
-
-fn entry(folder: &Path, name: &str) -> Option<Value> {
-    let bytes = std::fs::read(folder.join(".dalica.json")).ok()?;
-    serde_json::from_slice::<Value>(&bytes).ok()?.get("photos")?.get(name).cloned()
 }
 
 struct Lib {
@@ -134,6 +126,7 @@ fn shown(s: &Session, id: PhotoId, path: &Path, caption: &str) {
 /// empty.
 #[test]
 fn a_reopened_session_repairs_a_planted_crash_and_shows_each_photo_with_its_data() {
+    let _faults = shared();
     let l = Lib::new(&[
         "Lisbon/IMG_0001.jpg",
         "Lisbon/IMG_0002.jpg",
@@ -231,6 +224,7 @@ fn a_reopened_session_repairs_a_planted_crash_and_shows_each_photo_with_its_data
 /// under their new names, the others under their old ones.
 #[test]
 fn a_batch_rename_stopped_half_way_keeps_every_photo_with_its_data() {
+    let _faults = shared();
     let l = Lib::new(&["Lisbon/IMG_0001.jpg", "Lisbon/IMG_0002.jpg", "Lisbon/IMG_0003.jpg"]);
     let p = |rel: &str| l.path(rel);
     let ids = l.ids(&["Lisbon/IMG_0001.jpg", "Lisbon/IMG_0002.jpg", "Lisbon/IMG_0003.jpg"]);
@@ -250,6 +244,7 @@ fn a_batch_rename_stopped_half_way_keeps_every_photo_with_its_data() {
 /// is rolled back (it stays, and nothing is sent anywhere), never taken for a move to finish.
 #[test]
 fn an_interrupted_undo_of_a_copy_never_trashes_the_source() {
+    let _faults = shared();
     let l = Lib::new(&["Lisbon/IMG_0001.jpg", "Porto/IMG_0001.jpg"]);
     let p = |rel: &str| l.path(rel);
     // The copy is byte for byte the source.
@@ -268,6 +263,7 @@ fn an_interrupted_undo_of_a_copy_never_trashes_the_source() {
 /// naming one folder at both ends (Move to New Folder's folder) has nothing to repair.
 #[test]
 fn lost_items_are_reported_and_a_made_folder_needs_nothing() {
+    let _faults = shared();
     let l = Lib::new(&["Lisbon/IMG_0001.jpg"]);
     let p = |rel: &str| l.path(rel);
     std::fs::create_dir(p("New Folder")).unwrap();
@@ -291,6 +287,7 @@ fn lost_items_are_reported_and_a_made_folder_needs_nothing() {
 #[cfg(unix)]
 #[test]
 fn an_operation_that_cannot_be_looked_at_waits_for_the_next_open() {
+    let _faults = shared();
     use std::os::unix::fs::PermissionsExt;
     let l = Lib::new(&["Lisbon/IMG_0001.jpg", "Porto/PORTO_0001.jpg"]);
     let p = |rel: &str| l.path(rel);
@@ -328,6 +325,7 @@ fn an_operation_that_cannot_be_looked_at_waits_for_the_next_open() {
 /// name, its data and its listing, and the next open has nothing to repair.
 #[test]
 fn a_batch_rename_whose_rename_fails_after_it_happened_puts_it_back_too() {
+    let _faults = shared();
     let dir = tempfile::tempdir().unwrap();
     let lisbon = dir.path().join("Pictures").join("Lisbon");
     dalica_fs::create_dir_all(&lisbon).unwrap();

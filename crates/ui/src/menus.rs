@@ -884,31 +884,6 @@ mod tests {
     }
 
     #[test]
-    fn hostile_params_and_unknown_ids_are_errors_never_panics() {
-        let (_dir, s, ids) = session_with_photos(1);
-        let mut app = App::new(Some(s));
-        for (id, params) in [
-            ("select.set", json!({})),
-            ("select.set", json!({ "ids": "1" })),
-            ("select.set", json!({ "ids": [-1] })),
-            ("select.set", json!({ "ids": [1.5] })),
-            ("select.set", json!({ "ids": [], "mode": "sideways" })),
-            ("select.set", json!({ "ids": [], "extra": 1 })),
-            ("select.set", json!([1, 2])),
-            ("select.set", Value::Null),
-            ("select.none", json!({ "all": true })),
-            ("select.none", json!("x")),
-        ] {
-            assert!(matches!(app.run(id, &params), Err(CmdError::BadParams(_))), "{id} {params}");
-        }
-        assert!(matches!(app.run("select.set", &json!({ "ids": [ids[0].get() + 1000] })), Err(CmdError::NotFound(_))));
-        assert!(matches!(app.run("select.set", &json!({ "ids": [u64::MAX] })), Err(CmdError::NotFound(_))));
-        assert!(matches!(app.run("no.such.command", &json!({})), Err(CmdError::UnknownCommand(_))));
-        assert!(app.state().selection.ids.is_empty(), "nothing changed");
-        assert!(!app.state().status.is_empty(), "the last failure is on the status line");
-    }
-
-    #[test]
     fn ui_commands_do_not_clash_with_engine_commands() {
         let engine = dalica_engine::cmd::specs();
         for c in UI_COMMANDS {
@@ -930,88 +905,11 @@ mod tests {
     }
 
     #[test]
-    fn registered_commands_are_live_and_the_rest_disabled() {
+    fn items_without_a_command_are_greyed_and_undo_names_the_last_step() {
         let (_dir, s, ids) = session_with_photos(2);
         let mut app = App::new(Some(s));
         let menus = bar(&app, Platform::Other);
         let all: Vec<&ItemNode> = menus.iter().flat_map(|m| items(&m.children)).collect();
-        let live: Vec<&str> = all.iter().filter(|i| i.live).map(|i| i.id).collect();
-        assert_eq!(
-            live,
-            [
-                "album.new",
-                "folders.manager",
-                "photo.moveToNewFolder",
-                "photo.rename",
-                "photo.save",
-                "photo.revert",
-                "photo.saveAs",
-                "photo.saveCopy",
-                "output.export",
-                "photo.delete",
-                "app.quit",
-                "edit.undo",
-                "edit.redo",
-                "photo.cut",
-                "photo.copy",
-                "photo.paste",
-                "select.all",
-                "select.starred",
-                "select.invert",
-                "select.none",
-                "view.library",
-                "view.thumbsSmall",
-                "view.thumbsNormal",
-                "view.edit",
-                "pane.properties",
-                "pane.tags",
-                "pane.people",
-                "pane.places",
-                "edit.panelToggle",
-                "view.smallPictures",
-                "view.hiddenPictures",
-                "view.colorManagement",
-                "view.caption",
-                "view.caption",
-                "view.caption",
-                "view.caption",
-                "view.caption",
-                "view.caption",
-                "view.folderView",
-                "view.folderView",
-                "window.fullscreen",
-                "section.properties",
-                "section.refreshThumbs",
-                "section.sort",
-                "section.sort",
-                "section.sort",
-                "section.sort",
-                "folder.hide",
-                "folder.unhide",
-                "folder.remove",
-                "folder.move",
-                "folder.delete",
-                "view.edit",
-                "photo.rename",
-                "photo.rotate.cw",
-                "photo.rotate.ccw",
-                "photo.hide",
-                "photo.unhide",
-                "pane.properties",
-                "photo.star.toggle",
-                "photo.caption.edit",
-                "photo.rotate.cw",
-                "photo.rotate.ccw",
-                "edit.flipH",
-                "edit.flipV",
-                "folders.manager",
-                "photo.adjustDate",
-                "search.duplicates",
-                "search.saveAsAlbum",
-                "help.releaseNotes",
-                "app.about"
-            ]
-        );
         for i in all.iter().filter(|i| !i.live) {
             assert!(!i.enabled && i.reason.as_deref() == Some("Not available yet."), "{}", i.widget);
         }

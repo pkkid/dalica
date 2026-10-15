@@ -11,6 +11,7 @@
 
 use std::path::PathBuf;
 
+use crate::common::out_dir;
 use dalica_scenes::fingerprint;
 use dalica_ui_kit::widgets::{BADGE_GAP, BADGE_INSET, BADGE_PLATE, Badge, BadgeRects, Badges, badges, photo_shadow};
 use dalica_ui_kit::{Image, Tokens};
@@ -76,12 +77,6 @@ fn render(size: f32) -> (Image, Vec<Tile>) {
     })
     .unwrap();
     (img, tiles)
-}
-
-fn out_dir() -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/ui-kit");
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
 }
 
 #[test]

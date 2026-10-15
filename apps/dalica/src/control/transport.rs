@@ -100,6 +100,8 @@ struct Shared {
     wake: Waker,
     open: AtomicUsize,
     quit_written: SyncSender<()>,
+    /// How long a connection has to authenticate: [`AUTH_WITHIN`] (shorter only in unit tests).
+    auth_within: Duration,
 }
 
 impl Shared {
@@ -117,9 +119,15 @@ pub fn bind(port: u16) -> std::io::Result<TcpListener> {
 
 /// Starts accepting on `listener` (already bound) on its own thread.
 pub fn start(listener: TcpListener, token: Token, wake: Waker) -> std::io::Result<Hub> {
+    start_with(listener, token, wake, AUTH_WITHIN)
+}
+
+/// [`start`], with the time a connection has to authenticate (a test seam: the app always uses
+/// [`AUTH_WITHIN`]).
+fn start_with(listener: TcpListener, token: Token, wake: Waker, auth_within: Duration) -> std::io::Result<Hub> {
     let (tx, rx) = mpsc::channel();
     let (quit_tx, quit_rx) = mpsc::sync_channel(1);
-    let shared = Arc::new(Shared { token, tx: Mutex::new(tx), wake, open: AtomicUsize::new(0), quit_written: quit_tx });
+    let shared = Arc::new(Shared { token, tx: Mutex::new(tx), wake, open: AtomicUsize::new(0), quit_written: quit_tx, auth_within });
     std::thread::Builder::new().name("dalica-control".into()).spawn(move || accept(listener, shared))?;
     Ok(Hub { rx, quit_written: quit_rx })
 }
@@ -258,12 +266,12 @@ fn connection(stream: TcpStream, id: u64, shared: &Shared) {
     let mut reader = BufReader::new(stream);
     let mut authed = false;
     loop {
-        let deadline = (!authed).then_some(opened + AUTH_WITHIN);
+        let deadline = (!authed).then_some(opened + shared.auth_within);
         let line = match read_line(&mut reader, MAX_REQUEST_LINE, deadline) {
             Ok(Some(line)) => line,
             Ok(None) | Err(LineError::Io(_)) => return,
             Err(LineError::Timeout) if !authed => {
-                let e = Error::new(Code::Unauthorized, format!("no auth within {} s; closing the connection", AUTH_WITHIN.as_secs()));
+                let e = Error::new(Code::Unauthorized, format!("no auth within {} s; closing the connection", shared.auth_within.as_secs()));
                 write(&mut out, &Value::Null, &Err(e));
                 return;
             }
@@ -446,10 +454,15 @@ mod tests {
 
     /// A server on a free port, with its token; requests are answered by `ui` on another thread.
     fn server(ui: impl FnMut(Msg) + Send + 'static) -> (u16, Token) {
+        server_with(AUTH_WITHIN, ui)
+    }
+
+    /// [`server`], whose connections have `auth_within` to authenticate.
+    fn server_with(auth_within: Duration, ui: impl FnMut(Msg) + Send + 'static) -> (u16, Token) {
         let l = bind(0).unwrap();
         let port = l.local_addr().unwrap().port();
         let token = Token::generate().unwrap();
-        let hub = start(l, token.clone(), Arc::new(|| {})).unwrap();
+        let hub = start_with(l, token.clone(), Arc::new(|| {}), auth_within).unwrap();
         let mut ui = ui;
         std::thread::spawn(move || {
             while let Ok(m) = hub.rx.recv() {
@@ -580,5 +593,54 @@ mod tests {
         assert!(p.dispatch());
         p.reply(Ok(json!(1)));
         assert_eq!(take().unwrap().unwrap(), json!(1));
+    }
+
+    /// A connection that does not authenticate in time is answered `unauthorized` and closed, the
+    /// clock running from the accept: a client that sends nothing, an unterminated `auth` line, or
+    /// only blank lines (which do not restart the clock). Here the window is 1.5 s; the app's is
+    /// [`AUTH_WITHIN`], checked end to end in `tests/control_security.rs` at the review gate.
+    #[test]
+    fn a_connection_that_does_not_authenticate_in_time_is_closed() {
+        // Every client's writes end well inside the window: writing to a socket the server has
+        // already closed resets it on Windows (the reply is lost) and makes macOS report an error
+        // instead of the end of the stream.
+        let within = Duration::from_millis(1500);
+        let (port, token) = server_with(within, |m| {
+            if let Msg::Request(p) = m {
+                p.reply(Ok(json!({})));
+            }
+        });
+        let unterminated = json!({ "id": 1, "method": "auth", "params": { "token": token_hex(&token) } }).to_string().into_bytes();
+        let clients: Vec<(&str, Vec<Vec<u8>>)> =
+            vec![("silent", Vec::new()), ("unterminated", vec![unterminated]), ("blank lines", vec![b"\n".to_vec(); 10])];
+        let handles: Vec<_> = clients
+            .into_iter()
+            .map(|(what, writes)| {
+                std::thread::spawn(move || {
+                    let (mut s, mut r) = client(port);
+                    let opened = Instant::now();
+                    for (i, w) in writes.iter().enumerate() {
+                        if i > 0 {
+                            std::thread::sleep(Duration::from_millis(50));
+                        }
+                        // The server may close first (the blank lines outlast the window).
+                        let _ = s.write_all(w);
+                    }
+                    let mut reply = String::new();
+                    let _ = r.read_line(&mut reply);
+                    let took = opened.elapsed();
+                    (what, reply, took, closed(&mut r))
+                })
+            })
+            .collect();
+        for h in handles {
+            let (what, reply, took, closed) = h.join().unwrap();
+            let v: Value = serde_json::from_str(&reply).unwrap_or_else(|e| panic!("{what}: {e}: {reply:?}"));
+            assert_eq!((v["ok"].clone(), v["code"].clone(), v["id"].clone()), (json!(false), json!("unauthorized"), Value::Null), "{what}: {v}");
+            assert!(v["error"].as_str().unwrap_or_default().contains("no auth within"), "{what}: {v}");
+            assert!(!reply.contains(&token_hex(&token)), "{what}: the token is never echoed");
+            assert!(took >= within - Duration::from_millis(100) && took < within + Duration::from_secs(5), "{what}: closed after {took:?}");
+            assert!(closed, "{what}: the connection is closed");
+        }
     }
 }

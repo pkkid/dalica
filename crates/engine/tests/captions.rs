@@ -7,35 +7,17 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
-use dalica_core::{PhotoId, SystemClock};
-use dalica_engine::{CacheDir, CmdError, Options, Session, ThumbOptions};
+use crate::common::{jpeg, lisbon, open};
+use dalica_core::PhotoId;
+use dalica_engine::{CmdError, Session};
 use dalica_fs::Expect;
 use dalica_library::{MAX_CAPTION, PhotoInfo};
 use serde_json::{Value, json};
 
-fn open(library: &Path) -> Session {
-    let options = Options { thumbs: ThumbOptions { cache: CacheDir::Off, workers: 1, ..ThumbOptions::default() } };
-    let mut s = Session::open_with(library, Arc::new(SystemClock), &options).unwrap();
-    s.wait_idle();
-    s
-}
-
 /// A library watching one folder `Lisbon` of `n` photos `IMG_0001.jpg`…; ids in name order.
 fn setup(n: usize) -> (tempfile::TempDir, tempfile::TempDir, PathBuf, Session, Vec<PhotoId>) {
-    let (lib, disk) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
-    let folder = disk.path().join("Lisbon");
-    dalica_fs::create_dir_all(&folder).unwrap();
-    for i in 0..n {
-        let bytes = dalica_scenes::jpeg(&dalica_scenes::Scene::new(i as u64, 96, 64), 80, None).unwrap();
-        dalica_fs::replace(&folder.join(format!("IMG_{:04}.jpg", i + 1)), &bytes, Expect::Absent).unwrap();
-    }
-    let mut s = open(lib.path());
-    s.execute("folders.add", &json!({ "path": folder })).unwrap();
-    s.wait_idle();
-    let ids = by_name(&s).into_values().collect();
-    (lib, disk, folder, s, ids)
+    lisbon(&(0..n as u64).map(jpeg).collect::<Vec<_>>(), None)
 }
 
 fn by_name(s: &Session) -> BTreeMap<String, PhotoId> {
@@ -115,27 +97,15 @@ fn a_caption_past_the_cap_is_cut_at_a_character_boundary() {
     assert_eq!(s.library().caption(ids[0]), "line one\nline two");
 }
 
+/// Disabled with no photo, and too many photos (`cmd::caption`'s tests: unknown photos and bad
+/// parameters).
 #[test]
-fn disabled_and_hostile_params_change_nothing() {
+fn disabled_and_too_many_change_nothing() {
     let (_l, _d, _f, mut s, ids) = setup(1);
     let m = s.library().model().clone();
-    assert_eq!(s.execute("photo.caption.set", &json!({ "ids": [], "caption": "x" })), Err(CmdError::Disabled("Select some photos first.".into())));
     let spec = *s.spec("photo.caption.set").unwrap();
     assert!((spec.enabled)(&s, &json!({ "ids": [], "caption": "x" })).is_err());
     assert!((spec.enabled)(&s, &json!({ "ids": [ids[0]], "caption": "x" })).is_ok());
-    for bad in [
-        json!({ "ids": [999], "caption": "x" }),
-        json!({ "ids": [ids[0]] }),
-        json!({ "caption": "x" }),
-        json!({ "ids": [ids[0]], "caption": 7 }),
-        json!({ "ids": [ids[0]], "caption": ["x"] }),
-        json!({ "ids": [ids[0]], "caption": "x", "extra": true }),
-        json!({ "ids": [-1], "caption": "x" }),
-        json!({ "ids": "all", "caption": "x" }),
-        json!("caption"),
-    ] {
-        assert!(s.execute("photo.caption.set", &bad).is_err(), "{bad}");
-    }
     let too_many: Vec<u64> = vec![ids[0].get(); 100_001];
     assert!(matches!(s.execute("photo.caption.set", &json!({ "ids": too_many, "caption": "x" })), Err(CmdError::Limit(_))));
     assert_eq!(s.library().model(), &m);

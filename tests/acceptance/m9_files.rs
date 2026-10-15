@@ -268,7 +268,9 @@ fn the_other_operations(c: &mut Client, home: &Path, root: &Path) {
         .find(|n| n.starts_with("Lisbon") && *n != "Lisbon")
         .cloned()
         .unwrap_or_else(|| panic!("a new folder beside Lisbon: {made:?} ({r})"));
-    assert_eq!(files(&root.join(&new)), ["IMG_0003.jpg", "IMG_0004.jpg"], "the photos moved into {new}");
+    // The new folder's sidecar may still be on its way (its atomic write's temporary file).
+    let moved: Vec<String> = files(&root.join(&new)).into_iter().filter(|n| !n.starts_with('.')).collect();
+    assert_eq!(moved, ["IMG_0003.jpg", "IMG_0004.jpg"], "the photos moved into {new}");
     undo(c);
     assert!(!root.join(&new).exists(), "Edit ▸ Undo moved them back and removed the empty folder");
     assert!(lisbon.join("IMG_0003.jpg").is_file() && lisbon.join("IMG_0004.jpg").is_file());

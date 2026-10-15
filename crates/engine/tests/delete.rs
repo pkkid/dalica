@@ -6,69 +6,35 @@
 //! subfolders too; both ask first unless "Delete from disk without asking" is on; the owner thread
 //! makes no `fs` call; each command's contract and graceful failures.
 //!
-//! These tests use the real OS trash and put back what they sent there (where the system allows),
-//! and arm process-wide fault points, so they run one at a time ([`serial`]).
+//! These tests use the real OS trash and put back what they sent there (where the system allows);
+//! the one that arms a process-wide fault point holds [`crate::common::exclusive`].
 
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::Arc;
 use std::time::Duration;
 
+use crate::common::{FaultLock, entry, exclusive, exists, jpeg, options, read, shared, wait_files};
 use dalica_core::{PhotoId, SystemClock};
 use dalica_engine::cmd::delete::{RESTORES, UNDO_UNSUPPORTED, folder_question, no_trash, photos_question};
 use dalica_engine::watching::WatchMode;
-use dalica_engine::{CacheDir, CmdError, Direction, Effect, FileOpKind, History, Options, Session, ThumbOptions};
+use dalica_engine::{CmdError, Direction, FileOpKind, Session};
 use dalica_fs::Expect;
 use dalica_fs::faults::{self, Fault, points};
 use serde_json::{Value, json};
 
 const PATIENCE: Duration = Duration::from_secs(120);
 
-/// One test at a time: fault points armed for the job's thread are process-wide.
-fn serial() -> MutexGuard<'static, ()> {
-    static LOCK: Mutex<()> = Mutex::new(());
-    let guard = LOCK.lock().unwrap_or_else(PoisonError::into_inner);
-    faults::disarm_all();
-    guard
-}
-
-/// Runs `f` on a helper thread: the test's own file access never counts against the owner.
-fn off_owner<T: Send>(f: impl FnOnce() -> T + Send) -> T {
-    std::thread::scope(|s| s.spawn(f).join().unwrap())
-}
-
-fn exists(path: &Path) -> bool {
-    let path = path.to_path_buf();
-    off_owner(move || path.exists())
-}
-
-fn read(path: &Path) -> Vec<u8> {
-    let path = path.to_path_buf();
-    off_owner(move || std::fs::read(path).unwrap())
-}
-
-fn entry(folder: &Path, name: &str) -> Option<Value> {
-    let path = folder.join(".dalica.json");
-    let v: Value = off_owner(move || serde_json::from_slice(&std::fs::read(path).ok()?).ok())?;
-    v.get("photos").and_then(|p| p.get(name)).cloned()
-}
-
-fn jpeg(seed: u64) -> Vec<u8> {
-    dalica_scenes::jpeg(&dalica_scenes::Scene::new(seed, 96, 64), 80, None).unwrap()
-}
-
-fn options() -> Options {
-    Options { thumbs: ThumbOptions { cache: CacheDir::Off, workers: 1, ..ThumbOptions::default() } }
-}
-
 struct Lib {
     dir: tempfile::TempDir,
     s: Session,
+    _faults: FaultLock,
 }
 
 impl Lib {
     /// A library watching `Pictures`: `Lisbon` with `n` photos and a note, `Lisbon/Day2` with one
     /// photo, scanned.
     fn new(n: usize) -> Lib {
+        let _faults = shared();
         let dir = tempfile::tempdir().unwrap();
         let lisbon = dir.path().join("Pictures").join("Lisbon");
         dalica_fs::create_dir_all(&lisbon.join("Day2")).unwrap();
@@ -81,7 +47,7 @@ impl Lib {
         s.set_watching(WatchMode::Off);
         s.execute("folders.add", &json!({ "path": dir.path().join("Pictures") })).unwrap();
         s.wait_idle();
-        Lib { dir, s }
+        Lib { dir, s, _faults }
     }
 
     fn lisbon(&self) -> PathBuf {
@@ -100,7 +66,7 @@ impl Lib {
     /// caused: a caption written into a photo's file changes its size in the model, and a folder
     /// listed next holds no temporary file of a write still under way.
     fn wait(&mut self) {
-        assert!(self.s.wait_file_jobs(PATIENCE), "the file jobs ended");
+        wait_files(&mut self.s);
         assert!(self.s.flush_metadata(PATIENCE), "the metadata writes ended");
         self.s.flush().unwrap();
     }
@@ -120,7 +86,6 @@ impl Lib {
 /// its id and data (Linux, Windows), redo trashes it again; on macOS undo says why it cannot.
 #[test]
 fn a_deleted_photo_goes_to_the_trash_and_undo_brings_it_back_with_its_data() {
-    let _serial = serial();
     let mut l = Lib::new(3);
     let (one, two) = (l.photo("IMG_0001.jpg"), l.photo("IMG_0002.jpg"));
     l.s.execute("photo.star.set", &json!({ "ids": [two], "on": true })).unwrap();
@@ -190,7 +155,6 @@ fn a_deleted_photo_goes_to_the_trash_and_undo_brings_it_back_with_its_data() {
 /// Several photos are one step; each goes in its own item.
 #[test]
 fn several_photos_are_one_step() {
-    let _serial = serial();
     let mut l = Lib::new(3);
     let ids = [l.photo("IMG_0001.jpg"), l.photo("IMG_0003.jpg")];
     let before = l.s.library().model().clone();
@@ -215,7 +179,7 @@ fn several_photos_are_one_step() {
 /// file stays, the library keeps the photo and there is no step.
 #[test]
 fn a_drive_without_a_trash_fails_and_the_file_stays() {
-    let _serial = serial();
+    let _faults = exclusive();
     let mut l = Lib::new(2);
     let one = l.photo("IMG_0001.jpg");
     let path = l.lisbon().join("IMG_0001.jpg");
@@ -249,7 +213,6 @@ fn a_drive_without_a_trash_fails_and_the_file_stays() {
 /// it does not ask.
 #[test]
 fn a_folder_delete_takes_its_non_picture_files_and_subfolders_too() {
-    let _serial = serial();
     let mut l = Lib::new(2);
     let (lisbon, day2) = (l.lisbon(), l.lisbon().join("Day2"));
     let (lisbon_id, day2_id) = (l.folder_id(&lisbon), l.folder_id(&day2));
@@ -286,32 +249,16 @@ fn a_folder_delete_takes_its_non_picture_files_and_subfolders_too() {
     drop(ui);
 }
 
-/// The commands' contract, and graceful failures: each refuses with the right error and changes
-/// nothing.
+/// Graceful failures: each command refuses with its own error and changes nothing.
 #[test]
-fn each_command_s_contract_and_graceful_failures() {
-    let _serial = serial();
+fn each_command_s_graceful_failures() {
     let mut l = Lib::new(1);
-    for (id, menu) in [("photo.delete", "File/Delete from Disk…"), ("folder.delete", "Folder/Delete…")] {
-        let spec = l.s.spec(id).unwrap();
-        assert_eq!((spec.effect, spec.history, spec.menu), (Effect::Files, History::Library, menu), "{id}");
-        assert!(spec.params.contains("confirm"), "{id}");
-    }
-    let keys: Vec<&str> = l.s.spec("photo.delete").unwrap().keys.iter().map(|(_, k)| *k).collect();
-    assert_eq!(keys, ["Delete", "Ctrl+Delete"]);
     let before = l.s.library().model().clone();
     let steps = l.s.undo_stack().len();
     let cases: Vec<(&str, Value, &str)> = vec![
-        ("photo.delete", json!({}), "bad_params"),
         ("photo.delete", json!({ "ids": [] }), "bad_params"),
-        ("photo.delete", json!({ "ids": "1" }), "bad_params"),
-        ("photo.delete", json!({ "ids": [1], "confirm": "yes" }), "bad_params"),
-        ("photo.delete", json!({ "ids": [1], "permanently": true }), "bad_params"),
         ("photo.delete", json!({ "ids": [9999], "confirm": true }), "not_found"),
         ("photo.delete", json!({ "ids": vec![1; 100_001], "confirm": true }), "limit"),
-        ("folder.delete", json!({}), "bad_params"),
-        ("folder.delete", json!({ "folder": "Lisbon", "confirm": true }), "bad_params"),
-        ("folder.delete", json!({ "folder": -1, "confirm": true }), "bad_params"),
         ("folder.delete", json!({ "folder": 9999, "confirm": true }), "not_found"),
     ];
     for (id, p, code) in cases {

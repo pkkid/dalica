@@ -1,23 +1,17 @@
 //! The geometric operations on real pixels: every recipe of up to four rotations and flips, on a
 //! `dalica-scenes` photo stored with each of the eight EXIF orientations, must give exactly the
 //! picture that turning the upright photo step by step gives (an independent implementation
-//! below), the right displayed size, and the stored fingerprint of its net transform
-//! (`fingerprints/geometry-<transform>.json`, `architecture.md` §11). On a mismatch the actual
-//! and expected PNGs go to `target/test-output/edit/`; `DALICA_BLESS=1` stores new fingerprints
-//! (look at the PNGs first).
+//! below) and the right displayed size. On a mismatch the actual and expected PNGs go to
+//! `target/test-output/edit/`. Quick mode takes recipes of up to two operations (every transform
+//! is reached); full mode up to four. Composition is proven on its own (`applying_a_transform_and_its_inverse_gives_the_picture_back`).
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
 
 use dalica_edit::{Dihedral, Op, Recipe};
 use dalica_image::{Orientation, Rgba8};
-use dalica_scenes::{Rgb8, Scene, fingerprint, orient};
+use dalica_scenes::{Scene, fingerprint, orient};
 
-const GEOMETRY: [&str; 5] = ["rotate(90)", "rotate(180)", "rotate(270)", "flip_h()", "flip_v()"];
-
-fn rgba(img: &Rgb8) -> Rgba8 {
-    Rgba8 { width: img.width, height: img.height, data: img.data.chunks(3).flat_map(|p| [p[0], p[1], p[2], 255]).collect() }
-}
+use crate::common::{GEOMETRY, full, out_dir, recipes, rgba};
 
 fn px(img: &Rgba8, x: u32, y: u32) -> [u8; 4] {
     let i = ((y * img.width + x) * 4) as usize;
@@ -49,31 +43,14 @@ fn step(img: &Rgba8, op: &str) -> Rgba8 {
     }
 }
 
-/// Every sequence of up to `max` operations from `GEOMETRY`, the empty one first.
-fn recipes(max: usize) -> Vec<Vec<&'static str>> {
-    let mut all = vec![vec![]];
-    let mut last = vec![vec![]];
-    for _ in 0..max {
-        last = last.iter().flat_map(|r: &Vec<&str>| GEOMETRY.iter().map(move |op| [r.clone(), vec![*op]].concat())).collect();
-        all.extend(last.iter().cloned());
-    }
-    all
-}
-
-fn out_dir() -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/edit");
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
 #[test]
 fn every_short_recipe_on_every_exif_orientation_is_the_exact_transform() {
     let up = Scene::new(29, 48, 32).render().unwrap();
     let upright = rgba(&up);
-    let all = recipes(4);
-    assert_eq!(all.len(), 1 + 5 + 25 + 125 + 625);
-    // One output per transform of the upright photo, to fingerprint; every other output with that
-    // transform must equal it exactly.
+    let all = recipes(if full() { 4 } else { 2 });
+    assert_eq!(all.len(), if full() { 1 + 5 + 25 + 125 + 625 } else { 1 + 5 + 25 });
+    // The first output per transform of the upright photo; every other output with that transform
+    // must equal it exactly.
     let mut by_transform: BTreeMap<&str, Rgba8> = BTreeMap::new();
     let mut cases = 0;
     for o in 1..=8u8 {
@@ -109,22 +86,8 @@ fn every_short_recipe_on_every_exif_orientation_is_the_exact_transform() {
             cases += 1;
         }
     }
-    assert_eq!(cases, 8 * 781);
+    assert_eq!(cases, 8 * all.len());
     assert_eq!(by_transform.len(), 8, "every transform is reached");
-    for (name, img) in &by_transform {
-        let case = format!("geometry-{name}");
-        std::fs::write(out_dir().join(format!("{case}.png")), fingerprint::png_rgba(img.width, img.height, &img.data)).unwrap();
-        let stored = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("tests/fingerprints/{case}.json"));
-        if std::env::var_os("DALICA_BLESS").is_some() {
-            std::fs::write(&stored, fingerprint::to_json(&fingerprint::fingerprint(img.width, img.height, &img.data)) + "\n").unwrap();
-            println!("blessed {}", stored.display());
-        }
-        let expected = fingerprint::from_json(&std::fs::read_to_string(&stored).unwrap()).unwrap();
-        if let Err(m) = fingerprint::check(img.width, img.height, &img.data, &expected, 0.5) {
-            std::fs::write(out_dir().join(format!("{case}-actual.png")), &m.actual_png).unwrap();
-            panic!("{case}: {}", m.message);
-        }
-    }
 }
 
 #[test]

@@ -76,14 +76,17 @@ end; there are no mid-milestone reviews (maintainer rule, 2026-10-10).
   `<main checkout>/target/review-M<n>` (record its size first, then free it with
   `cargo xtask clean --only 'review-*'` once the measurements are done). Each number gets a unit,
   the machine and the commit:
-  - `cargo xtask ci` (cold and warm), and the test count;
-  - `cargo xtask accept M<k>` for every finished milestone and this one;
-  - `panic_hunt`, if there are commands;
-  - GitHub CI per OS on the latest `main` run;
+  - `cargo xtask ci --full`, once (maintainer decision, 2026-10-15: the full list of tests runs
+    only here): its time (the summary table, per step and in total) and the test count. It runs
+    every test of every package at full strength (`panic_hunt` included), the heif tests, parity
+    against the registered commands, and every milestone's acceptance test (this milestone's in
+    its `test acceptance` step, until the review's ✅ is ticked); it replaces separate
+    `accept M<k>` runs. Its result is the acceptance result of §2;
+  - the review pull request's GitHub runs (§4 step 4): CI per OS, the corpus job, Budgets, Fuzz;
   - the target dir size, free disk, and the `cargo xtask parity` counts;
   - every number the milestone's *Done when* lines name, plus benchmarks once they exist.
   - With parallel agents, also record: tasks per agent, time from claim to merge, rebase
-    conflicts (which files), CI failures on `main`, send-backs.
+    conflicts (which files), merge-gate failures, send-backs.
   - Write "not measured" with the reason rather than estimate.
 - **Screenshots** (whenever the app's look changed): 1400 × 900 and 900 × 600 through
   `dalica-cli snapshot` or the control channel, plus a close-up of each new feature. Compare
@@ -98,7 +101,7 @@ Append one entry to `log/devlog.md` in the **main checkout**, headed
    answers are added in §4.
 1. **What landed:** one line per task, with evidence against its *done when*, numbers and the PR.
    Then the milestone's numbers against the previous check-in's.
-2. **Acceptance:** the `accept` result and each line of *Done when*, met or not. List any parity
+2. **Acceptance:** the `ci --full` result and each line of *Done when*, met or not. List any parity
    ✅ that was not measured, and downgrade it to 🟡.
 3. **Decisions made:** numbered, from commit bodies and dev-log entries (every `DEFERRED:` line
    since the last check-in is one; it may have been answered meanwhile). Each one gets what was
@@ -128,7 +131,8 @@ Publish one artifact page per check-in (load the `artifact-design` skill first).
 - **Fingerprints to approve:** every baseline from §1 since the last review, grouped by task: the
   path, added/changed/deleted, the PR link, the reason, and the image(s) (before and after for a
   changed one). Number them so the maintainer can name the ones to redo. If there are none, say so.
-- **Numbers:** the few that matter (speed budgets met, test count, CI time per OS).
+- **Numbers:** the few that matter (speed budgets met, test count, the `ci --full` time, CI time
+  per OS, what the review's GitHub runs found and how it was fixed).
 - **Next:** what the next milestone builds, in two or three lines.
 
 **Images open larger on click** (maintainer, 2026-10-13: on-page screenshots are too small to judge).
@@ -175,6 +179,14 @@ The review's id is `M<n>.R` (`M2.R`, `M6.R`, …) and its issue `#<issue>`.
      (GitHub reads "close #<issue>" in a PR body as a closing keyword, so the maintainer's merge
      also closes the issue.)
    - the attribution line the environment requires.
+
+   The pull request runs CI on all three systems (Linux `cargo xtask ci --full`, Windows and macOS
+   `--full --platform`), the corpus job, Budgets and Fuzz (every target for 60 s): the only time a
+   milestone's code runs on GitHub (maintainer decision, 2026-10-15). Watch them in the background
+   (`gh pr checks <pr> --watch`). Each failure is fixed before the review closes, the way a red
+   `main` is (`/milestone-start` §3 step 8: a worker on a fix branch, merged through a PR); then
+   rebase the review branch on `origin/main` so its checks run again. Put what failed and its fix
+   on the page and the PR.
 5. Comment both links on the review issue:
    `gh issue comment <issue> --body "Check-in page: <page url>  Pull request: <pr url>"`.
 6. **The fingerprint question** (asked with the others in step 2, when §1 found any), recommended
@@ -186,7 +198,8 @@ The review's id is `M<n>.R` (`M2.R`, `M6.R`, …) and its issue `#<issue>`.
    the next review), say on the review PR which numbers were rejected, and record the answer in
    the check-in's dev-log entry. Approved baselines need nothing more. Asking is not merging: the
    maintainer still merges the PR.
-7. **Stop.** Never merge that PR, never close the issue, and do not claim anything listed after the
+7. **Stop** once the review PR's checks are green (or each failure has its fix in progress and is
+   listed on the PR). Never merge that PR, never close the issue, and do not claim anything listed after the
    review. Report the PR and the page in one short message and tell the maintainer what is left
    for them: check the UI with the page's changelog, answer any question still open, merge the PR
    (it closes #<issue>), then run `/milestone-start` for the next milestone. If `/milestone-start`
@@ -214,7 +227,8 @@ GitHub). Before §4's step 7:
 - Still never merge the review PR or close the gate issue: the maintainer does both, then runs
   `/milestone-start M<n+1>`.
 - **Cutting the release** (the maintainer's standing go-ahead with this rule, once they answered
-  ship and merged the review PR): wait for `main`'s CI to be green on the merge, push `main` to
+  ship and merged the review PR): the review PR's checks were green on the merged commit (dispatch
+  CI on `main` if anything merged after them, and wait for it), push `main` to
   `release` (`git push origin main:release`), watch the Release workflow, check the draft
   `Dalica v<version>` (every artifact and `SHA256SUMS.txt`; install one), add the honest deltas of
   `releasing.md` step 5 to its notes (the newest `whats-new.md` section first), publish it, and
@@ -231,7 +245,7 @@ GitHub). Before §4's step 7:
   - Fresh screenshots of the release's features with `dalica-cli snapshot` (`website/README.md` →
     Images), with new file names. Look at the page at desktop and phone width.
   - Open a pull request. Merge it once `cargo xtask ci` is green locally (website files and
-    Markdown only) and its checks pass.
+    Markdown only; GitHub runs no checks on it).
   - Deploy with `npx wrangler deploy` from `website/`, check it live at
     https://dalica.pkarma.com (the version, a download link, the new screenshots), and log it with
     `cargo xtask tasks log M<n>.R "WEBSITE: …"`.

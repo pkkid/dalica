@@ -6,6 +6,7 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::common::NOW;
 use dalica_core::{AlbumId, Date, FolderId, PhotoId, PosKey, Timestamp};
 use dalica_library::{AlbumInfo, Anchor, Folder, Library, Op, Photo};
 use dalica_sidecar::albums::AlbumsFile;
@@ -15,7 +16,6 @@ use dalica_store::rebuild::import_library;
 use dalica_store::{Outcome, SidecarWriter, Store, import_sidecars};
 use serde_json::{Value, json};
 
-const NOW: Timestamp = Timestamp::from_millis(1_791_000_000_000);
 const NAMES: [&str; 4] = ["IMG_0001.jpg", "IMG_0002.jpg", "a]b ;=.jpg", "東京.jpg"];
 
 /// A scan of `roots`: one folder per root holding [`NAMES`], the same ids each time.

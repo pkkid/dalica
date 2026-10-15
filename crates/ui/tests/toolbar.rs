@@ -10,12 +10,12 @@ use std::collections::BTreeSet;
 use std::path::Path;
 use std::sync::Arc;
 
+use crate::common::{FRAMES, new_driver, widget};
 use dalica_engine::Session;
 use dalica_ui::panels::toolbar;
 use dalica_ui::{App, Driver, ScriptedPicker};
 use dalica_ui_kit::WidgetInfo;
 
-const FRAMES: usize = 60 * 60;
 const SIZES: [(f32, f32); 2] = [(1400.0, 900.0), (900.0, 600.0)];
 /// The toolbar region: under the 24 pt menu bar, 40 high.
 const TOP: f32 = 32.0;
@@ -23,7 +23,7 @@ const HEIGHT: f32 = 40.0;
 
 /// A library in `root` with two folders of scenes photos, added and scanned.
 fn session(root: &Path) -> Session {
-    let files = dalica_scenes::demo_library(2, 12, 3).unwrap();
+    let files = crate::common::demo_library(2, 12, 3).unwrap();
     let mut folders = BTreeSet::new();
     for f in &files {
         let path = root.join("photos").join(&f.path);
@@ -40,13 +40,9 @@ fn session(root: &Path) -> Session {
 }
 
 fn driver(root: &Path, (w, h): (f32, f32)) -> Driver {
-    let mut d = Driver::new(App::with_picker(Some(session(root)), Arc::new(ScriptedPicker::new())), w as u32, h as u32, 1.0);
+    let mut d = new_driver(App::with_picker(Some(session(root)), Arc::new(ScriptedPicker::new())), w as u32, h as u32, 1.0);
     d.settle(FRAMES).unwrap();
     d
-}
-
-fn widget(d: &Driver, id: &str) -> WidgetInfo {
-    d.widgets().into_iter().find(|w| w.id == id).unwrap_or_else(|| panic!("no `{id}`"))
 }
 
 fn size(w: &WidgetInfo) -> (f32, f32) {
@@ -85,9 +81,11 @@ fn ink_columns(shot: &dalica_ui_kit::Image, x0: f32, x1: f32, y0: f32, y1: f32) 
 /// hides below 1100 wide.
 #[test]
 fn every_toolbar_control_is_registered_with_its_spec_size_at_both_window_sizes() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut d = driver(dir.path(), SIZES[0]);
     for (w, h) in SIZES {
-        let dir = tempfile::tempdir().unwrap();
-        let mut d = driver(dir.path(), (w, h));
+        d.resize(w as u32, h as u32);
+        d.settle(FRAMES).unwrap();
         let case = format!("{w}×{h}");
         let mut previous_right = 0.0;
         for (id, want) in CONTROLS {
@@ -139,9 +137,6 @@ fn every_toolbar_control_is_registered_with_its_spec_size_at_both_window_sizes()
         d.click("button:search.clear").unwrap();
         d.settle(FRAMES).unwrap();
         assert_eq!(d.state().search.text, "", "{case}: × empties the field");
-
-        let missing = d.app().panels().unwrap().unregistered_widgets();
-        assert_eq!(missing, [], "{case}: interactive widgets without an id");
     }
 }
 

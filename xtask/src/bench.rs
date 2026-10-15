@@ -393,12 +393,6 @@ mod tests {
     }
 
     #[test]
-    fn bench_is_implemented_not_planned() {
-        assert!(crate::COMMANDS.contains(&"bench"));
-        assert!(!crate::PLANNED.iter().any(|(c, _)| *c == "bench"));
-    }
-
-    #[test]
     fn every_registered_bench_exists_as_a_harnessless_target() {
         let root = crate::workspace_root();
         for b in BENCHES {

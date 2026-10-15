@@ -686,6 +686,7 @@ fn agent_environment() {
     assert!(out.contains(&format!("export CARGO_TARGET_DIR='{}'", main.join("target").join("agent-3").display())), "{out}");
     assert!(out.contains("export CARGO_BUILD_JOBS=3"));
     assert!(out.contains("export DALICA_CONTROL_PORT=18030"));
+    assert!(out.contains("command -v sccache") && out.contains("export RUSTC_WRAPPER=sccache"), "{out}");
     assert!(super::env_lines("agent-0", Path::new("/x"), Path::new("/y")).is_err());
     assert!(super::env_lines("bob", Path::new("/x"), Path::new("/y")).is_err());
 }
@@ -917,7 +918,7 @@ fn dry_runs_of_submit_and_merge_write_nothing() {
         rec.writes(),
         [
             "rebase origin/task/M0.1-skeleton onto origin/main in the merge worktree",
-            "run `cargo xtask ci` in the merge worktree",
+            "run `cargo xtask ci --merge` in the merge worktree",
             "push task/M0.1-skeleton to origin",
             "squash-merge #100 as `M0.1: Skeleton (#100)`",
             "append to the dev log:\n## 1970-01-12 13:46 · agent-1 · M0.1 Skeleton\n\

@@ -82,7 +82,7 @@ fn current(p: &Painted) -> bool {
 fn after_a_save_the_tray_and_the_cell_show_the_saved_picture() {
     let dir = tempfile::tempdir().unwrap();
     let (session, folder) = library(dir.path());
-    let mut d = Driver::new(App::new(Some(session)), 1400, 900, 1.0);
+    let mut d = crate::common::new_driver(App::new(Some(session)), 1400, 900, 1.0);
     d.settle(FRAMES).unwrap();
     let (id, name) = {
         let lib = d.app().session().unwrap().library();

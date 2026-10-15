@@ -2,9 +2,7 @@
 //! three distinct rectangles inside the photo in the asked ratio, centred crops for a flat image,
 //! the same answer every time, and no panic on random images, sizes and ratios.
 
-mod common;
-
-use common::scene;
+use crate::common::{cases, scene};
 use dalica_edit::suggest::{COUNT, MAX_OVERLAP, Reason, Suggestion, analyse, suggest};
 use dalica_edit::{Error, Rect};
 use dalica_image::Rgba8;
@@ -203,7 +201,7 @@ fn tiny_and_thin_proxies_still_answer() {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig { cases: 256, ..ProptestConfig::default() })]
+    #![proptest_config(ProptestConfig::with_cases(cases(256)))]
 
     #[test]
     fn random_images_and_ratios_never_panic(

@@ -33,7 +33,7 @@ pub trait Git: Send + Sync {
     /// by row id, then the summary regenerated); any other conflict, two edits of the same row
     /// included, aborts the rebase (a send-back).
     fn rebase_for_merge(&self, branch: &str) -> Result<PathBuf, String>;
-    /// Runs `cargo xtask ci` in `dir`.
+    /// Runs the merge gate (`cargo xtask ci --merge`) in `dir`.
     fn run_ci(&self, dir: &Path) -> Result<(), String>;
     /// Fetches origin and returns `docs/roadmap.md` as it is on `origin/main` (what a merge just
     /// landed), read from git's objects: no checkout, clean or dirty, is touched.
@@ -259,10 +259,11 @@ impl Git for RealGit {
         let status = Command::new(cargo)
             .current_dir(dir)
             .env("CARGO_TARGET_DIR", &target)
-            .args(["xtask", "ci"])
+            // The merge gate: the worker's task gate already ran the tests on these changes.
+            .args(["xtask", "ci", "--merge"])
             .status()
             .map_err(|e| format!("cannot run cargo: {e}"))?;
-        if status.success() { Ok(()) } else { Err(format!("cargo xtask ci failed in {}", dir.display())) }
+        if status.success() { Ok(()) } else { Err(format!("cargo xtask ci --merge failed in {}", dir.display())) }
     }
 
     fn merged_roadmap(&self) -> Result<String, String> {

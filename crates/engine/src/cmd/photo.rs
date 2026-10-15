@@ -159,7 +159,7 @@ pub(crate) fn displayed_size(edits: &[String], width: u32, height: u32) -> (u32,
 mod tests {
     use serde_json::json;
 
-    use crate::cmd::testing::{hostile, library};
+    use crate::cmd::testing::library;
     use crate::error::CmdError;
 
     #[test]
@@ -200,7 +200,7 @@ mod tests {
     }
 
     #[test]
-    fn disabled_and_hostile_params() {
+    fn disabled_and_bad_params() {
         let (_dirs, mut s, ids) = library(2);
         for (id, extra) in [("photo.star.toggle", json!({})), ("photo.star.set", json!({ "on": true }))] {
             let with = |ids: serde_json::Value| {
@@ -210,9 +210,7 @@ mod tests {
             };
             assert_eq!(s.execute(id, &with(json!([]))), Err(CmdError::Disabled("Select some photos first.".into())));
             assert!(matches!(s.execute(id, &with(json!([999]))), Err(CmdError::NotFound(_))));
-            hostile(&mut s, id);
         }
-        hostile(&mut s, "photo.inspect");
         assert!(matches!(s.execute("photo.star.set", &json!({ "ids": [ids[0]] })), Err(CmdError::BadParams(_))));
         assert!(matches!(s.execute("photo.star.toggle", &json!({ "ids": [ids[0]], "extra": 1 })), Err(CmdError::BadParams(_))));
         assert_eq!(s.undo_stack().len(), 0);

@@ -14,14 +14,13 @@ use std::path::Path;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
+use crate::common::{FRAMES, new_driver};
 use dalica_core::{PhotoId, SystemClock};
 use dalica_engine::{CacheDir, Options, Session, ThumbOptions};
 use dalica_scenes::{Exif, Scene};
 use dalica_ui::panels::thumbnails::{Drawn, Painted};
 use dalica_ui::{App, Driver};
 use serde_json::json;
-
-const FRAMES: usize = 60 * 60;
 
 /// A gate the photo's scan job waits at until it is opened (60 s at most, so a failing test never
 /// hangs).
@@ -93,7 +92,7 @@ fn the_embedded_thumbnail_stands_in_until_the_scan_replaces_it_and_settle_waits_
     let dir = tempfile::tempdir().unwrap();
     let cache = dir.path().join("cache");
     let gate = Gate::default();
-    let mut d = Driver::new(App::new(Some(session(dir.path(), &cache, Some(&gate)))), 1400, 900, 1.0);
+    let mut d = new_driver(App::new(Some(session(dir.path(), &cache, Some(&gate)))), 1400, 900, 1.0);
     let id = the_photo(&d);
 
     // The embedded thumbnail arrives while the scan is held, and the cell draws it.
@@ -124,7 +123,7 @@ fn the_embedded_thumbnail_stands_in_until_the_scan_replaces_it_and_settle_waits_
 
     // The same library again, its cache warm: the settled cell is the same pixels as the cold
     // session's, whichever job finished first this time.
-    let mut again = Driver::new(App::new(Some(session(dir.path(), &cache, None))), 1400, 900, 1.0);
+    let mut again = new_driver(App::new(Some(session(dir.path(), &cache, None))), 1400, 900, 1.0);
     again.settle(FRAMES).unwrap();
     let id = the_photo(&again);
     assert_eq!(pixels(&again, &painted(&again, id)), replaced, "a settled frame does not depend on the race");

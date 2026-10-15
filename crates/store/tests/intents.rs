@@ -4,14 +4,12 @@
 
 use std::path::{Path, PathBuf};
 
-use dalica_core::Timestamp;
-use dalica_fs::faults::{ATOMIC_POINTS, Fault, arm, disarm_all};
+use crate::common::NOW;
+use dalica_fs::faults::{arm, disarm_all};
 use dalica_store::carry::Mode;
 use dalica_store::intents::{self, Action, Direction, Error, Facts, ITEM_WRITES, Intent, Intents, Item, Kind, Problem, Seen, State, decide, plan};
 use proptest::prelude::*;
 use serde_json::{Value, json};
-
-const NOW: Timestamp = Timestamp::from_millis(1_791_000_000_000);
 
 fn abs(dir: &Path, name: &str) -> PathBuf {
     name.split('/').fold(dir.to_path_buf(), |p, c| p.join(c))
@@ -104,12 +102,13 @@ fn calls_that_cannot_be_journalled_change_nothing() {
     assert_eq!(j.ops().count(), 1);
 }
 
-/// A failed write (an error or a crash at any step of the atomic replace) leaves the file as it was
-/// and the journal in memory as it was: the operation is not entered, so it does not start.
+/// A failed write (an error or a crash at a step of the atomic replace: one of each kind, `fs` tries
+/// every point) leaves the file as it was and the journal in memory as it was: the operation is not
+/// entered, so it does not start.
 #[test]
 fn a_failed_write_enters_nothing() {
-    for point in ATOMIC_POINTS {
-        for fault in [Fault::Error, Fault::Crash] {
+    for (point, fault) in crate::common::FAULTS {
+        {
             let dir = tempfile::tempdir().unwrap();
             let d = dir.path();
             let mut j = Intents::open(d, NOW).unwrap().intents;
@@ -341,7 +340,7 @@ fn a_journal_past_the_size_limit_is_set_aside_unread() {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig { cases: 128, ..ProptestConfig::default() })]
+    #![proptest_config(crate::common::cases(128, 32))]
 
     #[test]
     fn random_bytes_never_panic(bytes in proptest::collection::vec(any::<u8>(), 0..512)) {

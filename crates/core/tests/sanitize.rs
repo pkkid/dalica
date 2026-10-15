@@ -109,7 +109,7 @@ fn hostile() -> impl Strategy<Value = String> {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(4096))]
+    #![proptest_config(crate::common::cases(4096, 256))]
 
     #[test]
     fn sanitized_names_are_never_empty_never_paths_and_stable(name in hostile(), fallback in hostile()) {

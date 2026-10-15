@@ -8,19 +8,11 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
-use dalica_core::{DateTime, PhotoId, SystemClock};
-use dalica_engine::{CacheDir, CmdError, Options, Session, ThumbOptions};
-use dalica_fs::Expect;
+use crate::common::{lisbon, open};
+use dalica_core::{DateTime, PhotoId};
+use dalica_engine::{CmdError, Session};
 use serde_json::{Value, json};
-
-fn open(library: &Path) -> Session {
-    let options = Options { thumbs: ThumbOptions { cache: CacheDir::Off, workers: 1, ..ThumbOptions::default() } };
-    let mut s = Session::open_with(library, Arc::new(SystemClock), &options).unwrap();
-    s.wait_idle();
-    s
-}
 
 fn dt(s: &str) -> DateTime {
     s.parse().unwrap()
@@ -32,19 +24,15 @@ const TAKEN: [Option<&str>; 4] = [Some("2026-01-31T23:30:00"), Some("2026-01-31T
 /// A library watching `Lisbon` with `IMG_0001.jpg` … `IMG_0004.jpg` (dates as in [`TAKEN`]); ids in
 /// name order.
 fn setup() -> (tempfile::TempDir, tempfile::TempDir, PathBuf, Session, Vec<PhotoId>) {
-    let (lib, disk) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
-    let folder = disk.path().join("Lisbon");
-    dalica_fs::create_dir_all(&folder).unwrap();
-    for (i, taken) in TAKEN.iter().enumerate() {
-        let exif = dalica_scenes::Exif { date_time_original: taken.map(dt), ..dalica_scenes::Exif::default() };
-        let bytes = dalica_scenes::jpeg(&dalica_scenes::Scene::new(i as u64, 96, 64), 80, Some(&exif)).unwrap();
-        dalica_fs::replace(&folder.join(format!("IMG_{:04}.jpg", i + 1)), &bytes, Expect::Absent).unwrap();
-    }
-    let mut s = open(lib.path());
-    s.execute("folders.add", &json!({ "path": folder })).unwrap();
-    s.wait_idle();
-    let ids = by_name(&s).into_values().collect();
-    (lib, disk, folder, s, ids)
+    let photos: Vec<Vec<u8>> = TAKEN
+        .iter()
+        .enumerate()
+        .map(|(i, taken)| {
+            let exif = dalica_scenes::Exif { date_time_original: taken.map(dt), ..dalica_scenes::Exif::default() };
+            dalica_scenes::jpeg(&dalica_scenes::Scene::new(i as u64, 96, 64), 80, Some(&exif)).unwrap()
+        })
+        .collect();
+    lisbon(&photos, None)
 }
 
 fn by_name(s: &Session) -> BTreeMap<String, PhotoId> {
@@ -206,30 +194,20 @@ fn dates_survive_a_restart_and_a_rebuild_of_the_index() {
 }
 
 #[test]
-fn disabled_hostile_and_out_of_range_params_change_nothing() {
+fn disabled_bad_and_out_of_range_dates_change_nothing() {
     let (_l, _d, _f, mut s, ids) = setup();
     let m = s.library().model().clone();
-    assert_eq!(s.execute("photo.dates.set", &json!({ "ids": [], "shift": 60 })), Err(CmdError::Disabled("Select some photos first.".into())));
     let spec = *s.spec("photo.dates.set").unwrap();
     assert!((spec.enabled)(&s, &json!({ "ids": [], "shift": 60 })).is_err());
     assert!((spec.enabled)(&s, &json!({ "ids": [ids[0]], "shift": 60 })).is_ok());
+    // Dates `cmd::dates`'s tests do not try.
     for bad in [
-        json!(null),
-        json!({ "ids": [ids[0]] }),
-        json!({ "shift": 60 }),
-        json!({ "ids": [ids[0]], "shift": 60, "set": "2026-01-01T00:00:00" }),
-        json!({ "ids": [ids[0]], "shift": "60" }),
-        json!({ "ids": [ids[0]], "shift": 0.5 }),
         json!({ "ids": [ids[0]], "set": "2026-13-01T00:00:00" }),
         json!({ "ids": [ids[0]], "set": "2026-01-01" }),
         json!({ "ids": [ids[0]], "set": "0000:00:00 00:00:00" }),
-        json!({ "ids": [ids[0]], "set": ["2026-01-01T00:00:00"] }),
-        json!({ "ids": [ids[0]], "shift": 60, "zzz": 1 }),
-        json!({ "ids": "all", "shift": 60 }),
     ] {
         assert!(matches!(s.execute("photo.dates.set", &bad), Err(CmdError::BadParams(_))), "{bad}");
     }
-    assert!(matches!(s.execute("photo.dates.set", &json!({ "ids": [999_999], "shift": 60 })), Err(CmdError::NotFound(_))));
     // Past year 9999 or before year 1: refused for the whole selection, nothing changes.
     for shift in [i64::MAX, i64::MIN, 400_000_000_000, -100_000_000_000] {
         assert!(matches!(s.execute("photo.dates.set", &json!({ "ids": [ids[1], ids[0]], "shift": shift })), Err(CmdError::Limit(_))), "{shift}");

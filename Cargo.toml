@@ -176,5 +176,9 @@ opt-level = 3
 # crate's level (a scanned 10 k library: 18 → 8 s).
 [profile.dev.package.dalica-thumbs]
 opt-level = 3
+# Every render, Auto Fix, Save and export in the tests runs the edit pipeline (`save_faults` 28.3 →
+# 3.8 s, `suggest` 5.0 → 0.84 s, the crate's own unit tests 14.9 → 6.0 s; about 10 s more to build).
+[profile.dev.package.dalica-edit]
+opt-level = 3
 # Only `opt-level` is raised: `debug-assertions` and `overflow-checks` stay on in every dev and test
 # build, our optimised crates included (`docs/development.md` §3).

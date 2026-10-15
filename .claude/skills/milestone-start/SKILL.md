@@ -101,7 +101,9 @@ once and report.
    - Changed files (`git diff --name-only origin/main...<branch>`) must stay within the task's
      `files`, the shared registration files (`SHARED_FILES`), and its own crates' `Cargo.toml`
      and `lib.rs` `mod` lines.
-   - The new behaviour has tests.
+   - The new behaviour has tests: one per behaviour, at the lowest crate that fits, nothing
+     re-tested at a higher layer, no per-milestone catch-up test file, heavy variants only at full
+     strength (`AGENTS.md` §3, `docs/development.md` §6).
    - The task's ✅ and parity rows are updated.
    - A dev-log entry exists.
    - The PR body gives evidence for each line of the *done when*.
@@ -110,12 +112,16 @@ once and report.
      dev log and the maintainer approves them in bulk at the next review (`/milestone-review`).
      Never wait for the maintainer on a baseline mid-run.
    - If anything is missing, send it back (step 5) instead of merging.
-3. **Merge one at a time:** `cargo xtask tasks merge <id>`. It rebases, runs the local `ci`,
-   squash-merges and syncs; it does not wait for the PR's GitHub checks. Run it in the background
-   and keep dispatching to free slots meanwhile. GitHub's three-OS run then checks `main`, and
-   `tasks merge` refuses while the latest finished run on `main` is red.
+3. **Merge one at a time:** `cargo xtask tasks merge <id>`. It rebases, runs the merge gate
+   (`cargo xtask ci --merge`: fmt, clippy, the static checks, no tests), squash-merges and syncs.
+   GitHub runs no tests on a task's pull request or on `main` (maintainer decision, 2026-10-15), so
+   there is nothing to wait for. Run it in the background and keep dispatching to free slots
+   meanwhile.
    - Conflict only in `Cargo.lock`: re-resolve it (`cargo update -w`, never hand-merge).
-   - Any other conflict, or red CI after the rebase: send the task back to its slot.
+   - Any other conflict, or a red merge gate after the rebase: send the task back to its slot.
+   - A task specific to one system (a Windows path fix, a macOS menu): after merging it, dispatch
+     CI on `main` by hand (`gh workflow run ci.yml --ref main`); `tasks merge` refuses while the
+     latest finished run on `main` is red.
 4. After each merge, fill free slots again (§2). A merge may have made new tasks Ready. A slot
    left with no next task gets its build dir freed: `cargo xtask clean --only agent-<k>`.
 5. **Sending a task back.** If the worker is still addressable, continue it with SendMessage, giving
@@ -137,7 +143,7 @@ once and report.
      question at once.
 7. **Crashed or returned without submitting.** Check the worktree (`git status`,
    `git log origin/main..HEAD`), then resume it as in step 5 or release it.
-8. **`main` is red** on GitHub CI after a merge (usually Windows or macOS):
+8. **`main` is red** on a dispatched GitHub CI run (usually Windows or macOS):
    - Stop merging; workers keep working.
    - Find the merge that broke it: `gh run list --branch main`, then the failing log.
    - Fix it as the next task: a worker on a `task/<id>-fix` branch, or revert through a PR.
@@ -173,10 +179,12 @@ once and report.
     review.
   - After the last merge, free the build dirs (the agents', the merge queue's `target/merge`, old
     one-offs): `cargo xtask clean --keep lead --keep website`.
-  - Run `/milestone-review M<n>.R` to prepare it: the check-in page (questions first, then the UI
-    changelog), the questions asked with AskUserQuestion and their answers applied, *Where we
-    stand* and `docs/status.md` on a `review/M<n>.R` branch, a pull request, both linked on the
-    issue (for a release gate also the checklist and the sign-off questions).
+  - Run `/milestone-review M<n>.R` to prepare it: `cargo xtask ci --full` once (the full list of
+    tests, run only here), the check-in page (questions first, then the UI changelog), the
+    questions asked with AskUserQuestion and their answers applied, *Where we stand* and
+    `docs/status.md` on a `review/M<n>.R` branch, a pull request (it runs CI on all three systems,
+    the corpus job, Budgets and Fuzz), both linked on the issue (for a release gate also the
+    checklist and the sign-off questions). What fails there is fixed before the review closes.
   - Never merge that pull request, never close the review issue, never `tasks merge` it. Then end
     the run.
 - **Final message** (at a review task, or when the maintainer stops the run):
@@ -200,7 +208,8 @@ this one task, submit it and report back. You never merge.
 
 Shell state does not persist between commands, so start every shell command with:
   source <scratchpad>/agent-<k>/env.sh && cd "$DALICA_WORKTREE" && …
-It sets your target dir, build jobs (3), control port ($DALICA_CONTROL_PORT) and scratch dir.
+It sets your target dir, build jobs (3), control port ($DALICA_CONTROL_PORT), scratch dir and, when
+sccache is installed, a compiler cache shared by every agent.
 
 Read first, in the worktree: AGENTS.md (all of it), your task's block in docs/roadmap.md, the spec
 files it points to (docs/README.md says which), and the README of each crate you touch.
@@ -213,8 +222,11 @@ Rules:
   editing. If you need any other file, stop and report it. Do not edit it.
 - Never edit docs/status.md, another task's block, or files of another in-progress task. If main
   or another agent's work breaks your build, wait and retry once; if it is still broken, report it.
-- Follow AGENTS.md §3: no panics in non-test code, a test for every new behaviour, a
-  graceful-failure test for every new command, never lower a metric, never weaken a gate.
+- Follow AGENTS.md §3: no panics in non-test code, a test for every new behaviour (one per
+  behaviour, at the lowest crate that fits; heavy variants only at full strength; a new
+  integration-test file is a `mod` of its crate's tests/all.rs, docs/development.md §6), never lower a metric, never weaken
+  a gate. Hostile params for a new command need no test of their own: an engine test and
+  panic_hunt cover every registered command.
 - Use only your own control port. Never send OS-level synthetic input. Never rm -rf shared paths.
 - Decide technical questions yourself (AGENTS.md §4): follow the spec; where it is silent, do what
   LightCraft or PhotoCraft did; record each decision in the commit body (what, why, the
@@ -224,9 +236,10 @@ Rules:
   review, so give it 2–4 options and your recommendation.
 
 Finish with AGENTS.md §5, in your worktree:
-  cargo fmt --all; cargo clippy -p <crates> --all-targets -- -D warnings; cargo test -p <crates>;
-  cargo xtask ci; plus panic_hunt if you added or changed commands; `cargo xtask parity --write` if
-  parity rows changed; screenshots at 1400×900 and 900×600 if the change is user-visible. If you
+  cargo fmt --all; cargo xtask ci (the task gate: clippy over everything and the tests of the
+  packages you changed, quick; minutes); `cargo xtask parity --write` if parity rows changed;
+  screenshots at 1400×900 if the change is user-visible (900×600 too if it changes layout). The
+  acceptance tests, benches, corpus and the other systems run at the milestone's review. If you
   added or re-blessed fingerprints (DALICA_BLESS=1), look at the diff images, attach the new PNG or
   the diff images to the PR and say why in the commit body; do not wait for an approval (the
   maintainer approves baselines in bulk at the next review).

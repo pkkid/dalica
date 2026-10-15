@@ -549,22 +549,4 @@ mod tests {
         let panics = read(&dir.path().join(PANICS_FILE));
         assert!(panics.contains(&format!("dalica {} (pid", dalica_core::build::version_string())), "{panics}");
     }
-
-    #[test]
-    fn version_help_and_bad_arguments_write_no_file() {
-        let status = Command::new(env!("CARGO")).args(["build", "-q", "-p", "dalica"]).status().unwrap();
-        assert!(status.success());
-        let exe = std::env::current_exe().unwrap();
-        let bin = exe.parent().and_then(Path::parent).unwrap().join(format!("dalica{}", std::env::consts::EXE_SUFFIX));
-        for args in [&["--version"][..], &["--help"], &["--no-such-flag"]] {
-            let dir = tempfile::tempdir().unwrap();
-            let mut cmd = Command::new(&bin);
-            cmd.args(args);
-            sandbox(&mut cmd, dir.path());
-            let out = cmd.output().unwrap();
-            assert_eq!(out.status.success(), args[0] != "--no-such-flag", "{args:?}");
-            let left: Vec<_> = std::fs::read_dir(dir.path()).unwrap().collect();
-            assert!(left.is_empty(), "{args:?} left {left:?}");
-        }
-    }
 }

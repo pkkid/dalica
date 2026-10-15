@@ -5,41 +5,25 @@
 //! in place of `.dalica-originals`, a mismatched backup, a read-only folder or file and an
 //! unknown operation are refused with nothing moved; a Save beside decodes its source once.
 
-mod common;
+use crate::common;
 
 use std::path::{Path, PathBuf};
 
 use common::*;
 use dalica_core::Timestamp;
 use dalica_create::output::{self, Purpose, Spec};
-use dalica_create::save::{self, Error, Options, Saving, Seen};
-use dalica_fs::TempDir;
+use dalica_create::save::{self, Error, Options, Saving};
 use dalica_fs::faults::{self, Fault, points};
 use dalica_image::{Limits, jpeg_quality, read_header};
 use dalica_meta::{Changes, WriteOptions};
 use dalica_scenes::formats::{Tiff, tiff};
 use dalica_sidecar::originals::{Entry, Originals, State};
 
-const NAME: &str = "IMG_0001.jpg";
-const NOW: Timestamp = Timestamp::from_millis(1_791_000_000_000);
-
-fn folder() -> TempDir {
-    TempDir::new("dalica-save-test").unwrap()
-}
-
-fn options() -> Options {
-    Options { threads: 2, ..Options::new(NOW) }
-}
-
 /// A scenes JPEG at quality 80, upright, written as `NAME` in `dir`; its bytes.
 fn photo(dir: &Path) -> Vec<u8> {
     let bytes = jpeg(11, 320, 240, 80, 1);
     std::fs::write(dir.join(NAME), &bytes).unwrap();
     bytes
-}
-
-fn read(path: impl AsRef<Path>) -> Vec<u8> {
-    std::fs::read(path).unwrap()
 }
 
 fn backup(dir: &Path) -> PathBuf {
@@ -57,11 +41,6 @@ fn entry(dir: &Path) -> Option<Entry> {
         dalica_sidecar::Field::Value(e) => Some(e),
         _ => None,
     }
-}
-
-fn seen(path: &Path) -> Seen {
-    let meta = std::fs::metadata(path).unwrap();
-    Seen { size: meta.len(), mtime: Timestamp::from_system_time(meta.modified().unwrap()) }
 }
 
 #[test]

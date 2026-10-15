@@ -196,7 +196,15 @@ waits for.)
 - **Every milestone has an acceptance check:** `cargo xtask accept M<n>` runs that milestone's
   acceptance tests and scripts (`dalica-cli run` / `snapshot` scripts under `tests/acceptance/`)
   and prints what a human should look at. Its *Done when* lines say what it proves. Acceptance
-  checks of earlier milestones keep running in `cargo xtask ci`, so nothing silently regresses.
+  checks of earlier milestones keep running at every review (`cargo xtask ci --full`), so nothing
+  silently regresses.
+- **Test little during a milestone, everything at its review** (maintainer decision, 2026-10-15).
+  A task's gate (`cargo xtask ci`) compiles everything and tests only the packages the task
+  changed, quick; a merge runs no tests. The review runs the full list once: every test at full
+  strength and every finished milestone's acceptance (`cargo xtask ci --full`), then, on the
+  review's pull request, CI on Linux, Windows and macOS, the corpus job, the release budgets and
+  fuzzing. What fails there becomes fix tasks, merged before the review closes
+  (`development.md` §3). A *done when* that names other systems or budgets is checked there.
 - **Every review task is a stop.** A milestone has exactly one review, at its end: the review task
   `M<n>.R`. There are no mid-milestone reviews (the maintainer's decision, 2026-10-10: "I do not
   want any checkins mid milestones"); the roadmap parser refuses an open `M<n>.A`, `M<n>.B`, …
@@ -4575,7 +4583,7 @@ No other step of M10 needs a maintainer decision mid-run.
 
 - ⬜ **M10.1 `engine`: M10's command modules, the options catalogue and settings**
   - after: M9.3, M9.R
-  - files: `crates/engine/src/cmd/mod.rs`, `crates/engine/src/cmd/options.rs`, `crates/engine/src/cmd/keymap.rs`, `crates/engine/src/cmd/inspect.rs`, `crates/engine/src/cmd/recipe.rs`, `crates/engine/src/options.rs`, `crates/engine/src/settings.rs`, `crates/engine/src/session.rs`, `crates/engine/src/undo.rs`, `crates/engine/tests/settings_m10.rs`, `crates/engine/tests/options_catalogue.rs`, `crates/engine/tests/execute_group.rs`, `crates/engine/README.md`, `docs/menus-and-shortcuts.md`, `docs/data-model.md`
+  - files: `crates/engine/src/cmd/mod.rs`, `crates/engine/src/cmd/options.rs`, `crates/engine/src/cmd/keymap.rs`, `crates/engine/src/cmd/inspect.rs`, `crates/engine/src/cmd/recipe.rs`, `crates/engine/src/options.rs`, `crates/engine/src/settings.rs`, `crates/engine/src/session.rs`, `crates/engine/src/undo.rs`, `crates/engine/tests/settings.rs`, `crates/engine/tests/options_catalogue.rs`, `crates/engine/tests/execute_group.rs`, `crates/engine/README.md`, `docs/menus-and-shortcuts.md`, `docs/data-model.md`
   - scope: the engine's ground for M10 so M10.5–M10.7, M10.9 and the MCP tasks never share a
     file: empty `cmd/options.rs`, `keymap.rs`, `inspect.rs` and `recipe.rs` joined into the
     registry once; `options.rs`, the options catalogue: one row per option of
@@ -4591,7 +4599,7 @@ No other step of M10 needs a maintainer decision mid-run.
     an error in a step undoing the steps already run; `menus-and-shortcuts.md` §1.9 gains
     `options.list`, `options.set`, `keymap.list`, `library.inspect`, `edit.recipe.set` and
     `app.setShortcut`'s `slot`; `data-model.md` §4 lists the new settings keys.
-  - done when: `crates/engine/tests/settings_m10.rs` round-trips every new setting with unknown
+  - done when: `crates/engine/tests/settings.rs` round-trips every new setting with unknown
     keys kept and wrong types falling back (reported); `crates/engine/tests/options_catalogue.rs`:
     every option of §5's three tabs is in the catalogue once, each default equals its accessor's,
     keys are unique; `crates/engine/tests/execute_group.rs`: a star, a caption and a tag in one
@@ -4599,7 +4607,7 @@ No other step of M10 needs a maintainer decision mid-run.
     the sidecars unchanged; every existing engine test and `panic_hunt` pass unchanged.
 - ⬜ **M10.2 `ui`: M10's view state, UI commands, the Options dialog's stubs and control stubs**
   - after: M9.4, M9.R
-  - files: `crates/ui/src/state.rs`, `crates/ui/src/menus.rs`, `crates/ui/src/app.rs`, `crates/ui/src/keys.rs`, `crates/ui/src/commands/mod.rs`, `crates/ui/src/commands/options.rs`, `crates/ui/src/dialogs/mod.rs`, `crates/ui/src/dialogs/options.rs`, `crates/ui/src/dialogs/options/general.rs`, `crates/ui/src/dialogs/options/file_types.rs`, `crates/ui/src/dialogs/options/export.rs`, `crates/ui/src/dialogs/options/shortcuts.rs`, `crates/ui/src/scale.rs`, `crates/ui/src/control/mod.rs`, `crates/ui/src/control/view.rs`, `crates/ui/src/control/batch.rs`, `crates/ui/src/control/inspect.rs`, `crates/ui/tests/view_state_m10.rs`, `docs/control-protocol.md`
+  - files: `crates/ui/src/state.rs`, `crates/ui/src/menus.rs`, `crates/ui/src/app.rs`, `crates/ui/src/keys.rs`, `crates/ui/src/commands/mod.rs`, `crates/ui/src/commands/options.rs`, `crates/ui/src/dialogs/mod.rs`, `crates/ui/src/dialogs/options.rs`, `crates/ui/src/dialogs/options/general.rs`, `crates/ui/src/dialogs/options/file_types.rs`, `crates/ui/src/dialogs/options/export.rs`, `crates/ui/src/dialogs/options/shortcuts.rs`, `crates/ui/src/scale.rs`, `crates/ui/src/control/mod.rs`, `crates/ui/src/control/view.rs`, `crates/ui/src/control/batch.rs`, `crates/ui/src/control/inspect.rs`, `crates/ui/tests/view_state.rs`, `docs/control-protocol.md`
   - scope: every M10 field of `UiState` in one go: the Options dialog (its tab, the draft of
     option values, the last Apply's error, the font size and scale being previewed) and the
     shortcut editor (search text, Context filter, "Show commands without a shortcut", the row
@@ -4612,7 +4620,7 @@ No other step of M10 needs a maintainer decision mid-run.
     `batch` and `library.inspect` entries of `control/mod.rs` pointing at stub modules, so M10.7
     and M10.8 never share a file; the `PREF-…` row split into one row per tab, `PREF-SCALE` and a
     Help menu row added; control-protocol §6.5 and §6.6 updated.
-  - done when: `crates/ui/tests/view_state_m10.rs`: each new field round-trips through `ui.state`
+  - done when: `crates/ui/tests/view_state.rs`: each new field round-trips through `ui.state`
     / `ui.set` (bad values are `bad_params`, nothing changes); Ctrl+, opens `dialog:options` on
     General and Ctrl+/ on Keyboard Shortcuts, Esc closes it; Tools ▸ Options…, Help ▸ Keyboard
     Shortcuts… and the macOS Preferences… item light up; every command's graceful-failure test;
@@ -4745,7 +4753,7 @@ No other step of M10 needs a maintainer decision mid-run.
     photos; each command's contract and graceful failures; `panic_hunt` green.
 - ⬜ **M10.6 `engine`: the keymap listing, two keys per context and named conflicts**
   - after: M10.1
-  - files: `crates/engine/src/cmd/keymap.rs`, `crates/engine/src/cmd/app.rs`, `crates/engine/src/keymap.rs`, `crates/engine/tests/keymap_m10.rs`
+  - files: `crates/engine/src/cmd/keymap.rs`, `crates/engine/src/cmd/app.rs`, `crates/engine/src/keymap.rs`, `crates/engine/tests/keymap.rs`
   - scope: `menus-and-shortcuts.md` §2.0, with LightCraft `crates/ui-egui/src/shortcuts.rs`
     (`parse`, `format`, `ALIASES`, `conflicts`) at b3d392b4 as the pattern for lenient parsing and
     labels: `keymap.list {context?, search?, withoutKeys?}` (query: one row per command and
@@ -4756,7 +4764,7 @@ No other step of M10 needs a maintainer decision mid-run.
     naming the other command's label, its context and the key unless `replace`, which takes the
     key from the other command; `app.resetShortcuts {command?}` as today; `Key::pretty(platform)`
     for the labels on screen (`Ctrl+Shift+S`; `⇧⌘S` on macOS); row `PREF-KEYMAP` (engine half).
-  - done when: `crates/engine/tests/keymap_m10.rs`: the listing covers every command of the
+  - done when: `crates/engine/tests/keymap.rs`: the listing covers every command of the
     registry and `UI_COMMANDS` once per context it has keys in, and the ones without keys when
     asked; search by name, menu path and key; a second key in slot 1 resolves beside the first; a
     conflict names the other binding and `replace` moves the key; Ctrl+1 in Library and in Edit
@@ -4783,7 +4791,7 @@ No other step of M10 needs a maintainer decision mid-run.
     query; graceful failures; `panic_hunt` green.
 - ⬜ **M10.8 `ui`: `batch`, replies that wait for their job, and the headless capture in the window**
   - after: M10.2
-  - files: `crates/ui/src/control/batch.rs`, `crates/ui/src/control/engine.rs`, `crates/ui/src/control/jobs.rs`, `crates/ui/src/control/screenshot.rs`, `crates/ui/tests/control_batch.rs`, `crates/ui/tests/control_wait.rs`, `apps/dalica/src/control/play.rs`, `apps/dalica/tests/control_m10.rs`, `docs/control-protocol.md`
+  - files: `crates/ui/src/control/batch.rs`, `crates/ui/src/control/engine.rs`, `crates/ui/src/control/jobs.rs`, `crates/ui/src/control/screenshot.rs`, `crates/ui/tests/control_batch.rs`, `crates/ui/tests/control_wait.rs`, `apps/dalica/src/control/play.rs`, `apps/dalica/tests/control_headless.rs`, `docs/control-protocol.md`
   - scope: `control-protocol.md` §5.3, §6.3 and §6.11, the missing parts of `SYS-CONTROL`:
     `batch {steps, stopOnError?}` (command and method steps in order with the semantics of
     separate requests; `batch`, `auth` and `app.quit` refused as steps; at most 256 steps; a
@@ -4797,7 +4805,7 @@ No other step of M10 needs a maintainer decision mid-run.
     refused, a 257-step batch is `limit`, an oversized aggregate stops with `limit`;
     `crates/ui/tests/control_wait.rs`: `folders.add` replies after its scan with the job's result,
     `wait: false` gives `{job, pending: true}` and `jobs.wait` then returns the result;
-    `apps/dalica/tests/control_m10.rs`: a headless capture through a windowed session's handlers
+    `apps/dalica/tests/control_headless.rs`: a headless capture through a windowed session's handlers
     equals `--headless`'s byte for byte; graceful failures; `panic_hunt` green.
 - ⬜ **M10.9 `edit` + `engine`: the edit-operation catalogue and `edit.recipe.set`**
   - after: M10.1
@@ -5001,8 +5009,8 @@ No other step of M10 needs a maintainer decision mid-run.
     (Save, Undo Save, Revert to the exact original bytes), W08 (foreign metadata byte-identical,
     pixels untouched, modification time unchanged) and W09 (hidden photos leave and come back);
     row `SYS-MCP`.
-  - done when: `cargo test -p dalica-mcp --test workflows` runs W02, W03, W08 and W09 green on the
-    three OSes and lists the other eight as ignored with their reasons.
+  - done when: `cargo test -p dalica-mcp --test workflows` runs W02, W03, W08 and W09 green (on all
+    three OSes at the review) and lists the other eight as ignored with their reasons.
 - ⬜ **M10.19 `mcp`: the M9 workflows**
   - after: M10.18
   - files: `crates/mcp/tests/workflows/w04_rebuild_loses_nothing.rs`, `crates/mcp/tests/workflows/w05_move_carries_data.rs`, `crates/mcp/tests/workflows/w06_search_save_results.rs`, `crates/mcp/tests/workflows/w12_destructive_asks.rs`
@@ -5013,8 +5021,8 @@ No other step of M10 needs a maintainer decision mid-run.
     queries, the search saved as an album); W12 (`cmd_photo_delete` without `confirm` answers
     `needs_confirm` with the file still there; with `confirm` the file is in the test trash and the
     undo record keeps its sidecar entry).
-  - done when: `cargo test -p dalica-mcp --test workflows` runs W04, W05, W06 and W12 green on the
-    three OSes, with the files on disk checked after each step and after undo.
+  - done when: `cargo test -p dalica-mcp --test workflows` runs W04, W05, W06 and W12 green (on all
+    three OSes at the review), with the files on disk checked after each step and after undo.
 - ⬜ **M10.20 `mcp`: W01, the stdio smoke run and the workflow floor**
   - after: M10.17, M10.18, M10.21
   - files: `crates/mcp/tests/workflows/w01_organize_export.rs`, `apps/dalica-cli/tests/mcp_process.rs`, `xtask/src/stats.rs`, `docs/mcp.md`, `docs/process.md`
@@ -5024,9 +5032,61 @@ No other step of M10 needs a maintainer decision mid-run.
     originals byte-identical); a smoke subset (W02, W03) through `dalica-cli mcp` spawned with real
     stdio; the floor in `xtask/src/stats.rs` raised to the nine P0 workflows; `mcp.md`'s status
     line says what is built and `process.md` §5 names the stats command; row `SYS-MCP`.
-  - done when: `cargo test -p dalica-mcp --test workflows` runs W01 green on the three OSes;
+  - done when: `cargo test -p dalica-mcp --test workflows` runs W01 green (on all three OSes at the review);
     `apps/dalica-cli/tests/mcp_process.rs` passes; `cargo xtask stats` prints 9 / 12 passing and
     `cargo xtask stats --check` fails when a P0 workflow is ignored (a planted `#[ignore]`).
+- ⬜ **M10.34 `fs` + `store`: real crashes, a full disk and read-only folders**
+  - after: M9.R
+  - files: `crates/fs/src/faults.rs`, `crates/fs/tests/crash.rs`, `crates/fs/tests/refusals.rs`, `crates/fs/tests/all.rs`, `crates/store/tests/crash.rs`, `crates/store/tests/all.rs`, `crates/fs/README.md`
+  - scope: the data-safety cases the test audit of 2026-10-15 found untested (maintainer decision,
+    2026-10-15, testing rework): a child process killed at a random moment (SIGKILL,
+    `TerminateProcess`) while it writes, after the pattern of `crates/fs/tests/lock.rs`, for the
+    atomic replace, the originals backup before a Save, the journal append and the intents file,
+    then the parent checks that the old or the new bytes are there and nothing torn (50 kills at
+    full strength, 5 quick); `Fault::Full` with the real error kind (`StorageFull`), so the cleanup
+    and the reason the user sees are checked, plus one real case on Unix through a child under
+    `RLIMIT_FSIZE`; a read-only folder (a locked card, a read-only share) refuses a Save before
+    anything is written; an identity with inode 0 (some shares) never lets a rename replace; the
+    parent folder removed between opening it and the rename, for the atomic replace and a
+    transfer.
+  - done when: `cargo test -p dalica-fs -p dalica-store` passes quick; the kill tests run 50 times
+    each with `DALICA_FULL_TESTS=1` and never find a torn file; each refusal leaves the folder
+    byte-identical and names the reason.
+- ⬜ **M10.35 `engine`: undo under faults and a day in the life**
+  - after: M9.R
+  - files: `crates/engine/tests/undo_faults.rs`, `crates/engine/tests/day_in_the_life.rs`, `crates/engine/tests/effects.rs`, `crates/engine/tests/all.rs`
+  - scope: undo and redo of a move, a rename and a delete interrupted at the file-job points
+    (one point per class quick, every point at full strength), as the forward operations already
+    are; one end-to-end run: scan a folder, star, caption and tag, move to another folder, rename,
+    undo the whole chain, quit, reopen and rebuild from the sidecars, then every photo's bytes and
+    data compared with the start; a property test that a command whose spec says `Effect::Query`
+    never changes the model or the undo stack and one with `History::None` never adds a step.
+  - done when: `cargo test -p dalica-engine` passes quick and with `DALICA_FULL_TESTS=1`; a
+    planted bug (undo of a move that skips the sidecar entry) fails `undo_faults`.
+- ⬜ **M10.36 `ui` + `dalica`: closing the window, display scales and a monkey test**
+  - after: M9.R
+  - files: `crates/ui/src/app.rs`, `apps/dalica/src/window.rs`, `crates/ui/tests/shutdown.rs`, `crates/ui/tests/scale.rs`, `crates/ui/tests/monkey.rs`, `crates/ui/tests/all.rs`
+  - scope: the windowed exit (placement and view state saved, pending metadata writes flushed) and
+    the headless exit share one `App::shutdown`, tested headless with writes still pending; five
+    flows that depend on hit-testing and rounding (a crop drag, a straighten drag, a tray drag, the
+    tree splitter, a dialog's buttons) at scale 1.5 and 2.0 as well as 1.0; a seeded monkey run
+    (random clicks on registered widgets, keys, drags and window sizes from 600 to 2000 px wide)
+    that asserts no panic, `state.check()` passing, no unregistered widget and no disk access on
+    the UI thread (200 frames quick, 2 000 at full strength).
+  - done when: `cargo test -p dalica-ui -p dalica` passes quick and at full strength; closing with
+    a caption still pending leaves it in the sidecar.
+- ⬜ **M10.37 `meta` + `image`: metadata written to real camera files, and colour without a profile**
+  - after: M9.R
+  - files: `crates/meta/tests/corpus.rs`, `crates/meta/tests/write_jpeg.rs`, `crates/image/tests/corpus.rs`, `crates/image/src/formats/jpeg.rs`
+  - scope: the metadata write-back invariants run over the real camera and phone JPEGs of the
+    corpus (`development.md` §11), not only over files other programs wrote into our scenes: after
+    a caption and a tag are written, every image an MPF index lists still starts with FFD8 at its
+    offset, data after EOI (motion-photo and other trailers) is kept byte for byte, and the image
+    data is unchanged; a JPEG marked Adobe RGB in EXIF (ColorSpace 2 or the R03 interop index)
+    without an embedded profile decodes as Adobe RGB, with per-file decoded fingerprints in the
+    corpus floors.
+  - done when: `cargo xtask test-corpus` passes with the new floors; a write that shifts the
+    secondary images without fixing the MPF offsets fails the corpus test.
 - ⬜ **M10.26 `docs`: the P0 parity audit**
   - after: M10.8, M10.11, M10.12, M10.16, M10.19, M10.20, M10.21, M10.22, M10.23, M10.25
   - files: `docs/parity.md`
@@ -5087,19 +5147,6 @@ No other step of M10 needs a maintainer decision mid-run.
     setting's days; undo of the change restores the earlier time; a rebuild keeps the list (or, if
     index-only was chosen, the commit body says why); the row and section show; CI green on the
     three OSes.
-- ⬜ **M10.30 `xtask`: the search budgets measured on the Budgets job's slower runners**
-  - after: M10.22
-  - files: `xtask/src/accept.rs`, `crates/engine/benches/search.rs`, `docs/development.md`
-  - scope: the maintainer's answer at M9.R (Q2): the M9 search budgets were 1.5 × a workstation
-    measurement and miss on GitHub's slower runner class (index build 720–770 ms against 630 ms;
-    every budget there slows by about 1.55×). Run the Budgets workflow on this branch until it has
-    landed on the slower class at least three times (recognised by its save and export medians,
-    about 520 ms and 12.2 s against 324 ms and 7.9 s on the faster class), take each search row's
-    median there, and set each budget to 1.5 × that first slower-runner measurement, rounded as
-    M9.12 did and still never above 100 ms per query; `development.md` §8 names the runner class.
-    No other budget changes.
-  - done when: the PR shows the slower-runner logs and the new numbers; three Budgets runs on the
-    branch pass, at least one on the slower class; `cargo xtask budgets` passes locally.
 - ⬜ **M10.31 `engine`: Export takes album sections and search results**
   - after: M9.R
   - files: `crates/engine/src/cmd/export.rs`, `crates/engine/tests/export_sections.rs`, `docs/creating.md`
@@ -5142,7 +5189,7 @@ No other step of M10 needs a maintainer decision mid-run.
     printing how many M9 commands it reached with valid parameters; a settle test with a search
     pending; the dialog's title test; CI green.
 - ⬜ **M10.R Release 0.5 gate**
-  - after: M10.24, M10.27, M10.29, M10.30, M10.31, M10.32, M10.33
+  - after: M10.24, M10.27, M10.29, M10.31, M10.32, M10.33, M10.34, M10.35, M10.36, M10.37
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`
   - scope: a release gate (Release 0.5, P0 complete): the lead runs `/milestone-review M10.R` to
@@ -5183,7 +5230,10 @@ wave 4   M10.11 File Types + Export tabs  ‖  M10.12 shortcut editor  ‖  M10.
 wave 5   M10.19 W04 W05 W06 W12  ‖  M10.20 W01, stdio smoke, floor
 wave 6   M10.26 P0 parity audit
          (fixes from M9.R, any wave: M10.29 Recently Updated ‖ M10.31 export sections
-          ‖ M10.32 file-op follow-ups ‖ M10.33 small follow-ups; M10.30 search budgets after M10.22)
+          ‖ M10.32 file-op follow-ups ‖ M10.33 small follow-ups; M10.30 dropped: the review's budgets
+          are judged against a base on the same runner, maintainer decision 2026-10-15)
+         (test coverage, any wave: M10.34 crashes and full disks ‖ M10.35 undo under faults
+          ‖ M10.36 window close, scales, monkey ‖ M10.37 camera-file write-back)
 wave 7   M10.27 accept M10 → M10.R          (M10.28 lead: M12 blocks, any time after M9.26)
 ```
 
@@ -5361,7 +5411,7 @@ and are never loosened. No other step of M11 needs a maintainer decision mid-run
 
 - ⬜ **M11.1 `engine`: M11's command modules, settings and options rows**
   - after: M10.1, M10.5, M10.R
-  - files: `crates/engine/src/cmd/mod.rs`, `crates/engine/src/cmd/import.rs`, `crates/engine/src/cmd/import_run.rs`, `crates/engine/src/cmd/batch.rs`, `crates/engine/src/cmd/compare.rs`, `crates/engine/src/cmd/slideshow.rs`, `crates/engine/src/cmd/viewer.rs`, `crates/engine/src/import.rs`, `crates/engine/src/import_run.rs`, `crates/engine/src/variant.rs`, `crates/engine/src/viewer.rs`, `crates/engine/src/options.rs`, `crates/engine/src/settings.rs`, `crates/engine/src/session.rs`, `crates/engine/src/jobs.rs`, `crates/engine/tests/settings_m11.rs`, `crates/engine/tests/options_catalogue.rs`, `crates/engine/README.md`, `docs/menus-and-shortcuts.md`, `docs/data-model.md`
+  - files: `crates/engine/src/cmd/mod.rs`, `crates/engine/src/cmd/import.rs`, `crates/engine/src/cmd/import_run.rs`, `crates/engine/src/cmd/batch.rs`, `crates/engine/src/cmd/compare.rs`, `crates/engine/src/cmd/slideshow.rs`, `crates/engine/src/cmd/viewer.rs`, `crates/engine/src/import.rs`, `crates/engine/src/import_run.rs`, `crates/engine/src/variant.rs`, `crates/engine/src/viewer.rs`, `crates/engine/src/options.rs`, `crates/engine/src/settings.rs`, `crates/engine/src/session.rs`, `crates/engine/src/jobs.rs`, `crates/engine/tests/settings.rs`, `crates/engine/tests/options_catalogue.rs`, `crates/engine/README.md`, `docs/menus-and-shortcuts.md`, `docs/data-model.md`
   - scope: the engine's ground for M11 so M11.7–M11.12 never share a file: empty
     `cmd/import.rs`, `import_run.rs`, `batch.rs`, `compare.rs`, `slideshow.rs` and `viewer.rs`
     joined into the registry once; stubs `import.rs` (the import session: source, listing
@@ -5379,14 +5429,14 @@ and are never loosened. No other step of M11 needs a maintainer decision mid-run
     `edit.copyRecipe`, `edit.pasteRecipe`, `edit.undoAll`, `edit.variant.*`, `slideshow.list`,
     `viewer.list`) and §5's Slideshow and Photo Viewer tabs say what this build offers;
     `data-model.md` §4 lists the new settings keys.
-  - done when: `crates/engine/tests/settings_m11.rs` round-trips every new setting with unknown
+  - done when: `crates/engine/tests/settings.rs` round-trips every new setting with unknown
     keys kept and wrong types or out-of-range values falling back (reported);
     `crates/engine/tests/options_catalogue.rs` covers the six tabs now shown, every option once,
     each default equal to its accessor's; every existing engine test and `panic_hunt` pass
     unchanged.
 - ⬜ **M11.2 `ui`: M11's view state, UI commands, the rooms' frame and stubs**
   - after: M10.2, M10.R
-  - files: `crates/ui/src/state.rs`, `crates/ui/src/menus.rs`, `crates/ui/src/menu_catalog.rs`, `crates/ui/src/app.rs`, `crates/ui/src/keys.rs`, `crates/ui/src/commands/mod.rs`, `crates/ui/src/commands/rooms.rs`, `crates/ui/src/commands/import.rs`, `crates/ui/src/commands/slideshow.rs`, `crates/ui/src/commands/peek.rs`, `crates/ui/src/commands/compare.rs`, `crates/ui/src/commands/batch.rs`, `crates/ui/src/commands/viewer.rs`, `crates/ui/src/panels/mod.rs`, `crates/ui/src/panels/layout.rs`, `crates/ui/src/panels/rooms.rs`, `crates/ui/src/panels/import.rs`, `crates/ui/src/panels/import/**`, `crates/ui/src/panels/slideshow.rs`, `crates/ui/src/panels/slideshow/**`, `crates/ui/src/panels/peek.rs`, `crates/ui/src/panels/viewer.rs`, `crates/ui/src/panels/viewer/**`, `crates/ui/src/panels/edit.rs`, `crates/ui/src/panels/edit/compare.rs`, `crates/ui/src/panels/edit/top_bar.rs`, `crates/ui/src/panels/edit/caption_bar.rs`, `crates/ui/src/dialogs/mod.rs`, `crates/ui/src/dialogs/keep_version.rs`, `crates/ui/src/dialogs/apply_changes.rs`, `crates/ui/src/dialogs/undo_all.rs`, `crates/ui/src/dialogs/remove_from_card.rs`, `crates/ui/src/dialogs/viewer_settings.rs`, `crates/ui/src/dialogs/options.rs`, `crates/ui/src/dialogs/options/slideshow.rs`, `crates/ui/src/dialogs/options/viewer.rs`, `crates/ui/src/control/**`, `crates/ui/tests/view_state_m11.rs`, `docs/control-protocol.md`
+  - files: `crates/ui/src/state.rs`, `crates/ui/src/menus.rs`, `crates/ui/src/menu_catalog.rs`, `crates/ui/src/app.rs`, `crates/ui/src/keys.rs`, `crates/ui/src/commands/mod.rs`, `crates/ui/src/commands/rooms.rs`, `crates/ui/src/commands/import.rs`, `crates/ui/src/commands/slideshow.rs`, `crates/ui/src/commands/peek.rs`, `crates/ui/src/commands/compare.rs`, `crates/ui/src/commands/batch.rs`, `crates/ui/src/commands/viewer.rs`, `crates/ui/src/panels/mod.rs`, `crates/ui/src/panels/layout.rs`, `crates/ui/src/panels/rooms.rs`, `crates/ui/src/panels/import.rs`, `crates/ui/src/panels/import/**`, `crates/ui/src/panels/slideshow.rs`, `crates/ui/src/panels/slideshow/**`, `crates/ui/src/panels/peek.rs`, `crates/ui/src/panels/viewer.rs`, `crates/ui/src/panels/viewer/**`, `crates/ui/src/panels/edit.rs`, `crates/ui/src/panels/edit/compare.rs`, `crates/ui/src/panels/edit/top_bar.rs`, `crates/ui/src/panels/edit/caption_bar.rs`, `crates/ui/src/dialogs/mod.rs`, `crates/ui/src/dialogs/keep_version.rs`, `crates/ui/src/dialogs/apply_changes.rs`, `crates/ui/src/dialogs/undo_all.rs`, `crates/ui/src/dialogs/remove_from_card.rs`, `crates/ui/src/dialogs/viewer_settings.rs`, `crates/ui/src/dialogs/options.rs`, `crates/ui/src/dialogs/options/slideshow.rs`, `crates/ui/src/dialogs/options/viewer.rs`, `crates/ui/src/control/**`, `crates/ui/tests/view_state.rs`, `docs/control-protocol.md`
   - scope: every M11 field of `UiState` in one go (`control-protocol.md` §6.5 already names
     `room` and `slideshow`): the rooms (open, active); the Import room (focus, selection, the item
     in the preview, the destination draft: place, folder name, after copying); the slideshow
@@ -5410,7 +5460,7 @@ and are never loosened. No other step of M11 needs a maintainer decision mid-run
     `applyChanges`, `undoAllEdits`, `removeFromCard`, `viewerSettings`; the Options dialog's
     Slideshow and Photo Viewer tabs with stub bodies; control stubs for the new state;
     `control-protocol.md` §6.5 and §7 gain the fields and widget ids.
-  - done when: `crates/ui/tests/view_state_m11.rs`: each new field round-trips through `ui.state`
+  - done when: `crates/ui/tests/view_state.rs`: each new field round-trips through `ui.state`
     / `ui.set` (bad values are `bad_params`, nothing changes); Ctrl+M opens the Import tab and the
     strip appears 28 high, closing it removes the strip; a Slideshow-context key does nothing in
     the library; every command's graceful-failure test; `panic_hunt` and `widget_ids` stay green.
@@ -5774,7 +5824,7 @@ and are never loosened. No other step of M11 needs a maintainer decision mid-run
     as duplicates; the folders named as configured; each copy's bytes equal to its source)
     un-ignored; the floor in `xtask/src/stats.rs` raised to the eleven workflows now required;
     `mcp.md`'s status line; row `SYS-MCP`.
-  - done when: `cargo test -p dalica-mcp --test workflows` runs W07 and W10 green on the three OSes;
+  - done when: `cargo test -p dalica-mcp --test workflows` runs W07 and W10 green (on all three OSes at the review);
     `crates/mcp/tests/edit_tools.rs`: `apply_edit` on 3 photos is one undo step; `cargo xtask
     stats` prints 11 / 12 passing and `stats --check` fails below that.
 - ⬜ **M11.21 `ui`: the slideshow's control bar, zoom, and Options ▸ Slideshow**
@@ -5820,8 +5870,8 @@ and are never loosened. No other step of M11 needs a maintainer decision mid-run
     batch as one undo step; a version kept from A│A as one history step; the slideshow's zero waits
     on a slowed decoder, a fingerprint per transition, its keys, wheel and bar; `dalica --view`
     opening, stepping, starring and Open in Dalica; W07 and W10 over MCP; the M11 budgets (the
-    release budgets with `DALICA_ACCEPT_RELEASE=1`; inside `cargo xtask ci` a smaller debug run
-    checks the paths and prints its times); fingerprints of the room tabs, the Import room,
+    release budgets with `DALICA_ACCEPT_RELEASE=1`; inside `cargo xtask ci --full` a smaller debug
+    run checks the paths and prints its times); fingerprints of the room tabs, the Import room,
     compare, the slideshow and its bar and the viewer; the manual checks in `m11.md` (import from a
     real card or USB stick and remove the copies from it, a slideshow on a real screen with each
     transition, the viewer from the file manager's Open with on each OS with its translucent

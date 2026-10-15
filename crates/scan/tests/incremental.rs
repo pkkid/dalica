@@ -7,6 +7,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::time::{Duration, SystemTime};
 
+use crate::common::apply_all;
 use dalica_library::{Library, Op, Photo, Sketch};
 use dalica_scan::watch::{DirtyFolder, Rescan, Scope, known_folders, plan, rescan};
 use dalica_scan::{Options, Scan, diff, diff_rescan, scan};
@@ -37,12 +38,6 @@ fn tree() -> (tempfile::TempDir, PathBuf) {
     put(&r.join("c/5.jpg"), 5);
     put(&r.join("c/d/6.jpg"), 6);
     (dir, r)
-}
-
-fn apply_all(lib: &mut Library, ops: Vec<Op>) {
-    for op in ops {
-        lib.apply(op).unwrap();
-    }
 }
 
 fn library(root: &Path) -> Library {

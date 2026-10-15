@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
+use crate::common::new_driver;
 use dalica_engine::Session;
 use dalica_engine::watching::WatchMode;
 use dalica_scan::HeaderReader;
@@ -62,7 +63,7 @@ fn setup() -> T {
     // after the scan, and this test is about the scan's job alone.
     session.set_watching(WatchMode::Off);
     let control = Control::new(Config { read_roots: vec![root.join("photos")], ..Config::default() });
-    let mut d = Driver::new(App::with_picker(Some(session), control.picker()), 1400, 900, 1.0);
+    let mut d = new_driver(App::with_picker(Some(session), control.picker()), 1400, 900, 1.0);
     d.settle(600).unwrap();
     T { _dir: dir, root, control, conn: Connection::new(), d }
 }

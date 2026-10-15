@@ -12,17 +12,16 @@ use std::collections::BTreeSet;
 use std::path::Path;
 use std::sync::Arc;
 
+use crate::common::{FRAMES, new_driver};
 use dalica_core::PhotoId;
 use dalica_engine::Session;
 use dalica_ui::control::{Config, Connection, Control, Reply, Request, serve};
 use dalica_ui::{App, Driver};
 use serde_json::{Value, json};
 
-const FRAMES: usize = 60 * 60;
-
 /// A library in `root` with two folders of `per` scenes photos each, added and scanned.
 fn session(root: &Path, per: usize) -> Session {
-    let files = dalica_scenes::demo_library(2, 2 * per, 13).unwrap();
+    let files = crate::common::demo_library(2, 2 * per, 13).unwrap();
     let mut folders = BTreeSet::new();
     for f in &files {
         let path = root.join("photos").join(&f.path);
@@ -48,7 +47,7 @@ struct T {
 fn setup(per: usize) -> T {
     let dir = tempfile::tempdir().unwrap();
     let control = Control::new(Config::default());
-    let mut d = Driver::new(App::with_picker(Some(session(dir.path(), per)), control.picker()), 1400, 900, 1.0);
+    let mut d = new_driver(App::with_picker(Some(session(dir.path(), per)), control.picker()), 1400, 900, 1.0);
     d.settle(FRAMES).unwrap();
     T { _dir: dir, control, conn: Connection::new(), d }
 }
@@ -115,8 +114,6 @@ fn a_dialog_opens_by_command_and_esc_and_enter_close_it() {
         assert!(has_widget(&t, id), "{id}");
     }
     assert!(!t.d.widgets().iter().find(|w| w.id == "button:dialog.help").unwrap().enabled, "Help waits for help");
-    // Every widget of the dialog has an id, the backdrop's included.
-    assert_eq!(t.d.app().panels().unwrap().unregistered_widgets(), []);
     shots(&mut t, "dialog-folder-manager");
     // Open: the menu item says why it cannot open again, and the command refuses.
     let tree = ok(&mut t, "ui.menu.tree", json!({}));

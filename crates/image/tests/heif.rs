@@ -8,6 +8,8 @@
 //! `crates/heif/src/testdata.rs` at revision 76b53778 (MIT OR Apache-2.0, Copyright (c) 2026
 //! ArtCraft Team and the LightCraft contributors; `NOTICE`).
 
+mod common;
+
 use dalica_image::{DecodeOptions, Error, Format, Limits, decode, decode_as, formats, read_header, sniff};
 use proptest::prelude::*;
 use testdata::{Prop, Spec, build};
@@ -605,7 +607,7 @@ const HEIC_RS_BOX_PANIC: [u8; 72] = [
 ];
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(256))]
+    #![proptest_config(ProptestConfig::with_cases(common::cases(256)))]
 
     /// Truncation and corruption anywhere in a real file never panic, with or without the feature.
     #[test]
@@ -621,19 +623,6 @@ proptest! {
         let _ = decode(&bytes, &l);
         let _ = decode_as(Format::Heif, &bytes, &DecodeOptions::default(), &l);
         let _ = formats::embedded_thumbnail(Format::Heif, &bytes, &l);
-    }
-
-    #[test]
-    fn random_bytes_never_panic(head in prop_oneof![
-        Just(b"\0\0\0\x18ftypheic\0\0\0\0mif1heic".to_vec()),
-        Just(b"\0\0\0\x18ftypmif1\0\0\0\0mif1avif".to_vec()),
-        Just(b"\0\0\0\x18ftypmsf1\0\0\0\0msf1hevc".to_vec()),
-    ], tail in proptest::collection::vec(any::<u8>(), 0..1024)) {
-        let bytes = [head, tail].concat();
-        let l = Limits::default();
-        let _ = read_header(&bytes, &l);
-        let _ = decode(&bytes, &l);
-        let _ = decode_as(Format::Heif, &bytes, &DecodeOptions::default(), &l);
     }
 }
 

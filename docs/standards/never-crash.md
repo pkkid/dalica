@@ -39,8 +39,10 @@ building on top of it.
 7. **Prove it.** Every crash fix lands with a small synthetic regression test that panicked before
    the fix. Commands must survive hostile params: the `panic_hunt` integration test runs every
    registered command with adversarial parameter sets (empty, wrong types, out of range, huge,
-   NaN) under `catch_unwind` with a hang timeout; it must stay green. New commands come with a
-   graceful-failure test.
+   NaN) under `catch_unwind` with a hang timeout, and one engine test loops over every registered
+   command with empty, out-of-range and wrong-type params expecting `Err`; both must stay green. A
+   new command is covered by them and needs no graceful-failure test of its own (maintainer
+   decision, 2026-10-15).
 
 ## Enforcement
 
@@ -54,7 +56,9 @@ building on top of it.
 
   Not `[workspace.lints]`: those would also hit integration tests, examples and benches. New crates
   start with the attribute.
-- `cargo xtask ci` runs clippy with `-D warnings`; `panic_hunt` runs in the pre-commit checklist when
-  commands change, and in CI.
+- `cargo xtask ci` runs clippy with `-D warnings`; `panic_hunt` is an ordinary `dalica-engine`
+  test: quick in a task's gate when the engine changed, at its full case count in the review gate
+  (`cargo xtask ci --full`).
 - Fuzz targets (`cargo fuzz`) for every parser of untrusted input: image headers, EXIF/TIFF IFDs,
-  XMP, IPTC, the folder sidecar, the legacy sidecar reader (see `docs/security.md`).
+  XMP, IPTC, the folder sidecar, the legacy sidecar reader (see `docs/security.md`); each runs for
+  60 s at every milestone review.

@@ -122,8 +122,8 @@ while a format waits for its task).
   listed, with the tile "HEIC support isn't included in this build".
 - The decoder is young and pinned exactly (`=0.1.1`, without its `parallel` feature: Dalica
   decodes on its own worker threads); moving the pin is a reviewed change that re-runs the
-  `heif` corpus tests (`development.md` §11). CI lints and tests `dalica-image` with the feature on
-  all three systems.
+  `heif` corpus tests (`development.md` §11). The review gate tests `dalica-image` with the feature
+  (`cargo xtask ci --full`, on Linux), and its corpus job lints it.
 - Before heic-rs reads a file, Dalica's own bounded box walk checks the top level and the
   containers inside `meta`; a file with `moov` and no `meta` (an image sequence) is unsupported.
   The colour description is the item's `colr nclx`, else the HEVC VUI (iPhones mark full range

@@ -8,12 +8,24 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 publish = false
+# Every integration test in one binary (tests/all.rs), linked once; see tests/all.rs.
+autotests = false
 
 [features]
 # The corpus test (`tests/corpus.rs`, docs/development.md §11): the pinned `metadata` corpus, run by
 # `cargo xtask test-corpus`. Off by default, so plain `cargo test` and `cargo xtask ci` neither
 # compile nor need it.
 corpus = []
+
+[[test]]
+name = "all"
+path = "tests/all.rs"
+
+# The pinned metadata corpus (`cargo xtask test-corpus`): built only with the feature.
+[[test]]
+name = "corpus"
+path = "tests/corpus.rs"
+required-features = ["corpus"]
 
 [dependencies]
 # Dates without a time zone (`DateTime`), shared with the library model.

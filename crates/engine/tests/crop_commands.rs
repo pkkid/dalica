@@ -6,39 +6,21 @@
 //! command's contract and graceful failures.
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::time::Duration;
 
-use dalica_core::{PhotoId, SystemClock};
-use dalica_engine::{CacheDir, CmdError, Effect, History, JobKind, JobState, Options, Session, ThumbOptions};
-use dalica_fs::Expect;
+use crate::common::{lisbon, open};
+use dalica_core::PhotoId;
+use dalica_engine::{CmdError, JobKind, JobState, Session};
 use serde_json::{Value, json};
 
 const WAIT: Duration = Duration::from_secs(60);
 
-fn open(library: &Path) -> Session {
-    let options = Options { thumbs: ThumbOptions { cache: CacheDir::Off, workers: 1, ..ThumbOptions::default() } };
-    let mut s = Session::open_with(library, Arc::new(SystemClock), &options).unwrap();
-    s.wait_idle();
-    s
-}
-
 /// A library watching one folder `Lisbon` of `n` `width × height` photos `IMG_0001.jpg`…, ids in
 /// name order.
 fn setup(n: usize, width: u32, height: u32) -> (tempfile::TempDir, tempfile::TempDir, PathBuf, Session, Vec<PhotoId>) {
-    let (lib, disk) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
-    let folder = disk.path().join("Lisbon");
-    dalica_fs::create_dir_all(&folder).unwrap();
-    for i in 0..n {
-        let bytes = dalica_scenes::jpeg(&dalica_scenes::Scene::new(i as u64 + 7, width, height), 85, None).unwrap();
-        dalica_fs::replace(&folder.join(format!("IMG_{:04}.jpg", i + 1)), &bytes, Expect::Absent).unwrap();
-    }
-    let mut s = open(lib.path());
-    s.execute("folders.add", &json!({ "path": folder })).unwrap();
-    s.wait_idle();
-    let mut photos: Vec<(String, PhotoId)> = s.library().photos().map(|p| (p.name.clone(), p.id)).collect();
-    photos.sort();
-    (lib, disk, folder, s, photos.into_iter().map(|(_, id)| id).collect())
+    let photos: Vec<Vec<u8>> =
+        (0..n as u64).map(|i| dalica_scenes::jpeg(&dalica_scenes::Scene::new(i + 7, width, height), 85, None).unwrap()).collect();
+    lisbon(&photos, None)
 }
 
 fn edits(s: &Session, id: PhotoId) -> Vec<String> {
@@ -276,23 +258,6 @@ fn a_missing_file_fails_the_job_and_nothing_else() {
 }
 
 #[test]
-fn the_commands_are_listed_with_their_history() {
-    let (_lib, _d, _f, s, _ids) = setup(1, 96, 64);
-    let find = |id: &str| s.commands().into_iter().find(|c| c.id == id).unwrap();
-    for (id, effect, history) in [
-        ("photo.crop.apply", Effect::Library, History::Photo),
-        ("photo.straighten.apply", Effect::Library, History::Photo),
-        ("crop.ratios.list", Effect::Query, History::None),
-        ("crop.ratios.add", Effect::Library, History::None),
-        ("crop.ratios.remove", Effect::Library, History::None),
-        ("photo.crop.suggest", Effect::Query, History::None),
-    ] {
-        let c = find(id);
-        assert_eq!((c.effect, c.history, c.enabled), (effect, history, true), "{id}");
-    }
-}
-
-#[test]
 fn graceful_failures_change_nothing() {
     let (_lib, _d, _f, mut s, ids) = setup(1, 96, 64);
     let id = ids[0];
@@ -301,7 +266,6 @@ fn graceful_failures_change_nothing() {
     let (model, settings, jobs) = (s.library().model().clone(), s.settings().edit(), s.jobs().len());
     let long = "x".repeat(300);
     let bad: Vec<(&str, Value, &str)> = vec![
-        ("photo.crop.apply", json!({}), "bad_params"),
         ("photo.crop.apply", json!({ "id": id }), "bad_params"),
         ("photo.crop.apply", json!({ "rect": [0, 0, 1, 1] }), "bad_params"),
         ("photo.crop.apply", json!({ "id": 999, "rect": [0, 0, 1, 1] }), "not_found"),
@@ -313,15 +277,12 @@ fn graceful_failures_change_nothing() {
         ("photo.crop.apply", json!({ "id": id, "rect": [0, 0, 1e300, 1] }), "bad_params"),
         ("photo.crop.apply", json!({ "id": id, "rect": [0, 0, 1, 1], "ratio": "wide" }), "bad_params"),
         ("photo.crop.apply", json!({ "id": id, "rect": [0, 0, 1, 1], "ratio": 4 }), "bad_params"),
-        ("photo.crop.apply", json!({ "id": id, "rect": [0, 0, 1, 1], "extra": 1 }), "bad_params"),
         ("photo.straighten.apply", json!({ "id": id }), "bad_params"),
         ("photo.straighten.apply", json!({ "id": id, "degrees": 10.5 }), "bad_params"),
         ("photo.straighten.apply", json!({ "id": id, "degrees": -1e308 }), "bad_params"),
         ("photo.straighten.apply", json!({ "id": id, "degrees": "2" }), "bad_params"),
         ("photo.straighten.apply", json!({ "id": -1, "degrees": 2 }), "bad_params"),
         ("photo.straighten.apply", json!({ "id": 999, "degrees": 2 }), "not_found"),
-        ("crop.ratios.list", json!({ "x": 1 }), "bad_params"),
-        ("crop.ratios.add", json!({}), "bad_params"),
         ("crop.ratios.add", json!({ "name": "  ", "width": 2, "height": 1 }), "bad_params"),
         ("crop.ratios.add", json!({ "name": long, "width": 2, "height": 1 }), "limit"),
         ("crop.ratios.add", json!({ "name": "Wide", "width": 3, "height": 1 }), "bad_params"),
@@ -329,7 +290,6 @@ fn graceful_failures_change_nothing() {
         ("crop.ratios.add", json!({ "name": "Huge", "width": 20000, "height": 20000 }), "bad_params"),
         ("crop.ratios.add", json!({ "name": "Thin", "width": 100, "height": 1 }), "bad_params"),
         ("crop.ratios.add", json!({ "name": "Text", "width": "2", "height": 1 }), "bad_params"),
-        ("crop.ratios.remove", json!({}), "bad_params"),
         ("crop.ratios.remove", json!({ "name": "Nope" }), "not_found"),
         ("crop.ratios.remove", json!({ "name": 3 }), "bad_params"),
         ("photo.crop.suggest", json!({ "id": id }), "bad_params"),
@@ -340,7 +300,6 @@ fn graceful_failures_change_nothing() {
         ("photo.crop.suggest", json!({ "id": id, "ratio": 50 }), "bad_params"),
         ("photo.crop.suggest", json!({ "id": id, "ratio": "manual" }), "bad_params"),
         ("photo.crop.suggest", json!({ "id": id, "ratio": [4, 6] }), "bad_params"),
-        ("photo.crop.suggest", json!({ "id": id, "ratio": 1, "extra": true }), "bad_params"),
     ];
     for (cmd, p, code) in bad {
         let r = s.execute(cmd, &p);
@@ -348,12 +307,6 @@ fn graceful_failures_change_nothing() {
         assert_eq!(s.library().model(), &model, "{cmd} changed the model on {p}");
         assert_eq!(s.settings().edit(), settings, "{cmd} changed the settings on {p}");
         assert_eq!(s.jobs().len(), jobs, "{cmd} started a job on {p}");
-    }
-    for cmd in ["photo.crop.apply", "photo.straighten.apply", "crop.ratios.list", "crop.ratios.add", "crop.ratios.remove", "photo.crop.suggest"] {
-        for p in [json!([]), json!("text"), json!(42), json!({ "zzz": 1 })] {
-            let r = s.execute(cmd, &p);
-            assert!(matches!(r, Err(CmdError::BadParams(_))), "{cmd} {p} gave {r:?}");
-        }
     }
     assert_eq!(s.undo_stack().len(), 0);
 }

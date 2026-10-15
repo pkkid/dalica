@@ -141,6 +141,8 @@ fn event() -> impl Strategy<Value = Event> {
 }
 
 proptest! {
+    #![proptest_config(crate::common::cases(256, 32))]
+
     /// Against a model that remembers the value at the last sync: an edit made only in Dalica is
     /// written, one made only elsewhere is imported, one made on both sides is a conflict with
     /// Dalica's value kept, and after each sync both sides agree. Before the first sync (no

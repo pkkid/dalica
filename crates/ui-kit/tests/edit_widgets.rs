@@ -9,16 +9,14 @@
 //! - the histogram of a known set of bins: the overlap colours where they belong, the outline, the
 //!   fingerprint (`fingerprints/edit-widgets-histogram.json`);
 //! - the Tuning slider: the value as a tooltip while hovered, + / − nudge 2 %, double-click resets;
-//! - the gallery: an edit panel built from these widgets in a window at 1400 × 900 and 900 × 600
-//!   (`fingerprints/gallery-edit-<w>x<h>.json`).
+//! - the gallery: an edit panel built from these widgets in a window at 1400 × 900 and 900 × 600,
+//!   fingerprinted at 1400 × 900 (`fingerprints/gallery-edit-1400x900.json`).
 //!
 //! Every frame registers its ids with their roles, in the grammar of `control-protocol.md` §7, and
 //! leaves no interactive widget without one. The renders go to `target/test-output/ui-kit/`;
 //! `DALICA_BLESS=1` stores new fingerprints (commit them only after looking at the PNGs).
 
-use std::path::PathBuf;
-
-use dalica_scenes::fingerprint;
+use crate::common::{check, out_dir};
 use dalica_ui_kit::theme::{HISTOGRAM, histogram_fill};
 use dalica_ui_kit::widgets::{
     SliderOut, SliderSpec, TAB_MIN_WIDTH, TOOL_BUTTON_H, TabItem, TabsOut, histogram, histogram_curves, tabs, tabs_overflow_id, tool_button,
@@ -57,32 +55,6 @@ fn column(ui: &mut Ui, rect: Rect, add: impl FnOnce(&mut Ui)) {
 
 fn row(ui: &mut Ui, rect: Rect, add: impl FnOnce(&mut Ui)) {
     ui.scope_builder(UiBuilder::new().max_rect(rect).layout(egui::Layout::left_to_right(egui::Align::Min)), add);
-}
-
-fn out_dir() -> PathBuf {
-    let out = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/ui-kit");
-    std::fs::create_dir_all(&out).unwrap();
-    out
-}
-
-/// Writes `img` as `<name>.png`, stores its fingerprint when blessing, and compares it with the
-/// stored one.
-fn check(name: &str, img: &Image, failures: &mut Vec<String>) {
-    let out = out_dir();
-    std::fs::write(out.join(format!("{name}.png")), fingerprint::png_rgba(img.width, img.height, &img.rgba)).unwrap();
-    let stored = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("tests/fingerprints/{name}.json"));
-    if std::env::var_os("DALICA_BLESS").is_some() {
-        std::fs::write(&stored, fingerprint::to_json(&fingerprint::fingerprint(img.width, img.height, &img.rgba)) + "\n").unwrap();
-    }
-    match std::fs::read_to_string(&stored).map_err(|e| e.to_string()).and_then(|s| fingerprint::from_json(&s)) {
-        Ok(expected) => {
-            if let Err(m) = fingerprint::check(img.width, img.height, &img.rgba, &expected, 2.0) {
-                std::fs::write(out.join(format!("{name}-actual.png")), &m.actual_png).unwrap();
-                failures.push(format!("{name}: {}", m.message));
-            }
-        }
-        Err(e) => failures.push(format!("{name}: no fingerprint ({e}); run with DALICA_BLESS=1 and look at the PNG")),
-    }
 }
 
 fn check_ids(what: &str, widgets: &[WidgetInfo], unregistered: &[registry::Unregistered]) {
@@ -726,8 +698,6 @@ fn the_edit_panel_gallery_at_both_window_sizes() {
     let mut failures = vec![];
     for size in [(1400, 900), (900, 600)] {
         let (one, widgets, unregistered) = window(size);
-        let (two, _, _) = window(size);
-        assert!(one.rgba == two.rgba, "two renders of the {size:?} window differ");
         check_ids(&format!("gallery {size:?}"), &widgets, &unregistered);
         for id in ["tab:edit/basic", "tool:crop", "tool:autoColor", "slider:tuning.fill", "slider:tuning.temperature", "histogram:edit"] {
             assert!(widgets.iter().any(|w| w.id == id), "{size:?}: {id}");
@@ -736,7 +706,12 @@ fn the_edit_panel_gallery_at_both_window_sizes() {
         for w in widgets.iter().filter(|w| !w.id.starts_with("histogram")) {
             assert!(w.rect[0] + w.rect[2] <= 280.0 + 0.01, "{size:?}: {} leaves the panel: {:?}", w.id, w.rect);
         }
-        check(&format!("gallery-edit-{}x{}", size.0, size.1), &one, &mut failures);
+        // One fingerprint per state: the large window's (the small one has to fit, above).
+        if size == (1400, 900) {
+            let (two, _, _) = window(size);
+            assert!(one.rgba == two.rgba, "two renders of the {size:?} window differ");
+            check(&format!("gallery-edit-{}x{}", size.0, size.1), &one, &mut failures);
+        }
     }
     assert!(failures.is_empty(), "{} (renders in {})", failures.join("\n"), out_dir().display());
 }

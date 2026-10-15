@@ -12,10 +12,11 @@ use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use crate::common::{jpeg_of, options, pick};
 use dalica_core::{Clock, FolderId, PhotoId, Timestamp, VirtualClock};
 use dalica_engine::duplicates::{RUNNING, md5_digest};
 use dalica_engine::jobs::JobState;
-use dalica_engine::{CacheDir, CmdError, Options, Session, ThumbOptions};
+use dalica_engine::{CmdError, Session};
 use dalica_fs::Expect;
 use dalica_library::{Folder, Library, Op, Photo};
 use serde_json::{Value, json};
@@ -29,14 +30,6 @@ fn clock() -> Arc<dyn Clock> {
 
 fn open(dir: &Path) -> Session {
     Session::open_with(dir, clock(), &options()).unwrap()
-}
-
-fn options() -> Options {
-    Options { thumbs: ThumbOptions { cache: CacheDir::Off, workers: 1, ..ThumbOptions::default() } }
-}
-
-fn jpeg(seed: u64, w: u32, h: u32) -> Vec<u8> {
-    dalica_scenes::jpeg(&dalica_scenes::Scene::new(seed, w, h), 80, None).unwrap()
 }
 
 /// A scanned library watching `Trips/`:
@@ -57,9 +50,9 @@ struct Fx {
 fn fixture() -> Fx {
     let (lib, disk) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
     let root = disk.path().join("Trips");
-    let x = jpeg(1, 96, 64);
-    let y = jpeg(2, 160, 120);
-    let w = jpeg(3, 64, 64);
+    let x = jpeg_of(1, 96, 64);
+    let y = jpeg_of(2, 160, 120);
+    let w = jpeg_of(3, 64, 64);
     let mut z = x.clone();
     let mid = z.len() / 2;
     z[mid] ^= 0x55;
@@ -282,13 +275,7 @@ fn a_search_started_while_it_runs_keeps_the_light_table() {
 #[test]
 fn graceful_failures() {
     let mut fx = fixture();
-    let (model, undo, jobs) = (fx.s.library().model().clone(), fx.s.undo_stack().len(), fx.s.jobs().len());
-    let deep = serde_json::from_str::<Value>(&format!("{}{}", "[".repeat(100), "]".repeat(100))).unwrap();
-    for bad in [json!([]), json!("text"), json!(42), json!(true), json!({ "zzz": 1 }), json!({ "ids": [1] }), deep] {
-        let r = fx.s.execute("search.duplicates", &bad);
-        assert!(matches!(r, Err(CmdError::BadParams(_))), "{bad}: {r:?}");
-    }
-    assert_eq!((fx.s.library().model(), fx.s.undo_stack().len(), fx.s.jobs().len()), (&model, undo, jobs));
+    let undo = fx.s.undo_stack().len();
     // An empty library finds nothing and shows the empty result.
     let lib = tempfile::tempdir().unwrap();
     let mut s = open(lib.path());
@@ -308,7 +295,7 @@ fn graceful_failures() {
 
 /// Writes `n` files into 20 folders under `root` and returns the library of them (sizes and times
 /// as on disk). One file in 20 is a copy of the one before it; the others are distinct, and every
-/// size is shared by 25 files, so every file is read for its digest.
+/// size is shared by `n / 400` files (`n` a multiple of 800), so every file is read for its digest.
 fn ten_k_files(root: &Path, n: usize) -> Library {
     let content = |i: usize| -> Vec<u8> {
         let len = 2048 + (i % 400) * 16;
@@ -354,11 +341,13 @@ fn ten_k_files(root: &Path, n: usize) -> Library {
     library
 }
 
+/// 10 000 photos at the review gate (timed), 800 in a task's gate.
 #[test]
 fn ten_thousand_photos_timed() {
+    let (n, label) = pick((800, "800"), (10_000, "10 000"));
     let tmp = tempfile::tempdir().unwrap();
     let root = tmp.path().join("photos");
-    let library = ten_k_files(&root, 10_000);
+    let library = ten_k_files(&root, n);
     let lib_dir = tmp.path().join("library");
     std::fs::create_dir_all(&lib_dir).unwrap();
     dalica_store::snapshot::write(&lib_dir.join(dalica_store::snapshot::FILE), &library, 0).unwrap();
@@ -373,16 +362,18 @@ fn ten_thousand_photos_timed() {
         (start.elapsed(), s.duplicates_stats(), s.search_state().result.as_ref().map(|r| (r.groups.len(), r.count())))
     };
     let (first, stats, found) = run();
-    assert_eq!((stats.candidates, stats.hashed, stats.compared), (10_000, 10_000, 1_000));
-    assert_eq!(found, Some((500, 1_000)), "one file in 20 copies the one before it");
+    let all = n as u64;
+    assert_eq!((stats.candidates, stats.hashed, stats.compared), (all, all, all / 10));
+    assert_eq!(found, Some((n / 20, n / 10)), "one file in 20 copies the one before it");
     let (second, again, found_again) = run();
-    assert_eq!((again.hashed, again.compared, again.cached), (0, 0, 10_000));
+    assert_eq!((again.hashed, again.compared, again.cached), (0, 0, all));
     assert_eq!(found_again, found);
     let pairs: BTreeSet<usize> = s.search_state().result.as_ref().unwrap().groups.iter().map(Vec::len).collect();
     assert_eq!(pairs, BTreeSet::from([2]));
     eprintln!(
-        "Find Duplicates, 10 000 photos ({} build): first run {:.2} s (10 000 digests, 1 000 files compared), second run {:.3} s (all cached)",
+        "Find Duplicates, {label} photos ({} build): first run {:.2} s ({n} digests, {} files compared), second run {:.3} s (all cached)",
         if cfg!(debug_assertions) { "debug" } else { "release" },
+        n / 10,
         first.as_secs_f64(),
         second.as_secs_f64()
     );

@@ -69,6 +69,7 @@ pub(crate) fn hostile(s: &mut Session, id: &str) {
         assert!(!matches!(r, Err(CmdError::Internal(_))), "{id} panicked on {p}");
         assert_eq!(s.library().model(), &model, "{id} changed the model on {p}");
         assert_eq!(s.undo_stack().len(), undo, "{id} recorded a step on {p}");
+        assert!(!s.file_jobs_running(), "{id} started a file job on {p}");
     }
 }
 
@@ -91,4 +92,20 @@ pub(crate) fn specs() -> Vec<crate::registry::CommandSpec> {
 pub(crate) fn path_of(s: &Session, id: PhotoId) -> PathBuf {
     let p = s.library().photo(id).unwrap();
     s.library().folder(p.folder).unwrap().path.join(&p.name)
+}
+
+/// Every registered command (each id once) refuses every hostile parameter set without a panic, a
+/// change to the model, an undo step or a file job, so a command added later is covered without a
+/// test of its own (the commands' own tests keep only their command-specific error codes).
+#[test]
+fn every_command_refuses_hostile_parameters() {
+    let (_dirs, mut s, _) = library(2);
+    let mut ids: Vec<&str> = crate::cmd::specs().iter().map(|spec| spec.id).collect();
+    for id in ids.iter().filter(|id| **id != "test.panic") {
+        hostile(&mut s, id);
+    }
+    let all = ids.len();
+    ids.sort_unstable();
+    ids.dedup();
+    assert_eq!(ids.len(), all, "a command id is registered twice");
 }

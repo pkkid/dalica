@@ -68,7 +68,7 @@ fn dalica_exe() -> PathBuf {
 /// must not re-bless theirs.
 fn cargo(args: &[&str]) -> String {
     let started = Instant::now();
-    let out = dalica_acceptance::cargo().args(args).output().unwrap();
+    let out = dalica_acceptance::cargo_split(args, |_| {}).unwrap();
     let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
     assert!(out.status.success(), "cargo {}:\n{stdout}\n{}", args.join(" "), String::from_utf8_lossy(&out.stderr));
     println!("cargo {}: ok ({:.1} s)", args.join(" "), started.elapsed().as_secs_f64());
@@ -557,10 +557,12 @@ fn library_browsing() {
     }
     let suites = secs(t);
 
-    // 5. The benchmarks, debug: the counters are checked, the times printed.
+    // 5. The benchmarks, debug: the counters are checked, the times printed. Cells visited stay flat
+    //    from 1 k to 10 k photos here; the release budgets (step 6, and `cargo xtask budgets` at the
+    //    review) hold them flat from 10 k to 100 k and time the 100 k scroll.
     let t = Instant::now();
-    let args = ["test", "-p", "dalica-ui", "--bench", "library_bench", "--", "--photos", "100000", "--frames", "30", "--json"];
-    check_library_bench(&bench_report(&cargo(&args)), None);
+    let args = ["test", "-p", "dalica-ui", "--bench", "library_bench", "--", "--photos", "10000", "--frames", "30", "--json"];
+    check_library_bench(&bench_report(&cargo(&args)), None, ("1k", "10k"));
     print_pack(&bench_report(&cargo(&["test", "-p", "dalica-thumbs", "--bench", "pack", "--", "--json"])));
     let benches = secs(t);
 
@@ -568,7 +570,7 @@ fn library_browsing() {
     if std::env::var_os(RELEASE).is_some_and(|v| v == "1") {
         let t = Instant::now();
         let report = bench_report(&cargo(&["bench", "-p", "dalica-ui", "--bench", "library_bench", "--", "--json"]));
-        check_library_bench(&report, Some(thumb::BUDGET_MS));
+        check_library_bench(&report, Some(thumb::BUDGET_MS), ("10k", "100k"));
         let out = cargo(&[
             "test",
             "--release",
@@ -617,15 +619,15 @@ fn crate_suites() {
 
 /// `library_bench`'s report: the cells visited per frame are flat from 10 k to 100 k (the bench's
 /// own verdict, and its counters read here); with `budget`, the 100 k scroll's p95 is within it.
-fn check_library_bench(report: &Value, budget: Option<f64>) {
+fn check_library_bench(report: &Value, budget: Option<f64>, (small_n, big_n): (&str, &str)) {
     assert_eq!(report["cells_flat"], true, "{report}");
-    let (small, big) = (row(report, "scroll light table 10k"), row(report, "scroll light table 100k"));
+    let (small, big) = (row(report, &format!("scroll light table {small_n}")), row(report, &format!("scroll light table {big_n}")));
     let max = |r: &Value| r["counters"]["cells_visited_max"].as_u64().unwrap();
-    assert!(max(small) > 0 && max(big) <= max(small) + max(small) / 10, "cells visited: {} at 10 k, {} at 100 k", max(small), max(big));
+    assert!(max(small) > 0 && max(big) <= max(small) + max(small) / 10, "cells visited: {} at {small_n}, {} at {big_n}", max(small), max(big));
     let p95 = big["p95_ms"].as_f64().unwrap();
     println!(
-        "library_bench ({}): 100 k scroll p50 {:.2} ms, p95 {p95:.2} ms, max {:.2} ms over {} frames; cells visited per frame \
-         (min / p50 / max) 10 k {} / {} / {}, 100 k {} / {} / {}",
+        "library_bench ({}): {big_n} scroll p50 {:.2} ms, p95 {p95:.2} ms, max {:.2} ms over {} frames; cells visited per frame \
+         (min / p50 / max) {small_n} {} / {} / {}, {big_n} {} / {} / {}",
         report["mode"].as_str().unwrap_or("?"),
         big["p50_ms"].as_f64().unwrap(),
         big["max_ms"].as_f64().unwrap(),
@@ -638,7 +640,7 @@ fn check_library_bench(report: &Value, budget: Option<f64>) {
         max(big),
     );
     if let Some(budget) = budget {
-        assert!(p95 <= budget, "the 100 k scroll's p95 is {p95:.2} ms, over the {budget} ms budget");
+        assert!(p95 <= budget, "the {big_n} scroll's p95 is {p95:.2} ms, over the {budget} ms budget");
     }
 }
 

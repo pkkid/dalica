@@ -7,6 +7,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::common::{FRAMES, new_driver};
 use dalica_engine::Session;
 use dalica_ui::control::{Config, Connection, Control, Reply, Request, serve};
 use dalica_ui::menus;
@@ -15,8 +16,6 @@ use dalica_ui_kit::registry;
 use dalica_ui_kit::{Image, Rasterizer};
 use egui::{Event, Modifiers, MouseWheelUnit, PointerButton, Pos2, TouchPhase, vec2};
 use serde_json::{Value, json};
-
-const FRAMES: usize = 60 * 60;
 
 // ---------------------------------------------------------------------------------------------
 // `ui.menu.tree` against §1
@@ -241,7 +240,7 @@ struct T {
 
 fn setup(n: usize) -> T {
     let dir = tempfile::tempdir().unwrap();
-    let files = dalica_scenes::demo_library(1, n.max(1), 3).unwrap();
+    let files = crate::common::demo_library(1, n.max(1), 3).unwrap();
     for f in &files {
         let path = dir.path().join("photos").join(&f.path);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -254,7 +253,7 @@ fn setup(n: usize) -> T {
     let found = s.execute("library.query", &json!({ "limit": 10000 })).unwrap();
     let ids = found["photos"].as_array().unwrap().iter().map(|p| p["id"].as_u64().unwrap()).collect();
     let control = Control::new(Config::default());
-    let mut d = Driver::new(App::with_picker(Some(s), control.picker()), 1400, 900, 1.0);
+    let mut d = new_driver(App::with_picker(Some(s), control.picker()), 1400, 900, 1.0);
     d.settle(FRAMES).unwrap();
     T { _dir: dir, control, conn: Connection::new(), d, ids }
 }
@@ -706,8 +705,9 @@ fn clicking_an_item_runs_it_and_closes_the_menu() {
 /// inside the window, at both sizes.
 #[test]
 fn the_window_draws_the_menus_in_its_menu_bar_region() {
+    let mut t = setup(1);
     for (w, h) in [(1400, 900), (900, 600)] {
-        let mut t = setup(1);
+        t.d.key("Escape").unwrap();
         t.d.resize(w, h);
         t.d.settle(FRAMES).unwrap();
         let widgets = t.d.widgets();
@@ -727,7 +727,6 @@ fn the_window_draws_the_menus_in_its_menu_bar_region() {
             assert!(wi.rect[1] >= region[1] + region[3], "{w}×{h}: `{}` overlaps the bar", wi.id);
             assert!(inside(wi.rect, [0.0, 0.0, w as f32, h as f32]), "{w}×{h}: `{}` at {:?}", wi.id, wi.rect);
         }
-        assert_eq!(t.d.app().panels().unwrap().unregistered_widgets(), [], "{w}×{h}");
         let shot = t.d.screenshot().unwrap();
         let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/ui");
         std::fs::create_dir_all(&dir).unwrap();

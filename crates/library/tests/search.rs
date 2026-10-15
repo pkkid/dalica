@@ -544,24 +544,26 @@ fn hostile_queries_are_bounded_and_never_panic() {
     assert_eq!(text(&index, &lib, &"y".repeat(MAX_TERM + 1)), vec![TILES]);
 }
 
+/// At full strength 100 k photos; in a task's gate 2 000, the same checks (the release `search`
+/// bench of `dalica-engine` times the 100 k index on every push to `main`).
 #[test]
 fn a_100k_photo_index_builds_and_answers_quickly() {
-    const PHOTOS: u64 = 100_000;
-    const FOLDERS: u64 = 500;
+    let n: u64 = if crate::common::full() { 100_000 } else { 2_000 };
+    let (folders, per_album) = (500, (n / 20).min(200));
     let mut lib = Library::new();
-    for f in 0..FOLDERS {
+    for f in 0..folders {
         lib.apply(Op::AddFolder { folder: Folder { id: FolderId::new(f + 1), path: PathBuf::from(format!("/photos/{}/trip {f}", 2000 + f % 26)) } })
             .unwrap();
     }
     let words = ["tram", "beach", "sunset", "harbour", "market", "castle", "river", "bridge", "garden", "street"];
-    let photos: Vec<Photo> = (0..PHOTOS)
+    let photos: Vec<Photo> = (0..n)
         .map(|i| {
             let d = date(2000 + (i % 26) as u16, 1 + (i % 12) as u8, 1 + (i % 28) as u8);
-            photo(PhotoId::new(i + 1), FolderId::new(i % FOLDERS + 1), &format!("IMG_{i:06}.jpg"), 1_000_000 + i, 4000, 3000, d, i % 9 == 0)
+            photo(PhotoId::new(i + 1), FolderId::new(i % folders + 1), &format!("IMG_{i:06}.jpg"), 1_000_000 + i, 4000, 3000, d, i % 9 == 0)
         })
         .collect();
     lib.apply(Op::AddPhotos { photos }).unwrap();
-    let infos: Vec<(PhotoId, PhotoInfo)> = (0..PHOTOS)
+    let infos: Vec<(PhotoId, PhotoInfo)> = (0..n)
         .map(|i| {
             let w = |k: u64| words[((i * 7 + k * 3) % 10) as usize];
             let caption = format!("{} by the {} at {}", w(0), w(1), i % 997);
@@ -572,7 +574,7 @@ fn a_100k_photo_index_builds_and_answers_quickly() {
     for a in 0..50u64 {
         let id = AlbumId::parse(&format!("a{a:04x}")).unwrap();
         lib.apply(Op::CreateAlbums { albums: vec![(id.clone(), AlbumInfo::named(format!("Album {a} {}", words[(a % 10) as usize])))] }).unwrap();
-        let ids: Vec<PhotoId> = (0..200).map(|k| PhotoId::new((a * 1999 + k * 13) % PHOTOS + 1)).collect();
+        let ids: Vec<PhotoId> = (0..per_album).map(|k| PhotoId::new((a * 1999 + k * 13) % n + 1)).collect();
         let op = lib.album_add_op(&id, &ids, None).unwrap();
         lib.apply(op).unwrap();
     }
@@ -601,10 +603,10 @@ fn a_100k_photo_index_builds_and_answers_quickly() {
     index2.apply(Update::for_op(&lib2, &op));
     let updated = start.elapsed();
     println!(
-        "{PHOTOS} photos: extract in {extracted:?}, index built in {built:?}; queries: {}; suggestions in {suggested:?}; 1 000 captions updated in {updated:?}",
+        "{n} photos: extract in {extracted:?}, index built in {built:?}; queries: {}; suggestions in {suggested:?}; 1 000 captions updated in {updated:?}",
         times.join(", ")
     );
-    assert_eq!(index.len(), PHOTOS as usize);
+    assert_eq!(index.len(), n as usize);
     assert_eq!(suggestions.len(), 100);
     assert_eq!(index2.search(&Query::text("updated"), &scope).count(), 1000);
     // Generous: catches quadratic work even in an unoptimised build on a slow runner.

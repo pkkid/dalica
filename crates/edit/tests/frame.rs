@@ -10,8 +10,10 @@
 
 use dalica_edit::{Dihedral, Op, Point, Recipe, Rect};
 use dalica_image::{Orientation, Rgba8};
-use dalica_scenes::{Rgb8, Scene, orient};
+use dalica_scenes::{Scene, orient};
 use proptest::prelude::*;
+
+use crate::common::{cases, rgba};
 
 /// The rounding error a round trip may add, relative to the magnitude of the values (at least 1):
 /// each `1 − v` rounds by at most half a unit in the last place of its result, and a round trip
@@ -62,6 +64,8 @@ fn ordered_rect<S: Strategy<Value = f64>>(v: fn() -> S) -> impl Strategy<Value =
 }
 
 proptest! {
+    #![proptest_config(ProptestConfig::with_cases(cases(256)))]
+
     #[test]
     fn displayed_then_stored_is_the_identity_for_points(t in transform(), x in value(), y in value()) {
         let p = Point::new(x, y);
@@ -140,10 +144,6 @@ fn an_unordered_rectangle_comes_back_ordered() {
     }
 }
 
-fn rgba(img: &Rgb8) -> Rgba8 {
-    Rgba8 { width: img.width, height: img.height, data: img.data.chunks(3).flat_map(|p| [p[0], p[1], p[2], 255]).collect() }
-}
-
 /// The pixels of `img` whose cells the normalised `r` covers, edges rounded to the nearest pixel
 /// boundary (the rule the crop tool uses to snap a rectangle to whole pixels).
 fn crop(img: &Rgba8, r: Rect) -> Rgba8 {
@@ -171,7 +171,7 @@ const RECIPES: [&[&str]; 7] =
     [&[], &["rotate(90)"], &["rotate(180)"], &["rotate(270)"], &["flip_h()"], &["rotate(90)", "flip_v()"], &["flip_h()", "rotate(270)", "flip_v()"]];
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(48))]
+    #![proptest_config(ProptestConfig::with_cases(cases(48)))]
 
     #[test]
     fn a_rectangle_covers_the_same_pixels_in_both_frames(

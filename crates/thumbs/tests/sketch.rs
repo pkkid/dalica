@@ -196,7 +196,8 @@ fn decoded_sizes_are_clamped() {
 #[test]
 fn malformed_sketches_are_errors() {
     let good = sketch::encode(&rgba(&Scene::new(5, 200, 200))).unwrap();
-    assert!(sketch::decode(&good).is_ok());
+    let whole = sketch::decode(&good).unwrap();
+    assert!((whole.aspect() - 1.0).abs() < 0.05, "{}", whole.aspect());
     for n in 0..good.len() {
         assert!(sketch::decode(&good[..n]).is_err(), "a sketch cut to {n} bytes decoded");
     }
@@ -224,7 +225,7 @@ fn malformed_sketches_are_errors() {
 }
 
 /// Encode and decode times per photo, printed for the PR (`cargo test --release -p dalica-thumbs
-/// --test sketch -- --nocapture timings`). Not asserted: debug builds and busy machines vary.
+/// --test all -- --nocapture sketch::timings`). Not asserted: debug builds and busy machines vary.
 #[test]
 fn timings() {
     let thumbs: Vec<Rgba8> = photos().into_iter().map(|(_, p)| p).filter(|p| p.width.max(p.height) == 256).collect();
@@ -258,7 +259,7 @@ fn timings() {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(4096))]
+    #![proptest_config(crate::common::cases(4096, 256))]
 
     #[test]
     fn random_bytes_never_panic(bytes in proptest::collection::vec(any::<u8>(), 0..64)) {
@@ -281,7 +282,7 @@ proptest! {
 
 proptest! {
     // Each case renders and encodes a photo first, so fewer cases.
-    #![proptest_config(ProptestConfig::with_cases(512))]
+    #![proptest_config(crate::common::cases(512, 32))]
 
     #[test]
     fn truncated_and_flipped_sketches_never_panic(seed in any::<u64>(), cut in 0usize..32, flip in any::<(usize, u8)>()) {

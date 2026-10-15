@@ -9,16 +9,13 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
+use crate::common::jpeg_of;
 use dalica_core::{PhotoId, SystemClock};
 use dalica_engine::{CacheDir, Done, FileChange, FileItem, FileJob, JobKind, JobState, Notice, Options, Session, ThumbOptions};
 use dalica_fs::Expect;
 use serde_json::json;
 
 const PATIENCE: Duration = Duration::from_secs(120);
-
-fn jpeg(seed: u64, width: u32, height: u32) -> Vec<u8> {
-    dalica_scenes::jpeg(&dalica_scenes::Scene::new(seed, width, height), 80, None).unwrap()
-}
 
 struct Lib {
     dir: tempfile::TempDir,
@@ -32,7 +29,7 @@ impl Lib {
         let lisbon = dir.path().join("Pictures").join("Lisbon");
         dalica_fs::create_dir_all(&lisbon).unwrap();
         for i in 0..n {
-            dalica_fs::replace(&lisbon.join(format!("IMG_{:04}.jpg", i + 1)), &jpeg(i as u64, 96, 64), Expect::Absent).unwrap();
+            dalica_fs::replace(&lisbon.join(format!("IMG_{:04}.jpg", i + 1)), &jpeg_of(i as u64, 96, 64), Expect::Absent).unwrap();
         }
         let options = Options { thumbs: ThumbOptions { cache: CacheDir::Off, workers: 1, ..ThumbOptions::default() } };
         let mut s = Session::open_with(&dir.path().join("library"), Arc::new(SystemClock), &options).unwrap();
@@ -122,12 +119,12 @@ fn work(item: Item) -> Result<Done<usize>, String> {
             if let Some(dir) = item.path.parent() {
                 dalica_fs::create_dir_all(dir).map_err(|e| e.to_string())?;
             }
-            dalica_fs::replace(&item.path, &jpeg(100 + item.index as u64, 64, 48), Expect::Absent).map_err(|e| e.to_string())?;
+            dalica_fs::replace(&item.path, &jpeg_of(100 + item.index as u64, 64, 48), Expect::Absent).map_err(|e| e.to_string())?;
             vec![FileChange::Created { path: item.path.clone() }]
         }
         Act::Replace(photo) => {
             let id = dalica_fs::identity(&item.path).map_err(|e| e.to_string())?.ok_or("gone")?;
-            dalica_fs::replace(&item.path, &jpeg(7, 120, 80), Expect::Unchanged(id)).map_err(|e| e.to_string())?;
+            dalica_fs::replace(&item.path, &jpeg_of(7, 120, 80), Expect::Unchanged(id)).map_err(|e| e.to_string())?;
             vec![FileChange::Replaced { photo, path: item.path.clone() }]
         }
         Act::Fail(why) => return Err(why.to_string()),

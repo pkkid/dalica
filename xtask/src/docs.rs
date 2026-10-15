@@ -107,33 +107,4 @@ mod tests {
         let named: Vec<String> = mentions(&text).into_iter().map(|(_, c, _)| c).collect();
         assert!(named.iter().any(|c| c == "corpus") && named.iter().any(|c| c == "test-corpus"), "{named:?}");
     }
-
-    #[test]
-    fn version_is_implemented_and_documented() {
-        assert!(crate::COMMANDS.contains(&"version"));
-        assert!(!crate::PLANNED.iter().any(|(c, _)| *c == "version"), "version is still listed as planned");
-        // development.md §3 lists it.
-        let text = std::fs::read_to_string(crate::workspace_root().join("docs/development.md")).unwrap();
-        assert!(mentions(&text).iter().any(|(_, c, _)| c == "version"));
-    }
-
-    #[test]
-    fn contributors_is_implemented_and_documented() {
-        assert!(crate::COMMANDS.contains(&"contributors"));
-        assert!(!crate::PLANNED.iter().any(|(c, _)| *c == "contributors"), "contributors is still listed as planned");
-        // development.md §3 and contributors.md → Refreshing name it, both checked by this command.
-        for doc in ["docs/development.md", "docs/contributors.md"] {
-            assert!(DOCS.contains(&doc));
-            let text = std::fs::read_to_string(crate::workspace_root().join(doc)).unwrap();
-            assert!(mentions(&text).iter().any(|(_, c, _)| c == "contributors"), "{doc}");
-        }
-    }
-
-    #[test]
-    fn the_real_docs_pass() {
-        let root = crate::workspace_root();
-        let files: Vec<(&str, String)> = DOCS.iter().map(|n| (*n, std::fs::read_to_string(root.join(n)).unwrap())).collect();
-        let planned: Vec<&str> = crate::PLANNED.iter().map(|(c, _)| *c).collect();
-        assert_eq!(check(&files, crate::COMMANDS, &planned, crate::tasks::SUBCOMMANDS), Vec::<String>::new());
-    }
 }

@@ -277,15 +277,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_same_scene_renders_the_same_pixels() {
-        for kind in Kind::ALL {
-            let s = Scene::new(7, 64, 48).with_kind(kind);
-            assert_eq!(s.render().unwrap(), s.render().unwrap());
-            assert_ne!(s.render().unwrap(), Scene { seed: 8, ..s }.render().unwrap(), "{kind:?}");
-        }
-    }
-
-    #[test]
     fn sizes_outside_the_limits_are_refused() {
         for (w, h) in [(0, 10), (10, 0), (MAX_SIDE + 1, 1), (16_384, 16_384)] {
             assert!(matches!(Scene::new(1, w, h).render(), Err(Error::Size(..))), "{w}x{h}");

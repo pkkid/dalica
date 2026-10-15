@@ -5,34 +5,24 @@
 //! failure event and the sidecar keeps the value; values changed elsewhere come back as one
 //! undoable import, both changed reaches `photo.metadata`; the writes run as a `metadataWrite` job
 //! with progress and Cancel, counted by `pendingWrites.metadata`; the owner thread makes no file
-//! system call.
+//! system call; the metadata hook sees the photos and fields of a star op, its undo and its redo.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use crate::common::{jpeg, open_with};
 use dalica_core::{Clock, DateTime, PhotoId, SystemClock, Timestamp, VirtualClock};
 use dalica_engine::settings::MetadataWrites;
-use dalica_engine::{CacheDir, Field, JobKind, JobState, Options, Session, ThumbOptions};
+use dalica_engine::{Field, Fields, JobKind, JobState, MetadataChange, Origin, Session};
 use dalica_fs::Expect;
 use dalica_meta::{Changes, Limits, OwnedFields, WriteOptions};
 use serde_json::{Value, json};
 
 const WAIT: Duration = Duration::from_secs(30);
 
-fn open(library: &Path, clock: Arc<dyn Clock>) -> Session {
-    let options = Options { thumbs: ThumbOptions { cache: CacheDir::Off, workers: 1, ..ThumbOptions::default() } };
-    let mut s = Session::open_with(library, clock, &options).unwrap();
-    s.wait_idle();
-    s
-}
-
 // Photo files.
-
-fn jpeg(seed: u64) -> Vec<u8> {
-    dalica_scenes::jpeg(&dalica_scenes::Scene::new(seed, 96, 64), 80, None).unwrap()
-}
 
 fn png(seed: u64) -> Vec<u8> {
     dalica_scenes::png(&dalica_scenes::Scene::new(seed, 48, 32)).unwrap()
@@ -175,7 +165,7 @@ impl Lib {
         for (name, bytes) in files {
             dalica_fs::replace(&folder.join(name), bytes, Expect::Absent).unwrap();
         }
-        let mut s = open(library.path(), clock);
+        let mut s = open_with(library.path(), clock);
         s.execute("folders.add", &json!({ "path": folder })).unwrap();
         s.wait_idle();
         assert_eq!(s.library().photos().count(), files.len(), "every file is a photo: {:?}", s.scan_warnings());
@@ -546,4 +536,57 @@ fn a_write_whose_folder_is_gone_waits_and_lands_when_it_returns() {
     }
     assert_eq!(l.read("a.jpg").caption.as_deref(), Some("Later"));
     assert_eq!(l.s.library().caption(a), "Later");
+}
+
+// The metadata hook (M6.5), which the write-back follows.
+
+/// A session over one folder of `n` photos, its ids in name order, the folder.
+fn starred_library(n: usize) -> (tempfile::TempDir, Session, Vec<PhotoId>, PathBuf) {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = dir.path().join("photos").join("Lisbon");
+    dalica_fs::create_dir_all(&folder).unwrap();
+    for i in 0..n {
+        dalica_fs::replace(&folder.join(format!("IMG_{:04}.jpg", i + 1)), &jpeg(i as u64), Expect::Absent).unwrap();
+    }
+    let mut s = crate::common::open(&dir.path().join("library"));
+    s.execute("folders.add", &json!({ "path": folder })).unwrap();
+    s.wait_idle();
+    let mut photos: Vec<(String, PhotoId)> = s.library().photos().map(|p| (p.name.clone(), p.id)).collect();
+    photos.sort();
+    (dir, s, photos.into_iter().map(|(_, id)| id).collect(), folder)
+}
+
+#[test]
+fn the_metadata_hook_sees_the_photos_and_fields_of_a_star_op_its_undo_and_its_redo() {
+    let (_dir, mut s, ids, _) = starred_library(4);
+    let (_, dropped) = s.take_metadata_changes();
+    assert_eq!(dropped, 0);
+    let star = Fields::of(&[Field::Star]);
+    let expect = |photos: &[PhotoId]| vec![MetadataChange { origin: Origin::Command, photos: photos.iter().map(|id| (*id, star)).collect() }];
+
+    // ids[1] is starred first, so the toggle below changes only ids[0] and ids[2].
+    s.execute("photo.star.set", &json!({ "ids": [ids[1]], "on": true })).unwrap();
+    assert_eq!(s.take_metadata_changes(), (expect(&[ids[1]]), 0));
+    s.execute("photo.star.set", &json!({ "ids": [ids[0], ids[1], ids[2]], "on": true })).unwrap();
+    assert_eq!(s.take_metadata_changes(), (expect(&[ids[0], ids[2]]), 0), "only the photos whose star changed");
+
+    // Undo and redo reach the hook too, with the same photos and fields.
+    s.execute("edit.undo", &json!({})).unwrap();
+    assert_eq!(s.take_metadata_changes(), (expect(&[ids[0], ids[2]]), 0));
+    assert!(!s.library().photo(ids[0]).unwrap().star);
+    s.execute("edit.redo", &json!({})).unwrap();
+    assert_eq!(s.take_metadata_changes(), (expect(&[ids[0], ids[2]]), 0));
+
+    // What changes nothing tells the hook nothing; queries and polling neither.
+    s.execute("photo.star.set", &json!({ "ids": [ids[0]], "on": true })).unwrap();
+    s.execute("library.query", &json!({ "starred": true })).unwrap();
+    s.poll();
+    assert_eq!(s.take_metadata_changes(), (Vec::new(), 0));
+
+    // Changes queue up until taken, oldest first; `poll` leaves them for the writer (M6.33).
+    s.execute("photo.star.toggle", &json!({ "ids": [ids[3]] })).unwrap();
+    s.execute("edit.undo", &json!({})).unwrap();
+    s.poll();
+    let (changes, _) = s.take_metadata_changes();
+    assert_eq!(changes, [expect(&[ids[3]]), expect(&[ids[3]])].concat());
 }

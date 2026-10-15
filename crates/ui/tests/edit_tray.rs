@@ -8,14 +8,13 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use crate::common::{FRAMES, new_driver};
 use dalica_core::PhotoId;
 use dalica_engine::Session;
 use dalica_scenes::Scene;
 use dalica_ui::panels::thumbnails::{Drawn, Painted};
 use dalica_ui::{App, Driver};
 use serde_json::json;
-
-const FRAMES: usize = 60 * 60;
 
 /// Two landscape scenes JPEGs (600 × 400) in one folder.
 fn library(dir: &Path) -> Session {
@@ -46,7 +45,7 @@ fn shows_current(d: &Driver, id: PhotoId) -> bool {
 fn the_tray_mini_of_the_open_photo_follows_its_edits_in_the_edit_view() {
     let dir = tempfile::tempdir().unwrap();
     let session = library(dir.path());
-    let mut d = Driver::new(App::new(Some(session)), 1400, 900, 1.0);
+    let mut d = new_driver(App::new(Some(session)), 1400, 900, 1.0);
     d.settle(FRAMES).unwrap();
     let id = d.app().session().unwrap().library().photos().min_by_key(|p| p.name.clone()).unwrap().id;
     d.run("view.edit", &json!({ "id": id })).unwrap();

@@ -309,17 +309,18 @@ fn an_undo_queued_before_the_model_caught_up_is_written() {
 
 // xmp-interop.md §8 test 9: atomicity.
 
-/// An error or a crash at every step of a metadata write (the atomic replace, then putting the
-/// time back): the photo holds exactly the old or the new bytes, never a torn file, and the old
-/// file keeps its time; the next pass of the queue finishes the write with the time restored.
+/// An error or a crash at a step of a metadata write (one of each kind; `fs` tries every point of
+/// the atomic replace and of putting the time back): the photo holds exactly the old or the new
+/// bytes, never a torn file, and the old file keeps its time; the next pass of the queue finishes
+/// the write with the time restored.
 #[test]
 fn a_fault_at_every_step_leaves_the_old_or_the_new_file_and_the_time_restored() {
     let ours = values("Atomic", &["fault"], false);
     let fields = [Field::Caption, Field::Tags];
-    let points: Vec<&'static str> = ATOMIC_POINTS.iter().copied().chain([SET_TIMES]).collect();
+    let points: Vec<&'static str> = ATOMIC_POINTS.to_vec();
     let mut cases = 0;
-    for &point in &points {
-        for fault in [Fault::Error, Fault::Crash] {
+    for (point, fault) in crate::common::FAULTS {
+        {
             let dir = tempfile::tempdir().unwrap();
             let p = jpeg(dir.path(), "IMG.jpg", 12);
             let old = fs::read(&p).unwrap();
@@ -355,19 +356,19 @@ fn a_fault_at_every_step_leaves_the_old_or_the_new_file_and_the_time_restored() 
             cases += 1;
         }
     }
-    assert_eq!(cases, 16);
+    assert_eq!(cases, crate::common::FAULTS.len());
 }
 
-/// M7.25: a crash (the process killed) at every point of a metadata write leaves the old file
-/// with its old time or the new file with the old time, right then, before any retry: the time is
-/// set on the temporary file before the rename, not put back after it.
+/// M7.25: a crash (the process killed) during a metadata write leaves the old file with its old
+/// time or the new file with the old time, right then, before any retry: the time is set on the
+/// temporary file before the rename, not put back after it. A crash setting the time on the
+/// temporary file, at the rename and after it (`fs` crashes every point).
 #[test]
 fn a_crash_at_every_point_leaves_the_old_or_the_new_file_with_the_old_time() {
-    use dalica_fs::atomic::{KEEP_TIMES, KEEPING_TIMES_POINTS};
+    use dalica_fs::atomic::KEEP_TIMES;
     let ours = values("Crash", &["kill"], true);
     let fields = [Field::Caption, Field::Tags, Field::Rating];
-    let crash_points: Vec<&'static str> = KEEPING_TIMES_POINTS.iter().copied().chain([SET_TIMES]).collect();
-    assert!(crash_points.contains(&KEEP_TIMES));
+    let crash_points = [KEEP_TIMES, points::RENAME, points::VERIFY];
     let mut new_files = 0;
     for &point in &crash_points {
         let dir = tempfile::tempdir().unwrap();
@@ -395,9 +396,8 @@ fn a_crash_at_every_point_leaves_the_old_or_the_new_file_with_the_old_time() {
         assert_eq!(file_values(&p).caption.as_deref(), Some("Crash"), "{case}");
         assert_eq!(modified(&p), old_time(), "{case}");
     }
-    // After the rename: the folder's fsync and the read-back; and the after-rename `set_times` is
-    // never reached where the platform keeps the time, so that write simply completes.
-    assert_eq!(new_files, 3);
+    // After the rename: the read-back.
+    assert_eq!(new_files, 1);
 }
 
 /// Where the platform does not keep the time on the temporary file (an injected error at

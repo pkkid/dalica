@@ -7,20 +7,18 @@ use std::collections::BTreeSet;
 use std::path::Path;
 use std::sync::Arc;
 
+use crate::common::{FRAMES, new_driver, try_widget};
 use dalica_core::{AlbumId, PhotoId};
 use dalica_engine::Session;
 use dalica_ui::headless::Click;
 use dalica_ui::menus::{self, Lookup, Platform};
 use dalica_ui::{App, Driver, DriverError, ScriptedPicker};
-use dalica_ui_kit::WidgetInfo;
 use egui::PointerButton;
 use serde_json::json;
 
-const FRAMES: usize = 60 * 60;
-
 /// A library in `root` with two folders of 4 scenes photos each, added and scanned.
 fn session(root: &Path) -> Session {
-    let files = dalica_scenes::demo_library(2, 8, 13).unwrap();
+    let files = crate::common::demo_library(2, 8, 13).unwrap();
     let mut folders = BTreeSet::new();
     for f in &files {
         let path = root.join("photos").join(&f.path);
@@ -34,10 +32,6 @@ fn session(root: &Path) -> Session {
     }
     s.wait_idle();
     s
-}
-
-fn widget(d: &Driver, id: &str) -> Option<WidgetInfo> {
-    d.widgets().into_iter().find(|w| w.id == id)
 }
 
 /// Selects `ids`, right-clicks the first one's cell and opens Add to Album ▸.
@@ -63,7 +57,7 @@ fn undo_label(d: &Driver) -> String {
 #[test]
 fn add_to_album_adds_the_photos_and_edit_undo_takes_them_out() {
     let dir = tempfile::tempdir().unwrap();
-    let mut d = Driver::new(App::with_picker(Some(session(dir.path())), Arc::new(ScriptedPicker::new())), 1400, 900, 1.0);
+    let mut d = new_driver(App::with_picker(Some(session(dir.path())), Arc::new(ScriptedPicker::new())), 1400, 900, 1.0);
     d.settle(FRAMES).unwrap();
     let s: Vec<Vec<PhotoId>> = d.app().panels().unwrap().sections.list.iter().map(|s| s.photos.clone()).collect();
     let album = d.run("album.create", &json!({ "name": "Lisbon", "ids": [s[1][0].get()] })).unwrap()["album"].as_str().unwrap().to_string();
@@ -73,10 +67,10 @@ fn add_to_album_adds_the_photos_and_edit_undo_takes_them_out() {
     // Two photos of the first folder: added after the album's photo, in the selection's order.
     open_add_to_album(&mut d, &s[0][1..3]);
     let row = format!("menuitem:album.add/{album}");
-    assert_eq!(widget(&d, &row).expect("the album is listed").label, "Lisbon");
+    assert_eq!(try_widget(&d, &row).expect("the album is listed").label, "Lisbon");
     d.click(&row).unwrap();
     d.settle(FRAMES).unwrap();
-    assert!(widget(&d, &row).is_none(), "the menu closed");
+    assert!(try_widget(&d, &row).is_none(), "the menu closed");
     assert_eq!(members(&d, &album), [s[1][0], s[0][1], s[0][2]]);
     assert_eq!(d.app().session().unwrap().undo_stack().len(), steps + 1, "one step");
     assert_eq!(undo_label(&d), "Undo Add to Album");
@@ -100,7 +94,7 @@ fn add_to_album_adds_the_photos_and_edit_undo_takes_them_out() {
 #[test]
 fn new_album_from_the_menu_opens_album_properties_with_the_photos() {
     let dir = tempfile::tempdir().unwrap();
-    let mut d = Driver::new(App::with_picker(Some(session(dir.path())), Arc::new(ScriptedPicker::new())), 1400, 900, 1.0);
+    let mut d = new_driver(App::with_picker(Some(session(dir.path())), Arc::new(ScriptedPicker::new())), 1400, 900, 1.0);
     d.settle(FRAMES).unwrap();
     let s: Vec<Vec<PhotoId>> = d.app().panels().unwrap().sections.list.iter().map(|s| s.photos.clone()).collect();
     // With no albums yet, Add to Album ▸ holds New Album… alone.
@@ -108,7 +102,7 @@ fn new_album_from_the_menu_opens_album_properties_with_the_photos() {
     assert!(!d.widgets().iter().any(|w| w.id.starts_with("menuitem:album.add/")));
     d.click("menuitem:album.new").unwrap();
     d.settle(FRAMES).unwrap();
-    assert!(widget(&d, "dialog:albumProperties").is_some(), "Album Properties opens");
+    assert!(try_widget(&d, "dialog:albumProperties").is_some(), "Album Properties opens");
     let draft = d.state().album_properties.clone().expect("a draft for a new album");
     assert_eq!((draft.album, draft.ids.as_slice(), draft.name.as_str()), (None, &s[0][0..3], "New Album"));
     d.click("button:dialog.cancel").unwrap();
@@ -119,7 +113,7 @@ fn new_album_from_the_menu_opens_album_properties_with_the_photos() {
 #[test]
 fn an_album_row_with_nothing_to_add_is_refused_with_its_reason() {
     let dir = tempfile::tempdir().unwrap();
-    let mut d = Driver::new(App::with_picker(Some(session(dir.path())), Arc::new(ScriptedPicker::new())), 1400, 900, 1.0);
+    let mut d = new_driver(App::with_picker(Some(session(dir.path())), Arc::new(ScriptedPicker::new())), 1400, 900, 1.0);
     d.settle(FRAMES).unwrap();
     let album = d.run("album.create", &json!({ "name": "Empty" })).unwrap()["album"].as_str().unwrap().to_string();
     d.run("select.none", &json!({})).unwrap();

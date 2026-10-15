@@ -6,6 +6,12 @@ use dalica_core::{Date, DateTime};
 use super::fields::PHOTO_KEYS;
 use super::*;
 
+/// A property test's cases: `full` at full strength (`DALICA_FULL_TESTS=1`, the review gate),
+/// `quick` in a task's gate.
+fn cases(full: u32, quick: u32) -> ProptestConfig {
+    ProptestConfig::with_cases(if std::env::var_os("DALICA_FULL_TESTS").is_some_and(|v| v == "1") { full } else { quick })
+}
+
 fn parse(text: &str) -> Result<Sidecar, ParseError> {
     Sidecar::parse(text.as_bytes(), &Limits::default())
 }
@@ -386,7 +392,7 @@ fn reads_back(s: &Sidecar, name: &str, v: &PhotoValue) -> bool {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(512))]
+    #![proptest_config(cases(512, 32))]
 
     /// Sidecars with every M6 field, of any type: printing round-trips, reading never panics, and
     /// a value set reads back exactly while every other key keeps its value.
@@ -451,7 +457,7 @@ fn json_value() -> impl Strategy<Value = Value> {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(1024))]
+    #![proptest_config(cases(1024, 256))]
 
     #[test]
     fn parse_of_print_is_identity(doc in proptest::collection::btree_map("\\PC{0,10}", json_value(), 0..6)) {

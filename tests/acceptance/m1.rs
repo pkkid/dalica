@@ -17,7 +17,7 @@ use dalica_scenes::fingerprint;
 /// Runs `cargo test` with `args`; panics with its output if it fails.
 fn cargo_test(args: &[&str]) {
     let started = Instant::now();
-    let out = dalica_acceptance::cargo().arg("test").args(args).output().unwrap();
+    let out = dalica_acceptance::cargo_split(&[&["test"][..], args].concat(), |_| {}).unwrap();
     assert!(
         out.status.success(),
         "cargo test {}:\n{}\n{}",
@@ -47,12 +47,12 @@ fn star_a_photo_end_to_end() {
     let outcome = steps::run();
 
     // 5. Fault injection never leaves a torn sidecar (or any torn file); panic_hunt stays green
-    //    (it is ignored by default, so the ci test step never runs it: it always runs here).
+    //    (both run once in the review gate's test step; here only when run on their own).
     if !dalica_acceptance::suites_ran() {
         cargo_test(&["-p", "dalica-store", "--test", "sidecars", "a_failed_write_leaves_the_old_or_the_new_sidecar"]);
-        cargo_test(&["-p", "dalica-fs", "--lib", "each_fault_point_leaves_the_old_or_the_new_file"]);
+        cargo_test(&["-p", "dalica-fs", "--test", "dirfd", "each_fault_point_leaves_the_old_or_the_new_file"]);
     }
-    cargo_test(&["-p", "dalica-engine", "--test", "panic_hunt", "--", "--ignored"]);
+    dalica_acceptance::panic_hunt().unwrap();
 
     // 6. A headless snapshot of the library through the real CLI shows the 2 star badges.
     let out_dir = dalica_acceptance::workspace_root().join("target/test-output/acceptance");

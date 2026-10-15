@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use crate::common::off_owner;
 use dalica_core::{DateTime, PhotoId, Timestamp, VirtualClock};
 use dalica_engine::watching::WatchMode;
 use dalica_engine::{CacheDir, Field, Options, Origin, Session, ThumbOptions};
@@ -19,11 +20,6 @@ use dalica_meta::{Changes, DateTaken, WriteOptions};
 use serde_json::{Value, json};
 
 const PATIENCE: Duration = Duration::from_secs(60);
-
-/// Runs `f` on a helper thread: the test's own file changes never count against the owner.
-fn off_owner<T: Send>(f: impl FnOnce() -> T + Send) -> T {
-    std::thread::scope(|s| s.spawn(f).join().unwrap())
-}
 
 fn date(s: &str) -> DateTime {
     s.parse().unwrap()

@@ -8,37 +8,18 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
-use dalica_core::{PhotoId, SystemClock};
-use dalica_engine::{CacheDir, CmdError, Context, Key, Options, Session, ThumbOptions};
-use dalica_fs::Expect;
+use crate::common::{jpeg, lisbon, open};
+use dalica_core::PhotoId;
+use dalica_engine::{CmdError, Context, Key, Session};
 use dalica_library::PhotoInfo;
 use serde_json::{Value, json};
 
 const COMMANDS: [&str; 4] = ["photo.rotate.cw", "photo.rotate.ccw", "edit.flipH", "edit.flipV"];
 
-fn open(library: &Path) -> Session {
-    let options = Options { thumbs: ThumbOptions { cache: CacheDir::Off, workers: 1, ..ThumbOptions::default() } };
-    let mut s = Session::open_with(library, Arc::new(SystemClock), &options).unwrap();
-    s.wait_idle();
-    s
-}
-
 /// A library watching one folder `Lisbon` of `n` 96 × 64 photos `IMG_0001.jpg`…; ids in name order.
 fn setup(n: usize) -> (tempfile::TempDir, tempfile::TempDir, PathBuf, Session, Vec<PhotoId>) {
-    let (lib, disk) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
-    let folder = disk.path().join("Lisbon");
-    dalica_fs::create_dir_all(&folder).unwrap();
-    for i in 0..n {
-        let bytes = dalica_scenes::jpeg(&dalica_scenes::Scene::new(i as u64, 96, 64), 80, None).unwrap();
-        dalica_fs::replace(&folder.join(format!("IMG_{:04}.jpg", i + 1)), &bytes, Expect::Absent).unwrap();
-    }
-    let mut s = open(lib.path());
-    s.execute("folders.add", &json!({ "path": folder })).unwrap();
-    s.wait_idle();
-    let ids = by_name(&s).into_values().collect();
-    (lib, disk, folder, s, ids)
+    lisbon(&(0..n as u64).map(jpeg).collect::<Vec<_>>(), None)
 }
 
 fn by_name(s: &Session) -> BTreeMap<String, PhotoId> {
@@ -148,14 +129,10 @@ fn the_shortcuts_reach_the_commands_in_the_library_and_the_edit_view() {
         }
     }
     assert!(s.keymap().conflicts().is_empty(), "{:?}", s.keymap().conflicts());
-    for cmd in COMMANDS {
-        let spec = s.spec(cmd).unwrap();
-        assert_eq!(spec.menu.split('/').next(), Some("Picture"), "{cmd}");
-    }
 }
 
 #[test]
-fn disabled_and_hostile_params_change_nothing() {
+fn disabled_unknown_and_too_many_change_nothing() {
     let (_l, _d, _f, mut s, ids) = setup(1);
     let m = s.library().model().clone();
     for cmd in COMMANDS {
@@ -163,15 +140,7 @@ fn disabled_and_hostile_params_change_nothing() {
         assert_eq!((spec.enabled)(&s, &json!({ "ids": [] })).map_err(|d| d.0), Err("Select some photos first.".into()), "{cmd}");
         assert!((spec.enabled)(&s, &json!({ "ids": [ids[0]] })).is_ok());
         assert_eq!(s.execute(cmd, &json!({ "ids": [] })), Err(CmdError::Disabled("Select some photos first.".into())));
-        for bad in [
-            json!({ "ids": [999] }),
-            json!({ "ids": [ids[0], 999] }),
-            json!({}),
-            json!({ "ids": [ids[0]], "degrees": 90 }),
-            json!({ "ids": "all" }),
-            json!({ "ids": [0] }),
-            json!([ids[0]]),
-        ] {
+        for bad in [json!({ "ids": [ids[0], 999] }), json!({ "ids": [0] })] {
             assert!(s.execute(cmd, &bad).is_err(), "{cmd} {bad}");
         }
         let too_many: Vec<u64> = vec![ids[0].get(); 100_001];

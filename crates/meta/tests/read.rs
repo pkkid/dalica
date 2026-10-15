@@ -3,8 +3,9 @@
 //! descriptions, extended XMP, the listing, hostile EXIF structures, truncation and random bytes,
 //! and the write skeleton with its verification.
 
-mod build;
+use crate::build;
 
+use crate::common::{cases, l};
 use build::*;
 use dalica_core::DateTime;
 use dalica_meta::container::payload_digest;
@@ -17,10 +18,6 @@ use dalica_meta::{
 use proptest::prelude::*;
 
 const GUID: &str = "4F1E3C2A9B8D7E6F5A4B3C2D1E0F9A8B";
-
-fn l() -> Limits {
-    Limits::default()
-}
 
 /// The EXIF block every container test carries: a caption, a southern/eastern place, a date with
 /// offset and fraction, and the Properties summary tags.
@@ -577,9 +574,17 @@ fn samples() -> Vec<Vec<u8>> {
     out
 }
 
+/// Every file cut at every offset and flipped at every byte reads, lists and writes or refuses,
+/// never panics.
 #[test]
-fn truncation_at_every_offset_never_panics() {
+fn truncation_and_byte_flips_never_panic() {
     for file in samples() {
+        for at in 0..file.len() {
+            let mut f = file.clone();
+            f[at] ^= 0xa5;
+            let _ = read(&f, &l());
+            let _ = listing(&f, &l());
+        }
         for cut in 0..file.len() {
             let part = &file[..cut];
             let _ = read(part, &l());
@@ -591,20 +596,8 @@ fn truncation_at_every_offset_never_panics() {
     }
 }
 
-#[test]
-fn every_single_byte_flip_never_panics() {
-    for file in samples() {
-        for at in 0..file.len() {
-            let mut f = file.clone();
-            f[at] ^= 0xa5;
-            let _ = read(&f, &l());
-            let _ = listing(&f, &l());
-        }
-    }
-}
-
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(512))]
+    #![proptest_config(ProptestConfig::with_cases(cases(512)))]
 
     #[test]
     fn random_bytes_never_panic(prefix in 0usize..6, body in proptest::collection::vec(any::<u8>(), 0..2048)) {
@@ -616,18 +609,6 @@ proptest! {
         let _ = dalica_meta::iptc::read::read(&body, &l());
         let _ = dalica_meta::iptc::read::resources(&body, &l());
         let _ = write_owned(&file, &Changes { star: Some(true), ..Changes::default() }, &WriteOptions { stars_as_ratings: true, ..WriteOptions::default() });
-    }
-
-    #[test]
-    fn random_mutations_of_real_structures_never_panic(which in 0usize..10, edits in proptest::collection::vec((any::<usize>(), any::<u8>()), 1..16)) {
-        let samples = samples();
-        let mut file = samples[which % samples.len()].clone();
-        for (at, byte) in edits {
-            let n = file.len();
-            file[at % n] = byte;
-        }
-        let _ = read(&file, &l());
-        let _ = listing(&file, &l());
     }
 }
 

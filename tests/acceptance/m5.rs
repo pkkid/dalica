@@ -86,7 +86,7 @@ fn dalica_exe() -> PathBuf {
 /// Runs `cargo <args>`; panics with its output if it fails. Returns its standard output.
 fn cargo(args: &[&str]) -> String {
     let started = Instant::now();
-    let out = dalica_acceptance::cargo().args(args).output().unwrap();
+    let out = dalica_acceptance::cargo_split(args, |_| {}).unwrap();
     let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
     assert!(out.status.success(), "cargo {}:\n{stdout}\n{}", args.join(" "), String::from_utf8_lossy(&out.stderr));
     println!("cargo {}: ok ({:.1} s)", args.join(" "), started.elapsed().as_secs_f64());
@@ -604,7 +604,7 @@ fn crate_suites() {
         engine.extend(["--test", suite]);
     }
     cargo_test(&engine);
-    cargo_test(&["-p", "dalica-engine", "--test", "panic_hunt", "--", "--ignored"]);
+    dalica_acceptance::panic_hunt().unwrap();
     let mut ui = vec!["-p", "dalica-ui"];
     for suite in
         ["dialogs", "jobs_control", "folder_manager", "first_run", "activity", "offline_folders", "color_management", "band_autoscroll", "tray_keys"]
@@ -612,7 +612,7 @@ fn crate_suites() {
         ui.extend(["--test", suite]);
     }
     cargo_test(&ui);
-    cargo_test(&["-p", "dalica-ui-kit", "--test", "fields", "--test", "icons_folder_modes"]);
+    cargo_test(&["-p", "dalica-ui-kit", "--test", "fields", "--test", "icons"]);
 }
 
 /// Part 6: the corpus floors when every published set is here and verified; otherwise it says so.

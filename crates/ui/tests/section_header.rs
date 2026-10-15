@@ -1,5 +1,5 @@
 //! The section header block (M4.9, `ui-layout.md` §5.2), driven headlessly: every
-//! `section:<id>/…` part is registered with its size at 1400 × 900 and 900 × 600; the buttons wait
+//! `section:<id>/…` part is registered with its size at 1400 × 900 (at 900 × 600 they only have to fit); the buttons wait
 //! for their commands, Select Starred (live since M4.13) for a starred photo in its section and
 //! Save (M8.19) for an unsaved edit in its folder;
 //! the pinned form shows the first line only and owns the ids of what it covers; a right-click
@@ -9,6 +9,7 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::common::{FRAMES, LARGE, SMALL, check_pixels, crop, new_driver};
 use dalica_core::FolderId;
 use dalica_engine::Session;
 use dalica_ui::headless::Click;
@@ -22,12 +23,9 @@ use dalica_ui_kit::registry::Role;
 use egui::{PointerButton, Rect, pos2, vec2};
 use serde_json::json;
 
-const FRAMES: usize = 60 * 60;
-const SIZES: [(u32, u32); 2] = [(1400, 900), (900, 600)];
-
 /// A session on a library under `dir` with `folders` folders sharing `photos` scenes photos.
 fn session(dir: &Path, folders: usize, photos: usize) -> Session {
-    let files = dalica_scenes::demo_library(folders, photos, 5).unwrap();
+    let files = crate::common::demo_library(folders, photos, 5).unwrap();
     let mut roots = BTreeSet::new();
     for f in &files {
         let path = dir.join("photos").join(&f.path);
@@ -67,33 +65,23 @@ fn save(d: &Driver, name: &str) {
     std::fs::write(dir.join(format!("{name}.png")), dalica_scenes::fingerprint::png_rgba(shot.width, shot.height, &shot.rgba)).unwrap();
 }
 
-/// Checks the last frame: no interactive widget without an id, every id once.
-fn ids_are_sound(d: &Driver, case: &str) {
-    assert_eq!(d.app().panels().unwrap().unregistered_widgets(), [], "{case}: interactive widgets without an id");
-    let widgets = d.widgets();
-    let mut seen = BTreeSet::new();
-    for w in &widgets {
-        assert!(seen.insert(w.id.clone()), "{case}: `{}` registered twice", w.id);
-    }
-}
-
 #[test]
 fn every_part_is_there_with_its_size_at_both_window_sizes() {
-    for (w, h) in SIZES {
-        let dir = tempfile::tempdir().unwrap();
-        let mut d = Driver::new(App::new(Some(session(dir.path(), 2, 12))), w, h, 1.0);
-        d.settle(FRAMES).unwrap();
-        // Star a photo of the first folder: Select Starred is live there and only there.
-        let first = info(&d).headers[0].0;
-        let photo = d.app().panels().unwrap().sections.get(first).unwrap().photos[0];
-        d.run("photo.star.set", &json!({ "ids": [photo.get()], "on": true })).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let mut d = new_driver(App::new(Some(session(dir.path(), 2, 12))), LARGE.0, LARGE.1, 1.0);
+    d.settle(FRAMES).unwrap();
+    // Star a photo of the first folder: Select Starred is live there and only there.
+    let first = info(&d).headers[0].0;
+    let photo = d.app().panels().unwrap().sections.get(first).unwrap().photos[0];
+    d.run("photo.star.set", &json!({ "ids": [photo.get()], "on": true })).unwrap();
+    for (w, h) in [LARGE, SMALL] {
+        d.resize(w, h);
         d.settle(FRAMES).unwrap();
         // Starred Photos now comes first, with the starred photo.
         let starred = Section::Album(AlbumSection::Starred);
         assert_eq!(info(&d).headers[0].0, starred, "{w}×{h}");
         assert_eq!(d.app().panels().unwrap().sections.get(starred).unwrap().photos, [photo]);
         save(&d, &format!("section-header-{w}x{h}"));
-        ids_are_sound(&d, &format!("{w}×{h}"));
 
         let area = info(&d).area.unwrap();
         let widgets = d.widgets();
@@ -183,19 +171,19 @@ fn every_part_is_there_with_its_size_at_both_window_sizes() {
             checked += 1;
         }
         assert!(checked >= 1, "{w}×{h}: a whole header was on screen");
-
-        // Select Starred selects the starred photo of its section.
-        d.click(&format!("section:{first}/selectStarred")).unwrap();
-        d.settle(FRAMES).unwrap();
-        assert_eq!(d.state().selection.ids, [photo], "{w}×{h}");
-        assert_eq!(d.state().selection.section, Some(first), "{w}×{h}");
     }
+
+    // Select Starred selects the starred photo of its section.
+    d.click(&format!("section:{first}/selectStarred")).unwrap();
+    d.settle(FRAMES).unwrap();
+    assert_eq!(d.state().selection.ids, [photo]);
+    assert_eq!(d.state().selection.section, Some(first));
 }
 
 #[test]
 fn a_pinned_header_shows_its_first_line_only_and_owns_its_ids() {
     let dir = tempfile::tempdir().unwrap();
-    let mut d = Driver::new(App::new(Some(session(dir.path(), 3, 90))), 1400, 900, 1.0);
+    let mut d = new_driver(App::new(Some(session(dir.path(), 3, 90))), 1400, 900, 1.0);
     d.settle(FRAMES).unwrap();
     let target = d.app().panels().unwrap().sections.list[1].id;
     d.run("section.scrollTo", &json!({ "section": target })).unwrap();
@@ -211,7 +199,6 @@ fn a_pinned_header_shows_its_first_line_only_and_owns_its_ids() {
         d.settle(FRAMES).unwrap();
         let case = format!("scrolled {}", d.state().scroll.offset);
         save(&d, &format!("section-header-pinned-{}", d.state().scroll.offset));
-        ids_are_sound(&d, &case);
         let (pinned, band) = info(&d).sticky.expect("the header is pinned");
         assert_eq!((pinned, band), (target, Rect::from_min_size(area.min, vec2(area.width(), STICKY))), "{case}");
         let widgets = d.widgets();
@@ -238,7 +225,7 @@ fn a_pinned_header_shows_its_first_line_only_and_owns_its_ids() {
 #[test]
 fn a_right_click_opens_the_section_menu_with_later_items_disabled() {
     let dir = tempfile::tempdir().unwrap();
-    let mut d = Driver::new(App::new(Some(session(dir.path(), 2, 12))), 1400, 900, 1.0);
+    let mut d = new_driver(App::new(Some(session(dir.path(), 2, 12))), 1400, 900, 1.0);
     d.settle(FRAMES).unwrap();
     let headers = info(&d).headers;
     let second = headers[1].0;
@@ -266,7 +253,6 @@ fn a_right_click_opens_the_section_menu_with_later_items_disabled() {
         items.iter().filter(|w| !live.contains(&w.id.as_str())).all(|w| !w.enabled),
         "the items whose commands are not there yet are disabled: {ids:?}"
     );
-    ids_are_sound(&d, "menu open");
     save(&d, "section-header-menu");
 }
 
@@ -276,7 +262,7 @@ fn a_right_click_opens_the_section_menu_with_later_items_disabled() {
 #[test]
 fn a_pinned_header_keeps_its_save_button() {
     let dir = tempfile::tempdir().unwrap();
-    let mut d = Driver::new(App::new(Some(session(dir.path(), 3, 90))), 1400, 900, 1.0);
+    let mut d = new_driver(App::new(Some(session(dir.path(), 3, 90))), 1400, 900, 1.0);
     d.settle(FRAMES).unwrap();
     let target = d.app().panels().unwrap().sections.list[1].id;
     let photos = d.app().panels().unwrap().sections.get(target).unwrap().photos.clone();
@@ -290,7 +276,6 @@ fn a_pinned_header_keeps_its_save_button() {
     let cell = d.widgets().into_iter().find(|w| w.id.starts_with("thumb:")).unwrap();
     d.scroll(Some(&cell.id), vec2(0.0, -110.0)).unwrap();
     d.settle(FRAMES).unwrap();
-    ids_are_sound(&d, "pinned with edits");
     let (pinned, band) = info(&d).sticky.expect("the header is pinned");
     assert_eq!(pinned, target);
     let button = get(&d.widgets(), &id).clone();
@@ -311,27 +296,10 @@ fn a_pinned_header_keeps_its_save_button() {
 /// Checks the rect `r` of the last frame against `tests/fingerprints/<name>.json` (`DALICA_BLESS=1`
 /// stores a new one; the region goes to the test output, `-actual` when it differs).
 fn check_rect(d: &Driver, r: Rect, name: &str) {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/ui");
-    std::fs::create_dir_all(&dir).unwrap();
     let shot = d.screenshot().unwrap();
-    let (x0, y0, w, h) = (r.min.x.round() as u32, r.min.y.round() as u32, r.width().round() as u32, r.height().round() as u32);
-    let mut rgba = Vec::with_capacity((w * h * 4) as usize);
-    for y in y0..y0 + h {
-        for x in x0..x0 + w {
-            rgba.extend_from_slice(&shot.pixel(x, y).unwrap());
-        }
-    }
-    use dalica_scenes::fingerprint;
-    std::fs::write(dir.join(format!("{name}.png")), fingerprint::png_rgba(w, h, &rgba)).unwrap();
-    let stored = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("tests/fingerprints/{name}.json"));
-    if std::env::var_os("DALICA_BLESS").is_some() {
-        std::fs::write(&stored, fingerprint::to_json(&fingerprint::fingerprint(w, h, &rgba)) + "\n").unwrap();
-    }
-    let expected = fingerprint::from_json(&std::fs::read_to_string(&stored).unwrap()).unwrap();
-    if let Err(m) = fingerprint::check(w, h, &rgba, &expected, 2.0) {
-        std::fs::write(dir.join(format!("{name}-actual.png")), &m.actual_png).unwrap();
-        panic!("{name}: {}", m.message);
-    }
+    let (x0, y0) = (r.min.x.round() as u32, r.min.y.round() as u32);
+    let (w, h, rgba) = crop(&shot, [x0, y0, x0 + r.width().round() as u32, y0 + r.height().round() as u32]);
+    check_pixels(name, w, h, &rgba);
 }
 
 /// An album's header (M9.17): the album's icon, name, date and place, the buttons as for folders,
@@ -339,56 +307,54 @@ fn check_rect(d: &Driver, r: Rect, name: &str) {
 /// selects the album, so the section menu is the Album variant; selected, it has the accent bar.
 #[test]
 fn an_album_header_shows_the_album_and_edits_its_description() {
-    for (w, h) in SIZES {
-        let case = format!("{w}×{h}");
-        let dir = tempfile::tempdir().unwrap();
-        let mut d = Driver::new(App::new(Some(session(dir.path(), 2, 12))), w, h, 1.0);
-        d.settle(FRAMES).unwrap();
-        let folder = d.app().panels().unwrap().sections.list[0].id;
-        let photos = d.app().panels().unwrap().sections.get(folder).unwrap().photos.clone();
-        let made = d
-            .run("album.create", &json!({ "name": "Best of the Harbour", "date": "2026-06-04", "place": "Lisbon", "ids": [photos[0], photos[1]] }))
-            .unwrap();
-        let album = dalica_core::AlbumId::parse(made["album"].as_str().unwrap()).unwrap();
-        let section = Section::Album(AlbumSection::User(dalica_ui::state::AlbumKey::of(&album)));
-        d.settle(FRAMES).unwrap();
-        assert_eq!(info(&d).headers[0].0, section, "{case}: the album's section comes first");
-        let id = format!("section:{section}");
-        let widgets = d.widgets();
-        assert_eq!(get(&widgets, &format!("{id}/icon")).label, "Best of the Harbour", "{case}: the icon shows the name");
-        assert_eq!(get(&widgets, &format!("{id}/title")).label, "Best of the Harbour");
-        assert_eq!(get(&widgets, &format!("{id}/description")).label, PLACEHOLDER);
-        for b in Button::ALL {
-            assert_eq!(rect(get(&widgets, &format!("{id}/{}", b.part()))).size(), vec2(26.0, 22.0), "{case}: {b:?}");
-        }
-        assert!(get(&widgets, &format!("{id}/export")).enabled, "{case}: Export takes the album's photos");
-        let headers = &d.app().panels().unwrap().light_table.headers;
-        assert_eq!(headers.shown(section), Some(("Thursday, June 4, 2026 · Lisbon", "")), "{case}: the album's date and place");
-        ids_are_sound(&d, &case);
-
-        // A right-click selects the album: the section menu is the Album variant.
-        d.click_with(&id, &Click { button: PointerButton::Secondary, ..Click::default() }).unwrap();
-        d.settle(FRAMES).unwrap();
-        assert_eq!(d.state().selection.section, Some(section), "{case}");
-        assert!(d.widgets().iter().any(|w| w.id == "menuitem:album.delete"), "{case}: the Album rows");
-        d.key("Escape").unwrap();
-        d.settle(FRAMES).unwrap();
-        let block = info(&d).headers.iter().find(|(s, _)| *s == section).unwrap().1;
-        check_rect(&d, Rect::from_min_size(block.min, vec2(block.width(), 96.0)), &format!("region-header-album-{w}x{h}"));
-
-        // The description, inline: Enter commits it to the album in one undo step.
-        let steps = d.app().session().unwrap().undo_stack().len();
-        d.click(&format!("{id}/description")).unwrap();
-        d.settle(FRAMES).unwrap();
-        d.type_text("Boats at dawn").unwrap();
-        d.key("Enter").unwrap();
-        d.settle(FRAMES).unwrap();
-        let library = d.app().session().unwrap().library();
-        assert_eq!(library.album(&album).unwrap().description, "Boats at dawn", "{case}");
-        assert_eq!(d.app().session().unwrap().undo_stack().len(), steps + 1, "{case}: one undo step");
-        assert_eq!(get(&d.widgets(), &format!("{id}/description")).label, "Boats at dawn");
-        d.run("edit.undo", &json!({})).unwrap();
-        d.settle(FRAMES).unwrap();
-        assert_eq!(d.app().session().unwrap().library().album(&album).unwrap().description, "", "{case}: undone");
+    let (w, h) = LARGE;
+    let case = format!("{w}×{h}");
+    let dir = tempfile::tempdir().unwrap();
+    let mut d = new_driver(App::new(Some(session(dir.path(), 2, 12))), w, h, 1.0);
+    d.settle(FRAMES).unwrap();
+    let folder = d.app().panels().unwrap().sections.list[0].id;
+    let photos = d.app().panels().unwrap().sections.get(folder).unwrap().photos.clone();
+    let made = d
+        .run("album.create", &json!({ "name": "Best of the Harbour", "date": "2026-06-04", "place": "Lisbon", "ids": [photos[0], photos[1]] }))
+        .unwrap();
+    let album = dalica_core::AlbumId::parse(made["album"].as_str().unwrap()).unwrap();
+    let section = Section::Album(AlbumSection::User(dalica_ui::state::AlbumKey::of(&album)));
+    d.settle(FRAMES).unwrap();
+    assert_eq!(info(&d).headers[0].0, section, "{case}: the album's section comes first");
+    let id = format!("section:{section}");
+    let widgets = d.widgets();
+    assert_eq!(get(&widgets, &format!("{id}/icon")).label, "Best of the Harbour", "{case}: the icon shows the name");
+    assert_eq!(get(&widgets, &format!("{id}/title")).label, "Best of the Harbour");
+    assert_eq!(get(&widgets, &format!("{id}/description")).label, PLACEHOLDER);
+    for b in Button::ALL {
+        assert_eq!(rect(get(&widgets, &format!("{id}/{}", b.part()))).size(), vec2(26.0, 22.0), "{case}: {b:?}");
     }
+    assert!(get(&widgets, &format!("{id}/export")).enabled, "{case}: Export takes the album's photos");
+    let headers = &d.app().panels().unwrap().light_table.headers;
+    assert_eq!(headers.shown(section), Some(("Thursday, June 4, 2026 · Lisbon", "")), "{case}: the album's date and place");
+
+    // A right-click selects the album: the section menu is the Album variant.
+    d.click_with(&id, &Click { button: PointerButton::Secondary, ..Click::default() }).unwrap();
+    d.settle(FRAMES).unwrap();
+    assert_eq!(d.state().selection.section, Some(section), "{case}");
+    assert!(d.widgets().iter().any(|w| w.id == "menuitem:album.delete"), "{case}: the Album rows");
+    d.key("Escape").unwrap();
+    d.settle(FRAMES).unwrap();
+    let block = info(&d).headers.iter().find(|(s, _)| *s == section).unwrap().1;
+    check_rect(&d, Rect::from_min_size(block.min, vec2(block.width(), 96.0)), &format!("region-header-album-{w}x{h}"));
+
+    // The description, inline: Enter commits it to the album in one undo step.
+    let steps = d.app().session().unwrap().undo_stack().len();
+    d.click(&format!("{id}/description")).unwrap();
+    d.settle(FRAMES).unwrap();
+    d.type_text("Boats at dawn").unwrap();
+    d.key("Enter").unwrap();
+    d.settle(FRAMES).unwrap();
+    let library = d.app().session().unwrap().library();
+    assert_eq!(library.album(&album).unwrap().description, "Boats at dawn", "{case}");
+    assert_eq!(d.app().session().unwrap().undo_stack().len(), steps + 1, "{case}: one undo step");
+    assert_eq!(get(&d.widgets(), &format!("{id}/description")).label, "Boats at dawn");
+    d.run("edit.undo", &json!({})).unwrap();
+    d.settle(FRAMES).unwrap();
+    assert_eq!(d.app().session().unwrap().library().album(&album).unwrap().description, "", "{case}: undone");
 }

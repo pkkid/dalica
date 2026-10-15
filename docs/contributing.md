@@ -37,8 +37,9 @@ xtask). This page is the short list a pull request is checked against.
 - **Commands, not handlers:** new features are engine commands with tests, and the UI calls them
   (checklist below).
 - **Layering:** `cargo xtask layers` must pass. Register new crates in `xtask/src/layers.rs`.
-- **Tests:** required for every change. Readers and writers need round-trip and malformed-input
-  tests; anything that writes to a photo folder needs a test proving the original is untouched.
+- **Tests:** required for every change, one per behaviour, at the lowest crate that fits
+  (`development.md` §6). Readers and writers need round-trip and malformed-input tests; anything
+  that writes to a photo folder needs a test proving the original is untouched.
   Test photos are procedural (`dalica-scenes`) or public domain/CC0 from the pinned corpus; never
   commit media and never use personal photos.
 - **Style:** `cargo fmt`, and `cargo clippy --all-targets -- -D warnings`. Match surrounding code.
@@ -73,12 +74,13 @@ xtask). This page is the short list a pull request is checked against.
      typing sessions).
 5. **Respect the context:** the current selection versus the Photo Tray, hidden and offline photos,
    read-only legacy files, and the never-lose-a-photo rules for anything that touches disk.
-6. **Tests** in the module: behaviour, undo/redo, disabled states, bad params (must return `Err`,
-   never panic), and a headless UI test if it has UI. Run
-   `cargo test -p dalica-engine --test panic_hunt -- --ignored`.
+6. **Tests** in the module: behaviour, undo/redo, disabled states, and a headless UI test if it
+   has UI. Bad params (must return `Err`, never panic) need no test of their own: one engine test
+   and `panic_hunt` run every registered command with hostile params.
 7. **Dialog** (if it has parameters): compose existing widgets, register automation ids so agents
    can drive it, and add every new user-facing string to the translation catalogs' source set.
-8. **Finish:** `cargo xtask ci`, `cargo xtask parity --write`, update the parity row and
+8. **Finish:** `cargo xtask ci` (it tests the packages you changed; everything else runs at the
+   milestone's review), `cargo xtask parity --write`, update the parity row and
    `docs/status.md`, and commit with the task id.
 
 ## Pull requests

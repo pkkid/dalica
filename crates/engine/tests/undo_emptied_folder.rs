@@ -9,28 +9,17 @@
 //! case uses the real OS trash where the system restores from it, and puts nothing back by hand
 //! (its undo does).
 
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
+use crate::common::{exists, jpeg, shared, wait_files};
 use dalica_core::{FolderId, PhotoId, Timestamp, VirtualClock};
 use dalica_engine::cmd::delete::RESTORES;
 use dalica_engine::watching::WatchMode;
 use dalica_engine::{CacheDir, FileOpEvent, Options, Session, ThumbOptions};
 use dalica_fs::Expect;
 use serde_json::{Value, json};
-
-const PATIENCE: Duration = Duration::from_secs(120);
-
-/// One test at a time: they use the real trash and the watcher's sweeps.
-fn serial() -> MutexGuard<'static, ()> {
-    static LOCK: Mutex<()> = Mutex::new(());
-    LOCK.lock().unwrap_or_else(PoisonError::into_inner)
-}
-
-fn jpeg(seed: u64) -> Vec<u8> {
-    dalica_scenes::jpeg(&dalica_scenes::Scene::new(seed, 96, 64), 80, None).unwrap()
-}
 
 /// A library watching `Pictures` (`Lisbon` with two photos, `Porto` with one) on a virtual clock,
 /// the watcher polling.
@@ -94,8 +83,10 @@ impl Lib {
     /// clean.
     fn run(&mut self, id: &str, p: Value) -> FileOpEvent {
         let before = self.s.file_op_events().count();
+        // A caption still being written into a photo would change the file under the operation.
+        assert!(self.s.flush_metadata(Duration::from_secs(120)), "the metadata writes ended");
         self.s.execute(id, &p).unwrap_or_else(|e| panic!("{id} {p}: {e:?}"));
-        assert!(self.s.wait_file_jobs(PATIENCE), "the file jobs ended");
+        wait_files(&mut self.s);
         self.s.wait_idle();
         self.s.flush().unwrap();
         let events: Vec<FileOpEvent> = self.s.file_op_events().cloned().collect();
@@ -106,17 +97,12 @@ impl Lib {
     }
 }
 
-fn exists(path: &Path) -> bool {
-    let path = path.to_path_buf();
-    std::thread::scope(|s| s.spawn(move || path.exists()).join().unwrap())
-}
-
 /// Both photos of `Lisbon` moved to `Porto`: the watcher's rescan takes the emptied `Lisbon` out
 /// of the library; Edit ▸ Undo moves the files back and brings `Lisbon` back with its id and its
 /// description, and the photos with their ids, caption and album place; redo and undo again.
 #[test]
 fn undoing_a_move_that_emptied_a_folder_after_a_rescan_brings_the_folder_and_the_photos_back() {
-    let _serial = serial();
+    let _faults = shared();
     let mut l = Lib::new();
     let (lisbon, porto) = (l.folder("Lisbon").unwrap(), l.folder("Porto").unwrap());
     let ids = [l.photo("Lisbon", "IMG_0001.jpg"), l.photo("Lisbon", "IMG_0002.jpg")];
@@ -165,7 +151,7 @@ fn undoing_a_delete_that_emptied_a_folder_after_a_rescan_brings_the_folder_back(
     if !RESTORES {
         return;
     }
-    let _serial = serial();
+    let _faults = shared();
     let mut l = Lib::new();
     let lisbon = l.folder("Lisbon").unwrap();
     let ids = [l.photo("Lisbon", "IMG_0001.jpg"), l.photo("Lisbon", "IMG_0002.jpg")];

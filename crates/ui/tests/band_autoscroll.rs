@@ -7,6 +7,7 @@ use std::collections::{BTreeSet, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 
+use crate::common::{FRAMES, new_driver};
 use dalica_core::PhotoId;
 use dalica_engine::Session;
 use dalica_ui::headless::{PointerEvent, PointerKind};
@@ -15,11 +16,9 @@ use dalica_ui::{App, Driver};
 use egui::{PointerButton, Pos2, Rect, pos2};
 use serde_json::json;
 
-const FRAMES: usize = 60 * 60;
-
 /// A session on a library under `dir`: `folders` folders sharing `photos` scenes photos.
 fn session(dir: &Path, folders: usize, photos: usize) -> Session {
-    let files = dalica_scenes::demo_library(folders, photos, 5).unwrap();
+    let files = crate::common::demo_library(folders, photos, 5).unwrap();
     let mut roots = BTreeSet::new();
     for f in &files {
         let path = dir.join("photos").join(&f.path);
@@ -38,7 +37,7 @@ fn session(dir: &Path, folders: usize, photos: usize) -> Session {
 /// A 900 × 600 window with 128-point thumbnails: a few rows on screen, each section taller than the
 /// view.
 fn driver(dir: &Path) -> Driver {
-    let mut d = Driver::new(App::new(Some(session(dir, 2, 80))), 900, 600, 1.0);
+    let mut d = new_driver(App::new(Some(session(dir, 2, 80))), 900, 600, 1.0);
     d.app_mut().state_mut().thumb_size = 128.0;
     d.settle(FRAMES).unwrap();
     d

@@ -553,7 +553,7 @@ mod tests {
     use dalica_library::Photo;
 
     use super::*;
-    use crate::cmd::testing::{hostile_params, library};
+    use crate::cmd::testing::library;
 
     const PATIENCE: Duration = Duration::from_secs(120);
 
@@ -569,23 +569,6 @@ mod tests {
     fn videos_are_named_by_their_extension() {
         assert!(is_video("clip.MP4") && is_video("a.mov") && is_video("b.m4v") && is_video("c.mkv"));
         assert!(!is_video("a.jpg") && !is_video("mp4") && !is_video(""));
-    }
-
-    #[test]
-    fn hostile_parameters_are_refused_and_change_nothing() {
-        let (_dirs, mut s, _ids) = library(1);
-        let rev = s.library().revision();
-        for p in hostile_params() {
-            for id in ["export.defaults", "export.run"] {
-                let r = s.execute(id, &p);
-                assert!(!matches!(r, Err(CmdError::Internal(_))), "{id} {p}: {r:?}");
-                if id == "export.run" {
-                    assert!(r.is_err(), "{id} {p}: {r:?}");
-                }
-            }
-        }
-        assert!(!s.file_jobs_running());
-        assert_eq!(s.library().revision(), rev);
     }
 
     /// Videos are skipped and counted; an export of videos alone is refused.

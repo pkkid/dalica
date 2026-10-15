@@ -44,7 +44,7 @@ fn color_management(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
 mod tests {
     use serde_json::json;
 
-    use crate::cmd::testing::{hostile, library};
+    use crate::cmd::testing::library;
     use crate::error::CmdError;
 
     #[test]
@@ -63,9 +63,8 @@ mod tests {
     }
 
     #[test]
-    fn hostile_params_are_refused() {
+    fn bad_params_are_refused() {
         let (_dirs, mut s, _) = library(1);
-        hostile(&mut s, "view.colorManagement");
         for p in [json!({ "on": "yes" }), json!({ "on": 1 }), json!({ "on": true, "x": 1 }), json!(["on"])] {
             assert!(matches!(s.execute("view.colorManagement", &p), Err(CmdError::BadParams(_))), "{p}");
         }

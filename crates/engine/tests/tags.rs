@@ -3,7 +3,7 @@
 //! mixed selection; toggling; quick tags by slot and by their ten keys, which conflict with no
 //! other default binding on any platform; tags reach the folder's sidecar.
 //!
-//! Timings: `cargo test --release -p dalica-engine --test tags -- --nocapture` prints them.
+//! Timings: `cargo test --release -p dalica-engine --test all tags:: -- --nocapture` prints them.
 
 use std::path::Path;
 use std::sync::Arc;

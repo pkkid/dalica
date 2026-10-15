@@ -95,6 +95,12 @@ impl Identity {
         (self.dev, self.ino, self.born) == (other.dev, other.ino, other.born)
     }
 
+    /// On the same volume (device; volume serial number).
+    #[cfg(all(feature = "faults", debug_assertions))]
+    pub(crate) fn same_volume(&self, other: &Identity) -> bool {
+        self.dev == other.dev
+    }
+
     /// Modification time in nanoseconds since the Unix epoch (negative before it).
     pub(crate) fn mtime_ns(&self) -> i128 {
         self.mtime_ns

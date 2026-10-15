@@ -584,7 +584,6 @@ fn merge_items(s: &Session, id: FolderId, from: &Path, dest: FolderId, to: &Path
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cmd::testing;
 
     #[test]
     fn the_clash_question_lists_the_first_names() {
@@ -600,11 +599,5 @@ mod tests {
         assert!(plain_absolute(&abs));
         assert!(!plain_absolute(Path::new("relative")));
         assert!(!plain_absolute(&abs.join("..").join("y")));
-    }
-
-    #[test]
-    fn hostile_parameters_change_nothing() {
-        let (_dirs, mut s, _ids) = testing::library(2);
-        testing::hostile(&mut s, "folder.move");
     }
 }

@@ -93,7 +93,7 @@ impl Git for DryGit<'_> {
     }
 
     fn run_ci(&self, _dir: &Path) -> Result<(), String> {
-        self.rec.record("run `cargo xtask ci` in the merge worktree".into());
+        self.rec.record("run `cargo xtask ci --merge` in the merge worktree".into());
         Ok(())
     }
 

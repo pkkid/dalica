@@ -107,7 +107,7 @@ pub fn new_file(folder: &Path, name: &str, bytes: &[u8]) -> Result<Created> {
         Some(Fault::Crash) => return Err(Error::Crashed(points::NEW_FSYNC)),
         None => {}
     }
-    file.sync_all().map_err(|e| cleanup(io_err("fsync", &tmp_path)(e)))?;
+    faults::fsync(&tmp_path, || file.sync_all()).map_err(|e| cleanup(io_err("fsync", &tmp_path)(e)))?;
     drop(file);
 
     // 2. The first free name, never replacing a file.
@@ -190,7 +190,7 @@ fn write_direct(dir: &Folder, name: &str, bytes: &[u8]) -> Result<String> {
             Some(Fault::Crash) => return Err(Error::Crashed(points::NEW_DIRECT_FSYNC)),
             None => {}
         }
-        file.sync_all().map_err(|e| cleanup(io_err("fsync", &path)(e)))?;
+        faults::fsync(&path, || file.sync_all()).map_err(|e| cleanup(io_err("fsync", &path)(e)))?;
         return Ok(candidate);
     }
     Err(no_free_name(dir.path(), name))

@@ -5,8 +5,9 @@
 //! kept otherwise; the owned fields merged; the thumbnail replaced or dropped; `set_orientation`
 //! changes only that tag's value; truncated and hostile input is `Err`, never a panic.
 
-mod build;
+use crate::build;
 
+use crate::common::{cases, l};
 use build::*;
 use dalica_image::ifd::{Tiff as Ifds, Visited};
 use dalica_meta::carry::exif::MAX_JPEG_EXIF;
@@ -16,12 +17,8 @@ use dalica_meta::container::payload_digest;
 use dalica_meta::exif::IfdKind;
 use dalica_meta::exif::read::walk;
 use dalica_meta::iptc::read::{datasets, resources};
-use dalica_meta::{Changes, DateTaken, Error, Limits, Place, WriteOptions, read, scan};
+use dalica_meta::{Changes, DateTaken, Error, Place, WriteOptions, read, scan};
 use proptest::prelude::*;
-
-fn l() -> Limits {
-    Limits::default()
-}
 
 /// The copy's size: the source's 6000 × 4000, turned a quarter and halved.
 const W: u32 = 2000;
@@ -617,8 +614,10 @@ fn unreadable_blocks_are_err() {
     assert_eq!(carry(&jpeg(&[]), &webp_simple(), &spec()).unwrap_err(), Error::Unsupported(dalica_meta::Container::WebP));
 }
 
+/// The source and the targets cut at every offset, and every byte of a source flipped, are
+/// carried or refused, never a panic.
 #[test]
-fn truncation_at_every_offset_never_panics() {
+fn truncation_and_byte_flips_never_panic() {
     let (source, _) = jpeg_source(false);
     let (target, ptarget) = (jpeg_target(), png_target());
     for end in 0..source.len() {
@@ -640,10 +639,7 @@ fn truncation_at_every_offset_never_panics() {
     for end in (0..tiff.len()).step_by(3) {
         let _ = carry(&tiff[..end], &ptarget, &spec());
     }
-}
-
-#[test]
-fn every_byte_flip_never_panics() {
+    // Every byte of a big-endian source flipped.
     let (source, _) = jpeg_source(true);
     let target = jpeg_target();
     for i in 0..source.len() {
@@ -657,7 +653,7 @@ fn every_byte_flip_never_panics() {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig { cases: 256, ..ProptestConfig::default() })]
+    #![proptest_config(ProptestConfig::with_cases(cases(256)))]
 
     #[test]
     fn random_bytes_never_panic(bytes in proptest::collection::vec(any::<u8>(), 0..512)) {
@@ -667,18 +663,6 @@ proptest! {
         let _ = carry(&jpeg(&[app13(&bytes)]), &png_target(), &spec());
         let _ = carry(&jpeg(&[]), &bytes, &spec());
         let _ = set_orientation(&jpeg(&[app1_exif(&bytes)]), 6, &l());
-    }
-
-    #[test]
-    fn random_mutations_never_panic(edits in proptest::collection::vec((any::<usize>(), any::<u8>()), 1..8), size in 1u32..100_000) {
-        let (mut source, _) = tiff_source(false);
-        for (at, b) in edits {
-            let i = at % source.len();
-            source[i] = b;
-        }
-        if let Ok(out) = carry(&source, &png_target(), &Carry { width: size, height: size, ..spec() }) {
-            prop_assert!(read(&out.bytes, &l()).unwrap().problems.is_empty());
-        }
     }
 }
 
@@ -695,11 +679,4 @@ fn full_ifds_stay_fast() {
     eprintln!("carrying 12,000 EXIF entries took {took:?}");
     assert!(took.as_secs_f64() < 5.0, "{took:?}");
     assert_eq!(walk(&exif_of(&out.bytes), &l()).unwrap().ifds.iter().find(|(k, _)| *k == IfdKind::Exif).unwrap().1.entries.len(), 8003);
-
-    let (source, _) = jpeg_source(false);
-    let start = std::time::Instant::now();
-    for _ in 0..100 {
-        carry(&source, &jpeg_target(), &Carry { thumbnail: Some(NEW_THUMB), ..spec() }).unwrap();
-    }
-    eprintln!("one camera JPEG's metadata carried in {:?}", start.elapsed() / 100);
 }

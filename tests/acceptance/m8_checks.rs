@@ -22,14 +22,14 @@ pub const EXPORT_200_MS: f64 = 24000.0;
 /// A debug run never sees [`RELEASE`]; `release` sets it.
 pub fn cargo(args: &[&str], release: bool) -> String {
     let started = Instant::now();
-    let mut cmd = dalica_acceptance::cargo();
-    cmd.args(args);
-    if release {
-        cmd.env(RELEASE, "1");
-    } else {
-        cmd.env_remove(RELEASE);
-    }
-    let out = cmd.output().unwrap();
+    let out = dalica_acceptance::cargo_split(args, |cmd| {
+        if release {
+            cmd.env(RELEASE, "1");
+        } else {
+            cmd.env_remove(RELEASE);
+        }
+    })
+    .unwrap();
     let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
     let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
     assert!(out.status.success(), "cargo {}:\n{stdout}\n{stderr}", args.join(" "));
@@ -64,7 +64,7 @@ pub fn crate_suites() {
     suites("dalica-library", &["m8_fields", "ops", "tree"]);
     suites("dalica-fs", &["originals", "create"]);
     suites("dalica-sidecar", &["originals"]);
-    suites("dalica-store", &["m8_fields"]);
+    suites("dalica-store", &["m8_fields", "fields"]);
     suites("dalica-scan", &["originals"]);
     println!("  the encoders, the quality estimate, lossless JPEG transforms, metadata carried to a new file");
     suites("dalica-image", &["encode", "jpeg_quality", "jpeg_transform"]);
@@ -72,12 +72,12 @@ pub fn crate_suites() {
     println!("  Save in place, Undo Save, Revert, lossless and beside saves, copies; a fault at every step of a Save");
     suites("dalica-create", &["output", "save", "save_lossless", "save_beside", "save_faults"]);
     println!("  the commands, the file-job runner, settings, repair of an interrupted Save");
-    suites("dalica-engine", &["save", "save_copy", "save_recovery", "filejobs", "settings_m8"]);
+    suites("dalica-engine", &["save", "save_copy", "save_recovery", "filejobs", "settings"]);
     println!("  every format of formats.md §1 saves as specified (M8.23)");
     suites("dalica-engine", &["save_formats"]);
     println!("  the header's count and Save, the explanation, Undo Save, the Revert question, Save As");
-    suites("dalica-ui", &["save_ui", "save_as", "section_header", "view_state_m8"]);
-    suites("dalica-ui-kit", &["form_widgets", "icons_output"]);
+    suites("dalica-ui", &["save_ui", "save_as", "section_header", "view_state", "export_dialog"]);
+    suites("dalica-ui-kit", &["form_widgets", "icons"]);
     println!("Export:");
     println!("  planning, files, the watermark; the command and its job; the dialog, the progress window, Projects");
     suites("dalica-create", &["export", "watermark"]);
@@ -90,9 +90,9 @@ pub fn crate_suites() {
     }
 }
 
-/// `panic_hunt -- --ignored`: every command, M8's included, hostile params, never a panic.
+/// `panic_hunt` (once per review gate; `dalica_acceptance::panic_hunt`): every command, M8's included, hostile params, never a panic.
 pub fn panic_hunt() {
-    cargo_test(&["-p", "dalica-engine", "--test", "panic_hunt", "--", "--ignored"]);
+    dalica_acceptance::panic_hunt().unwrap();
 }
 
 /// The quality estimate's error (`data-model.md` §6, Save's quality matching): JPEGs of known

@@ -10,11 +10,12 @@
 //! rest of the suite.
 
 use std::io::{BufRead, BufReader, ErrorKind, Write};
-use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream, UdpSocket};
+use std::net::{IpAddr, SocketAddr, TcpStream, UdpSocket};
 use std::path::Path;
-use std::process::{Child, Command, Stdio};
+use std::process::Child;
 use std::time::{Duration, Instant};
 
+use crate::common::{dalica, free_port, full};
 use serde_json::{Value, json};
 
 /// The request line limit (`control-protocol.md` §4): 1 MiB, the newline included.
@@ -33,48 +34,6 @@ const SLOT_FREED_WITHIN: Duration = Duration::from_secs(10);
 /// How long a new connection waits for a first line before it counts as accepted: a refused one is
 /// answered `limit` as soon as it is accepted; an accepted one says nothing until `auth`.
 const REFUSAL_WITHIN: Duration = Duration::from_secs(1);
-
-/// A port nobody listens on now (the OS picks it; it is free again once the probe closes).
-fn free_port() -> u16 {
-    TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
-}
-
-/// `dalica ARGS` with every folder it could touch inside `home`, its standard error in
-/// `home/stderr.log`.
-fn dalica(home: &Path, args: &[String]) -> Command {
-    let mut c = Command::new(env!("CARGO_BIN_EXE_dalica"));
-    let tmp = home.join("tmp");
-    std::fs::create_dir_all(&tmp).unwrap();
-    // A file, not a pipe: a pipe nobody reads could fill and stall the app.
-    let log = std::fs::OpenOptions::new().create(true).append(true).open(home.join("stderr.log")).unwrap();
-    c.args(args).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::from(log));
-    for (k, v) in [
-        ("HOME", home.to_path_buf()),
-        ("XDG_CONFIG_HOME", home.join("config")),
-        ("XDG_CACHE_HOME", home.join("cache")),
-        ("DALICA_CACHE_DIR", home.join("dalica-cache")),
-        ("XDG_DATA_HOME", home.join("data")),
-        ("XDG_RUNTIME_DIR", home.join("run")),
-        ("APPDATA", home.join("appdata")),
-        ("LOCALAPPDATA", home.join("localappdata")),
-        ("TMPDIR", tmp.clone()),
-        ("TMP", tmp.clone()),
-        ("TEMP", tmp),
-    ] {
-        c.env(k, v);
-    }
-    for k in [
-        "DALICA_HOME",
-        "DALICA_CONTROL_PORT",
-        "DALICA_CONTROL_TOKEN_FILE",
-        "DALICA_AUTOMATION_READ_ROOT",
-        "DALICA_AUTOMATION_WRITE_ROOT",
-        "DALICA_PROFILE",
-    ] {
-        c.env_remove(k);
-    }
-    c
-}
 
 /// What the app in `home` wrote to standard error so far.
 fn stderr_of(home: &Path) -> String {
@@ -142,7 +101,7 @@ impl App {
     fn launch(home: tempfile::TempDir, token_file: &Path, env: &[(&str, &str)]) -> App {
         for _ in 0..5 {
             let port = free_port();
-            let mut cmd = dalica(home.path(), &headless_args(home.path(), port, token_file));
+            let mut cmd = dalica(home.path(), headless_args(home.path(), port, token_file));
             for (k, v) in env {
                 cmd.env(k, v);
             }
@@ -432,9 +391,14 @@ fn a_first_request_other_than_auth_is_refused_and_does_not_run() {
 
 /// Scope: no `auth` closes the connection: a client that sends nothing, an unterminated line, or
 /// only blank lines is answered `unauthorized` and closed 10 s after it connected
-/// (`security.md` §6.3); blank lines do not extend that.
+/// (`security.md` §6.3); blank lines do not extend that. It takes the real 10 s, so it runs at the
+/// review gate (`DALICA_FULL_TESTS=1`); a task's quick run has the same rule from the transport's
+/// unit test, with a 0.6 s window (`a_connection_that_does_not_authenticate_in_time_is_closed`).
 #[test]
 fn a_connection_that_does_not_authenticate_within_ten_seconds_is_closed() {
+    if !full() {
+        return;
+    }
     let mut app = App::start(&[]);
     let (port, token) = (app.port, app.token.clone());
     let unterminated = auth_line(json!(1), &token).trim_end().to_string();
@@ -647,7 +611,7 @@ fn refused_launch(home: &Path, args: impl Fn(u16) -> Vec<String>, env: &[(&str, 
     for _ in 0..5 {
         let _ = std::fs::remove_file(home.join("stderr.log"));
         let port = free_port();
-        let mut cmd = dalica(home, &args(port));
+        let mut cmd = dalica(home, args(port));
         for (k, v) in env {
             cmd.env(k, v);
         }

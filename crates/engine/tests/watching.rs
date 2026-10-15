@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
+use crate::common::{exists, off_owner};
 use dalica_core::{Clock, PhotoId, SystemClock, Timestamp, VirtualClock};
 #[cfg(unix)]
 use dalica_engine::offline::RootProbe;
@@ -27,11 +28,6 @@ use serde_json::{Value, json};
 
 const PATIENCE: Duration = Duration::from_secs(60);
 const DAY: Duration = Duration::from_secs(24 * 60 * 60);
-
-/// Runs `f` on a helper thread: the test's own file changes never count against the owner.
-fn off_owner<T: Send>(f: impl FnOnce() -> T + Send) -> T {
-    std::thread::scope(|s| s.spawn(f).join().unwrap())
-}
 
 fn jpeg(seed: u64) -> Vec<u8> {
     dalica_scenes::jpeg(&dalica_scenes::Scene::new(seed, 120, 80), 80, None).unwrap()
@@ -57,11 +53,6 @@ fn rename(from: &Path, to: &Path) {
 fn remove(path: &Path) {
     let path = path.to_path_buf();
     off_owner(move || if path.is_dir() { std::fs::remove_dir_all(path).unwrap() } else { std::fs::remove_file(path).unwrap() });
-}
-
-fn exists(path: &Path) -> bool {
-    let path = path.to_path_buf();
-    off_owner(move || path.exists())
 }
 
 struct Fx {

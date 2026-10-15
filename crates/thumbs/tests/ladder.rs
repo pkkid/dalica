@@ -148,7 +148,7 @@ fn a_scan_decodes_once_and_makes_the_128_and_256_entries_and_the_sketch() {
     // A sketch for a photo with cached entries comes from the cached 128 entry.
     let sketch_only = ladder::scan(&c, &src, true, &limits, &not_cancelled()).unwrap();
     assert!(!sketch_only.decoded);
-    assert!(sketch::decode(&sketch_only.sketch.unwrap()).is_ok());
+    assert_eq!(sketch_only.sketch, Some(sk), "the sketch the scan made, from the cached 128 entry");
 }
 
 #[test]

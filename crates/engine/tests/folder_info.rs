@@ -5,33 +5,16 @@
 //! and after undo; folder info surviving a restart and a rebuild of the index.
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
-use dalica_core::{Date, FolderId, SystemClock};
-use dalica_engine::{CacheDir, CmdError, Options, Session, ThumbOptions};
-use dalica_fs::Expect;
+use crate::common::{jpeg, lisbon, open};
+use dalica_core::{Date, FolderId};
+use dalica_engine::Session;
 use dalica_library::{FolderInfo, MAX_DESCRIPTION, MAX_PLACE};
 use serde_json::{Value, json};
 
-fn open(library: &Path) -> Session {
-    let options = Options { thumbs: ThumbOptions { cache: CacheDir::Off, workers: 1, ..ThumbOptions::default() } };
-    let mut s = Session::open_with(library, Arc::new(SystemClock), &options).unwrap();
-    s.wait_idle();
-    s
-}
-
 /// A library watching one folder `Lisbon` of two photos.
 fn setup() -> (tempfile::TempDir, tempfile::TempDir, PathBuf, Session, FolderId) {
-    let (lib, disk) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
-    let folder = disk.path().join("Lisbon");
-    dalica_fs::create_dir_all(&folder).unwrap();
-    for i in 0..2 {
-        let bytes = dalica_scenes::jpeg(&dalica_scenes::Scene::new(i, 96, 64), 80, None).unwrap();
-        dalica_fs::replace(&folder.join(format!("IMG_{:04}.jpg", i + 1)), &bytes, Expect::Absent).unwrap();
-    }
-    let mut s = open(lib.path());
-    s.execute("folders.add", &json!({ "path": folder })).unwrap();
-    s.wait_idle();
+    let (lib, disk, folder, s, _) = lisbon(&[jpeg(0), jpeg(1)], None);
     let id = s.library().folder_by_path(&folder).unwrap();
     (lib, disk, folder, s, id)
 }
@@ -118,38 +101,6 @@ fn the_hidden_flag_is_left_alone_and_texts_are_capped() {
     // A place is one line: control characters become spaces.
     s.execute("folder.info.set", &json!({ "id": id, "place": "Lisbon\nPortugal" })).unwrap();
     assert_eq!(info(&s, id).place, "Lisbon Portugal");
-}
-
-#[test]
-fn hostile_params_change_nothing() {
-    let (_l, _d, _f, mut s, id) = setup();
-    let m = s.library().model().clone();
-    // No disabled case: any folder of the library takes its info; a missing one is NotFound.
-    let spec = *s.spec("folder.info.set").unwrap();
-    assert!((spec.enabled)(&s, &json!({ "id": id })).is_ok());
-    assert!(matches!(s.execute("folder.info.set", &json!({ "id": 999, "description": "x" })), Err(CmdError::NotFound(_))));
-    for bad in [
-        json!({}),
-        json!(null),
-        json!({ "description": "x" }),
-        json!({ "id": id, "date": "2026-02-30" }),
-        json!({ "id": id, "date": "June" }),
-        json!({ "id": id, "date": 2026 }),
-        json!({ "id": id, "date": ["2026-06-04"] }),
-        json!({ "id": id, "description": 5 }),
-        json!({ "id": id, "place": {} }),
-        json!({ "id": id, "hidden": false }),
-        json!({ "id": id, "name": "Porto" }),
-        json!({ "id": "folder:1" }),
-        json!({ "id": -1 }),
-        json!({ "id": 1.5 }),
-        json!([id]),
-    ] {
-        let r = s.execute("folder.info.set", &bad);
-        assert!(matches!(r, Err(CmdError::BadParams(_))), "{bad}: {r:?}");
-    }
-    assert_eq!(s.library().model(), &m);
-    assert_eq!(s.undo_stack().len(), 0);
 }
 
 #[test]

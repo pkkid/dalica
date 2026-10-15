@@ -190,7 +190,7 @@ fn replace_with(path: &Path, bytes: &[u8], expect: Expect, private: bool, keep: 
         Some(Fault::Crash) => return Err(Error::Crashed(points::FSYNC)),
         None => {}
     }
-    file.sync_all().map_err(|e| cleanup(io_err("fsync", &tmp_path)(e)))?;
+    faults::fsync(&tmp_path, || file.sync_all()).map_err(|e| cleanup(io_err("fsync", &tmp_path)(e)))?;
     if let Some(old) = old.as_ref().filter(|_| !private) {
         // Best effort: some file systems (FAT, some shares) have no permission bits to copy.
         let _ = Folder::copy_permissions(&file, old);
@@ -457,55 +457,5 @@ mod tests {
         assert!(matches!(replace(&p, b"b", Expect::Unchanged(id)), Err(Error::OnUiThread)));
         drop(_ui);
         assert_eq!(fs::read(&p).unwrap(), b"a");
-    }
-
-    /// Every fault point, as an error and as a crash, for a new file and a replaced one: the
-    /// target holds exactly the old or the new bytes (`data-model.md` §10.5).
-    #[cfg(feature = "faults")]
-    #[test]
-    fn each_fault_point_leaves_the_old_or_the_new_file() {
-        use crate::faults::{ATOMIC_POINTS, arm, disarm_all};
-        let old: &[u8] = b"{\n  \"photos\": { \"a.jpg\": { \"star\": true } }\n}\n";
-        let new: &[u8] = b"{\n  \"photos\": { \"a.jpg\": { \"star\": true }, \"b.jpg\": { \"star\": true } }\n}\n";
-        for (i, point) in ATOMIC_POINTS.into_iter().enumerate() {
-            let after_rename = i > ATOMIC_POINTS.iter().position(|p| *p == points::RENAME).unwrap();
-            for fault in [Fault::Error, Fault::Crash] {
-                for existed in [true, false] {
-                    let dir = tempfile::tempdir().unwrap();
-                    let p = dir.path().join(".dalica.json");
-                    let expect = if existed { Expect::Unchanged(replace(&p, old, Expect::Absent).unwrap()) } else { Expect::Absent };
-                    arm(point, fault);
-                    let err = replace(&p, new, expect).unwrap_err();
-                    disarm_all();
-                    let case = format!("{point} {fault:?} existed={existed}: {err}");
-                    match fault {
-                        Fault::Crash => assert!(matches!(err, Error::Crashed(p) if p == point), "{case}"),
-                        Fault::Error => assert!(matches!(err, Error::Io { .. }), "{case}"),
-                    }
-                    let now = fs::read(&p).ok();
-                    let want = if after_rename {
-                        Some(new)
-                    } else if existed {
-                        Some(old)
-                    } else {
-                        None
-                    };
-                    assert_eq!(now.as_deref(), want, "{case}");
-                    // An error cleans up; a crash leaves at most one temporary file.
-                    let left = temps(dir.path()).len();
-                    match fault {
-                        Fault::Error => assert_eq!(left, 0, "{case}"),
-                        Fault::Crash => assert!(left <= 1, "{case}"),
-                    }
-                    // The next write, after re-reading, succeeds and is clean.
-                    let expect = match identity(&p).unwrap() {
-                        Some(id) => Expect::Unchanged(id),
-                        None => Expect::Absent,
-                    };
-                    replace(&p, b"after", expect).unwrap();
-                    assert_eq!(fs::read(&p).unwrap(), b"after", "{case}");
-                }
-            }
-        }
     }
 }

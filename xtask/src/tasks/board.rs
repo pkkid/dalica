@@ -565,8 +565,9 @@ impl Board<'_> {
         let (_, item) = self.require_status(&snap, task, &[Status::InReview])?;
         let branch = if item.branch.is_empty() { task.branch() } else { item.branch.clone() };
         let pr = self.gh.find_pr(&branch)?.ok_or_else(|| format!("no open pull request for {branch}"))?;
-        // The local gate decides the merge; GitHub's three-OS run checks `main` after it, and a red
-        // `main` stops further merges until it is fixed (`task-board.md` §5).
+        // The local merge gate decides the merge (`cargo xtask ci --merge`: everything still builds
+        // after the rebase; the worker's gate ran the tests). GitHub runs CI on `main` only when
+        // dispatched; a red run there stops further merges until it is fixed (`task-board.md` §5).
         if let Some(run) = self.gh.main_ci_failure()? {
             return Err(format!("main is red on GitHub CI ({run}); fix it before merging anything else"));
         }

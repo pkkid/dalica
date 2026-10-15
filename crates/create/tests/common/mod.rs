@@ -6,12 +6,54 @@
 
 #![allow(dead_code)]
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
+use dalica_core::Timestamp;
+use dalica_create::save::{Options, Seen};
 use dalica_edit::{Recipe, Source, Target};
+use dalica_fs::TempDir;
 use dalica_image::encode::{self, Channels, Image, Metadata, Pixels};
 use dalica_image::{Decoded, Limits, Rgba8, formats, read_header};
 use dalica_scenes::{Exif, Rgb8, Scene, fingerprint};
+
+/// Full strength (`DALICA_FULL_TESTS=1`, the review gate) or quick (a task's gate).
+pub fn full() -> bool {
+    std::env::var_os("DALICA_FULL_TESTS").is_some_and(|v| v == "1")
+}
+
+/// A property test's case count: `n` in full mode, at most 32 in quick mode.
+pub fn cases(n: u32) -> u32 {
+    if full() { n } else { n.min(32) }
+}
+
+/// The photo's name in the Save tests' folders.
+pub const NAME: &str = "IMG_0001.jpg";
+/// The time of every Save here, so two runs write the same bytes.
+pub const NOW: Timestamp = Timestamp::from_millis(1_791_000_000_000);
+
+/// A fresh temporary folder.
+pub fn folder() -> TempDir {
+    TempDir::new("dalica-create-test").unwrap()
+}
+
+/// Save options at `NOW` on two threads.
+pub fn options() -> Options {
+    Options { threads: 2, ..Options::new(NOW) }
+}
+
+pub fn read(path: impl AsRef<Path>) -> Vec<u8> {
+    std::fs::read(path).unwrap()
+}
+
+/// The file at `path` as the library sees it.
+pub fn seen(path: &Path) -> Seen {
+    let meta = std::fs::metadata(path).unwrap();
+    Seen { size: meta.len(), mtime: Timestamp::from_system_time(meta.modified().unwrap()) }
+}
+
+pub fn meta(bytes: &[u8]) -> dalica_meta::Metadata {
+    dalica_meta::read(bytes, &dalica_meta::Limits::default()).unwrap()
+}
 
 /// An RGB scene as opaque RGBA.
 pub fn rgba(img: &Rgb8) -> Rgba8 {

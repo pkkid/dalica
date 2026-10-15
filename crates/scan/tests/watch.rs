@@ -8,8 +8,9 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
 
+use crate::common::apply_all;
 use dalica_core::Timestamp;
-use dalica_library::{Library, Op};
+use dalica_library::Library;
 use dalica_scan::watch::{
     Backend, DirtyFolder, DirtyQueue, PollOptions, Prefer, QUEUE_CAP, QueueOptions, WatchOptions, Watcher, Watching, known_folders, rescan,
 };
@@ -33,12 +34,6 @@ fn tree() -> (tempfile::TempDir, PathBuf) {
     put(&r.join("c/3.jpg"), 3);
     put(&r.join("c/d/4.jpg"), 4);
     (dir, r)
-}
-
-fn apply_all(lib: &mut Library, ops: Vec<Op>) {
-    for op in ops {
-        lib.apply(op).unwrap();
-    }
 }
 
 fn library(root: &Path) -> Library {

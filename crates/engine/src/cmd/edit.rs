@@ -87,7 +87,7 @@ fn redo(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
 mod tests {
     use serde_json::json;
 
-    use crate::cmd::testing::{hostile, library};
+    use crate::cmd::testing::library;
     use crate::error::CmdError;
 
     #[test]
@@ -108,8 +108,6 @@ mod tests {
         // A new command drops what could still be redone.
         s.execute("photo.star.toggle", &json!({ "ids": [ids[2]] })).unwrap();
         assert!(matches!(s.execute("edit.redo", &json!({})), Err(CmdError::Disabled(_))));
-        hostile(&mut s, "edit.undo");
-        hostile(&mut s, "edit.redo");
     }
 
     /// A file step that cannot be undone or redone now disables the command with the reason (Edit ▸

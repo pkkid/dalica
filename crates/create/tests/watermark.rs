@@ -1,7 +1,7 @@
 //! The export watermark (M8.11, `creating.md` §2): its size, place, text cleaning, shrinking,
 //! missing glyphs, the pipeline hook and its look (fingerprints on a light and a dark scene).
 
-mod common;
+use crate::common;
 
 use common::*;
 use dalica_create::output::{Choice, OutFormat, Purpose, Spec, render};

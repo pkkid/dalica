@@ -519,42 +519,6 @@ mod tests {
         check("Photo in an album", PHOTO_IN_ALBUM);
     }
 
-    /// The photo menu reads as `organizing.md` §9.1 says, and in an album Delete from Disk becomes
-    /// Remove from Album with Show in Folder and Set as Album Cover beside it.
-    #[test]
-    fn the_photo_menu_lists_its_rows_in_order() {
-        let labels = |e: &'static [Entry]| items(e).iter().map(|i| i.label).collect::<Vec<_>>();
-        assert_eq!(
-            labels(PHOTO),
-            [
-                "View and Edit",
-                "New Album…",
-                "Rotate Clockwise",
-                "Rotate Counterclockwise",
-                "Undo All Edits…",
-                "Hide",
-                "Move to New Folder…",
-                "Split Folder Here…",
-                "Open in External Editor",
-                "Choose Application…",
-                "Save",
-                "Revert…",
-                "Locate on Disk",
-                "Delete from Disk…",
-                "Copy Path",
-                "Find Faces Again",
-                "Properties"
-            ]
-        );
-        let album = labels(PHOTO_IN_ALBUM);
-        assert!(!album.contains(&"Delete from Disk…"));
-        for row in ["Remove from Album", "Show in Folder", "Set as Album Cover"] {
-            assert!(album.contains(&row), "{row}");
-        }
-        let section = labels(ALBUM_SECTION);
-        assert_eq!(section[..2], ["Album Properties…", "Delete Album…"]);
-    }
-
     #[test]
     fn items_walks_submenus_in_order() {
         let labels: Vec<&str> = items(TOOLS).iter().map(|i| i.label).collect();

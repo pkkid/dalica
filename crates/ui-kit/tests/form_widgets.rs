@@ -11,22 +11,20 @@
 //! - a disabled group ignores clicks, and a radio row's controls follow its radio;
 //! - the quality dropdown: its items with their descriptions, the checked one active, a pick;
 //! - the gallery: the dialog over a window showing the Save and project glyphs, at 1400 × 900 (the
-//!   quality menu open) and 900 × 600 (`fingerprints/gallery-export-<w>x<h>.json`).
+//!   quality menu open; `fingerprints/gallery-export-1400x900.json`) and 900 × 600.
 //!
 //! Every frame registers its ids with their roles, in the grammar of `control-protocol.md` §7, and
 //! leaves no interactive widget without one. The renders go to `target/test-output/ui-kit/`;
 //! `DALICA_BLESS=1` stores new fingerprints (commit them only after looking at the PNGs).
 
-use std::path::PathBuf;
-
-use dalica_scenes::fingerprint;
+use crate::common::{Canvas, check, out_dir};
 use dalica_ui_kit::icons::{self, OutputIcon, paint_output};
 use dalica_ui_kit::theme::FontSize;
 use dalica_ui_kit::widgets::{
     ButtonKind, DialogButton, FORM_GAP, Form, STOP_SNAP, SliderOut, SliderSpec, StopsSlider, checkbox, dialog, dropdown, dropdown_item,
     dropdown_popup_id, form_group, hint, radio, radio_row, stops_slider, text_button, text_field,
 };
-use dalica_ui_kit::{Icon, Image, Rasterizer, Role, Tokens, WidgetInfo, fonts, registry};
+use dalica_ui_kit::{Icon, Image, Role, Tokens, WidgetInfo, fonts, registry};
 use egui::{Align2, Context, Event, Key, Modifiers, PointerButton, Pos2, Rect, Ui, UiBuilder, pos2, vec2};
 
 const SIZE: SliderSpec<'static> =
@@ -50,32 +48,6 @@ fn ignore<T>(_: T) {}
 
 fn column(ui: &mut Ui, rect: Rect, add: impl FnOnce(&mut Ui)) {
     ui.scope_builder(UiBuilder::new().max_rect(rect).layout(egui::Layout::top_down(egui::Align::Min)), add);
-}
-
-fn out_dir() -> PathBuf {
-    let out = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/ui-kit");
-    std::fs::create_dir_all(&out).unwrap();
-    out
-}
-
-/// Writes `img` as `<name>.png`, stores its fingerprint when blessing, and compares it with the
-/// stored one.
-fn check(name: &str, img: &Image, failures: &mut Vec<String>) {
-    let out = out_dir();
-    std::fs::write(out.join(format!("{name}.png")), fingerprint::png_rgba(img.width, img.height, &img.rgba)).unwrap();
-    let stored = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("tests/fingerprints/{name}.json"));
-    if std::env::var_os("DALICA_BLESS").is_some() {
-        std::fs::write(&stored, fingerprint::to_json(&fingerprint::fingerprint(img.width, img.height, &img.rgba)) + "\n").unwrap();
-    }
-    match std::fs::read_to_string(&stored).map_err(|e| e.to_string()).and_then(|s| fingerprint::from_json(&s)) {
-        Ok(expected) => {
-            if let Err(m) = fingerprint::check(img.width, img.height, &img.rgba, &expected, 2.0) {
-                std::fs::write(out.join(format!("{name}-actual.png")), &m.actual_png).unwrap();
-                failures.push(format!("{name}: {}", m.message));
-            }
-        }
-        Err(e) => failures.push(format!("{name}: no fingerprint ({e}); run with DALICA_BLESS=1 and look at the PNG")),
-    }
 }
 
 fn check_ids(what: &str, widgets: &[WidgetInfo], unregistered: &[registry::Unregistered]) {
@@ -181,7 +153,6 @@ fn render_tile(sheet: &Sheet, state: State) -> Tile {
     let t = Tokens::default();
     let ctx = Context::default();
     t.apply(&ctx);
-    let mut raster = Rasterizer::new();
     let (w, h) = (sheet.tile.0 as f32, sheet.tile.1 as f32);
     let content = Rect::from_min_max(pos2(8.0, CAPTION + 4.0), pos2(w - 8.0, h - 4.0));
     let draw = |ui: &mut Ui| {
@@ -192,7 +163,7 @@ fn render_tile(sheet: &Sheet, state: State) -> Tile {
         (sheet.draw)(ui, &t, state, content);
     };
     let mut target: Option<(Pos2, Option<egui::Id>)> = None;
-    let mut last = None;
+    let mut canvas = Canvas::new(sheet.tile, t.chrome);
     for pass in 0..6 {
         let mut events = Vec::new();
         if let Some((at, egui_id)) = target {
@@ -213,13 +184,13 @@ fn render_tile(sheet: &Sheet, state: State) -> Tile {
         input.time = Some(0.0);
         input.events = events;
         let out = ctx.run_ui(input, &draw);
-        last = Some(dalica_ui_kit::paint(&ctx, &mut raster, out, sheet.tile.0, sheet.tile.1, t.chrome).unwrap());
+        canvas.keep(out);
         if pass == 2 {
             let info = registry::find(&ctx, sheet.target).unwrap_or_else(|| panic!("{}: {:?} registers {}", sheet.name, state, sheet.target));
             target = Some((info.center(), info.egui_id));
         }
     }
-    Tile { image: last.unwrap(), widgets: registry::widgets(&ctx), unregistered: registry::unregistered(&ctx) }
+    Tile { image: canvas.image(&ctx).clone(), widgets: registry::widgets(&ctx), unregistered: registry::unregistered(&ctx) }
 }
 
 /// Tiles in `columns` columns, 1 px `divider` lines between them.
@@ -428,14 +399,14 @@ struct Rig {
     t: Tokens,
     size: (u32, u32),
     clock: f64,
-    raster: Rasterizer,
     widgets: Vec<WidgetInfo>,
     /// The texts painted in the last pass with their rects (popups and tooltips included).
     texts: Vec<(String, Rect)>,
     draft: Draft,
     outs: Outs,
     form: Option<Form>,
-    image: Option<Image>,
+    /// The last frame, painted only when a test asks for its pixels.
+    canvas: Canvas,
 }
 
 impl Rig {
@@ -447,13 +418,12 @@ impl Rig {
             t,
             size,
             clock: 0.0,
-            raster: Rasterizer::new(),
             widgets: vec![],
             texts: vec![],
             draft: Draft::default(),
             outs: Outs::default(),
             form: None,
-            image: None,
+            canvas: Canvas::new(size, t.chrome),
         };
         rig.settle();
         rig
@@ -485,7 +455,7 @@ impl Rig {
                 _ => None,
             })
             .collect();
-        self.image = Some(dalica_ui_kit::paint(&self.ctx, &mut self.raster, out, size.0, size.1, t.chrome).unwrap());
+        self.canvas.keep(out);
     }
 
     fn settle(&mut self) {
@@ -762,7 +732,7 @@ fn window(size: (u32, u32)) -> (Image, Vec<WidgetInfo>, Vec<registry::Unregister
     } else {
         rig.hover("choice:dialog.size/original");
     }
-    (rig.image.take().unwrap(), rig.widgets, registry::unregistered(&rig.ctx))
+    (rig.canvas.image(&rig.ctx).clone(), rig.widgets, registry::unregistered(&rig.ctx))
 }
 
 #[test]
@@ -770,14 +740,17 @@ fn the_export_dialog_gallery_at_both_window_sizes() {
     let mut failures = vec![];
     for size in [(1400, 900), (900, 600)] {
         let (one, widgets, unregistered) = window(size);
-        let (two, _, _) = window(size);
-        assert!(one.rgba == two.rgba, "two renders of the {size:?} window differ");
         check_ids(&format!("gallery {size:?}"), &widgets, &unregistered);
         let dialog = widgets.iter().find(|w| w.id == "dialog:export").unwrap().rect;
         for w in widgets.iter().filter(|w| w.id.starts_with("field:") || w.id.starts_with("check:") || w.id.starts_with("slider:")) {
             assert!(w.rect[0] + w.rect[2] <= dialog[0] + dialog[2] + 0.01, "{size:?}: {} leaves the dialog: {:?}", w.id, w.rect);
         }
-        check(&format!("gallery-export-{}x{}", size.0, size.1), &one, &mut failures);
+        // One fingerprint per state: the large window's (the small one has to fit, above).
+        if size == (1400, 900) {
+            let (two, _, _) = window(size);
+            assert!(one.rgba == two.rgba, "two renders of the {size:?} window differ");
+            check(&format!("gallery-export-{}x{}", size.0, size.1), &one, &mut failures);
+        }
     }
     assert!(failures.is_empty(), "{} (renders in {})", failures.join("\n"), out_dir().display());
 }

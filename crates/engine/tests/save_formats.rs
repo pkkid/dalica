@@ -20,7 +20,7 @@
 //!   (orientation 1, its own quantisation tables); a partial-MCU size and a progressive file keep
 //!   their entropy-coded data byte for byte and take the orientation flag.
 //!
-//! The HEIC case runs with `cargo test -p dalica-engine --features heif --test save_formats`.
+//! The HEIC case runs with `cargo test -p dalica-engine --features heif --test all save_formats::`.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

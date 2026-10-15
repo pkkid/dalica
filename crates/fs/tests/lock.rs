@@ -1,5 +1,5 @@
 //! The library lock across processes (`data-model.md` §10.6). This test binary doubles as the
-//! helper process: run with `DALICA_LOCK_HELPER=<mode>:<dir>`, the `helper` test takes the lock
+//! helper process: run with `DALICA_LOCK_HELPER=<mode>:<dir>`, the `lock::helper` test takes the lock
 //! (`hold`: prints HELD and keeps it until its stdin closes) or tries to (`try`: prints LOCKED or
 //! ACQUIRED and exits).
 
@@ -34,7 +34,7 @@ fn helper() {
 
 fn spawn(mode: &str, dir: &Path) -> Child {
     Command::new(std::env::current_exe().unwrap())
-        .args(["helper", "--exact", "--nocapture", "--test-threads=1"])
+        .args(["lock::helper", "--exact", "--nocapture", "--test-threads=1"])
         .env(HELPER, format!("{mode}:{}", dir.display()))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

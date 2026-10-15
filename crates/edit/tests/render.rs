@@ -4,55 +4,23 @@
 //! key follows the operations' versions; hostile recipes, sizes and parameters never panic and stay
 //! within the allocation limit. Fingerprints: `fingerprints/render-*.json`.
 
-mod common;
-
 use std::time::Instant;
 
-use common::{assert_two_sizes_agree, check_fingerprint, recipe, scene};
+use crate::common::{self, assert_two_sizes_agree, cases, check_fingerprint, exif, recipe, recipes, scene, stored, window};
 use dalica_edit::render::{MAX_PIXELS, MAX_SCALE};
 use dalica_edit::version::{self, key, key_with};
 use dalica_edit::{Error, Geometry, LISTED, Op, Point, Recipe, Region, Source, Target, Typed, render, render_region};
-use dalica_image::{Orientation, Rgba8};
-use dalica_scenes::{Kind, Scene, orient};
+use dalica_image::Rgba8;
+use dalica_scenes::{Kind, Scene};
 use proptest::prelude::*;
-
-const GEOMETRY: [&str; 5] = ["rotate(90)", "rotate(180)", "rotate(270)", "flip_h()", "flip_v()"];
-
-/// Every sequence of up to `max` operations from `GEOMETRY`, the empty one first.
-fn recipes(max: usize) -> Vec<Vec<&'static str>> {
-    let mut all = vec![vec![]];
-    let mut last = vec![vec![]];
-    for _ in 0..max {
-        last = last.iter().flat_map(|r: &Vec<&str>| GEOMETRY.iter().map(move |op| [r.clone(), vec![*op]].concat())).collect();
-        all.extend(last.iter().cloned());
-    }
-    all
-}
-
-fn stored(up: &Rgba8, o: u8) -> Rgba8 {
-    let rgb = dalica_scenes::Rgb8 { width: up.width, height: up.height, data: up.data.chunks(4).flat_map(|p| [p[0], p[1], p[2]]).collect() };
-    common::rgba(&orient::store(&rgb, o).unwrap())
-}
-
-fn exif(o: u8) -> Orientation {
-    Orientation::new(o).unwrap()
-}
-
-/// The window `(x, y, w, h)` of `img`.
-fn window(img: &Rgba8, x: u32, y: u32, w: u32, h: u32) -> Rgba8 {
-    let mut data = Vec::new();
-    for row in y..y + h {
-        let at = ((row * img.width + x) * 4) as usize;
-        data.extend_from_slice(&img.data[at..at + (w * 4) as usize]);
-    }
-    Rgba8 { width: w, height: h, data }
-}
 
 #[test]
 fn rotations_and_flips_render_exactly_as_before() {
+    // Recipes of up to two operations reach every transform; longer ones only compose them, which
+    // `geometry.rs` proves pixel-exact with the full set.
     let up = scene(29, 48, 32);
-    let all = recipes(4);
-    assert_eq!(all.len(), 781);
+    let all = recipes(2);
+    assert_eq!(all.len(), 31);
     for o in 1..=8u8 {
         let file = stored(&up, o);
         let source = Source::new(&file, exif(o));
@@ -241,12 +209,14 @@ fn the_geometry_maps_points_between_the_stored_and_the_displayed_picture() {
 #[test]
 fn two_sizes_agree_after_downscale_and_renders_match_their_fingerprints() {
     let up = scene(21, 300, 200);
-    for (case, o, ops) in
-        [("render-fit-upright", 1u8, vec![]), ("render-fit-exif6-rotate90", 6, vec!["rotate(90)"]), ("render-fit-exif3-flip_h", 3, vec!["flip_h()"])]
-    {
+    let file = stored(&up, 1);
+    let small = assert_two_sizes_agree(Source::new(&file, exif(1)), &recipe(&[]), 64, 240, 2.0);
+    check_fingerprint("render-fit-upright", &small, 0.5);
+    // Turned and flipped files agree at two sizes too (their pixels are the upright render's,
+    // turned exactly: `rotations_and_flips_render_exactly_as_before`).
+    for (o, ops) in [(6u8, vec!["rotate(90)"]), (3, vec!["flip_h()"])] {
         let file = stored(&up, o);
-        let small = assert_two_sizes_agree(Source::new(&file, exif(o)), &recipe(&ops), 64, 240, 2.0);
-        check_fingerprint(case, &small, 0.5);
+        assert_two_sizes_agree(Source::new(&file, exif(o)), &recipe(&ops), 64, 240, 2.0);
     }
     // An analysing operation (Auto Fix, from the fixed-size proxy) on soft blobs with the corner
     // marker painted over: the fix stretches the picture, and at a hard edge such as the marker's
@@ -304,16 +274,15 @@ fn renders_over_the_limits_are_refused_before_allocating() {
 }
 
 #[test]
-fn a_large_render_is_timed() {
-    // A 24 MP photo to a 2560-pixel preview and to a 256-pixel thumbnail, through the whole
-    // pipeline (two operations analysing their proxy). Printed for the PR; budgets come with M7.11.
-    let img = scene(5, 6000, 4000);
+fn a_large_render_through_the_whole_pipeline_fits_the_box() {
+    // A 1.5 MP photo to a 1024-pixel preview and to a 256-pixel thumbnail, through the whole
+    // pipeline (two operations analysing their proxy). Speed: the release benches.
+    let img = scene(5, 1500, 1000);
     let r = recipe(&["autofix()", "rotate(90)", "tuning(0.3,0,0,0,none)"]);
-    for edge in [2560, 256] {
-        let t = Instant::now();
+    for edge in [1024, 256] {
         let out = render(Source::upright(&img), &r, Target::Fit { width: edge, height: edge }).unwrap();
-        println!("24 MP → {} × {}: {:.1} ms", out.width, out.height, t.elapsed().as_secs_f64() * 1000.0);
         assert_eq!(out.height, edge);
+        assert!(out.width.abs_diff(edge * 2 / 3) <= 1, "{} × {}", out.width, out.height);
     }
 }
 
@@ -365,7 +334,7 @@ fn hostile_f64() -> impl Strategy<Value = f64> {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(200))]
+    #![proptest_config(ProptestConfig::with_cases(cases(200)))]
 
     #[test]
     fn random_recipes_and_hostile_targets_never_panic(

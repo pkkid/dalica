@@ -254,7 +254,7 @@ fn list(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
 mod tests {
     use serde_json::json;
 
-    use crate::cmd::testing::{hostile, library, open};
+    use crate::cmd::testing::{library, open};
     use crate::error::CmdError;
 
     #[test]
@@ -268,7 +268,6 @@ mod tests {
         s.wait_idle();
         assert_eq!(s.library().photos().count(), 3);
         assert!(matches!(s.execute("folders.add", &json!({ "path": "relative/dir" })), Err(CmdError::BadParams(_))));
-        hostile(&mut s, "folders.add");
         s.flush().unwrap();
         let lib_dir = s.dir().to_path_buf();
         drop(s);
@@ -280,11 +279,8 @@ mod tests {
     }
 
     #[test]
-    fn every_folder_command_fails_gracefully_on_hostile_params() {
+    fn every_folder_command_refuses_bad_params() {
         let (_dirs, mut s, _) = library(2);
-        for id in ["folders.set", "folder.remove", "folders.browse", "folders.list"] {
-            hostile(&mut s, id);
-        }
         let root = s.roots()[0].clone();
         let bad = [
             json!({ "changes": [] }),

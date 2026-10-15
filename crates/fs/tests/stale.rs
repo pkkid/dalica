@@ -5,6 +5,7 @@ use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
+use crate::common::names;
 use dalica_fs::faults::{Fault, arm, disarm_all, points};
 use dalica_fs::{Error, Expect, mark_ui_thread, remove_stale_temps, replace, stale::STALE_AFTER};
 
@@ -35,12 +36,6 @@ fn link_file(target: &Path, link: &Path) -> bool {
             false
         }
     }
-}
-
-fn names(dir: &Path) -> Vec<String> {
-    let mut v: Vec<String> = fs::read_dir(dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
-    v.sort();
-    v
 }
 
 #[test]

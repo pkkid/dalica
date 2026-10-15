@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
+use crate::common::{FRAMES, check_pixels, new_driver, out_dir};
 use dalica_core::PhotoId;
 use dalica_engine::Session;
 use dalica_scan::Places;
@@ -22,37 +23,15 @@ use dalica_scenes::fingerprint;
 use dalica_ui::dialogs::folder_manager::{State, mode_id, row_id};
 use dalica_ui::{App, Driver};
 
-const FRAMES: usize = 60 * 60;
-
 /// A folder of `n` scenes photos in `root`; returns its path.
 fn photos(root: &Path, n: usize) -> PathBuf {
-    let files = dalica_scenes::demo_library(1, n, 11).unwrap();
+    let files = crate::common::demo_library(1, n, 11).unwrap();
     for f in &files {
         let path = root.join(&f.path);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, &f.bytes).unwrap();
     }
     root.join(files[0].path.parent().unwrap())
-}
-
-fn out_dir() -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/ui");
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
-fn check_fingerprint(name: &str, width: u32, height: u32, rgba: &[u8]) {
-    let png = fingerprint::png_rgba(width, height, rgba);
-    std::fs::write(out_dir().join(format!("{name}.png")), &png).unwrap();
-    let stored = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("tests/fingerprints/{name}.json"));
-    if std::env::var_os("DALICA_BLESS").is_some() {
-        std::fs::write(&stored, fingerprint::to_json(&fingerprint::fingerprint(width, height, rgba)) + "\n").unwrap();
-    }
-    let expected = fingerprint::from_json(&std::fs::read_to_string(&stored).unwrap()).unwrap();
-    if let Err(m) = fingerprint::check(width, height, rgba, &expected, 2.0) {
-        std::fs::write(out_dir().join(format!("{name}-actual.png")), &m.actual_png).unwrap();
-        panic!("{name}: {}", m.message);
-    }
 }
 
 /// A pixel rectangle `[x0, y0, x1, y1)`.
@@ -133,7 +112,7 @@ fn check_regions(d: &Driver, case: &str, shot: &dalica_ui_kit::Image) {
                 rgba.extend_from_slice(&p);
             }
         }
-        check_fingerprint(&format!("region-{}-{case}", r.name), rw, rh, &rgba);
+        check_pixels(&format!("region-{}-{case}", r.name), rw, rh, &rgba);
     }
     std::fs::write(out_dir().join(format!("window-{case}.png")), fingerprint::png_rgba(w, h, &shot.rgba)).unwrap();
 }
@@ -154,7 +133,7 @@ fn click_a_thumbnail_press_ctrl_8_and_the_badge_shows() {
     let ui_thread = dalica_fs::mark_ui_thread();
     let refused_before = dalica_fs::guard::refused();
     let started = Instant::now();
-    let mut d = Driver::new(App::new(Some(session)), 1400, 900, 1.0);
+    let mut d = new_driver(App::new(Some(session)), 1400, 900, 1.0);
     d.settle(FRAMES).unwrap();
 
     // File ▸ Add Folder… opens the Folder Manager: Pictures set to Scan Always, then OK; the
@@ -229,7 +208,7 @@ fn the_star_button_toggles_the_selection() {
     session.wait_idle();
     let _ui_thread = dalica_fs::mark_ui_thread();
     let refused_before = dalica_fs::guard::refused();
-    let mut d = Driver::new(App::new(Some(session)), 900, 600, 1.0);
+    let mut d = new_driver(App::new(Some(session)), 900, 600, 1.0);
     d.settle(FRAMES).unwrap();
     assert!(matches!(d.click("button:star"), Err(dalica_ui::DriverError::Disabled(_))));
     let first = d.widgets().into_iter().find(|w| w.id.starts_with("thumb:")).unwrap();

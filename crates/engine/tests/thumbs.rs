@@ -14,16 +14,19 @@ use dalica_thumbs::ladder::Source;
 use dalica_thumbs::pack::Cache;
 use serde_json::json;
 
+use crate::common::pick;
+
 const W: u32 = 640;
 const H: u32 = 480;
 
-/// `n` photos `IMG_0001.jpg`… of `W × H` in `dir/<folder>`.
+/// `n` photos `IMG_0001.jpg`… of `W × H` in `dir/<folder>`: eight scenes, encoded once and
+/// written in turn.
 fn photos(dir: &Path, folder: &str, n: usize) -> PathBuf {
     let folder = dir.join(folder);
     dalica_fs::create_dir_all(&folder).unwrap();
+    let scenes: Vec<Vec<u8>> = (0..n.min(8)).map(|i| dalica_scenes::jpeg(&dalica_scenes::Scene::new(i as u64, W, H), 80, None).unwrap()).collect();
     for i in 0..n {
-        let bytes = dalica_scenes::jpeg(&dalica_scenes::Scene::new(i as u64, W, H), 80, None).unwrap();
-        dalica_fs::replace(&folder.join(format!("IMG_{:04}.jpg", i + 1)), &bytes, Expect::Absent).unwrap();
+        dalica_fs::replace(&folder.join(format!("IMG_{:04}.jpg", i + 1)), &scenes[i % scenes.len()], Expect::Absent).unwrap();
     }
     folder
 }
@@ -55,22 +58,23 @@ fn size_of(t: &Thumb) -> Option<(Size, bool, (u32, u32))> {
     }
 }
 
-/// `roadmap.md` M4.8: after `wait_idle`, each of 200 photos has a sketch and its 128 and 256
-/// entries, made from one decode each; the sketches took no undo step and survive a restart, and a
-/// second session on the same cache decodes nothing.
+/// `roadmap.md` M4.8: after `wait_idle`, each of 200 photos (12 in a task's gate) has a sketch and
+/// its 128 and 256 entries, made from one decode each; the sketches took no undo step and survive a
+/// restart, and a second session on the same cache decodes nothing.
 #[test]
 fn after_a_scan_every_photo_has_a_sketch_and_its_128_and_256_entries() {
+    let n = pick(12, 200);
     let dir = tempfile::tempdir().unwrap();
     let cache_dir = dir.path().join("cache");
     let opts = options(CacheDir::At(cache_dir.clone()), 4);
     let mut s = open(&dir.path().join("library"), &opts);
-    let folder = photos(dir.path(), "Lisbon", 200);
+    let folder = photos(dir.path(), "Lisbon", n);
     s.execute("folders.add", &json!({ "path": folder })).unwrap();
     s.wait_idle();
-    assert_eq!(s.library().photos().count(), 200);
-    assert_eq!(s.library().sketch_count(), 200, "every photo has its sketch");
+    assert_eq!(s.library().photos().count(), n);
+    assert_eq!(s.library().sketch_count(), n, "every photo has its sketch");
     let stats = s.thumbnail_stats();
-    assert_eq!((stats.scanned, stats.failed, stats.decodes, stats.jobs), (200, 0, 200, 0), "one decode per photo: {stats:?}");
+    assert_eq!((stats.scanned, stats.failed, stats.decodes, stats.jobs), (n, 0, n as u64, 0), "one decode per photo: {stats:?}");
     assert_eq!(s.undo_stack().len(), 0, "sketches are not undo steps");
     assert_eq!(s.thumbnail_cache_dir(), Some(cache_dir.as_path()));
     let sources: Vec<Source> = ids(&s).into_iter().map(|id| source(&s, id)).collect();
@@ -90,11 +94,11 @@ fn after_a_scan_every_photo_has_a_sketch_and_its_128_and_256_entries() {
 
     // Reopened: the sketches came back from the index; the entries are cached, so nothing is decoded.
     let mut s = open(&dir.path().join("library"), &opts);
-    assert_eq!(s.library().sketch_count(), 200);
+    assert_eq!(s.library().sketch_count(), n);
     assert_eq!(s.library().revision(), revision, "sketches did not touch the library revision");
     s.wait_idle();
     let stats = s.thumbnail_stats();
-    assert_eq!((stats.scanned, stats.decodes), (200, 0), "{stats:?}");
+    assert_eq!((stats.scanned, stats.decodes), (n, 0), "{stats:?}");
 }
 
 /// `roadmap.md` M4.8: a 300 px cell answers with the 256 entry at once and gets the 512 after its

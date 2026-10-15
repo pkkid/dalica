@@ -192,9 +192,12 @@ pub struct CommandSpec {
   detection (`menus-and-shortcuts.md` §2.0). It lives in the engine so the CLI and tests can check
   and change bindings without a window; `ui` only feeds it key events and the active context.
 - **Command test contract** (every command, enforced by `cargo xtask parity` listing commands
-  without tests): behaviour; undo and redo restore exactly; `enabled` false cases; hostile params
-  return `Err` (`panic_hunt` fuzzes all of them); for `Files` commands, the files on disk after the
-  command and after undo.
+  without tests): behaviour; undo and redo restore exactly; `enabled` false cases; for `Files`
+  commands, the files on disk after the command and after undo. Hostile params (empty,
+  out-of-range, wrong-type) must return `Err`, and that is covered for every command at once: one
+  engine test loops over every registered command, and `panic_hunt` generates params from each
+  command's spec. A new command needs no hostile-params test of its own (maintainer decision,
+  2026-10-15).
 - `cargo xtask parity` cross-checks `docs/parity.md` against the registry and the menu catalog.
 
 ## 4. State, undo and persistence
@@ -489,6 +492,14 @@ personal photo or other crate's state. Test inputs are built in the test (synthe
 `scenes`); bigger real-world corpora are fetched by `cargo xtask corpus` and run behind the
 `corpus` feature (`development.md` §11). Media is never committed.
 
+**How much to test** (maintainer decision, 2026-10-15): one test per behaviour, at the lowest crate
+that fits; a higher layer never re-tests what a lower crate proves. Fault points are enumerated
+exhaustively only in `fs`; a crate that uses `fs` tests one point per class (an error before the
+commit, an error after it, a crash). Heavy variants (scale, exhaustive walks, many proptest cases,
+every truncation offset) run only at full strength (`DALICA_FULL_TESTS=1`, set by the review gate);
+a plain `cargo test` runs them quick (`development.md` §6). The table says what each crate proves;
+the crates above it lean on that.
+
 | Crate | Tested alone by |
 |---|---|
 | `core` | unit + property tests: geometry round trips, date parsing, collision naming, position keys (a key always exists between two keys; ordering is total) |
@@ -512,7 +523,9 @@ personal photo or other crate's state. Test inputs are built in the test (synthe
 **Fingerprints instead of golden images.** Pixel tests store a small JSON fingerprint per case
 (per-channel mean and standard deviation over an 8 × 8 grid, plus output size) with a tolerance,
 not a PNG. On failure the test writes actual/expected/diff PNGs under `target/test-output/` for a
-human or agent to look at. `DALICA_BLESS=1` rewrites fingerprints and must be reviewed in the
+human or agent to look at. Fingerprints are used only where pixels are the feature (an edit
+operation, a widget's look, the rasterizer), at one window size; layout is checked by numbers
+(§10). `DALICA_BLESS=1` rewrites fingerprints and must be reviewed in the
 diff: the PR shows the images and the commit body says why. New and changed baselines merge with
 their task and the maintainer approves them in bulk at the next review (`task-board.md` §7). No
 media is committed.
@@ -521,14 +534,14 @@ media is committed.
 
 | Risk | Why automation falls short | How we check it |
 |---|---|---|
-| The look matches the Craft apps and the layout feels like the reference organizer | "looks right" is a judgement; reference screenshots must not be pixel-compared or copied | numeric layout assertions (§10) + token tests; agents take headless and windowed screenshots at 1400 × 900 and 900 × 600 after every UI change and compare by eye with `ui-layout.md` and the private notes; before/after screenshots in every UI PR; maintainer review at each milestone end |
+| The look matches the Craft apps and the layout feels like the reference organizer | "looks right" is a judgement; reference screenshots must not be pixel-compared or copied | numeric layout assertions (§10) + token tests; agents take headless and windowed screenshots at 1400 × 900 (and 900 × 600 when the layout changes) after every UI change and compare by eye with `ui-layout.md` and the private notes; before/after screenshots in every UI PR; maintainer review at each milestone end |
 | Effect and Auto Fix quality | correctness is aesthetic | fingerprint tests pin the look once approved; invariants catch breakage; the maintainer approves every `DALICA_BLESS` change by viewing the diff PNGs, in bulk at the next review |
 | Real-world files (camera JPEGs, RAW previews, HEIC, metadata written by other apps) | synthetic files miss vendor quirks | pinned, sha256-verified external corpora with floors that only rise; optionally `exiftool` as an outside oracle in the corpus job only (never in the product) |
 | Interop with other apps' metadata | we can't run every app | corpus files written by other apps + byte-preservation hashes; a manual round-trip checklist (open in another app, edit, rescan) before releases |
 | File watching, network drives, sleep/wake, unplugged volumes | OS event timing is nondeterministic | events are hints; the deterministic verification scan is what tests assert; offline volumes simulated; a manual unplug/replug checklist per release |
 | Crash safety | real crashes are random | `fs` fault injection at every write step; journal torn-tail tests; a kill-the-process loop test in `store` |
-| Performance at 100 k photos | needs scale and quiet machines | synthetic in-memory libraries; `cargo xtask bench` before/after on hot paths; budgets in `perf/budgets.toml`; nightly perf runs on one fixed machine, never per PR |
-| Platform differences (Windows paths and locking, macOS menus and Cmd keys, Wayland translucency, trash) | one dev machine | CI on Linux, Windows and macOS for every PR; odd-name path tests; menu model tests instead of native-menu tests; a per-release manual checklist per OS |
+| Performance at 100 k photos | needs scale and quiet machines | synthetic in-memory libraries; `cargo xtask bench` before/after on hot paths; the release budgets judged once per milestone, at its review (the Budgets workflow); budgets in `perf/budgets.toml`; nightly perf runs on one fixed machine, never per PR |
+| Platform differences (Windows paths and locking, macOS menus and Cmd keys, Wayland translucency, trash) | one dev machine | CI on Linux, Windows and macOS at every milestone review (and dispatched by hand for a task specific to one system); odd-name path tests; menu model tests instead of native-menu tests; a per-release manual checklist per OS |
 | GPU vs CPU, DPI, real windows | headless isn't the window | CPU is the oracle; agents check the real window through the control channel's `ui.screenshot` for each check-in page |
 | Timing, animation, debounce, drag feel | wall-clock tests are flaky; "feel" is subjective | virtual `Clock`; the driver advances time explicitly; human review of drag/scroll feel |
 | Native dialogs | can't be clicked headlessly | `Picker` trait, scripted in tests |

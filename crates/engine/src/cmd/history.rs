@@ -179,11 +179,11 @@ pub const UNDO_SAVE: &str = "Undo Save";
 mod tests {
     use serde_json::json;
 
-    use crate::cmd::testing::{hostile, library};
+    use crate::cmd::testing::library;
     use crate::error::CmdError;
 
     #[test]
-    fn disabled_unknown_and_hostile_params() {
+    fn disabled_unknown_and_bad_params() {
         let (_dirs, mut s, ids) = library(1);
         let id = ids[0];
         assert_eq!(s.execute("photo.history.undo", &json!({ "id": id })), Err(CmdError::Disabled("Nothing to undo.".into())));
@@ -192,7 +192,6 @@ mod tests {
             assert!(matches!(s.execute(cmd, &json!({ "id": 999 })), Err(CmdError::NotFound(_))), "{cmd}");
             assert!(matches!(s.execute(cmd, &json!({})), Err(CmdError::BadParams(_))), "{cmd}");
             assert!(matches!(s.execute(cmd, &json!({ "id": "x" })), Err(CmdError::BadParams(_))), "{cmd}");
-            hostile(&mut s, cmd);
         }
         assert!(matches!(s.execute("photo.history.apply", &json!({ "id": 999, "op": "sepia()" })), Err(CmdError::NotFound(_))));
         for op in ["", "future_op(1)", "legacy:redeye(1)", "rotate(45)", "sepia(", "rotate(090)"] {
@@ -202,7 +201,6 @@ mod tests {
         assert!(matches!(s.execute("photo.history.apply", &json!({ "id": id, "op": long })), Err(CmdError::Limit(_))));
         assert!(matches!(s.execute("photo.history.apply", &json!({ "id": id, "op": 7 })), Err(CmdError::BadParams(_))));
         assert!(matches!(s.execute("photo.history.apply", &json!({ "id": id })), Err(CmdError::BadParams(_))));
-        hostile(&mut s, "photo.history.apply");
         assert!(s.library().info(id).is_empty());
     }
 

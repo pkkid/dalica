@@ -9,7 +9,7 @@ use serde_json::Value;
 /// Runs `cargo <args>`; panics with its output if it fails. Returns its standard output.
 pub fn cargo(args: &[&str]) -> String {
     let started = Instant::now();
-    let out = dalica_acceptance::cargo().args(args).output().unwrap();
+    let out = dalica_acceptance::cargo_split(args, |_| {}).unwrap();
     let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
     assert!(out.status.success(), "cargo {}:\n{stdout}\n{}", args.join(" "), String::from_utf8_lossy(&out.stderr));
     println!("cargo {}: ok ({:.1} s)", args.join(" "), started.elapsed().as_secs_f64());
@@ -46,8 +46,8 @@ pub fn crate_suites() {
     suites("dalica-library", &["ops", "m6_fields", "tags", "tree"]);
     suites("dalica-edit", &["recipe", "geometry", "frame"]);
     cargo_test(&["-p", "dalica-sidecar"]);
-    suites("dalica-store", &["m6_fields", "sidecars"]);
-    suites("dalica-engine", &["rotate", "hide", "captions", "folder_info", "tags", "dates", "photo_metadata", "settings_m6", "keymap"]);
+    suites("dalica-store", &["m6_fields", "fields", "sidecars"]);
+    suites("dalica-engine", &["rotate", "hide", "captions", "folder_info", "tags", "dates", "photo_metadata", "settings", "write_back", "keymap"]);
     suites(
         "dalica-ui",
         &[
@@ -60,7 +60,7 @@ pub fn crate_suites() {
             "status_tags",
             "adjust_date",
             "quick_tags",
-            "view_state_m6",
+            "view_state",
             "stand_in",
         ],
     );
@@ -84,9 +84,9 @@ pub fn crate_suites() {
     suites("dalica-ui", &["about", "release_notes"]);
 }
 
-/// `panic_hunt -- --ignored`: every command, hostile params, never a panic.
+/// `panic_hunt` (once per review gate; `dalica_acceptance::panic_hunt`): every command, hostile params, never a panic.
 pub fn panic_hunt() {
-    cargo_test(&["-p", "dalica-engine", "--test", "panic_hunt", "--", "--ignored"]);
+    dalica_acceptance::panic_hunt().unwrap();
 }
 
 /// The metadata corpus (`development.md` §11, `xmp-interop.md` §8 over other applications'

@@ -61,7 +61,7 @@ impl Appender {
             Some(Fault::Crash) => return Err(Error::Crashed(points::APPEND_FSYNC)),
             None => {}
         }
-        self.file.sync_data().map_err(io_err("fsync", &self.path))
+        faults::fsync(&self.path, || self.file.sync_data()).map_err(io_err("fsync", &self.path))
     }
 
     /// The file's size in bytes as far as this appender knows.

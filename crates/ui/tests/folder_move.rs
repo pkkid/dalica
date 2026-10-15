@@ -13,13 +13,12 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::common::{FRAMES, new_driver};
 use dalica_core::FolderId;
 use dalica_engine::Session;
 use dalica_ui::panels::folders::{self, model::Kind};
 use dalica_ui::{App, Driver, ScriptedPicker};
 use serde_json::json;
-
-const FRAMES: usize = 60 * 60;
 
 struct Fx {
     _dir: tempfile::TempDir,
@@ -48,7 +47,7 @@ fn fixture() -> Fx {
     s.wait_idle();
     let (home, trip) = (s.library().folder_by_path(&root.join("Home")).unwrap(), s.library().folder_by_path(&root.join("Trip")).unwrap());
     let picker = ScriptedPicker::new();
-    let mut d = Driver::new(App::with_picker(Some(s), Arc::new(picker.clone())), 1400, 900, 1.0);
+    let mut d = new_driver(App::with_picker(Some(s), Arc::new(picker.clone())), 1400, 900, 1.0);
     d.settle(FRAMES).unwrap();
     Fx { _dir: dir, root, home, trip, picker, d }
 }

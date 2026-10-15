@@ -17,6 +17,7 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::thread::ThreadId;
 use std::time::{Duration, Instant};
 
+use crate::common::off_owner;
 use dalica_core::{PhotoId, Timestamp, VirtualClock};
 use dalica_engine::offline::{CHECK_EVERY, OnlineCheck, PENDING_FILE, RootProbe, SETTLE};
 use dalica_engine::{CacheDir, CmdError, Options, Session, Thumb, ThumbOptions};
@@ -26,11 +27,6 @@ use dalica_sidecar::{Field, Limits, Sidecar};
 use serde_json::json;
 
 const PATIENCE: Duration = Duration::from_secs(60);
-
-/// Runs `f` on a helper thread: the test's own file changes never count against the owner.
-fn off_owner<T: Send>(f: impl FnOnce() -> T + Send) -> T {
-    std::thread::scope(|s| s.spawn(f).join().unwrap())
-}
 
 struct Fx {
     _tmp: tempfile::TempDir,
@@ -336,7 +332,11 @@ fn checks_are_scheduled_and_a_hung_check_never_blocks_poll() {
     let after_open = calls(&gate);
 
     // A scan ending asks for a check, without waiting for the schedule (polled each frame, as the
-    // UI does; a scan that starts and ends between two polls is caught by the schedule).
+    // UI does; a scan that starts and ends between two polls is caught by the schedule, or by its
+    // counts: so it finds one photo more than the last one did, and is seen to end however fast).
+    let bytes = dalica_scenes::jpeg(&dalica_scenes::Scene::new(9, 120, 80), 80, None).unwrap();
+    let new = fx.card.join("NEW_0001.jpg");
+    off_owner(move || std::fs::write(new, bytes).unwrap());
     s.execute("folders.add", &json!({ "path": fx.card })).unwrap();
     let start = Instant::now();
     while s.busy() {

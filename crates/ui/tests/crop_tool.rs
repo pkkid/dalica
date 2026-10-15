@@ -4,14 +4,15 @@
 //! step and the thumbnail follows; on a rotated photo the stored rectangle is in the stored frame;
 //! a suggestion click draws its rectangle; the Add Custom Ratio dialog refuses 0 × 5 and adds
 //! 3 × 2; Esc cancels; a re-opened crop shows the whole photo with the current rectangle; the
-//! panel's and the dialog's fingerprints at 1400 × 900 and 900 × 600.
+//! panel's and the dialog's fingerprints at 1400 × 900 (at 900 × 600 they only have to fit).
 //!
 //! `DALICA_SHOTS=<dir>` writes the screenshots there too; `DALICA_BLESS=1` stores new
 //! fingerprints (look at the PNGs in `target/test-output/ui/` first).
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
+use crate::common::{FRAMES, LARGE, check_rect, check_small, new_driver, out_dir};
 use dalica_edit::{Dihedral, Rect as NRect};
 use dalica_engine::Session;
 use dalica_scenes::{Scene, fingerprint};
@@ -23,8 +24,6 @@ use dalica_ui_kit::WidgetInfo;
 use egui::{Modifiers, PointerButton, Pos2, pos2};
 use serde_json::{Value, json};
 
-const FRAMES: usize = 60 * 60;
-const SIZES: [(u32, u32); 2] = [(1400, 900), (900, 600)];
 /// The photos' size (landscape 3:2).
 const PHOTO: (u32, u32) = (600, 400);
 
@@ -49,7 +48,7 @@ fn setup((w, h): (u32, u32)) -> T {
     s.wait_idle();
     let found = s.execute("library.query", &json!({ "limit": 1000 })).unwrap();
     let ids: Vec<u64> = found["photos"].as_array().unwrap().iter().map(|p| p["id"].as_u64().unwrap()).collect();
-    let mut d = Driver::new(App::new(Some(s)), w, h, 1.0);
+    let mut d = new_driver(App::new(Some(s)), w, h, 1.0);
     d.settle(FRAMES).unwrap();
     let mut t = T { _dir: dir, d, ids };
     let id = t.ids[0];
@@ -445,12 +444,6 @@ fn the_actions_refuse_bad_params_and_change_nothing() {
 
 // --- fingerprints ---------------------------------------------------------------------------------
 
-fn out_dir() -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/ui");
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
 /// The pixels of `rect` of the window: width, height and RGBA.
 fn pixels(t: &T, rect: [f32; 4]) -> (u32, u32, Vec<u8>) {
     let shot = t.d.screenshot().unwrap();
@@ -468,22 +461,7 @@ fn pixels(t: &T, rect: [f32; 4]) -> (u32, u32, Vec<u8>) {
 /// Checks the pixels of `rect` against `tests/fingerprints/<name>.json` (`DALICA_BLESS=1` writes
 /// it), and writes them to the test output (and to `$DALICA_SHOTS`).
 fn check_region(t: &T, name: &str, rect: [f32; 4]) {
-    let (w, h, rgba) = pixels(t, rect);
-    let png = fingerprint::png_rgba(w, h, &rgba);
-    std::fs::write(out_dir().join(format!("{name}.png")), &png).unwrap();
-    if let Some(dir) = std::env::var_os("DALICA_SHOTS") {
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(Path::new(&dir).join(format!("{name}.png")), &png).unwrap();
-    }
-    let stored = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("tests/fingerprints/{name}.json"));
-    if std::env::var_os("DALICA_BLESS").is_some() {
-        std::fs::write(&stored, fingerprint::to_json(&fingerprint::fingerprint(w, h, &rgba)) + "\n").unwrap();
-    }
-    let expected = fingerprint::from_json(&std::fs::read_to_string(&stored).unwrap()).unwrap();
-    if let Err(m) = fingerprint::check(w, h, &rgba, &expected, 2.0) {
-        std::fs::write(out_dir().join(format!("{name}-actual.png")), &m.actual_png).unwrap();
-        panic!("{name}: {}", m.message);
-    }
+    check_rect(&t.d, name, rect);
 }
 
 /// The whole window as a PNG in the test output (and `$DALICA_SHOTS`), for the eye; no fingerprint.
@@ -500,34 +478,34 @@ fn window_shot(t: &T, name: &str) {
 
 #[test]
 fn the_crop_panel_the_photo_and_the_dialog_match_their_fingerprints() {
-    for size in SIZES {
-        let mut t = setup(size);
-        let tag = format!("{}x{}", size.0, size.1);
-        open_crop(&mut t);
-        choose_row(&mut t, "choice:crop.ratio/4:3");
-        t.d.step_until(|_| crop::suggestions().len() == 3, FRAMES).unwrap();
-        action(&mut t, "draw", json!({ "from": [0.15, 0.2], "to": [0.7, 0.9] }));
-        // The pointer away from every widget, so nothing shows hovered.
-        let corner = pos2(size.0 as f32 - 2.0, size.1 as f32 / 2.0);
-        t.d.pointer(&[PointerEvent { kind: PointerKind::Move, pos: corner }], PointerButton::Primary, Modifiers::NONE).unwrap();
-        settle(&mut t);
-        window_shot(&t, &format!("crop-window-{tag}"));
-        check_region(&t, &format!("edit-crop-panel-{tag}"), widget(&t, "region:editPanel").rect);
-        check_region(&t, &format!("edit-crop-photo-{tag}"), widget(&t, "region:canvas").rect);
-        // The dialog over the whole window, its draft filled.
-        choose_row(&mut t, "choice:crop.ratio/add");
-        let d = t.d.app_mut().state_mut().dialogs.last_mut().unwrap();
-        d.fields.insert("width".into(), json!("3"));
-        d.fields.insert("height".into(), json!("2"));
-        d.fields.insert("name".into(), json!("Print"));
-        // No field keeps the focus, so no caret blinks in the picture.
-        t.d.step();
-        t.d.ctx().memory_mut(|m| m.stop_text_input());
-        t.d.pointer(&[PointerEvent { kind: PointerKind::Move, pos: corner }], PointerButton::Primary, Modifiers::NONE).unwrap();
-        settle(&mut t);
-        window_shot(&t, &format!("crop-dialog-window-{tag}"));
-        check_region(&t, &format!("dialog-custom-ratio-{tag}"), widget(&t, "dialog:customRatio").rect);
-    }
+    let size = LARGE;
+    let mut t = setup(size);
+    let tag = format!("{}x{}", size.0, size.1);
+    open_crop(&mut t);
+    choose_row(&mut t, "choice:crop.ratio/4:3");
+    t.d.step_until(|_| crop::suggestions().len() == 3, FRAMES).unwrap();
+    action(&mut t, "draw", json!({ "from": [0.15, 0.2], "to": [0.7, 0.9] }));
+    // The pointer away from every widget, so nothing shows hovered.
+    let corner = pos2(size.0 as f32 - 2.0, size.1 as f32 / 2.0);
+    t.d.pointer(&[PointerEvent { kind: PointerKind::Move, pos: corner }], PointerButton::Primary, Modifiers::NONE).unwrap();
+    settle(&mut t);
+    window_shot(&t, &format!("crop-window-{tag}"));
+    check_region(&t, &format!("edit-crop-panel-{tag}"), widget(&t, "region:editPanel").rect);
+    check_region(&t, &format!("edit-crop-photo-{tag}"), widget(&t, "region:canvas").rect);
+    // The dialog over the whole window, its draft filled.
+    choose_row(&mut t, "choice:crop.ratio/add");
+    let d = t.d.app_mut().state_mut().dialogs.last_mut().unwrap();
+    d.fields.insert("width".into(), json!("3"));
+    d.fields.insert("height".into(), json!("2"));
+    d.fields.insert("name".into(), json!("Print"));
+    // No field keeps the focus, so no caret blinks in the picture.
+    t.d.step();
+    t.d.ctx().memory_mut(|m| m.stop_text_input());
+    t.d.pointer(&[PointerEvent { kind: PointerKind::Move, pos: corner }], PointerButton::Primary, Modifiers::NONE).unwrap();
+    settle(&mut t);
+    window_shot(&t, &format!("crop-dialog-window-{tag}"));
+    check_region(&t, &format!("dialog-custom-ratio-{tag}"), widget(&t, "dialog:customRatio").rect);
+    check_small(&mut t.d, "dialog:customRatio");
 }
 
 #[test]

@@ -1,28 +1,26 @@
 //! M9's fields on disk and in the index (`data-model.md` §2–§4, §10.1): a folder's photo sort,
 //! albums with their memberships, keys and covers, and the index-only search facts, content
-//! digests and first-indexed and last-changed times. Each survives the journal and a snapshot;
-//! the user's come back from the folders and `albums.json` after the index is deleted, the
-//! index-only ones never reach a sidecar; hostile ids, keys and wrong types never panic and are
-//! kept where they cannot be used.
+//! digests and first-indexed and last-changed times. Each surviving the journal and a snapshot, the
+//! user's coming back from the folders and `albums.json` after the index is deleted and the
+//! index-only ones never reaching a sidecar is `fields.rs`. Here: every field has a home; hostile
+//! ids, keys and wrong types never panic and are kept where they cannot be used.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
+use crate::common::NOW;
 use dalica_core::{AlbumId, FolderId, PhotoId, PosKey, Timestamp};
 use dalica_library::{AlbumInfo, ContentDigest, Facts, Folder, Library, Op, Photo, PhotoSort, SortBy};
 use dalica_sidecar::albums::ENTRY_KEYS;
 use dalica_sidecar::fields::{M9_FOLDER_KEYS, M9_PHOTO_KEYS, M9_TOP_KEYS};
-use dalica_sidecar::{Field, Limits, Sidecar};
+use dalica_sidecar::{Limits, Sidecar};
+use dalica_store::SidecarWriter;
 use dalica_store::mapping::{
     self, ALBUM_INFO_FIELDS, CONTENT_DIGEST_FIELDS, FACTS_FIELDS, FOLDER_DATA_M9, FolderState, LIBRARY_DATA_M9, PHOTO_DATA_M9, PHOTO_SORT_FIELDS,
     PhotoState, Reading, Source,
 };
-use dalica_store::rebuild::import_library;
-use dalica_store::{Outcome, SidecarWriter, Store, albums};
 use proptest::prelude::*;
 use serde_json::{Value, json};
-
-const NOW: Timestamp = Timestamp::from_millis(1_791_000_000_000);
 
 fn names() -> Vec<String> {
     vec!["IMG_0001.jpg".into(), "a]b ;=.jpg".into(), "東京 タワー.CR2".into(), format!("{}.jpg", "長".repeat(60)), "IMG_0005.png".into()]
@@ -117,148 +115,6 @@ fn every_m9_field_is_mapped() {
     let FolderState { id: _, path: _, folder: _, photos: _, project: _, sort: _, album_names: _, known_albums: _ } = FolderState::default();
 }
 
-fn best() -> AlbumId {
-    id("a91c0e0000aa")
-}
-
-fn trams() -> AlbumId {
-    id("a77d020000bb")
-}
-
-/// Sorts, albums over both folders with a cover, facts, digests and times: every M9 field, as
-/// the ops the engine would apply (a command's op stamped with its last-changed time).
-fn change_everything(lib: &mut Library, folders: &[FolderId], ids: &[Vec<PhotoId>]) -> Vec<Op> {
-    let (a, b) = (&ids[0], &ids[1]);
-    let mut ops = vec![
-        Op::SetFolderSorts { sorts: vec![(folders[0], PhotoSort::new(SortBy::Name, true)), (folders[1], PhotoSort::new(SortBy::Size, false))] },
-        Op::CreateAlbums {
-            albums: vec![
-                (best(), AlbumInfo { name: "Best of 2026".into(), description: "d".into(), date: None, use_newest: true, place: "Lisbon".into() }),
-                (trams(), AlbumInfo { name: "Trams".into(), date: Some("2026-06-04".parse().unwrap()), ..AlbumInfo::default() }),
-            ],
-        },
-    ];
-    let mut out = Vec::new();
-    for op in ops.drain(..) {
-        lib.apply(op.clone()).unwrap();
-        out.push(op);
-    }
-    for (album, photos) in [(best(), vec![b[2], a[0], a[3], b[0]]), (trams(), vec![a[2], b[2]])] {
-        let add = lib.album_add_op(&album, &photos, None).unwrap();
-        let add = lib.stamped(add, Timestamp::from_millis(1_790_000_000_000));
-        lib.apply(add.clone()).unwrap();
-        out.push(add);
-    }
-    let rest = vec![
-        Op::SetCovers { covers: vec![(best(), Some(a[3]))] },
-        Op::SetFacts { facts: vec![(a[0], Facts { make: "Canon".into(), model: "EOS R5".into(), video: false, geotagged: true })] },
-        Op::SetDigests { digests: vec![(b[1], Some(ContentDigest { size: 10, mtime: Timestamp::from_millis(5), digest: "blake3:00ff".into() }))] },
-        lib.first_indexed_op(&[a[0], a[1], b[4]], Timestamp::from_millis(1_780_000_000_000)),
-    ];
-    for op in rest {
-        lib.apply(op.clone()).unwrap();
-        out.push(op);
-    }
-    out
-}
-
-/// The library without its index-only M9 data (what a rebuild cannot give back).
-fn without_index_only(lib: &Library) -> Library {
-    let mut l = lib.clone();
-    let facts = l.facts_all().map(|(id, _)| (id, Facts::default())).collect();
-    let digests = l.digests().map(|(id, _)| (id, None)).collect();
-    let indexed = l.first_indexed_all().map(|(id, _)| (id, None)).collect();
-    let changed = l.last_changed_all().map(|(id, _)| (id, None)).collect();
-    l.apply(Op::Batch {
-        ops: vec![Op::SetFacts { facts }, Op::SetDigests { digests }, Op::SetFirstIndexed { indexed }, Op::SetLastChanged { changed }],
-    })
-    .unwrap();
-    l
-}
-
-/// `data-model.md` §10.1 for every M9 field: scan, change everything, delete the index, rebuild
-/// from the folders and `albums.json`, compare.
-#[test]
-fn deleting_the_index_and_rebuilding_gives_every_m9_field_back() {
-    let roots = [tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap()];
-    let paths: Vec<&Path> = roots.iter().map(|d| d.path()).collect();
-    let lib_dir = tempfile::tempdir().unwrap();
-    let (mut lib, folders, ids) = scan(&paths);
-    let mut o = Store::open(lib_dir.path(), NOW).unwrap();
-    o.store.snapshot(&lib).unwrap();
-    for op in change_everything(&mut lib, &folders, &ids) {
-        o.store.append(&op).unwrap();
-    }
-    assert!(lib.last_changed(ids[0][0]).is_some() && lib.first_indexed(ids[1][4]).is_some());
-
-    // The journal's records after a snapshot of the scan, then a snapshot, hold it all.
-    drop(o);
-    let mut reopened = Store::open(lib_dir.path(), NOW).unwrap();
-    assert_eq!((reopened.report.clone(), reopened.library.model()), (vec![], lib.model()));
-    reopened.store.snapshot(&lib).unwrap();
-    drop(reopened);
-    let reopened = Store::open(lib_dir.path(), NOW).unwrap();
-    assert_eq!((reopened.report.clone(), reopened.library.model()), (vec![], lib.model()));
-    drop(reopened);
-
-    // The sidecars and albums.json.
-    let mut w = SidecarWriter::new();
-    for &f in &folders {
-        w.mark_dirty(f);
-    }
-    assert!(w.flush(&lib, NOW).values().all(|o| *o == Outcome::Written));
-    assert_eq!(albums::write(lib_dir.path(), &albums::state(&lib), NOW), albums::AlbumsWrite::Written);
-    let first = sidecar(paths[0]);
-    assert_eq!((first.folder_sort(), first.folder_reverse()), (Field::Value("name".into()), Field::Value(true)));
-    let second = sidecar(paths[1]);
-    assert_eq!((second.folder_sort(), second.folder_reverse()), (Field::Value("size".into()), Field::Absent));
-    for d in &paths {
-        let text = std::fs::read_to_string(d.join(".dalica.json")).unwrap();
-        for index_only in ["Canon", "geotagged", "blake3", "digest", "1780000000000", "1790000000000", "indexed", "changed"] {
-            assert!(!text.contains(index_only), "{index_only} in {text}");
-        }
-    }
-
-    // Delete the index; a new scan finds the folders and photos with nothing said about them.
-    for name in ["index.log", "index.snap"] {
-        std::fs::remove_file(lib_dir.path().join(name)).unwrap();
-    }
-    let (mut rebuilt, _, _) = scan(&paths);
-    let import = import_library(&rebuilt, lib_dir.path(), NOW);
-    assert!(import.problems.is_empty() && import.library_problems.is_empty() && import.read_only.is_empty(), "{import:?}");
-    let kinds: Vec<&str> = import
-        .ops
-        .iter()
-        .map(|op| match op {
-            Op::SetFolderSorts { .. } => "sorts",
-            Op::CreateAlbums { .. } => "albums",
-            Op::AddMembers { .. } => "members",
-            Op::SetCovers { .. } => "covers",
-            _ => "other",
-        })
-        .collect();
-    assert_eq!(kinds, ["sorts", "albums", "members", "covers"]);
-    for op in import.ops {
-        rebuilt.apply(op).unwrap();
-    }
-    assert_eq!(rebuilt.model(), without_index_only(&lib).model());
-    assert!(import_library(&rebuilt, lib_dir.path(), NOW).ops.is_empty(), "importing again changes nothing");
-    let before: Vec<Vec<u8>> = paths.iter().map(|d| std::fs::read(d.join(".dalica.json")).unwrap()).collect();
-    for &f in &folders {
-        w.mark_dirty(f);
-    }
-    assert!(w.flush(&rebuilt, NOW).values().all(|o| *o == Outcome::Unchanged));
-    let after: Vec<Vec<u8>> = paths.iter().map(|d| std::fs::read(d.join(".dalica.json")).unwrap()).collect();
-    assert_eq!(after, before, "a file that already says what the model says keeps its bytes");
-
-    // Back to the default sort: the keys go.
-    rebuilt.apply(Op::SetFolderSorts { sorts: vec![(folders[0], PhotoSort::default())] }).unwrap();
-    w.mark_dirty(folders[0]);
-    w.flush(&rebuilt, NOW);
-    let first = sidecar(paths[0]);
-    assert_eq!((first.folder_sort(), first.folder_reverse()), (Field::Absent, Field::Absent));
-}
-
 #[test]
 fn a_sort_dalica_cannot_hold_is_kept_reported_and_written_over_only_when_the_user_sorts() {
     let dir = tempfile::tempdir().unwrap();
@@ -310,6 +166,8 @@ fn hostile_value() -> impl Strategy<Value = Value> {
 }
 
 proptest! {
+    #![proptest_config(crate::common::cases(256, 32))]
+
     /// Hostile ids, keys, names and wrong types never panic. What the reader cannot use stays in
     /// the file through a write, and the model's memberships, names and sort read back as written.
     #[test]

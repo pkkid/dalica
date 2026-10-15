@@ -2,12 +2,12 @@
 //! session has on the frame it appears. The tests scroll the light table at the speed thumb's top
 //! speed and check the thumbnails' counters (`ui.inspect` → `perf`), summed over every frame:
 //!
-//! - a **scanned 10 k-photo** synthetic library, reopened with its thumbnail cache on disk and
+//! - a **scanned 10 k-photo** synthetic library (2 500 in a task's quick run), reopened with its thumbnail cache on disk and
 //!   nothing in memory: no placeholder cell on any frame, textures within the cap and uploads
 //!   within the per-frame cap, nothing read from disk on the UI thread; once the view stops, every
 //!   visible cell draws its covering size, and back at the top the light table is pixel for pixel
 //!   what it was before the scroll;
-//! - an **index-only 100 k-photo** library (no files, thumbnails off): every cell draws its sketch,
+//! - an **index-only 100 k-photo** library (20 000 in a quick run; no files, thumbnails off): every cell draws its sketch,
 //!   no photo is marked as failed, and nothing is pending.
 //!
 //! The scroll is driven by the wheel (`ui.scroll`: a step every other frame, so on average the
@@ -23,10 +23,12 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
 
+use crate::common::{full, new_driver};
 use dalica_core::{Clock, SystemClock};
 use dalica_engine::synthetic::{self, Spec};
 use dalica_engine::{CacheDir, Options, Session, ThumbOptions};
 use dalica_ui::control::{Config, Connection, Control, Request, serve};
+use dalica_ui::headless::{PointerEvent, PointerKind};
 use dalica_ui::panels::thumbnails::{Counts, MAX_TEXTURES, Totals, UPLOADS_PER_FRAME};
 use dalica_ui::{App, Driver};
 use egui::vec2;
@@ -105,19 +107,21 @@ fn light_table_pixels(d: &Driver) -> Vec<u8> {
 }
 
 /// A scanned synthetic library in `dir` whose thumbnails were made into `cache`, reopened with
-/// that cache: sketches in the index, 128 and 256 entries on disk, nothing in memory.
+/// that cache: sketches in the index, 128 and 256 entries on disk, nothing in memory. (What
+/// `synthetic::open_scanned` does, with the cache named in the options rather than set for the
+/// whole process, which the other tests share.)
 fn scanned(dir: &Path, cache: &Path, spec: &Spec) -> Session {
     let started = Instant::now();
-    dalica_engine::thumbs::set_process_cache_dir(Some(cache.to_path_buf()));
-    let first = synthetic::open_scanned(dir, spec, synthetic::DEFAULT_FILE_SIDE, clock());
-    dalica_engine::thumbs::set_process_cache_dir(None);
-    let first = first.unwrap();
+    let options = Options { thumbs: ThumbOptions { cache: CacheDir::At(cache.to_path_buf()), ..ThumbOptions::default() } };
+    synthetic::write_photos(dir, spec, synthetic::DEFAULT_FILE_SIDE).unwrap();
+    let mut first = Session::open_with(&synthetic::library_dir(dir), clock(), &options).unwrap();
+    first.execute("folders.add", &json!({ "path": synthetic::photos_dir(dir) })).unwrap();
+    first.wait_idle();
     let stats = first.thumbnail_stats();
     assert_eq!((stats.scanned, stats.failed), (spec.photos, 0), "every photo scanned: {stats:?}");
     assert_eq!(first.thumbnail_cache_dir(), Some(cache));
     drop(first);
     println!("{} photos written and scanned in {:.1} s", spec.photos, started.elapsed().as_secs_f64());
-    let options = Options { thumbs: ThumbOptions { cache: CacheDir::At(cache.to_path_buf()), ..ThumbOptions::default() } };
     let session = Session::open_with(&synthetic::library_dir(dir), clock(), &options).unwrap();
     assert!(session.library().photos().all(|p| session.library().sketch(p.id).is_some()), "every photo sketched in the index");
     session
@@ -128,11 +132,12 @@ fn scanned(dir: &Path, cache: &Path, spec: &Spec) -> Session {
 #[cfg(not(windows))]
 fn a_scanned_10k_library_scrolled_at_top_speed_never_shows_a_placeholder() {
     let dir = tempfile::tempdir().unwrap();
-    let session = scanned(&dir.path().join("lib"), &dir.path().join("cache"), &Spec::new(10_000, 100, synthetic::SEED));
+    let spec = if full() { Spec::new(10_000, 100, synthetic::SEED) } else { Spec::new(2_500, 25, synthetic::SEED) };
+    let session = scanned(&dir.path().join("lib"), &dir.path().join("cache"), &spec);
 
     let ui_thread = dalica_fs::mark_ui_thread();
     let refused_before = dalica_fs::guard::refused();
-    let mut d = Driver::new(App::new(Some(session)), 1400, 900, 1.0);
+    let mut d = new_driver(App::new(Some(session)), 1400, 900, 1.0);
     d.settle(FRAMES).unwrap();
     let c = counts(&d);
     assert!(c.covered_cells > 20, "{c:?}");
@@ -189,8 +194,11 @@ fn a_scanned_10k_library_scrolled_at_top_speed_never_shows_a_placeholder() {
         t.covered_cells, t.upscaled_cells, t.sketch_cells, t.max_textures, t.max_uploads
     );
 
-    // Back at the top (eased there through the whole library), the light table is what it was.
+    // Back at the top (eased there through the whole library), the light table is what it was
+    // (with the pointer moved off it: the wheel left it over whichever cell scrolled under it).
     let t0 = totals(&d);
+    let off = PointerEvent { kind: PointerKind::Move, pos: egui::pos2(700.0, 895.0) };
+    d.pointer(&[off], egui::PointerButton::Primary, egui::Modifiers::NONE).unwrap();
     d.app_mut().state_mut().scroll = Default::default();
     d.settle(FRAMES).unwrap();
     assert_eq!(view(&d).0, 0.0);
@@ -225,9 +233,10 @@ fn a_scanned_10k_library_scrolled_at_top_speed_never_shows_a_placeholder() {
 #[test]
 fn an_index_only_100k_library_draws_sketches_and_fails_nothing() {
     let dir = tempfile::tempdir().unwrap();
-    let session = synthetic::open(dir.path(), &Spec::PHOTOS_100K, clock()).unwrap();
+    let spec = if full() { Spec::PHOTOS_100K } else { Spec::new(20_000, 200, synthetic::SEED) };
+    let session = synthetic::open(dir.path(), &spec, clock()).unwrap();
     assert_eq!(session.thumbnail_cache_dir(), None, "thumbnails are off");
-    let mut d = Driver::new(App::new(Some(session)), 1400, 900, 1.0);
+    let mut d = new_driver(App::new(Some(session)), 1400, 900, 1.0);
     d.settle(FRAMES).unwrap();
     let t0 = totals(&d);
     // A stretch at the top speed, then a jump near the far end and another stretch.
@@ -255,5 +264,5 @@ fn an_index_only_100k_library_draws_sketches_and_fails_nothing() {
     for zero in ["placeholderCells", "upscaledCells", "coveredCells", "failedCells", "thumbTextures", "thumbUploads"] {
         assert_eq!(perf[zero], 0, "{zero}: {perf}");
     }
-    println!("{frames} frames over 100 k photos: {} cells, all sketches; no failures", t.sketch_cells);
+    println!("{frames} frames over {} photos: {} cells, all sketches; no failures", spec.photos, t.sketch_cells);
 }

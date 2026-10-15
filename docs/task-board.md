@@ -102,8 +102,9 @@ the project).
   list, the agent asks the lead (comment on the issue) before touching it.
 - **Shared registration files** need not be listed and never count as overlap: the root
   `Cargo.toml` (new `[workspace.dependencies]` lines), `Cargo.lock`, `xtask/src/main.rs` (one
-  dispatch line per new command) and `tests/acceptance/Cargo.toml` (one `[[test]]` per milestone
-  file); `SHARED_FILES` in `xtask/src/tasks/config.rs` is the list the board uses. A task may also
+  dispatch line per new command), `tests/acceptance/Cargo.toml` (one `[[test]]` per milestone
+  file) and each crate's `tests/all.rs` (one `mod` line per integration-test file); `SHARED_FILES`
+  in `xtask/src/tasks/config.rs` and `glob::is_shared` are what the board uses. A task may also
   make the matching registration edits in a crate it owns files in (its `Cargo.toml` dependencies,
   the `mod` lines of its `lib.rs`) without listing them. Edits there are small and surgical
   (re-read the file right before editing); the lead resolves conflicts in them at merge,
@@ -153,7 +154,7 @@ Todo ──(deps done)──► Ready ──claim──► In Progress ──sub
 | `submit <id> [--body-file F] [--dry-run]` | refuse a review task; refuse unless `cargo xtask ci` passed on this commit (a green `ci` on a clean worktree records `<git common dir>/dalica-ci/<commit>.ok`) and a devlog entry exists; push the branch; open the PR (title `M1.4: <title>`, body: what changed, evidence for each *done when*, numbers, screenshots, `Closes #<issue>`); set In Review. **Send-back:** a task already In Review is accepted when its branch was rebased (its commit differs from the one origin has): `submit` pushes with lease (refused, and the board untouched, if origin's branch moved since the worker last fetched), keeps the open pull request and its body, leaves the status In Review and comments "submitted again after a rebase"; the same commit as the one already pushed is refused. The evidence is the `--body-file` (screenshots, per-point evidence) or, without it, the task's newest dev-log entry. When the branch adds, changes or deletes **fingerprint baselines** (`**/fingerprints/*.json`), the body lists them (each marked added, changed or deleted) and says they are approved in bulk at the next review; the worker attaches their images (the new PNG, or the actual/expected/diff PNGs) and the commit body says why each changed |
 | `release <id> --reason …` | back to Ready with a comment; the branch is kept for whoever claims it next |
 | `block <id> "question"` | set Blocked, add `needs-maintainer`, comment the question; the agent then takes another task. The run goes on; the question is asked at the milestone's review |
-| `merge <id> [--dry-run]` | lead only, under the merge lock: refuse a review task (only the maintainer merges those), refuse while the latest finished GitHub CI run on `main` is red, rebase origin's copy of the branch on `origin/main` in the `merge` worktree (the worker may still have the branch checked out; a stop whose only conflicts are inside `docs/parity.md`'s generated summary is resolved by regenerating the summary from the merged rows, as `cargo xtask parity --write` does; a stop whose only conflicted file is `docs/parity.md` with conflicts in its rows is resolved by merging the two sides row by row from git's three versions (rows matched by id: a row added, changed or deleted by one side only takes that side's version; text outside the rows may change on one side only), then regenerating the summary; either way the rebase goes on, dropping a commit left empty; once done, a regenerated summary is refreshed once more and folded into the last commit; any other conflict aborts the rebase and the task is sent back to its worker, §4: another file, the same row changed by both sides, text outside the rows changed by both, rows reordered or moved to another section by the side merged in, or a new row with no neighbouring row in its table to place it by), `cargo xtask ci`, push, wait until GitHub reports the pushed head of the PR mergeable (it recomputes that after a push and refuses a squash before: read at once, then with backoff for up to 2 minutes; a conflict refuses at once, and nothing is merged either way), squash-merge (`M1.4: <title> (#PR)`, retried up to three times while GitHub still answers "not mergeable") without waiting for the PR's GitHub checks (they and the run on `main` still report); when the branch adds, changes or deletes fingerprint baselines, append a dev-log entry for the next review with one `FINGERPRINTS: <id> #<PR> added\|changed\|deleted <paths>` line per kind (from the local `git diff`, no extra GitHub call; only after the squash succeeded); then `sync` against `docs/roadmap.md` as merged on `origin/main` (fetched and read from git, so the task's ✅ counts before the main checkout is pulled; no checkout, clean or dirty, is touched) |
+| `merge <id> [--dry-run]` | lead only, under the merge lock: refuse a review task (only the maintainer merges those), refuse while the latest finished GitHub CI run on `main` (a dispatched one: no tests run on `main` by themselves) is red, rebase origin's copy of the branch on `origin/main` in the `merge` worktree (the worker may still have the branch checked out; a stop whose only conflicts are inside `docs/parity.md`'s generated summary is resolved by regenerating the summary from the merged rows, as `cargo xtask parity --write` does; a stop whose only conflicted file is `docs/parity.md` with conflicts in its rows is resolved by merging the two sides row by row from git's three versions (rows matched by id: a row added, changed or deleted by one side only takes that side's version; text outside the rows may change on one side only), then regenerating the summary; either way the rebase goes on, dropping a commit left empty; once done, a regenerated summary is refreshed once more and folded into the last commit; any other conflict aborts the rebase and the task is sent back to its worker, §4: another file, the same row changed by both sides, text outside the rows changed by both, rows reordered or moved to another section by the side merged in, or a new row with no neighbouring row in its table to place it by), `cargo xtask ci --merge` (fmt, clippy and the static checks, no tests: the worker's gate ran them on the same changes), push, wait until GitHub reports the pushed head of the PR mergeable (it recomputes that after a push and refuses a squash before: read at once, then with backoff for up to 2 minutes; a conflict refuses at once, and nothing is merged either way), squash-merge (`M1.4: <title> (#PR)`, retried up to three times while GitHub still answers "not mergeable"; a task's pull request runs no GitHub tests to wait for, §6); when the branch adds, changes or deletes fingerprint baselines, append a dev-log entry for the next review with one `FINGERPRINTS: <id> #<PR> added\|changed\|deleted <paths>` line per kind (from the local `git diff`, no extra GitHub call; only after the squash succeeded); then `sync` against `docs/roadmap.md` as merged on `origin/main` (fetched and read from git, so the task's ✅ counts before the main checkout is pulled; no checkout, clean or dirty, is touched) |
 | `status` | the whole board: per milestone, per status, who holds what, stale claims (no push or log entry for 3 h) |
 | `log <id> "text"` | append a dated entry to the private dev log (§8) |
 | `prune [--dry-run]` | lead only, at each review (or when disk runs low): remove cargo's `incremental/` caches from `target/agent-<n>` and `target/merge` (§7). Skips an agent that holds an In Progress task, and a profile where cargo is building (it takes cargo's own build locks first, so a cargo that starts meanwhile waits). Only an `incremental/` next to a `.fingerprint/` is removed; symlinks are never followed. Prints what it removed and the space freed |
@@ -182,16 +183,27 @@ is developer tooling; the Dalica app itself never touches the network for this.
   claims → write the next milestone's task blocks while the current one runs. It never relays a
   question mid-run: a blocked task waits for the review while the others go on (`AGENTS.md` §4
   lists the rare exceptions). When the run reaches a review task, let running tasks finish and
-  merge, prepare it (`/milestone-review`: `accept M<n>`, the check-in page with the questions and
+  merge, prepare it (`/milestone-review`: `cargo xtask ci --full`, the check-in page with the questions and
   the UI changelog, the questions asked and their answers applied, *Where we stand* and
-  `status.md` on a `review/M<n>.R` branch, a pull request) and stop; never merge that pull request or close the review issue. When GitHub CI on `main` turns red, fix it
-  before the next merge (`tasks merge` refuses until it is green). The lead
+  `status.md` on a `review/M<n>.R` branch, a pull request) and stop; never merge that pull request or close the review issue. Every merge is decided by the local
+  merge gate: GitHub runs no tests on a task's pull request or on `main` (*GitHub checks*, below). For
+  a task that is specific to one system (a Windows path fix, a macOS menu), the lead dispatches CI
+  on `main` by hand after merging it; when a dispatched run turns red, fix it before the next merge
+  (`tasks merge` refuses until it is green). The lead
   may take small tasks when the review queue is empty, never ones whose files overlap a task in
   review.
 - **Workers (`agent-2` … `agent-8`):** loop: `tasks next` → `tasks claim` → do the task in its
   worktree following `AGENTS.md` → `cargo xtask ci` → `tasks log` → `tasks submit` → next. When
   `next` offers nothing, wait 5 minutes and ask again (do not poll faster; GitHub rate limits are
   shared by all agents).
+
+**GitHub checks** (maintainer decision, 2026-10-15). Testing during a milestone is cut to a
+minimum, and the full list of tests runs once, at the review. A worker's `cargo xtask ci` tests only
+the packages its branch changed, quick; the lead's `cargo xtask ci --merge` runs no tests; the
+review runs `cargo xtask ci --full` (`development.md` §3). On GitHub, CI (`ci.yml`, with its corpus
+job), Budgets and Fuzz run only on the pull request of a `review/M<n>.R` branch and when dispatched
+by hand; a task's pull request and a push to `main` run no tests. A failure there becomes a fix task,
+merged before the review closes.
 
 ## 7. Concurrency on one machine
 
@@ -209,6 +221,7 @@ All agents run on the maintainer's machine, so local locks make GitHub updates r
   | Worktree | `../dalica.worktrees/agent-<n>` (reused from task to task; a new branch each task) |
   | Cargo target dir | `<main checkout>/target/agent-<n>` (kept warm across tasks; `[profile.dev] debug = "line-tables-only"` keeps it small) |
   | Build jobs | `CARGO_BUILD_JOBS=3` (24 cores shared by 8 agents) |
+  | Compiler cache | `RUSTC_WRAPPER=sccache` (40 GB cache) when `sccache` is installed: the eight target dirs share compiled dependencies; without it nothing changes |
   | Control port | `18000 + 10·n` (never the default 7990) |
   | Scratch dir | `<scratchpad>/agent-<n>/` |
 

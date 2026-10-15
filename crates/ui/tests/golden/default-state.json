@@ -1,0 +1,85 @@
+{
+  "about": {
+    "ascending": true,
+    "list": "grabBag",
+    "names": "username",
+    "sort": "firstCommit",
+    "tab": "about"
+  },
+  "activity": false,
+  "albumProperties": null,
+  "caption": "none",
+  "captionEdit": null,
+  "clipboard": null,
+  "collapsedFolders": [],
+  "collapsedGroups": [],
+  "collision": null,
+  "copyFiles": null,
+  "deleteFolder": null,
+  "deletePhotos": null,
+  "descriptionEdit": null,
+  "dialogs": [],
+  "edit": {
+    "compare": "one",
+    "crop": null,
+    "panelVisible": true,
+    "photo": null,
+    "retouch": null,
+    "straighten": null,
+    "tab": "basic",
+    "tool": null,
+    "tuning": null,
+    "zoom": "fit"
+  },
+  "export": null,
+  "exportProgress": null,
+  "folder": null,
+  "folderSort": "date",
+  "folderSortReverse": false,
+  "fullScreen": false,
+  "hiddenPictures": false,
+  "moveFiles": null,
+  "newFolder": null,
+  "pane": null,
+  "paneLarge": false,
+  "propertiesShowAll": false,
+  "renameFiles": null,
+  "revert": null,
+  "saveExplain": null,
+  "scroll": {
+    "offset": 0.0,
+    "section": null
+  },
+  "search": {
+    "age": 0.0,
+    "filters": {
+      "faces": false,
+      "geotagged": false,
+      "starred": false,
+      "videos": false
+    },
+    "highlight": null,
+    "savedScroll": null,
+    "text": ""
+  },
+  "selection": {
+    "anchor": null,
+    "ids": [],
+    "section": null,
+    "whole": false
+  },
+  "smallPictures": false,
+  "status": "",
+  "tagsPane": {
+    "draft": "",
+    "highlight": null
+  },
+  "thumbSize": 144.0,
+  "tray": {
+    "held": [],
+    "selected": []
+  },
+  "treeMode": "flat",
+  "treeWidth": 240.0,
+  "view": "library"
+}

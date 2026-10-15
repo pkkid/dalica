@@ -3,6 +3,7 @@
 //! `m<n>_headless` when there is one) and prints its manual checks (`tests/acceptance/<test>.md`)
 //! (`docs/roadmap.md` → How milestones work).
 
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::Command;
 use std::time::Instant;
@@ -21,8 +22,14 @@ pub const SUITES_RAN: &str = "DALICA_SUITES_RAN";
 
 /// Runs the test; `quiet` skips printing the manual checks (used by `ci`). `suites_ran` (set by
 /// `ci`, whose test step ran first) lets the test skip the crate suites it would re-run; otherwise
-/// [`SUITES_RAN`] is cleared, so a standalone run checks everything.
+/// [`SUITES_RAN`] is cleared, so a standalone run checks everything. A standalone run is at full
+/// strength (`ci::FULL_TESTS`), as in the review gate.
 pub fn accept(root: &Path, milestone: u32, headless: bool, quiet: bool, suites_ran: bool) -> Result<(), String> {
+    accept_with(root, milestone, headless, quiet, suites_ran, true)
+}
+
+/// [`accept`], with the crate suites it runs at full strength or not (`ci::FULL_TESTS`).
+pub fn accept_with(root: &Path, milestone: u32, headless: bool, quiet: bool, suites_ran: bool, full: bool) -> Result<(), String> {
     let dir = root.join("tests").join("acceptance");
     // `--headless` runs the milestone's headless half (`m<n>_headless`) when it has one.
     let name = match format!("m{milestone}_headless") {
@@ -43,6 +50,11 @@ pub fn accept(root: &Path, milestone: u32, headless: bool, quiet: bool, suites_r
         cmd.env(SUITES_RAN, "1");
     } else {
         cmd.env_remove(SUITES_RAN);
+    }
+    if full {
+        cmd.env(crate::ci::FULL_TESTS, "1");
+    } else {
+        cmd.env_remove(crate::ci::FULL_TESTS);
     }
     let started = Instant::now();
     let status = cmd.status().map_err(|e| format!("cannot run cargo: {e}"))?;
@@ -86,7 +98,33 @@ pub struct Budget {
     pub what: &'static str,
     pub cargo: &'static [&'static str],
     pub judge: fn(&str, f64) -> Result<String, String>,
+    /// Judged against a base commit measured on the same runner, when `budgets --baseline` names
+    /// one (the review's Budgets job does); `None` keeps the absolute budget.
+    pub relative: Option<Relative>,
 }
+
+/// How a budget is judged against a base commit (maintainer decision, 2026-10-15): the same bench
+/// runs in the base commit on the same runner, and each named row's median may be at most
+/// [`RELATIVE_FACTOR`] × the base's. Runner hardware varies by more than the absolute budgets
+/// allowed (search's index build: 446–490 ms on some runners, 718–769 ms on others); a ratio on one
+/// runner does not.
+pub struct Relative {
+    /// The report rows judged, each with an absolute cap that still holds (a query never above
+    /// 100 ms) or `None`.
+    pub rows: &'static [(&'static str, Option<f64>)],
+    /// The bench's source: the base commit must have it.
+    pub source: &'static str,
+    /// The commit that first measured these budgets, the base when the release named by
+    /// `--baseline` predates the bench.
+    pub since: &'static str,
+}
+
+/// A relative budget's base: its label and the bench's medians there; `None`: judge the absolute
+/// budget.
+pub type Base = Option<(String, BTreeMap<String, f64>)>;
+
+/// The largest slowdown a relative budget allows against its base commit.
+pub const RELATIVE_FACTOR: f64 = 1.3;
 
 /// The release budget test of `tests/acceptance/m4.rs` (part 2).
 const THUMB_TEST: &str = "the_thumb_held_at_top_speed_through_100k_sketched_photos_never_shows_a_placeholder";
@@ -109,6 +147,7 @@ pub const BUDGETS: &[Budget] = &[
         what: "library_bench in full: the 100 k scroll's UI frame time p95 ≤ 8 ms; cells visited per frame flat from 10 k to 100 k",
         cargo: &["bench", "-p", "dalica-ui", "--bench", "library_bench", "--", "--json"],
         judge: judge_scroll,
+        relative: None,
     },
     Budget {
         milestone: 4,
@@ -116,6 +155,7 @@ pub const BUDGETS: &[Budget] = &[
         what: "the speed thumb held at its top speed through 100 k sketched photos: UI frame time p95 ≤ 8 ms, cells flat, no placeholder",
         cargo: &["test", "--release", "-p", "dalica-acceptance", "--test", "m4", "--", "--exact", THUMB_TEST, "--nocapture"],
         judge: judge_thumb,
+        relative: None,
     },
     Budget {
         milestone: 5,
@@ -123,6 +163,7 @@ pub const BUDGETS: &[Budget] = &[
         what: "first_thumbnails: the first screenful drawn ≤ 1 s after adding a folder of 1 k and of 10 k JPEGs (1024 px, EXIF thumbnails); the full scan's time and photos per second (writes about 1.1 GB, removed after)",
         cargo: &["bench", "-p", "dalica-engine", "--bench", "first_thumbnails", "--", "--photos", FIRST_PHOTOS, "--scroll", "0", "--json"],
         judge: judge_first_thumbnails,
+        relative: None,
     },
     Budget {
         milestone: 5,
@@ -130,6 +171,7 @@ pub const BUDGETS: &[Budget] = &[
         what: "first_thumbnails' scanned pass: 20 k small JPEGs scanned into the thumbnail cache, then the light table's requests at the speed thumb's top speed from top to bottom: 0 placeholder cells, owner time per frame p95 ≤ 8 ms (the 100 k pass: DALICA_ACCEPT_RELEASE=1 cargo xtask accept M5)",
         cargo: &["bench", "-p", "dalica-engine", "--bench", "first_thumbnails", "--", "--photos", "0", "--scroll", SCROLL_PHOTOS, "--json"],
         judge: judge_scanned_scroll,
+        relative: None,
     },
     Budget {
         milestone: 8,
@@ -137,6 +179,11 @@ pub const BUDGETS: &[Budget] = &[
         what: "save_export: Save of a 24 MP JPEG with a Tuning edit and with only a quarter turn (render or lossless rotation, encode, write, verify), and the 200-photo mixed export at 1600 px, Normal, with a watermark and the location removed; medians within 1.5 × their first measurement",
         cargo: &["bench", "-p", "dalica-engine", "--bench", "save_export", "--", "--json"],
         judge: judge_save_export,
+        relative: Some(Relative {
+            rows: &[("save", None), ("save rotate-only", None), ("export 200 mixed", None)],
+            source: "crates/engine/benches/save_export.rs",
+            since: "8bd31cb",
+        }),
     },
     Budget {
         milestone: 9,
@@ -144,6 +191,17 @@ pub const BUDGETS: &[Budget] = &[
         what: "search: a synthetic 100 k library with captions, tags, folders and albums: the search index built, a one-word query, three words with Starred, a lone `-word`, and search.set to its result applied (debounce excluded); medians within 1.5 × their first measurement, a query never above 100 ms",
         cargo: &["bench", "-p", "dalica-engine", "--bench", "search", "--", "--json"],
         judge: judge_search,
+        relative: Some(Relative {
+            rows: &[
+                ("index build", None),
+                ("one word", Some(SEARCH_QUERY_CAP_MS)),
+                ("three words and a filter", Some(SEARCH_QUERY_CAP_MS)),
+                ("a -word", Some(SEARCH_QUERY_CAP_MS)),
+                ("search.set to applied", Some(SEARCH_QUERY_CAP_MS)),
+            ],
+            source: "crates/engine/benches/search.rs",
+            since: "0ad5663",
+        }),
     },
 ];
 
@@ -355,22 +413,83 @@ pub fn judge_scanned_scroll(stdout: &str, plant: f64) -> Result<String, String> 
 }
 
 /// `--plant-ms N`: the planted slowdown, 0 without the flag.
+#[cfg(test)]
 pub fn parse_budget_args(args: &[String]) -> Result<f64, String> {
-    let usage = "usage: cargo xtask budgets [--plant-ms N]";
-    match args {
-        [] => Ok(0.0),
-        [flag, n] if flag == "--plant-ms" => n
-            .parse::<f64>()
-            .ok()
-            .filter(|n| (0.0..=MAX_PLANT_MS).contains(n))
-            .ok_or_else(|| format!("--plant-ms takes milliseconds from 0 to {MAX_PLANT_MS}, not `{n}`")),
-        _ => Err(usage.to_string()),
+    Ok(parse_budget_flags(args)?.0)
+}
+
+/// `[--plant-ms N] [--baseline <git ref>]`, in any order.
+pub fn parse_budget_flags(args: &[String]) -> Result<(f64, Option<String>), String> {
+    let usage = "usage: cargo xtask budgets [--plant-ms N] [--baseline <git ref>]";
+    let (mut plant, mut baseline) = (0.0, None);
+    let mut it = args.iter();
+    while let Some(flag) = it.next() {
+        match (flag.as_str(), it.next()) {
+            ("--plant-ms", Some(n)) => {
+                plant = n
+                    .parse::<f64>()
+                    .ok()
+                    .filter(|n| (0.0..=MAX_PLANT_MS).contains(n))
+                    .ok_or_else(|| format!("--plant-ms takes milliseconds from 0 to {MAX_PLANT_MS}, not `{n}`"))?;
+            }
+            ("--baseline", Some(r)) if !r.is_empty() && !r.starts_with('-') => baseline = Some(r.clone()),
+            _ => return Err(usage.to_string()),
+        }
     }
+    Ok((plant, baseline))
+}
+
+/// The p50 of each row of a bench's JSON report, by name.
+pub fn report_medians(stdout: &str) -> Option<BTreeMap<String, f64>> {
+    let report = crate::bench::parse_report(stdout)?;
+    let rows = report.get("rows")?.as_array()?;
+    Some(rows.iter().filter_map(|r| Some((r.get("name")?.as_str()?.to_string(), r.get("p50_ms")?.as_f64().filter(|v| v.is_finite())?))).collect())
+}
+
+/// `stdout` of a release bench judged against `base` (the same bench's medians in the base
+/// commit `label`, on the same runner): each of `rel`'s rows at most [`RELATIVE_FACTOR`] × its
+/// base, and under its cap. A planted slowdown of `plant` ms is added to each median.
+pub fn judge_relative(stdout: &str, plant: f64, rel: &Relative, label: &str, base: &BTreeMap<String, f64>) -> Result<String, String> {
+    let report = crate::bench::parse_report(stdout).ok_or("the bench printed no JSON report with `rows`")?;
+    let mode = report.get("mode").and_then(serde_json::Value::as_str).unwrap_or("?");
+    if mode != "release" {
+        return Err(format!("the bench ran in a {mode} build; the budgets hold in release only"));
+    }
+    let head = report_medians(stdout).unwrap_or_default();
+    let mut parts = Vec::new();
+    for (name, cap) in rel.rows {
+        let p50 = *head.get(*name).ok_or(format!("no row `{name}`"))?;
+        let was = *base.get(*name).ok_or(format!("the base {label} has no row `{name}`"))?;
+        let judged = p50 + plant;
+        let limit = was * RELATIVE_FACTOR;
+        let planted = if plant > 0.0 { format!(" ({p50:.2} ms measured + {plant:.2} ms planted)") } else { String::new() };
+        if judged > limit {
+            return Err(format!("{name}: median {judged:.2} ms{planted}, over {RELATIVE_FACTOR} × the base {label}'s {was:.2} ms"));
+        }
+        if let Some(cap) = cap
+            && judged > *cap
+        {
+            return Err(format!("{name}: median {judged:.2} ms{planted}, over its {cap} ms cap"));
+        }
+        parts.push(format!("{name} {judged:.2} ms ({:.2} × {was:.2} ms)", judged / was.max(f64::MIN_POSITIVE)));
+    }
+    Ok(format!("against {label}: {}", parts.join("; ")))
 }
 
 /// Runs every budget with `cargo` (`cargo(args)` → `(succeeded, stdout)`), judges each, prints a
 /// line per budget and fails when any is missed. Every budget runs, so the log shows all numbers.
-pub fn budgets_with(plant: f64, mut cargo: impl FnMut(&[&str]) -> Result<(bool, String), String>) -> Result<(), String> {
+#[cfg(test)]
+pub fn budgets_with(plant: f64, cargo: impl FnMut(&[&str]) -> Result<(bool, String), String>) -> Result<(), String> {
+    budgets_against(plant, |_| Ok(None), cargo)
+}
+
+/// [`budgets_with`], where `base(budget)` gives a relative budget's base medians and the base's
+/// label (`None`: judge it on its absolute budget).
+pub fn budgets_against(
+    plant: f64,
+    mut base: impl FnMut(&Budget) -> Result<Base, String>,
+    mut cargo: impl FnMut(&[&str]) -> Result<(bool, String), String>,
+) -> Result<(), String> {
     if plant > 0.0 {
         println!("budgets: a planted slowdown of {plant} ms per frame (--plant-ms)");
     }
@@ -378,8 +497,20 @@ pub fn budgets_with(plant: f64, mut cargo: impl FnMut(&[&str]) -> Result<(bool, 
     for b in BUDGETS {
         println!("==> budgets: M{} {}: {}\n    cargo {}", b.milestone, b.name, b.what, b.cargo.join(" "));
         let started = Instant::now();
+        let against = match b.relative.as_ref().map(|_| base(b)) {
+            Some(Err(e)) => {
+                println!("  MISSED: the base: {e}");
+                missed.push(format!("M{} {}: the base: {e}", b.milestone, b.name));
+                continue;
+            }
+            Some(Ok(found)) => found,
+            None => None,
+        };
         let verdict = match cargo(b.cargo) {
-            Ok((true, stdout)) => (b.judge)(&stdout, plant),
+            Ok((true, stdout)) => match (&b.relative, &against) {
+                (Some(rel), Some((label, medians))) => judge_relative(&stdout, plant, rel, label, medians),
+                _ => (b.judge)(&stdout, plant),
+            },
             Ok((false, stdout)) => {
                 print!("{stdout}");
                 Err(format!("cargo {} failed", b.cargo.join(" ")))
@@ -403,20 +534,50 @@ pub fn budgets_with(plant: f64, mut cargo: impl FnMut(&[&str]) -> Result<(bool, 
     }
 }
 
-/// `cargo xtask budgets [--plant-ms N]`: builds in release and runs [`BUDGETS`].
+/// `cargo xtask budgets [--plant-ms N] [--baseline <git ref>]`: builds in release and runs
+/// [`BUDGETS`]. With `--baseline` (the review's Budgets job: the last release tag), each relative
+/// budget first runs its bench in that commit, or in the commit that first measured it when the
+/// release predates the bench, checked out under `target/budget-base/` (its own target directory),
+/// and is judged against it.
 pub fn budgets(root: &Path, args: &[String]) -> Result<(), String> {
-    let plant = parse_budget_args(args)?;
+    let (plant, baseline) = parse_budget_flags(args)?;
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
-    budgets_with(plant, |args| {
-        let out = Command::new(&cargo)
-            .current_dir(root)
-            .args(args)
-            .env_remove("DALICA_BLESS")
-            .stderr(std::process::Stdio::inherit())
-            .output()
-            .map_err(|e| format!("cannot run cargo: {e}"))?;
+    let run = |dir: &Path, target: Option<&Path>, args: &[&str]| -> Result<(bool, String), String> {
+        let mut cmd = Command::new(&cargo);
+        cmd.current_dir(dir).args(args).env_remove("DALICA_BLESS").stderr(std::process::Stdio::inherit());
+        if let Some(t) = target {
+            cmd.env("CARGO_TARGET_DIR", t);
+        }
+        let out = cmd.output().map_err(|e| format!("cannot run cargo: {e}"))?;
         Ok((out.status.success(), String::from_utf8_lossy(&out.stdout).into_owned()))
-    })
+    };
+    let git = |args: &[&str]| -> Result<String, String> {
+        let out = Command::new("git").current_dir(root).args(args).output().map_err(|e| format!("cannot run git: {e}"))?;
+        if out.status.success() {
+            Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+        } else {
+            Err(format!("git {} failed: {}", args.join(" "), String::from_utf8_lossy(&out.stderr).trim()))
+        }
+    };
+    let base = |b: &Budget| -> Result<Base, String> {
+        let (Some(reference), Some(rel)) = (baseline.as_deref(), b.relative.as_ref()) else { return Ok(None) };
+        let has_bench = git(&["cat-file", "-e", &format!("{reference}:{}", rel.source)]).is_ok();
+        let commit = if has_bench { reference } else { rel.since };
+        let sha = git(&["rev-parse", "--verify", &format!("{commit}^{{commit}}")])?;
+        let label = if commit == sha { sha.chars().take(9).collect() } else { format!("{commit} ({})", sha.chars().take(9).collect::<String>()) };
+        let dir = root.join("target").join("budget-base").join(&sha);
+        if !dir.join("Cargo.toml").is_file() {
+            git(&["worktree", "add", "--detach", &dir.display().to_string(), &sha])?;
+        }
+        println!("  base: {label}, in {}", dir.display());
+        let (ok, stdout) = run(&dir, Some(&root.join("target").join("budget-base-target")), b.cargo)?;
+        if !ok {
+            return Err(format!("cargo {} failed in the base {label}", b.cargo.join(" ")));
+        }
+        let medians = report_medians(&stdout).ok_or(format!("the base {label} printed no JSON report"))?;
+        Ok(Some((label, medians)))
+    };
+    budgets_against(plant, base, |args| run(root, None, args))
 }
 
 #[cfg(test)]
@@ -441,6 +602,41 @@ mod tests {
     }
 
     // -- budgets ------------------------------------------------------------------------------
+
+    #[test]
+    fn budget_flags() {
+        let a = |s: &[&str]| s.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+        assert_eq!(parse_budget_flags(&a(&[])), Ok((0.0, None)));
+        assert_eq!(parse_budget_flags(&a(&["--baseline", "v0.3.0", "--plant-ms", "8"])), Ok((8.0, Some("v0.3.0".into()))));
+        assert!(parse_budget_flags(&a(&["--baseline"])).is_err() && parse_budget_flags(&a(&["--baseline", "--plant-ms"])).is_err());
+        assert!(parse_budget_flags(&a(&["--plant-ms", "2000"])).is_err());
+    }
+
+    #[test]
+    fn relative_budgets_judge_against_the_base_on_the_same_runner() {
+        let rel = Relative { rows: &[("index build", None), ("one word", Some(100.0))], source: "x.rs", since: "abc" };
+        let out = |build: f64, word: f64| {
+            let r = serde_json::json!({ "mode": "release", "rows": [{ "name": "index build", "p50_ms": build }, { "name": "one word", "p50_ms": word }] });
+            format!("{r}\n")
+        };
+        let base: BTreeMap<String, f64> = [("index build".to_string(), 600.0), ("one word".to_string(), 1.0)].into();
+        // A slow runner: 749 ms against a base of 600 ms on it is 1.25 ×, within.
+        assert!(judge_relative(&out(749.0, 1.2), 0.0, &rel, "v0.3.0", &base).unwrap().contains("index build 749.00 ms (1.25 ×"));
+        let e = judge_relative(&out(781.0, 1.0), 0.0, &rel, "v0.3.0", &base).unwrap_err();
+        assert!(e.starts_with("index build") && e.contains("1.3 × the base v0.3.0's 600.00 ms"), "{e}");
+        // A planted slowdown counts; a cap still holds; the base must have every row.
+        assert!(judge_relative(&out(600.0, 1.0), 200.0, &rel, "b", &base).is_err());
+        let wide: BTreeMap<String, f64> = [("index build".to_string(), 600.0), ("one word".to_string(), 90.0)].into();
+        assert!(judge_relative(&out(600.0, 101.0), 0.0, &rel, "b", &wide).unwrap_err().contains("100 ms cap"));
+        let short: BTreeMap<String, f64> = [("index build".to_string(), 600.0)].into();
+        assert!(judge_relative(&out(600.0, 1.0), 0.0, &rel, "b", &short).unwrap_err().contains("has no row `one word`"));
+        assert!(judge_relative("{\"mode\":\"debug\",\"rows\":[]}\n", 0.0, &rel, "b", &base).unwrap_err().contains("debug build"));
+        // Every relative budget names its bench's source and the commit that first measured it.
+        for b in BUDGETS.iter().filter_map(|b| b.relative.as_ref()) {
+            assert!(Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join(b.source).is_file(), "{}", b.source);
+            assert!(b.since.len() >= 7 && !b.rows.is_empty());
+        }
+    }
 
     /// What `cargo bench … library_bench -- --json` prints, with the 100 k scroll's p95.
     fn bench_out(mode: &str, p95: f64, cells_10k: u64, cells_100k: u64) -> String {
@@ -536,18 +732,6 @@ mod tests {
         assert!(judge_search(no_rows, 0.0).unwrap_err().contains("no row `one word`"));
         let no_time = "{\"mode\":\"release\",\"photos\":100000,\"rows\":[{\"name\":\"index build\",\"p50_ms\":null}]}";
         assert!(judge_search(no_time, 0.0).unwrap_err().contains("without `p50_ms`"));
-    }
-
-    /// 1.5 × the first measurement, rounded up (5 ms for the build, 0.1 ms for a query), and no
-    /// query's budget above 100 ms.
-    #[test]
-    fn the_search_budgets_are_one_and_a_half_times_the_first_measurement() {
-        for ((name, budget, query), measured) in SEARCH_BUDGETS.iter().zip(SEARCH_MEASURED) {
-            let step = if *query { 0.1 } else { 5.0 };
-            let want = (measured * 1.5 / step).ceil() * step;
-            assert!((budget - want).abs() < 1e-9, "{name}: {budget} ms, 1.5 × {measured} rounded up is {want}");
-            assert!(!query || *budget <= SEARCH_QUERY_CAP_MS, "{name}: {budget} ms is over the {SEARCH_QUERY_CAP_MS} ms cap");
-        }
     }
 
     #[test]
