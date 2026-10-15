@@ -13,6 +13,10 @@
 //! Ctrl+Delete always deletes from disk ([`delete_route`]). While the library tree has the focus
 //! and its selected row is a library folder, Delete is Folder ▸ Delete… (`folder.delete`, which
 //! asks first; `ui-layout.md` §4, [`tree_delete_route`]).
+//!
+//! While a key cell of the shortcut editor records (Options ▸ Keyboard Shortcuts), every key press
+//! is the editor's ([`capture_for_editor`]): neither the keymap nor the dialog's Esc and Enter see
+//! it.
 
 use dalica_engine::keymap::DefaultKeys;
 use dalica_engine::{Context, Key, Session};
@@ -159,6 +163,39 @@ pub fn run_key(app: &mut App, id: &str) -> Result<Value, dalica_engine::CmdError
     }
 }
 
+/// While a key cell of the shortcut editor records (`options.shortcuts.recording`,
+/// `menus-and-shortcuts.md` §2.0), takes this frame's key presses out of the input before the
+/// dialog host (Esc, Enter), the keymap and any field see them, and keeps them, as the keymap
+/// writes them, in the editor's `captured` keys (at most [`MAX_CAPTURED`], the newest) for it to
+/// read: Esc cancels the recording there and Backspace removes the key. Typed text and clipboard
+/// events go with them; keys the keymap has no name for are dropped. Returns whether it took the
+/// frame's keys. Call at the start of the frame.
+///
+/// [`MAX_CAPTURED`]: crate::state::MAX_CAPTURED
+pub fn capture_for_editor(app: &mut App, ctx: &egui::Context) -> bool {
+    let Some(editor) = app.state_mut().options.as_mut().map(|o| &mut o.shortcuts).filter(|e| e.recording.is_some()) else {
+        return false;
+    };
+    let presses: Vec<Key> = ctx.input_mut(|i| {
+        let mut out = Vec::new();
+        i.events.retain(|e| match e {
+            egui::Event::Key { key, pressed, modifiers, .. } => {
+                if *pressed && let Some(k) = from_egui(*key, *modifiers) {
+                    out.push(k);
+                }
+                false
+            }
+            egui::Event::Text(_) | egui::Event::Copy | egui::Event::Cut | egui::Event::Paste(_) => false,
+            _ => true,
+        });
+        out
+    });
+    editor.captured.extend(presses);
+    let extra = editor.captured.len().saturating_sub(crate::state::MAX_CAPTURED);
+    editor.captured.drain(..extra);
+    true
+}
+
 /// Runs the commands bound to this frame's key presses. Returns the ids that ran (or were refused;
 /// a refusal's reason is on the status line).
 pub fn dispatch(app: &mut App, ctx: &egui::Context) -> Vec<String> {
@@ -299,6 +336,30 @@ mod tests {
         let album = crate::state::Section::Album(crate::state::AlbumSection::Starred);
         d.app_mut().state_mut().selection = crate::state::Selection::new(vec![], None, Some(album), true);
         assert_eq!(tree_delete_route(d.app(), &del, None, true), None);
+    }
+
+    /// While a key cell of the shortcut editor records, Esc, Enter and Ctrl+8 go to the editor:
+    /// the dialog stays open and nothing is starred; once it stops, Esc closes the dialog again.
+    #[test]
+    fn a_recording_key_cell_takes_every_key_press() {
+        let (_dir, s, ids) = crate::app::tests::session_with_photos(1);
+        let mut d = crate::headless::Driver::new(App::new(Some(s)), 900, 600, 1.0);
+        d.settle(3600).unwrap();
+        d.run("select.set", &json!({ "ids": [ids[0]] })).unwrap();
+        d.run("app.shortcuts", &json!({})).unwrap();
+        d.settle(3600).unwrap();
+        let cell = crate::state::KeySlot { command: "photo.star.toggle".into(), context: Context::Library, slot: 1 };
+        d.app_mut().state_mut().options.as_mut().unwrap().shortcuts.recording = Some(cell);
+        for key in ["Esc", "Enter", "Ctrl+8"] {
+            d.key(key).unwrap();
+        }
+        let captured: Vec<String> = d.state().options.as_ref().unwrap().shortcuts.captured.iter().map(Key::to_string).collect();
+        assert_eq!(captured, ["Esc", "Enter", "Ctrl+8"]);
+        assert_eq!(d.state().dialogs.len(), 1, "Esc and Enter did not close the dialog");
+        assert!(!d.app().session().unwrap().library().photo(ids[0]).unwrap().star, "Ctrl+8 starred nothing");
+        d.app_mut().state_mut().options.as_mut().unwrap().shortcuts.recording = None;
+        d.key("Esc").unwrap();
+        assert!(d.state().dialogs.is_empty() && d.state().options.is_none());
     }
 
     /// Ctrl+− reaches the keymap and runs the edit view's `edit.zoom.out` once (×1/1.25).

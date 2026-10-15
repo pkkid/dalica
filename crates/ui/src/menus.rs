@@ -91,6 +91,8 @@ pub const DIALOGS: &[(&str, &str)] = &[
     ("folder.delete", "deleteFolder"),
     ("folder.move", FILE_PICKER),
     ("search.saveAsAlbum", "albumProperties"),
+    ("app.preferences", "options"),
+    ("app.shortcuts", "options"),
 ];
 
 /// The dialog an item running `id` opens in a section of `kind`: [`DIALOGS`]'s, but Album

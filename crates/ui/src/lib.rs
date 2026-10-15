@@ -20,6 +20,7 @@ pub mod notices;
 pub mod panels;
 pub mod perf;
 pub mod picker;
+pub mod scale;
 pub mod selection;
 pub mod state;
 pub mod status_text;

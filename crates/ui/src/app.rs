@@ -379,6 +379,8 @@ impl App {
         if std::mem::take(&mut self.quit_requested) {
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
         }
+        // UI scale and font size: the Options dialog's preview, else the saved settings.
+        crate::scale::apply(ui.ctx(), &self.state, self.session.as_ref().map(Session::settings), &mut self.tokens);
         let Some(session) = &mut self.session else {
             let t = self.tokens;
             let now = ui.input(|i| i.time);
@@ -404,6 +406,9 @@ impl App {
         self.poll_folder_request();
         // Under an open dialog the window takes no keys: no shortcut runs and no panel sees a key
         // press or typed text; the dialog gets them back once the panels are drawn.
+        // While the shortcut editor records, every key press is its own (not the keymap's, not the
+        // dialog's Esc and Enter).
+        crate::keys::capture_for_editor(self, ui.ctx());
         // Esc ends a drag of photos before any shortcut sees it.
         crate::drag::escape(self, ui.ctx());
         let keys = if self.state.dialogs.is_empty() {

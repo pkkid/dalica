@@ -546,10 +546,13 @@ pub enum DialogKind {
     /// "Move the folder … and everything in it … to the trash?" (`folder.delete`); its draft is
     /// [`UiState::delete_folder`].
     DeleteFolder,
+    /// Tools ▸ Options… (`app.preferences`) and Help ▸ Keyboard Shortcuts… (`app.shortcuts`); its
+    /// draft is [`UiState::options`].
+    Options,
 }
 
 impl DialogKind {
-    pub const ALL: [DialogKind; 25] = [
+    pub const ALL: [DialogKind; 26] = [
         DialogKind::ClearTray,
         DialogKind::FolderManager,
         DialogKind::FirstRun,
@@ -575,6 +578,7 @@ impl DialogKind {
         DialogKind::RenameFiles,
         DialogKind::DeletePhotos,
         DialogKind::DeleteFolder,
+        DialogKind::Options,
     ];
 
     /// The kind as the protocol writes it (`clearTray`), the `<kind>` of `dialog:<kind>`.
@@ -605,6 +609,7 @@ impl DialogKind {
             DialogKind::RenameFiles => "renameFiles",
             DialogKind::DeletePhotos => "deletePhotos",
             DialogKind::DeleteFolder => "deleteFolder",
+            DialogKind::Options => "options",
         }
     }
 
@@ -1454,6 +1459,309 @@ pub struct DeleteFolder {
     pub folder: FolderId,
 }
 
+/// The tabs of the Options dialog (`menus-and-shortcuts.md` §5) that exist: the four whose options
+/// exist (Slideshow, Network, People and Photo Viewer join with their milestones). Named as in
+/// their widget ids (`tab:options.fileTypes`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum OptionsTab {
+    #[default]
+    General,
+    FileTypes,
+    Export,
+    /// Keyboard Shortcuts: the shortcut editor (`menus-and-shortcuts.md` §2.0).
+    Shortcuts,
+}
+
+impl OptionsTab {
+    pub const ALL: [OptionsTab; 4] = [OptionsTab::General, OptionsTab::FileTypes, OptionsTab::Export, OptionsTab::Shortcuts];
+
+    /// The tab as the protocol writes it (`fileTypes`), the `<tab>` of `tab:options.<tab>`.
+    pub fn name(self) -> &'static str {
+        match self {
+            OptionsTab::General => "general",
+            OptionsTab::FileTypes => "fileTypes",
+            OptionsTab::Export => "export",
+            OptionsTab::Shortcuts => "shortcuts",
+        }
+    }
+}
+
+/// Options ▸ General ▸ UI scale as the dialog previews it (`design-system.md` §11.4): Auto, or a
+/// fixed scale in percent, [`ScaleChoice::MIN`] … [`ScaleChoice::MAX`] in steps of
+/// [`ScaleChoice::STEP`]. Written `"auto"` or the number (`150`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ScaleChoice {
+    #[default]
+    Auto,
+    Percent(u16),
+}
+
+impl ScaleChoice {
+    pub const MIN: u16 = dalica_ui_kit::theme::UiScale::MIN_PERCENT;
+    pub const MAX: u16 = dalica_ui_kit::theme::UiScale::MAX_PERCENT;
+    pub const STEP: u16 = 25;
+
+    /// The choice `percent` names, if it is one of the fixed steps.
+    pub fn percent(percent: u64) -> Option<ScaleChoice> {
+        let p = u16::try_from(percent).ok()?;
+        ((Self::MIN..=Self::MAX).contains(&p) && p % Self::STEP == 0).then_some(ScaleChoice::Percent(p))
+    }
+
+    /// The `ui-kit` scale this choice is.
+    pub fn ui_scale(self) -> dalica_ui_kit::theme::UiScale {
+        match self {
+            ScaleChoice::Auto => dalica_ui_kit::theme::UiScale::Auto,
+            ScaleChoice::Percent(p) => dalica_ui_kit::theme::UiScale::Percent(p),
+        }
+    }
+}
+
+impl Serialize for ScaleChoice {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        match self {
+            ScaleChoice::Auto => s.serialize_str("auto"),
+            ScaleChoice::Percent(p) => s.serialize_u16(*p),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for ScaleChoice {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<ScaleChoice, D::Error> {
+        let v = serde_json::Value::deserialize(d)?;
+        let choice = match &v {
+            serde_json::Value::String(s) if s == "auto" => Some(ScaleChoice::Auto),
+            serde_json::Value::Number(n) => n.as_u64().and_then(ScaleChoice::percent),
+            _ => None,
+        };
+        choice.ok_or_else(|| {
+            serde::de::Error::custom(format!(
+                "a UI scale is \"auto\" or {} … {} in steps of {}, not {v}",
+                ScaleChoice::MIN,
+                ScaleChoice::MAX,
+                ScaleChoice::STEP
+            ))
+        })
+    }
+}
+
+/// Options ▸ General ▸ UI font size as the dialog previews it (`design-system.md` §11.5).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum FontChoice {
+    #[default]
+    Small,
+    Medium,
+    Large,
+}
+
+impl FontChoice {
+    /// The `ui-kit` font size this choice is.
+    pub fn font_size(self) -> dalica_ui_kit::theme::FontSize {
+        match self {
+            FontChoice::Small => dalica_ui_kit::theme::FontSize::Small,
+            FontChoice::Medium => dalica_ui_kit::theme::FontSize::Medium,
+            FontChoice::Large => dalica_ui_kit::theme::FontSize::Large,
+        }
+    }
+}
+
+/// The longest command id the shortcut editor's draft names, in characters.
+pub const MAX_COMMAND_ID: usize = 128;
+/// The most changed bindings the shortcut editor's draft holds.
+pub const MAX_SHORTCUT_CHANGES: usize = 1024;
+/// The most key presses kept for the shortcut editor between two of its frames.
+pub const MAX_CAPTURED: usize = 16;
+/// The most option values the Options dialog's draft holds, and the longest settings key.
+pub const MAX_OPTION_VALUES: usize = 256;
+pub const MAX_OPTION_KEY: usize = 128;
+/// The keys of a command per context in the shortcut editor (`menus-and-shortcuts.md` §2.0): slot
+/// 0 and slot 1.
+pub const SHORTCUT_SLOTS: u8 = 2;
+
+/// A key cell of the shortcut editor: one of a command's two keys (`slot` 0 or 1) in a context.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct KeySlot {
+    pub command: String,
+    pub context: dalica_engine::Context,
+    pub slot: u8,
+}
+
+/// A binding the shortcut editor's draft changes: the key cell and its new key (`Ctrl+1` as the
+/// keymap writes it; `null` removes it). Nothing is applied before the dialog's Apply or OK.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ShortcutChange {
+    pub command: String,
+    pub context: dalica_engine::Context,
+    pub slot: u8,
+    /// Required: a key, or `null` to remove it.
+    #[serde(deserialize_with = "present")]
+    pub key: Option<String>,
+}
+
+/// An `Option` field that must be given (`null` for none): missing is an error, not `None`.
+fn present<'de, D: Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
+    Option::<String>::deserialize(d)
+}
+
+/// A conflict waiting for [Replace] or [Cancel] ("Ctrl+1 is already Small Thumbnails in
+/// Library."): the cell being recorded and the key pressed in it, and the binding that already has
+/// that key (`command` in `context`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ShortcutConflict {
+    pub cell: KeySlot,
+    pub key: String,
+    pub command: String,
+    pub context: dalica_engine::Context,
+}
+
+/// The shortcut editor's state (Options ▸ Keyboard Shortcuts, `menus-and-shortcuts.md` §2.0): the
+/// search text, the Context filter (`null`: All), "Show commands without a shortcut", the key cell
+/// recording, a conflict waiting for an answer, and the draft: the bindings changed and whether
+/// Reset All was pressed, applied by the dialog's Apply or OK.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", deny_unknown_fields, default)]
+pub struct ShortcutEditor {
+    pub search: String,
+    pub context: Option<dalica_engine::Context>,
+    pub show_unbound: bool,
+    pub recording: Option<KeySlot>,
+    pub conflict: Option<ShortcutConflict>,
+    pub changes: Vec<ShortcutChange>,
+    pub reset_all: bool,
+    /// The key presses taken for the recording cell since the editor last read them
+    /// (`crate::keys::capture_for_editor`), oldest first, at most [`MAX_CAPTURED`]. Not reported.
+    #[serde(skip)]
+    pub captured: Vec<dalica_engine::Key>,
+}
+
+impl ShortcutEditor {
+    /// Whether the draft changes anything (Apply is enabled).
+    pub fn changed(&self) -> bool {
+        self.reset_all || !self.changes.is_empty()
+    }
+}
+
+/// The Options dialog's draft while it is open (Tools ▸ Options…, `menus-and-shortcuts.md` §5,
+/// `design-system.md` §11.3): the tab shown, the option values changed since the last Apply (by
+/// settings key, as `options.list` names them and `options.set {values}` takes them), the last
+/// Apply's error, the UI scale and font size being previewed (`null`: the saved ones), and the
+/// shortcut editor. Cancel and Esc drop it, so the preview reverts.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", deny_unknown_fields, default)]
+pub struct OptionsDraft {
+    pub tab: OptionsTab,
+    pub values: serde_json::Map<String, serde_json::Value>,
+    pub error: Option<String>,
+    pub preview_scale: Option<ScaleChoice>,
+    pub preview_font_size: Option<FontChoice>,
+    pub shortcuts: ShortcutEditor,
+}
+
+impl OptionsDraft {
+    /// A draft showing `tab`, nothing changed.
+    pub fn on(tab: OptionsTab) -> OptionsDraft {
+        OptionsDraft { tab, ..OptionsDraft::default() }
+    }
+
+    /// Whether the draft changes anything (Apply is enabled).
+    pub fn changed(&self) -> bool {
+        !self.values.is_empty() || self.shortcuts.changed()
+    }
+
+    /// Why this draft cannot be used, if it cannot: too many values or a key too long, a value that
+    /// is not a single null, boolean, number or text (texts at most [`MAX_DRAFT`] characters), a
+    /// text over its length, a command id over [`MAX_COMMAND_ID`], a slot past 1, a key the keymap
+    /// cannot read, too many changes. What `ui.set` refuses (`bad_params`).
+    pub fn check(&self) -> Result<(), String> {
+        let long = |name: &str, text: &str, max: usize| {
+            if text.chars().count() > max { Err(format!("`{name}` is at most {max} characters")) } else { Ok(()) }
+        };
+        if self.values.len() > MAX_OPTION_VALUES {
+            return Err(format!("`options.values` holds at most {MAX_OPTION_VALUES} options"));
+        }
+        for (k, v) in &self.values {
+            if k.is_empty() || k.chars().count() > MAX_OPTION_KEY {
+                return Err(format!("`options.values` keys are settings keys of 1 … {MAX_OPTION_KEY} characters"));
+            }
+            match v {
+                serde_json::Value::Null | serde_json::Value::Bool(_) | serde_json::Value::Number(_) => {}
+                serde_json::Value::String(s) => long(&format!("options.values.{k}"), s, MAX_DRAFT)?,
+                _ => return Err(format!("`options.values.{k}` is a null, a boolean, a number or a text, not {v}")),
+            }
+        }
+        long("options.error", self.error.as_deref().unwrap_or(""), MAX_DRAFT)?;
+        let e = &self.shortcuts;
+        long("options.shortcuts.search", &e.search, MAX_DRAFT)?;
+        if e.changes.len() > MAX_SHORTCUT_CHANGES {
+            return Err(format!("`options.shortcuts.changes` holds at most {MAX_SHORTCUT_CHANGES} bindings"));
+        }
+        let cell = |name: &str, command: &str, slot: u8| {
+            if command.is_empty() || command.chars().count() > MAX_COMMAND_ID {
+                Err(format!("`{name}.command` is a command id of 1 … {MAX_COMMAND_ID} characters"))
+            } else if slot >= SHORTCUT_SLOTS {
+                Err(format!("`{name}.slot` is 0 or 1, not {slot}"))
+            } else {
+                Ok(())
+            }
+        };
+        let key = |name: &str, key: &str| dalica_engine::Key::parse(key).map(|_| ()).map_err(|e| format!("`{name}.key`: {e}"));
+        if let Some(r) = &e.recording {
+            cell("options.shortcuts.recording", &r.command, r.slot)?;
+        }
+        if let Some(c) = &e.conflict {
+            cell("options.shortcuts.conflict.cell", &c.cell.command, c.cell.slot)?;
+            cell("options.shortcuts.conflict", &c.command, 0)?;
+            key("options.shortcuts.conflict", &c.key)?;
+        }
+        for c in &e.changes {
+            cell("options.shortcuts.changes", &c.command, c.slot)?;
+            if let Some(k) = &c.key {
+                key("options.shortcuts.changes", k)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Every command the shortcut editor's draft names, for `ui.set` to check that the keymap knows
+    /// them.
+    pub fn commands(&self) -> Vec<&str> {
+        let e = &self.shortcuts;
+        let mut out: Vec<&str> = Vec::new();
+        out.extend(e.recording.as_ref().map(|r| r.command.as_str()));
+        if let Some(c) = &e.conflict {
+            out.extend([c.cell.command.as_str(), c.command.as_str()]);
+        }
+        out.extend(e.changes.iter().map(|c| c.command.as_str()));
+        out
+    }
+
+    /// This draft within its limits: values past [`MAX_OPTION_VALUES`] dropped, texts cut, changes
+    /// past [`MAX_SHORTCUT_CHANGES`] and captured keys past [`MAX_CAPTURED`] (the oldest) dropped.
+    pub fn sanitized(mut self) -> OptionsDraft {
+        if self.values.len() > MAX_OPTION_VALUES {
+            self.values = std::mem::take(&mut self.values).into_iter().take(MAX_OPTION_VALUES).collect();
+        }
+        for v in self.values.values_mut() {
+            if let serde_json::Value::String(s) = v {
+                cut(s);
+            }
+        }
+        if let Some(e) = &mut self.error {
+            cut(e);
+        }
+        let e = &mut self.shortcuts;
+        cut(&mut e.search);
+        e.changes.truncate(MAX_SHORTCUT_CHANGES);
+        let extra = e.captured.len().saturating_sub(MAX_CAPTURED);
+        e.captured.drain(..extra);
+        self
+    }
+}
+
 /// The most dialogs open at once (a confirmation over a dialog over a dialog is already rare).
 pub const MAX_DIALOGS: usize = 8;
 
@@ -1561,6 +1869,11 @@ pub struct UiState {
     /// The delete question for a folder while it is open (`folder.delete`).
     #[serde(default)]
     pub delete_folder: Option<DeleteFolder>,
+    /// The Options dialog's draft while it is open (`app.preferences`, `app.shortcuts`): its tab,
+    /// the changed values, the last Apply's error, the scale and font size previewed, and the
+    /// shortcut editor.
+    #[serde(default)]
+    pub options: Option<OptionsDraft>,
     /// A drag of photos in progress (`crate::drag`); `ui.inspect` reports it, `ui.state` does not.
     #[serde(skip)]
     pub drag: Option<Drag>,
@@ -1607,10 +1920,17 @@ impl UiState {
             dedup(&mut r.photos);
         }
         self.sanitize_m9();
+        self.options = self.options.take().map(OptionsDraft::sanitized);
         if self.view == View::Edit && self.edit.photo.is_none() {
             self.view = View::Library;
         }
         self
+    }
+
+    /// Why the M10 fields of this state cannot be used, if they cannot
+    /// ([`OptionsDraft::check`]). What `ui.set` refuses (`bad_params`).
+    pub fn check_m10(&self) -> Result<(), String> {
+        self.options.as_ref().map_or(Ok(()), OptionsDraft::check)
     }
 
     /// Every M9 field within its limits: lists cut to [`MAX_IDS`] without repeats, texts to their
@@ -1862,6 +2182,7 @@ impl Default for UiState {
             collision: None,
             delete_photos: None,
             delete_folder: None,
+            options: None,
             drag: None,
             focus_search: false,
             status_line: String::new(),
