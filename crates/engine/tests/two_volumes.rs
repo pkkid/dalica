@@ -275,10 +275,13 @@ fn photos_moved_to_another_volume_are_copied_verified_then_trashed() {
     assert_eq!(l.s.library().model(), &model);
     assert_eq!(l.s.undo_stack().len(), steps);
 
-    // Copied, verified, then the sources to the trash.
-    let e = l.run("photo.moveTo", json!({ "ids": ids, "folder": porto_id, "confirm": true }));
-    clean(&e);
-    assert_eq!((e.kind, e.direction, e.done), (FileOpKind::Move, Direction::Do, 2));
+    // Copied, verified, then the sources to the trash: one photo per move, since the forced path's
+    // switch fires once (for one item).
+    for id in &ids {
+        let e = l.run("photo.moveTo", json!({ "ids": [id], "folder": porto_id, "confirm": true }));
+        clean(&e);
+        assert_eq!((e.kind, e.direction, e.done), (FileOpKind::Move, Direction::Do, 1));
+    }
     let mut copies = Vec::new();
     for (i, n) in names_moved.iter().enumerate() {
         assert!(read(&porto.join(n)).unwrap() == bytes[i], "{n}: the same bytes on the other volume");
@@ -298,9 +301,11 @@ fn photos_moved_to_another_volume_are_copied_verified_then_trashed() {
     assert_eq!(l.s.library().album_members(&album), order, "the album's order");
 
     // Undo: back across the volumes, every byte, entry and the library as they were.
-    let e = l.run("edit.undo", json!({}));
-    clean(&e);
-    assert_eq!((e.direction, e.done), (Direction::Undo, 2));
+    for _ in &ids {
+        let e = l.run("edit.undo", json!({}));
+        clean(&e);
+        assert_eq!((e.direction, e.done), (Direction::Undo, 1));
+    }
     for (i, n) in names_moved.iter().enumerate() {
         assert!(read(&lisbon.join(n)).unwrap() == bytes[i], "{n}: back");
         assert!(!exists(&porto.join(n)), "{n}: gone from the other volume");
