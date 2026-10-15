@@ -122,9 +122,10 @@ mod tests {
         let (_dir, s, ids) = session_with_photos(2);
         let folder_id = s.library().photo(ids[0]).unwrap().folder;
         let mut app = App::new(Some(s));
-        // Not registered yet: neither asks, so running them is the engine's unknown command.
-        assert!(!photos_ask(&app, &json!({ "ids": [ids[0]] })));
-        assert!(!folder_asks(&app, &json!({ "folder": folder_id })));
+        // Registered (M9.15): both ask; a folder outside the library is the command's to refuse.
+        assert!(photos_ask(&app, &json!({ "ids": [ids[0]] })));
+        assert!(folder_asks(&app, &json!({ "folder": folder_id })));
+        assert!(!folder_asks(&app, &json!({ "folder": 9999 })));
         // The dialogs as the host opens them.
         let ask = confirm::of(DialogKind::DeletePhotos).unwrap();
         assert_eq!(confirm::prompt(ask)["buttons"], json!(["Move to Trash", "Cancel"]));
@@ -138,8 +139,7 @@ mod tests {
         dialogs::ask(&mut app, ask, &json!({ "folder": folder_id })).unwrap();
         assert_eq!(app.state().delete_folder, Some(DeleteFolder { folder: folder_id }));
         assert!(confirm::question(&app, dialogs::top(&app).unwrap()).contains("everything in it (including non-picture files)"));
-        // Its answer runs `folder.delete` confirmed, which does not exist yet: the dialog stays.
-        assert!(dialogs::answer(&mut app, None).is_err());
+        // Cancel keeps the folder (Move to Trash runs `folder.delete` confirmed: `crates/engine/tests/delete.rs`).
         assert_eq!(app.state().dialogs.len(), 1);
         dialogs::cancel(&mut app).unwrap();
         assert_eq!(app.state().delete_folder, None);

@@ -364,10 +364,12 @@ fn the_photo_menu_lists_its_rows_and_opens_on_a_right_click() {
     );
     let all = rows(&menu);
     let row = |id: &str| all.iter().find(|r| r["id"] == id).unwrap_or_else(|| panic!("{id}")).clone();
-    for id in ["view.edit", "photo.rotate.cw", "photo.hide", "photo.splitFolder", "photo.moveToNewFolder", "album.new", "pane.properties"] {
+    for id in
+        ["view.edit", "photo.rotate.cw", "photo.hide", "photo.splitFolder", "photo.moveToNewFolder", "album.new", "pane.properties", "photo.delete"]
+    {
         assert_eq!((row(id)["live"].clone(), row(id)["enabled"].clone()), (json!(true), json!(true)), "{id}");
     }
-    for id in ["photo.locate", "photo.copyPath", "photo.openExternal", "photo.delete", "photo.openWith"] {
+    for id in ["photo.locate", "photo.copyPath", "photo.openExternal", "photo.openWith"] {
         assert_eq!((row(id)["live"].clone(), row(id)["enabled"].clone()), (json!(false), json!(false)), "{id} waits for its command");
     }
     assert_eq!(row("photo.splitFolder")["dialog"], json!("newFolder"));
@@ -420,8 +422,8 @@ fn the_photo_menu_lists_its_rows_and_opens_on_a_right_click() {
 }
 
 /// Delete runs Remove from Album in an album section and Delete from Disk elsewhere; Ctrl+Delete
-/// always deletes from disk; a Delete key the user gave another command runs that command. Until
-/// the engine's commands exist a Delete press deletes nothing.
+/// always deletes from disk; a Delete key the user gave another command runs that command. In a
+/// folder either press asks first, and Esc deletes nothing.
 #[test]
 fn delete_and_ctrl_delete_route_by_section() {
     let mut t = setup((1400, 900));
@@ -434,10 +436,13 @@ fn delete_and_ctrl_delete_route_by_section() {
     assert_eq!(route(&t, &ctrl_del, None).as_deref(), Some("photo.delete"));
     assert_eq!(route(&t, &del, Some("photo.hide")).as_deref(), Some("photo.hide"), "a rebinding wins");
     assert_eq!(route(&t, &Key::parse("Ctrl+8").unwrap(), Some("photo.star.toggle")).as_deref(), Some("photo.star.toggle"));
-    // Pressed in a folder: nothing is deleted while photo.delete does not exist, and no question.
-    key(&mut t, "Delete");
-    key(&mut t, "Ctrl+Delete");
-    assert!(kinds(&mut t).is_empty());
+    // Pressed in a folder: each asks the delete question first (M9.15), and Esc deletes nothing.
+    for k in ["Delete", "Ctrl+Delete"] {
+        key(&mut t, k);
+        assert_eq!(kinds(&mut t), ["deletePhotos"], "{k}");
+        key(&mut t, "Escape");
+        assert!(kinds(&mut t).is_empty(), "{k}");
+    }
     assert_eq!(run(&mut t, "library.query", json!({ "limit": 10 }))["photos"].as_array().unwrap().len(), 4);
     // In an album: Remove from Album, with the album; Ctrl+Delete still deletes from disk.
     t.d.app_mut().state_mut().selection = Selection::new(vec![PhotoId::new(a)], Some(PhotoId::new(a)), Some(album_section()), false);
