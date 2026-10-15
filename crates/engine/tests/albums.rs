@@ -647,3 +647,54 @@ fn a_write_keeps_the_albums_the_session_never_had() {
     assert_eq!(members(&s, &a), ["Lisbon/IMG_0001.jpg", "Sintra/IMG_0202.jpg"]);
     assert!(s.library().album(&later).is_some());
 }
+
+/// A folder moved out of the watched root and back again, through the (polling) watcher: it comes
+/// back as new photos, which take their memberships (and the folder its album names and sort) from
+/// the sidecar, so the next write keeps them on disk. A second folder brought in by the same
+/// rescan, naming an album the library does not have, creates it once.
+#[test]
+fn a_folder_moved_out_and_back_through_the_watcher_keeps_its_memberships() {
+    let clock = Arc::new(VirtualClock::new(Timestamp::from_system_time(std::time::SystemTime::now())));
+    let (fx, mut s) = Fx::with_clock(clock.clone());
+    s.set_watching(dalica_engine::watching::WatchMode::Polling);
+    let settle = |s: &mut Session| {
+        for _ in 0..4 {
+            clock.advance(Duration::from_secs(1));
+            assert!(s.wait_watching(Duration::from_secs(60)), "the watcher answered");
+            s.wait_idle();
+        }
+    };
+    settle(&mut s);
+    let a = create(&mut s, "Trip", &["Porto/IMG_0101.jpg", "Lisbon/IMG_0001.jpg", "Porto/IMG_0102.jpg"]);
+    let porto = s.library().folder_by_path(&fx.root.join("Porto")).unwrap();
+    s.execute("section.sort", &json!({ "section": format!("folder:{porto}"), "by": "name" })).unwrap();
+    let order = members(&s, &a);
+    let before = fx.sidecars(&mut s)["Porto"].clone();
+    settle(&mut s);
+    let away = fx.root.parent().unwrap().join("Away");
+    std::fs::rename(fx.root.join("Porto"), &away).unwrap();
+    settle(&mut s);
+    assert!(s.library().folder_by_path(&fx.root.join("Porto")).is_none(), "the folder left");
+    assert_eq!(members(&s, &a), ["Lisbon/IMG_0001.jpg"]);
+    // Back, with a second folder whose sidecar names an album the library does not have.
+    let faro = fx.root.join("Faro");
+    dalica_fs::create_dir_all(&faro).unwrap();
+    for (i, name) in ["IMG_0301.jpg", "IMG_0302.jpg"].iter().enumerate() {
+        let bytes = dalica_scenes::jpeg(&dalica_scenes::Scene::new(40 + i as u64, 64, 48), 80, None).unwrap();
+        dalica_fs::replace(&faro.join(name), &bytes, Expect::Absent).unwrap();
+    }
+    let doc = json!({ "photos": { "IMG_0301.jpg": { "albums": { "a0beac40": "a1" } } }, "albums": { "a0beac40": { "name": "Beach" } } });
+    dalica_fs::replace(&faro.join(".dalica.json"), &serde_json::to_vec(&doc).unwrap(), Expect::Absent).unwrap();
+    std::fs::rename(&away, fx.root.join("Porto")).unwrap();
+    settle(&mut s);
+    assert_eq!(members(&s, &a), order, "the memberships came back with the folder");
+    let back = s.library().folder_by_path(&fx.root.join("Porto")).unwrap();
+    assert_eq!(s.library().folder_sort(back), dalica_library::PhotoSort::new(dalica_library::SortBy::Name, false));
+    assert_eq!(members(&s, &album(&s, "Beach")), ["Faro/IMG_0301.jpg"]);
+    let star = id(&s, "Porto/IMG_0102.jpg");
+    s.execute("photo.star.set", &json!({ "ids": [star], "on": true })).unwrap();
+    let mut after = fx.sidecars(&mut s)["Porto"].clone();
+    assert_eq!(after["photos"]["IMG_0102.jpg"]["star"], json!(true));
+    after["photos"]["IMG_0102.jpg"].as_object_mut().unwrap().remove("star");
+    assert_eq!(after, before, "a write after the return keeps every membership, the names and the sort");
+}

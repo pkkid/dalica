@@ -778,7 +778,13 @@ impl Session {
                     break;
                 }
                 let Some(op) = job.pending.pop_front() else { break };
-                if let Err(e) = self.apply(op) {
+                // What the sidecars say about albums rides in the op that adds the photos (`scanning.rs`).
+                let with = job.current.as_ref().and_then(|c| self.rescan_op_with_albums(&op, &c.rescan.scan.folders));
+                let result = match with {
+                    Some(w) => self.apply(w).or_else(|_| self.apply(op)),
+                    None => self.apply(op),
+                };
+                if let Err(e) = result {
                     self.scan_warnings.push(format!("rescan result not applied: {e}"));
                 }
                 applied = applied.saturating_add(n);

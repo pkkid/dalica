@@ -68,7 +68,8 @@
 //! - **Albums and photo sorts** (M9.10, `data-model.md` §3, §3.2, §4): what a folder's sidecar
 //!   says about albums rides in the op that adds the folder or its photos (`with_albums`): a new
 //!   folder's sort, a new photo's memberships, an album the model lacks created first (with its
-//!   `albums.json` definition, else the folder's name for it; never one deleted this session). A
+//!   `albums.json` definition, else the folder's name for it; never one deleted this session); the
+//!   watcher's rescans the same ([`Session::rescan_op_with_albums`], from `watching.rs`). A
 //!   rebuild's thread waits for the writes sent before it, reads `albums.json`, and the rebuild
 //!   ends by creating the albums no folder brought back with their definitions and covers
 //!   (`album_definitions`). A folder renamed on disk gets back everything the model said about
@@ -896,6 +897,21 @@ impl Session {
         folders
     }
 
+    /// A watcher rescan's `op` with what the sidecars of `folders` (the folders it read) say about
+    /// albums and photo sorts, as [`with_albums`] gives a scan's; `None` when they say nothing the
+    /// op needs. An album deleted this session is never brought back.
+    pub(crate) fn rescan_op_with_albums(&self, op: &Op, folders: &[FoundFolder]) -> Option<Op> {
+        let file = &self.scanning.albums_file;
+        let mut out: Option<Op> = None;
+        for folder in folders {
+            let current = out.as_ref().unwrap_or(op);
+            if let Some(with) = with_albums(&self.library, current, folder, file.defs.as_ref(), &|a| file.deleted(&self.library, a)) {
+                out = Some(with);
+            }
+        }
+        out
+    }
+
     /// Applies one of `job`'s ops: to its own model (a rebuild's, built aside), else to the live
     /// one (a rebuild filling an empty model in place records no first-indexed time).
     fn apply_scan_op(&mut self, job: &mut ScanJob, op: Op) -> Result<(), String> {
@@ -1114,6 +1130,12 @@ fn with_albums(lib: &Library, op: &Op, folder: &FoundFolder, defs: Option<&Album
         }
         None => HashMap::new(),
     };
+    // Albums the op creates already (another folder's, in a rescan of several).
+    let created: HashSet<&AlbumId> = children
+        .iter()
+        .filter_map(|o| if let Op::CreateAlbums { albums } = o { Some(albums) } else { None })
+        .flat_map(|a| a.iter().map(|(id, _)| id))
+        .collect();
     let mut create: BTreeMap<AlbumId, AlbumInfo> = BTreeMap::new();
     let mut members = Vec::new();
     for o in children {
@@ -1125,7 +1147,7 @@ fn with_albums(lib: &Library, op: &Op, folder: &FoundFolder, defs: Option<&Album
                 None => from_sidecar.map(|f| f.albums.iter().map(|(a, k)| (a.clone(), k.clone())).collect()).unwrap_or_default(),
             };
             for (album, key) in list {
-                if lib.album(&album).is_none() && !create.contains_key(&album) {
+                if lib.album(&album).is_none() && !created.contains(&album) && !create.contains_key(&album) {
                     if skip(&album) {
                         continue;
                     }
