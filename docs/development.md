@@ -273,6 +273,22 @@ more runs were within 12 %. Rounded up to 5 ms for the build and 0.1 ms for a qu
 search of a session, which also copies the library to the worker and builds its index, took 757 ms;
 it is printed, not budgeted.
 
+The scan throughput, cold start and idle memory budgets (M10.22) are the table's values, absolute
+and never loosened. Scan throughput is a first scan of 5 000 `scenes` JPEGs (1024 px, each with a
+160 px EXIF thumbnail) into a new library, photos per second from `folders.add` until every photo
+is in the library with its header read, so its embedded thumbnail is available to the light table
+at once (the thumbnail jobs run alongside, as in the app; the 128 and 256 entries made from a
+decode are printed, not budgeted). The cold start is a fresh process opening the index-only 100 k
+library (1 000 folders, every photo sketched) to its first settled frame in the headless driver,
+every visible cell drawn from its sketch, the median of five runs; idle memory is that process's
+resident memory read by itself after 5 s idle, the largest of the runs (Linux and macOS; Windows
+is not measured). Measured in release on two cores (`taskset -c 0,1`), 2026-10-15, the same
+24-core workstation under other agents' builds (load average 9 to 20): the scan 0.48 s for 5 000
+photos (10 325 photos/s; every thumbnail made after 21.4 s, 233 photos/s; on all 24 cores 22 739
+and 1 470 photos/s); the cold start 239 ms (the slowest of five 315 ms; reading the index 204 ms,
+three frames); idle memory 83 MiB. What they leave out: the OS window and GPU setup, and a cold page cache (the
+files and the index were just written; dropping the cache needs root).
+
 Measure, don't guess: record numbers in `docs/status.md` → Metrics with the machine and date.
 
 **The budgets job.** `.github/workflows/budgets.yml` runs `cargo xtask budgets` once per milestone,
@@ -292,7 +308,10 @@ next/previous with the neighbours prefetched (p95 ≤ 50 ms). Since M8 `cargo xt
 runs the `save_export` bench and judges its medians: Save of a 24 MP JPEG with an edit and with
 only a quarter turn, and the 200-photo mixed export. Since M9 it also runs the `search` bench and
 judges its medians: the index of the 100 k library built, one word, three words with Starred, a
-lone `-word`, and `search.set` to its result applied. A milestone adds its budgets to `BUDGETS` in `xtask/src/accept.rs`. Budgets are judged only at the
+lone `-word`, and `search.set` to its result applied. Since M10 it also runs the `scan_throughput`
+bench (at least 500 photos per second; a planted slowdown counts once per photo scanned) and the
+`cold_start` bench (the median cold start within 2 s, a planted slowdown counted once per frame up
+to the first settled one; idle memory within 600 MiB in every run). A milestone adds its budgets to `BUDGETS` in `xtask/src/accept.rs`. Budgets are judged only at the
 review (maintainer decision, 2026-10-15); *Run workflow* on the Actions tab runs the job on any
 branch, with a planted slowdown (`plant_ms`) if asked. The same check locally:
 
@@ -659,7 +678,8 @@ budgeted, baseline-compared run that feeds the scorecard.
 
 **Bench runs.** The benches `xtask bench` knows are registered in `xtask/src/bench.rs` (a
 `harness = false` bench target each): `library_bench` (`dalica-ui`), `pack` (`dalica-thumbs`),
-`first_thumbnails`, `edit_preview`, `save_export` and `search` (`dalica-engine`).
+`first_thumbnails`, `edit_preview`, `save_export`, `search` and `scan_throughput` (`dalica-engine`),
+and `cold_start` (`dalica-ui`).
 A bench given `--json` prints one JSON object on its last line with a `rows` array; each row has a
 `name` (the key) and numbers. A row's **CPU-time fields** are those whose key names a time unit
 (`p50_ms`, `pack_us_per_read`): `xtask bench` compares them with the last run in the history that
@@ -721,6 +741,30 @@ between samples), and `first search` (the session's first, which also starts the
 its index; printed, not budgeted). Rows carry `p50_ms`, `p95_ms`, `max_ms` and their `budget_ms`;
 `cargo xtask budgets` judges the medians over 100 k photos in release. Without `--bench` it runs a
 smoke pass over 2 000 photos, two samples each.
+
+`scan_throughput` (M10.22) writes `--photos` `scenes` JPEGs (5 000, `--side` 1024 px, each with a
+160 px EXIF thumbnail, in folders of about 100) under `--dir` (this target directory's temporary
+folder: on the budgets job, the runner's SSD), then runs `folders.add` on them in a new library on
+an empty thumbnail cache, polling at 60 frames a second as the app does. Row `scan <n>`: `scan_s`
+and `photos_per_s` (until the scan has ended and every photo is in the library, its header read,
+so its embedded thumbnail is available), `thumbs_s` and `thumbs_photos_per_s` (until every photo
+also has its 128 and 256 entries), and `embedded` (the photos whose header names an embedded
+thumbnail, checked after the timing: all of them). `cargo xtask budgets` judges `photos_per_s`
+against 500; `--check` makes the bench judge it itself. Without `--bench` it runs a smoke pass over
+200 photos of 320 px.
+
+`cold_start` (M10.22) writes the index-only synthetic library of `--photos` photos (100 000, in
+1 000 folders), then re-runs its own binary `--runs` times (5) as a fresh process each (`--child`),
+timed from the spawn to the child's line saying it drew its first settled frame: the library
+opened as the app opens it (the index read; thumbnails off, as there are no files), shown by the
+real `App` in the headless driver at 1400 × 900, frames stepped until nothing is pending and every
+visible cell is drawn from its sketch. The child then checks the app stays settled, idles
+`--idle-ms` (5 000) without frames, and reads its own resident memory (Linux `/proc/self/status`,
+macOS `ps` on itself). Rows: `cold start <n>` (p50, p95 and max over the runs; the children's
+medians of `open_ms`, the index read, and `first_frame_ms`; `frames` to the first settled one) and
+`idle memory <n>` (`rss_mib`, the largest of the runs, `rss_p50_mib` and `peak_mib`). `cargo xtask
+budgets` judges the median cold start against 2 s and `rss_mib` against 600 MiB; `--check` makes
+the bench judge them itself. Without `--bench` it runs one smoke run over 2 000 photos.
 
 **Adding a scenario.** Add a row to a bench (its name is the key: keep it stable), give the bench
 `--json` output, add a `[[scenario]]` to `perf/budgets.toml`, and run `cargo xtask scorecard`.

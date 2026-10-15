@@ -4687,7 +4687,7 @@ No other step of M10 needs a maintainer decision mid-run.
     milestone is listed apart while one of another milestone fails; a documented key removed from
     a planted keymap fails; the generated rows are stable between two runs; `stats` counts a
     planted ignored workflow and `--check` fails under the floor; `cargo xtask ci` passes.
-- ⬜ **M10.22 `engine` + `ui`: the P0 budgets left: scan throughput, cold start and idle memory**
+- ✅ **M10.22 `engine` + `ui`: the P0 budgets left: scan throughput, cold start and idle memory**
   - after: M9.12, M9.R
   - files: `crates/engine/benches/scan_throughput.rs`, `crates/ui/benches/cold_start.rs`, `xtask/src/bench.rs`, `xtask/src/accept.rs`, `.github/workflows/budgets.yml`, `docs/development.md`
   - scope: `development.md` §8's P0 scenarios that no job enforces yet, each bench registered in

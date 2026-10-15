@@ -203,6 +203,22 @@ pub const BUDGETS: &[Budget] = &[
             since: "0ad5663",
         }),
     },
+    Budget {
+        milestone: 10,
+        name: "scan throughput",
+        what: "scan_throughput: a first scan of 5 000 JPEGs (1024 px, 160 px EXIF thumbnails) into a new library: photos per second until every photo is in the library with its embedded thumbnail available, ≥ 500 (writes about 0.5 GB, removed after)",
+        cargo: &["bench", "-p", "dalica-engine", "--bench", "scan_throughput", "--", "--json"],
+        judge: judge_scan_throughput,
+        relative: None,
+    },
+    Budget {
+        milestone: 10,
+        name: "cold start and idle memory",
+        what: "cold_start: a fresh process, five times, opening the 100 k index-only library to its first settled frame with every visible cell drawn from its sketch, median ≤ 2 s; then its resident memory after 5 s idle, ≤ 600 MiB in every run",
+        cargo: &["bench", "-p", "dalica-ui", "--bench", "cold_start", "--", "--json"],
+        judge: judge_cold_start,
+        relative: None,
+    },
 ];
 
 /// The save and export budgets, in milliseconds, judged on the median (`docs/development.md` §8:
@@ -292,6 +308,79 @@ pub fn judge_search(stdout: &str, plant: f64) -> Result<String, String> {
         parts.push(format!("{name} {judged:.2} ms{planted} ≤ {budget} ms{matches}"));
     }
     Ok(format!("{photos} photos, medians: {}", parts.join("; ")))
+}
+
+/// The initial scan's budget, photos per second until the embedded thumbnails are available
+/// (`docs/development.md` §8; `scan_throughput` → `BUDGET_PHOTOS_PER_S`), and the photos it holds for.
+pub const SCAN_PHOTOS_PER_S: f64 = 500.0;
+pub const SCAN_PHOTOS: u64 = 5_000;
+
+/// `scan_throughput --json` in release over 5 000 photos: at least [`SCAN_PHOTOS_PER_S`], every
+/// photo with its embedded thumbnail. A planted slowdown of `plant` ms is added per photo scanned
+/// (each photo is one measured operation), so 8 ms takes 5 000 photos 40 s longer.
+pub fn judge_scan_throughput(stdout: &str, plant: f64) -> Result<String, String> {
+    let report = crate::bench::parse_report(stdout).ok_or("scan_throughput printed no JSON report with `rows`")?;
+    let mode = report.get("mode").and_then(serde_json::Value::as_str).unwrap_or("?");
+    if mode != "release" {
+        return Err(format!("scan_throughput ran in a {mode} build; the budgets hold in release only"));
+    }
+    let row = report_row(&report, &format!("scan {SCAN_PHOTOS}")).map_err(|_| format!("scan_throughput: no row `scan {SCAN_PHOTOS}`"))?;
+    let num = |key: &str| row.get(key).and_then(serde_json::Value::as_f64).filter(|v| v.is_finite()).ok_or(format!("scan_throughput: no `{key}`"));
+    let (scan, photos, embedded, thumbs) = (num("scan_s")?, num("photos")?, num("embedded")?, num("thumbs_s")?);
+    if embedded < photos {
+        return Err(format!("scan_throughput: {embedded} of {photos} photos have an embedded thumbnail"));
+    }
+    let judged = scan + plant * photos / 1000.0;
+    let per_s = photos / judged.max(f64::MIN_POSITIVE);
+    let planted = if plant > 0.0 { format!(" ({scan:.2} s measured + {plant:.2} ms planted per photo)") } else { String::new() };
+    if per_s < SCAN_PHOTOS_PER_S {
+        return Err(format!("{photos} photos scanned in {judged:.2} s{planted}: {per_s:.0} photos/s, under the {SCAN_PHOTOS_PER_S} photos/s budget"));
+    }
+    Ok(format!(
+        "{photos} photos scanned in {judged:.2} s{planted}: {per_s:.0} photos/s ≥ {SCAN_PHOTOS_PER_S}; every thumbnail made after {thumbs:.1} s"
+    ))
+}
+
+/// The cold start's budget on the median of the runs, and idle memory's in every run
+/// (`docs/development.md` §8; `cold_start` → `COLD_START_BUDGET_MS`, `IDLE_BUDGET_MIB`), and the
+/// library they hold for.
+pub const COLD_START_MS: f64 = 2000.0;
+pub const IDLE_MIB: f64 = 600.0;
+pub const COLD_START_PHOTOS: u64 = 100_000;
+
+/// `cold_start --json` in release over 100 k photos: the median cold start within
+/// [`COLD_START_MS`], and the largest resident memory after the idle within [`IDLE_MIB`]. A planted
+/// slowdown of `plant` ms per frame is added for each frame up to the first settled one.
+pub fn judge_cold_start(stdout: &str, plant: f64) -> Result<String, String> {
+    let report = crate::bench::parse_report(stdout).ok_or("cold_start printed no JSON report with `rows`")?;
+    let mode = report.get("mode").and_then(serde_json::Value::as_str).unwrap_or("?");
+    if mode != "release" {
+        return Err(format!("cold_start ran in a {mode} build; the budgets hold in release only"));
+    }
+    let photos = report.get("photos").and_then(serde_json::Value::as_u64).unwrap_or(0);
+    if photos < COLD_START_PHOTOS {
+        return Err(format!("cold_start ran over {photos} photos; the budgets hold for {COLD_START_PHOTOS}"));
+    }
+    let start = report_row(&report, "cold start 100k").map_err(|_| "cold_start: no row `cold start 100k`".to_string())?;
+    let memory = report_row(&report, "idle memory 100k").map_err(|_| "cold_start: no row `idle memory 100k`".to_string())?;
+    let num = |row: &serde_json::Value, key: &str| row.get(key).and_then(serde_json::Value::as_f64).filter(|v| v.is_finite());
+    let p50 = num(start, "p50_ms").ok_or("cold_start: `cold start 100k` without `p50_ms`")?;
+    let frames = num(start, "frames").ok_or("cold_start: `cold start 100k` without `frames`")?;
+    let judged = p50 + plant * frames;
+    let planted = if plant > 0.0 { format!(" ({p50:.0} ms measured + {plant:.2} ms planted in each of {frames:.0} frames)") } else { String::new() };
+    if judged > COLD_START_MS {
+        return Err(format!("cold start: median {judged:.0} ms{planted}, over the {COLD_START_MS} ms budget"));
+    }
+    let rss = num(memory, "rss_mib").ok_or("idle memory: not measured (`rss_mib`); the budget is read on Linux")?;
+    if rss > IDLE_MIB {
+        return Err(format!("idle memory: {rss:.0} MiB resident after the idle, over the {IDLE_MIB} MiB budget"));
+    }
+    let max = num(start, "max_ms").unwrap_or(f64::NAN);
+    let open = num(start, "open_ms").unwrap_or(f64::NAN);
+    let samples = num(start, "samples").unwrap_or(0.0);
+    Ok(format!(
+        "{photos} photos: cold start median {judged:.0} ms{planted} ≤ {COLD_START_MS} ms (max {max:.0} ms over {samples:.0} runs, the index read in {open:.0} ms); idle memory {rss:.0} MiB ≤ {IDLE_MIB} MiB"
+    ))
 }
 
 /// `p95 + plant` against [`FRAME_BUDGET_MS`]: a planted slowdown of `plant` ms in every frame moves
@@ -707,6 +796,71 @@ mod tests {
         format!("a library of {photos} photos in 1000 folders, 100 albums, made and opened in 0.8 s\n{report}\n")
     }
 
+    /// What `scan_throughput --json` prints: `photos` scanned in `scan_s`, `embedded` of them with
+    /// an embedded thumbnail.
+    fn scan_out(mode: &str, photos: u64, scan_s: f64, embedded: u64) -> String {
+        let row = serde_json::json!({ "name": format!("scan {photos}"), "photos": photos, "side_px": 1024, "embedded_px": 160, "scan_s": scan_s,
+            "photos_per_s": photos as f64 / scan_s, "budget_photos_per_s": 500.0, "thumbs_s": 21.4, "thumbs_photos_per_s": 233.0,
+            "embedded": embedded, "thumbs_failed": 0, "frames": 1287 });
+        let report = serde_json::json!({ "bench": "scan_throughput", "mode": mode, "threads": 2, "photos": photos, "rows": [row] });
+        format!("scan_throughput: {photos} photos of 1024 px written in 200.2 s\n{report}\n")
+    }
+
+    /// What `cold_start --json` prints over `photos` photos: the median cold start, the frames to
+    /// the first settled one, and the largest resident memory (`None`: not measured).
+    fn cold_out(mode: &str, photos: u64, p50: f64, frames: u64, rss: Option<f64>) -> String {
+        let n = if photos == 100_000 { "100k".to_string() } else { photos.to_string() };
+        let report = serde_json::json!({ "bench": "cold_start", "mode": mode, "photos": photos, "runs": 5, "os": "linux", "rows": [
+            { "name": format!("cold start {n}"), "samples": 5, "p50_ms": p50, "p95_ms": p50 * 1.3, "max_ms": p50 * 1.3, "budget_ms": 2000.0,
+              "open_ms": p50 * 0.85, "first_frame_ms": p50 - 1.0, "frames": frames, "cells": 28, "sketch_cells": 28 },
+            { "name": format!("idle memory {n}"), "samples": 5, "rss_mib": rss, "rss_p50_mib": rss, "peak_mib": rss, "budget_mib": 600.0,
+              "idle_ms": 5000, "idle_repaint_ms": null },
+        ]});
+        format!("cold_start: run 1: settled {p50:.0} ms after the spawn\n{report}\n")
+    }
+
+    #[test]
+    fn the_scan_budget_needs_500_photos_a_second_with_every_embedded_thumbnail() {
+        let line = judge_scan_throughput(&scan_out("release", 5000, 0.484, 5000), 0.0).unwrap();
+        assert!(line.contains("5000 photos scanned in 0.48 s: 10331 photos/s ≥ 500") && line.contains("every thumbnail made after 21.4 s"), "{line}");
+        assert!(judge_scan_throughput(&scan_out("release", 5000, 10.0, 5000), 0.0).is_ok(), "the budget itself holds");
+        let e = judge_scan_throughput(&scan_out("release", 5000, 10.1, 5000), 0.0).unwrap_err();
+        assert!(e.contains("495 photos/s, under the 500 photos/s budget"), "{e}");
+        // 8 ms planted per photo: 5 000 photos take 40 s longer.
+        let e = judge_scan_throughput(&scan_out("release", 5000, 0.484, 5000), 8.0).unwrap_err();
+        assert!(e.contains("40.48 s (0.48 s measured + 8.00 ms planted per photo): 124 photos/s"), "{e}");
+        assert!(judge_scan_throughput(&scan_out("release", 5000, 0.484, 4999), 0.0).unwrap_err().contains("4999 of 5000 photos have an embedded"));
+        assert!(judge_scan_throughput(&scan_out("debug", 5000, 0.484, 5000), 0.0).unwrap_err().contains("debug build"));
+        assert!(judge_scan_throughput(&scan_out("release", 200, 0.01, 200), 0.0).unwrap_err().contains("no row `scan 5000`"));
+        assert!(judge_scan_throughput("no report\n", 0.0).unwrap_err().contains("no JSON report"));
+        let no_time = "{\"mode\":\"release\",\"rows\":[{\"name\":\"scan 5000\",\"photos\":5000,\"scan_s\":null}]}";
+        assert!(judge_scan_throughput(no_time, 0.0).unwrap_err().contains("no `scan_s`"));
+    }
+
+    #[test]
+    fn the_cold_start_budget_judges_the_median_and_idle_memory_every_run() {
+        let line = judge_cold_start(&cold_out("release", 100_000, 238.6, 3, Some(83.0)), 0.0).unwrap();
+        assert!(
+            line.contains("cold start median 239 ms ≤ 2000 ms (max 310 ms over 5 runs") && line.contains("idle memory 83 MiB ≤ 600 MiB"),
+            "{line}"
+        );
+        assert!(judge_cold_start(&cold_out("release", 100_000, COLD_START_MS, 3, Some(IDLE_MIB)), 0.0).is_ok(), "the budgets themselves hold");
+        let e = judge_cold_start(&cold_out("release", 100_000, 2001.0, 3, Some(83.0)), 0.0).unwrap_err();
+        assert!(e.starts_with("cold start: median 2001 ms, over the 2000 ms budget"), "{e}");
+        let e = judge_cold_start(&cold_out("release", 100_000, 238.6, 3, Some(601.0)), 0.0).unwrap_err();
+        assert!(e.starts_with("idle memory: 601 MiB resident after the idle, over the 600 MiB budget"), "{e}");
+        assert!(judge_cold_start(&cold_out("release", 100_000, 238.6, 3, None), 0.0).unwrap_err().contains("not measured"));
+        // A planted slowdown counts once per frame up to the first settled one.
+        assert!(judge_cold_start(&cold_out("release", 100_000, 238.6, 3, Some(83.0)), 8.0).is_ok(), "8 ms in each of 3 frames");
+        let e = judge_cold_start(&cold_out("release", 100_000, 238.6, 3, Some(83.0)), 600.0).unwrap_err();
+        assert!(e.contains("median 2039 ms (239 ms measured + 600.00 ms planted in each of 3 frames)"), "{e}");
+        assert!(judge_cold_start(&cold_out("debug", 100_000, 238.6, 3, Some(83.0)), 0.0).unwrap_err().contains("debug build"));
+        assert!(judge_cold_start(&cold_out("release", 2_000, 50.0, 3, Some(40.0)), 0.0).unwrap_err().contains("over 2000 photos"));
+        assert!(judge_cold_start("no report\n", 0.0).unwrap_err().contains("no JSON report"));
+        let no_memory = "{\"mode\":\"release\",\"photos\":100000,\"rows\":[{\"name\":\"cold start 100k\",\"p50_ms\":1,\"frames\":3}]}";
+        assert!(judge_cold_start(no_memory, 0.0).unwrap_err().contains("no row `idle memory 100k`"));
+    }
+
     /// The first measurement (2026-10-14, release, two cores).
     const SEARCH_MEASURED: [f64; 5] = [417.396, 1.118, 0.379, 3.386, 14.859];
 
@@ -859,6 +1013,10 @@ mod tests {
                     (true, save_export_out("release", 300.0, 150.0, 15_000.0))
                 } else if args.contains(&"search") {
                     (true, search_out("release", 100_000, SEARCH_MEASURED))
+                } else if args.contains(&"scan_throughput") {
+                    (true, scan_out("release", 5000, 0.484, 5000))
+                } else if args.contains(&"cold_start") {
+                    (true, cold_out("release", 100_000, 238.6, 3, Some(83.0)))
                 } else if args.contains(&"first_thumbnails") && args.contains(&"0") && args.contains(&"20000") {
                     (true, scroll_out(0.45, 0))
                 } else if args.contains(&"first_thumbnails") {
@@ -869,29 +1027,33 @@ mod tests {
             }
         };
         assert_eq!(budgets_with(0.0, fake(2.0, 3.0, 517.0)), Ok(()));
-        // 8 ms planted per frame: every frame budget misses, and the search queries' (a few ms);
-        // a first screenful well inside its second does not, nor the save and export medians well
-        // inside theirs.
+        // 8 ms planted per frame: every frame budget misses, the search queries' (a few ms) and the
+        // scan's (8 ms per photo); a first screenful well inside its second does not, nor the save
+        // and export medians well inside theirs, nor a cold start of three frames.
         let e = budgets_with(8.0, fake(2.0, 3.0, 517.0)).unwrap_err();
         assert!(
-            e.contains("4 of 6 missed")
+            e.contains("5 of 8 missed")
                 && e.contains("M4 light table scroll")
                 && e.contains("M4 thumb at top speed")
                 && e.contains("M5 scanned scroll")
-                && e.contains("M9 search: one word"),
+                && e.contains("M9 search: one word")
+                && e.contains("M10 scan throughput"),
             "{e}"
         );
+        // The largest planted slowdown misses every budget, the cold start's included.
+        let e = budgets_with(MAX_PLANT_MS, fake(2.0, 3.0, 517.0)).unwrap_err();
+        assert!(e.contains("8 of 8 missed") && e.contains("M10 cold start and idle memory: cold start: median"), "{e}");
         let e = budgets_with(0.0, fake(2.0, 8.5, 517.0)).unwrap_err();
-        assert!(e.contains("1 of 6 missed") && e.contains("M4 thumb at top speed"), "{e}");
+        assert!(e.contains("1 of 8 missed") && e.contains("M4 thumb at top speed"), "{e}");
         let e = budgets_with(0.0, fake(2.0, 3.0, 1100.0)).unwrap_err();
-        assert!(e.contains("1 of 6 missed") && e.contains("M5 first thumbnails: 10000 JPEGs"), "{e}");
+        assert!(e.contains("1 of 8 missed") && e.contains("M5 first thumbnails: 10000 JPEGs"), "{e}");
         let mut ran = Vec::new();
         let e = budgets_with(0.0, |args: &[&str]| {
             ran.push(args.join(" "));
             Ok((false, String::new()))
         })
         .unwrap_err();
-        assert!(e.contains("6 of 6 missed") && e.contains("failed"), "{e}");
+        assert!(e.contains("8 of 8 missed") && e.contains("failed"), "{e}");
         assert_eq!(ran.len(), BUDGETS.len(), "every budget runs after one fails");
         assert!(budgets_with(0.0, |_: &[&str]| Err("cannot run cargo: gone".to_string())).unwrap_err().contains("cannot run cargo"));
     }
@@ -935,6 +1097,23 @@ mod tests {
             assert!(bench.contains(printed), "first_thumbnails prints {printed}");
         }
         assert!(bench.contains("const FIRST_BUDGET_MS: f64 = 1000.0;"), "the bench's budget is ours: {FIRST_THUMBNAILS_MS}");
+        assert!(crate::bench::BENCHES.iter().any(|b| b.name == "scan_throughput" && b.package == "dalica-engine"));
+        let scan = std::fs::read_to_string(root.join("crates").join("engine").join("benches").join("scan_throughput.rs")).unwrap();
+        assert!(scan.contains(&format!("const BUDGET_PHOTOS_PER_S: f64 = {SCAN_PHOTOS_PER_S:?};")), "the bench's budget is ours");
+        assert!(scan.contains("const PHOTOS: usize = 5_000;") && SCAN_PHOTOS == 5_000, "the bench's photos are ours");
+        for printed in ["\"name\": format!(\"scan {n}\")", "\"scan_s\"", "\"embedded\"", "\"thumbs_s\"", "\"mode\": mode"] {
+            assert!(scan.contains(printed), "scan_throughput prints {printed}");
+        }
+        assert!(crate::bench::BENCHES.iter().any(|b| b.name == "cold_start" && b.package == "dalica-ui"));
+        let cold = std::fs::read_to_string(root.join("crates").join("ui").join("benches").join("cold_start.rs")).unwrap();
+        assert!(cold.contains(&format!("const COLD_START_BUDGET_MS: f64 = {COLD_START_MS:?};")), "the bench's cold start budget is ours");
+        assert!(cold.contains(&format!("const IDLE_BUDGET_MIB: f64 = {IDLE_MIB:?};")), "the bench's idle memory budget is ours");
+        assert!(cold.contains("const PHOTOS: usize = 100_000;") && COLD_START_PHOTOS == 100_000, "the bench's library is ours");
+        for printed in
+            ["format!(\"cold start {name}\")", "format!(\"idle memory {name}\")", "\"p50_ms\"", "\"frames\"", "\"rss_mib\"", "\"mode\": mode"]
+        {
+            assert!(cold.contains(printed), "cold_start prints {printed}");
+        }
         let m4 = std::fs::read_to_string(root.join("tests").join("acceptance").join("m4.rs")).unwrap();
         assert!(m4.contains(&format!("fn {THUMB_TEST}()")), "m4.rs has the thumb test");
         assert!(m4.contains("\"thumb at top speed ({mode}): ") && m4.contains("UI time p50 {:.2} ms, p95 {:.2} ms"), "the line judge_thumb reads");
