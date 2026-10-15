@@ -22,14 +22,14 @@ pub const EXPORT_200_MS: f64 = 24000.0;
 /// A debug run never sees [`RELEASE`]; `release` sets it.
 pub fn cargo(args: &[&str], release: bool) -> String {
     let started = Instant::now();
-    let mut cmd = dalica_acceptance::cargo();
-    cmd.args(args);
-    if release {
-        cmd.env(RELEASE, "1");
-    } else {
-        cmd.env_remove(RELEASE);
-    }
-    let out = cmd.output().unwrap();
+    let out = dalica_acceptance::cargo_split(args, |cmd| {
+        if release {
+            cmd.env(RELEASE, "1");
+        } else {
+            cmd.env_remove(RELEASE);
+        }
+    })
+    .unwrap();
     let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
     let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
     assert!(out.status.success(), "cargo {}:\n{stdout}\n{stderr}", args.join(" "));
@@ -90,9 +90,9 @@ pub fn crate_suites() {
     }
 }
 
-/// `panic_hunt -- --ignored`: every command, M8's included, hostile params, never a panic.
+/// `panic_hunt` (once per review gate; `dalica_acceptance::panic_hunt`): every command, M8's included, hostile params, never a panic.
 pub fn panic_hunt() {
-    cargo_test(&["-p", "dalica-engine", "--test", "panic_hunt", "--", "--ignored"]);
+    dalica_acceptance::panic_hunt().unwrap();
 }
 
 /// The quality estimate's error (`data-model.md` §6, Save's quality matching): JPEGs of known

@@ -55,7 +55,7 @@ fn dalica_exe() -> PathBuf {
 /// Runs `cargo test` with `args`; panics with its output if it fails. Returns the seconds it took.
 fn cargo_test(args: &[&str]) -> f64 {
     let started = Instant::now();
-    let out = dalica_acceptance::cargo().arg("test").args(args).output().unwrap();
+    let out = dalica_acceptance::cargo_split(&[&["test"][..], args].concat(), |_| {}).unwrap();
     assert!(
         out.status.success(),
         "cargo test {}:\n{}\n{}",
