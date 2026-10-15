@@ -32,6 +32,7 @@ mod hide;
 mod jobs;
 mod keymap;
 mod lessons_m9;
+mod library_inspect;
 mod meta_import;
 mod move_copy;
 mod new_folder;

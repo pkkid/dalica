@@ -6,7 +6,7 @@ Adapted from LightCraft `docs/mcp.md` (revision 88ea1a8) and PhotoCraft `docs/mc
 > **Status: In progress (M10).** Built (M10.4): the server's core in `crates/mcp` (the framing,
 > `initialize`, `tools/list`, `tools/call`, progress and cancellation, the limits), the shared tools
 > `command_list`, `command_run`, `command_batch` and `render_preview` (§4.1), and headless mode:
-> `dalica-cli mcp [--demo] [--library DIR] [--compact] [FOLDERS…]`. To come: `doc_inspect` (M10.7),
+> `dalica-cli mcp [--demo] [--library DIR] [--compact] [FOLDERS…]`; `doc_inspect` (M10.7). To come:
 > the helpers of §4.2 (M10.13, M10.14), one tool per command and the resources (M10.15), the roots
 > and `--read-only` (M10.16; until then the default write roots and command-line read roots of §5),
 > connect mode and the UI tools (M10.17), the workflow tests (M10.18–M10.20). The options of later
