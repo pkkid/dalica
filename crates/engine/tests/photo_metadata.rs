@@ -6,23 +6,16 @@
 //! Also: a file without metadata, a missing file, a new selection while one answer is cached, the
 //! "changed in another application" note, and a file changed on disk being read again.
 
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use dalica_core::{PhotoId, SystemClock};
-use dalica_engine::{CacheDir, CmdError, Field, Fields, Options, Session, ThumbOptions};
+use crate::common::open;
+use dalica_core::PhotoId;
+use dalica_engine::{CmdError, Field, Fields, Session};
 use dalica_fs::Expect;
 use serde_json::{Value, json};
 
 const WAIT: Duration = Duration::from_secs(60);
-
-fn open(library: &Path) -> Session {
-    let options = Options { thumbs: ThumbOptions { cache: CacheDir::Off, workers: 1, ..ThumbOptions::default() } };
-    let mut s = Session::open_with(library, Arc::new(SystemClock), &options).unwrap();
-    s.wait_idle();
-    s
-}
 
 // A little-endian TIFF structure (TIFF 6.0 / EXIF 2.32): IFD0 with the EXIF and GPS IFDs after it.
 

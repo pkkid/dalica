@@ -20,63 +20,22 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::Arc;
 use std::time::Duration;
 
+use crate::common::{entry, exists, files, off_owner, options, read_opt, shared, under};
 use dalica_core::{AlbumId, FolderId, PhotoId, Timestamp, VirtualClock};
 use dalica_engine::cmd::delete::RESTORES;
 use dalica_engine::watching::{FIRST_VERIFICATION, WatchMode};
-use dalica_engine::{CacheDir, FileOpEvent, Options, Session, ThumbOptions};
+use dalica_engine::{FileOpEvent, Session};
 use dalica_fs::Expect;
 use serde_json::{Value, json};
 
 const PATIENCE: Duration = Duration::from_secs(120);
 
-/// One test at a time: they use the real trash, and the watcher's sweeps take their time.
-fn serial() -> MutexGuard<'static, ()> {
-    static LOCK: Mutex<()> = Mutex::new(());
-    let guard = LOCK.lock().unwrap_or_else(PoisonError::into_inner);
-    dalica_fs::faults::disarm_all();
-    guard
-}
-
-/// Runs `f` on a helper thread: the test's own file access never counts against the owner.
-fn off_owner<T: Send>(f: impl FnOnce() -> T + Send) -> T {
-    std::thread::scope(|s| s.spawn(f).join().unwrap())
-}
-
-fn read(path: &Path) -> Option<Vec<u8>> {
-    let path = path.to_path_buf();
-    off_owner(move || std::fs::read(path).ok())
-}
-
-fn exists(path: &Path) -> bool {
-    let path = path.to_path_buf();
-    off_owner(move || path.exists())
-}
-
 /// A folder's sidecar (`Null` when there is none).
 fn sidecar(folder: &Path) -> Value {
-    read(&folder.join(".dalica.json")).map_or(Value::Null, |b| serde_json::from_slice(&b).unwrap())
-}
-
-/// The sidecar entry for `name` in `folder`.
-fn entry(folder: &Path, name: &str) -> Option<Value> {
-    sidecar(folder).get("photos").and_then(|p| p.get(name)).cloned()
-}
-
-/// The names in `folder` (Dalica's own files left out), sorted.
-fn files(folder: &Path) -> Vec<String> {
-    let folder = folder.to_path_buf();
-    let mut v: Vec<String> = off_owner(move || {
-        std::fs::read_dir(folder)
-            .unwrap()
-            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
-            .filter(|n| !n.starts_with(".dalica"))
-            .collect()
-    });
-    v.sort();
-    v
+    read_opt(&folder.join(".dalica.json")).map_or(Value::Null, |b| serde_json::from_slice(&b).unwrap())
 }
 
 /// Puts back the files undo sent to the trash (`path`, with the identity it had then), so the
@@ -97,15 +56,6 @@ fn untrash(items: &[(PathBuf, dalica_fs::Identity)]) {
 
 fn jpeg(seed: u64) -> Vec<u8> {
     dalica_scenes::jpeg(&dalica_scenes::Scene::new(seed, 96 + 8 * (seed % 5) as u32, 64), 80, None).unwrap()
-}
-
-fn options() -> Options {
-    Options { thumbs: ThumbOptions { cache: CacheDir::Off, workers: 1, ..ThumbOptions::default() } }
-}
-
-/// `Pictures/<path>` for `"Trips/Porto"`.
-fn under(root: &Path, rel: &str) -> PathBuf {
-    rel.split('/').filter(|c| !c.is_empty()).fold(root.to_path_buf(), |p, c| p.join(c))
 }
 
 /// A library watching `Pictures` on a virtual clock, the watcher off unless a test turns it on.
@@ -245,7 +195,7 @@ impl Lib {
 
     fn albums_json(&mut self) -> Value {
         self.s.flush().unwrap();
-        read(&self.dir.path().join("library").join("albums.json")).map_or(Value::Null, |b| serde_json::from_slice(&b).unwrap())
+        read_opt(&self.dir.path().join("library").join("albums.json")).map_or(Value::Null, |b| serde_json::from_slice(&b).unwrap())
     }
 }
 
@@ -277,7 +227,7 @@ enum Outside {
 /// new); a write at the new path keeps it all on disk, and `albums.json` follows the cover.
 #[test]
 fn a_folder_moved_outside_dalica_keeps_all_its_data() {
-    let _serial = serial();
+    let _faults = shared();
     for how in [Outside::BetweenSessions, Outside::WhileWatching] {
         let mut l = Lib::trips();
         if matches!(how, Outside::WhileWatching) {
@@ -359,7 +309,7 @@ fn a_folder_moved_outside_dalica_keeps_all_its_data() {
 /// none of it and makes no new id; undo and redo move everything back and forth.
 #[test]
 fn photos_moved_inside_dalica_carry_their_data_and_backup_while_watched() {
-    let _serial = serial();
+    let _faults = shared();
     let mut l = Lib::trips();
     l.s.set_watching(WatchMode::Polling);
     l.settle_watcher();
@@ -374,7 +324,7 @@ fn photos_moved_inside_dalica_carry_their_data_and_backup_while_watched() {
     // Saved: the original (with the tags written into it) goes to `.dalica-originals/` with its
     // record.
     l.settle_writes();
-    let original = read(&lisbon.join("IMG_0002.jpg")).unwrap();
+    let original = read_opt(&lisbon.join("IMG_0002.jpg")).unwrap();
     let reply = l.s.execute("photo.save", &json!({ "ids": [two], "confirm": true })).unwrap();
     let job: dalica_engine::JobId = serde_json::from_value(reply["job"].clone()).unwrap();
     assert!(l.s.wait_job(job, PATIENCE).unwrap().state.is_finished());
@@ -384,10 +334,10 @@ fn photos_moved_inside_dalica_carry_their_data_and_backup_while_watched() {
     l.settle_watcher();
     let saved = l.s.library().saved(two).cloned();
     assert!(saved.is_some(), "the save left its record");
-    assert!(read(&lisbon.join(".dalica-originals").join("IMG_0002.jpg")).unwrap() == original, "the kept original");
+    assert!(read_opt(&lisbon.join(".dalica-originals").join("IMG_0002.jpg")).unwrap() == original, "the kept original");
     let photos_before: Vec<_> = l.s.library().photos().map(|p| p.id).collect();
     let (lisbon_said, members) = (said(&l, lisbon_id), l.s.library().album_members(&trip).to_vec());
-    let moved_bytes = read(&lisbon.join("IMG_0002.jpg")).unwrap();
+    let moved_bytes = read_opt(&lisbon.join("IMG_0002.jpg")).unwrap();
 
     l.run("photo.moveTo", json!({ "ids": [one, two], "folder": porto_id, "confirm": true }));
     l.settle_watcher();
@@ -402,9 +352,9 @@ fn photos_moved_inside_dalica_carry_their_data_and_backup_while_watched() {
         assert_eq!(lib.album_members(&trip), members, "{case}: the album's order");
         assert_eq!(lib.cover_set(&trip), Some(two), "{case}: the cover");
         assert_eq!(lib.saved(two).cloned(), saved, "{case}: the saved record");
-        assert!(read(&porto.join(".dalica-originals").join("IMG_0002.jpg")).unwrap() == original, "{case}: the kept original");
+        assert!(read_opt(&porto.join(".dalica-originals").join("IMG_0002.jpg")).unwrap() == original, "{case}: the kept original");
         assert!(!exists(&lisbon.join(".dalica-originals").join("IMG_0002.jpg")), "{case}");
-        assert!(read(&porto.join("IMG_0002.jpg")).unwrap() == moved_bytes, "{case}");
+        assert!(read_opt(&porto.join("IMG_0002.jpg")).unwrap() == moved_bytes, "{case}");
         let e = entry(&porto, "IMG_0001.jpg").unwrap();
         assert_eq!((e["star"].clone(), e["caption"].clone(), e["edits"].clone()), (json!(true), json!("Tram 28"), json!(["sepia()"])), "{case}: {e}");
         assert!(e["albums"].get(trip.as_str()).is_some(), "{case}: {e}");
@@ -420,7 +370,7 @@ fn photos_moved_inside_dalica_carry_their_data_and_backup_while_watched() {
     assert_eq!(said(&l, lisbon_id), lisbon_said, "undo: everything back");
     assert_eq!((lib.album_members(&trip), lib.cover_set(&trip)), (&members[..], Some(two)));
     assert_eq!(lib.saved(two).cloned(), saved);
-    assert!(read(&lisbon.join(".dalica-originals").join("IMG_0002.jpg")).unwrap() == original, "the kept original");
+    assert!(read_opt(&lisbon.join(".dalica-originals").join("IMG_0002.jpg")).unwrap() == original, "the kept original");
     assert!(!exists(&porto.join("IMG_0001.jpg")) && !exists(&porto.join(".dalica-originals").join("IMG_0002.jpg")));
     assert_eq!(entry(&lisbon, "IMG_0001.jpg").unwrap()["caption"], "Tram 28");
 
@@ -450,7 +400,7 @@ fn hard_names() -> Vec<String> {
 /// exact names, bytes and sidecar entries.
 #[test]
 fn hard_names_survive_move_copy_rename_delete_and_their_undo() {
-    let _serial = serial();
+    let _faults = shared();
     let names = hard_names();
     let mut files_: Vec<String> = names.iter().map(|n| format!("Odd/{n}")).collect();
     files_.push("Dest ]; a=b ç/IMG_0001.jpg".into());
@@ -464,12 +414,12 @@ fn hard_names_survive_move_copy_rename_delete_and_their_undo() {
     }
     l.s.execute("photo.star.set", &json!({ "ids": ids, "on": true })).unwrap();
     l.settle_writes();
-    let bytes: Vec<Vec<u8>> = names.iter().map(|n| read(&odd.join(n)).unwrap()).collect();
+    let bytes: Vec<Vec<u8>> = names.iter().map(|n| read_opt(&odd.join(n)).unwrap()).collect();
     let entries: Vec<Value> = names.iter().map(|n| entry(&odd, n).unwrap()).collect();
     let at_home = |l: &Lib, case: &str| {
         assert_eq!(files(&odd), names, "{case}: the exact names");
         for (i, n) in names.iter().enumerate() {
-            assert!(read(&odd.join(n)).unwrap() == bytes[i], "{case}: {n}");
+            assert!(read_opt(&odd.join(n)).unwrap() == bytes[i], "{case}: {n}");
             assert_eq!(entry(&odd, n).unwrap()["star"], entries[i]["star"], "{case}: {n}");
             assert_eq!(entry(&odd, n).unwrap()["tags"], entries[i]["tags"], "{case}: {n}");
             assert_eq!(l.s.library().photo(ids[i]).map(|p| (p.folder, p.name.clone())), Some((odd_id, n.clone())), "{case}: {n}");
@@ -484,7 +434,7 @@ fn hard_names_survive_move_copy_rename_delete_and_their_undo() {
     want.sort();
     assert_eq!(files(&dest), want, "moved under the same names");
     for (i, n) in names.iter().enumerate() {
-        assert!(read(&dest.join(n)).unwrap() == bytes[i], "{n}");
+        assert!(read_opt(&dest.join(n)).unwrap() == bytes[i], "{n}");
         assert_eq!(entry(&dest, n).unwrap()["tags"], entries[i]["tags"], "{n}");
         assert_eq!(l.s.library().photo(ids[i]).map(|p| p.folder), Some(dest_id));
     }
@@ -496,7 +446,7 @@ fn hard_names_survive_move_copy_rename_delete_and_their_undo() {
     l.run("photo.copyTo", json!({ "ids": ids, "folder": dest_id }));
     assert_eq!(files(&dest), want, "copied under the same names");
     for (i, n) in names.iter().enumerate() {
-        assert!(read(&dest.join(n)).unwrap() == bytes[i], "{n}");
+        assert!(read_opt(&dest.join(n)).unwrap() == bytes[i], "{n}");
         assert_eq!(entry(&dest, n).unwrap()["star"], json!(true), "{n}");
     }
     at_home(&l, "copied");
@@ -550,7 +500,7 @@ fn hard_names_survive_move_copy_rename_delete_and_their_undo() {
 /// library is rebuilt from the folders.
 #[test]
 fn an_album_keeps_its_order_after_file_operations_and_a_rebuild_from_nothing() {
-    let _serial = serial();
+    let _faults = shared();
     let mut l = Lib::trips();
     let trip = l.album(
         "Trip",

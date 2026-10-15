@@ -4,20 +4,11 @@
 //! key when the library opens; the photo sizes follow the system's region until chosen.
 
 use std::path::Path;
-use std::sync::Arc;
 
-use dalica_core::SystemClock;
+use crate::common::open;
 use dalica_engine::settings::{CropRatio, EditSettings, FILE, MAX_CROP_RATIOS, MAX_RATIO_NAME, PhotoSizes, Settings};
-use dalica_engine::{CacheDir, Options, Session, ThumbOptions};
 use dalica_fs::Expect;
 use serde_json::{Value, json};
-
-fn open(library: &Path) -> Session {
-    let options = Options { thumbs: ThumbOptions { cache: CacheDir::Off, workers: 1, ..ThumbOptions::default() } };
-    let mut s = Session::open_with(library, Arc::new(SystemClock), &options).unwrap();
-    s.wait_idle();
-    s
-}
 
 fn write_settings(library: &Path, v: &Value) {
     dalica_fs::create_dir_all(library).unwrap();

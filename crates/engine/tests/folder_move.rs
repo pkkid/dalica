@@ -2,59 +2,25 @@
 //! folders: a moved folder keeps its photos' ids and data, its sidecar, its non-picture files and
 //! its subfolders (their library folders follow); a move onto a library folder of the same name
 //! merges photo by photo, keeping both folders' photos and sidecar entries, and the emptied source
-//! goes to the trash only when nothing else is left in it; a forced cross-volume move verifies the
-//! copy before the source goes to the trash; undo and redo; the owner thread makes no `fs` call;
+//! goes to the trash only when nothing else is left in it (a move across volumes is
+//! `two_volumes.rs`); undo and redo; the owner thread makes no `fs` call;
 //! the command's contract and graceful failures.
 //!
-//! These tests use the real OS trash and put back what they sent there (where the system allows),
-//! and arm process-wide fault points, so they run one at a time ([`serial`]).
+//! These tests use the real OS trash and put back what they sent there (where the system allows).
 
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::Arc;
 use std::time::Duration;
 
+use crate::common::{FaultLock, entry, exists, jpeg, names, off_owner, options, read, shared};
 use dalica_core::{FolderId, PhotoId, SystemClock};
-use dalica_engine::cmd::delete::RESTORES;
 use dalica_engine::cmd::folder_ops::{ALREADY_THERE, INTO_ITSELF, NOT_IN_LIBRARY};
 use dalica_engine::watching::WatchMode;
-use dalica_engine::{CacheDir, CmdError, Direction, Effect, FileOpKind, History, Options, Session, ThumbOptions};
+use dalica_engine::{CmdError, Direction, Effect, FileOpKind, History, Session};
 use dalica_fs::Expect;
-use dalica_fs::faults::{self, Fault, points};
 use serde_json::{Value, json};
 
 const PATIENCE: Duration = Duration::from_secs(120);
-
-/// One test at a time: fault points armed for the job's thread are process-wide.
-fn serial() -> MutexGuard<'static, ()> {
-    static LOCK: Mutex<()> = Mutex::new(());
-    let guard = LOCK.lock().unwrap_or_else(PoisonError::into_inner);
-    faults::disarm_all();
-    guard
-}
-
-/// Runs `f` on a helper thread: the test's own file access never counts against the owner.
-fn off_owner<T: Send>(f: impl FnOnce() -> T + Send) -> T {
-    std::thread::scope(|s| s.spawn(f).join().unwrap())
-}
-
-fn exists(path: &Path) -> bool {
-    let path = path.to_path_buf();
-    off_owner(move || path.exists())
-}
-
-fn read(path: &Path) -> Vec<u8> {
-    let path = path.to_path_buf();
-    off_owner(move || std::fs::read(path).unwrap())
-}
-
-/// The names in `folder`, sorted (Dalica's own files included).
-fn names(folder: &Path) -> Vec<String> {
-    let folder = folder.to_path_buf();
-    let mut v: Vec<String> =
-        off_owner(move || std::fs::read_dir(folder).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect());
-    v.sort();
-    v
-}
 
 /// The names in `folder` with their sizes (for failure messages).
 fn sizes(folder: &Path) -> Vec<(String, u64)> {
@@ -70,28 +36,16 @@ fn sizes(folder: &Path) -> Vec<(String, u64)> {
     v
 }
 
-fn entry(folder: &Path, name: &str) -> Option<Value> {
-    let path = folder.join(".dalica.json");
-    let v: Value = off_owner(move || serde_json::from_slice(&std::fs::read(path).ok()?).ok())?;
-    v.get("photos").and_then(|p| p.get(name)).cloned()
-}
-
-fn jpeg(seed: u64) -> Vec<u8> {
-    dalica_scenes::jpeg(&dalica_scenes::Scene::new(seed, 96, 64), 80, None).unwrap()
-}
-
-fn options() -> Options {
-    Options { thumbs: ThumbOptions { cache: CacheDir::Off, workers: 1, ..ThumbOptions::default() } }
-}
-
 struct Lib {
     dir: tempfile::TempDir,
     s: Session,
+    _faults: FaultLock,
 }
 
 impl Lib {
     /// A library watching `Pictures`, made of `files`: (path under `Pictures`, bytes), scanned.
     fn new(files: &[(&str, Vec<u8>)]) -> Lib {
+        let _faults = shared();
         let dir = tempfile::tempdir().unwrap();
         let pictures = dir.path().join("Pictures");
         for (path, bytes) in files {
@@ -103,7 +57,7 @@ impl Lib {
         s.set_watching(WatchMode::Off);
         s.execute("folders.add", &json!({ "path": pictures })).unwrap();
         s.wait_idle();
-        Lib { dir, s }
+        Lib { dir, s, _faults }
     }
 
     /// `Trips/Lisbon` (two photos, a note, `Day2` with a photo) and `Archive` (one photo).
@@ -160,7 +114,6 @@ impl Lib {
 /// puts it back and redo moves it again; the owner thread makes no `fs` call.
 #[test]
 fn a_moved_folder_keeps_ids_sidecar_and_subfolders() {
-    let _serial = serial();
     let mut l = Lib::trips();
     let (one, day) = (l.photo("Trips/Lisbon", "IMG_0001.jpg"), l.photo("Trips/Lisbon/Day2", "DAY_0001.jpg"));
     let (lisbon, day2) = (l.folder("Trips/Lisbon"), l.folder("Trips/Lisbon/Day2"));
@@ -230,7 +183,6 @@ fn a_moved_folder_keeps_ids_sidecar_and_subfolders() {
 /// source goes to the trash, and comes back on undo; redo merges to the same names.
 #[test]
 fn a_merge_keeps_both_folders_photos_and_entries() {
-    let _serial = serial();
     let mut l = Lib::new(&[
         ("Old/Lisbon/IMG_0001.jpg", jpeg(1)),
         ("Old/Lisbon/IMG_0002.jpg", jpeg(2)),
@@ -319,7 +271,6 @@ fn a_merge_keeps_both_folders_photos_and_entries() {
 /// non-picture file in it); undo moves the others back.
 #[test]
 fn a_merge_that_skips_leaves_the_source_with_what_is_left() {
-    let _serial = serial();
     let mut l = Lib::new(&[
         ("Old/Lisbon/IMG_0001.jpg", jpeg(1)),
         ("Old/Lisbon/IMG_0002.jpg", jpeg(2)),
@@ -352,70 +303,10 @@ fn a_merge_that_skips_leaves_the_source_with_what_is_left() {
     assert_eq!(names(&l.path("Porto")), [".dalica.json", "PORTO_0001.jpg", "PORTO_0002.jpg"]);
 }
 
-/// A forced cross-volume move copies the tree and verifies every file before the source goes to
-/// the trash: a copy that does not verify leaves the source untouched and nothing at the target.
-#[test]
-fn a_forced_cross_volume_folder_move_verifies_before_trashing() {
-    let _serial = serial();
-    let mut l = Lib::trips();
-    let (lisbon, archive) = (l.folder("Trips/Lisbon"), l.folder("Archive"));
-    let (source, target) = (l.path("Trips/Lisbon"), l.path("Archive/Lisbon"));
-    let before = l.s.library().model().clone();
-    let steps = l.s.undo_stack().len();
-    let tree = names(&source);
-    let archived = names(&l.path("Archive"));
-
-    // A byte of the copy flipped: the verification catches it.
-    faults::arm_global(points::MOVE_CROSS_VOLUME, Fault::Error);
-    faults::arm_global(points::COPY_FLIP, Fault::Error);
-    l.s.execute("folder.move", &json!({ "folder": lisbon, "to": archive })).unwrap();
-    l.wait();
-    faults::disarm_all();
-    assert_eq!(l.last_event().failures.len(), 1, "{:?}", l.last_event());
-    assert_eq!(names(&source), tree, "the source is untouched");
-    assert_eq!(read(&source.join("IMG_0002.jpg")), jpeg(2));
-    assert_eq!(names(&l.path("Archive")), archived, "nothing at the target");
-    assert_eq!(l.s.library().model(), &before);
-    assert_eq!(l.s.undo_stack().len(), steps);
-
-    // Verified, then the source to the trash.
-    let identity = {
-        let source = source.clone();
-        off_owner(move || dalica_fs::identity(&source).unwrap().unwrap())
-    };
-    faults::arm_global(points::MOVE_CROSS_VOLUME, Fault::Error);
-    l.move_folder(json!({ "folder": lisbon, "to": archive }));
-    faults::disarm_all();
-    assert!(!exists(&source), "the source went to the trash");
-    assert_eq!(names(&target), tree);
-    assert_eq!((read(&target.join("IMG_0001.jpg")), read(&target.join("Day2").join("DAY_0001.jpg"))), (jpeg(1), jpeg(3)));
-    assert_eq!(l.s.library().folder_by_path(&target), Some(lisbon));
-
-    // Undo moves the copy back.
-    l.s.execute("edit.undo", &json!({})).unwrap();
-    l.wait();
-    assert_eq!(names(&source), tree);
-    assert_eq!(l.s.library().model(), &before);
-
-    // Leave the trash as it was: the original tree comes back beside the one undo moved.
-    if RESTORES {
-        let (aside, src) = (l.path("Trips/Lisbon-undone"), source.clone());
-        off_owner(move || std::fs::rename(&src, &aside).unwrap());
-        let original = off_owner({
-            let trips = l.path("Trips");
-            move || std::fs::canonicalize(trips).unwrap().join("Lisbon")
-        });
-        let t = dalica_fs::trash::Trashed { original, identity, folder: true };
-        let back = off_owner(move || dalica_fs::trash::restore(&[t]).unwrap());
-        assert_eq!(back, [dalica_fs::trash::Restore::Restored]);
-    }
-}
-
 /// The command's contract, and graceful failures: each refuses with the right error, says why
 /// where it is disabled, and changes nothing.
 #[test]
 fn the_command_s_contract_and_graceful_failures() {
-    let _serial = serial();
     let mut l = Lib::trips();
     let spec = l.s.spec("folder.move").unwrap();
     assert_eq!((spec.effect, spec.history, spec.menu), (Effect::Files, History::Library, "Folder/Move…"));

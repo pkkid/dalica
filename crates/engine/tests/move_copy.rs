@@ -1,80 +1,40 @@
 //! `photo.moveTo` and `photo.copyTo` on temp folders (`roadmap.md` M9.13; `organizing.md` §9,
 //! `data-model.md` §8 and §10.3): moved photos keep their star, caption, tags, recipe, album order
 //! and originals backup; undo and redo restore the files and the model; the first-time question;
-//! Rename and Skip Duplicates; a clash only the disk shows is journalled before the file moves;
-//! a forced cross-volume move; Cancel half-way; a read-only destination; copies and their undo; the
-//! owner thread makes no `fs` call; each command's graceful failures.
+//! Rename and Skip Duplicates; a clash only the disk shows is journalled before the file moves
+//! (a move across volumes is `two_volumes.rs`); Cancel half-way; a read-only destination; copies
+//! and their undo; the owner thread makes no `fs` call; each command's graceful failures.
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use dalica_core::{FolderId, PhotoId, Timestamp, VirtualClock};
+use crate::common::{FaultLock, entry, exists, jpeg, off_owner, options, read_opt, shared, virtual_clock};
+use dalica_core::{FolderId, PhotoId};
 use dalica_engine::fileops::{ItemState, Journal, JournalEntry, OpId};
 use dalica_engine::watching::WatchMode;
-use dalica_engine::{CacheDir, CmdError, Direction, FileOpEvent, FileOpKind, History, Options, Session, ThumbOptions};
+use dalica_engine::{CmdError, Direction, FileOpEvent, FileOpKind, History, Session};
 use dalica_fs::Expect;
-use dalica_fs::faults::{Fault, arm_global, disarm_all, points};
 use serde_json::{Value, json};
 
 const PATIENCE: Duration = Duration::from_secs(120);
-
-/// Global fault points reach every test thread of this binary: a test that arms one runs alone.
-static FAULTS: RwLock<()> = RwLock::new(());
-
-/// Runs `f` on a helper thread: the test's own file access never counts against the owner.
-fn off_owner<T: Send>(f: impl FnOnce() -> T + Send) -> T {
-    std::thread::scope(|s| s.spawn(f).join().unwrap())
-}
-
-fn read(path: &Path) -> Option<Vec<u8>> {
-    let path = path.to_path_buf();
-    off_owner(move || std::fs::read(path).ok())
-}
-
-fn exists(path: &Path) -> bool {
-    let path = path.to_path_buf();
-    off_owner(move || path.exists())
-}
 
 fn write(path: &Path, bytes: &[u8]) {
     let (path, bytes) = (path.to_path_buf(), bytes.to_vec());
     off_owner(move || std::fs::write(path, bytes).unwrap());
 }
 
-fn entry(folder: &Path, name: &str) -> Option<Value> {
-    let bytes = read(&folder.join(".dalica.json"))?;
-    serde_json::from_slice::<Value>(&bytes).unwrap().get("photos").and_then(|p| p.get(name)).cloned()
-}
-
-fn jpeg(seed: u64) -> Vec<u8> {
-    dalica_scenes::jpeg(&dalica_scenes::Scene::new(seed, 96, 64), 80, None).unwrap()
-}
-
 struct Lib {
     dir: tempfile::TempDir,
     s: Session,
-    _faults: Guard,
-}
-
-enum Guard {
-    Shared(#[allow(dead_code)] std::sync::RwLockReadGuard<'static, ()>),
-    Alone(#[allow(dead_code)] std::sync::RwLockWriteGuard<'static, ()>),
+    _faults: FaultLock,
 }
 
 impl Lib {
     /// Pictures/Lisbon with IMG_0001–3 and Pictures/Porto with PORTO_0001, scanned, watching off.
     fn new() -> Lib {
-        Lib::with(Guard::Shared(FAULTS.read().unwrap_or_else(|e| e.into_inner())))
-    }
-
-    /// The same, holding every other test of this binary off (for a global fault point).
-    fn alone() -> Lib {
-        Lib::with(Guard::Alone(FAULTS.write().unwrap_or_else(|e| e.into_inner())))
-    }
-
-    fn with(guard: Guard) -> Lib {
+        let _faults = shared();
         let dir = tempfile::tempdir().unwrap();
         for (folder, names) in [("Lisbon", &["IMG_0001.jpg", "IMG_0002.jpg", "IMG_0003.jpg"][..]), ("Porto", &["PORTO_0001.jpg"][..])] {
             let path = dir.path().join("Pictures").join(folder);
@@ -85,13 +45,11 @@ impl Lib {
         }
         let library = dir.path().join("library");
         dalica_fs::create_dir_all(&library).unwrap();
-        let clock = Arc::new(VirtualClock::new(Timestamp::from_millis(1_790_000_000_000)));
-        let options = Options { thumbs: ThumbOptions { cache: CacheDir::Off, workers: 1, ..ThumbOptions::default() } };
-        let mut s = Session::open_with(&library, clock, &options).unwrap();
+        let mut s = Session::open_with(&library, virtual_clock(), &options()).unwrap();
         s.set_watching(WatchMode::Off);
         s.execute("folders.add", &json!({ "path": dir.path().join("Pictures") })).unwrap();
         s.wait_idle();
-        Lib { dir, s, _faults: guard }
+        Lib { dir, s, _faults }
     }
 
     fn folder(&self, name: &str) -> PathBuf {
@@ -174,7 +132,7 @@ fn moved_photos_keep_their_data_album_order_and_backup_and_undo_and_redo_restore
             std::fs::write(&path, serde_json::to_vec(&root).unwrap()).unwrap();
         });
     }
-    let bytes = read(&lisbon.join("IMG_0001.jpg")).unwrap();
+    let bytes = read_opt(&lisbon.join("IMG_0001.jpg")).unwrap();
     let model_before = l.s.library().model().clone();
     let steps = l.s.undo_stack().len();
 
@@ -192,7 +150,7 @@ fn moved_photos_keep_their_data_album_order_and_backup_and_undo_and_redo_restore
     assert_eq!(l.s.undo_stack().len(), steps + 1, "one undo step");
 
     // The files, the entries and the backup.
-    assert_eq!(read(&porto.join("IMG_0001.jpg")).unwrap(), bytes);
+    assert_eq!(read_opt(&porto.join("IMG_0001.jpg")).unwrap(), bytes);
     assert!(!exists(&lisbon.join("IMG_0001.jpg")) && !exists(&lisbon.join("IMG_0002.jpg")));
     let first = entry(&porto, "IMG_0001.jpg").unwrap();
     assert_eq!((first["star"].clone(), first["caption"].clone(), first["x-other"].clone()), (json!(true), json!("Tram 28"), json!({ "rating": 5 })));
@@ -200,7 +158,7 @@ fn moved_photos_keep_their_data_album_order_and_backup_and_undo_and_redo_restore
     let second = entry(&porto, "IMG_0002.jpg").unwrap();
     assert_eq!((second["tags"].clone(), second["edits"].clone()), (json!(["lisbon", "tram"]), json!(["sepia()"])));
     assert_eq!(entry(&lisbon, "IMG_0001.jpg"), None);
-    assert_eq!(read(&porto.join(".dalica-originals").join("IMG_0002.jpg")).unwrap(), b"the original");
+    assert_eq!(read_opt(&porto.join(".dalica-originals").join("IMG_0002.jpg")).unwrap(), b"the original");
     assert!(!exists(&lisbon.join(".dalica-originals").join("IMG_0002.jpg")));
     // The model: same ids and data, new folder, same album order.
     let lib = l.s.library();
@@ -214,11 +172,11 @@ fn moved_photos_keep_their_data_album_order_and_backup_and_undo_and_redo_restore
     let e = l.undo();
     clean(&e);
     assert_eq!((e.direction, e.done), (Direction::Undo, 2));
-    assert_eq!(read(&lisbon.join("IMG_0001.jpg")).unwrap(), bytes);
+    assert_eq!(read_opt(&lisbon.join("IMG_0001.jpg")).unwrap(), bytes);
     assert!(!exists(&porto.join("IMG_0001.jpg")) && !exists(&porto.join("IMG_0002.jpg")));
     assert_eq!(entry(&lisbon, "IMG_0001.jpg").unwrap()["x-other"], json!({ "rating": 5 }));
     assert_eq!(entry(&porto, "IMG_0002.jpg"), None);
-    assert_eq!(read(&lisbon.join(".dalica-originals").join("IMG_0002.jpg")).unwrap(), b"the original");
+    assert_eq!(read_opt(&lisbon.join(".dalica-originals").join("IMG_0002.jpg")).unwrap(), b"the original");
     assert_eq!(l.where_is(two), (lisbon.clone(), "IMG_0002.jpg".into()));
     assert_eq!(l.s.library().model(), &model_before, "the model as it was (last-changed times included)");
     assert_eq!(l.s.library().album_members(&album_id), order);
@@ -264,8 +222,8 @@ fn a_clash_asks_rename_gives_001_and_skip_leaves_both_files() {
     let porto_id = l.folder_id("Porto");
     clean(&l.run("photo.copyTo", json!({ "ids": [one], "folder": porto_id })));
     write(&porto.join("IMG_0001.jpg"), &jpeg(99));
-    let theirs = read(&porto.join("IMG_0001.jpg")).unwrap();
-    let mine = read(&lisbon.join("IMG_0001.jpg")).unwrap();
+    let theirs = read_opt(&porto.join("IMG_0001.jpg")).unwrap();
+    let mine = read_opt(&lisbon.join("IMG_0001.jpg")).unwrap();
     let two = l.photo("Lisbon", "IMG_0002.jpg");
 
     let asked = l.s.execute("photo.moveTo", &json!({ "ids": [one, two], "folder": porto_id, "confirm": true }));
@@ -277,8 +235,8 @@ fn a_clash_asks_rename_gives_001_and_skip_leaves_both_files() {
     let e = l.run("photo.moveTo", json!({ "ids": [one, two], "folder": porto_id, "confirm": true, "collisions": "skip" }));
     assert_eq!((e.done, e.skipped.len(), e.failures.len()), (1, 1, 0), "{e:?}");
     assert_eq!(e.skipped[0].file, lisbon.join("IMG_0001.jpg"));
-    assert_eq!(read(&porto.join("IMG_0001.jpg")).unwrap(), theirs);
-    assert_eq!(read(&lisbon.join("IMG_0001.jpg")).unwrap(), mine);
+    assert_eq!(read_opt(&porto.join("IMG_0001.jpg")).unwrap(), theirs);
+    assert_eq!(read_opt(&lisbon.join("IMG_0001.jpg")).unwrap(), mine);
     assert_eq!(l.where_is(one).0, lisbon);
     assert_eq!(l.where_is(two).0, porto);
 
@@ -286,13 +244,13 @@ fn a_clash_asks_rename_gives_001_and_skip_leaves_both_files() {
     l.s.execute("photo.star.set", &json!({ "ids": [one], "on": true })).unwrap();
     clean(&l.run("photo.moveTo", json!({ "ids": [one], "folder": porto_id, "confirm": true, "collisions": "rename" })));
     assert_eq!(l.where_is(one), (porto.clone(), "IMG_0001-001.jpg".into()));
-    assert_eq!(read(&porto.join("IMG_0001-001.jpg")).unwrap(), mine);
-    assert_eq!(read(&porto.join("IMG_0001.jpg")).unwrap(), theirs);
+    assert_eq!(read_opt(&porto.join("IMG_0001-001.jpg")).unwrap(), mine);
+    assert_eq!(read_opt(&porto.join("IMG_0001.jpg")).unwrap(), theirs);
     assert_eq!(entry(&porto, "IMG_0001-001.jpg").unwrap()["star"], true);
     // Undo moves it back under its own name.
     clean(&l.undo());
     assert_eq!(l.where_is(one), (lisbon.clone(), "IMG_0001.jpg".into()));
-    assert_eq!(read(&lisbon.join("IMG_0001.jpg")).unwrap(), mine);
+    assert_eq!(read_opt(&lisbon.join("IMG_0001.jpg")).unwrap(), mine);
     assert!(!exists(&porto.join("IMG_0001-001.jpg")));
 }
 
@@ -346,7 +304,7 @@ fn a_clash_only_the_disk_shows_takes_the_next_name_journalled_first() {
     let porto_id = l.folder_id("Porto");
     clean(&l.run("photo.moveTo", json!({ "ids": [two], "folder": porto_id, "confirm": true })));
     assert_eq!(l.where_is(two), (porto.clone(), "IMG_0002-001.jpg".into()));
-    assert_eq!(read(&porto.join("IMG_0002.jpg")).unwrap(), b"not in the library");
+    assert_eq!(read_opt(&porto.join("IMG_0002.jpg")).unwrap(), b"not in the library");
     let calls = journal.calls.lock().unwrap().clone();
     let at = |prefix: &str| calls.iter().position(|c| c.starts_with(prefix)).unwrap_or_else(|| panic!("{prefix}: {calls:?}"));
     let retarget = at("retarget");
@@ -356,29 +314,6 @@ fn a_clash_only_the_disk_shows_takes_the_next_name_journalled_first() {
     clean(&l.undo());
     assert_eq!(l.where_is(two).1, "IMG_0002.jpg");
     assert!(!exists(&porto.join("IMG_0002-001.jpg")));
-}
-
-/// A move forced across volumes copies, verifies, then trashes the source; undo brings it back.
-#[test]
-fn a_forced_cross_volume_move_copies_verifies_then_trashes() {
-    let mut l = Lib::alone();
-    let (lisbon, porto) = (l.folder("Lisbon"), l.folder("Porto"));
-    let one = l.photo("Lisbon", "IMG_0001.jpg");
-    let bytes = read(&lisbon.join("IMG_0001.jpg")).unwrap();
-    let before = off_owner(|| dalica_fs::identity(&lisbon.join("IMG_0001.jpg")).unwrap().unwrap());
-    let porto_id = l.folder_id("Porto");
-    arm_global(points::MOVE_CROSS_VOLUME, Fault::Error);
-    let e = l.run("photo.moveTo", json!({ "ids": [one], "folder": porto_id, "confirm": true }));
-    disarm_all();
-    clean(&e);
-    assert_eq!(read(&porto.join("IMG_0001.jpg")).unwrap(), bytes);
-    let after = off_owner(|| dalica_fs::identity(&porto.join("IMG_0001.jpg")).unwrap().unwrap());
-    assert_ne!(before, after, "a copy, not a rename");
-    assert!(!exists(&lisbon.join("IMG_0001.jpg")), "the source went to the trash");
-    assert_eq!(l.where_is(one).0, porto);
-    clean(&l.undo());
-    assert_eq!(read(&lisbon.join("IMG_0001.jpg")).unwrap(), bytes);
-    assert_eq!(l.where_is(one).0, lisbon);
 }
 
 /// Cancel after the first item: that item stays moved, as one undo step, and the rest stay.
@@ -458,7 +393,7 @@ fn copies_are_new_photos_with_the_sources_data_and_undo_trashes_unchanged_copies
     let album = l.s.execute("album.create", &json!({ "name": "Trams", "ids": [one] })).unwrap()["album"].as_str().unwrap().to_string();
     let album_id = dalica_core::AlbumId::parse(&album).unwrap();
     let porto_id = l.folder_id("Porto");
-    let bytes = read(&lisbon.join("IMG_0001.jpg")).unwrap();
+    let bytes = read_opt(&lisbon.join("IMG_0001.jpg")).unwrap();
 
     let e = l.run("photo.copyTo", json!({ "ids": [one], "folder": porto_id }));
     clean(&e);
@@ -470,7 +405,7 @@ fn copies_are_new_photos_with_the_sources_data_and_undo_trashes_unchanged_copies
     assert_eq!((lib.info(copy).caption.as_str(), lib.info(copy).tags.clone()), ("Tram 28", vec!["tram".to_string()]));
     assert_eq!(lib.album_members(&album_id), [one, copy]);
     assert_eq!(l.where_is(one).0, lisbon, "the source stays");
-    assert_eq!(read(&porto.join("IMG_0001.jpg")).unwrap(), bytes);
+    assert_eq!(read_opt(&porto.join("IMG_0001.jpg")).unwrap(), bytes);
     // The duplicated entry survives the destination's writes from the model.
     l.s.execute("photo.tags.add", &json!({ "ids": [copy], "tags": "porto" })).unwrap();
     l.s.flush().unwrap();
@@ -488,7 +423,7 @@ fn copies_are_new_photos_with_the_sources_data_and_undo_trashes_unchanged_copies
     assert_eq!(l.s.library().album_members(&album_id), [one]);
     clean(&l.redo());
     assert_eq!(l.photo("Porto", "IMG_0001.jpg"), copy);
-    assert_eq!(read(&porto.join("IMG_0001.jpg")).unwrap(), bytes);
+    assert_eq!(read_opt(&porto.join("IMG_0001.jpg")).unwrap(), bytes);
 
     // A copy changed since stays, and its undo says why.
     write(&porto.join("IMG_0001.jpg"), &jpeg(77));

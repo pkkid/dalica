@@ -8,6 +8,8 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 publish = false
+# One integration-test binary (`tests/all.rs`) instead of one per file; see `[[test]]` below.
+autotests = false
 
 [features]
 # HEIF/HEIC decoding (formats.md §3), off by default; with it `tests/save_formats.rs` runs its HEIC
@@ -50,6 +52,17 @@ dalica-fs = { workspace = true, features = ["faults"] }
 dalica-engine = { path = ".", features = ["faults"] }
 proptest.workspace = true
 tempfile.workspace = true
+
+# Every integration test file is a module of `tests/all.rs` (one link, one process); run one file
+# with `cargo test -p dalica-engine --test all <file>::`.
+[[test]]
+name = "all"
+path = "tests/all.rs"
+
+# Its own process: it re-runs its own binary as a child per fault case, with exact test filters.
+[[test]]
+name = "fileops_faults"
+path = "tests/fileops_faults.rs"
 
 [[bench]]
 name = "first_thumbnails"

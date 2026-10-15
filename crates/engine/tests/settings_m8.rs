@@ -6,23 +6,14 @@
 //! directory is its parent.
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
-use dalica_core::SystemClock;
+use crate::common::open;
 use dalica_engine::settings::{
     CUSTOM_QUALITY_DEFAULT, EXPORT_SIZE_DEFAULT, EXPORT_SIZE_RANGE, ExportQuality, ExportSettings, FILE, MAX_PATH_BYTES, MAX_WATERMARK_BYTES,
     SaveFormat, SaveSettings, Settings, default_export_location,
 };
-use dalica_engine::{CacheDir, Options, Session, ThumbOptions};
 use dalica_fs::Expect;
 use serde_json::{Value, json};
-
-fn open(library: &Path) -> Session {
-    let options = Options { thumbs: ThumbOptions { cache: CacheDir::Off, workers: 1, ..ThumbOptions::default() } };
-    let mut s = Session::open_with(library, Arc::new(SystemClock), &options).unwrap();
-    s.wait_idle();
-    s
-}
 
 fn write_settings(library: &Path, v: &Value) {
     dalica_fs::create_dir_all(library).unwrap();

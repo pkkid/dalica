@@ -5,20 +5,11 @@
 //! range) is its default and is reported by key, never by value, when the library opens.
 
 use std::path::Path;
-use std::sync::Arc;
 
-use dalica_core::SystemClock;
+use crate::common::open;
 use dalica_engine::settings::{FILE, OrganizeSettings, RECENT_DAYS_DEFAULT, RECENT_DAYS_RANGE, Settings};
-use dalica_engine::{CacheDir, Options, Session, ThumbOptions};
 use dalica_fs::Expect;
 use serde_json::{Value, json};
-
-fn open(library: &Path) -> Session {
-    let options = Options { thumbs: ThumbOptions { cache: CacheDir::Off, workers: 1, ..ThumbOptions::default() } };
-    let mut s = Session::open_with(library, Arc::new(SystemClock), &options).unwrap();
-    s.wait_idle();
-    s
-}
 
 fn write_settings(library: &Path, v: &Value) {
     dalica_fs::create_dir_all(library).unwrap();

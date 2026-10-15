@@ -1,6 +1,7 @@
 //! Synthetic libraries (`dalica_engine::synthetic`): the same seed gives the same library, the
 //! 100 k-photo preset opens with every photo sketched, the plan has the promised shape, and bad
-//! specs and occupied folders are refused without touching anything.
+//! specs and occupied folders are refused without touching anything. A task's gate runs the two
+//! presets' tests at a tenth of their size (the review gate at full size).
 //!
 //! Timings: `cargo test --release -p dalica-engine --test synthetic -- --nocapture` prints the
 //! generation and open times of the 100 k-photo library.
@@ -14,6 +15,8 @@ use dalica_core::{Clock, DateTime, SystemClock};
 use dalica_engine::Session;
 use dalica_engine::synthetic::{self, Spec, SyntheticError};
 use dalica_library::Library;
+
+use crate::common::{full, pick};
 
 fn clock() -> Arc<dyn Clock> {
     Arc::new(SystemClock)
@@ -95,7 +98,8 @@ fn the_same_seed_gives_the_same_library() {
 #[test]
 fn a_100k_library_opens_with_every_photo_sketched() {
     let dir = tempfile::tempdir().unwrap();
-    let spec = Spec::PHOTOS_100K;
+    let spec = pick(Spec::new(10_000, 100, synthetic::SEED), Spec::PHOTOS_100K);
+    let (n, folders) = (spec.photos, spec.folders);
     let t = Instant::now();
     synthetic::write_index(dir.path(), &spec).unwrap();
     let generated = t.elapsed();
@@ -103,13 +107,13 @@ fn a_100k_library_opens_with_every_photo_sketched() {
     let session = Session::open(&synthetic::library_dir(dir.path()), clock()).unwrap();
     let opened = t.elapsed();
     let snap = std::fs::metadata(synthetic::library_dir(dir.path()).join(dalica_store::snapshot::FILE)).unwrap().len();
-    eprintln!("synthetic 100 k photos in 1 k folders: generated and written in {generated:.2?}, opened in {opened:.2?}; index.snap {snap} bytes");
+    eprintln!("synthetic {n} photos in {folders} folders: generated and written in {generated:.2?}, opened in {opened:.2?}; index.snap {snap} bytes");
 
     let lib = session.library();
     assert!(session.recovery().is_empty(), "{:?}", session.recovery());
-    assert_eq!(lib.photos().count(), 100_000);
-    assert_eq!(lib.folders().count(), 1_000);
-    assert_eq!(lib.sketch_count(), 100_000);
+    assert_eq!(lib.photos().count(), n);
+    assert_eq!(lib.folders().count(), folders);
+    assert_eq!(lib.sketch_count(), n);
     for p in lib.photos() {
         let sketch = lib.sketch(p.id).unwrap_or_else(|| panic!("photo {} has no sketch", p.id));
         let decoded = dalica_thumbs::sketch::decode(sketch.as_bytes()).unwrap();
@@ -121,7 +125,7 @@ fn a_100k_library_opens_with_every_photo_sketched() {
     let sizes = assert_ids_in_tree_order(lib);
     assert!(sizes.iter().all(|&n| n >= 1));
     let (least, most) = (*sizes.iter().min().unwrap(), *sizes.iter().max().unwrap());
-    assert!(most >= 5 * 100 && least <= 20, "uneven folders: {least}..={most} photos");
+    assert!(most >= 5 * (n / folders) && least <= 20, "uneven folders: {least}..={most} photos");
     let aspects: BTreeSet<(u32, u32)> = lib.photos().map(|p| (p.width, p.height)).collect();
     assert_eq!(aspects.len(), 7, "{aspects:?}");
     let years: BTreeSet<u16> = lib.photos().filter_map(|p| p.date).map(|d| d.date().year()).collect();
@@ -129,12 +133,12 @@ fn a_100k_library_opens_with_every_photo_sketched() {
     assert_eq!(years.last(), Some(&2026));
     let undated = lib.photos().filter(|p| p.date.is_none()).count();
     let starred = lib.photos().filter(|p| p.star).count();
-    assert!((1_000..3_000).contains(&undated), "{undated} undated");
-    assert!((2_500..4_200).contains(&starred), "{starred} starred");
+    assert!((n / 100..3 * n / 100).contains(&undated), "{undated} undated");
+    assert!((n / 40..42 * n / 1000).contains(&starred), "{starred} starred");
     let mut names = BTreeSet::new();
     assert!(lib.photos().all(|p| names.insert(&p.name)), "names are unique across the library");
     let paths: BTreeSet<&PathBuf> = lib.folders().map(|f| &f.path).collect();
-    assert_eq!(paths.len(), 1_000);
+    assert_eq!(paths.len(), folders);
     let root = synthetic::photos_dir(dir.path());
     for f in lib.folders() {
         let rel = f.path.strip_prefix(&root).unwrap();
@@ -144,13 +148,13 @@ fn a_100k_library_opens_with_every_photo_sketched() {
 
 #[test]
 fn the_5k_folder_preset_has_5k_folders() {
-    let spec = Spec::FOLDERS_5K;
+    let spec = if full() { Spec::FOLDERS_5K } else { Spec::new(10_000, 500, synthetic::SEED) };
     let lib = synthetic::library_at(Path::new("/synthetic"), &spec).unwrap();
-    assert_eq!(lib.folders().count(), 5_000);
-    assert_eq!(lib.photos().count(), 100_000);
-    assert_eq!(lib.sketch_count(), 100_000);
+    assert_eq!(lib.folders().count(), spec.folders);
+    assert_eq!(lib.photos().count(), spec.photos);
+    assert_eq!(lib.sketch_count(), spec.photos);
     let sizes = assert_ids_in_tree_order(&lib);
-    assert_eq!(sizes.iter().sum::<usize>(), 100_000);
+    assert_eq!(sizes.iter().sum::<usize>(), spec.photos);
     assert!(sizes.iter().all(|&n| n >= 1));
 }
 

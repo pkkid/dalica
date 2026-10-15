@@ -11,51 +11,17 @@
 //! command's contract and graceful failures; the owner thread makes no `fs` call.
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::time::Duration;
 
-use dalica_core::{FolderId, PhotoId, Timestamp, VirtualClock};
+use crate::common::{FaultLock, entry, files, jpeg, off_owner, options, read, read_json, shared, virtual_clock};
+use dalica_core::{FolderId, PhotoId};
 use dalica_engine::cmd::rename::planted;
 use dalica_engine::watching::WatchMode;
-use dalica_engine::{CacheDir, CmdError, Direction, FileOpEvent, FileOpKind, Options, Session, ThumbOptions};
+use dalica_engine::{CmdError, Direction, FileOpEvent, FileOpKind, Session};
 use dalica_fs::Expect;
 use serde_json::{Value, json};
 
 const PATIENCE: Duration = Duration::from_secs(120);
-
-/// Runs `f` on a helper thread: the test's own file access never counts against the owner.
-fn off_owner<T: Send>(f: impl FnOnce() -> T + Send) -> T {
-    std::thread::scope(|s| s.spawn(f).join().unwrap())
-}
-
-fn read_json(path: &Path) -> Option<Value> {
-    let path = path.to_path_buf();
-    off_owner(move || std::fs::read(path).ok().map(|b| serde_json::from_slice(&b).unwrap()))
-}
-
-/// The folder sidecar's entry for `name`.
-fn entry(folder: &Path, name: &str) -> Option<Value> {
-    read_json(&folder.join(".dalica.json")).and_then(|v| v.get("photos").and_then(|p| p.get(name)).cloned())
-}
-
-/// The names of the files in `folder` (Dalica's own left out), sorted.
-fn files(folder: &Path) -> Vec<String> {
-    let folder = folder.to_path_buf();
-    let mut v: Vec<String> = off_owner(move || {
-        std::fs::read_dir(folder)
-            .unwrap()
-            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
-            .filter(|n| !n.starts_with(".dalica"))
-            .collect()
-    });
-    v.sort();
-    v
-}
-
-fn read(path: &Path) -> Vec<u8> {
-    let path = path.to_path_buf();
-    off_owner(move || std::fs::read(path).unwrap())
-}
 
 /// Whether the temporary folders' volume ignores letter case (the macOS and Windows runners).
 fn ignores_case(dir: &Path) -> bool {
@@ -73,23 +39,17 @@ fn photos(s: &Session) -> Vec<dalica_library::Photo> {
     s.library().photos().cloned().collect()
 }
 
-fn jpeg(seed: u64) -> Vec<u8> {
-    dalica_scenes::jpeg(&dalica_scenes::Scene::new(seed, 96, 64), 80, None).unwrap()
-}
-
-fn options() -> Options {
-    Options { thumbs: ThumbOptions { cache: CacheDir::Off, workers: 1, ..ThumbOptions::default() } }
-}
-
 struct Lib {
     dir: tempfile::TempDir,
     s: Session,
+    _faults: FaultLock,
 }
 
 impl Lib {
     /// `Pictures/<folder>` with each folder's photos (written in order), watched and scanned, on a
     /// virtual clock, the watcher off. `before_open` runs on the `Pictures` folder first.
     fn with(folders: &[(&str, &[&str])], before_open: impl FnOnce(&Path)) -> Lib {
+        let _faults = shared();
         let dir = tempfile::tempdir().unwrap();
         let pictures = dir.path().join("Pictures");
         let mut seed = 0;
@@ -104,12 +64,11 @@ impl Lib {
         before_open(&pictures);
         let library = dir.path().join("library");
         dalica_fs::create_dir_all(&library).unwrap();
-        let clock = Arc::new(VirtualClock::new(Timestamp::from_millis(1_790_000_000_000)));
-        let mut s = Session::open_with(&library, clock, &options()).unwrap();
+        let mut s = Session::open_with(&library, virtual_clock(), &options()).unwrap();
         s.set_watching(WatchMode::Off);
         s.execute("folders.add", &json!({ "path": pictures })).unwrap();
         s.wait_idle();
-        Lib { dir, s }
+        Lib { dir, s, _faults }
     }
 
     /// `Pictures/Lisbon` with `IMG_0001.jpg` … `IMG_000n.jpg`.

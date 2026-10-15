@@ -12,25 +12,16 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
+use crate::common::{exists, jpeg, off_owner, options, shared};
 use dalica_core::{PhotoId, SystemClock, Timestamp, VirtualClock};
 use dalica_engine::fileops::{ItemState, Journal, JournalEntry, MemoryJournal, OpId};
 use dalica_engine::watching::WatchMode;
-use dalica_engine::{CacheDir, CmdError, Direction, Driver, FileOp, FileOpKind, JobKind, JobState, Options, Ran, Session, ThumbOptions};
+use dalica_engine::{CmdError, Direction, Driver, FileOp, FileOpKind, JobKind, JobState, Ran, Session};
 use dalica_fs::Expect;
 use dalica_library::Op;
 use serde_json::json;
 
 const PATIENCE: Duration = Duration::from_secs(120);
-
-/// Runs `f` on a helper thread: the test's own file access never counts against the owner.
-fn off_owner<T: Send>(f: impl FnOnce() -> T + Send) -> T {
-    std::thread::scope(|s| s.spawn(f).join().unwrap())
-}
-
-fn exists(path: &Path) -> bool {
-    let path = path.to_path_buf();
-    off_owner(move || path.exists())
-}
 
 /// The names in `folder` that are photos (no sidecar, no temporaries), sorted.
 fn names(folder: &Path) -> Vec<String> {
@@ -186,14 +177,6 @@ struct Lib {
     s: Session,
 }
 
-fn options() -> Options {
-    Options { thumbs: ThumbOptions { cache: CacheDir::Off, workers: 1, ..ThumbOptions::default() } }
-}
-
-fn jpeg(seed: u64) -> Vec<u8> {
-    dalica_scenes::jpeg(&dalica_scenes::Scene::new(seed, 96, 64), 80, None).unwrap()
-}
-
 fn write_photos(lisbon: &Path, n: usize) {
     dalica_fs::create_dir_all(lisbon).unwrap();
     for i in 0..n {
@@ -254,6 +237,7 @@ impl Lib {
 /// its first item runs and is empty once it is applied; the owner thread makes no `fs` call.
 #[test]
 fn an_operation_is_one_undo_step_whose_undo_and_redo_run_as_jobs() {
+    let _faults = shared();
     let mut l = Lib::new(3);
     let (one, two) = (l.photo("IMG_0001.jpg"), l.photo("IMG_0002.jpg"));
     l.s.execute("photo.star.set", &json!({ "ids": [two], "on": true })).unwrap();
@@ -322,6 +306,7 @@ fn an_operation_is_one_undo_step_whose_undo_and_redo_run_as_jobs() {
 /// leaves no redo step.
 #[test]
 fn the_step_stays_on_the_stack_while_its_undo_runs() {
+    let _faults = shared();
     let mut l = Lib::new(2);
     let gate = Gate::open();
     let items = l.items(&[1, 2]);
@@ -352,6 +337,7 @@ fn the_step_stays_on_the_stack_while_its_undo_runs() {
 /// Cancel between files keeps what finished as one step, which undoes alone.
 #[test]
 fn cancel_between_files_keeps_what_finished_as_one_step() {
+    let _faults = shared();
     let mut l = Lib::new(3);
     let steps = l.s.undo_stack().len();
     let gate = Gate::shut();
@@ -378,6 +364,7 @@ fn cancel_between_files_keeps_what_finished_as_one_step() {
 /// reported as skipped; only the items done are in the step.
 #[test]
 fn a_failure_is_reported_with_its_reason_while_the_rest_go_on() {
+    let _faults = shared();
     let mut l = Lib::new(4);
     let mut items = l.items(&[1, 2, 3, 4]);
     items[1].fail = true;
@@ -404,6 +391,7 @@ fn a_failure_is_reported_with_its_reason_while_the_rest_go_on() {
 /// A journal that cannot be written: nothing moves, every item fails with the reason, no step.
 #[test]
 fn an_operation_whose_journal_entry_cannot_be_written_moves_nothing() {
+    let _faults = shared();
     struct Broken;
     impl Journal for Broken {
         fn begin(&self, _: &JournalEntry) -> Result<(), String> {
@@ -434,6 +422,7 @@ fn an_operation_whose_journal_entry_cannot_be_written_moves_nothing() {
 /// A step with an item that has no way back says why, and Undo changes nothing.
 #[test]
 fn a_step_that_cannot_be_undone_says_why() {
+    let _faults = shared();
     let mut l = Lib::new(1);
     let mut driver = Rename::new(Gate::open());
     driver.no_way_back = Some("Restore it from the Trash.");
@@ -454,6 +443,7 @@ fn a_step_that_cannot_be_undone_says_why() {
 /// stack stay as the operation left them.
 #[test]
 fn the_watcher_imports_nothing_for_the_paths_dalica_changed() {
+    let _faults = shared();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("Pictures");
     write_photos(&root.join("Lisbon"), 3);
@@ -523,6 +513,7 @@ fn the_watcher_imports_nothing_for_the_paths_dalica_changed() {
 /// and keeps the others; `folders.json` follows.
 #[test]
 fn rebase_moves_nested_entries_and_keeps_the_others() {
+    let _faults = shared();
     let dir = tempfile::tempdir().unwrap();
     let pictures = dir.path().join("Pictures");
     let (lisbon, porto) = (pictures.join("Trips").join("Lisbon"), pictures.join("Porto"));

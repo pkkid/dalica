@@ -12,37 +12,20 @@
 //! and a trash folder it had to make on `/dev/shm` is removed again once empty.
 
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::Arc;
 use std::time::Duration;
 
+use crate::common::{entry, exclusive, names, off_owner, options, read_opt};
 use dalica_core::{AlbumId, FolderId, PhotoId, SystemClock};
 use dalica_engine::cmd::delete::RESTORES;
 use dalica_engine::watching::WatchMode;
-use dalica_engine::{CacheDir, Direction, FileOpEvent, FileOpKind, Options, Session, ThumbOptions};
+use dalica_engine::{Direction, FileOpEvent, FileOpKind, Session};
 use dalica_fs::Expect;
 use dalica_fs::Identity;
 use dalica_fs::faults::{self, Fault, points};
 use serde_json::{Value, json};
 
 const PATIENCE: Duration = Duration::from_secs(120);
-
-/// One test at a time: fault points armed for the job's thread are process-wide.
-fn serial() -> MutexGuard<'static, ()> {
-    static LOCK: Mutex<()> = Mutex::new(());
-    let guard = LOCK.lock().unwrap_or_else(PoisonError::into_inner);
-    faults::disarm_all();
-    guard
-}
-
-/// Runs `f` on a helper thread: the test's own file access never counts against the owner.
-fn off_owner<T: Send>(f: impl FnOnce() -> T + Send) -> T {
-    std::thread::scope(|s| s.spawn(f).join().unwrap())
-}
-
-fn read(path: &Path) -> Option<Vec<u8>> {
-    let path = path.to_path_buf();
-    off_owner(move || std::fs::read(path).ok())
-}
 
 fn exists(path: &Path) -> bool {
     let path = path.to_path_buf();
@@ -52,22 +35,6 @@ fn exists(path: &Path) -> bool {
 fn identity(path: &Path) -> Identity {
     let path = path.to_path_buf();
     off_owner(move || dalica_fs::identity(&path).unwrap().unwrap())
-}
-
-/// The names in `folder` (Dalica's own files included), sorted; empty when it is not there.
-fn names(folder: &Path) -> Vec<String> {
-    let folder = folder.to_path_buf();
-    let mut v: Vec<String> = off_owner(move || match std::fs::read_dir(folder) {
-        Ok(entries) => entries.map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect(),
-        Err(_) => Vec::new(),
-    });
-    v.sort();
-    v
-}
-
-fn entry(folder: &Path, name: &str) -> Option<Value> {
-    let v: Value = serde_json::from_slice(&read(&folder.join(".dalica.json"))?).ok()?;
-    v.get("photos").and_then(|p| p.get(name)).cloned()
 }
 
 fn jpeg(seed: u64) -> Vec<u8> {
@@ -162,10 +129,6 @@ fn untrash(items: &[(PathBuf, Identity, bool)]) {
     }
 }
 
-fn options() -> Options {
-    Options { thumbs: ThumbOptions { cache: CacheDir::Off, workers: 1, ..ThumbOptions::default() } }
-}
-
 /// A library watching `Pictures` on one volume (`Lisbon` with three photos, one of them with a
 /// hard name, a note, and `Lisbon/Day2` with one) and `Away` on the other (`Porto` with one).
 struct Lib {
@@ -244,7 +207,7 @@ fn clean(e: &FileOpEvent) {
 /// verify changes nothing; undo brings everything back.
 #[test]
 fn photos_moved_to_another_volume_are_copied_verified_then_trashed() {
-    let _serial = serial();
+    let _faults = exclusive();
     let mut l = Lib::new();
     let (lisbon, porto) = (l.lisbon(), l.porto());
     let names_moved = ["IMG_0001.jpg", HARD];
@@ -258,7 +221,7 @@ fn photos_moved_to_another_volume_are_copied_verified_then_trashed() {
     let album = AlbumId::parse(v["album"].as_str().unwrap()).unwrap();
     assert!(l.s.flush_metadata(PATIENCE));
     l.s.flush().unwrap();
-    let bytes: Vec<Vec<u8>> = names_moved.iter().map(|n| read(&lisbon.join(n)).unwrap()).collect();
+    let bytes: Vec<Vec<u8>> = names_moved.iter().map(|n| read_opt(&lisbon.join(n)).unwrap()).collect();
     let sources: Vec<Identity> = names_moved.iter().map(|n| identity(&lisbon.join(n))).collect();
     let entries: Vec<Value> = names_moved.iter().map(|n| entry(&lisbon, n).unwrap()).collect();
     let model = l.s.library().model().clone();
@@ -270,7 +233,7 @@ fn photos_moved_to_another_volume_are_copied_verified_then_trashed() {
     faults::arm_global(points::COPY_FLIP, Fault::Error);
     let e = l.run("photo.moveTo", json!({ "ids": [ids[0]], "folder": porto_id, "confirm": true }));
     assert_eq!((e.done, e.failures.len()), (0, 1), "{e:?}");
-    assert!(read(&lisbon.join("IMG_0001.jpg")).unwrap() == bytes[0], "the source is untouched");
+    assert!(read_opt(&lisbon.join("IMG_0001.jpg")).unwrap() == bytes[0], "the source is untouched");
     assert_eq!(names(&porto), [".dalica.json", "PORTO_0001.jpg"], "nothing at the target");
     assert_eq!(l.s.library().model(), &model);
     assert_eq!(l.s.undo_stack().len(), steps);
@@ -284,7 +247,7 @@ fn photos_moved_to_another_volume_are_copied_verified_then_trashed() {
     }
     let mut copies = Vec::new();
     for (i, n) in names_moved.iter().enumerate() {
-        assert!(read(&porto.join(n)).unwrap() == bytes[i], "{n}: the same bytes on the other volume");
+        assert!(read_opt(&porto.join(n)).unwrap() == bytes[i], "{n}: the same bytes on the other volume");
         let copy = identity(&porto.join(n));
         assert_ne!(copy, sources[i], "{n}: a copy, not a rename");
         copies.push(copy);
@@ -307,7 +270,7 @@ fn photos_moved_to_another_volume_are_copied_verified_then_trashed() {
         assert_eq!((e.direction, e.done), (Direction::Undo, 1));
     }
     for (i, n) in names_moved.iter().enumerate() {
-        assert!(read(&lisbon.join(n)).unwrap() == bytes[i], "{n}: back");
+        assert!(read_opt(&lisbon.join(n)).unwrap() == bytes[i], "{n}: back");
         assert!(!exists(&porto.join(n)), "{n}: gone from the other volume");
         assert_eq!(entry(&lisbon, n).unwrap().get("tags"), entries[i].get("tags"), "{n}");
     }
@@ -317,14 +280,14 @@ fn photos_moved_to_another_volume_are_copied_verified_then_trashed() {
     let mut trashed: Vec<(PathBuf, Identity, bool)> = names_moved.iter().zip(&sources).map(|(n, id)| (lisbon.join(n), *id, false)).collect();
     trashed.extend(names_moved.iter().zip(&copies).map(|(n, id)| (porto.join(n), *id, false)));
     untrash(&trashed);
-    assert!(read(&lisbon.join("IMG_0001.jpg")).unwrap() == bytes[0]);
+    assert!(read_opt(&lisbon.join("IMG_0001.jpg")).unwrap() == bytes[0]);
 }
 
 /// A folder moved to the other volume is copied file by file, each verified, then the source tree
 /// goes to the trash; the folder and its photos keep their ids and data; undo brings it back.
 #[test]
 fn a_folder_moved_to_another_volume_is_copied_verified_then_trashed() {
-    let _serial = serial();
+    let _faults = exclusive();
     let mut l = Lib::new();
     let (lisbon, porto) = (l.lisbon(), l.porto());
     let day2 = lisbon.join("Day2");
@@ -337,7 +300,7 @@ fn a_folder_moved_to_another_volume_is_copied_verified_then_trashed() {
     let tree = names(&lisbon);
     let files: Vec<(String, Vec<u8>)> = ["IMG_0001.jpg", "IMG_0002.jpg", HARD, "notes.txt", "Day2/DAY_0001.jpg"]
         .iter()
-        .map(|n| (n.to_string(), read(&n.split('/').fold(lisbon.clone(), |p, c| p.join(c))).unwrap()))
+        .map(|n| (n.to_string(), read_opt(&n.split('/').fold(lisbon.clone(), |p, c| p.join(c))).unwrap()))
         .collect();
     let source = identity(&lisbon);
     let model = l.s.library().model().clone();
@@ -349,7 +312,7 @@ fn a_folder_moved_to_another_volume_is_copied_verified_then_trashed() {
     assert!(!exists(&lisbon), "the source tree went to the trash");
     assert_eq!(names(&moved), tree);
     for (n, b) in &files {
-        assert!(read(&n.split('/').fold(moved.clone(), |p, c| p.join(c))).unwrap() == *b, "{n}: the same bytes on the other volume");
+        assert!(read_opt(&n.split('/').fold(moved.clone(), |p, c| p.join(c))).unwrap() == *b, "{n}: the same bytes on the other volume");
     }
     let copy = identity(&moved);
     let lib = l.s.library();
@@ -362,7 +325,7 @@ fn a_folder_moved_to_another_volume_is_copied_verified_then_trashed() {
     clean(&e);
     assert_eq!(names(&lisbon), tree, "back");
     for (n, b) in &files {
-        assert!(read(&n.split('/').fold(lisbon.clone(), |p, c| p.join(c))).unwrap() == *b, "{n}: back");
+        assert!(read_opt(&n.split('/').fold(lisbon.clone(), |p, c| p.join(c))).unwrap() == *b, "{n}: back");
     }
     assert!(!exists(&moved));
     assert_eq!(l.s.library().model(), &model, "the library as it was");

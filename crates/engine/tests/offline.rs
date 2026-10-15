@@ -17,6 +17,7 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::thread::ThreadId;
 use std::time::{Duration, Instant};
 
+use crate::common::off_owner;
 use dalica_core::{PhotoId, Timestamp, VirtualClock};
 use dalica_engine::offline::{CHECK_EVERY, OnlineCheck, PENDING_FILE, RootProbe, SETTLE};
 use dalica_engine::{CacheDir, CmdError, Options, Session, Thumb, ThumbOptions};
@@ -26,11 +27,6 @@ use dalica_sidecar::{Field, Limits, Sidecar};
 use serde_json::json;
 
 const PATIENCE: Duration = Duration::from_secs(60);
-
-/// Runs `f` on a helper thread: the test's own file changes never count against the owner.
-fn off_owner<T: Send>(f: impl FnOnce() -> T + Send) -> T {
-    std::thread::scope(|s| s.spawn(f).join().unwrap())
-}
 
 struct Fx {
     _tmp: tempfile::TempDir,

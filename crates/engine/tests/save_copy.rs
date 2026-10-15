@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::common::names;
 use dalica_core::{DateTime, PhotoId, SystemClock};
 use dalica_engine::settings::SaveFormat;
 use dalica_engine::{CacheDir, CmdError, Effect, History, JobEntry, JobKind, JobState, Options, Session, ThumbOptions};
@@ -79,12 +80,6 @@ fn decoded_size(path: &Path) -> (u32, u32) {
     (img.width, img.height)
 }
 
-fn files(dir: &Path) -> Vec<String> {
-    let mut names: Vec<String> = std::fs::read_dir(dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
-    names.sort();
-    names
-}
-
 fn code(r: Result<Value, CmdError>) -> &'static str {
     match r {
         Ok(v) => panic!("expected an error, got {v}"),
@@ -138,7 +133,7 @@ fn two_copies_are_001_and_002_with_the_edits_and_the_photo_untouched() {
     }
     // Every sidecar write has landed (a debounced one leaves a temporary file while it is written).
     lib.s.flush().unwrap();
-    assert_eq!(files(&lib.lisbon()), [".dalica.json", "IMG_0001-001.jpg", "IMG_0001-002.jpg", "IMG_0001.jpg", "IMG_0002.jpg"]);
+    assert_eq!(names(&lib.lisbon()), [".dalica.json", "IMG_0001-001.jpg", "IMG_0001-002.jpg", "IMG_0001.jpg", "IMG_0002.jpg"]);
     // The photo, its file and its recipe are untouched; neither copy is an undo step.
     assert_eq!(std::fs::read(&source).unwrap(), original);
     assert_eq!(lib.s.library().info(id), &info_before);
@@ -216,7 +211,7 @@ fn an_existing_path_is_refused_and_unchanged() {
     lib.s.flush().unwrap();
     let taken = lib.lisbon().join("IMG_0002.jpg");
     let bytes = std::fs::read(&taken).unwrap();
-    let before = files(&lib.lisbon());
+    let before = names(&lib.lisbon());
     let photos_before = lib.s.library().photos().count();
 
     let (_, done) = lib.run("photo.saveTo", json!({ "id": id, "path": taken }));
@@ -237,7 +232,7 @@ fn an_existing_path_is_refused_and_unchanged() {
     assert!(!lib.dir.path().join("Nowhere").exists());
 
     lib.s.flush().unwrap();
-    assert_eq!(files(&lib.lisbon()), before, "nothing written");
+    assert_eq!(names(&lib.lisbon()), before, "nothing written");
     assert_eq!(lib.s.library().photos().count(), photos_before);
     assert_eq!(lib.s.settings().save().last_folder, None, "nothing remembered");
 }

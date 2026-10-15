@@ -12,21 +12,15 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use crate::common::open_with;
 use dalica_core::{Clock, DateTime, PhotoId, SystemClock, Timestamp, VirtualClock};
 use dalica_engine::settings::MetadataWrites;
-use dalica_engine::{CacheDir, Field, JobKind, JobState, Options, Session, ThumbOptions};
+use dalica_engine::{Field, JobKind, JobState, Session};
 use dalica_fs::Expect;
 use dalica_meta::{Changes, Limits, OwnedFields, WriteOptions};
 use serde_json::{Value, json};
 
 const WAIT: Duration = Duration::from_secs(30);
-
-fn open(library: &Path, clock: Arc<dyn Clock>) -> Session {
-    let options = Options { thumbs: ThumbOptions { cache: CacheDir::Off, workers: 1, ..ThumbOptions::default() } };
-    let mut s = Session::open_with(library, clock, &options).unwrap();
-    s.wait_idle();
-    s
-}
 
 // Photo files.
 
@@ -175,7 +169,7 @@ impl Lib {
         for (name, bytes) in files {
             dalica_fs::replace(&folder.join(name), bytes, Expect::Absent).unwrap();
         }
-        let mut s = open(library.path(), clock);
+        let mut s = open_with(library.path(), clock);
         s.execute("folders.add", &json!({ "path": folder })).unwrap();
         s.wait_idle();
         assert_eq!(s.library().photos().count(), files.len(), "every file is a photo: {:?}", s.scan_warnings());

@@ -7,19 +7,12 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
-use dalica_core::{FolderId, PhotoId, SystemClock};
-use dalica_engine::{CacheDir, CmdError, Options, Session, ThumbOptions};
+use crate::common::open;
+use dalica_core::{FolderId, PhotoId};
+use dalica_engine::{CmdError, Session};
 use dalica_fs::Expect;
 use serde_json::{Value, json};
-
-fn open(library: &Path) -> Session {
-    let options = Options { thumbs: ThumbOptions { cache: CacheDir::Off, workers: 1, ..ThumbOptions::default() } };
-    let mut s = Session::open_with(library, Arc::new(SystemClock), &options).unwrap();
-    s.wait_idle();
-    s
-}
 
 /// A library watching `Trips/` with two folders `Lisbon` (3 photos) and `Porto` (2 photos).
 fn setup() -> (tempfile::TempDir, tempfile::TempDir, PathBuf, Session) {

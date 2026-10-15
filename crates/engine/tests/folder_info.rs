@@ -5,20 +5,13 @@
 //! and after undo; folder info surviving a restart and a rebuild of the index.
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
-use dalica_core::{Date, FolderId, SystemClock};
-use dalica_engine::{CacheDir, CmdError, Options, Session, ThumbOptions};
+use crate::common::open;
+use dalica_core::{Date, FolderId};
+use dalica_engine::{CmdError, Session};
 use dalica_fs::Expect;
 use dalica_library::{FolderInfo, MAX_DESCRIPTION, MAX_PLACE};
 use serde_json::{Value, json};
-
-fn open(library: &Path) -> Session {
-    let options = Options { thumbs: ThumbOptions { cache: CacheDir::Off, workers: 1, ..ThumbOptions::default() } };
-    let mut s = Session::open_with(library, Arc::new(SystemClock), &options).unwrap();
-    s.wait_idle();
-    s
-}
 
 /// A library watching one folder `Lisbon` of two photos.
 fn setup() -> (tempfile::TempDir, tempfile::TempDir, PathBuf, Session, FolderId) {

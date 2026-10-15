@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::common::shared;
 use dalica_core::{PhotoId, SystemClock, Timestamp};
 use dalica_create::save::{self, Seen};
 use dalica_edit::Recipe;
@@ -176,6 +177,7 @@ fn crashed(e: &save::Error) -> bool {
 /// unsaved.
 #[test]
 fn a_crash_after_the_original_moved_is_rolled_back_and_the_edits_stay() {
+    let _faults = shared();
     let mut lib = Lib::new();
     lib.edit(AUTOFIX);
     let seen = lib.seen();
@@ -201,6 +203,7 @@ fn a_crash_after_the_original_moved_is_rolled_back_and_the_edits_stay() {
 /// the reopened session finishes it, and the photo shows the edits from its file.
 #[test]
 fn a_crash_after_the_commit_is_rolled_forward_and_the_file_holds_the_edits() {
+    let _faults = shared();
     let mut lib = Lib::new();
     lib.edit(AUTOFIX);
     let seen = lib.seen();
@@ -232,6 +235,7 @@ fn a_crash_after_the_commit_is_rolled_forward_and_the_file_holds_the_edits() {
 /// holds the original again and both Saves' edits come back as unsaved edits, in order.
 #[test]
 fn a_second_save_stopped_before_its_commit_brings_every_edit_back() {
+    let _faults = shared();
     let mut lib = Lib::new();
     lib.edit(AUTOFIX);
     lib.save();
@@ -256,6 +260,7 @@ fn a_second_save_stopped_before_its_commit_brings_every_edit_back() {
 /// reopened session drops it and the saved edits come back.
 #[test]
 fn an_undo_save_stopped_after_its_move_is_finished() {
+    let _faults = shared();
     let mut lib = Lib::new();
     lib.edit(AUTOFIX);
     lib.save();
@@ -281,6 +286,7 @@ fn an_undo_save_stopped_after_its_move_is_finished() {
 /// already taken the new file's size and time into the model).
 #[test]
 fn a_pending_record_a_scan_reads_is_repaired() {
+    let _faults = shared();
     let mut lib = Lib::new();
     lib.edit(AUTOFIX);
     let seen = lib.seen();
@@ -302,6 +308,7 @@ fn a_pending_record_a_scan_reads_is_repaired() {
 /// Nothing to repair: a reopened session with saved and edited photos starts no job.
 #[test]
 fn nothing_to_repair_starts_no_job() {
+    let _faults = shared();
     let mut lib = Lib::new();
     lib.edit(AUTOFIX);
     lib.save();

@@ -6,11 +6,10 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
-use dalica_core::SystemClock;
-use dalica_engine::{CacheDir, CmdError, Options, Session, ThumbOptions};
+use crate::common::open;
+use dalica_engine::{CmdError, Session};
 use dalica_fs::Expect;
 use dalica_scan::{FileType, FileTypes, Mode, Places, Volume, VolumeKind};
 use serde_json::{Value, json};
@@ -28,13 +27,6 @@ fn tree(root: &Path) -> PathBuf {
         put_jpeg(&p.join(f), i as u64);
     }
     p
-}
-
-fn open(library: &Path) -> Session {
-    let options = Options { thumbs: ThumbOptions { cache: CacheDir::Off, workers: 1, ..ThumbOptions::default() } };
-    let mut s = Session::open_with(library, Arc::new(SystemClock), &options).unwrap();
-    s.wait_idle();
-    s
 }
 
 /// Every photo in the library, relative to `p`, with `/`.
