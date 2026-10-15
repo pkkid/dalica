@@ -52,6 +52,16 @@ pub const BENCHES: &[Bench] = &[
         package: "dalica-engine",
         what: "search of a synthetic 100 k library with captions, tags, folders and albums: the index built, one word, three words and Starred, a -word, search.set to its result applied",
     },
+    Bench {
+        name: "scan_throughput",
+        package: "dalica-engine",
+        what: "a first scan of 5 000 JPEGs with embedded thumbnails: photos per second until each is in the library with its embedded thumbnail available (writes about 0.5 GB)",
+    },
+    Bench {
+        name: "cold_start",
+        package: "dalica-ui",
+        what: "a fresh process opening a 100 k index-only library to its first settled frame, then its resident memory after 5 s idle",
+    },
 ];
 
 /// Time units a field may name, in milliseconds.

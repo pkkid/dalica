@@ -9,6 +9,10 @@
 # Since M9 also the search bench over a synthetic 100 k library: the index built, three queries and
 # search.set to its result applied, each median within 1.5 × its first measurement (a query never
 # above 100 ms).
+# Since M10 also the P0 budgets left: scan_throughput (a first scan of 5 000 JPEGs with embedded
+# thumbnails, >= 500 photos/s until each is listed with its embedded thumbnail available) and
+# cold_start (a fresh process opening the 100 k index-only library to its first settled frame,
+# median <= 2 s; resident memory after 5 s idle <= 600 MiB). Both absolute, never loosened.
 # Like every test run on GitHub, it runs only at a milestone review (the pull request of a
 # `review/M<n>.R` branch) and when dispatched by hand: "Run workflow" on the Actions tab, which also
 # takes a planted slowdown to prove that a missed budget fails the run (docs/development.md §3, §8).
