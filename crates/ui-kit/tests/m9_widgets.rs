@@ -12,54 +12,26 @@
 //! - the sheet (`fingerprints/m9-widgets.json`: the age slider in every state, the banner at three
 //!   widths, the pill per operation, the highlight and the marker) and the gallery: a window with
 //!   the Albums group's automatic albums, a drop target, the banner, the age slider, an insertion
-//!   marker and the pill, at 1400 × 900 and 900 × 600 (`fingerprints/gallery-m9-<w>x<h>.json`).
+//!   marker and the pill, at 1400 × 900 (`fingerprints/gallery-m9-1400x900.json`) and 900 × 600.
 //!
 //! Every frame registers its ids in the grammar of `control-protocol.md` §7 and leaves no
 //! interactive widget without one. The renders go to `target/test-output/ui-kit/`;
 //! `DALICA_BLESS=1` stores new fingerprints (commit them only after looking at the PNGs).
 
-use std::path::PathBuf;
-
-use dalica_scenes::fingerprint;
+use crate::common::{Canvas, check, out_dir};
 use dalica_ui_kit::icons::{self, AlbumIcon, paint_album};
 use dalica_ui_kit::widgets::{
     AGE_MAX_DAYS, BANNER_H, BANNER_PAD, BANNER_TEXT_GAP, BannerOut, DragOp, DragPill, PILL_H, PILL_MARGIN, PILL_OFFSET, PillThumb, age_days,
     age_label, age_position, age_slider, age_snapped, drag_pill, drag_pill_rect, drag_pill_text, drop_target, filter_banner, insertion_marker,
     text_button,
 };
-use dalica_ui_kit::{Icon, Image, Rasterizer, Role, Tokens, WidgetInfo, fonts, registry};
+use dalica_ui_kit::{Icon, Image, Role, Tokens, WidgetInfo, fonts, registry};
 use egui::{Align2, Color32, Context, Event, Key, Modifiers, PointerButton, Pos2, Rect, Ui, UiBuilder, pos2, vec2};
 
 const WINDOWS: [(u32, u32); 2] = [(1400, 900), (900, 600)];
 const SHORT: &str = "Showing 33 pictures in 4 folders (0.01 s) · 439.8 MB";
 const LONG: &str = "Showing 1,204 pictures in 37 folders and 5 albums (0.42 s) · 12.6 GB · matching \u{201c}lisbon harbour at dusk \
                     with the yellow tram, the castle walls and the river ferries\u{201d} in every folder of the library";
-
-fn out_dir() -> PathBuf {
-    let out = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/ui-kit");
-    std::fs::create_dir_all(&out).unwrap();
-    out
-}
-
-/// Writes `img` as `<name>.png`, stores its fingerprint when blessing, and compares it with the
-/// stored one.
-fn check(name: &str, img: &Image, failures: &mut Vec<String>) {
-    let out = out_dir();
-    std::fs::write(out.join(format!("{name}.png")), fingerprint::png_rgba(img.width, img.height, &img.rgba)).unwrap();
-    let stored = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("tests/fingerprints/{name}.json"));
-    if std::env::var_os("DALICA_BLESS").is_some() {
-        std::fs::write(&stored, fingerprint::to_json(&fingerprint::fingerprint(img.width, img.height, &img.rgba)) + "\n").unwrap();
-    }
-    match std::fs::read_to_string(&stored).map_err(|e| e.to_string()).and_then(|s| fingerprint::from_json(&s)) {
-        Ok(expected) => {
-            if let Err(m) = fingerprint::check(img.width, img.height, &img.rgba, &expected, 2.0) {
-                std::fs::write(out.join(format!("{name}-actual.png")), &m.actual_png).unwrap();
-                failures.push(format!("{name}: {}", m.message));
-            }
-        }
-        Err(e) => failures.push(format!("{name}: no fingerprint ({e}); run with DALICA_BLESS=1 and look at the PNG")),
-    }
-}
 
 fn check_ids(what: &str, widgets: &[WidgetInfo], unregistered: &[registry::Unregistered]) {
     assert_eq!(unregistered, [], "{what}: interactive widgets without an id");
@@ -84,11 +56,11 @@ struct Rig<S> {
     t: Tokens,
     size: (u32, u32),
     clock: f64,
-    raster: Rasterizer,
     state: S,
     scene: fn(&mut Ui, &Tokens, &mut S),
     widgets: Vec<WidgetInfo>,
-    image: Option<Image>,
+    /// The last frame, painted only when a test asks for its pixels.
+    canvas: Canvas,
 }
 
 impl<S> Rig<S> {
@@ -96,7 +68,7 @@ impl<S> Rig<S> {
         let t = Tokens::default();
         let ctx = Context::default();
         t.apply(&ctx);
-        let mut rig = Rig { ctx, t, size, clock: 0.0, raster: Rasterizer::new(), state, scene, widgets: vec![], image: None };
+        let mut rig = Rig { ctx, t, size, clock: 0.0, state, scene, widgets: vec![], canvas: Canvas::new(size, t.chrome) };
         rig.settle();
         rig
     }
@@ -110,7 +82,7 @@ impl<S> Rig<S> {
         let state = &mut self.state;
         let out = self.ctx.run_ui(raw, |ui| scene(ui, &t, state));
         self.widgets = registry::widgets(&self.ctx);
-        self.image = Some(dalica_ui_kit::paint(&self.ctx, &mut self.raster, out, self.size.0, self.size.1, t.chrome).unwrap());
+        self.canvas.keep(out);
     }
 
     fn settle(&mut self) {
@@ -164,8 +136,12 @@ impl<S> Rig<S> {
         self.settle();
     }
 
-    fn pixel(&self, at: Pos2) -> [u8; 4] {
-        self.image.as_ref().unwrap().pixel(at.x as u32, at.y as u32).unwrap()
+    fn image(&mut self) -> Image {
+        self.canvas.image(&self.ctx).clone()
+    }
+
+    fn pixel(&mut self, at: Pos2) -> [u8; 4] {
+        self.canvas.image(&self.ctx).pixel(at.x as u32, at.y as u32).unwrap()
     }
 }
 
@@ -329,7 +305,7 @@ fn pill_scene(ui: &mut Ui, t: &Tokens, s: &mut PillScene) {
 }
 
 /// Pixels close to `accent` inside `rect`.
-fn accent_pixels<S>(rig: &Rig<S>, rect: Rect) -> usize {
+fn accent_pixels<S>(rig: &mut Rig<S>, rect: Rect) -> usize {
     let a = rig.t.accent.to_array();
     let mut n = 0;
     for y in rect.min.y as u32..rect.max.y as u32 {
@@ -350,14 +326,14 @@ fn the_painted_pill_stays_inside_and_shows_a_plus_only_for_a_copy() {
         let window = Rect::from_min_size(Pos2::ZERO, vec2(w, h));
         for pointer in [pos2(1.0, 1.0), pos2(w - 1.0, 1.0), pos2(1.0, h - 1.0), pos2(w - 1.0, h - 1.0), pos2(w / 2.0, h / 2.0)] {
             for op in [DragOp::Move, DragOp::Copy, DragOp::AddToAlbum] {
-                let rig = Rig::new(size, PillScene { pointer, op, rect: Rect::NOTHING }, pill_scene);
+                let mut rig = Rig::new(size, PillScene { pointer, op, rect: Rect::NOTHING }, pill_scene);
                 let what = format!("{size:?} {pointer:?} {op:?}");
                 let rect = rig.state.rect;
                 assert!(window.shrink(PILL_MARGIN).expand(0.01).contains_rect(rect), "{what}: {rect:?}");
                 let info = rig.info("drag:pill");
                 assert_eq!(info.label, drag_pill_text(op, 3, Some("Garden")), "{what}");
                 assert_eq!(info.rect, [rect.min.x, rect.min.y, rect.width(), rect.height()], "{what}");
-                let plus = accent_pixels(&rig, rect);
+                let plus = accent_pixels(&mut rig, rect);
                 if op == DragOp::Copy {
                     assert!(plus >= 40, "{what}: the + disc has {plus} accent pixels");
                 } else {
@@ -572,16 +548,16 @@ fn sheet_pills(ui: &mut Ui, t: &Tokens, _: &mut ()) {
 #[test]
 fn the_m9_widget_sheet_matches_its_fingerprint() {
     let mut failures = vec![];
-    let a = Rig::new((900, 300), (), sheet_pills);
-    let b = Rig::new((900, 300), (), sheet_pills);
-    let (one, two) = (a.image.as_ref().unwrap(), b.image.as_ref().unwrap());
+    let mut a = Rig::new((900, 300), (), sheet_pills);
+    let mut b = Rig::new((900, 300), (), sheet_pills);
+    let (one, two) = (a.image(), b.image());
     assert!(one.rgba == two.rgba, "two renders of the sheet differ");
     check_ids("sheet", &a.widgets, &registry::unregistered(&a.ctx));
     for i in 0..5 {
         let r = a.rect(&format!("drag:sheet{i}"));
         assert!(Rect::from_min_size(Pos2::ZERO, vec2(900.0, 300.0)).contains_rect(r), "pill {i}: {r:?}");
     }
-    check("m9-widgets", one, &mut failures);
+    check("m9-widgets", &one, &mut failures);
     assert!(failures.is_empty(), "{} (renders in {})", failures.join("\n"), out_dir().display());
 }
 
@@ -708,14 +684,17 @@ fn gallery_window(size: (u32, u32)) -> Rig<Gallery> {
 fn the_m9_gallery_at_both_window_sizes() {
     let mut failures = vec![];
     for size in WINDOWS {
-        let one = gallery_window(size);
-        let two = gallery_window(size);
-        assert!(one.image.as_ref().unwrap().rgba == two.image.as_ref().unwrap().rgba, "two renders of the {size:?} window differ");
+        let mut one = gallery_window(size);
         check_ids(&format!("gallery {size:?}"), &one.widgets, &registry::unregistered(&one.ctx));
         let window = Rect::from_min_size(Pos2::ZERO, vec2(size.0 as f32, size.1 as f32));
         assert!(window.shrink(PILL_MARGIN).expand(0.01).contains_rect(one.rect("drag:pill")), "{size:?}");
         assert_eq!(one.info("slider:age").label, age_label(one.state.days));
-        check(&format!("gallery-m9-{}x{}", size.0, size.1), one.image.as_ref().unwrap(), &mut failures);
+        // One fingerprint per state: the large window's (the small one has to fit, above).
+        if size == (1400, 900) {
+            let mut two = gallery_window(size);
+            assert!(one.image().rgba == two.image().rgba, "two renders of the {size:?} window differ");
+            check(&format!("gallery-m9-{}x{}", size.0, size.1), &one.image(), &mut failures);
+        }
     }
     assert!(failures.is_empty(), "{} (renders in {})", failures.join("\n"), out_dir().display());
 }

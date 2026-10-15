@@ -9,14 +9,12 @@
 //! - stepping: ↑ and ↓ step the part under the cursor and keep it selected;
 //! - refusal: 31 February never becomes the value, the field says so in `caution`, and the text goes
 //!   back when the edit ends;
-//! - the look: a sheet of states (`fingerprints/datetime-states.json`) and a window at both sizes
-//!   with the fields at its bottom-right corner (`fingerprints/datetime-window-<w>x<h>.json`). The
+//! - the look: a sheet of states (`fingerprints/datetime-states.json`) and a window
+//!   with the fields at its bottom-right corner (`fingerprints/datetime-window-1400x900.json`). The
 //!   renders go to `target/test-output/ui-kit/`; `DALICA_BLESS=1` stores new fingerprints (commit
 //!   them only after looking at the PNGs).
 
-use std::path::PathBuf;
-
-use dalica_scenes::fingerprint;
+use crate::common::{check, out_dir};
 use dalica_ui_kit::widgets::{DatePart, PickedDate, PickedTime, TimePart, date_field, days_in_month, time_field};
 use dalica_ui_kit::{Image, Rasterizer, Tokens, WidgetInfo, fonts, registry};
 use egui::{Align2, Context, Event, Key, Modifiers, PointerButton, Pos2, Rect, UiBuilder, pos2, vec2};
@@ -377,12 +375,6 @@ fn the_31st_of_february_is_refused() {
 
 // ---- The look ----
 
-fn out_dir() -> PathBuf {
-    let out = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/ui-kit");
-    std::fs::create_dir_all(&out).unwrap();
-    out
-}
-
 const STATES: [&str; 6] = ["rest", "focused", "stepped", "invalid", "disabled", "time"];
 
 /// One state: the fields in a tile, driven into it.
@@ -442,26 +434,8 @@ fn window(size: (u32, u32)) -> Image {
     rig.render()
 }
 
-fn check(name: &str, img: &Image, failures: &mut Vec<String>) {
-    let out = out_dir();
-    std::fs::write(out.join(format!("{name}.png")), fingerprint::png_rgba(img.width, img.height, &img.rgba)).unwrap();
-    let stored = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("tests/fingerprints/{name}.json"));
-    if std::env::var_os("DALICA_BLESS").is_some() {
-        std::fs::write(&stored, fingerprint::to_json(&fingerprint::fingerprint(img.width, img.height, &img.rgba)) + "\n").unwrap();
-    }
-    match std::fs::read_to_string(&stored).map_err(|e| e.to_string()).and_then(|s| fingerprint::from_json(&s)) {
-        Ok(expected) => {
-            if let Err(m) = fingerprint::check(img.width, img.height, &img.rgba, &expected, 2.0) {
-                std::fs::write(out.join(format!("{name}-actual.png")), &m.actual_png).unwrap();
-                failures.push(format!("{name}: {}", m.message));
-            }
-        }
-        Err(e) => failures.push(format!("{name}: no fingerprint ({e}); run with DALICA_BLESS=1 and look at the PNG")),
-    }
-}
-
 /// Every state renders identically twice, registers its fields with valid ids, and matches its
-/// fingerprint; so does the window at both sizes.
+/// fingerprint; so does the window.
 #[test]
 fn every_state_renders_identically_twice_and_matches_its_fingerprint() {
     let (a, rigs) = sheet();
@@ -484,11 +458,10 @@ fn every_state_renders_identically_twice_and_matches_its_fingerprint() {
     }
     let mut failures = Vec::new();
     check("datetime-states", &a, &mut failures);
-    for size in [(1400, 900), (900, 600)] {
-        let one = window(size);
-        let two = window(size);
-        assert!(one.rgba == two.rgba, "two renders of the {size:?} window differ");
-        check(&format!("datetime-window-{}x{}", size.0, size.1), &one, &mut failures);
-    }
+    // The window at one size: one fingerprint per state (the app's tests check the layout of
+    // the small window).
+    let (one, two) = (window((1400, 900)), window((1400, 900)));
+    assert!(one.rgba == two.rgba, "two renders of the window differ");
+    check("datetime-window-1400x900", &one, &mut failures);
     assert!(failures.is_empty(), "{} (renders in {})", failures.join("\n"), out_dir().display());
 }

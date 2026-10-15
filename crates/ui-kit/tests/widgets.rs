@@ -13,6 +13,7 @@
 
 use std::path::PathBuf;
 
+use crate::common::out_dir;
 use dalica_scenes::fingerprint;
 use dalica_ui_kit::widgets::{
     ButtonKind, DialogButton, Segment, SegmentLabel, SliderSpec, ToastKind, action_button, dialog, dropdown, dropdown_popup_id, edit_slider_value,
@@ -483,12 +484,6 @@ fn render_sheet(sheet: &Sheet) -> (Image, Vec<(State, Tile)>) {
 fn body(tile: &Tile) -> &[u8] {
     let start = (CAPTION as u32 * tile.image.width * 4) as usize;
     &tile.image.rgba[start..]
-}
-
-fn out_dir() -> PathBuf {
-    let out = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/ui-kit");
-    std::fs::create_dir_all(&out).unwrap();
-    out
 }
 
 #[test]
