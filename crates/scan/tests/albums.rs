@@ -6,15 +6,11 @@
 
 use std::path::Path;
 
+use crate::common::put;
 use dalica_core::{AlbumId, PosKey};
 use dalica_library::{Library, Op, PhotoSort, SortBy};
 use dalica_scan::{FoundFolder, scan};
 use dalica_scenes::{Scene, jpeg};
-
-fn put(path: &Path, bytes: &[u8]) {
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    std::fs::write(path, bytes).unwrap();
-}
 
 fn photos(dir: &Path, names: &[&str]) {
     for (i, n) in names.iter().enumerate() {

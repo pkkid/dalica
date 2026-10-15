@@ -10,6 +10,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use crate::common::apply_all;
 use dalica_core::{DateTime, PhotoId};
 use dalica_library::sync::Field;
 use dalica_library::{Library, Op};
@@ -89,12 +90,6 @@ fn reading(metadata: ReadMetadata) -> Options {
 
 fn found<'a>(scan: &'a Scan, name: &str) -> &'a FoundPhoto {
     scan.folders.iter().flat_map(|f| &f.photos).find(|p| p.name == name).unwrap_or_else(|| panic!("{name} listed"))
-}
-
-fn apply_all(lib: &mut Library, ops: Vec<Op>) {
-    for op in ops {
-        lib.apply(op).unwrap();
-    }
 }
 
 fn id_of(lib: &Library, dir: &Path, name: &str) -> PhotoId {

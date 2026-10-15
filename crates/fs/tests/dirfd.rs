@@ -7,6 +7,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
+use crate::common::names;
 use dalica_fs::faults::{ATOMIC_POINTS, Fault, arm, disarm_all, points, run_at};
 use dalica_fs::{Error, Expect, atomic::is_temp_name, identity, read, replace};
 
@@ -30,13 +31,6 @@ fn link_dir(target: &Path, link: &Path) -> bool {
             false
         }
     }
-}
-
-/// Every name in `dir`.
-fn names(dir: &Path) -> Vec<String> {
-    let mut v: Vec<String> = fs::read_dir(dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
-    v.sort();
-    v
 }
 
 /// A root with the folder `photos` (holding `OLD` when `existed`) and an empty folder `elsewhere`

@@ -3,20 +3,14 @@
 //! fault points on each, and the UI-thread guard.
 
 use std::fs;
-use std::path::Path;
 
+use crate::common::names;
 use dalica_fs::faults::{Fault, arm, disarm_all};
 use dalica_fs::pack::{PACK_POINTS, PACK_WRITE_POINTS, points};
 use dalica_fs::{Error, PackFile, TempFile, atomic, list_shaped, mark_ui_thread, remove_shaped};
 
 fn is_pack(name: &str) -> bool {
     name.strip_suffix(".pack").is_some_and(|stem| !stem.is_empty() && stem.bytes().all(|b| b.is_ascii_digit()))
-}
-
-fn names(dir: &Path) -> Vec<String> {
-    let mut v: Vec<String> = fs::read_dir(dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
-    v.sort();
-    v
 }
 
 #[test]

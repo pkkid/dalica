@@ -1,20 +1,20 @@
 //! M6's fields on disk (`data-model.md` §3, §10): every photo field (caption, tags, hidden, recipe,
-//! redo list, date) and folder field (description, date, place, hidden) reaches `.dalica.json`,
-//! survives the journal and a snapshot, and comes back from the folders after the index is
-//! deleted (§10.1); an unknown edit operation keeps its place and the ones after it (§10.4); odd
-//! file names round-trip with every field (§10.7); the synced hashes stay in the index; values of
-//! the wrong type are kept and reported once.
+//! redo list, date) and folder field (description, date, place, hidden) reaching `.dalica.json`,
+//! surviving the journal and a snapshot, and coming back from the folders after the index is
+//! deleted (§10.1) is `fields.rs`, with M8's and M9's. Here: an unknown edit operation keeps its
+//! place and the ones after it (§10.4); odd file names round-trip with every field (§10.7); values
+//! of the wrong type are kept and reported once.
 
 use std::path::Path;
 
+use crate::common::NOW;
+use crate::common::strings;
 use dalica_core::{Date, DateTime, FolderId, PhotoId, Timestamp};
-use dalica_library::{Folder, FolderInfo, Library, Op, Photo, PhotoInfo, Recipe, Synced};
+use dalica_library::{Folder, FolderInfo, Library, Op, Photo, PhotoInfo, Recipe};
 use dalica_sidecar::{Field, Limits, Sidecar};
 use dalica_store::mapping::{self, FolderState, PhotoState};
-use dalica_store::{Opened, Outcome, SidecarWriter, Store, import_sidecars, write_folder};
+use dalica_store::{Outcome, SidecarWriter, import_sidecars, write_folder};
 use proptest::prelude::*;
-
-const NOW: Timestamp = Timestamp::from_millis(1_791_000_000_000);
 
 /// Names that are hard to write (`data-model.md` §10.7); Windows cannot name a file with `"`, but
 /// these only ever reach the model and the sidecar.
@@ -48,138 +48,8 @@ fn dt(s: &str) -> DateTime {
     s.parse().unwrap()
 }
 
-fn strings(l: &[&str]) -> Vec<String> {
-    l.iter().map(|s| s.to_string()).collect()
-}
-
-/// Changes everything a user can change in M6, as the ops the engine would apply.
-fn change_everything(folders: &[FolderId], ids: &[Vec<PhotoId>]) -> Vec<Op> {
-    let (a, b) = (&ids[0], &ids[1]);
-    vec![
-        Op::SetStars { stars: vec![(a[0], true), (b[2], true)] },
-        Op::SetCaptions { captions: vec![(a[0], "Tram 28 at sunset".into()), (a[1], "Ein \"Bild\" ; = ] 東京".into()), (b[3], "x".into())] },
-        Op::AddTags { ids: vec![a[0], a[1], b[0]], tags: strings(&["lisbon", "tram"]) },
-        Op::AddTags { ids: vec![a[3]], tags: strings(&["a/b", "c,d", "Sunset"]) },
-        Op::SetHidden { hidden: vec![(a[2], true), (b[4], true)] },
-        Op::SetRecipes {
-            recipes: vec![
-                (a[0], Recipe { edits: strings(&["rotate(90)", "frobnicate(7)", "crop(0.1,0.1,0.9,0.9)"]), redo: strings(&["sepia()"]) }),
-                (b[1], Recipe { edits: strings(&["flip_h()"]), redo: Vec::new() }),
-            ],
-        },
-        Op::SetDates { dates: vec![(a[1], Some(dt("2026-06-04T19:42:10"))), (b[0], Some(dt("1999-12-31T23:59:59")))] },
-        Op::SetFolderInfo {
-            folders: vec![(
-                folders[0],
-                FolderInfo {
-                    description: "Weekend in Lisbon with the family".into(),
-                    date: Some("2026-06-04".parse().unwrap()),
-                    place: "Lisbon, Portugal".into(),
-                    hidden: false,
-                },
-            )],
-        },
-        Op::SetFoldersHidden { hidden: vec![(folders[1], true)] },
-        Op::SetSynced { synced: vec![(a[0], Some(Synced { caption: Some(7), tags: Some(8), ..Synced::default() }))] },
-    ]
-}
-
-fn record(o: &mut Opened, lib: &mut Library, op: &Op) {
-    lib.apply(op.clone()).unwrap();
-    o.store.append(op).unwrap();
-}
-
 fn sidecar(dir: &Path) -> Sidecar {
     Sidecar::parse(&std::fs::read(dir.join(".dalica.json")).unwrap(), &Limits::default()).unwrap()
-}
-
-/// The library without its synced hashes (index-only: a rebuild starts without them).
-fn without_synced(lib: &Library) -> Library {
-    let mut out = lib.clone();
-    let clear: Vec<(PhotoId, Option<Synced>)> = lib.synced_all().map(|(id, _)| (id, None)).collect();
-    out.apply(Op::SetSynced { synced: clear }).unwrap();
-    out
-}
-
-/// `data-model.md` §10.1 for every M6 field: scan, change everything, delete the index, rebuild
-/// from the folders, compare.
-#[test]
-fn deleting_the_index_and_rebuilding_gives_every_m6_field_back() {
-    let roots = [tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap()];
-    let paths: Vec<&Path> = roots.iter().map(|d| d.path()).collect();
-    let lib_dir = tempfile::tempdir().unwrap();
-    let (mut lib, folders, ids) = scan(&paths);
-    let mut o = Store::open(lib_dir.path(), NOW).unwrap();
-    let mut w = SidecarWriter::new();
-    for op in change_everything(&folders, &ids) {
-        record(&mut o, &mut lib, &op);
-    }
-    for &f in &folders {
-        w.mark_dirty(f);
-    }
-    let out = w.flush(&lib, NOW);
-    assert!(out.values().all(|o| *o == Outcome::Written), "{out:?}");
-    // The synced hashes never reach a sidecar.
-    for d in &paths {
-        let text = std::fs::read_to_string(d.join(".dalica.json")).unwrap();
-        assert!(!text.contains("synced") && !text.contains("rating"), "{text}");
-    }
-    let hidden = sidecar(paths[1]);
-    assert_eq!(hidden.folder().hidden, Field::Value(true), "a hidden folder says so in its own sidecar");
-
-    // The index (journal and snapshot) holds it all.
-    o.store.snapshot(&lib).unwrap();
-    drop(o);
-    let reopened = Store::open(lib_dir.path(), NOW).unwrap();
-    assert_eq!((reopened.report.clone(), reopened.library.model()), (vec![], lib.model()));
-    drop(reopened);
-
-    // Delete the index; a new scan finds the same folders and photos with nothing said about them.
-    for e in std::fs::read_dir(lib_dir.path()).unwrap() {
-        std::fs::remove_file(e.unwrap().path()).unwrap();
-    }
-    let (mut rebuilt, _, _) = scan(&paths);
-    let import = import_sidecars(&rebuilt, NOW);
-    assert!(import.problems.is_empty() && import.read_only.is_empty(), "{import:?}");
-    assert_eq!(import.ops.len(), 3, "stars, photo info, folder info: {:?}", import.ops);
-    for op in import.ops {
-        rebuilt.apply(op).unwrap();
-    }
-    assert_eq!(rebuilt.model(), without_synced(&lib).model());
-    assert_eq!(rebuilt.tag_index().counts(), lib.tag_index().counts());
-    assert!(rebuilt.is_folder_hidden(folders[1]) && rebuilt.is_hidden(ids[0][2]));
-    // Importing again finds nothing to change, and writing again changes no byte.
-    assert!(import_sidecars(&rebuilt, NOW).ops.is_empty());
-    let before: Vec<Vec<u8>> = paths.iter().map(|d| std::fs::read(d.join(".dalica.json")).unwrap()).collect();
-    for &f in &folders {
-        w.mark_dirty(f);
-    }
-    assert!(w.flush(&rebuilt, NOW).values().all(|o| *o == Outcome::Unchanged));
-    let after: Vec<Vec<u8>> = paths.iter().map(|d| std::fs::read(d.join(".dalica.json")).unwrap()).collect();
-    assert_eq!(after, before);
-}
-
-/// Clearing every field takes its keys out again, and a folder left with nothing to say keeps
-/// only what other programs put there.
-#[test]
-fn clearing_every_field_removes_its_keys() {
-    let root = tempfile::tempdir().unwrap();
-    std::fs::write(root.path().join(".dalica.json"), br#"{"planted": 1, "photos": {"IMG_0001.jpg": {"x-other": true}}}"#).unwrap();
-    let (mut lib, folders, ids) = scan(&[root.path()]);
-    let ops = change_everything(&[folders[0], folders[0]], &[ids[0].clone(), ids[0].clone()]);
-    let mut undo = Vec::new();
-    for op in ops {
-        undo.push(lib.apply(op).unwrap());
-    }
-    let state = mapping::folder_state(&lib, folders[0]).unwrap();
-    assert_eq!(write_folder(&state, NOW), Outcome::Written);
-    for op in undo.into_iter().rev() {
-        lib.apply(op).unwrap();
-    }
-    let state = mapping::folder_state(&lib, folders[0]).unwrap();
-    assert_eq!(write_folder(&state, NOW), Outcome::Written);
-    let json: serde_json::Value = serde_json::from_slice(&std::fs::read(root.path().join(".dalica.json")).unwrap()).unwrap();
-    assert_eq!(json, serde_json::json!({"planted": 1, "photos": {"IMG_0001.jpg": {"x-other": true}}}));
 }
 
 /// `data-model.md` §10.4: an operation Dalica does not know keeps its place, and the ones after it,
@@ -301,123 +171,6 @@ fn equal_content_in_another_spelling_is_left_byte_for_byte() {
     assert_eq!(std::fs::read_to_string(root.path().join(".dalica.json")).unwrap(), text);
 }
 
-/// Journal replay and snapshots keep every M6 op, the synced hashes included, and a torn record
-/// loses only itself.
-#[test]
-fn journal_replay_and_snapshots_keep_every_m6_field() {
-    let dir = tempfile::tempdir().unwrap();
-    let (lib0, folders, ids) = scan(&[Path::new("/photos/lisbon"), Path::new("/photos/porto")]);
-    let mut o = Store::open(dir.path(), NOW).unwrap();
-    // The scan's own ops first, so the journal holds the whole history.
-    let mut lib = Library::new();
-    for f in lib0.folders() {
-        record(&mut o, &mut lib, &Op::AddFolder { folder: f.clone() });
-        record(&mut o, &mut lib, &Op::AddPhotos { photos: lib0.photos_in(f.id).into_iter().cloned().collect() });
-    }
-    let changes = change_everything(&folders, &ids);
-    let (first, rest) = changes.split_at(5);
-    for op in first {
-        record(&mut o, &mut lib, op);
-    }
-    let mid = lib.clone();
-    o.store.snapshot(&lib).unwrap();
-    for op in rest {
-        record(&mut o, &mut lib, op);
-    }
-    // A rename merges tags; a whole info and the synced hashes are set the way rebuilds set them.
-    for op in [
-        Op::RenameTag { from: "tram".into(), to: "Lisbon".into() },
-        Op::SetPhotoInfo { photos: vec![(ids[1][4], PhotoInfo { caption: "whole".into(), hidden: true, ..PhotoInfo::EMPTY })] },
-        Op::SetSynced { synced: vec![(ids[1][1], Some(Synced { rating: Some(1), place: Some(2), date: Some(3), ..Synced::default() }))] },
-    ] {
-        record(&mut o, &mut lib, &op);
-    }
-    drop(o);
-    let replayed = Store::open(dir.path(), NOW).unwrap();
-    assert_eq!((replayed.report.clone(), replayed.library.model()), (vec![], lib.model()));
-    assert_eq!(replayed.library.synced(ids[0][0]), Some(&Synced { caption: Some(7), tags: Some(8), ..Synced::default() }));
-    assert_eq!(replayed.library.tag_index().counts(), lib.tag_index().counts());
-    let mut o = replayed;
-    o.store.snapshot(&o.library).unwrap();
-    drop(o);
-    let snapped = Store::open(dir.path(), NOW).unwrap();
-    assert_eq!((snapped.report.clone(), snapped.library.model()), (vec![], lib.model()));
-    assert_eq!(snapped.store.seq(), snapped.store.snapshot_seq());
-    // The snapshot taken half way holds the model as it was then.
-    let (back, _) = dalica_store::snapshot::read(&{
-        let p = dir.path().join("mid.snap");
-        dalica_store::snapshot::write(&p, &mid, 9).unwrap();
-        std::fs::read(&p).unwrap()
-    })
-    .unwrap();
-    assert_eq!(back.model(), mid.model());
-    // A torn last record loses only that op.
-    drop(snapped);
-    let mut o = Store::open(dir.path(), NOW).unwrap();
-    let before = o.library.clone();
-    o.store.append(&Op::SetCaptions { captions: vec![(ids[0][4], "torn".into())] }).unwrap();
-    drop(o);
-    let log = dir.path().join(dalica_store::journal::FILE);
-    let bytes = std::fs::read(&log).unwrap();
-    std::fs::write(&log, &bytes[..bytes.len() - 3]).unwrap();
-    let torn = Store::open(dir.path(), NOW).unwrap();
-    assert_eq!(torn.library.model(), before.model());
-}
-
-/// A photo deleted outside Dalica whose entry holds only M6 fields (no star) is Dalica's entry like
-/// a starred one (`data-model.md` §7): marked at the folder's next write, kept for 30 days, pruned
-/// by the first write after them.
-#[test]
-fn an_entry_with_only_m6_fields_is_marked_and_pruned_when_its_file_is_gone() {
-    use dalica_store::stale::{MISSING_KEY, PRUNE_AFTER};
-    let dir = tempfile::tempdir().unwrap();
-    let mut lib = Library::new();
-    let f = lib.next_folder_id();
-    lib.apply(Op::AddFolder { folder: Folder { id: f, path: dir.path().to_path_buf() } }).unwrap();
-    let mut ids = Vec::new();
-    for name in ["a.jpg", "b.jpg"] {
-        std::fs::write(dir.path().join(name), name).unwrap();
-        let id = lib.next_photo_id();
-        let photo = Photo { id, folder: f, name: name.into(), size: 1, mtime: Timestamp::EPOCH, width: 4, height: 3, date: None, star: false };
-        lib.apply(Op::AddPhotos { photos: vec![photo] }).unwrap();
-        ids.push(id);
-    }
-    let info = PhotoInfo {
-        caption: "gone soon".into(),
-        tags: strings(&["beach"]),
-        hidden: true,
-        edits: strings(&["rotate(90)"]),
-        redo: strings(&["sepia()"]),
-        date: Some(dt("2026-06-04T19:42:10")),
-    };
-    lib.apply(Op::SetPhotoInfo { photos: vec![(ids[1], info)] }).unwrap();
-    let t0 = NOW;
-    let mut w = SidecarWriter::new();
-    w.mark_dirty(f);
-    assert_eq!(w.flush(&lib, t0)[&f], Outcome::Written);
-
-    std::fs::remove_file(dir.path().join("b.jpg")).unwrap();
-    lib.apply(Op::RemovePhotos { ids: vec![ids[1]] }).unwrap();
-    w.mark_dirty(f);
-    assert_eq!(w.flush(&lib, t0)[&f], Outcome::Written, "the mark is written");
-    let doc: serde_json::Value = serde_json::from_slice(&std::fs::read(dir.path().join(".dalica.json")).unwrap()).unwrap();
-    assert!(doc["dalica"][MISSING_KEY]["b.jpg"].is_string(), "{doc}");
-    assert_eq!(doc["photos"]["b.jpg"]["caption"], "gone soon", "the entry is kept while it waits");
-
-    // A write 29 days on keeps it; the first write after 30 days prunes it and its mark.
-    let day = std::time::Duration::from_secs(24 * 60 * 60);
-    for (d, caption) in [(29, "x"), (31, "y")] {
-        lib.apply(Op::SetCaptions { captions: vec![(ids[0], caption.into())] }).unwrap();
-        w.mark_dirty(f);
-        assert_eq!(w.flush(&lib, t0.saturating_add(day * d))[&f], Outcome::Written);
-    }
-    let doc: serde_json::Value = serde_json::from_slice(&std::fs::read(dir.path().join(".dalica.json")).unwrap()).unwrap();
-    assert!(doc["photos"].get("b.jpg").is_none(), "{doc}");
-    assert!(doc["dalica"].get(MISSING_KEY).is_none(), "{doc}");
-    assert_eq!(doc["photos"]["a.jpg"]["caption"], "y");
-    assert_eq!(PRUNE_AFTER, day * 30);
-}
-
 /// The mapping's own round trip on any values: what [`mapping::apply`] writes, the readers give
 /// back, and printing then parsing changes nothing.
 fn info() -> impl Strategy<Value = PhotoInfo> {
@@ -450,7 +203,7 @@ fn folder_info() -> impl Strategy<Value = FolderInfo> {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(256))]
+    #![proptest_config(crate::common::cases(256, 32))]
 
     #[test]
     fn sidecars_with_every_field_round_trip(

@@ -6,22 +6,12 @@ use std::fs;
 use std::path::Path;
 use std::sync::{Arc, Barrier};
 
+use crate::common::{names, temps};
 use dalica_fs::create::{new_file, new_folder};
 use dalica_fs::faults::{Fault, NEW_FILE_DIRECT_POINTS, NEW_FILE_POINTS, NEW_FOLDER_POINTS, arm, disarm_all, points};
-use dalica_fs::{Error, atomic::is_temp_name, guard, identity};
+use dalica_fs::{Error, guard, identity};
 
 const JPEG: &[u8] = b"\xff\xd8\xff\xe0 a new rendering \xff\xd9";
-
-/// Every name in `dir`, sorted.
-fn names(dir: &Path) -> Vec<String> {
-    let mut v: Vec<String> = fs::read_dir(dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
-    v.sort();
-    v
-}
-
-fn temps(dir: &Path) -> usize {
-    fs::read_dir(dir).unwrap().filter(|e| is_temp_name(&e.as_ref().unwrap().file_name())).count()
-}
 
 /// A folder holding `taken.jpg` and `taken-001.jpg`.
 fn taken() -> tempfile::TempDir {

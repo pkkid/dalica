@@ -347,18 +347,47 @@ mod tests {
     }
 
     /// Every prefix of a journal replays to its last complete op (`security.md` §4.2), and the file
-    /// is cut back to that op, so the next open is clean.
+    /// is cut back to that op, so the next open is clean. Every prefix is read in memory (the
+    /// reader `Store::open` uses); the opens themselves run at the lengths where the answer changes
+    /// (empty, inside the header, and one byte either side of every record's end), and at every
+    /// length at full strength (`DALICA_FULL_TESTS=1`).
     #[test]
     fn truncation_at_every_byte_replays_to_the_last_complete_op() {
         let (ops, models) = history();
         let (_full, bytes) = journal_of(&ops);
         let ends = journal::read(&bytes).ends;
+        let complete_at = |len: usize| ends.iter().filter(|&&e| e <= len).count();
         for len in 0..=bytes.len() {
+            let read = journal::read(&bytes[..len]);
+            let complete = complete_at(len);
+            let k = complete.saturating_sub(1); // the header is not an op
+            assert_eq!(read.ops, ops[..k], "prefix {len}");
+            assert_eq!(read.valid_len, ends.iter().copied().filter(|&e| e <= len).max().unwrap_or(0), "prefix {len}");
+            let whole = len == 0 || ends.contains(&len);
+            assert_eq!(read.stop, (!whole).then_some(journal::Stop::Torn), "prefix {len}");
+            let mut lib = Library::new();
+            for op in read.ops {
+                lib.apply(op).unwrap();
+            }
+            assert_eq!(lib.model(), &models[k], "prefix {len}");
+        }
+        let full = std::env::var_os("DALICA_FULL_TESTS").is_some_and(|v| v == "1");
+        let mut lengths: Vec<usize> = if full {
+            (0..=bytes.len()).collect()
+        } else {
+            let mut l = vec![0, ends[0] / 2];
+            l.extend(ends.iter().flat_map(|&e| [e - 1, e, e + 1]));
+            l
+        };
+        lengths.retain(|&l| l <= bytes.len());
+        lengths.sort_unstable();
+        lengths.dedup();
+        for len in lengths {
             let dir = tempfile::tempdir().unwrap();
             std::fs::write(dir.path().join(journal::FILE), &bytes[..len]).unwrap();
             let opened = Store::open(dir.path(), NOW).unwrap();
-            let complete = ends.iter().filter(|&&e| e <= len).count();
-            let k = complete.saturating_sub(1); // the header is not an op
+            let complete = complete_at(len);
+            let k = complete.saturating_sub(1);
             assert_eq!(opened.library.model(), &models[k], "prefix {len}");
             match (len, complete) {
                 (0, _) => assert_eq!(opened.report, [], "prefix {len}"),

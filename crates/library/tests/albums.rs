@@ -9,23 +9,13 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use dalica_core::poskey::MAX_KEY_LEN;
-use dalica_core::{AlbumId, Date, FolderId, PhotoId, PosKey, Timestamp};
+use dalica_core::{AlbumId, Date, FolderId, PhotoId, PosKey};
 use dalica_library::{
     AlbumInfo, Anchor, Error, Folder, Library, MAX_ALBUM_NAME, MAX_DESCRIPTION, Op, Photo, PhotoSort, SortBy, album_id_from, clean_album_name,
 };
 
 fn photo(id: PhotoId, folder: FolderId, name: &str, size: u64, day: u8) -> Photo {
-    Photo {
-        id,
-        folder,
-        name: name.into(),
-        size,
-        mtime: Timestamp::from_millis(1_700_000_000_000),
-        width: 4,
-        height: 3,
-        date: format!("2026-06-{day:02}T12:00:00").parse().ok(),
-        star: false,
-    }
+    Photo { size, date: format!("2026-06-{day:02}T12:00:00").parse().ok(), ..crate::common::photo(id, folder, name) }
 }
 
 /// A library with folders `/p/a` and `/p/b` and `n` photos spread over them (`IMG_<i>.jpg`, day
@@ -426,7 +416,7 @@ fn journal_names_of_the_album_ops() {
 }
 
 proptest::proptest! {
-    #![proptest_config(proptest::prelude::ProptestConfig::with_cases(256))]
+    #![proptest_config(crate::common::cases(256, 32))]
 
     /// Adds and reorders with random anchors, over an album that starts with equal keys (a merge),
     /// put the photos exactly where they were dropped and keep every other photo in its place;

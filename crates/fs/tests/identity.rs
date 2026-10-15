@@ -6,21 +6,9 @@
 
 use std::fs;
 use std::io::Write as _;
-use std::path::Path;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use crate::common::{old_file, old_time};
 use dalica_fs::{Error, Expect, identity, read, replace, stat};
-
-/// 2001-02-03 04:05:06.789 UTC: a time no test file has by accident.
-fn old_time() -> SystemTime {
-    UNIX_EPOCH + Duration::from_millis(981_173_106_789)
-}
-
-/// Writes `bytes` to `p` and gives it [`old_time`].
-fn old_file(p: &Path, bytes: &[u8]) {
-    fs::write(p, bytes).unwrap();
-    fs::File::options().write(true).open(p).unwrap().set_modified(old_time()).unwrap();
-}
 
 /// Another program replaces the file the way editors and sync clients do (a new file renamed over
 /// the name) with bytes of the same size and the old modification time: the identity changes, so

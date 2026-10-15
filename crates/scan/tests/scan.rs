@@ -8,15 +8,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant};
 
+use crate::common::{apply_all, put};
 use dalica_image::Format;
 use dalica_library::{Library, Op};
 use dalica_scan::{Event, HeaderReader, Options, default_reader, diff, scan, scan_streaming, scan_with};
 use dalica_scenes::{Exif, Scene, demo_library, jpeg, png};
-
-fn put(path: &Path, bytes: &[u8]) {
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    std::fs::write(path, bytes).unwrap();
-}
 
 fn camera(seed: u64, o: u8) -> Vec<u8> {
     let exif = Exif { orientation: o, date_time_original: "2026-06-04T19:42:10".parse().ok(), ..Exif::default() };
@@ -52,12 +48,6 @@ fn names(lib: &Library, root: &Path) -> Vec<String> {
         .collect();
     v.sort();
     v
-}
-
-fn apply_all(lib: &mut Library, ops: Vec<Op>) {
-    for op in ops {
-        lib.apply(op).unwrap();
-    }
 }
 
 #[test]
@@ -252,10 +242,12 @@ fn a_set_cancel_flag_stops_the_scan() {
     assert!(s.cancelled && s.walked.is_empty(), "{s:?}");
 }
 
+/// At full strength 1 000 JPEGs in 10 folders; in a task's gate 40 in 4, the same checks.
 #[test]
 fn scanning_1000_scenes_jpegs() {
     let dir = tempfile::tempdir().unwrap();
-    let files = demo_library(10, 1000, 7).unwrap();
+    let (folders, photos) = if crate::common::full() { (10, 1000) } else { (4, 40) };
+    let files = demo_library(folders, photos, 7).unwrap();
     for f in &files {
         put(&dir.path().join(&f.path), &f.bytes);
     }
@@ -267,8 +259,8 @@ fn scanning_1000_scenes_jpegs() {
     let ops = diff(&mut lib, &s);
     apply_all(&mut lib, ops);
     let total = start.elapsed();
-    println!("scan of 1000 JPEGs in 10 folders: walk + headers {scanned:?}, with diff and apply {total:?}");
-    assert_eq!((lib.folders().count(), lib.photos().count()), (10, 1000));
+    println!("scan of {photos} JPEGs in {folders} folders: walk + headers {scanned:?}, with diff and apply {total:?}");
+    assert_eq!((lib.folders().count(), lib.photos().count()), (folders, photos));
     // Every orientation was read: portrait and landscape both appear as displayed.
     assert!(lib.photos().all(|p| (p.width, p.height) == (480, 320) || (p.width, p.height) == (320, 480)));
     assert!(total.as_secs() < 20, "{total:?}");

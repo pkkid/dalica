@@ -275,6 +275,8 @@ fn hostile_id() -> impl Strategy<Value = String> {
 }
 
 proptest! {
+    #![proptest_config(crate::common::cases(256, 32))]
+
     /// Hostile memberships, names and sorts never panic; what cannot be used is kept verbatim
     /// through any write of the usable ones.
     #[test]

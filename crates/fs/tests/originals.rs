@@ -7,6 +7,7 @@ use std::fs;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
+use crate::common::names;
 use dalica_fs::faults::{BACKUP_POINTS, Fault, RESTORE_POINTS, arm, disarm_all, points};
 use dalica_fs::originals::{Backup, DIR_NAME, Recorded, back_up, ensure_dir, restore};
 use dalica_fs::{Error, Expect, Identity, guard, identity, replace};
@@ -50,13 +51,6 @@ fn setup() -> Setup {
 
 fn read(p: &Path) -> Option<Vec<u8>> {
     fs::read(p).ok()
-}
-
-/// Every name in `dir`, sorted.
-fn names(dir: &Path) -> Vec<String> {
-    let mut v: Vec<String> = fs::read_dir(dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
-    v.sort();
-    v
 }
 
 #[test]

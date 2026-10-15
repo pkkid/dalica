@@ -279,7 +279,7 @@ fn a_raw_entry() -> impl Strategy<Value = Value> {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig { cases: 256, ..ProptestConfig::default() })]
+    #![proptest_config(crate::common::cases(256, 32))]
 
     /// Entries set under any name read back exactly when the name is plain, are refused when it is
     /// not, and the document survives print → parse.

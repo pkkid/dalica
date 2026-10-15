@@ -27,6 +27,16 @@
 //! the Recycle Bin's own file on Windows), by its identity, so a newer item of the same name is
 //! never taken for it. Something now at the old path is [`Restore::Exists`]; nothing is replaced.
 //!
+//! **Test builds** (the `faults` feature in a debug build; see the `faults` module) use a stand-in
+//! trash instead: `send` renames the item into a folder of this process under the system temporary
+//! folder, `restore` renames it back, with the same fault points, the same refusals and the same
+//! answers (`Restore::Unsupported` on macOS, `Exists` when something is at the old path, the item
+//! found by its old path and identity). It holds what every thread of the process sent. An item on
+//! another volume than that folder still goes to the OS trash, so a cross-volume test sees the real
+//! thing. Each process's folder is locked while the process lives, and the next test process
+//! removes the folders of processes that have ended, so nothing piles up. A test that checks the OS
+//! trash itself opts in with `faults::real_trash(true)`.
+//!
 //! The crate is called under `catch_unwind`: it unwraps on a malformed `.trashinfo` file or a mount
 //! point that is not UTF-8, and a panic there must not take the worker down (`never-crash.md`).
 //! A link is trashed as itself and its target is left alone (`security.md` §5.6: Dalica's file
@@ -97,10 +107,14 @@ pub fn send(path: &Path) -> Result<Sent> {
         Some(Fault::Crash) => return Err(Error::Crashed(points::TRASH_NO_TRASH)),
         None => {}
     }
-    if !platform::usable_trash(&item.original, &meta)? {
+    let stand_in = faults::stand_in_trash() && stand_in::takes(&item);
+    if !stand_in && !platform::usable_trash(&item.original, &meta)? {
         return Ok(Sent::NoTrash);
     }
     faults::at(points::TRASH_SEND, "trash", &item.original)?;
+    if stand_in {
+        return stand_in::send(item);
+    }
     let sent = catch(|| platform::context().delete(&item.original));
     let still_there = match std::fs::symlink_metadata(&item.original) {
         Ok(m) => Identity::of_path(&item.original, &m, false).is_ok_and(|id| id.same_object(&item.identity)),
@@ -126,7 +140,181 @@ pub fn restore(items: &[Trashed]) -> Result<Vec<Restore>> {
     }
     let first = items.first().map_or_else(PathBuf::new, |t| t.original.clone());
     faults::at(points::TRASH_RESTORE, "restore", &first)?;
+    if faults::stand_in_trash() {
+        return stand_in::restore(items);
+    }
     platform::restore(items)
+}
+
+/// The stand-in trash of a test build (module docs). Off a test build it takes nothing.
+#[cfg(not(all(feature = "faults", debug_assertions)))]
+mod stand_in {
+    use super::{Restore, Sent, Trashed};
+    use crate::Result;
+
+    pub(super) fn takes(_item: &Trashed) -> bool {
+        false
+    }
+
+    pub(super) fn send(_item: Trashed) -> Result<Sent> {
+        Ok(Sent::NoTrash)
+    }
+
+    pub(super) fn restore(items: &[Trashed]) -> Result<Vec<Restore>> {
+        super::platform::restore(items)
+    }
+}
+
+/// The stand-in trash of a test build (module docs): `<temp>/dalica-test-trash/<pid>-<nanos>/`,
+/// with a `lock` file this process holds locked and the items in `files/`, one numbered name each.
+#[cfg(all(feature = "faults", debug_assertions))]
+mod stand_in {
+    use std::fs::{self, File, OpenOptions, TryLockError};
+    use std::io;
+    use std::path::{Path, PathBuf};
+    use std::sync::{Mutex, PoisonError};
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+    use super::{Restore, Sent, Trashed};
+    use crate::atomic::Identity;
+    use crate::{Result, io_err};
+
+    /// One item in the stand-in trash (never read back where the platform cannot restore).
+    #[cfg_attr(not(any(windows, all(unix, not(target_vendor = "apple"), not(target_os = "android")))), allow(dead_code))]
+    struct Kept {
+        item: Trashed,
+        at: PathBuf,
+        /// When it was sent, in the order of sending.
+        seq: u64,
+    }
+
+    struct Bin {
+        files: PathBuf,
+        volume: Identity,
+        /// Held locked while the process lives; the next process removes the folder once it can
+        /// take the lock.
+        _lock: File,
+        kept: Vec<Kept>,
+        next: u64,
+    }
+
+    /// Every thread's items: engine tests send on worker threads and restore on the test's own.
+    static BIN: Mutex<Option<Bin>> = Mutex::new(None);
+
+    /// Folders younger than this are never removed without their lock (one may be being made).
+    const GRACE: Duration = Duration::from_secs(60);
+
+    fn bin() -> std::sync::MutexGuard<'static, Option<Bin>> {
+        let mut bin = BIN.lock().unwrap_or_else(PoisonError::into_inner);
+        if bin.is_none() {
+            *bin = make().ok();
+        }
+        bin
+    }
+
+    /// This process's folder, after removing the folders of processes that have ended.
+    fn make() -> io::Result<Bin> {
+        let root = std::env::temp_dir().join("dalica-test-trash");
+        fs::create_dir_all(&root)?;
+        sweep(&root);
+        let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_nanos());
+        let dir = root.join(format!("{}-{nanos}", std::process::id()));
+        fs::create_dir(&dir)?;
+        let lock = OpenOptions::new().read(true).write(true).create_new(true).open(dir.join("lock"))?;
+        lock.try_lock().map_err(io::Error::other)?;
+        let files = dir.join("files");
+        fs::create_dir(&files)?;
+        let volume = Identity::of_path(&files, &fs::symlink_metadata(&files)?, false)?;
+        Ok(Bin { files, volume, _lock: lock, kept: Vec::new(), next: 0 })
+    }
+
+    /// Removes the folders under `root` whose process has ended (their lock can be taken).
+    fn sweep(root: &Path) {
+        let Ok(entries) = fs::read_dir(root) else { return };
+        for entry in entries.flatten().take(10_000) {
+            let dir = entry.path();
+            let old = entry.metadata().and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).is_some_and(|age| age > GRACE);
+            let ended = match OpenOptions::new().read(true).write(true).open(dir.join("lock")) {
+                Ok(f) => match f.try_lock() {
+                    Ok(()) => true,
+                    Err(TryLockError::WouldBlock) => false,
+                    Err(TryLockError::Error(_)) => old,
+                },
+                Err(_) => old,
+            };
+            if ended {
+                let _ = fs::remove_dir_all(&dir);
+            }
+        }
+    }
+
+    /// Whether the stand-in takes `item`: it is on the stand-in folder's volume.
+    pub(super) fn takes(item: &Trashed) -> bool {
+        bin().as_ref().is_some_and(|b| b.volume.same_volume(&item.identity))
+    }
+
+    pub(super) fn send(item: Trashed) -> Result<Sent> {
+        let mut guard = bin();
+        let Some(bin) = guard.as_mut() else { return Err(io_err("trash", &item.original)(io::Error::other("no stand-in trash"))) };
+        let at = bin.files.join(bin.next.to_string());
+        fs::rename(&item.original, &at).map_err(io_err("trash", &item.original))?;
+        bin.kept.push(Kept { item: item.clone(), at, seq: bin.next });
+        bin.next = bin.next.saturating_add(1);
+        Ok(Sent::Trashed(item))
+    }
+
+    /// Restores the items the stand-in holds (macOS: `Unsupported`, as its OS trash answers);
+    /// items it does not hold (sent from another volume) go to the OS trash's restore, in one
+    /// call, and every answer comes back in the order of `items`.
+    pub(super) fn restore(items: &[Trashed]) -> Result<Vec<Restore>> {
+        let mut guard = bin();
+        let volume = guard.as_ref().map(|b| b.volume);
+        let ours = |t: &Trashed| volume.is_some_and(|v| v.same_volume(&t.identity));
+        let others: Vec<Trashed> = items.iter().filter(|t| !ours(t)).cloned().collect();
+        let mut from_os = if others.is_empty() { Vec::new() } else { super::platform::restore(&others)? }.into_iter();
+        let mut out = Vec::with_capacity(items.len());
+        for item in items {
+            if !ours(item) {
+                out.push(from_os.next().unwrap_or(Restore::NotInTrash));
+                continue;
+            }
+            match guard.as_mut() {
+                Some(bin) => out.push(restore_one(bin, item)?),
+                None => out.push(Restore::NotInTrash),
+            }
+        }
+        Ok(out)
+    }
+
+    #[cfg(not(any(windows, all(unix, not(target_vendor = "apple"), not(target_os = "android")))))]
+    fn restore_one(_bin: &mut Bin, _item: &Trashed) -> Result<Restore> {
+        Ok(Restore::Unsupported)
+    }
+
+    /// One item, matched as the OS trash's restore matches it: its old path and its identity, or
+    /// where the platform's trash loses identities (Windows), the newest of the same size.
+    #[cfg(any(windows, all(unix, not(target_vendor = "apple"), not(target_os = "android"))))]
+    fn restore_one(bin: &mut Bin, item: &Trashed) -> Result<Restore> {
+        let key = super::comparable(&item.original);
+        let candidates = || bin.kept.iter().enumerate().filter(|(_, k)| super::comparable(&k.item.original) == key);
+        let pick = candidates().find(|(_, k)| k.item.identity.same_object(&item.identity)).map(|(i, _)| i).or_else(|| {
+            if super::platform::IDENTITY_SURVIVES {
+                return None;
+            }
+            let size = |k: &Kept| k.item.folder == item.folder && (item.folder || k.item.identity.size() == item.identity.size());
+            candidates().filter(|(_, k)| size(k)).max_by_key(|(_, k)| k.seq).map(|(i, _)| i)
+        });
+        let Some(pick) = pick else { return Ok(Restore::NotInTrash) };
+        match fs::symlink_metadata(&item.original) {
+            Ok(_) => return Ok(Restore::Exists),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => return Err(io_err("restore", &item.original)(e)),
+        }
+        let Some(kept) = bin.kept.get(pick) else { return Ok(Restore::NotInTrash) };
+        fs::rename(&kept.at, &item.original).map_err(io_err("restore", &item.original))?;
+        bin.kept.remove(pick);
+        Ok(Restore::Restored)
+    }
 }
 
 /// The error of a `trash` crate call, or of a panic inside it.

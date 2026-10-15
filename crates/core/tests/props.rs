@@ -12,7 +12,7 @@ fn name() -> impl Strategy<Value = String> {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(2048))]
+    #![proptest_config(crate::common::cases(2048, 32))]
 
     #[test]
     fn collision_names_are_distinct_bounded_and_keep_the_extension(name in name(), a in 1u32..=99_999, b in 1u32..=99_999) {

@@ -107,7 +107,7 @@ fn copy_one(src: &Folder, name: &OsStr, entry: &Entry, dest: &Folder) -> Result<
     let first = stream(&mut input, &mut out, entry.identity.size(), points::TREE_WRITE, &src.join(name), &path)?;
     keep_attributes(&out, entry, modified);
     faults::at(points::TREE_FSYNC, "fsync", &path)?;
-    out.sync_all().map_err(io_err("fsync", &path))?;
+    faults::fsync(&path, || out.sync_all()).map_err(io_err("fsync", &path))?;
     flip_switch(&mut out, first, &path)?;
     drop(out);
     faults::at(points::TREE_VERIFY, "verify", &path)?;
