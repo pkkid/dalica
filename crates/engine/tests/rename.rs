@@ -11,11 +11,14 @@
 //! command's contract and graceful failures; the owner thread makes no `fs` call.
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
-use crate::common::{FaultLock, entry, files, jpeg, off_owner, options, read, read_json, shared, virtual_clock};
-use dalica_core::{FolderId, PhotoId};
+use crate::common::{FaultLock, entry, files, jpeg, off_owner, options, read, read_json, shared, virtual_clock, wait_files};
+use dalica_core::{FolderId, PhotoId, VirtualClock};
 use dalica_engine::cmd::rename::planted;
+use dalica_engine::offline::CHECK_EVERY;
 use dalica_engine::watching::WatchMode;
 use dalica_engine::{CmdError, Direction, FileOpEvent, FileOpKind, Session};
 use dalica_fs::Expect;
@@ -41,6 +44,7 @@ fn photos(s: &Session) -> Vec<dalica_library::Photo> {
 
 struct Lib {
     dir: tempfile::TempDir,
+    clock: Arc<VirtualClock>,
     s: Session,
     _faults: FaultLock,
 }
@@ -64,11 +68,12 @@ impl Lib {
         before_open(&pictures);
         let library = dir.path().join("library");
         dalica_fs::create_dir_all(&library).unwrap();
-        let mut s = Session::open_with(&library, virtual_clock(), &options()).unwrap();
+        let clock = virtual_clock();
+        let mut s = Session::open_with(&library, clock.clone(), &options()).unwrap();
         s.set_watching(WatchMode::Off);
         s.execute("folders.add", &json!({ "path": pictures })).unwrap();
         s.wait_idle();
-        Lib { dir, s, _faults }
+        Lib { dir, clock, s, _faults }
     }
 
     /// `Pictures/Lisbon` with `IMG_0001.jpg` … `IMG_000n.jpg`.
@@ -99,7 +104,7 @@ impl Lib {
     /// Runs `id` with `p` and waits for its file job; the reply.
     fn run(&mut self, id: &str, p: Value) -> Value {
         let reply = self.s.execute(id, &p).unwrap();
-        assert!(self.s.wait_file_jobs(PATIENCE), "the file jobs ended");
+        wait_files(&mut self.s);
         self.s.flush().unwrap();
         reply
     }
@@ -110,13 +115,13 @@ impl Lib {
 
     fn undo(&mut self) {
         self.s.execute("edit.undo", &json!({})).unwrap();
-        assert!(self.s.wait_file_jobs(PATIENCE));
+        wait_files(&mut self.s);
         self.s.flush().unwrap();
     }
 
     fn redo(&mut self) {
         self.s.execute("edit.redo", &json!({})).unwrap();
-        assert!(self.s.wait_file_jobs(PATIENCE));
+        wait_files(&mut self.s);
         self.s.flush().unwrap();
     }
 
@@ -512,4 +517,75 @@ fn a_renamed_watched_folder_keeps_its_folders_json_entry() {
     assert_eq!(entries(&l), before);
     l.redo();
     assert_eq!(entries(&l), renamed);
+}
+
+/// An online check that saw a watched folder gone because Dalica was renaming it (the check sent
+/// just before the rename, answered just after) holds that folder's sidecar writes once the
+/// folder is back under that name (an undo): a flush in between reports them unsaved, a star made
+/// meanwhile included. The next check finds the folder and they land: delayed, never lost.
+#[test]
+fn a_check_that_saw_a_renamed_watched_folder_gone_only_delays_its_writes() {
+    let mut l = Lib::with(&[("Lisbon", &["a.jpg"])], |_| {});
+    let lisbon = l.folder("Lisbon");
+    l.s.execute("folders.add", &json!({ "path": lisbon })).unwrap();
+    l.s.wait_idle();
+    l.s.flush().unwrap();
+    // The first look at Lisbon waits for `first`; every look after it, at any folder, waits for
+    // `later` (the next check is still looking).
+    type Gate = Arc<(Mutex<bool>, Condvar)>;
+    let (first, later): (Gate, Gate) = (Arc::default(), Arc::default());
+    let looks = Arc::new(AtomicUsize::new(0));
+    let check: dalica_engine::offline::OnlineCheck = {
+        let (first, later, looks, lisbon) = (first.clone(), later.clone(), looks.clone(), lisbon.clone());
+        Arc::new(move |p: &Path| {
+            let gate = if looks.load(Ordering::SeqCst) > 0 {
+                Some(&later)
+            } else if p == lisbon {
+                looks.fetch_add(1, Ordering::SeqCst);
+                Some(&first)
+            } else {
+                None
+            };
+            if let Some(gate) = gate {
+                let open = gate.0.lock().unwrap();
+                drop(gate.1.wait_while(open, |open| !*open).unwrap());
+            }
+            p.exists()
+        })
+    };
+    let open = |gate: &Gate| {
+        *gate.0.lock().unwrap() = true;
+        gate.1.notify_all();
+    };
+    l.s.set_online_check(Some(check));
+    l.clock.advance(CHECK_EVERY);
+    l.s.poll();
+    while looks.load(Ordering::SeqCst) == 0 {
+        std::thread::yield_now();
+    }
+    // The check is looking at Lisbon; the rename goes on meanwhile, and the check then finds
+    // nothing there.
+    let folder = l.folder_id("Lisbon");
+    l.s.execute("folder.rename", &json!({ "folder": folder, "name": "Lisboa" })).unwrap();
+    assert!(l.s.wait_file_jobs(PATIENCE));
+    l.s.flush().unwrap();
+    open(&first);
+    while l.s.root_online(&lisbon) != Some(false) {
+        l.s.poll();
+        std::thread::yield_now();
+    }
+    // Undo brings Lisbon back while the stale verdict stands (the next check still looking).
+    l.s.execute("edit.undo", &json!({})).unwrap();
+    assert!(l.s.wait_file_jobs(PATIENCE));
+    assert_eq!(l.s.library().folder(folder).map(|f| f.path.clone()), Some(lisbon.clone()));
+    let a = l.photo("Lisbon", "a.jpg");
+    l.s.execute("photo.star.set", &json!({ "ids": [a], "on": true })).unwrap();
+    let held = l.s.flush();
+    assert!(matches!(&held, Err(CmdError::Unsaved(m)) if m.contains("not there")), "{held:?}");
+    // The next check finds it: the writes land.
+    open(&later);
+    assert!(l.s.refresh_volumes(PATIENCE));
+    assert_eq!(l.s.root_online(&lisbon), Some(true));
+    l.s.flush().unwrap();
+    assert_eq!(entry(&lisbon, "a.jpg").unwrap()["star"], json!(true), "the star made meanwhile landed");
 }

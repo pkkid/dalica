@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::common::{FaultLock, entry, exists, jpeg, names, off_owner, options, read, shared};
+use crate::common::{FaultLock, entry, exists, jpeg, names, off_owner, options, read, shared, wait_files};
 use dalica_core::{FolderId, PhotoId, SystemClock};
 use dalica_engine::cmd::folder_ops::{ALREADY_THERE, INTO_ITSELF, NOT_IN_LIBRARY};
 use dalica_engine::watching::WatchMode;
@@ -93,7 +93,7 @@ impl Lib {
     /// caused: a caption written into a photo's file changes its size in the model, and a folder
     /// listed next holds no temporary file of a write still under way.
     fn wait(&mut self) {
-        assert!(self.s.wait_file_jobs(PATIENCE), "the file jobs ended");
+        wait_files(&mut self.s);
         assert!(self.s.flush_metadata(PATIENCE), "the metadata writes ended");
         self.s.flush().unwrap();
     }

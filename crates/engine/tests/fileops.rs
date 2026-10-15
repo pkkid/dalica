@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
-use crate::common::{exists, jpeg, off_owner, options, shared};
+use crate::common::{exists, jpeg, off_owner, options, shared, wait_files};
 use dalica_core::{PhotoId, SystemClock, Timestamp, VirtualClock};
 use dalica_engine::fileops::{ItemState, Journal, JournalEntry, MemoryJournal, OpId};
 use dalica_engine::watching::WatchMode;
@@ -224,7 +224,7 @@ impl Lib {
     }
 
     fn wait(&mut self) {
-        assert!(self.s.wait_file_jobs(PATIENCE), "the file jobs ended");
+        wait_files(&mut self.s);
     }
 
     fn last_event(&self) -> dalica_engine::FileOpEvent {
