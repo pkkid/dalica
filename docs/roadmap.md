@@ -4293,7 +4293,7 @@ mid-run.
     shows the empty state; Show Duplicate Files shows the groups and its banner; Save Search
     Results… makes the album; Search for This Tag searches it; toolbar, banner and empty-state
     fingerprints at both sizes.
-- ⬜ **M9.23 `ui`: drag and drop, the drag pill, and Cut, Copy and Paste**
+- ✅ **M9.23 `ui`: drag and drop, the drag pill, and Cut, Copy and Paste**
   - after: M9.17, M9.18, M9.19
   - files: `crates/ui/src/drag.rs`, `crates/ui/src/panels/light_table/input.rs`, `crates/ui/src/panels/folders.rs`, `crates/ui/src/commands/clipboard.rs`, `crates/ui/tests/drag.rs`, `crates/ui/tests/clipboard.rs`, `crates/ui/tests/fingerprints/drag-*.json`
   - scope: `ui-layout.md` §4, §5.5 and §6.2: a press-and-drag from a thumbnail or the tray carries

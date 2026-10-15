@@ -33,6 +33,11 @@
 //!   an ordinary position scroll bar ([`scrollbar`]) at its right edge drags and pages it.
 //!   Collapsed groups after the last open one dock at the bottom of the pane while the list above
 //!   them is short.
+//! - **Drops** (`ui-layout.md` §4): while photos are dragged (`crate::drag`), the row under the
+//!   pointer is offered as a drop target, a library folder's (move; Ctrl copies) or a user album's
+//!   (add), and gets the `drop_target` highlight when a drop there would change something; the
+//!   pointer held within [`DRAG_EDGE`] of the pane's top or bottom edge scrolls the rows
+//!   (faster nearer the edge), so a folder off screen can be reached.
 //! - **Offline folders:** rows under a watched root whose volume is offline
 //!   ([`Session::offline_roots`](dalica_engine::Session::offline_roots), `data-model.md` §7) are
 //!   dimmed with a `caution` "offline" marker; the roots are part of what the model is built from,
@@ -63,7 +68,7 @@ use super::{Panels, light_table};
 use crate::app::App;
 use crate::perf::{self, Counter};
 use crate::selection::{self, Scope};
-use crate::state::{AlbumSection, Section};
+use crate::state::{AlbumSection, DropAt, Section};
 
 /// What the pane's tree was built from: the library's revision, the watched roots, the view
 /// state's tree options and folded folders, the pane's folded directories, the row heights.
@@ -126,6 +131,29 @@ enum Action {
     Group(Group),
     /// Open item `i`'s Folder or Album Properties.
     Properties(usize),
+}
+
+/// How far inside the pane's top and bottom edges a drag of photos scrolls the rows (points), and
+/// the speed there (points per second) growing by [`DRAG_GAIN`] per point nearer the edge.
+pub const DRAG_EDGE: f32 = 24.0;
+pub const DRAG_SPEED: f32 = 240.0;
+pub const DRAG_GAIN: f32 = 40.0;
+
+/// How fast a drag of photos held at `y` scrolls a pane spanning `top..bottom` (points per second,
+/// positive = down): none farther than [`DRAG_EDGE`] from both edges, else [`DRAG_SPEED`] plus
+/// [`DRAG_GAIN`] per point past that line. 0 for numbers that are not finite.
+pub fn drag_scroll_speed(y: f32, top: f32, bottom: f32) -> f32 {
+    if !(y.is_finite() && top.is_finite() && bottom.is_finite()) || y < top || y > bottom {
+        return 0.0;
+    }
+    let (below, above) = (y - (bottom - DRAG_EDGE), (top + DRAG_EDGE) - y);
+    if below > 0.0 && below >= above {
+        DRAG_SPEED + DRAG_GAIN * below
+    } else if above > 0.0 {
+        -(DRAG_SPEED + DRAG_GAIN * above)
+    } else {
+        0.0
+    }
 }
 
 fn pane_id() -> Id {
@@ -263,6 +291,16 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
             }
         }
     }
+    // A drag of photos held near the top or bottom edge scrolls the rows.
+    let dragging = crate::drag::pointer(&ctx, state).filter(|p| rect.contains(*p));
+    if let Some(pos) = dragging {
+        let speed = drag_scroll_speed(pos.y, rect.min.y, rect.max.y);
+        if speed != 0.0 {
+            let dt = ctx.input(|i| i.stable_dt).clamp(1.0 / 120.0, 0.1);
+            pane.offset += speed * dt;
+            ctx.request_repaint();
+        }
+    }
     pane.offset = if pane.offset.is_finite() { pane.offset.clamp(0.0, model.max_offset(view_h)) } else { 0.0 };
 
     // The scroll bar, while the list is taller than the pane: the rows end left of it.
@@ -302,8 +340,13 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
                     Some(album) => selected_album == Some(album),
                     None => selected_album.is_none() && row.folder.is_some() && row.folder == selected_folder,
                 };
-                let look = paint::Look { selected, hovered: response.hovered(), focused, indent: heights.indent };
+                let look = paint::Look { selected, hovered: response.hovered() && dragging.is_none(), focused, indent: heights.indent };
                 paint::row(&painter, &t, r, row, look, tree_mode);
+                if let Some(at) = dragging.filter(|p| r.contains(*p)).and_then(|_| drop_at(row))
+                    && crate::drag::offer(&ctx, session, state, at, &row.id).is_some()
+                {
+                    widgets::drop_target(&painter, &t, r.shrink(1.0));
+                }
                 widgets::register(&ctx, &row.id, Role::TreeRow, &row.label(), Target::Widget(&response), selected);
                 // The triangle goes over the row, so a click on it folds rather than selects.
                 let mut folded = false;
@@ -398,6 +441,15 @@ fn apply(p: &mut Panels, app: &mut App, pane: &mut Pane, model: &Model, action: 
                 let _ = app.run("section.properties", &json!({}));
             }
         }
+    }
+}
+
+/// What a drag of photos dropped on `row` goes into: a library folder, or a user album.
+fn drop_at(row: &model::Row) -> Option<DropAt> {
+    match (row.folder, row.album) {
+        (Some(f), None) => Some(DropAt::Folder(f)),
+        (None, Some(AlbumSection::User(k))) => Some(DropAt::Album(k)),
+        _ => None,
     }
 }
 

@@ -290,13 +290,22 @@ impl App {
         self.folder_request.as_ref().map(|(_, r)| r)
     }
 
-    /// Runs the folder picker's answer once it has one.
+    /// Runs the folder picker's answer once it has one. Move Folder's (`folder.move`) asks the
+    /// collision question first when it would merge into a folder of the same name whose photos'
+    /// names clash (`crate::dialogs::collision::run_or_ask_folder`), and the folder chosen is
+    /// remembered as the last place a folder moved into (`"organize"` → `lastMoveFolder`) once the
+    /// move runs.
     fn poll_folder_request(&mut self) {
         let Some(answer) = self.folder_request.as_ref().and_then(|(p, _)| p.poll()) else { return };
         if let Some((_, request)) = self.folder_request.take()
             && let Some(path) = answer
         {
-            let _ = self.run(request.command, &request.params_with(&path));
+            let params = request.params_with(&path);
+            let _ = if request.command == "folder.move" {
+                crate::dialogs::collision::run_or_ask_folder(self, params)
+            } else {
+                self.run(request.command, &params)
+            };
         }
     }
 
@@ -395,6 +404,8 @@ impl App {
         self.poll_folder_request();
         // Under an open dialog the window takes no keys: no shortcut runs and no panel sees a key
         // press or typed text; the dialog gets them back once the panels are drawn.
+        // Esc ends a drag of photos before any shortcut sees it.
+        crate::drag::escape(self, ui.ctx());
         let keys = if self.state.dialogs.is_empty() {
             // The edit view resolves keys in its own context, the open tool first.
             match self.state.view {
@@ -416,6 +427,8 @@ impl App {
         }
         self.folder_dialog_open = p.dialog.is_some();
         panels::show(&mut p, self, ui);
+        // A drag of photos: its target, its pill, and its drop on release (`crate::drag`).
+        crate::drag::frame(&mut p, self, ui.ctx());
         self.panels = Some(p);
         if !keys.is_empty() {
             ui.ctx().input_mut(|i| i.events.extend(keys));

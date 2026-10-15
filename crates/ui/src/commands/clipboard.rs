@@ -1,17 +1,19 @@
-//! Edit ▸ Cut, Copy and Paste (`menus-and-shortcuts.md` §1.2): for moving and copying files between
-//! folders inside Dalica. Cut and Copy keep the photos in the view state's `clipboard`; Paste puts
-//! them into the current folder: after Cut it runs `photo.moveTo {ids, folder}` (which asks the
-//! first-time move question through the host) and empties the clipboard once the move ran, after
-//! Copy it asks "Copy %d files to %s?" (`crate::dialogs::copy_confirm`), whose Copy runs
-//! `photo.copyTo`.
+//! Edit ▸ Cut, Copy and Paste (`menus-and-shortcuts.md` §1.2, `organizing.md` §9): for moving and
+//! copying files between folders inside Dalica. Cut and Copy keep the photos in the view state's
+//! `clipboard`; Paste puts them into the current folder the way a drop on its tree row does
+//! (`crate::commands::files::{move_photos, copy_photos}`, which `crate::drag` runs too): after Cut
+//! it moves them, asking the first-time move question while "Ask before moving" is on and the
+//! collision question when names clash there, and empties the clipboard once the move ran; after
+//! Copy it asks "Copy %d files to %s?" (`crate::dialogs::copy_confirm`), whose Copy asks the
+//! collision question when names clash. A move leaves photos already in the folder where they are.
 //!
 //! - `photo.cut {ids?}` (Ctrl+X in the library), `photo.copy {ids?}` (Ctrl+C): the photos named,
 //!   else the selection; disabled with none.
 //! - `photo.paste {folder?}` (Ctrl+V): into the folder named, else the current folder; disabled in
-//!   an album, with nothing cut or copied, and until the engine's move and copy exist (M9.13).
+//!   an album, with nothing cut or copied, and until the engine's move and copy exist.
 //!
 //! Putting paths and images on the system clipboard for other applications is OS integration
-//! (M15). M9.23 adds the drag and drop that shares these commands' engine calls.
+//! (M15).
 
 use dalica_core::{FolderId, PhotoId};
 use dalica_engine::{CmdError, Context};
@@ -58,6 +60,8 @@ pub const NOTHING_KEPT: &str = "Cut or copy some photos first.";
 pub const IN_ALBUM: &str = "Paste into a folder, not an album.";
 pub const NO_FOLDER: &str = "Select a folder first.";
 pub const NOT_YET: &str = "Not available yet.";
+/// Why Paste after Cut has nothing to do: every photo kept is in that folder already.
+pub const ALREADY_THERE: &str = "The photos are in that folder already.";
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -132,14 +136,23 @@ fn can_paste(app: &App, params: &Value) -> Result<(), String> {
     pasted(app, params).map(|_| ()).map_err(|e| e.to_string())
 }
 
-/// `photo.paste {folder?}`: after Cut moves the photos (asking through the host the first time)
-/// and empties the clipboard; after Copy asks "Copy %d files to %s?".
+/// `photo.paste {folder?}`: after Cut moves the photos (asking the move question while it is on,
+/// the collision question when names clash) and empties the clipboard once the move ran; after
+/// Copy asks "Copy %d files to %s?" (into their own folder too: the copies get new names through
+/// the collision question). A move leaves out the photos already in the folder; with none left
+/// nothing runs.
 fn paste(app: &mut App, params: &Value) -> Result<Value, CmdError> {
     let (clip, folder) = pasted(app, params)?;
     match clip.op {
-        ClipOp::Copy => crate::dialogs::copy_confirm::open(app, clip.ids, folder),
+        ClipOp::Copy => super::files::copy_photos(app, clip.ids, folder),
         ClipOp::Cut => {
-            let reply = app.run(command(clip.op), &json!({ "ids": clip.ids, "folder": folder }))?;
+            let lib = app.session().map(dalica_engine::Session::library);
+            let ids: Vec<PhotoId> =
+                clip.ids.iter().copied().filter(|id| lib.and_then(|l| l.photo(*id)).is_some_and(|p| p.folder != folder)).collect();
+            if ids.is_empty() {
+                return Err(CmdError::Disabled(ALREADY_THERE.into()));
+            }
+            let reply = super::files::move_photos(app, ids, folder)?;
             // A question opened: the photos stay kept until the move runs.
             if reply.get("dialog").is_none() {
                 app.state_mut().clipboard = None;

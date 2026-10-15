@@ -606,7 +606,7 @@ Everything in `ui.state`, plus:
 | `filePicker` | the stubbed picker waiting for `ui.filePicker` (§5.6): `{command, kind, title}`, and for the save picker `name`, `folder` and `params` |
 | `status`, `toasts` | the status-line text as drawn; the toasts showing, oldest first: `[{id, text, kind, remaining}]` (`id` the toast's widget `toast:<n>`, `kind` `info` or `error`, `remaining` in seconds) |
 | `tooltip` | the text of the tooltip the last frame showed (its lines joined with `\n`), `null` when none |
-| `drag` | a drag of photos in progress, `null` when none: `{from, ids, target, op, pill}`: the widget it started on (`thumb:12`), the photos it carries (the selection when the photo was selected, else that photo), the drop target under the pointer (a widget id, `null` for none), what a drop there would do (`move`, `copy`, `add`, `reorder`, `hold`, `null`) and the drag pill's text ("Move 3 photos"); it ends when the button is released. Not part of `ui.state` |
+| `drag` | a drag of photos in progress, `null` when none: `{from, ids, target, op, pill}`: the widget it started on (`thumb:12`, `thumb:12/in/a91c0e`, `tray:item:12`, `tray:token`), the photos it carries (the selection when the photo was selected, else that photo; from the tray the tray-selected photos when the mini is tray-selected, else that one), the drop target under the pointer (a widget id: `tree:folder:<id>`, `tree:album:<id>`, `tray`, or for the gap beside a cell of a user album the cell's `thumb:<id>/in/<album>`; `null` for none, and where a drop would change nothing: the photos' own folder, an album or a tray already holding them all, the gap beside a dragged photo), what a drop there would do (`move`, `copy`, `add`, `reorder`, `hold`, `null`) and the drag pill's text ("Move 3 photos to Garden", "Copy 1 photo to Garden", "Add 3 photos to Lisbon", "Hold 3 photos in the tray", "Reorder 3 photos", "3 photos" over nothing); it ends when the button is released (dropping there) or Esc is pressed (dropping nothing). Not part of `ui.state` |
 | `animations` | running animations: `[{kind, region}]`, today `{kind: "scrollToSection", region: "lightTable"}` while the light table eases to a section (pane slides and fades join as they are built) |
 | `jobs` | same entries as `jobs.list` |
 | `notices` | warnings waiting to be shown (damaged settings file kept aside, …) |
@@ -651,8 +651,9 @@ selected/toggled state where one exists. Off-screen thumbnails are not listed: s
   `count: 2` double-clicks; `button: "right"` opens context menus; modifier flags apply to the click
   (`ctrl: true` toggles a thumbnail in the selection, `shift: true` extends it).
 - `ui.dragWidget {id, toWidget}` drags from one widget onto another — e.g. `thumb:5` onto
-  `tree:folder:2` moves the photo (hold `ctrl: true` to copy), onto `tray` adds it, onto
-  `tree:album:a91c0e` adds it to the album. `toX`/`toY` (screen points) or `dx`/`dy` give a point
+  `tree:folder:2` moves the photo (hold `ctrl: true` to copy), onto `tray` holds it, onto
+  `tree:album:a91c0e` adds it to the album; `toX`/`toY` on the left or right half of an album
+  cell `thumb:7/in/a91c0e` puts it before or after that photo in the album. `toX`/`toY` (screen points) or `dx`/`dy` give a point
   instead. `steps` (default 12) intermediate moves; the drag pill and drop highlight run as for a
   user.
 - `ui.hoverWidget {id, ms?}` rests the pointer on the widget, then waits `ms` (e.g. 650 for the
@@ -824,6 +825,7 @@ recipe operation and parameter names of `data-model.md` §3.1 and `editing.md` (
 | Folder Manager and first run (M5) | rows `choice:dialog.folder/<roothash>[/<pathhash>]`, `button:dialog.expand/…` (and `…/loading` while a listing is read), `choice:dialog.mode/<always\|once\|remove>`, `check:dialog.faces`, `button:dialog.reveal/<hash>` (the watched list), `choice:dialog.start/<places\|choose>` (first run); stacked questions `dialog:removeFolder`, `dialog:watchDrive`, whose buttons are `dialog:<kind>/<action>` while another dialog is under them |
 | Activity and tree scroll bar (M5) | `indicator:activity` popover `popover:activity`, its rows `job:<n>` and `job:<n>/cancel`; the tree's `scroll:tree`, `scroll:tree/thumb` |
 | Toasts (M3) | `toast:<n>`, `button:toast.<action>` (`button:toast.showFolder`) |
+| Drag and drop (M9) | `drag:pill` (the drag pill while photos are dragged: role `other`, painted, labelled with its text) |
 
 Rules for implementers:
 
