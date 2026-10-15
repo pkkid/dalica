@@ -50,7 +50,7 @@ fn star_a_photo_end_to_end() {
     //    (both run once in the review gate's test step; here only when run on their own).
     if !dalica_acceptance::suites_ran() {
         cargo_test(&["-p", "dalica-store", "--test", "sidecars", "a_failed_write_leaves_the_old_or_the_new_sidecar"]);
-        cargo_test(&["-p", "dalica-fs", "--lib", "each_fault_point_leaves_the_old_or_the_new_file"]);
+        cargo_test(&["-p", "dalica-fs", "--test", "dirfd", "each_fault_point_leaves_the_old_or_the_new_file"]);
     }
     dalica_acceptance::panic_hunt().unwrap();
 

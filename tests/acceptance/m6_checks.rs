@@ -46,7 +46,7 @@ pub fn crate_suites() {
     suites("dalica-library", &["ops", "m6_fields", "tags", "tree"]);
     suites("dalica-edit", &["recipe", "geometry", "frame"]);
     cargo_test(&["-p", "dalica-sidecar"]);
-    suites("dalica-store", &["m6_fields", "sidecars"]);
+    suites("dalica-store", &["m6_fields", "fields", "sidecars"]);
     suites("dalica-engine", &["rotate", "hide", "captions", "folder_info", "tags", "dates", "photo_metadata", "settings_m6", "keymap"]);
     suites(
         "dalica-ui",

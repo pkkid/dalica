@@ -64,7 +64,7 @@ pub fn crate_suites() {
     suites("dalica-library", &["m8_fields", "ops", "tree"]);
     suites("dalica-fs", &["originals", "create"]);
     suites("dalica-sidecar", &["originals"]);
-    suites("dalica-store", &["m8_fields"]);
+    suites("dalica-store", &["m8_fields", "fields"]);
     suites("dalica-scan", &["originals"]);
     println!("  the encoders, the quality estimate, lossless JPEG transforms, metadata carried to a new file");
     suites("dalica-image", &["encode", "jpeg_quality", "jpeg_transform"]);

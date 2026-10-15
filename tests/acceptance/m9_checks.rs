@@ -73,7 +73,7 @@ pub fn crate_suites() {
     println!("  the model, position keys and re-keying, the tree's album group, albums on disk and in the index, §10.12 at the store level");
     suites("dalica-library", &["m9_fields", "albums", "ops", "tree"]);
     suites("dalica-sidecar", &["albums"]);
-    suites("dalica-store", &["m9_fields", "albums"]);
+    suites("dalica-store", &["m9_fields", "fields", "albums"]);
     println!("  the album commands and their undo; the tree, sections, Album Properties, Add to Album, the menus and the tray");
     suites("dalica-engine", &["albums", "settings_m9"]);
     suites("dalica-ui", &["view_state_m9", "albums_tree", "album_properties", "section_header", "photo_menu", "add_to_album", "tray"]);
