@@ -4322,7 +4322,7 @@ mid-run.
   - done when: `cargo test -p dalica-engine --test lessons_m9 --test two_volumes` on the three OSes:
     each lesson as a test; the cross-volume move copies, verifies byte for byte, trashes the source
     and undo brings everything back.
-- ⬜ **M9.25 `accept M9`**
+- ✅ **M9.25 `accept M9`**
   - after: M9.12, M9.20, M9.22, M9.23, M9.24
   - files: `tests/acceptance/m9.rs`, `tests/acceptance/m9_*.rs`, `tests/acceptance/m9.md`, `tests/acceptance/fingerprints/m9-*.json`
   - scope: every *Done when* of M9's three areas in the real `dalica --headless` over the control
