@@ -61,7 +61,7 @@ h1 em { font-style: normal; color: var(--accent); }
 .platforms { margin-top: 18px; }
 
 .shot-hero { position: relative; margin: 64px auto 0; max-width: 1080px; }
-.shot-hero::before { content: ""; position: absolute; inset: 8% 6% -4%; background: url(/img/export-dialog.jpg) center/cover; filter: blur(60px) saturate(1.6); opacity: .45; z-index: 0; }
+.shot-hero::before { content: ""; position: absolute; inset: 8% 6% -4%; background: url(/img/library.jpg) center/cover; filter: blur(60px) saturate(1.6); opacity: .45; z-index: 0; }
 .frame { position: relative; z-index: 1; border-radius: 3px; overflow: hidden; border: 1px solid #3a3a3a; box-shadow: 0 40px 120px rgba(0,0,0,.6); }
 .caption { display: flex; justify-content: space-between; gap: 16px; margin: 14px auto 0; max-width: 1080px; }
 
