@@ -32,10 +32,10 @@ same commit.
 | D. Viewing | 0 | 1 | 5 | 2 |
 | E. Output | 0 | 1 | 1 | 9 |
 | F. Data | 4 | 16 | 1 | 0 |
-| G. Preferences and system | 0 | 10 | 11 | 0 |
+| G. Preferences and system | 0 | 13 | 8 | 0 |
 | H. Menus | 0 | 6 | 2 | 0 |
 | I. Keyboard shortcuts | 65 | 5 | 15 | 0 |
-| **All** | 98 | 77 | 65 | 16 |
+| **All** | 98 | 80 | 62 | 16 |
 <!-- /parity:summary -->
 
 ## Top gaps
@@ -220,13 +220,13 @@ same commit.
 | Id | Feature | Tier | Status | Evidence / notes |
 |---|---|---|---|---|
 | PREF-DIALOG | Options dialog with tabs, OK/Cancel/Apply | P1 | 🟡 | `menus-and-shortcuts.md` §5, `design-system.md` §11.3: Tools ▸ Options… (`app.preferences`, Ctrl+,; Dalica ▸ Preferences… on macOS) and Help ▸ Keyboard Shortcuts… (`app.shortcuts`, Ctrl+/) open `dialog:options` with the tabs General, File Types, Export and Keyboard Shortcuts, OK / Cancel / Apply (Apply enabled while the draft changes something, keeps the dialog open; a failed Apply keeps the draft and its error; Cancel and Esc drop it): `crates/ui/src/commands/options.rs`, `crates/ui/src/dialogs/options.rs`, the draft `options` of the view state (`crates/ui/tests/view_state.rs`); missing: the tabs' bodies (stubs that list the draft), `ui-kit`'s text tabs, the options catalogue behind it (`options.list`, `options.set`) |
-| PREF-GENERAL | General: Interface, Files and Import options | P1 | ⬜ | `menus-and-shortcuts.md` §5 General; the tab is a stub (`crates/ui/src/dialogs/options/general.rs`) |
-| PREF-FILETYPES | File Types: the formats shown and the small-picture threshold | P1 | ⬜ | `menus-and-shortcuts.md` §5 File Types; the tab is a stub (`crates/ui/src/dialogs/options/file_types.rs`) |
+| PREF-GENERAL | General: Interface, Files and Import options | P1 | 🟡 | `menus-and-shortcuts.md` §5 General; engine half: `cmd:options.list` and `cmd:options.set` over the catalogue (`crates/engine/src/cmd/options.rs`; checked as a whole, one atomic write of `settings.json`, a failed write keeps the old values, the restart options listed: `crates/engine/tests/options_set.rs`); missing: the tab (a stub, `crates/ui/src/dialogs/options/general.rs`), and the options whose feature is still to come (Language, the import rows, the previous organizer's data) |
+| PREF-FILETYPES | File Types: the formats shown and the small-picture threshold | P1 | 🟡 | `menus-and-shortcuts.md` §5 File Types; engine half: `cmd:options.set` on a type or the threshold restarts the scans and scans every unit once; a type turned off leaves the library and its sidecar entries stay unmarked while the files exist, so turning it on brings back stars, captions and recipes (`crates/engine/tests/file_types.rs`); missing: the tab (a stub, `crates/ui/src/dialogs/options/file_types.rs`), the threshold applied to what the light table and search show |
 | PREF-SLIDESHOW | Slideshow options | P1 | ⬜ | `menus-and-shortcuts.md` §5 Slideshow; the tab joins with the slideshow |
 | PREF-NETWORK | Network options | P1 | ⬜ | `menus-and-shortcuts.md` §5 Network; the tab joins with Places |
 | PREF-PEOPLE | People options | P1 | ⬜ | `menus-and-shortcuts.md` §5 People; the tab joins with faces and people |
 | PREF-VIEWER | Photo Viewer options | P1 | ⬜ | `menus-and-shortcuts.md` §5 Photo Viewer, `viewing.md` §3.3; the tab joins with the viewer |
-| PREF-EXPORT | Export: default location, size and quality, remove location, watermark text | P1 | ⬜ | `menus-and-shortcuts.md` §5 Export; the tab is a stub (`crates/ui/src/dialogs/options/export.rs`) |
+| PREF-EXPORT | Export: default location, size and quality, remove location, watermark text | P1 | 🟡 | `menus-and-shortcuts.md` §5 Export; engine half: `cmd:options.set` stores them in the settings `cmd:export.defaults` reads at each call (round trip: `crates/engine/tests/options_set.rs`); missing: the tab (a stub, `crates/ui/src/dialogs/options/export.rs`) |
 | PREF-SCALE | UI scale (Auto with the 4K rule, 75–300 %) and UI font size (Small, Medium, Large), previewed live from the dialog | P1 | ⬜ | `design-system.md` §11.4–§11.5; the view state's `options.previewScale` / `previewFontSize` and the per-frame hook `crates/ui/src/scale.rs` (a stub: every window at 100 % and Small) |
 | PREF-KEYMAP | Keyboard contexts and the shortcut editor (search, record, conflicts, reset) | P1 | 🟡 | `menus-and-shortcuts.md` §2.0; the engine half (M10.6): `keymap.list {context?, search?, withoutKeys?}` (`crates/engine/src/cmd/keymap.rs`: one row per command and context with keys in effect, defaults, modified, editable; search by label, menu path and key in any spelling), `app.setShortcut` with two slots per context and conflicts named by label, context and key, `replace` taking the key (`crates/engine/src/cmd/app.rs`), `Key::parse_lenient` and `Key::pretty(platform)` (`⇧⌘S` on macOS; `crates/engine/src/keymap.rs`), measured by `crates/engine/tests/keymap.rs`; missing: the editor in the window (M10.12), UI commands listed by id until the app passes their labels to the engine |
 | SYS-UPDATES | Check for updates | — | ⬜ | deferred, not planned yet (2026-10-09) |
