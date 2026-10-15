@@ -47,7 +47,10 @@
 //!   turn ("Undo Move"); the step stays on the stack while it runs and Undo says why it waits. Each
 //!   reversed item applies its kept inverse; the items reversed go to the redo stack as one step and
 //!   any it could not reverse stay on the undo stack. Redo runs the items as they were done again
-//!   (the name a clash gave included) and applies the ops undo kept. A step with an item that has
+//!   (the name a clash gave included) and applies the ops undo kept. A folder those kept ops put
+//!   photos into that a scan took out of the library meanwhile (a folder the operation emptied
+//!   leaves at the next scan of its parent) comes back first, with its id and what was said about
+//!   it. A step with an item that has
 //!   no way back cannot be undone and says why
 //!   ([`UndoStack::undo_blocked`](crate::undo::UndoStack::undo_blocked)).
 //! - **Events.** Each finished operation, undo and redo leaves a [`FileOpEvent`] (its kind and
@@ -408,6 +411,9 @@ struct Entry<I> {
     /// The batch to apply when the item next runs the other way (the inverse of what its last run
     /// applied); `None` when that run changed nothing in the library.
     op: Option<Op>,
+    /// The folders `op` moves or adds photos into, as the model held them after the last run
+    /// ([`kept_folders`]): one a scan took out of the library meanwhile is put back first.
+    folders: Vec<Op>,
 }
 
 /// A file step's items (or a running operation's) with their driver.
@@ -557,6 +563,75 @@ struct Run<D: Driver> {
     unfinished: Arc<AtomicBool>,
 }
 
+/// The folders `op` moves or adds photos into (in nested batches too; walked without recursion).
+fn target_folders(op: &Op) -> Vec<dalica_core::FolderId> {
+    let mut out = Vec::new();
+    let mut stack = vec![op];
+    while let Some(op) = stack.pop() {
+        match op {
+            Op::MovePhotos { moves } => out.extend(moves.iter().map(|(_, folder, _)| *folder)),
+            Op::AddPhotos { photos } => out.extend(photos.iter().map(|p| p.folder)),
+            Op::Batch { ops } => stack.extend(ops),
+            _ => {}
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// For each folder `op` moves or adds photos into, the batch that puts it back as the model holds
+/// it now: the folder with its id and path, and what was said about it (info, photo sort, project
+/// mark). A folder a move or a delete emptied leaves the library at the next scan of its parent
+/// (`dalica_scan::diff`: a folder holding no photos is gone), so the undo that moves photos back
+/// into it, or the redo of a step that fills it, would otherwise name a folder the model no longer
+/// has: the files would go back on disk and the library could not follow (found by the M9
+/// acceptance, M9.25).
+fn kept_folders(s: &Session, op: Option<&Op>) -> Vec<Op> {
+    let Some(op) = op else { return Vec::new() };
+    let lib = s.library();
+    target_folders(op)
+        .into_iter()
+        .filter_map(|id| {
+            let folder = lib.folder(id)?.clone();
+            let mut ops = vec![Op::AddFolder { folder }];
+            let info = lib.folder_info(id);
+            if *info != dalica_library::FolderInfo::EMPTY {
+                ops.push(Op::SetFolderInfo { folders: vec![(id, info.clone())] });
+            }
+            let sort = lib.folder_sort(id);
+            if sort != dalica_library::PhotoSort::default() {
+                ops.push(Op::SetFolderSorts { sorts: vec![(id, sort)] });
+            }
+            if let Some(project) = lib.project(id) {
+                ops.push(Op::SetProjects { projects: vec![(id, Some(project))] });
+            }
+            batch(ops)
+        })
+        .collect()
+}
+
+/// Puts back each kept folder ([`kept_folders`]) the library no longer has, when nothing else
+/// stands at its path, before an undo or redo applies its change. Its own step: the change that
+/// follows keeps its inverse as it was, so a redo never takes out a folder something else filled
+/// meanwhile (a scan takes it out again once it is empty).
+fn put_back_folders(s: &mut Session, folders: &[Op]) {
+    for kept in folders {
+        let first = match kept {
+            Op::Batch { ops } => ops.first(),
+            other => Some(other),
+        };
+        let Some(Op::AddFolder { folder }) = first else { continue };
+        if s.library().folder(folder.id).is_some() || s.library().folder_by_path(&folder.path).is_some() {
+            continue;
+        }
+        match s.apply_own(kept.clone()) {
+            Ok(_) => log::info!("{} came back to the library for an undo or redo that puts photos in it", folder.path.display()),
+            Err(e) => log::warn!("{} could not come back to the library: {e}", folder.path.display()),
+        }
+    }
+}
+
 /// The ops as one op (all or nothing): `None` for none.
 fn batch(mut ops: Vec<Op>) -> Option<Op> {
     match ops.len() {
@@ -606,8 +681,12 @@ impl<D: Driver> Run<D> {
                 let applied = ops.and_then(|ops| apply(s, batch(ops)));
                 (driver.settled(&entry.forward, &done), driver.reverse(&entry.forward, &done), applied)
             }
-            Direction::Undo => (entry.forward, entry.back, apply(s, entry.op)),
+            Direction::Undo => {
+                put_back_folders(s, &entry.folders);
+                (entry.forward, entry.back, apply(s, entry.op))
+            }
             Direction::Redo => {
+                put_back_folders(s, &entry.folders);
                 let applied = apply(s, entry.op);
                 (driver.settled(&entry.forward, &done), driver.reverse(&entry.forward, &done), applied)
             }
@@ -617,7 +696,8 @@ impl<D: Driver> Run<D> {
             Err(e) => (None, Some(format!("the files were changed, but the library could not follow: {e}"))),
         };
         if let Some(slot) = self.results.get_mut(index) {
-            *slot = Some(Entry { forward, back, op });
+            let folders = kept_folders(s, op.as_ref());
+            *slot = Some(Entry { forward, back, op, folders });
         }
         // After the ops (their folders' states are on their way to the I/O worker): the entries
         // follow the files, even when the library could not.
@@ -848,7 +928,7 @@ impl Session {
     /// Never touches the disk.
     pub fn start_file_op<D: Driver>(&mut self, op: FileOp<D>) -> JobId {
         let FileOp { driver, kind, label, items, destination } = op;
-        let entries = items.into_iter().map(|forward| Entry { forward, back: Err("not done".into()), op: None }).collect();
+        let entries = items.into_iter().map(|forward| Entry { forward, back: Err("not done".into()), op: None, folders: Vec::new() }).collect();
         launch(self, Steps { driver, kind, label, destination, entries }, Direction::Do, None)
     }
 
