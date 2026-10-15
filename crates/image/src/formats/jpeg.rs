@@ -3,12 +3,18 @@
 //! `zune-jpeg`. Grey, YCbCr/RGB, CMYK and YCCK frames come out as [`Decoded`] samples with the
 //! profile attached, and the colour stage turns them into sRGB.
 //!
+//! Colour without a profile: a colour JPEG without an embedded ICC profile whose EXIF declares
+//! Adobe RGB (ColorSpace 2, or Uncalibrated with the DCF option-file interoperability index
+//! "R03", [`crate::exif::ColorSpace::AdobeRgb`]) is tagged with an Adobe RGB (1998) profile built
+//! from its published primaries, as the RAW previews are; anything else untagged is sRGB.
+//!
 //! CMYK convention: files with an Adobe APP14 segment store CMYK inverted (255 = no ink), the
 //! convention of the application that introduced the marker; their samples are inverted back so a
 //! [`Decoded`] CMYK sample is always the amount of ink (0 = none), as ICC profiles expect. YCCK
 //! frames are YCbCr-coded inverted CMY plus K; they are converted to CMY first.
 
 use std::ops::Range;
+use std::sync::OnceLock;
 
 use zune_jpeg::JpegDecoder;
 use zune_jpeg::zune_core::bytestream::ZCursor;
@@ -17,6 +23,7 @@ use zune_jpeg::zune_core::options::DecoderOptions;
 
 use super::u16_be;
 use crate::decode::{ColorModel, Decoded, Samples};
+use crate::exif::ColorSpace as ExifSpace;
 use crate::limits::{Budget, Limits, Work};
 use crate::{Error, Format, Header, Orientation, Result};
 
@@ -194,7 +201,25 @@ pub fn decode(bytes: &[u8], header: &Header, budget: &mut Budget, limits: &Limit
     if model == ColorModel::Cmyk {
         to_ink(&mut data, out == ColorSpace::YCCK, seg.adobe.is_some());
     }
+    let icc = icc.or_else(|| declared_profile(header, model));
     Ok(Decoded { width, height, model, alpha, samples: Samples::U8(data), icc, orientation: header.orientation })
+}
+
+/// The profile EXIF declares for colour pixels that carry none of their own: Adobe RGB (1998)
+/// when the header's EXIF says so (DCF 2.0 option files), else `None` (sRGB).
+fn declared_profile(header: &Header, model: ColorModel) -> Option<Vec<u8>> {
+    let adobe = header.exif.as_ref().and_then(|e| e.color_space) == Some(ExifSpace::AdobeRgb);
+    (adobe && model == ColorModel::Rgb).then(adobe_rgb).flatten()
+}
+
+/// The Adobe RGB (1998) profile, encoded once by `moxcms` from its published primaries.
+fn adobe_rgb() -> Option<Vec<u8>> {
+    static ADOBE: OnceLock<Option<Vec<u8>>> = OnceLock::new();
+    ADOBE
+        .get_or_init(|| {
+            moxcms::ColorProfile::new_adobe_rgb().encode().map_err(|e| log::warn!("JPEG: the Adobe RGB profile could not be built: {e:?}")).ok()
+        })
+        .clone()
 }
 
 /// Whether `zune-jpeg` decodes a frame of this SOF marker and sample precision: Huffman-coded
@@ -263,6 +288,61 @@ mod tests {
         for marker in [0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf] {
             assert!(!decodable(marker, 8), "{marker:#x}");
         }
+    }
+
+    /// An EXIF block whose EXIF IFD holds ColorSpace `space`, and an interoperability index when
+    /// `index` is given (little-endian TIFF, built from EXIF 2.32 §4.6).
+    fn exif_color_space(space: u16, index: Option<&[u8; 4]>) -> Vec<u8> {
+        let entry = |tag: u16, kind: u16, value: [u8; 4]| [&tag.to_le_bytes()[..], &kind.to_le_bytes(), &1u32.to_le_bytes(), &value].concat();
+        let mut b = b"II*\0\x08\0\0\0".to_vec();
+        // IFD0 at 8: the EXIF IFD pointer, to 26.
+        b.extend(1u16.to_le_bytes());
+        b.extend(entry(0x8769, 4, 26u32.to_le_bytes()));
+        b.extend([0; 4]);
+        // The EXIF IFD at 26: ColorSpace, and the interoperability IFD pointer (to 56).
+        let n: u16 = if index.is_some() { 2 } else { 1 };
+        b.extend(n.to_le_bytes());
+        let [lo, hi] = space.to_le_bytes();
+        b.extend(entry(0xa001, 3, [lo, hi, 0, 0]));
+        if let Some(index) = index {
+            b.extend(entry(0xa005, 4, 56u32.to_le_bytes()));
+            b.extend([0; 4]);
+            // The interoperability IFD at 56: InteroperabilityIndex, four ASCII bytes inline.
+            b.extend(1u16.to_le_bytes());
+            b.extend([&0x0001u16.to_le_bytes()[..], &2u16.to_le_bytes(), &4u32.to_le_bytes(), index].concat());
+        }
+        b.extend([0; 4]);
+        b
+    }
+
+    /// A colour JPEG without a profile is Adobe RGB when its EXIF says so (ColorSpace 2, or
+    /// Uncalibrated with the "R03" index), and sRGB otherwise; an embedded profile always wins.
+    #[test]
+    fn a_jpeg_marked_adobe_rgb_without_a_profile_decodes_as_adobe_rgb() {
+        use crate::encode::{Channels, Image, Metadata, Pixels, Subsampling, jpeg};
+        let limits = Limits::default();
+        let px: Vec<u8> = [200u8, 100, 50].repeat(64);
+        let image = Image { width: 8, height: 8, channels: Channels::Rgb, pixels: Pixels::U8(&px) };
+        let file = |exif: Option<&[u8]>, icc: Option<&[u8]>| jpeg(&image, 95, Subsampling::S444, &Metadata { exif, xmp: None, icc }).unwrap();
+        let tagged = |bytes: &[u8]| {
+            let h = header(bytes, &limits).unwrap();
+            decode(bytes, &h, &mut Budget::new(&limits, h.width, h.height), &limits).unwrap().icc
+        };
+        let adobe = adobe_rgb().unwrap();
+        let declared = exif_color_space(2, None);
+        let r03 = exif_color_space(0xffff, Some(b"R03\0"));
+        assert_eq!(tagged(&file(Some(&declared), None)).as_deref(), Some(&adobe[..]));
+        assert_eq!(tagged(&file(Some(&r03), None)).as_deref(), Some(&adobe[..]));
+        for srgb in [exif_color_space(1, None), exif_color_space(0xffff, Some(b"R98\0")), exif_color_space(0xffff, None)] {
+            assert_eq!(tagged(&file(Some(&srgb), None)), None);
+        }
+        assert_eq!(tagged(&file(None, None)), None);
+        let own = moxcms::ColorProfile::new_srgb().encode().unwrap();
+        assert_eq!(tagged(&file(Some(&declared), Some(&own))), Some(own));
+        // Through the colour stage: Adobe RGB's wider gamut makes the orange more saturated in sRGB.
+        let shown = |bytes: &[u8]| crate::decode(bytes, &limits).unwrap().data[..3].to_vec();
+        let (plain, wide) = (shown(&file(None, None)), shown(&file(Some(&declared), None)));
+        assert!(wide[0] > plain[0] + 20 && wide[2] + 5 < plain[2], "{plain:?} as Adobe RGB is {wide:?}");
     }
 
     #[test]

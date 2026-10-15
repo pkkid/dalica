@@ -190,7 +190,11 @@ latitude/longitude tags and DateTimeOriginal / DateTimeDigitized. Every Dalica X
 segments are rewritten; a second EXIF or XMP segment, extended XMP, ICC, MPF, comments, unknown
 segments and the scan data are copied as they are. A segment Dalica adds goes where readers look
 for it: EXIF right after SOI and its APP0 segments, XMP right after EXIF, APP13 after the last
-APP0–APP12 segment that follows SOI (before an Adobe APP14 and the tables). Photoshop resources
+APP0–APP12 segment that follows SOI (before an Adobe APP14 and the tables), and never after an MPF
+index: the index finds a phone's or camera's other images (after the primary image's EOI) by
+offsets counted from its own segment, so nothing may change size after it; a write that still
+would (a rewritten segment after the index that grows or shrinks) is refused naming the field when
+the index lists other images, or cannot be read and the file holds data after its EOI. Photoshop resources
 spread over several APP13 segments are written back joined, split again only where one segment
 cannot hold them. Extended XMP is read only when its GUID is the MD5 of the reassembled
 packet (XMP Part 3); otherwise it is reported as damaged and left in the file.
@@ -287,7 +291,10 @@ In `crates/meta/tests/` (synthetic files built in the test) and, behind the `cor
    non-ASCII, southern/western coordinates, dates with offsets and sub-seconds).
 2. Foreign data survives: unknown namespaces, other descriptions, `xmpMM:History`, other IPTC
    datasets and image resources, maker notes, thumbnails, ICC and MPF are byte-identical after a
-   Dalica write; the bytes outside the metadata segments hash the same (pixels untouched).
+   Dalica write; the bytes outside the metadata segments hash the same (pixels untouched). Over
+   the real camera and phone JPEGs of `corpus/photos/` as well: the image data and everything
+   after the primary image's EOI (MPF images, motion-photo trailers) are kept byte for byte, and
+   every image an MPF index lists still starts with FFD8 at its offset.
 3. Idempotence: writing the same values twice produces identical files.
 4. Rating rule: unstarring never clears a rating Dalica did not set.
 5. MWG: pixel and normalised areas, all eight orientations, `mwg-rs:Rotation`, non-face regions

@@ -5075,7 +5075,7 @@ No other step of M10 needs a maintainer decision mid-run.
     the UI thread (200 frames quick, 2 000 at full strength).
   - done when: `cargo test -p dalica-ui -p dalica` passes quick and at full strength; closing with
     a caption still pending leaves it in the sidecar.
-- ⬜ **M10.37 `meta` + `image`: metadata written to real camera files, and colour without a profile**
+- ✅ **M10.37 `meta` + `image`: metadata written to real camera files, and colour without a profile**
   - after: M9.R
   - files: `crates/meta/tests/corpus.rs`, `crates/meta/tests/write_jpeg.rs`, `crates/image/tests/corpus.rs`, `crates/image/src/formats/jpeg.rs`
   - scope: the metadata write-back invariants run over the real camera and phone JPEGs of the
