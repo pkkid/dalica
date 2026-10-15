@@ -5087,8 +5087,52 @@ No other step of M10 needs a maintainer decision mid-run.
     corpus floors.
   - done when: `cargo xtask test-corpus` passes with the new floors; a write that shifts the
     secondary images without fixing the MPF offsets fails the corpus test.
+- ⬜ **M10.38 `fs` + `store`: a failed journal append never loses the records after it**
+  - after: M10.34
+  - files: `crates/fs/src/append.rs`, `crates/fs/tests/append.rs`, `crates/store/src/journal.rs`, `crates/store/tests/journal.rs`, `crates/store/README.md`
+  - scope: found by M10.34 (PR #567): when an append fails part-way (a full disk), `Appender`
+    keeps the half-written bytes and the next append writes after them, and the engine's I/O
+    worker keeps appending after a failed one (`Msg::Journal` in `crates/engine/src/session.rs`),
+    so the next open stops at the torn record ("record 3: checksum mismatch") and drops every
+    later op the caller was told had landed. The journal's reading rule stays as it is (reading
+    stops at the first bad record; nothing after it is trusted, `journal.rs`'s module doc):
+    instead a failed append leaves the file as it was before it. `Appender::append` truncates
+    back to the last known good length (`set_len`, then sync) after a failed or short write or a
+    failed sync, before it reports the error, the injected `APPEND_WRITE` fault path included;
+    if the truncate fails too, the appender refuses every later append until it is reopened (and
+    the open cuts the torn tail as today). `Journal::append` counts an op only when its record is
+    whole on disk. The rule is written down in `append.rs`'s and `journal.rs`'s module docs and
+    `crates/store/README.md` (`data-model.md` and `crates/fs/README.md` belong to other open
+    tasks).
+  - done when: tests: in `dalica-fs`, a full disk (`faults::arm_full`, M10.34) on one append
+    leaves the file at its earlier length and the next append lands whole; in `dalica-store`, a
+    full disk armed on one journal append, two more appends, a reopen: both later ops are
+    replayed and the failed one is absent; each fails before the fix; a failed truncate refuses
+    the next append; `cargo xtask ci` green.
+- ⬜ **M10.39 `engine` + `ui` + `dalica-cli`: the three keys the KEY rows found unbound**
+  - after: M10.4, M10.21
+  - files: `crates/engine/src/cmd/photo.rs`, `crates/ui/src/commands/export.rs`, `crates/ui/src/commands/rename.rs`, `apps/dalica-cli/src/main.rs`, `crates/engine/tests/edit_keys.rs`, `crates/ui/tests/edit_keys.rs`
+  - scope: found by M10.21 (PR #562): the `KEY-*` check in registry mode (`cargo xtask parity`,
+    `parity --write`, the review gate) fails on three P0 rows. KEY-EDIT-SPACE: `editing.md` §12
+    gives the edit view Ctrl+8 and Space for the star, but `photo.star.toggle` binds Ctrl+8 and F4
+    there; a context holds at most two keys (`menus-and-shortcuts.md` §2.0), so the edit view's
+    pair becomes Ctrl+8 and Space as §12 says and F4 stays in the Library (Space is free in the
+    edit view until M15's video play/pause, which then needs its own context). KEY-EDIT-CTRL-SHIFT-S:
+    `output.export` (`crates/ui/src/commands/export.rs`) binds Ctrl+Shift+S in the Library only;
+    bind it in the edit view too (a Global key bound in both views reads ✅). KEY-GLOBAL-F2: the
+    Rename opener (`crates/ui/src/commands/rename.rs`) binds F2, but `dalica-cli commands` lists
+    the registry and `UI_COMMANDS`, not `dalica_ui::commands::OPENERS`, so its key is never seen:
+    list the openers' keys there as well; if Rename works on the edit view's photo, bind F2 in
+    the edit view too (✅), otherwise the row stays 🟡 with the reason. Each decision goes in the
+    commit body; `parity --write` regenerates the rows (`parity.md` is a shared doc; on a rebase
+    conflict, regenerate).
+  - done when: `cargo xtask parity` exits 0 with the three rows ✅ (or F2 🟡, as above); tests:
+    in the engine, Space in the edit view resolves to `photo.star.toggle` and stars the photo, with
+    no other default in the edit view on Space; headless in the window, Ctrl+Shift+S in the edit
+    view opens the Export dialog for the photo shown; `dalica-cli commands` lists the Rename
+    opener with F2 (its own unit test); `cargo xtask ci` green.
 - ⬜ **M10.26 `docs`: the P0 parity audit**
-  - after: M10.8, M10.11, M10.12, M10.16, M10.19, M10.20, M10.21, M10.22, M10.23, M10.25
+  - after: M10.8, M10.11, M10.12, M10.16, M10.19, M10.20, M10.21, M10.22, M10.23, M10.25, M10.39
   - files: `docs/parity.md`
   - scope: `process.md` §5 and the decisions above: every P0 row re-measured (its cited tests run,
     its evidence checked against the code), turned ✅ only with that evidence; parts of a note that
@@ -5189,7 +5233,7 @@ No other step of M10 needs a maintainer decision mid-run.
     printing how many M9 commands it reached with valid parameters; a settle test with a search
     pending; the dialog's title test; CI green.
 - ⬜ **M10.R Release 0.5 gate**
-  - after: M10.24, M10.27, M10.29, M10.31, M10.32, M10.33, M10.34, M10.35, M10.36, M10.37
+  - after: M10.24, M10.27, M10.29, M10.31, M10.32, M10.33, M10.34, M10.35, M10.36, M10.37, M10.38, M10.39
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`
   - scope: a release gate (Release 0.5, P0 complete): the lead runs `/milestone-review M10.R` to
@@ -5234,6 +5278,8 @@ wave 6   M10.26 P0 parity audit
           are judged against a base on the same runner, maintainer decision 2026-10-15)
          (test coverage, any wave: M10.34 crashes and full disks ‖ M10.35 undo under faults
           ‖ M10.36 window close, scales, monkey ‖ M10.37 camera-file write-back)
+         (fixes found during M10, any wave: M10.38 failed journal appends ‖ M10.39 the three unbound
+          keys)
 wave 7   M10.27 accept M10 → M10.R          (M10.28 lead: M12 blocks, any time after M9.26)
 ```
 
