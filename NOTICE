@@ -127,6 +127,7 @@ file and revision in its first lines:
                                              crates/ui-egui/src/panels.rs @ b41e34c2
   crates/fs/src/transfer.rs                  LightCraft crates/engine/src/import_move.rs @ b7091805
   crates/fs/src/transfer/copy.rs             LightCraft crates/engine/src/import_move.rs @ b7091805
+  crates/engine/src/cmd/rename.rs            LightCraft crates/engine/src/rename.rs @ b7091805
   crates/library/src/search/grammar.rs       LightCraft crates/catalog/src/query.rs @ b7091805
 
 Any other third-party code ever vendored will be listed here with its source and revision.

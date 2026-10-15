@@ -30,6 +30,10 @@
 //!   carry that fails or leaves an entry behind is reported by [`Session::flush`] like an unsaved
 //!   write; a backup that could not travel is logged. A copied photo needs the source's data in
 //!   the model too (its ops), or the destination's next write clears the duplicated values.
+//! - **State outside the library.** After an item's ops and carry, in every direction, the owner
+//!   thread calls [`Driver::followed`] with the item that ran (undo passes its reverse item) and
+//!   `&mut Session`: a renamed or moved folder's watched-folder entries follow it there
+//!   ([`Session::rebase_folders`]; `folder.rename`, M9.14, and `folder.move`, M9.15).
 //! - **Dalica's own changes.** File jobs put off the watcher's rescans while they run (M8.3), and
 //!   each finished item's ops put both of its ends in the model (the source gone, the target with
 //!   the file's facts) before any rescan reads the folders, so the rescan after the operation finds
@@ -149,6 +153,13 @@ pub trait Driver: Send + Sync + 'static {
     fn carry(&self, item: &Self::Item, done: &Self::Done) -> Option<Carry> {
         let _ = (item, done);
         None
+    }
+    /// Session state outside the library that follows `item` as it ran (`done` its result), on the
+    /// owner thread right after its library ops and carry, in every direction (undo passes its
+    /// reverse item): a renamed or moved folder's watched-folder entries
+    /// ([`Session::rebase_folders`]). Never touches the disk. Default: nothing.
+    fn followed(&self, s: &mut Session, item: &Self::Item, done: &Self::Done) {
+        let _ = (s, item, done);
     }
 }
 
@@ -511,6 +522,11 @@ impl<D: Driver> Run<D> {
         };
         let Some(entry) = self.steps.entries.get(index).cloned() else { return Err(format!("no item {index} in this operation")) };
         let driver = Arc::clone(&self.steps.driver);
+        // The item as it ran: its reverse when undoing.
+        let ran = match self.dir {
+            Direction::Undo => entry.back.clone().ok(),
+            Direction::Do | Direction::Redo => Some(entry.forward.clone()),
+        };
         let apply = |s: &mut Session, op: Option<Op>| -> Result<Option<Op>, String> {
             match op {
                 None => Ok(None),
@@ -540,6 +556,9 @@ impl<D: Driver> Run<D> {
         // follow the files, even when the library could not.
         if let Some(carry) = carry {
             s.carry_entries(carry);
+        }
+        if let Some(item) = &ran {
+            driver.followed(s, item, &done);
         }
         match failed {
             None => Ok(Vec::new()),

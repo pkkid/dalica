@@ -4134,7 +4134,7 @@ mid-run.
     `crates/engine/tests/new_folder.rs`: Move to New Folder and a split (one photo and every photo
     after it) are one step each and undo removes the empty folder; the owner thread made no `fs`
     call; each command's contract and graceful failures; `panic_hunt` green.
-- ⬜ **M9.14 `engine`: rename and batch rename photos, and rename folders**
+- ✅ **M9.14 `engine`: rename and batch rename photos, and rename folders**
   - after: M9.9, M8.13
   - files: `crates/engine/src/cmd/rename.rs`, `crates/engine/tests/rename.rs`, `NOTICE`
   - scope: `organizing.md` §9 and `data-model.md` §8: `photo.rename {ids, name, addDate?,

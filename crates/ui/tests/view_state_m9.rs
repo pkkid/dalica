@@ -516,8 +516,12 @@ fn the_new_commands_fail_gracefully() {
     }
     // The openers' ids are the engine's: never a dialog over automation.
     let first = t.ids[0];
+    // Until its engine command lands an opener's id is unknown to the engine; once it has, the
+    // engine refuses the missing input. Either way nothing changes.
     for id in ["photo.rename", "photo.moveToNewFolder", "folder.move"] {
-        assert_eq!(run_code(&mut t, id, json!({ "ids": [first] })), "unknown_command", "{id}");
+        let code = run_code(&mut t, id, json!({ "ids": [first] }));
+        assert!(code == "unknown_command" || code == "bad_params", "{id}: {code}");
+        assert_eq!(state(&mut t), before, "{id} changed nothing");
     }
     assert_eq!(state(&mut t), before);
 }
