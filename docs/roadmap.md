@@ -5119,7 +5119,7 @@ No other step of M10 needs a maintainer decision mid-run.
     All, `claude mcp add dalica -- dalica-cli mcp --demo` with a W01-like request, connect mode to a
     running `dalica --control`, the Windows touchpad pinch, the macOS build by hand).
   - done when: `cargo xtask accept M10` passes everything in M10's *Done when*.
-- ⬜ **M10.28 Lead: task blocks for M12**
+- ✅ **M10.28 Lead: task blocks for M12**
   - after: M9.26
   - owner: lead
   - files: `docs/roadmap.md`
@@ -5938,12 +5938,538 @@ wave 5   M11.21 slideshow bar + Options  ‖  M11.23 M11 budgets
 wave 6   M11.24 accept M11 → M11.R          (M11.25 lead: M13 blocks, any time after M10.28)
 ```
 
-### M12 – M14: P1 parity (outline; the lead details each one while the one before runs)
+### M12 — Effects
+
+One milestone in 3 feature areas (*Effect tiles and panels*, *Tab 3 effects*, *Tab 4 and 5 effects*); one `cargo xtask accept M12` covers every *Done when* below. It ends with a release gate the maintainer owns (Release 0.7).
+
+#### Effect tiles and panels
+
+- **In:** the edit panel's tabs 3–5 (`editing.md` §8.1): a fixed grid of live 78 × 48 tiles per
+  tab, rendered in the background on a `gray 38` placeholder, with labels, tooltips and the
+  "1-click" badge; one-click effects applied on a click, Ctrl+Shift+B for B&W; the parameter panel
+  (title, up to four sliders with the label centred above, checkboxes, a choice, colour swatches
+  with a picker and an eyedropper, Fade, Apply and Cancel) with a live preview; the crosshair on
+  the photo for the four focal effects; Soften's brush and eraser; Batch Edit's five effects
+  (`editing.md` §9) made live; the workflow W11 over MCP.
+- **Out:** the Shift variants and the novelty effects (`FX-SHIFT`, `FX-NOVELTY`, dropped
+  2026-10-09); a GPU path (the CPU renderer stays the only one, `development.md` §14); effects on
+  videos (M15); rendering edits at more than 8 bits (the M8.R note).
+- **Reuse** (`architecture.md` §9): PhotoCraft `crates/ui-egui/src/color_picker_ui.rs` (the colour
+  maths and the saturation / value field) and `crates/ui-egui/src/widgets.rs` (`swatch_popup`,
+  `color_swatch`) for the swatches; LightCraft `crates/pipeline/src/masks.rs` (brush dabs) for
+  Soften's mask; `ui-kit`'s Tuning slider (M7.5) for the panel's sliders.
+- **Done when:** `cargo xtask accept M12`: every tab's grid fills with previews and never waits on
+  the disk; each of the 27 effects, from its tile or its panel, is one step of the photo's history
+  named after it, survives a restart and a rebuild and shows on its thumbnail; Cancel records
+  nothing; a crosshair placed on a turned photo lands where it was put; Batch Edit ▸ Sepia on 20
+  photos is one undo step; W11 passes over MCP.
+
+#### Tab 3 effects
+
+- **In:** Sharpen, Sepia, B&W, Warmify, Film Grain, Tint, Saturation, Soft Focus, Glow, Filtered
+  B&W, Focal B&W, Graduated Tint (`editing.md` §8.2) as operations of the CPU renderer.
+- **Reuse:** PhotoCraft `crates/compose/src/adjust.rs` (`hue_saturation`, `black_white_gray`,
+  `photo_filter_matrix`, `vibrance_px`), `crates/algo/src/sharpen.rs` (`unsharp`) and
+  `crates/algo/src/noise.rs` (`add`, `hash01`); LightCraft `crates/raster/src/blur.rs` (three box
+  passes for a Gaussian) and `crates/pipeline/src/finish.rs` (`grain_noise`).
+- **Done when:** `cargo xtask accept M12`: a fingerprint and an invariant per effect, each the same
+  at two render sizes after a downscale and in a zoomed region as in the whole render.
+
+#### Tab 4 and 5 effects
+
+- **In:** Infrared Film, Plastic Lens, HDR Look, Widescreen Film, Dream Glow, Invert Colors,
+  Duo-Tone (§8.3); Boost, Soften with its paint mask, Vignette, Pixelate, Focal Zoom, Border, Drop
+  Shadow, Museum Matte (§8.4); effects that change the picture's size, everywhere a size is read
+  (thumbnails, the edit view, Save, Export, `render_photo`).
+- **Reuse:** PhotoCraft `crates/algo/src/blur.rs` (`radial`) and `crates/algo/src/blur/radial.rs`
+  for Focal Zoom, `crates/algo/src/stylize.rs` (`mosaic`) for Pixelate,
+  `crates/compose/src/effects.rs` (`shadow_map`, `tent_kernel`, `offset`) for Drop Shadow;
+  LightCraft `crates/pipeline/src/finish.rs` (`vignette`) for Vignette.
+- **Done when:** `cargo xtask accept M12`: as tab 3, plus: a Border's output is the photo grown by
+  its thickness on every side with the photo's pixels unchanged inside; Save and Export write the
+  grown picture; Soften applies only where it was painted.
+
+#### M12 tasks
+
+M12 fills the three effect tabs: 27 effects as operations of the CPU renderer, the tile grids, the
+parameter panel, the crosshair and Soften's brush. Its first wave lists the M11 work each task
+extends and starts once the maintainer has closed M11.R. Four tasks lay the ground the others share,
+so later tasks never share a file: M12.1 gives `edit` the syntax of all 27 effects (typed
+parameters, ranges, defaults, labels, catalogue rows, whether each changes the picture's size) with
+render stubs in one module per family, so each renderer task owns one module; M12.2 adds M12's view
+state, UI commands with stub handlers and the stub panels; M12.3 gives `edit` the primitives the
+effects share (blurs, seeded noise, masks, brush dabs, blends and Fade); M12.4 gives `ui-kit` the
+effect tile, the effect slider, the colour swatch and its picker, the crosshair and the icons, and
+`core` the colour maths the picker and the engine's colour pick share. Nine renderer tasks
+(M12.6–M12.14) each own one `ops/<family>.rs` and all but M12.14 (built on M12.13's size-changing
+kind) run side by side; the engine's effect list, tile previews and colour pick (M12.5) feed the
+tile grid (M12.15) and the panel (M12.16), and the crosshair (M12.17) and Soften's brush (M12.18)
+act through the panel's session. Each task updates its `parity.md` rows (`FX-TILES`, `FX-T3`,
+`FX-T4`, `FX-T5`, the effect tabs' text in `EDIT-TABS`, the effects of `EDIT-BATCH`, `SYS-MCP`, the
+Picture menu row and the generated `KEY-*` row of Ctrl+Shift+B; new rows where none fit: `FX-PANEL`
+for the parameter panel, its swatches and Fade, `FX-CROSSHAIR` for the crosshair) and names its
+commands there; first fingerprints of the 27 effects, the tile grids, the panels, the colour picker,
+the crosshair and the new widgets and icons are approved in bulk on the M12.R review page.
+
+Whole-window baselines belong to no task, as in M5–M11: the finished milestones'
+`tests/acceptance/fingerprints/m1-*.json` … `m11-*.json` and any `crates/ui/tests/fingerprints/`
+file not named in a task's `files` change whenever the window does. A task whose change moves them
+re-blesses them on its branch (diff images on the PR, the reason in the commit body), they never
+count as a `files` overlap, and on a rebase conflict the worker re-blesses after the rebase.
+Fingerprints are made at 1400 × 900 only; at 900 × 600 a test asserts that the grid, the panel and
+the picker fit (`architecture.md` §11).
+
+Decisions taken while planning (the check-in lists them for reversal): an effect is one entry of
+the recipe and one step of the photo's own history ("Undo Sepia"), from a one-click tile or from a
+panel's Apply; while a panel is open the photo previews through the edit view's candidate recipe
+(as Tuning and Straighten do) and the recipe is untouched until Apply; Cancel and Esc record
+nothing; opening an effect again always appends a new entry (effects stack; an earlier entry is
+never edited in place, unlike Crop). Slider controls follow the Tuning slider (no number, the
+value as a tooltip, + / − nudge 2 %, a double-click resets) with the label centred above; Glow's
+Radius is on a logarithmic scale. Parameters the spec leaves open (Soft Focus's Size and Amount,
+Focal B&W's Size and Sharpness, Glow's Radius range, Filtered B&W's default colour, Focal Zoom's
+Focal Size, Border's corner radius and caption height, Pixelate's blend modes) are decided in
+M12.1 from the effects' descriptions and written into `editing.md` §8. Every size, radius,
+thickness and grain size is relative to the picture's shorter side, every centre a normalised
+point in the stored frame (reserved decision 11), and every noise seeded from its entry's own
+parameters and placed in stored-frame coordinates, so a thumbnail, the edit view, a zoomed region and a Save of the same
+recipe agree. Colours are `#rrggbb` in sRGB; a swatch opens a picker popup (a saturation / value
+field, a hue strip, a hex field and the eyedropper); the eyedropper, and Vignette's "pick from
+photo", sample the photo as shown before the effect being set (the recipe so far, a mean over a
+small disc). Widescreen Film, Border, Drop Shadow and Museum Matte change the picture's size where
+they stand in the recipe: geometry stays first (a crop made after a Border crops the photo, not
+the frame), later effects work on the grown or letterboxed picture, rotations and flips turn the
+framed picture, a later effect's centre stays on the photo (the crosshair cannot be put on a
+frame), and every reader of a size (thumbnails, the edit view, Save, Export, `render_photo`) takes
+it from the same `Geometry`; a recipe whose frames would pass the render limits skips the frames
+past them and keeps them. Soften applies to the whole photo until its first stroke; from then the
+brush paints where it applies and the eraser takes it away; strokes are stored in the entry in the
+stored frame (at most 1 000, as Retouch). A tile is the photo with its recipe so far plus the
+effect at its defaults, rendered on a worker from a small decode (at least twice the tile in
+device pixels, made once per photo and recipe) at a new `effectTiles` priority below the edit
+view's preview, cancelled when the photo changes and remade when its recipe does; tiles are never
+written to disk. Ctrl+Shift+B applies B&W in the edit view only (the Edit context); in the library
+it is Batch Edit ▸ Black and White. The Shift variants stay dropped, so `control-protocol.md`'s
+"Shift over an effects tab" line goes. Ports from the Craft apps get their `NOTICE` rows from
+M12.1, which writes one row per port named in the blocks below, so the porting tasks never share
+`NOTICE`; a port not named here asks the lead for its row. M12's budgets join `development.md` §8
+at 1.5 × their first measurement, plus the edit view's (a panel's draft within 16 ms at p95 and its
+final within 100 ms at screen size, for every effect), and are never loosened. No step of M12 needs
+a maintainer decision mid-run.
+
+- ⬜ **M12.1 `edit`: the 27 effects' syntax, parameters and catalogue, with render stubs**
+  - after: M10.9, M11.R
+  - files: `crates/edit/src/syntax.rs`, `crates/edit/src/ops/mod.rs`, `crates/edit/src/ops/colour.rs`, `crates/edit/src/ops/detail.rs`, `crates/edit/src/ops/focal.rs`, `crates/edit/src/ops/remap.rs`, `crates/edit/src/ops/looks.rs`, `crates/edit/src/ops/soften.rs`, `crates/edit/src/ops/stylize.rs`, `crates/edit/src/ops/canvas.rs`, `crates/edit/src/ops/mats.rs`, `crates/edit/src/render.rs`, `crates/edit/src/catalog.rs`, `crates/edit/tests/recipe.rs`, `crates/edit/tests/catalog.rs`, `crates/edit/README.md`, `docs/editing.md`, `docs/data-model.md`, `NOTICE`
+  - scope: `editing.md` §8 and `data-model.md` §3.1: every effect of tabs 3–5 known to the
+    parser (`LISTED` gains the 15 of tabs 4–5) with a typed module: parameters with their range,
+    default, clamp and print (`#rrggbb` colours, stored-frame points, degrees, checkboxes and
+    choices by name, Soften's strokes as Retouch's), `VERSION` 0 and its history label, in one
+    module per family so the renderer tasks never share a file: `colour.rs` (Sepia, B&W, Warmify,
+    Tint, Saturation, Filtered B&W), `detail.rs` (Sharpen, Film Grain, Glow), `focal.rs` (Soft
+    Focus, Focal B&W, Graduated Tint), `remap.rs` (Invert Colors, Infrared Film, Duo-Tone, Boost),
+    `looks.rs` (HDR Look, Dream Glow, Plastic Lens), `soften.rs`, `stylize.rs` (Vignette,
+    Pixelate, Focal Zoom), `canvas.rs` (Widescreen Film, Border) and `mats.rs` (Drop Shadow,
+    Museum Matte); `Typed`, `label`, `version` and the renderer's dispatch list them all, each
+    `prepare` a stub that changes nothing; the catalogue rows of M10.9 for the 27 (tab and grid
+    place, one-click, crosshair kind, changes the size, the English tooltip, saying so for the four
+    that change the size); the open ranges and defaults decided above, written into `editing.md`
+    §8; `data-model.md` §3.1's effects row with every effect's syntax; the `NOTICE` rows of every
+    port named in M12's blocks.
+  - done when: `crates/edit/tests/recipe.rs`: every effect at its defaults prints and parses back
+    equal; out-of-range values clamp; a `NaN`, a missing field or a bad colour keeps the entry and
+    skips it; `crates/edit/tests/catalog.rs`: the 27 effects are listed in each tab's grid order
+    with ranges matching their clamps, each tab holding at most 12; a recipe with every effect
+    renders as the same recipe without them (stubs); every existing `edit` test passes
+    unchanged.
+- ⬜ **M12.2 `ui`: M12's view state, UI commands and the effect panels' stubs**
+  - after: M11.2, M11.R
+  - files: `crates/ui/src/state.rs`, `crates/ui/src/menus.rs`, `crates/ui/src/keys.rs`, `crates/ui/src/commands/mod.rs`, `crates/ui/src/commands/tools.rs`, `crates/ui/src/commands/effects.rs`, `crates/ui/src/commands/effect_session.rs`, `crates/ui/src/panels/edit.rs`, `crates/ui/src/panels/edit/panel.rs`, `crates/ui/src/panels/edit/canvas.rs`, `crates/ui/src/panels/edit/effects.rs`, `crates/ui/src/panels/edit/effect_panel.rs`, `crates/ui/src/panels/edit/effect_panel/**`, `crates/ui/src/panels/edit/crosshair.rs`, `crates/ui/src/panels/edit/soften_brush.rs`, `crates/ui/src/control/**`, `crates/ui/tests/view_state.rs`, `docs/control-protocol.md`, `docs/menus-and-shortcuts.md`
+  - scope: every M12 field of `UiState` in one go: `edit.tool` gains `effect`, and `edit.effect`
+    is `null` or the open panel (the effect's name, its parameter values, the crosshair being
+    dragged, Soften's strokes, brush size and paint or erase, the swatch whose picker is open, the
+    eyedropper armed); UI commands with stub handlers, so M12.15–M12.18 never share a file:
+    `edit.effect.apply {name}` (one-click) and `edit.bw` (Ctrl+Shift+B in the Edit context) in
+    `commands/effects.rs`, and the effect session in `commands/effect_session.rs` behind
+    `edit.tool.open {tool: "effect", name}`, `edit.tool.action`, `.apply`, `.cancel` and `.reset`;
+    the edit panel routing tabs 3–5 to the stub grid `panels/edit/effects.rs` and an open effect to
+    the stub `effect_panel.rs` (and its folder); the canvas's overlay hooks for the stub
+    `crosshair.rs` and `soften_brush.rs`; control stubs for the new state; `control-protocol.md`
+    §6.5 (`edit.effect`), §7 (the effect ids it lists plus `choice:effect.<param>`,
+    `button:effect.pick/<param>`, `popup:color`, `button:effect.paint`, `button:effect.erase`) and
+    the "Shift over an effects tab" line removed; `menus-and-shortcuts.md` §1.9 lists the new
+    commands (`effect.list`, `photo.effect.pick`, `edit.effect.apply`, `edit.bw`) and §2 the Edit
+    context's Ctrl+Shift+B.
+  - done when: `crates/ui/tests/view_state.rs`: `edit.effect` round-trips through `ui.state` /
+    `ui.set` (bad values are `bad_params`, nothing changes); `edit.tool.open {tool: "effect",
+    name: "sharpen"}` opens the stub panel and Esc closes it; Ctrl+Shift+B does nothing in the
+    library; every command's graceful-failure test; `panic_hunt` and `widget_ids` stay green.
+- ⬜ **M12.3 `edit`: the effects' primitives: blurs, seeded noise, masks, brush dabs, blends and Fade**
+  - after: M11.R
+  - files: `crates/edit/src/fx.rs`, `crates/edit/src/fx/**`, `crates/edit/tests/fx.rs`
+  - scope: what several effects share, on the renderer's bands (`ops::Band`, `View`, `Reach`), so
+    no renderer task writes its own: a separable Gaussian by three box passes on a pass's `before`
+    view with its reach (`3σ`), ported from LightCraft `crates/raster/src/blur.rs` (`box_radii`,
+    `gaussian`) at 0da998f2; seeded noise as a function of stored-frame coordinates and the
+    entry's seed, the same in a zoomed region and at any size, from PhotoCraft
+    `crates/algo/src/noise.rs` (`hash01`) at e4b2868a and LightCraft
+    `crates/pipeline/src/finish.rs` (`grain_noise`); masks in output pixels from stored-frame
+    shapes through `Prepare::geometry` (a circle with a feathered edge, a linear gradient with its
+    start, angle and feather, the distance from the edges); brush dabs along a stroke, ported from
+    LightCraft `crates/pipeline/src/masks.rs` (`brush_dabs`, `dab_spacing`, `dab_alpha`); blends
+    (screen, overlay, soft light, multiply) and Fade (`alpha = 1 − Fade/100` toward the input);
+    luma (Rec.601) and sRGB ↔ linear; each file with its header.
+  - done when: `crates/edit/tests/fx.rs`: the blur keeps a flat plane, spreads a dot by its sigma
+    and equals the whole blur in a region with its margin; the noise at a stored-frame point is the
+    same at two scales and in a region, has the mean and spread asked for and differs by seed; a
+    circle mask is 1 at its centre and 0 past its feather on a turned and cropped photo; dabs cover
+    a stroke without gaps; Fade 0 gives the effect and 100 the input; hostile sizes (zero, huge,
+    `NaN`) answer without a panic.
+- ⬜ **M12.4 `ui-kit` + `core`: effect tiles, the effect slider, colour swatches and their picker, the crosshair, the icons**
+  - after: M11.3, M11.R
+  - files: `crates/core/src/color.rs`, `crates/core/tests/color.rs`, `crates/ui-kit/src/widgets.rs`, `crates/ui-kit/src/widgets/effect_tile.rs`, `crates/ui-kit/src/widgets/slider.rs`, `crates/ui-kit/src/widgets/swatch.rs`, `crates/ui-kit/src/widgets/swatch/**`, `crates/ui-kit/src/widgets/crosshair.rs`, `crates/ui-kit/src/theme.rs`, `crates/ui-kit/src/icons.rs`, `crates/ui-kit/src/icons/effects.rs`, `crates/ui-kit/tests/effect_widgets.rs`, `crates/ui-kit/tests/icons_effects.rs`, `crates/ui-kit/tests/fingerprints/effect-widgets*.json`, `crates/ui-kit/tests/fingerprints/icons-effects*.json`, `crates/ui-kit/tests/fingerprints/gallery*.json`, `docs/design-system.md`
+  - scope: `design-system.md` §4–§6 and `editing.md` §8.1: `core::color`, sRGB ↔ HSV and
+    `#rrggbb` print and parse, ported from PhotoCraft `crates/ui-egui/src/color_picker_ui.rs`
+    (`hsv_to_rgb`, `rgb_to_hsv`, `hex`, `parse_hex`) at e4b2868a; `effect_tile` (86 × 69: the
+    78 × 48 preview or the `gray 38` placeholder, the SemiBold 11 label, the "1-click" corner
+    badge, hover, pressed and disabled, a tooltip; registers `effect:<name>`); `effect_slider` (the
+    Tuning slider with its label centred above, and a logarithmic mapping); `swatch` (a colour
+    button that opens a popup kept inside the window: a saturation / value field and a hue strip
+    from `color_picker_ui.rs` (`field_color`, `locate`, `grid_mesh`), a hex field, the eyedropper
+    button and its armed state; the popup's placement ported from PhotoCraft
+    `crates/ui-egui/src/widgets.rs` (`swatch_popup`, `color_swatch`)); `crosshair` (a draggable
+    centre with an optional circle of a given radius and an optional second handle for a start and
+    angle; reports drags in its own normalised coordinates); the icons it lacks, our own drawings
+    on the 20-unit grid: Brush, Eraser, Crosshair, the 1-click badge; the widget gallery gains
+    them; `design-system.md` §6's rows.
+  - done when: `crates/core/tests/color.rs`: HSV and hex round-trip every 8-bit colour, bad hex is
+    refused; `crates/ui-kit/tests/effect_widgets.rs`: a 3 × 4 grid of tiles fits the 280-wide panel,
+    a tile without a preview paints `gray 38`, the badge shows only when asked; the slider's
+    logarithmic mapping round-trips its range; a colour picked in the field and the hue strip gives
+    that colour back, the popup stays inside a 900 × 600 window from a swatch at each corner; the
+    crosshair reports a drag of its centre and of its angle handle;
+    `crates/ui-kit/tests/icons_effects.rs`: each new icon stays in its grid at 12, 16, 20 and 28 px in rest, hover and disabled colours;
+    gallery and icon fingerprints; `widget_ids`, contrast, `cargo xtask assets` and `cargo xtask
+    names` pass.
+- ⬜ **M12.5 `engine`: the effect list, tile previews and the colour pick**
+  - after: M11.1, M12.1, M12.4
+  - files: `crates/engine/src/cmd/mod.rs`, `crates/engine/src/cmd/effects.rs`, `crates/engine/src/effect_tiles.rs`, `crates/engine/src/jobs.rs`, `crates/engine/tests/effects.rs`, `crates/engine/README.md`
+  - scope: `editing.md` §8.1 and the decisions above: `effect.list {tab?}` (query: the catalogue's
+    effects in grid order with their parameters, defaults, one-click, crosshair kind, size change
+    and tooltip); `Session::request_effect_tiles(id, tab, size)` and `take_effect_tiles()`: each
+    tile the photo with its recipe so far plus the effect at its defaults, rendered on a worker from
+    a small decode (at least twice the tile, made once per photo and recipe and kept in memory) at a
+    new `effectTiles` priority below the edit view's preview, in grid order, cancelled when the
+    photo changes and remade when its recipe does; `photo.effect.pick {id, x, y}` (an `analysis`
+    job, as `photo.tuning.pick`: the mean colour of a small disc at a point of the photo as the
+    edit view shows it, its recipe so far, answering `#rrggbb` through `core::color`); row
+    `FX-TILES` (engine half).
+  - done when: `crates/engine/tests/effects.rs`: `effect.list` gives the 27 effects in the three
+    grids' order, equal to the catalogue; tab 3's 12 tiles arrive in grid order at the size asked
+    for, Sepia's tile has R ≥ G ≥ B everywhere, a tile request waits behind the main preview and is
+    cancelled by opening another photo and remade after an edit; the owner thread made no `fs`
+    call; `photo.effect.pick` answers a planted patch's colour on a turned photo; each command's
+    contract and graceful failures; `panic_hunt` green.
+- ⬜ **M12.6 `edit`: Sepia, B&W, Warmify, Tint, Saturation and Filtered B&W**
+  - after: M12.1, M12.3
+  - files: `crates/edit/src/ops/colour.rs`, `crates/edit/tests/colour_effects.rs`, `crates/edit/tests/fingerprints/colour-*.json`
+  - scope: `editing.md` §8.2's six colour effects as pixel passes (`Reach::Pixel`, fused with
+    their neighbours), each `VERSION` 1, with PhotoCraft `crates/compose/src/adjust.rs` at
+    e4b2868a as the source: Sepia (fixed warm-brown curves over luma), B&W (Rec.601 luma), Warmify
+    (a warming filter matrix, `photo_filter_matrix`, kind to skin tones), Tint (desaturate, then
+    colourise toward the colour, `hue_saturation` with colorize, with Fade), Saturation (−1 toward
+    B&W, +1 vivid, `vibrance_px` for the positive side), Filtered B&W (luma weighted by a coloured
+    filter, `black_white_gray`); rows `FX-T3`.
+  - done when: `cargo test -p dalica-edit --test all colour_effects::`: a fingerprint per effect
+    at its defaults on a `scenes` photo; invariants: B&W and Filtered B&W give R = G = B, B&W's grey
+    is the input's Rec.601 luma within one level, a red filter makes a red patch lighter than a
+    blue one of the same luma; Sepia gives R ≥ G ≥ B and keeps the order of lumas; Warmify raises
+    R − B and keeps luma within 3 %; Tint gives the tint's hue to every coloured pixel, and Fade 100
+    gives the input; Saturation 0 is the identity and −1 gives R = G = B; each effect renders the
+    same at two sizes after a downscale.
+- ⬜ **M12.7 `edit`: Sharpen, Film Grain and Glow**
+  - after: M12.1, M12.3
+  - files: `crates/edit/src/ops/detail.rs`, `crates/edit/tests/detail_effects.rs`, `crates/edit/tests/fingerprints/detail-*.json`
+  - scope: `editing.md` §8.2: Sharpen (an unsharp mask whose radius is relative to the picture,
+    exact at 1:1, from PhotoCraft `crates/algo/src/sharpen.rs` (`unsharp`) at e4b2868a), Film
+    Grain (monochrome grain from M12.3's seeded noise, its size relative to the picture, Lighten
+    adding only light grain; PhotoCraft `crates/algo/src/noise.rs` (`add`)), Glow (the highlights
+    blurred by Radius and screened back by Intensity); each `VERSION` 1; rows `FX-T3`.
+  - done when: `cargo test -p dalica-edit --test all detail_effects::`: a fingerprint per effect at
+    its defaults; invariants: Sharpen 0 and Grain 0 are the identity, Sharpen leaves a flat patch
+    alone and raises an edge's contrast, a zoomed region at 1:1 equals that window of the whole
+    render; Grain keeps the mean luma within one level (without Lighten), is the same in a region
+    as in the whole render and gives R − G = 0 noise; Glow never darkens a pixel and leaves a dark
+    flat patch alone; each effect renders the same at two sizes after a downscale.
+- ⬜ **M12.8 `edit`: Soft Focus, Focal B&W and Graduated Tint**
+  - after: M12.1, M12.3
+  - files: `crates/edit/src/ops/focal.rs`, `crates/edit/tests/focal_effects.rs`, `crates/edit/tests/fingerprints/focal-*.json`
+  - scope: `editing.md` §8.2's crosshair effects on M12.3's masks and blur, their centres in the
+    stored frame mapped through `Prepare::geometry`: Soft Focus (a blur outside a sharp circle of
+    Size, by Amount), Focal B&W (colour inside the circle, B&W outside, the edge's softness by
+    Sharpness), Graduated Tint (a coloured gradient from the crosshair's start along its angle,
+    Feather and Shade, whites staying white); each `VERSION` 1; rows `FX-T3`.
+  - done when: `cargo test -p dalica-edit --test all focal_effects::`: a fingerprint per effect at
+    its defaults; invariants: inside the circle Soft Focus and Focal B&W leave the photo unchanged,
+    far outside Focal B&W gives R = G = B and Soft Focus lowers the local variance; Graduated Tint
+    leaves the pixels behind its start unchanged and a white patch white; on a photo turned 90° and
+    cropped the circle sits where its stored-frame centre says; each effect renders the same at two
+    sizes after a downscale.
+- ⬜ **M12.9 `edit`: Invert Colors, Infrared Film, Duo-Tone and Boost**
+  - after: M12.1, M12.3
+  - files: `crates/edit/src/ops/remap.rs`, `crates/edit/tests/remap_effects.rs`, `crates/edit/tests/fingerprints/remap-*.json`
+  - scope: `editing.md` §8.3–§8.4's colour remaps as pixel passes: Invert Colors (the negative),
+    Infrared Film (a B&W channel mix where foliage turns bright and skies dark, with Fade), Duo-Tone
+    (luma after Brightness and Contrast mapped onto the gradient from the first colour to the
+    second, with Fade; PhotoCraft `crates/compose/src/effects.rs` (`sample_stops`) at e4b2868a as
+    the pattern), Boost (stronger colour and contrast by Strength; `crates/compose/src/adjust.rs`
+    (`vibrance_px`, `modern_contrast`)); each `VERSION` 1; rows `FX-T4`, `FX-T5`.
+  - done when: `cargo test -p dalica-edit --test all remap_effects::`: a fingerprint per effect at
+    its defaults; invariants: Invert twice is the identity within one level; Infrared gives R = G = B
+    with a green patch lighter and a blue one darker than their luma; Duo-Tone maps black to the
+    first colour and white to the second at Brightness 0 and every pixel onto that segment; Boost
+    0 is the identity and raises chroma and contrast; Fade 100 gives the input; each effect renders
+    the same at two sizes after a downscale.
+- ⬜ **M12.10 `edit`: HDR Look, Dream Glow and Plastic Lens**
+  - after: M12.1, M12.3
+  - files: `crates/edit/src/ops/looks.rs`, `crates/edit/tests/look_effects.rs`, `crates/edit/tests/fingerprints/looks-*.json`
+  - scope: `editing.md` §8.3's blur-based looks on M12.3's blur, noise and blends: HDR Look
+    (`out = in + C·(in − blur(r))` with Radius relative to the picture and Strength, with Fade),
+    Dream Glow (a blurred copy blended in overlay by Bloom, a midtone lift by Brightness, with
+    Fade), Plastic Lens (soft edges by Blur Edges, grain by Grain, a vignette, with Fade); each
+    `VERSION` 1; large radii read only as far as their reach; rows `FX-T4`.
+  - done when: `cargo test -p dalica-edit --test all look_effects::`: a fingerprint per effect at
+    its defaults; invariants: each leaves a flat patch flat and gives the input at Fade 100; HDR
+    Look raises local contrast; Plastic Lens leaves the centre sharper and the corners darker than
+    the input; a zoomed region equals that window of the whole render; each effect renders the same
+    at two sizes after a downscale.
+- ⬜ **M12.11 `edit`: Soften and its paint mask**
+  - after: M12.1, M12.3
+  - files: `crates/edit/src/ops/soften.rs`, `crates/edit/tests/soften.rs`, `crates/edit/tests/fingerprints/soften-*.json`
+  - scope: `editing.md` §8.4 and the decisions above: Soften (a soft glow blur by Softness, with
+    Fade, default 50) applied where its mask says: the whole photo with no strokes, else the
+    strokes' painted dabs (M12.3) minus the erased ones, in the stored frame, mapped through
+    `Prepare::geometry`, at most 1 000 strokes, the brush radius relative to the shorter side as
+    Retouch's; `VERSION` 1; rows `FX-T5`.
+  - done when: `cargo test -p dalica-edit --test all soften::`: a fingerprint without strokes and
+    one with a painted stroke; invariants: outside a painted stroke the photo is unchanged, an
+    eraser stroke over it gives the photo back there, Fade 100 gives the input; a stroke on a photo
+    turned 90° lands where its stored-frame points say; 1 001 strokes are refused by the parser
+    (kept, skipped); the mask is the same at two sizes after a downscale.
+- ⬜ **M12.12 `edit`: Vignette, Pixelate and Focal Zoom**
+  - after: M12.1, M12.3
+  - files: `crates/edit/src/ops/stylize.rs`, `crates/edit/tests/stylize_effects.rs`, `crates/edit/tests/fingerprints/stylize-*.json`
+  - scope: `editing.md` §8.4: Vignette (edges darkened, or toward a colour, by Size and Strength,
+    with Fade, repeatable; LightCraft `crates/pipeline/src/finish.rs` (`vignette`) at 0da998f2),
+    Pixelate (square cells of Pixel Size relative to the picture, anchored in the stored frame,
+    blended by the chosen mode, with Fade; PhotoCraft `crates/algo/src/stylize.rs` (`mosaic`) at
+    e4b2868a), Focal Zoom (a radial zoom blur outside a sharp circle of Focal Size by Zoom Amount
+    and Edge Hardness, with Fade; PhotoCraft `crates/algo/src/blur.rs` (`radial`) and
+    `crates/algo/src/blur/radial.rs`); each `VERSION` 1; rows `FX-T5`.
+  - done when: `cargo test -p dalica-edit --test all stylize_effects::`: a fingerprint per effect at
+    its defaults; invariants: Vignette leaves the centre and darkens the corners, two are darker
+    than one; Pixelate in Normal mode makes each cell one colour and the same cells at two sizes;
+    Focal Zoom leaves its circle unchanged and blurs along the radius more than across it; Fade 100
+    gives the input; a zoomed region equals that window of the whole render; each effect renders
+    the same at two sizes after a downscale.
+- ⬜ **M12.13 `edit`: effects that change the picture's size: the renderer, Widescreen Film and Border**
+  - after: M12.1, M12.3
+  - files: `crates/edit/src/ops/canvas.rs`, `crates/edit/src/render.rs`, `crates/edit/src/render/**`, `crates/edit/tests/canvas.rs`, `crates/edit/tests/fingerprints/canvas-*.json`, `docs/data-model.md`
+  - scope: the decisions above: a third kind of operation beside `Warp` and `Adjust`, run at its
+    place among the effects: the size of its output for an input and where the input lands in it,
+    and the pixels outside; `Geometry` knows every such entry, so `output_size`, `display_size`
+    and the point maps (`stored_to_output`, `to_display` and their inverses) include them and a
+    later effect's centre stays on the photo; region renders (the zoomed edit view) equal that
+    window of the whole render; frames that would pass `MAX_PIXELS` or `MAX_EDGE` are skipped and
+    kept; Widescreen Film (crop to 1.7:1, muted filmic colour, grain, 15 % black bars top and bottom
+    while Letterbox is on) and Border (outer and inner bands of their colours and thicknesses, a
+    corner radius up to an oval, a caption band), each `VERSION` 1; `data-model.md` §3.3 says how
+    sizes and points pass a frame; rows `FX-T4`, `FX-T5`.
+  - done when: `cargo test -p dalica-edit --test all canvas::`: a fingerprint per effect at its
+    defaults; a Border's output is the photo grown by both bands on every side with the photo's
+    pixels unchanged inside; Widescreen Film's output is 1.7:1 within a pixel with its bars, and
+    without Letterbox has none; a crop added after a Border crops the photo and keeps the frame; a
+    rotation after a Border turns the framed picture; the photo's centre maps to the frame's photo
+    area and back; a region at 1:1 equals that window of the whole render; 1 000 Borders stay
+    within the limits without a panic; every existing `render` test passes unchanged.
+- ⬜ **M12.14 `edit`: Drop Shadow and Museum Matte**
+  - after: M12.13
+  - files: `crates/edit/src/ops/mats.rs`, `crates/edit/tests/mats.rs`, `crates/edit/tests/fingerprints/mats-*.json`
+  - scope: `editing.md` §8.4 on M12.13's size-changing kind: Drop Shadow (the photo over a
+    background colour with its shadow at Distance and Angle, blurred by Blur, with Fade, the canvas
+    grown to hold it; PhotoCraft `crates/compose/src/effects.rs` (`shadow_map`, `tent_kernel`,
+    `offset`) at e4b2868a), Museum Matte (an outer and an inner mat of their colours and
+    thicknesses with an inner shadow, repeatable); each `VERSION` 1; rows `FX-T5`.
+  - done when: `cargo test -p dalica-edit --test all mats::`: a fingerprint per effect at its
+    defaults; invariants: the canvas grows and the photo's pixels are unchanged inside; the shadow
+    falls on the side its angle names and the far corner is the background colour; two Museum
+    Mattes are larger than one; a region at 1:1 equals that window of the whole render; each effect
+    renders the same at two sizes after a downscale.
+- ⬜ **M12.15 `ui`: the effect tabs' tile grids and one-click effects**
+  - after: M12.2, M12.4, M12.5
+  - files: `crates/ui/src/panels/edit/effects.rs`, `crates/ui/src/commands/effects.rs`, `crates/ui/tests/effect_tiles.rs`, `crates/ui/tests/fingerprints/edit-effects-*.json`, `docs/editing.md`
+  - scope: `editing.md` §5 and §8.1: tabs 3–5 show their grids (three columns, at most four rows,
+    no scrolling) in place of "No effects yet": each tile from M12.5's previews at the device
+    scale, `gray 38` until it arrives, its label and tooltip, the "1-click" badge on Sepia, B&W,
+    Warmify and Invert Colors; a click on a one-click tile applies it as one step of the photo's
+    history (`edit.effect.apply`); a click on any other opens its panel (`edit.tool.open {tool:
+    "effect", name}`); the grid drawn disabled while a tool is open; Ctrl+Shift+B (`edit.bw`)
+    applies B&W in the edit view; `editing.md` §5 loses "No effects yet"; rows `FX-TILES`,
+    `EDIT-TABS`, the `KEY-*` row of Ctrl+Shift+B.
+  - done when: `crates/ui/tests/effect_tiles.rs` (headless, by id): tab 3 shows its 12 tiles in
+    the spec's order with their labels, each `gray 38` until its preview arrives and then differing
+    from the plain photo; Sepia's click is one step and the panel's Undo reads "Undo Sepia";
+    Ctrl+Shift+B gives "Undo B&W"; Sharpen's click opens its panel and the grid is disabled until
+    Cancel; tabs 4 and 5 show 7 and 8 tiles; at 900 × 600 each grid fits the panel; a fingerprint of
+    each tab's grid at 1400 × 900.
+- ⬜ **M12.16 `ui`: the parameter panel: sliders, choices, swatches, the eyedropper, Fade and the live preview**
+  - after: M12.2, M12.4, M12.5, M12.6, M12.7
+  - files: `crates/ui/src/panels/edit/effect_panel.rs`, `crates/ui/src/panels/edit/effect_panel/**`, `crates/ui/src/commands/effect_session.rs`, `crates/ui/tests/effect_panel.rs`, `crates/ui/tests/fingerprints/effect-panel-*.json`
+  - scope: `editing.md` §8.1: the panel in place of the grid for every parameter effect, built from
+    `effect.list`: the title; up to four M12.4 effect sliders (`slider:effect.<param>`), the
+    checkboxes (`check:effect.<param>`), Pixelate's blend mode (`choice:effect.<param>`), the
+    swatches (`color:effect.<param>`) with their picker popup and eyedropper (a click on the photo
+    runs `photo.effect.pick` and sets the colour), Fade where the effect has it; Apply │ Cancel;
+    the session in `effect_session.rs`: every change sets the edit view's candidate recipe (the
+    recipe plus the entry), Apply is one step of the photo's history with the entry
+    (`photo.history.apply`), Cancel and Esc restore the preview and record nothing, Reset returns
+    to the defaults; scripts set values through `edit.tool.action {name: "set", params}`, `pick`
+    and `reset`; rows `FX-PANEL` (new), `FX-T3`, `FX-T4`, `FX-T5`.
+  - done when: `crates/ui/tests/effect_panel.rs` (headless, by id): every parameter effect's panel
+    opens with the controls its catalogue row lists; Tint's colour picked in the popup changes the
+    preview and not the recipe, Apply records one "Tint" step with that colour, Cancel leaves the
+    recipe and the preview as before; the eyedropper on a planted patch sets the swatch to its
+    colour; Fade 100 shows the photo unchanged; Film Grain's Lighten and the slider's double-click
+    reset work; at 900 × 600 the panel and the popup fit; fingerprints of Tint's, Film Grain's and
+    Duo-Tone's panels and of the open picker at 1400 × 900.
+- ⬜ **M12.17 `ui`: the crosshair on the photo**
+  - after: M12.8, M12.12, M12.13, M12.16
+  - files: `crates/ui/src/panels/edit/crosshair.rs`, `crates/ui/tests/effect_crosshair.rs`, `crates/ui/tests/fingerprints/effect-crosshair-*.json`
+  - scope: `editing.md` §8.1: while Soft Focus, Focal B&W, Graduated Tint or Focal Zoom is open,
+    M12.4's crosshair over the photo (`crosshair:effect`): its centre dragged, the effect's size
+    drawn as a circle, Graduated Tint's drag setting the start and the angle; points mapped between
+    the display and the stored frame through the preview's `Geometry` (a turned, cropped or framed
+    photo); each drag a change of the panel's session; the arrows nudge the centre; rows
+    `FX-CROSSHAIR` (new), `FX-T3`, `FX-T5`.
+  - done when: `crates/ui/tests/effect_crosshair.rs` (headless, by id): dragging Soft Focus's
+    centre moves the sharp circle in the preview and Apply stores that point in the stored frame,
+    the same on a photo turned 90°; Graduated Tint's drag sets its angle; on a photo with a Border
+    the centre cannot leave the photo; fingerprints of Soft Focus's and Graduated Tint's crosshair
+    at 1400 × 900.
+- ⬜ **M12.18 `ui`: Soften's brush and eraser**
+  - after: M12.11, M12.16
+  - files: `crates/ui/src/panels/edit/soften_brush.rs`, `crates/ui/tests/soften_brush.rs`, `crates/ui/tests/fingerprints/soften-brush-*.json`
+  - scope: `editing.md` §8.4 and the decisions above: in Soften's panel the Paint and Erase buttons
+    (`button:effect.paint`, `button:effect.erase`) and the brush size; on the photo the brush
+    circle under the pointer, a drag adding a stroke in the stored frame (at most 1 000), + / = and
+    − resizing the brush 1.2 × as Retouch's, the painted area previewed live; each stroke a change
+    of the panel's session; Apply stores the strokes; rows `FX-T5`.
+  - done when: `crates/ui/tests/soften_brush.rs` (headless, by id): with no stroke the whole photo
+    previews softened; one painted stroke softens only under it; an erase stroke over it gives the
+    photo back there; Apply records one "Soften" step whose strokes land where they were drawn on a
+    photo turned 90°; a fingerprint of the brush over a painted stroke at 1400 × 900.
+- ⬜ **M12.19 `engine` + `ui`: Batch Edit's five effects**
+  - after: M11.9, M11.18, M12.6, M12.7
+  - files: `crates/engine/src/cmd/batch.rs`, `crates/engine/tests/batch_edit.rs`, `crates/ui/src/commands/batch.rs`, `crates/ui/tests/batch_ui.rs`
+  - scope: `editing.md` §9: Batch Edit ▸ Sepia, Sharpen, Warmify, Film Grain and Black and White
+    through `edit.apply` lose their "Arrives with Effects" state now that they render (Sharpen and
+    Film Grain at their defaults), each appended to every photo's recipe as one library undo step;
+    rows `EDIT-BATCH`, the Picture menu row.
+  - done when: `crates/engine/tests/batch_edit.rs`: Sepia on 20 photos is one undo step and one
+    `edit.undo` restores the 20 recipes; `crates/ui/tests/batch_ui.rs`: the five effects are live
+    in Batch Edit ▸ and Black and White on 3 held photos gives each a `bw()` entry; `panic_hunt`
+    green.
+- ⬜ **M12.20 `mcp`: the workflow W11, effects stacked**
+  - after: M12.6, M12.12, M12.13
+  - files: `crates/mcp/tests/workflows/w11_effects_stack.rs`, `xtask/src/stats.rs`, `docs/mcp.md`
+  - scope: `mcp.md` §9: W11 (`apply_edit` Sepia, then Vignette, then Border on one photo: the
+    recipe keeps that order, `render_photo` grows by the Border's bands, the render's fingerprint
+    within tolerance) un-ignored; `list_edit_ops` lists the 27 effects as rendering; the floor in
+    `xtask/src/stats.rs` raised to the twelve workflows now required; `mcp.md`'s status line; row
+    `SYS-MCP`.
+  - done when: `cargo test -p dalica-mcp` runs W11 green; `cargo xtask stats`
+    prints 12 / 12 passing and `stats --check` fails below that.
+- ⬜ **M12.21 `edit` + `engine` + `xtask`: M12's budgets: effect renders and tile grids**
+  - after: M12.5, M12.6, M12.7, M12.8, M12.9, M12.10, M12.11, M12.12, M12.14
+  - files: `crates/edit/benches/effects.rs`, `crates/engine/benches/effect_tiles.rs`, `xtask/src/bench.rs`, `.github/workflows/budgets.yml`, `docs/development.md`
+  - scope: `development.md` §8: benches registered in `xtask/src/bench.rs`, joined to `BUDGETS` and
+    the release-budgets job, each documented in §8 and §13 with its machine: `effects` (each of
+    the 27 at its defaults: a draft and a final at the edit view's screen size, and a 24 MP final
+    as Save renders it), `effect_tiles` (a tab's 12 tiles from opening the photo to the last
+    tile); budgets at 1.5 × their first measurement, plus every effect's draft within 16 ms and
+    final within 100 ms at p95 at screen size whatever the first numbers; a missed budget is fixed
+    in this task (the effect's module asked of the lead; before and after numbers in the PR) or
+    blocks with its numbers, never loosened.
+  - done when: `cargo xtask bench effects` and `bench effect_tiles` print their numbers (in the
+    PR); `cargo xtask budgets` passes with them and `--plant-ms` makes each fail.
+- ⬜ **M12.22 `accept M12`**
+  - after: M12.14, M12.15, M12.17, M12.18, M12.19, M12.20, M12.21
+  - files: `tests/acceptance/m12.rs`, `tests/acceptance/m12_*.rs`, `tests/acceptance/m12.md`, `tests/acceptance/fingerprints/m12-*.json`
+  - scope: every *Done when* of M12's three areas in the real `dalica --headless` over the control
+    channel and through `dalica-cli mcp`: each tab's grid filling with previews; each of the 27
+    effects applied from its tile or its panel as one history step named after it, surviving a
+    restart and an index rebuild, shown on its thumbnail, Cancel recording nothing; a crosshair
+    placed on a turned photo landing where it was put; Soften painted and erased; a Border's
+    photo saved and exported at the grown size with the original kept in `.dalica-originals/`;
+    Batch Edit ▸ Sepia on 20 photos as one undo step; W11 over MCP; the M12 budgets (the release
+    budgets with `DALICA_ACCEPT_RELEASE=1`; inside `cargo xtask ci --full` a smaller debug run checks
+    the paths and prints its times); whole-window fingerprints of the three effect tabs and an open
+    panel; the manual checks in `m12.md` (every effect on a few real photos at Fit and 1:1, the
+    colour picker and the eyedropper, the crosshair dragged with a mouse and a touchpad, Soften
+    painted, a framed photo saved and opened in another application).
+  - done when: `cargo xtask accept M12` passes everything in M12's *Done when*.
+- ⬜ **M12.23 Lead: task blocks for M14**
+  - after: M11.25
+  - owner: lead
+  - files: `docs/roadmap.md`
+  - scope: write every M14 task block from M14's outline rows and the spec (`creating.md` §3 for
+    the collage room, `data-model.md` §9 and §10.11 for the previous organizer's sidecars), with
+    waves and the `M14.R` release gate (owner: maintainer; Release 0.9); a block that can port
+    Craft-app code names the source files in its scope (`architecture.md` §9).
+  - done when: `cargo xtask tasks sync --check` parses them and `tasks sync --dry-run` lists the new
+    M14 tasks as planned.
+- ⬜ **M12.R Release 0.7 gate**
+  - after: M12.22
+  - owner: maintainer
+  - files: `docs/roadmap.md`, `docs/status.md`
+  - scope: a release gate (Release 0.7): the lead runs `/milestone-review M12.R` to prepare it, with
+    the version set to 0.7.0 and its `whats-new.md` section on the review branch, the release
+    checklist and the sign-off question, and after the merge cuts and publishes 0.7.0
+    (`releasing.md`); the check-in page (open a photo in the edit view, look through tabs 3–5 and
+    their previews, apply each one-click effect and press Ctrl+Shift+B, open every parameter
+    effect, move its sliders and Fade and Cancel once, pick a Tint and a Duo-Tone colour with the
+    picker and the eyedropper, drag the crosshair of Soft Focus, Focal B&W, Graduated Tint and
+    Focal Zoom, paint and erase Soften, stack Sepia, Vignette and Border and save, then Undo Save,
+    export a framed photo, Batch Edit ▸ Sepia on 20 photos and one Ctrl+Z; written as steps for the
+    maintainer to try); the questions: the planning decisions above that change behaviour
+    (opening an effect again appends, never edits the earlier entry; the eyedropper samples the
+    photo before the effect; a crop made after a frame crops the photo and keeps the frame; Soften
+    applies everywhere until the first stroke; Ctrl+Shift+B only in the edit view; the parameter
+    ranges M12.1 decided), the look of the 27 effects, the tiles, the panels and the colour picker
+    (approved with their fingerprints); *Where we stand* and the `status.md` numbers (the effects'
+    draft and final times at p95, a tab's tiles, the workflow pass rate) on a `review/M12.R`
+    branch, a pull request open. Only the maintainer merges that pull request and closes this
+    issue; nothing after it starts until then.
+  - done when: prepared: page published, PR open, both linked on the issue.
+
+Waves (inside a wave, "‖" separates tasks whose `files` do not overlap):
+
+```text
+wave 1   M12.1 effect syntax + catalogue  ‖  M12.2 ui state + stubs  ‖  M12.3 effect primitives
+         ‖  M12.4 ui-kit tiles, swatches, crosshair + core colour
+         (once M11.R is closed)
+wave 2   M12.5 effect list, tiles, pick  ‖  M12.6 colour effects  ‖  M12.7 sharpen, grain, glow
+         ‖  M12.8 focal effects  ‖  M12.9 remaps  ‖  M12.10 looks  ‖  M12.11 soften
+         ‖  M12.12 vignette, pixelate, focal zoom  ‖  M12.13 size-changing renderer + frames
+wave 3   M12.14 drop shadow + museum matte  ‖  M12.15 tile grids  ‖  M12.16 parameter panel
+         ‖  M12.19 batch edit effects  ‖  M12.20 W11
+wave 4   M12.17 crosshair  ‖  M12.18 soften brush  ‖  M12.21 M12 budgets
+wave 5   M12.22 accept M12 → M12.R          (M12.23 lead: M14 blocks, any time after M11.25)
+```
+
+### M13 – M14: P1 parity (outline; the lead details each one while the one before runs)
 
 | # | In | Done when (sketch) |
 |---|---|---|
-| M12 Effects I | effect tiles, parameter panels (colour parameters from PhotoCraft's `color_picker_ui.rs` colour maths and `widgets.rs` `swatch_popup`), crosshair control, Fade; the 12 effects of tab 3 | a fingerprint and an invariant per effect |
-| M12 Effects II | the 15 effects of tabs 4–5, canvas-enlarging effects, Soften's paint mask | as M12 |
 | M13 People I | LightCraft's `crates/faces` pipeline and `panels/faces.rs` as the starting point; consented model download (decisions 5 and 9), detection, embeddings, clustering, Unnamed, naming, ignore, person albums | a public-domain face set groups as expected (floors) |
 | M13 People II | suggestions, People pane, manual faces, merge/rename/delete, MWG regions | MWG round-trip tests (`xmp-interop.md` §8.5) |
 | M13 Places | Places pane, opt-in map tiles (decision 4), geotag by drag and search, GPS write, Geotag menu | GPS round-trip; no network without the user's action |
