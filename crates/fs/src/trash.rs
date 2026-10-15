@@ -179,7 +179,8 @@ mod stand_in {
     use crate::atomic::Identity;
     use crate::{Result, io_err};
 
-    /// One item in the stand-in trash.
+    /// One item in the stand-in trash (never read back where the platform cannot restore).
+    #[cfg_attr(not(any(windows, all(unix, not(target_vendor = "apple"), not(target_os = "android")))), allow(dead_code))]
     struct Kept {
         item: Trashed,
         at: PathBuf,
