@@ -135,6 +135,10 @@ pub fn env_lines(agent: &str, main: &Path, scratch_base: &Path) -> Result<String
     out.push_str(&format!("export DALICA_WORKTREE={}\n", q(&worktree)));
     out.push_str(&format!("export CARGO_TARGET_DIR={}\n", q(&main.join("target").join(agent))));
     out.push_str("export CARGO_BUILD_JOBS=3\n");
+    // One compiler cache for every agent's target directory, when sccache is installed: the
+    // dependencies are compiled once, not once per agent and again after each cold rebase
+    // (`docs/development.md` §3). Workspace crates build incrementally, which sccache passes by.
+    out.push_str("if command -v sccache >/dev/null 2>&1; then export RUSTC_WRAPPER=sccache SCCACHE_CACHE_SIZE=40G; fi\n");
     out.push_str(&format!("export DALICA_CONTROL_PORT={}\n", 18000 + 10 * n));
     out.push_str(&format!("export DALICA_SCRATCH={}\n", q(&scratch_base.join(agent))));
     if worktree.is_dir() {

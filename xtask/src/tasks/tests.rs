@@ -686,6 +686,7 @@ fn agent_environment() {
     assert!(out.contains(&format!("export CARGO_TARGET_DIR='{}'", main.join("target").join("agent-3").display())), "{out}");
     assert!(out.contains("export CARGO_BUILD_JOBS=3"));
     assert!(out.contains("export DALICA_CONTROL_PORT=18030"));
+    assert!(out.contains("command -v sccache") && out.contains("export RUSTC_WRAPPER=sccache"), "{out}");
     assert!(super::env_lines("agent-0", Path::new("/x"), Path::new("/y")).is_err());
     assert!(super::env_lines("bob", Path::new("/x"), Path::new("/y")).is_err());
 }
