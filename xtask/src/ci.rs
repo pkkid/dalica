@@ -337,6 +337,7 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), String> {
         steps.push(("deps".into(), Box::new(|| crate::deps::run(root))));
         steps.push(("assets".into(), Box::new(|| crate::assets::run(root))));
         steps.push(("names".into(), Box::new(|| crate::names::run(root))));
+        steps.push(("test-layout".into(), Box::new(|| crate::test_layout::run(root))));
         // Cited `cmd:` ids are checked against the registry (a second build of the CLI) only in
         // the review gate; the rows and their cited paths in every gate.
         steps.push(("parity".into(), Box::new(move || crate::parity::run(root, false, full))));

@@ -113,6 +113,9 @@ L0       core · fs                    (only `fs` writes to disk)
   per-milestone catch-up test files (`*_m9.rs`, `lessons_m9.rs`, `m9_fields.rs`). Heavy variants
   (scale, exhaustive walks, many proptest cases) run only at full strength
   (`DALICA_FULL_TESTS=1`, the review gate); a plain run is quick (`development.md` §6).
+  `cargo xtask test-layout` (in every gate) enforces the shape: one test binary per crate, no
+  per-milestone test files (none planned in `roadmap.md` either), no literal proptest case counts
+  over 32, no fingerprints at the small window size.
 - Commands follow the command test contract (`architecture.md` §3); fingerprint tests only where
   pixels are the feature, at one window size (`architecture.md` §11). Test photos are procedural
   (`scenes`) or public domain; never personal photos; never commit media.

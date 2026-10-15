@@ -18,6 +18,7 @@ mod metadata;
 mod names;
 mod parity;
 mod tasks;
+mod test_layout;
 mod version;
 
 use std::path::{Path, PathBuf};
@@ -42,6 +43,7 @@ commands:
   layers    check crate dependencies against the layer table (docs/architecture.md §2)
   names     the reference product's name appears in no file but AGENTS.md
   parity    docs/parity.md is well formed and its evidence exists; --write refreshes the summary
+  test-layout  one test binary per crate, no per-milestone test files, no literal proptest counts over 32, no small-size baselines
   tasks     the task board (docs/task-board.md); `cargo xtask tasks` for its commands
   version   cargo xtask version [set X.Y.Z[-pre]]: print or set [workspace.package] version (Cargo.toml and Cargo.lock)";
 
@@ -62,6 +64,7 @@ pub const COMMANDS: &[&str] = &[
     "names",
     "parity",
     "tasks",
+    "test-layout",
     "version",
 ];
 
@@ -103,6 +106,7 @@ fn main() -> ExitCode {
         Some("deps") => deps::run(&root),
         Some("docs") => docs::run(&root),
         Some("names") => names::run(&root),
+        Some("test-layout") => test_layout::run(&root),
         Some("layers") => layers::run(&root),
         Some("tasks") => tasks::run(&root, args.get(1..).unwrap_or(&[])),
         Some("version") => version::run(&root, args.get(1..).unwrap_or(&[])),

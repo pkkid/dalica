@@ -8,6 +8,8 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 publish = false
+# One integration-test binary (`tests/all.rs`, one module per file; `docs/development.md` §6).
+autotests = false
 
 [dependencies]
 dalica-core.workspace = true
@@ -22,3 +24,7 @@ serde_json.workspace = true
 dalica-scenes.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
+
+[[test]]
+name = "all"
+path = "tests/all.rs"
