@@ -112,6 +112,10 @@ pub const FILE_PICKER: &str = "filePicker";
 /// it as `id`, and the row is disabled while there is none.
 const FOLDER_COMMANDS: &[&str] = &["folder.remove"];
 
+/// Engine commands whose current folder goes as `folder` instead (Folder ▸ Delete…), disabled
+/// the same way.
+const FOLDER_PARAM_COMMANDS: &[&str] = &["folder.delete"];
+
 /// The folder the fourth menu acts on: the selected section's, else the folder selected in the
 /// tree (a right-click on a row or a section header selects it first). A selection in an album
 /// names no folder.
@@ -299,6 +303,11 @@ pub fn params_for(app: &App, id: &str, fixed: &Value) -> Value {
     {
         obj.insert("id".into(), folder.get().into());
     }
+    if FOLDER_PARAM_COMMANDS.contains(&id)
+        && let Some(folder) = current_folder(app)
+    {
+        obj.insert("folder".into(), folder.get().into());
+    }
     // The Album menu's rows act on the selected user album: Delete Album… names it, Sort Album By
     // sorts its section rather than the selected photos' folders.
     if let Some(album) = app.state().selection.section.and_then(crate::state::Section::user_album) {
@@ -433,7 +442,7 @@ fn command_ready(app: &App, id: &str, params: &Value, ui_command: bool, spec: Op
     }
     let (Some(session), Some(spec)) = (app.session(), spec) else { return Err("The library is still opening.".into()) };
     let params = params_for(app, id, params);
-    if FOLDER_COMMANDS.contains(&id) && params.get("id").is_none() {
+    if (FOLDER_COMMANDS.contains(&id) && params.get("id").is_none()) || (FOLDER_PARAM_COMMANDS.contains(&id) && params.get("folder").is_none()) {
         return Err("Select a folder first.".into());
     }
     (spec.enabled)(session, &params).map_err(|d| d.0)

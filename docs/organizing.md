@@ -412,10 +412,10 @@ All act on real files; all are commands with undo where possible (`data-model.md
 | Copy photos | drag with Ctrl held (drag pill shows +); Edit → Copy / Paste | "Copy %d files to %s?" [Copy] [Cancel] |
 | Move to new folder | context menu → **Move to New Folder…** | Folder Properties (Name "New Folder", Date + "Use the date of the oldest photo", Place, Description) — created next to the source folder |
 | Split folder | context menu on a photo → **Split Folder Here…** | Folder Properties; moves that photo and every photo after it |
-| Move folder | folder context menu → **Move Folder…** | folder picker |
+| Move folder | folder context menu → **Move Folder…** | folder picker, opening where the last folder moved went (else the folder's parent); only places in the library are taken |
 | Rename folder | double-click folder name / Folder Properties | renames on disk |
 | Rename photos | File → **Rename…** (F2) | **Rename Files**: "%d files selected. Enter a new name:" field, example line "Example: Lisbon-001.jpg", checkboxes **Add the date taken to the name**, **Add the image size to the name**; [Rename] [Cancel]. Several files get `-001`, `-002` … in display order |
-| Delete photos | Delete (in folders) / Ctrl+Delete (anywhere) / File → **Delete from Disk…** | title "Delete", "Move the selected picture to the trash?" / "Move the %d selected pictures to the trash?" [Move to Trash] [Cancel] (no trash available: "Permanently delete…? This cannot be undone." [Delete]); skipped if Options → "Delete without asking" |
+| Delete photos | Delete (in folders) / Ctrl+Delete (anywhere) / File → **Delete from Disk…** | title "Delete", "Move the selected picture to the trash?" / "Move the %d selected pictures to the trash?" [Move to Trash] [Cancel]; skipped if Options → "Delete without asking". Never a permanent delete (`security.md` §5.7): a photo on a drive without a trash stays, and the operation's notice says why and points to the file manager |
 | Delete folder | folder context menu → **Delete Folder…** | "Move the folder "%s" and everything in it (including non-picture files) to the trash?" [Move to Trash] [Cancel] |
 | Hide / Unhide | Picture → Hide (context menu) | none; hidden items show only with View → Hidden Pictures (drawn at 40 % opacity) |
 | Hide folder | folder context menu → Hide Folder | folder moves to a **Hidden Folders** group visible with View → Hidden Pictures (no password protection) |
@@ -471,8 +471,9 @@ By ▸.
   **Description** (optional), **Music for slideshows** (path + Browse…), [OK] [Cancel].
   All fields are searchable; the description shows in the folder header. The date is typed as
   `YYYY-MM-DD` (the long date shows beside it; OK is greyed while the text does not read as a
-  day); while the box is ticked the field shows the oldest photo's date. Name and Music stay
-  greyed until renaming (M9) and slideshows (M11) arrive.
+  day); while the box is ticked the field shows the oldest photo's date. OK renames the folder
+  first when the Name changed (its own undo step), then sets the rest; Music stays greyed until
+  slideshows (M11) arrive.
 
 ## 11. Open questions (reserved for the maintainer)
 

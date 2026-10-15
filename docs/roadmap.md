@@ -4242,7 +4242,7 @@ mid-run.
     the folder beside the source with the photos and its info, and Edit ▸ Undo removes it;
     `crates/ui/tests/notices.rs`: one toast per finished operation and per failure; dialog
     fingerprints at both sizes.
-- ⬜ **M9.20 `ui`: Rename Files, the delete questions, Move Folder and renaming in Folder Properties**
+- ✅ **M9.20 `ui`: Rename Files, the delete questions, Move Folder and renaming in Folder Properties**
   - after: M9.4, M9.14, M9.15
   - files: `crates/ui/src/dialogs/rename_files.rs`, `crates/ui/src/dialogs/delete.rs`, `crates/ui/src/dialogs/folder_properties.rs`, `crates/ui/src/commands/rename.rs`, `crates/ui/src/commands/folder_ops.rs`, `crates/ui/tests/rename_dialog.rs`, `crates/ui/tests/delete_dialogs.rs`, `crates/ui/tests/folder_properties.rs`, `crates/ui/tests/folder_move.rs`, `crates/ui/tests/fingerprints/dialog-rename-files-*.json`, `crates/ui/tests/fingerprints/dialog-delete-*.json`, `crates/ui/tests/fingerprints/dialog-folder-properties-*.json`
   - scope: `organizing.md` §9 and §10: Rename Files (File ▸ Rename…, F2): "%d files selected. Enter
