@@ -10,19 +10,22 @@
 //! The Folder Manager's folder states and root icons are a set of their own, [`FolderIcon`]
 //! ([`paint_folder`]; `icons/folder_modes.rs`), and so are the edit view's, [`EditIcon`]
 //! ([`paint_edit`]; `icons/edit.rs`), Save's and Export's, [`OutputIcon`] ([`paint_output`];
-//! `icons/output.rs`), and the automatic albums', [`AlbumIcon`] ([`paint_album`];
-//! `icons/albums.rs`).
+//! `icons/output.rs`), the automatic albums', [`AlbumIcon`] ([`paint_album`];
+//! `icons/albums.rs`), and the shortcut editor's, [`OptionsIcon`] ([`paint_options`];
+//! `icons/options.rs`).
 
 mod albums;
 mod edit;
 mod folder_modes;
 mod glyphs;
+mod options;
 mod output;
 mod pen;
 
 pub use albums::{AlbumIcon, paint_album};
 pub use edit::{EditIcon, paint_edit};
 pub use folder_modes::{FolderIcon, INHERITED_OPACITY, paint_folder, state_color};
+pub use options::{OptionsIcon, paint_options};
 pub use output::{OutputIcon, paint_output};
 
 use egui::{Color32, Mesh, Painter, Pos2, Rect, Shape, Stroke, pos2};

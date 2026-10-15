@@ -4625,7 +4625,7 @@ No other step of M10 needs a maintainer decision mid-run.
     General and Ctrl+/ on Keyboard Shortcuts, Esc closes it; Tools ▸ Options…, Help ▸ Keyboard
     Shortcuts… and the macOS Preferences… item light up; every command's graceful-failure test;
     `panic_hunt` and `widget_ids` stay green.
-- ⬜ **M10.3 `ui-kit`: text tabs, checkbox rows, key cells and the editor's icons**
+- ✅ **M10.3 `ui-kit`: text tabs, checkbox rows, key cells and the editor's icons**
   - after: M9.5, M9.R
   - files: `crates/ui-kit/src/widgets.rs`, `crates/ui-kit/src/widgets/tabs.rs`, `crates/ui-kit/src/widgets/checkbox.rs`, `crates/ui-kit/src/widgets/key_cell.rs`, `crates/ui-kit/src/widgets/list_row.rs`, `crates/ui-kit/src/icons.rs`, `crates/ui-kit/src/icons/options.rs`, `crates/ui-kit/tests/options_widgets.rs`, `crates/ui-kit/tests/icons_options.rs`, `crates/ui-kit/tests/fingerprints/options-widgets*.json`, `crates/ui-kit/tests/fingerprints/icons-options*.json`, `crates/ui-kit/tests/fingerprints/gallery*.json`, `docs/design-system.md`
   - scope: `design-system.md` §5–§6 and §11.3: the text variant of `tabs` (a dialog's tab strip,

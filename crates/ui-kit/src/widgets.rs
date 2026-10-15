@@ -23,6 +23,7 @@ mod autocomplete;
 mod badges;
 mod banner;
 mod buttons;
+mod checkbox;
 mod datetime;
 mod dialog;
 mod drag_pill;
@@ -32,6 +33,8 @@ mod field;
 mod form;
 mod header;
 mod histogram;
+mod key_cell;
+mod list_row;
 mod marks;
 mod slider;
 mod splitter;
@@ -47,6 +50,7 @@ pub use badges::{
 };
 pub use banner::{BANNER_H, BANNER_PAD, BANNER_TEXT_GAP, BannerOut, filter_banner};
 pub use buttons::{Segment, SegmentLabel, action_button, primary_button, segmented, toggle_filter};
+pub use checkbox::{CheckboxRowOut, checkbox_row};
 pub use datetime::{
     DATE_HINT, DATE_WIDTH, DatePart, MAX_YEAR, MIN_YEAR, PickedDate, PickedTime, PickerOut, TIME_HINT, TIME_WIDTH, TimePart, date_field,
     days_in_month, time_field,
@@ -65,12 +69,20 @@ pub use field::{Ending, FieldOut, SearchOut, TextField, focus_field, search_fiel
 pub use form::{CHECK_BOX, CHOICE_LABEL_X, FORM_GAP, FORM_LABEL_MAX, FORM_ROW_GAP, Form, RADIO_R, checkbox, form_group, hint, radio, radio_row};
 pub use header::section_header;
 pub use histogram::{HISTOGRAM_HEADROOM, MAX_BINS, histogram, histogram_curves, histogram_mesh, paint_histogram};
+pub use key_cell::{
+    KEY_CAP_GAP, KEY_CAP_PAD, KEY_CELL_MAX_KEYS, KEY_CELL_W, KeyCell, NO_KEY_TEXT, RECORDING_TEXT, key_cell, key_cell_height, key_cell_label,
+    key_text,
+};
+pub use list_row::{LIST_COLUMN_GAP, LIST_ROW_GUTTER, LIST_ROW_H, ListCell, MODIFIED_DOT, list_columns, list_row, list_row_height, list_text};
 pub use slider::{
     STOP_SNAP, STOPS_FIELD_W, STOPS_TRACK_MIN, SliderOut, SliderSpec, StopsSlider, TUNING_NUDGE, edit_slider_value, next_stop, nudged, slider,
     snap_to_stop, stops_slider, tuning_nudged, tuning_slider, typed_value, zoom_slider,
 };
 pub use splitter::{arrow_delta, split_position, splitter};
-pub use tabs::{TAB_MIN_WIDTH, TAB_OVERFLOW_WIDTH, Tab, TabFit, TabItem, TabsOut, fit as fit_tabs, tabs, tabs_overflow_id};
+pub use tabs::{
+    TAB_MIN_WIDTH, TAB_OVERFLOW_WIDTH, TEXT_TAB_MIN_WIDTH, TEXT_TAB_PAD, Tab, TabFit, TabItem, TabsOut, TextTab, TextTabsOut, fit as fit_tabs,
+    tab_page, tabs, tabs_overflow_id, text_tabs, text_tabs_height,
+};
 pub use tool_button::{TOOL_BUTTON_H, tool_button, tool_button_width};
 pub use tooltip::{TOOLTIP_WIDTH, tooltip};
 
