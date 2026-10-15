@@ -1,9 +1,9 @@
 # Fuzzing `dalica-image` and `dalica-meta` (docs/security.md §7): every target of `crates/image/fuzz`
-# and `crates/meta/fuzz` (separate cargo-fuzz workspaces on nightly Rust). Dispatched by hand, it runs
-# each target for a fixed time; on a pull request that touches either crate it only builds them, so
-# a target that no longer compiles is caught where it breaks (`dalica-meta` reads through
-# `dalica-image`'s IFD walker, so both jobs run for either crate). A scheduled weekly run lands by
-# M15 (§7.2).
+# and `crates/meta/fuzz` (separate cargo-fuzz workspaces on nightly Rust). Like every test run on
+# GitHub, it runs only at a milestone review (the pull request of a `review/M<n>.R` branch: every
+# target built and run for 60 s) and when dispatched by hand (`seconds` per target); a task's pull
+# request runs nothing (docs/development.md §3). `dalica-meta` reads through `dalica-image`'s IFD
+# walker, so both jobs always run together.
 # Actions are pinned to full commit hashes (docs/security.md §8.5).
 name: Fuzz
 
@@ -15,10 +15,6 @@ on:
         required: true
         default: "120"
   pull_request:
-    paths:
-      - "crates/image/**"
-      - "crates/meta/**"
-      - ".github/workflows/fuzz.yml"
 
 permissions:
   contents: read
@@ -34,6 +30,7 @@ env:
 jobs:
   image:
     name: fuzz dalica-image
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'review/')
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
@@ -52,10 +49,9 @@ jobs:
         working-directory: crates/image/fuzz
         run: cargo +nightly fuzz build
       - name: Run every target
-        if: github.event_name == 'workflow_dispatch'
         working-directory: crates/image/fuzz
         env:
-          SECONDS_PER_TARGET: ${{ inputs.seconds }}
+          SECONDS_PER_TARGET: ${{ inputs.seconds || '60' }}
         run: |
           for target in $(cargo +nightly fuzz list); do
             echo "::group::$target"
@@ -72,6 +68,7 @@ jobs:
 
   meta:
     name: fuzz dalica-meta
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'review/')
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
@@ -90,10 +87,9 @@ jobs:
         working-directory: crates/meta/fuzz
         run: cargo +nightly fuzz build
       - name: Run every target
-        if: github.event_name == 'workflow_dispatch'
         working-directory: crates/meta/fuzz
         env:
-          SECONDS_PER_TARGET: ${{ inputs.seconds }}
+          SECONDS_PER_TARGET: ${{ inputs.seconds || '60' }}
         run: |
           for target in $(cargo +nightly fuzz list); do
             echo "::group::$target"

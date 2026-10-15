@@ -917,7 +917,7 @@ fn dry_runs_of_submit_and_merge_write_nothing() {
         rec.writes(),
         [
             "rebase origin/task/M0.1-skeleton onto origin/main in the merge worktree",
-            "run `cargo xtask ci` in the merge worktree",
+            "run `cargo xtask ci --merge` in the merge worktree",
             "push task/M0.1-skeleton to origin",
             "squash-merge #100 as `M0.1: Skeleton (#100)`",
             "append to the dev log:\n## 1970-01-12 13:46 · agent-1 · M0.1 Skeleton\n\

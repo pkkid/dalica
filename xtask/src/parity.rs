@@ -437,10 +437,13 @@ pub fn registered_commands(root: &Path) -> Result<BTreeSet<String>, String> {
     Ok(v.as_array().into_iter().flatten().filter_map(|c| c.as_str().or_else(|| c.get("id").and_then(|i| i.as_str())).map(str::to_string)).collect())
 }
 
-pub fn run(root: &Path, write: bool) -> Result<(), String> {
+/// Checks `docs/parity.md` (with `write`, refreshes its summary). With `registry`, every cited
+/// `cmd:` id is checked against the registered commands, which builds and runs `dalica-cli` (the
+/// review gate); without it, the rows and their cited paths only (a task's gate).
+pub fn run(root: &Path, write: bool, registry: bool) -> Result<(), String> {
     let path = root.join("docs").join("parity.md");
     let text = std::fs::read_to_string(&path).map_err(|e| format!("cannot read docs/parity.md: {e}"))?;
-    let commands = registered_commands(root)?;
+    let commands = if registry { registered_commands(root)? } else { parse_rows(&text).iter().flat_map(|r| cited_commands(&r.evidence)).collect() };
     let mut problems = check(root, &text, &commands);
     let refreshed = with_summary(&text).ok_or("docs/parity.md: the parity:summary markers are missing")?;
     if refreshed != text {
@@ -455,7 +458,11 @@ pub fn run(root: &Path, write: bool) -> Result<(), String> {
         eprintln!("parity: {p}");
     }
     if problems.is_empty() {
-        println!("parity: ok ({} rows, {} registered commands)", parse_rows(&refreshed).len(), commands.len());
+        if registry {
+            println!("parity: ok ({} rows, {} registered commands)", parse_rows(&refreshed).len(), commands.len());
+        } else {
+            println!("parity: ok ({} rows; cited commands are checked in the review gate)", parse_rows(&refreshed).len());
+        }
         Ok(())
     } else {
         Err(format!("parity: {} problem(s)", problems.len()))

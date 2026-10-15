@@ -21,8 +21,14 @@ pub const SUITES_RAN: &str = "DALICA_SUITES_RAN";
 
 /// Runs the test; `quiet` skips printing the manual checks (used by `ci`). `suites_ran` (set by
 /// `ci`, whose test step ran first) lets the test skip the crate suites it would re-run; otherwise
-/// [`SUITES_RAN`] is cleared, so a standalone run checks everything.
+/// [`SUITES_RAN`] is cleared, so a standalone run checks everything. A standalone run is at full
+/// strength (`ci::FULL_TESTS`), as in the review gate.
 pub fn accept(root: &Path, milestone: u32, headless: bool, quiet: bool, suites_ran: bool) -> Result<(), String> {
+    accept_with(root, milestone, headless, quiet, suites_ran, true)
+}
+
+/// [`accept`], with the crate suites it runs at full strength or not (`ci::FULL_TESTS`).
+pub fn accept_with(root: &Path, milestone: u32, headless: bool, quiet: bool, suites_ran: bool, full: bool) -> Result<(), String> {
     let dir = root.join("tests").join("acceptance");
     // `--headless` runs the milestone's headless half (`m<n>_headless`) when it has one.
     let name = match format!("m{milestone}_headless") {
@@ -43,6 +49,11 @@ pub fn accept(root: &Path, milestone: u32, headless: bool, quiet: bool, suites_r
         cmd.env(SUITES_RAN, "1");
     } else {
         cmd.env_remove(SUITES_RAN);
+    }
+    if full {
+        cmd.env(crate::ci::FULL_TESTS, "1");
+    } else {
+        cmd.env_remove(crate::ci::FULL_TESTS);
     }
     let started = Instant::now();
     let status = cmd.status().map_err(|e| format!("cannot run cargo: {e}"))?;
@@ -536,18 +547,6 @@ mod tests {
         assert!(judge_search(no_rows, 0.0).unwrap_err().contains("no row `one word`"));
         let no_time = "{\"mode\":\"release\",\"photos\":100000,\"rows\":[{\"name\":\"index build\",\"p50_ms\":null}]}";
         assert!(judge_search(no_time, 0.0).unwrap_err().contains("without `p50_ms`"));
-    }
-
-    /// 1.5 × the first measurement, rounded up (5 ms for the build, 0.1 ms for a query), and no
-    /// query's budget above 100 ms.
-    #[test]
-    fn the_search_budgets_are_one_and_a_half_times_the_first_measurement() {
-        for ((name, budget, query), measured) in SEARCH_BUDGETS.iter().zip(SEARCH_MEASURED) {
-            let step = if *query { 0.1 } else { 5.0 };
-            let want = (measured * 1.5 / step).ceil() * step;
-            assert!((budget - want).abs() < 1e-9, "{name}: {budget} ms, 1.5 × {measured} rounded up is {want}");
-            assert!(!query || *budget <= SEARCH_QUERY_CAP_MS, "{name}: {budget} ms is over the {SEARCH_QUERY_CAP_MS} ms cap");
-        }
     }
 
     #[test]

@@ -1,11 +1,16 @@
-# The gate on every pull request and every push to main: `cargo xtask ci` on Linux, Windows and macOS
-# (docs/development.md §3). Actions are pinned to full commit hashes (docs/security.md §8.5).
+# The review gate on GitHub (docs/development.md §3): `cargo xtask ci --full` once per milestone, on
+# the pull request of its `review/M<n>.R` branch, and whenever dispatched by hand (Actions tab, any
+# branch). A task's pull request and a push to main run nothing here: the worker's local task gate
+# tests what the task changed and the lead's merge gate checks that everything still builds.
+# Linux runs the whole review gate; Windows and macOS run its platform part (`--full --platform`),
+# which leaves out what gives the same answer on every system (format and static checks, the heif
+# tests, the pure crates), so no test runs twice. Actions are pinned to full commit hashes
+# (docs/security.md §8.5).
 name: CI
 
 on:
   pull_request:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -21,6 +26,7 @@ env:
 jobs:
   ci:
     name: ci (${{ matrix.os }})
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'review/')
     strategy:
       fail-fast: false
       matrix:
@@ -54,16 +60,12 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libwayland-dev
-      - name: cargo xtask ci
-        run: cargo xtask ci
-      # The optional HEIF decoder (docs/formats.md §3) is off by default, so `xtask ci` never
-      # builds it: lint and test dalica-image with it on every OS.
-      - name: dalica-image with the heif feature (clippy)
-        shell: bash
-        run: cargo clippy -p dalica-image --all-targets --features heif -- -D warnings
-      - name: dalica-image with the heif feature (tests)
-        shell: bash
-        run: cargo test -p dalica-image --features heif
+      - name: cargo xtask ci --full
+        if: runner.os == 'Linux'
+        run: cargo xtask ci --full
+      - name: cargo xtask ci --full --platform
+        if: runner.os != 'Linux'
+        run: cargo xtask ci --full --platform
 
   # The test corpora (docs/development.md §11): every published set fetched from its pin and
   # sha256-verified, then the corpus tests with their committed floors. `corpus/` is cached under a
@@ -71,6 +73,7 @@ jobs:
   # fetches only what is missing or stale. The only CI job that uses the network for test data.
   corpus:
     name: corpus
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'review/')
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -93,4 +96,6 @@ jobs:
       - name: dalica-meta corpus tests (clippy)
         run: cargo clippy -p dalica-meta --all-targets --features corpus -- -D warnings
       - name: cargo xtask test-corpus
+        env:
+          DALICA_FULL_TESTS: "1"
         run: cargo xtask test-corpus

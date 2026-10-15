@@ -1,4 +1,4 @@
-# The release frame budgets on every push to main, Linux only: `cargo xtask budgets` builds in
+# The release frame budgets, Linux only: `cargo xtask budgets` builds in
 # release and runs the budgets the milestones' acceptance tests assert only with
 # `DALICA_ACCEPT_RELEASE=1` (M4: the 100 k scroll and the thumb at top speed, UI frame time
 # p95 ≤ 8 ms, cells visited flat), failing the run when one is missed (docs/development.md §8).
@@ -9,23 +9,15 @@
 # Since M9 also the search bench over a synthetic 100 k library: the index built, three queries and
 # search.set to its result applied, each median within 1.5 × its first measurement (a query never
 # above 100 ms).
-# Its own file, so it never shares ci.yml's matrix; cached like ci.yml. A pull request that changes
-# this job runs it too, and "Run workflow" on the Actions tab takes a planted slowdown to prove
-# that a missed budget fails the run. Actions are pinned to full commit hashes
-# (docs/security.md §8.5).
+# Like every test run on GitHub, it runs only at a milestone review (the pull request of a
+# `review/M<n>.R` branch) and when dispatched by hand: "Run workflow" on the Actions tab, which also
+# takes a planted slowdown to prove that a missed budget fails the run (docs/development.md §3, §8).
+# Its own file, so it never shares ci.yml's matrix; cached like ci.yml. Actions are pinned to full
+# commit hashes (docs/security.md §8.5).
 name: Budgets
 
 on:
-  push:
-    branches: [main]
   pull_request:
-    paths:
-      - .github/workflows/budgets.yml
-      - xtask/src/accept.rs
-      - crates/engine/benches/edit_preview.rs
-      - crates/engine/benches/save_export.rs
-      - crates/engine/benches/search.rs
-      - crates/engine/tests/export_mixed.rs
   workflow_dispatch:
     inputs:
       plant_ms:
@@ -47,6 +39,7 @@ env:
 jobs:
   budgets:
     name: release budgets (ubuntu-latest)
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'review/')
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
