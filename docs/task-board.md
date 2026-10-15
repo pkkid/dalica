@@ -102,8 +102,9 @@ the project).
   list, the agent asks the lead (comment on the issue) before touching it.
 - **Shared registration files** need not be listed and never count as overlap: the root
   `Cargo.toml` (new `[workspace.dependencies]` lines), `Cargo.lock`, `xtask/src/main.rs` (one
-  dispatch line per new command) and `tests/acceptance/Cargo.toml` (one `[[test]]` per milestone
-  file); `SHARED_FILES` in `xtask/src/tasks/config.rs` is the list the board uses. A task may also
+  dispatch line per new command), `tests/acceptance/Cargo.toml` (one `[[test]]` per milestone
+  file) and each crate's `tests/all.rs` (one `mod` line per integration-test file); `SHARED_FILES`
+  in `xtask/src/tasks/config.rs` and `glob::is_shared` are what the board uses. A task may also
   make the matching registration edits in a crate it owns files in (its `Cargo.toml` dependencies,
   the `mod` lines of its `lib.rs`) without listing them. Edits there are small and surgical
   (re-read the file right before editing); the lead resolves conflicts in them at merge,

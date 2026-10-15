@@ -60,7 +60,7 @@ pub fn crate_suites() {
             "status_tags",
             "adjust_date",
             "quick_tags",
-            "view_state_m6",
+            "view_state",
             "stand_in",
         ],
     );

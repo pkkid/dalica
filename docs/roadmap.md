@@ -4567,7 +4567,7 @@ No other step of M10 needs a maintainer decision mid-run.
 
 - ⬜ **M10.1 `engine`: M10's command modules, the options catalogue and settings**
   - after: M9.3, M9.R
-  - files: `crates/engine/src/cmd/mod.rs`, `crates/engine/src/cmd/options.rs`, `crates/engine/src/cmd/keymap.rs`, `crates/engine/src/cmd/inspect.rs`, `crates/engine/src/cmd/recipe.rs`, `crates/engine/src/options.rs`, `crates/engine/src/settings.rs`, `crates/engine/src/session.rs`, `crates/engine/src/undo.rs`, `crates/engine/tests/settings_m10.rs`, `crates/engine/tests/options_catalogue.rs`, `crates/engine/tests/execute_group.rs`, `crates/engine/README.md`, `docs/menus-and-shortcuts.md`, `docs/data-model.md`
+  - files: `crates/engine/src/cmd/mod.rs`, `crates/engine/src/cmd/options.rs`, `crates/engine/src/cmd/keymap.rs`, `crates/engine/src/cmd/inspect.rs`, `crates/engine/src/cmd/recipe.rs`, `crates/engine/src/options.rs`, `crates/engine/src/settings.rs`, `crates/engine/src/session.rs`, `crates/engine/src/undo.rs`, `crates/engine/tests/settings.rs`, `crates/engine/tests/options_catalogue.rs`, `crates/engine/tests/execute_group.rs`, `crates/engine/README.md`, `docs/menus-and-shortcuts.md`, `docs/data-model.md`
   - scope: the engine's ground for M10 so M10.5–M10.7, M10.9 and the MCP tasks never share a
     file: empty `cmd/options.rs`, `keymap.rs`, `inspect.rs` and `recipe.rs` joined into the
     registry once; `options.rs`, the options catalogue: one row per option of
@@ -4583,7 +4583,7 @@ No other step of M10 needs a maintainer decision mid-run.
     an error in a step undoing the steps already run; `menus-and-shortcuts.md` §1.9 gains
     `options.list`, `options.set`, `keymap.list`, `library.inspect`, `edit.recipe.set` and
     `app.setShortcut`'s `slot`; `data-model.md` §4 lists the new settings keys.
-  - done when: `crates/engine/tests/settings_m10.rs` round-trips every new setting with unknown
+  - done when: `crates/engine/tests/settings.rs` round-trips every new setting with unknown
     keys kept and wrong types falling back (reported); `crates/engine/tests/options_catalogue.rs`:
     every option of §5's three tabs is in the catalogue once, each default equals its accessor's,
     keys are unique; `crates/engine/tests/execute_group.rs`: a star, a caption and a tag in one
@@ -4591,7 +4591,7 @@ No other step of M10 needs a maintainer decision mid-run.
     the sidecars unchanged; every existing engine test and `panic_hunt` pass unchanged.
 - ⬜ **M10.2 `ui`: M10's view state, UI commands, the Options dialog's stubs and control stubs**
   - after: M9.4, M9.R
-  - files: `crates/ui/src/state.rs`, `crates/ui/src/menus.rs`, `crates/ui/src/app.rs`, `crates/ui/src/keys.rs`, `crates/ui/src/commands/mod.rs`, `crates/ui/src/commands/options.rs`, `crates/ui/src/dialogs/mod.rs`, `crates/ui/src/dialogs/options.rs`, `crates/ui/src/dialogs/options/general.rs`, `crates/ui/src/dialogs/options/file_types.rs`, `crates/ui/src/dialogs/options/export.rs`, `crates/ui/src/dialogs/options/shortcuts.rs`, `crates/ui/src/scale.rs`, `crates/ui/src/control/mod.rs`, `crates/ui/src/control/view.rs`, `crates/ui/src/control/batch.rs`, `crates/ui/src/control/inspect.rs`, `crates/ui/tests/view_state_m10.rs`, `docs/control-protocol.md`
+  - files: `crates/ui/src/state.rs`, `crates/ui/src/menus.rs`, `crates/ui/src/app.rs`, `crates/ui/src/keys.rs`, `crates/ui/src/commands/mod.rs`, `crates/ui/src/commands/options.rs`, `crates/ui/src/dialogs/mod.rs`, `crates/ui/src/dialogs/options.rs`, `crates/ui/src/dialogs/options/general.rs`, `crates/ui/src/dialogs/options/file_types.rs`, `crates/ui/src/dialogs/options/export.rs`, `crates/ui/src/dialogs/options/shortcuts.rs`, `crates/ui/src/scale.rs`, `crates/ui/src/control/mod.rs`, `crates/ui/src/control/view.rs`, `crates/ui/src/control/batch.rs`, `crates/ui/src/control/inspect.rs`, `crates/ui/tests/view_state.rs`, `docs/control-protocol.md`
   - scope: every M10 field of `UiState` in one go: the Options dialog (its tab, the draft of
     option values, the last Apply's error, the font size and scale being previewed) and the
     shortcut editor (search text, Context filter, "Show commands without a shortcut", the row
@@ -4604,7 +4604,7 @@ No other step of M10 needs a maintainer decision mid-run.
     `batch` and `library.inspect` entries of `control/mod.rs` pointing at stub modules, so M10.7
     and M10.8 never share a file; the `PREF-…` row split into one row per tab, `PREF-SCALE` and a
     Help menu row added; control-protocol §6.5 and §6.6 updated.
-  - done when: `crates/ui/tests/view_state_m10.rs`: each new field round-trips through `ui.state`
+  - done when: `crates/ui/tests/view_state.rs`: each new field round-trips through `ui.state`
     / `ui.set` (bad values are `bad_params`, nothing changes); Ctrl+, opens `dialog:options` on
     General and Ctrl+/ on Keyboard Shortcuts, Esc closes it; Tools ▸ Options…, Help ▸ Keyboard
     Shortcuts… and the macOS Preferences… item light up; every command's graceful-failure test;
@@ -4737,7 +4737,7 @@ No other step of M10 needs a maintainer decision mid-run.
     photos; each command's contract and graceful failures; `panic_hunt` green.
 - ⬜ **M10.6 `engine`: the keymap listing, two keys per context and named conflicts**
   - after: M10.1
-  - files: `crates/engine/src/cmd/keymap.rs`, `crates/engine/src/cmd/app.rs`, `crates/engine/src/keymap.rs`, `crates/engine/tests/keymap_m10.rs`
+  - files: `crates/engine/src/cmd/keymap.rs`, `crates/engine/src/cmd/app.rs`, `crates/engine/src/keymap.rs`, `crates/engine/tests/keymap.rs`
   - scope: `menus-and-shortcuts.md` §2.0, with LightCraft `crates/ui-egui/src/shortcuts.rs`
     (`parse`, `format`, `ALIASES`, `conflicts`) at b3d392b4 as the pattern for lenient parsing and
     labels: `keymap.list {context?, search?, withoutKeys?}` (query: one row per command and
@@ -4748,7 +4748,7 @@ No other step of M10 needs a maintainer decision mid-run.
     naming the other command's label, its context and the key unless `replace`, which takes the
     key from the other command; `app.resetShortcuts {command?}` as today; `Key::pretty(platform)`
     for the labels on screen (`Ctrl+Shift+S`; `⇧⌘S` on macOS); row `PREF-KEYMAP` (engine half).
-  - done when: `crates/engine/tests/keymap_m10.rs`: the listing covers every command of the
+  - done when: `crates/engine/tests/keymap.rs`: the listing covers every command of the
     registry and `UI_COMMANDS` once per context it has keys in, and the ones without keys when
     asked; search by name, menu path and key; a second key in slot 1 resolves beside the first; a
     conflict names the other binding and `replace` moves the key; Ctrl+1 in Library and in Edit
@@ -4775,7 +4775,7 @@ No other step of M10 needs a maintainer decision mid-run.
     query; graceful failures; `panic_hunt` green.
 - ⬜ **M10.8 `ui`: `batch`, replies that wait for their job, and the headless capture in the window**
   - after: M10.2
-  - files: `crates/ui/src/control/batch.rs`, `crates/ui/src/control/engine.rs`, `crates/ui/src/control/jobs.rs`, `crates/ui/src/control/screenshot.rs`, `crates/ui/tests/control_batch.rs`, `crates/ui/tests/control_wait.rs`, `apps/dalica/src/control/play.rs`, `apps/dalica/tests/control_m10.rs`, `docs/control-protocol.md`
+  - files: `crates/ui/src/control/batch.rs`, `crates/ui/src/control/engine.rs`, `crates/ui/src/control/jobs.rs`, `crates/ui/src/control/screenshot.rs`, `crates/ui/tests/control_batch.rs`, `crates/ui/tests/control_wait.rs`, `apps/dalica/src/control/play.rs`, `apps/dalica/tests/control_headless.rs`, `docs/control-protocol.md`
   - scope: `control-protocol.md` §5.3, §6.3 and §6.11, the missing parts of `SYS-CONTROL`:
     `batch {steps, stopOnError?}` (command and method steps in order with the semantics of
     separate requests; `batch`, `auth` and `app.quit` refused as steps; at most 256 steps; a
@@ -4789,7 +4789,7 @@ No other step of M10 needs a maintainer decision mid-run.
     refused, a 257-step batch is `limit`, an oversized aggregate stops with `limit`;
     `crates/ui/tests/control_wait.rs`: `folders.add` replies after its scan with the job's result,
     `wait: false` gives `{job, pending: true}` and `jobs.wait` then returns the result;
-    `apps/dalica/tests/control_m10.rs`: a headless capture through a windowed session's handlers
+    `apps/dalica/tests/control_headless.rs`: a headless capture through a windowed session's handlers
     equals `--headless`'s byte for byte; graceful failures; `panic_hunt` green.
 - ⬜ **M10.9 `edit` + `engine`: the edit-operation catalogue and `edit.recipe.set`**
   - after: M10.1
@@ -5330,7 +5330,7 @@ and are never loosened. No other step of M11 needs a maintainer decision mid-run
 
 - ⬜ **M11.1 `engine`: M11's command modules, settings and options rows**
   - after: M10.1, M10.5, M10.R
-  - files: `crates/engine/src/cmd/mod.rs`, `crates/engine/src/cmd/import.rs`, `crates/engine/src/cmd/import_run.rs`, `crates/engine/src/cmd/batch.rs`, `crates/engine/src/cmd/compare.rs`, `crates/engine/src/cmd/slideshow.rs`, `crates/engine/src/cmd/viewer.rs`, `crates/engine/src/import.rs`, `crates/engine/src/import_run.rs`, `crates/engine/src/variant.rs`, `crates/engine/src/viewer.rs`, `crates/engine/src/options.rs`, `crates/engine/src/settings.rs`, `crates/engine/src/session.rs`, `crates/engine/src/jobs.rs`, `crates/engine/tests/settings_m11.rs`, `crates/engine/tests/options_catalogue.rs`, `crates/engine/README.md`, `docs/menus-and-shortcuts.md`, `docs/data-model.md`
+  - files: `crates/engine/src/cmd/mod.rs`, `crates/engine/src/cmd/import.rs`, `crates/engine/src/cmd/import_run.rs`, `crates/engine/src/cmd/batch.rs`, `crates/engine/src/cmd/compare.rs`, `crates/engine/src/cmd/slideshow.rs`, `crates/engine/src/cmd/viewer.rs`, `crates/engine/src/import.rs`, `crates/engine/src/import_run.rs`, `crates/engine/src/variant.rs`, `crates/engine/src/viewer.rs`, `crates/engine/src/options.rs`, `crates/engine/src/settings.rs`, `crates/engine/src/session.rs`, `crates/engine/src/jobs.rs`, `crates/engine/tests/settings.rs`, `crates/engine/tests/options_catalogue.rs`, `crates/engine/README.md`, `docs/menus-and-shortcuts.md`, `docs/data-model.md`
   - scope: the engine's ground for M11 so M11.7–M11.12 never share a file: empty
     `cmd/import.rs`, `import_run.rs`, `batch.rs`, `compare.rs`, `slideshow.rs` and `viewer.rs`
     joined into the registry once; stubs `import.rs` (the import session: source, listing
@@ -5348,14 +5348,14 @@ and are never loosened. No other step of M11 needs a maintainer decision mid-run
     `edit.copyRecipe`, `edit.pasteRecipe`, `edit.undoAll`, `edit.variant.*`, `slideshow.list`,
     `viewer.list`) and §5's Slideshow and Photo Viewer tabs say what this build offers;
     `data-model.md` §4 lists the new settings keys.
-  - done when: `crates/engine/tests/settings_m11.rs` round-trips every new setting with unknown
+  - done when: `crates/engine/tests/settings.rs` round-trips every new setting with unknown
     keys kept and wrong types or out-of-range values falling back (reported);
     `crates/engine/tests/options_catalogue.rs` covers the six tabs now shown, every option once,
     each default equal to its accessor's; every existing engine test and `panic_hunt` pass
     unchanged.
 - ⬜ **M11.2 `ui`: M11's view state, UI commands, the rooms' frame and stubs**
   - after: M10.2, M10.R
-  - files: `crates/ui/src/state.rs`, `crates/ui/src/menus.rs`, `crates/ui/src/menu_catalog.rs`, `crates/ui/src/app.rs`, `crates/ui/src/keys.rs`, `crates/ui/src/commands/mod.rs`, `crates/ui/src/commands/rooms.rs`, `crates/ui/src/commands/import.rs`, `crates/ui/src/commands/slideshow.rs`, `crates/ui/src/commands/peek.rs`, `crates/ui/src/commands/compare.rs`, `crates/ui/src/commands/batch.rs`, `crates/ui/src/commands/viewer.rs`, `crates/ui/src/panels/mod.rs`, `crates/ui/src/panels/layout.rs`, `crates/ui/src/panels/rooms.rs`, `crates/ui/src/panels/import.rs`, `crates/ui/src/panels/import/**`, `crates/ui/src/panels/slideshow.rs`, `crates/ui/src/panels/slideshow/**`, `crates/ui/src/panels/peek.rs`, `crates/ui/src/panels/viewer.rs`, `crates/ui/src/panels/viewer/**`, `crates/ui/src/panels/edit.rs`, `crates/ui/src/panels/edit/compare.rs`, `crates/ui/src/panels/edit/top_bar.rs`, `crates/ui/src/panels/edit/caption_bar.rs`, `crates/ui/src/dialogs/mod.rs`, `crates/ui/src/dialogs/keep_version.rs`, `crates/ui/src/dialogs/apply_changes.rs`, `crates/ui/src/dialogs/undo_all.rs`, `crates/ui/src/dialogs/remove_from_card.rs`, `crates/ui/src/dialogs/viewer_settings.rs`, `crates/ui/src/dialogs/options.rs`, `crates/ui/src/dialogs/options/slideshow.rs`, `crates/ui/src/dialogs/options/viewer.rs`, `crates/ui/src/control/**`, `crates/ui/tests/view_state_m11.rs`, `docs/control-protocol.md`
+  - files: `crates/ui/src/state.rs`, `crates/ui/src/menus.rs`, `crates/ui/src/menu_catalog.rs`, `crates/ui/src/app.rs`, `crates/ui/src/keys.rs`, `crates/ui/src/commands/mod.rs`, `crates/ui/src/commands/rooms.rs`, `crates/ui/src/commands/import.rs`, `crates/ui/src/commands/slideshow.rs`, `crates/ui/src/commands/peek.rs`, `crates/ui/src/commands/compare.rs`, `crates/ui/src/commands/batch.rs`, `crates/ui/src/commands/viewer.rs`, `crates/ui/src/panels/mod.rs`, `crates/ui/src/panels/layout.rs`, `crates/ui/src/panels/rooms.rs`, `crates/ui/src/panels/import.rs`, `crates/ui/src/panels/import/**`, `crates/ui/src/panels/slideshow.rs`, `crates/ui/src/panels/slideshow/**`, `crates/ui/src/panels/peek.rs`, `crates/ui/src/panels/viewer.rs`, `crates/ui/src/panels/viewer/**`, `crates/ui/src/panels/edit.rs`, `crates/ui/src/panels/edit/compare.rs`, `crates/ui/src/panels/edit/top_bar.rs`, `crates/ui/src/panels/edit/caption_bar.rs`, `crates/ui/src/dialogs/mod.rs`, `crates/ui/src/dialogs/keep_version.rs`, `crates/ui/src/dialogs/apply_changes.rs`, `crates/ui/src/dialogs/undo_all.rs`, `crates/ui/src/dialogs/remove_from_card.rs`, `crates/ui/src/dialogs/viewer_settings.rs`, `crates/ui/src/dialogs/options.rs`, `crates/ui/src/dialogs/options/slideshow.rs`, `crates/ui/src/dialogs/options/viewer.rs`, `crates/ui/src/control/**`, `crates/ui/tests/view_state.rs`, `docs/control-protocol.md`
   - scope: every M11 field of `UiState` in one go (`control-protocol.md` §6.5 already names
     `room` and `slideshow`): the rooms (open, active); the Import room (focus, selection, the item
     in the preview, the destination draft: place, folder name, after copying); the slideshow
@@ -5379,7 +5379,7 @@ and are never loosened. No other step of M11 needs a maintainer decision mid-run
     `applyChanges`, `undoAllEdits`, `removeFromCard`, `viewerSettings`; the Options dialog's
     Slideshow and Photo Viewer tabs with stub bodies; control stubs for the new state;
     `control-protocol.md` §6.5 and §7 gain the fields and widget ids.
-  - done when: `crates/ui/tests/view_state_m11.rs`: each new field round-trips through `ui.state`
+  - done when: `crates/ui/tests/view_state.rs`: each new field round-trips through `ui.state`
     / `ui.set` (bad values are `bad_params`, nothing changes); Ctrl+M opens the Import tab and the
     strip appears 28 high, closing it removes the strip; a Slideshow-context key does nothing in
     the library; every command's graceful-failure test; `panic_hunt` and `widget_ids` stay green.

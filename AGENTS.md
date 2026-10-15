@@ -300,7 +300,7 @@ And:
   first. Two tasks with overlapping `files` are never in progress together (`tasks next` and
   `claim` enforce it).
 - **Shared registration files** (root `Cargo.toml`, `Cargo.lock`, `xtask/src/main.rs`,
-  `tests/acceptance/Cargo.toml`) need not be in your `files` and never block a claim; keep edits
+  `tests/acceptance/Cargo.toml`, each crate's `tests/all.rs`) need not be in your `files` and never block a claim; keep edits
   there to the lines you add. The lead re-resolves `Cargo.lock` at merge instead of hand-merging it
   (`docs/task-board.md` §3).
 - **Put new work in new modules.** New commands go in a new `crates/engine/src/cmd/<area>.rs`, new

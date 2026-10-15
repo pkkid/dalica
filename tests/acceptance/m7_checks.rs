@@ -63,8 +63,8 @@ pub fn crate_suites() {
     suites("dalica-edit", &["frame", "recipe", "geometry"]);
     suites("dalica-engine", &["photo_history", "settings"]);
     println!("  the view's state and frame, entering, leaving and navigation, zoom maths and the canvas");
-    suites("dalica-ui", &["view_state_m7", "edit_navigation", "zoom_maths", "edit_canvas", "edit_panel"]);
-    suites("dalica-ui-kit", &["edit_widgets", "input", "icons_edit"]);
+    suites("dalica-ui", &["view_state", "edit_navigation", "zoom_maths", "edit_canvas", "edit_panel"]);
+    suites("dalica-ui-kit", &["edit_widgets", "input", "icons"]);
     println!("  the preview renders (draft before final, refined window, prefetch, histogram, cancel)");
     suites("dalica-engine", &["preview"]);
     println!("Basic fixes:");

@@ -76,8 +76,8 @@ pub fn crate_suites() {
     println!("  every format of formats.md §1 saves as specified (M8.23)");
     suites("dalica-engine", &["save_formats"]);
     println!("  the header's count and Save, the explanation, Undo Save, the Revert question, Save As");
-    suites("dalica-ui", &["save_ui", "save_as", "section_header", "view_state_m8"]);
-    suites("dalica-ui-kit", &["form_widgets", "icons_output"]);
+    suites("dalica-ui", &["save_ui", "save_as", "section_header", "view_state", "export_dialog"]);
+    suites("dalica-ui-kit", &["form_widgets", "icons"]);
     println!("Export:");
     println!("  planning, files, the watermark; the command and its job; the dialog, the progress window, Projects");
     suites("dalica-create", &["export", "watermark"]);

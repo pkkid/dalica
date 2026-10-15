@@ -612,7 +612,7 @@ fn crate_suites() {
         ui.extend(["--test", suite]);
     }
     cargo_test(&ui);
-    cargo_test(&["-p", "dalica-ui-kit", "--test", "fields", "--test", "icons_folder_modes"]);
+    cargo_test(&["-p", "dalica-ui-kit", "--test", "fields", "--test", "icons"]);
 }
 
 /// Part 6: the corpus floors when every published set is here and verified; otherwise it says so.
