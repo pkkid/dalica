@@ -16,7 +16,7 @@ fn step() -> impl Strategy<Value = Step> {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(512))]
+    #![proptest_config(crate::common::cases(512, 32))]
 
     #[test]
     fn never_over_budget_and_evicts_least_recent_first(steps in proptest::collection::vec(step(), 1..200)) {

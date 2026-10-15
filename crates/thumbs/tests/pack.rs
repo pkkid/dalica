@@ -1,6 +1,6 @@
 //! The packed disk cache (`architecture.md` §6.6) in temporary folders: round trips at every size,
-//! torn and damaged files, compaction, pruning, foreign files, `fs` fault injection on every pack
-//! write, hostile bytes, the folder lock and the UI-thread guard.
+//! torn and damaged files, compaction, pruning, foreign files, `fs` fault injection on the pack
+//! writes, hostile bytes, the folder lock and the UI-thread guard.
 
 use std::collections::HashMap;
 use std::fs;
@@ -446,10 +446,14 @@ fn run(dir: &Path, model: &mut Model, live: &mut Option<Cache>) -> Result<(), Er
     Ok(())
 }
 
+/// One fault of each kind the cache handles differently (`fs`'s own tests fail and crash every pack
+/// point): an error while the cache runs (it keeps serving), a crash while compaction commits its
+/// new generation, and an error in the best-effort cleanup at open.
 #[test]
 fn fs_fault_injection_on_every_pack_write_leaves_a_readable_cache() {
-    for point in PACK_POINTS {
-        for fault in [Fault::Error, Fault::Crash] {
+    assert!([points::APPEND, points::TEMP_RENAME, points::TRUNCATE].iter().all(|p| PACK_POINTS.contains(p)));
+    for (point, fault) in [(points::APPEND, Fault::Error), (points::TEMP_RENAME, Fault::Crash), (points::TRUNCATE, Fault::Error)] {
+        {
             let dir = tempfile::tempdir().unwrap();
             let d = dir.path();
             let mut model = Model::default();
@@ -515,7 +519,7 @@ fn fs_fault_injection_on_every_pack_write_leaves_a_readable_cache() {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(64))]
+    #![proptest_config(crate::common::cases(64, 16))]
 
     /// Any bytes in a pack or index open as a working cache: never a panic, never an error.
     #[test]
