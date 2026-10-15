@@ -10,7 +10,7 @@
 mod albums_file;
 pub mod cmd;
 pub mod demo;
-mod duplicates;
+pub mod duplicates;
 pub mod error;
 pub mod filejobs;
 pub mod fileops;
