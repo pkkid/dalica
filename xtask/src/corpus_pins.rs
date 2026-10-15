@@ -8,7 +8,9 @@
 //! - Our own sets (`photos`, `heif`, `metadata`) come from <https://github.com/pkkid/dalica-corpus> (CC0 and
 //!   public-domain files only, each with its source) at the commit pinned in
 //!   [`DALICA_CORPUS_COMMIT`]; that repository's `SOURCES.tsv` gives every file's source, author,
-//!   licence, size, sha256 and the tool that derived it.
+//!   licence, size, sha256 and the tool that derived it. `heif-wide` is made locally by
+//!   `cargo xtask corpus make heif-wide` and stays "not published yet" until the maintainer
+//!   decides to publish it there.
 //!
 //! Moving a pin: change it here, run `cargo xtask corpus --update-manifest <set>`, review the
 //! manifest diff, run `cargo xtask test-corpus` and raise the floors that improved (never lower one).
@@ -273,6 +275,20 @@ pub const HEIF: Set = Set {
     source: Source::Repo { repo: DALICA_CORPUS_REPO, commit: DALICA_CORPUS_COMMIT, subdir: "heif" },
 };
 
+/// `corpus/heif-wide/`: HEIF files made from `dalica-scenes` pictures by libheif's `heif-enc`
+/// (M10.24), every layout the `heif` feature meets: made locally by `cargo xtask corpus make
+/// heif-wide` and measured by `dalica-image`'s `tests/heif_wide.rs`. Not published until the
+/// maintainer decides (the M10.R question); publishing it pins it like the other sets.
+pub const HEIF_WIDE: Set = Set {
+    name: "heif-wide",
+    what: "36 HEIF files made by libheif's heif-enc from dalica-scenes pictures: 8/10/12 bits; 4:2:0, 4:2:2, 4:4:4 and \
+           monochrome; alpha; grids; irot and imir; ICC and nclx; a thumbnail; a sequence, mini, unci, JPEG-coded and AV1 files",
+    terms: "Generated from Dalica's own procedural scenes (dalica-scenes), CC0 1.0; each file's sources and heif-enc arguments \
+            are in its recipes.tsv.",
+    used_by: &["dalica-image"],
+    source: Source::Repo { repo: DALICA_CORPUS_REPO, commit: None, subdir: "heif-wide" },
+};
+
 /// `corpus/metadata/`: `dalica-scenes` photos after other applications wrote metadata into them
 /// (M6.34), from our own corpus repository; each file's tool and version is in its `SOURCES.tsv`.
 pub const METADATA: Set = Set {
@@ -286,4 +302,4 @@ pub const METADATA: Set = Set {
 };
 
 /// Every set, in the order `cargo xtask corpus` lists and fetches them.
-pub const SETS: &[&Set] = &[&PNGSUITE, &RAW, &PHOTOS, &HEIF, &METADATA];
+pub const SETS: &[&Set] = &[&PNGSUITE, &RAW, &PHOTOS, &HEIF, &HEIF_WIDE, &METADATA];

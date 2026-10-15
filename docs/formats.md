@@ -115,8 +115,12 @@ while a format waits for its task).
 
 - Decoding uses `heic-rs` (pure Rust, no `unsafe`, MIT OR Apache-2.0) through a thin, panic-guarded
   wrapper of our own (prior art: LightCraft's `heif` crate): single pictures and grid-tiled photos, 8 to 12 bits (10/12-bit
-  decode to 16-bit), auxiliary alpha, the container's rotation/mirror/crop, ICC, EXIF and XMP. Image
-  sequences, overlays and some 4:2:2/4:4:4 streams return "unsupported", never wrong pixels.
+  decode to 16-bit), auxiliary alpha (of the picture or grid, or one alpha picture per grid tile,
+  as libheif writes a tiled picture with alpha), the container's rotation/mirror/crop, ICC, EXIF
+  and XMP. Overlays, uncompressed (`unci`) items, 4:2:2 and 4:4:4 streams (lossless RGB included)
+  return "unsupported", never wrong pixels; a grid whose tiles only partly carry alpha does too.
+  An image sequence shows its still primary item when it has one, and is unsupported when it has
+  none.
 - It sits behind the **non-default** `heif` cargo feature of `dalica-image`, forwarded by the app
   (`cargo build -p dalica --features heif`). HEVC is patent-encumbered in some jurisdictions, so
   including a decoder is the distributor's decision. Official Dalica builds leave it out
@@ -135,6 +139,75 @@ while a format waits for its task).
   size. EXIF is read for dates and camera; its orientation only repeats the container's. A file
   whose brands or primary item say AV1 is AVIF, whatever its major brand.
 - HEIF is read-only: writing needs an HEVC encoder, and every mature one is C.
+
+### 3.1 Measured on a wider set (M10.24)
+
+The `heif` set holds three iPhone photos. To decide whether release builds can carry the feature,
+a wider set, `heif-wide`, is made locally by `cargo xtask corpus make heif-wide`: `dalica-image`'s
+`tests/heif_wide.rs` writes `dalica-scenes` pictures as PNGs, libheif's `heif-enc` encodes them
+in every layout below (`$DALICA_HEIF_ENC` names it when it is not on the `PATH`; it needs an HEVC
+encoder plugin, x265), and `heif-dec` writes libheif's own decode of each as a second reference.
+The set (36 files, 1.3 MB of HEIF; 6 MB with sources and libheif's decodes) is CC0 like the
+scenes, sits in `corpus/heif-wide/` and is not published until the maintainer decides; `cargo
+xtask corpus` lists it as "not published yet (made locally)". `cargo test -p dalica-image
+--features heif --test all heif_wide -- --nocapture` measures it (skipped with a message when the
+set is absent): each file must give the answer the test's list expects, a decoded file must stay
+above its PSNR floor against the source (floors set just under the measurements; they only rise),
+and none may panic. Without the feature every file answers its tile text.
+
+Measured 2026-10-15 with heif-enc 1.23.4, libheif 1.23.5 and x265 4.1, release build, one
+decode at a time on an i7-13700K. PSNR is over RGBA, 8-bit sRGB after the colour stage (the
+source, and libheif's decode, go through the same PNG decoder and colour stage):
+
+| File | What | Answer | Against the source | Against libheif | ms |
+|---|---|---|---|---|---|
+| q90 / q50 / q10, 8-bit 4:2:0 | 640 × 480 at quality 90, 50, 10 | decoded | 48.8 / 48.0 / 40.8 dB | 53.4 / 53.8 / 56.0 dB | 11.5 / 4.5 / 2.5 |
+| 10-bit, 12-bit 4:2:0 | Main 10; 12 bits (RExt) | decoded | 50.2, 50.4 dB | 53.3, 54.0 dB | 8.5, 7.7 |
+| 4:2:2, 4:4:4 (8 and 10 bits) | `-p chroma=422/444` | refused: "This kind of HEIC file can't be displayed" | | libheif decodes them | 0.0 |
+| lossless | RGB 4:4:4, identity matrix | refused, the same text | | libheif decodes it | 0.0 |
+| alpha, 8 and 10 bits | an alpha auxiliary image | decoded | 48.8, 50.2 dB | 53.4, 53.2 dB | 21.6, 17.9 |
+| monochrome | 4:0:0 | decoded | 71.4 dB (max 1) | identical | 4.9 |
+| odd size | 641 × 479, 4:2:0 | decoded | 50.6 dB | 56.0 dB | 10.4 |
+| grids | 1280 × 960: 3 × 2 tiles of 512; 10-bit 5 × 4 tiles of 256 | decoded | 52.4, 56.6 dB | 55.8, 56.8 dB | 30.3, 30.3 |
+| grid with alpha | one alpha picture per tile | decoded (fixed in M10.24) | 52.4 dB | 55.8 dB | 55.0 |
+| grid of 4:4:4 tiles | | refused, the HEIC text | | libheif decodes it | 0.1 |
+| `irot` 90/180/270, `imir` both axes, irot + imir (EXIF 5 and 7) | every turn and flip | decoded upright | 47.8–48.8 dB | 50.6–53.5 dB | 8.0–10.0 |
+| EXIF orientation 6, no `irot` | | shown as stored, as libheif does | 47.9 dB | 50.8 dB | 8.5 |
+| ICC (Display P3), 8 and 10 bits; ICC and `nclx` both | | decoded, colour-managed | 46.2, 47.2, 46.2 dB | 50.8 dB | 8.3, 15.2, 8.5 |
+| `nclx` BT.709 matrix, limited range | | decoded | 47.3 dB | 50.2 dB | 7.8 |
+| an HEVC thumbnail item; a two-frame sequence beside its still primary | | decoded (the primary) | 48.8 dB | 53.4 dB | 7.8 |
+| `mini` box layout (brand `mif3`); a JPEG-coded item (brand `jpeg`) | | "Not a picture Dalica can read" (not sniffed as HEIF) | | libheif decodes them | 0.0 |
+| uncompressed (`unci`) item | | refused, the HEIC text | | libheif decodes it | 0.0 |
+| AV1 | `.avif` | "AVIF files can't be displayed" | | libheif decodes it | 0.0 |
+
+What it shows:
+
+- No file panics; every refusal is a tile text, never wrong pixels. Every layout phones and
+  cameras write (4:2:0 HEVC, 8 or 10 bits, grids, alpha, rotations and mirrors, ICC or `nclx`)
+  decodes 46–71 dB from its source and 50–57 dB from libheif. The monochrome file decodes
+  identically to libheif, so the HEVC stage agrees with libheif's decoder; the colour files differ
+  from it only by chroma upsampling and rounding (they are closer to libheif's nearest-neighbour
+  upsampling than to its default bilinear one). A 1.2 MP grid decodes in about 30 ms.
+- One wrapper bug found and fixed: libheif stores the alpha of a tiled picture as one alpha picture
+  per tile (no alpha grid), which Dalica ignored, showing such files opaque (16 dB). The wrapper
+  now composes the tiles' alpha on the colour grid's layout.
+- In the crate, recorded: heic-rs 0.1.1 fails on 4:2:2 and 4:4:4 streams ("picture is not fully
+  covered by slices", "slice runs past the end of the picture", "coeff_abs_level_remaining prefix
+  too long", or a truncation), so the wrapper's refusal of them stays; heic-rs 0.1.4 is published
+  and is worth measuring against both sets before moving the pin.
+- In sniffing, not the wrapper: files whose brands are only `mif3` (the compact `mini` layout) or
+  `jpeg` with `mif1` compatible are not recognised as HEIF and answer "Not a picture Dalica can
+  read" instead of the HEIC tile text. No phone writes them today.
+- No openly licensed non-Apple camera HEIC was found: Nokia's conformance files carry a
+  non-commercial licence, which the corpus refuses.
+
+**Recommendation (for the M10.R decision).** On these measurements the decoder is fit to ship
+for the photos people have: everything phones write decodes correctly and quickly, and what it
+cannot decode is refused with a tile text. Whether release builds carry it remains a licensing
+decision these numbers do not change (HEVC patents, §3 above). If they do, two small follow-ups
+first: recognise HEIF by an `mif1`/`mif3` compatible brand in sniffing, and measure heic-rs 0.1.4.
+Publishing `heif-wide` to `dalica-corpus` (CC0, 6 MB) would let the review's corpus job run this
+measurement on every platform.
 
 ## 4. Colour and orientation
 

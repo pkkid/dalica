@@ -13,7 +13,8 @@
 //! [`Decoded`] value for the colour stage.
 //!
 //! Single pictures and grid-tiled photos, monochrome and 4:2:0, 8 to 16 bits (deeper than 8 bits
-//! decode to 16-bit samples), an alpha auxiliary image, the container's `clap`/`irot`/`imir`
+//! decode to 16-bit samples), an alpha auxiliary image (of the picture or grid, or one per tile
+//! of a grid, as libheif writes them), the container's `clap`/`irot`/`imir`
 //! (applied here, in association order, so the decoded pixels are upright), the ICC profile (a
 //! grid's may sit on its tiles) and EXIF for the header. Image sequences, overlays, other codecs
 //! and 4:2:2/4:4:4 answer [`Error::Unsupported`], never wrong pixels. A file whose brands or
@@ -238,6 +239,49 @@ mod imp {
         Ok(frame)
     }
 
+    /// Where a picture's alpha lives: an auxiliary image of the item (a picture or a grid), or one
+    /// auxiliary picture per tile of a grid, in `dimg` order, as libheif writes a tiled image with
+    /// alpha (M10.24).
+    enum Alpha {
+        Item(u32),
+        Tiles(Vec<u32>),
+    }
+
+    /// The alpha of item `id`: its own auxiliary image, else every tile's. Some tiles with alpha
+    /// and some without is unsupported (never a guessed alpha).
+    fn alpha_of(ctx: &Context<'_>, id: u32) -> Result<Option<Alpha>> {
+        if let Some(a) = ctx.alpha_item(id).map_err(err)? {
+            return Ok(Some(Alpha::Item(a)));
+        }
+        let (Some(_), tiles) = coded_items(ctx, id)? else { return Ok(None) };
+        let alphas = tiles.iter().map(|&t| ctx.alpha_item(t).map_err(err)).collect::<Result<Vec<_>>>()?;
+        match alphas.iter().filter(|a| a.is_some()).count() {
+            0 => Ok(None),
+            n if n == alphas.len() => Ok(Some(Alpha::Tiles(alphas.into_iter().flatten().collect()))),
+            _ => Err(UNSUPPORTED),
+        }
+    }
+
+    /// The coded pictures of an alpha, for [`check_pictures`].
+    fn alpha_pictures(ctx: &Context<'_>, alpha: &Alpha) -> Result<Vec<u32>> {
+        match alpha {
+            Alpha::Item(a) => Ok(coded_items(ctx, *a)?.1),
+            Alpha::Tiles(tiles) => Ok(tiles.clone()),
+        }
+    }
+
+    /// Decodes an alpha: its item, or its tiles composed on the colour grid's layout.
+    fn alpha_frame(ctx: &Context<'_>, id: u32, alpha: &Alpha, limit: u64) -> Result<Frame> {
+        match alpha {
+            Alpha::Item(a) => Ok(item(ctx, *a, limit)?.0),
+            Alpha::Tiles(tiles) => {
+                let (Some(grid), _) = coded_items(ctx, id)? else { return Err(UNSUPPORTED) };
+                let frames = tiles.iter().map(|&t| picture(ctx, t, limit)).collect::<Result<Vec<_>>>()?;
+                heic_rs::grid::compose(&grid, &frames, limit).map_err(err)
+            }
+        }
+    }
+
     /// Decodes an item (a picture or a grid, composed) and returns its first coded picture's
     /// properties, where the HEVC configuration and the VUI live.
     fn item<'a>(ctx: &Context<'a>, id: u32, limit: u64) -> Result<(Frame, ItemProps<'a>)> {
@@ -292,9 +336,9 @@ mod imp {
         let limit = limits.max_pixels;
         let (_, items) = coded_items(&ctx, id)?;
         let mut pixels = check_pictures(&ctx, &items, limits)?;
-        let alpha_id = ctx.alpha_item(id).map_err(err)?;
-        if let Some(a) = alpha_id {
-            pixels = pixels.saturating_add(check_pictures(&ctx, &coded_items(&ctx, a)?.1, limits)?);
+        let alpha = alpha_of(&ctx, id)?;
+        if let Some(a) = &alpha {
+            pixels = pixels.saturating_add(check_pictures(&ctx, &alpha_pictures(&ctx, a)?, limits)?);
         }
         // What heic-rs allocates itself: the pictures' planes (and a grid's canvas), the RGB
         // image and a rotated copy; given back once they are dropped.
@@ -302,16 +346,16 @@ mod imp {
         let (w, h) = (u64::from(header.width), u64::from(header.height));
         let scratch = pixels.saturating_mul(PLANE_BYTES).saturating_add(w.saturating_mul(h).saturating_mul(PLANE_BYTES + 2 * 8));
         budget.charge(scratch)?;
-        let result = decode_pixels(&ctx, id, &p, alpha_id, limit, budget);
+        let result = decode_pixels(&ctx, id, &p, alpha.as_ref(), limit, budget);
         budget.refund(scratch);
         result
     }
 
-    fn decode_pixels(ctx: &Context<'_>, id: u32, p: &ItemProps<'_>, alpha_id: Option<u32>, limit: u64, budget: &mut Budget) -> Result<Decoded> {
+    fn decode_pixels(ctx: &Context<'_>, id: u32, p: &ItemProps<'_>, alpha: Option<&Alpha>, limit: u64, budget: &mut Budget) -> Result<Decoded> {
         let (frame, first) = item(ctx, id, limit)?;
-        let alpha = match alpha_id {
+        let alpha = match alpha {
             Some(a) => {
-                let (alpha, _) = item(ctx, a, limit)?;
+                let alpha = alpha_frame(ctx, id, a, limit)?;
                 if (alpha.width, alpha.height) != (frame.width, frame.height) {
                     return Err(UNSUPPORTED);
                 }
