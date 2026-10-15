@@ -759,8 +759,9 @@ copy and verify, `placed`, then the source to the trash) → its backup and reco
 is `done` → its library ops are applied and the folders' new states go to the writer → its entry
 is carried → when every item has its results in the library, the operation leaves the journal.
 
-**Repair at open** (`intents::plan`, pure; M9.21 runs it on a worker): for each item, from what is
-on disk at `from` and `to` (and whether `to` is a verified copy of `from`):
+**Repair at open** (`intents::plan`, pure; the engine runs it as one file job at open, built in
+M9.21): for each item, from what is on disk at `from` and `to` (and whether `to` is a verified copy
+of `from`):
 
 | Kind | On disk | Decision |
 |---|---|---|
@@ -778,6 +779,37 @@ on disk at `from` and `to` (and whether `to` is a verified copy of `from`):
 Rolling back never removes anything: a partial copy has a temporary name, which the stale-temporary
 sweep removes. Carrying is harmless when it was done before, so a forward item is always carried
 again. Folder moves carry nothing (the sidecar is inside the folder).
+
+How the repair reads the disk and follows it (M9.21):
+
+- **Looking.** A side in an offline folder, or one that cannot be looked at, is unknown (the
+  operation waits). A name that a volume ignoring case resolves to the other end's file counts only
+  where its folder lists that exact spelling, so a file is never taken for its own copy and sent to
+  the trash; two hard links of one file are a copy of each other. "Verifies" is byte for byte, a
+  folder file by file. An undone copy (the copy to the trash) is judged as a trash; an item naming
+  one folder at both ends (Move to New Folder's folder) has nothing to repair.
+- **The order of a forward item:** a source still to go goes to the OS trash after the copy is
+  checked once more (a volume without a trash keeps it, and the move became a copy); then the
+  photo's backup with its record, then its entry, carried as a copy when the source stays. A carry
+  that fails with an I/O error is tried again at once (the session's writer may have replaced the
+  sidecar meanwhile), then left for the next open.
+- **The library follows** as a change from the files: a moved or renamed photo the library still
+  shows at its old place moves there with its id and data; a moved folder likewise, its
+  watched-folder entries rebased; a trashed photo or folder leaves it; any other end the library
+  shows otherwise than the disk (a copy, a photo put back) has its folder rescanned, which reads
+  the carried entry.
+- **Leaving the journal:** once its items are repaired and the library's ops are journalled. An
+  operation with an item that waits, or whose carry failed with an I/O error, stays for the next
+  open; one refused for good (a damaged sidecar kept aside, a read-only or vanished folder, a name
+  taken) is reported and not tried again. Each item's repair is logged and listed
+  (`library.inspect` → `fileOpRepairs`), and the job's end is a notice.
+- **While Dalica runs**, two things leave an operation to this repair instead of losing anything:
+  a carry of an entry or a backup that failed or left something behind keeps the operation in the
+  journal (the next open carries again); and an item whose step failed after its file or folder
+  had moved (the folders' `fsync`, the check after the rename) is reported failed, but the library
+  follows the file where it went and its entry is carried, as the repair would. A batch rename in
+  one folder that fails that way puts that file back with the others, so it stays all or
+  nothing.
 
 ## 9. Legacy sidecars (read-only compatibility)
 
@@ -837,3 +869,8 @@ Each of these is a regression test in `crates/fs` / `crates/sidecar` / `crates/s
 11. A folder with only a legacy sidecar shows its data; the first change writes `.dalica.json` with
     all of it, the legacy file stays byte-identical, and a folder with both files reads only
     `.dalica.json`.
+13. A file operation (a move on one volume or across volumes, a copy, a batch rename, a delete, a
+    folder move) stopped at any step — an error or a crash at every fault point of its file
+    transfers, its trash, its journal and its sidecar writes — loses nothing: after the repair at
+    the next open every photo is at a path the library lists (once for a move, twice for a
+    finished copy), with its data and its sidecar entry, and the journal is empty.

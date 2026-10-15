@@ -268,8 +268,9 @@ fn a_move_carries_the_entry_its_unknown_keys_a_debounced_star_and_the_backup() {
     assert_eq!(lib.photo(two).unwrap().folder, lib.folder_by_path(&porto).unwrap());
 }
 
-/// An operation an earlier session left in the journal stays there for the repair, and this
-/// session's operations take the ids after it.
+/// An operation an earlier session left in the journal is found at open and repaired (M9.21: here
+/// neither of its ends is there, so it is reported lost and leaves the journal), and this session's
+/// operations take the ids after it.
 #[test]
 fn journal_ids_continue_past_an_operation_left_from_an_earlier_session() {
     let left_from = Arc::new(Mutex::new(PathBuf::new()));
@@ -281,18 +282,22 @@ fn journal_ids_continue_past_an_operation_left_from_an_earlier_session() {
             "items": [{ "from": from, "to": library.join("there").join("IMG_9999.jpg"), "state": "pending" }] }] });
         std::fs::write(library.join("file-ops.json"), serde_json::to_vec(&old).unwrap()).unwrap();
     });
-    assert_eq!(l.s.file_ops_left().iter().map(|o| o.id).collect::<Vec<_>>(), [5]);
     assert!(l.s.notices().iter().all(|n| !n.contains("journal")), "{:?}", l.s.notices());
+    // The repair at open (the setup waited for it).
+    assert!(l.s.wait_file_jobs(PATIENCE));
+    l.s.flush().unwrap();
+    let repairs: Vec<_> = l.s.file_op_repairs().map(|r| (r.op, r.from.clone(), r.outcome)).collect();
+    assert_eq!(repairs, [(5, left_from.lock().unwrap().clone(), dalica_engine::fileops_recovery::RepairOutcome::Lost)]);
+    assert!(l.s.file_ops_left().is_empty());
     let (driver, seen) = l.driver();
     let item = l.item("IMG_0001.jpg");
     l.s.start_file_op(FileOp::new(driver, FileOpKind::Move, "Move", vec![item]));
     assert!(l.s.wait_file_jobs(PATIENCE));
     l.s.flush().unwrap();
     let ids: Vec<u64> = seen.lock().unwrap()[0].iter().map(|(id, _)| *id).collect();
-    assert_eq!(ids, [5, 6]);
+    assert_eq!(ids, [6], "the ids continue past the operation left");
     assert_eq!(l.s.file_op_events().last().unwrap().op, 6);
-    let left = journal(&l.library());
-    assert_eq!(left, [(5, vec![(left_from.lock().unwrap().clone(), "pending".to_string())])], "left for the repair");
+    assert_eq!(journal(&l.library()), [], "nothing left");
 }
 
 /// A damaged journal is kept aside with a notice, and operations still run.

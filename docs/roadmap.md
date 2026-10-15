@@ -4259,7 +4259,7 @@ mid-run.
     back; each delete question's text matches the spec, Move to Trash trashes and Cancel keeps; Move
     Folder through the scripted picker moves it and the tree follows; renaming in Folder Properties
     renames on disk and the section title follows; dialog fingerprints at both sizes.
-- ⬜ **M9.21 `engine`: a file operation interrupted at any step loses nothing**
+- ✅ **M9.21 `engine`: a file operation interrupted at any step loses nothing**
   - after: M9.13, M9.14, M9.15
   - files: `crates/engine/src/fileops_recovery.rs`, `crates/engine/tests/fileops_faults.rs`, `crates/engine/tests/fileops_recovery.rs`
   - scope: `data-model.md` §8 and §10.5, `architecture.md` §8: the file-operation journal replayed

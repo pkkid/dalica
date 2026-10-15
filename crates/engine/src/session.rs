@@ -98,6 +98,9 @@ pub(crate) enum Msg {
         carry: dalica_store::carry::Carry,
         from: Option<FolderId>,
         to: Option<FolderId>,
+        /// Set when the carry fails or leaves an entry behind (the operation then stays in the
+        /// file-operation journal, `fileops.rs`).
+        unfinished: Option<Arc<std::sync::atomic::AtomicBool>>,
     },
 }
 
@@ -767,7 +770,7 @@ fn io_worker(mut store: Store, rx: Receiver<Msg>, clock: &dyn Clock, errors: &Mu
                     fail("work on the I/O worker panicked".into());
                 }
             }
-            Ok(Msg::Carry { carry, from, to }) => {
+            Ok(Msg::Carry { carry, from, to, unfinished }) => {
                 let now = clock.now();
                 let carried = match (from, to) {
                     (Some(from), Some(to)) => {
@@ -787,6 +790,10 @@ fn io_worker(mut store: Store, rx: Receiver<Msg>, clock: &dyn Clock, errors: &Mu
                     }
                 };
                 let what = format!("sidecar entries from {} to {}", carry.from.display(), carry.to.display());
+                let finished = matches!(&carried, Ok(c) if c.refused.is_empty());
+                if let Some(flag) = unfinished.filter(|_| !finished) {
+                    flag.store(true, std::sync::atomic::Ordering::SeqCst);
+                }
                 match carried {
                     Ok(c) => {
                         for r in c.refused {
