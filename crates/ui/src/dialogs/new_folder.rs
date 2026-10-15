@@ -1,10 +1,11 @@
 //! The new-folder dialog (`organizing.md` §9): File ▸ Move to New Folder… and the photo menu's Move
 //! to New Folder… (`photo.moveToNewFolder` without a name: the selection) and Split Folder Here…
-//! (`photo.splitFolder`: the photo and every photo after it in its folder) open Folder Properties
-//! for a folder that does not exist yet, made beside the photos' folder.
+//! (`photo.splitFolder`: the photo and every photo after it in its folder) open the folder
+//! properties of a folder that does not exist yet, made beside the photos' folder. It is titled
+//! "New Folder", not "Folder Properties" (the dialog of a folder that exists, `folder_properties`).
 //!
 //! ```text
-//! Folder Properties
+//! New Folder
 //! Name:          [New Folder                       ]   (selected, ready for typing)
 //! Date:          [2026-06-04]  Thursday, June 4, 2026
 //!                [x] Use the date of the oldest photo
@@ -42,8 +43,8 @@ use crate::panels::light_table::header::weekday;
 use crate::panels::light_table::{folder_name, long_date};
 use crate::state::NewFolderDraft;
 
-/// The dialog's title and width (points).
-pub const TITLE: &str = "Folder Properties";
+/// The dialog's title (a folder still to be made) and width (points).
+pub const TITLE: &str = "New Folder";
 pub const WIDTH: f32 = 440.0;
 /// "Use the date of the oldest photo".
 pub const USE_OLDEST: &str = "Use the date of the oldest photo";

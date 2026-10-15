@@ -320,7 +320,8 @@ impl Driver {
     }
 
     /// What is still pending, as `ui.settle` lists it: queued input, a library opening or
-    /// scanning, the open photo's edit-view preview on its way, a photo's metadata being read for
+    /// scanning, a search waiting for its debounce or its answer, the open photo's edit-view
+    /// preview on its way, a photo's metadata being read for
     /// the Properties pane, visible thumbnails on their way, an open file dialog (Add Folder's, the
     /// Save As picker, a folder picker such as the Export dialog's Browse…, until its answer has
     /// run), a running animation. `jobs` also counts long jobs and background generation: metadata
@@ -336,6 +337,9 @@ impl Driver {
             None => busy.push("library: opening".into()),
             Some(s) if s.busy() => busy.push("library: scanning".into()),
             Some(_) => {}
+        }
+        if self.app.session().is_some_and(|s| s.search_state().pending()) {
+            busy.push("search: running".into());
         }
         let preview = self.app.session().map_or(0, dalica_engine::Session::preview_busy);
         if preview > 0 {
@@ -372,7 +376,9 @@ impl Driver {
 
     /// Runs frames until nothing visible has been pending for [`QUIET_FRAMES`] frames in a row, at
     /// most `max_frames` (`control-protocol.md` §6.12). While only workers are busy, each frame
-    /// yields a millisecond to them.
+    /// yields a millisecond to them. A search still pending after a frame is sent at once and its
+    /// answer awaited (`Session::wait_search`): the session's clock, which times the debounce, may
+    /// be a virtual one the frames do not move.
     pub fn settle_for(&mut self, max_frames: usize, jobs: bool) -> Settled {
         let mut settled = self.settle_frames(max_frames, jobs);
         if let Some(why) = &self.id_breach {
@@ -387,6 +393,9 @@ impl Driver {
         let mut busy = Vec::new();
         for n in 1..=max_frames {
             self.step();
+            if let Some(s) = self.app.session_mut().filter(|s| s.search_state().pending()) {
+                s.wait_search();
+            }
             busy = self.busy(jobs);
             if busy.is_empty() {
                 quiet += 1;
@@ -1128,6 +1137,22 @@ mod tests {
         // Already settled: exactly the quiet frames.
         assert_eq!(d.settle(QUIET_FRAMES).unwrap(), QUIET_FRAMES);
         assert!(d.settle(QUIET_FRAMES - 1).is_err(), "fewer frames than the quiet run cannot settle");
+    }
+
+    /// A search typed but not answered yet (its debounce, then the worker) is busy: the settle
+    /// returns once its result is in the light table.
+    #[test]
+    fn settle_waits_for_a_search_still_running() {
+        let (_dir, session) = library(1, 6);
+        let mut d = Driver::new(App::new(Some(session)), 900, 600, 1.0);
+        d.settle(3600).unwrap();
+        d.run("search.set", &serde_json::json!({ "text": "IMG_0003" })).unwrap();
+        assert!(d.busy(false).contains(&"search: running".to_string()), "{:?}", d.busy(false));
+        let s = d.settle_for(3600, false);
+        assert!(s.settled, "{s:?}");
+        let search = d.app().session().unwrap().search_state();
+        assert!(!search.pending(), "the settle returned before the search was answered");
+        assert_eq!(search.result.as_ref().map(|r| r.count()), Some(1), "its result is in");
     }
 
     /// A picker whose dialogs stay open until the test answers them.

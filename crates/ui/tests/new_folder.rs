@@ -6,8 +6,9 @@
 //!   the oldest photo's date with its box on); a name, a place and a description typed, OK makes
 //!   the folder beside `Lisbon` with that information and the photos in it; Edit ▸ Undo moves
 //!   them back and removes the folder;
-//! - the photo menu's Split Folder Here… moves that photo and every photo after it; a date typed
-//!   with the box off is the folder's; undo removes it;
+//! - the photo menu's Split Folder Here… opens the same dialog, titled "New Folder" (not "Folder
+//!   Properties"), and moves that photo and every photo after it; a date typed with the box off is
+//!   the folder's; undo removes it;
 //! - Cancel makes nothing; OK waits for a name and a date that reads as a day;
 //! - the dialog matches its fingerprints at 1400 × 900 (at 900 × 600 they only have to fit)
 //!   (`tests/fingerprints/dialog-new-folder-1400x900.json`; `DALICA_BLESS=1` stores new ones).
@@ -19,6 +20,7 @@ use crate::common::{FRAMES, LARGE, check_sizes, new_driver, put_dated_jpeg, try_
 use dalica_core::{Date, PhotoId};
 use dalica_engine::Session;
 use dalica_ui::dialogs::new_folder::{DATE_ID, DESCRIPTION_ID, NAME_ID, PLACE_ID, USE_OLDEST_ID};
+use dalica_ui::dialogs::{folder_properties, new_folder};
 use dalica_ui::headless::Click;
 use dalica_ui::state::DialogKind;
 use dalica_ui::{App, Driver};
@@ -152,12 +154,16 @@ fn move_to_new_folder_makes_the_folder_beside_with_its_info_and_undo_removes_it(
     assert!(fx.photos.join("Lisbon").join("IMG_0002.jpg").is_file());
 }
 
-/// Split Folder Here: the photo and every photo after it; a date typed with the box off.
+/// Split Folder Here: the dialog titled "New Folder"; the photo and every photo after it; a date
+/// typed with the box off.
 #[test]
 fn split_folder_here_moves_the_photo_and_every_photo_after_it() {
     let mut fx = fixture((1400, 900));
     let lisbon = fx.photos.join("Lisbon");
     fx.split_here(fx.ids[2]);
+    let title = dalica_ui::dialogs::inspect(fx.d.app())["title"].clone();
+    assert_eq!(title, "New Folder", "a folder still to be made");
+    assert_ne!(new_folder::TITLE, folder_properties::TITLE);
     assert_eq!(fx.d.state().new_folder.as_ref().map(|d| d.ids.clone()), Some(fx.ids[2..].to_vec()));
     assert_eq!(fx.d.state().new_folder.as_ref().map(|d| d.date.clone()), Some("2026-06-06".into()));
     fx.d.click(USE_OLDEST_ID).unwrap();
