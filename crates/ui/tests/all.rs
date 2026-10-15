@@ -49,6 +49,7 @@ mod retouch_tool;
 mod rotate;
 mod save_as;
 mod save_ui;
+mod saved_picture;
 mod scrollbar;
 mod search_ui;
 mod section_header;

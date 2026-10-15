@@ -477,4 +477,6 @@ By ▸.
 
 ## 11. Open questions (reserved for the maintainer)
 
-1. Whether `color:` search ships in M9 or later.
+1. ~~Whether `color:` search ships in M9 or later.~~ **Answered 2026-10-15 (M9.R): after 1.0 (M16),
+   with the other P2 rows**; until then `color:` and Tools ▸ Experimental ▸ Search for answer "not
+   available yet".

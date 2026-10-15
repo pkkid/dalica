@@ -23,6 +23,7 @@ use dalica_scenes::fingerprint;
 use dalica_ui::headless::{Drag, KeyState, PointerEvent, PointerKind, Target};
 use dalica_ui::state::DialogKind;
 use dalica_ui::{App, Driver};
+use dalica_ui_kit::WidgetInfo;
 use egui::{Modifiers, PointerButton, Pos2, pos2};
 use serde_json::{Value, json};
 
@@ -131,6 +132,17 @@ fn files(dir: &Path) -> Vec<String> {
         .collect();
     v.sort();
     v
+}
+
+/// The first photo cell of the last frame lying wholly inside the light table, top row first.
+fn first_visible_thumb(d: &Driver) -> WidgetInfo {
+    let table = try_widget(d, "region:lightTable").expect("the light table").rect;
+    let inside = |r: [f32; 4]| r[0] >= table[0] && r[1] >= table[1] && r[0] + r[2] <= table[0] + table[2] && r[1] + r[3] <= table[1] + table[3];
+    d.widgets()
+        .into_iter()
+        .filter(|w| w.id.strip_prefix("thumb:").is_some_and(|n| n.parse::<u64>().is_ok()) && inside(w.rect))
+        .min_by(|a, b| (a.rect[1], a.rect[0]).partial_cmp(&(b.rect[1], b.rect[0])).unwrap())
+        .expect("a photo cell wholly in view")
 }
 
 fn thumb(id: PhotoId) -> String {
@@ -290,7 +302,6 @@ fn the_tree_scrolls_near_its_edge_during_a_drag() {
         s.execute("folders.add", &json!({ "path": folder })).unwrap();
     }
     s.wait_idle();
-    let first = s.library().photos().map(|p| p.id).min().unwrap();
     let mut d = new_driver(App::new(Some(s)), 900, 600, 1.0);
     d.settle(FRAMES).unwrap();
     let steps = d.app().session().unwrap().undo_stack().len();
@@ -299,7 +310,9 @@ fn the_tree_scrolls_near_its_edge_during_a_drag() {
     assert_eq!(info(&d).offset, 0.0);
     assert!(info(&d).height > info(&d).view_h, "the list is taller than the pane");
     let near_bottom = pos2(tree[0] + tree[2] / 2.0, tree[1] + tree[3] - 4.0);
-    let start = center(&d, &thumb(first));
+    // A photo this frame shows: folders sort by their photos' dates (newest first, to the second),
+    // so when the files' times cross a second the first photo written lies below the view.
+    let start = first_visible_thumb(&d).center();
     let mut events = vec![PointerEvent { kind: PointerKind::Move, pos: start }, PointerEvent { kind: PointerKind::Down, pos: start }];
     events.extend((1..=12).map(|i| PointerEvent { kind: PointerKind::Drag, pos: start.lerp(near_bottom, i as f32 / 12.0) }));
     // Held there for a second.

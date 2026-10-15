@@ -10,8 +10,24 @@ state (ready, claimed, in review) is on the task board ([`task-board.md`](task-b
 
 ## Where we stand
 
-*Honest assessment, one dated entry per review, newest first (latest: 2026-10-14, M8.R). Agents:
+*Honest assessment, one dated entry per review, newest first (latest: 2026-10-15, M9.R). Agents:
 read this before picking work. Update it only with measured facts, dated.*
+
+*2026-10-15 (M9.R, the Release 0.4 gate).* M9 is done: `cargo xtask accept M9` passes in 93 s (92 s with the
+release budgets), and the tests on `main` went from 2 662 to 3 098. Albums gather photos from any folders in a
+manual order kept in each folder's `.dalica.json` and in `albums.json`, so an album and its order survive a rebuild
+or a lost `albums.json`; every album command undoes. Search answers as you type on a worker (at 100 000 photos: the
+index builds in 428 ms, a word answers in 1.1 ms, typing to results 10.6 ms), with filters, the age slider, a banner,
+Save Search Results and Show Duplicate Files (identical bytes only). Photos and folders move, copy, rename and go to
+the trash through journaled file jobs: within a drive a rename that never replaces, across drives a verified copy,
+each step undoable, with captions, tags, stars, edits, album places and the saved original travelling with the file.
+Interrupting every step of every operation (about 690 cases, real crashes included) leaves every photo in one place
+with its data after the next start. The run's own tests found and fixed seven ways data could have been lost or
+detached before anything shipped (two in the plan, three in the interruption sweep, one in undo, one for folders
+moved between sessions). Not done: Recently Updated is hidden until its counting rule is decided; duplicates show in
+one section; `color:` and `person:` find nothing yet; a delete cannot be undone on a Mac; on Linux a file name over
+about 245 bytes cannot be trashed; and since 0.3 the picture can stay the pre-Save one until a restart (found at this
+review, no data at risk). Parity ✅ 29 · 🟡 72 · ⬜ 46 · 🚫 16. M9.R is the 0.4 release gate (version 0.4.0).
 
 *2026-10-14 (M8.R, the Release 0.3 gate).* M8 is done: `cargo xtask accept M8` passes in 105 s
 (148 s with the release budgets), and the tests on `main` went from 2 242 to 2 662. Save (the
@@ -253,7 +269,7 @@ waits for.)
 | | M6 | Photo info, metadata and Release 0.1 | rotate, hide, captions, Properties, dates, tags written into files; installable preview | ✅ |
 | Edit and output | M7 | Edit view and fixes | edit view, basic fixes, Tuning and Retouch; thumbnails show edits | ✅ |
 | | M8 | Save and export | Save, Undo Save, Revert, Save a Copy, Save As; export | ✅ |
-| Organize | M9 | Albums, search and file operations | lasting albums, instant search and filters, move/copy/rename/delete | ⬜ |
+| Organize | M9 | Albums, search and file operations | lasting albums, instant search and filters, move/copy/rename/delete | ✅ |
 | | M10 | Preferences, MCP and Release 0.5 | Options and shortcut editor, MCP and the P0 workflows; all P0 rows shipped | ⬜ |
 | P1 parity | M11 | Import, compare and viewing | import from cards and drives, compare and batch edit, slideshow, the viewer | ⬜ |
 | | M12 | Effects | effect tiles, parameter panels and all 27 effects | ⬜ |
@@ -4403,7 +4419,7 @@ mid-run.
   - done when: no unused error variant; a beside Save decodes once (a decode counter in the test);
     `cargo xtask bench save_export` prints the new rotation number and `cargo xtask budgets` passes
     with the tightened budget.
-- ⬜ **M9.R Release 0.4 gate**
+- ✅ **M9.R Release 0.4 gate**
   - after: M9.25, M9.27, M9.28, M9.29, M9.30
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`
@@ -5019,7 +5035,7 @@ No other step of M10 needs a maintainer decision mid-run.
   - done when: `cargo test -p dalica-mcp --test workflows` runs W01 green (on all three OSes at the review);
     `apps/dalica-cli/tests/mcp_process.rs` passes; `cargo xtask stats` prints 9 / 12 passing and
     `cargo xtask stats --check` fails when a P0 workflow is ignored (a planted `#[ignore]`).
-- ⬜ **M10.29 `fs` + `store`: real crashes, a full disk and read-only folders**
+- ⬜ **M10.34 `fs` + `store`: real crashes, a full disk and read-only folders**
   - after: M9.R
   - files: `crates/fs/src/faults.rs`, `crates/fs/tests/crash.rs`, `crates/fs/tests/refusals.rs`, `crates/fs/tests/all.rs`, `crates/store/tests/crash.rs`, `crates/store/tests/all.rs`, `crates/fs/README.md`
   - scope: the data-safety cases the test audit of 2026-10-15 found untested (maintainer decision,
@@ -5036,7 +5052,7 @@ No other step of M10 needs a maintainer decision mid-run.
   - done when: `cargo test -p dalica-fs -p dalica-store` passes quick; the kill tests run 50 times
     each with `DALICA_FULL_TESTS=1` and never find a torn file; each refusal leaves the folder
     byte-identical and names the reason.
-- ⬜ **M10.30 `engine`: undo under faults and a day in the life**
+- ⬜ **M10.35 `engine`: undo under faults and a day in the life**
   - after: M9.R
   - files: `crates/engine/tests/undo_faults.rs`, `crates/engine/tests/day_in_the_life.rs`, `crates/engine/tests/effects.rs`, `crates/engine/tests/all.rs`
   - scope: undo and redo of a move, a rename and a delete interrupted at the file-job points
@@ -5047,7 +5063,7 @@ No other step of M10 needs a maintainer decision mid-run.
     never changes the model or the undo stack and one with `History::None` never adds a step.
   - done when: `cargo test -p dalica-engine` passes quick and with `DALICA_FULL_TESTS=1`; a
     planted bug (undo of a move that skips the sidecar entry) fails `undo_faults`.
-- ⬜ **M10.31 `ui` + `dalica`: closing the window, display scales and a monkey test**
+- ⬜ **M10.36 `ui` + `dalica`: closing the window, display scales and a monkey test**
   - after: M9.R
   - files: `crates/ui/src/app.rs`, `apps/dalica/src/window.rs`, `crates/ui/tests/shutdown.rs`, `crates/ui/tests/scale.rs`, `crates/ui/tests/monkey.rs`, `crates/ui/tests/all.rs`
   - scope: the windowed exit (placement and view state saved, pending metadata writes flushed) and
@@ -5059,7 +5075,7 @@ No other step of M10 needs a maintainer decision mid-run.
     the UI thread (200 frames quick, 2 000 at full strength).
   - done when: `cargo test -p dalica-ui -p dalica` passes quick and at full strength; closing with
     a caption still pending leaves it in the sidecar.
-- ⬜ **M10.32 `meta` + `image`: metadata written to real camera files, and colour without a profile**
+- ⬜ **M10.37 `meta` + `image`: metadata written to real camera files, and colour without a profile**
   - after: M9.R
   - files: `crates/meta/tests/corpus.rs`, `crates/meta/tests/write_jpeg.rs`, `crates/image/tests/corpus.rs`, `crates/image/src/formats/jpeg.rs`
   - scope: the metadata write-back invariants run over the real camera and phone JPEGs of the
@@ -5112,8 +5128,81 @@ No other step of M10 needs a maintainer decision mid-run.
     files in its scope (`architecture.md` §9).
   - done when: `cargo xtask tasks sync --check` parses them and `tasks sync --dry-run` lists one new
     issue per block.
+- ⬜ **M10.29 `library` + `engine` + `ui`: Recently Updated counts changes, and shows**
+  - after: M9.R
+  - files: `crates/library/src/model.rs`, `crates/library/src/query.rs`, `crates/library/tests/m9_fields.rs`, `crates/engine/src/session.rs`, `crates/engine/tests/recently_updated.rs`, `crates/ui/src/panels/light_table.rs`, `crates/ui/tests/albums_tree.rs`, `crates/ui/tests/tree.rs`, `docs/organizing.md`, `docs/data-model.md`
+  - scope: the maintainer's answer at M9.R (Q1): a photo is recently updated by the last change
+    after this library first indexed it (an edit, a caption, tags, a star, a rotation, a date, a
+    file changed on disk); being imported is not a change, so a new library's Recently Updated
+    starts empty. `Library::updated_time` takes the later of the last Dalica change and the file's
+    modification time only when that is after the first-indexed time. Every command that changes a
+    photo's data is stamped (in `Session::execute`, not in undo or redo), not only the album
+    commands and stars (M9.10's open item). Decide how the last-change time survives a rebuild
+    (preference: a `changed` time in the photo's sidecar entry, so a rebuild keeps it and M6's
+    rebuild check stays exact; the alternative is index-only, emptying it on a rebuild). Then turn
+    `SHOW_RECENTLY_UPDATED` on: the tree row and the light-table section (`organizing.md` §4), and
+    the release notes' line is removed. Whole-window baselines that change are re-blessed.
+  - done when: tests: a fresh scan leaves Recently Updated empty; a caption, a star, a rotation and
+    a file rewritten on disk each put the photo first, on a virtual clock, and it leaves after the
+    setting's days; undo of the change restores the earlier time; a rebuild keeps the list (or, if
+    index-only was chosen, the commit body says why); the row and section show; CI green on the
+    three OSes.
+- ⬜ **M10.30 `xtask`: the search budgets measured on the Budgets job's slower runners**
+  - after: M10.22
+  - files: `xtask/src/accept.rs`, `crates/engine/benches/search.rs`, `docs/development.md`
+  - scope: the maintainer's answer at M9.R (Q2): the M9 search budgets were 1.5 × a workstation
+    measurement and miss on GitHub's slower runner class (index build 720–770 ms against 630 ms;
+    every budget there slows by about 1.55×). Run the Budgets workflow on this branch until it has
+    landed on the slower class at least three times (recognised by its save and export medians,
+    about 520 ms and 12.2 s against 324 ms and 7.9 s on the faster class), take each search row's
+    median there, and set each budget to 1.5 × that first slower-runner measurement, rounded as
+    M9.12 did and still never above 100 ms per query; `development.md` §8 names the runner class.
+    No other budget changes.
+  - done when: the PR shows the slower-runner logs and the new numbers; three Budgets runs on the
+    branch pass, at least one on the slower class; `cargo xtask budgets` passes locally.
+- ⬜ **M10.31 `engine`: Export takes album sections and search results**
+  - after: M9.R
+  - files: `crates/engine/src/cmd/export.rs`, `crates/engine/tests/export_sections.rs`, `docs/creating.md`
+  - scope: `export.run` with `section` set to a user album, `album:starred` or `album:search`
+    exports that section's photos in its display order (the search results through
+    `Session::search_results_now()`), as it does for folders; the Export button on an album's
+    section header and on the search banner's results works through it (M9.10 and M9.11's open
+    items).
+  - done when: tests: an album over three folders exports in album order; the search results export
+    the matches; Starred Photos exports; an unknown album id fails gracefully; CI green.
+- ⬜ **M10.32 `fs` + `engine`: the file-operation follow-ups from M9**
+  - after: M9.R
+  - files: `crates/fs/src/trash.rs`, `crates/fs/tests/trash.rs`, `crates/engine/src/fileops.rs`, `crates/engine/src/cmd/files.rs`, `crates/engine/src/scanning.rs`, `crates/scan/src/diff.rs`, `crates/engine/tests/file_followups.rs`
+  - scope: three gaps M9's run found, none losing data today: on Linux a file whose name makes its
+    `.trashinfo` record name too long (over about 245 bytes) cannot be trashed, so the delete stops;
+    trash it under a shortened, unique name in the trash's `files/` with the original path in its
+    record, and restore it under its own name (M9.24); undoing a copy of a saved photo leaves the
+    copy's kept original and its record in the destination; trash them with the copy when unchanged
+    (M9.13); a folder moved outside Dalica between two Scan Always folders is still seen as gone and
+    new by the verification pass, because each is its own region scan; pair it as M9.24's
+    `diff_found` does across regions.
+  - done when: tests: a 255-byte name goes to the trash and comes back on Linux; undoing a copy of a
+    saved photo leaves nothing behind; the two-unit move keeps ids, data and album places; CI green
+    on the three OSes.
+- ⬜ **M10.33 `ui` + `engine` + docs: small follow-ups from M9**
+  - after: M9.R
+  - files: `tests/acceptance/m9_files.rs`, `crates/engine/tests/panic_hunt.rs`, `crates/ui/src/headless.rs`, `crates/ui/src/dialogs/new_folder.rs`, `crates/ui/tests/new_folder.rs`, `crates/engine/tests/albums.rs`, `crates/engine/README.md`, `docs/security.md`
+  - scope: M9's live file-operations acceptance test fails now and then on Windows: right after
+    `app::flush` it sees a sidecar write still in flight (a `.dalica.json.dalica-tmp-…` file in the
+    folder listing, or the entry not yet there); find whether flush returns before the sidecar
+    writer's rename on Windows (then the fix belongs in the engine: ask the lead for the file) or the
+    test reads too early; `panic_hunt` builds valid
+    parameters for M9's commands (rename, move, copy, delete, folder and album commands); `ui.settle`
+    and the driver's busy check wait for a search still running; Split Folder Here's dialog is
+    titled as a new folder, not "Folder Properties"; stale text: `security.md` §5.7 (deletes are
+    built), the engine README's rename line, the comment of M9.10's folder-rename test, and the
+    Tags row of `parity.md` (Search for This Tag is built).
+  - done when: `file_operations_their_undo_and_the_data_lessons_in_the_live_app` passes 20/20 on
+    Windows CI (a matrix rerun) or the cause is shown fixed by a test; `panic_hunt` green,
+    printing how many M9 commands it reached with valid parameters; a settle test with a search
+    pending; the dialog's title test; CI green.
 - ⬜ **M10.R Release 0.5 gate**
-  - after: M10.24, M10.27, M10.29, M10.30, M10.31, M10.32
+  - after: M10.24, M10.27, M10.29, M10.30, M10.31, M10.32, M10.33, M10.34, M10.35, M10.36, M10.37
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`
   - scope: a release gate (Release 0.5, P0 complete): the lead runs `/milestone-review M10.R` to
@@ -5153,6 +5242,8 @@ wave 4   M10.11 File Types + Export tabs  ‖  M10.12 shortcut editor  ‖  M10.
          ‖  M10.18 workflow harness + W02 W03 W08 W09
 wave 5   M10.19 W04 W05 W06 W12  ‖  M10.20 W01, stdio smoke, floor
 wave 6   M10.26 P0 parity audit
+         (fixes from M9.R, any wave: M10.29 Recently Updated ‖ M10.31 export sections
+          ‖ M10.32 file-op follow-ups ‖ M10.33 small follow-ups; M10.30 search budgets after M10.22)
 wave 7   M10.27 accept M10 → M10.R          (M10.28 lead: M12 blocks, any time after M9.26)
 ```
 
@@ -5887,6 +5978,7 @@ the maintainer adds items here as they come up (maintainer decision, 2026-10-11)
 | # | In | Done when (sketch) |
 |---|---|---|
 | M16 Themes | switchable themes, taken from the Craft apps: today's dark theme stays the default (it is LightCraft's look, LightCraft's only theme), plus PhotoCraft's twelve: Pro (Dark), Pro (Medium Gray), Pro (Light Gray), Pro (Light), Studio (Dark), Studio (Light), Classic, Adwaita (Light), Adwaita (Dark), Solarized Dark, Breeze Light, Breeze Dark (as of `storytold/photocraft` 30bd8a55). The same architecture and implementation as PhotoCraft's `crates/ui-egui/src/theme.rs`: a `ThemeKind` enum with id, label, `from_name` and `next`, one token set per kind (`Tokens::for_kind`), the theme kept in settings, one command per theme plus `ui.set {theme}`, and a Theme choice in Options › General › Interface. PhotoCraft's palettes and code are mapped onto Dalica's `ui-kit` `Tokens`, with a header naming the source and a `NOTICE` row (`architecture.md` §9), plus the Solarized palette's `ATTRIBUTION.md` row and MIT licence text | every theme passes the `ui-kit` contrast tests; a widget-gallery fingerprint per theme; switching by command, CLI and MCP repaints without a restart and survives one; the main window screenshotted in every theme |
+| M16 Colour search | `color:` search and Tools ▸ Experimental ▸ Search for ▸ (colour) (`SRCH-COLOR`, P2; placed after 1.0 by the maintainer at M9.R) | `color:green` finds photos whose main colour is green, from a per-photo colour summary computed on scan |
 
 ## Reserved decisions (the maintainer's, not the agents')
 
