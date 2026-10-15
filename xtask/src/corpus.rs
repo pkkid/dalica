@@ -617,6 +617,172 @@ fn warn_clone_head(clone: &Path, commit: Option<&str>, set: &Set) {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Making a set: `cargo xtask corpus make heif-wide`
+
+/// One file of a made set: `<file>\t<inputs>\t<args>` in its `recipes.tsv`.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Recipe {
+    pub file: String,
+    pub inputs: Vec<String>,
+    pub args: Vec<String>,
+}
+
+/// Parses `recipes.tsv` (`#` lines are comments): every file and input a safe relative path, the
+/// file a plain name, each file once, no argument naming the output.
+pub fn parse_recipes(text: &str) -> Result<Vec<Recipe>, String> {
+    let mut out: Vec<Recipe> = Vec::new();
+    for (i, line) in text.lines().enumerate().filter(|(_, l)| !l.trim().is_empty() && !l.starts_with('#')) {
+        let bad = |why: &str| format!("recipes.tsv line {}: {why}: {line:?}", i + 1);
+        let mut cols = line.split('\t');
+        let (Some(file), Some(inputs), Some(args), None) = (cols.next(), cols.next(), cols.next(), cols.next()) else {
+            return Err(bad("expected `<file>\\t<inputs>\\t<args>`"));
+        };
+        let inputs: Vec<String> = inputs.split(' ').filter(|s| !s.is_empty()).map(str::to_string).collect();
+        let args: Vec<String> = args.split(' ').filter(|s| !s.is_empty()).map(str::to_string).collect();
+        if !safe_rel_path(file) || file.contains('/') || inputs.is_empty() || !inputs.iter().all(|p| safe_rel_path(p)) {
+            return Err(bad("unsafe or missing path"));
+        }
+        if args.iter().any(|a| a == "-o" || a.starts_with("--output")) {
+            return Err(bad("the output is the file column"));
+        }
+        if out.iter().any(|r| r.file == file) {
+            return Err(bad("listed twice"));
+        }
+        out.push(Recipe { file: file.to_string(), inputs, args });
+    }
+    if out.is_empty() { Err("recipes.tsv lists no file".into()) } else { Ok(out) }
+}
+
+/// The HEVC encoders `heif-enc --list-encoders` names (the lines under `HEIC encoders:`).
+pub fn hevc_encoders(list: &str) -> Vec<String> {
+    let mut lines = list.lines().skip_while(|l| l.trim() != "HEIC encoders:").skip(1);
+    std::iter::from_fn(|| lines.next().and_then(|l| l.trim().strip_prefix("- ").map(str::to_string))).collect()
+}
+
+/// Runs `program args`, returning its standard output, or what it said when it failed.
+fn run_tool(program: &Path, args: &[&str], cwd: Option<&Path>) -> Result<String, String> {
+    let mut cmd = Command::new(program);
+    cmd.args(args);
+    if let Some(dir) = cwd {
+        cmd.current_dir(dir);
+    }
+    match cmd.output() {
+        Ok(o) if o.status.success() => Ok(String::from_utf8_lossy(&o.stdout).into_owned()),
+        Ok(o) => {
+            let err = String::from_utf8_lossy(&o.stderr);
+            let out = String::from_utf8_lossy(&o.stdout);
+            let said = err.lines().chain(out.lines()).map(str::trim).rfind(|l| !l.is_empty()).unwrap_or("no message").to_string();
+            Err(format!("{} exited with {}: {said}", program.display(), o.status))
+        }
+        Err(e) => Err(format!("{}: {e}", program.display())),
+    }
+}
+
+/// libheif's `heif-enc` (`$DALICA_HEIF_ENC`, else on the `PATH`) with an HEVC encoder, its
+/// version line and encoder names; and `heif-dec` (`$DALICA_HEIF_DEC`, else beside `heif-enc`,
+/// else on the `PATH`), if it runs.
+fn libheif_tools() -> Result<(PathBuf, String, Vec<String>, Option<PathBuf>), String> {
+    let env = |name: &str| std::env::var_os(name).filter(|v| !v.is_empty()).map(PathBuf::from);
+    let enc = env("DALICA_HEIF_ENC").unwrap_or_else(|| PathBuf::from("heif-enc"));
+    let missing = |e: String| {
+        format!(
+            "corpus make heif-wide: libheif's heif-enc does not run ({e}); install libheif's tools with an x265 encoder plugin \
+             (e.g. Fedora's libheif-tools with libheif-freeworld, Debian's libheif-examples with libheif-plugin-x265) or set \
+             DALICA_HEIF_ENC to its path; nothing was made"
+        )
+    };
+    let version = run_tool(&enc, &["--version"], None).map_err(missing)?;
+    let encoders = hevc_encoders(&run_tool(&enc, &["--list-encoders"], None).map_err(missing)?);
+    if encoders.is_empty() {
+        return Err(format!(
+            "corpus make heif-wide: {} lists no HEIC (HEVC) encoder; install libheif's x265 plugin; nothing was made",
+            enc.display()
+        ));
+    }
+    let beside = enc.parent().filter(|p| !p.as_os_str().is_empty()).map(|p| p.join("heif-dec"));
+    let dec =
+        [env("DALICA_HEIF_DEC"), beside, Some(PathBuf::from("heif-dec"))].into_iter().flatten().find(|d| run_tool(d, &["--version"], None).is_ok());
+    let version = format!(
+        "heif-enc {}",
+        version.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with("plugin path")).collect::<Vec<_>>().join(", ")
+    );
+    Ok((enc, version, encoders, dec))
+}
+
+/// `cargo xtask corpus make heif-wide`: `dalica-image`'s `tests/heif_wide.rs` writes the source
+/// PNGs (`dalica-scenes` pictures) and `recipes.tsv`, `heif-enc` encodes every file, `heif-dec`
+/// (when installed) writes libheif's own decode of each as `libheif/<stem>.png`, and the set
+/// replaces `corpus/heif-wide/` with its `index.tsv` and `SOURCES.md`. Nothing is published:
+/// the set stays local until the maintainer decides (`formats.md` §3).
+pub fn make(root: &Path, args: &[String]) -> Result<(), String> {
+    let set = &corpus_pins::HEIF_WIDE;
+    match args {
+        [name] if name == set.name => {}
+        _ => return Err(format!("corpus make: the only set made here is `{}` (cargo xtask corpus make {})", set.name, set.name)),
+    }
+    let (enc, version, encoders, dec) = libheif_tools()?;
+    println!("corpus make: {} ({version}; HEVC: {})", enc.display(), encoders.join(", "));
+    match &dec {
+        Some(d) => println!("corpus make: libheif's decodes by {}", d.display()),
+        None => println!("corpus make: heif-dec does not run (set DALICA_HEIF_DEC): the set will have no libheif decodes"),
+    }
+    let dir = staging(root, set)?;
+    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+    let status = Command::new(cargo)
+        .current_dir(root)
+        .env("DALICA_HEIF_WIDE_MAKE", &dir)
+        .args(["test", "-p", "dalica-image", "--test", "all", "--", "heif_wide::sources_and_recipes", "--exact", "--nocapture"])
+        .status()
+        .map_err(|e| format!("cannot run cargo: {e}"))?;
+    if !status.success() {
+        return Err("corpus make: writing the sources (dalica-image tests/heif_wide.rs) failed".into());
+    }
+    let recipes = parse_recipes(&std::fs::read_to_string(dir.join("recipes.tsv")).map_err(|e| format!("recipes.tsv: {e}"))?)?;
+    let libheif = dir.join("libheif");
+    std::fs::create_dir_all(&libheif).map_err(|e| format!("{}: {e}", libheif.display()))?;
+    let mut index = String::from("# file\tbytes\tsha256\tlibheif's decode (heif-dec)\n");
+    for r in &recipes {
+        let mut args: Vec<&str> = r.args.iter().map(String::as_str).collect();
+        args.extend(["-o", &r.file]);
+        args.extend(r.inputs.iter().map(String::as_str));
+        run_tool(&enc, &args, Some(&dir)).map_err(|e| format!("corpus make: {}: {e}", r.file))?;
+        let stem = r.file.rsplit_once('.').map_or(r.file.as_str(), |(s, _)| s);
+        let decoded = match &dec {
+            Some(d) => match run_tool(d, &["--quiet", &r.file, &format!("libheif/{stem}.png")], Some(&dir)) {
+                Ok(_) => format!("libheif/{stem}.png"),
+                Err(e) => format!("failed: {e}"),
+            },
+            None => "not run".into(),
+        };
+        let path = dir.join(&r.file);
+        let bytes = std::fs::metadata(&path).map_err(|e| format!("{}: {e}", path.display()))?.len();
+        index.push_str(&format!("{}\t{bytes}\t{}\t{decoded}\n", r.file, hash_file(&path)?));
+        println!("corpus make: {:<28} {:>8} bytes  libheif: {decoded}", r.file, bytes);
+    }
+    std::fs::write(dir.join("index.tsv"), index).map_err(|e| format!("index.tsv: {e}"))?;
+    let sources = format!(
+        "# Test corpus `{name}` (made locally, not published)\n\n{what}.\n\n{terms}\n\nMade by `cargo xtask corpus make {name}` with \
+         {version} (HEVC: {encoders}){dec}. `recipes.tsv` gives every file's sources and arguments, `index.tsv` its size, sha256 \
+         and libheif's decode. Gitignored; never commit these files (`docs/development.md` §11).\n",
+        name = set.name,
+        what = set.what,
+        terms = set.terms,
+        encoders = encoders.join(", "),
+        dec = if dec.is_some() { "; libheif's decodes by heif-dec" } else { "" },
+    );
+    std::fs::write(dir.join("SOURCES.md"), sources).map_err(|e| format!("SOURCES.md: {e}"))?;
+    let dest = set_dir(root, set);
+    remove_dir(&dest)?;
+    std::fs::rename(&dir, &dest).map_err(|e| format!("{} → {}: {e}", dir.display(), dest.display()))?;
+    println!(
+        "corpus make: {} files in corpus/{}; measure them with `cargo test -p dalica-image --features heif --test all heif_wide -- --nocapture`",
+        recipes.len(),
+        set.name
+    );
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------------------------
 // Commands
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -649,8 +815,13 @@ fn set_names() -> String {
     corpus_pins::SETS.iter().map(|s| s.name).collect::<Vec<_>>().join(", ")
 }
 
-/// `cargo xtask corpus [--all | <set>…] [--local] [--update-manifest]`
+/// `cargo xtask corpus [--all | <set>…] [--local] [--update-manifest]`, or `corpus make <set>`.
 pub fn run(root: &Path, args: &[String]) -> Result<(), String> {
+    if let Some((first, rest)) = args.split_first()
+        && first == "make"
+    {
+        return make(root, rest);
+    }
     let args = parse_args(args)?;
     if !args.all && args.sets.is_empty() {
         return status(root);
@@ -672,7 +843,8 @@ fn status(root: &Path) -> Result<(), String> {
     println!("Test corpora live in {} (gitignored, never committed); pins in xtask/src/corpus_pins.rs.\n", root.join("corpus").display());
     for set in corpus_pins::SETS {
         let state = state(root, set)?;
-        println!("  corpus/{:<10} {}", format!("{}/", set.name), state.label());
+        let made = if state == State::NotPublished && set_dir(root, set).join("SOURCES.md").is_file() { " (made locally)" } else { "" };
+        println!("  corpus/{:<10} {}{made}", format!("{}/", set.name), state.label());
         println!("  {:<17} {}", "", set.what);
         println!("  {:<17} {}", "", pin_text(set));
         if let Source::Files(files) = &set.source {
@@ -690,6 +862,7 @@ fn status(root: &Path) -> Result<(), String> {
          cargo xtask corpus <set>…          the same for some sets\n\
          cargo xtask corpus --local …       our own sets from ../dalica-corpus (or $DALICA_CORPUS_REPO)\n\
          cargo xtask corpus --update-manifest <set>…   refetch from the pins and rewrite the manifests\n\
+         cargo xtask corpus make heif-wide  make the heif-wide set locally with libheif's heif-enc (never published by it)\n\
          cargo xtask test-corpus [-p image] fetch, then run the corpus tests (--release --features corpus)"
     );
     Ok(())
@@ -987,6 +1160,36 @@ mod tests {
         assert_eq!(parse_test_args(&strings(&["-p", "meta"])).unwrap().crates, ["dalica-meta"]);
         assert!(parse_test_args(&strings(&["-p", "thumbs"])).unwrap_err().contains("has no corpus tests"));
         assert!(parse_test_args(&strings(&["-p"])).is_err());
+    }
+
+    #[test]
+    fn recipes_are_checked_before_anything_is_encoded() {
+        let ok = parse_recipes("# file\tinputs\targs\na.heic\tsources/a.png\t-q 90 -b 10\nseq.heic\tsources/s/1.png sources/s/2.png\t-S\n").unwrap();
+        assert_eq!(ok.len(), 2);
+        assert_eq!(ok[0], Recipe { file: "a.heic".into(), inputs: vec!["sources/a.png".into()], args: strings(&["-q", "90", "-b", "10"]) });
+        assert_eq!(ok[1].inputs.len(), 2);
+        for bad in [
+            "",
+            "a.heic\tsources/a.png",
+            "../a.heic\tsources/a.png\t-q 90",
+            "d/a.heic\tsources/a.png\t-q 90",
+            "a.heic\t../x.png\t-q 90",
+            "a.heic\t\t-q 90",
+            "a.heic\tsources/a.png\t-o b.heic",
+            "a.heic\tsources/a.png\t-q 90\na.heic\tsources/a.png\t-q 50",
+            "a.heic\tsources/a.png\t-q\textra",
+        ] {
+            assert!(parse_recipes(bad).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn hevc_encoders_come_from_the_heic_section_only() {
+        let list = "AVC encoders:\n- x264 = x264 [default]\nAVIF encoders:\n- aom = AOM [default]\nHEIC encoders:\n- x265 = x265 HEVC encoder [default]\nJPEG encoders:\n- jpeg = libjpeg\n";
+        assert_eq!(hevc_encoders(list), vec!["x265 = x265 HEVC encoder [default]".to_string()]);
+        // Fedora's libheif without its x265 plugin: the section is empty.
+        assert!(hevc_encoders("HEIC encoders:\nJPEG encoders:\n- jpeg = libjpeg\n").is_empty());
+        assert!(hevc_encoders("").is_empty());
     }
 
     #[test]

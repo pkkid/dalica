@@ -4712,7 +4712,7 @@ No other step of M10 needs a maintainer decision mid-run.
     decode found wrong is fixed here; each row's note rewritten to what was measured.
   - done when: `cargo test -p dalica-image --test p0_formats` measures every item those rows' notes
     name; `cargo xtask test-corpus` passes with its floors unchanged or raised.
-- ⬜ **M10.24 `image` + `xtask`: HEIF measured on a wider set, for the M10.R decision**
+- ✅ **M10.24 `image` + `xtask`: HEIF measured on a wider set, for the M10.R decision**
   - after: M6.42, M9.R
   - files: `crates/image/src/formats/heif.rs`, `crates/image/tests/heif_wide.rs`, `xtask/src/corpus.rs`, `xtask/src/corpus_pins.rs`, `docs/formats.md`
   - scope: Release 0.5's open question (the `heif` feature in release builds): a `heif-wide`

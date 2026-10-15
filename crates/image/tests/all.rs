@@ -12,6 +12,7 @@ mod common;
 mod color;
 mod decode;
 mod encode;
+mod heif_wide;
 mod jpeg_quality;
 mod jpeg_transform;
 mod jxl;

@@ -33,7 +33,8 @@ commands:
             finished milestone's acceptance; --platform: the Windows and macOS part)
   clean     cargo xtask clean [--dry-run] [--keep <name>]… [--only <name>]… [--older-than <days>]: remove the build dirs (target/*, stray */target); skips dirs in use
   accept    cargo xtask accept M<n> [--headless]: a milestone's acceptance test and its manual checks
-  corpus    cargo xtask corpus [--all | <set>…] [--local] [--update-manifest]: the test corpora, fetched and sha256-verified
+  corpus    cargo xtask corpus [--all | <set>…] [--local] [--update-manifest]: the test corpora, fetched and sha256-verified;
+            cargo xtask corpus make heif-wide: make that set locally with libheif's heif-enc
   test-corpus  cargo xtask test-corpus [-p <crate>] [-- args]: fetch, then the corpus tests with their floors (--release --features corpus)
   contributors  cargo xtask contributors [--check] [--ref <rev>]: regenerate contributors/contributors.json (git + gh); --check verifies people.toml offline
   bench     cargo xtask bench [name…] [-- args]: release benches; history in <target>/bench/history.jsonl; flags >20 % slowdowns
