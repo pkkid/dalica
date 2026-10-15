@@ -7,6 +7,28 @@ and git.
 
 ## Current
 
+- **Milestone:** M9, albums, search and file operations, is done: M9.1–M9.30 are merged and `cargo xtask accept M9`
+  passes (93 s alone; 92 s with the release budgets). Albums across folders with a manual order that survives a
+  rebuild, Starred Photos, Album Properties, Add to Album; search as you type with filters, the age slider, the banner,
+  Save Search Results and Show Duplicate Files; move, copy, rename, Move to New Folder, Split Folder Here, folder moves
+  and delete to the trash, by menu, keyboard and drag and drop, each undoable and repaired at the next start if
+  interrupted. Version 0.4.0: M9.R is the 0.4 release gate, published once the review PR is merged. Next: M10,
+  preferences, MCP and Release 0.5; its issues open when the M9.R review PR is merged.
+- **M9 review (2026-10-15):** the maintainer answered six questions: Recently Updated counts only changes after a
+  photo is first indexed, then shows (fix task M10.29); the search budgets are re-measured on the Budgets job's
+  slower runner class (M10.30); `color:` search comes after 1.0 (M16); the planning decisions that change behaviour
+  stand as built (delete undo on Linux and Windows only, copies' undo trashes them, folders move within the library,
+  same-name folders merge, English month names, Faces greyed until M13, duplicates in one section); all 83
+  fingerprint baselines approved; ship 0.4 after fixing the picture that stayed the pre-Save one until a restart (a
+  separate fix PR merged before the release). Fix tasks M10.29–M10.33 carry the rest of the run's follow-ups.
+- **Numbers (M9.R, 9023bea, 2026-10-15):** tests 3 098 passed, 4 ignored; `cargo xtask ci` 837 s cold, 417 s warm;
+  accept M0–M9 alone 7 / 8 / 12 / 53 / 57 / 66 / 89 / 100 / 111 / 93 s; release (24 cores, p50): search at 100 k photos
+  index build 428 ms (budget 630), one word 1.1 ms (1.7), three words and a filter 0.37 ms (0.6), `-word` 3.2 ms (5.1),
+  `search.set` to applied 10.6 ms (22.3); Save 271 ms, rotate-only 286 ms (budget tightened to 455), export 6.6 s;
+  interrupted file operations ≈ 690 cases, none losing data; GitHub CI Ubuntu 20:55, macOS 19:48, Windows 42:50,
+  Budgets 7:45 (the index-build row misses on GitHub's slower runner class, a review question); parity ✅ 29 · 🟡 72 ·
+  ⬜ 46 · 🚫 16 (163 rows, 172 commands). Run: 30 tasks in about 16 h 36 min with 7 workers; 6 send-backs; the run's
+  tests found and fixed seven data-safety bugs before anything shipped.
 - **Milestone:** M8, save and export, is done: M8.1–M8.30 are merged and `cargo xtask accept M8`
   passes (105 s alone; 148 s with the release budgets). Save writes edits into the photo and keeps
   the original in `.dalica-originals/` (Undo Save and Revert bring it back byte for byte); a second
