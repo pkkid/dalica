@@ -5063,7 +5063,7 @@ No other step of M10 needs a maintainer decision mid-run.
     never changes the model or the undo stack and one with `History::None` never adds a step.
   - done when: `cargo test -p dalica-engine` passes quick and with `DALICA_FULL_TESTS=1`; a
     planted bug (undo of a move that skips the sidecar entry) fails `undo_faults`.
-- ⬜ **M10.36 `ui` + `dalica`: closing the window, display scales and a monkey test**
+- ✅ **M10.36 `ui` + `dalica`: closing the window, display scales and a monkey test**
   - after: M9.R
   - files: `crates/ui/src/app.rs`, `apps/dalica/src/window.rs`, `crates/ui/tests/shutdown.rs`, `crates/ui/tests/scale.rs`, `crates/ui/tests/monkey.rs`, `crates/ui/tests/all.rs`
   - scope: the windowed exit (placement and view state saved, pending metadata writes flushed) and

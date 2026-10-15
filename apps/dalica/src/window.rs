@@ -260,16 +260,14 @@ impl eframe::App for Window {
     }
 
     fn on_exit(&mut self) {
-        // The last placement and view state, if they changed since they were saved.
+        // The last placement, if it changed since it was saved; the rest of what closing writes
+        // is the app's, shared with the headless app's `app.quit` (`App::shutdown`).
         if let Some(state) = self.placement.unsaved() {
             self.save_placement(state);
         }
-        self.app.save_view();
-        // No more frames: this thread may write again (the flush below).
+        // No more frames: this thread may write again (the flush in `shutdown`).
         self._ui_thread = None;
-        if let Some(session) = self.app.session_mut()
-            && let Err(e) = session.flush()
-        {
+        if let Err(e) = self.app.shutdown() {
             log::error!("dalica: not every change was saved: {e}");
         }
     }
