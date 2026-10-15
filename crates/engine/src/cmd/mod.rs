@@ -17,8 +17,12 @@ pub mod folders;
 pub mod hide;
 pub mod history;
 pub mod info;
+pub mod inspect;
+pub mod keymap;
 pub mod library;
+pub mod options;
 pub mod photo;
+pub mod recipe;
 pub mod rename;
 pub mod rotate;
 pub mod save;
@@ -70,6 +74,11 @@ pub fn specs() -> Vec<CommandSpec> {
         delete::specs(),
         folder_ops::specs(),
         duplicates::specs(),
+        // M10: empty until M10.5 (options), M10.6 (keymap), M10.7 (inspect) and M10.9 (recipe).
+        options::specs(),
+        keymap::specs(),
+        inspect::specs(),
+        recipe::specs(),
     ]
     .concat();
     #[cfg(test)]

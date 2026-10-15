@@ -2,7 +2,9 @@
 //! capped at 1 000 steps. A step holds the op that undoes it; undoing applies that op and turns its
 //! inverse into the redo step. A step that changed the Folder Manager's rules (`folders.set`,
 //! `folder.remove`) also holds the rules to put back ([`crate::folders::Modes`]); putting them back
-//! gives the rules the redo step puts back in turn.
+//! gives the rules the redo step puts back in turn. A group of commands run by
+//! [`crate::Session::execute_group`] is one step: its commands' ops undone last first, and for each
+//! folder the rules from before the group.
 //!
 //! A file operation (M9: a move, copy, rename or delete of real files) is a step of its own kind,
 //! a [`FileStep`] (`fileops.rs`): undoing it runs the reverse operation as a file job, and the step

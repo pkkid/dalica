@@ -1,0 +1,516 @@
+//! The options catalogue (`menus-and-shortcuts.md` §5, `roadmap.md` M10): one row per option the
+//! Options dialog shows on its General, File Types and Export tabs, read by the dialog,
+//! `options.list` / `options.set` (`cmd/options.rs`) and MCP alike, so the three never disagree.
+//!
+//! A row names its setting by `"<object>.<field>"` in `settings.json` (`interface.animations`
+//! is `{"interface": {"animations": …}}`), and reads the value in effect through the setting's typed
+//! accessor in [`crate::settings`], so a row's default is its accessor's on an empty file. Options
+//! that existed before M10 (`fileTypes`, the `files` group, M7's `edit.singleClickLeaves`, M8's
+//! export and M9's ask-first settings) are rows here, never second copies of their settings.
+//!
+//! An option whose feature does not exist yet (Language until localisation, the import rows until
+//! Import, reading the previous organizer's data until it can) is listed with the reason the dialog
+//! shows ([`OptionSpec::unavailable`]); its setting is stored only once its feature reads it, so
+//! `options.set` refuses it until then and its value is its default.
+//!
+//! [`OptionSpec::check`] is the one validation of a value, [`OptionSpec::store`] the one way a
+//! value is written (a merge into its object, unknown keys kept) and [`OptionSpec::to_json`] the
+//! row as `options.list` gives it.
+
+use dalica_scan::FileType;
+use serde_json::{Map, Value, json};
+
+use crate::keymap::Platform;
+use crate::settings::{
+    CUSTOM_QUALITY_DEFAULT, EXPORT_SIZE_DEFAULT, EXPORT_SIZE_RANGE, MAX_WATERMARK_BYTES, QUALITY_RANGE, SMALL_PICTURE_DEFAULT, SMALL_PICTURE_RANGE,
+    Settings, UI_SCALE_RANGE, UI_SCALE_STEP, UiScaleSetting,
+};
+
+/// A tab of the Options dialog that has options in the catalogue (the Keyboard Shortcuts tab is
+/// the shortcut editor; Slideshow, Network, People and Photo Viewer join with their milestones).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum Tab {
+    General,
+    FileTypes,
+    Export,
+}
+
+impl Tab {
+    pub const ALL: [Tab; 3] = [Tab::General, Tab::FileTypes, Tab::Export];
+
+    /// The id `options.list {tab}` takes.
+    pub fn id(self) -> &'static str {
+        match self {
+            Tab::General => "general",
+            Tab::FileTypes => "fileTypes",
+            Tab::Export => "export",
+        }
+    }
+
+    pub fn from_id(id: &str) -> Option<Tab> {
+        Tab::ALL.into_iter().find(|t| t.id() == id)
+    }
+
+    /// The tab's English title.
+    pub fn label(self) -> &'static str {
+        match self {
+            Tab::General => "General",
+            Tab::FileTypes => "File Types",
+            Tab::Export => "Export",
+        }
+    }
+}
+
+/// When a changed value takes effect.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Applies {
+    /// At once.
+    Now,
+    /// After a rescan of the watched folders, which the change starts.
+    Rescan,
+    /// At the next launch ("Applies at next launch.").
+    Restart,
+}
+
+impl Applies {
+    pub fn id(self) -> &'static str {
+        match self {
+            Applies::Now => "now",
+            Applies::Rescan => "rescan",
+            Applies::Restart => "restart",
+        }
+    }
+}
+
+/// An option's type and the values it takes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Kind {
+    /// `true` or `false`.
+    Bool,
+    /// A whole number in `min ..= max`, on a step from `min`; `unit` as shown ("px", "%", "").
+    Int { min: u32, max: u32, step: u32, unit: &'static str },
+    /// `"auto"` or a percentage in `min ..= max` on a step from `min`.
+    Scale { min: u16, max: u16, step: u16 },
+    /// One of the choices, each `(stored id, English label)`.
+    Choice(&'static [(&'static str, &'static str)]),
+    /// Text of at most `max_bytes` bytes.
+    Text { max_bytes: usize },
+    /// An absolute folder path, or `null` for the default folder.
+    Folder,
+}
+
+impl Kind {
+    /// The type's name in `options.list`.
+    pub fn id(self) -> &'static str {
+        match self {
+            Kind::Bool => "bool",
+            Kind::Int { .. } => "int",
+            Kind::Scale { .. } => "scale",
+            Kind::Choice(_) => "choice",
+            Kind::Text { .. } => "text",
+            Kind::Folder => "folder",
+        }
+    }
+}
+
+/// An option's default, as stored.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Initial {
+    Bool(bool),
+    Int(u32),
+    Str(&'static str),
+    /// No value stored: the default folder (the Pictures folder, `<Pictures>/Dalica/Exports`).
+    Null,
+}
+
+impl Initial {
+    pub fn to_json(self) -> Value {
+        match self {
+            Initial::Bool(b) => json!(b),
+            Initial::Int(n) => json!(n),
+            Initial::Str(s) => json!(s),
+            Initial::Null => Value::Null,
+        }
+    }
+}
+
+/// One option of the Options dialog.
+#[derive(Clone, Copy)]
+pub struct OptionSpec {
+    /// The setting, `"<object>.<field>"` in `settings.json`; unique in the catalogue.
+    pub key: &'static str,
+    pub tab: Tab,
+    /// The group it is listed under ("Interface", "Files", …).
+    pub group: &'static str,
+    /// The English label (also the i18n key).
+    pub label: &'static str,
+    /// A line shown under it, `""` for none.
+    pub hint: &'static str,
+    pub kind: Kind,
+    pub default: Initial,
+    pub applies: Applies,
+    /// The platforms it is shown on.
+    pub platforms: &'static [Platform],
+    /// Why it cannot be changed yet (its feature does not exist in this build), `None` when it can.
+    pub unavailable: Option<&'static str>,
+    /// The value in effect, through the setting's typed accessor.
+    pub read: fn(&Settings) -> Value,
+}
+
+impl std::fmt::Debug for OptionSpec {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OptionSpec").field("key", &self.key).finish_non_exhaustive()
+    }
+}
+
+/// A row available on every platform, applying at once, with no hint.
+const fn row(
+    key: &'static str,
+    tab: Tab,
+    group: &'static str,
+    label: &'static str,
+    kind: Kind,
+    default: Initial,
+    read: fn(&Settings) -> Value,
+) -> OptionSpec {
+    OptionSpec { key, tab, group, label, hint: "", kind, default, applies: Applies::Now, platforms: &Platform::ALL, unavailable: None, read }
+}
+
+impl OptionSpec {
+    const fn hint(self, hint: &'static str) -> OptionSpec {
+        OptionSpec { hint, ..self }
+    }
+
+    const fn applies(self, applies: Applies) -> OptionSpec {
+        OptionSpec { applies, ..self }
+    }
+
+    const fn only(self, platforms: &'static [Platform]) -> OptionSpec {
+        OptionSpec { platforms, ..self }
+    }
+
+    const fn later(self, reason: &'static str) -> OptionSpec {
+        OptionSpec { unavailable: Some(reason), ..self }
+    }
+
+    const fn unavailable_if(self, reason: Option<&'static str>) -> OptionSpec {
+        OptionSpec { unavailable: reason, ..self }
+    }
+
+    /// The object of `settings.json` it lives in, and its field there.
+    pub fn place(&self) -> (&'static str, &'static str) {
+        self.key.split_once('.').unwrap_or((self.key, ""))
+    }
+
+    pub fn default_value(&self) -> Value {
+        self.default.to_json()
+    }
+
+    /// Whether it can be changed in this build.
+    pub fn available(&self) -> bool {
+        self.unavailable.is_none()
+    }
+
+    /// Whether it is shown on `platform`.
+    pub fn on(&self, platform: Platform) -> bool {
+        self.platforms.contains(&platform)
+    }
+
+    /// `value` as it is stored, or why it cannot be (naming the option, never echoing the value).
+    pub fn check(&self, value: &Value) -> Result<Value, String> {
+        let key = self.key;
+        match self.kind {
+            Kind::Bool => value.as_bool().map(Value::Bool).ok_or_else(|| format!("{key} must be true or false")),
+            Kind::Int { min, max, step, .. } => value
+                .as_u64()
+                .and_then(|n| u32::try_from(n).ok())
+                .filter(|n| (min..=max).contains(n) && (n - min) % step.max(1) == 0)
+                .map(|n| json!(n))
+                .ok_or_else(|| match step {
+                    0 | 1 => format!("{key} must be a whole number from {min} to {max}"),
+                    s => format!("{key} must be a whole number from {min} to {max} in steps of {s}"),
+                }),
+            Kind::Scale { min, max, step } => UiScaleSetting::from_json(value)
+                .filter(|s| match s {
+                    UiScaleSetting::Auto => true,
+                    UiScaleSetting::Percent(p) => (min..=max).contains(p) && (p - min) % step.max(1) == 0,
+                })
+                .map(UiScaleSetting::to_json)
+                .ok_or_else(|| format!("{key} must be \"auto\" or a percentage from {min} to {max} in steps of {step}")),
+            Kind::Choice(choices) => {
+                value.as_str().filter(|v| choices.iter().any(|(id, _)| id == v)).map(|v| json!(v)).ok_or_else(|| {
+                    format!("{key} must be one of {}", choices.iter().map(|(id, _)| format!("\"{id}\"")).collect::<Vec<_>>().join(", "))
+                })
+            }
+            Kind::Text { max_bytes } => match value {
+                Value::String(t) if t.len() <= max_bytes => Ok(json!(t)),
+                _ => Err(format!("{key} must be text of at most {max_bytes} bytes")),
+            },
+            Kind::Folder => match value {
+                Value::Null => Ok(Value::Null),
+                Value::String(p) if crate::settings::folder_path(std::path::Path::new(p)).is_some() => Ok(json!(p)),
+                _ => Err(format!("{key} must be an absolute folder path or null")),
+            },
+        }
+    }
+
+    /// Checks `value` and merges it into `settings` under its key (a folder's `null` removes the
+    /// stored one, so the default folder is used); every other key is kept. Nothing changes on
+    /// `Err`.
+    pub fn store(&self, settings: &mut Settings, value: &Value) -> Result<(), String> {
+        let stored = self.check(value)?;
+        let (object, field) = self.place();
+        settings.merge(object, &[(field, (!stored.is_null()).then_some(stored))]);
+        Ok(())
+    }
+
+    /// The row as `options.list` gives it: `{key, tab, group, label, hint, type, default, value,
+    /// applies, available, reason, platforms}` and, by type, `min`, `max`, `step`, `unit` or
+    /// `choices` (`[{id, label}]`); `value` is what `settings` holds in effect.
+    pub fn to_json(&self, settings: &Settings) -> Value {
+        let mut row = Map::new();
+        row.insert("key".into(), json!(self.key));
+        row.insert("tab".into(), json!(self.tab.id()));
+        row.insert("group".into(), json!(self.group));
+        row.insert("label".into(), json!(self.label));
+        row.insert("hint".into(), json!(self.hint));
+        row.insert("type".into(), json!(self.kind.id()));
+        row.insert("default".into(), self.default_value());
+        row.insert("value".into(), (self.read)(settings));
+        row.insert("applies".into(), json!(self.applies.id()));
+        row.insert("available".into(), json!(self.available()));
+        row.insert("reason".into(), json!(self.unavailable));
+        row.insert("platforms".into(), json!(self.platforms.iter().map(|p| p.name()).collect::<Vec<_>>()));
+        match self.kind {
+            Kind::Int { min, max, step, unit } => {
+                row.extend([("min".into(), json!(min)), ("max".into(), json!(max)), ("step".into(), json!(step)), ("unit".into(), json!(unit))]);
+            }
+            Kind::Scale { min, max, step } => {
+                row.extend([("min".into(), json!(min)), ("max".into(), json!(max)), ("step".into(), json!(step)), ("unit".into(), json!("%"))]);
+            }
+            Kind::Choice(choices) => {
+                row.insert("choices".into(), choices.iter().map(|(id, label)| json!({ "id": id, "label": label })).collect());
+            }
+            Kind::Text { max_bytes } => {
+                row.insert("maxBytes".into(), json!(max_bytes));
+            }
+            Kind::Bool | Kind::Folder => {}
+        }
+        Value::Object(row)
+    }
+}
+
+/// Every option, in the order the dialog lists them.
+pub fn catalogue() -> &'static [OptionSpec] {
+    CATALOGUE
+}
+
+/// The option stored under `key`.
+pub fn find(key: &str) -> Option<&'static OptionSpec> {
+    CATALOGUE.iter().find(|o| o.key == key)
+}
+
+/// The options of `tab`, in order.
+pub fn on_tab(tab: Tab) -> impl Iterator<Item = &'static OptionSpec> {
+    CATALOGUE.iter().filter(move |o| o.tab == tab)
+}
+
+const IMPORT: &str = "Arrives with Import";
+const FONT_SIZES: &[(&str, &str)] = &[("small", "Small"), ("medium", "Medium"), ("large", "Large")];
+const LANGUAGES: &[(&str, &str)] = &[("system", "System")];
+const QUALITIES: &[(&str, &str)] =
+    &[("automatic", "Automatic"), ("normal", "Normal"), ("maximum", "Maximum"), ("minimum", "Minimum"), ("custom", "Custom")];
+const HEIF: Option<&str> = if cfg!(feature = "heif") { None } else { Some("HEIC support isn't included in this build") };
+
+const fn file_type(key: &'static str, label: &'static str, read: fn(&Settings) -> Value) -> OptionSpec {
+    row(key, Tab::FileTypes, "Show JPEG files and:", label, Kind::Bool, Initial::Bool(true), read).applies(Applies::Rescan)
+}
+
+static CATALOGUE: &[OptionSpec] = &[
+    // General → Interface.
+    row("interface.animations", Tab::General, "Interface", "Use animations", Kind::Bool, Initial::Bool(true), |s| json!(s.interface().animations))
+        .hint("Smooth transitions when rotating, applying edits and previewing."),
+    row("interface.tooltips", Tab::General, "Interface", "Show tooltips", Kind::Bool, Initial::Bool(true), |s| json!(s.interface().tooltips)),
+    row("interface.systemTitleBar", Tab::General, "Interface", "Use system title bar", Kind::Bool, Initial::Bool(false), |s| {
+        json!(s.interface().system_title_bar)
+    })
+    .hint("Applies at next launch.")
+    .applies(Applies::Restart)
+    .only(&[Platform::Windows, Platform::Linux]),
+    row(
+        "edit.singleClickLeaves",
+        Tab::General,
+        "Interface",
+        "Single click on the photo returns to the library",
+        Kind::Bool,
+        Initial::Bool(false),
+        |s| json!(s.edit().single_click_leaves),
+    ),
+    row(
+        "interface.uiScale",
+        Tab::General,
+        "Interface",
+        "UI scale",
+        Kind::Scale { min: *UI_SCALE_RANGE.start(), max: *UI_SCALE_RANGE.end(), step: UI_SCALE_STEP },
+        Initial::Str("auto"),
+        |s| s.interface().ui_scale.to_json(),
+    )
+    .hint("Auto follows the system's scale and the monitor."),
+    row("interface.fontSize", Tab::General, "Interface", "UI font size", Kind::Choice(FONT_SIZES), Initial::Str("small"), |s| {
+        json!(s.interface().font_size.id())
+    }),
+    row("interface.language", Tab::General, "Interface", "Language", Kind::Choice(LANGUAGES), Initial::Str("system"), |s| {
+        json!(s.interface().language)
+    })
+    .applies(Applies::Restart)
+    .later("Arrives with translations"),
+    // General → Files.
+    row("import.detectDuplicates", Tab::General, "Files", "Detect duplicates while importing", Kind::Bool, Initial::Bool(true), |_| json!(true))
+        .later(IMPORT),
+    row("organize.deleteWithoutAsking", Tab::General, "Files", "Delete from disk without asking", Kind::Bool, Initial::Bool(false), |s| {
+        json!(s.organize().delete_without_asking)
+    }),
+    row(
+        "organize.removeFromAlbumsWithoutAsking",
+        Tab::General,
+        "Files",
+        "Remove from albums without asking",
+        Kind::Bool,
+        Initial::Bool(false),
+        |s| json!(s.organize().remove_from_albums_without_asking),
+    ),
+    row(
+        "files.writeCaptionsTagsPlaces",
+        Tab::General,
+        "Files",
+        "Write captions, tags and places into photo files",
+        Kind::Bool,
+        Initial::Bool(true),
+        |s| json!(s.metadata_writes().captions_tags_places),
+    ),
+    row("files.writeStarsAsRatings", Tab::General, "Files", "Write stars as ratings (XMP)", Kind::Bool, Initial::Bool(false), |s| {
+        json!(s.metadata_writes().stars_as_ratings)
+    }),
+    row(
+        "files.updateModificationTime",
+        Tab::General,
+        "Files",
+        "Update file modification time on metadata changes",
+        Kind::Bool,
+        Initial::Bool(false),
+        |s| json!(s.metadata_writes().update_modification_time),
+    ),
+    row("files.writeRawXmpSidecars", Tab::General, "Files", "Write XMP sidecars for RAW files", Kind::Bool, Initial::Bool(false), |s| {
+        json!(s.metadata_writes().raw_xmp_sidecars)
+    }),
+    row("files.writeDates", Tab::General, "Files", "Write date changes to files", Kind::Bool, Initial::Bool(true), |s| {
+        json!(s.metadata_writes().dates)
+    }),
+    row("files.readLegacyData", Tab::General, "Files", "Read photo data left by the previous organizer", Kind::Bool, Initial::Bool(true), |_| {
+        json!(true)
+    })
+    .applies(Applies::Rescan)
+    .later("Arrives with the previous organizer's data"),
+    // General → Import.
+    row("import.folder", Tab::General, "Import", "Save imported pictures in", Kind::Folder, Initial::Null, |_| Value::Null)
+        .hint("The Pictures folder unless chosen.")
+        .later(IMPORT),
+    // File Types.
+    file_type("fileTypes.png", "PNG", |s| json!(s.file_types().allows(FileType::Png))),
+    file_type("fileTypes.gif", "GIF", |s| json!(s.file_types().allows(FileType::Gif))),
+    file_type("fileTypes.bmp", "BMP", |s| json!(s.file_types().allows(FileType::Bmp))),
+    file_type("fileTypes.tiff", "TIFF", |s| json!(s.file_types().allows(FileType::Tiff))),
+    file_type("fileTypes.webp", "WebP", |s| json!(s.file_types().allows(FileType::WebP))),
+    file_type("fileTypes.heif", "HEIC/HEIF", |s| json!(s.file_types().allows(FileType::Heif))).unavailable_if(HEIF),
+    file_type("fileTypes.avif", "AVIF", |s| json!(s.file_types().allows(FileType::Avif))),
+    file_type("fileTypes.jxl", "JPEG XL", |s| json!(s.file_types().allows(FileType::JpegXl))),
+    file_type("fileTypes.psd", "PSD", |s| json!(s.file_types().allows(FileType::Psd))),
+    file_type("fileTypes.raw", "RAW formats", |s| json!(s.file_types().allows(FileType::Raw))),
+    file_type("fileTypes.video", "Videos (MP4, MOV, M4V, MKV)", |s| json!(s.file_types().allows(FileType::Video))),
+    row(
+        "fileTypes.smallPictureThreshold",
+        Tab::FileTypes,
+        "Small pictures",
+        "Small-picture threshold",
+        Kind::Int { min: *SMALL_PICTURE_RANGE.start(), max: *SMALL_PICTURE_RANGE.end(), step: 1, unit: "px" },
+        Initial::Int(SMALL_PICTURE_DEFAULT),
+        |s| json!(s.small_picture_threshold()),
+    )
+    .hint("Pictures smaller than this on both sides show only with View ▸ Small Pictures.")
+    .applies(Applies::Rescan),
+    // Export.
+    row("export.location", Tab::Export, "Location", "Default export location", Kind::Folder, Initial::Null, |s| json!(s.export().location))
+        .hint("Pictures/Dalica/Exports unless chosen."),
+    row("export.resize", Tab::Export, "Size and quality", "Resize to", Kind::Bool, Initial::Bool(true), |s| json!(s.export().resize))
+        .hint("Off: use the original size."),
+    row(
+        "export.size",
+        Tab::Export,
+        "Size and quality",
+        "Size",
+        Kind::Int { min: *EXPORT_SIZE_RANGE.start(), max: *EXPORT_SIZE_RANGE.end(), step: 1, unit: "px" },
+        Initial::Int(EXPORT_SIZE_DEFAULT),
+        |s| json!(s.export().size),
+    ),
+    row("export.quality", Tab::Export, "Size and quality", "Image quality", Kind::Choice(QUALITIES), Initial::Str("automatic"), |s| {
+        json!(s.export().quality.id())
+    }),
+    row(
+        "export.customQuality",
+        Tab::Export,
+        "Size and quality",
+        "Custom quality",
+        Kind::Int { min: *QUALITY_RANGE.start() as u32, max: *QUALITY_RANGE.end() as u32, step: 1, unit: "" },
+        Initial::Int(CUSTOM_QUALITY_DEFAULT as u32),
+        |s| json!(s.export().custom_quality),
+    ),
+    row("export.removeLocation", Tab::Export, "Privacy", "Remove location from exported photos", Kind::Bool, Initial::Bool(false), |s| {
+        json!(s.export().remove_location)
+    }),
+    row(
+        "export.watermarkText",
+        Tab::Export,
+        "Watermark",
+        "Default watermark text",
+        Kind::Text { max_bytes: MAX_WATERMARK_BYTES },
+        Initial::Str(""),
+        |s| json!(s.export().watermark_text),
+    ),
+];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// One test of the value checks; the catalogue itself is tested in `tests/options_catalogue.rs`.
+    #[test]
+    fn values_are_checked_by_type_and_a_folders_null_removes_it() {
+        let scale = find("interface.uiScale").unwrap();
+        for ok in [json!("auto"), json!(75), json!(150), json!(300)] {
+            assert_eq!(scale.check(&ok), Ok(ok.clone()));
+        }
+        for bad in [json!(80), json!(50), json!(325), json!("150"), json!(null), json!(1.5)] {
+            assert!(scale.check(&bad).unwrap_err().starts_with("interface.uiScale must be"), "{bad}");
+        }
+        let threshold = find("fileTypes.smallPictureThreshold").unwrap();
+        assert!(threshold.check(&json!(16)).is_ok() && threshold.check(&json!(1024)).is_ok());
+        assert!(threshold.check(&json!(15)).is_err() && threshold.check(&json!(-1)).is_err() && threshold.check(&json!(true)).is_err());
+        let font = find("interface.fontSize").unwrap();
+        assert!(font.check(&json!("large")).is_ok() && font.check(&json!("huge")).is_err());
+        let text = find("export.watermarkText").unwrap();
+        assert!(text.check(&json!("x".repeat(MAX_WATERMARK_BYTES))).is_ok());
+        assert_eq!(
+            text.check(&json!("secret".repeat(1000))),
+            Err(format!("export.watermarkText must be text of at most {MAX_WATERMARK_BYTES} bytes"))
+        );
+
+        let location = find("export.location").unwrap();
+        let mut st = Settings::parse(br#"{"export": {"future": 1}}"#).unwrap();
+        let folder = std::env::temp_dir().join("Out");
+        location.store(&mut st, &json!(folder)).unwrap();
+        assert_eq!(st.export().location, Some(folder));
+        assert!(location.store(&mut st, &json!("relative/folder")).is_err());
+        location.store(&mut st, &Value::Null).unwrap();
+        assert_eq!(st.get("export").unwrap(), &json!({ "future": 1 }), "null removes it; other keys kept");
+    }
+}

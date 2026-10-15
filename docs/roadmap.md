@@ -4581,7 +4581,7 @@ yet (scan throughput, cold start and idle memory at 100 k) join the budgets job 
 `development.md` §8 and are never loosened: a miss is fixed in its task or blocks with its numbers.
 No other step of M10 needs a maintainer decision mid-run.
 
-- ⬜ **M10.1 `engine`: M10's command modules, the options catalogue and settings**
+- ✅ **M10.1 `engine`: M10's command modules, the options catalogue and settings**
   - after: M9.3, M9.R
   - files: `crates/engine/src/cmd/mod.rs`, `crates/engine/src/cmd/options.rs`, `crates/engine/src/cmd/keymap.rs`, `crates/engine/src/cmd/inspect.rs`, `crates/engine/src/cmd/recipe.rs`, `crates/engine/src/options.rs`, `crates/engine/src/settings.rs`, `crates/engine/src/session.rs`, `crates/engine/src/undo.rs`, `crates/engine/tests/settings.rs`, `crates/engine/tests/options_catalogue.rs`, `crates/engine/tests/execute_group.rs`, `crates/engine/README.md`, `docs/menus-and-shortcuts.md`, `docs/data-model.md`
   - scope: the engine's ground for M10 so M10.5–M10.7, M10.9 and the MCP tasks never share a

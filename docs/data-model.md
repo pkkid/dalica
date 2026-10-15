@@ -297,7 +297,32 @@ holds:
 | `pending-writes.json` | the folders whose sidecar write waits for an offline volume (§7): `{"version": 1, "folders": [path, …]}`, written through the I/O worker when the list changes; a damaged file is kept as `.corrupt-<time>` and the list found again by the next online checks (M5.13) | yes, partly: the journal keeps the edits; a lost list is rebuilt for roots found offline |
 | `file-ops.json` | the file-operation journal: the moves, copies, renames and trashes in progress and each item's state (§8), written through the I/O worker; a damaged file is kept as `.corrupt-<time>` and the operations that read are kept (M9.9) | no — repaired from at the next open, then empty |
 | `lock` | single-process lock | — |
-| `settings.json` | preferences (atomic write; damaged file kept as `.corrupt-<time>`); unknown keys kept; `"keymap"` holds the user's shortcut overrides (`menus-and-shortcuts.md` §2.0) | no |
+| `settings.json` | preferences (atomic write; damaged file kept as `.corrupt-<time>`); unknown keys kept; `"keymap"` holds the user's shortcut overrides (`menus-and-shortcuts.md` §2.0); the other keys below | no |
+
+**`settings.json`** (`crates/engine/src/settings.rs`) is one JSON object of objects, each merged key
+by key when written, so keys and objects this version does not know are kept verbatim. A value of
+the wrong type or out of its range reads as its default and is reported once, by key (never by
+value), when the library opens. The objects:
+
+| Object | Keys (default) | Since |
+|---|---|---|
+| `keymap` | a list of `{command, context, key}` overrides (`key: null` removes a binding) | M1 |
+| `window` | `{x, y, width, height, maximized}`: the window as last seen | M3 |
+| `view` | `{treeWidth, pane, paneLarge, thumbSize, treeMode, folderSort, folderSortReverse, caption, smallPictures, hiddenPictures, colorManagement}`: the view restored at the next start | M3–M5 |
+| `interface` | Options → General → Interface: `systemTitleBar` (off; M3), and from M10 `animations` (on), `tooltips` (on), `uiScale` (`"auto"`, or a percentage 75–300 in steps of 25), `fontSize` (`"small"`, `"medium"`, `"large"`; small), `language` (`"system"` or a language tag; system) | M3, M10 |
+| `scrolling` | `{thumbExponent, thumbTopSpeed}`: the speed-control thumb's curve, read only | M4 |
+| `fileTypes` | Options → File Types: `png`, `gif`, `bmp`, `tiff`, `webp`, `heif`, `avif`, `jxl`, `psd`, `raw`, `video` (each on unless `false`; JPEG always on), and from M10 `smallPictureThreshold` (64 px, 16–1024) | M5, M10 |
+| `cache` | `{thumbnailBytes}` (2 GiB) | M5 |
+| `files` | Options → General → Files: `writeCaptionsTagsPlaces` (on), `writeStarsAsRatings` (off), `updateModificationTime` (off), `writeRawXmpSidecars` (off), `writeDates` (on) | M6 |
+| `tags` | `{quick, useRecent, recent}`: the quick tags and the recently used tags | M6 |
+| `edit` | `{cropRatios, lastCropRatio, photoSizes, singleClickLeaves}` (the last is Options → General → "Single click on the photo returns to the library", off) | M7 |
+| `save` | `{explain, lastFolder, lastFormat}` (§6) | M8 |
+| `export` | `{location, resize, size, quality, customQuality, numbers, watermark, watermarkText, removeLocation}` (`creating.md` §2; Options → Export) | M8 |
+| `organize` | `{askBeforeMoving, removeFromAlbumsWithoutAsking, deleteWithoutAsking, recentDays, lastMoveFolder}` (`organizing.md` §4, §9) | M9 |
+
+The Options dialog's rows name these keys (`menus-and-shortcuts.md` §5). Keys the catalogue reserves
+for options whose feature arrives later (`import.detectDuplicates`, `import.folder`,
+`files.readLegacyData`) are written only once that feature reads them.
 
 **`albums.json`** (built in M9.6: `dalica-sidecar` `albums`, `dalica-store` `albums` and
 `rebuild`), printed like the folder sidecar (UTF-8, two-space indentation, LF, keys sorted by
