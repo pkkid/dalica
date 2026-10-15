@@ -28,7 +28,7 @@ fn key() -> impl Strategy<Value = PosKey> {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(4096))]
+    #![proptest_config(crate::common::cases(4096, 256))]
 
     #[test]
     fn between_sorts_strictly_between_any_two_keys(a in key(), b in key()) {
