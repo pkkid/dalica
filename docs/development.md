@@ -243,6 +243,17 @@ cargo run --release -p dalica -- --control 7990 --demo
 | Search 100 k photos for a lone `-word` (median) | ≤ 5.1 ms |
 | `search.set` to its result applied, 100 k photos, debounce excluded (median) | ≤ 22.3 ms |
 
+**At the review, the save, export and search budgets are judged against a base on the same
+runner** (maintainer decision, 2026-10-15): the Budgets job runs each of these benches in the last
+release (`git describe --tags --match 'v*'`; for a bench newer than that release, the commit that
+first measured it) and then in the reviewed commit, and a median may be at most 1.3 × the base's
+(`cargo xtask budgets --baseline <ref>`; `RELATIVE_FACTOR` and each budget's `Relative` in
+`xtask/src/accept.rs`). GitHub's runners differ by more than the budgets allowed (the index build
+took 446–490 ms on some and 718–769 ms on others, which failed 11 runs in a row); a ratio on one
+runner does not. The millisecond figures in the table are the budgets without a base (a plain
+`cargo xtask budgets`, on a workstation); the frame budgets (8 ms), the first screenful (1 s) and a
+query's 100 ms cap are always absolute.
+
 The save and export budgets (M8.24) are 1.5 × their first measurement: release, two cores
 (`taskset -c 0,1`, as the budgets job's runner), 2026-10-14, a 24-core Linux workstation under
 other agents' builds (load average 7): Save 701 ms, the export 16.0 s (80 ms a photo, two at a
