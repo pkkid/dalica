@@ -6,6 +6,10 @@
 //! write to land (debounce included; without `jobs` it does not, as for any long job), and the toast shows the whole message, wrapped, at 1400 × 900 and 900 × 600
 //! (`tests/fingerprints/toast-caution-<w>x<h>.json`; `DALICA_BLESS=1` stores new ones). Renders go
 //! to `target/test-output/ui/`.
+//!
+//! File operations (M9.19, `organizing.md` §9): a move, its undo, a copy that skipped a duplicate
+//! and a move where one file had gone each give exactly one toast, worded with the count and the
+//! folder, a failure `caution` and naming the file and why; the job of each gives none of its own.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -199,4 +203,74 @@ fn settle_waits_for_the_write_and_the_caution_toast_shows_the_whole_message() {
         check_region(&d, &id, &format!("toast-caution-{}x{}", size.0, size.1));
         set_read_only(&folder.join("a.jpg"), false);
     }
+}
+
+/// The toasts that appear while `f` runs and its file jobs end (and a few frames after), each once:
+/// `(text, kind)` in the order they appeared. Every frame is looked at, so a short toast is seen.
+fn toasts_of(d: &mut Driver, f: impl FnOnce(&mut Driver)) -> Vec<(String, String)> {
+    let before: Vec<String> = toasts(d).iter().filter_map(|t| t["id"].as_str().map(str::to_string)).collect();
+    f(d);
+    let mut seen: Vec<(String, String, String)> = Vec::new();
+    let mut quiet = 0;
+    for _ in 0..FRAMES {
+        // One frame, yielding a millisecond to the workers while a job runs.
+        let busy = !d.settle_for(1, true).busy.is_empty();
+        for t in toasts(d) {
+            let id = t["id"].as_str().unwrap_or_default().to_string();
+            if !before.contains(&id) && !seen.iter().any(|(i, _, _)| *i == id) {
+                seen.push((id, t["text"].as_str().unwrap_or_default().into(), t["kind"].as_str().unwrap_or_default().into()));
+            }
+        }
+        quiet = if busy { 0 } else { quiet + 1 };
+        if quiet > 30 {
+            break;
+        }
+    }
+    seen.into_iter().map(|(_, text, kind)| (text, kind)).collect()
+}
+
+/// One toast per finished file operation (and its undo), and one per failure.
+#[test]
+fn each_file_operation_gives_one_toast_and_a_failure_names_the_file() {
+    let (lib, disk) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let (lisbon, porto) = (disk.path().join("Lisbon"), disk.path().join("Porto"));
+    for (i, (folder, name)) in [(&lisbon, "a.jpg"), (&lisbon, "b.jpg"), (&lisbon, "c.jpg"), (&porto, "a.jpg")].into_iter().enumerate() {
+        dalica_fs::create_dir_all(folder).unwrap();
+        let bytes = dalica_scenes::jpeg(&dalica_scenes::Scene::new(i as u64, 96, 64), 80, None).unwrap();
+        dalica_fs::replace(&folder.join(name), &bytes, Expect::Absent).unwrap();
+    }
+    let mut s = Session::open(lib.path(), Arc::new(dalica_core::SystemClock)).unwrap();
+    for f in [&lisbon, &porto] {
+        s.execute("folders.add", &json!({ "path": f })).unwrap();
+    }
+    s.wait_idle();
+    let lisbon_id = s.library().folder_by_path(&lisbon).unwrap();
+    let porto_id = s.library().folder_by_path(&porto).unwrap();
+    let id = |s: &Session, n: &str| s.library().photos_in(lisbon_id).into_iter().find(|p| p.name == n).unwrap().id;
+    let (a, b, c) = (id(&s, "a.jpg"), id(&s, "b.jpg"), id(&s, "c.jpg"));
+    let mut d = Driver::new(App::new(Some(s)), 1400, 900, 1.0);
+    d.settle(FRAMES).unwrap();
+    let info = |t: &str| (t.to_string(), "info".to_string());
+
+    let moved = toasts_of(&mut d, |d| {
+        d.run("photo.moveTo", &json!({ "ids": [b, c], "folder": porto_id, "confirm": true })).unwrap();
+    });
+    assert_eq!(moved, [info("Moved 2 photos to Porto")]);
+    let undone = toasts_of(&mut d, |d| {
+        d.run("edit.undo", &json!({})).unwrap();
+    });
+    assert_eq!(undone, [info("Moved 2 photos back")]);
+    let copied = toasts_of(&mut d, |d| {
+        d.run("photo.copyTo", &json!({ "ids": [a, b], "folder": porto_id, "collisions": "skip" })).unwrap();
+    });
+    assert_eq!(copied, [info("Copied 1 photo to Porto; 1 duplicate skipped")]);
+    // c.jpg gone behind the library's back: the move of it fails, the other one moves.
+    std::fs::remove_file(lisbon.join("c.jpg")).unwrap();
+    let failed = toasts_of(&mut d, |d| {
+        d.run("photo.moveTo", &json!({ "ids": [b, c], "folder": porto_id, "confirm": true, "collisions": "rename" })).unwrap();
+    });
+    assert_eq!(failed.len(), 1, "{failed:?}");
+    let (text, kind) = &failed[0];
+    assert!(text.starts_with("Moved 1 photo to Porto. Could not move c.jpg: "), "{text}");
+    assert_eq!(kind, "caution");
 }

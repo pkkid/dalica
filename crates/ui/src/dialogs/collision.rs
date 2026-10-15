@@ -1,20 +1,29 @@
 //! The collision question (`organizing.md` §9): a move or copy onto a folder that already has
 //! files of the same names asks "The folder already has files with the same names." with [Rename
-//! Duplicates] [Skip Duplicates] [Cancel], naming the clashing files. [`open`] asks it (M9.19 opens
-//! it when `photo.moveTo` or `photo.copyTo` answers `needs_confirm` for a clash); its draft is the
-//! view state's `collision {op, ids, folder, files}`. Rename Duplicates (the default) runs the
-//! command again with `"collisions": "rename"` (the copies get `-001`, …), Skip Duplicates with
-//! `"collisions": "skip"`; a move is sent with `"confirm": true` so it does not ask again.
+//! Duplicates] [Skip Duplicates] [Cancel], naming the clashing files (the first [`NAMED`], then "and
+//! %d more"). Its draft is the view state's `collision {op, ids, folder, files}`.
+//!
+//! [`run_or_ask`] is how the UI runs a move or a copy: it asks the engine which names clash
+//! (`dalica_engine::cmd::files::clashing_names`, from the model, no disk) and opens this question
+//! when some do and no choice was sent, else runs the command. The first-time move question's Move
+//! (`super::move_confirm`), the copy question's Copy (`super::copy_confirm`) and
+//! `crate::commands::files::{move_photos, copy_photos}` go through it, so a clash always asks before
+//! anything moves. The dialog keeps the call it interrupts (`command`: the move's `"confirm": true`
+//! and its "Don't ask again" as `"dontAsk": true`), and its buttons run that call again with the
+//! choice: Rename Duplicates (the default) with `"collisions": "rename"` (the newcomers get `-001`,
+//! …), Skip Duplicates with `"collisions": "skip"` (those photos stay where they are). Cancel runs
+//! nothing: nothing moves, and a "Don't ask again" ticked under it is not applied.
 
+use dalica_core::{FolderId, PhotoId};
 use dalica_engine::CmdError;
 use dalica_ui_kit::fonts;
 use dalica_ui_kit::widgets::ButtonKind;
 use egui::{Label, RichText, Ui};
 use serde_json::{Value, json};
 
-use super::{Button, Dialog, DialogKind, Look, confirm};
+use super::{Button, Dialog, DialogCommand, DialogKind, Look, confirm};
 use crate::app::App;
-use crate::state::{CollisionQuestion, FileOp};
+use crate::state::{CollisionQuestion, FileOp, MAX_CLASHES};
 
 /// The dialog's title, question and buttons.
 pub const TITLE: &str = "Files with the Same Names";
@@ -26,9 +35,45 @@ pub const NAMED: usize = 5;
 
 /// Asks what to do about the clash `q`. Replies `{dialog: "collision"}`.
 pub fn open(app: &mut App, q: CollisionQuestion) -> Result<Value, CmdError> {
-    let reply = super::open(app, Dialog::new(DialogKind::Collision))?;
+    open_for(app, q, None)
+}
+
+/// [`open`], keeping the call it interrupts (`params` of `photo.moveTo` or `photo.copyTo`) to run
+/// again with the choice.
+fn open_for(app: &mut App, q: CollisionQuestion, params: Option<Value>) -> Result<Value, CmdError> {
+    let command = params.map(|params| DialogCommand { id: command(q.op).into(), params });
+    let reply = super::open(app, Dialog { command, ..Dialog::new(DialogKind::Collision) })?;
     app.state_mut().collision = Some(q);
     Ok(reply)
+}
+
+/// The engine command of `op`.
+pub fn command(op: FileOp) -> &'static str {
+    match op {
+        FileOp::Move => "photo.moveTo",
+        FileOp::Copy => "photo.copyTo",
+    }
+}
+
+/// Runs `op` (`photo.moveTo` or `photo.copyTo`) with `params`, or asks the collision question first
+/// when names of `params.ids` clash in `params.folder` and `params` makes no choice
+/// (`collisions`). Parameters that do not read as photos and a folder go to the command as they
+/// are, for it to refuse. Replies the command's reply, or `{dialog: "collision"}`.
+pub fn run_or_ask(app: &mut App, op: FileOp, params: Value) -> Result<Value, CmdError> {
+    let ids: Option<Vec<PhotoId>> = params.get("ids").and_then(|v| serde_json::from_value(v.clone()).ok());
+    let folder: Option<FolderId> = params.get("folder").and_then(|v| serde_json::from_value(v.clone()).ok());
+    let (Some(ids), Some(folder), None) = (ids, folder, params.get("collisions")) else { return app.run(command(op), &params) };
+    let files: Vec<String> = app
+        .session()
+        .map(|s| dalica_engine::cmd::files::clashing_names(s, &ids, folder, op == FileOp::Copy))
+        .unwrap_or_default()
+        .into_iter()
+        .take(MAX_CLASHES)
+        .collect();
+    if files.is_empty() {
+        return app.run(command(op), &params);
+    }
+    open_for(app, CollisionQuestion { op, ids, folder, files }, Some(params))
 }
 
 /// The names the question lists: the first [`NAMED`], then "and %d more".
@@ -71,11 +116,17 @@ pub fn body(app: &mut App, ui: &mut Ui, _d: &mut Dialog) {
     }
 }
 
-/// Rename Duplicates or Skip Duplicates: runs the move or copy again with the choice.
-pub fn act(app: &mut App, _d: &Dialog, action: &str) -> Result<Value, CmdError> {
+/// Rename Duplicates or Skip Duplicates: runs the move or copy again with the choice, and with the
+/// rest of the call it interrupted (a move's "Don't ask again").
+pub fn act(app: &mut App, d: &Dialog, action: &str) -> Result<Value, CmdError> {
     let q = app.state().collision.clone().ok_or_else(|| CmdError::Internal("the collision question has no draft".into()))?;
     let choice = if action == "skipDuplicates" { "skip" } else { "rename" };
-    let (id, params) = run_params(&q, choice);
+    let (id, mut params) = run_params(&q, choice);
+    if let (Some(Value::Object(kept)), Some(p)) = (d.command.as_ref().filter(|c| c.id == id).map(|c| &c.params), params.as_object_mut()) {
+        for (k, v) in kept {
+            p.entry(k.clone()).or_insert_with(|| v.clone());
+        }
+    }
     app.run(id, &params)
 }
 

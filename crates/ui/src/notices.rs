@@ -22,12 +22,21 @@
 //!
 //!   A file operation's job (kind `files`: photos or folders moved, copied, renamed or trashed)
 //!   gives no toast of its own here ([`job_toast`]); its notice comes from its `FileOpEvent`.
+//! - **File operations** (`dalica_engine::FileOpEvent`, `organizing.md` §9): each operation, undo
+//!   or redo that ends becomes one toast ([`op_toast`]), worded from its kind and direction with
+//!   its count: "Moved 3 photos to Lisbon", "Copied 1 photo to Porto", "Renamed 3 photos", "Moved 2
+//!   photos to the Trash", "Moved the folder to Archive", "Renamed the folder to Lisbon 2026"; an
+//!   undo says what went back ("Moved 3 photos back", "Moved 3 copies to the Trash", "Restored 2
+//!   photos from the Trash"); skipped duplicates are counted ("; 2 duplicates skipped"), Cancel
+//!   too. `info`; when items failed, `caution`, naming the first file that failed and why ("Could
+//!   not move IMG_0041.jpg: the file is in use", "and 2 more" after it). Move to New Folder's
+//!   count leaves out the step that makes (or, undone, removes) the folder.
 //!
 //! The app's own confirmations come through [`Notices::push`].
 
 use std::path::{Path, PathBuf};
 
-use dalica_engine::{FileJobEvent, JobId, JobKind, Session};
+use dalica_engine::{Direction, FileJobEvent, FileOpEvent, FileOpKind, JobId, JobKind, Session};
 use dalica_ui_kit::Tokens;
 use dalica_ui_kit::widgets::{self, ToastKind, ToastText};
 use egui::{Rect, Ui};
@@ -113,6 +122,8 @@ pub struct Notices {
     seen: u64,
     /// The number of the last file-job event shown ([`FileJobEvent::seq`], which starts at 0).
     seen_jobs: Option<u64>,
+    /// The number of the last file-operation event shown ([`FileOpEvent::seq`], from 0).
+    seen_ops: Option<u64>,
     /// A Show Folder pressed and not done yet: the folder, and the frames it may still wait once
     /// no scan runs.
     want: Option<(PathBuf, u32)>,
@@ -186,6 +197,12 @@ impl Notices {
             if let Some(t) = t {
                 self.push_with(&t.text, &t.whole, t.kind, t.action, now);
             }
+        }
+        let ops: Vec<(u64, JobToast)> =
+            session.file_op_events().filter(|e| self.seen_ops.is_none_or(|s| e.seq > s)).map(|e| (e.seq, op_toast(e))).collect();
+        for (seq, t) in ops {
+            self.seen_ops = Some(self.seen_ops.map_or(seq, |s| s.max(seq)));
+            self.push_with(&t.text, &t.whole, t.kind, t.action, now);
         }
     }
 
@@ -277,6 +294,79 @@ fn tried_toast(e: &FileJobEvent, tried: Option<&Path>) -> JobToast {
     // its counts in front.
     let text = if e.done == 0 && e.kind != JobKind::Export { detail } else { format!("{}. {detail}", e.message.trim_end_matches('.')) };
     JobToast { text, whole: name, kind: ToastKind::Caution, action }
+}
+
+/// The file name of `path` as a toast writes it.
+fn name_of(path: &Path) -> String {
+    path.file_name().map_or_else(|| path.to_string_lossy().into_owned(), |n| n.to_string_lossy().into_owned())
+}
+
+/// Whether `kind` acts on folders rather than photos.
+fn on_folders(kind: FileOpKind) -> bool {
+    matches!(kind, FileOpKind::MoveFolder | FileOpKind::RenameFolder | FileOpKind::TrashFolder)
+}
+
+/// "1 photo", "3 photos", "the folder", "2 folders"; an undone copy's are "copies".
+fn counted(kind: FileOpKind, dir: Direction, n: usize) -> String {
+    let (one, many) = match (kind, dir) {
+        (FileOpKind::Copy, Direction::Undo) => ("copy", "copies"),
+        _ if on_folders(kind) => ("folder", "folders"),
+        _ => ("photo", "photos"),
+    };
+    match n {
+        1 if on_folders(kind) => "the folder".into(),
+        1 => format!("1 {one}"),
+        n => format!("{n} {many}"),
+    }
+}
+
+/// What finished file operation `e` shows (`organizing.md` §9): what was done, worded from its kind
+/// and direction ([`op_toast`]'s module doc), `info`; when items failed, `caution`, the first file
+/// that failed and why after it, "and n more" when several did.
+pub fn op_toast(e: &FileOpEvent) -> JobToast {
+    // Move to New Folder's first item makes the folder (its undo's last one removes it).
+    let made = usize::from(e.label == dalica_engine::cmd::files::NEW_FOLDER_LABEL);
+    let done = e.done.saturating_sub(made);
+    let what = counted(e.kind, e.direction, done);
+    let dest = e.destination.as_deref().map(name_of);
+    let to = dest.as_ref().map_or_else(String::new, |d| format!(" to {d}"));
+    let (head, past, verb, after) = match (e.kind, e.direction) {
+        (FileOpKind::Move | FileOpKind::MoveFolder, Direction::Undo) => (format!("Moved {what} back"), "moved back", "move", " back"),
+        (FileOpKind::Copy, Direction::Undo) => (format!("Moved {what} to the Trash"), "removed", "remove the copy", ""),
+        (FileOpKind::Rename | FileOpKind::RenameFolder, Direction::Undo) => (format!("Renamed {what} back"), "renamed back", "rename", " back"),
+        (FileOpKind::Trash | FileOpKind::TrashFolder, Direction::Undo) => (format!("Restored {what} from the Trash"), "restored", "restore", ""),
+        (FileOpKind::Move | FileOpKind::MoveFolder, _) => (format!("Moved {what}{to}"), "moved", "move", ""),
+        (FileOpKind::Copy, _) => (format!("Copied {what}{to}"), "copied", "copy", ""),
+        (FileOpKind::Rename, _) => (format!("Renamed {what}"), "renamed", "rename", ""),
+        (FileOpKind::RenameFolder, _) => (format!("Renamed {what}{to}"), "renamed", "rename", ""),
+        (FileOpKind::Trash | FileOpKind::TrashFolder, _) => (format!("Moved {what} to the Trash"), "moved to the Trash", "move", " to the Trash"),
+    };
+    let skipped = e.skipped.len();
+    let duplicates = if matches!(e.kind, FileOpKind::Move | FileOpKind::Copy) { "duplicate" } else { "item" };
+    let skip_text = match skipped {
+        0 => String::new(),
+        1 => format!("1 {duplicates} skipped"),
+        n => format!("{n} {duplicates}s skipped"),
+    };
+    let mut text = if done == 0 && skipped > 0 { format!("Nothing {past}: {skip_text}") } else { head };
+    if done > 0 && skipped > 0 {
+        text.push_str(&format!("; {skip_text}"));
+    }
+    if e.cancelled {
+        text.push_str("; the rest was cancelled");
+    }
+    let Some(first) = e.failures.first() else {
+        return JobToast { text, whole: String::new(), kind: ToastKind::Info, action: None };
+    };
+    let name = name_of(&first.file);
+    let mut detail = format!("Could not {verb} {name}{after}: {}", first.reason.trim_end_matches('.'));
+    let more = e.failures.len().saturating_sub(1);
+    if more > 0 {
+        detail.push_str(&format!(", and {more} more"));
+    }
+    // An operation that did nothing says only what failed.
+    let text = if done == 0 && skipped == 0 && !e.cancelled { detail } else { format!("{text}. {detail}") };
+    JobToast { text, whole: name, kind: ToastKind::Caution, action: None }
 }
 
 /// Does what a toast's button asked for (once a frame, after the toasts are drawn): Show Folder
@@ -390,6 +480,74 @@ mod tests {
         assert_eq!(job_toast(&failed, None), None);
         let exported = event(JobKind::Export, "Exported 1 picture", 1, 1, &[], None);
         assert_eq!(job_toast(&exported, None), Some(event_toast(&exported)));
+    }
+
+    fn op(kind: FileOpKind, direction: Direction, label: &'static str, done: usize, skipped: usize, failures: &[(&str, &str)]) -> FileOpEvent {
+        let item = |f: &str, r: &str| dalica_engine::ItemFailure { file: PathBuf::from(f), reason: r.into() };
+        FileOpEvent {
+            seq: 0,
+            op: 1,
+            job: 1,
+            kind,
+            direction,
+            label,
+            total: done + skipped + failures.len(),
+            done,
+            skipped: (0..skipped).map(|i| item(&format!("/p/s{i}.jpg"), "a file of that name is there")).collect(),
+            failures: failures.iter().map(|(f, r)| item(f, r)).collect(),
+            cancelled: false,
+            destination: Some(PathBuf::from("/p/Lisbon")),
+        }
+    }
+
+    #[test]
+    fn a_file_operation_toast_says_what_was_done_with_its_count() {
+        use Direction::{Do, Redo, Undo};
+        use FileOpKind::*;
+        let text = |e: FileOpEvent| op_toast(&e).text;
+        assert_eq!(text(op(Move, Do, "Move", 3, 0, &[])), "Moved 3 photos to Lisbon");
+        assert_eq!(text(op(Move, Redo, "Move", 1, 0, &[])), "Moved 1 photo to Lisbon");
+        assert_eq!(text(op(Move, Undo, "Move", 3, 0, &[])), "Moved 3 photos back");
+        assert_eq!(text(op(Copy, Do, "Copy", 2, 0, &[])), "Copied 2 photos to Lisbon");
+        assert_eq!(text(op(Copy, Undo, "Copy", 2, 0, &[])), "Moved 2 copies to the Trash");
+        assert_eq!(text(op(Rename, Do, "Rename", 3, 0, &[])), "Renamed 3 photos");
+        assert_eq!(text(op(Rename, Undo, "Rename", 3, 0, &[])), "Renamed 3 photos back");
+        assert_eq!(text(op(Trash, Do, "Delete", 2, 0, &[])), "Moved 2 photos to the Trash");
+        assert_eq!(text(op(Trash, Undo, "Delete", 1, 0, &[])), "Restored 1 photo from the Trash");
+        assert_eq!(text(op(MoveFolder, Do, "Move Folder", 1, 0, &[])), "Moved the folder to Lisbon");
+        assert_eq!(text(op(RenameFolder, Do, "Rename Folder", 1, 0, &[])), "Renamed the folder to Lisbon");
+        assert_eq!(text(op(TrashFolder, Do, "Delete Folder", 1, 0, &[])), "Moved the folder to the Trash");
+        assert_eq!(text(op(TrashFolder, Undo, "Delete Folder", 1, 0, &[])), "Restored the folder from the Trash");
+        // Move to New Folder counts the photos, not the step that makes (or removes) the folder.
+        assert_eq!(text(op(Move, Do, dalica_engine::cmd::files::NEW_FOLDER_LABEL, 4, 0, &[])), "Moved 3 photos to Lisbon");
+        assert_eq!(text(op(Move, Undo, dalica_engine::cmd::files::NEW_FOLDER_LABEL, 4, 0, &[])), "Moved 3 photos back");
+        // Skipped duplicates are counted; with nothing done, that is all it says.
+        assert_eq!(text(op(Copy, Do, "Copy", 1, 2, &[])), "Copied 1 photo to Lisbon; 2 duplicates skipped");
+        assert_eq!(text(op(Move, Do, "Move", 0, 1, &[])), "Nothing moved: 1 duplicate skipped");
+        let mut cancelled = op(Move, Do, "Move", 2, 0, &[]);
+        cancelled.cancelled = true;
+        assert_eq!(text(cancelled), "Moved 2 photos to Lisbon; the rest was cancelled");
+        let info = op_toast(&op(Move, Do, "Move", 3, 0, &[]));
+        assert_eq!((info.kind, info.whole.as_str(), info.action), (ToastKind::Info, "", None));
+    }
+
+    #[test]
+    fn a_failed_file_operation_is_a_caution_naming_the_file_and_why() {
+        use Direction::{Do, Undo};
+        use FileOpKind::*;
+        let some = op_toast(&op(Move, Do, "Move", 2, 0, &[("/a/IMG_0041.jpg", "the file is in use."), ("/a/b.jpg", "x")]));
+        assert_eq!(some.text, "Moved 2 photos to Lisbon. Could not move IMG_0041.jpg: the file is in use, and 1 more");
+        assert_eq!((some.kind, some.whole.as_str()), (ToastKind::Caution, "IMG_0041.jpg"));
+        let none = op_toast(&op(Copy, Do, "Copy", 0, 0, &[("/a/b.jpg", "no space left")]));
+        assert_eq!(none.text, "Could not copy b.jpg: no space left", "nothing done: only what failed");
+        assert_eq!(op_toast(&op(Move, Undo, "Move", 0, 0, &[("/a/b.jpg", "busy")])).text, "Could not move b.jpg back: busy");
+        assert_eq!(op_toast(&op(Trash, Do, "Delete", 0, 0, &[("/a/b.jpg", "no trash")])).text, "Could not move b.jpg to the Trash: no trash");
+        assert_eq!(
+            op_toast(&op(Copy, Undo, "Copy", 0, 0, &[("/a/b-001.jpg", "it changed")])).text,
+            "Could not remove the copy b-001.jpg: it changed"
+        );
+        assert_eq!(op_toast(&op(Rename, Undo, "Rename", 0, 0, &[("/a/b.jpg", "taken")])).text, "Could not rename b.jpg back: taken");
+        assert_eq!(op_toast(&op(Trash, Undo, "Delete", 0, 0, &[("/a/b.jpg", "gone")])).text, "Could not restore b.jpg: gone");
     }
 
     #[test]

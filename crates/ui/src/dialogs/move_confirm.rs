@@ -3,10 +3,13 @@
 //! will be moved, not copied." with [Move] [Cancel] and "Don't ask again"
 //! (`check:dialog.dontAsk`), whose state is the view state's `moveFiles.dontAsk`. Move (the
 //! default) runs `photo.moveTo` with `"confirm": true`, and with `"dontAsk": true` when the box is
-//! ticked, which turns the engine's "Ask before moving" off.
+//! ticked, which turns the engine's "Ask before moving" off (`"organize"` → `askBeforeMoving`) as
+//! the move runs; Cancel moves nothing and leaves the setting on.
 //!
-//! It asks once `photo.moveTo` is registered (M9.13) and the call does not already send
-//! `dontAsk: true`; M9.19 reads the engine's setting here.
+//! It asks while that setting is on, once `photo.moveTo` is registered, unless the call sends
+//! `dontAsk: true`. Move goes through [`super::collision::run_or_ask`]: when names clash in the
+//! folder the collision question follows, carrying the `confirm` and the `dontAsk` (so the box
+//! takes effect only once something is run).
 
 use dalica_core::{FolderId, PhotoId};
 use dalica_engine::CmdError;
@@ -17,7 +20,7 @@ use serde_json::Value;
 
 use super::{Button, Dialog, Look, confirm};
 use crate::app::App;
-use crate::state::MoveQuestion;
+use crate::state::{FileOp, MoveQuestion};
 
 /// The dialog's title, its default button and its question.
 pub const TITLE: &str = "Move Files";
@@ -27,10 +30,12 @@ pub const TEXT: &str = "Move these files on disk? The files will be moved, not c
 pub const DONT_ASK: &str = "Don't ask again";
 pub const DONT_ASK_ID: &str = "check:dialog.dontAsk";
 
-/// Whether `photo.moveTo` with `params` asks first: once the command exists, unless `dontAsk` is
-/// sent.
+/// Whether `photo.moveTo` with `params` asks first: while the engine's "Ask before moving" is on
+/// and the command exists, unless `dontAsk` is sent.
 pub fn asks(app: &App, params: &Value) -> bool {
-    confirm::registered(app, "photo.moveTo") && params.get("dontAsk") != Some(&Value::Bool(true))
+    confirm::registered(app, "photo.moveTo")
+        && params.get("dontAsk") != Some(&Value::Bool(true))
+        && app.session().is_some_and(|s| s.settings().organize().ask_before_moving)
 }
 
 /// Called when the question opens: the photos (named, else the tray's) and the folder, the box
@@ -58,12 +63,20 @@ pub fn body(app: &mut App, ui: &mut Ui, _d: &mut Dialog) {
     }
 }
 
-/// Move: runs `photo.moveTo` with `"confirm": true` (and `"dontAsk": true` when the box is ticked).
+/// Move: runs `photo.moveTo` with `"confirm": true` (and `"dontAsk": true` when the box is
+/// ticked), the photos the question shows when the call named none; the collision question first
+/// when names clash ([`super::collision::run_or_ask`]).
 pub fn act(app: &mut App, d: &Dialog, _action: &str) -> Result<Value, CmdError> {
-    let dont_ask = app.state().move_files.as_ref().is_some_and(|q| q.dont_ask);
+    let q = app.state().move_files.clone();
+    let dont_ask = q.as_ref().is_some_and(|q| q.dont_ask);
     let extra: Vec<(&str, Value)> = if dont_ask { vec![("dontAsk", Value::Bool(true))] } else { Vec::new() };
-    let (id, params) = confirm::confirmed_params(d, &extra)?;
-    app.run(&id, &params)
+    let (_, mut params) = confirm::confirmed_params(d, &extra)?;
+    if let (Some(q), Some(p)) = (&q, params.as_object_mut())
+        && !p.contains_key("ids")
+    {
+        p.insert("ids".into(), serde_json::json!(q.ids));
+    }
+    super::collision::run_or_ask(app, FileOp::Move, params)
 }
 
 #[cfg(test)]

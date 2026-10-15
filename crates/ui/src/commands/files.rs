@@ -10,8 +10,13 @@
 //!   named (else the focused or first selected) and every photo after it in its folder, in the
 //!   light table's order.
 //!
-//! The move and copy questions, the collision question and the file notices are
-//! `crate::dialogs::{move_confirm, copy_confirm, collision}` and M9.19's.
+//! - [`move_photos`] and [`copy_photos`]: how the UI moves and copies photos into a folder (Paste
+//!   after Cut or Copy, a drop on a folder): a move asks the first-time question while "Ask before
+//!   moving" is on (`crate::dialogs::move_confirm`), a copy always asks "Copy %d files to %s?"
+//!   (`crate::dialogs::copy_confirm`), and either asks the collision question
+//!   (`crate::dialogs::collision`) before anything moves when names clash in the folder.
+//!
+//! What each operation did is a toast when it ends (`crate::notices`, from its `FileOpEvent`).
 
 use dalica_core::{FolderId, PhotoId};
 use dalica_engine::CmdError;
@@ -20,8 +25,8 @@ use serde_json::Value;
 
 use super::{Check, Opener, UiCommand, parse_object};
 use crate::app::App;
-use crate::dialogs::new_folder;
-use crate::state::{NewFolderDraft, Section};
+use crate::dialogs::{self, collision, copy_confirm, new_folder};
+use crate::state::{FileOp, NewFolderDraft, Section};
 
 pub const COMMANDS: &[UiCommand] = &[UiCommand {
     id: "photo.splitFolder",
@@ -106,6 +111,23 @@ fn can_split(app: &App, params: &Value) -> Result<(), String> {
 fn split_folder(app: &mut App, params: &Value) -> Result<Value, CmdError> {
     let ids = split(app, params)?;
     new_folder::open(app, NewFolderDraft { ids, ..NewFolderDraft::default() })
+}
+
+/// Moves `ids` into library folder `folder` as the UI does: the first-time move question while
+/// "Ask before moving" is on, else the collision question when names clash, else `photo.moveTo`
+/// at once. Replies the command's reply or `{dialog: <kind>}`.
+pub fn move_photos(app: &mut App, ids: Vec<PhotoId>, folder: FolderId) -> Result<Value, CmdError> {
+    let params = serde_json::json!({ "ids": ids, "folder": folder });
+    match dialogs::asking(app, "photo.moveTo", &params) {
+        Some(ask) => dialogs::ask(app, ask, &params),
+        None => collision::run_or_ask(app, FileOp::Move, params),
+    }
+}
+
+/// Copies `ids` into library folder `folder` as the UI does: "Copy %d files to %s?" first (its
+/// Copy asks the collision question when names clash). Replies `{dialog: "copyFiles"}`.
+pub fn copy_photos(app: &mut App, ids: Vec<PhotoId>, folder: FolderId) -> Result<Value, CmdError> {
+    copy_confirm::open(app, ids, folder)
 }
 
 #[cfg(test)]

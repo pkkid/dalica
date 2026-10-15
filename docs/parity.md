@@ -23,14 +23,14 @@ same commit.
 | Section | ✅ | 🟡 | ⬜ | 🚫 |
 |---|---:|---:|---:|---:|
 | A. Library view | 13 | 15 | 4 | 1 |
-| B. Organizing | 2 | 18 | 22 | 0 |
+| B. Organizing | 3 | 17 | 22 | 0 |
 | C. Editing | 8 | 6 | 8 | 4 |
 | D. Viewing | 0 | 1 | 5 | 2 |
 | E. Output | 0 | 1 | 1 | 9 |
 | F. Data | 1 | 19 | 1 | 0 |
 | G. Preferences and system | 0 | 7 | 7 | 0 |
 | H. Menus | 0 | 5 | 2 | 0 |
-| **All** | 24 | 72 | 50 | 16 |
+| **All** | 25 | 71 | 50 | 16 |
 <!-- /parity:summary -->
 
 ## Top gaps
@@ -114,8 +114,8 @@ same commit.
 | SRCH-SAVE | Save search as album, show tag as album | P2 | 🟡 | Save: `cmd:search.saveAsAlbum` makes a user album of the matches in light-table order as one undo step: `crates/engine/tests/search.rs`; missing: its name dialog (M9.22) and Show Tag as Album |
 | SRCH-COLOR | Colour search | P2 | ⬜ | |
 | SRCH-DUP | Find duplicates | P2 | ⬜ | |
-| FILE-MOVE | Move/copy photos with collision dialog | P0 | 🟡 | ref 04 §9; the engine (M9.13): `cmd:photo.moveTo` (the first-time question while "Ask before moving" is on, `dontAsk`) and `cmd:photo.copyTo` as file operations, a clash answering the question naming the files and `collisions: rename` (`-001`) or `skip`, each photo's entry, album order and originals backup travelling with it, copies as new photos with the sources' data, undo and redo (a copy's undo trashes it while unchanged), a forced cross-volume move, Cancel half-way as one step, a read-only destination: `crates/engine/src/cmd/files.rs`, `crates/engine/tests/move_copy.rs`; missing: the dialogs, drag and Cut/Copy/Paste (M9.19) |
-| FILE-NEWFOLDER | Move to new folder, split folder | P1 | 🟡 | the engine (M9.13): `cmd:photo.moveToNewFolder` makes the folder beside the photos' folder (name sanitized, next free name) with its Folder Properties and moves the photos, one undo step whose undo trashes the folder while it holds nothing else; a split is the same command with the photo and every photo after it: `crates/engine/src/cmd/files.rs`, `crates/engine/tests/new_folder.rs`; missing: the new-folder dialog (M9.19) |
+| FILE-MOVE | Move/copy photos with collision dialog | P0 | 🟡 | ref 04 §9; the engine (M9.13): `cmd:photo.moveTo` (the first-time question while "Ask before moving" is on, `dontAsk`) and `cmd:photo.copyTo` as file operations, a clash answering the question naming the files and `collisions: rename` (`-001`) or `skip`, each photo's entry, album order and originals backup travelling with it, copies as new photos with the sources' data, undo and redo (a copy's undo trashes it while unchanged), a forced cross-volume move, Cancel half-way as one step, a read-only destination: `crates/engine/src/cmd/files.rs`, `crates/engine/tests/move_copy.rs`; the questions (M9.19): "Move these files on disk?" with "Don't ask again" asked while the setting is on (Cancel moves nothing, the box turns it off as the move runs), "Copy %d files to %s?", and the collision question naming the files with Rename Duplicates, Skip Duplicates and Cancel, asked before anything moves (`crates/ui/src/dialogs/move_confirm.rs`, `crates/ui/src/dialogs/copy_confirm.rs`, `crates/ui/src/dialogs/collision.rs`, `crates/ui/tests/move_dialogs.rs`, fingerprinted at both window sizes); one toast per finished operation, undo and failure ("Moved 3 photos to Lisbon", "; 2 duplicates skipped", "Could not move IMG_0041.jpg: …"): `crates/ui/src/notices.rs`, `crates/ui/tests/notices.rs`; missing: drag and drop, and Paste after Cut asking the collision question with the move question off (M9.23) |
+| FILE-NEWFOLDER | Move to new folder, split folder | P1 | ✅ | the engine (M9.13): `cmd:photo.moveToNewFolder` makes the folder beside the photos' folder (name sanitized, next free name) with its Folder Properties and moves the photos, one undo step whose undo trashes the folder while it holds nothing else; a split is the same command with the photo and every photo after it: `crates/engine/src/cmd/files.rs`, `crates/engine/tests/new_folder.rs`; the dialog (M9.19): File ▸ Move to New Folder…, the photo menu's Move to New Folder… and Split Folder Here… open Folder Properties for the new folder (Name "New Folder", the oldest photo's date with its box, Place, Description), OK runs `cmd:photo.moveToNewFolder` and Edit ▸ Undo removes the folder: `crates/ui/src/dialogs/new_folder.rs`, `crates/ui/src/commands/files.rs`, `crates/ui/tests/new_folder.rs` (fingerprinted at both window sizes) |
 | FILE-RENAME | Rename / batch rename dialog | P0 | 🟡 | engine (M9.14): `photo.rename {ids, name, addDate?, addSize?}` (`cmd:photo.rename`) as a file operation that is one undo step: one photo takes the sanitized name with its own extension, several get `-001`, `-002` … in light-table order, the date taken and the pixel size join the name when asked, a name another file or photo of the batch holds takes the next free number (decided by file identity, so a change of letter case renames in place), all or nothing per folder (a failed rename moves the folder's renamed files back), sidecar entries and originals backups travelling with the files; `folder.rename {folder, name}` (`cmd:folder.rename`) renames a folder with its ids and sidecar: `crates/engine/src/cmd/rename.rs`, `crates/engine/tests/rename.rs`; missing: the Rename Files dialog (M9.20) |
 | FILE-DELETE | Delete to trash with confirmations | P0 | ⬜ | |
 | FILE-FOLDEROPS | Move / rename / delete folder | P1 | ⬜ | |
