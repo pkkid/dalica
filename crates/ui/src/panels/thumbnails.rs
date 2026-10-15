@@ -72,7 +72,7 @@ use std::ops::Range;
 use std::path::PathBuf;
 use std::sync::{Arc, Weak};
 
-use dalica_core::PhotoId;
+use dalica_core::{PhotoId, Timestamp};
 use dalica_edit::{Dihedral, Geometry, Recipe, RenderKey};
 use dalica_engine::thumbs::Size;
 use dalica_engine::{Refreshed, Session, Thumb};
@@ -285,6 +285,16 @@ struct Texture {
     stand_in: bool,
     /// The edits it shows ([`PhotoShape::edits`] when it was uploaded).
     edits: Option<RenderKey>,
+    /// The file it was made from ([`file_key`] when it was uploaded): a Save, an Undo Save, a
+    /// Revert or an outside change makes it stale, even when the edits key is the same.
+    file: Option<FileKey>,
+}
+
+/// A photo's file as the library knows it: its size and modification time.
+type FileKey = (u64, Timestamp);
+
+fn file_key(photo: &Photo) -> FileKey {
+    (photo.size, photo.mtime)
 }
 
 /// A sketch, decoded once into the colours of its mesh.
@@ -506,16 +516,17 @@ impl Thumbnails {
     /// Paints `photo` into `rect` (its letterboxed image at its displayed size, in points) for an
     /// image `device_px` device pixels on its long side: the best uploaded ladder size, else its
     /// sketch, else the placeholder, turned by its recipe's orientation. A texture of the photo's
-    /// earlier edits is drawn only while none of its current ones is uploaded, at its own shape
-    /// letterboxed inside `rect` ([`fit_within`]). Never touches the disk and never decodes an
-    /// image.
+    /// earlier edits, or of its earlier file (before a Save, an Undo Save, a Revert), is drawn only
+    /// while none of its current ones is uploaded, at its own shape letterboxed inside `rect`
+    /// ([`fit_within`]). Never touches the disk and never decodes an image.
     pub fn paint(&mut self, painter: &Painter, photo: PhotoRef<'_>, rect: Rect, device_px: f32) -> Drawn {
         let id = photo.photo.id;
         let shape = self.shape(photo);
         let turn = shape.turn;
         let need = need_of(device_px);
         let frame = self.frame;
-        let current = |t: &HashMap<(PhotoId, Size), Texture>, s: Size| t.get(&(id, s)).is_some_and(|t| t.edits == shape.edits);
+        let file = Some(file_key(photo.photo));
+        let current = |t: &HashMap<(PhotoId, Size), Texture>, s: Size| t.get(&(id, s)).is_some_and(|t| t.edits == shape.edits && t.file == file);
         let mut choice = ladder::choose(need, self.screen, |s| current(&self.textures, s));
         let mut stale = false;
         if choice == Choice::Nothing {
@@ -676,7 +687,8 @@ impl Thumbnails {
             // The session answers for the photo's recipe as the library has it now: the edits
             // this frame painted it with.
             let edits = self.shapes.get(&id).and_then(|s| s.edits);
-            if self.upload(id, size, &image, stand_in, edits) {
+            let file = session.library().photo(id).map(file_key);
+            if self.upload(id, size, &image, stand_in, edits, file) {
                 uploads += 1;
                 bytes = bytes.saturating_add(len);
             }
@@ -698,7 +710,7 @@ impl Thumbnails {
 
     /// Uploads `image` as `id`'s `size` texture. `false` when it is malformed or there is no
     /// context yet.
-    fn upload(&mut self, id: PhotoId, size: Size, image: &Arc<Rgba8>, stand_in: bool, edits: Option<RenderKey>) -> bool {
+    fn upload(&mut self, id: PhotoId, size: Size, image: &Arc<Rgba8>, stand_in: bool, edits: Option<RenderKey>, file: Option<FileKey>) -> bool {
         let Some(ctx) = &self.ctx else { return false };
         let dims = [image.width as usize, image.height as usize];
         if dims[0] == 0 || dims[1] == 0 || dims[0].saturating_mul(dims[1]).saturating_mul(4) != image.data.len() {
@@ -708,7 +720,7 @@ impl Thumbnails {
         let pixels = egui::ColorImage::from_rgba_unmultiplied(dims, &image.data);
         let handle = ctx.load_texture(format!("thumb:{id}:{size:?}"), pixels, egui::TextureOptions::LINEAR);
         let bytes = image.data.len();
-        let texture = Texture { handle, source: Arc::downgrade(image), bytes, drawn: self.frame, stand_in, edits };
+        let texture = Texture { handle, source: Arc::downgrade(image), bytes, drawn: self.frame, stand_in, edits, file };
         if let Some(old) = self.textures.insert((id, size), texture) {
             self.texture_bytes = self.texture_bytes.saturating_sub(old.bytes);
         }
