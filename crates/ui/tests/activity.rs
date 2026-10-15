@@ -13,15 +13,14 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
+use crate::common::{FRAMES, new_driver, out_dir, widget};
 use dalica_engine::watching::WatchMode;
 use dalica_engine::{JobState, Session};
 use dalica_scan::HeaderReader;
 use dalica_scenes::fingerprint;
 use dalica_ui::{App, Driver, ScriptedPicker};
-use dalica_ui_kit::WidgetInfo;
 use serde_json::json;
 
-const FRAMES: usize = 60 * 60;
 const SIZES: [(u32, u32); 2] = [(1400, 900), (900, 600)];
 /// Photos per folder, and folders under the root.
 const PER_FOLDER: usize = 4;
@@ -80,20 +79,13 @@ fn setup((w, h): (u32, u32)) -> T {
     session.set_watching(WatchMode::Off);
     let (reader, permits) = permitted();
     session.set_scan_reader(Some(reader));
-    let mut d = Driver::new(App::with_picker(Some(session), Arc::new(ScriptedPicker::new())), w, h, 1.0);
+    let mut d = new_driver(App::with_picker(Some(session), Arc::new(ScriptedPicker::new())), w, h, 1.0);
     d.settle(FRAMES).unwrap();
     T { _dir: dir, root, permits, d }
 }
 
 fn session(d: &Driver) -> &Session {
     d.app().session().unwrap()
-}
-
-fn widget(d: &Driver, id: &str) -> WidgetInfo {
-    d.widgets()
-        .into_iter()
-        .find(|w| w.id == id)
-        .unwrap_or_else(|| panic!("no `{id}` in {:?}", d.widgets().iter().map(|w| w.id.clone()).collect::<Vec<_>>()))
 }
 
 fn has(d: &Driver, id: &str) -> bool {
@@ -112,12 +104,6 @@ fn job(d: &Driver) -> dalica_engine::JobEntry {
     let jobs = session(d).jobs();
     assert_eq!(jobs.len(), 1, "{jobs:?}");
     jobs[0].clone()
-}
-
-fn out_dir() -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/ui");
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
 }
 
 /// Checks the pixels of `rect` (points = pixels at scale 1) of `shot` against `<name>.json`.

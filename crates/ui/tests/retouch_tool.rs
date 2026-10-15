@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::common::{FRAMES, new_driver, out_dir};
 use dalica_core::PhotoId;
 use dalica_engine::Session;
 use dalica_scenes::fingerprint;
@@ -26,7 +27,6 @@ use dalica_ui_kit::WidgetInfo;
 use egui::{Modifiers, PointerButton, Pos2, pos2};
 use serde_json::{Value, json};
 
-const FRAMES: usize = 60 * 60;
 const SIZES: [(u32, u32); 2] = [(1400, 900), (900, 600)];
 /// The test photo and its planted blemish: a dark disc at `BLEMISH` (normalised) of radius
 /// `BLEMISH_R` pixels.
@@ -86,7 +86,7 @@ fn setup((w, h): (u32, u32)) -> T {
     let found = s.execute("library.query", &json!({ "limit": 10 })).unwrap();
     let photo = found["photos"][0]["id"].as_u64().unwrap();
     let control = Control::new(Config::default());
-    let mut d = Driver::new(App::with_picker(Some(s), control.picker()), w, h, 1.0);
+    let mut d = new_driver(App::with_picker(Some(s), control.picker()), w, h, 1.0);
     d.settle(FRAMES).unwrap();
     let mut t = T { _dir: dir, control, conn: Connection::new(), d, photo };
     run(&mut t, "view.edit", json!({ "id": photo }));
@@ -490,12 +490,6 @@ fn the_actions_refuse_bad_parameters() {
     assert!(retouch::pending(PhotoId::new(t.photo)).is_some());
     action(&mut t, "drop", json!({}));
     assert_eq!(retouch::pending(PhotoId::new(t.photo)), None);
-}
-
-fn out_dir() -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/ui");
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
 }
 
 /// Checks the pixels of `rect` of the window against `tests/fingerprints/<name>.json`

@@ -19,6 +19,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
+use crate::common::{FRAMES, new_driver, out_dir, try_widget};
 use dalica_core::{FolderId, PhotoId};
 use dalica_engine::{Done, FileItem, FileJob, JobKind, JobState, Session};
 use dalica_fs::Expect;
@@ -27,10 +28,8 @@ use dalica_ui::dialogs::export_progress;
 use dalica_ui::notices::{SHOW_FOLDER_ID, event_toast};
 use dalica_ui::state::{ExportProgress, Section};
 use dalica_ui::{App, Driver, ScriptedPicker};
-use dalica_ui_kit::WidgetInfo;
 use serde_json::{Value, json};
 
-const FRAMES: usize = 60 * 60;
 const PATIENCE: Duration = Duration::from_secs(300);
 
 fn jpeg(seed: u64, width: u32, height: u32) -> Vec<u8> {
@@ -59,7 +58,7 @@ impl T {
         s.wait_idle();
         let mut photos: Vec<(String, PhotoId)> = s.library().photos().map(|p| (p.name.clone(), p.id)).collect();
         photos.sort();
-        let mut d = Driver::new(App::with_picker(Some(s), Arc::new(ScriptedPicker::new())), size.0, size.1, 1.0);
+        let mut d = new_driver(App::with_picker(Some(s), Arc::new(ScriptedPicker::new())), size.0, size.1, 1.0);
         d.settle(FRAMES).unwrap();
         T { dir, d, ids: photos.into_iter().map(|(_, id)| id).collect() }
     }
@@ -92,10 +91,6 @@ impl T {
     }
 }
 
-fn widget(d: &Driver, id: &str) -> Option<WidgetInfo> {
-    d.widgets().into_iter().find(|w| w.id == id)
-}
-
 /// The files in `dir`, sorted.
 fn files(dir: &Path) -> Vec<String> {
     let mut names: Vec<String> = std::fs::read_dir(dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
@@ -108,12 +103,6 @@ fn decoded_size(path: &Path) -> (u32, u32) {
     let bytes = std::fs::read(path).unwrap();
     let img = dalica_image::decode(&bytes, &dalica_image::Limits::default()).unwrap();
     (img.width, img.height)
-}
-
-fn out_dir() -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/ui");
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
 }
 
 /// Writes the last frame to `target/test-output/ui/<name>.png`.
@@ -159,10 +148,10 @@ fn the_window_follows_an_export_and_show_folder_brings_the_folder_up() {
     let job = reply["job"].as_u64().unwrap();
     t.d.step();
     assert_eq!(t.d.state().export_progress, Some(ExportProgress { job, shown: true }), "the export opened the window");
-    assert!(widget(&t.d, export_progress::ID).is_some());
-    let bar = widget(&t.d, export_progress::BAR_ID).expect("the bar");
+    assert!(try_widget(&t.d, export_progress::ID).is_some());
+    let bar = try_widget(&t.d, export_progress::BAR_ID).expect("the bar");
     assert!(bar.label.starts_with("Exporting ") && bar.label.ends_with(" of 12…"), "{}", bar.label);
-    let cancel = widget(&t.d, export_progress::CANCEL_ID).expect("Cancel");
+    let cancel = try_widget(&t.d, export_progress::CANCEL_ID).expect("Cancel");
     assert!(cancel.enabled);
     // Not modal: the light table keeps its input (a photo can still be clicked).
     t.d.click(&format!("thumb:{}", t.ids[0])).unwrap();
@@ -170,7 +159,7 @@ fn the_window_follows_an_export_and_show_folder_brings_the_folder_up() {
     // The count follows the job.
     t.until("a photo done", |d| d.app().session().unwrap().job(job).unwrap().progress.done >= 1);
     t.d.step();
-    let label = widget(&t.d, export_progress::BAR_ID).map(|w| w.label);
+    let label = try_widget(&t.d, export_progress::BAR_ID).map(|w| w.label);
     let entry = t.job(job);
     if entry.state == JobState::Running {
         assert_eq!(label, Some(format!("{}…", entry.label)), "the line is the job's progress");
@@ -181,13 +170,13 @@ fn the_window_follows_an_export_and_show_folder_brings_the_folder_up() {
     t.until("the window to close", |d| d.state().export_progress.is_none());
     assert_eq!(t.job(job).state, JobState::Done);
     t.d.step();
-    assert!(widget(&t.d, export_progress::ID).is_none(), "closed");
+    assert!(try_widget(&t.d, export_progress::ID).is_none(), "closed");
     let lisbon = out.join("Lisbon Weekend");
     let toasts = t.toasts();
     let toast = toasts.iter().find(|v| v["text"] == "Exported 12 pictures").unwrap_or_else(|| panic!("{toasts:?}"));
     assert_eq!(toast["kind"], "info");
     assert_eq!(toast["action"], json!({ "id": SHOW_FOLDER_ID, "folder": lisbon }));
-    assert!(widget(&t.d, SHOW_FOLDER_ID).is_some(), "the button is drawn");
+    assert!(try_widget(&t.d, SHOW_FOLDER_ID).is_some(), "the button is drawn");
     save_window(&t.d, "export-progress-toast-1400x900");
     // Show Folder, pressed at once: it waits for the scan to bring the folder in, then selects it
     // as a unit and scrolls the light table to it.
@@ -220,9 +209,9 @@ fn cancel_stops_the_job_and_leaves_only_complete_files() {
         t.d.click(export_progress::CANCEL_ID).unwrap();
         // Until the job ends the window says it is cancelling, its button disabled.
         if t.d.state().export_progress.is_some() {
-            let bar = widget(&t.d, export_progress::BAR_ID).unwrap();
+            let bar = try_widget(&t.d, export_progress::BAR_ID).unwrap();
             assert_eq!(bar.label, export_progress::CANCELLING);
-            assert!(!widget(&t.d, export_progress::CANCEL_ID).unwrap().enabled);
+            assert!(!try_widget(&t.d, export_progress::CANCEL_ID).unwrap().enabled);
         }
     }
     t.until("the window to close", |d| d.state().export_progress.is_none());
@@ -243,7 +232,7 @@ fn cancel_stops_the_job_and_leaves_only_complete_files() {
     let toasts = t.toasts();
     let text = format!("Export cancelled: {written} of 12 pictures exported");
     assert!(toasts.iter().any(|v| v["text"] == text.as_str() && v["kind"] == "info"), "{toasts:?}");
-    assert!(widget(&t.d, export_progress::ID).is_none());
+    assert!(try_widget(&t.d, export_progress::ID).is_none());
 }
 
 /// A window set aside while its job runs is not opened again; the next export opens it.
@@ -341,9 +330,9 @@ fn the_window_matches_its_fingerprints() {
         for _ in 0..4 {
             t.d.step();
         }
-        let bar = widget(&t.d, export_progress::BAR_ID).unwrap();
+        let bar = try_widget(&t.d, export_progress::BAR_ID).unwrap();
         assert_eq!(bar.label, "Exporting 1 of 4…");
-        let win = widget(&t.d, export_progress::ID).unwrap();
+        let win = try_widget(&t.d, export_progress::ID).unwrap();
         let rect = win.rect;
         assert!((rect[2] - export_progress::WIDTH).abs() < 1.0, "{rect:?}");
         assert!(rect[0] + rect[2] <= w as f32 && rect[1] + rect[3] <= h as f32, "inside the window: {rect:?}");

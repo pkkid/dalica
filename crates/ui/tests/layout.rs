@@ -14,13 +14,13 @@ use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
 use std::sync::Arc;
 
+use crate::common::{FRAMES, new_driver, widget};
 use dalica_engine::Session;
 use dalica_ui::headless::{Drag, Target};
 use dalica_ui::state::Pane;
 use dalica_ui::{App, Driver, ScriptedPicker};
 use dalica_ui_kit::WidgetInfo;
 
-const FRAMES: usize = 60 * 60;
 const SIZES: [(f32, f32); 2] = [(1400.0, 900.0), (900.0, 600.0)];
 /// The sizes of the M3.10 done-when: the default, the width where the narrow rules start, the minimum.
 const THREE_SIZES: [(f32, f32); 3] = [(1400.0, 900.0), (1100.0, 700.0), (900.0, 600.0)];
@@ -56,7 +56,7 @@ fn session_named(root: &Path, first: Option<&str>) -> Session {
 }
 
 fn driver(root: &Path, (w, h): (f32, f32)) -> Driver {
-    let mut d = Driver::new(App::with_picker(Some(session(root)), Arc::new(ScriptedPicker::new())), w as u32, h as u32, 1.0);
+    let mut d = new_driver(App::with_picker(Some(session(root)), Arc::new(ScriptedPicker::new())), w as u32, h as u32, 1.0);
     d.settle(FRAMES).unwrap();
     d
 }
@@ -64,10 +64,6 @@ fn driver(root: &Path, (w, h): (f32, f32)) -> Driver {
 /// The regions the last frame registered, by name.
 fn regions(d: &Driver) -> HashMap<String, [f32; 4]> {
     d.widgets().into_iter().filter_map(|w| w.id.strip_prefix("region:").map(|n| (n.to_string(), w.rect))).collect()
-}
-
-fn widget(d: &Driver, id: &str) -> WidgetInfo {
-    d.widgets().into_iter().find(|w| w.id == id).unwrap_or_else(|| panic!("no `{id}`"))
 }
 
 /// The tree width `ui-layout.md` §11 gives beside a side pane `pane` wide (0 when closed) in a
@@ -537,7 +533,7 @@ fn narrow_windows_drop_only_the_chrome_the_spec_lets_go_before_anything_overlaps
     const LONG: &str = "Summer holiday at the lake house with the whole family";
     let dir = tempfile::tempdir().unwrap();
     let app = App::with_picker(Some(session_named(dir.path(), Some(LONG))), Arc::new(ScriptedPicker::new()));
-    let mut d = Driver::new(app, 1400, 900, 1.0);
+    let mut d = new_driver(app, 1400, 900, 1.0);
     d.settle(FRAMES).unwrap();
     let row = d.widgets().into_iter().find(|wi| wi.id.starts_with("tree:folder:") && wi.label.starts_with(LONG)).expect("the long folder's row");
     d.click(&row.id).unwrap();

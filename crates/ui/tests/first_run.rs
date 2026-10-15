@@ -16,24 +16,17 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
+use crate::common::{FRAMES, new_driver, out_dir, put_jpeg, try_widget};
 use dalica_engine::Session;
 use dalica_scan::{HeaderReader, Places};
 use dalica_scenes::fingerprint;
 use dalica_ui::dialogs::first_run;
 use dalica_ui::state::DialogKind;
 use dalica_ui::{App, Driver};
-use dalica_ui_kit::WidgetInfo;
 use dalica_ui_kit::registry;
 use serde_json::json;
 
-const FRAMES: usize = 60 * 60;
 const SIZES: [(u32, u32); 2] = [(1400, 900), (900, 600)];
-
-fn put_jpeg(path: &Path, seed: u64) {
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    let jpeg = dalica_scenes::encode::jpeg(&dalica_scenes::Scene::new(seed, 96, 64), 80, None).unwrap();
-    std::fs::write(path, jpeg).unwrap();
-}
 
 /// A new library and a home with `Pictures/A Trip` (4 photos) and `Pictures/Z Last` (2), and
 /// empty `Documents` and `Desktop`, planted as the session's places.
@@ -78,12 +71,8 @@ impl Gate {
     }
 }
 
-fn widget(d: &Driver, id: &str) -> Option<WidgetInfo> {
-    d.widgets().into_iter().find(|w| w.id == id)
-}
-
 fn has(d: &Driver, id: &str) -> bool {
-    widget(d, id).is_some()
+    try_widget(d, id).is_some()
 }
 
 fn tree_rows(d: &Driver) -> Vec<String> {
@@ -103,7 +92,7 @@ fn first_run_is_offered_only_for_a_new_library_and_never_for_the_demo() {
     assert!(!first_run::offer(&mut app), "once");
     // A headless or snapshot session never shows it.
     let s = app.take_session().unwrap();
-    let mut d = Driver::new(App::new(Some(s)), 1400, 900, 1.0);
+    let mut d = new_driver(App::new(Some(s)), 1400, 900, 1.0);
     d.settle(FRAMES).unwrap();
     assert!(d.state().dialogs.is_empty() && !has(&d, "dialog:firstRun"));
     // A library with folders, and the demo library, are not new.
@@ -131,11 +120,11 @@ fn first_run_with_the_default_choice_adds_the_standard_places_and_folders_appear
     s.set_scan_reader(Some(gate.reader()));
     let mut app = App::new(Some(s));
     assert!(first_run::offer(&mut app));
-    let mut d = Driver::new(app, 1400, 900, 1.0);
+    let mut d = new_driver(app, 1400, 900, 1.0);
     d.settle(FRAMES).unwrap();
     assert!(has(&d, "dialog:firstRun"));
-    assert!(widget(&d, "choice:dialog.start/places").unwrap().active, "the default choice");
-    assert!(!widget(&d, "choice:dialog.start/choose").unwrap().active);
+    assert!(try_widget(&d, "choice:dialog.start/places").unwrap().active, "the default choice");
+    assert!(!try_widget(&d, "choice:dialog.start/choose").unwrap().active);
     assert!(tree_rows(&d).is_empty());
     d.click("button:dialog.continue").unwrap();
     assert!(d.state().dialogs.is_empty(), "Continue closes the panel: {:?}", d.state().status);
@@ -173,22 +162,16 @@ fn choose_folders_opens_the_folder_manager() {
     let (s, _home) = new_library(dir.path());
     let mut app = App::new(Some(s));
     assert!(first_run::offer(&mut app));
-    let mut d = Driver::new(app, 1400, 900, 1.0);
+    let mut d = new_driver(app, 1400, 900, 1.0);
     d.settle(FRAMES).unwrap();
     d.click("choice:dialog.start/choose").unwrap();
-    assert!(widget(&d, "choice:dialog.start/choose").unwrap().active);
+    assert!(try_widget(&d, "choice:dialog.start/choose").unwrap().active);
     assert_eq!(d.state().dialogs[0].fields["choice"], "choose");
     d.click("button:dialog.continue").unwrap();
     assert_eq!(d.state().dialogs.iter().map(|d| d.kind).collect::<Vec<_>>(), [DialogKind::FolderManager]);
     assert!(d.app().session().unwrap().folder_rules().is_empty());
     d.settle(FRAMES).unwrap();
     assert!(has(&d, "dialog:folderManager"));
-}
-
-fn out_dir() -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/ui");
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
 }
 
 /// Every widget has an id at both window sizes, and the panel matches its fingerprints.
@@ -199,7 +182,7 @@ fn every_widget_has_an_id_and_the_panel_matches_its_fingerprints_at_both_sizes()
         let (s, _home) = new_library(dir.path());
         let mut app = App::new(Some(s));
         assert!(first_run::offer(&mut app));
-        let mut d = Driver::new(app, w, h, 1.0);
+        let mut d = new_driver(app, w, h, 1.0);
         d.settle(FRAMES).unwrap();
         assert_eq!(d.app().panels().unwrap().unregistered_widgets(), [], "{w}×{h}");
         let mut seen = HashSet::new();
@@ -211,7 +194,7 @@ fn every_widget_has_an_id_and_the_panel_matches_its_fingerprints_at_both_sizes()
         {
             assert!(has(&d, id), "{w}×{h}: {id}");
         }
-        let r = widget(&d, "dialog:firstRun").unwrap().rect;
+        let r = try_widget(&d, "dialog:firstRun").unwrap().rect;
         assert!((r[2] - first_run::WIDTH).abs() <= 4.0 && (r[3] - first_run::HEIGHT).abs() <= 16.0, "{w}×{h}: ≈ 640 × 460, not {r:?}");
         let shot = d.screenshot().unwrap();
         let name = format!("dialog-first-run-{w}x{h}");

@@ -20,6 +20,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use crate::common::{FRAMES, new_driver, out_dir};
 use dalica_core::PhotoId;
 use dalica_engine::{JobKind, Session};
 use dalica_fs::Expect;
@@ -29,7 +30,6 @@ use dalica_ui::menus::{self, ItemNode, Lookup, Platform};
 use dalica_ui::{App, Driver, ScriptedPicker};
 use serde_json::{Value, json};
 
-const FRAMES: usize = 60 * 60;
 const PATIENCE: Duration = Duration::from_secs(300);
 const SIZES: [(u32, u32); 2] = [(1400, 900), (900, 600)];
 
@@ -61,7 +61,7 @@ impl T {
         let ids: Vec<PhotoId> = photos.into_iter().map(|(_, id)| id).collect();
         s.execute("photo.history.apply", &json!({ "id": ids[0], "op": "rotate(90)" })).unwrap();
         let picker = ScriptedPicker::new();
-        let mut d = Driver::new(App::with_picker(Some(s), Arc::new(picker.clone())), size.0, size.1, 1.0);
+        let mut d = new_driver(App::with_picker(Some(s), Arc::new(picker.clone())), size.0, size.1, 1.0);
         d.settle(FRAMES).unwrap();
         T { dir, d, picker, ids }
     }
@@ -140,12 +140,6 @@ fn decoded_size(path: &Path) -> (u32, u32) {
     let bytes = std::fs::read(path).unwrap();
     let img = dalica_image::decode(&bytes, &dalica_image::Limits::default()).unwrap();
     (img.width, img.height)
-}
-
-fn out_dir() -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/ui");
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
 }
 
 /// Writes the last frame to `target/test-output/ui/<name>.png`.

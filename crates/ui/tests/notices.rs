@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::common::{FRAMES, check_region, new_driver};
 use dalica_core::PhotoId;
 use dalica_engine::Session;
 use dalica_fs::Expect;
@@ -24,7 +25,6 @@ use dalica_ui_kit::widgets::{TOAST_LINES, ToastText, toast_galley};
 use egui::{LayerId, Painter, Rect, pos2, vec2};
 use serde_json::{Value, json};
 
-const FRAMES: usize = 60 * 60;
 const WAIT: Duration = Duration::from_secs(30);
 
 /// A library watching one folder `Lisbon` of `a.jpg` and `b.jpg`, `a.jpg` read-only.
@@ -42,7 +42,7 @@ fn setup(size: (u32, u32)) -> (tempfile::TempDir, tempfile::TempDir, PathBuf, Dr
     s.wait_idle();
     let id = |s: &Session, n: &str| s.library().photos().find(|p| p.name == n).unwrap().id;
     let (a, b) = (id(&s, "a.jpg"), id(&s, "b.jpg"));
-    let mut d = Driver::new(App::new(Some(s)), size.0, size.1, 1.0);
+    let mut d = new_driver(App::new(Some(s)), size.0, size.1, 1.0);
     d.settle(FRAMES).unwrap();
     (lib, disk, folder, d, a, b)
 }
@@ -134,32 +134,6 @@ fn shown(d: &Driver, text: &str) -> (String, usize) {
     (galley.job.text.clone(), galley.rows.len())
 }
 
-/// Checks the region of widget `id` against `tests/fingerprints/<name>.json` and writes it to the
-/// test output.
-fn check_region(d: &Driver, id: &str, name: &str) {
-    let s = d.screenshot().unwrap();
-    let r = d.widgets().into_iter().find(|w| w.id == id).unwrap_or_else(|| panic!("no widget {id}")).rect;
-    let (x0, y0, w, h) = (r[0].round() as u32, r[1].round() as u32, r[2].round() as u32, r[3].round() as u32);
-    let mut rgba = Vec::with_capacity((w * h * 4) as usize);
-    for y in y0..y0 + h {
-        for x in x0..x0 + w {
-            rgba.extend_from_slice(&s.pixel(x, y).unwrap());
-        }
-    }
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/ui");
-    std::fs::create_dir_all(&dir).unwrap();
-    std::fs::write(dir.join(format!("{name}.png")), fingerprint::png_rgba(w, h, &rgba)).unwrap();
-    let stored = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("tests/fingerprints/{name}.json"));
-    if std::env::var_os("DALICA_BLESS").is_some() {
-        std::fs::write(&stored, fingerprint::to_json(&fingerprint::fingerprint(w, h, &rgba)) + "\n").unwrap();
-    }
-    let expected = fingerprint::from_json(&std::fs::read_to_string(&stored).unwrap()).unwrap();
-    if let Err(m) = fingerprint::check(w, h, &rgba, &expected, 2.0) {
-        std::fs::write(dir.join(format!("{name}-actual.png")), &m.actual_png).unwrap();
-        panic!("{name}: {}", m.message);
-    }
-}
-
 /// Sets `caption` on `ids` without a flush and checks the writes are queued, then `ui.settle` with
 /// `jobs`: it must settle with nothing left to write.
 fn caption_and_settle(d: &mut Driver, ids: &[PhotoId], caption: &str) {
@@ -248,7 +222,7 @@ fn each_file_operation_gives_one_toast_and_a_failure_names_the_file() {
     let porto_id = s.library().folder_by_path(&porto).unwrap();
     let id = |s: &Session, n: &str| s.library().photos_in(lisbon_id).into_iter().find(|p| p.name == n).unwrap().id;
     let (a, b, c) = (id(&s, "a.jpg"), id(&s, "b.jpg"), id(&s, "c.jpg"));
-    let mut d = Driver::new(App::new(Some(s)), 1400, 900, 1.0);
+    let mut d = new_driver(App::new(Some(s)), 1400, 900, 1.0);
     d.settle(FRAMES).unwrap();
     let info = |t: &str| (t.to_string(), "info".to_string());
 

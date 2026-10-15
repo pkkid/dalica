@@ -9,18 +9,16 @@
 //!
 //! `DALICA_SHOTS=<dir>` writes the frame's screenshots there too.
 
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::common::{FRAMES, new_driver, out_dir};
 use dalica_engine::Session;
 use dalica_scenes::fingerprint;
 use dalica_ui::control::{Config, Connection, Control, Reply, Request, serve};
 use dalica_ui::{App, Driver};
-use dalica_ui_kit::registry;
 use serde_json::{Value, json};
 
-const FRAMES: usize = 60 * 60;
 const SIZES: [(u32, u32); 2] = [(1400, 900), (900, 600)];
 
 /// A session on a library under `dir` holding one folder of 4 scenes photos; their ids.
@@ -56,7 +54,7 @@ fn setup((w, h): (u32, u32)) -> T {
     let dir = tempfile::tempdir().unwrap();
     let (s, ids) = session(dir.path());
     let control = Control::new(Config::default());
-    let mut d = Driver::new(App::with_picker(Some(s), control.picker()), w, h, 1.0);
+    let mut d = new_driver(App::with_picker(Some(s), control.picker()), w, h, 1.0);
     d.settle(FRAMES).unwrap();
     T { _dir: dir, control, conn: Connection::new(), d, ids }
 }
@@ -191,31 +189,6 @@ fn bad_edit_values_are_refused_and_change_nothing() {
     assert_eq!(state(&mut t), before);
 }
 
-/// Checks the last frame: no unregistered interactive widget, unique ids in the grammar, every
-/// rect on screen.
-fn check_ids(t: &T, what: &str) {
-    let (w, h, _) = t.d.size();
-    assert_eq!(t.d.app().panels().unwrap().unregistered_widgets(), [], "{w}×{h} {what}: interactive widgets without an id");
-    let mut seen = HashSet::new();
-    for wi in t.d.widgets() {
-        assert!(registry::is_valid_id(&wi.id), "{w}×{h} {what}: `{}` breaks the id grammar", wi.id);
-        assert!(seen.insert(wi.id.clone()), "{w}×{h} {what}: `{}` is registered twice", wi.id);
-        let [x, y, rw, rh] = wi.rect;
-        assert!(
-            rw > 0.0 && rh > 0.0 && x >= 0.0 && y >= 0.0 && x + rw <= w as f32 + 0.01 && y + rh <= h as f32 + 0.01,
-            "{w}×{h} {what}: `{}` at {:?}",
-            wi.id,
-            wi.rect
-        );
-    }
-}
-
-fn out_dir() -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/ui");
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
 /// Checks the whole window against `tests/fingerprints/<name>.json` (`DALICA_BLESS=1` writes it),
 /// and writes it to the test output (and to `$DALICA_SHOTS`).
 fn check_window(t: &T, name: &str) {
@@ -279,7 +252,6 @@ fn ctrl3_shows_the_edit_view_at_both_sizes_and_esc_returns() {
         {
             assert!(t.d.widgets().iter().any(|wi| wi.id == id), "{w}×{h}: {id}");
         }
-        check_ids(&t, "edit view");
         check_window(&t, &format!("edit-frame-{w}x{h}"));
 
         key(&mut t, "Esc");
@@ -324,7 +296,6 @@ fn ctrl9_hides_and_shows_the_edit_panel() {
     assert_eq!((&r["editPanel"], &r["canvas"]), (&Value::Null, &json!([0.0, 72.0, 1400.0, 676.0])));
     assert_eq!(state(&mut t)["edit"]["panelVisible"], false);
     assert_eq!(checked(&mut t).1, json!(false));
-    check_ids(&t, "panel hidden");
     key(&mut t, "Ctrl+9");
     assert_eq!(regions(&mut t)["editPanel"], json!([0.0, 72.0, 280.0, 712.0]));
     assert_eq!(state(&mut t)["edit"]["panelVisible"], true);
@@ -352,7 +323,6 @@ fn an_open_tool_takes_esc_first() {
     run(&mut t, "edit.tool.open", json!({ "tool": "crop" }));
     t.d.settle(FRAMES).unwrap();
     assert_eq!(state(&mut t)["edit"]["crop"], json!({ "ratio": "manual", "rect": null }));
-    check_ids(&t, "crop open");
     key(&mut t, "Esc");
     let s = state(&mut t);
     assert_eq!((&s["view"], &s["edit"]["tool"], &s["edit"]["crop"]), (&json!("edit"), &Value::Null, &Value::Null));

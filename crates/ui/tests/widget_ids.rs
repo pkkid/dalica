@@ -9,6 +9,7 @@ use std::collections::{BTreeSet, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 
+use crate::common::{FRAMES, new_driver};
 use dalica_engine::Session;
 use dalica_scan::Places;
 use dalica_ui::dialogs::folder_manager::draft::Draft;
@@ -16,7 +17,6 @@ use dalica_ui::{App, Driver, ScriptedPicker};
 use dalica_ui_kit::WidgetInfo;
 use dalica_ui_kit::registry::{self, Role};
 
-const FRAMES: usize = 60 * 60;
 const SIZES: [(u32, u32); 2] = [(1400, 900), (900, 600)];
 
 /// A library in `root` with two folders of 30 scenes photos each, both added and scanned.
@@ -76,7 +76,7 @@ fn every_interactive_widget_has_a_unique_id_at_both_window_sizes() {
     for size in SIZES {
         let dir = tempfile::tempdir().unwrap();
         let session = session(dir.path());
-        let mut d = Driver::new(App::with_picker(Some(session), Arc::new(ScriptedPicker::new())), size.0, size.1, 1.0);
+        let mut d = new_driver(App::with_picker(Some(session), Arc::new(ScriptedPicker::new())), size.0, size.1, 1.0);
         d.settle(FRAMES).unwrap();
 
         // Opened, nothing selected: the menu title, the tree rows, the cells, a disabled star button
@@ -163,7 +163,7 @@ fn every_interactive_widget_has_a_unique_id_at_both_window_sizes() {
 #[test]
 fn the_m1_ids_no_longer_resolve() {
     let dir = tempfile::tempdir().unwrap();
-    let mut d = Driver::new(App::with_picker(Some(session(dir.path())), Arc::new(ScriptedPicker::new())), 900, 600, 1.0);
+    let mut d = new_driver(App::with_picker(Some(session(dir.path())), Arc::new(ScriptedPicker::new())), 900, 600, 1.0);
     d.settle(FRAMES).unwrap();
     for old in ["menu.file", "menu.file.addFolder", "bottom.star"] {
         assert!(matches!(d.click(old), Err(dalica_ui::DriverError::NoWidget(_))), "{old}");

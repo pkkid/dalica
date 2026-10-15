@@ -16,22 +16,18 @@
 //! These tests use the real OS trash and put back what they sent there where the system allows
 //! it, as the engine's own delete tests do.
 
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::common::{FRAMES, check_region, new_driver, try_widget};
 use dalica_core::{FolderId, PhotoId};
 use dalica_engine::Session;
 use dalica_engine::cmd::delete::{RESTORES, UNDO_UNSUPPORTED};
-use dalica_scenes::fingerprint;
 use dalica_ui::dialogs::{self, confirm, delete};
 use dalica_ui::state::{DeleteFolder, DeletePhotos, DialogKind};
 use dalica_ui::{App, Driver};
-use dalica_ui_kit::WidgetInfo;
-use dalica_ui_kit::registry;
 use serde_json::json;
 
-const FRAMES: usize = 60 * 60;
 const SIZES: [(u32, u32); 2] = [(1400, 900), (900, 600)];
 const TRASH: &str = "button:dialog.moveToTrash";
 
@@ -72,13 +68,9 @@ fn fixture((w, h): (u32, u32)) -> Fx {
     lisbon_photos.sort();
     let ids = lisbon_photos.into_iter().map(|(_, id)| id).collect();
     let old_id = lib.folder_by_path(&old).unwrap();
-    let mut d = Driver::new(App::new(Some(s)), w, h, 1.0);
+    let mut d = new_driver(App::new(Some(s)), w, h, 1.0);
     d.settle(FRAMES).unwrap();
     Fx { _dir: dir, lisbon, old, ids, old_id, d }
-}
-
-fn widget(d: &Driver, id: &str) -> Option<WidgetInfo> {
-    d.widgets().into_iter().find(|w| w.id == id)
 }
 
 fn exists(path: &Path) -> bool {
@@ -126,61 +118,6 @@ fn undo(d: &mut Driver) -> bool {
     }
 }
 
-/// Checks the last frame: no unregistered interactive widget, unique ids in the grammar, every
-/// rect on screen.
-fn check_ids(d: &Driver) {
-    let (w, h, _) = d.size();
-    assert_eq!(d.app().panels().unwrap().unregistered_widgets(), [], "{w}×{h}: interactive widgets without an id");
-    let mut seen = HashSet::new();
-    for wi in d.widgets() {
-        assert!(registry::is_valid_id(&wi.id), "{w}×{h}: `{}` breaks the id grammar", wi.id);
-        assert!(seen.insert(wi.id.clone()), "{w}×{h}: `{}` is registered twice", wi.id);
-        let [x, y, rw, rh] = wi.rect;
-        assert!(
-            rw > 0.0 && rh > 0.0 && x >= 0.0 && y >= 0.0 && x + rw <= w as f32 + 0.01 && y + rh <= h as f32 + 0.01,
-            "{w}×{h}: `{}` at {:?}",
-            wi.id,
-            wi.rect
-        );
-    }
-}
-
-fn out_dir() -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/ui");
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
-/// Checks the region widget `id` covers in the last frame against `tests/fingerprints/<name>.json`,
-/// and writes it and the whole window to the test output (and the window to `$DALICA_SHOTS`).
-fn check_region(d: &Driver, id: &str, name: &str) {
-    let s = d.screenshot().unwrap();
-    let window = fingerprint::png_rgba(s.width, s.height, &s.rgba);
-    std::fs::write(out_dir().join(format!("{name}-window.png")), &window).unwrap();
-    if let Some(dir) = std::env::var_os("DALICA_SHOTS") {
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(Path::new(&dir).join(format!("{name}-window.png")), &window).unwrap();
-    }
-    let r = widget(d, id).unwrap_or_else(|| panic!("no widget {id}")).rect;
-    let (x0, y0, w, h) = (r[0].round() as u32, r[1].round() as u32, r[2].round() as u32, r[3].round() as u32);
-    let mut rgba = Vec::with_capacity((w * h * 4) as usize);
-    for y in y0..y0 + h {
-        for x in x0..x0 + w {
-            rgba.extend_from_slice(&s.pixel(x, y).unwrap());
-        }
-    }
-    std::fs::write(out_dir().join(format!("{name}.png")), fingerprint::png_rgba(w, h, &rgba)).unwrap();
-    let stored = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("tests/fingerprints/{name}.json"));
-    if std::env::var_os("DALICA_BLESS").is_some() {
-        std::fs::write(&stored, fingerprint::to_json(&fingerprint::fingerprint(w, h, &rgba)) + "\n").unwrap();
-    }
-    let expected = fingerprint::from_json(&std::fs::read_to_string(&stored).unwrap()).unwrap();
-    if let Err(m) = fingerprint::check(w, h, &rgba, &expected, 2.0) {
-        std::fs::write(out_dir().join(format!("{name}-actual.png")), &m.actual_png).unwrap();
-        panic!("{name}: {}", m.message);
-    }
-}
-
 /// Delete, Ctrl+Delete and File ▸ Delete from Disk… ask first, with the spec's words; Cancel and Esc
 /// keep the photos; Move to Trash trashes them as one undo step, which undo takes back.
 #[test]
@@ -198,8 +135,7 @@ fn the_photo_question_reads_as_specified_and_move_to_trash_trashes() {
     assert_eq!(fx.d.state().delete_photos, Some(DeletePhotos { ids: ids[..1].to_vec() }));
     let v = dialogs::inspect(fx.d.app());
     assert_eq!((v["buttons"].clone(), v["default"].clone()), (json!(["button:dialog.cancel", TRASH]), json!(TRASH)));
-    assert_eq!(widget(&fx.d, TRASH).unwrap().label, "Move to Trash");
-    check_ids(&fx.d);
+    assert_eq!(try_widget(&fx.d, TRASH).unwrap().label, "Move to Trash");
     fx.d.click("button:dialog.cancel").unwrap();
     settle_jobs(&mut fx.d);
     assert!(fx.d.state().dialogs.is_empty() && fx.d.state().delete_photos.is_none());
@@ -261,7 +197,6 @@ fn the_folder_question_names_the_folder_and_takes_everything_in_it() {
     );
     assert_eq!(question(&fx.d).2, delete::folder_question("Old"));
     assert_eq!(fx.d.state().delete_folder, Some(DeleteFolder { folder: old }));
-    check_ids(&fx.d);
     fx.d.click("button:dialog.cancel").unwrap();
     settle_jobs(&mut fx.d);
     assert!(exists(&fx.old.join("OLD_0001.jpg")) && fx.d.app().session().unwrap().library().folder(old).is_some(), "Cancel keeps it");
@@ -317,7 +252,6 @@ fn the_questions_match_their_fingerprints_at_both_sizes() {
         fx.d.key("Delete").unwrap();
         fx.d.settle(FRAMES).unwrap();
         assert_eq!(question(&fx.d).2, "Move the 3 selected pictures to the trash?");
-        check_ids(&fx.d);
         check_region(&fx.d, "dialog:deletePhotos", &format!("dialog-delete-photos-{w}x{h}"));
         fx.d.key("Escape").unwrap();
 
@@ -325,7 +259,6 @@ fn the_questions_match_their_fingerprints_at_both_sizes() {
         fx.d.run("folder.delete", &json!({ "folder": old })).unwrap();
         fx.d.settle(FRAMES).unwrap();
         assert_eq!(question(&fx.d).0, DialogKind::DeleteFolder);
-        check_ids(&fx.d);
         check_region(&fx.d, "dialog:deleteFolder", &format!("dialog-delete-folder-{w}x{h}"));
         fx.d.key("Escape").unwrap();
         fx.d.settle(FRAMES).unwrap();

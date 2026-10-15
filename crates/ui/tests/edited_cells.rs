@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
+use crate::common::{FRAMES, new_driver, out_dir};
 use dalica_core::PhotoId;
 use dalica_engine::Session;
 use dalica_engine::thumbs::ScanHook;
@@ -21,8 +22,6 @@ use dalica_ui::{App, Driver};
 use dalica_ui_kit::raster::Image;
 use dalica_ui_kit::widgets::Badges;
 use serde_json::json;
-
-const FRAMES: usize = 60 * 60;
 
 /// Three landscape scenes JPEGs (600 × 400) in one folder.
 fn library(dir: &Path) -> Session {
@@ -71,12 +70,6 @@ fn region(shot: &Image, rect: [f32; 4], scale: f32) -> (u32, u32, Vec<u8>) {
         }
     }
     (w, h, rgba)
-}
-
-fn out_dir() -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/ui");
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
 }
 
 /// Checks `id`'s cell in the last frame against `<name>.json`; the render goes to `<name>.png`.
@@ -135,7 +128,7 @@ fn held_frames(d: &mut Driver, id: PhotoId, frames: usize, badge: bool, before: 
 #[test]
 fn an_edited_cell_keeps_its_old_texture_until_the_new_one_lands_and_shows_the_badge_until_undo() {
     let dir = tempfile::tempdir().unwrap();
-    let mut d = Driver::new(App::new(Some(library(dir.path()))), 1400, 900, 1.0);
+    let mut d = new_driver(App::new(Some(library(dir.path()))), 1400, 900, 1.0);
     d.settle(FRAMES).unwrap();
     let id = first_photo(&d);
     let before = painted(&d, id);
@@ -194,7 +187,7 @@ fn an_edited_cell_keeps_its_old_texture_until_the_new_one_lands_and_shows_the_ba
 #[test]
 fn a_newly_cropped_cell_draws_its_old_texture_at_its_own_shape() {
     let dir = tempfile::tempdir().unwrap();
-    let mut d = Driver::new(App::new(Some(library(dir.path()))), 1400, 900, 1.0);
+    let mut d = new_driver(App::new(Some(library(dir.path()))), 1400, 900, 1.0);
     d.settle(FRAMES).unwrap();
     let id = first_photo(&d);
     let before = painted(&d, id);
@@ -241,7 +234,7 @@ fn the_edited_cell_at_900_by_600() {
     s.execute("photo.history.apply", &json!({ "id": id, "op": "autofix()" })).unwrap();
     s.update_thumbnail_recipes();
     s.wait_idle();
-    let mut d = Driver::new(App::new(Some(s)), 900, 600, 1.0);
+    let mut d = new_driver(App::new(Some(s)), 900, 600, 1.0);
     d.settle(FRAMES).unwrap();
     let p = painted(&d, id);
     assert_eq!((p.drawn, p.stale), (Drawn::Image, false));

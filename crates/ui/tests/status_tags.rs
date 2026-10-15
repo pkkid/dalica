@@ -10,13 +10,13 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use crate::common::{FRAMES, new_driver, out_dir};
 use dalica_engine::Session;
 use dalica_scenes::fingerprint;
 use dalica_ui::status_text::{ELLIPSIS, SEP};
 use dalica_ui::{App, Driver};
 use serde_json::{Value, json};
 
-const FRAMES: usize = 60 * 60;
 const SIZES: [(u32, u32); 2] = [(1400, 900), (900, 600)];
 
 struct T {
@@ -44,7 +44,7 @@ fn setup(w: u32, h: u32) -> T {
     let mut ids: Vec<u64> = photos.iter().map(|p| p["id"].as_u64().unwrap()).collect();
     ids.sort_unstable();
     let folder = photos[0]["folder"].as_u64().unwrap();
-    let mut d = Driver::new(App::new(Some(s)), w, h, 1.0);
+    let mut d = new_driver(App::new(Some(s)), w, h, 1.0);
     d.settle(FRAMES).unwrap();
     T { _dir: dir, d, ids, folder }
 }
@@ -119,12 +119,6 @@ fn a_long_tag_list_is_cut_at_its_end() {
         assert!(line.ends_with(ELLIPSIS), "{w}: cut at its end: {line}");
         assert!(line.starts_with("4 pictures"), "{w}: the start stays: {line}");
     }
-}
-
-fn out_dir() -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/ui");
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
 }
 
 /// Checks the status line's region in the last frame against `tests/fingerprints/<name>.json`,

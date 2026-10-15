@@ -10,31 +10,18 @@
 //! - the dialog matches its fingerprints at 1400 × 900 and 900 × 600
 //!   (`tests/fingerprints/dialog-album-properties-<w>x<h>.json`; `DALICA_BLESS=1` stores new ones).
 
-use std::collections::HashSet;
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use dalica_core::{AlbumId, Date, DateTime, FolderId, PhotoId};
+use crate::common::{FRAMES, check_region, new_driver, put_dated_jpeg, try_widget};
+use dalica_core::{AlbumId, Date, FolderId, PhotoId};
 use dalica_engine::Session;
-use dalica_scenes::fingerprint;
 use dalica_ui::dialogs::album_properties::{BAD_DATE, DATE_ID, DESCRIPTION_ID, NAME_ID, PLACE_ID, USE_NEWEST_ID};
 use dalica_ui::headless::{Click, DriverError};
 use dalica_ui::state::{AlbumKey, AlbumSection, DialogKind, Section};
 use dalica_ui::{App, Driver};
-use dalica_ui_kit::WidgetInfo;
-use dalica_ui_kit::registry;
 use serde_json::json;
 
-const FRAMES: usize = 60 * 60;
 const SIZES: [(u32, u32); 2] = [(1400, 900), (900, 600)];
-
-fn put_jpeg(path: &Path, seed: u64, (y, m, d): (u16, u8, u8)) {
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    let taken = DateTime::new(Date::new(y, m, d).unwrap(), 10, 0, 0).unwrap();
-    let exif = dalica_scenes::Exif { date_time_original: Some(taken), ..Default::default() };
-    let jpeg = dalica_scenes::jpeg(&dalica_scenes::Scene::new(seed, 96, 64), 80, Some(&exif)).unwrap();
-    std::fs::write(path, jpeg).unwrap();
-}
 
 struct Fx {
     _dir: tempfile::TempDir,
@@ -47,9 +34,9 @@ fn fixture((w, h): (u32, u32)) -> Fx {
     let dir = tempfile::tempdir().unwrap();
     let photos = dir.path().join("photos");
     for (i, day) in [(2026, 6, 5), (2026, 6, 4), (2026, 6, 6)].into_iter().enumerate() {
-        put_jpeg(&photos.join("Lisbon Weekend").join(format!("IMG_{i:04}.jpg")), i as u64, day);
+        put_dated_jpeg(&photos.join("Lisbon Weekend").join(format!("IMG_{i:04}.jpg")), i as u64, day);
     }
-    put_jpeg(&photos.join("Porto").join("IMG_0000.jpg"), 10, (2026, 5, 1));
+    put_dated_jpeg(&photos.join("Porto").join("IMG_0000.jpg"), 10, (2026, 5, 1));
     let mut s = Session::open(&dir.path().join("library"), Arc::new(dalica_core::SystemClock)).unwrap();
     for f in ["Lisbon Weekend", "Porto"] {
         s.execute("folders.add", &json!({ "path": photos.join(f) })).unwrap();
@@ -59,13 +46,9 @@ fn fixture((w, h): (u32, u32)) -> Fx {
     let ids: Vec<u64> = s.library().photos_in(lisbon).iter().map(|p| p.id.get()).collect();
     let made = s.execute("album.create", &json!({ "name": "Lisbon Trip", "ids": ids })).unwrap();
     let album = AlbumId::parse(made["album"].as_str().unwrap()).unwrap();
-    let mut d = Driver::new(App::new(Some(s)), w, h, 1.0);
+    let mut d = new_driver(App::new(Some(s)), w, h, 1.0);
     d.settle(FRAMES).unwrap();
     Fx { _dir: dir, album, d }
-}
-
-fn widget(d: &Driver, id: &str) -> Option<WidgetInfo> {
-    d.widgets().into_iter().find(|w| w.id == id)
 }
 
 fn section(album: &AlbumId) -> Section {
@@ -97,50 +80,7 @@ fn retype(d: &mut Driver, id: &str, text: &str) {
 }
 
 fn ok_enabled(d: &Driver) -> bool {
-    widget(d, "button:dialog.ok").unwrap().enabled
-}
-
-fn check_ids(d: &Driver, case: &str) {
-    assert_eq!(d.app().panels().unwrap().unregistered_widgets(), [], "{case}: interactive widgets without an id");
-    let mut seen = HashSet::new();
-    for w in d.widgets() {
-        assert!(registry::is_valid_id(&w.id), "{case}: `{}` breaks the id grammar", w.id);
-        assert!(seen.insert(w.id.clone()), "{case}: `{}` is registered twice", w.id);
-    }
-}
-
-fn out_dir() -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/ui");
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
-fn check_region(d: &Driver, id: &str, name: &str) {
-    let s = d.screenshot().unwrap();
-    let window = fingerprint::png_rgba(s.width, s.height, &s.rgba);
-    std::fs::write(out_dir().join(format!("{name}-window.png")), &window).unwrap();
-    if let Some(dir) = std::env::var_os("DALICA_SHOTS") {
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(Path::new(&dir).join(format!("{name}-window.png")), &window).unwrap();
-    }
-    let r = widget(d, id).unwrap_or_else(|| panic!("no widget {id}")).rect;
-    let (x0, y0, w, h) = (r[0].round() as u32, r[1].round() as u32, r[2].round() as u32, r[3].round() as u32);
-    let mut rgba = Vec::with_capacity((w * h * 4) as usize);
-    for y in y0..y0 + h {
-        for x in x0..x0 + w {
-            rgba.extend_from_slice(&s.pixel(x, y).unwrap());
-        }
-    }
-    std::fs::write(out_dir().join(format!("{name}.png")), fingerprint::png_rgba(w, h, &rgba)).unwrap();
-    let stored = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("tests/fingerprints/{name}.json"));
-    if std::env::var_os("DALICA_BLESS").is_some() {
-        std::fs::write(&stored, fingerprint::to_json(&fingerprint::fingerprint(w, h, &rgba)) + "\n").unwrap();
-    }
-    let expected = fingerprint::from_json(&std::fs::read_to_string(&stored).unwrap()).unwrap();
-    if let Err(m) = fingerprint::check(w, h, &rgba, &expected, 2.0) {
-        std::fs::write(out_dir().join(format!("{name}-actual.png")), &m.actual_png).unwrap();
-        panic!("{name}: {}", m.message);
-    }
+    try_widget(d, "button:dialog.ok").unwrap().enabled
 }
 
 /// Properties changes the name, the date and the description in one undo step.
@@ -151,13 +91,12 @@ fn properties_change_name_date_and_description_in_one_step() {
     let draft = fx.d.state().album_properties.clone().unwrap();
     assert_eq!(draft.album.as_ref(), Some(&fx.album));
     assert_eq!((draft.name.as_str(), draft.use_newest, draft.date.as_str()), ("Lisbon Trip", true, "2026-06-06"));
-    assert!(!widget(&fx.d, DATE_ID).unwrap().enabled, "the date field waits while the newest photo's date is used");
-    check_ids(&fx.d, "Album Properties");
+    assert!(!try_widget(&fx.d, DATE_ID).unwrap().enabled, "the date field waits while the newest photo's date is used");
 
     retype(&mut fx.d, NAME_ID, "Lisbon in June");
     fx.d.click(USE_NEWEST_ID).unwrap();
     fx.d.settle(FRAMES).unwrap();
-    assert!(widget(&fx.d, DATE_ID).unwrap().enabled);
+    assert!(try_widget(&fx.d, DATE_ID).unwrap().enabled);
     retype(&mut fx.d, DATE_ID, "2026-06-01");
     retype(&mut fx.d, PLACE_ID, "Lisbon, Portugal");
     retype(&mut fx.d, DESCRIPTION_ID, "Trams and tiles");
@@ -171,7 +110,7 @@ fn properties_change_name_date_and_description_in_one_step() {
     assert_eq!((after.place.as_str(), after.description.as_str()), ("Lisbon, Portugal", "Trams and tiles"));
     assert_eq!(undo_len(&fx.d), steps + 1, "one undo step");
     // The tree row and the header follow.
-    assert_eq!(widget(&fx.d, &format!("tree:album:{}", fx.album)).unwrap().label, "Lisbon in June (3)");
+    assert_eq!(try_widget(&fx.d, &format!("tree:album:{}", fx.album)).unwrap().label, "Lisbon in June (3)");
     let headers = &fx.d.app().panels().unwrap().light_table.headers;
     let (date, description) = headers.shown(section(&fx.album)).unwrap();
     assert_eq!((date, description), ("Monday, June 1, 2026 · Lisbon, Portugal", "Trams and tiles"));
@@ -247,7 +186,6 @@ fn the_dialog_matches_its_fingerprints_at_both_sizes() {
         assert_eq!(porto.len(), 1, "the Porto photo");
         fx.d.run("album.new", &json!({ "ids": [porto[0].get()] })).unwrap();
         fx.d.settle(FRAMES).unwrap();
-        check_ids(&fx.d, &format!("{}×{}", size.0, size.1));
         check_region(&fx.d, "dialog:albumProperties", &format!("dialog-album-properties-{}x{}", size.0, size.1));
     }
 }

@@ -9,6 +9,7 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::common::{FRAMES, new_driver};
 use dalica_core::FolderId;
 use dalica_engine::Session;
 use dalica_ui::headless::Click;
@@ -22,7 +23,6 @@ use dalica_ui_kit::registry::Role;
 use egui::{PointerButton, Rect, pos2, vec2};
 use serde_json::json;
 
-const FRAMES: usize = 60 * 60;
 const SIZES: [(u32, u32); 2] = [(1400, 900), (900, 600)];
 
 /// A session on a library under `dir` with `folders` folders sharing `photos` scenes photos.
@@ -81,7 +81,7 @@ fn ids_are_sound(d: &Driver, case: &str) {
 fn every_part_is_there_with_its_size_at_both_window_sizes() {
     for (w, h) in SIZES {
         let dir = tempfile::tempdir().unwrap();
-        let mut d = Driver::new(App::new(Some(session(dir.path(), 2, 12))), w, h, 1.0);
+        let mut d = new_driver(App::new(Some(session(dir.path(), 2, 12))), w, h, 1.0);
         d.settle(FRAMES).unwrap();
         // Star a photo of the first folder: Select Starred is live there and only there.
         let first = info(&d).headers[0].0;
@@ -195,7 +195,7 @@ fn every_part_is_there_with_its_size_at_both_window_sizes() {
 #[test]
 fn a_pinned_header_shows_its_first_line_only_and_owns_its_ids() {
     let dir = tempfile::tempdir().unwrap();
-    let mut d = Driver::new(App::new(Some(session(dir.path(), 3, 90))), 1400, 900, 1.0);
+    let mut d = new_driver(App::new(Some(session(dir.path(), 3, 90))), 1400, 900, 1.0);
     d.settle(FRAMES).unwrap();
     let target = d.app().panels().unwrap().sections.list[1].id;
     d.run("section.scrollTo", &json!({ "section": target })).unwrap();
@@ -238,7 +238,7 @@ fn a_pinned_header_shows_its_first_line_only_and_owns_its_ids() {
 #[test]
 fn a_right_click_opens_the_section_menu_with_later_items_disabled() {
     let dir = tempfile::tempdir().unwrap();
-    let mut d = Driver::new(App::new(Some(session(dir.path(), 2, 12))), 1400, 900, 1.0);
+    let mut d = new_driver(App::new(Some(session(dir.path(), 2, 12))), 1400, 900, 1.0);
     d.settle(FRAMES).unwrap();
     let headers = info(&d).headers;
     let second = headers[1].0;
@@ -276,7 +276,7 @@ fn a_right_click_opens_the_section_menu_with_later_items_disabled() {
 #[test]
 fn a_pinned_header_keeps_its_save_button() {
     let dir = tempfile::tempdir().unwrap();
-    let mut d = Driver::new(App::new(Some(session(dir.path(), 3, 90))), 1400, 900, 1.0);
+    let mut d = new_driver(App::new(Some(session(dir.path(), 3, 90))), 1400, 900, 1.0);
     d.settle(FRAMES).unwrap();
     let target = d.app().panels().unwrap().sections.list[1].id;
     let photos = d.app().panels().unwrap().sections.get(target).unwrap().photos.clone();
@@ -342,7 +342,7 @@ fn an_album_header_shows_the_album_and_edits_its_description() {
     for (w, h) in SIZES {
         let case = format!("{w}×{h}");
         let dir = tempfile::tempdir().unwrap();
-        let mut d = Driver::new(App::new(Some(session(dir.path(), 2, 12))), w, h, 1.0);
+        let mut d = new_driver(App::new(Some(session(dir.path(), 2, 12))), w, h, 1.0);
         d.settle(FRAMES).unwrap();
         let folder = d.app().panels().unwrap().sections.list[0].id;
         let photos = d.app().panels().unwrap().sections.get(folder).unwrap().photos.clone();

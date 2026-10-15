@@ -10,14 +10,13 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
+use crate::common::{FRAMES, new_driver};
 use dalica_core::PhotoId;
 use dalica_engine::Session;
 use dalica_ui::control::{Config, Connection, Control, Reply, Request, serve};
 use dalica_ui::panels::status;
 use dalica_ui::{App, Driver};
 use serde_json::{Value, json};
-
-const FRAMES: usize = 60 * 60;
 
 struct T {
     _dir: tempfile::TempDir,
@@ -44,7 +43,7 @@ fn setup(folders: usize, photos: usize, (w, h): (u32, u32)) -> T {
     }
     s.wait_idle();
     let control = Control::new(Config::default());
-    let mut d = Driver::new(App::with_picker(Some(s), control.picker()), w, h, 1.0);
+    let mut d = new_driver(App::with_picker(Some(s), control.picker()), w, h, 1.0);
     d.settle(FRAMES).unwrap();
     T { _dir: dir, control, conn: Connection::new(), d }
 }

@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
+use crate::common::{FRAMES, new_driver};
 use dalica_core::{FolderId, PhotoId};
 use dalica_engine::{CmdError, Session};
 use dalica_library::{Folder, Library, Op, Photo, TreeOptions};
@@ -20,8 +21,6 @@ use dalica_ui::panels::light_table::{self, Sections};
 use dalica_ui::state::{ScrollAnchor, Section, THUMB_MAX, THUMB_MIN};
 use dalica_ui::{App, Driver, DriverError};
 use serde_json::json;
-
-const FRAMES: usize = 60 * 60;
 
 fn folder(n: u64) -> Section {
     Section::Folder(FolderId::new(n))
@@ -47,7 +46,7 @@ fn session(dir: &Path, folders: usize, photos: usize) -> Session {
 }
 
 fn driver(dir: &Path, folders: usize, photos: usize, size: (u32, u32)) -> Driver {
-    let mut d = Driver::new(App::new(Some(session(dir, folders, photos))), size.0, size.1, 1.0);
+    let mut d = new_driver(App::new(Some(session(dir, folders, photos))), size.0, size.1, 1.0);
     d.settle(FRAMES).unwrap();
     d
 }
@@ -354,7 +353,7 @@ fn no_pictures_yet_offers_to_add_a_folder() {
     }
     let mut session = Session::open(&dir.path().join("library"), Arc::new(dalica_core::SystemClock)).unwrap();
     session.set_places(dalica_scan::Places::under(&home), Vec::new());
-    let mut d = Driver::new(App::new(Some(session)), 900, 600, 1.0);
+    let mut d = new_driver(App::new(Some(session)), 900, 600, 1.0);
     d.settle(FRAMES).unwrap();
     let widgets = d.widgets();
     let get = |id: &str| widgets.iter().find(|w| w.id == id).unwrap_or_else(|| panic!("no {id}")).clone();

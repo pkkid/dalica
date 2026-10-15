@@ -11,15 +11,14 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use crate::common::{FRAMES, new_driver};
 use dalica_engine::Session;
 use dalica_scenes::fingerprint;
+use dalica_ui::App;
 use dalica_ui::control::{Config, Connection, Control, Request, serve};
 use dalica_ui::credits::{self, Baked};
 use dalica_ui::dialogs::release_notes::{self, Block};
-use dalica_ui::{App, Driver};
 use serde_json::json;
-
-const FRAMES: usize = 60 * 60;
 
 /// The build's version without a pre-release part: `0.2.0-rc.1` is described by `## 0.2.0 — …`.
 fn release() -> &'static str {
@@ -110,7 +109,7 @@ fn help_release_notes_shows_the_new_section() {
     for (w, h) in [(1400, 900), (900, 600)] {
         let dir = tempfile::tempdir().unwrap();
         let s = Session::open(&dir.path().join("library"), Arc::new(dalica_core::SystemClock)).unwrap();
-        let mut d = Driver::new(App::new(Some(s)), w, h, 1.0);
+        let mut d = new_driver(App::new(Some(s)), w, h, 1.0);
         d.settle(FRAMES).unwrap();
         // The dialog draws what this build carries, not a planted fixture.
         assert_eq!(credits::baked(d.ctx()).release_notes, release_notes::NOTES);

@@ -9,6 +9,7 @@ use std::collections::{BTreeSet, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 
+use crate::common::{FRAMES, new_driver};
 use dalica_core::PhotoId;
 use dalica_engine::keymap::{Keymap, Platform};
 use dalica_engine::{CmdError, Context, Key, Session};
@@ -17,8 +18,6 @@ use dalica_ui::state::{Section, Selection};
 use dalica_ui::{App, Driver, UI_COMMANDS};
 use egui::{PointerButton, Pos2, Rect, pos2};
 use serde_json::{Value, json};
-
-const FRAMES: usize = 60 * 60;
 
 /// A session on a library under `dir`: `folders` folders sharing `photos` scenes photos.
 fn session(dir: &Path, folders: usize, photos: usize) -> Session {
@@ -40,7 +39,7 @@ fn session(dir: &Path, folders: usize, photos: usize) -> Session {
 
 /// A window `size` on that library with thumbnails `thumb` points wide, settled.
 fn driver(dir: &Path, folders: usize, photos: usize, size: (u32, u32), thumb: f32) -> Driver {
-    let mut d = Driver::new(App::new(Some(session(dir, folders, photos))), size.0, size.1, 1.0);
+    let mut d = new_driver(App::new(Some(session(dir, folders, photos))), size.0, size.1, 1.0);
     d.app_mut().state_mut().thumb_size = thumb;
     d.settle(FRAMES).unwrap();
     d
@@ -361,7 +360,7 @@ fn every_select_command_fails_gracefully() {
     // An empty library: the keys say there is nothing to select.
     let empty = tempfile::tempdir().unwrap();
     let s = Session::open(&empty.path().join("library"), Arc::new(dalica_core::SystemClock)).unwrap();
-    let mut d = Driver::new(App::new(Some(s)), 900, 600, 1.0);
+    let mut d = new_driver(App::new(Some(s)), 900, 600, 1.0);
     d.settle(FRAMES).unwrap();
     for id in commands.iter().filter(|id| !matches!(**id, "select.set" | "select.none" | "select.section")) {
         assert!(matches!(d.app_mut().run(id, &json!({})), Err(CmdError::Disabled(_))), "{id}");

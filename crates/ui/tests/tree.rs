@@ -17,6 +17,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::common::{FRAMES, new_driver, widget};
 use dalica_core::{DateTime, FolderId, PhotoId, Timestamp};
 use dalica_engine::Session;
 use dalica_engine::synthetic::{self, Spec};
@@ -28,8 +29,6 @@ use dalica_ui::{App, Driver};
 use dalica_ui_kit::registry::Role;
 use serde_json::json;
 
-const FRAMES: usize = 60 * 60;
-
 fn clock() -> Arc<dyn dalica_core::Clock> {
     Arc::new(dalica_core::SystemClock)
 }
@@ -37,7 +36,7 @@ fn clock() -> Arc<dyn dalica_core::Clock> {
 /// An index-only synthetic library of `spec` in a `w × h` window.
 fn synthetic_driver(dir: &Path, spec: &Spec, (w, h): (u32, u32)) -> Driver {
     let s = synthetic::open(dir, spec, clock()).unwrap();
-    let mut d = Driver::new(App::new(Some(s)), w, h, 1.0);
+    let mut d = new_driver(App::new(Some(s)), w, h, 1.0);
     d.settle(FRAMES).unwrap();
     d
 }
@@ -59,7 +58,7 @@ fn nested_driver(dir: &Path) -> Driver {
     let mut s = Session::open(&dir.join("library"), clock()).unwrap();
     s.execute("folders.add", &json!({ "path": root })).unwrap();
     s.wait_idle();
-    let mut d = Driver::new(App::new(Some(s)), 1400, 900, 1.0);
+    let mut d = new_driver(App::new(Some(s)), 1400, 900, 1.0);
     d.settle(FRAMES).unwrap();
     d
 }
@@ -107,10 +106,6 @@ fn row_widgets(d: &Driver) -> Vec<dalica_ui_kit::WidgetInfo> {
     let mut rows: Vec<_> = d.widgets().into_iter().filter(|w| w.role == Role::TreeRow).collect();
     rows.sort_by(|a, b| a.rect[1].total_cmp(&b.rect[1]));
     rows
-}
-
-fn widget(d: &Driver, id: &str) -> dalica_ui_kit::WidgetInfo {
-    d.widgets().into_iter().find(|w| w.id == id).unwrap_or_else(|| panic!("no `{id}`"))
 }
 
 fn region(d: &Driver, name: &str) -> [f32; 4] {

@@ -13,26 +13,18 @@
 //!   (`tests/fingerprints/dialog-{move,copy,collision}-<w>x<h>.json`; `DALICA_BLESS=1` stores new
 //!   ones).
 
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::common::{FRAMES, check_region, new_driver, put_jpeg, try_widget};
 use dalica_core::{FolderId, PhotoId};
 use dalica_engine::Session;
-use dalica_scenes::fingerprint;
 use dalica_ui::dialogs::{collision, copy_confirm, move_confirm};
 use dalica_ui::state::DialogKind;
 use dalica_ui::{App, Driver};
-use dalica_ui_kit::{WidgetInfo, registry};
 use serde_json::{Value, json};
 
-const FRAMES: usize = 60 * 60;
 const SIZES: [(u32, u32); 2] = [(1400, 900), (900, 600)];
-
-fn put_jpeg(path: &Path, seed: u64) {
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    std::fs::write(path, dalica_scenes::jpeg(&dalica_scenes::Scene::new(seed, 96, 64), 80, None).unwrap()).unwrap();
-}
 
 struct Fx {
     _dir: tempfile::TempDir,
@@ -56,7 +48,7 @@ fn fixture((w, h): (u32, u32)) -> Fx {
     }
     s.wait_idle();
     let (lisbon_id, porto_id) = (s.library().folder_by_path(&lisbon).unwrap(), s.library().folder_by_path(&porto).unwrap());
-    let mut d = Driver::new(App::new(Some(s)), w, h, 1.0);
+    let mut d = new_driver(App::new(Some(s)), w, h, 1.0);
     d.settle(FRAMES).unwrap();
     Fx { _dir: dir, lisbon, porto, lisbon_id, porto_id, d }
 }
@@ -102,10 +94,6 @@ impl Fx {
     }
 }
 
-fn widget(d: &Driver, id: &str) -> Option<WidgetInfo> {
-    d.widgets().into_iter().find(|w| w.id == id)
-}
-
 fn files(dir: &Path) -> Vec<String> {
     let mut v: Vec<String> = std::fs::read_dir(dir)
         .unwrap()
@@ -123,10 +111,10 @@ fn a_move_asks_once_and_with_the_box_ticked_never_again() {
     let (two, three) = (fx.photo(fx.lisbon_id, "IMG_0002.jpg"), fx.photo(fx.lisbon_id, "IMG_0003.jpg"));
     assert!(fx.asks_before_moving());
     assert_eq!(fx.paste(true, &[two, three], fx.porto_id), json!({ "dialog": "moveFiles" }));
-    assert!(widget(&fx.d, "dialog:moveFiles").is_some());
+    assert!(try_widget(&fx.d, "dialog:moveFiles").is_some());
     let inspect = dalica_ui::dialogs::inspect(fx.d.app());
     assert_eq!((inspect["title"].as_str(), inspect["default"].as_str()), (Some(move_confirm::TITLE), Some("button:dialog.move")));
-    assert!(widget(&fx.d, move_confirm::DONT_ASK_ID).is_some());
+    assert!(try_widget(&fx.d, move_confirm::DONT_ASK_ID).is_some());
     // Cancel moves nothing and the next move asks again.
     fx.press("button:dialog.cancel");
     assert_eq!(fx.top(), None);
@@ -205,7 +193,7 @@ fn a_copy_asks_then_the_clash_question_follows() {
     let mut fx = fixture((1400, 900));
     let one = fx.photo(fx.lisbon_id, "IMG_0001.jpg");
     assert_eq!(fx.paste(false, &[one], fx.porto_id), json!({ "dialog": "copyFiles" }));
-    assert!(widget(&fx.d, "dialog:copyFiles").is_some());
+    assert!(try_widget(&fx.d, "dialog:copyFiles").is_some());
     assert_eq!(copy_confirm::question(1, "Porto"), "Copy 1 file to Porto?");
     fx.press("button:dialog.copy");
     assert_eq!(fx.top(), Some(DialogKind::Collision));
@@ -252,51 +240,6 @@ fn with_the_question_off_a_clash_still_asks() {
     assert_eq!(files(&fx.porto), ["IMG_0001.jpg", "IMG_0002.jpg", "IMG_0003.jpg"]);
 }
 
-fn check_ids(d: &Driver, case: &str) {
-    assert_eq!(d.app().panels().unwrap().unregistered_widgets(), [], "{case}: interactive widgets without an id");
-    let mut seen = HashSet::new();
-    for w in d.widgets() {
-        assert!(registry::is_valid_id(&w.id), "{case}: `{}` breaks the id grammar", w.id);
-        assert!(seen.insert(w.id.clone()), "{case}: `{}` is registered twice", w.id);
-    }
-}
-
-fn out_dir() -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/ui");
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
-/// Checks the region of widget `id` against `tests/fingerprints/<name>.json`; the window and the
-/// region go to the test output (and the window to `DALICA_SHOTS`, when set).
-fn check_region(d: &Driver, id: &str, name: &str) {
-    let s = d.screenshot().unwrap();
-    let window = fingerprint::png_rgba(s.width, s.height, &s.rgba);
-    std::fs::write(out_dir().join(format!("{name}-window.png")), &window).unwrap();
-    if let Some(dir) = std::env::var_os("DALICA_SHOTS") {
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(Path::new(&dir).join(format!("{name}-window.png")), &window).unwrap();
-    }
-    let r = widget(d, id).unwrap_or_else(|| panic!("no widget {id}")).rect;
-    let (x0, y0, w, h) = (r[0].round() as u32, r[1].round() as u32, r[2].round() as u32, r[3].round() as u32);
-    let mut rgba = Vec::with_capacity((w * h * 4) as usize);
-    for y in y0..y0 + h {
-        for x in x0..x0 + w {
-            rgba.extend_from_slice(&s.pixel(x, y).unwrap());
-        }
-    }
-    std::fs::write(out_dir().join(format!("{name}.png")), fingerprint::png_rgba(w, h, &rgba)).unwrap();
-    let stored = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("tests/fingerprints/{name}.json"));
-    if std::env::var_os("DALICA_BLESS").is_some() {
-        std::fs::write(&stored, fingerprint::to_json(&fingerprint::fingerprint(w, h, &rgba)) + "\n").unwrap();
-    }
-    let expected = fingerprint::from_json(&std::fs::read_to_string(&stored).unwrap()).unwrap();
-    if let Err(m) = fingerprint::check(w, h, &rgba, &expected, 2.0) {
-        std::fs::write(out_dir().join(format!("{name}-actual.png")), &m.actual_png).unwrap();
-        panic!("{name}: {}", m.message);
-    }
-}
-
 /// The move, copy and collision questions at both sizes.
 #[test]
 fn the_dialogs_match_their_fingerprints_at_both_sizes() {
@@ -305,15 +248,12 @@ fn the_dialogs_match_their_fingerprints_at_both_sizes() {
         let mut fx = fixture(size);
         let ids: Vec<PhotoId> = ["IMG_0001.jpg", "IMG_0002.jpg"].iter().map(|n| fx.photo(fx.lisbon_id, n)).collect();
         fx.paste(true, &ids, fx.porto_id);
-        check_ids(&fx.d, &case);
         check_region(&fx.d, "dialog:moveFiles", &format!("dialog-move-{case}"));
         fx.press("button:dialog.move");
         assert_eq!(fx.top(), Some(DialogKind::Collision));
-        check_ids(&fx.d, &case);
         check_region(&fx.d, "dialog:collision", &format!("dialog-collision-{case}"));
         fx.press("button:dialog.cancel");
         fx.paste(false, &ids, fx.porto_id);
-        check_ids(&fx.d, &case);
         check_region(&fx.d, "dialog:copyFiles", &format!("dialog-copy-{case}"));
     }
 }

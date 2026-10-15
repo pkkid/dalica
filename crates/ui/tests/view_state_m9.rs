@@ -10,19 +10,16 @@
 //! reserves the filter banner; every new command fails gracefully; every interactive widget of the
 //! new dialogs has a valid, unique id.
 
-use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Arc;
 
+use crate::common::{FRAMES, new_driver};
 use dalica_core::{AlbumId, PhotoId};
 use dalica_engine::{Key, Session};
 use dalica_ui::control::{Config, Connection, Control, Reply, Request, serve};
 use dalica_ui::state::{AlbumKey, AlbumSection, Section, Selection};
 use dalica_ui::{App, Driver};
-use dalica_ui_kit::registry;
 use serde_json::{Value, json};
-
-const FRAMES: usize = 60 * 60;
 
 /// A session on a library under `dir` holding one folder of 4 scenes photos; their ids (in the
 /// light table's order) and the folder's id.
@@ -60,7 +57,7 @@ fn setup((w, h): (u32, u32)) -> T {
     let dir = tempfile::tempdir().unwrap();
     let (s, _, folder) = session(dir.path());
     let control = Control::new(Config::default());
-    let mut d = Driver::new(App::with_picker(Some(s), control.picker()), w, h, 1.0);
+    let mut d = new_driver(App::with_picker(Some(s), control.picker()), w, h, 1.0);
     d.settle(FRAMES).unwrap();
     // The light table's order, as the sections list them.
     let shown = d.app().panels().unwrap().sections.get(Section::Folder(dalica_core::FolderId::new(folder))).unwrap().photos.clone();
@@ -116,24 +113,6 @@ fn picker_open(t: &T) -> bool {
         std::thread::sleep(std::time::Duration::from_millis(2));
         false
     })
-}
-
-/// Every interactive widget of the frame has a valid id inside the window, and no id repeats.
-fn check_ids(t: &T, what: &str) {
-    let (w, h, _) = t.d.size();
-    assert_eq!(t.d.app().panels().unwrap().unregistered_widgets(), [], "{what}: interactive widgets without an id");
-    let mut seen = HashSet::new();
-    for wi in t.d.widgets() {
-        assert!(registry::is_valid_id(&wi.id), "{what}: `{}` breaks the id grammar", wi.id);
-        assert!(seen.insert(wi.id.clone()), "{what}: `{}` is registered twice", wi.id);
-        let [x, y, rw, rh] = wi.rect;
-        assert!(
-            rw > 0.0 && rh > 0.0 && x >= 0.0 && y >= 0.0 && x + rw <= w as f32 + 0.01 && y + rh <= h as f32 + 0.01,
-            "{what}: `{}` at {:?}",
-            wi.id,
-            wi.rect
-        );
-    }
 }
 
 /// The rows of a menu model (submenus flattened), as `ui.menu.tree` returns them.
@@ -276,7 +255,6 @@ fn each_opener_shows_its_dialog_and_esc_closes_it() {
             assert_eq!(kinds(t), [kind], "{size:?}");
             assert!(t.d.widgets().iter().any(|w| w.id == format!("dialog:{kind}")), "{kind} drawn");
             assert_ne!(state(t)[draft], Value::Null, "{kind} has its draft");
-            check_ids(t, kind);
             key(t, "Escape");
             assert!(kinds(t).is_empty(), "Esc closed {kind}");
             assert_eq!(state(t)[draft], Value::Null, "{kind} dropped its draft");
@@ -384,7 +362,6 @@ fn the_photo_menu_lists_its_rows_and_opens_on_a_right_click() {
     for w in ["menuitem:view.edit", "menuitem:photo.splitFolder", "menuitem:photo.delete", "menuitem:pane.properties"] {
         assert!(shown.contains(&w), "{w} in {shown:?}");
     }
-    check_ids(&t, "photo menu");
     key(&mut t, "Escape");
     // The album variant, once the selection is in an album section (an album the library has, so
     // its Album Properties opens on it).

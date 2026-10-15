@@ -7,6 +7,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::common::{FRAMES, new_driver};
 use dalica_engine::Session;
 use dalica_ui::control::{Config, Connection, Control, Reply, Request, serve};
 use dalica_ui::menus;
@@ -15,8 +16,6 @@ use dalica_ui_kit::registry;
 use dalica_ui_kit::{Image, Rasterizer};
 use egui::{Event, Modifiers, MouseWheelUnit, PointerButton, Pos2, TouchPhase, vec2};
 use serde_json::{Value, json};
-
-const FRAMES: usize = 60 * 60;
 
 // ---------------------------------------------------------------------------------------------
 // `ui.menu.tree` against §1
@@ -254,7 +253,7 @@ fn setup(n: usize) -> T {
     let found = s.execute("library.query", &json!({ "limit": 10000 })).unwrap();
     let ids = found["photos"].as_array().unwrap().iter().map(|p| p["id"].as_u64().unwrap()).collect();
     let control = Control::new(Config::default());
-    let mut d = Driver::new(App::with_picker(Some(s), control.picker()), 1400, 900, 1.0);
+    let mut d = new_driver(App::with_picker(Some(s), control.picker()), 1400, 900, 1.0);
     d.settle(FRAMES).unwrap();
     T { _dir: dir, control, conn: Connection::new(), d, ids }
 }

@@ -8,13 +8,11 @@ use std::collections::BTreeSet;
 use std::path::Path;
 use std::sync::Arc;
 
+use crate::common::{FRAMES, new_driver, try_widget};
 use dalica_core::PhotoId;
 use dalica_engine::{CmdError, Session};
 use dalica_ui::{App, Driver, DriverError, ScriptedPicker};
-use dalica_ui_kit::WidgetInfo;
 use serde_json::json;
-
-const FRAMES: usize = 60 * 60;
 
 /// A library in `root` with two folders of `per` scenes photos each, added and scanned.
 fn session(root: &Path, per: usize) -> Session {
@@ -36,7 +34,7 @@ fn session(root: &Path, per: usize) -> Session {
 }
 
 fn driver(root: &Path, per: usize) -> Driver {
-    let mut d = Driver::new(App::with_picker(Some(session(root, per)), Arc::new(ScriptedPicker::new())), 1400, 900, 1.0);
+    let mut d = new_driver(App::with_picker(Some(session(root, per)), Arc::new(ScriptedPicker::new())), 1400, 900, 1.0);
     d.settle(FRAMES).unwrap();
     d
 }
@@ -47,10 +45,6 @@ fn sections(d: &Driver) -> Vec<Vec<PhotoId>> {
 
 fn n(ids: &[PhotoId]) -> Vec<u64> {
     ids.iter().map(|id| id.get()).collect()
-}
-
-fn widget(d: &Driver, id: &str) -> Option<WidgetInfo> {
-    d.widgets().into_iter().find(|w| w.id == id)
 }
 
 /// The rects of the tray's minis and of its "+N" place, in the order drawn.
@@ -91,7 +85,7 @@ fn the_star_keys_act_on_the_trays_photos_in_one_undo_step() {
         d.key(key).unwrap();
         d.settle(FRAMES).unwrap();
         assert_eq!(starred(&d, &five), [true; 5], "{key} stars all five");
-        assert!(widget(&d, "button:star").unwrap().active, "{key}: the star button agrees");
+        assert!(try_widget(&d, "button:star").unwrap().active, "{key}: the star button agrees");
         d.run("edit.undo", &json!({})).unwrap();
         d.settle(FRAMES).unwrap();
         assert_eq!(starred(&d, &five), [false; 5], "{key}: one undo restores all five");
@@ -158,7 +152,7 @@ fn the_star_keys_fail_gracefully() {
     d.key("Ctrl+8").unwrap();
     assert_eq!(starred(&d, &s[0][0..1]), [true]);
 
-    let mut none = Driver::new(App::new(None), 900, 600, 1.0);
+    let mut none = new_driver(App::new(None), 900, 600, 1.0);
     for _ in 0..3 {
         none.step();
     }
@@ -183,7 +177,7 @@ fn the_minis_are_centred_in_the_tray() {
     let mut d = driver(dir.path(), 60);
     let s = sections(&d);
     let all: Vec<PhotoId> = s[0].iter().chain(&s[1]).copied().collect();
-    let tray = widget(&d, "tray").unwrap().rect;
+    let tray = try_widget(&d, "tray").unwrap().rect;
     for count in [1, 12, 40, 100] {
         d.run("tray.clear", &json!({ "confirm": true })).ok();
         d.run("tray.hold", &json!({ "ids": n(&all[..count]) })).unwrap();
@@ -211,8 +205,8 @@ fn minis_beside_a_token_are_centred_in_the_room_left() {
     let section = d.app().panels().unwrap().sections.list[1].id;
     d.run("select.section", &json!({ "section": section })).unwrap();
     d.settle(FRAMES).unwrap();
-    let token = widget(&d, "tray:token").expect("the token").rect;
-    let tray = widget(&d, "tray").unwrap().rect;
+    let token = try_widget(&d, "tray:token").expect("the token").rect;
+    let tray = try_widget(&d, "tray").unwrap().rect;
     let p = places(&d);
     assert_eq!(p.len(), 1);
     let room = [token[0] + token[2], tray[1], tray[0] + tray[2] - (token[0] + token[2]), tray[3]];

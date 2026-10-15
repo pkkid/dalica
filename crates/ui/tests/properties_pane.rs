@@ -17,11 +17,11 @@
 //!   differs per machine; `DALICA_BLESS=1` stores new ones, renders go to `target/test-output/ui/`),
 //!   and every widget shown has a valid, unique id.
 
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, UNIX_EPOCH};
 
+use crate::common::{FRAMES, new_driver, out_dir, shot};
 use dalica_core::{DateTime, PhotoId};
 use dalica_engine::settings::MetadataWrites;
 use dalica_engine::{Field, Fields, Session};
@@ -30,11 +30,9 @@ use dalica_ui::headless::{PointerEvent, PointerKind};
 use dalica_ui::panels::properties::{self, Shown, answer};
 use dalica_ui::state::Pane;
 use dalica_ui::{App, Driver, status_text};
-use dalica_ui_kit::registry;
 use egui::{Modifiers, PointerButton, vec2};
 use serde_json::{Value, json};
 
-const FRAMES: usize = 60 * 60;
 const SIZES: [(u32, u32); 2] = [(1400, 900), (900, 600)];
 const WAIT: Duration = Duration::from_secs(60);
 /// The files' modification time: 2026-05-28 20:26:40 UTC.
@@ -194,7 +192,7 @@ fn setup(w: u32, h: u32) -> T {
     s.execute("photo.caption.set", &json!({ "ids": [tagged], "caption": "Tram 28 at sunset" })).unwrap();
     s.execute("photo.tags.add", &json!({ "ids": [tagged], "tags": "lisbon, tram" })).unwrap();
     assert_eq!(s.pending_metadata_writes(), 0, "nothing waits to be written into the files");
-    let mut d = Driver::new(App::new(Some(s)), w, h, 1.0);
+    let mut d = new_driver(App::new(Some(s)), w, h, 1.0);
     d.settle(FRAMES).unwrap();
     T { _dir: dir, d, folder, tagged, plain, other }
 }
@@ -431,7 +429,6 @@ fn the_pane_follows_the_selection() {
     select(&mut t, &ids);
     let s = shown(&t);
     assert!(!s.loading && keys(&s).contains(&"camera"), "{s:?}");
-    check_ids(&t.d, (1400, 900));
 }
 
 #[test]
@@ -507,22 +504,6 @@ fn the_changed_elsewhere_note_and_a_turned_photo() {
     assert_eq!((row(&s, "dimensions").value.as_str(), row(&s, "dimensions").note.as_deref()), ("120 × 80", None));
 }
 
-/// Every widget shown has a valid id, registered once, inside the window.
-fn check_ids(d: &Driver, (w, h): (u32, u32)) {
-    assert_eq!(d.app().panels().unwrap().unregistered_widgets(), [], "{w}×{h}: interactive widgets without an id");
-    let mut seen = HashSet::new();
-    for wi in d.widgets() {
-        assert!(registry::is_valid_id(&wi.id), "{w}×{h}: `{}` breaks the id grammar", wi.id);
-        assert!(seen.insert(wi.id.clone()), "{w}×{h}: `{}` is registered twice", wi.id);
-    }
-}
-
-fn out_dir() -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/ui");
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
 /// Checks the pane's body in the last frame against `tests/fingerprints/<name>.json`, with the
 /// Path row's value masked (its folder differs per machine and per OS), and writes it and the
 /// whole window to the test output.
@@ -551,13 +532,6 @@ fn check_pane(t: &T, name: &str) {
     }
 }
 
-/// Writes a screenshot of the whole window to `$DALICA_SHOTS/<name>.png`, when asked.
-fn shot(d: &Driver, name: &str) {
-    let Some(dir) = std::env::var_os("DALICA_SHOTS") else { return };
-    let s = d.screenshot().unwrap();
-    std::fs::write(Path::new(&dir).join(format!("{name}.png")), fingerprint::png_rgba(s.width, s.height, &s.rgba)).unwrap();
-}
-
 #[test]
 fn the_pane_matches_its_fingerprints_at_both_sizes() {
     for (w, h) in SIZES {
@@ -566,7 +540,6 @@ fn the_pane_matches_its_fingerprints_at_both_sizes() {
         select(&mut t, &ids);
         run(&mut t, "pane.properties", json!({}));
         ready(&mut t);
-        check_ids(&t.d, (w, h));
         check_pane(&t, &format!("pane-properties-{w}x{h}"));
         shot(&t.d, &format!("pane-properties-{w}x{h}"));
 
@@ -575,7 +548,6 @@ fn the_pane_matches_its_fingerprints_at_both_sizes() {
         ready(&mut t);
         t.d.scroll(Some("pane:properties"), vec2(0.0, -2000.0)).unwrap();
         t.d.settle(FRAMES).unwrap();
-        check_ids(&t.d, (w, h));
         shot(&t.d, &format!("pane-properties-all-{w}x{h}"));
         assert!(shown(&t).groups.iter().flat_map(|(_, f)| f).any(|f| f.painted.is_some()), "the listing scrolled into view");
         // The Path row is scrolled away here: fingerprint the listing as it stands.

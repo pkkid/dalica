@@ -10,12 +10,12 @@ use std::collections::BTreeSet;
 use std::path::Path;
 use std::sync::Arc;
 
+use crate::common::{FRAMES, new_driver, widget};
 use dalica_engine::Session;
 use dalica_ui::panels::toolbar;
 use dalica_ui::{App, Driver, ScriptedPicker};
 use dalica_ui_kit::WidgetInfo;
 
-const FRAMES: usize = 60 * 60;
 const SIZES: [(f32, f32); 2] = [(1400.0, 900.0), (900.0, 600.0)];
 /// The toolbar region: under the 24 pt menu bar, 40 high.
 const TOP: f32 = 32.0;
@@ -40,13 +40,9 @@ fn session(root: &Path) -> Session {
 }
 
 fn driver(root: &Path, (w, h): (f32, f32)) -> Driver {
-    let mut d = Driver::new(App::with_picker(Some(session(root)), Arc::new(ScriptedPicker::new())), w as u32, h as u32, 1.0);
+    let mut d = new_driver(App::with_picker(Some(session(root)), Arc::new(ScriptedPicker::new())), w as u32, h as u32, 1.0);
     d.settle(FRAMES).unwrap();
     d
-}
-
-fn widget(d: &Driver, id: &str) -> WidgetInfo {
-    d.widgets().into_iter().find(|w| w.id == id).unwrap_or_else(|| panic!("no `{id}`"))
 }
 
 fn size(w: &WidgetInfo) -> (f32, f32) {

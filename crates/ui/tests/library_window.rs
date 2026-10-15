@@ -15,14 +15,13 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
+use crate::common::{FRAMES, new_driver, out_dir};
 use dalica_core::PhotoId;
 use dalica_engine::Session;
 use dalica_scan::Places;
 use dalica_scenes::fingerprint;
 use dalica_ui::dialogs::folder_manager::{State, mode_id, row_id};
 use dalica_ui::{App, Driver};
-
-const FRAMES: usize = 60 * 60;
 
 /// A folder of `n` scenes photos in `root`; returns its path.
 fn photos(root: &Path, n: usize) -> PathBuf {
@@ -33,12 +32,6 @@ fn photos(root: &Path, n: usize) -> PathBuf {
         std::fs::write(path, &f.bytes).unwrap();
     }
     root.join(files[0].path.parent().unwrap())
-}
-
-fn out_dir() -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/ui");
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
 }
 
 fn check_fingerprint(name: &str, width: u32, height: u32, rgba: &[u8]) {
@@ -154,7 +147,7 @@ fn click_a_thumbnail_press_ctrl_8_and_the_badge_shows() {
     let ui_thread = dalica_fs::mark_ui_thread();
     let refused_before = dalica_fs::guard::refused();
     let started = Instant::now();
-    let mut d = Driver::new(App::new(Some(session)), 1400, 900, 1.0);
+    let mut d = new_driver(App::new(Some(session)), 1400, 900, 1.0);
     d.settle(FRAMES).unwrap();
 
     // File ▸ Add Folder… opens the Folder Manager: Pictures set to Scan Always, then OK; the
@@ -229,7 +222,7 @@ fn the_star_button_toggles_the_selection() {
     session.wait_idle();
     let _ui_thread = dalica_fs::mark_ui_thread();
     let refused_before = dalica_fs::guard::refused();
-    let mut d = Driver::new(App::new(Some(session)), 900, 600, 1.0);
+    let mut d = new_driver(App::new(Some(session)), 900, 600, 1.0);
     d.settle(FRAMES).unwrap();
     assert!(matches!(d.click("button:star"), Err(dalica_ui::DriverError::Disabled(_))));
     let first = d.widgets().into_iter().find(|w| w.id.starts_with("thumb:")).unwrap();

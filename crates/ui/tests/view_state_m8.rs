@@ -8,17 +8,14 @@
 //! Save and Revert ask through the host; the new commands fail gracefully; every interactive widget
 //! of the new dialogs has a valid, unique id.
 
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::common::{FRAMES, new_driver};
 use dalica_engine::Session;
 use dalica_ui::control::{Config, Connection, Control, Reply, Request, serve};
 use dalica_ui::{App, Driver};
-use dalica_ui_kit::registry;
 use serde_json::{Value, json};
-
-const FRAMES: usize = 60 * 60;
 
 /// A session on a library under `dir` holding one folder of 4 scenes photos; their ids and the
 /// folder's id.
@@ -66,7 +63,7 @@ fn setup((w, h): (u32, u32)) -> T {
     let (s, ids, folder) = session(dir.path());
     std::fs::create_dir_all(out(dir.path())).unwrap();
     let control = Control::new(Config { write_roots: vec![out(dir.path())], ..Config::default() });
-    let mut d = Driver::new(App::with_picker(Some(s), control.picker()), w, h, 1.0);
+    let mut d = new_driver(App::with_picker(Some(s), control.picker()), w, h, 1.0);
     d.settle(FRAMES).unwrap();
     T { dir, control, conn: Connection::new(), d, ids, folder }
 }
@@ -119,24 +116,6 @@ fn picker_open(t: &T) -> bool {
         std::thread::sleep(std::time::Duration::from_millis(2));
         false
     })
-}
-
-/// Every interactive widget of the frame has a valid id inside the window, and no id repeats.
-fn check_ids(t: &T, what: &str) {
-    let (w, h, _) = t.d.size();
-    assert_eq!(t.d.app().panels().unwrap().unregistered_widgets(), [], "{what}: interactive widgets without an id");
-    let mut seen = HashSet::new();
-    for wi in t.d.widgets() {
-        assert!(registry::is_valid_id(&wi.id), "{what}: `{}` breaks the id grammar", wi.id);
-        assert!(seen.insert(wi.id.clone()), "{what}: `{}` is registered twice", wi.id);
-        let [x, y, rw, rh] = wi.rect;
-        assert!(
-            rw > 0.0 && rh > 0.0 && x >= 0.0 && y >= 0.0 && x + rw <= w as f32 + 0.01 && y + rh <= h as f32 + 0.01,
-            "{what}: `{}` at {:?}",
-            wi.id,
-            wi.rect
-        );
-    }
 }
 
 /// Each new field round-trips through `ui.set` and `ui.state`; `export` merges field by field;
@@ -192,7 +171,6 @@ fn every_m8_field_round_trips_through_ui_set_and_ui_state() {
     t.d.settle(FRAMES).unwrap();
     assert!(t.d.widgets().iter().any(|w| w.id == "dialog:exportProgress"));
     assert!(!t.d.widgets().iter().any(|w| w.id.ends_with("/backdrop")));
-    check_ids(&t, "export progress window");
     let photo = t.ids[0];
     t.d.click(&format!("thumb:{photo}")).unwrap();
     t.d.settle(FRAMES).unwrap();
@@ -276,7 +254,6 @@ fn ctrl_shift_s_with_a_tray_opens_the_export_dialog_and_esc_closes_it() {
     ok(&mut t, "ui.set", json!({ "export": { "location": "" } }));
     t.d.settle(FRAMES).unwrap();
     assert!(!t.d.widgets().iter().find(|w| w.id == "button:dialog.export").unwrap().enabled, "no location, no Export");
-    check_ids(&t, "export dialog");
     key(&mut t, "Escape");
     assert!(kinds(&mut t).is_empty());
     assert_eq!(state(&mut t)["export"], Value::Null);

@@ -12,6 +12,7 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::common::{FRAMES, new_driver, out_dir, try_widget};
 use dalica_core::PhotoId;
 use dalica_engine::{CmdError, Session};
 use dalica_scenes::fingerprint;
@@ -20,8 +21,6 @@ use dalica_ui::{App, Driver, DriverError, ScriptedPicker};
 use dalica_ui_kit::WidgetInfo;
 use egui::{PointerButton, pos2};
 use serde_json::{Value, json};
-
-const FRAMES: usize = 60 * 60;
 
 /// A library in `root` with two folders of `per` scenes photos each, added and scanned.
 fn session(root: &Path, per: usize) -> Session {
@@ -43,7 +42,7 @@ fn session(root: &Path, per: usize) -> Session {
 }
 
 fn driver(root: &Path, per: usize) -> Driver {
-    let mut d = Driver::new(App::with_picker(Some(session(root, per)), Arc::new(ScriptedPicker::new())), 1400, 900, 1.0);
+    let mut d = new_driver(App::with_picker(Some(session(root, per)), Arc::new(ScriptedPicker::new())), 1400, 900, 1.0);
     d.settle(FRAMES).unwrap();
     d
 }
@@ -55,10 +54,6 @@ fn sections(d: &Driver) -> Vec<Vec<PhotoId>> {
 
 fn n(ids: &[PhotoId]) -> Vec<u64> {
     ids.iter().map(|id| id.get()).collect()
-}
-
-fn widget(d: &Driver, id: &str) -> Option<WidgetInfo> {
-    d.widgets().into_iter().find(|w| w.id == id)
 }
 
 /// The tray's minis: (photo, rect), in the order drawn.
@@ -80,12 +75,6 @@ fn starred(d: &Driver, ids: &[PhotoId]) -> Vec<bool> {
 fn select(d: &mut Driver, ids: &[PhotoId]) {
     d.run("select.set", &json!({ "ids": n(ids) })).unwrap();
     d.settle(FRAMES).unwrap();
-}
-
-fn out_dir() -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/ui");
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
 }
 
 /// Checks the bottom area of the last frame against `tests/fingerprints/<name>.json`.
@@ -120,7 +109,7 @@ fn held_photos_stay_while_the_selection_moves_and_star_is_one_undo_step() {
     let mut d = driver(dir.path(), 12);
     let s = sections(&d);
     let (a, b) = (&s[0], &s[1]);
-    assert!(minis(&d).is_empty() && widget(&d, "tray").is_some());
+    assert!(minis(&d).is_empty() && try_widget(&d, "tray").is_some());
     assert!(matches!(d.click("button:tray.hold"), Err(DriverError::Disabled(_))), "nothing to hold");
     assert!(matches!(d.click("button:star"), Err(DriverError::Disabled(_))), "nothing to star");
 
@@ -134,16 +123,16 @@ fn held_photos_stay_while_the_selection_moves_and_star_is_one_undo_step() {
     let five: Vec<PhotoId> = a[0..2].iter().chain(&b[3..6]).copied().collect();
     assert_eq!(tray, five, "held first, then the selection");
     for id in &a[0..2] {
-        assert!(widget(&d, &format!("tray:item:{}/held", id.get())).is_some(), "{id} has the held badge");
+        assert!(try_widget(&d, &format!("tray:item:{}/held", id.get())).is_some(), "{id} has the held badge");
     }
-    assert!(widget(&d, &format!("tray:item:{}/held", b[3].get())).is_none());
+    assert!(try_widget(&d, &format!("tray:item:{}/held", b[3].get())).is_none());
     check_bottom(&d, "region-tray-held");
 
     // Star: all five in one step; undo: all five back.
     d.click("button:star").unwrap();
     d.settle(FRAMES).unwrap();
     assert_eq!(starred(&d, &five), [true; 5]);
-    assert!(widget(&d, "button:star").unwrap().active);
+    assert!(try_widget(&d, "button:star").unwrap().active);
     d.run("edit.undo", &json!({})).unwrap();
     d.settle(FRAMES).unwrap();
     assert_eq!(starred(&d, &five), [false; 5], "one undo restores all five");
@@ -172,19 +161,19 @@ fn a_section_selected_as_a_unit_is_one_token() {
     let section = d.app().panels().unwrap().sections.list[1].id;
     d.run("select.section", &json!({ "section": section })).unwrap();
     d.settle(FRAMES).unwrap();
-    let token = widget(&d, "tray:token").expect("the token is drawn");
+    let token = try_widget(&d, "tray:token").expect("the token is drawn");
     assert_eq!(token.label, "Folder selected — 12 photos");
     assert!(minis(&d).is_empty(), "the section's photos are not minis");
-    let tray = widget(&d, "tray").unwrap();
+    let tray = try_widget(&d, "tray").unwrap();
     assert!(token.rect[0] >= tray.rect[0] && token.rect[0] + token.rect[2] <= tray.rect[0] + tray.rect[2], "{token:?} in {tray:?}");
     // Held photos sit beside the token; holding the section turns it into minis.
     d.run("tray.hold", &json!({ "ids": [s[0][0].get()] })).unwrap();
     d.settle(FRAMES).unwrap();
-    assert!(widget(&d, "tray:token").is_some());
+    assert!(try_widget(&d, "tray:token").is_some());
     assert_eq!(minis(&d).iter().map(|m| m.0).collect::<Vec<_>>(), [s[0][0]]);
     d.click("button:tray.hold").unwrap();
     d.settle(FRAMES).unwrap();
-    assert!(widget(&d, "tray:token").is_none(), "every photo is held: minis now");
+    assert!(try_widget(&d, "tray:token").is_none(), "every photo is held: minis now");
     assert_eq!(minis(&d).len(), 13);
     // The star button stars the whole section.
     d.click("button:star").unwrap();
@@ -202,7 +191,7 @@ fn clear_asks_first_only_when_photos_are_held() {
     // Nothing held: Clear empties the tray (and the selection it mirrors) at once.
     select(&mut d, &s[0][0..3]);
     d.click("button:tray.clear").unwrap();
-    assert!(widget(&d, "dialog:clearTray").is_none(), "no question without held photos");
+    assert!(try_widget(&d, "dialog:clearTray").is_none(), "no question without held photos");
     assert!(d.state().selection.ids.is_empty() && minis(&d).is_empty());
 
     // Held photos: the question, Cancel keeps everything, Clear Tray empties it.
@@ -210,11 +199,11 @@ fn clear_asks_first_only_when_photos_are_held() {
     d.click("button:tray.hold").unwrap();
     select(&mut d, &s[1][0..1]);
     d.click("button:tray.clear").unwrap();
-    let dialog = widget(&d, "dialog:clearTray").expect("Clear asks first");
+    let dialog = try_widget(&d, "dialog:clearTray").expect("Clear asks first");
     assert_eq!(dialog.label, "Clear Tray");
     assert_eq!(minis(&d).len(), 3, "nothing cleared yet");
     d.click("button:dialog.cancel").unwrap();
-    assert!(widget(&d, "dialog:clearTray").is_none());
+    assert!(try_widget(&d, "dialog:clearTray").is_none());
     assert_eq!(minis(&d).len(), 3);
     d.click("button:tray.clear").unwrap();
     d.click("button:dialog.clearTray").unwrap();
@@ -230,9 +219,9 @@ fn clear_asks_first_only_when_photos_are_held() {
     d.click(&first).unwrap();
     d.click_with(&last, &Click { modifiers: modifiers(true, false, false, false), ..Click::default() }).unwrap();
     assert_eq!(d.state().tray.selected, [s[0][0], s[1][1]]);
-    assert!(widget(&d, &first).unwrap().active, "a tray-selected mini is active");
+    assert!(try_widget(&d, &first).unwrap().active, "a tray-selected mini is active");
     d.click("button:tray.clear").unwrap();
-    assert!(widget(&d, "dialog:clearTray").is_none());
+    assert!(try_widget(&d, "dialog:clearTray").is_none());
     assert_eq!(minis(&d).iter().map(|m| m.0).collect::<Vec<_>>(), [s[0][1], s[1][0]]);
     assert_eq!((d.state().tray.held.as_slice(), d.state().selection.ids.as_slice()), ([s[0][1]].as_slice(), [s[1][0]].as_slice()));
 
@@ -251,13 +240,13 @@ fn minis_shrink_as_the_count_grows() {
     let mut d = driver(dir.path(), 60);
     let s = sections(&d);
     let all: Vec<PhotoId> = s[0].iter().chain(&s[1]).copied().collect();
-    let tray = widget(&d, "tray").unwrap().rect;
+    let tray = try_widget(&d, "tray").unwrap().rect;
     for (count, edge, rows) in [(1, 54.0, 1), (12, 30.0, 1), (40, 22.0, 3), (100, 18.0, 3)] {
         d.run("tray.clear", &json!({ "confirm": true })).ok();
         d.run("tray.hold", &json!({ "ids": n(&all[..count]) })).unwrap();
         d.settle(FRAMES).unwrap();
         let m = minis(&d);
-        let shown = m.len() + usize::from(widget(&d, "tray:more").is_some());
+        let shown = m.len() + usize::from(try_widget(&d, "tray:more").is_some());
         assert!(m.iter().all(|(_, r)| r[2] == edge && r[3] == edge), "{count}: {m:?}");
         let tops: BTreeSet<i32> = m.iter().map(|(_, r)| r[1] as i32).collect();
         assert_eq!(tops.len(), rows, "{count}: rows {tops:?}");
@@ -265,7 +254,7 @@ fn minis_shrink_as_the_count_grows() {
             assert!(r[0] >= tray[0] && r[1] >= tray[1] && r[0] + r[2] <= tray[0] + tray[2] && r[1] + r[3] <= tray[1] + tray[3], "{count}: {r:?}");
         }
         if count == 100 {
-            let more = widget(&d, "tray:more").expect("the rest is counted");
+            let more = try_widget(&d, "tray:more").expect("the rest is counted");
             assert_eq!(more.label, format!("{} more", count - m.len()));
             assert!(shown < count);
         } else {
@@ -290,7 +279,7 @@ fn the_tray_has_its_own_selection_and_menu() {
     d.click(&format!("tray:item:{}", m[1].0.get())).unwrap();
     assert_eq!(d.state().tray.selected, [m[1].0]);
     // A click on the box's empty space selects nothing.
-    let tray = widget(&d, "tray").unwrap().rect;
+    let tray = try_widget(&d, "tray").unwrap().rect;
     d.click_with("tray", &Click { fx: 0.95, ..Click::default() }).unwrap();
     assert!(d.state().tray.selected.is_empty());
     // A band from the empty right part over the last three minis.
@@ -317,7 +306,7 @@ fn the_tray_has_its_own_selection_and_menu() {
     assert_eq!(d.state().tray.selected, [s[0][2]], "a right-click selects the mini first");
     for (id, live) in [("menuitem:tray.hold", true), ("menuitem:tray.clear", true), ("menuitem:pane.properties", true), ("menuitem:view.edit", true)]
     {
-        let w = widget(&d, id).unwrap_or_else(|| panic!("no {id}"));
+        let w = try_widget(&d, id).unwrap_or_else(|| panic!("no {id}"));
         assert_eq!(w.enabled, live, "{id}");
     }
     d.click("menuitem:tray.clear").unwrap();
@@ -387,7 +376,7 @@ fn an_album_selected_as_a_unit_is_one_album_token() {
     for (w, h) in [(1400, 900), (900, 600)] {
         d.resize(w, h);
         d.settle(FRAMES).unwrap();
-        let token = widget(&d, "tray:token").expect("the album token is drawn");
+        let token = try_widget(&d, "tray:token").expect("the album token is drawn");
         assert_eq!(token.label, "Album selected — 3 photos");
         assert!(minis(&d).is_empty(), "the album's photos are not minis");
         check_bottom(&d, &format!("region-tray-album-{w}x{h}"));
@@ -417,7 +406,7 @@ fn add_to_album_adds_the_tray_photos() {
     select(&mut d, &s[0][0..1]);
     d.click("button:tray.hold").unwrap();
     select(&mut d, &s[1][1..3]);
-    assert!(widget(&d, "button:tray.addToAlbum").unwrap().enabled);
+    assert!(try_widget(&d, "button:tray.addToAlbum").unwrap().enabled);
     d.click("button:tray.addToAlbum").unwrap();
     d.settle(FRAMES).unwrap();
     let shot = d.screenshot().unwrap();
@@ -427,8 +416,8 @@ fn add_to_album_adds_the_tray_photos() {
     assert_eq!(ids, ["menuitem:album.new".to_string(), format!("menuitem:album.add/{new}"), format!("menuitem:album.add/{old}")]);
     assert_eq!(rows.iter().map(|r| r.1.as_str()).collect::<Vec<_>>(), ["New Album…", "Newer", "Older"]);
     assert!(rows.iter().all(|r| r.2), "all live");
-    let button = widget(&d, "button:tray.addToAlbum").unwrap().rect;
-    let new_album = widget(&d, "menuitem:album.new").unwrap().rect;
+    let button = try_widget(&d, "button:tray.addToAlbum").unwrap().rect;
+    let new_album = try_widget(&d, "menuitem:album.new").unwrap().rect;
     assert!(new_album[1] + new_album[3] <= button[1] + 0.5, "the popup opens upward: {new_album:?} over {button:?}");
     // A second click closes it.
     d.click("button:tray.addToAlbum").unwrap();
@@ -455,7 +444,7 @@ fn add_to_album_adds_the_tray_photos() {
     d.settle(FRAMES).unwrap();
     d.click("menuitem:album.new").unwrap();
     d.settle(FRAMES).unwrap();
-    assert!(widget(&d, "dialog:albumProperties").is_some());
+    assert!(try_widget(&d, "dialog:albumProperties").is_some());
     let draft = d.state().album_properties.clone().unwrap();
     assert_eq!((draft.album, draft.ids), (None, want.to_vec()));
     d.click("button:dialog.cancel").unwrap();
@@ -463,5 +452,5 @@ fn add_to_album_adds_the_tray_photos() {
     // Without photos it is disabled again.
     d.run("tray.clear", &json!({ "confirm": true })).unwrap();
     d.settle(FRAMES).unwrap();
-    assert!(!widget(&d, "button:tray.addToAlbum").unwrap().enabled);
+    assert!(!try_widget(&d, "button:tray.addToAlbum").unwrap().enabled);
 }

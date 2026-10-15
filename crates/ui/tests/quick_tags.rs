@@ -14,19 +14,15 @@
 //!   `DALICA_BLESS=1` stores new ones, renders go to `target/test-output/ui/`), and every widget
 //!   shown has a valid, unique id.
 
-use std::collections::HashSet;
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::common::{FRAMES, check_region, new_driver, shot};
 use dalica_core::PhotoId;
 use dalica_engine::Session;
-use dalica_scenes::fingerprint;
 use dalica_ui::state::{DialogKind, Pane};
 use dalica_ui::{App, Driver};
-use dalica_ui_kit::registry;
 use serde_json::{Value, json};
 
-const FRAMES: usize = 60 * 60;
 const SIZES: [(u32, u32); 2] = [(1400, 900), (900, 600)];
 
 struct T {
@@ -52,7 +48,7 @@ fn setup(w: u32, h: u32) -> T {
     let mut ids: Vec<u64> = found["photos"].as_array().unwrap().iter().map(|p| p["id"].as_u64().unwrap()).collect();
     ids.sort_unstable();
     assert_eq!(ids.len(), 10);
-    let mut d = Driver::new(App::new(Some(s)), w, h, 1.0);
+    let mut d = new_driver(App::new(Some(s)), w, h, 1.0);
     d.settle(FRAMES).unwrap();
     T { _dir: dir, d, ids }
 }
@@ -202,7 +198,6 @@ fn three_slots_configured_then_slot_2_toggles_by_click_and_by_ctrl_alt_2() {
     // An unassigned key says why on the status line and changes nothing.
     key(&mut t, "Ctrl+Alt+4");
     assert_eq!(t.d.state().status, "Quick tag 4 is not assigned.");
-    check_ids(&t.d, (1400, 900));
 }
 
 #[test]
@@ -290,54 +285,6 @@ fn many_tags_leave_the_buttons_whole() {
     }
 }
 
-/// Every widget shown has a valid id, registered once, inside the window.
-fn check_ids(d: &Driver, (w, h): (u32, u32)) {
-    assert_eq!(d.app().panels().unwrap().unregistered_widgets(), [], "{w}×{h}: interactive widgets without an id");
-    let mut seen = HashSet::new();
-    for wi in d.widgets() {
-        assert!(registry::is_valid_id(&wi.id), "{w}×{h}: `{}` breaks the id grammar", wi.id);
-        assert!(seen.insert(wi.id.clone()), "{w}×{h}: `{}` is registered twice", wi.id);
-    }
-}
-
-fn out_dir() -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/ui");
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
-/// Checks the region widget `id` covers in the last frame against `tests/fingerprints/<name>.json`,
-/// and writes it and the whole window to the test output.
-fn check_region(d: &Driver, id: &str, name: &str) {
-    let shot = d.screenshot().unwrap();
-    std::fs::write(out_dir().join(format!("{name}-window.png")), fingerprint::png_rgba(shot.width, shot.height, &shot.rgba)).unwrap();
-    let r = d.widgets().into_iter().find(|w| w.id == id).unwrap_or_else(|| panic!("no {id}")).rect;
-    let (x0, y0, w, h) = (r[0].round() as u32, r[1].round() as u32, r[2].round() as u32, r[3].round() as u32);
-    let mut rgba = Vec::with_capacity((w * h * 4) as usize);
-    for y in y0..y0 + h {
-        for x in x0..x0 + w {
-            rgba.extend_from_slice(&shot.pixel(x, y).unwrap());
-        }
-    }
-    std::fs::write(out_dir().join(format!("{name}.png")), fingerprint::png_rgba(w, h, &rgba)).unwrap();
-    let stored = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("tests/fingerprints/{name}.json"));
-    if std::env::var_os("DALICA_BLESS").is_some() {
-        std::fs::write(&stored, fingerprint::to_json(&fingerprint::fingerprint(w, h, &rgba)) + "\n").unwrap();
-    }
-    let expected = fingerprint::from_json(&std::fs::read_to_string(&stored).unwrap()).unwrap();
-    if let Err(m) = fingerprint::check(w, h, &rgba, &expected, 2.0) {
-        std::fs::write(out_dir().join(format!("{name}-actual.png")), &m.actual_png).unwrap();
-        panic!("{name}: {}", m.message);
-    }
-}
-
-/// Writes a screenshot of the whole window to `$DALICA_SHOTS/<name>.png`, when asked.
-fn shot(d: &Driver, name: &str) {
-    let Some(dir) = std::env::var_os("DALICA_SHOTS") else { return };
-    let s = d.screenshot().unwrap();
-    std::fs::write(Path::new(&dir).join(format!("{name}.png")), fingerprint::png_rgba(s.width, s.height, &s.rgba)).unwrap();
-}
-
 /// The pane with recent tags, three assigned slots (one held by every selected photo, one cut
 /// short) and "+" buttons, and the dialog with its fields filled, at both window sizes.
 #[test]
@@ -366,12 +313,10 @@ fn the_pane_and_the_dialog_match_their_fingerprints_at_both_sizes() {
             ],
             "{w}×{h}"
         );
-        check_ids(&t.d, (w, h));
         check_region(&t.d, "pane:tags", &format!("pane-tags-quick-{w}x{h}"));
         shot(&t.d, &format!("pane-tags-quick-{w}x{h}"));
 
         click(&mut t, "button:quicktags.configure");
-        check_ids(&t.d, (w, h));
         check_region(&t.d, "dialog:quickTags", &format!("dialog-quick-tags-{w}x{h}"));
         shot(&t.d, &format!("dialog-quick-tags-{w}x{h}"));
     }

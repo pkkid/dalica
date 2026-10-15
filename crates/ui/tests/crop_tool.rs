@@ -12,6 +12,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::common::{FRAMES, new_driver, out_dir};
 use dalica_edit::{Dihedral, Rect as NRect};
 use dalica_engine::Session;
 use dalica_scenes::{Scene, fingerprint};
@@ -23,7 +24,6 @@ use dalica_ui_kit::WidgetInfo;
 use egui::{Modifiers, PointerButton, Pos2, pos2};
 use serde_json::{Value, json};
 
-const FRAMES: usize = 60 * 60;
 const SIZES: [(u32, u32); 2] = [(1400, 900), (900, 600)];
 /// The photos' size (landscape 3:2).
 const PHOTO: (u32, u32) = (600, 400);
@@ -49,7 +49,7 @@ fn setup((w, h): (u32, u32)) -> T {
     s.wait_idle();
     let found = s.execute("library.query", &json!({ "limit": 1000 })).unwrap();
     let ids: Vec<u64> = found["photos"].as_array().unwrap().iter().map(|p| p["id"].as_u64().unwrap()).collect();
-    let mut d = Driver::new(App::new(Some(s)), w, h, 1.0);
+    let mut d = new_driver(App::new(Some(s)), w, h, 1.0);
     d.settle(FRAMES).unwrap();
     let mut t = T { _dir: dir, d, ids };
     let id = t.ids[0];
@@ -444,12 +444,6 @@ fn the_actions_refuse_bad_params_and_change_nothing() {
 }
 
 // --- fingerprints ---------------------------------------------------------------------------------
-
-fn out_dir() -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/ui");
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
 
 /// The pixels of `rect` of the window: width, height and RGBA.
 fn pixels(t: &T, rect: [f32; 4]) -> (u32, u32, Vec<u8>) {

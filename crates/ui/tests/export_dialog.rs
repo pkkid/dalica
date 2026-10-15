@@ -14,14 +14,13 @@
 //!   (`tests/fingerprints/dialog-export-<w>x<h>.json`; `DALICA_BLESS=1` stores new ones, renders
 //!   go to `target/test-output/ui/`, and to `$DALICA_SHOTS` when set).
 
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use crate::common::{FRAMES, check_region, new_driver, shot, try_widget};
 use dalica_core::{FolderId, PhotoId};
 use dalica_engine::{JobKind, Session};
-use dalica_scenes::fingerprint;
 use dalica_ui::dialogs::export::{
     BROWSE_ID, CUSTOM_ID, FOLDER_NAME_ID, LOCATION_ID, NUMBERS_ID, ORIGINAL_ID, QUALITY_ID, RESIZE_ID, SIZE_FIELD_ID, SIZE_ID, WATERMARK_ID,
     WATERMARK_TEXT_ID, quality_item_id,
@@ -29,11 +28,10 @@ use dalica_ui::dialogs::export::{
 use dalica_ui::headless::{Drag, Target};
 use dalica_ui::state::{ExportDraft, Quality, Section};
 use dalica_ui::{App, Driver, DriverError, Picker, ScriptedPicker};
-use dalica_ui_kit::{Tokens, WidgetInfo, registry};
+use dalica_ui_kit::{Tokens, WidgetInfo};
 use egui::pos2;
 use serde_json::{Value, json};
 
-const FRAMES: usize = 60 * 60;
 const SIZES: [(u32, u32); 2] = [(1400, 900), (900, 600)];
 const PATIENCE: Duration = Duration::from_secs(300);
 const EXPORT: &str = "button:dialog.export";
@@ -93,7 +91,7 @@ fn fixture_with((w, h): (u32, u32), picker: Option<Arc<dyn Picker>>) -> Fx {
         Some(p) => App::with_picker(Some(s), p),
         None => App::new(Some(s)),
     };
-    let mut d = Driver::new(app, w, h, 1.0);
+    let mut d = new_driver(app, w, h, 1.0);
     d.settle(FRAMES).unwrap();
     Fx { dir, lisbon, ids, d }
 }
@@ -123,12 +121,8 @@ fn browse(d: &mut Driver) {
     d.settle(FRAMES).unwrap();
 }
 
-fn widget(d: &Driver, id: &str) -> Option<WidgetInfo> {
-    d.widgets().into_iter().find(|w| w.id == id)
-}
-
 fn enabled(d: &Driver, id: &str) -> bool {
-    widget(d, id).unwrap_or_else(|| panic!("no widget {id}")).enabled
+    try_widget(d, id).unwrap_or_else(|| panic!("no widget {id}")).enabled
 }
 
 fn draft(d: &Driver) -> ExportDraft {
@@ -143,7 +137,7 @@ fn select(d: &mut Driver, ids: &[PhotoId]) {
 fn cancel(d: &mut Driver) {
     d.click("button:dialog.cancel").unwrap();
     d.settle(FRAMES).unwrap();
-    assert!(widget(d, DIALOG).is_none() && d.state().export.is_none(), "Cancel closes it");
+    assert!(try_widget(d, DIALOG).is_none() && d.state().export.is_none(), "Cancel closes it");
 }
 
 /// Replaces the text of a field: click, select all, type, Tab (Return would choose Export, the
@@ -162,7 +156,7 @@ fn retype(d: &mut Driver, id: &str, text: &str) {
 
 /// The point on the size slider's track at `value` pixels.
 fn at_size(d: &Driver, value: f32) -> egui::Pos2 {
-    let r = widget(d, SIZE_ID).unwrap().rect;
+    let r = try_widget(d, SIZE_ID).unwrap().rect;
     let ring = Tokens::default().metrics.slider_ring;
     let (x0, x1) = (r[0] + ring + 1.0, r[0] + r[2] - ring - 1.0);
     pos2(x0 + (value - 100.0) / 3900.0 * (x1 - x0), r[1] + r[3] / 2.0)
@@ -176,25 +170,6 @@ fn drag_size(d: &mut Driver, value: f32) {
 
 fn defaults(d: &mut Driver, params: Value) -> Value {
     d.run("export.defaults", &params).unwrap()
-}
-
-/// Checks the last frame: no unregistered interactive widget, unique ids in the grammar, every
-/// rect on screen.
-fn check_ids(d: &Driver) {
-    let (w, h, _) = d.size();
-    assert_eq!(d.app().panels().unwrap().unregistered_widgets(), [], "{w}×{h}: interactive widgets without an id");
-    let mut seen = HashSet::new();
-    for wi in d.widgets() {
-        assert!(registry::is_valid_id(&wi.id), "{w}×{h}: `{}` breaks the id grammar", wi.id);
-        assert!(seen.insert(wi.id.clone()), "{w}×{h}: `{}` is registered twice", wi.id);
-        let [x, y, rw, rh] = wi.rect;
-        assert!(
-            rw > 0.0 && rh > 0.0 && x >= 0.0 && y >= 0.0 && x + rw <= w as f32 + 0.01 && y + rh <= h as f32 + 0.01,
-            "{w}×{h}: `{}` at {:?}",
-            wi.id,
-            wi.rect
-        );
-    }
 }
 
 /// Each entry point opens the dialog for what it exports, with that folder's name (or the
@@ -213,7 +188,7 @@ fn each_entry_point_opens_it_with_the_right_folder_name() {
     fx.d.settle(FRAMES).unwrap();
     fx.d.click("menuitem:output.export").unwrap();
     fx.d.settle(FRAMES).unwrap();
-    assert!(widget(&fx.d, DIALOG).is_some(), "the menu item opens it");
+    assert!(try_widget(&fx.d, DIALOG).is_some(), "the menu item opens it");
     let e = draft(&fx.d);
     assert_eq!((e.ids.as_slice(), e.section, e.folder_name.as_str()), (&ids[..2], None, "Lisbon Weekend"));
     let pictures = fx.dir.path().join("Pictures").join("Dalica").join("Exports");
@@ -231,7 +206,7 @@ fn each_entry_point_opens_it_with_the_right_folder_name() {
     // Esc closes it like Cancel.
     fx.d.key("Esc").unwrap();
     fx.d.settle(FRAMES).unwrap();
-    assert!(widget(&fx.d, DIALOG).is_none() && fx.d.state().export.is_none(), "Esc closes it");
+    assert!(try_widget(&fx.d, DIALOG).is_none() && fx.d.state().export.is_none(), "Esc closes it");
 
     // The bottom bar's Export is live with a tray, and opens the dialog for it.
     select(&mut fx.d, &ids[3..]);
@@ -311,16 +286,16 @@ fn field_and_slider_stay_in_step_and_bad_values_disable_export() {
     assert!(!enabled(&fx.d, CUSTOM_ID), "the custom slider waits for Custom");
     fx.d.click(QUALITY_ID).unwrap();
     fx.d.settle(FRAMES).unwrap();
-    let items: Vec<WidgetInfo> = Quality::ALL.iter().map(|q| widget(&fx.d, &quality_item_id(*q)).unwrap()).collect();
+    let items: Vec<WidgetInfo> = Quality::ALL.iter().map(|q| try_widget(&fx.d, &quality_item_id(*q)).unwrap()).collect();
     assert!(items[0].active && items.iter().skip(1).all(|i| !i.active), "Automatic is checked");
     fx.d.click(&quality_item_id(Quality::Custom)).unwrap();
     fx.d.settle(FRAMES).unwrap();
     assert_eq!(draft(&fx.d).quality, Quality::Custom);
     assert!(enabled(&fx.d, CUSTOM_ID));
-    assert_eq!(widget(&fx.d, QUALITY_ID).unwrap().label, "Custom (75)");
+    assert_eq!(try_widget(&fx.d, QUALITY_ID).unwrap().label, "Custom (75)");
     fx.d.drag(CUSTOM_ID, Target::Delta(egui::vec2(-400.0, 0.0)), &Drag::default()).unwrap();
     fx.d.settle(FRAMES).unwrap();
-    assert_eq!((draft(&fx.d).custom, widget(&fx.d, QUALITY_ID).unwrap().label.as_str()), (1, "Custom (1)"));
+    assert_eq!((draft(&fx.d).custom, try_widget(&fx.d, QUALITY_ID).unwrap().label.as_str()), (1, "Custom (1)"));
 
     // The watermark's text waits for its checkbox; on, an empty text disables Export.
     assert!(!enabled(&fx.d, WATERMARK_TEXT_ID));
@@ -332,8 +307,7 @@ fn field_and_slider_stay_in_step_and_bad_values_disable_export() {
 
     // The videos row is disabled until videos are exported (M15).
     assert!(!enabled(&fx.d, "choice:dialog.videos/firstFrame") && !enabled(&fx.d, "choice:dialog.videos/fullVideo"));
-    assert!(widget(&fx.d, BROWSE_ID).is_some());
-    check_ids(&fx.d);
+    assert!(try_widget(&fx.d, BROWSE_ID).is_some());
 }
 
 /// Export runs `export.run` with the dialog's values: the job writes the files, numbered and
@@ -376,7 +350,7 @@ fn export_runs_the_job_with_the_dialogs_values_and_cancel_changes_nothing() {
     retype(&mut fx.d, WATERMARK_TEXT_ID, "© Ana Costa");
     fx.d.click(EXPORT).unwrap();
     fx.d.settle(FRAMES).unwrap();
-    assert!(widget(&fx.d, DIALOG).is_none() && fx.d.state().export.is_none(), "Export closes the dialog");
+    assert!(try_widget(&fx.d, DIALOG).is_none() && fx.d.state().export.is_none(), "Export closes the dialog");
 
     // One export job (its label reads "Exported 3 pictures" once it has ended).
     let exports: Vec<_> = fx.d.app().session().unwrap().jobs().into_iter().filter(|j| j.kind == JobKind::Export).collect();
@@ -417,7 +391,7 @@ fn export_runs_the_job_with_the_dialogs_values_and_cancel_changes_nothing() {
         (PathBuf::from(&e.location), e.numbers, e.resize.as_str(), e.quality, e.custom, e.watermark, e.watermark_text.as_str()),
         (out.clone(), true, "160", Quality::Custom, 60, true, "© Ana Costa")
     );
-    assert_eq!(widget(&fx.d, QUALITY_ID).unwrap().label, "Custom (60)");
+    assert_eq!(try_widget(&fx.d, QUALITY_ID).unwrap().label, "Custom (60)");
     // Turning the watermark off is remembered too (`watermark: false`, never "the stored one").
     fx.d.click(WATERMARK_ID).unwrap();
     fx.d.settle(FRAMES).unwrap();
@@ -453,50 +427,8 @@ fn browse_picks_the_export_location() {
     picker.push_folder(&chosen);
     browse(&mut fx.d);
     assert_eq!(PathBuf::from(draft(&fx.d).location), chosen);
-    assert!(widget(&fx.d, DIALOG).is_some());
+    assert!(try_widget(&fx.d, DIALOG).is_some());
     assert_eq!(fx.d.app().session().unwrap().roots(), roots.as_slice(), "no watched folder added");
-}
-
-fn out_dir() -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/ui");
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
-/// Writes the whole window to the test output as `<name>.png` (and to `$DALICA_SHOTS` when set).
-fn shot(d: &Driver, name: &str) {
-    let s = d.screenshot().unwrap();
-    let png = fingerprint::png_rgba(s.width, s.height, &s.rgba);
-    std::fs::write(out_dir().join(format!("{name}.png")), &png).unwrap();
-    if let Some(dir) = std::env::var_os("DALICA_SHOTS") {
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(Path::new(&dir).join(format!("{name}.png")), &png).unwrap();
-    }
-}
-
-/// Checks the region widget `id` covers against `tests/fingerprints/<name>.json`, and writes it
-/// and the whole window to the test output.
-fn check_region(d: &Driver, id: &str, name: &str) {
-    shot(d, &format!("{name}-window"));
-    let s = d.screenshot().unwrap();
-    let r = widget(d, id).unwrap_or_else(|| panic!("no widget {id}")).rect;
-    let (x0, y0, w, h) = (r[0].round() as u32, r[1].round() as u32, r[2].round() as u32, r[3].round() as u32);
-    let mut rgba = Vec::with_capacity((w * h * 4) as usize);
-    for y in y0..y0 + h {
-        for x in x0..x0 + w {
-            rgba.extend_from_slice(&s.pixel(x, y).unwrap());
-        }
-    }
-    std::fs::write(out_dir().join(format!("{name}.png")), fingerprint::png_rgba(w, h, &rgba)).unwrap();
-    let stored = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("tests/fingerprints/{name}.json"));
-    if std::env::var_os("DALICA_BLESS").is_some() {
-        std::fs::write(&stored, fingerprint::to_json(&fingerprint::fingerprint(w, h, &rgba)) + "\n").unwrap();
-    }
-    let expected = fingerprint::from_json(&std::fs::read_to_string(&stored).unwrap()).unwrap();
-    if let Err(m) = fingerprint::check(w, h, &rgba, &expected, 2.0) {
-        std::fs::write(out_dir().join(format!("{name}-actual.png")), &m.actual_png).unwrap();
-        panic!("{name}: {}", m.message);
-    }
 }
 
 /// Every widget has an id with the dialog open, and the dialog (three Lisbon photos, a location,
@@ -513,12 +445,10 @@ fn the_dialog_matches_its_fingerprints_at_both_sizes() {
         e.watermark = true;
         e.watermark_text = "© Ana Costa 2026".into();
         fx.d.settle(FRAMES).unwrap();
-        check_ids(&fx.d);
         check_region(&fx.d, DIALOG, &format!("dialog-export-{w}x{h}"));
         // The quality menu open, for the record (no fingerprint: the window shot).
         fx.d.click(QUALITY_ID).unwrap();
         fx.d.settle(FRAMES).unwrap();
-        check_ids(&fx.d);
         shot(&fx.d, &format!("dialog-export-quality-{w}x{h}"));
     }
 }

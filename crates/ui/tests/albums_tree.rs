@@ -13,33 +13,20 @@
 //! - the tree region matches its fingerprint at 1400 × 900 and 900 × 600
 //!   (`tests/fingerprints/region-tree-albums-<w>x<h>.json`; `DALICA_BLESS=1` stores new ones).
 
-use std::collections::HashSet;
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use dalica_core::{AlbumId, Date, DateTime, FolderId, PhotoId};
+use crate::common::{FRAMES, check_region, new_driver, put_dated_jpeg, try_widget};
+use dalica_core::{AlbumId, FolderId, PhotoId};
 use dalica_engine::Session;
-use dalica_scenes::fingerprint;
 use dalica_ui::headless::Click;
 use dalica_ui::menus::{self, Lookup, Platform};
 use dalica_ui::panels::folders;
 use dalica_ui::state::{AlbumKey, AlbumSection, DialogKind, Section};
 use dalica_ui::{App, Driver};
 use dalica_ui_kit::WidgetInfo;
-use dalica_ui_kit::registry;
 use serde_json::{Value, json};
 
-const FRAMES: usize = 60 * 60;
 const SIZES: [(u32, u32); 2] = [(1400, 900), (900, 600)];
-
-/// A JPEG of `seed` taken on `day` at 10:00.
-fn put_jpeg(path: &Path, seed: u64, (y, m, d): (u16, u8, u8)) {
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    let taken = DateTime::new(Date::new(y, m, d).unwrap(), 10, 0, 0).unwrap();
-    let exif = dalica_scenes::Exif { date_time_original: Some(taken), ..Default::default() };
-    let jpeg = dalica_scenes::jpeg(&dalica_scenes::Scene::new(seed, 96, 64), 80, Some(&exif)).unwrap();
-    std::fs::write(path, jpeg).unwrap();
-}
 
 struct Fx {
     _dir: tempfile::TempDir,
@@ -53,10 +40,10 @@ fn fixture((w, h): (u32, u32)) -> Fx {
     let dir = tempfile::tempdir().unwrap();
     let photos = dir.path().join("photos");
     for (i, day) in [(2026, 6, 5), (2026, 6, 4), (2026, 6, 6)].into_iter().enumerate() {
-        put_jpeg(&photos.join("Lisbon Weekend").join(format!("IMG_{i:04}.jpg")), i as u64, day);
+        put_dated_jpeg(&photos.join("Lisbon Weekend").join(format!("IMG_{i:04}.jpg")), i as u64, day);
     }
     for i in 0..2 {
-        put_jpeg(&photos.join("Porto").join(format!("IMG_{i:04}.jpg")), 10 + i, (2026, 5, 1));
+        put_dated_jpeg(&photos.join("Porto").join(format!("IMG_{i:04}.jpg")), 10 + i, (2026, 5, 1));
     }
     let mut s = Session::open(&dir.path().join("library"), Arc::new(dalica_core::SystemClock)).unwrap();
     for f in ["Lisbon Weekend", "Porto"] {
@@ -65,17 +52,13 @@ fn fixture((w, h): (u32, u32)) -> Fx {
     s.wait_idle();
     let lisbon = s.library().folder_by_path(&photos.join("Lisbon Weekend")).unwrap();
     let porto = s.library().folder_by_path(&photos.join("Porto")).unwrap();
-    let mut d = Driver::new(App::new(Some(s)), w, h, 1.0);
+    let mut d = new_driver(App::new(Some(s)), w, h, 1.0);
     d.settle(FRAMES).unwrap();
     Fx { _dir: dir, lisbon, porto, d }
 }
 
-fn widget(d: &Driver, id: &str) -> Option<WidgetInfo> {
-    d.widgets().into_iter().find(|w| w.id == id)
-}
-
 fn has(d: &Driver, id: &str) -> bool {
-    widget(d, id).is_some()
+    try_widget(d, id).is_some()
 }
 
 /// The photos of `section` as the light table shows them; `None` when it has no section.
@@ -116,52 +99,6 @@ fn undo_len(d: &Driver) -> usize {
     d.app().session().unwrap().undo_stack().len()
 }
 
-/// No unregistered interactive widget, unique ids in the grammar.
-fn check_ids(d: &Driver, case: &str) {
-    assert_eq!(d.app().panels().unwrap().unregistered_widgets(), [], "{case}: interactive widgets without an id");
-    let mut seen = HashSet::new();
-    for w in d.widgets() {
-        assert!(registry::is_valid_id(&w.id), "{case}: `{}` breaks the id grammar", w.id);
-        assert!(seen.insert(w.id.clone()), "{case}: `{}` is registered twice", w.id);
-    }
-}
-
-fn out_dir() -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/ui");
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
-/// Checks the region widget `id` covers against `tests/fingerprints/<name>.json`, writing it and
-/// the whole window to the test output (and the window to `$DALICA_SHOTS` when set).
-fn check_region(d: &Driver, id: &str, name: &str) {
-    let s = d.screenshot().unwrap();
-    let window = fingerprint::png_rgba(s.width, s.height, &s.rgba);
-    std::fs::write(out_dir().join(format!("{name}-window.png")), &window).unwrap();
-    if let Some(dir) = std::env::var_os("DALICA_SHOTS") {
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(Path::new(&dir).join(format!("{name}-window.png")), &window).unwrap();
-    }
-    let r = widget(d, id).unwrap_or_else(|| panic!("no widget {id}")).rect;
-    let (x0, y0, w, h) = (r[0].round() as u32, r[1].round() as u32, r[2].round() as u32, r[3].round() as u32);
-    let mut rgba = Vec::with_capacity((w * h * 4) as usize);
-    for y in y0..y0 + h {
-        for x in x0..x0 + w {
-            rgba.extend_from_slice(&s.pixel(x, y).unwrap());
-        }
-    }
-    std::fs::write(out_dir().join(format!("{name}.png")), fingerprint::png_rgba(w, h, &rgba)).unwrap();
-    let stored = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("tests/fingerprints/{name}.json"));
-    if std::env::var_os("DALICA_BLESS").is_some() {
-        std::fs::write(&stored, fingerprint::to_json(&fingerprint::fingerprint(w, h, &rgba)) + "\n").unwrap();
-    }
-    let expected = fingerprint::from_json(&std::fs::read_to_string(&stored).unwrap()).unwrap();
-    if let Err(m) = fingerprint::check(w, h, &rgba, &expected, 2.0) {
-        std::fs::write(out_dir().join(format!("{name}-actual.png")), &m.actual_png).unwrap();
-        panic!("{name}: {}", m.message);
-    }
-}
-
 /// New Album with two photos in the tray: Album Properties, OK, the album selected in the tree and
 /// its section showing both photos.
 #[test]
@@ -190,7 +127,6 @@ fn new_album_with_two_photos_in_the_tray_creates_selects_and_shows_it() {
     ] {
         assert!(has(&fx.d, id), "{id}");
     }
-    check_ids(&fx.d, "Album Properties");
     // Typing replaces the selected name.
     fx.d.type_text("Lisbon Best").unwrap();
     fx.d.settle(FRAMES).unwrap();
@@ -208,19 +144,18 @@ fn new_album_with_two_photos_in_the_tray_creates_selects_and_shows_it() {
     assert_eq!(library.album_members(&album), two);
     // Selected in the tree as a unit, its section showing both.
     let section = album_section(&album);
-    let row = widget(&fx.d, &format!("tree:album:{album}")).expect("its tree row");
+    let row = try_widget(&fx.d, &format!("tree:album:{album}")).expect("its tree row");
     assert_eq!(row.label, "Lisbon Best (2)");
     assert!(row.active, "its row is the selected one");
-    assert!(!widget(&fx.d, &format!("tree:folder:{}", fx.lisbon)).unwrap().active, "no folder row is");
+    assert!(!try_widget(&fx.d, &format!("tree:folder:{}", fx.lisbon)).unwrap().active, "no folder row is");
     let sel = &fx.d.state().selection;
     assert_eq!((sel.section, sel.whole, sel.ids.clone()), (Some(section), true, two.to_vec()));
     assert_eq!(photos_of(&fx.d, section), Some(two.to_vec()));
     assert_eq!(fx.d.app().panels().unwrap().light_table.frame_info().headers[0].0, section, "albums come first");
-    assert!(widget(&fx.d, &format!("section:album:{album}")).unwrap().active, "its header is the selected one");
+    assert!(try_widget(&fx.d, &format!("section:album:{album}")).unwrap().active, "its header is the selected one");
     for id in two {
         assert!(has(&fx.d, &format!("thumb:{id}/in/{album}")), "{id}: its copy in the album");
     }
-    check_ids(&fx.d, "album created");
 
     // On an album section the fourth menu reads Album, its rows live.
     assert_eq!(fourth_title(&fx.d), "Album");
@@ -234,8 +169,8 @@ fn new_album_with_two_photos_in_the_tray_creates_selects_and_shows_it() {
     fx.d.settle(FRAMES).unwrap();
     let sel = &fx.d.state().selection;
     assert_eq!((sel.ids.clone(), sel.section, sel.whole), (vec![two[1]], Some(section), false));
-    assert!(widget(&fx.d, &format!("thumb:{}/in/{album}", two[1])).unwrap().active, "the album's copy is the selected one");
-    assert!(!widget(&fx.d, &format!("thumb:{}", two[1])).unwrap().active, "its folder's copy is not");
+    assert!(try_widget(&fx.d, &format!("thumb:{}/in/{album}", two[1])).unwrap().active, "the album's copy is the selected one");
+    assert!(!try_widget(&fx.d, &format!("thumb:{}", two[1])).unwrap().active, "its folder's copy is not");
     assert_eq!(fourth_title(&fx.d), "Album");
     // And on its folder's copy, in the folder.
     fx.d.click(&format!("thumb:{}", two[1])).unwrap();
@@ -278,7 +213,7 @@ fn delete_album_asks_deletes_and_undo_brings_it_back() {
     fx.d.run("edit.undo", &json!({})).unwrap();
     fx.d.settle(FRAMES).unwrap();
     assert_eq!(fx.d.app().session().unwrap().library().album_members(&album), porto);
-    assert_eq!(widget(&fx.d, &row).unwrap().label, "Porto Days (2)");
+    assert_eq!(try_widget(&fx.d, &row).unwrap().label, "Porto Days (2)");
     assert_eq!(photos_of(&fx.d, album_section(&album)), Some(porto));
 }
 
@@ -300,8 +235,8 @@ fn starred_photos_and_recently_updated_list_as_expected() {
     fx.d.run("photo.star.set", &json!({ "ids": [lisbon[1].get(), porto[0].get()], "on": true })).unwrap();
     fx.d.settle(FRAMES).unwrap();
     assert_eq!(album_rows(&fx.d), ["tree:album:starred"]);
-    assert_eq!(widget(&fx.d, "tree:album:starred").unwrap().label, "Starred Photos (2)");
-    assert_eq!(widget(&fx.d, "tree:group:albums").unwrap().label, "Albums (1)");
+    assert_eq!(try_widget(&fx.d, "tree:album:starred").unwrap().label, "Starred Photos (2)");
+    assert_eq!(try_widget(&fx.d, "tree:group:albums").unwrap().label, "Albums (1)");
     let starred = Section::Album(AlbumSection::Starred);
     assert_eq!(photos_of(&fx.d, starred), Some(vec![porto[0], lisbon[1]]));
     assert!(!has(&fx.d, "section:album:starred/description"), "the automatic albums have no description");
@@ -311,7 +246,7 @@ fn starred_photos_and_recently_updated_list_as_expected() {
     fx.d.settle(FRAMES).unwrap();
     let album = the_album(&fx.d);
     assert_eq!(album_rows(&fx.d), ["tree:album:starred".to_string(), format!("tree:album:{album}")]);
-    assert_eq!(widget(&fx.d, "tree:group:albums").unwrap().label, "Albums (2)");
+    assert_eq!(try_widget(&fx.d, "tree:group:albums").unwrap().label, "Albums (2)");
 
     // A click on Starred Photos selects it as a unit and scrolls to it.
     fx.d.click("tree:album:starred").unwrap();
@@ -319,7 +254,7 @@ fn starred_photos_and_recently_updated_list_as_expected() {
     let sel = fx.d.state().selection.clone();
     assert_eq!((sel.section, sel.whole, sel.ids), (Some(starred), true, vec![porto[0], lisbon[1]]));
     assert_eq!(fx.d.state().scroll.section, Some(starred));
-    assert!(widget(&fx.d, "tree:album:starred").unwrap().active);
+    assert!(try_widget(&fx.d, "tree:album:starred").unwrap().active);
     // ↓ in the focused tree moves to the user album, then to the first folder.
     fx.d.key("Down").unwrap();
     fx.d.settle(FRAMES).unwrap();
@@ -328,8 +263,7 @@ fn starred_photos_and_recently_updated_list_as_expected() {
     fx.d.key("Down").unwrap();
     fx.d.settle(FRAMES).unwrap();
     assert!(matches!(fx.d.state().selection.section, Some(Section::Folder(_))));
-    assert!(!widget(&fx.d, &format!("tree:album:{album}")).unwrap().active);
-    check_ids(&fx.d, "albums");
+    assert!(!try_widget(&fx.d, &format!("tree:album:{album}")).unwrap().active);
 }
 
 /// Search mode: the search album is the first row, highlighted, and the headers show a magnifier.
@@ -341,12 +275,11 @@ fn the_search_album_comes_first_while_searching() {
     fx.d.settle(FRAMES).unwrap();
     let rows = album_rows(&fx.d);
     assert_eq!(rows.first().map(String::as_str), Some("tree:album:search"), "{rows:?}");
-    let row = widget(&fx.d, "tree:album:search").unwrap();
+    let row = try_widget(&fx.d, "tree:album:search").unwrap();
     assert_eq!(row.label, "Search results for \"Porto\" (2)");
     assert!(folders::current_model(fx.d.ctx()).search, "the headers show a magnifier");
     assert_eq!(photos_of(&fx.d, Section::Album(AlbumSection::Search)).map(|p| p.len()), Some(2));
     assert!(has(&fx.d, "tree:group:albums"), "a header keeps its id in search mode");
-    check_ids(&fx.d, "search");
     fx.d.run("search.clear", &json!({})).unwrap();
     fx.d.settle(FRAMES).unwrap();
     assert!(!has(&fx.d, "tree:album:search"));
@@ -387,7 +320,6 @@ fn the_tree_with_albums_matches_its_fingerprints() {
         let album = the_album(&fx.d);
         fx.d.click(&format!("tree:album:{album}")).unwrap();
         fx.d.settle(FRAMES).unwrap();
-        check_ids(&fx.d, &format!("{}×{}", size.0, size.1));
         check_region(&fx.d, "region:tree", &format!("region-tree-albums-{}x{}", size.0, size.1));
     }
 }

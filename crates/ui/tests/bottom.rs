@@ -9,6 +9,7 @@ use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
 use std::sync::Arc;
 
+use crate::common::{FRAMES, new_driver, widget};
 use dalica_engine::Session;
 use dalica_ui::headless::{Drag, Target};
 use dalica_ui::state::Pane;
@@ -16,7 +17,6 @@ use dalica_ui::{App, Driver, DriverError, ScriptedPicker};
 use dalica_ui_kit::WidgetInfo;
 use dalica_ui_kit::registry::Role;
 
-const FRAMES: usize = 60 * 60;
 const SIZES: [(f32, f32); 2] = [(1400.0, 900.0), (900.0, 600.0)];
 const ACTIONS: [&str; 3] = ["action:export", "action:collage", "action:slideshow"];
 const TOGGLES: [&str; 4] = ["toggle:pane.people", "toggle:pane.places", "toggle:pane.tags", "toggle:pane.properties"];
@@ -40,20 +40,13 @@ fn session(root: &Path) -> Session {
 }
 
 fn driver(root: &Path, (w, h): (f32, f32)) -> Driver {
-    let mut d = Driver::new(App::with_picker(Some(session(root)), Arc::new(ScriptedPicker::new())), w as u32, h as u32, 1.0);
+    let mut d = new_driver(App::with_picker(Some(session(root)), Arc::new(ScriptedPicker::new())), w as u32, h as u32, 1.0);
     d.settle(FRAMES).unwrap();
     d
 }
 
 fn widgets(d: &Driver) -> HashMap<String, WidgetInfo> {
     d.widgets().into_iter().map(|w| (w.id.clone(), w)).collect()
-}
-
-fn widget(d: &Driver, id: &str) -> WidgetInfo {
-    d.widgets()
-        .into_iter()
-        .find(|w| w.id == id)
-        .unwrap_or_else(|| panic!("no `{id}`; have {:?}", d.widgets().iter().map(|w| &w.id).collect::<Vec<_>>()))
 }
 
 fn size(w: &WidgetInfo) -> [f32; 2] {

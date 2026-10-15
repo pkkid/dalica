@@ -12,13 +12,12 @@ use std::collections::BTreeSet;
 use std::path::Path;
 use std::sync::Arc;
 
+use crate::common::{FRAMES, new_driver};
 use dalica_core::PhotoId;
 use dalica_engine::Session;
 use dalica_ui::control::{Config, Connection, Control, Reply, Request, serve};
 use dalica_ui::{App, Driver};
 use serde_json::{Value, json};
-
-const FRAMES: usize = 60 * 60;
 
 /// A library in `root` with two folders of `per` scenes photos each, added and scanned.
 fn session(root: &Path, per: usize) -> Session {
@@ -48,7 +47,7 @@ struct T {
 fn setup(per: usize) -> T {
     let dir = tempfile::tempdir().unwrap();
     let control = Control::new(Config::default());
-    let mut d = Driver::new(App::with_picker(Some(session(dir.path(), per)), control.picker()), 1400, 900, 1.0);
+    let mut d = new_driver(App::with_picker(Some(session(dir.path(), per)), control.picker()), 1400, 900, 1.0);
     d.settle(FRAMES).unwrap();
     T { _dir: dir, control, conn: Connection::new(), d }
 }

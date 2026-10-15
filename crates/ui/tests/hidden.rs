@@ -12,6 +12,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::common::{FRAMES, new_driver, out_dir, widget};
 use dalica_core::{FolderId, PhotoId};
 use dalica_engine::Session;
 use dalica_scenes::fingerprint;
@@ -22,7 +23,6 @@ use dalica_ui::{App, Driver};
 use dalica_ui_kit::WidgetInfo;
 use serde_json::json;
 
-const FRAMES: usize = 60 * 60;
 const SIZES: [(u32, u32); 2] = [(1400, 900), (900, 600)];
 
 /// `folders` folders of `photos` demo photos each under `dir`, watched and scanned.
@@ -40,17 +40,13 @@ fn library(dir: &Path, folders: usize, photos: usize) -> Session {
 }
 
 fn driver(session: Session, (w, h): (u32, u32)) -> Driver {
-    let mut d = Driver::new(App::new(Some(session)), w, h, 1.0);
+    let mut d = new_driver(App::new(Some(session)), w, h, 1.0);
     d.settle(FRAMES).unwrap();
     d
 }
 
 fn has(d: &Driver, id: &str) -> bool {
     d.widgets().iter().any(|w| w.id == id)
-}
-
-fn widget(d: &Driver, id: &str) -> WidgetInfo {
-    d.widgets().into_iter().find(|w| w.id == id).unwrap_or_else(|| panic!("no `{id}`"))
 }
 
 /// The photos of the light table's only (or first) section, in display order.
@@ -147,12 +143,6 @@ fn hiding_every_selected_photo_leaves_nothing_selected() {
     d.settle(FRAMES).unwrap();
     let sel = &d.state().selection;
     assert!(sel.ids.is_empty() && sel.anchor.is_none() && sel.section.is_none(), "{sel:?}");
-}
-
-fn out_dir() -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/ui");
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
 }
 
 /// Checks the tree region (the pane and its splitter) of the last frame against `<name>.json`.

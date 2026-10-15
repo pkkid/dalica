@@ -20,6 +20,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use crate::common::{FRAMES, new_driver, out_dir};
 use dalica_core::{FolderId, PhotoId};
 use dalica_engine::Session;
 use dalica_fs::Expect;
@@ -32,7 +33,6 @@ use dalica_ui::{App, Driver, DriverError};
 use dalica_ui_kit::WidgetInfo;
 use serde_json::json;
 
-const FRAMES: usize = 60 * 60;
 const PATIENCE: Duration = Duration::from_secs(300);
 const SIZES: [(u32, u32); 2] = [(1400, 900), (900, 600)];
 const AUTOFIX: &str = "autofix()";
@@ -64,7 +64,7 @@ impl T {
         let folder = s.library().folder_by_path(&lisbon).unwrap();
         // A fixed date, so the header's fingerprint does not follow the files' times.
         s.execute("folder.info.set", &json!({ "id": folder, "date": "2026-06-04", "place": "Lisbon, Portugal" })).unwrap();
-        let mut d = Driver::new(App::new(Some(s)), w, h, 1.0);
+        let mut d = new_driver(App::new(Some(s)), w, h, 1.0);
         d.settle(FRAMES).unwrap();
         T { dir, d, ids: photos.into_iter().map(|(_, id)| id).collect(), folder }
     }
@@ -138,12 +138,6 @@ impl T {
     fn dialog(&self) -> Option<String> {
         self.d.state().dialogs.last().map(|d| d.kind.name().to_string())
     }
-}
-
-fn out_dir() -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/ui");
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
 }
 
 /// Checks the region `rect` (points, at scale 1) of the last frame against `<name>.json`, and

@@ -11,14 +11,13 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use crate::common::{FRAMES, new_driver};
 use dalica_engine::{CmdError, Session};
 use dalica_ui::control::{Config, Connection, Control, Reply, Request, serve};
 use dalica_ui::state::{AboutTab, DialogKind, Pane};
 use dalica_ui::{App, Driver};
 use dalica_ui_kit::registry;
 use serde_json::{Value, json};
-
-const FRAMES: usize = 60 * 60;
 
 /// A session on a library under `dir` holding two folders of 3 scenes photos each; its photo ids
 /// with their folders, and the folder ids.
@@ -59,7 +58,7 @@ fn setup() -> T {
     let dir = tempfile::tempdir().unwrap();
     let (s, homes, folders) = session(dir.path());
     let control = Control::new(Config::default());
-    let mut d = Driver::new(App::with_picker(Some(s), control.picker()), 1400, 900, 1.0);
+    let mut d = new_driver(App::with_picker(Some(s), control.picker()), 1400, 900, 1.0);
     d.settle(FRAMES).unwrap();
     T { _dir: dir, control, conn: Connection::new(), d, homes, folders }
 }

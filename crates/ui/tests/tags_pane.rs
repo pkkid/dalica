@@ -12,21 +12,18 @@
 //!   `DALICA_BLESS=1` stores new ones, renders go to `target/test-output/ui/`), and every widget
 //!   shown has a valid, unique id.
 
-use std::collections::HashSet;
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::common::{FRAMES, check_region, new_driver, shot};
 use dalica_core::PhotoId;
 use dalica_engine::Session;
-use dalica_scenes::fingerprint;
 use dalica_ui::headless::Click;
 use dalica_ui::state::{DialogKind, Pane};
 use dalica_ui::{App, Driver};
-use dalica_ui_kit::registry::{self, Role};
+use dalica_ui_kit::registry::Role;
 use egui::PointerButton;
 use serde_json::{Value, json};
 
-const FRAMES: usize = 60 * 60;
 const SIZES: [(u32, u32); 2] = [(1400, 900), (900, 600)];
 
 struct T {
@@ -52,7 +49,7 @@ fn setup(w: u32, h: u32) -> T {
     let mut ids: Vec<u64> = found["photos"].as_array().unwrap().iter().map(|p| p["id"].as_u64().unwrap()).collect();
     ids.sort_unstable();
     assert_eq!(ids.len(), 10);
-    let mut d = Driver::new(App::new(Some(s)), w, h, 1.0);
+    let mut d = new_driver(App::new(Some(s)), w, h, 1.0);
     d.settle(FRAMES).unwrap();
     T { _dir: dir, d, ids }
 }
@@ -253,7 +250,6 @@ fn rename_tag_merges_after_confirming() {
         dalica_ui::dialogs::rename_tag::texts(t.d.app(), &draft).1.as_deref(),
         Some("“Lisbon” is already on 4 photos: the two tags will become one.")
     );
-    check_ids(&t.d, (1400, 900));
     key(&mut t, "Enter");
     assert!(t.d.state().dialogs.is_empty(), "renamed: the dialog closes");
     assert_eq!(t.d.state().status, "", "Enter answered once: nothing refused");
@@ -285,54 +281,6 @@ fn rename_tag_merges_after_confirming() {
     assert_eq!(rows(&t), ["tram"]);
 }
 
-/// Every widget shown has a valid id, registered once, inside the window.
-fn check_ids(d: &Driver, (w, h): (u32, u32)) {
-    assert_eq!(d.app().panels().unwrap().unregistered_widgets(), [], "{w}×{h}: interactive widgets without an id");
-    let mut seen = HashSet::new();
-    for wi in d.widgets() {
-        assert!(registry::is_valid_id(&wi.id), "{w}×{h}: `{}` breaks the id grammar", wi.id);
-        assert!(seen.insert(wi.id.clone()), "{w}×{h}: `{}` is registered twice", wi.id);
-    }
-}
-
-fn out_dir() -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/ui");
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
-/// Checks the region widget `id` covers in the last frame against `tests/fingerprints/<name>.json`,
-/// and writes it and the whole window to the test output.
-fn check_region(d: &Driver, id: &str, name: &str) {
-    let shot = d.screenshot().unwrap();
-    std::fs::write(out_dir().join(format!("{name}-window.png")), fingerprint::png_rgba(shot.width, shot.height, &shot.rgba)).unwrap();
-    let r = d.widgets().into_iter().find(|w| w.id == id).unwrap_or_else(|| panic!("no {id}")).rect;
-    let (x0, y0, w, h) = (r[0].round() as u32, r[1].round() as u32, r[2].round() as u32, r[3].round() as u32);
-    let mut rgba = Vec::with_capacity((w * h * 4) as usize);
-    for y in y0..y0 + h {
-        for x in x0..x0 + w {
-            rgba.extend_from_slice(&shot.pixel(x, y).unwrap());
-        }
-    }
-    std::fs::write(out_dir().join(format!("{name}.png")), fingerprint::png_rgba(w, h, &rgba)).unwrap();
-    let stored = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("tests/fingerprints/{name}.json"));
-    if std::env::var_os("DALICA_BLESS").is_some() {
-        std::fs::write(&stored, fingerprint::to_json(&fingerprint::fingerprint(w, h, &rgba)) + "\n").unwrap();
-    }
-    let expected = fingerprint::from_json(&std::fs::read_to_string(&stored).unwrap()).unwrap();
-    if let Err(m) = fingerprint::check(w, h, &rgba, &expected, 2.0) {
-        std::fs::write(out_dir().join(format!("{name}-actual.png")), &m.actual_png).unwrap();
-        panic!("{name}: {}", m.message);
-    }
-}
-
-/// Writes a screenshot of the whole window to `$DALICA_SHOTS/<name>.png`, when asked.
-fn shot(d: &Driver, name: &str) {
-    let Some(dir) = std::env::var_os("DALICA_SHOTS") else { return };
-    let s = d.screenshot().unwrap();
-    std::fs::write(Path::new(&dir).join(format!("{name}.png")), fingerprint::png_rgba(s.width, s.height, &s.rgba)).unwrap();
-}
-
 /// The pane with a partial tag, a whole one and a hovered row's ×, and the Rename Tag dialog
 /// merging, at both window sizes.
 #[test]
@@ -346,17 +294,14 @@ fn the_pane_and_the_rename_dialog_match_their_fingerprints_at_both_sizes() {
         select(&mut t, 8);
         run(&mut t, "pane.tags", json!({}));
         assert_eq!(t.d.state().pane, Some(Pane::Tags), "{w}×{h}");
-        check_ids(&t.d, (w, h));
         check_region(&t.d, "pane:tags", &format!("pane-tags-{w}x{h}"));
         shot(&t.d, &format!("pane-tags-{w}x{h}"));
         t.d.hover("tag:tram", 0).unwrap();
-        check_ids(&t.d, (w, h));
         shot(&t.d, &format!("pane-tags-hover-{w}x{h}"));
 
         run(&mut t, "tag.rename", json!({ "tag": "tram" }));
         t.d.type_text("Lisbon").unwrap();
         t.d.settle(FRAMES).unwrap();
-        check_ids(&t.d, (w, h));
         check_region(&t.d, "dialog:renameTag", &format!("dialog-rename-tag-{w}x{h}"));
         shot(&t.d, &format!("dialog-rename-tag-{w}x{h}"));
     }

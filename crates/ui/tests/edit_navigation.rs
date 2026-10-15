@@ -14,6 +14,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::common::{FRAMES, new_driver, out_dir};
 use dalica_engine::Session;
 use dalica_scenes::fingerprint;
 use dalica_ui::control::{Config, Connection, Control, Reply, Request, serve};
@@ -21,7 +22,6 @@ use dalica_ui::{App, Driver};
 use dalica_ui_kit::WidgetInfo;
 use serde_json::{Value, json};
 
-const FRAMES: usize = 60 * 60;
 const SIZES: [(u32, u32); 2] = [(1400, 900), (900, 600)];
 
 struct T {
@@ -52,7 +52,7 @@ fn setup((w, h): (u32, u32), n: usize) -> T {
     s.wait_idle();
     let control = Control::new(Config::default());
     // Tall enough for every cell to be laid out on screen while the order is read.
-    let mut d = Driver::new(App::with_picker(Some(s), control.picker()), 1400, 2000, 1.0);
+    let mut d = new_driver(App::with_picker(Some(s), control.picker()), 1400, 2000, 1.0);
     d.settle(FRAMES).unwrap();
     let mut cells: Vec<(f32, f32, u64)> = d
         .widgets()
@@ -385,12 +385,6 @@ fn a_caption_typed_in_the_bar_is_one_library_step() {
     assert!(undone["undone"].is_string(), "{undone}");
     assert_eq!(library_caption(&t, o[1]), "");
     assert_eq!(code(&mut t, "engine.execute", json!({ "command": "edit.undo", "params": {} })), "disabled", "one step");
-}
-
-fn out_dir() -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/ui");
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
 }
 
 /// Checks the pixels of `rect` of the window against `tests/fingerprints/<name>.json`

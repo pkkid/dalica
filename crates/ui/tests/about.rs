@@ -18,20 +18,20 @@ use std::collections::{BTreeMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use crate::common::{FRAMES, new_driver, out_dir, try_widget};
 use dalica_engine::Session;
 use dalica_scenes::fingerprint;
 use dalica_ui::credits::{self, Baked, Contributor, Model};
 use dalica_ui::dialogs::release_notes::{self, Block};
 use dalica_ui::state::{AboutTab, CreditsList, CreditsSort, NameMode};
 use dalica_ui::{App, Driver};
-use dalica_ui_kit::{WidgetInfo, registry};
+use dalica_ui_kit::registry;
 use serde_json::json;
 
 #[path = "../build.rs"]
 #[allow(dead_code)]
 mod build_script;
 
-const FRAMES: usize = 60 * 60;
 const SIZES: [(u32, u32); 2] = [(1400, 900), (900, 600)];
 
 const fn person(
@@ -99,18 +99,14 @@ fn fixture() -> Baked {
 fn driver(w: u32, h: u32) -> (tempfile::TempDir, Driver) {
     let dir = tempfile::tempdir().unwrap();
     let s = Session::open(&dir.path().join("library"), Arc::new(dalica_core::SystemClock)).unwrap();
-    let mut d = Driver::new(App::new(Some(s)), w, h, 1.0);
+    let mut d = new_driver(App::new(Some(s)), w, h, 1.0);
     credits::set_baked(d.ctx(), Some(fixture()));
     d.settle(FRAMES).unwrap();
     (dir, d)
 }
 
-fn widget(d: &Driver, id: &str) -> Option<WidgetInfo> {
-    d.widgets().into_iter().find(|w| w.id == id)
-}
-
 fn has(d: &Driver, id: &str) -> bool {
-    widget(d, id).is_some()
+    try_widget(d, id).is_some()
 }
 
 fn click(d: &mut Driver, id: &str) {
@@ -140,10 +136,10 @@ fn each_tab_by_its_id_with_its_controls() {
     for (tab, id, _) in dalica_ui::dialogs::about::TABS {
         click(&mut d, id);
         assert_eq!(d.state().about.tab, tab);
-        let w = widget(&d, id).unwrap();
+        let w = try_widget(&d, id).unwrap();
         assert!(w.active, "{id} is the active tab");
         for (_, other, _) in dalica_ui::dialogs::about::TABS.iter().filter(|t| t.1 != id) {
-            assert!(!widget(&d, other).unwrap().active, "{other}");
+            assert!(!try_widget(&d, other).unwrap().active, "{other}");
         }
         let controls = has(&d, "choice:dialog.sort") && has(&d, "button:dialog.reverse") && has(&d, "choice:dialog.names/realName");
         assert_eq!(controls, tab == AboutTab::Contributors, "{id}: the credit controls are the Contributors tab's");
@@ -159,7 +155,7 @@ fn each_tab_by_its_id_with_its_controls() {
     for (_, part, _, _) in credits::SORTS {
         assert!(has(&d, &format!("button:dialog.sort/{part}")), "{part}");
     }
-    assert!(widget(&d, "button:dialog.sort/firstCommit").unwrap().active, "the default sort");
+    assert!(try_widget(&d, "button:dialog.sort/firstCommit").unwrap().active, "the default sort");
     // Close keeps the view for the next opening.
     click(&mut d, "button:dialog.cancel");
     assert!(d.state().dialogs.is_empty());
@@ -205,7 +201,7 @@ fn every_sort_and_the_name_toggle_on_missing_names() {
         click(&mut d, &header);
         assert_eq!((d.state().about.sort, d.state().about.ascending), (sort, credits::default_ascending(sort)), "{part}");
         assert_eq!(listed(&d), at(&order), "{part} by its header");
-        assert!(widget(&d, &header).unwrap().active);
+        assert!(try_widget(&d, &header).unwrap().active);
         click(&mut d, &header);
         let mut reversed = at(&order);
         reversed.reverse();
@@ -217,7 +213,7 @@ fn every_sort_and_the_name_toggle_on_missing_names() {
     assert_eq!(listed(&d), at(&["al-x", "Bob", "carol", "zoe"]));
     click(&mut d, "choice:dialog.names/displayName");
     assert_eq!(d.state().about.names, NameMode::DisplayName);
-    assert!(widget(&d, "choice:dialog.names/displayName").unwrap().active);
+    assert!(try_widget(&d, "choice:dialog.names/displayName").unwrap().active);
     assert_eq!(listed(&d), ["@al-x", "bobby", "Charlie", "@zoe"]);
     click(&mut d, "choice:dialog.names/realName");
     assert_eq!(listed(&d), ["Adam Zed", "@al-x", "@Bob", "Carol Day"]);
@@ -356,12 +352,6 @@ fn the_release_notes_leave_comments_out() {
     assert_eq!(Baked::compiled().release_notes, release_notes::NOTES);
 }
 
-fn out_dir() -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/ui");
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
 /// Every widget has a valid, unique id and none is left unregistered; the dialog matches the
 /// fingerprint `name`.
 fn check_shot(d: &Driver, dialog: &str, name: &str) {
@@ -370,7 +360,7 @@ fn check_shot(d: &Driver, dialog: &str, name: &str) {
     for wi in d.widgets() {
         assert!(registry::is_valid_id(&wi.id) && seen.insert(wi.id.clone()), "{name}: `{}`", wi.id);
     }
-    let r = widget(d, dialog).unwrap().rect;
+    let r = try_widget(d, dialog).unwrap().rect;
     let shot = d.screenshot().unwrap();
     std::fs::write(out_dir().join(format!("{name}-window.png")), fingerprint::png_rgba(shot.width, shot.height, &shot.rgba)).unwrap();
     let (x0, y0, cw, ch) = (r[0].round() as u32, r[1].round() as u32, r[2].round() as u32, r[3].round() as u32);
@@ -407,7 +397,7 @@ fn every_widget_has_an_id_and_the_dialogs_match_their_fingerprints_at_both_sizes
             for id in clicks {
                 click(&mut d, id);
             }
-            let r = widget(&d, "dialog:about").unwrap().rect;
+            let r = try_widget(&d, "dialog:about").unwrap().rect;
             assert!((r[2] - dalica_ui::dialogs::about::WIDTH).abs() <= 2.0, "{w}×{h} {shot}: {r:?}");
             assert!(r[1] >= 0.0 && r[1] + r[3] <= h as f32, "{w}×{h} {shot}: inside the window, {r:?}");
             assert_eq!(*height.get_or_insert(r[3]), r[3], "{w}×{h} {shot}: every tab is as tall");
@@ -416,7 +406,7 @@ fn every_widget_has_an_id_and_the_dialogs_match_their_fingerprints_at_both_sizes
         click(&mut d, "button:dialog.cancel");
         assert_eq!(d.run("help.releaseNotes", &json!({})).unwrap(), json!({ "dialog": "releaseNotes" }));
         d.settle(FRAMES).unwrap();
-        let r = widget(&d, "dialog:releaseNotes").unwrap().rect;
+        let r = try_widget(&d, "dialog:releaseNotes").unwrap().rect;
         assert!(r[1] >= 0.0 && r[1] + r[3] <= h as f32, "{w}×{h}: inside the window, {r:?}");
         check_shot(&d, "dialog:releaseNotes", &format!("dialog-release-notes-{w}x{h}"));
     }
@@ -424,7 +414,7 @@ fn every_widget_has_an_id_and_the_dialogs_match_their_fingerprints_at_both_sizes
 
 /// The pixels of `d`'s window inside the widget `id` that are the app icon's orange (`#d65d0e`).
 fn orange_in(d: &Driver, id: &str) -> usize {
-    let r = widget(d, id).unwrap().rect;
+    let r = try_widget(d, id).unwrap().rect;
     let shot = d.screenshot().unwrap();
     let (x0, y0, x1, y1) = (r[0].round() as u32, r[1].round() as u32, (r[0] + r[2]).round() as u32, (r[1] + r[3]).round() as u32);
     (y0..y1)

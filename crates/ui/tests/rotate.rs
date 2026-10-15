@@ -11,6 +11,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::common::{FRAMES, new_driver, out_dir};
 use dalica_core::PhotoId;
 use dalica_edit::Dihedral;
 use dalica_engine::Session;
@@ -20,8 +21,6 @@ use dalica_ui::panels::thumbnails::{Drawn, Painted};
 use dalica_ui::{App, Driver};
 use dalica_ui_kit::raster::Image;
 use serde_json::json;
-
-const FRAMES: usize = 60 * 60;
 
 /// One landscape scenes JPEG (600 × 400 as displayed) stored with EXIF orientation `o`.
 fn library(dir: &Path, o: u8) -> Session {
@@ -71,12 +70,6 @@ fn region(shot: &Image, rect: [f32; 4]) -> (u32, u32, Vec<u8>) {
     (w, h, rgba)
 }
 
-fn out_dir() -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/ui");
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
 /// Checks `id`'s cell in the last frame against `<name>.json`; the render goes to `<label>.png`.
 fn check_cell(d: &Driver, id: PhotoId, name: &str, label: &str) {
     let shot = d.screenshot().unwrap();
@@ -124,7 +117,7 @@ fn mirrored_difference(w: u32, a: &[u8], b: &[u8]) -> f64 {
 fn a_rotation_from_the_bottom_bar_turns_the_cell_from_the_cached_thumbnail_for_every_exif_orientation() {
     for o in 1..=8u8 {
         let dir = tempfile::tempdir().unwrap();
-        let mut d = Driver::new(App::new(Some(library(dir.path(), o))), 1400, 900, 1.0);
+        let mut d = new_driver(App::new(Some(library(dir.path(), o))), 1400, 900, 1.0);
         d.settle(FRAMES).unwrap();
         let id = the_photo(&d);
         let p = d.app().session().unwrap().library().photo(id).unwrap().clone();
@@ -189,7 +182,7 @@ fn a_rotation_from_the_bottom_bar_turns_the_cell_from_the_cached_thumbnail_for_e
 #[test]
 fn the_tray_menus_rotations_act_on_the_tray() {
     let dir = tempfile::tempdir().unwrap();
-    let mut d = Driver::new(App::new(Some(library(dir.path(), 1))), 900, 600, 1.0);
+    let mut d = new_driver(App::new(Some(library(dir.path(), 1))), 900, 600, 1.0);
     d.settle(FRAMES).unwrap();
     let id = the_photo(&d);
     d.click(&format!("thumb:{id}")).unwrap();

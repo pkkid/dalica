@@ -168,6 +168,10 @@ pub struct Driver {
     /// The window commands the app sent (`StartDrag`, `Maximized`, …), oldest first, until taken
     /// ([`Driver::take_window_commands`]): a headless run has no OS window to obey them.
     window_commands: Vec<egui::ViewportCommand>,
+    /// Check every frame's automation ids ([`Driver::check_ids`]); off unless a test turns it on.
+    check_ids: bool,
+    /// The first frame whose automation ids broke the rules, while [`Driver::check_ids`] is on.
+    id_breach: Option<String>,
     /// Test-only UI drawn over the app each frame (widgets M1's window does not have yet).
     #[cfg(test)]
     overlay: Option<Overlay>,
@@ -226,6 +230,8 @@ impl Driver {
             to_free: egui::TexturesDelta::default(),
             perf: Perf::new(perf::profile_from_env()),
             window_commands: Vec::new(),
+            check_ids: false,
+            id_breach: None,
             #[cfg(test)]
             overlay: None,
         };
@@ -279,6 +285,25 @@ impl Driver {
         let _ = self.perf.record(sample);
         self.time += FRAME_SECONDS;
         self.frames += 1;
+        if self.check_ids && self.id_breach.is_none() {
+            self.id_breach = id_breach(&self.ctx).map(|why| format!("frame {}: {why}", self.frames));
+        }
+    }
+
+    /// Turns on (or off) checking every later frame's automation ids (`control-protocol.md` §7):
+    /// every interactive widget has one, no id is registered twice, and each follows the grammar.
+    /// The first breach is kept ([`Driver::id_breach`]), and from then on [`Driver::settle_for`]
+    /// reports it as not settled; turning the check off forgets it. Tests turn it on; the app and
+    /// the CLI leave it off.
+    pub fn check_ids(&mut self, on: bool) {
+        self.check_ids = on;
+        self.id_breach = if on { id_breach(&self.ctx).map(|why| format!("frame {}: {why}", self.frames)) } else { None };
+    }
+
+    /// The first frame whose automation ids broke the rules since [`Driver::check_ids`] was
+    /// turned on.
+    pub fn id_breach(&self) -> Option<&str> {
+        self.id_breach.as_deref()
     }
 
     /// Steps until `done(app)` holds, at most `max_frames` frames; returns the frames it took.
@@ -349,6 +374,15 @@ impl Driver {
     /// most `max_frames` (`control-protocol.md` §6.12). While only workers are busy, each frame
     /// yields a millisecond to them.
     pub fn settle_for(&mut self, max_frames: usize, jobs: bool) -> Settled {
+        let mut settled = self.settle_frames(max_frames, jobs);
+        if let Some(why) = &self.id_breach {
+            settled.settled = false;
+            settled.busy.push(format!("automation ids broken at {why}"));
+        }
+        settled
+    }
+
+    fn settle_frames(&mut self, max_frames: usize, jobs: bool) -> Settled {
         let mut quiet = 0;
         let mut busy = Vec::new();
         for n in 1..=max_frames {
@@ -697,6 +731,25 @@ impl Drop for Driver {
     }
 }
 
+/// Why the last frame's automation ids break the rules (`control-protocol.md` §7), if they do: an
+/// interactive widget without one, an id registered twice, an id outside the grammar.
+fn id_breach(ctx: &egui::Context) -> Option<String> {
+    let missing = registry::unregistered(ctx);
+    if !missing.is_empty() {
+        return Some(format!("interactive widgets without an id: {missing:?}"));
+    }
+    let mut seen = std::collections::HashSet::new();
+    for w in registry::widgets(ctx) {
+        if !registry::is_valid_id(&w.id) {
+            return Some(format!("`{}` breaks the id grammar", w.id));
+        }
+        if !seen.insert(w.id.clone()) {
+            return Some(format!("`{}` is registered twice", w.id));
+        }
+    }
+    None
+}
+
 /// The file jobs still running, by what their progress says ("Exporting 3 of 12; Saving 0 of 1"),
 /// for [`Driver::busy`]; "running" while the last one's results are being taken in.
 fn file_jobs(s: &dalica_engine::Session) -> String {
@@ -737,6 +790,40 @@ mod tests {
         }
         s.wait_idle();
         (dir, s)
+    }
+
+    /// With the id check on, a frame with an interactive widget that has no id, an id registered
+    /// twice or one outside the grammar fails the next settle; turned off, the breach is forgotten.
+    #[test]
+    fn the_id_check_fails_the_settle_on_a_missing_a_doubled_or_a_bad_id() {
+        let (_dir, s) = library(1, 1);
+        let mut d = Driver::new(App::new(Some(s)), 640, 480, 1.0);
+        d.check_ids(true);
+        assert!(d.settle(600).is_ok() && d.id_breach().is_none(), "the app itself breaks no rule");
+        let at = Rect::from_min_size(Pos2::new(300.0, 300.0), vec2(20.0, 20.0));
+        type Draw = fn(&mut egui::Ui, Rect);
+        let cases: [(&str, Draw); 3] = [
+            ("without an id", |ui, at| {
+                let _ = ui.interact(at, egui::Id::new("bare"), Sense::click());
+            }),
+            ("registered twice", |ui, at| {
+                for _ in 0..2 {
+                    registry::register(ui.ctx(), WidgetInfo::new("box:twice", Role::Other, "", at, true, false));
+                }
+            }),
+            ("breaks the id grammar", |ui, at| registry::register(ui.ctx(), WidgetInfo::new("Bad Id", Role::Other, "", at, true, false))),
+        ];
+        for (why, draw) in cases {
+            d.set_overlay(move |ui| draw(ui, at));
+            let e = d.settle(600).unwrap_err().to_string();
+            assert!(e.contains(why) && d.id_breach().is_some_and(|b| b.contains(why)), "{why}: {e}");
+            d.check_ids(false);
+            assert!(d.settle(600).is_ok() && d.id_breach().is_none(), "{why}: off, the breach is forgotten");
+            d.overlay = None;
+            d.step();
+            d.check_ids(true);
+        }
+        assert!(d.settle(600).is_ok(), "back to the app alone");
     }
 
     /// The light-table cells of the last frame, in paint order. Looked up through the same rule

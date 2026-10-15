@@ -10,6 +10,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::common::{FRAMES, new_driver, out_dir};
 use dalica_core::PhotoId;
 use dalica_engine::Session;
 use dalica_fs::Expect;
@@ -19,8 +20,6 @@ use dalica_ui::{App, Driver};
 use dalica_ui_kit::WidgetInfo;
 use egui::vec2;
 use serde_json::{Value, json};
-
-const FRAMES: usize = 60 * 60;
 
 /// A library watching one folder `Lisbon` of `n` photos `IMG_0001.jpg`…; ids in name order.
 fn setup(n: usize, size: (u32, u32)) -> (tempfile::TempDir, tempfile::TempDir, PathBuf, Driver, Vec<PhotoId>) {
@@ -36,7 +35,7 @@ fn setup(n: usize, size: (u32, u32)) -> (tempfile::TempDir, tempfile::TempDir, P
     s.wait_idle();
     let mut ids: Vec<(String, PhotoId)> = s.library().photos().map(|p| (p.name.clone(), p.id)).collect();
     ids.sort();
-    let mut d = Driver::new(App::new(Some(s)), size.0, size.1, 1.0);
+    let mut d = new_driver(App::new(Some(s)), size.0, size.1, 1.0);
     d.settle(FRAMES).unwrap();
     (lib, disk, folder, d, ids.into_iter().map(|(_, id)| id).collect())
 }
@@ -255,12 +254,6 @@ fn a_caption_longer_than_a_draft_is_not_cut_by_the_inline_editor() {
 }
 
 // ---- Fingerprints -------------------------------------------------------------------------------
-
-fn out_dir() -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/ui");
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
 
 fn check_fingerprint(name: &str, width: u32, height: u32, rgba: &[u8]) {
     let png = fingerprint::png_rgba(width, height, rgba);

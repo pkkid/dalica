@@ -11,16 +11,15 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::common::{FRAMES, new_driver, out_dir, widget};
 use dalica_core::{PhotoId, SystemClock};
 use dalica_engine::Session;
 use dalica_fs::Expect;
 use dalica_scenes::fingerprint;
 use dalica_ui::panels::folders;
 use dalica_ui::{App, Driver, ScriptedPicker};
-use dalica_ui_kit::WidgetInfo;
 use serde_json::json;
 
-const FRAMES: usize = 60 * 60;
 const SIZES: [(u32, u32); 2] = [(1400, 900), (900, 600)];
 
 /// A library watching `Photos` (its `Lisbon` folder holds 3 photos), with `Pictures` as the
@@ -50,16 +49,9 @@ fn exported(dir: &Path) -> (Session, PathBuf) {
 }
 
 fn driver(session: Session, (w, h): (u32, u32)) -> Driver {
-    let mut d = Driver::new(App::with_picker(Some(session), Arc::new(ScriptedPicker::new())), w, h, 1.0);
+    let mut d = new_driver(App::with_picker(Some(session), Arc::new(ScriptedPicker::new())), w, h, 1.0);
     d.settle(FRAMES).unwrap();
     d
-}
-
-fn widget(d: &Driver, id: &str) -> WidgetInfo {
-    d.widgets()
-        .into_iter()
-        .find(|w| w.id == id)
-        .unwrap_or_else(|| panic!("no `{id}` in {:?}", d.widgets().iter().map(|w| w.id.clone()).collect::<Vec<_>>()))
 }
 
 fn has(d: &Driver, id: &str) -> bool {
@@ -70,12 +62,6 @@ fn has(d: &Driver, id: &str) -> bool {
 fn is_project(d: &Driver, id: &str) -> bool {
     let model = folders::current_model(d.ctx());
     (0..model.items.len()).filter_map(|i| model.row(i)).find(|r| r.id == id).unwrap_or_else(|| panic!("no row {id}")).project
-}
-
-fn out_dir() -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/ui");
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
 }
 
 /// Checks the tree region (the pane and its splitter) of the last frame against `<name>.json`.

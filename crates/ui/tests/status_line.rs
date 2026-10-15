@@ -11,6 +11,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
 
+use crate::common::{FRAMES, new_driver};
 use dalica_core::{Date, DateTime, PhotoId};
 use dalica_engine::Session;
 use dalica_scenes::{Exif, Scene};
@@ -18,7 +19,6 @@ use dalica_ui::status_text::{self, Line};
 use dalica_ui::{App, Driver, ScriptedPicker};
 use serde_json::json;
 
-const FRAMES: usize = 60 * 60;
 /// Every photo file is padded to this many bytes ("100.0 KB").
 const FILE_BYTES: usize = 100_000;
 /// The window sizes of the done-when.
@@ -86,7 +86,7 @@ fn session(root: &Path) -> Session {
 }
 
 fn driver(root: &Path, (w, h): (u32, u32)) -> Driver {
-    let mut d = Driver::new(App::with_picker(Some(session(root)), Arc::new(ScriptedPicker::new())), w, h, 1.0);
+    let mut d = new_driver(App::with_picker(Some(session(root)), Arc::new(ScriptedPicker::new())), w, h, 1.0);
     d.settle(FRAMES).unwrap();
     d
 }
