@@ -5,35 +5,19 @@
 //! path in the chosen format and refuses an existing path; bad requests are refused with nothing
 //! written.
 
-mod common;
+use crate::common;
 
 use std::path::Path;
 
 use common::*;
-use dalica_core::Timestamp;
 use dalica_create::output::{OutFormat, Report};
 use dalica_create::save::copy::{Copied, Destination, copy};
-use dalica_create::save::{self, Error, Options, Saving};
+use dalica_create::save::{self, Error, Saving};
 use dalica_edit::Recipe;
-use dalica_fs::TempDir;
 use dalica_image::{Format, Limits, Orientation, RawKind, read_header};
 use dalica_meta::Changes;
 use dalica_scenes::Exif;
 use dalica_scenes::formats::{Tiff, Webp, tiff, webp};
-
-const NOW: Timestamp = Timestamp::from_millis(1_791_000_000_000);
-
-fn folder() -> TempDir {
-    TempDir::new("dalica-beside-test").unwrap()
-}
-
-fn options() -> Options {
-    Options { threads: 2, ..Options::new(NOW) }
-}
-
-fn read(path: impl AsRef<Path>) -> Vec<u8> {
-    std::fs::read(path).unwrap()
-}
 
 /// The names in `dir`, sorted.
 fn names(dir: &Path) -> Vec<String> {

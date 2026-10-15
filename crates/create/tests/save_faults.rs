@@ -14,16 +14,21 @@
 //!   entry, or a saved file with its `done` entry and the original kept, byte for byte what an
 //!   uninterrupted run writes), no temporary file is left, and a second `recover` finds nothing.
 //!
-//! Run with `cargo test -p dalica-create --features faults --test save_faults` (the dev-dependency
-//! turns the fault points on for every test build as well).
+//! Run with `cargo test -p dalica-create --test all save_faults::` (the dev-dependency turns the
+//! fault points on for every test build; they are armed per thread, so each operation is its own
+//! test and they run in parallel). Quick mode runs one case per class (an error before the
+//! commit, an error after it, a crash); full mode (`DALICA_FULL_TESTS=1`) every step and fault.
+//! The starting folders are made once per process and copied, with their modification times,
+//! into each case's own folder.
 
-mod common;
+use crate::common;
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::OnceLock;
 use std::time::SystemTime;
 
 use common::*;
@@ -35,20 +40,18 @@ use dalica_fs::faults::{self, Fault};
 use dalica_meta::Changes;
 use dalica_sidecar::originals::{Originals, State};
 
-const NAME: &str = "IMG_0001.jpg";
-/// The time of every Save here, so two runs write the same bytes.
-const NOW: Timestamp = Timestamp::from_millis(1_791_000_000_000);
 const FIRST: &[&str] = &["autofix()"];
 const SECOND: &[&str] = &["tuning(0.25,0,0,0,none)"];
 const TURN: &[&str] = &["rotate(90)"];
 
-fn options() -> Options {
-    Options { threads: 2, ..Options::new(NOW) }
-}
-
 /// Options for a repair beginning now (temporary files written before it are removed).
 fn repair_options() -> Options {
     Options { threads: 2, ..Options::new(Timestamp::from_system_time(SystemTime::now())) }
+}
+
+/// The photo: small, since only the steps matter here.
+fn original() -> Vec<u8> {
+    jpeg(11, 64, 48, 80, 1)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -62,8 +65,6 @@ enum Op {
     UndoSave,
     Revert,
 }
-
-const OPS: [Op; 5] = [Op::Save, Op::Turn, Op::ReSave, Op::UndoSave, Op::Revert];
 
 impl Op {
     /// Whether the folder starts saved with `FIRST`.
@@ -94,13 +95,9 @@ struct Fixture {
 impl Fixture {
     fn new(op: Op) -> Fixture {
         let tmp = TempDir::new("dalica-save-faults").unwrap();
-        let original = jpeg(11, 320, 240, 80, 1);
-        std::fs::write(tmp.path().join(NAME), &original).unwrap();
-        if op.starts_saved() {
-            save::in_place(tmp.path(), NAME, &recipe(FIRST), &Changes::default(), &options()).unwrap();
-        }
+        start(op).restore(tmp.path());
         let seen = seen(&tmp.path().join(NAME));
-        Fixture { tmp, original, seen }
+        Fixture { tmp, original: original(), seen }
     }
 
     fn dir(&self) -> &Path {
@@ -113,9 +110,51 @@ impl Fixture {
     }
 }
 
-fn seen(path: &Path) -> Seen {
-    let meta = std::fs::metadata(path).unwrap();
-    Seen { size: meta.len(), mtime: Timestamp::from_system_time(meta.modified().unwrap()) }
+/// A folder's files (relative path, bytes, modification time), to copy into fresh folders.
+struct Snapshot(Vec<(PathBuf, Vec<u8>, SystemTime)>);
+
+impl Snapshot {
+    fn take(dir: &Path) -> Snapshot {
+        fn walk(root: &Path, dir: &Path, out: &mut Vec<(PathBuf, Vec<u8>, SystemTime)>) {
+            for e in std::fs::read_dir(dir).unwrap().flatten() {
+                let path = e.path();
+                if path.is_dir() {
+                    walk(root, &path, out);
+                } else {
+                    let modified = e.metadata().unwrap().modified().unwrap();
+                    out.push((path.strip_prefix(root).unwrap().to_path_buf(), std::fs::read(&path).unwrap(), modified));
+                }
+            }
+        }
+        let mut files = Vec::new();
+        walk(dir, dir, &mut files);
+        Snapshot(files)
+    }
+
+    fn restore(&self, dir: &Path) {
+        for (rel, bytes, modified) in &self.0 {
+            let path = dir.join(rel);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, bytes).unwrap();
+            std::fs::File::options().write(true).open(&path).unwrap().set_modified(*modified).unwrap();
+        }
+    }
+}
+
+/// The folder `op` starts from (the photo, saved with `FIRST` when the operation needs it), made
+/// once per process. Never call it with a fault armed.
+fn start(op: Op) -> &'static Snapshot {
+    static UNSAVED: OnceLock<Snapshot> = OnceLock::new();
+    static SAVED: OnceLock<Snapshot> = OnceLock::new();
+    let make = |saved: bool| {
+        let tmp = TempDir::new("dalica-save-faults").unwrap();
+        std::fs::write(tmp.path().join(NAME), original()).unwrap();
+        if saved {
+            save::in_place(tmp.path(), NAME, &recipe(FIRST), &Changes::default(), &options()).unwrap();
+        }
+        Snapshot::take(tmp.path())
+    };
+    if op.starts_saved() { SAVED.get_or_init(|| make(true)) } else { UNSAVED.get_or_init(|| make(false)) }
 }
 
 /// What the folder holds for the photo: the file at its name, the kept original and the record's
@@ -158,19 +197,20 @@ struct Whole {
 }
 
 impl Whole {
+    /// The whole states of `op`, from uninterrupted runs made once per process.
     fn of(op: Op) -> Whole {
-        let original = {
-            let f = Fixture::new(Op::Save);
-            Disk { photo: Some(f.original.clone()), kept: None, entry: None }
-        };
+        static SAVED: OnceLock<Disk> = OnceLock::new();
+        static TURNED: OnceLock<Disk> = OnceLock::new();
+        static RESAVED: OnceLock<Disk> = OnceLock::new();
         let after = |start: Op, run: Op| {
             let f = Fixture::new(start);
             run.run(f.dir()).unwrap();
             Disk::read(f.dir())
         };
-        let saved = if op == Op::Turn { after(Op::Turn, Op::Turn) } else { after(Op::Save, Op::Save) };
-        let resaved = (op == Op::ReSave).then(|| after(Op::ReSave, Op::ReSave));
-        Whole { original, saved, resaved }
+        let original = Disk { photo: Some(original()), kept: None, entry: None };
+        let saved = if op == Op::Turn { TURNED.get_or_init(|| after(Op::Turn, Op::Turn)) } else { SAVED.get_or_init(|| after(Op::Save, Op::Save)) };
+        let resaved = (op == Op::ReSave).then(|| RESAVED.get_or_init(|| after(Op::ReSave, Op::ReSave)).clone());
+        Whole { original, saved: saved.clone(), resaved }
     }
 
     fn allows(&self, d: &Disk) -> bool {
@@ -259,43 +299,78 @@ fn original_is_safe(dir: &Path, original: &[u8]) -> bool {
     d.photo.as_deref() == Some(original) || (d.kept.as_deref() == Some(original) && d.entry.is_some_and(|(_, _, dg)| dg == digest(original)))
 }
 
-#[test]
-fn every_step_interrupted_keeps_the_original_and_recover_makes_the_folder_whole() {
-    let mut cases = 0;
-    for op in OPS {
-        let whole = Whole::of(op);
-        let steps = {
-            let f = Fixture::new(op);
-            trace(|| op.run(f.dir()).unwrap())
-        };
-        assert!(steps.len() >= 7, "{op:?} reaches its steps: {steps:?}");
-        for &(point, nth) in &steps {
-            for fault in [Fault::Error, Fault::Crash] {
-                let case = format!("{op:?} with {fault:?} at {point} #{nth}");
-                let f = Fixture::new(op);
-                arm_nth(point, nth, fault);
-                let result = op.run(f.dir());
-                faults::disarm_all();
-                if fault == Fault::Crash {
-                    assert!(matches!(result, Err(Error::Fs(dalica_fs::Error::Crashed(_)))), "{case}: {result:?}");
-                }
-                assert!(original_is_safe(f.dir(), &f.original), "{case}: the original is lost: {:?}", Disk::read(f.dir()));
-
-                let repaired = f.recover();
-                let after = Disk::read(f.dir());
-                assert!(whole.allows(&after), "{case}: not whole after recover ({repaired:?}): {after:?}");
-                assert!(repaired.repairs.iter().all(|r| !matches!(r.outcome, Outcome::Left(_))), "{case}: {repaired:?}");
-                assert!(temporaries(f.dir()).is_empty(), "{case}: temporary files left: {:?}", temporaries(f.dir()));
-                assert!(repaired.problems.is_empty(), "{case}: {:?}", repaired.problems);
-
-                let again = f.recover();
-                assert!(again.repairs.is_empty() && again.removed.is_empty(), "{case}: a second recover found {again:?}");
-                assert_eq!(Disk::read(f.dir()), after, "{case}");
-                cases += 1;
-            }
-        }
+/// The cases to run for `steps`: in full mode every step with both faults; in quick mode one per
+/// class: an error at the first step (before the commit), a crash halfway, an error at the last
+/// step (after the commit).
+fn sample(steps: &[(&'static str, usize)]) -> Vec<(&'static str, usize, Fault)> {
+    if full() {
+        return steps.iter().flat_map(|&(point, nth)| [(point, nth, Fault::Error), (point, nth, Fault::Crash)]).collect();
     }
-    assert!(cases >= 100, "{cases} cases");
+    let at = |i: usize, fault| (steps[i].0, steps[i].1, fault);
+    vec![at(0, Fault::Error), at(steps.len() / 2, Fault::Crash), at(steps.len() - 1, Fault::Error)]
+}
+
+/// `op` interrupted at each step (see `sample`) keeps the original, and `recover` makes the
+/// folder whole.
+fn every_step_interrupted(op: Op) {
+    let whole = Whole::of(op);
+    let steps = {
+        let f = Fixture::new(op);
+        trace(|| op.run(f.dir()).unwrap())
+    };
+    assert!(steps.len() >= 7, "{op:?} reaches its steps: {steps:?}");
+    for (point, nth, fault) in sample(&steps) {
+        let case = format!("{op:?} with {fault:?} at {point} #{nth}");
+        let f = Fixture::new(op);
+        arm_nth(point, nth, fault);
+        let result = op.run(f.dir());
+        faults::disarm_all();
+        if fault == Fault::Crash {
+            assert!(matches!(result, Err(Error::Fs(dalica_fs::Error::Crashed(_)))), "{case}: {result:?}");
+        }
+        assert!(original_is_safe(f.dir(), &f.original), "{case}: the original is lost: {:?}", Disk::read(f.dir()));
+
+        let repaired = f.recover();
+        let after = Disk::read(f.dir());
+        assert!(whole.allows(&after), "{case}: not whole after recover ({repaired:?}): {after:?}");
+        assert!(repaired.repairs.iter().all(|r| !matches!(r.outcome, Outcome::Left(_))), "{case}: {repaired:?}");
+        assert!(temporaries(f.dir()).is_empty(), "{case}: temporary files left: {:?}", temporaries(f.dir()));
+        assert!(repaired.problems.is_empty(), "{case}: {:?}", repaired.problems);
+
+        let again = f.recover();
+        assert!(again.repairs.is_empty() && again.removed.is_empty(), "{case}: a second recover found {again:?}");
+        assert_eq!(Disk::read(f.dir()), after, "{case}");
+    }
+}
+
+/// One test per operation, so they run in parallel (the fault points are armed per thread).
+mod every_step_interrupted_keeps_the_original_and_recover_makes_the_folder_whole {
+    use super::{Op, every_step_interrupted};
+
+    #[test]
+    fn save() {
+        every_step_interrupted(Op::Save);
+    }
+
+    #[test]
+    fn turn() {
+        every_step_interrupted(Op::Turn);
+    }
+
+    #[test]
+    fn resave() {
+        every_step_interrupted(Op::ReSave);
+    }
+
+    #[test]
+    fn undo_save() {
+        every_step_interrupted(Op::UndoSave);
+    }
+
+    #[test]
+    fn revert() {
+        every_step_interrupted(Op::Revert);
+    }
 }
 
 /// Which way the repair goes, step by step, for a first Save: back while the new file is not in
@@ -352,8 +427,9 @@ fn without_the_last_seen_file_the_content_decides() {
     }
 }
 
-/// An interrupted repair is repaired by the next one: every step of `recover` crashing, for a
-/// first Save stopped after its new file was committed and before it.
+/// An interrupted repair is repaired by the next one: every step of `recover` failing or crashing
+/// (quick mode: one per class, see `sample`), for a first Save stopped after its new file was
+/// committed and before it.
 #[test]
 fn a_repair_interrupted_at_any_step_is_finished_by_the_next() {
     let rename = dalica_fs::faults::points::RENAME;
@@ -371,23 +447,21 @@ fn a_repair_interrupted_at_any_step_is_finished_by_the_next() {
             f.recover();
         });
         assert!(!steps.is_empty(), "the repair writes");
-        for &(point, n) in &steps {
-            for fault in [Fault::Error, Fault::Crash] {
-                let f = plant();
-                arm_nth(point, n, fault);
-                let seen = BTreeMap::from([(NAME.to_string(), f.seen)]);
-                let _ = recover::recover(f.dir(), &seen, &repair_options());
-                faults::disarm_all();
-                assert!(
-                    original_is_safe(f.dir(), &f.original),
-                    "{fault:?} at {point} #{n} after a Save stopped at rename #{nth}: {:?}",
-                    Disk::read(f.dir())
-                );
-                f.recover();
-                let after = Disk::read(f.dir());
-                assert!(whole.allows(&after), "{fault:?} at {point} #{n} of the repair: {after:?}");
-                assert!(temporaries(f.dir()).is_empty(), "{fault:?} at {point} #{n}");
-            }
+        for (point, n, fault) in sample(&steps) {
+            let f = plant();
+            arm_nth(point, n, fault);
+            let seen = BTreeMap::from([(NAME.to_string(), f.seen)]);
+            let _ = recover::recover(f.dir(), &seen, &repair_options());
+            faults::disarm_all();
+            assert!(
+                original_is_safe(f.dir(), &f.original),
+                "{fault:?} at {point} #{n} after a Save stopped at rename #{nth}: {:?}",
+                Disk::read(f.dir())
+            );
+            f.recover();
+            let after = Disk::read(f.dir());
+            assert!(whole.allows(&after), "{fault:?} at {point} #{n} of the repair: {after:?}");
+            assert!(temporaries(f.dir()).is_empty(), "{fault:?} at {point} #{n}");
         }
     }
 }
