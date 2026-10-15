@@ -14,7 +14,9 @@
 //!   sidecars like any change, never on the undo stack.
 //! - **Rebuild** scans (`library.rebuild`, and a damaged index at open) build a fresh model to the
 //!   side and swap it in at the end, clearing the undo stack (ids change); a cancelled rebuild
-//!   keeps the old model. A rebuild of an empty model fills it in place, like a merge.
+//!   keeps the old model. A rebuild of an empty model fills it in place, like a merge. Its thread
+//!   first waits for the I/O worker to write everything sent before it (sidecars, `albums.json`),
+//!   so it reads what the model said when it started, never a file a pending write would change.
 //! - **Put off** ([`Session::put_off_scans`], M9.28): a file job starting lets every running scan
 //!   go (its job ends as "put off while files are written"; what it read and did not apply is
 //!   dropped, nothing is removed, a rebuild keeps the old model) and starts it again from the start
@@ -63,21 +65,33 @@
 //!   journaled with no undo step; a rebuild records none (after a rebuild only the file's time
 //!   counts for Recently Updated).
 //!
+//! - **Albums and photo sorts** (M9.10, `data-model.md` §3, §3.2, §4): what a folder's sidecar
+//!   says about albums rides in the op that adds the folder or its photos (`with_albums`): a new
+//!   folder's sort, a new photo's memberships, an album the model lacks created first (with its
+//!   `albums.json` definition, else the folder's name for it; never one deleted this session); the
+//!   watcher's rescans the same ([`Session::rescan_op_with_albums`], from `watching.rs`). A
+//!   rebuild's thread waits for the writes sent before it, reads `albums.json`, and the rebuild
+//!   ends by creating the albums no folder brought back with their definitions and covers
+//!   (`album_definitions`). A folder renamed on disk gets back everything the model said about
+//!   it and its photos ([`Session::files_op_after`]). `albums.json` waits while scans apply what
+//!   they found and while a rebuild runs, and is written once they are done (`albums_file.rs`).
+//!
 //! Seams: [`crate::watching`] starts the periodic verification through
 //! [`Session::start_verification`]'s units and runs its own incremental rescans of dirty folders
 //! ([`Session::busy`] and [`Session::wait_idle`] include them); M5.16 replaces the amortised
 //! whole-library thumbnail sync below with one that queues just the photos of each batch, the
 //! first screenful first.
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 
-use dalica_core::PhotoId;
-use dalica_library::{Library, Op};
+use dalica_core::{AlbumId, FolderId, PhotoId, PosKey};
+use dalica_library::{AlbumInfo, Library, Op};
 use dalica_scan::{Event, Failure, FoundFolder, HeaderReader, Known, Plan, Progress, ReadMetadata, Scan, Summary};
+use dalica_store::albums::{AlbumsRead, AlbumsReading};
 use serde::Serialize;
 use serde_json::json;
 
@@ -121,6 +135,8 @@ pub struct ScanProgress {
 
 /// What a scanning thread sends.
 enum Streamed {
+    /// A rebuild's thread first: what `albums.json` says (`albums_file.rs`).
+    Albums(AlbumsRead),
     Event(Event),
     /// The walk's summary, and the walked roots that hold no entries at all.
     End(Summary, Vec<PathBuf>),
@@ -146,6 +162,22 @@ pub(crate) struct Scanning {
     /// A rebuild's op is being applied to the live model (a rebuild of an empty model fills it in
     /// place): the photos it adds get no first-indexed time.
     rebuilding: bool,
+    /// Scans are applying what they found ([`Session::poll_scans`]): `albums.json` waits.
+    applying: bool,
+    /// `albums.json` (`albums_file.rs`): kept here because the scans decide when it may be written.
+    pub(crate) albums_file: crate::albums_file::AlbumsFile,
+}
+
+impl Scanning {
+    /// Whether scans are applying what they found right now.
+    pub(crate) fn applying(&self) -> bool {
+        self.applying
+    }
+
+    /// Whether a rebuild runs or waits to run again after a file job.
+    pub(crate) fn rebuild_pending(&self) -> bool {
+        self.running.iter().any(|j| j.kind == ScanKind::Rebuild) || self.put_off.iter().any(|(_, k)| *k == ScanKind::Rebuild)
+    }
 }
 
 /// What [`Session::files_op_before`] learns of an op from the files, for
@@ -156,6 +188,39 @@ pub(crate) struct FromFiles {
     conflicts: Vec<(PhotoId, Fields)>,
     /// The photos the op adds: their first-indexed time is recorded once it applied.
     added: Vec<PhotoId>,
+    /// The folders the op takes out and puts back at a new path (renamed or moved on disk): what
+    /// the model said about them and their photos is put back once it applied.
+    moved: Vec<FolderId>,
+}
+
+/// The folders `op` takes out and puts back in the same batch: a folder renamed or moved on disk
+/// (`dalica_scan::diff`), which keeps its id and its photos' ids.
+fn moved_folders(op: &Op) -> Vec<FolderId> {
+    let Op::Batch { ops } = op else { return Vec::new() };
+    let removed: Vec<FolderId> = ops.iter().filter_map(|o| if let Op::RemoveFolder { id } = o { Some(*id) } else { None }).collect();
+    ops.iter().filter_map(|o| if let Op::AddFolder { folder } = o { Some(folder.id) } else { None }).filter(|id| removed.contains(id)).collect()
+}
+
+/// What `inverse` (the inverse of an op that took folders `moved` out and put them back) holds
+/// about those folders and their photos besides the folders and photos themselves: what the user
+/// said about them (info, stars aside, recipes, dates, memberships, covers, sort, project, copies
+/// saved beside), and the index-only data (facts, digests, times, synced hashes, saved records,
+/// sketches). One batch to put it all back.
+fn put_back(inverse: &Op, moved: &[FolderId]) -> Option<Op> {
+    let mut stack = vec![inverse];
+    let mut out = Vec::new();
+    while let Some(op) = stack.pop() {
+        let Op::Batch { ops } = op else { continue };
+        match ops.first() {
+            // The inverse of taking a folder out: the folder, what was said about it, its photos and
+            // what was said about them.
+            Some(Op::AddFolder { folder }) if moved.contains(&folder.id) => {
+                out.extend(ops.iter().skip(1).filter(|o| !matches!(o, Op::AddFolder { .. } | Op::AddPhotos { .. })).cloned());
+            }
+            _ => stack.extend(ops),
+        }
+    }
+    (!out.is_empty()).then_some(Op::Batch { ops: out })
 }
 
 /// The photos `op` adds (in nested batches too; walked without recursion).
@@ -205,6 +270,10 @@ struct ScanJob {
     /// The library revision after the current folder's diff or the last op of ours: another value
     /// means the model changed meanwhile, and the folder's sync op is diffed again.
     revision: u64,
+    /// A rebuild's reading of `albums.json` (`None` for a merge scan, or until it arrives): the
+    /// definitions of the albums it brings back, their covers, and the order for folders whose
+    /// sidecar cannot be read.
+    albums: Option<AlbumsReading>,
 }
 
 impl ScanJob {
@@ -229,6 +298,7 @@ impl ScanJob {
             cancel,
             synced: false,
             revision: 0,
+            albums: None,
         }
     }
 
@@ -238,6 +308,7 @@ impl ScanJob {
         loop {
             let message = if block { rx.recv().map_err(|_| TryRecvError::Disconnected) } else { rx.try_recv() };
             match message {
+                Ok(Streamed::Albums(read)) => self.albums_read(read, warnings),
                 Ok(Streamed::Event(e)) => self.event(e, warnings),
                 Ok(Streamed::End(summary, empty)) => {
                     self.summary = Some(summary);
@@ -263,6 +334,23 @@ impl ScanJob {
             Event::Progress(p) => self.walker = p,
             Event::Failed(f) => warnings.push(format!("{}: {}", f.path.display(), f.reason)),
             Event::Warning(w) => warnings.push(format!("{}: {}", w.path.display(), w.reason)),
+        }
+    }
+
+    /// A rebuild's reading of `albums.json`: kept for the folders to come; what it could not give
+    /// is a warning.
+    fn albums_read(&mut self, read: AlbumsRead, warnings: &mut Vec<String>) {
+        match read {
+            AlbumsRead::Absent => {}
+            AlbumsRead::Read(r) => {
+                warnings.extend(r.notes.iter().cloned());
+                self.albums = Some(r);
+            }
+            AlbumsRead::Unreadable(why) => warnings.push(format!("{}: {why}", dalica_store::albums::FILE)),
+            AlbumsRead::SetAside { why, kept } => {
+                let kept = kept.map(|k| format!("kept as {}", k.display())).unwrap_or_else(|| "it could not be kept aside".into());
+                warnings.push(format!("{}: {why}; {kept}", dalica_store::albums::FILE));
+            }
         }
     }
 
@@ -418,7 +506,21 @@ impl Session {
         }
         let (tx, rx) = mpsc::channel();
         let walk = plan.roots.clone();
+        // A rebuild reads the sidecars and `albums.json` as the writes already made say them: its
+        // thread waits until the I/O worker has written everything sent before it started.
+        let flushed = (kind == ScanKind::Rebuild).then(|| {
+            let (ack, done) = mpsc::channel();
+            self.send(Msg::Flush(ack));
+            (self.dir.clone(), done)
+        });
         let spawned = std::thread::Builder::new().name("dalica-scan".into()).spawn(move || {
+            // A rebuild brings back the albums' definitions and covers from `albums.json`.
+            if let Some((dir, done)) = flushed {
+                let _ = done.recv();
+                if tx.send(Streamed::Albums(dalica_store::albums::read(&dir, now))).is_err() {
+                    return;
+                }
+            }
             let summary = dalica_scan::scan_streaming(&walk, &options, |e| {
                 if let Event::Folder(f) = &e {
                     for problem in crate::watching::clean_temps(&f.path, now) {
@@ -492,8 +594,9 @@ impl Session {
     /// which (none while a rebuild applies). `None` for any other op.
     pub(crate) fn files_op_before(&self, op: &Op) -> Option<FromFiles> {
         let added = if self.scanning.rebuilding { Vec::new() } else { added_photos(op) };
+        let moved = moved_folders(op);
         let Some(parts) = dalica_scan::meta::sync_parts(op) else {
-            return (!added.is_empty()).then_some(FromFiles { conflicts: Vec::new(), added });
+            return (!added.is_empty() || !moved.is_empty()).then_some(FromFiles { conflicts: Vec::new(), added, moved });
         };
         let mut conflicts = Vec::new();
         for (id, file) in parts.synced {
@@ -503,15 +606,25 @@ impl Session {
                 conflicts.push((*id, Fields::of(&fields.into_iter().map(engine_field).collect::<Vec<_>>())));
             }
         }
-        Some(FromFiles { conflicts, added })
+        Some(FromFiles { conflicts, added, moved })
     }
 
-    /// After an op from the files was applied (`inverse` undoes it): a sync op's imports become
-    /// one undo step ("Import from Files"; the synced hashes stay those of the files), and the
-    /// conflicts found before it are noted for Properties ("Changed in another application;
-    /// Dalica's value kept"); the photos it added get their first-indexed time (derived: journaled,
-    /// no undo step).
+    /// After an op from the files was applied (`inverse` undoes it): a folder it took out and put
+    /// back at a new path (renamed or moved on disk) gets back everything the model said about it
+    /// and its photos (`data-model.md` §10.2: captions, tags, recipes, memberships, covers, its
+    /// sort …, which taking it out dropped), before any sidecar write could miss them; a sync op's
+    /// imports become one undo step ("Import from Files"; the synced hashes stay those of the
+    /// files), and the conflicts found before it are noted for Properties ("Changed in another
+    /// application; Dalica's value kept"); the photos it added get their first-indexed time
+    /// (derived: journaled, no undo step), unless they had one.
     pub(crate) fn files_op_after(&mut self, from: FromFiles, inverse: &Op) {
+        // A folder renamed or moved on disk keeps everything said about it and its photos (and
+        // their first-indexed times, so they do not show as new).
+        if let Some(op) = put_back(inverse, &from.moved)
+            && let Err(e) = self.apply(op)
+        {
+            self.scan_warnings.push(format!("what was said about a moved folder not put back: {e}"));
+        }
         if let Some(op) = dalica_scan::meta::undo_of_import(inverse) {
             self.undo.push(Step { label: IMPORT_LABEL, op, modes: None });
         }
@@ -625,8 +738,19 @@ impl Session {
     pub(crate) fn poll_scans(&mut self, photos: usize) -> usize {
         let browsed = self.poll_browse(false) + self.resume_put_off_scans();
         if self.scanning.running.is_empty() {
+            // What the scans held for `albums.json` is written once they are done.
+            self.write_albums_file();
             return browsed;
         }
+        self.scanning.applying = true;
+        let n = self.poll_running(photos);
+        self.scanning.applying = false;
+        self.write_albums_file();
+        n
+    }
+
+    /// [`Session::poll_scans`]'s work on the running scans.
+    fn poll_running(&mut self, photos: usize) -> usize {
         let mut budget = Budget::new(photos);
         let mut n = 0;
         let mut running = Vec::new();
@@ -703,15 +827,27 @@ impl Session {
                 }
                 let Some(op) = job.pending.pop_front() else { break };
                 applied += n;
-                let result = match &mut job.fresh {
-                    Some(fresh) => fresh.apply(op).map(|_| ()).map_err(|e| e.to_string()),
-                    None => {
-                        // A rebuild filling an empty model in place records no first-indexed time.
-                        self.scanning.rebuilding = job.kind == ScanKind::Rebuild;
-                        let applied = self.apply(op).map(|_| ()).map_err(|e| e.to_string());
-                        self.scanning.rebuilding = false;
-                        applied
+                // What the folder's sidecar says about albums and its photo sort rides in the op
+                // that adds the folder or its photos, so no sidecar write can run in between.
+                let with = job.current.as_ref().and_then(|folder| {
+                    let target = job.fresh.as_ref().unwrap_or(&self.library);
+                    match job.kind {
+                        ScanKind::Rebuild => with_albums(target, &op, folder, job.albums.as_ref(), &|_| false),
+                        ScanKind::Merge => {
+                            let file = &self.scanning.albums_file;
+                            with_albums(target, &op, folder, file.defs.as_ref(), &|a| file.deleted(target, a))
+                        }
                     }
+                });
+                let result = match with {
+                    Some(with) => match self.apply_scan_op(job, with) {
+                        Ok(()) => Ok(()),
+                        Err(e) => {
+                            self.scan_warnings.push(format!("album memberships not applied: {e}"));
+                            self.apply_scan_op(job, op)
+                        }
+                    },
+                    None => self.apply_scan_op(job, op),
                 };
                 job.revision = self.library.revision();
                 if let Err(e) = result {
@@ -761,6 +897,50 @@ impl Session {
         folders
     }
 
+    /// A watcher rescan's `op` with what the sidecars of `folders` (the folders it read) say about
+    /// albums and photo sorts, as [`with_albums`] gives a scan's; `None` when they say nothing the
+    /// op needs. An album deleted this session is never brought back.
+    pub(crate) fn rescan_op_with_albums(&self, op: &Op, folders: &[FoundFolder]) -> Option<Op> {
+        let file = &self.scanning.albums_file;
+        let mut out: Option<Op> = None;
+        for folder in folders {
+            let current = out.as_ref().unwrap_or(op);
+            if let Some(with) = with_albums(&self.library, current, folder, file.defs.as_ref(), &|a| file.deleted(&self.library, a)) {
+                out = Some(with);
+            }
+        }
+        out
+    }
+
+    /// Applies one of `job`'s ops: to its own model (a rebuild's, built aside), else to the live
+    /// one (a rebuild filling an empty model in place records no first-indexed time).
+    fn apply_scan_op(&mut self, job: &mut ScanJob, op: Op) -> Result<(), String> {
+        match &mut job.fresh {
+            Some(fresh) => fresh.apply(op).map(|_| ()).map_err(|e| e.to_string()),
+            None => {
+                self.scanning.rebuilding = job.kind == ScanKind::Rebuild;
+                let applied = self.apply(op).map(|_| ()).map_err(|e| e.to_string());
+                self.scanning.rebuilding = false;
+                applied
+            }
+        }
+    }
+
+    /// A rebuild's last step (`data-model.md` §4): the albums `albums.json` defines that no folder
+    /// brought back (an empty album) are created, the definitions it holds are given, and the
+    /// covers it names are set where the photo is a member.
+    fn finish_rebuild_albums(&mut self, job: &mut ScanJob) {
+        let Some(defs) = job.albums.take() else { return };
+        let target = job.fresh.as_ref().unwrap_or(&self.library);
+        let (ops, notes) = album_definitions(target, &defs);
+        self.scan_warnings.extend(notes);
+        for op in ops {
+            if let Err(e) = self.apply_scan_op(job, op) {
+                self.scan_warnings.push(format!("albums from {} not applied: {e}", dalica_store::albums::FILE));
+            }
+        }
+    }
+
     /// Ends a complete scan: the verification pass (or a rebuild's swap), failures remembered, the
     /// thumbnails brought in line, and the job closed. Returns whether the model was replaced.
     fn end_scan(&mut self, mut job: ScanJob) -> bool {
@@ -770,11 +950,20 @@ impl Session {
         if let Some(s) = &summary {
             self.remember_failures(s);
         }
+        if job.kind == ScanKind::Rebuild {
+            // In place, even a cancelled rebuild gives back every album (its other members come
+            // with the next scans); one built aside is dropped when cancelled.
+            if job.fresh.is_none() || (summary.is_some() && !cancelled) {
+                self.finish_rebuild_albums(&mut job);
+            }
+            self.scanning.albums_file.changed();
+        }
         if let Some(s) = summary.as_ref().filter(|_| !cancelled) {
             match job.fresh.take() {
                 Some(fresh) => {
                     let before: Vec<_> = self.library.folders().map(|f| f.id).collect();
                     self.library = fresh;
+                    self.scanning.albums_file.see_all(self.library.albums().map(|(id, _)| id));
                     // Folders the rebuilt model no longer has: their pending writes are dropped.
                     let left: Vec<_> = self.left_library(before).collect();
                     if !left.is_empty() {
@@ -892,6 +1081,141 @@ impl Session {
     }
 }
 
+/// `op`, one of the ops a scan applies for `folder`, with what the folder's sidecar says about
+/// albums and the photo sort (`data-model.md` §3, §3.2, §4), or `None` when it says nothing the op
+/// needs. Only what the model does not know yet comes in (for folders and photos it knows, the
+/// model's word stands, as for everything else a sidecar says; a folder renamed on disk keeps the
+/// model's word too, [`Session::files_op_after`]):
+/// - a folder the op adds takes its photo sort (`SetFolderSorts` in the same op);
+/// - each photo the op adds takes its memberships with their position keys (`AddMembers`); a
+///   folder whose sidecar cannot be read takes them from `albums.json`'s copy of the order
+///   (`defs`);
+/// - an album the model lacks is created (`CreateAlbums`, before the memberships) with its
+///   definition from `albums.json` (`defs`) when it has one, else under the name the folder gives
+///   it (dated by its newest photo); a membership of an album named nowhere, or of one `skip`
+///   names (deleted this session), stays in the sidecar and is not used.
+fn with_albums(lib: &Library, op: &Op, folder: &FoundFolder, defs: Option<&AlbumsReading>, skip: &dyn Fn(&AlbumId) -> bool) -> Option<Op> {
+    let children: &[Op] = match op {
+        Op::Batch { ops } => ops,
+        other => std::slice::from_ref(other),
+    };
+    let added = children.iter().find_map(|o| match o {
+        Op::AddFolder { folder: f } if f.path == folder.path => Some(f.id),
+        _ => None,
+    });
+    let id: FolderId = added.or_else(|| lib.folder_by_path(&folder.path))?;
+    // Renamed or moved on disk: the folder is taken out and put back in the same op, and what the
+    // model said about it comes back with it (`Session::files_op_after`).
+    if children.iter().any(|o| matches!(o, Op::RemoveFolder { id: r } if *r == id)) {
+        return None;
+    }
+    let mut extra = Vec::new();
+    if added.is_some() && !folder.sort.is_default() {
+        extra.push(Op::SetFolderSorts { sorts: vec![(id, folder.sort)] });
+    }
+    // A folder whose sidecar cannot be read: albums.json's copy of the order, by file name.
+    let copied: HashMap<&str, Vec<(AlbumId, PosKey)>> = match defs.filter(|_| folder.sidecar_unread) {
+        Some(defs) => {
+            let mut out: HashMap<&str, Vec<(AlbumId, PosKey)>> = HashMap::new();
+            for (album, def) in &defs.albums {
+                for (path, key) in &def.order {
+                    if path.parent() == Some(folder.path.as_path())
+                        && let Some(name) = path.file_name().and_then(|n| n.to_str())
+                    {
+                        out.entry(name).or_default().push((album.clone(), key.clone()));
+                    }
+                }
+            }
+            out
+        }
+        None => HashMap::new(),
+    };
+    // Albums the op creates already (another folder's, in a rescan of several).
+    let created: HashSet<&AlbumId> = children
+        .iter()
+        .filter_map(|o| if let Op::CreateAlbums { albums } = o { Some(albums) } else { None })
+        .flat_map(|a| a.iter().map(|(id, _)| id))
+        .collect();
+    let mut create: BTreeMap<AlbumId, AlbumInfo> = BTreeMap::new();
+    let mut members = Vec::new();
+    for o in children {
+        let Op::AddPhotos { photos } = o else { continue };
+        for p in photos.iter().filter(|p| p.folder == id && lib.photo(p.id).is_none()) {
+            let from_sidecar = folder.photos.binary_search_by(|f| f.name.as_str().cmp(&p.name)).ok().and_then(|i| folder.photos.get(i));
+            let list: Vec<(AlbumId, PosKey)> = match copied.get(p.name.as_str()) {
+                Some(list) => list.clone(),
+                None => from_sidecar.map(|f| f.albums.iter().map(|(a, k)| (a.clone(), k.clone())).collect()).unwrap_or_default(),
+            };
+            for (album, key) in list {
+                if lib.album(&album).is_none() && !created.contains(&album) && !create.contains_key(&album) {
+                    if skip(&album) {
+                        continue;
+                    }
+                    let def = defs.and_then(|d| d.albums.get(&album)).map(|d| d.info.clone());
+                    let Some(info) = def.or_else(|| folder.album_names.get(&album).map(AlbumInfo::named)) else { continue };
+                    create.insert(album.clone(), info);
+                }
+                members.push((album, p.id, key));
+            }
+        }
+    }
+    let mut ops = Vec::new();
+    if !create.is_empty() {
+        ops.push(Op::CreateAlbums { albums: create.into_iter().collect() });
+    }
+    if !members.is_empty() {
+        ops.push(Op::AddMembers { members });
+    }
+    ops.append(&mut extra);
+    if ops.is_empty() {
+        return None;
+    }
+    Some(match op.clone() {
+        Op::Batch { ops: mut all } => {
+            all.append(&mut ops);
+            Op::Batch { ops: all }
+        }
+        other => {
+            ops.insert(0, other);
+            Op::Batch { ops }
+        }
+    })
+}
+
+/// The ops that give `lib` what `albums.json` (`defs`) says once a rebuild found every folder
+/// (`data-model.md` §4): the albums it defines that the folders did not bring back (an empty
+/// album, or one whose members are in no watched folder) created, the definitions it holds given,
+/// and the covers it names set where the photo is a member; with one note per cover that is not.
+fn album_definitions(lib: &Library, defs: &AlbumsReading) -> (Vec<Op>, Vec<String>) {
+    let (mut create, mut redefine, mut covers, mut notes) = (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+    for (id, def) in &defs.albums {
+        match lib.album(id) {
+            None => create.push((id.clone(), def.info.clone())),
+            Some(own) if *own != def.info => redefine.push((id.clone(), def.info.clone())),
+            Some(_) => {}
+        }
+        let Some(path) = &def.cover else { continue };
+        let photo = path.parent().and_then(|dir| lib.folder_by_path(dir)).zip(path.file_name().and_then(|n| n.to_str()));
+        let photo = photo.and_then(|(folder, name)| lib.photo_by_name(folder, name)).map(|p| p.id);
+        match photo.filter(|p| lib.member_key(id, *p).is_some()) {
+            Some(p) if lib.cover_set(id) != Some(p) => covers.push((id.clone(), Some(p))),
+            Some(_) => {}
+            None => notes.push(format!("album {id}'s cover is not one of its photos: it shows its first photo")),
+        }
+    }
+    let mut ops = Vec::new();
+    if !create.is_empty() {
+        ops.push(Op::CreateAlbums { albums: create });
+    }
+    if !redefine.is_empty() {
+        ops.push(Op::SetAlbumInfo { albums: redefine });
+    }
+    if !covers.is_empty() {
+        ops.push(Op::SetCovers { covers });
+    }
+    (ops, notes)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -942,6 +1266,68 @@ mod tests {
                 assert_eq!(dalica_scan::photo_info(&sidecar, &name), store, "photo {j}");
             }
         }
+    }
+
+    /// M9's fields the same way: a photo's memberships, the folder's photo sort and the album
+    /// names, read by `dalica-scan` on the scan's thread, are what `dalica-store`'s `mapping` gives
+    /// a photo and a folder new to the model (usable entries, entries Dalica cannot use, values of
+    /// the wrong type, a sort it cannot sort by, names to clean or past the cap).
+    #[test]
+    fn the_scans_reading_of_albums_and_sorts_is_the_stores() {
+        use dalica_library::{MAX_ALBUM_NAME, PhotoSort};
+        use dalica_sidecar::{Limits, Sidecar};
+        use dalica_store::mapping::{Reading, read_album_names, read_folder, read_photo};
+        use serde_json::Value;
+
+        let photos = [
+            json!({ "albums": { "a91c0e": "a1", "a77d02": "bz0" } }),
+            json!({ "albums": { "a91c0e": "a1", "bad id": "a1", "a1234": "not a key!", "a5678": 3 } }),
+            json!({ "albums": ["a91c0e"] }),
+            json!({ "albums": {} }),
+            json!({ "star": true }),
+        ];
+        let folders = [
+            json!({ "sort": "name", "reverse": true }),
+            json!({ "sort": "size" }),
+            json!({ "sort": "date", "reverse": false }),
+            json!({ "sort": "manual", "reverse": true }),
+            json!({ "sort": "modified" }),
+            json!({ "sort": 3, "reverse": "yes" }),
+            json!({}),
+        ];
+        let names = [
+            json!({ "a91c0e": { "name": "Best of 2026" }, "a77d02": { "name": " Trams\n" } }),
+            json!({ "a91c0e": { "name": "x".repeat(MAX_ALBUM_NAME + 10) }, "zz": { "name": "Bad" }, "a1234": { "name": "  " }, "a5678": {} }),
+            json!(["not", "an", "object"]),
+            json!({}),
+        ];
+        for (i, folder) in folders.iter().enumerate() {
+            for (k, top) in names.iter().enumerate() {
+                let entries: serde_json::Map<String, Value> = photos.iter().enumerate().map(|(j, p)| (format!("p{j}.jpg"), p.clone())).collect();
+                let doc = json!({ "dalica": { "version": 1 }, "folder": folder, "photos": entries, "albums": top });
+                let sidecar = Sidecar::parse(&serde_json::to_vec(&doc).unwrap(), &Limits::default()).unwrap();
+                assert_eq!(dalica_scan::folder_sort(&sidecar), read_folder(&sidecar).photo_sort(PhotoSort::default()), "folder {i}");
+                let store = match read_album_names(&sidecar).0 {
+                    Reading::Usable(n) => n,
+                    Reading::Unusable => BTreeMap::new(),
+                };
+                assert_eq!(dalica_scan::album_names(&sidecar), store, "names {k}");
+                for j in 0..=photos.len() {
+                    let name = format!("p{j}.jpg");
+                    let store = match read_photo(&sidecar, &name).albums {
+                        Reading::Usable(m) => m,
+                        Reading::Unusable => BTreeMap::new(),
+                    };
+                    assert_eq!(dalica_scan::photo_albums(&sidecar, &name), store, "photo {j}");
+                }
+            }
+        }
+        // The cases are not all empty.
+        let doc = json!({ "photos": { "p.jpg": photos[0] }, "albums": names[0], "folder": folders[0] });
+        let sidecar = Sidecar::parse(&serde_json::to_vec(&doc).unwrap(), &Limits::default()).unwrap();
+        assert_eq!(dalica_scan::photo_albums(&sidecar, "p.jpg").len(), 2);
+        assert_eq!(dalica_scan::album_names(&sidecar).values().map(String::as_str).collect::<Vec<_>>(), ["Trams", "Best of 2026"]);
+        assert!(dalica_scan::folder_sort(&sidecar).reverse);
     }
 
     #[test]

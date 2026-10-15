@@ -177,7 +177,16 @@ Format rules:
     time alone).
   - A scan reading a folder sidecar follows the same rules: `dalica-store` `mapping::read_photo`
     (`albums`), `mapping::read_folder` (`sort`, `reverse`, `FolderReading::photo_sort`) and
-    `mapping::read_album_names`.
+    `mapping::read_album_names` (`dalica-scan` reads them on the scan's thread with the same
+    rules, a test holding the two together). **Built (M9.10).** As for the M6 fields, only what
+    the model does not know comes in, in the op that adds it, so no sidecar write can run in
+    between: a new folder takes its sort, a new photo its memberships with their keys; an album
+    the model lacks is created with its definition from `albums.json` when it has one, else under
+    the name the folder gives it (dated by its newest photo); a membership of an album named
+    nowhere, or deleted in this session, stays in the file unused. A folder whose sidecar cannot
+    be read takes its photos' memberships from `albums.json`'s copy of the order. A rebuild's
+    scan first waits until every write sent before it landed (sidecars, `albums.json`), so it
+    never reads a file a pending write would change.
 - Readers accept a BOM and CRLF; a duplicate key takes the later value. Nesting is bounded
   (`security.md` §8).
 - `dalica.missing` is Dalica's own bookkeeping for stale entries (§7): an object from a photo's
@@ -323,12 +332,26 @@ their bytes at every level, unknown keys and entries kept verbatim):
 - It is written after album changes, merged into the file on disk (entries of albums the library
   no longer has go), only when its bytes change, through the atomic replace over the version just
   read. A damaged file is set aside as `albums.json.corrupt-<time>` and reported, and a new one
-  written.
+  written. **Built (M9.10: `crates/engine/src/albums_file.rs`).** The engine writes it on the I/O
+  worker after every op that changes an album, a membership or a cover, or moves, renames or
+  removes photos or folders while there are albums; it is held while scans apply what they found
+  and while a rebuild runs (written once they are done), and read when the library opens (a
+  damaged or missing one is written anew from the model; one that reads is never written over
+  at open). "No longer has" means albums the session saw go: an entry of an album the session
+  never had in its model (the index was lost and no scan brought it back yet) is kept as the
+  file says it.
 - **Rebuilding the albums:** definitions and covers come from `albums.json`; an album it lacks
   whose name a folder's top-level `"albums"` carries is created under that name (dated by its
   newest photo; description, place and cover empty), so losing `albums.json` loses no album and no
   order. Memberships come from every folder sidecar, sorted by key (§3.2). Deleting an album
-  removes its name from the folders, so it never comes back from them.
+  removes its name from the folders, so it never comes back from them. In the engine (M9.10) the
+  rebuild's scan reads `albums.json` on its thread before the folders; once every folder is in,
+  the albums it defines that no folder brought back (an empty album) are created, its definitions
+  given and its covers set where the photo is a member. A rebuild into an empty model (a lost
+  index) does this even when cancelled, so `albums.json` written afterwards still holds every
+  album. Deleting an album (or undoing its creation) leaves its photos' entries in the sidecars
+  as written, unnamed and never used again (an album the library does not have is not the
+  model's to write).
 
 `<cache>/thumbs/` in Dalica's cache folder (`control-protocol.md` §2.1: Linux
 `$XDG_CACHE_HOME/dalica/thumbs`, macOS `~/Library/Caches/Dalica/thumbs`, Windows
@@ -612,8 +635,10 @@ ids are the same everywhere (`control-protocol.md` §5.4).
     job; the result is applied a few hundred photos per frame and diffed again if anything else
     changed the library meanwhile, so an edit made in between is never overwritten. A file renamed
     in place (same size and modification time) keeps its photo id and star; a renamed or moved
-    folder keeps its folder and photo ids, stars and sketches; a folder moved in from elsewhere
-    brings its stars in its sidecar. Rescans and the verification pass wait while a file job
+    folder keeps its folder and photo ids, stars and sketches, and everything else the model said
+    about it and its photos (captions, tags, recipes, dates, memberships and covers, its sort, the
+    index-only facts and times: M9.10), put back right after the op that moved it; a folder moved
+    in from elsewhere brings its stars and the rest of its sidecar, album memberships included. Rescans and the verification pass wait while a file job
     (Save, Undo Save, Revert, Save a Copy, Export, a move, copy, rename or delete) is writing, and
     a rescan or a full scan (start-up, the verification pass, a folder just added, a rebuild)
     running when one starts is put off, its job ending as "put off while files are written", and

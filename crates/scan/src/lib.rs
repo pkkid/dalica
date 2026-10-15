@@ -50,4 +50,4 @@ pub use walk::{
     BUDGET, Event, Failure, FoundFolder, FoundPhoto, HeaderReader, Options, Progress, Scan, Summary, Warning, default_reader, scan, scan_streaming,
     scan_with,
 };
-pub use walk::{HeaderBytesReader, default_bytes_reader, folder_info, photo_info};
+pub use walk::{HeaderBytesReader, album_names, default_bytes_reader, folder_info, folder_sort, photo_albums, photo_info};
