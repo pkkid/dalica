@@ -433,3 +433,90 @@ fn the_open_photos_preview_is_busy_until_its_final_arrives() {
     s.close_preview();
     assert_eq!(s.preview_busy(), 0);
 }
+
+/// Runs `cmd` on photo `id` as a save job and waits for it and what it started.
+fn save_job(s: &mut Session, cmd: &str, params: serde_json::Value) {
+    let reply = s.execute(cmd, &params).unwrap();
+    let job = serde_json::from_value(reply["job"].clone()).unwrap();
+    let entry = s.wait_job(job, WAIT).unwrap();
+    assert!(entry.state.is_finished(), "{cmd}: {:?}", entry.state);
+    s.wait_idle();
+}
+
+const EDIT: &str = "tuning(0.6,0,0,0.4,none)";
+const BIG: (u32, u32) = (4000, 4000);
+
+/// Photo `id`'s preview, opened in a box larger than the photo (the file itself while unedited).
+fn open_big(s: &mut Session, id: PhotoId) -> Arc<Rgba8> {
+    s.open_preview(id, BIG).unwrap();
+    assert!(s.wait_preview(WAIT));
+    s.preview().unwrap().image.clone()
+}
+
+/// After a Save the open preview is the saved file, not the render of the original kept ready
+/// from before the edit (its recipe, empty again, and its box are the same; its file is not).
+#[test]
+fn after_a_save_the_preview_is_the_saved_file() {
+    let (_dir, folder, mut s, ids) = setup(1);
+    let original = open_big(&mut s, ids[0]);
+    assert!(*original == decoded(&folder, 0), "unedited, the preview is the file");
+    apply(&mut s, ids[0], EDIT);
+    assert!(s.wait_preview(WAIT));
+    assert!(*s.preview().unwrap().image != *original, "the edit shows");
+
+    save_job(&mut s, "photo.save", json!({ "ids": [ids[0]], "confirm": true }));
+    assert!(s.library().info(ids[0]).edits.is_empty(), "saved: no edits left");
+    assert!(s.wait_preview(WAIT));
+    let saved = s.preview().unwrap();
+    assert!(saved.recipe.is_empty());
+    let on_disk = decoded(&folder, 0);
+    assert!(on_disk != *original, "the file holds the edit");
+    assert!(*saved.image != *original, "the preview no longer shows the original");
+    assert!(*saved.image == on_disk, "the preview is the saved file");
+}
+
+/// After Undo Save the preview is the original with the edits again, not a render of the saved
+/// file with the same recipe kept ready by a prefetch: saved, edited once more and that edit
+/// undone (the saved file with the edit is prefetched meanwhile), then Undo Save.
+#[test]
+fn after_undo_save_the_preview_is_the_original_with_the_edits() {
+    let (_dir, folder, mut s, ids) = setup(2);
+    let original = open_big(&mut s, ids[0]);
+    apply(&mut s, ids[0], EDIT);
+    assert!(s.wait_preview(WAIT));
+    save_job(&mut s, "photo.save", json!({ "ids": [ids[0]], "confirm": true }));
+    assert!(s.wait_preview(WAIT));
+    apply(&mut s, ids[0], EDIT);
+    assert!(s.wait_preview(WAIT));
+    // The neighbour is opened, and the saved photo with the edit prefetched beside it.
+    open_big(&mut s, ids[1]);
+    s.prefetch_previews(&[ids[0]]);
+    assert!(s.wait_preview(WAIT));
+    s.execute("photo.history.undo", &json!({ "id": ids[0] })).unwrap();
+    save_job(&mut s, "photo.undoSave", json!({ "ids": [ids[0]] }));
+    assert_eq!(s.library().info(ids[0]).edits, strings(&[EDIT]), "the edit is back, unsaved");
+    let back = decoded(&folder, 0);
+    assert!(back == *original, "the original is back on disk");
+
+    let undone = open_big(&mut s, ids[0]);
+    let expected = dalica_edit::render(dalica_edit::Source::upright(&back), &recipe(&[EDIT]), Target::Full).unwrap();
+    assert!(*undone == expected, "the preview is the original with the edit");
+}
+
+/// After a Revert the preview is the original, not the saved file prefetched beside a neighbour.
+#[test]
+fn after_a_revert_the_preview_is_the_original() {
+    let (_dir, folder, mut s, ids) = setup(2);
+    let original = open_big(&mut s, ids[0]);
+    apply(&mut s, ids[0], EDIT);
+    assert!(s.wait_preview(WAIT));
+    save_job(&mut s, "photo.save", json!({ "ids": [ids[0]], "confirm": true }));
+    open_big(&mut s, ids[1]);
+    s.prefetch_previews(&[ids[0]]);
+    assert!(s.wait_preview(WAIT));
+    save_job(&mut s, "photo.revert", json!({ "ids": [ids[0]], "confirm": true }));
+    assert!(s.library().info(ids[0]).edits.is_empty(), "reverted: no edits");
+    assert!(decoded(&folder, 0) == *original, "the original is back on disk");
+    let reverted = open_big(&mut s, ids[0]);
+    assert!(*reverted == *original, "the preview is the original again");
+}

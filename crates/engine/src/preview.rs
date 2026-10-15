@@ -196,8 +196,9 @@ pub(crate) struct Preview {
     open: Option<Open>,
     /// Screen-size sources, most recently used first.
     sources: VecDeque<(Source, Render, Arc<Screen>)>,
-    /// Prefetched previews, most recently made first.
-    ready: VecDeque<(PhotoId, Rendered)>,
+    /// Prefetched previews with the file they were made from, most recently made first: a file
+    /// changed since (a Save, an Undo Save, a Revert, an outside edit) never matches.
+    ready: VecDeque<(PhotoId, Source, Rendered)>,
     /// Source loads on their way, with their priority.
     loading: HashMap<PhotoId, Priority>,
     prefetching: HashSet<PhotoId>,
@@ -307,9 +308,9 @@ impl Preview {
         }
     }
 
-    fn keep_ready(&mut self, photo: PhotoId, rendered: Rendered) {
-        self.ready.retain(|(p, _)| *p != photo);
-        self.ready.push_front((photo, rendered));
+    fn keep_ready(&mut self, photo: PhotoId, file: Source, rendered: Rendered) {
+        self.ready.retain(|(p, _, _)| *p != photo);
+        self.ready.push_front((photo, file, rendered));
         self.ready.truncate(READY);
     }
 
@@ -505,7 +506,7 @@ impl Session {
             let Some(file) = file_of(self, id) else { continue };
             let texts = self.library.info(id).edits.clone();
             let have = self.preview.sources.iter().any(|(f, r, _)| *f == file && *r == ladder.render);
-            let ready = self.preview.ready.iter().any(|(p, r)| *p == id && r.recipe == texts && r.fit == fit && r.scale >= 1.0);
+            let ready = self.preview.ready.iter().any(|(p, f, r)| *p == id && *f == file && r.recipe == texts && r.fit == fit && r.scale >= 1.0);
             if (have && ready) || self.preview.loading.contains_key(&id) {
                 continue;
             }
@@ -683,8 +684,9 @@ impl Session {
             self.request_window();
         }
         if !draft
-            && let Some(at) = self.preview.ready.iter().position(|(p, r)| *p == photo && r.recipe == texts && r.fit == fit && r.scale >= 1.0)
-            && let Some((_, rendered)) = self.preview.ready.get(at).cloned()
+            && let Some(at) =
+                self.preview.ready.iter().position(|(p, f, r)| *p == photo && *f == file && r.recipe == texts && r.fit == fit && r.scale >= 1.0)
+            && let Some((_, _, rendered)) = self.preview.ready.get(at).cloned()
         {
             self.show(generation, Quality::Final, rendered);
             return;
@@ -820,7 +822,7 @@ impl Session {
                     None => None,
                 };
                 if let Some(r) = &frame {
-                    self.preview.keep_ready(photo, r.clone());
+                    self.preview.keep_ready(photo, file.clone(), r.clone());
                 }
                 let Some(open) = self.preview.open.as_ref().filter(|o| o.photo == photo && o.file == file) else { return };
                 let (generation, wanted, fit, draft) = (open.want.generation, open.want.recipe.clone(), open.fit, open.want.draft);
