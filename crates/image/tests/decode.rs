@@ -2,32 +2,14 @@
 //! per-channel mean and standard deviation over an 8 × 8 grid, with a tolerance. On a mismatch the
 //! test writes actual and expected PNGs under `target/test-output/image/` to look at.
 
-use std::path::PathBuf;
+use crate::common::{assert_cells_close, cases, rgba};
 use std::time::Instant;
 
 use dalica_image::color::load_profile;
 use dalica_image::formats;
-use dalica_image::{
-    ColorModel, DecodeOptions, Error, Format, Limits, RawKind, Rgba8, decode, decode_as, decode_thumbnail, decode_with, read_header, sniff,
-};
-use dalica_scenes::{ByteOrder, Exif, Scene, fingerprint, jpeg, png};
+use dalica_image::{ColorModel, DecodeOptions, Error, Format, Limits, RawKind, decode, decode_as, decode_thumbnail, decode_with, read_header, sniff};
+use dalica_scenes::{ByteOrder, Exif, Scene, jpeg, png};
 use proptest::prelude::*;
-
-/// Fails (writing actual/expected PNGs) unless the fingerprints agree within `tol` per value.
-fn assert_close(case: &str, actual: &Rgba8, expected: &Rgba8, tol: f64) {
-    let e = fingerprint::fingerprint(expected.width, expected.height, &expected.data);
-    if let Err(m) = fingerprint::check(actual.width, actual.height, &actual.data, &e, tol) {
-        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/image");
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join(format!("{case}-actual.png")), &m.actual_png).unwrap();
-        std::fs::write(dir.join(format!("{case}-expected.png")), fingerprint::png_rgba(expected.width, expected.height, &expected.data)).unwrap();
-        panic!("{case}: {} (PNGs in {})", m.message, dir.display());
-    }
-}
-
-fn rgba(img: &dalica_scenes::Rgb8) -> Rgba8 {
-    Rgba8 { width: img.width, height: img.height, data: img.data.as_chunks::<3>().0.iter().flat_map(|&[r, g, b]| [r, g, b, 255]).collect() }
-}
 
 fn camera(scene: &Scene, o: u8) -> Vec<u8> {
     let exif = Exif { orientation: o, thumbnail: Some(160), byte_order: if o > 4 { ByteOrder::Big } else { ByteOrder::Little }, ..Exif::default() };
@@ -39,11 +21,11 @@ fn each_orientation_decodes_upright() {
     let scene = Scene::new(17, 240, 160);
     let source = rgba(&scene.render().unwrap());
     let reference = decode(&camera(&scene, 1), &Limits::default()).unwrap();
-    assert_close("orientation-1-vs-source", &reference, &source, 3.0);
+    assert_cells_close("orientation-1-vs-source", &reference, &source, 3.0);
     for o in 2..=8 {
         let img = decode(&camera(&scene, o), &Limits::default()).unwrap();
         assert_eq!((img.width, img.height), (240, 160), "orientation {o}");
-        assert_close(&format!("orientation-{o}"), &img, &reference, 3.0);
+        assert_cells_close(&format!("orientation-{o}"), &img, &reference, 3.0);
     }
 }
 
@@ -55,7 +37,7 @@ fn thumbnails_are_upright_and_fit() {
         let t = decode_thumbnail(&camera(&scene, o), 120, &Limits::default()).unwrap();
         assert_eq!((t.width, t.height), (120, 80), "orientation {o}");
         let expected = dalica_image::resize::fit(&full, 120).unwrap();
-        assert_close(&format!("thumbnail-{o}"), &t, &expected, 3.0);
+        assert_cells_close(&format!("thumbnail-{o}"), &t, &expected, 3.0);
     }
 }
 
@@ -119,25 +101,11 @@ fn past_64_megapixels_a_thumbnail_comes_from_the_embedded_copy() {
 }
 
 #[test]
-fn truncated_files_decode_or_fail_but_never_panic() {
-    for bytes in [camera(&Scene::new(3, 96, 64), 6), png(&Scene::new(3, 96, 64)).unwrap()] {
-        for len in (0..bytes.len()).step_by(7) {
-            let _ = decode(&bytes[..len], &Limits::default());
-            let _ = decode_thumbnail(&bytes[..len], 32, &Limits::default());
-        }
-    }
-}
-
-#[test]
-fn a_256_px_thumbnail_of_a_24_mp_scene() {
-    let bytes = jpeg(&Scene::new(24, 6000, 4000), 90, None).unwrap();
-    let start = Instant::now();
+fn a_256_px_thumbnail_of_a_large_jpeg() {
+    // 1.5 MP; speed is the release benches'.
+    let bytes = jpeg(&Scene::new(24, 1500, 1000), 90, None).unwrap();
     let t = decode_thumbnail(&bytes, 256, &Limits::default()).unwrap();
-    let elapsed = start.elapsed();
-    println!("256 px thumbnail of a 6000 x 4000 JPEG ({} KiB): {elapsed:?}", bytes.len() / 1024);
     assert_eq!((t.width, t.height), (256, 171));
-    // Generous: catches a pathological slowdown, not ordinary noise.
-    assert!(elapsed.as_secs() < 10, "{elapsed:?}");
 }
 
 /// A little-endian TIFF whose IFD0 holds one SHORT/LONG entry.
@@ -229,31 +197,54 @@ fn decoding_as_the_wrong_format_is_refused() {
     assert_eq!(decode_as(Format::Png, &png_bytes, &DecodeOptions::default(), &Limits::default()), decode(&png_bytes, &Limits::default()));
 }
 
-const HEADS: [&[u8]; 16] = [
+/// A magic number of every format and container (and the variants the format tests used).
+const HEADS: &[&[u8]] = &[
     b"\xff\xd8\xff",
     b"\x89PNG\r\n\x1a\n",
     b"II*\0",
     b"MM\0*",
+    b"II*\0\x08\0\0\0",
+    b"MM\0*\0\0\0\x08",
     b"II*\0\x10\0\0\0CR\x02\0",
     b"IIRO",
+    b"IIRO\x08\0\0\0",
+    b"MMOR\0\0\0\x08",
+    b"IIU\0\x08\0\0\0",
     b"RIFF\0\0\0\0WEBP",
+    b"RIFF\0\0\0\0WEBPVP8L",
+    b"RIFF\0\0\0\0WEBPVP8X",
+    b"RIFF\0\0\0\0WEBPVP8 ",
     b"GIF89a",
+    b"GIF87a",
     b"BM\0\0\0\0\0\0\0\0\x36",
+    b"BM\0\0\0\0\0\0\0\0\x36\0\0\0",
     b"\xff\x0a",
+    b"\0\0\0\x0cJXL \r\n\x87\n",
     b"8BPS",
     b"\0\0\0\x18ftypheic",
+    b"\0\0\0\x18ftypheic\0\0\0\0mif1heic",
+    b"\0\0\0\x18ftypmif1\0\0\0\0mif1avif",
+    b"\0\0\0\x18ftypmsf1\0\0\0\0msf1hevc",
     b"\0\0\0\x18ftypcrx ",
+    b"\0\0\0\x18ftypcrx \0\0\0\x01",
     b"FUJIFILMCCD-RAW ",
+    b"FUJIFILMCCD-RAW 0201",
+    b"II\x1a\0\0\0HEAPCCDR",
+    b"MM\0\0\0\x1aHEAPCCDR",
     b"\0MRM",
+    b"\0MRM\0\0\0\x40",
     b"FOVb",
+    b"FOVb\0\0\x02\0",
 ];
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(256))]
+    #![proptest_config(ProptestConfig::with_cases(cases(2048)))]
 
     /// Random bytes behind every magic number, through every entry point and every format
     /// module: `Ok` or `Err`, never a panic that escapes (a third-party decoder's caught panic is
-    /// an `Err` like any other).
+    /// an `Err` like any other). The one random-bytes test of the crate: each format's own tests
+    /// sweep truncations and corrupt real files (2048 cases in full mode, the sum of the
+    /// per-format random-bytes tests it replaced).
     #[test]
     fn random_bytes_never_panic_on_any_path(head in 0..HEADS.len(), tail in proptest::collection::vec(any::<u8>(), 0..2048), managed in any::<bool>()) {
         let bytes = [HEADS[head], &tail].concat();
@@ -263,6 +254,8 @@ proptest! {
         let _ = read_header(&bytes, &l);
         let _ = decode_with(&bytes, &options, &l);
         let _ = decode_thumbnail(&bytes, 64, &l);
+        let _ = dalica_image::exif::read(&bytes, &l);
+        let _ = formats::tiff::thumbnail(&bytes, 8, &options, &l);
         for f in Format::ALL {
             let _ = decode_as(f, &bytes, &options, &l);
             let _ = formats::embedded_thumbnail(f, &bytes, &l);

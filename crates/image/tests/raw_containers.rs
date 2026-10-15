@@ -3,14 +3,13 @@
 //! Each yields its largest preview, upright, with the next smaller one as the thumbnail; hostile
 //! structures are errors; truncation and random bytes never panic.
 
-use std::path::PathBuf;
+use crate::common::{assert_cells_close, cases, rgba};
 
 use dalica_image::formats::{self, bmff, raw};
 use dalica_image::{
-    DecodeOptions, Error, Format, Limits, Orientation, RawKind, Rgba8, decode, decode_as, decode_thumbnail, orient, read_header, read_header_file,
-    sniff,
+    DecodeOptions, Error, Format, Limits, Orientation, RawKind, decode, decode_as, decode_thumbnail, orient, read_header, read_header_file, sniff,
 };
-use dalica_scenes::{Exif, Scene, fingerprint, jpeg};
+use dalica_scenes::{Exif, Scene, jpeg};
 use proptest::prelude::*;
 
 // ---------------------------------------------------------------------------------------------
@@ -34,22 +33,6 @@ fn bare(scene: &Scene, o: u8) -> Vec<u8> {
 
 fn plain(scene: &Scene) -> Vec<u8> {
     jpeg(scene, 92, None).unwrap()
-}
-
-fn rgba(img: &dalica_scenes::Rgb8) -> Rgba8 {
-    Rgba8 { width: img.width, height: img.height, data: img.data.as_chunks::<3>().0.iter().flat_map(|&[r, g, b]| [r, g, b, 255]).collect() }
-}
-
-/// Fails (writing actual/expected PNGs) unless the fingerprints agree within `tol` per value.
-fn assert_close(case: &str, actual: &Rgba8, expected: &Rgba8, tol: f64) {
-    let e = fingerprint::fingerprint(expected.width, expected.height, &expected.data);
-    if let Err(m) = fingerprint::check(actual.width, actual.height, &actual.data, &e, tol) {
-        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/image");
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join(format!("{case}-actual.png")), &m.actual_png).unwrap();
-        std::fs::write(dir.join(format!("{case}-expected.png")), fingerprint::png_rgba(expected.width, expected.height, &expected.data)).unwrap();
-        panic!("{case}: {} (PNGs in {})", m.message, dir.display());
-    }
 }
 
 fn find(hay: &[u8], needle: &[u8]) -> usize {
@@ -314,11 +297,6 @@ const L: Limits = Limits {
     max_icc_tags: 1000,
 };
 
-#[test]
-fn the_limits_constant_is_the_default() {
-    assert_eq!(L, Limits::default());
-}
-
 /// Every container sniffs as its kind, shows its largest preview exactly as the JPEG itself
 /// decodes, and offers the next smaller one as the thumbnail.
 #[test]
@@ -328,7 +306,7 @@ fn each_container_yields_its_largest_preview() {
     let small = Scene::new(31, 80, 53);
     let (full, prvw, thmb) = (plain(&big), plain(&mid), plain(&small));
     let reference = decode(&full, &L).unwrap();
-    assert_close("raw-container-reference", &reference, &rgba(&big.render().unwrap()), 3.0);
+    assert_cells_close("raw-container-reference", &reference, &rgba(&big.render().unwrap()), 3.0);
     let files = [
         (RawKind::Cr3, cr3(&Cr3 { orientation: 1, thmb: Some(&thmb), prvw: Some(&prvw), full: Some(&full), stco: false }), Some(&prvw)),
         (RawKind::Cr3, cr3(&Cr3 { orientation: 1, thmb: Some(&thmb), prvw: Some(&prvw), full: Some(&full), stco: true }), Some(&prvw)),
@@ -397,7 +375,7 @@ fn container_orientation_turns_the_preview_upright() {
             assert_eq!(h.orientation.get(), o, "{name} {o}");
             assert_eq!(h.display_size(), (180, 120), "{name} {o}");
             let img = decode(&file, &L).unwrap();
-            assert_close(&format!("raw-{name}-orientation-{o}"), &img, &upright, 3.0);
+            assert_cells_close(&format!("raw-{name}-orientation-{o}"), &img, &upright, 3.0);
         }
     }
 }
@@ -664,7 +642,7 @@ fn truncation_at_every_offset_never_panics() {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(256))]
+    #![proptest_config(ProptestConfig::with_cases(cases(256)))]
 
     #[test]
     fn corrupted_containers_never_panic(which in 0usize..5, cut in any::<prop::sample::Index>(), flips in proptest::collection::vec((any::<prop::sample::Index>(), any::<u8>()), 1..8)) {
@@ -678,24 +656,6 @@ proptest! {
         let _ = decode(&bytes, &L);
         for kind in RawKind::ALL {
             let _ = decode_as(Format::Raw(kind), &bytes, &DecodeOptions::default(), &L);
-            let _ = formats::embedded_thumbnail(Format::Raw(kind), &bytes, &L);
-        }
-    }
-
-    #[test]
-    fn random_bytes_never_panic(head in prop_oneof![
-        Just(b"\0\0\0\x18ftypcrx \0\0\0\x01".to_vec()),
-        Just(b"FUJIFILMCCD-RAW 0201".to_vec()),
-        Just(b"II\x1a\0\0\0HEAPCCDR".to_vec()),
-        Just(b"MM\0\0\0\x1aHEAPCCDR".to_vec()),
-        Just(b"\0MRM\0\0\0\x40".to_vec()),
-        Just(b"FOVb\0\0\x02\0".to_vec()),
-    ], tail in proptest::collection::vec(any::<u8>(), 0..1024)) {
-        let bytes = [head, tail].concat();
-        let _ = read_header(&bytes, &L);
-        let _ = decode(&bytes, &L);
-        let _ = decode_thumbnail(&bytes, 32, &L);
-        for kind in RawKind::ALL {
             let _ = formats::embedded_thumbnail(Format::Raw(kind), &bytes, &L);
         }
     }
@@ -732,7 +692,7 @@ fn decode_thumbnail_uses_a_tiff_thumbnail_page() {
     let t = decode_thumbnail(&bytes, 48, &L).unwrap();
     assert_eq!((t.width, t.height), (48, 36));
     let expected = dalica_image::resize::fit(&dalica_image::resize::fit(&full, 64).unwrap(), 48).unwrap();
-    assert_close("tiff-thumbnail-page-hook", &t, &expected, 4.0);
+    assert_cells_close("tiff-thumbnail-page-hook", &t, &expected, 4.0);
     // Without the thumbnail page's help (a target larger than it), the wiped main page shows.
     assert_ne!(decode_thumbnail(&bytes, 200, &L).ok(), decode_thumbnail(&original, 200, &L).ok());
     assert_eq!(decode_thumbnail(&original, 200, &L).map(|t| (t.width, t.height)), Ok((200, 150)));

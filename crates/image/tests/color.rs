@@ -11,12 +11,12 @@
 //! Tolerances, per fingerprint value (cell mean or deviation, 0–255): 3.0 for JPEG (the encoder's
 //! loss, as in `decode.rs`), 1.5 for PNG (8-bit quantisation in the wide space).
 
+use crate::common::{assert_close, assert_fingerprint, distance, rgba};
 use std::borrow::Cow;
-use std::path::PathBuf;
 
 use dalica_image::color;
 use dalica_image::{DecodeOptions, Error, Limits, Rgba8, decode_with};
-use dalica_scenes::{Scene, fingerprint};
+use dalica_scenes::Scene;
 use image::codecs::jpeg::JpegEncoder;
 use image::{ExtendedColorType, ImageEncoder};
 use moxcms::{ColorProfile, Layout};
@@ -25,47 +25,6 @@ const JPEG_TOL: f64 = 3.0;
 const PNG_TOL: f64 = 1.5;
 const ON: DecodeOptions = DecodeOptions { color_managed: true };
 const OFF: DecodeOptions = DecodeOptions { color_managed: false };
-
-fn out_dir() -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/image");
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
-fn rgba(img: &dalica_scenes::Rgb8) -> Rgba8 {
-    Rgba8 { width: img.width, height: img.height, data: img.data.as_chunks::<3>().0.iter().flat_map(|&[r, g, b]| [r, g, b, 255]).collect() }
-}
-
-fn distance(a: &Rgba8, b: &Rgba8) -> f64 {
-    fingerprint::distance(&fingerprint::fingerprint(a.width, a.height, &a.data), &fingerprint::fingerprint(b.width, b.height, &b.data))
-}
-
-/// Fails (writing actual/expected PNGs) unless the fingerprints agree within `tol` per value.
-fn assert_close(case: &str, actual: &Rgba8, expected: &Rgba8, tol: f64) {
-    let d = distance(actual, expected);
-    if d > tol {
-        let dir = out_dir();
-        std::fs::write(dir.join(format!("{case}-actual.png")), fingerprint::png_rgba(actual.width, actual.height, &actual.data)).unwrap();
-        std::fs::write(dir.join(format!("{case}-expected.png")), fingerprint::png_rgba(expected.width, expected.height, &expected.data)).unwrap();
-        panic!("{case}: {d:.2} away from its reference, tolerance {tol} (PNGs in {})", dir.display());
-    }
-}
-
-/// Compares `img` with `fingerprints/<name>.json` (`DALICA_BLESS=1` stores it instead).
-fn assert_fingerprint(name: &str, img: &Rgba8, tol: f64) {
-    let dir = out_dir();
-    std::fs::write(dir.join(format!("{name}.png")), fingerprint::png_rgba(img.width, img.height, &img.data)).unwrap();
-    let stored = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("tests/fingerprints/{name}.json"));
-    if std::env::var_os("DALICA_BLESS").is_some() {
-        std::fs::write(&stored, fingerprint::to_json(&fingerprint::fingerprint(img.width, img.height, &img.data)) + "\n").unwrap();
-        println!("blessed {}", stored.display());
-    }
-    let expected = fingerprint::from_json(&std::fs::read_to_string(&stored).unwrap()).unwrap();
-    if let Err(m) = fingerprint::check(img.width, img.height, &img.data, &expected, tol) {
-        std::fs::write(dir.join(format!("{name}-actual.png")), &m.actual_png).unwrap();
-        panic!("{name}: {} (images in {})", m.message, dir.display());
-    }
-}
 
 // ---- Profiles ----------------------------------------------------------------------------------
 

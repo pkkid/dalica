@@ -8,7 +8,8 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 publish = false
-
+# Every integration test in one binary (tests/all.rs), linked once; see tests/all.rs.
+autotests = false
 
 [features]
 # HEIF/HEIC decoding through heic-rs (formats.md §3). Off by default: shipping an HEVC decoder is the
@@ -18,6 +19,21 @@ heif = ["dep:heic-rs"]
 # run by `cargo xtask test-corpus`. Off by default, so plain `cargo test` and `cargo xtask ci`
 # neither compile nor need them.
 corpus = []
+
+[[test]]
+name = "all"
+path = "tests/all.rs"
+
+# HEIF on its own: half of it needs the `heif` feature (`--features heif --test heif`).
+[[test]]
+name = "heif"
+path = "tests/heif.rs"
+
+# The pinned corpora (`cargo xtask test-corpus`): built only with the feature.
+[[test]]
+name = "corpus"
+path = "tests/corpus.rs"
+required-features = ["corpus"]
 
 [dependencies]
 dalica-core.workspace = true

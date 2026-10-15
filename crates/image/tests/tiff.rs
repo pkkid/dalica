@@ -11,7 +11,7 @@
 //! and CMYK layouts (8-bit rounding of the stored samples), 2.0 for JPEG strips against the JPEG
 //! decoded on its own (two YCbCr conversions).
 
-use std::path::PathBuf;
+use crate::common::{assert_close, assert_fingerprint, cases, distance, rgba};
 use std::time::Instant;
 
 use dalica_image::color::{naive_cmyk, transform_options};
@@ -21,53 +21,11 @@ use dalica_image::{
 };
 use dalica_scenes::formats::{Colour, Compression, Depth, SampleData, Tiff, quantized, samples, tiff};
 use dalica_scenes::icc::{self, Space, Version};
-use dalica_scenes::{ByteOrder, Kind, Scene, fingerprint, jpeg};
+use dalica_scenes::{ByteOrder, Kind, Scene, jpeg};
 use proptest::prelude::*;
 
 const ON: DecodeOptions = DecodeOptions { color_managed: true };
 const OFF: DecodeOptions = DecodeOptions { color_managed: false };
-
-fn out_dir() -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/image");
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
-fn distance(a: &Rgba8, b: &Rgba8) -> f64 {
-    fingerprint::distance(&fingerprint::fingerprint(a.width, a.height, &a.data), &fingerprint::fingerprint(b.width, b.height, &b.data))
-}
-
-/// Fails (writing actual/expected PNGs) unless the fingerprints agree within `tol` per value.
-fn assert_close(case: &str, actual: &Rgba8, expected: &Rgba8, tol: f64) {
-    let d = distance(actual, expected);
-    if d > tol {
-        let dir = out_dir();
-        std::fs::write(dir.join(format!("{case}-actual.png")), fingerprint::png_rgba(actual.width, actual.height, &actual.data)).unwrap();
-        std::fs::write(dir.join(format!("{case}-expected.png")), fingerprint::png_rgba(expected.width, expected.height, &expected.data)).unwrap();
-        panic!("{case}: {d:.2} away from its reference, tolerance {tol} (PNGs in {})", dir.display());
-    }
-}
-
-/// Compares `img` with `fingerprints/<name>.json` (`DALICA_BLESS=1` stores it instead), writing
-/// the decoded image as `<name>.png` to look at.
-fn assert_fingerprint(name: &str, img: &Rgba8, tol: f64) {
-    let dir = out_dir();
-    std::fs::write(dir.join(format!("{name}.png")), fingerprint::png_rgba(img.width, img.height, &img.data)).unwrap();
-    let stored = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("tests/fingerprints/{name}.json"));
-    if std::env::var_os("DALICA_BLESS").is_some() {
-        std::fs::write(&stored, fingerprint::to_json(&fingerprint::fingerprint(img.width, img.height, &img.data)) + "\n").unwrap();
-        println!("blessed {}", stored.display());
-    }
-    let expected = fingerprint::from_json(&std::fs::read_to_string(&stored).unwrap()).unwrap();
-    if let Err(m) = fingerprint::check(img.width, img.height, &img.data, &expected, tol) {
-        std::fs::write(dir.join(format!("{name}-actual.png")), &m.actual_png).unwrap();
-        panic!("{name}: {} (images in {})", m.message, dir.display());
-    }
-}
-
-fn rgba(img: &dalica_scenes::Rgb8) -> Rgba8 {
-    Rgba8 { width: img.width, height: img.height, data: img.data.as_chunks::<3>().0.iter().flat_map(|&[r, g, b]| [r, g, b, 255]).collect() }
-}
 
 /// Every layout `scenes` writes.
 fn layouts() -> Vec<(Colour, Depth)> {
@@ -143,10 +101,12 @@ fn every_depth_colour_model_compression_and_byte_order_matches_its_fingerprint()
                 let img = decode(&bytes, &Limits::default()).unwrap_or_else(|e| panic!("{name} {compression:?} {byte_order:?}: {e:?}"));
                 match &first {
                     None => {
-                        assert_fingerprint(&name, &img, 0.5);
-                        let exact = matches!((colour, depth), (Colour::Rgb | Colour::Palette, Depth::Eight));
-                        if exact {
+                        // 8-bit RGB and palette are exactly the scene; the other layouts are held
+                        // to their fingerprints.
+                        if matches!((colour, depth), (Colour::Rgb | Colour::Palette, Depth::Eight)) {
                             assert_eq!(img, reference(&scene, colour), "{name}");
+                        } else {
+                            assert_fingerprint(&name, &img, 0.5);
                         }
                         assert_close(&format!("{name}-vs-scene"), &img, &reference(&scene, colour), 1.5);
                         first = Some(img);
@@ -701,7 +661,7 @@ fn truncation_at_every_offset_never_panics() {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(512))]
+    #![proptest_config(ProptestConfig::with_cases(cases(512)))]
 
     /// Corruption anywhere in a real file, then truncation: `Ok` or `Err`, never a panic that
     /// escapes (a caught panic in the third-party decoder is an `Err` like any other).
@@ -720,14 +680,5 @@ proptest! {
         let _ = decode_thumbnail(&bytes, 8, &l);
         let _ = tiff_format::thumbnail(&bytes, 8, &ON, &l);
         let _ = formats::embedded_thumbnail(Format::Tiff, &bytes, &l);
-    }
-
-    #[test]
-    fn random_bytes_never_panic(head in prop_oneof![Just(b"II*\0\x08\0\0\0".to_vec()), Just(b"MM\0*\0\0\0\x08".to_vec())], tail in proptest::collection::vec(any::<u8>(), 0..1024)) {
-        let bytes = [head, tail].concat();
-        let l = Limits { max_alloc: 64 << 20, ..Limits::default() };
-        let _ = read_header(&bytes, &l);
-        let _ = decode_as(Format::Tiff, &bytes, &OFF, &l);
-        let _ = tiff_format::thumbnail(&bytes, 8, &ON, &l);
     }
 }

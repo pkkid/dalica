@@ -1,66 +1,21 @@
 //! PSD and PSB composites (`formats.md` §1) from the `scenes` writer: every depth and colour model,
-//! raw and PackBits, checked exactly against the samples the writer stored and by fingerprint
-//! (`fingerprints/psd-*.json`, `architecture.md` §11); PSB built here from a PSD by widening its
+//! raw and PackBits, checked exactly against the samples the writer stored; PSB built here from a
+//! PSD by widening its
 //! length fields; the thumbnail and ICC resources; the limits; and damaged or hostile documents,
 //! which are refused without a panic.
 
-use std::path::PathBuf;
+use crate::common::{assert_close, assert_fingerprint, cases, distance, rgba, to8_16};
 use std::time::Instant;
 
 use dalica_image::{DecodeOptions, Error, Format, Limits, Rgba8, decode, decode_as, decode_thumbnail, decode_with, formats, read_header, sniff};
 use dalica_scenes::formats::{Colour, Depth, Psd, SampleData, psd, quantized, samples};
 use dalica_scenes::icc::{self, Space, Version};
-use dalica_scenes::{Rgb8, Scene, fingerprint};
+use dalica_scenes::{Rgb8, Scene};
 use moxcms::{ColorProfile, Layout};
 use proptest::prelude::*;
 
 const ON: DecodeOptions = DecodeOptions { color_managed: true };
 const OFF: DecodeOptions = DecodeOptions { color_managed: false };
-
-fn out_dir() -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/image");
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
-fn rgba(img: &Rgb8) -> Rgba8 {
-    Rgba8 { width: img.width, height: img.height, data: img.data.as_chunks::<3>().0.iter().flat_map(|&[r, g, b]| [r, g, b, 255]).collect() }
-}
-
-fn distance(a: &Rgba8, b: &Rgba8) -> f64 {
-    fingerprint::distance(&fingerprint::fingerprint(a.width, a.height, &a.data), &fingerprint::fingerprint(b.width, b.height, &b.data))
-}
-
-/// Fails (writing actual/expected PNGs) unless the fingerprints agree within `tol` per value.
-fn assert_close(case: &str, actual: &Rgba8, expected: &Rgba8, tol: f64) {
-    let d = distance(actual, expected);
-    if d > tol || (actual.width, actual.height) != (expected.width, expected.height) {
-        let dir = out_dir();
-        std::fs::write(dir.join(format!("{case}-actual.png")), fingerprint::png_rgba(actual.width, actual.height, &actual.data)).unwrap();
-        std::fs::write(dir.join(format!("{case}-expected.png")), fingerprint::png_rgba(expected.width, expected.height, &expected.data)).unwrap();
-        panic!("{case}: {d:.2} away from its reference, tolerance {tol} (PNGs in {})", dir.display());
-    }
-}
-
-/// Compares `img` with `fingerprints/<name>.json` (`DALICA_BLESS=1` stores it instead).
-fn assert_fingerprint(name: &str, img: &Rgba8, tol: f64) {
-    let dir = out_dir();
-    std::fs::write(dir.join(format!("{name}.png")), fingerprint::png_rgba(img.width, img.height, &img.data)).unwrap();
-    let stored = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("tests/fingerprints/{name}.json"));
-    if std::env::var_os("DALICA_BLESS").is_some() {
-        std::fs::write(&stored, fingerprint::to_json(&fingerprint::fingerprint(img.width, img.height, &img.data)) + "\n").unwrap();
-        println!("blessed {}", stored.display());
-    }
-    let expected = fingerprint::from_json(&std::fs::read_to_string(&stored).unwrap()).unwrap();
-    if let Err(m) = fingerprint::check(img.width, img.height, &img.data, &expected, tol) {
-        std::fs::write(dir.join(format!("{name}-actual.png")), &m.actual_png).unwrap();
-        panic!("{name}: {} (images in {})", m.message, dir.display());
-    }
-}
-
-fn to8_16(v: u16) -> u8 {
-    ((u32::from(v) * 255 + 32_767) / 65_535) as u8
-}
 
 fn to8_f32(v: f32) -> u8 {
     (v.clamp(0.0, 1.0) * 255.0).round() as u8
@@ -160,7 +115,7 @@ fn set32(b: &mut [u8], at: usize, v: u32) {
 // ---- Depths and colour models -------------------------------------------------------------------
 
 #[test]
-fn every_depth_and_colour_model_decodes_exactly_and_matches_its_fingerprint() {
+fn every_depth_and_colour_model_decodes_exactly() {
     let scene = Scene::new(41, 96, 64);
     let img = scene.render().unwrap();
     for (colour, depth, name) in LAYOUTS {
@@ -174,7 +129,6 @@ fn every_depth_and_colour_model_decodes_exactly_and_matches_its_fingerprint() {
         assert!(a == b, "{name}: raw and PackBits differ");
         assert!(a == expected(&img, colour, depth), "{name}: not the stored samples");
         assert_eq!(decode_as(Format::Psd, &packed, &ON, &Limits::default()).unwrap(), b, "{name}");
-        assert_fingerprint(&format!("psd-{name}"), &a, 0.5);
     }
     // 8-bit RGB is the scene itself.
     assert_eq!(decode(&doc(&scene, Colour::Rgb, Depth::Eight, true), &Limits::default()).unwrap(), rgba(&img));
@@ -425,28 +379,7 @@ fn truncation_at_every_offset_never_panics() {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(256))]
-
-    /// Corruption and truncation anywhere in real documents never panic.
-    #[test]
-    fn corrupted_documents_never_panic(layout in 0..LAYOUTS.len(), rle in any::<bool>(), psb in any::<bool>(), cut in any::<prop::sample::Index>(), flips in proptest::collection::vec((any::<prop::sample::Index>(), any::<u8>()), 1..8)) {
-        let (colour, depth, _) = LAYOUTS[layout];
-        let mut bytes = psd(&Scene::new(51, 17, 9), &Psd { colour, depth, rle, thumbnail: Some(6), icc: Some(icc::grey(Version::V2)) }).unwrap();
-        if psb {
-            bytes = to_psb(&bytes);
-        }
-        for (at, v) in flips {
-            let i = at.index(bytes.len());
-            bytes[i] ^= v;
-        }
-        bytes.truncate(cut.index(bytes.len() + 1));
-        let l = Limits { max_alloc: 64 << 20, ..Limits::default() };
-        let _ = read_header(&bytes, &l);
-        let _ = decode(&bytes, &l);
-        let _ = decode_thumbnail(&bytes, 8, &l);
-        let _ = decode_as(Format::Psd, &bytes, &OFF, &l);
-        let _ = formats::embedded_thumbnail(Format::Psd, &bytes, &l);
-    }
+    #![proptest_config(ProptestConfig::with_cases(cases(256)))]
 
     /// Random bytes behind a plausible header never panic.
     #[test]

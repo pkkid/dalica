@@ -7,14 +7,14 @@
 //! and four IFDs, ORF's and RW2's header variants and RW2's JPEG tag, the Nikon, Olympus and Pentax
 //! maker-note preview pointers). No camera file is used or committed.
 
-use std::path::PathBuf;
+use crate::common::{assert_close, assert_fingerprint, cases, distance, rgba};
 
 use dalica_image::exif::{self, ColorSpace};
 use dalica_image::formats;
 use dalica_image::{
     ColorModel, DecodeOptions, Error, Format, Limits, RawKind, Rgba8, decode, decode_as, decode_thumbnail, decode_with, read_header, sniff,
 };
-use dalica_scenes::{ByteOrder, Exif, Scene, fingerprint, jpeg};
+use dalica_scenes::{ByteOrder, Exif, Scene, jpeg};
 use proptest::prelude::*;
 
 const RAW: Format = Format::Raw(RawKind::TiffBased);
@@ -492,47 +492,6 @@ fn expected_thumbnail(kind: Kind, p: &Parts) -> Option<Vec<u8>> {
 
 // ---- Checking pictures -------------------------------------------------------------------------
 
-fn out_dir() -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/image");
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
-fn rgba(img: &dalica_scenes::Rgb8) -> Rgba8 {
-    Rgba8 { width: img.width, height: img.height, data: img.data.as_chunks::<3>().0.iter().flat_map(|&[r, g, b]| [r, g, b, 255]).collect() }
-}
-
-fn distance(a: &Rgba8, b: &Rgba8) -> f64 {
-    fingerprint::distance(&fingerprint::fingerprint(a.width, a.height, &a.data), &fingerprint::fingerprint(b.width, b.height, &b.data))
-}
-
-/// Fails (writing actual/expected PNGs) unless the fingerprints agree within `tol` per value.
-fn assert_close(case: &str, actual: &Rgba8, expected: &Rgba8, tol: f64) {
-    let d = distance(actual, expected);
-    if d > tol || (actual.width, actual.height) != (expected.width, expected.height) {
-        let dir = out_dir();
-        std::fs::write(dir.join(format!("{case}-actual.png")), fingerprint::png_rgba(actual.width, actual.height, &actual.data)).unwrap();
-        std::fs::write(dir.join(format!("{case}-expected.png")), fingerprint::png_rgba(expected.width, expected.height, &expected.data)).unwrap();
-        panic!("{case}: {d:.2} away from its reference, tolerance {tol} (PNGs in {})", dir.display());
-    }
-}
-
-/// Compares `img` with `fingerprints/<name>.json` (`DALICA_BLESS=1` stores it instead).
-fn assert_fingerprint(name: &str, img: &Rgba8, tol: f64) {
-    let dir = out_dir();
-    std::fs::write(dir.join(format!("{name}.png")), fingerprint::png_rgba(img.width, img.height, &img.data)).unwrap();
-    let stored = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("tests/fingerprints/{name}.json"));
-    if std::env::var_os("DALICA_BLESS").is_some() {
-        std::fs::write(&stored, fingerprint::to_json(&fingerprint::fingerprint(img.width, img.height, &img.data)) + "\n").unwrap();
-        println!("blessed {}", stored.display());
-    }
-    let expected = fingerprint::from_json(&std::fs::read_to_string(&stored).unwrap()).unwrap();
-    if let Err(m) = fingerprint::check(img.width, img.height, &img.data, &expected, tol) {
-        std::fs::write(dir.join(format!("{name}-actual.png")), &m.actual_png).unwrap();
-        panic!("{name}: {} (images in {})", m.message, dir.display());
-    }
-}
-
 fn upright() -> Rgba8 {
     rgba(&Scene::new(SEED, 240, 160).render().unwrap())
 }
@@ -994,11 +953,8 @@ fn truncation_at_every_offset_never_panics() {
     }
 }
 
-const HEADS: [&[u8]; 6] =
-    [b"II*\0\x08\0\0\0", b"MM\0*\0\0\0\x08", b"II*\0\x10\0\0\0CR\x02\0", b"IIRO\x08\0\0\0", b"MMOR\0\0\0\x08", b"IIU\0\x08\0\0\0"];
-
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(256))]
+    #![proptest_config(ProptestConfig::with_cases(cases(256)))]
 
     /// Corruption anywhere in a synthetic raw, then truncation: never a panic.
     #[test]
@@ -1018,18 +974,6 @@ proptest! {
         if let Ok(e) = exif::read(&bytes, &l) && let Some(s) = e.strip_thumbnail {
             let _ = exif::strip_thumbnail_rgba(&bytes, &s, &ON, &l);
         }
-    }
-
-    /// Random bytes behind every raw header variant: never a panic.
-    #[test]
-    fn random_bytes_never_panic(head in 0..HEADS.len(), tail in proptest::collection::vec(any::<u8>(), 0..1024)) {
-        let bytes = [HEADS[head], &tail].concat();
-        let l = Limits { max_alloc: 64 << 20, ..Limits::default() };
-        let _ = sniff(&bytes);
-        let _ = read_header(&bytes, &l);
-        let _ = decode_as(RAW, &bytes, &OFF, &l);
-        let _ = formats::embedded_thumbnail(RAW, &bytes, &l);
-        let _ = exif::read(&bytes, &l);
     }
 }
 
