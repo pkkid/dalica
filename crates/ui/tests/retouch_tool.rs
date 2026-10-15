@@ -5,18 +5,16 @@
 //! leave the recipe and the preview as they were; + / − (and =) resize the brush within what the
 //! operation stores; the target previews the texture under the pointer, and a planted blemish is
 //! gone from the preview; the actions refuse bad parameters; the panel's fingerprints at
-//! 1400 × 900 and 900 × 600.
+//! 1400 × 900.
 //!
 //! `DALICA_SHOTS=<dir>` writes the screenshots there too.
 
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::common::{FRAMES, new_driver, out_dir};
+use crate::common::{FRAMES, LARGE, check_rect, new_driver};
 use dalica_core::PhotoId;
 use dalica_engine::Session;
-use dalica_scenes::fingerprint;
 use dalica_ui::control::{Config, Connection, Control, Reply, Request, serve};
 use dalica_ui::headless::{PointerEvent, PointerKind};
 use dalica_ui::panels::edit::canvas::{self, View};
@@ -27,7 +25,6 @@ use dalica_ui_kit::WidgetInfo;
 use egui::{Modifiers, PointerButton, Pos2, pos2};
 use serde_json::{Value, json};
 
-const SIZES: [(u32, u32); 2] = [(1400, 900), (900, 600)];
 /// The test photo and its planted blemish: a dark disc at `BLEMISH` (normalised) of radius
 /// `BLEMISH_R` pixels.
 const PHOTO: (u32, u32) = (600, 400);
@@ -495,48 +492,21 @@ fn the_actions_refuse_bad_parameters() {
 /// Checks the pixels of `rect` of the window against `tests/fingerprints/<name>.json`
 /// (`DALICA_BLESS=1` writes it), and writes them to the test output (and to `$DALICA_SHOTS`).
 fn check_region(t: &T, name: &str, rect: [f32; 4]) {
-    let shot = t.d.screenshot().unwrap();
-    let [x0, y0] = [rect[0].round() as u32, rect[1].round() as u32];
-    let [x1, y1] = [((rect[0] + rect[2]).round() as u32).min(shot.width), ((rect[1] + rect[3]).round() as u32).min(shot.height)];
-    let mut rgba = Vec::new();
-    for y in y0..y1 {
-        for x in x0..x1 {
-            rgba.extend_from_slice(&shot.pixel(x, y).unwrap());
-        }
-    }
-    let (w, h) = (x1 - x0, y1 - y0);
-    let png = fingerprint::png_rgba(w, h, &rgba);
-    std::fs::write(out_dir().join(format!("{name}.png")), &png).unwrap();
-    if let Some(dir) = std::env::var_os("DALICA_SHOTS") {
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(Path::new(&dir).join(format!("{name}.png")), &png).unwrap();
-        std::fs::write(Path::new(&dir).join(format!("{name}-window.png")), fingerprint::png_rgba(shot.width, shot.height, &shot.rgba)).unwrap();
-    }
-    let stored = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("tests/fingerprints/{name}.json"));
-    if std::env::var_os("DALICA_BLESS").is_some() {
-        std::fs::write(&stored, fingerprint::to_json(&fingerprint::fingerprint(w, h, &rgba)) + "\n").unwrap();
-    }
-    let expected = fingerprint::from_json(&std::fs::read_to_string(&stored).unwrap()).unwrap();
-    if let Err(m) = fingerprint::check(w, h, &rgba, &expected, 2.0) {
-        std::fs::write(out_dir().join(format!("{name}-actual.png")), &m.actual_png).unwrap();
-        panic!("{name}: {}", m.message);
-    }
+    check_rect(&t.d, name, rect);
 }
 
-/// The Retouch panel with one patch made, and the photo with a target waiting and its circle, at
-/// both sizes.
+/// The Retouch panel with one patch made, and the photo with a target waiting and its circle.
 #[test]
 fn the_retouch_panel_matches_its_fingerprints() {
-    for (w, h) in SIZES {
-        let mut t = setup((w, h));
-        click(&mut t, "tool:retouch");
-        action(&mut t, "patch", json!({ "target": [0.7, 0.3], "source": [0.8, 0.3] }));
-        click_photo(&mut t, BLEMISH);
-        hover_photo(&mut t, [0.9, 0.9]);
-        shown_recipe(&mut t);
-        let panel = widget(&t, "region:editPanel").rect;
-        check_region(&t, &format!("edit-retouch-panel-{w}x{h}"), panel);
-        let photo = widget(&t, "region:canvas").rect;
-        check_region(&t, &format!("edit-retouch-photo-{w}x{h}"), photo);
-    }
+    let (w, h) = LARGE;
+    let mut t = setup((w, h));
+    click(&mut t, "tool:retouch");
+    action(&mut t, "patch", json!({ "target": [0.7, 0.3], "source": [0.8, 0.3] }));
+    click_photo(&mut t, BLEMISH);
+    hover_photo(&mut t, [0.9, 0.9]);
+    shown_recipe(&mut t);
+    let panel = widget(&t, "region:editPanel").rect;
+    check_region(&t, &format!("edit-retouch-panel-{w}x{h}"), panel);
+    let photo = widget(&t, "region:canvas").rect;
+    check_region(&t, &format!("edit-retouch-photo-{w}x{h}"), photo);
 }

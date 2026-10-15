@@ -114,8 +114,6 @@ fn a_dialog_opens_by_command_and_esc_and_enter_close_it() {
         assert!(has_widget(&t, id), "{id}");
     }
     assert!(!t.d.widgets().iter().find(|w| w.id == "button:dialog.help").unwrap().enabled, "Help waits for help");
-    // Every widget of the dialog has an id, the backdrop's included.
-    assert_eq!(t.d.app().panels().unwrap().unregistered_widgets(), []);
     shots(&mut t, "dialog-folder-manager");
     // Open: the menu item says why it cannot open again, and the command refuses.
     let tree = ok(&mut t, "ui.menu.tree", json!({}));

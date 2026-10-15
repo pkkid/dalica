@@ -6,14 +6,14 @@
 //!   as the engine names the first photo;
 //! - Rename renames the three files `-001`, `-002`, `-003` in light-table order, as one undo step,
 //!   and Edit ▸ Undo puts the names back; Cancel and Esc rename nothing;
-//! - every widget has an id, and the dialog matches its fingerprints at 1400 × 900 and 900 × 600
-//!   (`tests/fingerprints/dialog-rename-files-<w>x<h>.json`; `DALICA_BLESS=1` stores new ones,
+//! - the dialog matches its fingerprints at 1400 × 900 (at 900 × 600 they only have to fit)
+//!   (`tests/fingerprints/dialog-rename-files-1400x900.json`; `DALICA_BLESS=1` stores new ones,
 //!   renders go to `target/test-output/ui/`).
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::common::{FRAMES, check_region, new_driver, put_dated_jpeg, try_widget};
+use crate::common::{FRAMES, LARGE, check_sizes, new_driver, put_dated_jpeg, try_widget};
 use dalica_core::PhotoId;
 use dalica_engine::Session;
 use dalica_ui::dialogs::rename_files::{self, ADD_DATE_ID, ADD_SIZE_ID, NAME_ID};
@@ -21,7 +21,6 @@ use dalica_ui::state::RenameDraft;
 use dalica_ui::{App, Driver};
 use serde_json::json;
 
-const SIZES: [(u32, u32); 2] = [(1400, 900), (900, 600)];
 const DIALOG: &str = "dialog:renameFiles";
 const RENAME: &str = "button:dialog.rename";
 
@@ -206,19 +205,16 @@ fn cancel_and_esc_rename_nothing_and_one_photo_gets_no_number() {
     assert!(on_disk(&fx.folder).contains(&"Tram.jpg".to_string()));
 }
 
-/// Every widget has an id, and the dialog (a name typed, the date box ticked) matches its
-/// fingerprints at both window sizes.
+/// The dialog (a name typed, the date box ticked) matches its fingerprint, and fits the small
+/// window.
 #[test]
-fn the_dialog_matches_its_fingerprints_at_both_sizes() {
-    for size in SIZES {
-        let (w, h) = size;
-        let mut fx = fixture(size);
-        let ids = fx.ids.clone();
-        open(&mut fx.d, &ids);
-        fx.d.type_text("Lisbon").unwrap();
-        fx.d.click(ADD_DATE_ID).unwrap();
-        fx.d.settle(FRAMES).unwrap();
-        assert_eq!(example(&fx.d), "Example: Lisbon-2026-06-04-001.jpg");
-        check_region(&fx.d, DIALOG, &format!("dialog-rename-files-{w}x{h}"));
-    }
+fn the_dialog_matches_its_fingerprint_and_fits_the_small_window() {
+    let mut fx = fixture(LARGE);
+    let ids = fx.ids.clone();
+    open(&mut fx.d, &ids);
+    fx.d.type_text("Lisbon").unwrap();
+    fx.d.click(ADD_DATE_ID).unwrap();
+    fx.d.settle(FRAMES).unwrap();
+    assert_eq!(example(&fx.d), "Example: Lisbon-2026-06-04-001.jpg");
+    check_sizes(&mut fx.d, DIALOG, "dialog-rename-files");
 }

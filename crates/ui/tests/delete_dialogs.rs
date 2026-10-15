@@ -9,8 +9,8 @@
 //!   files) to the trash?"; Cancel keeps it, Move to Trash trashes it with its non-picture files
 //!   and subfolders;
 //! - with Options → "Delete from disk without asking" on, Delete trashes at once;
-//! - every widget has an id, and both questions match their fingerprints at 1400 × 900 and
-//!   900 × 600 (`tests/fingerprints/dialog-delete-<photos|folder>-<w>x<h>.json`;
+//! - both questions match their fingerprints at 1400 × 900 and fit 900 × 600
+//!   (`tests/fingerprints/dialog-delete-<photos|folder>-1400x900.json`;
 //!   `DALICA_BLESS=1` stores new ones, renders go to `target/test-output/ui/`).
 //!
 //! These tests use the real OS trash and put back what they sent there where the system allows
@@ -19,7 +19,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::common::{FRAMES, check_region, new_driver, try_widget};
+use crate::common::{FRAMES, LARGE, check_sizes, new_driver, try_widget};
 use dalica_core::{FolderId, PhotoId};
 use dalica_engine::Session;
 use dalica_engine::cmd::delete::{RESTORES, UNDO_UNSUPPORTED};
@@ -28,7 +28,6 @@ use dalica_ui::state::{DeleteFolder, DeletePhotos, DialogKind};
 use dalica_ui::{App, Driver};
 use serde_json::json;
 
-const SIZES: [(u32, u32); 2] = [(1400, 900), (900, 600)];
 const TRASH: &str = "button:dialog.moveToTrash";
 
 fn jpeg(seed: u64) -> Vec<u8> {
@@ -241,27 +240,24 @@ fn delete_without_asking_skips_the_question() {
     }
 }
 
-/// Every widget has an id, and both questions match their fingerprints at both window sizes.
+/// Both questions match their fingerprints, and fit the small window.
 #[test]
-fn the_questions_match_their_fingerprints_at_both_sizes() {
-    for size in SIZES {
-        let (w, h) = size;
-        let mut fx = fixture(size);
-        let ids = fx.ids.clone();
-        select(&mut fx.d, &ids);
-        fx.d.key("Delete").unwrap();
-        fx.d.settle(FRAMES).unwrap();
-        assert_eq!(question(&fx.d).2, "Move the 3 selected pictures to the trash?");
-        check_region(&fx.d, "dialog:deletePhotos", &format!("dialog-delete-photos-{w}x{h}"));
-        fx.d.key("Escape").unwrap();
+fn the_questions_match_their_fingerprints_and_fit_the_small_window() {
+    let mut fx = fixture(LARGE);
+    let ids = fx.ids.clone();
+    select(&mut fx.d, &ids);
+    fx.d.key("Delete").unwrap();
+    fx.d.settle(FRAMES).unwrap();
+    assert_eq!(question(&fx.d).2, "Move the 3 selected pictures to the trash?");
+    check_sizes(&mut fx.d, "dialog:deletePhotos", "dialog-delete-photos");
+    fx.d.key("Escape").unwrap();
 
-        let old = fx.old_id;
-        fx.d.run("folder.delete", &json!({ "folder": old })).unwrap();
-        fx.d.settle(FRAMES).unwrap();
-        assert_eq!(question(&fx.d).0, DialogKind::DeleteFolder);
-        check_region(&fx.d, "dialog:deleteFolder", &format!("dialog-delete-folder-{w}x{h}"));
-        fx.d.key("Escape").unwrap();
-        fx.d.settle(FRAMES).unwrap();
-        assert!(exists(&fx.old) && exists(&fx.lisbon.join("IMG_0001.jpg")), "Esc deletes nothing");
-    }
+    let old = fx.old_id;
+    fx.d.run("folder.delete", &json!({ "folder": old })).unwrap();
+    fx.d.settle(FRAMES).unwrap();
+    assert_eq!(question(&fx.d).0, DialogKind::DeleteFolder);
+    check_sizes(&mut fx.d, "dialog:deleteFolder", "dialog-delete-folder");
+    fx.d.key("Escape").unwrap();
+    fx.d.settle(FRAMES).unwrap();
+    assert!(exists(&fx.old) && exists(&fx.lisbon.join("IMG_0001.jpg")), "Esc deletes nothing");
 }

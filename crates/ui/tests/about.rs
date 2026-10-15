@@ -6,33 +6,21 @@
 //! - every sort (from the dropdown and from the table's headers, and reversed) and the name toggle
 //!   on contributors with missing display and real names: the `@username` fallback, and
 //!   alphabetical order that ignores case and the `@`;
-//! - `build.rs` (included here) takes names only from verified `people.toml` entries and drops
-//!   anything shaped like an email address; nothing in the compiled tables looks like one;
 //! - the release notes leave HTML comments out;
-//! - every widget has a valid, unique id at 1400 × 900 and 900 × 600, and each tab and the release
+//! - every widget has a valid, unique id (the driver checks every frame), and each tab and the release
 //!   notes match their fingerprints (`tests/fingerprints/dialog-about-*.json`,
 //!   `dialog-release-notes-*.json`; `DALICA_BLESS=1` stores new ones, renders go to
 //!   `target/test-output/ui/`).
 
-use std::collections::{BTreeMap, HashSet};
-use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::common::{FRAMES, new_driver, out_dir, try_widget};
+use crate::common::{FRAMES, LARGE, SMALL, check_region, check_sizes, new_driver, try_widget};
 use dalica_engine::Session;
-use dalica_scenes::fingerprint;
 use dalica_ui::credits::{self, Baked, Contributor, Model};
 use dalica_ui::dialogs::release_notes::{self, Block};
 use dalica_ui::state::{AboutTab, CreditsList, CreditsSort, NameMode};
 use dalica_ui::{App, Driver};
-use dalica_ui_kit::registry;
 use serde_json::json;
-
-#[path = "../build.rs"]
-#[allow(dead_code)]
-mod build_script;
-
-const SIZES: [(u32, u32); 2] = [(1400, 900), (900, 600)];
 
 const fn person(
     login: &'static str,
@@ -227,104 +215,6 @@ fn every_sort_and_the_name_toggle_on_missing_names() {
 }
 
 #[test]
-fn build_rs_takes_names_only_from_verified_entries_and_never_an_email() {
-    let toml = r#"
-# A comment, and the template's own lines commented out:
-#   [people.your-github-username]
-[people.alice]
-real_name = "Alice Liddell"   # her own entry
-display_name = 'Al'
-consent_source = "PR #1"
-
-[people.bob]
-display_name = "bob@example.org"
-real_name = "Robert \"Bob\" Tables"
-
-[people.carol]
-sync_github_name = true
-
-[people.dave]
-real_name = "Dave"
-
-[people.erin]
-real_name = "Erin <erin@mail.example.com>"
-
-[other]
-what = "x"
-"#;
-    let people = build_script::parse_people(toml);
-    assert_eq!(people.entries.keys().map(String::as_str).collect::<Vec<_>>(), ["alice", "bob", "carol", "dave", "erin"]);
-    assert_eq!(people.entries["alice"].display_name.as_deref(), Some("Al"));
-    assert_eq!(people.entries["bob"].real_name.as_deref(), Some("Robert \"Bob\" Tables"));
-    assert!(people.entries["carol"].sync_github_name);
-    assert_eq!(people.problems.iter().map(|p| p.0).collect::<Vec<_>>(), [22, 23], "the unknown table and its key are reported");
-    let json = json!({
-        "schema": 1,
-        "commits": 9,
-        "contributors": [
-            { "login": "alice", "people_entry": true, "github_name": null, "prs": 2, "commits": 4, "lines_added": 10, "lines_deleted": 1, "binary_added": 0, "binary_deleted": 0, "first_commit": "2026-10-01T00:00:00Z", "last_commit": "2026-10-02T00:00:00Z" },
-            { "login": "bob", "people_entry": true, "prs": 1, "commits": 1 },
-            { "login": "carol", "people_entry": true, "github_name": "Carol from GitHub", "commits": 1 },
-            { "login": "dave", "people_entry": false, "commits": 1 },
-            { "login": "erin", "people_entry": true, "commits": 1, "first_commit": "erin@mail.example.com" },
-            { "login": "not a@login.example.com", "commits": 1 },
-            { "login": "frank", "commits": "lots", "prs": -1 },
-        ],
-        "models": [
-            { "company": "Anthropic", "model": "Claude Opus", "version": "5.5", "commits": 8, "lines_added": 9, "lines_deleted": 1 },
-            { "company": "noreply@anthropic.com", "model": "X", "version": "1", "commits": 1 },
-        ],
-    });
-    let (code, dropped) = build_script::generate(&json, &people.entries);
-    let line = |login: &str| code.lines().find(|l| l.contains(&format!("login: {login:?}"))).unwrap_or_else(|| panic!("{login}: {code}")).to_string();
-    assert!(line("alice").contains(r#"display_name: Some("Al"), real_name: Some("Alice Liddell"), prs: 2, commits: 4"#), "{code}");
-    assert!(line("bob").contains(r#"display_name: None, real_name: Some("Robert \"Bob\" Tables")"#), "the email display name is dropped: {code}");
-    assert!(line("carol").contains(r#"display_name: Some("Carol from GitHub")"#), "synced from GitHub: {code}");
-    assert!(line("dave").contains("display_name: None, real_name: None"), "an unverified entry shows no name: {code}");
-    assert!(line("erin").contains("real_name: None") && line("erin").contains(r#"first_commit: """#), "{code}");
-    assert!(line("frank").contains("prs: 0, commits: 0"), "bad numbers count as 0: {code}");
-    assert!(!code.contains("not a@login"), "an invalid username is skipped: {code}");
-    assert!(code.contains("pub static TOTAL_COMMITS: u64 = 9;") && code.contains(r#"company: "", model: "X""#), "{code}");
-    assert_eq!(dropped.len(), 4, "{dropped:?}");
-    assert!(!code.lines().any(build_script::looks_like_email), "{code}");
-    // Nothing breaks the build: missing files and garbage give empty tables.
-    let (empty, _) = build_script::generate(&serde_json::Value::Null, &BTreeMap::new());
-    assert!(empty.contains("TOTAL_COMMITS: u64 = 0;") && empty.contains("CONTRIBUTORS: &[Contributor] = &[\n];"));
-    for odd in ["[", "[people.]", "x", "real_name = \"unclosed", "[people.a]\nreal_name = \"\\u12\"", "= =", "[people.a]\nsync_github_name = maybe"] {
-        let _ = build_script::parse_people(odd);
-    }
-    for (s, email) in [("a@b.co", true), ("<x@y.org>", true), ("@pkkid", false), ("Bob @ home", false), ("x@localhost", false), ("Ann", false)] {
-        assert_eq!(build_script::looks_like_email(s), email, "{s}");
-    }
-}
-
-#[test]
-fn no_email_reaches_the_binary() {
-    let b = Baked::compiled();
-    let mut strings: Vec<&str> = vec![credits::compiled::SOURCE];
-    for c in b.contributors {
-        strings.extend([c.login, c.first_commit, c.last_commit]);
-        strings.extend(c.display_name);
-        strings.extend(c.real_name);
-        assert!(build_script::valid_login(c.login), "{}", c.login);
-    }
-    for m in b.models {
-        strings.extend([m.company, m.model, m.version]);
-    }
-    for s in strings {
-        assert!(!build_script::looks_like_email(s) && !s.contains("noreply"), "{s}");
-    }
-    // The compiled tables are the committed file's, at least its contributors and models.
-    let json: serde_json::Value = serde_json::from_str(
-        &std::fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../contributors/contributors.json")).unwrap(),
-    )
-    .unwrap();
-    assert_eq!(b.contributors.len(), json["contributors"].as_array().unwrap().len());
-    assert_eq!(b.models.len(), json["models"].as_array().unwrap().len());
-    assert_eq!(b.total_commits, json["commits"].as_u64().unwrap());
-}
-
-#[test]
 fn the_release_notes_leave_comments_out() {
     let shown = release_notes::blocks(NOTES);
     assert_eq!(
@@ -354,39 +244,15 @@ fn the_release_notes_leave_comments_out() {
 
 /// Every widget has a valid, unique id and none is left unregistered; the dialog matches the
 /// fingerprint `name`.
-fn check_shot(d: &Driver, dialog: &str, name: &str) {
-    assert_eq!(d.app().panels().unwrap().unregistered_widgets(), [], "{name}");
-    let mut seen = HashSet::new();
-    for wi in d.widgets() {
-        assert!(registry::is_valid_id(&wi.id) && seen.insert(wi.id.clone()), "{name}: `{}`", wi.id);
-    }
-    let r = try_widget(d, dialog).unwrap().rect;
-    let shot = d.screenshot().unwrap();
-    std::fs::write(out_dir().join(format!("{name}-window.png")), fingerprint::png_rgba(shot.width, shot.height, &shot.rgba)).unwrap();
-    let (x0, y0, cw, ch) = (r[0].round() as u32, r[1].round() as u32, r[2].round() as u32, r[3].round() as u32);
-    let mut rgba = Vec::with_capacity((cw * ch * 4) as usize);
-    for y in y0..y0 + ch {
-        for x in x0..x0 + cw {
-            rgba.extend_from_slice(&shot.pixel(x, y).unwrap());
-        }
-    }
-    std::fs::write(out_dir().join(format!("{name}.png")), fingerprint::png_rgba(cw, ch, &rgba)).unwrap();
-    let stored = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("tests/fingerprints/{name}.json"));
-    if std::env::var_os("DALICA_BLESS").is_some() {
-        std::fs::write(&stored, fingerprint::to_json(&fingerprint::fingerprint(cw, ch, &rgba)) + "\n").unwrap();
-    }
-    let expected = fingerprint::from_json(&std::fs::read_to_string(&stored).unwrap_or_else(|e| panic!("{}: {e}", stored.display()))).unwrap();
-    if let Err(m) = fingerprint::check(cw, ch, &rgba, &expected, 2.0) {
-        std::fs::write(out_dir().join(format!("{name}-actual.png")), &m.actual_png).unwrap();
-        panic!("{name}: {}", m.message);
-    }
-}
-
+/// Each tab and the release notes match their fingerprints in the large window; in both windows
+/// every tab is as wide as specified, as tall as the others and inside the window.
 #[test]
-fn every_widget_has_an_id_and_the_dialogs_match_their_fingerprints_at_both_sizes() {
-    for (w, h) in SIZES {
-        let (_dir, mut d) = driver(w, h);
-        open_about(&mut d);
+fn the_dialogs_match_their_fingerprints_and_fit_the_small_window() {
+    let (_dir, mut d) = driver(LARGE.0, LARGE.1);
+    open_about(&mut d);
+    for (w, h) in [LARGE, SMALL] {
+        d.resize(w, h);
+        d.settle(FRAMES).unwrap();
         let mut height = None;
         for (shot, clicks) in [
             ("about", &["tab:about.about"][..]),
@@ -401,15 +267,16 @@ fn every_widget_has_an_id_and_the_dialogs_match_their_fingerprints_at_both_sizes
             assert!((r[2] - dalica_ui::dialogs::about::WIDTH).abs() <= 2.0, "{w}×{h} {shot}: {r:?}");
             assert!(r[1] >= 0.0 && r[1] + r[3] <= h as f32, "{w}×{h} {shot}: inside the window, {r:?}");
             assert_eq!(*height.get_or_insert(r[3]), r[3], "{w}×{h} {shot}: every tab is as tall");
-            check_shot(&d, "dialog:about", &format!("dialog-about-{shot}-{w}x{h}"));
+            if (w, h) == LARGE {
+                check_region(&d, "dialog:about", &format!("dialog-about-{shot}-{w}x{h}"));
+            }
         }
-        click(&mut d, "button:dialog.cancel");
-        assert_eq!(d.run("help.releaseNotes", &json!({})).unwrap(), json!({ "dialog": "releaseNotes" }));
-        d.settle(FRAMES).unwrap();
-        let r = try_widget(&d, "dialog:releaseNotes").unwrap().rect;
-        assert!(r[1] >= 0.0 && r[1] + r[3] <= h as f32, "{w}×{h}: inside the window, {r:?}");
-        check_shot(&d, "dialog:releaseNotes", &format!("dialog-release-notes-{w}x{h}"));
     }
+    click(&mut d, "button:dialog.cancel");
+    d.resize(LARGE.0, LARGE.1);
+    assert_eq!(d.run("help.releaseNotes", &json!({})).unwrap(), json!({ "dialog": "releaseNotes" }));
+    d.settle(FRAMES).unwrap();
+    check_sizes(&mut d, "dialog:releaseNotes", "dialog-release-notes");
 }
 
 /// The pixels of `d`'s window inside the widget `id` that are the app icon's orange (`#d65d0e`).

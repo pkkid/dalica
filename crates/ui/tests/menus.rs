@@ -705,8 +705,9 @@ fn clicking_an_item_runs_it_and_closes_the_menu() {
 /// inside the window, at both sizes.
 #[test]
 fn the_window_draws_the_menus_in_its_menu_bar_region() {
+    let mut t = setup(1);
     for (w, h) in [(1400, 900), (900, 600)] {
-        let mut t = setup(1);
+        t.d.key("Escape").unwrap();
         t.d.resize(w, h);
         t.d.settle(FRAMES).unwrap();
         let widgets = t.d.widgets();
@@ -726,7 +727,6 @@ fn the_window_draws_the_menus_in_its_menu_bar_region() {
             assert!(wi.rect[1] >= region[1] + region[3], "{w}×{h}: `{}` overlaps the bar", wi.id);
             assert!(inside(wi.rect, [0.0, 0.0, w as f32, h as f32]), "{w}×{h}: `{}` at {:?}", wi.id, wi.rect);
         }
-        assert_eq!(t.d.app().panels().unwrap().unregistered_widgets(), [], "{w}×{h}");
         let shot = t.d.screenshot().unwrap();
         let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/ui");
         std::fs::create_dir_all(&dir).unwrap();

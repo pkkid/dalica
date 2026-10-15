@@ -11,15 +11,15 @@
 //! - renaming in Folder Properties (M9.20) renames the folder on disk as its own undo step; the
 //!   section title and the tree row follow it, undo puts the name back, a blank name greys OK and
 //!   a name another library folder has is refused with nothing changed;
-//! - every widget has an id, and the header and the dialog match their fingerprints at 1400 × 900
-//!   and 900 × 600 (`tests/fingerprints/region-header-info-<w>x<h>.json`,
-//!   `dialog-folder-properties-<w>x<h>.json`; `DALICA_BLESS=1` stores new ones, renders go to
+//! - the header and the dialog match their fingerprints at 1400 × 900 and fit 900 × 600
+//!   (`tests/fingerprints/region-header-info-1400x900.json`,
+//!   `dialog-folder-properties-1400x900.json`; `DALICA_BLESS=1` stores new ones, renders go to
 //!   `target/test-output/ui/`).
 
 use std::path::Path;
 use std::sync::Arc;
 
-use crate::common::{FRAMES, check_region, new_driver, put_dated_jpeg, shot, try_widget};
+use crate::common::{FRAMES, LARGE, check_sizes, new_driver, put_dated_jpeg, shot, try_widget};
 use dalica_core::{Date, FolderId};
 use dalica_engine::Session;
 use dalica_ui::dialogs::folder_properties::{self, BROWSE_ID, DATE_ID, DESCRIPTION_ID, MUSIC_ID, NAME_ID, PLACE_ID, USE_OLDEST_ID};
@@ -28,8 +28,6 @@ use dalica_ui::panels::light_table::header::{DESCRIPTION_FIELD, PLACEHOLDER};
 use dalica_ui::state::{DescriptionEdit, DialogKind, Section};
 use dalica_ui::{App, Driver};
 use serde_json::{Value, json};
-
-const SIZES: [(u32, u32); 2] = [(1400, 900), (900, 600)];
 
 fn open_session(library: &Path) -> Session {
     let mut s = Session::open(library, Arc::new(dalica_core::SystemClock)).unwrap();
@@ -348,29 +346,26 @@ fn a_description_too_long_to_edit_inline_opens_folder_properties() {
     assert_eq!(folder_properties::chosen_date(&fields(&fx.d)), Ok(None));
 }
 
-/// Every widget has an id with the editor and the dialog open, and the header (date · place and a
-/// description) and the dialog match their fingerprints at both window sizes.
+/// The header (date · place and a description) and the dialog match their fingerprints, and fit
+/// the small window.
 #[test]
-fn the_header_and_the_dialog_match_their_fingerprints_at_both_sizes() {
-    for size in SIZES {
-        let (w, h) = size;
-        let mut fx = fixture(size);
-        let folder = fx.lisbon;
-        fx.d.run("folder.info.set", &json!({ "id": folder, "description": "A weekend of trams and tiles", "place": "Lisbon, Portugal" })).unwrap();
-        fx.d.app_mut().state_mut().folder = Some(folder);
-        fx.d.settle(FRAMES).unwrap();
-        check_region(&fx.d, &format!("section:folder:{folder}"), &format!("region-header-info-{w}x{h}"));
+fn the_header_and_the_dialog_match_their_fingerprints_and_fit_the_small_window() {
+    let mut fx = fixture(LARGE);
+    let folder = fx.lisbon;
+    fx.d.run("folder.info.set", &json!({ "id": folder, "description": "A weekend of trams and tiles", "place": "Lisbon, Portugal" })).unwrap();
+    fx.d.app_mut().state_mut().folder = Some(folder);
+    fx.d.settle(FRAMES).unwrap();
+    check_sizes(&mut fx.d, &format!("section:folder:{folder}"), "region-header-info");
 
-        fx.d.click(&part(folder, "description")).unwrap();
-        fx.d.settle(FRAMES).unwrap();
-        fx.d.key("Esc").unwrap();
+    fx.d.click(&part(folder, "description")).unwrap();
+    fx.d.settle(FRAMES).unwrap();
+    fx.d.key("Esc").unwrap();
 
-        fx.d.run("section.properties", &json!({ "folder": folder })).unwrap();
-        // The draft as a user leaves it before OK: the box off, a date of their own.
-        let top = fx.d.app_mut().state_mut().dialogs.last_mut().unwrap();
-        top.fields.insert("useOldest".into(), json!(false));
-        top.fields.insert("date".into(), json!("2026-06-01"));
-        fx.d.settle(FRAMES).unwrap();
-        check_region(&fx.d, "dialog:folderProperties", &format!("dialog-folder-properties-{w}x{h}"));
-    }
+    fx.d.run("section.properties", &json!({ "folder": folder })).unwrap();
+    // The draft as a user leaves it before OK: the box off, a date of their own.
+    let top = fx.d.app_mut().state_mut().dialogs.last_mut().unwrap();
+    top.fields.insert("useOldest".into(), json!(false));
+    top.fields.insert("date".into(), json!("2026-06-01"));
+    fx.d.settle(FRAMES).unwrap();
+    check_sizes(&mut fx.d, "dialog:folderProperties", "dialog-folder-properties");
 }

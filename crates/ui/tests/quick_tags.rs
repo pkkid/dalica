@@ -9,21 +9,19 @@
 //!   opens Configure Quick Tags.
 //! - Fill Empty with Common Tags fills the empty slots with the tags on the most photos; Cancel
 //!   changes nothing.
-//! - The pane and the dialog match their fingerprints at 1400 × 900 and 900 × 600
-//!   (`tests/fingerprints/pane-tags-quick-<w>x<h>.json`, `dialog-quick-tags-<w>x<h>.json`;
+//! - The pane and the dialog match their fingerprints at 1400 × 900 (at 900 × 600 they only have to fit)
+//!   (`tests/fingerprints/pane-tags-quick-1400x900.json`, `dialog-quick-tags-1400x900.json`;
 //!   `DALICA_BLESS=1` stores new ones, renders go to `target/test-output/ui/`), and every widget
 //!   shown has a valid, unique id.
 
 use std::sync::Arc;
 
-use crate::common::{FRAMES, check_region, new_driver, shot};
+use crate::common::{FRAMES, LARGE, SMALL, check_region, check_sizes, new_driver, shot};
 use dalica_core::PhotoId;
 use dalica_engine::Session;
 use dalica_ui::state::{DialogKind, Pane};
 use dalica_ui::{App, Driver};
 use serde_json::{Value, json};
-
-const SIZES: [(u32, u32); 2] = [(1400, 900), (900, 600)];
 
 struct T {
     _dir: tempfile::TempDir,
@@ -266,15 +264,18 @@ fn cancel_changes_nothing() {
 }
 
 /// A selection with many tags scrolls its list; the ten buttons stay whole inside the pane (and its
-/// 8 pt margin), at both window sizes.
+/// 8 pt margin), in the large window and the small one.
 #[test]
 fn many_tags_leave_the_buttons_whole() {
-    for (w, h) in SIZES {
-        let mut t = setup(w, h);
-        let ids = t.ids.clone();
-        let many: Vec<String> = (0..40).map(|i| format!("tag {i:02}")).collect();
-        run(&mut t, "photo.tags.add", json!({ "ids": &ids[0..2], "tags": many }));
+    let mut t = setup(LARGE.0, LARGE.1);
+    let ids = t.ids.clone();
+    let many: Vec<String> = (0..40).map(|i| format!("tag {i:02}")).collect();
+    run(&mut t, "photo.tags.add", json!({ "ids": &ids[0..2], "tags": many }));
+    for (w, h) in [LARGE, SMALL] {
+        t.d.resize(w, h);
+        // The pane opened again in the small window (going small closes it).
         select_with_pane(&mut t, 2);
+        t.d.settle(FRAMES).unwrap();
         let widgets = t.d.widgets();
         let pane = widgets.iter().find(|w| w.id == "pane:tags").unwrap().rect;
         let pane_bottom = pane[1] + pane[3];
@@ -286,38 +287,37 @@ fn many_tags_leave_the_buttons_whole() {
 }
 
 /// The pane with recent tags, three assigned slots (one held by every selected photo, one cut
-/// short) and "+" buttons, and the dialog with its fields filled, at both window sizes.
+/// short) and "+" buttons, and the dialog with its fields filled (which fits the small window).
 #[test]
-fn the_pane_and_the_dialog_match_their_fingerprints_at_both_sizes() {
-    for (w, h) in SIZES {
-        let mut t = setup(w, h);
-        let ids = t.ids.clone();
-        run(&mut t, "photo.tags.add", json!({ "ids": &ids[0..8], "tags": "lisbon, tram" }));
-        run(&mut t, "photo.tags.add", json!({ "ids": &ids[0..3], "tags": "beach" }));
-        run(&mut t, "photo.tags.add", json!({ "ids": &ids[0..8], "tags": "sea" }));
-        run(&mut t, "tags.quick.set", json!({ "slots": ["", "", "tram", "beach", "a much longer quick tag than fits", "", "harbour"] }));
-        select_with_pane(&mut t, 8);
-        // The recent tags not in slots 3–10 (sea, lisbon) on the top two.
-        let b = buttons(&t);
-        let shown: Vec<(&str, bool)> = b.iter().take(7).map(|(l, on, _)| (l.as_str(), *on)).collect();
-        assert_eq!(
-            shown,
-            [
-                ("sea", true),
-                ("lisbon", true),
-                ("tram", true),
-                ("beach", false),
-                ("a much longer quick tag than fits", false),
-                ("+", false),
-                ("harbour", false)
-            ],
-            "{w}×{h}"
-        );
-        check_region(&t.d, "pane:tags", &format!("pane-tags-quick-{w}x{h}"));
-        shot(&t.d, &format!("pane-tags-quick-{w}x{h}"));
+fn the_pane_and_the_dialog_match_their_fingerprints() {
+    let (w, h) = LARGE;
+    let mut t = setup(w, h);
+    let ids = t.ids.clone();
+    run(&mut t, "photo.tags.add", json!({ "ids": &ids[0..8], "tags": "lisbon, tram" }));
+    run(&mut t, "photo.tags.add", json!({ "ids": &ids[0..3], "tags": "beach" }));
+    run(&mut t, "photo.tags.add", json!({ "ids": &ids[0..8], "tags": "sea" }));
+    run(&mut t, "tags.quick.set", json!({ "slots": ["", "", "tram", "beach", "a much longer quick tag than fits", "", "harbour"] }));
+    select_with_pane(&mut t, 8);
+    // The recent tags not in slots 3–10 (sea, lisbon) on the top two.
+    let b = buttons(&t);
+    let shown: Vec<(&str, bool)> = b.iter().take(7).map(|(l, on, _)| (l.as_str(), *on)).collect();
+    assert_eq!(
+        shown,
+        [
+            ("sea", true),
+            ("lisbon", true),
+            ("tram", true),
+            ("beach", false),
+            ("a much longer quick tag than fits", false),
+            ("+", false),
+            ("harbour", false)
+        ],
+        "{w}×{h}"
+    );
+    check_region(&t.d, "pane:tags", &format!("pane-tags-quick-{w}x{h}"));
+    shot(&t.d, &format!("pane-tags-quick-{w}x{h}"));
 
-        click(&mut t, "button:quicktags.configure");
-        check_region(&t.d, "dialog:quickTags", &format!("dialog-quick-tags-{w}x{h}"));
-        shot(&t.d, &format!("dialog-quick-tags-{w}x{h}"));
-    }
+    click(&mut t, "button:quicktags.configure");
+    shot(&t.d, &format!("dialog-quick-tags-{w}x{h}"));
+    check_sizes(&mut t.d, "dialog:quickTags", "dialog-quick-tags");
 }

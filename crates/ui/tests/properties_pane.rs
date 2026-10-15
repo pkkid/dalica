@@ -12,7 +12,7 @@
 //! - the "Changed in another application; Dalica's value kept" note;
 //! - a photo turned by its recipe shows its displayed size in the Dimensions row (noting the
 //!   file's), the status line, the Resolution caption and the cell's tooltip;
-//! - the pane matches its fingerprints at 1400 × 900 and 900 × 600, with and without Show All
+//! - the pane matches its fingerprints at 1400 × 900 (at 900 × 600 they only have to fit), with and without Show All
 //!   (`tests/fingerprints/pane-properties-*.json`; the Path row's value is masked, as its folder
 //!   differs per machine; `DALICA_BLESS=1` stores new ones, renders go to `target/test-output/ui/`),
 //!   and every widget shown has a valid, unique id.
@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, UNIX_EPOCH};
 
-use crate::common::{FRAMES, new_driver, out_dir, shot};
+use crate::common::{FRAMES, LARGE, check_pixels, new_driver, out_dir, shot};
 use dalica_core::{DateTime, PhotoId};
 use dalica_engine::settings::MetadataWrites;
 use dalica_engine::{Field, Fields, Session};
@@ -33,7 +33,6 @@ use dalica_ui::{App, Driver, status_text};
 use egui::{Modifiers, PointerButton, vec2};
 use serde_json::{Value, json};
 
-const SIZES: [(u32, u32); 2] = [(1400, 900), (900, 600)];
 const WAIT: Duration = Duration::from_secs(60);
 /// The files' modification time: 2026-05-28 20:26:40 UTC.
 const MTIME: u64 = 1_780_000_000;
@@ -520,39 +519,29 @@ fn check_pane(t: &T, name: &str) {
             rgba.extend_from_slice(&if masked { [128, 128, 128, 255] } else { shot.pixel(x, y).unwrap() });
         }
     }
-    std::fs::write(out_dir().join(format!("{name}.png")), fingerprint::png_rgba(w, h, &rgba)).unwrap();
-    let stored = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("tests/fingerprints/{name}.json"));
-    if std::env::var_os("DALICA_BLESS").is_some() {
-        std::fs::write(&stored, fingerprint::to_json(&fingerprint::fingerprint(w, h, &rgba)) + "\n").unwrap();
-    }
-    let expected = fingerprint::from_json(&std::fs::read_to_string(&stored).unwrap()).unwrap();
-    if let Err(m) = fingerprint::check(w, h, &rgba, &expected, 2.0) {
-        std::fs::write(out_dir().join(format!("{name}-actual.png")), &m.actual_png).unwrap();
-        panic!("{name}: {}", m.message);
-    }
+    check_pixels(name, w, h, &rgba);
 }
 
 #[test]
-fn the_pane_matches_its_fingerprints_at_both_sizes() {
-    for (w, h) in SIZES {
-        let mut t = setup(w, h);
-        let ids = [t.tagged];
-        select(&mut t, &ids);
-        run(&mut t, "pane.properties", json!({}));
-        ready(&mut t);
-        check_pane(&t, &format!("pane-properties-{w}x{h}"));
-        shot(&t.d, &format!("pane-properties-{w}x{h}"));
+fn the_pane_matches_its_fingerprints() {
+    let (w, h) = LARGE;
+    let mut t = setup(w, h);
+    let ids = [t.tagged];
+    select(&mut t, &ids);
+    run(&mut t, "pane.properties", json!({}));
+    ready(&mut t);
+    check_pane(&t, &format!("pane-properties-{w}x{h}"));
+    shot(&t.d, &format!("pane-properties-{w}x{h}"));
 
-        t.d.click(properties::SHOW_ALL_ID).unwrap();
-        t.d.settle(FRAMES).unwrap();
-        ready(&mut t);
-        t.d.scroll(Some("pane:properties"), vec2(0.0, -2000.0)).unwrap();
-        t.d.settle(FRAMES).unwrap();
-        shot(&t.d, &format!("pane-properties-all-{w}x{h}"));
-        assert!(shown(&t).groups.iter().flat_map(|(_, f)| f).any(|f| f.painted.is_some()), "the listing scrolled into view");
-        // The Path row is scrolled away here: fingerprint the listing as it stands.
-        check_listing(&t, &format!("pane-properties-all-{w}x{h}"));
-    }
+    t.d.click(properties::SHOW_ALL_ID).unwrap();
+    t.d.settle(FRAMES).unwrap();
+    ready(&mut t);
+    t.d.scroll(Some("pane:properties"), vec2(0.0, -2000.0)).unwrap();
+    t.d.settle(FRAMES).unwrap();
+    shot(&t.d, &format!("pane-properties-all-{w}x{h}"));
+    assert!(shown(&t).groups.iter().flat_map(|(_, f)| f).any(|f| f.painted.is_some()), "the listing scrolled into view");
+    // The Path row is scrolled away here: fingerprint the listing as it stands.
+    check_listing(&t, &format!("pane-properties-all-{w}x{h}"));
 }
 
 /// [`check_pane`] for a view without the Path row on screen.
@@ -567,14 +556,5 @@ fn check_listing(t: &T, name: &str) {
             rgba.extend_from_slice(&shot.pixel(x, y).unwrap());
         }
     }
-    std::fs::write(out_dir().join(format!("{name}.png")), fingerprint::png_rgba(w, h, &rgba)).unwrap();
-    let stored = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("tests/fingerprints/{name}.json"));
-    if std::env::var_os("DALICA_BLESS").is_some() {
-        std::fs::write(&stored, fingerprint::to_json(&fingerprint::fingerprint(w, h, &rgba)) + "\n").unwrap();
-    }
-    let expected = fingerprint::from_json(&std::fs::read_to_string(&stored).unwrap()).unwrap();
-    if let Err(m) = fingerprint::check(w, h, &rgba, &expected, 2.0) {
-        std::fs::write(out_dir().join(format!("{name}-actual.png")), &m.actual_png).unwrap();
-        panic!("{name}: {}", m.message);
-    }
+    check_pixels(name, w, h, &rgba);
 }

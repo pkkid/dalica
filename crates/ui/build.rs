@@ -13,7 +13,7 @@
 //! malformed file gives empty tables (or no names) and a warning, never a failed build: the strict
 //! check of both files is `cargo xtask contributors --check`, run by `cargo xtask ci`.
 //!
-//! `crates/ui/tests/about.rs` includes this file to test [`generate`] on fixtures.
+//! `src/credits.rs` includes this file in its unit tests to test [`generate`] on fixtures.
 
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]

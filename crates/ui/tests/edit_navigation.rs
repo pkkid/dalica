@@ -7,22 +7,18 @@
 //! recentres the strip; Ctrl+R, Ctrl+Z, Ctrl+Y, the flips and Ctrl+Shift+E are steps of the photo's
 //! own history and leave the library undo stack alone; a caption typed in the caption bar is one
 //! library step; the status line says "Folder › name … (n of N)"; the top bar, caption bar and
-//! status line match their fingerprints at 1400 × 900 and 900 × 600.
+//! status line match their fingerprints at 1400 × 900 (at 900 × 600 they only have to fit).
 //!
 //! `DALICA_SHOTS=<dir>` writes the regions' screenshots there too.
 
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::common::{FRAMES, new_driver, out_dir};
+use crate::common::{FRAMES, LARGE, SMALL, check_rect, new_driver};
 use dalica_engine::Session;
-use dalica_scenes::fingerprint;
 use dalica_ui::control::{Config, Connection, Control, Reply, Request, serve};
 use dalica_ui::{App, Driver};
 use dalica_ui_kit::WidgetInfo;
 use serde_json::{Value, json};
-
-const SIZES: [(u32, u32); 2] = [(1400, 900), (900, 600)];
 
 struct T {
     _dir: tempfile::TempDir,
@@ -286,8 +282,9 @@ fn arrows_page_keys_home_and_end_step_through_the_section() {
 /// greyed at the section's ends.
 #[test]
 fn a_filmstrip_click_opens_that_photo_and_recentres() {
-    for size in SIZES {
-        let mut t = setup(size, 8);
+    let mut t = setup(LARGE, 8);
+    for size in [LARGE, SMALL] {
+        t.d.resize(size.0, size.1);
         let o = t.order.clone();
         run(&mut t, "view.edit", json!({ "id": o[0] }));
         let strip = widget(&t, "region:filmstrip").rect;
@@ -390,47 +387,22 @@ fn a_caption_typed_in_the_bar_is_one_library_step() {
 /// Checks the pixels of `rect` of the window against `tests/fingerprints/<name>.json`
 /// (`DALICA_BLESS=1` writes it), and writes them to the test output (and to `$DALICA_SHOTS`).
 fn check_region(t: &T, name: &str, rect: [f32; 4]) {
-    let shot = t.d.screenshot().unwrap();
-    let [x0, y0] = [rect[0].round() as u32, rect[1].round() as u32];
-    let [x1, y1] = [((rect[0] + rect[2]).round() as u32).min(shot.width), ((rect[1] + rect[3]).round() as u32).min(shot.height)];
-    let (w, h) = (x1 - x0, y1 - y0);
-    let mut rgba = Vec::with_capacity((w * h * 4) as usize);
-    for y in y0..y1 {
-        for x in x0..x1 {
-            rgba.extend_from_slice(&shot.pixel(x, y).unwrap());
-        }
-    }
-    let png = fingerprint::png_rgba(w, h, &rgba);
-    std::fs::write(out_dir().join(format!("{name}.png")), &png).unwrap();
-    if let Some(dir) = std::env::var_os("DALICA_SHOTS") {
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(Path::new(&dir).join(format!("{name}.png")), &png).unwrap();
-    }
-    let stored = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("tests/fingerprints/{name}.json"));
-    if std::env::var_os("DALICA_BLESS").is_some() {
-        std::fs::write(&stored, fingerprint::to_json(&fingerprint::fingerprint(w, h, &rgba)) + "\n").unwrap();
-    }
-    let expected = fingerprint::from_json(&std::fs::read_to_string(&stored).unwrap()).unwrap();
-    if let Err(m) = fingerprint::check(w, h, &rgba, &expected, 2.0) {
-        std::fs::write(out_dir().join(format!("{name}-actual.png")), &m.actual_png).unwrap();
-        panic!("{name}: {}", m.message);
-    }
+    check_rect(&t.d, name, rect);
 }
 
-/// The top bar, the caption bar (with a caption) and the status line at both sizes.
+/// The top bar, the caption bar (with a caption) and the status line.
 #[test]
 fn the_top_bar_caption_bar_and_status_line_match_their_fingerprints() {
-    for (w, h) in SIZES {
-        let mut t = setup((w, h), 8);
-        let o = t.order.clone();
-        run(&mut t, "photo.caption.set", json!({ "ids": [o[2]], "caption": "Boats in the harbour" }));
-        run(&mut t, "view.edit", json!({ "id": o[2] }));
-        let status = state(&mut t)["status"].as_str().unwrap().to_string();
-        assert!(status.ends_with("(3 of 8)") && status.contains(" › "), "{w}×{h}: {status}");
-        check_region(&t, &format!("edit-topbar-{w}x{h}"), widget(&t, "region:editTopBar").rect);
-        check_region(&t, &format!("edit-caption-{w}x{h}"), widget(&t, "region:captionBar").rect);
-        check_region(&t, &format!("region-status-edit-{w}x{h}"), widget(&t, "region:statusLine").rect);
-    }
+    let (w, h) = LARGE;
+    let mut t = setup((w, h), 8);
+    let o = t.order.clone();
+    run(&mut t, "photo.caption.set", json!({ "ids": [o[2]], "caption": "Boats in the harbour" }));
+    run(&mut t, "view.edit", json!({ "id": o[2] }));
+    let status = state(&mut t)["status"].as_str().unwrap().to_string();
+    assert!(status.ends_with("(3 of 8)") && status.contains(" › "), "{w}×{h}: {status}");
+    check_region(&t, &format!("edit-topbar-{w}x{h}"), widget(&t, "region:editTopBar").rect);
+    check_region(&t, &format!("edit-caption-{w}x{h}"), widget(&t, "region:captionBar").rect);
+    check_region(&t, &format!("region-status-edit-{w}x{h}"), widget(&t, "region:statusLine").rect);
 }
 
 /// Edit ▸ Undo / Redo and Picture ▸ Rotate / Flip clicked in the menu bar while in the edit view
@@ -463,4 +435,83 @@ fn menu_bar_undo_rotate_and_flip_walk_the_photos_history_in_the_edit_view() {
     key(&mut t, "Esc");
     assert_eq!(run(&mut t, "edit.undo", json!({})), json!({ "undone": "Star / Unstar" }), "the library stack ends with the star");
     assert_eq!(code(&mut t, "engine.execute", json!({ "command": "edit.undo", "params": {} })), "disabled");
+}
+
+/// The edit view's regions at a window `w` × `h` with the panel shown and no side pane
+/// (`editing.md` §2): menu bar 24, top bar 40 with the filmstrip between its groups (240 from the
+/// left, 220 from the right), the edit panel 280, the photo area with the caption bar (36) under
+/// it, the library's status line (20) and bottom area (96).
+fn edit_regions(w: f32, h: f32) -> Value {
+    let mid = h - 72.0 - 116.0;
+    json!({
+        "menuBar": [0.0, 0.0, w, 32.0],
+        "editTopBar": [0.0, 32.0, w, 40.0],
+        "filmstrip": [240.0, 32.0, w - 460.0, 40.0],
+        "editPanel": [0.0, 72.0, 280.0, mid],
+        "canvas": [280.0, 72.0, w - 280.0, mid - 36.0],
+        "captionBar": [280.0, 72.0 + mid - 36.0, w - 280.0, 36.0],
+        "statusLine": [0.0, h - 116.0, w, 20.0],
+        "toolbar": null, "tree": null, "lightTable": null, "scrollbar": null, "splitter": null, "sidePane": null,
+    })
+}
+
+fn regions(t: &mut T) -> Value {
+    ok(t, "ui.inspect", json!({}))["regions"].clone()
+}
+
+/// Ctrl+3 with nothing selected stays in the library with the toast (in `ui.inspect`); on a
+/// selected photo it shows every edit-view region at the rects of `editing.md` §2 in both windows,
+/// and the frame matches its fingerprint (`tests/fingerprints/edit-frame-1400x900.json`).
+#[test]
+fn ctrl3_shows_every_edit_view_region_at_its_spec_rect() {
+    let mut t = setup(LARGE, 4);
+    key(&mut t, "Ctrl+3");
+    in_library(&mut t);
+    let toasts = ok(&mut t, "ui.inspect", json!({}))["toasts"].clone();
+    assert!(toasts.as_array().unwrap().iter().any(|x| x["text"] == "Select a photo to edit."), "{toasts}");
+
+    // The second photo the library lists (the one the fingerprint shows).
+    let photo = run(&mut t, "library.query", json!({ "limit": 10 }))["photos"][1]["id"].as_u64().unwrap();
+    select(&mut t, &[photo]);
+    key(&mut t, "Ctrl+3");
+    editing(&mut t, photo);
+    for (w, h) in [SMALL, LARGE] {
+        t.d.resize(w, h);
+        t.d.settle(FRAMES).unwrap();
+        let r = regions(&mut t);
+        for (name, want) in edit_regions(w as f32, h as f32).as_object().unwrap() {
+            assert_eq!(&r[name], want, "{w}×{h}: region {name}");
+        }
+        for name in ["tray", "trayButtons", "bottomControls", "actionButtons"] {
+            assert!(r[name].is_array(), "{w}×{h}: the bottom area keeps {name}");
+        }
+    }
+    let (w, h) = LARGE;
+    check_rect(&t.d, "edit-frame-1400x900", [0.0, 0.0, w as f32, h as f32]);
+}
+
+/// Ctrl+9 hides and shows the edit panel; the photo area takes its width; View ▸ Show Edit
+/// Controls is checked while it shows.
+#[test]
+fn ctrl9_hides_and_shows_the_edit_panel() {
+    let mut t = setup(LARGE, 1);
+    let photo = t.order[0];
+    run(&mut t, "view.edit", json!({ "id": photo }));
+    let checked = |t: &mut T| {
+        let tree = ok(t, "ui.menu.tree", json!({}));
+        let view = tree.as_array().unwrap().iter().find(|m| m["widget"] == "menu:View").cloned().unwrap();
+        let item = view["children"].as_array().unwrap().iter().find(|i| i["id"] == "edit.panelToggle").cloned().unwrap();
+        (item["enabled"].clone(), item["checked"].clone(), item["shortcut"].clone())
+    };
+    // The menus write the primary modifier as macOS names it.
+    let ctrl9 = if cfg!(target_os = "macos") { "Cmd+9" } else { "Ctrl+9" };
+    assert_eq!(checked(&mut t), (json!(true), json!(true), json!(ctrl9)));
+    key(&mut t, "Ctrl+9");
+    let r = regions(&mut t);
+    assert_eq!((&r["editPanel"], &r["canvas"]), (&Value::Null, &json!([0.0, 72.0, 1400.0, 676.0])));
+    assert_eq!(state(&mut t)["edit"]["panelVisible"], false);
+    assert_eq!(checked(&mut t).1, json!(false));
+    key(&mut t, "Ctrl+9");
+    assert_eq!(regions(&mut t)["editPanel"], json!([0.0, 72.0, 280.0, 712.0]));
+    assert_eq!(state(&mut t)["edit"]["panelVisible"], true);
 }

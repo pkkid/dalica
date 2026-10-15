@@ -3,21 +3,18 @@
 //! with "Tags: lisbon (8), tram (3)", most used first, ties in alphabetical order, counting each
 //! photo of the Photo Tray (held photos and the selection) once; one photo, or photos without tags,
 //! have no such field; the field follows tag changes and Undo at once; a line too long for the
-//! window is cut at its end with "…". The line matches its fingerprints at 1400 × 900 and 900 × 600
-//! (`tests/fingerprints/region-status-tags-<w>.json`; `DALICA_BLESS=1` stores new ones, renders go
+//! window is cut at its end with "…". The line matches its fingerprints at 1400 × 900 (at 900 × 600 they only have to fit)
+//! (`tests/fingerprints/region-status-tags-1400.json`; `DALICA_BLESS=1` stores new ones, renders go
 //! to `target/test-output/ui/`).
 
-use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::common::{FRAMES, new_driver, out_dir};
+use crate::common::{FRAMES, LARGE, SMALL, check_pixels, new_driver, out_dir};
 use dalica_engine::Session;
 use dalica_scenes::fingerprint;
 use dalica_ui::status_text::{ELLIPSIS, SEP};
 use dalica_ui::{App, Driver};
 use serde_json::{Value, json};
-
-const SIZES: [(u32, u32); 2] = [(1400, 900), (900, 600)];
 
 struct T {
     _dir: tempfile::TempDir,
@@ -105,15 +102,18 @@ fn the_status_line_lists_the_tags_of_a_tagged_selection() {
     assert_eq!(status(&t), base);
 }
 
-/// A tag list too long for the window is cut at its end with "…"; the line fits at both sizes.
+/// A tag list too long for the window is cut at its end with "…"; the line fits in the large
+/// window and the small one.
 #[test]
 fn a_long_tag_list_is_cut_at_its_end() {
-    for (w, h) in SIZES {
-        let mut t = setup(w, h);
-        let ids = t.ids.clone();
-        let many: Vec<String> = (0..40).map(|i| format!("tag number {i:02}")).collect();
-        run(&mut t, "photo.tags.add", json!({ "ids": &ids[0..4], "tags": many }));
-        select(&mut t, &ids[0..4]);
+    let mut t = setup(LARGE.0, LARGE.1);
+    let ids = t.ids.clone();
+    let many: Vec<String> = (0..40).map(|i| format!("tag number {i:02}")).collect();
+    run(&mut t, "photo.tags.add", json!({ "ids": &ids[0..4], "tags": many }));
+    select(&mut t, &ids[0..4]);
+    for (w, h) in [LARGE, SMALL] {
+        t.d.resize(w, h);
+        t.d.settle(FRAMES).unwrap();
         let line = status(&t);
         assert!(line.contains("Tags: tag number 00 (4), tag number 01 (4)"), "{w}: {line}");
         assert!(line.ends_with(ELLIPSIS), "{w}: cut at its end: {line}");
@@ -134,27 +134,17 @@ fn check_status(d: &Driver, name: &str) {
             rgba.extend_from_slice(&shot.pixel(x, y).unwrap());
         }
     }
-    std::fs::write(out_dir().join(format!("{name}.png")), fingerprint::png_rgba(w, h, &rgba)).unwrap();
-    let stored = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("tests/fingerprints/{name}.json"));
-    if std::env::var_os("DALICA_BLESS").is_some() {
-        std::fs::write(&stored, fingerprint::to_json(&fingerprint::fingerprint(w, h, &rgba)) + "\n").unwrap();
-    }
-    let expected = fingerprint::from_json(&std::fs::read_to_string(&stored).unwrap()).unwrap();
-    if let Err(m) = fingerprint::check(w, h, &rgba, &expected, 2.0) {
-        std::fs::write(out_dir().join(format!("{name}-actual.png")), &m.actual_png).unwrap();
-        panic!("{name}: {}", m.message);
-    }
+    check_pixels(name, w, h, &rgba);
 }
 
 #[test]
-fn the_tagged_status_line_matches_its_fingerprints_at_both_sizes() {
-    for (w, h) in SIZES {
-        let mut t = setup(w, h);
-        let ids = t.ids.clone();
-        run(&mut t, "photo.tags.add", json!({ "ids": &ids[0..8], "tags": "lisbon" }));
-        run(&mut t, "photo.tags.add", json!({ "ids": &ids[2..8], "tags": "tram" }));
-        select(&mut t, &ids[0..8]);
-        assert!(status(&t).ends_with("Tags: lisbon (8), tram (6)"), "{w}: {}", status(&t));
-        check_status(&t.d, &format!("region-status-tags-{w}"));
-    }
+fn the_tagged_status_line_matches_its_fingerprint() {
+    let (w, h) = LARGE;
+    let mut t = setup(w, h);
+    let ids = t.ids.clone();
+    run(&mut t, "photo.tags.add", json!({ "ids": &ids[0..8], "tags": "lisbon" }));
+    run(&mut t, "photo.tags.add", json!({ "ids": &ids[2..8], "tags": "tram" }));
+    select(&mut t, &ids[0..8]);
+    assert!(status(&t).ends_with("Tags: lisbon (8), tram (6)"), "{w}: {}", status(&t));
+    check_status(&t.d, &format!("region-status-tags-{w}"));
 }

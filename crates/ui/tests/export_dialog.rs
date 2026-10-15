@@ -10,15 +10,15 @@
 //! - a size of 0, 99999 or letters disables Export, as does an empty location or folder name;
 //! - Export starts an export job with the dialog's values (the files are written, numbered and
 //!   resized) and they are the next defaults; Cancel and Esc change nothing;
-//! - every widget has an id, and the dialog matches its fingerprints at 1400 × 900 and 900 × 600
-//!   (`tests/fingerprints/dialog-export-<w>x<h>.json`; `DALICA_BLESS=1` stores new ones, renders
+//! - the dialog matches its fingerprint at 1400 × 900 and fits 900 × 600
+//!   (`tests/fingerprints/dialog-export-1400x900.json`; `DALICA_BLESS=1` stores new ones, renders
 //!   go to `target/test-output/ui/`, and to `$DALICA_SHOTS` when set).
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::common::{FRAMES, check_region, new_driver, shot, try_widget};
+use crate::common::{FRAMES, LARGE, check_sizes, new_driver, shot, try_widget};
 use dalica_core::{FolderId, PhotoId};
 use dalica_engine::{JobKind, Session};
 use dalica_ui::dialogs::export::{
@@ -32,7 +32,6 @@ use dalica_ui_kit::{Tokens, WidgetInfo};
 use egui::pos2;
 use serde_json::{Value, json};
 
-const SIZES: [(u32, u32); 2] = [(1400, 900), (900, 600)];
 const PATIENCE: Duration = Duration::from_secs(300);
 const EXPORT: &str = "button:dialog.export";
 const DIALOG: &str = "dialog:export";
@@ -176,7 +175,7 @@ fn defaults(d: &mut Driver, params: Value) -> Value {
 /// fallback "Export <date>" for photos of two folders).
 #[test]
 fn each_entry_point_opens_it_with_the_right_folder_name() {
-    let mut fx = fixture(SIZES[0]);
+    let mut fx = fixture(LARGE);
     let ids = fx.ids.clone();
     // Nothing in the tray: the bottom bar's Export and the menu item wait.
     assert!(!enabled(&fx.d, "action:export"));
@@ -233,7 +232,7 @@ fn each_entry_point_opens_it_with_the_right_folder_name() {
 /// Custom enables its slider and shows its value; bad sizes disable Export.
 #[test]
 fn field_and_slider_stay_in_step_and_bad_values_disable_export() {
-    let mut fx = fixture(SIZES[0]);
+    let mut fx = fixture(LARGE);
     let ids = fx.ids.clone();
     select(&mut fx.d, &ids[..3]);
     fx.d.run("output.export", &json!({})).unwrap();
@@ -314,7 +313,7 @@ fn field_and_slider_stay_in_step_and_bad_values_disable_export() {
 /// resized, and the values are the next defaults. Cancel before it changed nothing.
 #[test]
 fn export_runs_the_job_with_the_dialogs_values_and_cancel_changes_nothing() {
-    let mut fx = fixture(SIZES[0]);
+    let mut fx = fixture(LARGE);
     let ids = fx.ids.clone();
     let out = fx.out();
     select(&mut fx.d, &ids[..3]);
@@ -404,7 +403,7 @@ fn export_runs_the_job_with_the_dialogs_values_and_cancel_changes_nothing() {
 /// a cancel changes nothing. Without a picker it is disabled.
 #[test]
 fn browse_picks_the_export_location() {
-    let mut fx = fixture(SIZES[0]);
+    let mut fx = fixture(LARGE);
     let ids = fx.ids.clone();
     select(&mut fx.d, &ids[..1]);
     fx.d.run("output.export", &json!({})).unwrap();
@@ -412,7 +411,7 @@ fn browse_picks_the_export_location() {
     assert!(!enabled(&fx.d, BROWSE_ID), "no file dialog here");
 
     let picker = ScriptedPicker::new();
-    let mut fx = fixture_with(SIZES[0], Some(Arc::new(Thinking(picker.clone()))));
+    let mut fx = fixture_with(LARGE, Some(Arc::new(Thinking(picker.clone()))));
     select(&mut fx.d, &ids[..1]);
     fx.d.run("output.export", &json!({})).unwrap();
     fx.d.settle(FRAMES).unwrap();
@@ -431,24 +430,61 @@ fn browse_picks_the_export_location() {
     assert_eq!(fx.d.app().session().unwrap().roots(), roots.as_slice(), "no watched folder added");
 }
 
-/// Every widget has an id with the dialog open, and the dialog (three Lisbon photos, a location,
-/// the watermark on) matches its fingerprints at both window sizes.
+/// The dialog (three Lisbon photos, a location, the watermark on) matches its fingerprint, and
+/// fits the small window.
 #[test]
-fn the_dialog_matches_its_fingerprints_at_both_sizes() {
-    for (w, h) in SIZES {
-        let mut fx = fixture_with((w, h), Some(Arc::new(ScriptedPicker::new())));
-        let ids = fx.ids.clone();
-        select(&mut fx.d, &ids[..3]);
-        fx.d.run("output.export", &json!({})).unwrap();
-        let e = fx.d.app_mut().state_mut().export.as_mut().unwrap();
-        e.location = "/home/ana/Pictures/Dalica/Exports".into();
-        e.watermark = true;
-        e.watermark_text = "© Ana Costa 2026".into();
-        fx.d.settle(FRAMES).unwrap();
-        check_region(&fx.d, DIALOG, &format!("dialog-export-{w}x{h}"));
-        // The quality menu open, for the record (no fingerprint: the window shot).
-        fx.d.click(QUALITY_ID).unwrap();
-        fx.d.settle(FRAMES).unwrap();
-        shot(&fx.d, &format!("dialog-export-quality-{w}x{h}"));
+fn the_dialog_matches_its_fingerprint_and_fits_the_small_window() {
+    let mut fx = fixture_with(LARGE, Some(Arc::new(ScriptedPicker::new())));
+    let ids = fx.ids.clone();
+    select(&mut fx.d, &ids[..3]);
+    fx.d.run("output.export", &json!({})).unwrap();
+    let e = fx.d.app_mut().state_mut().export.as_mut().unwrap();
+    e.location = "/home/ana/Pictures/Dalica/Exports".into();
+    e.watermark = true;
+    e.watermark_text = "© Ana Costa 2026".into();
+    fx.d.settle(FRAMES).unwrap();
+    check_sizes(&mut fx.d, DIALOG, "dialog-export");
+    // The quality menu open, for the record (no fingerprint: the window shot).
+    fx.d.click(QUALITY_ID).unwrap();
+    fx.d.settle(FRAMES).unwrap();
+    shot(&fx.d, "dialog-export-quality-1400x900");
+}
+
+/// Through the control channel, an export or Save As path outside every automation write root is
+/// `path_denied` (a relative or mistyped one `bad_params`), and nothing is written there; inside a
+/// write root, or a watched folder, the policy lets it through to the command.
+#[test]
+fn an_export_path_outside_every_write_root_is_path_denied() {
+    use dalica_ui::control::{Config, Connection, Control, Request, serve};
+    let mut fx = fixture(LARGE);
+    let (photo, dir) = (fx.ids[0].get(), fx.dir.path().to_path_buf());
+    let root = dir.join("out");
+    std::fs::create_dir_all(&root).unwrap();
+    let control = Control::new(Config { write_roots: vec![root.clone()], ..Config::default() });
+    let mut conn = Connection::new();
+    let mut run = |d: &mut Driver, id: &str, params: Value| {
+        serve(&control, &mut conn, d, &Request::new("engine.execute", json!({ "command": id, "params": params }))).map_err(|e| e.code.as_str())
+    };
+    let elsewhere = dir.join("elsewhere");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    let export = |d: &Path| json!({ "ids": [photo], "dir": d, "folderName": "Out" });
+    let d = &mut fx.d;
+    assert_eq!(run(d, "export.run", export(&elsewhere)).unwrap_err(), "path_denied");
+    assert_eq!(run(d, "export.run", export(&elsewhere.join("not yet"))).unwrap_err(), "path_denied");
+    assert_eq!(run(d, "export.run", export(Path::new("relative"))).unwrap_err(), "bad_params");
+    assert_eq!(run(d, "export.run", export(&root.join("..").join("elsewhere"))).unwrap_err(), "path_denied");
+    assert_eq!(run(d, "export.run", json!({ "ids": [photo], "dir": 7 })).unwrap_err(), "bad_params");
+    assert_eq!(run(d, "photo.saveTo", json!({ "id": photo, "path": elsewhere.join("a.jpg") })).unwrap_err(), "path_denied");
+    let watched = dir.join("Photos").join("Porto");
+    for (id, params) in [
+        ("export.run", export(&root.join("Exports"))),
+        ("export.run", export(&watched)),
+        ("photo.saveTo", json!({ "id": photo, "path": watched.join("Saved As.jpg") })),
+        ("photo.saveTo", json!({ "id": photo, "path": root.join("a.png") })),
+    ] {
+        if let Err(e) = run(d, id, params) {
+            assert_ne!(e, "path_denied", "{id}");
+        }
     }
+    assert_eq!(std::fs::read_dir(&elsewhere).unwrap().count(), 0, "nothing was written outside");
 }

@@ -3,7 +3,7 @@
 //! in a folder and in an album; in an album Remove from Album asks (unless "Remove from albums
 //! without asking" is on), removes and leaves the files, Set as Album Cover changes the cover the
 //! tree shows (`albums.list`), and Show in Folder selects the photo in its folder. The open menu
-//! with Add to Album ▸ open is fingerprinted at both sizes as `menu-photo-<w>x<h>.json` (its label
+//! with Add to Album ▸ open is fingerprinted at 1400 × 900 as `menu-photo-1400x900.json` (its label
 //! column over the open submenu, the same on every OS)
 //! (`DALICA_BLESS=1` stores it; renders go to `target/test-output/ui/`).
 //!
@@ -15,7 +15,7 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::common::{FRAMES, new_driver, out_dir, try_widget};
+use crate::common::{FRAMES, LARGE, check_pixels, new_driver, out_dir, try_widget};
 use dalica_core::{AlbumId, PhotoId};
 use dalica_engine::Session;
 use dalica_scenes::fingerprint;
@@ -25,8 +25,6 @@ use dalica_ui::state::{AlbumKey, AlbumSection, Section, Selection};
 use dalica_ui::{App, Driver, ScriptedPicker};
 use egui::PointerButton;
 use serde_json::{Value, json};
-
-const SIZES: [(u32, u32); 2] = [(1400, 900), (900, 600)];
 
 /// A library in `root` with two folders of 4 scenes photos each, added and scanned.
 fn session(root: &Path) -> Session {
@@ -376,33 +374,21 @@ fn check_menu(d: &Driver, name: &str) {
             rgba.extend(std::iter::repeat_n([0u8, 0, 0, 255], (w - pw) as usize).flatten());
         }
     }
-    std::fs::write(out_dir().join(format!("{name}.png")), fingerprint::png_rgba(w, h, &rgba)).unwrap();
-    let stored = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("tests/fingerprints/{name}.json"));
-    if std::env::var_os("DALICA_BLESS").is_some() {
-        std::fs::write(&stored, fingerprint::to_json(&fingerprint::fingerprint(w, h, &rgba)) + "\n").unwrap();
-    }
-    let expected = fingerprint::from_json(&std::fs::read_to_string(&stored).unwrap_or_else(|e| panic!("{}: {e}", stored.display()))).unwrap();
-    if let Err(m) = fingerprint::check(w, h, &rgba, &expected, 2.0) {
-        std::fs::write(out_dir().join(format!("{name}-actual.png")), &m.actual_png).unwrap();
-        panic!("{name}: {}", m.message);
-    }
+    check_pixels(name, w, h, &rgba);
 }
 
-/// The photo menu with Add to Album ▸ open, at both sizes: View and Edit bold, the albums by name
-/// over New Album….
+/// The photo menu with Add to Album ▸ open: View and Edit bold, the albums by name over New
+/// Album…. (One size: the menu does not depend on the window's.)
 #[test]
-fn the_open_menu_matches_its_fingerprints_at_both_sizes() {
-    for size in SIZES {
-        let mut t = setup(size);
-        let a = t.s[0][0];
-        t.d.run("select.set", &json!({ "ids": [a.get()] })).unwrap();
-        open_menu(&mut t, a);
-        t.d.click("submenu:Photo/Add to Album").unwrap();
-        t.d.settle(FRAMES).unwrap();
-        // Rest the pointer on the submenu's first album, as a person choosing one would.
-        t.d.hover(&format!("menuitem:album.add/{}", t.beach), 0).unwrap();
-        t.d.settle(FRAMES).unwrap();
-        let name = format!("menu-photo-{}x{}", size.0, size.1);
-        check_menu(&t.d, &name);
-    }
+fn the_open_menu_matches_its_fingerprint() {
+    let mut t = setup(LARGE);
+    let a = t.s[0][0];
+    t.d.run("select.set", &json!({ "ids": [a.get()] })).unwrap();
+    open_menu(&mut t, a);
+    t.d.click("submenu:Photo/Add to Album").unwrap();
+    t.d.settle(FRAMES).unwrap();
+    // Rest the pointer on the submenu's first album, as a person choosing one would.
+    t.d.hover(&format!("menuitem:album.add/{}", t.beach), 0).unwrap();
+    t.d.settle(FRAMES).unwrap();
+    check_menu(&t.d, "menu-photo-1400x900");
 }

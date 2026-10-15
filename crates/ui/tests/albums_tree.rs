@@ -10,12 +10,12 @@
 //! - Starred Photos lists the starred photos (a row and a section); Recently Updated waits for the
 //!   M9 review (`light_table::SHOW_RECENTLY_UPDATED`);
 //! - in search mode the search album's row comes first and the headers show a magnifier;
-//! - the tree region matches its fingerprint at 1400 × 900 and 900 × 600
-//!   (`tests/fingerprints/region-tree-albums-<w>x<h>.json`; `DALICA_BLESS=1` stores new ones).
+//! - the tree region matches its fingerprint at 1400 × 900 (at 900 × 600 they only have to fit)
+//!   (`tests/fingerprints/region-tree-albums-1400x900.json`; `DALICA_BLESS=1` stores new ones).
 
 use std::sync::Arc;
 
-use crate::common::{FRAMES, check_region, new_driver, put_dated_jpeg, try_widget};
+use crate::common::{FRAMES, LARGE, check_sizes, new_driver, put_dated_jpeg, try_widget};
 use dalica_core::{AlbumId, FolderId, PhotoId};
 use dalica_engine::Session;
 use dalica_ui::headless::Click;
@@ -25,8 +25,6 @@ use dalica_ui::state::{AlbumKey, AlbumSection, DialogKind, Section};
 use dalica_ui::{App, Driver};
 use dalica_ui_kit::WidgetInfo;
 use serde_json::{Value, json};
-
-const SIZES: [(u32, u32); 2] = [(1400, 900), (900, 600)];
 
 struct Fx {
     _dir: tempfile::TempDir,
@@ -308,20 +306,19 @@ fn a_double_click_on_an_album_row_opens_its_properties() {
     assert!(fx.d.state().dialogs.is_empty());
 }
 
-/// The tree with an album selected and Starred Photos, at both sizes.
+/// The tree with an album selected and Starred Photos matches its fingerprint, and fits the small
+/// window.
 #[test]
-fn the_tree_with_albums_matches_its_fingerprints() {
-    for size in SIZES {
-        let mut fx = fixture(size);
-        let porto = photos_of(&fx.d, Section::Folder(fx.porto)).unwrap();
-        fx.d.run("photo.star.set", &json!({ "ids": [porto[0].get()], "on": true })).unwrap();
-        fx.d.run("album.create", &json!({ "name": "Weekend in Lisbon and Porto", "ids": [porto[1].get()] })).unwrap();
-        fx.d.settle(FRAMES).unwrap();
-        let album = the_album(&fx.d);
-        fx.d.click(&format!("tree:album:{album}")).unwrap();
-        fx.d.settle(FRAMES).unwrap();
-        check_region(&fx.d, "region:tree", &format!("region-tree-albums-{}x{}", size.0, size.1));
-    }
+fn the_tree_with_albums_matches_its_fingerprint() {
+    let mut fx = fixture(LARGE);
+    let porto = photos_of(&fx.d, Section::Folder(fx.porto)).unwrap();
+    fx.d.run("photo.star.set", &json!({ "ids": [porto[0].get()], "on": true })).unwrap();
+    fx.d.run("album.create", &json!({ "name": "Weekend in Lisbon and Porto", "ids": [porto[1].get()] })).unwrap();
+    fx.d.settle(FRAMES).unwrap();
+    let album = the_album(&fx.d);
+    fx.d.click(&format!("tree:album:{album}")).unwrap();
+    fx.d.settle(FRAMES).unwrap();
+    check_sizes(&mut fx.d, "region:tree", "region-tree-albums");
 }
 
 /// `select.set {section}`: photos selected in an album's section; a section that is not one, not

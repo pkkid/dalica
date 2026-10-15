@@ -4,14 +4,14 @@
 //! frames in between are seen; the new texture then replaces it. After a crop the old texture
 //! keeps its own shape, letterboxed inside the new one. The edited badge shows with the
 //! edit, a rotation alone included, and goes with its undo or a Save. The cell fingerprints at
-//! 1400 × 900 and 900 × 600 (`edited-cell-*.json`). Renders go to `target/test-output/ui/`;
+//! 1400 × 900 (`edited-cell-1400x900.json`). Renders go to `target/test-output/ui/`;
 //! `DALICA_BLESS=1` stores new fingerprints.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
-use crate::common::{FRAMES, new_driver, out_dir};
+use crate::common::{FRAMES, check_pixels, new_driver, out_dir, write_png};
 use dalica_core::PhotoId;
 use dalica_engine::Session;
 use dalica_engine::thumbs::ScanHook;
@@ -76,17 +76,8 @@ fn region(shot: &Image, rect: [f32; 4], scale: f32) -> (u32, u32, Vec<u8>) {
 fn check_cell(d: &Driver, id: PhotoId, name: &str) {
     let shot = d.screenshot().unwrap();
     let (w, h, rgba) = region(&shot, cell_rect(d, id), 1.0);
-    std::fs::write(out_dir().join(format!("{name}.png")), fingerprint::png_rgba(w, h, &rgba)).unwrap();
-    std::fs::write(out_dir().join(format!("{name}-window.png")), fingerprint::png_rgba(shot.width, shot.height, &shot.rgba)).unwrap();
-    let stored = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("tests/fingerprints/{name}.json"));
-    if std::env::var_os("DALICA_BLESS").is_some() {
-        std::fs::write(&stored, fingerprint::to_json(&fingerprint::fingerprint(w, h, &rgba)) + "\n").unwrap();
-    }
-    let expected = fingerprint::from_json(&std::fs::read_to_string(&stored).unwrap()).unwrap();
-    if let Err(m) = fingerprint::check(w, h, &rgba, &expected, 2.0) {
-        std::fs::write(out_dir().join(format!("{name}-actual.png")), &m.actual_png).unwrap();
-        panic!("{name}: {}", m.message);
-    }
+    write_png(&format!("{name}-window"), &fingerprint::png_rgba(shot.width, shot.height, &shot.rgba));
+    check_pixels(name, w, h, &rgba);
 }
 
 /// Holds thumbnail scan jobs until opened.
@@ -224,20 +215,4 @@ fn a_newly_cropped_cell_draws_its_old_texture_at_its_own_shape() {
     let after = painted(&d, id);
     assert_eq!((after.drawn, after.stale), (Drawn::Image, false), "the cropped texture");
     assert!((after.rect.min - cropped.min).length() < 0.01 && (after.rect.max - cropped.max).length() < 0.01, "{after:?} fills {cropped:?}");
-}
-
-#[test]
-fn the_edited_cell_at_900_by_600() {
-    let dir = tempfile::tempdir().unwrap();
-    let mut s = library(dir.path());
-    let id = s.library().photos().min_by_key(|p| p.name.clone()).unwrap().id;
-    s.execute("photo.history.apply", &json!({ "id": id, "op": "autofix()" })).unwrap();
-    s.update_thumbnail_recipes();
-    s.wait_idle();
-    let mut d = new_driver(App::new(Some(s)), 900, 600, 1.0);
-    d.settle(FRAMES).unwrap();
-    let p = painted(&d, id);
-    assert_eq!((p.drawn, p.stale), (Drawn::Image, false));
-    assert!(badges(&d, id).edited);
-    check_cell(&d, id, "edited-cell-900x600");
 }

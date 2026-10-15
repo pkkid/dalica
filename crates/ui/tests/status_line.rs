@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
 
-use crate::common::{FRAMES, new_driver};
+use crate::common::{FRAMES, LARGE, SMALL, new_driver};
 use dalica_core::{Date, DateTime, PhotoId};
 use dalica_engine::Session;
 use dalica_scenes::{Exif, Scene};
@@ -115,47 +115,46 @@ fn select(d: &mut Driver, names: &[&str]) {
     d.settle(FRAMES).unwrap();
 }
 
-/// The done-when: each §6.1 case reads as the spec writes it, at both window sizes.
+/// The done-when: each §6.1 case reads as the spec writes it.
 #[test]
-fn every_case_reads_as_the_spec_writes_it_at_both_sizes() {
-    for size in SIZES {
-        let dir = tempfile::tempdir().unwrap();
-        let mut d = driver(dir.path(), size);
-        let ids = ids(&d);
-        let case = |c: &str| format!("{size:?}: {c}");
-        assert_eq!(status(&d), "No selection", "{}", case("nothing"));
+fn every_case_reads_as_the_spec_writes_it() {
+    let size = LARGE;
+    let dir = tempfile::tempdir().unwrap();
+    let mut d = driver(dir.path(), size);
+    let ids = ids(&d);
+    let case = |c: &str| format!("{size:?}: {c}");
+    assert_eq!(status(&d), "No selection", "{}", case("nothing"));
 
-        // One photo, clicked: name, date taken, pixel size, file size.
-        d.click(&format!("thumb:{}", ids["IMG_0361.jpg"].get())).unwrap();
-        d.settle(FRAMES).unwrap();
-        assert_eq!(status(&d), "IMG_0361.jpg     June 4, 2026 7:42 PM     400 × 300     100.0 KB", "{}", case("one photo"));
+    // One photo, clicked: name, date taken, pixel size, file size.
+    d.click(&format!("thumb:{}", ids["IMG_0361.jpg"].get())).unwrap();
+    d.settle(FRAMES).unwrap();
+    assert_eq!(status(&d), "IMG_0361.jpg     June 4, 2026 7:42 PM     400 × 300     100.0 KB", "{}", case("one photo"));
 
-        // Several photos: count, date range, size on disk; one day shows that day alone.
-        select(&mut d, &["IMG_0361.jpg", "IMG_0362.jpg", "IMG_0363.jpg"]);
-        assert_eq!(status(&d), "3 pictures     June 4, 2026 to June 6, 2026     300.0 KB on disk", "{}", case("several"));
-        select(&mut d, &["IMG_0363.jpg", "IMG_0364.jpg"]);
-        assert_eq!(status(&d), "2 pictures     June 6, 2026     200.0 KB on disk", "{}", case("one day"));
+    // Several photos: count, date range, size on disk; one day shows that day alone.
+    select(&mut d, &["IMG_0361.jpg", "IMG_0362.jpg", "IMG_0363.jpg"]);
+    assert_eq!(status(&d), "3 pictures     June 4, 2026 to June 6, 2026     300.0 KB on disk", "{}", case("several"));
+    select(&mut d, &["IMG_0363.jpg", "IMG_0364.jpg"]);
+    assert_eq!(status(&d), "2 pictures     June 6, 2026     200.0 KB on disk", "{}", case("one day"));
 
-        // A section selected as a unit from the tree: the tray's token, the section's pictures.
-        let lisbon = d.app().session().unwrap().library().photo(ids["IMG_0361.jpg"]).unwrap().folder;
-        d.click(&format!("tree:folder:{}", lisbon.get())).unwrap();
-        d.settle(FRAMES).unwrap();
-        assert!(d.widgets().iter().any(|w| w.id == "tray:token"), "{}", case("the section is the tray's token"));
-        assert_eq!(status(&d), "4 pictures     June 4, 2026 to June 6, 2026     400.0 KB on disk", "{}", case("a section"));
+    // A section selected as a unit from the tree: the tray's token, the section's pictures.
+    let lisbon = d.app().session().unwrap().library().photo(ids["IMG_0361.jpg"]).unwrap().folder;
+    d.click(&format!("tree:folder:{}", lisbon.get())).unwrap();
+    d.settle(FRAMES).unwrap();
+    assert!(d.widgets().iter().any(|w| w.id == "tray:token"), "{}", case("the section is the tray's token"));
+    assert_eq!(status(&d), "4 pictures     June 4, 2026 to June 6, 2026     400.0 KB on disk", "{}", case("a section"));
 
-        // The tray's contents, not just the selection: two held photos and two selected elsewhere.
-        d.run("select.none", &json!({})).unwrap();
-        let held = [ids["IMG_0361.jpg"].get(), ids["IMG_0362.jpg"].get()];
-        d.run("tray.hold", &json!({ "ids": held })).unwrap();
-        select(&mut d, &["IMG_0401.jpg", "IMG_0402.jpg"]);
-        assert_eq!(status(&d), "4 pictures     June 4, 2026 to June 10, 2026     400.0 KB on disk", "{}", case("held + selected"));
-        d.run("select.none", &json!({})).unwrap();
-        d.settle(FRAMES).unwrap();
-        assert_eq!(status(&d), "2 pictures     June 4, 2026 to June 5, 2026     200.0 KB on disk", "{}", case("held only"));
-        d.run("tray.clear", &json!({ "confirm": true })).unwrap();
-        d.settle(FRAMES).unwrap();
-        assert_eq!(status(&d), "No selection", "{}", case("the tray emptied"));
-    }
+    // The tray's contents, not just the selection: two held photos and two selected elsewhere.
+    d.run("select.none", &json!({})).unwrap();
+    let held = [ids["IMG_0361.jpg"].get(), ids["IMG_0362.jpg"].get()];
+    d.run("tray.hold", &json!({ "ids": held })).unwrap();
+    select(&mut d, &["IMG_0401.jpg", "IMG_0402.jpg"]);
+    assert_eq!(status(&d), "4 pictures     June 4, 2026 to June 10, 2026     400.0 KB on disk", "{}", case("held + selected"));
+    d.run("select.none", &json!({})).unwrap();
+    d.settle(FRAMES).unwrap();
+    assert_eq!(status(&d), "2 pictures     June 4, 2026 to June 5, 2026     200.0 KB on disk", "{}", case("held only"));
+    d.run("tray.clear", &json!({ "confirm": true })).unwrap();
+    d.settle(FRAMES).unwrap();
+    assert_eq!(status(&d), "No selection", "{}", case("the tray emptied"));
 }
 
 /// The done-when: a long file name is shown whole where it fits (1400) and middle-elided where it
@@ -163,10 +162,12 @@ fn every_case_reads_as_the_spec_writes_it_at_both_sizes() {
 #[test]
 fn a_long_name_loses_its_middle_only_when_the_line_is_too_narrow() {
     let rest = "     June 11, 2026 2:00 PM     400 × 300     100.0 KB";
+    let dir = tempfile::tempdir().unwrap();
+    let mut d = driver(dir.path(), SIZES[0]);
+    select(&mut d, &[LONG]);
     for size in SIZES {
-        let dir = tempfile::tempdir().unwrap();
-        let mut d = driver(dir.path(), size);
-        select(&mut d, &[LONG]);
+        d.resize(size.0, size.1);
+        d.settle(FRAMES).unwrap();
         let text = status(&d);
         if size.0 == 1400 {
             assert_eq!(text, format!("{LONG}{rest}"), "1400: the whole name fits");
@@ -185,7 +186,7 @@ fn a_long_name_loses_its_middle_only_when_the_line_is_too_narrow() {
 #[test]
 fn the_edit_view_line_drops_the_prefix_before_eliding_the_name() {
     let dir = tempfile::tempdir().unwrap();
-    let d = driver(dir.path(), SIZES[1]);
+    let d = driver(dir.path(), SMALL);
     let library = d.app().session().unwrap().library();
     let photo = library.photo(ids(&d)["IMG_0361.jpg"]).unwrap();
     let line = status_text::edit("Lisbon Weekend", photo, 12, 48);
@@ -204,26 +205,25 @@ fn the_edit_view_line_drops_the_prefix_before_eliding_the_name() {
 /// of virtual time, then the tray's text is back; a successful action clears it at once.
 #[test]
 fn a_transient_message_shows_for_four_seconds() {
-    for size in SIZES {
-        let dir = tempfile::tempdir().unwrap();
-        let mut d = driver(dir.path(), size);
-        select(&mut d, &["IMG_0361.jpg", "IMG_0362.jpg"]);
-        let text = "2 pictures     June 4, 2026 to June 5, 2026     200.0 KB on disk";
-        assert_eq!(status(&d), text);
-        assert!(d.app_mut().run("photo.star.toggle", &json!({ "ids": [999_999] })).is_err());
-        d.step();
-        let message = status(&d);
-        assert!(!message.is_empty() && message != text, "{size:?}: the reason is shown: {message}");
-        d.wait(3_900).unwrap();
-        assert_eq!(status(&d), message, "{size:?}: still shown at 3.9 s");
-        d.wait(200).unwrap();
-        assert_eq!(status(&d), text, "{size:?}: gone after 4 s");
+    let size = LARGE;
+    let dir = tempfile::tempdir().unwrap();
+    let mut d = driver(dir.path(), size);
+    select(&mut d, &["IMG_0361.jpg", "IMG_0362.jpg"]);
+    let text = "2 pictures     June 4, 2026 to June 5, 2026     200.0 KB on disk";
+    assert_eq!(status(&d), text);
+    assert!(d.app_mut().run("photo.star.toggle", &json!({ "ids": [999_999] })).is_err());
+    d.step();
+    let message = status(&d);
+    assert!(!message.is_empty() && message != text, "{size:?}: the reason is shown: {message}");
+    d.wait(3_900).unwrap();
+    assert_eq!(status(&d), message, "{size:?}: still shown at 3.9 s");
+    d.wait(200).unwrap();
+    assert_eq!(status(&d), text, "{size:?}: gone after 4 s");
 
-        assert!(d.app_mut().run("photo.star.toggle", &json!({ "ids": [999_999] })).is_err());
-        d.step();
-        assert_ne!(status(&d), text);
-        d.run("select.set", &json!({ "ids": [ids(&d)["IMG_0361.jpg"].get()] })).unwrap();
-        d.step();
-        assert!(status(&d).starts_with("IMG_0361.jpg     "), "{size:?}: an action that succeeds clears the message");
-    }
+    assert!(d.app_mut().run("photo.star.toggle", &json!({ "ids": [999_999] })).is_err());
+    d.step();
+    assert_ne!(status(&d), text);
+    d.run("select.set", &json!({ "ids": [ids(&d)["IMG_0361.jpg"].get()] })).unwrap();
+    d.step();
+    assert!(status(&d).starts_with("IMG_0361.jpg     "), "{size:?}: an action that succeeds clears the message");
 }

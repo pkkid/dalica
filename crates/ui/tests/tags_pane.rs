@@ -7,14 +7,14 @@
 //!   Undo puts it back.
 //! - The autocomplete offers the tags in use; ↓ and Enter add the highlighted one.
 //! - Rename Tag… from the tag menu merges onto an existing tag once confirmed, as one undo step.
-//! - The pane and the Rename Tag dialog match their fingerprints at 1400 × 900 and 900 × 600
-//!   (`tests/fingerprints/pane-tags-<w>x<h>.json`, `dialog-rename-tag-<w>x<h>.json`;
+//! - The pane and the Rename Tag dialog match their fingerprints at 1400 × 900 (at 900 × 600 they only have to fit)
+//!   (`tests/fingerprints/pane-tags-1400x900.json`, `dialog-rename-tag-1400x900.json`;
 //!   `DALICA_BLESS=1` stores new ones, renders go to `target/test-output/ui/`), and every widget
 //!   shown has a valid, unique id.
 
 use std::sync::Arc;
 
-use crate::common::{FRAMES, check_region, new_driver, shot};
+use crate::common::{FRAMES, LARGE, check_region, check_sizes, new_driver, shot};
 use dalica_core::PhotoId;
 use dalica_engine::Session;
 use dalica_ui::headless::Click;
@@ -23,8 +23,6 @@ use dalica_ui::{App, Driver};
 use dalica_ui_kit::registry::Role;
 use egui::PointerButton;
 use serde_json::{Value, json};
-
-const SIZES: [(u32, u32); 2] = [(1400, 900), (900, 600)];
 
 struct T {
     _dir: tempfile::TempDir,
@@ -282,27 +280,26 @@ fn rename_tag_merges_after_confirming() {
 }
 
 /// The pane with a partial tag, a whole one and a hovered row's ×, and the Rename Tag dialog
-/// merging, at both window sizes.
+/// merging (which fits the small window).
 #[test]
-fn the_pane_and_the_rename_dialog_match_their_fingerprints_at_both_sizes() {
-    for (w, h) in SIZES {
-        let mut t = setup(w, h);
-        let ids = t.ids.clone();
-        run(&mut t, "photo.tags.add", json!({ "ids": &ids[0..8], "tags": "lisbon, tram" }));
-        run(&mut t, "photo.tags.add", json!({ "ids": &ids[0..3], "tags": "beach" }));
-        run(&mut t, "photo.tags.add", json!({ "ids": &ids[5..8], "tags": "a much longer tag that has to be cut short in the pane" }));
-        select(&mut t, 8);
-        run(&mut t, "pane.tags", json!({}));
-        assert_eq!(t.d.state().pane, Some(Pane::Tags), "{w}×{h}");
-        check_region(&t.d, "pane:tags", &format!("pane-tags-{w}x{h}"));
-        shot(&t.d, &format!("pane-tags-{w}x{h}"));
-        t.d.hover("tag:tram", 0).unwrap();
-        shot(&t.d, &format!("pane-tags-hover-{w}x{h}"));
+fn the_pane_and_the_rename_dialog_match_their_fingerprints() {
+    let (w, h) = LARGE;
+    let mut t = setup(w, h);
+    let ids = t.ids.clone();
+    run(&mut t, "photo.tags.add", json!({ "ids": &ids[0..8], "tags": "lisbon, tram" }));
+    run(&mut t, "photo.tags.add", json!({ "ids": &ids[0..3], "tags": "beach" }));
+    run(&mut t, "photo.tags.add", json!({ "ids": &ids[5..8], "tags": "a much longer tag that has to be cut short in the pane" }));
+    select(&mut t, 8);
+    run(&mut t, "pane.tags", json!({}));
+    assert_eq!(t.d.state().pane, Some(Pane::Tags), "{w}×{h}");
+    check_region(&t.d, "pane:tags", &format!("pane-tags-{w}x{h}"));
+    shot(&t.d, &format!("pane-tags-{w}x{h}"));
+    t.d.hover("tag:tram", 0).unwrap();
+    shot(&t.d, &format!("pane-tags-hover-{w}x{h}"));
 
-        run(&mut t, "tag.rename", json!({ "tag": "tram" }));
-        t.d.type_text("Lisbon").unwrap();
-        t.d.settle(FRAMES).unwrap();
-        check_region(&t.d, "dialog:renameTag", &format!("dialog-rename-tag-{w}x{h}"));
-        shot(&t.d, &format!("dialog-rename-tag-{w}x{h}"));
-    }
+    run(&mut t, "tag.rename", json!({ "tag": "tram" }));
+    t.d.type_text("Lisbon").unwrap();
+    t.d.settle(FRAMES).unwrap();
+    shot(&t.d, &format!("dialog-rename-tag-{w}x{h}"));
+    check_sizes(&mut t.d, "dialog:renameTag", "dialog-rename-tag");
 }

@@ -10,21 +10,19 @@
 //! - undo takes each step back whole, in the library and in the files: with the date writes still
 //!   queued, and after they landed (`settle` waiting for metadata writes) and a rescan read them
 //!   back;
-//! - every widget has an id, and the dialog matches its fingerprints at 1400 × 900 and 900 × 600
-//!   (`tests/fingerprints/dialog-adjust-date-<w>x<h>.json`; `DALICA_BLESS=1` stores new ones,
+//! - the dialog matches its fingerprints at 1400 × 900 (at 900 × 600 they only have to fit)
+//!   (`tests/fingerprints/dialog-adjust-date-1400x900.json`; `DALICA_BLESS=1` stores new ones,
 //!   renders go to `target/test-output/ui/`).
 
 use std::sync::Arc;
 
-use crate::common::{FRAMES, check_region, new_driver, put_dated_jpeg, shot, try_widget};
+use crate::common::{FRAMES, LARGE, check_sizes, new_driver, put_dated_jpeg, shot, try_widget};
 use dalica_core::{Date, DateTime, FolderId, PhotoId};
 use dalica_engine::Session;
 use dalica_ui::dialogs::adjust_date::{DATE_ID, SET_ID, SHIFT_ID, TIME_ID};
 use dalica_ui::state::{DialogKind, Section};
 use dalica_ui::{App, Driver};
 use serde_json::{Value, json};
-
-const SIZES: [(u32, u32); 2] = [(1400, 900), (900, 600)];
 
 struct Fx {
     _dir: tempfile::TempDir,
@@ -264,19 +262,17 @@ fn an_adjusted_date_reorders_and_relabels() {
     assert!(fx.d.state().status_line.contains("June 7, 2026 10:00 AM"), "{}", fx.d.state().status_line);
 }
 
-/// Every widget has an id with the dialog open, and the dialog (three photos, shifted by +1 h 30
-/// min) matches its fingerprints at both window sizes.
+/// The dialog (three photos, shifted by +1 h 30 min) matches its fingerprint, and fits the small
+/// window.
 #[test]
-fn the_dialog_matches_its_fingerprints_at_both_sizes() {
-    for (w, h) in SIZES {
-        let mut fx = fixture((w, h));
-        let ids = fx.ids.clone();
-        select(&mut fx.d, &ids[..3]);
-        fx.d.run("photo.adjustDate", &json!({})).unwrap();
-        let top = fx.d.app_mut().state_mut().dialogs.last_mut().unwrap();
-        top.fields.insert("shift".into(), json!(5400));
-        top.fields.insert("set".into(), json!("2026-06-04T11:30:00"));
-        fx.d.settle(FRAMES).unwrap();
-        check_region(&fx.d, "dialog:adjustDate", &format!("dialog-adjust-date-{w}x{h}"));
-    }
+fn the_dialog_matches_its_fingerprint_and_fits_the_small_window() {
+    let mut fx = fixture(LARGE);
+    let ids = fx.ids.clone();
+    select(&mut fx.d, &ids[..3]);
+    fx.d.run("photo.adjustDate", &json!({})).unwrap();
+    let top = fx.d.app_mut().state_mut().dialogs.last_mut().unwrap();
+    top.fields.insert("shift".into(), json!(5400));
+    top.fields.insert("set".into(), json!("2026-06-04T11:30:00"));
+    fx.d.settle(FRAMES).unwrap();
+    check_sizes(&mut fx.d, "dialog:adjustDate", "dialog-adjust-date");
 }

@@ -5,14 +5,14 @@
 //! selection (click, Ctrl-click, rubber band) and menu; every tray command fails gracefully. The
 //! held scenario is fingerprinted as `region-tray-held.json` (`DALICA_BLESS=1` stores it; renders
 //! go to `target/test-output/ui/`). M9.18: an album section selected as a unit is one album token
-//! with the album's cover (`region-tray-album-<w>x<h>.json` at both sizes), and Add to Album ▾
+//! with the album's cover (`region-tray-album-1400x900.json` at 1400 × 900), and Add to Album ▾
 //! adds the tray's photos to an album or opens Album Properties for them.
 
 use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
-use crate::common::{FRAMES, new_driver, out_dir, try_widget};
+use crate::common::{FRAMES, LARGE, SMALL, check_pixels, crop, new_driver, out_dir, try_widget};
 use dalica_core::PhotoId;
 use dalica_engine::{CmdError, Session};
 use dalica_scenes::fingerprint;
@@ -81,24 +81,8 @@ fn select(d: &mut Driver, ids: &[PhotoId]) {
 fn check_bottom(d: &Driver, name: &str) {
     let shot = d.screenshot().unwrap();
     // The bottom area: the window's last 96 rows.
-    let (x0, y0, w, h) = (0, shot.height - 96, shot.width, 96);
-    let mut rgba = Vec::with_capacity((w * h * 4) as usize);
-    for y in y0..y0 + h {
-        for x in x0..x0 + w {
-            rgba.extend_from_slice(&shot.pixel(x, y).unwrap());
-        }
-    }
-    let png = fingerprint::png_rgba(w, h, &rgba);
-    std::fs::write(out_dir().join(format!("{name}.png")), &png).unwrap();
-    let stored = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("tests/fingerprints/{name}.json"));
-    if std::env::var_os("DALICA_BLESS").is_some() {
-        std::fs::write(&stored, fingerprint::to_json(&fingerprint::fingerprint(w, h, &rgba)) + "\n").unwrap();
-    }
-    let expected = fingerprint::from_json(&std::fs::read_to_string(&stored).unwrap()).unwrap();
-    if let Err(m) = fingerprint::check(w, h, &rgba, &expected, 2.0) {
-        std::fs::write(out_dir().join(format!("{name}-actual.png")), &m.actual_png).unwrap();
-        panic!("{name}: {}", m.message);
-    }
+    let (w, h, rgba) = crop(&shot, [0, shot.height - 96, shot.width, shot.height]);
+    check_pixels(name, w, h, &rgba);
 }
 
 /// The M4.16 done-when, first part: select 2 in folder A, Hold, select 3 in folder B → the tray has
@@ -373,13 +357,15 @@ fn an_album_selected_as_a_unit_is_one_album_token() {
     let id = dalica_core::AlbumId::parse(&album).unwrap();
     // Selecting the album section as a unit (its tree row or header) selects its photos so.
     d.app_mut().state_mut().selection = Selection::new(members.to_vec(), None, Some(Section::Album(AlbumSection::User(AlbumKey::of(&id)))), true);
-    for (w, h) in [(1400, 900), (900, 600)] {
+    for (w, h) in [SMALL, LARGE] {
         d.resize(w, h);
         d.settle(FRAMES).unwrap();
         let token = try_widget(&d, "tray:token").expect("the album token is drawn");
         assert_eq!(token.label, "Album selected — 3 photos");
         assert!(minis(&d).is_empty(), "the album's photos are not minis");
-        check_bottom(&d, &format!("region-tray-album-{w}x{h}"));
+        if (w, h) == LARGE {
+            check_bottom(&d, &format!("region-tray-album-{w}x{h}"));
+        }
     }
 }
 

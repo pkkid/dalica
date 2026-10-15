@@ -1973,14 +1973,21 @@ mod tests {
         assert!(serde_json::from_value::<UiState>(bad).is_err());
     }
 
+    /// The default view state, as `ui.state` sends it: every field's protocol name and default in
+    /// one golden file (`tests/golden/default-state.json`; `DALICA_BLESS=1` writes it).
     #[test]
-    fn the_m4_fields_have_their_protocol_names_and_defaults() {
+    fn the_default_state_is_the_golden_one() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/golden/default-state.json");
         let v = serde_json::to_value(UiState::default()).unwrap();
-        let fields = ["treeMode", "folderSort", "folderSortReverse", "caption", "smallPictures", "hiddenPictures"].map(|k| v[k].clone());
-        assert_eq!(fields, [serde_json::json!("flat"), "date".into(), false.into(), "none".into(), false.into(), false.into()]);
-        assert_eq!((&v["collapsedGroups"], &v["collapsedFolders"]), (&serde_json::json!([]), &serde_json::json!([])));
-        assert_eq!(v["tray"], serde_json::json!({ "held": [], "selected": [] }));
-        assert_eq!(v["scroll"], serde_json::json!({ "section": null, "offset": 0.0 }));
+        if std::env::var_os("DALICA_BLESS").is_some() {
+            std::fs::write(&path, serde_json::to_string_pretty(&v).unwrap() + "\n").unwrap();
+        }
+        let golden: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(v, golden, "the default state differs from {}", path.display());
+    }
+
+    #[test]
+    fn the_view_enums_have_their_protocol_names() {
         let names = |all: &[serde_json::Value]| all.iter().map(|g| g.as_str().unwrap().to_string()).collect::<Vec<_>>();
         let groups: Vec<serde_json::Value> = Group::ALL.iter().map(|g| serde_json::to_value(g).unwrap()).collect();
         assert_eq!(names(&groups), ["albums", "people", "projects", "folders", "other", "hidden"]);
@@ -2023,17 +2030,7 @@ mod tests {
     }
 
     #[test]
-    fn the_m6_fields_have_their_protocol_names_and_defaults() {
-        let v = serde_json::to_value(UiState::default()).unwrap();
-        assert_eq!(
-            (&v["captionEdit"], &v["descriptionEdit"], &v["propertiesShowAll"]),
-            (&serde_json::Value::Null, &serde_json::Value::Null, &false.into())
-        );
-        assert_eq!(v["tagsPane"], serde_json::json!({ "draft": "", "highlight": null }));
-        assert_eq!(
-            v["about"],
-            serde_json::json!({ "tab": "about", "list": "grabBag", "sort": "firstCommit", "ascending": true, "names": "username" })
-        );
+    fn the_m6_fields_round_trip_with_their_protocol_names() {
         let s = UiState {
             caption_edit: Some(CaptionEdit { photo: PhotoId::new(4), draft: "Lisbon".into() }),
             description_edit: Some(DescriptionEdit { section: Section::Folder(FolderId::new(2)), draft: "trams".into() }),
@@ -2056,11 +2053,6 @@ mod tests {
             serde_json::json!({ "tab": "models", "list": "table", "sort": "linesDelta", "ascending": false, "names": "realName" })
         );
         assert_eq!(serde_json::from_value::<UiState>(v).unwrap(), s);
-        for k in DialogKind::ALL {
-            assert_eq!(serde_json::to_value(k).unwrap(), k.name());
-        }
-        let names: Vec<&str> = DialogKind::ALL[5..11].iter().map(|k| k.name()).collect();
-        assert_eq!(names, ["folderProperties", "adjustDate", "quickTags", "renameTag", "about", "releaseNotes"]);
     }
 
     #[test]
@@ -2085,12 +2077,6 @@ mod tests {
 
     #[test]
     fn the_edit_state_has_its_protocol_names_and_checks_its_ranges() {
-        let v = serde_json::to_value(UiState::default()).unwrap();
-        assert_eq!(
-            v["edit"],
-            serde_json::json!({ "photo": null, "tab": "basic", "tool": null, "compare": "one", "zoom": "fit", "panelVisible": true,
-                                "crop": null, "straighten": null, "retouch": null, "tuning": null })
-        );
         for k in ToolKind::ALL {
             assert_eq!(serde_json::to_value(k).unwrap(), k.name());
         }
@@ -2147,10 +2133,6 @@ mod tests {
 
     #[test]
     fn the_m8_fields_have_their_protocol_names_and_are_bounded() {
-        let v = serde_json::to_value(UiState::default()).unwrap();
-        for k in ["export", "saveExplain", "revert", "exportProgress"] {
-            assert_eq!(v[k], serde_json::Value::Null, "{k}");
-        }
         assert_eq!(
             serde_json::to_value(ExportDraft::default()).unwrap(),
             serde_json::json!({ "ids": [], "section": null, "location": "", "folderName": "", "numbers": false, "originalSize": false,
@@ -2187,16 +2169,6 @@ mod tests {
 
     #[test]
     fn the_m9_fields_have_their_protocol_names_and_are_bounded() {
-        let v = serde_json::to_value(UiState::default()).unwrap();
-        assert_eq!(
-            v["search"],
-            serde_json::json!({ "text": "", "highlight": null, "filters": { "starred": false, "faces": false, "videos": false, "geotagged": false },
-                                "age": 0.0, "savedScroll": null })
-        );
-        for k in ["clipboard", "albumProperties", "renameFiles", "newFolder", "moveFiles", "copyFiles", "collision", "deletePhotos", "deleteFolder"] {
-            assert_eq!(v[k], serde_json::Value::Null, "{k}");
-        }
-        assert!(v.get("drag").is_none() && v.get("focusSearch").is_none(), "the drag and the focus request are not view state");
         assert_eq!(
             serde_json::to_value(AlbumDraft::default()).unwrap(),
             serde_json::json!({ "album": null, "ids": [], "name": "New Album", "date": "", "useNewest": true, "place": "", "description": "" })
@@ -2204,22 +2176,6 @@ mod tests {
         assert_eq!(
             serde_json::to_value(NewFolderDraft::default()).unwrap(),
             serde_json::json!({ "ids": [], "name": "New Folder", "date": "", "useOldest": true, "place": "", "description": "" })
-        );
-        let names: Vec<&str> = DialogKind::ALL[15..].iter().map(|k| k.name()).collect();
-        assert_eq!(
-            names,
-            [
-                "albumProperties",
-                "removeFromAlbum",
-                "deleteAlbum",
-                "moveFiles",
-                "copyFiles",
-                "collision",
-                "newFolder",
-                "renameFiles",
-                "deletePhotos",
-                "deleteFolder"
-            ]
         );
         // Every field round-trips.
         let p = |n| PhotoId::new(n);

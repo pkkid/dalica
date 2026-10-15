@@ -11,15 +11,15 @@
 //! - A Save that fails on a read-only file gives exactly one `caution` toast, naming the file and
 //!   the reason (a Save job on M8.3's runner, as M8.15's will run).
 //!
-//! The window is checked against fingerprints at 1400 × 900 and 900 × 600
-//! (`dialog-export-progress-<w>x<h>.json`, a job held at "1 of 4"); renders go to
+//! The window is checked against fingerprints at 1400 × 900 (at 900 × 600 they only have to fit)
+//! (`dialog-export-progress-1400x900.json`, a job held at "1 of 4"); renders go to
 //! `target/test-output/ui/`, and `DALICA_BLESS=1` stores new fingerprints.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
-use crate::common::{FRAMES, new_driver, out_dir, try_widget};
+use crate::common::{FRAMES, LARGE, SMALL, check_rect, new_driver, out_dir, try_widget};
 use dalica_core::{FolderId, PhotoId};
 use dalica_engine::{Done, FileItem, FileJob, JobKind, JobState, Session};
 use dalica_fs::Expect;
@@ -113,29 +113,7 @@ fn save_window(d: &Driver, name: &str) {
 
 /// Checks the region `rect` (points, at scale 1) of the last frame against `<name>.json`.
 fn check_region(d: &Driver, rect: [f32; 4], name: &str) {
-    let shot = d.screenshot().unwrap();
-    let x0 = rect[0].max(0.0).round() as u32;
-    let y0 = rect[1].max(0.0).round() as u32;
-    let x1 = ((rect[0] + rect[2]).round() as u32).min(shot.width);
-    let y1 = ((rect[1] + rect[3]).round() as u32).min(shot.height);
-    let (w, h) = (x1 - x0, y1 - y0);
-    let mut rgba = Vec::with_capacity((w * h * 4) as usize);
-    for y in y0..y1 {
-        for x in x0..x1 {
-            rgba.extend_from_slice(&shot.pixel(x, y).unwrap());
-        }
-    }
-    std::fs::write(out_dir().join(format!("{name}.png")), fingerprint::png_rgba(w, h, &rgba)).unwrap();
-    std::fs::write(out_dir().join(format!("{name}-window.png")), fingerprint::png_rgba(shot.width, shot.height, &shot.rgba)).unwrap();
-    let stored = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("tests/fingerprints/{name}.json"));
-    if std::env::var_os("DALICA_BLESS").is_some() {
-        std::fs::write(&stored, fingerprint::to_json(&fingerprint::fingerprint(w, h, &rgba)) + "\n").unwrap();
-    }
-    let expected = fingerprint::from_json(&std::fs::read_to_string(&stored).unwrap()).unwrap();
-    if let Err(m) = fingerprint::check(w, h, &rgba, &expected, 2.0) {
-        std::fs::write(out_dir().join(format!("{name}-actual.png")), &m.actual_png).unwrap();
-        panic!("{name}: {}", m.message);
-    }
+    check_rect(d, name, rect);
 }
 
 /// An export of 12 photos: the window shows its count and bar while it runs and closes when it
@@ -309,36 +287,42 @@ fn open(gate: &Gate) {
     gate.1.notify_all();
 }
 
-/// The window at both sizes, its job held at "1 of 4".
+/// The window, its job held at "1 of 4", matches its fingerprint, and fits the small window.
 #[test]
 fn the_window_matches_its_fingerprints() {
-    for (w, h) in [(1400, 900), (900, 600)] {
-        let mut t = T::new(4, (200, 150), (w, h));
-        let gate: Gate = Arc::new((Mutex::new(false), Condvar::new()));
-        let held = Arc::clone(&gate);
-        let items: Vec<Item> = (1..=4).map(|i| Item(PathBuf::from(format!("IMG_{i:04}.jpg")))).collect();
-        let job = FileJob::new(JobKind::Export, "Exporting", items, move |item: Item| {
-            if item.0 != Path::new("IMG_0001.jpg") {
-                let (lock, cv) = &*held;
-                let _ = cv.wait_timeout_while(lock.lock().unwrap(), Duration::from_secs(60), |open| !*open).unwrap();
-            }
-            Ok(Done { changes: Vec::new(), value: () })
-        });
-        let id = t.d.app_mut().session_mut().unwrap().start_file_job(job);
-        t.until("one item done", |d| d.app().session().unwrap().job(id).unwrap().progress.done == 1);
-        // A few frames for the window and its line to settle.
-        for _ in 0..4 {
-            t.d.step();
+    let (w, h) = LARGE;
+    let mut t = T::new(4, (200, 150), (w, h));
+    let gate: Gate = Arc::new((Mutex::new(false), Condvar::new()));
+    let held = Arc::clone(&gate);
+    let items: Vec<Item> = (1..=4).map(|i| Item(PathBuf::from(format!("IMG_{i:04}.jpg")))).collect();
+    let job = FileJob::new(JobKind::Export, "Exporting", items, move |item: Item| {
+        if item.0 != Path::new("IMG_0001.jpg") {
+            let (lock, cv) = &*held;
+            let _ = cv.wait_timeout_while(lock.lock().unwrap(), Duration::from_secs(60), |open| !*open).unwrap();
         }
-        let bar = try_widget(&t.d, export_progress::BAR_ID).unwrap();
-        assert_eq!(bar.label, "Exporting 1 of 4…");
-        let win = try_widget(&t.d, export_progress::ID).unwrap();
-        let rect = win.rect;
-        assert!((rect[2] - export_progress::WIDTH).abs() < 1.0, "{rect:?}");
-        assert!(rect[0] + rect[2] <= w as f32 && rect[1] + rect[3] <= h as f32, "inside the window: {rect:?}");
-        save_window(&t.d, &format!("export-progress-held-{w}x{h}"));
-        check_region(&t.d, rect, &format!("dialog-export-progress-{w}x{h}"));
-        open(&gate);
-        t.until("the window to close", |d| d.state().export_progress.is_none());
+        Ok(Done { changes: Vec::new(), value: () })
+    });
+    let id = t.d.app_mut().session_mut().unwrap().start_file_job(job);
+    t.until("one item done", |d| d.app().session().unwrap().job(id).unwrap().progress.done == 1);
+    // A few frames for the window and its line to settle.
+    for _ in 0..4 {
+        t.d.step();
     }
+    let bar = try_widget(&t.d, export_progress::BAR_ID).unwrap();
+    assert_eq!(bar.label, "Exporting 1 of 4…");
+    let win = try_widget(&t.d, export_progress::ID).unwrap();
+    let rect = win.rect;
+    assert!((rect[2] - export_progress::WIDTH).abs() < 1.0, "{rect:?}");
+    assert!(rect[0] + rect[2] <= w as f32 && rect[1] + rect[3] <= h as f32, "inside the window: {rect:?}");
+    save_window(&t.d, &format!("export-progress-held-{w}x{h}"));
+    check_region(&t.d, rect, &format!("dialog-export-progress-{w}x{h}"));
+    t.d.resize(SMALL.0, SMALL.1);
+    for _ in 0..4 {
+        t.d.step();
+    }
+    let r = try_widget(&t.d, export_progress::ID).unwrap().rect;
+    assert!((r[2] - export_progress::WIDTH).abs() < 1.0 && r[0] >= 0.0 && r[1] >= 0.0, "{r:?}");
+    assert!(r[0] + r[2] <= SMALL.0 as f32 && r[1] + r[3] <= SMALL.1 as f32, "inside the small window: {r:?}");
+    open(&gate);
+    t.until("the window to close", |d| d.state().export_progress.is_none());
 }

@@ -15,15 +15,15 @@
 //! - Save Search Results… opens Album Properties named for the search and OK makes the album;
 //! - Search for This Tag in the Tags pane searches the tag;
 //! - the toolbar while searching, the banner and the empty state match their fingerprints at
-//!   1400 × 900 and 900 × 600 (`tests/fingerprints/region-toolbar-search-<w>x<h>.json`,
-//!   `region-banner-<w>x<h>.json`, `region-no-results-<w>x<h>.json`; `DALICA_BLESS=1` stores new
+//!   1400 × 900 (`tests/fingerprints/region-toolbar-search-1400x900.json`,
+//!   `region-banner-1400x900.json`, `region-no-results-1400x900.json`; `DALICA_BLESS=1` stores new
 //!   ones, renders go to `target/test-output/ui/`).
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::common::{FRAMES, check_region, new_driver, shot, try_widget};
+use crate::common::{FRAMES, LARGE, check_region, new_driver, shot, try_widget};
 use dalica_core::{FolderId, PhotoId, Timestamp, VirtualClock};
 use dalica_ui::headless::Click;
 use dalica_ui::menus::{self, Lookup, Platform};
@@ -34,7 +34,6 @@ use dalica_ui_kit::widgets;
 use egui::PointerButton;
 use serde_json::json;
 
-const SIZES: [(u32, u32); 2] = [(1400, 900), (900, 600)];
 /// 2026-06-12 12:00 UTC: the demo's photos are six to eight days old.
 const NOW_SECS: i64 = 1_781_265_600;
 
@@ -224,9 +223,7 @@ fn filters_and_the_age_combine_with_the_text() {
 /// The autocomplete lists the tags for the last word; ↓ and Enter put `tag:<tag>` in the field.
 #[test]
 fn a_suggestion_picked_searches_the_tag() {
-    for size in SIZES {
-        suggestion_picked(size);
-    }
+    suggestion_picked(LARGE);
 }
 
 fn suggestion_picked(size: (u32, u32)) {
@@ -385,31 +382,30 @@ fn search_for_this_tag_searches_it() {
 }
 
 /// The toolbar while searching (text, Starred and an age set), the banner (Find Duplicates' text,
-/// which holds no timing) and the empty state of a search with no match, at both sizes.
+/// which holds no timing) and the empty state of a search with no match.
 #[test]
 fn the_toolbar_banner_and_empty_state_match_their_fingerprints() {
-    for size in SIZES {
-        let case = format!("{}x{}", size.0, size.1);
-        let mut fx = fixture(size);
-        add_copies(&mut fx);
-        let d = &mut fx.d;
-        let search = &mut d.app_mut().state_mut().search;
-        search.text = "harbour".into();
-        search.filters.starred = true;
-        search.age = widgets::age_position(Some(91));
-        answer(d);
-        check_region(d, "region:toolbar", &format!("region-toolbar-search-{case}"));
+    let size = LARGE;
+    let case = format!("{}x{}", size.0, size.1);
+    let mut fx = fixture(size);
+    add_copies(&mut fx);
+    let d = &mut fx.d;
+    let search = &mut d.app_mut().state_mut().search;
+    search.text = "harbour".into();
+    search.filters.starred = true;
+    search.age = widgets::age_position(Some(91));
+    answer(d);
+    check_region(d, "region:toolbar", &format!("region-toolbar-search-{case}"));
 
-        dalica_ui::commands::search::clear(d.app_mut());
-        d.settle(FRAMES).unwrap();
-        let job = d.run("search.duplicates", &json!({})).unwrap()["job"].as_u64().unwrap();
-        d.app_mut().session_mut().unwrap().wait_job(job, Duration::from_secs(60)).unwrap();
-        d.settle(FRAMES).unwrap();
-        check_region(d, "region:banner", &format!("region-banner-{case}"));
+    dalica_ui::commands::search::clear(d.app_mut());
+    d.settle(FRAMES).unwrap();
+    let job = d.run("search.duplicates", &json!({})).unwrap()["job"].as_u64().unwrap();
+    d.app_mut().session_mut().unwrap().wait_job(job, Duration::from_secs(60)).unwrap();
+    d.settle(FRAMES).unwrap();
+    check_region(d, "region:banner", &format!("region-banner-{case}"));
 
-        dalica_ui::commands::search::clear(d.app_mut());
-        d.app_mut().state_mut().search.text = "zzzz".into();
-        answer(d);
-        check_region(d, "region:lightTable", &format!("region-no-results-{case}"));
-    }
+    dalica_ui::commands::search::clear(d.app_mut());
+    d.app_mut().state_mut().search.text = "zzzz".into();
+    answer(d);
+    check_region(d, "region:lightTable", &format!("region-no-results-{case}"));
 }

@@ -127,6 +127,19 @@ pub fn check_rect(d: &Driver, name: &str, rect: [f32; 4]) {
     check_pixels(name, w, h, &rgba);
 }
 
+/// Checks the folder tree with its splitter against `tests/fingerprints/<name>.json`; the window
+/// and the region go to the test output.
+pub fn check_tree(d: &Driver, name: &str) {
+    let (tree, splitter) = (widget(d, "region:tree").rect, widget(d, "region:splitter").rect);
+    let (x0, y0) = (tree[0].min(splitter[0]), tree[1].min(splitter[1]));
+    let (x1, y1) = ((tree[0] + tree[2]).max(splitter[0] + splitter[2]), (tree[1] + tree[3]).max(splitter[1] + splitter[3]));
+    let s = d.screenshot().unwrap();
+    write_png(&format!("{name}-window"), &fingerprint::png_rgba(s.width, s.height, &s.rgba));
+    let edges = [x0.round() as u32, y0.round() as u32, (x1.round() as u32).min(s.width), (y1.round() as u32).min(s.height)];
+    let (w, h, rgba) = crop(&s, edges);
+    check_pixels(name, w, h, &rgba);
+}
+
 /// Every widget of the last frame lies inside the window, with an area: what the small size checks
 /// instead of a second fingerprint.
 pub fn check_fits(d: &Driver, case: &str) {
@@ -151,6 +164,22 @@ pub fn check_small(d: &mut Driver, id: &str) {
     assert!(r[2] > 0.0 && r[3] > 0.0 && r[0] >= 0.0 && r[1] >= 0.0, "`{id}` at {r:?}");
     assert!(r[0] + r[2] <= SMALL.0 as f32 + 0.01 && r[1] + r[3] <= SMALL.1 as f32 + 0.01, "`{id}` at {r:?} does not fit {SMALL:?}");
     check_fits(d, id);
+}
+
+/// Widget `id` (a dialog, a panel) matches `tests/fingerprints/<name>-1400x900.json` in the
+/// large window; then, in the small window, it and every widget fit ([`check_small`]); then the
+/// window is large again. One fingerprint per state: the small size only has to fit.
+pub fn check_sizes(d: &mut Driver, id: &str, name: &str) {
+    assert_eq!((d.size().0, d.size().1), LARGE, "fingerprints are taken in the large window");
+    check_region(d, id, &format!("{name}-{}x{}", LARGE.0, LARGE.1));
+    check_small_and_back(d, id);
+}
+
+/// [`check_small`], then the window large again.
+pub fn check_small_and_back(d: &mut Driver, id: &str) {
+    check_small(d, id);
+    d.resize(LARGE.0, LARGE.1);
+    d.settle(FRAMES).unwrap();
 }
 
 /// A 96 × 64 JPEG of scene `seed` at `path` (its folders made), with no EXIF.

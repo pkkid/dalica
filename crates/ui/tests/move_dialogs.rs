@@ -9,22 +9,20 @@
 //!   leaves the clashing photo where it is and the folder's own file untouched, Rename Duplicates
 //!   moves (or copies) it under the next free name; with the setting off the collision question
 //!   comes straight away;
-//! - the three dialogs match their fingerprints at 1400 × 900 and 900 × 600
-//!   (`tests/fingerprints/dialog-{move,copy,collision}-<w>x<h>.json`; `DALICA_BLESS=1` stores new
+//! - the three dialogs match their fingerprints at 1400 × 900 (at 900 × 600 they only have to fit)
+//!   (`tests/fingerprints/dialog-{move,copy,collision}-1400x900.json`; `DALICA_BLESS=1` stores new
 //!   ones).
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::common::{FRAMES, check_region, new_driver, put_jpeg, try_widget};
+use crate::common::{FRAMES, LARGE, check_sizes, new_driver, put_jpeg, try_widget};
 use dalica_core::{FolderId, PhotoId};
 use dalica_engine::Session;
 use dalica_ui::dialogs::{collision, copy_confirm, move_confirm};
 use dalica_ui::state::DialogKind;
 use dalica_ui::{App, Driver};
 use serde_json::{Value, json};
-
-const SIZES: [(u32, u32); 2] = [(1400, 900), (900, 600)];
 
 struct Fx {
     _dir: tempfile::TempDir,
@@ -240,20 +238,17 @@ fn with_the_question_off_a_clash_still_asks() {
     assert_eq!(files(&fx.porto), ["IMG_0001.jpg", "IMG_0002.jpg", "IMG_0003.jpg"]);
 }
 
-/// The move, copy and collision questions at both sizes.
+/// The move, copy and collision questions match their fingerprints, and fit the small window.
 #[test]
-fn the_dialogs_match_their_fingerprints_at_both_sizes() {
-    for size in SIZES {
-        let case = format!("{}x{}", size.0, size.1);
-        let mut fx = fixture(size);
-        let ids: Vec<PhotoId> = ["IMG_0001.jpg", "IMG_0002.jpg"].iter().map(|n| fx.photo(fx.lisbon_id, n)).collect();
-        fx.paste(true, &ids, fx.porto_id);
-        check_region(&fx.d, "dialog:moveFiles", &format!("dialog-move-{case}"));
-        fx.press("button:dialog.move");
-        assert_eq!(fx.top(), Some(DialogKind::Collision));
-        check_region(&fx.d, "dialog:collision", &format!("dialog-collision-{case}"));
-        fx.press("button:dialog.cancel");
-        fx.paste(false, &ids, fx.porto_id);
-        check_region(&fx.d, "dialog:copyFiles", &format!("dialog-copy-{case}"));
-    }
+fn the_dialogs_match_their_fingerprints_and_fit_the_small_window() {
+    let mut fx = fixture(LARGE);
+    let ids: Vec<PhotoId> = ["IMG_0001.jpg", "IMG_0002.jpg"].iter().map(|n| fx.photo(fx.lisbon_id, n)).collect();
+    fx.paste(true, &ids, fx.porto_id);
+    check_sizes(&mut fx.d, "dialog:moveFiles", "dialog-move");
+    fx.press("button:dialog.move");
+    assert_eq!(fx.top(), Some(DialogKind::Collision));
+    check_sizes(&mut fx.d, "dialog:collision", "dialog-collision");
+    fx.press("button:dialog.cancel");
+    fx.paste(false, &ids, fx.porto_id);
+    check_sizes(&mut fx.d, "dialog:copyFiles", "dialog-copy");
 }

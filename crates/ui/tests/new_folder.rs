@@ -9,13 +9,13 @@
 //! - the photo menu's Split Folder Here… moves that photo and every photo after it; a date typed
 //!   with the box off is the folder's; undo removes it;
 //! - Cancel makes nothing; OK waits for a name and a date that reads as a day;
-//! - the dialog matches its fingerprints at 1400 × 900 and 900 × 600
-//!   (`tests/fingerprints/dialog-new-folder-<w>x<h>.json`; `DALICA_BLESS=1` stores new ones).
+//! - the dialog matches its fingerprints at 1400 × 900 (at 900 × 600 they only have to fit)
+//!   (`tests/fingerprints/dialog-new-folder-1400x900.json`; `DALICA_BLESS=1` stores new ones).
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::common::{FRAMES, check_region, new_driver, put_dated_jpeg, try_widget};
+use crate::common::{FRAMES, LARGE, check_sizes, new_driver, put_dated_jpeg, try_widget};
 use dalica_core::{Date, PhotoId};
 use dalica_engine::Session;
 use dalica_ui::dialogs::new_folder::{DATE_ID, DESCRIPTION_ID, NAME_ID, PLACE_ID, USE_OLDEST_ID};
@@ -23,8 +23,6 @@ use dalica_ui::headless::Click;
 use dalica_ui::state::DialogKind;
 use dalica_ui::{App, Driver};
 use serde_json::json;
-
-const SIZES: [(u32, u32); 2] = [(1400, 900), (900, 600)];
 
 struct Fx {
     _dir: tempfile::TempDir,
@@ -199,14 +197,11 @@ fn cancel_makes_nothing() {
     assert!(fx.ids.iter().all(|id| fx.folder_of(*id) == fx.photos.join("Lisbon")));
 }
 
-/// The dialog for two photos, as it opens, at both sizes.
+/// The dialog for two photos, as it opens, matches its fingerprint, and fits the small window.
 #[test]
-fn the_dialog_matches_its_fingerprints_at_both_sizes() {
-    for size in SIZES {
-        let case = format!("{}x{}", size.0, size.1);
-        let mut fx = fixture(size);
-        let two = [fx.ids[0], fx.ids[1]];
-        fx.move_to_new_folder(&two);
-        check_region(&fx.d, "dialog:newFolder", &format!("dialog-new-folder-{case}"));
-    }
+fn the_dialog_matches_its_fingerprint_and_fits_the_small_window() {
+    let mut fx = fixture(LARGE);
+    let two = [fx.ids[0], fx.ids[1]];
+    fx.move_to_new_folder(&two);
+    check_sizes(&mut fx.d, "dialog:newFolder", "dialog-new-folder");
 }

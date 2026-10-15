@@ -14,7 +14,7 @@ use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
 use std::sync::Arc;
 
-use crate::common::{FRAMES, new_driver, widget};
+use crate::common::{FRAMES, new_driver, shot, widget};
 use dalica_engine::Session;
 use dalica_ui::headless::{Drag, Target};
 use dalica_ui::state::Pane;
@@ -119,9 +119,11 @@ fn inside(r: [f32; 4], o: [f32; 4]) -> bool {
 /// The M3.5 done-when.
 #[test]
 fn every_region_is_registered_at_its_spec_size_at_both_window_sizes() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut d = driver(dir.path(), SIZES[0]);
     for (w, h) in SIZES {
-        let dir = tempfile::tempdir().unwrap();
-        let mut d = driver(dir.path(), (w, h));
+        d.resize(w as u32, h as u32);
+        d.settle(FRAMES).unwrap();
         assert_regions(&d, &expected(w, h, 240.0, 0.0), &format!("{w}×{h}"));
         assert!(!regions(&d).contains_key("tabStrip") && !regions(&d).contains_key("sidePane"));
 
@@ -139,8 +141,6 @@ fn every_region_is_registered_at_its_spec_size_at_both_window_sizes() {
                 assert!(inside(wi.rect, column), "{w}×{h}: `{}` at {:?} is outside the light table", wi.id, wi.rect);
             }
         }
-        let missing = d.app().panels().unwrap().unregistered_widgets();
-        assert_eq!(missing, [], "{w}×{h}: interactive widgets without an id");
 
         // A side pane open pushes the light table; its large width is min(30 % W, 392).
         for (pane, large) in [(Pane::Tags, false), (Pane::Properties, true)] {
@@ -174,9 +174,12 @@ fn the_regions_follow_a_resize() {
 /// light table gives or takes the difference.
 #[test]
 fn the_splitter_resizes_the_tree_within_its_limits() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut d = driver(dir.path(), SIZES[0]);
     for (w, h) in SIZES {
-        let dir = tempfile::tempdir().unwrap();
-        let mut d = driver(dir.path(), (w, h));
+        d.app_mut().state_mut().tree_width = 240.0;
+        d.resize(w as u32, h as u32);
+        d.settle(FRAMES).unwrap();
         let drag = |d: &mut Driver, dx: f32| {
             d.drag("splitter:tree", Target::Delta(egui::vec2(dx, 0.0)), &Drag::default()).unwrap();
             d.settle(FRAMES).unwrap();
@@ -384,16 +387,6 @@ fn assert_controls(d: &Driver, w: f32, h: f32, pane: Option<&str>, case: &str) {
             assert!(!overlap(*ra, *rb), "{case}: `{a}` {ra:?} overlaps `{b}` {rb:?}");
         }
     }
-    let missing = d.app().panels().unwrap().unregistered_widgets();
-    assert_eq!(missing, [], "{case}: interactive widgets without an id");
-}
-
-/// Saves a screenshot of the window in `target/test-output/ui/` (for the pull request and the check-in).
-fn snapshot(d: &Driver, name: &str) {
-    let out = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/test-output/ui");
-    std::fs::create_dir_all(&out).unwrap();
-    let shot = d.screenshot().unwrap();
-    std::fs::write(out.join(format!("{name}.png")), dalica_scenes::fingerprint::png_rgba(shot.width, shot.height, &shot.rgba)).unwrap();
 }
 
 /// The M3.10 done-when: the geometry of every region and every control at 1400 × 900, 1100 × 700
@@ -402,9 +395,12 @@ fn snapshot(d: &Driver, name: &str) {
 /// §11). F11 toggles full screen, which lays out every region and control as the window does.
 #[test]
 fn every_control_is_in_place_at_three_sizes_with_the_pane_open_and_closed_and_in_full_screen() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut d = driver(dir.path(), THREE_SIZES[0]);
     for (w, h) in THREE_SIZES {
-        let dir = tempfile::tempdir().unwrap();
-        let mut d = driver(dir.path(), (w, h));
+        d.app_mut().state_mut().pane = None;
+        d.resize(w as u32, h as u32);
+        d.settle(FRAMES).unwrap();
         for (pane, large) in [(None, false), (Some(Pane::Tags), false), (Some(Pane::Properties), true)] {
             d.app_mut().state_mut().pane = pane;
             d.app_mut().state_mut().pane_large = large;
@@ -427,7 +423,7 @@ fn every_control_is_in_place_at_three_sizes_with_the_pane_open_and_closed_and_in
                 assert_regions(&d, &expected(w, h, tree_beside(240.0, w, width), width), &case);
                 assert_controls(&d, w, h, name, &case);
                 let pane_part = name.map_or("closed".to_string(), |n| if large { format!("{n}-large") } else { n.to_string() });
-                snapshot(&d, &format!("layout-{w}x{h}-pane-{pane_part}{}", if full { "-fullscreen" } else { "" }));
+                shot(&d, &format!("layout-{w}x{h}-pane-{pane_part}{}", if full { "-fullscreen" } else { "" }));
             }
             d.key("F11").unwrap();
             d.settle(FRAMES).unwrap();

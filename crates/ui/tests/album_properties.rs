@@ -7,12 +7,12 @@
 //! - Esc (and Cancel) change nothing;
 //! - OK waits for a name and, with the box off, for a date that reads as a day; turning the box on
 //!   shows the newest photo's date again;
-//! - the dialog matches its fingerprints at 1400 × 900 and 900 × 600
-//!   (`tests/fingerprints/dialog-album-properties-<w>x<h>.json`; `DALICA_BLESS=1` stores new ones).
+//! - the dialog matches its fingerprints at 1400 × 900 (at 900 × 600 they only have to fit)
+//!   (`tests/fingerprints/dialog-album-properties-1400x900.json`; `DALICA_BLESS=1` stores new ones).
 
 use std::sync::Arc;
 
-use crate::common::{FRAMES, check_region, new_driver, put_dated_jpeg, try_widget};
+use crate::common::{FRAMES, LARGE, check_sizes, new_driver, put_dated_jpeg, try_widget};
 use dalica_core::{AlbumId, Date, FolderId, PhotoId};
 use dalica_engine::Session;
 use dalica_ui::dialogs::album_properties::{BAD_DATE, DATE_ID, DESCRIPTION_ID, NAME_ID, PLACE_ID, USE_NEWEST_ID};
@@ -20,8 +20,6 @@ use dalica_ui::headless::{Click, DriverError};
 use dalica_ui::state::{AlbumKey, AlbumSection, DialogKind, Section};
 use dalica_ui::{App, Driver};
 use serde_json::json;
-
-const SIZES: [(u32, u32); 2] = [(1400, 900), (900, 600)];
 
 struct Fx {
     _dir: tempfile::TempDir,
@@ -176,16 +174,14 @@ fn ok_waits_for_a_name_and_a_readable_date() {
     assert!(ok_enabled(&fx.d));
 }
 
-/// The dialog for a new album, at both sizes.
+/// The dialog for a new album matches its fingerprint, and fits the small window.
 #[test]
-fn the_dialog_matches_its_fingerprints_at_both_sizes() {
-    for size in SIZES {
-        let mut fx = fixture(size);
-        let library = fx.d.app().session().unwrap().library();
-        let porto: Vec<PhotoId> = library.photos().map(|p| p.id).filter(|id| !library.album_members(&fx.album).contains(id)).collect();
-        assert_eq!(porto.len(), 1, "the Porto photo");
-        fx.d.run("album.new", &json!({ "ids": [porto[0].get()] })).unwrap();
-        fx.d.settle(FRAMES).unwrap();
-        check_region(&fx.d, "dialog:albumProperties", &format!("dialog-album-properties-{}x{}", size.0, size.1));
-    }
+fn the_dialog_matches_its_fingerprint_and_fits_the_small_window() {
+    let mut fx = fixture(LARGE);
+    let library = fx.d.app().session().unwrap().library();
+    let porto: Vec<PhotoId> = library.photos().map(|p| p.id).filter(|id| !library.album_members(&fx.album).contains(id)).collect();
+    assert_eq!(porto.len(), 1, "the Porto photo");
+    fx.d.run("album.new", &json!({ "ids": [porto[0].get()] })).unwrap();
+    fx.d.settle(FRAMES).unwrap();
+    check_sizes(&mut fx.d, "dialog:albumProperties", "dialog-album-properties");
 }

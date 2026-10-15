@@ -5,25 +5,22 @@
 //! labels of the photo's history, walked by its buttons, and Edit ▸ Undo / Redo following the same
 //! history; an open tool draws the grid, the tab content and Undo / Redo disabled; the histogram
 //! follows an edit; the camera columns for a JPEG with EXIF and the empty text without; the panel's
-//! fingerprints per tab at 1400 × 900 and 900 × 600.
+//! fingerprints per tab at 1400 × 900 (at 900 × 600 they only have to fit).
 //!
 //! `DALICA_SHOTS=<dir>` writes the panel's screenshots there too.
 
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::common::{FRAMES, new_driver, out_dir};
+use crate::common::{FRAMES, LARGE, check_rect, new_driver};
 use dalica_core::PhotoId;
 use dalica_engine::Session;
-use dalica_scenes::fingerprint;
 use dalica_ui::control::{Config, Connection, Control, Reply, Request, serve};
 use dalica_ui::menus::{self, Lookup, Platform};
 use dalica_ui::{App, Driver};
 use dalica_ui_kit::WidgetInfo;
 use serde_json::{Value, json};
 
-const SIZES: [(u32, u32); 2] = [(1400, 900), (900, 600)];
 /// The JPEG without EXIF added next to the demo photos.
 const PLAIN: &str = "Plain.jpg";
 
@@ -143,22 +140,7 @@ fn pixels(t: &T, rect: [f32; 4]) -> (u32, u32, Vec<u8>) {
 /// Checks the pixels of `rect` against `tests/fingerprints/<name>.json` (`DALICA_BLESS=1` writes
 /// it), and writes them to the test output (and to `$DALICA_SHOTS`).
 fn check_region(t: &T, name: &str, rect: [f32; 4]) {
-    let (w, h, rgba) = pixels(t, rect);
-    let png = fingerprint::png_rgba(w, h, &rgba);
-    std::fs::write(out_dir().join(format!("{name}.png")), &png).unwrap();
-    if let Some(dir) = std::env::var_os("DALICA_SHOTS") {
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(Path::new(&dir).join(format!("{name}.png")), &png).unwrap();
-    }
-    let stored = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("tests/fingerprints/{name}.json"));
-    if std::env::var_os("DALICA_BLESS").is_some() {
-        std::fs::write(&stored, fingerprint::to_json(&fingerprint::fingerprint(w, h, &rgba)) + "\n").unwrap();
-    }
-    let expected = fingerprint::from_json(&std::fs::read_to_string(&stored).unwrap()).unwrap();
-    if let Err(m) = fingerprint::check(w, h, &rgba, &expected, 2.0) {
-        std::fs::write(out_dir().join(format!("{name}-actual.png")), &m.actual_png).unwrap();
-        panic!("{name}: {}", m.message);
-    }
+    check_rect(&t.d, name, rect);
 }
 
 const TABS: [(&str, &str, &str); 5] = [
@@ -365,27 +347,26 @@ fn camera_information_with_exif_and_without() {
 }
 
 /// The edit panel per tab (Basic Fixes after an Auto Fix, with the preview's histogram; Tuning; an
-/// effect tab) and with Straighten open, at both sizes.
+/// effect tab) and with Straighten open.
 #[test]
 fn the_edit_panel_matches_its_fingerprints() {
-    for (w, h) in SIZES {
-        let mut t = setup((w, h), 2);
-        let p = t.photos[0];
-        open(&mut t, p);
-        click(&mut t, "tool:autofix");
-        // The histogram of the photo's preview (the photo area opens it in the app).
-        t.d.app_mut().session_mut().unwrap().open_preview(PhotoId::new(p), (480, 320)).unwrap();
-        assert!(t.d.app_mut().session_mut().unwrap().wait_preview(Duration::from_secs(30)));
-        t.d.settle(FRAMES).unwrap();
-        let panel = widget(&t, "region:editPanel").rect;
-        check_region(&t, &format!("edit-panel-basic-{w}x{h}"), panel);
-        click(&mut t, "tab:edit.tuning");
-        check_region(&t, &format!("edit-panel-tuning-{w}x{h}"), panel);
-        click(&mut t, "tab:edit.effects");
-        check_region(&t, &format!("edit-panel-effects-{w}x{h}"), panel);
-        click(&mut t, "tab:edit.basic");
-        t.d.check_ids(false); // The straighten bar has no automation id (see above).
-        click(&mut t, "tool:straighten");
-        check_region(&t, &format!("edit-panel-straighten-{w}x{h}"), panel);
-    }
+    let (w, h) = LARGE;
+    let mut t = setup((w, h), 2);
+    let p = t.photos[0];
+    open(&mut t, p);
+    click(&mut t, "tool:autofix");
+    // The histogram of the photo's preview (the photo area opens it in the app).
+    t.d.app_mut().session_mut().unwrap().open_preview(PhotoId::new(p), (480, 320)).unwrap();
+    assert!(t.d.app_mut().session_mut().unwrap().wait_preview(Duration::from_secs(30)));
+    t.d.settle(FRAMES).unwrap();
+    let panel = widget(&t, "region:editPanel").rect;
+    check_region(&t, &format!("edit-panel-basic-{w}x{h}"), panel);
+    click(&mut t, "tab:edit.tuning");
+    check_region(&t, &format!("edit-panel-tuning-{w}x{h}"), panel);
+    click(&mut t, "tab:edit.effects");
+    check_region(&t, &format!("edit-panel-effects-{w}x{h}"), panel);
+    click(&mut t, "tab:edit.basic");
+    t.d.check_ids(false); // The straighten bar has no automation id (see above).
+    click(&mut t, "tool:straighten");
+    check_region(&t, &format!("edit-panel-straighten-{w}x{h}"), panel);
 }

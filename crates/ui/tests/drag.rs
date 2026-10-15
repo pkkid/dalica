@@ -9,14 +9,14 @@
 //!   restart;
 //! - onto its own folder, and with Esc pressed during the drag, nothing changes;
 //! - the tree scrolls while a drag is held near its bottom edge;
-//! - the drag pill for a move, a copy and an add matches its fingerprints at 1400 × 900 and
-//!   900 × 600 (`tests/fingerprints/drag-{move,copy,add}-<w>x<h>.json`; `DALICA_BLESS=1` stores
+//! - the drag pill for a move, a copy and an add matches its fingerprints at 1400 × 900
+//!   (`tests/fingerprints/drag-{move,copy,add}-1400x900.json`; `DALICA_BLESS=1` stores
 //!   new ones).
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::common::{FRAMES, check_region, new_driver, out_dir, put_jpeg, try_widget};
+use crate::common::{FRAMES, LARGE, check_region, new_driver, out_dir, put_jpeg, try_widget};
 use dalica_core::{AlbumId, FolderId, PhotoId};
 use dalica_engine::Session;
 use dalica_scenes::fingerprint;
@@ -25,8 +25,6 @@ use dalica_ui::state::DialogKind;
 use dalica_ui::{App, Driver};
 use egui::{Modifiers, PointerButton, Pos2, pos2};
 use serde_json::{Value, json};
-
-const SIZES: [(u32, u32); 2] = [(1400, 900), (900, 600)];
 
 struct Fx {
     dir: tempfile::TempDir,
@@ -348,34 +346,73 @@ fn save_window(d: &Driver, name: &str) {
     }
 }
 
-/// The pill for a move, a copy and an add, at both sizes, over the target it names.
+/// The pill for a move, a copy and an add, over the target it names (one size: the pill does not
+/// depend on the window's).
 #[test]
-fn the_drag_pill_matches_its_fingerprints_at_both_sizes() {
-    for size in SIZES {
-        let case = format!("{}x{}", size.0, size.1);
-        let mut fx = fixture(size);
-        let one = fx.photo(fx.lisbon_id, "IMG_0001.jpg");
-        let porto = fx.photo(fx.porto_id, "PORTO_0001.jpg");
-        let album = fx.album("Trip", &[porto]);
-        let (folder_row, album_row) = (format!("tree:folder:{}", fx.porto_id.get()), format!("tree:album:{album}"));
-        fx.d.settle_for(FRAMES, true);
+fn the_drag_pill_matches_its_fingerprints() {
+    let case = format!("{}x{}", LARGE.0, LARGE.1);
+    let mut fx = fixture(LARGE);
+    let one = fx.photo(fx.lisbon_id, "IMG_0001.jpg");
+    let porto = fx.photo(fx.porto_id, "PORTO_0001.jpg");
+    let album = fx.album("Trip", &[porto]);
+    let (folder_row, album_row) = (format!("tree:folder:{}", fx.porto_id.get()), format!("tree:album:{album}"));
+    fx.d.settle_for(FRAMES, true);
 
-        fx.hold(&thumb(one), center(&fx.d, &folder_row));
-        assert_eq!(fx.drag()["pill"], "Move 1 photo to Porto", "{case}");
-        check_region(&fx.d, "drag:pill", &format!("drag-move-{case}"));
-        // Ctrl held down over the same row: a copy, with the +.
-        fx.d.key_raw(egui::Key::F20, Modifiers::COMMAND | Modifiers::CTRL, KeyState::Down);
-        assert_eq!(fx.drag()["pill"], "Copy 1 photo to Porto", "{case}");
-        check_region(&fx.d, "drag:pill", &format!("drag-copy-{case}"));
-        fx.d.key_raw(egui::Key::F20, Modifiers::NONE, KeyState::Up);
-        fx.d.key("Esc").unwrap();
-        fx.release();
+    fx.hold(&thumb(one), center(&fx.d, &folder_row));
+    assert_eq!(fx.drag()["pill"], "Move 1 photo to Porto", "{case}");
+    check_region(&fx.d, "drag:pill", &format!("drag-move-{case}"));
+    // Ctrl held down over the same row: a copy, with the +.
+    fx.d.key_raw(egui::Key::F20, Modifiers::COMMAND | Modifiers::CTRL, KeyState::Down);
+    assert_eq!(fx.drag()["pill"], "Copy 1 photo to Porto", "{case}");
+    check_region(&fx.d, "drag:pill", &format!("drag-copy-{case}"));
+    fx.d.key_raw(egui::Key::F20, Modifiers::NONE, KeyState::Up);
+    fx.d.key("Esc").unwrap();
+    fx.release();
 
-        fx.hold(&thumb(one), center(&fx.d, &album_row));
-        assert_eq!(fx.drag()["pill"], "Add 1 photo to Trip", "{case}");
-        check_region(&fx.d, "drag:pill", &format!("drag-add-{case}"));
-        fx.d.key("Esc").unwrap();
-        fx.release();
-        assert_eq!(fx.members(&album), [porto], "{case}: Esc dropped nothing");
-    }
+    fx.hold(&thumb(one), center(&fx.d, &album_row));
+    assert_eq!(fx.drag()["pill"], "Add 1 photo to Trip", "{case}");
+    check_region(&fx.d, "drag:pill", &format!("drag-add-{case}"));
+    fx.d.key("Esc").unwrap();
+    fx.release();
+    assert_eq!(fx.members(&album), [porto], "{case}: Esc dropped nothing");
+}
+
+/// While the button is held on a dragged thumbnail, `ui.inspect` reports the drag (from, ids,
+/// target, op, pill) and `ui.state` does not; a drag from a selected photo carries the selection
+/// and selects nothing.
+#[test]
+fn a_thumbnail_drag_is_reported_while_the_button_is_held() {
+    use dalica_ui::control::{Config, Connection, Control, Request, serve};
+    let mut fx = fixture(LARGE);
+    let (a, b) = (fx.photo(fx.lisbon_id, "IMG_0001.jpg").get(), fx.photo(fx.lisbon_id, "IMG_0002.jpg").get());
+    let control = Control::new(Config::default());
+    let mut conn = Connection::new();
+    let mut ok = |d: &mut Driver, method: &str, params: Value| {
+        serve(&control, &mut conn, d, &Request::new(method, params.clone())).unwrap_or_else(|e| panic!("{method} {params}: {e}"))
+    };
+    let d = &mut fx.d;
+    let mid = |d: &Driver, id: u64| {
+        let [x, y, w, h] = try_widget(d, &format!("thumb:{id}")).unwrap().rect;
+        (x + w / 2.0, y + h / 2.0)
+    };
+    let (cx, cy) = mid(d, a);
+    assert_eq!(ok(d, "ui.inspect", json!({}))["drag"], Value::Null);
+    let events = json!([{ "kind": "down", "x": cx, "y": cy }, { "kind": "drag", "x": cx + 20.0, "y": cy + 4.0 }, { "kind": "drag", "x": cx + 60.0, "y": cy + 10.0 }]);
+    ok(d, "ui.pointer", json!({ "events": events }));
+    let drag = ok(d, "ui.inspect", json!({}))["drag"].clone();
+    assert_eq!(drag, json!({ "from": format!("thumb:{a}"), "ids": [a], "target": null, "op": null, "pill": "1 photo" }));
+    assert!(ok(d, "ui.state", json!({})).get("drag").is_none());
+    ok(d, "ui.pointer", json!({ "events": [{ "kind": "up", "x": cx + 60.0, "y": cy + 10.0 }] }));
+    assert_eq!(ok(d, "ui.inspect", json!({}))["drag"], Value::Null);
+    // From a selected photo: the selection.
+    d.run("select.set", &json!({ "ids": [a, b] })).unwrap();
+    d.settle(FRAMES).unwrap();
+    let (cx, cy) = mid(d, b);
+    let events =
+        json!([{ "kind": "down", "x": cx, "y": cy }, { "kind": "drag", "x": cx + 30.0, "y": cy }, { "kind": "drag", "x": cx + 80.0, "y": cy }]);
+    ok(d, "ui.pointer", json!({ "events": events }));
+    assert_eq!(ok(d, "ui.inspect", json!({}))["drag"]["ids"], json!([a, b]));
+    ok(d, "ui.pointer", json!({ "events": [{ "kind": "up", "x": cx + 80.0, "y": cy }] }));
+    assert_eq!(ok(d, "ui.inspect", json!({}))["drag"], Value::Null);
+    assert_eq!(ok(d, "ui.state", json!({}))["selection"]["ids"], json!([a, b]), "a drag selects nothing");
 }

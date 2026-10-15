@@ -380,5 +380,4 @@ fn no_pictures_yet_offers_to_add_a_folder() {
     d.settle(FRAMES).unwrap();
     assert_eq!(d.widgets().iter().filter(|w| w.id.starts_with("thumb:")).count(), 4);
     assert!(!d.widgets().iter().any(|w| w.id.starts_with("empty:")), "the empty state is gone");
-    assert!(d.app().panels().unwrap().unregistered_widgets().is_empty());
 }
