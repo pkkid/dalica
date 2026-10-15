@@ -8,5 +8,27 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 publish = false
+# One integration-test binary (`tests/all.rs`, one module per file; `docs/development.md` §6).
+autotests = false
 
 [dependencies]
+dalica-core.workspace = true
+# The headless backend's session, its command registry and jobs, and the demo library.
+dalica-engine.workspace = true
+# `render_preview`: the photo's file read under a size limit, then the one output pipeline.
+dalica-fs.workspace = true
+dalica-create.workspace = true
+dalica-edit.workspace = true
+log.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+# The demo's photos decoded back in the tests, and procedural folders.
+dalica-image.workspace = true
+dalica-scenes.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+
+[[test]]
+name = "all"
+path = "tests/all.rs"

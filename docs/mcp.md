@@ -3,10 +3,14 @@
 Adapted from LightCraft `docs/mcp.md` (revision 88ea1a8) and PhotoCraft `docs/mcp.md` (revision
 59684266); MIT OR Apache-2.0.
 
-> **Status: Planned (M10).** Nothing here exists yet. The server, its helper tools and the workflow
-> acceptance-test harness land in milestone **M10** (see [`roadmap.md`](roadmap.md)); individual
-> workflows are added as the features they exercise land (§9). Connect mode needs the control channel
-> of [`control-protocol.md`](control-protocol.md) (M2).
+> **Status: In progress (M10).** Built (M10.4): the server's core in `crates/mcp` (the framing,
+> `initialize`, `tools/list`, `tools/call`, progress and cancellation, the limits), the shared tools
+> `command_list`, `command_run`, `command_batch` and `render_preview` (§4.1), and headless mode:
+> `dalica-cli mcp [--demo] [--library DIR] [--compact] [FOLDERS…]`. To come: `doc_inspect` (M10.7),
+> the helpers of §4.2 (M10.13, M10.14), one tool per command and the resources (M10.15), the roots
+> and `--read-only` (M10.16; until then the default write roots and command-line read roots of §5),
+> connect mode and the UI tools (M10.17), the workflow tests (M10.18–M10.20). The options of later
+> tasks are refused by name until they exist.
 
 `dalica-cli mcp` exposes Dalica to AI agents through the
 [Model Context Protocol](https://modelcontextprotocol.io): newline-delimited JSON-RPC 2.0 over stdio
@@ -35,8 +39,10 @@ Options:
 | `--connect [HOST:PORT]` | Default `127.0.0.1:7990`. Loopback addresses only. |
 | `--control-token-file PATH` | Connect mode: the token file; default is the app's default token file for that port (`control-protocol.md` §2.1). |
 
-Without `--demo`, `--library` or folders, the headless session starts with an empty in-memory
-library; `scan_folder` adds folders to it.
+Without `--demo`, `--library` or folders, the headless session starts with an empty library;
+`scan_folder` adds folders to it. The engine has no in-memory session, so an empty library, like the
+demo, is a library folder in the OS temporary folder deleted on exit; folders given without
+`--library` are added to such a library as Scan Once.
 
 **Connect mode** starts even when the app is not running yet and connects on the first call. It keeps
 one authenticated connection; if a request fails in transit (including a reply timeout) the
@@ -120,11 +126,16 @@ start in another. Listed in full and compact mode.
 
 | Tool | Arguments | Result |
 |---|---|---|
-| `command_list` | `filter?`, `enabled_only?` | the command registry: id, label, menu path, shortcut, params doc, enabled, checked (as `engine.commands`) |
-| `command_run` | `id`, `params?`, `wait?` | the command's result; `{job, pending: true}` for an unfinished job |
-| `command_batch` | `steps: [{id, params?, wait?}]`, `stop_on_error?` (true) | `{completed, failed, results}`; one undo step per command, not a transaction; ≤ 256 steps |
+| `command_list` | `filter?`, `enabled_only?` | `{commands}`: the command registry, each with id, label, menu path, shortcut, params doc, effect, history, enabled (as `engine.commands`; `filter` matches id, label or menu path) |
+| `command_run` | `id`, `params?`, `wait?` | the command's result; for a command that starts a job, the job's final entry with its `result` (as `jobs.wait`), or `{job, pending: true}` at once with `wait: false` |
+| `command_batch` | `steps: [{id, params?, wait?}]`, `stop_on_error?` (true) | `{completed, failed, results: [{id, ok, result \| code + error}]}`; one undo step per command, not a transaction; ≤ 256 steps |
 | `doc_inspect` | `photos?`, `section?`, `offset?`, `limit?` | the library: the JSON of `library.inspect` (`control-protocol.md` §6.4) |
-| `render_preview` | `id?`, `max_side?` (1024, ≤ 2048) | an image of the photo with its edits; changes nothing |
+| `render_preview` | `id?` (the tray's first photo), `max_side?` (1024, 16–2048) | an image of the photo with its edits, never enlarged, through the output pipeline Export uses: PNG, or JPEG when the PNG would pass 5 MiB; `{id, width, height, mimeType, recipe}`; changes nothing |
+
+A tool whose result is not an object (a command answering a list) gives it as `{result}` in
+`structuredContent`; the text block holds the value itself. In headless mode a photo command run
+without `ids` gets the Photo Tray's when its params doc names `ids` as required; a command whose
+`ids` are optional (Export's `ids | section | album`) is left as it is.
 
 ### 4.2 Dalica helpers
 
@@ -220,8 +231,9 @@ is a string or number: `notifications/progress` with `progress` (photos done) an
 increasing, at most ten per second plus the final one. No token, no notifications. `ping` is answered
 between photos.
 
-`notifications/cancelled` with the request's id stops the job before its next photo and suppresses
-the response. Photos already done stay done (each written atomically), nothing is left half-written,
+`command_run` and `command_batch` report the progress of the jobs a command starts (the photos done
+of all of them; a batch reports the steps done) while they wait. `notifications/cancelled` with the
+request's id stops the job before its next photo and suppresses the response. Photos already done stay done (each written atomically), nothing is left half-written,
 and the photos completed are not undone. Unknown or finished request ids are ignored. Connect mode
 forwards cancellation as `jobs.cancel`.
 
@@ -269,7 +281,7 @@ dalica-cli commands [--json]                                                 # t
 scripted end-to-end user tasks run **over MCP** against the real engine, checked only through public
 state (`doc_inspect`, `photo_info`, `query_photos`) and the files on disk — never through internals.
 
-- Location: `crates/mcp/tests/workflows.rs`, one test per workflow, named `wNN_<slug>`.
+- Location: `crates/mcp/tests/workflows/`, one module per workflow, named `wNN_<slug>`.
 - Transport: each test drives the server through the real JSON-RPC framing (in-process pipes); a
   smoke subset also spawns `dalica-cli mcp` as a process with real stdio, and runs once in connect
   mode against a headless app with a control server, to prove both modes agree.

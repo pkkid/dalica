@@ -1,13 +1,15 @@
 //! Dalica's headless command line (`docs/architecture.md` §3, §7): `commands` lists the command
 //! registry as JSON, `run` executes a JSON-lines script on a library, `inspect` summarises one,
-//! `snapshot` screenshots the app headlessly. `--demo` in place of `--library DIR` uses the demo
-//! library (made on first use under the temp folder and kept); `--demo-fresh` a new one that is
+//! `snapshot` screenshots the app headlessly, `mcp` serves MCP on standard input and output
+//! (`mcp.rs`). `--demo` in place of `--library DIR` uses the demo library (made on first use under
+//! the temp folder and kept; `mcp`'s own demo is deleted on exit); `--demo-fresh` a new one that is
 //! removed on exit.
 
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 mod inspect;
+mod mcp;
 mod run;
 mod snapshot;
 
@@ -25,6 +27,9 @@ commands:
                                              a headless screenshot of the app; script lines are
                                              {\"click\": id}, {\"key\": \"Ctrl+8\"}, {\"command\": id, \"params\": {...}},
                                              {\"settle\": true}
+  mcp [--demo | --library DIR] [--compact] [FOLDERS…]
+                                             the MCP server on standard input and output over a headless
+                                             session (`mcp --help`); its --demo is deleted on exit
   --version                                  print the version, with its commit and build date
 
 --demo may replace --library DIR in run, inspect and snapshot: the demo library of generated photos in
@@ -40,6 +45,10 @@ fn main() -> ExitCode {
     if !args.iter().any(|a| a == "--demo" || a == "--demo-fresh") {
         let exe = std::env::current_exe().ok();
         dalica_engine::thumbs::set_process_cache_dir(cache_dir(|k| std::env::var_os(k), exe.as_deref().and_then(std::path::Path::parent)));
+    }
+    // `mcp --demo` is a temporary demo of its own, deleted on exit, not the persistent one.
+    if args.first().map(String::as_str) == Some("mcp") {
+        return mcp::main(args.get(1..).unwrap_or_default());
     }
     let (args, fresh) = match demo_args(args, &dalica_engine::demo::default_dir()) {
         Ok(v) => v,

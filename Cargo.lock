@@ -843,8 +843,10 @@ dependencies = [
  "dalica-core",
  "dalica-engine",
  "dalica-fs",
+ "dalica-mcp",
  "dalica-scenes",
  "dalica-ui",
+ "log",
  "png",
  "serde_json",
  "tempfile",
@@ -978,6 +980,18 @@ dependencies = [
 [[package]]
 name = "dalica-mcp"
 version = "0.4.0"
+dependencies = [
+ "dalica-core",
+ "dalica-create",
+ "dalica-edit",
+ "dalica-engine",
+ "dalica-fs",
+ "dalica-image",
+ "dalica-scenes",
+ "log",
+ "serde_json",
+ "tempfile",
+]
 
 [[package]]
 name = "dalica-meta"
