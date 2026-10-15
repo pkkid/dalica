@@ -3,7 +3,8 @@
 //! in a folder and in an album; in an album Remove from Album asks (unless "Remove from albums
 //! without asking" is on), removes and leaves the files, Set as Album Cover changes the cover the
 //! tree shows (`albums.list`), and Show in Folder selects the photo in its folder. The open menu
-//! with Add to Album ▸ open is fingerprinted at both sizes as `menu-photo-<w>x<h>.json`
+//! with Add to Album ▸ open is fingerprinted at both sizes as `menu-photo-<w>x<h>.json` (its label
+//! column over the open submenu, the same on every OS)
 //! (`DALICA_BLESS=1` stores it; renders go to `target/test-output/ui/`).
 //!
 //! Album sections reach the light table with M9.17: until then the tests put the selection in an
@@ -313,24 +314,54 @@ fn out_dir() -> PathBuf {
     dir
 }
 
-/// Checks the part of the last frame the open menus cover (their rows' bounding box and a margin)
-/// against `tests/fingerprints/<name>.json`.
-fn check_menu(d: &Driver, name: &str) {
-    let rows: Vec<[f32; 4]> =
-        d.widgets().into_iter().filter(|w| w.id.starts_with("menuitem:") || w.id.starts_with("submenu:")).map(|w| w.rect).collect();
-    let shot = d.screenshot().unwrap();
-    std::fs::write(out_dir().join(format!("{name}-window.png")), fingerprint::png_rgba(shot.width, shot.height, &shot.rgba)).unwrap();
-    let x0 = rows.iter().map(|r| r[0]).fold(f32::MAX, f32::min) - 8.0;
-    let y0 = rows.iter().map(|r| r[1]).fold(f32::MAX, f32::min) - 8.0;
-    let x1 = rows.iter().map(|r| r[0] + r[2]).fold(0.0, f32::max) + 8.0;
-    let y1 = rows.iter().map(|r| r[1] + r[3]).fold(0.0, f32::max) + 8.0;
+/// The pixels of `shot` in `[x0, x1) × [y0, y1)` (clamped to the image): width, height, RGBA.
+fn crop(shot: &dalica_ui_kit::Image, [x0, y0, x1, y1]: [f32; 4]) -> (u32, u32, Vec<u8>) {
     let (x0, y0) = (x0.max(0.0).round() as u32, y0.max(0.0).round() as u32);
-    let (x1, y1) = ((x1.round() as u32).min(shot.width), (y1.round() as u32).min(shot.height));
-    let (w, h) = (x1 - x0, y1 - y0);
-    let mut rgba = Vec::with_capacity((w * h * 4) as usize);
+    let (x1, y1) = ((x1.max(0.0).round() as u32).min(shot.width).max(x0), (y1.max(0.0).round() as u32).min(shot.height).max(y0));
+    let mut rgba = Vec::with_capacity(((x1 - x0) * (y1 - y0) * 4) as usize);
     for y in y0..y1 {
         for x in x0..x1 {
             rgba.extend_from_slice(&shot.pixel(x, y).unwrap());
+        }
+    }
+    (x1 - x0, y1 - y0, rgba)
+}
+
+/// The bounding box of `rects`, with a margin.
+fn bounds(rects: &[[f32; 4]], margin: f32) -> [f32; 4] {
+    let x0 = rects.iter().map(|r| r[0]).fold(f32::MAX, f32::min) - margin;
+    let y0 = rects.iter().map(|r| r[1]).fold(f32::MAX, f32::min) - margin;
+    let x1 = rects.iter().map(|r| r[0] + r[2]).fold(0.0, f32::max) + margin;
+    let y1 = rects.iter().map(|r| r[1] + r[3]).fold(0.0, f32::max) + margin;
+    [x0, y0, x1, y1]
+}
+
+/// The width of the photo menu's label column that is fingerprinted: the shortcut column is left
+/// out, as macOS writes Cmd and so draws the menu wider.
+const LABELS: f32 = 190.0;
+
+/// Checks the open menus of the last frame against `tests/fingerprints/<name>.json`: the photo
+/// menu's label column (its rows' left part, [`LABELS`] wide) over the open Add to Album ▸ (its
+/// rows' bounding box), each with a margin, stacked into one image.
+fn check_menu(d: &Driver, name: &str) {
+    let shot = d.screenshot().unwrap();
+    std::fs::write(out_dir().join(format!("{name}-window.png")), fingerprint::png_rgba(shot.width, shot.height, &shot.rgba)).unwrap();
+    let rows: Vec<(String, [f32; 4])> =
+        d.widgets().into_iter().filter(|w| w.id.starts_with("menuitem:") || w.id.starts_with("submenu:")).map(|w| (w.id, w.rect)).collect();
+    let in_sub = |id: &str| id == "menuitem:album.new" || id.starts_with("menuitem:album.add/");
+    let main: Vec<[f32; 4]> = rows.iter().filter(|(id, _)| !in_sub(id)).map(|(_, r)| *r).collect();
+    let sub: Vec<[f32; 4]> = rows.iter().filter(|(id, _)| in_sub(id)).map(|(_, r)| *r).collect();
+    let mut m = bounds(&main, 8.0);
+    m[2] = m[0] + LABELS;
+    let parts = [crop(&shot, m), crop(&shot, bounds(&sub, 8.0))];
+    let w = parts.iter().map(|p| p.0).max().unwrap();
+    let h: u32 = parts.iter().map(|p| p.1).sum();
+    let mut rgba = Vec::with_capacity((w * h * 4) as usize);
+    for (pw, ph, px) in &parts {
+        for y in 0..*ph {
+            let row = &px[(y * pw * 4) as usize..((y + 1) * pw * 4) as usize];
+            rgba.extend_from_slice(row);
+            rgba.extend(std::iter::repeat_n([0u8, 0, 0, 255], (w - pw) as usize).flatten());
         }
     }
     std::fs::write(out_dir().join(format!("{name}.png")), fingerprint::png_rgba(w, h, &rgba)).unwrap();
