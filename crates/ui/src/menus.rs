@@ -953,6 +953,7 @@ mod tests {
                 "edit.flipV",
                 "folders.manager",
                 "photo.adjustDate",
+                "search.duplicates",
                 "help.releaseNotes",
                 "app.about"
             ]

@@ -4174,7 +4174,7 @@ mid-run.
     sidecar and subfolders; a merge keeps both folders' photos and entries; a forced cross-volume
     folder move verifies before trashing; undo and redo; the owner thread made no `fs` call; each
     command's contract and graceful failures; `panic_hunt` green.
-- ⬜ **M9.16 `engine`: Find Duplicates**
+- ✅ **M9.16 `engine`: Find Duplicates**
   - after: M9.11
   - files: `crates/engine/src/cmd/duplicates.rs`, `crates/engine/src/duplicates.rs`, `crates/engine/tests/duplicates.rs`
   - scope: `organizing.md` §8.3: `search.duplicates` (Tools ▸ Experimental ▸ Show Duplicate Files,

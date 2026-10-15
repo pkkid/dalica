@@ -175,6 +175,19 @@ impl SearchState {
         Query { text: self.text.clone(), filters: self.filters, age: self.age_days.map(|days| Age { days, now }) }
     }
 
+    /// Enters mode [`SearchMode::Duplicates`] showing `result` (Find Duplicates, `duplicates.rs`):
+    /// the text, filters and age are cleared and the generation rises, as for a new query.
+    pub(crate) fn enter_duplicates(&mut self, mut result: SearchResult) {
+        self.text.clear();
+        self.filters = Filters::default();
+        self.age_days = None;
+        self.mode = Some(SearchMode::Duplicates);
+        self.due = None;
+        self.generation = self.generation.wrapping_add(1);
+        result.generation = self.generation;
+        self.result = Some(result);
+    }
+
     /// The last result, when it answers the current query and nothing changed since.
     fn fresh(&self) -> Option<&SearchResult> {
         self.result.as_ref().filter(|r| r.generation == self.generation && !self.pending())
@@ -442,10 +455,12 @@ impl Session {
     /// `library.inspect` → `search` (`control-protocol.md` §6.4): whether search mode is on and
     /// which, the query (`age` in days, 0 for every age), and the banner's numbers once a result
     /// came (`matches` is `null` until then and outside search mode), with the sections that keep a
-    /// match by their ids (`album:search`, `folder:12`).
+    /// match by their ids (`album:search`, `folder:12`). In duplicates mode, `groups` lists Find
+    /// Duplicates' groups and `banner` is its text (both `null` otherwise; `duplicates.rs`).
     pub fn search_inspect(&self) -> Value {
         let s = &self.search;
         let r = s.result.as_ref().filter(|_| s.active());
+        let (groups, banner) = self.duplicates_inspect();
         json!({
             "active": s.active(),
             "mode": s.mode.map(SearchMode::name),
@@ -461,6 +476,8 @@ impl Session {
             "truncated": r.is_some_and(|r| r.truncated),
             "pending": s.pending(),
             "generation": s.generation,
+            "groups": groups,
+            "banner": banner,
         })
     }
 
@@ -475,6 +492,14 @@ impl Session {
         self.search.filters = filters;
         if let Some(age) = age_days {
             self.search.age_days = age.filter(|d| *d > 0);
+        }
+        if self.search.mode == Some(SearchMode::Duplicates) {
+            if (&self.search.text, self.search.filters, self.search.age_days) == (&before.0, before.1, before.2) {
+                // An unchanged query keeps Find Duplicates' groups on show.
+                return false;
+            }
+            // Leaving them: their groups are no search's result.
+            self.search.result = None;
         }
         let active = self.search.query(self.clock.now()).is_active();
         self.search.mode = active.then_some(SearchMode::Search);
