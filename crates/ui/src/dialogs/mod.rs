@@ -43,6 +43,12 @@
 //!   state (`albumProperties`, `newFolder`, `renameFiles`, `moveFiles`, `copyFiles`, `collision`,
 //!   `deletePhotos`, `deleteFolder`), set when they open and cleared when they close.
 //!
+//! - **M10's dialog**: Options ([`options`], Tools ▸ Options… and Help ▸ Keyboard Shortcuts…):
+//!   its frame (the tabs, OK / Cancel / Apply) is in [`options`], each tab's body in a module of
+//!   its own under it (stubs that show the draft until M10.10–M10.12 draw them). Its draft is the
+//!   view state's `options`, set when it opens and cleared when it closes. Apply is a button that
+//!   keeps its dialog open ([`Button::stays_open`]).
+//!
 //! Each kind lives in a module of its own with the same three functions, which the host
 //! dispatches to: `look` (title, width, buttons), `body` (draws the draft and edits it in place)
 //! and `act` (what a button other than Cancel does). A new kind adds its [`DialogKind`] variant,
@@ -67,6 +73,7 @@ pub mod folder_manager;
 pub mod folder_properties;
 pub mod move_confirm;
 pub mod new_folder;
+pub mod options;
 pub mod quick_tags;
 pub mod release_notes;
 pub mod remove_from_album;
@@ -91,11 +98,13 @@ pub struct Button {
     pub label: String,
     pub kind: ButtonKind,
     pub enabled: bool,
+    /// The dialog stays open when its action succeeds (Options' Apply).
+    pub stays: bool,
 }
 
 impl Button {
     pub fn new(action: &'static str, label: impl Into<String>, kind: ButtonKind) -> Button {
-        Button { action, label: label.into(), kind, enabled: true }
+        Button { action, label: label.into(), kind, enabled: true, stays: false }
     }
 
     /// Cancel: closes the dialog, runs nothing.
@@ -111,6 +120,11 @@ impl Button {
 
     pub fn enabled(self, enabled: bool) -> Button {
         Button { enabled, ..self }
+    }
+
+    /// The same button, keeping its dialog open when its action succeeds (Options' Apply).
+    pub fn stays_open(self) -> Button {
+        Button { stays: true, ..self }
     }
 
     /// Its automation id.
@@ -156,6 +170,7 @@ fn look(app: &App, d: &Dialog) -> Look {
         DialogKind::NewFolder => new_folder::look(app, d),
         DialogKind::RenameFiles => rename_files::look(app, d),
         DialogKind::DeletePhotos | DialogKind::DeleteFolder => delete::look(app, d),
+        DialogKind::Options => options::look(app, d),
     }
 }
 
@@ -182,6 +197,7 @@ fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
         DialogKind::NewFolder => new_folder::body(app, ui, d),
         DialogKind::RenameFiles => rename_files::body(app, ui, d),
         DialogKind::DeletePhotos | DialogKind::DeleteFolder => delete::body(app, ui, d),
+        DialogKind::Options => options::body(app, ui, d),
     }
 }
 
@@ -208,8 +224,14 @@ fn act(app: &mut App, d: &Dialog, action: &str) -> Result<Value, CmdError> {
         DialogKind::NewFolder => new_folder::act(app, d, action),
         DialogKind::RenameFiles => rename_files::act(app, d, action),
         DialogKind::DeletePhotos | DialogKind::DeleteFolder => delete::act(app, d, action),
+        DialogKind::Options => options::act(app, d, action),
     }
 }
+
+/// The room a dialog keeps on each side of it in a narrow window, and the narrowest it gets
+/// (points).
+pub const SCREEN_MARGIN: f32 = 16.0;
+const MIN_WIDTH: f32 = 240.0;
 
 /// The longest value [`draft_lines`] shows, in characters.
 const LINE_CHARS: usize = 120;
@@ -283,6 +305,7 @@ fn close(app: &mut App, kind: DialogKind) -> Option<Dialog> {
         DialogKind::Collision => state.collision = None,
         DialogKind::DeletePhotos => state.delete_photos = None,
         DialogKind::DeleteFolder => state.delete_folder = None,
+        DialogKind::Options => state.options = None,
         _ => {}
     }
     let dialogs = &mut state.dialogs;
@@ -299,7 +322,8 @@ pub fn cancel(app: &mut App) -> Result<Value, CmdError> {
 
 /// Presses button `action` of the top dialog (`None`: its default button), as a click does. Cancel
 /// closes it ([`cancel`]); another button runs the dialog's action, and the dialog closes when that
-/// succeeds (its result is the reply) and stays open when it fails.
+/// succeeds (its result is the reply), unless the button [stays open](Button::stays_open), and
+/// stays open when it fails.
 pub fn answer(app: &mut App, action: Option<&str>) -> Result<Value, CmdError> {
     let d = top(app).cloned().ok_or_else(|| CmdError::NotFound("no dialog is open".into()))?;
     let look = look(app, &d);
@@ -321,7 +345,7 @@ pub fn answer(app: &mut App, action: Option<&str>) -> Result<Value, CmdError> {
         return cancel(app);
     }
     let result = act(app, &d, button.action);
-    if result.is_ok() {
+    if result.is_ok() && !button.stays {
         close(app, d.kind);
     }
     result
@@ -389,7 +413,9 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
         let ids: Vec<String> = look.buttons.iter().map(|b| if top { b.widget() } else { format!("{}/{}", widget_id(d.kind), b.action) }).collect();
         let buttons: Vec<DialogButton<'_>> =
             look.buttons.iter().zip(&ids).map(|(b, id)| DialogButton { id, label: &b.label, kind: b.kind, enabled: b.enabled }).collect();
-        let r = widgets::dialog(ctx, &t, &widget_id(d.kind), &look.title, look.width, &buttons, |ui| body(app, ui, &mut d));
+        // Never wider than the window (the Options dialog is 720 wide at 100 %).
+        let width = look.width.min((ctx.content_rect().width() - 2.0 * SCREEN_MARGIN).max(MIN_WIDTH));
+        let r = widgets::dialog(ctx, &t, &widget_id(d.kind), &look.title, width, &buttons, |ui| body(app, ui, &mut d));
         // The draft as the body left it.
         if let Some(slot) = app.state_mut().dialogs.get_mut(i).filter(|s| s.kind == d.kind) {
             *slot = d;

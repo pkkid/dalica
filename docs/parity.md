@@ -28,9 +28,9 @@ same commit.
 | D. Viewing | 0 | 1 | 5 | 2 |
 | E. Output | 0 | 1 | 1 | 9 |
 | F. Data | 1 | 19 | 1 | 0 |
-| G. Preferences and system | 0 | 7 | 7 | 0 |
-| H. Menus | 0 | 5 | 2 | 0 |
-| **All** | 29 | 72 | 46 | 16 |
+| G. Preferences and system | 0 | 8 | 13 | 0 |
+| H. Menus | 0 | 6 | 2 | 0 |
+| **All** | 29 | 74 | 52 | 16 |
 <!-- /parity:summary -->
 
 ## Top gaps
@@ -214,8 +214,15 @@ same commit.
 
 | Id | Feature | Tier | Status | Evidence / notes |
 |---|---|---|---|---|
-| PREF-DIALOG | Options dialog with tabs, OK/Cancel/Apply | P1 | ⬜ | ref 08 §5 |
-| PREF-GENERAL / FILETYPES / SLIDESHOW / NETWORK / PEOPLE / VIEWER / EXPORT | each tab's options | P1 | ⬜ | `menus-and-shortcuts.md` §5 |
+| PREF-DIALOG | Options dialog with tabs, OK/Cancel/Apply | P1 | 🟡 | `menus-and-shortcuts.md` §5, `design-system.md` §11.3: Tools ▸ Options… (`app.preferences`, Ctrl+,; Dalica ▸ Preferences… on macOS) and Help ▸ Keyboard Shortcuts… (`app.shortcuts`, Ctrl+/) open `dialog:options` with the tabs General, File Types, Export and Keyboard Shortcuts, OK / Cancel / Apply (Apply enabled while the draft changes something, keeps the dialog open; a failed Apply keeps the draft and its error; Cancel and Esc drop it): `crates/ui/src/commands/options.rs`, `crates/ui/src/dialogs/options.rs`, the draft `options` of the view state (`crates/ui/tests/view_state.rs`); missing: the tabs' bodies (stubs that list the draft), `ui-kit`'s text tabs, the options catalogue behind it (`options.list`, `options.set`) |
+| PREF-GENERAL | General: Interface, Files and Import options | P1 | ⬜ | `menus-and-shortcuts.md` §5 General; the tab is a stub (`crates/ui/src/dialogs/options/general.rs`) |
+| PREF-FILETYPES | File Types: the formats shown and the small-picture threshold | P1 | ⬜ | `menus-and-shortcuts.md` §5 File Types; the tab is a stub (`crates/ui/src/dialogs/options/file_types.rs`) |
+| PREF-SLIDESHOW | Slideshow options | P1 | ⬜ | `menus-and-shortcuts.md` §5 Slideshow; the tab joins with the slideshow |
+| PREF-NETWORK | Network options | P1 | ⬜ | `menus-and-shortcuts.md` §5 Network; the tab joins with Places |
+| PREF-PEOPLE | People options | P1 | ⬜ | `menus-and-shortcuts.md` §5 People; the tab joins with faces and people |
+| PREF-VIEWER | Photo Viewer options | P1 | ⬜ | `menus-and-shortcuts.md` §5 Photo Viewer, `viewing.md` §3.3; the tab joins with the viewer |
+| PREF-EXPORT | Export: default location, size and quality, remove location, watermark text | P1 | ⬜ | `menus-and-shortcuts.md` §5 Export; the tab is a stub (`crates/ui/src/dialogs/options/export.rs`) |
+| PREF-SCALE | UI scale (Auto with the 4K rule, 75–300 %) and UI font size (Small, Medium, Large), previewed live from the dialog | P1 | ⬜ | `design-system.md` §11.4–§11.5; the view state's `options.previewScale` / `previewFontSize` and the per-frame hook `crates/ui/src/scale.rs` (a stub: every window at 100 % and Small) |
 | PREF-KEYMAP | Keyboard contexts and the shortcut editor (search, record, conflicts, reset) | P1 | ⬜ | `menus-and-shortcuts.md` §2.0 |
 | SYS-UPDATES | Check for updates | — | ⬜ | deferred, not planned yet (2026-10-09) |
 | SYS-ABOUT | About Dalica (version, credits, models) and Release Notes | P1 | 🟡 | Help ▸ About Dalica (`app.about`; Dalica ▸ About Dalica on macOS) with the tabs About (icon, version, commit, build date, licence), Contributors (grab bag or table, ten sorts, the Username → Display name → Real name toggle with the `@username` fallback) and Models, from `contributors/contributors.json` and verified `contributors/people.toml` names compiled in by `crates/ui/build.rs` (`crates/ui/src/credits.rs`, `crates/ui/src/dialogs/about.rs`); Help ▸ Release Notes shows `docs/whats-new.md` compiled in, comments left out (`crates/ui/src/dialogs/release_notes.rs`); measured by `crates/ui/tests/about.rs` (each tab by id, every sort and the name toggle, no email in the compiled tables, fingerprints at both window sizes); missing: translated labels (SYS-I18N), names are not links to GitHub profiles |
@@ -243,6 +250,7 @@ its command exists, is wired to the menu catalog, and its behaviour row above is
 | Picture | `view.edit` `edit.undoAll` `photo.hide` `photo.unhide` `faces.reset` `pane.properties` `photo.star.toggle` `photo.caption.edit` `photo.rotate.cw` `photo.rotate.ccw` `edit.flipH` `edit.flipV` | 🟡 |
 | Create | `create.collage` | ⬜ |
 | Tools | `folders.manager` `people.manager` `viewer.settings` `photo.adjustDate` `geo.clear` `geo.copy` `geo.paste` `search.duplicates` `search.color` `search.saveAsAlbum` `search.tagAsAlbum` `faces.writeXmp` `app.preferences` | ⬜ |
+| Help | `help.contents` `app.shortcuts` `help.releaseNotes` `help.reportProblem` `help.logFolder` `library.rebuild` `app.about` | 🟡 |
 
 ## I. Keyboard shortcuts (KEY)
 

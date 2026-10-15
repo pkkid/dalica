@@ -4,6 +4,11 @@
 //! and light up their menu and view-options rows, whose check marks follow the state; File ▸ Exit
 //! (Dalica ▸ Quit Dalica on macOS) and View ▸ Properties / Tags / People / Places are live; every
 //! UI command fails gracefully.
+//!
+//! M10's view state (M10.2): the Options dialog's draft (`options`: its tab, the changed values,
+//! the last Apply's error, the scale and font size previewed, the shortcut editor) round-trips the
+//! same way; Ctrl+, and Ctrl+/ open the dialog on General and on Keyboard Shortcuts, Esc closes it,
+//! and Tools ▸ Options…, Help ▸ Keyboard Shortcuts… and the macOS Preferences… item are live.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -12,7 +17,7 @@ use crate::common::{FRAMES, new_driver};
 use dalica_engine::{CmdError, Session};
 use dalica_ui::control::{Config, Connection, Control, Reply, Request, serve};
 use dalica_ui::menus::{self, Lookup, Platform};
-use dalica_ui::state::{Caption, FolderSort, Group, Pane, TreeMode};
+use dalica_ui::state::{Caption, FolderSort, Group, OptionsTab, Pane, TreeMode};
 use dalica_ui::{App, Driver, UI_COMMANDS};
 use serde_json::{Value, json};
 
@@ -489,4 +494,159 @@ fn every_ui_command_fails_gracefully() {
     assert!(matches!(bare.run("view.folderCollapse", &json!({ "folder": 1 })), Err(CmdError::NotFound(_))));
     assert!(bare.run("view.caption", &json!({ "caption": "date" })).is_ok(), "view state needs no library");
     assert!(menus::find(&menus::bar(&bare, Platform::Other), &Lookup::Id { id: "app.quit".into(), params: Value::Null }).is_some_and(|i| i.enabled));
+}
+
+/// Each M10 field round-trips through `ui.set` and `ui.state`; `options` merges field by field.
+#[test]
+fn every_m10_field_round_trips_through_ui_set_and_ui_state() {
+    let mut t = setup();
+    assert_eq!(state(&mut t)["options"], Value::Null, "closed: no draft");
+    let defaults = state(&mut t);
+    // A partial draft over none takes the defaults for the rest.
+    ok(&mut t, "ui.set", json!({ "options": { "tab": "fileTypes" } }));
+    let fresh = json!({
+        "tab": "fileTypes", "values": {}, "error": null, "previewScale": null, "previewFontSize": null,
+        "shortcuts": { "search": "", "context": null, "showUnbound": false, "recording": null, "conflict": null,
+                       "changes": [], "resetAll": false }
+    });
+    assert_eq!(state(&mut t)["options"], fresh);
+    let cell = json!({ "command": "photo.star.toggle", "context": "library", "slot": 1 });
+    for (field, value) in [
+        ("tab", json!("general")),
+        ("tab", json!("export")),
+        ("tab", json!("shortcuts")),
+        ("values", json!({ "interface.animations": false, "files.thumbnailThreshold": 96, "export.watermarkText": "© me", "language": null })),
+        ("error", json!("The settings file could not be written: disk full")),
+        ("previewScale", json!(150)),
+        ("previewScale", json!("auto")),
+        ("previewScale", json!(300)),
+        ("previewFontSize", json!("large")),
+        ("previewFontSize", json!("medium")),
+        (
+            "shortcuts",
+            json!({ "search": "ctrl+1", "context": "editView", "showUnbound": true, "recording": cell,
+                    "conflict": { "cell": cell, "key": "Ctrl+1", "command": "view.thumbsSmall", "context": "library" },
+                    "changes": [{ "command": "photo.star.toggle", "context": "library", "slot": 1, "key": "F4" },
+                                { "command": "view.edit", "context": "library", "slot": 0, "key": null }],
+                    "resetAll": true }),
+        ),
+    ] {
+        let reply = ok(&mut t, "ui.set", json!({ "options": { field: value } }));
+        assert_eq!(reply["options"][field], value, "the reply is the new state: {field}");
+        let now = state(&mut t);
+        assert_eq!(now["options"][field], value, "{field}");
+        // Field by field: the rest of the draft is as it was.
+        for (k, v) in fresh.as_object().unwrap() {
+            if k != field && k != "tab" {
+                assert_eq!(&now["options"][k], v, "{field} left {k} alone");
+            }
+        }
+        ok(&mut t, "ui.set", json!({ "options": { field: fresh[field] } }));
+        assert_eq!(state(&mut t)["options"], fresh, "{field}");
+    }
+    let o = t.d.app().state().options.clone().unwrap();
+    assert_eq!(o.tab, OptionsTab::FileTypes);
+    // A draft's shortcut editor is replaced whole; closing drops the draft.
+    ok(&mut t, "ui.set", json!({ "options": { "shortcuts": { "search": "star" } } }));
+    assert_eq!(state(&mut t)["options"]["shortcuts"]["showUnbound"], false);
+    ok(&mut t, "ui.set", json!({ "options": null }));
+    assert_eq!(state(&mut t), defaults);
+}
+
+/// Bad M10 values are `bad_params` (a command the keymap does not know `not_found`), and nothing
+/// changes.
+#[test]
+fn bad_m10_values_are_refused_and_change_nothing() {
+    let mut t = setup();
+    ok(&mut t, "ui.set", json!({ "options": { "tab": "export", "values": { "interface.tooltips": false } } }));
+    let before = state(&mut t);
+    let cell = |command: &str, slot: u64| json!({ "command": command, "context": "library", "slot": slot });
+    let long = "x".repeat(4097);
+    let many: serde_json::Map<String, Value> = (0..257).map(|i| (format!("k{i}"), json!(true))).collect();
+    for bad in [
+        json!({ "options": { "tab": "people" } }),
+        json!({ "options": { "tab": null } }),
+        json!({ "options": { "colour": 1 } }),
+        json!({ "options": 3 }),
+        json!({ "options": { "values": [] } }),
+        json!({ "options": { "values": { "a": [1] } } }),
+        json!({ "options": { "values": { "a": { "b": 1 } } } }),
+        json!({ "options": { "values": { "": 1 } } }),
+        json!({ "options": { "values": { "a": long } } }),
+        json!({ "options": { "values": many } }),
+        json!({ "options": { "error": long } }),
+        json!({ "options": { "error": 5 } }),
+        json!({ "options": { "previewScale": 160 } }),
+        json!({ "options": { "previewScale": 50 } }),
+        json!({ "options": { "previewScale": 325 } }),
+        json!({ "options": { "previewScale": 1.5 } }),
+        json!({ "options": { "previewScale": "Auto" } }),
+        json!({ "options": { "previewFontSize": "huge" } }),
+        json!({ "options": { "shortcuts": { "search": long } } }),
+        json!({ "options": { "shortcuts": { "context": "attic" } } }),
+        json!({ "options": { "shortcuts": { "showUnbound": "yes" } } }),
+        json!({ "options": { "shortcuts": { "recording": cell("photo.star.toggle", 2) } } }),
+        json!({ "options": { "shortcuts": { "recording": cell("", 0) } } }),
+        json!({ "options": { "shortcuts": { "recording": { "command": "view.edit", "context": "library" } } } }),
+        json!({ "options": { "shortcuts": { "changes": [{ "command": "view.edit", "context": "library", "slot": 0, "key": "Ctrl+Hyper+1" }] } } }),
+        json!({ "options": { "shortcuts": { "changes": [{ "command": "view.edit", "context": "library", "slot": 0 }] } } }),
+        json!({ "options": { "shortcuts": { "conflict": { "cell": cell("view.edit", 0), "key": "", "command": "view.library", "context": "library" } } } }),
+        json!({ "options": { "shortcuts": { "captured": ["Esc"] } } }),
+        // A good field next to a bad one: neither is applied.
+        json!({ "options": { "tab": "general", "previewFontSize": "huge" } }),
+    ] {
+        assert_eq!(code(&mut t, "ui.set", bad.clone()), "bad_params", "{bad}");
+        assert_eq!(state(&mut t), before, "{bad}");
+    }
+    for bad in [
+        json!({ "options": { "shortcuts": { "recording": cell("photo.nope", 0) } } }),
+        json!({ "options": { "shortcuts": { "changes": [{ "command": "photo.nope", "context": "global", "slot": 0, "key": "F4" }] } } }),
+    ] {
+        assert_eq!(code(&mut t, "ui.set", bad.clone()), "not_found", "{bad}");
+        assert_eq!(state(&mut t), before, "{bad}");
+    }
+}
+
+/// Ctrl+, opens Options on General and Ctrl+/ on Keyboard Shortcuts, Esc closes it; a tab click
+/// changes the tab; the menu items are live, the macOS Preferences… item too.
+#[test]
+fn the_options_keys_open_the_dialog_and_its_menu_items_are_live() {
+    let mut t = setup();
+    for (combo, tab) in [("Ctrl+,", "general"), ("Ctrl+/", "shortcuts")] {
+        ok(&mut t, "ui.key", json!({ "combo": combo }));
+        let v = ok(&mut t, "ui.inspect", json!({}));
+        assert_eq!((v["dialog"]["kind"].as_str(), v["dialog"]["widget"].as_str()), (Some("options"), Some("dialog:options")), "{combo}");
+        assert_eq!(v["options"]["tab"], tab, "{combo}");
+        assert_eq!(v["dialog"]["default"], "button:dialog.ok");
+        let widgets = ok(&mut t, "ui.widgets", json!({ "filter": "options" }));
+        let ids: Vec<&str> = widgets.as_array().unwrap().iter().map(|w| w["id"].as_str().unwrap()).collect();
+        for id in ["dialog:options", "tab:options.general", "tab:options.fileTypes", "tab:options.export", "tab:options.shortcuts"] {
+            assert!(ids.contains(&id), "{id} in {ids:?}");
+        }
+        let apply = ok(&mut t, "ui.widgets", json!({ "filter": "button:dialog.apply" }));
+        assert_eq!(apply[0]["enabled"], false, "nothing changed yet");
+        ok(&mut t, "ui.key", json!({ "combo": "Esc" }));
+        let v = ok(&mut t, "ui.inspect", json!({}));
+        assert_eq!((&v["dialog"], &v["options"]), (&Value::Null, &Value::Null), "{combo}: Esc closes it");
+    }
+    // A tab click shows that tab; an applied change would light Apply.
+    ok(&mut t, "engine.execute", json!({ "command": "app.preferences" }));
+    ok(&mut t, "ui.clickWidget", json!({ "id": "tab:options.export" }));
+    assert_eq!(state(&mut t)["options"]["tab"], "export");
+    ok(&mut t, "ui.set", json!({ "options": { "values": { "export.removeLocation": true } } }));
+    ok(&mut t, "ui.wait", json!({ "ms": 50 }));
+    assert_eq!(ok(&mut t, "ui.widgets", json!({ "filter": "button:dialog.apply" }))[0]["enabled"], true);
+    ok(&mut t, "ui.dialog.cancel", json!({}));
+    assert_eq!(state(&mut t)["options"], Value::Null, "Cancel drops the draft");
+    for id in ["app.preferences", "app.shortcuts"] {
+        let r = row(&mut t, id, Value::Null);
+        assert_eq!((r["live"].as_bool(), r["enabled"].as_bool()), (Some(true), Some(true)), "{id}");
+    }
+    assert_eq!(row(&mut t, "app.preferences", Value::Null)["shortcut"], "Ctrl+,");
+    assert_eq!(row(&mut t, "app.shortcuts", Value::Null)["shortcut"], "Ctrl+/");
+    let mac = menus::bar(t.d.app(), Platform::Mac);
+    let prefs = menus::find(&mac[..1], &Lookup::Id { id: "app.preferences".into(), params: Value::Null }).unwrap();
+    assert!(prefs.live && prefs.enabled && prefs.shortcut.as_deref() == Some("Cmd+,"), "{prefs:?}");
+    assert_eq!(ok(&mut t, "ui.menu.invoke", json!({ "id": "app.shortcuts" })), json!({ "dialog": "options" }));
+    assert_eq!(state(&mut t)["options"]["tab"], "shortcuts");
 }

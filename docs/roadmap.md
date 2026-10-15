@@ -4605,7 +4605,7 @@ No other step of M10 needs a maintainer decision mid-run.
     keys are unique; `crates/engine/tests/execute_group.rs`: a star, a caption and a tag in one
     group are one undo step and undo restores all three, a failing third step leaves the model and
     the sidecars unchanged; every existing engine test and `panic_hunt` pass unchanged.
-- ⬜ **M10.2 `ui`: M10's view state, UI commands, the Options dialog's stubs and control stubs**
+- ✅ **M10.2 `ui`: M10's view state, UI commands, the Options dialog's stubs and control stubs**
   - after: M9.4, M9.R
   - files: `crates/ui/src/state.rs`, `crates/ui/src/menus.rs`, `crates/ui/src/app.rs`, `crates/ui/src/keys.rs`, `crates/ui/src/commands/mod.rs`, `crates/ui/src/commands/options.rs`, `crates/ui/src/dialogs/mod.rs`, `crates/ui/src/dialogs/options.rs`, `crates/ui/src/dialogs/options/general.rs`, `crates/ui/src/dialogs/options/file_types.rs`, `crates/ui/src/dialogs/options/export.rs`, `crates/ui/src/dialogs/options/shortcuts.rs`, `crates/ui/src/scale.rs`, `crates/ui/src/control/mod.rs`, `crates/ui/src/control/view.rs`, `crates/ui/src/control/batch.rs`, `crates/ui/src/control/inspect.rs`, `crates/ui/tests/view_state.rs`, `docs/control-protocol.md`
   - scope: every M10 field of `UiState` in one go: the Options dialog (its tab, the draft of

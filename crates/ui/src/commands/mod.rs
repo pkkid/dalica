@@ -24,7 +24,8 @@
 //! - M9's areas, so the tasks that fill them never share a file: [`albums`] (New Album…, Album
 //!   Properties of an album section, Show in Folder), [`search`] (Ctrl+F / F3 to the search
 //!   field, Search for This Tag, Save Search Results…), [`files`] (Move to New Folder…, Split Folder Here…), [`rename`] (Rename…, F2),
-//!   [`folder_ops`] (Folder ▸ Move…) and [`clipboard`] (Cut, Copy, Paste).
+//!   [`folder_ops`] (Folder ▸ Move…) and [`clipboard`] (Cut, Copy, Paste);
+//! - [`options`]: the Options dialog (Tools ▸ Options…, Help ▸ Keyboard Shortcuts…, M10).
 //!
 //! **Openers** ([`OPENERS`]): a menu item ending in `…` whose *engine* command takes input
 //! (`photo.rename {ids, name}`, `photo.moveToNewFolder`, `folder.move`) opens its dialog in the UI,
@@ -54,6 +55,7 @@ pub mod files;
 pub mod folder_ops;
 pub mod help;
 pub mod info;
+pub mod options;
 pub mod rename;
 pub mod save;
 pub mod save_as;
@@ -110,6 +112,7 @@ const AREAS: &[&[UiCommand]] = &[
     search::COMMANDS,
     files::COMMANDS,
     clipboard::COMMANDS,
+    options::COMMANDS,
 ];
 
 /// Whether a UI command can run now with its parameters; why not (the status line's text) when it

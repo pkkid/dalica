@@ -24,10 +24,12 @@
 //!
 //! `auth` is the transport's: it answers the first line itself and never passes `auth` here.
 
+mod batch;
 mod dialog;
 mod engine;
 mod host;
 mod input;
+mod inspect;
 mod jobs;
 mod menu;
 mod paths;
@@ -557,13 +559,8 @@ pub static METHODS: &[Method] = &[
     method("methods", "—", "every method with its params doc", engine::methods),
     method("engine.execute", "{command, params?, wait?}", "the command's result", engine::execute),
     method("engine.commands", "{filter?, enabledOnly?}", "the command registry (§6.2)", engine::commands),
-    later("batch", "{steps, stopOnError?}", "{completed, failed, results}", "no milestone plans it yet"),
-    later(
-        "library.inspect",
-        "{photos?, section?, offset?, limit?}",
-        "the library as the user sees it",
-        "no milestone plans it yet; use the library.query command",
-    ),
+    batch::METHOD,
+    inspect::METHOD,
     method("ui.state", "—", "the view state (§6.5)", view::state),
     method("ui.set", "partial view state", "the new view state", view::set),
     method("ui.inspect", "{resetPerf?}", "the view state plus window, perf and more (§6.6)", view::inspect),
