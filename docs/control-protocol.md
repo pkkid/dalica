@@ -426,8 +426,10 @@ and the CLI return the same JSON; the control method adds the UI-only fields (`c
   "visibleSections": ["folder:1", "folder:2"],
   "selection": {"section": "folder:1", "wholeSection": false, "ids": [3, 4], "anchor": 3, "focus": 4},
   "tray": {"token": null, "items": [3, 4, 57], "held": [57], "traySelected": []},
-  "search": {"active": false, "text": "", "filters": {"starred": false, "faces": false, "videos": false,
-             "geotagged": false}, "age": 0, "matches": null},
+  "search": {"active": true, "mode": "search", "text": "lisbon", "filters": {"starred": false, "faces": false,
+             "videos": false, "geotagged": false}, "age": 0, "matches": 33, "folders": 4, "bytes": 439800000,
+             "seconds": 0.01, "sections": [{"section": "album:search", "count": 33}, {"section": "folder:1", "count": 30}],
+             "unavailable": [], "truncated": false, "pending": false, "generation": 7, "groups": null, "banner": null},
   "view": {"hiddenPictures": false, "smallPictures": false, "caption": "none", "thumbSize": 144},
   "undo": {"undo": "Star", "redo": null, "depth": 5},
   "unsavedEdits": {"photos": 3, "sections": ["folder:1"]},
@@ -440,6 +442,18 @@ and the CLI return the same JSON; the control method adds the UI-only fields (`c
 - `photos: true` (or a section id) adds `photos: [{id, section, path, name, star, caption, tags,
   hidden, rotate, edited, recipe, geo, date, width, height, bytes, video, held, selected}]` in
   light-table order, paged by `offset` / `limit` (default 200). `section` restricts the listing.
+- `search` is search mode (`organizing.md` §8, `ui-layout.md` §9): `active` and `mode` (`"search"`,
+  `"duplicates"` for Find Duplicates' groups, `null` while not searching); the query, `age` in days
+  (0: every age; the toolbar's slider is a position in `ui.state` → `search.age`, turned into days
+  on its logarithmic scale); and once the worker's answer came the banner's numbers: `matches`
+  (`null` before it and outside search mode), `folders`, `bytes`, `seconds`, the `sections` that
+  keep a match with their counts (the search album first), `unavailable` (operators and filters
+  that match nothing yet: `person`, `color`, `faces`) and `truncated` (the text was cut at the
+  grammar's caps). `pending` is true while a query waits for its debounce (120 ms on the session
+  clock) or for the worker; `generation` rises with every change of the query. In duplicates mode
+  `groups` lists the groups (`{count, size, bytes, ids}`, largest total first) and `banner` is the
+  banner's text ("12 duplicate groups (31 files)"); both are `null` otherwise. `ui.settle` does not
+  wait for a pending search: poll `pending`.
 - `selection.wholeSection` is true when a tree click selected the section as a unit (the tray then
   shows a single token: `tray.token = {section, count}`).
 - `problems` lists damaged sidecars kept aside (`.corrupt-<time>`), offline volumes and unreadable
@@ -789,12 +803,12 @@ recipe operation and parameter names of `data-model.md` §3.1 and `editing.md` (
 | Region (milestone) | Ids |
 |---|---|
 | Regions (M3) | `region:<name>` for each region of §6.6 shown (`region:menuBar`, `region:toolbar`, `region:tree`, `region:splitter`, `region:banner` (M9, search mode), `region:lightTable`, `region:scrollbar`, `region:sidePane`, `region:statusLine`, `region:tray`, `region:trayButtons`, `region:bottomControls`, `region:actionButtons`): the region's rect, no input of its own (role `other`); a region not shown is not listed |
-| Menu bar (M3) | `menu:File` … `menu:Help` (title by its English label; the fourth is `menu:Folder` whatever its shown title; macOS adds `menu:Dalica`), `menuitem:<command id>` for open menu and context-menu items (`menuitem:<command id>/<variant>` for rows of one command that differ by a parameter, `menus-and-shortcuts.md` §1), `submenu:<menu>/<label>…` (`submenu:View/Thumbnail Caption`), and on a menu taller than the window its scroll arrows `button:menu.scrollUp/<depth>` and `button:menu.scrollDown/<depth>` (depth 1 for a menu of the bar or a context menu) |
+| Menu bar (M3) | `menu:File` … `menu:Help` (title by its English label; the fourth is `menu:Folder` whatever its shown title; macOS adds `menu:Dalica`), `menuitem:<command id>` for open menu and context-menu items (`menuitem:<command id>/<variant>` for rows of one command that differ by a parameter, `menus-and-shortcuts.md` §1; M9: the Add to Album rows of the photo menu and of the tray's Add to Album ▾, one per user album, are `menuitem:album.add/<AlbumId>`), `submenu:<menu>/<label>…` (`submenu:View/Thumbnail Caption`), and on a menu taller than the window its scroll arrows `button:menu.scrollUp/<depth>` and `button:menu.scrollDown/<depth>` (depth 1 for a menu of the bar or a context menu) |
 | Title bar (M3) | Windows and Linux, unless the system title bar is chosen (`design-system.md` §11.1): `button:window.minimize`, `button:window.maximize` (labelled Restore while maximized), `button:window.close`, `titlebar:drag` (the free gap: drag moves, double-click maximizes; also on macOS, beside the traffic lights); in a real window, while neither maximized nor full screen, the resize edges `resize:n`, `resize:s`, `resize:e`, `resize:w`, `resize:ne`, `resize:nw`, `resize:se`, `resize:sw` |
-| Toolbar (M3) | `button:toolbar.import`, `button:toolbar.newAlbum`, `button:tree.flat`, `button:tree.tree`, `button:toolbar.viewOptions`, `button:filter.starred`, `button:filter.faces`, `button:filter.videos`, `button:filter.geotagged`, `slider:age`, `field:search`, `button:search.clear`, `indicator:activity` |
+| Toolbar (M3) | `button:toolbar.import`, `button:toolbar.newAlbum`, `button:tree.flat`, `button:tree.tree`, `button:toolbar.viewOptions`, `button:filter.starred`, `button:filter.faces`, `button:filter.videos`, `button:filter.geotagged`, `slider:age`, `field:search`, `button:search.clear`, `indicator:activity`; M9: the search field's suggestions while listed, `field:search/option/<n>` (role `suggestion`, from 0 at the top, active while highlighted) |
 | Room tabs (M11+) | `tab:room.library`, `tab:room.import`, `tab:room.collage`, …; `button:room.close.<room>` |
 | Library tree (M4) | `tree:group:albums` · `people` · `projects` · `folders` · `other` · `hidden` (the group header), `tree:folder:<FolderId>`, `tree:album:<AlbumId>` (also `tree:album:starred`, `tree:album:recent`, `tree:album:search`), `tree:person:<PersonId>` (M13), `tree:disclosure:<FolderId>` (tree mode); in tree mode a directory between a watched root and its folders that is no library folder itself is `tree:dir:<hash>` (sixteen lowercase hex digits of the 64-bit FNV-1a hash of its path's UTF-8 text, stable for the path) and its triangle `tree:disclosure:dir:<hash>` (such directories fold for the session only: `collapsedFolders` holds folder ids); `splitter:tree` |
-| Light table (M4) | `section:<section id>` (the header block, e.g. `section:folder:12`), its parts `section:folder:12/icon`, `/title`, `/description`, `/play`, `/collage`, `/selectStarred`, `/save`, `/export`, and with unsaved edits `/saveEdited` (the Save text button at the top right); while a header is pinned, its pinned line carries `section:<id>`, `/icon` and `/title` (and `/saveEdited`), and the block under it keeps only the ids of the parts shown below that line; `thumb:<PhotoId>` and its star badge `thumb:<PhotoId>/star` (a photo's cell in its folder's section); in an album's section the same photo's cell is `thumb:<PhotoId>/in/<album>` (`<album>` an album id, `starred`, `recent` or `search`; M9), its badge `thumb:<PhotoId>/in/<album>/star`, and a click there selects the photo in the album; `lightTable` (empty space: rubber band, section menu); with no watched folders the empty state `empty:lightTable` and its `button:empty.addFolder`, `button:empty.import`; `banner:search` and `button:search.showAll` (M9) |
+| Light table (M4) | `section:<section id>` (the header block, e.g. `section:folder:12`), its parts `section:folder:12/icon`, `/title`, `/description`, `/play`, `/collage`, `/selectStarred`, `/save`, `/export`, and with unsaved edits `/saveEdited` (the Save text button at the top right); while a header is pinned, its pinned line carries `section:<id>`, `/icon` and `/title` (and `/saveEdited`), and the block under it keeps only the ids of the parts shown below that line; `thumb:<PhotoId>` and its star badge `thumb:<PhotoId>/star` (a photo's cell in its folder's section); in an album's section the same photo's cell is `thumb:<PhotoId>/in/<album>` (`<album>` an album id, `starred`, `recent` or `search`; M9), its badge `thumb:<PhotoId>/in/<album>/star`, and a click there selects the photo in the album; `lightTable` (empty space: rubber band, section menu); with no watched folders the empty state `empty:lightTable` and its `button:empty.addFolder`, `button:empty.import`; `banner:search` and `button:search.showAll` (M9), and the empty state of a search with no match `empty:search` (M9) |
 | Scrollbar (M4) | `scroll:prevSection`, `scroll:up`, `scroll:track`, `scroll:thumb`, `scroll:down`, `scroll:nextSection` |
 | Status line (M4) | `text:status`, `indicator:unsaved`, `indicator:temporarySession` |
 | Photo Tray (M3: the box and its buttons, disabled; M4: its contents) | `tray` (the box), `tray:token`, `tray:item:<PhotoId>` (its held badge `tray:item:<PhotoId>/held`), `tray:more` (the "+N" place), `button:tray.hold`, `button:tray.clear`, `button:tray.addToAlbum` |

@@ -131,14 +131,14 @@ fn every_toolbar_control_is_registered_with_its_spec_size_at_both_window_sizes()
 
         // The search field's clear button is there while it holds text.
         assert!(d.widgets().iter().all(|w| w.id != "button:search.clear"), "{case}: no clear button while empty");
-        toolbar::set_search_text(d.ctx(), "lisbon");
+        d.app_mut().state_mut().search.text = "lisbon".into();
         d.settle(FRAMES).unwrap();
         let clear = widget(&d, "button:search.clear");
         assert_eq!(size(&clear), (18.0, 18.0), "{case}");
         assert!(clear.rect[0] + 18.0 <= w - 64.0 && clear.rect[1] > TOP && clear.rect[1] + 18.0 < TOP + HEIGHT, "{case}: {:?}", clear.rect);
-        assert_eq!(toolbar::search_text(d.ctx()), "lisbon");
-        toolbar::set_search_text(d.ctx(), "");
+        d.click("button:search.clear").unwrap();
         d.settle(FRAMES).unwrap();
+        assert_eq!(d.state().search.text, "", "{case}: × empties the field");
 
         let missing = d.app().panels().unwrap().unregistered_widgets();
         assert_eq!(missing, [], "{case}: interactive widgets without an id");
@@ -170,21 +170,23 @@ fn a_hovered_filter_shows_its_tooltip_in_the_caption() {
     assert!(hovered > caption + 40, "the tooltip replaces the caption: {caption} → {hovered} columns of ink");
 }
 
-/// Controls without a command are present and disabled, and a click on them changes nothing; ▾
-/// opens its popup, whose rows are listed: the folder sorts live (`view.folderSort`), the rest
-/// disabled until their commands exist.
+/// Controls without a command are present and disabled, and a click on them changes nothing (the
+/// Faces filter waits for faces); ▾ opens its popup, whose rows are listed: the folder sorts live
+/// (`view.folderSort`), the rest disabled until their commands exist.
 #[test]
 fn controls_without_a_command_are_disabled_and_the_view_options_popup_opens() {
     let dir = tempfile::tempdir().unwrap();
     let mut d = driver(dir.path(), (1400.0, 900.0));
     for (id, _) in CONTROLS {
         let wi = widget(&d, id);
-        // ▾, Flat | Tree (`view.folderView`) and New Album (`album.new`) have their commands.
-        let want = matches!(id, "button:toolbar.viewOptions" | "button:tree.flat" | "button:tree.tree" | "button:toolbar.newAlbum");
+        // Only Import (`import.open`) has no command yet; Faces waits for faces; the activity
+        // indicator takes no click at rest.
+        let want = !matches!(id, "button:toolbar.import" | "button:filter.faces" | "indicator:activity");
         assert_eq!(wi.enabled, want, "`{id}` enabled: {}", wi.enabled);
     }
     let before = d.state().clone();
     assert!(d.click("button:toolbar.import").is_err(), "a disabled control does not take clicks");
+    assert!(d.click("button:filter.faces").is_err());
     assert_eq!(d.state(), &before);
 
     d.click("button:toolbar.viewOptions").unwrap();

@@ -222,7 +222,7 @@ fn rename_tag_merges_after_confirming() {
     run(&mut t, "pane.tags", json!({}));
     assert_eq!(rows(&t), ["Lisbon (4 of 6)", "tram (4 of 6)"]);
 
-    // The tag menu: Add to All Selected, Search for This Tag (greyed), Remove from Selected,
+    // The tag menu: Add to All Selected, Search for This Tag, Remove from Selected,
     // Rename Tag….
     right_click(&mut t, "tag:tram");
     let items: Vec<(String, bool)> = t.d.widgets().into_iter().filter(|w| w.role == Role::MenuItem).map(|w| (w.label, w.enabled)).collect();
@@ -230,7 +230,7 @@ fn rename_tag_merges_after_confirming() {
         items,
         [
             ("Add to All Selected".to_string(), true),
-            ("Search for This Tag".to_string(), false),
+            ("Search for This Tag".to_string(), true),
             ("Remove from Selected".to_string(), true),
             ("Rename Tag…".to_string(), true),
         ]

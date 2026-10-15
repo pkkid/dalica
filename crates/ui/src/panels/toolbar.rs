@@ -8,8 +8,16 @@
 //! `control-protocol.md` §7. A control whose command is not registered yet is drawn disabled (its
 //! tooltip says so) and goes live by itself once the command exists: Import (`import.open`), New
 //! Album (`album.new`), Flat | Tree (`view.folderView`) and the rows of the view options popup
-//! ([`VIEW_OPTIONS_ROWS`]). The filters, the age slider and the search field have no command until
-//! search arrives (`organizing.md` §8), so they stay disabled until then.
+//! ([`VIEW_OPTIONS_ROWS`]).
+//!
+//! **Search** (`organizing.md` §8, `ui-layout.md` §9) edits the view state's `search`, which
+//! [`crate::commands::search::sync`] sends to the engine: the filter toggles (Faces greyed with
+//! [`FACES_LATER`] until faces exist), the age slider (`ui-kit`'s, its position in the view state,
+//! its label in the caption while hovered), and the search field (live; × and Esc leave search
+//! mode; Ctrl+F and F3 focus it). Under the focused field the engine's suggestions for the last word
+//! (tags, folders, albums with counts, at most [`SUGGESTIONS`]) are listed, `field:search/option/<n>`:
+//! ↓ / ↑ move the highlight (`search.highlight`), Enter or a click picks one, which replaces the
+//! last word ([`pick`]: a tag becomes `tag:<tag>`, a folder or album its name).
 //!
 //! The activity indicator spins while the library is busy (scanning) and draws nothing at rest. Its
 //! phase comes from egui's input time, which the headless driver's virtual clock sets, so renders
@@ -20,13 +28,15 @@
 
 use std::time::Duration;
 
+use dalica_library::search::{Suggestion, SuggestionKind};
 use dalica_ui_kit::icons::{self, Icon};
 use dalica_ui_kit::registry::Role;
-use dalica_ui_kit::widgets::{self, Segment, SegmentLabel, Target};
+use dalica_ui_kit::widgets::{self, Ending, Segment, SegmentLabel, Target};
 use dalica_ui_kit::{Tokens, fonts};
+use egui::text::{LayoutJob, TextFormat, TextWrapping};
 use egui::{
-    Align, Align2, Context, CornerRadius, Id, Layout, Popup, Rect, Response, Sense, SetOpenCommand, Stroke, StrokeKind, Ui, UiBuilder, Vec2, pos2,
-    vec2,
+    Align, Align2, CornerRadius, Id, Key, Layout, Modifiers, Popup, PopupKind, Rect, RectAlign, Response, Sense, SetOpenCommand, Stroke, StrokeKind,
+    Ui, UiBuilder, Vec2, pos2, vec2,
 };
 use serde_json::{Value, json};
 
@@ -45,6 +55,16 @@ pub const AGE_ID: &str = "slider:age";
 pub const SEARCH_ID: &str = "field:search";
 pub const SEARCH_CLEAR_ID: &str = "button:search.clear";
 pub const ACTIVITY_ID: &str = "indicator:activity";
+
+/// Why the Faces filter is greyed (faces arrive in M13).
+pub const FACES_LATER: &str = "Available once Dalica finds faces";
+/// The most suggestions listed under the search field (type more to narrow them).
+pub const SUGGESTIONS: usize = 8;
+
+/// The automation id of the `n`th suggestion row: `field:search/option/<n>`.
+pub fn option_id(n: usize) -> String {
+    format!("{SEARCH_ID}/option/{n}")
+}
 
 /// Sizes of `ui-layout.md` §3 (points).
 pub const IMPORT: Vec2 = vec2(110.0, 28.0);
@@ -183,26 +203,44 @@ fn available(app: &App, id: &str) -> bool {
     UI_COMMANDS.iter().any(|c| c.id == id) || app.session().is_some_and(|s| s.spec(id).is_some())
 }
 
-/// What the toolbar keeps between frames that is not view state yet: the search text and the age
-/// slider's position (both become view state with search, `organizing.md` §8).
+/// What the search field keeps between frames that is not view state: whether it had the focus,
+/// the suggestions listed and where their rows were (a click on one is taken before the field
+/// sees it and gives up the focus), and the text a pick closed the list for.
 #[derive(Debug, Clone, Default)]
 struct Memory {
-    search: String,
-    age: f32,
+    focused: bool,
+    shown: Vec<Suggestion>,
+    rows: Vec<Rect>,
+    closed_for: Option<String>,
 }
 
 fn memory_id() -> Id {
-    Id::new("dalica-toolbar-memory")
+    Id::new("dalica-toolbar-search")
 }
 
-/// The search field's text.
-pub fn search_text(ctx: &Context) -> String {
-    ctx.data(|d| d.get_temp::<Memory>(memory_id())).unwrap_or_default().search
+/// `text` with its last word replaced by `s` (`organizing.md` §8.1): a tag becomes `tag:<tag>`
+/// ([`crate::commands::search::tag_word`]), a folder or an album its name; a `-` in front of the
+/// word stays.
+pub fn pick(text: &str, s: &Suggestion) -> String {
+    let start = text.char_indices().rev().find(|(_, c)| c.is_whitespace()).map_or(0, |(i, c)| i + c.len_utf8());
+    let (head, last) = text.split_at(start);
+    let not = if last.starts_with('-') { "-" } else { "" };
+    let word = match s.kind {
+        SuggestionKind::Tag => crate::commands::search::tag_word(&s.text),
+        SuggestionKind::Folder | SuggestionKind::Album => s.text.split_whitespace().collect::<Vec<_>>().join(" "),
+    };
+    format!("{head}{not}{word}")
 }
 
-/// Puts `text` in the search field (for scripts and tests while the field has no command).
-pub fn set_search_text(ctx: &Context, text: &str) {
-    ctx.data_mut(|d| d.get_temp_mut_or_default::<Memory>(memory_id()).search = text.to_owned());
+/// The suggestions to list for the field's `text`: the engine's for this text once its answer
+/// came, the last ones listed while it is on its way; at most [`SUGGESTIONS`].
+fn suggestions(app: &App, text: &str, last: &[Suggestion]) -> Vec<Suggestion> {
+    let Some(engine) = app.session().map(dalica_engine::Session::search_state) else { return Vec::new() };
+    match engine.result.as_ref().filter(|_| engine.mode == Some(dalica_engine::search::SearchMode::Search)) {
+        Some(r) if r.text == text => r.suggestions.iter().take(SUGGESTIONS).cloned().collect(),
+        _ if engine.pending() => last.to_vec(),
+        _ => Vec::new(),
+    }
 }
 
 const NOT_YET: &str = "Not available yet.";
@@ -231,7 +269,6 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     ui.painter().rect_filled(rule, 0, t.divider);
     // The tree as the layout narrows it (beside a side pane), so the filters follow the splitter.
     let l = compute(rect, layout::effective_tree_width(app.state(), rect.width()));
-    let mut memory = ui.ctx().data(|d| d.get_temp::<Memory>(memory_id())).unwrap_or_default();
 
     // Import and New Album.
     let r = place(ui, l.import, available(app, "import.open"), |ui| import_button(ui, &t));
@@ -257,42 +294,194 @@ pub fn show(app: &mut App, ui: &mut Ui) {
 
     view_options(app, ui, &t, l.view_options);
 
-    // The filters (no command until search), with the caption the hovered one's tooltip replaces.
+    // The filters, with the caption the hovered one's tooltip replaces. Faces waits for faces.
     let filters = [
         (Icon::Star, "Show starred photos only"),
         (Icon::Faces, "Show only photos with faces"),
         (Icon::Videos, "Show videos only"),
         (Icon::Geotagged, "Show only geotagged photos"),
     ];
-    let mut hovered: Option<&str> = None;
-    for ((id, (icon, tip)), rect) in FILTER_IDS.iter().zip(filters).zip(l.filters) {
-        let r = place(ui, rect, false, |ui| widgets::toggle_filter(ui, &t, id, icon, false, tip));
+    let mut hovered: Option<String> = None;
+    for (i, ((id, (icon, tip)), rect)) in FILTER_IDS.iter().zip(filters).zip(l.filters).enumerate() {
+        let f = &app.state().search.filters;
+        let on = [f.starred, f.faces, f.videos, f.geotagged].get(i).copied().unwrap_or(false);
+        let faces = i == 1;
+        let r = place(ui, rect, !faces, |ui| widgets::toggle_filter(ui, &t, id, icon, on, tip));
         if r.contains_pointer() {
-            hovered = Some(tip);
+            hovered = Some(tip.to_owned());
         }
-        disabled_tooltip(r, &t, tip);
+        if faces {
+            widgets::tooltip(r.clone(), &t, tip, Some(FACES_LATER));
+        }
+        if r.clicked() {
+            let f = &mut app.state_mut().search.filters;
+            match i {
+                0 => f.starred = !f.starred,
+                2 => f.videos = !f.videos,
+                3 => f.geotagged = !f.geotagged,
+                _ => {}
+            }
+        }
     }
+    // The age slider: its position is view state; its label shows in the caption while hovered.
     let age_tip = "Show only recent photos";
-    // The age slider is the thin slider at 100 wide (§3) rather than the size slider's 110.
-    let mut age_tokens = t;
-    age_tokens.metrics.zoom_slider = AGE;
-    let r = place(ui, l.age, false, |ui| widgets::zoom_slider(ui, &age_tokens, AGE_ID, &mut memory.age, 0.0..=1.0, age_tip));
-    if r.contains_pointer() {
-        hovered = Some(age_tip);
+    let mut days = widgets::age_days(app.state().search.age);
+    let r = place(ui, l.age, true, |ui| widgets::age_slider(ui, &t, AGE_ID, &mut days, AGE.x, age_tip));
+    if r.changed() {
+        app.state_mut().search.age = widgets::age_position(days);
     }
-    disabled_tooltip(r, &t, age_tip);
+    if r.contains_pointer() || r.dragged() {
+        hovered = Some(if days.is_some() { widgets::age_label(days) } else { age_tip.to_owned() });
+    }
     if let Some(caption) = l.caption {
-        let text = hovered.unwrap_or("Filters");
+        let text = hovered.as_deref().unwrap_or("Filters");
         ui.painter().with_clip_rect(rect).text(caption.center(), Align2::CENTER_CENTER, text, fonts::regular(t.small), t.text_dim);
     }
 
-    // The search field: live search comes with search; until then it is disabled.
-    let out =
-        place(ui, l.search, false, |ui| widgets::search_field(ui, &t, SEARCH_ID, SEARCH_CLEAR_ID, &mut memory.search, "Search", l.search.width()));
-    disabled_tooltip(out.response, &t, "Search");
-
+    search_field(app, ui, &t, l.search);
     activity(app, ui, &t, l.activity);
-    ui.ctx().data_mut(|d| d.insert_temp(memory_id(), memory));
+}
+
+/// The search field and the suggestions under it (see the module docs).
+fn search_field(app: &mut App, ui: &mut Ui, t: &Tokens, rect: Rect) {
+    let ctx = ui.ctx().clone();
+    let mut memory: Memory = ctx.data(|d| d.get_temp(memory_id())).unwrap_or_default();
+    if std::mem::take(&mut app.state_mut().focus_search) {
+        widgets::focus_field(&ctx, SEARCH_ID);
+    }
+    // The keys and clicks of the list shown last frame, taken before the field sees them.
+    let mut picked: Option<Suggestion> = None;
+    let rows = memory.rows.len().min(memory.shown.len());
+    if memory.focused && rows > 0 {
+        let (down, up, enter) = ui
+            .input_mut(|i| (i.consume_key(Modifiers::NONE, Key::ArrowDown), i.consume_key(Modifiers::NONE, Key::ArrowUp), i.key_pressed(Key::Enter)));
+        if down || up {
+            // egui would also move the focus to the next widget.
+            ctx.memory_mut(|m| m.move_focus(egui::FocusDirection::None));
+        }
+        let search = &mut app.state_mut().search;
+        let highlight = search.highlight.filter(|h| *h < rows);
+        search.highlight = if down {
+            Some(highlight.map_or(0, |h| h.saturating_add(1).min(rows - 1)))
+        } else if up {
+            highlight.and_then(|h| h.checked_sub(1))
+        } else {
+            highlight
+        };
+        if enter {
+            picked = search.highlight.and_then(|h| memory.shown.get(h).cloned());
+        }
+        let click = ui.input(|i| if i.pointer.primary_clicked() { i.pointer.interact_pos() } else { None });
+        if let Some(at) = click
+            && let Some(n) = memory.rows.iter().position(|r| r.contains(at))
+        {
+            picked = memory.shown.get(n).cloned();
+        }
+    }
+    let before = app.state().search.text.clone();
+    let mut text = match &picked {
+        Some(s) => pick(&before, s),
+        None => before.clone(),
+    };
+    let out = place(ui, rect, true, |ui| widgets::search_field(ui, t, SEARCH_ID, SEARCH_CLEAR_ID, &mut text, "Search", rect.width()));
+    if picked.is_some() {
+        memory.closed_for = Some(text.clone());
+    }
+    if out.cleared || out.ending == Some(Ending::Escape) {
+        crate::commands::search::clear(app);
+        memory.closed_for = None;
+    } else if text != before {
+        let search = &mut app.state_mut().search;
+        search.text = text;
+        search.highlight = None;
+    }
+    let text = app.state().search.text.clone();
+    if memory.closed_for.as_ref().is_some_and(|c| *c != text) {
+        memory.closed_for = None;
+    }
+    memory.focused = out.response.has_focus();
+    let list =
+        if memory.focused && out.ending.is_none() && memory.closed_for.is_none() { suggestions(app, &text, &memory.shown) } else { Vec::new() };
+    let highlight = app.state().search.highlight.filter(|h| *h < list.len());
+    if app.state().search.highlight != highlight {
+        app.state_mut().search.highlight = highlight;
+    }
+    let (rects, clicked) = if list.is_empty() { (Vec::new(), None) } else { suggestion_list(ui, t, out.rect, &list, highlight) };
+    memory.shown = list;
+    memory.rows = rects;
+    // A click on a row while the field kept the focus: pick it now.
+    if let Some(n) = clicked
+        && let Some(s) = memory.shown.get(n)
+    {
+        let picked = pick(&text, s);
+        memory.closed_for = Some(picked.clone());
+        let search = &mut app.state_mut().search;
+        search.text = picked;
+        search.highlight = None;
+        memory.shown.clear();
+        memory.rows.clear();
+    }
+    ctx.data_mut(|d| d.insert_temp(memory_id(), memory));
+}
+
+/// Draws the suggestions under (or above) the field at `field`: an icon for the kind, the text, and
+/// the count at the right; the highlighted row in `accent`. Returns the rows' rects and the row
+/// clicked, if any.
+fn suggestion_list(ui: &mut Ui, t: &Tokens, field: Rect, list: &[Suggestion], highlight: Option<usize>) -> (Vec<Rect>, Option<usize>) {
+    let ctx = ui.ctx().clone();
+    let row_h = t.metrics.interact_h;
+    let width = field.width().max(160.0);
+    let margin = ui.style().spacing.menu_margin;
+    let inner_w = (width - f32::from(margin.left) - f32::from(margin.right)).max(row_h);
+    let aligns = [RectAlign::TOP_START];
+    let mut rows = Vec::new();
+    let mut clicked = None;
+    Popup::new(Id::new(SEARCH_ID).with("suggestions"), ctx, field, ui.layer_id())
+        .kind(PopupKind::Popup)
+        .open(true)
+        .align(RectAlign::BOTTOM_START)
+        .align_alternatives(&aligns)
+        .gap(2.0)
+        .width(width)
+        .show(|ui| {
+            ui.set_width(inner_w);
+            ui.spacing_mut().item_spacing.y = 0.0;
+            for (n, s) in list.iter().enumerate() {
+                let lit = highlight == Some(n);
+                let (rect, r) = ui.allocate_exact_size(vec2(inner_w, row_h), Sense::click());
+                let p = ui.painter();
+                if lit {
+                    p.rect_filled(rect, CornerRadius::same(t.radius), t.accent);
+                } else if r.hovered() {
+                    p.rect_filled(rect, CornerRadius::same(t.radius), t.hover);
+                }
+                let (color, dim) = if lit { (t.on_accent, t.on_accent) } else { (t.text, t.text_dim) };
+                let icon = match s.kind {
+                    SuggestionKind::Tag => Icon::Tags,
+                    SuggestionKind::Folder => Icon::Folder,
+                    SuggestionKind::Album => Icon::Album,
+                };
+                let size = t.metrics.icon_menu;
+                icons::paint(p, Rect::from_center_size(pos2(rect.min.x + 8.0 + size / 2.0, rect.center().y), Vec2::splat(size)), icon, dim);
+                let count = p.layout_no_wrap(s.count.to_string(), fonts::regular(t.detail), dim);
+                let count_x = rect.max.x - 8.0 - count.size().x;
+                let text_x = rect.min.x + 16.0 + size;
+                let mut job = LayoutJob::single_section(s.text.clone(), TextFormat::simple(fonts::regular(t.body), color));
+                job.wrap =
+                    TextWrapping { max_width: (count_x - 8.0 - text_x).max(8.0), max_rows: 1, break_anywhere: true, overflow_character: Some('…') };
+                let galley = p.layout_job(job);
+                p.galley(pos2(text_x, rect.center().y - galley.size().y / 2.0).round(), galley, color);
+                p.galley(pos2(count_x, rect.center().y - count.size().y / 2.0).round(), count, dim);
+                let label = format!("{} ({})", s.text, s.count);
+                widgets::register(ui.ctx(), &option_id(n), Role::Suggestion, &label, Target::Widget(&r), lit);
+                r.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, lit, &label));
+                if r.clicked() {
+                    clicked = Some(n);
+                }
+                rows.push(rect);
+            }
+        });
+    (rows, clicked)
 }
 
 /// A one-segment button (New Album, ▾): a segment plate of `rect`'s size with an icon, `open`

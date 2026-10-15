@@ -4274,7 +4274,7 @@ mid-run.
     library lists (once for a move, twice for a copy) with its sidecar entry, and nothing is left in
     the journal; a session reopened after a planted crash repairs the folders and shows each photo
     with its data; the owner thread made no `fs` call.
-- ⬜ **M9.22 `ui`: search mode: the search field, filters, age slider and banner**
+- ✅ **M9.22 `ui`: search mode: the search field, filters, age slider and banner**
   - after: M9.4, M9.5, M9.11, M9.16
   - files: `crates/ui/src/panels/toolbar.rs`, `crates/ui/src/panels/search_banner.rs`, `crates/ui/src/commands/search.rs`, `crates/ui/src/panels/light_table.rs`, `crates/ui/src/panels/tags/list.rs`, `crates/ui/src/dialogs/album_properties.rs`, `crates/ui/tests/search_ui.rs`, `crates/ui/tests/toolbar.rs`, `crates/ui/tests/light_table.rs`, `crates/ui/tests/tags_pane.rs`, `crates/ui/tests/fingerprints/region-toolbar-search-*.json`, `crates/ui/tests/fingerprints/region-banner-*.json`, `crates/ui/tests/fingerprints/region-no-results-*.json`
   - scope: `organizing.md` §8 and `ui-layout.md` §3 and §9: the search field live (`search.set` on

@@ -90,6 +90,7 @@ pub const DIALOGS: &[(&str, &str)] = &[
     ("photo.delete", "deletePhotos"),
     ("folder.delete", "deleteFolder"),
     ("folder.move", FILE_PICKER),
+    ("search.saveAsAlbum", "albumProperties"),
 ];
 
 /// The dialog an item running `id` opens in a section of `kind`: [`DIALOGS`]'s, but Album
@@ -971,6 +972,7 @@ mod tests {
                 "folders.manager",
                 "photo.adjustDate",
                 "search.duplicates",
+                "search.saveAsAlbum",
                 "help.releaseNotes",
                 "app.about"
             ]
