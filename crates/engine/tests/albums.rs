@@ -521,9 +521,9 @@ fn a_folder_added_with_a_sidecar_brings_its_albums_memberships_and_sort() {
 
 /// A folder renamed outside Dalica keeps what is said about it and its photos (`data-model.md`
 /// §10.2): memberships, captions, the folder's sort, and a write at its new path keeps them on
-/// disk. Through the (polling) watcher, which sees the rename, the ids, the cover and the indexed
-/// times stay too (nothing shows as new); the verification pass sees a new folder and one gone, and
-/// brings everything back from the sidecar.
+/// disk. The (polling) watcher sees the rename; the verification pass, which sees a folder gone and
+/// a new one, pairs them by their photos (M9.24). Either way the ids, the cover and the indexed
+/// times stay too (nothing shows as new).
 #[test]
 fn a_folder_renamed_on_disk_keeps_its_memberships_and_everything_else() {
     for watcher in [false, true] {
@@ -562,12 +562,11 @@ fn a_folder_renamed_on_disk_keeps_its_memberships_and_everything_else() {
         assert_eq!(members(&s, &a), order.iter().map(|p| p.replace("Porto/", "Oporto/")).collect::<Vec<_>>(), "watcher: {watcher}");
         assert_eq!(s.library().info(id(&s, "Oporto/IMG_0101.jpg")).caption, "Ponte");
         assert_eq!(s.library().folder_sort(oporto), dalica_library::PhotoSort::new(dalica_library::SortBy::Name, true));
-        if watcher {
-            // The watcher sees the rename: ids, the cover and the indexed times stay.
-            assert_eq!((oporto, id(&s, "Oporto/IMG_0101.jpg")), (porto, first), "the folder and its photos keep their ids");
-            assert_eq!(s.library().cover_set(&a), Some(second));
-            assert!(s.library().recently_updated(s.clock().now(), 30).is_empty(), "nothing shows as new");
-        }
+        // Both pair the folder gone with the one found by its photos: ids, the cover and the
+        // indexed times stay.
+        assert_eq!((oporto, id(&s, "Oporto/IMG_0101.jpg")), (porto, first), "watcher {watcher}: the folder and its photos keep their ids");
+        assert_eq!(s.library().cover_set(&a), Some(second), "watcher: {watcher}");
+        assert!(s.library().recently_updated(s.clock().now(), 30).is_empty(), "watcher {watcher}: nothing shows as new");
         let second = id(&s, "Oporto/IMG_0102.jpg");
         s.execute("photo.star.set", &json!({ "ids": [second], "on": true })).unwrap();
         s.flush().unwrap();

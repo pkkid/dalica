@@ -5215,7 +5215,7 @@ No other step of M10 needs a maintainer decision mid-run.
   - done when: tests: a 255-byte name goes to the trash and comes back on Linux; undoing a copy of a
     saved photo leaves nothing behind; the two-unit move keeps ids, data and album places; CI green
     on the three OSes.
-- ⬜ **M10.33 `ui` + `engine` + docs: small follow-ups from M9**
+- ✅ **M10.33 `ui` + `engine` + docs: small follow-ups from M9**
   - after: M9.R
   - files: `tests/acceptance/m9_files.rs`, `crates/engine/tests/panic_hunt.rs`, `crates/ui/src/headless.rs`, `crates/ui/src/dialogs/new_folder.rs`, `crates/ui/tests/new_folder.rs`, `crates/engine/tests/albums.rs`, `crates/engine/README.md`, `docs/security.md`
   - scope: M9's live file-operations acceptance test fails now and then on Windows: right after

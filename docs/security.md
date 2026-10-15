@@ -515,7 +515,8 @@ embedded, never loaded by a referenced name. **Planned (M1, M14).**
   copied across volumes, with nothing moved; both folders are opened once and held without
   following a link, so a folder swapped for a link before the opening is refused and one swapped
   after it leaves the move in the folder that was opened. `trash::send` sends a link to the trash
-  as itself, never its target).** The commands that call them are planned (M9).
+  as itself, never its target).** The commands that call them are built (M9.13–M9.15: moving,
+  copying, renaming and deleting photos and folders, `crates/engine/src/cmd/{files,rename,delete,folder_ops}.rs`).
 - Where the platform allows, the write path holds a directory handle and works relative to it,
   so a component swapped for a link after validation cannot redirect the write. Canonicalization
   alone is insufficient because links can change after the check. **Built (M5.3: `dalica-fs`
@@ -543,7 +544,13 @@ embedded, never loaded by a referenced name. **Planned (M1, M14).**
   `trash::restore` brings items back to their old path on Linux and Windows, found by that path
   and, where the trashed object can be looked at, by its identity, and never replaces what is at
   the old path; macOS answers `Unsupported`, so undoing a delete there is disabled with its
-  reason).** The delete commands are planned (M9.15).
+  reason).** **The delete commands are built (M9.15: `photo.delete` and `folder.delete`,
+  `crates/engine/src/cmd/delete.rs`): file operations that ask first (without `"confirm": true`
+  they refuse with the question, unless "Delete from disk without asking" is on), send each photo,
+  or the folder with everything in it, to the trash through `trash::send` on the job's thread,
+  refuse a volume root and the home folder, and keep everything the library said about what they
+  trashed in the one undo step, which restores from the trash on Linux and Windows. Nothing over
+  automation or in the UI reaches a permanent delete.**
 - If the platform trash is unavailable for a volume (some network shares and removable media), the
   delete fails with an explanation that points to the file manager. It never falls back to a
   permanent delete. **Built in `fs` (M9.2: `trash::send` answers `Sent::NoTrash` with the item in
@@ -554,7 +561,9 @@ embedded, never loaded by a referenced name. **Planned (M1, M14).**
   mount table does not list on its own, such as a btrfs subvolume inside another mount, is trashed
   where the crate's mount table says. On Windows the shell is asked to warn instead of deleting
   permanently, cannot show the warning, and aborts; on macOS `NSFileManager` refuses).** The
-  explanation is the delete command's (M9.15).
+  explanation is the delete command's, built (M9.15: the item fails naming the file, says the
+  drive has no trash and that Dalica never deletes permanently, and points to the file manager; the
+  file stays).
 - "Remove from Dalica", "Rebuild library" and cache pruning never touch photos. Caches list and
   delete only files of their own naming shape. Stale sidecar entries are pruned, not files.
 - **Camera and card import** ("Delete copied files from the card"): cards usually have no trash,
@@ -572,7 +581,8 @@ embedded, never loaded by a referenced name. **Planned (M1, M14).**
   beside the target, bounded in depth and entries, then given its name. On one volume a move is one
   rename that never replaces, after the source's identity is checked right before it; a taken name
   is `Exists` for the caller to rename or skip, also when the file appeared between the check and
-  the rename).** The move commands are planned (M9.13, M9.15).
+  the rename).** The move commands are built (M9.13: `photo.moveTo`, `photo.moveToNewFolder`;
+  M9.15: `folder.move`).
 
 ### 5.8 Temporary files
 
