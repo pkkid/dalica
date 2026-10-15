@@ -11,6 +11,8 @@ mod fields;
 mod form_widgets;
 mod gallery;
 mod icons;
+mod icons_options;
 mod input;
 mod m9_widgets;
+mod options_widgets;
 mod widgets;
