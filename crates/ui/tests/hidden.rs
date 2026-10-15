@@ -200,7 +200,7 @@ fn a_hidden_folder_moves_to_hidden_folders_and_its_section_shows_only_with_hidde
         let w = size.0;
         let dir = tempfile::tempdir().unwrap();
         let mut d = driver(library(dir.path(), 3, 6), size);
-        let folders: Vec<FolderId> = d.app().panels().unwrap().sections.list.iter().map(|s| s.folder).collect();
+        let folders: Vec<FolderId> = d.app().panels().unwrap().sections.list.iter().filter_map(|s| s.folder).collect();
         assert_eq!(folders.len(), 3, "{w}");
         let target = folders[1];
         let row = format!("tree:folder:{target}");

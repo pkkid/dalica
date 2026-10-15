@@ -1,6 +1,6 @@
-//! The light table (`ui-layout.md` §5): every visible folder as a section, in the library tree's
-//! order — a header block, then a justified grid of square cells, each photo letterboxed — in one
-//! continuous view with our own scrolling.
+//! The light table (`ui-layout.md` §5): every visible album and folder as a section, in the library
+//! tree's order (the Albums group's sections first) — a header block, then a justified grid of
+//! square cells, each photo letterboxed — in one continuous view with our own scrolling.
 //!
 //! This module is the **parent**: it owns the sections ([`Sections`], rebuilt only when the
 //! library or the tree options change), the scroll state ([`LightTable`]: the view's offset, the
@@ -45,7 +45,7 @@ use std::path::PathBuf;
 
 use dalica_core::{FolderId, PhotoId};
 use dalica_engine::Session;
-use dalica_library::{Library, Photo, SectionId, Tree, TreeOptions};
+use dalica_library::{AlbumRef, AlbumTree, Library, Photo, SectionId, Tree, TreeOptions, section_photos};
 use dalica_ui_kit::{Tokens, fonts, widgets};
 use egui::{Align, Rect, Ui, UiBuilder, pos2, vec2};
 
@@ -63,18 +63,50 @@ pub const EMPTY_ID: &str = "empty:lightTable";
 pub const ADD_FOLDER_ID: &str = "button:empty.addFolder";
 pub const IMPORT_ID: &str = "button:empty.import";
 
-/// One section of the light table: a folder's photos as the light table shows them.
+/// One section of the light table: a folder's or an album's photos as the light table shows them.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Section {
-    /// Its id (`folder:12`).
+    /// Its id (`folder:12`, `album:a91c0e`, `album:starred`).
     pub id: state::Section,
-    pub folder: FolderId,
+    /// The folder of a folder section; `None` for an album.
+    pub folder: Option<FolderId>,
     pub title: String,
     /// The date and count line under the title.
     pub subtitle: String,
-    /// The photos shown, in display order (capture date, then name); small pictures only with
-    /// View ▸ Small Pictures, hidden ones only with View ▸ Hidden Pictures.
+    /// The photos shown, in display order (a folder's by capture date, then name; an album's in
+    /// its own order, `dalica_library::section_photos`); small pictures only with View ▸ Small
+    /// Pictures, hidden ones only with View ▸ Hidden Pictures, only the matches in search mode.
     pub photos: Vec<PhotoId>,
+}
+
+/// Whether the Albums group shows Recently Updated (its tree row and its light-table section).
+/// Off for now (lead decision, M9.17), until the maintainer answers the M9 review's question of how
+/// Recently Updated counts: it lists every photo indexed in the last 30 days, so a first import
+/// fills it with the whole library; and the photos' first-indexed times live only in the index
+/// snapshot (not in the sidecars), so a rebuild from the sidecars empties it (M6's acceptance
+/// check of a rebuilt window caught that). Off, the tree options carry no clock
+/// ([`tree_options`]), so the library's Albums group leaves Recently Updated out. Turn this on
+/// once the review answers.
+pub const SHOW_RECENTLY_UPDATED: bool = false;
+
+/// The view state's album section for an entry of the library's Albums group.
+pub fn album_section(album: &AlbumRef) -> state::AlbumSection {
+    match album {
+        AlbumRef::Search => state::AlbumSection::Search,
+        AlbumRef::Starred => state::AlbumSection::Starred,
+        AlbumRef::Recent => state::AlbumSection::Recent,
+        AlbumRef::User(id) => state::AlbumSection::User(state::AlbumKey::of(id)),
+    }
+}
+
+/// The library's name of a view-state album section.
+pub fn album_ref(album: state::AlbumSection) -> Option<AlbumRef> {
+    match album {
+        state::AlbumSection::Search => Some(AlbumRef::Search),
+        state::AlbumSection::Starred => Some(AlbumRef::Starred),
+        state::AlbumSection::Recent => Some(AlbumRef::Recent),
+        state::AlbumSection::User(k) => k.id().map(AlbumRef::User),
+    }
 }
 
 /// What the sections were built from.
@@ -131,11 +163,31 @@ impl Sections {
 }
 
 /// The tree options `app` shows: what the view state asks for (`organizing.md` §10; folded
-/// tree-mode folders keep their sections, so they are left out) and the projects directory, whose
-/// folders the flat tree lists in Projects ([`projects_dir`]).
+/// tree-mode folders keep their sections, so they are left out), the projects directory, whose
+/// folders the flat tree lists in Projects ([`projects_dir`]), and from the session what the
+/// Albums group needs: the clock for Recently Updated (to the hour, [`RECENT_STEP_MS`], so the tree
+/// is not rebuilt every frame) with its number of days, while [`SHOW_RECENTLY_UPDATED`] is on, and
+/// in search mode the matches and the search text (the search album, and only the sections with a
+/// match).
 pub fn tree_options(app: &App) -> TreeOptions {
-    TreeOptions { projects_dir: app.session().and_then(projects_dir), ..view_tree_options(app.state()) }
+    let mut options = TreeOptions { projects_dir: app.session().and_then(projects_dir), ..view_tree_options(app.state()) };
+    if let Some(session) = app.session() {
+        if SHOW_RECENTLY_UPDATED {
+            let ms = session.clock().now().as_millis();
+            options.now = Some(dalica_core::Timestamp::from_millis(ms.div_euclid(RECENT_STEP_MS).saturating_mul(RECENT_STEP_MS)));
+            options.recent_days = session.settings().organize().recent_days;
+        }
+        options.filter = session.search_filter();
+        let search = session.search_state();
+        if options.filter.is_some() && search.mode == Some(dalica_engine::search::SearchMode::Search) {
+            options.search = Some(search.text.trim().to_string());
+        }
+    }
+    options
 }
+
+/// The step Recently Updated's clock moves by in the tree (an hour, in milliseconds).
+pub const RECENT_STEP_MS: i64 = 3_600_000;
 
 /// The projects directory the tree lists in Projects (`Pictures/Dalica` by default; the export
 /// location's parent, `creating.md` §2), unless it is itself a watched folder: an export location
@@ -182,15 +234,34 @@ fn is_small(p: &Photo, threshold: u32) -> bool {
 
 fn build(library: &Library, roots: &[PathBuf], options: &TreeOptions) -> Vec<Section> {
     let tree = Tree::build(library, roots, options);
+    let albums = AlbumTree::build(library, options);
+    let mut out = Vec::with_capacity(albums.sections.len() + tree.sections.len());
+    // The Albums group's sections first, each in its own order.
+    let names: HashMap<&AlbumRef, (&str, Option<dalica_core::DateTime>)> =
+        albums.rows.iter().map(|r| (&r.album, (r.name.as_str(), r.date))).collect();
+    for (section, photos) in section_photos(library, &albums.sections, options) {
+        let dalica_library::Section::Album(album) = &section else { continue };
+        if photos.is_empty() {
+            continue;
+        }
+        let (title, date) = names.get(album).copied().unwrap_or(("", None));
+        out.push(Section {
+            id: state::Section::Album(album_section(album)),
+            folder: None,
+            title: title.to_string(),
+            subtitle: subtitle(date.map(|d| d.date()), photos.len()),
+            photos,
+        });
+    }
     let mut by_folder: HashMap<FolderId, Vec<&Photo>> = HashMap::new();
     for p in library.photos() {
         let small = !options.small_pictures && is_small(p, options.small_threshold);
         let hidden = !options.hidden_pictures && library.is_hidden(p.id);
-        if !small && !hidden {
+        let matched = options.filter.as_ref().is_none_or(|f| f.contains(p.id));
+        if !small && !hidden && matched {
             by_folder.entry(p.folder).or_default().push(p);
         }
     }
-    let mut out = Vec::with_capacity(tree.sections.len());
     for section in &tree.sections {
         let SectionId::Folder(folder) = *section;
         let Some(f) = library.folder(folder) else { continue };
@@ -201,20 +272,24 @@ fn build(library: &Library, roots: &[PathBuf], options: &TreeOptions) -> Vec<Sec
         // By effective date (the user's, else the file's), each looked up once.
         let mut photos: Vec<(Option<dalica_core::DateTime>, &Photo)> = photos.into_iter().map(|p| (library.sort_date(p), p)).collect();
         photos.sort_by(|(da, a), (db, b)| da.cmp(db).then_with(|| a.name.cmp(&b.name)).then_with(|| a.id.cmp(&b.id)));
-        let count = if photos.len() == 1 { "1 photo".to_string() } else { format!("{} photos", photos.len()) };
-        let subtitle = match photos.iter().find_map(|(d, _)| *d) {
-            Some(d) => format!("{} · {count}", long_date(d.date())),
-            None => count,
-        };
         out.push(Section {
             id: state::Section::Folder(folder),
-            folder,
+            folder: Some(folder),
             title: folder_name(&f.path),
-            subtitle,
+            subtitle: subtitle(photos.iter().find_map(|(d, _)| *d).map(|d| d.date()), photos.len()),
             photos: photos.iter().map(|(_, p)| p.id).collect(),
         });
     }
     out
+}
+
+/// The line under a section's title: `June 4, 2026 · 48 photos`, or the count alone.
+fn subtitle(date: Option<dalica_core::Date>, count: usize) -> String {
+    let count = if count == 1 { "1 photo".to_string() } else { format!("{count} photos") };
+    match date {
+        Some(d) => format!("{} · {count}", long_date(d)),
+        None => count,
+    }
 }
 
 /// `June 4, 2026`.

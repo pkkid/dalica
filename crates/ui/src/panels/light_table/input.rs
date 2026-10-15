@@ -144,9 +144,12 @@ pub struct Pending {
 }
 
 impl Pending {
-    fn select(&mut self, ids: &[PhotoId], mode: &str) {
+    /// Selects `ids` in `section`: a click on a photo's copy in an album section selects it in the
+    /// album (`select.set {section}`), on its folder's copy in the folder.
+    fn select(&mut self, ids: &[PhotoId], mode: &str, section: state::Section) {
         let ids: Vec<u64> = ids.iter().map(|id| id.get()).collect();
-        self.actions.push(Action { command: "select.set".into(), params: json!({ "ids": ids, "mode": mode }) });
+        let params = if section.is_album() { json!({ "ids": ids, "mode": mode, "section": section }) } else { json!({ "ids": ids, "mode": mode }) };
+        self.actions.push(Action { command: "select.set".into(), params });
     }
 }
 
@@ -174,9 +177,11 @@ pub fn finish(ui: &mut Ui, f: &Frame<'_>, input: &mut Input, background: Option<
         } else {
             "replace"
         };
-        pending.select(&[c.photo], mode);
-    } else if let Some(c) = cells.iter().find(|c| c.response.secondary_clicked() && !sel.contains(c.photo)) {
-        pending.select(&[c.photo], "replace");
+        pending.select(&[c.photo], mode, c.section);
+    } else if let Some(c) =
+        cells.iter().find(|c| c.response.secondary_clicked() && !(sel.contains(c.photo) && super::cell::is_primary(c.section, sel)))
+    {
+        pending.select(&[c.photo], "replace", c.section);
     }
     // The photo menu: asked for by this right-click, or open from an earlier one.
     pending.menu = cells.iter().find(|c| c.response.secondary_clicked() || c.response.context_menu_opened()).map(|c| c.response.clone());
@@ -205,7 +210,7 @@ fn thumb_drag(ui: &Ui, f: &Frame<'_>, input: &mut Input, bg: &Response, cells: &
             let sel = &f.state.selection;
             let ids = if sel.contains(c.photo) { sel.ids.clone() } else { vec![c.photo] };
             input.dragging = true;
-            return Some(DragEvent::Start { from: format!("thumb:{}", c.photo), ids });
+            return Some(DragEvent::Start { from: super::cell::thumb_id(c.section, c.photo), ids });
         }
     }
     if input.dragging && (!bg.dragged() || bg.drag_stopped()) {
@@ -244,7 +249,7 @@ fn band(ui: &Ui, f: &Frame<'_>, input: &mut Input, bg: &Response, cells: &[CellO
         let mut seen: HashSet<PhotoId> = b.base.iter().copied().collect();
         let mut ids = b.base.clone();
         ids.extend(hits.iter().filter_map(|&k| section.photos.get(k).copied()).filter(|id| seen.insert(*id)));
-        pending.select(&ids, "replace");
+        pending.select(&ids, "replace", b.section);
         b.hits = Some(hits);
     }
     let start = pos2(f.area.min.x + b.start.0, f.screen_y(b.start.1));

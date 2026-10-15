@@ -11,9 +11,9 @@
 //! - `photo.showInFolder {id?}` (the photo menu in an album): selects the photo in its folder and
 //!   scrolls there.
 //!
-//! What the UI knows of an album (its name for the questions and the draft) is
-//! [`album_name`]; until the library lists albums (M9.1, M9.17) it knows none, and the drafts
-//! start blank.
+//! What the UI knows of an album (its name for the questions) is [`album_name`], the library's;
+//! Album Properties' draft starts from what the library holds
+//! ([`album_properties::draft_of`]), a new album's from its photos ([`album_properties::new_draft`]).
 
 use dalica_core::{AlbumId, PhotoId};
 use dalica_engine::{CmdError, Context};
@@ -46,10 +46,9 @@ pub const COMMANDS: &[UiCommand] = &[
 
 pub const CHECKS: &[(&str, Check)] = &[("photo.showInFolder", can_show_in_folder)];
 
-/// The name of album `id` as the library knows it; `None` until albums are in the model.
+/// The name of album `id` as the library knows it; `None` for an album it does not have.
 pub fn album_name(app: &App, id: &AlbumId) -> Option<String> {
-    let _ = (app, id);
-    None
+    app.session()?.library().album(id).map(|a| a.name.clone())
 }
 
 #[derive(Deserialize)]
@@ -77,7 +76,8 @@ fn new_album(app: &mut App, params: &Value) -> Result<Value, CmdError> {
         Some(ids) => known_photos(app, ids)?,
         None => crate::tray::photos(app.state()),
     };
-    album_properties::open(app, AlbumDraft { ids, ..AlbumDraft::default() })
+    let draft = album_properties::new_draft(app.session().map(dalica_engine::Session::library), ids);
+    album_properties::open(app, draft)
 }
 
 /// The user album the current section is, if it is one.
@@ -96,8 +96,14 @@ pub fn route(app: &mut App, id: &str, params: &Value) -> Option<Result<Value, Cm
         return None;
     }
     let Some(album) = current_album(app) else { return Some(Err(CmdError::Disabled(NOT_A_USER_ALBUM.into()))) };
-    let name = album_name(app, &album).unwrap_or_default();
-    Some(album_properties::open(app, AlbumDraft { album: Some(album), name, use_newest: true, ..AlbumDraft::default() }))
+    let draft = match app.session().map(dalica_engine::Session::library) {
+        Some(library) => match album_properties::draft_of(library, &album) {
+            Some(d) => d,
+            None => return Some(Err(CmdError::NotFound(format!("no album {album}")))),
+        },
+        None => AlbumDraft { album: Some(album), ..AlbumDraft::default() },
+    };
+    Some(album_properties::open(app, draft))
 }
 
 /// Why an automatic album has no properties.

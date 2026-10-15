@@ -12,7 +12,7 @@ use dalica_engine::Session;
 use dalica_library::Photo;
 use dalica_ui::panels::light_table::cell::{self, Cells, HIDDEN_OPACITY, Look, Shown, TOOLTIP_SECONDS};
 use dalica_ui::panels::thumbnails::Drawn;
-use dalica_ui::state::{Caption, THUMB_MIN};
+use dalica_ui::state::{AlbumSection, Caption, Section, THUMB_MIN};
 use dalica_ui::{App, Driver};
 use dalica_ui_kit::Tokens;
 use dalica_ui_kit::widgets::{Badge, Badges};
@@ -220,6 +220,16 @@ fn badges_follow_the_model_star_and_held() {
     d.key("Ctrl+8").unwrap();
     d.app_mut().state_mut().tray.held = vec![ids[1], ids[2]];
     d.settle(FRAMES).unwrap();
+    // The starred photos are also shown in Starred Photos, above the folder (`thumb:<id>/in/starred`).
+    let starred = d.app().panels().unwrap().sections.get(Section::Album(AlbumSection::Starred)).unwrap().photos.clone();
+    assert_eq!(starred, [ids[0], ids[2]]);
+    for id in &starred {
+        assert!(d.widgets().iter().any(|w| w.id == format!("thumb:{}/in/starred/star", id.get())), "{id}: starred in Starred Photos too");
+    }
+    // The folder's cells, its section at the top.
+    let folder = Section::Folder(d.app().session().unwrap().library().photo(ids[0]).unwrap().folder);
+    d.run("section.scrollTo", &json!({ "section": folder })).unwrap();
+    d.settle(FRAMES).unwrap();
     save(&d, "cells-badges-900x600");
     let badges = |id: PhotoId| cells(&d).get(id).unwrap().badges;
     assert_eq!(badges(ids[0]), Badges { starred: true, ..Badges::default() });
@@ -228,7 +238,7 @@ fn badges_follow_the_model_star_and_held() {
     assert_eq!(badges(ids[3]), Badges::default());
     // The star badge is the part agents find: inside its cell, at its bottom-right.
     let widgets = d.widgets();
-    let stars: Vec<&str> = widgets.iter().map(|w| w.id.as_str()).filter(|id| id.ends_with("/star")).collect();
+    let stars: Vec<&str> = widgets.iter().map(|w| w.id.as_str()).filter(|id| id.ends_with("/star") && !id.contains("/in/")).collect();
     assert_eq!(stars.len(), 2, "{stars:?}");
     for id in [ids[0], ids[2]] {
         let star = widgets.iter().find(|w| w.id == format!("thumb:{}/star", id.get())).unwrap();

@@ -13,7 +13,10 @@
 //! with the frame, this part's state ([`Cells`]), the [`Thumbnails`] and a [`CellIn`]: the photo,
 //! its section, the square on screen and (captions on) the caption line under it. The parent has
 //! already left out what is not shown (small pictures unless View ▸ Small Pictures). The cell senses
-//! clicks, registers `thumb:<PhotoId>` and its star badge `thumb:<PhotoId>/star`, asks
+//! clicks, registers `thumb:<PhotoId>` and its star badge `thumb:<PhotoId>/star` ([`thumb_id`]:
+//! in an album section `thumb:<PhotoId>/in/<album>`, as a photo of an album is also shown in its
+//! folder's section; the selection outline and the caption editor show on the copy in the
+//! selection's section, [`is_primary`]), asks
 //! [`Thumbnails::paint`] for the image and returns a [`CellOut`] (its response) for
 //! [`super::input`] to act on. Once the cells are drawn, the parent calls [`apply`], which applies
 //! what the caption editor did. What the last pass drew is kept for tests and inspection
@@ -343,6 +346,29 @@ pub struct Look {
     pub badges: Badges,
 }
 
+/// The widget id of photo `id`'s cell in `section` (`control-protocol.md` §7): `thumb:<PhotoId>`
+/// in a folder's section, `thumb:<PhotoId>/in/<album>` (`a91c0e`, `starred`, `recent`, `search`) in
+/// an album's, so the copies of a photo shown in two sections stay apart.
+pub fn thumb_id(section: state::Section, id: PhotoId) -> String {
+    match section {
+        state::Section::Folder(_) => format!("thumb:{}", id.get()),
+        state::Section::Album(_) => {
+            let album = section.to_string();
+            format!("thumb:{}/in/{}", id.get(), album.trim_start_matches("album:"))
+        }
+    }
+}
+
+/// Whether the copy of a photo in `section` is the one the selection outline and the caption
+/// editor show on: the copy in the selection's album section while the selection is in an album,
+/// else the folder's copy.
+pub fn is_primary(section: state::Section, selection: &state::Selection) -> bool {
+    match selection.section {
+        Some(s) if s.is_album() => s == section,
+        _ => !section.is_album(),
+    }
+}
+
 /// Paints one cell (see the module's boundary).
 pub fn show(ui: &mut Ui, f: &Frame<'_>, cells: &mut Cells, thumbs: &mut Thumbnails, c: &CellIn<'_>) -> CellOut {
     let t = f.t;
@@ -356,18 +382,19 @@ pub fn show(ui: &mut Ui, f: &Frame<'_>, cells: &mut Cells, thumbs: &mut Thumbnai
     let image = letterbox(c.rect, width, height);
     let Some(alpha) = opacity(is_hidden(f.session.library(), c.photo), f.state.hidden_pictures) else {
         // Not shown: the parent leaves hidden photos out; this is the cell's own guard.
-        let response = ui.interact(c.rect, Id::new(("thumb", id.get())), Sense::hover());
+        let response = ui.interact(c.rect, Id::new(("thumb", id.get(), c.section)), Sense::hover());
         return CellOut { photo: id, section: c.section, rect: c.rect, image, response, drawn: Drawn::Placeholder };
     };
-    let response = ui.interact(c.rect, Id::new(("thumb", id.get())), Sense::click());
-    let selected = cells.selected.contains(&selection.ids, id);
+    let response = ui.interact(c.rect, Id::new(("thumb", id.get(), c.section)), Sense::click());
+    let primary = is_primary(c.section, selection);
+    let selected = cells.selected.contains(&selection.ids, id) && primary;
     let mut painter = ui.painter().clone();
     painter.multiply_opacity(alpha);
     let look = Look {
         cell: c.rect,
         image,
         selected,
-        anchor: selection.anchor == Some(id),
+        anchor: selection.anchor == Some(id) && primary,
         hovered: response.hovered(),
         badges: badges_of(c.photo, thumbs.edited(PhotoRef { session: f.session, photo: c.photo }), cells.held.contains(held, id)),
     };
@@ -375,7 +402,7 @@ pub fn show(ui: &mut Ui, f: &Frame<'_>, cells: &mut Cells, thumbs: &mut Thumbnai
     let device_px = image.width().max(image.height()) * f.pixels_per_point;
     let drawn = thumbs.paint(&painter, PhotoRef { session: f.session, photo: c.photo }, image, device_px);
     let marks = paint_over(&painter, t, &look, drawn == Drawn::Failed);
-    let editing = f.state.caption_edit.as_ref().filter(|e| e.photo == id);
+    let editing = f.state.caption_edit.as_ref().filter(|e| e.photo == id && primary);
     let caption = match (c.caption, caption_of(c.photo, f.session.library(), f.state.caption, (width, height))) {
         // The editor takes the caption line's place.
         (Some(_), Some(_)) if editing.is_some() => None,
@@ -389,9 +416,9 @@ pub fn show(ui: &mut Ui, f: &Frame<'_>, cells: &mut Cells, thumbs: &mut Thumbnai
     };
     if let Some(star) = marks.get(Badge::Starred) {
         let target = Target::Painted { rect: star, clip: painter.clip_rect() };
-        widgets::register(ui.ctx(), &format!("thumb:{}/star", id.get()), Role::Badge, Badge::Starred.label(), target, true);
+        widgets::register(ui.ctx(), &format!("{}/star", thumb_id(c.section, id)), Role::Badge, Badge::Starred.label(), target, true);
     }
-    widgets::register(ui.ctx(), &format!("thumb:{}", id.get()), Role::Thumbnail, &c.photo.name, Target::Widget(&response), selected);
+    widgets::register(ui.ctx(), &thumb_id(c.section, id), Role::Thumbnail, &c.photo.name, Target::Widget(&response), selected);
     let tooltip = cells.rested(ui, id, &response, pass, f.now).then(|| {
         let date = f.session.library().sort_date(c.photo);
         let tip = tooltip_shown(c.photo, date, (width, height), if drawn == Drawn::Failed { thumbs.failure(id) } else { None });

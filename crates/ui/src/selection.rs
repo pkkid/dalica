@@ -10,13 +10,17 @@
 //! - Arrows, Home and End stop at the section's ends; up and down move by one row of the grid.
 //! - The **current section** ([`Table::current`]) is the one the selection is in, else the folder
 //!   selected in the tree, else the one at the top of the view, else the first.
+//! - **Albums:** a photo of an album is shown twice, in the album's section and in its folder's.
+//!   [`Table::section_of`] answers the selection's album section when it shows the photo, else the
+//!   folder's; [`Table::album_unit`] says which album section is selected as a unit (a tree row, a
+//!   header), with its name and photos.
 //! - **Hidden photos** are not in the sections unless View ▸ Hidden Pictures is on, so no gesture
 //!   selects them; photos hidden while selected leave the selection ([`without_hidden`]), so nothing
 //!   acts on photos the user cannot see.
 
 use std::collections::HashSet;
 
-use dalica_core::{FolderId, PhotoId};
+use dalica_core::{AlbumId, FolderId, PhotoId};
 use dalica_library::Library;
 
 use crate::app::App;
@@ -28,7 +32,8 @@ use crate::state::{ScrollAnchor, Section, Selection, UiState};
 #[derive(Debug, Clone, Copy)]
 pub struct Scope<'a> {
     pub section: Section,
-    pub folder: FolderId,
+    /// The folder of a folder section; `None` for an album.
+    pub folder: Option<FolderId>,
     pub photos: &'a [PhotoId],
     /// Columns of the grid, at least 1.
     pub cols: usize,
@@ -215,6 +220,8 @@ enum Source<'a> {
 /// view, and the library.
 pub struct Table<'a> {
     sections: Source<'a>,
+    /// The section the selection is in when the table was taken ([`Table::section_of`]).
+    selected: Option<Section>,
     layout: Option<&'a Layout>,
     /// The view's offset and height, when a frame has been drawn.
     view: Option<(f64, f32)>,
@@ -226,15 +233,16 @@ impl<'a> Table<'a> {
     pub fn of(app: &'a App) -> Option<Table<'a>> {
         let session = app.session()?;
         let library = session.library();
+        let selected = app.state().selection.section;
         let Some(p) = app.panels() else {
             let mut fresh = Sections::default();
             fresh.refresh(library, session.roots(), &tree_options(app));
-            return Some(Table { sections: Source::Fresh(Box::new(fresh)), layout: None, view: None, library });
+            return Some(Table { sections: Source::Fresh(Box::new(fresh)), selected, layout: None, view: None, library });
         };
         let lt = &p.light_table;
         let layout = lt.layout().filter(|l| l.key().sections == p.sections.generation());
         let view = lt.frame_info().area.map(|a| (lt.offset(), a.height()));
-        Some(Table { sections: Source::Panels(&p.sections), layout, view, library })
+        Some(Table { sections: Source::Panels(&p.sections), selected, layout, view, library })
     }
 
     fn sections(&self) -> &Sections {
@@ -251,11 +259,26 @@ impl<'a> Table<'a> {
         Some(Scope { section: s.id, folder: s.folder, photos: &s.photos, cols })
     }
 
-    /// The section photo `id` is shown in.
+    /// The section photo `id` is shown in: the selection's album section when it shows the photo
+    /// (a photo of an album is in the album's section and in its folder's), else its folder's.
     pub fn section_of(&self, id: PhotoId) -> Option<Section> {
+        if let Some(album) = self.selected.filter(|s| s.is_album())
+            && self.sections().get(album).is_some_and(|sec| sec.photos.contains(&id))
+        {
+            return Some(album);
+        }
         let folder = self.library.photo(id)?.folder;
         let s = Section::Folder(folder);
         self.sections().get(s).is_some_and(|sec| sec.photos.contains(&id)).then_some(s)
+    }
+
+    /// The album section `sel` selects as a unit (a click on its tree row or header: `whole`), with
+    /// what the light table shows of it; `None` for any other selection, or an album not shown.
+    /// The tray's album token reads it ("Album selected — 40 photos").
+    pub fn album_unit(&self, sel: &Selection) -> Option<AlbumUnit<'_>> {
+        let section = sel.section.filter(|s| sel.whole && s.is_album())?;
+        let s = self.sections().get(section)?;
+        Some(AlbumUnit { section, album: section.user_album(), title: &s.title, photos: &s.photos })
     }
 
     /// The current section: the selection's, else the tree's folder's, else the one at the top of
@@ -289,6 +312,18 @@ impl<'a> Table<'a> {
         };
         Some(layout.anchor_at(layout.clamp(to, view_h as f32)))
     }
+}
+
+/// An album section selected as a unit ([`Table::album_unit`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct AlbumUnit<'a> {
+    pub section: Section,
+    /// The user album; `None` for Starred Photos, Recently Updated and the search results.
+    pub album: Option<AlbumId>,
+    /// Its name as the tree and the header show it.
+    pub title: &'a str,
+    /// The photos it shows, in its order.
+    pub photos: &'a [PhotoId],
 }
 
 /// Whether photo `id` is out of sight while View ▸ Hidden Pictures is off: hidden itself, or in a
@@ -329,7 +364,7 @@ mod tests {
     }
 
     fn scope(photos: &[PhotoId], cols: usize) -> Scope<'_> {
-        Scope { section: Section::Folder(FolderId::new(1)), folder: FolderId::new(1), photos, cols }
+        Scope { section: Section::Folder(FolderId::new(1)), folder: Some(FolderId::new(1)), photos, cols }
     }
 
     #[test]

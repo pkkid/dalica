@@ -36,6 +36,16 @@
 //! `folder.info.set` (one undo step), Esc closes it and changes nothing. A double-click on the
 //! title opens Folder Properties (`section.properties`).
 //!
+//! **Album sections** (`organizing.md` §4) have the same block: the album's icon (the book of a
+//! user album, the Starred, Recent and Search books of the automatic ones), its name, the album's
+//! date (the one set in Album Properties, else its newest photo's) and place, the same buttons
+//! acting on the album's photos, and a user album's description, edited inline the same way but
+//! committed through `album.info.set`. The automatic albums have no description row. A
+//! double-click on a user album's title opens its Album Properties, and a right-click selects the
+//! album section (`select.section`), so the section menu is the Album variant; the icon only shows
+//! the album's name (there is no file to locate). The header of the selected album has the accent
+//! bar; a folder's header has it while its folder is the selected one and no album is.
+//!
 //! **Buttons** are live only when their command is registered (a UI command or one the session
 //! has) and its `enabled` accepts the parameters a click passes; Select Starred also needs a starred
 //! photo in the section, Save an unsaved edit. A disabled button says why in its tooltip.
@@ -50,11 +60,11 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use dalica_core::{Date, FolderId, PhotoId};
+use dalica_core::{AlbumId, Date, FolderId, PhotoId};
 use dalica_engine::Session;
 use dalica_ui_kit::Tokens;
 use dalica_ui_kit::fonts;
-use dalica_ui_kit::icons::{self, Icon, OutputIcon};
+use dalica_ui_kit::icons::{self, AlbumIcon, Icon, OutputIcon};
 use dalica_ui_kit::registry::Role;
 use dalica_ui_kit::widgets::{self, Target, TextField};
 use egui::text::{LayoutJob, TextWrapping};
@@ -216,11 +226,49 @@ pub fn date_line(date: Option<Date>, place: Option<&str>) -> String {
     }
 }
 
+/// What a section's description (and its Properties) belongs to: a folder or a user album.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Owner {
+    Folder(FolderId),
+    Album(AlbumId),
+}
+
+impl Owner {
+    /// The owner of `section`'s description; `None` for the automatic albums, which have none.
+    pub fn of(section: state::Section) -> Option<Owner> {
+        match section {
+            state::Section::Folder(f) => Some(Owner::Folder(f)),
+            state::Section::Album(_) => section.user_album().map(Owner::Album),
+        }
+    }
+
+    /// The command and parameters that set its description to `text`: `folder.info.set` or
+    /// `album.info.set` (one undo step).
+    pub fn set_description(&self, text: &str) -> (&'static str, Value) {
+        match self {
+            Owner::Folder(f) => ("folder.info.set", json!({ "id": f, "description": text })),
+            Owner::Album(a) => ("album.info.set", json!({ "album": a, "description": text })),
+        }
+    }
+}
+
+/// The 32 pt (20 pt pinned) icon of a section: the folder, a user album's book, or the automatic
+/// albums' books.
+pub fn paint_section_icon(painter: &Painter, rect: Rect, section: state::Section, color: Color32) {
+    match section {
+        state::Section::Folder(_) => icons::paint(painter, rect, Icon::Folder, color),
+        state::Section::Album(state::AlbumSection::User(_)) => icons::paint(painter, rect, Icon::Album, color),
+        state::Section::Album(state::AlbumSection::Starred) => icons::paint_album(painter, rect, AlbumIcon::Starred, color),
+        state::Section::Album(state::AlbumSection::Recent) => icons::paint_album(painter, rect, AlbumIcon::Recent, color),
+        state::Section::Album(state::AlbumSection::Search) => icons::paint_album(painter, rect, AlbumIcon::Search, color),
+    }
+}
+
 /// What a header shows that takes a pass over the section's photos, kept per section until the
 /// sections are rebuilt.
 #[derive(Debug, Clone, Default, PartialEq)]
 struct Facts {
-    /// The folder's full path (the icon's tooltip).
+    /// The folder's full path, or the album's name (the icon's tooltip).
     path: String,
     /// The date line: the folder's date and place ([`date_line`]).
     date: String,
@@ -266,18 +314,32 @@ impl Headers {
             .entry(section.id)
             .or_insert_with(|| {
                 let library = session.library();
-                let path = library.folder(section.folder).map(|f| f.path.display().to_string()).unwrap_or_default();
-                let info = library.folder_info(section.folder);
-                // The date set in Folder Properties, else the oldest photo's (its effective date).
-                let date = info
-                    .date
-                    .or_else(|| section.photos.iter().filter_map(|&id| library.photo(id).and_then(|p| library.sort_date(p))).min().map(|d| d.date()));
                 let starred = section.photos.iter().any(|&id| library.photo(id).is_some_and(|p| p.star));
+                let (path, date, place, description) = match (section.folder, section.id.user_album()) {
+                    (Some(folder), _) => {
+                        let path = library.folder(folder).map(|f| f.path.display().to_string()).unwrap_or_default();
+                        let info = library.folder_info(folder);
+                        // The date set in Folder Properties, else the oldest photo's (its effective date).
+                        let date = info.date.or_else(|| {
+                            section.photos.iter().filter_map(|&id| library.photo(id).and_then(|p| library.sort_date(p))).min().map(|d| d.date())
+                        });
+                        (path, date, info.place.clone(), info.description.clone())
+                    }
+                    // The album's date: the one set in Album Properties, else its newest photo's.
+                    (None, Some(album)) => match library.album(&album) {
+                        Some(info) => {
+                            let date = library.album_stats(&album).date.map(|d| d.date());
+                            (info.name.clone(), date, info.place.clone(), info.description.clone())
+                        }
+                        None => (section.title.clone(), None, String::new(), String::new()),
+                    },
+                    (None, None) => (section.title.clone(), None, String::new(), String::new()),
+                };
                 Facts {
                     path,
-                    date: date_line(date, Some(&info.place)),
-                    description: Arc::from(info.description.as_str()),
-                    shown: Arc::from(info.description.replace(['\n', '\r', '\t'], " ")),
+                    date: date_line(date, Some(&place)),
+                    description: Arc::from(description.as_str()),
+                    shown: Arc::from(description.replace(['\n', '\r', '\t'], " ")),
                     starred,
                 }
             })
@@ -285,14 +347,21 @@ impl Headers {
     }
 
     /// The photos of `section`'s folder with unsaved edits (hidden ones included), in display
-    /// order: what its Save saves. Worked out once per library revision.
+    /// order, or of an album section's photos: what its Save saves. Worked out once per library
+    /// revision.
     fn unsaved(&mut self, session: &Session, section: &Section) -> Arc<[PhotoId]> {
         let library = session.library();
         if self.revision != Some(library.revision()) || self.unsaved.len() >= MAX_FACTS {
             self.unsaved.clear();
             self.revision = Some(library.revision());
         }
-        self.unsaved.entry(section.id).or_insert_with(|| Arc::from(library.unsaved_in(section.folder))).clone()
+        self.unsaved
+            .entry(section.id)
+            .or_insert_with(|| match section.folder {
+                Some(folder) => Arc::from(library.unsaved_in(folder)),
+                None => section.photos.iter().copied().filter(|&id| library.has_unsaved_edits(id)).collect(),
+            })
+            .clone()
     }
 }
 
@@ -315,12 +384,13 @@ pub fn save_enabled(session: &Session, ids: &[PhotoId]) -> Result<(), String> {
 /// What the description row asks for.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DescriptionOut {
-    /// A click on the description: open the inline editor on `text`, the folder's description.
-    Open { section: state::Section, folder: FolderId, text: String },
+    /// A click on the description: open the inline editor on `text`, the folder's or album's
+    /// description.
+    Open { section: state::Section, owner: Owner, text: String },
     /// The editor's text changed.
     Draft(String),
-    /// Enter, or a click elsewhere: apply `text` to the folder and close the editor.
-    Commit { section: state::Section, folder: FolderId, text: String },
+    /// Enter, or a click elsewhere: apply `text` to the folder or album and close the editor.
+    Commit { section: state::Section, owner: Owner, text: String },
     /// Esc: close the editor; nothing changes.
     Cancel(state::Section),
 }
@@ -332,9 +402,9 @@ pub struct HeaderOut {
     pub description: Option<DescriptionOut>,
     /// Commands to run, in order.
     pub commands: Vec<(String, Value)>,
-    /// The section's folder when the header was right-clicked: it becomes the selected section,
-    /// which the section menu acts on.
-    pub select: Option<FolderId>,
+    /// The section when the header was right-clicked (or a user album's title double-clicked): it
+    /// becomes the selected section, which the section menu (and Album Properties) acts on.
+    pub select: Option<state::Section>,
     /// The header's responses that open the section menu on a right-click.
     pub menus: Vec<Response>,
 }
@@ -439,7 +509,12 @@ pub fn show(ui: &mut Ui, f: &Frame<'_>, headers: &mut Headers, section: &Section
     let mut out = HeaderOut::default();
     let painter = ui.painter().clone();
     painter.rect_filled(rect, 0, t.folder_header);
-    let selected = f.state.folder == Some(section.folder);
+    let album_selected = f.state.selection.section.filter(|s| s.is_album());
+    let selected = match section.folder {
+        Some(folder) => album_selected.is_none() && f.state.folder == Some(folder),
+        None => album_selected == Some(section.id),
+    };
+    let owner = Owner::of(section.id);
     if selected {
         painter.rect_filled(Rect::from_min_size(rect.min, vec2(2.0, rect.height())), 0, t.accent);
     }
@@ -453,7 +528,7 @@ pub fn show(ui: &mut Ui, f: &Frame<'_>, headers: &mut Headers, section: &Section
     let part_id = |part: &str| format!("{sid}/{part}");
     let track = |r: &Response, out: &mut HeaderOut, menu: bool| {
         if r.secondary_clicked() {
-            out.select = Some(section.folder);
+            out.select = Some(section.id);
         }
         if menu {
             out.menus.push(r.clone());
@@ -505,8 +580,16 @@ pub fn show(ui: &mut Ui, f: &Frame<'_>, headers: &mut Headers, section: &Section
     }
 
     // The icon: Locate on Disk on a click (once the OS integration lands); its tooltip is the path.
-    icons::paint(&painter, icon, Icon::Folder, t.icon);
-    if takes_input(icon) {
+    // An album's icon shows its name.
+    paint_section_icon(&painter, icon, section.id, t.icon);
+    if section.folder.is_none() {
+        if takes_input(icon) {
+            let r = ui.interact(icon, egui_id("icon"), Sense::hover());
+            widgets::register(ui.ctx(), &part_id("icon"), Role::IconButton, &facts.path, Target::Widget(&r), false);
+            let r = widgets::tooltip(r, t, &facts.path, None);
+            track(&r, &mut out, true);
+        }
+    } else if takes_input(icon) {
         let section_params = || json!({ "section": section.id });
         let locate = live(f.session, "folder.locate", section_params);
         let r = ui.interact(icon, egui_id("icon"), if locate { Sense::click() } else { Sense::hover() });
@@ -525,13 +608,24 @@ pub fn show(ui: &mut Ui, f: &Frame<'_>, headers: &mut Headers, section: &Section
     let title = Rect::from_min_size(pos2(text_x, line_top), vec2(size.x.max(1.0), TITLE_H));
     painter.galley(pos2(text_x, line_mid - size.y / 2.0).round(), g, t.text);
     if takes_input(title) {
-        // Folder Properties for this section's folder, whatever is selected.
-        let folder_params = || json!({ "folder": section.folder });
-        let props = live(f.session, "section.properties", folder_params);
+        // Folder Properties for this section's folder, whatever is selected; Album Properties for a
+        // user album, which the double-click selects first.
+        let props = match &owner {
+            Some(Owner::Folder(folder)) => live(f.session, "section.properties", || json!({ "folder": folder })),
+            Some(Owner::Album(_)) => true,
+            None => false,
+        };
         let r = ui.interact(title, egui_id("title"), if props { Sense::click() } else { Sense::hover() });
         widgets::register(ui.ctx(), &part_id("title"), Role::Other, &section.title, Target::Widget(&r), false);
         if r.double_clicked() {
-            out.commands.push(("section.properties".to_string(), folder_params()));
+            match &owner {
+                Some(Owner::Folder(folder)) => out.commands.push(("section.properties".to_string(), json!({ "folder": folder }))),
+                Some(Owner::Album(_)) => {
+                    out.select = Some(section.id);
+                    out.commands.push(("section.properties".to_string(), json!({})));
+                }
+                None => {}
+            }
         }
         track(&r, &mut out, props);
     }
@@ -575,13 +669,14 @@ pub fn show(ui: &mut Ui, f: &Frame<'_>, headers: &mut Headers, section: &Section
         track(&resp, &mut out, enabled.is_ok());
     }
 
-    // The description line, or its inline editor.
+    // The description line, or its inline editor; the automatic albums have none.
+    let Some(owner) = owner else { return out };
     let editing = f.state.description_edit.as_ref().filter(|e| e.section == section.id);
     let x = rect.min.x + PADDING;
     let top = rect.min.y + DESCRIPTION_TOP;
     if let Some(e) = editing {
         let row = Rect::from_min_max(pos2(x, top), pos2(rect.max.x - PADDING, top + DESCRIPTION_H));
-        out.description = description_editor(ui, f, headers, section, &e.draft, row, &takes_input);
+        out.description = description_editor(ui, f, headers, section, owner, &e.draft, row, &takes_input);
         return out;
     }
     let (text, color) = if facts.shown.is_empty() { (PLACEHOLDER, t.text_dim) } else { (&*facts.shown, t.text_label) };
@@ -592,7 +687,7 @@ pub fn show(ui: &mut Ui, f: &Frame<'_>, headers: &mut Headers, section: &Section
         let r = ui.interact(d, egui_id("description"), Sense::click()).on_hover_cursor(CursorIcon::Text);
         widgets::register(ui.ctx(), &part_id("description"), Role::Other, text, Target::Widget(&r), false);
         if r.clicked() {
-            out.description = Some(DescriptionOut::Open { section: section.id, folder: section.folder, text: facts.description.to_string() });
+            out.description = Some(DescriptionOut::Open { section: section.id, owner, text: facts.description.to_string() });
         }
         track(&r, &mut out, true);
     }
@@ -602,11 +697,13 @@ pub fn show(ui: &mut Ui, f: &Frame<'_>, headers: &mut Headers, section: &Section
 /// The inline description editor of `section` over the description `row` (its text starts where
 /// the description's does), as wide as the row allows up to [`DESCRIPTION_FIELD_W`]: the field
 /// gets the focus the first frame it is shown; what its edit asks for comes back.
+#[allow(clippy::too_many_arguments)]
 fn description_editor(
     ui: &mut Ui,
     f: &Frame<'_>,
     headers: &mut Headers,
     section: &Section,
+    owner: Owner,
     draft: &str,
     row: Rect,
     takes_input: &dyn Fn(Rect) -> bool,
@@ -633,7 +730,7 @@ fn description_editor(
     if field.cancelled() {
         Some(DescriptionOut::Cancel(section.id))
     } else if field.committed() {
-        Some(DescriptionOut::Commit { section: section.id, folder: section.folder, text })
+        Some(DescriptionOut::Commit { section: section.id, owner, text })
     } else if text != draft {
         Some(DescriptionOut::Draft(text))
     } else {
@@ -650,13 +747,19 @@ fn cut_draft(mut text: String) -> String {
 }
 
 /// Does what the description row asked for: opens the editor (a description longer than an inline
-/// editor keeps opens Folder Properties instead, so nothing is cut), keeps its text, commits it
-/// through `folder.info.set` or closes it.
+/// editor keeps opens Folder or Album Properties instead, so nothing is cut), keeps its text,
+/// commits it through `folder.info.set` or `album.info.set`, or closes it.
 fn apply_description(app: &mut App, d: DescriptionOut) {
     match d {
-        DescriptionOut::Open { section, folder, text } => {
+        DescriptionOut::Open { section, owner, text } => {
             if text.chars().count() > state::MAX_DRAFT {
-                if let Err(e) = app.run("section.properties", &json!({ "folder": folder })) {
+                let opened = match owner {
+                    Owner::Folder(folder) => app.run("section.properties", &json!({ "folder": folder })),
+                    Owner::Album(_) => {
+                        app.run("select.section", &json!({ "section": section })).and_then(|_| app.run("section.properties", &json!({})))
+                    }
+                };
+                if let Err(e) = opened {
                     app.state_mut().status = e.to_string();
                 }
                 return;
@@ -668,12 +771,13 @@ fn apply_description(app: &mut App, d: DescriptionOut) {
                 e.draft = cut_draft(text);
             }
         }
-        DescriptionOut::Commit { section, folder, text } => {
+        DescriptionOut::Commit { section, owner, text } => {
             let state = app.state_mut();
             if state.description_edit.as_ref().is_some_and(|e| e.section == section) {
                 state.description_edit = None;
             }
-            if let Err(e) = app.run("folder.info.set", &json!({ "id": folder, "description": text })) {
+            let (id, params) = owner.set_description(&text);
+            if let Err(e) = app.run(id, &params) {
                 app.state_mut().status = e.to_string();
             }
         }
@@ -690,8 +794,19 @@ fn apply_description(app: &mut App, d: DescriptionOut) {
 /// commands run, and a right-click opens the section menu (`menus-and-shortcuts.md` §1.4) at the
 /// header; items whose commands are not there yet are disabled.
 pub fn apply(app: &mut App, out: HeaderOut) {
-    if let Some(folder) = out.select {
-        app.state_mut().folder = Some(folder);
+    match out.select {
+        Some(section @ state::Section::Folder(folder)) => {
+            app.state_mut().folder = Some(folder);
+            // Out of an album: the section menu is the folder's again.
+            if app.state().selection.section.is_some_and(state::Section::is_album) {
+                let _ = app.run("select.section", &json!({ "section": section }));
+            }
+        }
+        // An album becomes the selected section as a unit: its menu is the Album variant.
+        Some(album @ state::Section::Album(_)) if app.state().selection.section != Some(album) => {
+            let _ = app.run("select.section", &json!({ "section": album }));
+        }
+        _ => {}
     }
     if let Some(d) = out.description {
         apply_description(app, d);

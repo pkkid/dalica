@@ -155,7 +155,8 @@ fn size(photos: usize, frames: usize) -> Vec<Value> {
     let mut d = Driver::new(App::new(Some(session)), WINDOW.0, WINDOW.1, 1.0);
     d.settle(SETTLE).expect("the first frames settle");
     let order: Vec<_> = d.app().panels().expect("the library is open").sections.list.iter().map(|s| s.id).collect();
-    assert_eq!(order.len(), spec.folders, "a section per folder");
+    // A section per folder, after Starred Photos (the synthetic library stars some photos).
+    assert_eq!(order.iter().filter(|s| s.folder().is_some()).count(), spec.folders, "a section per folder");
     let step = 2.0 * SPEED / 60.0;
     let mut times = Vec::new();
     let mut cells = Vec::new();

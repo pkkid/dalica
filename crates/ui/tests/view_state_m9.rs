@@ -384,8 +384,12 @@ fn the_photo_menu_lists_its_rows_and_opens_on_a_right_click() {
     }
     check_ids(&t, "photo menu");
     key(&mut t, "Escape");
-    // The album variant, once the selection is in an album section.
-    t.d.app_mut().state_mut().selection = Selection::new(vec![PhotoId::new(a)], Some(PhotoId::new(a)), Some(album_section()), false);
+    // The album variant, once the selection is in an album section (an album the library has, so
+    // its Album Properties opens on it).
+    let made = run(&mut t, "album.create", json!({ "name": "Trip", "ids": [a] }));
+    let album = AlbumId::parse(made["album"].as_str().unwrap()).unwrap();
+    let in_album = Section::Album(AlbumSection::User(AlbumKey::of(&album)));
+    t.d.app_mut().state_mut().selection = Selection::new(vec![PhotoId::new(a)], Some(PhotoId::new(a)), Some(in_album), false);
     let all = rows(&ok(&mut t, "ui.menu.tree", json!({ "context": "photo" })));
     let ids: Vec<&str> = all.iter().map(|r| r["id"].as_str().unwrap()).collect();
     assert!(!ids.contains(&"photo.delete"));
@@ -403,7 +407,8 @@ fn the_photo_menu_lists_its_rows_and_opens_on_a_right_click() {
     assert_eq!(section, fourth["children"], "the section menu is the fourth menu's rows");
     // Album Properties… opens on the album.
     assert_eq!(ok(&mut t, "ui.menu.invoke", json!({ "path": "Album/Album Properties" })), json!({ "dialog": "albumProperties" }));
-    assert_eq!(state(&mut t)["albumProperties"]["album"], json!("a91c0e"));
+    assert_eq!(state(&mut t)["albumProperties"]["album"], json!(album.as_str()));
+    assert_eq!(state(&mut t)["albumProperties"]["name"], json!("Trip"), "the draft starts from the library");
     key(&mut t, "Escape");
     // Show in Folder selects the photo in its folder: the folder's menu again.
     let item = rows(&ok(&mut t, "ui.menu.tree", json!({ "context": "photo" }))).into_iter().find(|r| r["id"] == "photo.showInFolder").unwrap();

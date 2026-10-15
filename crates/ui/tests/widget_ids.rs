@@ -104,17 +104,21 @@ fn every_interactive_widget_has_a_unique_id_at_both_window_sizes() {
         let widgets = check(&d, size, "starred");
         let star = find(&widgets, "button:star");
         assert!(star.enabled && star.active && star.role == Role::Toggle);
-        let badge = find(&widgets, &format!("{first}/star"));
+        // Starred Photos shows it first, as `<thumb>/in/starred` (its folder's cell moved down).
+        let copy = format!("{first}/in/starred");
+        let badge = find(&widgets, &format!("{copy}/star"));
         assert!(badge.role == Role::Badge && badge.egui_id.is_none());
-        assert!(inside(badge.rect, find(&widgets, &first).rect));
+        assert!(inside(badge.rect, find(&widgets, &copy).rect));
         assert!(find(&widgets, &first).active, "the selected cell is active");
+        assert!(!find(&widgets, &copy).active, "the selection is in the folder, not in Starred Photos");
 
         // Scrolled to the second folder by its tree row: other cells; the speed thumb stays at the
         // centre of its track whatever the position (`ui-layout.md` §5.6).
-        d.click(&rows[1]).unwrap();
+        let second = rows[1].clone();
+        d.click(&second).unwrap();
         d.settle(FRAMES).unwrap();
         let widgets = check(&d, size, "scrolled");
-        assert!(find(&widgets, &rows[1]).active);
+        assert!(find(&widgets, &second).active);
         let handle_after = find(&widgets, "scroll:thumb").rect;
         assert_eq!(handle_after, handle_before, "the speed thumb rests at the centre");
         assert_ne!(ids_of(&widgets, Role::Thumbnail).first(), Some(&first), "other cells are on screen");
@@ -128,7 +132,7 @@ fn every_interactive_widget_has_a_unique_id_at_both_window_sizes() {
 
         // File ▸ Add Folder… opens the Folder Manager with the folder selected in the tree
         // pre-selected.
-        let folder = dalica_core::FolderId::new(rows[1].trim_start_matches("tree:folder:").parse().unwrap());
+        let folder = dalica_core::FolderId::new(second.trim_start_matches("tree:folder:").parse().unwrap());
         assert_eq!(d.state().folder, Some(folder));
         let path = d.app().session().unwrap().library().folder(folder).unwrap().path.clone();
         d.click("menuitem:folders.manager").unwrap();
