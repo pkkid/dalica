@@ -10,7 +10,9 @@
 //! The Delete key is routed by section (`menus-and-shortcuts.md` §2.2), as Ctrl+1 is by view: in
 //! an album section Delete removes the selected photos from the album (`album.remove`, which asks
 //! first), anywhere else it deletes them from disk (`photo.delete`, which asks first);
-//! Ctrl+Delete always deletes from disk ([`delete_route`]).
+//! Ctrl+Delete always deletes from disk ([`delete_route`]). While the library tree has the focus
+//! and its selected row is a library folder, Delete is Folder ▸ Delete… (`folder.delete`, which
+//! asks first; `ui-layout.md` §4, [`tree_delete_route`]).
 
 use dalica_engine::keymap::DefaultKeys;
 use dalica_engine::{Context, Key, Session};
@@ -43,6 +45,22 @@ pub fn delete_route(app: &App, key: &Key, bound: Option<&str>) -> Option<&'stati
     }
     let in_album = app.state().selection.section.is_some_and(crate::state::Section::is_album);
     Some(if plain && in_album { "album.remove" } else { "photo.delete" })
+}
+
+/// What Delete runs while the library tree has the focus (`tree_focused`): Folder ▸ Delete…
+/// (`folder.delete`) when the tree's selected row is a library folder (the selection is not in an
+/// album) and the user did not give Delete another command; `None` otherwise (the key goes to
+/// [`route`]).
+pub fn tree_delete_route(app: &App, key: &Key, bound: Option<&str>, tree_focused: bool) -> Option<&'static str> {
+    let plain = key.to_string() == "Delete";
+    if !(tree_focused && plain) || bound.is_some_and(|b| b != "photo.delete" && b != "album.remove") {
+        return None;
+    }
+    let state = app.state();
+    if state.selection.section.is_some_and(crate::state::Section::is_album) {
+        return None;
+    }
+    crate::menus::current_folder(app).filter(|f| app.session().is_some_and(|s| s.library().folder(*f).is_some())).map(|_| "folder.delete")
 }
 
 /// Adds the UI commands to `session`'s keymap (`Session::add_ui_keys`). A default that does not
@@ -119,6 +137,7 @@ pub fn params_for(app: &App, id: &str) -> Value {
             json!({ "album": album, "ids": targets(app, id) })
         }
         "photo.delete" => json!({ "ids": targets(app, id) }),
+        "folder.delete" => crate::menus::current_folder(app).map_or_else(|| json!({}), |f| json!({ "folder": f })),
         _ if takes_ids => json!({ "ids": targets(app, id) }),
         _ => json!({}),
     }
@@ -164,8 +183,13 @@ pub fn dispatch(app: &mut App, ctx: &egui::Context) -> Vec<String> {
     let mut ran = Vec::new();
     for key in presses {
         let bound = app.session().and_then(|s| s.keymap().resolve(&key, view, text_input));
-        // Delete and Ctrl+Delete are the library's, never a text field's.
-        let routed = if text_input { bound } else { route(app, &key, bound) };
+        // Delete and Ctrl+Delete are the library's, never a text field's; Delete in the focused
+        // tree is the folder's.
+        let routed = if text_input {
+            bound
+        } else {
+            tree_delete_route(app, &key, bound.as_deref(), tree_focused).map(str::to_string).or_else(|| route(app, &key, bound))
+        };
         let Some(id) = routed else { continue };
         let _ = run_key(app, &id);
         ran.push(id);
@@ -247,6 +271,34 @@ mod tests {
         assert_eq!(delete_route(d.app(), &del, Some("photo.delete")), Some("album.remove"));
         assert_eq!(delete_route(d.app(), &ctrl, None), Some("photo.delete"));
         assert_eq!(delete_route(d.app(), &del, Some("pane.toggle")), None, "the user's own binding");
+    }
+
+    /// Delete on a focused tree's folder row asks Folder ▸ Delete…'s question for that folder; in the
+    /// light table it still deletes the selected photos.
+    #[test]
+    fn delete_on_a_focused_folder_row_asks_to_delete_the_folder() {
+        let (_dir, s, ids) = crate::app::tests::session_with_photos(2);
+        let folder = s.library().photo(ids[0]).unwrap().folder;
+        let mut d = crate::headless::Driver::new(App::new(Some(s)), 900, 600, 1.0);
+        d.settle(3600).unwrap();
+        let del = Key::parse("Delete").unwrap();
+        assert_eq!(tree_delete_route(d.app(), &del, None, false), None, "the tree has no focus");
+        d.click(&format!("tree:folder:{}", folder.get())).unwrap();
+        d.settle(3600).unwrap();
+        assert!(crate::panels::folders::has_focus(d.ctx()), "a click gives the tree the focus");
+        assert_eq!(tree_delete_route(d.app(), &del, None, true), Some("folder.delete"));
+        assert_eq!(tree_delete_route(d.app(), &Key::parse("Ctrl+Delete").unwrap(), None, true), None, "Ctrl+Delete deletes photos");
+        assert_eq!(tree_delete_route(d.app(), &del, Some("pane.toggle"), true), None, "the user's own binding");
+        d.key("Delete").unwrap();
+        assert_eq!(d.app().state().delete_folder, Some(crate::state::DeleteFolder { folder }));
+        assert_eq!(d.app().state().dialogs.last().map(|x| x.kind), Some(crate::state::DialogKind::DeleteFolder));
+        d.key("Esc").unwrap();
+        assert!(d.app().state().dialogs.is_empty(), "Esc keeps the folder");
+        assert!(d.app().session().unwrap().library().folder(folder).is_some());
+        // An album selected in the tree is no folder to delete.
+        let album = crate::state::Section::Album(crate::state::AlbumSection::Starred);
+        d.app_mut().state_mut().selection = crate::state::Selection::new(vec![], None, Some(album), true);
+        assert_eq!(tree_delete_route(d.app(), &del, None, true), None);
     }
 
     /// Ctrl+− reaches the keymap and runs the edit view's `edit.zoom.out` once (×1/1.25).

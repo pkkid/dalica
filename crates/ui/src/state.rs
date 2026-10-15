@@ -1263,6 +1263,20 @@ pub struct Drag {
     pub target: Option<String>,
     pub op: Option<DragOp>,
     pub pill: String,
+    /// What the target is (`crate::drag`): what a release there runs. Not reported.
+    #[serde(skip)]
+    pub at: Option<DropAt>,
+}
+
+/// What a drag of photos can be dropped on (`ui-layout.md` §4, §5.5, §6.2): a library folder's
+/// tree row, a user album's tree row, the Photo Tray, or the gap before or after a cell of a user
+/// album's section.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DropAt {
+    Folder(FolderId),
+    Album(AlbumKey),
+    Tray,
+    Gap { album: AlbumKey, anchor: PhotoId, after: bool },
 }
 
 /// The longest date text a dialog's date field keeps, in characters (`YYYY-MM-DD` as typed).
@@ -1398,19 +1412,22 @@ pub struct CopyQuestion {
     pub folder: FolderId,
 }
 
-/// Whether a file operation moves or copies.
+/// Whether a file operation moves or copies photos, or moves a folder (whose merge into a folder of
+/// the same name asks the collision question too).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum FileOp {
     Move,
     Copy,
+    MoveFolder,
 }
 
 /// The most clashing file names the collision question keeps (it names a few and counts the rest).
 pub const MAX_CLASHES: usize = 1000;
 
 /// The collision question while it is open: the move or copy it interrupts, and the names that
-/// clash in the destination.
+/// clash in the destination. For a move or copy of photos `folder` is where they go; for a folder
+/// move (`moveFolder`) it is the folder that moves, `to` the folder it goes into and `ids` empty.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CollisionQuestion {
@@ -1419,6 +1436,8 @@ pub struct CollisionQuestion {
     pub folder: FolderId,
     #[serde(default)]
     pub files: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to: Option<std::path::PathBuf>,
 }
 
 /// The delete question for photos while it is open.
@@ -1626,6 +1645,9 @@ impl UiState {
             for f in &mut q.files {
                 cut(f);
             }
+            if q.to.as_ref().is_some_and(|to| to.to_string_lossy().chars().count() > MAX_DRAFT) {
+                q.to = None;
+            }
         }
         if let Some(q) = &mut self.delete_photos {
             ids(&mut q.ids);
@@ -1689,6 +1711,9 @@ impl UiState {
             }
             for f in &q.files {
                 long("collision.files", f, MAX_DRAFT)?;
+            }
+            if let Some(to) = &q.to {
+                long("collision.to", &to.to_string_lossy(), MAX_DRAFT)?;
             }
         }
         if let Some(q) = &self.delete_photos {
@@ -2213,7 +2238,13 @@ mod tests {
             new_folder: Some(NewFolderDraft { ids: vec![p(3)], ..NewFolderDraft::default() }),
             move_files: Some(MoveQuestion { ids: vec![p(1)], folder: FolderId::new(2), dont_ask: true }),
             copy_files: Some(CopyQuestion { ids: vec![p(1)], folder: FolderId::new(2) }),
-            collision: Some(CollisionQuestion { op: FileOp::Copy, ids: vec![p(1)], folder: FolderId::new(2), files: vec!["IMG_1.jpg".into()] }),
+            collision: Some(CollisionQuestion {
+                op: FileOp::Copy,
+                ids: vec![p(1)],
+                folder: FolderId::new(2),
+                files: vec!["IMG_1.jpg".into()],
+                to: None,
+            }),
             delete_photos: Some(DeletePhotos { ids: vec![p(4)] }),
             delete_folder: Some(DeleteFolder { folder: FolderId::new(5) }),
             ..UiState::default()
@@ -2246,6 +2277,7 @@ mod tests {
                 ids: vec![],
                 folder: FolderId::new(1),
                 files: vec![long.clone(); MAX_CLASHES + 1],
+                to: Some(std::path::PathBuf::from(&long)),
             }),
             ..UiState::default()
         };
@@ -2265,7 +2297,28 @@ mod tests {
         assert_eq!((safe.search.text.chars().count(), safe.search.highlight, safe.search.age), (MAX_DRAFT, None, 0.0));
         let d = safe.album_properties.as_ref().unwrap();
         assert_eq!((d.name.chars().count(), d.date.chars().count(), d.ids.len()), (MAX_DRAFT, MAX_DATE_TEXT, 1));
-        assert_eq!(safe.collision.as_ref().map(|c| c.files.len()), Some(MAX_CLASHES));
+        assert_eq!(safe.collision.as_ref().map(|c| (c.files.len(), c.to.is_none())), Some((MAX_CLASHES, true)), "a path too long is dropped");
+        // A folder move's question names the folder it goes into; a path that long is refused.
+        let folder_move = UiState {
+            collision: Some(CollisionQuestion {
+                op: FileOp::MoveFolder,
+                ids: vec![],
+                folder: FolderId::new(4),
+                files: vec!["IMG_1.jpg".into()],
+                to: Some(std::path::PathBuf::from("/photos/2024")),
+            }),
+            ..UiState::default()
+        };
+        let v = serde_json::to_value(&folder_move).unwrap();
+        assert_eq!(v["collision"]["op"], "moveFolder");
+        assert_eq!(v["collision"]["to"], "/photos/2024");
+        assert_eq!(serde_json::from_value::<UiState>(v).unwrap(), folder_move);
+        assert_eq!(folder_move.check_m9(), Ok(()));
+        let mut far = folder_move.clone();
+        if let Some(q) = &mut far.collision {
+            q.to = Some(std::path::PathBuf::from(&long));
+        }
+        assert!(far.check_m9().unwrap_err().contains("collision.to"));
         // A bad value in a draft is a deserialisation error (`bad_params` in ui.set).
         for bad in [
             serde_json::json!({ "clipboard": { "op": "paste", "ids": [] } }),

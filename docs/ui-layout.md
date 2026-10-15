@@ -133,7 +133,9 @@ finished row.
   (`organizing.md` §9.2). **Delete** on a folder = Delete Folder (confirmation).
 - **Drop target**: dragging photos over a folder row highlights it with `drop_target` (drop = move;
   Ctrl = copy; drag pill text changes accordingly); over an album row = add to album; over a person
-  = assign faces (from the Unnamed view).
+  = assign faces (from the Unnamed view). A row where a drop would change nothing (the photos' own
+  folder, an album already holding them all) is no target. A drag held within 24 pt of the pane's
+  top or bottom edge scrolls the rows, faster nearer the edge.
 - Keyboard: ↑/↓ move the selection (scrolling the light table), ←/→ collapse/expand in tree mode.
   The keys are the tree's while it has the focus: a press in the pane gives it, a press anywhere
   else takes it back to the light table. ↑/↓ pass over rows without photos (a parent showing
@@ -251,7 +253,9 @@ Add a description
   (move; Ctrl copies), onto an album (add), onto a person (assign faces), onto the tray (add), onto
   the map in the Places pane (geotag), out of Dalica to the file manager or other apps (file URIs;
   the receiver decides copy/move; OS-integration milestone). The drag pill shows the count and the operation ("Move 3 photos
-  to Garden").
+  to Garden"). In a user album's section the gap nearest the pointer between two cells (the left or
+  right half of a cell) shows the insertion marker; a drop there reorders the album's own photos,
+  or adds others at that place. Esc during a drag ends it with nothing dropped.
 - **Wheel** scrolls; **Ctrl+wheel** changes the thumbnail size.
 - **Loupe**: press and drag from the magnifier icon left of the thumbnail-size slider; a round
   lens (≈ 104 pt) follows the pointer over the light table showing the photo under it at 100 %

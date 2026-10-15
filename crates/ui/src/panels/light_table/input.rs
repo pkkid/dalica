@@ -12,7 +12,10 @@
 //! A right-click on a photo opens the photo context menu ([`super::context_menu`]) for the
 //! selection, after selecting the photo when it was not. A press on a thumbnail dragged past
 //! egui's threshold starts a drag of photos (`crate::drag`): the selection when the photo is
-//! selected, else that photo alone; releasing the button ends it.
+//! selected, else that photo alone; `crate::drag` ends it when the button is released. While a
+//! drag of photos is over a user album's section, the gap nearest the pointer between two of its
+//! cells (or before the first, after the last of a row) is offered as a drop target ([`gap`]) and
+//! shows the insertion marker; only the cells on screen are looked at.
 //!
 //! **Boundary.** Two calls a frame and one after it. [`begin`] runs before any cell is laid out
 //! (an interaction it creates on the empty space sits under the cells, so cells win their clicks);
@@ -125,8 +128,6 @@ impl Autoscroll {
 pub enum DragEvent {
     /// Started on thumbnail `from` (`thumb:12`) carrying `ids`.
     Start { from: String, ids: Vec<PhotoId> },
-    /// Ended: the button was released.
-    End,
 }
 
 /// What this frame's input asks for: commands, in order, and a scroll.
@@ -189,6 +190,7 @@ pub fn finish(ui: &mut Ui, f: &Frame<'_>, input: &mut Input, background: Option<
     if let Some(c) = cells.iter().find(|c| c.response.double_clicked()) {
         pending.actions.push(Action { command: "view.edit".into(), params: json!({ "id": c.photo.get() }) });
     }
+    gap(ui, f, cells);
     if let Some(bg) = background {
         pending.drag = thumb_drag(ui, f, input, &bg, cells);
         band(ui, f, input, &bg, cells, command, &mut pending);
@@ -199,9 +201,57 @@ pub fn finish(ui: &mut Ui, f: &Frame<'_>, input: &mut Input, background: Option<
     pending
 }
 
+/// How far above and below a cell the pointer still finds its gaps (points): the row gap between
+/// two rows of cells belongs to the row above it and the row below it.
+pub const GAP_REACH: f32 = 8.0;
+
+/// Where a drop between two cells of a user album's section goes, for a pointer at `pos`: the cell
+/// of such a section nearest the pointer in its row (the pointer within [`GAP_REACH`] of the
+/// row's height and within half a cell of the cell), and whether the gap is after it (the pointer
+/// right of its centre). Looks only at `cells`, the cells on screen.
+pub fn gap_at(pos: Pos2, cells: &[CellOut]) -> Option<(&CellOut, bool)> {
+    let near = |c: &&CellOut| {
+        c.section.user_album().is_some() && pos.y >= c.rect.min.y - GAP_REACH && pos.y <= c.rect.max.y + GAP_REACH && c.rect.is_positive()
+    };
+    let distance = |c: &CellOut| (pos.x - pos.x.clamp(c.rect.min.x, c.rect.max.x)).abs();
+    let c = cells.iter().filter(near).min_by(|a, b| distance(a).total_cmp(&distance(b)))?;
+    (distance(c) <= c.rect.width() / 2.0).then(|| (c, pos.x > c.rect.center().x))
+}
+
+/// The x of the insertion marker for a gap after (or before) cell `c`: half-way to its neighbour in
+/// the row, else [`GAP_REACH`] / 2 past its edge.
+fn marker_x(c: &CellOut, after: bool, cells: &[CellOut]) -> f32 {
+    let row = cells.iter().filter(|n| n.section == c.section && (n.rect.min.y - c.rect.min.y).abs() < 1.0);
+    if after {
+        let next = row.filter(|n| n.rect.min.x > c.rect.max.x).map(|n| n.rect.min.x).min_by(f32::total_cmp);
+        next.map_or(c.rect.max.x + GAP_REACH / 2.0, |x| (c.rect.max.x + x) / 2.0)
+    } else {
+        let prev = row.filter(|n| n.rect.max.x < c.rect.min.x).map(|n| n.rect.max.x).max_by(f32::total_cmp);
+        prev.map_or(c.rect.min.x - GAP_REACH / 2.0, |x| (x + c.rect.min.x) / 2.0)
+    }
+}
+
+/// During a drag of photos: offers the gap under the pointer in a user album's section
+/// ([`gap_at`]) and, when a drop there does something, paints the insertion marker in it.
+fn gap(ui: &Ui, f: &Frame<'_>, cells: &[CellOut]) {
+    let Some(pos) = crate::drag::pointer(ui.ctx(), f.state).filter(|p| f.area.contains(*p)) else { return };
+    let Some((c, after)) = gap_at(pos, cells) else { return };
+    let Some(album) = (match c.section {
+        state::Section::Album(state::AlbumSection::User(k)) => Some(k),
+        _ => None,
+    }) else {
+        return;
+    };
+    let at = state::DropAt::Gap { album, anchor: c.photo, after };
+    if crate::drag::offer(ui.ctx(), f.session, f.state, at, &super::cell::thumb_id(c.section, c.photo)).is_some() {
+        let x = marker_x(c, after, cells);
+        widgets::insertion_marker(ui.painter(), f.t, pos2(x, c.rect.min.y), c.rect.height());
+    }
+}
+
 /// A drag of photos: a press on a thumbnail moved past the drag threshold (the cells sense clicks
 /// only, so the light table's own space senses the drag) carries the selection when the photo is
-/// selected, else that photo; releasing the button ends it.
+/// selected, else that photo; `crate::drag` ends it when the button is released.
 fn thumb_drag(ui: &Ui, f: &Frame<'_>, input: &mut Input, bg: &Response, cells: &[CellOut]) -> Option<DragEvent> {
     if bg.drag_started() {
         let origin = ui.input(|i| i.pointer.press_origin());
@@ -215,7 +265,6 @@ fn thumb_drag(ui: &Ui, f: &Frame<'_>, input: &mut Input, bg: &Response, cells: &
     }
     if input.dragging && (!bg.dragged() || bg.drag_stopped()) {
         input.dragging = false;
-        return Some(DragEvent::End);
     }
     None
 }
@@ -273,16 +322,14 @@ fn autoscroll(f: &Frame<'_>, index: usize, count: usize, y: f32, dt: f32) -> Opt
     Some(Autoscroll { step, limit })
 }
 
-/// Runs what [`finish`] collected: the commands, the drag, then the photo menu (built for the
-/// selection the commands left).
+/// Runs what [`finish`] collected: the commands, the start of a drag, then the photo menu (built
+/// for the selection the commands left).
 pub fn apply(app: &mut App, pending: Pending) {
     for a in pending.actions {
         let _ = app.run(&a.command, &a.params);
     }
-    match pending.drag {
-        Some(DragEvent::Start { from, ids }) => crate::drag::start(app, from, ids),
-        Some(DragEvent::End) => crate::drag::end(app),
-        None => {}
+    if let Some(DragEvent::Start { from, ids }) = pending.drag {
+        crate::drag::start(app, from, ids);
     }
     if let Some(r) = pending.menu {
         super::context_menu::show(&r, app);
