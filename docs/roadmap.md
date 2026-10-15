@@ -5147,19 +5147,6 @@ No other step of M10 needs a maintainer decision mid-run.
     setting's days; undo of the change restores the earlier time; a rebuild keeps the list (or, if
     index-only was chosen, the commit body says why); the row and section show; CI green on the
     three OSes.
-- ⬜ **M10.30 `xtask`: the search budgets measured on the Budgets job's slower runners**
-  - after: M10.22
-  - files: `xtask/src/accept.rs`, `crates/engine/benches/search.rs`, `docs/development.md`
-  - scope: the maintainer's answer at M9.R (Q2): the M9 search budgets were 1.5 × a workstation
-    measurement and miss on GitHub's slower runner class (index build 720–770 ms against 630 ms;
-    every budget there slows by about 1.55×). Run the Budgets workflow on this branch until it has
-    landed on the slower class at least three times (recognised by its save and export medians,
-    about 520 ms and 12.2 s against 324 ms and 7.9 s on the faster class), take each search row's
-    median there, and set each budget to 1.5 × that first slower-runner measurement, rounded as
-    M9.12 did and still never above 100 ms per query; `development.md` §8 names the runner class.
-    No other budget changes.
-  - done when: the PR shows the slower-runner logs and the new numbers; three Budgets runs on the
-    branch pass, at least one on the slower class; `cargo xtask budgets` passes locally.
 - ⬜ **M10.31 `engine`: Export takes album sections and search results**
   - after: M9.R
   - files: `crates/engine/src/cmd/export.rs`, `crates/engine/tests/export_sections.rs`, `docs/creating.md`
@@ -5202,7 +5189,7 @@ No other step of M10 needs a maintainer decision mid-run.
     printing how many M9 commands it reached with valid parameters; a settle test with a search
     pending; the dialog's title test; CI green.
 - ⬜ **M10.R Release 0.5 gate**
-  - after: M10.24, M10.27, M10.29, M10.30, M10.31, M10.32, M10.33, M10.34, M10.35, M10.36, M10.37
+  - after: M10.24, M10.27, M10.29, M10.31, M10.32, M10.33, M10.34, M10.35, M10.36, M10.37
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`
   - scope: a release gate (Release 0.5, P0 complete): the lead runs `/milestone-review M10.R` to
@@ -5243,7 +5230,10 @@ wave 4   M10.11 File Types + Export tabs  ‖  M10.12 shortcut editor  ‖  M10.
 wave 5   M10.19 W04 W05 W06 W12  ‖  M10.20 W01, stdio smoke, floor
 wave 6   M10.26 P0 parity audit
          (fixes from M9.R, any wave: M10.29 Recently Updated ‖ M10.31 export sections
-          ‖ M10.32 file-op follow-ups ‖ M10.33 small follow-ups; M10.30 search budgets after M10.22)
+          ‖ M10.32 file-op follow-ups ‖ M10.33 small follow-ups; M10.30 dropped: the review's budgets
+          are judged against a base on the same runner, maintainer decision 2026-10-15)
+         (test coverage, any wave: M10.34 crashes and full disks ‖ M10.35 undo under faults
+          ‖ M10.36 window close, scales, monkey ‖ M10.37 camera-file write-back)
 wave 7   M10.27 accept M10 → M10.R          (M10.28 lead: M12 blocks, any time after M9.26)
 ```
 
