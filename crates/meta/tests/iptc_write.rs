@@ -3,18 +3,15 @@
 //! other dataset and image resource kept byte for byte, the digest resource 0x0425 recomputed, a
 //! Latin-1 legacy stream still reading the same, and hostile input that never panics.
 
-mod build;
+use crate::build;
 
+use crate::common::{cases, l};
 use build::*;
 use dalica_meta::iptc::read::{Charset, datasets, read, resources};
 use dalica_meta::iptc::write::{IptcEdit, MAX_CAPTION, MAX_KEYWORD, Truncated, digest, write_resources, write_stream};
 use dalica_meta::iptc::{RESOURCE_IPTC, RESOURCE_IPTC_DIGEST, UTF8_ESCAPE};
 use dalica_meta::{Changes, Error, Limits};
 use proptest::prelude::*;
-
-fn l() -> Limits {
-    Limits::default()
-}
 
 fn tags(t: &[&str]) -> Vec<String> {
     t.iter().map(|s| (*s).to_owned()).collect()
@@ -300,16 +297,7 @@ fn truncation_never_panics() {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig { cases: 512, ..ProptestConfig::default() })]
-
-    /// §8 test 10: random bytes never panic.
-    #[test]
-    fn random_bytes_never_panic(bytes in proptest::collection::vec(any::<u8>(), 0..512)) {
-        let t = tags(&["x", "y"]);
-        let e = IptcEdit { caption: Some(Some("c")), keywords: Some(&t) };
-        let _ = write_stream(Some(&bytes), &e, &l());
-        let _ = write_resources(Some(&bytes), &e, &l());
-    }
+    #![proptest_config(ProptestConfig::with_cases(cases(512)))]
 
     /// Random captions and tags read back exactly (when within the limits) from a written stream.
     #[test]

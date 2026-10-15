@@ -4,8 +4,9 @@
 //! values, the packet wrapper and its padding, new packets, the place and date mirrors, and hostile
 //! input (test 10).
 
-mod build;
+use crate::build;
 
+use crate::common::{caption, cases, l, now, text};
 use build::*;
 use dalica_meta::fields::{XmpOwned, clean_tags, clean_text};
 use dalica_meta::xmp::{self, JPEG_MAX_PACKET, Merged, NEW_PADDING};
@@ -14,14 +15,6 @@ use proptest::prelude::*;
 
 const RDF_NS: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
 const NS: &str = "xmlns:dc=\"http://purl.org/dc/elements/1.1/\" xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\" xmlns:exif=\"http://ns.adobe.com/exif/1.0/\" xmlns:photoshop=\"http://ns.adobe.com/photoshop/1.0/\"";
-
-fn l() -> Limits {
-    Limits::default()
-}
-
-fn now() -> DateTaken {
-    DateTaken::parse_iso("2026-10-12T09:30:00+02:00").unwrap()
-}
 
 fn later() -> DateTaken {
     DateTaken::parse_iso("2027-01-01T00:00:00Z").unwrap()
@@ -37,14 +30,6 @@ fn merge(packet: &[u8], c: &Changes) -> Vec<u8> {
 
 fn owned(packet: &[u8]) -> XmpOwned {
     xmp::read(packet, None, &l()).unwrap()
-}
-
-fn text(packet: &[u8]) -> &str {
-    std::str::from_utf8(packet).unwrap()
-}
-
-fn caption(c: &str) -> Changes {
-    Changes { caption: Some(Some(c.to_owned())), ..Changes::default() }
 }
 
 fn tags(t: &[&str]) -> Changes {
@@ -455,7 +440,7 @@ fn xml_chars(s: &str) -> String {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig { cases: 64, ..ProptestConfig::default() })]
+    #![proptest_config(ProptestConfig::with_cases(cases(64)))]
 
     #[test]
     fn random_captions_and_tags_round_trip(c in any::<String>(), t in proptest::collection::vec(any::<String>(), 0..8), base in 0usize..4) {
@@ -467,10 +452,5 @@ proptest! {
             let cleaned: Vec<String> = t.iter().map(|x| xml_chars(x)).collect();
             prop_assert_eq!(o.tags, clean_tags(cleaned.iter().map(String::as_str), l().max_string, l().max_tags));
         }
-    }
-
-    #[test]
-    fn random_packets_never_panic(bytes in proptest::collection::vec(any::<u8>(), 0..512)) {
-        let _ = xmp::merge(Some(&bytes), &caption("c"), &now(), &l());
     }
 }

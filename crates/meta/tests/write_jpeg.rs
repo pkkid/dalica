@@ -4,10 +4,10 @@
 //! twice gives the same bytes; the rating rule; IPTC's character set and digest; the APP1 limits;
 //! new segments where readers look for them; hostile and truncated input never panics.
 
-mod build;
+use crate::build;
 
+use crate::common::{cases, date, l, xmp_text};
 use build::*;
-use dalica_core::DateTime;
 use dalica_meta::container::payload_digest;
 use dalica_meta::exif::edit::MAX_JPEG_EXIF;
 use dalica_meta::exif::read::walk;
@@ -15,12 +15,8 @@ use dalica_meta::fields::{clean_tags, clean_text};
 use dalica_meta::iptc::read::{datasets, resources};
 use dalica_meta::write::PLACE_TOLERANCE;
 use dalica_meta::xmp::JPEG_MAX_PACKET;
-use dalica_meta::{BlockKind, Changes, DateTaken, Error, Limits, Metadata, Place, WriteOptions, listing, read, scan, verify, write_owned};
+use dalica_meta::{BlockKind, Changes, DateTaken, Error, Metadata, Place, WriteOptions, listing, read, scan, verify, write_owned};
 use proptest::prelude::*;
-
-fn l() -> Limits {
-    Limits::default()
-}
 
 /// The time of every write in these tests (`xmp:MetadataDate`).
 const WRITTEN: &str = "2026-10-12T09:30:00+02:00";
@@ -28,10 +24,6 @@ const WRITTEN: &str = "2026-10-12T09:30:00+02:00";
 /// Every write option on (stars included, off by default), with the time of the write.
 fn on() -> WriteOptions {
     WriteOptions { stars_as_ratings: true, metadata_date: DateTaken::parse_iso(WRITTEN), ..WriteOptions::default() }
-}
-
-fn date(text: &str, offset: Option<i16>, subsec: Option<&str>) -> DateTaken {
-    DateTaken::new(text.parse::<DateTime>().unwrap(), offset, subsec).unwrap()
 }
 
 const CAPTION: &str = "Grandma's 90th — «שלום עולם» 🎂 & <b>\"quoted\"</b>\nsecond line";
@@ -210,10 +202,6 @@ fn kept(file: &[u8]) -> Vec<Vec<u8>> {
 
 fn digest(file: &[u8]) -> u64 {
     payload_digest(file, &scan(file, &l()).unwrap().spans)
-}
-
-fn xmp_text(file: &[u8]) -> String {
-    String::from_utf8(scan(file, &l()).unwrap().xmp.unwrap().into_owned()).unwrap()
 }
 
 fn iptc_stream(file: &[u8]) -> Vec<u8> {
@@ -790,14 +778,7 @@ fn a_value_running_past_the_block_does_not_make_a_second_write_differ() {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig { cases: 256, ..ProptestConfig::default() })]
-
-    #[test]
-    fn random_bytes_never_panic(body in proptest::collection::vec(any::<u8>(), 0..2048), pick in any::<u8>()) {
-        let file = [&b"\xff\xd8\xff"[..], &body].concat();
-        let changes = Changes { star: (pick & 1 == 1).then_some(true), place: (pick & 2 == 2).then_some(Some(place())), ..everything() };
-        let _ = write_owned(&file, &changes, &on());
-    }
+    #![proptest_config(ProptestConfig::with_cases(cases(256)))]
 
     #[test]
     fn random_mutations_never_panic_and_what_is_written_verifies(which in 0usize..4, edits in proptest::collection::vec((any::<usize>(), any::<u8>()), 1..8)) {

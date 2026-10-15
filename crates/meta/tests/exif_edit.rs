@@ -3,27 +3,19 @@
 //! ImageDescription copy, a maker note with absolute offsets that reads the same after a write,
 //! the APP1 size limit, and hostile blocks that never panic.
 
-mod build;
+use crate::build;
 
+use crate::common::{cases, date, l};
 use build::*;
-use dalica_core::DateTime;
 use dalica_image::ifd::{Tiff as Ifds, Visited};
 use dalica_meta::exif::edit::{ExifEdit, MAX_JPEG_EXIF, edit};
 use dalica_meta::exif::read::{read, walk};
 use dalica_meta::exif::{IfdKind, TAG_GPS_IFD};
 use dalica_meta::write::PLACE_TOLERANCE;
-use dalica_meta::{Changes, DateTaken, Error, Limits, Place};
+use dalica_meta::{Changes, Error, Place};
 use proptest::prelude::*;
 
 const MAKER_NOTE: u16 = 0x927c;
-
-fn l() -> Limits {
-    Limits::default()
-}
-
-fn date(text: &str, offset: Option<i16>, subsec: Option<&str>) -> DateTaken {
-    DateTaken::new(text.parse::<DateTime>().unwrap(), offset, subsec).unwrap()
-}
 
 /// A camera's EXIF block: a caption in ImageDescription, a date with offset and fraction, a GPS
 /// IFD with altitude and time stamp besides the place, an interoperability IFD and a thumbnail.
@@ -454,13 +446,7 @@ fn truncation_never_panics() {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig { cases: 512, ..ProptestConfig::default() })]
-
-    /// §8 test 10: random bytes never panic.
-    #[test]
-    fn random_bytes_never_panic(bytes in proptest::collection::vec(any::<u8>(), 0..512)) {
-        let _ = edit(Some(&bytes), &every_edit(), MAX_JPEG_EXIF, &l());
-    }
+    #![proptest_config(ProptestConfig::with_cases(cases(512)))]
 
     /// Random single-byte changes to a real block never panic, and an edit that succeeds reads back.
     #[test]

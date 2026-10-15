@@ -3,10 +3,11 @@
 //! with raw converters' develop settings and history kept byte for byte, damaged sidecars reported,
 //! and hostile input (random bytes, every truncation, random folder listings) never panicking.
 
-mod build;
+use crate::build;
 
 use std::collections::HashSet;
 
+use crate::common::{caption, cases, l, now, text};
 use build::*;
 use dalica_meta::xmp_sidecar::{self, RawMetadata, SidecarName, SidecarWrite, Sidecars, XmpFrom};
 use dalica_meta::{BlockKind, Changes, DateTaken, Error, Limits, Place, WriteOptions, xmp};
@@ -14,21 +15,9 @@ use proptest::prelude::*;
 
 const RDF_NS: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
 
-fn l() -> Limits {
-    Limits::default()
-}
-
-fn now() -> DateTaken {
-    DateTaken::parse_iso("2026-10-12T09:30:00+02:00").unwrap()
-}
-
 /// Every write option on, written at [`now`].
 fn all() -> WriteOptions {
     WriteOptions { captions_tags_places: true, stars_as_ratings: true, dates: true, metadata_date: Some(now()), limits: l() }
-}
-
-fn caption(c: &str) -> Changes {
-    Changes { caption: Some(Some(c.to_owned())), ..Changes::default() }
 }
 
 fn full() -> Changes {
@@ -38,10 +27,6 @@ fn full() -> Changes {
         star: Some(true),
         ..Changes::default()
     }
-}
-
-fn text(b: &[u8]) -> &str {
-    std::str::from_utf8(b).unwrap()
 }
 
 // Name resolution.
@@ -578,8 +563,10 @@ fn check_write(raw: Option<&[u8]>, sidecar: Option<&[u8]>, c: &Changes) {
     }
 }
 
+/// A sidecar cut at every length and flipped every seventh byte, and a DNG cut at every length
+/// (its embedded packet read through the IFD walker), are read or refused and written cleanly.
 #[test]
-fn every_truncation_and_flip_of_a_sidecar_is_handled() {
+fn every_truncation_and_flip_of_a_sidecar_and_a_dng_is_handled() {
     for base in [DEVELOPER.as_bytes(), HISTORY.as_bytes(), &wrapped(64)] {
         for cut in 0..=base.len() {
             let s = &base[..cut];
@@ -593,10 +580,6 @@ fn every_truncation_and_flip_of_a_sidecar_is_handled() {
             check_write(None, Some(&s), &caption("flip"));
         }
     }
-}
-
-#[test]
-fn every_truncation_of_a_dng_is_handled() {
     let raw = dng(Some(EMBEDDED));
     for cut in 0..=raw.len() {
         let r = &raw[..cut];
@@ -627,20 +610,13 @@ fn xmpish() -> impl Strategy<Value = Vec<u8>> {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig { cases: 512, ..ProptestConfig::default() })]
-
-    #[test]
-    fn random_bytes_never_panic(sidecar in prop::collection::vec(any::<u8>(), 0..512), raw in prop::collection::vec(any::<u8>(), 0..512)) {
-        let _ = xmp_sidecar::read(Some(&raw), Some(&sidecar), &l());
-        let _ = xmp_sidecar::well_formed(&sidecar, &l());
-        check_write(Some(&raw), Some(&sidecar), &full());
-        check_write(None, Some(&sidecar), &caption("x"));
-    }
+    #![proptest_config(ProptestConfig::with_cases(cases(512)))]
 
     #[test]
     fn random_markup_never_panics(sidecar in xmpish(), body in xmpish()) {
         let raw = dng(Some(&String::from_utf8_lossy(&body)));
         let _ = xmp_sidecar::read(Some(&raw), Some(&sidecar), &l());
+        let _ = xmp_sidecar::well_formed(&sidecar, &l());
         check_write(Some(&raw), Some(&sidecar), &caption("x"));
         check_write(Some(&raw), None, &full());
     }

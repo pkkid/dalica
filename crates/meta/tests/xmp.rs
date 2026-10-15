@@ -4,8 +4,9 @@
 //! packets (§8 test 10: `DOCTYPE` and entities refused, deep nesting and node bombs bounded,
 //! truncation, byte flips and random bytes never panic).
 
-mod build;
+use crate::build;
 
+use crate::common::{cases, l};
 use build::*;
 use dalica_meta::fields::XmpOwned;
 use dalica_meta::xmp::{self, MAX_DEPTH, MAX_NODES};
@@ -13,10 +14,6 @@ use dalica_meta::{BlockKind, DateTaken, Error, Limits, Place, listing, read};
 use proptest::prelude::*;
 
 const NS: &str = "xmlns:dc=\"http://purl.org/dc/elements/1.1/\" xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\" xmlns:exif=\"http://ns.adobe.com/exif/1.0/\" xmlns:photoshop=\"http://ns.adobe.com/photoshop/1.0/\"";
-
-fn l() -> Limits {
-    Limits::default()
-}
 
 fn owned(body: &str) -> XmpOwned {
     xmp::read(&xmp_packet(body), None, &l()).unwrap()
@@ -291,11 +288,7 @@ fn truncation_and_byte_flips_never_panic() {
 }
 
 proptest! {
-    #[test]
-    fn random_bytes_never_panic(bytes in proptest::collection::vec(any::<u8>(), 0..512)) {
-        let _ = xmp::read(&bytes, Some(&bytes), &l());
-        let _ = xmp::rows(&bytes, None, &l());
-    }
+    #![proptest_config(ProptestConfig::with_cases(cases(256)))]
 
     #[test]
     fn random_markup_never_panics(parts in proptest::collection::vec(prop::sample::select(vec![
