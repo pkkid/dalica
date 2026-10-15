@@ -4,11 +4,10 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::common::NOW;
 use dalica_core::{FolderId, PhotoId, Timestamp};
 use dalica_library::{Folder, Library, Model, Op, Photo, Sketch};
 use dalica_store::{Opened, Recovery, SidecarWriter, Store, import_sidecars, journal, mapping, snapshot};
-
-const NOW: Timestamp = Timestamp::from_millis(1_791_000_000_000);
 
 fn photo(id: PhotoId, folder: FolderId, name: String) -> Photo {
     Photo { id, folder, name, size: 1, mtime: Timestamp::EPOCH, width: 4, height: 3, date: None, star: false }
@@ -113,8 +112,8 @@ fn snapshots_without_sketches_look_as_before_and_bad_ones_are_refused() {
     assert!(snapshot::read(&oversized).unwrap_err().contains("sketch"));
 }
 
-/// Every byte-prefix of the last sketch batch's record replays to the batches before it: a torn
-/// tail loses that batch and nothing else.
+/// A cut inside the last sketch batch's record replays to the batches before it: a torn tail loses
+/// that batch and nothing else.
 #[test]
 fn a_torn_tail_loses_only_the_torn_batch() {
     let dir = tempfile::tempdir().unwrap();
@@ -131,7 +130,9 @@ fn a_torn_tail_loses_only_the_torn_batch() {
     let ends = journal::read(&bytes).ends;
     let (start, end) = (ends[ends.len() - 2], ends[ends.len() - 1]);
     assert_eq!(end, bytes.len());
-    for len in start + 1..end {
+    // Cut inside the batch's record: just after the previous one, in the middle, one byte short
+    // (every byte of a torn tail is `lib.rs`'s `truncation_at_every_byte…`).
+    for len in [start + 1, (start + end) / 2, end - 1] {
         let d = tempfile::tempdir().unwrap();
         std::fs::write(d.path().join(journal::FILE), &bytes[..len]).unwrap();
         let o = Store::open(d.path(), NOW).unwrap();
@@ -211,13 +212,14 @@ fn a_rebuild_from_the_folders_starts_without_sketches() {
 }
 
 /// What 100 k sketches add to the index: journal bytes when they arrive in batches of 1 000, and
-/// snapshot bytes. Printed for the PR (`cargo test -p dalica-store --test sketch -- --nocapture`)
+/// snapshot bytes. Printed for the PR (`cargo test -p dalica-store --test all sketch:: -- --nocapture`)
 /// and held under a ceiling: 25-byte sketches as base64 in JSON cost under 50 bytes each.
+/// At full strength 100 k photos; in a task's gate 2 000 (the per-sketch ceilings are the same).
 #[test]
 fn index_growth_for_100k_sketches() {
-    const PHOTOS: u64 = 100_000;
+    let photos: u64 = if crate::common::full() { 100_000 } else { 2_000 };
     let dir = tempfile::tempdir().unwrap();
-    let (lib, ops) = library(Path::new("/photos"), 100, PHOTOS / 100);
+    let (lib, ops) = library(Path::new("/photos"), 100, photos / 100);
     let mut o = Store::open(dir.path(), NOW).unwrap();
     o.library = lib;
     for op in &ops {
@@ -232,19 +234,20 @@ fn index_growth_for_100k_sketches() {
     let log_growth = size(journal::FILE) - log_before;
     o.store.snapshot(&o.library).unwrap();
     let snap_growth = size(snapshot::FILE) - snap_before;
-    let in_memory = PHOTOS * std::mem::size_of::<(PhotoId, Sketch)>() as u64;
+    let in_memory = photos * std::mem::size_of::<(PhotoId, Sketch)>() as u64;
     eprintln!(
-        "100k sketches (25 bytes): journal +{log_growth} B ({:.1} B/sketch, 100 batches), snapshot {snap_before} -> {} B (+{snap_growth} B, {:.1} B/sketch), in memory >= {in_memory} B",
-        log_growth as f64 / PHOTOS as f64,
+        "{photos} sketches (25 bytes): journal +{log_growth} B ({:.1} B/sketch, {} batches), snapshot {snap_before} -> {} B (+{snap_growth} B, {:.1} B/sketch), in memory >= {in_memory} B",
+        log_growth as f64 / photos as f64,
+        photos / 1000,
         snap_before + snap_growth,
-        snap_growth as f64 / PHOTOS as f64,
+        snap_growth as f64 / photos as f64,
     );
-    assert!(log_growth < 50 * PHOTOS, "journal +{log_growth}");
-    assert!(snap_growth < 50 * PHOTOS, "snapshot +{snap_growth}");
+    assert!(log_growth < 50 * photos, "journal +{log_growth}");
+    assert!(snap_growth < 50 * photos, "snapshot +{snap_growth}");
     // And it all reads back.
     let want = o.library.model().clone();
     drop(o);
     let o = Store::open(dir.path(), NOW).unwrap();
-    assert_eq!((o.report.clone(), o.library.sketch_count()), (vec![], PHOTOS as usize));
+    assert_eq!((o.report.clone(), o.library.sketch_count()), (vec![], photos as usize));
     assert_eq!(o.library.model(), &want);
 }

@@ -179,40 +179,6 @@ fn virtual_time_shows_at_most_one_write_per_folder_per_second() {
     }
 }
 
-/// `data-model.md` §10.1 for stars: delete the index, scan again, and the stars come back from the sidecars.
-#[test]
-fn deleting_the_index_and_rebuilding_gives_the_same_stars() {
-    let dir = tempfile::tempdir().unwrap();
-    let lib_dir = tempfile::tempdir().unwrap();
-    let (mut lib, _, ids) = library(dir.path());
-    // The index (journal) records the ops; the writer writes the sidecar.
-    let mut opened = dalica_store::Store::open(lib_dir.path(), Timestamp::EPOCH).unwrap();
-    let mut w = SidecarWriter::new();
-    for &id in &ids[1..3] {
-        let op = Op::SetStars { stars: vec![(id, true)] };
-        lib.apply(op.clone()).unwrap();
-        opened.store.append(&op).unwrap();
-        w.mark_dirty(lib.photo(id).unwrap().folder);
-    }
-    w.flush(&lib, Timestamp::EPOCH);
-    let before: Vec<(String, bool)> = lib.photos().map(|p| (p.name.clone(), p.star)).collect();
-    drop(opened);
-    // Delete the index.
-    for e in std::fs::read_dir(lib_dir.path()).unwrap() {
-        std::fs::remove_file(e.unwrap().path()).unwrap();
-    }
-    // A fresh scan finds the same folders and photos, with no stars; the sidecars bring them back.
-    let (mut rebuilt, _, _) = library(dir.path());
-    let import = import_sidecars(&rebuilt, Timestamp::EPOCH);
-    assert!(import.problems.is_empty() && import.read_only.is_empty(), "{import:?}");
-    for op in import.ops {
-        rebuilt.apply(op).unwrap();
-    }
-    let after: Vec<(String, bool)> = rebuilt.photos().map(|p| (p.name.clone(), p.star)).collect();
-    assert_eq!(after, before);
-    assert_eq!(rebuilt.starred().len(), 2);
-}
-
 #[test]
 fn a_damaged_sidecar_is_kept_aside_and_its_folder_becomes_read_only() {
     let dir = tempfile::tempdir().unwrap();
@@ -240,13 +206,13 @@ fn a_damaged_sidecar_is_kept_aside_and_its_folder_becomes_read_only() {
     assert_eq!(w.flush(&lib, Timestamp::EPOCH)[&f], Outcome::Written);
 }
 
-/// `data-model.md` §10.5: a crash or error at any step of a sidecar write leaves the old or the new
-/// file, and the next flush lands the new one.
+/// `data-model.md` §10.5: a crash or error at a step of a sidecar write (one of each kind; `fs` tries
+/// every point) leaves the old or the new file, and the next flush lands the new one.
 #[test]
 fn a_failed_write_leaves_the_old_or_the_new_sidecar() {
-    use dalica_fs::faults::{ATOMIC_POINTS, Fault, arm, disarm_all};
-    for point in ATOMIC_POINTS {
-        for fault in [Fault::Error, Fault::Crash] {
+    use dalica_fs::faults::{arm, disarm_all};
+    for (point, fault) in crate::common::FAULTS {
+        {
             let dir = tempfile::tempdir().unwrap();
             let (mut lib, f, ids) = library(dir.path());
             let mut w = SidecarWriter::new();

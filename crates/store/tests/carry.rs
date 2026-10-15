@@ -7,7 +7,7 @@
 use std::path::{Path, PathBuf};
 
 use dalica_core::{AlbumId, FolderId, PhotoId, PosKey, Timestamp};
-use dalica_fs::faults::{ATOMIC_POINTS, Fault, arm, disarm_all, run_at};
+use dalica_fs::faults::{arm, disarm_all, run_at};
 use dalica_fs::transfer::{self, Outcome as Transfer};
 use dalica_library::{AlbumInfo, Folder, Library, Op, Photo, PhotoInfo};
 use dalica_sidecar::originals::{self, Entry, State};
@@ -331,13 +331,14 @@ fn a_backup_never_replaces_one_in_the_destination() {
     assert!(record(&w.a)[originals::KEY].get("IMG_0001.jpg").is_some());
 }
 
-/// An error or a crash at every step of either sidecar write leaves the entry in at least one of
-/// the two files, and carrying again puts it in the destination and out of the source.
+/// An error or a crash at a step of either sidecar write (one of each kind; `fs` tries every point)
+/// leaves the entry in at least one of the two files, and carrying again puts it in the
+/// destination and out of the source.
 #[test]
 fn every_fault_point_keeps_the_entry_and_a_second_carry_finishes() {
     for write in 0..2 {
-        for point in ATOMIC_POINTS {
-            for fault in [Fault::Error, Fault::Crash] {
+        for (point, fault) in crate::common::FAULTS {
+            {
                 let w = world();
                 let want = entry(&w.a, "IMG_0001.jpg").unwrap();
                 let c = Carry::one(Mode::Move, &w.a, "IMG_0001.jpg", &w.b, "IMG_0001-001.jpg");
