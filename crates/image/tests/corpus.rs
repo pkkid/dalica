@@ -10,12 +10,21 @@
 //! (our own `dalica-corpus` sets until the lead pins them): it is reported as skipped, and having
 //! a floor for it is a failure. Corpus files are never committed or quoted; a file that newly
 //! fails gets a synthetic reproduction in the ordinary tests.
+//!
+//! The sets in [`FINGERPRINTED`] also keep a decoded fingerprint per file (`architecture.md` §11:
+//! an 8 × 8 grid of per-channel mean and deviation) in the `fingerprints` section of the floors
+//! file: each full decode must match its file's fingerprint within [`TOLERANCE`], so a change in
+//! how a real photo's colour comes out (a profile, an EXIF colour space, CMYK) fails here.
+//! `DALICA_BLESS=1` rewrites that section (look at the PNGs it writes under
+//! `target/test-output/image/corpus/` first, and say why in the commit body). [`SAME_PICTURE`]
+//! names files that hold the same picture tagged two ways, which must decode alike.
 #![cfg(feature = "corpus")]
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use dalica_image::{Error, Format, Limits, RawKind, decode, decode_thumbnail, read_header, read_header_file, sniff};
+use dalica_scenes::fingerprint::{self, Fingerprint};
 
 /// The workspace root (this crate is `crates/image`).
 fn root() -> PathBuf {
@@ -24,14 +33,45 @@ fn root() -> PathBuf {
 
 type Floors = BTreeMap<String, BTreeMap<String, u64>>;
 
-fn floors() -> Floors {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests").join("corpus_floors.json");
+/// The decoded fingerprint of each file, per set.
+type Fingerprints = BTreeMap<String, BTreeMap<String, Fingerprint>>;
+
+/// The key of the floors file's last section, which holds [`Fingerprints`] instead of counts.
+const FINGERPRINTS: &str = "fingerprints";
+
+fn floors_path() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests").join("corpus_floors.json")
+}
+
+/// The counts and the fingerprints of the floors file.
+fn floors_and_fingerprints() -> (Floors, Fingerprints) {
+    let path = floors_path();
     let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
-    serde_json::from_str(&text).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+    let mut all: BTreeMap<String, serde_json::Value> = serde_json::from_str(&text).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    let prints =
+        all.remove(FINGERPRINTS).map_or_else(Fingerprints::new, |v| serde_json::from_value(v).unwrap_or_else(|e| panic!("{}: {e}", path.display())));
+    let floors = serde_json::from_value(serde_json::Value::Object(all.into_iter().collect())).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    (floors, prints)
 }
 
 /// The sets this crate tests.
 const SETS: &[&str] = &["pngsuite", "raw", "photos", "heif"];
+
+/// The sets whose files keep a decoded fingerprint each: the camera and phone photos, where
+/// colour (embedded profiles, colour spaces EXIF declares, CMYK) is what the decode gets right.
+const FINGERPRINTED: &[&str] = &["photos"];
+
+/// How far a decode may drift from its stored fingerprint, in 0–255 units per cell value (one
+/// level of rounding in the decoder or the colour transform).
+const TOLERANCE: f64 = 1.0;
+
+/// Files of a set that hold the same picture, one with an embedded profile and one whose colour
+/// space only its EXIF declares: they must decode alike (within [`TOLERANCE`]).
+const SAME_PICTURE: &[(&str, &str, &str)] = &[("photos", "adobergb_b1b.jpg", "gen_adobergb_no_icc.jpg")];
+
+fn bless() -> bool {
+    std::env::var_os("DALICA_BLESS").is_some_and(|v| v == "1")
+}
 
 /// The format a file's extension promises (`None`: not a picture, e.g. a README or licence).
 fn by_extension(rel: &str) -> Option<Format> {
@@ -142,23 +182,30 @@ struct Outcome {
     format: String,
     header: Result<(), String>,
     decoded: Result<(u32, u32), Error>,
+    /// The full decode's fingerprint, for the sets in [`FINGERPRINTED`].
+    fingerprint: Option<Fingerprint>,
     thumbnail: bool,
     embedded: Option<bool>,
 }
 
-fn measure_file(path: &Path, rel: &str, bytes: &[u8], limits: &Limits) -> (Outcome, bool) {
+fn measure_file(path: &Path, rel: &str, bytes: &[u8], limits: &Limits, fingerprinted: bool) -> (Outcome, bool) {
     let sniffed = sniff(bytes);
     let header = read_header_file(path, limits).map(|_| ()).map_err(|e| e.reason());
-    let decoded = decode(bytes, limits).map(|p| (p.width, p.height));
+    let full = decode(bytes, limits);
+    let fingerprint = full.as_ref().ok().filter(|_| fingerprinted).map(|p| fingerprint::fingerprint(p.width, p.height, &p.data));
+    let decoded = full.map(|p| (p.width, p.height));
     let thumbnail = decode_thumbnail(bytes, 256, limits).is_ok_and(|t| t.width.max(t.height) <= 256 && t.width > 0);
     let embedded = read_header(bytes, limits).ok().and_then(|h| h.thumbnail(bytes).map(|t| decode(t, limits).is_ok()));
     let format = sniffed.map_or("unknown".to_string(), |f| format!("{f:?}"));
     let as_expected = sniffed.is_some() && sniffed == by_extension(rel);
-    (Outcome { rel: rel.to_string(), format, header, decoded, thumbnail, embedded }, as_expected)
+    (Outcome { rel: rel.to_string(), format, header, decoded, fingerprint, thumbnail, embedded }, as_expected)
 }
 
+/// A set's counts and its files' fingerprints.
+type Measured = (BTreeMap<String, u64>, BTreeMap<String, Fingerprint>);
+
 /// Verifies the set against its manifest and measures it; `Err` is why it cannot be measured.
-fn measure(set: &str) -> Option<Result<BTreeMap<String, u64>, String>> {
+fn measure(set: &str) -> Option<Result<Measured, String>> {
     let entries = manifest(set)?;
     let dir = root().join("corpus").join(set);
     let limits = Limits::default();
@@ -178,7 +225,7 @@ fn measure(set: &str) -> Option<Result<BTreeMap<String, u64>, String>> {
         if by_extension(rel).is_none() {
             continue; // READMEs and licences travel with the set
         }
-        let (outcome, as_expected) = measure_file(&path, rel, &bytes, &limits);
+        let (outcome, as_expected) = measure_file(&path, rel, &bytes, &limits, FINGERPRINTED.contains(&set));
         // PngSuite's x*.png files are corrupt on purpose: refusing them is the right answer.
         let corrupt = set == "pngsuite" && rel.starts_with('x');
         let mut count = |k: &str, yes: bool| *m.entry(k.to_string()).or_default() += u64::from(yes);
@@ -220,7 +267,96 @@ fn measure(set: &str) -> Option<Result<BTreeMap<String, u64>, String>> {
         };
         println!("  {:<32} {:<16} {header:<14} {decoded:<40} thumb {} · {embedded}", o.rel, o.format, if o.thumbnail { "ok" } else { "no" });
     }
-    Some(Ok(m))
+    let prints = outcomes.into_iter().filter_map(|o| Some((o.rel, o.fingerprint?))).collect();
+    Some(Ok((m, prints)))
+}
+
+/// Compares a set's fingerprints with the stored ones (`DALICA_BLESS=1` stores them instead) and
+/// checks [`SAME_PICTURE`]; the problems found.
+fn check_fingerprints(set: &str, measured: &BTreeMap<String, Fingerprint>, stored: &Fingerprints) -> Vec<String> {
+    let mut problems = Vec::new();
+    for &(s, a, b) in SAME_PICTURE.iter().filter(|(s, ..)| *s == set) {
+        match (measured.get(a), measured.get(b)) {
+            (Some(x), Some(y)) => {
+                let d = fingerprint::distance(x, y);
+                println!("corpus/{s}: {a} and {b} decode {d:.2} apart");
+                if d > TOLERANCE {
+                    problems.push(format!("{s}: {a} and {b} hold the same picture but decode {d:.2} apart (tolerance {TOLERANCE})"));
+                }
+            }
+            _ => problems.push(format!("{s}: {a} and {b} must both decode")),
+        }
+    }
+    if bless() {
+        return problems;
+    }
+    let empty = BTreeMap::new();
+    let stored = stored.get(set).unwrap_or(&empty);
+    for (rel, print) in measured {
+        match stored.get(rel) {
+            None => problems.push(format!("{set}/{rel} has no fingerprint (DALICA_BLESS=1 stores it; look at the image first)")),
+            Some(want) => {
+                let d = fingerprint::distance(print, want);
+                if d > TOLERANCE {
+                    problems.push(format!("{set}/{rel} decodes {d:.2} away from its fingerprint (tolerance {TOLERANCE})"));
+                    write_look(set, rel);
+                }
+            }
+        }
+    }
+    for rel in stored.keys().filter(|r| !measured.contains_key(*r)) {
+        problems.push(format!("{set}/{rel} has a fingerprint but no longer decodes (or left the set)"));
+    }
+    problems
+}
+
+/// A 512 px view of a corpus file under `target/test-output/image/corpus/<set>/`, to look at.
+fn write_look(set: &str, rel: &str) {
+    let Ok(bytes) = std::fs::read(root().join("corpus").join(set).join(rel)) else { return };
+    let Ok(img) = decode_thumbnail(&bytes, 512, &Limits::default()) else { return };
+    let path = root().join("target").join("test-output").join("image").join("corpus").join(set).join(format!("{rel}.png"));
+    if let Some(dir) = path.parent()
+        && std::fs::create_dir_all(dir).is_ok()
+        && std::fs::write(&path, fingerprint::png_rgba(img.width, img.height, &img.data)).is_ok()
+    {
+        println!("  wrote {}", path.display());
+    }
+}
+
+/// Rewrites the floors file's fingerprints section with `set`'s measured ones (the counts are left
+/// as they are, byte for byte): one file per line, values rounded to 0.1 (the tolerance is 1).
+fn store_fingerprints(set: &str, measured: &BTreeMap<String, Fingerprint>) {
+    let path = floors_path();
+    let text = std::fs::read_to_string(&path).unwrap();
+    let (_, mut all) = floors_and_fingerprints();
+    all.insert(set.to_string(), measured.clone());
+    let head = match text.find(&format!(",\n  \"{FINGERPRINTS}\"")) {
+        Some(at) => text[..at].to_string(),
+        None => text.trim_end().strip_suffix('}').unwrap().trim_end().to_string(),
+    };
+    let round = |v: f64| (v * 10.0).round() / 10.0;
+    let mut out = format!("{head},\n  \"{FINGERPRINTS}\": {{\n");
+    let sets: Vec<String> = all
+        .iter()
+        .map(|(s, prints)| {
+            let lines: Vec<String> = prints
+                .iter()
+                .map(|(rel, f)| {
+                    let cells: Vec<[[f64; 2]; 3]> = f.cells.iter().map(|c| c.map(|[m, d]| [round(m), round(d)])).collect();
+                    let f = Fingerprint { width: f.width, height: f.height, cells };
+                    format!("      {}: {}", serde_json::to_string(rel).unwrap(), serde_json::to_string(&f).unwrap())
+                })
+                .collect();
+            format!("    {}: {{\n{}\n    }}", serde_json::to_string(s).unwrap(), lines.join(",\n"))
+        })
+        .collect();
+    out.push_str(&sets.join(",\n"));
+    out.push_str("\n  }\n}\n");
+    std::fs::write(&path, out).unwrap();
+    println!("corpus/{set}: stored {} fingerprints in {}", measured.len(), path.display());
+    for rel in measured.keys() {
+        write_look(set, rel);
+    }
 }
 
 /// The first few names of a list, for messages.
@@ -231,7 +367,7 @@ fn some(names: &[String]) -> String {
 
 /// Measures `set` and holds it to its floors; `Ok(None)` when it is not published yet.
 fn check(set: &str) -> Result<Option<BTreeMap<String, u64>>, String> {
-    let floors = floors();
+    let (floors, stored) = floors_and_fingerprints();
     let Some(measured) = measure(set) else {
         if floors.contains_key(set) {
             return Err(format!("{set} has floors in corpus_floors.json but no manifest xtask/corpus/{set}.sha256"));
@@ -239,10 +375,15 @@ fn check(set: &str) -> Result<Option<BTreeMap<String, u64>>, String> {
         println!("corpus/{set}: not published yet (no xtask/corpus/{set}.sha256); SKIPPED, not passed, and it has no floors");
         return Ok(None);
     };
-    let measured = measured?;
+    let (measured, prints) = measured?;
     println!("corpus/{set} measured: {measured:?}");
     let floor = floors.get(set).ok_or_else(|| format!("{set} is measured but has no floors in corpus_floors.json: add {measured:?}"))?;
-    let mut problems = Vec::new();
+    let mut problems = check_fingerprints(set, &prints, &stored);
+    if FINGERPRINTED.contains(&set) && bless() {
+        store_fingerprints(set, &prints);
+    } else if !FINGERPRINTED.contains(&set) && stored.contains_key(set) {
+        problems.push(format!("{set} has fingerprints but is not in FINGERPRINTED"));
+    }
     for (key, min) in floor {
         match measured.get(key) {
             None => problems.push(format!("{set}.{key}: a floor for something this test does not measure")),
@@ -265,7 +406,8 @@ fn run(set: &str) {
 
 #[test]
 fn floors_name_known_sets_only() {
-    for set in floors().keys() {
+    let (floors, prints) = floors_and_fingerprints();
+    for set in floors.keys().chain(prints.keys()) {
         assert!(SETS.contains(&set.as_str()), "corpus_floors.json names an unknown set {set:?}");
     }
 }

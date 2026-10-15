@@ -2,7 +2,8 @@
 //! with the `corpus` feature and run by `cargo xtask test-corpus -p dalica-meta`: the files of
 //! `corpus/metadata/` (our own `dalica-scenes` photos after exiv2, ImageMagick and Pillow wrote
 //! captions, keywords, ratings, GPS, dates, face regions and foreign metadata into them, plus RAW
-//! `.xmp` sidecars), fetched by `cargo xtask corpus --all`.
+//! `.xmp` sidecars) and the JPEGs of `corpus/photos/` (real camera and phone files: maker notes,
+//! MPF secondary images, data after the end of the image), fetched by `cargo xtask corpus --all`.
 //!
 //! The set is checked against its manifest `xtask/corpus/metadata.sha256` first: a missing or stale
 //! file is a failure ("run `cargo xtask corpus --all`"), never a skip. Then:
@@ -13,12 +14,19 @@
 //!   (the payload digest equal; for TIFF, written append-only, every such byte still at its
 //!   offset), keep every foreign EXIF, IPTC, XMP and text row of the listing, leave the other
 //!   owned fields as they were, and give the same bytes when written again;
+//! - a JPEG write also keeps the image data (from the first SOS to the primary image's EOI) and
+//!   everything after that EOI byte for byte, and every image its MPF index lists other than the
+//!   primary still starts with FFD8 at the offset the index gives and is the image it was
+//!   ([`jpeg_kept`]); each MPF file also proves the check: the same file with a segment slipped in
+//!   after the MPF index (the secondary images moved, the offsets not) must fail it;
 //! - RAW sidecars go through `xmp_sidecar::merge` under the same rules (foreign XMP rows kept, the
 //!   change read back, writing again changes nothing), and the DNG-like file pairs with its sidecar.
 //!
 //! The expected refusals (`xmp-interop.md` §4) are counted as refusals, not failures: a RAW (the
-//! DNG-like file) is never written, and a TIFF's place or date cannot be written where its EXIF
-//! holds the value or no XMP mirror exists. Any other error, or a write that breaks a rule above, is
+//! DNG-like file) is never written, a TIFF's place or date cannot be written where its EXIF
+//! holds the value or no XMP mirror exists, and a JPEG's place or date cannot be written where
+//! its EXIF block has no room left in its APP1 segment (`xmp-interop.md` §4, *Size limits*: some
+//! cameras leave only a few bytes of the 65,533 free). Any other error, or a write that breaks a rule above, is
 //! a failure. The counts must reach the floors in `tests/corpus_floors.json`, which only ever rise.
 #![cfg(feature = "corpus")]
 
@@ -44,12 +52,19 @@ fn floors() -> Floors {
 }
 
 /// The sets this crate tests.
-const SETS: &[&str] = &["metadata"];
+const SETS: &[&str] = &["metadata", "photos"];
+
+/// Whether `set` holds `rel` for this test: every file of `metadata`, the JPEGs of `photos` (its
+/// TIFF, PNG and WebP files are pixel-format samples for `dalica-image`).
+fn measured(set: &str, rel: &str) -> bool {
+    let lower = rel.to_ascii_lowercase();
+    set != "photos" || lower.ends_with(".jpg") || lower.ends_with(".jpeg")
+}
 
 /// Counts that are printed but have no floor: the expected refusals and the writes that change
 /// nothing are not quality measures (a refusal that turns into a checked write raises `written`,
 /// whose floor catches the reverse).
-const UNFLOORED: &[&str] = &["refused_raw", "refused_tiff_place_date", "unchanged", "sidecar_unchanged"];
+const UNFLOORED: &[&str] = &["refused_raw", "refused_tiff_place_date", "refused_exif_full", "unchanged", "sidecar_unchanged"];
 
 // ---------------------------------------------------------------------------------------------
 // Manifests and verification
@@ -352,13 +367,19 @@ fn payload_kept(before: &[u8], after: &[u8], limits: &Limits) -> bool {
 
 /// A refusal `xmp-interop.md` §4 promises: a RAW is never written; a TIFF's place or date goes only
 /// to XMP mirrors, so it fails where the EXIF holds the value (EXIF wins on reading) or no mirror
-/// exists to take it.
+/// exists to take it; a JPEG's EXIF must fit one APP1, so a place or date fails, naming its
+/// field, where the block has no room left for it.
 fn expected_refusal(rel: &str, bytes: &[u8], edit: Edit, error: &Error, limits: &Limits) -> Option<&'static str> {
     let is_raw = rel.to_ascii_lowercase().ends_with(".dng");
     if is_raw && matches!(error, Error::Unsupported(Container::Tiff)) {
         return Some("refused_raw");
     }
     let m = dalica_meta::read(bytes, limits).ok()?;
+    // The writer appends a changed value and never repacks, so it fails only for want of room.
+    let full = |field: &str| matches!(error, Error::TooMany(what) if *what == format!("EXIF bytes for the {field}"));
+    if m.container == Some(Container::Jpeg) && ((edit == Edit::Place && full("place")) || (edit == Edit::Date && full("date taken"))) {
+        return Some("refused_exif_full");
+    }
     if m.container != Some(Container::Tiff) || !edit.is_place_or_date() || !matches!(error, Error::Refused { field: "place" | "date taken", .. }) {
         return None;
     }
@@ -413,6 +434,9 @@ fn measure_file(rel: &str, bytes: &[u8], owned: &Owned, t: &mut Tally) {
         if !payload_kept(bytes, &after, &limits) {
             problems.push("bytes outside the metadata changed".into());
         }
+        if before.container == Some(Container::Jpeg) {
+            problems.extend(jpeg_kept(bytes, &after));
+        }
         problems.extend(foreign_diff(&foreign_before, &file_rows(&after, owned), owned));
         match dalica_meta::read(&after, &limits) {
             Ok(m) if !m.problems.is_empty() => problems.push(format!("reads back with problems: {:?}", m.problems)),
@@ -439,7 +463,186 @@ fn measure_file(rel: &str, bytes: &[u8], owned: &Owned, t: &mut Tally) {
             t.fail(rel, format!("{edit:?}: {}", problems.join("; ")));
         }
     }
-    t.lines.push(format!("  {rel:<46} {:<7} · {}", before.container.map_or("?", Container::name), summary(&results)));
+    let mut extra = String::new();
+    if before.container == Some(Container::Jpeg) {
+        extra = jpeg_structure(rel, bytes, t);
+    }
+    t.lines.push(format!("  {rel:<46} {:<7} · {}{extra}", before.container.map_or("?", Container::name), summary(&results)));
+}
+
+// ---------------------------------------------------------------------------------------------
+// A JPEG's image data, its MPF index and what follows its EOI
+
+/// The MPF index of a JPEG (CIPA DC-007 §5.2): where its MP header is, where its APP2 segment
+/// ends, and each MP entry's image size and offset (from the MP header; 0 for the primary).
+struct Mpf {
+    header: usize,
+    segment_end: usize,
+    entries: Vec<(usize, usize)>,
+}
+
+/// What a JPEG write must keep: the image data from the first SOS to the primary's EOI, and the
+/// MPF index if there is one.
+struct JpegLayout {
+    image: std::ops::Range<usize>,
+    mpf: Option<Mpf>,
+}
+
+fn be_or_le(b: &[u8], at: usize, n: usize, big: bool) -> Option<usize> {
+    let bytes = b.get(at..at.checked_add(n)?)?;
+    let fold = |acc: usize, &x: &u8| (acc << 8) | usize::from(x);
+    Some(if big { bytes.iter().fold(0, fold) } else { bytes.iter().rev().fold(0, fold) })
+}
+
+/// The MP Index IFD at the MP header `header` (bounded: at most 64 tags and 64 entries).
+fn mpf_at(b: &[u8], header: usize, segment_end: usize) -> Option<Mpf> {
+    let big = match b.get(header..header + 2)? {
+        b"MM" => true,
+        b"II" => false,
+        _ => return None,
+    };
+    let ifd = header.checked_add(be_or_le(b, header + 4, 4, big)?)?;
+    let count = be_or_le(b, ifd, 2, big)?.min(64);
+    for k in 0..count {
+        let e = ifd + 2 + 12 * k;
+        if be_or_le(b, e, 2, big)? != 0xb002 {
+            continue;
+        }
+        let n = (be_or_le(b, e + 4, 4, big)? / 16).min(64);
+        let data = header.checked_add(be_or_le(b, e + 8, 4, big)?)?;
+        let entries =
+            (0..n).map(|i| Some((be_or_le(b, data + 16 * i + 4, 4, big)?, be_or_le(b, data + 16 * i + 8, 4, big)?))).collect::<Option<Vec<_>>>()?;
+        return Some(Mpf { header, segment_end, entries });
+    }
+    None
+}
+
+/// Walks a JPEG (ITU-T T.81 B.1) to the end of its primary image: the segments before the first
+/// scan, then scans and the segments between them, entropy-coded data skipped by its markers
+/// (FF00 stuffing and RSTn are data), to EOI. `None` for a file with no EOI.
+fn jpeg_layout(b: &[u8]) -> Option<JpegLayout> {
+    let marker_at = |at: usize| -> Option<(usize, u8)> {
+        let mut at = at;
+        (b.get(at)? == &0xff).then_some(())?;
+        while b.get(at + 1)? == &0xff {
+            at += 1;
+        }
+        Some((at, *b.get(at + 1)?))
+    };
+    let seg_len = |at: usize| be_or_le(b, at + 2, 2, true).filter(|&n| n >= 2);
+    let (mut at, mut mpf) = (2, None);
+    let sos = loop {
+        let (m_at, marker) = marker_at(at)?;
+        match marker {
+            0xda => break m_at,
+            0xd9 => return None,
+            0x01 | 0xd0..=0xd8 => at = m_at + 2,
+            _ => {
+                let end = m_at + 2 + seg_len(m_at)?;
+                if marker == 0xe2 && mpf.is_none() && b.get(m_at + 4..m_at + 8) == Some(b"MPF\0") {
+                    mpf = mpf_at(b, m_at + 8, end);
+                }
+                at = end;
+            }
+        }
+    };
+    let mut at = sos;
+    loop {
+        let (m_at, marker) = marker_at(at)?;
+        match marker {
+            0xd9 => return Some(JpegLayout { image: sos..m_at + 2, mpf }),
+            0x01 | 0xd0..=0xd8 => at = m_at + 2,
+            _ => {
+                at = m_at + 2 + seg_len(m_at)?;
+                if marker == 0xda {
+                    // Entropy-coded data: up to the next marker that is not stuffing or a restart.
+                    loop {
+                        at += b.get(at..)?.iter().position(|&x| x == 0xff)?;
+                        match *b.get(at + 1)? {
+                            0x00 | 0xd0..=0xd7 => at += 2,
+                            0xff => at += 1,
+                            _ => break,
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The images the MPF index lists other than the primary, as `(start in the file, size)`, where
+/// the original's start holds an SOI (an index that was already wrong is not ours to judge).
+fn mpf_images(b: &[u8], mpf: &Mpf) -> Vec<(usize, usize)> {
+    mpf.entries
+        .iter()
+        .filter(|(_, offset)| *offset != 0)
+        .filter_map(|&(size, offset)| Some((mpf.header.checked_add(offset)?, size)))
+        .filter(|&(start, _)| b.get(start..start + 2) == Some(&[0xff, 0xd8][..]))
+        .collect()
+}
+
+/// What a JPEG write broke: the image data, the data after EOI, or an image of the MPF index.
+fn jpeg_kept(before: &[u8], after: &[u8]) -> Vec<String> {
+    let Some(old) = jpeg_layout(before) else { return Vec::new() };
+    let Some(new) = jpeg_layout(after) else { return vec!["the written JPEG has no EOI where the original had one".into()] };
+    let mut problems = Vec::new();
+    if before.get(old.image.clone()) != after.get(new.image.clone()) {
+        problems.push("the image data changed".into());
+    }
+    if before.get(old.image.end..) != after.get(new.image.end..) {
+        problems.push("the data after EOI changed".into());
+    }
+    let Some(old_mpf) = &old.mpf else { return problems };
+    let listed = mpf_images(before, old_mpf);
+    if listed.is_empty() {
+        return problems;
+    }
+    let Some(new_mpf) = &new.mpf else {
+        problems.push("the MPF index is gone".into());
+        return problems;
+    };
+    if new_mpf.entries.len() != old_mpf.entries.len() {
+        problems.push(format!("the MPF index lists {} images, not {}", new_mpf.entries.len(), old_mpf.entries.len()));
+        return problems;
+    }
+    for (k, (&(_, old_offset), &(size, offset))) in old_mpf.entries.iter().zip(&new_mpf.entries).enumerate().filter(|(_, (o, _))| o.1 != 0) {
+        let Some(&(old_start, old_size)) = listed.iter().find(|(s, _)| *s == old_mpf.header + old_offset) else { continue };
+        let start = new_mpf.header + offset;
+        if after.get(start..start + 2) != Some(&[0xff, 0xd8][..]) {
+            problems.push(format!("MPF image {k} does not start with FFD8 at its offset ({offset} from the MP header)"));
+        } else if size != old_size || after.get(start..start + size) != before.get(old_start..old_start + old_size) {
+            problems.push(format!("MPF image {k} is not the image it was"));
+        }
+    }
+    problems
+}
+
+/// Counts what `bytes` holds beyond its primary image (MPF images, data after EOI) and proves the
+/// MPF check on it: a segment slipped in after the MPF index, the offsets left as they were, must
+/// fail [`jpeg_kept`]. The note for the file's line.
+fn jpeg_structure(rel: &str, bytes: &[u8], t: &mut Tally) -> String {
+    let Some(layout) = jpeg_layout(bytes) else { return " · no EOI".into() };
+    let mut note = String::new();
+    let trailer = bytes.len() - layout.image.end;
+    if trailer > 0 {
+        t.count("trailers");
+        note += &format!(" · {trailer} bytes after EOI");
+    }
+    let Some(mpf) = &layout.mpf else { return note };
+    let listed = mpf_images(bytes, mpf);
+    if listed.is_empty() {
+        return note + " · MPF without other images";
+    }
+    t.count("mpf_files");
+    note += &format!(" · MPF: {} more images", listed.len());
+    let shifted = [&bytes[..mpf.segment_end], b"\xff\xfe\x00\x07shift", &bytes[mpf.segment_end..]].concat();
+    let caught = jpeg_kept(bytes, &shifted);
+    if caught.iter().any(|p| p.starts_with("MPF image")) {
+        t.count("mpf_shift_caught");
+    } else {
+        t.fail(rel, format!("moving the MPF images without fixing their offsets was not caught: {caught:?}"));
+    }
+    note
 }
 
 fn measure_sidecar(rel: &str, bytes: &[u8], owned: &Owned, t: &mut Tally) {
@@ -570,7 +773,7 @@ fn measure(set: &str) -> Option<Result<Measured, String>> {
     }
     let owned = Owned::new();
     let mut t = Tally::default();
-    for (rel, bytes) in &files {
+    for (rel, bytes) in files.iter().filter(|(rel, _)| measured(set, rel)) {
         let lower = rel.to_ascii_lowercase();
         if lower.ends_with(".xmp") {
             measure_sidecar(rel, bytes, &owned, &mut t);
@@ -585,7 +788,7 @@ fn measure(set: &str) -> Option<Result<Measured, String>> {
             measure_pair(rel, bytes, sidecar, &owned, &mut t);
         }
     }
-    println!("\ncorpus/{set}: {} files", files.len());
+    println!("\ncorpus/{set}: {} files", files.keys().filter(|rel| measured(set, rel)).count());
     for l in &t.lines {
         println!("{l}");
     }
@@ -640,6 +843,13 @@ fn floors_name_known_sets_only() {
 #[test]
 fn metadata() {
     if let Err(e) = check("metadata") {
+        panic!("{e}");
+    }
+}
+
+#[test]
+fn photos() {
+    if let Err(e) = check("photos") {
         panic!("{e}");
     }
 }

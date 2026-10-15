@@ -503,6 +503,121 @@ fn the_image_decodes_to_identical_pixels() {
     }
 }
 
+// A camera's multi-picture file: the primary image, its MPF index, and data after its EOI.
+
+/// The APP2 MPF payload (CIPA DC-007 §5.2): a big-endian MP header and an MP Index IFD with
+/// MPFVersion, NumberOfImages and two MP entries (the primary at offset 0 and a secondary image
+/// of `size` bytes at `offset`, counted from the MP header).
+fn mpf(size: u32, offset: u32) -> Vec<u8> {
+    let mut p = b"MPF\0MM\0*\0\0\0\x08".to_vec();
+    p.extend(3u16.to_be_bytes());
+    // Three 12-byte entries and the next-IFD offset: the entries' data is at 8 + 2 + 36 + 4 = 50.
+    p.extend([0xb0, 0x00, 0, 7, 0, 0, 0, 4]);
+    p.extend(b"0100");
+    p.extend([0xb0, 0x01, 0, 4, 0, 0, 0, 1, 0, 0, 0, 2]);
+    p.extend([0xb0, 0x02, 0, 7, 0, 0, 0, 32, 0, 0, 0, 50]);
+    p.extend([0; 4]);
+    // The primary (offset 0), then the secondary (a large preview).
+    p.extend([0x20, 0x03, 0, 0, 0, 0, 0x10, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    p.extend([0x00, 0x01, 0, 1]);
+    p.extend(size.to_be_bytes());
+    p.extend(offset.to_be_bytes());
+    p.extend([0; 4]);
+    p
+}
+
+/// The MP header's position in `file`: 8 bytes into the MPF segment (FF E2, the length, `MPF\0`).
+fn mpf_header(file: &[u8]) -> Option<usize> {
+    let mut at = 2;
+    for (marker, bytes) in segments(file).0 {
+        if marker == APP2 && bytes[4..].starts_with(b"MPF\0") {
+            return Some(at + 8);
+        }
+        at += bytes.len();
+    }
+    None
+}
+
+/// Where the image of each MP entry other than the primary starts in `file`: the MP header's
+/// position plus the entry's offset.
+fn mpf_secondaries(file: &[u8]) -> Vec<usize> {
+    let header = mpf_header(file).unwrap();
+    let p = &file[header..];
+    let be = |at: usize| u32::from_be_bytes(p[at..at + 4].try_into().unwrap()) as usize;
+    let entries = be(42);
+    (0..2).map(|i| be(entries + 16 * i + 8)).filter(|&o| o != 0).map(|o| header + o).collect()
+}
+
+/// A phone's file: EXIF, the MPF index, ICC and `after` after it (where phones put ICC), the
+/// primary image, a secondary JPEG right after the primary's EOI, and a trailer after that (a
+/// motion photo's video, here the start of an MP4 box).
+fn multi_picture(after: &[(u8, Vec<u8>)]) -> (Vec<u8>, Vec<u8>, Vec<u8>) {
+    let secondary = real_jpeg(&[]);
+    let trailer = b"\0\0\0\x18ftypmp42\0\0\0\0isommp42 motion photo trailer".to_vec();
+    let build = |offset: u32| {
+        let mut segs = vec![app1_exif(&camera().build()), (APP2, mpf(secondary.len() as u32, offset)), app2_icc(b"pretend ICC profile")];
+        segs.extend(after.iter().cloned());
+        [real_jpeg(&segs), secondary.clone(), trailer.clone()].concat()
+    };
+    let draft = build(0);
+    let primary_len = draft.len() - secondary.len() - trailer.len();
+    let file = build((primary_len - mpf_header(&draft).unwrap()) as u32);
+    assert_eq!(mpf_secondaries(&file), [primary_len]);
+    (file, secondary, trailer)
+}
+
+/// Data after the primary image's EOI is not image data the writer may move without care: an MP
+/// entry's offset counts from the MPF segment, so a segment added or grown after that segment
+/// moves the secondary image away from where the index says it is.
+#[test]
+fn a_multi_picture_file_keeps_its_secondary_images_and_trailer() {
+    let (file, secondary, trailer) = multi_picture(&[]);
+    let il = dalica_image::Limits::default();
+    let pixels = dalica_image::decode(&file, &il).unwrap();
+    // Every field, and a caption and tags alone: the new APP13 would go after ICC, so after the
+    // MPF segment, where it moved the secondary image.
+    let sets = [everything(), Changes { caption: Some(Some(CAPTION.into())), tags: Some(tags()), ..Changes::default() }];
+    for c in &sets {
+        let out = write(&file, c);
+        let starts = mpf_secondaries(&out);
+        assert_eq!(starts.len(), 1, "{c:?}");
+        let at = starts[0];
+        assert!(
+            out.get(at..at + secondary.len()) == Some(&secondary[..]),
+            "{c:?}: the MP entry points at {at}, where {:02x?} is",
+            out.get(at..at + 4)
+        );
+        assert!(out.ends_with(&trailer), "the trailer changed");
+        assert_eq!(at + secondary.len() + trailer.len(), out.len());
+        assert_eq!(dalica_image::decode(&out, &il).unwrap(), pixels);
+        assert_eq!(write(&out, c), out, "writing twice");
+        assert_eq!(mpf_header(&out).map(|h| out[h - 8..h + 82].to_vec()), mpf_header(&file).map(|h| file[h - 8..h + 82].to_vec()));
+    }
+    assert_eq!(kinds(&write(&file, &sets[1]))[..5], ["APP0", "EXIF", "XMP", "APP13", "MPF"]);
+}
+
+/// A write that would still move the images an MPF index locates is refused, naming the field: a
+/// segment after the index that grows (here an XMP packet with no padding), or a size change after
+/// an index that cannot be read in a file with data after its EOI. Without data after the EOI
+/// there is nothing to move, and the write goes ahead.
+#[test]
+fn a_write_that_would_move_mpf_images_is_refused() {
+    let caption = Changes { caption: Some(Some(CAPTION.into())), ..Changes::default() };
+    let (file, ..) = multi_picture(&[app1_xmp(&padded_packet(&foreign_description(&guid()), 0))]);
+    let err = write_owned(&file, &caption, &on()).unwrap_err();
+    assert!(matches!(&err, Error::Refused { field: "caption", why } if why.contains("MPF")), "{err}");
+    // A star grows the packet too, and is refused the same way, naming the star.
+    assert!(matches!(write_owned(&file, &Changes { star: Some(true), ..Changes::default() }, &on()), Err(Error::Refused { field: "star", .. })));
+    // An index that cannot be read, with an APP13 after it that a caption rewrites.
+    let unreadable = |trailer: &[u8]| {
+        let segs = [(APP2, b"MPF\0MM\0*\0\0\0\x08 unreadable".to_vec()), app13(&irb(&[(0x0404, &latin1_iptc())]))];
+        [real_jpeg(&segs), trailer.to_vec()].concat()
+    };
+    assert!(matches!(write_owned(&unreadable(&real_jpeg(&[])), &caption, &on()), Err(Error::Refused { field: "caption", .. })));
+    let alone = unreadable(b"");
+    assert_eq!(meta(&write(&alone, &caption)).owned.caption.as_deref(), Some(CAPTION));
+}
+
 // §8 test 3: idempotence.
 
 #[test]

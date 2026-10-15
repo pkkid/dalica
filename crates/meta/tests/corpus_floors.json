@@ -9,5 +9,15 @@
     "sidecar_writes": 36,
     "sidecar_written": 28,
     "raw_sidecar_pairs": 1
+  },
+  "photos": {
+    "files": 51,
+    "read": 51,
+    "images_read": 51,
+    "writes": 459,
+    "written": 272,
+    "mpf_files": 5,
+    "mpf_shift_caught": 5,
+    "trailers": 10
   }
 }

@@ -18,7 +18,14 @@
 //!   cannot hold them (readers join consecutive Photoshop segments).
 //! - **New segments** go where readers look for them: EXIF right after SOI and its APP0 (JFIF,
 //!   JFXX) segments, XMP right after the EXIF segment, APP13 after the last APP0–APP12 segment of
-//!   the leading run (so before an Adobe APP14, the tables and the frame).
+//!   the leading run (so before an Adobe APP14, the tables and the frame); and never after an MPF
+//!   index.
+//! - **MPF** ([`mpf_moved`]): the index locates the other images of a multi-picture file (a
+//!   phone's or camera's preview, after the primary image's EOI) by offsets counted from its own
+//!   APP2 segment, so a write must not move them relative to it. New segments therefore go before
+//!   the index, and a write whose rewritten segments after the index change size is refused,
+//!   naming the field, when the index lists other images (or cannot be read and the file holds
+//!   data after its EOI). The index itself is copied byte for byte.
 //! - A block that already holds the values is left as it is, so writing the same values twice
 //!   gives the same bytes.
 //!
@@ -28,7 +35,8 @@
 //! Provenance: written for Dalica from ITU-T T.81 (marker segments, at most 65,535 bytes counting
 //! the length field), the Exif 2.32 specification (APP1 after SOI), the XMP Specification Part 3
 //! (the standard packet in one APP1) and the public description of Photoshop image resources in
-//! APP13. No other writer's code was consulted.
+//! APP13, and CIPA DC-007 (the MP Index IFD and its MP entries, offsets from the MP header). No
+//! other writer's code was consulted.
 
 use std::ops::Range;
 
@@ -46,6 +54,8 @@ use crate::{Error, Limits, Metadata, Result, exif, iptc};
 pub const MAX_SEGMENT: usize = 65_533;
 
 const SOI_LEN: usize = 2;
+/// Bytes before an MPF segment's MP header: FF E2, the length field and `MPF\0`.
+const MPF_HEADER_AT: usize = 8;
 const APP0: u8 = 0xe0;
 const APP1: u8 = 0xe1;
 const APP12: u8 = 0xec;
@@ -67,7 +77,10 @@ pub(super) fn write(bytes: &[u8], scan: &Scan<'_>, before: &Metadata, changes: &
     let xmp_span = span(BlockKind::Xmp);
     let photoshop: Vec<Range<usize>> =
         scan.spans.iter().filter(|s| s.kind == BlockKind::Photoshop && s.rewritable).map(|s| s.range.clone()).collect();
-    let exif_at = after_app0(&segments);
+    // No new segment goes after an MPF index (CIPA DC-007): the images it lists would move.
+    let mpf = scan.spans.iter().find(|s| s.kind == BlockKind::Mpf).map(|s| s.range.clone());
+    let cap = |at: usize| mpf.as_ref().map_or(at, |r| at.min(r.start));
+    let exif_at = cap(after_app0(&segments));
     let mut edits: Vec<Edit> = Vec::new();
 
     if let Some(block) = new_exif(scan.exif.as_deref(), changes, limits)? {
@@ -85,7 +98,7 @@ pub(super) fn write(bytes: &[u8], scan: &Scan<'_>, before: &Metadata, changes: &
         edits.push(match &xmp_span {
             Some(r) => Edit::replace(r.clone(), segment),
             // Right after the EXIF segment: the one there is, or the one inserted above.
-            None => Edit::insert(exif_span.as_ref().map_or(exif_at, |r| r.end), Order::Xmp, segment),
+            None => Edit::insert(cap(exif_span.as_ref().map_or(exif_at, |r| r.end)), Order::Xmp, segment),
         });
     }
 
@@ -99,11 +112,113 @@ pub(super) fn write(bytes: &[u8], scan: &Scan<'_>, before: &Metadata, changes: &
                 edits.push(Edit::replace(first.clone(), pieces));
                 edits.extend(rest.iter().map(|r| Edit::replace(r.clone(), Vec::new())));
             }
-            None => edits.push(Edit::insert(app13_at(&segments, exif_at), Order::Photoshop, pieces)),
+            None => edits.push(Edit::insert(cap(app13_at(&segments, exif_at)), Order::Photoshop, pieces)),
         }
     }
 
+    if let Some(mpf) = &mpf
+        && mpf_moved(bytes, mpf, &edits, &segments, limits)
+    {
+        return Err(Error::Refused { field: first_field(changes), why: "it would move the other images this file's MPF index locates".into() });
+    }
     Ok(apply(bytes, edits))
+}
+
+/// Whether `edits` would move the images the MPF index in `mpf` locates: a size change after the
+/// index's segment, where the index lists an image other than the primary, or cannot be read
+/// while the file holds data after its EOI (where such images live).
+fn mpf_moved(bytes: &[u8], mpf: &Range<usize>, edits: &[Edit], segments: &[Segment], limits: &Limits) -> bool {
+    let (grown, shrunk) = edits
+        .iter()
+        .filter(|e| e.range.start >= mpf.end)
+        .fold((0usize, 0usize), |(g, s), e| (g.saturating_add(e.with.len()), s.saturating_add(e.range.len())));
+    if grown == shrunk {
+        return false;
+    }
+    match mpf_offsets(bytes, mpf) {
+        Some(offsets) => offsets.iter().any(|&o| o != 0),
+        None => data_after_eoi(bytes, segments.last().map_or(SOI_LEN, |s| s.range.end), limits),
+    }
+}
+
+/// The offsets of the MP entries in the MPF segment at `mpf` (CIPA DC-007 §5.2: the MP Index IFD's
+/// MPEntry tag, 16 bytes per image, the offset in bytes 8–11; 0 for the primary image), or `None`
+/// when the index cannot be read. Everything read lies inside the segment.
+fn mpf_offsets(bytes: &[u8], mpf: &Range<usize>) -> Option<Vec<u32>> {
+    let p = bytes.get(mpf.start.checked_add(MPF_HEADER_AT)?..mpf.end)?;
+    let big = match p.get(..4)? {
+        b"MM\0*" => true,
+        b"II*\0" => false,
+        _ => return None,
+    };
+    let u = |at: usize, n: usize| -> Option<usize> {
+        let b = p.get(at..at.checked_add(n)?)?;
+        let fold = |acc: usize, &x: &u8| (acc << 8) | usize::from(x);
+        Some(if big { b.iter().fold(0, fold) } else { b.iter().rev().fold(0, fold) })
+    };
+    let ifd = u(4, 4)?;
+    for k in 0..u(ifd, 2)? {
+        let entry = ifd.checked_add(2 + 12 * k)?;
+        if u(entry, 2)? != 0xb002 {
+            continue;
+        }
+        let (len, data) = (u(entry + 4, 4)?, u(entry + 8, 4)?);
+        p.get(data..data.checked_add(len)?)?;
+        return (0..len / 16).map(|i| u(data + 16 * i + 8, 4).and_then(|o| u32::try_from(o).ok())).collect();
+    }
+    None
+}
+
+/// Whether the file holds bytes after its primary image's EOI, walking from the first SOS at or
+/// after `at` (ITU-T T.81 B.1): scans and the segments between them, entropy-coded data skipped by
+/// its markers (FF00 stuffing and RSTn are data). A file that ends without an EOI holds none.
+fn data_after_eoi(b: &[u8], mut at: usize, limits: &Limits) -> bool {
+    for _ in 0..limits.max_segments {
+        // The marker: FF, any fill bytes, the code.
+        if b.get(at) != Some(&0xff) {
+            return false;
+        }
+        while b.get(at + 1) == Some(&0xff) {
+            at += 1;
+        }
+        let Some(&marker) = b.get(at + 1) else { return false };
+        match marker {
+            EOI => return b.len() > at + 2,
+            0x01 | 0xd0..=0xd8 => at += 2,
+            _ => {
+                let Ok(len) = be_u16(b, at + 2) else { return false };
+                at += 2 + usize::from(len);
+                if marker == SOS {
+                    // Entropy-coded data, up to the next marker that is not stuffing or a restart.
+                    loop {
+                        let Some(next) = b.get(at..).and_then(|rest| rest.iter().position(|&x| x == 0xff)) else { return false };
+                        at += next;
+                        match b.get(at + 1) {
+                            Some(0x00 | 0xd0..=0xd7) => at += 2,
+                            Some(_) => break,
+                            None => return false,
+                        }
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
+/// The first field a change asks for, in the order they are written, for a refusal's message.
+fn first_field(changes: &Changes) -> &'static str {
+    if changes.caption.is_some() {
+        "caption"
+    } else if changes.tags.is_some() {
+        "tags"
+    } else if changes.star.is_some() {
+        "star"
+    } else if changes.place.is_some() {
+        "place"
+    } else {
+        "date taken"
+    }
 }
 
 /// The new EXIF block, or `None` when it stays as it is.
