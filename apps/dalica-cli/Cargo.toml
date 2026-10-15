@@ -15,7 +15,11 @@ autotests = false
 dalica-core.workspace = true
 dalica-engine.workspace = true
 dalica-fs.workspace = true
+# `dalica-cli mcp`: the MCP server over a headless session.
+dalica-mcp.workspace = true
 dalica-ui.workspace = true
+# `mcp`'s logger, to standard error only.
+log.workspace = true
 png.workspace = true
 serde_json.workspace = true
 

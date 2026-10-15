@@ -4642,7 +4642,7 @@ No other step of M10 needs a maintainer decision mid-run.
     sizes; `crates/ui-kit/tests/icons_options.rs`: both icons stay in their grid at 12, 16, 20 and
     28 px in rest, hover and disabled colours; gallery and icon fingerprints; `widget_ids`,
     `cargo xtask assets` and `cargo xtask names` pass.
-- ⬜ **M10.4 `mcp` + `dalica-cli`: the MCP server's core and headless mode**
+- ✅ **M10.4 `mcp` + `dalica-cli`: the MCP server's core and headless mode**
   - after: M9.3, M9.R
   - files: `crates/mcp/Cargo.toml`, `crates/mcp/README.md`, `crates/mcp/src/lib.rs`, `crates/mcp/src/server.rs`, `crates/mcp/src/jsonrpc.rs`, `crates/mcp/src/backend.rs`, `crates/mcp/src/headless.rs`, `crates/mcp/src/tray.rs`, `crates/mcp/src/progress.rs`, `crates/mcp/src/roots.rs`, `crates/mcp/src/resources.rs`, `crates/mcp/src/connect.rs`, `crates/mcp/src/tools/mod.rs`, `crates/mcp/src/tools/core.rs`, `crates/mcp/src/tools/inspect.rs`, `crates/mcp/src/tools/organize.rs`, `crates/mcp/src/tools/edit.rs`, `crates/mcp/src/tools/output.rs`, `crates/mcp/src/tools/commands.rs`, `crates/mcp/src/tools/ui.rs`, `crates/mcp/tests/server.rs`, `crates/mcp/tests/common/**`, `apps/dalica-cli/src/main.rs`, `apps/dalica-cli/src/mcp.rs`, `apps/dalica-cli/tests/mcp_cli.rs`, `docs/mcp.md`, `NOTICE`
   - scope: `mcp.md` §1, §3, §4.1, §6 and §10, ported from LightCraft `crates/mcp/src/lib.rs`,
