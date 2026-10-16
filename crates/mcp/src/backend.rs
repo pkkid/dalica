@@ -8,6 +8,8 @@
 //! [`Progress`] passed with each call rather than a hook stored in the backend, and rendering is a
 //! method of its own.
 
+use std::path::PathBuf;
+
 use dalica_engine::CmdError;
 use serde_json::{Map, Value, json};
 
@@ -102,4 +104,9 @@ pub trait Backend {
     /// Called while the server waits for the next message (about every 50 ms), so background
     /// work (scans) moves on between calls.
     fn tick(&mut self) {}
+
+    /// The MCP client's roots, as its latest `roots/list` answered them (`mcp.md` §5): read roots
+    /// only, replacing the ones listed before. Connect mode ignores them (the app's own policy
+    /// applies), as does any backend that does not override this.
+    fn set_client_roots(&mut self, _roots: Vec<PathBuf>) {}
 }

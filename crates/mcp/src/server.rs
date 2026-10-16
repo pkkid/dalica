@@ -1,6 +1,13 @@
 //! The MCP methods over JSON-RPC 2.0 (`mcp.md` §3): `initialize`, `ping`, `tools/list`,
 //! `tools/call`, `resources/list`, `resources/templates/list` and `resources/read`, and the
-//! notifications `initialized` and `cancelled`.
+//! notifications `initialized`, `cancelled` and `roots/list_changed`.
+//!
+//! - **Client roots** (`mcp.md` §5): when the client declared the `roots` capability in
+//!   `initialize`, the server asks `roots/list` once the client sends `initialized` and again on
+//!   each `notifications/roots/list_changed` (the request is the line written in answer to that
+//!   notification). The answer to the latest request replaces the backend's client roots
+//!   ([`crate::roots::client_roots`]: `file://` folders only, read roots only); an error answer
+//!   clears them; an answer to an older request is ignored. `--no-client-roots` never asks.
 //!
 //! - **Protocol errors** use the standard codes: `-32700` for a line that is not JSON, over 1 MiB
 //!   or not UTF-8 (with `id: null`; the next line is still read), `-32600` for a message that is
@@ -55,11 +62,24 @@ pub struct Server {
     backend: Box<dyn Backend>,
     compact: bool,
     initialized: bool,
+    /// Ask the client for its roots (off with `--no-client-roots`).
+    ask_roots: bool,
+    /// The client declared the `roots` capability.
+    client_has_roots: bool,
+    /// The id of the `roots/list` request whose answer counts, and how many were sent.
+    roots_request: Option<String>,
+    roots_sent: u64,
 }
 
 impl Server {
     pub fn new(backend: Box<dyn Backend>) -> Server {
-        Server { backend, compact: false, initialized: false }
+        Server { backend, compact: false, initialized: false, ask_roots: true, client_has_roots: false, roots_request: None, roots_sent: 0 }
+    }
+
+    /// `--no-client-roots` (`false`): never ask the client for its roots (`mcp.md` §5).
+    pub fn with_client_roots(mut self, ask: bool) -> Server {
+        self.ask_roots = ask;
+        self
     }
 
     /// `--compact`: `tools/list` gives the helper tools only, not one tool per command
@@ -134,16 +154,16 @@ impl Server {
             return Some(error(valid_id.unwrap_or(Value::Null), INVALID_REQUEST, "`jsonrpc` must be \"2.0\""));
         }
         let Some(method) = o.get("method").and_then(Value::as_str) else {
-            // A response to a request of ours (we send none): nothing to answer.
+            // A response to a request of ours (`roots/list`): nothing to answer.
             if o.contains_key("result") || o.contains_key("error") {
+                self.client_response(o);
                 return None;
             }
             return Some(error(valid_id.unwrap_or(Value::Null), INVALID_REQUEST, "a request needs a `method`"));
         };
         let params = o.get("params").cloned().unwrap_or(Value::Null);
         if id.is_none() {
-            self.notification(method);
-            return None;
+            return self.notification(method);
         }
         let Some(id) = valid_id else { return Some(error(Value::Null, INVALID_REQUEST, "`id` must be a string or a number")) };
         if !(params.is_object() || params.is_null()) {
@@ -156,13 +176,51 @@ impl Server {
         }
     }
 
-    fn notification(&mut self, method: &str) {
+    /// A notification; `Some` is a request of ours to send in answer (`roots/list`).
+    fn notification(&mut self, method: &str) -> Option<Value> {
         match method {
-            "notifications/initialized" => self.initialized = true,
+            "notifications/initialized" => {
+                self.initialized = true;
+                self.list_roots()
+            }
+            "notifications/roots/list_changed" => self.list_roots(),
             // A cancel that arrives between requests is for one already answered (or unknown).
-            "notifications/cancelled" | "notifications/progress" | "notifications/roots/list_changed" => {}
-            other => log::debug!("ignoring the notification {other}"),
+            "notifications/cancelled" | "notifications/progress" => None,
+            other => {
+                log::debug!("ignoring the notification {other}");
+                None
+            }
         }
+    }
+
+    /// A `roots/list` request, when the client has roots, has initialized and may be asked.
+    fn list_roots(&mut self) -> Option<Value> {
+        if !(self.ask_roots && self.client_has_roots && self.initialized) {
+            return None;
+        }
+        self.roots_sent = self.roots_sent.saturating_add(1);
+        let id = format!("dalica-roots-{}", self.roots_sent);
+        self.roots_request = Some(id.clone());
+        Some(json!({ "jsonrpc": "2.0", "id": id, "method": "roots/list" }))
+    }
+
+    /// The client's answer to a request of ours: the latest `roots/list`'s replaces the client
+    /// roots (an error clears them, failing closed); any other answer is ignored.
+    fn client_response(&mut self, o: &serde_json::Map<String, Value>) {
+        let latest = self.roots_request.as_deref().is_some_and(|want| o.get("id").and_then(Value::as_str) == Some(want));
+        if !latest {
+            log::debug!("ignoring a response to no current request of ours: {:?}", o.get("id"));
+            return;
+        }
+        self.roots_request = None;
+        let roots = match o.get("result") {
+            Some(result) => crate::roots::client_roots(result),
+            None => {
+                log::warn!("the client answered roots/list with an error; its roots are dropped: {:?}", o.get("error"));
+                Vec::new()
+            }
+        };
+        let _ = self.guarded(|b, _| b.set_client_roots(roots));
     }
 
     fn request(&mut self, method: &str, params: &Value, id: &Value, wire: Option<&Wire>) -> Reply {
@@ -196,6 +254,7 @@ impl Server {
     fn initialize(&mut self, params: &Value) -> Value {
         let asked = params.get("protocolVersion").and_then(Value::as_str).unwrap_or(PROTOCOL_VERSION);
         let version = SUPPORTED_VERSIONS.iter().find(|v| **v == asked).copied().unwrap_or(PROTOCOL_VERSION);
+        self.client_has_roots = params.pointer("/capabilities/roots").is_some_and(Value::is_object);
         let ui = self.backend.has_ui();
         json!({
             "protocolVersion": version,

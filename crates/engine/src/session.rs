@@ -33,6 +33,15 @@
 //! | [`crate::search`] | search mode's state; the query worker (stub until M9.11) |
 //! | `duplicates` | Find Duplicates (stub until M9.16) |
 //!
+//! **A read-only session** ([`Session::open_read_only`], `--read-only`; [`Session::make_read_only`])
+//! refuses every write at two seams of this file and nowhere else: [`Session::execute`] refuses
+//! the commands that write files (`Effect::Files`: saves, exports, file operations) with
+//! [`CmdError::ReadOnly`], and [`Session::send`] keeps every write from the I/O worker (journal,
+//! snapshots, sidecars, `folders.json`, `settings.json`, `albums.json`, carries and queued work),
+//! so changes stay in memory; metadata changes are never written back into photo files, and the
+//! repairs at open (interrupted saves and file operations) do not run. The library's lock is
+//! still taken; thumbnails still go to the thumbnail cache, outside the photo folders.
+//!
 //! Thumbnails are made by the thumbnailer's own workers as scans land; their sketches come back
 //! through the same calls and are applied as derived ops: journaled, but never on the undo stack
 //! and never written to a sidecar.
@@ -175,6 +184,8 @@ pub struct Session {
     pub(crate) search: crate::search::SearchState,
     /// Find Duplicates (`duplicates.rs`).
     pub(crate) duplicates: crate::duplicates::Duplicates,
+    /// Nothing is written (see the module's notes).
+    read_only: bool,
     _lock: LibraryLock,
 }
 
@@ -192,6 +203,18 @@ impl Session {
     /// [`Session::open`] with `options`. A thumbnail cache that cannot be opened never fails the
     /// open: a temporary one is used instead, and [`Session::notices`] says why.
     pub fn open_with(dir: &Path, clock: Arc<dyn Clock>, options: &Options) -> Result<Session, OpenError> {
+        Session::open_inner(dir, clock, options, false)
+    }
+
+    /// [`Session::open_with`], read-only (`--read-only`): nothing is written to disk but the
+    /// library's lock, file commands are refused with [`CmdError::ReadOnly`], and the repairs at
+    /// open are left for a session that may write (see the module's notes). A library folder that
+    /// does not exist yet is still made, as for any session.
+    pub fn open_read_only(dir: &Path, clock: Arc<dyn Clock>, options: &Options) -> Result<Session, OpenError> {
+        Session::open_inner(dir, clock, options, true)
+    }
+
+    fn open_inner(dir: &Path, clock: Arc<dyn Clock>, options: &Options, read_only: bool) -> Result<Session, OpenError> {
         dalica_fs::create_dir_all(dir)?;
         let lock = LibraryLock::acquire(dir)?;
         let opened = Store::open(dir, clock.now())?;
@@ -262,6 +285,7 @@ impl Session {
             fileops: crate::fileops::FileOps::default(),
             search: crate::search::SearchState::default(),
             duplicates: crate::duplicates::Duplicates::default(),
+            read_only,
             _lock: lock,
         };
         session.configure_thumbnails();
@@ -269,9 +293,13 @@ impl Session {
         if session.recovery.iter().any(|r| matches!(r, Recovery::RebuildNeeded { .. })) && !session.folders.roots.is_empty() {
             session.start_scan(session.folders.roots.clone(), ScanKind::Rebuild);
         }
-        session.recover_saves_at_open();
-        session.open_file_op_journal();
-        session.recover_file_ops_at_open();
+        // The repairs at open write files; a read-only session leaves them for the next session
+        // that may write (its file commands are refused, so no journal is needed either).
+        if !session.read_only {
+            session.recover_saves_at_open();
+            session.open_file_op_journal();
+            session.recover_file_ops_at_open();
+        }
         session.read_albums_at_open();
         Ok(session)
     }
@@ -281,6 +309,9 @@ impl Session {
     /// something). The only way library state changes.
     pub fn execute(&mut self, id: &str, params: &Value) -> Result<Value, CmdError> {
         let spec = *self.spec(id).ok_or_else(|| CmdError::UnknownCommand(id.to_string()))?;
+        if self.read_only && spec.effect == Effect::Files {
+            return Err(CmdError::ReadOnly(format!("{} writes files, and this session is read-only (--read-only)", spec.label)));
+        }
         (spec.enabled)(self, params).map_err(|d| CmdError::Disabled(d.0))?;
         self.collected = Some(Vec::new());
         self.undo_op = None;
@@ -405,8 +436,8 @@ impl Session {
             dalica_library::Error::UnknownFolder(_) | dalica_library::Error::UnknownPhoto(_) => CmdError::NotFound(e.to_string()),
             other => CmdError::BadParams(other.to_string()),
         })?;
-        // A scan's op may bring a pending Save record (`save_recovery.rs`).
-        if self.collected.is_none() {
+        // A scan's op may bring a pending Save record (`save_recovery.rs`), repaired by a write.
+        if self.collected.is_none() && !self.read_only {
             self.note_save_records(&op);
         }
         // `albums.json` (`albums_file.rs`) and the search index (`search.rs`) follow every op.
@@ -427,7 +458,8 @@ impl Session {
         self.count_op();
         // Inside `execute` (undo and redo included) the change is a command's; outside it, a
         // scan's or the watcher's.
-        let origin = if self.collected.is_some() { Origin::Command } else { Origin::Files };
+        // A read-only session writes nothing back into photo files: its changes count as the files'.
+        let origin = if self.collected.is_some() && !self.read_only { Origin::Command } else { Origin::Files };
         self.metadata_applied(owned_before, origin);
         self.recipes_applied(recipes_before);
         if let Some(conflicts) = files {
@@ -513,6 +545,12 @@ impl Session {
             Msg::Hold(roots) => self.metadata_hold(roots.clone()),
             Msg::Guard(roots) => self.metadata_guard(roots.clone()),
             _ => {}
+        }
+        // A read-only session keeps every write in memory: the worker only holds, guards and
+        // answers flushes. Work queued to it is dropped unrun (a caller waiting on its answer
+        // hears that the worker did not take it).
+        if self.read_only && !matches!(msg, Msg::Hold(_) | Msg::Guard(_) | Msg::Flush(_)) {
+            return;
         }
         if let Some(io) = &self.io
             && io.send(msg).is_err()
@@ -632,6 +670,18 @@ impl Session {
         let _ = done.recv();
         let errors = std::mem::take(&mut *self.io_errors.lock().unwrap_or_else(PoisonError::into_inner));
         if errors.is_empty() { Ok(()) } else { Err(CmdError::Unsaved(errors.join("; "))) }
+    }
+
+    /// Whether this session writes nothing (`--read-only`; see the module's notes).
+    pub fn is_read_only(&self) -> bool {
+        self.read_only
+    }
+
+    /// Makes an open session read-only from now on, for good (a demo opened before the switch
+    /// applied, a session handed over already open). Writes already sent still land; the next
+    /// ones stay in memory.
+    pub fn make_read_only(&mut self) {
+        self.read_only = true;
     }
 
     /// Uses `dir` as the user's Pictures folder (tests, demos): the default export location lies
@@ -832,6 +882,7 @@ fn in_step(e: CmdError, n: usize, id: &str) -> CmdError {
         CmdError::NotFound(m) => CmdError::NotFound(at(m)),
         CmdError::Limit(m) => CmdError::Limit(at(m)),
         CmdError::Unsaved(m) => CmdError::Unsaved(at(m)),
+        CmdError::ReadOnly(m) => CmdError::ReadOnly(at(m)),
         CmdError::Internal(m) => CmdError::Internal(at(m)),
     }
 }

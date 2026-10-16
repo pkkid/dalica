@@ -743,21 +743,36 @@ retrying. A bounded reply does not imply a bounded command cost.
 - **Ids, not paths.** Commands address photos, folders, albums and people by library id. An id can
   only reach files already indexed under a watched folder, so most commands need no path
   authority at all.
-- **Path-bearing commands** (add a watched folder, export destination, import source and
-  destination, Save a Copy to another folder, collage destination, `ui.screenshot {path}`, render-to-file) accept a path from automation only if it resolves
-  beneath a root granted at launch:
-  - `--automation-root <dir>` (repeatable): read and write;
-  - `--automation-read-root <dir>` (repeatable): read only;
-  - `--demo` grants the demo library's folders;
-  - screenshot and render outputs (`.png`, `.jpg`) may also go to the system temporary directory,
-    replacing only a regular file, never a link;
-  - with no matching root the command fails closed.
-- **Path rules.** Reject NUL, `..` components (before resolving), device names, `\\?\` and `\\.\`
-  prefixes, alternate data streams and drive-relative paths. Resolve the parent, then compare
-  path **components** against the root (a string prefix would accept `/photos-evil` for
-  `/photos`). The final component must not be a link. A new file's parent must already exist under
-  the root; automation does not create arbitrary directory trees (export creates its single,
-  sanitized output folder).
+- **Path-bearing commands** (add a watched folder, export destination, Save As, import source,
+  collage destination, `ui.screenshot {path}`, render-to-file) accept a path from automation only
+  if it resolves beneath a root granted at launch (`control-protocol.md` §5.7, `mcp.md` §5). One
+  policy serves every surface: `dalica-engine`'s `automation` module, which the control channel
+  and the MCP server call (built M10.16, after PhotoCraft's `AuthorizedWorkspace`):
+  - **read roots** (folders that may be added or read): `--automation-read-root <dir>`
+    (repeatable), the folders given to `dalica-cli mcp` on its command line, the demo's folder,
+    and an MCP client's `file://` roots (§6.7); a watched folder may always be read again; with
+    no read root at all, adding a folder fails closed, except in `--demo`;
+  - **write roots** (where new files are made): `--automation-write-root <dir>` (repeatable); with
+    none given, the system temporary directory and `<cache>/Dalica/automation/`. Client roots are
+    never write roots;
+  - never inside `.dalica-originals/` (in any letter case); a screenshot or render never inside a
+    watched folder (it would become a library photo); an export folder and a Save As file may be,
+    since they join the library by design;
+  - never over an existing file, except that a screenshot or render may replace a `.png` (a link
+    there must end at a `.png` file); exports never overwrite (`-001` names);
+  - effects outside Dalica are refused without `--automation-allow-external` (§5.11); people
+    names and face regions are withheld without `--automation-allow-people`.
+- **Path rules.** A path must be absolute and at most 4096 bytes; a `..` component is refused
+  before anything is resolved, and so is a `.`. On Windows a verbatim or device prefix (`\\?\`,
+  `\\.\`), a `:` inside a component (a stream), a component ending in a dot or a space and a
+  reserved device name (`NUL`, `COM1.txt`) are refused too, before any I/O. Then the path (for a
+  new file, its folder; for an export folder that does not exist yet, its nearest existing
+  ancestor) is resolved through its links and compared against each resolved root by **path
+  components** (a string prefix would accept `/photos-evil` for `/photos`); a root that does not
+  exist holds nothing. Comparisons that allow are exact; those that refuse (a watched folder,
+  `.dalica-originals`) also ignore letter case on Windows and macOS, whose volumes usually do. A
+  new file's folder must already exist; only an export creates its single output folder.
+  Checks resolve links, so they run off the UI thread; the lexical part runs first, on it.
 - **Refused over automation:** commands that open a native file dialog (supply the path parameter
   instead), launch external programs (§5.11), permanently delete card contents (§5.7), change the
   watched-folder list or other file-bearing preferences except through the root-checked commands
@@ -768,21 +783,38 @@ retrying. A bounded reply does not imply a bounded command cost.
   reach a refused one.
 - **Destructive commands stay safe by construction:** delete goes to the trash, Save keeps the
   original in `.dalica-originals/`, metadata write-back merges. Automation has no way around these.
-- **Read-only mode.** `--automation-read-only` (control channel) and `dalica-cli mcp --read-only`
-  expose only commands that do not change files, sidecars or the library. Use it for untrusted
-  agents. **Planned (M10).**
+- **Read-only sessions.** `dalica-cli mcp --read-only` opens the engine session read-only
+  (`Session::open_read_only`): the refusal lives at two seams of the engine's session and nowhere
+  else, so no tool or route can step around it. Commands that write files (saves, exports, file
+  operations: `Effect::Files`) answer `read_only`; every other write (the index journal and
+  snapshots, sidecars, `folders.json`, `settings.json`, `albums.json`, metadata write-back into
+  photo files) stays in memory and is gone when the session closes; the repairs at open
+  (interrupted saves and file operations) wait for a session that may write. What still touches
+  the disk: the library's lock file, the thumbnail cache (outside the photo folders), a damaged
+  index set aside at open as in any session, and a scan's removal of Dalica's own stale temporary
+  files (`.<name>.dalica-tmp-<random>` over 24 hours old, §5.8). Use it, or `--demo`, for agents
+  you do not trust. A read-only mode for the desktop app's control channel is not built. Options
+  changed through `options.set` are refused in a read-only session (their write is answered
+  first), with the message that they could not be saved.
 
-Command policy and roots: **Planned (M2)** for `ui.screenshot`; **Planned (M8–M11)** for the
-other path-bearing commands as they land.
+Command policy and roots: built for every path-bearing command that exists (M2 screenshots, M8
+exports and Save As, M10.16 the shared engine policy, client roots and the `--automation-*`
+flags of `dalica-cli mcp`); collage and import destinations follow it as they land.
 
 ### 6.7 MCP specifics
 
-- Headless `dalica-cli mcp` grants file-system authority with `--root <dir>` and `--read-root
-  <dir>` (same semantics as §6.6). If the MCP client advertises roots, the effective authority is
-  the **intersection** of the client's roots and the launch roots; a client can narrow authority,
-  never widen it. Roots are re-evaluated when the client reports a change.
+- Headless `dalica-cli mcp` grants file-system authority with `--automation-read-root <dir>` and
+  `--automation-write-root <dir>` (same semantics as §6.6; flags only, no environment variable
+  widens an MCP server's roots). If the MCP client declares the `roots` capability, the server
+  asks `roots/list` after `initialize` and again on each `notifications/roots/list_changed`; each
+  local `file://` root (no host or `localhost`; another scheme, a remote host, a `..` or a bad
+  escape is dropped) becomes a **read root only**, never a write root, and the latest list
+  replaces the previous one, so a removed root stops granting at once. An error answer drops
+  every client root; an answer to an older request is ignored. `--no-client-roots` never asks.
+  The client's roots widen what may be read, as the folders a user lists on the command line do:
+  a client is the user's own agent, and writing stays confined to the write roots.
 - In bridge mode (`--connect`), roots and read-only mode are configured on the `dalica` process;
-  the bridge cannot widen them.
+  the bridge cannot widen them, and the client's roots are ignored.
 - Tools carry MCP annotations: read-only tools are marked read-only; delete, move, rename, Save,
   Revert and metadata-writing tools are marked destructive so clients can ask the user first.
 - Tool descriptions and results treat captions, tags, file names and people names as untrusted
@@ -791,7 +823,8 @@ other path-bearing commands as they land.
 - The bridge bounds incoming replies, drops the connection after a transport failure or timeout,
   reports that the operation may have completed, and never resends it automatically.
 
-All of §6.7: **Planned (M10).**
+Built: the roots and `--read-only` (M10.16), the annotations (M10.15). Bridge mode: **Planned
+(M10.17).**
 
 ### 6.8 Control status
 
@@ -803,9 +836,9 @@ All of §6.7: **Planned (M10).**
 | Request, reply, depth, connection, timeout limits | Implemented (M2; `control_security.rs`, the `ui` control tests; depth 64 since #102) |
 | Screenshot / snapshot dimension limits | Implemented (M1, M2; the `ui` control tests) |
 | Command error contract and `panic_hunt` | Implemented (M1; `panic_hunt`) |
-| Root-checked path parameters | Implemented for screenshots (M2; the `ui` control tests); M8–M11 others planned |
+| Root-checked path parameters | Implemented (M2 screenshots, M8 exports and Save As; one engine policy since M10.16: `crates/engine/tests/automation_roots.rs`, the `ui` control tests); collage and import destinations as they land |
 | Batch limits, paging, preview limits | Planned (M10) |
-| MCP roots, read-only mode, tool annotations | Planned (M10) |
+| MCP roots, read-only mode, tool annotations | Implemented (M10.15 annotations; M10.16 client roots, `--automation-*`, `--read-only`: `crates/mcp/tests/roots.rs`, `crates/engine/tests/read_only.rs`); read-only for the desktop app's control channel not built |
 | Server proof in the handshake | Planned (M10) |
 | Per-client capabilities, audit events | Proposed, not scheduled |
 

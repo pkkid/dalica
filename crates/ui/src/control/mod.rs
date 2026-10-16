@@ -101,11 +101,12 @@ pub enum Code {
     Limit,
     Timeout,
     Unsaved,
+    ReadOnly,
     Internal,
 }
 
 impl Code {
-    pub const ALL: [Code; 16] = [
+    pub const ALL: [Code; 17] = [
         Code::Parse,
         Code::Unauthorized,
         Code::UnknownMethod,
@@ -121,6 +122,7 @@ impl Code {
         Code::Limit,
         Code::Timeout,
         Code::Unsaved,
+        Code::ReadOnly,
         Code::Internal,
     ];
 
@@ -141,6 +143,7 @@ impl Code {
             Code::Limit => "limit",
             Code::Timeout => "timeout",
             Code::Unsaved => "unsaved",
+            Code::ReadOnly => "read_only",
             Code::Internal => "internal",
         }
     }
@@ -181,6 +184,7 @@ impl From<CmdError> for Error {
             CmdError::NotFound(_) => Code::NotFound,
             CmdError::Limit(_) => Code::Limit,
             CmdError::Unsaved(_) => Code::Unsaved,
+            CmdError::ReadOnly(_) => Code::ReadOnly,
             CmdError::Internal(_) => Code::Internal,
         };
         let message = match e {

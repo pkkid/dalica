@@ -1,6 +1,8 @@
-//! `dalica-cli mcp [--demo] [--library DIR] [--compact] [FOLDERS…]` (`mcp.md` §1): the MCP server
-//! on standard input and output, over a headless session. Standard output carries protocol
-//! messages only; logs go to standard error (`DALICA_LOG=error|warn|info|debug`, default `warn`).
+//! `dalica-cli mcp [--demo] [--library DIR] [--compact] [--read-only] [--automation-…] [FOLDERS…]`
+//! or `dalica-cli mcp --connect [HOST:PORT] [--control-token-file PATH] [--compact]` (`mcp.md`
+//! §1): the MCP server on standard input and output, over a headless session or a running app.
+//! Standard output carries protocol messages only; logs go to standard error
+//! (`DALICA_LOG=error|warn|info|debug`, default `warn`).
 //!
 //! - `--demo`: the demo library in a temporary folder, deleted on exit (not `run`'s persistent
 //!   demo: an agent's changes never outlive its session).
@@ -8,32 +10,38 @@
 //! - `FOLDERS…`: added as Scan Once, and read roots; with neither of the above, into an empty
 //!   library deleted on exit.
 //! - `--compact`: `tools/list` without the one-tool-per-command tools.
-//!
-//! The options of later tasks (`--connect`, M10.17; `--read-only`, the `--automation-*` roots and
-//! `--no-client-roots`, M10.16) are refused by name until they exist.
+//! - `--read-only`: the session writes nothing to disk; file commands and exports answer
+//!   `read_only`.
+//! - `--automation-read-root DIR`, `--automation-write-root DIR` (each repeatable, made absolute
+//!   against the working folder), `--automation-allow-external`, `--automation-allow-people`: what
+//!   automation may touch (`mcp.md` §5). Flags only: no environment variable widens the roots of an
+//!   MCP server.
+//! - `--no-client-roots`: never ask the client for its roots.
+//! - `--connect [HOST:PORT]` (default `127.0.0.1:7990`, loopback only) and `--control-token-file
+//!   PATH`: connect mode, the [`dalica_mcp::Connect`] backend over the app's control channel. It
+//!   starts even when the app is not running (the first call connects). The app's own policy
+//!   applies: the `--automation-*` flags and the client's roots are ignored (`mcp.md` §5), and the
+//!   headless session's options (`--demo`, `--library`, `FOLDERS`, `--read-only`) are refused with
+//!   it. (Wired here by M10.16: M10.17 built connect mode while this file was M10.16's.)
 
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use dalica_mcp::{Backend, Headless, OpenFailure, PROTOCOL_VERSION, Server, Source};
+use dalica_engine::automation::Policy;
+use dalica_mcp::{Backend, Client, Connect, Headless, OpenFailure, PROTOCOL_VERSION, Server, Source, connect};
 
-const USAGE: &str = "usage: dalica-cli mcp [--demo | --library DIR] [--compact] [FOLDERS…]
+const USAGE: &str = "usage: dalica-cli mcp [--demo | --library DIR] [--compact] [--read-only]
+       [--automation-read-root DIR]… [--automation-write-root DIR]… [--automation-allow-external]
+       [--automation-allow-people] [--no-client-roots] [FOLDERS…]
+   or: dalica-cli mcp --connect [HOST:PORT] [--control-token-file PATH] [--compact]
 
 The MCP server (newline-delimited JSON-RPC 2.0) on standard input and output, over a headless
 session: the demo library (--demo), a library directory (--library DIR), or an empty one; FOLDERS
-are added as Scan Once. --compact lists only the helper tools. Logs go to standard error
+are added as Scan Once. --compact lists only the helper tools. --read-only writes nothing to disk.
+The --automation-* options say what automation may read, write and reach; the client's MCP roots
+are read roots unless --no-client-roots. --connect drives a running `dalica --control PORT`
+instead (default 127.0.0.1:7990), under the app's own policy. Logs go to standard error
 (DALICA_LOG=error|warn|info|debug).";
-
-/// Options of later tasks, refused by name until they are built.
-const LATER: &[(&str, &str)] = &[
-    ("--read-only", "M10.16"),
-    ("--automation-read-root", "M10.16"),
-    ("--automation-write-root", "M10.16"),
-    ("--automation-allow-external", "M10.16"),
-    ("--automation-allow-people", "M10.16"),
-    ("--no-client-roots", "M10.16"),
-    ("--control-token-file", "M10.17"),
-];
 
 /// What the command line asks for.
 #[derive(Debug, PartialEq, Eq)]
@@ -41,24 +49,44 @@ struct Options {
     source: Source,
     folders: Vec<PathBuf>,
     compact: bool,
+    read_only: bool,
+    policy: Policy,
+    client_roots: bool,
+    /// `--connect`: the running app instead of a headless session.
+    connect: Option<connect::Options>,
+}
+
+/// `dir` made absolute against the working folder (a root is compared as an absolute path).
+fn absolute(flag: &str, dir: Option<&String>) -> Result<PathBuf, String> {
+    let dir = dir.filter(|d| !d.is_empty()).ok_or_else(|| format!("{flag} needs a folder"))?;
+    std::path::absolute(dir).map_err(|e| format!("{flag} {dir}: {e}"))
 }
 
 fn parse(args: &[String]) -> Result<Options, String> {
+    let mut args = args.to_vec();
+    let connect = connect::Options::take(&mut args)?;
     let (mut demo, mut library, mut compact, mut folders) = (false, None, false, Vec::new());
+    let (mut read_only, mut policy, mut client_roots) = (false, Policy::default(), true);
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
             "--demo" => demo = true,
             "--compact" => compact = true,
+            "--read-only" => read_only = true,
+            "--no-client-roots" => client_roots = false,
+            "--automation-allow-external" => policy.set_allow_external(true),
+            "--automation-allow-people" => policy.set_allow_people(true),
+            "--automation-read-root" => {
+                policy.add_read(absolute(a, it.next())?);
+            }
+            "--automation-write-root" => {
+                policy.add_write(absolute(a, it.next())?);
+            }
             "--library" => match it.next() {
                 Some(dir) => library = Some(PathBuf::from(dir)),
                 None => return Err("--library needs a folder".into()),
             },
-            "--connect" => return Err(dalica_mcp::CONNECT_NOT_BUILT.into()),
             other => {
-                if let Some((_, task)) = LATER.iter().find(|(flag, _)| *flag == other) {
-                    return Err(format!("{other} is not built yet: it arrives with {task}"));
-                }
                 if other.starts_with('-') {
                     return Err(format!("unknown option {other}"));
                 }
@@ -66,13 +94,16 @@ fn parse(args: &[String]) -> Result<Options, String> {
             }
         }
     }
+    if connect.is_some() && (demo || library.is_some() || !folders.is_empty() || read_only) {
+        return Err("--connect drives the running app; --demo, --library, FOLDERS and --read-only are for a headless session".into());
+    }
     let source = match (demo, library) {
         (true, Some(_)) => return Err("--demo cannot be combined with --library".into()),
         (true, None) => Source::Demo,
         (false, Some(dir)) => Source::Library(dir),
         (false, None) => Source::Empty,
     };
-    Ok(Options { source, folders, compact })
+    Ok(Options { source, folders, compact, read_only, policy, client_roots, connect })
 }
 
 pub fn main(args: &[String]) -> ExitCode {
@@ -88,15 +119,26 @@ pub fn main(args: &[String]) -> ExitCode {
         }
     };
     Stderr::install();
-    let headless = match Headless::open(options.source, &options.folders) {
-        Ok(h) => h,
-        Err(OpenFailure::Locked(e) | OpenFailure::Failed(e)) => {
-            eprintln!("dalica-cli mcp: {e}");
-            return ExitCode::from(3);
-        }
+    let backend: Box<dyn Backend> = match &options.connect {
+        // Connect mode: the app's policy applies; the client's roots are not asked for.
+        Some(c) => match Client::from_options(c) {
+            Ok(client) => Box::new(Connect::new(client)),
+            Err(e) => {
+                eprintln!("dalica-cli mcp: {e}");
+                return ExitCode::from(2);
+            }
+        },
+        None => match Headless::open_with(options.source, &options.folders, options.policy, options.read_only) {
+            Ok(h) => Box::new(h),
+            Err(OpenFailure::Locked(e) | OpenFailure::Failed(e)) => {
+                eprintln!("dalica-cli mcp: {e}");
+                return ExitCode::from(3);
+            }
+        },
     };
-    eprintln!("dalica-cli mcp: serving {} over standard input and output (MCP {PROTOCOL_VERSION})", headless.describe());
-    let mut server = Server::new(Box::new(headless)).with_compact(options.compact);
+    eprintln!("dalica-cli mcp: serving {} over standard input and output (MCP {PROTOCOL_VERSION})", backend.describe());
+    let client_roots = options.client_roots && options.connect.is_none();
+    let mut server = Server::new(backend).with_compact(options.compact).with_client_roots(client_roots);
     let served = server.serve(std::io::stdin(), std::io::stdout());
     // The session writes what is pending and a temporary library is removed.
     drop(server);
@@ -153,7 +195,8 @@ mod tests {
         args.iter().map(|a| a.to_string()).collect()
     }
 
-    /// The sources, folders and `--compact`; the options of later tasks are refused by name.
+    /// The sources, folders, `--compact`, `--read-only`, the roots and permissions; the options of
+    /// later tasks are refused by name.
     #[test]
     fn options_parse() {
         let o = parse(&strings(&["--demo", "--compact"])).unwrap();
@@ -163,8 +206,21 @@ mod tests {
         assert_eq!(parse(&[]).unwrap().source, Source::Empty);
         assert!(parse(&strings(&["--demo", "--library", "x"])).is_err());
         assert!(parse(&strings(&["--library"])).is_err());
-        assert!(parse(&strings(&["--connect"])).unwrap_err().contains("M10.17"));
-        assert!(parse(&strings(&["--read-only"])).unwrap_err().contains("M10.16"));
+        let o = parse(&strings(&["--connect", "--compact", "--automation-read-root", "x"])).unwrap();
+        assert_eq!(o.connect.map(|c| c.addr.to_string()), Some(dalica_mcp::DEFAULT_ADDR.to_string()), "the root flag is ignored, not refused");
+        assert_eq!(parse(&strings(&["--connect", "127.0.0.1:18040"])).unwrap().connect.map(|c| c.addr.port()), Some(18040));
+        assert!(parse(&strings(&["--connect", "--demo"])).unwrap_err().contains("headless session"));
+        assert!(parse(&strings(&["--connect", "--read-only"])).unwrap_err().contains("headless session"));
+        assert!(parse(&strings(&["--connect", "10.0.0.5:7990"])).is_err(), "loopback only");
+        assert!(parse(&strings(&["--control-token-file", "t"])).unwrap_err().contains("give --connect too"));
+        let o = parse(&strings(&["--read-only", "--no-client-roots", "--automation-read-root", "in", "--automation-write-root", "out"])).unwrap();
+        assert!(o.read_only && !o.client_roots);
+        let cwd = std::env::current_dir().unwrap();
+        assert_eq!((o.policy.read_roots(), o.policy.write_roots()), (&[cwd.join("in")][..], vec![cwd.join("out")]), "made absolute");
+        assert!(!o.policy.allow_external() && !o.policy.allow_people());
+        let o = parse(&strings(&["--automation-allow-external", "--automation-allow-people"])).unwrap();
+        assert!(o.policy.allow_external() && o.policy.allow_people() && o.client_roots && !o.read_only);
+        assert!(parse(&strings(&["--automation-read-root"])).unwrap_err().contains("needs a folder"));
         assert!(parse(&strings(&["--colour"])).unwrap_err().contains("unknown option"));
     }
 }

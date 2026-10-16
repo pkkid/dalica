@@ -7,9 +7,14 @@
 //!   directory (one process at a time); neither, an empty library in a temporary folder removed on
 //!   exit (the engine has no in-memory session, so "in memory" is a library nobody keeps).
 //!   Folders named on the command line are added as Scan Once and become read roots.
+//! - **What the launch allowed** ([`Headless::open_with`], `mcp.md` §1 and §5): the
+//!   `--automation-*` roots and permissions as a [`Policy`], the client's roots as they are listed
+//!   ([`Backend::set_client_roots`]), and `--read-only`, an engine switch
+//!   ([`Session::open_read_only`]): nothing is written, and file commands answer `read_only`.
 //! - **`engine.execute {command, params?, wait?}`** runs the command through
 //!   [`Session::execute`] after the checks the control channel makes (`control-protocol.md` §5):
-//!   an effect outside Dalica is refused, paths are checked against the [`Roots`], Rebuild needs
+//!   an effect outside Dalica is refused without `--automation-allow-external`, paths are checked
+//!   against the [`Roots`], Rebuild needs
 //!   `"confirm": true`, and a photo command without `ids` gets the Photo Tray's ([`Tray`]). A
 //!   command that starts jobs waits for them (unless `wait: false`), reporting their photos done
 //!   through the call's [`Progress`] and cancelling them, before their next photo, when it says
@@ -35,7 +40,8 @@ use std::time::{Duration, Instant};
 use dalica_core::{PhotoId, SystemClock};
 use dalica_create::output::{self, Choice, OutFormat, Purpose, Quality, Spec};
 use dalica_edit::Recipe;
-use dalica_engine::{CmdError, CommandSpec, Effect, JobEntry, JobId, Session};
+use dalica_engine::automation::Policy;
+use dalica_engine::{CmdError, CommandSpec, JobEntry, JobId, Session};
 use serde_json::{Map, Value, json};
 
 use crate::backend::{Backend, Progress, Rendered, ToolError};
@@ -115,11 +121,23 @@ pub struct Headless {
 
 impl Headless {
     /// Opens a session from `source` and adds `folders` to it as Scan Once (they become read
-    /// roots). Off any UI thread: it reads and writes the disk.
+    /// roots), with nothing else granted: the default write roots, no effect outside Dalica, no
+    /// people data. Off any UI thread: it reads and writes the disk.
     pub fn open(source: Source, folders: &[PathBuf]) -> Result<Headless, OpenFailure> {
+        Headless::open_with(source, folders, Policy::default(), false)
+    }
+
+    /// [`Headless::open`] with what the command line allowed: `policy` (`--automation-read-root`,
+    /// `--automation-write-root`, `--automation-allow-external`, `--automation-allow-people`) and
+    /// `read_only` (`--read-only`: the session writes nothing; the demo's photos are written
+    /// before it opens, into its temporary folder).
+    pub fn open_with(source: Source, folders: &[PathBuf], policy: Policy, read_only: bool) -> Result<Headless, OpenFailure> {
         let clock = Arc::new(SystemClock);
-        let mut roots = Roots::default();
-        let (session, temp, describe) = match source {
+        let mut roots = Roots::new(policy);
+        let open = |dir: &Path, clock: Arc<SystemClock>| {
+            if read_only { Session::open_read_only(dir, clock, &dalica_engine::session::Options::default()) } else { Session::open(dir, clock) }
+        };
+        let (mut session, temp, mut describe) = match source {
             Source::Demo => {
                 let dir = dalica_engine::demo::fresh_dir().map_err(failed)?;
                 let session = dalica_engine::demo::open(dir.path(), clock).map_err(failed)?;
@@ -128,14 +146,18 @@ impl Headless {
             }
             Source::Library(dir) => {
                 let describe = format!("headless, the library {}", dir.display());
-                (Session::open(&dir, clock).map_err(open_failure)?, None, describe)
+                (open(&dir, clock).map_err(open_failure)?, None, describe)
             }
             Source::Empty => {
                 let dir = dalica_fs::TempDir::new("dalica-mcp").map_err(failed)?;
-                let session = Session::open(&dir.path().join("library"), clock).map_err(open_failure)?;
+                let session = open(&dir.path().join("library"), clock).map_err(open_failure)?;
                 (session, Some(dir), "headless, an empty library (deleted on exit)".to_string())
             }
         };
+        if read_only {
+            session.make_read_only();
+            describe.push_str(", read-only (nothing is written to disk)");
+        }
         let mut h = Headless { session, tray: Tray::default(), roots, describe, _temp: temp };
         h.add_folders(folders)?;
         Ok(h)
@@ -242,9 +264,7 @@ impl Headless {
         let Some(spec) = self.session.spec(id).copied() else {
             return Err(ToolError::new("unknown_command", format!("no command `{id}` (command_list lists them)")));
         };
-        if spec.effect == Effect::External {
-            return Err(ToolError::new("external_denied", format!("`{id}` reaches outside Dalica; a headless session never runs it")));
-        }
+        self.roots.policy().check_effect(spec.effect, id)?;
         self.check_paths(id, &cmd)?;
         if let Some((_, question)) = CONFIRM.iter().find(|(c, _)| *c == id) {
             match cmd.remove("confirm") {
@@ -533,6 +553,11 @@ impl Backend for Headless {
 
     fn tick(&mut self) {
         self.session.poll();
+    }
+
+    fn set_client_roots(&mut self, roots: Vec<PathBuf>) {
+        let kept = self.roots.set_client(roots);
+        log::info!("the client's roots: {kept} folder(s), read only");
     }
 }
 

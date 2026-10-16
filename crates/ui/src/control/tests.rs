@@ -148,7 +148,7 @@ fn requests_parse_and_replies_frame_as_the_spec_says() {
     assert_eq!((v["id"].clone(), v["code"].as_str()), (json!(4), Some("limit")), "a reply over 8 MiB is a limit error");
     // Codes.
     let names: std::collections::HashSet<&str> = Code::ALL.iter().map(|c| c.as_str()).collect();
-    assert_eq!(names.len(), 16);
+    assert_eq!(names.len(), 17);
     assert_eq!(Code::ALL.iter().filter(|c| c.closes()).count(), 2);
     for (e, want) in [
         (CmdError::UnknownCommand("x".into()), "unknown_command"),
@@ -157,6 +157,7 @@ fn requests_parse_and_replies_frame_as_the_spec_says() {
         (CmdError::NotFound("x".into()), "not_found"),
         (CmdError::Limit("x".into()), "limit"),
         (CmdError::Unsaved("disk full".into()), "unsaved"),
+        (CmdError::ReadOnly("x".into()), "read_only"),
         (CmdError::Internal("x".into()), "internal"),
     ] {
         let e = Error::from(e);
