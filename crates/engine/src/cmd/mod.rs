@@ -11,6 +11,7 @@ pub mod duplicates;
 pub mod edit;
 pub mod export;
 pub mod files;
+pub mod folder_data;
 pub mod folder_info;
 pub mod folder_ops;
 pub mod folders;
@@ -79,6 +80,7 @@ pub fn specs() -> Vec<CommandSpec> {
         keymap::specs(),
         inspect::specs(),
         recipe::specs(),
+        folder_data::specs(),
     ]
     .concat();
     #[cfg(test)]

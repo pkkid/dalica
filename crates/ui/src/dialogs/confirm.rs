@@ -22,11 +22,17 @@
 //! ("Remove from albums without asking", "Delete without asking", "Ask before moving") are the
 //! engine's (M9.3) and are read where those modules ask.
 //!
+//! M10's row: Reset Folder Data (`folder.resetData`, the [Reset folder data] button of a damaged
+//! folder's banner, `crate::panels::light_table::folder_banner`), asked only for a folder whose
+//! sidecar is damaged; the dialog names the folder, says what the reset does and that the damaged
+//! copy stays beside the photos, with [Reset] [Cancel].
+//!
 //! To route another command's question through the host: give the command a `confirm` parameter,
 //! add its [`DialogKind`] variant (the `<kind>` of `dialog:<kind>`), a row here and the variant to
 //! the arms of `super::{look, body, act}` that send confirmations to this module.
 
 use dalica_engine::CmdError;
+use dalica_engine::cmd::folder_data;
 use dalica_ui_kit::fonts;
 use dalica_ui_kit::widgets::ButtonKind;
 use egui::{RichText, Ui};
@@ -183,7 +189,40 @@ pub static ASKS: &[Ask] = &[
         text_for: None,
         extra: &[],
     },
+    Ask {
+        command: "folder.resetData",
+        kind: DialogKind::ResetFolderData,
+        title: folder_data::RESET_TITLE,
+        text: folder_data::RESET_QUESTION,
+        action: "reset",
+        label: folder_data::RESET_BUTTON,
+        asks: reset_asks,
+        text_for: Some(reset_text),
+        extra: &[],
+    },
 ];
+
+/// The damaged library folder `params.folder` names, by its name: `folder.resetData` asks only
+/// then (an unknown, bad or undamaged folder is the command's to refuse).
+fn reset_folder(app: &App, params: &Value) -> Option<String> {
+    let session = app.session()?;
+    let id = dalica_core::FolderId::new(params.get("folder")?.as_u64()?);
+    session.damaged_folder(id)?;
+    let folder = session.library().folder(id)?;
+    Some(folder.path.file_name().map_or_else(|| folder.path.display().to_string(), |n| n.to_string_lossy().into_owned()))
+}
+
+fn reset_asks(app: &App, params: &Value) -> bool {
+    registered(app, "folder.resetData") && reset_folder(app, params).is_some()
+}
+
+fn reset_text(app: &App, params: &Value) -> Option<String> {
+    reset_folder(app, params).map(|name| {
+        format!(
+            "Reset the data of the folder \"{name}\"? Dalica writes a new data file from what it knows about these photos. The damaged file stays beside the photos, untouched."
+        )
+    })
+}
 
 /// Whether `command` is one of the open library's: a question is asked only for a command whose
 /// answer can run.

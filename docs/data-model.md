@@ -216,7 +216,22 @@ Format rules:
   file.
 - If a sidecar is unreadable, it is renamed to `.dalica.json.corrupt-<timestamp>` and kept; the
   folder is shown with a `caution` banner; nothing in it is written until the user chooses
-  "Reset folder data" or restores the file.
+  "Reset folder data" or restores the file. **Built (M10.52: `crates/engine/src/cmd/folder_data.rs`,
+  the banner in `crates/ui/src/panels/light_table/folder_banner.rs`):**
+  - The first write that meets the file (a scan's, an edit's, a carry's) keeps it aside and lists
+    the folder as damaged. Its changes stay in the library (and the journal) but nothing is
+    written there: no sidecar write and no entry carried in or out by a move.
+  - The list is kept in `damaged-folders.json` in the library directory (§4), by folder path, so a
+    restart, or an index rebuilt from the folders, does not quietly start writing into the folder
+    before the user chose.
+  - **Reset folder data** (`folder.resetData {folder, confirm}`, the banner's button) asks first.
+    It reads the folder's sidecar again: a readable one (restored by hand) gives the library its
+    values, as a rebuild reads them, and nothing is written by the reset; none there, a new sidecar
+    is written from the library, what was set while the folder was damaged included; an unreadable
+    one there (a second damage) is kept aside under a name of its own (`…-001`, never replacing the
+    first copy) before the new one is written. The kept copies are never read, renamed, overwritten
+    or deleted, and the reply names them. A second damage after a reset is found and listed like
+    the first.
 - A folder may also hold the legacy organizer's sidecar. Which file is read, and when Dalica starts
   its own, is in §9.
 
@@ -313,6 +328,7 @@ holds:
 | `people.json` | people (id, name, nickname), merges, settings | yes, from sidecars (names are mirrored per folder) |
 | `index.log` + `index.snap` | the library index: one record per photo (path, size, mtime, dimensions, dates, EXIF summary, content hash, colour sketch, face descriptors), what the user said about photos, folders and albums (as in the sidecars and `albums.json`), the last-synced metadata hashes, the search facts, content digests and first-indexed and last-changed times; journal + snapshot as in LightCraft | yes, by rescanning (the synced hashes, facts, digests and first-indexed times start empty; the last-changed times come back from the sidecars) |
 | `pending-writes.json` | the folders whose sidecar write waits for an offline volume (§7): `{"version": 1, "folders": [path, …]}`, written through the I/O worker when the list changes; a damaged file is kept as `.corrupt-<time>` and the list found again by the next online checks (M5.13) | yes, partly: the journal keeps the edits; a lost list is rebuilt for roots found offline |
+| `damaged-folders.json` | the folders whose sidecar was damaged and kept aside (§3), until the user resets them: `{"version": 1, "folders": [{"path", "kept": [path]}]}`, written through the I/O worker when the list changes, read at open; a damaged file is kept as `.corrupt-<time>` and read as empty (a notice says so; such a folder is found again by the next write that meets it, and one whose damaged file was already kept aside gets a new sidecar then) (M10.52) | no — small; a lost list only loses the warning |
 | `file-ops.json` | the file-operation journal: the moves, copies, renames and trashes in progress and each item's state (§8), written through the I/O worker; a damaged file is kept as `.corrupt-<time>` and the operations that read are kept (M9.9) | no — repaired from at the next open, then empty |
 | `lock` | single-process lock | — |
 | `settings.json` | preferences (atomic write; damaged file kept as `.corrupt-<time>`); unknown keys kept; `"keymap"` holds the user's shortcut overrides (`menus-and-shortcuts.md` §2.0); the other keys below | no |

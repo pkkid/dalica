@@ -28,6 +28,7 @@ mod filejobs;
 mod fileops;
 mod fileops_recovery;
 mod fileops_store;
+mod folder_data;
 mod folder_info;
 mod folder_move;
 mod folders;

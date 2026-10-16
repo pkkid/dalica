@@ -190,6 +190,17 @@ Add a description
 - **Description** line: the description (`text_label`) or the placeholder **"Add a description"**
   (`text_dim`); click to edit inline (Enter commits, Esc cancels).
 - Right-click anywhere on the header = the folder/album context menu.
+- **Damaged data file** (`data-model.md` §3): the header of a folder whose sidecar was damaged and
+  kept aside carries a `caution` banner, right-aligned over the date and button rows (half the
+  header's width, 300–600 pt, 42 high, clear of the description row): `filter_banner` fill, a 3 pt
+  `caution` bar at its left, "This folder's data file was damaged and kept aside." (13 pt `text`)
+  over "Nothing is written here until you reset it or restore the file." (13 pt `text_dim`), each
+  cut short with "…", and a **Reset folder data** text button at its right (`banner:folderData/<FolderId>`,
+  `button:folder.resetData/<FolderId>`). The button asks first: "Reset the data of the folder
+  "%s"? Dalica writes a new data file from what it knows about these photos. The damaged file
+  stays beside the photos, untouched." [Reset] [Cancel] (`dialog:resetFolderData`); Cancel changes
+  nothing, Reset runs `folder.resetData` and the banner goes. Not on the pinned line; hidden while
+  it would lie under it.
 - **Sticky**: the header of the section being scrolled through stays pinned at the top of the
   light table (collapsed to its first line, 32 high) and is pushed up by the next header.
 - Person sections: header buttons **Zoom to Faces / Show Whole Photos**, **Set as Person
@@ -216,7 +227,9 @@ Add a description
 - **Hidden** photos (only visible with View → Hidden Pictures) are drawn at 40 % opacity.
 - **Small pictures** (< 64 px on both sides) are omitted unless View → Small Pictures.
 - **Empty states**: no watched folders → "No pictures yet" + [Add a Folder…] [Import…]; search with
-  no results → "No photos found" + [Show All].
+  no results → "No photos found", "Try fewer words or other filters." and its own primary
+  [Show All] (`empty:search`, `button:empty.showAll`), which leaves search mode as the banner's
+  Show All does (M10.52).
 
 ### 5.4 Selection
 
