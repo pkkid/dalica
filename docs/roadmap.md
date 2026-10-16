@@ -5730,6 +5730,34 @@ No other step of M10 needs a maintainer decision mid-run.
     and the edit view's message carry the reason and the hint, and `ui.state` shows the photo's
     capture date; `cargo xtask parity --p0` passes; a screenshot of the HEIC tile and its tooltip
     at 1400 × 900 on the PR; `cargo xtask ci` green.
+- ⬜ **M10.57 `engine`: a damaged folder holds metadata write-back too**
+  - after: M10.52, M10.54
+  - files: `crates/engine/src/metadata.rs`, `crates/engine/src/cmd/folder_data.rs`, `crates/engine/tests/folder_data.rs`, `docs/data-model.md`
+  - scope: the maintainer's answer at M10.R (2026-10-16, Q5): "nothing in a damaged folder is
+    written until you choose Reset Folder Data", and that covers the photo files as well as the
+    sidecar. Today M10.52 holds only the sidecar and the carried entries: a caption, tag or date set
+    on a photo in a folder on the damaged list (`damaged-folders.json`, kept by
+    `cmd/folder_data.rs`'s `Damage` and read through `Session::damaged_folder`) is still written
+    into the photo's XMP/IPTC by the metadata write queue (`metadata.rs`). Hold it: the queue
+    checks the session's in-memory damaged list (no disk access) before it sends a photo's write,
+    and a photo in a damaged folder stays queued but held, as `Writer::waiting` holds a write whose
+    volume is offline (it does not keep the session busy, M10.54, and a close does not write it).
+    The change stays in the library (and the journal); when the folder's state is lifted (by
+    `folder.resetData`, or by a sidecar restored by hand and read again) the held writes are sent
+    and land as any other write does. A held write is dropped only when its photo leaves the
+    folder before the reset (moved elsewhere or trashed), and then reported (the write job's
+    summary or a notice), never silently lost; the library keeps the value either way. Across a
+    restart the held writes come back from what the library still marks unwritten
+    (`dalica_library::sync`), or the commit body says how they survive. Prefer the smallest
+    surface: the check in `metadata.rs`, the release in `cmd/folder_data.rs` where the state is
+    lifted; `session.rs` is not in `files` (ask on the issue if the list cannot reach the queue
+    without it). One sentence in `data-model.md` §3 (the damaged folder's bullet): metadata
+    write-back into its photos is held too until the reset.
+  - done when: tests in `dalica-engine` (`folder_data.rs`), failing before the change: a caption
+    set on a photo in a damaged folder writes neither the sidecar nor the photo file (its bytes
+    unchanged after the queue settles); after `folder.resetData` the caption lands in both; a
+    photo moved out of the damaged folder before the reset has its held write dropped and
+    reported; `cargo xtask ci` green.
 - ✅ **M10.28 Lead: task blocks for M12**
   - after: M9.26
   - owner: lead
@@ -5740,7 +5768,7 @@ No other step of M10 needs a maintainer decision mid-run.
   - done when: `cargo xtask tasks sync --check` parses them and `tasks sync --dry-run` lists one new
     issue per block.
 - ⬜ **M10.R Release 0.5 gate**
-  - after: M10.24, M10.27, M10.29, M10.31, M10.32, M10.33, M10.34, M10.35, M10.36, M10.37, M10.38, M10.39, M10.40, M10.41, M10.42, M10.43, M10.44, M10.45, M10.46, M10.47, M10.48, M10.49, M10.50, M10.51, M10.52, M10.53, M10.54, M10.55, M10.56
+  - after: M10.24, M10.27, M10.29, M10.31, M10.32, M10.33, M10.34, M10.35, M10.36, M10.37, M10.38, M10.39, M10.40, M10.41, M10.42, M10.43, M10.44, M10.45, M10.46, M10.47, M10.48, M10.49, M10.50, M10.51, M10.52, M10.53, M10.54, M10.55, M10.56, M10.57
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`
   - scope: a release gate (Release 0.5, P0 complete): the lead runs `/milestone-review M10.R` to
@@ -5797,6 +5825,8 @@ wave 6   M10.26 P0 parity audit
           banner and reset, search empty state ‖ M10.53 export progress in the status line
           ‖ M10.54 connect mode's tray, idle write-back ‖ M10.55 the "▸" in option hints)
 wave 7   M10.27 accept M10 → M10.56 HEIC without a decoder → M10.R          (M10.28 lead: M12 blocks, any time after M9.26)
+         (from the M10.R answers, any time before M10.R closes: M10.57 a damaged folder holds metadata
+          write-back)
 ```
 
 ### M11 — Import, compare and viewing
@@ -6451,8 +6481,35 @@ and are never loosened. No other step of M11 needs a maintainer decision mid-run
     (`architecture.md` §9).
   - done when: `cargo xtask tasks sync --check` parses them and `tasks sync --dry-run` lists one new
     issue per block.
+- ⬜ **M11.26 `ui` + `dalica`: tests for the details the P0 audit left untested**
+  - after: M10.R
+  - files: `crates/ui/tests/section_header.rs`, `crates/ui/tests/photo_menu.rs`, `crates/ui/tests/tray.rs`, `crates/ui/tests/crop_tool.rs`, `crates/ui/tests/edit_canvas.rs`, `crates/ui/tests/titlebar_drag.rs`, `apps/dalica/tests/control_security.rs`, `apps/dalica/src/control/transport.rs`, `xtask/src/ci.rs`, `docs/parity.md`
+  - scope: the maintainer confirmed the P0 audit's moves (M10.26) at M10.R (2026-10-16, Q7) and
+    asked for one later task for the details its parity notes call "untested". A test for each,
+    in the feature's existing test file (a new file only if none fits, as a `mod` of its crate's
+    `tests/all.rs`): LIB-LT-HEADER, the header's Export taking the selection inside its section
+    rather than the whole section (`section_header.rs`); LIB-CTX-PHOTO, the album rows off in
+    Recently Updated and in search results, as the test already checks Starred Photos
+    (`photo_menu.rs`); LIB-TRAY, a Ctrl-click taking a mini out of the tray's selection and a Ctrl
+    band adding to it (`tray.rs`); EDIT-CROP, Preview held (not only the toggle) and the crop panel
+    at 900 × 600 (`crop_tool.rs`; layout and widget checks, no new fingerprint at the small window
+    size); EDIT-ZOOM, the hand cursor while panning a zoomed photo (`edit_canvas.rs`, through
+    `ui.inspect` or the frame's cursor icon); SYS-WINDOW, clicks on the caption buttons and the
+    title bar over the opening and could-not-open screens (`titlebar_drag.rs`); SYS-CONTROL, the
+    control channel's 30 s idle close (`control_security.rs`): the limit stays 30 s in the product,
+    and the test shortens it through the smallest seam in `transport.rs` (a constructor argument
+    or a test-only setting, never an environment variable a release build reads), the choice in
+    the commit body. EDIT-SAVE's HEIC case: release builds have no HEIC decoder (the M10.R answer,
+    M10.56), and the case runs only under `cargo test -p dalica-engine --features heif --test all
+    save_formats::`, which no gate runs; add it to `ci --full`'s "test heif" step in
+    `xtask/src/ci.rs` beside `dalica-image`'s (preferred: self-builds keep the feature), or drop
+    the item with the reason in the row's note. This adds a test, never loosens a gate. As each
+    lands, drop its "untested:" words from the row's note in `parity.md` (keep the rest of the
+    note, the moved parts and the "missing:" manual checks); `cargo xtask parity --write`.
+  - done when: each named detail has a test (or EDIT-SAVE's HEIC item a stated reason); no note
+    in `parity.md` says "untested" for these eight rows; `cargo xtask ci` green.
 - ⬜ **M11.R Release 0.6 gate**
-  - after: M11.24
+  - after: M11.24, M11.26
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`
   - scope: a release gate (Release 0.6): the lead runs `/milestone-review M11.R` to prepare it, with
@@ -6497,6 +6554,7 @@ wave 3   M11.8 importing + undo + removal  ‖  M11.11 slideshow list + prefetch
          ‖  M11.18 batch edit in the window
 wave 4   M11.19 slideshow  ‖  M11.20 import room: destination + finish  ‖  M11.22 apply_edit, W07, W10
 wave 5   M11.21 slideshow bar + Options  ‖  M11.23 M11 budgets
+         (from the M10.R answers, any wave: M11.26 tests for the audit's untested details)
 wave 6   M11.24 accept M11 → M11.R          (M11.25 lead: M13 blocks, any time after M10.28)
 ```
 
