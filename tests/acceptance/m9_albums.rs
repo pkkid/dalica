@@ -69,13 +69,19 @@ fn undo_redo(c: &mut Client, root: &Path, a: &str, what: &str, before: &(Vec<Str
     println!("  {what}: undone and redone");
 }
 
-/// The members' sidecar entries list the album (`"albums": {id: key}`), and only theirs.
-fn on_disk(root: &Path, a: &str, members: &[String]) {
-    for rel in crate::albums::TRIPS {
+/// The members' sidecar entries list the album (`"albums": {id: key}`), and only theirs, once the
+/// sidecar writes have landed ([`app::flush_until`]).
+fn on_disk(c: &mut Client, root: &Path, a: &str, members: &[String]) {
+    let look = |rel: &str| {
         let path = app::under(root, rel);
         let e = app::entry(path.parent().unwrap(), path.file_name().unwrap().to_str().unwrap()).unwrap_or_default();
-        let listed = e["albums"].get(a).is_some();
-        assert_eq!(listed, members.iter().any(|m| m == rel), "{rel}'s sidecar entry: {e}");
+        (e["albums"].get(a).is_some(), e)
+    };
+    let member = |rel: &str| members.iter().any(|m| m == rel);
+    app::flush_until(c, || TRIPS.iter().all(|rel| look(rel).0 == member(rel)));
+    for rel in TRIPS {
+        let (listed, e) = look(rel);
+        assert_eq!(listed, member(rel), "{rel}'s sidecar entry: {e}");
     }
 }
 
@@ -103,8 +109,7 @@ pub fn albums(exe: &Path, home: &Path) -> String {
     app::redo(c);
     assert_eq!((order(c, &root, &a), fields(c, &a)), created, "Edit ▸ Redo brings it back with its id and order");
     println!("  album.create: undone and redone");
-    app::flush(c);
-    on_disk(&root, &a, &created.0);
+    on_disk(c, &root, &a, &created.0);
 
     // album.info.set.
     let info = json!({ "album": a, "description": "Five days in Portugal", "place": "Portugal", "date": "2024-06-03", "useNewest": false });

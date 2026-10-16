@@ -85,6 +85,26 @@ fn dalica_store_debounce() -> Duration {
     Duration::from_secs(1)
 }
 
+/// How long a look at the disk waits for a write it expects (see [`flush_until`]).
+const DISK_WAIT: Duration = Duration::from_secs(60);
+
+/// [`flush`], then waits (at most [`DISK_WAIT`]) until `holds`, a look at the disk, is true; it
+/// returns either way, and the caller's assertions that follow say what is wrong.
+///
+/// [`flush`] is a guess: the control channel cannot ask for the sidecar writes (only `app.quit`
+/// flushes them, `Session::flush`). They are made on the I/O worker on the session's clock, each
+/// folder at most once per debounce, so one made just before the last change waits a debounce for
+/// the next; on a loaded machine that write starts late and takes long (Windows: the `fsync`, a
+/// virus scanner reading every new file), and one that fails (a file another program holds open)
+/// is retried a debounce later. So a test waits for what it means to read.
+pub fn flush_until(c: &mut Client, mut holds: impl FnMut() -> bool) {
+    flush(c);
+    let end = Instant::now() + DISK_WAIT;
+    while !holds() && Instant::now() < end {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
 /// Edit ▸ Undo over `engine.execute` (a file operation's undo runs as a job), then [`idle`].
 pub fn undo(c: &mut Client) -> Value {
     run(c, "edit.undo", json!({}))
@@ -244,13 +264,24 @@ pub fn read(path: &Path) -> Option<Vec<u8>> {
     std::fs::read(path).ok()
 }
 
-/// The names in `dir` that are not Dalica's own (`.dalica…`), sorted.
+/// The names in `dir` that are not Dalica's own (`.dalica…`), sorted, once no write is in flight
+/// there: a file being replaced atomically (a sidecar's debounced write, which no command waits
+/// for) shows as its temporary, `.<name>.dalica-tmp-<hex>` ([`dalica_fs::atomic::is_temp_name`]),
+/// until its rename. The listing waits for it to go, at most [`DISK_WAIT`]: one still there then
+/// is a leftover the user would see, and fails the test.
 pub fn files(dir: &Path) -> Vec<String> {
-    let mut names: Vec<String> = std::fs::read_dir(dir)
-        .map(|l| l.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).filter(|n| !n.starts_with(".dalica")).collect())
-        .unwrap_or_default();
-    names.sort();
-    names
+    let end = Instant::now() + DISK_WAIT;
+    loop {
+        let listed: Vec<std::ffi::OsString> = std::fs::read_dir(dir).map(|l| l.flatten().map(|e| e.file_name()).collect()).unwrap_or_default();
+        let writing: Vec<&std::ffi::OsString> = listed.iter().filter(|n| dalica_fs::atomic::is_temp_name(n)).collect();
+        if writing.is_empty() {
+            let mut names: Vec<String> = listed.iter().map(|n| n.to_string_lossy().into_owned()).filter(|n| !n.starts_with(".dalica")).collect();
+            names.sort();
+            return names;
+        }
+        assert!(Instant::now() < end, "{}: a write never finished, its temporary file is still there: {writing:?}", dir.display());
+        std::thread::sleep(Duration::from_millis(20));
+    }
 }
 
 /// A folder's sidecar entry for `name`.
