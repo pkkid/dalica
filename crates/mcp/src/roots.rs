@@ -17,7 +17,7 @@
 use std::path::{Component, Path, PathBuf};
 
 pub use dalica_engine::automation::{MAX_PATH, MAX_ROOTS, Output, default_write_roots};
-use dalica_engine::automation::{Policy, Refused};
+use dalica_engine::automation::{Policy, Refused, plain};
 use serde_json::Value;
 
 use crate::backend::ToolError;
@@ -99,7 +99,9 @@ pub fn client_roots(result: &Value) -> Vec<PathBuf> {
 
 /// The local path a `file://` URI names (RFC 8089): `None` for another scheme, a host other than
 /// `localhost`, a query or fragment, a bad escape or a NUL, a path that is not absolute or that
-/// climbs with `..`. On Windows the path must start with a drive (`file:///C:/Photos`).
+/// climbs with `..`. On Windows the path must start with a drive (`file:///C:/Photos`) and comes
+/// back in its plain form (`C:\Photos`: backslashes, an upper-case drive letter), the form the
+/// policy compares and answers in ([`dalica_engine::automation::plain`]).
 pub fn file_uri_path(uri: &str) -> Option<PathBuf> {
     if uri.len() > MAX_PATH.saturating_mul(3) {
         return None;
@@ -120,14 +122,16 @@ pub fn file_uri_path(uri: &str) -> Option<PathBuf> {
     if text.contains('\0') {
         return None;
     }
-    let text = if cfg!(windows) {
-        // `/C:/Photos` names `C:/Photos`.
+    let path = if cfg!(windows) {
+        // `/C:/Photos` names `C:\Photos`.
         let b = text.as_bytes();
-        if b.get(1).is_some_and(u8::is_ascii_alphabetic) && b.get(2) == Some(&b':') { text.get(1..)?.to_string() } else { return None }
+        if !(b.get(1).is_some_and(u8::is_ascii_alphabetic) && b.get(2) == Some(&b':')) {
+            return None;
+        }
+        plain(Path::new(&text.get(1..)?.replace('/', "\\")))
     } else {
-        text
+        PathBuf::from(text)
     };
-    let path = PathBuf::from(text);
     if !path.is_absolute() || path.components().any(|c| matches!(c, Component::ParentDir)) {
         return None;
     }

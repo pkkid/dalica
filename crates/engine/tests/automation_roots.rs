@@ -15,8 +15,10 @@ fn code<T>(r: Result<T, Refused>) -> &'static str {
 }
 
 /// A scratch tree: `photos` (watched, with `.dalica-originals` and `taken.jpg`), `extra` (a read
-/// root), `out` (a write root, with `taken.png`), `other` (outside everything). Resolved, so
-/// expected paths compare equal on systems whose temporary folder is a link (macOS).
+/// root), `out` (a write root, with `taken.png`), `other` (outside everything). Resolved and in the
+/// plain form the policy answers in, so expected paths compare equal on systems whose temporary
+/// folder is a link (macOS) or resolves to a verbatim `\\?\C:\…` path (Windows), and are paths an
+/// agent may give (`automation::lexical` refuses a verbatim one).
 struct Tree {
     _dir: tempfile::TempDir,
     photos: PathBuf,
@@ -27,7 +29,7 @@ struct Tree {
 
 fn tree() -> Tree {
     let dir = tempfile::tempdir().unwrap();
-    let root = std::fs::canonicalize(dir.path()).unwrap();
+    let root = automation::plain(&std::fs::canonicalize(dir.path()).unwrap());
     let t = Tree { photos: root.join("photos"), extra: root.join("extra"), out: root.join("out"), other: root.join("other"), _dir: dir };
     for d in [&t.photos, &t.extra, &t.out, &t.other, &t.photos.join(ORIGINALS), &t.extra.join("2026-07 More")] {
         std::fs::create_dir_all(d).unwrap();

@@ -13,9 +13,16 @@ use dalica_engine::settings::MetadataWrites;
 use dalica_engine::{CmdError, Session};
 use serde_json::json;
 
-/// Every file under `root` with its bytes and modification time, by path relative to `root` (read
-/// off the owner thread). Bytes are compared whole: stronger than comparing digests.
-fn snapshot(root: &Path) -> BTreeMap<PathBuf, (Vec<u8>, Option<std::time::SystemTime>)> {
+/// One file as [`snapshot`] sees it: its bytes (`None` for the library's lock file), its size and its
+/// modification time.
+type Seen = (Option<Vec<u8>>, u64, Option<std::time::SystemTime>);
+
+/// Every file under `root` with its bytes, size and modification time, by path relative to `root`
+/// (read off the owner thread). Bytes are compared whole: stronger than comparing digests. The
+/// library's lock file at the top (`dalica_fs::lock::LOCK_FILE`) is seen by size and time only:
+/// a read-only session still holds the lock (one process per library), and on Windows a locked
+/// file cannot be read by anyone, this test included.
+fn snapshot(root: &Path) -> BTreeMap<PathBuf, Seen> {
     let root = root.to_path_buf();
     off_owner(move || {
         let mut out = BTreeMap::new();
@@ -28,7 +35,8 @@ fn snapshot(root: &Path) -> BTreeMap<PathBuf, (Vec<u8>, Option<std::time::System
                     stack.push(path);
                 } else {
                     let rel = path.strip_prefix(&root).unwrap().to_path_buf();
-                    out.insert(rel, (std::fs::read(&path).unwrap(), meta.modified().ok()));
+                    let bytes = (rel != Path::new(dalica_fs::lock::LOCK_FILE)).then(|| std::fs::read(&path).unwrap());
+                    out.insert(rel, (bytes, meta.len(), meta.modified().ok()));
                 }
             }
         }

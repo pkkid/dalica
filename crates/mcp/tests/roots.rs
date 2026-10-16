@@ -6,7 +6,7 @@
 
 use std::path::{Path, PathBuf};
 
-use dalica_engine::automation::Policy;
+use dalica_engine::automation::{Policy, plain};
 use dalica_mcp::roots::{client_roots, file_uri_path};
 use dalica_mcp::{Headless, Server, Source};
 use serde_json::{Value, json};
@@ -27,7 +27,8 @@ struct Tree {
 
 fn tree() -> Tree {
     let dir = tempfile::tempdir().unwrap();
-    let root = std::fs::canonicalize(dir.path()).unwrap();
+    // Resolved and plain (not `\\?\C:\…`): a path an agent may give, and one a `file://` URI names.
+    let root = plain(&std::fs::canonicalize(dir.path()).unwrap());
     let t = Tree { one: root.join("one folder"), two: root.join("two"), out: root.join("out"), _dir: dir };
     for d in [&t.one, &t.two, &t.out] {
         std::fs::create_dir_all(d).unwrap();
@@ -143,7 +144,9 @@ fn only_local_file_uris_become_roots() {
     }
     #[cfg(windows)]
     {
-        assert_eq!(file_uri_path("file:///C:/My%20Photos"), Some(PathBuf::from("C:/My Photos")));
+        // A plain local path, separators and all, whatever the drive letter's case.
+        assert_eq!(file_uri_path("file:///C:/My%20Photos").unwrap().as_os_str(), std::ffi::OsStr::new(r"C:\My Photos"));
+        assert_eq!(file_uri_path("file:///c:/Photos/2026").unwrap().as_os_str(), std::ffi::OsStr::new(r"C:\Photos\2026"));
         assert_eq!(file_uri_path("file:///srv/photos"), None, "no drive");
     }
 }
