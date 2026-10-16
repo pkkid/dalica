@@ -34,8 +34,8 @@ same commit.
 | F. Data | 9 | 11 | 1 | 0 |
 | G. Preferences and system | 6 | 8 | 9 | 0 |
 | H. Menus | 0 | 6 | 2 | 0 |
-| I. Keyboard shortcuts | 69 | 4 | 12 | 0 |
-| **All** | 140 | 44 | 60 | 16 |
+| I. Keyboard shortcuts | 71 | 2 | 12 | 0 |
+| **All** | 144 | 40 | 60 | 16 |
 <!-- /parity:summary -->
 
 ## Top gaps
