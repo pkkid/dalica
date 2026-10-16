@@ -1,7 +1,8 @@
 //! HEIF / HEIC (`formats.md` §3) and AVIF tiles (§1). With the `heif` feature
 //! (`cargo test -p dalica-image --features heif --test heif`): single pictures and grids,
 //! rotation, mirror, crop, 8–12 bits, alpha, ICC and EXIF on lossless synthetic files, and the
-//! unsupported cases. Without it: HEIC files are recognised and answer the tile text. Either way,
+//! unsupported cases. Without it: the header comes from the container (size, orientation, EXIF)
+//! and decoding answers the tile text, with its hint; an unusable container is the tile. Either way,
 //! AVIF is a format tile, box loops and oversized boxes are errors, and random bytes never panic.
 //!
 //! The synthetic-file writer (`testdata` below) is adapted from LightCraft
@@ -584,18 +585,90 @@ fn avif_is_a_format_tile_whatever_its_major_brand() {
     assert_eq!(decode(&mif1, &l), Err(Error::Unsupported(Format::Avif)));
 }
 
+/// A TIFF-structured EXIF block: taken 2026-06-04 19:42:10, orientation 6, for a 64 × 32 photo.
+fn dated_exif() -> Vec<u8> {
+    let exif = dalica_scenes::Exif {
+        orientation: 6,
+        make: Some("Dalica".into()),
+        date_time_original: "2026-06-04T19:42:10".parse().ok(),
+        ..Default::default()
+    };
+    dalica_scenes::exif::tiff(&exif, 64, 32, None).unwrap()
+}
+
+/// Without the feature a HEIC is listed like any photo: its header comes from the container
+/// (the primary item's `ispe` size, `irot`/`imir` as the orientation, the `Exif` item), while
+/// decoding answers the tile text, with the hint under it.
 #[cfg(not(feature = "heif"))]
 #[test]
-fn without_the_feature_heic_says_so() {
+fn without_the_feature_heic_reads_its_container_and_shows_the_tile() {
     let l = Limits::default();
-    let file = heic(64, 64, vec![FULL]);
+    let exif = dated_exif();
+    let file = build(&Spec { exif: Some(exif.clone()), props: vec![FULL, Prop::Irot(3)], ..Spec::new(64, 32, &grey) });
     assert_eq!(sniff(&file), Some(Format::Heif));
     assert!(!Format::Heif.supported());
-    for r in [read_header(&file, &l).map(|_| ()), decode(&file, &l).map(|_| ()), formats::embedded_thumbnail(Format::Heif, &file, &l).map(|_| ())] {
+    let h = read_header(&file, &l).unwrap();
+    // Stored 64 × 32, turned three quarters anticlockwise to show: EXIF orientation 6.
+    assert_eq!((h.format, h.width, h.height, h.orientation.get(), h.display_size()), (Format::Heif, 64, 32, 6, (32, 64)));
+    let e = h.exif.as_ref().unwrap();
+    assert_eq!((e.date_time_original, e.make.as_deref(), h.thumbnail.clone()), ("2026-06-04T19:42:10".parse().ok(), Some("Dalica"), None));
+    for r in [
+        decode(&file, &l).map(|_| ()),
+        dalica_image::decode_thumbnail(&file, 128, &l).map(|_| ()),
+        formats::embedded_thumbnail(Format::Heif, &file, &l).map(|_| ()),
+    ] {
         let e = r.unwrap_err();
-        assert_eq!(e, Error::Unsupported(Format::Heif));
-        assert_eq!(e.reason(), "HEIC support isn't included in this build");
+        assert_eq!((e.clone(), e.reason()), (Error::Unsupported(Format::Heif), "HEIC support isn't included in this build".into()));
     }
+    assert_eq!(formats::hint(Format::Heif), Some(formats::heif::HINT));
+    assert_eq!(formats::hint_for(formats::heif::REASON), Some(formats::heif::HINT));
+    assert!(Format::ALL.into_iter().filter(|&f| f != Format::Heif).all(|f| formats::hint(f).is_none()));
+    // The container's transforms, in association order; the EXIF orientation is not one of them.
+    for (props, orientation) in [(vec![], 1), (vec![Prop::Irot(1)], 8), (vec![Prop::Imir(0)], 4), (vec![Prop::Irot(1), Prop::Imir(1)], 7)] {
+        let h = read_header(&build(&Spec { exif: Some(exif.clone()), props, ..Spec::new(64, 32, &grey) }), &l).unwrap();
+        assert_eq!(h.orientation.get(), orientation);
+    }
+    // Without an `Exif` item: the size alone.
+    let bare = read_header(&heic(64, 64, vec![FULL]), &l).unwrap();
+    assert_eq!((bare.width, bare.height, bare.exif), (64, 64, None));
+}
+
+/// A container the reader cannot use answers the tile text, never "Damaged file": no `meta` or
+/// an empty one, no `ispe`, a damaged box, an `Exif` item past the end of a file that is all
+/// there. Bytes that stop inside a box are a partial read: read on.
+#[cfg(not(feature = "heif"))]
+#[test]
+fn without_the_feature_an_unusable_container_is_the_tile() {
+    let l = Limits::default();
+    let tile = Err(Error::Unsupported(Format::Heif));
+    let single = build(&Spec { exif: Some(dated_exif()), props: vec![FULL], ..Spec::new(testdata::TILE, testdata::TILE, &grey) });
+    let relabel = |from: &[u8; 4], to: &[u8; 4]| {
+        let mut b = single.clone();
+        let at = b.windows(4).position(|w| w == from).unwrap();
+        b[at..at + 4].copy_from_slice(to);
+        b
+    };
+    let bare = [ftyp(b"heic", &[b"mif1", b"heic"]), testdata::bx(b"meta", &[0; 4])].concat();
+    let mut stuck = single.clone();
+    let ipco = stuck.windows(4).position(|w| w == b"ipco").unwrap() + 4;
+    stuck[ipco..ipco + 4].copy_from_slice(&3u32.to_be_bytes());
+    // The `mdat` box made to end before the EXIF item's extent does (the file is all there).
+    let mdat = single.windows(4).position(|w| w == b"mdat").unwrap() - 4;
+    let short = [&single[..mdat], &testdata::bx(b"mdat", &single[mdat + 8..single.len() - 8])].concat();
+    for (case, bytes) in [
+        ("no meta", [ftyp(b"heic", &[b"mif1", b"heic"]), testdata::bx(b"free", b"")].concat()),
+        ("empty meta", bare),
+        ("no ispe", relabel(b"ispe", b"ispf")),
+        ("no pitm", relabel(b"pitm", b"pitn")),
+        ("a box that never advances", stuck),
+        ("EXIF past the end", short.clone()),
+    ] {
+        assert_eq!(read_header(&bytes, &l).map(|_| ()), tile, "{case}");
+        assert_eq!(decode(&bytes, &l).map(|_| ()), tile, "{case}");
+    }
+    // Cut inside `mdat`, before the end of the EXIF item: read on, and the whole file has it.
+    assert_eq!(read_header(&single[..single.len() - 8], &l), Err(Error::Truncated));
+    assert!(read_header(&single, &l).unwrap().exif.is_some());
 }
 
 /// Planted by fuzzing in the sibling app: a malformed box that made heic-rs 0.1.1 slice out of
@@ -612,7 +685,7 @@ proptest! {
     /// Truncation and corruption anywhere in a real file never panic, with or without the feature.
     #[test]
     fn corrupted_files_never_panic(cut in any::<prop::sample::Index>(), flips in proptest::collection::vec((any::<prop::sample::Index>(), any::<u8>()), 1..8)) {
-        let mut bytes = heic(64, 32, vec![FULL, Prop::Irot(1)]);
+        let mut bytes = build(&Spec { exif: Some(dated_exif()), props: vec![FULL, Prop::Irot(1)], ..Spec::new(64, 32, &grey) });
         for (at, v) in flips {
             let i = at.index(bytes.len());
             bytes[i] ^= v;

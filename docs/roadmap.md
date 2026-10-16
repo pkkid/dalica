@@ -5674,7 +5674,7 @@ No other step of M10 needs a maintainer decision mid-run.
     All, `claude mcp add dalica -- dalica-cli mcp --demo` with a W01-like request, connect mode to a
     running `dalica --control`, the Windows touchpad pinch, the macOS build by hand).
   - done when: `cargo xtask accept M10` passes everything in M10's *Done when*.
-- ⬜ **M10.56 `image` + `ui`: HEIC without a decoder**
+- ✅ **M10.56 `image` + `ui`: HEIC without a decoder**
   - after: M10.24, M10.27
   - files: `crates/image/src/formats/heif.rs`, `crates/image/src/formats/heif_items.rs`, `crates/image/src/formats/mod.rs`, `crates/image/tests/heif.rs`, `crates/image/README.md`, `crates/ui/src/panels/edit/canvas.rs`, `crates/ui/src/panels/light_table/cell.rs`, `crates/ui/tests/heic_hint.rs`, `docs/formats.md`, `docs/parity.md`
   - scope: the maintainer's answer at M10.R (2026-10-16): release builds ship without an HEVC

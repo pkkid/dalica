@@ -477,9 +477,10 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         }
     } else {
         c.preview = None;
-        if let Some(why) = app.session().and_then(|s| s.preview_failure()) {
-            failed(&painter, &t, area, why);
-        }
+    }
+    let failure = if preview.is_none() { app.session().and_then(|s| s.preview_failure()).map(str::to_owned) } else { None };
+    if let Some(why) = &failure {
+        failed(&painter, &t, area, why);
     }
 
     // Zoomed past the preview: the visible window at full resolution, asked for once the view
@@ -526,7 +527,9 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         perf::count(&ctx, Counter::PreviewWaiting, 1);
     }
 
-    widgets::register(&ctx, ID, Role::Other, "Photo", Target::Widget(&response), false);
+    // A photo that cannot be shown: what the area says is its label (screen readers, agents).
+    let label = failure.as_deref().map_or_else(|| "Photo".to_owned(), message);
+    widgets::register(&ctx, ID, Role::Other, &label, Target::Widget(&response), false);
     let v = View { photo, area, image, size, fit, scale, zoomed, pannable, refining, refined: drew_refined, animating };
     zoom::show(ui, &t, &v);
     if zoomed && pannable {
@@ -632,10 +635,30 @@ fn glide_rest(ctx: &egui::Context, id: Id) -> Vec2 {
     total
 }
 
-/// The "cannot be shown" message, with the reason under it.
+/// The widest the hint under the reason is drawn before it wraps, in points.
+const HINT_WIDTH: f32 = 420.0;
+
+/// The whole "cannot be shown" message as one text: [`CANNOT_SHOW`], the reason and, when its
+/// format has one, the hint (`dalica_image::formats::hint`), one per line.
+pub fn message(why: &str) -> String {
+    match dalica_image::formats::hint_for(why) {
+        Some(hint) => format!("{CANNOT_SHOW}\n{why}\n{hint}"),
+        None => format!("{CANNOT_SHOW}\n{why}"),
+    }
+}
+
+/// The "cannot be shown" message, with the reason under it and, when the format has one, the
+/// hint under that, wrapped and centred.
 fn failed(painter: &egui::Painter, t: &Tokens, area: Rect, why: &str) {
     let c = area.center();
     painter.text(c, Align2::CENTER_BOTTOM, CANNOT_SHOW, fonts::semibold(15.0), t.text_label);
+    let hint = dalica_image::formats::hint_for(why);
     let why: String = why.chars().take(200).collect();
-    painter.text(c + vec2(0.0, 6.0), Align2::CENTER_TOP, why, fonts::regular(12.5), t.text_dim);
+    let reason = painter.text(c + vec2(0.0, 6.0), Align2::CENTER_TOP, why, fonts::regular(12.5), t.text_dim);
+    if let Some(hint) = hint {
+        let width = HINT_WIDTH.min(area.width() - 2.0 * PADDING).max(1.0);
+        let mut job = egui::text::LayoutJob::simple(hint.to_owned(), fonts::regular(12.5), t.text_dim, width);
+        job.halign = egui::Align::Center;
+        painter.galley(pos2(c.x, reason.bottom() + 10.0), painter.layout_job(job), t.text_dim);
+    }
 }
