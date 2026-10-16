@@ -14,12 +14,17 @@
 //! | [`input`] | the [`Frame`] before the cells ([`input::begin`]), the cells' [`cell::CellOut`]s after them ([`input::finish`]) | [`input::Pending`], applied by [`input::apply`] |
 //! | [`header`] | the [`Frame`], the section, its rect and [`header::Form`] | [`header::HeaderOut`], applied by [`header::apply`] |
 //! | [`cell`] | the [`Frame`], the [`Thumbnails`](super::thumbnails::Thumbnails), a [`cell::CellIn`] | a [`cell::CellOut`]; the inline caption editor's result ([`caption_edit`]) is applied by [`cell::apply`] |
+//! | [`folder_banner`] | the [`Frame`], a damaged folder, its header block's rect and the top of the view below the pinned header | [`folder_banner::BannerOut`], applied by [`folder_banner::apply`] |
 //!
 //! **Search mode** (`ui-layout.md` §9): the sections are built with the engine's matches as the
 //! tree options' filter ([`tree_options`]), so only matching sections and photos show; in Find
 //! Duplicates' mode the first section is the groups' (`album:search`, titled
 //! [`DUPLICATES_TITLE`]), each group's identical files side by side, largest group first. With no
-//! match the light table shows the empty state [`NO_MATCHES_ID`] under the banner.
+//! match the light table shows the empty state [`NO_MATCHES_ID`] under the banner: "No photos
+//! found" with its own [Show All] ([`SHOW_ALL_ID`]), which leaves search mode as the banner's does.
+//!
+//! **A damaged folder** (`data-model.md` §3): the header block of a folder whose sidecar was
+//! damaged carries the caution banner of [`folder_banner`] with [Reset folder data].
 //!
 //! Each part keeps what it needs between frames in its own state struct ([`scrollbar::Scrollbar`],
 //! [`input::Input`], [`header::Headers`], [`cell::Cells`]), held here by [`LightTable`]. A frame:
@@ -42,6 +47,7 @@
 pub mod caption_edit;
 pub mod cell;
 pub mod context_menu;
+pub mod folder_banner;
 pub mod header;
 pub mod input;
 pub mod layout;
@@ -71,9 +77,11 @@ pub const ADD_FOLDER_ID: &str = "button:empty.addFolder";
 pub const IMPORT_ID: &str = "button:empty.import";
 /// The empty state of a search that matches nothing (`control-protocol.md` §7).
 pub const NO_MATCHES_ID: &str = "empty:search";
-/// What it says.
-pub const NO_MATCHES_TITLE: &str = "No matching pictures";
-pub const NO_MATCHES_BODY: &str = "Try fewer words or other filters, or click Show All to see every picture.";
+/// What it says (`ui-layout.md` §5.3), and its [Show All], which leaves search mode.
+pub const NO_MATCHES_TITLE: &str = "No photos found";
+pub const NO_MATCHES_BODY: &str = "Try fewer words or other filters.";
+pub const SHOW_ALL_ID: &str = "button:empty.showAll";
+pub const SHOW_ALL_LABEL: &str = "Show All";
 /// The title of Find Duplicates' section.
 pub const DUPLICATES_TITLE: &str = "Duplicate Files";
 
@@ -536,7 +544,11 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui, area: Rect, bar: Rect) {
             empty_state(app, ui, area);
         } else if no_matches {
             let mut child = ui.new_child(UiBuilder::new().id_salt("lightTable.noMatches").max_rect(area));
-            widgets::empty_state(&mut child, &t, NO_MATCHES_ID, NO_MATCHES_TITLE, NO_MATCHES_BODY, None);
+            let show_all =
+                widgets::empty_state(&mut child, &t, NO_MATCHES_ID, NO_MATCHES_TITLE, NO_MATCHES_BODY, Some((SHOW_ALL_ID, SHOW_ALL_LABEL)));
+            if show_all.is_some_and(|r| r.clicked()) {
+                crate::commands::search::clear(app);
+            }
         }
         return;
     }
@@ -594,11 +606,17 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui, area: Rect, bar: Rect) {
     let grid = layout.grid();
     let mut cells = Vec::new();
     let mut header_outs = Vec::new();
+    let mut banner_outs = Vec::new();
     let visible = layout.visible(offset, view_h);
+    // A damaged folder's banner shows only below the pinned header.
+    let pinned_bottom = layout.sticky(offset).map_or(area.min.y, |st| area.min.y + st.y as f32 + spacing.sticky);
     for v in &visible {
         let Some(s) = p.sections.get(v.section) else { continue };
         let rect = Rect::from_min_size(pos2(area.min.x, f.screen_y(v.top)), vec2(area.width(), spacing.header));
         header_outs.push(header::show(&mut content, &f, &mut lt.headers, s, rect, header::Form::Block));
+        if let Some(folder) = s.folder.filter(|f| session.damaged_folder(*f).is_some()) {
+            banner_outs.push(folder_banner::show(&mut content, &f, folder, rect, pinned_bottom));
+        }
         info.headers.push((s.id, rect));
         for k in v.cells.clone() {
             let (Some(&id), Some((x, y))) = (s.photos.get(k), layout.cell_origin(v.index, k)) else { continue };
@@ -658,6 +676,9 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui, area: Rect, bar: Rect) {
     input::apply(app, pending);
     for out in header_outs {
         header::apply(app, out);
+    }
+    for out in banner_outs {
+        folder_banner::apply(app, out);
     }
     cell::apply(app, &mut lt.cells);
     if let Some(s) = app.session_mut() {

@@ -549,10 +549,12 @@ pub enum DialogKind {
     /// Tools ▸ Options… (`app.preferences`) and Help ▸ Keyboard Shortcuts… (`app.shortcuts`); its
     /// draft is [`UiState::options`].
     Options,
+    /// "Reset this folder's data?" (`folder.resetData`, the damaged folder's banner; M10.52).
+    ResetFolderData,
 }
 
 impl DialogKind {
-    pub const ALL: [DialogKind; 26] = [
+    pub const ALL: [DialogKind; 27] = [
         DialogKind::ClearTray,
         DialogKind::FolderManager,
         DialogKind::FirstRun,
@@ -579,6 +581,7 @@ impl DialogKind {
         DialogKind::DeletePhotos,
         DialogKind::DeleteFolder,
         DialogKind::Options,
+        DialogKind::ResetFolderData,
     ];
 
     /// The kind as the protocol writes it (`clearTray`), the `<kind>` of `dialog:<kind>`.
@@ -610,6 +613,7 @@ impl DialogKind {
             DialogKind::DeletePhotos => "deletePhotos",
             DialogKind::DeleteFolder => "deleteFolder",
             DialogKind::Options => "options",
+            DialogKind::ResetFolderData => "resetFolderData",
         }
     }
 

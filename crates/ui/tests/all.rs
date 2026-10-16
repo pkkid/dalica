@@ -18,6 +18,7 @@ mod control_batch;
 mod control_inspect;
 mod control_wait;
 mod crop_tool;
+mod damaged_sidecar;
 mod delete_dialogs;
 mod dialogs;
 mod drag;

@@ -5548,7 +5548,7 @@ No other step of M10 needs a maintainer decision mid-run.
     --write` turns LIB-LT-BADGES, EDIT-VIEW, KEY-GLOBAL-CTRL-3 and KEY-GLOBAL-CTRL-9 ✅ (the rows'
     notes name the tests); screenshots at 1400 × 900 of a geotagged cell and of the edit view's
     enabled trash button, before and after, on the PR; `cargo xtask ci` green.
-- ⬜ **M10.52 `engine` + `ui`: a damaged sidecar's banner and Reset folder data, and the search's empty state**
+- ✅ **M10.52 `engine` + `ui`: a damaged sidecar's banner and Reset folder data, and the search's empty state**
   - after: M10.25, M10.38, M10.40, M10.50
   - files: `crates/engine/src/cmd/folder_data.rs`, `crates/engine/src/cmd/mod.rs`, `crates/engine/src/session.rs`, `crates/engine/tests/folder_data.rs`, `crates/ui/src/panels/light_table.rs`, `crates/ui/src/panels/light_table/folder_banner.rs`, `crates/ui/src/dialogs/confirm.rs`, `crates/ui/tests/damaged_sidecar.rs`, `crates/ui/tests/search_ui.rs`, `docs/data-model.md`, `docs/ui-layout.md`
   - scope: two P0 rows the audit (M10.26) left open. DATA-SIDECAR (`data-model.md` §3): an

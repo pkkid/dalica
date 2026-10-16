@@ -10,7 +10,8 @@
 //! - Show All leaves search mode and brings the scroll position back; Ctrl+F focuses the field,
 //!   and Esc there does the same;
 //! - a suggestion picked with ↓ and Enter puts `tag:<tag>` in the field and searches it;
-//! - a search with no match shows the empty state;
+//! - a search with no match shows the empty state, "No photos found", whose own Show All leaves
+//!   search mode;
 //! - Show Duplicate Files shows the groups side by side under their banner;
 //! - Save Search Results… opens Album Properties named for the search and OK makes the album;
 //! - Search for This Tag in the Tags pane searches the tag;
@@ -255,7 +256,8 @@ fn suggestion_picked(size: (u32, u32)) {
     assert_eq!(matches(d).len(), 4);
 }
 
-/// A search that matches nothing shows the empty state under the banner.
+/// A search that matches nothing shows the empty state under the banner: "No photos found" with
+/// its own [Show All], which leaves search mode as the banner's does.
 #[test]
 fn no_match_shows_the_empty_state() {
     let mut fx = fixture((1400, 900));
@@ -263,11 +265,17 @@ fn no_match_shows_the_empty_state() {
     search_for(d, "zzzz");
     assert!(sections(d).is_empty());
     let empty = try_widget(d, light_table::NO_MATCHES_ID).expect("the empty state");
-    assert!(empty.label.contains(light_table::NO_MATCHES_TITLE), "{}", empty.label);
+    assert_eq!(empty.label, "No photos found");
     assert!(banner(d).starts_with("Showing 0 pictures in 0 folders ("), "{}", banner(d));
     // Save Search Results… has nothing to save.
     let item = menu_item(d, "Save Search Results…");
     assert_eq!((item.enabled, item.reason.as_deref()), (false, Some("No photos match the search.")));
+    assert_eq!(try_widget(d, "button:empty.showAll").expect("its Show All").label, "Show All");
+    d.click("button:empty.showAll").unwrap();
+    d.settle(FRAMES).unwrap();
+    assert!(!d.state().search.active(), "search mode is left");
+    assert!(!has(d, light_table::NO_MATCHES_ID) && !has(d, "region:banner"));
+    assert_eq!(sections(d).len(), 3, "every folder again");
 }
 
 /// The bar's item under Tools ▸ Experimental labelled `label`.

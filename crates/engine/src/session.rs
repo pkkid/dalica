@@ -32,6 +32,7 @@
 //! | `albums_file` | `albums.json`, read at open and written after album changes (stub until M9.10) |
 //! | [`crate::search`] | search mode's state; the query worker (stub until M9.11) |
 //! | `duplicates` | Find Duplicates (stub until M9.16) |
+//! | [`crate::cmd::folder_data`] | folders whose sidecar was damaged, and Reset folder data (M10.52) |
 //!
 //! **A read-only session** ([`Session::open_read_only`], `--read-only`; [`Session::make_read_only`])
 //! refuses every write at two seams of this file and nowhere else: [`Session::execute`] refuses
@@ -113,6 +114,13 @@ pub(crate) enum Msg {
         /// file-operation journal, `fileops.rs`).
         unfinished: Option<Arc<std::sync::atomic::AtomicBool>>,
     },
+    /// Resets a folder whose sidecar was damaged (`cmd/folder_data.rs`): reads its sidecar again,
+    /// lifts its state and, unless a readable one is there, writes a new one from `state`.
+    Reset {
+        folder: FolderId,
+        state: Box<FolderState>,
+        reply: crate::cmd::folder_data::ResetReply,
+    },
 }
 
 /// The sidecar writes sent to the I/O worker and not yet committed, shared by the session and
@@ -185,6 +193,11 @@ pub struct Session {
     io_errors: Arc<Mutex<Vec<String>>>,
     /// The sidecar writes not yet committed ([`SidecarQueue`]).
     sidecar_queue: Arc<Mutex<SidecarQueue>>,
+    /// The folders whose sidecar was damaged, shared with the I/O worker, and the session's copy
+    /// of it as of `damage_seen` (`cmd/folder_data.rs`).
+    pub(crate) damage: Arc<Mutex<crate::cmd::folder_data::Damage>>,
+    pub(crate) damaged: BTreeMap<PathBuf, Vec<PathBuf>>,
+    pub(crate) damage_seen: u64,
     collected: Option<Vec<Op>>,
     /// The op a command asked its undo step to use instead of the collected inverses.
     undo_op: Option<Op>,
@@ -274,13 +287,18 @@ impl Session {
         recovery.extend(folders_note);
         let io_errors = Arc::new(Mutex::new(Vec::new()));
         let sidecar_queue = Arc::new(Mutex::new(SidecarQueue::default()));
+        // Read here, off the UI thread: a restart writes nothing into a damaged folder.
+        let (damage, damage_note) = crate::cmd::folder_data::load(dir, clock.now());
+        let damaged = damage.snapshot();
+        let damage = Arc::new(Mutex::new(damage));
         let (tx, rx) = mpsc::channel();
         let worker = {
             let (clock, errors, queue) = (Arc::clone(&clock), Arc::clone(&io_errors), Arc::clone(&sidecar_queue));
+            let shared = Shared { errors, queue, damage: Arc::clone(&damage), dir: dir.to_path_buf() };
             let store = opened.store;
             std::thread::Builder::new()
                 .name("dalica-io".into())
-                .spawn(move || io_worker(store, rx, clock.as_ref(), &errors, &queue))
+                .spawn(move || io_worker(store, rx, clock.as_ref(), &shared))
                 .map_err(|e| OpenError::Thread(e.to_string()))?
         };
         let registry = crate::cmd::specs();
@@ -293,7 +311,7 @@ impl Session {
         let overrides = settings.keymap(&|c| keymap.knows(c));
         keymap.set_overrides(overrides);
         let (thumbs, thumb_notes) = Thumbs::open(&options.thumbs);
-        let mut notices: Vec<String> = settings_note.into_iter().collect();
+        let mut notices: Vec<String> = settings_note.into_iter().chain(damage_note).collect();
         // Stored values of the wrong type: the defaults are used, and the notice says which.
         notices.extend(settings.problems());
         notices.extend(thumb_notes);
@@ -311,6 +329,9 @@ impl Session {
             worker: Some(worker),
             io_errors,
             sidecar_queue,
+            damage,
+            damaged,
+            damage_seen: 0,
             collected: None,
             undo_op: None,
             stamping: false,
@@ -549,6 +570,18 @@ impl Session {
         self.io.clone()
     }
 
+    /// Applies `op` as a change read from the files (as a scan's op: no undo step, no last-changed
+    /// stamp, nothing written back into photo files), also inside `execute`: a sidecar the user
+    /// restored by hand, read by `folder.resetData` (`cmd/folder_data.rs`).
+    pub(crate) fn apply_from_files(&mut self, op: Op) -> Result<Op, CmdError> {
+        let saved = self.collected.take();
+        let stamping = std::mem::replace(&mut self.stamping, false);
+        let result = self.apply(op);
+        self.stamping = stamping;
+        self.collected = saved;
+        result
+    }
+
     /// Applies a derived op ([`Op::is_derived`]: sketches) and journals it, without an undo step
     /// and without marking any folder for a sidecar write (it bumps neither revision they follow).
     pub(crate) fn apply_derived(&mut self, op: Op) -> Result<(), CmdError> {
@@ -701,6 +734,7 @@ impl Session {
         n += self.poll_file_jobs();
         n += self.poll_search();
         n += self.poll_duplicates();
+        self.sync_damage();
         self.jobs.prune(self.clock.now());
         n
     }
@@ -725,6 +759,7 @@ impl Session {
         let (ack, done) = mpsc::channel();
         self.send(Msg::Flush(ack));
         let _ = done.recv();
+        self.sync_damage();
         let errors = std::mem::take(&mut *self.io_errors.lock().unwrap_or_else(PoisonError::into_inner));
         if errors.is_empty() { Ok(()) } else { Err(CmdError::Unsaved(errors.join("; "))) }
     }
@@ -982,9 +1017,47 @@ impl Drop for Session {
     }
 }
 
+/// What the I/O worker shares with the session: the write errors, the sidecar queue, the list of
+/// damaged folders, and the library directory (where that list is kept).
+struct Shared {
+    errors: Arc<Mutex<Vec<String>>>,
+    queue: Arc<Mutex<SidecarQueue>>,
+    damage: Arc<Mutex<crate::cmd::folder_data::Damage>>,
+    dir: PathBuf,
+}
+
+impl Shared {
+    fn fail(&self, e: String) {
+        log::warn!("{e}");
+        self.errors.lock().unwrap_or_else(PoisonError::into_inner).push(e);
+    }
+
+    fn damaged(&self, folder: &Path) -> bool {
+        self.damage.lock().unwrap_or_else(PoisonError::into_inner).contains(folder)
+    }
+
+    /// Changes the list of damaged folders with `f`, and writes it when it changed.
+    fn change_damage<R>(&self, f: impl FnOnce(&mut crate::cmd::folder_data::Damage) -> R) -> R {
+        let (out, bytes) = {
+            let mut d = self.damage.lock().unwrap_or_else(PoisonError::into_inner);
+            let before = d.revision();
+            let out = f(&mut d);
+            (out, (d.revision() != before).then(|| crate::cmd::folder_data::list_bytes(&d)))
+        };
+        if let Some(bytes) = bytes
+            && let Err(e) = crate::cmd::folder_data::save(&self.dir, &bytes)
+        {
+            self.fail(e);
+        }
+        out
+    }
+}
+
 /// The I/O worker: owns the store and the sidecar writer, and clears the folders it committed
-/// from the session's [`SidecarQueue`] after each pass.
-fn io_worker(mut store: Store, rx: Receiver<Msg>, clock: &dyn Clock, errors: &Mutex<Vec<String>>, queue: &Mutex<SidecarQueue>) {
+/// from the session's [`SidecarQueue`] after each pass. A folder whose sidecar was damaged
+/// (`cmd/folder_data.rs`) is noted in the shared list and left alone, even after a restart, until
+/// it is reset: its changes are kept as its state but not written, and no entry is carried there.
+fn io_worker(mut store: Store, rx: Receiver<Msg>, clock: &dyn Clock, shared: &Shared) {
     let mut writer = SidecarWriter::new();
     let mut states: HashMap<FolderId, Option<FolderState>> = HashMap::new();
     // How many `Msg::Dirty` were taken in, and the number of the last one naming each folder.
@@ -992,36 +1065,38 @@ fn io_worker(mut store: Store, rx: Receiver<Msg>, clock: &dyn Clock, errors: &Mu
     let mut seen: HashMap<FolderId, u64> = HashMap::new();
     let settle = |tried: Vec<FolderId>, writer: &SidecarWriter, seen: &HashMap<FolderId, u64>| {
         if !tried.is_empty() {
-            queue.lock().unwrap_or_else(PoisonError::into_inner).settle(tried, writer, seen);
+            shared.queue.lock().unwrap_or_else(PoisonError::into_inner).settle(tried, writer, seen);
         }
     };
-    let fail = |e: String| {
-        log::warn!("{e}");
-        errors.lock().unwrap_or_else(PoisonError::into_inner).push(e);
-    };
-    // Reports each outcome and answers the folders tried.
-    let report = |outcomes: std::collections::BTreeMap<FolderId, dalica_store::Outcome>| -> Vec<FolderId> {
-        let tried = outcomes.keys().copied().collect();
-        for (folder, outcome) in outcomes {
-            match outcome {
-                dalica_store::Outcome::Failed(e) => fail(format!("sidecar of folder {folder}: {e}")),
-                dalica_store::Outcome::SetAside(p) => {
-                    fail(format!("folder {folder}: damaged sidecar kept as {}; the folder is read-only", p.display()))
+    let fail = |e: String| shared.fail(e);
+    // Reports each outcome (a damaged sidecar's folder joins the list) and answers the folders
+    // tried.
+    let report =
+        |outcomes: std::collections::BTreeMap<FolderId, dalica_store::Outcome>, states: &HashMap<FolderId, Option<FolderState>>| -> Vec<FolderId> {
+            let tried = outcomes.keys().copied().collect();
+            for (folder, outcome) in outcomes {
+                match outcome {
+                    dalica_store::Outcome::Failed(e) => fail(format!("sidecar of folder {folder}: {e}")),
+                    dalica_store::Outcome::SetAside(p) => {
+                        if let Some(Some(state)) = states.get(&folder) {
+                            shared.change_damage(|d| d.note(&state.path, Some(&p)));
+                        }
+                        fail(format!("folder {folder}: damaged sidecar kept as {}; the folder is read-only", p.display()))
+                    }
+                    dalica_store::Outcome::Written | dalica_store::Outcome::Unchanged => {
+                        // Landed since: an earlier failed attempt (a folder renamed before its write
+                        // came) is no longer unsaved.
+                        let earlier = format!("sidecar of folder {folder}: ");
+                        shared.errors.lock().unwrap_or_else(PoisonError::into_inner).retain(|e| !e.starts_with(&earlier));
+                    }
+                    dalica_store::Outcome::ReadOnly => {}
                 }
-                dalica_store::Outcome::Written | dalica_store::Outcome::Unchanged => {
-                    // Landed since: an earlier failed attempt (a folder renamed before its write
-                    // came) is no longer unsaved.
-                    let earlier = format!("sidecar of folder {folder}: ");
-                    errors.lock().unwrap_or_else(PoisonError::into_inner).retain(|e| !e.starts_with(&earlier));
-                }
-                dalica_store::Outcome::ReadOnly => {}
             }
-        }
-        tried
-    };
+            tried
+        };
     let write = |writer: &mut SidecarWriter, states: &HashMap<FolderId, Option<FolderState>>, seen: &HashMap<FolderId, u64>, all: bool| {
         let state_of = |f: FolderId| states.get(&f).cloned().flatten();
-        let tried = report(if all { writer.flush_with(state_of, clock.now()) } else { writer.write_due_with(state_of, clock.now()) });
+        let tried = report(if all { writer.flush_with(state_of, clock.now()) } else { writer.write_due_with(state_of, clock.now()) }, states);
         settle(tried, writer, seen);
     };
     loop {
@@ -1036,9 +1111,19 @@ fn io_worker(mut store: Store, rx: Receiver<Msg>, clock: &dyn Clock, errors: &Mu
             Ok(Msg::Dirty(list)) => {
                 received = received.saturating_add(1);
                 for (folder, state) in list {
-                    writer.mark_dirty(folder);
+                    let damaged = state.as_ref().is_some_and(|s| shared.damaged(&s.path));
                     states.insert(folder, state);
                     seen.insert(folder, received);
+                    if damaged {
+                        // Nothing to write until the folder is reset: its change is kept in
+                        // `states` and is no pending write.
+                        let mut q = shared.queue.lock().unwrap_or_else(PoisonError::into_inner);
+                        if q.folders.get(&folder).is_some_and(|n| *n <= received) {
+                            q.folders.remove(&folder);
+                        }
+                        continue;
+                    }
+                    writer.mark_dirty(folder);
                 }
             }
             Ok(Msg::Write(path, bytes)) => {
@@ -1060,25 +1145,34 @@ fn io_worker(mut store: Store, rx: Receiver<Msg>, clock: &dyn Clock, errors: &Mu
             }
             Ok(Msg::Carry { carry, from, to, unfinished }) => {
                 let now = clock.now();
-                let carried = match (from, to) {
-                    (Some(from), Some(to)) => {
+                // A damaged folder (one the writer may have forgotten since a restart) gets
+                // nothing carried in or out.
+                let blocked = [&carry.from, &carry.to].into_iter().find(|p| shared.damaged(p)).cloned();
+                let carried = match (blocked, from, to) {
+                    (Some(path), _, _) => Err(dalica_store::carry::CarryError::ReadOnly(path)),
+                    (None, Some(from), Some(to)) => {
                         let r = writer.carry(&carry, from, to, |f| states.get(&f).cloned().flatten(), now);
-                        let tried = report(r.writes);
+                        let tried = report(r.writes, &states);
                         settle(tried, &writer, &seen);
                         r.carried
                     }
                     // A folder the library does not have is never written by the writer: nothing to
                     // sequence with there; a destination in the library is written from the model
                     // after the carry, as the writer would.
-                    (_, to) => {
+                    (None, _, to) => {
                         let r = dalica_store::carry::entries(&carry, now);
                         if let Some(to) = to.filter(|_| r.is_ok()) {
                             writer.mark_dirty(to);
-                            queue.lock().unwrap_or_else(PoisonError::into_inner).folders.entry(to).or_insert(0);
+                            shared.queue.lock().unwrap_or_else(PoisonError::into_inner).folders.entry(to).or_insert(0);
                         }
                         r
                     }
                 };
+                if let Err(dalica_store::carry::CarryError::SetAside { path, kept, .. }) = &carried
+                    && let Some(folder) = path.parent()
+                {
+                    shared.change_damage(|d| d.note(folder, kept.as_deref()));
+                }
                 let what = format!("sidecar entries from {} to {}", carry.from.display(), carry.to.display());
                 let finished = matches!(&carried, Ok(c) if c.refused.is_empty());
                 if let Some(flag) = unfinished.filter(|_| !finished) {
@@ -1092,6 +1186,43 @@ fn io_worker(mut store: Store, rx: Receiver<Msg>, clock: &dyn Clock, errors: &Mu
                     }
                     Err(e) => fail(format!("{what}: {e}")),
                 }
+            }
+            Ok(Msg::Reset { folder, state, reply }) => {
+                use crate::cmd::folder_data::{Found, Reset, look};
+                let path = state.path.clone();
+                let answer = match look(&path, clock.now()) {
+                    Found::Failed(e) => Err(e),
+                    found => {
+                        // A second damaged copy is listed beside the first, then the folder is lifted.
+                        let kept = shared.change_damage(|d| {
+                            if let Found::SetAside(k) = &found {
+                                d.note(&path, Some(k));
+                            }
+                            d.lift(&path).unwrap_or_default()
+                        });
+                        writer.clear_read_only(folder);
+                        states.insert(folder, Some(*state));
+                        seen.insert(folder, received);
+                        match found {
+                            // Read, never written over: the model takes its values.
+                            Found::Restored(sidecar) => Ok(Reset::Restored { sidecar, kept }),
+                            _ => {
+                                writer.mark_dirty(folder);
+                                shared.queue.lock().unwrap_or_else(PoisonError::into_inner).folders.entry(folder).or_insert(0);
+                                let outcomes = writer.flush_with(|f| states.get(&f).cloned().flatten(), clock.now());
+                                let written = match outcomes.get(&folder) {
+                                    Some(dalica_store::Outcome::Written | dalica_store::Outcome::Unchanged) | None => Ok(()),
+                                    Some(dalica_store::Outcome::Failed(e)) => Err(e.clone()),
+                                    Some(other) => Err(format!("{other:?}")),
+                                };
+                                let tried = report(outcomes, &states);
+                                settle(tried, &writer, &seen);
+                                Ok(Reset::Rewritten { kept, written })
+                            }
+                        }
+                    }
+                };
+                let _ = reply.send(answer);
             }
             Ok(Msg::Hold(roots)) => writer.hold(roots),
             Ok(Msg::Guard(roots)) => writer.guard(roots),
