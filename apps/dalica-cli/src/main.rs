@@ -118,13 +118,18 @@ fn first_key(keys: dalica_engine::keymap::DefaultKeys) -> Option<&'static str> {
 }
 
 /// The registry as `engine.commands` lists it, UI-only commands included, without a library (so
-/// `enabled` is not evaluated).
+/// `enabled` is not evaluated). An engine command with an opener (`dalica_ui::commands::OPENERS`:
+/// Rename… opens its dialog) lists the opener's keys after its own, as the app's keymap binds them
+/// (F2 for `photo.rename`).
 fn commands() -> String {
     let list: Vec<serde_json::Value> = dalica_engine::cmd::specs()
         .iter()
         .map(|s| {
+            let opener = dalica_ui::commands::opener(s.id).map_or(&[][..], |o| o.keys);
+            let mut keys = shown_keys(s.keys);
+            keys.extend(shown_keys(opener));
             serde_json::json!({
-                "id": s.id, "label": s.label, "menu": s.menu, "shortcut": first_key(s.keys), "keys": shown_keys(s.keys),
+                "id": s.id, "label": s.label, "menu": s.menu, "shortcut": first_key(s.keys).or_else(|| first_key(opener)), "keys": keys,
                 "params": s.params, "effect": s.effect, "history": s.history, "ui": false, "live": true,
             })
         })
@@ -252,6 +257,22 @@ mod tests {
         assert_eq!(redo["keys"], serde_json::json!([{ "context": "library", "key": want }]));
         let small = list.iter().find(|c| c["id"] == "view.thumbsSmall").unwrap();
         assert_eq!(small["shortcut"], "Ctrl+1");
+    }
+
+    /// The openers' keys are listed with their engine commands: Rename… on F2 in the Library, and
+    /// every opener's keys somewhere.
+    #[test]
+    fn commands_list_the_openers_keys() {
+        let list: Vec<serde_json::Value> = serde_json::from_str(&commands()).unwrap();
+        let rename = list.iter().find(|c| c["id"] == "photo.rename").unwrap();
+        assert_eq!(rename["shortcut"], "F2");
+        assert_eq!(rename["keys"], serde_json::json!([{ "context": "library", "key": "F2" }]));
+        for o in dalica_ui::commands::OPENERS {
+            let c = list.iter().find(|c| c["id"] == o.id).unwrap_or_else(|| panic!("{} is listed", o.id));
+            for k in shown_keys(o.keys) {
+                assert!(c["keys"].as_array().unwrap().contains(&k), "{}: {k}", o.id);
+            }
+        }
     }
 
     #[test]

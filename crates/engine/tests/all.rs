@@ -13,6 +13,7 @@ mod dates_undo_written;
 mod day_in_the_life;
 mod delete;
 mod duplicates;
+mod edit_keys;
 mod edited_thumbs;
 mod effects;
 mod execute_group;
