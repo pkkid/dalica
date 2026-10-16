@@ -1,13 +1,22 @@
 //! The caption bar under the photo (`editing.md` §2): 36 high on `canvas`, the show-captions toggle
 //! at the left (`button:caption.toggle`, for the slideshow, drawn disabled until M11), the photo's
 //! caption in a centred field with the placeholder "Add a caption" (`field:caption`), and the trash
-//! button at the right (`button:edit.trash`, drawn disabled until M9).
+//! button at the right (`button:edit.trash`).
+//!
+//! The trash button deletes the photo shown as Ctrl+Delete does in the library: `photo.delete` for
+//! it, through the delete question (`organizing.md` §9; skipped with "Delete from disk without
+//! asking"). Cancel changes nothing. Once Move to Trash has taken the photo out of the library the
+//! edit view shows the next photo of its section, else the previous one, else goes back to the
+//! library ([`edit_view::successors`], listed when the button is clicked and kept in the context's
+//! data until then; [`edit_view::left_behind`]).
 //!
 //! The field shows the open photo's caption. What is typed is kept while the field has the focus;
 //! Return or a click away sets it through `photo.caption.set` (one library undo step, nothing when
 //! the text is unchanged); Esc gives back the caption as it was. Moving to another photo commits
 //! what was typed for the one it was typed for. The draft is kept in the view state
 //! (`UiState::caption_bar`), so closing the app commits it too ([`crate::App::shutdown`]).
+
+use std::sync::Arc;
 
 use dalica_core::PhotoId;
 use dalica_ui_kit::icons::EditIcon;
@@ -29,6 +38,16 @@ pub const TRASH_TIP: &str = "Delete this photo";
 
 /// Where the field's focus last frame is kept in the context's data, for [`editing`].
 const EDITING: &str = "caption:editing";
+/// Where the photo the trash button asked about is kept in the context's data, with where the
+/// view goes once it is gone.
+const TRASHED: &str = "caption:trashed";
+
+/// The photo the trash button asked about, and its [`edit_view::successors`].
+#[derive(Clone)]
+struct Trashed {
+    photo: PhotoId,
+    then: Arc<[PhotoId]>,
+}
 
 /// The field's widest, and the room kept at each end for the buttons (margin, button, gap).
 pub const FIELD_MAX_W: f32 = 360.0;
@@ -38,13 +57,26 @@ pub const MARGIN: f32 = 8.0;
 /// Draws the caption bar into `ui`'s rect (the `captionBar` region).
 pub fn show(app: &mut App, ui: &mut Ui) {
     let Some(photo) = edit_view::open_photo(app) else { return };
+    let trashed = ui.ctx().data(|d| d.get_temp::<Trashed>(Id::new(TRASHED)));
+    if let Some(gone) = trashed.filter(|g| g.photo == photo)
+        && edit_view::left_behind(app, gone.photo, &gone.then)
+    {
+        ui.ctx().data_mut(|d| d.remove::<Trashed>(Id::new(TRASHED)));
+        ui.ctx().request_repaint();
+        return;
+    }
     let t = *app.tokens();
     let bar = ui.max_rect();
     let y = bar.center().y;
     let button = |x: f32| Rect::from_center_size(pos2(x, y), vec2(BUTTON, BUTTON));
-    // Disabled until the slideshow (M11) and delete (M9).
+    // Disabled until the slideshow (M11).
     top_bar::glyph_button(ui, &t, TOGGLE_ID, EditIcon::CaptionToggle, button(bar.min.x + MARGIN + BUTTON / 2.0), false, TOGGLE_TIP);
-    top_bar::glyph_button(ui, &t, TRASH_ID, EditIcon::Trash, button(bar.max.x - MARGIN - BUTTON / 2.0), false, TRASH_TIP);
+    if top_bar::glyph_button(ui, &t, TRASH_ID, EditIcon::Trash, button(bar.max.x - MARGIN - BUTTON / 2.0), true, TRASH_TIP).clicked() {
+        let then: Arc<[PhotoId]> = edit_view::successors(app, photo).into();
+        ui.ctx().data_mut(|d| d.insert_temp(Id::new(TRASHED), Trashed { photo, then }));
+        // The delete question for the photo shown; a refusal's reason goes to the status line.
+        let _ = app.run("photo.delete", &json!({ "ids": [photo.get()] }));
+    }
 
     let room = bar.width() - 2.0 * (MARGIN + BUTTON + MARGIN);
     let width = room.min(FIELD_MAX_W);

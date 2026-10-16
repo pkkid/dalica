@@ -74,14 +74,14 @@ Reference order; Undo/Redo are a Dalica addition placed first.
 | — | | | |
 | Small Thumbnails | Ctrl+1 *(library context)* | `view.thumbsSmall` | radio group of two |
 | Normal Thumbnails | Ctrl+2 *(library context)* | `view.thumbsNormal` | |
-| Edit View | Ctrl+3 | `view.edit` | "Select a photo to edit." toast without a selection |
+| Edit View | Ctrl+3 | `view.edit` | "Select a photo to edit." toast without a selection; in the edit view Ctrl+3 keeps the photo shown, its zoom and its open tool |
 | — | | | |
 | Properties | Alt+Enter | `pane.properties` | checkable; Ctrl+0 toggles the side pane (`pane.toggle`; when closed it opens Properties) |
 | Tags | Ctrl+T | `pane.tags` | checkable |
 | People | | `pane.people` | checkable |
 | Places | | `pane.places` | checkable |
 | — | | | |
-| Show Edit Controls | Ctrl+9 | `edit.panelToggle` | checkable; edit view only |
+| Show Edit Controls | Ctrl+9 | `edit.panelToggle` | checkable; in the library it sets whether the edit panel shows when the edit view next opens |
 | — | | | |
 | Slideshow | Ctrl+4 | `view.slideshow` | |
 | — | | | |

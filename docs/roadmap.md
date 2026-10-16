@@ -5516,7 +5516,7 @@ No other step of M10 needs a maintainer decision mid-run.
   - done when: `cargo xtask parity --p0` passes, listing only the two awaiting rows; the summary is
     regenerated; the PR lists every row changed with its evidence and every part moved with its new
     row.
-- ⬜ **M10.51 `ui`: the geotag badge, the edit view's trash button, and Ctrl+3 and Ctrl+9 in both views**
+- ✅ **M10.51 `ui`: the geotag badge, the edit view's trash button, and Ctrl+3 and Ctrl+9 in both views**
   - after: M10.25, M10.39, M10.40, M10.41
   - files: `crates/ui/src/panels/light_table/cell.rs`, `crates/ui/src/panels/edit/caption_bar.rs`, `crates/ui/src/commands/edit_view.rs`, `crates/ui/tests/cells.rs`, `crates/ui/tests/delete_dialogs.rs`, `crates/ui/tests/edit_keys.rs`, `docs/menus-and-shortcuts.md`
   - scope: four P0 rows the audit (M10.26) left open. LIB-LT-BADGES: `badges_of` (`cell.rs`)

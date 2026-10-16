@@ -9,6 +9,9 @@
 //!   files) to the trash?"; Cancel keeps it, Move to Trash trashes it with its non-picture files
 //!   and subfolders;
 //! - with Options → "Delete from disk without asking" on, Delete trashes at once;
+//! - the edit view's trash button asks the same question for the photo shown; Cancel keeps it, Move
+//!   to Trash trashes it and the edit view shows the next photo of its section, else the previous
+//!   one, else the library;
 //! - both questions match their fingerprints at 1400 × 900 and fit 900 × 600
 //!   (`tests/fingerprints/dialog-delete-<photos|folder>-1400x900.json`;
 //!   `DALICA_BLESS=1` stores new ones, renders go to `target/test-output/ui/`).
@@ -24,7 +27,7 @@ use dalica_core::{FolderId, PhotoId};
 use dalica_engine::Session;
 use dalica_engine::cmd::delete::{RESTORES, UNDO_UNSUPPORTED};
 use dalica_ui::dialogs::{self, confirm, delete};
-use dalica_ui::state::{DeleteFolder, DeletePhotos, DialogKind};
+use dalica_ui::state::{DeleteFolder, DeletePhotos, DialogKind, View};
 use dalica_ui::{App, Driver};
 use serde_json::json;
 
@@ -168,6 +171,51 @@ fn the_photo_question_reads_as_specified_and_move_to_trash_trashes() {
     // Undo brings them back from the trash where the system allows it.
     if undo(&mut fx.d) {
         assert!(files.iter().all(|f| exists(f)) && photo_count(&fx.d) == 5, "undo restores them");
+    }
+}
+
+/// The edit view's trash button (`button:edit.trash`) asks the delete question for the photo shown;
+/// Cancel keeps it; Move to Trash trashes it and the view shows the next photo of its section, the
+/// previous one at the end, and the library once the section is empty.
+#[test]
+fn the_edit_views_trash_button_asks_and_moves_on() {
+    let mut fx = fixture((1400, 900));
+    let ids = fx.ids.clone();
+    let files: Vec<PathBuf> = (1..=3).map(|i| fx.lisbon.join(format!("IMG_{i:04}.jpg"))).collect();
+    let shown = |d: &Driver| (d.state().view, d.state().edit.photo);
+    fx.d.app_mut().run("view.edit", &json!({ "id": ids[1] })).unwrap();
+    fx.d.settle(FRAMES).unwrap();
+    assert!(try_widget(&fx.d, "button:edit.trash").unwrap().enabled, "the trash button is enabled");
+
+    // The question for the photo shown; Cancel keeps it, and the view stays on it.
+    fx.d.click("button:edit.trash").unwrap();
+    fx.d.settle(FRAMES).unwrap();
+    assert_eq!(question(&fx.d), (DialogKind::DeletePhotos, "Delete".to_string(), "Move the selected picture to the trash?".to_string()));
+    assert_eq!(fx.d.state().delete_photos, Some(DeletePhotos { ids: vec![ids[1]] }));
+    fx.d.click("button:dialog.cancel").unwrap();
+    settle_jobs(&mut fx.d);
+    assert!(fx.d.state().dialogs.is_empty() && files.iter().all(|f| exists(f)), "Cancel keeps the photo");
+    assert_eq!(shown(&fx.d), (View::Edit, Some(ids[1])));
+
+    // Move to Trash: the photo goes to the trash; the view shows the next one.
+    fx.d.click("button:edit.trash").unwrap();
+    fx.d.settle(FRAMES).unwrap();
+    fx.d.click(TRASH).unwrap();
+    settle_jobs(&mut fx.d);
+    assert!(!exists(&files[1]) && exists(&files[0]) && exists(&files[2]), "the photo shown went to the trash");
+    assert_eq!(shown(&fx.d), (View::Edit, Some(ids[2])), "the next photo of the section");
+    // At the section's end: the previous one; the section empty: the library.
+    for (gone, then) in [(2, (View::Edit, Some(ids[0]))), (0, (View::Library, None))] {
+        fx.d.click("button:edit.trash").unwrap();
+        fx.d.settle(FRAMES).unwrap();
+        fx.d.click(TRASH).unwrap();
+        settle_jobs(&mut fx.d);
+        assert!(!exists(&files[gone]), "IMG_{:04} went to the trash", gone + 1);
+        assert_eq!(shown(&fx.d), then, "after IMG_{:04}", gone + 1);
+    }
+    assert_eq!(undo_steps(&fx.d).0, 3);
+    if (0..3).all(|_| undo(&mut fx.d)) {
+        assert!(files.iter().all(|f| exists(f)), "undo restores them");
     }
 }
 

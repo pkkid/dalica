@@ -451,7 +451,7 @@ fn engine_commands_lists_engine_and_ui_commands_with_effective_shortcuts() {
     assert!(enabled.as_array().unwrap().iter().all(|c| c["enabled"] == true));
     assert!(enabled.as_array().unwrap().len() < all.len(), "photo.star.toggle needs ids, so it is disabled for {{}}");
     // A rebinding shows up.
-    let rebind = json!({ "command": "app.setShortcut", "params": { "command": "photo.star.toggle", "context": "library", "key": "Ctrl+9" } });
+    let rebind = json!({ "command": "app.setShortcut", "params": { "command": "photo.star.toggle", "context": "library", "key": "Ctrl+Shift+9" } });
     ok(&mut t, "engine.execute", rebind);
     let star = ok(&mut t, "engine.commands", json!({ "filter": "photo.star.toggle" }));
     assert_eq!(star[0]["shortcut"].as_str().map(|s| s.ends_with("+9")), Some(true), "{star}");
