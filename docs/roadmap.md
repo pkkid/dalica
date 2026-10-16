@@ -5638,7 +5638,7 @@ No other step of M10 needs a maintainer decision mid-run.
     an idle app (no input, no settle) lands the caption in the photo file; M10.27's connect-mode
     check (`tests/acceptance/m10_mcp.rs` on its branch) passes against the fix; `cargo xtask ci`
     green.
-- ⬜ **M10.55 `engine` + `ui`: the "▸" in option hints**
+- ✅ **M10.55 `engine` + `ui`: the "▸" in option hints**
   - after: M10.11
   - files: `crates/engine/src/options.rs`, `crates/ui/tests/ui_glyphs.rs`, `crates/ui/tests/fingerprints/dialog-options-file-types-1400x900.json`
   - scope: the UI font (Inter) has no U+25B8 "▸", so the File Types tab's threshold hint (the

@@ -436,7 +436,7 @@ static CATALOGUE: &[OptionSpec] = &[
         Initial::Int(SMALL_PICTURE_DEFAULT),
         |s| json!(s.small_picture_threshold()),
     )
-    .hint("Pictures smaller than this on both sides show only with View ▸ Small Pictures.")
+    .hint("Pictures smaller than this on both sides show only with View › Small Pictures.")
     .applies(Applies::Rescan),
     // Export.
     row("export.location", Tab::Export, "Location", "Default export location", Kind::Folder, Initial::Null, |s| json!(s.export().location))
