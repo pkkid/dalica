@@ -15,7 +15,9 @@ and the per-type toggles are in [`data-model.md`](data-model.md) §7 and Options
 > per format under `crates/image/src/formats/`, all ending in the colour stage of §4: JPEG and PNG
 > (M5.1), TIFF (M5.6), WebP, GIF and BMP (M5.7), JPEG XL and PSD composites (M5.8), previews of
 > TIFF-structured raws (M5.9), previews of CR3, RAF, CRW, MRW and X3F, and HEIF behind its feature
-> (M5.10); AVIF is recognised and never decoded. Later rows, not part of 0.5 (the M10.R answer):
+> (M5.10); AVIF is recognised and never decoded. Release builds carry no HEIC decoder (the M10.R
+> answer, §3): a HEIC is listed, sorted and searched by the date and size read from its container,
+> and shows the unsupported tile with a hint (M10.56). Later rows, not part of 0.5 (the M10.R answer):
 > 12-bit JPEG (`DATA-FMT-JPEG-12BIT`: no pure-Rust decoder we could use decodes 12-bit DCT
 > samples; such files are listed with their size and show the unsupported tile, "This kind of
 > JPEG isn't supported", measured in M10.23), and JPEG DCT-domain scaled decoding and MPF previews
@@ -43,7 +45,7 @@ and the per-type toggles are in [`data-model.md`](data-model.md) §7 and Options
 | WebP | yes: lossy and lossless, alpha; first frame of animations | scaled decode | XMP, EXIF chunks | JPEG copy beside it | |
 | GIF | first frame | scaled decode | — (sidecar only) | JPEG copy beside it | animation shown as its first frame |
 | BMP | yes | scaled decode | — (sidecar only) | JPEG copy beside it | |
-| HEIC / HEIF | only with the `heif` feature (§3) | — (the thumbnail item is HEVC too) | — (sidecar only) | JPEG copy beside it (with the `heif` feature; without it Save is disabled with the tile's text) | iPhone/Mac photos: grids, 8–12-bit, alpha, ICC, EXIF, XMP |
+| HEIC / HEIF | only with the `heif` feature, which release builds leave out (§3); without it the size, orientation and EXIF are read from the container and the tile shows the reason and a hint | — (the thumbnail item is HEVC too) | — (sidecar only) | JPEG copy beside it (with the `heif` feature; without it Save is disabled with the tile's text) | iPhone/Mac photos: grids, 8–12-bit, alpha, ICC, EXIF, XMP (XMP only when decoded with the feature) |
 | AVIF | **no**: recognised and listed, shown as a format tile | — | — (sidecar only) | — (Save is disabled with the tile's text, or leaves the photo out with it beside photos it can save; nothing is written) | no permissively licensed pure-Rust AV1 decoder exists today |
 | JPEG XL | yes (`jxl-oxide`) | scaled decode | — (sidecar only) | JPEG copy beside it | orientation applied by the decoder |
 | PSD / PSB | merged composite only (8/16/32-bit gray, RGB, CMYK, indexed) | embedded thumbnail resource or composite | — (sidecar only) | JPEG copy beside it | layers are not read; ZIP-compressed composites and Lab unsupported |
@@ -61,13 +63,16 @@ through `photo.save` and Undo Save by `crates/engine/tests/save_formats.rs` (the
 
 A file the decoder refuses (unsupported variant, damaged, over a limit) is still listed: its cell
 shows the embedded thumbnail if one exists, otherwise a `caution` "!" with the reason in the tooltip
-("HEIC support isn't included in this build", "Too large to display (W × H)", "Damaged file").
+("HEIC support isn't included in this build", "Too large to display (W × H)", "Damaged file") and,
+for a format that has one, a hint on the next line saying what to do (§3); the edit view shows the
+same under "This photo cannot be shown.".
 Damaged and truncated files decode as far as possible and say so; they never take the app down.
 
 Each format is one module with the same entry points: a **header** read for scanning (size,
 orientation, EXIF, where the embedded thumbnail lies), a **decode** to the decoded-image model of
 §4, and the **embedded thumbnail** for the fast path. The module also states whether this build
-decodes the format and the tile text it shows when it does not. The texts: "Damaged file" for a
+decodes the format and the tile text it shows when it does not (and, for HEIC without the feature,
+the hint under it). The texts: "Damaged file" for a
 truncated, malformed or looping file and for a decoder that failed on it; "Too large to display
 (W × H)" past a limit of §5; the format's own text for one Dalica recognises but does not show
 ("AVIF files can't be displayed", "HEIC support isn't included in this build", "This kind of HEIC
@@ -112,7 +117,31 @@ while a format waits for its task).
   sidecar when enabled ([`xmp-interop.md`](xmp-interop.md) §7). RAW+JPEG pairs are two photos that
   share a stem.
 
-## 3. HEIF / HEIC: an optional feature
+## 3. HEIF / HEIC: an optional feature, not in release builds
+
+Release builds carry no HEIC decoder (the maintainer's decision at M10.R, with the measurements of
+§3.1): decoding HEVC needs a patent licence in some countries. The `heif` feature stays for people
+who build Dalica themselves (`cargo build -p dalica --features heif`).
+
+**Without the feature** a HEIC is organized like any other file. Its header is read from the
+container, in pure Rust and without HEVC (`crates/image/src/formats/heif_items.rs`, on the bounded
+box walk of `formats/bmff.rs`): `pitm` names the primary item, `iinf` gives its type and the `Exif`
+item, `iprp` (`ipco`, `ipma`) its `ispe` size and its `irot`/`imir` transforms (as the orientation,
+in association order), and `iloc` the `Exif` item's extents (construction method 0 only), whose
+TIFF block follows its 4-byte header offset. So the scan lists it with its size and capture date,
+it sorts and searches by date like any photo, and the Properties pane and status line show them.
+Decoding and the embedded thumbnail still answer the tile text "HEIC support isn't included in
+this build", and the cell's tooltip and the edit view add the hint under it: "On an iPhone,
+Settings › Camera › Formats › Most Compatible saves new photos as JPEG. Or convert these photos to
+JPEG." A container the reader cannot use (no `meta`, `pitm` or `ispe`, a damaged box, an item past
+the end of a file that is all there, a size past §5's limits) is the same tile, never "Damaged
+file"; bytes that stop inside a top-level box are a partial read and the header read goes on. Every
+size and offset is checked; entry lists are capped at 65,536 and the EXIF item at 4 MiB. The XMP
+item (captions other apps wrote) is not read without the feature yet; that is later work in
+`dalica-meta`. An AV1 primary item is AVIF.
+
+**With the feature:**
+
 
 - Decoding uses `heic-rs` (pure Rust, no `unsafe`, MIT OR Apache-2.0) through a thin, panic-guarded
   wrapper of our own (prior art: LightCraft's `heif` crate): single pictures and grid-tiled photos, 8 to 12 bits (10/12-bit
@@ -125,8 +154,7 @@ while a format waits for its task).
 - It sits behind the **non-default** `heif` cargo feature of `dalica-image`, forwarded by the app
   (`cargo build -p dalica --features heif`). HEVC is patent-encumbered in some jurisdictions, so
   including a decoder is the distributor's decision. Official Dalica builds leave it out
-  (M6.21–M6.23): their packages do not register HEIC/HEIF with the system. Without the feature, HEIC files are still recognised and
-  listed, with the tile "HEIC support isn't included in this build".
+  (M6.21–M6.23, confirmed at M10.R): their packages do not register HEIC/HEIF with the system.
 - The decoder is young and pinned exactly (`=0.1.1`, without its `parallel` feature: Dalica
   decodes on its own worker threads); moving the pin is a reviewed change that re-runs the
   `heif` corpus tests (`development.md` §11). The review gate tests `dalica-image` with the feature
@@ -202,7 +230,8 @@ What it shows:
 - No openly licensed non-Apple camera HEIC was found: Nokia's conformance files carry a
   non-commercial licence, which the corpus refuses.
 
-**Recommendation (for the M10.R decision).** On these measurements the decoder is fit to ship
+**Recommendation (for the M10.R decision; the answer: release builds leave the decoder out, §3).**
+On these measurements the decoder is fit to ship
 for the photos people have: everything phones write decodes correctly and quickly, and what it
 cannot decode is refused with a tile text. Whether release builds carry it remains a licensing
 decision these numbers do not change (HEVC patents, §3 above). If they do, two small follow-ups

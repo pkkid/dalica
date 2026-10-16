@@ -6,7 +6,7 @@
 //! the `caution` "!" of a photo that cannot be shown; the inline caption editor under the cell it
 //! is open for ([`caption_edit`]); and, after the pointer has rested on the cell
 //! for [`TOOLTIP_SECONDS`], the tooltip (file name; date taken, pixel size, file size; or why the
-//! photo cannot be shown), unless Options ▸ Show tooltips is off (`interface.tooltips`, which
+//! photo cannot be shown, with its format's hint), unless Options ▸ Show tooltips is off (`interface.tooltips`, which
 //! `crate::scale` turns into egui's infinite tooltip delay). A hidden photo is drawn at [`HIDDEN_OPACITY`] when View ▸ Hidden
 //! Pictures shows it ([`opacity`]).
 //!
@@ -287,7 +287,8 @@ fn resolution(photo: &Photo) -> Option<String> {
 }
 
 /// The hover tooltip (`ui-layout.md` §5.5): the file name over the date taken (else the file's
-/// date), the pixel size and the file size; for a photo that cannot be shown, why. The pixel size
+/// date), the pixel size and the file size; for a photo that cannot be shown, why, and on the next
+/// line what to do about it when its format has a hint (`dalica_image::formats::hint`). The pixel size
 /// is the file's; [`tooltip_shown`] gives the size the photo shows at.
 pub fn tooltip_text(photo: &Photo, failure: Option<&str>) -> Tip {
     tooltip_dated(photo, photo.sort_date(), failure)
@@ -302,7 +303,12 @@ pub fn tooltip_dated(photo: &Photo, date: Option<dalica_core::DateTime>, failure
 /// included (what a cell shows).
 pub fn tooltip_shown(photo: &Photo, date: Option<dalica_core::DateTime>, shown: (u32, u32), failure: Option<&str>) -> Tip {
     let detail = match failure {
-        Some(why) => format!("Cannot show this photo: {why}"),
+        // What to do about it under the reason, where there is something (HEIC in a build
+        // without its decoder, `formats.md` §3).
+        Some(why) => match dalica_image::formats::hint_for(why) {
+            Some(hint) => format!("Cannot show this photo: {why}\n{hint}"),
+            None => format!("Cannot show this photo: {why}"),
+        },
         None => {
             let mut parts: Vec<String> = Vec::with_capacity(3);
             parts.extend(date.map(status::date_time));

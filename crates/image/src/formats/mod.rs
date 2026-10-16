@@ -14,6 +14,9 @@
 //! - `DECODES`: whether this build decodes the format ([`Format::supported`]).
 //! - `REASON`: the tile text when the module answers [`Error::Unsupported`] (`formats.md` §1).
 //!
+//! [`hint`] adds what the user can do about it, under the tile text, where there is something
+//! (HEIC without the `heif` feature).
+//!
 //! Stubs answer `Unsupported` from all three until their task fills them: TIFF (M5.6), WebP, GIF
 //! and BMP (M5.7), JPEG XL and PSD (M5.8), TIFF-structured raws (M5.9), the other raw containers
 //! and HEIF (M5.10). AVIF is recognised and never decoded, so it has no module.
@@ -29,6 +32,7 @@ pub mod bmff;
 pub mod bmp;
 pub mod gif;
 pub mod heif;
+pub mod heif_items;
 pub mod jpeg;
 pub mod jxl;
 pub mod png;
@@ -126,6 +130,21 @@ pub fn reason(format: Format) -> &'static str {
         Format::Psd => psd::REASON,
         Format::Raw(kind) => raw::reason(kind),
     }
+}
+
+/// What the user can do about a file of `format` this build does not show, drawn under its tile
+/// text: only HEIC without the `heif` feature has one (`formats.md` §3).
+pub fn hint(format: Format) -> Option<&'static str> {
+    match format {
+        Format::Heif if !heif::DECODES => Some(heif::HINT),
+        _ => None,
+    }
+}
+
+/// The hint of the format whose tile text is `reason` ([`reason`], [`hint`]): what the UI holds
+/// of a failure is its text.
+pub fn hint_for(reason: &str) -> Option<&'static str> {
+    Format::ALL.into_iter().find(|&f| self::reason(f) == reason).and_then(hint)
 }
 
 /// A big-endian `u16` at `at`, or `Err(Truncated)`.

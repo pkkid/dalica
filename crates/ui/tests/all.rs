@@ -34,6 +34,7 @@ mod first_run;
 mod folder_manager;
 mod folder_move;
 mod folder_properties;
+mod heic_hint;
 mod hidden;
 mod idle_write_back;
 mod jobs_control;

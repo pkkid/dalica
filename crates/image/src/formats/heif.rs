@@ -1,6 +1,8 @@
 //! HEIF / HEIC (`formats.md` §3): iPhone and Mac photos, through `heic-rs` behind the non-default
-//! `heif` feature, in a panic-guarded wrapper of our own. Without the feature HEIC files are still
-//! recognised and listed, with the tile text [`REASON`].
+//! `heif` feature, in a panic-guarded wrapper of our own. Release builds leave the feature out (no
+//! HEVC licence): HEIC files are then still recognised and listed, their header (size, container
+//! orientation, EXIF) read from the items by [`super::heif_items`] without HEVC, and the tile says
+//! [`REASON`] with the [`HINT`] under it.
 //!
 //! Adapted from LightCraft `crates/heif/src/lib.rs` and `crates/heif/src/vui.rs` at revision
 //! 76b53778 (MIT OR Apache-2.0, Copyright (c) 2026 ArtCraft Team and the LightCraft contributors;
@@ -36,6 +38,10 @@ pub const DECODES: bool = cfg!(feature = "heif");
 pub const REASON: &str =
     if cfg!(feature = "heif") { "This kind of HEIC file can't be displayed" } else { "HEIC support isn't included in this build" };
 
+/// What to do about the HEIC photos a build without the feature cannot show, drawn under
+/// [`REASON`] (`formats.md` §3; [`super::hint`] offers it only without the feature).
+pub const HINT: &str = "On an iPhone, Settings › Camera › Formats › Most Compatible saves new photos as JPEG. Or convert these photos to JPEG.";
+
 /// Brands that promise HEVC-coded images.
 const HEVC_BRANDS: [[u8; 4]; 6] = [*b"heic", *b"heix", *b"heim", *b"heis", *b"hevc", *b"hevx"];
 
@@ -55,8 +61,12 @@ pub fn header(bytes: &[u8], limits: &Limits) -> Result<Header> {
     return crate::decode::guard(Format::Heif, || imp::header(bytes, limits));
     #[cfg(not(feature = "heif"))]
     {
-        let _ = limits;
-        Err(Error::Unsupported(Format::Heif))
+        // Read on after a partial read; any other trouble is the tile, never "Damaged file".
+        match super::heif_items::header(bytes, limits) {
+            Ok(h) => Ok(h),
+            Err(e @ (Error::Truncated | Error::Unsupported(_))) => Err(e),
+            Err(_) => Err(Error::Unsupported(Format::Heif)),
+        }
     }
 }
 
@@ -75,7 +85,13 @@ pub fn decode(bytes: &[u8], header: &Header, budget: &mut Budget, limits: &Limit
 
 /// HEIC files carry no thumbnail Dalica decodes without the HEVC decoder (`formats.md` §1).
 pub fn embedded_thumbnail(bytes: &[u8], limits: &Limits) -> Result<Option<Range<usize>>> {
-    header(bytes, limits).map(|_| None)
+    #[cfg(feature = "heif")]
+    return header(bytes, limits).map(|_| None);
+    #[cfg(not(feature = "heif"))]
+    {
+        let _ = limits;
+        Err(Error::Unsupported(if avif_brands(bytes) { Format::Avif } else { Format::Heif }))
+    }
 }
 
 #[cfg(feature = "heif")]
