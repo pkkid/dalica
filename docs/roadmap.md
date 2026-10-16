@@ -4919,7 +4919,7 @@ No other step of M10 needs a maintainer decision mid-run.
     with `recipe` changes nothing; a 2049 px request and a `path` outside the write roots are
     refused; `export` of 5 photos at 1600 px writes 5 decodable JPEGs ≤ 1600 on the long edge and a
     cancel leaves only complete files; each tool's strict arguments and graceful failures.
-- ⬜ **M10.15 `mcp`: one tool per command, and the resources**
+- ✅ **M10.15 `mcp`: one tool per command, and the resources**
   - after: M10.4, M10.7
   - files: `crates/mcp/src/tools/commands.rs`, `crates/mcp/src/resources.rs`, `crates/mcp/tests/command_tools.rs`, `crates/mcp/tests/resources.rs`, `docs/mcp.md`, `docs/architecture.md`
   - scope: `mcp.md` §4.4 and §7, after LightCraft `crates/mcp/src/tools.rs` (`command_tools`,
