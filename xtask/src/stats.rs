@@ -13,9 +13,10 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::Command;
 
-/// The workflows passing on `main` when the floor was last raised (M10.21: none exist yet; M10.20
-/// raises it to the nine P0 workflows).
-pub const FLOOR: usize = 0;
+/// The workflows passing on `main` when the floor was last raised: M10.20, five (W01, W02, W03, W08
+/// and W09). The nine P0 workflows (`mcp.md` §9: W01–W06, W08, W09, W12) raise it to nine with
+/// M10.19's W04, W05, W06 and W12.
+pub const FLOOR: usize = 5;
 /// The package and test target holding the workflows.
 pub const PACKAGE: &str = "dalica-mcp";
 pub const TARGET: &str = "workflows";
@@ -197,6 +198,17 @@ test result: FAILED. 4 passed; 1 failed; 2 ignored; 0 measured; 0 filtered out; 
         // A passing workflow planted as ignored drops the count under the floor.
         let planted = OUTPUT.replace("w02_tray_across_folders ... ok", "w02_tray_across_folders ... ignored, planted");
         assert!(verdict(&parse(&planted), 2).is_err());
-        assert!(verdict(&Stats::default(), FLOOR).is_ok(), "no workflows yet holds the floor today");
+    }
+
+    /// `--check` at the real floor: the passing workflows of today hold it, and one of them planted
+    /// as `#[ignore]` fails it.
+    #[test]
+    fn a_planted_ignore_fails_the_check_at_the_floor() {
+        let passing: String = (1..=FLOOR).map(|n| format!("test w{n:02}_workflow::w{n:02}_workflow ... ok\n")).collect();
+        assert!(verdict(&parse(&passing), FLOOR).is_ok());
+        let planted = passing.replacen("... ok", "... ignored, planted", 1);
+        assert_eq!(parse(&planted).passing.len(), FLOOR - 1);
+        assert!(verdict(&parse(&planted), FLOOR).is_err(), "an ignored workflow drops the count under the floor");
+        assert!(verdict(&Stats::default(), FLOOR).is_err(), "no workflow running fails the floor");
     }
 }

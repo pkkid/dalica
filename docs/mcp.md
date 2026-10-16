@@ -12,7 +12,9 @@ Adapted from LightCraft `docs/mcp.md` (revision 88ea1a8) and PhotoCraft `docs/mc
 > the roots and permissions of §5 and `--read-only` (M10.16: the engine's one path policy,
 > `--automation-*`, the client's roots, `--no-client-roots`); connect mode and the UI tools of §4.3
 > (M10.17; `dalica-cli mcp --connect` wired by M10.16); the workflow tests' harness with W02,
-> W03, W08 and W09 (M10.18). To come: the other workflow tests (M10.19, M10.20).
+> W03, W08 and W09 (M10.18); W01, the smoke run of W02 and W03 through the spawned binary, and the
+> workflow floor at five (M10.20). To come: W04, W05, W06 and W12 (M10.19), which raise the floor to
+> the nine P0 workflows.
 
 `dalica-cli mcp` exposes Dalica to AI agents through the
 [Model Context Protocol](https://modelcontextprotocol.io): newline-delimited JSON-RPC 2.0 over stdio
@@ -329,7 +331,10 @@ state (`doc_inspect`, `photo_info`, `query_photos`) and the files on disk — ne
   in the library's `settings.json` between two sessions, as the app keeps it.
 - Transport: each test drives the server through the real JSON-RPC framing (in-process pipes); a
   smoke subset also spawns `dalica-cli mcp` as a process with real stdio, and runs once in connect
-  mode against a headless app with a control server, to prove both modes agree.
+  mode against a headless app with a control server, to prove both modes agree. The stdio smoke
+  run (`apps/dalica-cli/tests/mcp_process.rs`) takes W02's and W03's steps through
+  `dalica-cli mcp --library DIR --automation-read-root DIR --no-client-roots`, checking the
+  sidecars and file bytes on disk and that standard output carries only JSON-RPC messages.
 - Photos: procedural `dalica-scenes` folders generated into a temporary directory (deterministic, so
   the tests run in plain `cargo test` and CI). With the `corpus` feature the same workflows also run
   on CC0 corpus folders (`development.md`, corpus); they never use personal photos.

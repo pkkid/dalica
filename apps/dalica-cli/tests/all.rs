@@ -2,4 +2,5 @@
 
 mod cli;
 mod mcp_cli;
+mod mcp_process;
 mod run_connect;

@@ -5023,7 +5023,7 @@ No other step of M10 needs a maintainer decision mid-run.
     undo record keeps its sidecar entry).
   - done when: `cargo test -p dalica-mcp --test workflows` runs W04, W05, W06 and W12 green (on all
     three OSes at the review), with the files on disk checked after each step and after undo.
-- ⬜ **M10.20 `mcp`: W01, the stdio smoke run and the workflow floor**
+- ✅ **M10.20 `mcp`: W01, the stdio smoke run and the workflow floor**
   - after: M10.17, M10.18, M10.21
   - files: `crates/mcp/tests/workflows/w01_organize_export.rs`, `apps/dalica-cli/tests/mcp_process.rs`, `xtask/src/stats.rs`, `docs/mcp.md`, `docs/process.md`
   - scope: `mcp.md` §9 and `process.md` §5: W01, the headline (`scan_folder` 200 photos → star 5
