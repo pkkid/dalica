@@ -5608,8 +5608,57 @@ No other step of M10 needs a maintainer decision mid-run.
     once the job ends; a scan and an export together fit at 900 wide with the scan field dropped
     first; `cargo xtask parity --write` turns OUT-EXPORT ✅; screenshots at 1400 × 900 of the
     status line during an export, before and after, on the PR; `cargo xtask ci` green.
+- ⬜ **M10.54 `mcp` + `engine` + `ui`: connect mode fills the Photo Tray, and metadata write-back runs while the app is idle**
+  - after: M10.17, M10.36, M10.40
+  - files: `crates/mcp/src/connect.rs`, `crates/mcp/src/tray.rs`, `crates/mcp/tests/connect.rs`, `crates/ui/src/control/engine.rs`, `crates/engine/src/scanning.rs`, `crates/engine/src/metadata.rs`, `crates/engine/tests/busy_writes.rs`, `crates/ui/src/app.rs`, `crates/ui/tests/idle_write_back.rs`
+  - scope: two faults M10.27 (accept M10) found in the live app. (1) Connect mode ignores the
+    Photo Tray: `cmd_photo_rotate_cw {}` against a running `dalica --control` answers `bad_params:
+    missing field ids`, while `mcp.md` §4.1 and §4.4 say a photo command without `ids` acts on the
+    Photo Tray, and headless mode already fills them (`Headless::prepare`). Fill `ids` from the
+    app's tray (the `{selection, held, tray}` that connect mode's `tray.state` already reads from
+    `library.inspect`) before the command reaches the app's `engine.execute`, by the same rule
+    headless uses (only when the params doc names `ids` as required and none were given; an empty
+    tray answers the headless error). Preferred: in `crates/mcp/src/connect.rs`, the rule moved to
+    one helper in `crates/mcp/src/tray.rs` that both modes call; the alternative, the app's
+    `crates/ui/src/control/engine.rs`, only if the tray cannot be read from `mcp`. Pick one and keep
+    one implementation; the choice in the commit body. (2) Caption write-back stalls in an idle
+    app: in `dalica --headless` a caption never reaches the photo file in 120 s until a frame runs,
+    then lands in 0.8 s. `Session::busy` (`scanning.rs`), and so `App::idle` (`app.rs`), ignore
+    queued and running metadata writes, so the headless loop never polls them; an idle window holds
+    the write until the next input the same way. Make `busy` count queued and running metadata
+    writes (and pending sidecar writes, if they need polling to land), read from in-memory state
+    without disk access; `App::idle` follows. Do not slow an idle app: once the writes land, busy
+    turns false again (`DALICA_PROFILE=1` idle numbers before and after in the PR body).
+  - done when: tests, each failing before the fix: in `dalica-mcp` (`connect.rs`): against a
+    connected app with two photos in the tray, a photo command with no `ids` acts on both and an
+    empty tray answers the same error as headless; in `dalica-engine` (`busy_writes.rs`, a new
+    `mod` in `tests/all.rs`): `busy()` is true while a metadata write is queued and while it runs,
+    and false once it has landed; in `dalica-ui` (`idle_write_back.rs`, a new `mod`): `App::idle`
+    is false while a caption's write is queued, and an app ticked only as the headless loop ticks
+    an idle app (no input, no settle) lands the caption in the photo file; M10.27's connect-mode
+    check (`tests/acceptance/m10_mcp.rs` on its branch) passes against the fix; `cargo xtask ci`
+    green.
+- ⬜ **M10.55 `engine` + `ui`: the "▸" in option hints**
+  - after: M10.11
+  - files: `crates/engine/src/options.rs`, `crates/ui/tests/ui_glyphs.rs`, `crates/ui/tests/fingerprints/dialog-options-file-types-1400x900.json`
+  - scope: the UI font (Inter) has no U+25B8 "▸", so the File Types tab's threshold hint (the
+    options catalogue's "View ▸ Small Pictures" in `options.rs`) draws a missing-glyph "?"; M10.3
+    met the same with the key caps. Write menu paths in catalogue text with "›" (U+203A), which the
+    UI font has (as the release notes' fallback in `dialogs/release_notes.rs` already does); adding
+    the glyph through `ui-kit`'s font fallback is the alternative, not preferred. A grep found no
+    other "▸" in a string the UI draws (the others are doc comments, command params docs and MCP
+    tool text, which reach agents, not the UI font); recheck and fix any that does, in a file no
+    open task owns. A test that no catalogue label, hint or choice (and any other UI string table
+    the grep finds) holds a glyph the UI fonts lack, checked through egui's font coverage as
+    M10.3's key-cap test does (`crates/ui-kit/tests/options_widgets.rs`). Re-bless
+    `dialog-options-file-types-1400x900.json` after looking at the diff (the why in the commit
+    body). M10.27's own baseline `m10-1400x900-options-file-types.json` bakes the "?" in: M10.27
+    (owner of `tests/acceptance/fingerprints/m10-*.json`) re-blesses it after this merges.
+  - done when: no "?" glyph in the File Types tab; the coverage test (`ui_glyphs.rs`, a new `mod`
+    in `tests/all.rs`) fails before the fix and passes after; the re-blessed fingerprint and its
+    before/after images on the PR; `cargo xtask ci` green.
 - ⬜ **M10.27 `accept M10`**
-  - after: M10.12, M10.16, M10.20, M10.26, M10.51, M10.52, M10.53
+  - after: M10.12, M10.16, M10.20, M10.26, M10.51, M10.52, M10.53, M10.54, M10.55
   - files: `tests/acceptance/m10.rs`, `tests/acceptance/m10_*.rs`, `tests/acceptance/m10.md`, `tests/acceptance/fingerprints/m10-*.json`
   - scope: every *Done when* of M10's three areas in the real `dalica --headless` over the control
     channel and through `dalica-cli mcp`: settings round-tripping through `options.set` with unknown
@@ -5634,7 +5683,7 @@ No other step of M10 needs a maintainer decision mid-run.
   - done when: `cargo xtask tasks sync --check` parses them and `tasks sync --dry-run` lists one new
     issue per block.
 - ⬜ **M10.R Release 0.5 gate**
-  - after: M10.24, M10.27, M10.29, M10.31, M10.32, M10.33, M10.34, M10.35, M10.36, M10.37, M10.38, M10.39, M10.40, M10.41, M10.42, M10.43, M10.44, M10.45, M10.46, M10.47, M10.48, M10.49, M10.50, M10.51, M10.52, M10.53
+  - after: M10.24, M10.27, M10.29, M10.31, M10.32, M10.33, M10.34, M10.35, M10.36, M10.37, M10.38, M10.39, M10.40, M10.41, M10.42, M10.43, M10.44, M10.45, M10.46, M10.47, M10.48, M10.49, M10.50, M10.51, M10.52, M10.53, M10.54, M10.55
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`
   - scope: a release gate (Release 0.5, P0 complete): the lead runs `/milestone-review M10.R` to
@@ -5688,7 +5737,8 @@ wave 6   M10.26 P0 parity audit
           a UI scale ‖ M10.48 macOS: headless quit test, Save Copy date ‖ M10.49 Windows:
           the path policy's path forms ‖ M10.50 macOS and Windows: W04's caption in the sidecar
           ‖ M10.51 geotag badge, edit-view trash, Ctrl+3 and Ctrl+9 ‖ M10.52 damaged sidecar's
-          banner and reset, search empty state ‖ M10.53 export progress in the status line)
+          banner and reset, search empty state ‖ M10.53 export progress in the status line
+          ‖ M10.54 connect mode's tray, idle write-back ‖ M10.55 the "▸" in option hints)
 wave 7   M10.27 accept M10 → M10.R          (M10.28 lead: M12 blocks, any time after M9.26)
 ```
 
