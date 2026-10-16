@@ -2,6 +2,7 @@
 
 mod command_tools;
 mod common;
+mod connect;
 mod edit_tools;
 mod inspect;
 mod organize_tools;

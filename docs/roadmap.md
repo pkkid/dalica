@@ -4975,7 +4975,7 @@ No other step of M10 needs a maintainer decision mid-run.
     removes; recording Ctrl+1 on Star in Library asks and Replace takes it from Small Thumbnails;
     Cancel before Apply changes nothing; Reset All restores every default and the ↺ marks go;
     Ctrl+/ opens this tab; the editor's fingerprints at both sizes.
-- ⬜ **M10.17 `mcp` + `dalica-cli`: connect mode**
+- ✅ **M10.17 `mcp` + `dalica-cli`: connect mode**
   - after: M10.8, M10.13, M10.15
   - files: `crates/mcp/src/connect.rs`, `crates/mcp/src/tools/ui.rs`, `crates/mcp/tests/connect.rs`, `apps/dalica-cli/src/run.rs`, `apps/dalica-cli/tests/run_connect.rs`
   - scope: `mcp.md` §1 and §4.3, after LightCraft `crates/mcp/src/backend.rs` (`Remote`) at
