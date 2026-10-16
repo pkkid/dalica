@@ -28,7 +28,8 @@
 //! [`dispatch`] is the edit view's shortcut dispatch: keys go to the open tool first
 //! ([`super::tools::key`]), then to the keymap in the edit view's context. A command that acts on
 //! photos (`"ids"`) gets the open photo; the rotations, the flips, Edit ▸ Undo / Redo and the
-//! one-click fixes are [`route`]d to the photo's own history.
+//! one-click fixes are [`route`]d to the photo's own history; a key bound to an opener (F2,
+//! Rename…) opens its dialog for the open photo, as in the library.
 
 use dalica_core::PhotoId;
 use dalica_engine::{CmdError, Context, Key};
@@ -411,7 +412,8 @@ pub fn checked(app: &App, id: &str) -> Option<bool> {
 
 /// The edit view's shortcuts: each key press of the frame goes to the open tool first, then is
 /// resolved in the edit view's context (Global under it) and runs its command, [`route`]d to the
-/// photo's history where it has a step there, with the open photo as its `ids`. While a text field
+/// photo's history where it has a step there, with the open photo as its `ids`; an opener's key
+/// opens its dialog for the open photo instead of running the command. While a text field
 /// has the focus only Global keys run. Returns the ids that ran.
 pub fn dispatch(app: &mut App, ctx: &egui::Context) -> Vec<String> {
     let presses: Vec<Key> = ctx.input(|i| {
@@ -441,7 +443,15 @@ pub fn dispatch(app: &mut App, ctx: &egui::Context) -> Vec<String> {
             }
             None => {
                 let params = params_for(app, &id);
-                let _ = app.run(&id, &params);
+                // A key bound to an opener opens its dialog for the open photo, as in the library
+                // (`keys::run_key`); a refusal's reason goes to the status line.
+                let r = match super::opener(&id) {
+                    Some(o) => (o.open)(app, &params),
+                    None => app.run(&id, &params),
+                };
+                if let (Err(e), Some(_)) = (&r, super::opener(&id)) {
+                    app.state_mut().status = e.to_string();
+                }
                 ran.push(id);
             }
         }

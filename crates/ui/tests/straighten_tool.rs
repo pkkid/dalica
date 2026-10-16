@@ -56,9 +56,6 @@ fn setup((w, h): (u32, u32)) -> T {
     let (s, photo) = session(dir.path());
     let control = Control::new(Config::default());
     let mut d = new_driver(App::with_picker(Some(s), control.picker()), w, h, 1.0);
-    // TODO(maintainer): the straighten tool's floating bar takes clicks (egui id `straighten:bar`)
-    // without an automation id; once it registers one, keep the id check on here.
-    d.check_ids(false);
     settle_driver(&mut d);
     let mut t = T { _dir: dir, control, conn: Connection::new(), d, photo };
     run(&mut t, "view.edit", json!({ "id": photo }));

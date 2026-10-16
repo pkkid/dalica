@@ -2,7 +2,8 @@
 //! the virtual clock: each caption mode's text (middle-elided in small cells), small pictures left
 //! out and shown with View ▸ Small Pictures, the hidden-photo opacity rule, the badges fed from the
 //! model (star and held), the "!" tile of a photo whose file is gone with its reason, and the hover
-//! tooltip after 600 ms of virtual time and not before. Renders go to `target/test-output/ui/`.
+//! tooltip after 600 ms of virtual time and not before, and never with Show tooltips off. Renders
+//! go to `target/test-output/ui/`.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -340,6 +341,24 @@ fn the_tooltip_shows_after_600_ms_of_virtual_time_and_not_before() {
     assert_eq!(cells(&d).tooltip(), None, "0.5 s after coming back");
     d.wait(100).unwrap();
     assert!(cells(&d).tooltip().is_some(), "0.6 s after coming back");
+}
+
+#[test]
+fn with_show_tooltips_off_resting_on_a_cell_shows_no_tooltip() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = photos(dir.path(), 3, 0);
+    let mut s = session(dir.path(), &folder);
+    s.execute("options.set", &json!({ "values": { "interface.tooltips": false } })).unwrap();
+    let mut d = driver(s, (900, 600));
+    let target = thumbs(&d).remove(1);
+    let rest = (TOOLTIP_SECONDS * 1000.0) as u64 + 200;
+    d.hover(&target, rest).unwrap();
+    assert_eq!(cells(&d).tooltip(), None, "off: no tooltip after {rest} ms");
+    // On again: the same rest shows it.
+    d.app_mut().session_mut().unwrap().execute("options.set", &json!({ "values": { "interface.tooltips": true } })).unwrap();
+    d.click(&thumbs(&d)[0]).unwrap();
+    d.hover(&target, rest).unwrap();
+    assert!(cells(&d).tooltip().is_some(), "on: the tooltip after {rest} ms");
 }
 
 #[test]

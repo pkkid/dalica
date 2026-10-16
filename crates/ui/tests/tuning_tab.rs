@@ -579,9 +579,6 @@ fn the_tab_fits_matches_its_fingerprints_and_a_modal_tool_disables_it() {
     }
     click(&mut t, "tab:edit.basic");
     check_region(&t, &format!("edit-tuning-basic-{w}x{h}"), panel);
-    // TODO(maintainer): the straighten tool's floating bar takes clicks (egui id `straighten:bar`)
-    // without an automation id; once it registers one, keep the id check on here.
-    t.d.check_ids(false);
     click(&mut t, "tool:straighten");
     assert!(!widget(&t, "slider:basic.fill_light").enabled, "{w}×{h}: a modal tool draws the row disabled");
     click(&mut t, "tab:edit.tuning");

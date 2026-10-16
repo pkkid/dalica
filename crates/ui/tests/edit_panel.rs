@@ -251,9 +251,6 @@ fn an_open_tool_disables_the_grid_the_tab_content_and_undo() {
     click(&mut t, "tool:autofix");
     assert!(widget(&t, "button:edit.undo").enabled);
 
-    // TODO(maintainer): the straighten tool's floating bar takes clicks (egui id `straighten:bar`)
-    // without an automation id; once it registers one, keep the id check on here.
-    t.d.check_ids(false);
     click(&mut t, "tool:straighten");
     assert_eq!(state(&mut t)["edit"]["tool"], "straighten");
     let straighten = widget(&t, "tool:straighten");
@@ -366,7 +363,6 @@ fn the_edit_panel_matches_its_fingerprints() {
     click(&mut t, "tab:edit.effects");
     check_region(&t, &format!("edit-panel-effects-{w}x{h}"), panel);
     click(&mut t, "tab:edit.basic");
-    t.d.check_ids(false); // The straighten bar has no automation id (see above).
     click(&mut t, "tool:straighten");
     check_region(&t, &format!("edit-panel-straighten-{w}x{h}"), panel);
 }

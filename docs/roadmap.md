@@ -5216,7 +5216,7 @@ No other step of M10 needs a maintainer decision mid-run.
     a hidden photo and a photo of a hidden folder are absent from `library.query {}` and
     `library.query {folder}` and present again with the view showing hidden pictures; `cargo xtask
     ci` green.
-- ⬜ **M10.41 `ui`: the straighten bar's id, F2 in the edit view, the headless UI scale and the thumbnail's tooltip**
+- ✅ **M10.41 `ui`: the straighten bar's id, F2 in the edit view, the headless UI scale and the thumbnail's tooltip**
   - after: M10.10, M10.16, M10.36, M10.39
   - files: `crates/ui/src/panels/edit/straighten.rs`, `crates/ui/tests/straighten_tool.rs`, `crates/ui/tests/tuning_tab.rs`, `crates/ui/tests/edit_panel.rs`, `crates/ui/tests/monkey.rs`, `crates/ui/src/commands/edit_view.rs`, `crates/ui/src/commands/rename.rs`, `crates/ui/tests/edit_keys.rs`, `crates/ui/src/headless.rs`, `crates/ui/tests/ui_scale.rs`, `crates/ui/src/panels/light_table/cell.rs`, `crates/ui/tests/cells.rs`, `docs/control-protocol.md`
   - scope: four small window gaps found by M10.36 (PR #574), M10.39 (PR #589) and M10.10 (PR

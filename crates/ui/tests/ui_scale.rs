@@ -1,6 +1,7 @@
 //! UI scale and font size (`design-system.md` §11.4–§11.5, `crates/ui/src/scale.rs`): the factor
 //! for system scales of 100, 125 and 150 % and a 3840 px monitor, a fixed 150 % on a 200 % system
-//! (egui's zoom 0.75, 1.5 pixels per point, and the window's keys never change it), Auto following
+//! (egui's zoom 0.75, 1.5 pixels per point, and the window's keys never change it), a fixed 150 %
+//! laying the headless window out at 150 % (933 × 600 points in 1400 × 900 pixels), Auto following
 //! the window to another monitor, a saved Use animations off making the light table's scroll to a
 //! section and the edit view's Fit and 1:1 jump; and the main window at 150 % and with the Large font, each matching its
 //! fingerprint at 1400 × 900 points and fitting 900 × 600.
@@ -79,6 +80,18 @@ fn a_fixed_150_percent_on_a_200_percent_system_is_150_percent_and_keys_never_zoo
         d.settle(FRAMES).unwrap();
         assert!((d.ctx().zoom_factor() - 0.75).abs() < 1e-4, "{key}: {}", d.ctx().zoom_factor());
     }
+}
+
+#[test]
+fn a_fixed_150_percent_lays_the_headless_window_out_at_150_percent() {
+    let dir = tempfile::tempdir().unwrap();
+    let d = driver(dir.path(), LARGE, 1.0, json!({ "interface.uiScale": 150 }));
+    assert!((d.ctx().zoom_factor() - 1.5).abs() < 1e-4, "{}", d.ctx().zoom_factor());
+    let size = d.ctx().content_rect().size();
+    assert!((size.x - 1400.0 / 1.5).abs() < 0.1 && (size.y - 600.0).abs() < 0.1, "933 × 600 points: {:?}", (size.x, size.y));
+    let shot = d.screenshot().unwrap();
+    write_png("ui-scale-150-fixed-window", &fingerprint::png_rgba(shot.width, shot.height, &shot.rgba));
+    assert_eq!((shot.width, shot.height), (1400, 900), "drawn at 1.5 pixels per point");
 }
 
 /// One pass of `ctx` on a monitor `monitor` points large at the native scale 1, with

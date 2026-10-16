@@ -148,7 +148,11 @@ pub struct Driver {
     raster: Rasterizer,
     width: u32,
     height: u32,
+    /// The window's native scale (the system's), without egui's zoom.
     pixels_per_point: f32,
+    /// The pixels per point the last frame was laid out and tessellated at: the native scale times
+    /// egui's zoom, as egui reported it.
+    drawn_ppp: f32,
     time: f64,
     frames: u64,
     events: Vec<Event>,
@@ -219,6 +223,7 @@ impl Driver {
             width,
             height,
             pixels_per_point,
+            drawn_ppp: pixels_per_point,
             time: 0.0,
             frames: 0,
             events: Vec::new(),
@@ -245,6 +250,10 @@ impl Driver {
     pub fn step(&mut self) {
         let started = Instant::now();
         let mut input = dalica_ui_kit::raw_input(self.width, self.height, self.pixels_per_point);
+        // egui's zoom (a fixed UI scale, `scale.rs`) scales the window's points as the windowed
+        // integration does: the screen is the window's pixels at the native scale times the zoom.
+        let ppp = self.drawn_pixels_per_point();
+        input.screen_rect = Some(egui::Rect::from_min_size(Pos2::ZERO, egui::vec2(self.width as f32 / ppp, self.height as f32 / ppp)));
         input.time = Some(self.time);
         input.events = std::mem::take(&mut self.events);
         let app = &mut self.app;
@@ -271,7 +280,8 @@ impl Driver {
         self.raster.set_textures(&mut delta);
         self.to_free = delta;
         let tessellating = Instant::now();
-        self.primitives = self.ctx.tessellate(out.shapes, self.pixels_per_point);
+        self.drawn_ppp = out.pixels_per_point;
+        self.primitives = self.ctx.tessellate(out.shapes, self.drawn_ppp);
         let tessellation = tessellating.elapsed();
         let mut sample = Sample {
             at: self.time,
@@ -703,7 +713,16 @@ impl Driver {
         self.step();
     }
 
-    /// The window's size in pixels and its pixels per point.
+    /// The pixels per point the next frame lays out at: the native scale times egui's zoom (1 for
+    /// a bad value), as the windowed integration computes it.
+    fn drawn_pixels_per_point(&self) -> f32 {
+        let native = if self.pixels_per_point.is_finite() && self.pixels_per_point > 0.0 { self.pixels_per_point } else { 1.0 };
+        let ppp = native * self.ctx.zoom_factor();
+        if ppp.is_finite() && ppp > 0.0 { ppp } else { native }
+    }
+
+    /// The window's size in pixels and its native pixels per point (without egui's zoom, which
+    /// `ctx().pixels_per_point()` includes).
     pub fn size(&self) -> (u32, u32, f32) {
         (self.width, self.height, self.pixels_per_point)
     }
@@ -717,7 +736,7 @@ impl Driver {
 
     /// The last frame, painted.
     pub fn screenshot(&self) -> Result<Image, DriverError> {
-        Ok(self.raster.render(&self.primitives, self.pixels_per_point, self.width, self.height, self.app.tokens().chrome)?)
+        Ok(self.raster.render(&self.primitives, self.drawn_ppp, self.width, self.height, self.app.tokens().chrome)?)
     }
 
     /// Ends the drive and hands back the app (to flush and close its session).
