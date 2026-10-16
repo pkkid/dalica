@@ -5332,8 +5332,35 @@ No other step of M10 needs a maintainer decision mid-run.
   - done when: both named tests pass on Windows, proven by dispatching CI on the task branch (`gh
     workflow run ci.yml --ref <branch>`) and citing the green Windows job in the PR, the crash test
     at full strength (`DALICA_FULL_TESTS=1`) as the review runs it; `cargo xtask ci` green.
+- ⬜ **M10.46 `ui`: the Properties pane's settle flake on macOS**
+  - after: M10.25
+  - files: `crates/ui/tests/properties_pane.rs`, `crates/engine/src/metadata_cache.rs`
+  - scope: found by the full gate on macOS (GitHub run 38835952339, PR #608, `macos-latest`; it
+    failed the same way in earlier M9 runs and passed on re-run):
+    `properties_pane::settle_waits_until_the_pane_has_the_files_rows` panics at
+    `properties_pane.rs:351` with "48 MB are still being read". That line is the test's premise,
+    not the settle: right after `photo.metadata` answers `pending`, it expects
+    `Session::photo_metadata_pending()` to be above zero because `big.jpg` carries 48 MB after its
+    end, and on a fast runner (or a reader that stops at the image's end) the read is already over
+    when it looks. The product side is done: `Driver::busy` (`headless.rs`) already lists
+    `photo metadata: N` from the engine's pending reads (as M10.33 did for a pending search), so
+    `ui.settle` waits for a read in flight; `headless.rs` stays out (it is M10.41's file). Make the
+    in-flight state deterministic instead of hoping a big file is slow: hold the read, for
+    example a test-only gate on the metadata readers in `metadata_cache.rs` (as the headless
+    tests' `Gate` picker holds a dialog open until the test answers), so the test sees the read
+    pending and `busy` naming it, then a settle started while it is held does not return settled
+    (bounded by its frame budget), and once the gate opens the settle ends with the file's full
+    rows and nothing pending. No sleep, no retry loop, no wall-clock bound, and nothing the test
+    checks today is dropped (the pending answer, the busy line, the settled rows, the plain
+    photo's five rows). If the cause turns out to be the product (a settle that returns while a
+    read is pending), fix it in the product and keep the failing case as the regression test; the
+    commit body says which it was.
+  - done when: the test passes 20 of 20 runs under load locally (pinned to one core with
+    `taskset -c 0` beside parallel `cargo test` runs), and on macOS in a CI run dispatched on the
+    task branch (`gh workflow run ci.yml --ref <branch>`), the green macOS job cited in the PR;
+    `cargo xtask ci` green.
 - ⬜ **M10.26 `docs`: the P0 parity audit**
-  - after: M10.8, M10.11, M10.12, M10.16, M10.19, M10.20, M10.21, M10.22, M10.23, M10.25, M10.39, M10.40, M10.41, M10.42, M10.43, M10.44, M10.45
+  - after: M10.8, M10.11, M10.12, M10.16, M10.19, M10.20, M10.21, M10.22, M10.23, M10.25, M10.39, M10.40, M10.41, M10.42, M10.43, M10.44, M10.45, M10.46
   - files: `docs/parity.md`
   - scope: `process.md` §5 and the decisions above: every P0 row re-measured (its cited tests run,
     its evidence checked against the code), turned ✅ only with that evidence; parts of a note that
@@ -5374,7 +5401,7 @@ No other step of M10 needs a maintainer decision mid-run.
   - done when: `cargo xtask tasks sync --check` parses them and `tasks sync --dry-run` lists one new
     issue per block.
 - ⬜ **M10.R Release 0.5 gate**
-  - after: M10.24, M10.27, M10.29, M10.31, M10.32, M10.33, M10.34, M10.35, M10.36, M10.37, M10.38, M10.39, M10.40, M10.41, M10.42, M10.43, M10.44, M10.45
+  - after: M10.24, M10.27, M10.29, M10.31, M10.32, M10.33, M10.34, M10.35, M10.36, M10.37, M10.38, M10.39, M10.40, M10.41, M10.42, M10.43, M10.44, M10.45, M10.46
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`
   - scope: a release gate (Release 0.5, P0 complete): the lead runs `/milestone-review M10.R` to
@@ -5423,7 +5450,8 @@ wave 6   M10.26 P0 parity audit
           keys ‖ M10.40 one way out, edit-view caption, hidden in query ‖ M10.41 straighten id, F2,
           headless scale, cell tooltip ‖ M10.42 star badges and caption clock after M10.29
           → M10.43 earlier milestones' acceptance after M10.29 ‖ M10.44 macOS and Windows: render
-          path, Options tests ‖ M10.45 Windows: killed Save, watcher rename)
+          path, Options tests ‖ M10.45 Windows: killed Save, watcher rename ‖ M10.46 macOS:
+          the Properties pane's settle)
 wave 7   M10.27 accept M10 → M10.R          (M10.28 lead: M12 blocks, any time after M9.26)
 ```
 
