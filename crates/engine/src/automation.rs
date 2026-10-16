@@ -396,16 +396,16 @@ pub fn plain(path: &Path) -> PathBuf {
         },
         _ => return path.to_path_buf(),
     };
+    // The names are read with the prefix's own rules (a verbatim path does not split at `/`).
     let rest = parts.as_path();
-    let mut names = rest.components();
-    if names.next() != Some(Component::RootDir) {
+    if parts.next() != Some(Component::RootDir) {
         return path.to_path_buf();
     }
     let ordinary = |c: Component<'_>| match c {
         Component::Normal(name) => name.to_str().is_some_and(|n| !n.contains(['/', '\\']) && windows_problem(n).is_none()),
         _ => false,
     };
-    if !names.all(ordinary) {
+    if !parts.all(ordinary) {
         return path.to_path_buf();
     }
     let mut out = std::ffi::OsString::from(head);
