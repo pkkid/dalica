@@ -53,18 +53,52 @@ fn default_token_file(home: &Path, port: u16) -> PathBuf {
     run.join(format!("control-{port}.token"))
 }
 
-/// Waits for the token file to hold a token; returns it.
-fn token(path: &Path, app: &mut App) -> String {
+/// The most launches of one test, each on a fresh port ([`App::start`]).
+const LAUNCHES: usize = 5;
+
+impl App {
+    /// Starts `dalica` with `args(port)` in the sandbox of `home` on a free control port and
+    /// waits until `token_file(port)` holds a token; returns the app, its port and the token.
+    ///
+    /// The port is one the OS just handed out and released, so another process (a test running
+    /// beside this one, or the near end of a connection it opens) can take it before the app
+    /// binds it. The app then says so and exits 2; on exactly that exit the launch is made again
+    /// on a fresh port, at most [`LAUNCHES`] times. Any other early exit fails the test with what
+    /// the app printed.
+    fn start(home: &Path, args: impl Fn(&str) -> Vec<String>, token_file: impl Fn(u16) -> PathBuf) -> (App, u16, String) {
+        let log = home.join("stderr.log");
+        for _ in 0..LAUNCHES {
+            let port = free_port();
+            let from = std::fs::metadata(&log).map_or(0, |m| m.len());
+            let mut app = App { child: dalica(home, args(&port.to_string())).spawn().unwrap() };
+            match token(&token_file(port), &mut app) {
+                Ok(token) => return (app, port, token),
+                Err(status) => {
+                    let all = std::fs::read(&log).unwrap_or_default();
+                    let said = String::from_utf8_lossy(usize::try_from(from).ok().and_then(|i| all.get(i..)).unwrap_or(&all));
+                    let taken = format!("cannot listen on 127.0.0.1:{port}: the port is in use");
+                    assert!(status.code() == Some(2) && said.contains(&taken), "dalica exited early with {status}:\n{said}");
+                    eprintln!("dalica: port {port} was taken; launching again");
+                }
+            }
+        }
+        panic!("the control port was taken {LAUNCHES} times in a row");
+    }
+}
+
+/// Waits for the token file to hold a token and returns it; the app's exit status if it exits
+/// first.
+fn token(path: &Path, app: &mut App) -> Result<String, ExitStatus> {
     let end = Instant::now() + Duration::from_secs(120);
     loop {
         if let Ok(text) = std::fs::read_to_string(path) {
             let t = text.trim();
             if t.len() == 64 {
-                return t.to_string();
+                return Ok(t.to_string());
             }
         }
         if let Some(status) = app.child.try_wait().unwrap() {
-            panic!("dalica exited early with {status}");
+            return Err(status);
         }
         assert!(Instant::now() < end, "no token file at {}", path.display());
         std::thread::sleep(Duration::from_millis(50));
@@ -115,15 +149,14 @@ fn ms(t: Instant) -> f64 {
 #[test]
 fn an_agent_stars_a_photo_by_click_and_key_and_takes_a_screenshot() {
     let home = tempfile::tempdir().unwrap();
-    let port = free_port();
     let token_file = home.path().join("agent.token");
     let shot = home.path().join("tmp").join("starred.png");
     let started = Instant::now();
-    let p = port.to_string();
-    let args = ["--headless", "--control", &p, "--demo-fresh", "--control-token-file", token_file.to_str().unwrap()];
-    let mut app = App { child: dalica(home.path(), args).spawn().unwrap() };
-    let token = token(&token_file, &mut app);
+    let named = token_file.to_str().unwrap();
+    let args = |p: &str| ["--headless", "--control", p, "--demo-fresh", "--control-token-file", named].map(String::from).to_vec();
+    let (mut app, port, token) = App::start(home.path(), args, |_| token_file.clone());
     let ready = ms(started);
+    let p = port.to_string();
 
     // A second instance on the same port exits 2 instead of starting without its channel.
     let second = dalica(home.path(), ["--headless", "--control", &p, "--demo-fresh"]).stderr(Stdio::piped()).output().unwrap();
@@ -209,11 +242,9 @@ fn an_agent_stars_a_photo_by_click_and_key_and_takes_a_screenshot() {
 #[test]
 fn the_default_token_file_is_made_private_for_the_launch_and_removed_at_exit() {
     let home = tempfile::tempdir().unwrap();
-    let port = free_port();
-    let p = port.to_string();
-    let mut app = App { child: dalica(home.path(), ["--control", &p, "--headless", "--demo-fresh"]).spawn().unwrap() };
+    let args = |p: &str| ["--control", p, "--headless", "--demo-fresh"].map(String::from).to_vec();
+    let (mut app, port, token) = App::start(home.path(), args, |port| default_token_file(home.path(), port));
     let file = default_token_file(home.path(), port);
-    let token = token(&file, &mut app);
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -249,12 +280,10 @@ fn sidecars(dir: &Path, out: &mut Vec<(PathBuf, Value)>) {
 #[test]
 fn quitting_keeps_the_caption_being_typed() {
     let home = tempfile::tempdir().unwrap();
-    let port = free_port();
     let token_file = home.path().join("agent.token");
-    let p = port.to_string();
-    let args = ["--headless", "--control", &p, "--demo", "--control-token-file", token_file.to_str().unwrap()];
-    let mut app = App { child: dalica(home.path(), args).spawn().unwrap() };
-    let token = token(&token_file, &mut app);
+    let named = token_file.to_str().unwrap();
+    let args = |p: &str| ["--headless", "--control", p, "--demo", "--control-token-file", named].map(String::from).to_vec();
+    let (mut app, port, token) = App::start(home.path(), args, |_| token_file.clone());
     let mut c = Client::connect(port);
     c.ok("auth", json!({ "token": token }));
     let settled = c.ok("ui.settle", json!({ "timeoutMs": 30000 }));

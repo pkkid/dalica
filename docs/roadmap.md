@@ -5387,7 +5387,7 @@ No other step of M10 needs a maintainer decision mid-run.
     910831521846 and `DALICA_FULL_TESTS=1`; a CI run dispatched on the task branch (`gh workflow
     run ci.yml --ref <branch>`) shows the monkey green on macOS and Windows, the jobs cited in the
     PR; `cargo xtask ci` green.
-- ⬜ **M10.48 `dalica` + `engine`: two macOS failures the full gate found**
+- ✅ **M10.48 `dalica` + `engine`: two macOS failures the full gate found**
   - after: M10.40
   - files: `apps/dalica/tests/control_headless.rs`, `apps/dalica/tests/common.rs`, `apps/dalica/src/control/headless.rs`, `apps/dalica/src/control/mod.rs`, `crates/engine/tests/save_copy.rs`, `crates/engine/src/metadata.rs`
   - scope: found by the full gate on macOS (GitHub run 38838856986, job `ci (macos-latest)`

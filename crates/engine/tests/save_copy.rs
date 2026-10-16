@@ -100,6 +100,13 @@ fn two_copies_are_001_and_002_with_the_edits_and_the_photo_untouched() {
     s.wait_idle();
     assert!(s.flush_metadata(PATIENCE));
     s.wait_idle();
+    // The write-back put the date into the file's EXIF too, and the next look at the folder (the
+    // watcher's rescan, whenever its event comes, or a verification) takes it in as the file's
+    // date. Taken in now, so the record kept below is the one the copies must leave alone.
+    s.start_verification();
+    s.wait_idle();
+    let date = Some("2025-05-01T10:00:00".parse::<DateTime>().unwrap());
+    assert_eq!(s.library().photo(id).unwrap().date, date, "the file's date, as written back");
     let source = lib.lisbon().join("IMG_0001.jpg");
     let original = std::fs::read(&source).unwrap();
     let (info_before, photo_before) = (lib.s.library().info(id).clone(), lib.s.library().photo(id).unwrap().clone());
@@ -125,7 +132,7 @@ fn two_copies_are_001_and_002_with_the_edits_and_the_photo_untouched() {
         assert_eq!(info.caption, "Tram 28");
         assert_eq!(info.tags, ["Lisbon", "trams"]);
         assert!(photo.star);
-        assert_eq!(info.date, Some("2025-05-01T10:00:00".parse::<DateTime>().unwrap()));
+        assert_eq!(info.date, date);
         // The file carries them too.
         let owned = dalica_meta::read(&std::fs::read(path).unwrap(), &dalica_meta::Limits::default()).unwrap().owned;
         assert_eq!(owned.caption.as_deref(), Some("Tram 28"));
