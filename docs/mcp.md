@@ -6,8 +6,9 @@ Adapted from LightCraft `docs/mcp.md` (revision 88ea1a8) and PhotoCraft `docs/mc
 > **Status: In progress (M10).** Built (M10.4): the server's core in `crates/mcp` (the framing,
 > `initialize`, `tools/list`, `tools/call`, progress and cancellation, the limits), the shared tools
 > `command_list`, `command_run`, `command_batch` and `render_preview` (§4.1), and headless mode:
-> `dalica-cli mcp [--demo] [--library DIR] [--compact] [FOLDERS…]`; `doc_inspect` (M10.7). To come:
-> the helpers of §4.2 (M10.13, M10.14), one tool per command and the resources (M10.15), the roots
+> `dalica-cli mcp [--demo] [--library DIR] [--compact] [FOLDERS…]`; `doc_inspect` (M10.7); one tool
+> per command and the resources (M10.15, §4.4 and §7). To come: the helpers of §4.2 (M10.13,
+> M10.14), the roots
 > and `--read-only` (M10.16; until then the default write roots and command-line read roots of §5),
 > connect mode and the UI tools (M10.17), the workflow tests (M10.18–M10.20). The options of later
 > tasks are refused by name until they exist.
@@ -185,16 +186,29 @@ explaining how to start the app with `--control` and use `--connect`.
 
 ### 4.4 One tool per command
 
-Everything is a command, so `tools/list` also contains one tool per registry entry — engine
-commands, plus the app's `UI_COMMANDS` (`view.edit`, `pane.tags`) in connect mode: `cmd_` + the id
-with `.` replaced by `_` (`photo.star.toggle` → `cmd_photo_star_toggle`, `photo.moveToNewFolder` →
-`cmd_photo_moveToNewFolder`, `output.export` → `cmd_output_export`). The description is the label,
-menu path, shortcut and params doc; the arguments are the command's JSON params. Annotations come
-from the command's effect class — query, edit, files, destructive — so a query is `readOnlyHint` and
-a delete is `destructiveHint`; a command not yet classified is conservatively marked as a
-non-idempotent edit. (The effect class is a planned field of `CommandSpec`; `architecture.md` §3 is
-updated when it lands.) `--compact` leaves these tools out for clients that struggle with long tool
-lists; `command_run` still reaches every command. There are no hidden aliases.
+Everything is a command, so `tools/list` also contains one tool per entry of `engine.commands` —
+engine commands, plus the app's `UI_COMMANDS` (`view.edit`, `pane.tags`) in connect mode; a menu
+item whose command is not registered yet (`live: false`) gets none: `cmd_` + the id with `.`
+replaced by `_` (`photo.star.toggle` → `cmd_photo_star_toggle`, `photo.moveToNewFolder` →
+`cmd_photo_moveToNewFolder`, `export.run` → `cmd_export_run`). The title is the label; the
+description is the label, the id, the menu path (`Picture ▸ Star / Unstar`), the shortcut and the
+params doc; the arguments are the command's JSON params, a loose object the command checks itself
+(as `command_run`'s `params`). A call runs as `command_run` does: one undo step, a job it starts
+waited for with its progress, a photo command without `ids` on the Photo Tray (§4.1).
+
+The annotations are derived from what the registry already says, so `CommandSpec` gains no field
+(`architecture.md` §3):
+
+| The command | `readOnlyHint` | `destructiveHint` | `idempotentHint` |
+|---|---|---|---|
+| effect `query` | true | false | true |
+| effect `library`, `files`, or a UI command's `view` | false | true when it asks first: its params doc names `"confirm"`, or the control channel asks for it anyway (Rebuild Library) | false |
+| effect `external`, or no effect given | false | true | false |
+
+`openWorldHint` is false everywhere. A test runs every command without `confirm` and fails when one
+answering `needs_confirm` is not `destructiveHint`. `--compact` leaves these tools out of
+`tools/list` for clients that struggle with long tool lists; `command_run` still reaches every
+command. There are no hidden aliases.
 
 ## 5. Roots and permissions
 
@@ -239,15 +253,20 @@ forwards cancellation as `jobs.cancel`.
 
 ## 7. Resources
 
-`resources/list` / `resources/read` serve live JSON (never cached):
+`resources/list`, `resources/templates/list` and `resources/read` serve live JSON (`mimeType`
+`application/json`), read again on every request and never cached. Each is the result of the tool of
+the same content, so the two never disagree:
 
 | URI | Content |
 |---|---|
 | `dalica://library` | the library (`doc_inspect` without photos) |
 | `dalica://commands` | the command registry (`command_list`) |
-| `dalica://selection` | the selection and tray with photo summaries |
-| `dalica://photo/{id}` | `photo_info` for one photo (resource template) |
-| `dalica://edit-ops` | `list_edit_ops` |
+| `dalica://selection` | `{tray: {items, …}, total, photos}`: the Photo Tray (the photos photo tools act on without `ids`) and a summary of each of its first 1 000 photos (`id`, `folder`, `name`, `path`, `star`, `caption`, `tags`, `hidden`, `effectiveDate`, `displayed`, `edited`); with the app attached also its `selection` and its whole `tray` (held photos, `library.inspect`) |
+| `dalica://photo/{id}` | `photo_info` for one photo (resource template); until that tool exists (M10.13), the photo's `photo.inspect` entry |
+| `dalica://edit-ops` | `list_edit_ops`; until that tool exists (M10.14), `{ops: [{op}]}` with each operation's name |
+
+An unknown URI, or a photo URI whose id is not a photo, is `-32002`. No resource carries people data:
+a `faces` or `people` field is dropped.
 
 ## 8. Example session
 

@@ -181,6 +181,13 @@ pub struct CommandSpec {
   | Control channel | `engine.execute` over loopback JSON lines (`control-protocol.md`) | M2 |
   | MCP | one tool per command plus helpers (`mcp.md`) | M10 |
 
+- **MCP tool hints are derived from the spec**, so `CommandSpec` has no annotation field: each
+  command's MCP tool (`cmd_<id>`, `mcp.md` §4.4) is `readOnlyHint` and `idempotentHint` for a
+  `Query`, `destructiveHint` for an `External` command and for one that asks first (its `params`
+  doc names `"confirm"`, or the control channel asks for it anyway, as for `library.rebuild`), and
+  `openWorldHint` never. A command that asks first therefore names `"confirm"` in its `params` doc;
+  `crates/mcp/tests/command_tools.rs` runs every command without it and fails on one answering
+  `needs_confirm` that is not marked.
 - **UI-only commands** (pane toggles, zoom, view switches, window state) live in `UI_COMMANDS` in
   `crates/ui/src/menus.rs`, declare keys the same way, and are listed by `engine.commands` too, so
   agents see one catalogue.
