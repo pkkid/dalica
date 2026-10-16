@@ -316,7 +316,12 @@ dalica-cli commands [--json]                                                 # t
 scripted end-to-end user tasks run **over MCP** against the real engine, checked only through public
 state (`doc_inspect`, `photo_info`, `query_photos`) and the files on disk — never through internals.
 
-- Location: `crates/mcp/tests/workflows/`, one module per workflow, named `wNN_<slug>`.
+- Location: `crates/mcp/tests/workflows/`, one module per workflow, named `wNN_<slug>`: a test
+  binary of its own (`cargo test -p dalica-mcp --test workflows`), which `cargo xtask stats` runs
+  alone. `harness.rs` gives each workflow a temporary directory of `scenes` folders and a library,
+  and an agent that calls tools by name; deletes land in the stand-in trash of `dalica-fs`, never
+  the user's. Headless mode has no View menu: a workflow that needs Hidden Pictures (W09) stores it
+  in the library's `settings.json` between two sessions, as the app keeps it.
 - Transport: each test drives the server through the real JSON-RPC framing (in-process pipes); a
   smoke subset also spawns `dalica-cli mcp` as a process with real stdio, and runs once in connect
   mode against a headless app with a control server, to prove both modes agree.

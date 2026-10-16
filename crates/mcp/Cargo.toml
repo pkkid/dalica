@@ -8,7 +8,8 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 publish = false
-# One integration-test binary (`tests/all.rs`, one module per file; `docs/development.md` §6).
+# One integration-test binary (`tests/all.rs`, one module per file; `docs/development.md` §6), and
+# the workflow acceptance tests that `cargo xtask stats` runs alone (`tests/workflows/`, `mcp.md` §9).
 autotests = false
 
 [dependencies]
@@ -28,9 +29,18 @@ serde_json.workspace = true
 # The demo's photos decoded back in the tests, and procedural folders.
 dalica-image.workspace = true
 dalica-scenes.workspace = true
+# The workflows (`tests/workflows/`): deletes into the stand-in trash, the folder sidecars' file
+# name, and the photo files' metadata read back by the independent reader.
+dalica-fs = { workspace = true, features = ["faults"] }
+dalica-meta.workspace = true
+dalica-sidecar.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
 
 [[test]]
 name = "all"
 path = "tests/all.rs"
+
+[[test]]
+name = "workflows"
+path = "tests/workflows/main.rs"

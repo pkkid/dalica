@@ -4995,7 +4995,7 @@ No other step of M10 needs a maintainer decision mid-run.
     headless UI tools answer how to connect; `apps/dalica-cli/tests/run_connect.rs`: a script over
     the fake server prints one JSON line per step and exits non-zero on a failure without
     `--keep-going`.
-- ⬜ **M10.18 `mcp`: the workflow harness and the M6 and M8 workflows**
+- ✅ **M10.18 `mcp`: the workflow harness and the M6 and M8 workflows**
   - after: M10.13, M10.14, M10.15
   - files: `crates/mcp/tests/workflows/main.rs`, `crates/mcp/tests/workflows/harness.rs`, `crates/mcp/tests/workflows/w01_organize_export.rs`, `crates/mcp/tests/workflows/w02_tray_across_folders.rs`, `crates/mcp/tests/workflows/w03_save_undo_revert.rs`, `crates/mcp/tests/workflows/w04_rebuild_loses_nothing.rs`, `crates/mcp/tests/workflows/w05_move_carries_data.rs`, `crates/mcp/tests/workflows/w06_search_save_results.rs`, `crates/mcp/tests/workflows/w07_batch_edit_one_step.rs`, `crates/mcp/tests/workflows/w08_foreign_metadata.rs`, `crates/mcp/tests/workflows/w09_hidden_photos.rs`, `crates/mcp/tests/workflows/w10_import_duplicates.rs`, `crates/mcp/tests/workflows/w11_effects_stack.rs`, `crates/mcp/tests/workflows/w12_destructive_asks.rs`
   - scope: `mcp.md` §9, with PhotoCraft `crates/automation/tests/agent_tasks.rs` at 583425b4 as
