@@ -5035,6 +5035,66 @@ No other step of M10 needs a maintainer decision mid-run.
   - done when: `cargo test -p dalica-mcp --test workflows` runs W01 green (on all three OSes at the review);
     `apps/dalica-cli/tests/mcp_process.rs` passes; `cargo xtask stats` prints 9 / 12 passing and
     `cargo xtask stats --check` fails when a P0 workflow is ignored (a planted `#[ignore]`).
+- ✅ **M10.29 `library` + `engine` + `ui`: Recently Updated counts changes, and shows**
+  - after: M9.R
+  - files: `crates/library/src/model.rs`, `crates/library/src/query.rs`, `crates/library/tests/m9_fields.rs`, `crates/engine/src/session.rs`, `crates/engine/tests/recently_updated.rs`, `crates/ui/src/panels/light_table.rs`, `crates/ui/tests/albums_tree.rs`, `crates/ui/tests/tree.rs`, `docs/organizing.md`, `docs/data-model.md`, `crates/sidecar/src/fields.rs`, `crates/sidecar/src/tests.rs`, `crates/sidecar/tests/fields.rs`, `crates/sidecar/README.md`, `crates/store/src/mapping.rs`, `crates/store/src/rebuild.rs`, `crates/store/tests/fields.rs`, `crates/store/tests/m9_fields.rs`, `crates/store/README.md`, `crates/scan/src/walk.rs`, `crates/scan/src/diff.rs`, `crates/engine/tests/albums.rs`, `crates/engine/tests/captions.rs`, `crates/engine/tests/search.rs`, `crates/engine/tests/tags.rs`, `crates/engine/README.md`, `crates/library/tests/search.rs`, `crates/library/tests/tree.rs`, `crates/library/README.md`, `crates/ui/tests/add_to_album.rs`, `crates/ui/tests/adjust_date.rs`, `crates/ui/tests/bottom.rs`, `crates/ui/tests/captions.rs`, `crates/ui/tests/common.rs`, `crates/ui/tests/hidden.rs`, `crates/ui/tests/library_window.rs`, `crates/ui/tests/section_header.rs`, `crates/ui/tests/fingerprints/**`, `docs/parity.md`
+  - scope: the maintainer's answer at M9.R (Q1): a photo is recently updated by the last change
+    after this library first indexed it (an edit, a caption, tags, a star, a rotation, a date, a
+    file changed on disk); being imported is not a change, so a new library's Recently Updated
+    starts empty. `Library::updated_time` takes the later of the last Dalica change and the file's
+    modification time only when that is after the first-indexed time. Every command that changes a
+    photo's data is stamped (in `Session::execute`, not in undo or redo), not only the album
+    commands and stars (M9.10's open item). Decide how the last-change time survives a rebuild
+    (preference: a `changed` time in the photo's sidecar entry, so a rebuild keeps it and M6's
+    rebuild check stays exact; the alternative is index-only, emptying it on a rebuild). Then turn
+    `SHOW_RECENTLY_UPDATED` on: the tree row and the light-table section (`organizing.md` §4), and
+    the release notes' line is removed. Whole-window baselines that change are re-blessed.
+  - done when: tests: a fresh scan leaves Recently Updated empty; a caption, a star, a rotation and
+    a file rewritten on disk each put the photo first, on a virtual clock, and it leaves after the
+    setting's days; undo of the change restores the earlier time; a rebuild keeps the list (or, if
+    index-only was chosen, the commit body says why); the row and section show; CI green on the
+    three OSes.
+- ✅ **M10.31 `engine`: Export takes album sections and search results**
+  - after: M9.R
+  - files: `crates/engine/src/cmd/export.rs`, `crates/engine/tests/export_sections.rs`, `docs/creating.md`
+  - scope: `export.run` with `section` set to a user album, `album:starred` or `album:search`
+    exports that section's photos in its display order (the search results through
+    `Session::search_results_now()`), as it does for folders; the Export button on an album's
+    section header and on the search banner's results works through it (M9.10 and M9.11's open
+    items).
+  - done when: tests: an album over three folders exports in album order; the search results export
+    the matches; Starred Photos exports; an unknown album id fails gracefully; CI green.
+- ✅ **M10.32 `fs` + `engine`: the file-operation follow-ups from M9**
+  - after: M9.R
+  - files: `crates/fs/src/trash.rs`, `crates/fs/tests/trash.rs`, `crates/engine/src/fileops.rs`, `crates/engine/src/cmd/files.rs`, `crates/engine/src/scanning.rs`, `crates/scan/src/diff.rs`, `crates/engine/tests/file_followups.rs`
+  - scope: three gaps M9's run found, none losing data today: on Linux a file whose name makes its
+    `.trashinfo` record name too long (over about 245 bytes) cannot be trashed, so the delete stops;
+    trash it under a shortened, unique name in the trash's `files/` with the original path in its
+    record, and restore it under its own name (M9.24); undoing a copy of a saved photo leaves the
+    copy's kept original and its record in the destination; trash them with the copy when unchanged
+    (M9.13); a folder moved outside Dalica between two Scan Always folders is still seen as gone and
+    new by the verification pass, because each is its own region scan; pair it as M9.24's
+    `diff_found` does across regions.
+  - done when: tests: a 255-byte name goes to the trash and comes back on Linux; undoing a copy of a
+    saved photo leaves nothing behind; the two-unit move keeps ids, data and album places; CI green
+    on the three OSes.
+- ✅ **M10.33 `ui` + `engine` + docs: small follow-ups from M9**
+  - after: M9.R
+  - files: `tests/acceptance/m9_files.rs`, `crates/engine/tests/panic_hunt.rs`, `crates/ui/src/headless.rs`, `crates/ui/src/dialogs/new_folder.rs`, `crates/ui/tests/new_folder.rs`, `crates/engine/tests/albums.rs`, `crates/engine/README.md`, `docs/security.md`
+  - scope: M9's live file-operations acceptance test fails now and then on Windows: right after
+    `app::flush` it sees a sidecar write still in flight (a `.dalica.json.dalica-tmp-…` file in the
+    folder listing, or the entry not yet there); find whether flush returns before the sidecar
+    writer's rename on Windows (then the fix belongs in the engine: ask the lead for the file) or the
+    test reads too early; `panic_hunt` builds valid
+    parameters for M9's commands (rename, move, copy, delete, folder and album commands); `ui.settle`
+    and the driver's busy check wait for a search still running; Split Folder Here's dialog is
+    titled as a new folder, not "Folder Properties"; stale text: `security.md` §5.7 (deletes are
+    built), the engine README's rename line, the comment of M9.10's folder-rename test, and the
+    Tags row of `parity.md` (Search for This Tag is built).
+  - done when: `file_operations_their_undo_and_the_data_lessons_in_the_live_app` passes 20/20 on
+    Windows CI (a matrix rerun) or the cause is shown fixed by a test; `panic_hunt` green,
+    printing how many M9 commands it reached with valid parameters; a settle test with a search
+    pending; the dialog's title test; CI green.
 - ✅ **M10.34 `fs` + `store`: real crashes, a full disk and read-only folders**
   - after: M9.R
   - files: `crates/fs/src/faults.rs`, `crates/fs/tests/crash.rs`, `crates/fs/tests/refusals.rs`, `crates/fs/tests/all.rs`, `crates/store/tests/crash.rs`, `crates/store/tests/all.rs`, `crates/fs/README.md`
@@ -5183,8 +5243,97 @@ No other step of M10 needs a maintainer decision mid-run.
     with UI scale 150 % lays out 933 × 600 points and its screenshot is 1400 × 900 pixels; in
     `cells.rs`, with `interface.tooltips` off, resting on a cell past `TOOLTIP_SECONDS` shows no
     tooltip (on, it does); `cargo xtask parity` shows `KEY-GLOBAL-F2` ✅; `cargo xtask ci` green.
+- ⬜ **M10.42 `dalica` + `ui`: the app test and the caption fingerprint M10.29's section moved**
+  - after: M10.29
+  - files: `apps/dalica/tests/control_headless.rs`, `crates/ui/tests/captions.rs`
+  - scope: found by the full gate (GitHub run 38832985226, PR #597): M10.29 turned the Recently
+    Updated section on (`organizing.md` §4.1), so a starred photo now has two copies in view and
+    the window draws two star badges for it. The work exists as commit `aaeb457` on branch
+    `fix/control-headless-star-badge` (PR #597, test-only): cherry-pick it. In
+    `control_headless.rs`, `an_agent_stars_a_photo_by_click_and_key_and_takes_a_screenshot` reads
+    the star badge on both in-view copies (Starred Photos and Recently Updated) and checks each
+    lies inside its own cell; in `captions.rs`, the setup runs on a `VirtualClock` so Recently
+    Updated's order is stable from run to run (no re-bless: the baseline is unchanged). The
+    product is not touched. `control_headless.rs` is also M10.40's file: the two never run
+    together (`tasks claim` refuses), and whichever lands second rebases on the other.
+  - done when: `control_headless::an_agent_stars_a_photo_by_click_and_key_and_takes_a_screenshot`
+    passes; the captions fingerprint test passes 5 runs out of 5; `cargo xtask ci` green.
+- ⬜ **M10.43 `acceptance`: the finished milestones' checks after the Recently Updated section shows**
+  - after: M10.29, M10.42
+  - files: `tests/acceptance/m1.rs`, `tests/acceptance/m2.rs`, `tests/acceptance/m6.rs`, `tests/acceptance/m6_live.rs`, `tests/acceptance/m8.rs`, `tests/acceptance/m9_app.rs`, `tests/acceptance/fingerprints/m6-*.json`, `tests/acceptance/fingerprints/m8-*.json`, `tests/acceptance/fingerprints/m9-*.json`
+  - scope: found by the full gate (GitHub run 38832985226, the same on all three systems): the
+    acceptance checks of finished milestones still expect the window before M10.29 (and any other
+    M10 change they trip). Accept M1 `star_a_photo_end_to_end` (`m1.rs:84`) and accept M2
+    `agent_eyes` (`m2.rs:246`) expect the star badge ids `thumb:N/star`; the window now draws
+    `thumb:N/in/starred/star` and `thumb:N/in/recent/star`. Whole-window fingerprints moved: accept
+    M6 `m6-1400x900` (51.88 away, `m6_live.rs:334`) and `m8-1400x900-header` (107.94, checked in
+    `m6_live.rs`), accept M8 `m8-1400x900-export` (8.33, `m8.rs:411`), accept M9
+    `m9-1400x900-albums` (13.73), `-search` (15.73) and `-drag` (3.52) (`m9_app.rs:201`); their
+    900 × 600 siblings are checked after them and may move too. These checks are floors: each is
+    updated to the specified new behaviour (`organizing.md` §4.1, Recently Updated shows; M10.29),
+    never weakened. Badges: find each photo by id, never by position, and check both copies'
+    badges (Starred Photos and Recently Updated) and that each lies inside its own cell, as M10.42
+    does. Fingerprints: re-bless a baseline (`DALICA_BLESS`) only after comparing the new image
+    with the old one and explaining every changed region by an M10 task's specified behaviour;
+    any change no task specifies is a bug: report it on this issue (or `tasks block`) instead of
+    blessing it. The new baselines are approved in bulk at M10.R.
+  - done when: `cargo xtask accept M1`, `M2`, `M6`, `M8` and `M9` pass locally, in release and in
+    debug as the acceptance runner runs them; the old and new images of every re-blessed baseline
+    are on the PR; the commit body says why each baseline changed, region by region; `cargo xtask
+    ci` green.
+- ⬜ **M10.44 `mcp` + `ui`: the full gate's macOS and Windows failures in the tools and the Options dialog**
+  - after: M10.10, M10.14
+  - files: `crates/mcp/src/tools/output.rs`, `crates/mcp/tests/output_tools.rs`, `crates/ui/src/dialogs/options/general.rs`, `crates/ui/tests/options_dialog.rs`, `crates/ui/tests/view_state.rs`, `crates/ui/tests/fingerprints/dialog-options-general-*.json`
+  - scope: found by the full gate (GitHub run 38832985226, `ci --full --platform`), which the
+    task gates never run on these systems. (a) macOS and Windows, M10.14: mcp
+    `output_tools::render_photo_renders_and_changes_nothing` (`output_tools.rs:53`): the answer's
+    `path` is the canonical form, not the path asked for (macOS `/private/var/…` for `/var/…`;
+    Windows `\\?\C:\Users\runneradmin\…` for `C:\Users\RUNNER~1\…`). A verbatim `\\?\` path is a
+    product wart an agent then shows or reuses: the answer names the written file in a plain form
+    (the path the caller gave, after the root check, or the canonical one without the verbatim
+    prefix: the worker decides and says why), and the test still proves the answer names the very
+    file written, on every system. The roots check itself (`crates/mcp/src/roots.rs`) is M10.16's
+    file and stays out: the fix lives in `output.rs`. (b) macOS, M10.10 and M10.2: ui
+    `options_dialog::the_general_tab_matches_its_fingerprint_and_fits_the_small_window`
+    (`dialog-options-general-1400x900` 27.20 away; the General tab lists the options of the
+    platform it runs on, `general.rs` `here`) and
+    `view_state::the_options_keys_open_the_dialog_and_its_menu_items_are_live`
+    (`view_state.rs:645`: the row's shortcut is `Cmd+,` on macOS, the test expects `Ctrl+,`). Both
+    tests assume one platform: make them portable without weakening (pin the platform the
+    fingerprint is taken for, or expect the platform's own key label: `Cmd` on macOS, `Ctrl`
+    elsewhere); if the macOS layout itself is wrong (a row that should not show there), that is a
+    product bug fixed in `general.rs`. Each item is either a product bug (fix it; the failing test
+    is its regression test) or a test that assumed one platform (made portable, still checking the
+    same behaviour); the commit body says which, per item.
+  - done when: each named test passes on the systems it failed on, proven by dispatching CI on the
+    task branch (`gh workflow run ci.yml --ref <branch>`; macOS and Windows cannot run locally) and
+    citing the green jobs in the PR; `cargo xtask ci` green.
+- ⬜ **M10.45 `fs` + `engine`: the full gate's Windows failures in a killed Save and the watcher**
+  - after: M10.34
+  - files: `crates/fs/src/originals.rs`, `crates/fs/tests/crash.rs`, `crates/engine/src/watching.rs`, `crates/engine/tests/watching.rs`
+  - scope: found by the full gate on Windows (GitHub run 38832985226). (a) fs
+    `crash::a_save_killed_at_any_moment_keeps_the_original_whole_under_exactly_one_name`
+    (`crash.rs:246`, M10.34): "seed 1792093458828416969, kill 24 after 1 Saves: photo Some(262144),
+    backup Some(262144)": both names hold a whole file but the photo is not the saved one, so a
+    kill on Windows can leave the original under two names (the backup, Undo Save's restore, or
+    their moves: `originals.rs`). This is a data rule (`data-model.md` §6, one name for the
+    original's bytes): find the window where both exist on Windows and close it in `originals.rs`,
+    the failing case (its seed) the regression test; if the fix needs a file outside these (`fs`'s
+    `atomic.rs` or `transfer`), ask on the issue first. (b) engine
+    `watching::external_changes_reach_the_library_through_the_watcher` (`watching.rs:49`, a helper
+    thread's `std::fs::rename` gets "Access is denied", OS error 5; `common.rs:113` only reports
+    the thread's panic): on Windows a folder cannot be renamed while a handle is open inside it.
+    If the app holds that handle (the watcher, a scan, a thumbnail read keeping a file or folder
+    open longer than it needs), it is a product bug: an external rename must not fail because
+    Dalica is looking at the folder; fix it in `watching.rs` (or ask on the issue for the file
+    that holds it). If only the test's own timing collides with a background read the app is
+    allowed to make, the test waits for the scan to settle before renaming (no blind retry loops,
+    no lower bar). The commit body says which, per item.
+  - done when: both named tests pass on Windows, proven by dispatching CI on the task branch (`gh
+    workflow run ci.yml --ref <branch>`) and citing the green Windows job in the PR, the crash test
+    at full strength (`DALICA_FULL_TESTS=1`) as the review runs it; `cargo xtask ci` green.
 - ⬜ **M10.26 `docs`: the P0 parity audit**
-  - after: M10.8, M10.11, M10.12, M10.16, M10.19, M10.20, M10.21, M10.22, M10.23, M10.25, M10.39, M10.40, M10.41
+  - after: M10.8, M10.11, M10.12, M10.16, M10.19, M10.20, M10.21, M10.22, M10.23, M10.25, M10.39, M10.40, M10.41, M10.42, M10.43, M10.44, M10.45
   - files: `docs/parity.md`
   - scope: `process.md` §5 and the decisions above: every P0 row re-measured (its cited tests run,
     its evidence checked against the code), turned ✅ only with that evidence; parts of a note that
@@ -5224,68 +5373,8 @@ No other step of M10 needs a maintainer decision mid-run.
     files in its scope (`architecture.md` §9).
   - done when: `cargo xtask tasks sync --check` parses them and `tasks sync --dry-run` lists one new
     issue per block.
-- ✅ **M10.29 `library` + `engine` + `ui`: Recently Updated counts changes, and shows**
-  - after: M9.R
-  - files: `crates/library/src/model.rs`, `crates/library/src/query.rs`, `crates/library/tests/m9_fields.rs`, `crates/engine/src/session.rs`, `crates/engine/tests/recently_updated.rs`, `crates/ui/src/panels/light_table.rs`, `crates/ui/tests/albums_tree.rs`, `crates/ui/tests/tree.rs`, `docs/organizing.md`, `docs/data-model.md`, `crates/sidecar/src/fields.rs`, `crates/sidecar/src/tests.rs`, `crates/sidecar/tests/fields.rs`, `crates/sidecar/README.md`, `crates/store/src/mapping.rs`, `crates/store/src/rebuild.rs`, `crates/store/tests/fields.rs`, `crates/store/tests/m9_fields.rs`, `crates/store/README.md`, `crates/scan/src/walk.rs`, `crates/scan/src/diff.rs`, `crates/engine/tests/albums.rs`, `crates/engine/tests/captions.rs`, `crates/engine/tests/search.rs`, `crates/engine/tests/tags.rs`, `crates/engine/README.md`, `crates/library/tests/search.rs`, `crates/library/tests/tree.rs`, `crates/library/README.md`, `crates/ui/tests/add_to_album.rs`, `crates/ui/tests/adjust_date.rs`, `crates/ui/tests/bottom.rs`, `crates/ui/tests/captions.rs`, `crates/ui/tests/common.rs`, `crates/ui/tests/hidden.rs`, `crates/ui/tests/library_window.rs`, `crates/ui/tests/section_header.rs`, `crates/ui/tests/fingerprints/**`, `docs/parity.md`
-  - scope: the maintainer's answer at M9.R (Q1): a photo is recently updated by the last change
-    after this library first indexed it (an edit, a caption, tags, a star, a rotation, a date, a
-    file changed on disk); being imported is not a change, so a new library's Recently Updated
-    starts empty. `Library::updated_time` takes the later of the last Dalica change and the file's
-    modification time only when that is after the first-indexed time. Every command that changes a
-    photo's data is stamped (in `Session::execute`, not in undo or redo), not only the album
-    commands and stars (M9.10's open item). Decide how the last-change time survives a rebuild
-    (preference: a `changed` time in the photo's sidecar entry, so a rebuild keeps it and M6's
-    rebuild check stays exact; the alternative is index-only, emptying it on a rebuild). Then turn
-    `SHOW_RECENTLY_UPDATED` on: the tree row and the light-table section (`organizing.md` §4), and
-    the release notes' line is removed. Whole-window baselines that change are re-blessed.
-  - done when: tests: a fresh scan leaves Recently Updated empty; a caption, a star, a rotation and
-    a file rewritten on disk each put the photo first, on a virtual clock, and it leaves after the
-    setting's days; undo of the change restores the earlier time; a rebuild keeps the list (or, if
-    index-only was chosen, the commit body says why); the row and section show; CI green on the
-    three OSes.
-- ✅ **M10.31 `engine`: Export takes album sections and search results**
-  - after: M9.R
-  - files: `crates/engine/src/cmd/export.rs`, `crates/engine/tests/export_sections.rs`, `docs/creating.md`
-  - scope: `export.run` with `section` set to a user album, `album:starred` or `album:search`
-    exports that section's photos in its display order (the search results through
-    `Session::search_results_now()`), as it does for folders; the Export button on an album's
-    section header and on the search banner's results works through it (M9.10 and M9.11's open
-    items).
-  - done when: tests: an album over three folders exports in album order; the search results export
-    the matches; Starred Photos exports; an unknown album id fails gracefully; CI green.
-- ✅ **M10.32 `fs` + `engine`: the file-operation follow-ups from M9**
-  - after: M9.R
-  - files: `crates/fs/src/trash.rs`, `crates/fs/tests/trash.rs`, `crates/engine/src/fileops.rs`, `crates/engine/src/cmd/files.rs`, `crates/engine/src/scanning.rs`, `crates/scan/src/diff.rs`, `crates/engine/tests/file_followups.rs`
-  - scope: three gaps M9's run found, none losing data today: on Linux a file whose name makes its
-    `.trashinfo` record name too long (over about 245 bytes) cannot be trashed, so the delete stops;
-    trash it under a shortened, unique name in the trash's `files/` with the original path in its
-    record, and restore it under its own name (M9.24); undoing a copy of a saved photo leaves the
-    copy's kept original and its record in the destination; trash them with the copy when unchanged
-    (M9.13); a folder moved outside Dalica between two Scan Always folders is still seen as gone and
-    new by the verification pass, because each is its own region scan; pair it as M9.24's
-    `diff_found` does across regions.
-  - done when: tests: a 255-byte name goes to the trash and comes back on Linux; undoing a copy of a
-    saved photo leaves nothing behind; the two-unit move keeps ids, data and album places; CI green
-    on the three OSes.
-- ✅ **M10.33 `ui` + `engine` + docs: small follow-ups from M9**
-  - after: M9.R
-  - files: `tests/acceptance/m9_files.rs`, `crates/engine/tests/panic_hunt.rs`, `crates/ui/src/headless.rs`, `crates/ui/src/dialogs/new_folder.rs`, `crates/ui/tests/new_folder.rs`, `crates/engine/tests/albums.rs`, `crates/engine/README.md`, `docs/security.md`
-  - scope: M9's live file-operations acceptance test fails now and then on Windows: right after
-    `app::flush` it sees a sidecar write still in flight (a `.dalica.json.dalica-tmp-…` file in the
-    folder listing, or the entry not yet there); find whether flush returns before the sidecar
-    writer's rename on Windows (then the fix belongs in the engine: ask the lead for the file) or the
-    test reads too early; `panic_hunt` builds valid
-    parameters for M9's commands (rename, move, copy, delete, folder and album commands); `ui.settle`
-    and the driver's busy check wait for a search still running; Split Folder Here's dialog is
-    titled as a new folder, not "Folder Properties"; stale text: `security.md` §5.7 (deletes are
-    built), the engine README's rename line, the comment of M9.10's folder-rename test, and the
-    Tags row of `parity.md` (Search for This Tag is built).
-  - done when: `file_operations_their_undo_and_the_data_lessons_in_the_live_app` passes 20/20 on
-    Windows CI (a matrix rerun) or the cause is shown fixed by a test; `panic_hunt` green,
-    printing how many M9 commands it reached with valid parameters; a settle test with a search
-    pending; the dialog's title test; CI green.
 - ⬜ **M10.R Release 0.5 gate**
-  - after: M10.24, M10.27, M10.29, M10.31, M10.32, M10.33, M10.34, M10.35, M10.36, M10.37, M10.38, M10.39, M10.40, M10.41
+  - after: M10.24, M10.27, M10.29, M10.31, M10.32, M10.33, M10.34, M10.35, M10.36, M10.37, M10.38, M10.39, M10.40, M10.41, M10.42, M10.43, M10.44, M10.45
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`
   - scope: a release gate (Release 0.5, P0 complete): the lead runs `/milestone-review M10.R` to
@@ -5332,7 +5421,9 @@ wave 6   M10.26 P0 parity audit
           ‖ M10.36 window close, scales, monkey ‖ M10.37 camera-file write-back)
          (fixes found during M10, any wave: M10.38 failed journal appends ‖ M10.39 the three unbound
           keys ‖ M10.40 one way out, edit-view caption, hidden in query ‖ M10.41 straighten id, F2,
-          headless scale, cell tooltip)
+          headless scale, cell tooltip ‖ M10.42 star badges and caption clock after M10.29
+          → M10.43 earlier milestones' acceptance after M10.29 ‖ M10.44 macOS and Windows: render
+          path, Options tests ‖ M10.45 Windows: killed Save, watcher rename)
 wave 7   M10.27 accept M10 → M10.R          (M10.28 lead: M12 blocks, any time after M9.26)
 ```
 
