@@ -178,12 +178,17 @@ Input replies do not wait for work the input started (thumbnails, a scan, an exp
   contents, exactly like the bottom-bar buttons (`ui-layout.md` §1.5).
 - **Long commands** (scan/add folder, import, export, Save of many photos, batch edit, rebuild,
   duplicates, collage output, face detection) run as **jobs** on workers,
-  as in the UI. By default the reply waits for the job and carries its result. With
-  `"wait": false` the reply is `{job, pending: true}` at once. A job still running 55 s into the
-  reply deadline replies `{job, pending: true}` too, so a long export never ends in a blind
-  `timeout`. Follow up with `jobs.wait` / `jobs.list`. **Planned, not built yet:** today the
-  scans (`folders.add`, `library.rebuild`) reply at once (`scanning: true`) and do not name their
-  job; `jobs.list` lists it, and `jobs.wait` waits for it.
+  as in the UI. By default the reply waits for the job (frames keep running; none is blocked) and
+  carries its result: the command's own fields, then the job's final entry as `jobs.wait` gives it
+  (`job`, `kind`, `state`, `progress`, `result` or `error`, …; `pending` is dropped, a `scanning:
+  true` becomes `false`). With `"wait": false` the reply is the command's own, with `job` and
+  `pending: true`, at once. A job still running 55 s into the reply deadline replies
+  `{…, job, pending: true}` too, so a long export never ends in a blind `timeout`. Follow up with
+  `jobs.wait` / `jobs.list`. A command's job is the one it names itself (`export.run`, Save, the
+  file operations answer `{job, pending: true}`); the scans (`folders.add`, `folders.set`,
+  `library.rebuild`) name the scan or rebuild job they start. When a command starts several (a
+  `folders.set` that rescans two roots), the reply waits for all of them and carries the first
+  one's entry.
 - Input-driven changes behave exactly like the user's: a slider drag or a typing session in the
   caption field coalesces into one undo step.
 
@@ -364,7 +369,8 @@ Runs an engine command or a `UI_COMMANDS` entry (`view.edit`, `pane.tags`, `view
 by id. A UI command that opens a dialog opens it here too (`output.export` replies `{dialog:
 "export"}`); the export itself is the engine's `export.run`, as above. `params` is the command's own JSON, documented by its `params` string in `engine.commands`.
 Disabled commands fail with `disabled` and change nothing. Query commands (`photo.inspect`,
-`library.query`, …) change nothing and record no undo step.
+`library.query`, …) change nothing and record no undo step. `wait` (default `true`) says whether
+the reply waits for a job the command starts (§5.3); anything but a boolean is `bad_params`.
 
 ### 6.2 `engine.commands`
 
@@ -393,9 +399,20 @@ registered yet (they render disabled). `filter` matches id, label or menu path (
 A step is `{command, params?, wait?}` (shorthand for `engine.execute`) or `{method, params?}`.
 `batch` itself, `auth` and `app.quit` are not allowed as steps. Steps run in order with the same
 semantics as separate requests (input plays out before the next step); each command step is its own
-undo step — a batch is **not** a transaction. `stopOnError` defaults to `true`. The reply lists
-every step's `{ok, result | code + error}` and stops early, with a `limit` error, when the aggregate
-reply would exceed 8 MiB (the step that hit the budget may have run).
+undo step — a batch is **not** a transaction. `stopOnError` defaults to `true`. The reply is
+`{completed, failed, results}`, `results` holding every step's `{ok, result}` or
+`{ok, code, error, prompt?}` in order; it stops early, with a final `limit` entry, when the aggregate
+reply would exceed 8 MiB (the step that hit the budget ran; its own result is left out).
+
+- The batch is checked before any step runs: more than 256 steps is `limit`; a step that is not an
+  object with exactly one of `command` and `method` (and only its keys), or names `batch`, `auth`
+  or `app.quit`, is `bad_params`. Either way nothing runs. A misspelt method in a step is that
+  step's `unknown_method`, as a separate request's would be.
+- The batch answers within the one reply deadline: the command steps share one wait for their
+  jobs, which ends 55 s after the batch started (later steps then reply `{job, pending: true}` at
+  once). A step that waits on its own (`ui.settle`, `jobs.wait`) still counts against the deadline.
+- A key a step holds down (`ui.key {state: down}`) is let go when the batch ends: hold keys across
+  requests with separate requests, whose connection lets go of them when it closes (§6.9).
 
 ### 6.4 `library.inspect`
 
@@ -774,12 +791,17 @@ under it takes no input: its backdrop takes the clicks, and no shortcut runs and
   by name is the rect `ui.inspect` → `regions` reports (`not_found` while it is not shown).
 - Without `path` the PNG comes back base64-encoded in `png` (subject to the 8 MiB reply limit).
   `path` follows §5.7 and must end in `.png`.
-- `headless: true` draws the UI on the CPU (§8) instead of reading back the window: it needs no
-  compositor and works when the window is occluded, minimised or the display is asleep.
-  **Planned, not built yet:** in the running window it would need a second copy of the window's
-  textures, so today the window reads its own frame back whatever `headless` says, and a window that
-  draws no frames (minimised, covered) answers `timeout` within **2 s** (every input request does;
-  on Wayland a minimised window gets no logic ticks either, so the 70 s request limit answers).
+- `headless: true` draws the UI on the CPU (§8) instead of reading back the window, the same
+  picture `--headless` paints, byte for byte: it needs no compositor and works when the window is
+  occluded, minimised or the display is asleep. The window keeps a CPU copy of every texture it
+  uploads while the control channel is on (`--control`); the capture settles over the window's
+  frames, then paints the next one from that copy. A window that draws no frames gets no passes
+  from the system, so the capture runs its own, one per logic tick, and hands what they uploaded
+  to the window's next frame. It draws at the window's scale (`scale` must be left out or match:
+  else `bad_params`). On Wayland a minimised window gets no logic ticks either, so the 70 s
+  request limit answers.
+- Without `headless` the window reads its own frame back from the GPU; a window that draws no
+  frames (minimised, covered) then answers `timeout` within **2 s** (as every input request does).
   An `--headless` app and `dalica-cli snapshot` always draw on the CPU (`headless: true` in the
   result).
 - Dalica **never raises or focuses its window** to take a screenshot: stealing focus from the user's
@@ -871,9 +893,9 @@ The egui output is rasterized on the CPU (`crates/ui-kit/src/raster.rs`, driven 
 blending and scissor clipping as egui's GPU backends, so the image matches the window (minus GPU
 dithering). Thumbnails and previews come from the same job pool, drained while settling.
 
-- **In the running app (planned):** `ui.screenshot {headless: true}` would draw the current UI into
-  an offscreen context from the logic tick; until then a window that draws no frames answers
-  `timeout` after 2 s (§6.11). `--headless` runs the app on this renderer from the start.
+- **In the running app:** `ui.screenshot {headless: true}` paints the window's frame with this
+  renderer from a CPU copy of the window's textures, running the window's passes from the logic
+  tick while it draws none (§6.11). `--headless` runs the app on this renderer from the start.
 - **Without any window:** `dalica-cli snapshot` (`apps/dalica-cli/src/snapshot.rs`) opens a
   library, drives the real UI through the headless driver (below), waits for it to settle, paints
   the last frame and writes one PNG. It does not go through the control handler: no TCP, no token,

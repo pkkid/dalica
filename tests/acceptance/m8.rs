@@ -279,7 +279,7 @@ fn wait_job(c: &mut Client, job: &Value) -> Value {
 
 /// A file-job command that must succeed, run to its end; the job's final entry.
 fn job(c: &mut Client, command: &str, params: Value) -> Value {
-    let r = c.ok("engine.execute", json!({ "command": command, "params": params.clone() }));
+    let r = c.ok("engine.execute", json!({ "command": command, "params": params.clone(), "wait": false }));
     assert_eq!(r["pending"], true, "{command} {params} starts a job: {r}");
     let entry = wait_job(c, &r["job"]);
     assert_eq!(entry["state"], "done", "{command} {params}: {entry}");

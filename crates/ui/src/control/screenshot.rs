@@ -1,14 +1,157 @@
 //! `ui.screenshot` (`control-protocol.md` §6.11): settle, capture, crop, then encode the PNG and
 //! write it (or return it base64-encoded) on a worker, never on the UI thread.
+//!
+//! `headless: true` in a window draws the window's frame on the CPU, as `--headless` does, instead
+//! of reading it back from the GPU: the window keeps a [`CpuMirror`] on its egui context (a CPU
+//! copy of every texture it uploads), and the capture rasterizes one frame's shapes with it.
 
 use std::path::{Path, PathBuf};
 
-use dalica_ui_kit::Image;
+use dalica_ui_kit::raster::RasterError;
+use dalica_ui_kit::{Image, Rasterizer};
+use egui::{Color32, FullOutput, TexturesDelta};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::host::{Input, Played};
+use super::host::{Host, Input, Played};
 use super::{Call, Code, Error, MAX_REPLY_LINE, MAX_SCALE, MAX_SHOT_PIXELS, MAX_SHOT_SIDE, Next, Outcome, SCREENSHOT_SETTLE_MS, paths, view};
+use crate::headless::DriverError;
+
+/// Where a CPU capture of the window stands.
+#[derive(Default)]
+enum Capture {
+    #[default]
+    Idle,
+    /// A capture has started (its settle may be running).
+    Started,
+    /// The next frame to end is painted, over `clear`.
+    Armed {
+        clear: Color32,
+    },
+    Painted(Result<Image, RasterError>),
+}
+
+/// The window's frames, kept for the CPU (`ui.screenshot {headless: true}` in a window, §6.11): an
+/// egui plugin on the window's context that copies every texture the window uploads into a CPU
+/// [`Rasterizer`], and paints the frame a capture asks for with it. Its cost between captures is
+/// the textures' second copy and the uploads copied as they happen (nothing per frame otherwise).
+///
+/// A window that draws no frames (minimised, covered) runs no passes of its own; the control
+/// channel then runs passes itself from the logic tick, outside every pass of the window
+/// ([`CpuMirror::can_run_pass`]), and hands their output to the window's next frame
+/// ([`CpuMirror::stash`]), so the GPU still gets every texture upload and release.
+#[derive(Default)]
+pub struct CpuMirror {
+    raster: Rasterizer,
+    /// The textures the last pass released, freed before the next pass's uploads (as the driver).
+    to_free: TexturesDelta,
+    /// A pass of the context is running now.
+    in_pass: bool,
+    /// A pass has begun since the mirror was added (so `in_pass` is known).
+    begun: bool,
+    /// The pass now running is one the control channel runs itself.
+    own: bool,
+    /// The output of passes the control channel ran, for the window's next frame.
+    stashed: Option<FullOutput>,
+    capture: Capture,
+}
+
+impl CpuMirror {
+    /// Whether a CPU capture is under way (from its start until its picture is taken).
+    pub fn capturing(&self) -> bool {
+        !matches!(self.capture, Capture::Idle)
+    }
+
+    /// Whether the control channel may run a pass of the window's context now: outside every pass
+    /// of the window (its logic tick while it is hidden), once the mirror has seen one begin.
+    pub fn can_run_pass(&self) -> bool {
+        self.begun && !self.in_pass
+    }
+
+    /// Marks the pass about to run (and then ended) as one the control channel runs itself.
+    pub fn set_own(&mut self, own: bool) {
+        self.own = own;
+    }
+
+    /// Keeps the output of a pass the control channel ran (its shapes dropped) for the window's
+    /// next frame, which then uploads and frees its textures and obeys its commands.
+    pub fn stash(&mut self, mut output: FullOutput) {
+        output.shapes.clear();
+        match &mut self.stashed {
+            Some(older) => older.append(output),
+            None => self.stashed = Some(output),
+        }
+    }
+
+    /// Forgets a capture (a request that ended without taking its picture).
+    pub fn reset(&mut self) {
+        self.capture = Capture::Idle;
+    }
+
+    fn start(&mut self) {
+        self.capture = Capture::Started;
+    }
+
+    fn arm(&mut self, clear: Color32) {
+        self.capture = Capture::Armed { clear };
+    }
+
+    /// The painted frame, once there is one; the capture is then over.
+    fn take(&mut self) -> Option<Result<Image, RasterError>> {
+        match std::mem::take(&mut self.capture) {
+            Capture::Painted(shot) => Some(shot),
+            other => {
+                self.capture = other;
+                None
+            }
+        }
+    }
+}
+
+impl egui::Plugin for CpuMirror {
+    fn debug_name(&self) -> &'static str {
+        "dalica-cpu-mirror"
+    }
+
+    fn on_begin_pass(&mut self, _ui: &mut egui::Ui) {
+        self.in_pass = true;
+        self.begun = true;
+    }
+
+    fn output_hook(&mut self, ctx: &egui::Context, output: &mut FullOutput) {
+        self.in_pass = false;
+        self.raster.free_textures(&mut self.to_free);
+        let mut delta = output.textures_delta.clone();
+        self.raster.set_textures(&mut delta);
+        self.to_free = delta;
+        // The last pass of a frame (a discarded one is laid out again).
+        if let Capture::Armed { clear } = self.capture
+            && !output.platform_output.requested_discard()
+        {
+            let ppp = output.pixels_per_point;
+            let rect = ctx.viewport_rect();
+            let px = |v: f32| (v * ppp).round().max(0.0) as u32;
+            let primitives = ctx.tessellate(output.shapes.clone(), ppp);
+            self.capture = Capture::Painted(self.raster.render(&primitives, ppp, px(rect.width()), px(rect.height()), clear));
+        }
+        if !self.own
+            && let Some(mut older) = self.stashed.take()
+        {
+            older.append(std::mem::take(output));
+            *output = older;
+        }
+    }
+}
+
+impl Drop for CpuMirror {
+    fn drop(&mut self) {
+        // Nothing is left to upload or free: the context goes with the mirror.
+        self.to_free.clear();
+        if let Some(s) = &mut self.stashed {
+            s.textures_delta.clear();
+        }
+    }
+}
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -56,6 +199,17 @@ pub(super) fn screenshot(call: &mut Call<'_>, params: &Value) -> Result<Outcome,
     if p.headless == Some(false) && window.headless {
         return Err(Error::new(Code::Unsupported, "this instance has no window: its screenshots are headless"));
     }
+    // A window drawn on the CPU (§6.11): at the window's own scale, from its mirror.
+    let cpu = p.headless == Some(true) && !window.headless;
+    if cpu && (scale - f64::from(window.pixels_per_point)).abs() > 1e-3 {
+        return Err(call.bad(format!(
+            "a window draws its CPU capture at its own scale, {} pixels per point; leave out `scale`, or use `--headless` for another one",
+            window.pixels_per_point
+        )));
+    }
+    if cpu && call.host.ctx().plugin_opt::<CpuMirror>().is_none() {
+        return Err(Error::new(Code::Unsupported, "this window keeps no CPU copy of its frames (it was started without --control)"));
+    }
     let crop = match (&p.widget, &p.region) {
         (Some(_), Some(_)) => return Err(call.bad("give `widget` or `region`, not both")),
         (Some(id), None) => {
@@ -91,34 +245,89 @@ pub(super) fn screenshot(call: &mut Call<'_>, params: &Value) -> Result<Outcome,
     let write_roots = call.control.config().effective_write_roots();
     let watched = call.host.app().session().map(|s| s.roots().to_vec()).unwrap_or_default();
     let settle_ms = p.settle.unwrap_or(true).then_some(SCREENSHOT_SETTLE_MS);
+    let deliver = Deliver { crop, scale: scale as f32, path: p.path, write_roots, watched };
+    if cpu {
+        call.host.ctx().with_plugin(|m: &mut CpuMirror| m.start());
+        return Ok(match settle_ms {
+            Some(timeout_ms) => Outcome::Play(
+                Input::Settle { timeout_ms, jobs: false },
+                Box::new(move |host, played| match played {
+                    Ok(Played::Settled(s)) => paint_on_cpu(host, Some(s.settled), deliver),
+                    Ok(other) => cpu_failed(host, Error::new(Code::Internal, format!("a settle played as {other:?}"))),
+                    Err(e) => cpu_failed(host, e.into()),
+                }),
+            ),
+            None => paint_on_cpu(call.host, None, deliver),
+        });
+    }
     let input = Input::Screenshot { settle_ms, scale: scale as f32 };
     Ok(Outcome::Play(
         input,
-        Box::new(move |host, played| {
-            let (image, settled) = match played {
-                Ok(Played::Shot { image, settled }) => (image, settled),
-                Ok(other) => return Error::new(Code::Internal, format!("a screenshot played as {other:?}")).into(),
-                Err(e) => return Error::from(e).into(),
-            };
-            let headless = host.window().headless;
-            let rect = match crop {
-                Crop::Window => None,
-                Crop::Widget(id) => match dalica_ui_kit::registry::find(host.ctx(), &id) {
-                    Some(w) => Some(w.rect),
-                    None => return Error::new(Code::NotFound, format!("widget `{id}` was gone when the screenshot was taken")).into(),
-                },
-                Crop::Rect(r) => Some(r),
-            };
-            let image = match rect {
-                None => image,
-                Some(r) => match crop_image(&image, r, scale as f32) {
-                    Some(i) => i,
-                    None => return Error::new(Code::Limit, format!("the region {r:?} is outside the window")).into(),
-                },
-            };
-            Outcome::Work(Box::new(move || Next::Reply(finish(image, p.path.as_deref(), &write_roots, &watched, headless, settled))))
+        Box::new(move |host, played| match played {
+            Ok(Played::Shot { image, settled }) => {
+                let headless = host.window().headless;
+                deliver.run(host, image, settled, headless)
+            }
+            Ok(other) => Error::new(Code::Internal, format!("a screenshot played as {other:?}")).into(),
+            Err(e) => Error::from(e).into(),
         }),
     ))
+}
+
+/// Ends a CPU capture that failed.
+fn cpu_failed(host: &mut dyn Host, e: Error) -> Outcome {
+    host.ctx().with_plugin(|m: &mut CpuMirror| m.reset());
+    e.into()
+}
+
+/// Asks the mirror to paint the next frame, lets that frame run, then delivers its picture.
+fn paint_on_cpu(host: &mut dyn Host, settled: Option<bool>, deliver: Deliver) -> Outcome {
+    let clear = host.app().tokens().chrome;
+    host.ctx().with_plugin(|m: &mut CpuMirror| m.arm(clear));
+    Outcome::Play(
+        Input::Frames(1),
+        Box::new(move |host, played| {
+            if let Err(e) = played {
+                return cpu_failed(host, e.into());
+            }
+            match host.ctx().with_plugin(|m: &mut CpuMirror| m.take()).flatten() {
+                Some(Ok(image)) => deliver.run(host, image, settled, true),
+                Some(Err(e)) => cpu_failed(host, Error::from(DriverError::Raster(e))),
+                None => cpu_failed(host, Error::new(Code::Internal, "the window's frame was not painted on the CPU")),
+            }
+        }),
+    )
+}
+
+/// What a capture does with its picture: crop it, then encode and write it off the UI thread.
+struct Deliver {
+    crop: Crop,
+    scale: f32,
+    path: Option<PathBuf>,
+    write_roots: Vec<PathBuf>,
+    watched: Vec<PathBuf>,
+}
+
+impl Deliver {
+    fn run(self, host: &mut dyn Host, image: Image, settled: Option<bool>, headless: bool) -> Outcome {
+        let rect = match self.crop {
+            Crop::Window => None,
+            Crop::Widget(id) => match dalica_ui_kit::registry::find(host.ctx(), &id) {
+                Some(w) => Some(w.rect),
+                None => return Error::new(Code::NotFound, format!("widget `{id}` was gone when the screenshot was taken")).into(),
+            },
+            Crop::Rect(r) => Some(r),
+        };
+        let image = match rect {
+            None => image,
+            Some(r) => match crop_image(&image, r, self.scale) {
+                Some(i) => i,
+                None => return Error::new(Code::Limit, format!("the region {r:?} is outside the window")).into(),
+            },
+        };
+        let Deliver { path, write_roots, watched, .. } = self;
+        Outcome::Work(Box::new(move || Next::Reply(finish(image, path.as_deref(), &write_roots, &watched, headless, settled))))
+    }
 }
 
 /// The part of `image` under `rect` (points at `scale` pixels per point), clipped to the image;

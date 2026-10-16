@@ -52,6 +52,7 @@ use crate::headless::DriverError;
 pub use host::{DragTo, Host, Input, Played, Player, Window, frames_for};
 pub use paths::default_write_roots;
 pub use picker::{PickerKind, PickerRequest, StubPicker};
+pub use screenshot::CpuMirror;
 
 /// The request line limit, newline included (§4).
 pub const MAX_REQUEST_LINE: usize = 1 << 20;

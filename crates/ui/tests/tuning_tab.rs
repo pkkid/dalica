@@ -507,7 +507,9 @@ fn the_tool_drives_the_tab_and_refuses_bad_actions() {
     assert_eq!(edits(&mut t, p), kept);
 
     // The colour wand by action, then a pick by action: each answer is one change.
-    let job = run(&mut t, "edit.tool.action", json!({ "name": "auto", "params": { "what": "color" } }));
+    let wand = json!({ "command": "edit.tool.action", "params": { "name": "auto", "params": { "what": "color" } }, "wait": false });
+    let job = ok(&mut t, "engine.execute", wand);
+    t.d.settle(FRAMES).unwrap();
     assert_eq!(job["pending"], true);
     run(&mut t, "edit.tool.action", json!({ "name": "pick", "params": { "x": 0.5, "y": 0.5 } }));
     until(&mut t, "the wands' answers", |t| t.d.app().session().unwrap().jobs().iter().all(|j| j.state.is_finished()));

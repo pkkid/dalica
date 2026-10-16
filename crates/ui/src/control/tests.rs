@@ -306,9 +306,7 @@ fn methods_are_listed_unknown_ones_refused_unbuilt_ones_unsupported_and_panics_c
         let entry = list.as_array().unwrap().iter().find(|e| e["method"] == m).unwrap();
         assert_eq!((entry["built"].as_bool(), entry.get("planned")), (Some(true), None), "{m}");
     }
-    for m in ["batch", "app.quit"] {
-        refused(&mut t, m, json!({}), "unsupported");
-    }
+    refused(&mut t, "app.quit", json!({}), "unsupported");
     let e = refused(&mut t, "ui.clickwidget", json!({}), "unknown_method");
     assert!(e.message.contains("methods"), "{}", e.message);
     refused(&mut t, "auth", json!({ "token": "x" }), "unknown_method");
@@ -332,7 +330,7 @@ fn every_method_refuses_hostile_params_and_changes_nothing() {
     let mut t = setup(3);
     let before = t.d.app().state().clone();
     let built: Vec<&str> = METHODS.iter().filter(|m| m.run.is_some()).map(|m| m.name).collect();
-    assert_eq!(built.len(), 27, "{built:?}");
+    assert_eq!(built.len(), 28, "{built:?}");
     for m in &built {
         for params in [json!([1]), json!("x"), json!(7), json!(true), json!({ "zzz": 1 })] {
             let e = refused(&mut t, m, params.clone(), "bad_params");

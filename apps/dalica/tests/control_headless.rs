@@ -158,6 +158,19 @@ fn an_agent_stars_a_photo_by_click_and_key_and_takes_a_screenshot() {
     assert_eq!((r["width"].clone(), r["height"].clone(), r["headless"].clone()), (json!(1400), json!(900), json!(true)));
     let png = std::fs::read(&shot).unwrap();
     assert!(png.starts_with(b"\x89PNG\r\n\x1a\n"), "a PNG");
+    // A batch over the transport: steps in order, the screenshot drawn on the CPU as above.
+    let again = home.path().join("tmp").join("unstarred.png");
+    let r = c.ok(
+        "batch",
+        json!({ "steps": [
+            { "command": "photo.star.set", "params": { "ids": [1], "on": false } },
+            { "method": "ui.screenshot", "params": { "path": again, "headless": true } },
+        ] }),
+    );
+    assert_eq!((r["completed"].clone(), r["failed"].clone()), (json!(2), json!(0)), "{r}");
+    assert_eq!(r["results"][1]["result"]["headless"], true, "{r}");
+    assert_eq!(star(&mut c), false);
+    assert!(std::fs::read(&again).unwrap() != png, "the second picture shows the star gone");
     let t = Instant::now();
     for _ in 0..20 {
         c.ok("ui.state", json!({}));
