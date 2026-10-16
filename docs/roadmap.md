@@ -5387,8 +5387,39 @@ No other step of M10 needs a maintainer decision mid-run.
     910831521846 and `DALICA_FULL_TESTS=1`; a CI run dispatched on the task branch (`gh workflow
     run ci.yml --ref <branch>`) shows the monkey green on macOS and Windows, the jobs cited in the
     PR; `cargo xtask ci` green.
+- ⬜ **M10.48 `dalica` + `engine`: two macOS failures the full gate found**
+  - after: M10.40
+  - files: `apps/dalica/tests/control_headless.rs`, `apps/dalica/tests/common.rs`, `apps/dalica/src/control/headless.rs`, `apps/dalica/src/control/mod.rs`, `crates/engine/tests/save_copy.rs`, `crates/engine/src/metadata.rs`
+  - scope: found by the full gate on macOS (GitHub run 38838856986, job `ci (macos-latest)`
+    116774038396). (a) `control_headless::quitting_keeps_the_caption_being_typed` (M10.40) panics
+    at `control_headless.rs:67` with "dalica exited early with exit status: 2" while it waits for
+    the token file, so the app quit before its control channel was up. Exit 2 comes from
+    `main.rs` only for a bad argument, a control channel that cannot start (`control::listen`: a
+    taken port, or a token file `--control-token-file` cannot make) or no library folder. First
+    make the test name the cause: an early exit reports the app's stderr in the panic. Then: if
+    the app exits 2 for a reason it should not on macOS (the token file, the demo folder, the
+    port), it is a product bug: fix it in `control/mod.rs` or `control/headless.rs` (ask on the
+    issue for `main.rs`), the failing test the regression test. If it is the test's own race (for
+    example `common.rs`'s `free_port` handing the same port to two tests running in parallel),
+    make the port deterministic (bind and keep it, or retry the launch only on "the port is in
+    use", bounded) without dropping a check. (b)
+    `save_copy::two_copies_are_001_and_002_with_the_edits_and_the_photo_untouched` panics at
+    `save_copy.rs:140` (`photo(id) == photo_before`): the photo after the copies holds
+    `date: Some(2025-05-01T10:00:00)` where the record taken before them held `date: None`, size
+    and time unchanged, so the file's date reached the photo's record after `wait_idle` and
+    `flush_metadata` had returned: the write-back of `photo.dates.set` (or the re-read that
+    follows it) lands later than the test assumes. If a flush returns before its results are
+    applied to the library (`metadata.rs`), that is a product bug: `flush_metadata` returns only
+    once the written files' results are in the model, the failing test the regression test. If
+    only the test's order is wrong, it takes `photo_before` once that result is in, waiting on a
+    bounded condition. No sleep, no blind retry, no check weakened (the photo stays untouched by
+    the copies). The commit body says which it was, per item.
+  - done when: each test passes 20 of 20 runs under load locally (pinned to one core with
+    `taskset -c 0` beside parallel `cargo test` runs); a CI run dispatched on the task branch
+    (`gh workflow run ci.yml --ref <branch>`) shows both green on macOS, the job cited in the PR;
+    `cargo xtask ci` green.
 - ⬜ **M10.26 `docs`: the P0 parity audit**
-  - after: M10.8, M10.11, M10.12, M10.16, M10.19, M10.20, M10.21, M10.22, M10.23, M10.25, M10.39, M10.40, M10.41, M10.42, M10.43, M10.44, M10.45, M10.46, M10.47
+  - after: M10.8, M10.11, M10.12, M10.16, M10.19, M10.20, M10.21, M10.22, M10.23, M10.25, M10.39, M10.40, M10.41, M10.42, M10.43, M10.44, M10.45, M10.46, M10.47, M10.48
   - files: `docs/parity.md`
   - scope: `process.md` §5 and the decisions above: every P0 row re-measured (its cited tests run,
     its evidence checked against the code), turned ✅ only with that evidence; parts of a note that
@@ -5429,7 +5460,7 @@ No other step of M10 needs a maintainer decision mid-run.
   - done when: `cargo xtask tasks sync --check` parses them and `tasks sync --dry-run` lists one new
     issue per block.
 - ⬜ **M10.R Release 0.5 gate**
-  - after: M10.24, M10.27, M10.29, M10.31, M10.32, M10.33, M10.34, M10.35, M10.36, M10.37, M10.38, M10.39, M10.40, M10.41, M10.42, M10.43, M10.44, M10.45, M10.46, M10.47
+  - after: M10.24, M10.27, M10.29, M10.31, M10.32, M10.33, M10.34, M10.35, M10.36, M10.37, M10.38, M10.39, M10.40, M10.41, M10.42, M10.43, M10.44, M10.45, M10.46, M10.47, M10.48
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`
   - scope: a release gate (Release 0.5, P0 complete): the lead runs `/milestone-review M10.R` to
@@ -5480,7 +5511,7 @@ wave 6   M10.26 P0 parity audit
           → M10.43 earlier milestones' acceptance after M10.29 ‖ M10.44 macOS and Windows: render
           path, Options tests ‖ M10.45 Windows: killed Save, watcher rename ‖ M10.46 macOS:
           the Properties pane's settle ‖ M10.47 one menu open at a time, window size under
-          a UI scale)
+          a UI scale ‖ M10.48 macOS: headless quit test, Save Copy date)
 wave 7   M10.27 accept M10 → M10.R          (M10.28 lead: M12 blocks, any time after M9.26)
 ```
 
