@@ -230,12 +230,13 @@ impl Library {
         self.cache.starred.get_or_init(|| in_photo_order(self, self.model.photos.values().filter(|p| p.star)).into_iter().map(|p| p.id).collect())
     }
 
-    /// Recently Updated: the photos whose updated time ([`Library::updated_time`]) is within
-    /// `days` days before `now` (or after it), newest first, then by file name and id. The sort is
-    /// worked out once per change; each call only cuts it.
+    /// Recently Updated: the photos updated ([`Library::updated_at`]) within `days` days before
+    /// `now` (or after it), newest first, then by file name and id; a photo not changed since it
+    /// was first indexed is not in it. The sort is worked out once per change; each call only
+    /// cuts it.
     pub fn recently_updated(&self, now: Timestamp, days: u32) -> Vec<PhotoId> {
         let all = self.cache.updated.get_or_init(|| {
-            let mut list: Vec<(Timestamp, &Photo)> = self.model.photos.values().map(|p| (self.updated_time(p), p)).collect();
+            let mut list: Vec<(Timestamp, &Photo)> = self.model.photos.values().filter_map(|p| Some((self.updated_at(p)?, p))).collect();
             list.sort_by(|(ta, a), (tb, b)| tb.cmp(ta).then_with(|| a.name.cmp(&b.name)).then_with(|| a.id.cmp(&b.id)));
             list.into_iter().map(|(t, p)| (t, p.id)).collect()
         });

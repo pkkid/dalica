@@ -234,7 +234,7 @@ fn an_adjusted_date_reorders_and_relabels() {
     assert_eq!(order(&fx.d, folder), [ids[3], ids[0], ids[1], ids[2]], "re-ordered");
     let cells = &fx.d.app().panels().unwrap().light_table.cells;
     let drawn: Vec<PhotoId> = cells.shown().iter().map(|s| s.photo).collect();
-    assert_eq!(drawn, [ids[3], ids[0], ids[1], ids[2]], "drawn in the new order");
+    assert_eq!(drawn, [ids[3], ids[3], ids[0], ids[1], ids[2]], "its copy in Recently Updated, then the folder in the new order");
     assert_eq!(cells.get(last).and_then(|s| s.caption.clone()).as_deref(), Some("May 30, 2026"), "the Date caption");
     assert_eq!(cells.get(ids[0]).and_then(|s| s.caption.clone()).as_deref(), Some("June 4, 2026"));
     let status = fx.d.state().status_line.clone();

@@ -34,8 +34,11 @@ fn session(root: &Path) -> Session {
     s
 }
 
-/// Selects `ids`, right-clicks the first one's cell and opens Add to Album ▸.
+/// Selects `ids`, right-clicks the first one's cell in its folder's section (scrolled to: the
+/// album sections above it grow as photos change) and opens Add to Album ▸.
 fn open_add_to_album(d: &mut Driver, ids: &[PhotoId]) {
+    let folder = dalica_ui::state::Section::Folder(d.app().session().unwrap().library().photo(ids[0]).unwrap().folder);
+    d.run("section.scrollTo", &json!({ "section": folder })).unwrap();
     d.run("select.set", &json!({ "ids": ids.iter().map(|id| id.get()).collect::<Vec<_>>() })).unwrap();
     d.settle(FRAMES).unwrap();
     d.click_with(&format!("thumb:{}", ids[0].get()), &Click { button: PointerButton::Secondary, ..Click::default() }).unwrap();

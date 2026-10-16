@@ -97,8 +97,8 @@ fn items(d: &Driver) -> Vec<String> {
 }
 
 /// The Albums group's rows of the synthetic fixtures, which star some photos: Starred Photos
-/// (`organizing.md` §4.1; Recently Updated waits for the M9 review,
-/// `light_table::SHOW_RECENTLY_UPDATED`).
+/// (`organizing.md` §4.1; an index-only synthetic library records no first-indexed or
+/// last-changed time, so nothing in it counts as Recently Updated).
 const ALBUM_ROWS: [&str; 1] = ["tree:album:starred"];
 
 /// The tree rows registered last frame, top to bottom.

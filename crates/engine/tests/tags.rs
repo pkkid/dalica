@@ -164,14 +164,16 @@ fn quick_tags_apply_by_slot_and_by_key_and_toggle_off() {
     assert_eq!(r["slots"], json!([null, null, "lisbon", "tram", "family", null, null, null, null, null]));
     // Slots 1 and 2 follow recently added tags; nothing has been added yet.
     assert_eq!(s.execute("tags.quick.1", &json!({ "ids": ids })), Err(CmdError::Disabled("Quick tag 1 is not assigned.".into())));
-    let before = s.library().model().clone();
+    let before: Vec<_> = ids.iter().map(|id| s.library().info(*id).clone()).collect();
     // Slot 4 through its keyed command, then through tags.quick.apply: on, then off again.
     let r = run(&mut s, "tags.quick.4", json!({ "ids": [ids[0], ids[1]] }));
     assert_eq!((r["n"].clone(), r["tag"].clone(), r["on"].clone()), (json!(4), json!("tram"), json!(true)));
     assert_eq!(s.library().tag_index().count("tram"), 2);
     let r = run(&mut s, "tags.quick.apply", json!({ "n": 4, "ids": [ids[0], ids[1]] }));
     assert_eq!(r["on"], json!(false));
-    assert_eq!(s.library().model(), &before);
+    let after: Vec<_> = ids.iter().map(|id| s.library().info(*id).clone()).collect();
+    assert_eq!(after, before, "on, then off: the tags are as they were");
+    assert!(s.library().last_changed(ids[0]).is_some(), "two changes all the same (Recently Updated)");
     assert_eq!(s.undo_stack().len(), 2);
     // Adding a tag makes it recent: slot 1 shows it, Ctrl+Alt+1 applies it.
     run(&mut s, "photo.tags.add", json!({ "ids": [ids[2]], "tags": "Harbour" }));

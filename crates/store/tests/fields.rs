@@ -210,24 +210,16 @@ fn json_of(dir: &Path) -> Value {
 }
 
 /// The library without its derived data (index-only: a rebuild starts without it): the synced
-/// hashes, search facts, content digests, first-indexed and last-changed times.
+/// hashes, search facts, content digests and first-indexed times. The last-changed times are in
+/// the sidecars (M10) and come back.
 fn without_derived(lib: &Library) -> Library {
     let mut l = lib.clone();
     let synced = l.synced_all().map(|(id, _)| (id, None)).collect();
     let facts = l.facts_all().map(|(id, _)| (id, Facts::default())).collect();
     let digests = l.digests().map(|(id, _)| (id, None)).collect();
     let indexed = l.first_indexed_all().map(|(id, _)| (id, None)).collect();
-    let changed = l.last_changed_all().map(|(id, _)| (id, None)).collect();
-    l.apply(Op::Batch {
-        ops: vec![
-            Op::SetSynced { synced },
-            Op::SetFacts { facts },
-            Op::SetDigests { digests },
-            Op::SetFirstIndexed { indexed },
-            Op::SetLastChanged { changed },
-        ],
-    })
-    .unwrap();
+    l.apply(Op::Batch { ops: vec![Op::SetSynced { synced }, Op::SetFacts { facts }, Op::SetDigests { digests }, Op::SetFirstIndexed { indexed }] })
+        .unwrap();
     l
 }
 
@@ -276,15 +268,15 @@ fn deleting_the_index_and_rebuilding_gives_every_field_back() {
     assert_eq!((first.project(), second.project()), (Field::Absent, Field::Value("exported".into())));
     assert_eq!((first.folder_sort(), first.folder_reverse()), (Field::Value("name".into()), Field::Value(true)));
     assert_eq!((second.folder_sort(), second.folder_reverse()), (Field::Value("size".into()), Field::Absent));
-    // Derived data and the saved records never reach a sidecar.
+    // Derived data and the saved records never reach a sidecar; the last-changed times do (M10).
     for d in &paths {
         let text = std::fs::read_to_string(d.join(".dalica.json")).unwrap();
-        for derived in
-            ["synced", "rating", "pending", "Canon", "geotagged", "blake3", "digest", "1780000000000", "1790000000000", "indexed", "changed"]
-        {
+        for derived in ["synced", "rating", "pending", "Canon", "geotagged", "blake3", "digest", "1780000000000", "1790000000000", "indexed"] {
             assert!(!text.contains(derived), "{derived} in {text}");
         }
     }
+    let stamped = lib.photo(ids[0][0]).unwrap().name.clone();
+    assert_eq!(first.photo(&stamped).changed, Field::Value(Timestamp::from_millis(1_790_000_000_000)));
 
     // Delete the index; a new scan finds the same folders and photos with nothing said about them.
     for e in std::fs::read_dir(lib_dir.path()).unwrap() {
@@ -309,6 +301,7 @@ fn deleting_the_index_and_rebuilding_gives_every_field_back() {
         "createAlbums",
         "addMembers",
         "setCovers",
+        "setLastChanged",
     ];
     assert_eq!(kinds, want);
     for op in import.ops {

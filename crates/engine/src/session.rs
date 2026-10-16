@@ -128,6 +128,10 @@ pub struct Session {
     collected: Option<Vec<Op>>,
     /// The op a command asked its undo step to use instead of the collected inverses.
     undo_op: Option<Op>,
+    /// While a command runs (not while it undoes or redoes a step, nor while a file operation's
+    /// job brings its results): [`Session::apply`] stamps each op with the photos' last-changed
+    /// time ([`Library::stamped`], Recently Updated).
+    stamping: bool,
     /// Inside [`Session::execute_group`]: the steps its commands made so far, kept here instead of
     /// on the undo stack until the group ends.
     group: Option<Vec<Step>>,
@@ -233,6 +237,7 @@ impl Session {
             io_errors,
             collected: None,
             undo_op: None,
+            stamping: false,
             group: None,
             recovery,
             scan_warnings: Vec::new(),
@@ -280,11 +285,20 @@ impl Session {
         self.collected = Some(Vec::new());
         self.undo_op = None;
         self.folders.change = None;
+        let stamping = std::mem::replace(&mut self.stamping, true);
         let result = catch_unwind(AssertUnwindSafe(|| (spec.run)(self, params)));
+        self.stamping = stamping;
         let mut inverses = self.collected.take().unwrap_or_default();
-        // A command that changed something may undo with an op of its own (`set_undo_op`).
+        // A command that changed something may undo with an op of its own (`set_undo_op`); the
+        // last-changed times its ops stamped are put back with it.
         if let Some(op) = self.undo_op.take().filter(|_| !inverses.is_empty()) {
-            inverses = vec![op];
+            let mut times = last_changed_in(inverses.iter().rev());
+            inverses = vec![if times.is_empty() {
+                op
+            } else {
+                times.insert(0, op);
+                Op::Batch { ops: times }
+            }];
         }
         // The folder rules the command replaced (`folders.rs`): a rules-only change is a step too.
         let modes = self.folders.change.take().filter(|m| !m.is_empty());
@@ -379,6 +393,9 @@ impl Session {
     /// photos' owned fields it changed (`metadata.rs`) and the recipe hook which photos' recipes it
     /// changed (`history.rs`). Commands change the library only through this.
     pub(crate) fn apply(&mut self, op: Op) -> Result<Op, CmdError> {
+        // A command's change counts for Recently Updated (`organizing.md` §4.1), unless its op
+        // carries its own times (a command that stamped it, an undo putting old times back).
+        let op = if self.stamping && !has_last_changed(&op) { self.library.stamped(op, self.clock.now()) } else { op };
         // An op from the files (outside `execute`): what it imports and its conflicts (`scanning.rs`).
         let files = if self.collected.is_none() { self.files_op_before(&op) } else { None };
         let before = self.all_folder_ids();
@@ -434,7 +451,9 @@ impl Session {
     /// as its job brings them (`fileops.rs`), the operation keeping the inverse for its undo step.
     pub(crate) fn apply_own(&mut self, op: Op) -> Result<Op, CmdError> {
         let saved = self.collected.replace(Vec::new());
+        let stamping = std::mem::replace(&mut self.stamping, false);
         let result = self.apply(op);
+        self.stamping = stamping;
         self.collected = saved;
         result
     }
@@ -509,7 +528,11 @@ impl Session {
             return Ok(op);
         }
         let op = crate::cmd::dates::without_file_dates(&self.library, op);
-        self.apply(op)
+        // An undo or redo puts the times back that its op holds; it is no change of its own.
+        let stamping = std::mem::replace(&mut self.stamping, false);
+        let result = self.apply(op);
+        self.stamping = stamping;
+        result
     }
 
     /// Undoes the last library step. `Ok(None)` when there is nothing to undo. A file step starts
@@ -770,6 +793,36 @@ impl Session {
 }
 
 /// `e` naming the group's step `n` (counted from 1) and its command; the error's kind is kept.
+/// Whether `op` sets last-changed times anywhere in it (nested batches walked without recursion).
+fn has_last_changed(op: &Op) -> bool {
+    let mut stack = vec![op];
+    while let Some(op) = stack.pop() {
+        match op {
+            Op::SetLastChanged { .. } => return true,
+            Op::Batch { ops } => stack.extend(ops),
+            _ => {}
+        }
+    }
+    false
+}
+
+/// The [`Op::SetLastChanged`] ops in `ops`, in the order applying them in turn would apply them
+/// (nested batches walked without recursion).
+fn last_changed_in<'a>(ops: impl Iterator<Item = &'a Op>) -> Vec<Op> {
+    let mut out = Vec::new();
+    for op in ops {
+        let mut stack = vec![op];
+        while let Some(op) = stack.pop() {
+            match op {
+                Op::SetLastChanged { .. } => out.push(op.clone()),
+                Op::Batch { ops } => stack.extend(ops.iter().rev()),
+                _ => {}
+            }
+        }
+    }
+    out
+}
+
 fn in_step(e: CmdError, n: usize, id: &str) -> CmdError {
     let at = |m: String| format!("step {} ({id}): {m}", n.saturating_add(1));
     match e {

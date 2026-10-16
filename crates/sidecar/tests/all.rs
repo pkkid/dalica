@@ -4,4 +4,5 @@
 mod common;
 
 mod albums;
+mod fields;
 mod originals;

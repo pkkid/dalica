@@ -1,8 +1,8 @@
 //! M9's fields on disk and in the index (`data-model.md` §2–§4, §10.1): a folder's photo sort,
-//! albums with their memberships, keys and covers, and the index-only search facts, content
-//! digests and first-indexed and last-changed times. Each surviving the journal and a snapshot, the
-//! user's coming back from the folders and `albums.json` after the index is deleted and the
-//! index-only ones never reaching a sidecar is `fields.rs`. Here: every field has a home; hostile
+//! albums with their memberships, keys and covers, the index-only search facts, content digests
+//! and first-indexed times, and the last-changed times (in the sidecar since M10). Each surviving
+//! the journal and a snapshot, the user's coming back from the folders and `albums.json` after the
+//! index is deleted and the index-only ones never reaching a sidecar is `fields.rs`. Here: every field has a home; hostile
 //! ids, keys and wrong types never panic and are kept where they cannot be used.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -12,7 +12,7 @@ use crate::common::NOW;
 use dalica_core::{AlbumId, FolderId, PhotoId, PosKey, Timestamp};
 use dalica_library::{AlbumInfo, ContentDigest, Facts, Folder, Library, Op, Photo, PhotoSort, SortBy};
 use dalica_sidecar::albums::ENTRY_KEYS;
-use dalica_sidecar::fields::{M9_FOLDER_KEYS, M9_PHOTO_KEYS, M9_TOP_KEYS};
+use dalica_sidecar::fields::{M9_FOLDER_KEYS, M9_PHOTO_KEYS, M9_TOP_KEYS, M10_PHOTO_KEYS};
 use dalica_sidecar::{Limits, Sidecar};
 use dalica_store::SidecarWriter;
 use dalica_store::mapping::{
@@ -93,7 +93,7 @@ fn every_m9_field_is_mapped() {
             ("facts", Source::Fields("FACTS_FIELDS")),
             ("digest", Source::Fields("CONTENT_DIGEST_FIELDS")),
             ("firstIndexed", Source::Index),
-            ("lastChanged", Source::Index),
+            ("lastChanged", Source::Sidecar("changed")),
         ]
     );
     assert_eq!(FOLDER_DATA_M9, [("sort", Source::Fields("PHOTO_SORT_FIELDS")), ("albumNames", Source::TopSidecar("albums"))]);
@@ -103,7 +103,7 @@ fn every_m9_field_is_mapped() {
     );
     // The sidecar keys the tables name are the ones the sidecar crate reads.
     let photo_keys: Vec<&str> = PHOTO_DATA_M9.iter().filter_map(|(_, s)| if let Source::Sidecar(k) = s { Some(*k) } else { None }).collect();
-    assert_eq!(photo_keys, M9_PHOTO_KEYS);
+    assert_eq!(photo_keys, [M9_PHOTO_KEYS, M10_PHOTO_KEYS].concat(), "M10 put the last-changed time in the sidecar");
     let folder_keys: Vec<&str> =
         PHOTO_SORT_FIELDS.iter().filter_map(|(_, s)| if let Source::FolderSidecar(k) = s { Some(*k) } else { None }).collect();
     assert_eq!(folder_keys, M9_FOLDER_KEYS);
@@ -111,7 +111,7 @@ fn every_m9_field_is_mapped() {
     assert_eq!(top, M9_TOP_KEYS);
     assert!(ENTRY_KEYS.contains(&"cover") && ENTRY_KEYS.contains(&"order"));
     // The sidecar state names each M9 field.
-    let PhotoState { star: _, info: _, saved_as: _, albums: _ } = PhotoState::default();
+    let PhotoState { star: _, info: _, saved_as: _, albums: _, changed: _ } = PhotoState::default();
     let FolderState { id: _, path: _, folder: _, photos: _, project: _, sort: _, album_names: _, known_albums: _ } = FolderState::default();
 }
 

@@ -15,8 +15,9 @@
 //! Memberships with their position keys come from every folder sidecar; a membership of an album
 //! named nowhere is kept in its sidecar, reported and not used. A folder whose sidecar is damaged
 //! or cannot be read takes its photos' memberships from `albums.json`'s copy of the order.
-//! [`import_sidecars`] is the same without `albums.json`. Search facts, digests and the times are
-//! index-only and start empty after a rebuild.
+//! [`import_sidecars`] is the same without `albums.json`. Search facts, digests and the
+//! first-indexed times are index-only and start empty after a rebuild; each photo's last-changed
+//! time comes back from its entry's `changed` (M10), so Recently Updated keeps the changes.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -37,7 +38,8 @@ pub struct Import {
     /// it already does): at most one `SetStars`, one `SetPhotoInfo`, one `SetFolderInfo`, one
     /// `SetSavedAs`, one `SetProjects` and one `SetSaved` (derived: no undo step), then M9's: at
     /// most one `SetFolderSorts`, `CreateAlbums`, `SetAlbumInfo`, `RemoveMembers`, `SetMemberKeys`,
-    /// `AddMembers` and `SetCovers`, in that order.
+    /// `AddMembers` and `SetCovers`, in that order; then at most one derived `SetLastChanged`
+    /// (M10).
     pub ops: Vec<Op>,
     /// Folders whose sidecar was damaged: kept aside, folder read-only.
     pub read_only: Vec<FolderId>,
@@ -100,6 +102,8 @@ fn import(library: &Library, albums: Option<&AlbumsReading>, now: Timestamp) -> 
     let mut names: BTreeMap<AlbumId, String> = BTreeMap::new();
     let mut read_members: Vec<(PhotoId, BTreeMap<AlbumId, PosKey>)> = Vec::new();
     let mut unread: BTreeSet<FolderId> = BTreeSet::new();
+    // M10: each photo's last-changed time as its sidecar says it.
+    let mut changed: Vec<(PhotoId, Option<Timestamp>)> = Vec::new();
     for folder in library.folders() {
         match read_originals(&folder.path, now) {
             OriginalsFile::Read(reading) => {
@@ -177,6 +181,9 @@ fn import(library: &Library, albums: Option<&AlbumsReading>, now: Timestamp) -> 
             if read.albums != own.albums {
                 read_members.push((photo.id, read.albums));
             }
+            if read.changed != own.changed {
+                changed.push((photo.id, read.changed));
+            }
         }
     }
     if !stars.is_empty() {
@@ -201,6 +208,9 @@ fn import(library: &Library, albums: Option<&AlbumsReading>, now: Timestamp) -> 
         out.ops.push(Op::SetFolderSorts { sorts });
     }
     album_ops(library, albums, &names, read_members, &unread, &mut out);
+    if !changed.is_empty() {
+        out.ops.push(Op::SetLastChanged { changed });
+    }
     out
 }
 

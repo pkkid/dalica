@@ -45,6 +45,7 @@ mod photo_history;
 mod photo_metadata;
 mod preview;
 mod progressive_scan;
+mod recently_updated;
 mod recipe_set;
 mod rename;
 mod rotate;

@@ -7,8 +7,8 @@
 //!   selects the photo in the album;
 //! - on an album section the fourth menu reads Album, with Album Properties… and Delete Album…
 //!   live; Delete Album… asks, deletes (the photos stay) and Edit ▸ Undo brings the album back;
-//! - Starred Photos lists the starred photos (a row and a section); Recently Updated waits for the
-//!   M9 review (`light_table::SHOW_RECENTLY_UPDATED`);
+//! - Starred Photos lists the starred photos (a row and a section); Recently Updated the changed
+//!   ones (a row and a section), none after the first scan;
 //! - in search mode the search album's row comes first and the headers show a magnifier;
 //! - the tree region matches its fingerprint at 1400 × 900 (at 900 × 600 they only have to fit)
 //!   (`tests/fingerprints/region-tree-albums-1400x900.json`; `DALICA_BLESS=1` stores new ones).
@@ -215,14 +215,12 @@ fn delete_album_asks_deletes_and_undo_brings_it_back() {
     assert_eq!(photos_of(&fx.d, album_section(&album)), Some(porto));
 }
 
-/// Starred Photos lists the starred photos, by date (a row and a section); the user albums
-/// follow it. Recently Updated is left out until the M9 review answers how it counts
-/// (`light_table::SHOW_RECENTLY_UPDATED`).
+/// Starred Photos lists the starred photos, by date (a row and a section), Recently Updated the
+/// changed ones (a row and a section; none after the first scan); the user albums follow them.
 #[test]
 fn starred_photos_and_recently_updated_list_as_expected() {
     let mut fx = fixture((1400, 900));
-    // Nothing starred and no album: no Albums group; Recently Updated waits for the review.
-    const { assert!(!dalica_ui::panels::light_table::SHOW_RECENTLY_UPDATED) };
+    // Nothing starred, nothing changed and no album: no Albums group.
     assert!(album_rows(&fx.d).is_empty());
     assert!(!has(&fx.d, "tree:group:albums") && !has(&fx.d, "tree:album:recent"));
     assert_eq!(photos_of(&fx.d, Section::Album(AlbumSection::Recent)), None);
@@ -232,19 +230,26 @@ fn starred_photos_and_recently_updated_list_as_expected() {
     let porto = photos_of(&fx.d, Section::Folder(fx.porto)).unwrap();
     fx.d.run("photo.star.set", &json!({ "ids": [lisbon[1].get(), porto[0].get()], "on": true })).unwrap();
     fx.d.settle(FRAMES).unwrap();
-    assert_eq!(album_rows(&fx.d), ["tree:album:starred"]);
+    assert_eq!(album_rows(&fx.d), ["tree:album:starred", "tree:album:recent"]);
     assert_eq!(try_widget(&fx.d, "tree:album:starred").unwrap().label, "Starred Photos (2)");
-    assert_eq!(try_widget(&fx.d, "tree:group:albums").unwrap().label, "Albums (1)");
+    assert_eq!(try_widget(&fx.d, "tree:album:recent").unwrap().label, "Recently Updated (2)");
+    assert_eq!(try_widget(&fx.d, "tree:group:albums").unwrap().label, "Albums (2)");
     let starred = Section::Album(AlbumSection::Starred);
     assert_eq!(photos_of(&fx.d, starred), Some(vec![porto[0], lisbon[1]]));
+    let mut changed = photos_of(&fx.d, Section::Album(AlbumSection::Recent)).unwrap();
+    changed.sort();
+    let mut want = vec![porto[0], lisbon[1]];
+    want.sort();
+    assert_eq!(changed, want, "the stars are changes");
     assert!(!has(&fx.d, "section:album:starred/description"), "the automatic albums have no description");
 
     // A user album joins after it.
     fx.d.run("album.create", &json!({ "name": "Mixed", "ids": [porto[1].get()] })).unwrap();
     fx.d.settle(FRAMES).unwrap();
     let album = the_album(&fx.d);
-    assert_eq!(album_rows(&fx.d), ["tree:album:starred".to_string(), format!("tree:album:{album}")]);
-    assert_eq!(try_widget(&fx.d, "tree:group:albums").unwrap().label, "Albums (2)");
+    assert_eq!(album_rows(&fx.d), ["tree:album:starred".to_string(), "tree:album:recent".to_string(), format!("tree:album:{album}")]);
+    assert_eq!(try_widget(&fx.d, "tree:group:albums").unwrap().label, "Albums (3)");
+    assert_eq!(try_widget(&fx.d, "tree:album:recent").unwrap().label, "Recently Updated (3)", "joining an album is a change");
 
     // A click on Starred Photos selects it as a unit and scrolls to it.
     fx.d.click("tree:album:starred").unwrap();
@@ -253,7 +258,10 @@ fn starred_photos_and_recently_updated_list_as_expected() {
     assert_eq!((sel.section, sel.whole, sel.ids), (Some(starred), true, vec![porto[0], lisbon[1]]));
     assert_eq!(fx.d.state().scroll.section, Some(starred));
     assert!(try_widget(&fx.d, "tree:album:starred").unwrap().active);
-    // ↓ in the focused tree moves to the user album, then to the first folder.
+    // ↓ in the focused tree moves to Recently Updated, the user album, then the first folder.
+    fx.d.key("Down").unwrap();
+    fx.d.settle(FRAMES).unwrap();
+    assert_eq!(fx.d.state().selection.section, Some(Section::Album(AlbumSection::Recent)));
     fx.d.key("Down").unwrap();
     fx.d.settle(FRAMES).unwrap();
     assert_eq!(fx.d.state().selection.section, Some(album_section(&album)));
@@ -343,7 +351,8 @@ fn select_set_in_a_section_refuses_what_it_does_not_show() {
     let refused = |d: &mut Driver, params: Value| d.app_mut().run("select.set", &params).unwrap_err();
     assert!(matches!(refused(&mut fx.d, json!({ "ids": [porto[0].get()], "section": section })), CmdError::NotFound(_)), "not in the album");
     assert!(matches!(refused(&mut fx.d, json!({ "ids": [lisbon[0].get()], "section": "album:a0000" })), CmdError::NotFound(_)), "no such album");
-    assert!(matches!(refused(&mut fx.d, json!({ "ids": [lisbon[0].get()], "section": "album:recent" })), CmdError::NotFound(_)), "not shown");
+    assert!(matches!(refused(&mut fx.d, json!({ "ids": [porto[0].get()], "section": "album:recent" })), CmdError::NotFound(_)), "not changed");
+    assert!(matches!(refused(&mut fx.d, json!({ "ids": [lisbon[0].get()], "section": "album:starred" })), CmdError::NotFound(_)), "not shown");
     for bad in
         [json!({ "ids": [lisbon[0].get()], "section": "album:" }), json!({ "ids": [1], "section": 12 }), json!({ "ids": [1], "section": "folder:x" })]
     {

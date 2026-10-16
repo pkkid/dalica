@@ -169,14 +169,17 @@ fn click_a_thumbnail_press_ctrl_8_and_the_badge_shows() {
     let library = d.app().session().unwrap().library();
     assert!(library.photo(id).unwrap().star, "the photo is starred in the engine");
     assert_eq!(library.photos().filter(|p| p.star).count(), 1);
+    // Its copies in Starred Photos and Recently Updated (`thumb:<id>/in/starred`, `/in/recent`)
+    // come first, above its folder, each with the badge.
     let widgets = d.widgets();
-    let badge = widgets.iter().find(|w| w.id == format!("{target}/star")).expect("the star badge is registered");
-    let cell = widgets.iter().find(|w| &w.id == target).unwrap();
+    let stars: Vec<&str> = widgets.iter().map(|w| w.id.as_str()).filter(|w| w.starts_with("thumb:") && w.ends_with("/star")).collect();
+    assert!(stars.starts_with(&[&format!("{target}/in/starred/star"), &format!("{target}/in/recent/star")]), "{stars:?}");
+    assert!(stars.iter().all(|s| s.starts_with(&format!("{target}/"))), "{stars:?}");
+    let copy = format!("{target}/in/starred");
+    let badge = widgets.iter().find(|w| w.id == format!("{copy}/star")).expect("the star badge is registered");
+    let cell = widgets.iter().find(|w| w.id == copy).unwrap();
     let inside = |r: [f32; 4], o: [f32; 4]| r[0] >= o[0] && r[1] >= o[1] && r[0] + r[2] <= o[0] + o[2] && r[1] + r[3] <= o[1] + o[3];
     assert!(inside(badge.rect, cell.rect), "badge {:?} inside cell {:?}", badge.rect, cell.rect);
-    // Its cell in the folder, and its copy in Starred Photos (`thumb:<id>/in/starred`), above it.
-    let stars: Vec<&str> = widgets.iter().map(|w| w.id.as_str()).filter(|w| w.starts_with("thumb:") && w.ends_with("/star")).collect();
-    assert_eq!(stars, [format!("{target}/in/starred/star"), format!("{target}/star")], "{stars:?}");
 
     // The screenshot shows it: a light star glyph in the middle of the badge's dark plate.
     let shot = d.screenshot().unwrap();

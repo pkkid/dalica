@@ -47,8 +47,9 @@ fn has(d: &Driver, id: &str) -> bool {
 }
 
 /// The photos of the light table's only (or first) section, in display order.
+/// The photos of the folder's section (Recently Updated comes before it once a photo changed).
 fn section_photos(d: &Driver) -> Vec<PhotoId> {
-    d.app().panels().unwrap().sections.list.first().unwrap().photos.clone()
+    d.app().panels().unwrap().sections.list.iter().find(|s| s.folder.is_some()).unwrap().photos.clone()
 }
 
 fn every_photo(d: &Driver) -> Vec<PhotoId> {

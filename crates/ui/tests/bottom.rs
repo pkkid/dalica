@@ -282,10 +282,16 @@ fn the_star_acts_on_the_selection_and_the_waiting_buttons_refuse_clicks() {
     d.settle(FRAMES).unwrap();
     d.click("button:star").unwrap();
     d.settle(FRAMES).unwrap();
-    assert!(widget(&d, "button:star").active && widgets(&d).contains_key(&format!("{first}/star")), "the selected photo is starred");
+    // Starred, it shows first in Starred Photos (and Recently Updated), above its folder.
+    assert!(widget(&d, "button:star").active && widgets(&d).contains_key(&format!("{first}/in/starred/star")), "the selected photo is starred");
     d.click("button:star").unwrap();
     d.settle(FRAMES).unwrap();
-    assert!(!widget(&d, "button:star").active && !widgets(&d).contains_key(&format!("{first}/star")));
+    let w = widgets(&d);
+    assert!(
+        !widget(&d, "button:star").active
+            && w.contains_key(&format!("{first}/in/recent"))
+            && !w.keys().any(|k| k.starts_with(&format!("{first}/")) && k.ends_with("/star"))
+    );
 }
 
 /// A thumbnail size outside the range in the view state (a damaged settings file; `ui.set` refuses
