@@ -259,14 +259,14 @@ mod tests {
         assert_eq!(small["shortcut"], "Ctrl+1");
     }
 
-    /// The openers' keys are listed with their engine commands: Rename… on F2 in the Library, and
-    /// every opener's keys somewhere.
+    /// The openers' keys are listed with their engine commands: Rename… on F2 in the Library and
+    /// the edit view (`menus-and-shortcuts.md` §2.1, M10.41), and every opener's keys somewhere.
     #[test]
     fn commands_list_the_openers_keys() {
         let list: Vec<serde_json::Value> = serde_json::from_str(&commands()).unwrap();
         let rename = list.iter().find(|c| c["id"] == "photo.rename").unwrap();
         assert_eq!(rename["shortcut"], "F2");
-        assert_eq!(rename["keys"], serde_json::json!([{ "context": "library", "key": "F2" }]));
+        assert_eq!(rename["keys"], serde_json::json!([{ "context": "library", "key": "F2" }, { "context": "editView", "key": "F2" }]));
         for o in dalica_ui::commands::OPENERS {
             let c = list.iter().find(|c| c["id"] == o.id).unwrap_or_else(|| panic!("{} is listed", o.id));
             for k in shown_keys(o.keys) {

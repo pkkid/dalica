@@ -178,6 +178,7 @@ pub fn capture_for_editor(app: &mut App, ctx: &egui::Context) -> bool {
     };
     let presses: Vec<Key> = ctx.input_mut(|i| {
         let mut out = Vec::new();
+        let mods = i.modifiers;
         i.events.retain(|e| match e {
             egui::Event::Key { key, pressed, modifiers, .. } => {
                 if *pressed && let Some(k) = from_egui(*key, *modifiers) {
@@ -185,7 +186,18 @@ pub fn capture_for_editor(app: &mut App, ctx: &egui::Context) -> bool {
                 }
                 false
             }
-            egui::Event::Text(_) | egui::Event::Copy | egui::Event::Cut | egui::Event::Paste(_) => false,
+            // The window turns Ctrl+C, Ctrl+X and Ctrl+V (Cmd on macOS) into these, without the
+            // key press: the key they came from, so they can be recorded (LightCraft's `capture`).
+            egui::Event::Copy | egui::Event::Cut | egui::Event::Paste(_) => {
+                let key = match e {
+                    egui::Event::Copy => egui::Key::C,
+                    egui::Event::Cut => egui::Key::X,
+                    _ => egui::Key::V,
+                };
+                out.extend(from_egui(key, mods));
+                false
+            }
+            egui::Event::Text(_) => false,
             _ => true,
         });
         out
@@ -349,17 +361,42 @@ mod tests {
         d.run("app.shortcuts", &json!({})).unwrap();
         d.settle(3600).unwrap();
         let cell = crate::state::KeySlot { command: "photo.star.toggle".into(), context: Context::Library, slot: 1 };
-        d.app_mut().state_mut().options.as_mut().unwrap().shortcuts.recording = Some(cell);
-        for key in ["Esc", "Enter", "Ctrl+8"] {
-            d.key(key).unwrap();
-        }
-        let captured: Vec<String> = d.state().options.as_ref().unwrap().shortcuts.captured.iter().map(Key::to_string).collect();
-        assert_eq!(captured, ["Esc", "Enter", "Ctrl+8"]);
-        assert_eq!(d.state().dialogs.len(), 1, "Esc and Enter did not close the dialog");
+        let record = |d: &mut crate::headless::Driver| d.app_mut().state_mut().options.as_mut().unwrap().shortcuts.recording = Some(cell.clone());
+        // Enter is View and Edit's in the Library: the editor asks, the dialog's Enter never runs.
+        record(&mut d);
+        d.key("Enter").unwrap();
+        let editor = d.state().options.as_ref().unwrap().shortcuts.clone();
+        assert_eq!(editor.conflict.map(|c| c.command).as_deref(), Some("view.edit"));
+        assert_eq!(d.state().dialogs.len(), 1, "Enter did not close the dialog");
+        // Esc cancels the recording, not the dialog.
+        d.key("Esc").unwrap();
+        assert!(d.state().options.as_ref().unwrap().shortcuts.recording.is_none());
+        assert_eq!(d.state().dialogs.len(), 1, "Esc did not close the dialog");
+        // Ctrl+8 goes to the cell, not the keymap.
+        record(&mut d);
+        d.key("Ctrl+8").unwrap();
         assert!(!d.app().session().unwrap().library().photo(ids[0]).unwrap().star, "Ctrl+8 starred nothing");
-        d.app_mut().state_mut().options.as_mut().unwrap().shortcuts.recording = None;
         d.key("Esc").unwrap();
         assert!(d.state().dialogs.is_empty() && d.state().options.is_none());
+    }
+
+    /// The window reports Ctrl+C, Ctrl+X and Ctrl+V as copy, cut and paste events without their key
+    /// presses: a recording cell takes them as those keys.
+    #[test]
+    fn a_recording_cell_takes_copy_cut_and_paste_as_their_keys() {
+        let mut app = App::new(None);
+        let mut draft = crate::state::OptionsDraft::on(crate::state::OptionsTab::Shortcuts);
+        draft.shortcuts.recording = Some(crate::state::KeySlot { command: "photo.star.toggle".into(), context: Context::Library, slot: 0 });
+        app.state_mut().options = Some(draft);
+        let ctx = egui::Context::default();
+        let events = vec![egui::Event::ModifiersChanged(Modifiers::COMMAND), egui::Event::Copy, egui::Event::Cut, egui::Event::Paste("x".into())];
+        ctx.begin_pass(egui::RawInput { events, ..Default::default() });
+        assert!(capture_for_editor(&mut app, &ctx));
+        let left = ctx.input(|i| i.events.iter().filter(|e| matches!(e, egui::Event::Copy | egui::Event::Cut | egui::Event::Paste(_))).count());
+        assert_eq!(left, 0, "nothing else sees them");
+        ctx.end_pass().textures_delta.clear();
+        let captured: Vec<String> = app.state().options.as_ref().unwrap().shortcuts.captured.iter().map(Key::to_string).collect();
+        assert_eq!(captured, ["Ctrl+C", "Ctrl+X", "Ctrl+V"]);
     }
 
     /// Ctrl+− reaches the keymap and runs the edit view's `edit.zoom.out` once (×1/1.25).

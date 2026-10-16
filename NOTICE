@@ -139,6 +139,11 @@ file and revision in its first lines:
   crates/mcp/src/tools/mod.rs                LightCraft crates/mcp/src/tools.rs @ b3d392b4
   crates/mcp/src/tools/core.rs               LightCraft crates/mcp/src/tools.rs @ b3d392b4
   crates/mcp/tests/common/mod.rs (tests)     LightCraft crates/mcp/tests/e2e.rs @ b3d392b4
+  crates/ui/src/dialogs/options/shortcuts.rs LightCraft crates/ui-egui/src/panels/keymap.rs @ b3d392b4,
+                                             PhotoCraft crates/ui-egui/src/prefs_ui.rs @ 583425b4
+  crates/ui/src/dialogs/options/shortcuts/draft.rs
+                                             LightCraft crates/ui-egui/src/panels/keymap.rs @ b3d392b4,
+                                             PhotoCraft crates/ui-egui/src/prefs_ui.rs @ 583425b4
 
 Any other third-party code ever vendored will be listed here with its source and revision.
 
