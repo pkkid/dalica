@@ -5332,7 +5332,7 @@ No other step of M10 needs a maintainer decision mid-run.
   - done when: both named tests pass on Windows, proven by dispatching CI on the task branch (`gh
     workflow run ci.yml --ref <branch>`) and citing the green Windows job in the PR, the crash test
     at full strength (`DALICA_FULL_TESTS=1`) as the review runs it; `cargo xtask ci` green.
-- ⬜ **M10.46 `ui`: the Properties pane's settle flake on macOS**
+- ✅ **M10.46 `ui`: the Properties pane's settle flake on macOS**
   - after: M10.25
   - files: `crates/ui/tests/properties_pane.rs`, `crates/engine/src/metadata_cache.rs`
   - scope: found by the full gate on macOS (GitHub run 38835952339, PR #608, `macos-latest`; it

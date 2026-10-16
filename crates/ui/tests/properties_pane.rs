@@ -23,13 +23,14 @@ use std::time::{Duration, UNIX_EPOCH};
 
 use crate::common::{FRAMES, LARGE, check_pixels, new_driver, out_dir, shot};
 use dalica_core::{DateTime, PhotoId};
+use dalica_engine::metadata_cache::planted;
 use dalica_engine::settings::MetadataWrites;
 use dalica_engine::{Field, Fields, Session};
 use dalica_scenes::fingerprint;
 use dalica_ui::headless::{PointerEvent, PointerKind};
 use dalica_ui::panels::properties::{self, Shown, answer};
 use dalica_ui::state::Pane;
-use dalica_ui::{App, Driver, status_text};
+use dalica_ui::{App, Driver, DriverError, status_text};
 use egui::{Modifiers, PointerButton, vec2};
 use serde_json::{Value, json};
 
@@ -327,30 +328,44 @@ fn every_row_of_a_jpeg_with_exif_xmp_and_iptc_and_no_frame_reads_the_file() {
 }
 
 /// `settle()` waits for the pane's read (`Driver::busy` counts the engine's pending metadata
-/// reads), so a settled pane shows the photo's full rows, not "Reading the file…". `big.jpg` is
-/// the tagged JPEG with 48 MB after its end, so its read is still under way right after it is
-/// asked for.
+/// reads), so a settled pane shows the photo's full rows, not "Reading the file…". The read of
+/// `big.jpg` (the tagged JPEG with 48 MB after its end) is held in flight by a planted hold
+/// (`metadata_cache::planted`), so the test sees it pending however fast the machine reads: a
+/// settle while it is held runs out its frames, and once the hold goes the settle ends with the
+/// file's rows.
 #[test]
 fn settle_waits_until_the_pane_has_the_files_rows() {
+    /// The frames a settle gets while the read is held: enough to settle anything else.
+    const HELD_FRAMES: usize = 30;
     let mut t = setup(1400, 900);
-    write(&t.folder.join("big.jpg"), &[tagged_jpeg(), vec![0; 48 << 20]].concat());
+    let big_path = t.folder.join("big.jpg");
+    write(&big_path, &[tagged_jpeg(), vec![0; 48 << 20]].concat());
     let session = t.d.app_mut().session_mut().unwrap();
     let _ = session.start_verification();
     session.wait_idle();
     let big = session.library().photos().find(|p| p.name == "big.jpg").expect("the rescan found big.jpg").id;
     run(&mut t, "pane.properties", json!({}));
     for id in [big, t.plain] {
+        let hold = (id == big).then(|| planted::hold_reads_of(&big_path));
         let ids = json!({ "ids": [id.get()] });
         t.d.app_mut().run("select.set", &ids).unwrap();
-        // Ask as the pane's next frame will, and look at once: the read is queued or under way.
+        // Ask as the pane's next frame will: the read is queued or under way.
         let session = t.d.app_mut().session_mut().unwrap();
         let first = session.execute("photo.metadata", &json!({ "id": id.get() })).unwrap();
         assert_eq!(first["pending"], json!(true));
-        if id == big {
-            // (A tiny file may be read before `busy` looks; 48 MB is not.)
-            assert!(session.photo_metadata_pending() > 0, "48 MB are still being read");
+        if let Some(hold) = hold {
+            assert_eq!(session.photo_metadata_pending(), 1, "the held read is pending");
             let busy = t.d.busy(false);
-            assert!(busy.iter().any(|b| b.starts_with("photo metadata: ")), "settle would not wait: {busy:?}");
+            assert!(busy.contains(&"photo metadata: 1".to_string()), "settle would not wait: {busy:?}");
+            match t.d.settle(HELD_FRAMES) {
+                Err(DriverError::NotSettled { frames, busy }) => {
+                    assert_eq!(frames, HELD_FRAMES);
+                    assert!(busy.contains(&"photo metadata: 1".to_string()), "{busy:?}");
+                }
+                other => panic!("settled while the read was held: {other:?}"),
+            }
+            assert!(shown(&t).loading, "the pane is still reading the file");
+            drop(hold);
         }
         t.d.settle(FRAMES).unwrap();
         let s = shown(&t);

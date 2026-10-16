@@ -31,6 +31,8 @@ thiserror.workspace = true
 serde_json.workspace = true
 
 [dev-dependencies]
+# A metadata read held in flight (`metadata_cache::planted`, `tests/properties_pane.rs`).
+dalica-engine = { workspace = true, features = ["faults"] }
 dalica-meta.workspace = true
 dalica-scan.workspace = true
 dalica-scenes.workspace = true
