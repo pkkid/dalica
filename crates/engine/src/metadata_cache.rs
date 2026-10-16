@@ -285,6 +285,8 @@ fn work(shared: &Shared) {
                 }
             }
         };
+        #[cfg(feature = "faults")]
+        planted::reach(&key.path);
         let slot = match catch_unwind(AssertUnwindSafe(|| read_file(&key.path))) {
             Ok(Ok(m)) => {
                 let n = size_of(&m);
@@ -298,6 +300,46 @@ fn work(shared: &Shared) {
         };
         shared.lock().answer(key, slot);
         shared.idle.notify_all();
+    }
+}
+
+/// Planted holds for tests (the `faults` feature): a reader that takes a held file marks it as
+/// being read, then waits before reading it until the hold is released, so a test sees a read in
+/// flight for as long as it needs instead of hoping a big file is slow.
+#[cfg(feature = "faults")]
+pub mod planted {
+    use std::path::{Path, PathBuf};
+    use std::sync::{Condvar, Mutex, PoisonError};
+
+    static HELD: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+    static RELEASED: Condvar = Condvar::new();
+
+    /// A hold on the reads of one file; dropping it releases them.
+    #[must_use = "the reads are released when the hold is dropped"]
+    #[derive(Debug)]
+    pub struct Hold(PathBuf);
+
+    /// Holds every read of the file at `path` by a metadata reader until the returned [`Hold`] is
+    /// dropped.
+    pub fn hold_reads_of(path: &Path) -> Hold {
+        HELD.lock().unwrap_or_else(PoisonError::into_inner).push(path.to_path_buf());
+        Hold(path.to_path_buf())
+    }
+
+    impl Drop for Hold {
+        fn drop(&mut self) {
+            let mut held = HELD.lock().unwrap_or_else(PoisonError::into_inner);
+            if let Some(i) = held.iter().position(|p| *p == self.0) {
+                held.remove(i);
+            }
+            RELEASED.notify_all();
+        }
+    }
+
+    /// Waits while the file at `path` is held (on a reader thread).
+    pub(super) fn reach(path: &Path) {
+        let held = HELD.lock().unwrap_or_else(PoisonError::into_inner);
+        let _released = RELEASED.wait_while(held, |held| held.iter().any(|p| p == path)).unwrap_or_else(PoisonError::into_inner);
     }
 }
 
