@@ -5359,8 +5359,36 @@ No other step of M10 needs a maintainer decision mid-run.
     `taskset -c 0` beside parallel `cargo test` runs), and on macOS in a CI run dispatched on the
     task branch (`gh workflow run ci.yml --ref <branch>`), the green macOS job cited in the PR;
     `cargo xtask ci` green.
+- ⬜ **M10.47 `ui`: one menu open at a time, and the window size under a fixed UI scale**
+  - after: M10.25, M10.41
+  - files: `crates/ui/src/menus.rs`, `crates/ui/src/control/host.rs`, `crates/ui/tests/menu_one_open.rs`, `crates/ui/tests/ui_scale.rs`
+  - scope: found by M10.41 (PR #614) and the full gate's macOS and Windows jobs (GitHub run
+    38835952339). (a) A product bug: with a menu bar menu open (Picture, which holds View and
+    Edit), a right-click on a photo or a tray item opens its context menu in the same frame the
+    bar's popup is still drawn, so both register `menuitem:view.edit` in that frame and
+    `monkey::a_seeded_monkey_breaks_nothing` fails on macOS and Windows ("`menuitem:view.edit` is
+    registered twice"; seed 910831521846; last actions: click `menu:Picture`, Ctrl+V, right-click
+    a tray item). It reproduces on Linux. Fix it in `menus.rs`: one menu is open at a time (for
+    example, the bar's menus close before a context menu opens, in the same frame). The
+    regression test lives in a new `crates/ui/tests/menu_one_open.rs` (a new `mod` of
+    `crates/ui/tests/all.rs`): open the bar's Picture menu, right-click a photo (and a tray
+    item), and check exactly one popup is drawn and no automation id is registered twice. The
+    monkey stays as it is (no new exception). (b) `control/host.rs` `window()` reports the
+    window's size in points as its pixels divided by the native pixels per point; since M10.41 the
+    headless layout follows a fixed UI scale, so under one that size is wrong (1400 × 900 pixels
+    at 1.0 and UI scale 150 % reports 1400 × 900 points, but egui lays out 933 × 600). Report the
+    size in points egui actually lays out (and the pixels per point it uses), so `ui.inspect` and
+    an agent's coordinates agree with the screen; the test goes beside M10.41's in
+    `ui_scale.rs`, through the control host's `window()`.
+  - done when: tests, each failing before the fix: in `menu_one_open.rs`, a right-click with the
+    Picture menu open leaves exactly one popup and no id registered twice; in `ui_scale.rs`, a
+    1400 × 900 pixel driver at 1.0 pixels per point with UI scale 150 % reports a window of
+    933 × 600 points; `monkey::a_seeded_monkey_breaks_nothing` passes on Linux with seed
+    910831521846 and `DALICA_FULL_TESTS=1`; a CI run dispatched on the task branch (`gh workflow
+    run ci.yml --ref <branch>`) shows the monkey green on macOS and Windows, the jobs cited in the
+    PR; `cargo xtask ci` green.
 - ⬜ **M10.26 `docs`: the P0 parity audit**
-  - after: M10.8, M10.11, M10.12, M10.16, M10.19, M10.20, M10.21, M10.22, M10.23, M10.25, M10.39, M10.40, M10.41, M10.42, M10.43, M10.44, M10.45, M10.46
+  - after: M10.8, M10.11, M10.12, M10.16, M10.19, M10.20, M10.21, M10.22, M10.23, M10.25, M10.39, M10.40, M10.41, M10.42, M10.43, M10.44, M10.45, M10.46, M10.47
   - files: `docs/parity.md`
   - scope: `process.md` §5 and the decisions above: every P0 row re-measured (its cited tests run,
     its evidence checked against the code), turned ✅ only with that evidence; parts of a note that
@@ -5401,7 +5429,7 @@ No other step of M10 needs a maintainer decision mid-run.
   - done when: `cargo xtask tasks sync --check` parses them and `tasks sync --dry-run` lists one new
     issue per block.
 - ⬜ **M10.R Release 0.5 gate**
-  - after: M10.24, M10.27, M10.29, M10.31, M10.32, M10.33, M10.34, M10.35, M10.36, M10.37, M10.38, M10.39, M10.40, M10.41, M10.42, M10.43, M10.44, M10.45, M10.46
+  - after: M10.24, M10.27, M10.29, M10.31, M10.32, M10.33, M10.34, M10.35, M10.36, M10.37, M10.38, M10.39, M10.40, M10.41, M10.42, M10.43, M10.44, M10.45, M10.46, M10.47
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`
   - scope: a release gate (Release 0.5, P0 complete): the lead runs `/milestone-review M10.R` to
@@ -5451,7 +5479,8 @@ wave 6   M10.26 P0 parity audit
           headless scale, cell tooltip ‖ M10.42 star badges and caption clock after M10.29
           → M10.43 earlier milestones' acceptance after M10.29 ‖ M10.44 macOS and Windows: render
           path, Options tests ‖ M10.45 Windows: killed Save, watcher rename ‖ M10.46 macOS:
-          the Properties pane's settle)
+          the Properties pane's settle ‖ M10.47 one menu open at a time, window size under
+          a UI scale)
 wave 7   M10.27 accept M10 → M10.R          (M10.28 lead: M12 blocks, any time after M9.26)
 ```
 
