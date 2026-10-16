@@ -19,6 +19,8 @@ dalica-engine.workspace = true
 dalica-fs.workspace = true
 dalica-create.workspace = true
 dalica-edit.workspace = true
+# `export`: the size of each file written, read from its header.
+dalica-image.workspace = true
 log.workspace = true
 serde_json.workspace = true
 
