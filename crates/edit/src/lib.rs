@@ -20,6 +20,8 @@
 //!   view, Save and Export, and the recipe's [`Geometry`].
 //! - [`version`]: a recipe's [`RenderKey`] for caches (the printed recipe and the versions of the
 //!   operations it uses).
+//! - [`catalog`]: every operation the parser knows, with its parameters, ranges and defaults, for
+//!   agents (M10.9).
 //! - [`analysis`]: the fixed-size proxy that analysing operations share; [`suggest`]: suggested
 //!   crops (M7.12).
 
@@ -27,6 +29,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 pub mod analysis;
+pub mod catalog;
 pub mod crop_geom;
 pub mod frame;
 pub mod geometry;

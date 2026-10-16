@@ -6,12 +6,14 @@
 //!   rotation right after a rotation merges into it, the same flip twice cancels), replaces the
 //!   last entry ([`Change::ReplaceLast`]) or replaces the entry at an index in place
 //!   ([`Change::ReplaceAt`], for a Tuning session updating an entry that rotations or flips
-//!   follow), and clears the redo list.
+//!   follow), or replaces the whole recipe ([`Change::Replace`], `edit.recipe.set`), and clears
+//!   the redo list.
 //! - **Undo** moves the last entry to the end of the redo list; **redo** moves it back. A step that
 //!   merged into the entry before it (a second rotation; a Tuning session that updated the last
 //!   entry) undoes to that entry's earlier value, and its redo gives the merged entry again; a step
 //!   that replaced an entry in place undoes to that entry's earlier value at the same index, the
-//!   entries after it untouched: the session remembers, per photo, how each of its own steps
+//!   entries after it untouched; a step that replaced the whole recipe undoes to the whole recipe
+//!   before it, and its redo gives the whole new recipe: the session remembers, per photo, how each of its own steps
 //!   changed the recipe ([`Record`]). The memory lives as long as the session; a step it no longer matches (the recipe
 //!   was changed some other way, by a library rotation, an undo on the library stack, another
 //!   application, a restart) undoes as its plain last entry.
@@ -91,6 +93,10 @@ pub(crate) enum Change {
     /// session updating its entry when rotations or flips follow it). The last index is
     /// [`Change::ReplaceLast`].
     ReplaceAt(usize, EditOp),
+    /// Replaces the whole recipe with these entries, verbatim (`edit.recipe.set`). The step is
+    /// named by the new recipe's last entry ("Edit" for an empty recipe), and that entry is what
+    /// the redo list holds while it is undone.
+    Replace(Vec<String>),
 }
 
 /// What the photo's history offers now: its recipe and redo list, and the labels of the step undo
@@ -127,7 +133,8 @@ pub struct RecipeChanges {
 /// How one step of the session changed a photo's recipe: `before` (the last entry it consumed, if
 /// any) became `after` (the entry it left last, if any), leaving `len` entries; or, with `at`, the
 /// entry at that index (before the last) went from `before` to `after` in place. The redo list
-/// holds `step` while it is undone.
+/// holds `step` while it is undone. With `whole`, the step replaced the whole recipe: it went from
+/// the first list to the second.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Record {
     before: Option<String>,
@@ -136,11 +143,15 @@ struct Record {
     len: usize,
     coalesce: Option<String>,
     at: Option<usize>,
+    whole: Option<Box<(Vec<String>, Vec<String>)>>,
 }
 
 impl Record {
     /// Whether `edits` is the recipe this step left.
     fn left(&self, edits: &[String]) -> bool {
+        if let Some(whole) = &self.whole {
+            return edits == whole.1.as_slice();
+        }
         match self.at {
             Some(i) => edits.len() == self.len && edits.get(i) == self.after.as_ref(),
             None => edits.len() == self.len && (self.after.is_none() || edits.last() == self.after.as_ref()),
@@ -151,6 +162,9 @@ impl Record {
     fn undone(&self, edits: &[String], redo: &[String]) -> bool {
         if redo.last() != Some(&self.step) {
             return false;
+        }
+        if let Some(whole) = &self.whole {
+            return edits == whole.0.as_slice();
         }
         match self.at {
             Some(i) => edits.len() == self.len && edits.get(i) == self.before.as_ref(),
@@ -172,6 +186,9 @@ impl Record {
 
     /// `edits` with this step undone (`before` back in place of `after`).
     fn undo(&self, edits: &[String]) -> Vec<String> {
+        if let Some(whole) = &self.whole {
+            return whole.0.clone();
+        }
         if let Some(i) = self.at {
             return Self::put(edits, i, self.before.as_ref());
         }
@@ -181,6 +198,9 @@ impl Record {
 
     /// `edits` with this step done again (`after` in place of `before`).
     fn redo(&self, edits: &[String]) -> Vec<String> {
+        if let Some(whole) = &self.whole {
+            return whole.1.clone();
+        }
         if let Some(i) = self.at {
             return Self::put(edits, i, self.after.as_ref());
         }
@@ -323,6 +343,7 @@ impl Session {
                     len: after.len(),
                     coalesce: None,
                     at: None,
+                    whole: None,
                 };
                 (after, record)
             }
@@ -335,7 +356,7 @@ impl Session {
                 if let Some(slot) = after.last_mut() {
                     slot.clone_from(&text);
                 }
-                (after, Record { before: Some(last), after: Some(text.clone()), step: text, len: edits.len(), coalesce: None, at: None })
+                (after, Record { before: Some(last), after: Some(text.clone()), step: text, len: edits.len(), coalesce: None, at: None, whole: None })
             }
             Change::ReplaceAt(i, op) => {
                 let Some(old) = edits.get(i).cloned() else {
@@ -345,7 +366,13 @@ impl Session {
                 let after = Record::put(&edits, i, Some(&text));
                 // The last entry is a plain `ReplaceLast`, so its step joins the same way.
                 let at = (i + 1 < edits.len()).then_some(i);
-                (after, Record { before: Some(old), after: Some(text.clone()), step: text, len: edits.len(), coalesce: None, at })
+                (after, Record { before: Some(old), after: Some(text.clone()), step: text, len: edits.len(), coalesce: None, at, whole: None })
+            }
+            Change::Replace(after) => {
+                let step = after.last().cloned().unwrap_or_default();
+                let whole = Some(Box::new((edits.clone(), after.clone())));
+                let record = Record { before: None, after: None, step, len: after.len(), coalesce: None, at: None, whole };
+                (after, record)
             }
         };
         if after == edits {
@@ -411,6 +438,8 @@ impl Session {
         let record = self.histories.get(id, &name).and_then(|m| m.redo.last()).filter(|r| r.undone(&edits, &info.redo)).cloned();
         let after = match &record {
             Some(r) => r.redo(&edits),
+            // An empty step (a whole replacement that emptied the recipe) is no entry to give back.
+            None if step.is_empty() => edits.clone(),
             None => edits.iter().cloned().chain(std::iter::once(step.clone())).collect(),
         };
         let step_label = label_of(&step);
@@ -557,6 +586,47 @@ mod tests {
         assert!(matches!(s.photo_step(id, Change::ReplaceAt(2, EditOp::parse("sepia()")), None), Err(CmdError::Disabled(_))));
     }
 
+    /// A whole replacement is one step: undo gives the whole recipe before it back, redo the whole
+    /// new one; it is named by the new recipe's last entry ("Edit" when it empties the recipe).
+    /// Once the memory is stale (a library change), it undoes as its plain last entry, and an
+    /// emptying step redoes as nothing.
+    #[test]
+    fn a_whole_replacement_undoes_and_redoes_whole() {
+        let (_dirs, mut s, ids) = library(1);
+        let id = ids[0];
+        set(&mut s, id, &["crop(0.1,0.1,0.9,0.9)", "rotate(90)", "future_op(1)"], &["bw()"]);
+        let replace = |s: &mut Session, edits: &[&str]| s.photo_step(id, Change::Replace(text(edits)), None).unwrap();
+        assert_eq!(replace(&mut s, &["autofix()", "sepia()"]), Some("Sepia"));
+        assert_eq!(s.library().info(id).recipe(), Recipe { edits: text(&["autofix()", "sepia()"]), redo: vec![] });
+        assert_eq!(replace(&mut s, &["autofix()", "sepia()"]), None, "the same recipe takes no step");
+        assert_eq!(s.photo_history(id).unwrap().undo_text(), "Undo Sepia");
+        assert_eq!(s.photo_undo(id).unwrap(), Some("Sepia"));
+        assert_eq!(
+            s.library().info(id).recipe(),
+            Recipe { edits: text(&["crop(0.1,0.1,0.9,0.9)", "rotate(90)", "future_op(1)"]), redo: text(&["sepia()"]) }
+        );
+        assert_eq!(s.photo_redo(id).unwrap(), Some("Sepia"));
+        assert_eq!(s.library().info(id).recipe(), Recipe { edits: text(&["autofix()", "sepia()"]), redo: vec![] });
+
+        assert_eq!(replace(&mut s, &[]), Some("Edit"));
+        assert_eq!(s.photo_history(id).unwrap().undo_text(), "Undo Edit");
+        s.photo_undo(id).unwrap();
+        assert_eq!(s.library().info(id).recipe(), Recipe { edits: text(&["autofix()", "sepia()"]), redo: text(&[""]) });
+        s.photo_redo(id).unwrap();
+        assert!(s.library().info(id).edits.is_empty());
+
+        // Stale memory: the plain last entry, and an empty step gives nothing back.
+        s.photo_undo(id).unwrap();
+        s.photo_undo(id).unwrap();
+        set(&mut s, id, &["autofix()"], &["sepia()", ""]);
+        s.photo_redo(id).unwrap();
+        assert_eq!(s.library().info(id).recipe(), Recipe { edits: text(&["autofix()"]), redo: text(&["sepia()"]) });
+        replace(&mut s, &["bw()"]);
+        s.apply(Op::SetRecipes { recipes: vec![(id, Recipe { edits: text(&["bw()", "rotate(90)"]), redo: vec![] })] }).unwrap();
+        assert_eq!(s.photo_undo(id).unwrap(), Some("Rotate"));
+        assert_eq!(s.library().info(id).edits, text(&["bw()"]));
+    }
+
     /// A recipe changed some other way (a library rotation; another application through a scan)
     /// makes the remembered steps stale: the photo's last entry undoes as itself.
     #[test]
@@ -598,14 +668,14 @@ mod tests {
         for i in 0..(MAX_PHOTOS as u64 + 10) {
             let m = h.entry(PhotoId::new(i), "a.jpg");
             for _ in 0..3 {
-                push_capped(&mut m.undo, Record { before: None, after: None, step: String::new(), len: 0, coalesce: None, at: None });
+                push_capped(&mut m.undo, Record { before: None, after: None, step: String::new(), len: 0, coalesce: None, at: None, whole: None });
             }
         }
         assert_eq!(h.memory.len(), MAX_PHOTOS);
         assert!(!h.memory.contains_key(&PhotoId::new(0)), "the least recently used went first");
         let m = h.entry(PhotoId::new(5000), "b.jpg");
         for _ in 0..(MAX_STEPS + 5) {
-            push_capped(&mut m.undo, Record { before: None, after: None, step: String::new(), len: 0, coalesce: None, at: None });
+            push_capped(&mut m.undo, Record { before: None, after: None, step: String::new(), len: 0, coalesce: None, at: None, whole: None });
         }
         assert_eq!(m.undo.len(), MAX_STEPS);
         // Another file under the same id (a rebuild) starts afresh.

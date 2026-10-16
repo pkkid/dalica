@@ -4807,7 +4807,7 @@ No other step of M10 needs a maintainer decision mid-run.
     `wait: false` gives `{job, pending: true}` and `jobs.wait` then returns the result;
     `apps/dalica/tests/control_headless.rs`: a headless capture through a windowed session's handlers
     equals `--headless`'s byte for byte; graceful failures; `panic_hunt` green.
-- ⬜ **M10.9 `edit` + `engine`: the edit-operation catalogue and `edit.recipe.set`**
+- ✅ **M10.9 `edit` + `engine`: the edit-operation catalogue and `edit.recipe.set`**
   - after: M10.1
   - files: `crates/edit/src/catalog.rs`, `crates/edit/tests/catalog.rs`, `crates/engine/src/cmd/recipe.rs`, `crates/engine/tests/recipe_set.rs`, `docs/editing.md`
   - scope: `mcp.md` §4.2, `data-model.md` §3.1 and `editing.md`'s operation tables:
