@@ -5463,8 +5463,45 @@ No other step of M10 needs a maintainer decision mid-run.
     job) shows a root and a path given in the verbatim, plain and differently-cased drive forms
     compare equal for an allow while `..`, `.dalica-originals` and a watched folder are still
     refused in each form; `cargo xtask ci` green.
+- ⬜ **M10.50 `mcp` + `engine` + `store`: W04's caption missing from the sidecar on macOS and Windows**
+  - after: M10.19
+  - files: `crates/mcp/tests/workflows/w04_rebuild_loses_nothing.rs`, `crates/mcp/tests/workflows/harness.rs`, `crates/engine/src/session.rs`, `crates/engine/src/offline.rs`, `crates/store/src/rebuild.rs`, `crates/engine/tests/pending_writes.rs`
+  - scope: found by the full gate (GitHub run 38841617828; it passed in run 38838856986 and on
+    Linux in both, so it is new since then or a race). `w04_rebuild_loses_nothing` panics at
+    `w04_rebuild_loses_nothing.rs:126` on `ci (macos-latest)` (job 116782787471) in the test step,
+    `left: Null` where "The Forum at dusk" is due, and the panic message (the whole entry) is
+    `null` too: the captioned photo has no entry at all in the folder's `.dalica.json`. That line
+    is **before** the rebuild: after `set_metadata {caption}` on two photos and `settled` (no
+    `pendingWrites`, no scan running), the sidecar read back lacks the photo. On
+    `ci (windows-latest)` (job 116782787073) the test step passed, but the run of the workflows
+    inside `cargo xtask stats --check` failed it, dropping the pass count to 8 under the floor of 9;
+    on macOS the stats run passed it. So it is intermittent on both. Data comes first (AGENTS.md
+    §3), so first decide which of these it is, with evidence (a log of the sidecar's writes and of
+    `pendingWrites` around the failing read, reproduced under load): (a) `pendingWrites` reports
+    none while a sidecar write is still queued, debounced or in flight (the M10.29 `changed` stamp,
+    the M10.40 caption draft or shutdown path, a write-back's re-read that writes again): a product
+    bug, since `library.inspect`, `quit` and a rebuild all trust it; fix it so a write counts until
+    its file is committed, and make a rebuild (and a quit) flush pending sidecar writes before it
+    starts, else a rebuild can read a sidecar a write has not reached and lose the change
+    (`data-model.md` on rebuild); (b) a write lands but a later write of the same sidecar from an
+    older model drops the entry (a lost update): a product bug and data loss, fixed so the writer
+    merges from the latest state; (c) the harness's `sidecar` read fails while the file is being
+    replaced and answers `Null` (on Windows a read during the M10.45 rename can see a sharing
+    error, and macOS may differ too): a test bug, fixed by a bounded read that retries only on that
+    error, or by waiting for the entry on a bounded condition. Data loss in any form is fixed in
+    the product, never in the test; W04 stays the regression test, and a product fix also gets a
+    lower test in `crates/engine/tests/pending_writes.rs` (a new `mod` in `tests/all.rs`: set a
+    caption, read `pendingWrites` as none, then the sidecar holds it; and a rebuild started with a
+    write pending keeps it) that fails before the fix. No sleep, no blind retry of the whole test,
+    no check weakened or dropped. The commit body names the cause and the evidence.
+  - done when: the cause is named (product or test) with evidence in the PR; W04 passes 20 of 20
+    runs under load locally (pinned to one core with `taskset -c 0` beside parallel `cargo test`
+    runs); a CI run dispatched on the task branch (`gh workflow run ci.yml --ref <branch>`) shows
+    W04 green on macOS and Windows, both in the test step and in `cargo xtask stats --check`
+    holding at 9, the jobs cited in the PR; for a product bug, the lower test fails before the fix
+    and passes after; `cargo xtask ci` green.
 - ⬜ **M10.26 `docs`: the P0 parity audit**
-  - after: M10.8, M10.11, M10.12, M10.16, M10.19, M10.20, M10.21, M10.22, M10.23, M10.25, M10.39, M10.40, M10.41, M10.42, M10.43, M10.44, M10.45, M10.46, M10.47, M10.48, M10.49
+  - after: M10.8, M10.11, M10.12, M10.16, M10.19, M10.20, M10.21, M10.22, M10.23, M10.25, M10.39, M10.40, M10.41, M10.42, M10.43, M10.44, M10.45, M10.46, M10.47, M10.48, M10.49, M10.50
   - files: `docs/parity.md`
   - scope: `process.md` §5 and the decisions above: every P0 row re-measured (its cited tests run,
     its evidence checked against the code), turned ✅ only with that evidence; parts of a note that
@@ -5505,7 +5542,7 @@ No other step of M10 needs a maintainer decision mid-run.
   - done when: `cargo xtask tasks sync --check` parses them and `tasks sync --dry-run` lists one new
     issue per block.
 - ⬜ **M10.R Release 0.5 gate**
-  - after: M10.24, M10.27, M10.29, M10.31, M10.32, M10.33, M10.34, M10.35, M10.36, M10.37, M10.38, M10.39, M10.40, M10.41, M10.42, M10.43, M10.44, M10.45, M10.46, M10.47, M10.48, M10.49
+  - after: M10.24, M10.27, M10.29, M10.31, M10.32, M10.33, M10.34, M10.35, M10.36, M10.37, M10.38, M10.39, M10.40, M10.41, M10.42, M10.43, M10.44, M10.45, M10.46, M10.47, M10.48, M10.49, M10.50
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`
   - scope: a release gate (Release 0.5, P0 complete): the lead runs `/milestone-review M10.R` to
@@ -5557,7 +5594,7 @@ wave 6   M10.26 P0 parity audit
           path, Options tests ‖ M10.45 Windows: killed Save, watcher rename ‖ M10.46 macOS:
           the Properties pane's settle ‖ M10.47 one menu open at a time, window size under
           a UI scale ‖ M10.48 macOS: headless quit test, Save Copy date ‖ M10.49 Windows:
-          the path policy's path forms)
+          the path policy's path forms ‖ M10.50 macOS and Windows: W04's caption in the sidecar)
 wave 7   M10.27 accept M10 → M10.R          (M10.28 lead: M12 blocks, any time after M9.26)
 ```
 
