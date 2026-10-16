@@ -151,10 +151,29 @@ impl Host for Driver {
         Driver::perf_mut(self)
     }
 
+    /// The size in points egui lays the window out at and the pixels per point it draws at: the
+    /// native scale times egui's zoom (a fixed UI scale), as the window reports them. 1400 × 900
+    /// pixels at 1.0 with a fixed 150 % is 933 × 600 points at 1.5.
     fn window(&self) -> Window {
-        let (w, h, ppp) = self.size();
+        let (w, h, _) = self.size();
+        let ppp = drawn_ppp(self);
         Window { width: w as f32 / ppp, height: h as f32 / ppp, pixels_per_point: ppp, focused: true, drawing: true, headless: true }
     }
+}
+
+/// The pixels per point the driver lays its frames out at: the native scale times egui's zoom,
+/// as the driver computes it (the native scale, or 1, where either is not a usable number).
+fn drawn_ppp(d: &Driver) -> f32 {
+    let (_, _, native) = d.size();
+    let native = if native.is_finite() && native > 0.0 { native } else { 1.0 };
+    let ppp = native * zoom(d);
+    if ppp.is_finite() && ppp > 0.0 { ppp } else { native }
+}
+
+/// egui's zoom (a fixed UI scale), 1 where it is not a usable number.
+fn zoom(d: &Driver) -> f32 {
+    let z = d.ctx().zoom_factor();
+    if z.is_finite() && z > 0.0 { z } else { 1.0 }
 }
 
 fn point_in(d: &Driver, id: &str, at: (f32, f32)) -> Result<Pos2, DriverError> {
@@ -221,7 +240,8 @@ impl Player for Driver {
             Input::Key { key, modifiers, state } => self.key_raw(*key, *modifiers, *state),
             Input::Text(text) => self.type_text(text)?,
             Input::Resize { width, height } => {
-                let (_, _, ppp) = self.size();
+                // Points as `window()` reports them: at the pixels per point the frames are drawn at.
+                let ppp = drawn_ppp(self);
                 let px = |v: f32| (v * ppp).round().max(1.0) as u32;
                 self.resize(px(*width), px(*height));
             }
@@ -243,13 +263,16 @@ impl Player for Driver {
     }
 }
 
-/// Settles (or runs one frame), captures at `scale`, and puts the window's own scale back.
+/// Settles (or runs one frame), captures at `scale` (pixels per point, as `window()` reports
+/// them), and puts the window's own scale back. Under egui's zoom (a fixed UI scale) the native
+/// scale that draws at `scale` is `scale` divided by the zoom.
 fn screenshot(d: &mut Driver, settle_ms: Option<u64>, scale: f32) -> Result<Played, DriverError> {
-    let (w, h, ppp) = d.size();
-    let rescale = (scale - ppp).abs() > f32::EPSILON;
+    let (w, h, native) = d.size();
+    let drawn = drawn_ppp(d);
+    let rescale = (scale - drawn).abs() > f32::EPSILON;
     if rescale {
-        let px = |v: u32| ((v as f32 / ppp) * scale).round().max(1.0) as u32;
-        d.set_size(px(w), px(h), scale);
+        let px = |v: u32| ((v as f32 / drawn) * scale).round().max(1.0) as u32;
+        d.set_size(px(w), px(h), scale / zoom(d));
     }
     let settled = match settle_ms {
         Some(ms) => Some(d.settle_for(frames_for(ms), false).settled),
@@ -260,7 +283,7 @@ fn screenshot(d: &mut Driver, settle_ms: Option<u64>, scale: f32) -> Result<Play
     };
     let image = d.screenshot();
     if rescale {
-        d.set_size(w, h, ppp);
+        d.set_size(w, h, native);
     }
     Ok(Played::Shot { image: image?, settled })
 }

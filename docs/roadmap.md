@@ -5359,7 +5359,7 @@ No other step of M10 needs a maintainer decision mid-run.
     `taskset -c 0` beside parallel `cargo test` runs), and on macOS in a CI run dispatched on the
     task branch (`gh workflow run ci.yml --ref <branch>`), the green macOS job cited in the PR;
     `cargo xtask ci` green.
-- ⬜ **M10.47 `ui`: one menu open at a time, and the window size under a fixed UI scale**
+- ✅ **M10.47 `ui`: one menu open at a time, and the window size under a fixed UI scale**
   - after: M10.25, M10.41
   - files: `crates/ui/src/menus.rs`, `crates/ui/src/control/host.rs`, `crates/ui/tests/menu_one_open.rs`, `crates/ui/tests/ui_scale.rs`
   - scope: found by M10.41 (PR #614) and the full gate's macOS and Windows jobs (GitHub run
