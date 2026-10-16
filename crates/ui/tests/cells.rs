@@ -1,7 +1,7 @@
 //! Thumbnail cells (M4.10, `ui-layout.md` §5.3–§5.5, `design-system.md` §7), driven headlessly on
 //! the virtual clock: each caption mode's text (middle-elided in small cells), small pictures left
 //! out and shown with View ▸ Small Pictures, the hidden-photo opacity rule, the badges fed from the
-//! model (star and held), the "!" tile of a photo whose file is gone with its reason, and the hover
+//! model (star and held; geotagged from the GPS location the scan read), the "!" tile of a photo whose file is gone with its reason, and the hover
 //! tooltip after 600 ms of virtual time and not before, and never with Show tooltips off. Renders
 //! go to `target/test-output/ui/`.
 
@@ -253,6 +253,26 @@ fn badges_follow_the_model_star_and_held() {
     let plate_left = (star[0] - 2.0 - 9.0, star[1] + 1.0);
     let px = shot.pixel(plate_left.0 as u32, plate_left.1 as u32).unwrap();
     assert!(px[0] < 120, "the held plate's dark corner: {px:?}");
+}
+
+/// A photo whose file holds a GPS location carries the geotag badge, read from the facts the scan
+/// stored (as the Geotagged filter reads them); a photo without one does not.
+#[test]
+fn a_geotagged_photo_carries_the_geotag_badge() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = dir.path().join("photos").join("Lisbon");
+    std::fs::create_dir_all(&folder).unwrap();
+    let jpeg = |seed| dalica_scenes::jpeg(&dalica_scenes::Scene::new(seed, 96, 64), 80, None).unwrap();
+    let place = dalica_meta::Changes { place: Some(dalica_meta::Place::new(38.71, -9.14)), ..dalica_meta::Changes::default() };
+    std::fs::write(folder.join("IMG_0001.jpg"), dalica_meta::write_owned(&jpeg(1), &place, &dalica_meta::WriteOptions::default()).unwrap()).unwrap();
+    std::fs::write(folder.join("IMG_0002.jpg"), jpeg(2)).unwrap();
+    let d = driver(session(dir.path(), &folder), (1400, 900));
+    let id = |name: &str| d.app().session().unwrap().library().photos().find(|p| p.name == name).unwrap().id;
+    let (located, plain) = (id("IMG_0001.jpg"), id("IMG_0002.jpg"));
+    save(&d, "cells-geotag-1400x900");
+    let badges = |id: PhotoId| cells(&d).get(id).unwrap().badges;
+    assert_eq!(badges(located), Badges { geotagged: true, ..Badges::default() });
+    assert_eq!(badges(plain), Badges::default());
 }
 
 #[test]

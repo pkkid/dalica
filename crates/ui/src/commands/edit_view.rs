@@ -4,7 +4,9 @@
 //! - `view.edit {id?}`: shows photo `id` (else the focused photo of the selection, else the first
 //!   selected) in the edit view; Ctrl+3 and Enter in the library, a double-click on a thumbnail,
 //!   View ▸ Edit View, Picture ▸ View and Edit, a click on a filmstrip thumbnail. With nothing
-//!   selected it shows the toast "Select a photo to edit." and changes nothing.
+//!   selected it shows the toast "Select a photo to edit." and changes nothing. Ctrl+3 is a Global
+//!   key (`menus-and-shortcuts.md` §2.1): in the edit view it keeps the photo shown, its zoom and
+//!   its open tool (opening the photo already shown changes nothing).
 //! - `view.library`: back to the library (Esc and Ctrl+1 in the edit view, View ▸ Library View,
 //!   Back to Library); an open tool is cancelled, never asked about: edits are already stored. The
 //!   library keeps its scroll position, unless the photo last viewed is out of sight (it is then
@@ -17,8 +19,13 @@
 //!   undo stack (`editing.md` §5.1). After a Save, with no edit made since, Undo is Undo Save, as
 //!   the Undo button and Edit ▸ Undo read: Ctrl+Z runs `photo.undoSave` on the open photo exactly
 //!   when `photo.history.state` answers `undoSave` ([`undoes_save`]).
-//! - `edit.panelToggle {on?}`: shows or hides the edit panel (Ctrl+9, View ▸ Show Edit Controls).
+//! - `edit.panelToggle {on?}`: shows or hides the edit panel (Ctrl+9, View ▸ Show Edit Controls). A
+//!   Global key: in the library it sets whether the panel shows the next time the edit view opens.
 //! - `edit.tab {tab}`: the edit panel's tab.
+//!
+//! **Deleting the photo shown** (the caption bar's trash button): [`successors`] lists, before the
+//! delete question is asked, where the view goes once the photo is gone; [`left_behind`] goes
+//! there: the next photo of its section, else the previous one, else back to the library.
 //!
 //! **The selection follows the photo shown.** Opening or moving to a photo that is selected makes it
 //! the focused one (the selection's anchor); one that is not becomes the selection alone. So the
@@ -52,7 +59,7 @@ pub const COMMANDS: &[UiCommand] = &[
         id: "view.edit",
         label: "Edit View",
         menu: "View/Edit View",
-        keys: &[(Context::Library, "Ctrl+3"), (Context::Library, "Enter")],
+        keys: &[(Context::Library, "Ctrl+3"), (Context::Library, "Enter"), (Context::EditView, "Ctrl+3")],
         params: r#"{"id"?: PhotoId, "ids"?: [PhotoId]}: show a photo in the edit view: "id", else the first of "ids", else the focused or first selected photo"#,
         run: view_edit,
     },
@@ -124,7 +131,7 @@ pub const COMMANDS: &[UiCommand] = &[
         id: "edit.panelToggle",
         label: "Show Edit Controls",
         menu: "View/Show Edit Controls",
-        keys: &[(Context::EditView, "Ctrl+9")],
+        keys: &[(Context::EditView, "Ctrl+9"), (Context::Library, "Ctrl+9")],
         params: r#"{"on"?: bool}: show or hide the edit panel; toggles without "on""#,
         run: panel_toggle,
     },
@@ -229,6 +236,36 @@ fn view_library(app: &mut App, params: &Value) -> Result<Value, CmdError> {
         state.scroll = anchor;
     }
     Ok(json!({ "view": View::Library }))
+}
+
+/// Where the edit view goes once photo `id`, open in it, is deleted: the photos after it in its
+/// section, in light-table order, then those before it, nearest first. Asked before the delete
+/// question opens, while the photo is still on the light table; empty when no shown section holds
+/// it (the view then goes back to the library).
+pub fn successors(app: &App, id: PhotoId) -> Vec<PhotoId> {
+    let Some(place) = Table::of(app).and_then(|t| place_in(&t, id)) else { return Vec::new() };
+    let (before, after) = place.photos.split_at(place.index.min(place.photos.len()));
+    after.iter().skip(1).chain(before.iter().rev()).copied().collect()
+}
+
+/// Once photo `gone`, open in the edit view, is no longer in the library (moved to the trash), shows
+/// the first of `then` ([`successors`]) still in it, else goes back to the library. Returns whether
+/// it moved; nothing happens while `gone` is still in the library or is not the photo shown.
+pub fn left_behind(app: &mut App, gone: PhotoId, then: &[PhotoId]) -> bool {
+    if open_photo(app) != Some(gone) {
+        return false;
+    }
+    let Some(library) = app.session().map(|s| s.library()) else { return false };
+    if library.photo(gone).is_some() {
+        return false;
+    }
+    match then.iter().copied().find(|p| library.photo(*p).is_some()) {
+        Some(next) => show(app, next),
+        None => {
+            let _ = view_library(app, &json!({}));
+        }
+    }
+    true
 }
 
 /// Where the open photo stands among its section's photos, in light-table order.

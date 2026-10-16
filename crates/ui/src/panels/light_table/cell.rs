@@ -244,11 +244,13 @@ pub fn is_hidden(library: &Library, photo: &Photo) -> bool {
     library.is_hidden(photo.id)
 }
 
-/// What `photo`'s badges show: what the model knows. Starred, held, and edited when it has edits
-/// not yet saved into its file, rotations and flips included (`edited`, [`Thumbnails::edited`],
-/// the folder header's "n edited" test); geotagged and videos once the model carries them.
-pub fn badges_of(photo: &Photo, edited: bool, held: bool) -> Badges {
-    Badges { starred: photo.star, edited, held, ..Badges::default() }
+/// What `photo`'s badges show: what the model knows. Starred, held, edited when it has edits not
+/// yet saved into its file, rotations and flips included (`edited`, [`Thumbnails::edited`], the
+/// folder header's "n edited" test), and geotagged when its file holds a GPS location (the
+/// photo's search facts, which the Geotagged filter reads: a lookup per cell drawn, read on scan,
+/// never the file); videos once the model carries them.
+pub fn badges_of(photo: &Photo, library: &Library, edited: bool, held: bool) -> Badges {
+    Badges { starred: photo.star, edited, geotagged: library.facts(photo.id).geotagged, held, ..Badges::default() }
 }
 
 /// The caption line's text for `mode` (`ui-layout.md` §5.3), before fitting: the file name; the
@@ -399,7 +401,12 @@ pub fn show(ui: &mut Ui, f: &Frame<'_>, cells: &mut Cells, thumbs: &mut Thumbnai
         selected,
         anchor: selection.anchor == Some(id) && primary,
         hovered: response.hovered(),
-        badges: badges_of(c.photo, thumbs.edited(PhotoRef { session: f.session, photo: c.photo }), cells.held.contains(held, id)),
+        badges: badges_of(
+            c.photo,
+            f.session.library(),
+            thumbs.edited(PhotoRef { session: f.session, photo: c.photo }),
+            cells.held.contains(held, id),
+        ),
     };
     paint_under(&painter, t, &look);
     let device_px = image.width().max(image.height()) * f.pixels_per_point;
