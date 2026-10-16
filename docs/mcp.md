@@ -7,8 +7,9 @@ Adapted from LightCraft `docs/mcp.md` (revision 88ea1a8) and PhotoCraft `docs/mc
 > `initialize`, `tools/list`, `tools/call`, progress and cancellation, the limits), the shared tools
 > `command_list`, `command_run`, `command_batch` and `render_preview` (§4.1), and headless mode:
 > `dalica-cli mcp [--demo] [--library DIR] [--compact] [FOLDERS…]`; `doc_inspect` (M10.7); one tool
-> per command and the resources (M10.15, §4.4 and §7). To come: the helpers of §4.2 (M10.13,
-> M10.14), the roots
+> per command and the resources (M10.15, §4.4 and §7); the organizing helpers of §4.2,
+> `scan_folder` … `jobs_cancel` (M10.13). To come: the edit, render and export helpers of §4.2
+> (M10.14), the roots
 > and `--read-only` (M10.16; until then the default write roots and command-line read roots of §5),
 > connect mode and the UI tools (M10.17), the workflow tests (M10.18–M10.20). The options of later
 > tasks are refused by name until they exist.
@@ -158,6 +159,21 @@ plus held photos), as the bottom-bar buttons do.
 | `render_photo` | `id?`, `size?` (long edge, 1024, ≤ 2048), `format?` (`png` \| `jpeg`), `before?` (false: the unedited original), `recipe?` (preview this recipe instead of the stored one, without applying it), `path?` | **Image content** of the photo rendered by `edit::render` — the CPU oracle that thumbnails, Save and Export use — plus `{id, width, height, recipe}`. With `path` the file is written (write root) and the image is still returned. PNG results are capped at 5 MiB before encoding. Changes nothing in the library. |
 | `export` | `ids?` \| `section?` \| `album?`, `dir`, `folder_name?`, `size?` (long edge px, default 1600; `0` = original size), `quality?` (`auto` \| `normal` \| `maximum` \| `minimum` \| 1–100), `numbered?`, `watermark?`, `videos?` (`frame` \| `full`), `remove_location?` | Export as the Export dialog does (`creating.md` §2): a new folder under `dir` (write root), never overwriting (`-001`), never enlarging, metadata copied. Returns `{folder, files: [{id, path, width, height, bytes}], skipped}`. Progress and cancellation per photo (§6). |
 | `jobs_list` / `jobs_cancel` | — / `job?` | Background jobs (`control-protocol.md` §6.13). |
+
+How the organizing helpers answer (M10.13): each is built from engine commands, never a second
+implementation. `scan_folder` counts the photos and videos of the folders under the path as the
+light table shows them (`library.inspect`), `skipped` being the files its scan could not read.
+`query_photos` hands `query`, `tags` (each word of a tag as a `tag:` term), `section`, `starred`
+and `video` / `geotagged: true` to `library.query`, and applies the other filters and `sort` to the
+fields of every match (at most 10 000; more is `limit`, asking to narrow the query). `photo_info`
+answers `{id, path, name, section, fileSize, dimensions, dates, exif, star, caption, tags,
+rotation, recipe: {string, list, redo}, albums, geotag, geo, hidden, held, originals,
+unsavedEdits, video}`; `originals` is `null` while the photo has unsaved edits (no query says it
+then). `set_metadata` with `geo` (even `null`) answers `unsupported` until Places (M13). In
+headless mode the backend adds three methods for them: `engine.group {steps, label?}` (several
+library commands as one undo step), `tray.select {ids, section?, mode?, hold?}` and `tray.state`;
+connect mode maps them onto the app (a grouped execute, `select.set` then `tray.hold`,
+`library.inspect` → `selection` and `tray`).
 
 Saving edits into the original files (`cmd_photo_save`), reverting, deleting and moving are reached
 through their command tools and need `confirm: true` where the UI asks first
