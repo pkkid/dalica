@@ -4842,7 +4842,7 @@ No other step of M10 needs a maintainer decision mid-run.
     with an unknown id is an error and the selection is unchanged; `set_metadata` with star,
     caption and tags is one undo step that one `cmd_edit_undo` restores; `create_album` from the
     tray; each tool's strict arguments and graceful failures.
-- ⬜ **M10.16 `engine` + `mcp`: roots, permissions and read-only sessions**
+- ✅ **M10.16 `engine` + `mcp`: roots, permissions and read-only sessions**
   - after: M10.1, M10.4
   - files: `crates/engine/src/automation.rs`, `crates/engine/src/session.rs`, `crates/engine/tests/automation_roots.rs`, `crates/engine/tests/read_only.rs`, `crates/ui/src/control/paths.rs`, `crates/mcp/src/roots.rs`, `crates/mcp/tests/roots.rs`, `docs/security.md`, `NOTICE`
   - scope: `mcp.md` §5 and `control-protocol.md` §5.6–§5.7, with PhotoCraft

@@ -122,6 +122,7 @@ connection is closed. `protocol` is an integer bumped on incompatible changes.
 | `limit` | a size, count or duration over its limit (§4) | open |
 | `timeout` | the UI did not answer within the reply deadline; the work may still have happened — inspect before retrying | open |
 | `unsaved` | the change was applied (and is undoable) but could not be written to disk; it is retried (§5.8) | open |
+| `read_only` | a read-only session (`--read-only`) refuses what would write files: file operations, saves and exports | open |
 | `internal` | an escaped panic caught by the dispatch guard; the app keeps running and the panic is logged | open |
 
 ## 4. Limits

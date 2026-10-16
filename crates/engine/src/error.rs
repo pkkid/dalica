@@ -23,6 +23,10 @@ pub enum CmdError {
     /// The change was applied in memory but could not be recorded on disk.
     #[error("{0}")]
     Unsaved(String),
+    /// A read-only session (`--read-only`) refuses what would write to disk beyond its own
+    /// memory: file operations, saves and exports.
+    #[error("{0}")]
+    ReadOnly(String),
     /// A panic caught by the dispatch guard; the session keeps running.
     #[error("internal error: {0}")]
     Internal(String),
@@ -38,6 +42,7 @@ impl CmdError {
             CmdError::NotFound(_) => "not_found",
             CmdError::Limit(_) => "limit",
             CmdError::Unsaved(_) => "unsaved",
+            CmdError::ReadOnly(_) => "read_only",
             CmdError::Internal(_) => "internal",
         }
     }

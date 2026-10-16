@@ -129,6 +129,7 @@ file and revision in its first lines:
   crates/fs/src/transfer/copy.rs             LightCraft crates/engine/src/import_move.rs @ b7091805
   crates/engine/src/cmd/rename.rs            LightCraft crates/engine/src/rename.rs @ b7091805
   crates/library/src/search/grammar.rs       LightCraft crates/catalog/src/query.rs @ b7091805
+  crates/engine/src/automation.rs            PhotoCraft crates/automation/src/workspace.rs @ 583425b4
   crates/mcp/src/lib.rs                      LightCraft crates/mcp/src/lib.rs @ b3d392b4
   crates/mcp/src/server.rs                   LightCraft crates/mcp/src/server.rs @ b3d392b4
   crates/mcp/src/jsonrpc.rs                  LightCraft crates/mcp/src/progress.rs, crates/mcp/src/server.rs @ b3d392b4

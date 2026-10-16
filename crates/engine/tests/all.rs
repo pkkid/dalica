@@ -6,6 +6,7 @@
 mod common;
 
 mod albums;
+mod automation_roots;
 mod captions;
 mod crop_commands;
 mod dates;
@@ -46,6 +47,7 @@ mod photo_history;
 mod photo_metadata;
 mod preview;
 mod progressive_scan;
+mod read_only;
 mod recently_updated;
 mod recipe_set;
 mod rename;

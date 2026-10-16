@@ -51,7 +51,7 @@ fn mcp_demo_answers_initialize_on_stdio_and_logs_to_stderr() {
 #[test]
 fn mcp_refuses_bad_options() {
     for (args, want) in [
-        (&["mcp", "--connect"][..], "M10.17"),
+        (&["mcp", "--connect", "--demo"][..], "headless session"),
         (&["mcp", "--demo", "--library", "x"], "cannot be combined"),
         (&["mcp", "--frobnicate"], "unknown option"),
     ] {
@@ -60,4 +60,38 @@ fn mcp_refuses_bad_options() {
         assert!(out.stdout.is_empty());
         assert!(String::from_utf8_lossy(&out.stderr).contains(want), "{args:?}");
     }
+}
+
+/// `--connect` with no app listening still serves (the first call connects), and a tool call
+/// answers `unreachable`: nothing ran.
+#[test]
+fn mcp_connect_without_a_running_app_answers_unreachable() {
+    let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    let token = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(token.path(), "0".repeat(64)).unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_dalica-cli"))
+        .args(["mcp", "--connect", &format!("127.0.0.1:{port}"), "--control-token-file"])
+        .arg(token.path())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut input = child.stdin.take().unwrap();
+    for msg in [
+        json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "protocolVersion": "2025-06-18", "capabilities": { "roots": {} } } }),
+        json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }),
+        json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": { "name": "command_list", "arguments": {} } }),
+    ] {
+        writeln!(input, "{msg}").unwrap();
+    }
+    drop(input);
+    let out = child.wait_with_output().unwrap();
+    assert!(out.status.success(), "{out:?}");
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    let replies: Vec<Value> = stdout.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+    // Connect mode never asks for the client's roots: the app's policy applies.
+    assert_eq!(replies.iter().map(|r| r["id"].clone()).collect::<Vec<_>>(), [json!(1), json!(2)], "{stdout}");
+    assert_eq!(replies[1]["result"]["isError"], true, "{stdout}");
+    assert_eq!(replies[1]["result"]["structuredContent"]["code"], "unreachable", "{stdout}");
 }

@@ -8,11 +8,11 @@ Adapted from LightCraft `docs/mcp.md` (revision 88ea1a8) and PhotoCraft `docs/mc
 > `command_list`, `command_run`, `command_batch` and `render_preview` (§4.1), and headless mode:
 > `dalica-cli mcp [--demo] [--library DIR] [--compact] [FOLDERS…]`; `doc_inspect` (M10.7); one tool
 > per command and the resources (M10.15, §4.4 and §7); the organizing helpers of §4.2,
-> `scan_folder` … `jobs_cancel` (M10.13). To come: the edit, render and export helpers of §4.2
-> (M10.14), the roots
-> and `--read-only` (M10.16; until then the default write roots and command-line read roots of §5),
-> connect mode and the UI tools (M10.17), the workflow tests (M10.18–M10.20). The options of later
-> tasks are refused by name until they exist.
+> `scan_folder` … `jobs_cancel` (M10.13); the edit, render and export helpers of §4.2 (M10.14);
+> the roots and permissions of §5 and `--read-only` (M10.16: the engine's one path policy,
+> `--automation-*`, the client's roots, `--no-client-roots`); connect mode and the UI tools of §4.3
+> (M10.17; `dalica-cli mcp --connect` wired by M10.16); the workflow tests' harness with W02,
+> W03, W08 and W09 (M10.18). To come: the other workflow tests (M10.19, M10.20).
 
 `dalica-cli mcp` exposes Dalica to AI agents through the
 [Model Context Protocol](https://modelcontextprotocol.io): newline-delimited JSON-RPC 2.0 over stdio
@@ -37,7 +37,8 @@ Options:
 | `FOLDERS…` | Watch these folders for this session (Scan Once, in memory unless `--library` is given). They become read roots (§5). |
 | `--read-only` | Nothing is written to disk: sidecar, metadata and index writes stay in memory, file operations and exports are refused. For exploring a real library safely. |
 | `--compact` | List only the helper tools, not one tool per command (§4.4). |
-| `--automation-read-root DIR`, `--automation-write-root DIR`, `--automation-allow-external`, `--automation-allow-people` | As for the desktop app (`control-protocol.md` §1, §5); headless mode only. |
+| `--automation-read-root DIR`, `--automation-write-root DIR`, `--automation-allow-external`, `--automation-allow-people` | As for the desktop app (`control-protocol.md` §1, §5); headless mode only. Flags only: the desktop app's `DALICA_AUTOMATION_*` environment variables do not apply here. Relative folders are taken from the working folder. |
+| `--no-client-roots` | Never ask the client for its roots (§5). |
 | `--connect [HOST:PORT]` | Default `127.0.0.1:7990`. Loopback addresses only. |
 | `--control-token-file PATH` | Connect mode: the token file; default is the app's default token file for that port (`control-protocol.md` §2.1). |
 
@@ -245,7 +246,11 @@ with one addition: **client roots**.
 - Effects outside Dalica (`control-protocol.md` §5.6) are refused without
   `--automation-allow-external`; people names and face regions are withheld without
   `--automation-allow-people`; face descriptors are never returned.
-- `--read-only` overrides all of this: nothing is written at all.
+- `--read-only` overrides all of this: nothing is written at all. Commands that write files
+  (saves, exports, file operations) answer `read_only`; every other change stays in memory. The
+  refusal lives in the engine's session, not in the tools (`security.md` §6.6).
+- The latest `roots/list` answer replaces the client's roots, so a removed root stops granting at
+  once; an error answer drops them all; only local `file://` URIs (no host, or `localhost`) count.
 - **Connect mode** uses the policy of the desktop process (its flags); the MCP process's own root
   flags are ignored there, as in PhotoCraft.
 

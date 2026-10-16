@@ -8,4 +8,5 @@ mod inspect;
 mod organize_tools;
 mod output_tools;
 mod resources;
+mod roots;
 mod server;

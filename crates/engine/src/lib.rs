@@ -8,6 +8,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 mod albums_file;
+pub mod automation;
 pub mod cmd;
 pub mod demo;
 pub mod duplicates;
