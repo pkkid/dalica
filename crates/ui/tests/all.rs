@@ -80,6 +80,7 @@ mod tree;
 mod tree_projects;
 mod tree_status_pane;
 mod tuning_tab;
+mod ui_glyphs;
 mod ui_scale;
 mod view_state;
 mod widget_ids;
