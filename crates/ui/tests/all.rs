@@ -63,6 +63,7 @@ mod scrollbar;
 mod search_ui;
 mod section_header;
 mod selection;
+mod shortcut_editor;
 mod shutdown;
 mod stand_in;
 mod status_line;

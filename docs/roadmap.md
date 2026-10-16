@@ -4953,7 +4953,7 @@ No other step of M10 needs a maintainer decision mid-run.
     the feature; a size set here is the next Export dialog's default; Browse… with the scripted
     picker fills the location and cancel changes nothing; fingerprints of both tabs at both
     sizes.
-- ⬜ **M10.12 `ui`: the shortcut editor and Help ▸ Keyboard Shortcuts**
+- ✅ **M10.12 `ui`: the shortcut editor and Help ▸ Keyboard Shortcuts**
   - after: M10.6, M10.10
   - files: `crates/ui/src/dialogs/options/shortcuts.rs`, `crates/ui/src/dialogs/options/shortcuts/**`, `crates/ui/tests/shortcut_editor.rs`, `crates/ui/tests/fingerprints/dialog-options-shortcuts-*.json`, `NOTICE`
   - scope: `menus-and-shortcuts.md` §2.0, ported from LightCraft
