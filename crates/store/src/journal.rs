@@ -11,6 +11,13 @@
 //!
 //! Reading stops cleanly at the first line that is torn (no newline), fails its checksum or does
 //! not parse: everything before it is kept, nothing after it is trusted.
+//!
+//! So a failed append must leave nothing behind, or every op appended after it would be lost on
+//! the next open. It does: the record goes through `dalica-fs`'s [`Appender`], which cuts the file
+//! back to its last whole record when the write fails or is cut short (a full disk) or the sync
+//! after it fails, before the error is returned; [`Journal::append`] counts an op only when that
+//! append returned, with its record whole and synced. If the cut fails too, the appender refuses
+//! every later append until the store is reopened, and the open cuts the torn tail off as above.
 
 use std::path::{Path, PathBuf};
 
@@ -156,7 +163,8 @@ impl Journal {
         Ok(Journal { path: path.to_path_buf(), file: Appender::open(path, CAP)?, base, ops })
     }
 
-    /// Appends `op` (synced). Its number is returned.
+    /// Appends `op` (synced). Its number is returned. On an error the op is not counted and the
+    /// file holds what it held before (module docs), so later appends are kept.
     pub fn append(&mut self, op: &Op) -> Result<u64> {
         let json = serde_json::to_vec(op).map_err(|e| Error::Json(e.to_string()))?;
         if json.len() > MAX_RECORD {

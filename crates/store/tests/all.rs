@@ -8,6 +8,7 @@ mod carry;
 mod crash;
 mod fields;
 mod intents;
+mod journal;
 mod m6_fields;
 mod m8_fields;
 mod m9_fields;

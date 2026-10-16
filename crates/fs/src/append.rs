@@ -1,13 +1,28 @@
 //! Append-only, size-capped files with rotation, for Dalica's own logs (`development.md` §10), so
 //! the app's logger writes through `fs` like everything else (layer rule 4).
 //!
+//! Dalica's index journal (`dalica-store`) appends its records through it too.
+//!
 //! An append that would take the file past its cap writes nothing and returns
 //! [`Error::CapExceeded`], so a file never grows past its cap. Each append is followed by an
 //! `fsync`, so the log of a crashed run survives. [`rotate`] shifts `name.log` → `name.1.log` →
 //! `name.2.log` (the oldest is dropped) before a new run starts writing.
+//!
+//! **A failed append leaves the file as it was before it.** When the write fails or is cut short
+//! (a full disk) or the `fsync` after it fails, [`Appender::append`] cuts the file back to its last
+//! known good length (`set_len`, then a sync) before it reports the error, so the next append
+//! starts right after the last whole record and never after half of one. If that cut fails too,
+//! the appender refuses every later append until the file is reopened (the reader then decides
+//! what to do with the torn tail; the journal cuts it off on open). A simulated crash
+//! ([`crate::faults::Fault::Crash`]) cleans nothing up, as a killed process would not, and leaves
+//! the appender refusing in the same way. The appender is the file's only writer: the library lock
+//! ([`crate::LibraryLock`], held by the session that owns the journal) keeps every other process
+//! out of a library's journal, and the app's log has one writer thread per run. So it writes at
+//! the length it knows rather than through an append-mode handle, because an append-mode handle
+//! on Windows has no right to set the end of the file.
 
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, Write as _};
+use std::io::{self, Seek as _, SeekFrom, Write as _};
 use std::path::{Path, PathBuf};
 
 use crate::faults::{self, Fault, points};
@@ -18,8 +33,11 @@ use crate::{Error, Result, guard, io_err};
 pub struct Appender {
     file: File,
     path: PathBuf,
+    /// The length of the whole records written: where the next append starts.
     size: u64,
     cap: u64,
+    /// A failed append left bytes past `size` that could not be cut off: every append is refused.
+    torn: bool,
 }
 
 impl Appender {
@@ -30,38 +48,55 @@ impl Appender {
             Ok(m) if m.file_type().is_symlink() => return Err(Error::Link(path.to_path_buf())),
             _ => {}
         }
-        let file = OpenOptions::new().append(true).create(true).open(path).map_err(io_err("open", path))?;
+        // Not `append(true)`: on Windows such a handle cannot set the end of the file (module docs).
+        let file = OpenOptions::new().write(true).create(true).truncate(false).open(path).map_err(io_err("open", path))?;
         let size = file.metadata().map_err(io_err("stat", path))?.len();
-        Ok(Appender { file, path: path.to_path_buf(), size, cap })
+        Ok(Appender { file, path: path.to_path_buf(), size, cap, torn: false })
     }
 
-    /// Appends `bytes` and syncs them to disk; refuses (writing nothing) if the file would pass its cap.
+    /// Appends `bytes` and syncs them to disk; refuses (writing nothing) if the file would pass its
+    /// cap. On an error the file holds exactly what it held before (module docs).
     pub fn append(&mut self, bytes: &[u8]) -> Result<()> {
         guard::check()?;
-        let len = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
-        if self.size.checked_add(len).is_none_or(|end| end > self.cap) {
-            return Err(Error::CapExceeded { path: self.path.clone(), cap: self.cap });
+        if self.torn {
+            return Err(io_err("append", &self.path)(io::Error::other(
+                "an earlier append failed and its bytes could not be cut off; the file must be reopened",
+            )));
         }
+        let len = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
+        let Some(end) = self.size.checked_add(len).filter(|&end| end <= self.cap) else {
+            return Err(Error::CapExceeded { path: self.path.clone(), cap: self.cap });
+        };
         if let Some(fault) = faults::hit(points::APPEND_WRITE) {
             let half = bytes.get(..bytes.len() / 2).unwrap_or_default();
-            let _ = self.file.write_all(half);
-            self.resync_size();
+            let _ = self.write_at_end(half);
             return Err(match fault {
-                Fault::Error => io_err("append", &self.path)(faults::injected(points::APPEND_WRITE)),
-                Fault::Crash => Error::Crashed(points::APPEND_WRITE),
+                Fault::Error => self.cut_back(io_err("append", &self.path)(faults::injected(points::APPEND_WRITE))),
+                Fault::Crash => {
+                    self.torn = true;
+                    Error::Crashed(points::APPEND_WRITE)
+                }
             });
         }
-        if let Err(e) = self.file.write_all(bytes) {
-            self.resync_size();
-            return Err(io_err("append", &self.path)(e));
+        if let Err(e) = self.write_at_end(bytes) {
+            return Err(self.cut_back(io_err("append", &self.path)(e)));
         }
-        self.size += len;
-        match faults::hit(points::APPEND_FSYNC) {
-            Some(Fault::Error) => return Err(io_err("fsync", &self.path)(faults::injected(points::APPEND_FSYNC))),
-            Some(Fault::Crash) => return Err(Error::Crashed(points::APPEND_FSYNC)),
-            None => {}
+        let synced = match faults::hit(points::APPEND_FSYNC) {
+            Some(Fault::Error) => Err(io_err("fsync", &self.path)(faults::injected(points::APPEND_FSYNC))),
+            Some(Fault::Crash) => {
+                // The record is whole on disk, only not synced: a killed process leaves it so.
+                self.size = end;
+                return Err(Error::Crashed(points::APPEND_FSYNC));
+            }
+            None => faults::fsync(&self.path, || self.file.sync_data()).map_err(io_err("fsync", &self.path)),
+        };
+        match synced {
+            Ok(()) => {
+                self.size = end;
+                Ok(())
+            }
+            Err(e) => Err(self.cut_back(e)),
         }
-        faults::fsync(&self.path, || self.file.sync_data()).map_err(io_err("fsync", &self.path))
     }
 
     /// The file's size in bytes as far as this appender knows.
@@ -77,11 +112,21 @@ impl Appender {
         &self.path
     }
 
-    /// After a partial write the size is unknown: ask the file.
-    fn resync_size(&mut self) {
-        if let Ok(m) = self.file.metadata() {
-            self.size = m.len();
+    /// Writes `bytes` at the end of the whole records (over anything a failed append left there).
+    fn write_at_end(&mut self, bytes: &[u8]) -> io::Result<()> {
+        self.file.seek(SeekFrom::Start(self.size))?;
+        self.file.write_all(bytes)
+    }
+
+    /// After a failed append: cuts the file back to the whole records and syncs the cut, so it holds
+    /// what it held before; if that fails, every later append is refused. Returns `err`, the
+    /// append's own error, which is the reason the caller reports.
+    fn cut_back(&mut self, err: Error) -> Error {
+        let cut = self.file.set_len(self.size).and_then(|()| faults::fsync(&self.path, || self.file.sync_all()));
+        if cut.is_err() {
+            self.torn = true;
         }
+        err
     }
 }
 
@@ -209,6 +254,26 @@ mod tests {
         assert!(matches!(a.append(b"x"), Err(Error::OnUiThread)));
         assert!(matches!(rotate(&p, 2), Err(Error::OnUiThread)));
         assert!(matches!(Appender::open(&p, 100), Err(Error::OnUiThread)));
+    }
+
+    /// When the cut after a failed append fails too, the appender refuses every later append (the
+    /// file keeps what it held) until it is reopened. A read-only handle makes both the write and
+    /// the cut fail for real.
+    #[test]
+    fn a_failed_cut_refuses_every_later_append_until_reopened() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("index.log");
+        let mut a = Appender::open(&p, 1 << 20).unwrap();
+        a.append(b"one\n").unwrap();
+        let writable = std::mem::replace(&mut a.file, File::open(&p).unwrap());
+        assert!(matches!(a.append(b"two\n"), Err(Error::Io { op: "append", .. })));
+        a.file = writable;
+        let refused = a.append(b"three\n");
+        assert!(matches!(&refused, Err(Error::Io { op: "append", source, .. }) if source.to_string().contains("reopened")), "{refused:?}");
+        assert_eq!(fs::read(&p).unwrap(), b"one\n");
+        let mut a = Appender::open(&p, 1 << 20).unwrap();
+        a.append(b"four\n").unwrap();
+        assert_eq!(fs::read(&p).unwrap(), b"one\nfour\n");
     }
 
     #[cfg(feature = "faults")]

@@ -3,6 +3,7 @@
 
 mod common;
 
+mod append;
 mod atomic;
 mod crash;
 mod create;
