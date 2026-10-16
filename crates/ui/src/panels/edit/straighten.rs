@@ -42,6 +42,8 @@ pub const SLIDER_ID: &str = "slider:straighten.angle";
 /// Apply and Cancel on the floating bar (`control-protocol.md` §7).
 pub const APPLY_ID: &str = "button:panel.apply";
 pub const CANCEL_ID: &str = "button:panel.cancel";
+/// The floating bar itself, which takes the clicks around its parts (`control-protocol.md` §7).
+pub const BAR_ID: &str = "box:straighten";
 /// One arrow-key nudge, in degrees.
 pub const NUDGE: f32 = 0.1;
 /// The slider's step, in degrees.
@@ -342,7 +344,8 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let l = bar_layout(image.intersect(area), area, buttons_w, t.metrics.button_h);
     painter.rect_filled(l.bar, CornerRadius::same(BAR_RADIUS), BAR_FILL);
     // The bar takes the clicks around its parts (an open tool owns the canvas's anyway).
-    let _ = ui.interact(l.bar, Id::new("straighten:bar"), Sense::click_and_drag());
+    let bar = ui.interact(l.bar, Id::new(BAR_ID), Sense::click_and_drag());
+    widgets::register(ui.ctx(), BAR_ID, Role::Other, "Straighten", Target::Widget(&bar), false);
 
     if let Some(a) = slider(ui, &t, l.slider, draft_angle(app)) {
         set_angle(app, a);

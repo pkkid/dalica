@@ -72,9 +72,6 @@ const KEYS: [&str; 34] = [
     "Ctrl+Shift+S",
 ];
 const TEXTS: [&str; 5] = ["Tram 28", "é漢字 ✓", "  ", "a\tb", "1234567890"];
-/// The straighten tool's floating bar takes clicks without an automation id: a known gap, a
-/// TODO(maintainer) in `straighten_tool.rs`; any other breach fails.
-const KNOWN_UNREGISTERED: &str = "straighten:bar";
 
 /// SplitMix64: small, seeded, the same on every system.
 struct Rng(u64);
@@ -179,22 +176,10 @@ fn play(d: &mut Driver, a: &Action) {
     };
 }
 
-/// The driver's automation-id breach, unless it is only the known one.
-fn unknown_breach(d: &Driver) -> Option<String> {
-    let breach = d.id_breach()?;
-    let known = format!("egui_id: {:?}", egui::Id::new(KNOWN_UNREGISTERED));
-    let only_known = breach.contains("interactive widgets without an id") && breach.matches("egui_id:").count() == breach.matches(&known).count();
-    (!only_known).then(|| breach.to_string())
-}
-
 /// Why the app is not in order after an action, if it is not.
 fn broken(d: &mut Driver, refused_before: u64) -> Option<String> {
-    if let Some(breach) = unknown_breach(d) {
+    if let Some(breach) = d.id_breach() {
         return Some(format!("automation ids: {breach}"));
-    }
-    if d.id_breach().is_some() {
-        // Only the known gap: look again from this frame on.
-        d.check_ids(true);
     }
     let s = d.state();
     for check in [s.check_m6(), s.check_m7(), s.check_m8(), s.check_m9(), s.check_m10()] {

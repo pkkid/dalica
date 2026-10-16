@@ -14,10 +14,11 @@ use crate::app::App;
 use crate::dialogs::rename_files;
 use crate::state::RenameDraft;
 
-/// File ▸ Rename… (F2): opens Rename Files for the selection. F2 is bound in the Library only:
-/// the edit view's key dispatch runs a command with the open photo and never opens an opener's
-/// dialog, so F2 there would run `photo.rename` without a name.
-pub const RENAME: Opener = Opener { id: "photo.rename", dialog: "renameFiles", keys: &[(Context::Library, "F2")], open, check };
+/// File ▸ Rename… (F2): opens Rename Files for the selection. F2 is a Global key
+/// (`menus-and-shortcuts.md` §2.1), bound in both views: in the edit view its dispatch opens the
+/// dialog for the open photo.
+pub const RENAME: Opener =
+    Opener { id: "photo.rename", dialog: "renameFiles", keys: &[(Context::Library, "F2"), (Context::EditView, "F2")], open, check };
 
 /// Why there is nothing to rename.
 pub const NOTHING: &str = "Select some photos first.";

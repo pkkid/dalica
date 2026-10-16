@@ -6,7 +6,8 @@
 //! the `caution` "!" of a photo that cannot be shown; the inline caption editor under the cell it
 //! is open for ([`caption_edit`]); and, after the pointer has rested on the cell
 //! for [`TOOLTIP_SECONDS`], the tooltip (file name; date taken, pixel size, file size; or why the
-//! photo cannot be shown). A hidden photo is drawn at [`HIDDEN_OPACITY`] when View ▸ Hidden
+//! photo cannot be shown), unless Options ▸ Show tooltips is off (`interface.tooltips`, which
+//! `crate::scale` turns into egui's infinite tooltip delay). A hidden photo is drawn at [`HIDDEN_OPACITY`] when View ▸ Hidden
 //! Pictures shows it ([`opacity`]).
 //!
 //! **Boundary.** The parent calls [`show`] once per cell on screen, after the section's header,
@@ -139,8 +140,10 @@ impl Cells {
 
     /// Whether the pointer has rested on `photo` for [`TOOLTIP_SECONDS`], counting from when it
     /// came onto the cell or last pressed it. Asks for a repaint when the tooltip is still to come.
+    /// Never with Show tooltips off: the setting makes egui's tooltip delay infinite
+    /// (`crate::scale`), and the cell's own timer follows it.
     fn rested(&mut self, ui: &Ui, photo: PhotoId, response: &Response, pass: u64, now: f64) -> bool {
-        if !response.hovered() {
+        if !response.hovered() || !ui.style().interaction.tooltip_delay.is_finite() {
             return false;
         }
         let pressed = response.is_pointer_button_down_on() || response.clicked() || response.dragged();
