@@ -92,7 +92,7 @@ fn a_scan_is_listed_with_progress_and_waited_for() {
     let (reader, gate) = gated();
     t.d.app_mut().session_mut().unwrap().set_scan_reader(Some(reader));
     let photos = folder(&t.root, "2026-06-01 Trip", 6);
-    let added = ok(&mut t, "engine.execute", json!({ "command": "folders.add", "params": { "path": photos } }));
+    let added = ok(&mut t, "engine.execute", json!({ "command": "folders.add", "params": { "path": photos }, "wait": false }));
     assert_eq!(added["scanning"], true);
 
     let list = ok(&mut t, "jobs.list", Value::Null);
@@ -133,7 +133,7 @@ fn jobs_cancel_stops_a_scan() {
     let (reader, gate) = gated();
     t.d.app_mut().session_mut().unwrap().set_scan_reader(Some(reader));
     let photos = folder(&t.root, "2026-06-02 Hike", 40);
-    ok(&mut t, "engine.execute", json!({ "command": "folders.add", "params": { "path": photos } }));
+    ok(&mut t, "engine.execute", json!({ "command": "folders.add", "params": { "path": photos }, "wait": false }));
     let job = ok(&mut t, "jobs.list", json!({}))[0]["job"].as_u64().unwrap();
     assert_eq!(ok(&mut t, "jobs.cancel", json!({ "job": job })), json!({ "cancelled": [job] }));
     // The held file is read, then the walk stops.

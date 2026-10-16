@@ -7,13 +7,18 @@
 //!
 //! The steps mirror the headless driver's (`dalica_ui::headless`) frame by frame, so a script
 //! behaves the same in the window and headless.
+//!
+//! `ui.screenshot {headless: true}` draws the window on the CPU from the [`CpuMirror`] this module
+//! adds to the window's context. While the window draws no frames (minimised, covered: eframe then
+//! calls only the logic tick, outside any pass), such a capture runs the passes it needs itself,
+//! one per logic tick ([`own_pass`]).
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::time::{Duration, Instant};
 
 use dalica_ui::App;
-use dalica_ui::control::{Code, Connection, Control, DragTo, Error, Host, Input, Next, Outcome, Played, Then, Window, guard};
+use dalica_ui::control::{Code, Connection, Control, CpuMirror, DragTo, Error, Host, Input, Next, Outcome, Played, Then, Window, guard};
 use dalica_ui::headless::{Click, Drag, DriverError, KeyState, MAX_STEPS, PointerEvent, PointerKind, QUIET_FRAMES, Settled};
 use dalica_ui::perf::Perf;
 use dalica_ui_kit::{Image, registry};
@@ -166,6 +171,8 @@ pub struct WindowControl {
     /// Where synthetic input left the pointer.
     pointer: Option<Pos2>,
     last_frame: Option<Instant>,
+    /// The [`CpuMirror`] is on the window's context.
+    mirrored: bool,
 }
 
 /// What the window looks like now (§6.6).
@@ -187,12 +194,19 @@ impl WindowControl {
             held: Modifiers::NONE,
             pointer: None,
             last_frame: None,
+            mirrored: false,
         }
     }
 
     /// The logic tick: takes requests off the queue, runs continuations and finished work, until
     /// a request is waiting for frames or work, or nothing is queued.
     pub fn logic(&mut self, app: &mut App, ctx: &egui::Context, perf: &mut Perf) {
+        if !self.mirrored {
+            // From the first tick, which runs inside the first pass: its uploads (the font atlas)
+            // reach the mirror when that pass ends.
+            ctx.add_plugin(CpuMirror::default());
+            self.mirrored = true;
+        }
         let window = window_info(ctx, self.last_frame);
         for _ in 0..64 {
             let next = match self.active.take() {
@@ -222,7 +236,21 @@ impl WindowControl {
                             Job::Continue(a.pending.take(), a.started, Outcome::Reply(Err(e)))
                         }
                     },
-                    Stage::Playing(play, then) => {
+                    Stage::Playing(mut play, then) => {
+                        if ctx.with_plugin(|m: &mut CpuMirror| m.capturing() && m.can_run_pass()) == Some(true) {
+                            // A CPU capture while the window draws no frames: one pass of our own
+                            // per tick, then the next tick.
+                            own_pass(app, ctx);
+                            advance(&mut play, app, ctx);
+                            let stage = if play.done() { Stage::Played(play.result(), then) } else { Stage::Playing(play, then) };
+                            let done = matches!(stage, Stage::Played(..));
+                            self.active = Some(Active { stage, ..a });
+                            if !done {
+                                ctx.request_repaint();
+                                return;
+                            }
+                            continue;
+                        }
                         if stalled(a.started, self.last_frame, Instant::now()) {
                             // Minimised or covered: the window draws no frames, so input cannot play
                             // and a screenshot cannot be read back (§6.11). Dalica never raises the
@@ -294,6 +322,8 @@ impl WindowControl {
     fn proceed(&mut self, pending: Option<Pending>, started: Instant, outcome: Outcome, ctx: &egui::Context) {
         match outcome {
             Outcome::Reply(r) => {
+                // A capture the request left unfinished (it failed, or timed out) is over.
+                ctx.with_plugin(|m: &mut CpuMirror| m.reset());
                 if let Some(p) = pending {
                     p.reply(r);
                 }
@@ -620,6 +650,37 @@ pub fn busy(app: &App, jobs: bool) -> Vec<String> {
     busy
 }
 
+/// One pass of the window's context run by the control channel, for a CPU capture while the window
+/// draws no frames: the app laid out as the window lays it out, on the last frame's input with no
+/// new events, the clock one predicted frame on. The mirror sees its textures; its output (texture
+/// uploads and releases, window commands) goes to the window's next frame.
+pub fn own_pass(app: &mut App, ctx: &egui::Context) {
+    let mut raw = ctx.input(|i| i.raw.clone());
+    raw.events.clear();
+    raw.hovered_files.clear();
+    raw.dropped_files.clear();
+    raw.time = None;
+    if raw.screen_rect.is_none_or(|r| r.width() < 1.0 || r.height() < 1.0) {
+        raw.screen_rect = Some(ctx.viewport_rect());
+    }
+    ctx.with_plugin(|m: &mut CpuMirror| m.set_own(true));
+    let out = ctx.run_ui(raw, |ui| {
+        app.frame(ui);
+        dalica_ui::titlebar::resize_edges(ui);
+    });
+    let mut out = Some(out);
+    ctx.with_plugin(|m: &mut CpuMirror| {
+        m.set_own(false);
+        if let Some(o) = out.take() {
+            m.stash(o);
+        }
+    });
+    // No mirror (cannot happen once `logic` has run): nothing will upload these.
+    if let Some(mut o) = out {
+        o.textures_delta.clear();
+    }
+}
+
 /// One frame has been laid out: moves the play on.
 fn advance(play: &mut Play, app: &App, ctx: &egui::Context) {
     let Some(step) = play.steps.front_mut() else { return };
@@ -849,6 +910,161 @@ mod tests {
         c.active = Some(Active { pending: None, started, stage: Stage::Playing(p, then) });
         c.logic(&mut app, &ctx, &mut perf);
         assert!(c.active.is_none(), "answered (timeout) and done, not left waiting for frames");
+    }
+
+    /// A window as eframe drives it, with no OS window: each frame runs the logic tick inside the
+    /// pass, then the app, then `after_frame`; the GPU's share of the output is dropped.
+    struct Sim {
+        ctx: egui::Context,
+        app: App,
+        c: WindowControl,
+        perf: Perf,
+        frames: u64,
+    }
+
+    impl Sim {
+        fn new(app: App, control: Control) -> Sim {
+            let ctx = egui::Context::default();
+            app.install(&ctx);
+            let l = super::super::transport::bind(0).unwrap();
+            let token = super::super::token::Token::generate().unwrap();
+            let hub = super::super::transport::start(l, token, Arc::new(|| {})).unwrap();
+            let mut sim = Sim { ctx, app, c: WindowControl::new(hub, control), perf: Perf::new(false), frames: 0 };
+            sim.frame();
+            sim
+        }
+
+        fn frame(&mut self) {
+            let mut raw = dalica_ui_kit::raw_input(1400, 900, 1.0);
+            raw.time = Some(self.frames as f64 / 60.0);
+            self.c.raw_input(&mut raw);
+            let (c, app, perf) = (&mut self.c, &mut self.app, &mut self.perf);
+            let mut out = self.ctx.run_ui(raw, |ui| {
+                c.logic(app, ui.ctx(), perf);
+                app.frame(ui);
+                c.after_frame(app, ui.ctx());
+            });
+            out.textures_delta.clear();
+            self.frames += 1;
+        }
+
+        /// eframe's tick while the window is hidden: the logic alone, outside any pass.
+        fn hidden_tick(&mut self) {
+            self.c.logic(&mut self.app, &self.ctx, &mut self.perf);
+        }
+
+        /// Frames until nothing is pending for 30 frames in a row.
+        fn settle(&mut self) {
+            let mut quiet = 0;
+            for _ in 0..20_000 {
+                self.frame();
+                quiet = if busy(&self.app, false).is_empty() { quiet + 1 } else { 0 };
+                if quiet >= 30 {
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            panic!("the window did not settle: {:?}", busy(&self.app, false));
+        }
+
+        /// Starts `req` as the transport would; the returned function gives its reply once sent.
+        fn start(&mut self, req: dalica_ui::control::Request) -> impl Fn() -> Option<dalica_ui::control::Reply> + use<> {
+            let (p, take) = super::super::transport::pending_for_test(1, req, Instant::now());
+            let window = window_info(&self.ctx, self.c.last_frame);
+            let conn = self.c.conns.entry(1).or_default();
+            let mut host = WinHost { app: &mut self.app, ctx: &self.ctx, perf: &mut self.perf, window };
+            let outcome = conn.handle(&self.c.control, &mut host, &p.req);
+            self.c.proceed(Some(p), Instant::now(), outcome, &self.ctx);
+            take
+        }
+
+        /// Runs `step` until the request answers.
+        fn answer(&mut self, take: impl Fn() -> Option<dalica_ui::control::Reply>, mut step: impl FnMut(&mut Sim)) -> dalica_ui::control::Reply {
+            for _ in 0..20_000 {
+                if let Some(r) = take() {
+                    return r;
+                }
+                step(self);
+                std::thread::sleep(Duration::from_millis(1));
+            }
+            panic!("no answer");
+        }
+    }
+
+    /// A library of two folders of synthetic photos, the same in every `dir`.
+    fn library(dir: &std::path::Path) -> App {
+        let spec = dalica_engine::synthetic::Spec::new(6, 2, 11);
+        let mut s = dalica_engine::synthetic::open_scanned(dir, &spec, 96, Arc::new(dalica_core::SystemClock)).unwrap();
+        s.wait_idle();
+        App::new(Some(s))
+    }
+
+    fn shot(path: &std::path::Path) -> dalica_ui::control::Request {
+        dalica_ui::control::Request::new("ui.screenshot", json!({ "path": path, "headless": true }))
+    }
+
+    /// `ui.screenshot {headless: true}` through the window's handlers draws the frame on the CPU from
+    /// the window's mirror: the PNG equals `--headless`'s byte for byte, whether the window draws its
+    /// frames or draws none (minimised, covered: the capture then runs its own passes from the logic
+    /// tick). The headless capture of `apps/dalica/tests` cannot reach these handlers (the app has
+    /// no library target), so the comparison lives here.
+    #[test]
+    fn a_cpu_capture_in_the_window_equals_the_headless_one_byte_for_byte() {
+        let dirs = [tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap()];
+        let out = dirs[2].path().to_path_buf();
+        let config = || dalica_ui::control::Config { write_roots: vec![out.clone()], ..Default::default() };
+
+        // `--headless`: the driver's own capture.
+        let control = Control::new(config());
+        let mut d = dalica_ui::Driver::new(library(&dirs[0].path().join("lib")), 1400, 900, 1.0);
+        d.settle(20_000).unwrap();
+        let mut conn = Connection::new();
+        let r = dalica_ui::control::serve(&control, &mut conn, &mut d, &shot(&out.join("headless.png"))).unwrap();
+        assert_eq!(r["headless"], true, "{r}");
+        let headless = std::fs::read(out.join("headless.png")).unwrap();
+
+        // The window, drawing.
+        let mut w = Sim::new(library(&dirs[1].path().join("lib")), Control::new(config()));
+        w.settle();
+        let t = Instant::now();
+        let take = w.start(shot(&out.join("window.png")));
+        let r = w.answer(take, Sim::frame).unwrap();
+        let drawing_ms = t.elapsed().as_millis();
+        assert_eq!((r["headless"].clone(), r["width"].clone(), r["height"].clone()), (json!(true), json!(1400), json!(900)), "{r}");
+        let window = std::fs::read(out.join("window.png")).unwrap();
+        assert!(window == headless, "the window's CPU capture differs from --headless's");
+
+        // The window, hidden: only logic ticks, outside any pass.
+        let t = Instant::now();
+        let take = w.start(shot(&out.join("hidden.png")));
+        let r = w.answer(take, Sim::hidden_tick).unwrap();
+        let hidden_ms = t.elapsed().as_millis();
+        assert_eq!(r["headless"], true, "{r}");
+        assert!(std::fs::read(out.join("hidden.png")).unwrap() == headless, "the hidden window's capture differs from --headless's");
+        // The window's next frame takes what those passes uploaded, and draws on.
+        w.frame();
+        assert!(!w.ctx.with_plugin(|m: &mut CpuMirror| m.capturing()).unwrap());
+        eprintln!("numbers: CPU capture in a drawing window {drawing_ms} ms, in a hidden one {hidden_ms} ms");
+    }
+
+    /// A CPU capture at another scale than the window's is refused before any frame, as the GPU
+    /// read-back is; without a mirror (a context the window never ticked) it is `unsupported`.
+    #[test]
+    fn a_cpu_capture_at_another_scale_is_refused() {
+        let mut w = Sim::new(App::new(None), Control::new(Default::default()));
+        let take = w.start(dalica_ui::control::Request::new("ui.screenshot", json!({ "headless": true, "scale": 2.0 })));
+        assert_eq!(take().unwrap().unwrap_err().code, Code::BadParams);
+        assert!(!w.ctx.with_plugin(|m: &mut CpuMirror| m.capturing()).unwrap());
+        let ctx = egui::Context::default();
+        let mut app = App::new(None);
+        let mut perf = Perf::new(false);
+        let mut host = WinHost { app: &mut app, ctx: &ctx, perf: &mut perf, window: window_info(&ctx, None) };
+        let outcome = Connection::new().handle(
+            &Control::new(Default::default()),
+            &mut host,
+            &dalica_ui::control::Request::new("ui.screenshot", json!({ "headless": true })),
+        );
+        assert!(matches!(outcome, Outcome::Reply(Err(Error { code: Code::Unsupported, .. }))));
     }
 
     #[test]

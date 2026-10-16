@@ -4789,7 +4789,7 @@ No other step of M10 needs a maintainer decision mid-run.
     `crates/ui/tests/control_inspect.rs`: the method adds the UI fields and agrees with
     `ui.inspect` on the selection; `crates/mcp/tests/inspect.rs`: `doc_inspect` equals the engine
     query; graceful failures; `panic_hunt` green.
-- ⬜ **M10.8 `ui`: `batch`, replies that wait for their job, and the headless capture in the window**
+- ✅ **M10.8 `ui`: `batch`, replies that wait for their job, and the headless capture in the window**
   - after: M10.2
   - files: `crates/ui/src/control/batch.rs`, `crates/ui/src/control/engine.rs`, `crates/ui/src/control/jobs.rs`, `crates/ui/src/control/screenshot.rs`, `crates/ui/tests/control_batch.rs`, `crates/ui/tests/control_wait.rs`, `apps/dalica/src/control/play.rs`, `apps/dalica/tests/control_headless.rs`, `docs/control-protocol.md`
   - scope: `control-protocol.md` §5.3, §6.3 and §6.11, the missing parts of `SYS-CONTROL`:
