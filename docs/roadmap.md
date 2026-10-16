@@ -5243,7 +5243,7 @@ No other step of M10 needs a maintainer decision mid-run.
     with UI scale 150 % lays out 933 × 600 points and its screenshot is 1400 × 900 pixels; in
     `cells.rs`, with `interface.tooltips` off, resting on a cell past `TOOLTIP_SECONDS` shows no
     tooltip (on, it does); `cargo xtask parity` shows `KEY-GLOBAL-F2` ✅; `cargo xtask ci` green.
-- ⬜ **M10.42 `dalica` + `ui`: the app test and the caption fingerprint M10.29's section moved**
+- ✅ **M10.42 `dalica` + `ui`: the app test and the caption fingerprint M10.29's section moved**
   - after: M10.29
   - files: `apps/dalica/tests/control_headless.rs`, `crates/ui/tests/captions.rs`
   - scope: found by the full gate (GitHub run 38832985226, PR #597): M10.29 turned the Recently

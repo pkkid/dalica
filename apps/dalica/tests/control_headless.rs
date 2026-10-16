@@ -149,8 +149,21 @@ fn an_agent_stars_a_photo_by_click_and_key_and_takes_a_screenshot() {
     c.ok("ui.key", json!({ "combo": "Ctrl+8" }));
     let key = ms(t);
     assert_eq!(star(&mut c), true, "Ctrl+8 starred the clicked photo");
-    let selected = c.ok("ui.widgets", json!({ "filter": "thumb:1/star" }));
-    assert_eq!(selected.as_array().map(Vec::len), Some(1), "the star badge is drawn: {selected}");
+    // Starring it puts its copies in Starred Photos and Recently Updated (`thumb:1/in/starred`,
+    // `thumb:1/in/recent`) above its folder (`organizing.md` §4.1), which pushes the folder's cell
+    // down to the view's edge: the badge is read on the copies, each wholly in view.
+    let widgets = c.ok("ui.widgets", json!({ "filter": "thumb:1/in/" }));
+    let rect = |id: &str| {
+        let w = widgets.as_array().and_then(|ws| ws.iter().find(|w| w["id"] == id)).unwrap_or_else(|| panic!("{id} is drawn: {widgets}"));
+        let r: Vec<f64> = w["rect"].as_array().unwrap().iter().map(|v| v.as_f64().unwrap()).collect();
+        r
+    };
+    for copy in ["thumb:1/in/starred", "thumb:1/in/recent"] {
+        let (badge, cell) = (rect(&format!("{copy}/star")), rect(copy));
+        let inside =
+            badge[0] >= cell[0] && badge[1] >= cell[1] && badge[0] + badge[2] <= cell[0] + cell[2] && badge[1] + badge[3] <= cell[1] + cell[3];
+        assert!(inside, "the star badge is drawn inside {copy}: badge {badge:?}, cell {cell:?}");
+    }
 
     let t = Instant::now();
     let r = c.ok("ui.screenshot", json!({ "path": shot }));
