@@ -5500,7 +5500,7 @@ No other step of M10 needs a maintainer decision mid-run.
     W04 green on macOS and Windows, both in the test step and in `cargo xtask stats --check`
     holding at 9, the jobs cited in the PR; for a product bug, the lower test fails before the fix
     and passes after; `cargo xtask ci` green.
-- ⬜ **M10.26 `docs`: the P0 parity audit**
+- ✅ **M10.26 `docs`: the P0 parity audit**
   - after: M10.8, M10.11, M10.12, M10.16, M10.19, M10.20, M10.21, M10.22, M10.23, M10.25, M10.39, M10.40, M10.41, M10.42, M10.43, M10.44, M10.45, M10.46, M10.47, M10.48, M10.49, M10.50
   - files: `docs/parity.md`
   - scope: `process.md` §5 and the decisions above: every P0 row re-measured (its cited tests run,
