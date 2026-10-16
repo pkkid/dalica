@@ -10,7 +10,7 @@
 //! ┌──────────────────────────────────────────────────┐
 //! │ the tab's body                                   │
 //! └──────────────────────────────────────────────────┘
-//! (the last Apply's error)
+//! (the last Apply's error: text:dialog.error)
 //!                                  [OK] [Cancel] [Apply]
 //! ```
 //!
@@ -34,7 +34,8 @@ pub mod shortcuts;
 
 use dalica_engine::CmdError;
 use dalica_ui_kit::fonts;
-use dalica_ui_kit::widgets::{self, ButtonKind};
+use dalica_ui_kit::registry::Role;
+use dalica_ui_kit::widgets::{self, ButtonKind, Target};
 use egui::{RichText, Ui, vec2};
 use serde_json::{Value, json};
 
@@ -60,6 +61,9 @@ pub const TABS: [(OptionsTab, &str, &str); 4] = [
     (OptionsTab::Export, "tab:options.export", "Export"),
     (OptionsTab::Shortcuts, "tab:options.shortcuts", "Keyboard Shortcuts"),
 ];
+
+/// The last Apply's error line, while there is one (its text as the label).
+pub const ERROR_ID: &str = "text:dialog.error";
 
 /// The buttons' labels.
 pub const OK: &str = "OK";
@@ -121,7 +125,10 @@ pub fn body(app: &mut App, ui: &mut Ui, _d: &mut Dialog) {
         }
     });
     let error = app.state().options.as_ref().and_then(|o| o.error.clone()).unwrap_or_default();
-    ui.add(egui::Label::new(RichText::new(error).font(fonts::regular(t.body)).color(t.danger)).truncate());
+    let r = ui.add(egui::Label::new(RichText::new(&error).font(fonts::regular(t.body)).color(t.danger)).truncate());
+    if !error.is_empty() {
+        widgets::register(ui.ctx(), ERROR_ID, Role::Other, &error, Target::Painted { rect: r.rect, clip: ui.clip_rect() }, false);
+    }
 }
 
 /// Applies the draft: the changed values in one `options.set {values}`, then the shortcut editor's

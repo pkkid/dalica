@@ -13,7 +13,8 @@
 //!
 //! **Zoom** (`commands::zoom`): the edit state's `zoom` is `Fit` or a scale (1 is 100 %). Fit and
 //! 1:1 set from outside the canvas (the bottom area's buttons, `ui.set`) animate [`ANIMATION`]
-//! seconds; other outside changes jump, about the pointer when it is over the photo area (Ctrl+=,
+//! seconds (they jump when Options ▸ General ▸ Use animations is off, [`crate::scale::animations`],
+//! and so do a click's Fit and a hold's 100 %); other outside changes jump, about the pointer when it is over the photo area (Ctrl+=,
 //! Ctrl+−), else about the centre. The wheel zooms ×1.1 a notch about the pointer and a pinch
 //! zooms (`dalica_ui_kit::input::wheel`), snapping to 100 % when crossing it; a trackpad scroll
 //! pans.
@@ -23,7 +24,8 @@
 //! photo returns to fit; a double-click returns to the library. With "Single-click to leave the
 //! edit view" one click leaves and the press-and-hold zoom is off. Dragging a photo larger than the
 //! area pans it (hand cursor), bounded so no edge comes inside the area, and glides on when let go
-//! while moving (`dalica_ui_kit::input::flick`).
+//! while moving (`dalica_ui_kit::input::flick`); with animations off the glide's whole distance is
+//! moved in the frame it starts ([`glide_rest`]).
 //!
 //! **What tests and agents see.** `canvas:edit` is the photo area; [`view`] is the last frame's
 //! layout (the photo's rect, the scale, whether it is refining). The fitted scale is also kept per
@@ -177,17 +179,21 @@ struct Canvas {
     size: Option<Sized>,
 }
 
+/// The most steps of a glide [`glide_rest`] adds up (a glide at the fastest speed comes to rest in
+/// fewer).
+const GLIDE_STEPS: usize = 64;
+
 /// The ease-out of the zoom animation at `p` (0 … 1).
 fn ease(p: f32) -> f32 {
     let q = 1.0 - p.clamp(0.0, 1.0);
     1.0 - q * q * q
 }
 
-/// The scale and centre shown now: the animation's, else the target's.
-fn shown(c: &Canvas, now: f64, target_scale: f32) -> (f32, Pos2, bool) {
+/// The scale and centre shown now: the animation's (unless animations are off), else the target's.
+fn shown(c: &Canvas, now: f64, target_scale: f32, animate: bool) -> (f32, Pos2, bool) {
     let target_centre = c.centre.unwrap_or(CENTRE);
     match c.anim {
-        Some(a) if now - a.start < ANIMATION && a.from_scale > 0.0 && target_scale > 0.0 => {
+        Some(a) if animate && now - a.start < ANIMATION && a.from_scale > 0.0 && target_scale > 0.0 => {
             let e = ease(((now - a.start) / ANIMATION) as f32);
             let scale = (a.from_scale.ln() + (target_scale.ln() - a.from_scale.ln()) * e).exp();
             let centre = a.from_centre.lerp(target_centre, e);
@@ -322,7 +328,8 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     if c.photo != Some(photo) {
         c = Canvas { photo: Some(photo), ..Canvas::default() };
     }
-    if c.anim.is_some_and(|a| (now - a.start).partial_cmp(&ANIMATION) != Some(std::cmp::Ordering::Less)) {
+    let animate = crate::scale::animations(&ctx);
+    if !animate || c.anim.is_some_and(|a| (now - a.start).partial_cmp(&ANIMATION) != Some(std::cmp::Ordering::Less)) {
         c.anim = None;
     }
 
@@ -348,7 +355,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
 
     // The zoom as last applied, and what is shown of it now.
     let seen = *c.seen.get_or_insert(app.state().edit.zoom);
-    let (mut scale, mut centre, _) = shown(&c, now, maths::effective(seen, fit));
+    let (mut scale, mut centre, _) = shown(&c, now, maths::effective(seen, fit), animate);
 
     // A change made outside the canvas: Fit and 1:1 animate, the others jump about the pointer.
     let zoom = app.state().edit.zoom;
@@ -371,7 +378,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             }
         }
         c.seen = Some(zoom);
-        (scale, centre, _) = shown(&c, now, target);
+        (scale, centre, _) = shown(&c, now, target, animate);
     }
 
     // The wheel and the pinch (read every frame, so a gesture's kind follows its latest event).
@@ -406,7 +413,10 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     // Drag pans, and glides on when let go while moving.
     let panning = !tool_open && pannable && response.dragged_by(egui::PointerButton::Primary);
     let delta = if panning { response.drag_delta() } else { Vec2::ZERO };
-    let glide = flick::frame(&ctx, id.with("flick"), panning, delta);
+    let glide = match flick::frame(&ctx, id.with("flick"), panning, delta) {
+        Some(first) if !animate => Some(first + glide_rest(&ctx, id.with("flick"))),
+        glide => glide,
+    };
     let moved = delta + glide.unwrap_or(Vec2::ZERO);
     if moved != Vec2::ZERO && pannable {
         let d = drawn(scale);
@@ -448,7 +458,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     }
 
     // What is shown this frame (a click or a hold starts animating from here).
-    let (scale, centre, animating) = shown(&c, now, maths::effective(c.seen.unwrap_or(Zoom::Fit), fit));
+    let (scale, centre, animating) = shown(&c, now, maths::effective(c.seen.unwrap_or(Zoom::Fit), fit), animate);
     let image = Rect::from_center_size(area.center() + (pos2(0.5, 0.5) - centre) * drawn(scale), drawn(scale));
 
     // The pixels: the preview fitted, the refined window over it.
@@ -604,6 +614,22 @@ fn pointer_input(app: &mut App, ctx: &egui::Context, r: &egui::Response, c: &mut
         s.close_preview();
     }
     action
+}
+
+/// The rest of the glide of flick `id`, all at once (animations are off): its steps added up, and
+/// the glide stopped.
+fn glide_rest(ctx: &egui::Context, id: Id) -> Vec2 {
+    let mut f = ctx.data(|d| d.get_temp::<flick::Flick>(id)).unwrap_or_default();
+    let mut total = Vec2::ZERO;
+    for _ in 0..GLIDE_STEPS {
+        match f.step(flick::FLICK_MAX_DT) {
+            Some(m) => total += m,
+            None => break,
+        }
+    }
+    f.stop();
+    ctx.data_mut(|d| d.insert_temp(id, f));
+    total
 }
 
 /// The "cannot be shown" message, with the reason under it.
