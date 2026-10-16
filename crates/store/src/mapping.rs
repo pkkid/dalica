@@ -34,9 +34,15 @@
 //! folder's album names; a membership of an album the model does not have (deleted here, or never
 //! in this library) is kept as it is, and an entry whose id is not an album id, or whose key or
 //! name cannot be used, is kept verbatim and reported, never used and never written over. A sort the model cannot hold (`manual`, `modified`, anything else) is kept
-//! and reported. Search facts, content digests and the first-indexed and last-changed times are
-//! index-only ([`FACTS_FIELDS`], [`CONTENT_DIGEST_FIELDS`]). These are the rules a scan reading a
-//! folder sidecar follows too.
+//! and reported. Search facts, content digests and the first-indexed times are index-only
+//! ([`FACTS_FIELDS`], [`CONTENT_DIGEST_FIELDS`]). These are the rules a scan reading a folder
+//! sidecar follows too.
+//!
+//! **M10**: a photo's last-changed time (when Dalica last changed what is said about it, which
+//! Recently Updated reads) lives in its entry as `changed` (a UTC time with milliseconds,
+//! [`dalica_sidecar::utc_text`]), so a rebuild keeps it ([`PHOTO_DATA_M9`]'s `lastChanged`,
+//! [`PhotoState::changed`]). A sidecar without it says no change was recorded; a value that is
+//! not such a time is unusable (kept, reported).
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
@@ -136,13 +142,14 @@ pub const FOLDER_DATA_M8: [(&str, Source); 1] = [("project", Source::FolderSidec
 
 /// Per-photo data M9 adds beside [`dalica_library::Photo`], and where it lives: the album
 /// memberships (album id → position key, `photos.<name>.albums`; the order is also copied into
-/// `albums.json`), and the index-only search facts, content digest and times.
+/// `albums.json`), the index-only search facts, content digest and first-indexed time, and the
+/// last-changed time (`photos.<name>.changed`; in the sidecar since M10).
 pub const PHOTO_DATA_M9: [(&str, Source); 5] = [
     ("albums", Source::Sidecar("albums")),
     ("facts", Source::Fields("FACTS_FIELDS")),
     ("digest", Source::Fields("CONTENT_DIGEST_FIELDS")),
     ("firstIndexed", Source::Index),
-    ("lastChanged", Source::Index),
+    ("lastChanged", Source::Sidecar("changed")),
 ];
 
 /// Every field of [`dalica_library::Facts`]: read from the file on scan, kept by the index only.
@@ -190,6 +197,8 @@ pub struct PhotoState {
     pub saved_as: Option<SavedAs>,
     /// The albums the photo belongs to, with its position key in each (M9).
     pub albums: BTreeMap<AlbumId, PosKey>,
+    /// When Dalica last changed what is said about the photo (M10; `None`: no change recorded).
+    pub changed: Option<Timestamp>,
 }
 
 /// What a folder's sidecar should say, taken from the model: enough to write it on any thread.
@@ -252,6 +261,7 @@ pub fn photo_state(library: &Library, photo: &dalica_library::Photo) -> PhotoSta
         info: library.info(photo.id).clone(),
         saved_as: library.saved_as(photo.id).cloned(),
         albums: library.albums_of(photo.id).into_iter().map(|(a, k)| (a.clone(), k.clone())).collect(),
+        changed: library.last_changed(photo.id),
     }
 }
 
@@ -344,6 +354,8 @@ pub struct PhotoReading {
     /// The photo's usable memberships (M9): entries Dalica cannot use are left out (they stay in
     /// the file and are noted); `albums` of the wrong type is unusable.
     pub albums: Reading<BTreeMap<AlbumId, PosKey>>,
+    /// When Dalica last changed the photo (M10); a value that is not a UTC time is unusable.
+    pub changed: Reading<Option<Timestamp>>,
     /// Values past a cap, one sentence each (values of the wrong type are
     /// [`Sidecar::problems`]).
     pub notes: Vec<String>,
@@ -366,6 +378,7 @@ impl PhotoReading {
             },
             saved_as: self.saved_as.or_else(|| own.saved_as.clone()),
             albums: self.albums.or_else(|| own.albums.clone()),
+            changed: self.changed.or(own.changed),
         }
     }
 }
@@ -424,6 +437,7 @@ pub fn read_photo(sidecar: &Sidecar, name: &str) -> PhotoReading {
         date: dated(f.date),
         saved_as: saved_as(sidecar.saved_as(name), &mut notes),
         albums: memberships(sidecar.photo_albums(name), &mut notes),
+        changed: dated(f.changed),
         notes,
     }
 }
@@ -616,6 +630,9 @@ pub fn apply(state: &FolderState, sidecar: &mut Sidecar) -> Vec<WrongType> {
         }
         if differs(&r.date, &i.date) {
             values.push(PhotoValue::Date(i.date));
+        }
+        if differs(&r.changed, &photo.changed) {
+            values.push(PhotoValue::Changed(photo.changed));
         }
         // Every key of one photo goes into the same entry: its first refusal says it all.
         let mut photo_refused = values.iter().find_map(|v| sidecar.set_photo(name, v).err());

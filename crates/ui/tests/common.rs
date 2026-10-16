@@ -216,6 +216,11 @@ pub fn demo_open(dir: &Path, clock: Arc<dyn Clock>) -> Session {
         let path = root.join(&f.path);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, &f.bytes).unwrap();
+        // Written a day before the session's clock says it is: being indexed is no change, and a
+        // file newer than its first index would show as Recently Updated.
+        let written = clock.now().saturating_sub(std::time::Duration::from_secs(86_400));
+        let written = std::time::UNIX_EPOCH + std::time::Duration::from_millis(u64::try_from(written.as_millis()).unwrap_or(0));
+        std::fs::File::options().write(true).open(&path).unwrap().set_modified(written).unwrap();
         let date = dates.entry(path.parent().unwrap().to_path_buf()).or_insert(f.date_time_original);
         *date = (*date).min(f.date_time_original);
     }

@@ -5172,9 +5172,9 @@ No other step of M10 needs a maintainer decision mid-run.
     files in its scope (`architecture.md` §9).
   - done when: `cargo xtask tasks sync --check` parses them and `tasks sync --dry-run` lists one new
     issue per block.
-- ⬜ **M10.29 `library` + `engine` + `ui`: Recently Updated counts changes, and shows**
+- ✅ **M10.29 `library` + `engine` + `ui`: Recently Updated counts changes, and shows**
   - after: M9.R
-  - files: `crates/library/src/model.rs`, `crates/library/src/query.rs`, `crates/library/tests/m9_fields.rs`, `crates/engine/src/session.rs`, `crates/engine/tests/recently_updated.rs`, `crates/ui/src/panels/light_table.rs`, `crates/ui/tests/albums_tree.rs`, `crates/ui/tests/tree.rs`, `docs/organizing.md`, `docs/data-model.md`
+  - files: `crates/library/src/model.rs`, `crates/library/src/query.rs`, `crates/library/tests/m9_fields.rs`, `crates/engine/src/session.rs`, `crates/engine/tests/recently_updated.rs`, `crates/ui/src/panels/light_table.rs`, `crates/ui/tests/albums_tree.rs`, `crates/ui/tests/tree.rs`, `docs/organizing.md`, `docs/data-model.md`, `crates/sidecar/src/fields.rs`, `crates/sidecar/src/tests.rs`, `crates/sidecar/tests/fields.rs`, `crates/sidecar/README.md`, `crates/store/src/mapping.rs`, `crates/store/src/rebuild.rs`, `crates/store/tests/fields.rs`, `crates/store/tests/m9_fields.rs`, `crates/store/README.md`, `crates/scan/src/walk.rs`, `crates/scan/src/diff.rs`, `crates/engine/tests/albums.rs`, `crates/engine/tests/captions.rs`, `crates/engine/tests/search.rs`, `crates/engine/tests/tags.rs`, `crates/engine/README.md`, `crates/library/tests/search.rs`, `crates/library/tests/tree.rs`, `crates/library/README.md`, `crates/ui/tests/add_to_album.rs`, `crates/ui/tests/adjust_date.rs`, `crates/ui/tests/bottom.rs`, `crates/ui/tests/captions.rs`, `crates/ui/tests/common.rs`, `crates/ui/tests/hidden.rs`, `crates/ui/tests/library_window.rs`, `crates/ui/tests/section_header.rs`, `crates/ui/tests/fingerprints/**`, `docs/parity.md`
   - scope: the maintainer's answer at M9.R (Q1): a photo is recently updated by the last change
     after this library first indexed it (an edit, a caption, tags, a star, a rotation, a date, a
     file changed on disk); being imported is not a change, so a new library's Recently Updated

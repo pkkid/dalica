@@ -13,6 +13,10 @@
 //! it ([`PhotoAlbums::bad`], [`AlbumNames::bad`], for the reader to report), and writing never
 //! touches it. An `albums` that is not an object is a [`Problem`].
 //!
+//! M10 adds a photo's `changed`, the UTC time Dalica last changed what is said about it
+//! (`"2026-10-15T09:41:07.250Z"`, milliseconds always written; [`M10_PHOTO_KEYS`], [`utc_text`],
+//! [`parse_utc`]), so Recently Updated survives a rebuild.
+//!
 //! Reading never fails: each key is [`Field::Absent`], a value of the right type, or
 //! [`Field::WrongType`] holding what is there (kept, reported by [`Sidecar::problems`]). A date
 //! that does not parse counts as a value of the wrong type. Writing sets one key or clears it:
@@ -22,7 +26,7 @@
 
 use std::collections::BTreeMap;
 
-use dalica_core::{AlbumId, Date, DateTime, PosKey};
+use dalica_core::{AlbumId, Date, DateTime, PosKey, Timestamp};
 use serde_json::{Map, Value};
 
 use crate::{Field, Problem, Sidecar, WrongType, escape};
@@ -49,6 +53,10 @@ pub const M9_FOLDER_KEYS: [&str; 2] = [SORT, REVERSE];
 pub const M9_TOP_KEYS: [&str; 1] = [ALBUMS];
 /// A photo's memberships (`photos.<name>.albums`), and the folder's album names (top level).
 pub const ALBUMS: &str = "albums";
+/// The photo keys M10 adds: when Dalica last changed what is said about the photo.
+pub const M10_PHOTO_KEYS: [&str; 1] = [CHANGED];
+/// A photo's last-changed time (`photos.<name>.changed`), a UTC time with milliseconds.
+pub const CHANGED: &str = "changed";
 /// A folder's photo sort, in `"folder"` (`manual | name | date | size | modified`).
 pub const SORT: &str = "sort";
 /// Whether a folder's photo sort is reversed, in `"folder"`.
@@ -91,6 +99,8 @@ pub struct PhotoFields {
     pub edits: Field<Vec<String>>,
     pub redo: Field<Vec<String>>,
     pub date: Field<DateTime>,
+    /// When Dalica last changed what is said about the photo (M10).
+    pub changed: Field<Timestamp>,
 }
 
 /// What the `"folder"` object says, key by key.
@@ -112,6 +122,8 @@ pub enum PhotoValue {
     Edits(Vec<String>),
     Redo(Vec<String>),
     Date(Option<DateTime>),
+    /// The last-changed time (M10); a time outside the years 1 to 9999 is written as no key.
+    Changed(Option<Timestamp>),
 }
 
 /// One value for the `"folder"` object. The empty value clears the key.
@@ -139,6 +151,7 @@ impl PhotoValue {
             PhotoValue::Edits(l) => ("edits", list(l)),
             PhotoValue::Redo(l) => ("redo", list(l)),
             PhotoValue::Date(d) => ("date", d.map(|d| Value::String(d.to_string()))),
+            PhotoValue::Changed(t) => (CHANGED, t.and_then(utc_text).map(Value::String)),
         }
     }
 }
@@ -209,6 +222,51 @@ fn read_parsed<T: std::str::FromStr>(v: Option<&Value>) -> Field<T> {
     }
 }
 
+/// `2026-10-15T09:41:07.250Z` for `t`: the UTC date and time with milliseconds; `None` outside the
+/// years 1 to 9999.
+pub fn utc_text(t: Timestamp) -> Option<String> {
+    let ms = t.as_millis().rem_euclid(1000);
+    DateTime::from_unix_secs(t.as_secs()).map(|d| format!("{d}.{ms:03}Z"))
+}
+
+/// The time a `changed` value says: a date and time as [`DateTime`] reads it, then optionally `.`
+/// and exactly three digits of milliseconds, then `Z` (UTC). `None` for anything else.
+pub fn parse_utc(s: &str) -> Option<Timestamp> {
+    let s = s.strip_suffix('Z')?;
+    let (main, ms) = match s.split_once('.') {
+        Some((main, frac)) if frac.len() == 3 && frac.bytes().all(|b| b.is_ascii_digit()) => (main, frac.parse::<i64>().ok()?),
+        Some(_) => return None,
+        None => (s, 0),
+    };
+    let d: DateTime = main.parse().ok()?;
+    unix_secs(d).checked_mul(1000)?.checked_add(ms).map(Timestamp::from_millis)
+}
+
+/// Seconds since 1970-01-01T00:00:00 of `d`, read as UTC (the inverse of
+/// [`DateTime::from_unix_secs`]; years 1 to 9999 keep every step small).
+fn unix_secs(d: DateTime) -> i64 {
+    let date = d.date();
+    let (month, day) = (i64::from(date.month()), i64::from(date.day()));
+    let year = i64::from(date.year()) - i64::from(month <= 2);
+    let era = year.div_euclid(400);
+    let yoe = year - era * 400;
+    let doy = (153 * ((month + 9) % 12) + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+    days * 86_400 + i64::from(d.hour()) * 3600 + i64::from(d.minute()) * 60 + i64::from(d.second())
+}
+
+fn read_utc(v: Option<&Value>) -> Field<Timestamp> {
+    match v {
+        None => Field::Absent,
+        Some(Value::String(s)) => match parse_utc(s) {
+            Some(t) => Field::Value(t),
+            None => Field::WrongType(Value::String(s.clone())),
+        },
+        Some(other) => Field::WrongType(other.clone()),
+    }
+}
+
 /// `savedAs`: an object with a non-empty string `name` and, if present, a list of strings
 /// `recipe` (absent reads as empty); other keys in it are allowed and kept.
 fn read_saved_as(v: Option<&Value>) -> Field<SavedAs> {
@@ -236,6 +294,7 @@ fn photo_problem(key: &str, v: &Value) -> Option<&'static str> {
         "date" => v.as_str().is_some_and(|s| s.parse::<DateTime>().is_ok()),
         SAVED_AS => matches!(read_saved_as(Some(v)), Field::Value(_)),
         ALBUMS => v.is_object(),
+        CHANGED => v.as_str().and_then(parse_utc).is_some(),
         _ => true,
     };
     (!ok).then_some(match key {
@@ -244,6 +303,7 @@ fn photo_problem(key: &str, v: &Value) -> Option<&'static str> {
         "date" => "a date and time (2026-06-04T19:42:10)",
         SAVED_AS => "an object with a file name (\"name\") and a list of strings (\"recipe\")",
         ALBUMS => "an object from album id to position key",
+        CHANGED => "a UTC time (2026-10-15T09:41:07.250Z)",
         _ => "a list of strings",
     })
 }
@@ -300,6 +360,7 @@ impl Sidecar {
             edits: read_list(get("edits")),
             redo: read_list(get("redo")),
             date: read_parsed(get("date")),
+            changed: read_utc(get(CHANGED)),
         }
     }
 
@@ -389,7 +450,7 @@ impl Sidecar {
                     let at = format!("/photos/{}", escape(name));
                     match entry {
                         Value::Object(e) => {
-                            for key in PHOTO_KEYS.iter().chain(&M8_PHOTO_KEYS).chain(&M9_PHOTO_KEYS) {
+                            for key in PHOTO_KEYS.iter().chain(&M8_PHOTO_KEYS).chain(&M9_PHOTO_KEYS).chain(&M10_PHOTO_KEYS) {
                                 if let Some(expected) = e.get(*key).and_then(|v| photo_problem(key, v)) {
                                     out.push(Problem { pointer: format!("{at}/{key}"), expected });
                                 }

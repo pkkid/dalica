@@ -334,6 +334,7 @@ fn photo_value() -> impl Strategy<Value = PhotoValue> {
         strings.prop_map(PhotoValue::Redo),
         proptest::option::of((1u16..=9999, 1u8..=12, 1u8..=28, 0u8..24, 0u8..60))
             .prop_map(|d| PhotoValue::Date(d.map(|(y, m, day, h, mi)| DateTime::new(Date::new(y, m, day).unwrap(), h, mi, 0).unwrap()))),
+        proptest::option::of(0i64..253_402_300_799_999).prop_map(|t| PhotoValue::Changed(t.map(dalica_core::Timestamp::from_millis))),
     ]
 }
 
@@ -387,6 +388,10 @@ fn reads_back(s: &Sidecar, name: &str, v: &PhotoValue) -> bool {
         PhotoValue::Date(d) => match d {
             Some(d) => p.date == Field::Value(*d),
             None => p.date == Field::Absent,
+        },
+        PhotoValue::Changed(t) => match t {
+            Some(t) => p.changed == Field::Value(*t),
+            None => p.changed == Field::Absent,
         },
     }
 }

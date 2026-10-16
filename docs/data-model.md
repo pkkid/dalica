@@ -39,7 +39,8 @@ deletes files.
 | Copy saved beside (a format Dalica cannot write in place) | `"savedAs": { "name", "recipe" }` | — | yes | |
 | Project mark (a folder an export made) | `"folder": { "project": "exported" }` | — | yes | |
 | Album membership and order | `"albums": { "<album id>": "<position key>" }` per photo (§3.2); the album names at the top level | — | yes | album definitions, covers and a copy of the order: `albums.json` (§4) |
-| Search facts (camera, video, geotagged), content digests, first-indexed and last-changed times | — | read from the file (facts, digests) | yes (only there) | |
+| Last-changed time (when Dalica last changed what is said about a photo: Recently Updated) | `"changed": "2026-06-04T19:45:02.250Z"` | — | yes | |
+| Search facts (camera, video, geotagged), content digests, first-indexed times | — | read from the file (facts, digests) | yes (only there) | |
 | Folder description/date/place, hidden folder | `"folder"` object (`"hidden": true` in the folder's own sidecar, so it stays hidden when the folder moves) | — | yes | |
 | Folder photo sort (Sort Folder By, Reverse Order) | `"folder": { "sort", "reverse" }` | — | yes | |
 | Custom folder sort order | `"folder": { "order" }` | — | yes | |
@@ -98,7 +99,8 @@ atomically, keys sorted deterministically (photos by file name) so diffs are min
       ],
       "albums": { "a91c0e": "a1", "a77d02": "bz0" },
       "geo": [38.7116, -9.1389],
-      "date": "2026-06-04T19:42:10"
+      "date": "2026-06-04T19:42:10",
+      "changed": "2026-06-04T19:45:02.250Z"
     }
   },
   "albums": { "a91c0e": { "name": "Best of 2026" }, "a77d02": { "name": "Trams" } },
@@ -172,9 +174,9 @@ Format rules:
     trimmed, cut to 1 KiB); a name that is nothing once cleaned is not used.
   - A `sort` Dalica cannot sort by yet (`manual`, `modified`, anything else) is kept, reported and
     not used, and the folder keeps its own sort until the user sorts it.
-  - The search facts, content digests and first-indexed and last-changed times are index-only:
-    never in a sidecar, and empty again after a rebuild (Recently Updated then counts the file's
-    time alone).
+  - The search facts, content digests and first-indexed times are index-only: never in a
+    sidecar, and empty again after a rebuild. The last-changed times were index-only too until
+    M10, which put them in the sidecar (below).
   - A scan reading a folder sidecar follows the same rules: `dalica-store` `mapping::read_photo`
     (`albums`), `mapping::read_folder` (`sort`, `reverse`, `FolderReading::photo_sort`) and
     `mapping::read_album_names` (`dalica-scan` reads them on the scan's thread with the same
@@ -187,6 +189,22 @@ Format rules:
     be read takes its photos' memberships from `albums.json`'s copy of the order. A rebuild's
     scan first waits until every write sent before it landed (sidecars, `albums.json`), so it
     never reads a file a pending write would change.
+- **The M10 field** (built in M10.29: `dalica-sidecar` `fields`, `dalica-store` `mapping` and
+  `rebuild`, `dalica-scan` `walk` and `diff`). Per photo: `changed`, when Dalica last changed what
+  is said about the photo (a star, a caption, tags, hidden, the recipe, a date, album places, a
+  move or rename), as a UTC time with milliseconds (`"2026-06-04T19:45:02.250Z"`). Recently
+  Updated reads it (`organizing.md` §4.1), so a rebuild keeps the list. It follows the M6 rules
+  above; besides:
+  - A sidecar without it says no change was recorded; a value that is not such a time (a number,
+    no `Z`, other than three digits of milliseconds) is kept, reported once and never used.
+  - Every command that changes a photo's data sets it in the same undo step, so the same write
+    carries it; an undo puts the earlier time back (or removes the key). An entry left holding only
+    `changed` is still Dalica's data: it is marked and pruned like any other when its file is gone.
+  - A scan brings it with a photo new to the model (in the op that adds the photo, like `savedAs`);
+    for a photo the model knows, the model's word stands.
+  - Only Dalica's changes are kept here: a file changed on disk counts for Recently Updated by its
+    own modification time against the first-indexed time, which is index-only, so after a rebuild
+    only the changes made in Dalica remain in the list.
 - Readers accept a BOM and CRLF; a duplicate key takes the later value. Nesting is bounded
   (`security.md` §8).
 - `dalica.missing` is Dalica's own bookkeeping for stale entries (§7): an object from a photo's
@@ -293,7 +311,7 @@ holds:
 | `folders.json` | the Folder Manager's settings, one entry per folder that sets its own: `{"version": 2, "folders": [{"path", "mode"?: "always" \| "once" \| "remove", "faces"?: bool, "indexed"?: true}]}` (`indexed`: a Scan Once folder's first scan finished; an entry without `mode` sets only the faces flag; the `remove` entries are the exclusions). A v1 file (M1: `{"version": 1, "folders": [{"path"}]}`, every folder watched) is read as Scan Always entries and written back as v2 at once, atomically; keys and entries this version does not know are kept verbatim | no — small, backed up with settings |
 | `albums.json` | album definitions (id, name, description, date, use the newest photo's date, place, cover) and a copy of the order, below | yes, from sidecars (each member folder carries the album's name; each member its position key, §3.2) |
 | `people.json` | people (id, name, nickname), merges, settings | yes, from sidecars (names are mirrored per folder) |
-| `index.log` + `index.snap` | the library index: one record per photo (path, size, mtime, dimensions, dates, EXIF summary, content hash, colour sketch, face descriptors), what the user said about photos, folders and albums (as in the sidecars and `albums.json`), the last-synced metadata hashes, the search facts, content digests and first-indexed and last-changed times; journal + snapshot as in LightCraft | yes, by rescanning (the synced hashes, facts, digests and times start empty) |
+| `index.log` + `index.snap` | the library index: one record per photo (path, size, mtime, dimensions, dates, EXIF summary, content hash, colour sketch, face descriptors), what the user said about photos, folders and albums (as in the sidecars and `albums.json`), the last-synced metadata hashes, the search facts, content digests and first-indexed and last-changed times; journal + snapshot as in LightCraft | yes, by rescanning (the synced hashes, facts, digests and first-indexed times start empty; the last-changed times come back from the sidecars) |
 | `pending-writes.json` | the folders whose sidecar write waits for an offline volume (§7): `{"version": 1, "folders": [path, …]}`, written through the I/O worker when the list changes; a damaged file is kept as `.corrupt-<time>` and the list found again by the next online checks (M5.13) | yes, partly: the journal keeps the edits; a lost list is rebuilt for roots found offline |
 | `file-ops.json` | the file-operation journal: the moves, copies, renames and trashes in progress and each item's state (§8), written through the I/O worker; a damaged file is kept as `.corrupt-<time>` and the operations that read are kept (M9.9) | no — repaired from at the next open, then empty |
 | `lock` | single-process lock | — |

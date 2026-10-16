@@ -7,6 +7,10 @@ use std::path::Path;
 use dalica_core::{FolderId, PhotoId, Timestamp};
 use dalica_library::{Folder, Library, Op, Photo, PhotoInfo, Saved, SavedAs};
 
+/// A photo new to the model with what its sidecar brings: its info, its copy saved beside it and
+/// its last-changed time.
+type Add = (Photo, PhotoInfo, Option<SavedAs>, Option<Timestamp>);
+
 use crate::meta::{Sync, first_fill};
 use crate::walk::{FoundFolder, FoundPhoto, Scan};
 use crate::watch::Rescan;
@@ -20,8 +24,9 @@ pub const BATCH: usize = 500;
 /// (its star, and its [`FolderInfo`](dalica_library::FolderInfo) or [`PhotoInfo`]) in the same op as the one that adds it
 /// (`AddFolder` or `AddPhotos` batched with `SetFolderInfo` or `SetPhotoInfo`), so no sidecar
 /// write can see it without them; for folders and photos already known, the model's word stands.
-/// A new photo's copy saved beside it comes in its `AddPhotos` batch (`SetSavedAs`) and a new
-/// folder's project mark in its `AddFolder` batch (`SetProjects`). The saved records are the
+/// A new photo's copy saved beside it comes in its `AddPhotos` batch (`SetSavedAs`), and so does
+/// its last-changed time (`SetLastChanged`, M10: a rebuild keeps Recently Updated); a new
+/// folder's project mark comes in its `AddFolder` batch (`SetProjects`). The saved records are the
 /// originals record's word for every photo of a folder the scan read (known or new): one
 /// derived `SetSaved` after the adds sets or clears them ([`crate::originals`]); a record that
 /// could not be read changes none.
@@ -73,7 +78,7 @@ fn diff_with(library: &mut Library, folders: &[FoundFolder], mut gone: Vec<Folde
     let mut ops = Vec::new();
     let mut removes = Vec::new();
     let mut updates = Vec::new();
-    let mut adds: Vec<(Photo, PhotoInfo, Option<SavedAs>)> = Vec::new();
+    let mut adds: Vec<Add> = Vec::new();
     let mut saved: Vec<(PhotoId, Option<Saved>)> = Vec::new();
     let mut sync = Sync::default();
     let mut renames = folder_renames(library, folders, &gone);
@@ -147,7 +152,7 @@ fn diff_with(library: &mut Library, folders: &[FoundFolder], mut gone: Vec<Folde
                 None => (f.star, f.info.clone()),
             };
             ids.push((f.name.as_str(), id));
-            adds.push((photo(id, folder, f, star), info, f.saved_as.clone()));
+            adds.push((photo(id, folder, f, star), info, f.saved_as.clone(), f.changed));
         }
         saved.extend(crate::originals::changes(library, &ids, &found.originals));
     }
@@ -245,18 +250,22 @@ fn move_folder(library: &Library, old: FolderId, found: &FoundFolder) -> Op {
     Op::Batch { ops }
 }
 
-/// One `AddPhotos` op, batched with the `SetPhotoInfo` and `SetSavedAs` of those that bring
-/// something from their sidecar.
-fn add_photos(chunk: &[(Photo, PhotoInfo, Option<SavedAs>)]) -> Op {
+/// One `AddPhotos` op, batched with the `SetPhotoInfo`, `SetSavedAs` and `SetLastChanged` of
+/// those that bring something from their sidecar.
+fn add_photos(chunk: &[Add]) -> Op {
     let add = Op::AddPhotos { photos: chunk.iter().map(|(p, ..)| p.clone()).collect() };
-    let infos: Vec<(PhotoId, PhotoInfo)> = chunk.iter().filter(|(_, i, _)| !i.is_empty()).map(|(p, i, _)| (p.id, i.clone())).collect();
-    let copies: Vec<(PhotoId, Option<SavedAs>)> = chunk.iter().filter_map(|(p, _, c)| Some((p.id, Some(c.clone()?)))).collect();
+    let infos: Vec<(PhotoId, PhotoInfo)> = chunk.iter().filter(|(_, i, ..)| !i.is_empty()).map(|(p, i, ..)| (p.id, i.clone())).collect();
+    let copies: Vec<(PhotoId, Option<SavedAs>)> = chunk.iter().filter_map(|(p, _, c, _)| Some((p.id, Some(c.clone()?)))).collect();
+    let changed: Vec<(PhotoId, Option<Timestamp>)> = chunk.iter().filter_map(|(p, .., t)| Some((p.id, Some((*t)?)))).collect();
     let mut ops = vec![add];
     if !infos.is_empty() {
         ops.push(Op::SetPhotoInfo { photos: infos });
     }
     if !copies.is_empty() {
         ops.push(Op::SetSavedAs { saved_as: copies });
+    }
+    if !changed.is_empty() {
+        ops.push(Op::SetLastChanged { changed });
     }
     if ops.len() == 1 { ops.swap_remove(0) } else { Op::Batch { ops } }
 }

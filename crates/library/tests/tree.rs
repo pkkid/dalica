@@ -770,9 +770,13 @@ fn folder_named(fx: &Fx, name: &str) -> FolderId {
 
 /// The five folders with three albums: `Zoo` (empty), `alpha` (two Beach photos and one Easter
 /// photo, dated by its newest photo) and `Mid` (one Concert photo, its own date 2025-06-01);
-/// two Beach photos and an Easter photo starred.
+/// two Beach photos and an Easter photo starred. Every photo was first indexed at time 0, before
+/// its file's time, so each counts as Recently Updated by its file's time.
 fn with_albums() -> (Fx, [AlbumId; 3]) {
     let mut fx = five_folders();
+    let all: Vec<PhotoId> = fx.lib.photos().map(|p| p.id).collect();
+    let indexed = fx.lib.first_indexed_op(&all, Timestamp::EPOCH);
+    fx.lib.apply(indexed).unwrap();
     let (beach, easter, concert) = (folder_named(&fx, "Beach"), folder_named(&fx, "Easter"), folder_named(&fx, "Concert"));
     let albums = [aid("a0001"), aid("a0002"), aid("a0003")];
     let mid = AlbumInfo { date: "2025-06-01".parse().ok(), use_newest: false, ..AlbumInfo::named("Mid") };

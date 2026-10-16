@@ -233,12 +233,14 @@ fn the_caption_and_tags_modes_show_the_models_text_middle_elided() {
     assert_eq!(text(&d, ids[1]), "night");
     assert_eq!(text(&d, ids[2]), "");
 
-    // The open editor takes its cell's caption line.
+    // The open editor takes its cell's caption line (the folder's cell; the photo's copy in
+    // Recently Updated keeps its line).
     d.run("view.caption", &json!({ "caption": "caption" })).unwrap();
     open(&mut d, ids[0]);
     let cells = &d.app().panels().unwrap().light_table.cells;
     assert!(cells.editor_shown());
-    assert_eq!(cells.get(ids[0]).unwrap().caption, None);
+    let lines: Vec<Option<String>> = cells.shown().iter().filter(|s| s.photo == ids[0]).map(|s| s.caption.clone()).collect();
+    assert_eq!(lines, [Some("Tram 28".to_string()), None], "the copy in Recently Updated, then the folder's cell");
     assert_eq!(text(&d, ids[1]), cut);
 }
 

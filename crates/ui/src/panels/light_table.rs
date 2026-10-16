@@ -92,16 +92,6 @@ pub struct Section {
     pub photos: Vec<PhotoId>,
 }
 
-/// Whether the Albums group shows Recently Updated (its tree row and its light-table section).
-/// Off for now (lead decision, M9.17), until the maintainer answers the M9 review's question of how
-/// Recently Updated counts: it lists every photo indexed in the last 30 days, so a first import
-/// fills it with the whole library; and the photos' first-indexed times live only in the index
-/// snapshot (not in the sidecars), so a rebuild from the sidecars empties it (M6's acceptance
-/// check of a rebuilt window caught that). Off, the tree options carry no clock
-/// ([`tree_options`]), so the library's Albums group leaves Recently Updated out. Turn this on
-/// once the review answers.
-pub const SHOW_RECENTLY_UPDATED: bool = false;
-
 /// The view state's album section for an entry of the library's Albums group.
 pub fn album_section(album: &AlbumRef) -> state::AlbumSection {
     match album {
@@ -215,17 +205,14 @@ impl Sections {
 /// tree-mode folders keep their sections, so they are left out), the projects directory, whose
 /// folders the flat tree lists in Projects ([`projects_dir`]), and from the session what the
 /// Albums group needs: the clock for Recently Updated (to the hour, [`RECENT_STEP_MS`], so the tree
-/// is not rebuilt every frame) with its number of days, while [`SHOW_RECENTLY_UPDATED`] is on, and
-/// in search mode the matches and the search text (the search album, and only the sections with a
+/// is not rebuilt every frame) with its number of days (`organizing.md` §4.1), and in search mode the matches and the search text (the search album, and only the sections with a
 /// match).
 pub fn tree_options(app: &App) -> TreeOptions {
     let mut options = TreeOptions { projects_dir: app.session().and_then(projects_dir), ..view_tree_options(app.state()) };
     if let Some(session) = app.session() {
-        if SHOW_RECENTLY_UPDATED {
-            let ms = session.clock().now().as_millis();
-            options.now = Some(dalica_core::Timestamp::from_millis(ms.div_euclid(RECENT_STEP_MS).saturating_mul(RECENT_STEP_MS)));
-            options.recent_days = session.settings().organize().recent_days;
-        }
+        let ms = session.clock().now().as_millis();
+        options.now = Some(dalica_core::Timestamp::from_millis(ms.div_euclid(RECENT_STEP_MS).saturating_mul(RECENT_STEP_MS)));
+        options.recent_days = session.settings().organize().recent_days;
         options.filter = session.search_filter();
         let search = session.search_state();
         if options.filter.is_some() && search.mode == Some(dalica_engine::search::SearchMode::Search) {

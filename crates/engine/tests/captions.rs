@@ -198,7 +198,8 @@ fn a_folder_added_with_a_sidecar_brings_every_field_and_a_write_keeps_the_rest()
     s.execute("photo.star.set", &json!({ "ids": [ids["IMG_0003.jpg"]], "on": true })).unwrap();
     s.flush().unwrap();
     let mut after: Value = serde_json::from_slice(&std::fs::read(folder.join(".dalica.json")).unwrap()).unwrap();
-    assert_eq!(after["photos"]["IMG_0003.jpg"], json!({ "star": true }));
+    let stamp = dalica_sidecar::utc_text(s.library().last_changed(ids["IMG_0003.jpg"]).unwrap()).unwrap();
+    assert_eq!(after["photos"]["IMG_0003.jpg"], json!({ "star": true, "changed": stamp }), "the star, and when it changed");
     after["photos"].as_object_mut().unwrap().remove("IMG_0003.jpg");
     assert_eq!(after, file, "every other value, the unusable ones and the unknown keys included, is as it was");
 }

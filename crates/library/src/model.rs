@@ -783,14 +783,25 @@ impl Library {
         self.model.changed.iter().map(|(id, t)| (*id, *t))
     }
 
-    /// When `photo` was last updated for Recently Updated: the latest of its file's modification
-    /// time, the time this library first indexed it and the last time Dalica changed its data.
+    /// When `photo` was last updated for Recently Updated (`organizing.md` §4.1), if it was: the
+    /// later of the last time Dalica changed its data and its file's modification time, the file's
+    /// time counting only when it is after the time this library first indexed the photo. Being
+    /// indexed is not a change, so a photo nobody changed since has no updated time. A photo with
+    /// no first-indexed time (indexed by a rebuild, which is no change either, or before those
+    /// times were recorded) counts only what Dalica changed.
+    pub fn updated_at(&self, photo: &Photo) -> Option<Timestamp> {
+        let changed = self.model.changed.get(&photo.id).copied();
+        let file = self.model.indexed.get(&photo.id).filter(|indexed| photo.mtime > **indexed).map(|_| photo.mtime);
+        changed.max(file)
+    }
+
+    /// [`Library::updated_time`]'s value for a photo that was never updated: before any time.
+    pub const NEVER_UPDATED: Timestamp = Timestamp::from_millis(i64::MIN);
+
+    /// [`Library::updated_at`], or [`Library::NEVER_UPDATED`] for a photo that was never updated,
+    /// so it falls outside any number of days.
     pub fn updated_time(&self, photo: &Photo) -> Timestamp {
-        let mut t = photo.mtime;
-        for other in [self.model.indexed.get(&photo.id), self.model.changed.get(&photo.id)].into_iter().flatten() {
-            t = t.max(*other);
-        }
-        t
+        self.updated_at(photo).unwrap_or(Self::NEVER_UPDATED)
     }
 
     /// The tag index: every tag in use with its count.

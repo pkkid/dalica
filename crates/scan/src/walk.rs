@@ -59,6 +59,9 @@ pub struct FoundPhoto {
     /// The albums the folder's sidecar puts the photo in, with its position key in each
     /// ([`photo_albums`], M9): entries Dalica cannot use are left out.
     pub albums: BTreeMap<AlbumId, PosKey>,
+    /// When Dalica last changed what is said about the photo, from the folder's sidecar
+    /// ([`photo_changed`], M10).
+    pub changed: Option<Timestamp>,
     /// What the file itself says about the fields Dalica owns (caption, tags, rating, place,
     /// date), read when [`Options::metadata`] asks for it and the file is new or changed; `None`
     /// when not read or unreadable ([`crate::meta`]).
@@ -629,6 +632,7 @@ impl Scanner<'_> {
                         p.info = photo_info(&sidecar, &p.name);
                         p.saved_as = originals::saved_as(&sidecar, &p.name);
                         p.albums = photo_albums(&sidecar, &p.name);
+                        p.changed = photo_changed(&sidecar, &p.name);
                     }
                     info = folder_info(&sidecar);
                     project = originals::project(&sidecar);
@@ -709,6 +713,7 @@ fn unread(entry: &Entry, name: &str, format: Format) -> FoundPhoto {
         info: PhotoInfo::default(),
         saved_as: None,
         albums: BTreeMap::new(),
+        changed: None,
         file: None,
     }
 }
@@ -751,6 +756,16 @@ pub fn photo_albums(sidecar: &Sidecar, name: &str) -> BTreeMap<AlbumId, PosKey> 
     match sidecar.photo_albums(name) {
         Field::Value(v) => v.members,
         Field::Absent | Field::WrongType(_) => BTreeMap::new(),
+    }
+}
+
+/// When `sidecar` says Dalica last changed photo `name` (`data-model.md` §3; the rules of
+/// `dalica-store`'s `mapping::read_photo`): `None` when it says nothing, or holds a value that is
+/// not a UTC time (the file keeps it).
+pub fn photo_changed(sidecar: &Sidecar, name: &str) -> Option<Timestamp> {
+    match sidecar.photo(name).changed {
+        Field::Value(t) => Some(t),
+        Field::Absent | Field::WrongType(_) => None,
     }
 }
 

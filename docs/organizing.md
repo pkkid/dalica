@@ -166,8 +166,9 @@ if it isn't covered already. Progress in the import tab ("Copying 45 of 340 at 3
 status line; Cancel stops after the current file (already-copied files stay). Then:
 - "Delete copied files from the card" asks: "Remove the imported files from the card? This cannot
   be undone." [Remove Imported Files] [Keep Files].
-- Finish: the Import tab closes, the library selects and scrolls to the new folder (it appears in
-  **Recently Updated**, see §4.1), and a toast "Imported 340 pictures into 2026-06-04".
+- Finish: the Import tab closes, the library selects and scrolls to the new folder, and a toast
+  "Imported 340 pictures into 2026-06-04". (Being imported is no change: the new photos are not
+  in **Recently Updated**, §4.1, until something about them changes.)
 
 ## 4. Albums
 
@@ -177,9 +178,23 @@ status line; Cancel stops after the current file (already-copied files stay). Th
 |---|---|---|
 | User album | book | user-chosen photos, manual order |
 | **Starred Photos** | book with star (automatic) | every starred photo, by date |
-| **Recently Updated** | book with clock (automatic) | photos added or changed in the last 30 days (setting) |
+| **Recently Updated** | book with clock (automatic) | photos changed since the library first indexed them, within the last 30 days (setting), newest change first |
 | **Search results for "x"** | temporary, highlighted | the current search; disappears when the search is cleared |
 | **Exported**, **Collages**, **Video Frames** | project folders | real folders under `Pictures/Dalica/<name>` that Dalica creates; listed in a "Projects" group in flat view |
+
+**What counts for Recently Updated** (maintainer's answer at the M9 review; built in M10.29): a
+photo's updated time is the later of the last time Dalica changed what is said about it (a star, a
+caption, tags, hidden, an edit or rotation, a date, joining or leaving an album or its place in
+one, a move or rename) and its file's modification time, the file's time counting only when it is
+after the time this library first indexed the photo (a file rewritten on disk, by another program
+or by a Save). Being indexed is no change: a new library's Recently Updated starts empty, and so do
+photos a scan or an import brings. Every command that changes a photo's data stamps that time with
+the session's clock as part of the command (`Session::execute`), so Edit ▸ Undo puts the earlier
+time back with the change; an undo or redo is no change of its own. Dalica's change times are kept
+in the folder sidecars (`data-model.md` §3, the M10 field), so a rebuild keeps them; the
+first-indexed times are not, so after a rebuild only the changes made in Dalica count until a file
+changes again. The row shows in the Albums group, and its section on the light table, whenever it
+holds a photo.
 
 ### 4.2 Create an album
 
@@ -225,8 +240,8 @@ sections as in their widget id (`album:a91c0e`, `album:starred`, `album:recent`,
 | `albums.list` | Starred Photos, Recently Updated, then the user albums by name, with counts, covers and dates |
 | `section.sort {section?, ids?, by?, reverse?}` | Sort By ▸ on a folder (its sort; "reverse": true alone turns its direction around) or on a user album (its keys rewritten by date, name or size, or its order turned around) |
 
-Starred Photos and Recently Updated keep their own order. A star change and every album change
-stamp the photos' last-changed time, which Recently Updated reads with the session's clock.
+Starred Photos and Recently Updated keep their own order. Every command that changes a photo's
+data stamps its last-changed time (§4.1), which Recently Updated reads with the session's clock.
 `photo.inspect` lists each photo's albums.
 
 ## 5. Stars, tags, captions

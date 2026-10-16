@@ -170,8 +170,9 @@ fn stamped_ops_record_the_change_time() {
     assert_eq!(lib.last_changed(PhotoId::new(50)), Some(ms(6)));
 }
 
-/// Recently Updated (`organizing.md` §4.1): the later of the file's time, the first-indexed time
-/// and the last change, within the days asked for before now, newest first.
+/// Recently Updated (`organizing.md` §4.1): the later of the last change and the file's time, the
+/// file's time only once it is after the first-indexed time; being indexed is no change. Within the
+/// days asked for before now, newest first.
 #[test]
 fn recently_updated_follows_a_virtual_clock() {
     let (mut lib, _, ids) = library();
@@ -181,6 +182,7 @@ fn recently_updated_follows_a_virtual_clock() {
     let op = lib.first_indexed_op(&ids, clock.now().saturating_sub(DAY * 60));
     lib.apply(op).unwrap();
     assert!(recent(&lib, &clock).is_empty());
+    assert_eq!(lib.updated_time(lib.photo(ids[0]).unwrap()), Library::NEVER_UPDATED);
 
     let op = lib.stamped(Op::SetStars { stars: vec![(ids[1], true)] }, clock.now());
     lib.apply(op).unwrap();
@@ -195,25 +197,39 @@ fn recently_updated_follows_a_virtual_clock() {
     clock.advance(DAY * 6);
     assert!(recent(&lib, &clock).is_empty());
 
-    // A file rewritten outside Dalica counts by its own time; a photo indexed today too.
+    // A file rewritten outside Dalica after it was indexed counts by its own time; a photo indexed
+    // today does not (being imported is no change), until its file changes after that.
     let mut touched = lib.photo(ids[3]).unwrap().clone();
     touched.mtime = clock.now().saturating_sub(DAY);
     lib.apply(Op::UpdatePhotos { photos: vec![touched] }).unwrap();
     let new = lib.next_photo_id();
     let folder = lib.photo(ids[0]).unwrap().folder;
     lib.apply(Op::AddPhotos { photos: vec![photo(new, folder, "new.jpg", 1, 1)] }).unwrap();
+    let mut file = lib.photo(new).unwrap().clone();
+    file.mtime = clock.now().saturating_sub(DAY * 2);
+    lib.apply(Op::UpdatePhotos { photos: vec![file.clone()] }).unwrap();
     let op = lib.first_indexed_op(&[new], clock.now());
     lib.apply(op).unwrap();
+    assert_eq!(recent(&lib, &clock), [ids[3]]);
+    file.mtime = clock.now();
+    lib.apply(Op::UpdatePhotos { photos: vec![file] }).unwrap();
+    assert_eq!(recent(&lib, &clock), [ids[3]], "a file time equal to the first-indexed time is no change");
+    clock.advance(DAY);
+    let mut file = lib.photo(new).unwrap().clone();
+    file.mtime = clock.now();
+    lib.apply(Op::UpdatePhotos { photos: vec![file] }).unwrap();
     assert_eq!(recent(&lib, &clock), [new, ids[3]]);
 
-    // After a rebuild only the file's time counts: the index-only times start empty.
+    // With no first-indexed time (a rebuild records none) only Dalica's changes count.
     let mut rebuilt = Library::new();
     for f in lib.folders() {
         rebuilt.apply(Op::AddFolder { folder: f.clone() }).unwrap();
     }
     rebuilt.apply(Op::AddPhotos { photos: lib.photos().cloned().collect() }).unwrap();
-    assert_eq!(rebuilt.recently_updated(clock.now(), 30), [ids[3]]);
-    assert_eq!(rebuilt.recently_updated(clock.now(), 50_000).len(), lib.photos().count(), "every file within 50 000 days");
+    assert!(rebuilt.recently_updated(clock.now(), 50_000).is_empty(), "no change in 50 000 days");
+    let op = rebuilt.stamped(Op::SetStars { stars: vec![(ids[0], true)] }, clock.now());
+    rebuilt.apply(op).unwrap();
+    assert_eq!(rebuilt.recently_updated(clock.now(), 30), [ids[0]]);
 }
 
 #[test]

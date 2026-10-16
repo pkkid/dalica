@@ -31,7 +31,7 @@ mod print;
 use serde_json::{Map, Value};
 
 pub use albums::AlbumsFile;
-pub use fields::{AlbumNames, FolderFields, FolderValue, PhotoAlbums, PhotoFields, PhotoValue, SavedAs};
+pub use fields::{AlbumNames, FolderFields, FolderValue, PhotoAlbums, PhotoFields, PhotoValue, SavedAs, parse_utc, utc_text};
 pub use originals::Originals;
 
 /// The sidecar's file name.

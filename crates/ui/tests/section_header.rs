@@ -109,9 +109,10 @@ fn every_part_is_there_with_its_size_at_both_window_sizes() {
                     assert_eq!(icon.label, path.display().to_string(), "{case}: the icon's tooltip is the full path");
                     folder_name(&path)
                 }
-                Section::Album(_) => {
-                    assert_eq!(icon.label, "Starred Photos", "{case}: an album's icon shows its name");
-                    "Starred Photos".to_string()
+                Section::Album(album) => {
+                    let name = if album == AlbumSection::Recent { "Recently Updated" } else { "Starred Photos" };
+                    assert_eq!(icon.label, name, "{case}: an album's icon shows its name");
+                    name.to_string()
                 }
             };
             assert!(!icon.enabled, "{case}: Locate on Disk waits for the OS integration; an album has no file");
@@ -121,8 +122,10 @@ fn every_part_is_there_with_its_size_at_both_window_sizes() {
             assert_eq!(rect(&title).height(), 20.0, "{case}: the title row");
             assert!(rect(&title).min.x >= rect(&icon).max.x + 8.0, "{case}: the title is right of the icon");
 
-            if section == starred {
-                // The automatic albums have no description; the button row is the block's last.
+            if matches!(section, Section::Album(_)) {
+                // The automatic albums (Starred Photos, and Recently Updated with the starred
+                // photo: a star is a change) have no description; the button row is the block's
+                // last.
                 assert!(!widgets.iter().any(|w| w.id == format!("{id}/description")), "{case}: no description");
                 for b in Button::ALL {
                     let button = part(b.part());
@@ -173,7 +176,10 @@ fn every_part_is_there_with_its_size_at_both_window_sizes() {
         assert!(checked >= 1, "{w}×{h}: a whole header was on screen");
     }
 
-    // Select Starred selects the starred photo of its section.
+    // Select Starred selects the starred photo of its section (scrolled to: Starred Photos and
+    // Recently Updated come before it).
+    d.run("section.scrollTo", &json!({ "section": first })).unwrap();
+    d.settle(FRAMES).unwrap();
     d.click(&format!("section:{first}/selectStarred")).unwrap();
     d.settle(FRAMES).unwrap();
     assert_eq!(d.state().selection.ids, [photo]);
@@ -320,7 +326,8 @@ fn an_album_header_shows_the_album_and_edits_its_description() {
     let album = dalica_core::AlbumId::parse(made["album"].as_str().unwrap()).unwrap();
     let section = Section::Album(AlbumSection::User(dalica_ui::state::AlbumKey::of(&album)));
     d.settle(FRAMES).unwrap();
-    assert_eq!(info(&d).headers[0].0, section, "{case}: the album's section comes first");
+    let order: Vec<Section> = info(&d).headers.iter().map(|(s, _)| *s).take(2).collect();
+    assert_eq!(order, [Section::Album(AlbumSection::Recent), section], "{case}: Recently Updated (joining an album is a change), then the album");
     let id = format!("section:{section}");
     let widgets = d.widgets();
     assert_eq!(get(&widgets, &format!("{id}/icon")).label, "Best of the Harbour", "{case}: the icon shows the name");

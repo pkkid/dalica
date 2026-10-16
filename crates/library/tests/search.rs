@@ -382,7 +382,9 @@ fn results_come_in_light_table_order_with_their_sections_and_counts() {
 
 #[test]
 fn recently_updated_counts_only_with_a_clock() {
-    let lib = ordered();
+    let mut lib = ordered();
+    let changed = lib.photos().map(|p| (p.id, Some(Timestamp::from_millis(1_780_000_000_000)))).collect();
+    lib.apply(Op::SetLastChanged { changed }).unwrap();
     let index = SearchIndex::from_library(&lib);
     let recent = vec![Section::Album(AlbumRef::Recent), Section::Album(AlbumRef::Starred)];
     let now = Timestamp::from_millis(1_780_000_000_000 + 86_400_000);

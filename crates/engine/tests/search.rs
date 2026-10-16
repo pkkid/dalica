@@ -412,8 +412,8 @@ fn album_search_lists_the_results_and_library_query_takes_the_grammar() {
 
 #[test]
 fn photos_a_scan_adds_while_searching_are_found_with_their_first_indexed_times() {
-    // The clock is years after the files' times: only the first-indexed time, recorded by a
-    // derived op after the scan's, makes the photos Recently Updated.
+    // The clock is years after the files' times, and the first-indexed time (recorded by a derived
+    // op after the scan's) is no change: the replica agrees that none is Recently Updated.
     let tmp = tempfile::tempdir().unwrap();
     let folder = tmp.path().join("photos").join("Lisbon");
     std::fs::create_dir_all(&folder).unwrap();
@@ -437,7 +437,7 @@ fn photos_a_scan_adds_while_searching_are_found_with_their_first_indexed_times()
     let scope = scope_of(s.library(), s.roots(), &s.search_tree_options());
     let want = SearchIndex::from_library(s.library()).search(&Query::text("img"), &scope);
     assert_eq!((r.photos(), &r.sections), (want.ids.as_slice(), &want.sections));
-    assert!(r.sections.iter().any(|c| c.section.to_string() == "album:recent" && c.count == 3), "{:?}", r.sections);
+    assert!(r.sections.iter().all(|c| c.section.to_string() != "album:recent" || c.count == 0), "{:?}", r.sections);
     assert_eq!(s.search_stats().builds, 1, "the scan's ops reached the index one by one");
 }
 

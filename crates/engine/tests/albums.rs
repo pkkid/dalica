@@ -330,7 +330,10 @@ fn a_drop_between_two_members_rewrites_only_the_moved_photos_sidecar() {
     assert_ne!(identity("Sintra"), files[2]);
     let mut changed = after["Sintra"].clone();
     changed["photos"]["IMG_0202.jpg"]["albums"] = before["Sintra"]["photos"]["IMG_0202.jpg"]["albums"].clone();
-    assert_eq!(changed, before["Sintra"], "only the moved photo's key changed");
+    let stamp = dalica_sidecar::utc_text(s.library().last_changed(moved).unwrap()).unwrap();
+    assert_eq!(changed["photos"]["IMG_0202.jpg"]["changed"], json!(stamp), "a reorder is a change");
+    changed["photos"]["IMG_0202.jpg"]["changed"] = before["Sintra"]["photos"]["IMG_0202.jpg"]["changed"].clone();
+    assert_eq!(changed, before["Sintra"], "only the moved photo's key and its time of change changed");
     let key = after["Sintra"]["photos"]["IMG_0202.jpg"]["albums"][a.as_str()].as_str().unwrap().to_string();
     let lisbon = before["Lisbon"]["photos"]["IMG_0001.jpg"]["albums"][a.as_str()].as_str().unwrap().to_string();
     let porto = before["Porto"]["photos"]["IMG_0101.jpg"]["albums"][a.as_str()].as_str().unwrap().to_string();
@@ -399,10 +402,11 @@ fn sort_album_by_and_reverse_order() {
 }
 
 /// Starred Photos follow the stars; Recently Updated follows what Dalica changed (stars, album
-/// memberships) within its days on a virtual clock, newest first.
+/// memberships) within its days on a virtual clock, newest first. The clock starts after the
+/// files were written, so none is newer than its first index.
 #[test]
 fn starred_photos_and_recently_updated_follow_the_clock() {
-    let clock = Arc::new(VirtualClock::new(Timestamp::from_system_time(std::time::SystemTime::now())));
+    let clock = Arc::new(VirtualClock::new(Timestamp::from_system_time(std::time::SystemTime::now() + Duration::from_secs(60))));
     let (_fx, mut s) = Fx::with_clock(clock.clone());
     let list = |s: &mut Session, kind: &str| -> Vec<String> {
         let v = s.execute("albums.list", &json!({})).unwrap();
@@ -414,9 +418,8 @@ fn starred_photos_and_recently_updated_follow_the_clock() {
         assert_eq!(row["count"], json!(ids.len()));
         ids.iter().map(|id| path_of(s, *id)).collect()
     };
-    assert_eq!(list(&mut s, "recent").len(), FILES.len(), "just indexed: every photo is recent");
+    assert!(list(&mut s, "recent").is_empty(), "just indexed: none is recent (being indexed is no change)");
     clock.advance(Duration::from_secs(31 * 86_400));
-    assert!(list(&mut s, "recent").is_empty(), "31 days later none is");
     assert!(list(&mut s, "starred").is_empty());
     let star = id(&s, "Porto/IMG_0102.jpg");
     s.execute("photo.star.set", &json!({ "ids": [star], "on": true })).unwrap();
@@ -684,6 +687,9 @@ fn a_folder_moved_out_and_back_through_the_watcher_keeps_its_memberships() {
     s.execute("photo.star.set", &json!({ "ids": [star], "on": true })).unwrap();
     let mut after = fx.sidecars(&mut s)["Porto"].clone();
     assert_eq!(after["photos"]["IMG_0102.jpg"]["star"], json!(true));
+    let stamp = dalica_sidecar::utc_text(s.library().last_changed(star).unwrap()).unwrap();
+    assert_eq!(after["photos"]["IMG_0102.jpg"]["changed"], json!(stamp), "the star is a change");
     after["photos"]["IMG_0102.jpg"].as_object_mut().unwrap().remove("star");
-    assert_eq!(after, before, "a write after the return keeps every membership, the names and the sort");
+    after["photos"]["IMG_0102.jpg"]["changed"] = before["photos"]["IMG_0102.jpg"]["changed"].clone();
+    assert_eq!(after, before, "a write after the return keeps every membership, its time of change, the names and the sort");
 }
