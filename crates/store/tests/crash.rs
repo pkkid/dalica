@@ -273,7 +273,7 @@ fn a_full_disk_refuses_an_intent_with_the_reason_and_keeps_the_file() {
 }
 
 /// A full disk part-way through a journal append: the error names the reason, and the index
-/// reopens with every op before it (the half-written record dropped).
+/// reopens with every op before it (the half-written record cut off before the error is returned).
 #[test]
 fn a_full_disk_during_an_append_names_the_reason_and_keeps_the_ops_before() {
     let dir = tempfile::tempdir().unwrap();
@@ -295,6 +295,6 @@ fn a_full_disk_during_an_append_names_the_reason_and_keeps_the_ops_before() {
     assert!(err.to_string().ends_with(&disk_full().to_string()), "{err}");
     drop(store);
     let opened = Store::open(d, NOW).unwrap();
-    assert!(matches!(opened.report.as_slice(), [Recovery::JournalTail { kept: 3, .. }]), "{:?}", opened.report);
+    assert!(opened.report.is_empty(), "{:?}", opened.report);
     assert_eq!(opened.library.caption(id), format!("caption {:08} {}", 1, "x".repeat(2000)));
 }

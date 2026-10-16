@@ -5087,7 +5087,7 @@ No other step of M10 needs a maintainer decision mid-run.
     corpus floors.
   - done when: `cargo xtask test-corpus` passes with the new floors; a write that shifts the
     secondary images without fixing the MPF offsets fails the corpus test.
-- ⬜ **M10.38 `fs` + `store`: a failed journal append never loses the records after it**
+- ✅ **M10.38 `fs` + `store`: a failed journal append never loses the records after it**
   - after: M10.34
   - files: `crates/fs/src/append.rs`, `crates/fs/tests/append.rs`, `crates/store/src/journal.rs`, `crates/store/tests/journal.rs`, `crates/store/README.md`
   - scope: found by M10.34 (PR #567): when an append fails part-way (a full disk), `Appender`
