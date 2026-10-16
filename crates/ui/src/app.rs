@@ -203,7 +203,8 @@ impl App {
 
     /// What closing does, the window's (its Close button, File ▸ Exit, the system's close) and the
     /// headless app's (`app.quit`) alike: the text an inline editor holds is committed, as a click
-    /// elsewhere would commit it (the caption under a cell, a section's description; one undo step
+    /// elsewhere would commit it (the caption under a cell or in the edit view's caption bar, a
+    /// section's description; one undo step
     /// each, nothing when unchanged); the view state is saved, when it is persisted; the metadata
     /// writes still waiting for their debounce are made now, so their results reach the sidecars;
     /// then every journal record, sidecar and settings write lands (`control-protocol.md` §5.8).
@@ -215,6 +216,9 @@ impl App {
     pub fn shutdown(&mut self) -> Result<(), CmdError> {
         if let Some(edit) = self.state.caption_edit.take() {
             crate::panels::light_table::caption_edit::commit(self, edit.photo, &edit.draft);
+        }
+        if let Some(edit) = self.state.caption_bar.take() {
+            crate::panels::edit::caption_bar::commit(self, edit.photo, &edit.draft);
         }
         if let Some(edit) = self.state.description_edit.take()
             && let Some(owner) = crate::panels::light_table::header::Owner::of(edit.section)

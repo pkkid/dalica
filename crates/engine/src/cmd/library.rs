@@ -3,7 +3,8 @@
 //! - `library.query` lists photos in light-table order, paged: all of them, a folder's, a
 //!   section's (`folder:12`, `album:starred`, `album:recent`, `album:<id>`, and `album:search`, the
 //!   search mode's matches), and those a search finds (`text` in the search box's grammar, the
-//!   filter buttons, the age), asked of the search worker (`search.rs`); the lists combine.
+//!   filter buttons, the age), asked of the search worker (`search.rs`); the lists combine. Hidden
+//!   photos and the photos of hidden folders are left out unless the view shows hidden pictures.
 //! - `library.rebuild` rebuilds the index from the watched folders, in the background.
 
 use std::collections::HashSet;
@@ -112,12 +113,21 @@ fn query(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
             ids
         }
         None => {
+            // Hidden photos and those of hidden folders only while the view shows hidden pictures,
+            // as a section and a search leave them out.
+            let hidden_pictures = s.search_tree_options().hidden_pictures;
             let lib = s.library();
             let folders: Vec<FolderId> = match q.folder {
                 Some(f) => vec![f],
                 None => lib.folders_in_display_order().iter().map(|f| f.id).collect(),
             };
-            folders.into_iter().flat_map(|f| lib.photos_in(f)).map(|p| p.id).collect()
+            folders
+                .into_iter()
+                .filter(|f| hidden_pictures || !lib.is_folder_hidden(*f))
+                .flat_map(|f| lib.photos_in(f))
+                .filter(|p| hidden_pictures || !lib.is_hidden(p.id))
+                .map(|p| p.id)
+                .collect()
         }
     };
     if search.is_active() && found.is_none() {

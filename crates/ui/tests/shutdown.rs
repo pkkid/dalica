@@ -1,6 +1,6 @@
 //! Closing the app (`App::shutdown`, the window's close and the headless `app.quit` alike), driven
-//! headlessly with writes still pending: the caption typed in the inline editor and not yet
-//! committed, a section description being typed, a caption whose metadata write still waits for
+//! headlessly with writes still pending: the caption typed in the inline editor (or in the edit
+//! view's caption bar) and not yet committed, a section description being typed, a caption whose metadata write still waits for
 //! its debounce, and a view state changed since it was last saved. After the shutdown the folder
 //! sidecar holds both texts, the photo file holds the caption, `settings.json` holds the view
 //! state, and the reopened library shows the typed caption.
@@ -12,6 +12,7 @@ use crate::common::{FRAMES, new_driver, put_jpeg};
 use dalica_core::{FolderId, PhotoId};
 use dalica_engine::Session;
 use dalica_ui::App;
+use dalica_ui::panels::edit::caption_bar;
 use dalica_ui::panels::light_table::caption_edit::FIELD_ID;
 use dalica_ui::state::{DescriptionEdit, Section};
 use serde_json::{Value, json};
@@ -80,6 +81,33 @@ fn closing_with_a_caption_still_pending_leaves_it_in_the_sidecar() {
     // The reopened library starts where this one stopped.
     let s = Session::open(&library, Arc::new(dalica_core::SystemClock)).unwrap();
     assert_eq!((s.library().caption(ids[0]), s.library().caption(ids[1])), ("Alfama", "Tram 28"));
+}
+
+/// The edit view's caption bar keeps what is typed in the view state, so closing with a caption
+/// still being typed there commits it as the light table's editor is: it is in the sidecar.
+#[test]
+fn closing_while_typing_in_the_edit_views_caption_bar_keeps_the_caption() {
+    let dir = tempfile::tempdir().unwrap();
+    let (library, folder): (PathBuf, PathBuf) = (dir.path().join("library"), dir.path().join("photos").join("Porto"));
+    put_jpeg(&folder.join("IMG_0001.jpg"), 1);
+    let mut s = Session::open(&library, Arc::new(dalica_core::SystemClock)).unwrap();
+    s.execute("folders.add", &json!({ "path": folder })).unwrap();
+    s.wait_idle();
+    let id = s.library().photos().next().unwrap().id;
+    let mut d = new_driver(App::new(Some(s)), 1400, 900, 1.0);
+    d.settle(FRAMES).unwrap();
+    d.run("view.edit", &json!({ "id": id.get() })).unwrap();
+    d.settle(FRAMES).unwrap();
+    d.click(caption_bar::FIELD_ID).unwrap();
+    d.type_text("Ribeira").unwrap();
+    assert_eq!(d.state().caption_bar.as_ref().map(|e| (e.photo, e.draft.as_str())), Some((id, "Ribeira")), "the draft is in the view state");
+    assert_eq!(d.app().session().unwrap().library().caption(id), "", "nothing committed yet");
+
+    let mut app = d.into_app();
+    app.shutdown().unwrap();
+    assert_eq!(app.state().caption_bar, None, "the draft is committed");
+    assert_eq!(app.session().unwrap().library().caption(id), "Ribeira");
+    assert_eq!(read_json(&folder.join(".dalica.json"))["photos"]["IMG_0001.jpg"]["caption"], "Ribeira", "the typed caption is in the sidecar");
 }
 
 /// Closing while the library is still opening has nothing to write.
