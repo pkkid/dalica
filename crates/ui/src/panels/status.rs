@@ -4,10 +4,11 @@
 //! size in pixels and on disk; or how many pictures the tray holds (a selection, held photos, a
 //! section selected as a unit), their date range and their size on disk. A transient message (the
 //! result of the last action, or why it was refused) replaces the text for 4 s of the frame clock.
-//! While a scan runs, "Scanning: 1,204 pictures found" stands in place of "No selection", and is
-//! the last field when something is selected ([`status_text::with_activity`], `organizing.md` §1).
+//! While an export runs, "Exporting 12 of 48" (`creating.md` §2), and while a scan runs,
+//! "Scanning: 1,204 pictures found" (`organizing.md` §1), stand in place of "No selection", and are
+//! the last fields when something is selected, the export's first ([`status_text::with_activity`]).
 //! Text too long for the line is fitted by [`Line::fit`]: the scan field goes first, then the
-//! prefix, then the name's middle.
+//! export's, then the prefix, then the name's middle.
 //!
 //! In the edit view the line speaks of the photo shown, prefixed with its folder and ending with its
 //! place among its section's photos: "Lisbon › IMG_0361.jpg     June 4, 2026 7:42 PM     4000 × 3000
@@ -15,12 +16,14 @@
 //!
 //! The line is rebuilt only when the library, the selection, the held photos, the photo shown or
 //! the sections change, and fitted
-//! only when it, the scan's count or the width changes (the scan's count is read from the
-//! session's in-memory progress each frame); the text drawn is written to
+//! only when it, the scan's or the export's count or the width changes (both are read from the
+//! session's in-memory progress each frame: the scan's counters, and the job list, which is short
+//! and looked at only while a file job runs); the text drawn is written to
 //! [`UiState::status_line`](crate::state::UiState::status_line), which `ui.state` reports as
 //! `status`.
 
 use dalica_core::PhotoId;
+use dalica_engine::JobKind;
 use dalica_ui_kit::fonts;
 use dalica_ui_kit::registry::Role;
 use dalica_ui_kit::widgets::{self, Target};
@@ -158,6 +161,17 @@ fn scan_field(app: &App) -> Option<String> {
     progress.running.then(|| status_text::scanning(progress.found))
 }
 
+/// The export's field while one runs: "Exporting 12 of 48", from the newest running export job's
+/// progress. The job list is read only while a file job runs.
+fn export_field(app: &App) -> Option<String> {
+    let session = app.session()?;
+    if !session.file_jobs_running() {
+        return None;
+    }
+    let job = session.jobs().into_iter().filter(|e| e.kind == JobKind::Export && !e.state.is_finished()).max_by_key(|e| e.job)?;
+    Some(status_text::exporting(job.progress.done, job.progress.total))
+}
+
 /// Paints the status line into `ui`'s rect (the status-line region of [`super::layout`]) and
 /// records the text drawn in the view state.
 pub fn show(p: &Panels, app: &mut App, ui: &mut Ui) {
@@ -166,7 +180,10 @@ pub fn show(p: &Panels, app: &mut App, ui: &mut Ui) {
     let ctx = ui.ctx().clone();
     expire_message(app, &ctx);
     let line = match app.state().status.as_str() {
-        "" => status_text::with_activity(cached_line(p, app, &ctx).unwrap_or_default(), scan_field(app)),
+        "" => {
+            let activity = export_field(app).into_iter().chain(scan_field(app)).collect();
+            status_text::with_activity(cached_line(p, app, &ctx).unwrap_or_default(), activity)
+        }
         message => Line::plain(message),
     };
     let font = fonts::regular(t.small);

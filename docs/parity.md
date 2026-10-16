@@ -30,12 +30,12 @@ same commit.
 | B. Organizing | 20 | 4 | 19 | 0 |
 | C. Editing | 10 | 4 | 8 | 4 |
 | D. Viewing | 0 | 1 | 5 | 2 |
-| E. Output | 0 | 1 | 1 | 9 |
+| E. Output | 1 | 0 | 1 | 9 |
 | F. Data | 9 | 11 | 1 | 0 |
 | G. Preferences and system | 6 | 8 | 9 | 0 |
 | H. Menus | 0 | 6 | 2 | 0 |
 | I. Keyboard shortcuts | 69 | 4 | 12 | 0 |
-| **All** | 139 | 45 | 60 | 16 |
+| **All** | 140 | 44 | 60 | 16 |
 <!-- /parity:summary -->
 
 ## Top gaps
@@ -44,7 +44,6 @@ The P0 rows still open after the M10 audit (M10.26), for the M10.R review:
 
 1. LIB-LT-BADGES: the geotag badge is never drawn.
 2. EDIT-VIEW: the caption bar's trash button is still disabled.
-3. OUT-EXPORT: an export's progress is not shown in the status line.
 4. DATA-SIDECAR: a damaged sidecar's folder has no caution banner and no Reset folder data.
 5. LIB-EMPTY: the search empty state's text and button differ from `ui-layout.md` §5.3.
 6. DATA-FMT-JPEG: 12-bit samples (a question at M10.R), DCT-domain scaled decoding and the
@@ -188,7 +187,7 @@ The P0 rows still open after the M10 audit (M10.26), for the M10.R review:
 
 | Id | Feature | Tier | Status | Evidence / notes |
 |---|---|---|---|---|
-| OUT-EXPORT | Export dialog: size, quality, watermark, numbering, videos | P0 | 🟡 | the export job: `cmd:export.run` (the tray's photos or a section's, rendered with their current edits through the one output pipeline; size 100–4000 or the original, the quality presets or a custom value, numbers, watermark, Remove location; a taken folder name gets `-001`; videos skipped and counted; Cancel leaves only complete files; a folder outside every watched folder added as Scan Always; the folder marked Exported in its sidecar; the options used remembered) and `cmd:export.defaults`: `crates/engine/src/cmd/export.rs`, `crates/engine/tests/export.rs` (M8.16); the plan, names and files: `crates/create/src/export.rs` (M8.13); the progress window ("Exporting 12 of 48…", its bar and Cancel, opened by any export job and closed when it ends) and the file-job toasts ("Exported 48 pictures" with Show Folder, which selects the export folder and scrolls the light table to it until OS integration, M15; a failed Save naming the file and the reason): `crates/ui/src/dialogs/export_progress.rs`, `crates/ui/src/notices.rs`, `crates/ui/tests/export_progress.rs` (M8.21); the dialog: `crates/ui/src/dialogs/export.rs`, `crates/ui/src/commands/export.rs`, `crates/ui/tests/export_dialog.rs` (M8.20: every row of `creating.md` §2 filled from `cmd:export.defaults`, opened by File ▸ Export Pictures to Folder…, Ctrl+Shift+S, the bottom bar's and a section header's Export; Browse… through the folder picker, `cmd:output.export.location`; the size field and slider with stops in step; Export runs `cmd:export.run` and closes, Cancel and Esc change nothing); album, search and Starred Photos sections export too (M10.31, `crates/engine/tests/export_sections.rs`); the videos row (drawn disabled) moved to EDIT-VIDEO and Show Folder's reveal in the file manager to FILE-LOCATE (M15), by the P0 audit (M10.26); missing: the export's progress in the status line (`creating.md` §2; it shows in the progress window and the activity popover only); ref 07 §4.1 |
+| OUT-EXPORT | Export dialog: size, quality, watermark, numbering, videos | P0 | ✅ | the export job: `cmd:export.run` (the tray's photos or a section's, rendered with their current edits through the one output pipeline; size 100–4000 or the original, the quality presets or a custom value, numbers, watermark, Remove location; a taken folder name gets `-001`; videos skipped and counted; Cancel leaves only complete files; a folder outside every watched folder added as Scan Always; the folder marked Exported in its sidecar; the options used remembered) and `cmd:export.defaults`: `crates/engine/src/cmd/export.rs`, `crates/engine/tests/export.rs` (M8.16); the plan, names and files: `crates/create/src/export.rs` (M8.13); the progress window ("Exporting 12 of 48…", its bar and Cancel, opened by any export job and closed when it ends) and the file-job toasts ("Exported 48 pictures" with Show Folder, which selects the export folder and scrolls the light table to it until OS integration, M15; a failed Save naming the file and the reason): `crates/ui/src/dialogs/export_progress.rs`, `crates/ui/src/notices.rs`, `crates/ui/tests/export_progress.rs` (M8.21); the dialog: `crates/ui/src/dialogs/export.rs`, `crates/ui/src/commands/export.rs`, `crates/ui/tests/export_dialog.rs` (M8.20: every row of `creating.md` §2 filled from `cmd:export.defaults`, opened by File ▸ Export Pictures to Folder…, Ctrl+Shift+S, the bottom bar's and a section header's Export; Browse… through the folder picker, `cmd:output.export.location`; the size field and slider with stops in step; Export runs `cmd:export.run` and closes, Cancel and Esc change nothing); album, search and Starred Photos sections export too (M10.31, `crates/engine/tests/export_sections.rs`); the videos row (drawn disabled) moved to EDIT-VIDEO and Show Folder's reveal in the file manager to FILE-LOCATE (M15), by the P0 audit (M10.26); the export's progress in the status line ("Exporting 12 of 48" in place of "No selection", else the last field, in the library and the edit view, gone when the job ends; with a scan too, the scan's field is dropped first): `crates/ui/src/status_text.rs`, `crates/ui/src/panels/status.rs`, `crates/ui/tests/status_line.rs` (M10.53); ref 07 §4.1 |
 | OUT-EMAIL | Email via default app / save attachments | OOS | 🚫 | dropped 2026-10-09 (dated feature); share by exporting |
 | OUT-PRINT | Print room: layouts, fit, borders/text, review, copies | OOS | 🚫 | dropped 2026-10-09 (dated feature) |
 | OUT-CONTACT | Printed contact sheet | OOS | 🚫 | dropped 2026-10-09 (dated feature); the collage room keeps its Contact Sheet style |

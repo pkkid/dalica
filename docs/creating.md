@@ -114,6 +114,14 @@ stays 6 s: it goes back to the library, selects the folder as a unit and scrolls
 it, waiting for the scan that brings the folder in. The tree lists the export folders in Projects
 with the project icon (flat mode).
 
+**Built (M10.53, `dalica-ui` `status_text.rs`, `panels/status.rs`):** while an export job runs, the
+status line carries "Exporting 12 of 48" from the newest running export job's in-memory progress (the
+job list, read only while a file job runs): in place of "No selection", else as the last field, in
+the library and the edit view alike, and gone when the job ends (its toast follows). With a scan
+running too (a folder added during an export scans at once), the export's field comes before the
+scan's, and a line too long drops the scan's field first, then the export's, then the edit view's
+folder prefix, then the name's middle.
+
 ## 3. Collage (room)
 
 ```text
