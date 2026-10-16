@@ -46,7 +46,9 @@ fn rename(from: &Path, to: &Path) {
     let (from, to) = (from.to_path_buf(), to.to_path_buf());
     off_owner(move || {
         dalica_fs::create_dir_all(to.parent().unwrap()).unwrap();
-        std::fs::rename(from, to).unwrap();
+        if let Err(e) = std::fs::rename(&from, &to) {
+            panic!("renaming {} to {}: {e}", from.display(), to.display());
+        }
     });
 }
 
@@ -199,10 +201,16 @@ fn external_changes_reach_the_library_through_the_watcher() {
     assert!(s.library().folder_by_path(&fx.root.join("Porto")).is_none());
     assert!(photo(&s, &fx.root.join("Sintra"), "IMG_0001.jpg").is_some());
     let folder = s.library().folder_by_path(&lisbon).unwrap();
+    // The rescans' changes are written to the folders' sidecars on the I/O worker, after the
+    // settle returns; on Windows a folder cannot be renamed while a file in it is open, so a
+    // rename racing that write fails ("Access is denied"), as it would in a file manager. The
+    // writes land first, as a person's rename comes long after them.
+    s.flush().unwrap();
     rename(&lisbon, &fx.root.join("Lisboa"));
     fx.settle(&mut s);
     assert_eq!(s.library().folder_by_path(&fx.root.join("Lisboa")), Some(folder), "a renamed folder keeps its id");
     let moved = fx.root.join("Archive").join("2026").join("Lisboa");
+    s.flush().unwrap();
     rename(&fx.root.join("Lisboa"), &moved);
     fx.settle(&mut s);
     assert_eq!(s.library().folder_by_path(&moved), Some(folder), "a moved folder keeps its id");
