@@ -5588,7 +5588,7 @@ No other step of M10 needs a maintainer decision mid-run.
     `button:empty.showAll` leaves search mode; `cargo xtask parity --write` turns DATA-SIDECAR and
     LIB-EMPTY ✅; screenshots at 1400 × 900 of the banner, the question and the empty state, before
     and after, on the PR; `cargo xtask ci` green.
-- ⬜ **M10.53 `ui`: an export's progress in the status line**
+- ✅ **M10.53 `ui`: an export's progress in the status line**
   - after: M10.25, M10.31
   - files: `crates/ui/src/panels/status.rs`, `crates/ui/src/status_text.rs`, `crates/ui/tests/status_line.rs`, `docs/creating.md`
   - scope: the P0 row OUT-EXPORT the audit (M10.26) left open: `creating.md` §2 puts an export's

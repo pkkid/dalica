@@ -10,12 +10,13 @@
 //!   and adds the photo's place in its section ([`edit_photo`]): "Lisbon › IMG_0361.jpg … (12 of 48)".
 //! - **How it is written**: sizes in decimal units with one decimal ([`size`]), dates in full
 //!   ([`date_time`], [`date_range`]), fields separated by wide spaces ([`SEP`]).
-//! - **Background work** ([`scanning`], [`with_activity`]): while a scan runs, "Scanning: 1,204
-//!   pictures found" stands in place of "No selection", and is the last field when something is
-//!   selected (`organizing.md` §1).
-//! - **When it is too long** ([`Line::fit`]): the scan field goes first, then the folder prefix, then
-//!   the file name loses its middle ("IMG_…jpg"); a line still too long (a long tag list) loses its
-//!   end.
+//! - **Background work** ([`exporting`], [`scanning`], [`with_activity`]): while an export runs,
+//!   "Exporting 12 of 48" (`creating.md` §2), and while a scan runs, "Scanning: 1,204 pictures
+//!   found" (`organizing.md` §1), stand in place of "No selection", and are the last fields when
+//!   something is selected; with both, the export's comes first.
+//! - **When it is too long** ([`Line::fit`]): the scan field goes first, then the export's, then the
+//!   folder prefix, then the file name loses its middle ("IMG_…jpg"); a line still too long (a long
+//!   tag list) loses its end.
 
 use dalica_core::{Date, DateTime, PhotoId};
 use dalica_library::{Library, Photo};
@@ -36,15 +37,15 @@ pub const PREFIX_SEP: &str = " › ";
 pub const ELLIPSIS: &str = "…";
 
 /// The status line's text, as fields: `prefix` the edit view's folder, `name` the one-photo file
-/// name, `rest` the fields after it, `activity` the background work's field at the end
-/// ("Scanning: 1,204 pictures found"). When the line is too long, `activity` is dropped first, then
-/// `prefix`, then `name` is middle-elided.
+/// name, `rest` the fields after it, `activity` the background work's fields at the end
+/// ("Exporting 12 of 48", "Scanning: 1,204 pictures found"). When the line is too long, `activity`
+/// is dropped from its end one field at a time first, then `prefix`, then `name` is middle-elided.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Line {
     pub prefix: Option<String>,
     pub name: Option<String>,
     pub rest: Vec<String>,
-    pub activity: Option<String>,
+    pub activity: Vec<String>,
 }
 
 impl Line {
@@ -55,11 +56,16 @@ impl Line {
 
     /// The whole text: "Folder › name", then the fields, then the activity, joined by wide spaces.
     pub fn text(&self) -> String {
-        let text = self.render(true, None);
-        match &self.activity {
-            Some(a) if text.is_empty() => a.clone(),
-            Some(a) => format!("{text}{SEP}{a}"),
-            None => text,
+        self.with_fields(self.render(true, None), self.activity.len())
+    }
+
+    /// `text` followed by the first `n` activity fields.
+    fn with_fields(&self, text: String, n: usize) -> String {
+        let fields = self.activity.iter().take(n).map(String::as_str);
+        if text.is_empty() {
+            fields.collect::<Vec<_>>().join(SEP)
+        } else {
+            std::iter::once(text.as_str()).chain(fields).collect::<Vec<_>>().join(SEP)
         }
     }
 
@@ -75,8 +81,8 @@ impl Line {
         head.iter().chain(self.rest.iter()).map(String::as_str).collect::<Vec<_>>().join(SEP)
     }
 
-    /// The text that fits in `max` (as measured by `width`): the whole text; else without the
-    /// activity; else also without the prefix; else with the name middle-elided to the most
+    /// The text that fits in `max` (as measured by `width`): the whole text; else with fewer
+    /// activity fields, the last dropped first, down to none; else also without the prefix; else with the name middle-elided to the most
     /// characters that fit; else (nothing of the name fits) cut at its end with "…". A `max` that
     /// is not a number keeps the whole text. Measures O(log n) candidates.
     pub fn fit(&self, max: f32, width: impl Fn(&str) -> f32) -> String {
@@ -85,10 +91,11 @@ impl Line {
         if !too_wide {
             return whole;
         }
-        if self.activity.is_some() {
-            let without = self.render(true, None);
-            if width(&without) <= max {
-                return without;
+        let base = self.render(true, None);
+        for n in (0..self.activity.len()).rev() {
+            let fewer = self.with_fields(base.clone(), n);
+            if width(&fewer) <= max {
+                return fewer;
             }
         }
         if self.prefix.is_some() {
@@ -219,15 +226,26 @@ pub fn scanning(found: usize) -> String {
     format!("Scanning: {} {noun} found", grouped(found))
 }
 
-/// `line` with the background work's field `activity`: in place of "No selection" when nothing is
-/// selected, else as the last field (the first one dropped when space is short). `None` leaves the
-/// line as it is.
-pub fn with_activity(mut line: Line, activity: Option<String>) -> Line {
-    let Some(activity) = activity else { return line };
-    if line == Line::plain(NO_SELECTION) {
-        return Line::plain(activity);
+/// `Exporting 12 of 48` (`creating.md` §2): the status line's field while an export runs, `done`
+/// of its `total` photos (never more than the total).
+pub fn exporting(done: u64, total: u64) -> String {
+    let as_count = |n: u64| grouped(usize::try_from(n).unwrap_or(usize::MAX));
+    format!("Exporting {} of {}", as_count(done.min(total)), as_count(total))
+}
+
+/// `line` with the background work's fields `activity` (most kept first: the export's, then the
+/// scan's): in place of "No selection" when nothing is selected, else as the last fields; when space
+/// is short the last is dropped first. No fields leave the line as it is.
+pub fn with_activity(mut line: Line, activity: Vec<String>) -> Line {
+    if activity.is_empty() {
+        return line;
     }
-    line.activity = Some(activity);
+    if line == Line::plain(NO_SELECTION) {
+        // The first field stands as the line's own, so a line too narrow even for it loses its end.
+        let mut fields = activity.into_iter();
+        return Line { rest: fields.next().into_iter().collect(), activity: fields.collect(), ..Line::default() };
+    }
+    line.activity = activity;
     line
 }
 
@@ -403,7 +421,7 @@ mod tests {
             prefix: Some("Lisbon".into()),
             name: Some("IMG_0361.jpg".into()),
             rest: vec!["3.1 MB".into(), "(12 of 48)".into()],
-            activity: None,
+            activity: Vec::new(),
         };
         let whole = "Lisbon › IMG_0361.jpg     3.1 MB     (12 of 48)";
         assert_eq!(line.text(), whole);
@@ -486,9 +504,9 @@ mod tests {
 
     #[test]
     fn the_scan_replaces_no_selection_and_is_dropped_first_when_space_is_short() {
-        let scan = Some(scanning(1_204));
+        let scan = vec![scanning(1_204)];
         assert_eq!(with_activity(Line::plain(NO_SELECTION), scan.clone()).text(), "Scanning: 1,204 pictures found");
-        assert_eq!(with_activity(Line::plain(NO_SELECTION), None).text(), NO_SELECTION);
+        assert_eq!(with_activity(Line::plain(NO_SELECTION), Vec::new()).text(), NO_SELECTION);
         let line = Line { name: Some("IMG_0361.jpg".into()), rest: vec!["3.1 MB".into()], ..Line::default() };
         let with = with_activity(line.clone(), scan);
         let whole = "IMG_0361.jpg     3.1 MB     Scanning: 1,204 pictures found";
@@ -501,7 +519,33 @@ mod tests {
             "then as before"
         );
         // A transient message is a plain line: the scan is not added to it by the status line.
-        assert_eq!(Line { activity: Some("x".into()), ..Line::default() }.text(), "x");
+        assert_eq!(Line { activity: vec!["x".into()], ..Line::default() }.text(), "x");
+    }
+
+    #[test]
+    fn an_export_reads_as_the_spec_shows_it_and_outlasts_the_scan_when_space_is_short() {
+        assert_eq!(exporting(12, 48), "Exporting 12 of 48");
+        assert_eq!(exporting(0, 48), "Exporting 0 of 48");
+        assert_eq!(exporting(60, 48), "Exporting 48 of 48", "never more than the total");
+        assert_eq!(exporting(1_204, 2_000), "Exporting 1,204 of 2,000");
+        let both = vec![exporting(12, 48), scanning(1_204)];
+        // Nothing selected: both in place of "No selection", the scan dropped first.
+        let alone = with_activity(Line::plain(NO_SELECTION), both.clone());
+        let whole = "Exporting 12 of 48     Scanning: 1,204 pictures found";
+        assert_eq!(alone.text(), whole);
+        assert_eq!(alone.fit(chars(whole), chars), whole);
+        assert_eq!(alone.fit(chars(whole) - 1.0, chars), "Exporting 12 of 48", "the scan first");
+        assert_eq!(alone.fit(10.0, chars), "Exporting…", "then the export's end");
+        // A photo selected: the last fields, the scan's dropped first, then the export's, then the
+        // prefix.
+        let line = Line { prefix: Some("Lisbon".into()), name: Some("IMG_0361.jpg".into()), rest: vec!["3.1 MB".into()], ..Line::default() };
+        let with = with_activity(line, both);
+        let whole = "Lisbon › IMG_0361.jpg     3.1 MB     Exporting 12 of 48     Scanning: 1,204 pictures found";
+        assert_eq!(with.text(), whole);
+        let export = "Lisbon › IMG_0361.jpg     3.1 MB     Exporting 12 of 48";
+        assert_eq!(with.fit(chars(whole) - 1.0, chars), export, "the scan first");
+        assert_eq!(with.fit(chars(export) - 1.0, chars), "Lisbon › IMG_0361.jpg     3.1 MB", "then the export's");
+        assert_eq!(with.fit(chars("Lisbon › IMG_0361.jpg     3.1 MB") - 1.0, chars), "IMG_0361.jpg     3.1 MB", "then the prefix");
     }
 
     #[test]

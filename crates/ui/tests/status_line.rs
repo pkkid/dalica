@@ -6,14 +6,20 @@
 //! where the line is too narrow and shown whole where it is not; the elision order (the edit view's
 //! folder prefix first, then the name's middle) and the edit view's "(12 of 48)" are checked as
 //! formats for M7; a transient message replaces the text for 4 s of virtual time.
+//!
+//! An export's progress (M10.53, `creating.md` §2): while an export job runs (held part-way by a
+//! gate, no sleep), the line reads "Exporting 1 of 4" in place of "No selection" and ends with it
+//! with a photo selected, in the library and in the edit view, and loses it when the job ends; with
+//! a scan running too, both show at 1400 and the scan's field is dropped first at 900.
 
 use std::collections::BTreeMap;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Condvar, Mutex};
+use std::time::Duration;
 
 use crate::common::{FRAMES, LARGE, SMALL, new_driver};
 use dalica_core::{Date, DateTime, PhotoId};
-use dalica_engine::Session;
+use dalica_engine::{Done, FileItem, FileJob, JobId, JobKind, Session};
 use dalica_scenes::{Exif, Scene};
 use dalica_ui::status_text::{self, Line};
 use dalica_ui::{App, Driver, ScriptedPicker};
@@ -226,4 +232,131 @@ fn a_transient_message_shows_for_four_seconds() {
     d.run("select.set", &json!({ "ids": [ids(&d)["IMG_0361.jpg"].get()] })).unwrap();
     d.step();
     assert!(status(&d).starts_with("IMG_0361.jpg     "), "{size:?}: an action that succeeds clears the message");
+}
+
+/// Open once the test lets the held items of a job (or the held files of a scan) go.
+type Gate = Arc<(Mutex<bool>, Condvar)>;
+
+fn new_gate() -> Gate {
+    Arc::new((Mutex::new(false), Condvar::new()))
+}
+
+fn open(gate: &Gate) {
+    *gate.0.lock().unwrap() = true;
+    gate.1.notify_all();
+}
+
+/// Waits (at most 60 s) until `gate` is open.
+fn pass(gate: &Gate) {
+    let (lock, cv) = &**gate;
+    let _ = cv.wait_timeout_while(lock.lock().unwrap(), Duration::from_secs(60), |open| !*open).unwrap();
+}
+
+/// One item of the test export job.
+struct Item(std::path::PathBuf);
+
+impl FileItem for Item {
+    fn file(&self) -> &Path {
+        &self.0
+    }
+}
+
+/// Starts an export job of 4 items that writes nothing: the first is done at once, the others
+/// wait for `gate`; returns once the first is done, so the job reads "1 of 4".
+fn held_export(d: &mut Driver, gate: &Gate) -> JobId {
+    let held = Arc::clone(gate);
+    let items: Vec<Item> = (1..=4).map(|i| Item(format!("IMG_{i:04}.jpg").into())).collect();
+    let job = FileJob::new(JobKind::Export, "Exporting", items, move |item: Item| {
+        if item.0 != Path::new("IMG_0001.jpg") {
+            pass(&held);
+        }
+        Ok(Done { changes: Vec::new(), value: () })
+    });
+    let id = d.app_mut().session_mut().unwrap().start_file_job(job);
+    d.step_until(|app| app.session().unwrap().job(id).unwrap().progress.done == 1, FRAMES).expect("one item done");
+    d.wait(100).unwrap();
+    id
+}
+
+/// The done-when: while the export runs the line reads "Exporting 1 of 4" with nothing selected,
+/// ends with it with a photo selected, in the library and in the edit view, and loses it once the
+/// job ends.
+#[test]
+fn an_export_shows_its_progress_until_it_ends() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut d = driver(dir.path(), LARGE);
+    let gate = new_gate();
+    let id = held_export(&mut d, &gate);
+    assert_eq!(status(&d), "Exporting 1 of 4", "in place of No selection");
+
+    select(&mut d, &["IMG_0361.jpg"]);
+    let one = "IMG_0361.jpg     June 4, 2026 7:42 PM     400 × 300     100.0 KB";
+    assert_eq!(status(&d), format!("{one}     Exporting 1 of 4"), "the last field");
+
+    let photo = ids(&d)["IMG_0361.jpg"].get();
+    d.run("view.edit", &json!({ "id": photo })).unwrap();
+    d.wait(100).unwrap();
+    let text = status(&d);
+    assert!(text.starts_with("Lisbon Weekend › IMG_0361.jpg     ") && text.ends_with("(1 of 4)     Exporting 1 of 4"), "the edit view: {text}");
+
+    open(&gate);
+    d.step_until(|app| app.session().unwrap().job(id).is_some_and(|e| e.state.is_finished()), FRAMES).expect("the job ends");
+    d.wait(100).unwrap();
+    let text = status(&d);
+    assert!(text.starts_with("Lisbon Weekend › IMG_0361.jpg     ") && text.ends_with("(1 of 4)"), "gone in the edit view: {text}");
+    d.run("view.library", &json!({})).unwrap();
+    d.run("select.none", &json!({})).unwrap();
+    d.settle(FRAMES).unwrap();
+    assert_eq!(status(&d), "No selection", "gone in the library");
+}
+
+/// The tag of the scan-and-export test.
+const TAG: &str = "lisbon-weekend-in-june-with-the-trams-and-the-sea-and-the-hills";
+
+/// The done-when: a scan and an export together both show where there is room (1400), and at 900
+/// the scan's field is dropped first, the export's kept.
+#[test]
+fn with_a_scan_too_the_scan_field_goes_first() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut d = driver(dir.path(), LARGE);
+    // A folder still to add, whose scan waits for its own gate on every file.
+    let porto = dir.path().join("photos").join("Porto");
+    std::fs::create_dir_all(&porto).unwrap();
+    let jpeg = dalica_scenes::jpeg(&Scene::new(7, 96, 64), 80, None).unwrap();
+    std::fs::write(porto.join("IMG_0901.jpg"), jpeg).unwrap();
+    let files = new_gate();
+    let (held, inner) = (Arc::clone(&files), dalica_scan::default_reader());
+    let reader: dalica_scan::HeaderReader = Arc::new(move |path: &Path, limits: &dalica_image::Limits| {
+        pass(&held);
+        inner(path, limits)
+    });
+    d.app_mut().session_mut().unwrap().set_scan_reader(Some(reader));
+
+    // A tag long enough that at 900 the selection's fields and the export's fit and the scan's
+    // does not (about 835 and 990 points of the 884 there are; all 990 fit at 1400).
+    let picked: Vec<u64> = ["IMG_0361.jpg", "IMG_0362.jpg", "IMG_0363.jpg"].iter().map(|n| ids(&d)[*n].get()).collect();
+    d.run("photo.tags.add", &json!({ "ids": picked, "tags": TAG })).unwrap();
+
+    let items = new_gate();
+    let id = held_export(&mut d, &items);
+    // The scan starts after the export (one running when a file job starts is put off).
+    d.run("folders.add", &json!({ "path": porto })).unwrap();
+    d.step_until(|app| app.session().unwrap().scan_progress().running, FRAMES).expect("the scan runs");
+    // Selected without settling: the scan keeps the library busy.
+    d.run("select.set", &json!({ "ids": picked })).unwrap();
+    d.wait(100).unwrap();
+    let several = format!("3 pictures     June 4, 2026 to June 6, 2026     300.0 KB on disk     Tags: {TAG} (3)");
+    let export = format!("{several}     Exporting 1 of 4");
+    assert_eq!(status(&d), format!("{export}     Scanning: 0 pictures found"), "both at 1400, the export's first");
+
+    d.resize(SMALL.0, SMALL.1);
+    d.wait(100).unwrap();
+    assert_eq!(status(&d), export, "900: the scan's field dropped first");
+
+    open(&items);
+    open(&files);
+    d.step_until(|app| app.session().unwrap().job(id).is_some_and(|e| e.state.is_finished()), FRAMES).expect("the export ends");
+    d.step_until(|app| !app.session().unwrap().busy(), FRAMES).expect("the scan ends");
+    d.wait(100).unwrap();
+    assert_eq!(status(&d), several, "both gone");
 }
