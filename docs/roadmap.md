@@ -5730,7 +5730,7 @@ No other step of M10 needs a maintainer decision mid-run.
     and the edit view's message carry the reason and the hint, and `ui.state` shows the photo's
     capture date; `cargo xtask parity --p0` passes; a screenshot of the HEIC tile and its tooltip
     at 1400 × 900 on the PR; `cargo xtask ci` green.
-- ⬜ **M10.57 `engine`: a damaged folder holds metadata write-back too**
+- ✅ **M10.57 `engine`: a damaged folder holds metadata write-back too**
   - after: M10.52, M10.54
   - files: `crates/engine/src/metadata.rs`, `crates/engine/src/cmd/folder_data.rs`, `crates/engine/tests/folder_data.rs`, `docs/data-model.md`
   - scope: the maintainer's answer at M10.R (2026-10-16, Q5): "nothing in a damaged folder is

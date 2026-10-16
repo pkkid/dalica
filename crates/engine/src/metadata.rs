@@ -22,6 +22,19 @@
 //!   not take Dalica's own write for an outside change; a failed write becomes a
 //!   [`MetadataEvent`] (the UI's toasts), naming the file and the fields.
 //!
+//! **A damaged folder holds its photos' writes** (M10.57, `data-model.md` §3): nothing in a folder
+//! whose sidecar was damaged is written until the user chooses. A write of a photo in a folder on
+//! the session's damaged list (in memory, `cmd/folder_data.rs`) is not sent to the worker: it is
+//! held, and the fields it holds are marked unwritten in the photo's last-synced hashes (a field
+//! with none takes the hash of the value it had before the change, the value the file holds). A
+//! held write does not keep the session busy and is not written at close. The worker holds one
+//! queued before the folder was found damaged as well, and hands it back. When the folder's state
+//! is lifted ([`Session::metadata_damage_changed`], from `folder.resetData`) the held writes are
+//! sent with the library's values then, with every field the library still marks unwritten in the
+//! folder's photos (so a hold from before a restart is sent too); a held photo that left the
+//! folder first (moved elsewhere, or trashed) has its write dropped and reported as a
+//! [`MetadataEvent`], and the library keeps the value.
+//!
 //! [`Session::pending_metadata_writes`] counts the photos still to write (`library.inspect` →
 //! `pendingWrites.metadata`); [`Session::flush_metadata`] writes them all now (the CLI, tests). When
 //! the session closes, the worker writes what is still queued before it stops.
@@ -158,6 +171,16 @@ impl Fields {
         self.0 |= f.bit();
     }
 
+    /// The fields in either set.
+    fn union(self, other: Fields) -> Fields {
+        Fields(self.0 | other.0)
+    }
+
+    /// The set of `fields`, as the write queue names them.
+    fn of_sync(fields: &BTreeSet<SyncField>) -> Fields {
+        Fields(fields.iter().fold(0, |b, f| b | Field::of_sync(*f).bit()))
+    }
+
     /// The fields in the set, in [`Field::ALL`] order.
     pub fn iter(self) -> impl Iterator<Item = Field> {
         Field::ALL.into_iter().filter(move |f| self.contains(*f))
@@ -260,10 +283,16 @@ struct Writer {
     queued: HashMap<PhotoId, u64>,
     /// The number of the last message that queued writes.
     sent: u64,
+    /// The fields each photo of `queued` was sent with, so a write the worker hands back for a
+    /// damaged folder is held with them.
+    queued_fields: HashMap<PhotoId, Fields>,
     /// The photos of `queued` whose last write waits for their volume (or their folder) to come
     /// back: the worker tries them again on its own, so they do not keep the session busy
     /// ([`Session::metadata_writes_busy`]). Always a subset of `queued`.
     waiting: HashSet<PhotoId>,
+    /// The writes held for a damaged folder (M10.57), never sent to the worker: they count as
+    /// pending, never as busy, and are sent or dropped when the folder's state is lifted.
+    in_damaged: BTreeMap<PhotoId, HeldWrite>,
     /// The worker stopped (its channel closed): what is queued can no longer land, so it does not
     /// keep the session busy either.
     stopped: bool,
@@ -276,6 +305,14 @@ struct Writer {
     job: Option<Running>,
     /// The failed writes, oldest first, at most [`MAX_EVENTS`].
     events: VecDeque<MetadataEvent>,
+}
+
+/// A write held because its photo's folder is damaged: the folder and the file it was held at, and
+/// the fields to write.
+struct HeldWrite {
+    folder: PathBuf,
+    path: PathBuf,
+    fields: Fields,
 }
 
 /// The job writing now, and what it did so far.
@@ -358,6 +395,8 @@ enum ToWorker {
     Options(metawrite::Options),
     Hold(Vec<PathBuf>),
     Guard(Vec<(PathBuf, RootCheck)>),
+    /// The folders whose sidecar was damaged: their photos' writes are handed back, not made.
+    Damaged(Vec<PathBuf>),
     /// Write everything queued now, then answer.
     Flush(Sender<()>),
     /// Write `photo`'s queued request now (unless it waits for its volume), then answer the version
@@ -395,6 +434,13 @@ enum FromWorker {
     /// Writes are due and there is no job to write them under.
     NeedJob,
     Wrote(Box<Wrote>),
+    /// `photo`'s write (at `path`) was due in a damaged folder: it left the queue unwritten, for
+    /// the owner to hold.
+    Held {
+        photo: PhotoId,
+        path: PathBuf,
+        seen: u64,
+    },
     /// Writing `photo` panicked: it left the queue.
     Panicked {
         photo: PhotoId,
@@ -491,6 +537,11 @@ pub(crate) fn candidates(library: &Library, op: &Op) -> Vec<PhotoId> {
     out.into_iter().collect()
 }
 
+/// `o` as the write queue's values (places have no field in the model).
+fn values_of(o: &Owned) -> Values {
+    Values { caption: o.caption.clone(), tags: o.tags.clone(), star: o.star, place: None, date: o.date }
+}
+
 /// The owned values of `ids` in `library` now (photos not in it are left out).
 pub(crate) fn snapshot(library: &Library, ids: &[PhotoId]) -> Vec<(PhotoId, Owned)> {
     ids.iter().filter_map(|id| library.photo(*id).map(|p| (*id, owned(library, p)))).collect()
@@ -526,30 +577,39 @@ impl Session {
     /// candidate photos from before it: records the fields that changed, if any, and queues a
     /// command's changes for writing into the files.
     pub(crate) fn metadata_applied(&mut self, before: Vec<(PhotoId, Owned)>, origin: Origin) {
-        let photos: Vec<(PhotoId, Fields)> = before
+        let changed: Vec<(PhotoId, Fields, Owned)> = before
             .into_iter()
             .filter_map(|(id, old)| {
                 let now = owned(&self.library, self.library.photo(id)?);
-                Some((id, differ(&old, &now))).filter(|(_, f)| !f.is_empty())
+                let f = differ(&old, &now);
+                (!f.is_empty()).then_some((id, f, old))
             })
             .collect();
-        if photos.is_empty() {
+        if changed.is_empty() {
             return;
         }
+        let photos: Vec<(PhotoId, Fields)> = changed.iter().map(|(id, f, _)| (*id, *f)).collect();
         if origin == Origin::Command {
-            self.queue_metadata_writes(&photos);
+            let before: HashMap<PhotoId, Owned> = changed.into_iter().map(|(id, _, old)| (id, old)).collect();
+            self.queue_metadata_writes(&photos, &before);
         }
         self.metadata.record(MetadataChange { origin, photos }, MAX_PENDING);
     }
 
-    /// Queues a write of each photo's changed fields whose option is on.
-    fn queue_metadata_writes(&mut self, photos: &[(PhotoId, Fields)]) {
+    /// Queues a write of each photo's changed fields whose option is on; one of a photo in a
+    /// damaged folder is held instead (`before`: the photos' values before the change, when known).
+    fn queue_metadata_writes(&mut self, photos: &[(PhotoId, Fields)], before: &HashMap<PhotoId, Owned>) {
         let options = self.settings().metadata_writes();
         let wanted: Vec<(PhotoId, BTreeSet<SyncField>)> = photos
             .iter()
             .map(|(id, f)| (*id, f.iter().filter(|f| f.allowed(&options)).map(Field::sync).collect::<BTreeSet<_>>()))
             .filter(|(_, f)| !f.is_empty())
             .collect();
+        // Nothing in a damaged folder is written until the user chooses (M10.57).
+        let (held, wanted): (Vec<_>, Vec<_>) = wanted.into_iter().partition(|(id, _)| self.in_damaged_folder(*id));
+        for (id, fields) in held {
+            self.hold_for_damage(id, &fields, before.get(&id));
+        }
         if wanted.is_empty() {
             return;
         }
@@ -576,10 +636,112 @@ impl Session {
         let seq = w.sent;
         for (r, _) in &requests {
             w.queued.insert(r.photo, seq);
+            let sent = w.queued_fields.entry(r.photo).or_default();
+            *sent = sent.union(Fields::of_sync(&r.fields));
             // A new request ends a wait, as on the worker's side.
             w.waiting.remove(&r.photo);
         }
         w.send(ToWorker::Queue { seq, at, requests });
+    }
+
+    /// Whether photo `id` is in a folder on the session's damaged list (in memory).
+    fn in_damaged_folder(&self, id: PhotoId) -> bool {
+        if self.damaged.is_empty() {
+            return false;
+        }
+        let folder = self.library.photo(id).and_then(|p| self.library.folder(p.folder));
+        folder.is_some_and(|f| self.damaged.contains_key(&f.path))
+    }
+
+    /// Holds a write of `fields` of photo `id`, whose folder is damaged, and marks those fields
+    /// unwritten in its last-synced hashes: a field with no hash takes the hash of the value it had
+    /// before the change (`before`), the value the file holds. The mark is journaled, so the write
+    /// is found again after a restart ([`Session::release_held_writes`]).
+    fn hold_for_damage(&mut self, id: PhotoId, fields: &BTreeSet<SyncField>, before: Option<&Owned>) {
+        let Some(p) = self.library.photo(id) else { return };
+        let Some(folder) = self.library.folder(p.folder) else { return };
+        let (folder, path) = (folder.path.clone(), folder.path.join(&p.name));
+        let held = HeldWrite { folder, path, fields: Fields::of_sync(fields) };
+        let w = &mut self.metadata.writer;
+        let fields_before = w.in_damaged.get(&id).map_or(Fields::NONE, |h| h.fields);
+        w.in_damaged.insert(id, HeldWrite { fields: held.fields.union(fields_before), ..held });
+        let Some(old) = before else { return };
+        let was = values_of(old);
+        let mut synced = self.library.synced(id).copied().unwrap_or_default();
+        let mut marked = false;
+        for f in fields {
+            if synced.get(*f).is_none() {
+                synced.set(*f, Some(was.hash(*f)));
+                marked = true;
+            }
+        }
+        if marked && let Err(e) = self.apply_derived(Op::SetSynced { synced: vec![(id, Some(synced))] }) {
+            log::warn!("the held write of photo {id} not marked: {e}");
+        }
+    }
+
+    /// The owned fields Dalica changed in photo `id` and has not written into its file, as its
+    /// last-synced hashes say (none without hashes). Places are left out: the model has no field
+    /// for them, so Dalica never changes one (writing one would remove the file's).
+    fn unwritten(&self, id: PhotoId) -> Fields {
+        let (Some(synced), Some(p)) = (self.library.synced(id), self.library.photo(id)) else { return Fields::NONE };
+        let ours = self.model_values(p);
+        let mut out = Fields::NONE;
+        for f in [Field::Caption, Field::Tags, Field::Star, Field::Date] {
+            if synced.get(f.sync()).is_some_and(|h| h != ours.hash(f.sync())) {
+                out.insert(f);
+            }
+        }
+        out
+    }
+
+    /// The damaged list changed (`cmd/folder_data.rs`'s `sync_damage`): the worker hears it, and
+    /// the writes held for the folders `lifted` (taken off the list) are released.
+    pub(crate) fn metadata_damage_changed(&mut self, lifted: &[PathBuf]) {
+        let list: Vec<PathBuf> = self.damaged.keys().cloned().collect();
+        self.metadata.writer.send(ToWorker::Damaged(list));
+        if !lifted.is_empty() {
+            self.release_held_writes(lifted);
+        }
+    }
+
+    /// Sends the writes held for the folders `lifted`, with the library's values now, together
+    /// with every field the library still marks unwritten in their photos (a hold from before a
+    /// restart). A held photo no longer in its folder (moved elsewhere, or trashed) has its write
+    /// dropped and reported; the library keeps the value.
+    fn release_held_writes(&mut self, lifted: &[PathBuf]) {
+        let ids: Vec<PhotoId> = self.metadata.writer.in_damaged.iter().filter(|(_, h)| lifted.contains(&h.folder)).map(|(id, _)| *id).collect();
+        let mut send: BTreeMap<PhotoId, Fields> = BTreeMap::new();
+        for id in ids {
+            let Some(held) = self.metadata.writer.in_damaged.remove(&id) else { continue };
+            let here = self.library.photo(id).and_then(|p| self.library.folder(p.folder)).is_some_and(|f| f.path == held.folder);
+            if here {
+                send.insert(id, held.fields);
+                continue;
+            }
+            let name = held.folder.file_name().map_or_else(|| held.folder.display().to_string(), |n| n.to_string_lossy().into_owned());
+            let reason =
+                format!("the photo left {name} before the folder's data was reset, so its held change was not written; the library keeps the value");
+            self.metadata_event(id, held.path, held.fields.iter().collect(), reason);
+        }
+        for path in lifted {
+            let Some(folder) = self.library.folder_by_path(path) else { continue };
+            let found: Vec<(PhotoId, Fields)> = self.library.photos_in(folder).into_iter().map(|p| (p.id, self.unwritten(p.id))).collect();
+            for (id, fields) in found.into_iter().filter(|(_, f)| !f.is_empty()) {
+                let e = send.entry(id).or_default();
+                *e = e.union(fields);
+            }
+        }
+        if !send.is_empty() {
+            let photos: Vec<(PhotoId, Fields)> = send.into_iter().collect();
+            self.queue_metadata_writes(&photos, &HashMap::new());
+        }
+    }
+
+    /// Photo `p`'s owned values in the model, as the write queue takes them.
+    fn model_values(&self, p: &Photo) -> Values {
+        let info = self.library.info(p.id);
+        Values { caption: info.caption.clone(), tags: info.tags.clone(), star: p.star, place: None, date: self.library.effective_date(p.id) }
     }
 
     /// For the photos of `ids` that may be RAW files: the names, by folder and folded stem, of the
@@ -602,9 +764,7 @@ impl Session {
     fn write_request(&self, id: PhotoId, fields: BTreeSet<SyncField>, raws: &HashMap<(FolderId, String), Vec<String>>) -> Option<(Request, Version)> {
         let p = self.library.photo(id)?;
         let folder = self.library.folder(p.folder)?;
-        let info = self.library.info(id);
-        let values =
-            Values { caption: info.caption.clone(), tags: info.tags.clone(), star: p.star, place: None, date: self.library.effective_date(id) };
+        let values = self.model_values(p);
         let raws =
             raws.get(&(p.folder, stem_key(&p.name))).map(|names| names.iter().filter(|n| **n != p.name).cloned().collect()).unwrap_or_default();
         let request =
@@ -625,6 +785,7 @@ impl Session {
         match spawned {
             Ok(thread) => {
                 let options = queue_options(&self.settings().metadata_writes());
+                let damaged: Vec<PathBuf> = self.damaged.keys().cloned().collect();
                 let w = &mut self.metadata.writer;
                 w.worker = Some(Worker { tx: Some(tx), rx, thread: Some(thread) });
                 w.send(ToWorker::Options(options.clone()));
@@ -632,6 +793,7 @@ impl Session {
                 let (held, guards) = (w.held.clone(), w.guards.clone());
                 w.send(ToWorker::Hold(held));
                 w.send(ToWorker::Guard(guards));
+                w.send(ToWorker::Damaged(damaged));
                 true
             }
             Err(e) => {
@@ -699,6 +861,15 @@ impl Session {
         match answer {
             FromWorker::NeedJob => self.start_metadata_job(),
             FromWorker::Wrote(w) => self.metadata_wrote(*w),
+            FromWorker::Held { photo, path, seen } => {
+                let w = &mut self.metadata.writer;
+                let fields = w.queued_fields.get(&photo).copied().unwrap_or_default();
+                w.done_with(photo, seen);
+                if let Some(folder) = path.parent().map(PathBuf::from) {
+                    let fields = fields.union(w.in_damaged.get(&photo).map_or(Fields::NONE, |h| h.fields));
+                    w.in_damaged.insert(photo, HeldWrite { folder, path, fields });
+                }
+            }
             FromWorker::Panicked { photo, path, seen } => {
                 self.metadata.writer.done_with(photo, seen);
                 self.metadata_event(photo, path, Vec::new(), "the write stopped unexpectedly; the folder sidecar keeps the values".into());
@@ -852,9 +1023,10 @@ impl Session {
     }
 
     /// The photos whose metadata is still to be written into their files (`library.inspect` →
-    /// `pendingWrites.metadata`), waiting ones included.
+    /// `pendingWrites.metadata`), waiting ones and those held for a damaged folder included.
     pub fn pending_metadata_writes(&self) -> usize {
-        self.metadata.writer.queued.len()
+        let w = &self.metadata.writer;
+        w.queued.len().saturating_add(w.in_damaged.keys().filter(|id| !w.queued.contains_key(id)).count())
     }
 
     /// Whether a metadata write still needs the owner's [`Session::poll`] to land (M10.54): one
@@ -863,7 +1035,8 @@ impl Session {
     /// polls only while it has background work (`App::idle`) must count this as well as
     /// [`Session::busy`] (the scans, which the status line, the activity spinner and `ui.settle`
     /// read as such). Once the writes land it is false again; a write waiting for an offline
-    /// volume is retried by the writer on its own and does not count. In memory only, O(1).
+    /// volume is retried by the writer on its own and does not count, nor does one held for a
+    /// damaged folder (M10.57: it waits for the user's choice). In memory only, O(1).
     pub fn metadata_writes_busy(&self) -> bool {
         let w = &self.metadata.writer;
         w.worker.is_some() && !w.stopped && (w.job.is_some() || w.queued.len() > w.waiting.len())
@@ -921,6 +1094,7 @@ impl Writer {
     fn done_with(&mut self, photo: PhotoId, seen: u64) {
         if self.queued.get(&photo).is_some_and(|s| *s <= seen) {
             self.queued.remove(&photo);
+            self.queued_fields.remove(&photo);
             self.waiting.remove(&photo);
         }
     }
@@ -940,6 +1114,8 @@ struct Work {
     files: BTreeMap<PhotoId, (PathBuf, Version)>,
     /// Of `files`, those waiting for their volume (as the queue last said).
     waiting: BTreeSet<PhotoId>,
+    /// The folders whose sidecar was damaged: a write due there is handed back, never made.
+    damaged: BTreeSet<PathBuf>,
     /// Photos found due, to write one by one (taken from the queue once per batch, not per file).
     ready: VecDeque<PhotoId>,
     /// The last run of Dalica's own writes of each photo: the version the file was at before the
@@ -962,6 +1138,7 @@ fn work(rx: Receiver<ToWorker>, tx: Sender<FromWorker>, clock: Arc<dyn Clock>) {
         seen: 0,
         files: BTreeMap::new(),
         waiting: BTreeSet::new(),
+        damaged: BTreeSet::new(),
         ready: VecDeque::new(),
         own: HashMap::new(),
         own_order: VecDeque::new(),
@@ -1017,6 +1194,7 @@ impl Work {
                 self.queue.hold(roots);
             }
             ToWorker::Guard(roots) => self.queue.guard(roots),
+            ToWorker::Damaged(folders) => self.damaged = folders.into_iter().collect(),
             ToWorker::Flush(ack) => {
                 let all: Vec<PhotoId> = self.files.keys().copied().collect();
                 for id in all {
@@ -1109,9 +1287,21 @@ impl Work {
         Some((stat.identity.size(), Timestamp::from_system_time(stat.times.modified)))
     }
 
-    /// Writes queued `photo` and reports it.
+    /// Whether `path` is in a damaged folder.
+    fn in_damaged(&self, path: &std::path::Path) -> bool {
+        path.parent().is_some_and(|f| self.damaged.contains(f))
+    }
+
+    /// Writes queued `photo` and reports it; one in a damaged folder leaves the queue unwritten and
+    /// is handed back to the owner, who holds it.
     fn write(&mut self, photo: PhotoId, now: Timestamp) {
         let Some((path, known)) = self.files.get(&photo).cloned() else { return };
+        if self.in_damaged(&path) {
+            self.queue.remove(photo);
+            self.forget(photo);
+            let _ = self.tx.send(FromWorker::Held { photo, path, seen: self.seen });
+            return;
+        }
         let found = Work::version(&path);
         let matched = found == Some(known);
         let (queue, options) = (&mut self.queue, &self.options);
@@ -1178,8 +1368,13 @@ impl Work {
     }
 
     /// The session went: write what is still queued (nobody hears the results; the next session
-    /// reads the files again).
+    /// reads the files again), apart from the writes in damaged folders (the library marks them
+    /// unwritten when they were held; see the module's notes).
     fn close(mut self) {
+        let held: Vec<PhotoId> = self.files.iter().filter(|(_, (p, _))| self.in_damaged(p)).map(|(id, _)| *id).collect();
+        for id in held {
+            self.queue.remove(id);
+        }
         let now = self.clock.now();
         let _ = catch_unwind(AssertUnwindSafe(|| self.queue.flush(&self.options, now)));
     }

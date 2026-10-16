@@ -220,7 +220,12 @@ Format rules:
   the banner in `crates/ui/src/panels/light_table/folder_banner.rs`):**
   - The first write that meets the file (a scan's, an edit's, a carry's) keeps it aside and lists
     the folder as damaged. Its changes stay in the library (and the journal) but nothing is
-    written there: no sidecar write and no entry carried in or out by a move.
+    written there: no sidecar write and no entry carried in or out by a move. Metadata write-back
+    into its photos (captions, tags and dates into their XMP/IPTC) is held too until the reset
+    (M10.57): the write stays pending without keeping the app busy, is not made at close, is sent
+    when the folder's state is lifted (a hold from before a restart included, as the library still
+    marks the field unwritten), and is dropped only for a photo that left the folder first, which is
+    reported; the library keeps the value either way.
   - The list is kept in `damaged-folders.json` in the library directory (§4), by folder path, so a
     restart, or an index rebuilt from the folders, does not quietly start writing into the folder
     before the user chose.
