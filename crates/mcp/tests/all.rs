@@ -2,7 +2,9 @@
 
 mod command_tools;
 mod common;
+mod edit_tools;
 mod inspect;
 mod organize_tools;
+mod output_tools;
 mod resources;
 mod server;

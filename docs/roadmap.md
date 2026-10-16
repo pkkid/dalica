@@ -4902,7 +4902,7 @@ No other step of M10 needs a maintainer decision mid-run.
     `options.set` with its key; `crates/ui/tests/ui_scale.rs`: the factor for system scales 100,
     125 and 150 % and a 3840 px monitor, a fixed 150 % on a 200 % system; fingerprints of the
     General tab and of the main window at 150 % and Large at both window sizes.
-- ⬜ **M10.14 `mcp`: the edit, render and export helper tools**
+- ✅ **M10.14 `mcp`: the edit, render and export helper tools**
   - after: M10.4, M10.9
   - files: `crates/mcp/src/tools/edit.rs`, `crates/mcp/src/tools/output.rs`, `crates/mcp/tests/edit_tools.rs`, `crates/mcp/tests/output_tools.rs`
   - scope: `mcp.md` §4.2 and §10: `list_edit_ops {op?}` from `edit::catalog()`; `get_recipe {id}`
