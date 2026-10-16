@@ -5011,7 +5011,7 @@ No other step of M10 needs a maintainer decision mid-run.
     row `SYS-MCP`.
   - done when: `cargo test -p dalica-mcp --test workflows` runs W02, W03, W08 and W09 green (on all
     three OSes at the review) and lists the other eight as ignored with their reasons.
-- ⬜ **M10.19 `mcp`: the M9 workflows**
+- ✅ **M10.19 `mcp`: the M9 workflows**
   - after: M10.18
   - files: `crates/mcp/tests/workflows/w04_rebuild_loses_nothing.rs`, `crates/mcp/tests/workflows/w05_move_carries_data.rs`, `crates/mcp/tests/workflows/w06_search_save_results.rs`, `crates/mcp/tests/workflows/w12_destructive_asks.rs`
   - scope: `mcp.md` §9: W04 (star, caption, tag, hide, edit and album, then `library.rebuild
