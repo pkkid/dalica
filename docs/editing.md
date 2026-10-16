@@ -353,3 +353,30 @@ code). Each effect has a fingerprint test on a procedural scene so its look is p
 | + / − | nudge hovered slider; resize retouch brush |
 | Wheel / Ctrl+= / Ctrl+− | zoom |
 | Click-and-hold photo / double-click photo | zoom to 100 % / back to library |
+
+## 13. The operation catalogue and whole recipes (agents)
+
+- **The catalogue** (`edit::catalog()`, read by MCP's `list_edit_ops`): one row per operation the
+  parser knows, in its order (`rotate`, `flip_h`, `flip_v`, then the listed operations of
+  `data-model.md` §3.1): the name, the English label "Undo …" names, the syntax, each parameter
+  (a number with its range, a choice, an `#rrggbb` colour with or without `none`, a checkbox,
+  seconds, or Retouch's strokes) with its default as the entry writes it, whether the operation may
+  change the picture's size (a crop; a quarter turn), the milestone that brings it, and whether
+  this build renders it (its module renders; anything else is kept and skipped). The ranges and
+  defaults of every rendered operation are its module's own, and a test checks each row against
+  the parser and the module's clamps. The rows of the effects give the controls of §8; a range or
+  default §8 leaves open is marked open until the effect's module settles it (M12.1). An effect
+  the parser does not know yet (tabs 4–5) has no row until it has its syntax (M12.1): a row is
+  always an operation a recipe can hold.
+- **A whole recipe** (`edit.recipe.set {ids, recipe, label?, dropUnknown?}`, used by Paste All
+  Edits and by agents): `recipe` is the string form (entries joined by `|`; `""` empties it) or a
+  list of entries or `{op, params}`. Each photo's recipe becomes the given entries verbatim, in
+  order and unmerged, as **one step of that photo's own history**: one Undo gives the whole earlier
+  recipe back and Redo the whole new one, and the step is named by the new recipe's last entry
+  ("Undo Sepia"; "Undo Edit" when the recipe is emptied; `label` is not shown yet). Nothing is lost
+  silently: an entry Dalica cannot read (a `legacy:` entry, an unknown operation, a parameter its
+  module refuses) may stay only where the photo already holds it, and leaving one out is refused
+  by name unless `dropUnknown` is true. Every photo and entry is checked before any photo changes,
+  and a photo whose recipe already is the new one takes no step. A remembered whole step lasts as
+  long as the session; after a restart its Undo removes the last entry, like every remembered step
+  (`architecture.md` §4).

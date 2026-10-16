@@ -5,6 +5,7 @@
 mod common;
 
 mod auto;
+mod catalog;
 mod crop;
 mod frame;
 mod geometry;
