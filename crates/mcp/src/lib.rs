@@ -16,7 +16,7 @@
 //! | [`tray`] | headless MCP's own selection and Photo Tray (`ui-layout.md` §5.4) |
 //! | [`roots`] | the read and write roots of automation paths (`mcp.md` §5) |
 //! | `resources` | `resources/list` and `resources/read` (empty until M10.15) |
-//! | `connect` | connect mode, the running app's control channel (not built until M10.17) |
+//! | [`connect`] | connect mode: the running app's control channel ([`Client`], the [`Connect`] backend, `--connect` [`connect::Options`]) |
 //! | `tools` | the tool groups: `core` (the shared tools of `mcp.md` §4.1) and the later groups, empty until their tasks |
 //!
 //! Entry points: [`Server::serve`] (the stdio loop) and [`Server::handle_line`] (one message).
@@ -25,7 +25,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 pub mod backend;
-mod connect;
+pub mod connect;
 pub mod headless;
 mod jsonrpc;
 mod progress;
@@ -36,7 +36,7 @@ mod tools;
 pub mod tray;
 
 pub use backend::{Backend, NoProgress, Progress, Rendered, ToolError};
-pub use connect::CONNECT_NOT_BUILT;
+pub use connect::{CONNECT_NOT_BUILT, Client, Connect};
 pub use headless::{Headless, OpenFailure, Source};
 pub use jsonrpc::{MAX_LINE, MAX_RESULT};
 pub use server::{PROTOCOL_VERSION, SUPPORTED_VERSIONS, Server};
