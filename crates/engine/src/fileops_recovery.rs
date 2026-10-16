@@ -20,7 +20,10 @@
 //!   to the OS trash (`transfer::finish_move`; a folder's tree through `trash::send`; a volume
 //!   without a trash keeps the source, and the move became a copy); then a photo's originals backup
 //!   with its record ([`carry::backups`]) and its sidecar entry ([`carry::entries`]) are carried,
-//!   which is harmless when they were carried before (as a copy when the source stays). Rolling
+//!   which is harmless when they were carried before (as a copy when the source stays). The entry
+//!   is carried on the I/O worker, which the repair waits for, in order with the session's
+//!   sidecar writes: two writers of one sidecar each checking it and then replacing it could lose
+//!   one's change (the carried entry, or the session's). Rolling
 //!   back changes nothing on disk: a partial copy has a temporary name, which the stale-temporary
 //!   sweep removes.
 //! - **The library follows** on the owner thread, as a change from the files: a moved or renamed
@@ -41,6 +44,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use dalica_core::{FolderId, PhotoId, Timestamp};
@@ -54,7 +58,7 @@ use serde::Serialize;
 
 use crate::filejobs::{Applied, Done, FileItem, FileJob, Notice, Tally};
 use crate::jobs::JobKind;
-use crate::session::Session;
+use crate::session::{Msg, Session};
 
 /// The repair job's label: its progress reads "Repairing interrupted file operations 1 of 2".
 pub const LABEL: &str = "Repairing interrupted file operations";
@@ -325,6 +329,8 @@ struct Item {
     now: Timestamp,
     /// The journal's path, for the progress and the failures.
     file: PathBuf,
+    /// The I/O worker, where the sidecar entries are carried; `None` once it stopped.
+    io: Option<Sender<Msg>>,
 }
 
 impl FileItem for Item {
@@ -362,8 +368,11 @@ impl Finish {
     }
 }
 
-/// Repairs one item on disk (on the job's worker).
-fn repair_item(kind: Kind, state: intents::State, from: &Path, to: Option<&Path>, offline: (bool, bool), now: Timestamp) -> Finish {
+/// The sidecar entries of a carry, carried where the session's sidecar writes are made.
+type Entries<'a> = &'a dyn Fn(&Carry) -> Result<carry::Carried, CarryError>;
+
+/// Repairs one item on disk (on the job's worker); `entries` carries a photo's sidecar entry.
+fn repair_item(kind: Kind, state: intents::State, from: &Path, to: Option<&Path>, offline: (bool, bool), now: Timestamp, entries: Entries) -> Finish {
     if to == Some(from) {
         return Finish::new(RepairOutcome::Nothing, "it names one folder at both ends");
     }
@@ -420,7 +429,7 @@ fn repair_item(kind: Kind, state: intents::State, from: &Path, to: Option<&Path>
         }
         Err(e) => keep |= carry_failed(&e, &mut why, "its originals backup"),
     }
-    match again(|| carry::entries(&c, now)) {
+    match entries(&c) {
         Ok(out) => {
             if out.changed() {
                 why.push_str("; its entry was carried");
@@ -449,6 +458,22 @@ fn again(f: impl Fn() -> Result<carry::Carried, CarryError>) -> Result<carry::Ca
     last
 }
 
+/// Carries the sidecar entries of `c` on the I/O worker (`io`) and waits for it, from the repair's
+/// thread: the session's sidecar writes are made there, so the carry never overlaps a write of the
+/// same sidecar. A worker that stopped, or a carry that panicked there, is an I/O error: the
+/// operation waits for the next open.
+fn entries_on_io(io: Option<&Sender<Msg>>, c: &Carry, now: Timestamp) -> Result<carry::Carried, CarryError> {
+    let stopped = || CarryError::Fs("the I/O worker stopped".into());
+    let io = io.ok_or_else(stopped)?;
+    let (tx, rx) = mpsc::channel();
+    let c = c.clone();
+    io.send(Msg::Run(Box::new(move || {
+        let _ = tx.send(again(|| carry::entries(&c, now)));
+    })))
+    .map_err(|_| stopped())?;
+    rx.recv().unwrap_or_else(|_| Err(stopped()))
+}
+
 /// Notes a carry that failed in `why`; whether trying again at the next open may finish it (an
 /// I/O error, an entry left in both files) rather than never (a damaged sidecar kept aside, a
 /// read-only folder, a folder that is gone).
@@ -459,13 +484,14 @@ fn carry_failed(e: &CarryError, why: &mut String, what: &str) -> bool {
 
 /// One operation, on the job's worker.
 fn work(item: Item) -> Result<Done<Fixed>, String> {
-    let Item { intent, offline, now, .. } = item;
+    let Item { intent, offline, now, io, .. } = item;
+    let entries = |c: &Carry| entries_on_io(io.as_ref(), c, now);
     let kind = judged(&intent);
     let mut keep = false;
     let mut items = Vec::with_capacity(intent.items.len());
     for (i, it) in intent.items.iter().enumerate() {
         let off = offline.get(i).copied().unwrap_or((false, false));
-        let f = repair_item(kind, it.state, &it.from, it.to.as_deref(), off, now);
+        let f = repair_item(kind, it.state, &it.from, it.to.as_deref(), off, now, &entries);
         keep |= f.keep;
         let (from, to) = ends(&it.from, it.to.as_deref(), off);
         let repair = FileOpRepair {
@@ -492,12 +518,13 @@ impl Session {
         }
         let now = self.clock.now();
         let file = self.dir.join(intents::FILE);
+        let io = self.io_sender();
         let items: Vec<Item> = left
             .into_iter()
             .map(|intent| {
                 let offline =
                     intent.items.iter().map(|it| (self.offline_at(&it.from), it.to.as_deref().is_some_and(|t| self.offline_at(t)))).collect();
-                Item { intent, offline, now, file: file.clone() }
+                Item { intent, offline, now, file: file.clone(), io: io.clone() }
             })
             .collect();
         let rescan: Arc<Mutex<BTreeSet<PathBuf>>> = Arc::default();
@@ -682,6 +709,11 @@ mod tests {
         Timestamp::from_millis(0)
     }
 
+    /// Carries on the calling thread.
+    fn here(c: &Carry) -> Result<carry::Carried, CarryError> {
+        carry::entries(c, at0())
+    }
+
     #[test]
     fn an_undone_copy_is_judged_as_a_trash() {
         let op = |kind, direction| Intent { id: 1, kind, direction, items: Vec::new() };
@@ -717,7 +749,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let a = dir.path().join("IMG_0001.jpg");
         std::fs::write(&a, b"photo").unwrap();
-        let f = repair_item(Kind::Move, intents::State::Pending, &a, Some(&a), (false, false), at0());
+        let f = repair_item(Kind::Move, intents::State::Pending, &a, Some(&a), (false, false), at0(), &here);
         assert_eq!(f.outcome, RepairOutcome::Nothing);
         assert!(a.exists());
         // On a volume that ignores case this name opens IMG_0001.jpg; it is still not there.
@@ -725,10 +757,10 @@ mod tests {
         let (x, y) = ends(&a, Some(&upper), (false, false));
         assert!(matches!(x, At::File(_)), "{x:?}");
         assert_eq!(y, At::Absent);
-        let f = repair_item(Kind::Rename, intents::State::Pending, &a, Some(&upper), (false, false), at0());
+        let f = repair_item(Kind::Rename, intents::State::Pending, &a, Some(&upper), (false, false), at0(), &here);
         assert_eq!(f.outcome, RepairOutcome::Back, "{}", f.why);
         // And the other way round: renamed to the other spelling, the old one is gone.
-        let f = repair_item(Kind::Rename, intents::State::Pending, &upper, Some(&a), (false, false), at0());
+        let f = repair_item(Kind::Rename, intents::State::Pending, &upper, Some(&a), (false, false), at0(), &here);
         assert_eq!(f.outcome, RepairOutcome::Forward, "{}", f.why);
         assert_eq!(std::fs::read(&a).unwrap(), b"photo");
         // Two links of one file are a copy of each other.
@@ -738,8 +770,51 @@ mod tests {
             assert!(matches!((x, y), (At::File(p), At::File(q)) if p == q), "{x:?} {y:?}");
         }
         // An end in an offline folder is unknown: the item waits.
-        let f = repair_item(Kind::Move, intents::State::Pending, &a, Some(&upper), (true, false), at0());
+        let f = repair_item(Kind::Move, intents::State::Pending, &a, Some(&upper), (true, false), at0(), &here);
         assert_eq!((f.outcome, f.keep), (RepairOutcome::Waits, true));
+    }
+
+    /// The entry is carried by the thread that runs the I/O worker's work, while the repair waits
+    /// for it; a worker that stopped carries nothing, and the operation waits for the next open.
+    #[test]
+    fn the_entry_is_carried_on_the_io_worker_or_waits() {
+        let dir = tempfile::tempdir().unwrap();
+        let (a, b) = (dir.path().join("a"), dir.path().join("b"));
+        for d in [&a, &b] {
+            std::fs::create_dir(d).unwrap();
+        }
+        std::fs::write(a.join(dalica_sidecar::FILE_NAME), br#"{"photos":{"x.jpg":{"star":true}}}"#).unwrap();
+        let c = Carry::one(Mode::Move, &a, "x.jpg", &b, "x.jpg");
+        let (tx, rx) = mpsc::channel::<Msg>();
+        let worker = std::thread::Builder::new()
+            .name("io".into())
+            .spawn(move || {
+                for msg in rx {
+                    if let Msg::Run(work) = msg {
+                        work();
+                    }
+                }
+            })
+            .unwrap();
+        let ran_on = Arc::new(Mutex::new(None));
+        let seen = Arc::clone(&ran_on);
+        tx.send(Msg::Run(Box::new(move || *seen.lock().unwrap() = std::thread::current().name().map(String::from)))).unwrap();
+        let out = entries_on_io(Some(&tx), &c, at0()).unwrap();
+        assert_eq!(out.carried, [("x.jpg".to_string(), "x.jpg".to_string())]);
+        assert_eq!(ran_on.lock().unwrap().as_deref(), Some("io"));
+        let moved: serde_json::Value = serde_json::from_slice(&std::fs::read(b.join(dalica_sidecar::FILE_NAME)).unwrap()).unwrap();
+        assert_eq!(moved["photos"]["x.jpg"]["star"], serde_json::json!(true));
+        drop(tx);
+        worker.join().unwrap();
+        // Stopped: an I/O error, which keeps the operation in the journal.
+        let (tx, rx) = mpsc::channel::<Msg>();
+        drop(rx);
+        let back = Carry::one(Mode::Move, &b, "x.jpg", &a, "x.jpg");
+        let e = entries_on_io(Some(&tx), &back, at0()).unwrap_err();
+        assert!(carry_failed(&e, &mut String::new(), "its entry"), "{e}");
+        assert!(matches!(entries_on_io(None, &back, at0()), Err(CarryError::Fs(_))));
+        let kept: serde_json::Value = serde_json::from_slice(&std::fs::read(b.join(dalica_sidecar::FILE_NAME)).unwrap()).unwrap();
+        assert_eq!(kept, moved, "nothing was carried");
     }
 
     #[test]
