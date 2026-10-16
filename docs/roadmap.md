@@ -5131,8 +5131,60 @@ No other step of M10 needs a maintainer decision mid-run.
     no other default in the edit view on Space; headless in the window, Ctrl+Shift+S in the edit
     view opens the Export dialog for the photo shown; `dalica-cli commands` lists the Rename
     opener with F2 (its own unit test); `cargo xtask ci` green.
+- ⬜ **M10.40 `ui` + `dalica` + `engine`: one way out, the edit view's caption kept, hidden photos out of `library.query`**
+  - after: M10.36
+  - files: `crates/ui/src/app.rs`, `crates/ui/src/panels/edit/caption_bar.rs`, `crates/ui/tests/shutdown.rs`, `apps/dalica/src/control/headless.rs`, `apps/dalica/tests/control_headless.rs`, `crates/engine/src/cmd/library.rs`, `crates/engine/tests/hide.rs`
+  - scope: three gaps found by M10.36 (PR #574) and M10.18. The edit view's caption bar keeps its
+    draft in egui's memory (`caption_bar.rs`, `caption:draft`), where `App::shutdown` cannot reach
+    it, so closing the window while a caption is being typed there loses the text (the light
+    table's inline editor is safe: its draft is `state.caption_edit`). Keep the draft in `UiState`
+    beside `caption_edit` (a surgical edit of the shared `state.rs`, kept out of the saved view
+    state as `caption_edit` is) and commit it in `App::shutdown` as the light table's is; leaving
+    the photo, Enter and Esc behave as today. Headless `app.quit`
+    (`apps/dalica/src/control/headless.rs`) flushes the session itself (no drafts committed, no
+    view state saved, no wait for metadata writes): it calls `App::shutdown` instead, so both exits
+    share one path, and its reply still reports a failed flush as `unsaved`. Found by M10.18:
+    `library.query` with no `section` and no search condition (`{}` or only `folder`) lists every
+    folder's photos from `photos_in`, hidden ones and those of hidden folders included, while a
+    section or a search leaves them out, so MCP `query_photos {}` lists hidden photos (`mcp.md`'s
+    W09: hidden photos leave `query_photos`); that branch leaves them out as `section_photos`
+    does, unless the view shows hidden pictures (`search_tree_options`).
+  - done when: tests, each failing before the fix: in `dalica-ui` (`shutdown.rs`), a caption typed
+    in the edit view's caption bar and not committed, then `App::shutdown`, is in the photo's
+    sidecar; in `dalica` (`control_headless.rs`), a light-table caption still being typed when
+    `app.quit` arrives is in the sidecar after the process exits; in `dalica-engine` (`hide.rs`),
+    a hidden photo and a photo of a hidden folder are absent from `library.query {}` and
+    `library.query {folder}` and present again with the view showing hidden pictures; `cargo xtask
+    ci` green.
+- ⬜ **M10.41 `ui`: the straighten bar's id, F2 in the edit view, the headless UI scale and the thumbnail's tooltip**
+  - after: M10.10, M10.16, M10.36, M10.39
+  - files: `crates/ui/src/panels/edit/straighten.rs`, `crates/ui/tests/straighten_tool.rs`, `crates/ui/tests/tuning_tab.rs`, `crates/ui/tests/edit_panel.rs`, `crates/ui/tests/monkey.rs`, `crates/ui/src/commands/edit_view.rs`, `crates/ui/src/commands/rename.rs`, `crates/ui/tests/edit_keys.rs`, `crates/ui/src/headless.rs`, `crates/ui/tests/ui_scale.rs`, `crates/ui/src/panels/light_table/cell.rs`, `crates/ui/tests/cells.rs`, `docs/control-protocol.md`
+  - scope: four small window gaps found by M10.36 (PR #574), M10.39 (PR #589) and M10.10 (PR
+    #593). The straighten tool's floating bar takes clicks under the egui id `straighten:bar` with
+    no automation id (the `TODO(maintainer)` in `straighten_tool.rs`, `tuning_tab.rs` and
+    `edit_panel.rs`, and `KNOWN_UNREGISTERED` in `monkey.rs`): register it (`box:straighten` in
+    the edit view's row of `control-protocol.md` §7; after M10.16, which adds one row to that
+    file), turn the id checks back on and drop the monkey's exception. F2 (Rename…) is a Global
+    key (`menus-and-shortcuts.md` §2.1) but bound in the Library only, because the edit view's key
+    dispatch (`commands/edit_view.rs`) runs a command with the open photo and never opens an
+    opener's dialog: route a key bound to an opener there through the opener (as `keys::run_key`
+    does), for the open photo, and bind F2 in the edit view too, so `KEY-GLOBAL-F2` reads ✅
+    (`parity --write`; `parity.md` is a shared doc, and M10.26 starts after this). The headless
+    driver (`crates/ui/src/headless.rs`) gives egui the screen rect at its own pixels per point and
+    tessellates at them, ignoring egui's zoom, so a fixed UI scale leaves the headless layout and
+    snapshots unchanged (real windows are right): fold the zoom into both, as the windowed
+    integration does, so the 150 % fingerprints M10.27 makes headless are really at 150 %. The
+    thumbnail's own 600 ms tooltip (`cell.rs`, `TOOLTIP_SECONDS`) shows with Options ▸ Show
+    tooltips off (`interface.tooltips`; egui's own tooltips follow it through `scale.rs`): it
+    follows the setting too.
+  - done when: tests, each failing before the fix: the straighten tests and the monkey run with
+    the id check on and no known exception; in `edit_keys.rs`, F2 in the edit view opens Rename
+    Files for the photo shown; in `ui_scale.rs`, a 1400 × 900 pixel driver at 1.0 pixels per point
+    with UI scale 150 % lays out 933 × 600 points and its screenshot is 1400 × 900 pixels; in
+    `cells.rs`, with `interface.tooltips` off, resting on a cell past `TOOLTIP_SECONDS` shows no
+    tooltip (on, it does); `cargo xtask parity` shows `KEY-GLOBAL-F2` ✅; `cargo xtask ci` green.
 - ⬜ **M10.26 `docs`: the P0 parity audit**
-  - after: M10.8, M10.11, M10.12, M10.16, M10.19, M10.20, M10.21, M10.22, M10.23, M10.25, M10.39
+  - after: M10.8, M10.11, M10.12, M10.16, M10.19, M10.20, M10.21, M10.22, M10.23, M10.25, M10.39, M10.40, M10.41
   - files: `docs/parity.md`
   - scope: `process.md` §5 and the decisions above: every P0 row re-measured (its cited tests run,
     its evidence checked against the code), turned ✅ only with that evidence; parts of a note that
@@ -5233,7 +5285,7 @@ No other step of M10 needs a maintainer decision mid-run.
     printing how many M9 commands it reached with valid parameters; a settle test with a search
     pending; the dialog's title test; CI green.
 - ⬜ **M10.R Release 0.5 gate**
-  - after: M10.24, M10.27, M10.29, M10.31, M10.32, M10.33, M10.34, M10.35, M10.36, M10.37, M10.38, M10.39
+  - after: M10.24, M10.27, M10.29, M10.31, M10.32, M10.33, M10.34, M10.35, M10.36, M10.37, M10.38, M10.39, M10.40, M10.41
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`
   - scope: a release gate (Release 0.5, P0 complete): the lead runs `/milestone-review M10.R` to
@@ -5279,7 +5331,8 @@ wave 6   M10.26 P0 parity audit
          (test coverage, any wave: M10.34 crashes and full disks ‖ M10.35 undo under faults
           ‖ M10.36 window close, scales, monkey ‖ M10.37 camera-file write-back)
          (fixes found during M10, any wave: M10.38 failed journal appends ‖ M10.39 the three unbound
-          keys)
+          keys ‖ M10.40 one way out, edit-view caption, hidden in query ‖ M10.41 straighten id, F2,
+          headless scale, cell tooltip)
 wave 7   M10.27 accept M10 → M10.R          (M10.28 lead: M12 blocks, any time after M9.26)
 ```
 
