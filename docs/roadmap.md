@@ -4937,7 +4937,7 @@ No other step of M10 needs a maintainer decision mid-run.
     `cmd_photo_delete` without `confirm` answers `needs_confirm` and changes nothing;
     `crates/mcp/tests/resources.rs`: each URI reads, a photo URI with a bad id is `-32002`, a
     change between two reads shows.
-- ⬜ **M10.11 `ui`: the File Types and Export tabs**
+- ✅ **M10.11 `ui`: the File Types and Export tabs**
   - after: M10.10
   - files: `crates/ui/src/dialogs/options/file_types.rs`, `crates/ui/src/dialogs/options/export.rs`, `crates/ui/tests/options_tabs.rs`, `crates/ui/tests/fingerprints/dialog-options-file-types-*.json`, `crates/ui/tests/fingerprints/dialog-options-export-*.json`
   - scope: `menus-and-shortcuts.md` §5 File Types and Export: "Show JPEG files and:" with one
