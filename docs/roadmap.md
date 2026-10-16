@@ -5418,8 +5418,53 @@ No other step of M10 needs a maintainer decision mid-run.
     `taskset -c 0` beside parallel `cargo test` runs); a CI run dispatched on the task branch
     (`gh workflow run ci.yml --ref <branch>`) shows both green on macOS, the job cited in the PR;
     `cargo xtask ci` green.
+- ⬜ **M10.49 `engine` + `mcp` + `ui`: the path policy on Windows**
+  - after: M10.16
+  - files: `crates/engine/src/automation.rs`, `crates/engine/tests/automation_roots.rs`, `crates/engine/tests/read_only.rs`, `crates/mcp/src/roots.rs`, `crates/mcp/tests/roots.rs`, `crates/ui/src/control/paths.rs`
+  - scope: found by the full gate on Windows (GitHub run 38838856986, `ci (windows-latest)`):
+    M10.16's path policy refuses paths it should allow there. engine `automation_roots::`
+    `reads_stay_inside_a_read_root_or_a_watched_folder` (`automation_roots.rs:49`),
+    `new_files_go_into_a_write_root_never_into_originals_a_watched_folder_or_over_a_file` (`:77`)
+    and ui `control::paths::tests::new_files_go_into_a_write_root_or_a_watched_folder_and_never_replace_one`
+    (`paths.rs:81`) are refused by `lexical` with "uses a verbatim or device prefix" for
+    `\\?\C:\Users\runneradmin\AppData\Local\Temp\…` paths; engine
+    `client_roots_are_read_roots_only_and_a_new_list_replaces_the_old` (`:119`) and mcp
+    `roots::a_client_root_is_a_read_root_never_a_write_root_and_a_refresh_drops_a_removed_one`
+    (`roots.rs:94`) answer `path_denied` where `ok` is due; mcp
+    `roots::a_read_only_launch_refuses_an_export_with_read_only` (`:160`) answers `path_denied`
+    before the `read_only` refusal it should give; mcp `roots::only_local_file_uris_become_roots`
+    (`:136`) parses no root (`[]`) where it expects the temp folder (built from a `\\?\C:\…` path).
+    The pattern is path forms that do not match on Windows: `canonicalize` gives the verbatim
+    `\\?\C:\…` form, while roots, `file:///C:/…` URIs, the temporary directory and an agent's paths
+    use the plain `C:\…` form (the runner's Temp may also be an 8.3 short name, `RUNNER~1`, and
+    drive letters differ in case), so a prefix check on mixed forms fails. Fix it in
+    `automation.rs` (the control channel's `paths.rs` and MCP's `roots.rs` call it, `file_uri_path`
+    in `roots.rs`): compare one normal form on both sides, for example resolve both the root and
+    the path through `canonicalize` and then compare (handling `\\?\`, `\\?\UNC\`, drive-letter
+    case and short names), or strip the verbatim prefix after resolving both, crate-free; a
+    `file:///C:/…` URI to a local path parses to its drive path. The lexical refusal of a
+    verbatim or device prefix in a caller's own path stays (`security.md` §6.6: it skips Windows'
+    checks): a test that fed it a canonical path is the test's Unix assumption, made portable by
+    building the plain form, and the answer's paths stay plain (as M10.44 did for a render).
+    Every refusal stays: `..`, a link out of a root, `.dalica-originals/`, a watched folder for a
+    screenshot or render, an existing file, deny by default; refusing comparisons still ignore case
+    on Windows and macOS. engine `read_only::starring_and_captioning_change_no_byte_on_disk_and_an_export_is_refused`
+    fails apart from the policy (`read_only.rs:31`, reported at `common.rs:113`): the test's
+    snapshot reads every file under the library folder, and on Windows the file the session holds
+    locked (`fs`'s library lock) cannot be read ("another process has locked a portion of the
+    file", OS error 33). Make the snapshot compare that one file by name, size and time instead of
+    its bytes (or, if a read-only session should not hold a lock file there, fix that and say
+    why), still proving no other byte on disk changes. No check is weakened and no test drops an
+    assertion; tests change only where they assumed Unix path forms or Unix locks. The commit
+    body says, per failure, whether it was a product bug or a test that assumed one platform.
+  - done when: every named test passes on `windows-latest` in a CI run dispatched on the task
+    branch (`gh workflow run ci.yml --ref <branch>`), the job cited in the PR, and still passes on
+    Linux and macOS in that run; a new unit test in `automation.rs` (`#[cfg(windows)]`, run in that
+    job) shows a root and a path given in the verbatim, plain and differently-cased drive forms
+    compare equal for an allow while `..`, `.dalica-originals` and a watched folder are still
+    refused in each form; `cargo xtask ci` green.
 - ⬜ **M10.26 `docs`: the P0 parity audit**
-  - after: M10.8, M10.11, M10.12, M10.16, M10.19, M10.20, M10.21, M10.22, M10.23, M10.25, M10.39, M10.40, M10.41, M10.42, M10.43, M10.44, M10.45, M10.46, M10.47, M10.48
+  - after: M10.8, M10.11, M10.12, M10.16, M10.19, M10.20, M10.21, M10.22, M10.23, M10.25, M10.39, M10.40, M10.41, M10.42, M10.43, M10.44, M10.45, M10.46, M10.47, M10.48, M10.49
   - files: `docs/parity.md`
   - scope: `process.md` §5 and the decisions above: every P0 row re-measured (its cited tests run,
     its evidence checked against the code), turned ✅ only with that evidence; parts of a note that
@@ -5460,7 +5505,7 @@ No other step of M10 needs a maintainer decision mid-run.
   - done when: `cargo xtask tasks sync --check` parses them and `tasks sync --dry-run` lists one new
     issue per block.
 - ⬜ **M10.R Release 0.5 gate**
-  - after: M10.24, M10.27, M10.29, M10.31, M10.32, M10.33, M10.34, M10.35, M10.36, M10.37, M10.38, M10.39, M10.40, M10.41, M10.42, M10.43, M10.44, M10.45, M10.46, M10.47, M10.48
+  - after: M10.24, M10.27, M10.29, M10.31, M10.32, M10.33, M10.34, M10.35, M10.36, M10.37, M10.38, M10.39, M10.40, M10.41, M10.42, M10.43, M10.44, M10.45, M10.46, M10.47, M10.48, M10.49
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`
   - scope: a release gate (Release 0.5, P0 complete): the lead runs `/milestone-review M10.R` to
@@ -5511,7 +5556,8 @@ wave 6   M10.26 P0 parity audit
           → M10.43 earlier milestones' acceptance after M10.29 ‖ M10.44 macOS and Windows: render
           path, Options tests ‖ M10.45 Windows: killed Save, watcher rename ‖ M10.46 macOS:
           the Properties pane's settle ‖ M10.47 one menu open at a time, window size under
-          a UI scale ‖ M10.48 macOS: headless quit test, Save Copy date)
+          a UI scale ‖ M10.48 macOS: headless quit test, Save Copy date ‖ M10.49 Windows:
+          the path policy's path forms)
 wave 7   M10.27 accept M10 → M10.R          (M10.28 lead: M12 blocks, any time after M9.26)
 ```
 
