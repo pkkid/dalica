@@ -24,6 +24,9 @@
 //!   written. The `.corrupt-<time>` copies are never read, renamed, overwritten or deleted. The
 //!   reply names them: `{folder, kept: [path], restored, written}`. Refused: an unknown folder
 //!   (`not_found`), a folder that is not damaged or not there (`disabled`), hostile params.
+//! - **Photo files too** (M10.57): the metadata write-back (`metadata.rs`) holds the writes of the
+//!   photos in a listed folder (captions, tags, dates into their XMP/IPTC) and sends them once the
+//!   folder is taken off the list, which [`Session::sync_damage`] tells it.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -394,13 +397,22 @@ impl Session {
         self.damaged.get(path).map(Vec::as_slice)
     }
 
-    /// Copies the I/O worker's list of damaged folders when it changed (a lock, no disk).
+    /// Copies the I/O worker's list of damaged folders when it changed (a lock, no disk), and tells
+    /// the metadata write-back (M10.57): the photo writes held for a folder taken off the list are
+    /// sent then.
     pub(crate) fn sync_damage(&mut self) {
-        let shared = self.damage.lock().unwrap_or_else(PoisonError::into_inner);
-        if shared.revision() != self.damage_seen {
+        let lifted: Vec<PathBuf> = {
+            let shared = self.damage.lock().unwrap_or_else(PoisonError::into_inner);
+            if shared.revision() == self.damage_seen {
+                return;
+            }
             self.damage_seen = shared.revision();
-            self.damaged = shared.snapshot();
-        }
+            let now = shared.snapshot();
+            let lifted = self.damaged.keys().filter(|p| !now.contains_key(*p)).cloned().collect();
+            self.damaged = now;
+            lifted
+        };
+        self.metadata_damage_changed(&lifted);
     }
 
     /// Has the I/O worker reset `folder` (with `state`, the model's word for it) and waits for
