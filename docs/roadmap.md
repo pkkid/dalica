@@ -5657,7 +5657,7 @@ No other step of M10 needs a maintainer decision mid-run.
   - done when: no "?" glyph in the File Types tab; the coverage test (`ui_glyphs.rs`, a new `mod`
     in `tests/all.rs`) fails before the fix and passes after; the re-blessed fingerprint and its
     before/after images on the PR; `cargo xtask ci` green.
-- ⬜ **M10.27 `accept M10`**
+- ✅ **M10.27 `accept M10`**
   - after: M10.12, M10.16, M10.20, M10.26, M10.51, M10.52, M10.53, M10.54, M10.55
   - files: `tests/acceptance/m10.rs`, `tests/acceptance/m10_*.rs`, `tests/acceptance/m10.md`, `tests/acceptance/fingerprints/m10-*.json`
   - scope: every *Done when* of M10's three areas in the real `dalica --headless` over the control
