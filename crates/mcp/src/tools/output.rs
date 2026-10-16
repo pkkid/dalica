@@ -127,7 +127,8 @@ fn watched(b: &mut dyn Backend) -> Result<Vec<PathBuf>, ToolError> {
 /// caller wrote it (the one the answer names).
 fn render_target(b: &mut dyn Backend, path: &str) -> Result<(PathBuf, String, PathBuf), ToolError> {
     let target = Roots::default().check_output(Path::new(path), "path", &[], Output::File)?;
-    let watched: Vec<PathBuf> = watched(b)?.iter().filter_map(|w| std::fs::canonicalize(w).ok()).collect();
+    let watched: Vec<PathBuf> =
+        watched(b)?.iter().filter_map(|w| std::fs::canonicalize(w).ok()).map(|w| dalica_engine::automation::plain(&w)).collect();
     if watched.iter().any(|w| target.starts_with(w)) {
         return Err(ToolError::new("path_denied", format!("{path} is inside a watched folder; a render is not a photo of the library")));
     }
