@@ -1,7 +1,9 @@
 //! UI scale and font size (`design-system.md` §11.4–§11.5, `crates/ui/src/scale.rs`): the factor
 //! for system scales of 100, 125 and 150 % and a 3840 px monitor, a fixed 150 % on a 200 % system
 //! (egui's zoom 0.75, 1.5 pixels per point, and the window's keys never change it), a fixed 150 %
-//! laying the headless window out at 150 % (933 × 600 points in 1400 × 900 pixels), Auto following
+//! laying the headless window out at 150 % (933 × 600 points in 1400 × 900 pixels) and the control
+//! host reporting that size and 1.5 pixels per point (a screenshot and a resize at them keep the
+//! window as it is), Auto following
 //! the window to another monitor, a saved Use animations off making the light table's scroll to a
 //! section and the edit view's Fit and 1:1 jump; and the main window at 150 % and with the Large font, each matching its
 //! fingerprint at 1400 × 900 points and fitting 900 × 600.
@@ -13,6 +15,7 @@ use std::sync::Arc;
 use crate::common::{FRAMES, LARGE, SMALL, check_pixels, new_driver, write_png};
 use dalica_engine::Session;
 use dalica_scenes::fingerprint;
+use dalica_ui::control::{Host, Input, Played, Player};
 use dalica_ui::panels::edit::canvas;
 use dalica_ui::scale::{self, factor, zoom};
 use dalica_ui::state::{ScaleChoice, ScrollAnchor, UiState};
@@ -92,6 +95,23 @@ fn a_fixed_150_percent_lays_the_headless_window_out_at_150_percent() {
     let shot = d.screenshot().unwrap();
     write_png("ui-scale-150-fixed-window", &fingerprint::png_rgba(shot.width, shot.height, &shot.rgba));
     assert_eq!((shot.width, shot.height), (1400, 900), "drawn at 1.5 pixels per point");
+}
+
+#[test]
+fn under_a_fixed_150_percent_the_control_host_reports_the_points_egui_lays_out() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut d = driver(dir.path(), LARGE, 1.0, json!({ "interface.uiScale": 150 }));
+    let w = Host::window(&d);
+    assert!((w.width - 1400.0 / 1.5).abs() < 0.1 && (w.height - 600.0).abs() < 0.1, "933 × 600 points: {w:?}");
+    assert!((w.pixels_per_point - 1.5).abs() < 1e-4, "drawn at 1.5 pixels per point: {w:?}");
+    let laid_out = d.ctx().content_rect().size();
+    assert!((w.width - laid_out.x).abs() < 0.1 && (w.height - laid_out.y).abs() < 0.1, "{w:?} is what egui lays out: {laid_out:?}");
+    // A screenshot at the scale reported is the window as it is; a resize to the size reported
+    // keeps it.
+    let Played::Shot { image, .. } = d.play(&Input::Screenshot { settle_ms: None, scale: w.pixels_per_point }).unwrap() else { panic!() };
+    assert_eq!((image.width, image.height), (1400, 900));
+    d.play(&Input::Resize { width: w.width, height: w.height }).unwrap();
+    assert_eq!(d.size(), (1400, 900, 1.0));
 }
 
 /// One pass of `ctx` on a monitor `monitor` points large at the native scale 1, with

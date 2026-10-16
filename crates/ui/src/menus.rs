@@ -11,7 +11,9 @@
 //!   and the native macOS menu bar.
 //! - **Drawing** ([`show_bar`], [`context_menu`]): every menu level is bounded by the window and
 //!   scrolls when it is taller than the room below the menu bar, with arrow strips at its top and
-//!   bottom (`design-system.md` §11.2). Disabled items are greyed, never hidden.
+//!   bottom (`design-system.md` §11.2). Disabled items are greyed, never hidden. One menu is open
+//!   at a time: a right-click outside the open menu closes it before anything is drawn
+//!   (in [`show_bar`]), so the context menu it opens is the only menu of that frame.
 //! - **Running an item** ([`activate`]): a dialog item opens its dialog, any other runs its
 //!   command through [`App::run`] with the selection where the command takes `ids`.
 
@@ -827,6 +829,7 @@ fn rows(ui: &mut Ui, nodes: &[Node], clicked: &mut Option<ItemNode>, depth: usiz
 /// layout: on macOS the Mac layout belongs to the system menu bar (`design-system.md` §11.1), and
 /// a render must not depend on the OS it runs on.
 pub fn show_bar(ui: &mut Ui, app: &mut App) -> Option<&'static str> {
+    close_on_right_click(ui.ctx());
     let platform = Platform::Other;
     let top = ui.max_rect().bottom();
     let mut clicked: Option<ItemNode> = None;
@@ -847,6 +850,21 @@ pub fn show_bar(ui: &mut Ui, app: &mut App) -> Option<&'static str> {
     let item = clicked?;
     let _ = activate(app, &item, &Value::Null);
     Some(item.id)
+}
+
+/// One menu open at a time: a right-click outside the open menu (one of the bar's or a context
+/// menu, egui keeps one popup open) closes it now, before anything is drawn this frame. egui would
+/// close it only after drawing it once more, in the frame the right-click opens a context menu
+/// further down, and both menus would be drawn and their rows (`menuitem:view.edit` is in the
+/// Picture menu and the photo and tray menus) registered twice in that frame. A right-click on a
+/// menu (a foreground layer) leaves it open. [`show_bar`] runs this first in every frame: the menu
+/// bar is the first region drawn in the library and in the edit view.
+fn close_on_right_click(ctx: &egui::Context) {
+    let Some(pos) = ctx.input(|i| if i.pointer.secondary_clicked() { i.pointer.interact_pos() } else { None }) else { return };
+    let on_menu = ctx.layer_id_at(pos).is_some_and(|l| l.order == egui::Order::Foreground);
+    if !on_menu && egui::Popup::is_any_open(ctx) {
+        egui::Popup::close_all(ctx);
+    }
 }
 
 /// A context menu on `response` (right-click) showing `nodes`, bounded by the window like every
