@@ -7,6 +7,7 @@ mod common;
 
 mod albums;
 mod automation_roots;
+mod busy_writes;
 mod captions;
 mod crop_commands;
 mod dates;

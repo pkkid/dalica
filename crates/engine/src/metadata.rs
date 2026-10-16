@@ -35,7 +35,7 @@
 //! refused. A write waiting for an offline volume is not tried (the Save of such a photo is refused
 //! anyway), and nothing else in the queue is written early.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -260,6 +260,13 @@ struct Writer {
     queued: HashMap<PhotoId, u64>,
     /// The number of the last message that queued writes.
     sent: u64,
+    /// The photos of `queued` whose last write waits for their volume (or their folder) to come
+    /// back: the worker tries them again on its own, so they do not keep the session busy
+    /// ([`Session::metadata_writes_busy`]). Always a subset of `queued`.
+    waiting: HashSet<PhotoId>,
+    /// The worker stopped (its channel closed): what is queued can no longer land, so it does not
+    /// keep the session busy either.
+    stopped: bool,
     /// The options the worker has.
     options: Option<metawrite::Options>,
     /// The roots found offline and the root checks, as the session last gave them (`offline.rs`).
@@ -569,6 +576,8 @@ impl Session {
         let seq = w.sent;
         for (r, _) in &requests {
             w.queued.insert(r.photo, seq);
+            // A new request ends a wait, as on the worker's side.
+            w.waiting.remove(&r.photo);
         }
         w.send(ToWorker::Queue { seq, at, requests });
     }
@@ -635,6 +644,10 @@ impl Session {
     /// The roots found offline changed (`offline.rs`): files under them wait.
     pub(crate) fn metadata_hold(&mut self, roots: Vec<PathBuf>) {
         let w = &mut self.metadata.writer;
+        // Other held roots: the worker looks at every waiting photo again, and they count again.
+        if w.held != roots {
+            w.waiting.clear();
+        }
         w.held = roots.clone();
         w.send(ToWorker::Hold(roots));
     }
@@ -666,7 +679,10 @@ impl Session {
                     Ok(a) => answers.push(a),
                     Err(TryRecvError::Empty) => break,
                     Err(TryRecvError::Disconnected) => {
-                        log::error!("the metadata writer stopped");
+                        if !w.stopped {
+                            log::error!("the metadata writer stopped");
+                        }
+                        w.stopped = true;
                         break;
                     }
                 }
@@ -728,8 +744,13 @@ impl Session {
     fn metadata_wrote(&mut self, wrote: Wrote) {
         let Wrote { job, result, before, after, pending, seen, active } = wrote;
         let id = result.photo;
+        let w = &mut self.metadata.writer;
         if !pending {
-            self.metadata.writer.done_with(id, seen);
+            w.done_with(id, seen);
+        } else if matches!(result.status, Status::Waiting(_)) && w.queued.contains_key(&id) {
+            w.waiting.insert(id);
+        } else {
+            w.waiting.remove(&id);
         }
         if let Some(r) = self.metadata.writer.job.as_mut().filter(|r| Some(r.id) == job) {
             r.count(&result);
@@ -836,6 +857,18 @@ impl Session {
         self.metadata.writer.queued.len()
     }
 
+    /// Whether a metadata write still needs the owner's [`Session::poll`] to land (M10.54): one
+    /// queued (debounced, or due) and not waiting for its volume, or the `metadataWrite` job
+    /// running. The writer's job is registered and its results applied by `poll`, so an app that
+    /// polls only while it has background work (`App::idle`) must count this as well as
+    /// [`Session::busy`] (the scans, which the status line, the activity spinner and `ui.settle`
+    /// read as such). Once the writes land it is false again; a write waiting for an offline
+    /// volume is retried by the writer on its own and does not count. In memory only, O(1).
+    pub fn metadata_writes_busy(&self) -> bool {
+        let w = &self.metadata.writer;
+        w.worker.is_some() && !w.stopped && (w.job.is_some() || w.queued.len() > w.waiting.len())
+    }
+
     /// Writes every queued photo now, whatever the debounce says, under a job, and applies the
     /// results; `false` if `timeout` passed first (the rest is applied by later polls). Blocks the
     /// calling thread (the CLI, tests) but never touches the disk on it.
@@ -888,6 +921,7 @@ impl Writer {
     fn done_with(&mut self, photo: PhotoId, seen: u64) {
         if self.queued.get(&photo).is_some_and(|s| *s <= seen) {
             self.queued.remove(&photo);
+            self.waiting.remove(&photo);
         }
     }
 }

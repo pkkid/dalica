@@ -35,6 +35,7 @@ mod folder_manager;
 mod folder_move;
 mod folder_properties;
 mod hidden;
+mod idle_write_back;
 mod jobs_control;
 mod layout;
 mod library_window;
