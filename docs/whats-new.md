@@ -21,6 +21,90 @@ This file is the user-facing changelog. Help ▸ Release Notes compiles it into 
   its translation until the catalogs catch up (docs/localization.md → Release notes).
 -->
 
+## 0.5.0 — October 2026
+
+Dalica now has its preferences and a keyboard shortcut editor, and AI agents can drive it through
+the Model Context Protocol. This release also fixes four ways a photo's details could have been
+written wrongly or late, and finishes the last gaps in everyday use.
+
+### Preferences
+
+- Tools ▸ Options… (Ctrl+,; Dalica ▸ Settings… on a Mac) opens Options with four tabs. Changes show
+  at once where they can; Apply or OK keeps them and Cancel puts the last kept ones back.
+- General: the interface scale (Auto, or 100 % to 200 %), the text size, tooltips, animations,
+  the system title bar, and when to write captions, tags and dates into your photo files. Options
+  that arrive in a later version are shown greyed with the reason.
+- File Types: choose which kinds of picture Dalica shows, and the size below which small pictures
+  are hidden. Turning a type off hides those photos after a quick rescan; their stars, captions and
+  edits are kept and come back when you turn it on again. Nothing is deleted.
+- Export: the default size, quality, folder and watermark for File ▸ Export to Folder….
+- Keyboard Shortcuts (or Help ▸ Keyboard Shortcuts…, Ctrl+/): search commands by name, menu or
+  key, give a command up to two keys in each view, and press Backspace to remove one. If a key is
+  already taken, Dalica says by what and asks before taking it. Reset All brings every default back.
+
+### Library
+
+- Recently Updated now shows, in the folder tree and at the top of the library, the photos you
+  changed recently (a caption, a star, a rotation, an edit, or the file changed on disk). Newly
+  added photos do not count. The list survives Library ▸ Rebuild.
+- Photos with a place now carry the place badge.
+- A search with no results says "No photos found", with a Show All button.
+- While photos are exported, the status line says "Exporting 6 of 20".
+
+### Folders
+
+- If a folder's `.dalica.json` is damaged, its section shows a warning, and Dalica writes nothing in
+  that folder (neither the sidecar nor your photo files) until you choose Reset Folder Data. The
+  damaged file is kept beside it, and if you put back a good copy yourself, Dalica reads it.
+- Folder Properties picks the date with the arrow keys or Home and End, and refuses dates that do
+  not exist. The Folder Manager can be made larger and keeps its size.
+- Folder ▸ Sort By shows a mark beside the current order.
+
+### Editing
+
+- The edit view's trash button now works: it asks, moves the photo to the trash, and shows the next
+  one.
+- Space stars the photo in the edit view, Ctrl+Shift+S exports it, F2 renames it, and Ctrl+3 and
+  Ctrl+9 work there as they do in the library.
+- A caption being typed in the edit view is kept if you close the window.
+
+### Agents
+
+- `dalica-cli mcp` is an MCP server for AI agents. Add it to a client such as Claude Code with
+  `claude mcp add dalica -- dalica-cli mcp --demo` to try it on demo photos, or give it your
+  library. Agents can scan folders, search, star, caption, tag, edit, render and export, each with
+  one undo step, and every command is also a tool.
+- With `--connect`, it drives a running Dalica started with `--control` instead, and the window
+  shows what the agent does.
+- Agents can read only the folders you allow and write only where you allow; anything that deletes
+  asks first, and `--read-only` changes nothing on disk.
+
+### Formats
+
+- HEIC photos (the iPhone's default) are organized like any other photo, with their date and
+  details, but this version cannot show their picture: decoding HEIC needs a patent licence that
+  Dalica's releases do not have. Their tile says how to get JPEGs instead (on an iPhone: Settings ▸
+  Camera ▸ Formats ▸ Most Compatible).
+- JPEGs marked Adobe RGB without an embedded profile now show their colours correctly.
+
+### Reliability
+
+- Adding a caption or tags to a photo from many phones and cameras (iPhone, Pixel, Sony, Panasonic)
+  no longer breaks the small extra pictures stored inside the file.
+- If the disk fills up while Dalica records a change, the changes after it are no longer lost.
+- On Windows, if Dalica stops in the middle of a Save, the original is never left under two names.
+- A caption or tag is written into the photo file within about a second, even while Dalica sits
+  idle; before, it could wait for the next click.
+- On Windows, the folders you allow agents to use now work however their path is spelled.
+
+### Not in this release yet
+
+- HEIC pictures are not shown (see Formats), and 12-bit JPEGs show a "not supported" tile.
+- Language, Detect duplicates while importing and the import folder are greyed in Options until
+  importing arrives.
+- Importing from a camera or card, the slideshow, the photo viewer, compare, people, places,
+  effects, collages and video come in later versions.
+
 ## 0.4.0 — October 2026
 
 Your library can now be organised. Albums gather photos from any folders in an order you choose,
