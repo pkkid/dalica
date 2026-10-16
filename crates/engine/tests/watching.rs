@@ -537,6 +537,10 @@ fn card(fx: &Fx) -> (Session, PathBuf, PhotoId) {
     s.wait_idle();
     assert!(s.refresh_volumes(PATIENCE));
     assert_eq!(s.root_online(&card), Some(true));
+    // The scan's sidecar writes land before a test empties the card: `pendingWrites` counts a
+    // write until it lands (`pending_writes.rs`), so one the worker had not reached yet would
+    // count as waiting too.
+    s.flush().unwrap();
     let id = photo(&s, &card, "IMG_0001.jpg").unwrap();
     (s, card, id)
 }

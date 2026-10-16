@@ -85,7 +85,8 @@ pub type RootProbe = Arc<dyn Fn(&Path, &[PathBuf]) -> RootState + Send + Sync>;
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PendingWrites {
-    /// Folders whose sidecar write waits for an offline root.
+    /// Folders whose sidecar write is not committed yet: queued for the I/O worker (debounced or
+    /// being made), failed and retried, or waiting for an offline root.
     pub sidecars: usize,
     /// Photos whose metadata is still to be written into their files (`metadata.rs`).
     pub metadata: usize,
@@ -636,8 +637,13 @@ impl Session {
     }
 
     /// The writes still to make (`library.inspect` → `pendingWrites`): `None` when there are none.
+    /// A folder's sidecar write counts from the change until its file is committed (debounced,
+    /// being made, failed, waiting for its volume: M10.50), and while its volume's return is not
+    /// settled yet.
     pub fn pending_writes(&self) -> Option<PendingWrites> {
-        let sidecars = self.offline.pending.len();
+        let queued = self.queued_sidecars();
+        let offline: BTreeSet<FolderId> = self.offline.pending.keys().copied().collect();
+        let sidecars = offline.union(&queued).count();
         let metadata = self.pending_metadata_writes();
         if sidecars == 0 && metadata == 0 {
             return None;
@@ -652,8 +658,10 @@ impl Session {
             .collect();
         let error = if waiting.is_empty() && sidecars == 0 {
             "metadata being written into photo files".to_string()
-        } else if waiting.is_empty() {
+        } else if waiting.is_empty() && !offline.is_empty() {
             "being written now that their volume is back".to_string()
+        } else if waiting.is_empty() {
+            "being written into the folders' sidecars".to_string()
         } else {
             let list: Vec<String> = waiting.iter().map(|r| r.display().to_string()).collect();
             format!("waiting for offline volumes: {}", list.join(", "))

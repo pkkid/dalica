@@ -313,7 +313,10 @@ replies `ok: false`, `code: "unsaved"`, with `"saved in memory but not written t
 Dalica will retry"`. The change is applied, undoable and queued; the writer retries every few
 seconds and on the next change, so nothing is lost once the disk is writable again — unless the app
 quits first. Meanwhile `library.inspect` → `pendingWrites` is `{sidecars, metadata, index, error}`
-and the status line shows a `caution` marker (widget `indicator:unsaved`).
+and the status line shows a `caution` marker (widget `indicator:unsaved`). `pendingWrites` counts
+every sidecar write not yet landed, failed or not: from the change, through the writer's one-second
+debounce, until its file is committed (or waits for an offline volume); `null` means every change
+is on disk.
 
 ### 5.9 When the library cannot be opened
 

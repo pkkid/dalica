@@ -255,6 +255,8 @@ fn caption_tags_and_a_date_reach_every_container_and_another_reader_sees_them() 
     assert_eq!(l.s.pending_metadata_writes(), 4, "one write per photo, every field batched");
     assert_eq!(l.s.pending_writes().map(|p| p.metadata), Some(4));
     l.flush();
+    // The sidecar writes of the same changes count until they land too (`pending_writes.rs`).
+    l.s.flush().unwrap();
     assert_eq!(l.s.pending_writes(), None);
     for (i, name) in NAMES.iter().enumerate() {
         let f = l.read(name);

@@ -5463,7 +5463,7 @@ No other step of M10 needs a maintainer decision mid-run.
     job) shows a root and a path given in the verbatim, plain and differently-cased drive forms
     compare equal for an allow while `..`, `.dalica-originals` and a watched folder are still
     refused in each form; `cargo xtask ci` green.
-- ⬜ **M10.50 `mcp` + `engine` + `store`: W04's caption missing from the sidecar on macOS and Windows**
+- ✅ **M10.50 `mcp` + `engine` + `store`: W04's caption missing from the sidecar on macOS and Windows**
   - after: M10.19
   - files: `crates/mcp/tests/workflows/w04_rebuild_loses_nothing.rs`, `crates/mcp/tests/workflows/harness.rs`, `crates/engine/src/session.rs`, `crates/engine/src/offline.rs`, `crates/store/src/rebuild.rs`, `crates/engine/tests/pending_writes.rs`
   - scope: found by the full gate (GitHub run 38841617828; it passed in run 38838856986 and on
