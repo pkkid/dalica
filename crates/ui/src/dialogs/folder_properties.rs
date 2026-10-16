@@ -17,8 +17,13 @@
 //! date and none set), whether "Use the date of the oldest photo" is on, its place and its
 //! description. It starts from what the library holds: the date set in Folder Properties (the box
 //! off), else the oldest photo's (the box on, the field disabled). Turning the box on shows the
-//! oldest photo's date again; while it is off the field takes a date, and OK is disabled until it
-//! reads as one. The name renames the folder on disk (M9.20): OK is disabled while it is blank.
+//! oldest photo's date again; turning it off keeps the date shown (today's when the folder has
+//! none). The Date field is `ui-kit`'s date field (M10.25): typed as `YYYY-MM-DD`, ↑ and ↓ step the
+//! year, month or day the cursor is in, and a day that does not exist (`2026-02-30`) is refused,
+//! never stored: the draft keeps the last day that read and the field shows it again when the edit
+//! ends. OK is disabled while the draft's date does not read as a day (only a script setting the
+//! draft through `ui.set` can leave it so). The name renames the folder on disk (M9.20): OK is
+//! disabled while it is blank.
 //!
 //! OK runs `folder.rename {folder, name}` first when the name changed (a file job, one undo step
 //! "Rename Folder"; the folder keeps its id, so the tree row and the section title follow it once
@@ -32,11 +37,10 @@
 //! `field:dialog.music` and `button:dialog.browse` (both disabled), `button:dialog.cancel`,
 //! `button:dialog.ok`.
 
-use dalica_core::{Date, FolderId};
+use dalica_core::{Date, DateTime, FolderId};
 use dalica_engine::CmdError;
 use dalica_library::Library;
-use dalica_ui_kit::registry::Role;
-use dalica_ui_kit::widgets::{self, ButtonKind, Target, TextField};
+use dalica_ui_kit::widgets::{self, ButtonKind, DATE_WIDTH, PickedDate, TextField, checkbox, date_field};
 use dalica_ui_kit::{Tokens, fonts};
 use egui::{Align, Layout, RichText, Ui, vec2};
 use serde_json::{Map, Value, json};
@@ -53,15 +57,11 @@ pub const WIDTH: f32 = 500.0;
 const LABEL_W: f32 = 148.0;
 /// Between the label column and the fields, and between rows.
 const GAP: f32 = 8.0;
-/// The Date field's width.
-const DATE_W: f32 = 112.0;
 /// The checkbox's label.
 pub const USE_OLDEST: &str = "Use the date of the oldest photo";
 /// What the Music field says while slideshows are not there.
 pub const MUSIC_HINT: &str = "Arrives with slideshows";
-/// What the Date field says while it is empty.
-pub const DATE_HINT: &str = "YYYY-MM-DD";
-/// Why OK is disabled when the Date field does not read as a day.
+/// Why OK is disabled when the draft's date does not read as a day.
 pub const BAD_DATE: &str = "Type the date as YYYY-MM-DD.";
 /// Why OK is disabled while the Name field is blank.
 pub const NO_NAME: &str = "Enter the folder's name.";
@@ -165,6 +165,27 @@ fn field(ui: &mut Ui, t: &Tokens, fields: &mut Map<String, Value>, key: &str, id
     }
 }
 
+/// The day `text` names, as the date field takes it.
+fn picked(text: &str) -> Option<PickedDate> {
+    let day = text.trim().parse::<Date>().ok()?;
+    PickedDate::new(day.year(), day.month(), day.day())
+}
+
+/// The Date field (`ui-kit`'s date field) on draft field `date`: a day typed or stepped goes into
+/// the draft; one that does not exist never does. With no day in the draft it shows `today` (else
+/// 2000-01-01) and writes nothing until it is edited.
+fn date_row_field(ui: &mut Ui, t: &Tokens, fields: &mut Map<String, Value>, today: Option<Date>) {
+    let shown = picked(&text(fields, "date"));
+    let fallback = today.and_then(|d| PickedDate::new(d.year(), d.month(), d.day())).or_else(|| PickedDate::new(2000, 1, 1));
+    let Some(mut day) = shown.or(fallback) else { return };
+    let out = date_field(ui, t, DATE_ID, &mut day, DATE_WIDTH);
+    if out.changed
+        && let Ok(day) = Date::new(day.year(), day.month(), day.day())
+    {
+        fields.insert("date".into(), Value::String(day.to_string()));
+    }
+}
+
 /// The long form of the date the Date row shows ("Thursday, June 4, 2026"), or why there is none.
 fn date_note(fields: &Map<String, Value>) -> Result<String, &'static str> {
     match chosen_date(fields)? {
@@ -185,8 +206,9 @@ pub fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
     row(ui, &t, "Name:", |ui| field(ui, &t, fields, "name", NAME_ID, NAME_HINT, full));
 
     let oldest = use_oldest(fields);
+    let today = app.session().and_then(|s| DateTime::from_unix_secs(s.clock().now().as_secs())).map(|d| d.date());
     row(ui, &t, "Date:", |ui| {
-        ui.add_enabled_ui(!oldest, |ui| field(ui, &t, fields, "date", DATE_ID, DATE_HINT, DATE_W));
+        ui.add_enabled_ui(!oldest, |ui| date_row_field(ui, &t, fields, today));
         let (note, color) = match date_note(fields) {
             Ok(note) => (note, t.text_dim),
             Err(why) => (why.to_string(), t.caution),
@@ -195,8 +217,7 @@ pub fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
     });
     row(ui, &t, "", |ui| {
         let mut on = oldest;
-        let r = ui.checkbox(&mut on, RichText::new(USE_OLDEST).font(fonts::regular(t.body)));
-        widgets::register(ui.ctx(), USE_OLDEST_ID, Role::Toggle, USE_OLDEST, Target::Widget(&r), on);
+        checkbox(ui, &t, USE_OLDEST_ID, USE_OLDEST, &mut on);
         if on != oldest {
             fields.insert("useOldest".into(), Value::Bool(on));
             if on {
@@ -204,6 +225,9 @@ pub fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
                 let folder = fields.get("folder").and_then(|v| serde_json::from_value::<FolderId>(v.clone()).ok());
                 let date = folder.and_then(|f| app.session().and_then(|s| oldest_date(s.library(), f)));
                 fields.insert("date".into(), json!(date.map(|d| d.to_string())));
+            } else if text(fields, "date").parse::<Date>().is_err() {
+                // A folder with no date: the field starts from today.
+                fields.insert("date".into(), json!(today.map(|d| d.to_string())));
             }
         }
     });

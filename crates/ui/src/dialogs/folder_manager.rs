@@ -17,13 +17,19 @@
 //!   leaves it as it was. OK then sends `"confirm": true`.
 //! - The library's selected folder is pre-selected, its parents expanded and the tree scrolled to
 //!   it.
+//! - **Size:** it opens at ≈ 640 × 480 and is resizable by the grip in its bottom-right corner
+//!   (M10.25): the dialog stays centred, so the corner follows the pointer while both sides move,
+//!   between [`MIN_WIDTH`] × [`MIN_HEIGHT`] and the window less its margins; the tree and the
+//!   watched list take the room. The size is the draft's `size`, and the dialog opens again at the
+//!   size it last had for as long as the app runs (kept in egui's memory, never saved).
 //!
 //! Widget ids (`control-protocol.md` §7, the dialog row): the rows `choice:dialog.folder/<root>`
 //! and `choice:dialog.folder/<root>/<folder>` (`<root>` and `<folder>` are sixteen hex digits of the
 //! FNV-1a hash of the path, [`hash`]; a root's row has no second part), their triangles
 //! `button:dialog.expand/…` with the same parts, a spinner row `choice:dialog.folder/…/loading`
 //! (painted, under the folder being read), the radios `choice:dialog.mode/always`, `/once`,
-//! `/remove`, the toggle `check:dialog.faces`, the watched folders `button:dialog.reveal/<folder>`.
+//! `/remove`, the toggle `check:dialog.faces`, the watched folders `button:dialog.reveal/<folder>`,
+//! the resize grip `resize:dialog.se`.
 
 pub mod draft;
 pub mod listing;
@@ -34,9 +40,9 @@ use std::path::{Path, PathBuf};
 use dalica_engine::CmdError;
 use dalica_ui_kit::icons::{FolderIcon, paint_folder};
 use dalica_ui_kit::registry::Role;
-use dalica_ui_kit::widgets::{self, ButtonKind, Target};
+use dalica_ui_kit::widgets::{self, ButtonKind, Target, checkbox_row};
 use dalica_ui_kit::{Tokens, fonts};
-use egui::{Align, Color32, Id, Layout, Rect, RichText, Sense, Ui, UiBuilder, pos2, vec2};
+use egui::{Align, Color32, CursorIcon, Id, Layout, Rect, RichText, Sense, Stroke, Ui, UiBuilder, Vec2, pos2, vec2};
 use serde_json::{Value, json};
 
 use super::{Button, Dialog, DialogKind, Look};
@@ -44,13 +50,23 @@ use crate::app::App;
 use draft::{Change, Draft, key};
 use listing::{Listing, Root};
 
-/// The dialog's width and height (points, `organizing.md` §2: ≈ 640 × 480).
+/// The dialog's width and height when it first opens (points, `organizing.md` §2: ≈ 640 × 480).
 pub const WIDTH: f32 = 640.0;
 pub const HEIGHT: f32 = 480.0;
-/// The body's height: the dialog's less its title, button row and margins.
-const BODY_H: f32 = HEIGHT - 88.0;
-/// The room kept round the dialog in a short window.
+/// The smallest the grip makes it (points): the radios, the intro and a few rows of each list.
+pub const MIN_WIDTH: f32 = 520.0;
+pub const MIN_HEIGHT: f32 = 360.0;
+/// What the dialog's height holds besides the body: its title, button row and margins (the
+/// window's 1 pt outline on each side comes on top, as it does on its width).
+const CHROME_H: f32 = 94.0;
+/// The shortest the body gets in a window too short for [`MIN_HEIGHT`].
+const MIN_BODY_H: f32 = 160.0;
+/// The room kept above and below the dialog in a short window.
 const WINDOW_MARGIN: f32 = 40.0;
+/// The resize grip's side, in the window's bottom-right corner (points).
+const GRIP: f32 = 14.0;
+/// The resize grip's id.
+pub const GRIP_ID: &str = "resize:dialog.se";
 /// The gap between the two halves.
 const SPLIT_GAP: f32 = 16.0;
 /// The radio rows (points).
@@ -63,6 +79,8 @@ pub const INTRO: &str =
 pub const FACES_LABEL: &str = "Find faces in this folder";
 /// The faces toggle's id.
 pub const FACES_ID: &str = "check:dialog.faces";
+/// Why the radios and the faces toggle wait.
+pub const NO_SELECTION: &str = "Select a folder first.";
 
 /// A folder's state: its mode (`organizing.md` §2).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -150,10 +168,28 @@ pub fn mode_id(state: State) -> String {
     format!("choice:dialog.mode/{}", state.id())
 }
 
-pub fn look(_app: &App, _d: &Dialog) -> Look {
+/// Where the size the dialog last had is kept for the session (egui's memory: never saved).
+fn size_memory() -> Id {
+    Id::new("dalica-ui.folderManager.size")
+}
+
+/// The dialog's size (points) for `size` (the draft's, `None` or not finite: the first one) in a
+/// window of `screen`: at least [`MIN_WIDTH`] × [`MIN_HEIGHT`], at most the window less its margins
+/// (the dialog host's at the sides, [`WINDOW_MARGIN`] above and below) and the window's 1 pt
+/// outline; a window smaller than the minimum wins.
+pub fn fit(size: Option<[f32; 2]>, screen: Vec2) -> Vec2 {
+    let [w, h] = size.filter(|s| s.iter().all(|v| v.is_finite())).unwrap_or([WIDTH, HEIGHT]);
+    let max_w = (screen.x - 2.0 * (super::SCREEN_MARGIN + 1.0)).max(0.0);
+    let max_h = (screen.y - 2.0 * (WINDOW_MARGIN + 1.0)).max(0.0);
+    vec2(w.max(MIN_WIDTH).min(max_w), h.max(MIN_HEIGHT).min(max_h))
+}
+
+pub fn look(_app: &App, d: &Dialog) -> Look {
+    // The draft's width as the grip left it; the host keeps the dialog inside the window.
+    let width = d.fields.get("size").and_then(|s| s.get(0)).and_then(Value::as_f64).map(|w| w as f32).filter(|w| w.is_finite());
     Look {
         title: "Folder Manager".into(),
-        width: WIDTH,
+        width: width.unwrap_or(WIDTH).max(MIN_WIDTH),
         buttons: vec![Button::new("help", "Help", ButtonKind::Other).enabled(false), Button::cancel(), Button::new("ok", "OK", ButtonKind::Default)],
     }
 }
@@ -291,10 +327,29 @@ pub fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
         draft.selected = folder.as_deref().map(key);
         draft.reveal = draft.selected.clone();
         draft.ready = true;
+        // The size the dialog had when it last closed, if the grip changed it. The look read the
+        // draft before this, so that size draws this pass again.
+        if let Some(size) = ctx.data(|m| m.get_temp::<[f32; 2]>(size_memory())) {
+            ctx.request_discard("the Folder Manager opens at the size it last had");
+            draft.size = Some(size);
+        }
     }
     let screen = ctx.content_rect();
-    let body_h = BODY_H.min(screen.height() - (HEIGHT - BODY_H) - 2.0 * WINDOW_MARGIN).max(160.0);
+    let size = fit(draft.size, screen.size());
+    let body_h = (size.y - CHROME_H).max(MIN_BODY_H);
+    // The window's corner: the frame's content (title, body, buttons) starts at the top left of
+    // this ui, inside the dialog margin and the 1 pt outline.
+    let edge = t.metrics.dialog_margin + vec2(1.0, 1.0);
+    let top = ui.min_rect().min.y - edge.y;
     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), body_h), Sense::hover());
+    let corner = pos2(rect.max.x + edge.x, top + body_h + CHROME_H + 2.0);
+    if let Some(dragged) = grip(ui, &t, corner, size) {
+        let fitted = fit(Some([dragged.x, dragged.y]), screen.size());
+        draft.size = Some([fitted.x, fitted.y]);
+    }
+    if let Some(size) = draft.size {
+        ctx.data_mut(|m| m.insert_temp(size_memory(), size));
+    }
     if app.session().is_none() {
         ui.painter().text(rect.left_top(), egui::Align2::LEFT_TOP, "The library is still opening.", fonts::regular(t.body), t.text_dim);
         draft.write(&mut d.fields);
@@ -372,9 +427,9 @@ pub fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
     side.painter().rect_filled(line, 0, t.divider);
     side.add_space(6.0);
     let mut faces = selected.as_deref().is_some_and(|p| effective_faces(app, &draft, p));
-    let r = side.add_enabled(selected.is_some(), egui::Checkbox::new(&mut faces, RichText::new(FACES_LABEL).font(fonts::regular(t.body))));
-    widgets::register(&ctx, FACES_ID, Role::Toggle, FACES_LABEL, Target::Widget(&r), faces);
-    if r.clicked() && selected.is_some() {
+    let disabled = selected.is_none().then_some(NO_SELECTION);
+    let r = checkbox_row(&mut side, &t, FACES_ID, FACES_LABEL, &mut faces, None, disabled).response;
+    if r.changed() && selected.is_some() {
         asked.faces = Some(faces);
     }
     side.add_space(12.0);
@@ -421,6 +476,25 @@ pub fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
             app.state_mut().status = e.to_string();
         }
     }
+}
+
+/// The resize grip in the dialog window's bottom-right `corner`: three short diagonal strokes,
+/// `text_dim` (`text_label` hovered or held). The dialog is centred, so a drag grows it by twice
+/// the pointer's move to keep the corner under the pointer. The size `size` (points) becomes, while
+/// it is dragged.
+fn grip(ui: &mut Ui, t: &Tokens, corner: egui::Pos2, size: Vec2) -> Option<Vec2> {
+    let rect = Rect::from_min_max(corner - vec2(GRIP, GRIP), corner);
+    let r = ui.interact(rect, Id::new(GRIP_ID), Sense::drag());
+    let r = r.on_hover_cursor(CursorIcon::ResizeNwSe);
+    let color = if r.hovered() || r.dragged() { t.text_label } else { t.text_dim };
+    let p = ui.painter();
+    let corner = rect.max - vec2(4.0, 4.0);
+    for k in [3.0, 6.5, 10.0] {
+        p.line_segment([corner - vec2(k, 0.0), corner - vec2(0.0, k)], Stroke::new(1.0, color));
+    }
+    widgets::register(ui.ctx(), GRIP_ID, Role::Other, "Resize", Target::Widget(&r), r.dragged());
+    let delta = r.drag_delta();
+    (r.dragged() && delta != Vec2::ZERO).then(|| size + 2.0 * delta)
 }
 
 /// A radio for state `s`: the circle, the state icon and the label, the whole row clickable.
@@ -517,4 +591,23 @@ fn watched_list(ui: &mut Ui, t: &Tokens, rect: Rect, watched: &[(PathBuf, String
             }
         });
     clicked
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_size_fits_between_the_minimum_and_the_window() {
+        let large = vec2(1400.0, 900.0);
+        assert_eq!(fit(None, large), vec2(WIDTH, HEIGHT));
+        assert_eq!(fit(Some([700.0, 500.0]), large), vec2(700.0, 500.0));
+        assert_eq!(fit(Some([10.0, -5.0]), large), vec2(MIN_WIDTH, MIN_HEIGHT));
+        assert_eq!(fit(Some([5000.0, 5000.0]), large), vec2(1400.0 - 34.0, 900.0 - 82.0), "the window less its margins and outline");
+        for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            assert_eq!(fit(Some([bad, 500.0]), large), vec2(WIDTH, HEIGHT), "{bad}");
+        }
+        assert_eq!(fit(Some([700.0, 500.0]), vec2(300.0, 200.0)), vec2(300.0 - 34.0, 200.0 - 82.0), "a window smaller than the minimum wins");
+        assert_eq!(fit(None, vec2(0.0, 0.0)), vec2(0.0, 0.0));
+    }
 }

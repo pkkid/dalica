@@ -6,7 +6,9 @@
 //!   the description is still there after a restart;
 //! - a double-click on a section title opens Folder Properties for that folder: its draft starts
 //!   from the library, Cancel changes nothing, OK sets the date and place (and description) in one
-//!   undo step, which undo takes back; OK is disabled while the date does not read;
+//!   undo step (one `folder.info.set`), which undo takes back; the Date field is `ui-kit`'s date
+//!   field (M10.25): ↑ and ↓ step the year or the day under the cursor, and an impossible date is
+//!   refused (the draft keeps the last day that read, OK stays as it was);
 //! - the header's date line shows the folder's date and " · place";
 //! - renaming in Folder Properties (M9.20) renames the folder on disk as its own undo step; the
 //!   section title and the tree row follow it, undo puts the name back, a blank name greys OK and
@@ -209,11 +211,27 @@ fn folder_properties_ok_sets_date_and_place_in_one_undo_step_and_cancel_changes_
     // OK: a date of our own, a place and a description, in one step.
     open(&mut fx);
     fx.d.click(USE_OLDEST_ID).unwrap();
-    assert_eq!(fields(&fx.d)["useOldest"], false);
-    assert!(try_widget(&fx.d, DATE_ID).unwrap().enabled, "the box off, the date is typed");
-    retype(&mut fx.d, DATE_ID, "2026-13-01");
-    assert!(!try_widget(&fx.d, "button:dialog.ok").unwrap().enabled, "OK waits for a date that reads");
-    retype(&mut fx.d, DATE_ID, "2026-06-01");
+    assert_eq!((fields(&fx.d)["useOldest"].clone(), fields(&fx.d)["date"].clone()), (json!(false), json!("2026-06-04")), "the box off keeps the day");
+    assert!(try_widget(&fx.d, DATE_ID).unwrap().enabled, "the box off, the date is edited");
+    // The date field: ↑ and ↓ step the part under the cursor (Home: the year; End: the day).
+    fx.d.click(DATE_ID).unwrap();
+    fx.d.key("Home").unwrap();
+    fx.d.key("Up").unwrap();
+    assert_eq!(fields(&fx.d)["date"], "2027-06-04", "↑ on the year");
+    fx.d.key("Down").unwrap();
+    fx.d.key("End").unwrap();
+    for _ in 0..3 {
+        fx.d.key("Down").unwrap();
+    }
+    assert_eq!(fields(&fx.d)["date"], "2026-06-01", "↓ on the day, three times");
+    // A day that does not exist is refused: the draft keeps the last day that read, and OK is
+    // still enabled for it.
+    for bad in ["2026-02-30", "2026-13-01"] {
+        retype(&mut fx.d, DATE_ID, bad);
+        assert_eq!(fields(&fx.d)["date"], "2026-06-01", "{bad} is refused");
+    }
+    fx.d.key("Tab").unwrap();
+    assert_eq!(fields(&fx.d)["date"], "2026-06-01", "leaving the field keeps the day it had");
     assert!(try_widget(&fx.d, "button:dialog.ok").unwrap().enabled);
     retype(&mut fx.d, PLACE_ID, "Lisbon, Portugal");
     retype(&mut fx.d, DESCRIPTION_ID, "A weekend of trams");

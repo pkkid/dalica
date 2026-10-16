@@ -53,6 +53,11 @@ pub struct Draft {
     /// A folder to show: its parents are expanded and the tree scrolls to it once it is listed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reveal: Option<String>,
+    /// The dialog's `[width, height]` in points, as its grip left it (M10.25; `None`: the first
+    /// size, ≈ 640 × 480): set on the first frame to the size the grip left it at when it last
+    /// closed in this session, drawn within the minimum and the window (`super::fit`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub size: Option<[f32; 2]>,
 }
 
 /// A path as the draft keys it.

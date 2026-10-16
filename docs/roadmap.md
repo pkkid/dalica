@@ -4864,7 +4864,7 @@ No other step of M10 needs a maintainer decision mid-run.
     `crates/engine/tests/read_only.rs`: starring and captioning changes no byte on disk (the
     folder's sha256 before and after) and an export is refused; the owner thread made no `fs`
     call; `panic_hunt` green.
-- ⬜ **M10.25 `ui`: the window's last P0 gaps**
+- ✅ **M10.25 `ui`: the window's last P0 gaps**
   - after: M10.2
   - files: `crates/ui/src/dialogs/folder_properties.rs`, `crates/ui/src/dialogs/folder_manager.rs`, `crates/ui/src/dialogs/folder_manager/**`, `crates/ui/src/menus.rs`, `crates/ui/tests/folder_properties.rs`, `crates/ui/tests/folder_manager.rs`, `crates/ui/tests/menu_checks.rs`, `crates/ui/tests/fingerprints/dialog-folder-properties-*.json`, `crates/ui/tests/fingerprints/dialog-folder-manager-*.json`
   - scope: gaps named in P0 rows' notes that no other M10 task closes: Folder Properties' date on

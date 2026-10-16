@@ -479,13 +479,29 @@ fn shortcut(facts: &Facts<'_>, i: &Item, id: &str, registered: bool) -> Option<S
 
 /// Whether a checkable row (or a row of the view-options popup) running `id` with its fixed
 /// `params` is on: the view state answers ([`crate::commands::view::checked`]), and the session for
-/// the engine's View settings (Use Color Management, on until a library says otherwise); rows of
-/// commands that do not exist yet are off.
+/// the engine's View settings (Use Color Management, on until a library says otherwise) and for
+/// Folder ▸ Sort By ([`sort_checked`]); rows of commands that do not exist yet are off.
 pub fn checked(app: &App, id: &str, params: &Value) -> bool {
-    if id == "view.colorManagement" {
-        return app.session().is_none_or(dalica_engine::Session::color_management);
+    match id {
+        "view.colorManagement" => app.session().is_none_or(dalica_engine::Session::color_management),
+        "section.sort" => sort_checked(app, params),
+        _ => crate::commands::edit_view::checked(app, id).or_else(|| crate::commands::view::checked(app.state(), id, params)).unwrap_or(false),
     }
-    crate::commands::edit_view::checked(app, id).or_else(|| crate::commands::view::checked(app.state(), id, params)).unwrap_or(false)
+}
+
+/// Folder ▸ Sort By's marks (M10.25): the [current folder](current_folder)'s photo sort, as the
+/// library holds it: Date, Name or Size (`{"by"}`) is on for its key and Reverse Order
+/// (`{"reverse": true}`) while it is turned around. In an album (a manual order) and with no folder
+/// none is on.
+fn sort_checked(app: &App, params: &Value) -> bool {
+    let in_album = app.state().selection.section.is_some_and(|s| s.folder().is_none());
+    let (Some(folder), Some(session)) = (current_folder(app).filter(|_| !in_album), app.session()) else { return false };
+    let sort = session.library().folder_sort(folder);
+    match (params.get("by"), params.get("reverse")) {
+        (Some(by), None) => serde_json::to_value(sort.by).ok().as_ref() == Some(by),
+        (None, Some(Value::Bool(true))) => sort.reverse,
+        _ => false,
+    }
 }
 
 /// How `ui.menu.invoke` names an item.

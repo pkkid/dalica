@@ -35,6 +35,7 @@ mod jobs_control;
 mod layout;
 mod library_window;
 mod light_table;
+mod menu_checks;
 mod menus;
 mod monkey;
 mod move_dialogs;
