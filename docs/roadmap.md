@@ -5516,8 +5516,100 @@ No other step of M10 needs a maintainer decision mid-run.
   - done when: `cargo xtask parity --p0` passes, listing only the two awaiting rows; the summary is
     regenerated; the PR lists every row changed with its evidence and every part moved with its new
     row.
+- ⬜ **M10.51 `ui`: the geotag badge, the edit view's trash button, and Ctrl+3 and Ctrl+9 in both views**
+  - after: M10.25, M10.39, M10.40, M10.41
+  - files: `crates/ui/src/panels/light_table/cell.rs`, `crates/ui/src/panels/edit/caption_bar.rs`, `crates/ui/src/commands/edit_view.rs`, `crates/ui/tests/cells.rs`, `crates/ui/tests/delete_dialogs.rs`, `crates/ui/tests/edit_keys.rs`, `docs/menus-and-shortcuts.md`
+  - scope: four P0 rows the audit (M10.26) left open. LIB-LT-BADGES: `badges_of` (`cell.rs`)
+    sets star, edited and held but never the geotag badge, although the library knows which
+    photos are geotagged (the photo's facts, `geotagged`, which the Geotagged filter reads); set
+    it from there, read once per revision as the other badges are (no per-frame library work).
+    EDIT-VIEW: the caption bar's trash button (`button:edit.trash`) is still drawn disabled "until
+    M9"; delete exists since M9: enable it and make it ask the same question as Ctrl+Delete
+    (`photo.delete` through the delete question, `dialogs/delete.rs`, `organizing.md` §9) for the
+    photo shown; Cancel changes nothing; after Move to Trash the edit view goes where it goes after
+    Ctrl+Delete today (if that is unspecified: the next photo in the section, else the previous,
+    else back to the library; the choice in the commit body). The slideshow toggle stays disabled
+    (VIEW-SLIDESHOW, M11). KEY-GLOBAL-CTRL-3 and KEY-GLOBAL-CTRL-9: `menus-and-shortcuts.md` §2.1
+    lists both as Global, but `view.edit` binds Ctrl+3 in the Library only and `edit.panelToggle`
+    binds Ctrl+9 in the edit view only. Bind each in the other view as well (a Global key bound in
+    both views reads ✅, as M10.39 did for Ctrl+Shift+S): Ctrl+3 in the edit view keeps the photo
+    shown (it must not reset the zoom or close an open tool, unlike opening a photo; a no-op with
+    `{"view": "edit", "photo": id}` is enough), and Ctrl+9 in the library sets whether the edit
+    panel shows the next time the edit view opens (`edit.panelVisible`, with the View menu's check
+    following it), with no conflict with another default in either context. If either turns out to
+    make no sense in that view, move it out of §2.1 into its own view's table with the reason and
+    regenerate the row (it then reads ✅ under its new context); the commit body says which.
+  - done when: tests, each failing before the fix: in `cells.rs`, a geotagged photo's cell carries
+    the geotag badge and a photo without a location does not; in `delete_dialogs.rs`, a click on
+    `button:edit.trash` asks the delete question for the photo shown, Cancel leaves it, Move to
+    Trash moves it to the trash and the edit view shows the photo the scope names; in
+    `edit_keys.rs`, Ctrl+3 in the edit view keeps the photo and its zoom, Ctrl+9 in the library
+    toggles `edit.panelVisible` and the edit view then opens with the panel so; `cargo xtask parity
+    --write` turns LIB-LT-BADGES, EDIT-VIEW, KEY-GLOBAL-CTRL-3 and KEY-GLOBAL-CTRL-9 ✅ (the rows'
+    notes name the tests); screenshots at 1400 × 900 of a geotagged cell and of the edit view's
+    enabled trash button, before and after, on the PR; `cargo xtask ci` green.
+- ⬜ **M10.52 `engine` + `ui`: a damaged sidecar's banner and Reset folder data, and the search's empty state**
+  - after: M10.25, M10.38, M10.40, M10.50
+  - files: `crates/engine/src/cmd/folder_data.rs`, `crates/engine/src/cmd/mod.rs`, `crates/engine/src/session.rs`, `crates/engine/tests/folder_data.rs`, `crates/ui/src/panels/light_table.rs`, `crates/ui/src/panels/light_table/folder_banner.rs`, `crates/ui/src/dialogs/confirm.rs`, `crates/ui/tests/damaged_sidecar.rs`, `crates/ui/tests/search_ui.rs`, `docs/data-model.md`, `docs/ui-layout.md`
+  - scope: two P0 rows the audit (M10.26) left open. DATA-SIDECAR (`data-model.md` §3): an
+    unreadable sidecar is already kept aside as `.dalica.json.corrupt-<time>` and its folder made
+    read-only by the store's writer, but nothing tells the user and nothing lifts it (only
+    `SidecarWriter::clear_read_only` exists). This touches data (AGENTS.md §3), so: (a) engine: the
+    session lists the damaged folders (in memory, cheap to read each frame: a revision or a set, no
+    disk access on the UI thread), and they survive a restart (decide how, for example the index
+    remembering the read-only folders, so a restart does not quietly start writing into the folder
+    before the user chose; the choice in the commit body); a new command `folder.resetData {folder}`
+    (new `cmd/folder_data.rs`, `effect` Files, history none) that, only for a damaged folder: re-reads
+    the folder's sidecar first, and if a readable one is there now (the user restored it) takes its
+    values and lifts read-only without writing; otherwise lifts read-only and lets the writer write
+    a new sidecar from the model (the model's values for the folder survive; the damaged copy stays
+    aside untouched, never deleted, renamed or overwritten, and a second damaged copy gets its own
+    `.corrupt-<time>` name, never replacing the first); refuses a folder that is not damaged, an
+    unknown folder and hostile params with an `Err`; the reply names the kept-aside file. Restoring
+    the file by hand (the watcher's or a rescan's read of a now-readable sidecar) lifts the state too.
+    (b) ui: a `caution` banner (new `panels/light_table/folder_banner.rs`, drawn by `light_table.rs`
+    at the top of the damaged folder's section, tokens and `ui-kit` widgets only) reading that the
+    folder's data file was damaged and kept aside, with [Reset folder data]
+    (`button:folder.resetData`), which asks first (a new row in `confirm.rs`'s `ASKS`: what it does,
+    that the damaged copy stays beside the photos, [Reset] [Cancel]); Cancel changes nothing.
+    LIB-EMPTY (`ui-layout.md` §5.3): the search empty state reads "No matching pictures" and points
+    to the banner's Show All; make it "No photos found" with its own [Show All]
+    (`button:empty.showAll`, running what the banner's Show All runs: leaving search mode). Update
+    `data-model.md` §3 and `ui-layout.md` §5.3 with what was built.
+  - done when: tests, each failing before the fix: in `dalica-engine` (`folder_data.rs`, a new
+    `mod` in `tests/all.rs`): a folder with an unparseable sidecar is listed damaged, a caption set
+    there writes nothing, and the list survives reopening the session; `folder.resetData` keeps the
+    `.corrupt-<time>` file byte for byte, writes a new sidecar with the model's values (the caption
+    set while damaged included) and lifts the state; a sidecar restored by hand before the reset is
+    read, not overwritten; a second damage keeps both copies; a folder that is not damaged is
+    refused; in `dalica-ui` (`damaged_sidecar.rs`, a new `mod`): the banner shows on the damaged
+    folder only, Reset asks, Cancel leaves everything, Reset runs `folder.resetData` and the banner
+    goes; in `search_ui.rs`: a search with no results shows "No photos found" and
+    `button:empty.showAll` leaves search mode; `cargo xtask parity --write` turns DATA-SIDECAR and
+    LIB-EMPTY ✅; screenshots at 1400 × 900 of the banner, the question and the empty state, before
+    and after, on the PR; `cargo xtask ci` green.
+- ⬜ **M10.53 `ui`: an export's progress in the status line**
+  - after: M10.25, M10.31
+  - files: `crates/ui/src/panels/status.rs`, `crates/ui/src/status_text.rs`, `crates/ui/tests/status_line.rs`, `docs/creating.md`
+  - scope: the P0 row OUT-EXPORT the audit (M10.26) left open: `creating.md` §2 puts an export's
+    progress in the status line as well as in the progress window, and today it shows only in the
+    window and the activity popover. Build it: while an export job runs, the status line carries
+    "Exporting 12 of 48" from the job's in-memory progress (as "Scanning: 1,204 pictures found"
+    does through `status_text::with_activity`: in place of "No selection", else the last field; in
+    the edit view too), read each frame from the session's progress without per-frame work
+    proportional to the library, gone when the job ends (its toast follows as today). With a scan
+    and an export both running, both fields show and fitting drops the scan's first (the order in
+    the commit body). If building it shows the spec is wrong, change `creating.md` §2 with the
+    reason instead and say so on the PR (building it is preferred). Update `creating.md`'s Built
+    note.
+  - done when: tests, each failing before the fix, in `status_line.rs`: with an export job held
+    part-way (a test gate, no sleep), `ui.state`'s `status` reads "Exporting n of m" with nothing
+    selected and ends with it with a photo selected, in the library and the edit view; it is gone
+    once the job ends; a scan and an export together fit at 900 wide with the scan field dropped
+    first; `cargo xtask parity --write` turns OUT-EXPORT ✅; screenshots at 1400 × 900 of the
+    status line during an export, before and after, on the PR; `cargo xtask ci` green.
 - ⬜ **M10.27 `accept M10`**
-  - after: M10.12, M10.16, M10.20, M10.26
+  - after: M10.12, M10.16, M10.20, M10.26, M10.51, M10.52, M10.53
   - files: `tests/acceptance/m10.rs`, `tests/acceptance/m10_*.rs`, `tests/acceptance/m10.md`, `tests/acceptance/fingerprints/m10-*.json`
   - scope: every *Done when* of M10's three areas in the real `dalica --headless` over the control
     channel and through `dalica-cli mcp`: settings round-tripping through `options.set` with unknown
@@ -5542,7 +5634,7 @@ No other step of M10 needs a maintainer decision mid-run.
   - done when: `cargo xtask tasks sync --check` parses them and `tasks sync --dry-run` lists one new
     issue per block.
 - ⬜ **M10.R Release 0.5 gate**
-  - after: M10.24, M10.27, M10.29, M10.31, M10.32, M10.33, M10.34, M10.35, M10.36, M10.37, M10.38, M10.39, M10.40, M10.41, M10.42, M10.43, M10.44, M10.45, M10.46, M10.47, M10.48, M10.49, M10.50
+  - after: M10.24, M10.27, M10.29, M10.31, M10.32, M10.33, M10.34, M10.35, M10.36, M10.37, M10.38, M10.39, M10.40, M10.41, M10.42, M10.43, M10.44, M10.45, M10.46, M10.47, M10.48, M10.49, M10.50, M10.51, M10.52, M10.53
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`
   - scope: a release gate (Release 0.5, P0 complete): the lead runs `/milestone-review M10.R` to
@@ -5594,7 +5686,9 @@ wave 6   M10.26 P0 parity audit
           path, Options tests ‖ M10.45 Windows: killed Save, watcher rename ‖ M10.46 macOS:
           the Properties pane's settle ‖ M10.47 one menu open at a time, window size under
           a UI scale ‖ M10.48 macOS: headless quit test, Save Copy date ‖ M10.49 Windows:
-          the path policy's path forms ‖ M10.50 macOS and Windows: W04's caption in the sidecar)
+          the path policy's path forms ‖ M10.50 macOS and Windows: W04's caption in the sidecar
+          ‖ M10.51 geotag badge, edit-view trash, Ctrl+3 and Ctrl+9 ‖ M10.52 damaged sidecar's
+          banner and reset, search empty state ‖ M10.53 export progress in the status line)
 wave 7   M10.27 accept M10 → M10.R          (M10.28 lead: M12 blocks, any time after M9.26)
 ```
 
