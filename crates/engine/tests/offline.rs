@@ -96,6 +96,10 @@ impl Fx {
         s.wait_idle();
         assert!(s.refresh_volumes(PATIENCE));
         assert_eq!(s.root_online(&self.card), Some(true));
+        // The scan's sidecar writes land before a test unplugs the card: `pendingWrites` counts
+        // a write until it lands (`pending_writes.rs`), so one the worker had not reached yet
+        // would count as waiting too.
+        s.flush().unwrap();
         let mut photos: Vec<(String, PhotoId)> = s.library().photos().map(|p| (p.name.clone(), p.id)).collect();
         photos.sort();
         (s, photos.into_iter().map(|(_, id)| id).collect())
