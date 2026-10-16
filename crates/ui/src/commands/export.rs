@@ -2,10 +2,12 @@
 //! (`crate::dialogs::export`), whose Export button runs the engine's `export.run`, the way
 //! `folders.manager` opens the Folder Manager and runs `folders.set`.
 //!
-//! - `output.export {ids?, section?}` (File ▸ Export Pictures to Folder…, Ctrl+Shift+S, the bottom
-//!   bar's Export, a section header's Export): the photos named (a header passes the selection
-//!   inside its section with the section), else the section named, else the tray's photos;
-//!   disabled while there is nothing to export ("tray not empty").
+//! - `output.export {ids?, section?}` (File ▸ Export Pictures to Folder…, Ctrl+Shift+S in the
+//!   library and the edit view, the bottom bar's Export, a section header's Export): the photos
+//!   named (a header passes the selection inside its section with the section), else the section
+//!   named, else the tray's photos (in the edit view the selection follows the photo shown, so the
+//!   key exports that photo with any held ones, as the bottom bar's Export does); disabled while
+//!   there is nothing to export ("tray not empty").
 //! - `output.export.location {path}` (no menu): sets the open dialog's location; its Browse…
 //!   folder picker runs it with the folder chosen, so over automation `ui.filePicker {path}` answers
 //!   Browse… with it (checked as a place to write), never with Add Folder's `folders.add`.
@@ -32,7 +34,7 @@ pub const COMMANDS: &[UiCommand] = &[
         id: "output.export",
         label: "Export Pictures to Folder…",
         menu: "File/Export Pictures to Folder…",
-        keys: &[(Context::Library, "Ctrl+Shift+S")],
+        keys: &[(Context::Library, "Ctrl+Shift+S"), (Context::EditView, "Ctrl+Shift+S")],
         params: "{\"ids\":[PhotoId]=tray, \"section\":\"folder:<FolderId>\"?}: open the Export dialog for these photos or this section (replies {dialog: \"export\"}; its Export runs export.run)",
         run: export,
     },

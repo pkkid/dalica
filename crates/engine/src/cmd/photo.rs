@@ -17,7 +17,9 @@ pub fn specs() -> Vec<CommandSpec> {
             id: "photo.star.toggle",
             label: "Star / Unstar",
             menu: "Picture/Star / Unstar",
-            keys: &[(Context::Library, "Ctrl+8"), (Context::Library, "F4"), (Context::EditView, "Ctrl+8"), (Context::EditView, "F4")],
+            // Two keys per context: the edit view's are Ctrl+8 and Space (`editing.md` §12), F4
+            // is the Library's second.
+            keys: &[(Context::Library, "Ctrl+8"), (Context::Library, "F4"), (Context::EditView, "Ctrl+8"), (Context::EditView, "Space")],
             params: r#"{"ids":[PhotoId]}: stars them all, or unstars them if all are starred"#,
             effect: Effect::Library,
             history: History::Library,

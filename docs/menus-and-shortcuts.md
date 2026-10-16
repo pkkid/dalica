@@ -242,8 +242,9 @@ things in different places.
   is Small Thumbnails in Library and Back to Library in Edit view) is not a conflict.
 - A shortcut whose command is disabled right now does nothing except show the reason on the status
   line ("Select a photo to edit."), never silently fall through to another binding.
-- A command may have up to two keys per context (Star: Ctrl+8 and F4). Hold gestures (Ctrl+Alt
-  full-screen preview, `\` show original) are listed but not editable for now.
+- A command may have up to two keys per context (Star: Ctrl+8 and F4 in the Library, Ctrl+8 and
+  Space in the edit view). Hold gestures (Ctrl+Alt full-screen preview, `\` show original) are
+  listed but not editable for now.
 - Keys are written platform-neutrally: `Ctrl` is the primary modifier (Cmd on macOS); defaults
   that differ by platform say so (Redo: Ctrl+Y, macOS Cmd+Shift+Z).
 

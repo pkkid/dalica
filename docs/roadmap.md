@@ -5109,7 +5109,7 @@ No other step of M10 needs a maintainer decision mid-run.
     full disk armed on one journal append, two more appends, a reopen: both later ops are
     replayed and the failed one is absent; each fails before the fix; a failed truncate refuses
     the next append; `cargo xtask ci` green.
-- ⬜ **M10.39 `engine` + `ui` + `dalica-cli`: the three keys the KEY rows found unbound**
+- ✅ **M10.39 `engine` + `ui` + `dalica-cli`: the three keys the KEY rows found unbound**
   - after: M10.4, M10.21
   - files: `crates/engine/src/cmd/photo.rs`, `crates/ui/src/commands/export.rs`, `crates/ui/src/commands/rename.rs`, `apps/dalica-cli/src/main.rs`, `crates/engine/tests/edit_keys.rs`, `crates/ui/tests/edit_keys.rs`
   - scope: found by M10.21 (PR #562): the `KEY-*` check in registry mode (`cargo xtask parity`,

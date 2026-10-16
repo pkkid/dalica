@@ -20,6 +20,7 @@ mod delete_dialogs;
 mod dialogs;
 mod drag;
 mod edit_canvas;
+mod edit_keys;
 mod edit_navigation;
 mod edit_panel;
 mod edit_tray;
