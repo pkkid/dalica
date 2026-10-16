@@ -30,7 +30,11 @@ fn setup(n: usize, size: (u32, u32)) -> (tempfile::TempDir, tempfile::TempDir, P
         let bytes = dalica_scenes::jpeg(&dalica_scenes::Scene::new(i as u64, 96, 64), 80, None).unwrap();
         dalica_fs::replace(&folder.join(format!("IMG_{:04}.jpg", i + 1)), &bytes, Expect::Absent).unwrap();
     }
-    let mut s = Session::open(lib.path(), Arc::new(dalica_core::SystemClock)).unwrap();
+    // A clock that moves only when told, a day after the files were written: the captions a test
+    // sets are stamped at one instant, so Recently Updated (newest change first, then by name,
+    // `organizing.md` §4.1) lists them in the same order on every run, and being indexed is no change.
+    let start = dalica_core::Clock::now(&dalica_core::SystemClock).saturating_add(std::time::Duration::from_secs(86_400));
+    let mut s = Session::open(lib.path(), Arc::new(dalica_core::VirtualClock::new(start))).unwrap();
     s.execute("folders.add", &json!({ "path": folder })).unwrap();
     s.wait_idle();
     let mut ids: Vec<(String, PhotoId)> = s.library().photos().map(|p| (p.name.clone(), p.id)).collect();
