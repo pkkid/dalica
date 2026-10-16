@@ -50,8 +50,11 @@ fn render_photo_renders_and_changes_nothing() {
     let out = tempfile::tempdir().unwrap();
     let target = out.path().join("render.png");
     let written = c.call(8, "render_photo", json!({ "id": 1, "size": 64, "path": target }));
+    // The answer names the file as it was asked for (never `/private/var/…` for `/var/…` on
+    // macOS, never a verbatim `\\?\` path on Windows), and that name is the very file written.
     assert_eq!(ok(&written)["path"], json!(target));
-    assert_eq!(std::fs::read(&target).unwrap(), image(&written), "the file is the image returned");
+    let answered = PathBuf::from(ok(&written)["path"].as_str().unwrap());
+    assert_eq!(std::fs::read(&answered).unwrap(), image(&written), "the file is the image returned");
     assert_eq!(code(&c.call(9, "render_photo", json!({ "id": 1, "path": target }))), "path_denied", "never over a file");
     let outside: PathBuf = std::env::temp_dir().parent().unwrap().join("dalica-mcp-render-denied.png");
     assert_eq!(code(&c.call(10, "render_photo", json!({ "id": 1, "path": outside }))), "path_denied");

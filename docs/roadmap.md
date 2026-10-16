@@ -5281,7 +5281,7 @@ No other step of M10 needs a maintainer decision mid-run.
     debug as the acceptance runner runs them; the old and new images of every re-blessed baseline
     are on the PR; the commit body says why each baseline changed, region by region; `cargo xtask
     ci` green.
-- ⬜ **M10.44 `mcp` + `ui`: the full gate's macOS and Windows failures in the tools and the Options dialog**
+- ✅ **M10.44 `mcp` + `ui`: the full gate's macOS and Windows failures in the tools and the Options dialog**
   - after: M10.10, M10.14
   - files: `crates/mcp/src/tools/output.rs`, `crates/mcp/tests/output_tools.rs`, `crates/ui/src/dialogs/options/general.rs`, `crates/ui/tests/options_dialog.rs`, `crates/ui/tests/view_state.rs`, `crates/ui/tests/fingerprints/dialog-options-general-*.json`
   - scope: found by the full gate (GitHub run 38832985226, `ci --full --platform`), which the

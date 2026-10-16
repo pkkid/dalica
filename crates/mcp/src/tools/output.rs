@@ -8,7 +8,8 @@
 //!   when the PNG would pass [`MAX_PNG_BYTES`], unless `format: "png"` was asked, which is then a
 //!   `limit`) or JPEG at quality 90. With `path` the encoded file is also written, as a new file
 //!   (never over one) inside an automation write root and outside every watched folder (`mcp.md`
-//!   §5: the default write roots until M10.16 adds the flags). Nothing in the library changes:
+//!   §5: the default write roots until M10.16 adds the flags), and the answer's `path` names it
+//!   in the form the caller wrote, not the resolved one. Nothing in the library changes:
 //!   the photo and its recipe are read through `photo.inspect`, the file read under the export's
 //!   size limit.
 //! - `export {ids? | section? | album?, dir, folder_name?, size?, quality?, numbered?, watermark?,
@@ -122,15 +123,16 @@ fn watched(b: &mut dyn Backend) -> Result<Vec<PathBuf>, ToolError> {
 }
 
 /// Where `render_photo` may write `path`: a new file inside a write root, outside every watched
-/// folder. Returns the resolved folder and the file name.
-fn render_target(b: &mut dyn Backend, path: &str) -> Result<(PathBuf, String), ToolError> {
+/// folder. Returns the resolved folder (the one written in), the file name, and the folder as the
+/// caller wrote it (the one the answer names).
+fn render_target(b: &mut dyn Backend, path: &str) -> Result<(PathBuf, String, PathBuf), ToolError> {
     let target = Roots::default().check_output(Path::new(path), "path", &[], Output::File)?;
     let watched: Vec<PathBuf> = watched(b)?.iter().filter_map(|w| std::fs::canonicalize(w).ok()).collect();
     if watched.iter().any(|w| target.starts_with(w)) {
         return Err(ToolError::new("path_denied", format!("{path} is inside a watched folder; a render is not a photo of the library")));
     }
-    match (target.parent(), target.file_name().and_then(|n| n.to_str())) {
-        (Some(folder), Some(name)) => Ok((folder.to_path_buf(), name.to_string())),
+    match (target.parent(), target.file_name().and_then(|n| n.to_str()), Path::new(path).parent()) {
+        (Some(folder), Some(name), Some(asked)) => Ok((folder.to_path_buf(), name.to_string(), asked.to_path_buf())),
         _ => Err(bad(format!("{path} names no file"))),
     }
 }
@@ -208,11 +210,14 @@ fn render(b: &mut dyn Backend, args: &Value) -> Result<(Vec<u8>, &'static str, V
     }
     let mut meta =
         json!({ "id": id, "width": out.report.width, "height": out.report.height, "mimeType": mime, "recipe": recipe.print(), "before": before });
-    if let Some((folder, name)) = target {
+    if let Some((folder, name, asked)) = target {
         let created =
             dalica_fs::create::new_file(&folder, &name, &out.bytes).map_err(|e| ToolError::new("io", format!("the render was not written: {e}")))?;
+        // The answer names the file in the caller's own form (absolute, without `..`, checked
+        // above), not the resolved one: that is `/private/var/…` for `/var/…` on macOS and a
+        // verbatim `\\?\C:\…` on Windows, which an agent would then show or reuse.
         if let Some(o) = meta.as_object_mut() {
-            o.insert("path".into(), json!(folder.join(created.name)));
+            o.insert("path".into(), json!(asked.join(created.name)));
         }
     }
     Ok((out.bytes, mime, meta))

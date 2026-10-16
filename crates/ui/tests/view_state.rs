@@ -642,8 +642,10 @@ fn the_options_keys_open_the_dialog_and_its_menu_items_are_live() {
         let r = row(&mut t, id, Value::Null);
         assert_eq!((r["live"].as_bool(), r["enabled"].as_bool()), (Some(true), Some(true)), "{id}");
     }
-    assert_eq!(row(&mut t, "app.preferences", Value::Null)["shortcut"], "Ctrl+,");
-    assert_eq!(row(&mut t, "app.shortcuts", Value::Null)["shortcut"], "Ctrl+/");
+    // The rows write the primary modifier as the platform names it.
+    let ctrl = if cfg!(target_os = "macos") { "Cmd" } else { "Ctrl" };
+    assert_eq!(row(&mut t, "app.preferences", Value::Null)["shortcut"], format!("{ctrl}+,"));
+    assert_eq!(row(&mut t, "app.shortcuts", Value::Null)["shortcut"], format!("{ctrl}+/"));
     let mac = menus::bar(t.d.app(), Platform::Mac);
     let prefs = menus::find(&mac[..1], &Lookup::Id { id: "app.preferences".into(), params: Value::Null }).unwrap();
     assert!(prefs.live && prefs.enabled && prefs.shortcut.as_deref() == Some("Cmd+,"), "{prefs:?}");

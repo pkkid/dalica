@@ -4,12 +4,14 @@
 //! does not; a planted write failure shows its error in the dialog and keeps the draft; Large font
 //! previews at once and reverts on Cancel; every option of the tab that can be changed reaches
 //! `options.set` under its key; options whose feature is still to come are drawn disabled with
-//! their reason; the tab matches its fingerprint at 1400 × 900 and fits 900 × 600.
+//! their reason; the tab matches its fingerprint at 1400 × 900 (the Windows and Linux layout; on
+//! macOS, which leaves out Use system title bar, its rows are checked instead) and fits 900 × 600.
 
 use std::sync::Arc;
 
-use crate::common::{FRAMES, LARGE, SMALL, check_sizes, new_driver, shot, try_widget, widget};
+use crate::common::{FRAMES, LARGE, SMALL, check_sizes, check_small_and_back, new_driver, shot, try_widget, widget};
 use dalica_engine::Session;
+use dalica_engine::keymap::Platform;
 use dalica_ui::dialogs::options::{ERROR_ID, general};
 use dalica_ui::{App, Driver, ScriptedPicker};
 use serde_json::{Value, json};
@@ -184,10 +186,34 @@ fn every_option_of_the_tab_reaches_options_set_with_its_key() {
     }
 }
 
+/// The option only Windows and Linux show (`menus-and-shortcuts.md` §5 General).
+const TITLE_BAR: &str = "check:option.interface.systemTitleBar";
+
 #[test]
 fn the_general_tab_matches_its_fingerprint_and_fits_the_small_window() {
     let mut fx = open();
-    check_sizes(&mut fx.d, DIALOG, "dialog-options-general");
+    if Platform::current() == Platform::Mac {
+        // The fingerprint is the Windows and Linux layout. macOS leaves out the options of the
+        // other platforms (Use system title bar), so there the tab is checked by its rows (every
+        // other option drawn, that one never) and by fit, not against a baseline of another layout.
+        let rows = general::rows(fx.d.app_mut());
+        let mut keys: Vec<&str> = rows.iter().map(|r| r.key.as_str()).collect();
+        assert!(!keys.contains(&"interface.systemTitleBar"), "{keys:?}");
+        let listed = fx.d.run("options.list", &json!({ "tab": "general" })).unwrap();
+        let mut wanted: Vec<&str> =
+            listed["options"].as_array().unwrap().iter().map(|o| o["key"].as_str().unwrap()).filter(|k| *k != "interface.systemTitleBar").collect();
+        keys.sort_unstable();
+        wanted.sort_unstable();
+        assert_eq!(keys, wanted, "every other option of the tab is listed");
+        for row in &rows {
+            reveal(&mut fx.d, &general::control_id(&row.kind, &row.key));
+            assert!(try_widget(&fx.d, TITLE_BAR).is_none(), "{TITLE_BAR} drawn on macOS");
+        }
+        check_small_and_back(&mut fx.d, DIALOG);
+    } else {
+        check_sizes(&mut fx.d, DIALOG, "dialog-options-general");
+        assert!(try_widget(&fx.d, TITLE_BAR).is_some(), "Windows and Linux show Use system title bar");
+    }
     // For the record (window shots, no fingerprints): the small window, and the Large preview.
     fx.d.resize(SMALL.0, SMALL.1);
     fx.d.settle(FRAMES).unwrap();
