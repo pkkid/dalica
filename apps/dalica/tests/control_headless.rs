@@ -230,3 +230,50 @@ fn the_default_token_file_is_made_private_for_the_launch_and_removed_at_exit() {
     assert!(app.wait(Duration::from_secs(60)).success());
     assert!(!file.exists(), "the default token file is removed on exit");
 }
+
+/// Every folder sidecar under `dir`, by the folder's path.
+fn sidecars(dir: &Path, out: &mut Vec<(PathBuf, Value)>) {
+    for e in std::fs::read_dir(dir).unwrap().filter_map(Result::ok) {
+        let path = e.path();
+        if path.is_dir() {
+            sidecars(&path, out);
+        } else if path.file_name().is_some_and(|n| n == ".dalica.json") {
+            out.push((dir.to_path_buf(), serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap()));
+        }
+    }
+}
+
+/// `app.quit` closes the app as the window does (`App::shutdown`): a caption still being typed in
+/// the light table's inline editor is committed and written to its sidecar before the process
+/// exits. The kept demo (`--demo`, in the sandbox's temp folder) is read after the exit.
+#[test]
+fn quitting_keeps_the_caption_being_typed() {
+    let home = tempfile::tempdir().unwrap();
+    let port = free_port();
+    let token_file = home.path().join("agent.token");
+    let p = port.to_string();
+    let args = ["--headless", "--control", &p, "--demo", "--control-token-file", token_file.to_str().unwrap()];
+    let mut app = App { child: dalica(home.path(), args).spawn().unwrap() };
+    let token = token(&token_file, &mut app);
+    let mut c = Client::connect(port);
+    c.ok("auth", json!({ "token": token }));
+    let settled = c.ok("ui.settle", json!({ "timeoutMs": 30000 }));
+    assert_eq!(settled["settled"], true, "{settled}");
+    let name = c.ok("engine.execute", json!({ "command": "photo.inspect", "params": { "ids": [1] } }))[0]["name"].clone();
+    let name = name.as_str().unwrap_or_else(|| panic!("photo 1 has a name: {name}")).to_string();
+
+    c.ok("ui.clickWidget", json!({ "id": "thumb:1" }));
+    c.ok("ui.menu.invoke", json!({ "id": "photo.caption.edit" }));
+    c.ok("ui.type", json!({ "text": "Tram 28" }));
+    let state = c.ok("ui.state", json!({}));
+    assert_eq!(state["captionEdit"], json!({ "photo": 1, "draft": "Tram 28" }), "typed, not committed: {state}");
+    let caption = c.ok("engine.execute", json!({ "command": "photo.inspect", "params": { "ids": [1] } }))[0]["caption"].clone();
+    assert_ne!(caption, "Tram 28", "nothing committed before the quit");
+
+    assert_eq!(c.ok("app.quit", json!({})), json!({}));
+    assert!(app.wait(Duration::from_secs(60)).success());
+    let mut found = Vec::new();
+    sidecars(&home.path().join("tmp").join("dalica-demo").join("photos"), &mut found);
+    let holding: Vec<&PathBuf> = found.iter().filter(|(_, v)| v["photos"][&name]["caption"] == "Tram 28").map(|(dir, _)| dir).collect();
+    assert_eq!(holding.len(), 1, "the typed caption of {name} is in its folder's sidecar: {found:?}");
+}

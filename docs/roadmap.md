@@ -5191,7 +5191,7 @@ No other step of M10 needs a maintainer decision mid-run.
     no other default in the edit view on Space; headless in the window, Ctrl+Shift+S in the edit
     view opens the Export dialog for the photo shown; `dalica-cli commands` lists the Rename
     opener with F2 (its own unit test); `cargo xtask ci` green.
-- ⬜ **M10.40 `ui` + `dalica` + `engine`: one way out, the edit view's caption kept, hidden photos out of `library.query`**
+- ✅ **M10.40 `ui` + `dalica` + `engine`: one way out, the edit view's caption kept, hidden photos out of `library.query`**
   - after: M10.36
   - files: `crates/ui/src/app.rs`, `crates/ui/src/panels/edit/caption_bar.rs`, `crates/ui/tests/shutdown.rs`, `apps/dalica/src/control/headless.rs`, `apps/dalica/tests/control_headless.rs`, `crates/engine/src/cmd/library.rs`, `crates/engine/tests/hide.rs`
   - scope: three gaps found by M10.36 (PR #574) and M10.18. The edit view's caption bar keeps its

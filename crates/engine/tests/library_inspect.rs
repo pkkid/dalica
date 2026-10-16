@@ -40,7 +40,7 @@ fn every_key_is_there_and_the_counts_match_the_library() {
 
     let all = s.execute("library.query", &json!({ "limit": 10_000 })).unwrap();
     let c = &v["counts"];
-    assert_eq!(c["photos"], all["total"], "{c}");
+    assert_eq!(c["photos"].as_u64(), all["total"].as_u64().map(|t| t + 1), "the hidden photo leaves library.query: {c}");
     assert_eq!((c["folders"].as_u64(), c["albums"].as_u64(), c["hidden"].as_u64(), c["videos"].as_u64()), (Some(3), Some(0), Some(1), Some(0)));
 
     let tree = &v["tree"];
@@ -61,7 +61,7 @@ fn every_key_is_there_and_the_counts_match_the_library() {
     assert_eq!((&sections[0]["section"], &sections[0]["shown"]), (&json!("album:starred"), &json!(2)));
     let folder_shown: u64 = sections[1..].iter().map(|s| s["shown"].as_u64().unwrap()).sum();
     let folder_count: u64 = sections[1..].iter().map(|s| s["count"].as_u64().unwrap()).sum();
-    assert_eq!((folder_count, folder_shown), (all["total"].as_u64().unwrap(), all["total"].as_u64().unwrap() - 1), "the hidden photo is not shown");
+    assert_eq!((folder_count, folder_shown), (c["photos"].as_u64().unwrap(), all["total"].as_u64().unwrap()), "the hidden photo is not shown");
 
     assert_eq!(v["search"]["active"], false);
     assert_eq!(v["view"], json!({ "hiddenPictures": false, "smallPictures": false, "caption": "none", "thumbSize": null }));

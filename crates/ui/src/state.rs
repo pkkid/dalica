@@ -1812,6 +1812,10 @@ pub struct UiState {
     /// The inline caption editor, while one is open (`photo.caption.edit`).
     #[serde(default)]
     pub caption_edit: Option<CaptionEdit>,
+    /// The edit view's caption bar while its field is being typed in: the photo and the text, not
+    /// yet set (`crate::panels::edit::caption_bar`). Left out of `ui.state` while there is none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub caption_bar: Option<CaptionEdit>,
     /// The inline description editor of a section header, while one is open.
     #[serde(default)]
     pub description_edit: Option<DescriptionEdit>,
@@ -1906,6 +1910,9 @@ impl UiState {
         self.tray.set_held(held);
         dedup(&mut self.tray.selected);
         if let Some(e) = &mut self.caption_edit {
+            cut(&mut e.draft);
+        }
+        if let Some(e) = &mut self.caption_bar {
             cut(&mut e.draft);
         }
         if let Some(e) = &mut self.description_edit {
@@ -2099,6 +2106,9 @@ impl UiState {
         if let Some(e) = &self.caption_edit {
             long("captionEdit.draft", &e.draft)?;
         }
+        if let Some(e) = &self.caption_bar {
+            long("captionBar.draft", &e.draft)?;
+        }
         if let Some(e) = &self.description_edit {
             long("descriptionEdit.draft", &e.draft)?;
         }
@@ -2163,6 +2173,7 @@ impl Default for UiState {
             dialogs: Vec::new(),
             activity: false,
             caption_edit: None,
+            caption_bar: None,
             description_edit: None,
             properties_show_all: false,
             tags_pane: TagsPane::default(),

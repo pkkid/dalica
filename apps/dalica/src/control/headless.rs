@@ -23,7 +23,8 @@ const BUSY_TICK: Duration = Duration::from_millis(16);
 /// How long the reply to `app.quit` may take to reach its client before the process exits.
 const QUIT_REPLY_WAIT: Duration = Duration::from_secs(2);
 
-/// Serves requests until `app.quit` (or until the transport is gone), then flushes the library.
+/// Serves requests until `app.quit` (or until the transport is gone), then closes the app as the
+/// window does ([`App::shutdown`]).
 /// Returns whether everything was written.
 pub fn run(hub: &Hub, control: &Control, session: Session) -> bool {
     let mut d = Driver::new(App::with_picker(Some(session), control.picker()), SIZE.0, SIZE.1, 1.0);
@@ -60,13 +61,11 @@ pub fn run(hub: &Hub, control: &Control, session: Session) -> bool {
             Err(RecvTimeoutError::Disconnected) => break None,
         }
     };
-    // Quitting: the frames are over, so this thread may write again.
+    // Quitting: the frames are over, so this thread may write again. Closing is the window's
+    // (`App::shutdown`): drafts committed, metadata writes made, everything flushed.
     drop(ui);
     let mut app = d.into_app();
-    let flushed = match app.session_mut() {
-        Some(s) => s.flush().map_err(|e| e.to_string()),
-        None => Ok(()),
-    };
+    let flushed = app.shutdown().map_err(|e| e.to_string());
     if let Err(e) = &flushed {
         log::error!("dalica: not every change was saved: {e}");
     }

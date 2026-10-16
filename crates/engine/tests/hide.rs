@@ -209,3 +209,34 @@ fn hidden_flags_survive_a_restart_and_a_rebuild_of_the_index() {
     );
     assert_eq!(hidden(&s), want, "after a rebuild of the index");
 }
+
+/// `library.query` with no section and no search (`{}`, or only `folder`) leaves out hidden
+/// photos and the photos of hidden folders, as a section and a search do, until the view shows
+/// hidden pictures (MCP `query_photos {}` asks this).
+#[test]
+fn hidden_photos_leave_a_plain_library_query_until_the_view_shows_them() {
+    let (_l, _d, root, mut s) = setup();
+    let (lisbon, porto) = (folder(&s, &root, "Lisbon"), folder(&s, &root, "Porto"));
+    s.execute("photo.hide", &json!({ "ids": [photo(&s, "IMG_0002.jpg")] })).unwrap();
+    s.execute("folder.hide", &json!({ "section": section(porto) })).unwrap();
+    let names = |s: &mut Session, p: Value| -> Vec<String> {
+        let v = s.execute("library.query", &p).unwrap();
+        let mut names: Vec<String> = v["photos"].as_array().unwrap().iter().map(|p| p["name"].as_str().unwrap().to_string()).collect();
+        names.sort();
+        assert_eq!(v["total"], names.len(), "{v}");
+        names
+    };
+    assert_eq!(names(&mut s, json!({})), ["IMG_0001.jpg", "IMG_0003.jpg"]);
+    assert_eq!(names(&mut s, json!({ "folder": lisbon })), ["IMG_0001.jpg", "IMG_0003.jpg"]);
+    assert!(names(&mut s, json!({ "folder": porto })).is_empty(), "a hidden folder's photos");
+
+    s.change_settings(|st| {
+        let mut v = st.view_options();
+        v.hidden_pictures = true;
+        st.set_view_options(&v);
+    });
+    let all = ["IMG_0001.jpg", "IMG_0002.jpg", "IMG_0003.jpg", "IMG_0101.jpg", "IMG_0102.jpg"];
+    assert_eq!(names(&mut s, json!({})), all);
+    assert_eq!(names(&mut s, json!({ "folder": lisbon })), all[..3]);
+    assert_eq!(names(&mut s, json!({ "folder": porto })), all[3..]);
+}
