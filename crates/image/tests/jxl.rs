@@ -162,6 +162,30 @@ fn image_header(m: Meta) -> Vec<u8> {
 /// The image header's bits; with `icc`, the colour encoding asks for an embedded profile (whose
 /// stream the caller appends before the frame).
 fn header_bits(m: Meta, icc: bool) -> Bits {
+    header_bits_with(m, |b| {
+        if icc {
+            b.put(1, 0); // colour encoding not all default
+            b.put(1, 1); // an ICC profile
+            b.enumerated(u64::from(m.grey)); // RGB 0, grey 1
+        } else if m.grey || m.p3 {
+            b.put(1, 0); // colour encoding not all default
+            b.put(1, 0); // no ICC profile
+            b.enumerated(u64::from(m.grey)); // RGB 0, grey 1
+            b.enumerated(1); // D65
+            if !m.grey {
+                b.enumerated(if m.p3 { 11 } else { 1 }); // P3 or sRGB primaries
+            }
+            b.put(1, 0); // no gamma: a transfer function
+            b.enumerated(13); // sRGB
+            b.enumerated(1); // relative colorimetric
+        } else {
+            b.put(1, 1); // sRGB
+        }
+    })
+}
+
+/// The image header's bits with the colour encoding `colour` writes.
+fn header_bits_with(m: Meta, colour: impl FnOnce(&mut Bits)) -> Bits {
     let mut b = Bits::default();
     b.put(16, 0x0aff);
     b.put(1, 0); // not small
@@ -189,24 +213,7 @@ fn header_bits(m: Meta, icc: bool) -> Bits {
         b.put(2, 0);
     }
     b.put(1, 0); // not XYB
-    if icc {
-        b.put(1, 0); // colour encoding not all default
-        b.put(1, 1); // an ICC profile
-        b.enumerated(u64::from(m.grey)); // RGB 0, grey 1
-    } else if m.grey || m.p3 {
-        b.put(1, 0); // colour encoding not all default
-        b.put(1, 0); // no ICC profile
-        b.enumerated(u64::from(m.grey)); // RGB 0, grey 1
-        b.enumerated(1); // D65
-        if !m.grey {
-            b.enumerated(if m.p3 { 11 } else { 1 }); // P3 or sRGB primaries
-        }
-        b.put(1, 0); // no gamma: a transfer function
-        b.enumerated(13); // sRGB
-        b.enumerated(1); // relative colorimetric
-    } else {
-        b.put(1, 1); // sRGB
-    }
+    colour(&mut b);
     if m.orientation != 0 {
         b.put(1, 1); // tone mapping all default
     }
@@ -621,6 +628,73 @@ fn damaged_files_are_refused_and_the_reason_text() {
     assert_eq!(read_header(&bytes, &Limits { max_header_bytes: 3, ..Limits::default() }), Err(Error::Truncated));
     assert!(Format::JpegXl.supported() && formats::decodes(Format::JpegXl));
     assert_eq!(Error::Unsupported(Format::JpegXl).reason(), "This kind of JPEG XL file isn't supported");
+}
+
+/// Enumerated colour encodings no profile describes (the decoder's profile builder panics on
+/// them) are refused as unsupported, never a caught panic: the XYB and unknown colour spaces, an
+/// unknown transfer function, a gamma of 0. The first is the fuzzer's find (M10.R), kept as it was.
+#[test]
+fn colour_encodings_no_profile_describes_are_unsupported() {
+    let img = Scene::new(70, 16, 12).render().unwrap();
+    let m = Meta { width: 16, height: 12, ..RGB8 };
+    let frame = codestream(&img.data, m)[image_header(m).len()..].to_vec();
+    // The colour space (RGB 0, XYB 2, unknown 3), then (XYB has none) a D65 white and sRGB
+    // primaries, then the curve: a gamma flag and a 24-bit gamma, or an enum (unknown 2, sRGB 13).
+    type Encoding = fn(&mut Bits);
+    let encodings: [(&str, Encoding); 4] = [
+        ("XYB", |b| {
+            b.enumerated(2);
+            b.put(1, 0);
+            b.enumerated(13);
+        }),
+        ("unknown space", |b| {
+            b.enumerated(3);
+            b.enumerated(1);
+            b.enumerated(1);
+            b.put(1, 0);
+            b.enumerated(13);
+        }),
+        ("unknown curve", |b| {
+            b.enumerated(0);
+            b.enumerated(1);
+            b.enumerated(1);
+            b.put(1, 0);
+            b.enumerated(2);
+        }),
+        ("gamma 0", |b| {
+            b.enumerated(0);
+            b.enumerated(1);
+            b.enumerated(1);
+            b.put(1, 1);
+            b.put(24, 0);
+        }),
+    ];
+    for (name, encoding) in encodings {
+        let header = header_bits_with(m, |b| {
+            b.put(1, 0); // colour encoding not all default
+            b.put(1, 0); // no ICC profile
+            encoding(b);
+            b.enumerated(1); // relative colorimetric
+        });
+        let bytes = [header.bytes, frame.clone()].concat();
+        assert_eq!(read_header(&bytes, &Limits::default()).map(|h| (h.width, h.height)), Ok((16, 12)), "{name}");
+        for options in [ON, OFF] {
+            assert_eq!(decode_as(Format::JpegXl, &bytes, &options, &Limits::default()).map(drop), Err(Error::Unsupported(Format::JpegXl)), "{name}");
+        }
+    }
+    #[rustfmt::skip]
+    let found: &[u8] = &[
+        0xff, 0x0a, 0x6b, 0x20, 0x20, 0x54, 0x01, 0x20, 0x20, 0x20, 0x01, 0x00, 0x00, 0x01, 0x20, 0x20,
+        0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
+        0x55, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0xba,
+        0xba, 0xba, 0x68, 0xc0, 0x92, 0x6b, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
+        0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
+        0x20, 0x55, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x20, 0x20, 0x20, 0x20, 0x20, 0x0a, 0x7a,
+        0x00, 0x7a, 0x0a, 0x14, 0x4e, 0x00, 0x06,
+    ];
+    for options in [ON, OFF] {
+        assert_eq!(decode_as(Format::JpegXl, found, &options, &Limits::default()).map(drop), Err(Error::Unsupported(Format::JpegXl)));
+    }
 }
 
 /// Every prefix of real files (codestream and container): `Ok` with the right size, or `Err`,
