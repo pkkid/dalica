@@ -4488,7 +4488,8 @@ One milestone in 3 feature areas (*Preferences and shortcuts*, *MCP and workflow
 
 - **Decide at M10.R:** whether release builds include the `heif` feature (HEIC/HEIF). 0.1 leaves it
   out (the maintainer's answer at M6.R, 2026-10-12); measure the decoder against a larger HEIC
-  corpus (non-Apple, 10/12-bit, alpha) first.
+  corpus (non-Apple, 10/12-bit, alpha) first. Decided at M10.R (2026-10-16): no, release builds ship
+  without an HEVC decoder (no patent licence) and the feature stays for self-builds (M10.56).
 - **Done when:** every P0 parity row is ✅ with evidence; P0 workflows pass 100 %; performance
   budgets for P0 scenarios are enforced; an honest *Where we stand*; the 0.5 release.
 
@@ -5673,6 +5674,62 @@ No other step of M10 needs a maintainer decision mid-run.
     All, `claude mcp add dalica -- dalica-cli mcp --demo` with a W01-like request, connect mode to a
     running `dalica --control`, the Windows touchpad pinch, the macOS build by hand).
   - done when: `cargo xtask accept M10` passes everything in M10's *Done when*.
+- ⬜ **M10.56 `image` + `ui`: HEIC without a decoder**
+  - after: M10.24, M10.27
+  - files: `crates/image/src/formats/heif.rs`, `crates/image/src/formats/heif_items.rs`, `crates/image/src/formats/mod.rs`, `crates/image/tests/heif.rs`, `crates/image/README.md`, `crates/ui/src/panels/edit/canvas.rs`, `crates/ui/src/panels/light_table/cell.rs`, `crates/ui/tests/heic_hint.rs`, `docs/formats.md`, `docs/parity.md`
+  - scope: the maintainer's answer at M10.R (2026-10-16): release builds ship without an HEVC
+    decoder (no patent licence), the `heif` feature stays an off-by-default build feature, and a
+    HEIC is organized like any other file but shows the unsupported tile. After M10.27 because it
+    owns `docs/parity.md` and `docs/formats.md` until it merges. (1) The hint. Today the tile's
+    reason is `heif::REASON` ("HEIC support isn't included in this build", `formats/heif.rs`), shown
+    in the cell's tooltip ("Cannot show this photo: …", `light_table/cell.rs` `tooltip_shown`) and
+    under the edit view's "This photo cannot be shown." (`edit/canvas.rs` `failed`). Keep that text
+    (the Options File Types row and Save's disabled reason reuse it) and add a short hint under it,
+    only without the feature: "On an iPhone, Settings › Camera › Formats › Most Compatible saves
+    JPEG. Or convert these photos to JPEG." (final wording per `formats.md` and the UI's tone; "›",
+    never "▸", which the UI font lacks, M10.55). One `heif::HINT` constant and a
+    `formats::hint(Format) -> Option<&'static str>` beside `formats::reason` (`None` for every
+    other format and with the feature); the cell and the edit view pick it by the failure's format
+    (preferred) or by matching the reason against `heif::REASON`, the choice in the commit body.
+    The Properties pane shows no failure note today; it gains the size and date from (2) and
+    nothing else. (2) The container. Without the feature `heif::header` answers
+    `Unsupported(Heif)`, so the scan lists a HEIC with no size and no date (`scan/src/walk.rs`
+    keeps size and date only from an `Ok` header), and `dalica-meta`'s container walk does not know
+    HEIF at all: nothing is read today. Build it in pure Rust in a new `formats/heif_items.rs`, on
+    `formats/bmff.rs`'s bounded walk (no HEVC): `meta` → `pitm` (the primary item), `iinf`/`infe`
+    (the `Exif` item, and the primary's type), `iloc` (its extents; construction method 0 only,
+    others skipped), `iprp`/`ipco`/`ipma` (the primary's `ispe` size, `irot`/`imir`); the Exif
+    item's payload skips its 4-byte TIFF-header offset and goes through `Header::with_exif` as the
+    feature's path does. Without the feature `heif::header` then answers an `Ok` header (size,
+    orientation, EXIF), while `decode` and `embedded_thumbnail` still answer `Unsupported(Heif)`, so
+    the cell gets the tile and the scan gets the size and date it sorts and searches by. A
+    container the reader cannot use (no `pitm` or `ispe`, a damaged box, an item past the file's
+    end) still answers `Unsupported(Heif)` with the tile text, never "Damaged file": M5's
+    acceptance (`m5_formats.rs`, a bare `ftyp` and empty `meta`) and `tests/decode.rs` stay green.
+    Every size and offset is hostile (`never-crash.md`): checked arithmetic, extents capped by
+    `Limits`, the EXIF block capped as other formats cap it. With the feature nothing changes
+    (heic-rs keeps the header). The XMP item (captions written by other apps) stays unread:
+    `dalica-meta` learning HEIF is later work, not this task. (3) `formats.md` §3 and §3.1: release
+    builds carry no HEIC decoder, because HEVC decoding needs a patent licence in some countries
+    (the maintainer's decision at M10.R, with M10.24's measurements); the feature stays for people
+    who build Dalica themselves (`cargo build -p dalica --features heif`); without it a HEIC is
+    listed, sorted and searched by its date and size, read from the container, and shows the tile
+    with the hint; §1's table and the tile-text lists follow. (4) `parity.md`: `DATA-FMT-HEIF`
+    becomes OOS 🚫 (the parity tool pairs 🚫 with OOS) with the reason (release builds: no HEVC
+    licence; the feature for self-builds; listed with date, size and EXIF from the container, the
+    tile with the hint); `DATA-FMT-AVIF` already exists (P2 🟡, recognised, never decoded): its
+    note gains that decoding AVIF (royalty-free AV1 in the same container) is a later possibility
+    with no milestone, rather than a new row; `cargo xtask parity --write` regenerates the summary.
+  - done when: tests, each failing before the change: in `dalica-image` (`tests/heif.rs`, its
+    no-feature half, with its synthetic builder's `Exif` item): a HEIC with an Exif item answers an
+    `Ok` header with its `ispe` size, the EXIF capture date and orientation, while `decode` answers
+    `Unsupported(Heif)` with the tile text and `formats::hint(Format::Heif)` is the hint; a bare or
+    damaged container still answers `Unsupported(Heif)` (the existing proptest stays green); in
+    `dalica-ui` (`heic_hint.rs`, a new `mod` in `tests/all.rs`, the HEIC written by the test as a
+    minimal container: `ftyp`, `meta` with `ispe` and an Exif item, no HEVC): the cell's tooltip
+    and the edit view's message carry the reason and the hint, and `ui.state` shows the photo's
+    capture date; `cargo xtask parity --p0` passes; a screenshot of the HEIC tile and its tooltip
+    at 1400 × 900 on the PR; `cargo xtask ci` green.
 - ✅ **M10.28 Lead: task blocks for M12**
   - after: M9.26
   - owner: lead
@@ -5683,7 +5740,7 @@ No other step of M10 needs a maintainer decision mid-run.
   - done when: `cargo xtask tasks sync --check` parses them and `tasks sync --dry-run` lists one new
     issue per block.
 - ⬜ **M10.R Release 0.5 gate**
-  - after: M10.24, M10.27, M10.29, M10.31, M10.32, M10.33, M10.34, M10.35, M10.36, M10.37, M10.38, M10.39, M10.40, M10.41, M10.42, M10.43, M10.44, M10.45, M10.46, M10.47, M10.48, M10.49, M10.50, M10.51, M10.52, M10.53, M10.54, M10.55
+  - after: M10.24, M10.27, M10.29, M10.31, M10.32, M10.33, M10.34, M10.35, M10.36, M10.37, M10.38, M10.39, M10.40, M10.41, M10.42, M10.43, M10.44, M10.45, M10.46, M10.47, M10.48, M10.49, M10.50, M10.51, M10.52, M10.53, M10.54, M10.55, M10.56
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`
   - scope: a release gate (Release 0.5, P0 complete): the lead runs `/milestone-review M10.R` to
@@ -5739,7 +5796,7 @@ wave 6   M10.26 P0 parity audit
           ‖ M10.51 geotag badge, edit-view trash, Ctrl+3 and Ctrl+9 ‖ M10.52 damaged sidecar's
           banner and reset, search empty state ‖ M10.53 export progress in the status line
           ‖ M10.54 connect mode's tray, idle write-back ‖ M10.55 the "▸" in option hints)
-wave 7   M10.27 accept M10 → M10.R          (M10.28 lead: M12 blocks, any time after M9.26)
+wave 7   M10.27 accept M10 → M10.56 HEIC without a decoder → M10.R          (M10.28 lead: M12 blocks, any time after M9.26)
 ```
 
 ### M11 — Import, compare and viewing
