@@ -168,11 +168,28 @@ impl Client {
         self.ok("engine.execute", json!({ "command": "photo.inspect", "params": { "ids": [1] } }))[0].clone()
     }
 
-    /// The ids of the star badges drawn in the last frame.
+    /// The ids of the star badges drawn in the last frame, sorted; each lies inside its own cell.
     fn star_badges(&mut self) -> Vec<String> {
-        let widgets = self.ok("ui.widgets", json!({ "filter": "/star" }));
-        let ids = widgets.as_array().unwrap().iter().filter_map(|w| w["id"].as_str()).map(str::to_string);
-        ids.filter(|id| id.starts_with("thumb:") && id.ends_with("/star")).collect()
+        let widgets = self.ok("ui.widgets", json!({ "filter": "thumb:" }));
+        let widgets = widgets.as_array().unwrap();
+        let rect = |id: &str| -> Option<Vec<f64>> {
+            let w = widgets.iter().find(|w| w["id"] == id)?;
+            w["rect"].as_array().map(|r| r.iter().filter_map(Value::as_f64).collect())
+        };
+        let mut ids: Vec<String> = widgets
+            .iter()
+            .filter_map(|w| w["id"].as_str())
+            .filter(|id| id.starts_with("thumb:") && id.ends_with("/star"))
+            .map(str::to_string)
+            .collect();
+        for badge in &ids {
+            let cell = badge.trim_end_matches("/star");
+            let (b, c) = (rect(badge).unwrap(), rect(cell).unwrap_or_else(|| panic!("{badge} has no cell")));
+            let inside = b[0] >= c[0] && b[1] >= c[1] && b[0] + b[2] <= c[0] + c[2] && b[1] + b[3] <= c[1] + c[3];
+            assert!(inside, "{badge} lies inside its cell: badge {b:?}, cell {c:?}");
+        }
+        ids.sort();
+        ids
     }
 }
 
@@ -242,8 +259,10 @@ fn agent_eyes() {
     let key = ms(t);
     assert_eq!(c.photo_1()["star"], true, "Ctrl+8 starred the clicked photo");
     c.ok("ui.settle", json!({ "timeoutMs": 30000 }));
-    // Its cell in its folder and its copy in Starred Photos, first on the light table (M9.17).
-    assert_eq!(c.star_badges(), ["thumb:1/in/starred/star", "thumb:1/star"], "exactly photo 1's star badges are drawn");
+    // Its copies in Starred Photos (M9.17) and Recently Updated (M10.29, `organizing.md` §4.1),
+    // first on the light table; they push its folder down to the view's edge, so its cell there is
+    // checked once the folder is scrolled to (step 5).
+    assert_eq!(c.star_badges(), ["thumb:1/in/recent/star", "thumb:1/in/starred/star"], "exactly photo 1's star badges are drawn");
     let end = Instant::now() + Duration::from_secs(30);
     while starred_in_sidecar(&photo_path) != Some(true) {
         assert!(Instant::now() < end, "the star never reached {}", photo_path.with_file_name(".dalica.json").display());
@@ -270,6 +289,13 @@ fn agent_eyes() {
     if let Err(m) = fingerprint::check(w, h, &rgba, &expected, 2.0) {
         panic!("m2 screenshot: {} (the screenshot is {})", m.message, kept.display());
     }
+    // Its cell in its folder has the badge too: the folder's row in the tree scrolls to it.
+    let folder = before["folder"].as_u64().unwrap_or_else(|| panic!("photo.inspect names the folder: {before}"));
+    c.ok("ui.clickWidget", json!({ "id": format!("tree:folder:{folder}") }));
+    c.ok("ui.settle", json!({ "timeoutMs": 30000 }));
+    let badges = c.star_badges();
+    assert!(badges.iter().any(|b| b == "thumb:1/star"), "photo 1's cell in its folder has its badge: {badges:?}");
+    assert!(badges.iter().all(|b| b.starts_with("thumb:1/")), "only photo 1 has a badge: {badges:?}");
 
     // 6. The agent quits the app; the fresh demo goes with it.
     assert_eq!(c.ok("app.quit", json!({})), json!({}));
