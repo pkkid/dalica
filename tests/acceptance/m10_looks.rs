@@ -5,7 +5,11 @@
 //! window (`design-system.md` §11.3; `roadmap.md` M10.10–M10.12).
 //!
 //! The shortcut editor's keys show as glyphs on macOS (`⌘8`), so there only its fit is checked, as
-//! the editor's own test does (`crates/ui/tests/shortcut_editor.rs`).
+//! the editor's own test does (`crates/ui/tests/shortcut_editor.rs`). The General tab's fingerprint
+//! is the Windows and Linux layout; macOS leaves out the options of the other platforms (Use system
+//! title bar), so there the tab is checked by its rows and its fit instead, as the dialog's own test
+//! does (`crates/ui/tests/options_dialog.rs`). On every platform each option `options.list` gives
+//! for this platform has its control drawn, and no other option does.
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -18,6 +22,16 @@ use crate::live::{self, Client};
 const LARGE: (u32, u32) = (1400, 900);
 const SMALL: (u32, u32) = (900, 600);
 const DIALOG: &str = "dialog:options";
+const TITLE_BAR: &str = "interface.systemTitleBar";
+
+/// This platform's name in `options.list` → `platforms`.
+const HERE: &str = if cfg!(target_os = "macos") {
+    "mac"
+} else if cfg!(target_os = "windows") {
+    "win"
+} else {
+    "linux"
+};
 
 /// `home/Pictures` with two folders of photos taken on fixed dates.
 fn pictures(home: &Path) -> PathBuf {
@@ -68,6 +82,61 @@ fn path_fields(c: &mut Client) -> Vec<[f64; 4]> {
         .collect()
 }
 
+/// The automation id of the control of an option of kind `kind` (as the General tab draws it).
+fn control_id(kind: &str, key: &str) -> String {
+    match kind {
+        "bool" => format!("check:option.{key}"),
+        "folder" => format!("field:option.{key}"),
+        _ => format!("choice:option.{key}"),
+    }
+}
+
+/// Whether widget `id` is drawn, scrolling the dialog's body to it when it lies out of view; the
+/// body is scrolled back to its top after.
+fn drawn(c: &mut Client, id: &str) -> bool {
+    let mut found = false;
+    for _ in 0..40 {
+        let body = rect_of(c, DIALOG).unwrap_or_else(|| panic!("the dialog is shown while looking for {id}"));
+        let (top, bottom) = (body[1] + 80.0, body[1] + body[3] - 60.0);
+        let dy = match rect_of(c, id) {
+            Some(r) if r[1] >= top && r[1] + r[3] <= bottom => {
+                found = true;
+                break;
+            }
+            Some(r) if r[1] < top => 60.0,
+            _ => -60.0,
+        };
+        c.ok("ui.scroll", json!({ "dy": dy, "widget": DIALOG }));
+        idle(c);
+    }
+    c.ok("ui.scroll", json!({ "dy": 2000, "widget": DIALOG }));
+    idle(c);
+    found
+}
+
+/// The General tab's rows: every option `options.list` gives for this platform has its control
+/// drawn, and an option of other platforms (Use system title bar on macOS) never is.
+fn general_rows(c: &mut Client) -> usize {
+    let listed = c.ok("engine.execute", json!({ "command": "options.list", "params": { "tab": "general" } }));
+    let options = listed["options"].as_array().unwrap_or_else(|| panic!("options.list gives the tab's options: {listed}")).clone();
+    let on_here = |o: &Value| o["platforms"].as_array().is_none_or(|p| p.iter().any(|p| p == HERE));
+    let title_bar = options.iter().find(|o| o["key"] == TITLE_BAR).unwrap_or_else(|| panic!("options.list names {TITLE_BAR}"));
+    assert_eq!(on_here(title_bar), HERE != "mac", "{TITLE_BAR} is a Windows and Linux option: {title_bar}");
+    let mut shown = 0;
+    for o in &options {
+        let key = o["key"].as_str().unwrap_or_else(|| panic!("an option without a key: {o}"));
+        let id = control_id(o["type"].as_str().unwrap_or_default(), key);
+        let is_drawn = drawn(c, &id);
+        if on_here(o) {
+            assert!(is_drawn, "{key}: its control {id} is drawn on {HERE}");
+            shown += 1;
+        } else {
+            assert!(!is_drawn, "{key}: {id} is not drawn on {HERE}");
+        }
+    }
+    shown
+}
+
 /// One tab: its screenshot matched (unless `match_it` is false, then only taken) and its fit.
 fn tab(c: &mut Client, home: &Path, tab: &str, name: &str, match_it: bool) {
     if tab != "general" {
@@ -83,10 +152,12 @@ fn tab(c: &mut Client, home: &Path, tab: &str, name: &str, match_it: bool) {
     } else {
         live::screenshot(c, home, None, &full, LARGE.0, LARGE.1);
     }
+    let rows = (tab == "general").then(|| general_rows(c));
     fits_small(c, name);
+    let rows = rows.map(|n| format!(", {n} options drawn")).unwrap_or_default();
     println!(
-        "  Options ▸ {tab}: {}",
-        if match_it { "matches its fingerprint, fits 900 × 600" } else { "taken (keys show as glyphs here), fits 900 × 600" }
+        "  Options ▸ {tab}: {}{rows}",
+        if match_it { "matches its fingerprint, fits 900 × 600" } else { "taken (not the Windows and Linux layout here), fits 900 × 600" }
     );
 }
 
@@ -105,7 +176,7 @@ pub fn looks(exe: &Path, home: &Path) {
     // The Options dialog, Ctrl+, on its General tab, then each other tab.
     key(c, "Ctrl+,");
     assert_eq!(dialog(c).as_deref(), Some("options"), "Ctrl+, opens Options");
-    tab(c, home, "general", "options-general", true);
+    tab(c, home, "general", "options-general", !cfg!(target_os = "macos"));
     tab(c, home, "fileTypes", "options-file-types", true);
     tab(c, home, "export", "options-export", true);
     tab(c, home, "shortcuts", "options-shortcuts", !cfg!(target_os = "macos"));
