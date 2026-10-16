@@ -227,7 +227,7 @@ fn select_photos_refuses_an_unknown_id_and_changes_nothing() {
     c.close();
 }
 
-/// `set_metadata` with star, caption and tags is one undo step that one Undo restores; without
+/// `set_metadata` with star, caption and tags is one undo step that one `cmd_edit_undo` restores; without
 /// `ids` it acts on the tray; `geo` names Places; nothing to change and an empty tray fail.
 #[test]
 fn set_metadata_is_one_undo_step() {
@@ -242,7 +242,7 @@ fn set_metadata_is_one_undo_step() {
     let set = ok(&c.call(3, "set_metadata", json!({ "ids": [1, 2], "star": true, "caption": "Tram 28", "tags_add": ["lisbon", "tram"] }))).clone();
     assert_eq!(set["changed"], json!(["star", "caption", "tags_add"]));
     assert_eq!(fields(&mut c, 4, 2), (json!(true), json!("Tram 28"), json!(["lisbon", "tram"])));
-    let undone = c.call(5, "command_run", json!({ "id": "edit.undo" }));
+    let undone = c.call(5, "cmd_edit_undo", json!({}));
     ok(&undone);
     for (n, photo) in [1, 2].into_iter().enumerate() {
         assert_eq!(fields(&mut c, 6 + n as u64, photo), (json!(false), json!(""), json!([])), "one Undo restores photo {photo}");
