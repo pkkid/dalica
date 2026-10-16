@@ -19,6 +19,13 @@
 //!   on Windows no verbatim or device prefix, no stream, no reserved device name, no component
 //!   ending in a dot or a space), then **resolved through its links** before it is compared, so a
 //!   link cannot lead out of a root. A root that does not exist holds nothing.
+//! - **One form on both sides**: the path and every root are resolved the same way and put in their
+//!   plain form ([`plain`]) before they are compared. On Windows resolving gives the verbatim form
+//!   (`\\?\C:\…`, `\\?\UNC\server\share\…`) and expands 8.3 short names (`RUNNER~1`), while
+//!   roots, `file:///C:/…` URIs and an agent's own paths are plain (`C:\…`); the plain form drops the
+//!   verbatim prefix and upper-cases the drive letter, so every spelling of one place compares
+//!   equal. The paths the checks return are in that plain form too, the form an agent can give
+//!   back ([`lexical`] refuses a verbatim one).
 //! - Comparisons that **allow** are exact (component by component, after resolving); comparisons
 //!   that **refuse** (a watched folder, `.dalica-originals`) also ignore case on the systems whose
 //!   volumes usually do (Windows, macOS), so a differently-cased spelling cannot slip past them.
@@ -371,17 +378,60 @@ pub fn windows_problem(component: &str) -> Option<&'static str> {
     None
 }
 
+/// `path` in its plain form, the one the checks compare and return: on Windows a drive or verbatim
+/// path (`\\?\C:\a`, `c:\a`) becomes `C:\a` and a verbatim UNC path (`\\?\UNC\server\share\a`)
+/// becomes `\\server\share\a`, but only when every name after the prefix is an ordinary one (no
+/// `.`, `..`, `/`, stream, reserved device name or trailing dot or space: without the prefix those
+/// would name something else, so such a path keeps its verbatim form, which [`lexical`] refuses
+/// when it comes back). Anything else, and every path elsewhere, is returned unchanged. Touches
+/// nothing.
+pub fn plain(path: &Path) -> PathBuf {
+    let mut parts = path.components();
+    let Some(Component::Prefix(prefix)) = parts.next() else { return path.to_path_buf() };
+    let head = match prefix.kind() {
+        Prefix::Disk(d) | Prefix::VerbatimDisk(d) => format!("{}:", char::from(d.to_ascii_uppercase())),
+        Prefix::VerbatimUNC(server, share) => match (server.to_str(), share.to_str()) {
+            (Some(server), Some(share)) if !server.is_empty() && !share.is_empty() => format!(r"\\{server}\{share}"),
+            _ => return path.to_path_buf(),
+        },
+        _ => return path.to_path_buf(),
+    };
+    // The names are read with the prefix's own rules (a verbatim path does not split at `/`).
+    let rest = parts.as_path();
+    if parts.next() != Some(Component::RootDir) {
+        return path.to_path_buf();
+    }
+    let ordinary = |c: Component<'_>| match c {
+        Component::Normal(name) => name.to_str().is_some_and(|n| !n.contains(['/', '\\']) && windows_problem(n).is_none()),
+        _ => false,
+    };
+    if !parts.all(ordinary) {
+        return path.to_path_buf();
+    }
+    let mut out = std::ffi::OsString::from(head);
+    out.push(rest.as_os_str());
+    PathBuf::from(out)
+}
+
+/// `path` resolved through its links, in its [`plain`] form.
 fn resolve(path: &Path) -> Result<PathBuf, Refused> {
-    std::fs::canonicalize(path).map_err(|e| match e.kind() {
+    std::fs::canonicalize(path).map(|p| plain(&p)).map_err(|e| match e.kind() {
         std::io::ErrorKind::NotFound => Refused::new(Refusal::NotFound, format!("{} does not exist", path.display())),
         _ => Refused::new(Refusal::PathDenied, format!("{} cannot be resolved: {e}", path.display())),
     })
 }
 
+/// `roots` resolved and in their [`plain`] form; roots that do not exist hold nothing.
+fn resolved_roots(roots: &[PathBuf]) -> impl Iterator<Item = PathBuf> + '_ {
+    roots.iter().filter_map(|r| std::fs::canonicalize(r).ok()).map(|r| plain(&r))
+}
+
 /// Whether the resolved `path` is inside one of `roots` (each resolved; roots that do not exist
-/// hold nothing), comparing components exactly: the comparison that allows.
+/// hold nothing), both in their [`plain`] form, comparing components exactly: the comparison that
+/// allows.
 fn inside(path: &Path, roots: &[PathBuf]) -> bool {
-    roots.iter().filter_map(|r| std::fs::canonicalize(r).ok()).any(|r| path.starts_with(&r))
+    let path = plain(path);
+    resolved_roots(roots).any(|r| path.starts_with(&r))
 }
 
 /// [`inside`], also ignoring case where volumes usually do (Windows, macOS): the comparison that
@@ -394,8 +444,8 @@ fn inside_loosely(path: &Path, roots: &[PathBuf]) -> bool {
         return false;
     }
     let folded = |p: &Path| -> Vec<String> { p.components().map(|c| c.as_os_str().to_string_lossy().to_lowercase()).collect() };
-    let at = folded(path);
-    roots.iter().filter_map(|r| std::fs::canonicalize(r).ok()).any(|r| at.starts_with(&folded(&r)))
+    let at = folded(&plain(path));
+    resolved_roots(roots).any(|r| at.starts_with(&folded(&r)))
 }
 
 /// `path` (the caller's spelling, for the message) refused when `target` lies in a
@@ -424,6 +474,102 @@ fn resolve_existing(path: &Path) -> Result<PathBuf, Refused> {
                 at = parent;
             }
             _ => return Err(Refused::new(Refusal::NotFound, format!("no part of {} exists", path.display()))),
+        }
+    }
+}
+
+#[cfg(test)]
+#[cfg(windows)]
+mod windows_tests {
+    use super::*;
+
+    fn code<T>(r: Result<T, Refused>) -> &'static str {
+        match r {
+            Ok(_) => "ok",
+            Err(e) => e.code(),
+        }
+    }
+
+    /// `p` (plain, `C:\…`) as `\\?\C:\…`.
+    fn verbatim(p: &Path) -> PathBuf {
+        PathBuf::from(format!(r"\\?\{}", p.display()))
+    }
+
+    /// `p` (plain, `C:\…`) with a lower-case drive letter.
+    fn lower_drive(p: &Path) -> PathBuf {
+        let s = p.to_string_lossy();
+        let (drive, rest) = s.split_at(1);
+        PathBuf::from(format!("{}{rest}", drive.to_ascii_lowercase()))
+    }
+
+    #[test]
+    fn the_plain_form_drops_a_verbatim_prefix_only_where_it_names_the_same_place() {
+        for (raw, want) in [
+            (r"\\?\C:\Photos\a.jpg", r"C:\Photos\a.jpg"),
+            (r"\\?\c:\Photos", r"C:\Photos"),
+            (r"c:\Photos", r"C:\Photos"),
+            (r"C:\Photos", r"C:\Photos"),
+            (r"\\?\C:\", r"C:\"),
+            (r"\\?\UNC\server\share\Photos", r"\\server\share\Photos"),
+            (r"\\server\share\Photos", r"\\server\share\Photos"),
+        ] {
+            assert_eq!(plain(Path::new(raw)).as_os_str(), std::ffi::OsStr::new(want), "{raw}");
+        }
+        // Without the prefix these would name something else: kept as they are.
+        for raw in [r"\\?\C:\Photos\NUL", r"\\?\C:\Photos\a.", r"\\?\C:\Photos\a:s", r"\\?\C:\a\..\b", r"\\?\C:\a/b", r"\\.\C:\x", r"\\?\Volume{0}\x"]
+        {
+            assert_eq!(plain(Path::new(raw)).as_os_str(), std::ffi::OsStr::new(raw), "{raw}");
+        }
+    }
+
+    #[test]
+    fn roots_and_paths_in_verbatim_plain_short_and_lower_case_drive_forms_compare_equal_and_refusals_hold_in_each() {
+        let dir = tempfile::tempdir().unwrap();
+        // The temporary folder as given (on the runner an 8.3 short name, `RUNNER~1`) and resolved.
+        let given = dir.path().to_path_buf();
+        let root = plain(&std::fs::canonicalize(&given).unwrap());
+        assert!(!root.to_string_lossy().starts_with(r"\\?\"), "{}", root.display());
+        let (photos, extra, out, other) = (root.join("photos"), root.join("extra"), root.join("out"), root.join("other"));
+        for d in [&photos, &extra.join("2026-07"), &out, &other, &photos.join(ORIGINALS), &out.join(ORIGINALS)] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        std::fs::write(photos.join("taken.jpg"), b"x").unwrap();
+        let as_given = |p: &Path| given.join(p.strip_prefix(&root).unwrap());
+        let root_forms: [&dyn Fn(&Path) -> PathBuf; 4] = [&|p| p.to_path_buf(), &verbatim, &lower_drive, &as_given];
+        let path_forms: [&dyn Fn(&Path) -> PathBuf; 3] = [&|p| p.to_path_buf(), &lower_drive, &as_given];
+        for (i, root_form) in root_forms.iter().enumerate() {
+            let p = Policy::with_roots(&[root_form(&extra)], &[root_form(&out)]);
+            let watched = vec![root_form(&photos)];
+            for (j, f) in path_forms.iter().enumerate() {
+                let at = format!("root form {i}, path form {j}");
+                // Allowed, answered in the plain form.
+                assert_eq!(p.check_read(&f(&extra.join("2026-07")), "path", &watched), Ok(extra.join("2026-07")), "{at}");
+                assert_eq!(p.check_read(&f(&photos), "path", &watched), Ok(photos.clone()), "{at}");
+                assert_eq!(p.check_write(&f(&out.join("shot.png")), "path", &watched), Ok(out.join("shot.png")), "{at}");
+                assert_eq!(p.check_output(&f(&out.join("Exports")), "dir", &watched, Output::Folder), Ok(out.join("Exports")), "{at}");
+                assert_eq!(p.check_output(&f(&photos.join("new.jpg")), "path", &watched, Output::File), Ok(photos.join("new.jpg")), "{at}");
+                // Refused.
+                assert_eq!(code(p.check_read(&f(&extra.join("..").join("other")), "path", &watched)), "path_denied", "{at}: `..`");
+                assert_eq!(code(p.check_read(&f(&other), "path", &watched)), "path_denied", "{at}: outside");
+                assert_eq!(code(p.check_write(&f(&photos.join("shot.png")), "path", &watched)), "path_denied", "{at}: watched");
+                assert_eq!(code(p.check_write(&f(&out.join(ORIGINALS).join("a.png")), "path", &watched)), "path_denied", "{at}: originals");
+                let originals = photos.join(ORIGINALS).join("a.jpg");
+                assert_eq!(code(p.check_output(&f(&originals), "path", &watched, Output::File)), "path_denied", "{at}: originals");
+                assert_eq!(code(p.check_output(&f(&photos.join("taken.jpg")), "path", &watched, Output::File)), "path_denied", "{at}: existing");
+                let upper = PathBuf::from(f(&photos).to_string_lossy().to_uppercase()).join("shot.png");
+                assert_eq!(code(p.check_write(&upper, "path", &watched)), "path_denied", "{at}: watched, another case");
+            }
+            // A verbatim path param skips Windows' own checks: refused, allowed place or not.
+            for path in [extra.join("2026-07"), out.join("shot.png"), photos.join("new.jpg"), other.clone(), photos.join(ORIGINALS).join("a.jpg")] {
+                assert_eq!(code(p.check_read(&verbatim(&path), "path", &watched)), "path_denied", "root form {i}: {}", path.display());
+                assert_eq!(code(p.check_write(&verbatim(&path), "path", &watched)), "path_denied", "root form {i}: {}", path.display());
+                assert_eq!(
+                    code(p.check_output(&verbatim(&path), "path", &watched, Output::File)),
+                    "path_denied",
+                    "root form {i}: {}",
+                    path.display()
+                );
+            }
         }
     }
 }

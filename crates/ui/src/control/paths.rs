@@ -70,7 +70,8 @@ mod tests {
     #[test]
     fn new_files_go_into_a_write_root_or_a_watched_folder_and_never_replace_one() {
         let dir = tempfile::tempdir().unwrap();
-        let root = std::fs::canonicalize(dir.path()).unwrap();
+        // Resolved and plain (not `\\?\C:\…`): the form the checks answer in and an agent may give.
+        let root = automation::plain(&std::fs::canonicalize(dir.path()).unwrap());
         let (out, watched, elsewhere) = (root.join("out"), root.join("photos"), root.join("elsewhere"));
         for d in [&out, &watched, &elsewhere, &watched.join(ORIGINALS)] {
             std::fs::create_dir_all(d).unwrap();

@@ -5418,7 +5418,7 @@ No other step of M10 needs a maintainer decision mid-run.
     `taskset -c 0` beside parallel `cargo test` runs); a CI run dispatched on the task branch
     (`gh workflow run ci.yml --ref <branch>`) shows both green on macOS, the job cited in the PR;
     `cargo xtask ci` green.
-- ⬜ **M10.49 `engine` + `mcp` + `ui`: the path policy on Windows**
+- ✅ **M10.49 `engine` + `mcp` + `ui`: the path policy on Windows**
   - after: M10.16
   - files: `crates/engine/src/automation.rs`, `crates/engine/tests/automation_roots.rs`, `crates/engine/tests/read_only.rs`, `crates/mcp/src/roots.rs`, `crates/mcp/tests/roots.rs`, `crates/ui/src/control/paths.rs`
   - scope: found by the full gate on Windows (GitHub run 38838856986, `ci (windows-latest)`):
