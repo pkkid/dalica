@@ -15,11 +15,12 @@ and the per-type toggles are in [`data-model.md`](data-model.md) §7 and Options
 > per format under `crates/image/src/formats/`, all ending in the colour stage of §4: JPEG and PNG
 > (M5.1), TIFF (M5.6), WebP, GIF and BMP (M5.7), JPEG XL and PSD composites (M5.8), previews of
 > TIFF-structured raws (M5.9), previews of CR3, RAF, CRW, MRW and X3F, and HEIF behind its feature
-> (M5.10); AVIF is recognised and never decoded. Not built yet: JPEG DCT-domain scaled decoding
-> (`zune-jpeg` 0.5 has none: thumbnails decode in full and are fitted, and past 64 MP the embedded
-> thumbnail is used), 12-bit JPEG (no pure-Rust decoder we could use decodes 12-bit DCT samples:
-> such files are listed with their size and answer "This kind of JPEG isn't supported", measured
-> in M10.23) and MPF previews. LightCraft's `codecs` and `raw` crates are prior art only
+> (M5.10); AVIF is recognised and never decoded. Later rows, not part of 0.5 (the M10.R answer):
+> 12-bit JPEG (`DATA-FMT-JPEG-12BIT`: no pure-Rust decoder we could use decodes 12-bit DCT
+> samples; such files are listed with their size and show the unsupported tile, "This kind of
+> JPEG isn't supported", measured in M10.23), and JPEG DCT-domain scaled decoding and MPF previews
+> (`DATA-FMT-JPEG-FAST`: `zune-jpeg` 0.5 has no scaling, so thumbnails decode in full and are
+> fitted, and past 64 MP the embedded thumbnail is used). LightCraft's `codecs` and `raw` crates are prior art only
 > (`architecture.md` §9). Everything is pure Rust; no C decoder is linked, ever.
 >
 > Measured on real files (M5.15, `development.md` §11): PngSuite decodes all 162 valid files and
@@ -36,7 +37,7 @@ and the per-type toggles are in [`data-model.md`](data-model.md) §7 and Options
 
 | Format | Show (decode) | Thumbnail fast path | Metadata write | Save edits in place | Notes |
 |---|---|---|---|---|---|
-| JPEG | yes: baseline, progressive, CMYK/YCCK (12-bit: not yet, see the status above) | embedded EXIF thumbnail or MPF preview; DCT-domain 1/2–1/8 scaled decode | XMP, IPTC, EXIF | yes, as a baseline JPEG at the original's quality and chroma subsampling (4:2:2 written as 4:4:4), its metadata kept; progressive, CMYK and YCCK files too. A rotate-only Save turns a baseline file whose size is whole MCUs in its coefficients, losslessly; other sizes and progressive files keep their pixel data and take the EXIF orientation flag (`data-model.md` §6) | arithmetic coding, lossless and hierarchical frames unsupported ("This kind of JPEG isn't supported"); 12-bit not decoded yet (the same message) |
+| JPEG | yes: baseline, progressive, CMYK/YCCK, 8-bit samples | embedded EXIF thumbnail; the full decode fitted (MPF previews and DCT-domain 1/2–1/8 scaled decoding: a later row, see the status above) | XMP, IPTC, EXIF | yes, as a baseline JPEG at the original's quality and chroma subsampling (4:2:2 written as 4:4:4), its metadata kept; progressive, CMYK and YCCK files too. A rotate-only Save turns a baseline file whose size is whole MCUs in its coefficients, losslessly; other sizes and progressive files keep their pixel data and take the EXIF orientation flag (`data-model.md` §6) | arithmetic coding, lossless, hierarchical and 12-bit frames unsupported: the unsupported tile, "This kind of JPEG isn't supported" (12-bit decoding is a later row) |
 | PNG | yes: 1–16-bit, palette, transparency, interlaced | scaled decode | XMP (`iTXt`), EXIF (`eXIf`) | without transparency: yes, as PNG (8- or 16-bit; an alpha channel that is all opaque is left out). A 16-bit PNG stays 16-bit: exact for a rotate-only Save, other edits rendered at 8 bits and widened back. With transparency (an alpha sample below opaque): JPEG copy beside it | |
 | TIFF | yes: 8/16-bit int, float, gray/RGB/CMYK/palette, LZW/Deflate/PackBits/JPEG; first full-resolution page | embedded thumbnail IFD if present, else scaled decode | XMP and IPTC tags (append-only) | JPEG copy beside it | multi-page: first page; Lab/YCbCr unsupported; a file cut inside a strip or tile is "Damaged file" |
 | WebP | yes: lossy and lossless, alpha; first frame of animations | scaled decode | XMP, EXIF chunks | JPEG copy beside it | |
@@ -255,9 +256,10 @@ allocated (and again after orientation swaps width and height):
 
 Whichever limit is reached first applies; for large images it is usually the allocation limit.
 
-- JPEGs decode at the smallest DCT scale that covers the target (1/2 to 1/8), and embedded previews
-  are used whenever they cover the target, so even very large JPEGs and raws show thumbnails without
-  a full decode.
+- Embedded previews are used whenever they cover the target, so very large raws show thumbnails
+  without a full decode; a JPEG decodes in full and is fitted, and past 64 MP its EXIF thumbnail is
+  used (decoding at the smallest DCT scale that covers the target, 1/2 to 1/8, is the later row
+  `DATA-FMT-JPEG-FAST`).
 - A file over a limit returns a "too large" error (shown on its tile); its embedded preview, if any,
   is still used. Allocations are fallible (`try_reserve`), so an allocation failure is an error, not
   an abort. Every pixel buffer of one decode (the decoded samples, the colour stage's bands and the
