@@ -16,6 +16,11 @@
 //!   so; the reply is then the job's final entry with its result.
 //! - **`engine.commands`**, **`jobs.list`**, **`jobs.wait`**, **`jobs.cancel`** as in
 //!   `control-protocol.md` §6.2 and §6.13; the `ui.*` methods need the app (connect mode).
+//! - Three methods of MCP's own for the helpers of `mcp.md` §4.2: **`engine.group {steps,
+//!   label?}`** (several library commands as one undo step, `set_metadata`), **`tray.select {ids,
+//!   section?, mode?, hold?}`** and **`tray.state`** (the headless [`Tray`], `select_photos` and
+//!   `photo_info`). Connect mode (M10.17) maps them onto the app: a grouped execute, `select.set`
+//!   then `tray.hold`, and `library.inspect` → `selection` and `tray`.
 //!
 //! After LightCraft `crates/mcp/src/headless.rs` (`Headless`, its `Backend` impl and `Drop`) @
 //! b3d392b4, MIT OR Apache-2.0 (`NOTICE`). Changed for Dalica: Dalica's sources and engine,
@@ -35,7 +40,7 @@ use serde_json::{Map, Value, json};
 
 use crate::backend::{Backend, Progress, Rendered, ToolError};
 use crate::roots::{Output, Roots};
-use crate::tray::Tray;
+use crate::tray::{Mode, Tray};
 
 /// How long the wait for a job sleeps between two polls.
 const WAIT_STEP: Duration = Duration::from_millis(5);
@@ -50,6 +55,13 @@ const CONFIRM: &[(&str, &str)] = &[(
     "library.rebuild",
     "Rebuild the library? Dalica forgets its index and reads every watched folder again; stars and captions come back from the folders.",
 )];
+
+/// The undo labels `engine.group` takes (the engine's undo step holds a fixed text); the first is
+/// the default.
+const GROUP_LABELS: &[&str] = &["Set Metadata", "Change Photos"];
+
+/// The most photos one `tray.select` takes.
+const MAX_TRAY_IDS: usize = 100_000;
 
 /// Where a headless session comes from.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -192,7 +204,37 @@ impl Headless {
             Some(Value::Bool(w)) => *w,
             Some(other) => return Err(bad(format!("`wait` must be true or false, not {other}"))),
         };
-        let mut cmd = match p.get("params") {
+        let (spec, params) = self.prepare(id, p.get("params"))?;
+        let before: HashSet<JobId> = self.session.jobs().iter().map(|e| e.job).collect();
+        let result = self.session.execute(id, &params);
+        self.session.poll();
+        let value = result.map_err(|e| command_error(e, &spec, &params))?;
+        if !wait {
+            return Ok(value);
+        }
+        let named = value.get("job").and_then(Value::as_u64).filter(|_| value.get("pending") == Some(&Value::Bool(true)));
+        let mut jobs: Vec<JobId> = self.session.jobs().iter().filter(|e| !before.contains(&e.job) && !e.state.is_finished()).map(|e| e.job).collect();
+        if let Some(j) = named
+            && !jobs.contains(&j)
+        {
+            jobs.push(j);
+        }
+        if jobs.is_empty() {
+            return Ok(value);
+        }
+        self.wait_jobs(&jobs, progress)?;
+        match named.and_then(|j| self.session.job(j)) {
+            Some(entry) => Ok(serde_json::to_value(entry).unwrap_or(Value::Null)),
+            None => Ok(value),
+        }
+    }
+
+    /// The control channel's checks before command `id` runs with `params` (`control-protocol.md`
+    /// §5): the command exists, reaches nothing outside Dalica, keeps to the path roots, has
+    /// `"confirm": true` where the app asks first, and without `ids` gets the Photo Tray's. Returns
+    /// its spec and the params to run it with.
+    fn prepare(&mut self, id: &str, params: Option<&Value>) -> Result<(CommandSpec, Value), ToolError> {
+        let mut cmd = match params {
             None | Some(Value::Null) => Map::new(),
             Some(Value::Object(o)) => o.clone(),
             Some(other) => return Err(bad(format!("`params` must be an object, not {other}"))),
@@ -216,29 +258,86 @@ impl Headless {
             let ids = self.tray_photos();
             cmd.insert("ids".into(), json!(ids));
         }
-        let before: HashSet<JobId> = self.session.jobs().iter().map(|e| e.job).collect();
-        let params = Value::Object(cmd);
-        let result = self.session.execute(id, &params);
+        Ok((spec, Value::Object(cmd)))
+    }
+
+    /// `engine.group {steps: [{command, params?}], label?}`: the steps as **one** library undo step
+    /// ([`Session::execute_group`]), each step checked first as `engine.execute` checks its command
+    /// (a step without `ids` gets the Photo Tray's). A failed step undoes the steps before it and
+    /// answers its error, the step named. Replies `{results}`, one per step. In connect mode
+    /// (M10.17) this maps onto the app's grouped execute of the same steps.
+    fn group(&mut self, params: &Value) -> Result<Value, ToolError> {
+        let p = fields(params, &["steps", "label"], "engine.group")?;
+        let label = match p.get("label") {
+            None | Some(Value::Null) => GROUP_LABELS[0],
+            Some(Value::String(s)) => match GROUP_LABELS.iter().find(|l| **l == s.as_str()) {
+                Some(l) => l,
+                None => return Err(bad(format!("`label` must be one of {}, not {s:?}", GROUP_LABELS.join(", ")))),
+            },
+            Some(other) => return Err(bad(format!("`label` must be text, not {other}"))),
+        };
+        let Some(steps) = p.get("steps").and_then(Value::as_array) else { return Err(bad("`steps` must be a list of {command, params?}")) };
+        if steps.is_empty() || steps.len() > dalica_engine::session::MAX_GROUP_STEPS {
+            return Err(ToolError::new(
+                "limit",
+                format!("`steps` holds 1 to {} commands, not {}", dalica_engine::session::MAX_GROUP_STEPS, steps.len()),
+            ));
+        }
+        let mut prepared: Vec<(&'static str, Value)> = Vec::with_capacity(steps.len());
+        for (n, step) in steps.iter().enumerate() {
+            let at = |e: ToolError| ToolError { message: format!("step {}: {}", n.saturating_add(1), e.message), ..e };
+            let s = fields(step, &["command", "params"], "a step of engine.group").map_err(at)?;
+            let Some(id) = s.get("command").and_then(Value::as_str) else { return Err(at(bad("`command` must name the command"))) };
+            let (spec, params) = self.prepare(id, s.get("params")).map_err(at)?;
+            prepared.push((spec.id, params));
+        }
+        let result = self.session.execute_group(&prepared, label);
         self.session.poll();
-        let value = result.map_err(|e| command_error(e, &spec, &params))?;
-        if !wait {
-            return Ok(value);
+        Ok(json!({ "results": result? }))
+    }
+
+    /// `tray.select {ids, section?, mode?, hold?}`: the selection set to, added to or taken from
+    /// `ids` in `section` (`mode` `replace`, the default, `add` or `remove`; [`Tray::select`]), then
+    /// held when `hold` is true. Every id must be a photo of the library: an unknown one is
+    /// `not_found` and leaves the tray as it was. Replies `{section, selection, held, tray}` (as
+    /// `tray.state`). In connect mode (M10.17) this maps onto the app's `select.set {ids, section}`
+    /// (with the ids an `add` or `remove` leaves, worked out from `library.inspect` → `selection`)
+    /// and then `tray.hold`.
+    fn tray_select(&mut self, params: &Value) -> Result<Value, ToolError> {
+        let p = fields(params, &["ids", "section", "mode", "hold"], "tray.select")?;
+        let Some(list) = p.get("ids").and_then(Value::as_array) else { return Err(bad("`ids` must be a list of photo ids")) };
+        if list.len() > MAX_TRAY_IDS {
+            return Err(ToolError::new("limit", format!("at most {MAX_TRAY_IDS} photos at once")));
         }
-        let named = value.get("job").and_then(Value::as_u64).filter(|_| value.get("pending") == Some(&Value::Bool(true)));
-        let mut jobs: Vec<JobId> = self.session.jobs().iter().filter(|e| !before.contains(&e.job) && !e.state.is_finished()).map(|e| e.job).collect();
-        if let Some(j) = named
-            && !jobs.contains(&j)
-        {
-            jobs.push(j);
+        let mut ids = Vec::with_capacity(list.len());
+        for v in list {
+            let Some(n) = v.as_u64() else { return Err(bad(format!("`ids` must hold photo ids, not {v}"))) };
+            let id = PhotoId::new(n);
+            if self.session.library().photo(id).is_none() {
+                return Err(ToolError::new("not_found", format!("no photo {id}; the selection is unchanged")));
+            }
+            ids.push(id);
         }
-        if jobs.is_empty() {
-            return Ok(value);
+        let section = match p.get("section") {
+            None | Some(Value::Null) => None,
+            Some(Value::String(s)) if s.split_once(':').is_some_and(|(k, v)| matches!(k, "folder" | "album") && !v.is_empty()) => Some(s.as_str()),
+            Some(other) => return Err(bad(format!("`section` must be a section id (folder:<id>, album:<id>), not {other}"))),
+        };
+        let mode = match p.get("mode") {
+            None | Some(Value::Null) => Mode::Replace,
+            Some(Value::String(s)) => Mode::parse(s).ok_or_else(|| bad(format!("`mode` must be replace, add or remove, not {s:?}")))?,
+            Some(other) => return Err(bad(format!("`mode` must be replace, add or remove, not {other}"))),
+        };
+        let hold = match p.get("hold") {
+            None | Some(Value::Null) => false,
+            Some(Value::Bool(b)) => *b,
+            Some(other) => return Err(bad(format!("`hold` must be true or false, not {other}"))),
+        };
+        self.tray.select(&ids, section, mode);
+        if hold {
+            self.tray.hold();
         }
-        self.wait_jobs(&jobs, progress)?;
-        match named.and_then(|j| self.session.job(j)) {
-            Some(entry) => Ok(serde_json::to_value(entry).unwrap_or(Value::Null)),
-            None => Ok(value),
-        }
+        Ok(self.tray.to_json())
     }
 
     /// The control channel's path rules (`control-protocol.md` §5.7) for the commands that read a
@@ -365,6 +464,13 @@ impl Backend for Headless {
                 Ok(serde_json::to_value(self.session.jobs()).unwrap_or(Value::Null))
             }
             "jobs.wait" => self.jobs_wait(&params),
+            "engine.group" => self.group(&params),
+            "tray.select" => self.tray_select(&params),
+            "tray.state" => {
+                fields(&params, &[], method)?;
+                self.tray_photos();
+                Ok(self.tray.to_json())
+            }
             "jobs.cancel" => {
                 let p = fields(&params, &["job"], method)?;
                 let job = match p.get("job") {
@@ -475,7 +581,6 @@ fn command_error(e: CmdError, spec: &CommandSpec, params: &Value) -> ToolError {
 #[cfg(test)]
 mod tests {
     use crate::backend::NoProgress;
-    use crate::tray::Mode;
 
     use super::*;
 
@@ -521,5 +626,44 @@ mod tests {
         assert_eq!(code(h.call("jobs.wait", json!({ "job": 1, "timeoutMs": 60_000 }), &mut NoProgress)), "limit");
         assert_eq!(code(h.call("ui.key", json!({ "combo": "Ctrl+8" }), &mut NoProgress)), "unsupported");
         assert_eq!(code(h.call("engine.execute", json!({ "command": "photo.inspect", "colour": 1 }), &mut NoProgress)), "bad_params");
+    }
+
+    /// `tray.select` changes the tray only when every id exists; `tray.state` reads it back;
+    /// `engine.group` is one undo step, takes the tray's ids, applies `engine.execute`'s checks to
+    /// each step and leaves nothing behind when a step fails.
+    #[test]
+    fn tray_and_group_methods() {
+        let mut h = Headless::open(Source::Demo, &[]).unwrap();
+        let call = |h: &mut Headless, m: &str, p: Value| h.call(m, p, &mut NoProgress);
+        let t = call(&mut h, "tray.select", json!({ "ids": [2, 3], "section": "folder:1", "hold": true })).unwrap();
+        assert_eq!((&t["held"], &t["tray"]), (&json!([2, 3]), &json!([2, 3])));
+        call(&mut h, "tray.select", json!({ "ids": [5], "section": "folder:1", "mode": "add" })).unwrap();
+        assert_eq!(code(call(&mut h, "tray.select", json!({ "ids": [6, 999_999] }))), "not_found");
+        assert_eq!(code(call(&mut h, "tray.select", json!({ "ids": [6], "mode": "toggle" }))), "bad_params");
+        assert_eq!(code(call(&mut h, "tray.select", json!({ "ids": [6], "section": "elsewhere" }))), "bad_params");
+        assert_eq!(call(&mut h, "tray.state", json!({})).unwrap()["tray"], json!([2, 3, 5]), "unchanged by the failures");
+
+        let depth = h.session().undo_stack().len();
+        let steps = json!([
+            { "command": "photo.star.set", "params": { "on": true } },
+            { "command": "photo.caption.set", "params": { "ids": [2], "caption": "Tram 28" } },
+        ]);
+        let r = call(&mut h, "engine.group", json!({ "steps": steps })).unwrap();
+        assert_eq!(r["results"][0]["ids"], json!([2, 3, 5]), "a step without ids takes the tray's");
+        assert_eq!(h.session().undo_stack().len(), depth + 1);
+        assert!(h.session().library().photo(PhotoId::new(5)).unwrap().star);
+
+        let failing = json!([
+            { "command": "photo.caption.set", "params": { "ids": [4], "caption": "x" } },
+            { "command": "photo.star.set", "params": { "ids": [999_999], "on": true } },
+        ]);
+        assert_eq!(code(call(&mut h, "engine.group", json!({ "steps": failing }))), "not_found");
+        assert_eq!(h.session().library().info(PhotoId::new(4)).caption, "", "the first step was undone");
+        assert_eq!(h.session().undo_stack().len(), depth + 1);
+        let rebuild = json!([{ "command": "library.rebuild" }]);
+        assert_eq!(code(call(&mut h, "engine.group", json!({ "steps": rebuild }))), "needs_confirm");
+        assert_eq!(code(call(&mut h, "engine.group", json!({ "steps": [] }))), "limit");
+        assert_eq!(code(call(&mut h, "engine.group", json!({ "steps": steps, "label": "Anything" }))), "bad_params");
+        assert_eq!(code(call(&mut h, "tray.state", json!({ "x": 1 }))), "bad_params");
     }
 }

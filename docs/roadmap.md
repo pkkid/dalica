@@ -4825,7 +4825,7 @@ No other step of M10 needs a maintainer decision mid-run.
     and undo restores both, an unknown operation is refused and kept and replaced with
     `dropUnknown`, a bad parameter changes no photo; each command's contract and graceful
     failures; `panic_hunt` green.
-- ⬜ **M10.13 `mcp`: the organizing helper tools**
+- ✅ **M10.13 `mcp`: the organizing helper tools**
   - after: M10.1, M10.4
   - files: `crates/mcp/src/tools/organize.rs`, `crates/mcp/tests/organize_tools.rs`
   - scope: `mcp.md` §4.2, photo tools acting on the headless tray (M10.4) when `ids` is omitted:

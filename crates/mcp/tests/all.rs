@@ -3,5 +3,6 @@
 mod command_tools;
 mod common;
 mod inspect;
+mod organize_tools;
 mod resources;
 mod server;
