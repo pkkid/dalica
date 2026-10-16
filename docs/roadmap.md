@@ -5258,7 +5258,7 @@ No other step of M10 needs a maintainer decision mid-run.
     together (`tasks claim` refuses), and whichever lands second rebases on the other.
   - done when: `control_headless::an_agent_stars_a_photo_by_click_and_key_and_takes_a_screenshot`
     passes; the captions fingerprint test passes 5 runs out of 5; `cargo xtask ci` green.
-- ⬜ **M10.43 `acceptance`: the finished milestones' checks after the Recently Updated section shows**
+- ✅ **M10.43 `acceptance`: the finished milestones' checks after the Recently Updated section shows**
   - after: M10.29, M10.42
   - files: `tests/acceptance/m1.rs`, `tests/acceptance/m2.rs`, `tests/acceptance/m6.rs`, `tests/acceptance/m6_live.rs`, `tests/acceptance/m8.rs`, `tests/acceptance/m9_app.rs`, `tests/acceptance/fingerprints/m6-*.json`, `tests/acceptance/fingerprints/m8-*.json`, `tests/acceptance/fingerprints/m9-*.json`
   - scope: found by the full gate (GitHub run 38832985226, the same on all three systems): the

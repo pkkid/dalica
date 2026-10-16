@@ -109,9 +109,26 @@ fn photos(home: &Path) -> (PathBuf, PathBuf, BTreeMap<String, Vec<u8>>) {
     (lisbon, private, bytes)
 }
 
-/// The library's photos by name.
+/// Every photo of the library by name (`photo.inspect`), the hidden ones and those of hidden
+/// folders included. A plain `library.query` leaves those out unless the view shows hidden
+/// pictures (M10.40), and the headless window's View ▸ Hidden Pictures is not stored in the
+/// session, so each photo is asked for by id: the library gives ids out one by one from 1
+/// (`Library::next_photo_id`), and `library.inspect`'s photo count says when all were found.
 fn by_name(c: &mut Client) -> BTreeMap<String, Value> {
-    c.photos().into_iter().map(|p| (p["name"].as_str().unwrap().to_string(), p)).collect()
+    let inspected = c.ok("engine.execute", json!({ "command": "library.inspect", "params": {} }));
+    let count = inspected["counts"]["photos"].as_u64().unwrap_or_else(|| panic!("library.inspect counts the photos: {inspected}"));
+    let mut all = BTreeMap::new();
+    let mut id = 0u64;
+    while (all.len() as u64) < count {
+        id += 1;
+        assert!(id <= count + 10_000, "only {} of {count} photos found by id: {:?}", all.len(), all.keys());
+        let r = c.send("engine.execute", json!({ "command": "photo.inspect", "params": { "ids": [id] } }));
+        if r["ok"] == true {
+            let p = r["result"][0].clone();
+            all.insert(p["name"].as_str().unwrap().to_string(), p);
+        }
+    }
+    all
 }
 
 /// The decoded pixels of a JPEG.
