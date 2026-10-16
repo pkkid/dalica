@@ -5608,7 +5608,7 @@ No other step of M10 needs a maintainer decision mid-run.
     once the job ends; a scan and an export together fit at 900 wide with the scan field dropped
     first; `cargo xtask parity --write` turns OUT-EXPORT ✅; screenshots at 1400 × 900 of the
     status line during an export, before and after, on the PR; `cargo xtask ci` green.
-- ⬜ **M10.54 `mcp` + `engine` + `ui`: connect mode fills the Photo Tray, and metadata write-back runs while the app is idle**
+- ✅ **M10.54 `mcp` + `engine` + `ui`: connect mode fills the Photo Tray, and metadata write-back runs while the app is idle**
   - after: M10.17, M10.36, M10.40
   - files: `crates/mcp/src/connect.rs`, `crates/mcp/src/tray.rs`, `crates/mcp/tests/connect.rs`, `crates/ui/src/control/engine.rs`, `crates/engine/src/scanning.rs`, `crates/engine/src/metadata.rs`, `crates/engine/tests/busy_writes.rs`, `crates/ui/src/app.rs`, `crates/ui/tests/idle_write_back.rs`
   - scope: two faults M10.27 (accept M10) found in the live app. (1) Connect mode ignores the

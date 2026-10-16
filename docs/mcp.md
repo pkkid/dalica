@@ -138,9 +138,11 @@ start in another. Listed in full and compact mode.
 | `render_preview` | `id?` (the tray's first photo), `max_side?` (1024, 16–2048) | an image of the photo with its edits, never enlarged, through the output pipeline Export uses: PNG, or JPEG when the PNG would pass 5 MiB; `{id, width, height, mimeType, recipe}`; changes nothing |
 
 A tool whose result is not an object (a command answering a list) gives it as `{result}` in
-`structuredContent`; the text block holds the value itself. In headless mode a photo command run
-without `ids` gets the Photo Tray's when its params doc names `ids` as required; a command whose
-`ids` are optional (Export's `ids | section | album`) is left as it is.
+`structuredContent`; the text block holds the value itself. In both modes a photo command run
+without `ids` gets the Photo Tray's when its params doc names `ids` as required (headless: its own
+tray; connect mode: the app's, from `library.inspect`; one rule for both); a command whose `ids`
+are optional (Export's `ids | section | album`) is left as it is, and an empty tray gives the
+command's own refusal ("Select some photos first.").
 
 ### 4.2 Dalica helpers
 

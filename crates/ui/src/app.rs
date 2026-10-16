@@ -270,9 +270,11 @@ impl App {
         result
     }
 
-    /// Nothing is running in the background: no scan, no thumbnail on its way, no open dialog.
+    /// Nothing is running in the background: no scan, no metadata write into a photo file queued
+    /// or being written (M10.54: the session's poll in a frame lands it), no thumbnail on its way,
+    /// no open dialog. The headless loop and the window run frames only while this is false.
     pub fn idle(&self) -> bool {
-        self.session.as_ref().is_some_and(|s| !s.busy())
+        self.session.as_ref().is_some_and(|s| !s.busy() && !s.metadata_writes_busy())
             && self.panels.as_ref().is_none_or(Panels::idle)
             && self.save_dialog.is_none()
             && self.folder_request.is_none()

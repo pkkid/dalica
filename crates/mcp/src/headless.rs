@@ -274,10 +274,7 @@ impl Headless {
             }
         }
         // A photo command without `ids` acts on the Photo Tray, as the bottom-bar buttons do.
-        if !cmd.contains_key("ids") && spec.params.contains("\"ids\":") {
-            let ids = self.tray_photos();
-            cmd.insert("ids".into(), json!(ids));
-        }
+        crate::tray::fill_ids(&mut cmd, spec.params, || Ok::<_, ToolError>(self.tray_photos()))?;
         Ok((spec, Value::Object(cmd)))
     }
 

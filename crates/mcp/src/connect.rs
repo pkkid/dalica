@@ -14,7 +14,10 @@
 //! - **[`Connect`]**: the [`Backend`] over a client. Methods go to the app as they are, except:
 //!   `engine.execute` of a command that starts a job is sent with `wait: false`, then the job is
 //!   followed with `jobs.wait` so its progress reaches the tool's [`Progress`], and a cancelled
-//!   request becomes `jobs.cancel` of that job (`mcp.md` §6); the headless backend's own methods are
+//!   request becomes `jobs.cancel` of that job (`mcp.md` §6); a photo command without `ids` (an
+//!   `engine.execute`, or a step of `engine.group`) gets the app's Photo Tray first, by the rule
+//!   headless mode applies ([`crate::tray::fill_ids`]; the tray from `library.inspect`, M10.54);
+//!   the headless backend's own methods are
 //!   mapped onto the app: `tray.state` from `library.inspect` (`selection`, `tray`), `tray.select`
 //!   as `select.set` (with the ids an `add` or `remove` leaves) then `tray.hold`, and `engine.group`
 //!   as one `engine.execute` for one step, or `batch` (stopping at the first failure) for several:
@@ -36,11 +39,13 @@ use std::net::{IpAddr, SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use dalica_core::PhotoId;
 use dalica_create::output::{self, Choice, OutFormat, Purpose, Quality, Spec};
 use dalica_edit::Recipe;
 use serde_json::{Map, Value, json};
 
 use crate::backend::{Backend, Progress, Rendered, ToolError};
+use crate::tray;
 
 /// Kept for `dalica-cli mcp` until its `--connect` option is wired to [`Options`] and [`Connect`]
 /// (M10.17 built them; the CLI's `mcp` command file belongs to M10.16 while it runs).
@@ -386,6 +391,8 @@ impl Connect {
     fn execute(&mut self, params: Value, progress: &mut dyn Progress) -> Result<Value, ToolError> {
         let wait = params.get("wait").cloned().unwrap_or(Value::Null);
         let Value::Object(mut p) = params else { return self.client.call("engine.execute", params) };
+        let mut photos = None;
+        self.fill_from_tray(&mut p, &mut photos)?;
         if !(wait.is_null() || wait == Value::Bool(true)) {
             // `wait: false` answers at once; a bad `wait` is the app's to refuse.
             return self.client.call("engine.execute", Value::Object(p));
@@ -415,6 +422,37 @@ impl Connect {
                 return Err(ToolError::new("cancelled", "the request was cancelled"));
             }
         }
+    }
+
+    /// A step `{command, params?}` whose command takes `ids` and was given none gets the app's
+    /// Photo Tray ([`tray::fill_ids`]); `photos` keeps the tray once read, so the steps of one
+    /// group read it once. A command the engine does not list, or `params` that are not an
+    /// object, go as they are: the app answers them.
+    fn fill_from_tray(&mut self, step: &mut Map<String, Value>, photos: &mut Option<Vec<PhotoId>>) -> Result<(), ToolError> {
+        let Some(doc) = step.get("command").and_then(Value::as_str).and_then(params_doc) else { return Ok(()) };
+        let mut params = match step.get("params") {
+            None | Some(Value::Null) => Map::new(),
+            Some(Value::Object(o)) => o.clone(),
+            Some(_) => return Ok(()),
+        };
+        let filled = tray::fill_ids(&mut params, doc, || match photos {
+            Some(ids) => Ok::<_, ToolError>(ids.clone()),
+            None => {
+                let ids = self.tray_photos()?;
+                *photos = Some(ids.clone());
+                Ok(ids)
+            }
+        })?;
+        if filled {
+            step.insert("params".into(), Value::Object(params));
+        }
+        Ok(())
+    }
+
+    /// The photos in the app's Photo Tray (`library.inspect` → `tray.items`), in tray order.
+    fn tray_photos(&mut self) -> Result<Vec<PhotoId>, ToolError> {
+        let state = self.tray_state()?;
+        Ok(state["tray"].as_array().into_iter().flatten().filter_map(Value::as_u64).map(PhotoId::new).collect())
     }
 
     /// `{section, selection, held, tray}` from the app's `library.inspect`.
@@ -500,6 +538,7 @@ impl Connect {
             return Err(ToolError::new("limit", format!("`steps` holds 1 to {max} commands, not {}", steps.len())));
         }
         let mut prepared = Vec::with_capacity(steps.len());
+        let mut photos = None;
         for (n, step) in steps.iter().enumerate() {
             let at = |e: ToolError| ToolError { message: format!("step {}: {}", n.saturating_add(1), e.message), ..e };
             let s = fields(step, &["command", "params"], "a step of engine.group").map_err(at)?;
@@ -509,6 +548,7 @@ impl Connect {
             if let Some(params) = s.get("params").filter(|v| !v.is_null()) {
                 o.insert("params".into(), params.clone());
             }
+            self.fill_from_tray(&mut o, &mut photos).map_err(at)?;
             prepared.push(Value::Object(o));
         }
         if let [one] = prepared.as_slice() {
@@ -574,6 +614,12 @@ impl Backend for Connect {
     fn describe(&self) -> String {
         format!("connected to the Dalica app at {} (its control channel)", self.client.addr)
     }
+}
+
+/// The params doc of engine command `command` (the app's registry is the engine's), `None` for a
+/// command the engine does not list (the app's own view commands take no photo ids).
+fn params_doc(command: &str) -> Option<&'static str> {
+    dalica_engine::cmd::specs().into_iter().find(|s| s.id == command).map(|s| s.params)
 }
 
 /// The job a reply names while it is still running (`{job, pending: true}`).

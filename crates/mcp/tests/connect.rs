@@ -1,8 +1,9 @@
 //! Connect mode (`mcp.md` §1, §4.3) against an in-process fake control server: authentication
 //! first, a request lost in transit answered "may have completed" and never resent, the next call
 //! reconnecting, mismatched reply ids skipped, jobs followed and cancelled through `jobs.cancel`,
-//! the headless helper methods mapped onto the app, each UI tool mapped to its control method, and
-//! the UI tools of a headless server saying how to connect.
+//! the headless helper methods mapped onto the app, a photo command without `ids` acting on the
+//! app's Photo Tray as in headless mode, each UI tool mapped to its control method, and the UI
+//! tools of a headless server saying how to connect.
 
 use std::io::{BufRead, BufReader, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
@@ -317,18 +318,68 @@ fn the_headless_helper_methods_map_onto_the_app() {
 
     let one = json!({ "steps": [{ "command": "photo.star.set", "params": { "ids": [2], "on": true } }], "label": "Set Metadata" });
     assert_eq!(b.call("engine.group", one, &mut NoProgress).unwrap(), json!({ "results": [{ "starred": [2] }] }));
-    let two = json!({ "steps": [{ "command": "photo.star.set" }, { "command": "photo.hide" }] });
+    // Steps without `ids` get the app's tray, read once for the group.
+    let before = app.requests().len();
+    let two = json!({ "steps": [{ "command": "photo.star.set", "params": { "on": true } }, { "command": "photo.hide" }] });
     assert_eq!(b.call("engine.group", two, &mut NoProgress).unwrap(), json!({ "results": [{ "a": 1 }, { "b": 2 }] }));
-    let last = app.requests().pop().unwrap();
-    assert_eq!(
-        (last.1.as_str(), last.2),
-        ("batch", json!({ "steps": [{ "command": "photo.star.set" }, { "command": "photo.hide" }], "stopOnError": true }))
-    );
+    let sent: Vec<(String, Value)> = app.requests().into_iter().skip(before).map(|(_, m, p)| (m, p)).collect();
+    let steps = json!([{ "command": "photo.star.set", "params": { "on": true, "ids": [9, 2, 3] } }, { "command": "photo.hide", "params": { "ids": [9, 2, 3] } }]);
+    assert_eq!(sent, [("library.inspect".to_string(), json!({})), ("batch".into(), json!({ "steps": steps, "stopOnError": true }))]);
     let failing = json!({ "steps": [{ "command": "photo.star.set" }, { "command": "photo.caption.set" }] });
     let e = b.call("engine.group", failing, &mut NoProgress).unwrap_err();
     assert_eq!(e.code, "not_found");
     assert!(e.message.starts_with("step 2: no photo 99"), "{e}");
     assert_eq!(b.call("engine.group", json!({ "steps": [] }), &mut NoProgress).unwrap_err().code, "limit");
+}
+
+/// A fake app whose Photo Tray holds `tray` (`library.inspect`) and whose `engine.execute` runs in
+/// a real headless session over the demo library, on a thread of its own, so its answers are the
+/// engine's.
+fn engine_app(tray: Vec<u64>) -> FakeApp {
+    type Job = (Value, std::sync::mpsc::Sender<Result<Value, ToolError>>);
+    let (tx, rx) = std::sync::mpsc::channel::<Job>();
+    std::thread::spawn(move || {
+        let mut h = Headless::open(Source::Demo, &[]).unwrap();
+        for (params, answer) in rx {
+            let _ = answer.send(h.call("engine.execute", params, &mut NoProgress));
+        }
+    });
+    let tx = Mutex::new(tx);
+    FakeApp::start(move |_, r| {
+        Act::Lines(vec![match r["method"].as_str().unwrap() {
+            "library.inspect" => reply(r, json!({ "selection": { "section": "folder:1", "ids": tray }, "tray": { "items": tray, "held": [] } })),
+            "engine.execute" => {
+                let (answer, result) = std::sync::mpsc::channel();
+                tx.lock().unwrap().send((r["params"].clone(), answer)).unwrap();
+                match result.recv().unwrap() {
+                    Ok(v) => reply(r, v),
+                    Err(e) => failure(r, &e.code, &e.message),
+                }
+            }
+            _ => failure(r, "unknown_method", "no such method"),
+        }])
+    })
+}
+
+/// A photo command without `ids` acts on the app's Photo Tray (M10.54; `mcp.md` §4.1): with two
+/// photos in the tray it changes both; with an empty tray it answers what headless mode answers.
+#[test]
+fn a_photo_command_without_ids_acts_on_the_apps_tray() {
+    let app = engine_app(vec![2, 3]);
+    let mut b = app.connect();
+    let r = b.call("engine.execute", json!({ "command": "photo.star.toggle" }), &mut NoProgress).unwrap();
+    assert_eq!(r["ids"], json!([2, 3]), "both photos of the tray: {r}");
+    let sent = app.requests().into_iter().find(|(_, m, _)| m == "engine.execute").map(|(_, _, p)| p);
+    assert_eq!(sent, Some(json!({ "command": "photo.star.toggle", "params": { "ids": [2, 3] }, "wait": false })));
+    b.call("engine.execute", json!({ "command": "photo.rotate.cw", "params": {} }), &mut NoProgress).unwrap();
+    assert_eq!(app.requests().last().map(|(_, _, p)| p["params"].clone()), Some(json!({ "ids": [2, 3] })));
+
+    let empty = engine_app(Vec::new());
+    let e = empty.connect().call("engine.execute", json!({ "command": "photo.rotate.cw" }), &mut NoProgress).unwrap_err();
+    let mut h = Headless::open(Source::Demo, &[]).unwrap();
+    let want = h.call("engine.execute", json!({ "command": "photo.rotate.cw" }), &mut NoProgress).unwrap_err();
+    assert_eq!((e.code.as_str(), e.message.as_str()), (want.code.as_str(), want.message.as_str()));
+    assert_eq!(e.code, "disabled", "{e}");
 }
 
 /// `render` reads the photo and its recipe from the app and renders the file here, through the

@@ -7,9 +7,26 @@
 //! - **Held** photos stay in the tray across sections until released.
 //! - The **tray** is the held photos, then the selected photos not held, each once (the order
 //!   `ui`'s `tray::photos` gives).
+//!
+//! [`fill_ids`] is the Photo Tray rule both modes apply before a command runs: the headless
+//! backend with this [`Tray`], connect mode with the app's tray (`library.inspect`, M10.54).
 
 use dalica_core::PhotoId;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
+
+/// The Photo Tray rule (`mcp.md` §4.1, §4.4), one implementation for headless and connect mode: a
+/// command whose params doc (`params_doc`) names `ids` as required (`"ids":`, not `"ids"?:`), run
+/// without `ids`, acts on the Photo Tray, as the bottom-bar buttons do. `tray` is asked for the
+/// tray's photos only then; an empty tray gives `ids: []`, which the command itself refuses
+/// ("Select some photos first."), in both modes alike. Returns whether `ids` was filled.
+pub fn fill_ids<E>(params: &mut Map<String, Value>, params_doc: &str, tray: impl FnOnce() -> Result<Vec<PhotoId>, E>) -> Result<bool, E> {
+    if params.contains_key("ids") || !params_doc.contains("\"ids\":") {
+        return Ok(false);
+    }
+    let ids = tray()?;
+    params.insert("ids".into(), json!(ids));
+    Ok(true)
+}
 
 /// How [`Tray::select`] changes the selection.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -143,5 +160,23 @@ mod tests {
         t.release(None);
         assert_eq!(t.to_json()["tray"], json!([3, 4]));
         assert_eq!(Mode::parse("toggle"), None);
+    }
+
+    /// `ids` comes from the tray only when the params doc requires it and none was given; the tray
+    /// is not asked otherwise, and its error is the answer.
+    #[test]
+    fn ids_come_from_the_tray_only_when_required_and_missing() {
+        let tray = || Ok::<_, String>(ids(2..=3));
+        let required = r#"{"ids":[PhotoId], "on":bool}"#;
+        let mut p = Map::new();
+        assert_eq!(fill_ids(&mut p, required, tray), Ok(true));
+        assert_eq!(Value::Object(p), json!({ "ids": [2, 3] }));
+        let mut given = json!({ "ids": [7] }).as_object().cloned().unwrap();
+        assert_eq!(fill_ids(&mut given, required, || Err("not asked".to_string())), Ok(false));
+        assert_eq!(given["ids"], json!([7]));
+        let mut optional = Map::new();
+        assert_eq!(fill_ids(&mut optional, r#"{"ids"?:[PhotoId]}"#, || Err("not asked".to_string())), Ok(false));
+        assert!(optional.is_empty());
+        assert_eq!(fill_ids(&mut Map::new(), required, || Err::<Vec<PhotoId>, _>("unreachable")), Err("unreachable"));
     }
 }
