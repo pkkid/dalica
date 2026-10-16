@@ -43,6 +43,7 @@ mod offline;
 mod options_catalogue;
 mod options_set;
 mod panic_hunt;
+mod pending_writes;
 mod photo_history;
 mod photo_metadata;
 mod preview;

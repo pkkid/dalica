@@ -27,6 +27,8 @@ fn every_key_is_there_and_the_counts_match_the_library() {
     let (_dir, mut s) = demo();
     s.execute("photo.star.set", &json!({ "ids": [1, 2], "on": true })).unwrap();
     s.execute("photo.hide", &json!({ "ids": [5] })).unwrap();
+    // Their sidecar writes count in `pendingWrites` until they land (`pending_writes.rs`).
+    s.flush().unwrap();
     let v = inspect(&mut s, json!({}));
     for key in
         ["revision", "demo", "watched", "counts", "tree", "sections", "search", "view", "undo", "unsavedEdits", "pendingWrites", "problems", "scan"]

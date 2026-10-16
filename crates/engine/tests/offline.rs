@@ -380,8 +380,10 @@ fn online_edits_are_not_pending() {
         s.poll();
     }
     fx.check(&mut s);
-    assert_eq!(s.pending_writes(), None);
+    // Counted until written (`pending_writes.rs`), but never as waiting for a volume.
+    assert!(s.pending_writes().is_none_or(|p| p.error.is_some_and(|e| !e.contains("offline"))), "{:?}", s.pending_writes());
     s.flush().unwrap();
+    assert_eq!(s.pending_writes(), None);
     assert_eq!(fx.star_in_sidecar("IMG_0003.jpg"), Field::Value(true));
 }
 

@@ -46,7 +46,7 @@
 //! through the same calls and are applied as derived ops: journaled, but never on the undo stack
 //! and never written to a sidecar.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
@@ -115,6 +115,55 @@ pub(crate) enum Msg {
     },
 }
 
+/// The sidecar writes sent to the I/O worker and not yet committed, shared by the session and
+/// the worker (`library.inspect` → `pendingWrites.sidecars`, M10.50). A folder counts from the
+/// moment the session sends its change ([`Msg::Dirty`]) until the worker has taken that change in
+/// and its writer no longer holds the folder dirty: through the debounce, while the write is made,
+/// and while it fails or waits for its volume. Messages reach the worker in order, so each
+/// [`Msg::Dirty`] is known on both sides by its number (the session counts them as it sends them,
+/// the worker as it takes them in) and a write that took in an older change of a folder never
+/// clears a newer one still on its way.
+#[derive(Debug, Default)]
+pub(crate) struct SidecarQueue {
+    /// How many [`Msg::Dirty`] the session sent.
+    sent: u64,
+    /// Each folder with a write to make: the number of the last [`Msg::Dirty`] naming it (0 for a
+    /// write the worker queued on its own, after a carry).
+    folders: BTreeMap<FolderId, u64>,
+}
+
+impl SidecarQueue {
+    /// The session is sending `list`: its folders count until their writes are committed; a
+    /// folder that left the library (no state) has nothing left to write.
+    fn sending(&mut self, list: &[(FolderId, Option<FolderState>)]) {
+        self.sent = self.sent.saturating_add(1);
+        for (folder, state) in list {
+            match state {
+                Some(_) => {
+                    self.folders.insert(*folder, self.sent);
+                }
+                None => {
+                    self.folders.remove(folder);
+                }
+            }
+        }
+    }
+
+    /// The worker's writer just tried to write `tried`, and took in every change up to `seen` (by
+    /// folder): those of them it no longer holds dirty, whose last change it took in, are
+    /// committed (or have nothing left to write: a folder gone from the library, a damaged
+    /// sidecar's read-only folder). Only a write pass clears a folder, so only its folders are
+    /// looked at.
+    fn settle(&mut self, tried: impl IntoIterator<Item = FolderId>, writer: &SidecarWriter, seen: &HashMap<FolderId, u64>) {
+        for f in tried {
+            let committed = self.folders.get(&f).is_some_and(|n| seen.get(&f).copied().unwrap_or(0) >= *n);
+            if committed && !writer.is_dirty(f) {
+                self.folders.remove(&f);
+            }
+        }
+    }
+}
+
 /// How a session is opened.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Options {
@@ -134,6 +183,8 @@ pub struct Session {
     io: Option<Sender<Msg>>,
     worker: Option<JoinHandle<()>>,
     io_errors: Arc<Mutex<Vec<String>>>,
+    /// The sidecar writes not yet committed ([`SidecarQueue`]).
+    sidecar_queue: Arc<Mutex<SidecarQueue>>,
     collected: Option<Vec<Op>>,
     /// The op a command asked its undo step to use instead of the collected inverses.
     undo_op: Option<Op>,
@@ -222,13 +273,14 @@ impl Session {
         let mut recovery = opened.report;
         recovery.extend(folders_note);
         let io_errors = Arc::new(Mutex::new(Vec::new()));
+        let sidecar_queue = Arc::new(Mutex::new(SidecarQueue::default()));
         let (tx, rx) = mpsc::channel();
         let worker = {
-            let (clock, errors) = (Arc::clone(&clock), Arc::clone(&io_errors));
+            let (clock, errors, queue) = (Arc::clone(&clock), Arc::clone(&io_errors), Arc::clone(&sidecar_queue));
             let store = opened.store;
             std::thread::Builder::new()
                 .name("dalica-io".into())
-                .spawn(move || io_worker(store, rx, clock.as_ref(), &errors))
+                .spawn(move || io_worker(store, rx, clock.as_ref(), &errors, &queue))
                 .map_err(|e| OpenError::Thread(e.to_string()))?
         };
         let registry = crate::cmd::specs();
@@ -258,6 +310,7 @@ impl Session {
             io: Some(tx),
             worker: Some(worker),
             io_errors,
+            sidecar_queue,
             collected: None,
             undo_op: None,
             stamping: false,
@@ -552,6 +605,10 @@ impl Session {
         if self.read_only && !matches!(msg, Msg::Hold(_) | Msg::Guard(_) | Msg::Flush(_)) {
             return;
         }
+        // Counted before it is sent, so no `pendingWrites` read in between misses it.
+        if let Msg::Dirty(list) = &msg {
+            self.sidecar_queue.lock().unwrap_or_else(PoisonError::into_inner).sending(list);
+        }
         if let Some(io) = &self.io
             && io.send(msg).is_err()
         {
@@ -670,6 +727,12 @@ impl Session {
         let _ = done.recv();
         let errors = std::mem::take(&mut *self.io_errors.lock().unwrap_or_else(PoisonError::into_inner));
         if errors.is_empty() { Ok(()) } else { Err(CmdError::Unsaved(errors.join("; "))) }
+    }
+
+    /// The folders whose sidecar write the I/O worker has not committed yet ([`SidecarQueue`]):
+    /// sent, debounced, being made, failed and retried, or waiting for their volume.
+    pub(crate) fn queued_sidecars(&self) -> BTreeSet<FolderId> {
+        self.sidecar_queue.lock().unwrap_or_else(PoisonError::into_inner).folders.keys().copied().collect()
     }
 
     /// Whether this session writes nothing (`--read-only`; see the module's notes).
@@ -919,15 +982,26 @@ impl Drop for Session {
     }
 }
 
-/// The I/O worker: owns the store and the sidecar writer.
-fn io_worker(mut store: Store, rx: Receiver<Msg>, clock: &dyn Clock, errors: &Mutex<Vec<String>>) {
+/// The I/O worker: owns the store and the sidecar writer, and clears the folders it committed
+/// from the session's [`SidecarQueue`] after each pass.
+fn io_worker(mut store: Store, rx: Receiver<Msg>, clock: &dyn Clock, errors: &Mutex<Vec<String>>, queue: &Mutex<SidecarQueue>) {
     let mut writer = SidecarWriter::new();
     let mut states: HashMap<FolderId, Option<FolderState>> = HashMap::new();
+    // How many `Msg::Dirty` were taken in, and the number of the last one naming each folder.
+    let mut received: u64 = 0;
+    let mut seen: HashMap<FolderId, u64> = HashMap::new();
+    let settle = |tried: Vec<FolderId>, writer: &SidecarWriter, seen: &HashMap<FolderId, u64>| {
+        if !tried.is_empty() {
+            queue.lock().unwrap_or_else(PoisonError::into_inner).settle(tried, writer, seen);
+        }
+    };
     let fail = |e: String| {
         log::warn!("{e}");
         errors.lock().unwrap_or_else(PoisonError::into_inner).push(e);
     };
-    let report = |outcomes: std::collections::BTreeMap<FolderId, dalica_store::Outcome>| {
+    // Reports each outcome and answers the folders tried.
+    let report = |outcomes: std::collections::BTreeMap<FolderId, dalica_store::Outcome>| -> Vec<FolderId> {
+        let tried = outcomes.keys().copied().collect();
         for (folder, outcome) in outcomes {
             match outcome {
                 dalica_store::Outcome::Failed(e) => fail(format!("sidecar of folder {folder}: {e}")),
@@ -943,10 +1017,12 @@ fn io_worker(mut store: Store, rx: Receiver<Msg>, clock: &dyn Clock, errors: &Mu
                 dalica_store::Outcome::ReadOnly => {}
             }
         }
+        tried
     };
-    let write = |writer: &mut SidecarWriter, states: &HashMap<FolderId, Option<FolderState>>, all: bool| {
+    let write = |writer: &mut SidecarWriter, states: &HashMap<FolderId, Option<FolderState>>, seen: &HashMap<FolderId, u64>, all: bool| {
         let state_of = |f: FolderId| states.get(&f).cloned().flatten();
-        report(if all { writer.flush_with(state_of, clock.now()) } else { writer.write_due_with(state_of, clock.now()) });
+        let tried = report(if all { writer.flush_with(state_of, clock.now()) } else { writer.write_due_with(state_of, clock.now()) });
+        settle(tried, writer, seen);
     };
     loop {
         match rx.recv_timeout(TICK) {
@@ -958,9 +1034,11 @@ fn io_worker(mut store: Store, rx: Receiver<Msg>, clock: &dyn Clock, errors: &Mu
                 }
             }
             Ok(Msg::Dirty(list)) => {
+                received = received.saturating_add(1);
                 for (folder, state) in list {
                     writer.mark_dirty(folder);
                     states.insert(folder, state);
+                    seen.insert(folder, received);
                 }
             }
             Ok(Msg::Write(path, bytes)) => {
@@ -985,7 +1063,8 @@ fn io_worker(mut store: Store, rx: Receiver<Msg>, clock: &dyn Clock, errors: &Mu
                 let carried = match (from, to) {
                     (Some(from), Some(to)) => {
                         let r = writer.carry(&carry, from, to, |f| states.get(&f).cloned().flatten(), now);
-                        report(r.writes);
+                        let tried = report(r.writes);
+                        settle(tried, &writer, &seen);
                         r.carried
                     }
                     // A folder the library does not have is never written by the writer: nothing to
@@ -995,6 +1074,7 @@ fn io_worker(mut store: Store, rx: Receiver<Msg>, clock: &dyn Clock, errors: &Mu
                         let r = dalica_store::carry::entries(&carry, now);
                         if let Some(to) = to.filter(|_| r.is_ok()) {
                             writer.mark_dirty(to);
+                            queue.lock().unwrap_or_else(PoisonError::into_inner).folders.entry(to).or_insert(0);
                         }
                         r
                     }
@@ -1016,17 +1096,17 @@ fn io_worker(mut store: Store, rx: Receiver<Msg>, clock: &dyn Clock, errors: &Mu
             Ok(Msg::Hold(roots)) => writer.hold(roots),
             Ok(Msg::Guard(roots)) => writer.guard(roots),
             Ok(Msg::Flush(ack)) => {
-                write(&mut writer, &states, true);
+                write(&mut writer, &states, &seen, true);
                 let _ = ack.send(());
                 continue;
             }
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => {
-                write(&mut writer, &states, true);
+                write(&mut writer, &states, &seen, true);
                 return;
             }
         }
-        write(&mut writer, &states, false);
+        write(&mut writer, &states, &seen, false);
     }
 }
 
