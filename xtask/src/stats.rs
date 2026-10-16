@@ -13,10 +13,9 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::process::Command;
 
-/// The workflows passing on `main` when the floor was last raised: M10.20, five (W01, W02, W03, W08
-/// and W09). The nine P0 workflows (`mcp.md` §9: W01–W06, W08, W09, W12) raise it to nine with
-/// M10.19's W04, W05, W06 and W12.
-pub const FLOOR: usize = 5;
+/// The workflows passing on `main` when the floor was last raised: M10.19, the nine P0 workflows
+/// (`mcp.md` §9: W01–W06, W08, W09, W12; M10.20 had set five before W04, W05, W06 and W12 landed).
+pub const FLOOR: usize = 9;
 /// The package and test target holding the workflows.
 pub const PACKAGE: &str = "dalica-mcp";
 pub const TARGET: &str = "workflows";
