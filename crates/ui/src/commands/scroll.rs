@@ -4,7 +4,8 @@
 //! `scroll.nextSection`, which move like the scroll bar's ⇑ / ⇓), Ctrl+Home / Ctrl+End to the top /
 //! bottom of the library (`scroll.top`, `scroll.bottom`). They move
 //! [`UiState::scroll`](crate::state::UiState::scroll), the anchor the light table's view follows:
-//! when a command writes it, the view eases there over 0.2 s. The scroll keys work on the layout of
+//! when a command writes it, the view eases there over 0.2 s (at once when Options ▸ General ▸ Use
+//! animations is off, [`crate::scale::animations`]). The scroll keys work on the layout of
 //! the last frame (the view's height, the sections' tops) and start from the anchor last asked for,
 //! so presses made while the view is still easing add up.
 
@@ -23,7 +24,7 @@ pub const COMMANDS: &[UiCommand] = &[
         label: "Scroll to Section",
         menu: "",
         keys: &[],
-        params: r#"{"section": "folder:<FolderId>"}: ease the light table so that section's header is at the top (0.2 s); again = the top of that section"#,
+        params: r#"{"section": "folder:<FolderId>"}: ease the light table so that section's header is at the top (0.2 s, at once with animations off); again = the top of that section"#,
         run: scroll_to,
     },
     UiCommand {

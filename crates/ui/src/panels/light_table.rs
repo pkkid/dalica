@@ -31,8 +31,9 @@
 //! **Scrolling.** [`UiState::scroll`] is the position by content (a section and the offset below
 //! its top). The light table writes it when the user moves the view (wheel, scroll bar); when
 //! something else writes it (`section.scrollTo`, the scroll commands, `ui.set`), the view eases
-//! there over [`SCROLL_SECONDS`] (ease-out, on the frame clock, which is virtual in headless runs)
-//! and the anchor stays as written, even where the view stops short of it at the end of the
+//! there over [`SCROLL_SECONDS`] (ease-out, on the frame clock, which is virtual in headless runs;
+//! at once when Options ▸ General ▸ Use animations is off, [`crate::scale::animations`]) and the
+//! anchor stays as written, even where the view stops short of it at the end of the
 //! content. A resize, a new cell size or a caption change keeps the anchor, so the same photos stay
 //! in view. A scroll part asks for either kind of move with a [`scrollbar::ScrollRequest`]; a
 //! rubber band held at an edge with [`input::Pending::scroll`], applied after the cells, so the
@@ -213,6 +214,7 @@ pub fn tree_options(app: &App) -> TreeOptions {
         let ms = session.clock().now().as_millis();
         options.now = Some(dalica_core::Timestamp::from_millis(ms.div_euclid(RECENT_STEP_MS).saturating_mul(RECENT_STEP_MS)));
         options.recent_days = session.settings().organize().recent_days;
+        options.small_threshold = session.settings().small_picture_threshold();
         options.filter = session.search_filter();
         let search = session.search_state();
         if options.filter.is_some() && search.mode == Some(dalica_engine::search::SearchMode::Search) {
@@ -463,8 +465,9 @@ impl LightTable {
     }
 
     /// Resolves this frame's offset: an anchor written from outside starts an animation towards
-    /// it, a running animation advances, a new layout keeps the anchor in view.
-    fn resolve(&mut self, wanted: &ScrollAnchor, relaid: bool, view_h: f32, now: f64) {
+    /// it (or, without `animate`, goes there at once), a running animation advances, a new layout
+    /// keeps the anchor in view.
+    fn resolve(&mut self, wanted: &ScrollAnchor, relaid: bool, view_h: f32, now: f64, animate: bool) {
         let Some(layout) = &self.layout else { return };
         if *wanted != self.written {
             self.animation = Some(Animation { from: self.offset, to: *wanted, start: now });
@@ -474,7 +477,7 @@ impl LightTable {
         }
         if let Some(a) = self.animation {
             let to = layout.clamp(layout.offset_of(&a.to).unwrap_or(a.from), view_h);
-            let p = if now.is_finite() && a.start.is_finite() { ((now - a.start) / SCROLL_SECONDS).clamp(0.0, 1.0) } else { 1.0 };
+            let p = if animate && now.is_finite() && a.start.is_finite() { ((now - a.start) / SCROLL_SECONDS).clamp(0.0, 1.0) } else { 1.0 };
             if p >= 1.0 - 1e-6 {
                 self.offset = to;
                 self.animation = None;
@@ -546,7 +549,8 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui, area: Rect, bar: Rect) {
     let (now, ppp) = ui.input(|i| (i.time, i.pixels_per_point()));
     let ppp = if ppp.is_finite() && ppp > 0.0 { ppp } else { 1.0 };
     let view_h = area.height();
-    lt.resolve(&state.scroll, relaid, view_h, now);
+    let animate = crate::scale::animations(ui.ctx());
+    lt.resolve(&state.scroll, relaid, view_h, now, animate);
 
     // Input that moves the view comes first, so this frame paints where it lands.
     let mut zoom = 1.0;
@@ -564,8 +568,15 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui, area: Rect, bar: Rect) {
     };
     match request {
         Some(scrollbar::ScrollRequest::To(y)) => lt.jump(y, view_h),
-        Some(scrollbar::ScrollRequest::Animate(to)) => {
+        Some(scrollbar::ScrollRequest::Animate(to)) if animate => {
             lt.animation = Some(Animation { from: lt.offset, to, start: now });
+            lt.wanted = Some(to);
+        }
+        Some(scrollbar::ScrollRequest::Animate(to)) => {
+            lt.animation = None;
+            if let Some(l) = &lt.layout {
+                lt.offset = l.clamp(l.offset_of(&to).unwrap_or(lt.offset), view_h);
+            }
             lt.wanted = Some(to);
         }
         None => {}
@@ -720,6 +731,21 @@ mod tests {
     #[test]
     fn dates_read_as_words() {
         assert_eq!(long_date(dalica_core::Date::new(2026, 6, 4).unwrap()), "June 4, 2026");
+    }
+
+    /// The small-picture threshold of Options ▸ File Types reaches the light table and the tree.
+    #[test]
+    fn the_small_picture_threshold_comes_from_the_settings() {
+        let (_dir, s, _) = crate::app::tests::session_with_photos(2);
+        let mut app = App::new(Some(s));
+        let shown = |app: &App| {
+            let s = app.session().unwrap();
+            build(s.library(), s.roots(), &tree_options(app)).iter().map(|x| x.photos.len()).sum::<usize>()
+        };
+        assert_eq!(shown(&app), 2);
+        app.run("options.set", &serde_json::json!({ "values": { "fileTypes.smallPictureThreshold": 1024 } })).unwrap();
+        assert_eq!(tree_options(&app).small_threshold, 1024);
+        assert_eq!(shown(&app), 0, "both photos are now small pictures");
     }
 
     #[test]

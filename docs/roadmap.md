@@ -4877,7 +4877,7 @@ No other step of M10 needs a maintainer decision mid-run.
     dialog resizes within the window and its list follows; `crates/ui/tests/menu_checks.rs` lists
     every checkable item and toggles each through its command and through `ui.set`; fingerprints
     at both sizes.
-- ⬜ **M10.10 `ui`: the Options dialog, its General tab, UI scale and font size**
+- ✅ **M10.10 `ui`: the Options dialog, its General tab, UI scale and font size**
   - after: M10.2, M10.3, M10.5
   - files: `crates/ui/src/dialogs/options.rs`, `crates/ui/src/dialogs/options/general.rs`, `crates/ui/src/scale.rs`, `crates/ui-kit/src/widgets/tooltip.rs`, `crates/ui/src/panels/light_table.rs`, `crates/ui/src/panels/edit/canvas.rs`, `crates/ui/src/commands/zoom.rs`, `crates/ui/src/commands/scroll.rs`, `crates/ui/tests/options_dialog.rs`, `crates/ui/tests/ui_scale.rs`, `crates/ui/tests/fingerprints/dialog-options-general-*.json`, `crates/ui/tests/fingerprints/ui-scale-*.json`, `docs/design-system.md`
   - scope: `design-system.md` §11.3–§11.5 and `menus-and-shortcuts.md` §5 General, with PhotoCraft

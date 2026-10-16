@@ -19,7 +19,8 @@
 //! **Commands** (UI-only: they change `edit.zoom`; each refuses outside the edit view):
 //! `edit.zoom.fit` (the bottom area's Fit), `edit.zoom.actual` (1:1), `edit.zoom.in` (Ctrl+=,
 //! Ctrl++), `edit.zoom.out` (Ctrl+−), `edit.zoom.set {slider}` (the zoom slider). Fit and 1:1
-//! animate on the canvas (0.22 s); the others jump. The fitted scale they need is the one the
+//! animate on the canvas (0.22 s; they jump when Options ▸ General ▸ Use animations is off,
+//! [`crate::scale::animations`]); the others jump. The fitted scale they need is the one the
 //! canvas laid out last ([`crate::panels::edit::canvas::fitted`]); before the photo has been drawn
 //! it counts as 1.
 
@@ -40,13 +41,20 @@ pub const STEP: f32 = 1.25;
 const EPS: f32 = 1e-4;
 
 pub const COMMANDS: &[UiCommand] = &[
-    UiCommand { id: "edit.zoom.fit", label: "Fit", menu: "", keys: &[], params: "{}: fit the photo to the photo area (animated)", run: fit },
+    UiCommand {
+        id: "edit.zoom.fit",
+        label: "Fit",
+        menu: "",
+        keys: &[],
+        params: "{}: fit the photo to the photo area (animated unless animations are off)",
+        run: fit,
+    },
     UiCommand {
         id: "edit.zoom.actual",
         label: "Actual Size",
         menu: "",
         keys: &[],
-        params: "{}: show the photo at 100 % (1:1, animated)",
+        params: "{}: show the photo at 100 % (1:1, animated unless animations are off)",
         run: actual,
     },
     UiCommand {

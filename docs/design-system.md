@@ -415,20 +415,31 @@ Tools → Options… (macOS Dalica → Preferences…, `app.preferences`) has **
 **Apply** (`menus-and-shortcuts.md` §5):
 
 - The dialog edits a draft copy of the settings. **Apply** saves the edited values and keeps the
-  dialog open; it is disabled while the draft matches the saved settings. **OK** applies (if needed)
+  dialog open; it is disabled while the draft matches the saved settings (a value changed and put
+  back counts as unchanged). **OK** applies (if needed)
   and closes. **Cancel** (and Esc) discards only the changes made since the last successful Apply.
 - A failed Apply (for example the settings file could not be written) shows the error in the
   dialog, leaves the draft open for correction and changes nothing.
-- Most options take effect on Apply. UI language and UI font size preview live while the dialog is
-  open and revert on Cancel. Options that need a restart (Use system title bar) say "Applies at next
-  launch." and are never applied to the running window.
+- Most options take effect on Apply. UI scale and UI font size (and UI language, once it exists)
+  preview live while the dialog is open and revert on Cancel. Options that need a restart (Use
+  system title bar) say "Applies at next launch." and are never applied to the running window.
+- A tab lays out its options on the form rows of §6: each group's on/off options as checkboxes
+  under the group's right-aligned label ("Interface:", "Files:"), every other option on a row of
+  its own labelled with its name (dropdowns, a folder's path with Browse…), groups divided by a
+  rule. An option whose feature does not exist yet is drawn disabled with its reason as the tooltip
+  ("Arrives with Import"); an option of another platform is left out. A tab taller than the dialog
+  scrolls by the wheel, with a solid scroll bar so the rows below are not missed.
+- **Show tooltips** off stops every hover tooltip (egui's tooltip delay becomes infinite). **Use
+  animations** off makes eased movements jump to their end: the light table's scroll to a section,
+  the edit view's Fit and 1:1 zoom and the pan's release glide, and egui's own fades.
 - Settings are written atomically like every other file (`data-model.md` §4); a damaged settings
   file is kept as `.corrupt-<time>` and the defaults are used.
 
 ### 11.4 UI Scale and high-DPI displays
 
-Options → General → Interface → **UI scale** applies at once (on Apply) and multiplies every point
-size in this document; photo pixels and the edit-view zoom are independent of it.
+Options → General → Interface → **UI scale** previews live in the dialog, is saved on Apply, and
+multiplies every point size in this document; photo pixels and the edit-view zoom are independent
+of it.
 
 - **Auto** (default) follows the operating system's display scale, including fractional scales
   (125 %, 150 %, 175 %; on Linux, Wayland's fractional scale or X11's `Xft.dpi`).
@@ -442,7 +453,10 @@ size in this document; photo pixels and the edit-view zoom are independent of it
   every scale.
 - `theme::UiScale::factor(system scale, monitor long side)` computes the factor (fixed choices snap
   to 25 % steps inside 75–300 %; an unknown or nonsensical system scale counts as 100 %); the window
-  applies it as egui's zoom, so widgets never multiply by it themselves.
+  applies it as egui's zoom (the factor over the system scale the window already applies, read
+  every frame with the window's current monitor), so widgets never multiply by it themselves.
+  Headless runs have no monitor: the pixels per point the driver is given (`--scale`) are the
+  system scale, so Auto there is exactly that scale.
 
 ### 11.5 UI Font Size
 
