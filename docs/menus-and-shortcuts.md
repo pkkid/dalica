@@ -180,7 +180,8 @@ for now (deferred, `product.md` → Scope).
 that parameter, and their widget id ends in the variant (`menuitem:view.caption/date`): Thumbnail
 Caption ▸ `view.caption {caption: none | filename | caption | tags | resolution | date}`; Folder
 View ▸ `view.folderView {mode: flat | tree}`, and Simplified Tree View is `view.simplifiedTree`;
-Sort By ▸ `section.sort {by: date | name | size}` and Reverse Order `section.sort {reverse: true}`;
+Sort By ▸ `section.sort {by: date | name | size}` and Reverse Order `section.sort {reverse: true}`
+(their marks show the current folder's photo sort; none in an album, M10.25);
 Search for ▸ `search.color {color: red | orange | yellow | green | blue | purple | bw}`. Batch Edit ▸
 runs `photo.rename`, `photo.rotate.cw` and `photo.rotate.ccw` (widget part `batch`, since the
 Picture menu lists the rotations too) and `edit.apply {op: autocontrast | autocolor | autofix |

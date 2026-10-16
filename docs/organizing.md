@@ -89,10 +89,13 @@ Semantics: see `data-model.md` §7. Confirmations:
 How it is built (M5.18; `crates/ui/src/dialogs/folder_manager.rs`, its tests
 `crates/ui/tests/folder_manager.rs`):
 
-- The dialog is ≈ 640 × 480, fixed (it fits the smallest window, 900 × 600); a resizable frame
-  waits for the dialog widget to grow one. Its draft (the dialog's fields: the selected folder,
-  the expanded folders, the changes by folder, the drives confirmed) is plain data; nothing reaches
-  the library before OK, and OK with no change runs nothing.
+- The dialog opens at ≈ 640 × 480 (it fits the smallest window, 900 × 600) and is resizable
+  (M10.25) by the grip in its bottom-right corner (`resize:dialog.se`): it stays centred, so it
+  grows by twice the pointer's move, between 520 × 360 and the window less its margins, and the
+  tree and the watched list take the room. It opens again at the size it last had while the app
+  runs (never saved). Its draft (the dialog's fields: the selected folder, the expanded folders,
+  the changes by folder, the drives confirmed, its size) is plain data; nothing reaches the
+  library before OK, and OK with no change runs nothing.
 - Roots are the standard places that exist, then the volumes (a volume that is also a place is
   listed once). A folder's subfolders are read only when it is expanded, through `folders.browse`
   on the engine's workers: the frame never waits, a spinner row ("Loading…") stands in until the
@@ -484,9 +487,12 @@ By ▸.
 - **Folder Properties** (double-click the folder name or header, or the context menu): **Name**
   (renames on disk), **Date** + **"Use the date of the oldest photo"**, **Place** (optional),
   **Description** (optional), **Music for slideshows** (path + Browse…), [OK] [Cancel].
-  All fields are searchable; the description shows in the folder header. The date is typed as
-  `YYYY-MM-DD` (the long date shows beside it; OK is greyed while the text does not read as a
-  day); while the box is ticked the field shows the oldest photo's date. OK renames the folder
+  All fields are searchable; the description shows in the folder header. The date is a date
+  field (`design-system.md` §6, M10.25): typed as `YYYY-MM-DD`, ↑ and ↓ step the year, month or
+  day under the cursor, and a day that does not exist is refused (the field goes back to the last
+  day that read), with the long date beside it; while the box is ticked the field shows the
+  oldest photo's date, and unticking it keeps that day (today's when the folder has none). OK
+  renames the folder
   first when the Name changed (its own undo step), then sets the rest; Music stays greyed until
   slideshows (M11) arrive.
 

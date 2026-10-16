@@ -8,6 +8,8 @@
 //! - Cancel changes nothing; OK applies the draft as one undo step, which undo takes back.
 //! - Scan Always on a volume root asks first: Cancel reverts the radio, Watch Drive sets it.
 //! - The library's selected folder is pre-selected and revealed; the watched list reveals too.
+//! - The grip resizes the dialog within the window (M10.25), the tree and the watched list follow,
+//!   and the dialog opens again at the size it last had.
 //! - Every widget has an id (the driver checks every frame); it fits 900 × 600, and the dialog matches its fingerprints
 //!   (`tests/fingerprints/dialog-folder-manager-1400x900.json`; `DALICA_BLESS=1` stores new ones,
 //!   renders go to `target/test-output/ui/`).
@@ -20,7 +22,8 @@ use dalica_core::FolderId;
 use dalica_engine::Session;
 use dalica_scan::{Places, Volume, VolumeKind};
 use dalica_ui::dialogs::folder_manager::draft::Draft;
-use dalica_ui::dialogs::folder_manager::{self, State, expand_id, mode_id, reveal_id, row_id};
+use dalica_ui::dialogs::folder_manager::{self, GRIP_ID, HEIGHT, MIN_HEIGHT, MIN_WIDTH, State, WIDTH, expand_id, mode_id, reveal_id, row_id};
+use dalica_ui::headless::{Drag, Target};
 use dalica_ui::state::DialogKind;
 use dalica_ui::{App, Driver};
 use dalica_ui_kit::Tokens;
@@ -405,4 +408,68 @@ fn the_dialog_matches_its_fingerprint_and_fits_the_small_window() {
     assert!(has(&fx.d, "dialog:folderManager/ok") && !has(&fx.d, "button:dialog.ok"), "the buttons under the question are its parts");
     shot(&fx.d, "dialog-watch-drive-1400x900-window");
     check_small(&mut fx.d, "dialog:watchDrive");
+}
+
+/// The rect of widget `id` in the last frame.
+fn rect(d: &Driver, id: &str) -> [f32; 4] {
+    try_widget(d, id).unwrap_or_else(|| panic!("no `{id}`")).rect
+}
+
+fn near(a: f32, b: f32) -> bool {
+    (a - b).abs() < 1.5
+}
+
+/// The grip resizes the dialog around its centre within the window, between its minimum and the
+/// window less its margins; the tree and the watched list take the room; Cancel and opening again
+/// keep the size for the session; a small window still holds it.
+#[test]
+fn the_dialog_resizes_within_the_window_and_its_lists_follow() {
+    let mut fx = fixture(LARGE);
+    open(&mut fx);
+    let pics = fx.pictures.clone();
+    let (tree_row, watched_row) = (row_id(&pics, &pics), reveal_id(&pics));
+    let (d0, t0, w0) = (rect(&fx.d, "dialog:folderManager"), rect(&fx.d, &tree_row), rect(&fx.d, &watched_row));
+    // The window's 1 pt outline comes on top of its size.
+    assert!(near(d0[2], WIDTH + 2.0) && near(d0[3], HEIGHT + 2.0), "it opens {WIDTH} × {HEIGHT}: {d0:?}");
+    assert_eq!(draft(&fx.d).size, None, "the first size");
+    let grip = rect(&fx.d, GRIP_ID);
+    assert!(near(grip[0] + grip[2], d0[0] + d0[2]) && near(grip[1] + grip[3], d0[1] + d0[3]), "the grip is in the corner: {grip:?} {d0:?}");
+
+    // 60 right and 40 down: the dialog stays centred, so it grows by twice that and the corner
+    // stays under the pointer; each half of the body is 60 wider.
+    fx.d.drag(GRIP_ID, Target::Delta(egui::vec2(60.0, 40.0)), &Drag::default()).unwrap();
+    fx.d.settle(FRAMES).unwrap();
+    let (d1, t1, w1) = (rect(&fx.d, "dialog:folderManager"), rect(&fx.d, &tree_row), rect(&fx.d, &watched_row));
+    assert!(near(d1[2] - d0[2], 120.0) && near(d1[3] - d0[3], 80.0), "{d0:?} → {d1:?}");
+    assert!(near(d1[0] + d1[2] / 2.0, d0[0] + d0[2] / 2.0) && near(d1[1] + d1[3] / 2.0, d0[1] + d0[3] / 2.0), "still centred");
+    assert_eq!(draft(&fx.d).size, Some([WIDTH + 120.0, HEIGHT + 80.0]));
+    assert!(near(t1[2] - t0[2], 60.0) && near(w1[2] - w0[2], 60.0), "the lists follow: tree {t0:?} → {t1:?}, watched {w0:?} → {w1:?}");
+    shot(&fx.d, "dialog-folder-manager-resized-1400x900");
+
+    // As large as the window lets it be, and no smaller than its minimum.
+    fx.d.drag(GRIP_ID, Target::Delta(egui::vec2(900.0, 600.0)), &Drag::default()).unwrap();
+    fx.d.settle(FRAMES).unwrap();
+    let big = rect(&fx.d, "dialog:folderManager");
+    assert!(big[0] >= 15.5 && big[1] >= 39.5 && big[0] + big[2] <= LARGE.0 as f32 - 15.5 && big[1] + big[3] <= LARGE.1 as f32 - 39.5, "{big:?}");
+    assert!(big[2] > LARGE.0 as f32 - 40.0, "it fills the window's width: {big:?}");
+    fx.d.drag(GRIP_ID, Target::Delta(egui::vec2(-1300.0, -800.0)), &Drag::default()).unwrap();
+    fx.d.settle(FRAMES).unwrap();
+    let small = rect(&fx.d, "dialog:folderManager");
+    assert!(near(small[2], MIN_WIDTH + 2.0) && near(small[3], MIN_HEIGHT + 2.0), "{small:?}");
+    assert_eq!(draft(&fx.d).size, Some([MIN_WIDTH, MIN_HEIGHT]));
+
+    // Cancel, then open again: the size it had.
+    fx.d.drag(GRIP_ID, Target::Delta(egui::vec2(50.0, 30.0)), &Drag::default()).unwrap();
+    fx.d.settle(FRAMES).unwrap();
+    let kept = rect(&fx.d, "dialog:folderManager");
+    fx.d.click("button:dialog.cancel").unwrap();
+    fx.d.settle(FRAMES).unwrap();
+    assert!(!has(&fx.d, "dialog:folderManager"));
+    open(&mut fx);
+    fx.d.settle(FRAMES).unwrap();
+    assert_eq!(rect(&fx.d, "dialog:folderManager"), kept, "it opens again at its size");
+    assert_eq!(draft(&fx.d).size, Some([MIN_WIDTH + 100.0, MIN_HEIGHT + 60.0]));
+
+    // The small window holds it, every part inside.
+    check_small(&mut fx.d, "dialog:folderManager");
 }
