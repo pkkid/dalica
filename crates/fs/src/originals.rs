@@ -8,7 +8,10 @@
 //! - [`back_up`] re-checks the photo's identity right before the move (§5.3) and moves it with a
 //!   rename that never replaces, so the *first* original is the one kept: when a backup of that
 //!   name already exists it must be the recorded one (size and digest, [`Recorded`]), and then
-//!   nothing moves ([`Backup::AlreadyKept`]); any other backup is refused.
+//!   nothing moves ([`Backup::AlreadyKept`]); any other backup is refused. On Windows, where
+//!   stable Rust has no rename that refuses a taken name, the name is checked free right before
+//!   one plain rename (as `replace` checks `Expect::Absent`), never a hard link then an unlink:
+//!   a crash between those two steps would leave the original under both names.
 //! - [`restore`] moves the backup back only when it is still the recorded one and the saved file
 //!   is still the version the caller expects (`Expect::Unchanged`; `Expect::Absent` when a Save
 //!   stopped between the two steps and no saved file was written).
@@ -23,7 +26,9 @@ use std::path::{Path, PathBuf};
 
 use crate::atomic::{Expect, Identity};
 use crate::create::plain_name;
-use crate::dirfd::{Folder, Kind, NoReplace};
+#[cfg(unix)]
+use crate::dirfd::NoReplace;
+use crate::dirfd::{Folder, Kind};
 use crate::faults::{self, points};
 use crate::{Error, Result, guard, io_err};
 
@@ -210,18 +215,37 @@ fn check_backup(backups: &Folder, name: &OsStr, kept: &Recorded<'_>) -> Result<I
 }
 
 /// Moves `from` in `src` to `to` in `dest` only if `to` is free ([`Error::Changed`] naming it
-/// otherwise). On a volume that can do neither a non-replacing rename nor a hard link, the free
-/// name is checked right before a plain rename: one process per library (the library lock) keeps
-/// other Dalica processes out of that gap.
+/// otherwise), in one step the OS makes exclusive (`Folder::rename_noreplace`). On a volume that
+/// can do neither a non-replacing rename nor a hard link, the free name is checked right before a
+/// plain rename: one process per library (the library lock) keeps other Dalica processes out of
+/// that gap.
+#[cfg(unix)]
 fn move_noreplace(src: &Folder, from: &OsStr, dest: &Folder, to: &OsStr) -> Result<()> {
     match src.rename_noreplace(from, dest, to)? {
         NoReplace::Done => Ok(()),
         NoReplace::Taken => Err(Error::Changed(dest.join(to))),
-        NoReplace::Unsupported => {
-            if dest.entry(to)?.is_some() {
-                return Err(Error::Changed(dest.join(to)));
-            }
-            src.rename_to(from, dest, to)
-        }
+        NoReplace::Unsupported => rename_if_free(src, from, dest, to),
     }
+}
+
+/// Moves `from` in `src` to `to` in `dest` only if `to` is free ([`Error::Changed`] naming it
+/// otherwise). Windows: stable Rust's rename always replaces, so `Folder::rename_noreplace` is a
+/// hard link then an unlink there, and a crash (or a kill) between the two would leave the
+/// original under both names, one file reached through both: an edit made in place through the
+/// photo's name would change the kept original too, and the repair would find a backup it cannot
+/// tell from a copy (`data-model.md` §6: at every moment the original is at the photo's name *or*
+/// in the backup). So the free name is checked right before one rename, which keeps exactly one
+/// name at every moment, crashes included; the library lock keeps other Dalica processes out of
+/// that gap, as on volumes without hard links.
+#[cfg(not(unix))]
+fn move_noreplace(src: &Folder, from: &OsStr, dest: &Folder, to: &OsStr) -> Result<()> {
+    rename_if_free(src, from, dest, to)
+}
+
+/// One plain rename of `from` to `to`, once `to` is checked free right before it.
+fn rename_if_free(src: &Folder, from: &OsStr, dest: &Folder, to: &OsStr) -> Result<()> {
+    if dest.entry(to)?.is_some() {
+        return Err(Error::Changed(dest.join(to)));
+    }
+    src.rename_to(from, dest, to)
 }

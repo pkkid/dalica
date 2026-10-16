@@ -5308,7 +5308,7 @@ No other step of M10 needs a maintainer decision mid-run.
   - done when: each named test passes on the systems it failed on, proven by dispatching CI on the
     task branch (`gh workflow run ci.yml --ref <branch>`; macOS and Windows cannot run locally) and
     citing the green jobs in the PR; `cargo xtask ci` green.
-- ⬜ **M10.45 `fs` + `engine`: the full gate's Windows failures in a killed Save and the watcher**
+- ✅ **M10.45 `fs` + `engine`: the full gate's Windows failures in a killed Save and the watcher**
   - after: M10.34
   - files: `crates/fs/src/originals.rs`, `crates/fs/tests/crash.rs`, `crates/engine/src/watching.rs`, `crates/engine/tests/watching.rs`
   - scope: found by the full gate on Windows (GitHub run 38832985226). (a) fs

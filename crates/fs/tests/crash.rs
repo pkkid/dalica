@@ -243,6 +243,8 @@ fn a_save_killed_at_any_moment_keeps_the_original_whole_under_exactly_one_name()
             // Saved: the original kept, the saved file whole (this Save's or the next one's).
             (Some(p), Some(b)) => {
                 assert_eq!(b, original, "{case}");
+                // Windows until M10.45: a hard link then an unlink left one file under both names.
+                assert!(p != original, "{case}: the original is under both names");
                 assert!(which("saved", &p).is_some_and(|n| n == last + 1), "{case}");
             }
             (None, None) => panic!("{case}: the original is gone"),
