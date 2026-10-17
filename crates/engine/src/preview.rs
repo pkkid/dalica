@@ -1,26 +1,38 @@
-//! The edit view's preview renders (`editing.md` §3, §5.2; `architecture.md` §5–§6), all off the
-//! owner thread on the preview's own workers, the open photo's at the edit view's priority:
+//! The edit view's preview renders (`editing.md` §3, §4, §5.2; `architecture.md` §5–§6), all off
+//! the owner thread on the preview's own workers, the open photos' at the edit view's priority:
 //!
+//! - **Two panes** (M11.10). The preview has [`PANES`] panes, 0 and 1: compare shows two photos
+//!   (A│B) or one photo twice (A│A). Each pane has its photo, its recipe, its tool's candidate, its
+//!   zoomed window and its generation; both render at the edit view's priority, the focused pane
+//!   ([`Session::set_preview_focus`]) a step above the other so its jobs go first. The calls
+//!   without a pane (`open_preview`, `preview` …) are pane 0's; [`Session::close_preview`] closes
+//!   both.
+//! - **What a pane shows** ([`PaneShows`]): the photo's own recipe, A│A's variant of it
+//!   (`variant.rs`; the photo's own recipe while no variant of it is open), or the photo unedited
+//!   (before/after: its source, no render at all).
 //! - **The source.** Per open photo, its screen-size picture (the ladder's unedited screen entry
 //!   when the thumbnail cache has it, else the file decoded under the limits and halved to between
 //!   one and two screen sizes, then stored as that entry in the background) is kept in memory: the
-//!   last [`SOURCES`] photos'.
-//! - **The screen preview** of the photo's recipe ([`Session::open_preview`]) at the largest
-//!   power-of-two scale of its source (1, ½, ¼ …) that still covers the photo area's box in device
+//!   last [`SOURCES`] photos', never an open pane's. Two panes on one photo share it.
+//! - **The screen preview** of a pane's recipe ([`Session::open_preview_in`]) at the largest
+//!   power-of-two scale of its source (1, ½, ¼ …) that still covers the pane's box in device
 //!   pixels, never above the source's resolution; the edit view draws it fitted to the box. A
-//!   change of the photo's recipe (any history step) renders it again. Why powers of two: see
-//!   `preview/jobs.rs` (the renderer's fractional resample is what a 2-core machine cannot afford).
-//! - **A tool's candidate** ([`Session::set_preview_candidate`]) renders as a [`Quality::Draft`],
-//!   at a lower scale only when the measured cost of a full render would miss
+//!   change of the recipe a pane shows (any history step, of the photo or of its variant) renders
+//!   that pane again, and only that one. Why powers of two: see `preview/jobs.rs` (the renderer's
+//!   fractional resample is what a 2-core machine cannot afford).
+//! - **A tool's candidate** ([`Session::set_preview_candidate_in`]) renders as a
+//!   [`Quality::Draft`], at a lower scale only when the measured cost of a full render would miss
 //!   [`DRAFT_TARGET_MS`], then as the [`Quality::Final`] (a full-scale draft is the final).
-//! - **Zoomed past the preview** ([`Session::set_preview_window`]): the whole photo is decoded (kept
-//!   while zoomed, when it fits in [`MAX_FULL_BYTES`]) and the visible window rendered at full
-//!   resolution with `edit::render_region` ("refining" without blocking).
+//! - **Zoomed past the preview** ([`Session::set_preview_window_in`]): the whole photo is decoded
+//!   (kept while zoomed, when it fits in [`MAX_FULL_BYTES`]; shared by two panes on one photo) and
+//!   the visible window rendered at full resolution with `edit::render_region` ("refining" without
+//!   blocking).
 //! - **The neighbours** ([`Session::prefetch_previews`]): their sources are read and their previews
 //!   rendered at the prefetch priority, so the next or previous photo opens without a decode.
 //! - **Histograms**: each preview shown carries the 256-bin RGB [`Histogram`] of its pixels.
 //! - Every request takes a new **generation**; a result of an older one is dropped (and its job
-//!   cancelled when it has not started). Closing the photo cancels everything it asked for.
+//!   cancelled when it has not started). Closing a pane cancels everything it asked for (what the
+//!   other pane still needs of the same photo stays).
 //!
 //! The owner thread only submits jobs and takes their results in [`Session::poll`]: it never
 //! decodes, renders or touches the disk.
@@ -47,7 +59,9 @@ use crate::session::Session;
 
 /// The preview's worker threads (renders run their bands in parallel on top of these).
 pub const WORKERS: usize = 2;
-/// Photos whose screen-size source stays in memory (the open one and its neighbours).
+/// The preview's panes: 0 (the only one outside compare, the left or top one in it) and 1.
+pub const PANES: usize = 2;
+/// Photos whose screen-size source stays in memory (the open ones and their neighbours).
 pub const SOURCES: usize = 4;
 /// Prefetched previews kept ready.
 pub const READY: usize = 4;
@@ -68,6 +82,8 @@ pub const MAX_FIT: u32 = 16_384;
 pub const MAX_WINDOW_PIXELS: u64 = 1 << 26;
 /// Updates kept until taken.
 pub const MAX_UPDATES: usize = 256;
+/// The priority of the pane not focused: the edit view's, one step below the focused pane's.
+const SIDE: Priority = Priority(Priority::EDIT.0 - 1);
 
 /// The quality of a preview shown.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -78,6 +94,19 @@ pub enum Quality {
     Final,
 }
 
+/// What a pane shows of its photo.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PaneShows {
+    /// The photo's own recipe (or a tool's candidate for it).
+    #[default]
+    Edited,
+    /// A│A's variant of the photo (or a tool's candidate for it); the photo's own recipe while no
+    /// variant of it is open.
+    Variant,
+    /// The photo unedited: its source, whatever the recipe or a candidate (before/after).
+    Unedited,
+}
+
 /// The preview the edit view shows.
 #[derive(Clone, Debug)]
 pub struct PreviewImage {
@@ -86,7 +115,7 @@ pub struct PreviewImage {
     pub quality: Quality,
     pub image: Arc<Rgba8>,
     pub histogram: Arc<Histogram>,
-    /// The recipe it shows (the photo's, or the tool's candidate).
+    /// The recipe it shows (the photo's, its variant's, the tool's candidate, or none).
     pub recipe: Vec<String>,
 }
 
@@ -107,9 +136,11 @@ pub enum UpdateKind {
     Refined,
 }
 
-/// One preview shown, with the time from its request to the poll that took it.
+/// One preview shown, with the pane it was shown in and the time from its request to the poll
+/// that took it.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PreviewUpdate {
+    pub pane: usize,
     pub photo: PhotoId,
     pub generation: u64,
     pub kind: UpdateKind,
@@ -141,12 +172,12 @@ pub struct PreviewStats {
 enum Key {
     /// A photo's source, and its preview when asked.
     Load(PhotoId),
-    /// The open photo's preview of a generation.
-    Render(u64, bool),
-    /// The open photo's whole decode.
+    /// A pane's preview of a generation (a draft or not).
+    Render(usize, u64, bool),
+    /// A photo's whole decode (for the panes zoomed on it).
     Full(PhotoId),
-    /// A refined window of a generation.
-    Region(u64),
+    /// A pane's refined window of a generation.
+    Region(usize, u64),
     /// Storing a photo's screen entry in the thumbnail cache.
     Store(PhotoId),
 }
@@ -165,7 +196,7 @@ enum Done {
     Panicked(String),
 }
 
-/// What the open photo asked for last.
+/// What a pane asked for last.
 struct Want {
     generation: u64,
     recipe: Vec<String>,
@@ -173,10 +204,12 @@ struct Want {
     draft: bool,
 }
 
+/// An open pane.
 struct Open {
     photo: PhotoId,
     file: Source,
     fit: (u32, u32),
+    shows: PaneShows,
     candidate: Option<Vec<String>>,
     want: Want,
     frame: Option<PreviewImage>,
@@ -193,7 +226,9 @@ struct Open {
 pub(crate) struct Preview {
     /// Started on the first open.
     pool: Option<Pool<Key, Done>>,
-    open: Option<Open>,
+    panes: [Option<Open>; PANES],
+    /// The focused pane: its jobs go first.
+    focus: usize,
     /// Screen-size sources, most recently used first.
     sources: VecDeque<(Source, Render, Arc<Screen>)>,
     /// Prefetched previews with the file they were made from, most recently made first: a file
@@ -222,6 +257,30 @@ impl Preview {
     fn next_generation(&mut self) -> u64 {
         self.generation = self.generation.saturating_add(1);
         self.generation
+    }
+
+    fn pane(&self, pane: usize) -> Option<&Open> {
+        self.panes.get(pane).and_then(Option::as_ref)
+    }
+
+    fn pane_mut(&mut self, pane: usize) -> Option<&mut Open> {
+        self.panes.get_mut(pane).and_then(Option::as_mut)
+    }
+
+    /// Whether a pane has photo `id` open.
+    fn holds(&self, id: PhotoId) -> bool {
+        self.panes.iter().flatten().any(|o| o.photo == id)
+    }
+
+    /// The panes open on `file`.
+    fn panes_on(&self, file: &Source) -> Vec<usize> {
+        (0..PANES).filter(|p| self.pane(*p).is_some_and(|o| o.file == *file)).collect()
+    }
+
+    /// The priority of pane `pane`'s jobs: the edit view's for the focused one, a step below for
+    /// the other.
+    fn priority(&self, pane: usize) -> Priority {
+        if pane == self.focus { Priority::EDIT } else { SIDE }
     }
 
     fn submit(&mut self, key: Key, priority: Priority, work: impl FnOnce(&AtomicBool) -> Done + Send + 'static) {
@@ -296,10 +355,10 @@ impl Preview {
     fn keep_source(&mut self, file: Source, render: Render, image: Arc<Screen>) {
         self.sources.retain(|(f, r, _)| !(*f == file && *r == render));
         self.sources.push_front((file, render, image));
-        let open = self.open.as_ref().map(|o| o.file.clone());
+        let open: Vec<Source> = self.panes.iter().flatten().map(|o| o.file.clone()).collect();
         while self.sources.len() > SOURCES {
-            // The open photo's source is never the one dropped.
-            match self.sources.iter().rposition(|(f, _, _)| Some(f) != open.as_ref()) {
+            // An open pane's source is never the one dropped.
+            match self.sources.iter().rposition(|(f, _, _)| !open.contains(f)) {
                 Some(at) => {
                     self.sources.remove(at);
                 }
@@ -377,6 +436,13 @@ pub enum PreviewError {
     BadRecipe(String),
     #[error("bad window: {0}")]
     BadWindow(&'static str),
+    #[error("no preview pane {0}: the panes are 0 and 1")]
+    BadPane(usize),
+}
+
+/// `pane`, when it is one.
+fn pane_index(pane: usize) -> Result<usize, PreviewError> {
+    if pane < PANES { Ok(pane) } else { Err(PreviewError::BadPane(pane)) }
 }
 
 impl Session {
@@ -386,82 +452,162 @@ impl Session {
         Ladder { cache, render, screen, limits }
     }
 
-    /// Opens photo `id` in the edit view's preview, covering `fit` (the photo area in device
-    /// pixels): its source is read (or taken from memory) and its recipe rendered at the edit
-    /// view's priority. Opening another photo first closes the one open.
+    /// The recipe pane `open` shows now.
+    fn pane_texts(&self, open: &Open) -> Vec<String> {
+        match (open.shows, &open.candidate) {
+            (PaneShows::Unedited, _) => Vec::new(),
+            (_, Some(candidate)) => candidate.clone(),
+            (PaneShows::Variant, None) => {
+                self.variant_edits(open.photo).map_or_else(|| self.library.info(open.photo).edits.clone(), <[String]>::to_vec)
+            }
+            (PaneShows::Edited, None) => self.library.info(open.photo).edits.clone(),
+        }
+    }
+
+    /// Opens photo `id` in pane 0 ([`Session::open_preview_in`]).
     pub fn open_preview(&mut self, id: PhotoId, fit: (u32, u32)) -> Result<(), PreviewError> {
+        self.open_preview_in(0, id, fit)
+    }
+
+    /// Opens photo `id` in preview pane `pane`, covering `fit` (the pane's photo area in device
+    /// pixels): its source is read (or taken from memory) and the recipe the pane shows rendered
+    /// at the edit view's priority. Opening another photo in a pane first closes the one open
+    /// there, and the pane then shows the new photo's own recipe.
+    pub fn open_preview_in(&mut self, pane: usize, id: PhotoId, fit: (u32, u32)) -> Result<(), PreviewError> {
+        let pane = pane_index(pane)?;
         let file = file_of(self, id).ok_or(PreviewError::NoPhoto)?;
-        if self.preview.open.as_ref().is_some_and(|o| o.photo != id) {
-            self.close_preview();
+        if self.preview.pane(pane).is_some_and(|o| o.photo != id) {
+            self.close_pane(pane);
         }
         let fit = clamp_fit(fit);
         self.preview.fit = Some(fit);
-        let generation = self.preview.next_generation();
-        let recipe = self.library.info(id).edits.clone();
-        let reopened = self.preview.open.as_ref().is_some_and(|o| o.photo == id && o.file == file);
+        let reopened = self.preview.pane(pane).is_some_and(|o| o.photo == id && o.file == file);
         if !reopened {
-            self.preview.open = Some(Open {
-                photo: id,
-                file,
-                fit,
-                candidate: None,
-                want: Want { generation, recipe, started: Instant::now(), draft: false },
-                frame: None,
-                window: None,
-                full: None,
-                refined: None,
-                window_asked: (0, Instant::now()),
-                failure: None,
-            });
-        } else if let Some(open) = &mut self.preview.open {
+            let generation = self.preview.next_generation();
+            let recipe = self.library.info(id).edits.clone();
+            let shows = self.preview.pane(pane).map(|o| o.shows).unwrap_or_default();
+            if let Some(slot) = self.preview.panes.get_mut(pane) {
+                *slot = Some(Open {
+                    photo: id,
+                    file,
+                    fit,
+                    shows,
+                    candidate: None,
+                    want: Want { generation, recipe, started: Instant::now(), draft: false },
+                    frame: None,
+                    window: None,
+                    full: None,
+                    refined: None,
+                    window_asked: (0, Instant::now()),
+                    failure: None,
+                });
+            }
+        } else if let Some(open) = self.preview.pane_mut(pane) {
             open.fit = fit;
             open.candidate = None;
         }
-        self.request_preview(false);
+        self.request_preview(pane, false);
         Ok(())
     }
 
-    /// Closes the open photo: every job it asked for is cancelled and its preview, window and
-    /// full decode dropped. Sources and prefetched previews stay in memory.
+    /// Closes both panes ([`Session::close_preview_in`]).
     pub fn close_preview(&mut self) {
-        let Some(open) = self.preview.open.take() else { return };
+        for pane in 0..PANES {
+            self.close_pane(pane);
+        }
+    }
+
+    /// Closes pane `pane` (nothing for a pane that is not open, or not a pane): every job it asked
+    /// for is cancelled (its photo's source and whole decode only when the other pane is not on the
+    /// same photo) and its preview, window and full decode dropped. Sources and prefetched
+    /// previews stay in memory.
+    pub fn close_preview_in(&mut self, pane: usize) {
+        self.close_pane(pane);
+    }
+
+    fn close_pane(&mut self, pane: usize) {
+        let Some(open) = self.preview.panes.get_mut(pane).and_then(Option::take) else { return };
         let photo = open.photo;
+        let shared = self.preview.holds(photo);
         self.preview.cancel_where(|k| match k {
-            Key::Load(id) | Key::Full(id) => *id == photo,
-            Key::Render(..) | Key::Region(_) => true,
+            Key::Load(id) | Key::Full(id) => *id == photo && !shared,
+            Key::Render(p, ..) | Key::Region(p, _) => *p == pane,
             Key::Store(_) => false,
         });
     }
 
-    /// The photo area changed size: the preview is made to cover `fit` again.
+    /// Pane 0's photo area changed size ([`Session::set_preview_fit_in`]).
     pub fn set_preview_fit(&mut self, fit: (u32, u32)) -> Result<(), PreviewError> {
+        self.set_preview_fit_in(0, fit)
+    }
+
+    /// Pane `pane`'s photo area changed size: its preview is made to cover `fit` again.
+    pub fn set_preview_fit_in(&mut self, pane: usize, fit: (u32, u32)) -> Result<(), PreviewError> {
+        let pane = pane_index(pane)?;
         let fit = clamp_fit(fit);
-        let open = self.preview.open.as_mut().ok_or(PreviewError::NotOpen)?;
+        let open = self.preview.pane_mut(pane).ok_or(PreviewError::NotOpen)?;
         if open.fit != fit {
             open.fit = fit;
             self.preview.fit = Some(fit);
-            self.request_preview(false);
+            self.request_preview(pane, false);
         }
         Ok(())
     }
 
-    /// A tool's candidate recipe (`Some`: the whole recipe as it would be stored), rendered as a
-    /// draft and then final; `None` goes back to the photo's own recipe.
+    /// A tool's candidate for pane 0 ([`Session::set_preview_candidate_in`]).
     pub fn set_preview_candidate(&mut self, recipe: Option<&[String]>) -> Result<(), PreviewError> {
+        self.set_preview_candidate_in(0, recipe)
+    }
+
+    /// A tool's candidate recipe for pane `pane` (`Some`: the whole recipe as it would be stored),
+    /// rendered as a draft and then final; `None` goes back to the recipe the pane shows. A pane
+    /// showing its photo unedited keeps the candidate for when it shows the edits again.
+    pub fn set_preview_candidate_in(&mut self, pane: usize, recipe: Option<&[String]>) -> Result<(), PreviewError> {
+        let pane = pane_index(pane)?;
         if let Some(texts) = recipe {
             Recipe::parse(texts).map_err(|e| PreviewError::BadRecipe(e.to_string()))?;
         }
-        let open = self.preview.open.as_mut().ok_or(PreviewError::NotOpen)?;
+        let open = self.preview.pane_mut(pane).ok_or(PreviewError::NotOpen)?;
         open.candidate = recipe.map(<[String]>::to_vec);
-        let draft = open.candidate.is_some();
-        self.request_preview(draft);
+        let draft = open.candidate.is_some() && open.shows != PaneShows::Unedited;
+        self.request_preview(pane, draft);
         Ok(())
     }
 
-    /// The visible window while zoomed past the preview (`Some`: in the displayed picture's pixels
-    /// at `region.scale` output pixels per pixel of the whole photo), refined at full resolution in
-    /// the background; `None` (fitted again) drops the window and the whole decode.
+    /// What pane `pane` shows of its photo: its own recipe, A│A's variant, or the photo unedited
+    /// (before/after). Rendered again at once when it changes.
+    pub fn set_preview_shows(&mut self, pane: usize, shows: PaneShows) -> Result<(), PreviewError> {
+        let pane = pane_index(pane)?;
+        let open = self.preview.pane_mut(pane).ok_or(PreviewError::NotOpen)?;
+        if open.shows != shows {
+            open.shows = shows;
+            self.request_preview(pane, false);
+        }
+        Ok(())
+    }
+
+    /// Focuses pane `pane`: from now on its jobs go before the other pane's.
+    pub fn set_preview_focus(&mut self, pane: usize) -> Result<(), PreviewError> {
+        self.preview.focus = pane_index(pane)?;
+        Ok(())
+    }
+
+    /// The focused pane.
+    pub fn preview_focus(&self) -> usize {
+        self.preview.focus
+    }
+
+    /// Pane 0's visible window ([`Session::set_preview_window_in`]).
     pub fn set_preview_window(&mut self, window: Option<Region>) -> Result<(), PreviewError> {
+        self.set_preview_window_in(0, window)
+    }
+
+    /// Pane `pane`'s visible window while zoomed past the preview (`Some`: in the displayed
+    /// picture's pixels at `region.scale` output pixels per pixel of the whole photo), refined at
+    /// full resolution in the background; `None` (fitted again) drops the window and the whole
+    /// decode.
+    pub fn set_preview_window_in(&mut self, pane: usize, window: Option<Region>) -> Result<(), PreviewError> {
+        let pane = pane_index(pane)?;
         if let Some(r) = window {
             if !(r.scale.is_finite() && r.scale > 0.0 && r.scale <= dalica_edit::render::MAX_SCALE) {
                 return Err(PreviewError::BadWindow("the scale must be finite, positive and at most the renderer's largest"));
@@ -470,7 +616,7 @@ impl Session {
                 return Err(PreviewError::BadWindow("the window must hold between one pixel and the most a window may"));
             }
         }
-        let open = self.preview.open.as_mut().ok_or(PreviewError::NotOpen)?;
+        let open = self.preview.pane_mut(pane).ok_or(PreviewError::NotOpen)?;
         if open.window == window {
             return Ok(());
         }
@@ -479,21 +625,22 @@ impl Session {
             open.full = None;
             open.refined = None;
             let photo = open.photo;
-            self.preview.cancel_where(|k| matches!(k, Key::Region(_)) || *k == Key::Full(photo));
+            // The whole decode stays on its way while the other pane is zoomed on the same photo.
+            let other_zoomed = self.preview.panes.iter().flatten().any(|o| o.photo == photo && o.window.is_some());
+            self.preview.cancel_where(|k| matches!(k, Key::Region(p, _) if *p == pane) || (*k == Key::Full(photo) && !other_zoomed));
             return Ok(());
         }
-        self.request_window();
+        self.request_window(pane);
         Ok(())
     }
 
     /// Prefetches the previews of `ids` (the next and previous photos) at the prefetch priority:
-    /// their sources read and their recipes rendered at the open photo's box. Prefetch of photos
-    /// no longer listed is cancelled.
+    /// their sources read and their recipes rendered at the last box asked for. Prefetch of photos
+    /// no longer listed is cancelled; photos open in a pane are not prefetched.
     pub fn prefetch_previews(&mut self, ids: &[PhotoId]) {
         let Some(fit) = self.preview.fit else { return };
-        let open = self.preview.open.as_ref().map(|o| o.photo);
         let ladder = self.preview_ladder();
-        let wanted: Vec<PhotoId> = ids.iter().copied().filter(|id| Some(*id) != open).take(MAX_PREFETCH).collect();
+        let wanted: Vec<PhotoId> = ids.iter().copied().filter(|id| !self.preview.holds(*id)).take(MAX_PREFETCH).collect();
         let stale: Vec<PhotoId> = self.preview.prefetching.iter().filter(|id| !wanted.contains(id)).copied().collect();
         for id in stale {
             if self.preview.loading.get(&id) == Some(&Priority::PREFETCH) {
@@ -516,24 +663,49 @@ impl Session {
         }
     }
 
-    /// The preview shown now, if any.
+    /// Pane 0's preview shown now, if any.
     pub fn preview(&self) -> Option<&PreviewImage> {
-        self.preview.open.as_ref().and_then(|o| o.frame.as_ref())
+        self.preview_in(0)
     }
 
-    /// The refined window shown now, if zoomed and refined.
+    /// Pane `pane`'s preview shown now, if any.
+    pub fn preview_in(&self, pane: usize) -> Option<&PreviewImage> {
+        self.preview.pane(pane).and_then(|o| o.frame.as_ref())
+    }
+
+    /// Pane 0's refined window shown now, if zoomed and refined.
     pub fn preview_refined(&self) -> Option<&Refined> {
-        self.preview.open.as_ref().and_then(|o| o.refined.as_ref())
+        self.preview_refined_in(0)
     }
 
-    /// The photo open in the preview.
+    /// Pane `pane`'s refined window shown now, if zoomed and refined.
+    pub fn preview_refined_in(&self, pane: usize) -> Option<&Refined> {
+        self.preview.pane(pane).and_then(|o| o.refined.as_ref())
+    }
+
+    /// The photo open in pane 0.
     pub fn preview_photo(&self) -> Option<PhotoId> {
-        self.preview.open.as_ref().map(|o| o.photo)
+        self.preview_photo_in(0)
     }
 
-    /// Why the open photo's preview could not be made.
+    /// The photo open in pane `pane`.
+    pub fn preview_photo_in(&self, pane: usize) -> Option<PhotoId> {
+        self.preview.pane(pane).map(|o| o.photo)
+    }
+
+    /// What pane `pane` shows of its photo, while it is open.
+    pub fn preview_shows(&self, pane: usize) -> Option<PaneShows> {
+        self.preview.pane(pane).map(|o| o.shows)
+    }
+
+    /// Why pane 0's preview could not be made.
     pub fn preview_failure(&self) -> Option<&str> {
-        self.preview.open.as_ref().and_then(|o| o.failure.as_deref())
+        self.preview_failure_in(0)
+    }
+
+    /// Why pane `pane`'s preview could not be made.
+    pub fn preview_failure_in(&self, pane: usize) -> Option<&str> {
+        self.preview.pane(pane).and_then(|o| o.failure.as_deref())
     }
 
     /// The previews shown since the last call, oldest first (at most [`MAX_UPDATES`]).
@@ -546,18 +718,20 @@ impl Session {
         self.preview.outstanding.len()
     }
 
-    /// The open photo's preview jobs queued or running (its source, its preview, its whole decode
-    /// and its refined window), what the edit view shows next; prefetching other photos and
-    /// storing cache entries are not counted. `ui.settle` waits for these (`control-protocol.md`
-    /// §6.12).
+    /// The open panes' preview jobs queued or running (their photos' sources, their previews,
+    /// their whole decodes and their refined windows), what the edit view shows next; prefetching
+    /// other photos and storing cache entries are not counted. `ui.settle` waits for these
+    /// (`control-protocol.md` §6.12).
     pub fn preview_busy(&self) -> usize {
-        let Some(open) = &self.preview.open else { return 0 };
+        if self.preview.panes.iter().all(Option::is_none) {
+            return 0;
+        }
         self.preview
             .outstanding
             .iter()
             .filter(|k| match k {
-                Key::Render(..) | Key::Region(_) => true,
-                Key::Load(id) | Key::Full(id) => *id == open.photo,
+                Key::Render(..) | Key::Region(..) => true,
+                Key::Load(id) | Key::Full(id) => self.preview.holds(*id),
                 Key::Store(_) => false,
             })
             .count()
@@ -647,62 +821,69 @@ impl Session {
         n
     }
 
-    /// The open photo's recipe changed (a history step) or the photo left: render it again, or
-    /// close.
+    /// The recipe a pane shows changed (a history step of the photo or of its variant) or its
+    /// photo left: render that pane again, or close it.
     fn check_preview_recipe(&mut self) {
-        let Some(open) = &self.preview.open else { return };
-        if self.library.photo(open.photo).is_none() {
-            self.close_preview();
-            return;
-        }
-        if file_of(self, open.photo).is_some_and(|f| f != open.file) {
-            // The file changed: read it again.
-            let (id, fit) = (open.photo, open.fit);
-            self.close_preview();
-            let _ = self.open_preview(id, fit);
-            return;
-        }
-        if open.candidate.is_none() && self.library.info(open.photo).edits != open.want.recipe {
-            self.request_preview(false);
+        for pane in 0..PANES {
+            let Some(open) = self.preview.pane(pane) else { continue };
+            if self.library.photo(open.photo).is_none() {
+                self.close_pane(pane);
+                continue;
+            }
+            if file_of(self, open.photo).is_some_and(|f| f != open.file) {
+                // The file changed: read it again (the pane goes on showing what it showed).
+                let (id, fit, shows) = (open.photo, open.fit, open.shows);
+                self.close_pane(pane);
+                if self.open_preview_in(pane, id, fit).is_ok() {
+                    let _ = self.set_preview_shows(pane, shows);
+                }
+                continue;
+            }
+            if self.pane_texts(open) != open.want.recipe {
+                self.request_preview(pane, false);
+            }
         }
     }
 
-    /// A new generation of the open photo's preview: older renders are cancelled, and the
-    /// preview is rendered from the source in memory (a draft first when `draft`), taken from a
-    /// prefetched one, or rendered once the source is read.
-    fn request_preview(&mut self, draft: bool) {
+    /// A new generation of pane `pane`'s preview: its older renders are cancelled, and the preview
+    /// is rendered from the source in memory (a draft first when `draft`), taken from a prefetched
+    /// one, or rendered once the source is read.
+    fn request_preview(&mut self, pane: usize, draft: bool) {
         let ladder = self.preview_ladder();
+        let Some(open) = self.preview.pane(pane) else { return };
+        let texts = self.pane_texts(open);
         let generation = self.preview.next_generation();
         self.preview.stats.requests += 1;
-        self.preview.cancel_where(|k| matches!(k, Key::Render(..)));
-        let Some(open) = self.preview.open.as_mut() else { return };
-        let texts = open.candidate.clone().unwrap_or_else(|| self.library.info(open.photo).edits.clone());
+        self.preview.cancel_where(|k| matches!(k, Key::Render(p, ..) if *p == pane));
+        let priority = self.preview.priority(pane);
+        let Some(open) = self.preview.pane_mut(pane) else { return };
         open.want = Want { generation, recipe: texts.clone(), started: Instant::now(), draft };
         open.failure = None;
-        let (photo, file, fit) = (open.photo, open.file.clone(), open.fit);
-        if open.window.is_some() {
-            self.request_window();
+        let (photo, file, fit, windowed) = (open.photo, open.file.clone(), open.fit, open.window.is_some());
+        if windowed {
+            self.request_window(pane);
         }
         if !draft
             && let Some(at) =
                 self.preview.ready.iter().position(|(p, f, r)| *p == photo && *f == file && r.recipe == texts && r.fit == fit && r.scale >= 1.0)
             && let Some((_, _, rendered)) = self.preview.ready.get(at).cloned()
         {
-            self.show(generation, Quality::Final, rendered);
+            self.show(pane, generation, Quality::Final, rendered);
             return;
         }
         let Some(screen) = self.preview.source_of(&file, ladder.render) else {
             let ask = Ask { recipe: parse(&texts), texts, fit, scale: 1.0 };
-            self.submit_load(photo, file, Some(ask), Priority::EDIT);
+            self.submit_load(photo, file, Some(ask), priority);
             return;
         };
         let scale = if draft { self.preview.draft_scale() } else { 1.0 };
-        self.submit_render(generation, draft, screen, Ask { recipe: parse(&texts), texts, fit, scale });
+        self.submit_render(pane, generation, draft, screen, Ask { recipe: parse(&texts), texts, fit, scale });
     }
 
-    fn submit_render(&mut self, generation: u64, draft: bool, screen: Arc<Screen>, ask: Ask) {
+    fn submit_render(&mut self, pane: usize, generation: u64, draft: bool, screen: Arc<Screen>, ask: Ask) {
+        let priority = self.preview.priority(pane);
         self.preview
-            .submit(Key::Render(generation, draft), Priority::EDIT, move |_| Done::Rendered { generation, result: jobs::render(&screen, &ask) });
+            .submit(Key::Render(pane, generation, draft), priority, move |_| Done::Rendered { generation, result: jobs::render(&screen, &ask) });
     }
 
     /// Reads photo `id`'s source (from memory when it is there) and renders `ask` from it.
@@ -739,19 +920,26 @@ impl Session {
         });
     }
 
-    /// Asks for the open photo's refined window: the whole decode first, then the window.
-    fn request_window(&mut self) {
+    /// Asks for pane `pane`'s refined window: the whole decode first (shared with the other pane
+    /// on the same photo), then the window.
+    fn request_window(&mut self, pane: usize) {
         let ladder = self.preview_ladder();
         let generation = self.preview.next_generation();
-        self.preview.cancel_where(|k| matches!(k, Key::Region(_)));
-        let Some(open) = self.preview.open.as_mut() else { return };
+        self.preview.cancel_where(|k| matches!(k, Key::Region(p, _) if *p == pane));
+        let priority = self.preview.priority(pane);
+        let shared =
+            self.preview.pane(pane).and_then(|me| self.preview.panes.iter().flatten().filter(|o| o.file == me.file).find_map(|o| o.full.clone()));
+        let Some(open) = self.preview.pane_mut(pane) else { return };
         let Some(region) = open.window else { return };
         open.window_asked = (generation, Instant::now());
+        if open.full.is_none() {
+            open.full = shared;
+        }
         let (photo, file, texts) = (open.photo, open.file.clone(), open.want.recipe.clone());
         match open.full.clone() {
             Some(full) => {
                 let recipe = parse(&texts);
-                self.preview.submit(Key::Region(generation), Priority::EDIT, move |_| Done::Region {
+                self.preview.submit(Key::Region(pane, generation), priority, move |_| Done::Region {
                     generation,
                     region,
                     result: jobs::region(&full, &recipe, region).map(Arc::new),
@@ -759,7 +947,7 @@ impl Session {
             }
             None => {
                 if !self.preview.outstanding.contains(&Key::Full(photo)) {
-                    self.preview.submit(Key::Full(photo), Priority::EDIT, move |_| Done::Full {
+                    self.preview.submit(Key::Full(photo), priority, move |_| Done::Full {
                         result: jobs::full(&file, &ladder, MAX_FULL_BYTES).map(Arc::new),
                         file,
                     });
@@ -768,14 +956,14 @@ impl Session {
         }
     }
 
-    /// Shows `rendered` as the open photo's preview of `generation`.
-    fn show(&mut self, generation: u64, quality: Quality, rendered: Rendered) {
-        let Some(open) = self.preview.open.as_mut() else { return };
+    /// Shows `rendered` as pane `pane`'s preview of `generation`.
+    fn show(&mut self, pane: usize, generation: u64, quality: Quality, rendered: Rendered) {
+        let Some(open) = self.preview.pane_mut(pane) else { return };
         let ms = ms_since(open.want.started);
         let photo = open.photo;
         open.frame = Some(PreviewImage { photo, generation, quality, image: rendered.image, histogram: rendered.histogram, recipe: rendered.recipe });
         let kind = if quality == Quality::Draft { UpdateKind::Draft } else { UpdateKind::Final };
-        self.preview.push_update(PreviewUpdate { photo, generation, kind, ms });
+        self.preview.push_update(PreviewUpdate { pane, photo, generation, kind, ms });
     }
 
     fn handle_preview(&mut self, key: Key, done: Done) {
@@ -788,8 +976,10 @@ impl Session {
                     Ok(got) => got,
                     Err(e) => {
                         self.preview.stats.failures += 1;
-                        if let Some(open) = self.preview.open.as_mut().filter(|o| o.photo == photo && o.file == file) {
-                            open.failure = Some(e);
+                        for pane in self.preview.panes_on(&file) {
+                            if let Some(open) = self.preview.pane_mut(pane).filter(|o| o.photo == photo) {
+                                open.failure = Some(e.clone());
+                            }
                         }
                         return;
                     }
@@ -824,18 +1014,21 @@ impl Session {
                 if let Some(r) = &frame {
                     self.preview.keep_ready(photo, file.clone(), r.clone());
                 }
-                let Some(open) = self.preview.open.as_ref().filter(|o| o.photo == photo && o.file == file) else { return };
-                let (generation, wanted, fit, draft) = (open.want.generation, open.want.recipe.clone(), open.fit, open.want.draft);
-                match frame {
-                    Some(r) if r.recipe == wanted && r.fit == fit => self.show(generation, Quality::Final, r),
-                    _ => self.request_preview(draft),
-                }
-                if self.preview.open.as_ref().is_some_and(|o| o.window.is_some()) {
-                    self.request_window();
+                for pane in self.preview.panes_on(&file) {
+                    let Some(open) = self.preview.pane(pane).filter(|o| o.photo == photo) else { continue };
+                    let (generation, wanted, fit, draft) = (open.want.generation, open.want.recipe.clone(), open.fit, open.want.draft);
+                    match &frame {
+                        Some(r) if r.recipe == wanted && r.fit == fit => self.show(pane, generation, Quality::Final, r.clone()),
+                        _ => self.request_preview(pane, draft),
+                    }
+                    if self.preview.pane(pane).is_some_and(|o| o.window.is_some()) {
+                        self.request_window(pane);
+                    }
                 }
             }
             Done::Rendered { generation, result } => {
-                let current = self.preview.open.as_ref().map(|o| o.want.generation);
+                let Key::Render(pane, _, draft) = key else { return };
+                let current = self.preview.pane(pane).map(|o| o.want.generation);
                 if current != Some(generation) {
                     self.preview.stats.stale += 1;
                     return;
@@ -844,7 +1037,7 @@ impl Session {
                     Ok(r) => r,
                     Err(e) => {
                         self.preview.stats.failures += 1;
-                        if let Some(open) = self.preview.open.as_mut() {
+                        if let Some(open) = self.preview.pane_mut(pane) {
                             open.failure = Some(e);
                         }
                         return;
@@ -852,36 +1045,41 @@ impl Session {
                 };
                 self.preview.stats.renders += 1;
                 self.preview.note_cost(&rendered);
-                let Key::Render(_, draft) = key else { return };
                 if !draft {
-                    self.show(generation, Quality::Final, rendered);
+                    self.show(pane, generation, Quality::Final, rendered);
                     return;
                 }
                 let full_size = rendered.scale >= 1.0;
                 let (ask, source) = (
                     Ask { recipe: parse(&rendered.recipe), texts: rendered.recipe.clone(), fit: rendered.fit, scale: 1.0 },
-                    self.preview.open.as_ref().map(|o| o.file.clone()),
+                    self.preview.pane(pane).map(|o| o.file.clone()),
                 );
-                self.show(generation, Quality::Draft, rendered.clone());
+                self.show(pane, generation, Quality::Draft, rendered.clone());
                 if full_size {
                     // The draft was the full render: it is the final too.
-                    self.show(generation, Quality::Final, rendered);
+                    self.show(pane, generation, Quality::Final, rendered);
                 } else if let Some(file) = source
                     && let Some(screen) = self.preview.source_of(&file, self.preview_ladder().render)
                 {
-                    self.submit_render(generation, false, screen, ask);
+                    self.submit_render(pane, generation, false, screen, ask);
                 }
             }
             Done::Full { file, result } => {
-                let Some(open) = self.preview.open.as_mut().filter(|o| o.file == file && o.window.is_some()) else {
+                let zoomed: Vec<usize> =
+                    self.preview.panes_on(&file).into_iter().filter(|p| self.preview.pane(*p).is_some_and(|o| o.window.is_some())).collect();
+                if zoomed.is_empty() {
                     self.preview.stats.stale += 1;
                     return;
-                };
+                }
                 match result {
                     Ok(full) => {
                         self.preview.stats.full_decodes += 1;
-                        open.full = Some(full);
-                        self.request_window();
+                        for pane in zoomed {
+                            if let Some(open) = self.preview.pane_mut(pane) {
+                                open.full = Some(Arc::clone(&full));
+                            }
+                            self.request_window(pane);
+                        }
                     }
                     Err(e) => {
                         self.preview.stats.failures += 1;
@@ -890,7 +1088,8 @@ impl Session {
                 }
             }
             Done::Region { generation, region, result } => {
-                let Some(open) = self.preview.open.as_mut().filter(|o| o.window_asked.0 == generation) else {
+                let Key::Region(pane, _) = key else { return };
+                let Some(open) = self.preview.pane_mut(pane).filter(|o| o.window_asked.0 == generation) else {
                     self.preview.stats.stale += 1;
                     return;
                 };
@@ -899,7 +1098,7 @@ impl Session {
                         let (photo, ms) = (open.photo, ms_since(open.window_asked.1));
                         open.refined = Some(Refined { photo, generation, region, image });
                         self.preview.stats.renders += 1;
-                        self.preview.push_update(PreviewUpdate { photo, generation, kind: UpdateKind::Refined, ms });
+                        self.preview.push_update(PreviewUpdate { pane, photo, generation, kind: UpdateKind::Refined, ms });
                     }
                     Err(e) => {
                         self.preview.stats.failures += 1;

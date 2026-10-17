@@ -3,7 +3,9 @@
 //! Undo Save for a saved photo with no newer edits, M8.15). Each takes the
 //! photo explicitly; in the edit view the UI routes Edit ▸ Undo / Redo, the rotations, the flips
 //! and the one-click fixes here for the open photo. A photo step is never a library undo step.
-//! The rules (merging, the redo list, the labels) are in [`crate::history`].
+//! The rules (merging, the redo list, the labels) are in [`crate::history`]. With `"variant": true`
+//! each walks A│A's variant of the photo instead (`variant.rs`, M11.10): the same rules over a recipe
+//! held in the session only, which no sidecar sees until `edit.variant.close {keep: "right"}`.
 
 use dalica_core::PhotoId;
 use dalica_edit::Op as EditOp;
@@ -11,7 +13,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::error::CmdError;
-use crate::history::{Change, PhotoHistory};
+use crate::history::{Change, PhotoHistory, Side};
 use crate::registry::{CommandSpec, Disabled, Effect, History, params};
 use crate::session::Session;
 
@@ -22,7 +24,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Apply Edit",
             menu: "",
             keys: &[],
-            params: r#"{"id":PhotoId, "op":"name(params)"}: one step of the photo's own history: the operation appended to its recipe (a rotation right after a rotation merges into it, the same flip twice cancels), its redo list cleared; answers the history as photo.history.state does"#,
+            params: r#"{"id":PhotoId, "op":"name(params)", "variant"?:bool (false)}: one step of the photo's own history: the operation appended to its recipe (a rotation right after a rotation merges into it, the same flip twice cancels), its redo list cleared; with variant, a step of the photo's open A│A variant instead (edit.variant.open), which reaches no sidecar; answers the history as photo.history.state does"#,
             effect: Effect::Library,
             history: History::Photo,
             enabled: crate::registry::always,
@@ -33,7 +35,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Undo Edit",
             menu: "",
             keys: &[],
-            params: r#"{"id":PhotoId}: undo the photo's last edit (it moves to the redo list; a merged step gives back the entry it merged into)"#,
+            params: r#"{"id":PhotoId, "variant"?:bool (false)}: undo the photo's last edit (it moves to the redo list; a merged step gives back the entry it merged into); with variant, the open A│A variant's last edit"#,
             effect: Effect::Library,
             history: History::None,
             enabled: |s, p| match target(s, p) {
@@ -47,7 +49,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Redo Edit",
             menu: "",
             keys: &[],
-            params: r#"{"id":PhotoId}: redo the photo's last undone edit"#,
+            params: r#"{"id":PhotoId, "variant"?:bool (false)}: redo the photo's last undone edit; with variant, the open A│A variant's"#,
             effect: Effect::Library,
             history: History::None,
             enabled: |s, p| match target(s, p) {
@@ -61,7 +63,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Photo History",
             menu: "",
             keys: &[],
-            params: r#"{"id":PhotoId}: the photo's recipe ("edits") and redo list, whether each way is possible, and the button labels ("Undo Crop", "Redo Tuning"; "Undo" / "Redo" when there is nothing); a saved photo with no newer edits answers "undoLabel": "Undo Save", "canUndo": true and "undoSave": true (its Undo runs photo.undoSave)"#,
+            params: r#"{"id":PhotoId, "variant"?:bool (false)}: the photo's recipe ("edits") and redo list, whether each way is possible, and the button labels ("Undo Crop", "Redo Tuning"; "Undo" / "Redo" when there is nothing); a saved photo with no newer edits answers "undoLabel": "Undo Save", "canUndo": true and "undoSave": true (its Undo runs photo.undoSave); with variant, the open A│A variant's history, with "variant": true (disabled when none is open)"#,
             effect: Effect::Query,
             history: History::None,
             enabled: crate::registry::always,
@@ -74,6 +76,8 @@ pub fn specs() -> Vec<CommandSpec> {
 #[serde(deny_unknown_fields)]
 struct Id {
     id: PhotoId,
+    #[serde(default)]
+    variant: bool,
 }
 
 #[derive(Deserialize)]
@@ -81,13 +85,24 @@ struct Id {
 struct Apply {
     id: PhotoId,
     op: String,
+    #[serde(default)]
+    variant: bool,
 }
 
-/// The history of the photo `p` names, when `p` names a known photo; anything else is left to
-/// `run`, which reports it.
+/// The side a `variant` flag names.
+fn side(variant: bool) -> Side {
+    if variant { Side::Variant } else { Side::Photo }
+}
+
+/// The history of the photo `p` names (its variant's with `"variant": true`), when `p` names a
+/// known photo and the history is there; anything else is left to `run`, which reports it.
 fn target(s: &Session, p: &Value) -> Option<PhotoHistory> {
     let id = p.get("id").and_then(Value::as_u64)?;
-    s.photo_history(PhotoId::new(id))
+    let variant = match p.get("variant") {
+        None => false,
+        Some(v) => v.as_bool()?,
+    };
+    s.history_on(PhotoId::new(id), side(variant)).ok()
 }
 
 /// Photo `id`'s history, `NotFound` for an unknown photo.
@@ -122,16 +137,32 @@ fn operation(text: &str) -> Result<EditOp, CmdError> {
     Ok(op)
 }
 
+/// What `photo.history.state {variant: true}` answers.
+pub(crate) fn variant_json(id: PhotoId, h: &PhotoHistory) -> Value {
+    let mut v = state_json(id, h);
+    v["variant"] = json!(true);
+    v
+}
+
 fn apply(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
-    let Apply { id, op } = params(p)?;
-    history_of(s, id)?;
+    let Apply { id, op, variant } = params(p)?;
+    let side = side(variant);
+    s.history_on(id, side)?;
     let op = operation(&op)?;
-    s.photo_step(id, Change::Append(op), None)?;
-    Ok(state_json(id, &history_of(s, id)?))
+    s.step_on(id, side, Change::Append(op), None)?;
+    let h = s.history_on(id, side)?;
+    Ok(if variant { variant_json(id, &h) } else { state_json(id, &h) })
 }
 
 fn undo(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
-    let Id { id } = params(p)?;
+    let Id { id, variant } = params(p)?;
+    if variant {
+        s.history_on(id, Side::Variant)?;
+        return match s.undo_on(id, Side::Variant)? {
+            Some(label) => Ok(json!({ "id": id, "undone": label, "variant": true })),
+            None => Err(CmdError::Disabled("Nothing to undo.".into())),
+        };
+    }
     undo_photo(s, id)
 }
 
@@ -145,7 +176,14 @@ pub(crate) fn undo_photo(s: &mut Session, id: PhotoId) -> Result<Value, CmdError
 }
 
 fn redo(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
-    let Id { id } = params(p)?;
+    let Id { id, variant } = params(p)?;
+    if variant {
+        s.history_on(id, Side::Variant)?;
+        return match s.redo_on(id, Side::Variant)? {
+            Some(label) => Ok(json!({ "id": id, "redone": label, "variant": true })),
+            None => Err(CmdError::Disabled("Nothing to redo.".into())),
+        };
+    }
     redo_photo(s, id)
 }
 
@@ -159,7 +197,10 @@ pub(crate) fn redo_photo(s: &mut Session, id: PhotoId) -> Result<Value, CmdError
 }
 
 fn state(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
-    let Id { id } = params(p)?;
+    let Id { id, variant } = params(p)?;
+    if variant {
+        return Ok(variant_json(id, &s.history_on(id, Side::Variant)?));
+    }
     let h = history_of(s, id)?;
     let mut v = state_json(id, &h);
     // A saved photo without newer edits: Undo reads "Undo Save" and runs `photo.undoSave`

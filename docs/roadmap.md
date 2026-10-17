@@ -6203,7 +6203,7 @@ and are never loosened. No other step of M11 needs a maintainer decision mid-run
     Undo All Edits with `confirm` empties the unsaved recipes, undo brings them back and a saved
     photo's file is untouched; Sepia answers `disabled` with its reason; each command's contract
     and graceful failures; `panic_hunt` green.
-- ⬜ **M11.10 `engine`: two preview panes, and A│A's variant**
+- ✅ **M11.10 `engine`: two preview panes, and A│A's variant**
   - after: M11.1
   - files: `crates/engine/src/preview.rs`, `crates/engine/src/preview/**`, `crates/engine/src/variant.rs`, `crates/engine/src/cmd/compare.rs`, `crates/engine/src/cmd/history.rs`, `crates/engine/src/history.rs`, `crates/engine/tests/preview_panes.rs`, `crates/engine/tests/variant.rs`
   - scope: `editing.md` §4: the edit view's preview gains a second pane (`open_preview` and the
