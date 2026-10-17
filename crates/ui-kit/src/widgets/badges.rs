@@ -1,7 +1,8 @@
 //! The marks a thumbnail carries (`design-system.md` §7, `ui-layout.md` §5.3): the photo's drop
 //! shadow, the badge row inside the image's bottom-right corner (edited ✎ · geotagged · held ·
 //! starred, the star always rightmost), a video's sprocket strip along the image's left edge and
-//! its duration pill at the bottom-left, and the `caution` "!" of a photo that cannot be shown.
+//! its duration pill at the bottom-left, the `caution` "!" of a photo that cannot be shown, and the
+//! `danger` ⊘ of a picture left out of an import (`organizing.md` §3).
 //!
 //! One painter, [`badges`], is fed what the model knows ([`Badges`]); it never decides what a
 //! photo is. Plates are 18 × 18 with a 12 pt glyph on `badge_plate`, 4 pt in from the image's
@@ -286,6 +287,27 @@ pub fn failed_mark(painter: &Painter, t: &Tokens, image: Rect) {
     }
     let size = (image.width().min(image.height()) * 0.3).clamp(12.0, 28.0);
     painter.text(image.center(), Align2::CENTER_CENTER, "!", fonts::semibold(size), t.caution);
+}
+
+/// The excluded mark of the import tray (`organizing.md` §3): a duplicate or excluded picture's
+/// `cell` dimmed with `excluded_dim` (`black α150`, over the photo too: call after it) and a
+/// `danger` ⊘ centred on `image` (the photo's letterboxed rect): a circle 40 % of the image's
+/// shorter side across (16–48 pt) with a stroke a tenth of that (at least 2 pt) and a slash from its
+/// bottom-left to its top-right. Returns the mark's square, `None` for an empty or non-finite rect.
+/// Registers nothing (the cell gives its parts their ids).
+pub fn excluded_mark(painter: &Painter, t: &Tokens, cell: Rect, image: Rect) -> Option<Rect> {
+    if !(cell.is_finite() && cell.is_positive() && image.is_finite() && image.is_positive()) {
+        return None;
+    }
+    painter.rect_filled(cell, 0, t.excluded_dim);
+    let d = (image.width().min(image.height()) * 0.4).clamp(16.0, 48.0);
+    let stroke = Stroke::new((d * 0.1).max(2.0), t.danger);
+    let r = (d - stroke.width) / 2.0;
+    let c = image.center();
+    painter.circle_stroke(c, r, stroke);
+    let k = r * std::f32::consts::FRAC_1_SQRT_2;
+    painter.line_segment([pos2(c.x - k, c.y + k), pos2(c.x + k, c.y - k)], stroke);
+    Some(Rect::from_center_size(c, Vec2::splat(d)))
 }
 
 /// The square `rect` is centred in and the map from the 20 × 20 grid to points.

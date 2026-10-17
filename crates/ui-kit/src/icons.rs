@@ -11,8 +11,10 @@
 //! ([`paint_folder`]; `icons/folder_modes.rs`), and so are the edit view's, [`EditIcon`]
 //! ([`paint_edit`]; `icons/edit.rs`), Save's and Export's, [`OutputIcon`] ([`paint_output`];
 //! `icons/output.rs`), the automatic albums', [`AlbumIcon`] ([`paint_album`];
-//! `icons/albums.rs`), and the shortcut editor's, [`OptionsIcon`] ([`paint_options`];
-//! `icons/options.rs`).
+//! `icons/albums.rs`), the shortcut editor's, [`OptionsIcon`] ([`paint_options`];
+//! `icons/options.rs`), and the rooms', slideshow's, viewer's, import tray's and compare's,
+//! [`ViewingIcon`] ([`paint_viewing`]; `icons/viewing.rs`). [`Glyph`] names a glyph of any set, for
+//! widgets that take glyphs from more than one ([`paint_glyph`]).
 
 mod albums;
 mod edit;
@@ -21,12 +23,14 @@ mod glyphs;
 mod options;
 mod output;
 mod pen;
+mod viewing;
 
 pub use albums::{AlbumIcon, paint_album};
 pub use edit::{EditIcon, paint_edit};
 pub use folder_modes::{FolderIcon, INHERITED_OPACITY, paint_folder, state_color};
 pub use options::{OptionsIcon, paint_options};
 pub use output::{OutputIcon, paint_output};
+pub use viewing::{ViewingIcon, paint_viewing};
 
 use egui::{Color32, Mesh, Painter, Pos2, Rect, Shape, Stroke, pos2};
 
@@ -201,6 +205,46 @@ impl Icon {
     /// The icon called `name` ([`Icon::name`]), if any.
     pub fn from_name(name: &str) -> Option<Icon> {
         Icon::ALL.into_iter().find(|i| i.name() == name)
+    }
+}
+
+/// A glyph of any set: for widgets whose callers pick glyphs from more than one (a room tab's
+/// Library and Import, the slideshow bar's Play and Pause).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Glyph {
+    /// A shell icon.
+    Shell(Icon),
+    /// An edit-view glyph.
+    Edit(EditIcon),
+    /// A viewing glyph.
+    Viewing(ViewingIcon),
+}
+
+impl From<Icon> for Glyph {
+    fn from(icon: Icon) -> Glyph {
+        Glyph::Shell(icon)
+    }
+}
+
+impl From<EditIcon> for Glyph {
+    fn from(icon: EditIcon) -> Glyph {
+        Glyph::Edit(icon)
+    }
+}
+
+impl From<ViewingIcon> for Glyph {
+    fn from(icon: ViewingIcon) -> Glyph {
+        Glyph::Viewing(icon)
+    }
+}
+
+/// Paints `glyph` in `color`, centred in the largest square that fits `rect`, with its set's
+/// painter. An empty or non-finite rect paints nothing.
+pub fn paint_glyph(painter: &Painter, rect: Rect, glyph: Glyph, color: Color32) {
+    match glyph {
+        Glyph::Shell(icon) => paint(painter, rect, icon, color),
+        Glyph::Edit(icon) => paint_edit(painter, rect, icon, color),
+        Glyph::Viewing(icon) => paint_viewing(painter, rect, icon, color),
     }
 }
 
