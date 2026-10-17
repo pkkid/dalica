@@ -133,6 +133,22 @@ pub struct Tokens {
     pub viewer_bg: Color32,
     /// `black α210`: the photo viewer's overlay over the app.
     pub viewer_overlay: Color32,
+    /// `black α170`: the slideshow's and the photo viewer's control bar (`viewing.md` §1.3).
+    pub overlay_bar: Color32,
+    /// `black α160`: the plate behind a slideshow caption (`viewing.md` §1.2).
+    pub caption_plate: Color32,
+    /// White: text on the overlays (labels, the caption, the stepper's value).
+    pub overlay_text: Color32,
+    /// `#c8c8c8`: an overlay button's glyph at rest (hovered → `overlay_text`).
+    pub overlay_icon: Color32,
+    /// `#6a6a6a`: a disabled overlay button's glyph and label.
+    pub overlay_disabled: Color32,
+    /// `white α28`: an overlay button hovered.
+    pub overlay_hover: Color32,
+    /// `white α48`: an overlay button held or toggled on.
+    pub overlay_pressed: Color32,
+    /// `black α150`: the dimming over an excluded cell (the import tray).
+    pub excluded_dim: Color32,
     /// Popups, menus and tooltips: offset (0, 4), blur 16, `black α140`.
     pub popup_shadow: Shadow,
     /// Windows and dialogs: offset (0, 8), blur 30, `black α160`.
@@ -143,6 +159,8 @@ pub struct Tokens {
     pub window_radius: u8,
     /// Corner radius of toasts (points).
     pub toast_radius: u8,
+    /// Corner radius of the slideshow's and the viewer's control bar (points).
+    pub overlay_radius: u8,
     /// Corner radius of the filter toggles (points).
     pub filter_radius: u8,
     /// Width of the keyboard focus ring and the drop-target outline (points).
@@ -424,11 +442,21 @@ impl Tokens {
         toast_bg: Color32::from_black_alpha(200),
         viewer_bg: Color32::BLACK,
         viewer_overlay: Color32::from_black_alpha(210),
+        overlay_bar: Color32::from_black_alpha(170),
+        caption_plate: Color32::from_black_alpha(160),
+        overlay_text: Color32::WHITE,
+        overlay_icon: grey(0xc8),
+        overlay_disabled: grey(0x6a),
+        // `white α28` and `white α48`, premultiplied (what `from_white_alpha` gives).
+        overlay_hover: Color32::from_rgba_premultiplied(28, 28, 28, 28),
+        overlay_pressed: Color32::from_rgba_premultiplied(48, 48, 48, 48),
+        excluded_dim: Color32::from_black_alpha(150),
         popup_shadow: Shadow { offset: [0, 4], blur: 16, spread: 0, color: Color32::from_black_alpha(140) },
         window_shadow: Shadow { offset: [0, 8], blur: 30, spread: 0, color: Color32::from_black_alpha(160) },
         radius: 4,
         window_radius: 6,
         toast_radius: 6,
+        overlay_radius: 10,
         filter_radius: 5,
         focus_width: 1.5,
         body: 13.0,
@@ -685,10 +713,16 @@ mod tests {
             (t.photo_selected, "#aaaaaa"),
             (t.placeholder, "#262626"),
             (t.viewer_bg, "#000000"),
+            (t.overlay_text, "#ffffff"),
+            (t.overlay_icon, "#c8c8c8"),
+            (t.overlay_disabled, "#6a6a6a"),
         ] {
             assert_eq!(hex(got), want);
         }
-        for (got, alpha) in [(t.badge_plate, 130), (t.backdrop, 140), (t.toast_bg, 200), (t.viewer_overlay, 210), (t.face_box_outer, 160)] {
+        for (got, alpha) in [(t.badge_plate, 130), (t.backdrop, 140), (t.toast_bg, 200), (t.viewer_overlay, 210), (t.face_box_outer, 160)]
+            .into_iter()
+            .chain([(t.overlay_bar, 170), (t.caption_plate, 160), (t.excluded_dim, 150)])
+        {
             assert_eq!(got.to_array(), [0, 0, 0, alpha]);
         }
         assert_eq!(t.drop_target_fill, t.accent.gamma_multiply(0.15));
@@ -699,6 +733,8 @@ mod tests {
         assert_eq!(t.popup_shadow, Shadow { offset: [0, 4], blur: 16, spread: 0, color: Color32::from_black_alpha(140) });
         assert_eq!(t.window_shadow, Shadow { offset: [0, 8], blur: 30, spread: 0, color: Color32::from_black_alpha(160) });
         assert_eq!((t.radius, t.window_radius, t.toast_radius, t.filter_radius, t.focus_width), (4, 6, 6, 5, 1.5));
+        assert_eq!(t.overlay_radius, 10);
+        assert_eq!((t.overlay_hover, t.overlay_pressed), (Color32::from_white_alpha(28), Color32::from_white_alpha(48)));
         assert_eq!(
             [t.body, t.small, t.title, t.heading, t.button_label, t.caption, t.detail, t.count, t.large, t.empty_title],
             [13.0, 11.0, 15.0, 16.0, 11.5, 10.5, 12.5, 12.0, 14.0, 18.0]

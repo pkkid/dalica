@@ -23,6 +23,7 @@ mod autocomplete;
 mod badges;
 mod banner;
 mod buttons;
+mod caption_plate;
 mod checkbox;
 mod datetime;
 mod dialog;
@@ -31,13 +32,16 @@ mod dropdown;
 mod feedback;
 mod field;
 mod form;
+mod group_header;
 mod header;
 mod histogram;
 mod key_cell;
 mod list_row;
 mod marks;
+mod overlay_bar;
 mod slider;
 mod splitter;
+mod stepper;
 mod tabs;
 mod tool_button;
 mod tooltip;
@@ -45,11 +49,15 @@ mod tooltip;
 pub use age_slider::{AGE_MAX_DAYS, age_days, age_label, age_position, age_slider, age_snapped};
 pub use autocomplete::{AutocompleteOut, MAX_SUGGESTIONS, VISIBLE_SUGGESTIONS, autocomplete, autocomplete_matches};
 pub use badges::{
-    BADGE_GAP, BADGE_GLYPH, BADGE_INSET, BADGE_PLATE, Badge, BadgeRects, Badges, PHOTO_SHADOW, Video, badge_row, badges, duration_text, failed_mark,
-    photo_shadow, star_badge,
+    BADGE_GAP, BADGE_GLYPH, BADGE_INSET, BADGE_PLATE, Badge, BadgeRects, Badges, PHOTO_SHADOW, Video, badge_row, badges, duration_text,
+    excluded_mark, failed_mark, photo_shadow, star_badge,
 };
 pub use banner::{BANNER_H, BANNER_PAD, BANNER_TEXT_GAP, BannerOut, filter_banner};
 pub use buttons::{Segment, SegmentLabel, action_button, primary_button, segmented, toggle_filter};
+pub use caption_plate::{
+    CAPTION_PLATE_LINES, CAPTION_PLATE_PAD, CAPTION_PLATE_RADIUS, CAPTION_PLATE_SIZE, CAPTION_PLATE_WIDTH, CaptionPlateOut, caption_galley,
+    caption_plate,
+};
 pub use checkbox::{CheckboxRowOut, checkbox_row};
 pub use datetime::{
     DATE_HINT, DATE_WIDTH, DatePart, MAX_YEAR, MIN_YEAR, PickedDate, PickedTime, PickerOut, TIME_HINT, TIME_WIDTH, TimePart, date_field,
@@ -67,6 +75,7 @@ pub use feedback::{
 };
 pub use field::{Ending, FieldOut, SearchOut, TextField, focus_field, search_field, text_field};
 pub use form::{CHECK_BOX, CHOICE_LABEL_X, FORM_GAP, FORM_LABEL_MAX, FORM_ROW_GAP, Form, RADIO_R, checkbox, form_group, hint, radio, radio_row};
+pub use group_header::{GROUP_CLOCK, GroupHeaderOut, group_header, group_select_id};
 pub use header::section_header;
 pub use histogram::{HISTOGRAM_HEADROOM, MAX_BINS, histogram, histogram_curves, histogram_mesh, paint_histogram};
 pub use key_cell::{
@@ -74,14 +83,19 @@ pub use key_cell::{
     key_text,
 };
 pub use list_row::{LIST_COLUMN_GAP, LIST_ROW_GUTTER, LIST_ROW_H, ListCell, MODIFIED_DOT, list_columns, list_row, list_row_height, list_text};
+pub use overlay_bar::{
+    OVERLAY_BOTTOM, OVERLAY_BUTTON, OVERLAY_FADE_SECS, OVERLAY_GLYPH, OVERLAY_PAD, OverlayFade, overlay_bar, overlay_bar_rect, overlay_button,
+};
 pub use slider::{
     STOP_SNAP, STOPS_FIELD_W, STOPS_TRACK_MIN, SliderOut, SliderSpec, StopsSlider, TUNING_NUDGE, edit_slider_value, next_stop, nudged, slider,
     snap_to_stop, stops_slider, tuning_nudged, tuning_slider, typed_value, zoom_slider,
 };
 pub use splitter::{arrow_delta, split_position, splitter};
+pub use stepper::{STEPPER_BUTTON, STEPPER_GAP, StepperOut, stepped, stepper, stepper_ids};
 pub use tabs::{
-    TAB_MIN_WIDTH, TAB_OVERFLOW_WIDTH, TEXT_TAB_MIN_WIDTH, TEXT_TAB_PAD, Tab, TabFit, TabItem, TabsOut, TextTab, TextTabsOut, fit as fit_tabs,
-    tab_page, tabs, tabs_overflow_id, text_tabs, text_tabs_height,
+    ROOM_TAB_CLOSE, ROOM_TAB_MIN_WIDTH, ROOM_TAB_PAD, RoomTab, RoomTabsOut, ShownRoomTab, TAB_MIN_WIDTH, TAB_OVERFLOW_WIDTH, TEXT_TAB_MIN_WIDTH,
+    TEXT_TAB_PAD, Tab, TabFit, TabItem, TabsOut, TextTab, TextTabsOut, fit as fit_tabs, room_tab_close_id, room_tabs, tab_page, tabs,
+    tabs_overflow_id, text_tabs, text_tabs_height,
 };
 pub use tool_button::{TOOL_BUTTON_H, tool_button, tool_button_width};
 pub use tooltip::{TOOLTIP_WIDTH, tooltip};

@@ -1,21 +1,23 @@
 //! Tab strips (`design-system.md` §6). The edit panel's ([`tabs`], `editing.md` §2, §5): icon-only
 //! tabs 40 × 32 with tooltips; the active one filled `chrome` and joined to the panel below it, the
 //! others on the strip's `canvas`. A dialog's ([`text_tabs`], the Options dialog, §11.3): text tabs
-//! along the top of a page, the open one joined to the page ([`tab_page`]). When a strip is too
+//! along the top of a page, the open one joined to the page ([`tab_page`]). The rooms'
+//! ([`room_tabs`], `ui-layout.md` §8): icon and label tabs 190 × 28 between the menu bar and the
+//! content, the active one joined to the content, a close × on every room but Library. When a strip is too
 //! narrow the tabs shrink (a text tab's label cut short from its end with "…"), then the ones that
 //! still do not fit move to an overflow menu, and the active tab always stays on the strip.
 //!
 //! [`fit`] (the widths) and [`Tab`] (one accessible tab at a rectangle, painted by the caller) are
 //! ported from craft-ui `crates/ui/src/tabs/mod.rs` at revision 5c874d51 (github.com/storytold/
-//! craft-libs; MIT OR Apache-2.0; `NOTICE`), unchanged but for Dalica's lints. [`tabs`] and
-//! [`text_tabs`] are Dalica's strips built on them.
+//! craft-libs; MIT OR Apache-2.0; `NOTICE`), unchanged but for Dalica's lints. [`tabs`],
+//! [`text_tabs`] and [`room_tabs`] are Dalica's strips built on them.
 
 use egui::{CornerRadius, Id, Painter, Popup, PopupCloseBehavior, Rect, Response, Sense, Stroke, StrokeKind, Ui, Vec2, pos2, vec2};
 
 use super::{Target, one_line, register, tooltip};
 use crate::Tokens;
 use crate::fonts;
-use crate::icons::{self, Icon};
+use crate::icons::{self, Glyph, Icon};
 use crate::registry::Role;
 
 /// Tabs visible on a strip and tabs that need an overflow menu, all in original order.
@@ -263,7 +265,7 @@ pub fn tabs(ui: &mut Ui, t: &Tokens, id: &str, items: &[TabItem<'_>], active: us
         overflow_button(ui, t, id, rect, |ui| {
             for &i in &fit.overflow {
                 let Some(item) = items.get(i) else { continue };
-                if overflow_row(ui, t, &format!("{id}/{}", item.name), Some(item.icon), item.tooltip) {
+                if overflow_row(ui, t, &format!("{id}/{}", item.name), Some(Glyph::Shell(item.icon)), item.tooltip) {
                     out.clicked = Some(i);
                 }
             }
@@ -306,7 +308,7 @@ fn overflow_button(ui: &mut Ui, t: &Tokens, id: &str, rect: Rect, rows: impl FnO
 }
 
 /// One hidden tab in the overflow menu: its glyph (an icon tab's) and its label, 24 high.
-fn overflow_row(ui: &mut Ui, t: &Tokens, id: &str, icon: Option<Icon>, label: &str) -> bool {
+fn overflow_row(ui: &mut Ui, t: &Tokens, id: &str, icon: Option<Glyph>, label: &str) -> bool {
     let font = fonts::regular(t.body);
     let galley = ui.painter().layout_no_wrap(label.to_owned(), font, t.text_label);
     let text_x = if icon.is_some() { 30.0 } else { 12.0 };
@@ -321,7 +323,7 @@ fn overflow_row(ui: &mut Ui, t: &Tokens, id: &str, icon: Option<Icon>, label: &s
     let color = if hot { t.text } else { t.text_label };
     if let Some(icon) = icon {
         let glyph = Rect::from_center_size(pos2(rect.min.x + 14.0, rect.center().y), Vec2::splat(t.metrics.icon_menu));
-        icons::paint(p, glyph, icon, if hot { t.text } else { t.icon });
+        icons::paint_glyph(p, glyph, icon, if hot { t.text } else { t.icon });
     }
     p.galley(pos2(rect.min.x + text_x, rect.center().y - galley.size().y / 2.0).round(), galley, color);
     register(ui.ctx(), id, Role::Tab, label, Target::Widget(&r), false);
@@ -503,6 +505,180 @@ pub fn tab_page(painter: &Painter, t: &Tokens, rect: Rect) {
     painter.line_segment([pos2(l + k, b), pos2(r - k, b)], line);
     corner(painter, pos2(r - k, b - k), k, 0.0, line);
     corner(painter, pos2(l + k, b - k), k, 90.0, line);
+}
+
+/// One tab of a [`room_tabs`] strip: its name in the automation id (`<strip id>/<name>`), its glyph,
+/// its label (also its accessible name) and whether it has a close × (every room but Library).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RoomTab<'a> {
+    pub name: &'a str,
+    pub icon: Glyph,
+    pub label: &'a str,
+    pub closable: bool,
+}
+
+/// One tab a [`room_tabs`] strip painted.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ShownRoomTab {
+    /// Its index in the items.
+    pub index: usize,
+    pub rect: Rect,
+    /// Its label as painted: the whole label, or its start with "…" when the tab is narrower.
+    pub label: String,
+    /// Whether the label was cut short.
+    pub elided: bool,
+    /// Its close button, when it has one and it was painted.
+    pub close: Option<Rect>,
+}
+
+/// What a [`room_tabs`] strip did this pass.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RoomTabsOut {
+    /// The tab clicked (on the strip or in the overflow menu), as an index into the items.
+    pub clicked: Option<usize>,
+    /// The tab whose close × was clicked (closing a room with unsaved work asks first: the caller's).
+    pub closed: Option<usize>,
+    /// How the tabs were laid out.
+    pub fit: TabFit,
+    /// The strip's rect: the content goes right under it.
+    pub rect: Rect,
+    /// Each tab on the strip, in order.
+    pub shown: Vec<ShownRoomTab>,
+}
+
+/// The narrowest a room tab shrinks before tabs move to the overflow menu: its glyph, its close
+/// × and a few letters of its label.
+pub const ROOM_TAB_MIN_WIDTH: f32 = 96.0;
+/// The space before a room tab's glyph, and after its label when it has no close ×.
+pub const ROOM_TAB_PAD: f32 = 10.0;
+/// The edge of a room tab's close button.
+pub const ROOM_TAB_CLOSE: f32 = 16.0;
+
+/// The automation id of the close button of tab `name` on strip `id`.
+pub fn room_tab_close_id(id: &str, name: &str) -> String {
+    format!("{id}/{name}/close")
+}
+
+/// The rooms' tab strip (`ui-layout.md` §8, `design-system.md` §6): the full width of `ui` ×
+/// `metrics.room_tabs_h` (28) on `canvas`, between the menu bar and the content. Each tab is
+/// `metrics.room_tab_w` (190) wide: its glyph (16 pt) [`ROOM_TAB_PAD`] in, its label 6 pt after it
+/// (13 pt, cut from its end with "…"), and on a closable tab a close × ([`ROOM_TAB_CLOSE`], a 10 pt
+/// cross) 6 pt from its right edge. The active tab is filled `chrome` with its top corners rounded
+/// and no bottom edge, so it joins the content below, its glyph `pick` and its label `text`; the
+/// others have no fill, `hover × 0.7` hovered and `pressed` held (inset 2 × 3, radius 4), glyph
+/// `icon` and label `text_label` (`text` hovered); disabled both `text_disabled`. The × is
+/// `text_dim` (`icon` on the active tab), `text` on a `hover` plate hovered.
+///
+/// Narrower than the tabs, they shrink to a common width ([`fit`]), their labels cut short; below
+/// [`ROOM_TAB_MIN_WIDTH`] each, the tabs that do not fit move to a menu behind a chevron button at
+/// the end (`<id>/more`), and the active tab always stays on the strip. Tabs register as
+/// `<id>/<name>` (role `tab`, active when shown, labelled with the whole label), in the menu too;
+/// close buttons as `<id>/<name>/close` (role `button`).
+pub fn room_tabs(ui: &mut Ui, t: &Tokens, id: &str, items: &[RoomTab<'_>], active: usize) -> RoomTabsOut {
+    let m = &t.metrics;
+    let enabled = ui.is_enabled();
+    let width = ui.available_width();
+    let width = if width.is_finite() { width.max(0.0) } else { 0.0 };
+    let (_, strip) = ui.allocate_space(vec2(width, m.room_tabs_h));
+    ui.painter().rect_filled(strip, 0, t.canvas);
+    let natural = vec![m.room_tab_w; items.len()];
+    let fit = fit(&natural, active, strip.width(), ROOM_TAB_MIN_WIDTH, TAB_OVERFLOW_WIDTH);
+    let mut out = RoomTabsOut { clicked: None, closed: None, fit: TabFit::default(), rect: strip, shown: Vec::new() };
+    let font = fonts::regular(t.body);
+    let radius = t.radius;
+    let top = CornerRadius { nw: radius, ne: radius, sw: 0, se: 0 };
+    let mut x = strip.min.x;
+    for &(i, w) in &fit.shown {
+        let Some(item) = items.get(i) else { continue };
+        let rect = Rect::from_min_size(pos2(x, strip.min.y), vec2(w, strip.height()));
+        x += w;
+        let on = i == active;
+        let tab_id = format!("{id}/{}", item.name);
+        let close_rect = (item.closable && rect.width() >= ROOM_TAB_PAD + m.icon_menu + 2.0 * ROOM_TAB_CLOSE)
+            .then(|| Rect::from_center_size(pos2(rect.max.x - 6.0 - ROOM_TAB_CLOSE / 2.0, rect.center().y), Vec2::splat(ROOM_TAB_CLOSE)));
+        let mut painted = (String::new(), false);
+        let r = Tab::new(Id::new(&tab_id), item.label, on).focus_stroke(Stroke::new(t.focus_width, t.accent)).show_at(ui, rect, |ui, r| {
+            let p = ui.painter();
+            if on {
+                p.rect_filled(rect, top, t.chrome);
+            } else if enabled && r.is_pointer_button_down_on() {
+                p.rect_filled(rect.shrink2(vec2(2.0, 3.0)), CornerRadius::same(radius), t.pressed);
+            } else if enabled && r.hovered() {
+                p.rect_filled(rect.shrink2(vec2(2.0, 3.0)), CornerRadius::same(radius), t.hover.gamma_multiply(0.7));
+            }
+            let (glyph, text) = if !enabled {
+                (t.text_disabled, t.text_disabled)
+            } else if on {
+                (t.pick, t.text)
+            } else if r.hovered() {
+                (t.text, t.text)
+            } else {
+                (t.icon, t.text_label)
+            };
+            let icon_x = rect.min.x + ROOM_TAB_PAD;
+            if rect.width() >= ROOM_TAB_PAD + m.icon_menu {
+                let square = Rect::from_center_size(pos2(icon_x + m.icon_menu / 2.0, rect.center().y), Vec2::splat(m.icon_menu));
+                icons::paint_glyph(p, square, item.icon, glyph);
+            }
+            let text_x = icon_x + m.icon_menu + 6.0;
+            let end = close_rect.map_or(rect.max.x - ROOM_TAB_PAD, |c| c.min.x - 4.0);
+            let room = end - text_x;
+            if room >= 1.0 {
+                let galley = one_line(p, item.label, font.clone(), text, room);
+                painted = (galley.rows.first().map(|r| r.text()).unwrap_or_default(), galley.elided);
+                p.galley(pos2(text_x, rect.center().y - galley.size().y / 2.0).round(), galley, text);
+            } else {
+                painted = (String::new(), !item.label.is_empty());
+            }
+        });
+        register(ui.ctx(), &tab_id, Role::Tab, item.label, Target::Widget(&r), on);
+        if r.clicked() {
+            out.clicked = Some(i);
+        }
+        if let Some(close) = close_rect {
+            let close_id = room_tab_close_id(id, item.name);
+            let c = ui.interact(close, Id::new(&close_id), if enabled { Sense::click() } else { Sense::hover() });
+            let p = ui.painter();
+            let hot = enabled && c.hovered();
+            if enabled && c.is_pointer_button_down_on() {
+                p.rect_filled(close, CornerRadius::same(3), t.pressed);
+            } else if hot {
+                p.rect_filled(close, CornerRadius::same(3), t.hover);
+            }
+            let color = if !enabled {
+                t.text_disabled
+            } else if hot {
+                t.text
+            } else if on {
+                t.icon
+            } else {
+                t.text_dim
+            };
+            icons::paint(p, Rect::from_center_size(close.center(), Vec2::splat(10.0)), Icon::Close, color);
+            super::focus_ring(p, t, &c, close, 3);
+            let label = format!("Close {}", item.label);
+            register(ui.ctx(), &close_id, Role::Button, &label, Target::Widget(&c), false);
+            c.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, &label));
+            if tooltip(c, t, "Close", None).clicked() {
+                out.closed = Some(i);
+                out.clicked = out.clicked.filter(|&k| k != i);
+            }
+        }
+        out.shown.push(ShownRoomTab { index: i, rect, label: painted.0, elided: painted.1, close: close_rect });
+    }
+    if !fit.overflow.is_empty() && fit.overflow_width > 0.0 {
+        let rect = Rect::from_min_size(pos2(strip.max.x - fit.overflow_width, strip.min.y), vec2(fit.overflow_width, strip.height()));
+        overflow_button(ui, t, id, rect, |ui| {
+            for &i in &fit.overflow {
+                let Some(item) = items.get(i) else { continue };
+                if overflow_row(ui, t, &format!("{id}/{}", item.name), Some(item.icon), item.label) {
+                    out.clicked = Some(i);
+                }
+            }
+        });
+    }
+    out.fit = fit;
+    out
 }
 
 #[cfg(test)]

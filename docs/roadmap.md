@@ -6076,7 +6076,7 @@ and are never loosened. No other step of M11 needs a maintainer decision mid-run
     / `ui.set` (bad values are `bad_params`, nothing changes); Ctrl+M opens the Import tab and the
     strip appears 28 high, closing it removes the strip; a Slideshow-context key does nothing in
     the library; every command's graceful-failure test; `panic_hunt` and `widget_ids` stay green.
-- ⬜ **M11.3 `ui-kit`: room tabs, the overlay bar, the stepper, the caption plate and the icons**
+- ✅ **M11.3 `ui-kit`: room tabs, the overlay bar, the stepper, the caption plate and the icons**
   - after: M10.3, M10.R
   - files: `crates/ui-kit/src/widgets.rs`, `crates/ui-kit/src/widgets/tabs.rs`, `crates/ui-kit/src/widgets/overlay_bar.rs`, `crates/ui-kit/src/widgets/stepper.rs`, `crates/ui-kit/src/widgets/caption_plate.rs`, `crates/ui-kit/src/widgets/group_header.rs`, `crates/ui-kit/src/widgets/badges.rs`, `crates/ui-kit/src/theme.rs`, `crates/ui-kit/src/icons.rs`, `crates/ui-kit/src/icons/viewing.rs`, `crates/ui-kit/tests/viewing_widgets.rs`, `crates/ui-kit/tests/icons_viewing.rs`, `crates/ui-kit/tests/fingerprints/viewing-widgets*.json`, `crates/ui-kit/tests/fingerprints/icons-viewing*.json`, `crates/ui-kit/tests/fingerprints/gallery*.json`, `docs/design-system.md`
   - scope: `design-system.md` §5–§6, `ui-layout.md` §8 and `viewing.md` §1.2–§1.3 and §3.1: the
