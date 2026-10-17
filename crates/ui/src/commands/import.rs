@@ -257,6 +257,9 @@ fn start(app: &mut App, ids: Option<&[u64]>) -> Result<Value, CmdError> {
     {
         o.remove("after");
     }
+    // Over automation the destination keeps to the write roots and the watched folders.
+    let watched = app.session().map(|s| s.roots().to_vec()).unwrap_or_default();
+    crate::control::refuse("import.run", &params, &watched)?;
     app.run("import.run", &params)
 }
 

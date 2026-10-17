@@ -10,9 +10,11 @@
 //! Cancel button (Esc): nothing leaves the card. The dialog has no default button, so Enter
 //! removes nothing.
 //!
-//! Nothing is ever removed without this question: After copying "delete" removes nothing by itself,
-//! and automation's `engine.execute` never runs `import.removeFromSource`
-//! (`automation::NEVER_AUTOMATED`).
+//! Nothing is ever removed without this question: After copying "delete" removes nothing by itself.
+//! Automation never removes: `engine.execute` refuses `import.removeFromSource`
+//! (`automation::NEVER_AUTOMATED`), and the button refuses while a control request drives the app
+//! (`crate::control::refuse`: `ui.dialog.confirm`, a synthetic click or key); only the person's own
+//! click removes.
 
 use dalica_engine::CmdError;
 use dalica_ui_kit::fonts;
@@ -31,8 +33,9 @@ pub const REMOVE: &str = "Remove Imported Files";
 pub const KEEP: &str = "Keep Files";
 /// The dialog's width (points).
 pub const WIDTH: f32 = 440.0;
-/// The command Remove Imported Files runs.
-const COMMAND: &str = "import.removeFromSource";
+/// Remove Imported Files' action (`button:dialog.remove`) and the command it runs.
+pub const REMOVE_ACTION: &str = "remove";
+pub const COMMAND: &str = "import.removeFromSource";
 
 /// A dialog of this kind with an empty draft.
 pub fn dialog() -> Dialog {
@@ -67,7 +70,11 @@ pub fn body(app: &mut App, ui: &mut Ui, _d: &mut Dialog) {
 /// Remove Imported Files: `import.removeFromSource` confirmed, for the last import.
 pub fn act(app: &mut App, d: &Dialog, action: &str) -> Result<Value, CmdError> {
     match action {
-        "remove" => app.run(COMMAND, &json!({ "confirm": true })),
+        REMOVE_ACTION => {
+            let params = json!({ "confirm": true });
+            crate::control::refuse(COMMAND, &params, &[])?;
+            app.run(COMMAND, &params)
+        }
         _ => Err(CmdError::NotFound(format!("the {} dialog has no button `dialog.{action}`", d.kind.name()))),
     }
 }

@@ -891,28 +891,10 @@ fn base64_crop_and_frame_helpers() {
 #[test]
 fn removing_from_a_card_is_never_automated_and_an_import_destination_keeps_to_the_write_roots() {
     let mut t = setup_with(1, |dir| Config { write_roots: vec![dir.join("allowed")], allow_external: true, ..Config::default() });
-    let (mounts, pictures) = (t.dir.path().join("mounts"), t.dir.path().join("allowed").join("Pictures"));
-    let roll = mounts.join("CARD").join("DCIM").join("100CANON");
-    // Two pictures of their own (the library's photo is another), so neither is a duplicate.
-    dalica_fs::create_dir_all(&roll).unwrap();
-    for seed in [11u64, 12] {
-        let jpeg = dalica_scenes::encode::jpeg(&dalica_scenes::Scene::new(seed, 64, 48), 80, None).unwrap();
-        write(roll.join(format!("IMG_{seed}.JPG")), &jpeg);
-    }
-    let dcim = mounts.join("CARD").join("DCIM");
+    let (roll, pictures) = list_card(&mut t);
     // The import itself runs in the app, as the room would run it.
     {
         let s = t.d.app_mut().session_mut().unwrap();
-        s.set_import_device_roots(Some(std::env::join_paths([&mounts]).unwrap()), std::time::Duration::from_millis(20));
-        let start = std::time::Instant::now();
-        while s.execute("import.openSource", &json!({ "device": dcim })).is_err() {
-            assert!(start.elapsed().as_secs() < 120, "the card never showed");
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
-        while s.execute("import.list", &json!({ "limit": 0 })).unwrap()["state"] == "loading" {
-            assert!(start.elapsed().as_secs() < 120, "the listing never ended");
-            std::thread::sleep(std::time::Duration::from_millis(2));
-        }
         s.execute("import.run", &json!({ "destination": pictures, "folderName": "Card" })).unwrap();
         assert!(s.wait_file_jobs(std::time::Duration::from_secs(120)));
         assert_eq!(s.execute("import.status", &json!({})).unwrap()["imported"], 2);
@@ -927,4 +909,96 @@ fn removing_from_a_card_is_never_automated_and_an_import_destination_keeps_to_th
     let params = json!({ "command": "import.run", "params": { "destination": elsewhere, "folderName": "Out" } });
     assert_eq!(code(&mut t, "engine.execute", params), "path_denied", "outside every write root and watched folder");
     assert!(!elsewhere.exists(), "nothing was made there");
+}
+
+/// A card of two pictures of their own (the library's photo is another, so neither is a
+/// duplicate) in a mount folder, opened and listed in the app's import session; returns its roll
+/// folder and the Pictures folder inside the `allowed` write root.
+fn list_card(t: &mut T) -> (PathBuf, PathBuf) {
+    let (mounts, pictures) = (t.dir.path().join("mounts"), t.dir.path().join("allowed").join("Pictures"));
+    let roll = mounts.join("CARD").join("DCIM").join("100CANON");
+    dalica_fs::create_dir_all(&roll).unwrap();
+    for seed in [11u64, 12] {
+        let jpeg = dalica_scenes::encode::jpeg(&dalica_scenes::Scene::new(seed, 64, 48), 80, None).unwrap();
+        write(roll.join(format!("IMG_{seed}.JPG")), &jpeg);
+    }
+    let dcim = mounts.join("CARD").join("DCIM");
+    let s = t.d.app_mut().session_mut().unwrap();
+    s.set_import_device_roots(Some(std::env::join_paths([&mounts]).unwrap()), std::time::Duration::from_millis(20));
+    let start = std::time::Instant::now();
+    while s.execute("import.openSource", &json!({ "device": dcim })).is_err() {
+        assert!(start.elapsed().as_secs() < 120, "the card never showed");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    while s.execute("import.list", &json!({ "limit": 0 })).unwrap()["state"] == "loading" {
+        assert!(start.elapsed().as_secs() < 120, "the listing never ended");
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+    (roll, pictures)
+}
+
+/// The centre of widget `id` as drawn last frame.
+fn centre(t: &T, id: &str) -> (f32, f32) {
+    let w = t.d.widgets().into_iter().find(|w| w.id == id).unwrap_or_else(|| panic!("no widget {id}"));
+    (w.rect[0] + w.rect[2] / 2.0, w.rect[1] + w.rect[3] / 2.0)
+}
+
+/// Every route the control channel has to the Import room's writes is held to automation's rules
+/// (`security.md` §5.7): the destination strip's folder must be a write root or a watched folder
+/// (a `ui.set` draft then `engine.execute` of Import All, or a click on it), and Remove Imported
+/// Files is refused whether pressed by `ui.dialog.confirm`, `ui.clickWidget`, a raw `ui.pointer`
+/// click or a key, the card keeping every file; the person's own click still removes.
+#[test]
+fn the_import_rooms_writes_keep_to_automations_rules_on_every_route() {
+    let mut t = setup_with(1, |dir| Config { write_roots: vec![dir.join("allowed")], allow_external: true, ..Config::default() });
+    let (roll, pictures) = list_card(&mut t);
+    ok(&mut t, "engine.execute", json!({ "command": "import.open" }));
+
+    // A destination outside the write roots, drafted through ui.set: Import All is refused over
+    // engine.execute, and a click on the button imports nothing.
+    let elsewhere = t.dir.path().join("elsewhere");
+    ok(&mut t, "ui.set", json!({ "import": { "destination": { "place": elsewhere, "folderName": "Out" } } }));
+    assert_eq!(code(&mut t, "engine.execute", json!({ "command": "import.importAll" })), "path_denied");
+    ok(&mut t, "ui.settle", json!({}));
+    ok(&mut t, "ui.clickWidget", json!({ "id": "button:import.importAll" }));
+    ok(&mut t, "ui.settle", json!({}));
+    assert!(t.d.state().status.contains("outside every automation write root"), "{}", t.d.state().status);
+    assert!(!elsewhere.exists(), "nothing was made there");
+    assert_eq!(t.d.app_mut().session_mut().unwrap().execute("import.status", &json!({})).unwrap()["state"], Value::Null, "no import ran");
+
+    // Inside the write roots it imports, with "Delete copied files from the card": the question.
+    dalica_fs::create_dir_all(&pictures).unwrap();
+    ok(&mut t, "ui.set", json!({ "import": { "destination": { "place": pictures, "folderName": "Card", "after": "delete" } } }));
+    ok(&mut t, "engine.execute", json!({ "command": "import.importAll" }));
+    for _ in 0..600 {
+        if crate::dialogs::remove_from_card::is_open(t.d.app()) {
+            break;
+        }
+        t.d.step();
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+    assert!(crate::dialogs::remove_from_card::is_open(t.d.app()), "the question");
+    t.d.settle(600).unwrap();
+    assert_eq!(std::fs::read_dir(pictures.join("Card")).unwrap().count(), 2);
+
+    // Every automated route to Remove Imported Files is refused; the card keeps both files.
+    let e = refused(&mut t, "ui.dialog.confirm", json!({ "button": "dialog.remove" }), "external_denied");
+    assert!(e.message.contains("never runs over automation"), "{}", e.message);
+    refused(&mut t, "ui.clickWidget", json!({ "id": "button:dialog.remove" }), "external_denied");
+    assert_eq!(code(&mut t, "ui.menu.invoke", json!({ "id": "import.removeFromSource" })), "not_found");
+    let (x, y) = centre(&t, "button:dialog.remove");
+    let press = json!({ "events": [{ "kind": "move", "x": x, "y": y }, { "kind": "down", "x": x, "y": y }, { "kind": "up", "x": x, "y": y }] });
+    ok(&mut t, "ui.pointer", press);
+    ok(&mut t, "ui.key", json!({ "key": "Enter" }));
+    ok(&mut t, "ui.settle", json!({ "jobs": true }));
+    assert_eq!(std::fs::read_dir(&roll).unwrap().count(), 2, "nothing left the card");
+    assert!(crate::dialogs::remove_from_card::is_open(t.d.app()), "the question is still asked");
+    assert_eq!(t.d.app_mut().session_mut().unwrap().execute("import.status", &json!({})).unwrap()["removal"], Value::Null);
+
+    // The person's own click (no control request running) removes the copied files.
+    t.d.click("button:dialog.remove").unwrap();
+    t.d.settle(600).unwrap();
+    assert!(t.d.app_mut().session_mut().unwrap().wait_file_jobs(std::time::Duration::from_secs(120)));
+    assert_eq!(std::fs::read_dir(&roll).unwrap().count(), 0, "the person's click removes them");
+    assert_eq!(std::fs::read_dir(pictures.join("Card")).unwrap().count(), 2, "every copy stays");
 }

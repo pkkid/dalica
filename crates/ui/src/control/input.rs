@@ -95,6 +95,8 @@ pub(super) fn click_widget(call: &mut Call<'_>, params: &Value) -> Result<Outcom
     let (fx, fy) = (fraction(call, "fx", p.fx)?, fraction(call, "fy", p.fy)?);
     let button = button(call, p.button.as_deref())?;
     let w = enabled_widget(call, &p.id)?;
+    // A dialog button automation never presses (`button:dialog.remove` of Remove from Card).
+    super::dialog::never_automated_button(call.host.app(), p.id.strip_prefix("button:dialog."))?;
     let click = Click { fx, fy, count: count as u32, button, modifiers: mods(p.ctrl, p.cmd, p.shift, p.alt) };
     Ok(Outcome::play_then_reply(Input::Click { id: p.id, click }, json!({ "rect": w.rect })))
 }

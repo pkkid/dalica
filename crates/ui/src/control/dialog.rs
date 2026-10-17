@@ -47,8 +47,22 @@ pub(super) fn confirm(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Er
     if crate::dialogs::top(call.host.app()).is_none() {
         return Err(no_dialog());
     }
+    never_automated_button(call.host.app(), action.as_deref())?;
     let reply = crate::dialogs::answer(call.host.app_mut(), action.as_deref())?;
     Ok(Outcome::play_then_reply(Input::Frames(1), reply))
+}
+
+/// Refuses pressing button `action` of the top dialog when it runs a command automation never
+/// runs (Remove from Card's Remove Imported Files): `external_denied`, before anything happens. The
+/// button refuses by itself too while a request runs (`crate::control::refuse`); this answers the
+/// request with the reason.
+pub(super) fn never_automated_button(app: &crate::App, action: Option<&str>) -> Result<(), Error> {
+    use crate::dialogs::remove_from_card;
+    let top = crate::dialogs::top(app).map(|d| d.kind);
+    if top == Some(crate::state::DialogKind::RemoveFromCard) && action == Some(remove_from_card::REMOVE_ACTION) {
+        dalica_engine::automation::never_automated(remove_from_card::COMMAND)?;
+    }
+    Ok(())
 }
 
 /// `ui.dialog.cancel`: closes the top dialog, changing nothing (its Cancel button, Esc).
