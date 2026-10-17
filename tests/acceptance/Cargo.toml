@@ -82,3 +82,7 @@ path = "m9.rs"
 [[test]]
 name = "m10"
 path = "m10.rs"
+
+[[test]]
+name = "m11"
+path = "m11.rs"
