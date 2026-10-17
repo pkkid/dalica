@@ -3,11 +3,12 @@
 //! `room`). The Library tab is always open and never closes. Opening a room is its own command
 //! (`import.open`, `crate::commands::import`).
 //!
-//! M11.2 lays the ground (the view state's `room` and `rooms`, the strip's region, these two
-//! commands); M11.13 draws the strip with the room tabs and asks before closing Import while it
-//! copies.
+//! Closing the Import room while an import job copies asks first through the host: "Stop
+//! importing?" [Stop Import] [Keep Importing] (`crate::dialogs::confirm`, [`close_asks`]); Stop
+//! Import runs `room.close {confirm: true}`, which cancels the import job (what it copied stays,
+//! as for any cancelled job) and closes the room. Keep Importing closes nothing.
 
-use dalica_engine::CmdError;
+use dalica_engine::{CmdError, JobId, JobKind};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -29,7 +30,7 @@ pub const COMMANDS: &[UiCommand] = &[
         label: "Close Room",
         menu: "",
         keys: &[],
-        params: r#"{room?: "import"}: close a room (its tab's ×), the front one without `room`; the Library tab never closes; replies {room} (the room now in front)"#,
+        params: r#"{room?: "import", confirm?: bool}: close a room (its tab's ×), the front one without `room`; the Library tab never closes; the Import room while an import copies asks "Stop importing?" first unless `confirm` is true, which cancels the import; replies {room} (the room now in front)"#,
         run: close,
     },
 ];
@@ -45,6 +46,35 @@ struct Select {
 struct Close {
     #[serde(default)]
     room: Option<Room>,
+    #[serde(default)]
+    confirm: bool,
+}
+
+/// Stop Import's title and default button.
+pub const STOP_TITLE: &str = "Stop Import";
+/// The question asked closing the Import room while it copies.
+pub const STOP_QUESTION: &str = "Stop importing?";
+/// Stop Import's Cancel button.
+pub const KEEP_IMPORTING: &str = "Keep Importing";
+
+/// The import job copying now, if one is.
+pub fn importing(app: &App) -> Option<JobId> {
+    let jobs = app.session()?.jobs();
+    jobs.into_iter().find(|j| j.kind == JobKind::Import && !j.state.is_finished()).map(|j| j.job)
+}
+
+/// The room `room.close` with `params` would close: `params.room`, or the front room.
+fn closing(app: &App, params: &Value) -> Option<Room> {
+    match params.get("room") {
+        None | Some(Value::Null) => Some(app.state().room),
+        Some(v) => serde_json::from_value(v.clone()).ok(),
+    }
+}
+
+/// `room.close` asks "Stop importing?" when it would close the open Import room while an import
+/// job copies.
+pub fn close_asks(app: &App, params: &Value) -> bool {
+    closing(app, params) == Some(Room::Import) && app.state().rooms.contains(&Room::Import) && importing(app).is_some()
 }
 
 /// Opens `room` if it is not open (its tab goes last) and brings it to the front.
@@ -72,10 +102,20 @@ fn close(app: &mut App, params: &Value) -> Result<Value, CmdError> {
     if room == Room::Library {
         return Err(CmdError::Disabled("The Library tab cannot be closed.".into()));
     }
-    let state = app.state_mut();
-    if !state.rooms.contains(&room) {
+    if !app.state().rooms.contains(&room) {
         return Err(CmdError::NotFound(format!("the {} room is not open", room.name())));
     }
+    if room == Room::Import
+        && let Some(job) = importing(app)
+    {
+        if !p.confirm {
+            return Err(CmdError::Disabled(format!("{STOP_QUESTION} Close the Import room with `confirm: true` to stop the import.")));
+        }
+        if let Some(session) = app.session_mut() {
+            session.cancel_jobs(Some(job))?;
+        }
+    }
+    let state = app.state_mut();
     state.rooms.retain(|r| *r != room);
     if state.room == room {
         state.room = Room::Library;

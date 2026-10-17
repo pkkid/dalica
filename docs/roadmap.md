@@ -6243,7 +6243,7 @@ and are never loosened. No other step of M11 needs a maintainer decision mid-run
     a read-only viewer whose star is `disabled`; `apps/dalica/tests/view.rs`: `dalica --view FILE
     --headless` reports `view: "viewer"` on that photo, an odd file name still opens, Esc quits;
     graceful failures; `panic_hunt` green.
-- ⬜ **M11.13 `ui`: the room tab strip**
+- ✅ **M11.13 `ui`: the room tab strip**
   - after: M11.2, M11.3
   - files: `crates/ui/src/panels/rooms.rs`, `crates/ui/src/commands/rooms.rs`, `crates/ui/tests/rooms.rs`, `crates/ui/tests/fingerprints/rooms-*.json`, `docs/ui-layout.md`
   - scope: `ui-layout.md` §8 with M11.3's room tabs: the strip between the menu bar and the

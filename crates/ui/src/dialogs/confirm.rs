@@ -27,6 +27,10 @@
 //! sidecar is damaged; the dialog names the folder, says what the reset does and that the damaged
 //! copy stays beside the photos, with [Reset] [Cancel].
 //!
+//! M11's row: Stop Import (`room.close` on the Import room while an import job copies, the tab's
+//! ×): "Stop importing?" [Stop Import] [Keep Importing] (its Cancel button, [`cancel_label`]); Stop
+//! Import cancels the job and closes the room (`crate::commands::rooms`).
+//!
 //! To route another command's question through the host: give the command a `confirm` parameter,
 //! add its [`DialogKind`] variant (the `<kind>` of `dialog:<kind>`), a row here and the variant to
 //! the arms of `super::{look, body, act}` that send confirmations to this module.
@@ -40,6 +44,7 @@ use serde_json::{Map, Value, json};
 
 use super::{Button, Dialog, DialogCommand, DialogKind, Look, delete, folder_manager, move_confirm, remove_from_album, revert, save_explain};
 use crate::app::App;
+use crate::commands::rooms;
 use crate::tray;
 
 /// The width of a confirmation (points).
@@ -200,7 +205,26 @@ pub static ASKS: &[Ask] = &[
         text_for: Some(reset_text),
         extra: &[],
     },
+    Ask {
+        command: "room.close",
+        kind: DialogKind::StopImport,
+        title: rooms::STOP_TITLE,
+        text: rooms::STOP_QUESTION,
+        action: "stopImport",
+        label: rooms::STOP_TITLE,
+        asks: rooms::close_asks,
+        text_for: None,
+        extra: &[],
+    },
 ];
+
+/// The label of `kind`'s Cancel button: "Cancel", or Stop Import's "Keep Importing".
+pub fn cancel_label(kind: DialogKind) -> &'static str {
+    match kind {
+        DialogKind::StopImport => rooms::KEEP_IMPORTING,
+        _ => "Cancel",
+    }
+}
 
 /// The damaged library folder `params.folder` names, by its name: `folder.resetData` asks only
 /// then (an unknown, bad or undamaged folder is the command's to refuse).
@@ -279,7 +303,7 @@ pub fn dialog(ask: &Ask, params: &Value) -> Dialog {
 
 /// `needs_confirm`'s `prompt` (`control-protocol.md` §5.5): the dialog's title, text and buttons.
 pub fn prompt(ask: &Ask) -> Value {
-    let buttons: Vec<&str> = std::iter::once(ask.label).chain(ask.extra.iter().map(|(_, label)| *label)).chain(["Cancel"]).collect();
+    let buttons: Vec<&str> = std::iter::once(ask.label).chain(ask.extra.iter().map(|(_, label)| *label)).chain([cancel_label(ask.kind)]).collect();
     json!({ "title": ask.title, "text": ask.text, "buttons": buttons, "dialog": ask.kind.name() })
 }
 
@@ -300,7 +324,11 @@ pub fn confirmed_params(d: &Dialog, extra: &[(&str, Value)]) -> Result<(String, 
 
 pub fn look(d: &Dialog) -> Look {
     let (title, action, label) = of(d.kind).map_or(("Confirm", "ok", "OK"), |a| (a.title, a.action, a.label));
-    Look { title: title.into(), width: WIDTH, buttons: vec![Button::cancel(), Button::new(action, label, ButtonKind::Default)] }
+    Look {
+        title: title.into(),
+        width: WIDTH,
+        buttons: vec![Button::new("cancel", cancel_label(d.kind), ButtonKind::Cancel), Button::new(action, label, ButtonKind::Default)],
+    }
 }
 
 /// The question dialog `d` asks: its row's text, or the one that names what it asks about.

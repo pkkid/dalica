@@ -161,9 +161,12 @@ pub fn widget_id(kind: DialogKind) -> String {
 
 fn look(app: &App, d: &Dialog) -> Look {
     match d.kind {
-        DialogKind::ClearTray | DialogKind::RemoveFolder | DialogKind::WatchDrive | DialogKind::DeleteAlbum | DialogKind::ResetFolderData => {
-            confirm::look(d)
-        }
+        DialogKind::ClearTray
+        | DialogKind::RemoveFolder
+        | DialogKind::WatchDrive
+        | DialogKind::DeleteAlbum
+        | DialogKind::ResetFolderData
+        | DialogKind::StopImport => confirm::look(d),
         DialogKind::FolderManager => folder_manager::look(app, d),
         DialogKind::FirstRun => first_run::look(app, d),
         DialogKind::FolderProperties => folder_properties::look(app, d),
@@ -195,9 +198,12 @@ fn look(app: &App, d: &Dialog) -> Look {
 
 fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
     match d.kind {
-        DialogKind::ClearTray | DialogKind::RemoveFolder | DialogKind::WatchDrive | DialogKind::DeleteAlbum | DialogKind::ResetFolderData => {
-            confirm::body(app, ui, d)
-        }
+        DialogKind::ClearTray
+        | DialogKind::RemoveFolder
+        | DialogKind::WatchDrive
+        | DialogKind::DeleteAlbum
+        | DialogKind::ResetFolderData
+        | DialogKind::StopImport => confirm::body(app, ui, d),
         DialogKind::FolderManager => folder_manager::body(app, ui, d),
         DialogKind::FirstRun => first_run::body(app, ui, d),
         DialogKind::FolderProperties => folder_properties::body(app, ui, d),
@@ -229,9 +235,12 @@ fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
 
 fn act(app: &mut App, d: &Dialog, action: &str) -> Result<Value, CmdError> {
     match d.kind {
-        DialogKind::ClearTray | DialogKind::RemoveFolder | DialogKind::WatchDrive | DialogKind::DeleteAlbum | DialogKind::ResetFolderData => {
-            confirm::act(app, d, action)
-        }
+        DialogKind::ClearTray
+        | DialogKind::RemoveFolder
+        | DialogKind::WatchDrive
+        | DialogKind::DeleteAlbum
+        | DialogKind::ResetFolderData
+        | DialogKind::StopImport => confirm::act(app, d, action),
         DialogKind::FolderManager => folder_manager::act(app, d, action),
         DialogKind::FirstRun => first_run::act(app, d, action),
         DialogKind::FolderProperties => folder_properties::act(app, d, action),
