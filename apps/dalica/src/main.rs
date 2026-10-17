@@ -14,6 +14,7 @@ mod logging;
 mod native_menu;
 mod paths;
 mod preflight;
+mod viewer;
 mod window;
 
 use std::ffi::OsString;
@@ -31,8 +32,9 @@ Otherwise the library is DIR, else $DALICA_HOME, else the `data` folder beside t
 (Linux ~/.local/share/dalica/library, macOS ~/Library/Application Support/Dalica/Library,
 Windows %LOCALAPPDATA%\\Dalica\\Library).
 
---view FILE is how the file manager's Open with hands Dalica an image: for now it opens the library window as usual
-(the standalone viewer comes later). FILE may be missing or have any name; it is never read or run.
+--view FILE is how the file manager's Open with hands Dalica an image: it opens the photo viewer on FILE, a borderless
+window filling the screen, with the library opened as usual behind it (read-only when another Dalica has it open;
+with --headless the viewer is served over the control channel). FILE may be missing or have any name; it is never run.
 
 On Linux the window first checks for the libraries it loads (Wayland or X11, xkbcommon, Vulkan); a missing one is
 named with the package to install and dalica exits with status 1 (DALICA_SKIP_LIB_CHECK=1 skips the check).
@@ -77,9 +79,9 @@ struct Options {
     /// `--control` and its options.
     control: Option<control::Flags>,
     headless: bool,
-    /// `--view FILE`: the file the file manager's Open with handed over. Taken verbatim (any
-    /// bytes, a leading `-`, a missing file) and never read or run; the standalone viewer it will
-    /// open (`viewing.md` §3) is later work, so for now Dalica opens its library window as usual.
+    /// `--view FILE`: the file the file manager's Open with handed over, for the photo viewer
+    /// (`viewing.md` §3, [`viewer`]). Taken verbatim (any bytes, a leading `-`, a missing file) and
+    /// never run; only the viewer's worker reads it.
     view: Option<PathBuf>,
 }
 
@@ -248,20 +250,25 @@ fn main() -> ExitCode {
     if let Some(w) = dirs.as_ref().and_then(|d| d.warning.as_ref()) {
         log::warn!("dalica: {w}");
     }
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let view = options.view.map(|file| viewer::Launch::new(file, &cwd));
     // A file name can be private: it goes to the log at debug level only.
-    if let Some(file) = &options.view {
-        log::debug!("dalica: --view {}: opening the library window (the standalone viewer comes later)", file.display());
+    if let Some(v) = &view {
+        log::debug!("dalica: --view {}: opening the photo viewer", v.file().display());
     }
     let (code, token_file) = match listening {
-        Some((listening, flags)) if options.headless => run_headless(listening, &flags, source, demo),
+        Some((listening, flags)) if options.headless => run_headless(listening, &flags, source, demo, view.as_ref()),
         Some((listening, flags)) => {
             let control = window::ControlSetup { listening, control: dalica_ui::control::Control::new(flags.config(demo)) };
-            run_window(source, Some(control))
+            run_window(source, Some(control), view.clone())
         }
-        None => run_window(source, None),
+        None => run_window(source, None, view.clone()),
     };
     if let Some(t) = token_file {
         t.finish();
+    }
+    if let Some(v) = view {
+        v.finish();
     }
     if let Some(dir) = fresh {
         remove_fresh_demo(dir);
@@ -270,20 +277,31 @@ fn main() -> ExitCode {
 }
 
 /// The window, until it closes. Returns the exit code and the token file to remove.
-fn run_window(source: window::Source, control: Option<window::ControlSetup>) -> (ExitCode, Option<control::TokenFileGuard>) {
+fn run_window(
+    source: window::Source,
+    control: Option<window::ControlSetup>,
+    view: Option<viewer::Launch>,
+) -> (ExitCode, Option<control::TokenFileGuard>) {
     // The chrome and placement come from the library's settings, read (never changed) before the
     // window and the library open; the session that opens it sets a damaged file aside.
     let settings = dalica_engine::settings::Settings::peek(&source.library_dir());
     let frame = frame::FrameSetup::from_settings(&settings, frame::Os::host());
+    // `--view`: the viewer's borderless window filling the screen, transparent when its background
+    // is translucent (Options ▸ Photo Viewer).
+    let view = view.map(|launch| window::ViewSetup { launch, translucent: settings.viewer().translucent });
+    let viewport = match &view {
+        Some(v) => viewer::viewport(window::viewport(&frame), v.translucent),
+        None => window::viewport(&frame),
+    };
     // The GPU backend: DX12 alone on Windows, where Vulkan presentation flickered (`gpu`).
-    let options = eframe::NativeOptions { viewport: window::viewport(&frame), wgpu_options: gpu::host_options(), ..Default::default() };
+    let options = eframe::NativeOptions { viewport, wgpu_options: gpu::host_options(), ..Default::default() };
     let token_file = Arc::new(std::sync::Mutex::new(None));
     let keep = token_file.clone();
     let ran = eframe::run_native(
         "Dalica",
         options,
         Box::new(move |cc| {
-            let (w, guard) = window::Window::new(&cc.egui_ctx, source, control, frame);
+            let (w, guard) = window::Window::new(&cc.egui_ctx, source, control, frame, view);
             if let Ok(mut slot) = keep.lock() {
                 *slot = guard;
             }
@@ -304,14 +322,16 @@ fn run_window(source: window::Source, control: Option<window::ControlSetup>) -> 
     (code, guard)
 }
 
-/// `--headless`: opens the library, serves the control channel until `app.quit`, flushes.
+/// `--headless`: opens the library (and the photo viewer with `--view`, its state served over the
+/// control channel: `viewer.list`), serves the control channel until `app.quit`, flushes.
 fn run_headless(
     listening: control::Listening,
     flags: &control::Flags,
     source: window::Source,
     demo: bool,
+    view: Option<&viewer::Launch>,
 ) -> (ExitCode, Option<control::TokenFileGuard>) {
-    let session = match window::open(source, &|_| {}) {
+    let session = match window::open(source, view, &|_| {}) {
         Ok(s) => s,
         Err(e) => {
             log::error!("dalica: cannot open the library: {e}");

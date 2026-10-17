@@ -2,7 +2,8 @@
 //! (so the `fs` guard refuses disk access from it in debug builds), and every frame hands over to
 //! `dalica_ui::App`, which polls the engine and paints. Each frame is measured into a [`Perf`]
 //! (`ui.inspect` → `perf`; `DALICA_PROFILE=1` logs slow frames). With `--control`, requests are
-//! answered from the logic tick ([`crate::control::play`]).
+//! answered from the logic tick ([`crate::control::play`]). With `--view` the window is the photo
+//! viewer's until the viewer closes ([`crate::viewer`]).
 
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, TryRecvError};
@@ -90,15 +91,24 @@ impl Source {
 
 /// Opens the library of `source` (off the UI thread: it reads and may write the disk), telling
 /// `report` what it is doing for the opening screen. It reads the index and returns: scans and
-/// thumbnails go on in the background (`data-model.md` §7).
-pub fn open(source: Source, report: &dyn Fn(&str)) -> Result<Session, String> {
+/// thumbnails go on in the background (`data-model.md` §7). With `view` (`--view FILE`) the
+/// session opens the photo viewer on the file, read-only when another Dalica holds the library.
+pub fn open(source: Source, view: Option<&crate::viewer::Launch>, report: &dyn Fn(&str)) -> Result<Session, String> {
     let clock = Arc::new(dalica_core::SystemClock);
-    match source {
+    let opened = match source {
         Source::Library(dir) => {
             report("Reading the library…");
-            Session::open(&dir, clock).map_err(|e| e.to_string())
+            Session::open(&dir, clock.clone())
         }
-        Source::Demo(dir) => dalica_engine::demo::open_reporting(&dir, clock, &|step| report(&step.describe())).map_err(|e| e.to_string()),
+        Source::Demo(dir) => match dalica_engine::demo::open_reporting(&dir, clock.clone(), &|step| report(&step.describe())) {
+            Ok(s) => Ok(s),
+            Err(dalica_engine::demo::DemoError::Open(e)) => Err(e),
+            Err(e) => return Err(e.to_string()),
+        },
+    };
+    match view {
+        Some(view) => view.attach(opened, clock),
+        None => opened.map_err(|e| e.to_string()),
     }
 }
 
@@ -106,6 +116,20 @@ pub fn open(source: Source, report: &dyn Fn(&str)) -> Result<Session, String> {
 pub struct ControlSetup {
     pub listening: Listening,
     pub control: Control,
+}
+
+/// `--view` in the window: the file, and whether the viewer's background is translucent
+/// (Options ▸ Photo Viewer, read with the frame's settings before the window is made).
+pub struct ViewSetup {
+    pub launch: crate::viewer::Launch,
+    pub translucent: bool,
+}
+
+/// The photo viewer's window while it is one: its clear colour, and what it does once the
+/// viewer closes.
+struct ViewerWindow {
+    translucent: bool,
+    follow: crate::viewer::Follow,
 }
 
 pub struct Window {
@@ -122,6 +146,11 @@ pub struct Window {
     placement: Tracker,
     /// Keeps the OS window's full screen and the view state's in step.
     fullscreen: FullscreenSync,
+    /// `--view`: the photo viewer's window, until the viewer closes into the main window.
+    viewer: Option<ViewerWindow>,
+    /// The chrome and saved placement the main window has (the viewer's window takes them on
+    /// Open in Dalica).
+    frame: FrameSetup,
     /// The system menu bar (macOS), and when it was last brought up to date.
     #[cfg(target_os = "macos")]
     native: Option<(crate::native_menu::NativeMenuBar, Instant)>,
@@ -136,7 +165,13 @@ impl Window {
     /// Starts opening the library on another thread; the window shows "Opening…" until it arrives.
     /// With `control`, starts accepting connections; returns the token file to remove at exit.
     /// `frame` is the chrome and placement the window was made with.
-    pub fn new(ctx: &egui::Context, source: Source, control: Option<ControlSetup>, frame: FrameSetup) -> (Window, Option<TokenFileGuard>) {
+    pub fn new(
+        ctx: &egui::Context,
+        source: Source,
+        control: Option<ControlSetup>,
+        frame: FrameSetup,
+        view: Option<ViewSetup>,
+    ) -> (Window, Option<TokenFileGuard>) {
         let mut failed = None;
         let mut token_file = None;
         let (picker, control) = match control {
@@ -171,12 +206,13 @@ impl Window {
         let ctx = ctx.clone();
         let opening_step = Arc::new(Mutex::new(None));
         let step = Arc::clone(&opening_step);
+        let launch = view.as_ref().map(|v| v.launch.clone());
         let spawned = std::thread::Builder::new().name("dalica-open".into()).spawn(move || {
             let report = |what: &str| {
                 *step.lock().unwrap_or_else(PoisonError::into_inner) = Some(what.to_string());
                 ctx.request_repaint();
             };
-            let _ = tx.send(open(source, &report));
+            let _ = tx.send(open(source, launch.as_ref(), &report));
             ctx.request_repaint();
         });
         if let Err(e) = spawned {
@@ -193,6 +229,8 @@ impl Window {
             sample: None,
             placement: Tracker::new(frame.stored),
             fullscreen: FullscreenSync::default(),
+            viewer: view.map(|v| ViewerWindow { translucent: v.translucent, follow: crate::viewer::Follow::default() }),
+            frame,
             #[cfg(target_os = "macos")]
             native,
             _ui_thread: None,
@@ -257,6 +295,15 @@ impl eframe::App for Window {
         }
         let at = ui.ctx().input(|i| i.time);
         self.sample = Some(Sample { at, frame: layout, update: started.elapsed(), ..Sample::default() });
+    }
+
+    /// The photo viewer's window is cleared to transparent (or opaque black); the main window keeps
+    /// eframe's colour, which its panels cover.
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        match &self.viewer {
+            Some(v) => crate::viewer::clear_color(v.translucent),
+            None => egui::Color32::from_rgba_unmultiplied(12, 12, 12, 180).to_normalized_gamma_f32(),
+        }
     }
 
     fn on_exit(&mut self) {
@@ -390,6 +437,7 @@ impl Window {
             return;
         }
         self.app.frame(ui);
+        self.follow_viewer(ui.ctx());
         if self.app.session().is_none() {
             self.bare_title_bar(ui);
         }
@@ -398,6 +446,28 @@ impl Window {
             // Scans, thumbnails and dialogs finish on other threads: keep polling while they run,
             // resting between frames so the poll does not spin a CPU their workers need.
             ui.ctx().request_repaint_after(BUSY_POLL);
+        }
+    }
+
+    /// `--view`: once the viewer closes, quits (Esc, ×) or turns the window into the main window
+    /// on the edit view of the photo (Open in Dalica).
+    fn follow_viewer(&mut self, ctx: &egui::Context) {
+        let Some(v) = &mut self.viewer else { return };
+        let closed = self.app.session().and_then(|s| s.viewer().closed());
+        match v.follow.step(closed) {
+            crate::viewer::Action::Nothing => {}
+            crate::viewer::Action::Quit => self.app.request_quit(),
+            crate::viewer::Action::BecomeMain(id) => {
+                for command in crate::viewer::main_window(&self.frame) {
+                    ctx.send_viewport_cmd(command);
+                }
+                titlebar::set_chrome(ctx, self.frame.chrome);
+                if let Err(e) = self.app.run("view.edit", &serde_json::json!({ "id": id })) {
+                    log::warn!("dalica: Open in Dalica: {e}");
+                }
+                self.viewer = None;
+                ctx.request_repaint();
+            }
         }
     }
 
