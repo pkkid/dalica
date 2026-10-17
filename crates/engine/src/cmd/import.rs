@@ -1,4 +1,4 @@
-//! `import.sources`, `import.open`, `import.list`, `import.exclude`, `import.excludeAll`,
+//! `import.sources`, `import.openSource`, `import.list`, `import.exclude`, `import.excludeAll`,
 //! `import.mark`, `import.options` and `import.close` (`organizing.md` §3 items 1–3): the Import
 //! room's source, its listing and the room's choices (`import.rs`). None is an undo step and none
 //! touches the disk on the owner thread: the listing runs on a worker, and the queries read what it
@@ -29,7 +29,7 @@ pub fn specs() -> Vec<CommandSpec> {
             run: sources,
         },
         CommandSpec {
-            id: "import.open",
+            id: "import.openSource",
             label: "Open Import Source",
             menu: "",
             keys: &[],

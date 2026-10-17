@@ -388,6 +388,10 @@ fn engine_execute_runs_commands_and_returns_every_code_it_can() {
     photos(&other, 1);
     let e = refused(&mut t, "engine.execute", json!({ "command": "folders.add", "params": { "path": other } }), "path_denied");
     assert!(e.message.contains("--automation-read-root"), "{}", e.message);
+    // An import source chosen by path is read the same way: listing it is refused outside the roots.
+    let e = refused(&mut t, "engine.execute", json!({ "command": "import.openSource", "params": { "path": other } }), "path_denied");
+    assert!(e.message.contains("--automation-read-root"), "{}", e.message);
+    assert!(t.d.app().session().unwrap().import_session().source().is_none(), "nothing was opened");
     let climbing = t.folder.join("..").join("other");
     refused(&mut t, "engine.execute", json!({ "command": "folders.add", "params": { "path": climbing } }), "path_denied");
     refused(&mut t, "engine.execute", json!({ "command": "folders.add", "params": { "path": "relative/dir" } }), "bad_params");

@@ -353,7 +353,7 @@ fn folder_name(p: &Path) -> String {
 }
 
 impl Session {
-    /// Test hook: the device list `import.sources` and `import.open` ask is the one inside the mount
+    /// Test hook: the device list `import.sources` and `import.openSource` ask is the one inside the mount
     /// folders `value` names (paths joined like `PATH`, read as `DALICA_DEVICE_ROOTS` is),
     /// refreshed when older than `max_age`; `None` gives back this system's own list.
     #[doc(hidden)]
@@ -401,7 +401,7 @@ impl Session {
         json!({ "sources": sources })
     }
 
-    /// `import.open`: lists `device` (a card's or drive's folder, or its root, from the cached list)
+    /// `import.openSource`: lists `device` (a card's or drive's folder, or its root, from the cached list)
     /// or the folder `path`, dropping the listing before it. Never touches the disk: the worker
     /// reports a folder that cannot be read in the status line.
     pub(crate) fn import_open(&mut self, device: Option<&Path>, path: Option<&Path>) -> Result<Value, CmdError> {

@@ -119,17 +119,17 @@ fn a_card_appears_in_import_sources_within_a_refresh_and_leaves_when_it_is_remov
     let drive = source(&mut s, &stick).expect("a removable volume without DCIM is a drive");
     assert_eq!((drive["kind"].clone(), drive["name"].clone()), (json!("drive"), json!("USB STICK")));
 
-    let v = run(&mut s, "import.open", json!({ "device": card.join("DCIM") }));
+    let v = run(&mut s, "import.openSource", json!({ "device": card.join("DCIM") }));
     assert_eq!(v["source"], json!({ "kind": "card", "name": "EOS_DIGITAL", "path": card.join("DCIM") }));
     let (_, end) = wait_listed(&mut s);
     assert_eq!((end["status"].clone(), end["total"].clone()), (json!("1 file"), json!(1)));
-    let v = run(&mut s, "import.open", json!({ "device": stick }));
+    let v = run(&mut s, "import.openSource", json!({ "device": stick }));
     assert_eq!(v["source"]["kind"], "drive", "a drive opens at its root");
 
     let gone = card.clone();
     off_owner(move || std::fs::remove_dir_all(gone).unwrap());
     wait_source(&mut s, &card.join("DCIM"), |x| x.is_none());
-    assert_eq!(code(&mut s, "import.open", json!({ "device": card.join("DCIM") })), "not_found", "a card that left cannot be opened");
+    assert_eq!(code(&mut s, "import.openSource", json!({ "device": card.join("DCIM") })), "not_found", "a card that left cannot be opened");
     drop(ui);
     assert_eq!(dalica_fs::guard::refused(), 0, "the owner thread made no file call");
 }
@@ -146,7 +146,7 @@ fn listing_300_photos_streams_in_batches_with_rising_counts_in_capture_groups() 
         .collect();
     put_all(&dcim, files);
     let ui = dalica_fs::mark_ui_thread();
-    let v = run(&mut s, "import.open", json!({ "path": dcim }));
+    let v = run(&mut s, "import.openSource", json!({ "path": dcim }));
     assert_eq!(v["source"]["kind"], "folder");
     let (totals, end) = wait_listed(&mut s);
     drop(ui);
@@ -194,7 +194,7 @@ fn copies_of_library_photos_and_repeats_on_the_card_are_duplicates_and_a_same_si
     put_all(&dcim, files);
 
     let ui = dalica_fs::mark_ui_thread();
-    let v = run(&mut s, "import.open", json!({ "path": dcim }));
+    let v = run(&mut s, "import.openSource", json!({ "path": dcim }));
     assert_eq!(v["excludeDuplicates"], true, "from Detect duplicates while importing");
     let (_, end) = wait_listed(&mut s);
     let list = candidates(&mut s);
@@ -231,7 +231,7 @@ fn exclude_all_include_all_and_the_rooms_marks() {
     let folder = mounts.path().join("Pictures");
     put_all(&folder, (0..5u64).map(|i| (format!("IMG_{i}.JPG"), shot(i, i as i64 * 60))).collect());
     let revision = s.library().revision();
-    run(&mut s, "import.open", json!({ "path": folder }));
+    run(&mut s, "import.openSource", json!({ "path": folder }));
     wait_listed(&mut s);
     let list = candidates(&mut s);
     let (a, b) = (list[0]["id"].clone(), list[1]["id"].clone());
@@ -278,15 +278,15 @@ fn each_command_keeps_its_contract_and_fails_gracefully() {
     }
     assert_eq!(run(&mut s, "import.close", json!({}))["closed"], false);
 
-    // import.open takes exactly one of device and path; a path is absolute.
-    assert_eq!(code(&mut s, "import.open", json!({})), "bad_params");
-    assert_eq!(code(&mut s, "import.open", json!({ "device": one, "path": one })), "bad_params");
-    assert_eq!(code(&mut s, "import.open", json!({ "path": "relative/folder" })), "bad_params");
-    assert_eq!(code(&mut s, "import.open", json!({ "device": mounts.path().join("nowhere") })), "not_found");
+    // import.openSource takes exactly one of device and path; a path is absolute.
+    assert_eq!(code(&mut s, "import.openSource", json!({})), "bad_params");
+    assert_eq!(code(&mut s, "import.openSource", json!({ "device": one, "path": one })), "bad_params");
+    assert_eq!(code(&mut s, "import.openSource", json!({ "path": "relative/folder" })), "bad_params");
+    assert_eq!(code(&mut s, "import.openSource", json!({ "device": mounts.path().join("nowhere") })), "not_found");
 
     // A new source drops the listing before it.
-    let g1 = run(&mut s, "import.open", json!({ "path": one }))["generation"].as_u64().unwrap();
-    let g2 = run(&mut s, "import.open", json!({ "path": two }))["generation"].as_u64().unwrap();
+    let g1 = run(&mut s, "import.openSource", json!({ "path": one }))["generation"].as_u64().unwrap();
+    let g2 = run(&mut s, "import.openSource", json!({ "path": two }))["generation"].as_u64().unwrap();
     assert_eq!(g2, g1 + 1);
     let (_, end) = wait_listed(&mut s);
     assert_eq!((end["total"].clone(), end["source"]["path"].clone()), (json!(2), json!(two)));
@@ -302,7 +302,7 @@ fn each_command_keeps_its_contract_and_fails_gracefully() {
     assert_eq!(code(&mut s, "import.sources", json!({ "zzz": 1 })), "bad_params");
 
     // A folder that cannot be read says so in the status line.
-    run(&mut s, "import.open", json!({ "path": mounts.path().join("missing") }));
+    run(&mut s, "import.openSource", json!({ "path": mounts.path().join("missing") }));
     let (_, end) = wait_listed(&mut s);
     assert_eq!(end["total"], 0);
     assert!(end["status"].as_str().unwrap().starts_with("The source cannot be read"), "{end}");
