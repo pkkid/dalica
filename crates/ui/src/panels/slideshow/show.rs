@@ -6,7 +6,11 @@
 //!
 //! A photo's size is its pixels as shown (its edits' turns and crop applied), so the fit never
 //! shows it above twice those pixels whatever size the preview was made at. Textures are kept per
-//! UI thread for the last few images painted, so a frame uploads only an image it has not drawn.
+//! UI thread for the images the frame painted, so a frame uploads only an image it has not drawn.
+//! While no change is under way the next photo's preview, once the show has made it in the other
+//! pane, is uploaded too ([`preload`]): a change's first frame then finds both its photos' textures
+//! and uploads nothing large (M11.29). Every other texture is let go at the end of the frame, so at
+//! most the photo shown and the next one (or the two photos of a change) hold a texture.
 
 use std::cell::RefCell;
 use std::sync::{Arc, Weak};
@@ -15,6 +19,7 @@ use dalica_core::PhotoId;
 use dalica_create::slideshow::{self as create, Size, Slide};
 use dalica_edit::Recipe;
 use dalica_engine::cmd::slideshow::Frame;
+use dalica_engine::preview::PANES;
 use dalica_engine::{Session, Thumb};
 use dalica_image::{Orientation, Rgba8};
 use dalica_ui_kit::widgets;
@@ -24,41 +29,70 @@ use crate::app::App;
 
 /// The caption's automation id.
 pub const CAPTION_ID: &str = "text:slideshow.caption";
-/// The most images whose textures are kept (the two photos of a change, and their stand-ins).
+/// The most images whose textures are kept at once (the two photos of a change, or the photo shown
+/// and the next one, and a stand-in): a cap over the per-frame letting go.
 const KEPT: usize = 4;
 
 /// A texture of an image the session handed, and that image.
 struct Tex {
     source: Weak<Rgba8>,
     handle: TextureHandle,
+    /// The photo it shows, and whether the image is its preview (else a stand-in thumbnail).
+    photo: PhotoId,
+    preview: bool,
+    /// Drawn or preloaded by the frame being painted.
+    used: bool,
 }
 
 thread_local! {
     static TEXTURES: RefCell<Vec<Tex>> = const { RefCell::new(Vec::new()) };
 }
 
-/// The texture of `image`: the one kept for it, else a new upload (the oldest kept one let go).
-/// `None` when the image is malformed.
-fn texture(ctx: &egui::Context, image: &Arc<Rgba8>) -> Option<egui::TextureId> {
+/// An image to paint: photo `photo`'s preview (`preview`) or a stand-in thumbnail.
+struct Image {
+    photo: PhotoId,
+    preview: bool,
+    pixels: Arc<Rgba8>,
+}
+
+/// The texture of `image`, marked as used by this frame: the one kept for it, else a new upload
+/// (the least recently used kept one let go past [`KEPT`]). `None` when the image is malformed.
+fn texture(ctx: &egui::Context, image: &Image) -> Option<egui::TextureId> {
     TEXTURES.with(|kept| {
         let mut kept = kept.borrow_mut();
         kept.retain(|t| t.source.strong_count() > 0);
-        if let Some(t) = kept.iter().find(|t| t.source.upgrade().is_some_and(|s| Arc::ptr_eq(&s, image))) {
-            return Some(t.handle.id());
+        if let Some(at) = kept.iter().position(|t| t.source.upgrade().is_some_and(|s| Arc::ptr_eq(&s, &image.pixels))) {
+            // The most recently used goes last.
+            let mut t = kept.remove(at);
+            t.used = true;
+            let id = t.handle.id();
+            kept.push(t);
+            return Some(id);
         }
-        let dims = [image.width as usize, image.height as usize];
-        if dims[0] == 0 || dims[1] == 0 || dims[0].saturating_mul(dims[1]).saturating_mul(4) != image.data.len() {
+        let px = &image.pixels;
+        let dims = [px.width as usize, px.height as usize];
+        if dims[0] == 0 || dims[1] == 0 || dims[0].saturating_mul(dims[1]).saturating_mul(4) != px.data.len() {
             return None;
         }
-        let pixels = egui::ColorImage::from_rgba_unmultiplied(dims, &image.data);
+        let pixels = egui::ColorImage::from_rgba_unmultiplied(dims, &px.data);
         let handle = ctx.load_texture("slideshow", pixels, egui::TextureOptions::LINEAR);
         let id = handle.id();
         if kept.len() >= KEPT {
             kept.remove(0);
         }
-        kept.push(Tex { source: Arc::downgrade(image), handle });
+        kept.push(Tex { source: Arc::downgrade(px), handle, photo: image.photo, preview: image.preview, used: true });
         Some(id)
     })
+}
+
+/// Starts a frame's painting: no kept texture is used yet.
+fn begin_frame() {
+    TEXTURES.with(|kept| kept.borrow_mut().iter_mut().for_each(|t| t.used = false));
+}
+
+/// Ends a frame's painting: the textures it neither drew nor preloaded are let go.
+fn end_frame() {
+    TEXTURES.with(|kept| kept.borrow_mut().retain(|t| t.used));
 }
 
 /// Lets go of every texture kept (the show ended).
@@ -66,16 +100,40 @@ pub fn release() {
     TEXTURES.with(|kept| kept.borrow_mut().clear());
 }
 
+/// The images holding a texture on this UI thread now, least recently used first: each photo and
+/// whether the image is its preview (else a stand-in thumbnail). For tests and inspection: the
+/// photo shown and the next one, or a change's two photos.
+pub fn kept() -> Vec<(PhotoId, bool)> {
+    TEXTURES.with(|kept| kept.borrow().iter().filter(|t| t.source.strong_count() > 0).map(|t| (t.photo, t.preview)).collect())
+}
+
 /// What photo `id` paints now: its preview in `pane` when it is there, else the best thumbnail in
 /// memory for a long side of `need` device pixels; with its recipe (what the preview shows).
-fn image_of(session: &mut Session, id: PhotoId, pane: usize, need: u32) -> Option<(Arc<Rgba8>, Vec<String>)> {
+fn image_of(session: &mut Session, id: PhotoId, pane: usize, need: u32) -> Option<(Image, Vec<String>)> {
     if let Some(p) = session.preview_in(pane).filter(|p| p.photo == id) {
-        return Some((Arc::clone(&p.image), p.recipe.clone()));
+        return Some((Image { photo: id, preview: true, pixels: Arc::clone(&p.image) }, p.recipe.clone()));
     }
     let recipe = session.library().info(id).edits.clone();
     match session.thumbnail(id, need) {
-        Thumb::Image { image, .. } => Some((image, recipe)),
+        Thumb::Image { image, .. } => Some((Image { photo: id, preview: false, pixels: image }, recipe)),
         Thumb::Sketch(_) | Thumb::NotScanned => None,
+    }
+}
+
+/// While no change is under way, uploads the next photo's preview once the show has made it in a
+/// pane other than the shown photo's, so the change to it uploads nothing large. A show stepped
+/// to a photo whose preview is not there yet paints its thumbnail meanwhile, as before.
+fn preload(ctx: &egui::Context, session: &Session, frame: &Frame) {
+    if frame.view.change.is_some() || frame.outgoing.is_some() {
+        return;
+    }
+    let Some((shown, pane)) = frame.photo else { return };
+    for other in (0..PANES).filter(|p| *p != pane) {
+        // Only the photo the pane is open on now (not a frame it held before).
+        let Some(p) = session.preview_in(other).filter(|p| p.photo != shown && session.preview_photo_in(other) == Some(p.photo)) else {
+            continue;
+        };
+        let _ = texture(ctx, &Image { photo: p.photo, preview: true, pixels: Arc::clone(&p.image) });
     }
 }
 
@@ -99,7 +157,7 @@ struct Photo {
 fn photo(ui: &Ui, session: &mut Session, (id, pane): (PhotoId, usize), index: usize, motion: f32, need: u32) -> Option<Photo> {
     let (image, recipe) = image_of(session, id, pane, need)?;
     let texture = texture(ui.ctx(), &image)?;
-    let size = shown_size(session, id, &recipe, &image);
+    let size = shown_size(session, id, &recipe, &image.pixels);
     let slide = Slide { size, zoom: create::pan_zoom_amount(index), motion, ..Slide::new(size) };
     Some(Photo { texture, slide })
 }
@@ -114,9 +172,12 @@ pub fn paint(app: &mut App, ui: &Ui, rect: Rect, frame: &Frame, captions: bool, 
     let need = ((rect.width().max(rect.height()) * ppp).ceil().clamp(1.0, 16_384.0)) as u32;
     let v = frame.view;
     let session = app.session_mut()?;
+    begin_frame();
     let incoming = frame.photo.zip(v.index).and_then(|(p, i)| photo(ui, session, p, i, v.motion, need));
     let change = v.change.filter(|_| frame.outgoing.is_some());
     let outgoing = frame.outgoing.zip(change).and_then(|(p, (i, _))| photo(ui, session, p, i, v.outgoing_motion, need));
+    preload(ui.ctx(), session, frame);
+    end_frame();
     let screen = Size::new(rect.width(), rect.height());
     let painter = ui.painter_at(rect);
     match (&incoming, &outgoing) {
