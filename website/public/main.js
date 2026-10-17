@@ -167,8 +167,8 @@
 // The release on offer. Bump these two at each release (website/README.md → Releasing): the
 // version, and the file sizes in bytes, which the jq one-liner there prints from GitHub.
 var RELEASE = {
-  version: "0.3.0",
-  sizes: {"SHA256SUMS.txt":1605,"dalica-cli-{v}-macos-universal.zip":16704790,"dalica-{v}-linux-aarch64.AppImage":18979336,"dalica-{v}-linux-aarch64.AppImage.zsync":65117,"dalica-{v}-linux-aarch64.deb":20897868,"dalica-{v}-linux-aarch64.flatpak":12295304,"dalica-{v}-linux-aarch64.rpm":20697925,"dalica-{v}-linux-aarch64.tar.gz":19927382,"dalica-{v}-linux-x86_64.AppImage":21027320,"dalica-{v}-linux-x86_64.AppImage.zsync":72115,"dalica-{v}-linux-x86_64.deb":22656438,"dalica-{v}-linux-x86_64.flatpak":14417272,"dalica-{v}-linux-x86_64.rpm":22515958,"dalica-{v}-linux-x86_64.tar.gz":22101631,"dalica-{v}-macos-universal.dmg":24518967,"dalica-{v}-windows-x64-portable.zip":20730451,"dalica-{v}-windows-x64.msi":16216064}
+  version: "0.5.0",
+  sizes: {"SHA256SUMS.txt":1605,"dalica-cli-{v}-macos-universal.zip":21220663,"dalica-{v}-linux-aarch64.AppImage":22321672,"dalica-{v}-linux-aarch64.AppImage.zsync":76541,"dalica-{v}-linux-aarch64.deb":24825532,"dalica-{v}-linux-aarch64.flatpak":14560872,"dalica-{v}-linux-aarch64.rpm":24580584,"dalica-{v}-linux-aarch64.tar.gz":23674271,"dalica-{v}-linux-x86_64.AppImage":24783352,"dalica-{v}-linux-x86_64.AppImage.zsync":84953,"dalica-{v}-linux-x86_64.deb":26920452,"dalica-{v}-linux-x86_64.flatpak":17065304,"dalica-{v}-linux-x86_64.rpm":26749727,"dalica-{v}-linux-x86_64.tar.gz":26271842,"dalica-{v}-macos-universal.dmg":28246906,"dalica-{v}-windows-x64-portable.zip":24974623,"dalica-{v}-windows-x64.msi":19300352}
 };
 
 // Download links: every [data-file] names its file with {v} for the version. Without this script
