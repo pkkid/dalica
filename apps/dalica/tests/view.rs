@@ -174,8 +174,8 @@ fn a_taken_control_port_is_launched_again_on_another() {
     drop(held);
 }
 
-/// The viewer opens on the photo: its folder in name order and the photo's place, nothing written
-/// into the folder; `app.quit` ends it.
+/// The viewer opens on the photo: `ui.state` says `view: "viewer"`, its folder lists in name order
+/// with the photo's place, Esc quits, nothing is written into the folder.
 #[test]
 fn view_headless_serves_the_viewer_on_that_photo() {
     let home = tempfile::tempdir().unwrap();
@@ -190,12 +190,19 @@ fn view_headless_serves_the_viewer_on_that_photo() {
     let names: Vec<&str> = v["photos"].as_array().unwrap().iter().map(|p| p["name"].as_str().unwrap()).collect();
     assert_eq!(names, ["a.jpg", "b.jpg", "c.jpg"]);
     assert_eq!(v["readOnly"], false);
-    assert_eq!(c.send("app.quit", json!({}))["ok"], true);
+    let state = c.send("ui.state", json!({}));
+    assert_eq!(state["result"]["view"], "viewer", "{state}");
+    // Esc closes the viewer, and the app with it.
+    assert_eq!(c.send("ui.key", json!({ "combo": "Esc" }))["ok"], true);
     let end = Instant::now() + Duration::from_secs(60);
-    while app.0.try_wait().unwrap().is_none() {
-        assert!(Instant::now() < end, "dalica did not quit");
+    let status = loop {
+        if let Some(status) = app.0.try_wait().unwrap() {
+            break status;
+        }
+        assert!(Instant::now() < end, "Esc did not quit dalica");
         std::thread::sleep(Duration::from_millis(50));
-    }
+    };
+    assert!(status.success(), "{status}");
     let mut left: Vec<String> = std::fs::read_dir(&folder).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
     left.sort();
     assert_eq!(left, ["a.jpg", "b.jpg", "c.jpg"], "viewing writes nothing into the folder");

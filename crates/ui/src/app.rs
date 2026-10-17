@@ -70,7 +70,7 @@ impl App {
         if let Some(s) = &mut session {
             crate::keys::join_keymap(s);
         }
-        App {
+        let mut app = App {
             state: UiState::default(),
             tokens: Tokens::default(),
             session,
@@ -89,6 +89,16 @@ impl App {
             now: 0.0,
             opening_detail: None,
             opening_since: None,
+        };
+        app.show_open_viewer();
+        app
+    }
+
+    /// `dalica --view`: a session holding an open photo viewer starts on the viewer's view.
+    fn show_open_viewer(&mut self) {
+        if self.session.as_ref().is_some_and(|s| s.viewer().is_open()) {
+            self.state.view = crate::state::View::Viewer;
+            self.state.viewer.get_or_insert_with(Default::default);
         }
     }
 
@@ -143,6 +153,7 @@ impl App {
         if self.persist_view {
             self.restore_view();
         }
+        self.show_open_viewer();
     }
 
     /// Asks the window to close, as its Close button does (`app.quit`, File ▸ Exit): the next frame
