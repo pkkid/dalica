@@ -449,6 +449,9 @@ fn command_ready(app: &App, id: &str, params: &Value, ui_command: bool, spec: Op
     if let Some(o) = crate::commands::opener(id) {
         return (o.check)(app, &params_for(app, id, params));
     }
+    if let Some(why) = crate::commands::batch::disabled(app, id) {
+        return Err(why);
+    }
     let (Some(session), Some(spec)) = (app.session(), spec) else { return Err("The library is still opening.".into()) };
     let params = params_for(app, id, params);
     if (FOLDER_COMMANDS.contains(&id) && params.get("id").is_none()) || (FOLDER_PARAM_COMMANDS.contains(&id) && params.get("folder").is_none()) {

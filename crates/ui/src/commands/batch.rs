@@ -59,6 +59,17 @@ pub fn params_for(app: &App, id: &str) -> Option<Value> {
     }
 }
 
+/// Why Copy All Edits has no photo to copy from.
+pub const NO_PHOTO: &str = "Select a photo to copy its edits from.";
+
+/// Why the menu row of `id` is greyed though its engine command would accept the click: Copy All
+/// Edits with no photo to copy from (nothing in the tray, not in the edit view). `None` for every
+/// other command; asked by `crate::menus` before the engine's `enabled`.
+pub fn disabled(app: &App, id: &str) -> Option<String> {
+    let none = id == "edit.copyRecipe" && super::edit_view::open_photo(app).is_none() && copy_source(app).is_none();
+    none.then(|| NO_PHOTO.to_string())
+}
+
 /// The photo Copy All Edits copies from in the library: the tray's only photo, else the photo last
 /// clicked in the selection, else the tray's first.
 fn copy_source(app: &App) -> Option<PhotoId> {
@@ -186,9 +197,12 @@ mod tests {
         }
         assert_eq!(params_for(&app, "edit.copyRecipe"), Some(json!({ "id": ids[2] })), "the photo last clicked");
         assert_eq!(params_for(&app, "photo.star.toggle"), None);
+        assert_eq!(disabled(&app, "edit.copyRecipe"), None);
         app.run("tray.clear", &json!({ "confirm": true })).unwrap();
         app.run("select.none", &json!({})).unwrap();
         assert_eq!(params_for(&app, "edit.copyRecipe"), Some(json!({})), "nothing to copy from");
+        assert_eq!(disabled(&app, "edit.copyRecipe").as_deref(), Some(NO_PHOTO));
+        assert_eq!(disabled(&app, "edit.pasteRecipe"), None);
     }
 
     #[test]

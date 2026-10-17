@@ -116,6 +116,13 @@ fn copy_all_edits_then_paste_all_edits_gives_three_photos_its_recipe_and_names_w
     assert_eq!(recipe.len(), 2);
     let e = call(&mut t, "ui.menu.invoke", json!({ "path": "Edit/Paste All Edits", "wait": true })).unwrap_err();
     assert_eq!(e.code.as_str(), "disabled", "greyed until something is copied");
+    let e = call(&mut t, "ui.menu.invoke", json!({ "path": "Edit/Copy All Edits", "wait": true })).unwrap_err();
+    assert_eq!(
+        (e.code.as_str(), e.message.contains(dalica_ui::commands::batch::NO_PHOTO)),
+        ("disabled", true),
+        "greyed with nothing selected: {}",
+        e.message
+    );
     select(&mut t, &[ids[0]]);
     menu(&mut t, "Edit/Copy All Edits");
     select(&mut t, &ids[1..4]);
