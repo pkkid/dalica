@@ -93,6 +93,13 @@ fn still_copied(dir: &Folder, name: &OsStr, expect: Identity, copy: &Path, copy_
 /// The folder holding `source` and its name, when `source` lies inside `root` by plain names
 /// only, with no link in place of the root or of any folder between them (module docs).
 fn inside(root: &Path, source: &Path) -> Result<(PathBuf, String)> {
+    // Before `absolute`, which on Windows resolves `..` by the letters (`a\b\..\c` is `a\c`) and
+    // would let a path that names a step up through it pass as plain names; Unix keeps them.
+    for path in [root, source] {
+        if path.components().any(|c| matches!(c, Component::ParentDir | Component::CurDir)) {
+            return Err(refuse(path, "a `..` or `.` in the path"));
+        }
+    }
     let root_abs = std::path::absolute(root).map_err(io_err("remove", root))?;
     let source_abs = std::path::absolute(source).map_err(io_err("remove", source))?;
     let Ok(rel) = source_abs.strip_prefix(&root_abs) else {
