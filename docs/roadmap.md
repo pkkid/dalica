@@ -6488,7 +6488,7 @@ and are never loosened. No other step of M11 needs a maintainer decision mid-run
     and Fill Light on A│A's right side edits the variant and leaves the photo's sidecar
     byte-identical, the panels are no longer greyed, and keeping the right side writes the tool's
     step as one history step; graceful failures; `panic_hunt` green; `cargo xtask ci` green.
-- ⬜ **M11.28 `ui`: General's "Save imported pictures in" row goes live**
+- ✅ **M11.28 `ui`: General's "Save imported pictures in" row goes live**
   - after: M11.20
   - files: `crates/ui/src/dialogs/options/general.rs`, `crates/ui/tests/options_dialog.rs`, `crates/ui/tests/fingerprints/dialog-options-general-*.json`
   - scope: a fix task: M11.1 made `import.folder` settable through `options.set`, but Options ▸
