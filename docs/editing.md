@@ -96,6 +96,20 @@ person's name, we use a descriptive name instead (e.g. **Auto Fix**). Never rena
 - **Before/after** (Dalica addition; the reference used A│A for this): hold the **\** key (or press and hold the "Show original" button in the edit
   panel header) to show the unedited photo in place while held. (Holding **Ctrl+Alt** is a different
   feature: a full-screen preview of the current photo.)
+- **Dalica's details** (M11.16): A│B starts with the photo shown on the left and its neighbour in
+  the folder (the next photo, else the previous one) on the right, the right side focused; → and ←
+  and the filmstrip change the focused side's photo, and a photo already on the other side swaps
+  sides. A│A opens with the left side (the photo's own edits) focused. Leaving A│B keeps the
+  focused photo shown. The caption bar, Undo and Redo speak of the focused side.
+  Both sides keep one zoom and one position. The focused side's pill sits in its margin at the end
+  next to the divider. ⇄ (Switch Focus) and ⇅ (Switch Layout) show at the top bar's right end
+  while comparing. Leaving A│A in any way (the toggle, Back to Library, another photo, a
+  slideshow) asks "Keep which version?" when the sides differ; with equal sides the variant is
+  dropped without asking. "Don't ask again" remembers the side chosen, and "always apply" stops
+  the Apply question (`settings.json` → `compare`). The tool panels (Crop, Straighten, Retouch,
+  Tuning, Fill Light) do not yet act on A│A's right side and are drawn disabled there; the one-click
+  fixes, rotations, Undo and Redo do. The **Show original** button is at the right end of the edit
+  panel's tab row.
 
 ## 5. The edit panel tabs
 

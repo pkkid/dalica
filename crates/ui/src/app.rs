@@ -252,6 +252,9 @@ impl App {
     /// the one-click fixes are steps of the open photo's history (`commands::edit_view::route`).
     /// On an album section `section.properties` opens Album Properties (`commands::albums::route`).
     pub fn run(&mut self, id: &str, params: &Value) -> Result<Value, CmdError> {
+        if let Some(r) = crate::commands::compare::route(self, id, params) {
+            return r;
+        }
         if let Some((routed, p)) = crate::commands::edit_view::route(self, id, params) {
             return self.run(routed, &p);
         }

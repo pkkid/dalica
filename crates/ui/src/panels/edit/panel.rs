@@ -9,6 +9,16 @@
 //! the panel is drawn disabled until Apply or Cancel: the tab content and Undo / Redo. The tabs stay
 //! clickable (`editing.md` §5): another tab shows its content disabled, the open tool's panel
 //! stays. A Tuning session leaves the panel enabled.
+//!
+//! **Show original** (`button:edit.showOriginal`, `editing.md` §4) sits at the tab strip's right
+//! end: pressed and held, it shows the focused photo unedited (`edit.showOriginal {on: true}`), and
+//! let go, as edited again (`{on: false}`).
+//!
+//! **A│A's right side** (the variant, `commands::compare::on_variant`): the tool panels do not act
+//! on a variant yet, so Crop, Straighten, Retouch and the Fill Light row are covered with a
+//! `chrome` wash that takes their clicks and says why ([`TOOLS_LATER`]), and the Tuning tab's
+//! content is drawn disabled with the reason above it. Auto Fix, Auto Contrast, Auto Color, Undo
+//! and Redo act on the variant.
 
 use dalica_ui_kit::Tokens;
 use dalica_ui_kit::icons::{EditIcon, paint_edit};
@@ -19,6 +29,7 @@ use serde_json::json;
 
 use super::{basic, crop, histogram, history, retouch, tuning};
 use crate::app::App;
+use crate::commands::compare::{TOOLS_LATER, on_variant};
 use crate::commands::tools;
 use crate::state::{EditTab, ToolKind};
 
@@ -42,6 +53,14 @@ pub const TAB_ITEMS: [(EditTab, &str, EditIcon, &str); 5] = [
 pub const EFFECTS_EMPTY_ID: &str = "empty:edit.effects";
 pub const EFFECTS_EMPTY_TITLE: &str = "No effects yet";
 pub const EFFECTS_EMPTY_BODY: &str = "Effects come in a later version of Dalica.";
+
+/// Show original: its automation id, label, tooltip and width.
+pub const ORIGINAL_ID: &str = "button:edit.showOriginal";
+pub const ORIGINAL: &str = "Original";
+pub const ORIGINAL_TIP: &str = "Press and hold to show the original (or hold \\)";
+pub const ORIGINAL_W: f32 = 68.0;
+/// The ids of the wash over the tools A│A's right side cannot use yet.
+pub const LATER_ID: &str = "label:edit.toolsLater";
 
 /// Where the parts of the edit panel are inside its rect.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -88,6 +107,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let modal = tools::open_tool(app).filter(|t| t.modal()).map(|t| t.kind());
     part(ui, "tabs", p.tabs, true, |ui| tabs(app, ui));
     let tab = app.state().edit.tab;
+    let variant = on_variant(app);
     part(ui, "content", p.content, true, |ui| match modal {
         Some(ToolKind::Crop) => crop::show(app, ui),
         Some(ToolKind::Retouch) => retouch::show(app, ui),
@@ -95,11 +115,47 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             if modal.is_some() {
                 ui.disable();
             }
-            content(app, ui, tab);
+            if variant {
+                variant_content(app, ui, tab);
+            } else {
+                content(app, ui, tab);
+            }
         }
     });
     part(ui, "history", p.history, modal.is_none(), |ui| history::show(app, ui));
     part(ui, "histogram", p.histogram, true, |ui| histogram::show(app, ui));
+}
+
+/// The content of `tab` on A│A's right side: the tools that do not act on a variant yet washed
+/// over (Basic fixes) or disabled (Tuning), with the reason.
+fn variant_content(app: &mut App, ui: &mut Ui, tab: EditTab) {
+    let t = *app.tokens();
+    let rect = ui.max_rect();
+    match tab {
+        EditTab::Basic => {
+            content(app, ui, tab);
+            let (cells, fill) = basic::layout(&t, rect);
+            let later = cells.iter().take(3).fold(Rect::NOTHING, |u, c| u.union(*c));
+            for (i, r) in [later, fill].into_iter().enumerate() {
+                ui.painter().rect_filled(r.expand(1.0), CornerRadius::same(t.radius), t.chrome.gamma_multiply(0.75));
+                let resp = ui.interact(r, Id::new(LATER_ID).with(i), egui::Sense::click_and_drag());
+                if i == 0 {
+                    widgets::register(ui.ctx(), LATER_ID, Role::Other, TOOLS_LATER, Target::Widget(&resp), false);
+                } else {
+                    widgets::register(ui.ctx(), &format!("{LATER_ID}.fill"), Role::Other, TOOLS_LATER, Target::Widget(&resp), false);
+                }
+                widgets::tooltip(resp, &t, TOOLS_LATER, None);
+            }
+        }
+        EditTab::Tuning => {
+            let line = Rect::from_min_size(rect.min, vec2(rect.width(), 20.0));
+            ui.painter().text(line.left_center(), egui::Align2::LEFT_CENTER, TOOLS_LATER, dalica_ui_kit::fonts::regular(t.body), t.text_dim);
+            let mut below = ui.new_child(UiBuilder::new().max_rect(Rect::from_min_max(egui::pos2(rect.min.x, line.max.y + 4.0), rect.max)));
+            below.disable();
+            content(app, &mut below, tab);
+        }
+        _ => content(app, ui, tab),
+    }
 }
 
 /// The content of `tab`.
@@ -138,6 +194,42 @@ fn tabs(app: &mut App, ui: &mut Ui) {
     {
         app.toast(&e.to_string(), widgets::ToastKind::Caution);
     }
+    let h = (strip.height() - 8.0).max(0.0);
+    let rect = Rect::from_min_size(pos2(strip.max.x - MARGIN - ORIGINAL_W, strip.center().y - h / 2.0), vec2(ORIGINAL_W, h));
+    if rect.min.x >= strip.min.x + t.metrics.edit_tab.x * TAB_ITEMS.len() as f32 {
+        show_original(app, ui, &t, rect);
+    }
+}
+
+/// Show original over `rect`: on while pressed, off once let go.
+fn show_original(app: &mut App, ui: &mut Ui, t: &Tokens, rect: Rect) {
+    let enabled = ui.is_enabled();
+    let r = ui.interact(rect, Id::new(ORIGINAL_ID), if enabled { egui::Sense::click_and_drag() } else { egui::Sense::hover() });
+    let down = enabled && r.is_pointer_button_down_on();
+    let on = app.state().edit.show_original;
+    let p = ui.painter();
+    let fill = if down || on {
+        t.pressed
+    } else if enabled && r.hovered() {
+        t.hover
+    } else {
+        t.button
+    };
+    p.rect(rect, CornerRadius::same(t.radius), fill, Stroke::new(1.0, t.button_border), egui::StrokeKind::Inside);
+    let color = if enabled { t.text } else { t.text_disabled };
+    p.text(rect.center(), egui::Align2::CENTER_CENTER, ORIGINAL, dalica_ui_kit::fonts::semibold(t.button_label), color);
+    widgets::register(ui.ctx(), ORIGINAL_ID, Role::Button, ORIGINAL, Target::Widget(&r), on);
+    r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, ORIGINAL));
+    let held_id = Id::new(ORIGINAL_ID).with("held");
+    let held = ui.ctx().data(|d| d.get_temp::<bool>(held_id)).unwrap_or(false);
+    if down && !held {
+        ui.ctx().data_mut(|d| d.insert_temp(held_id, true));
+        let _ = app.run("edit.showOriginal", &json!({ "on": true }));
+    } else if !down && held {
+        ui.ctx().data_mut(|d| d.insert_temp(held_id, false));
+        let _ = app.run("edit.showOriginal", &json!({ "on": false }));
+    }
+    widgets::tooltip(r, t, ORIGINAL_TIP, None);
 }
 
 /// One tab at `rect`, drawn as `widgets::tabs` draws its tabs but with an edit glyph; registered as

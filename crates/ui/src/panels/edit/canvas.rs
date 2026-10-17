@@ -27,6 +27,14 @@
 //! while moving (`dalica_ui_kit::input::flick`); with animations off the glide's whole distance is
 //! moved in the frame it starts ([`glide_rest`]).
 //!
+//! **Compare** (`editing.md` §4, [`super::compare`]): while comparing, each side of the photo area
+//! is drawn by the same code from its own preview pane (`Session::open_preview_in`), the focused
+//! side always from pane 0 (the pane the tools hand their candidates to). The sides share the edit
+//! state's zoom and one centre (synced pan); the wheel acts on the side under the pointer, a click
+//! on the side without the focus gives it the focus, and only the focused side takes the hold, the
+//! clicks and the double-click, and shows the zoom read-out and the navigator. The focused side is
+//! `canvas:edit` (and [`view`]), the other `canvas:edit.other` ([`other_view`]).
+//!
 //! **What tests and agents see.** `canvas:edit` is the photo area; [`view`] is the last frame's
 //! layout (the photo's rect, the scale, whether it is refining). The fitted scale is also kept per
 //! thread for the zoom commands ([`fitted`]): it is derived from the layout, which commands do not
@@ -46,6 +54,7 @@ use dalica_ui_kit::{Tokens, fonts};
 use egui::{Align2, Color32, CursorIcon, Id, Pos2, Rect, Sense, TextureHandle, Ui, Vec2, pos2, vec2};
 use serde_json::json;
 
+use super::compare::{self, Pane};
 use super::{navigator, zoom};
 use crate::app::App;
 use crate::commands::edit_view;
@@ -54,8 +63,10 @@ use crate::perf::{self, Counter};
 use crate::selection::Table;
 use crate::state::Zoom;
 
-/// The photo area's automation id.
+/// The photo area's automation id; while comparing, the focused side's.
 pub const ID: &str = "canvas:edit";
+/// While comparing, the side without the focus (a click gives it the focus).
+pub const OTHER_ID: &str = "canvas:edit.other";
 /// The room left around the fitted photo, in points.
 pub const PADDING: f32 = 24.0;
 /// How long Fit and 1:1 animate, in seconds (`design-system.md` §8).
@@ -121,9 +132,19 @@ fn view_id() -> Id {
     Id::new(ID).with("view")
 }
 
-/// The canvas's layout of the last frame that drew it (`None` outside the edit view).
+/// The canvas's layout of the last frame that drew it (`None` outside the edit view); while
+/// comparing, the focused side's.
 pub fn view(ctx: &egui::Context) -> Option<View> {
     ctx.data(|d| d.get_temp::<Option<View>>(view_id())).flatten()
+}
+
+fn other_view_id() -> Id {
+    Id::new(OTHER_ID).with("view")
+}
+
+/// While comparing, the layout of the side without the focus in the last frame (`None` otherwise).
+pub fn other_view(ctx: &egui::Context) -> Option<View> {
+    ctx.data(|d| d.get_temp::<Option<View>>(other_view_id())).flatten()
 }
 
 /// A texture of an image the session handed, and that image.
@@ -177,6 +198,8 @@ struct Canvas {
     prefetched: Option<PhotoId>,
     /// The photo's size as it shows, for the recipe it was worked out from.
     size: Option<Sized>,
+    /// The preview pane the side shows (the focused side's is 0).
+    pane: usize,
 }
 
 /// The most steps of a glide [`glide_rest`] adds up (a glide at the fastest speed comes to rest in
@@ -248,17 +271,21 @@ pub fn release(app: &mut App) {
     }
 }
 
-/// Opens `photo` in the session's preview at `fit` (the box in device pixels), or keeps the box up
-/// to date; prefetches the neighbours once per photo.
-fn sync_preview(app: &mut App, c: &mut Canvas, photo: PhotoId, fit: (u32, u32)) {
+/// Opens `photo` in preview pane `pane` at `fit` (the box in device pixels), or keeps the box up
+/// to date, showing it as `shows` says; the focused side prefetches its neighbours once per photo.
+fn sync_preview(app: &mut App, c: &mut Canvas, p: &Pane, fit: (u32, u32)) {
     let Some(session) = app.session_mut() else { return };
-    if session.preview_photo() == Some(photo) {
-        let _ = session.set_preview_fit(fit);
+    let (pane, photo) = (p.pane, p.photo);
+    if session.preview_photo_in(pane) == Some(photo) {
+        let _ = session.set_preview_fit_in(pane, fit);
     } else {
-        let _ = session.open_preview(photo, fit);
+        let _ = session.open_preview_in(pane, photo, fit);
         c.asked = None;
     }
-    if c.prefetched != Some(photo) {
+    if session.preview_shows(pane).is_some_and(|s| s != p.shows) {
+        let _ = session.set_preview_shows(pane, p.shows);
+    }
+    if p.focused && c.prefetched != Some(photo) {
         c.prefetched = Some(photo);
         let neighbours: Vec<PhotoId> = Table::of(app)
             .and_then(|t| edit_view::place_in(&t, photo))
@@ -308,48 +335,109 @@ pub fn window(image: Rect, area: Rect, scale: f32, ppp: f32, size: (f32, f32)) -
     Some(Region { scale: f64::from(scale), x: x0 as u32, y: y0 as u32, width: w as u32, height: h as u32 })
 }
 
-/// Paints and runs the photo area in `ui`'s rect (the `canvas` region).
+/// Paints and runs the photo area in `ui`'s rect (the `canvas` region): one photo, or the two
+/// sides of a compare mode ([`compare::panes`]), each from its preview pane, zoom and pan synced.
 pub fn show(app: &mut App, ui: &mut Ui) {
     let ctx = ui.ctx().clone();
-    let Some(photo) = edit_view::open_photo(app) else {
-        ctx.data_mut(|d| d.insert_temp(view_id(), None::<View>));
+    if edit_view::open_photo(app).is_none() {
+        ctx.data_mut(|d| {
+            d.insert_temp(view_id(), None::<View>);
+            d.insert_temp(other_view_id(), None::<View>);
+        });
         return;
-    };
+    }
     // Ctrl+= and Ctrl+− are the photo's zoom here, never egui's zoom of the whole window.
     if ctx.options(|o| o.zoom_with_keyboard) {
         ctx.options_mut(|o| o.zoom_with_keyboard = false);
     }
+    let panes = compare::panes(app, ui.max_rect());
+    if let Some(s) = app.session_mut() {
+        // The focused side is always pane 0 (the pane the tools hand their candidates to).
+        if s.preview_focus() != 0 {
+            let _ = s.set_preview_focus(0);
+        }
+        if panes.len() < 2 && s.preview_photo_in(1).is_some() {
+            s.close_preview_in(1);
+        }
+    }
+    report_updates(app, &ctx);
+    let frame = Frame { stepped: STEPPED.with(|s| s.replace(false)), wheel: wheel::read(&ctx) };
+    if panes.len() < 2 {
+        ctx.data_mut(|d| {
+            d.insert_temp(other_view_id(), None::<View>);
+            d.remove_temp::<Pos2>(shared_centre_id());
+        });
+    }
+    for p in &panes {
+        if !side(app, ui, &ctx, p, &frame) {
+            // The edit view was left.
+            ctx.data_mut(|d| {
+                d.insert_temp(view_id(), None::<View>);
+                d.insert_temp(other_view_id(), None::<View>);
+            });
+            return;
+        }
+    }
+}
+
+/// What every side of one frame shares: whether the zoom change seen this frame is a step, and the
+/// wheel's gesture.
+struct Frame {
+    stepped: bool,
+    wheel: Option<wheel::Wheel>,
+}
+
+fn shared_centre_id() -> Id {
+    Id::new(ID).with("centre")
+}
+
+/// Paints and runs one side `p`; `false` when the pointer left the edit view.
+fn side(app: &mut App, ui: &mut Ui, ctx: &egui::Context, p: &Pane, frame: &Frame) -> bool {
+    let photo = p.photo;
     let t = *app.tokens();
-    let area = ui.max_rect();
+    let area = p.area;
     let ppp = ctx.pixels_per_point();
     let now = ctx.input(|i| i.time);
-    let id = Id::new(ID);
+    let id = Id::new(ID).with(p.key);
     let mut c = ctx.data_mut(|d| d.remove_temp::<Canvas>(id)).unwrap_or_default();
     if c.photo != Some(photo) {
         c = Canvas { photo: Some(photo), ..Canvas::default() };
     }
-    let animate = crate::scale::animations(&ctx);
+    if c.pane != p.pane {
+        c.pane = p.pane;
+        c.asked = None;
+    }
+    let animate = crate::scale::animations(ctx);
     if !animate || c.anim.is_some_and(|a| (now - a.start).partial_cmp(&ANIMATION) != Some(std::cmp::Ordering::Less)) {
         c.anim = None;
+    }
+    // Comparing: both sides show the same place of their photos (synced pan).
+    if p.comparing
+        && c.anim.is_none()
+        && let Some(shared) = ctx.data(|d| d.get_temp::<Pos2>(shared_centre_id()))
+    {
+        c.centre = Some(shared);
     }
 
     let boxed = area.shrink(PADDING);
     let px = |v: f32| if v.is_finite() { (v * ppp).round().clamp(1.0, 16_384.0) as u32 } else { 1 };
-    sync_preview(app, &mut c, photo, (px(boxed.width()), px(boxed.height())));
-    report_updates(app, &ctx);
+    sync_preview(app, &mut c, p, (px(boxed.width()), px(boxed.height())));
 
-    let preview = app.session().and_then(|s| s.preview()).filter(|p| p.photo == photo).cloned();
+    let preview = app.session().and_then(|s| s.preview_in(p.pane)).filter(|v| v.photo == photo).cloned();
     let recipe: Vec<String> = match &preview {
-        Some(p) => p.recipe.clone(),
+        Some(v) => v.recipe.clone(),
         None => app.session().map(|s| s.library().info(photo).edits.clone()).unwrap_or_default(),
     };
-    let size = photo_size(&mut c, app, photo, &recipe, preview.as_ref().map(|p| p.image.as_ref()));
+    let size = photo_size(&mut c, app, photo, &recipe, preview.as_ref().map(|v| v.image.as_ref()));
     let fit = maths::fit_scale(size, (boxed.width() * ppp, boxed.height() * ppp));
-    FITTED.with(|f| f.set(Some((photo, fit))));
+    if p.focused {
+        FITTED.with(|f| f.set(Some((photo, fit))));
+    }
 
-    let response = ui.interact(area, id, Sense::click_and_drag());
+    // The focused side answers to the photo area's own id (the tools read its response).
+    let response = ui.interact(area, Id::new(if p.focused { ID } else { OTHER_ID }), Sense::click_and_drag());
     let pointer = response.hover_pos();
-    let tool_open = app.state().edit.tool.is_some();
+    let tool_open = p.focused && app.state().edit.tool.is_some();
     let drawn = |s: f32| maths::drawn_size(size, s, ppp);
     let held = |centre: Pos2, s: f32| maths::clamp(centre, drawn(s), area.size());
 
@@ -359,7 +447,6 @@ pub fn show(app: &mut App, ui: &mut Ui) {
 
     // A change made outside the canvas: Fit and 1:1 animate, the others jump about the pointer.
     let zoom = app.state().edit.zoom;
-    let stepped = STEPPED.with(|s| s.replace(false));
     if zoom != seen {
         let target = maths::effective(zoom, fit);
         match zoom {
@@ -367,7 +454,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                 c.anim = Some(Anim { from_scale: scale, from_centre: centre, start: now });
                 c.centre = Some(CENTRE);
             }
-            Zoom::Scale(1.0) if !stepped => {
+            Zoom::Scale(1.0) if !frame.stepped => {
                 c.anim = Some(Anim { from_scale: scale, from_centre: centre, start: now });
                 c.centre = Some(held(centre, target));
             }
@@ -381,14 +468,13 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         (scale, centre, _) = shown(&c, now, target, animate);
     }
 
-    // The wheel and the pinch (read every frame, so a gesture's kind follows its latest event).
-    let wheel = wheel::read(&ctx);
-    if let (Some(w), Some(p)) = (wheel, pointer) {
+    // The wheel and the pinch, over this side.
+    if let (Some(w), Some(at)) = (frame.wheel, pointer) {
         match w {
             wheel::Wheel::Zoom(f) => {
                 let to = maths::step(scale, f, fit);
                 let target = maths::effective(to, fit);
-                c.centre = Some(held(maths::anchor(centre, area.center(), p, size, ppp, scale, target), target));
+                c.centre = Some(held(maths::anchor(centre, area.center(), at, size, ppp, scale, target), target));
                 c.anim = None;
                 c.seen = Some(to);
                 app.state_mut().edit.zoom = to;
@@ -413,8 +499,8 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     // Drag pans, and glides on when let go while moving.
     let panning = !tool_open && pannable && response.dragged_by(egui::PointerButton::Primary);
     let delta = if panning { response.drag_delta() } else { Vec2::ZERO };
-    let glide = match flick::frame(&ctx, id.with("flick"), panning, delta) {
-        Some(first) if !animate => Some(first + glide_rest(&ctx, id.with("flick"))),
+    let glide = match flick::frame(ctx, id.with("flick"), panning, delta) {
+        Some(first) if !animate => Some(first + glide_rest(ctx, id.with("flick"))),
         glide => glide,
     };
     let moved = delta + glide.unwrap_or(Vec2::ZERO);
@@ -429,15 +515,21 @@ pub fn show(app: &mut App, ui: &mut Ui) {
 
     let image = Rect::from_center_size(area.center() + (pos2(0.5, 0.5) - centre) * drawn(scale), drawn(scale));
 
-    // Clicks, the hold and the double-click (an open tool owns them).
-    let action = if tool_open { Action::None } else { pointer_input(app, &ctx, &response, &mut c, image, now, zoomed) };
+    // Clicks, the hold and the double-click (an open tool owns them); a click on the side without
+    // the focus gives it the focus.
+    let action = if !p.focused {
+        if response.clicked() {
+            let _ = app.run("edit.switchFocus", &json!({}));
+        }
+        Action::None
+    } else if tool_open {
+        Action::None
+    } else {
+        pointer_input(app, ctx, &response, &mut c, image, now, zoomed)
+    };
     match action {
         Action::None => {}
-        Action::Left => {
-            // The edit view was left.
-            ctx.data_mut(|d| d.insert_temp(view_id(), None::<View>));
-            return;
-        }
+        Action::Left => return false,
         Action::Fit => {
             app.state_mut().edit.zoom = Zoom::Fit;
             c.seen = Some(Zoom::Fit);
@@ -463,9 +555,9 @@ pub fn show(app: &mut App, ui: &mut Ui) {
 
     // The pixels: the preview fitted, the refined window over it.
     let painter = ui.painter_at(area);
-    if let Some(p) = &preview {
-        if c.preview.as_ref().is_none_or(|tex| !tex.of(&p.image)) {
-            c.preview = upload(&ctx, "edit:preview", &p.image);
+    if let Some(v) = &preview {
+        if c.preview.as_ref().is_none_or(|tex| !tex.of(&v.image)) {
+            c.preview = upload(ctx, &format!("edit:preview{}", p.key), &v.image);
         }
         if image.intersects(area) {
             if image.width() <= area.width() && image.height() <= area.height() {
@@ -478,38 +570,38 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     } else {
         c.preview = None;
     }
-    let failure = if preview.is_none() { app.session().and_then(|s| s.preview_failure()).map(str::to_owned) } else { None };
+    let failure = if preview.is_none() { app.session().and_then(|s| s.preview_failure_in(p.pane)).map(str::to_owned) } else { None };
     if let Some(why) = &failure {
         failed(&painter, &t, area, why);
     }
 
     // Zoomed past the preview: the visible window at full resolution, asked for once the view
     // stands still.
-    let need = preview.as_ref().is_some_and(|p| size.0 * scale > p.image.width as f32 * 1.01 || size.1 * scale > p.image.height as f32 * 1.01);
+    let need = preview.as_ref().is_some_and(|v| size.0 * scale > v.image.width as f32 * 1.01 || size.1 * scale > v.image.height as f32 * 1.01);
     let still = !animating && !panning && glide.is_none();
     if need {
         if still {
             let w = window(image, area, scale, ppp, size);
             if w != c.asked
                 && let Some(s) = app.session_mut()
-                && s.set_preview_window(w).is_ok()
+                && s.set_preview_window_in(p.pane, w).is_ok()
             {
                 c.asked = w;
             }
         }
     } else if c.asked.is_some() {
         if let Some(s) = app.session_mut() {
-            let _ = s.set_preview_window(None);
+            let _ = s.set_preview_window_in(p.pane, None);
         }
         c.asked = None;
     }
-    let refined = app.session().and_then(|s| s.preview_refined()).filter(|r| r.photo == photo && Some(r.region) == c.asked).cloned();
+    let refined = app.session().and_then(|s| s.preview_refined_in(p.pane)).filter(|r| r.photo == photo && Some(r.region) == c.asked).cloned();
     let mut drew_refined = false;
     if let Some(r) = &refined
         && (r.region.scale - f64::from(scale)).abs() <= 1e-6 * f64::from(scale)
     {
         if c.refined.as_ref().is_none_or(|tex| !tex.of(&r.image)) {
-            c.refined = upload(&ctx, "edit:refined", &r.image);
+            c.refined = upload(ctx, &format!("edit:refined{}", p.key), &r.image);
         }
         if let Some(tex) = &c.refined {
             let min = image.min + vec2(r.region.x as f32, r.region.y as f32) / ppp;
@@ -524,19 +616,21 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let pending = app.session().is_some_and(|s| s.preview_pending() > 0);
     let refining = c.asked.is_some() && !drew_refined && pending;
     if refining && preview.is_some() {
-        perf::count(&ctx, Counter::PreviewWaiting, 1);
+        perf::count(ctx, Counter::PreviewWaiting, 1);
     }
 
     // A photo that cannot be shown: what the area says is its label (screen readers, agents).
     let label = failure.as_deref().map_or_else(|| "Photo".to_owned(), message);
-    widgets::register(&ctx, ID, Role::Other, &label, Target::Widget(&response), false);
+    widgets::register(ctx, if p.focused { ID } else { OTHER_ID }, Role::Other, &label, Target::Widget(&response), p.focused && p.comparing);
     let v = View { photo, area, image, size, fit, scale, zoomed, pannable, refining, refined: drew_refined, animating };
-    zoom::show(ui, &t, &v);
-    if zoomed && pannable {
-        let tex = c.preview.as_ref().map(|tex| tex.handle.id());
-        if let Some(to) = navigator::show(ui, &t, &v, tex) {
-            c.centre = Some(held(to, scale));
-            c.anim = None;
+    if p.focused {
+        zoom::show(ui, &t, &v);
+        if zoomed && pannable {
+            let tex = c.preview.as_ref().map(|tex| tex.handle.id());
+            if let Some(to) = navigator::show(ui, &t, &v, tex) {
+                c.centre = Some(held(to, scale));
+                c.anim = None;
+            }
         }
     }
 
@@ -548,14 +642,21 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     } else if pending {
         ctx.request_repaint_after(PREVIEW_POLL);
     }
-    if let Some(p) = c.press {
-        let left = HOLD - (now - p.time);
+    if let Some(press) = c.press {
+        let left = HOLD - (now - press.time);
         ctx.request_repaint_after(std::time::Duration::from_secs_f64(left.clamp(0.0, HOLD)));
     }
+    let shared = c.centre;
     ctx.data_mut(|d| {
         d.insert_temp(id, c);
-        d.insert_temp(view_id(), Some(v));
+        d.insert_temp(if p.focused { view_id() } else { other_view_id() }, Some(v));
+        if p.comparing
+            && let Some(centre) = shared
+        {
+            d.insert_temp(shared_centre_id(), centre);
+        }
     });
+    true
 }
 
 /// What the pointer did to the photo this frame.
