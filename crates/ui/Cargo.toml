@@ -50,3 +50,7 @@ harness = false
 [[bench]]
 name = "cold_start"
 harness = false
+
+[[bench]]
+name = "slideshow"
+harness = false

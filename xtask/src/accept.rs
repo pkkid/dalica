@@ -219,6 +219,30 @@ pub const BUDGETS: &[Budget] = &[
         judge: judge_cold_start,
         relative: None,
     },
+    Budget {
+        milestone: 11,
+        name: "import",
+        what: "import: listing, then importing, 1 000 JPEGs (2048 px, 160 px EXIF thumbnails) from a temporary card, medians of three: the first screenful of thumbnails ≤ 35 ms, the listing ≤ 320 ms, then ≥ 22.9 files/s and ≥ 2.3 MB/s copied and verified (writes about 0.4 GB, removed after)",
+        cargo: &["bench", "-p", "dalica-engine", "--bench", "import", "--", "--json"],
+        judge: crate::bench::judge_import,
+        relative: None,
+    },
+    Budget {
+        milestone: 11,
+        name: "batch edit",
+        what: "batch_edit: Auto Fix on 1 000 photos as one step (edit.apply), median ≤ 7 ms, then its undo, median ≤ 5 ms",
+        cargo: &["bench", "-p", "dalica-engine", "--bench", "batch_edit", "--", "--json"],
+        judge: crate::bench::judge_batch_edit,
+        relative: None,
+    },
+    Budget {
+        milestone: 11,
+        name: "slideshow",
+        what: "slideshow: 24 MP JPEGs in the headless app at 1400 × 900, every transition: no change waits for its preview, an advance to its first frame median ≤ 24 ms, a transition frame p95 ≤ 0.3 ms (never above 16 ms)",
+        cargo: &["bench", "-p", "dalica-ui", "--bench", "slideshow", "--", "--json"],
+        judge: crate::bench::judge_slideshow,
+        relative: None,
+    },
 ];
 
 /// The save and export budgets, in milliseconds, judged on the median (`docs/development.md` §8:
@@ -1017,6 +1041,12 @@ mod tests {
                     (true, scan_out("release", 5000, 0.484, 5000))
                 } else if args.contains(&"cold_start") {
                     (true, cold_out("release", 100_000, 238.6, 3, Some(83.0)))
+                } else if args.contains(&"import") {
+                    (true, crate::bench::tests::import_out("release", 1000, 2048, 23.2, 211.2, 29_101.0))
+                } else if args.contains(&"batch_edit") {
+                    (true, crate::bench::tests::batch_out("release", 1000, 4.65, 3.31))
+                } else if args.contains(&"slideshow") {
+                    (true, crate::bench::tests::slideshow_out("release", [6000, 4000], 16.0, 0.199, 0))
                 } else if args.contains(&"first_thumbnails") && args.contains(&"0") && args.contains(&"20000") {
                     (true, scroll_out(0.45, 0))
                 } else if args.contains(&"first_thumbnails") {
@@ -1027,33 +1057,39 @@ mod tests {
             }
         };
         assert_eq!(budgets_with(0.0, fake(2.0, 3.0, 517.0)), Ok(()));
-        // 8 ms planted per frame: every frame budget misses, the search queries' (a few ms) and the
-        // scan's (8 ms per photo); a first screenful well inside its second does not, nor the save
-        // and export medians well inside theirs, nor a cold start of three frames.
+        // 8 ms planted per frame: every frame budget misses, the search queries' (a few ms), the
+        // scan's (8 ms per photo), Batch Edit's and the slideshow's; a first screenful well inside
+        // its second does not, nor the save and export medians well inside theirs, nor a cold start
+        // of three frames, nor the import (8 s more over 1 000 files is inside its 1.5 ×).
         let e = budgets_with(8.0, fake(2.0, 3.0, 517.0)).unwrap_err();
         assert!(
-            e.contains("5 of 8 missed")
+            e.contains("7 of 11 missed")
                 && e.contains("M4 light table scroll")
                 && e.contains("M4 thumb at top speed")
                 && e.contains("M5 scanned scroll")
                 && e.contains("M9 search: one word")
-                && e.contains("M10 scan throughput"),
+                && e.contains("M10 scan throughput")
+                && e.contains("M11 batch edit: auto fix 1000")
+                && e.contains("M11 slideshow: transition frame"),
             "{e}"
         );
+        // 15 ms planted misses the import too: its first screenful and, per file, its copy rate.
+        let e = budgets_with(15.0, fake(2.0, 3.0, 517.0)).unwrap_err();
+        assert!(e.contains("M11 import: first thumbnails"), "{e}");
         // The largest planted slowdown misses every budget, the cold start's included.
         let e = budgets_with(MAX_PLANT_MS, fake(2.0, 3.0, 517.0)).unwrap_err();
-        assert!(e.contains("8 of 8 missed") && e.contains("M10 cold start and idle memory: cold start: median"), "{e}");
+        assert!(e.contains("11 of 11 missed") && e.contains("M10 cold start and idle memory: cold start: median"), "{e}");
         let e = budgets_with(0.0, fake(2.0, 8.5, 517.0)).unwrap_err();
-        assert!(e.contains("1 of 8 missed") && e.contains("M4 thumb at top speed"), "{e}");
+        assert!(e.contains("1 of 11 missed") && e.contains("M4 thumb at top speed"), "{e}");
         let e = budgets_with(0.0, fake(2.0, 3.0, 1100.0)).unwrap_err();
-        assert!(e.contains("1 of 8 missed") && e.contains("M5 first thumbnails: 10000 JPEGs"), "{e}");
+        assert!(e.contains("1 of 11 missed") && e.contains("M5 first thumbnails: 10000 JPEGs"), "{e}");
         let mut ran = Vec::new();
         let e = budgets_with(0.0, |args: &[&str]| {
             ran.push(args.join(" "));
             Ok((false, String::new()))
         })
         .unwrap_err();
-        assert!(e.contains("8 of 8 missed") && e.contains("failed"), "{e}");
+        assert!(e.contains("11 of 11 missed") && e.contains("failed"), "{e}");
         assert_eq!(ran.len(), BUDGETS.len(), "every budget runs after one fails");
         assert!(budgets_with(0.0, |_: &[&str]| Err("cannot run cargo: gone".to_string())).unwrap_err().contains("cannot run cargo"));
     }

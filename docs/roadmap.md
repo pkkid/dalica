@@ -6458,7 +6458,7 @@ and are never loosened. No other step of M11 needs a maintainer decision mid-run
     − change the display time within 1–60; zooming pauses and a drag pans; the captions toggles of
     the edit view and of the bar change one setting; Options ▸ Slideshow's Loop wraps the show;
     fingerprints of the bar and the tab at both window sizes.
-- ⬜ **M11.23 `engine` + `ui` + `xtask`: M11's budgets: import, batch edit and the slideshow**
+- ✅ **M11.23 `engine` + `ui` + `xtask`: M11's budgets: import, batch edit and the slideshow**
   - after: M11.8, M11.9, M11.19
   - files: `crates/engine/benches/import.rs`, `crates/engine/benches/batch_edit.rs`, `crates/ui/benches/slideshow.rs`, `xtask/src/bench.rs`, `.github/workflows/budgets.yml`, `docs/development.md`
   - scope: `development.md` §8: benches registered in `xtask/src/bench.rs`, joined to `BUDGETS` and
