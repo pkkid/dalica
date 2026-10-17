@@ -64,6 +64,7 @@ mod save_formats;
 mod save_recovery;
 mod search;
 mod settings;
+mod slideshow;
 mod synthetic;
 mod tags;
 mod thumb_cache;
