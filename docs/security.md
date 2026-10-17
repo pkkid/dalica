@@ -578,10 +578,11 @@ embedded, never loaded by a referenced name. **Planned (M1, M14).**
   last import from a card or drive copied and verified, never a duplicate or an excluded file,
   refuses without `"confirm": true`, disables Undo Import from its start (once a file is removed,
   for good: "The originals were removed from the card."), and is refused by every automation
-  surface whatever it was granted: `automation::NEVER_AUTOMATED`, checked by
-  `Policy::check_effect`, which MCP calls. Open: the app's control channel checks effects with its
-  own `external_allowed` and does not call `automation::never_automated` yet, so until a `crates/ui`
-  task adds that call it refuses the command only without `confirm`).**
+  surface whatever it was granted, `confirm` and `--automation-allow-external` included:
+  `automation::NEVER_AUTOMATED`, asked through `automation::never_automated` by MCP's
+  `Policy::check_effect` and by the control channel's effect check (`crates/ui/src/control/engine.rs`
+  `external_allowed`), both answering `external_denied`. Over automation `import.run`'s
+  `destination` keeps to the write roots or the watched folders, as an export's folder does).**
 - Moving across volumes is copy + verify (hash) + delete-to-trash of the source, never delete
   before verify. **Built in `fs` (M9.2: `dalica-fs` `transfer` copies into a temporary file in the
   destination, `fsync`s it, keeps the source's modification time (and its permissions on Unix), compares it byte
