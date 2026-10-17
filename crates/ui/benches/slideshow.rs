@@ -18,11 +18,15 @@
 //! Each frame is timed whole (`Driver::step`: the session's poll, the show brought up to the
 //! clock, layout, texture uploads, tessellation; no rasterizing, as a GPU does that):
 //! - `advance`: the frame where the show moves on to the next photo, the first frame of its
-//!   transition (the incoming photo's preview taken from its pane and uploaded as a texture);
+//!   transition (both photos' textures already uploaded: the incoming photo's while the one
+//!   before it showed, M11.29);
 //! - `transition frame`: every other frame while a change is under way (both photos painted where
 //!   the transition places them), judged on its p95, never above 16 ms whatever the first
 //!   measurement;
-//! - `transition frame <id>`: the same per transition (printed, not budgeted).
+//! - `transition frame <id>`: the same per transition (printed, not budgeted);
+//! - `upload frame`: a frame outside a change that uploaded a texture, the next photo's preview
+//!   once it is made, during the display time (printed, not budgeted: nothing moves but Pan and
+//!   Zoom then, and the show does not wait on it).
 //!
 //! `waits` (on the `advance` row) counts the changes whose incoming preview was not ready when they
 //! began, over every show: it must be 0. Rows carry `p50_ms`, `p95_ms`, `max_ms` and their budgets
@@ -135,6 +139,7 @@ fn pace(start: Instant, n: u64) {
 struct Played {
     advances: Vec<Duration>,
     frames: Vec<Duration>,
+    uploads: Vec<Duration>,
     changes: u64,
     waits: u64,
 }
@@ -144,7 +149,7 @@ fn play(d: &mut Driver, section: &str, first: PhotoId, transition: &str, advance
     let s = d.app_mut().session_mut().expect("the library is open");
     s.execute("options.set", &json!({ "values": { "slideshow.transition": transition } })).expect("the transition is set");
     d.run("section.slideshow", &json!({ "section": section, "ids": [first] })).expect("the show starts");
-    let mut out = Played { advances: Vec::new(), frames: Vec::new(), changes: 0, waits: 0 };
+    let mut out = Played { advances: Vec::new(), frames: Vec::new(), uploads: Vec::new(), changes: 0, waits: 0 };
     let start = Instant::now();
     let mut n = 0u64;
     loop {
@@ -157,6 +162,8 @@ fn play(d: &mut Driver, section: &str, first: PhotoId, transition: &str, advance
             out.advances.push(took);
         } else if changing {
             out.frames.push(took);
+        } else if d.perf().last().is_some_and(|s| s.textures_uploaded > 0) {
+            out.uploads.push(took);
         }
         out.changes = stats.changes;
         out.waits = stats.waits;
@@ -200,12 +207,13 @@ fn bench(a: &Args) -> Vec<Value> {
 
     let mut d = Driver::new(App::new(Some(s)), WINDOW.0, WINDOW.1, 1.0);
     d.settle(60 * 60).expect("the library settles");
-    let (mut advances, mut frames, mut per, mut changes, mut waits) = (Vec::new(), Vec::new(), Vec::new(), 0, 0);
+    let (mut advances, mut frames, mut uploads, mut per, mut changes, mut waits) = (Vec::new(), Vec::new(), Vec::new(), Vec::new(), 0, 0);
     for t in TRANSITIONS {
         let p = play(&mut d, &section, order[0], t, a.advances);
         eprintln!("slideshow: {t}: {} changes, {} waits, {} transition frames", p.changes, p.waits, p.frames.len());
         advances.extend(p.advances.iter().copied());
         frames.extend(p.frames.iter().copied());
+        uploads.extend(p.uploads.iter().copied());
         changes += p.changes;
         waits += p.waits;
         per.push(row(&format!("transition frame {t}"), &p.frames, json!({})));
@@ -215,6 +223,7 @@ fn bench(a: &Args) -> Vec<Value> {
         row("transition frame", &frames, json!({ "budget_p95_ms": TRANSITION_BUDGET_MS.min(FRAME_CAP_MS), "cap_p95_ms": FRAME_CAP_MS })),
     ];
     rows.extend(per);
+    rows.push(row("upload frame", &uploads, json!({})));
     rows
 }
 

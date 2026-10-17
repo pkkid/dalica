@@ -4,7 +4,9 @@
 //! to the library with the last photo shown selected and gives the window back; started from the
 //! edit view's Play it returns to the edit view on that photo; Ctrl+8 stars and Ctrl+R rotates the
 //! photo shown, one undo step each; with every decode slowed by 1.5 s no change waits for its
-//! preview over 30 advances; a fingerprint of each transition at its midpoint and of a captioned
+//! preview over 30 advances; the next photo's preview is uploaded as a texture while the photo
+//! before it shows, so a change's first frame uploads nothing (M11.29), and a show stepped by hand
+//! past a preview not made yet paints the thumbnail meanwhile; a fingerprint of each transition at its midpoint and of a captioned
 //! photo at 1400 × 900 (at 900 × 600 the caption only has to fit).
 //!
 //! `DALICA_SHOTS=<dir>` writes the frames there too.
@@ -217,6 +219,48 @@ fn no_change_waits_for_a_preview_over_30_advances() {
     let stats = cmd::stats().unwrap();
     assert_eq!((stats.changes, stats.waits), (30, 0), "{stats:?}");
     assert_eq!(index(&f), 30);
+}
+
+/// The next photo's preview holds a texture before the change to it starts, so the change's first
+/// frame uploads no texture; at most the photo shown and the next one (or a change's two photos)
+/// hold a texture at any frame. Stepped by hand past a preview not made yet, the show paints the
+/// photo's thumbnail meanwhile and its preview once it is there.
+#[test]
+fn the_next_photos_texture_is_uploaded_before_the_change_starts() {
+    let mut f = setup(8, (640, 420), LARGE);
+    let o = f.order.clone();
+    session(&mut f).execute("options.set", &json!({ "values": { "slideshow.transition": "dissolve" } })).unwrap();
+    let play = json!({ "section": f.section, "ids": [o[0]] });
+    run(&mut f, "section.slideshow", play);
+    let previews = || dalica_ui::panels::slideshow::show::kept().into_iter().filter(|(_, p)| *p).map(|(id, _)| id).collect::<Vec<_>>();
+    let mut checked = 0;
+    for _ in 0..200 {
+        let before = cmd::stats().unwrap().changes;
+        let held = previews();
+        pass(&mut f, STEP.as_millis() as u64);
+        let kept = dalica_ui::panels::slideshow::show::kept();
+        assert!(kept.len() <= 2, "at most two textures: {kept:?}");
+        if cmd::stats().unwrap().changes > before {
+            let now = index(&f);
+            assert!(held.contains(&o[now]), "change {}: photo {} uploaded before it began: {held:?}", before + 1, o[now]);
+            assert_eq!(f.d.perf().last().unwrap().textures_uploaded, 0, "change {}: its first frame uploads nothing", before + 1);
+            checked += 1;
+            if checked == 3 {
+                break;
+            }
+        }
+    }
+    assert_eq!(checked, 3, "three changes checked");
+
+    // By hand to a photo nothing prefetched: the thumbnail stands in, then the preview.
+    session(&mut f).plant_decode_delay(Some(Duration::from_millis(1_500)));
+    key(&mut f, "End");
+    let shown = o[7];
+    assert_eq!(index(&f), 7);
+    assert!(dalica_ui::panels::slideshow::show::kept().contains(&(shown, false)), "the thumbnail stands in");
+    session(&mut f).plant_decode_delay(None);
+    pass(&mut f, 2_000);
+    assert!(previews().contains(&shown), "then its preview");
 }
 
 /// Each transition at the midpoint of its change (Pan and Zoom too, its photos moving), and a

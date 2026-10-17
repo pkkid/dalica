@@ -6503,7 +6503,7 @@ and are never loosened. No other step of M11 needs a maintainer decision mid-run
     to:") uses it; the duplicates checkbox stores `import.detectDuplicates` if it was disabled;
     the fingerprint of the General tab at 1400 × 900 updated (images in the PR); `cargo xtask ci`
     green.
-- ⬜ **M11.29 `ui`: the slideshow's change frame stays within a 60 Hz frame**
+- ✅ **M11.29 `ui`: the slideshow's change frame stays within a 60 Hz frame**
   - after: M11.21, M11.23
   - files: `crates/ui/src/panels/slideshow/show.rs`, `crates/ui/src/panels/slideshow.rs`, `crates/ui/src/commands/slideshow.rs`, `crates/ui/tests/slideshow.rs`, `crates/ui/benches/slideshow.rs`
   - scope: a fix task from M11.23's run. Its `slideshow` bench measured the advance frame at a
