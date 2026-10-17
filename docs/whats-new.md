@@ -93,6 +93,8 @@ written wrongly or late, and finishes the last gaps in everyday use.
   no longer breaks the small extra pictures stored inside the file.
 - If the disk fills up while Dalica records a change, the changes after it are no longer lost.
 - On Windows, if Dalica stops in the middle of a Save, the original is never left under two names.
+- If Dalica stopped in the middle of moving or copying photos, the repair at the next start could
+  lose a moved photo's star and other details kept only in `.dalica.json`. It no longer does.
 - A caption or tag is written into the photo file within about a second, even while Dalica sits
   idle; before, it could wait for the next click.
 - On Windows, the folders you allow agents to use now work however their path is spelled.
