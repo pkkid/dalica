@@ -88,3 +88,11 @@ harness = false
 [[bench]]
 name = "scan_throughput"
 harness = false
+
+[[bench]]
+name = "import"
+harness = false
+
+[[bench]]
+name = "batch_edit"
+harness = false

@@ -85,7 +85,10 @@ the same behaviour.
 **What `ci --full` runs, and only once.** Its test steps, in order:
 
 1. `test`: `cargo test --workspace --exclude dalica-acceptance`, every crate's suites.
-2. `test heif`: `dalica-image`'s `heif` tests with the optional decoder (Linux only).
+2. `test heif`: `dalica-image`'s `heif` tests with the optional decoder, and since M11.26 the
+   engine's Save of a HEIC photo, which only a build with the decoder can make (`cargo test -p
+   dalica-engine --features heif --test all save_formats::`); both run even when the first fails
+   (Linux only).
 3. `test acceptance`: the acceptance package's library and every `[[test]]` target of
    `tests/acceptance/Cargo.toml` that no `accept` step runs (`m0_skeleton`, and the acceptance
    test of a milestone still in progress). A finished milestone's headless half (`m1_headless`) is
@@ -242,6 +245,14 @@ cargo run --release -p dalica -- --control 7990 --demo
 | Search 100 k photos for three words with Starred on (median) | ≤ 0.6 ms |
 | Search 100 k photos for a lone `-word` (median) | ≤ 5.1 ms |
 | `search.set` to its result applied, 100 k photos, debounce excluded (median) | ≤ 22.3 ms |
+| Import from a card, 1 000 JPEGs of 2048 px: the first screenful of thumbnails (median) | ≤ 35 ms |
+| Import from a card, 1 000 JPEGs: the listing (median) | ≤ 320 ms |
+| Import from a card, 1 000 JPEGs: copied and verified (from the median) | ≥ 22.9 files/s, ≥ 2.3 MB/s |
+| Batch Edit: Auto Fix on 1 000 photos as one step (median) | ≤ 7 ms |
+| Batch Edit: undo Auto Fix on 1 000 photos (median) | ≤ 5 ms |
+| Slideshow of 24 MP photos: a change that waits for its preview | 0 |
+| Slideshow: an advance to the first frame of its transition, next photo prefetched (median) | ≤ 24 ms |
+| Slideshow: a transition frame (p95; never above 16 ms) | ≤ 0.3 ms |
 
 **At the review, the save, export and search budgets are judged against a base on the same
 runner** (maintainer decision, 2026-10-15): the Budgets job runs each of these benches in the last
@@ -289,6 +300,39 @@ and 1 470 photos/s); the cold start 239 ms (the slowest of five 315 ms; reading 
 three frames); idle memory 83 MiB. What they leave out: the OS window and GPU setup, and a cold page cache (the
 files and the index were just written; dropping the cache needs root).
 
+The import, Batch Edit and slideshow budgets (M11.23) are 1.5 × their first measurement (times
+rounded up, rates down), absolute; a transition frame is also never above 16 ms at p95, and no
+change of the slideshow may wait for its preview, whatever the first numbers. The first
+measurement is the median of three runs in one sitting: release on two cores (`taskset -c 0,1`),
+2026-10-17, the same 24-core workstation (load average 10 falling to 2.4 over the runs; its NVMe
+disk formatted btrfs). Single runs earlier that day under heavier load spread widely (Batch Edit
+1.07 to 4.75 ms, the slideshow's advance 10.8 to 22.2 ms, the import 27.4 to 46.4 s): commands of
+a few milliseconds ran faster on a busy machine, whose cores were clocked up, than on a quiet one,
+so the quiet runs set the budgets.
+- **Import** (the `import` bench): 1 000 `scenes` JPEGs of 2048 px (about 100 KB each, 160 px
+  EXIF thumbnails, folders of about 100) moved into a temporary card's `DCIM`; a new library whose
+  device list is that card's mount folder opens it, asks the listing every millisecond, then
+  imports every candidate into a folder named by text, medians of three runs each. The first
+  screenful (28 cells, the first candidates in capture order) had its thumbnails after 23.2 ms
+  (the runs 23.2, 23.3 and 15.3 ms); the listing ended after 211 ms (211, 211, 199); the import
+  took 29.1 s (28.3, 29.7, 29.1 s: 34.4 files/s, 3.56 MB/s). Each copy is two `fsync`s (the new
+  file, then its folder after the rename) of about 12 ms each on this disk, so the import is bound
+  by the disk's `fsync` latency, not by its bandwidth; every copy enters the library in the same
+  frame its result is applied.
+- **Batch Edit** (the `batch_edit` bench): 1 000 photos of 320 px scanned into a new library;
+  `edit.apply {op: "autofix"}` on all of them, from the command to its answer (every recipe
+  changed, the sidecar writes queued, one undo step "Auto Fix"), 4.65 ms (the runs 2.98, 4.75,
+  4.65); `edit.undo`, 3.31 ms (1.34, 3.31, 3.33); medians of fifteen, the session idle between
+  them.
+- **Slideshow** (the `slideshow` bench): six 6000 × 4000 JPEGs played by the real app in the
+  headless driver at 1400 × 900, one frame every 1/60 s of real time, 3 s display time, Loop on,
+  five changes for each transition but Cut. The frame where the show moves on (the incoming
+  preview taken from its pane and uploaded as a texture) took 16.0 ms at the median (the runs
+  19.4, 16.0, 13.7; p95 about 28 ms: the advance frame is often longer than a 60 Hz frame); a
+  transition frame 0.199 ms at p95 (0.195, 0.199, 0.204); 0 of 30 changes waited for their preview
+  in every run. Frames are timed whole (`Driver::step`: the poll, the show, layout, texture
+  uploads, tessellation); rasterizing is the GPU's and not measured.
+
 Measure, don't guess: record numbers in `docs/status.md` → Metrics with the machine and date.
 
 **The budgets job.** `.github/workflows/budgets.yml` runs `cargo xtask budgets` once per milestone,
@@ -311,7 +355,13 @@ judges its medians: the index of the 100 k library built, one word, three words 
 lone `-word`, and `search.set` to its result applied. Since M10 it also runs the `scan_throughput`
 bench (at least 500 photos per second; a planted slowdown counts once per photo scanned) and the
 `cold_start` bench (the median cold start within 2 s, a planted slowdown counted once per frame up
-to the first settled one; idle memory within 600 MiB in every run). A milestone adds its budgets to `BUDGETS` in `xtask/src/accept.rs`. Budgets are judged only at the
+to the first settled one; idle memory within 600 MiB in every run). Since M11 it also runs the
+`import` bench (the first screenful and the listing, a planted slowdown counted once each; files
+and MB per second copied, a planted slowdown counted once per file), the `batch_edit` bench (a
+planted slowdown added to each median) and the `slideshow` bench (no change waiting; the advance's
+median and a transition frame's p95, a planted slowdown added to every frame). `--plant-ms 8`
+misses Batch Edit's and the slideshow's budgets but not the import's (8 s over 1 000 files is
+inside its headroom); `--plant-ms 15` misses all three. A milestone adds its budgets to `BUDGETS` in `xtask/src/accept.rs`. Budgets are judged only at the
 review (maintainer decision, 2026-10-15); *Run workflow* on the Actions tab runs the job on any
 branch, with a planted slowdown (`plant_ms`) if asked. The same check locally:
 
@@ -678,8 +728,8 @@ budgeted, baseline-compared run that feeds the scorecard.
 
 **Bench runs.** The benches `xtask bench` knows are registered in `xtask/src/bench.rs` (a
 `harness = false` bench target each): `library_bench` (`dalica-ui`), `pack` (`dalica-thumbs`),
-`first_thumbnails`, `edit_preview`, `save_export`, `search` and `scan_throughput` (`dalica-engine`),
-and `cold_start` (`dalica-ui`).
+`first_thumbnails`, `edit_preview`, `save_export`, `search`, `scan_throughput`, `import` and
+`batch_edit` (`dalica-engine`), and `cold_start` and `slideshow` (`dalica-ui`).
 A bench given `--json` prints one JSON object on its last line with a `rows` array; each row has a
 `name` (the key) and numbers. A row's **CPU-time fields** are those whose key names a time unit
 (`p50_ms`, `pack_us_per_read`): `xtask bench` compares them with the last run in the history that
@@ -765,6 +815,33 @@ medians of `open_ms`, the index read, and `first_frame_ms`; `frames` to the firs
 `idle memory <n>` (`rss_mib`, the largest of the runs, `rss_p50_mib` and `peak_mib`). `cargo xtask
 budgets` judges the median cold start against 2 s and `rss_mib` against 600 MiB; `--check` makes
 the bench judge them itself. Without `--bench` it runs one smoke run over 2 000 photos.
+
+`import` (M11.23) writes `--photos` `scenes` JPEGs (1 000, `--side` 2048 px, each with a 160 px
+EXIF thumbnail, in folders of about 100) and moves them into a card's `DCIM` folder under `--dir`
+(this target directory's temporary folder). Each of `--runs` runs (3) opens a new library whose
+device list is the card's mount folder (the `DALICA_DEVICE_ROOTS` hook), opens the card, and asks
+`import.list` every millisecond until the listing is done; then `import.run` copies every
+candidate into a new folder named by text, polled at 60 frames a second until `import.status`
+says `done`. Rows: `first thumbnails <n>` (until the first screenful, 28 cells, all have their
+thumbnails), `list <n>`, `import <n>` (with `files_per_s`, `mb_per_s` and `bytes` from the median)
+and `in library <n>` (until every copy is a library photo; printed). `cargo xtask budgets` judges
+them; `--check` makes the bench judge them itself. Without `--bench` it runs one run over 60
+photos of 320 px.
+
+`batch_edit` (M11.23) writes `--photos` `scenes` JPEGs (1 000, 320 px, folders of about 100) and
+scans them into a new library, then `--samples` times (15) times `edit.apply {ids: every photo, op:
+"autofix"}` and `edit.undo`, each from the command to its answer, the session idle and flushed
+between them; it checks the apply was one step "Auto Fix" and the undo gave every recipe back.
+Rows: `auto fix <n>` and `undo auto fix <n>`. Without `--bench` it runs 100 photos, two samples.
+
+`slideshow` (M11.23) writes `--photos` `scenes` JPEGs (6, `--width × --height` 6000 × 4000),
+scans them, and plays a show of their folder in the real app in the headless driver at
+1400 × 900, a frame every 1/60 s of real time on the system clock, Loop on, `--advances` changes
+(5) for each of Dissolve, Wipe, Circle, Push, Rectangle and Pan and Zoom. Rows: `advance` (the
+frame where the show moves on; with `changes` and `waits`, the changes whose preview was not ready
+when they began), `transition frame` (every other frame of a change) and `transition frame <id>`
+per transition (printed). It exits non-zero when a change waited; `--check` also judges the
+budgets. Without `--bench` it runs three photos of 640 × 427, one change per transition.
 
 **Adding a scenario.** Add a row to a bench (its name is the key: keep it stable), give the bench
 `--json` output, add a `[[scenario]]` to `perf/budgets.toml`, and run `cargo xtask scorecard`.

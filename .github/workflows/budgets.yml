@@ -13,6 +13,10 @@
 # thumbnails, >= 500 photos/s until each is listed with its embedded thumbnail available) and
 # cold_start (a fresh process opening the 100 k index-only library to its first settled frame,
 # median <= 2 s; resident memory after 5 s idle <= 600 MiB). Both absolute, never loosened.
+# Since M11 also import (1 000 JPEGs from a temporary card: the first screenful of thumbnails, the
+# listing, files and MB per second copied and verified), batch_edit (Auto Fix on 1 000 photos as
+# one step, then its undo) and slideshow (24 MP photos in the headless app: no change waits for its
+# preview, the advance, a transition frame within 16 ms at p95), each 1.5 x its first measurement.
 # Like every test run on GitHub, it runs only at a milestone review (the pull request of a
 # `review/M<n>.R` branch) and when dispatched by hand: "Run workflow" on the Actions tab, which also
 # takes a planted slowdown to prove that a missed budget fails the run (docs/development.md §3, §8).
@@ -45,7 +49,7 @@ jobs:
     name: release budgets (ubuntu-latest)
     if: github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'review/')
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
     steps:
       - run: git config --global core.autocrlf false
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

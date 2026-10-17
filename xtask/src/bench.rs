@@ -62,6 +62,17 @@ pub const BENCHES: &[Bench] = &[
         package: "dalica-ui",
         what: "a fresh process opening a 100 k index-only library to its first settled frame, then its resident memory after 5 s idle",
     },
+    Bench {
+        name: "import",
+        package: "dalica-engine",
+        what: "listing, then importing, 1 000 JPEGs from a temporary card: time to the first screenful of thumbnails, the listing, files and MB per second copied and verified (writes about 0.4 GB)",
+    },
+    Bench { name: "batch_edit", package: "dalica-engine", what: "Auto Fix on 1 000 photos as one step (edit.apply), then its undo" },
+    Bench {
+        name: "slideshow",
+        package: "dalica-ui",
+        what: "a slideshow of 24 MP JPEGs in the headless app, every transition: an advance to its first frame with the next photo prefetched, a transition frame, and changes that waited",
+    },
 ];
 
 /// Time units a field may name, in milliseconds.
@@ -277,6 +288,149 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), String> {
     }
 }
 
+// ---------------------------------------------------------------------------------------------
+// M11's budgets (`docs/development.md` §8), joined to `accept::BUDGETS`: each judge reads its
+// bench's `--json` report, as `cargo xtask budgets` runs it in release, and adds a planted slowdown
+// of `plant` ms once per measured operation.
+// ---------------------------------------------------------------------------------------------
+
+/// The import budgets (M11.23): 1.5 × the first measurement (the median of three runs), release on two cores
+/// (`import` → `FIRST_BUDGET_MS`, `LIST_BUDGET_MS`, `FILES_PER_S_BUDGET`, `MB_PER_S_BUDGET`).
+pub const IMPORT_FIRST_MS: f64 = 35.0;
+pub const IMPORT_LIST_MS: f64 = 320.0;
+pub const IMPORT_FILES_PER_S: f64 = 22.9;
+pub const IMPORT_MB_PER_S: f64 = 2.3;
+/// The card the import budgets hold for: 1 000 JPEGs of 2048 pixels.
+pub const IMPORT_PHOTOS: u64 = 1_000;
+pub const IMPORT_SIDE_PX: u64 = 2048;
+
+/// The batch edit budgets (M11.23), medians over 1 000 photos (`batch_edit` → `APPLY_BUDGET_MS`,
+/// `UNDO_BUDGET_MS`).
+pub const BATCH_APPLY_MS: f64 = 7.0;
+pub const BATCH_UNDO_MS: f64 = 5.0;
+pub const BATCH_PHOTOS: u64 = 1_000;
+
+/// The slideshow budgets (M11.23; `slideshow` → `ADVANCE_BUDGET_MS`, `TRANSITION_BUDGET_MS`,
+/// `FRAME_CAP_MS`): the advance's median, a transition frame's p95 (never above
+/// [`SLIDESHOW_FRAME_CAP_MS`] whatever the first measurement), and no change waiting for its preview.
+pub const SLIDESHOW_ADVANCE_MS: f64 = 24.0;
+pub const SLIDESHOW_TRANSITION_P95_MS: f64 = 0.3;
+pub const SLIDESHOW_FRAME_CAP_MS: f64 = 16.0;
+/// The photos the slideshow budgets hold for: a 24 MP camera's, in pixels.
+pub const SLIDESHOW_PIXELS: u64 = 6000 * 4000;
+
+/// A report from a release run, or why it cannot be judged.
+fn release_report(bench: &str, stdout: &str) -> Result<Value, String> {
+    let report = parse_report(stdout).ok_or(format!("{bench} printed no JSON report with `rows`"))?;
+    let mode = report.get("mode").and_then(Value::as_str).unwrap_or("?");
+    if mode != "release" {
+        return Err(format!("{bench} ran in a {mode} build; the budgets hold in release only"));
+    }
+    Ok(report)
+}
+
+/// The finite number `key` of the row `name` of `report`.
+fn row_number(bench: &str, report: &Value, name: &str, key: &str) -> Result<f64, String> {
+    let row = report
+        .get("rows")
+        .and_then(Value::as_array)
+        .and_then(|rows| rows.iter().find(|r| r.get("name").and_then(Value::as_str) == Some(name)))
+        .ok_or(format!("{bench}: no row `{name}`"))?;
+    row.get(key).and_then(Value::as_f64).filter(|v| v.is_finite()).ok_or(format!("{bench}: `{name}` without `{key}`"))
+}
+
+fn planted(measured: f64, plant: f64, unit: &str) -> String {
+    if plant > 0.0 { format!(" ({measured:.2} {unit} measured + {plant:.2} ms planted)") } else { String::new() }
+}
+
+/// `import --json` in release over the 1 000-photo card: the first screenful and the listing
+/// within their budgets (a planted slowdown added once each), and the import's files and MB per
+/// second from its median at least theirs (a planted slowdown added once per file copied).
+pub fn judge_import(stdout: &str, plant: f64) -> Result<String, String> {
+    let report = release_report("import", stdout)?;
+    let photos = report.get("photos").and_then(Value::as_u64).unwrap_or(0);
+    let side = report.get("side_px").and_then(Value::as_u64).unwrap_or(0);
+    if photos < IMPORT_PHOTOS || side < IMPORT_SIDE_PX {
+        return Err(format!("import ran over {photos} photos of {side} px; the budgets hold for {IMPORT_PHOTOS} of {IMPORT_SIDE_PX} px"));
+    }
+    let n = photos;
+    let first = row_number("import", &report, &format!("first thumbnails {n}"), "p50_ms")?;
+    let judged = first + plant;
+    if judged > IMPORT_FIRST_MS {
+        return Err(format!("first thumbnails: median {judged:.1} ms{}, over the {IMPORT_FIRST_MS} ms budget", planted(first, plant, "ms")));
+    }
+    let list = row_number("import", &report, &format!("list {n}"), "p50_ms")?;
+    let listed = list + plant;
+    if listed > IMPORT_LIST_MS {
+        return Err(format!("the listing: median {listed:.0} ms{}, over the {IMPORT_LIST_MS} ms budget", planted(list, plant, "ms")));
+    }
+    let name = format!("import {n}");
+    let import_s = row_number("import", &report, &name, "p50_ms")? / 1000.0;
+    let bytes = row_number("import", &report, &name, "bytes")?;
+    let copied_s = import_s + plant * n as f64 / 1000.0;
+    let per_s = n as f64 / copied_s.max(f64::MIN_POSITIVE);
+    let mb_s = bytes / 1e6 / copied_s.max(f64::MIN_POSITIVE);
+    let note = if plant > 0.0 { format!(" ({import_s:.2} s measured + {plant:.2} ms planted per file)") } else { String::new() };
+    if per_s < IMPORT_FILES_PER_S || mb_s < IMPORT_MB_PER_S {
+        return Err(format!(
+            "the import: {n} files in {copied_s:.2} s{note}: {per_s:.1} files/s, {mb_s:.2} MB/s, under the {IMPORT_FILES_PER_S} files/s and {IMPORT_MB_PER_S} MB/s budget"
+        ));
+    }
+    Ok(format!(
+        "{n} photos of {side} px: first screenful {judged:.1} ms ≤ {IMPORT_FIRST_MS} ms, listed in {listed:.0} ms ≤ {IMPORT_LIST_MS} ms, imported in {copied_s:.2} s{note}: {per_s:.1} files/s ≥ {IMPORT_FILES_PER_S}, {mb_s:.2} MB/s ≥ {IMPORT_MB_PER_S}"
+    ))
+}
+
+/// `batch_edit --json` in release over 1 000 photos: Auto Fix's median and its undo's within their
+/// budgets (a planted slowdown added to each).
+pub fn judge_batch_edit(stdout: &str, plant: f64) -> Result<String, String> {
+    let report = release_report("batch_edit", stdout)?;
+    let photos = report.get("photos").and_then(Value::as_u64).unwrap_or(0);
+    if photos < BATCH_PHOTOS {
+        return Err(format!("batch_edit ran over {photos} photos; the budgets hold for {BATCH_PHOTOS}"));
+    }
+    let mut parts = Vec::new();
+    for (name, budget) in [(format!("auto fix {photos}"), BATCH_APPLY_MS), (format!("undo auto fix {photos}"), BATCH_UNDO_MS)] {
+        let p50 = row_number("batch_edit", &report, &name, "p50_ms")?;
+        let judged = p50 + plant;
+        if judged > budget {
+            return Err(format!("{name}: median {judged:.2} ms{}, over the {budget} ms budget", planted(p50, plant, "ms")));
+        }
+        parts.push(format!("{name} {judged:.2} ms ≤ {budget} ms"));
+    }
+    Ok(format!("medians: {}", parts.join("; ")))
+}
+
+/// `slideshow --json` in release over 24 MP photos: no change waited for its preview, the advance's
+/// median and a transition frame's p95 within their budgets, and that p95 within 16 ms (a planted
+/// slowdown added to every frame).
+pub fn judge_slideshow(stdout: &str, plant: f64) -> Result<String, String> {
+    let report = release_report("slideshow", stdout)?;
+    let px = report.get("photo_px").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_u64).product::<u64>()).unwrap_or(0);
+    if px < SLIDESHOW_PIXELS {
+        return Err(format!("slideshow ran over photos of {px} pixels; the budgets hold for {SLIDESHOW_PIXELS} (6000 × 4000)"));
+    }
+    let changes = row_number("slideshow", &report, "advance", "changes")?;
+    let waits = row_number("slideshow", &report, "advance", "waits")?;
+    if changes < 1.0 || waits != 0.0 {
+        return Err(format!("{waits} of {changes} changes waited for their preview (must be 0 of at least 1)"));
+    }
+    let advance = row_number("slideshow", &report, "advance", "p50_ms")?;
+    let judged = advance + plant;
+    if judged > SLIDESHOW_ADVANCE_MS {
+        return Err(format!("advance: median {judged:.2} ms{}, over the {SLIDESHOW_ADVANCE_MS} ms budget", planted(advance, plant, "ms")));
+    }
+    let p95 = row_number("slideshow", &report, "transition frame", "p95_ms")?;
+    let frame = p95 + plant;
+    let budget = SLIDESHOW_TRANSITION_P95_MS.min(SLIDESHOW_FRAME_CAP_MS);
+    if frame > budget {
+        return Err(format!("transition frame: p95 {frame:.2} ms{}, over the {budget} ms budget", planted(p95, plant, "ms")));
+    }
+    Ok(format!(
+        "{changes} changes, 0 waits; advance median {judged:.2} ms ≤ {SLIDESHOW_ADVANCE_MS} ms; transition frame p95 {frame:.3} ms ≤ {budget} ms (cap {SLIDESHOW_FRAME_CAP_MS} ms)"
+    ))
+}
+
 fn append(path: &Path, line: &str) -> Result<(), String> {
     use std::io::Write;
     if let Some(dir) = path.parent() {
@@ -287,7 +441,7 @@ fn append(path: &Path, line: &str) -> Result<(), String> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     const MACHINE: &str = "linux-x86_64, 24 CPUs, Some CPU, host";
@@ -400,6 +554,115 @@ mod tests {
         assert_eq!(target_dir(root, Some("t2".into())), root.join("t2"));
         let abs = std::env::temp_dir().join("agent-3");
         assert_eq!(target_dir(root, Some(abs.clone().into_os_string())), abs);
+    }
+
+    /// What `import --json` prints: the first measurement (2026-10-17) by default.
+    pub fn import_out(mode: &str, photos: u64, side: u64, first: f64, list: f64, import_ms: f64) -> String {
+        let r = json!({ "bench": "import", "mode": mode, "photos": photos, "side_px": side, "rows": [
+            { "name": format!("first thumbnails {photos}"), "p50_ms": first },
+            { "name": format!("list {photos}"), "p50_ms": list },
+            { "name": format!("import {photos}"), "p50_ms": import_ms, "bytes": 103_645_431u64 },
+            { "name": format!("in library {photos}"), "p50_ms": import_ms },
+        ]});
+        format!("{r}\n")
+    }
+
+    /// What `batch_edit --json` prints.
+    pub fn batch_out(mode: &str, photos: u64, apply: f64, undo: f64) -> String {
+        let r = json!({ "bench": "batch_edit", "mode": mode, "photos": photos, "rows": [
+            { "name": format!("auto fix {photos}"), "p50_ms": apply },
+            { "name": format!("undo auto fix {photos}"), "p50_ms": undo },
+        ]});
+        format!("{r}\n")
+    }
+
+    /// What `slideshow --json` prints.
+    pub fn slideshow_out(mode: &str, px: [u64; 2], advance: f64, p95: f64, waits: u64) -> String {
+        let r = json!({ "bench": "slideshow", "mode": mode, "photo_px": px, "rows": [
+            { "name": "advance", "p50_ms": advance, "changes": 18, "waits": waits },
+            { "name": "transition frame", "p50_ms": p95 / 2.0, "p95_ms": p95 },
+        ]});
+        format!("{r}\n")
+    }
+
+    #[test]
+    fn the_import_budgets_judge_the_first_screenful_the_listing_and_the_copy_rate() {
+        let ok = judge_import(&import_out("release", 1000, 2048, 23.2, 211.2, 29_101.0), 0.0).unwrap();
+        assert!(ok.contains("first screenful 23.2 ms ≤ 35 ms") && ok.contains("34.4 files/s ≥ 22.9") && ok.contains("3.56 MB/s ≥ 2.3"), "{ok}");
+        let e = judge_import(&import_out("release", 1000, 2048, 36.0, 211.2, 29_101.0), 0.0).unwrap_err();
+        assert!(e.starts_with("first thumbnails: median 36.0 ms"), "{e}");
+        assert!(judge_import(&import_out("release", 1000, 2048, 23.2, 321.0, 29_101.0), 0.0).unwrap_err().starts_with("the listing"));
+        let e = judge_import(&import_out("release", 1000, 2048, 23.2, 211.2, 44_000.0), 0.0).unwrap_err();
+        assert!(e.contains("22.7 files/s"), "{e}");
+        // A planted slowdown counts once on the first screenful and the listing, once per file on
+        // the copy: 8 ms stays inside the 1.5 × headroom, 15 ms does not.
+        assert!(
+            judge_import(&import_out("release", 1000, 2048, 23.2, 211.2, 29_101.0), 8.0)
+                .unwrap()
+                .contains("(29.10 s measured + 8.00 ms planted per file)")
+        );
+        let e = judge_import(&import_out("release", 1000, 2048, 23.2, 211.2, 29_101.0), 15.0).unwrap_err();
+        assert!(e.contains("38.2 ms (23.20 ms measured + 15.00 ms planted)"), "{e}");
+        let e = judge_import(&import_out("release", 1000, 2048, 1.0, 1.0, 29_101.0), 15.0).unwrap_err();
+        assert!(e.contains("44.10 s (29.10 s measured + 15.00 ms planted per file)"), "{e}");
+        assert!(judge_import(&import_out("debug", 1000, 2048, 1.0, 1.0, 1.0), 0.0).unwrap_err().contains("debug build"));
+        assert!(judge_import(&import_out("release", 60, 2048, 1.0, 1.0, 1.0), 0.0).unwrap_err().contains("hold for 1000 of 2048 px"));
+        assert!(judge_import(&import_out("release", 1000, 320, 1.0, 1.0, 1.0), 0.0).unwrap_err().contains("hold for 1000 of 2048 px"));
+        assert!(judge_import("no report", 0.0).unwrap_err().contains("no JSON report"));
+        assert!(judge_import("{\"mode\":\"release\",\"photos\":1000,\"side_px\":2048,\"rows\":[]}", 0.0).unwrap_err().contains("no row"));
+    }
+
+    #[test]
+    fn the_batch_edit_budgets_judge_each_median() {
+        assert!(judge_batch_edit(&batch_out("release", 1000, 4.65, 3.31), 0.0).unwrap().contains("auto fix 1000 4.65 ms ≤ 7 ms"));
+        assert!(judge_batch_edit(&batch_out("release", 1000, 7.1, 1.0), 0.0).unwrap_err().starts_with("auto fix 1000: median 7.10 ms"));
+        assert!(judge_batch_edit(&batch_out("release", 1000, 1.0, 5.1), 0.0).unwrap_err().starts_with("undo auto fix 1000"));
+        let e = judge_batch_edit(&batch_out("release", 1000, 4.65, 3.31), 8.0).unwrap_err();
+        assert!(e.contains("12.65 ms (4.65 ms measured + 8.00 ms planted)"), "{e}");
+        assert!(judge_batch_edit(&batch_out("debug", 1000, 1.0, 1.0), 0.0).unwrap_err().contains("debug build"));
+        assert!(judge_batch_edit(&batch_out("release", 100, 1.0, 1.0), 0.0).unwrap_err().contains("hold for 1000"));
+    }
+
+    #[test]
+    fn the_slideshow_budgets_need_no_wait_and_judge_the_advance_and_a_transition_frame() {
+        let full = [6000, 4000];
+        let ok = judge_slideshow(&slideshow_out("release", full, 16.0, 0.199, 0), 0.0).unwrap();
+        assert!(ok.contains("18 changes, 0 waits") && ok.contains("advance median 16.00 ms ≤ 24 ms") && ok.contains("p95 0.199 ms ≤ 0.3 ms"), "{ok}");
+        assert!(judge_slideshow(&slideshow_out("release", full, 16.0, 0.199, 1), 0.0).unwrap_err().contains("1 of 18 changes waited"));
+        assert!(judge_slideshow(&slideshow_out("release", full, 24.5, 0.199, 0), 0.0).unwrap_err().starts_with("advance: median 24.50 ms"));
+        assert!(judge_slideshow(&slideshow_out("release", full, 16.0, 0.31, 0), 0.0).unwrap_err().starts_with("transition frame: p95 0.31 ms"));
+        // 8 ms planted in every frame misses either.
+        let e = judge_slideshow(&slideshow_out("release", full, 17.0, 0.199, 0), 8.0).unwrap_err();
+        assert!(e.contains("25.00 ms (17.00 ms measured + 8.00 ms planted)"), "{e}");
+        let e = judge_slideshow(&slideshow_out("release", full, 16.0, 0.164, 0), 8.0).unwrap_err();
+        assert!(e.starts_with("transition frame: p95 8.16 ms"), "{e}");
+        assert!(SLIDESHOW_TRANSITION_P95_MS.min(SLIDESHOW_FRAME_CAP_MS) <= 16.0, "a transition frame within 16 ms whatever the first measurement");
+        assert!(judge_slideshow(&slideshow_out("debug", full, 1.0, 0.1, 0), 0.0).unwrap_err().contains("debug build"));
+        assert!(judge_slideshow(&slideshow_out("release", [640, 427], 1.0, 0.1, 0), 0.0).unwrap_err().contains("6000 × 4000"));
+    }
+
+    /// The benches' own `--check` budgets are the ones judged here.
+    #[test]
+    fn the_benches_carry_the_budgets_judged_here() {
+        let root = crate::workspace_root();
+        let read =
+            |krate: &str, bench: &str| std::fs::read_to_string(root.join("crates").join(krate).join("benches").join(format!("{bench}.rs"))).unwrap();
+        let import = read("engine", "import");
+        let batch = read("engine", "batch_edit");
+        let slideshow = read("ui", "slideshow");
+        for (source, constant, ours) in [
+            (&import, "FIRST_BUDGET_MS", IMPORT_FIRST_MS),
+            (&import, "LIST_BUDGET_MS", IMPORT_LIST_MS),
+            (&import, "FILES_PER_S_BUDGET", IMPORT_FILES_PER_S),
+            (&import, "MB_PER_S_BUDGET", IMPORT_MB_PER_S),
+            (&batch, "APPLY_BUDGET_MS", BATCH_APPLY_MS),
+            (&batch, "UNDO_BUDGET_MS", BATCH_UNDO_MS),
+            (&slideshow, "ADVANCE_BUDGET_MS", SLIDESHOW_ADVANCE_MS),
+            (&slideshow, "TRANSITION_BUDGET_MS", SLIDESHOW_TRANSITION_P95_MS),
+            (&slideshow, "FRAME_CAP_MS", SLIDESHOW_FRAME_CAP_MS),
+        ] {
+            assert!(source.contains(&format!("const {constant}: f64 = {ours:?};")), "the bench's {constant} is ours: {ours}");
+        }
     }
 
     #[test]
