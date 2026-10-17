@@ -102,6 +102,8 @@ struct Shared {
     quit_written: SyncSender<()>,
     /// How long a connection has to authenticate: [`AUTH_WITHIN`] (shorter only in unit tests).
     auth_within: Duration,
+    /// How long a connection may idle before it is closed: [`IDLE`] (shorter only in unit tests).
+    idle: Duration,
 }
 
 impl Shared {
@@ -119,15 +121,15 @@ pub fn bind(port: u16) -> std::io::Result<TcpListener> {
 
 /// Starts accepting on `listener` (already bound) on its own thread.
 pub fn start(listener: TcpListener, token: Token, wake: Waker) -> std::io::Result<Hub> {
-    start_with(listener, token, wake, AUTH_WITHIN)
+    start_with(listener, token, wake, AUTH_WITHIN, IDLE)
 }
 
-/// [`start`], with the time a connection has to authenticate (a test seam: the app always uses
-/// [`AUTH_WITHIN`]).
-fn start_with(listener: TcpListener, token: Token, wake: Waker, auth_within: Duration) -> std::io::Result<Hub> {
+/// [`start`], with the time a connection has to authenticate and the time it may idle (a test
+/// seam: the app always uses [`AUTH_WITHIN`] and [`IDLE`]).
+fn start_with(listener: TcpListener, token: Token, wake: Waker, auth_within: Duration, idle: Duration) -> std::io::Result<Hub> {
     let (tx, rx) = mpsc::channel();
     let (quit_tx, quit_rx) = mpsc::sync_channel(1);
-    let shared = Arc::new(Shared { token, tx: Mutex::new(tx), wake, open: AtomicUsize::new(0), quit_written: quit_tx, auth_within });
+    let shared = Arc::new(Shared { token, tx: Mutex::new(tx), wake, open: AtomicUsize::new(0), quit_written: quit_tx, auth_within, idle });
     std::thread::Builder::new().name("dalica-control".into()).spawn(move || accept(listener, shared))?;
     Ok(Hub { rx, quit_written: quit_rx })
 }
@@ -196,8 +198,8 @@ pub enum LineError {
 
 /// Reads one `\n`-terminated line of at most `max` bytes (newline included). `Ok(None)` at the end
 /// of the stream; a last line without a newline is returned as it is. Each read waits at most
-/// [`IDLE`], and never past `deadline`.
-pub fn read_line(r: &mut BufReader<TcpStream>, max: usize, deadline: Option<Instant>) -> Result<Option<Vec<u8>>, LineError> {
+/// `idle` (the app: [`IDLE`]), and never past `deadline`.
+pub fn read_line(r: &mut BufReader<TcpStream>, max: usize, idle: Duration, deadline: Option<Instant>) -> Result<Option<Vec<u8>>, LineError> {
     let mut line = Vec::new();
     loop {
         let wait = match deadline {
@@ -206,9 +208,9 @@ pub fn read_line(r: &mut BufReader<TcpStream>, max: usize, deadline: Option<Inst
                 if left.is_zero() {
                     return Err(LineError::Timeout);
                 }
-                left.min(IDLE)
+                left.min(idle)
             }
-            None => IDLE,
+            None => idle,
         };
         r.get_ref().set_read_timeout(Some(wait)).map_err(|e| LineError::Io(e.kind()))?;
         let buf = match r.fill_buf() {
@@ -259,7 +261,7 @@ fn write(stream: &mut TcpStream, id: &Value, reply: &Reply) -> bool {
 fn connection(stream: TcpStream, id: u64, shared: &Shared) {
     let opened = Instant::now();
     let _ = stream.set_nodelay(true);
-    if stream.set_write_timeout(Some(IDLE)).is_err() {
+    if stream.set_write_timeout(Some(shared.idle)).is_err() {
         return;
     }
     let Ok(mut out) = stream.try_clone() else { return };
@@ -267,7 +269,7 @@ fn connection(stream: TcpStream, id: u64, shared: &Shared) {
     let mut authed = false;
     loop {
         let deadline = (!authed).then_some(opened + shared.auth_within);
-        let line = match read_line(&mut reader, MAX_REQUEST_LINE, deadline) {
+        let line = match read_line(&mut reader, MAX_REQUEST_LINE, shared.idle, deadline) {
             Ok(Some(line)) => line,
             Ok(None) | Err(LineError::Io(_)) => return,
             Err(LineError::Timeout) if !authed => {
@@ -385,25 +387,25 @@ mod tests {
         let (mut r, mut c) = pair();
         c.write_all(b"{\"a\":1}\n\n{\"b\"").unwrap();
         c.write_all(b":2}\r\n").unwrap();
-        assert_eq!(read_line(&mut r, 100, None).unwrap().unwrap(), b"{\"a\":1}\n");
-        assert_eq!(read_line(&mut r, 100, None).unwrap().unwrap(), b"\n");
-        assert_eq!(read_line(&mut r, 100, None).unwrap().unwrap(), b"{\"b\":2}\r\n");
+        assert_eq!(read_line(&mut r, 100, IDLE, None).unwrap().unwrap(), b"{\"a\":1}\n");
+        assert_eq!(read_line(&mut r, 100, IDLE, None).unwrap().unwrap(), b"\n");
+        assert_eq!(read_line(&mut r, 100, IDLE, None).unwrap().unwrap(), b"{\"b\":2}\r\n");
         // Exactly the limit with its newline is fine; one byte more is not, newline or not.
         c.write_all(&[b'x'; 9]).unwrap();
         c.write_all(b"\n").unwrap();
-        assert_eq!(read_line(&mut r, 10, None).unwrap().unwrap().len(), 10);
+        assert_eq!(read_line(&mut r, 10, IDLE, None).unwrap().unwrap().len(), 10);
         c.write_all(&[b'x'; 10]).unwrap();
         c.write_all(b"\n").unwrap();
-        assert_eq!(read_line(&mut r, 10, None), Err(LineError::TooLong));
+        assert_eq!(read_line(&mut r, 10, IDLE, None), Err(LineError::TooLong));
         let (mut r, mut c) = pair();
         c.write_all(&[b'x'; 10]).unwrap();
-        assert_eq!(read_line(&mut r, 10, None), Err(LineError::TooLong));
+        assert_eq!(read_line(&mut r, 10, IDLE, None), Err(LineError::TooLong));
         // A last line without a newline, then the end.
         let (mut r, mut c) = pair();
         c.write_all(b"tail").unwrap();
         drop(c);
-        assert_eq!(read_line(&mut r, 10, None).unwrap().unwrap(), b"tail");
-        assert_eq!(read_line(&mut r, 10, None), Ok(None));
+        assert_eq!(read_line(&mut r, 10, IDLE, None).unwrap().unwrap(), b"tail");
+        assert_eq!(read_line(&mut r, 10, IDLE, None), Ok(None));
     }
 
     #[test]
@@ -418,7 +420,7 @@ mod tests {
                 }
             }
         });
-        assert_eq!(read_line(&mut r, MAX_REQUEST_LINE, None), Err(LineError::TooLong));
+        assert_eq!(read_line(&mut r, MAX_REQUEST_LINE, IDLE, None), Err(LineError::TooLong));
         drop(r);
         writer.join().unwrap();
     }
@@ -428,9 +430,9 @@ mod tests {
         let (mut r, mut c) = pair();
         c.write_all(b"{\"method\"").unwrap();
         let started = Instant::now();
-        assert_eq!(read_line(&mut r, 100, Some(Instant::now() + Duration::from_millis(200))), Err(LineError::Timeout));
+        assert_eq!(read_line(&mut r, 100, IDLE, Some(Instant::now() + Duration::from_millis(200))), Err(LineError::Timeout));
         assert!(started.elapsed() < Duration::from_secs(5));
-        assert_eq!(read_line(&mut r, 100, Some(Instant::now() - Duration::from_millis(1))), Err(LineError::Timeout));
+        assert_eq!(read_line(&mut r, 100, IDLE, Some(Instant::now() - Duration::from_millis(1))), Err(LineError::Timeout));
     }
 
     #[test]
@@ -454,15 +456,15 @@ mod tests {
 
     /// A server on a free port, with its token; requests are answered by `ui` on another thread.
     fn server(ui: impl FnMut(Msg) + Send + 'static) -> (u16, Token) {
-        server_with(AUTH_WITHIN, ui)
+        server_with(AUTH_WITHIN, IDLE, ui)
     }
 
-    /// [`server`], whose connections have `auth_within` to authenticate.
-    fn server_with(auth_within: Duration, ui: impl FnMut(Msg) + Send + 'static) -> (u16, Token) {
+    /// [`server`], whose connections have `auth_within` to authenticate and may idle `idle`.
+    fn server_with(auth_within: Duration, idle: Duration, ui: impl FnMut(Msg) + Send + 'static) -> (u16, Token) {
         let l = bind(0).unwrap();
         let port = l.local_addr().unwrap().port();
         let token = Token::generate().unwrap();
-        let hub = start_with(l, token.clone(), Arc::new(|| {}), auth_within).unwrap();
+        let hub = start_with(l, token.clone(), Arc::new(|| {}), auth_within, idle).unwrap();
         let mut ui = ui;
         std::thread::spawn(move || {
             while let Ok(m) = hub.rx.recv() {
@@ -605,7 +607,7 @@ mod tests {
         // already closed resets it on Windows (the reply is lost) and makes macOS report an error
         // instead of the end of the stream.
         let within = Duration::from_millis(1500);
-        let (port, token) = server_with(within, |m| {
+        let (port, token) = server_with(within, IDLE, |m| {
             if let Msg::Request(p) = m {
                 p.reply(Ok(json!({})));
             }
@@ -642,5 +644,35 @@ mod tests {
             assert!(took >= within - Duration::from_millis(100) && took < within + Duration::from_secs(5), "{what}: closed after {took:?}");
             assert!(closed, "{what}: the connection is closed");
         }
+    }
+
+    /// An authenticated connection that sends nothing for the idle limit is closed without a
+    /// reply (the client reconnects, `control-protocol.md` §4), and each request starts the clock
+    /// again, so a connection that keeps talking outlives the limit. Here the limit is 0.6 s; the
+    /// app's is [`IDLE`] (30 s), checked end to end in `tests/control_security.rs` at the review
+    /// gate.
+    #[test]
+    fn an_idle_connection_is_closed_and_each_request_restarts_the_clock() {
+        let idle = Duration::from_millis(600);
+        let (port, token) = server_with(AUTH_WITHIN, idle, |m| {
+            if let Msg::Request(p) = m {
+                p.reply(Ok(json!({})));
+            }
+        });
+        let auth = json!({ "method": "auth", "params": { "token": token_hex(&token) } }).to_string();
+        let (mut s, mut r) = client(port);
+        assert_eq!(send(&mut s, &mut r, &auth).unwrap()["ok"], true);
+        // Busy: a request every 0.2 s for 1.2 s, twice the limit.
+        let busy = Instant::now();
+        while busy.elapsed() < idle * 2 {
+            std::thread::sleep(Duration::from_millis(200));
+            assert_eq!(send(&mut s, &mut r, &json!({ "id": 1, "method": "ui.state" }).to_string()).unwrap()["ok"], true);
+        }
+        // Then quiet: closed after the limit, with nothing written.
+        let quiet = Instant::now();
+        let mut rest = Vec::new();
+        assert_eq!(r.read_to_end(&mut rest).unwrap(), 0, "{}", String::from_utf8_lossy(&rest));
+        let took = quiet.elapsed();
+        assert!(took >= idle - Duration::from_millis(100) && took < idle + Duration::from_secs(5), "closed after {took:?}");
     }
 }

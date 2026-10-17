@@ -24,6 +24,8 @@ const MAX_LINE: usize = 1 << 20;
 const MAX_CONNECTIONS: usize = 16;
 /// The first line must be a successful `auth` within this (`security.md` §6.5).
 const AUTH_WITHIN: Duration = Duration::from_secs(10);
+/// A connection that sends nothing this long is closed (`control-protocol.md` §4).
+const IDLE: Duration = Duration::from_secs(30);
 /// The longest a test waits for a reply, a close or the app.
 const PATIENCE: Duration = Duration::from_secs(60);
 /// The longest a test waits for the server to free the slots of connections the client closed. The
@@ -442,6 +444,45 @@ fn a_connection_that_does_not_authenticate_within_ten_seconds_is_closed() {
         eprintln!("numbers: {what} closed after {:.2} s", took.as_secs_f64());
     }
     app.assert_serving("clients that never authenticated");
+    app.quit();
+}
+
+/// Scope: an authenticated connection that sends nothing for 30 s is closed without a reply
+/// (`control-protocol.md` §4: the client reconnects), and each request starts the clock again, so
+/// a connection that sends a request every 10 s is still served after 40 s. It takes the real
+/// 30 s, so it runs at the review gate (`DALICA_FULL_TESTS=1`); a task's quick run has the same
+/// rule from the transport's unit test, with a 0.6 s limit
+/// (`an_idle_connection_is_closed_and_each_request_restarts_the_clock`).
+#[test]
+fn an_idle_connection_is_closed_after_thirty_seconds() {
+    if !full() {
+        return;
+    }
+    let mut app = App::start(&[]);
+    let (port, token) = (app.port, app.token.clone());
+    let busy = {
+        let token = token.clone();
+        std::thread::spawn(move || {
+            let mut c = Conn::open(port);
+            c.auth(&token);
+            let opened = Instant::now();
+            while opened.elapsed() < IDLE + Duration::from_secs(10) {
+                std::thread::sleep(Duration::from_secs(10));
+                let v = c.request("ui.state", json!({}));
+                assert_eq!(v["ok"], true, "after {:?}: {v}", opened.elapsed());
+            }
+        })
+    };
+    let mut quiet = Conn::open(port);
+    quiet.auth(&token);
+    let since = Instant::now();
+    quiet.assert_closed("an idle connection");
+    let took = since.elapsed();
+    assert!(took >= IDLE - Duration::from_millis(500), "closed after {took:?}, before the 30 s");
+    assert!(took < IDLE + Duration::from_secs(5), "closed only after {took:?}");
+    eprintln!("numbers: the idle connection closed after {:.2} s", took.as_secs_f64());
+    busy.join().unwrap();
+    app.assert_serving("an idle connection was closed");
     app.quit();
 }
 

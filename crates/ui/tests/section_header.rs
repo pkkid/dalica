@@ -365,3 +365,34 @@ fn an_album_header_shows_the_album_and_edits_its_description() {
     d.settle(FRAMES).unwrap();
     assert_eq!(d.app().session().unwrap().library().album(&album).unwrap().description, "", "{case}: undone");
 }
+
+/// The header's Export takes the selection when it lies inside its section, and the whole section
+/// otherwise: two photos selected in the second section, its Export opens the dialog for those
+/// two; the first section's Export, with that selection elsewhere, for all of the first section.
+#[test]
+fn the_headers_export_takes_the_selection_inside_its_section() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut d = new_driver(App::new(Some(session(dir.path(), 3, 90))), 1400, 900, 1.0);
+    d.settle(FRAMES).unwrap();
+    let (first, target) = {
+        let sections = &d.app().panels().unwrap().sections;
+        (sections.list[0].id, sections.list[1].id)
+    };
+    let photos = d.app().panels().unwrap().sections.get(target).unwrap().photos.clone();
+    let picked = vec![photos[1], photos[3]];
+    d.run("select.set", &json!({ "ids": picked })).unwrap();
+    d.run("section.scrollTo", &json!({ "section": target })).unwrap();
+    d.settle(FRAMES).unwrap();
+    assert_eq!(d.state().selection.section, Some(target), "the selection lies in the second section");
+    d.click(&format!("section:{target}/export")).unwrap();
+    d.settle(FRAMES).unwrap();
+    let draft = d.state().export.clone().expect("the Export dialog");
+    assert_eq!((draft.ids, draft.section), (picked, Some(target)), "the selection inside the section");
+    d.click("button:dialog.cancel").unwrap();
+    d.run("section.scrollTo", &json!({ "section": first })).unwrap();
+    d.settle(FRAMES).unwrap();
+    d.click(&format!("section:{first}/export")).unwrap();
+    d.settle(FRAMES).unwrap();
+    let draft = d.state().export.clone().expect("the Export dialog");
+    assert_eq!((draft.ids.len(), draft.section), (0, Some(first)), "a selection elsewhere: the whole section");
+}
