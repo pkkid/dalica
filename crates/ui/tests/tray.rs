@@ -251,8 +251,8 @@ fn minis_shrink_as_the_count_grows() {
     assert!(minis(&d).iter().all(|(_, r)| r[2] == 18.0));
 }
 
-/// The tray's own selection: a click, Ctrl-click, a click on empty space, and the rubber band; and
-/// the tray menu.
+/// The tray's own selection: a click, a click on empty space, the rubber band, a Ctrl-click that
+/// deselects and a Ctrl band that adds; and the tray menu.
 #[test]
 fn the_tray_has_its_own_selection_and_menu() {
     let dir = tempfile::tempdir().unwrap();
@@ -279,6 +279,28 @@ fn the_tray_has_its_own_selection_and_menu() {
     let mut want = vec![m[2].0, m[3].0, m[4].0];
     want.sort();
     assert_eq!(got, want, "the band selects what it touches");
+    // A Ctrl-click takes a tray-selected mini out of the tray's selection.
+    let ctrl = Click { modifiers: egui::Modifiers::COMMAND, ..Click::default() };
+    d.click_with(&format!("tray:item:{}", m[3].0.get()), &ctrl).unwrap();
+    let mut got = d.state().tray.selected.clone();
+    got.sort();
+    let mut want = vec![m[2].0, m[4].0];
+    want.sort();
+    assert_eq!(got, want, "a Ctrl-click deselects the mini");
+    // A Ctrl band adds what it touches to the tray's selection: from the first mini alone, a band
+    // over the last two leaves three selected.
+    d.click(&format!("tray:item:{}", m[0].0.get())).unwrap();
+    assert_eq!(d.state().tray.selected, [m[0].0]);
+    let to = pos2(m[3].1[0] + 5.0, y + 5.0);
+    let mut events = vec![PointerEvent { kind: PointerKind::Move, pos: from }, PointerEvent { kind: PointerKind::Down, pos: from }];
+    events.extend((1..=8).map(|i| PointerEvent { kind: PointerKind::Drag, pos: from.lerp(to, i as f32 / 8.0) }));
+    events.push(PointerEvent { kind: PointerKind::Up, pos: to });
+    d.pointer(&events, PointerButton::Primary, egui::Modifiers::COMMAND).unwrap();
+    let mut got = d.state().tray.selected.clone();
+    got.sort();
+    let mut want = vec![m[0].0, m[3].0, m[4].0];
+    want.sort();
+    assert_eq!(got, want, "a Ctrl band adds to the tray's selection");
     // The selection moving on drops tray-selected photos the tray no longer shows.
     select(&mut d, &s[0][3..4]);
     assert_eq!(d.state().tray.selected, [s[0][3]]);

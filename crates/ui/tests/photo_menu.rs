@@ -198,14 +198,17 @@ fn the_rows_in_order_and_their_states_in_a_folder_and_in_an_album() {
     // A photo of the selection that is not in the album cannot be its cover.
     select_in(&mut t, tsec, &[c], c);
     assert_eq!(enabled(&model(&t), "menuitem:album.setCover"), (false, Some("The photo is not in this album.".into())));
-    // Starred Photos chooses its own photos: no cover, no removing.
-    select_in(&mut t, Section::Album(AlbumSection::Starred), &[a], a);
-    let starred = model(&t);
-    for w in ["menuitem:album.setCover", "menuitem:album.remove"] {
-        let (on, why) = enabled(&starred, w);
-        assert!(!on && why.unwrap().contains("choose their own photos"), "{w}");
+    // Starred Photos, Recently Updated and the search results choose their own photos: no cover,
+    // no removing.
+    for own in [AlbumSection::Starred, AlbumSection::Recent, AlbumSection::Search] {
+        select_in(&mut t, Section::Album(own), &[a], a);
+        let rows = model(&t);
+        for w in ["menuitem:album.setCover", "menuitem:album.remove"] {
+            let (on, why) = enabled(&rows, w);
+            assert!(!on && why.unwrap().contains("choose their own photos"), "{own:?}: {w}");
+        }
+        assert_eq!(enabled(&rows, "menuitem:photo.showInFolder"), (true, None), "{own:?}");
     }
-    assert_eq!(enabled(&starred, "menuitem:photo.showInFolder"), (true, None));
     // Nothing selected: the album rows say why.
     t.d.run("select.none", &json!({})).unwrap();
     assert!(!row(&model(&t), &format!("menuitem:album.add/{trams}"))["enabled"].as_bool().unwrap());

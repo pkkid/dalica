@@ -3,8 +3,9 @@
 //! move drags; Rotate swaps the orientation; Preview shows the cropped photo; Apply is one "Crop"
 //! step and the thumbnail follows; on a rotated photo the stored rectangle is in the stored frame;
 //! a suggestion click draws its rectangle; the Add Custom Ratio dialog refuses 0 × 5 and adds
-//! 3 × 2; Esc cancels; a re-opened crop shows the whole photo with the current rectangle; the
-//! panel's and the dialog's fingerprints at 1400 × 900 (at 900 × 600 they only have to fit).
+//! 3 × 2; Esc cancels; a re-opened crop shows the whole photo with the current rectangle; Preview
+//! held shows the crop until let go; the panel's and the dialog's fingerprints at 1400 × 900 (at
+//! 900 × 600 they only have to fit, and the panel's parts keep apart and work).
 //!
 //! `DALICA_SHOTS=<dir>` writes the screenshots there too; `DALICA_BLESS=1` stores new
 //! fingerprints (look at the PNGs in `target/test-output/ui/` first).
@@ -12,7 +13,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use crate::common::{FRAMES, LARGE, check_rect, check_small, new_driver, out_dir};
+use crate::common::{FRAMES, LARGE, SMALL, check_fits, check_rect, check_small, new_driver, out_dir};
 use dalica_edit::{Dihedral, Rect as NRect};
 use dalica_engine::Session;
 use dalica_scenes::{Scene, fingerprint};
@@ -292,6 +293,78 @@ fn preview_apply_and_the_thumbnail_and_a_reopened_crop() {
     // Undo brings the first crop back.
     click(&mut t, "button:edit.undo");
     assert_eq!(edits(&mut t, id), after);
+}
+
+/// Preview held: a press on Preview held past [`crop::HOLD`] shows the cropped photo until it is
+/// let go, and that release is no click, so Preview is not left on.
+#[test]
+fn preview_held_shows_the_crop_until_let_go() {
+    let mut t = setup((1400, 900));
+    let whole = view(&t).size;
+    open_crop(&mut t);
+    action(&mut t, "draw", json!({ "from": [0.5, 0.25], "to": [1.0, 0.75] }));
+    let b = widget(&t, crop::PREVIEW_ID).rect;
+    let p = pos2(b[0] + b[2] / 2.0, b[1] + b[3] / 2.0);
+    t.d.pointer(
+        &[PointerEvent { kind: PointerKind::Move, pos: p }, PointerEvent { kind: PointerKind::Down, pos: p }],
+        PointerButton::Primary,
+        Modifiers::NONE,
+    )
+    .unwrap();
+    assert_eq!(view(&t).size, whole, "a press not yet held shows the whole photo");
+    t.d.wait((crop::HOLD * 1000.0) as u64 + 100).unwrap();
+    settle(&mut t);
+    assert!(crop::previewing(), "held: previewing");
+    assert_eq!(view(&t).size, (300.0, 200.0), "held: the crop shows");
+    assert!(find(&t, crop::RECT_ID).is_none(), "held: no rectangle");
+    t.d.pointer(&[PointerEvent { kind: PointerKind::Up, pos: p }], PointerButton::Primary, Modifiers::NONE).unwrap();
+    settle(&mut t);
+    assert!(!crop::previewing(), "let go: the release is no click");
+    assert_eq!(view(&t).size, whole, "let go: the whole photo again");
+    assert!(find(&t, crop::RECT_ID).is_some());
+}
+
+/// The panel at 900 × 600: the compact layout keeps every part inside the panel and the window,
+/// none over another, and its buttons still work (Preview toggles, Apply makes one "Crop" step).
+/// Layout and widget checks only; the panel's fingerprint is taken at 1400 × 900.
+#[test]
+fn the_panel_fits_and_works_at_900_by_600() {
+    let mut t = setup(SMALL);
+    let id = t.ids[0];
+    open_crop(&mut t);
+    t.d.step_until(|_| crop::suggestions().len() == 3, FRAMES).unwrap();
+    action(&mut t, "draw", json!({ "from": [0.5, 0.25], "to": [1.0, 0.75] }));
+    check_fits(&t.d, "crop panel");
+    let panel = widget(&t, "region:editPanel").rect;
+    let inside = |r: [f32; 4]| {
+        r[0] >= panel[0] - 0.01 && r[1] >= panel[1] - 0.01 && r[0] + r[2] <= panel[0] + panel[2] + 0.01 && r[1] + r[3] <= panel[1] + panel[3] + 0.01
+    };
+    let mut parts = vec![
+        crop::RATIO_ID.to_string(),
+        crop::ROTATE_ID.into(),
+        crop::PREVIEW_ID.into(),
+        crop::RESET_ID.into(),
+        crop::APPLY_ID.into(),
+        crop::CANCEL_ID.into(),
+    ];
+    parts.extend(t.d.widgets().into_iter().filter(|w| w.id.starts_with("button:crop.suggestion/")).map(|w| w.id));
+    let rects: Vec<(String, [f32; 4])> = parts.iter().map(|p| (p.clone(), widget(&t, p).rect)).collect();
+    for (k, (a, ra)) in rects.iter().enumerate() {
+        assert!(inside(*ra), "`{a}` at {ra:?} is outside the panel {panel:?}");
+        for (b, rb) in &rects[k + 1..] {
+            let apart =
+                ra[0] + ra[2] <= rb[0] + 0.01 || rb[0] + rb[2] <= ra[0] + 0.01 || ra[1] + ra[3] <= rb[1] + 0.01 || rb[1] + rb[3] <= ra[1] + 0.01;
+            assert!(apart, "`{a}` {ra:?} overlaps `{b}` {rb:?}");
+        }
+    }
+    let whole = view(&t).size;
+    click(&mut t, crop::PREVIEW_ID);
+    assert!(view(&t).size != whole && find(&t, crop::RECT_ID).is_none(), "Preview shows the crop");
+    click(&mut t, crop::PREVIEW_ID);
+    click(&mut t, crop::APPLY_ID);
+    assert_eq!(t.d.state().edit.tool, None);
+    let after = edits(&mut t, id);
+    assert!(after.len() == 1 && after[0].starts_with("crop(0.5,0.25,1,0.75"), "{after:?}");
 }
 
 #[test]

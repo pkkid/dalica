@@ -1,13 +1,14 @@
 //! The edit view's photo canvas, zoom and pan (`editing.md` §2–§3), headless, driven through the
-//! control channel as an agent would (and, for the notched wheel the driver cannot send, through
-//! egui directly): the photo drawn fitted from the session's preview; a wheel step and Ctrl+= keep
-//! the image point under the pointer and land exactly on 100 % when crossing it; click-and-hold
-//! zooms to 100 % at the point, a click returns to fit, a double-click returns to the library, and
-//! "Single-click to leave the edit view" makes one click leave and turns the hold off; drags pan and
-//! stop at the photo's edges; zooming in asks for the refined window and the frames go on without
-//! it (perf counters); Fit and 1:1 animate; the read-out and the navigator while zoomed; the bottom
-//! area's zoom controls and its star and rotate on the photo shown; the canvas's fingerprints
-//! fitted and at 200 % at 1400 × 900 (at 900 × 600 they only have to fit).
+//! control channel as an agent would (and, for the notched wheel and the cursor the driver cannot
+//! send or keep, through egui directly): the photo drawn fitted from the session's preview; a wheel
+//! step and Ctrl+= keep the image point under the pointer and land exactly on 100 % when crossing
+//! it; click-and-hold zooms to 100 % at the point, a click returns to fit, a double-click returns
+//! to the library, and "Single-click to leave the edit view" makes one click leave and turns the
+//! hold off; drags pan with the hand cursor and stop at the photo's edges; zooming in asks for the
+//! refined window and the frames go on without it (perf counters); Fit and 1:1 animate; the
+//! read-out and the navigator while zoomed; the bottom area's zoom controls and its star and rotate
+//! on the photo shown; the canvas's fingerprints fitted and at 200 % at 1400 × 900 (at 900 × 600
+//! they only have to fit).
 //!
 //! `DALICA_SHOTS=<dir>` writes the screenshots there too.
 
@@ -447,6 +448,55 @@ fn drags_pan_and_stop_at_the_photos_edges() {
     settle(&mut t);
     let v = view(&t);
     assert!((v.image.center() - v.area.center()).length() < 2.0, "{v:?}");
+}
+
+/// The hand cursor: over a zoomed photo the open hand, while a drag pans it the closed hand, and
+/// over the fitted photo (nothing to pan) the arrow. The cursor is in egui's frame output, which
+/// the driver does not keep: these frames are run on egui directly.
+#[test]
+fn panning_a_zoomed_photo_shows_the_hand_cursor() {
+    let dir = tempfile::tempdir().unwrap();
+    let (s, ids) = session(dir.path());
+    let mut app = App::new(Some(s));
+    let ctx = egui::Context::default();
+    app.install(&ctx);
+    let mut time = 0.0;
+    let mut frame = |app: &mut App, events: Vec<egui::Event>| {
+        let mut input = dalica_ui_kit::raw_input(1400, 900, 1.0);
+        input.time = Some(time);
+        input.events = events;
+        let mut out = ctx.run_ui(input, |ui| app.frame(ui));
+        out.textures_delta.clear();
+        time += 1.0 / 60.0;
+        out.platform_output.cursor_icon
+    };
+    app.run("view.edit", &json!({ "id": ids[0] })).unwrap();
+    for _ in 0..2000 {
+        frame(&mut app, vec![]);
+        if app.session().unwrap().preview().is_some() && app.session().unwrap().preview_pending() == 0 {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+    let p = canvas::view(&ctx).unwrap().area.center();
+    let button = |pressed: bool, pos: Pos2| egui::Event::PointerButton { pos, button: PointerButton::Primary, pressed, modifiers: Modifiers::NONE };
+    frame(&mut app, vec![egui::Event::PointerMoved(p)]);
+    assert_eq!(frame(&mut app, vec![]), egui::CursorIcon::Default, "fitted: nothing to pan");
+    app.state_mut().edit.zoom = dalica_ui::state::Zoom::Scale(2.0);
+    for _ in 0..30 {
+        frame(&mut app, vec![]);
+    }
+    assert!(canvas::view(&ctx).unwrap().pannable);
+    assert_eq!(frame(&mut app, vec![]), egui::CursorIcon::Grab, "zoomed: the open hand");
+    frame(&mut app, vec![button(true, p)]);
+    let mut during = Vec::new();
+    for i in 1..=10 {
+        during.push(frame(&mut app, vec![egui::Event::PointerMoved(p + vec2(-8.0 * i as f32, 4.0 * i as f32))]));
+    }
+    assert_eq!(during.last(), Some(&egui::CursorIcon::Grabbing), "panning: the closed hand ({during:?})");
+    let end = p + vec2(-80.0, 40.0);
+    frame(&mut app, vec![button(false, end)]);
+    assert_eq!(frame(&mut app, vec![]), egui::CursorIcon::Grab, "let go: the open hand again");
 }
 
 /// Waits for the preview's jobs in real time and runs one frame, until `done` holds (at most ten

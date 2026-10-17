@@ -6501,7 +6501,7 @@ and are never loosened. No other step of M11 needs a maintainer decision mid-run
     (`architecture.md` §9).
   - done when: `cargo xtask tasks sync --check` parses them and `tasks sync --dry-run` lists one new
     issue per block.
-- ⬜ **M11.26 `ui` + `dalica`: tests for the details the P0 audit left untested**
+- ✅ **M11.26 `ui` + `dalica`: tests for the details the P0 audit left untested**
   - after: M10.R
   - files: `crates/ui/tests/section_header.rs`, `crates/ui/tests/photo_menu.rs`, `crates/ui/tests/tray.rs`, `crates/ui/tests/crop_tool.rs`, `crates/ui/tests/edit_canvas.rs`, `crates/ui/tests/titlebar_drag.rs`, `apps/dalica/tests/control_security.rs`, `apps/dalica/src/control/transport.rs`, `xtask/src/ci.rs`, `docs/parity.md`
   - scope: the maintainer confirmed the P0 audit's moves (M10.26) at M10.R (2026-10-16, Q7) and

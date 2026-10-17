@@ -12,9 +12,9 @@
 //!   checks, no tests: the worker's gate already ran them on the same changes, and tasks never
 //!   share files.
 //! - **`cargo xtask ci --full`** (the review gate, `M<n>.R`): every test of every package at full
-//!   strength (`DALICA_FULL_TESTS=1`), the heif decoder's tests, the parity check against the
-//!   registered commands (and the `KEY-*` rows against the keymap), and the acceptance test of
-//!   every finished milestone. With `--platform` (the Windows and macOS runs of the review) it
+//!   strength (`DALICA_FULL_TESTS=1`), the heif decoder's tests and the engine's HEIC Save, the
+//!   parity check against the registered commands (and the `KEY-*` rows against the keymap), and
+//!   the acceptance test of every finished milestone. With `--platform` (the Windows and macOS runs of the review) it
 //!   leaves out what is the same on every system: the format and static checks, the heif tests and
 //!   the packages in [`PURE`].
 //!
@@ -307,15 +307,37 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), String> {
         steps.push(("stats --check".into(), Box::new(move || crate::stats::check(root, strength))));
     }
     if full && !platform {
-        // The optional HEIF decoder (`docs/formats.md` §3) is off by default: its own tests, once.
+        // The optional HEIF decoder (`docs/formats.md` §3) is off by default: its own tests, once,
+        // and the engine's Save of a HEIC photo, which only a build with the decoder can make
+        // (`crates/engine/tests/save_formats.rs`). Both run even when the first fails.
         steps.push((
             "test heif".into(),
             Box::new(|| {
-                cargo_env(
+                let image = cargo_env(
                     root,
                     &["test", "--no-fail-fast", "-p", "dalica-image", "--features", "heif", "--test", "heif", "-j", &n, "--", &threads],
                     strength,
-                )
+                );
+                let save = cargo_env(
+                    root,
+                    &[
+                        "test",
+                        "--no-fail-fast",
+                        "-p",
+                        "dalica-engine",
+                        "--features",
+                        "heif",
+                        "--test",
+                        "all",
+                        "-j",
+                        &n,
+                        "--",
+                        "save_formats::",
+                        &threads,
+                    ],
+                    strength,
+                );
+                image.and(save)
             }),
         ));
     }
