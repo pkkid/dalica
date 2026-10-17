@@ -1021,6 +1021,7 @@ dependencies = [
  "dalica-meta",
  "dalica-scenes",
  "dalica-sidecar",
+ "md5",
  "notify",
  "tempfile",
 ]

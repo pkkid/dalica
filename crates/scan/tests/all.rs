@@ -4,7 +4,9 @@
 mod common;
 
 mod albums;
+mod devices;
 mod facts;
+mod import_source;
 mod incremental;
 mod meta;
 mod originals;
