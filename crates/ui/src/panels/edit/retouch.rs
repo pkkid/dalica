@@ -147,7 +147,7 @@ fn geometry(app: &App, photo: PhotoId) -> Option<((f64, f64), Geometry)> {
     if p.width == 0 || p.height == 0 {
         return None;
     }
-    let recipe = Recipe::parse(&tools::recipe(app, photo)).unwrap_or_default();
+    let recipe = Recipe::parse(tools::recipe(app, photo)).unwrap_or_default();
     Some(((f64::from(p.width), f64::from(p.height)), Geometry::new(&recipe, Orientation::default(), p.width, p.height)))
 }
 
