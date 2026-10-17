@@ -3,7 +3,7 @@
 Adapted from LightCraft `docs/mcp.md` (revision 88ea1a8) and PhotoCraft `docs/mcp.md` (revision
 59684266); MIT OR Apache-2.0.
 
-> **Status: In progress (M10).** Built (M10.4): the server's core in `crates/mcp` (the framing,
+> **Status: In progress (M11).** Built (M10.4): the server's core in `crates/mcp` (the framing,
 > `initialize`, `tools/list`, `tools/call`, progress and cancellation, the limits), the shared tools
 > `command_list`, `command_run`, `command_batch` and `render_preview` (§4.1), and headless mode:
 > `dalica-cli mcp [--demo] [--library DIR] [--compact] [FOLDERS…]`; `doc_inspect` (M10.7); one tool
@@ -12,9 +12,10 @@ Adapted from LightCraft `docs/mcp.md` (revision 88ea1a8) and PhotoCraft `docs/mc
 > the roots and permissions of §5 and `--read-only` (M10.16: the engine's one path policy,
 > `--automation-*`, the client's roots, `--no-client-roots`); connect mode and the UI tools of §4.3
 > (M10.17; `dalica-cli mcp --connect` wired by M10.16); the workflow tests' harness with W02,
-> W03, W08 and W09 (M10.18); W01, the smoke run of W02 and W03 through the spawned binary, and the
-> workflow floor at five (M10.20). To come: W04, W05, W06 and W12 (M10.19), which raise the floor to
-> the nine P0 workflows.
+> W03, W08 and W09 (M10.18); W01, the smoke run of W02 and W03 through the spawned binary
+> (M10.20); W04, W05, W06 and W12 (M10.19); `apply_edit` as Batch Edit, one undo step for all its
+> photos, with W07 and W10 and the workflow floor at the eleven workflows M11 requires (M11.22).
+> To come: W11 with the effects (M12).
 
 `dalica-cli mcp` exposes Dalica to AI agents through the
 [Model Context Protocol](https://modelcontextprotocol.io): newline-delimited JSON-RPC 2.0 over stdio
@@ -160,7 +161,7 @@ plus held photos), as the bottom-bar buttons do.
 | `list_edit_ops` | `op?` | Every edit operation: name, label, parameters with ranges and defaults, whether it changes the canvas size, its milestone and whether it is available yet (the tables of `editing.md` and `data-model.md` §3.1). |
 | `get_recipe` | `id` | `{recipe: "crop(…)\|autofix()\|sepia()", ops: [{op, params}], redo: […], saved}` |
 | `set_recipe` | `id`, `recipe` (string or ops list), `label?`, `drop_unknown?` (false) | Replace the photo's whole recipe in one undo step. Refuses to drop operations it cannot interpret (`legacy:…` and unknown ops from newer versions) unless `drop_unknown: true` (`data-model.md` §3.1: an unknown operation is never lost silently). |
-| `apply_edit` | `ids?`, `op`, `params?` | Append one operation to each photo's recipe, like Batch Edit (`editing.md` §9): one undo step for all photos. Follows the edit view's rules (only the last crop counts; Tuning merges into a trailing `tuning` op). E.g. `{op: "autofix"}`, `{op: "crop", params: {rect: [0.08, 0.1, 0.92, 0.86]}}`, `{op: "sepia"}`, `{op: "soft_focus", params: {x: 0.5, y: 0.4, size: 0.3, amount: 0.6}}`. Rotation is `cmd_photo_rotate_cw`, not an edit op (`editing.md` §10). |
+| `apply_edit` | `ids?`, `op`, `params?` | Append one operation to each photo's recipe through Batch Edit (`edit.apply`, `editing.md` §9): one library undo step for all photos, named by the operation (`cmd_edit_undo` takes it back). Follows the edit view's rules (only the last crop and straighten count, and the same one again leaves that photo out; Tuning merges into a trailing `tuning` op, the values given replacing its values: photos whose merged entries differ are one `engine.group` of `edit.apply`s, still one step headless). An operation that does not render yet, which Batch Edit greys, is still kept in each recipe as one step of each photo's history until it renders. E.g. `{op: "autofix"}`, `{op: "crop", params: {rect: [0.08, 0.1, 0.92, 0.86]}}`, `{op: "sepia"}`, `{op: "soft_focus", params: {x: 0.5, y: 0.4, size: 0.3, amount: 0.6}}`. Rotation is `cmd_photo_rotate_cw`, not an edit op (`editing.md` §10). |
 | `render_photo` | `id?`, `size?` (long edge, 1024, ≤ 2048), `format?` (`png` \| `jpeg`), `before?` (false: the unedited original), `recipe?` (preview this recipe instead of the stored one, without applying it), `path?` | **Image content** of the photo rendered by `edit::render` — the CPU oracle that thumbnails, Save and Export use — plus `{id, width, height, recipe}`. With `path` the file is written (write root) and the image is still returned. PNG results are capped at 5 MiB before encoding. Changes nothing in the library. |
 | `export` | `ids?` \| `section?` \| `album?`, `dir`, `folder_name?`, `size?` (long edge px, default 1600; `0` = original size), `quality?` (`auto` \| `normal` \| `maximum` \| `minimum` \| 1–100), `numbered?`, `watermark?`, `videos?` (`frame` \| `full`), `remove_location?` | Export as the Export dialog does (`creating.md` §2): a new folder under `dir` (write root), never overwriting (`-001`), never enlarging, metadata copied. Returns `{folder, files: [{id, path, width, height, bytes}], skipped}`. Progress and cancellation per photo (§6). |
 | `jobs_list` / `jobs_cancel` | — / `job?` | Background jobs (`control-protocol.md` §6.13). |

@@ -1,6 +1,7 @@
 //! The editing helpers of `mcp.md` §4.2: `list_edit_ops`, `get_recipe`, `set_recipe` and
-//! `apply_edit`. Every change goes through an engine command on the backend, one step of each
-//! photo's own history (`editing.md` §5.1); nothing here touches pixels or files.
+//! `apply_edit`. Every change goes through an engine command on the backend: `set_recipe` one step
+//! of the photo's own history (`editing.md` §5.1), `apply_edit` one library step; nothing here
+//! touches pixels or files.
 //!
 //! - `list_edit_ops {op?}`: the rows of `edit::catalog()` as JSON (name, label, syntax, parameters
 //!   with their kinds, ranges and defaults, whether the canvas may change size, the milestone,
@@ -12,15 +13,19 @@
 //! - `set_recipe {id, recipe, label?, drop_unknown?}`: `edit.recipe.set` on the one photo, which
 //!   refuses by name to drop an operation it cannot read unless `drop_unknown`.
 //! - `apply_edit {ids?, op, params?}`: one operation appended to each photo (the Photo Tray's
-//!   without `ids`) with the edit view's rules, each a step of that photo's history: a crop
-//!   through `photo.crop.apply` and a straighten through `photo.straighten.apply` (only the last
-//!   counts; the same one again takes no step), Tuning and Fill Light through
-//!   `photo.history.tuning` (merging into a trailing `tuning` entry: the values given replace
-//!   its values, the others stay), everything else through `photo.history.apply` (a rotation
-//!   right after a rotation merges, the same flip twice cancels). Every photo is checked before
-//!   any changes; progress is reported and cancellation honoured between photos.
+//!   without `ids`) by Batch Edit, `edit.apply` (`editing.md` §9): **one library undo step for all
+//!   the photos** ("Undo Auto Fix"; Edit ▸ Undo takes it back). The edit view's rules hold: a
+//!   rotation right after a rotation merges and the same flip twice cancels (the engine's), only
+//!   the last crop and straighten count and the same one again takes no step (that photo is left
+//!   out), and Tuning and Fill Light merge into a trailing `tuning` entry, the values given
+//!   replacing its values and the others staying. Photos whose merged entries differ run as one
+//!   `engine.group` of `edit.apply`s, still one step ("Undo Change Photos"; connect mode runs a
+//!   group's commands as separate steps). An operation this build cannot draw yet, which Batch Edit
+//!   greys ("Arrives with Effects"), is still kept in each recipe (and skipped when drawn), one
+//!   step of each photo's history as in M10, until it renders. Every photo is checked before any
+//!   changes; progress is reported and cancellation honoured before the change.
 
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::collections::HashSet;
 
 use dalica_edit::Op as EditOp;
 use dalica_edit::catalog::{self, Kind, OpInfo, Param};
@@ -28,9 +33,6 @@ use serde_json::{Map, Value, json};
 
 use super::{Tool, ToolResult, object};
 use crate::backend::{Backend, NoProgress, Progress, ToolError};
-
-/// Each `apply_edit` of Tuning is a session of its own (one step), never merged with a UI session.
-static TUNING_SESSION: AtomicU64 = AtomicU64::new(1);
 
 const RECIPE: &str = "The recipe: its operation entries joined by | (\"crop(0.1,0.1,0.9,0.9)|autofix()\"; \"\" is none), or a list of entries or {op, params} items (params the text between the parentheses), as get_recipe gives them";
 
@@ -82,7 +84,7 @@ pub(crate) fn tools() -> Vec<Tool> {
         Tool {
             name: "apply_edit",
             title: "Apply edit",
-            description: "Append one edit operation to each photo's recipe (default: the Photo Tray), one undo step of each photo's history, with the edit view's rules: only the last crop and straighten count (the same one again takes no step), Tuning merges into a trailing tuning entry, a rotation after a rotation merges. `params` names the parameters as list_edit_ops gives them (left out: the default), or is the parameter text itself; a crop also takes rect: [x0, y0, x1, y1]. E.g. {op: \"autofix\"}, {op: \"crop\", params: {rect: [0.08, 0.1, 0.92, 0.86]}}, {op: \"tuning\", params: {fill: 0.3}}. Answers {entry, photos: [{id, recipe, changed}]}.".into(),
+            description: "Append one edit operation to each photo's recipe (default: the Photo Tray), like Batch Edit: one undo step for all the photos (cmd_edit_undo takes it back), with the edit view's rules: only the last crop and straighten count (the same one again takes no step), Tuning merges into a trailing tuning entry, a rotation after a rotation merges. `params` names the parameters as list_edit_ops gives them (left out: the default), or is the parameter text itself; a crop also takes rect: [x0, y0, x1, y1]. E.g. {op: \"autofix\"}, {op: \"crop\", params: {rect: [0.08, 0.1, 0.92, 0.86]}}, {op: \"tuning\", params: {fill: 0.3}}. Answers {entry, photos: [{id, recipe, changed}]}.".into(),
             input: object(
                 json!({
                     "ids": {"type": "array", "items": {"type": "integer"}, "description": "Photo ids (default: the Photo Tray)"},
@@ -335,43 +337,53 @@ fn entry_of(row: &OpInfo, params: Option<&Value>) -> Result<(String, Map<String,
     Ok((format!("{}({})", row.name, fields.join(",")), given))
 }
 
-/// The numbers of an entry's parameter text, `None` when one is not a number.
-fn numbers(entry: &str) -> Option<Vec<f64>> {
-    inner(entry).split(',').map(|t| t.trim().parse::<f64>().ok().filter(|n| n.is_finite())).collect()
-}
-
-/// The command and params that apply `entry` to photo `id` by the edit view's rules.
-fn step(id: u64, row: &OpInfo, entry: &str, given: &Map<String, Value>, session: &str) -> Result<(&'static str, Value), ToolError> {
-    Ok(match row.name {
-        "crop" => match numbers(entry).as_deref() {
-            Some([x0, y0, x1, y1]) => ("photo.crop.apply", json!({ "id": id, "rect": [x0, y0, x1 - x0, y1 - y0] })),
-            _ => return Err(bad(format!("crop: four numbers x0,y0,x1,y1, not {entry:?}"))),
-        },
-        "straighten" => match numbers(entry).as_deref() {
-            Some([deg]) => ("photo.straighten.apply", json!({ "id": id, "degrees": deg })),
-            _ => return Err(bad(format!("straighten: one number of degrees, not {entry:?}"))),
-        },
+/// What `edits` ends with when `entry` (operation `row`) is appended by the edit view's rules
+/// before `edit.apply` takes it: `Some(entry)` to apply, `None` when the photo would not change
+/// (the same crop or straighten as its last one: only the last counts). Tuning and Fill Light
+/// merge into a trailing `tuning` entry: the values given by name (Fill Light's is Tuning's
+/// `fill`, `editing.md` §6.5) replace its values, the others stay; without a trailing `tuning` they
+/// start from Tuning's defaults. Tuning given as parameter text replaces every value.
+fn photo_entry(row: &OpInfo, entry: &str, given: &Map<String, Value>, edits: &[String]) -> Result<Option<String>, ToolError> {
+    let name_of = |e: &str| EditOp::parse(e).name().map(str::to_string);
+    match row.name {
+        "crop" | "straighten" => {
+            let last = edits.iter().rev().find(|e| name_of(e).as_deref() == Some(row.name));
+            Ok((last.map(String::as_str) != Some(entry)).then(|| entry.to_string()))
+        }
+        "tuning" if given.is_empty() => Ok(Some(entry.to_string())),
         "tuning" | "fill_light" => {
-            let mut p = Map::new();
-            p.insert("id".into(), json!(id));
-            p.insert("session".into(), json!(session));
-            if given.is_empty() {
-                // The parameter text (or no parameters): every value of the entry.
-                let names: &[&str] = if row.name == "fill_light" { &["fill"] } else { &["fill", "highlights", "shadows", "temp", "neutral"] };
-                for (name, text) in names.iter().zip(inner(entry).split(',')) {
-                    let text = text.trim();
-                    p.insert((*name).into(), text.parse::<f64>().map_or_else(|_| json!(text), |n| json!(n)));
+            let tuning = catalog::lookup("tuning").ok_or_else(|| ToolError::new("internal", "the catalogue has no tuning"))?;
+            let defaults: Vec<String> = tuning.params.iter().map(|p| p.default.to_string()).collect();
+            let mut values = match edits.last().filter(|e| name_of(e).as_deref() == Some("tuning")) {
+                Some(last) => {
+                    let held: Vec<String> = inner(last).split(',').map(|t| t.trim().to_string()).collect();
+                    if held.len() == defaults.len() { held } else { defaults }
                 }
+                None => defaults,
+            };
+            let overrides: Vec<(&str, String)> = if row.name == "fill_light" {
+                vec![("fill", inner(entry).to_string())]
             } else {
-                for (k, v) in given {
-                    // Fill Light is Tuning's `fill` (`editing.md` §6.5).
-                    p.insert(if row.name == "fill_light" { "fill".into() } else { k.clone() }, v.clone());
+                given.iter().filter(|(_, v)| !v.is_null()).map(|(k, v)| field(k, v).map(|t| (k.as_str(), t))).collect::<Result<_, _>>()?
+            };
+            for (name, text) in overrides {
+                if let Some(slot) = tuning.params.iter().position(|p| p.name == name).and_then(|i| values.get_mut(i)) {
+                    *slot = text;
                 }
             }
-            ("photo.history.tuning", Value::Object(p))
+            Ok(Some(format!("tuning({})", values.join(","))))
         }
-        _ => ("photo.history.apply", json!({ "id": id, "op": entry })),
-    })
+        _ => Ok(Some(entry.to_string())),
+    }
+}
+
+/// The photos `edit.apply` (or a group of them) changed, from its answer.
+fn changed_ids(reply: &Value) -> HashSet<u64> {
+    let one = |r: &Value| r.get("ids").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_u64).collect::<Vec<_>>()).unwrap_or_default();
+    match reply.get("results").and_then(Value::as_array) {
+        Some(results) => results.iter().flat_map(one).collect(),
+        None => one(reply).into_iter().collect(),
+    }
 }
 
 fn apply_edit(b: &mut dyn Backend, args: &Value, progress: &mut dyn Progress) -> Result<Value, ToolError> {
@@ -387,16 +399,57 @@ fn apply_edit(b: &mut dyn Backend, args: &Value, progress: &mut dyn Progress) ->
     if ids.is_empty() {
         return Err(ToolError::new("disabled", "Select some photos first, or pass `ids`."));
     }
-    let session = format!("mcp-apply-{}", TUNING_SESSION.fetch_add(1, Ordering::Relaxed));
+    let total = u64::try_from(ids.len()).unwrap_or(u64::MAX);
+    if !progress.report(0, total, &format!("Applying {} to {total} photo(s)", row.label)) {
+        return Err(ToolError::new("cancelled", "the request was cancelled"));
+    }
+    if !row.renders() {
+        return apply_unrendered(b, row, &entry, &ids, progress);
+    }
+    // The entry each photo takes; photos taking the same one share an `edit.apply`.
+    let mut plan: Vec<(String, Vec<u64>)> = Vec::new();
+    for (id, photo) in ids.iter().zip(&photos) {
+        let Some(e) = photo_entry(row, &entry, &given, &strings(&photo["recipe"]["edits"]))? else { continue };
+        match plan.iter_mut().find(|(have, _)| *have == e) {
+            Some((_, list)) => list.push(*id),
+            None => plan.push((e, vec![*id])),
+        }
+    }
+    let mut steps: Vec<Value> = plan.into_iter().map(|(e, list)| json!({ "command": "edit.apply", "params": { "ids": list, "op": e } })).collect();
+    // One library undo step for every photo (`mcp.md` §4.2): one `edit.apply`, or, when Tuning
+    // merged into different trailing entries, one group of them.
+    let reply = match steps.len() {
+        0 => json!({ "ids": [] }),
+        1 => {
+            let step = steps.remove(0);
+            run(b, "edit.apply", step["params"].clone(), &mut NoProgress)?
+        }
+        _ => b.call("engine.group", json!({ "steps": steps, "label": "Change Photos" }), &mut NoProgress)?,
+    };
+    let changed = changed_ids(&reply);
+    let after = inspect(b, Some(&json!(ids)), &mut NoProgress)?;
+    let done: Vec<Value> = after
+        .iter()
+        .filter_map(|p| {
+            let id = p.get("id").and_then(Value::as_u64)?;
+            Some(json!({ "id": id, "recipe": strings(&p["recipe"]["edits"]).join("|"), "changed": changed.contains(&id) }))
+        })
+        .collect();
+    let _ = progress.report(total, total, "Done");
+    Ok(json!({ "entry": entry, "photos": done }))
+}
+
+/// An operation this build cannot draw yet (Batch Edit greys it, "Arrives with Effects"): kept in
+/// each recipe and skipped when drawn, as `list_edit_ops` says, through `photo.history.apply`, one
+/// step of each photo's history (M10's way) until it renders and goes through `edit.apply`.
+fn apply_unrendered(b: &mut dyn Backend, row: &OpInfo, entry: &str, ids: &[u64], progress: &mut dyn Progress) -> Result<Value, ToolError> {
     let total = u64::try_from(ids.len()).unwrap_or(u64::MAX);
     let mut done = Vec::with_capacity(ids.len());
-    for (n, id) in (0u64..).zip(&ids) {
+    for (n, id) in (0u64..).zip(ids) {
         if !progress.report(n, total, &format!("Applying {} to photo {} of {total}", row.label, n.saturating_add(1))) {
             return Err(ToolError::new("cancelled", "the request was cancelled"));
         }
-        let (command, params) = step(*id, row, &entry, &given, &session)?;
-        // These commands start no job; the progress is the photos done.
-        let state = run(b, command, params, &mut NoProgress)?;
+        let state = run(b, "photo.history.apply", json!({ "id": id, "op": entry }), &mut NoProgress)?;
         let changed = state.get("changed").and_then(Value::as_bool).unwrap_or(true);
         done.push(json!({ "id": id, "recipe": strings(&state["edits"]).join("|"), "changed": changed }));
     }
