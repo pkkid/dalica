@@ -238,7 +238,7 @@ pub const BUDGETS: &[Budget] = &[
     Budget {
         milestone: 11,
         name: "slideshow",
-        what: "slideshow: 24 MP JPEGs in the headless app at 1400 × 900, every transition: no change waits for its preview, an advance to its first frame median ≤ 24 ms, a transition frame p95 ≤ 0.3 ms (never above 16 ms)",
+        what: "slideshow: 24 MP JPEGs in the headless app at 1400 × 900, every transition: no change waits for its preview, an advance to its first frame median ≤ 24 ms, a transition frame p95 ≤ 1 ms (never above 16 ms)",
         cargo: &["bench", "-p", "dalica-ui", "--bench", "slideshow", "--", "--json"],
         judge: crate::bench::judge_slideshow,
         relative: None,

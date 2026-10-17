@@ -314,7 +314,10 @@ pub const BATCH_PHOTOS: u64 = 1_000;
 /// `FRAME_CAP_MS`): the advance's median, a transition frame's p95 (never above
 /// [`SLIDESHOW_FRAME_CAP_MS`] whatever the first measurement), and no change waiting for its preview.
 pub const SLIDESHOW_ADVANCE_MS: f64 = 24.0;
-pub const SLIDESHOW_TRANSITION_P95_MS: f64 = 0.3;
+/// A transition frame's p95: an absolute 1 ms, set by the maintainer at M11.R (2026-10-17). The
+/// first budget, 0.3 ms (1.5 × the first measurement, 0.199 ms), left no headroom for load: it
+/// missed once at 0.32 ms on a busy machine, where 0.21 to 0.26 ms is typical.
+pub const SLIDESHOW_TRANSITION_P95_MS: f64 = 1.0;
 pub const SLIDESHOW_FRAME_CAP_MS: f64 = 16.0;
 /// The photos the slideshow budgets hold for: a 24 MP camera's, in pixels.
 pub const SLIDESHOW_PIXELS: u64 = 6000 * 4000;
@@ -627,10 +630,10 @@ pub(crate) mod tests {
     fn the_slideshow_budgets_need_no_wait_and_judge_the_advance_and_a_transition_frame() {
         let full = [6000, 4000];
         let ok = judge_slideshow(&slideshow_out("release", full, 16.0, 0.199, 0), 0.0).unwrap();
-        assert!(ok.contains("18 changes, 0 waits") && ok.contains("advance median 16.00 ms ≤ 24 ms") && ok.contains("p95 0.199 ms ≤ 0.3 ms"), "{ok}");
+        assert!(ok.contains("18 changes, 0 waits") && ok.contains("advance median 16.00 ms ≤ 24 ms") && ok.contains("p95 0.199 ms ≤ 1 ms"), "{ok}");
         assert!(judge_slideshow(&slideshow_out("release", full, 16.0, 0.199, 1), 0.0).unwrap_err().contains("1 of 18 changes waited"));
         assert!(judge_slideshow(&slideshow_out("release", full, 24.5, 0.199, 0), 0.0).unwrap_err().starts_with("advance: median 24.50 ms"));
-        assert!(judge_slideshow(&slideshow_out("release", full, 16.0, 0.31, 0), 0.0).unwrap_err().starts_with("transition frame: p95 0.31 ms"));
+        assert!(judge_slideshow(&slideshow_out("release", full, 16.0, 1.02, 0), 0.0).unwrap_err().starts_with("transition frame: p95 1.02 ms"));
         // 8 ms planted in every frame misses either.
         let e = judge_slideshow(&slideshow_out("release", full, 17.0, 0.199, 0), 8.0).unwrap_err();
         assert!(e.contains("25.00 ms (17.00 ms measured + 8.00 ms planted)"), "{e}");
