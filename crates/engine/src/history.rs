@@ -22,6 +22,8 @@
 //!   is then dropped).
 //! - **The labels** ("Undo Crop", "Redo Tuning") come from each operation's history label
 //!   ([`label`]).
+//! - **A│A's variant** (`variant.rs`, M11.10) walks its own recipe and redo list, held in the
+//!   session, by these same rules ([`Side::Variant`]): its steps never reach the library.
 //! - **The recipe hook** (for the thumbnails, M7.9): [`Session::apply`] notes every photo whose
 //!   recipe changed, whichever history or scan changed it; [`Session::take_recipe_changes`] drains
 //!   them.
@@ -209,9 +211,17 @@ impl Record {
     }
 }
 
-/// One photo's remembered steps.
+/// Which recipe a step walks: the photo's own (in its sidecar), or A│A's variant of it (in the
+/// session only, `variant.rs`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Side {
+    Photo,
+    Variant,
+}
+
+/// One photo's remembered steps (a variant keeps its own).
 #[derive(Clone, Debug, Default)]
-struct Memory {
+pub(crate) struct Memory {
     /// The photo's file name when the steps were taken (ids change in a rebuild).
     name: String,
     undo: Vec<Record>,
@@ -309,15 +319,76 @@ impl Session {
 
     /// Photo `id`'s history now; `None` for an unknown photo.
     pub fn photo_history(&self, id: PhotoId) -> Option<PhotoHistory> {
-        let photo = self.library.photo(id)?;
-        let info = self.library.info(id);
-        let memory = self.histories.get(id, &photo.name);
+        self.history_on(id, Side::Photo).ok()
+    }
+
+    /// The history `side` of photo `id` offers now: `NotFound` for an unknown photo, `Disabled`
+    /// for a variant that is not open.
+    pub(crate) fn history_on(&self, id: PhotoId, side: Side) -> Result<PhotoHistory, CmdError> {
+        let (name, edits, redo) = self.recipe_on(id, side)?;
+        let memory = self.memory_on(id, &name, side);
         // A step that cancelled the last entry (a second flip) can leave the recipe empty.
-        let undo_label = match memory.and_then(|m| m.undo.last()).filter(|r| r.left(&info.edits)) {
+        let undo_label = match memory.and_then(|m| m.undo.last()).filter(|r| r.left(&edits)) {
             Some(r) => Some(label_of(&r.step)),
-            None => info.edits.last().map(|last| label_of(last)),
+            None => edits.last().map(|last| label_of(last)),
         };
-        Some(PhotoHistory { edits: info.edits.clone(), redo: info.redo.clone(), undo_label, redo_label: info.redo.last().map(|t| label_of(t)) })
+        let redo_label = redo.last().map(|t| label_of(t));
+        Ok(PhotoHistory { edits, redo, undo_label, redo_label })
+    }
+
+    /// Photo `id`'s file name, with the recipe and redo list `side` holds.
+    fn recipe_on(&self, id: PhotoId, side: Side) -> Result<(String, Vec<String>, Vec<String>), CmdError> {
+        let name = self.library.photo(id).ok_or_else(|| CmdError::NotFound(format!("no photo {id}")))?.name.clone();
+        match side {
+            Side::Photo => {
+                let info = self.library.info(id);
+                Ok((name, info.edits.clone(), info.redo.clone()))
+            }
+            Side::Variant => {
+                let v = self.variant.of(id, &name).ok_or_else(crate::variant::not_open)?;
+                let (edits, redo) = (v.edits.clone(), v.redo.clone());
+                Ok((name, edits, redo))
+            }
+        }
+    }
+
+    /// The steps remembered for `side` of photo `id` named `name`.
+    fn memory_on(&self, id: PhotoId, name: &str, side: Side) -> Option<&Memory> {
+        match side {
+            Side::Photo => self.histories.get(id, name),
+            Side::Variant => self.variant.of(id, name).map(|v| &v.memory),
+        }
+    }
+
+    /// The steps remembered for `side` of photo `id` named `name`, made when needed (`None`: the
+    /// variant is not open).
+    fn memory_entry(&mut self, id: PhotoId, name: &str, side: Side) -> Option<&mut Memory> {
+        match side {
+            Side::Photo => Some(self.histories.entry(id, name)),
+            Side::Variant => self.variant.of_mut(id, name).map(|v| &mut v.memory),
+        }
+    }
+
+    /// Sets the recipe and redo list `side` of photo `id` named `name` holds: the photo's as a
+    /// photo step (the memory kept), the variant's within the sidecar's caps.
+    fn write_on(&mut self, id: PhotoId, name: &str, side: Side, edits: Vec<String>, redo: Vec<String>) -> Result<(), CmdError> {
+        match side {
+            Side::Photo => self.set_photo_recipe(id, edits, redo),
+            Side::Variant => {
+                for list in [&edits, &redo] {
+                    if list.len() > dalica_library::MAX_OPERATIONS {
+                        return Err(CmdError::Limit(format!("photo {id}: a recipe holds at most {} operations", dalica_library::MAX_OPERATIONS)));
+                    }
+                    if list.iter().any(|e| e.len() > dalica_library::MAX_OPERATION) {
+                        return Err(CmdError::Limit(format!("photo {id}: an operation is at most {} bytes", dalica_library::MAX_OPERATION)));
+                    }
+                }
+                let v = self.variant.of_mut(id, name).ok_or_else(crate::variant::not_open)?;
+                v.edits = edits;
+                v.redo = redo;
+                Ok(())
+            }
+        }
     }
 
     /// Takes one step of photo `id`'s history: `change` applied to its recipe, its redo list
@@ -325,8 +396,12 @@ impl Session {
     /// the same key, joins that step (one undo for a whole Tuning session). Returns the step's
     /// label, or `None` when the recipe would not change (no step is taken).
     pub(crate) fn photo_step(&mut self, id: PhotoId, change: Change, coalesce: Option<&str>) -> Result<Option<&'static str>, CmdError> {
-        let name = self.library.photo(id).ok_or_else(|| CmdError::NotFound(format!("no photo {id}")))?.name.clone();
-        let edits = self.library.info(id).edits.clone();
+        self.step_on(id, Side::Photo, change, coalesce)
+    }
+
+    /// [`Session::photo_step`] on `side` of photo `id`.
+    pub(crate) fn step_on(&mut self, id: PhotoId, side: Side, change: Change, coalesce: Option<&str>) -> Result<Option<&'static str>, CmdError> {
+        let (name, edits, _) = self.recipe_on(id, side)?;
         let limit = |e: dalica_edit::Error| CmdError::Limit(format!("photo {id}: {e}"));
         let (after, record) = match change {
             Change::Append(op) => {
@@ -380,8 +455,8 @@ impl Session {
         }
         let record = Record { coalesce: coalesce.map(str::to_string), ..record };
         let step_label = label_of(&record.step);
-        self.set_photo_recipe(id, after, Vec::new())?;
-        let m = self.histories.entry(id, &name);
+        self.write_on(id, &name, side, after, Vec::new())?;
+        let Some(m) = self.memory_entry(id, &name, side) else { return Ok(Some(step_label)) };
         m.redo.clear();
         let joins = |top: &Record| {
             coalesce.is_some() && top.coalesce == record.coalesce && top.at == record.at && record.before.is_some() && top.after == record.before
@@ -401,10 +476,13 @@ impl Session {
     /// step gives back the entry it merged into). Returns the step's label; `Ok(None)` when there
     /// is nothing to undo.
     pub(crate) fn photo_undo(&mut self, id: PhotoId) -> Result<Option<&'static str>, CmdError> {
-        let name = self.library.photo(id).ok_or_else(|| CmdError::NotFound(format!("no photo {id}")))?.name.clone();
-        let info = self.library.info(id);
-        let (edits, mut redo) = (info.edits.clone(), info.redo.clone());
-        let record = self.histories.get(id, &name).and_then(|m| m.undo.last()).filter(|r| r.left(&edits)).cloned();
+        self.undo_on(id, Side::Photo)
+    }
+
+    /// [`Session::photo_undo`] on `side` of photo `id`.
+    pub(crate) fn undo_on(&mut self, id: PhotoId, side: Side) -> Result<Option<&'static str>, CmdError> {
+        let (name, edits, mut redo) = self.recipe_on(id, side)?;
+        let record = self.memory_on(id, &name, side).and_then(|m| m.undo.last()).filter(|r| r.left(&edits)).cloned();
         let (after, step) = match (&record, edits.split_last()) {
             (Some(r), _) => (r.undo(&edits), r.step.clone()),
             (None, Some((last, rest))) => (rest.to_vec(), last.clone()),
@@ -412,8 +490,8 @@ impl Session {
         };
         let step_label = label_of(&step);
         redo.push(step);
-        self.set_photo_recipe(id, after, redo)?;
-        let m = self.histories.entry(id, &name);
+        self.write_on(id, &name, side, after, redo)?;
+        let Some(m) = self.memory_entry(id, &name, side) else { return Ok(Some(step_label)) };
         match record {
             Some(r) => {
                 m.undo.pop();
@@ -431,11 +509,15 @@ impl Session {
     /// Redoes photo `id`'s last undone step: the end of the redo list goes back on the recipe (a
     /// merged step merges again). Returns the step's label; `Ok(None)` when the redo list is empty.
     pub(crate) fn photo_redo(&mut self, id: PhotoId) -> Result<Option<&'static str>, CmdError> {
-        let name = self.library.photo(id).ok_or_else(|| CmdError::NotFound(format!("no photo {id}")))?.name.clone();
-        let info = self.library.info(id);
-        let (edits, mut redo) = (info.edits.clone(), info.redo.clone());
+        self.redo_on(id, Side::Photo)
+    }
+
+    /// [`Session::photo_redo`] on `side` of photo `id`.
+    pub(crate) fn redo_on(&mut self, id: PhotoId, side: Side) -> Result<Option<&'static str>, CmdError> {
+        let (name, edits, redo_before) = self.recipe_on(id, side)?;
+        let mut redo = redo_before.clone();
         let Some(step) = redo.pop() else { return Ok(None) };
-        let record = self.histories.get(id, &name).and_then(|m| m.redo.last()).filter(|r| r.undone(&edits, &info.redo)).cloned();
+        let record = self.memory_on(id, &name, side).and_then(|m| m.redo.last()).filter(|r| r.undone(&edits, &redo_before)).cloned();
         let after = match &record {
             Some(r) => r.redo(&edits),
             // An empty step (a whole replacement that emptied the recipe) is no entry to give back.
@@ -443,8 +525,8 @@ impl Session {
             None => edits.iter().cloned().chain(std::iter::once(step.clone())).collect(),
         };
         let step_label = label_of(&step);
-        self.set_photo_recipe(id, after, redo)?;
-        let m = self.histories.entry(id, &name);
+        self.write_on(id, &name, side, after, redo)?;
+        let Some(m) = self.memory_entry(id, &name, side) else { return Ok(Some(step_label)) };
         match record {
             Some(r) => {
                 m.redo.pop();
