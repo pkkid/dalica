@@ -5,17 +5,20 @@
 //!
 //! **Pixels.** A photo the library holds draws what the session has in memory, never waiting
 //! (`Session::thumbnail`, which queues what is missing): the ladder image turned by its recipe and
-//! cut to its centre square, else the placeholder grey. A photo outside the library is the
-//! placeholder. The strip keeps its own textures, at most [`MAX_TEXTURES`].
+//! cut to its centre square, else the placeholder grey. A photo outside the library draws the
+//! engine's small decode of its file by path (`Session::viewer_thumbnail`, its edits drawn, kept
+//! in a capped cache), else the placeholder. The strip keeps its own textures, at most
+//! [`MAX_TEXTURES`].
 //!
 //! Automation ids: `film:viewer/<n>`, the photo at place `n` of the folder (active when shown).
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::{Arc, Weak};
 
-use dalica_core::PhotoId;
 use dalica_edit::Dihedral;
 use dalica_engine::Thumb;
+use dalica_engine::viewer::Pixels;
 use dalica_thumbs::Rgba8;
 use dalica_ui_kit::Tokens;
 use dalica_ui_kit::registry::Role;
@@ -23,7 +26,7 @@ use dalica_ui_kit::widgets::{self, Target};
 use egui::epaint::Vertex;
 use egui::{Color32, Id, Mesh, Pos2, Rect, Sense, Shape, Stroke, StrokeKind, TextureHandle, Ui, pos2, vec2};
 
-use super::listing::Listing;
+use super::listing::{Listing, Photo};
 use crate::app::App;
 use crate::panels::edit::filmstrip::centre_square;
 use crate::panels::thumbnails::{recipe_orientation, turn_point};
@@ -73,7 +76,7 @@ struct Texture {
 /// What the strip keeps between frames.
 #[derive(Clone, Default)]
 struct Strip {
-    textures: HashMap<PhotoId, Texture>,
+    textures: HashMap<PathBuf, Texture>,
 }
 
 /// Draws the band in `band` and its cells at `opacity`; returns the place clicked.
@@ -103,7 +106,7 @@ pub fn show(app: &mut App, ui: &mut Ui, band: Rect, listing: &Listing, index: us
         let square = Rect::from_center_size(pos2(left + CELL * (slot as f32 + 0.5), y), vec2(THUMB, THUMB));
         let r = ui.interact(square, Id::new(("viewer.film", place)), Sense::click());
         let current = place == index;
-        waiting |= !thumbnail(&mut strip, app, &painter, &t, photo.id, square, ppp, opacity);
+        waiting |= !thumbnail(&mut strip, app, &painter, &t, photo, square, ppp, opacity);
         if current {
             painter.rect_stroke(square, 0, Stroke::new(2.0, t.photo_focus.gamma_multiply(opacity)), StrokeKind::Outside);
         } else {
@@ -118,69 +121,70 @@ pub fn show(app: &mut App, ui: &mut Ui, band: Rect, listing: &Listing, index: us
         }
     }
     if strip.textures.len() > MAX_TEXTURES {
-        let shown: Vec<PhotoId> = slots.iter().flatten().filter_map(|p| listing.photos.get(*p).and_then(|ph| ph.id)).collect();
-        strip.textures.retain(|id, _| shown.contains(id));
+        let shown: Vec<&PathBuf> = slots.iter().flatten().filter_map(|p| listing.photos.get(*p).map(|ph| &ph.path)).collect();
+        strip.textures.retain(|path, _| shown.contains(&path));
     }
     // Thumbnails on their way: look again shortly (not at once, which would spin a CPU their
     // workers need).
-    if waiting && app.session().is_some_and(|s| s.thumbnails_pending() > 0) {
+    if waiting && app.session().is_some_and(|s| s.thumbnails_pending() > 0 || s.viewer_images_pending() > 0) {
         ctx.request_repaint_after(super::photo::PREVIEW_POLL);
     }
     ctx.data_mut(|d| d.insert_temp(id, strip));
     clicked
 }
 
-/// Paints photo `id` into `square`: its thumbnail cut to the centre square, else the placeholder.
-/// Returns whether that is all it will show (`false` while a thumbnail of the library's is on its
-/// way).
+/// Paints `photo` into `square`: its thumbnail cut to the centre square (the library's from the
+/// thumbnail ladder, turned by its recipe; another from the viewer's decode by path, its edits
+/// drawn), else the placeholder. Returns whether that is all it will show (`false` while a
+/// thumbnail is on its way).
 #[allow(clippy::too_many_arguments)]
-fn thumbnail(
-    strip: &mut Strip,
-    app: &mut App,
-    painter: &egui::Painter,
-    t: &Tokens,
-    id: Option<PhotoId>,
-    square: Rect,
-    ppp: f32,
-    opacity: f32,
-) -> bool {
+fn thumbnail(strip: &mut Strip, app: &mut App, painter: &egui::Painter, t: &Tokens, photo: &Photo, square: Rect, ppp: f32, opacity: f32) -> bool {
     let placeholder = t.placeholder.gamma_multiply(opacity);
-    let Some((id, session)) = id.zip(app.session_mut()) else {
+    let Some(session) = app.session_mut() else {
         painter.rect_filled(square, 0, placeholder);
         return true;
     };
-    let turn = recipe_orientation(&session.library().info(id).edits);
-    let need = (THUMB * ppp * 1.5).ceil().clamp(1.0, 4096.0) as u32;
-    match session.thumbnail(id, need) {
-        Thumb::Image { image, .. } => {
-            let fresh = strip.textures.get(&id).is_some_and(|tex| std::ptr::eq(tex.source.as_ptr(), Arc::as_ptr(&image)));
-            if !fresh && let Some(tex) = upload(painter.ctx(), id, &image) {
-                strip.textures.insert(id, tex);
+    let (image, turn, settled) = match photo.id {
+        Some(id) => {
+            let turn = recipe_orientation(&session.library().info(id).edits);
+            let need = (THUMB * ppp * 1.5).ceil().clamp(1.0, 4096.0) as u32;
+            match session.thumbnail(id, need) {
+                Thumb::Image { image, .. } => (Some(image), turn, true),
+                Thumb::Sketch(_) | Thumb::NotScanned => (None, turn, session.thumbnail_failure(id).is_some()),
             }
-            match strip.textures.get(&id) {
-                Some(tex) => {
-                    painter.add(cropped(square, tex, turn, opacity));
-                }
-                None => {
-                    painter.rect_filled(square, 0, placeholder);
-                }
-            }
-            true
         }
-        Thumb::Sketch(_) | Thumb::NotScanned => {
+        None => match session.viewer_thumbnail(&photo.path) {
+            Pixels::Ready(image) => (Some(image), Dihedral::IDENTITY, true),
+            Pixels::Pending => (None, Dihedral::IDENTITY, false),
+            Pixels::Failed(_) => (None, Dihedral::IDENTITY, true),
+        },
+    };
+    let Some(image) = image else {
+        painter.rect_filled(square, 0, placeholder);
+        return settled;
+    };
+    let fresh = strip.textures.get(&photo.path).is_some_and(|tex| std::ptr::eq(tex.source.as_ptr(), Arc::as_ptr(&image)));
+    if !fresh && let Some(tex) = upload(painter.ctx(), &photo.name, &image) {
+        strip.textures.insert(photo.path.clone(), tex);
+    }
+    match strip.textures.get(&photo.path) {
+        Some(tex) => {
+            painter.add(cropped(square, tex, turn, opacity));
+        }
+        None => {
             painter.rect_filled(square, 0, placeholder);
-            session.thumbnail_failure(id).is_some()
         }
     }
+    true
 }
 
-fn upload(ctx: &egui::Context, id: PhotoId, image: &Arc<Rgba8>) -> Option<Texture> {
+fn upload(ctx: &egui::Context, name: &str, image: &Arc<Rgba8>) -> Option<Texture> {
     let dims = [image.width as usize, image.height as usize];
     if dims[0] == 0 || dims[1] == 0 || dims[0].saturating_mul(dims[1]).saturating_mul(4) != image.data.len() {
         return None;
     }
     let pixels = egui::ColorImage::from_rgba_unmultiplied(dims, &image.data);
-    let handle = ctx.load_texture(format!("viewer.film:{id}"), pixels, egui::TextureOptions::LINEAR);
+    let handle = ctx.load_texture(format!("viewer.film:{name}"), pixels, egui::TextureOptions::LINEAR);
     Some(Texture { handle, source: Arc::downgrade(image), width: image.width, height: image.height })
 }
 

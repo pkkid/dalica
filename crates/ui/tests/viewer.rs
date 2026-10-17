@@ -1,10 +1,11 @@
 //! The photo viewer (M11.17, `viewing.md` §3), driven headlessly on a viewer session (the app as
-//! `dalica --view FILE` opens it): a folder of five photos the library holds, the viewer opened on
-//! the third.
+//! `dalica --view FILE` opens it): a folder of five photos outside the library, the viewer opened
+//! on the third.
 //!
-//! - it opens on the file's place; → steps through the folder and the filmstrip follows; 1
-//!   toggles 100 %; Ctrl+8 stars (the star reaches the folder's sidecar); Space switches the
-//!   background; Delete asks before anything goes; E opens the edit view on the photo shown;
+//! - it opens on the file's place showing the photo's pixels (decoded by path); → steps through the
+//!   folder and the filmstrip follows; 1 toggles 100 %; Delete asks before anything goes, and
+//!   Cancel leaves the library as it was; Ctrl+8 stars (the folder joins the library and the star
+//!   reaches its sidecar); Space switches the background; E opens the edit view on the photo shown;
 //! - the wheel zooms, and moves through the folder once Settings ▸ Interface says so;
 //! - with "Hide controls automatically" on, the controls hide after 3 s without a mouse move (on
 //!   the driver's virtual clock) and come back at the next move;
@@ -20,16 +21,16 @@ use std::sync::Arc;
 use crate::common::{FRAMES, LARGE, check_sizes, new_driver, try_widget, widget};
 use dalica_engine::Session;
 use dalica_ui::headless::{PointerEvent, PointerKind};
-use dalica_ui::panels::viewer::{CANVAS_ID, bar, strip};
-use dalica_ui::state::{Backdrop, DialogKind, View, Zoom};
+use dalica_ui::panels::viewer::{CANVAS_ID, Layout, bar, strip};
+use dalica_ui::state::{Backdrop, View, Zoom};
 use dalica_ui::{App, Driver};
 use egui::{Modifiers, PointerButton, pos2, vec2};
 use serde_json::json;
 
 const NAMES: [&str; 5] = ["A.jpg", "B.jpg", "C.jpg", "D.jpg", "E.jpg"];
 
-/// Five 1200 × 800 photos in `photos/Trip`, a library holding the folder, and the viewer opened
-/// on C.jpg; "Hide controls automatically" off so the controls stay for the fingerprints.
+/// Five 1200 × 800 photos in `photos/Trip`, an empty library, and the viewer opened on C.jpg;
+/// "Hide controls automatically" off so the controls stay for the fingerprints.
 fn fixture(dir: &Path) -> (Session, PathBuf) {
     let folder = dir.join("photos").join("Trip");
     std::fs::create_dir_all(&folder).unwrap();
@@ -38,17 +39,16 @@ fn fixture(dir: &Path) -> (Session, PathBuf) {
         std::fs::write(folder.join(name), bytes).unwrap();
     }
     let mut s = Session::open(&dir.join("library"), Arc::new(dalica_core::SystemClock)).unwrap();
-    s.execute("folders.add", &json!({ "path": folder })).unwrap();
-    s.wait_idle();
     s.execute("options.set", &json!({ "values": { "viewer.hideControls": false } })).unwrap();
     s.open_viewer(&folder.join("C.jpg")).unwrap();
     (s, folder)
 }
 
-/// Settles with the filmstrip's thumbnails in (`ui.settle` does not count them).
+/// Settles with the pictures decoded by path and the filmstrip's thumbnails in (`ui.settle` does
+/// not count them).
 fn settle_with_thumbnails(d: &mut Driver) {
     d.settle(FRAMES).unwrap();
-    d.step_until(|app| app.session().is_some_and(|s| s.thumbnails_pending() == 0), FRAMES).unwrap();
+    d.step_until(|app| app.session().is_some_and(|s| s.thumbnails_pending() == 0 && s.viewer_images_pending() == 0), FRAMES).unwrap();
     d.settle(FRAMES).unwrap();
 }
 
@@ -77,6 +77,10 @@ fn the_viewer_steps_zooms_stars_and_opens_the_photo_in_dalica() {
     assert_eq!(d.state().view, View::Viewer);
     assert_eq!((index(&d), current_cell(&d)), (2, strip::film_id(2)), "it opens on the file's place");
     assert_eq!(widget(&d, CANVAS_ID).label, "C.jpg (1200 × 800)");
+    // The photo's own pixels, decoded by path, fill the middle of the photo area.
+    let middle = Layout::of(egui::Rect::from_min_size(pos2(0.0, 0.0), vec2(LARGE.0 as f32, LARGE.1 as f32))).photo.center();
+    let px = d.screenshot().unwrap().pixel(middle.x as u32, middle.y as u32).unwrap();
+    assert!(u32::from(px[0]) + u32::from(px[1]) + u32::from(px[2]) > 120, "the photo is drawn, not a frame on the overlay: {px:?}");
     check_sizes(&mut d, CANVAS_ID, "viewer");
 
     // → steps, and the filmstrip follows; at the end it stops.
@@ -96,7 +100,21 @@ fn the_viewer_steps_zooms_stars_and_opens_the_photo_in_dalica() {
     d.key("1").unwrap();
     assert_eq!(d.state().viewer.unwrap().zoom, Zoom::Fit);
 
-    // Ctrl+8 stars the photo shown; the button shows it.
+    // Delete asks first about this one picture; Cancel keeps it and leaves the library as it was.
+    d.key("Delete").unwrap();
+    let asked = dalica_ui::dialogs::inspect(d.app());
+    assert_eq!((asked["kind"].as_str(), asked["command"]["id"].as_str()), (Some("deletePhotos"), Some("viewer.delete")), "{asked}");
+    assert_eq!(
+        dalica_ui::dialogs::delete::photos_text(d.app(), &asked["command"]["params"]).as_deref(),
+        Some("Move the selected picture to the trash?")
+    );
+    d.click("button:dialog.cancel").unwrap();
+    d.settle(FRAMES).unwrap();
+    assert!(folder.join("B.jpg").exists() && index(&d) == 1);
+    let lib = d.app().session().unwrap().library();
+    assert_eq!((lib.folders().count(), lib.photos().count()), (0, 0), "no folder added");
+
+    // Ctrl+8 stars the photo shown (its folder joins the library); the button shows it.
     d.key("Ctrl+8").unwrap();
     d.settle(FRAMES).unwrap();
     let starred: Vec<String> = d.app().session().unwrap().library().photos().filter(|p| p.star).map(|p| p.name.clone()).collect();
@@ -108,13 +126,6 @@ fn the_viewer_steps_zooms_stars_and_opens_the_photo_in_dalica() {
     assert_eq!(d.state().viewer.unwrap().backdrop, Backdrop::Opaque);
     d.key("Space").unwrap();
     assert_eq!(d.state().viewer.unwrap().backdrop, Backdrop::Translucent);
-
-    // Delete asks first; Cancel keeps the photo.
-    d.key("Delete").unwrap();
-    assert_eq!(d.state().dialogs.last().map(|x| x.kind), Some(DialogKind::DeletePhotos));
-    d.click("button:dialog.cancel").unwrap();
-    d.settle(FRAMES).unwrap();
-    assert!(folder.join("B.jpg").exists() && index(&d) == 1);
 
     // The wheel zooms; Settings ▸ Interface makes it move through the folder.
     d.scroll(Some(CANVAS_ID), vec2(0.0, 40.0)).unwrap();

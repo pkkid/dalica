@@ -6,8 +6,9 @@
 //! neighbours in the folder are prefetched, so stepping does not wait for a decode. Zoomed past the
 //! preview, the visible window is asked for at full resolution once the view stands still
 //! (`Session::set_preview_window`), as the edit view does. A photo of a folder the library does
-//! not hold is drawn as a frame of its shape with [`OUTSIDE`]: the engine renders only the
-//! library's photos so far.
+//! not hold is drawn from the engine's decode of its file by path at the screen size, its
+//! sidecar's edits drawn (`Session::viewer_image`), its neighbours decoded ahead; a file that
+//! cannot be decoded is a frame of its shape with the reason.
 //!
 //! **Zoom and pan.** Zoom changes made outside the photo (+, −, 1, the bar) jump, keeping the point
 //! at the centre of the area; the wheel zooms about the pointer. Dragging a photo larger than the
@@ -19,6 +20,7 @@ use std::sync::{Arc, Weak};
 
 use dalica_core::PhotoId;
 use dalica_edit::{Recipe, Region};
+use dalica_engine::viewer::Pixels;
 use dalica_image::{Orientation, Rgba8};
 use dalica_ui_kit::{Tokens, fonts};
 use egui::{Color32, CursorIcon, Id, Pos2, Rect, Stroke, StrokeKind, TextureHandle, Ui, Vec2, pos2, vec2};
@@ -28,8 +30,6 @@ use crate::app::App;
 use crate::commands::zoom as maths;
 use crate::state::Zoom;
 
-/// What a photo outside the library shows instead of its pixels.
-pub const OUTSIDE: &str = "Dalica shows the pixels of photos in its library; this folder is not in it.";
 /// How long the photo rests between frames while its preview is on its way.
 pub const PREVIEW_POLL: std::time::Duration = std::time::Duration::from_millis(33);
 
@@ -101,9 +101,15 @@ pub struct Input {
     pub hovered: bool,
 }
 
-/// The photo's size in pixels as it shows: the library's size turned and cut by its recipe; the
-/// listed size outside the library.
-fn photo_size(app: &App, photo: &Photo) -> (f32, f32) {
+/// The photo's size in pixels as it shows: the library's size turned and cut by its recipe;
+/// outside the library, the listed size given the shape of the picture decoded (its sidecar's
+/// edits drawn), else the listed size.
+fn photo_size(app: &App, photo: &Photo, decoded: Option<&Rgba8>) -> (f32, f32) {
+    if let Some(img) = decoded.filter(|i| i.width > 0 && i.height > 0) {
+        let long = photo.width.max(photo.height).max(1) as f32;
+        let k = long / img.width.max(img.height) as f32;
+        return (img.width as f32 * k, img.height as f32 * k);
+    }
     if let Some((info, p)) = photo.id.and_then(|id| app.session().and_then(|s| Some((s.library().info(id), s.library().photo(id)?)))) {
         let recipe = Recipe::parse(&info.edits).unwrap_or_default();
         let g = dalica_edit::Geometry::new(&recipe, Orientation::default(), p.width, p.height);
@@ -115,7 +121,7 @@ fn photo_size(app: &App, photo: &Photo) -> (f32, f32) {
 }
 
 /// Draws `photo` in `area` and runs its zoom and pan; `neighbours` are prefetched.
-pub fn show(app: &mut App, ui: &mut Ui, area: Rect, photo: &Photo, neighbours: &[PhotoId], input: &Input) -> Shown {
+pub fn show(app: &mut App, ui: &mut Ui, area: Rect, photo: &Photo, neighbours: &[Photo], input: &Input) -> Shown {
     let ctx = ui.ctx().clone();
     let t = *app.tokens();
     let ppp = ctx.pixels_per_point();
@@ -134,10 +140,25 @@ pub fn show(app: &mut App, ui: &mut Ui, area: Rect, photo: &Photo, neighbours: &
         }
         if c.prefetched != Some(pid) {
             c.prefetched = Some(pid);
-            s.prefetch_previews(neighbours);
+            let ids: Vec<PhotoId> = neighbours.iter().filter_map(|n| n.id).collect();
+            s.prefetch_previews(&ids);
         }
     }
-    let size = photo_size(app, photo);
+    // A photo outside the library: its picture decoded by path, the neighbours decoded ahead.
+    let outside = match (photo.id, app.session_mut()) {
+        (None, Some(s)) => {
+            let pixels = s.viewer_image(&photo.path);
+            let ahead: Vec<std::path::PathBuf> = neighbours.iter().filter(|n| n.id.is_none()).map(|n| n.path.clone()).collect();
+            s.prefetch_viewer_images(&ahead);
+            Some(pixels)
+        }
+        _ => None,
+    };
+    let decoded = match &outside {
+        Some(Pixels::Ready(img)) => Some(Arc::clone(img)),
+        _ => None,
+    };
+    let size = photo_size(app, photo, decoded.as_deref());
     let fit = maths::fit_scale(size, (area.width() * ppp, area.height() * ppp));
     FITTED.with(|f| f.set(Some(fit)));
     let zoom = app.state().viewer.map_or(Zoom::Fit, |v| v.zoom);
@@ -183,7 +204,18 @@ pub fn show(app: &mut App, ui: &mut Ui, area: Rect, photo: &Photo, neighbours: &
                 None => waiting = true,
             }
         }
-        (None, None) => stand_in(&painter, &t, image, OUTSIDE),
+        (None, None) => match outside {
+            Some(Pixels::Ready(img)) => {
+                if c.preview.as_ref().is_none_or(|tex| !tex.of(&img)) {
+                    c.preview = upload(&ctx, "viewer:preview", &img);
+                }
+                if let Some(tex) = &c.preview {
+                    painter.image(tex.handle.id(), image, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
+                }
+            }
+            Some(Pixels::Failed(why)) => stand_in(&painter, &t, image, &crate::panels::edit::canvas::message(&why)),
+            Some(Pixels::Pending) | None => waiting = true,
+        },
     }
 
     // Zoomed past the preview: the visible window at full resolution, once the view stands still.
@@ -219,7 +251,7 @@ pub fn show(app: &mut App, ui: &mut Ui, area: Rect, photo: &Photo, neighbours: &
         Some(_) => {}
         None => c.refined = None,
     }
-    if app.session().is_some_and(|s| s.preview_pending() > 0) {
+    if app.session().is_some_and(|s| s.preview_pending() > 0 || s.viewer_images_pending() > 0) {
         waiting = true;
         ctx.request_repaint_after(PREVIEW_POLL);
     }

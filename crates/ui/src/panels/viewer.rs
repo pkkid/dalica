@@ -205,8 +205,8 @@ fn frame(app: &mut App, ui: &mut Ui, ctx: &egui::Context, t: &Tokens, rect: Rect
     let photo = listing.photos.get(index).cloned().unwrap_or(photo);
 
     let drag = if canvas.dragged_by(egui::PointerButton::Primary) { canvas.drag_delta() } else { Vec2::ZERO };
-    let neighbours: Vec<PhotoId> =
-        [index.checked_add(1), index.checked_sub(1)].into_iter().flatten().filter_map(|i| listing.photos.get(i).and_then(|p| p.id)).collect();
+    let neighbours: Vec<listing::Photo> =
+        [index.checked_add(1), index.checked_sub(1)].into_iter().flatten().filter_map(|i| listing.photos.get(i).cloned()).collect();
     let shown = photo::show(app, ui, layout.photo, &photo, &neighbours, &photo::Input { drag, wheel: zoom_by, hovered });
     let text = caption(&photo.name, shown.size);
     widgets::label_in(ui.painter(), layout.caption, Align2::CENTER_CENTER, &text, fonts::semibold(t.body), t.overlay_text);

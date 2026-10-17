@@ -129,7 +129,9 @@ Photo Viewer) comes with that milestone (`product.md` → Scope).
 - **Control bar** over the strip: zoom in **+**, zoom out **−**, **1:1**, **Open in Dalica** (opens
   the photo in the main window's edit view), a large round **Play** (slideshow of the folder),
   rotate left/right, **star**, **⋯** More (Open With ▸, Show in File Manager, Settings…). "close ✕" at the top-right. Controls auto-hide after 3 s of no mouse movement.
-- Shows Dalica edits (from the folder sidecar) when present.
+- Shows Dalica edits (from the folder sidecar) when present. A photo the library holds is drawn
+  from the edit view's preview; any other is decoded by its path at the screen size (and small for
+  the filmstrip) on the viewer's own workers, the next and previous decoded ahead (M11.17).
 
 ### 3.2 Keys and mouse
 

@@ -9,10 +9,10 @@
 //! engine's listing of the folder (`crate::panels::viewer::listing`). Stepping shows another photo
 //! fitted. The changes act on the photo shown through the engine's viewer commands, by its path:
 //! `viewer.star` and `viewer.rotate` (the first change to a photo outside the library adds its
-//! folder in the same undo step). Delete asks the library's own question (`photo.delete`, "Move the
-//! selected picture to the trash?" [Move to Trash] [Cancel], unless "Delete from disk without
-//! asking" is on); a photo of a folder outside the library has its folder added first
-//! (`viewer.adopt`, an undo step of its own), as `viewer.delete` does. Open in Dalica runs
+//! folder in the same undo step). Delete asks "Move the selected picture to the trash?" [Move to
+//! Trash] [Cancel] (unless "Delete from disk without asking" is on) with `viewer.delete` as the
+//! command: Cancel leaves the library as it was, and Move to Trash adds the folder of a photo
+//! outside the library only then, as `viewer.delete` does. Open in Dalica runs
 //! `Session::open_in_dalica` on the photo shown, whichever it is, and shows it in the edit view (the
 //! window then becomes the main window). Close goes through `Session::close_viewer` (the app then
 //! quits). While another Dalica holds the library the changes and Open in Dalica are disabled with
@@ -252,14 +252,7 @@ fn rotate_left(app: &mut App, params: &Value) -> Result<Value, CmdError> {
 fn trash(app: &mut App, params: &Value) -> Result<Value, CmdError> {
     no_params(params)?;
     let p = changing(app)?;
-    let id = match p.id {
-        Some(id) => id,
-        None => {
-            let reply = app.run("viewer.adopt", &json!({ "path": p.path }))?;
-            serde_json::from_value(reply["id"].clone()).map_err(|e| CmdError::Internal(format!("viewer.adopt replied no photo id: {e}")))?
-        }
-    };
-    app.run("photo.delete", &json!({ "ids": [id] }))
+    dialogs::delete::ask_viewer(app, &p.path)
 }
 
 fn open_in_dalica(app: &mut App, params: &Value) -> Result<Value, CmdError> {
