@@ -884,3 +884,47 @@ fn base64_crop_and_frame_helpers() {
     assert_eq!((frames_for(0), frames_for(16), frames_for(17)), (0, 1, 2));
     assert!(frames_for(u64::MAX) > 0, "no overflow");
 }
+
+/// Removing imported files from a card never runs over the control channel, even with `confirm`
+/// and `--automation-allow-external` (`security.md` §5.7); an import's destination is checked
+/// against the write roots like an export's folder (§5.7 writing).
+#[test]
+fn removing_from_a_card_is_never_automated_and_an_import_destination_keeps_to_the_write_roots() {
+    let mut t = setup_with(1, |dir| Config { write_roots: vec![dir.join("allowed")], allow_external: true, ..Config::default() });
+    let (mounts, pictures) = (t.dir.path().join("mounts"), t.dir.path().join("allowed").join("Pictures"));
+    let roll = mounts.join("CARD").join("DCIM").join("100CANON");
+    // Two pictures of their own (the library's photo is another), so neither is a duplicate.
+    dalica_fs::create_dir_all(&roll).unwrap();
+    for seed in [11u64, 12] {
+        let jpeg = dalica_scenes::encode::jpeg(&dalica_scenes::Scene::new(seed, 64, 48), 80, None).unwrap();
+        write(roll.join(format!("IMG_{seed}.JPG")), &jpeg);
+    }
+    let dcim = mounts.join("CARD").join("DCIM");
+    // The import itself runs in the app, as the room would run it.
+    {
+        let s = t.d.app_mut().session_mut().unwrap();
+        s.set_import_device_roots(Some(std::env::join_paths([&mounts]).unwrap()), std::time::Duration::from_millis(20));
+        let start = std::time::Instant::now();
+        while s.execute("import.openSource", &json!({ "device": dcim })).is_err() {
+            assert!(start.elapsed().as_secs() < 120, "the card never showed");
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        while s.execute("import.list", &json!({ "limit": 0 })).unwrap()["state"] == "loading" {
+            assert!(start.elapsed().as_secs() < 120, "the listing never ended");
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        s.execute("import.run", &json!({ "destination": pictures, "folderName": "Card" })).unwrap();
+        assert!(s.wait_file_jobs(std::time::Duration::from_secs(120)));
+        assert_eq!(s.execute("import.status", &json!({})).unwrap()["imported"], 2);
+        let spec = *s.spec("import.removeFromSource").unwrap();
+        assert!((spec.enabled)(s, &json!({})).is_ok(), "the app itself may remove them");
+    }
+    let e = refused(&mut t, "engine.execute", json!({ "command": "import.removeFromSource", "params": { "confirm": true } }), "external_denied");
+    assert!(e.message.contains("never runs over automation"), "{}", e.message);
+    assert_eq!(std::fs::read_dir(&roll).unwrap().count(), 2, "nothing left the card");
+
+    let elsewhere = t.dir.path().join("elsewhere");
+    let params = json!({ "command": "import.run", "params": { "destination": elsewhere, "folderName": "Out" } });
+    assert_eq!(code(&mut t, "engine.execute", params), "path_denied", "outside every write root and watched folder");
+    assert!(!elsewhere.exists(), "nothing was made there");
+}

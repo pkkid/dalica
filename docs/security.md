@@ -570,7 +570,19 @@ embedded, never loaded by a referenced name. **Planned (M1, M14).**
   so this is the only permanent deletion Dalica performs. They
   happen only after every copied file has been verified by hash at its destination, only for files
   the import listed, after an explicit confirmation, and they are refused over automation.
-  **Planned (M11).**
+  **Built (M11.6: `dalica-fs` `remove::remove_copied`, which removes one source only while it
+  still has the identity it had when it was copied and its copy still has the identity the
+  verified copy returned, inside the folder listed and through no link, to the volume's trash
+  when it has one and deleted only when the trash says the volume has none; M11.8:
+  `import.removeFromSource` in `crates/engine/src/import_run.rs`, which offers only the files the
+  last import from a card or drive copied and verified, never a duplicate or an excluded file,
+  refuses without `"confirm": true`, disables Undo Import from its start (once a file is removed,
+  for good: "The originals were removed from the card."), and is refused by every automation
+  surface whatever it was granted, `confirm` and `--automation-allow-external` included:
+  `automation::NEVER_AUTOMATED`, asked through `automation::never_automated` by MCP's
+  `Policy::check_effect` and by the control channel's effect check (`crates/ui/src/control/engine.rs`
+  `external_allowed`), both answering `external_denied`. Over automation `import.run`'s
+  `destination` keeps to the write roots or the watched folders, as an export's folder does).**
 - Moving across volumes is copy + verify (hash) + delete-to-trash of the source, never delete
   before verify. **Built in `fs` (M9.2: `dalica-fs` `transfer` copies into a temporary file in the
   destination, `fsync`s it, keeps the source's modification time (and its permissions on Unix), compares it byte

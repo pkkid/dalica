@@ -371,6 +371,7 @@ impl Headless {
         match id {
             "export.run" => path("dir")?.map_or(Ok(()), |p| self.roots.check_output(&p, "dir", &watched, Output::Folder).map(|_| ())),
             "photo.saveTo" => path("path")?.map_or(Ok(()), |p| self.roots.check_output(&p, "path", &watched, Output::File).map(|_| ())),
+            "import.run" => path("destination")?.map_or(Ok(()), |p| self.roots.check_output(&p, "destination", &watched, Output::Folder).map(|_| ())),
             "folders.add" => path("path")?.map_or(Ok(()), |p| self.roots.check_read(&p, "path", &watched).map(|_| ())),
             "folders.set" => {
                 let changes = cmd.get("changes").and_then(Value::as_array).cloned().unwrap_or_default();
@@ -639,6 +640,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let export = |dir: &Path| json!({ "ids": [1, 2], "dir": dir, "folderName": "Out", "size": 100 });
         assert_eq!(code(run(&mut h, "export.run", export(&outside))), "path_denied");
+        // An import's destination keeps to the write roots like an export's folder, and removing
+        // imported files from a card is never run, whatever was confirmed.
+        assert_eq!(code(run(&mut h, "import.run", json!({ "destination": outside, "folderName": "Out" }))), "path_denied");
+        assert_eq!(code(run(&mut h, "import.removeFromSource", json!({ "confirm": true }))), "external_denied");
         assert_eq!(code(run(&mut h, "folders.add", json!({ "path": dir.path() }))), "path_denied", "not a read root");
         let pending =
             h.call("engine.execute", json!({ "command": "export.run", "params": export(dir.path()), "wait": false }), &mut NoProgress).unwrap();

@@ -767,6 +767,8 @@ ids are the same everywhere (`control-protocol.md` §5.4).
 | Hide / Unhide | none | `"hidden"` | yes |
 | Remove folder from Dalica | none | none | yes |
 | Locate on Disk | opens the file manager with the file selected | — | — |
+| Import from a card, drive or folder (M11.8) | each file copied through `dalica-fs` `import_copy` (temporary file, `fsync`, source's time kept, byte-for-byte check, never replacing: `-001`); the source never changes | the destination folder's sidecar gets the new photos' entries (the room's star and rotation) | yes: the copies still unchanged go to the trash; redo copies again; disabled once copied files were removed from the card |
+| Delete copied files from the card (M11.8) | each source the import copied and verified, re-checked unchanged, to the card's trash, else deleted permanently (the one permanent delete) | — | no |
 
 Merging folders (moving a folder onto one that exists) merges sidecars entry by entry; it
 never overwrites one sidecar with another.

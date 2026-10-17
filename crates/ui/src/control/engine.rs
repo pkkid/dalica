@@ -46,8 +46,13 @@ const CONFIRM: &[(&str, &str)] = &[(
 const READ_PATHS: &[(&str, &str)] = &[("folders.add", "path"), ("import.openSource", "path")];
 
 /// Commands that make new files at a path (§5.7 writing), the parameter, and what it names: the
-/// folder an export folder is made in, the file Save As writes.
-const WRITE_PATHS: &[(&str, &str, paths::Output)] = &[("export.run", "dir", paths::Output::Folder), ("photo.saveTo", "path", paths::Output::File)];
+/// folder an export folder is made in, the file Save As writes, the folder an import makes its
+/// folders in.
+const WRITE_PATHS: &[(&str, &str, paths::Output)] = &[
+    ("export.run", "dir", paths::Output::Folder),
+    ("photo.saveTo", "path", paths::Output::File),
+    ("import.run", "destination", paths::Output::Folder),
+];
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -95,8 +100,11 @@ fn known(host: &dyn super::Host, id: &str) -> Option<Known> {
     Some(Known { label: spec.label, effect: Some(spec.effect), spec: Some(spec) })
 }
 
-/// Commands that reach outside Dalica need `--automation-allow-external` (§5.6).
+/// Commands that reach outside Dalica need `--automation-allow-external` (§5.6), and a command
+/// automation never runs (`automation::NEVER_AUTOMATED`: removing imported files from a card) is
+/// refused whatever was granted (`security.md` §5.7).
 pub(super) fn external_allowed(effect: Option<Effect>, allow_external: bool, id: &str) -> Result<(), Error> {
+    dalica_engine::automation::never_automated(id)?;
     if effect == Some(Effect::External) && !allow_external {
         return Err(Error::new(
             Code::ExternalDenied,

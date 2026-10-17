@@ -173,6 +173,43 @@ status line; Cancel stops after the current file (already-copied files stay). Th
   "Imported 340 pictures into 2026-06-04". (Being imported is no change: the new photos are not
   in **Recently Updated**, §4.1, until something about them changes.)
 
+**The engine's import** (built in M11.8: `crates/engine/src/import_run.rs`, `cmd/import_run.rs`):
+
+- `import.run {ids?, destination, folderName, after?}` copies the candidates of the open listing
+  (the ids given, or every one) that are not excluded and, with Exclude duplicates on, not
+  duplicates, into `<destination>/<folder>`. `folderName` is a text (made fit for a folder name by
+  the one sanitizer, `security.md` §5.4), `{"dateTaken": true}` (one `YYYY-MM-DD` folder per
+  capture date, the file's date when it has none) or `{"today": true}` (the session clock's date,
+  in UTC as every date Dalica derives from a clock). A folder is made exclusively when it is new
+  and imported into when it exists. A destination inside the source is refused, and so is an
+  import while the source is still being listed or another import runs. An import with nothing
+  left to copy (a second import of the same card) ends at once and reports what it skipped.
+- It runs as an `import` job on one thread: each file is checked against the size the listing
+  read, copied through `dalica-fs` (a new temporary file, `fsync`, the source's modification time,
+  a byte-for-byte check, a name that never replaces a file: a taken name gets `-001`, `-002` …).
+  Cancel stops after the current file and keeps what was copied.
+- Each copy enters the library as it lands: its folder, the photo with the file's facts, the star
+  and rotation chosen in the room, its digest. The destination becomes a watched folder (Scan
+  Always) unless one covers it, and stays watched after an undo. The model holds every copy before
+  any rescan looks, so the watcher imports nothing of Dalica's own copies.
+- The files copied are one library undo step, "Import": undo sends each copy still unchanged to
+  the trash and takes its photo out of the library (a copy changed since stays, with its reason,
+  and stays on the undo stack); redo copies each file from the source again under the name it
+  got, while the source is unchanged, and puts back what undo took out. The folders an import made
+  stay on disk after an undo (empty).
+- `import.status` answers the progress line while it copies ("Copying 45 of 340 at 38 MB/s") and
+  then the result: the folders, how many were imported, skipped as duplicates or excluded, failed
+  with their reasons, the bytes and the speed. The job's end is the toast's event (a file-job event
+  of kind `import`, its folder the first one made). The last 8 sources, destinations and typed
+  folder names and the room's After copying are remembered in the settings.
+- `import.removeFromSource {confirm}` is "Delete copied files from the card": for the last import
+  from a card or a drive (never a folder), it removes the files that import copied and verified and
+  nothing else, each only while it is unchanged since its copy and the copy is still the verified
+  one (`security.md` §5.7). Without `"confirm": true` it is refused with the question; automation
+  never runs it. After copying "delete" removes nothing by itself: the room asks, then runs it.
+  From its start Undo Import waits, and once a file left the card Undo Import is disabled with "The
+  originals were removed from the card."
+
 ## 4. Albums
 
 ### 4.1 Kinds of albums (left tree, "Albums" group)

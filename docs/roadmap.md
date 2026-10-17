@@ -6256,7 +6256,7 @@ and are never loosened. No other step of M11 needs a maintainer decision mid-run
     room, Library returns with the light table's scroll and selection kept, × closes Import and the
     strip goes; the question while a (fake) import job runs; Import-context keys act only in the
     room; fingerprints of the strip at both window sizes.
-- ⬜ **M11.8 `engine`: importing: copy, verify, name, enter, undo and card removal**
+- ✅ **M11.8 `engine`: importing: copy, verify, name, enter, undo and card removal**
   - after: M11.6, M11.7
   - files: `crates/engine/src/cmd/import_run.rs`, `crates/engine/src/import_run.rs`, `crates/engine/src/automation.rs`, `crates/engine/tests/import_run.rs`, `crates/engine/tests/import_remove.rs`, `docs/organizing.md`, `docs/data-model.md`, `docs/security.md`
   - scope: `organizing.md` §3 items 4–6 and the decisions above: `import.run {ids?, destination,
