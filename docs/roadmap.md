@@ -6503,8 +6503,24 @@ and are never loosened. No other step of M11 needs a maintainer decision mid-run
     to:") uses it; the duplicates checkbox stores `import.detectDuplicates` if it was disabled;
     the fingerprint of the General tab at 1400 × 900 updated (images in the PR); `cargo xtask ci`
     green.
+- ⬜ **M11.29 `ui`: the slideshow's change frame stays within a 60 Hz frame**
+  - after: M11.21, M11.23
+  - files: `crates/ui/src/panels/slideshow/show.rs`, `crates/ui/src/panels/slideshow.rs`, `crates/ui/src/commands/slideshow.rs`, `crates/ui/tests/slideshow.rs`, `crates/ui/benches/slideshow.rs`
+  - scope: a fix task from M11.23's run. Its `slideshow` bench measured the advance frame at a
+    median of 16 ms and a p95 of about 28 ms on two cores, because the next photo's texture is
+    uploaded in the change's first frame; `viewing.md` §1 says a change never waits. Upload (or
+    prepare) the next photo's texture during the current photo's display time, so the change's
+    first frame does no large upload; memory stays bounded (at most the current and the next
+    textures); a show stepped by hand still works when the next texture is not ready (it falls
+    back to the thumbnail, as today). The bench file is M11.23's, hence the `after`; row
+    `VIEW-SLIDESHOW`.
+  - done when: `cargo xtask bench slideshow`: the advance frame's p95 is at most 16 ms on the same
+    two-core setup (the before and after numbers in the PR); `crates/ui/tests/slideshow.rs`
+    (headless, a virtual clock): the next photo's texture is uploaded before the change starts;
+    no new frame waits (the 30-change test with the 1.5 s planted delay still reports 0 waits);
+    `cargo xtask ci` green.
 - ⬜ **M11.24 `accept M11`**
-  - after: M11.14, M11.16, M11.17, M11.18, M11.20, M11.21, M11.22, M11.23, M11.27, M11.28
+  - after: M11.14, M11.16, M11.17, M11.18, M11.20, M11.21, M11.22, M11.23, M11.27, M11.28, M11.29
   - files: `tests/acceptance/m11.rs`, `tests/acceptance/m11_*.rs`, `tests/acceptance/m11.md`, `tests/acceptance/fingerprints/m11-*.json`
   - scope: every *Done when* of M11's four areas in the real `dalica --headless` over the control
     channel, through `dalica-cli mcp`, and with `dalica --view FILE --headless`: a simulated card (a
@@ -6608,7 +6624,8 @@ wave 4   M11.19 slideshow  ‖  M11.20 import room: destination + finish  ‖  M
 wave 5   M11.21 slideshow bar + Options  ‖  M11.23 M11 budgets
          (from the M10.R answers, any wave: M11.26 tests for the audit's untested details)
          (fix tasks: M11.27 A│A's right side takes the tools, after M11.16  ‖  M11.28 General's
-         import folder row, after M11.20)
+         import folder row, after M11.20  ‖  M11.29 the slideshow's change frame within 60 Hz,
+         after M11.21 and M11.23)
 wave 6   M11.24 accept M11 → M11.R          (M11.25 lead: M13 blocks, any time after M10.28)
 ```
 
