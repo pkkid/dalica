@@ -569,10 +569,13 @@ pub enum DialogKind {
     /// The photo viewer's Settings (⋯ ▸ Settings…, Tools ▸ Configure Photo Viewer…, `viewing.md`
     /// §3.3; M11.17).
     ViewerSettings,
+    /// "Stop importing?" [Stop Import] [Keep Importing], closing the Import room while it copies
+    /// (`room.close`, `ui-layout.md` §8; M11.13).
+    StopImport,
 }
 
 impl DialogKind {
-    pub const ALL: [DialogKind; 32] = [
+    pub const ALL: [DialogKind; 33] = [
         DialogKind::ClearTray,
         DialogKind::FolderManager,
         DialogKind::FirstRun,
@@ -605,6 +608,7 @@ impl DialogKind {
         DialogKind::UndoAllEdits,
         DialogKind::RemoveFromCard,
         DialogKind::ViewerSettings,
+        DialogKind::StopImport,
     ];
 
     /// The kind as the protocol writes it (`clearTray`), the `<kind>` of `dialog:<kind>`.
@@ -642,6 +646,7 @@ impl DialogKind {
             DialogKind::UndoAllEdits => "undoAllEdits",
             DialogKind::RemoveFromCard => "removeFromCard",
             DialogKind::ViewerSettings => "viewerSettings",
+            DialogKind::StopImport => "stopImport",
         }
     }
 

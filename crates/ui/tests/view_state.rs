@@ -800,19 +800,19 @@ fn ctrl_m_opens_the_import_tab_and_the_strip_appears_28_high() {
     for gone in ["region:toolbar", "region:tree", "region:lightTable", "region:tray"] {
         assert_eq!(rect_of(&t, gone), None, "{gone} is replaced by the room");
     }
-    let tab = t.d.widgets().into_iter().find(|w| w.id == "tab:room.import").unwrap();
+    let tab = t.d.widgets().into_iter().find(|w| w.id == "tab:room/import").unwrap();
     assert!(tab.active && tab.enabled);
-    assert!(rect_of(&t, "button:room.close.library").is_none(), "the Library tab has no ×");
+    assert!(rect_of(&t, "tab:room/library/close").is_none(), "the Library tab has no ×");
     assert!(t.d.app().panels().unwrap().unregistered_widgets().is_empty());
     // The Library tab: the library under the strip, the toolbar moved down by its height.
-    ok(&mut t, "ui.clickWidget", json!({ "id": "tab:room.library" }));
+    ok(&mut t, "ui.clickWidget", json!({ "id": "tab:room/library" }));
     assert_eq!(state(&mut t)["room"], "library");
     assert_eq!(rect_of(&t, "region:toolbar"), Some([0.0, 60.0, 1400.0, 40.0]));
     assert_eq!(rect_of(&t, "region:tabStrip"), Some([0.0, 32.0, 1400.0, 28.0]));
     // Ctrl+M again brings Import to the front; its × closes it and the strip goes.
     ok(&mut t, "ui.key", json!({ "combo": "Ctrl+M" }));
     assert_eq!(state(&mut t)["room"], "import");
-    ok(&mut t, "ui.clickWidget", json!({ "id": "button:room.close.import" }));
+    ok(&mut t, "ui.clickWidget", json!({ "id": "tab:room/import/close" }));
     let s = state(&mut t);
     assert_eq!((&s["room"], &s["rooms"]), (&json!("library"), &json!(["library"])));
     assert_eq!(rect_of(&t, "region:tabStrip"), None);

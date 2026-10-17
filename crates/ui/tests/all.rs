@@ -58,6 +58,7 @@ mod quick_tags;
 mod release_notes;
 mod rename_dialog;
 mod retouch_tool;
+mod rooms;
 mod rotate;
 mod save_as;
 mod save_ui;

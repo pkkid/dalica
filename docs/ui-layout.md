@@ -411,8 +411,19 @@ link listing every EXIF/XMP/IPTC field.
 Import and Collage each open as a **room**: a tab in a
 tab strip that appears between the menu bar and the content when at least one room is open:
 `[▦ Library] [📷 Import ×] [▦ Collage ×]`. Tabs are 190 × 28, icon + label, the active tab joined
-to the content below; Library has no ×. Closing a room with unsaved work asks first. The edit view
-is not a room: it replaces the Library tab's content.
+to the content below; Library has no ×. Closing a room with unsaved work asks first: closing Import
+while it copies asks "Stop importing?" [Stop Import] [Keep Importing], and Stop Import cancels the
+import (what it copied stays) and closes the room. The edit view is not a room: it replaces the
+Library tab's content.
+
+The strip is 28 high under the menu bar, its first tab 8 in from the left. A room in front
+replaces everything between the strip and the status line: the toolbar, the tree, the light table,
+the side pane and the bottom area (the menu bar and the status line stay). A click on a tab brings
+its room to the front, and the keys are the front room's (the Import room's X and Enter act only
+while it is in front). The Library tab brings back the library, or the edit view, exactly as it
+was left: the scroll position and the selection are kept while another room is in front,
+and the library's regions sit 28 lower while the strip shows. In a narrow window the tabs shrink
+and then overflow into a menu at the strip's end, the front tab always kept.
 
 ## 9. Search mode
 
