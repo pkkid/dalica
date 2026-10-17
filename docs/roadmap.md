@@ -6519,7 +6519,7 @@ and are never loosened. No other step of M11 needs a maintainer decision mid-run
     (headless, a virtual clock): the next photo's texture is uploaded before the change starts;
     no new frame waits (the 30-change test with the 1.5 s planted delay still reports 0 waits);
     `cargo xtask ci` green.
-- ⬜ **M11.24 `accept M11`**
+- ✅ **M11.24 `accept M11`**
   - after: M11.14, M11.16, M11.17, M11.18, M11.20, M11.21, M11.22, M11.23, M11.27, M11.28, M11.29
   - files: `tests/acceptance/m11.rs`, `tests/acceptance/m11_*.rs`, `tests/acceptance/m11.md`, `tests/acceptance/fingerprints/m11-*.json`
   - scope: every *Done when* of M11's four areas in the real `dalica --headless` over the control
