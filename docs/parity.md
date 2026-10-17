@@ -170,7 +170,7 @@ and DATA-FMT-JPEG-FAST (P2).
 
 | Id | Feature | Tier | Status | Evidence / notes |
 |---|---|---|---|---|
-| VIEW-SLIDESHOW | Slideshow with control bar, transitions, display time, captions | P1 | ⬜ | ref 06 §2; moved here by the P0 audit (M10.26): the section header's Play, the bottom bar's Slideshow and the edit view's Play and caption-bar slideshow toggle (LIB-LT-HEADER, LIB-ACTIONS, EDIT-VIEW); captions in the slideshow (ORG-CAPTION) |
+| VIEW-SLIDESHOW | Slideshow with control bar, transitions, display time, captions | P1 | ⬜ | ref 06 §2; moved here by the P0 audit (M10.26): the section header's Play, the bottom bar's Slideshow and the edit view's Play and caption-bar slideshow toggle (LIB-LT-HEADER, LIB-ACTIONS, EDIT-VIEW); captions in the slideshow (ORG-CAPTION); the show's sequencing (play, pause, the bar's timing, the end, Loop, stepping, zoom pausing), the seven transitions as geometry, the fit and the caption plate's place are pure code in `create` (M11.4: `crates/create/src/slideshow.rs`, `crates/create/src/slideshow/`, `crates/create/tests/slideshow.rs`); nothing user-visible until the engine and UI tasks |
 | VIEW-MUSIC | Slideshow music, loop | P2 | ⬜ | moved here by the P0 audit (M10.26): Folder Properties' Music for slideshows (ORG-FOLDERPROPS) |
 | VIEW-VIEWER | Standalone photo viewer | P1 | ⬜ | ref 06 §1; moved here by the P0 audit (M10.26): captions in the viewer (ORG-CAPTION) |
 | VIEW-VIEWER-ASSOC | Default-viewer registration | P2 | ⬜ | OS integration (last milestone) |
