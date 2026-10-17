@@ -43,7 +43,7 @@ const CONFIRM: &[(&str, &str)] = &[(
 )];
 
 /// Commands that read a path the user would pick (§5.7 reading), and the parameter.
-const READ_PATHS: &[(&str, &str)] = &[("folders.add", "path")];
+const READ_PATHS: &[(&str, &str)] = &[("folders.add", "path"), ("import.openSource", "path")];
 
 /// Commands that make new files at a path (§5.7 writing), the parameter, and what it names: the
 /// folder an export folder is made in, the file Save As writes.
