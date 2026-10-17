@@ -8,6 +8,7 @@ mod adjust_date;
 mod album_properties;
 mod albums_tree;
 mod band_autoscroll;
+mod batch_ui;
 mod bottom;
 mod captions;
 mod cells;

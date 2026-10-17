@@ -278,6 +278,7 @@ impl App {
             Err(e) => self.state.status = e.to_string(),
         }
         crate::commands::save_as::ran(self, id, params, &result);
+        crate::commands::batch::ran(self, id, &result);
         result
     }
 

@@ -6370,7 +6370,7 @@ and are never loosened. No other step of M11 needs a maintainer decision mid-run
     edit view on the photo; Space toggles the backdrop; the wheel zooms, and navigates once the
     setting changes; the controls hide after 3 s on a virtual clock; fingerprints of the viewer,
     its Settings dialog and the Options tab at both window sizes.
-- ⬜ **M11.18 `ui`: Batch Edit, Copy and Paste All Edits, and Undo All Edits in the window**
+- ✅ **M11.18 `ui`: Batch Edit, Copy and Paste All Edits, and Undo All Edits in the window**
   - after: M11.2, M11.9
   - files: `crates/ui/src/commands/batch.rs`, `crates/ui/src/dialogs/undo_all.rs`, `crates/ui/tests/batch_ui.rs`, `crates/ui/tests/fingerprints/dialog-undo-all-*.json`
   - scope: `editing.md` §9 and `menus-and-shortcuts.md` §1.2 and §1.5: Picture ▸ Batch Edit ▸ on

@@ -140,6 +140,9 @@ pub fn targets(app: &App, id: &str) -> Vec<dalica_core::PhotoId> {
 /// ([`targets`]); Remove from Album passes the album of the selected section too, and Delete from
 /// Disk its photos whether or not the engine has registered it yet (the question counts them).
 pub fn params_for(app: &App, id: &str) -> Value {
+    if let Some(p) = crate::commands::batch::params_for(app, id) {
+        return p;
+    }
     let takes_ids = app.session().and_then(|s| s.spec(id)).is_some_and(|spec| spec.params.contains("\"ids\""));
     match id {
         "album.remove" => {
