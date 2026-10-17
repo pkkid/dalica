@@ -147,13 +147,18 @@ Photo Viewer) comes with that milestone (`product.md` → Scope).
 | Delete | move to trash (confirmation) |
 | Esc, click on the overlay outside the photo | close |
 
+Stepping stops at the first and last photo of the folder and shows the new photo fitted. The
+changes act on the photo shown; Open in Dalica opens the photo shown, whichever it is (M11.17).
+
 ### 3.3 Settings (⋯ → Settings…, Options → Photo Viewer)
 
 Tabs: **File Types** — radio "Use Dalica as the default viewer for these file types:" with a
 checkbox per type showing the current handler ("JPEG (Image Viewer)"), [Current] [Select All]
 [Select None]; radio "Don't use Dalica as a viewer". **Interface** — "Mouse wheel zooms (hold Ctrl
 to navigate)" / "Mouse wheel moves through photos (hold Ctrl to zoom)", "Hide controls
-automatically", "Translucent background". [OK] [Cancel].
+automatically", "Translucent background". [OK] [Cancel]. The dialog opens on Interface (File
+Types needs the OS integration and is drawn disabled until then); OK sets what changed, and the
+viewer follows the options at once (M11.17).
 
 ### 3.4 The viewer's session and `dalica --view` (decided, M11.12)
 
