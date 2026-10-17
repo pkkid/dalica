@@ -6140,7 +6140,7 @@ and are never loosened. No other step of M11 needs a maintainer decision mid-run
     every photo with its time, digest and thumbnail, grouped at 2-hour gaps; a FIFO, a link loop, a
     tree past the depth limit and a file whose header lies about its size are bounded and reported;
     cancel stops between files; a non-UTF-8 name is listed and never opened by its lossy form.
-- ⬜ **M11.6 `fs`: import copies that keep their time, and removing a card's copied files**
+- ✅ **M11.6 `fs`: import copies that keep their time, and removing a card's copied files**
   - after: M9.2, M10.R
   - files: `crates/fs/src/transfer.rs`, `crates/fs/src/remove.rs`, `crates/fs/src/faults.rs`, `crates/fs/tests/import_copy.rs`, `crates/fs/tests/remove.rs`
   - scope: `organizing.md` §3 and `security.md` §5.7: an import copy through M9.2's copy phase

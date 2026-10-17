@@ -167,6 +167,18 @@ pub mod points {
     /// Giving the verified copy of the tree its name, never replacing a folder.
     pub const TREE_COMMIT: &str = "transfer.tree_commit";
 
+    /// Opening the folder of a source file an import copied, to remove it (`remove::remove_copied`).
+    pub const REMOVE_OPEN_DIR: &str = "remove.open_dir";
+    /// Re-checking, right before a copied source file goes, that it is unchanged since its copy
+    /// and that its verified copy is still in place.
+    pub const REMOVE_CHECK: &str = "remove.check";
+    /// Deleting the source file permanently (its volume has no trash).
+    pub const REMOVE_DELETE: &str = "remove.delete";
+    /// `fsync` of the source's folder after the delete.
+    pub const REMOVE_FSYNC_DIR: &str = "remove.fsync_dir";
+    /// Checking that the source's name is gone after the delete.
+    pub const REMOVE_VERIFY: &str = "remove.verify";
+
     /// Armed as an error, the volume answers that it has no trash (`trash::send` returns
     /// `Sent::NoTrash` and the item stays); armed as a crash, the operation stops there.
     pub const TRASH_NO_TRASH: &str = "trash.no_trash";
@@ -223,6 +235,17 @@ pub const COPY_POINTS: [&str; 9] = [
 
 /// The points a cross-volume move reaches after [`COPY_POINTS`]: the second phase, in order.
 pub const FINISH_POINTS: [&str; 2] = [points::FINISH_CHECK, points::TRASH_SEND];
+
+/// The points of importing a file (`transfer::import_copy`), in order: the copy phase's.
+pub const IMPORT_POINTS: [&str; 9] = COPY_POINTS;
+
+/// The points of removing a copied source file whose volume has a trash, in order.
+pub const REMOVE_POINTS: [&str; 3] = [points::REMOVE_OPEN_DIR, points::REMOVE_CHECK, points::TRASH_SEND];
+
+/// The points of removing a copied source file whose volume has no trash (after
+/// [`points::TRASH_NO_TRASH`] armed as an error), in order: the permanent delete.
+pub const REMOVE_DELETE_POINTS: [&str; 5] =
+    [points::REMOVE_OPEN_DIR, points::REMOVE_CHECK, points::REMOVE_DELETE, points::REMOVE_FSYNC_DIR, points::REMOVE_VERIFY];
 
 /// The points of making a folder whose name must be free, in order.
 pub const FOLDER_NEW_POINTS: [&str; 2] = [points::FOLDER_MKDIR, points::FOLDER_MKDIR_FSYNC];

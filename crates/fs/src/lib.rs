@@ -19,6 +19,7 @@ mod identity;
 pub mod lock;
 pub mod originals;
 pub mod pack;
+pub mod remove;
 pub mod stale;
 pub mod times;
 pub mod transfer;
