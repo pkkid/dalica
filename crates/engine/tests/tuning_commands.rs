@@ -4,8 +4,9 @@
 //! step; a session updates the photo's Tuning in place past rotations and flips and appends after
 //! a retouch or an unknown entry (M8.28); the Basic Fixes Fill Light and the Tuning tab edit the
 //! same value; the wands and the
-//! colour picker answer from a worker without the owner thread touching `fs`; every command's
-//! contract and graceful failures.
+//! colour picker answer from a worker without the owner thread touching `fs`; a session on A│A's
+//! variant (`variant: true`, M11.27) is one step of the variant's history and leaves the photo's
+//! sidecar byte-identical; every command's contract and graceful failures.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -239,6 +240,56 @@ fn an_unknown_entry_after_the_tuning_survives_and_makes_the_session_append() {
     assert_eq!(sidecar_entry(&mut s, &folder, "IMG_0001.jpg")["edits"], json!(edits(&s, id)));
 }
 
+/// The folder's sidecar bytes after every pending write landed (empty when there is none).
+fn sidecar_bytes(s: &mut Session, folder: &Path) -> Vec<u8> {
+    s.flush().unwrap();
+    std::fs::read(folder.join(".dalica.json")).unwrap_or_default()
+}
+
+#[test]
+fn a_session_on_the_variant_is_one_variant_step_and_leaves_the_sidecar_byte_identical() {
+    let (_lib, _d, folder, mut s, ids) = setup(1, 300, 200);
+    let id = ids[0];
+    tune(&mut s, id, json!("left"), json!({ "fill": 0.2 }));
+    let before = sidecar_bytes(&mut s, &folder);
+    assert!(!before.is_empty());
+    s.execute("edit.variant.open", &json!({ "id": id })).unwrap();
+
+    // The session edits the variant's copy of the photo's Tuning in place, as one step.
+    for i in 1..=10 {
+        let v = tune(&mut s, id, json!("right"), json!({ "temp": f64::from(i as f32 / 20.0), "variant": true }));
+        assert_eq!((v["changed"].clone(), v["variant"].clone()), (json!(true), json!(true)), "change {i}");
+        assert_eq!(v["tuning"]["fill"], json!(0.2), "the variant started from the photo's Tuning");
+    }
+    let state = |s: &mut Session, variant: bool| s.execute("photo.history.state", &json!({ "id": id, "variant": variant })).unwrap();
+    assert_eq!(state(&mut s, true)["edits"], json!(["tuning(0.2,0,0,0.5,none)"]));
+    assert_eq!(state(&mut s, true)["undoLabel"], json!("Undo Tuning"));
+    assert_eq!(edits(&s, id), list(&["tuning(0.2,0,0,0,none)"]), "the photo's own recipe is untouched");
+    assert_eq!(sidecar_bytes(&mut s, &folder), before, "the sidecar is byte-identical");
+
+    // The wands read the variant's picture: its own Tuning entry left out, the variant's steps
+    // before it kept.
+    s.execute("photo.history.apply", &json!({ "id": id, "op": "sepia()", "variant": true })).unwrap();
+    let photo = answer(&mut s, "photo.tuning.pick", json!({ "id": id, "x": 0.25, "y": 0.3 }));
+    let variant = answer(&mut s, "photo.tuning.pick", json!({ "id": id, "x": 0.25, "y": 0.3, "variant": true }));
+    assert_ne!(photo["neutral"], variant["neutral"], "the variant's sepia changes the colour picked");
+    s.execute("photo.history.undo", &json!({ "id": id, "variant": true })).unwrap();
+
+    // One undo of the variant removes the whole session; the photo's history is its own.
+    s.execute("photo.history.undo", &json!({ "id": id, "variant": true })).unwrap();
+    assert_eq!(state(&mut s, true)["edits"], json!(["tuning(0.2,0,0,0,none)"]));
+    assert_eq!(labels(&mut s, id), ("Undo Tuning".into(), "Redo".into()));
+    s.execute("photo.history.redo", &json!({ "id": id, "variant": true })).unwrap();
+    assert_eq!(sidecar_bytes(&mut s, &folder), before);
+
+    // Keeping the right side writes the variant's recipe as one step of the photo's history.
+    s.execute("edit.variant.close", &json!({ "keep": "right" })).unwrap();
+    assert_eq!(edits(&s, id), list(&["tuning(0.2,0,0,0.5,none)"]));
+    assert_eq!(sidecar_entry(&mut s, &folder, "IMG_0001.jpg")["edits"], json!(["tuning(0.2,0,0,0.5,none)"]));
+    s.execute("photo.history.undo", &json!({ "id": id })).unwrap();
+    assert_eq!(edits(&s, id), list(&["tuning(0.2,0,0,0,none)"]));
+}
+
 /// Starts `command` and waits for its job's result.
 fn answer(s: &mut Session, command: &str, p: Value) -> Value {
     let v = s.execute(command, &p).unwrap();
@@ -384,6 +435,13 @@ fn graceful_failures_change_nothing() {
         ("photo.tuning.pick", json!({ "id": id, "x": 1.5, "y": 0.5 }), "bad_params"),
         ("photo.tuning.pick", json!({ "id": id, "x": 0.5, "y": -0.1 }), "bad_params"),
         ("photo.tuning.pick", json!({ "id": id, "x": "0.5", "y": 0.5 }), "bad_params"),
+        // `variant: true` with no variant open, and a variant flag that is not a bool.
+        ("photo.history.tuning", json!({ "id": id, "session": "s", "fill": 0.5, "variant": true }), "disabled"),
+        ("photo.history.tuning", json!({ "id": id, "session": "s", "fill": 0.5, "variant": "yes" }), "bad_params"),
+        ("photo.history.tuning", json!({ "id": 999, "session": "s", "fill": 0.5, "variant": true }), "not_found"),
+        ("photo.tuning.auto", json!({ "id": id, "what": "color", "variant": true }), "disabled"),
+        ("photo.tuning.pick", json!({ "id": id, "x": 0.5, "y": 0.5, "variant": true }), "disabled"),
+        ("photo.tuning.pick", json!({ "id": id, "x": 0.5, "y": 0.5, "variant": 1 }), "bad_params"),
     ];
     for (cmd, p, code) in bad {
         let r = s.execute(cmd, &p);

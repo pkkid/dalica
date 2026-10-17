@@ -16,6 +16,7 @@ mod clipboard;
 mod color_management;
 mod common;
 mod compare;
+mod compare_tools;
 mod control_batch;
 mod control_inspect;
 mod control_wait;

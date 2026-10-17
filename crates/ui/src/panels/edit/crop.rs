@@ -24,6 +24,12 @@
 //! effect and the last ratio used; Apply runs `photo.crop.apply` (one "Crop" step) with the draft's
 //! ratio, which the engine remembers as the last one.
 //!
+//! **A│A's right side** (`editing.md` §4): the tool works on the variant's recipe
+//! (`tools::recipe`): the rectangle in effect, the whole photo shown and the Preview come from it,
+//! and Apply appends the `crop(…)` `photo.crop.apply` would ([`variant_op`]) as one step of the
+//! variant's history (`tools::variant_step`), remembering the ratio through `options.set`; the
+//! photo's own recipe is not touched.
+//!
 //! **Scripts** drive the same draft through `edit.tool.action {name, params}`: `ratio {ratio,
 //! name?}`, `draw {from, to}` and `drag {handle, from, to}` (points `[x, y]` normalised to the
 //! photo as shown), `rotate`, `preview {on?}`, `suggestion {index}` (0 … 2), `addRatio` and
@@ -55,7 +61,7 @@ use serde_json::{Value, json};
 use self::geom::Shown;
 use super::canvas;
 use crate::app::App;
-use crate::commands::tools::Tool;
+use crate::commands::tools::{self, Tool};
 use crate::dialogs::{self, custom_ratio};
 use crate::state::{CropDraft, EditState, ToolKind, is_ratio};
 
@@ -204,9 +210,9 @@ pub fn previewing() -> bool {
     with(|x| x.preview || x.holding)
 }
 
-/// The photo's recipe.
+/// The recipe the tool works on: the photo's, or its variant's on A│A's right side.
 fn edits(app: &App, id: PhotoId) -> Vec<String> {
-    app.session().map(|s| s.library().info(id).edits.clone()).unwrap_or_default()
+    tools::recipe(app, id)
 }
 
 /// `edits` without its crops: what the tool shows.
@@ -224,6 +230,25 @@ pub fn crop_in(edits: &[String]) -> Option<[f32; 4]> {
     let r = geom::unit(c.rect);
     let whole = r.x0 <= 0.0 && r.y0 <= 0.0 && r.x1 >= 1.0 && r.y1 >= 1.0;
     (!whole).then(|| Shown::new(1.0, 1.0, dalica_edit::Dihedral::IDENTITY).to_stored(r))
+}
+
+/// The `crop(…)` step Apply takes on A│A's variant, as `photo.crop.apply` takes it on the photo:
+/// the rectangle's corners clamped into the picture and kept to a millionth; `None` when it is the
+/// crop in effect in `edits` already (the whole photo when there is none).
+pub fn variant_op(edits: &[String], rect: [f32; 4]) -> Result<Option<String>, CmdError> {
+    let r = |v: f64| (v.clamp(0.0, 1.0) * 1e6).round() / 1e6 + 0.0;
+    let [x, y, w, h] = rect.map(f64::from);
+    let crop = dalica_edit::ops::crop::Crop::new(NRect::new(r(x), r(y), r(x + w), r(y + h)))
+        .ok_or_else(|| CmdError::BadParams("rect: too small to keep anything".into()))?;
+    let current = edits
+        .iter()
+        .rev()
+        .find_map(|t| match Op::parse(t).typed() {
+            Some(Ok(Typed::Crop(c))) => Some(c),
+            _ => None,
+        })
+        .unwrap_or_default();
+    Ok((current != crop).then(|| format!("crop({crop})")))
 }
 
 /// The `crop(…)` text of a draft rectangle.
@@ -368,6 +393,17 @@ fn remove_ratio(app: &mut App) -> Result<Value, CmdError> {
     choose(app, "manual", None)
 }
 
+/// Remembers `ratio` as the last one used (what `photo.crop.apply` does on the photo), when it is
+/// not already; a refusal is only a status line, as the step is taken.
+fn remember_ratio(app: &mut App, ratio: &str) {
+    let last = app.session().and_then(|s| s.settings().edit().last_crop_ratio);
+    if last.as_deref() != Some(ratio)
+        && let Err(e) = app.run("options.set", &json!({ "values": { "edit.lastCropRatio": ratio } }))
+    {
+        app.state_mut().status = e.to_string();
+    }
+}
+
 /// Drops the candidate handed to the preview (the photo's own recipe shows again) and what the
 /// tool kept.
 fn release(app: &mut App) {
@@ -460,7 +496,14 @@ impl Tool for Crop {
     fn apply(&self, app: &mut App) -> Result<Value, CmdError> {
         let (id, d) = open_draft(app)?;
         let rect = d.rect.unwrap_or([0.0, 0.0, 1.0, 1.0]);
-        let result = app.run("photo.crop.apply", &json!({ "id": id, "rect": rect, "ratio": d.ratio }))?;
+        let result = if tools::on_variant(app, id) {
+            let op = variant_op(&edits(app, id), rect)?;
+            let out = tools::variant_step(app, id, op)?;
+            remember_ratio(app, &d.ratio);
+            out
+        } else {
+            app.run("photo.crop.apply", &json!({ "id": id, "rect": rect, "ratio": d.ratio }))?
+        };
         release(app);
         Ok(result)
     }

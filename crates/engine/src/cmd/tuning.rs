@@ -14,13 +14,17 @@
 //!   earlier Tuning is not applied twice. All the changes of one session (the same `session` key)
 //!   are one "Tuning" step of the photo's history (the coalesce key of `architecture.md` §3), so a
 //!   drag of sixty changes is undone at once. The Basic Fixes Fill Light slider is the same
-//!   command with only `fill` (`editing.md` §6.5): both edit the same value.
+//!   command with only `fill` (`editing.md` §6.5): both edit the same value. With
+//!   `"variant": true` the session edits A│A's variant of the photo instead (`variant.rs`, as
+//!   `photo.history.apply` does): the same rules over the variant's recipe, its steps in the
+//!   variant's own history, nothing in the photo's recipe or sidecar until the right side is kept.
 //! - `photo.tuning.auto {id, what: lighting | color}` and `photo.tuning.pick {id, x, y}` start
 //!   `analysis` jobs: a worker renders the picture the session's `tuning` entry receives (the
 //!   photo's recipe without the entry the session edits in place, cropped, straightened and turned
 //!   as the edit view shows it) and answers `edit::analysis`'s values (`auto_lighting`, `auto_neutral`,
-//!   `color_at`), which the UI then applies as a session change. The owner thread only starts the
-//!   worker and, in [`Session::poll`], finishes the job with what came back.
+//!   `color_at`), which the UI then applies as a session change; with `"variant": true` the picture
+//!   comes from A│A's variant's recipe. The owner thread only starts the worker and, in
+//!   [`Session::poll`], finishes the job with what came back.
 //!
 //! Neutral colours are `"#rrggbb"` (as the recipe writes them); the answers carry the same colour
 //! as `rgb: [r, g, b]` (each 0…1) too, as the edit view's Tuning draft holds it.
@@ -38,9 +42,9 @@ use dalica_thumbs::ladder::{self, Edits, Render};
 use serde::{Deserialize, Deserializer};
 use serde_json::{Value, json};
 
-use crate::cmd::history::{history_of, state_json};
+use crate::cmd::history::{history_of, state_json, variant_json};
 use crate::error::CmdError;
-use crate::history::Change;
+use crate::history::{Change, Side};
 use crate::jobs::{JobId, JobKind, Outcome};
 use crate::registry::{CommandSpec, Effect, History, always, params};
 use crate::session::Session;
@@ -62,7 +66,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Tuning",
             menu: "",
             keys: &[],
-            params: r##"{"id":PhotoId, "session":string (1…64 characters) | integer (a new key for each Tuning tab session or Fill Light drag), "fill"?:0…1, "highlights"?:0…0.5, "shadows"?:0…0.5, "temp"?:−1…1, "neutral"?:"#rrggbb" | [r,g,b] (each 0…1) | "none" | null}: one change of a Tuning session: the values given replace those of the photo's last tuning (or fill_light) entry, in place, when only rotations and flips follow it; else a new tuning entry (from the defaults) is appended; a session's changes are one "Tuning" step; values equal to the current ones take no step; answers the history as photo.history.state does, with "changed" and "tuning": {fill, highlights, shadows, temp, neutral, rgb}"##,
+            params: r##"{"id":PhotoId, "session":string (1…64 characters) | integer (a new key for each Tuning tab session or Fill Light drag), "fill"?:0…1, "highlights"?:0…0.5, "shadows"?:0…0.5, "temp"?:−1…1, "neutral"?:"#rrggbb" | [r,g,b] (each 0…1) | "none" | null, "variant"?:bool (false)}: one change of a Tuning session: the values given replace those of the photo's last tuning (or fill_light) entry, in place, when only rotations and flips follow it; else a new tuning entry (from the defaults) is appended; a session's changes are one "Tuning" step; values equal to the current ones take no step; with variant, a change of the photo's open A│A variant instead (edit.variant.open), which reaches no sidecar; answers the history as photo.history.state does, with "changed" and "tuning": {fill, highlights, shadows, temp, neutral, rgb}"##,
             effect: Effect::Library,
             history: History::Photo,
             enabled: always,
@@ -73,7 +77,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Auto Tuning",
             menu: "",
             keys: &[],
-            params: r##"{"id":PhotoId, "what":"lighting"|"color"}: starts an analysis job (answers {job, pending:true}) on the picture the photo's Tuning entry receives; its result is {id, what:"lighting", fill, highlights, shadows} or {id, what:"color", neutral:"#rrggbb"|null, rgb:[r,g,b]|null}, to apply as a session change. A new ask for the same photo and wand cancels the one before"##,
+            params: r##"{"id":PhotoId, "what":"lighting"|"color", "variant"?:bool (false)}: starts an analysis job (answers {job, pending:true}) on the picture the photo's Tuning entry receives (with variant, its open A│A variant's); its result is {id, what:"lighting", fill, highlights, shadows} or {id, what:"color", neutral:"#rrggbb"|null, rgb:[r,g,b]|null}, to apply as a session change. A new ask for the same photo and wand cancels the one before"##,
             effect: Effect::Query,
             history: History::None,
             enabled: always,
@@ -84,7 +88,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Neutral Color Picker",
             menu: "",
             keys: &[],
-            params: r##"{"id":PhotoId, "x":0…1, "y":0…1 (normalised to the photo as the edit view shows it: cropped, straightened, turned)}: starts an analysis job (answers {job, pending:true}); its result is {id, x, y, neutral:"#rrggbb"|null, rgb:[r,g,b]|null}, the mean colour around the point before the photo's Tuning, to apply as a session change. A new pick on the same photo cancels the one before"##,
+            params: r##"{"id":PhotoId, "x":0…1, "y":0…1 (normalised to the photo as the edit view shows it: cropped, straightened, turned), "variant"?:bool (false)}: starts an analysis job (answers {job, pending:true}); its result is {id, x, y, neutral:"#rrggbb"|null, rgb:[r,g,b]|null}, the mean colour around the point before the photo's Tuning (with variant, its open A│A variant's), to apply as a session change. A new pick on the same photo cancels the one before"##,
             effect: Effect::Query,
             history: History::None,
             enabled: always,
@@ -128,6 +132,8 @@ struct TuningChange {
     temp: Option<f64>,
     #[serde(default, deserialize_with = "present")]
     neutral: Option<Neutral>,
+    #[serde(default)]
+    variant: bool,
 }
 
 fn round(v: f64) -> f64 {
@@ -234,8 +240,22 @@ pub fn with_tuning(edits: &[String], t: &Tuning) -> Vec<String> {
     out
 }
 
+/// The side a `variant` flag names.
+fn side_of(variant: bool) -> Side {
+    if variant { Side::Variant } else { Side::Photo }
+}
+
+/// The recipe `side` of photo `id` holds: the photo's own (`NotFound` for an unknown photo), or
+/// its open A│A variant's (`disabled` when none is open).
+fn recipe_on(s: &Session, id: PhotoId, side: Side) -> Result<Vec<String>, CmdError> {
+    match side {
+        Side::Photo => Ok(history_of(s, id)?.edits),
+        Side::Variant => Ok(s.history_on(id, side)?.edits),
+    }
+}
+
 fn tuning_change(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
-    let TuningChange { id, session, fill, highlights, shadows, temp, neutral } = params(p)?;
+    let TuningChange { id, session, fill, highlights, shadows, temp, neutral, variant } = params(p)?;
     let key = match session {
         SessionKey::Number(n) => n.to_string(),
         SessionKey::Text(t) if !t.is_empty() && t.chars().count() <= MAX_SESSION => t,
@@ -246,9 +266,8 @@ fn tuning_change(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
     let shadows = slider(shadows, "shadows", tone::SHADOWS)?;
     let temp = slider(temp, "temp", tone::TEMP)?;
     let neutral = neutral.map(neutral_of).transpose()?;
-    history_of(s, id)?;
-
-    let target = session_entry(&s.library().info(id).edits);
+    let side = side_of(variant);
+    let target = session_entry(&recipe_on(s, id, side)?);
     let before = target.map(|(_, t)| t).unwrap_or_default();
     let mut after = before;
     after.fill = fill.unwrap_or(after.fill);
@@ -267,10 +286,13 @@ fn tuning_change(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
             Some((i, _)) => Change::ReplaceAt(i, op),
             None => Change::Append(op),
         };
-        s.photo_step(id, change, Some(&format!("tuning:{key}")))?.is_some()
+        s.step_on(id, side, change, Some(&format!("tuning:{key}")))?.is_some()
     };
-    let shown = shown_tuning(&s.library().info(id).edits).unwrap_or_default();
-    let mut out = state_json(id, &history_of(s, id)?);
+    let shown = shown_tuning(&recipe_on(s, id, side)?).unwrap_or_default();
+    let mut out = match side {
+        Side::Photo => state_json(id, &history_of(s, id)?),
+        Side::Variant => variant_json(id, &s.history_on(id, side)?),
+    };
     if let Some(o) = out.as_object_mut() {
         o.insert("changed".into(), json!(changed));
         o.insert("tuning".into(), tuning_json(&shown));
@@ -340,6 +362,8 @@ enum What {
 struct Auto {
     id: PhotoId,
     what: What,
+    #[serde(default)]
+    variant: bool,
 }
 
 #[derive(Deserialize)]
@@ -348,6 +372,8 @@ struct Pick {
     id: PhotoId,
     x: f64,
     y: f64,
+    #[serde(default)]
+    variant: bool,
 }
 
 /// What a worker needs: everything read from the library on the owner thread.
@@ -362,33 +388,34 @@ struct Request {
 }
 
 fn auto(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
-    let Auto { id, what } = params(p)?;
+    let Auto { id, what, variant } = params(p)?;
     let task = match what {
         What::Lighting => Task::Lighting,
         What::Color => Task::Color,
     };
-    start(s, id, task)
+    start(s, id, side_of(variant), task)
 }
 
 fn pick(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
-    let Pick { id, x, y } = params(p)?;
+    let Pick { id, x, y, variant } = params(p)?;
     let inside = |v: f64| v.is_finite() && (0.0..=1.0).contains(&v);
     if !(inside(x) && inside(y)) {
         return Err(CmdError::BadParams("x and y: numbers from 0 to 1 (the photo as shown)".into()));
     }
-    start(s, id, Task::Pick(Point { x, y }))
+    start(s, id, side_of(variant), Task::Pick(Point { x, y }))
 }
 
-/// Starts the worker of `task` on photo `id` as an `analysis` job.
-fn start(s: &mut Session, id: PhotoId, task: Task) -> Result<Value, CmdError> {
+/// Starts the worker of `task` on `side` of photo `id` as an `analysis` job.
+fn start(s: &mut Session, id: PhotoId, side: Side, task: Task) -> Result<Value, CmdError> {
     let photo = s.library().photo(id).ok_or_else(|| CmdError::NotFound(format!("no photo {id}")))?;
     let folder = s.library().folder(photo.folder).ok_or_else(|| CmdError::NotFound(format!("no folder for photo {id}")))?;
+    let edits = recipe_on(s, id, side)?;
     let request = Request {
         id,
         path: folder.path.join(&photo.name),
         file_size: photo.size,
         mtime_ms: photo.mtime.as_millis(),
-        edits: s.library().info(id).edits.clone(),
+        edits,
         render: s.thumbs.render(),
         task,
     };

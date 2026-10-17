@@ -16,6 +16,9 @@
 //!   click jumps, a double-click goes back to 0°; ←/→ (and ↓/↑) nudge [`NUDGE`]°; Esc cancels;
 //!   Apply (`button:panel.apply`) is one "Straighten" step of the photo's history through
 //!   `photo.straighten.apply`; Cancel (`button:panel.cancel`) records nothing.
+//! - **A│A's right side** (`editing.md` §4): the tool works on the variant's recipe
+//!   (`tools::recipe`), and Apply appends the same `straighten(…)` the candidate holds as one step
+//!   of the variant's history (`tools::variant_step`); the photo's own recipe is not touched.
 //! - **Actions** (`edit.tool.action`): `set {angle}` sets the draft, `nudge {steps}` moves it by
 //!   that many nudges, as the slider and the arrows do.
 
@@ -34,7 +37,7 @@ use serde_json::{Value, json};
 use super::canvas;
 use crate::app::App;
 use crate::commands::edit_view;
-use crate::commands::tools::Tool;
+use crate::commands::tools::{self, Tool};
 use crate::state::{EditState, STRAIGHTEN_MAX, StraightenDraft, ToolKind};
 
 /// The slider's automation id (`control-protocol.md` §7).
@@ -84,7 +87,7 @@ impl Tool for Straighten {
     }
 
     fn open(&self, app: &App, edit: &mut EditState) -> Result<(), CmdError> {
-        let angle = edit.photo.and_then(|p| app.session().map(|s| current(&s.library().info(p).edits))).unwrap_or(0.0);
+        let angle = edit.photo.map_or(0.0, |p| current(&tools::recipe(app, p)));
         edit.straighten = Some(StraightenDraft { angle });
         Ok(())
     }
@@ -92,9 +95,15 @@ impl Tool for Straighten {
     fn apply(&self, app: &mut App) -> Result<Value, CmdError> {
         let photo = edit_view::open_photo(app).ok_or_else(|| CmdError::Disabled("Open a photo in the edit view first.".into()))?;
         let angle = draft_angle(app);
-        let edits = app.session().map(|s| s.library().info(photo).edits.clone()).unwrap_or_default();
-        let degrees = stored(angle, mirrored(&edits));
-        let result = app.run("photo.straighten.apply", &json!({ "id": photo, "degrees": degrees }))?;
+        let edits = tools::recipe(app, photo);
+        let result = if tools::on_variant(app, photo) {
+            // The candidate's `straighten(…)`, rounded as the engine rounds it; none: the same angle.
+            let op = candidate(&edits, angle).and_then(|mut r| r.pop());
+            tools::variant_step(app, photo, op)?
+        } else {
+            let degrees = stored(angle, mirrored(&edits));
+            app.run("photo.straighten.apply", &json!({ "id": photo, "degrees": degrees }))?
+        };
         clear_candidate(app);
         Ok(result)
     }
@@ -226,12 +235,13 @@ fn set_angle(app: &mut App, angle: f32) {
 fn sync_candidate(app: &mut App) {
     let Some(photo) = edit_view::open_photo(app) else { return };
     let Some(draft) = app.state().edit.straighten else { return };
+    let edits = tools::recipe(app, photo);
     let Some(session) = app.session_mut() else { return };
     if session.preview_photo() != Some(photo) {
         // The canvas opens the photo's preview; the next frame hands the candidate.
         return;
     }
-    let want = candidate(&session.library().info(photo).edits, draft.angle);
+    let want = candidate(&edits, draft.angle);
     let key = Some((photo, want));
     if SENT.with(|s| *s.borrow() == key) {
         return;

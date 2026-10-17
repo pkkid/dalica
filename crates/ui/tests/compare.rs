@@ -112,10 +112,6 @@ fn auto_fix_on_the_right_of_a_a_stays_off_the_photo_until_the_right_is_kept() {
     let v = sidecar(&mut d, &folder);
     assert!(v["photos"]["IMG_0001.jpg"]["edits"].as_array().is_none_or(Vec::is_empty), "nothing in the sidecar: {v}");
     assert_eq!(d.app().session().unwrap().preview_shows(0), Some(PaneShows::Variant), "the focused right side shows the variant");
-    // The tool panels do not act on a variant yet.
-    click(&mut d, "label:edit.toolsLater");
-    assert_eq!(d.state().edit.tool, None);
-    assert!(d.app_mut().run("edit.tool.open", &json!({ "tool": "crop" })).is_err());
     check_sizes(&mut d, "region:canvas", "edit-compare-same");
 
     // Leaving with sides that differ asks; Cancel stays in A│A.

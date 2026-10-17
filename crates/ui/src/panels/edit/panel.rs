@@ -14,11 +14,9 @@
 //! end: pressed and held, it shows the focused photo unedited (`edit.showOriginal {on: true}`), and
 //! let go, as edited again (`{on: false}`).
 //!
-//! **A│A's right side** (the variant, `commands::compare::on_variant`): the tool panels do not act
-//! on a variant yet, so Crop, Straighten, Retouch and the Fill Light row are covered with a
-//! `chrome` wash that takes their clicks and says why ([`TOOLS_LATER`]), and the Tuning tab's
-//! content is drawn disabled with the reason above it. Auto Fix, Auto Contrast, Auto Color, Undo
-//! and Redo act on the variant.
+//! **A│A's right side** (the variant, `commands::compare::on_variant`): the panel is drawn as on
+//! any photo, and every part of it acts on the variant (`commands::tools::recipe`): the tools,
+//! the Fill Light row, the Tuning tab, the one-click fixes, Undo and Redo.
 
 use dalica_ui_kit::Tokens;
 use dalica_ui_kit::icons::{EditIcon, paint_edit};
@@ -29,7 +27,6 @@ use serde_json::json;
 
 use super::{basic, crop, histogram, history, retouch, tuning};
 use crate::app::App;
-use crate::commands::compare::{TOOLS_LATER, on_variant};
 use crate::commands::tools;
 use crate::state::{EditTab, ToolKind};
 
@@ -59,8 +56,6 @@ pub const ORIGINAL_ID: &str = "button:edit.showOriginal";
 pub const ORIGINAL: &str = "Original";
 pub const ORIGINAL_TIP: &str = "Press and hold to show the original (or hold \\)";
 pub const ORIGINAL_W: f32 = 68.0;
-/// The ids of the wash over the tools A│A's right side cannot use yet.
-pub const LATER_ID: &str = "label:edit.toolsLater";
 
 /// Where the parts of the edit panel are inside its rect.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -107,7 +102,6 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let modal = tools::open_tool(app).filter(|t| t.modal()).map(|t| t.kind());
     part(ui, "tabs", p.tabs, true, |ui| tabs(app, ui));
     let tab = app.state().edit.tab;
-    let variant = on_variant(app);
     part(ui, "content", p.content, true, |ui| match modal {
         Some(ToolKind::Crop) => crop::show(app, ui),
         Some(ToolKind::Retouch) => retouch::show(app, ui),
@@ -115,47 +109,11 @@ pub fn show(app: &mut App, ui: &mut Ui) {
             if modal.is_some() {
                 ui.disable();
             }
-            if variant {
-                variant_content(app, ui, tab);
-            } else {
-                content(app, ui, tab);
-            }
+            content(app, ui, tab);
         }
     });
     part(ui, "history", p.history, modal.is_none(), |ui| history::show(app, ui));
     part(ui, "histogram", p.histogram, true, |ui| histogram::show(app, ui));
-}
-
-/// The content of `tab` on A│A's right side: the tools that do not act on a variant yet washed
-/// over (Basic fixes) or disabled (Tuning), with the reason.
-fn variant_content(app: &mut App, ui: &mut Ui, tab: EditTab) {
-    let t = *app.tokens();
-    let rect = ui.max_rect();
-    match tab {
-        EditTab::Basic => {
-            content(app, ui, tab);
-            let (cells, fill) = basic::layout(&t, rect);
-            let later = cells.iter().take(3).fold(Rect::NOTHING, |u, c| u.union(*c));
-            for (i, r) in [later, fill].into_iter().enumerate() {
-                ui.painter().rect_filled(r.expand(1.0), CornerRadius::same(t.radius), t.chrome.gamma_multiply(0.75));
-                let resp = ui.interact(r, Id::new(LATER_ID).with(i), egui::Sense::click_and_drag());
-                if i == 0 {
-                    widgets::register(ui.ctx(), LATER_ID, Role::Other, TOOLS_LATER, Target::Widget(&resp), false);
-                } else {
-                    widgets::register(ui.ctx(), &format!("{LATER_ID}.fill"), Role::Other, TOOLS_LATER, Target::Widget(&resp), false);
-                }
-                widgets::tooltip(resp, &t, TOOLS_LATER, None);
-            }
-        }
-        EditTab::Tuning => {
-            let line = Rect::from_min_size(rect.min, vec2(rect.width(), 20.0));
-            ui.painter().text(line.left_center(), egui::Align2::LEFT_CENTER, TOOLS_LATER, dalica_ui_kit::fonts::regular(t.body), t.text_dim);
-            let mut below = ui.new_child(UiBuilder::new().max_rect(Rect::from_min_max(egui::pos2(rect.min.x, line.max.y + 4.0), rect.max)));
-            below.disable();
-            content(app, &mut below, tab);
-        }
-        _ => content(app, ui, tab),
-    }
 }
 
 /// The content of `tab`.

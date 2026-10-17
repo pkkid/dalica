@@ -173,7 +173,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let (title, plot, info) = layout(rect);
     widgets::label_in(p, title, Align2::LEFT_CENTER, TITLE, fonts::semibold(t.count), t.text_label);
     widgets::register(ui.ctx(), BOX_ID, Role::Other, TITLE, Target::Painted { rect, clip: ui.clip_rect() }, false);
-    let Some(id) = app.state().edit.photo else { return };
+    let Some(id) = crate::commands::edit_view::open_photo(app) else { return };
     let ctx = ui.ctx().clone();
     let empty: [Vec<u64>; 3] = Default::default();
     let bins = bins_of(app, &ctx, id);
