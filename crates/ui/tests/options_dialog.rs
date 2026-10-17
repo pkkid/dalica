@@ -161,6 +161,14 @@ fn every_option_of_the_tab_reaches_options_set_with_its_key() {
                 click(d, &id);
                 json!(!row.saved.as_bool().unwrap())
             }
+            // The General tab's folder rows have no Browse… of their own yet: the folder goes in
+            // as the picker would put it.
+            "folder" => {
+                let path = fx.dir.path().join("Imports");
+                d.run("app.preferences.folder", &json!({ "key": row.key, "path": path })).unwrap();
+                d.settle(FRAMES).unwrap();
+                json!(path)
+            }
             _ => {
                 let (value, _) = row.choices.iter().rev().find(|(v, _)| *v != row.saved).unwrap_or_else(|| panic!("{}: no other choice", row.key));
                 click(d, &id);
@@ -180,7 +188,7 @@ fn every_option_of_the_tab_reaches_options_set_with_its_key() {
         assert_eq!(&saved(d, key), value, "{key}");
     }
     // The tab's disabled rows say why.
-    for key in ["interface.language", "import.detectDuplicates", "files.readLegacyData", "import.folder"] {
+    for key in ["interface.language", "files.readLegacyData"] {
         let row = rows.iter().find(|r| r.key == key).unwrap();
         assert!(row.reason.as_deref().is_some_and(|r| r.starts_with("Arrives with")), "{key}: {:?}", row.reason);
     }

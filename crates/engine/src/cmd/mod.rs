@@ -3,7 +3,9 @@
 
 pub mod albums;
 pub mod app;
+pub mod batch;
 pub mod caption;
+pub mod compare;
 pub mod crop;
 pub mod dates;
 pub mod delete;
@@ -17,6 +19,8 @@ pub mod folder_ops;
 pub mod folders;
 pub mod hide;
 pub mod history;
+pub mod import;
+pub mod import_run;
 pub mod info;
 pub mod inspect;
 pub mod keymap;
@@ -30,9 +34,11 @@ pub mod save;
 pub mod save_copy;
 pub mod search;
 pub mod section;
+pub mod slideshow;
 pub mod tags;
 pub mod tuning;
 pub mod view;
+pub mod viewer;
 
 #[cfg(test)]
 pub(crate) mod testing;
@@ -81,6 +87,14 @@ pub fn specs() -> Vec<CommandSpec> {
         inspect::specs(),
         recipe::specs(),
         folder_data::specs(),
+        // M11: empty until M11.7 (import), M11.8 (import_run), M11.9 (batch), M11.10 (compare),
+        // M11.11 (slideshow) and M11.12 (viewer).
+        import::specs(),
+        import_run::specs(),
+        batch::specs(),
+        compare::specs(),
+        slideshow::specs(),
+        viewer::specs(),
     ]
     .concat();
     #[cfg(test)]

@@ -6021,7 +6021,7 @@ General's import rows become live. M11's budgets join `development.md` §8 at 1.
 measurement, plus two absolute ones (a transition frame within 16 ms at p95, zero waits on disk),
 and are never loosened. No other step of M11 needs a maintainer decision mid-run.
 
-- ⬜ **M11.1 `engine`: M11's command modules, settings and options rows**
+- ✅ **M11.1 `engine`: M11's command modules, settings and options rows**
   - after: M10.1, M10.5, M10.R
   - files: `crates/engine/src/cmd/mod.rs`, `crates/engine/src/cmd/import.rs`, `crates/engine/src/cmd/import_run.rs`, `crates/engine/src/cmd/batch.rs`, `crates/engine/src/cmd/compare.rs`, `crates/engine/src/cmd/slideshow.rs`, `crates/engine/src/cmd/viewer.rs`, `crates/engine/src/import.rs`, `crates/engine/src/import_run.rs`, `crates/engine/src/variant.rs`, `crates/engine/src/viewer.rs`, `crates/engine/src/options.rs`, `crates/engine/src/settings.rs`, `crates/engine/src/session.rs`, `crates/engine/src/jobs.rs`, `crates/engine/tests/settings.rs`, `crates/engine/tests/options_catalogue.rs`, `crates/engine/README.md`, `docs/menus-and-shortcuts.md`, `docs/data-model.md`
   - scope: the engine's ground for M11 so M11.7–M11.12 never share a file: empty

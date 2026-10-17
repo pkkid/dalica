@@ -18,6 +18,8 @@ pub mod fileops;
 pub mod fileops_recovery;
 pub mod folders;
 pub mod history;
+pub mod import;
+pub mod import_run;
 pub mod jobs;
 pub mod keymap;
 pub mod metadata;
@@ -34,6 +36,8 @@ pub mod settings;
 pub mod synthetic;
 pub mod thumbs;
 pub mod undo;
+pub mod variant;
+pub mod viewer;
 pub mod watching;
 
 pub use error::{CmdError, OpenError};
