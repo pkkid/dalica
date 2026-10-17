@@ -95,6 +95,14 @@ fn open_card(c: &mut Client, what: &str) -> Value {
     }
     idle(c);
     click(c, "choice:import.source");
+    // The room asks for the sources at most once a second of its clock (`source::POLL`), so its
+    // menu lists the card from its first ask after the engine's device list found it: the clock
+    // runs until it does (on a slow machine the device list can find the card after that ask).
+    let start = Instant::now();
+    while app::widget(c, "choice:import.source/0").is_none() {
+        assert!(start.elapsed() < PATIENCE, "{what}: the card never showed in the source menu: {:?}", c.widgets("choice:import.source"));
+        c.ok("ui.wait", json!({ "ms": 100 }));
+    }
     click(c, "choice:import.source/0");
     listed(c, what)
 }
