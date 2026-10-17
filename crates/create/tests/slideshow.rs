@@ -237,6 +237,26 @@ fn screen() -> impl Strategy<Value = Size> {
     (1.0f32..8_000.0, 1.0f32..8_000.0).prop_map(|(w, h)| Size::new(w, h))
 }
 
+/// Regression (M11.R, proptest seed `cc 9e4e109d…`): the eased progress saturated to exactly 1 in
+/// `f32` just short of the end (and underflowed to 0 just after the start), so a Wipe on a 1 × 1
+/// screen at 0.9999187 dropped the outgoing photo early. Between 0 and 1 both photos show, on any
+/// screen, however close to either end.
+#[test]
+fn every_transition_keeps_both_photos_until_its_very_end() {
+    let near_ends = [1e-30f32, 1e-20, 1e-7, 0.9999187, 1.0 - f32::EPSILON / 2.0];
+    for t in Transition::ALL.into_iter().filter(|t| *t != Transition::Cut) {
+        for sc in [Size::new(1.0, 1.0), Size::new(7_999.0, 1.0), Size::new(1_000_000.0, 1_000_000.0)] {
+            for progress in near_ends {
+                let f = frame(t, sc, 1.0, Some(&Slide::new((1, 1))), &Slide::new((1, 1)), progress);
+                assert!(f.outgoing.is_some() && f.incoming.is_some(), "{t:?} on {sc:?} at {progress}: {f:?}");
+                for layer in [f.outgoing, f.incoming].iter().flatten() {
+                    check_layer(sc, layer);
+                }
+            }
+        }
+    }
+}
+
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(cases(1024)))]
 
