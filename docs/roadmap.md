@@ -10,8 +10,28 @@ state (ready, claimed, in review) is on the task board ([`task-board.md`](task-b
 
 ## Where we stand
 
-*Honest assessment, one dated entry per review, newest first (latest: 2026-10-16, M10.R). Agents:
+*Honest assessment, one dated entry per review, newest first (latest: 2026-10-17, M11.R). Agents:
 read this before picking work. Update it only with measured facts, dated.*
+
+*2026-10-17 (M11.R, the Release 0.6 gate).* M11 is done: `cargo xtask accept M11` passes in 111 s (480 s with the
+release budgets), and the tests on `main` went from 3 304 to 3 545. Import from cards, drives and folders: photos
+grouped by capture time, duplicates against the library and within the batch, every copy checked byte for byte
+and keeping its time, nothing ever replaced (a taken name gets `-001`), the import one undo step, and the copied
+files removed from a card only after checking and an explicit question, never over automation. Compare in A│B and
+A│A (every tool works on the variant; keeping it is one history step), before/after on `\`, Copy and Paste All
+Edits, Batch Edit as one undo step over the Photo Tray, and Undo All Edits. A slideshow with seven transitions,
+captions, Loop and its control bar; with every decode slowed to 1.5 s, 30 changes waited 0 times, and the change
+frame dropped from 28 ms to 0.27 ms at p95. The Ctrl+Alt quick preview, and `dalica --view` as a standalone viewer
+that decodes any picture by path. 11 of the 12 agent workflows pass over MCP. Release budgets met: import 27.9
+files/s (≥ 22.9), Batch Edit of 1 000 photos 4.3 ms (≤ 7), cold start at 100 000 photos 193 ms (≤ 2 s); the
+transition frame's budget was raised to 1 ms by the maintainer after one loaded miss at 0.32 ms. 29 tasks merged in
+4 h 30 min with 7 workers; seven send-backs, four of them for data safety (paste and keep-right dropping recipe
+entries Dalica can't read, automation reaching card removal or an unchecked destination). The full run found two
+faults no task gate saw, fixed on the review branch: an acceptance picture left stale by an enabled toggle, and a
+transition easing that dropped a photo in the last 1e-4 of a change. Not done: no slideshow music or videos (M15),
+no camera import over cable (M15), Batch Edit's effects greyed until M12, `dalica --view` read-only while Dalica is
+open (hand-off in M15), and the two checks by hand moved to M12.R. Parity ✅ 160 · 🟡 42 · ⬜ 44 · 🚫 17. M11.R is the
+0.6 release gate (version 0.6.0).
 
 *2026-10-16 (M10.R, the Release 0.5 gate).* M10 is done: `cargo xtask accept M10` passes in 68 s (158 s with the
 release budgets), and the tests on `main` went from 3 098 to 3 304. Tools ▸ Options… has its four tabs (General with
@@ -290,7 +310,7 @@ waits for.)
 | | M8 | Save and export | Save, Undo Save, Revert, Save a Copy, Save As; export | ✅ |
 | Organize | M9 | Albums, search and file operations | lasting albums, instant search and filters, move/copy/rename/delete | ✅ |
 | | M10 | Preferences, MCP and Release 0.5 | Options and shortcut editor, MCP and the P0 workflows; all P0 rows shipped | ✅ |
-| P1 parity | M11 | Import, compare and viewing | import from cards and drives, compare and batch edit, slideshow, the viewer | ⬜ |
+| P1 parity | M11 | Import, compare and viewing | import from cards and drives, compare and batch edit, slideshow, the viewer | ✅ |
 | | M12 | Effects | effect tiles, parameter panels and all 27 effects | ⬜ |
 | | M13 | People and places | local faces, the People pane, the Places pane and geotagging | ⬜ |
 | | M14 | Collage and legacy sidecars | the collage room; reading the previous organizer's data | ⬜ |
@@ -6576,7 +6596,7 @@ and are never loosened. No other step of M11 needs a maintainer decision mid-run
     note, the moved parts and the "missing:" manual checks); `cargo xtask parity --write`.
   - done when: each named detail has a test (or EDIT-SAVE's HEIC item a stated reason); no note
     in `parity.md` says "untested" for these eight rows; `cargo xtask ci` green.
-- ⬜ **M11.R Release 0.6 gate**
+- ✅ **M11.R Release 0.6 gate**
   - after: M11.24, M11.26
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`
@@ -7092,8 +7112,34 @@ a maintainer decision mid-run.
     blocks with its numbers, never loosened.
   - done when: `cargo xtask bench effects` and `bench effect_tiles` print their numbers (in the
     PR); `cargo xtask budgets` passes with them and `--plant-ms` makes each fail.
+- ⬜ **M12.24 `ui`: the slideshow prepares the next photo off the UI thread**
+  - after: M11.R
+  - files: `crates/ui/src/panels/slideshow/show.rs`, `crates/ui/src/panels/slideshow.rs`, `crates/ui/tests/slideshow.rs`, `crates/ui/benches/slideshow.rs`
+  - scope: a fix task from M11.R. M11.29 moved the next photo's texture upload out of the change's first frame into one
+    frame of the display time, measured at 12.7 ms p50 and 22.4 ms p95 on two cores (the bench's
+    `upload frame` row), so Pan and Zoom can hitch once per photo. Convert the preview to the
+    texture's pixel format on a worker and leave the UI thread only the upload itself (or split a
+    large upload over frames); memory stays at the current and next textures; the change frame
+    keeps its M11.29 numbers; row `VIEW-SLIDESHOW`.
+  - done when: the bench's upload frame is at most 8 ms p95 on the same two-core setup (before and
+    after in the PR); the next photo's texture is still ready before its change starts and the
+    30-change test with a 1.5 s planted decode reports 0 waits; `cargo xtask ci`.
+- ⬜ **M12.25 `ui` + docs: M11's small follow-ups**
+  - after: M11.R, M12.2
+  - files: `crates/ui/src/panels/edit/caption_bar.rs`, `crates/ui/src/control/**`, `crates/ui/tests/captions.rs`, `crates/fs/README.md`, `crates/ui-kit/README.md`, `crates/engine/README.md`, `docs/control-protocol.md`
+  - scope: a fix task from M11.R: the follow-ups M11's tasks left outside their files. The edit view's caption-bar captions
+    toggle shows whether captions are on (a selected look, from ui-kit's existing selected state).
+    When automation drives the Import room, `import.run`'s destination is checked with links
+    resolved (off the UI thread), as `engine.execute` already does, not by its path text alone.
+    The fs README names `transfer::import_copy` and `remove`; the ui-kit README's public-API list
+    names the room tabs, overlay bar, stepper and caption plate; the engine README's module table
+    lists `import`, `import_run`, `variant`, `viewer` and the batch commands as built.
+    `control-protocol.md` §6.5's `room.close` row names `confirm`.
+  - done when: a test shows the toggle's look changes with the setting; a control test shows a
+    destination reached through a link outside the write roots refused over automation; the docs
+    read as built; `cargo xtask ci`.
 - ⬜ **M12.22 `accept M12`**
-  - after: M12.14, M12.15, M12.17, M12.18, M12.19, M12.20, M12.21
+  - after: M12.14, M12.15, M12.17, M12.18, M12.19, M12.20, M12.21, M12.24, M12.25
   - files: `tests/acceptance/m12.rs`, `tests/acceptance/m12_*.rs`, `tests/acceptance/m12.md`, `tests/acceptance/fingerprints/m12-*.json`
   - scope: every *Done when* of M12's three areas in the real `dalica --headless` over the control
     channel and through `dalica-cli mcp`: each tab's grid filling with previews; each of the 27
@@ -7131,7 +7177,8 @@ a maintainer decision mid-run.
     picker and the eyedropper, drag the crosshair of Soft Focus, Focal B&W, Graduated Tint and
     Focal Zoom, paint and erase Soften, stack Sepia, Vignette and Border and save, then Undo Save,
     export a framed photo, Batch Edit ▸ Sepia on 20 photos and one Ctrl+Z; written as steps for the
-    maintainer to try); the questions: the planning decisions above that change behaviour
+    maintainer to try); the manual checks carried from M10.R and M11.R (the Windows touchpad pinch,
+    `EDIT-ZOOM`; the macOS build used by hand, `SYS-WINDOW`); the questions: the planning decisions above that change behaviour
     (opening an effect again appends, never edits the earlier entry; the eyedropper samples the
     photo before the effect; a crop made after a frame crops the photo and keeps the frame; Soften
     applies everywhere until the first stroke; Ctrl+Shift+B only in the edit view; the parameter
@@ -7981,9 +8028,9 @@ wave 7   M13.32 accept M13 → M13.R          (M13.33 lead: M15 blocks, any time
 
 | # | In | Done when (sketch) |
 |---|---|---|
-| M15 Video | reserved decision 2 first; then poster frames, playback, trim, frame save — or descope to tiles | decided and recorded; tests per chosen scope |
+| M15 Video | reserved decision 2 first; then poster frames, playback, trim, frame save — or descope to tiles; slideshow music comes with video sound (the maintainer's answer at M11.R, 2026-10-17) | decided and recorded; tests per chosen scope |
 | M15 Localisation and accessibility | translation catalogs (from LightCraft's `i18n.rs` and `locales/*.json`, with its script-based CJK font fallback), AccessKit labels, screen-reader and keyboard-only passes, scaling | coverage per language reported; AccessKit tree tests |
-| M15 OS integration | drag out to other apps, clipboard files, Open With ▸, external editor, Locate on Disk with selection, default-viewer registration, MTP/PTP cameras | per-OS manual checklist plus what can be tested per OS in CI |
+| M15 OS integration | drag out to other apps, clipboard files, Open With ▸, external editor, Locate on Disk with selection, default-viewer registration, `dalica --view` handing the file to a Dalica already running (read-only viewer until then; the maintainer's answer at M11.R, 2026-10-17), MTP/PTP cameras | per-OS manual checklist plus what can be tested per OS in CI |
 | M15 Release 1.0 | signed packages, full honest assessment, release notes | the release checklist (`releasing.md`) |
 
 ### M16 — Post-1.0 enhancements (outline)

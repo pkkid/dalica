@@ -7,6 +7,26 @@ and git.
 
 ## Current
 
+- **Milestone:** M11, import, compare and viewing and Release 0.6, is done: M11.1–M11.29 are merged (26 planned tasks,
+  three fix tasks added during the run, and the lead's M13 blocks) and `cargo xtask accept M11` passes (111 s; 480 s
+  with the release budgets). Import from cards and drives with checked copies and card removal only after the
+  question; compare A│B and A│A; Copy and Paste All Edits, Batch Edit and Undo All Edits; the slideshow; the quick
+  preview; `dalica --view`. Version 0.6.0: M11.R is the 0.6 release gate, published once the review PR is merged.
+  Next: M12, effects; its issues open when the M11.R review PR is merged.
+- **M11 review (2026-10-17):** the maintainer answered: slideshow music comes with M15's video sound; `dalica --view`
+  stays read-only while Dalica is open until M15's OS integration; M11's behaviour-changing decisions stand as built;
+  the two checks by hand (EDIT-ZOOM pinch, SYS-WINDOW on macOS) move to M12.R; all 106 fingerprint baselines
+  approved; the slideshow transition frame's budget is 1 ms; ship 0.6 once the review PR's checks are green. Fix
+  tasks M12.24 (slideshow upload off the UI thread) and M12.25 (M11's small follow-ups) carry the rest.
+- **Numbers (M11.R, 4f917df8, 2026-10-17):** `cargo xtask ci --full` 11.6 min (i7-13700K, 8 jobs, load up to 51):
+  tests 3 545 passed, 3 ignored, 1 failed (m7-900x600, stale after M11.21; re-blessed on the review branch), plus a
+  full-strength proptest counterexample in the transition easing (fixed on the review branch); release budgets:
+  import first screenful 10.2 ms (≤ 35), listing 209 ms (≤ 320), copy 27.9 files/s and 2.89 MB/s (≥ 22.9, ≥ 2.3),
+  Batch Edit ×1 000 4.29 ms and undo 3.05 ms (≤ 7, ≤ 5), slideshow 0 of 30 changes waited, advance 0.18 ms (≤ 24),
+  transition frame 0.32 ms (budget 0.3, raised to 1 by the maintainer), cold start 193 ms, scan 22 891 photos/s, idle
+  memory 85 MiB; parity ✅ 160 · 🟡 42 · ⬜ 44 · 🚫 17 (263 rows, 259 commands); workflows 11 / 12 (floor 11); +69 453 /
+  −3 053 lines, 74 test files added. Run: 29 tasks with 7 workers from 13:03 to 17:33 on 2026-10-17, 7 send-backs,
+  4 rebase conflicts (docs only).
 - **Milestone:** M10, preferences, MCP and Release 0.5, is done: M10.1–M10.57 are merged (36 planned tasks and 20
   fix tasks added during the run; M10.30 dropped) and `cargo xtask accept M10` passes (68 s; 158 s with the release
   budgets). Tools ▸ Options… with General (UI scale, font size, tooltips, animations), File Types, Export and the
