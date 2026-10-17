@@ -91,5 +91,6 @@ mod tuning_tab;
 mod ui_glyphs;
 mod ui_scale;
 mod view_state;
+mod viewer;
 mod widget_ids;
 mod zoom_maths;

@@ -189,3 +189,48 @@ fn a_locked_library_gives_a_read_only_viewer_whose_changes_are_disabled() {
     s.close_viewer();
     assert_eq!(s.viewer().closed(), Some(dalica_engine::viewer::Closed::Quit));
 }
+
+/// A photo outside the library is decoded by its path on the viewer's workers, at the screen size
+/// and as a filmstrip thumbnail, with the edits of its folder's sidecar; the owner thread never
+/// touches the disk; a file that cannot be decoded gives its reason; an unlisted path is refused.
+#[test]
+fn a_photo_outside_the_library_is_decoded_by_path_off_the_owner_thread() {
+    use dalica_engine::viewer::{Pixels, THUMB_SIDE};
+    let disk = tempfile::tempdir().unwrap();
+    let folder = disk.path().join("Elsewhere");
+    put(&folder.join("a.jpg"), &crate::common::jpeg_of(5, 1200, 800));
+    put(&folder.join("b.jpg"), &crate::common::jpeg_of(6, 1200, 800));
+    put(&folder.join("c.jpg"), &crate::common::jpeg_of(7, 1200, 800));
+    // The sidecar turns b.jpg a quarter turn.
+    let sidecar = json!({ "dalica": { "version": 1 }, "photos": { "b.jpg": { "edits": ["rotate(90)"] } } });
+    put(&folder.join(".dalica.json"), &serde_json::to_vec_pretty(&sidecar).unwrap());
+    let lib = tempfile::tempdir().unwrap();
+    let mut s = open(lib.path());
+    s.open_viewer(&folder.join("a.jpg")).unwrap();
+    let l = listed(&mut s, &json!({})).unwrap();
+    let refused = dalica_fs::guard::refused();
+    let ui = dalica_fs::mark_ui_thread();
+    let (a, b, c) = (folder.join("a.jpg"), folder.join("b.jpg"), folder.join("c.jpg"));
+    assert_eq!(s.viewer_image(&a), Pixels::Pending);
+    s.prefetch_viewer_images(std::slice::from_ref(&b));
+    assert_eq!(s.viewer_thumbnail(&a), Pixels::Pending);
+    assert_eq!(s.viewer_images_pending(), 3);
+    assert!(s.wait_viewer_images(Duration::from_secs(60)), "the decodes arrive");
+    let got = s.viewer_image(&a);
+    let Pixels::Ready(shown) = got else { panic!("a.jpg not decoded: {got:?}") };
+    assert_eq!((shown.width, shown.height), (1200, 800), "a photo under the screen size is decoded whole");
+    let Pixels::Ready(turned) = s.viewer_image(&b) else { panic!("b.jpg not prefetched") };
+    assert_eq!((turned.width, turned.height), (800, 1200), "the sidecar's rotation is drawn");
+    let Pixels::Ready(thumb) = s.viewer_thumbnail(&a) else { panic!("no thumbnail") };
+    assert_eq!(thumb.width.max(thumb.height), THUMB_SIDE);
+    // A file gone since the folder was listed gives the reason it cannot be shown.
+    assert_eq!(names(&l), ["a.jpg", "b.jpg", "c.jpg"]);
+    std::fs::remove_file(&c).unwrap();
+    assert_eq!(s.viewer_image(&c), Pixels::Pending);
+    assert!(s.wait_viewer_images(Duration::from_secs(60)));
+    assert_eq!(s.viewer_image(&c), Pixels::Failed("the file is missing".into()));
+    assert!(matches!(s.viewer_image(&disk.path().join("other.jpg")), Pixels::Failed(_)), "only listed photos are read");
+    drop(ui);
+    assert_eq!(dalica_fs::guard::refused(), refused, "the owner thread made no fs call");
+    assert_eq!(s.library().photos().count(), 0, "viewing adds nothing");
+}

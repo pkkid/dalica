@@ -19,6 +19,15 @@
 //! - **Locked:** when another Dalica holds the library, the app opens the viewer on an empty
 //!   read-only library of its own ([`Session::open_locked_viewer`]): every photo is shown from its
 //!   file and sidecar, and the changes and Open in Dalica are disabled with [`ALREADY_OPEN`].
+//! - **Pixels** ([`Session::viewer_image`], [`Session::viewer_thumbnail`]): a listed photo is
+//!   decoded by its path on the viewer's own workers, never on the owner thread: at the screen size
+//!   (the thumbnail ladder's screen entry size) for the photo shown, and at [`THUMB_SIDE`] for the
+//!   filmstrip, both under the decoders' limits and with the edits its folder's sidecar gives
+//!   (rendered with `edit`). The next and previous photos are decoded ahead
+//!   ([`Session::prefetch_viewer_images`]). What was decoded is kept in memory only (at most
+//!   [`MAX_SCREENS`] screen-size pictures and [`THUMB_CAP_BYTES`] of thumbnails, the least recently
+//!   used dropped), and a file that cannot be decoded gives its reason. Only the photos the viewer
+//!   lists are read. The library's own photos are drawn from the edit view's preview instead.
 //! - **Closing** is the window's to carry out: the viewer's UI calls [`Session::close_viewer`]
 //!   (Esc, ×) or [`Session::open_in_dalica`], and the app reads [`Viewer::closed`] to quit, or to
 //!   turn the viewer's window into the main window on the edit view of that photo.
@@ -28,12 +37,17 @@
 //! refused, so automation reads nothing through the viewer that it could not read otherwise
 //! (`control-protocol.md` §5.7).
 
+use std::collections::{HashMap, HashSet};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 
 use dalica_core::{Clock, PhotoId};
+use dalica_image::{DecodeOptions, Limits, Rgba8};
 use dalica_scan::{Event, Failure, FoundFolder, Mode, Rule, Scan};
+use dalica_thumbs::{Pool, Priority};
 use serde_json::{Value, json};
 
 use crate::error::{CmdError, OpenError};
@@ -57,6 +71,28 @@ pub enum Closed {
     OpenInDalica(PhotoId),
 }
 
+/// The viewer's decoding workers.
+pub const IMAGE_WORKERS: usize = 2;
+/// The long side of a filmstrip thumbnail decoded by path (pixels).
+pub const THUMB_SIDE: u32 = 160;
+/// Screen-size pictures kept in memory (the photo shown, its neighbours, one more).
+pub const MAX_SCREENS: usize = 4;
+/// Bytes of filmstrip thumbnails kept in memory.
+pub const THUMB_CAP_BYTES: usize = 32 * 1024 * 1024;
+/// Results kept at most, failures included.
+pub const MAX_KEPT: usize = 4096;
+
+/// What a listed photo's pixels are now.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Pixels {
+    /// Decoded, upright, with the edits of its folder's sidecar.
+    Ready(Arc<Rgba8>),
+    /// On its way (asked for now if it was not).
+    Pending,
+    /// Why it cannot be shown.
+    Failed(String),
+}
+
 /// One photo of the viewer's folder as the scan read it.
 #[derive(Clone, Debug, PartialEq)]
 struct Listed {
@@ -65,6 +101,95 @@ struct Listed {
     height: u32,
     /// The star the folder's sidecar gives it (shown while the library does not hold the photo).
     star: bool,
+    /// The edits its folder's sidecar gives it (drawn while the library does not hold it).
+    edits: Vec<String>,
+}
+
+/// The two sizes decoded by path.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum Kind {
+    Screen,
+    Thumb,
+}
+
+type ImageKey = (PathBuf, Kind);
+
+/// The viewer's decodes by path: the workers, what they delivered, what is on its way.
+struct Images {
+    pool: Pool<ImageKey, Result<Rgba8, String>>,
+    kept: HashMap<ImageKey, (Result<Arc<Rgba8>, String>, u64)>,
+    asked: HashSet<ImageKey>,
+    /// The screen-size pictures wanted now (the photo shown and its neighbours).
+    wanted: Vec<PathBuf>,
+    tick: u64,
+}
+
+impl std::fmt::Debug for Images {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Images").field("kept", &self.kept.len()).field("asked", &self.asked.len()).finish()
+    }
+}
+
+impl Images {
+    fn new() -> Images {
+        Images { pool: Pool::new(IMAGE_WORKERS), kept: HashMap::new(), asked: HashSet::new(), wanted: Vec::new(), tick: 0 }
+    }
+
+    /// Takes in what the workers delivered, then drops the least recently used past the caps.
+    fn take(&mut self) {
+        while let Some((key, result)) = self.pool.try_recv() {
+            self.asked.remove(&key);
+            self.tick = self.tick.saturating_add(1);
+            self.kept.insert(key, (result.map(Arc::new), self.tick));
+        }
+        self.prune();
+    }
+
+    fn prune(&mut self) {
+        let bytes = |kept: &HashMap<ImageKey, (Result<Arc<Rgba8>, String>, u64)>, kind: Kind| -> (usize, usize) {
+            kept.iter().filter(|((_, k), _)| *k == kind).fold((0, 0), |(n, b), (_, (r, _))| (n + 1, b + r.as_ref().map_or(0, |i| i.data.len())))
+        };
+        loop {
+            let (screens, _) = bytes(&self.kept, Kind::Screen);
+            let (_, thumb_bytes) = bytes(&self.kept, Kind::Thumb);
+            let kind = if screens > MAX_SCREENS {
+                Some(Kind::Screen)
+            } else if thumb_bytes > THUMB_CAP_BYTES {
+                Some(Kind::Thumb)
+            } else if self.kept.len() > MAX_KEPT {
+                None
+            } else {
+                return;
+            };
+            let oldest = self.kept.iter().filter(|((_, k), _)| kind.is_none_or(|w| *k == w)).min_by_key(|(_, (_, t))| *t).map(|(key, _)| key.clone());
+            match oldest {
+                Some(key) => {
+                    self.kept.remove(&key);
+                }
+                None => return,
+            }
+        }
+    }
+}
+
+/// Decodes the photo at `path` to fit `long_side` pixels, upright, under `limits`, and draws
+/// `edits` over it (on a worker).
+fn decode(path: &Path, long_side: u32, options: &DecodeOptions, limits: &Limits, edits: &[String], cancel: &AtomicBool) -> Result<Rgba8, String> {
+    let bytes = match dalica_fs::read(path, dalica_thumbs::MAX_FILE) {
+        Ok(Some(r)) => r.bytes,
+        Ok(None) => return Err("the file is missing".into()),
+        Err(e) => return Err(e.to_string()),
+    };
+    if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+        return Err("cancelled".into());
+    }
+    dalica_image::read_header(&bytes, limits).map_err(|e| e.reason())?;
+    let image = dalica_image::decode_thumbnail_with(&bytes, long_side, options, limits).map_err(|e| e.reason())?;
+    let recipe = dalica_edit::Recipe::parse(edits).unwrap_or_default();
+    if recipe.ops().is_empty() {
+        return Ok(image);
+    }
+    dalica_edit::render(dalica_edit::Source::upright(&image), &recipe, dalica_edit::Target::Full).map_err(|e| e.to_string())
 }
 
 /// What the worker read for one file: its folder's photos, in name order.
@@ -99,6 +224,8 @@ pub struct Viewer {
     /// A read that could not run, given once.
     failed: Option<(PathBuf, String)>,
     closed: Option<Closed>,
+    /// Pixels decoded by path (made at the first ask).
+    images: Option<Images>,
 }
 
 impl Viewer {
@@ -330,6 +457,117 @@ impl Session {
     }
 }
 
+impl Session {
+    /// The screen-size picture of the listed photo at `path` (the photo the viewer shows), asked
+    /// for at the edit view's priority when it is not there; a screen-size decode of another photo
+    /// still waiting is dropped unless it is a neighbour ([`Session::prefetch_viewer_images`]).
+    pub fn viewer_image(&mut self, path: &Path) -> Pixels {
+        let keep: Vec<PathBuf> = std::iter::once(path.to_path_buf()).chain(self.images().wanted.iter().skip(1).cloned()).collect();
+        self.want_screens(keep);
+        self.viewer_pixels(path, Kind::Screen, Priority::EDIT)
+    }
+
+    /// Decodes the listed photos at `paths` (the next and previous of the photo shown) ahead, at
+    /// the prefetch priority.
+    pub fn prefetch_viewer_images(&mut self, paths: &[PathBuf]) {
+        let current = self.images().wanted.first().cloned();
+        self.want_screens(current.into_iter().chain(paths.iter().cloned()).collect());
+        for p in paths {
+            let _ = self.viewer_pixels(p, Kind::Screen, Priority::PREFETCH);
+        }
+    }
+
+    /// The filmstrip thumbnail of the listed photo at `path` ([`THUMB_SIDE`] pixels at most).
+    pub fn viewer_thumbnail(&mut self, path: &Path) -> Pixels {
+        self.viewer_pixels(path, Kind::Thumb, Priority::FILMSTRIP)
+    }
+
+    /// Decodes by path queued or running.
+    pub fn viewer_images_pending(&self) -> usize {
+        self.viewer.images.as_ref().map_or(0, |i| i.asked.len())
+    }
+
+    /// Waits up to `timeout` for every decode by path to arrive (tests); whether they did.
+    pub fn wait_viewer_images(&mut self, timeout: std::time::Duration) -> bool {
+        let end = std::time::Instant::now() + timeout;
+        loop {
+            let images = self.images();
+            images.take();
+            if images.asked.is_empty() {
+                return true;
+            }
+            let left = end.saturating_duration_since(std::time::Instant::now());
+            if left.is_zero() {
+                return false;
+            }
+            if let Some((key, result)) = images.pool.recv_timeout(left.min(std::time::Duration::from_millis(50))) {
+                images.asked.remove(&key);
+                images.tick = images.tick.saturating_add(1);
+                images.kept.insert(key, (result.map(Arc::new), images.tick));
+            }
+        }
+    }
+
+    fn images(&mut self) -> &mut Images {
+        self.viewer.images.get_or_insert_with(Images::new)
+    }
+
+    /// The screen-size decodes wanted now are `paths`: the others still queued are dropped.
+    fn want_screens(&mut self, paths: Vec<PathBuf>) {
+        let images = self.images();
+        if images.wanted == paths {
+            return;
+        }
+        let stale: Vec<ImageKey> = images.asked.iter().filter(|(p, k)| *k == Kind::Screen && !paths.contains(p)).cloned().collect();
+        for key in stale {
+            images.pool.cancel(&key);
+            images.asked.remove(&key);
+        }
+        images.wanted = paths;
+    }
+
+    /// The pixels of the listed photo at `path` in size `kind`, asked for at `priority` when
+    /// missing.
+    fn viewer_pixels(&mut self, path: &Path, kind: Kind, priority: Priority) -> Pixels {
+        self.take_listing();
+        let listed = path.parent().zip(path.file_name()).and_then(|(folder, name)| {
+            let name = name.to_string_lossy();
+            self.viewer.listing.as_ref().filter(|l| l.folder == folder).and_then(|l| l.photos.iter().find(|p| p.name == name)).cloned()
+        });
+        let Some(listed) = listed else {
+            return Pixels::Failed(format!("{} {NOT_LISTED}", path.display()));
+        };
+        let (_, render, screen, limits) = self.thumbs.screen_source();
+        let images = self.images();
+        images.take();
+        let key = (path.to_path_buf(), kind);
+        images.tick = images.tick.saturating_add(1);
+        let tick = images.tick;
+        if let Some((result, used)) = images.kept.get_mut(&key) {
+            *used = tick;
+            return match result {
+                Ok(image) => Pixels::Ready(Arc::clone(image)),
+                Err(why) => Pixels::Failed(why.clone()),
+            };
+        }
+        if images.asked.contains(&key) {
+            return Pixels::Pending;
+        }
+        let long_side = match kind {
+            Kind::Screen => dalica_thumbs::ladder::pixels(dalica_thumbs::pack::Size::Screen, screen),
+            Kind::Thumb => THUMB_SIDE,
+        };
+        let options = render.decode_options();
+        let file = key.0.clone();
+        images.pool.submit(key.clone(), priority, move |cancel| {
+            catch_unwind(AssertUnwindSafe(|| decode(&file, long_side, &options, &limits, &listed.edits, cancel)))
+                .unwrap_or_else(|_| Err("the decoder stopped unexpectedly".into()))
+        });
+        images.asked.insert(key);
+        Pixels::Pending
+    }
+}
+
 /// `path` as the viewer takes it: absolute, without `..`, naming a file in a folder.
 fn viewer_path(path: &Path) -> Result<PathBuf, CmdError> {
     if !path.is_absolute() {
@@ -367,8 +605,11 @@ fn read_listing(file: &Path, options: &dalica_scan::Options) -> Listing {
         Event::Progress(p) => p.folders_done == 0,
         Event::Warning(_) => true,
     });
-    let mut photos: Vec<Listed> =
-        found.iter().flat_map(|f| f.photos.iter()).map(|p| Listed { name: p.name.clone(), width: p.width, height: p.height, star: p.star }).collect();
+    let mut photos: Vec<Listed> = found
+        .iter()
+        .flat_map(|f| f.photos.iter())
+        .map(|p| Listed { name: p.name.clone(), width: p.width, height: p.height, star: p.star, edits: p.info.edits.clone() })
+        .collect();
     photos.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()).then_with(|| a.name.cmp(&b.name)));
     let refused = if photos.iter().any(|p| p.name == name) {
         None

@@ -1,23 +1,37 @@
 //! The photo viewer's commands (`viewing.md` §3.2), in the Photo viewer context: ← and J the
-//! previous photo of the folder, → and K the next, + and PgUp zoom in, − and PgDn zoom out, 1 toggles
-//! 100 %, Space the background, E opens the photo in Dalica, Esc closes; and `viewer.settings`
-//! (Tools ▸ Configure Photo Viewer…, the ⋯ menu's Settings…) opens its Settings dialog.
+//! previous photo of the folder, → and K the next (stopping at the ends), + and PgUp zoom in, − and
+//! PgDn zoom out, 1 toggles 100 %, Ctrl+R and Ctrl+Shift+R rotate, 8 and Ctrl+8 star, Delete moves
+//! the photo to the trash (asking first), Space switches the background, E opens the photo in
+//! Dalica, Esc closes; and `viewer.settings` (Tools ▸ Configure Photo Viewer…, the ⋯ menu's
+//! Settings…) opens its Settings dialog.
 //!
-//! M11.2's stubs: the viewer is the view state's `viewer`, and the commands that only change it
-//! work on it (zoom, 100 %, the background, Close). Stepping through the folder, Open in Dalica and
-//! the Settings dialog wait for the viewer itself (M11.17) and say so. Close and Open in Dalica go
-//! through the engine's viewer (M11.12): `Session::close_viewer` (the app then quits) and
-//! `Session::open_in_dalica` on the engine viewer's file (the window then becomes the main window on
-//! the edit view of that photo).
-
-use std::path::Path;
+//! The viewer is the view state's `viewer`: the photo shown is `viewer.index`, its place in the
+//! engine's listing of the folder (`crate::panels::viewer::listing`). Stepping shows another photo
+//! fitted. The changes act on the photo shown through the engine's viewer commands, by its path:
+//! `viewer.star` and `viewer.rotate` (the first change to a photo outside the library adds its
+//! folder in the same undo step). Delete asks "Move the selected picture to the trash?" [Move to
+//! Trash] [Cancel] (unless "Delete from disk without asking" is on) with `viewer.delete` as the
+//! command: Cancel leaves the library as it was, and Move to Trash adds the folder of a photo
+//! outside the library only then, as `viewer.delete` does. Open in Dalica runs
+//! `Session::open_in_dalica` on the photo shown, whichever it is, and shows it in the edit view (the
+//! window then becomes the main window). Close goes through `Session::close_viewer` (the app then
+//! quits). While another Dalica holds the library the changes and Open in Dalica are disabled with
+//! "Dalica is already open".
+//!
+//! The star, the rotations and Delete are UI commands of their own (`viewer.toggleStar`,
+//! `viewer.rotateRight`, `viewer.rotateLeft`, `viewer.trash`) so their viewer keys join the keymap
+//! without replacing the library's keys of `photo.star.toggle`, `photo.rotate.*` and
+//! `photo.delete`.
 
 use dalica_engine::{CmdError, Context};
 use serde_json::{Value, json};
 
 use super::{Check, UiCommand, no_params};
 use crate::app::App;
-use crate::state::{Backdrop, View, ViewerState, ZOOM_MAX, ZOOM_MIN, Zoom};
+use crate::commands::zoom as maths;
+use crate::dialogs::{self, viewer_settings};
+use crate::panels::viewer::{listing, photo};
+use crate::state::{Backdrop, View, ViewerState, Zoom};
 
 pub const COMMANDS: &[UiCommand] = &[
     UiCommand {
@@ -61,6 +75,38 @@ pub const COMMANDS: &[UiCommand] = &[
         run: actual_size,
     },
     UiCommand {
+        id: "viewer.toggleStar",
+        label: "Star / Unstar",
+        menu: "",
+        keys: &[(Context::PhotoViewer, "Ctrl+8"), (Context::PhotoViewer, "8")],
+        params: "{}: star or unstar the photo shown (viewer.star)",
+        run: toggle_star,
+    },
+    UiCommand {
+        id: "viewer.rotateRight",
+        label: "Rotate Clockwise",
+        menu: "",
+        keys: &[(Context::PhotoViewer, "Ctrl+R")],
+        params: "{}: turn the photo shown a quarter turn clockwise (viewer.rotate)",
+        run: rotate_right,
+    },
+    UiCommand {
+        id: "viewer.rotateLeft",
+        label: "Rotate Counterclockwise",
+        menu: "",
+        keys: &[(Context::PhotoViewer, "Ctrl+Shift+R")],
+        params: "{}: turn the photo shown a quarter turn counterclockwise (viewer.rotate)",
+        run: rotate_left,
+    },
+    UiCommand {
+        id: "viewer.trash",
+        label: "Delete from Disk…",
+        menu: "",
+        keys: &[(Context::PhotoViewer, "Delete")],
+        params: r#"{}: move the photo shown to the trash, asking first (replies {dialog: "deletePhotos"} when it asks)"#,
+        run: trash,
+    },
+    UiCommand {
         id: "viewer.background",
         label: "Translucent Background",
         menu: "",
@@ -73,7 +119,7 @@ pub const COMMANDS: &[UiCommand] = &[
         label: "Open in Dalica",
         menu: "",
         keys: &[(Context::PhotoViewer, "E")],
-        params: "{}: open the photo in Dalica's edit view",
+        params: "{}: open the photo shown in Dalica's edit view (the viewer closes into the main window)",
         run: open_in_dalica,
     },
     UiCommand { id: "viewer.close", label: "Close", menu: "", keys: &[(Context::PhotoViewer, "Esc")], params: "{}: close the viewer", run: close },
@@ -87,18 +133,22 @@ pub const COMMANDS: &[UiCommand] = &[
     },
 ];
 
-/// Why a command waits for the viewer itself.
-pub const NOT_YET: &str = "Arrives with the photo viewer.";
 /// Why the viewer's commands cannot run outside it.
 pub const NOT_OPEN: &str = "The photo viewer is not open.";
+/// Why stepping stops at the ends of the folder.
+pub const AT_LAST: &str = "This is the last photo of the folder.";
+pub const AT_FIRST: &str = "This is the first photo of the folder.";
 /// The zoom step of + and −.
 pub const ZOOM_STEP: f32 = 1.25;
 
 pub const CHECKS: &[(&str, Check)] = &[
-    ("viewer.next", |_, _| Err(NOT_YET.into())),
-    ("viewer.previous", |_, _| Err(NOT_YET.into())),
-    ("viewer.openInDalica", open),
-    ("viewer.settings", |_, _| Err(NOT_YET.into())),
+    ("viewer.next", open),
+    ("viewer.previous", open),
+    ("viewer.openInDalica", change),
+    ("viewer.toggleStar", change),
+    ("viewer.rotateRight", change),
+    ("viewer.rotateLeft", change),
+    ("viewer.trash", change),
     ("viewer.zoomIn", open),
     ("viewer.zoomOut", open),
     ("viewer.actualSize", open),
@@ -108,6 +158,15 @@ pub const CHECKS: &[(&str, Check)] = &[
 
 fn open(app: &App, _: &Value) -> Result<(), String> {
     viewer(app).map(|_| ()).ok_or_else(|| NOT_OPEN.into())
+}
+
+/// The changes and Open in Dalica: the viewer is open, and no other Dalica holds the library.
+fn change(app: &App, params: &Value) -> Result<(), String> {
+    open(app, params)?;
+    match app.session().and_then(|s| s.viewer().read_only_reason()) {
+        Some(why) => Err(why.to_string()),
+        None => Ok(()),
+    }
 }
 
 /// The viewer's state while it is shown.
@@ -125,49 +184,106 @@ fn with_viewer(app: &mut App, change: impl FnOnce(&mut ViewerState)) -> Result<V
     serde_json::to_value(*v).map_err(|e| CmdError::Internal(e.to_string()))
 }
 
-fn next(_: &mut App, params: &Value) -> Result<Value, CmdError> {
-    no_params(params)?;
-    Err(CmdError::Disabled(NOT_YET.into()))
+/// Shows the photo at place `index` of the folder, fitted.
+pub fn go_to(app: &mut App, index: usize) {
+    if let Some(v) = app.state_mut().viewer.as_mut()
+        && v.index != index
+    {
+        v.index = index;
+        v.zoom = Zoom::Fit;
+    }
 }
 
-fn previous(_: &mut App, params: &Value) -> Result<Value, CmdError> {
+/// The listing and the photo shown, for a command that needs them.
+fn shown(app: &mut App) -> Result<(listing::Listing, usize), CmdError> {
+    if viewer(app).is_none() {
+        return Err(CmdError::Disabled(NOT_OPEN.into()));
+    }
+    listing::current(app)
+}
+
+/// Steps to the next (`forward`) or the previous photo of the folder, stopping at its ends.
+fn step(app: &mut App, forward: bool) -> Result<Value, CmdError> {
+    let (l, i) = shown(app)?;
+    let to = if forward { i.checked_add(1).filter(|n| *n < l.photos.len()) } else { i.checked_sub(1) };
+    let to = to.ok_or_else(|| CmdError::Disabled(if forward { AT_LAST } else { AT_FIRST }.into()))?;
+    go_to(app, to);
+    let name = l.photos.get(to).map(|p| p.name.clone()).unwrap_or_default();
+    Ok(json!({ "index": to, "name": name }))
+}
+
+fn next(app: &mut App, params: &Value) -> Result<Value, CmdError> {
     no_params(params)?;
-    Err(CmdError::Disabled(NOT_YET.into()))
+    step(app, true)
+}
+
+fn previous(app: &mut App, params: &Value) -> Result<Value, CmdError> {
+    no_params(params)?;
+    step(app, false)
+}
+
+/// The photo shown and its path, for a change: refused with the read-only reason.
+fn changing(app: &mut App) -> Result<listing::Photo, CmdError> {
+    change(app, &Value::Null).map_err(CmdError::Disabled)?;
+    let (l, i) = shown(app)?;
+    l.photos.get(i).cloned().ok_or_else(|| CmdError::Disabled(listing::EMPTY.into()))
+}
+
+fn toggle_star(app: &mut App, params: &Value) -> Result<Value, CmdError> {
+    no_params(params)?;
+    let p = changing(app)?;
+    app.run("viewer.star", &json!({ "path": p.path }))
+}
+
+fn rotate(app: &mut App, params: &Value, direction: &str) -> Result<Value, CmdError> {
+    no_params(params)?;
+    let p = changing(app)?;
+    app.run("viewer.rotate", &json!({ "path": p.path, "direction": direction }))
+}
+
+fn rotate_right(app: &mut App, params: &Value) -> Result<Value, CmdError> {
+    rotate(app, params, "cw")
+}
+
+fn rotate_left(app: &mut App, params: &Value) -> Result<Value, CmdError> {
+    rotate(app, params, "ccw")
+}
+
+fn trash(app: &mut App, params: &Value) -> Result<Value, CmdError> {
+    no_params(params)?;
+    let p = changing(app)?;
+    dialogs::delete::ask_viewer(app, &p.path)
 }
 
 fn open_in_dalica(app: &mut App, params: &Value) -> Result<Value, CmdError> {
     no_params(params)?;
-    open(app, params).map_err(CmdError::Disabled)?;
+    let p = changing(app)?;
     let session = app.session_mut().ok_or_else(|| CmdError::Disabled("The library is still opening.".into()))?;
-    let file = session.viewer().file().map(Path::to_path_buf).ok_or_else(|| CmdError::Disabled(NOT_OPEN.into()))?;
-    let id = session.open_in_dalica(&file)?;
-    Ok(json!({ "id": id }))
+    let id = session.open_in_dalica(&p.path)?;
+    app.state_mut().viewer = None;
+    app.run("view.edit", &json!({ "id": id }))
 }
 
-fn settings(_: &mut App, params: &Value) -> Result<Value, CmdError> {
+fn settings(app: &mut App, params: &Value) -> Result<Value, CmdError> {
     no_params(params)?;
-    Err(CmdError::Disabled(NOT_YET.into()))
+    dialogs::open(app, viewer_settings::dialog())
 }
 
-/// A scale `factor` times `zoom` (fitted counts as 1, the stub's stand-in until the viewer knows
-/// the fitted scale), within the zoom's range; a scale at or below 1 after zooming out is fitted.
-fn scaled(zoom: Zoom, factor: f32) -> Zoom {
-    let from = match zoom {
-        Zoom::Fit => 1.0,
-        Zoom::Scale(v) => v,
-    };
-    let to = from * factor;
-    if factor < 1.0 && to <= 1.0 { Zoom::Fit } else { Zoom::Scale(to.clamp(ZOOM_MIN, ZOOM_MAX)) }
+/// The fitted scale of the photo shown (1 before the viewer has drawn it).
+fn fit() -> f32 {
+    photo::fitted().unwrap_or(1.0)
 }
 
 fn zoom_in(app: &mut App, params: &Value) -> Result<Value, CmdError> {
     no_params(params)?;
-    with_viewer(app, |v| v.zoom = scaled(v.zoom, ZOOM_STEP))
+    let fit = fit();
+    with_viewer(app, |v| v.zoom = maths::step(maths::effective(v.zoom, fit), ZOOM_STEP, fit))
 }
 
 fn zoom_out(app: &mut App, params: &Value) -> Result<Value, CmdError> {
     no_params(params)?;
-    with_viewer(app, |v| v.zoom = scaled(v.zoom, 1.0 / ZOOM_STEP))
+    let fit = fit();
+    with_viewer(app, |v| v.zoom = maths::step(maths::effective(v.zoom, fit), 1.0 / ZOOM_STEP, fit))
 }
 
 fn actual_size(app: &mut App, params: &Value) -> Result<Value, CmdError> {
@@ -210,9 +326,11 @@ mod tests {
         assert_eq!(app.run("viewer.background", &json!({})).unwrap()["backdrop"], "opaque");
         assert_eq!(app.run("viewer.actualSize", &json!({})).unwrap()["zoom"], 1.0);
         assert_eq!(app.run("viewer.actualSize", &json!({})).unwrap()["zoom"], "fit");
+        // Before the viewer has drawn a photo its fitted scale counts as 1.
         assert_eq!(app.run("viewer.zoomIn", &json!({})).unwrap()["zoom"], 1.25);
         assert_eq!(app.run("viewer.zoomOut", &json!({})).unwrap()["zoom"], "fit");
-        assert!(matches!(app.run("viewer.next", &json!({})), Err(CmdError::Disabled(m)) if m == NOT_YET));
+        // No library: nothing to step through.
+        assert!(matches!(app.run("viewer.next", &json!({})), Err(CmdError::Disabled(m)) if m == listing::READING));
         app.run("viewer.close", &json!({})).unwrap();
         assert_eq!((app.state().view, app.state().viewer), (View::Library, None));
     }

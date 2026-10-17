@@ -6350,7 +6350,7 @@ and are never loosened. No other step of M11 needs a maintainer decision mid-run
     in A│A; switching with a crop panel open asks and Discard drops it; `\` down shows the original
     and up restores it; zooming one side zooms both; fingerprints of A│B side by side and above
     and below, A│A and the keep question at both window sizes.
-- ⬜ **M11.17 `ui`: the photo viewer**
+- ✅ **M11.17 `ui`: the photo viewer**
   - after: M11.2, M11.3, M11.10, M11.12
   - files: `crates/ui/src/panels/viewer.rs`, `crates/ui/src/panels/viewer/**`, `crates/ui/src/commands/viewer.rs`, `crates/ui/src/dialogs/viewer_settings.rs`, `crates/ui/src/dialogs/options/viewer.rs`, `crates/ui/tests/viewer.rs`, `crates/ui/tests/fingerprints/viewer-*.json`, `crates/ui/tests/fingerprints/dialog-viewer-settings-*.json`, `crates/ui/tests/fingerprints/dialog-options-viewer-*.json`
   - scope: `viewing.md` §3, with LightCraft `crates/ui-egui/src/panels/detail.rs` (the filmstrip,

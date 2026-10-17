@@ -9,6 +9,9 @@
 //!   it (including non-picture files) to the trash?" with [Move to Trash] [Cancel]; its draft is
 //!   `deleteFolder {folder}`.
 //!
+//! - **The photo viewer's Delete** ([`ask_viewer`]) asks the photo question for its one file,
+//!   with `viewer.delete {path}` as the command: Cancel changes nothing, not even the library.
+//!
 //! Move to Trash (the default) runs the command with `"confirm": true`; Cancel deletes nothing.
 //! Each asks once its command is registered (M9.15), unless Options → "Delete from disk without
 //! asking" (`"organize"` → `deleteWithoutAsking`) is on: then the command runs at once, as the
@@ -37,9 +40,37 @@ pub const FOLDER_TEXT: &str = "Move this folder and everything in it (including 
 pub const MOVE_TO_TRASH: &str = "Move to Trash";
 
 /// The photos `params` names: its `ids`, else the tray's (what the command acts on without them).
+/// The photo viewer's file (`viewer.delete {path}`) is the library's photo at that path when the
+/// library holds it, else none.
 fn photos(app: &App, params: &Value) -> Vec<PhotoId> {
+    if let Some(path) = params.get("path").and_then(Value::as_str).map(std::path::Path::new) {
+        let library = app.session().map(|s| s.library());
+        let own = library
+            .zip(path.parent())
+            .zip(path.file_name())
+            .and_then(|((l, folder), name)| l.folder_by_path(folder).and_then(|f| l.photo_by_name(f, &name.to_string_lossy())).map(|p| p.id));
+        return own.into_iter().collect();
+    }
     let named: Option<Vec<PhotoId>> = params.get("ids").and_then(|v| serde_json::from_value(v.clone()).ok());
     named.unwrap_or_else(|| crate::tray::photos(app.state()))
+}
+
+/// Asks the delete question for the photo viewer's file at `path` (`viewing.md` §3.2): "Move the
+/// selected picture to the trash?", whose Move to Trash runs `viewer.delete {path, confirm: true}`
+/// (the engine adds the folder of a photo outside the library then, never before); with "Delete
+/// from disk without asking" on, runs it at once. Replies `{dialog: "deletePhotos"}` when it asks.
+pub fn ask_viewer(app: &mut App, path: &std::path::Path) -> Result<Value, CmdError> {
+    let params = serde_json::json!({ "path": path });
+    if without_asking(app) {
+        return app.run("viewer.delete", &serde_json::json!({ "path": path, "confirm": true }));
+    }
+    let dialog = Dialog {
+        command: Some(super::DialogCommand { id: "viewer.delete".into(), params: params.clone() }),
+        ..Dialog::new(DialogKind::DeletePhotos)
+    };
+    let reply = super::open(app, dialog)?;
+    opened(app, DialogKind::DeletePhotos, &params);
+    Ok(reply)
 }
 
 /// The library folder `params.folder` names, if it is one.
@@ -73,7 +104,9 @@ pub fn folder_asks(app: &App, params: &Value) -> bool {
 pub use dalica_engine::cmd::delete::{folder_question, photos_question};
 
 pub fn photos_text(app: &App, params: &Value) -> Option<String> {
-    Some(photos_question(photos(app, params).len()))
+    // The photo viewer's file is one picture, whether the library holds it or not.
+    let n = if params.get("path").is_some() { 1 } else { photos(app, params).len() };
+    Some(photos_question(n))
 }
 
 pub fn folder_text(app: &App, params: &Value) -> Option<String> {
