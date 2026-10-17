@@ -158,6 +158,8 @@ fn every_part_is_there_with_its_size_at_both_window_sizes() {
                     assert_eq!(button.enabled, section == first, "{case}: Select Starred needs a starred photo in the section");
                 } else if b == Button::Export {
                     assert!(button.enabled, "{case}: Export opens the Export dialog (output.export, M8.4)");
+                } else if b == Button::Play {
+                    assert!(button.enabled, "{case}: Play plays a slideshow of the section (section.slideshow, M11.19)");
                 } else if b == Button::Save {
                     assert!(!button.enabled, "{case}: Save needs an unsaved edit in the folder (M8.19, `save_ui.rs`)");
                 } else {
@@ -254,7 +256,7 @@ fn a_right_click_opens_the_section_menu_with_later_items_disabled() {
     assert!(properties.enabled, "Edit Description… opens Folder Properties for the right-clicked section");
     let remove = items.iter().find(|w| w.id == "menuitem:folder.remove").unwrap();
     assert!(remove.enabled, "Remove from Dalica… asks about the right-clicked section's folder");
-    let live = ["menuitem:section.properties", "menuitem:folder.remove", "menuitem:folder.delete"];
+    let live = ["menuitem:section.properties", "menuitem:section.slideshow", "menuitem:folder.remove", "menuitem:folder.delete"];
     assert!(
         items.iter().filter(|w| !live.contains(&w.id.as_str())).all(|w| !w.enabled),
         "the items whose commands are not there yet are disabled: {ids:?}"

@@ -6386,7 +6386,7 @@ and are never loosened. No other step of M11 needs a maintainer decision mid-run
     three selected gives them its recipe; in the edit view a Paste is undone by the photo's Undo
     button; Undo All Edits asks and removes; Sepia is greyed with "Arrives with Effects"; the
     question's fingerprints at both window sizes.
-- ⬜ **M11.19 `ui`: the slideshow: what plays, the show, transitions and keys**
+- ✅ **M11.19 `ui`: the slideshow: what plays, the show, transitions and keys**
   - after: M11.2, M11.3, M11.4, M11.11
   - files: `crates/ui/src/panels/slideshow.rs`, `crates/ui/src/panels/slideshow/show.rs`, `crates/ui/src/panels/slideshow/transition.rs`, `crates/ui/src/commands/slideshow.rs`, `crates/ui/tests/slideshow.rs`, `crates/ui/tests/fingerprints/slideshow-*.json`
   - scope: `viewing.md` §1.1–§1.4 with M11.4's state machine and M11.11's list: the entries (View
