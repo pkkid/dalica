@@ -15,6 +15,7 @@ mod cells;
 mod clipboard;
 mod color_management;
 mod common;
+mod compare;
 mod control_batch;
 mod control_inspect;
 mod control_wait;

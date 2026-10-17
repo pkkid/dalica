@@ -164,10 +164,28 @@ fn editing(app: &App, _params: &Value) -> Result<(), String> {
     open_photo(app).map(|_| ()).ok_or_else(|| NOT_EDITING.into())
 }
 
-/// The photo open in the edit view; `None` in the library.
+/// The photo open in the edit view; `None` in the library. In A│B it is the focused side's photo
+/// (`editing.md` §4: edits apply to the focused side).
 pub fn open_photo(app: &App) -> Option<PhotoId> {
     let state = app.state();
-    if state.view == View::Edit { state.edit.photo } else { None }
+    if state.view != View::Edit {
+        return None;
+    }
+    match (state.edit.compare, state.edit.focus, state.edit.second) {
+        (Compare::Two, crate::state::Side::Right, Some(second)) if state.edit.photo.is_some() => Some(second),
+        _ => state.edit.photo,
+    }
+}
+
+/// The recipe of the focused side: the open photo's, or A│A's variant's while the right side has
+/// the focus (`editing.md` §4); `None` outside the edit view.
+pub fn focused_edits(app: &App) -> Option<Vec<String>> {
+    let photo = open_photo(app)?;
+    let s = app.session()?;
+    match s.variant().edits().filter(|_| super::compare::on_variant(app) && s.variant().photo() == Some(photo)) {
+        Some(v) => Some(v.to_vec()),
+        None => Some(s.library().info(photo).edits.clone()),
+    }
 }
 
 #[derive(Deserialize)]

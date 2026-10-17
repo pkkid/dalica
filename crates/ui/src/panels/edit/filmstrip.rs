@@ -5,6 +5,11 @@
 //! (`edit.previous`, `edit.next`) and are greyed at the section's ends. Slots before the first
 //! photo or after the last stay empty, so the photo shown is always in the middle.
 //!
+//! **Comparing** (`editing.md` §4): the strip is the focused side's. In A│B a click shows that
+//! photo on the focused side (`edit.comparePhoto`) and the arrows step that side
+//! (`commands::compare::route`); in A│A a click leaves for that photo, asking "Keep which
+//! version?" first when the two sides differ.
+//!
 //! **Sizes.** The strip's cells are [`CELL`] apart (the spec's 56 pt), so seven fit between the
 //! arrows at a 900 pt window and nine at 1400; the thumbnail in each is a [`THUMB`] square, the
 //! most the 40 pt bar holds with 4 pt above and below.
@@ -167,7 +172,9 @@ fn paint(strip: &mut Strip, app: &mut App, ui: &mut Ui, t: &Tokens, rect: Rect, 
         strip.means.retain(|id, _| slots.contains(&Some(*id)));
     }
     if let Some(id) = open {
-        let _ = app.run("view.edit", &json!({ "id": id.get() }));
+        // In A│B a click shows the photo on the focused side; otherwise it opens it.
+        let command = if crate::commands::compare::mode(app) == crate::state::Compare::Two { "edit.comparePhoto" } else { "view.edit" };
+        let _ = app.run(command, &json!({ "id": id.get() }));
     }
 }
 

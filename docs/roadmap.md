@@ -6330,7 +6330,7 @@ and are never loosened. No other step of M11 needs a maintainer decision mid-run
     selects its group; X excludes and the cell dims; Exclude duplicates leaves the library's
     photos out of the count; the preview's star and rotation reach `import.list`; Folder… with the
     scripted picker lists that folder; fingerprints at both window sizes.
-- ⬜ **M11.16 `ui`: compare, before/after and their two questions**
+- ✅ **M11.16 `ui`: compare, before/after and their two questions**
   - after: M11.2, M11.3, M11.10
   - files: `crates/ui/src/panels/edit/compare.rs`, `crates/ui/src/panels/edit/canvas.rs`, `crates/ui/src/panels/edit/filmstrip.rs`, `crates/ui/src/panels/edit/panel.rs`, `crates/ui/src/commands/compare.rs`, `crates/ui/src/dialogs/apply_changes.rs`, `crates/ui/src/dialogs/keep_version.rs`, `crates/ui/tests/compare.rs`, `crates/ui/tests/fingerprints/edit-compare-*.json`, `crates/ui/tests/fingerprints/dialog-keep-version-*.json`
   - scope: `editing.md` §4, with LightCraft `crates/ui-egui/src/panels/compare.rs`

@@ -8,6 +8,11 @@
 //! history, but its Save can be undone: Undo then reads "Undo Save", as `photo.history.state`
 //! answers (`undoSave: true`), and a click runs `photo.undoSave` on it, which puts the original
 //! back and its saved edits back as unsaved edits (`data-model.md` §6, M8.19).
+//!
+//! While comparing (`editing.md` §4) the pair is the focused side's: the focused photo's in A│B,
+//! and on A│A's right side the variant's history (`photo.history.state {variant: true}`, asked
+//! again only when the variant's recipe changes), whose steps the click walks
+//! (`commands::compare::route`).
 
 use dalica_core::PhotoId;
 use dalica_ui_kit::Tokens;
@@ -56,6 +61,28 @@ pub fn pair(app: &App, photo: Option<PhotoId>) -> Pair {
     Pair { undo: (h.undo_text(), h.undo_label.is_some()), redo, undo_save: false }
 }
 
+/// The pair of A│A's variant from its history (`photo.history.state {variant: true}`), asked again
+/// only when the variant's recipe changes (kept in the context's data with that recipe).
+fn variant_pair(app: &mut App, ctx: &egui::Context) -> Pair {
+    let Some(photo) = crate::commands::edit_view::open_photo(app) else { return Pair::default() };
+    let edits = crate::commands::edit_view::focused_edits(app).unwrap_or_default();
+    let id = Id::new(UNDO_ID).with("variant");
+    if let Some((p, e, pair)) = ctx.data(|d| d.get_temp::<(PhotoId, Vec<String>, Pair)>(id))
+        && p == photo
+        && e == edits
+    {
+        return pair;
+    }
+    let Some(state) = app.session_mut().and_then(|s| s.execute("photo.history.state", &json!({ "id": photo, "variant": true })).ok()) else {
+        return Pair::default();
+    };
+    let text = |k: &str, or: &str| state.get(k).and_then(serde_json::Value::as_str).unwrap_or(or).to_owned();
+    let flag = |k: &str| state.get(k).and_then(serde_json::Value::as_bool).unwrap_or(false);
+    let pair = Pair { undo: (text("undoLabel", "Undo"), flag("canUndo")), redo: (text("redoLabel", "Redo"), flag("canRedo")), undo_save: false };
+    ctx.data_mut(|d| d.insert_temp(id, (photo, edits, pair.clone())));
+    pair
+}
+
 /// Draws the pair into `ui`'s rect.
 pub fn show(app: &mut App, ui: &mut Ui) {
     let t = *app.tokens();
@@ -63,10 +90,11 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let half = ((rect.width() - GAP) / 2.0).max(0.0).floor();
     let undo_rect = Rect::from_min_size(rect.min, vec2(half, rect.height()));
     let redo_rect = Rect::from_min_max(pos2(rect.max.x - half, rect.min.y), rect.max);
-    let p = pair(app, app.state().edit.photo);
+    let photo = crate::commands::edit_view::open_photo(app);
+    let p = if crate::commands::compare::on_variant(app) { variant_pair(app, ui.ctx()) } else { pair(app, photo) };
     let undo = button(ui, &t, UNDO_ID, &p.undo.0, undo_rect, p.undo.1, UNDO_TIP).clicked();
     let redo = button(ui, &t, REDO_ID, &p.redo.0, redo_rect, p.redo.1, REDO_TIP).clicked();
-    let run = match (undo, redo, app.state().edit.photo) {
+    let run = match (undo, redo, photo) {
         (true, _, Some(photo)) if p.undo_save => app.run("photo.undoSave", &json!({ "ids": [photo] })),
         (true, _, _) => app.run("edit.history.undo", &json!({})),
         (false, true, _) => app.run("edit.history.redo", &json!({})),
