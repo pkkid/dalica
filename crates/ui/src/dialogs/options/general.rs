@@ -14,16 +14,19 @@
 //!           UI font size:  [Small ▾]
 //!               Language:  [System ▾]                        (disabled: Arrives with translations)
 //!  ───────────────────────────────────────────────────────────
-//!                  Files:  [x] Detect duplicates while importing   (disabled: Arrives with Import)
+//!                  Files:  [x] Detect duplicates while importing
 //!                          [ ] Delete from disk without asking
 //!                          …
 //!  ───────────────────────────────────────────────────────────
-//! Save imported pictures in:  [The Pictures folder      ] [Browse…]   (disabled: Arrives with Import)
+//! Save imported pictures in:  [/home/ana/Pictures       ] [Browse…]
 //! ```
 //!
 //! Each group's on/off options are checkboxes under the group's label, every other option a row of
 //! its own labelled with its name: UI scale and font size and Language as dropdowns, a folder as
-//! its path and Browse…. An option whose feature does not exist yet is drawn disabled with its
+//! its path and Browse…. The import folder shows the folder stored, else the Pictures folder as
+//! the field's hint (the folder the Import room's "Import to:" starts from); Browse… opens the
+//! folder picker off the UI thread in the folder shown, and the folder chosen goes into the draft
+//! through `app.preferences.folder` (over automation `ui.filePicker {path}` answers it). An option whose feature does not exist yet is drawn disabled with its
 //! reason as the tooltip; an option of another platform is left out. The body scrolls (by the
 //! wheel) when the dialog is shorter than the tab.
 //!
@@ -36,9 +39,9 @@
 //! (`check:option.interface.tooltips`), a dropdown `choice:option.<key>` and its items
 //! `choice:option.<key>/<value>` (`choice:option.interface.uiScale/150`,
 //! `choice:option.interface.fontSize/large`), a folder's path `field:option.<key>` and its Browse…
-//! `button:option.<key>/browse`. A folder option becomes available with Import; until then its
-//! Browse… is drawn disabled.
+//! `button:option.<key>/browse`.
 
+use dalica_engine::Session;
 use dalica_engine::keymap::Platform;
 use dalica_engine::options::{Tab, on_tab};
 use dalica_engine::settings::Settings;
@@ -48,6 +51,7 @@ use egui::Ui;
 use serde_json::{Map, Value, json};
 
 use crate::app::App;
+use crate::picker::FolderRequest;
 use crate::state::{FontChoice, ScaleChoice};
 
 /// The tab's groups, in order.
@@ -56,6 +60,24 @@ pub const GROUPS: [&str; 3] = ["Interface", "Files", "Import"];
 /// The settings keys whose choice previews live.
 pub const UI_SCALE: &str = "interface.uiScale";
 pub const FONT_SIZE: &str = "interface.fontSize";
+
+/// The command a folder option's picker runs with the folder chosen (`{key, path}`): it puts the
+/// folder into the open dialog's draft.
+pub const FOLDER_COMMAND: &str = "app.preferences.folder";
+/// The title of the folder picker Browse… opens.
+pub const BROWSE_TITLE: &str = "Save Imported Pictures In";
+/// The space kept for Browse… beside a folder's path (points).
+const BROWSE_W: f32 = 90.0;
+
+/// The folder picker Browse… opens for folder option `key` showing `value`: it starts in that
+/// folder, else in `default` (the Pictures folder), and the folder chosen runs
+/// [`FOLDER_COMMAND`] with `key` (over automation it is checked as a place to write: pictures are
+/// copied into it).
+pub fn browse_request(key: &str, value: &Value, default: Option<&std::path::Path>) -> FolderRequest {
+    let shown = value.as_str().map(std::path::PathBuf::from).filter(|p| p.is_absolute());
+    let folder = shown.or_else(|| default.filter(|p| p.is_absolute()).map(std::path::Path::to_path_buf));
+    FolderRequest { title: BROWSE_TITLE, folder, command: FOLDER_COMMAND, params: json!({ "key": key }), output: true }
+}
 
 /// One option of the tab, as `options.list` gives it.
 #[derive(Debug, Clone, PartialEq)]
@@ -161,12 +183,21 @@ pub fn set(app: &mut App, row: &Row, value: Value) {
     }
 }
 
+/// What the form draws besides the rows: the folder a folder option shows while none is chosen
+/// (the Pictures folder), and whether Browse… can open a picker now.
+struct Env {
+    default_folder: Option<std::path::PathBuf>,
+    can_browse: bool,
+}
+
 pub fn body(app: &mut App, ui: &mut Ui) {
     let rows = rows(app);
     let draft = app.state().options.as_ref().map(|o| o.values.clone()).unwrap_or_default();
     let t = *app.tokens();
     let height = ui.available_height();
-    let mut changes: Vec<(usize, Value)> = Vec::new();
+    // With no folder stored, `import_folder` is the Pictures folder.
+    let env = Env { default_folder: app.session().and_then(Session::import_folder), can_browse: app.can_pick().is_ok() };
+    let mut out: (Vec<(usize, Value)>, Option<usize>) = (Vec::new(), None);
     // A solid bar, shown whenever the tab is taller than the dialog, so the rows below are not
     // missed (egui's floating one shows only on hover).
     ui.spacing_mut().scroll = egui::style::ScrollStyle::solid();
@@ -175,10 +206,17 @@ pub fn body(app: &mut App, ui: &mut Ui) {
         .max_height(height)
         .auto_shrink([false, false])
         .scroll_source(egui::scroll_area::ScrollSource::MOUSE_WHEEL)
-        .show(ui, |ui| changes = form(ui, &t, &rows, &draft));
+        .show(ui, |ui| out = form(ui, &t, &rows, &draft, &env));
+    let (changes, browse) = out;
     for (i, value) in changes {
         if let Some(row) = rows.get(i) {
             set(app, row, value);
+        }
+    }
+    if let Some(row) = browse.and_then(|i| rows.get(i)) {
+        let request = browse_request(&row.key, shown(row, &draft), env.default_folder.as_deref());
+        if let Err(why) = app.pick_folder_for(request) {
+            app.state_mut().status = why;
         }
     }
 }
@@ -188,13 +226,15 @@ fn shown<'a>(row: &'a Row, draft: &'a Map<String, Value>) -> &'a Value {
     draft.get(&row.key).unwrap_or(&row.saved)
 }
 
-/// Draws the groups; returns the values changed this pass, by row.
-fn form(ui: &mut Ui, t: &Tokens, rows: &[Row], draft: &Map<String, Value>) -> Vec<(usize, Value)> {
+/// Draws the groups; returns the values changed this pass, by row, and the folder row whose
+/// Browse… was clicked.
+fn form(ui: &mut Ui, t: &Tokens, rows: &[Row], draft: &Map<String, Value>, env: &Env) -> (Vec<(usize, Value)>, Option<usize>) {
     let group_labels: Vec<String> = GROUPS.iter().map(|g| format!("{g}:")).collect();
     let row_labels: Vec<String> = rows.iter().filter(|r| r.kind != "bool").map(|r| format!("{}:", r.label)).collect();
     let labels: Vec<&str> = group_labels.iter().chain(&row_labels).map(String::as_str).collect();
     let form = Form::new(ui, t, &labels);
     let mut changes = Vec::new();
+    let mut browse = None;
     let mut first = true;
     for group in GROUPS {
         let in_group: Vec<(usize, &Row)> = rows.iter().enumerate().filter(|(_, r)| r.group == group).collect();
@@ -223,7 +263,11 @@ fn form(ui: &mut Ui, t: &Tokens, rows: &[Row], draft: &Map<String, Value>) -> Ve
             let label = format!("{}:", row.label);
             form_group(ui, row.reason.is_none(), |ui| {
                 form.row(ui, t, &label, |ui| match row.kind.as_str() {
-                    "folder" => folder(ui, t, row, shown(row, draft)),
+                    "folder" => {
+                        if folder(ui, t, row, shown(row, draft), env) {
+                            browse = Some(i);
+                        }
+                    }
                     _ => {
                         if let Some(v) = choice(ui, t, row, shown(row, draft)) {
                             changes.push((i, v));
@@ -233,7 +277,7 @@ fn form(ui: &mut Ui, t: &Tokens, rows: &[Row], draft: &Map<String, Value>) -> Ve
             });
         }
     }
-    changes
+    (changes, browse)
 }
 
 /// A dropdown of `row`'s choices showing `value`; returns the choice picked this pass.
@@ -256,22 +300,30 @@ fn choice(ui: &mut Ui, t: &Tokens, row: &Row, value: &Value) -> Option<Value> {
     picked
 }
 
-/// A folder option: its path (the hint while it is the default folder) and Browse…, which the
-/// folder options of this tab do not have yet (they arrive with Import).
-fn folder(ui: &mut Ui, t: &Tokens, row: &Row, value: &Value) {
+/// A folder option: its path (while none is chosen, the default folder as the hint: the Pictures
+/// folder, else the row's hint) and Browse…; returns whether Browse… was clicked.
+fn folder(ui: &mut Ui, t: &Tokens, row: &Row, value: &Value, env: &Env) -> bool {
     let mut path = value.as_str().unwrap_or_default().to_string();
-    let placeholder = if row.hint.is_empty() { "The default folder" } else { row.hint.as_str() };
+    let default = env.default_folder.as_ref().map(|p| p.display().to_string());
+    let placeholder = match &default {
+        Some(d) => d.as_str(),
+        None if row.hint.is_empty() => "The default folder",
+        None => row.hint.as_str(),
+    };
+    let available = row.reason.is_none();
     ui.horizontal(|ui| {
-        let browse_w = 90.0;
-        let w = (ui.available_width() - browse_w - ui.spacing().item_spacing.x).max(60.0);
+        let w = (ui.available_width() - BROWSE_W - ui.spacing().item_spacing.x).max(60.0);
         // Shown, not typed in: a folder is chosen with Browse….
         let field = form_group(ui, false, |ui| TextField::new(&control_id("folder", &row.key), placeholder, w).show(ui, t, &mut path));
-        let browse = form_group(ui, false, |ui| text_button(ui, t, &format!("button:option.{}/browse", row.key), "Browse…", false));
+        let browse =
+            form_group(ui, available && env.can_browse, |ui| text_button(ui, t, &format!("button:option.{}/browse", row.key), "Browse…", false));
         if let Some(reason) = &row.reason {
             tooltip(field.response, t, reason, None);
-            tooltip(browse, t, reason, None);
+            return tooltip(browse, t, reason, None).clicked();
         }
-    });
+        browse.clicked()
+    })
+    .inner
 }
 
 /// A stub tab's lines: its groups, then the draft's changed values (`key: value`), so the draft is
