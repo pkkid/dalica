@@ -6284,7 +6284,7 @@ and are never loosened. No other step of M11 needs a maintainer decision mid-run
     verified copied files (one changed on the card since its copy stays), is refused through the
     automation policy and without `confirm`, and disables the undo with its reason; the owner
     thread made no `fs` call; graceful failures; `panic_hunt` green.
-- ⬜ **M11.11 `engine`: what a slideshow plays, and transitions that never wait on disk**
+- ✅ **M11.11 `engine`: what a slideshow plays, and transitions that never wait on disk**
   - after: M11.4, M11.10
   - files: `crates/engine/src/cmd/slideshow.rs`, `crates/engine/tests/slideshow.rs`
   - scope: `viewing.md` §1.1–§1.2 with M11.4's sequencing: `slideshow.list {section?, ids?,
