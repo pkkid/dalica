@@ -168,9 +168,7 @@
 // version, and the file sizes in bytes, which the jq one-liner there prints from GitHub.
 var RELEASE = {
   version: "0.5.0",
-  // TODO(maintainer): the sizes, once v0.5.0 is published on GitHub (website/README.md → Releasing a new version);
-  // the links name v0.5.0 files, so deploy only after that release is out. No sizes are shown meanwhile.
-  sizes: {}
+  sizes: {"SHA256SUMS.txt":1605,"dalica-cli-{v}-macos-universal.zip":21220663,"dalica-{v}-linux-aarch64.AppImage":22321672,"dalica-{v}-linux-aarch64.AppImage.zsync":76541,"dalica-{v}-linux-aarch64.deb":24825532,"dalica-{v}-linux-aarch64.flatpak":14560872,"dalica-{v}-linux-aarch64.rpm":24580584,"dalica-{v}-linux-aarch64.tar.gz":23674271,"dalica-{v}-linux-x86_64.AppImage":24783352,"dalica-{v}-linux-x86_64.AppImage.zsync":84953,"dalica-{v}-linux-x86_64.deb":26920452,"dalica-{v}-linux-x86_64.flatpak":17065304,"dalica-{v}-linux-x86_64.rpm":26749727,"dalica-{v}-linux-x86_64.tar.gz":26271842,"dalica-{v}-macos-universal.dmg":28246906,"dalica-{v}-windows-x64-portable.zip":24974623,"dalica-{v}-windows-x64.msi":19300352}
 };
 
 // Download links: every [data-file] names its file with {v} for the version. Without this script

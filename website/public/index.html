@@ -34,7 +34,7 @@
 <canvas id="hexfield" aria-hidden="true"></canvas>
 <nav><div class="wrap">
   <a class="brand" href="#top"><img src="/img/icon.svg" alt="">Dalíca</a>
-  <ul><li><a href="#features">Features</a></li><li><a href="#screens">Screenshots</a></li><li><a href="#agents">CLI</a></li><li><a href="#roadmap">Roadmap</a></li><li><a href="#bugs">Report a bug</a></li><li><a href="https://github.com/pkkid/dalica">GitHub</a></li><li><a href="#download">Download</a></li></ul>
+  <ul><li><a href="#features">Features</a></li><li><a href="#agents">CLI</a></li><li><a href="#roadmap">Roadmap</a></li><li><a href="#bugs">Report a bug</a></li><li><a href="https://github.com/pkkid/dalica">GitHub</a></li><li><a href="#download">Download</a></li></ul>
 </div></nav>
 
 <header class="hero wrap" id="top">
@@ -66,7 +66,7 @@
 
 
 <section class="wrap" id="numbers">
-  <div class="head" data-hex="left"><div><span class="label">Measured, not promised</span><h2>Fast where it counts.</h2></div><span class="label">From the project's own benchmarks</span></div>
+  <div class="head" data-hex="left"><div><span class="label">Benchmarks</span><h2>Fast where it counts.</h2></div><span class="label">Release builds, measured on every release</span></div>
   <div class="stats">
     <div class="stat-cell rise"><div class="big-num"><span class="count" data-to="100000" data-sep="1">100,000</span></div><h3>photos scroll smoothly</h3><p>0.26 ms per frame (p95), budget 8 ms</p></div>
     <div class="stat-cell rise"><div class="big-num"><span class="count" data-to="292">292</span><small>ms</small></div><h3>to save the edits of a 24 MP photo</h3><p>release build, budget 1,050 ms on two cores</p></div>
@@ -120,16 +120,6 @@
 <span class="c">&lt;/rdf:Description&gt;</span></pre></div>
   </div>
   <p class="fine">Add a tag in Dalíca and it is written into the photo itself, as XMP <code>dc:subject</code> and IPTC keywords, so any photo app that reads standard metadata sees it. Fields written by other programs are kept exactly as they were.</p>
-</section>
-
-<section class="wrap" id="screens">
-  <div class="head"><div><span class="label">Screenshots</span><h2>Quiet chrome, loud photos.</h2></div><span class="label">Real captures · generated and CC0 photos</span></div>
-  <div class="shots" data-hex="left">
-    <div class="shot"><div class="txt"><span class="label">Save</span><h3>Saving asks once, and says how to go back</h3><p>A folder's header counts the photos with unsaved edits and saves them all in one go. The first time, Dalíca explains where the original goes; tick the box and it never asks again.</p></div><div class="frame"><img src="/img/crop-save.jpg" alt="Close-up: the Save dialog over the Hills folder, explaining that the original is kept unchanged in a hidden .dalica-originals folder so Undo Save and Revert can bring it back, with a Don't show this again box; the folder header behind it reads 2 edited, with a Save button" width="1520" height="820" loading="lazy"></div></div>
-    <div class="shot"><div class="txt"><span class="label">Export</span><h3>Exports run in the background</h3><p>A small window counts the photos as they are written, and you can keep working. Cancel stops after the current photo and leaves only complete files.</p></div><div class="frame"><img src="/img/crop-export.jpg" alt="Close-up: the Exporting window at the top right of the library, reading Exporting 18 of 60 with a progress bar and a Cancel button, over a row of thumbnails" width="1500" height="560" loading="lazy"></div></div>
-    <div class="shot"><div class="txt"><span class="label">Projects</span><h3>Every export is easy to find again</h3><p>Exported folders are listed under Projects in the folder tree, wherever you put them. Show Folder opens the new folder as soon as the export ends.</p></div><div class="frame"><img src="/img/crop-projects.jpg" alt="Close-up: the folder tree with Hills for the web under Projects above the three folders, the Hills folder with 2 edited and a Save button, pencil badges on the edited thumbnails, and a notice reading Exported 20 pictures with a Show Folder button" width="2000" height="825" loading="lazy"></div></div>
-    <div class="shot"><div class="txt"><span class="label">Crop</span><h3>Three crops to start from</h3><p>Pick a shape, from the photo's own to 4 × 6 prints or a ratio of your own, and Dalíca suggests three crops. Click one, or drag the rectangle where you want it.</p></div><div class="frame"><img src="/img/crop-crop.jpg" alt="Close-up: the Crop Photo panel with the 16:9 shape chosen and three suggested crops of a mountain summit, and the crop rectangle drawn on the photo with the rest dimmed" width="1500" height="765" loading="lazy"></div></div>
-  </div>
 </section>
 
 <section class="wrap" id="agents">
