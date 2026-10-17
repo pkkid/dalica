@@ -95,7 +95,12 @@ pub const DIALOGS: &[(&str, &str)] = &[
     ("search.saveAsAlbum", "albumProperties"),
     ("app.preferences", "options"),
     ("app.shortcuts", "options"),
+    ("edit.undoAll", "undoAllEdits"),
+    ("viewer.settings", "viewerSettings"),
 ];
+
+/// `…` items that open a room rather than a dialog (`ui-layout.md` §8): live without one.
+pub const ROOM_OPENERS: &[&str] = &["import.open"];
 
 /// The dialog an item running `id` opens in a section of `kind`: [`DIALOGS`]'s, but Album
 /// Properties for `section.properties` on an album.
@@ -363,7 +368,7 @@ fn item_node(facts: &Facts<'_>, i: &'static Item) -> ItemNode {
     // An opener's item is live with its dialog, before its engine command is (the dialog's
     // default button then says the command is not there yet).
     let registered = ui_command || spec.is_some() || crate::commands::opener(id).is_some();
-    let live = registered && (dialog.is_some() || !i.label.ends_with('…'));
+    let live = registered && (dialog.is_some() || !i.label.ends_with('…') || ROOM_OPENERS.contains(&id));
     let refuse = |why: &str| (false, Some(why.to_string()));
     let (enabled, reason) = if !live {
         refuse("Not available yet.")
@@ -468,6 +473,8 @@ fn shortcut(facts: &Facts<'_>, i: &Item, id: &str, registered: bool) -> Option<S
             let (here, there) = match facts.app.state().view {
                 View::Library => (Context::Library, Context::EditView),
                 View::Edit => (Context::EditView, Context::Library),
+                View::Slideshow => (Context::Slideshow, Context::Library),
+                View::Viewer => (Context::PhotoViewer, Context::Library),
             };
             let elsewhere = UI_COMMANDS.iter().find(|c| c.id == id).is_some_and(|c| c.keys.iter().all(|(k, _)| *k != here && *k != Context::Global));
             let contexts: &[Context] = if elsewhere { &[here, Context::Global, there] } else { &[here, Context::Global] };

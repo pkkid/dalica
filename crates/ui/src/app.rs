@@ -451,10 +451,11 @@ impl App {
         // Esc ends a drag of photos before any shortcut sees it.
         crate::drag::escape(self, ui.ctx());
         let keys = if self.state.dialogs.is_empty() {
-            // The edit view resolves keys in its own context, the open tool first.
-            match self.state.view {
-                crate::state::View::Library => crate::keys::dispatch(self, ui.ctx()),
-                crate::state::View::Edit => crate::commands::edit_view::dispatch(self, ui.ctx()),
+            // The edit view resolves keys in its own context, the open tool first; the library, a
+            // room, a slideshow and the viewer in theirs (`keys::view_context`).
+            match crate::keys::view_context(&self.state) {
+                dalica_engine::Context::EditView => crate::commands::edit_view::dispatch(self, ui.ctx()),
+                _ => crate::keys::dispatch(self, ui.ctx()),
             };
             Vec::new()
         } else {
@@ -479,10 +480,7 @@ impl App {
         }
         // Toasts at the bottom of the light table (the photo area in the edit view), over the panels
         // and under any dialog.
-        let area = match self.state.view {
-            crate::state::View::Library => panels::layout::compute(ui.max_rect(), &self.state).light_table,
-            crate::state::View::Edit => panels::layout::compute_edit(ui.max_rect(), &self.state).toast_area(),
-        };
+        let area = panels::toast_area(ui.max_rect(), &self.state);
         self.notices.show(ui, &self.tokens, area, now);
         crate::dialogs::show(self, ui.ctx());
         self.tooltip = tooltip_text(ui.ctx());

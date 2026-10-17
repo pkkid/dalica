@@ -17,6 +17,12 @@
 //! While a key cell of the shortcut editor records (Options ▸ Keyboard Shortcuts), every key press
 //! is the editor's ([`capture_for_editor`]): neither the keymap nor the dialog's Esc and Enter see
 //! it.
+//!
+//! The view context follows what fills the window ([`view_context`], `menus-and-shortcuts.md`
+//! §2.0): a slideshow resolves keys in Slideshow, the photo viewer in Photo viewer, the Import room
+//! in front in Import, the library in Library (the edit view resolves its own, the open tool first,
+//! `crate::commands::edit_view::dispatch`). Only the library routes Delete by section and to the
+//! focused tree.
 
 use dalica_engine::keymap::DefaultKeys;
 use dalica_engine::{Context, Key, Session};
@@ -208,11 +214,28 @@ pub fn capture_for_editor(app: &mut App, ctx: &egui::Context) -> bool {
     true
 }
 
-/// Runs the commands bound to this frame's key presses. Returns the ids that ran (or were refused;
-/// a refusal's reason is on the status line).
+/// The view context a key press is resolved in (then Global): what fills the window. A slideshow and
+/// the photo viewer fill it whatever room is in front; otherwise the room in front, and in the
+/// Library tab the library or the edit view.
+pub fn view_context(state: &crate::state::UiState) -> Context {
+    use crate::state::{Room, View};
+    match (state.view, state.room) {
+        (View::Slideshow, _) => Context::Slideshow,
+        (View::Viewer, _) => Context::PhotoViewer,
+        (_, Room::Import) => Context::Import,
+        (View::Edit, Room::Library) => Context::EditView,
+        (View::Library, Room::Library) => Context::Library,
+    }
+}
+
+/// Runs the commands bound to this frame's key presses in the [view context](view_context) (the
+/// library, a slideshow, the photo viewer, a room; not the edit view, which dispatches its own).
+/// Returns the ids that ran (or were refused; a refusal's reason is on the status line).
 pub fn dispatch(app: &mut App, ctx: &egui::Context) -> Vec<String> {
+    let context = view_context(app.state());
+    let library = context == Context::Library;
     // With the library tree focused, its pane moves its own selection with the plain arrows.
-    let tree_focused = crate::panels::folders::has_focus(ctx);
+    let tree_focused = library && crate::panels::folders::has_focus(ctx);
     let presses: Vec<Key> = ctx.input(|i| {
         i.events
             .iter()
@@ -228,13 +251,13 @@ pub fn dispatch(app: &mut App, ctx: &egui::Context) -> Vec<String> {
     let text_input = ctx.egui_wants_keyboard_input();
     // While a text field has the focus, the view's shortcuts are off (Ctrl+8, Ctrl+A, Ctrl+Z are
     // the field's or nothing): Text input, then Global.
-    let view = if text_input { Context::Global } else { Context::Library };
+    let view = if text_input { Context::Global } else { context };
     let mut ran = Vec::new();
     for key in presses {
         let bound = app.session().and_then(|s| s.keymap().resolve(&key, view, text_input));
         // Delete and Ctrl+Delete are the library's, never a text field's; Delete in the focused
         // tree is the folder's.
-        let routed = if text_input {
+        let routed = if text_input || !library {
             bound
         } else {
             tree_delete_route(app, &key, bound.as_deref(), tree_focused).map(str::to_string).or_else(|| route(app, &key, bound))

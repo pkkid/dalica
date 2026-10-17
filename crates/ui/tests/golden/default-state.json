@@ -22,9 +22,13 @@
   "edit": {
     "compare": "one",
     "crop": null,
+    "focus": "left",
+    "layout": "sideBySide",
     "panelVisible": true,
     "photo": null,
     "retouch": null,
+    "second": null,
+    "showOriginal": false,
     "straighten": null,
     "tab": "basic",
     "tool": null,
@@ -38,14 +42,29 @@
   "folderSortReverse": false,
   "fullScreen": false,
   "hiddenPictures": false,
+  "import": {
+    "destination": {
+      "after": "leave",
+      "folderName": null,
+      "place": null
+    },
+    "focus": null,
+    "preview": null,
+    "selection": []
+  },
   "moveFiles": null,
   "newFolder": null,
   "options": null,
   "pane": null,
   "paneLarge": false,
+  "peek": null,
   "propertiesShowAll": false,
   "renameFiles": null,
   "revert": null,
+  "room": "library",
+  "rooms": [
+    "library"
+  ],
   "saveExplain": null,
   "scroll": {
     "offset": 0.0,
@@ -69,6 +88,7 @@
     "section": null,
     "whole": false
   },
+  "slideshow": null,
   "smallPictures": false,
   "status": "",
   "tagsPane": {
@@ -82,5 +102,6 @@
   },
   "treeMode": "flat",
   "treeWidth": 240.0,
-  "view": "library"
+  "view": "library",
+  "viewer": null
 }

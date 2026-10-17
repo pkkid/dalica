@@ -17,6 +17,10 @@ pub enum View {
     Library,
     /// One photo, with the edit panel (`editing.md`); [`UiState::edit`] says which.
     Edit,
+    /// A slideshow fills the window (`viewing.md` §1); [`UiState::slideshow`] says what plays.
+    Slideshow,
+    /// The standalone photo viewer (`viewing.md` §3); [`UiState::viewer`] says which photo.
+    Viewer,
 }
 
 /// A user album's id ([`AlbumId`]: `a` and 4 to 16 lowercase hex digits) in a form that is `Copy`,
@@ -551,10 +555,24 @@ pub enum DialogKind {
     Options,
     /// "Reset this folder's data?" (`folder.resetData`, the damaged folder's banner; M10.52).
     ResetFolderData,
+    /// "Keep which version?" [Left] [Right] [Cancel], leaving A│A with sides that differ
+    /// (`editing.md` §4; M11.16).
+    KeepVersion,
+    /// "Apply changes to the current photo?" [Apply] [Discard] [Cancel], switching photos with a
+    /// tool open (`editing.md` §4; M11.16).
+    ApplyChanges,
+    /// "Remove all edits from %d pictures?" [Remove Edits] [Cancel] (`edit.undoAll`; M11.18).
+    UndoAllEdits,
+    /// "Remove the imported files from the card? This cannot be undone." [Remove Imported Files]
+    /// [Keep Files] (`organizing.md` §3; M11.20).
+    RemoveFromCard,
+    /// The photo viewer's Settings (⋯ ▸ Settings…, Tools ▸ Configure Photo Viewer…, `viewing.md`
+    /// §3.3; M11.17).
+    ViewerSettings,
 }
 
 impl DialogKind {
-    pub const ALL: [DialogKind; 27] = [
+    pub const ALL: [DialogKind; 32] = [
         DialogKind::ClearTray,
         DialogKind::FolderManager,
         DialogKind::FirstRun,
@@ -582,6 +600,11 @@ impl DialogKind {
         DialogKind::DeleteFolder,
         DialogKind::Options,
         DialogKind::ResetFolderData,
+        DialogKind::KeepVersion,
+        DialogKind::ApplyChanges,
+        DialogKind::UndoAllEdits,
+        DialogKind::RemoveFromCard,
+        DialogKind::ViewerSettings,
     ];
 
     /// The kind as the protocol writes it (`clearTray`), the `<kind>` of `dialog:<kind>`.
@@ -614,6 +637,11 @@ impl DialogKind {
             DialogKind::DeleteFolder => "deleteFolder",
             DialogKind::Options => "options",
             DialogKind::ResetFolderData => "resetFolderData",
+            DialogKind::KeepVersion => "keepVersion",
+            DialogKind::ApplyChanges => "applyChanges",
+            DialogKind::UndoAllEdits => "undoAllEdits",
+            DialogKind::RemoveFromCard => "removeFromCard",
+            DialogKind::ViewerSettings => "viewerSettings",
         }
     }
 
@@ -705,6 +733,26 @@ pub enum Compare {
     One,
     Two,
     Same,
+}
+
+/// The side of a compare mode that has the focus (`editing.md` §4): the one tools, Undo and the
+/// filmstrip act on. In the stacked layout `left` is the top side and `right` the bottom one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum Side {
+    #[default]
+    Left,
+    Right,
+}
+
+/// How a compare mode places its two sides (Switch Layout, ⇅): side by side, or one above the
+/// other.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum CompareLayout {
+    #[default]
+    SideBySide,
+    Stacked,
 }
 
 /// The smallest and largest zoom scale kept (relative to the photo's actual pixels: 1 is 100 %,
@@ -855,6 +903,19 @@ pub struct EditState {
     pub retouch: Option<RetouchDraft>,
     #[serde(default)]
     pub tuning: Option<TuningDraft>,
+    /// A│B's second photo, on the right (or bottom) side; `photo` is on the left (or top). `null`
+    /// outside A│B (M11).
+    #[serde(default)]
+    pub second: Option<PhotoId>,
+    /// The compare side with the focus (M11).
+    #[serde(default)]
+    pub focus: Side,
+    /// The compare modes' layout (M11).
+    #[serde(default)]
+    pub layout: CompareLayout,
+    /// Before/after: the focused side is shown unedited while `\` or Show original is held (M11).
+    #[serde(default)]
+    pub show_original: bool,
 }
 
 impl Default for EditState {
@@ -870,6 +931,10 @@ impl Default for EditState {
             straighten: None,
             retouch: None,
             tuning: None,
+            second: None,
+            focus: Side::Left,
+            layout: CompareLayout::SideBySide,
+            show_original: false,
         }
     }
 }
@@ -899,6 +964,9 @@ impl EditState {
         }
         if self.tool.is_some() && self.photo.is_none() {
             return Err("`edit.tool` needs `edit.photo`".into());
+        }
+        if self.second.is_some() && self.photo.is_none() {
+            return Err("`edit.second` needs `edit.photo`".into());
         }
         if let Some(c) = &self.crop {
             if !is_ratio(&c.ratio) {
@@ -952,6 +1020,8 @@ impl EditState {
         }
         if self.photo.is_none() {
             self.close_tools();
+            self.second = None;
+            self.show_original = false;
         }
         if let Some(c) = &mut self.crop {
             if !is_ratio(&c.ratio) {
@@ -1463,28 +1533,35 @@ pub struct DeleteFolder {
     pub folder: FolderId,
 }
 
-/// The tabs of the Options dialog (`menus-and-shortcuts.md` §5) that exist: the four whose options
-/// exist (Slideshow, Network, People and Photo Viewer join with their milestones). Named as in
-/// their widget ids (`tab:options.fileTypes`).
+/// The tabs of the Options dialog (`menus-and-shortcuts.md` §5) that exist, in its order: the six
+/// whose options exist (Network and People join with their milestones). Named as in their widget
+/// ids (`tab:options.fileTypes`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum OptionsTab {
     #[default]
     General,
     FileTypes,
+    /// Slideshow (`viewing.md` §1.5; M11).
+    Slideshow,
+    /// Photo Viewer (`viewing.md` §3.3; M11).
+    Viewer,
     Export,
     /// Keyboard Shortcuts: the shortcut editor (`menus-and-shortcuts.md` §2.0).
     Shortcuts,
 }
 
 impl OptionsTab {
-    pub const ALL: [OptionsTab; 4] = [OptionsTab::General, OptionsTab::FileTypes, OptionsTab::Export, OptionsTab::Shortcuts];
+    pub const ALL: [OptionsTab; 6] =
+        [OptionsTab::General, OptionsTab::FileTypes, OptionsTab::Slideshow, OptionsTab::Viewer, OptionsTab::Export, OptionsTab::Shortcuts];
 
     /// The tab as the protocol writes it (`fileTypes`), the `<tab>` of `tab:options.<tab>`.
     pub fn name(self) -> &'static str {
         match self {
             OptionsTab::General => "general",
             OptionsTab::FileTypes => "fileTypes",
+            OptionsTab::Slideshow => "slideshow",
+            OptionsTab::Viewer => "viewer",
             OptionsTab::Export => "export",
             OptionsTab::Shortcuts => "shortcuts",
         }
@@ -1766,6 +1843,229 @@ impl OptionsDraft {
     }
 }
 
+// ---------------------------------------------------------------------------------------------
+// M11: the rooms, the Import room, the slideshow, the quick preview and the photo viewer
+// ---------------------------------------------------------------------------------------------
+
+/// A room: a tab of the room strip (`ui-layout.md` §8), named as in its widget id
+/// (`tab:room.import`). The Library tab is always there; Collage joins with its milestone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum Room {
+    #[default]
+    Library,
+    Import,
+}
+
+impl Room {
+    pub const ALL: [Room; 2] = [Room::Library, Room::Import];
+
+    /// The room as the protocol writes it (`import`), the `<room>` of `tab:room.<room>`.
+    pub fn name(self) -> &'static str {
+        match self {
+            Room::Library => "library",
+            Room::Import => "import",
+        }
+    }
+}
+
+/// The rooms open when the app starts: the Library tab alone (no strip is shown).
+fn library_only() -> Vec<Room> {
+    vec![Room::Library]
+}
+
+/// What the Import room does with a card's files after copying (`organizing.md` §3 item 4):
+/// "Leave files on the card" or "Delete copied files from the card".
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum AfterCopy {
+    #[default]
+    Leave,
+    Delete,
+}
+
+/// The Import room's "Folder name:" (`organizing.md` §3 item 4), as `import.run` takes it: a
+/// text, Date taken (one folder per capture date, written `{"dateTaken": true}`) or Today's date
+/// (`{"today": true}`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FolderName {
+    Text(String),
+    DateTaken,
+    Today,
+}
+
+impl Serialize for FolderName {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        match self {
+            FolderName::Text(t) => s.serialize_str(t),
+            FolderName::DateTaken => serde_json::json!({ "dateTaken": true }).serialize(s),
+            FolderName::Today => serde_json::json!({ "today": true }).serialize(s),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for FolderName {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<FolderName, D::Error> {
+        let v = serde_json::Value::deserialize(d)?;
+        let flag = |key: &str| v.as_object().is_some_and(|o| o.len() == 1 && o.get(key) == Some(&serde_json::Value::Bool(true)));
+        match &v {
+            serde_json::Value::String(t) => Ok(FolderName::Text(t.clone())),
+            _ if flag("dateTaken") => Ok(FolderName::DateTaken),
+            _ if flag("today") => Ok(FolderName::Today),
+            _ => Err(serde::de::Error::custom("a folder name is a text, {\"dateTaken\": true} or {\"today\": true}")),
+        }
+    }
+}
+
+/// The Import room's destination strip as drafted (`organizing.md` §3 item 4): the folder imported
+/// into (`null`: Options ▸ General's "Save imported pictures in"), the folder name (`null` until
+/// one is chosen: the import buttons are disabled) and what happens after copying. Nothing is
+/// applied before Import All or Import Selected, which run `import.run`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", deny_unknown_fields, default)]
+pub struct ImportDestination {
+    pub place: Option<String>,
+    pub folder_name: Option<FolderName>,
+    pub after: AfterCopy,
+}
+
+/// The Import room's view state (`organizing.md` §3): the focused item of the import tray (the
+/// anchor of a Shift range), the items selected, the item in the preview and the destination
+/// draft. Items are the candidates of the engine's listing, by the ids `import.list` gives them.
+/// Kept while the app runs, so the room reopens as it was left; not persisted.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase", deny_unknown_fields, default)]
+pub struct ImportRoom {
+    pub focus: Option<u64>,
+    pub selection: Vec<u64>,
+    pub preview: Option<u64>,
+    pub destination: ImportDestination,
+}
+
+/// Where a slideshow was started, where Exit goes back to (`viewing.md` §1.3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum ShowFrom {
+    #[default]
+    Library,
+    Edit,
+    Viewer,
+}
+
+/// The transition running between two photos of a slideshow: the photo it leaves (its index) and
+/// how far it has gone, 0 … 1.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TransitionRun {
+    pub from: usize,
+    pub progress: f32,
+}
+
+/// The largest slideshow zoom: a scale of the fitted photo (1 is fitted).
+pub const SLIDE_ZOOM_MAX: f32 = 8.0;
+
+/// A slideshow while it plays (`viewing.md` §1): the photos it plays in order, the one shown, whether
+/// it is playing (not paused), whether the control bar is shown, the zoom (1 fitted … 8) and the
+/// point of the photo at the centre of the screen (normalised, 0 … 1), the transition running, and
+/// where it was started.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields, default)]
+pub struct Slideshow {
+    pub photos: Vec<PhotoId>,
+    pub index: usize,
+    pub playing: bool,
+    pub bar: bool,
+    pub zoom: f32,
+    pub pan: [f32; 2],
+    pub transition: Option<TransitionRun>,
+    pub from: ShowFrom,
+}
+
+impl Default for Slideshow {
+    fn default() -> Slideshow {
+        Slideshow { photos: Vec::new(), index: 0, playing: true, bar: true, zoom: 1.0, pan: [0.5, 0.5], transition: None, from: ShowFrom::Library }
+    }
+}
+
+impl Slideshow {
+    /// The photo shown.
+    pub fn photo(&self) -> Option<PhotoId> {
+        self.photos.get(self.index).copied()
+    }
+
+    /// Why this slideshow cannot be shown, if it cannot: no photos or too many, an index past the
+    /// last photo, a zoom, pan or transition out of its range.
+    pub fn check(&self) -> Result<(), String> {
+        if self.photos.is_empty() || self.photos.len() > MAX_IDS {
+            return Err(format!("`slideshow.photos` holds 1 … {MAX_IDS} photos"));
+        }
+        if self.index >= self.photos.len() {
+            return Err(format!("`slideshow.index` is 0 … {}, not {}", self.photos.len() - 1, self.index));
+        }
+        if !within(self.zoom, 1.0, SLIDE_ZOOM_MAX) {
+            return Err(format!("`slideshow.zoom` is 1 (fitted) … {SLIDE_ZOOM_MAX}, not {}", self.zoom));
+        }
+        if !self.pan.iter().all(|v| within(*v, 0.0, 1.0)) {
+            return Err("`slideshow.pan` is [x, y], each 0 … 1".into());
+        }
+        if let Some(t) = self.transition
+            && (t.from >= self.photos.len() || !within(t.progress, 0.0, 1.0))
+        {
+            return Err("`slideshow.transition` is {from, progress}: the index of a photo of the show and 0 … 1".into());
+        }
+        Ok(())
+    }
+
+    /// This slideshow within its limits, or `None` when nothing is left to play.
+    pub fn sanitized(mut self) -> Option<Slideshow> {
+        self.photos.truncate(MAX_IDS);
+        let last = self.photos.len().checked_sub(1)?;
+        self.index = self.index.min(last);
+        self.zoom = clamp_or(self.zoom, 1.0, SLIDE_ZOOM_MAX, 1.0);
+        self.pan = self.pan.map(|v| clamp_or(v, 0.0, 1.0, 0.5));
+        self.transition = self.transition.filter(|t| t.from <= last).map(|t| TransitionRun { progress: clamp_or(t.progress, 0.0, 1.0, 0.0), ..t });
+        Some(self)
+    }
+}
+
+/// The photo viewer's background (`viewing.md` §3.1): the dark translucent overlay, or opaque black
+/// (Space toggles them).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum Backdrop {
+    #[default]
+    Translucent,
+    Opaque,
+}
+
+/// The photo viewer's view state (`viewing.md` §3): the photo shown, by its place in the engine's
+/// listing of its folder (`viewer.list`, name order), the background, whether the controls are
+/// shown, and the zoom (`"fit"` or a scale of the photo's pixels, as the edit view's).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields, default)]
+pub struct ViewerState {
+    pub index: usize,
+    pub backdrop: Backdrop,
+    pub controls: bool,
+    pub zoom: Zoom,
+}
+
+impl Default for ViewerState {
+    fn default() -> ViewerState {
+        ViewerState { index: 0, backdrop: Backdrop::Translucent, controls: true, zoom: Zoom::Fit }
+    }
+}
+
+impl ViewerState {
+    /// Why this viewer state cannot be shown, if it cannot: a zoom out of its range.
+    pub fn check(&self) -> Result<(), String> {
+        match self.zoom {
+            Zoom::Scale(v) if !within(v, ZOOM_MIN, ZOOM_MAX) => Err(format!("`viewer.zoom` is \"fit\" or {ZOOM_MIN} … {ZOOM_MAX}, not {v}")),
+            _ => Ok(()),
+        }
+    }
+}
+
 /// The most dialogs open at once (a confirmation over a dialog over a dialog is already rare).
 pub const MAX_DIALOGS: usize = 8;
 
@@ -1882,6 +2182,26 @@ pub struct UiState {
     /// shortcut editor.
     #[serde(default)]
     pub options: Option<OptionsDraft>,
+    /// The active room: the tab whose content the window shows (M11).
+    #[serde(default)]
+    pub room: Room,
+    /// The rooms open, in tab order, the Library tab first; the tab strip shows while there is
+    /// more than one (M11).
+    #[serde(default = "library_only")]
+    pub rooms: Vec<Room>,
+    /// The Import room's focus, selection, preview and destination draft (M11).
+    #[serde(default)]
+    pub import: ImportRoom,
+    /// The slideshow while one plays (`view: "slideshow"`), `null` otherwise (M11).
+    #[serde(default)]
+    pub slideshow: Option<Slideshow>,
+    /// The photo the quick full-screen preview shows while Ctrl+Alt is held, `null` otherwise (M11).
+    #[serde(default)]
+    pub peek: Option<PhotoId>,
+    /// The photo viewer's state while it is open (`view: "viewer"`, or a slideshow started from
+    /// it), `null` otherwise (M11).
+    #[serde(default)]
+    pub viewer: Option<ViewerState>,
     /// A drag of photos in progress (`crate::drag`); `ui.inspect` reports it, `ui.state` does not.
     #[serde(skip)]
     pub drag: Option<Drag>,
@@ -1932,10 +2252,93 @@ impl UiState {
         }
         self.sanitize_m9();
         self.options = self.options.take().map(OptionsDraft::sanitized);
+        self.sanitize_m11();
         if self.view == View::Edit && self.edit.photo.is_none() {
             self.view = View::Library;
         }
         self
+    }
+
+    /// Every M11 field within its limits: the Library tab first and open once, the active room one
+    /// of those open; the Import room's lists and texts bounded; a slideshow with nothing to play
+    /// dropped; a slideshow or viewer view with nothing to show back to the library.
+    fn sanitize_m11(&mut self) {
+        let mut rooms = std::mem::take(&mut self.rooms);
+        rooms.insert(0, Room::Library);
+        dedup(&mut rooms);
+        if !rooms.contains(&self.room) {
+            self.room = Room::Library;
+        }
+        self.rooms = rooms;
+        let i = &mut self.import;
+        i.selection.truncate(MAX_IDS);
+        dedup(&mut i.selection);
+        if let Some(place) = &mut i.destination.place {
+            cut_bytes(place, MAX_LOCATION);
+        }
+        if let Some(FolderName::Text(t)) = &mut i.destination.folder_name {
+            cut(t);
+        }
+        self.slideshow = self.slideshow.take().and_then(Slideshow::sanitized);
+        if let Some(v) = &mut self.viewer
+            && let Zoom::Scale(z) = v.zoom
+        {
+            v.zoom = if z.is_finite() { Zoom::Scale(z.clamp(ZOOM_MIN, ZOOM_MAX)) } else { Zoom::Fit };
+        }
+        if (self.view == View::Slideshow && self.slideshow.is_none()) || (self.view == View::Viewer && self.viewer.is_none()) {
+            self.view = View::Library;
+        }
+        if self.view != View::Slideshow {
+            self.slideshow = None;
+        }
+    }
+
+    /// Why the M11 fields of this state cannot be used, if they cannot: the rooms not the Library
+    /// tab first with each open once, the active room not open; an Import room list or text over
+    /// its limit; a slideshow without `view: "slideshow"` or the other way round, or one out of its
+    /// ranges ([`Slideshow::check`]); the viewer's view without its state, or a zoom out of range.
+    /// What `ui.set` refuses (`bad_params`).
+    pub fn check_m11(&self) -> Result<(), String> {
+        if self.rooms.first() != Some(&Room::Library) {
+            return Err("`rooms` starts with \"library\"".into());
+        }
+        let mut seen = HashSet::new();
+        if !self.rooms.iter().all(|r| seen.insert(*r)) {
+            return Err("`rooms` names each room once".into());
+        }
+        if !self.rooms.contains(&self.room) {
+            let open: Vec<&str> = self.rooms.iter().map(|r| r.name()).collect();
+            return Err(format!("`room` is one of the rooms open ({}), not \"{}\"", open.join(", "), self.room.name()));
+        }
+        let i = &self.import;
+        if i.selection.len() > MAX_IDS {
+            return Err(format!("`import.selection` holds at most {MAX_IDS} items"));
+        }
+        if i.destination.place.as_ref().is_some_and(|p| p.len() > MAX_LOCATION) {
+            return Err(format!("`import.destination.place` is at most {MAX_LOCATION} bytes"));
+        }
+        if let Some(FolderName::Text(t)) = &i.destination.folder_name
+            && t.chars().count() > MAX_DRAFT
+        {
+            return Err(format!("`import.destination.folderName` is at most {MAX_DRAFT} characters"));
+        }
+        match (&self.slideshow, self.view == View::Slideshow) {
+            (Some(s), true) => s.check()?,
+            (None, false) => {}
+            (None, true) => return Err("`view: \"slideshow\"` needs `slideshow`".into()),
+            (Some(_), false) => return Err("`slideshow` plays only in `view: \"slideshow\"`".into()),
+        }
+        if self.view == View::Viewer && self.viewer.is_none() {
+            return Err("`view: \"viewer\"` needs `viewer`".into());
+        }
+        self.viewer.as_ref().map_or(Ok(()), ViewerState::check)
+    }
+
+    /// Every photo the M11 fields name (the slideshow's, the quick preview's, A│B's second), for
+    /// `ui.set` to check that they exist.
+    pub fn m11_photos(&self) -> impl Iterator<Item = &PhotoId> {
+        let shown = self.slideshow.as_ref().map_or(&[][..], |s| s.photos.as_slice());
+        shown.iter().chain(&self.peek).chain(&self.edit.second)
     }
 
     /// Why the M10 fields of this state cannot be used, if they cannot
@@ -2198,6 +2601,12 @@ impl Default for UiState {
             delete_photos: None,
             delete_folder: None,
             options: None,
+            room: Room::Library,
+            rooms: library_only(),
+            import: ImportRoom::default(),
+            slideshow: None,
+            peek: None,
+            viewer: None,
             drag: None,
             focus_search: false,
             status_line: String::new(),
