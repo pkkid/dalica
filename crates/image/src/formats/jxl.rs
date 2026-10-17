@@ -10,7 +10,9 @@
 //! - **Colour:** pixels come out in the image's own colour encoding; unless that is sRGB, the
 //!   profile describing it (the embedded ICC profile, or one the decoder builds from the enumerated
 //!   encoding) goes to the colour stage (`color.rs`), so View → Use Color Management applies here as
-//!   everywhere else.
+//!   everywhere else. An enumerated encoding no profile can describe (the XYB or an unknown colour
+//!   space, an unknown transfer function, a gamma of 0) answers `Unsupported` before the decoder
+//!   is asked for one: it would panic building it.
 //! - **Limits:** the declared size is checked by the caller before this module runs. Every buffer
 //!   `jxl-oxide` allocates for the image goes through its allocation tracker, whose limit is what
 //!   the decode's [`Budget`] has left; running out is "too large", never an abort. The decoder runs
@@ -30,7 +32,7 @@ use std::ops::Range;
 use jxl_bitstream::{Bitstream, ContainerParser, ParseEvent};
 use jxl_oxide::color::{ColourEncoding, ColourSpace, TransferFunction, WhitePoint};
 use jxl_oxide::image::BitDepth;
-use jxl_oxide::{AllocTracker, ImageHeader, InitializeResult, JxlImage, PixelFormat};
+use jxl_oxide::{AllocTracker, EnumColourEncoding, ImageHeader, InitializeResult, JxlImage, PixelFormat};
 use jxl_oxide_common::Bundle;
 
 use crate::decode::{ColorModel, Decoded, Samples, guard};
@@ -40,7 +42,8 @@ use crate::{Error, Format, Header, Orientation, Result};
 /// Whether this build decodes JPEG XL files.
 pub const DECODES: bool = true;
 
-/// The tile text for a JPEG XL file the decoder refuses (CMYK images).
+/// The tile text for a JPEG XL file the decoder refuses (CMYK images, colour encodings no profile
+/// describes).
 pub const REASON: &str = "This kind of JPEG XL file isn't supported";
 
 /// The first prefix fed to the decoder to read the header.
@@ -270,7 +273,7 @@ fn render(b: &[u8], width: u32, height: u32, tracker: &AllocTracker, budget: &mu
         PixelFormat::Rgba => (ColorModel::Rgb, true),
         PixelFormat::Cmyk | PixelFormat::Cmyka => return Err(Error::Unsupported(Format::JpegXl)),
     };
-    let icc = profile(&image);
+    let icc = profile(&image)?;
     let bits = image.image_header().metadata.bit_depth;
     let frame = image.render_frame(0).map_err(|e| jxl_err(&*e, width, height))?;
     let mut stream = frame.stream();
@@ -327,21 +330,36 @@ fn fill(written: usize, len: usize) -> Result<()> {
 /// curve and a D65 white), which the colour stage takes untagged pixels to be. An embedded profile
 /// is handed on as it is when the pixels are stored in its space (not XYB): the decoder would
 /// otherwise describe them with an encoding it guessed from the profile, which can be wrong (its
-/// guess for a Display P3 profile with chromatic adaptation has other primaries).
-fn profile(image: &JxlImage) -> Option<Vec<u8>> {
+/// guess for a Display P3 profile with chromatic adaptation has other primaries). An enumerated
+/// encoding the decoder cannot build a profile for is `Unsupported`.
+fn profile(image: &JxlImage) -> Result<Option<Vec<u8>>> {
     let metadata = &image.image_header().metadata;
     if let (ColourEncoding::IccProfile(_), false, Some(icc)) = (&metadata.colour_encoding, metadata.xyb_encoded, image.original_icc()) {
-        return Some(icc.to_vec());
+        return Ok(Some(icc.to_vec()));
     }
     match &metadata.colour_encoding {
-        ColourEncoding::Enum(e) if e.is_srgb() => None,
+        ColourEncoding::Enum(e) if !describable(e) => {
+            log::debug!("JPEG XL colour encoding no profile describes: {e:?}");
+            Err(Error::Unsupported(Format::JpegXl))
+        }
+        ColourEncoding::Enum(e) if e.is_srgb() => Ok(None),
         ColourEncoding::Enum(e)
             if e.colour_space == ColourSpace::Grey && matches!(e.white_point, WhitePoint::D65) && matches!(e.tf, TransferFunction::Srgb) =>
         {
-            None
+            Ok(None)
         }
-        _ => Some(image.rendered_icc()),
+        // The rendered encoding is the enumerated one above, or one the decoder parsed from the
+        // embedded profile (always RGB or grey with a known curve).
+        _ => Ok(Some(image.rendered_icc())),
     }
+}
+
+/// Whether `jxl-color` can build a profile for an enumerated encoding: it panics on the XYB and
+/// unknown colour spaces, an unknown transfer function and a gamma of 0 (a division by it), all of
+/// which a hostile header may declare.
+fn describable(e: &EnumColourEncoding) -> bool {
+    matches!(e.colour_space, ColourSpace::Rgb | ColourSpace::Grey)
+        && !matches!(e.tf, TransferFunction::Unknown | TransferFunction::Gamma { g: 0, .. })
 }
 
 /// A `jxl-oxide` error as ours: an exhausted allocation tracker is "too large", an early end of
