@@ -13,6 +13,7 @@ autotests = false
 
 [dependencies]
 dalica-core.workspace = true
+dalica-create.workspace = true
 dalica-edit.workspace = true
 dalica-engine.workspace = true
 dalica-fs.workspace = true

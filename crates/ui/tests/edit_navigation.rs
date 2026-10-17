@@ -309,8 +309,8 @@ fn a_filmstrip_click_opens_that_photo_and_recentres() {
         editing(&mut t, o[3]);
         key(&mut t, "End");
         assert!(widget(&t, "button:film.previous").enabled && !widget(&t, "button:film.next").enabled, "{size:?}");
-        // Play waits for M11; "A" is on, and the compare modes are live (M11.16).
-        assert!(!widget(&t, "button:edit.play").enabled);
+        // Play plays a slideshow from this photo (M11.19); "A" is on, and the compare modes are live (M11.16).
+        assert!(widget(&t, "button:edit.play").enabled);
         let one = widget(&t, "button:compare.one");
         assert!(one.enabled && one.active);
         assert!(widget(&t, "button:compare.two").enabled && widget(&t, "button:compare.same").enabled);

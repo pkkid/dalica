@@ -667,8 +667,9 @@ fn every_m11_field_round_trips_through_ui_set_and_ui_state() {
     let defaults = state(&mut t);
     assert_eq!((&defaults["room"], &defaults["rooms"]), (&json!("library"), &json!(["library"])));
     assert_eq!((&defaults["slideshow"], &defaults["peek"], &defaults["viewer"]), (&Value::Null, &Value::Null, &Value::Null));
+    // The transition running is the show's to say (M11.19): none while a show set here stands still.
     let show = json!({ "photos": [p[2], p[0], p[1]], "index": 1, "playing": false, "bar": true, "zoom": 2.5, "pan": [0.25, 0.75],
-                       "transition": { "from": 0, "progress": 0.5 }, "from": "edit" });
+                       "transition": null, "from": "edit" });
     let viewer = json!({ "index": 4, "backdrop": "opaque", "controls": false, "zoom": 2.0 });
     let destination = json!({ "place": "/media/pictures", "folderName": { "dateTaken": true }, "after": "delete" });
     for change in [

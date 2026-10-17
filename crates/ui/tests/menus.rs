@@ -389,10 +389,13 @@ fn invoking_items_runs_refuses_or_opens_them_like_a_click() {
     for p in ["Help/Rebuild Library…", "View/Folder View/Simplified Tree View"] {
         assert_eq!(code(&mut t, "ui.menu.invoke", json!({ "path": p })), "unsupported", "{p}");
     }
-    // M11.2: Import From… opens the Import room; View ▸ Slideshow is live and waits for the show.
+    // M11.2: Import From… opens the Import room; View ▸ Slideshow plays a slideshow (M11.19), which
+    // Esc's command ends.
     assert_eq!(ok(&mut t, "ui.menu.invoke", json!({ "path": "File/Import From…" })), json!({ "room": "import" }));
     ok(&mut t, "engine.execute", json!({ "command": "room.close" }));
-    assert_eq!(code(&mut t, "ui.menu.invoke", json!({ "path": "View/Slideshow" })), "disabled");
+    assert!(ok(&mut t, "ui.menu.invoke", json!({ "path": "View/Slideshow" }))["photos"].as_u64() > Some(0));
+    ok(&mut t, "engine.execute", json!({ "command": "slideshow.exit" }));
+    ok(&mut t, "engine.execute", json!({ "command": "select.none" }));
     // A command since M9.10: with no folder or photo selected it says so.
     assert_eq!(code(&mut t, "ui.menu.invoke", json!({ "id": "section.sort", "params": { "by": "name" } })), "disabled");
     // Bad parameters change nothing.

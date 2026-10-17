@@ -75,6 +75,7 @@ mod section_header;
 mod selection;
 mod shortcut_editor;
 mod shutdown;
+mod slideshow;
 mod stand_in;
 mod status_line;
 mod status_tags;
