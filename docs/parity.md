@@ -29,13 +29,13 @@ same commit.
 | A. Library view | 27 | 5 | 2 | 1 |
 | B. Organizing | 20 | 6 | 17 | 0 |
 | C. Editing | 11 | 6 | 5 | 4 |
-| D. Viewing | 0 | 1 | 5 | 2 |
+| D. Viewing | 0 | 2 | 4 | 2 |
 | E. Output | 1 | 0 | 1 | 9 |
 | F. Data | 11 | 8 | 3 | 1 |
 | G. Preferences and system | 6 | 8 | 9 | 0 |
 | H. Menus | 0 | 6 | 2 | 0 |
 | I. Keyboard shortcuts | 74 | 2 | 9 | 0 |
-| **All** | 150 | 42 | 53 | 17 |
+| **All** | 150 | 43 | 52 | 17 |
 <!-- /parity:summary -->
 
 ## Top gaps
@@ -172,7 +172,7 @@ and DATA-FMT-JPEG-FAST (P2).
 |---|---|---|---|---|
 | VIEW-SLIDESHOW | Slideshow with control bar, transitions, display time, captions | P1 | ⬜ | ref 06 §2; moved here by the P0 audit (M10.26): the section header's Play, the bottom bar's Slideshow and the edit view's Play and caption-bar slideshow toggle (LIB-LT-HEADER, LIB-ACTIONS, EDIT-VIEW); captions in the slideshow (ORG-CAPTION); the show's sequencing (play, pause, the bar's timing, the end, Loop, stepping, zoom pausing), the seven transitions as geometry, the fit and the caption plate's place are pure code in `create` (M11.4: `crates/create/src/slideshow.rs`, `crates/create/src/slideshow/`, `crates/create/tests/slideshow.rs`); nothing user-visible until the engine and UI tasks |
 | VIEW-MUSIC | Slideshow music, loop | P2 | ⬜ | moved here by the P0 audit (M10.26): Folder Properties' Music for slideshows (ORG-FOLDERPROPS) |
-| VIEW-VIEWER | Standalone photo viewer | P1 | ⬜ | ref 06 §1; moved here by the P0 audit (M10.26): captions in the viewer (ORG-CAPTION) |
+| VIEW-VIEWER | Standalone photo viewer | P1 | 🟡 | ref 06 §1; moved here by the P0 audit (M10.26): captions in the viewer (ORG-CAPTION). Engine half (M11.12): `Session::open_viewer`, `cmd:viewer.list` (the folder listed on a worker in name order with the file's place; a file Dalica cannot show refused with its reason), `cmd:viewer.star`, `cmd:viewer.rotate`, `cmd:viewer.delete` and `cmd:viewer.adopt` (the first change to a photo of an unwatched folder adds it as Scan Once in the same undo step), the locked library's read-only viewer ("Dalica is already open"): `crates/engine/src/viewer.rs`, `crates/engine/src/cmd/viewer.rs`, `crates/engine/tests/viewer.rs`; app half (M11.12): `dalica --view FILE` in a borderless, full-screen, transparent (else opaque black) window, `--headless` serving the viewer over the control channel, Esc/× quitting and Open in Dalica turning the window into the main window once the engine says the viewer closed: `apps/dalica/src/viewer.rs`, `apps/dalica/src/window.rs`, `apps/dalica/tests/view.rs`; the viewer's UI is M11.17 |
 | VIEW-VIEWER-ASSOC | Default-viewer registration | P2 | ⬜ | OS integration (last milestone) |
 | VIEW-TIMELINE | Timeline | OOS | 🚫 | dropped 2026-10-09 (dated feature) |
 | VIEW-VIDEO | Video playback | P2 | ⬜ | |

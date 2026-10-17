@@ -2,7 +2,8 @@
 //! real `App` on a virtual clock and paints with the CPU rasterizer; requests from the transport
 //! are answered by the same handlers as in the window, on this thread, which is marked as the UI
 //! thread so the `fs` guard refuses disk access from it. Between requests, frames run only while
-//! the app has background work (a scan, thumbnails) to pick up.
+//! the app has background work (a scan, thumbnails) to pick up. With `--view`, closing the photo
+//! viewer (Esc, ×) ends the app too.
 
 use std::collections::HashMap;
 use std::sync::mpsc::RecvTimeoutError;
@@ -31,6 +32,10 @@ pub fn run(hub: &Hub, control: &Control, session: Session) -> bool {
     let mut conns: HashMap<u64, Connection> = HashMap::new();
     let ui = dalica_fs::mark_ui_thread();
     let quit = loop {
+        // `dalica --view`: the viewer closed with Esc or × quits, as `app.quit` does.
+        if viewer_quit(d.app()) {
+            break None;
+        }
         let tick = if d.app().idle() { IDLE_TICK } else { BUSY_TICK };
         match hub.rx.recv_timeout(tick) {
             Ok(Msg::Request(p)) => {
@@ -75,6 +80,11 @@ pub fn run(hub: &Hub, control: &Control, session: Session) -> bool {
         hub.wait_quit_written(QUIT_REPLY_WAIT);
     }
     flushed.is_ok()
+}
+
+/// Whether the photo viewer of `dalica --view` was closed with Esc or ×.
+fn viewer_quit(app: &App) -> bool {
+    app.session().and_then(|s| s.viewer().closed()) == Some(dalica_engine::viewer::Closed::Quit)
 }
 
 fn answer_quit(p: Pending, flushed: &Result<(), String>) {

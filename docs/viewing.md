@@ -151,6 +151,42 @@ checkbox per type showing the current handler ("JPEG (Image Viewer)"), [Current]
 to navigate)" / "Mouse wheel moves through photos (hold Ctrl to zoom)", "Hide controls
 automatically", "Translucent background". [OK] [Cancel].
 
+### 3.4 The viewer's session and `dalica --view` (decided, M11.12)
+
+- **Launch.** `dalica --view FILE` opens the library as usual and the viewer on FILE (a relative
+  FILE is taken from the working folder; any name, a leading `-` included, is a file, never an
+  option). The window is borderless and fills the screen, transparent where the platform allows and
+  opaque black otherwise or when "Translucent background" is off (a platform that cannot show
+  through clears the transparent window to black). With `--headless` there is no window: the
+  viewer's state is served over the control channel (`engine.execute viewer.list`).
+- **Listing.** The engine lists the file's folder on a worker (`viewer.list {path?, refresh?}`,
+  `{pending: true}` until it is there): the photos Dalica can show, as a scan reads that folder
+  alone (its subfolders are not listed), in name order (case ignored, then exact), and the file's
+  place among them. A file Dalica cannot show is refused with its reason (no such file, a folder,
+  not a picture Dalica reads or its type off in Options ▸ File Types, or why its header could not
+  be read). Only the viewer's folder or a folder the library indexes is listed, so automation reads
+  nothing through the viewer it could not read otherwise.
+- **Whose photos.** A photo of a folder the library holds is the library's own (its id, its star as
+  the library has it); any other is shown from its file and its folder's sidecar, read only.
+  Viewing writes nothing and adds nothing to the library.
+- **The first change** to a photo of a folder the library does not hold (star, rotate, delete, and
+  Open in Dalica) adds that folder as Scan Once, as Open File… does: the folder and its photos as
+  listed enter the library and its rule is set inside the same command, so a star or a rotation
+  and the adding are one undo step (one Undo takes both back). The engine commands are
+  `viewer.star {path, on?}`, `viewer.rotate {path, direction}`, `viewer.delete {path, confirm?}`
+  and `viewer.adopt {path}` (Open in Dalica); a later change is an ordinary change of a library
+  photo. A delete is a file job with an undo step of its own: there the adding is a library step
+  just before it.
+- **Another Dalica holds the library:** the viewer opens on an empty read-only library of its own in
+  a temporary folder (removed when the app ends): every photo is shown from its file and sidecar,
+  edits included, and the changes and Open in Dalica are disabled with "Dalica is already open".
+  Handing the file to the running Dalica instead is a question for the milestone's review.
+- **Closing.** Esc and × close the viewer in the engine (`Session::close_viewer`) and the app
+  quits. Open in Dalica (`Session::open_in_dalica`) turns the same window into the main window: out
+  of full screen and opaque, the frame's decorations, its saved size and place, on the edit view of
+  that photo. The viewer's UI (§3.1–§3.3) starts on the viewer view when the session holds an open
+  viewer.
+
 ## 4. Video player (in the edit view)
 
 See [`editing.md`](editing.md) §11 for the panel and trim controls. Playback: play/pause, scrubber

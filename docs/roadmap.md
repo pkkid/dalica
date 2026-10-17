@@ -6222,7 +6222,7 @@ and are never loosened. No other step of M11 needs a maintainer decision mid-run
     variant leaves the photo's sidecar unchanged; keeping the right side is one history step that
     one undo removes; keeping the left drops the variant; a restart has no variant; graceful
     failures; `panic_hunt` green.
-- ⬜ **M11.12 `engine` + `dalica`: the viewer's session and `dalica --view`**
+- ✅ **M11.12 `engine` + `dalica`: the viewer's session and `dalica --view`**
   - after: M11.1
   - files: `crates/engine/src/viewer.rs`, `crates/engine/src/cmd/viewer.rs`, `crates/engine/tests/viewer.rs`, `apps/dalica/src/main.rs`, `apps/dalica/src/viewer.rs`, `apps/dalica/src/window.rs`, `apps/dalica/tests/view.rs`, `docs/viewing.md`
   - scope: `viewing.md` §3 and the decisions above: `Session::open_viewer` and `viewer.list

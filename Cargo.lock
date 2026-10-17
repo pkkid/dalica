@@ -802,6 +802,7 @@ dependencies = [
  "dalica-engine",
  "dalica-fs",
  "dalica-image",
+ "dalica-scenes",
  "dalica-ui",
  "dalica-ui-kit",
  "eframe",

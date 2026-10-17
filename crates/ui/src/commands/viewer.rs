@@ -5,7 +5,12 @@
 //!
 //! M11.2's stubs: the viewer is the view state's `viewer`, and the commands that only change it
 //! work on it (zoom, 100 %, the background, Close). Stepping through the folder, Open in Dalica and
-//! the Settings dialog wait for the viewer itself (M11.12, M11.17) and say so.
+//! the Settings dialog wait for the viewer itself (M11.17) and say so. Close and Open in Dalica go
+//! through the engine's viewer (M11.12): `Session::close_viewer` (the app then quits) and
+//! `Session::open_in_dalica` on the engine viewer's file (the window then becomes the main window on
+//! the edit view of that photo).
+
+use std::path::Path;
 
 use dalica_engine::{CmdError, Context};
 use serde_json::{Value, json};
@@ -92,7 +97,7 @@ pub const ZOOM_STEP: f32 = 1.25;
 pub const CHECKS: &[(&str, Check)] = &[
     ("viewer.next", |_, _| Err(NOT_YET.into())),
     ("viewer.previous", |_, _| Err(NOT_YET.into())),
-    ("viewer.openInDalica", |_, _| Err(NOT_YET.into())),
+    ("viewer.openInDalica", open),
     ("viewer.settings", |_, _| Err(NOT_YET.into())),
     ("viewer.zoomIn", open),
     ("viewer.zoomOut", open),
@@ -130,9 +135,13 @@ fn previous(_: &mut App, params: &Value) -> Result<Value, CmdError> {
     Err(CmdError::Disabled(NOT_YET.into()))
 }
 
-fn open_in_dalica(_: &mut App, params: &Value) -> Result<Value, CmdError> {
+fn open_in_dalica(app: &mut App, params: &Value) -> Result<Value, CmdError> {
     no_params(params)?;
-    Err(CmdError::Disabled(NOT_YET.into()))
+    open(app, params).map_err(CmdError::Disabled)?;
+    let session = app.session_mut().ok_or_else(|| CmdError::Disabled("The library is still opening.".into()))?;
+    let file = session.viewer().file().map(Path::to_path_buf).ok_or_else(|| CmdError::Disabled(NOT_OPEN.into()))?;
+    let id = session.open_in_dalica(&file)?;
+    Ok(json!({ "id": id }))
 }
 
 fn settings(_: &mut App, params: &Value) -> Result<Value, CmdError> {
@@ -179,6 +188,9 @@ fn background(app: &mut App, params: &Value) -> Result<Value, CmdError> {
 fn close(app: &mut App, params: &Value) -> Result<Value, CmdError> {
     no_params(params)?;
     open(app, params).map_err(CmdError::Disabled)?;
+    if let Some(s) = app.session_mut() {
+        s.close_viewer();
+    }
     let state = app.state_mut();
     state.viewer = None;
     state.view = View::Library;
@@ -203,5 +215,23 @@ mod tests {
         assert!(matches!(app.run("viewer.next", &json!({})), Err(CmdError::Disabled(m)) if m == NOT_YET));
         app.run("viewer.close", &json!({})).unwrap();
         assert_eq!((app.state().view, app.state().viewer), (View::Library, None));
+    }
+
+    /// `dalica --view`: a session with an open viewer starts on the viewer's view, and Close (Esc)
+    /// closes the engine's viewer, which the app then quits on.
+    #[test]
+    fn a_session_with_an_open_viewer_starts_on_it_and_close_ends_it_in_the_engine() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut s = dalica_engine::Session::open(&dir.path().join("library"), std::sync::Arc::new(dalica_core::SystemClock)).unwrap();
+        s.open_viewer(&dir.path().join("photo.jpg")).unwrap();
+        let mut app = App::new(Some(s));
+        assert_eq!(app.state().view, View::Viewer);
+        assert!(app.state().viewer.is_some());
+        app.run("viewer.close", &json!({})).unwrap();
+        assert_eq!(app.session().and_then(|s| s.viewer().closed()), Some(dalica_engine::viewer::Closed::Quit));
+        // Without an open viewer the app starts on the library.
+        let other = tempfile::tempdir().unwrap();
+        let s = dalica_engine::Session::open(other.path(), std::sync::Arc::new(dalica_core::SystemClock)).unwrap();
+        assert_eq!(App::new(Some(s)).state().view, View::Library);
     }
 }

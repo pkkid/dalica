@@ -41,6 +41,8 @@ muda.workspace = true
 winresource.workspace = true
 
 [dev-dependencies]
+# Test photos for `dalica --view` (tests/view.rs).
+dalica-scenes.workspace = true
 tempfile.workspace = true
 
 [[test]]
