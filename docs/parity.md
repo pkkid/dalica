@@ -35,7 +35,7 @@ same commit.
 | G. Preferences and system | 7 | 8 | 8 | 0 |
 | H. Menus | 0 | 6 | 2 | 0 |
 | I. Keyboard shortcuts | 74 | 2 | 9 | 0 |
-| **All** | 156 | 42 | 48 | 17 |
+| **All** | 157 | 42 | 47 | 17 |
 <!-- /parity:summary -->
 
 ## Top gaps
