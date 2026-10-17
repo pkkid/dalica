@@ -1,7 +1,8 @@
 //! The Basic fixes Fill Light row (`editing.md` §6.5): the Fill Light glyph on its `inset` tile,
 //! then the slider (`slider:basic.fill_light`, "Fill Light"). It edits the same `fill` as the
 //! Tuning tab's Fill Light ([`super::tuning`]): both show the photo's Tuning (or the draft being
-//! dragged), and each drag here is its own "Tuning" step, previewed live as the tab's are.
+//! dragged), and each drag here is its own "Tuning" step, previewed live as the tab's are. On A│A's
+//! right side it shows and edits the variant's Tuning, as the tab does there.
 //!
 //! ```text
 //! [☀] Fill Light ─────○─────────

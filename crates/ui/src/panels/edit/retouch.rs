@@ -26,7 +26,10 @@
 //! effect as one `retouch(sx,sy,tx,ty,r;…)` entry, one "Retouch" step of the photo's history
 //! (`photo.history.apply`), its radii converted to the operation's (a fraction of the shorter side).
 //! The brush stays within what that operation stores (0.001 … 0.1 of the shorter side). Apply with
-//! no patch in effect closes the tool and records nothing. Cancel and Esc drop the draft.
+//! no patch in effect closes the tool and records nothing. Cancel and Esc drop the draft. On A│A's
+//! right side (`editing.md` §4) the tool works on the variant: its geometry and preview come from
+//! the variant's recipe (`tools::recipe`) and Apply is one step of the variant's history
+//! (`photo.history.apply {variant: true}`); the photo's own recipe is not touched.
 //!
 //! **Keys:** + (or =) and − make the brush 1.2 times larger or smaller; the edit view's Undo and
 //! Redo shortcuts (Ctrl+Z, Ctrl+Y) are Undo Patch and Redo Patch while the tool is open.
@@ -63,7 +66,7 @@ use serde_json::{Value, json};
 use super::canvas::{self, View};
 use crate::app::App;
 use crate::commands::parse;
-use crate::commands::tools::Tool;
+use crate::commands::tools::{self, Tool};
 use crate::state::{BRUSH_DEFAULT, BRUSH_MAX, BRUSH_MIN, EditState, MAX_PATCHES, Patch, RetouchDraft, ToolKind};
 
 pub const TITLE: &str = "Retouch";
@@ -144,7 +147,7 @@ fn geometry(app: &App, photo: PhotoId) -> Option<((f64, f64), Geometry)> {
     if p.width == 0 || p.height == 0 {
         return None;
     }
-    let recipe = Recipe::parse(&s.library().info(photo).edits).unwrap_or_default();
+    let recipe = Recipe::parse(tools::recipe(app, photo)).unwrap_or_default();
     Some(((f64::from(p.width), f64::from(p.height)), Geometry::new(&recipe, Orientation::default(), p.width, p.height)))
 }
 
@@ -376,7 +379,8 @@ impl Tool for Retouch {
             release(app);
             return Ok(json!({ "applied": false, "patches": 0 }));
         };
-        let result = app.run("photo.history.apply", &json!({ "id": photo, "op": op }))?;
+        let variant = tools::on_variant(app, photo);
+        let result = app.run("photo.history.apply", &json!({ "id": photo, "op": op, "variant": variant }))?;
         release(app);
         Ok(json!({ "applied": true, "patches": in_effect.len(), "op": op, "history": result }))
     }
@@ -680,10 +684,10 @@ fn overlay(app: &mut App, ui: &Ui) {
     if let (Some(target), Some(source)) = (waiting, hover) {
         patches.push(Patch { target, source, radius: d.brush });
     }
-    let want = op_text(&patches, dims).and_then(|op| {
-        let mut texts = app.session()?.library().info(photo).edits.clone();
+    let want = op_text(&patches, dims).map(|op| {
+        let mut texts = tools::recipe(app, photo);
         texts.push(op);
-        Some(texts)
+        texts
     });
     let have = with_local(|l| l.candidate.clone()).filter(|(p, _)| *p == photo).map(|(_, c)| c);
     if want != have

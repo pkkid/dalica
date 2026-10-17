@@ -106,9 +106,13 @@ person's name, we use a descriptive name instead (e.g. **Auto Fix**). Never rena
   while comparing. Leaving A│A in any way (the toggle, Back to Library, another photo, a
   slideshow) asks "Keep which version?" when the sides differ; with equal sides the variant is
   dropped without asking. "Don't ask again" remembers the side chosen, and "always apply" stops
-  the Apply question (`settings.json` → `compare`). The tool panels (Crop, Straighten, Retouch,
-  Tuning, Fill Light) do not yet act on A│A's right side and are drawn disabled there; the one-click
-  fixes, rotations, Undo and Redo do. The **Show original** button is at the right end of the edit
+  the Apply question (`settings.json` → `compare`). On A│A's right side every part of the edit
+  panel acts on the variant (M11.27): the tool panels (Crop, Straighten, Retouch, Tuning, Fill
+  Light) build their drafts and live previews from the variant's edits and apply to it, as do the
+  one-click fixes, rotations, Undo and Redo; nothing reaches the photo's sidecar until the right
+  side is kept, which writes the variant's edits as one step of the photo's history. A Tuning
+  session belongs to its side: moving the focus starts a new one. The histogram is always the
+  focused side's. The **Show original** button is at the right end of the edit
   panel's tab row.
 
 ## 5. The edit panel tabs

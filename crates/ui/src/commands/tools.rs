@@ -15,10 +15,18 @@
 //! the arrows nudge Straighten), then Esc, which cancels any tool. Only then does the edit view's
 //! keymap see the key.
 //!
+//! **The focused side** (`editing.md` §4): every tool works on the recipe of the side with the
+//! focus. On A│A's right side that is the photo's variant ([`on_variant`]): a tool builds its draft
+//! and its preview candidate from [`recipe`] (the variant's recipe there) and its Apply is one step
+//! of the variant's history ([`variant_step`], `photo.history.apply {variant: true}`; Tuning's
+//! `photo.history.tuning {variant: true}`), which no sidecar sees until "Keep which version?" →
+//! Right makes the variant one step of the photo's history.
+//!
 //! Every tool is a stub until its task fills it (M7.19 Crop, M7.20 Straighten, M7.21 Tuning, M7.22
 //! Retouch): it opens, resets and cancels its draft, and its Apply refuses with "Not available
 //! yet.".
 
+use dalica_core::PhotoId;
 use dalica_engine::{CmdError, Key};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -78,6 +86,36 @@ pub fn tool(kind: ToolKind) -> &'static dyn Tool {
 /// The open tool, if any.
 pub fn open_tool(app: &App) -> Option<&'static dyn Tool> {
     app.state().edit.tool.map(tool)
+}
+
+/// Whether the tools work on A│A's variant of `photo`: the right side has the focus and `photo` is
+/// the photo shown.
+pub fn on_variant(app: &App, photo: PhotoId) -> bool {
+    super::compare::on_variant(app) && app.state().edit.photo == Some(photo)
+}
+
+/// The recipe a tool works on for `photo`: its open variant's on A│A's right side, else the
+/// photo's own (empty without a session).
+pub fn recipe(app: &App, photo: PhotoId) -> Vec<String> {
+    let Some(s) = app.session() else { return Vec::new() };
+    match s.variant().edits().filter(|_| on_variant(app, photo) && s.variant().photo() == Some(photo)) {
+        Some(v) => v.to_vec(),
+        None => s.library().info(photo).edits.clone(),
+    }
+}
+
+/// One step of `photo`'s variant: `op` appended (`photo.history.apply {variant: true}`); `None`
+/// (what counts already is what was asked) takes none. Answers the variant's history with
+/// `changed`, as `photo.crop.apply` and `photo.straighten.apply` answer the photo's.
+pub fn variant_step(app: &mut App, photo: PhotoId, op: Option<String>) -> Result<Value, CmdError> {
+    let mut out = match &op {
+        Some(op) => app.run("photo.history.apply", &json!({ "id": photo, "op": op, "variant": true }))?,
+        None => app.run("photo.history.state", &json!({ "id": photo, "variant": true }))?,
+    };
+    if let Some(o) = out.as_object_mut() {
+        o.insert("changed".into(), json!(op.is_some()));
+    }
+    Ok(out)
 }
 
 pub const COMMANDS: &[UiCommand] = &[

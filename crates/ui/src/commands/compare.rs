@@ -16,9 +16,10 @@
 //! **The focused side** is what the edit view works on: in A│B `edit_view::open_photo` is the
 //! focused side's photo, so tools, Undo, Redo and the caption bar follow the focus;
 //! in A│A the right side is the variant, so [`route`] (asked by `App::run` before anything else)
-//! points the open photo's `photo.history.apply`, `.undo`, `.redo` and `.state` there with
-//! `"variant": true`. The tool panels (Crop, Straighten, Retouch, Tuning, Fill Light) are drawn
-//! disabled on A│A's right side ([`TOOLS_LATER`]) until compare's tools arrive.
+//! points the open photo's `photo.history.apply`, `.undo`, `.redo`, `.state` and `.tuning` and
+//! the Tuning wands and picker there with `"variant": true`. The tool panels (Crop, Straighten,
+//! Retouch, Tuning, Fill Light) work on the variant there too (`commands::tools::recipe`,
+//! `commands::tools::variant_step`).
 //!
 //! **The two questions.** Switching the focus or the focused side's photo while a modal tool
 //! (Crop, Straighten, Retouch) is open asks "Apply changes to the current photo?"
@@ -92,8 +93,6 @@ pub const NOT_COMPARING: &str = "Only while comparing.";
 pub const NOT_TWO: &str = "Only while comparing two photos (A│B).";
 /// Why A│B cannot start: the section has no other photo.
 pub const NO_SECOND: &str = "There is no other photo here to compare with.";
-/// Why the tool panels are disabled on A│A's right side.
-pub const TOOLS_LATER: &str = "Arrives with compare's tools.";
 
 pub const CHECKS: &[(&str, Check)] = &[
     ("edit.compare", editing),
@@ -249,7 +248,7 @@ fn leave_same(app: &mut App, id: &str, params: &Value) -> Option<Result<Value, C
 /// Asked by `App::run` before every command (`Some`: this answers it instead). While comparing:
 /// leaving A│A asks "Keep which version?" first; in A│B the photo steps (→, ←, Home, End, the
 /// filmstrip's arrows) move the focused side; with A│A's right side focused the open photo's
-/// history steps walk the variant and the tool panels refuse ([`TOOLS_LATER`]).
+/// history steps, Tuning changes and Tuning analyses go to the variant.
 pub fn route(app: &mut App, id: &str, params: &Value) -> Option<Result<Value, CmdError>> {
     let current = mode(app);
     if current == Compare::One {
@@ -274,7 +273,13 @@ pub fn route(app: &mut App, id: &str, params: &Value) -> Option<Result<Value, Cm
     let photo = app.state().edit.photo?;
     let names_photo = params.get("id").and_then(Value::as_u64) == Some(photo.get());
     match id {
-        "photo.history.apply" | "photo.history.undo" | "photo.history.redo" | "photo.history.state"
+        "photo.history.apply"
+        | "photo.history.undo"
+        | "photo.history.redo"
+        | "photo.history.state"
+        | "photo.history.tuning"
+        | "photo.tuning.auto"
+        | "photo.tuning.pick"
             if names_photo && params.get("variant").is_none() =>
         {
             let mut p = params.clone();
@@ -285,15 +290,8 @@ pub fn route(app: &mut App, id: &str, params: &Value) -> Option<Result<Value, Cm
         "photo.undoSave" if params.get("ids") == Some(&json!([photo])) => {
             Some(app.run("photo.history.undo", &json!({ "id": photo, "variant": true })))
         }
-        "edit.tool.open" => Some(refuse(app)),
-        "photo.history.tuning" if names_photo => Some(refuse(app)),
         _ => None,
     }
-}
-
-fn refuse(app: &mut App) -> Result<Value, CmdError> {
-    app.state_mut().status = TOOLS_LATER.into();
-    Err(CmdError::Disabled(TOOLS_LATER.into()))
 }
 
 /// A│B's photo steps: the focused side shows the next, previous, first or last photo of its

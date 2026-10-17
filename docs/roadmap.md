@@ -6471,7 +6471,7 @@ and are never loosened. No other step of M11 needs a maintainer decision mid-run
     this task (before and after numbers in the PR) or blocks with its numbers, never loosened.
   - done when: `cargo xtask bench import`, `bench batch_edit` and `bench slideshow` print their
     numbers (in the PR); `cargo xtask budgets` passes with them and `--plant-ms` makes each fail.
-- ⬜ **M11.27 `ui` + `engine`: A│A's right side takes the tools**
+- ✅ **M11.27 `ui` + `engine`: A│A's right side takes the tools**
   - after: M11.16
   - files: `crates/engine/src/cmd/tuning.rs`, `crates/engine/tests/tuning_commands.rs`, `crates/ui/src/panels/edit/crop.rs`, `crates/ui/src/panels/edit/straighten.rs`, `crates/ui/src/panels/edit/retouch.rs`, `crates/ui/src/panels/edit/tuning.rs`, `crates/ui/src/panels/edit/fill_light.rs`, `crates/ui/src/panels/edit/panel.rs`, `crates/ui/src/commands/tools.rs`, `crates/ui/src/commands/compare.rs`, `crates/ui/tests/compare_tools.rs`
   - scope: a fix task from M11.16's run. Compare routes Auto Fix, the one-click fixes, rotations,

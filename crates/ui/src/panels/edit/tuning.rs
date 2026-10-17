@@ -40,6 +40,13 @@
 //! there picks the colour under it (normalised to the photo as shown). A second click on the
 //! eyedropper, or Esc, disarms it.
 //!
+//! **A│A's right side** (`editing.md` §4): the tab, the Fill Light row and the wands work on the
+//! photo's variant: the values shown and the candidates come from the variant's recipe
+//! (`tools::recipe`), each change is `photo.history.tuning {variant: true}` (a session there is one
+//! step of the variant's history) and the wands and the picker read the variant's picture
+//! (`variant: true`). A session belongs to its side: moving the focus starts a new one, and an
+//! answer that arrives after the focus moved is dropped.
+//!
 //! **Scripts** drive the same paths through the tool (`edit.tool.open {tool: "tuning"}`, then
 //! `edit.tool.action {name, params}`): `set {fill?, highlights?, shadows?, temperature?, neutral?,
 //! preview?}` (a change; with `preview: true` only the draft and the photo shown), `auto {what:
@@ -65,7 +72,7 @@ use serde_json::{Value, json};
 use super::canvas;
 use crate::app::App;
 use crate::commands::edit_view;
-use crate::commands::tools::Tool;
+use crate::commands::tools::{self, Tool};
 use crate::commands::{no_params, parse};
 use crate::state::{EditState, EditTab, ToolKind, TuningDraft};
 
@@ -119,6 +126,8 @@ pub static TUNING: Tuning = Tuning;
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Visit {
     photo: PhotoId,
+    /// Whether the session is on A│A's variant of the photo.
+    variant: bool,
     key: u64,
     tab: bool,
     pass: Option<u64>,
@@ -129,6 +138,7 @@ struct Visit {
 struct Pending {
     job: JobId,
     photo: PhotoId,
+    variant: bool,
     what: Wand,
 }
 
@@ -177,11 +187,12 @@ fn fresh_key() -> u64 {
 fn session_key(app: &App, photo: PhotoId) -> u64 {
     let tab = app.state().edit.tab == EditTab::Tuning;
     let open = app.state().edit.tool == Some(ToolKind::Tuning);
+    let variant = tools::on_variant(app, photo);
     local(|l| match l.visit {
-        Some(v) if v.photo == photo && (open || tab && v.tab) => v.key,
+        Some(v) if v.photo == photo && v.variant == variant && (open || tab && v.tab) => v.key,
         _ => {
             let key = fresh_key();
-            l.visit = Some(Visit { photo, key, tab, pass: None });
+            l.visit = Some(Visit { photo, variant, key, tab, pass: None });
             key
         }
     })
@@ -189,15 +200,16 @@ fn session_key(app: &App, photo: PhotoId) -> u64 {
 
 // --- values ------------------------------------------------------------------------------------
 
-/// Photo `id`'s recipe (empty without a session).
+/// The recipe the tab works on for photo `id`: its own, or its variant's on A│A's right side
+/// (empty without a session).
 fn edits_of(app: &App, id: PhotoId) -> Vec<String> {
-    app.session().map(|s| s.library().info(id).edits.clone()).unwrap_or_default()
+    tools::recipe(app, id)
 }
 
 /// Photo `id`'s Tuning as a draft: its last `tuning` entry (or an older `fill_light`) wherever it
 /// sits in the recipe, a rotation or a retouch after it included; the defaults when it has none.
 pub fn current(app: &App, id: PhotoId) -> TuningDraft {
-    let last = app.session().and_then(|s| shown_tuning(&s.library().info(id).edits));
+    let last = shown_tuning(&edits_of(app, id));
     last.map_or(DEFAULTS, |t| draft_of(&t))
 }
 
@@ -323,8 +335,10 @@ fn commit(app: &mut App, photo: PhotoId, d: &TuningDraft) -> Result<Value, CmdEr
 fn commit_tuning(app: &mut App, photo: PhotoId, t: &tone::Tuning) -> Result<Value, CmdError> {
     let key = session_key(app, photo);
     let neutral = t.neutral.map_or(Value::Null, |c| json!(format!("#{:02x}{:02x}{:02x}", c[0], c[1], c[2])));
+    let variant = tools::on_variant(app, photo);
     let params = json!({
         "id": photo, "session": key, "fill": t.fill, "highlights": t.highlights, "shadows": t.shadows, "temp": t.temp, "neutral": neutral,
+        "variant": variant,
     });
     let out = app.run("photo.history.tuning", &params);
     drop_candidate(app);
@@ -357,26 +371,28 @@ fn room_for_another() -> Result<(), CmdError> {
 fn start_wand(app: &mut App, photo: PhotoId, lighting: bool) -> Result<Value, CmdError> {
     room_for_another()?;
     let (what, wand) = if lighting { ("lighting", Wand::Lighting) } else { ("color", Wand::Color) };
-    let out = app.run("photo.tuning.auto", &json!({ "id": photo, "what": what }))?;
-    track(&out, photo, wand);
+    let variant = tools::on_variant(app, photo);
+    let out = app.run("photo.tuning.auto", &json!({ "id": photo, "what": what, "variant": variant }))?;
+    track(&out, photo, variant, wand);
     Ok(out)
 }
 
 /// Starts the picker at `(x, y)` of `photo` as shown (0 … 1 each); [`poll`] applies its answer.
 fn start_pick(app: &mut App, photo: PhotoId, x: f64, y: f64) -> Result<Value, CmdError> {
     room_for_another()?;
-    let out = app.run("photo.tuning.pick", &json!({ "id": photo, "x": x, "y": y }))?;
-    track(&out, photo, Wand::Pick);
+    let variant = tools::on_variant(app, photo);
+    let out = app.run("photo.tuning.pick", &json!({ "id": photo, "x": x, "y": y, "variant": variant }))?;
+    track(&out, photo, variant, Wand::Pick);
     Ok(out)
 }
 
 /// Remembers the job a wand or the picker started; a later ask of the same kind replaces it (the
 /// engine cancels the earlier job).
-fn track(out: &Value, photo: PhotoId, what: Wand) {
+fn track(out: &Value, photo: PhotoId, variant: bool, what: Wand) {
     if let Some(job) = out.get("job").and_then(Value::as_u64) {
         local(|l| {
             l.pending.retain(|p| !(p.photo == photo && p.what == what));
-            l.pending.push(Pending { job, photo, what });
+            l.pending.push(Pending { job, photo, variant, what });
         });
     }
 }
@@ -434,7 +450,8 @@ pub fn poll(app: &mut App, ctx: &egui::Context) {
             continue;
         }
         finished.push(p.job);
-        if Some(p.photo) != photo {
+        // An answer for a photo, or a side, no longer focused is dropped.
+        if Some(p.photo) != photo || photo.is_some_and(|ph| tools::on_variant(app, ph) != p.variant) {
             continue;
         }
         match (entry.state, entry.result) {
