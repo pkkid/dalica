@@ -1,6 +1,7 @@
 //! The editing helpers (`mcp.md` §4.2): `list_edit_ops` is the catalogue, `get_recipe` and
 //! `set_recipe` go through `edit.recipe.set` (which keeps what Dalica cannot read unless told to
-//! drop it), and `apply_edit` follows the edit view's rules, one step of each photo's history.
+//! drop it), and `apply_edit` is Batch Edit (`edit.apply`) with the edit view's rules, one library
+//! undo step for all its photos.
 //! What the engine commands do is proved in `dalica-engine`; these tests prove the tools' wiring,
 //! arguments and results.
 
@@ -155,14 +156,13 @@ fn apply_edit_follows_the_edit_view() {
     let tunings: Vec<&str> = edits.split('|').filter(|e| e.starts_with("tuning(")).collect();
     assert_eq!(tunings, ["tuning(0.3,0,0.2,0,none)"], "{edits}");
 
-    // Without ids: the Photo Tray (2 and 3), one step of each photo's history.
+    // Without ids: the Photo Tray (2 and 3).
     let tray = ok(&c.call(8, "apply_edit", json!({ "op": "autofix" }))).clone();
     assert_eq!(tray["photos"].as_array().unwrap().iter().map(|p| p["id"].as_u64().unwrap()).collect::<Vec<_>>(), [2, 3]);
     ok(&c.call(9, "apply_edit", json!({ "ids": [2], "op": "rotate", "params": { "deg": 90 } })));
     ok(&c.call(10, "apply_edit", json!({ "ids": [2], "op": "rotate", "params": { "deg": "90" } })));
     assert_eq!(recipe(&mut c, 11, 2), "autofix()|rotate(180)", "a rotation after a rotation merges");
-    ok(&c.call(12, "command_run", json!({ "id": "photo.history.undo", "params": { "id": 3 } })));
-    assert_eq!(recipe(&mut c, 13, 3), "");
+    assert_eq!(recipe(&mut c, 13, 3), "autofix()");
 
     // Refused before any photo changes; strict arguments.
     assert_eq!(code(&c.call(14, "apply_edit", json!({ "ids": [3, 99], "op": "autofix" }))), "not_found");
@@ -172,10 +172,44 @@ fn apply_edit_follows_the_edit_view() {
     assert_eq!(code(&c.call(18, "apply_edit", json!({ "ids": [3], "op": "crop", "params": { "rect": [0, 1] } }))), "bad_params");
     assert_eq!(code(&c.call(19, "apply_edit", json!({ "ids": [3], "op": "soft_focus" }))), "bad_params", "a parameter with no default yet");
     assert_eq!(code(&c.call(20, "apply_edit", json!({ "ids": [], "op": "autofix" }))), "disabled");
-    assert_eq!(recipe(&mut c, 21, 3), "", "nothing applied");
+    assert_eq!(recipe(&mut c, 21, 3), "autofix()", "nothing applied");
     invalid(&mut c, 22, "apply_edit", json!({ "ids": [3] }));
     assert_eq!(code(&c.call(23, "apply_edit", json!({ "ids": [3], "op": "autofix", "params": 5 }))), "bad_params");
     invalid(&mut c, 24, "apply_edit", json!({ "ids": "3", "op": "autofix" }));
     invalid(&mut c, 25, "apply_edit", json!({ "id": 3, "op": "autofix" }));
+    c.close();
+}
+
+/// `apply_edit` on three photos is one library undo step named by the operation: one Edit ▸ Undo
+/// takes all three back and Redo applies them again. Tuning merged into different trailing
+/// entries is one step too.
+#[test]
+fn apply_edit_on_three_photos_is_one_undo_step() {
+    let dir = tempfile::tempdir().unwrap();
+    let sidecar = json!({ "photos": { "IMG_0001.jpg": { "edits": ["tuning(0.3,0,0,0,none)"] } } });
+    let mut c = folder(dir.path(), 3, (64, 48), Some(sidecar), &[]);
+    let undo_label = |c: &mut Client, id: u64| ok(&c.call(id, "doc_inspect", json!({})))["undo"]["undo"].clone();
+
+    let applied = ok(&c.call(2, "apply_edit", json!({ "ids": [1, 2, 3], "op": "autofix" }))).clone();
+    assert!(applied["photos"].as_array().unwrap().iter().all(|p| p["changed"] == true), "{applied}");
+    assert_eq!(undo_label(&mut c, 3), json!("Auto Fix"), "one step named by the operation");
+    ok(&c.call(4, "cmd_edit_undo", json!({})));
+    let recipes: Vec<String> = (1..=3).map(|id| recipe(&mut c, 10 + id, id)).collect();
+    assert_eq!(recipes, ["tuning(0.3,0,0,0,none)", "", ""], "one undo takes all three back");
+    ok(&c.call(5, "cmd_edit_redo", json!({})));
+    let recipes: Vec<String> = (1..=3).map(|id| recipe(&mut c, 20 + id, id)).collect();
+    assert_eq!(recipes, ["tuning(0.3,0,0,0,none)|autofix()", "autofix()", "autofix()"], "one redo applies them again");
+
+    // Tuning merges into photo 1's trailing tuning after a Tuning of its own; still one step.
+    ok(&c.call(6, "apply_edit", json!({ "ids": [1], "op": "tuning", "params": { "fill": 0.3 } })));
+    let merged = ok(&c.call(7, "apply_edit", json!({ "ids": [1, 2, 3], "op": "tuning", "params": { "shadows": 0.2 } }))).clone();
+    let recipes: Vec<&str> = merged["photos"].as_array().unwrap().iter().map(|p| p["recipe"].as_str().unwrap()).collect();
+    assert_eq!(
+        recipes,
+        ["tuning(0.3,0,0,0,none)|autofix()|tuning(0.3,0,0.2,0,none)", "autofix()|tuning(0,0,0.2,0,none)", "autofix()|tuning(0,0,0.2,0,none)"]
+    );
+    ok(&c.call(8, "cmd_edit_undo", json!({})));
+    let recipes: Vec<String> = (1..=3).map(|id| recipe(&mut c, 30 + id, id)).collect();
+    assert_eq!(recipes, ["tuning(0.3,0,0,0,none)|autofix()|tuning(0.3,0,0,0,none)", "autofix()", "autofix()"], "one undo for the merged Tuning");
     c.close();
 }

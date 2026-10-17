@@ -6426,7 +6426,7 @@ and are never loosened. No other step of M11 needs a maintainer decision mid-run
     files from the card" the question appears, Keep Files keeps them and Remove Imported Files
     removes only the copied ones; the empty library's Import… opens the room; fingerprints of the
     strip in its states and of the question at both window sizes.
-- ⬜ **M11.22 `mcp`: Batch Edit as one step, and the workflows W07 and W10**
+- ✅ **M11.22 `mcp`: Batch Edit as one step, and the workflows W07 and W10**
   - after: M11.8, M11.9
   - files: `crates/mcp/src/tools/edit.rs`, `crates/mcp/tests/edit_tools.rs`, `crates/mcp/tests/workflows/w07_batch_edit_one_step.rs`, `crates/mcp/tests/workflows/w10_import_duplicates.rs`, `xtask/src/stats.rs`, `docs/mcp.md`
   - scope: `mcp.md` §4.2 and §9: `apply_edit` runs `edit.apply`, one library undo step for all its
