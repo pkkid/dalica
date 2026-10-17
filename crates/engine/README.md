@@ -38,7 +38,8 @@
 | `options.rs` | the options catalogue: one row per option of Options → General, File Types, Slideshow, Photo Viewer and Export (built, M10.1 and M11.1: see **M10's ground** and **M11's ground** below) | M10.5 reads it |
 | `cmd/options.rs`, `cmd/keymap.rs`, `cmd/inspect.rs`, `cmd/recipe.rs` | `options.list` / `options.set`, `keymap.list`, `library.inspect`, `edit.recipe.set` (registered, empty until then) | M10.5, M10.6, M10.7, M10.9 |
 | `import.rs`, `import_run.rs`, `variant.rs`, `viewer.rs` | the Import room's session (source, listing generation, candidates), the import running or last finished, A│A's variant, the photo viewer's state: each a field of `Session` (stubs until then) | M11.7, M11.8, M11.10, M11.12 |
-| `cmd/import.rs`, `cmd/import_run.rs`, `cmd/batch.rs`, `cmd/compare.rs`, `cmd/slideshow.rs`, `cmd/viewer.rs` | `import.*` listing, `import.run` / `import.removeFromSource`, `edit.apply` / `edit.copyRecipe` / `edit.pasteRecipe` / `edit.undoAll`, `edit.variant.*`, `slideshow.list`, `viewer.list` (registered, empty until then) | M11.7, M11.8, M11.9, M11.10, M11.11, M11.12 |
+| `cmd/batch.rs` | Batch Edit, Copy and Paste All Edits, Undo All Edits: `edit.apply`, `edit.copyRecipe` (the recipe kept in `Session::copied_recipe`), `edit.pasteRecipe`, `edit.undoAll`, each library step named through `Session::name_step` (built) | M11.9 |
+| `cmd/import.rs`, `cmd/import_run.rs`, `cmd/compare.rs`, `cmd/slideshow.rs`, `cmd/viewer.rs` | `import.*` listing, `import.run` / `import.removeFromSource`, `edit.variant.*`, `slideshow.list`, `viewer.list` (registered, empty until then) | M11.7, M11.8, M11.10, M11.11, M11.12 |
 
 ## Public API
 

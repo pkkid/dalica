@@ -201,6 +201,8 @@ pub struct Session {
     collected: Option<Vec<Op>>,
     /// The op a command asked its undo step to use instead of the collected inverses.
     undo_op: Option<Op>,
+    /// The name a command gave its library undo step ([`Session::name_step`]).
+    step_name: Option<&'static str>,
     /// While a command runs (not while it undoes or redoes a step, nor while a file operation's
     /// job brings its results): [`Session::apply`] stamps each op with the photos' last-changed
     /// time ([`Library::stamped`], Recently Updated).
@@ -256,6 +258,8 @@ pub struct Session {
     pub(crate) variant: crate::variant::Variant,
     /// The photo viewer's state (`viewer.rs`).
     pub(crate) viewer: crate::viewer::Viewer,
+    /// The recipe Copy All Edits kept, for Paste All Edits (`cmd/batch.rs`).
+    pub(crate) copied_recipe: Option<Vec<String>>,
     /// Nothing is written (see the module's notes).
     read_only: bool,
     _lock: LibraryLock,
@@ -342,6 +346,7 @@ impl Session {
             damage_seen: 0,
             collected: None,
             undo_op: None,
+            step_name: None,
             stamping: false,
             group: None,
             recovery,
@@ -371,6 +376,7 @@ impl Session {
             import_run: crate::import_run::ImportRun::default(),
             variant: crate::variant::Variant::default(),
             viewer: crate::viewer::Viewer::default(),
+            copied_recipe: None,
             read_only,
             _lock: lock,
         };
@@ -401,6 +407,7 @@ impl Session {
         (spec.enabled)(self, params).map_err(|d| CmdError::Disabled(d.0))?;
         self.collected = Some(Vec::new());
         self.undo_op = None;
+        self.step_name = None;
         self.folders.change = None;
         let stamping = std::mem::replace(&mut self.stamping, true);
         let result = catch_unwind(AssertUnwindSafe(|| (spec.run)(self, params)));
@@ -419,14 +426,17 @@ impl Session {
         }
         // The folder rules the command replaced (`folders.rs`): a rules-only change is a step too.
         let modes = self.folders.change.take().filter(|m| !m.is_empty());
-        if spec.history == History::Library && (!inverses.is_empty() || modes.is_some()) {
+        // A command that named its step (`name_step`) records it under that name, whatever its
+        // declared history (a photo-history command's library form).
+        let named = self.step_name.take();
+        if (spec.history == History::Library || named.is_some()) && (!inverses.is_empty() || modes.is_some()) {
             let op = if inverses.len() == 1 {
                 inverses.pop().unwrap_or(Op::Batch { ops: Vec::new() })
             } else {
                 inverses.reverse();
                 Op::Batch { ops: inverses }
             };
-            let step = Step { label: spec.label, op, modes };
+            let step = Step { label: named.unwrap_or(spec.label), op, modes };
             match &mut self.group {
                 Some(group) => group.push(step),
                 None => self.undo.push(step),
@@ -552,6 +562,16 @@ impl Session {
             self.files_op_after(conflicts, &inverse);
         }
         Ok(inverse)
+    }
+
+    /// Inside `execute`: the command's undo step is labelled `label` ("Undo Auto Fix") instead of
+    /// the command's label, and is a library step even when the command declares the photo's
+    /// history (Paste All Edits in the library). Inside a group the group names its one step.
+    /// Ignored outside `execute`.
+    pub(crate) fn name_step(&mut self, label: &'static str) {
+        if self.collected.is_some() {
+            self.step_name = Some(label);
+        }
     }
 
     /// Inside `execute`: the command's undo step applies `op` instead of the inverses of the ops it
