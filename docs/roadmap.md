@@ -6298,7 +6298,7 @@ and are never loosened. No other step of M11 needs a maintainer decision mid-run
     slowed by a planted 1.5 s delay and a 3 s display time, 30 advances find the next preview
     ready every time (zero waits); a photo deleted from the list is skipped without a stall;
     graceful failures; `panic_hunt` green.
-- ⬜ **M11.14 `ui`: the quick full-screen preview**
+- ✅ **M11.14 `ui`: the quick full-screen preview**
   - after: M11.2, M11.10
   - files: `crates/ui/src/panels/peek.rs`, `crates/ui/src/commands/peek.rs`, `crates/ui/tests/peek.rs`, `crates/ui/tests/fingerprints/peek-*.json`
   - scope: `viewing.md` §2: Ctrl+Alt (Cmd+Option) held while the pointer is over a thumbnail, or in

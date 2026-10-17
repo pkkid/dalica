@@ -90,8 +90,12 @@ Music) overrides the global music folder.
 
 Hover a thumbnail and hold **Ctrl+Alt** (macOS: Cmd+Option): the photo fills the screen on black
 immediately (from the best cached preview, refined in place). While held, the **mouse wheel** steps
-through the neighbouring photos of the section. Releasing returns to the light table, with the last
-shown photo focused. Works on the current photo in the edit view too. No controls are shown.
+through the neighbouring photos of the section (one photo per notch; it stops at the section's first
+and last photo, and the light table does not scroll). Releasing returns to the light table, with the
+last shown photo focused and scrolled into view. Works on the current photo in the edit view too
+(releasing on another photo opens that one). Over empty space, in a dialog or while typing in a text
+field, the keys do nothing. No controls are shown. Agents hold the keys with the control channel's
+`ui.key {state: "down"}`, or run `peek {id}` and `peek {id: null}`.
 
 ## 3. Photo viewer (standalone)
 

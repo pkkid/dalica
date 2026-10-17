@@ -52,6 +52,7 @@ mod notices;
 mod offline_folders;
 mod options_dialog;
 mod options_tabs;
+mod peek;
 mod photo_menu;
 mod properties_pane;
 mod quick_tags;

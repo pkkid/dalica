@@ -118,6 +118,7 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
     // over egui anywhere); the regions are laid out inside it at the layout's rects.
     egui::CentralPanel::default().frame(egui::Frame::NONE).show(ui, |ui| {
         use crate::state::{Room, View};
+        peek::watch(app, ui);
         match (app.state().view, app.state().room) {
             (View::Slideshow, _) => slideshow::show(app, ui),
             (View::Viewer, _) => viewer::show(app, ui),
@@ -126,9 +127,7 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
             (View::Edit, Room::Library) => edit::show(p, app, ui),
         }
         // The quick preview covers whatever is shown while Ctrl+Alt is held.
-        if app.state().peek.is_some() {
-            peek::show(app, ui);
-        }
+        peek::show(p, app, ui);
     });
 }
 
