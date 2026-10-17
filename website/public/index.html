@@ -69,9 +69,9 @@
   <div class="head" data-hex="left"><div><span class="label">Measured, not promised</span><h2>Fast where it counts.</h2></div><span class="label">From the project's own benchmarks</span></div>
   <div class="stats">
     <div class="stat-cell rise"><div class="big-num"><span class="count" data-to="100000" data-sep="1">100,000</span></div><h3>photos scroll smoothly</h3><p>0.26 ms per frame (p95), budget 8 ms</p></div>
-    <div class="stat-cell rise"><div class="big-num"><span class="count" data-to="271">271</span><small>ms</small></div><h3>to save the edits of a 24 MP photo</h3><p>release build, budget 1,050 ms on two cores</p></div>
-    <div class="stat-cell rise"><div class="big-num"><span class="count" data-to="3300" data-sep="1">3,300</span><small>+</small></div><h3>automated tests</h3><p>run on Linux, Windows and macOS for every change</p></div>
-    <div class="stat-cell rise"><div class="big-num"><span class="count" data-to="181">181</span></div><h3>commands, all scriptable</h3><p>from the window, the keyboard or the command line</p></div>
+    <div class="stat-cell rise"><div class="big-num"><span class="count" data-to="292">292</span><small>ms</small></div><h3>to save the edits of a 24 MP photo</h3><p>release build, budget 1,050 ms on two cores</p></div>
+    <div class="stat-cell rise"><div class="big-num"><span class="count" data-to="2600" data-sep="1">2,600</span><small>+</small></div><h3>automated tests</h3><p>run on Linux, Windows and macOS for every change</p></div>
+    <div class="stat-cell rise"><div class="big-num"><span class="count" data-to="142">142</span></div><h3>commands, all scriptable</h3><p>from the window, the keyboard or the command line</p></div>
   </div>
 </section>
 
@@ -84,7 +84,7 @@
     <div class="feat"><div class="frame"><img src="/img/feat-albums.jpg" alt="An album named Best of the summer under Albums in the folder tree, its section with a date and the description The ones to print, holding photos from four folders" width="1500" height="1000" loading="lazy"></div><span class="stat">any folder · your order</span><h3>Albums across folders</h3><p>Gather photos from any folders into an album, in the order you choose, without moving a file. Starred Photos collects every starred photo by itself.</p></div>
     <div class="feat"><div class="frame"><img src="/img/feat-export.jpg" alt="The Export to Folder dialog: a location and folder name, numbered file names ticked, resized to 1600 pixels, Automatic quality, and the watermark © 2026 Hill Walkers ticked" width="1500" height="1000" loading="lazy"></div><span class="stat">size · quality · watermark</span><h3>Export a finished set</h3><p>Turn a selection, a folder or an album into a new folder of finished photos: resized, at the quality you pick, numbered in order and watermarked. It runs in the background.</p></div>
   </div>
-  <div class="next"><span class="label">Coming next</span><span class="chip">Import from cards and drives</span><span class="chip">Compare and slideshow</span><span class="chip">Effects</span><span class="chip">People and places</span><span class="chip">Collage</span><span class="chip">Video</span></div>
+  <div class="next"><span class="label">Coming next</span><span class="chip">Albums and search</span><span class="chip">MCP for AI agents</span><span class="chip">Import and slideshow</span><span class="chip">Effects</span><span class="chip">People and places</span><span class="chip">Collage</span></div>
 </section>
 
 <section class="wrap" id="files">
@@ -137,14 +137,14 @@
   <div class="story flip">
     <div class="rise">
       <h3>The window and the command line share one engine.</h3>
-      <p>Every action in Dalíca is a named command, 181 of them today. Clicking, pressing a key and running <code>dalica-cli</code> all go through the same code, so whatever you can do by hand, a script can do too, edits included.</p>
+      <p>Every action in Dalíca is a named command, 142 of them today. Clicking, pressing a key and running <code>dalica-cli</code> all go through the same code, so whatever you can do by hand, a script can do too, edits included.</p>
       <ul class="cli-list">
         <li><code>commands</code> lists every command and its parameters as JSON.</li>
         <li><code>run</code> executes one command, or a JSON-lines script from a file or stdin, and answers in JSON.</li>
         <li><code>inspect</code> prints the library: folders, photos, stars.</li>
         <li><code>snapshot</code> renders the real window to a PNG, with no display or GPU.</li>
         <li><code>dalica --control</code> lets a script drive the open window over a local, token-protected socket.</li>
-        <li>New in 0.5: <code>dalica-cli mcp</code>, an MCP server for AI agents, on its own or driving the open window.</li>
+        <li>New in 0.5: an MCP server for AI agents (<code>dalica-cli mcp</code>).</li>
       </ul>
       <p class="fine">Try it on the built-in demo library of generated photos; your own library is never touched. <a href="https://github.com/pkkid/dalica/blob/main/docs/control-protocol.md">The control protocol →</a></p>
     </div>
