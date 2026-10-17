@@ -7,6 +7,30 @@ and git.
 
 ## Current
 
+- **Milestone:** M10, preferences, MCP and Release 0.5, is done: M10.1–M10.57 are merged (36 planned tasks and 20
+  fix tasks added during the run; M10.30 dropped) and `cargo xtask accept M10` passes (68 s; 158 s with the release
+  budgets). Tools ▸ Options… with General (UI scale, font size, tooltips, animations), File Types, Export and the
+  Keyboard Shortcuts editor; `dalica-cli mcp`, an MCP server headless or connected to a running app, with roots and a
+  read-only mode; 9 of 12 agent workflows pass; P0 parity 109 / 111 ✅ (two rows await checks a person makes). Version
+  0.5.0: M10.R is the 0.5 release gate, published once the review PR is merged. Next: M11, import, compare and
+  viewing; its issues open when the M10.R review PR is merged.
+- **M10 review (2026-10-16):** the maintainer answered: 12-bit JPEG decoding and the DCT/MPF speed-ups move to later
+  rows (DATA-FMT-JPEG ✅ for what 0.5 decodes); release builds ship without an HEVC decoder (patent licensing): HEIC
+  photos are organized, read their date and EXIF from the container and show a tile with a hint (M10.56), the `heif`
+  feature stays for people who build Dalica themselves, and the HEIF test set stays local; Windows keeps the
+  check-then-rename for Save's original; a folder with a damaged sidecar holds write-back into its photo files too
+  (M10.57); agents may save new exports and Save As files into a watched folder (`control-protocol.md` §5.7); the P0
+  audit's moves to later milestones stand, with a test task for the details it named untested (M11.26); the planning
+  decisions that change behaviour stand as built.
+- **Numbers (M10.R, 757bf7a, 2026-10-16):** `cargo xtask ci --full` 8.6 min (i7-13700K, 8 jobs, under load): tests
+  3 304 passed, 5 ignored, 3 failed (three acceptance pictures that late UI changes moved; re-blessed in M10.27);
+  release budgets: scan 22 779 photos/s (≥ 500), cold start at 100 000 photos 200 ms median (≤ 2 s), idle memory
+  84 MiB (≤ 600), M9's search and M8's save budgets met; the first thumbnails at 10 000 photos missed once under load
+  (6 769 ms, budget 1 000; 517 ms on a re-run); parity ✅ 147 · 🟡 36 · ⬜ 62 · 🚫 17 (262 rows, 181 commands; after M10.56);
+  workflows 9 / 12 (floor 9); +49 194 / −4 793 lines, 84 test files added. Run: 54 tasks with 7 workers from 15:36 on
+  2026-10-15 to 08:27 on 2026-10-16, 3 send-backs; four data-safety bugs found and fixed before release (a failed
+  journal append, captions written into multi-picture JPEGs, a killed Save on Windows, pending sidecar writes
+  reported as none).
 - **Milestone:** M9, albums, search and file operations, is done: M9.1–M9.30 are merged and `cargo xtask accept M9`
   passes (93 s alone; 92 s with the release budgets). Albums across folders with a manual order that survives a
   rebuild, Starred Photos, Album Properties, Add to Album; search as you type with filters, the age slider, the banner,

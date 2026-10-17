@@ -10,8 +10,27 @@ state (ready, claimed, in review) is on the task board ([`task-board.md`](task-b
 
 ## Where we stand
 
-*Honest assessment, one dated entry per review, newest first (latest: 2026-10-15, M9.R). Agents:
+*Honest assessment, one dated entry per review, newest first (latest: 2026-10-16, M10.R). Agents:
 read this before picking work. Update it only with measured facts, dated.*
+
+*2026-10-16 (M10.R, the Release 0.5 gate).* M10 is done: `cargo xtask accept M10` passes in 68 s (158 s with the
+release budgets), and the tests on `main` went from 3 098 to 3 304. Tools ▸ Options… has its four tabs (General with
+UI scale, font size, tooltips and animations; File Types, where turning a type off rescans and keeps its data;
+Export defaults; Keyboard Shortcuts, an editor with two keys per command, named conflicts and Reset All), all through
+`options.set` and `app.setShortcut`. `dalica-cli mcp` is an MCP server, headless on a library or connected to a running
+`dalica --control`, with one tool per command plus helpers and resources, read and write roots and a read-only mode;
+9 of the 12 agent workflows pass over real stdio (the other three need M11 and M12), and connect mode gives the same
+results as headless. P0 parity: 109 of 111 rows ✅, the other two waiting only for checks a person makes (the Windows
+touchpad pinch, the macOS build used by hand). Release budgets met: scan 22 779 photos/s (≥ 500), cold start at
+100 000 photos 200 ms median (≤ 2 s), idle memory 84 MiB (≤ 600). Testing changed mid-run to the changed packages per
+task and everything once here; the first full run then found breaks no task gate saw (finished milestones' acceptance
+pictures, macOS and Windows path and timing assumptions), fixed in nine tasks before this review. The run also found
+and fixed four data-safety bugs before anything shipped: a journal append that failed part-way lost the records after
+it; a caption written into an iPhone or camera JPEG broke its secondary images; on Windows a Save killed mid-way left
+the original under two names; and "nothing pending" was reported while a sidecar write was still a second away. Not
+done: release builds have no HEIC decoder (HEVC patent licensing; HEIC photos are organized and show a tile), 12-bit
+JPEG is not decoded, and one timing miss is unexplained (the first thumbnails at 10 000 photos took 6.8 s once under
+load, 0.5 s on a re-run). Parity ✅ 147 · 🟡 36 · ⬜ 62 · 🚫 17. M10.R is the 0.5 release gate (version 0.5.0).
 
 *2026-10-15 (M9.R, the Release 0.4 gate).* M9 is done: `cargo xtask accept M9` passes in 93 s (92 s with the
 release budgets), and the tests on `main` went from 2 662 to 3 098. Albums gather photos from any folders in a
@@ -270,7 +289,7 @@ waits for.)
 | Edit and output | M7 | Edit view and fixes | edit view, basic fixes, Tuning and Retouch; thumbnails show edits | ✅ |
 | | M8 | Save and export | Save, Undo Save, Revert, Save a Copy, Save As; export | ✅ |
 | Organize | M9 | Albums, search and file operations | lasting albums, instant search and filters, move/copy/rename/delete | ✅ |
-| | M10 | Preferences, MCP and Release 0.5 | Options and shortcut editor, MCP and the P0 workflows; all P0 rows shipped | ⬜ |
+| | M10 | Preferences, MCP and Release 0.5 | Options and shortcut editor, MCP and the P0 workflows; all P0 rows shipped | ✅ |
 | P1 parity | M11 | Import, compare and viewing | import from cards and drives, compare and batch edit, slideshow, the viewer | ⬜ |
 | | M12 | Effects | effect tiles, parameter panels and all 27 effects | ⬜ |
 | | M13 | People and places | local faces, the People pane, the Places pane and geotagging | ⬜ |
@@ -4850,8 +4869,9 @@ No other step of M10 needs a maintainer decision mid-run.
     `crates/automation/src/workspace.rs` (`AuthorizedWorkspace`) at 583425b4 as the pattern: the
     path policy moved from `ui`'s `control/paths.rs` into `engine` (`automation.rs`: read and
     write roots, the default write roots (the OS temporary directory and
-    `<cache>/Dalica/automation/`), never inside a watched folder or `.dalica-originals/`, never
-    over an existing file, links resolved before the check), the control channel calling it; MCP's
+    `<cache>/Dalica/automation/`), new files inside a watched folder only as
+    `control-protocol.md` §5.7 allows (an export or a Save As; decided at M10.R, 2026-10-16), never
+    inside `.dalica-originals/`, never over an existing file, links resolved before the check), the control channel calling it; MCP's
     client roots (`roots/list` after `initialize` and on `notifications/roots/list_changed`,
     `file://` roots as read roots only, `--no-client-roots`); `--automation-read-root`,
     `--automation-write-root`, `--automation-allow-external` and `--automation-allow-people` in
@@ -5767,7 +5787,7 @@ No other step of M10 needs a maintainer decision mid-run.
     files in its scope (`architecture.md` §9).
   - done when: `cargo xtask tasks sync --check` parses them and `tasks sync --dry-run` lists one new
     issue per block.
-- ⬜ **M10.R Release 0.5 gate**
+- ✅ **M10.R Release 0.5 gate**
   - after: M10.24, M10.27, M10.29, M10.31, M10.32, M10.33, M10.34, M10.35, M10.36, M10.37, M10.38, M10.39, M10.40, M10.41, M10.42, M10.43, M10.44, M10.45, M10.46, M10.47, M10.48, M10.49, M10.50, M10.51, M10.52, M10.53, M10.54, M10.55, M10.56, M10.57
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`
