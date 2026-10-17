@@ -6471,8 +6471,40 @@ and are never loosened. No other step of M11 needs a maintainer decision mid-run
     this task (before and after numbers in the PR) or blocks with its numbers, never loosened.
   - done when: `cargo xtask bench import`, `bench batch_edit` and `bench slideshow` print their
     numbers (in the PR); `cargo xtask budgets` passes with them and `--plant-ms` makes each fail.
+- ⬜ **M11.27 `ui` + `engine`: A│A's right side takes the tools**
+  - after: M11.16
+  - files: `crates/engine/src/cmd/tuning.rs`, `crates/engine/tests/tuning_commands.rs`, `crates/ui/src/panels/edit/crop.rs`, `crates/ui/src/panels/edit/straighten.rs`, `crates/ui/src/panels/edit/retouch.rs`, `crates/ui/src/panels/edit/tuning.rs`, `crates/ui/src/panels/edit/fill_light.rs`, `crates/ui/src/panels/edit/panel.rs`, `crates/ui/src/commands/tools.rs`, `crates/ui/src/commands/compare.rs`, `crates/ui/tests/compare_tools.rs`
+  - scope: a fix task from M11.16's run. Compare routes Auto Fix, the one-click fixes, rotations,
+    flips, Undo and Redo to the focused side (the variant in A│A), but greys the right side's tool
+    panels (Crop, Straighten, Retouch, Tuning, Fill Light) with a reason: they build their
+    candidates from the photo's own recipe, and `photo.history.tuning` has no `variant` parameter.
+    Wire each panel to the focused side's recipe (its candidate, preview and commit go to the
+    variant on A│A's right side); `photo.history.tuning` takes `variant: true` as
+    `photo.history.apply` does (M11.10), its params doc saying so; remove the greying and its
+    reason. The new test file is a `mod` of `crates/ui/tests/all.rs`; row `EDIT-COMPARE`.
+  - done when: `crates/engine/tests/tuning_commands.rs`: a tuning session on the variant leaves
+    the photo's sidecar byte-identical, and `variant: true` with no variant open fails gracefully;
+    `crates/ui/tests/compare_tools.rs` (headless, by id): each of Crop, Straighten, Retouch, Tuning
+    and Fill Light on A│A's right side edits the variant and leaves the photo's sidecar
+    byte-identical, the panels are no longer greyed, and keeping the right side writes the tool's
+    step as one history step; graceful failures; `panic_hunt` green; `cargo xtask ci` green.
+- ⬜ **M11.28 `ui`: General's "Save imported pictures in" row goes live**
+  - after: M11.20
+  - files: `crates/ui/src/dialogs/options/general.rs`, `crates/ui/tests/options_dialog.rs`, `crates/ui/tests/fingerprints/dialog-options-general-*.json`
+  - scope: a fix task: M11.1 made `import.folder` settable through `options.set`, but Options ▸
+    General still draws "Save imported pictures in" and its Browse… disabled ("Arrives with
+    Import"). The field shows the stored folder, else the Pictures folder (as the hint); Browse…
+    opens the folder picker off the UI thread and puts the choice into the draft through
+    `app.preferences.folder`, so Apply stores it; "Detect duplicates while importing" works too
+    if it is still drawn disabled; the module doc's sketch says what this build offers; row
+    `PREF-GENERAL`.
+  - done when: `crates/ui/tests/options_dialog.rs` (headless, by id): a folder chosen through the
+    dialog and applied is stored in `import.folder`, and the Import room's destination ("Import
+    to:") uses it; the duplicates checkbox stores `import.detectDuplicates` if it was disabled;
+    the fingerprint of the General tab at 1400 × 900 updated (images in the PR); `cargo xtask ci`
+    green.
 - ⬜ **M11.24 `accept M11`**
-  - after: M11.14, M11.16, M11.17, M11.18, M11.20, M11.21, M11.22, M11.23
+  - after: M11.14, M11.16, M11.17, M11.18, M11.20, M11.21, M11.22, M11.23, M11.27, M11.28
   - files: `tests/acceptance/m11.rs`, `tests/acceptance/m11_*.rs`, `tests/acceptance/m11.md`, `tests/acceptance/fingerprints/m11-*.json`
   - scope: every *Done when* of M11's four areas in the real `dalica --headless` over the control
     channel, through `dalica-cli mcp`, and with `dalica --view FILE --headless`: a simulated card (a
@@ -6575,6 +6607,8 @@ wave 3   M11.8 importing + undo + removal  ‖  M11.11 slideshow list + prefetch
 wave 4   M11.19 slideshow  ‖  M11.20 import room: destination + finish  ‖  M11.22 apply_edit, W07, W10
 wave 5   M11.21 slideshow bar + Options  ‖  M11.23 M11 budgets
          (from the M10.R answers, any wave: M11.26 tests for the audit's untested details)
+         (fix tasks: M11.27 A│A's right side takes the tools, after M11.16  ‖  M11.28 General's
+         import folder row, after M11.20)
 wave 6   M11.24 accept M11 → M11.R          (M11.25 lead: M13 blocks, any time after M10.28)
 ```
 
