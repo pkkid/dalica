@@ -6489,7 +6489,7 @@ and are never loosened. No other step of M11 needs a maintainer decision mid-run
     transition, the viewer from the file manager's Open with on each OS with its translucent
     backdrop, Ctrl+Alt over a thumbnail).
   - done when: `cargo xtask accept M11` passes everything in M11's *Done when*.
-- ⬜ **M11.25 Lead: task blocks for M13**
+- ✅ **M11.25 Lead: task blocks for M13**
   - after: M10.28
   - owner: lead
   - files: `docs/roadmap.md`
@@ -7106,13 +7106,823 @@ wave 4   M12.17 crosshair  ‖  M12.18 soften brush  ‖  M12.21 M12 budgets
 wave 5   M12.22 accept M12 → M12.R          (M12.23 lead: M14 blocks, any time after M11.25)
 ```
 
-### M13 – M14: P1 parity (outline; the lead details each one while the one before runs)
+### M13 — People and places
+
+One milestone in 3 feature areas (*Faces and the People group*, *Suggestions, the People pane and face regions*, *Places and geotagging*); one `cargo xtask accept M13` covers every *Done when* below. It ends with a release gate the maintainer owns (Release 0.8).
+
+#### Faces and the People group
+
+- **In:** local face finding (`faces.md`): the pure-Rust ONNX interpreter with its limits, the
+  detector, alignment and embeddings, models installed from a local file or downloaded with the
+  user's consent (the licence dialog, pinned size and SHA-256, the self-test; reserved decisions 5
+  and 9), the background scan at the lowest priority whose pace follows the user, Find Faces
+  Again; grouping of unnamed faces; the People group in the tree (Unnamed and one row per person
+  with counts), the Unnamed face grid (clusters, Add a name, New Person, ignore, Show Ignored
+  Faces, Expand Groups, faces dragged onto a person), person albums (person sections with Zoom to
+  Faces / Show Whole Photos, Set as Person Thumbnail, Play), the face and person context menus
+  (Rename, Merge Into, Delete Person); faces and people in the sidecars, `people.json` and the
+  index; `person:` in the search and the Faces filter; Options ▸ People and the Folder Manager's
+  Remove Faces question; faces in the crop suggestions and in the slideshow's Pan and Zoom.
+- **Out:** the People Manager (`PPL-MANAGER`, P2); tiled detection for very small faces and GPU
+  inference (`faces.md` §2, `development.md` §14); a person's Collage button (live with the
+  collage room, M14); faces in videos (M15).
+- **Reuse** (`architecture.md` §9): LightCraft `crates/faces` (`graph.rs`, `net.rs` and
+  `net/**`, `runtime.rs`, `onnx.rs`, `yunet.rs`, `align.rs`, `manifest.rs`, `catalog.rs`,
+  `known.rs`, `hash.rs`, `matching.rs`, `suggest.rs`, `synthetic.rs`), LightCraft engine
+  `faces_index.rs`, `faces_worker.rs`, `face_tiles.rs`, `face_download.rs`, `cmd/face_models.rs`
+  and `cmd/face_recognize.rs`, and LightCraft `crates/ui-egui/src/panels/faces.rs` (the licence
+  dialog), `unnamed.rs` and `person.rs` as the pattern; LightCraft `crates/fetch` (`lib.rs`,
+  `http.rs`) for downloads.
+- **Done when:** `cargo xtask accept M13`: with a model installed, the face scan finds faces in the
+  background and the window never waits on it; on `corpus/public-faces/` the detection and grouping
+  floors hold (`faces.md` §10); naming a group names every face in it as one undo step and survives
+  a restart and an index rebuild; removed and ignored faces never come back on a rescan; nothing is
+  fetched before the licence is accepted; a full people workflow leaves no name, rectangle or
+  embedding in a `trace` log.
+
+#### Suggestions, the People pane and face regions
+
+- **In:** suggestions (`faces.md` §5): "Name?" above the Suggestion confidence and ahead of the
+  runner-up, Confirm, Confirm All, Reject (remembered), Find More, Show only suggestions, the "?"
+  badge on a person's row, `faces.evaluate`; the People pane (`organizing.md` §6.4): the people in
+  the selection, its unnamed faces and suggestions, hovering a face highlighting its box on the
+  photo and back, Add a Person Manually in the edit view, several people filtering the light
+  table; face boxes on the photo in the edit view; MWG face regions read on scan and written with
+  Store people names in photos or Tools ▸ Experimental ▸ Write People Names to Photos…
+  (`xmp-interop.md` §6); people over MCP (W14).
+- **Out:** face data in exported copies beyond what the source file already holds (`faces.md` §7).
+- **Reuse:** LightCraft `crates/faces/src/matching.rs` (best match and margin) and
+  `cmd/face_recognize.rs` (`faces.suggest`, `faces.person`) as the pattern.
+- **Done when:** `cargo xtask accept M13`: a suggestion appears only above the threshold and the
+  margin, a confirmed face is never suggested again and a rejected pair never comes back; a face
+  added by hand on a turned photo is stored in the stored frame and lands where it was drawn;
+  merging, renaming and deleting a person are one undo step each; the MWG round-trip tests
+  (`xmp-interop.md` §8, item 5) pass, and with Store people names in photos on a named face reaches
+  the file and reads back; W14 passes over MCP.
+
+#### Places and geotagging
+
+- **In:** the geotag in the model and the sidecar (`"geo"`), imported from the file's GPS on scan
+  and written back to it (EXIF GPS and its XMP mirror, under Write captions, tags and places) or
+  cleared; the Places pane (`organizing.md` §7): the map of the photos of the current folder,
+  album or selection, markers with their counts and bubbles, zoom, the pin tool, drag photos onto
+  the map to geotag them, "Search for a place:", the confirmations; Tools ▸ Geotag ▸ Clear
+  Location…, Copy Location and Paste Location; opt-in map tiles and the geocoding service
+  (reserved decisions 4 and 9) with Options ▸ Network; an offline map (coastlines and a graticule)
+  when tiles are off; geotags over MCP (`set_metadata {geo}`, W13).
+- **Out:** reverse geocoding (place names from coordinates) and offline place-name search (not in
+  the spec); GPS tracks.
+- **Reuse:** LightCraft `crates/fetch` for the tile and geocoder requests; Natural Earth 1:110m
+  land (public domain) for the offline map.
+- **Done when:** `cargo xtask accept M13`: dragging photos onto the map geotags them as one undo
+  step that survives a restart and a rebuild; the GPS round-trip: the place reaches the file and
+  reads back within 10⁻⁶°, and Clear Location removes the GPS position and its XMP mirror; no
+  network connection is made without the user's action (start-up, scans and the Places pane with
+  tiles off make none; tiles are fetched only while the pane is open and allowed); W13 passes over
+  MCP.
+
+#### M13 tasks
+
+M13 finds and names people and puts photos on a map: the faces engine (an ONNX interpreter, the
+detector, embeddings and grouping), consented model downloads, the face scan, the People group,
+the Unnamed grid, person albums, suggestions, the People pane, MWG face regions, geotags in the
+model and the files, the Places pane and its map, and opt-in map tiles. Its first wave lists the
+M12 work each task extends and starts once the maintainer has closed M12.R. Eight tasks lay the
+ground the others share, so later tasks never share a file: M13.1 gives `core` the coordinate
+maths (`core::geo`) and `library` faces, people and geotags with their ops and queries; M13.2
+gives `sidecar` the `"faces"`, `"people"` and `"geo"` fields; M13.3 registers one engine command
+module per area with stub state, M13's settings and the People and Network rows of the options
+catalogue; M13.4 adds M13's view state, UI commands with stub handlers and the stub panes, grids
+and dialogs; M13.5 gives `ui-kit` the face tile, the face box, the suggestion marks and the
+icons; M13.6 and M13.7 give `faces` its interpreter and its grouping and suggestion maths (one
+needs no model, the other no network); M13.8 gives `fetch` consented, resumable, hash-pinned
+downloads over a transport it does not choose. The store (M13.9), the detector and embeddings
+(M13.10), MWG regions in `meta` (M13.11), the map widget (M13.12) and the HTTPS transport (M13.13)
+follow; then the engine's places (M13.14), people (M13.15), models (M13.16), scan (M13.18), face
+regions (M13.19), tiles (M13.20) and suggestions (M13.26), each in its own module, and the window's
+grids, panes and dialogs on top. Each task updates its `parity.md` rows (`PPL-DETECT`,
+`PPL-UNNAMED`, `PPL-SUGGEST`, `PPL-PANE`, `PPL-XMP`, `PPL-CROP`, `GEO-PANE`, `GEO-WRITE`,
+`PREF-PEOPLE`, `PREF-NETWORK`, the People and Places parts of `LIB-PANES`, `LIB-TREE-GROUPS`,
+`LIB-TREE-DND`, `LIB-LT-SECTIONS`, `LIB-LT-HEADER`, `LIB-SEL`, `LIB-REGIONS` and `LIB-LT-BADGES`,
+Find Faces Again in `LIB-CTX-PHOTO`, the faces pass of `ORG-FIRSTRUN`, the Remove Faces question of
+`ORG-FOLDERMGR`, the Faces filter of `SRCH-FILTERS`, `person:` in `SRCH-LIVE`, faces, people and
+places in `DATA-SIDECAR` and `DATA-META`, Pan and Zoom in `VIEW-SLIDESHOW`, `SYS-MCP`, the Picture,
+Tools and View menu rows) and names its commands there; first fingerprints of the People group,
+the Unnamed grid, person sections, the People pane, the face boxes, the Places pane and its map,
+the dialogs and the new widgets and icons are approved in bulk on the M13.R review page.
+
+Whole-window baselines belong to no task, as in M5–M12: the finished milestones'
+`tests/acceptance/fingerprints/m1-*.json` … `m12-*.json` and any `crates/ui/tests/fingerprints/`
+file not named in a task's `files` change whenever the window does. A task whose change moves them
+re-blesses them on its branch (diff images on the PR, the reason in the commit body), they never
+count as a `files` overlap, and on a rebase conflict the worker re-blesses after the rebase.
+Fingerprints are made at 1400 × 900 only; at 900 × 600 a test asserts that the grids, panes and
+dialogs fit (`architecture.md` §11).
+
+Decisions taken while planning (the check-in lists them for reversal). **The reserved decisions.**
+Reserved decisions 4 (map tiles: provider, and whether on by default), 5 (face models and their
+licences) and 9 (the TLS stack) are asked at M12.R, as M11.25 said, never guessed here. The tasks
+that hinge on them list M12.R and build what the recorded answer says: M13.10 (the detector and the
+built-in model list: 5), M13.13 (the transport: 9), M13.16 (downloads: 5 and 9), M13.17 (the corpus
+floors and calibration: 5) and M13.20 (tiles and the geocoder: 4 and 9); a worker who finds the
+answer missing from *Reserved decisions* runs `tasks block` with the question and takes another
+task. Everything else is built and tested without a model or the network: seeded synthetic
+networks, an injected transport, a loopback listener that counts connections. If the answer is
+that no network feature ships in 0.8, faces still work with a model added from a local file and
+Places with the offline map. **Storage** (`data-model.md` §2–§4): a face is a `"faces"` entry of
+its photo (`rect` `[x0, y0, x1, y1]` normalised in the stored frame of reserved decision 11, and
+`person`, a person id or `ignored`; at most 256 per photo); a geotag is `"geo": [lat, lon]` with 6
+decimals; a folder's sidecar mirrors the names of the people present in it (`"people"`) and
+`people.json` in the library folder holds every person (id, name, nickname, thumbnail face) and the
+rejected suggestions; embeddings, landmarks and which photos were searched live in one cache file
+per model beside the index (named by the model's SHA-256, like the sketch file: rebuildable, a torn
+tail dropped), never in a sidecar. A person's name is unique ignoring case: typing an existing name
+assigns to that person, a new one asks New Person. **Undo:** naming a group, ignoring, moving or
+removing faces, a face drawn by hand, renaming, merging and deleting a person (whose faces go back
+to Unnamed) and geotagging, moving or clearing places are each one library undo step (one step of
+the photo's own history in the edit view, as rotations are); Confirm All is one step. **Grouping**
+is recomputed from the cached embeddings and is never user data: clusters are formed in photo
+order so the Unnamed grid comes back the same after a restart, largest first; a background pass
+merges clusters whose centroids meet the threshold. Calibration tables of the built-in models are
+measured on `corpus/public-faces/` (M13.17); until then a model uses `matchCosine + (value − 85) ×
+0.01`. **The scan** runs only while Find faces in my photos is on and a recogniser is installed,
+follows the library's new and changed photos (not the scan code), never on the owner thread, at the
+lowest job priority, with the window reporting the user's input to the session so the pace follows
+`faces.md` §4; the People group's header reads "Finding faces… 312 of 4,980" while it runs. Face
+tiles (the grid, the tree, the pane) are cut from the thumbnail ladder at the smallest cached size
+covering twice the face as shown, kept in memory only, never in the thumbnail cache. Models never
+enter the repository or the release packages; the corpus tests get them as a third-party pinned set
+(`face-models`, fetched from their upstreams by `cargo xtask corpus` like PngSuite, never copied
+into `dalica-corpus`), and the benches use a seeded synthetic network of the chosen recogniser's
+shape. **Places:** the geotag lives in the model, imported from the file's GPS on the first scan
+and synced by `xmp-interop.md` §5 as the other owned fields are; the geotag badge, the Geotagged
+filter, Export's Remove location and `photo.inspect` read it. The map is Web Mercator (zoom 0–19,
+256-pixel tiles); without tiles it draws Natural Earth's 1:110m land (public domain, compiled in
+with its `ATTRIBUTION.md` row) and a graticule, so geotagging by drag works offline; markers closer
+than 32 points on screen are drawn as one with a count. **The network** is used only after the
+user acts: a model download only after the licence box is ticked, tiles only once Allow map tiles
+is on and only while the Places pane is open (the pane asks once: "Show map tiles from
+%provider%? Dalica fetches map pictures from the internet while this pane is open." [Allow]
+[Not Now]), a place search only on Enter; nothing at start-up, during scans or from automation
+without those settings. Tiles are cached under `<cache>/tiles/` (200 MB, oldest first, only files of
+its own naming shape deleted); a tile is at most 1 MiB and 1 024 pixels, a geocoder reply at most
+1 MiB and depth 32 (`security.md` §4.2). The Network tab's proxy is "system" (the `HTTPS_PROXY` and
+`NO_PROXY` environment variables on every OS) or "manual" (host and port, `CONNECT` only, no proxy
+authentication). Typed coordinates (decimal or degrees, minutes and seconds) are found without the
+network. **Over automation** people data stays withheld without `--automation-allow-people`
+(`control-protocol.md` §6.4), embeddings are never returned, and `faces.models.download` and
+`.install` need `acknowledged: true`, which agents never set on their own (`faces.md` §9). Ports
+from the Craft apps get their `NOTICE` rows from M13.6, which writes one row per port named in the
+blocks below, so the porting tasks never share `NOTICE`; a port not named here asks the lead for
+its row. M13's budgets join `development.md` §8 at 1.5 × their first measurement, plus the frame
+time while the face scan runs (within 16 ms at p95), and are never loosened. Apart from the
+reserved decisions and the go-ahead to publish the face corpus (both asked at M12.R), no step of
+M13 needs a maintainer decision mid-run.
+
+- ⬜ **M13.1 `core` + `library`: places, faces and people in the model**
+  - after: M9.8, M10.29, M12.R
+  - files: `crates/core/src/geo.rs`, `crates/core/tests/geo.rs`, `crates/library/src/model.rs`, `crates/library/src/op.rs`, `crates/library/src/people.rs`, `crates/library/src/query.rs`, `crates/library/src/search.rs`, `crates/library/src/search/**`, `crates/library/tests/people.rs`, `crates/library/tests/places.rs`, `crates/library/README.md`
+  - scope: `core::geo`: a validated `LatLon` (finite, on the globe), decimal and
+    degrees-minutes-seconds parse and print, great-circle distance, Web Mercator and the tile
+    maths (a point ↔ world pixels at a zoom, the tiles covering a box, clamped at ±85.05°); in
+    `library`, per the decisions above: `PhotoInfo` gains `faces` (rectangle in the stored frame,
+    person or ignored; at most 256) and `geo`; the model gains the people (id, name unique ignoring
+    case, nickname, thumbnail face); ops with inverses: `SetFaces`, `SetGeo`, `AddPerson`,
+    `RenamePerson`, `MergePeople` (faces move, the name of the target kept), `DeletePerson` (its
+    faces to Unnamed), `SetPersonThumbnail`; queries: a person's photos (the person album) in date
+    order, Unnamed faces, counts per person, people sorted by name or count, photos with faces, the
+    geotagged photos (the file's GPS or the model's geotag) and the geotags of a set of photos;
+    the search grammar's `person:` matches names and nicknames (it matched nothing until now) and
+    the Faces filter photos with a named or unnamed face.
+  - done when: `crates/core/tests/geo.rs`: decimal and DMS round-trip, `NaN` and out-of-range
+    refused, a tile's corners map back to their points, the tiles covering a box across the
+    antimeridian; `crates/library/tests/people.rs`: each op and its inverse restore the model,
+    merging two people moves every face and deleting one sends its faces to Unnamed, two names
+    equal ignoring case are refused, `person:ana` finds Ana's photos and the Faces filter photos
+    with faces; `crates/library/tests/places.rs`: a geotag set, moved and cleared with undo, the
+    geotagged query takes the model's geotag over the file's; every existing `library` test
+    passes unchanged.
+- ⬜ **M13.2 `sidecar`: faces, people and geotags in `.dalica.json`**
+  - after: M9.6, M12.R
+  - files: `crates/sidecar/src/fields.rs`, `crates/sidecar/src/print.rs`, `crates/sidecar/src/lib.rs`, `crates/sidecar/tests/fields.rs`, `crates/sidecar/README.md`
+  - scope: `data-model.md` §3: a photo's `"faces"` (`rect` and `person`; at most 256, extra
+    entries kept and ignored) and `"geo"` (`[lat, lon]`, printed with 6 decimals), the folder's
+    `"people"` (`{id: {name, nickname?}}`); hostile values (a rectangle outside the photo, inverted
+    or not finite, a bad person id, a latitude past 90) keep the entry and skip the value, as
+    every field does; unknown keys inside a face kept verbatim.
+  - done when: `crates/sidecar/tests/fields.rs`: faces, people and a geotag print and parse back
+    equal; the sorted, pretty output is byte-stable; each hostile value is skipped with the rest
+    of the photo kept; unknown keys in a face survive a rewrite; every existing sidecar test passes
+    unchanged.
+- ⬜ **M13.3 `engine`: M13's command modules, settings and options rows**
+  - after: M11.1, M12.5, M12.R
+  - files: `crates/engine/src/cmd/mod.rs`, `crates/engine/src/cmd/people.rs`, `crates/engine/src/cmd/faces.rs`, `crates/engine/src/cmd/face_scan.rs`, `crates/engine/src/cmd/face_models.rs`, `crates/engine/src/cmd/face_regions.rs`, `crates/engine/src/cmd/suggest.rs`, `crates/engine/src/cmd/places.rs`, `crates/engine/src/cmd/map.rs`, `crates/engine/src/faces_scan.rs`, `crates/engine/src/faces_index.rs`, `crates/engine/src/face_models.rs`, `crates/engine/src/face_tiles.rs`, `crates/engine/src/suggestions.rs`, `crates/engine/src/places.rs`, `crates/engine/src/map_tiles.rs`, `crates/engine/src/session.rs`, `crates/engine/src/jobs.rs`, `crates/engine/src/options.rs`, `crates/engine/src/settings.rs`, `crates/engine/tests/settings.rs`, `crates/engine/tests/options_catalogue.rs`, `crates/engine/README.md`, `docs/menus-and-shortcuts.md`, `docs/data-model.md`
+  - scope: the engine's ground for M13 so M13.14–M13.26 never share a file: empty `cmd/people.rs`,
+    `faces.rs`, `face_scan.rs`, `face_models.rs`, `face_regions.rs`, `suggest.rs`, `places.rs` and
+    `map.rs` joined into the registry once; stubs `faces_scan.rs`, `faces_index.rs`,
+    `face_models.rs`, `face_tiles.rs`, `suggestions.rs`, `places.rs` and `map_tiles.rs`, each a
+    field of `Session` once, with `Session::user_activity` (the window's input, for the scan's
+    pace) and `Session::set_places_open`; `JobKind::Network`; every M13 setting with its default
+    behind a typed accessor: People (find faces on, suggest names on, suggestion and grouping
+    confidence 85 in 50–95 by 5, store names in photos off, the model in use), Network (allow map
+    tiles off, the tile server template, its attribution, the geocoding service, proxy
+    `system | manual` with host and port); the options catalogue
+    gains the People and Network tabs' rows (what waits on a reserved decision shown unavailable
+    with its reason); `menus-and-shortcuts.md` §1.9 lists the new commands (`faces.*`,
+    `people.*`, `photo.geo.*`, `geo.*`, `places.*`, `map.*`) and §5's People and Network tabs say
+    what this build offers; `data-model.md` §4 lists the new settings keys.
+  - done when: `crates/engine/tests/settings.rs` round-trips every new setting with unknown keys
+    kept and wrong types or out-of-range values falling back (reported);
+    `crates/engine/tests/options_catalogue.rs` covers the People and Network tabs, every option
+    once, each default equal to its accessor's; every existing engine test and `panic_hunt` pass
+    unchanged.
+- ⬜ **M13.4 `ui`: M13's view state, UI commands and the stubs**
+  - after: M12.2, M12.R
+  - files: `crates/ui/src/state.rs`, `crates/ui/src/menus.rs`, `crates/ui/src/menu_catalog.rs`, `crates/ui/src/keys.rs`, `crates/ui/src/drag.rs`, `crates/ui/src/commands/mod.rs`, `crates/ui/src/commands/people.rs`, `crates/ui/src/commands/faces.rs`, `crates/ui/src/commands/people_pane.rs`, `crates/ui/src/commands/suggestions.rs`, `crates/ui/src/commands/face_model.rs`, `crates/ui/src/commands/places.rs`, `crates/ui/src/commands/map.rs`, `crates/ui/src/panels/mod.rs`, `crates/ui/src/panels/side_pane.rs`, `crates/ui/src/panels/faces.rs`, `crates/ui/src/panels/faces/**`, `crates/ui/src/panels/people_pane.rs`, `crates/ui/src/panels/people_pane/**`, `crates/ui/src/panels/places.rs`, `crates/ui/src/panels/places/**`, `crates/ui/src/panels/edit/faces.rs`, `crates/ui/src/panels/light_table/suggestions.rs`, `crates/ui/src/dialogs/mod.rs`, `crates/ui/src/dialogs/new_person.rs`, `crates/ui/src/dialogs/people.rs`, `crates/ui/src/dialogs/face_model.rs`, `crates/ui/src/dialogs/geotag_confirm.rs`, `crates/ui/src/dialogs/options.rs`, `crates/ui/src/dialogs/options/people.rs`, `crates/ui/src/dialogs/options/network.rs`, `crates/ui/src/control/**`, `crates/ui/tests/view_state.rs`, `docs/control-protocol.md`
+  - scope: every M13 field of `UiState` in one go: the Unnamed view (expanded groups, ignored
+    shown, the face selection, the name being typed per group); a person section's zoom to faces;
+    the People pane (selected people, the face hovered, the manual box being drawn and its name);
+    the Places pane (centre, zoom, the pin and its place, the open bubble, the search text and
+    results, the drop under way); the face model dialog (the file or catalogue entry, the box
+    ticked, the download's progress); UI commands with stub handlers, so M13.21–M13.30 never share
+    a file: `people.*` (rename, merge, delete, thumbnail, sort) in `commands/people.rs`,
+    `faces.*` (name a group, ignore, move, remove, show ignored, expand) in `commands/faces.rs`,
+    the pane's `people.filter` and `faces.add` in `commands/people_pane.rs`, `faces.confirm`,
+    `.reject`, `.confirmAll`, `.findMore`, `.onlySuggestions` in `commands/suggestions.rs`, the
+    model dialog's in `commands/face_model.rs`, `places.*` (pin, drop, bubble, Show These Photos,
+    Remove Location) and `geo.clear`, `.copy`, `.paste` in `commands/places.rs`, `map.*` (allow,
+    zoom, pan, search) in `commands/map.rs`; a faces payload for drags (`drag.rs`); the side pane
+    routing People and Places to stub panes; stub panels `faces.rs` (and its folder),
+    `people_pane.rs`, `places.rs` (and their folders), `edit/faces.rs`,
+    `light_table/suggestions.rs`; stub dialogs New Person, the person dialogs (rename, merge,
+    delete), the face model dialog, the geotag confirmations and the Options tabs People and
+    Network; the Picture, Tools and View menu items and the face and person context menus wired to
+    their commands (greyed until live); control stubs for the new state; `control-protocol.md`
+    §6.5 and §7 (the new state and ids: `face:<id>`, `group:<n>`, `field:faces.name/<n>`,
+    `map:places`, `marker:<n>`, `button:places.pin`, `field:places.search`, `popup:places.bubble`,
+    `region:people`, `region:places`, the dialogs' ids).
+  - done when: `crates/ui/tests/view_state.rs`: each new field round-trips through `ui.state` /
+    `ui.set` (bad values are `bad_params`, nothing changes); `pane.people` and `pane.places` open
+    the stub panes; the new menu items are listed and greyed; every command's graceful-failure
+    test; `panic_hunt` and `widget_ids` stay green.
+- ⬜ **M13.5 `ui-kit`: face tiles, the face box, suggestion marks and the icons**
+  - after: M12.4, M12.R
+  - files: `crates/ui-kit/src/widgets.rs`, `crates/ui-kit/src/widgets/face_tile.rs`, `crates/ui-kit/src/widgets/face_box.rs`, `crates/ui-kit/src/widgets/suggest_marks.rs`, `crates/ui-kit/src/widgets/badges.rs`, `crates/ui-kit/src/theme.rs`, `crates/ui-kit/src/icons.rs`, `crates/ui-kit/src/icons/people.rs`, `crates/ui-kit/tests/face_widgets.rs`, `crates/ui-kit/tests/icons_people.rs`, `crates/ui-kit/tests/fingerprints/face-widgets*.json`, `crates/ui-kit/tests/fingerprints/icons-people*.json`, `crates/ui-kit/tests/fingerprints/gallery*.json`, `docs/design-system.md`
+  - scope: `design-system.md` §4–§6 and `organizing.md` §6: `face_tile` (a square face picture or
+    a placeholder, selected, hovered and dragged states, an optional name or "Name?" label, an
+    optional × at its top-right and ✓ / × marks under it; registers `face:<id>`); `face_box` (the
+    `face_box` token's rectangle over a photo with an optional label, highlighted on hover; in
+    edit mode eight handles and a move drag kept inside a given area, reporting its rectangle in
+    its own normalised coordinates); the ✓ and × marks (`suggest_marks.rs`) and the caution "?" badge (`badges.rs`); the
+    icons it lacks, our own drawings on the 20-unit grid: Person, People, Unnamed, Ignored face,
+    Add person, Places, Map pin, Marker, Pin tool, Map zoom in and out; the widget gallery gains
+    them; `design-system.md` §6's rows.
+  - done when: `crates/ui-kit/tests/face_widgets.rs`: a tile shows its placeholder until given a
+    picture, its × and marks only when asked, its selection on a click; a face box dragged by a
+    corner stays inside its area and reports the new rectangle; `crates/ui-kit/tests/icons_people.rs`:
+    each new icon stays in its grid at 12, 16, 20 and 28 px in rest, hover and disabled colours;
+    gallery and icon fingerprints; `widget_ids`, contrast, `cargo xtask assets` and `cargo xtask
+    names` pass.
+- ⬜ **M13.6 `faces`: the pure-Rust ONNX interpreter and its limits**
+  - after: M12.R
+  - files: `crates/faces/src/graph.rs`, `crates/faces/src/graph/**`, `crates/faces/src/net.rs`, `crates/faces/src/net/**`, `crates/faces/src/onnx.rs`, `crates/faces/src/runtime.rs`, `crates/faces/src/limits.rs`, `crates/faces/src/synthetic.rs`, `crates/faces/tests/inference.rs`, `crates/faces/fuzz/**`, `crates/faces/README.md`, `.github/workflows/fuzz.yml`, `docs/security.md`, `NOTICE`
+  - scope: `faces.md` §2: a bounded reader of small ONNX files (nodes, attributes, float32 weights;
+    external or sparse weights, custom domains, training graphs and other element types refused by
+    name) and a single-threaded float32 CPU interpreter of the listed operators (Conv with
+    depthwise groups, BatchNormalization, PRelu, Relu, Sigmoid, Add, Sub, Mul, Dropout as identity,
+    Flatten, Gemm, MaxPool, nearest whole-number Resize, Transpose, constant-shape Reshape,
+    GlobalAveragePool, Identity), convolutions by a bounded im2col and `matrixmultiply` (no BLAS, no
+    threads of its own); the limits checked before anything runs (file ≤ 512 MiB, weights ≤ 64 Mi
+    elements, rank ≤ 8, live tensors and scratch ≤ 512 MiB, every weight and activation finite);
+    seeded synthetic networks for tests (`synthetic.rs`); ported from LightCraft `crates/faces`
+    (`graph.rs`, `net.rs`, `net/kernels.rs`, `net/program.rs`, `net/shape.rs`, `onnx.rs`,
+    `runtime.rs`, `synthetic.rs`) at f34c7a8a, each file with its header; a fuzz workspace
+    `crates/faces/fuzz` (`model`: any bytes as a model, loaded and, when it loads, run on a fixed
+    input) and its job in the Fuzz workflow; `security.md` §4.2 (the model limits) and §7.1 (the
+    target); the `NOTICE` rows of every port named in M13's blocks.
+  - done when: `crates/faces/tests/inference.rs`: each operator on a seeded network equals a
+    direct computation within 1e-5, PReLU broadcasts, grouped convolutions and padding are right,
+    two threads running one model agree; malformed, truncated, oversized and unsupported files fail
+    to load with their reason and never panic; a weight or activation that overflows is an error;
+    `cargo +nightly fuzz build` builds the target; `cargo xtask deps` passes.
+- ⬜ **M13.7 `faces`: grouping and suggestions**
+  - after: M12.R
+  - files: `crates/faces/src/cluster.rs`, `crates/faces/src/matching.rs`, `crates/faces/src/calibration.rs`, `crates/faces/src/evaluate.rs`, `crates/faces/tests/grouping.rs`
+  - scope: `faces.md` §5 as pure maths on unit embeddings, no model needed: the confidence →
+    cosine threshold (a calibration table of one value per step 50 … 95, or `matchCosine + (value −
+    85) × 0.01`); incremental grouping (a face joins the most similar centroid at or above the
+    Grouping threshold, else starts a group; a merge pass for centroids that meet it; groups
+    largest first, faces closest to the centroid first; deterministic in photo order);
+    suggestions (a person's score is the best match over at most 64 of their confirmed faces,
+    most recent and most varied; "Name?" only at or above the Suggestion threshold and ahead of
+    the runner-up by 0.05; confirmed faces never suggested; rejected pairs skipped); Find More
+    (above 80 % of the threshold, most similar first); `evaluate` (each named face hidden in turn,
+    shots within a few seconds of it ignored, suggestions made and right per step); embeddings
+    quantised to 8 bits in memory with the float32 kept for scoring ties; ported from LightCraft
+    `crates/faces/src/matching.rs` at f34c7a8a (best match and margin).
+  - done when: `crates/faces/tests/grouping.rs` (synthetic embeddings around seeded centres):
+    thresholds rise with the slider value; three planted people form three groups at 85 and merge
+    at 50; the margin holds back a near tie; a confirmed face is never suggested and a rejected
+    pair never returns; the 64-face cap keeps a person with 10 000 faces cheap; the order is the
+    same on every run; proptest: no input (`NaN`, zero vectors, mixed dimensions) panics.
+- ⬜ **M13.8 `fetch`: consented, resumable, hash-pinned downloads**
+  - after: M12.R
+  - files: `crates/fetch/src/lib.rs`, `crates/fetch/src/spec.rs`, `crates/fetch/src/transport.rs`, `crates/fetch/tests/download.rs`, `crates/fetch/README.md`
+  - scope: `faces.md` §3.1 and `security.md` §8.2, whatever the transport: a file spec (https URL,
+    a local name independent of the URL, a size cap, an optional pinned size and SHA-256) checked
+    before anything is fetched; a `Consent` value that only a caller holding the user's
+    acknowledgement can make, required by every download; a `Transport` trait (a ranged GET
+    answering status, length and a byte stream) chosen by the caller, plus an in-memory transport
+    for tests; resume of a pinned `.part` file, the size and hash checked before the rename (all
+    writes through `fs`), a wrong one deleted; progress, cancellation between reads, connect and
+    stall timeouts; a generic User-Agent and no cookie, token or personal header; ported from
+    LightCraft `crates/fetch/src/lib.rs` at f34c7a8a, without its HTTP code.
+  - done when: `crates/fetch/tests/download.rs` (the in-memory transport): nothing is requested
+    without a `Consent`; a download completes, a cut one resumes from its `.part` and verifies; a
+    wrong size or hash deletes the file and says so; a reply past the cap stops at the cap;
+    cancellation stops at the next read; no request carries an identifying header; hostile specs
+    (an http URL, a name with a separator, a zero or huge cap) are refused without a panic.
+- ⬜ **M13.9 `store`: faces, people and geotags on disk, and the embeddings cache**
+  - after: M13.1, M13.2
+  - files: `crates/store/src/mapping.rs`, `crates/store/src/people.rs`, `crates/store/src/faces_cache.rs`, `crates/store/src/rebuild.rs`, `crates/store/src/snapshot.rs`, `crates/store/tests/fields.rs`, `crates/store/tests/people.rs`, `crates/store/tests/faces_cache.rs`, `crates/store/README.md`, `docs/data-model.md`
+  - scope: `data-model.md` §2–§4 and the decisions above: the model ↔ sidecar mapping of faces,
+    geotags and the folder's people (a folder mirrors the people present in it; names found in a
+    sidecar but not in `people.json` become people); `people.json` (people, nicknames, thumbnail
+    faces, rejected suggestions; atomic, merged, unknown keys kept, rebuildable from the sidecars);
+    the index records of the new fields; the embeddings cache, one file per model id beside the
+    index (per face: embedding, landmarks; per photo: searched), appended, read back with a torn
+    tail dropped, deleted with its model, never read for another model; a rebuild keeps every face,
+    person and geotag; the "nothing silently dropped" mapping test lists the new fields;
+    `data-model.md` §3–§4 say what landed.
+  - done when: `crates/store/tests/fields.rs`: faces, people and geotags survive a write, a reopen
+    and a rebuild from the folders; `crates/store/tests/people.rs`: `people.json` round-trips with
+    unknown keys kept and is rebuilt from sidecars when missing; `crates/store/tests/faces_cache.rs`:
+    embeddings round-trip, a torn tail drops only the last record, a second model's cache is never
+    mixed in, removing a model deletes only its file; a crash at one point before and one after the
+    commit (`fs` faults) keeps the old or the new state.
+- ⬜ **M13.10 `faces`: the detector, alignment, embeddings, manifests and the self-test**
+  - after: M13.6, M12.R
+  - files: `crates/faces/src/detect.rs`, `crates/faces/src/detect/**`, `crates/faces/src/align.rs`, `crates/faces/src/embed.rs`, `crates/faces/src/manifest.rs`, `crates/faces/src/catalog.rs`, `crates/faces/src/known.rs`, `crates/faces/src/hash.rs`, `crates/faces/src/selftest.rs`, `crates/faces/tests/detect.rs`, `crates/faces/tests/models.rs`, `crates/faces/README.md`, `docs/faces.md`
+  - scope: `faces.md` §2–§3 with the models reserved decision 5 chose (asked at M12.R; the spec's
+    candidates are YuNet 2023mar as the detector and SFace or AuraFace as the recogniser): the
+    detector's input at 640 px and its output decoded to boxes, scores and five landmarks with
+    non-maximum suppression, boxes normalised on the upright photo; alignment by a similarity
+    transform to a 112 × 112 crop (a box crop without landmarks); one unit embedding per face
+    (float64 norm); manifests (preprocessing, dimension, `matchCosine`, licence notice,
+    provenance) and their validation; the built-in list of the chosen models (https URL pinned to
+    a commit, size, SHA-256, licence and training data as known) and the bring-your-own
+    `catalog.json`; recognising a dropped file by its SHA-256 or stating the assumptions read from
+    its shapes; the self-test (load, shapes, a fixed synthetic input) before an install; ported
+    from LightCraft `crates/faces` (`yunet.rs`, `align.rs`, `manifest.rs`, `catalog.rs`,
+    `known.rs`, `hash.rs`, `suggest.rs`) at f34c7a8a; `faces.md` §3.2 records the chosen models.
+  - done when: `crates/faces/tests/detect.rs` (synthetic networks of the detector's shape): the
+    decoder turns planted outputs into the expected boxes and landmarks, suppression keeps one box
+    per face, boxes stay inside the photo; alignment maps the five landmarks to their template
+    within half a pixel; embeddings have unit length; `crates/faces/tests/models.rs`: a manifest
+    without a licence or with an http URL is refused, a dropped file is recognised by hash, an
+    unknown one gets stated assumptions, the self-test refuses a model whose shapes do not match;
+    with `DALICA_FACE_MODELS` set, the real models pass their self-test (skipped and said so
+    otherwise).
+- ⬜ **M13.11 `meta`: MWG face regions**
+  - after: M10.37, M12.R
+  - files: `crates/meta/src/xmp/regions.rs`, `crates/meta/src/fields.rs`, `crates/meta/src/write/mod.rs`, `crates/meta/src/xmp/rdf.rs`, `crates/meta/tests/regions.rs`, `crates/meta/fuzz/fuzz_targets/regions.rs`, `crates/meta/fuzz/Cargo.toml`, `docs/xmp-interop.md`
+  - scope: `xmp-interop.md` §6: reading `mwg-rs:Regions` (`Face` entries with their name, centre
+    and size normalised or in pixels over `AppliedToDimensions`, `mwg-rs:Rotation` turned back to
+    the upright frame, boxes clipped, bad ones skipped, other region types kept and ignored);
+    writing the named faces given (`AppliedToDimensions`, one `Face` entry each with a normalised
+    area, existing face entries matched by IoU ≥ 0.5 keeping their other fields, unmatched ones
+    removed, non-face entries untouched) through the merge writer, in every container that writes
+    XMP; a fuzz target `regions`; the §6 status line.
+  - done when: `crates/meta/tests/regions.rs` (`xmp-interop.md` §8, item 5): pixel and normalised
+    areas, all eight orientations and `mwg-rs:Rotation` read back to the same upright boxes; a
+    write then a read returns every named face; non-face regions and a matched entry's foreign
+    fields are byte-identical after a write; writing twice gives the same file; a region list of
+    100 000 entries is bounded; the existing round-trip tests pass unchanged.
+- ⬜ **M13.12 `ui-kit`: the map: the offline layer, tiles, markers, the pin and bubbles**
+  - after: M13.1, M13.5
+  - files: `crates/ui-kit/src/widgets.rs`, `crates/ui-kit/src/widgets/map.rs`, `crates/ui-kit/src/widgets/map/**`, `assets/maps/**`, `ATTRIBUTION.md`, `crates/ui-kit/tests/map_widget.rs`, `crates/ui-kit/tests/fingerprints/map*.json`, `crates/ui-kit/tests/fingerprints/gallery*.json`, `docs/design-system.md`, `docs/assets.md`
+  - scope: `organizing.md` §7 and the decisions above: a `map` widget on `core::geo`'s Web
+    Mercator: the offline layer (Natural Earth 1:110m land, converted to a compact quantised
+    polygon file in `assets/maps/` with its `ATTRIBUTION.md` row, drawn in the `gray` ramp, and a
+    graticule), tile textures handed in by the caller drawn over it, an attribution line, zoom +
+    / − buttons, a drag to pan and the wheel to zoom around the pointer; markers (grouped closer
+    than 32 points, with counts), the pin tool and its pin, a bubble anchored to a marker or the
+    pin and kept inside the widget (a thumbnail stack, text and buttons given by the caller);
+    reports clicks, drops (a payload under the pointer as a `LatLon`) and the visible box;
+    registers `map:<id>`, `marker:<n>`, `button:map.zoomIn`, `button:map.zoomOut`; the gallery
+    gains it; `design-system.md` §6 and `assets.md` §8 say what landed.
+  - done when: `crates/ui-kit/tests/map_widget.rs`: a drop at a pixel reports the point the
+    projection gives, within one pixel, at zoom 2 and 15; the wheel keeps the point under the
+    pointer fixed; two markers 20 points apart draw as one marked 2 and split when zoomed in; a
+    bubble near each edge stays inside; the offline layer's file stays within 256 KB and loads
+    without a panic when truncated; fingerprints of the offline map with markers and a bubble;
+    `cargo xtask assets` passes.
+- ⬜ **M13.13 `fetch`: the HTTPS transport**
+  - after: M13.8, M12.R
+  - files: `crates/fetch/src/http.rs`, `crates/fetch/src/http/**`, `crates/fetch/src/proxy.rs`, `crates/fetch/tests/http.rs`, `crates/fetch/fuzz/**`, `.github/workflows/fuzz.yml`, `xtask/src/deps.rs`, `docs/security.md`
+  - scope: the `Transport` that reserved decision 9 chose (asked at M12.R): for `rustls` with a
+    pure-Rust crypto provider, an HTTP/1.1 ranged GET over `std::net` with certificate validation
+    always on, bundled web roots, redirects capped and never from https to http, response headers
+    and bodies capped, ported from LightCraft `crates/fetch/src/http.rs` at f34c7a8a (`rustls`,
+    `rustls-rustcrypto`, `webpki-roots`); for the platform's downloader, the same trait over it;
+    the proxy of the decisions above (`HTTPS_PROXY` / `NO_PROXY`, or a manual host and port,
+    `CONNECT` only); a fuzz target `response` (any bytes as a server's reply) and its job;
+    `security.md` §8.2 records the decision and the stack, §1.1's network row, §7.1 the `fetch`
+    target and `meta`'s `regions`; any new dependency passes `cargo xtask deps` without a new
+    exception (an exception is the maintainer's: `tasks block`).
+  - done when: `crates/fetch/tests/http.rs` against local synthetic servers on loopback (no
+    internet): a ranged resume, a redirect followed and an https → http one refused, a truncated
+    body, a stalled server timing out, oversized headers refused, a proxy `CONNECT` used when set
+    and skipped for a `NO_PROXY` host; a certificate that does not validate fails; `cargo xtask
+    deps` passes; `cargo +nightly fuzz build` builds the target.
+- ⬜ **M13.14 `engine`: geotags: set, clear, copy and paste, written to the files and read on scan**
+  - after: M13.1, M13.3, M13.9
+  - files: `crates/engine/src/cmd/places.rs`, `crates/engine/src/places.rs`, `crates/engine/src/metadata.rs`, `crates/engine/src/scanning.rs`, `crates/scan/src/meta.rs`, `crates/scan/tests/meta.rs`, `crates/engine/tests/places.rs`
+  - scope: `organizing.md` §7, `data-model.md` §5 and `xmp-interop.md` §2: `photo.geo.set {ids,
+    geo | null, confirm?}` (one undo step; moving more than 20 tagged photos or clearing more than
+    5 answers `needs_confirm` without `confirm`), `geo.copy {id}`, `geo.paste {ids}`, `geo.clear
+    {ids, confirm?}`; `places.list {ids? | section?}` (the geotags of the photos shown or selected,
+    with the count of places); the place written to the file through the write queue when Write
+    captions, tags and places is on (EXIF GPS and its XMP mirror; clearing removes both), undo
+    writing the old value back; the file's GPS imported into the model on the first scan and synced
+    on a rescan as `scan/meta.rs` does the other owned fields; the effective geotag in
+    `photo.inspect` and `library.inspect`.
+  - done when: `crates/engine/tests/places.rs` on temp JPEG, PNG, WebP and TIFF files: a geotag
+    set on 3 photos is one undo step, reaches each file and reads back within 10⁻⁶°; Clear
+    Location removes the GPS position and its XMP mirror and undo writes it back; with the option
+    off nothing is written; a phone photo's GPS appears as its geotag after the first scan; paste
+    applies the copied place; 21 moves and 6 removals ask; each command's contract and graceful
+    failures; the owner thread made no `fs` call; `panic_hunt` green.
+- ⬜ **M13.15 `engine`: faces and people as data: naming, ignoring, people, person albums, face tiles and search**
+  - after: M13.1, M13.3, M13.9
+  - files: `crates/engine/src/cmd/people.rs`, `crates/engine/src/cmd/faces.rs`, `crates/engine/src/face_tiles.rs`, `crates/engine/src/search.rs`, `crates/engine/src/automation.rs`, `crates/engine/tests/people.rs`, `docs/control-protocol.md`
+  - scope: `organizing.md` §6 and `faces.md` §9, no model needed: `faces.list {person | unnamed |
+    ids, ignored?}` (faces with their photo, rectangle and group), `faces.name {faces, person |
+    name}` (an unknown name answers `needs_person` for New Person unless `create`), `faces.ignore`,
+    `faces.move`, `faces.remove` (back to Unnamed), `faces.add {id, rect, person?}` (a face drawn
+    by hand), `people.list {sort}` (counts, thumbnails, pending suggestions), `people.create`,
+    `.rename`, `.merge`, `.delete {confirm}`, `.setThumbnail`; person albums as sections (`section`
+    `person:<id>`) for the light table, slideshows and export; face tiles: `Session::request_face_tiles`
+    and `take_face_tiles` cut from the thumbnail ladder on a worker, in memory only; `person:`
+    and the Faces filter made available in the engine's search (no longer "unavailable"); people
+    data withheld from automation without `--automation-allow-people` (names `null`, rectangles
+    left out, counts kept) and embeddings never returned; `control-protocol.md` §6.4 says what is
+    withheld.
+  - done when: `crates/engine/tests/people.rs`: naming a group of 12 faces is one undo step and
+    survives a restart and a rebuild; an unknown name asks first; ignore, move, remove, merge,
+    rename and delete each undo in one step; a face added by hand on a photo turned 90° is stored
+    in the stored frame; `person:ana` and the Faces filter find the right photos; a face tile
+    arrives off the owner thread and the owner made no `fs` call; without the people permission
+    `faces.list` over automation has no names or rectangles; each command's contract and graceful
+    failures; `panic_hunt` green.
+- ⬜ **M13.16 `engine`: face models: list, install, download, remove and use**
+  - after: M13.3, M13.8, M13.10, M13.13
+  - files: `crates/engine/src/cmd/face_models.rs`, `crates/engine/src/face_models.rs`, `crates/engine/tests/face_models.rs`, `docs/faces.md`
+  - scope: `faces.md` §3 and §9 with the models of reserved decisions 5 and 9 (asked at M12.R):
+    `faces.models.list` (installed, built-in and `catalog.json` entries with licence, commercial
+    use, training data, size, site and state), `.inspect {path}`, `.install {path, acknowledged}`
+    (a local file after the licence; known by hash, else stated assumptions; the self-test before
+    it lands in the models folder), `.download {id, acknowledged}` (a `fetch` job through M13.13's
+    transport with progress and resume), `.cancel`, `.remove` (the file and its cached
+    embeddings), `.select`; `acknowledged` must be `true` or nothing happens; the models folder
+    (`<config>/models` or `DALICA_FACE_MODELS`) shared by the app, the CLI and MCP, never inside a
+    watched folder; the newest recogniser in use unless another is selected; `faces.md` §3 records
+    what landed.
+  - done when: `crates/engine/tests/face_models.rs` (an injected transport and synthetic models):
+    no request before `acknowledged`; a download resumes after a cut and installs only after the
+    hash and the self-test; a wrong hash deletes the file; a local file installs with its stated
+    assumptions; removing a model deletes its cached embeddings; selecting another model never
+    mixes caches; each command's contract and graceful failures; `panic_hunt` green.
+- ⬜ **M13.17 `faces` + `xtask`: the public-faces corpus, the model pins, the floors and calibration**
+  - after: M13.7, M13.10
+  - files: `crates/faces/tests/corpus.rs`, `crates/faces/tests/corpus_floors.json`, `crates/faces/src/calibration.rs`, `crates/faces/src/known.rs`, `crates/faces/Cargo.toml`, `xtask/src/corpus_pins.rs`, `xtask/src/corpus.rs`, `xtask/corpus/public-faces.sha256`, `xtask/corpus/face-models.sha256`, `.github/workflows/ci.yml`, `docs/development.md`
+  - scope: `faces.md` §10 and `development.md` §11: `corpus/public-faces/` (public-domain
+    portraits, several of each person, with `SOURCES.tsv`) assembled in a `dalica-corpus` clone
+    and tested with `--local`; publishing it (the push to `pkkid/dalica-corpus` and the pin) needs
+    the maintainer's go-ahead, asked at M12.R with reserved decision 5 (without it on record,
+    `tasks block`); `face-models`, the chosen models pinned by URL and SHA-256 and fetched from
+    their upstreams, never copied into `dalica-corpus`; `crates/faces/tests/corpus.rs` behind the
+    `corpus` feature: detection, alignment, embedding agreement with recorded reference vectors,
+    grouping (each person's portraits in one group at 85, groups pure) and suggestion precision at
+    the default confidence, floors at the measured counts; the built-in models' calibration tables
+    measured on the set and written into `known.rs`; the CI corpus job runs it; §11's table.
+  - done when: `cargo xtask test-corpus -p faces` passes with the floors committed; `cargo xtask
+    corpus` reports both sets present; the calibration tables rise with the slider value.
+- ⬜ **M13.18 `engine`: the face scan**
+  - after: M13.3, M13.7, M13.9, M13.10, M13.15
+  - files: `crates/engine/src/faces_scan.rs`, `crates/engine/src/faces_index.rs`, `crates/engine/src/cmd/face_scan.rs`, `crates/engine/tests/face_scan.rs`
+  - scope: `faces.md` §4–§5 and the decisions above: while Find faces in my photos is on and a
+    recogniser is installed, a `faces` job at the lowest priority follows new and changed photos:
+    the upright preview (≤ 2048 px; a RAW's embedded preview), faces detected once per photo
+    (photos with rectangles already, from a file or a hand, only embedded), embedded and cached
+    (M13.9), detected rectangles written as Unnamed faces, one op per batch without an undo step (as a scan's imports are); named photos
+    first, then the newest folders; folders with "Find faces in this folder" off, hidden folders
+    when excluded and offline volumes skipped; the pace of `faces.md` §4 from
+    `Session::user_activity`, never interrupting a photo, worker count bounded by memory; the
+    in-memory index and grouping (M13.7) kept current, groups for `faces.list {unnamed}`;
+    `faces.enable {on}` (off stops and offers to drop the embeddings), `faces.detect {ids,
+    apply?}`, `faces.index`, `faces.reset {ids}` (Find Faces Again: forgets searched, keeps named
+    faces), `faces.removeInFolders {folders, confirm}` (the Folder Manager's Remove Faces); the
+    scan's progress for the People group's header; logs say counts, never names.
+  - done when: `crates/engine/tests/face_scan.rs` (a synthetic detector and recogniser planted
+    through the models folder): faces of a `scenes` set appear under Unnamed in groups; a removed
+    or ignored face is not found again on a rescan, Find Faces Again finds it; a photo in an
+    excluded folder is never read; the job yields while user activity is reported and the owner
+    made no `fs` call; switching models rebuilds from its own cache; under `RUST_LOG=trace` the log
+    holds no name, rectangle or embedding; `panic_hunt` green.
+- ⬜ **M13.19 `engine` + `store` + `scan`: people names in photo files**
+  - after: M13.9, M13.11, M13.15
+  - files: `crates/engine/src/cmd/face_regions.rs`, `crates/engine/src/metadata.rs`, `crates/engine/src/scanning.rs`, `crates/scan/src/meta.rs`, `crates/scan/tests/meta.rs`, `crates/store/src/metawrite.rs`, `crates/store/src/metawrite/**`, `crates/engine/tests/face_regions.rs`, `docs/xmp-interop.md`
+  - scope: `xmp-interop.md` §6 and `data-model.md` §5: MWG regions read on scan become faces and
+    people (names matched ignoring case, else created) on a photo's first scan and synced as the
+    other owned fields; with Store people names in photos on, every change to a photo's named faces
+    queues a regions write through the metadata write queue (unnamed and ignored faces never
+    written, the file's other regions kept); `faces.writeXmp {ids, confirm}` (Tools ▸ Experimental
+    ▸ Write People Names to Photos…) writes them once for a selection; turning the option on
+    writes nothing until a face changes or the command runs; §6's status line.
+  - done when: `crates/engine/tests/face_regions.rs` on temp files: a photo with MWG regions from
+    another application shows its people after the first scan; naming a face with the option on
+    writes a region that reads back, renaming the person rewrites it, and undo writes the old
+    value; with the option off nothing is written and `faces.writeXmp` writes after its question;
+    a file's pet region survives every write; the owner thread made no `fs` call.
+- ⬜ **M13.20 `engine`: map tiles and place search**
+  - after: M13.13, M13.14
+  - files: `crates/engine/src/cmd/map.rs`, `crates/engine/src/map_tiles.rs`, `crates/engine/src/geocode.rs`, `crates/engine/tests/map_tiles.rs`, `docs/security.md`
+  - scope: `organizing.md` §7 with reserved decisions 4 and 9 (asked at M12.R: the provider, its
+    attribution and terms, on or off by default, and the geocoding service): `Session::request_map_tiles
+    (box, zoom)` and `take_map_tiles()`: tiles fetched on a worker through `fetch` only while Allow
+    map tiles is on and the Places pane is open (`set_places_open`), at most two at a time, each
+    at most 1 MiB and 1 024 pixels and decoded under the raster limits, cached under
+    `<cache>/tiles/` (200 MB, oldest first, only its own files), cancelled when the pane closes;
+    `map.allow {on}`; `places.search {text}`: coordinates parsed locally, else the geocoding
+    service on a worker (a reply ≤ 1 MiB and depth 32; results with name and place), only when
+    asked; nothing fetched at start-up, during scans or for a closed pane; `security.md` §4.2's
+    row for tiles and geocoder replies.
+  - done when: `crates/engine/tests/map_tiles.rs` (a counting injected transport): no request
+    with tiles off or the pane closed, requests only for the visible tiles once allowed and open,
+    none after closing; a cached tile is not fetched again; an oversized or undecodable tile is a
+    placeholder; "38.7116, -9.1389" and "38°42′42″N 9°8′20″W" are found without a request; a
+    hostile geocoder reply is refused without a panic; the cache prunes only its own files; the
+    owner thread made no `fs` call.
+- ⬜ **M13.21 `ui`: the Unnamed face grid, naming, ignoring and the face menu**
+  - after: M13.4, M13.5, M13.15
+  - files: `crates/ui/src/panels/faces.rs`, `crates/ui/src/panels/faces/**`, `crates/ui/src/commands/faces.rs`, `crates/ui/src/dialogs/new_person.rs`, `crates/ui/tests/unnamed_faces.rs`, `crates/ui/tests/fingerprints/unnamed-*.json`
+  - scope: `organizing.md` §6.2 and §6.3: selecting Unnamed shows the face grid in place of the
+    light table: the header "Unnamed people" with [Expand Groups] and [Show Ignored Faces], groups
+    of M13.5 face tiles from M13.15's face tiles, each with "Add a name" (autocomplete over people;
+    Enter names the whole group, a new name opens New Person: Name prefilled, Nickname, [OK]
+    [Cancel]) and an × that ignores it ("Ignore these faces?" [Ignore] [Cancel] + "Don't ask
+    again"); faces selected by click, Ctrl / Shift-click and a rubber band, Delete ignoring them,
+    and dragged with the faces payload; the face context menu (Move to New Person…, Move to Person
+    ▸, Remove from Person, Set as Person Thumbnail, Ignore Face), used by M13.25's person sections
+    too.
+  - done when: `crates/ui/tests/unnamed_faces.rs` (headless, by id): three planted groups show
+    largest first; typing "Ana" and Enter names a group as one step and it leaves the grid; a new
+    name opens New Person; × asks and ignores, Show Ignored Faces shows them; a rubber band selects
+    faces across groups; Move to Person ▸ lists people; at 900 × 600 the grid fits; a fingerprint
+    of the grid at 1400 × 900.
+- ⬜ **M13.22 `ui`: the Places pane, geotagging by drag and pin, and the Geotag menu**
+  - after: M13.4, M13.12, M13.14
+  - files: `crates/ui/src/panels/places.rs`, `crates/ui/src/panels/places/**`, `crates/ui/src/commands/places.rs`, `crates/ui/src/dialogs/geotag_confirm.rs`, `crates/ui/src/panels/light_table/cell.rs`, `crates/ui/tests/places_pane.rs`, `crates/ui/tests/fingerprints/places-*.json`, `docs/organizing.md`
+  - scope: `organizing.md` §7: the pane (header "Places", "No places in the selection" / "9 places
+    in the selection", M13.12's map with the offline layer, the photos of the current folder,
+    album or selection as markers, zoom, the pin tool, "Search for a place:" finding typed
+    coordinates); photos dragged from the light table onto the map: the bubble "Put %d photos
+    here?" with a thumbnail stack [OK] [Cancel], "Move %d photos here?" when some are tagged, the
+    confirmations past 20 moved or 5 cleared; a marker's bubble "%d photos here" [Show These
+    Photos] [Remove Location]; the pin placed then OK puts the selection there; Tools ▸ Geotag ▸
+    Clear Location…, Copy Location and Paste Location live; the geotag badge reads the effective
+    geotag; `organizing.md` §7 records the decisions above.
+  - done when: `crates/ui/tests/places_pane.rs` (headless, by id): dropping 3 photos on the map
+    and OK geotags them as one step and the markers show 3; dropping on tagged photos asks Move;
+    Remove Location on a marker clears its photos after the question past 5; Show These Photos
+    selects them; typed coordinates move the pin; Copy and Paste Location work from the menu; the
+    badge shows on a photo tagged in Dalica; at 900 × 600 the pane fits; fingerprints of the pane
+    with markers and with a bubble at 1400 × 900.
+- ⬜ **M13.23 `edit` + `create` + `engine`: faces in the crop suggestions and the slideshow's Pan and Zoom**
+  - after: M13.15
+  - files: `crates/edit/src/suggest.rs`, `crates/edit/tests/suggest.rs`, `crates/engine/src/cmd/crop.rs`, `crates/engine/tests/crop_commands.rs`, `crates/create/src/slideshow.rs`, `crates/create/src/slideshow/**`, `crates/create/tests/slideshow.rs`, `crates/engine/src/cmd/slideshow.rs`, `crates/engine/tests/slideshow.rs`, `docs/editing.md`, `docs/viewing.md`
+  - scope: `editing.md` §6.1 and `viewing.md` §1.3: `edit::suggest` takes the photo's face
+    rectangles (mapped to the picture shown) and ranks a crop holding every face, its eyes near the
+    upper third, before the saliency subject; `photo.crop.suggest` passes them; the slideshow's Pan
+    and Zoom moves toward the largest named face, else the largest face, else the centre (the
+    face given by `slideshow.list`); both docs drop "faces join in M13".
+  - done when: `crates/edit/tests/suggest.rs`: with two planted faces the first suggestion holds
+    both, without faces the result is as before; `crates/create/tests/slideshow.rs`: Pan and Zoom's
+    end frame is centred nearer the face than the centre; `crates/engine/tests/crop_commands.rs`
+    and `slideshow.rs`: a photo with a named face passes it on; rows `PPL-CROP`, `VIEW-SLIDESHOW`.
+- ⬜ **M13.24 `ui`: the People pane, face boxes in the edit view and Add a Person Manually**
+  - after: M13.4, M13.5, M13.15
+  - files: `crates/ui/src/panels/people_pane.rs`, `crates/ui/src/panels/people_pane/**`, `crates/ui/src/panels/edit/faces.rs`, `crates/ui/src/commands/people_pane.rs`, `crates/ui/src/panels/search_banner.rs`, `crates/ui/tests/people_pane.rs`, `crates/ui/tests/fingerprints/people-pane-*.json`, `crates/ui/tests/fingerprints/edit-faces-*.json`
+  - scope: `organizing.md` §6.4: the pane (People pane switcher segment and View ▸ People):
+    "People in these photos" with counts and "Unnamed faces" with Add a name and ×, following the
+    selection or the photo in the edit view; face boxes on the photo in the edit view (M13.5's
+    `face_box`, mapped from the stored frame through the preview's geometry) and hovering a face in
+    the pane highlighting its box and back; Add a Person Manually (edit view only): a box to drag
+    with "Drag the box to fit the face, then type a name." and a name field, stored through
+    `faces.add`; several people Ctrl-clicked filter the light table to photos holding all of them
+    with the filter banner "Showing photos with Ana and Rui" [Show All].
+  - done when: `crates/ui/tests/people_pane.rs` (headless, by id): the pane lists the selection's
+    people with counts; naming an unnamed face from the pane is one step; hovering a pane face
+    highlights its box; a box drawn by hand on a photo turned 90° and named lands where it was
+    drawn after a restart; two people selected filter the light table and Show All clears it; at
+    900 × 600 the pane fits; fingerprints of the pane and of the face boxes at 1400 × 900.
+- ⬜ **M13.25 `ui`: the People group in the tree, person sections and the person menu**
+  - after: M13.4, M13.5, M13.15, M13.21
+  - files: `crates/ui/src/panels/folders.rs`, `crates/ui/src/panels/folders/**`, `crates/ui/src/panels/light_table/header.rs`, `crates/ui/src/panels/light_table/cell.rs`, `crates/ui/src/commands/people.rs`, `crates/ui/src/dialogs/people.rs`, `crates/ui/tests/people_tree.rs`, `crates/ui/tests/fingerprints/people-tree-*.json`, `crates/ui/tests/fingerprints/person-section-*.json`, `docs/organizing.md`, `docs/ui-layout.md`
+  - scope: `ui-layout.md` §4 and `organizing.md` §6.2–§6.3: the People group between Albums and
+    Folders (Unnamed (n) first, then a row per person with its 20-point face and count, the
+    caution "?" badge when it has suggestions, sorted by name or count from the view options),
+    "Finding faces… n of m" in its header while the scan runs; a drop of faces on a person row
+    names them, a drop of photos on a person does nothing (no face); person sections (the person
+    icon, the header's Zoom to Faces / Show Whole Photos, Set as Person Thumbnail, Play, and
+    Collage drawn disabled "Arrives with Collage") with Zoom to Faces cells showing face tiles that
+    open M13.21's face menu; Delete or Remove from Person sends a face back to Unnamed; the person
+    menu (Rename…, Merge Into ▸, Delete Person with its question); `organizing.md` §6 and
+    `ui-layout.md` record the decisions above.
+  - done when: `crates/ui/tests/people_tree.rs` (headless, by id): the People group lists Unnamed
+    and two people with counts in name and count order; dragging two Unnamed faces onto Ana names
+    them as one step; Ana's section shows her photos and Zoom to Faces shows her faces; Rename,
+    Merge Into and Delete Person each undo in one step; Play starts a slideshow of her photos; at
+    900 × 600 the tree fits; fingerprints of the tree and a person section at 1400 × 900.
+- ⬜ **M13.26 `engine`: suggestions: confirm, reject, Find More and evaluate**
+  - after: M13.7, M13.15, M13.18
+  - files: `crates/engine/src/cmd/suggest.rs`, `crates/engine/src/suggestions.rs`, `crates/engine/tests/suggestions.rs`
+  - scope: `faces.md` §5 on M13.7's maths and M13.18's index: `faces.suggest {ids? | person?}`
+    (unnamed faces with their "Name?" person while Suggest names is on), `faces.confirm {faces}`
+    (each a reference from then on), `faces.confirmAll {person}` (one undo step),
+    `faces.reject {faces}` (the pair kept in `people.json`), `faces.findMore {person}`,
+    `faces.evaluate` (per confidence step: suggestions made and right); suggestions kept current as
+    faces are embedded and named; the pending count per person for `people.list`.
+  - done when: `crates/engine/tests/suggestions.rs` (synthetic embeddings through the cache): a
+    face near Ana's is suggested as Ana and confirming it makes it a reference; Confirm All is one
+    undo step; a rejected pair never comes back, also after a restart; nothing is suggested with
+    Suggest names off or below the threshold; Find More lists the near misses most similar first;
+    `faces.evaluate` reports per step; each command's contract and graceful failures; `panic_hunt`
+    green.
+- ⬜ **M13.27 `ui`: the face model dialog, Options ▸ People, Remove Faces and the Faces filter**
+  - after: M13.4, M13.16, M13.18
+  - files: `crates/ui/src/dialogs/face_model.rs`, `crates/ui/src/dialogs/options/people.rs`, `crates/ui/src/dialogs/folder_manager.rs`, `crates/ui/src/dialogs/folder_manager/**`, `crates/ui/src/commands/face_model.rs`, `crates/ui/src/panels/toolbar.rs`, `crates/ui/src/app.rs`, `crates/ui/tests/face_model_ui.rs`, `crates/ui/tests/fingerprints/dialog-face-model-*.json`, `crates/ui/tests/fingerprints/dialog-options-people-*.json`
+  - scope: `faces.md` §3.1 and `organizing.md` §6.1: the face model dialog (per file: licence,
+    commercial use, training data or that it is unknown, size and site; Download disabled until "I
+    have read these terms and accept them for my own use" is ticked; progress and Cancel; Open
+    page; Add a model file… and an `.onnx` dropped on the window through the same dialog; a
+    `catalog.json` model's notice in `caution`), offered by Options ▸ People, by turning on Find
+    faces without a model and by the first open of People; Options ▸ People (Find faces in my
+    photos, Suggest names, the two confidence sliders, Store people names in photos, Face model
+    status with Download… / Remove / Use); turning Find faces off offers to delete the cached
+    embeddings; the Folder Manager's Remove Faces question ("Remove the face information …?"
+    [Remove Faces] [Keep Faces]) live; Picture ▸ Find Faces Again live; the toolbar's Faces filter
+    enabled.
+  - done when: `crates/ui/tests/face_model_ui.rs` (headless, a synthetic model file): Download
+    stays disabled until the box is ticked; a local file installs after the dialog and the status
+    shows it; Remove asks and removes; the confidence sliders move by 5 within 50–95 and survive a
+    restart; Remove Faces drops the folder's faces and Keep Faces keeps them; the Faces filter
+    shows only photos with faces; at 900 × 600 the dialog and the tab fit; fingerprints of the
+    dialog and the tab at 1400 × 900.
+- ⬜ **M13.28 `ui`: Options ▸ Network, allowing map tiles and searching for a place**
+  - after: M13.20, M13.22
+  - files: `crates/ui/src/dialogs/options/network.rs`, `crates/ui/src/panels/places/tiles.rs`, `crates/ui/src/panels/places/search.rs`, `crates/ui/src/commands/map.rs`, `crates/ui/tests/map_tiles_ui.rs`, `crates/ui/tests/fingerprints/dialog-options-network-*.json`, `crates/ui/tests/fingerprints/places-tiles-*.json`
+  - scope: `menus-and-shortcuts.md` §5 and `organizing.md` §7: Options ▸ Network (Allow map tiles,
+    the tile server template, the geocoding service, the proxy, as reserved decision 4 left them);
+    the pane's one-time question "Show map tiles from %provider%? …" [Allow] [Not Now]; tiles from
+    M13.20 drawn over the offline layer with the provider's attribution, the pane telling the
+    session it is open; "Search for a place:" sending a name to the geocoding service on Enter and
+    listing the results, a click moving the pin.
+  - done when: `crates/ui/tests/map_tiles_ui.rs` (headless, a counting injected transport): no
+    request until Allow; after Allow tiles appear with the attribution and stop when the pane
+    closes; Not Now keeps the offline map; a search on Enter lists results and moves the pin; the
+    tab's values survive a restart; at 900 × 600 the tab fits; fingerprints of the tab and of the
+    pane with tiles at 1400 × 900.
+- ⬜ **M13.29 `mcp`: geotags and people over MCP, and the workflows W13 and W14**
+  - after: M13.14, M13.15, M13.19
+  - files: `crates/mcp/src/tools/organize.rs`, `crates/mcp/src/headless.rs`, `crates/mcp/src/connect.rs`, `crates/mcp/tests/organize_tools.rs`, `crates/mcp/tests/workflows/w13_geotags.rs`, `crates/mcp/tests/workflows/w14_people.rs`, `crates/mcp/tests/workflows/main.rs`, `xtask/src/stats.rs`, `docs/mcp.md`
+  - scope: `mcp.md` §5 and §9: `set_metadata {geo}` live (no longer `unsupported`) and `photo_info`
+    with the geotag; W13 (**geotags**: `set_metadata {geo}` on 3 photos → GPS in each file read
+    back → `query_photos {geotagged: true}` returns them → clear → GPS gone → one undo restores
+    it) and W14 (**people**, with `--automation-allow-people`: name the planted faces of 4 photos
+    by `cmd_faces_name` → `query_photos {query: "person:Ana"}` returns them → with Store people
+    names in photos on the regions are in the files → without the permission names read `null`);
+    the floor in `xtask/src/stats.rs` raised to the fourteen workflows now required; `mcp.md`'s
+    table and status line; row `SYS-MCP`.
+  - done when: `cargo test -p dalica-mcp` runs W13 and W14 green; `cargo xtask stats` prints
+    14 / 14 passing and `stats --check` fails below that.
+- ⬜ **M13.30 `ui`: suggestions in the window**
+  - after: M13.24, M13.25, M13.26
+  - files: `crates/ui/src/panels/light_table/suggestions.rs`, `crates/ui/src/panels/people_pane/suggestions.rs`, `crates/ui/src/panels/faces/suggestions.rs`, `crates/ui/src/commands/suggestions.rs`, `crates/ui/tests/suggestions_ui.rs`, `crates/ui/tests/fingerprints/suggestions-*.json`
+  - scope: `organizing.md` §6.3–§6.4: in a person's section the strip "Suggestions:" with [Confirm
+    All], [Confirm], [Reject], [Find More], the toggle "Show only suggestions" and the hint "Click
+    ✓ to confirm a match or × to reject it."; each suggested face with ✓ and ×; "Name?" with ✓ / ×
+    on Unnamed faces and in the People pane; the tree's "?" badge lit from the pending count.
+  - done when: `crates/ui/tests/suggestions_ui.rs` (headless, synthetic embeddings): Ana's section
+    shows her suggestions and ✓ moves one into her photos as one step; Reject removes it for good;
+    Confirm All is one step; Show only suggestions hides her confirmed photos; the "?" badge goes
+    when none are left; "Name?" in the pane confirms; fingerprints of the strip and of a face with
+    its marks at 1400 × 900.
+- ⬜ **M13.31 `faces` + `engine` + `ui` + `xtask`: M13's budgets: the face scan, the people views and the Places pane**
+  - after: M13.18, M13.21, M13.22, M13.26
+  - files: `crates/faces/benches/inference.rs`, `crates/engine/benches/faces_scan.rs`, `crates/ui/benches/people_places.rs`, `xtask/src/bench.rs`, `.github/workflows/budgets.yml`, `docs/development.md`, `docs/faces.md`
+  - scope: `development.md` §8 and `faces.md` §8: benches registered in `xtask/src/bench.rs`, joined
+    to `BUDGETS` and the release-budgets job, each documented in §8 and §13 with its machine:
+    `inference` (detection on a 640 px image and one embedding, with seeded synthetic networks of
+    the chosen models' shapes), `faces_scan` (faces embedded per second on 1 000 `scenes` photos,
+    memory per worker, and the window's frame time while it runs, headless), `people_places` (the
+    Unnamed grid opening with 10 000 faces, and the Places pane with 10 000 geotagged photos: a
+    frame with its markers grouped); budgets at 1.5 × their first measurement, plus the frame time
+    while the scan runs within 16 ms at p95 whatever the first numbers; a missed budget is fixed in
+    this task (the module asked of the lead; before and after numbers in the PR) or blocks with its
+    numbers, never loosened; `faces.md` §8 points at them.
+  - done when: `cargo xtask bench inference`, `bench faces_scan` and `bench people_places` print
+    their numbers (in the PR); `cargo xtask budgets` passes with them and `--plant-ms` makes each
+    fail.
+- ⬜ **M13.32 `accept M13`**
+  - after: M13.17, M13.23, M13.27, M13.28, M13.29, M13.30, M13.31
+  - files: `tests/acceptance/m13.rs`, `tests/acceptance/m13_*.rs`, `tests/acceptance/m13.md`, `tests/acceptance/fingerprints/m13-*.json`
+  - scope: every *Done when* of M13's three areas in the real `dalica --headless` over the control
+    channel and through `dalica-cli mcp`: a synthetic model installed from a local file after the
+    licence dialog, the face scan filling Unnamed in the background while the window keeps its
+    frame budget; a group named as one undo step that survives a restart and an index rebuild;
+    removed and ignored faces staying away on a rescan; suggestions above the threshold and the
+    margin, confirmed and rejected; a face drawn by hand on a turned photo; merge, rename and
+    delete as one step each; a named face's region in the file with Store people names in photos
+    on; photos dragged onto the map geotagged as one step, the GPS round-trip and Clear Location;
+    no network without the user's action (a loopback listener as the tile server and a
+    `catalog.json` model's site counts no connection at start-up, during a scan or with the pane
+    open and tiles off, and connections only once allowed and open, or once the licence is
+    accepted); a `trace` log with no people data; W13 and W14 over MCP; the corpus floors (with
+    `cargo xtask test-corpus` at the review); the M13 budgets (the release budgets with
+    `DALICA_ACCEPT_RELEASE=1`; inside `cargo xtask ci --full` a smaller debug run checks the paths
+    and prints its times); whole-window fingerprints of the Unnamed grid, a person section, the
+    People pane and the Places pane; the manual checks in `m13.md` (the chosen models downloaded
+    for real and run on a few real photos, naming and suggestions on a real library, the map
+    dragged and zoomed with a mouse and a touchpad, tiles allowed, a geotagged photo opened in
+    another application's map).
+  - done when: `cargo xtask accept M13` passes everything in M13's *Done when*.
+- ⬜ **M13.33 Lead: task blocks for M15**
+  - after: M12.23
+  - owner: lead
+  - files: `docs/roadmap.md`
+  - scope: write every M15 task block from M15's outline rows and the spec (`viewing.md` for video,
+    `localization.md`, `releasing.md`, the OS-integration parts of `organizing.md` and
+    `viewing.md` §3), with waves and the `M15.R` release gate (owner: maintainer; Release 1.0);
+    tasks that hinge on reserved decision 2 (video) wait for the maintainer's answer, asked at the
+    review before M15 (M14.R), never guessed; a block that can port Craft-app code names the source
+    files in its scope (`architecture.md` §9).
+  - done when: `cargo xtask tasks sync --check` parses them and `tasks sync --dry-run` lists the new
+    M15 tasks as planned.
+- ⬜ **M13.R Release 0.8 gate**
+  - after: M13.32
+  - owner: maintainer
+  - files: `docs/roadmap.md`, `docs/status.md`
+  - scope: a release gate (Release 0.8): the lead runs `/milestone-review M13.R` to prepare it, with
+    the version set to 0.8.0 and its `whats-new.md` section on the review branch, the release
+    checklist and the sign-off question, and after the merge cuts and publishes 0.8.0
+    (`releasing.md`); the check-in page (open Options ▸ People, read the model terms, tick the box
+    and download the models, let the face scan run on a real library while scrolling, open
+    Unnamed, name a group, make a New Person, ignore a group and show ignored faces, drag faces
+    onto a person, open a person's section with Zoom to Faces, rename, merge and delete a person
+    and undo each, confirm and reject suggestions and use Find More, open the People pane on a
+    group photo, hover its faces, add a person by hand in the edit view, filter by two people, turn
+    on Store people names in photos and check a named file in another application; open the Places
+    pane, drag photos onto the offline map, search for coordinates, allow map tiles and search for
+    a place, clear a location, copy and paste one, open a geotagged photo in another
+    application's map; written as steps for the maintainer to try); the questions: the planning
+    decisions above that change behaviour (grouping recomputed, not stored; the scan only with a
+    recogniser installed; the offline map from Natural Earth; tiles only while the pane is open
+    and after its question; proxy from the environment or manual; Delete Person sends faces back to
+    Unnamed; a drop of photos on a person does nothing), anything the reserved decisions left open,
+    the look of the People group, the Unnamed grid, the person sections, the People pane, the face
+    boxes, the Places pane and the map (approved with their fingerprints); *Where we stand* and the
+    `status.md` numbers (faces embedded per second, the frame time during the scan, the people
+    views with 10 000 faces, the Places pane with 10 000 photos, the corpus floors, the workflow
+    pass rate) on a `review/M13.R` branch, a pull request open. Only the maintainer merges that pull
+    request and closes this issue; nothing after it starts until then.
+  - done when: prepared: page published, PR open, both linked on the issue.
+
+Waves (inside a wave, "‖" separates tasks whose `files` do not overlap):
+
+```text
+wave 1   M13.1 geo + model  ‖  M13.2 sidecar fields  ‖  M13.3 engine modules + settings
+         ‖  M13.4 ui state + stubs  ‖  M13.5 ui-kit face widgets + icons  ‖  M13.6 ONNX interpreter
+         ‖  M13.7 grouping + suggestion maths  ‖  M13.8 fetch core
+         (once M12.R is closed)
+wave 2   M13.9 store + embeddings cache  ‖  M13.10 detector, embeddings, models (5)
+         ‖  M13.11 MWG regions  ‖  M13.12 ui-kit map  ‖  M13.13 HTTPS transport (9)
+wave 3   M13.14 geotags  ‖  M13.15 faces + people data  ‖  M13.16 face models (5, 9)
+         ‖  M13.17 face corpus + floors (5)
+wave 4   M13.18 face scan  ‖  M13.19 names in files  ‖  M13.20 tiles + place search (4, 9)
+         ‖  M13.21 Unnamed grid  ‖  M13.22 Places pane  ‖  M13.23 faces in crops + Pan and Zoom
+         ‖  M13.24 People pane + face boxes
+wave 5   M13.25 People tree + person sections  ‖  M13.26 suggestions  ‖  M13.27 model dialog + Options ▸ People
+         ‖  M13.28 Options ▸ Network + tiles  ‖  M13.29 W13, W14
+wave 6   M13.30 suggestions in the window  ‖  M13.31 M13 budgets
+wave 7   M13.32 accept M13 → M13.R          (M13.33 lead: M15 blocks, any time after M12.23)
+```
+
+### M14: P1 parity (outline; the lead details it while M13 runs)
 
 | # | In | Done when (sketch) |
 |---|---|---|
-| M13 People I | LightCraft's `crates/faces` pipeline and `panels/faces.rs` as the starting point; consented model download (decisions 5 and 9), detection, embeddings, clustering, Unnamed, naming, ignore, person albums | a public-domain face set groups as expected (floors) |
-| M13 People II | suggestions, People pane, manual faces, merge/rename/delete, MWG regions | MWG round-trip tests (`xmp-interop.md` §8.5) |
-| M13 Places | Places pane, opt-in map tiles (decision 4), geotag by drag and search, GPS write, Geotag menu | GPS round-trip; no network without the user's action |
 | M14 Collage | the collage room, styles, canvas, render + recipe, Edit Collage | deterministic layouts per seed; render size |
 | M14 Legacy sidecars | read-only reader with provenance header, first-run notice, conversion on first write, legacy originals for Revert | `data-model.md` §10.11 |
 
