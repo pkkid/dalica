@@ -6,10 +6,12 @@
 //! while the bar is hidden), the show catches up with the session's clock
 //! ([`crate::commands::slideshow::sync`]), and [`show`] paints the photos as the transition places
 //! them, with the caption while captions are on. The previews cover the window in device pixels.
-//! The bar and the zoom are M11.21's (`slideshow/bar.rs`, `slideshow/zoom.rs`).
+//! Over them the control bar ([`bar`]); zoomed, a drag pans the photo ([`zoom`]).
 
+pub mod bar;
 pub mod show;
 pub mod transition;
+pub mod zoom;
 
 use std::time::Duration;
 
@@ -44,7 +46,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     cmd::set_fit((px(rect.width()), px(rect.height())));
 
     // The mouse (§1.4), before the show moves on.
-    let response = ui.interact(rect, Id::new(ID), Sense::click());
+    let response = ui.interact(rect, Id::new(ID), Sense::click_and_drag());
     let label = cmd::show(app).and_then(|s| s.photo()).map_or_else(|| "Slideshow".to_string(), |p| format!("Slideshow: photo {p}"));
     widgets::register(&ctx, ID, Role::Other, &label, Target::Widget(&response), false);
     let (moved, wheel, now) = ctx.input(|i| {
@@ -67,9 +69,13 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         return;
     };
     let captions = app.session().is_some_and(|s| s.settings().slideshow().captions);
-    show::paint(app, ui, rect, &frame, captions);
+    let (zoom, pan) = cmd::show(app).map_or((1.0, [0.5, 0.5]), |s| (s.zoom, s.pan));
+    let fit = show::paint(app, ui, rect, &frame, captions, (zoom, pan));
+    zoom::input(app, &response, fit, dalica_create::slideshow::Size::new(rect.width(), rect.height()));
+    let bar = bar::show(app, ui, rect, &frame);
     let v = frame.view;
-    let moving = v.change.is_some()
+    let moving = bar.fading
+        || v.change.is_some()
         || (v.transition == dalica_create::slideshow::Transition::PanAndZoom && v.state == dalica_create::slideshow::State::Playing);
     ctx.request_repaint_after(if moving { MOVING } else { WAITING });
 }

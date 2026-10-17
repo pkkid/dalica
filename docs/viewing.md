@@ -36,8 +36,9 @@ zoom and compare modes) is in [`editing.md`](editing.md).
 
 ### 1.3 Control bar
 
-A rounded translucent dark panel (`black α170`, radius 10) centred along the bottom, auto-hiding
-after 2.5 s without mouse movement. Left → right:
+A rounded translucent dark panel (`black α170`, radius 10) centred along the bottom: shown for 2 s
+when the show starts, for 2.5 s after a mouse move or Space, for good at the end, and kept while the
+pointer rests on it or its drop-up is open; it fades in and out over 0.2 s. Left → right:
 
 ```text
 ╭──────────────────────────────────────────────────────────────────────────────────────────────╮
@@ -59,7 +60,9 @@ after 2.5 s without mouse movement. Left → right:
 | 10 | **Captions** toggle | caption icon + checkbox |
 | 11 | **Display time** | `[−] 3 seconds [+]`, 1–60 s in 1 s steps (default 3) |
 
-Transition, display time and caption settings persist (Options → Slideshow mirrors them).
+Transition, display time and caption settings persist (Options → Slideshow mirrors them): the bar's
+controls store them at once (`options.set`, no undo step), and the edit view's caption-bar toggle
+is the same captions setting. A change applies to the show playing straight away (§1.6).
 Transitions last 0.8 s (Pan and Zoom spans the whole display time: a slow 5–10 % zoom/pan toward a
 detected face or the centre).
 
@@ -85,6 +88,43 @@ detected face or the centre).
 MP3/OGG/FLAC/WAV in the folder plays in name order, looping) · **Display time** · **Transition** ·
 **Show captions** (on) · **Play video sound** (off). A folder's own music (Folder Properties →
 Music) overrides the global music folder.
+
+Until Dalica plays sound, Play music, the music folder, Play video sound and Folder Properties'
+Music are drawn disabled with the reason "Arrives with sound support". The tab groups them under
+**Sound**, below Loop, Show captions, Display time (a 1–60 s slider with its number field) and
+Transition.
+
+### 1.6 Decisions (M11.4, M11.11, M11.21)
+
+The reference left these open; this is how Dalica behaves.
+
+- **Timing.** A photo's display time starts the moment its change begins: with 3 s and Dissolve a
+  photo fades in over 0.8 s and is then alone for 2.2 s. Pausing freezes the display time (and Pan
+  and Zoom's movement); a change already under way still finishes.
+- **A new display time** counts the time the photo has already been shown; when that is already
+  past the new value the show moves on by one photo, never skipping any.
+- **The end.** Next on the last photo without Loop ends the show as its timer would (the bar stays,
+  Play restarts from the first photo); stepping back from the end shows that photo paused. Space at
+  the end is Play.
+- **Zoom.** Zooming in (+, the magnifier, the slider; 1 fitted … 8) pauses the show; Space while
+  zoomed resumes it. Zooming back out to fitted lets the show go on as it was. Moving to another
+  photo (a key, the wheel, the timer) ends the zoom: the next photo is shown fitted. Zoomed, a drag
+  pans the photo, which always covers the screen where it is larger than it. The magnifier goes from
+  fitted to 2× and back to fitted from any zoom.
+- **Transitions.** Pan and Zoom changes photos with a 0.8 s dissolve; each photo grows by 5 % plus
+  (its place in the show mod 6) % about its focus point, within its fitted frame. Wipe runs left to
+  right, Push comes in from the right, Circle and Rectangle open from the centre, all eased (slow
+  in, slow out). Each photo of a change is painted over black within its own area, the incoming one
+  on top at its opacity, so Dissolve is a true cross-fade.
+- **Caption.** The plate has 14 × 8 pt of padding and radius 8; its bottom sits 8 % of the screen's
+  height above the edge, and never lower than the control bar's top plus 8 pt, so the bar never
+  covers it.
+- **Never waiting on disk.** The photo shown and the next are kept as screen-size previews, and the
+  two after that are prepared as soon as a photo is shown, so with decoding as slow as half the
+  display time no change waits. A photo removed from the library during the show is skipped.
+- **What the bar keeps.** Its settings change Options → Slideshow's values at once, and the show
+  playing takes them from its next frame: a new transition from the next change, Loop (Previous is
+  live on the first photo with Loop on), the display time as above.
 
 ## 2. Quick full-screen preview (Ctrl+Alt)
 

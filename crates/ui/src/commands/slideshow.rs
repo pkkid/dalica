@@ -29,15 +29,25 @@
 //! `photo.rotate.*` stay as they are). Exit goes back to where the show started, the last photo
 //! shown selected and scrolled into view (in the edit view: shown there).
 //!
-//! The bar's settings (Transition, Captions, Display time) arrive with the control bar (M11.21) and
-//! say so.
+//! **The bar's settings** (`viewing.md` §1.3, §1.5): `slideshow.transition`, `slideshow.captions`
+//! and `slideshow.displayTime` store Options ▸ Slideshow's setting through `options.set` (one
+//! write of `settings.json`, no undo step), so the bar, the edit view's caption-bar toggle and the
+//! Options tab change one setting; they run whenever a library is open, a show playing or not.
+//! [`sync`] gives the held show the settings in effect every frame (display time, transition and
+//! Loop), so a change from any of them applies to the show playing at once: a new transition from
+//! the next change, a display time counting the time already spent (M11.4's rule).
+//!
+//! **Zoom** (`viewing.md` §1.3): + and − (and the bar's magnifier and slider, [`set_zoom`]) set the
+//! view state's zoom; above 1 the show pauses (M11.4's Zoomed) and a drag pans
+//! (`panels/slideshow/zoom.rs`). Moving to another photo ends the zoom: the next photo is shown
+//! fitted, the pan back at the centre.
 
 use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
 
 use dalica_core::PhotoId;
 use dalica_create::slideshow::{Show, State};
-use dalica_engine::cmd::slideshow::{Frame, ShowStats, Slideshow as Running};
+use dalica_engine::cmd::slideshow::{Frame, ShowStats, Slideshow as Running, show_settings};
 use dalica_engine::{CmdError, Context, Session};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -179,8 +189,6 @@ pub const COMMANDS: &[UiCommand] = &[
     },
 ];
 
-/// Why the bar's settings cannot change yet.
-pub const BAR_NOT_YET: &str = "Arrives with the slideshow's control bar.";
 /// Why the show's own commands cannot run.
 pub const NOT_PLAYING: &str = "No slideshow is playing.";
 /// Why a show cannot start: nothing to play.
@@ -211,10 +219,14 @@ pub const CHECKS: &[(&str, Check)] = &[
     ("slideshow.star", playing),
     ("slideshow.rotateRight", playing),
     ("slideshow.rotateLeft", playing),
-    ("slideshow.transition", |_, _| Err(BAR_NOT_YET.into())),
-    ("slideshow.captions", |_, _| Err(BAR_NOT_YET.into())),
-    ("slideshow.displayTime", |_, _| Err(BAR_NOT_YET.into())),
+    ("slideshow.transition", opened),
+    ("slideshow.captions", opened),
+    ("slideshow.displayTime", opened),
 ];
+
+fn opened(app: &App, _: &Value) -> Result<(), String> {
+    if app.session().is_some() { Ok(()) } else { Err(OPENING.into()) }
+}
 
 fn playing(app: &App, _: &Value) -> Result<(), String> {
     show(app).map(|_| ()).ok_or_else(|| NOT_PLAYING.into())
@@ -349,7 +361,9 @@ fn sync_held(slot: &mut Option<Held>, session: &mut Session, wanted: Option<Slid
     }
     let Some(held) = slot.as_mut() else { return Synced { state: None, full_screen: None, frame: None } };
     held.show.set_fit(session, fit);
+    let settings = show_settings(&session.settings().slideshow());
     let machine = held.show.show_mut();
+    apply_settings(machine, settings);
     let zoomed = want.zoom > 1.0;
     if zoomed != (held.mirrored.zoom > 1.0) {
         machine.set_zoomed(zoomed);
@@ -359,16 +373,34 @@ fn sync_held(slot: &mut Option<Held>, session: &mut Session, wanted: Option<Slid
     }
     let frame = held.show.tick(session);
     let v = frame.view;
+    // Another photo (a step, the timer, Play at the end) ends the zoom: it is shown fitted.
+    let unzoomed = zoomed && v.state != State::Zoomed;
     let state = Slideshow {
         index: v.index.unwrap_or(0).min(want.photos.len().saturating_sub(1)),
         playing: v.state == State::Playing,
         bar: v.bar,
         transition: v.change.map(|(from, progress)| TransitionRun { from, progress }),
+        zoom: if unzoomed { 1.0 } else { want.zoom },
+        pan: if unzoomed { [0.5, 0.5] } else { want.pan },
         ..want
     };
     held.mirrored = state.clone();
     held.frame = Some(frame);
     Synced { state: Some(state), full_screen: None, frame: Some(frame) }
+}
+
+/// Gives the show the settings in effect (Options ▸ Slideshow), changing only what differs.
+fn apply_settings(show: &mut Show, wanted: dalica_create::slideshow::Settings) {
+    let have = show.settings();
+    if have.display_secs != wanted.display_secs {
+        show.set_display_secs(wanted.display_secs);
+    }
+    if have.transition != wanted.transition {
+        show.set_transition(wanted.transition);
+    }
+    if have.looped != wanted.looped {
+        show.set_looped(wanted.looped);
+    }
 }
 
 /// Runs `input` on the show playing (after bringing it up to date), then brings it up to date
@@ -601,12 +633,19 @@ fn zoom_by(app: &mut App, change: impl FnOnce(f32) -> f32) -> Result<Value, CmdE
     }
     sync(app);
     if let Some(s) = app.state_mut().slideshow.as_mut() {
-        s.zoom = change(s.zoom).clamp(1.0, SLIDE_ZOOM_MAX);
+        let z = change(s.zoom);
+        s.zoom = if z.is_finite() { z.clamp(1.0, SLIDE_ZOOM_MAX) } else { 1.0 };
         if s.zoom <= 1.0 {
             s.pan = [0.5, 0.5];
         }
     }
     act(app, |_| true)
+}
+
+/// Sets the zoom of the show playing to `zoom` (1 fitted … [`SLIDE_ZOOM_MAX`]; the bar's slider
+/// and magnifier); `disabled` when none plays.
+pub fn set_zoom(app: &mut App, zoom: f32) -> Result<Value, CmdError> {
+    zoom_by(app, |_| zoom)
 }
 
 fn zoom_in(app: &mut App, params: &Value) -> Result<Value, CmdError> {
@@ -640,44 +679,52 @@ fn rotate_left(app: &mut App, params: &Value) -> Result<Value, CmdError> {
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-enum Transition {
-    Cut,
-    PanAndZoom,
-    Dissolve,
-    Wipe,
-    Circle,
-    Push,
-    Rectangle,
-}
-
-#[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SetTransition {
-    #[allow(dead_code)] // read by M11.21
-    transition: Transition,
+    transition: String,
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct DisplayTime {
-    seconds: u8,
+    seconds: u32,
 }
 
-fn transition(_: &mut App, params: &Value) -> Result<Value, CmdError> {
-    let _: SetTransition = parse(params)?;
-    Err(CmdError::Disabled(BAR_NOT_YET.into()))
-}
-
-fn captions(_: &mut App, params: &Value) -> Result<Value, CmdError> {
-    let _: On = parse_object(params)?;
-    Err(CmdError::Disabled(BAR_NOT_YET.into()))
-}
-
-fn display_time(_: &mut App, params: &Value) -> Result<Value, CmdError> {
-    let p: DisplayTime = parse(params)?;
-    if !(1..=60).contains(&p.seconds) {
-        return Err(CmdError::BadParams(format!("`seconds` is 1 … 60, not {}", p.seconds)));
+/// Stores Options ▸ Slideshow's `key` as `value` (`options.set`; no undo step), then gives the show
+/// playing the new settings.
+fn keep_setting(app: &mut App, key: &str, value: Value) -> Result<(), CmdError> {
+    let session = app.session_mut().ok_or_else(|| CmdError::Disabled(OPENING.into()))?;
+    session.execute("options.set", &json!({ "values": { key: value } }))?;
+    if show(app).is_some() {
+        sync(app);
     }
-    Err(CmdError::Disabled(BAR_NOT_YET.into()))
+    Ok(())
+}
+
+fn transition(app: &mut App, params: &Value) -> Result<Value, CmdError> {
+    let p: SetTransition = parse(params)?;
+    let Some(t) = dalica_engine::settings::Transition::from_id(&p.transition) else {
+        let ids: Vec<String> = dalica_engine::settings::Transition::ALL.iter().map(|t| format!("\"{}\"", t.id())).collect();
+        return Err(CmdError::BadParams(format!("`transition` is one of {}, not {:?}", ids.join(", "), p.transition)));
+    };
+    keep_setting(app, "slideshow.transition", json!(t.id()))?;
+    Ok(json!({ "transition": t.id() }))
+}
+
+fn captions(app: &mut App, params: &Value) -> Result<Value, CmdError> {
+    let p: On = parse_object(params)?;
+    let now = app.session().ok_or_else(|| CmdError::Disabled(OPENING.into()))?.settings().slideshow().captions;
+    let on = p.on.unwrap_or(!now);
+    keep_setting(app, "slideshow.captions", json!(on))?;
+    Ok(json!({ "on": on }))
+}
+
+fn display_time(app: &mut App, params: &Value) -> Result<Value, CmdError> {
+    let p: DisplayTime = parse(params)?;
+    let range = dalica_create::slideshow::DISPLAY_MIN..=dalica_create::slideshow::DISPLAY_MAX;
+    if !range.contains(&p.seconds) {
+        return Err(CmdError::BadParams(format!("`seconds` is {} … {}, not {}", range.start(), range.end(), p.seconds)));
+    }
+    keep_setting(app, "slideshow.displayTime", json!(p.seconds))?;
+    Ok(json!({ "seconds": p.seconds }))
 }

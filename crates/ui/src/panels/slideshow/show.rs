@@ -104,14 +104,16 @@ fn photo(ui: &Ui, session: &mut Session, (id, pane): (PhotoId, usize), index: us
     Some(Photo { texture, slide })
 }
 
-/// Paints `frame` over `rect` (already black): the photos as the transition places them, then the
-/// caption of the photo shown while `captions` is on.
-pub fn paint(app: &mut App, ui: &Ui, rect: Rect, frame: &Frame, captions: bool) {
+/// Paints `frame` over `rect` (already black): the photos as the transition places them (the photo
+/// shown zoomed by `zoom` about the point `pan`, M11.21's [`super::zoom`]), then the caption of the
+/// photo shown while `captions` is on. Answers where the photo shown sits fitted, in the screen's
+/// units (what a drag pans).
+pub fn paint(app: &mut App, ui: &Ui, rect: Rect, frame: &Frame, captions: bool, (zoom, pan): (f32, [f32; 2])) -> Option<create::Rect> {
     let t = *app.tokens();
     let ppp = ui.ctx().pixels_per_point();
     let need = ((rect.width().max(rect.height()) * ppp).ceil().clamp(1.0, 16_384.0)) as u32;
     let v = frame.view;
-    let Some(session) = app.session_mut() else { return };
+    let session = app.session_mut()?;
     let incoming = frame.photo.zip(v.index).and_then(|(p, i)| photo(ui, session, p, i, v.motion, need));
     let change = v.change.filter(|_| frame.outgoing.is_some());
     let outgoing = frame.outgoing.zip(change).and_then(|(p, (i, _))| photo(ui, session, p, i, v.outgoing_motion, need));
@@ -125,6 +127,7 @@ pub fn paint(app: &mut App, ui: &Ui, rect: Rect, frame: &Frame, captions: bool) 
                 super::transition::paint(&painter, rect.min, &layer, o.texture);
             }
             if let Some(layer) = f.incoming {
+                let layer = super::zoom::zoom_layer(layer, screen, zoom, pan);
                 super::transition::paint(&painter, rect.min, &layer, inc.texture);
             }
         }
@@ -137,11 +140,14 @@ pub fn paint(app: &mut App, ui: &Ui, rect: Rect, frame: &Frame, captions: bool) 
         }
         (None, None) => {}
     }
+    let fit = incoming.as_ref().map(|inc| create::fit(inc.slide.size, screen, ppp));
     if !captions {
-        return;
+        return fit;
     }
-    let Some((id, _)) = frame.photo else { return };
+    let Some((id, _)) = frame.photo else { return fit };
     let caption = session.library().caption(id).to_string();
-    let bottom = create::geometry::CAPTION_BOTTOM * rect.height();
+    // Above the control bar's place, so the bar never covers it (and it never moves with the bar).
+    let bottom = (create::geometry::CAPTION_BOTTOM * rect.height()).max(super::bar::CAPTION_CLEAR);
     let _ = widgets::caption_plate(&painter, &t, CAPTION_ID, rect, bottom, &caption);
+    fit
 }
