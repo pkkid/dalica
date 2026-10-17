@@ -83,8 +83,12 @@ impl VirtualClock {
 
     pub fn advance(&self, d: Duration) {
         let step = millis(d);
-        // `fetch_update` with a closure that always returns `Some` cannot fail.
-        let _ = self.now.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |t| Some(t.saturating_add(step)));
+        // A compare-and-swap loop (what `fetch_update` does), written out so it builds
+        // warning-free on toolchains before and after its rename to `try_update`.
+        let mut current = self.now.load(Ordering::SeqCst);
+        while let Err(seen) = self.now.compare_exchange_weak(current, current.saturating_add(step), Ordering::SeqCst, Ordering::SeqCst) {
+            current = seen;
+        }
     }
 
     pub fn set(&self, t: Timestamp) {
