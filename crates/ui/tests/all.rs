@@ -41,6 +41,7 @@ mod heic_hint;
 mod hidden;
 mod idle_write_back;
 mod import_room;
+mod import_run_ui;
 mod jobs_control;
 mod layout;
 mod library_window;

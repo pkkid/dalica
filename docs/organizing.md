@@ -172,6 +172,14 @@ status line; Cancel stops after the current file (already-copied files stay). Th
 - Finish: the Import tab closes, the library selects and scrolls to the new folder, and a toast
   "Imported 340 pictures into 2026-06-04". (Being imported is no change: the new photos are not
   in **Recently Updated**, §4.1, until something about them changes.)
+- An import cancelled, or with files that could not be imported, does not finish that way: the
+  room stays open on its result ("Import cancelled: 2 of 4 pictures copied"; each failed file
+  listed with its reason, at most five, then "and n more"), and the card question is not asked.
+  The question has no default button (Enter removes nothing). "After copying:" starts from the
+  last choice, and a folder source's import leaves it untouched. An import that ends while the
+  Library tab is in front finishes when the Import tab is next shown. **Built in M11.20**
+  (`crates/ui/src/panels/import/destination.rs`, `progress.rs`, `crates/ui/src/commands/import.rs`,
+  `crates/ui/src/dialogs/remove_from_card.rs`).
 
 **The engine's import** (built in M11.8: `crates/engine/src/import_run.rs`, `cmd/import_run.rs`):
 

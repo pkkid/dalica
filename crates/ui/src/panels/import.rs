@@ -1,7 +1,7 @@
 //! The Import room (`organizing.md` §3): "Import from:" along its top ([`source`]), the import
 //! tray on the left ([`tray`]) and the preview on the right, about 35 % of the width ([`preview`]),
-//! in the room's region under the tab strip. The destination strip and the progress below them
-//! are M11.20's.
+//! in the room's region under the tab strip, and the destination strip across the bottom with the
+//! import's progress ([`destination`], [`progress`]).
 //!
 //! Everything shown comes from the engine's import session (`import.sources`, `import.list`, the
 //! candidates and their in-memory thumbnails), read under a short lock each frame the room is drawn
@@ -16,7 +16,9 @@
 //! only for the cells drawn, at most [`UPLOADS_PER_FRAME`] a frame, and dropped once unseen for
 //! [`KEEP_FRAMES`] frames.
 
+pub mod destination;
 pub mod preview;
+pub mod progress;
 pub mod source;
 pub mod tray;
 
@@ -72,12 +74,23 @@ pub struct Rects {
     pub tray: Rect,
     /// The preview, right of the tray.
     pub preview: Rect,
+    /// The destination strip across the bottom (empty when it has no height).
+    pub strip: Rect,
 }
 
 /// Where the room's parts go in `room`: the bar across the top, then the tray and the preview
 /// (35 % of the width, at least [`PREVIEW_MIN`] while the tray keeps as much) side by side.
 pub fn layout(room: Rect) -> Rects {
+    layout_with(room, 0.0)
+}
+
+/// [`layout`] with the destination strip `strip_h` high across the bottom, under the tray and the
+/// preview.
+pub fn layout_with(room: Rect, strip_h: f32) -> Rects {
     let room = if room.is_finite() { room } else { Rect::ZERO };
+    let strip_h = if strip_h.is_finite() { strip_h.clamp(0.0, (room.height() - TOP_BAR).max(0.0)) } else { 0.0 };
+    let strip = Rect::from_min_max(pos2(room.min.x, room.max.y - strip_h), room.max);
+    let room = Rect::from_min_max(room.min, pos2(room.max.x, strip.min.y));
     let top = Rect::from_min_max(room.min, pos2(room.max.x, (room.min.y + TOP_BAR).min(room.max.y)));
     let width = room.width().max(0.0);
     let share = (width * PREVIEW_SHARE).round();
@@ -85,7 +98,7 @@ pub fn layout(room: Rect) -> Rects {
     let split = room.max.x - preview_w;
     let tray = Rect::from_min_max(pos2(room.min.x, top.max.y), pos2(split, room.max.y));
     let preview = Rect::from_min_max(pos2(split, top.max.y), room.max);
-    Rects { top, tray, preview }
+    Rects { top, tray, preview, strip }
 }
 
 /// A run of candidates taken within two hours of each other: `start..end` of
@@ -344,8 +357,11 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         mem.tray = tray::TrayMemory::default();
     }
     mem.textures.begin(snap.generation);
+    // The import running or ended: its progress, and what follows its end.
+    let shown = progress::poll(app, &ctx);
 
-    let rects = layout(ui.max_rect());
+    let strip_h = if snap.source.is_some() { destination::height(shown.lines()) } else { 0.0 };
+    let rects = layout_with(ui.max_rect(), strip_h);
     let p = ui.painter().clone();
     p.rect_filled(rects.top, 0, t.chrome);
     p.hline(rects.top.x_range(), rects.top.max.y - 0.5, egui::Stroke::new(1.0, t.divider));
@@ -363,6 +379,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         let m = &mut *mem;
         let menu = in_rect(ui, rects.tray, |ui| tray::show(app, ui, &t, &mut m.tray, &mut m.textures, &snap, &mut actions));
         in_rect(ui, rects.preview, |ui| preview::show(app, ui, &t, &mut m.textures, &snap, &mut actions));
+        in_rect(ui, rects.strip, |ui| destination::show(app, ui, &t, &snap, &shown, &mut actions));
         for (command, params) in actions.drain(..) {
             let _ = app.run(command, &params);
         }
@@ -410,6 +427,11 @@ mod tests {
         // Hostile rects give empty regions, never a panic.
         let r = layout(Rect::from_min_size(Pos2::ZERO, vec2(f32::NAN, 10.0)));
         assert_eq!(r.preview.width(), 0.0);
+        // The destination strip takes the bottom, under both.
+        let r = layout_with(room, 88.0);
+        assert_eq!(r.strip, Rect::from_min_max(pos2(0.0, 60.0 + 816.0 - 88.0), pos2(1400.0, 876.0)));
+        assert_eq!((r.tray.max.y, r.preview.max.y), (r.strip.min.y, r.strip.min.y));
+        assert_eq!(layout_with(room, f32::INFINITY).strip.height(), 0.0);
     }
 
     #[test]
