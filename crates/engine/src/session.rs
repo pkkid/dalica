@@ -248,6 +248,14 @@ pub struct Session {
     pub(crate) search: crate::search::SearchState,
     /// Find Duplicates (`duplicates.rs`).
     pub(crate) duplicates: crate::duplicates::Duplicates,
+    /// The Import room's source and listing (`import.rs`).
+    pub(crate) import: crate::import::ImportSession,
+    /// The import running or last finished (`import_run.rs`).
+    pub(crate) import_run: crate::import_run::ImportRun,
+    /// A│A's variant (`variant.rs`).
+    pub(crate) variant: crate::variant::Variant,
+    /// The photo viewer's state (`viewer.rs`).
+    pub(crate) viewer: crate::viewer::Viewer,
     /// Nothing is written (see the module's notes).
     read_only: bool,
     _lock: LibraryLock,
@@ -359,6 +367,10 @@ impl Session {
             fileops: crate::fileops::FileOps::default(),
             search: crate::search::SearchState::default(),
             duplicates: crate::duplicates::Duplicates::default(),
+            import: crate::import::ImportSession::default(),
+            import_run: crate::import_run::ImportRun::default(),
+            variant: crate::variant::Variant::default(),
+            viewer: crate::viewer::Viewer::default(),
             read_only,
             _lock: lock,
         };
@@ -880,6 +892,26 @@ impl Session {
         let bytes = self.settings.print();
         self.send(Msg::Write(self.dir.join(crate::settings::FILE), bytes));
         r
+    }
+
+    /// The Import room's source and listing (`organizing.md` §3).
+    pub fn import_session(&self) -> &crate::import::ImportSession {
+        &self.import
+    }
+
+    /// The import running or last finished in this session.
+    pub fn import_run(&self) -> &crate::import_run::ImportRun {
+        &self.import_run
+    }
+
+    /// A│A's variant (`editing.md` §4), held in this session only.
+    pub fn variant(&self) -> &crate::variant::Variant {
+        &self.variant
+    }
+
+    /// The photo viewer's state (`viewing.md` §3).
+    pub fn viewer(&self) -> &crate::viewer::Viewer {
+        &self.viewer
     }
 
     /// The settings as loaded and changed since (`settings.json`).

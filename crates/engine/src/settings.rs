@@ -77,6 +77,25 @@
 //! `"fileTypes"` → `smallPictureThreshold` (64 px, in [`SMALL_PICTURE_RANGE`]). Every option the
 //! Options dialog shows is a row of the catalogue in [`crate::options`].
 //!
+//! M11 adds four objects, merged key by key the same way (M11.1; `menus-and-shortcuts.md` §5,
+//! `viewing.md` §1.5 and §3.3, `organizing.md` §3, `editing.md` §4):
+//!
+//! - `"slideshow"`: Options → Slideshow ([`SlideshowSettings`]): `{loop, displayTime, transition,
+//!   captions, music, musicFolder, videoSound}`: loop off, 3 s (in [`DISPLAY_TIME_RANGE`]),
+//!   `"dissolve"` (one of the seven [`Transition`]s), captions on, music off with no folder, video
+//!   sound off.
+//! - `"viewer"`: Options → Photo Viewer → Interface ([`ViewerSettings`]): `{wheel, hideControls,
+//!   translucent}`: `"zoom"` or `"navigate"` (zoom), on, on.
+//! - `"import"` ([`ImportSettings`]): `{folder, detectDuplicates, after, recentSources,
+//!   recentDestinations, recentFolderNames}`: Options → General's "Save imported pictures in"
+//!   (unset: the Pictures folder, [`Session::import_folder`](crate::Session::import_folder)) and
+//!   "Detect duplicates while importing" (on), the room's "After copying" (`"leave"` or
+//!   `"delete"`; leave) and the last [`MAX_RECENT_IMPORTS`] sources, destinations and folder names,
+//!   most recent first.
+//! - `"compare"` ([`CompareSettings`]): `{askBeforeApplying, keep}`, the answers "Don't ask
+//!   again" remembers: ask before applying on a switch (on) and the side to keep (`"ask"`,
+//!   `"left"` or `"right"`; ask).
+//!
 //! The command modules read them through [`Session::settings`](crate::Session::settings) and change
 //! them through [`Session::change_settings`](crate::Session::change_settings) with the typed
 //! accessors below. A value of the wrong type is the default and is reported once, when the library
@@ -483,6 +502,255 @@ impl Default for OrganizeSettings {
             recent_days: RECENT_DAYS_DEFAULT,
             last_move_folder: None,
         }
+    }
+}
+
+/// The slideshow's display time in seconds (`viewing.md` §1.3): its default and range.
+pub const DISPLAY_TIME_DEFAULT: u32 = 3;
+pub const DISPLAY_TIME_RANGE: std::ops::RangeInclusive<u32> = 1..=60;
+
+/// A slideshow transition (`viewing.md` §1.3), in the order the bar's list shows them.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum Transition {
+    Cut,
+    PanAndZoom,
+    #[default]
+    Dissolve,
+    Wipe,
+    Circle,
+    Push,
+    Rectangle,
+}
+
+impl Transition {
+    pub const ALL: [Transition; 7] = [
+        Transition::Cut,
+        Transition::PanAndZoom,
+        Transition::Dissolve,
+        Transition::Wipe,
+        Transition::Circle,
+        Transition::Push,
+        Transition::Rectangle,
+    ];
+
+    /// The id stored in `settings.json`.
+    pub fn id(self) -> &'static str {
+        match self {
+            Transition::Cut => "cut",
+            Transition::PanAndZoom => "panAndZoom",
+            Transition::Dissolve => "dissolve",
+            Transition::Wipe => "wipe",
+            Transition::Circle => "circle",
+            Transition::Push => "push",
+            Transition::Rectangle => "rectangle",
+        }
+    }
+
+    pub fn from_id(id: &str) -> Option<Transition> {
+        Transition::ALL.into_iter().find(|t| t.id() == id)
+    }
+}
+
+/// Options → Slideshow (`"slideshow"` in `settings.json`; `viewing.md` §1.5).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SlideshowSettings {
+    /// Loop slideshow (`loop`; off).
+    pub looping: bool,
+    /// Display time in seconds (`displayTime`; [`DISPLAY_TIME_DEFAULT`], in [`DISPLAY_TIME_RANGE`]).
+    pub display_time: u32,
+    /// The transition (`transition`; Dissolve).
+    pub transition: Transition,
+    /// Show captions (`captions`; on).
+    pub captions: bool,
+    /// Play music during slideshows (`music`; off). Not offered until Dalica plays sound.
+    pub music: bool,
+    /// The music folder (`musicFolder`; absolute, at most [`MAX_PATH_BYTES`]; none).
+    pub music_folder: Option<PathBuf>,
+    /// Play video sound (`videoSound`; off). Not offered until Dalica plays sound.
+    pub video_sound: bool,
+}
+
+impl Default for SlideshowSettings {
+    fn default() -> Self {
+        SlideshowSettings {
+            looping: false,
+            display_time: DISPLAY_TIME_DEFAULT,
+            transition: Transition::Dissolve,
+            captions: true,
+            music: false,
+            music_folder: None,
+            video_sound: false,
+        }
+    }
+}
+
+/// What the mouse wheel does in the photo viewer (`viewing.md` §3.3): the other action needs Ctrl.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum WheelAction {
+    #[default]
+    Zoom,
+    Navigate,
+}
+
+impl WheelAction {
+    pub const ALL: [WheelAction; 2] = [WheelAction::Zoom, WheelAction::Navigate];
+
+    /// The id stored in `settings.json`.
+    pub fn id(self) -> &'static str {
+        match self {
+            WheelAction::Zoom => "zoom",
+            WheelAction::Navigate => "navigate",
+        }
+    }
+
+    pub fn from_id(id: &str) -> Option<WheelAction> {
+        WheelAction::ALL.into_iter().find(|w| w.id() == id)
+    }
+}
+
+/// Options → Photo Viewer → Interface (`"viewer"` in `settings.json`; `viewing.md` §3.3).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ViewerSettings {
+    /// What the wheel does (`wheel`; zoom).
+    pub wheel: WheelAction,
+    /// Hide controls automatically (`hideControls`; on).
+    pub hide_controls: bool,
+    /// Translucent background (`translucent`; on).
+    pub translucent: bool,
+}
+
+impl Default for ViewerSettings {
+    fn default() -> Self {
+        ViewerSettings { wheel: WheelAction::Zoom, hide_controls: true, translucent: true }
+    }
+}
+
+/// The most recent import sources, destinations and folder names kept, each.
+pub const MAX_RECENT_IMPORTS: usize = 8;
+/// The longest recent folder name kept, in bytes.
+pub const MAX_FOLDER_NAME_BYTES: usize = 255;
+
+/// What an import does with the card's files once they are copied (`organizing.md` §3).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum AfterImport {
+    /// "Leave files on the card".
+    #[default]
+    Leave,
+    /// "Delete copied files from the card" (asked first).
+    Delete,
+}
+
+impl AfterImport {
+    pub const ALL: [AfterImport; 2] = [AfterImport::Leave, AfterImport::Delete];
+
+    /// The id stored in `settings.json`.
+    pub fn id(self) -> &'static str {
+        match self {
+            AfterImport::Leave => "leave",
+            AfterImport::Delete => "delete",
+        }
+    }
+
+    pub fn from_id(id: &str) -> Option<AfterImport> {
+        AfterImport::ALL.into_iter().find(|a| a.id() == id)
+    }
+}
+
+/// Import's settings (`"import"` in `settings.json`; `organizing.md` §3).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ImportSettings {
+    /// Options → General → Import → "Save imported pictures in" (`folder`; absolute, at most
+    /// [`MAX_PATH_BYTES`]; `None`: the Pictures folder, [`Session::import_folder`](crate::Session::import_folder)).
+    pub folder: Option<PathBuf>,
+    /// Options → General → Files → "Detect duplicates while importing" (`detectDuplicates`; on):
+    /// the room's "Exclude duplicates" starts from it.
+    pub detect_duplicates: bool,
+    /// The room's "After copying" as last chosen (`after`; leave).
+    pub after: AfterImport,
+    /// The sources imported from, most recent first (`recentSources`; absolute folders, at most
+    /// [`MAX_RECENT_IMPORTS`]).
+    pub recent_sources: Vec<PathBuf>,
+    /// The destinations imported into, most recent first (`recentDestinations`; likewise).
+    pub recent_destinations: Vec<PathBuf>,
+    /// The folder names typed, most recent first (`recentFolderNames`; trimmed, at most
+    /// [`MAX_FOLDER_NAME_BYTES`] each, at most [`MAX_RECENT_IMPORTS`]).
+    pub recent_folder_names: Vec<String>,
+}
+
+impl Default for ImportSettings {
+    fn default() -> Self {
+        ImportSettings {
+            folder: None,
+            detect_duplicates: true,
+            after: AfterImport::Leave,
+            recent_sources: Vec::new(),
+            recent_destinations: Vec::new(),
+            recent_folder_names: Vec::new(),
+        }
+    }
+}
+
+/// A folder name worth keeping: trimmed, not empty, at most [`MAX_FOLDER_NAME_BYTES`], no control
+/// characters.
+fn folder_name_text(t: &str) -> Option<String> {
+    let t = t.trim();
+    (!t.is_empty() && t.len() <= MAX_FOLDER_NAME_BYTES && !t.chars().any(char::is_control)).then(|| t.to_string())
+}
+
+/// The first [`MAX_RECENT_IMPORTS`] distinct items of `items`, `None`s skipped.
+fn recent_imports<T: PartialEq>(items: impl IntoIterator<Item = Option<T>>) -> Vec<T> {
+    let mut out: Vec<T> = Vec::new();
+    for item in items.into_iter().flatten() {
+        if out.len() == MAX_RECENT_IMPORTS {
+            break;
+        }
+        if !out.contains(&item) {
+            out.push(item);
+        }
+    }
+    out
+}
+
+/// Which side "Keep which version?" keeps without asking (`editing.md` §4).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum KeepVersion {
+    /// Ask each time (the default).
+    #[default]
+    Ask,
+    Left,
+    Right,
+}
+
+impl KeepVersion {
+    pub const ALL: [KeepVersion; 3] = [KeepVersion::Ask, KeepVersion::Left, KeepVersion::Right];
+
+    /// The id stored in `settings.json`.
+    pub fn id(self) -> &'static str {
+        match self {
+            KeepVersion::Ask => "ask",
+            KeepVersion::Left => "left",
+            KeepVersion::Right => "right",
+        }
+    }
+
+    pub fn from_id(id: &str) -> Option<KeepVersion> {
+        KeepVersion::ALL.into_iter().find(|k| k.id() == id)
+    }
+}
+
+/// Compare's remembered answers (`"compare"` in `settings.json`; `editing.md` §4).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CompareSettings {
+    /// Ask "Apply changes to the current photo?" when the focus switches with unapplied changes
+    /// (`askBeforeApplying`; on). "Don't ask again, always apply" turns it off.
+    pub ask_before_applying: bool,
+    /// The side "Keep which version?" keeps (`keep`; ask). "Don't ask again" stores the side chosen.
+    pub keep: KeepVersion,
+}
+
+impl Default for CompareSettings {
+    fn default() -> Self {
+        CompareSettings { ask_before_applying: true, keep: KeepVersion::Ask }
     }
 }
 
@@ -1244,6 +1512,188 @@ impl Settings {
         o
     }
 
+    /// Options → Slideshow; a value of the wrong type or out of its range is its default.
+    pub fn slideshow(&self) -> SlideshowSettings {
+        self.read_slideshow(&mut Vec::new())
+    }
+
+    /// Stores Options → Slideshow under `"slideshow"` (a display time out of range as the default,
+    /// a music folder that is not an absolute path of valid Unicode, or `None`, removed); other keys
+    /// are kept.
+    pub fn set_slideshow(&mut self, s: &SlideshowSettings) {
+        let time = if DISPLAY_TIME_RANGE.contains(&s.display_time) { s.display_time } else { DISPLAY_TIME_DEFAULT };
+        self.merge(
+            "slideshow",
+            &[
+                ("loop", Some(json!(s.looping))),
+                ("displayTime", Some(json!(time))),
+                ("transition", Some(json!(s.transition.id()))),
+                ("captions", Some(json!(s.captions))),
+                ("music", Some(json!(s.music))),
+                ("musicFolder", s.music_folder.as_deref().and_then(folder_path).map(|f| json!(f))),
+                ("videoSound", Some(json!(s.video_sound))),
+            ],
+        );
+    }
+
+    /// Options → Photo Viewer → Interface; a value of the wrong type is its default.
+    pub fn viewer(&self) -> ViewerSettings {
+        self.read_viewer(&mut Vec::new())
+    }
+
+    /// Stores the photo viewer's settings under `"viewer"`; other keys are kept.
+    pub fn set_viewer(&mut self, v: &ViewerSettings) {
+        self.merge(
+            "viewer",
+            &[("wheel", Some(json!(v.wheel.id()))), ("hideControls", Some(json!(v.hide_controls))), ("translucent", Some(json!(v.translucent)))],
+        );
+    }
+
+    /// Import's settings; a value of the wrong type is its default, and a recent entry that cannot
+    /// be read is left out.
+    pub fn import(&self) -> ImportSettings {
+        self.read_import(&mut Vec::new())
+    }
+
+    /// Stores import's settings under `"import"` (a folder that is not an absolute path of valid
+    /// Unicode, or `None`, removed; each recent list cleaned, each entry once, at most
+    /// [`MAX_RECENT_IMPORTS`]); other keys are kept.
+    pub fn set_import(&mut self, i: &ImportSettings) {
+        let paths = |list: &[PathBuf]| -> Value {
+            recent_imports(list.iter().map(|p| folder_path(p).map(str::to_string))).into_iter().map(Value::String).collect()
+        };
+        let names: Value = recent_imports(i.recent_folder_names.iter().map(|n| folder_name_text(n))).into_iter().map(Value::String).collect();
+        self.merge(
+            "import",
+            &[
+                ("folder", i.folder.as_deref().and_then(folder_path).map(|f| json!(f))),
+                ("detectDuplicates", Some(json!(i.detect_duplicates))),
+                ("after", Some(json!(i.after.id()))),
+                ("recentSources", Some(paths(&i.recent_sources))),
+                ("recentDestinations", Some(paths(&i.recent_destinations))),
+                ("recentFolderNames", Some(names)),
+            ],
+        );
+    }
+
+    /// Compare's remembered answers; a value of the wrong type is its default.
+    pub fn compare(&self) -> CompareSettings {
+        self.read_compare(&mut Vec::new())
+    }
+
+    /// Stores compare's remembered answers under `"compare"`; other keys are kept.
+    pub fn set_compare(&mut self, c: &CompareSettings) {
+        self.merge("compare", &[("askBeforeApplying", Some(json!(c.ask_before_applying))), ("keep", Some(json!(c.keep.id())))]);
+    }
+
+    fn read_slideshow(&self, problems: &mut Vec<String>) -> SlideshowSettings {
+        let mut s = SlideshowSettings::default();
+        let Some(obj) = self.object("slideshow", problems) else { return s };
+        s.looping = Settings::flag(obj, "slideshow", "loop", false, problems);
+        match obj.get("displayTime") {
+            None => {}
+            Some(v) => match v.as_u64().and_then(|n| u32::try_from(n).ok()).filter(|n| DISPLAY_TIME_RANGE.contains(n)) {
+                Some(n) => s.display_time = n,
+                None => problems.push(format!(
+                    "slideshow.displayTime is not a whole number of seconds from {} to {}; the default ({DISPLAY_TIME_DEFAULT}) is used",
+                    DISPLAY_TIME_RANGE.start(),
+                    DISPLAY_TIME_RANGE.end()
+                )),
+            },
+        }
+        match obj.get("transition") {
+            None => {}
+            Some(v) => match v.as_str().and_then(Transition::from_id) {
+                Some(t) => s.transition = t,
+                None => problems.push("slideshow.transition is not a known transition; the default (dissolve) is used".into()),
+            },
+        }
+        s.captions = Settings::flag(obj, "slideshow", "captions", true, problems);
+        s.music = Settings::flag(obj, "slideshow", "music", false, problems);
+        match obj.get("musicFolder") {
+            None | Some(Value::Null) => {}
+            Some(Value::String(f)) if folder_path(Path::new(f)).is_some() => s.music_folder = Some(PathBuf::from(f)),
+            Some(_) => problems.push("slideshow.musicFolder is not an absolute folder path; no folder is used".into()),
+        }
+        s.video_sound = Settings::flag(obj, "slideshow", "videoSound", false, problems);
+        s
+    }
+
+    fn read_viewer(&self, problems: &mut Vec<String>) -> ViewerSettings {
+        let mut v = ViewerSettings::default();
+        let Some(obj) = self.object("viewer", problems) else { return v };
+        match obj.get("wheel") {
+            None => {}
+            Some(w) => match w.as_str().and_then(WheelAction::from_id) {
+                Some(w) => v.wheel = w,
+                None => problems.push("viewer.wheel is not \"zoom\" or \"navigate\"; the default (zoom) is used".into()),
+            },
+        }
+        v.hide_controls = Settings::flag(obj, "viewer", "hideControls", true, problems);
+        v.translucent = Settings::flag(obj, "viewer", "translucent", true, problems);
+        v
+    }
+
+    fn read_import(&self, problems: &mut Vec<String>) -> ImportSettings {
+        let mut i = ImportSettings::default();
+        let Some(obj) = self.object("import", problems) else { return i };
+        match obj.get("folder") {
+            None | Some(Value::Null) => {}
+            Some(Value::String(f)) if folder_path(Path::new(f)).is_some() => i.folder = Some(PathBuf::from(f)),
+            Some(_) => problems.push("import.folder is not an absolute folder path; the Pictures folder is used".into()),
+        }
+        i.detect_duplicates = Settings::flag(obj, "import", "detectDuplicates", true, problems);
+        match obj.get("after") {
+            None => {}
+            Some(v) => match v.as_str().and_then(AfterImport::from_id) {
+                Some(a) => i.after = a,
+                None => problems.push("import.after is not \"leave\" or \"delete\"; the default (leave) is used".into()),
+            },
+        }
+        // A recent list: each entry kept by `keep`; a list that is not one, or an entry that
+        // cannot be read, is reported once by key.
+        fn list<T: PartialEq>(
+            obj: &Map<String, Value>,
+            key: &str,
+            what: &str,
+            keep: impl Fn(&Value) -> Option<T>,
+            problems: &mut Vec<String>,
+        ) -> Vec<T> {
+            match obj.get(key) {
+                None => Vec::new(),
+                Some(Value::Array(items)) => {
+                    if items.iter().any(|v| keep(v).is_none()) {
+                        problems.push(format!("import.{key} holds entries that are not {what}; they are ignored"));
+                    }
+                    recent_imports(items.iter().map(keep))
+                }
+                Some(_) => {
+                    problems.push(format!("import.{key} is not a list; nothing recent is used"));
+                    Vec::new()
+                }
+            }
+        }
+        let path = |v: &Value| v.as_str().filter(|p| folder_path(Path::new(p)).is_some()).map(PathBuf::from);
+        i.recent_sources = list(obj, "recentSources", "absolute folder paths", path, problems);
+        i.recent_destinations = list(obj, "recentDestinations", "absolute folder paths", path, problems);
+        i.recent_folder_names = list(obj, "recentFolderNames", "folder names", |v| v.as_str().and_then(folder_name_text), problems);
+        i
+    }
+
+    fn read_compare(&self, problems: &mut Vec<String>) -> CompareSettings {
+        let mut c = CompareSettings::default();
+        let Some(obj) = self.object("compare", problems) else { return c };
+        c.ask_before_applying = Settings::flag(obj, "compare", "askBeforeApplying", true, problems);
+        match obj.get("keep") {
+            None => {}
+            Some(v) => match v.as_str().and_then(KeepVersion::from_id) {
+                Some(k) => c.keep = k,
+                None => problems.push("compare.keep is not \"ask\", \"left\" or \"right\"; the default (ask) is used".into()),
+            },
+        }
+        c
+    }
+
     /// The stored settings this version reads with a value of the wrong type, one line each, by key
     /// (never by value): their defaults are used. The session reports them in its notices when it
     /// opens the library.
@@ -1258,6 +1708,10 @@ impl Settings {
         self.read_organize(&mut out);
         self.read_interface(&mut out);
         self.read_small_picture_threshold(&mut out);
+        self.read_slideshow(&mut out);
+        self.read_viewer(&mut out);
+        self.read_import(&mut out);
+        self.read_compare(&mut out);
         out.into_iter().map(|p| format!("settings.json: {p}")).collect()
     }
 
@@ -1514,6 +1968,13 @@ impl crate::Session {
     /// (`TreeOptions::projects_dir`).
     pub fn projects_dir(&self) -> Option<PathBuf> {
         self.pictures_dir.as_deref().map(projects_dir_under)
+    }
+
+    /// Where imports go unless the room chooses another place: Options → General → "Save imported
+    /// pictures in", else the Pictures folder known when the library opened; `None` when neither
+    /// is known.
+    pub fn import_folder(&self) -> Option<PathBuf> {
+        self.settings().import().folder.or_else(|| self.pictures_dir.clone())
     }
 }
 

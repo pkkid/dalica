@@ -358,10 +358,16 @@ value), when the library opens. The objects:
 | `save` | `{explain, lastFolder, lastFormat}` (§6) | M8 |
 | `export` | `{location, resize, size, quality, customQuality, numbers, watermark, watermarkText, removeLocation}` (`creating.md` §2; Options → Export) | M8 |
 | `organize` | `{askBeforeMoving, removeFromAlbumsWithoutAsking, deleteWithoutAsking, recentDays, lastMoveFolder}` (`organizing.md` §4, §9) | M9 |
+| `slideshow` | Options → Slideshow (`viewing.md` §1.5): `loop` (off), `displayTime` (3 s, 1–60), `transition` (`"cut"`, `"panAndZoom"`, `"dissolve"`, `"wipe"`, `"circle"`, `"push"`, `"rectangle"`; dissolve), `captions` (on), `music` (off), `musicFolder` (none), `videoSound` (off) | M11 |
+| `viewer` | Options → Photo Viewer → Interface (`viewing.md` §3.3): `wheel` (`"zoom"` or `"navigate"`; zoom), `hideControls` (on), `translucent` (on) | M11 |
+| `import` | `folder` (Options → General → "Save imported pictures in"; unset: the Pictures folder), `detectDuplicates` (on), `after` (the room's "After copying", `"leave"` or `"delete"`; leave), `recentSources`, `recentDestinations` (absolute folders) and `recentFolderNames`, each the last 8, most recent first (`organizing.md` §3) | M11 |
+| `compare` | what "Don't ask again" remembers in compare (`editing.md` §4): `askBeforeApplying` (on) and `keep` (`"ask"`, `"left"` or `"right"`; ask) | M11 |
 
-The Options dialog's rows name these keys (`menus-and-shortcuts.md` §5). Keys the catalogue reserves
-for options whose feature arrives later (`import.detectDuplicates`, `import.folder`,
-`files.readLegacyData`) are written only once that feature reads them.
+The Options dialog's rows name these keys (`menus-and-shortcuts.md` §5). An option whose feature
+arrives later (`files.readLegacyData`, `interface.language`, `slideshow.music`,
+`slideshow.musicFolder`, `slideshow.videoSound`) is never written by the Options dialog until that
+feature reads it; `viewer.defaultViewer` is the catalogue's row for the Photo Viewer's file types
+and has no key of its own until the OS integration.
 
 **`albums.json`** (built in M9.6: `dalica-sidecar` `albums`, `dalica-store` `albums` and
 `rebuild`), printed like the folder sidecar (UTF-8, two-space indentation, LF, keys sorted by

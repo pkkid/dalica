@@ -1,19 +1,21 @@
-//! The settings in `settings.json` (`roadmap.md` M6.5, M7.3, M8.3, M9.3, M10.1; `data-model.md` §4
-//! and §6, `menus-and-shortcuts.md` §5, `xmp-interop.md` §2, `editing.md` §1, `creating.md` §2,
-//! `organizing.md` §4 and §9), each a row of [`rows`]: nothing stored means its default; every
+//! The settings in `settings.json` (`roadmap.md` M6.5, M7.3, M8.3, M9.3, M10.1, M11.1;
+//! `data-model.md` §4 and §6, `menus-and-shortcuts.md` §5, `xmp-interop.md` §2, `editing.md` §1 and
+//! §4, `creating.md` §2, `organizing.md` §3, §4 and §9, `viewing.md` §1.5 and §3.3), each a row of [`rows`]: nothing stored means its default; every
 //! setting round-trips through its documented key with unknown keys kept at every level; a value of
 //! the wrong type is its default and is reported once by key (never by value) when the library
 //! opens, the file left as the user wrote it. Then what is particular to some of them: tags and
 //! crop ratios trimmed and capped, values out of range never stored, a section that is not an
-//! object, the photo sizes by region, and the export location.
+//! object, the photo sizes by region, the export location, and the recent imports and the
+//! slideshow's display time bounded.
 
 use std::path::{Path, PathBuf};
 
 use dalica_engine::settings::{
-    CUSTOM_QUALITY_DEFAULT, CropRatio, EXPORT_SIZE_DEFAULT, EXPORT_SIZE_RANGE, EditSettings, ExportQuality, ExportSettings, FILE, FontSize,
-    InterfaceSettings, MAX_CROP_RATIOS, MAX_PATH_BYTES, MAX_RATIO_NAME, MAX_RECENT_TAGS, MAX_TAG_BYTES, MAX_WATERMARK_BYTES, MetadataWrites,
+    AfterImport, CUSTOM_QUALITY_DEFAULT, CompareSettings, CropRatio, DISPLAY_TIME_DEFAULT, DISPLAY_TIME_RANGE, EXPORT_SIZE_DEFAULT,
+    EXPORT_SIZE_RANGE, EditSettings, ExportQuality, ExportSettings, FILE, FontSize, ImportSettings, InterfaceSettings, KeepVersion, MAX_CROP_RATIOS,
+    MAX_FOLDER_NAME_BYTES, MAX_PATH_BYTES, MAX_RATIO_NAME, MAX_RECENT_IMPORTS, MAX_RECENT_TAGS, MAX_TAG_BYTES, MAX_WATERMARK_BYTES, MetadataWrites,
     OrganizeSettings, PhotoSizes, QuickTags, RECENT_DAYS_DEFAULT, RECENT_DAYS_RANGE, SMALL_PICTURE_DEFAULT, SaveFormat, SaveSettings, Settings,
-    UiScaleSetting, default_export_location,
+    SlideshowSettings, Transition, UiScaleSetting, ViewerSettings, WheelAction, default_export_location,
 };
 use dalica_fs::Expect;
 use serde_json::{Value, json};
@@ -81,11 +83,32 @@ fn rows(dir: &Path) -> Vec<Row> {
         row("interface.fontSize", json!("large"), json!("huge"), json!("small"), |s| json!(s.interface().font_size.id())),
         row("interface.language", json!("pt-BR"), json!("secret language"), json!("system"), |s| json!(s.interface().language)),
         row("fileTypes.smallPictureThreshold", json!(128), json!(8), json!(SMALL_PICTURE_DEFAULT), |s| json!(s.small_picture_threshold())),
+        row("slideshow.loop", json!(true), json!("yes"), json!(false), |s| json!(s.slideshow().looping)),
+        row("slideshow.displayTime", json!(10), json!(61), json!(DISPLAY_TIME_DEFAULT), |s| json!(s.slideshow().display_time)),
+        row("slideshow.transition", json!("panAndZoom"), json!("fade"), json!("dissolve"), |s| json!(s.slideshow().transition.id())),
+        row("slideshow.captions", json!(false), json!(0), json!(true), |s| json!(s.slideshow().captions)),
+        row("slideshow.music", json!(true), json!("on"), json!(false), |s| json!(s.slideshow().music)),
+        row("slideshow.musicFolder", json!(dir.join("Music")), json!("relative/secret-folder"), json!(null), |s| json!(s.slideshow().music_folder)),
+        row("slideshow.videoSound", json!(true), json!(null), json!(false), |s| json!(s.slideshow().video_sound)),
+        row("viewer.wheel", json!("navigate"), json!("scroll"), json!("zoom"), |s| json!(s.viewer().wheel.id())),
+        row("viewer.hideControls", json!(false), json!("no"), json!(true), |s| json!(s.viewer().hide_controls)),
+        row("viewer.translucent", json!(false), json!(1), json!(true), |s| json!(s.viewer().translucent)),
+        row("import.folder", json!(dir.join("Imports")), json!(5), json!(null), |s| json!(s.import().folder)),
+        row("import.detectDuplicates", json!(false), json!("off"), json!(true), |s| json!(s.import().detect_duplicates)),
+        row("import.after", json!("delete"), json!("erase"), json!("leave"), |s| json!(s.import().after.id())),
+        row("import.recentSources", json!([dir.join("Card").join("DCIM")]), json!("secret-source"), json!([]), |s| json!(s.import().recent_sources)),
+        row("import.recentDestinations", json!([dir.join("A"), dir.join("B")]), json!({}), json!([]), |s| json!(s.import().recent_destinations)),
+        row("import.recentFolderNames", json!(["Lisbon", "2026-06-04"]), json!(["secret\u{7}name"]), json!([]), |s| {
+            json!(s.import().recent_folder_names)
+        }),
+        row("compare.askBeforeApplying", json!(false), json!("no"), json!(true), |s| json!(s.compare().ask_before_applying)),
+        row("compare.keep", json!("right"), json!("both"), json!("ask"), |s| json!(s.compare().keep.id())),
     ]
 }
 
 /// The sections of the rows.
-const SECTIONS: [&str; 8] = ["files", "tags", "edit", "save", "export", "organize", "interface", "fileTypes"];
+const SECTIONS: [&str; 12] =
+    ["files", "tags", "edit", "save", "export", "organize", "interface", "fileTypes", "slideshow", "viewer", "import", "compare"];
 
 /// A `settings.json` holding `value(row)` for every row, an unknown key in every section and one at
 /// the top.
@@ -131,6 +154,10 @@ fn nothing_stored_means_the_defaults() {
     );
     assert_eq!((s.settings().save(), s.settings().export(), s.settings().organize()), Default::default());
     assert_eq!(s.settings().interface(), InterfaceSettings::default());
+    assert_eq!(
+        (s.settings().slideshow(), s.settings().viewer(), s.settings().import(), s.settings().compare()),
+        (SlideshowSettings::default(), ViewerSettings::default(), ImportSettings::default(), CompareSettings::default())
+    );
     assert_eq!(s.settings().edit().photo_sizes(), PhotoSizes::system());
     assert!(s.notices().is_empty(), "{:?}", s.notices());
 }
@@ -158,6 +185,10 @@ fn every_setting_round_trips_with_unknown_keys_kept() {
         st.set_organize(&wanted.organize());
         st.set_interface(&wanted.interface());
         st.set_small_picture_threshold(wanted.small_picture_threshold());
+        st.set_slideshow(&wanted.slideshow());
+        st.set_viewer(&wanted.viewer());
+        st.set_import(&wanted.import());
+        st.set_compare(&wanted.compare());
     });
     s.flush().unwrap();
     drop(ui);
@@ -204,7 +235,20 @@ fn a_section_that_is_not_an_object_is_reported_once_and_replaced_on_the_next_wri
     let dir = tempfile::tempdir().unwrap();
     let lib = dir.path().join("library");
     let mut written = json!({});
-    let bad = [json!(true), json!(["beach"]), json!("nope"), json!([]), json!("big"), json!([true]), json!(3), json!("all")];
+    let bad = [
+        json!(true),
+        json!(["beach"]),
+        json!("nope"),
+        json!([]),
+        json!("big"),
+        json!([true]),
+        json!(3),
+        json!("all"),
+        json!("dissolve"),
+        json!(false),
+        json!(["/media/card"]),
+        json!(null),
+    ];
     for (section, bad) in SECTIONS.iter().zip(bad) {
         written[section] = bad;
     }
@@ -427,6 +471,77 @@ fn values_out_of_range_are_never_stored() {
     }
 }
 
+/// M11's settings: the recent imports are cleaned, each entry once, most recent first and capped;
+/// the display time out of range is never stored; every transition, wheel action, after-copying
+/// choice and side to keep survives a write; unknown keys stay.
+#[test]
+fn recent_imports_are_capped_and_the_display_time_bounded() {
+    let dir = tempfile::tempdir().unwrap();
+    let folders: Vec<PathBuf> = (0..12).map(|n| dir.path().join(format!("Card {n}"))).collect();
+    let mut sources = vec![folders[0].clone(), PathBuf::from("relative/card"), folders[0].clone()];
+    sources.extend(folders[1..].iter().cloned());
+    let names = vec!["  Lisbon  ".to_string(), "".into(), "Lisbon".into(), "x".repeat(MAX_FOLDER_NAME_BYTES + 1), "bell\u{7}".into(), "Porto".into()];
+    let mut st = Settings::parse(br#"{"import": {"futureKey": 1}, "slideshow": {"futureKey": 2}}"#).unwrap();
+    st.set_import(&ImportSettings {
+        folder: Some("relative/imports".into()),
+        recent_sources: sources,
+        recent_destinations: vec![dir.path().join("p".repeat(MAX_PATH_BYTES))],
+        recent_folder_names: names,
+        ..ImportSettings::default()
+    });
+    let back = Settings::parse(&st.print()).unwrap();
+    let i = back.import();
+    assert_eq!(i.folder, None, "a relative folder is never stored");
+    assert_eq!(i.recent_sources.len(), MAX_RECENT_IMPORTS);
+    assert_eq!(i.recent_sources[..2], folders[..2], "most recent first, each once, the relative one left out");
+    assert!(i.recent_destinations.is_empty(), "an overlong path is never stored");
+    assert_eq!(i.recent_folder_names, ["Lisbon", "Porto"]);
+    assert!(back.problems().is_empty(), "{:?}", back.problems());
+
+    // Read from a file: past the cap, and a list with a bad entry (reported once, by key).
+    let many: Vec<PathBuf> = folders.clone();
+    let st =
+        Settings::parse(&serde_json::to_vec(&json!({ "import": { "recentDestinations": many, "recentSources": [folders[0], 3, "rel"] } })).unwrap())
+            .unwrap();
+    assert_eq!(st.import().recent_destinations, folders[..MAX_RECENT_IMPORTS]);
+    assert_eq!(st.import().recent_sources, folders[..1]);
+    assert_eq!(st.problems().len(), 1, "{:?}", st.problems());
+    assert!(st.problems()[0].starts_with("settings.json: import.recentSources "), "{:?}", st.problems());
+
+    let mut st = Settings::parse(br#"{"slideshow": {"futureKey": 2}}"#).unwrap();
+    for time in [0, DISPLAY_TIME_RANGE.end() + 1, u32::MAX] {
+        st.set_slideshow(&SlideshowSettings { display_time: time, music_folder: Some("relative".into()), ..SlideshowSettings::default() });
+        let back = Settings::parse(&st.print()).unwrap();
+        assert_eq!((back.slideshow().display_time, back.slideshow().music_folder), (DISPLAY_TIME_DEFAULT, None), "{time}");
+    }
+    for time in [*DISPLAY_TIME_RANGE.start(), *DISPLAY_TIME_RANGE.end()] {
+        st.set_slideshow(&SlideshowSettings { display_time: time, ..SlideshowSettings::default() });
+        assert_eq!(Settings::parse(&st.print()).unwrap().slideshow().display_time, time);
+    }
+    for (time, want) in [(json!(1), 1), (json!(60), 60), (json!(0), 3), (json!(2.5), 3), (json!(-1), 3), (json!("5"), 3)] {
+        let st = Settings::parse(&serde_json::to_vec(&json!({ "slideshow": { "displayTime": time } })).unwrap()).unwrap();
+        assert_eq!(st.slideshow().display_time, want, "{time}");
+    }
+    assert_eq!(st.get("slideshow").unwrap()["futureKey"], json!(2));
+
+    for transition in Transition::ALL {
+        st.set_slideshow(&SlideshowSettings { transition, ..SlideshowSettings::default() });
+        assert_eq!(Settings::parse(&st.print()).unwrap().slideshow().transition, transition);
+    }
+    for wheel in WheelAction::ALL {
+        st.set_viewer(&ViewerSettings { wheel, ..ViewerSettings::default() });
+        assert_eq!(Settings::parse(&st.print()).unwrap().viewer().wheel, wheel);
+    }
+    for after in AfterImport::ALL {
+        st.set_import(&ImportSettings { after, ..ImportSettings::default() });
+        assert_eq!(Settings::parse(&st.print()).unwrap().import().after, after);
+    }
+    for keep in KeepVersion::ALL {
+        st.set_compare(&CompareSettings { keep, ..CompareSettings::default() });
+        assert_eq!(Settings::parse(&st.print()).unwrap().compare().keep, keep);
+    }
+}
+
 /// Every export quality and Save As format survives a write, with its preset.
 #[test]
 fn every_quality_and_format_survives_a_write() {
@@ -497,4 +612,20 @@ fn the_export_location_defaults_under_pictures_and_the_projects_directory_stays_
     // Nor any location when none is chosen.
     s.change_settings(|st| st.set_export(&ExportSettings::default()));
     assert_eq!((s.export_location(), s.projects_dir()), (None, None));
+}
+
+#[test]
+fn imports_go_to_the_pictures_folder_unless_chosen() {
+    let dir = tempfile::tempdir().unwrap();
+    let pictures = dir.path().join("Pictures");
+    let mut s = open(&dir.path().join("library"));
+    s.set_pictures_dir(Some(pictures.clone()));
+    assert_eq!(s.import_folder(), Some(pictures));
+    let chosen = dir.path().join("Imports");
+    s.change_settings(|st| st.set_import(&ImportSettings { folder: Some(chosen.clone()), ..ImportSettings::default() }));
+    assert_eq!(s.import_folder(), Some(chosen.clone()));
+    s.set_pictures_dir(None);
+    assert_eq!(s.import_folder(), Some(chosen));
+    s.change_settings(|st| st.set_import(&ImportSettings::default()));
+    assert_eq!(s.import_folder(), None);
 }

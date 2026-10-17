@@ -198,7 +198,7 @@ commands change nothing and record no undo step.
 | `app.setShortcut` | bind or unbind a key (`{command, context, key, slot?, replace?}`; without `slot` the key replaces the command's keys in that context and `key: null` removes them; with `slot` (0 or 1, a command having up to two keys per context, §2.0) only that key is set or removed and the other kept; keys as written or as the screen shows them: `ctrl-8`, `⇧⌘S`). A key another command has where both can be active is refused with the editor's sentence ("Ctrl+1 is already Small Thumbnails in Library."), unless `replace`, which takes it from that command (`took` lists whom); keys set back to the defaults are no longer an override. The shortcut editor calls it |
 | `app.resetShortcuts` | drop user overrides (`{command?}`: one command, or all when omitted) |
 | `keymap.list` | query: one row per command and context with its keys in effect, its default keys, whether it differs from the default and whether it can be edited (`{context?, search?, withoutKeys?}`); the shortcut editor's list. A command without keys is listed once with no context (with `withoutKeys`, under every Context filter). The search matches labels, menu paths and keys ignoring case; a search that reads as a key matches that key (`ctrl 1`, `⌘1`: every Ctrl+1 binding), or with no modifier typed that key under any (`F4`, never F11 for `F1`) |
-| `options.list` | query: the options catalogue's rows (§5) with their values in effect and whether they can be changed yet (`{tab?}`: `general`, `fileTypes` or `export`) |
+| `options.list` | query: the options catalogue's rows (§5) with their values in effect and whether they can be changed yet (`{tab?}`: `general`, `fileTypes`, `slideshow`, `viewer` or `export`) |
 | `options.set` | change options (`{values}`: `{key: value}`, every key and value checked against the catalogue before anything changes, an unknown key, an option still to come or a bad value being `bad_params` naming it; one atomic write of `settings.json`, the session taking the values only once it is on disk, so a failed write (a read-only file too) is `disabled` with its reason and changes nothing; no undo step; answers `{changed, restart, rescan, job}`: the keys changed, those applying at the next launch, and the scan a File Types or threshold change started); the Options dialog's Apply and OK |
 | `photo.star.set` | set or clear stars explicitly (`{ids, on}`) |
 | `photo.tags.add` / `photo.tags.remove` | add or remove tags (`{ids, tags}`: text with commas separating tags, or a list of whole tags); the Tags pane. Tags added here are the recently used ones |
@@ -212,7 +212,19 @@ commands change nothing and record no undo step.
 | `library.query` | query: search with the search-box grammar, filters and paging |
 | `library.inspect` | query: the library's state for agents (`control-protocol.md` §6.4: counts, tree, sections, search, undo, unsaved edits, pending writes, problems; `{photos?, section?, offset?, limit?}`) |
 | `library.rebuild` | delete and rebuild the index (confirmation; Help → Rebuild Library…) |
-| `edit.apply` | append an edit operation to recipes (`{ids, op, params}`) |
+| `edit.apply` | Batch Edit: append one edit operation to each photo's recipe with the edit view's merge rules, as one library undo step (`{ids, op, params?}`; an operation this build cannot render is `disabled`, "Arrives with Effects"); Picture ▸ Batch Edit and MCP's `apply_edit` (M11.9) |
+| `edit.copyRecipe` | Copy All Edits: keep one photo's recipe in the session, never saved (`{id}`; M11.9) |
+| `edit.pasteRecipe` | Paste All Edits: replace recipes with the copied one, as one library step (`{ids}`), or as one step of the open photo's history in the edit view (`{id, history: true}`) (M11.9) |
+| `edit.undoAll` | Undo All Edits: remove every unsaved edit (recipe and redo list) as one library step that can be undone (`{ids, confirm}`; `needs_confirm` without), or one history step in the edit view (`{id, history: true}`); saved photos keep their saved pixels (M11.9) |
+| `edit.variant.open` / `edit.variant.close` | A│A's variant: a copy of the photo's recipe with its own undo, held in the session only (`{id}`), dropped or kept as one step of the photo's history (`{keep: "left" \| "right"}`); `photo.history.apply`, `.undo`, `.redo` and `.state` take `variant: true` (M11.10) |
+| `import.sources` | query: the cards, drives and recent sources to import from, from the cached list, never waiting on the disk (M11.7) |
+| `import.open` | open a source in the Import room (`{source}`: a card, a drive or a folder path); starts the listing and drops an older one (M11.7) |
+| `import.list` | query: the listing's status ("Loading 112 of 340 files…") and its candidates in capture order, paged (`{offset?, limit?}`, at most 1 000) (M11.7) |
+| `import.exclude` / `import.excludeAll` / `import.mark` / `import.options` / `import.close` | the room's choices, no undo step: exclude or include candidates (`{ids, on}`, `{on}`), their star and rotation (`{ids, star?, rotate?}`), "Exclude duplicates" (`{excludeDuplicates}`); close the listing (M11.7) |
+| `import.run` | import as a job (`{ids?, destination, folderName, after}`; `folderName` a text, `{dateTaken: true}` or `{today: true}`): copy, verify, enter the photos as one library undo step "Import" (M11.8) |
+| `import.removeFromSource` | remove the last import's verified copies from the card (`{confirm}`; `needs_confirm` without); refused over the control channel and MCP (M11.8) |
+| `slideshow.list` | query: the photos a slideshow plays and where it starts (`{section?, ids?, search?, start?}`; videos left out and counted) (M11.11) |
+| `viewer.list` | query: the photos of the viewed file's folder in name order and the file's place among them (`{path}`) (M11.12) |
 | `edit.recipe.set` | replace recipes, each one step of its photo's history (`{ids, recipe, label?, dropUnknown?}`; refuses to drop an operation it cannot read unless `dropUnknown`); used by Paste All Edits and agents |
 | `section.scrollTo` | scroll the light table to a section (tree click) |
 | `tray.hold` / `tray.clear` | tray buttons (Hold: Ctrl+H) |
@@ -360,14 +372,16 @@ Tabs: **General · File Types · Slideshow · Network · People · Photo Viewer 
 Shortcuts** (§2.0). Buttons [OK] [Cancel] [Apply] (Apply disabled until something changes; Cancel discards
 changes since the last Apply).
 
-Every option of the General, File Types and Export tabs is a row of the engine's options catalogue
+Every option of the General, File Types, Slideshow, Photo Viewer and Export tabs is a row of the
+engine's options catalogue
 (`crates/engine/src/options.rs`), stored in `settings.json` under the key given here
 (`interface.animations` is `{"interface": {"animations": …}}`; `data-model.md` §4). The dialog, the
 `options.list {tab?}` and `options.set {values}` commands (§1.9) and MCP all read that catalogue: its
 type, default, range or choices, group, label and hint, when a change applies (at once, after a
 rescan, at the next launch), and whether its feature exists yet. An option whose feature arrives
-later is shown disabled with its reason ("Arrives with Import") and its setting is stored only once
-its feature reads it. A test fails when a row of these three tables and the catalogue disagree.
+later is shown disabled with its reason ("Arrives with sound support") and its setting is stored
+only once its feature reads it. A test fails when a row of these five tables and the catalogue
+disagree.
 
 ### General
 
@@ -380,7 +394,7 @@ its feature reads it. A test fails when a row of these three tables and the cata
 | | UI scale (Auto, 75–300 % in steps of 25) | `interface.uiScale` | Auto |
 | | UI font size (Small, Medium, Large) | `interface.fontSize` | Small |
 | | Language (arrives with translations; applies at next launch) | `interface.language` | System |
-| Files | Detect duplicates while importing (arrives with Import) | `import.detectDuplicates` | on |
+| Files | Detect duplicates while importing (the Import room's "Exclude duplicates" starts from it) | `import.detectDuplicates` | on |
 | | Delete from disk without asking | `organize.deleteWithoutAsking` | off |
 | | Remove from albums without asking | `organize.removeFromAlbumsWithoutAsking` | off |
 | | Write captions, tags and places into photo files | `files.writeCaptionsTagsPlaces` | on |
@@ -389,7 +403,7 @@ its feature reads it. A test fails when a row of these three tables and the cata
 | | Write XMP sidecars for RAW files | `files.writeRawXmpSidecars` | off |
 | | Write date changes to files (`xmp-interop.md` §2) | `files.writeDates` | on |
 | | Read photo data left by the previous organizer (`data-model.md` §9; arrives with it) | `files.readLegacyData` | on |
-| Import | Save imported pictures in (arrives with Import) | `import.folder` | ~/Pictures |
+| Import | Save imported pictures in (the Import room's "Import to:" starts from it) | `import.folder` | ~/Pictures |
 
 ### File Types
 
@@ -413,8 +427,20 @@ folders.
 
 ### Slideshow
 
-Loop slideshow (off) · Play music during slideshows (off) + folder [Browse…] · Display time (3 s) ·
-Transition (Dissolve) · Show captions (on) · Play video sound (off).
+As [`viewing.md`](viewing.md) §1.5. The slideshow's bar changes the transition, the display time
+and the captions too, and they persist here. Playing sound needs an audio library Dalica does not
+include yet, so the music and video sound options are drawn disabled ("Arrives with sound
+support") until it does.
+
+| Group | Option | Key | Default |
+|---|---|---|---|
+| Slideshow | Loop slideshow | `slideshow.loop` | off |
+| | Play music during slideshows (arrives with sound support) | `slideshow.music` | off |
+| | Music folder [Browse…] (arrives with sound support) | `slideshow.musicFolder` | none |
+| | Display time (1–60 s) | `slideshow.displayTime` | 3 s |
+| | Transition (Cut, Pan and Zoom, Dissolve, Wipe, Circle, Push, Rectangle) | `slideshow.transition` | Dissolve |
+| | Show captions | `slideshow.captions` | on |
+| | Play video sound (arrives with sound support) | `slideshow.videoSound` | off |
 
 ### Network
 
@@ -428,7 +454,16 @@ confidence (85) · Store people names in photos (off) · Face model: status + [D
 
 ### Photo Viewer
 
-As [`viewing.md`](viewing.md) §3.3.
+As [`viewing.md`](viewing.md) §3.3, which the viewer's ⋯ → Settings… also opens. Choosing Dalica as
+the default viewer needs the OS integration, so the File Types part is drawn disabled ("Arrives
+with OS integration") until then.
+
+| Group | Option | Key | Default |
+|---|---|---|---|
+| File Types | Use Dalica as the default viewer for these file types (arrives with OS integration) | `viewer.defaultViewer` | off |
+| Interface | Mouse wheel (zooms, hold Ctrl to navigate; or moves through photos, hold Ctrl to zoom) | `viewer.wheel` | zooms |
+| | Hide controls automatically | `viewer.hideControls` | on |
+| | Translucent background | `viewer.translucent` | on |
 
 ### Export
 

@@ -38,6 +38,7 @@ pub const CAP: usize = 64;
 #[serde(rename_all = "camelCase")]
 pub enum JobKind {
     Scan,
+    /// Copying photos in from a card, a drive or a folder (`import_run.rs`, `organizing.md` §3).
     Import,
     Export,
     Save,

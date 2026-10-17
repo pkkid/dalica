@@ -1,5 +1,6 @@
-//! The options catalogue (`menus-and-shortcuts.md` §5, `roadmap.md` M10): one row per option the
-//! Options dialog shows on its General, File Types and Export tabs, read by the dialog,
+//! The options catalogue (`menus-and-shortcuts.md` §5, `roadmap.md` M10 and M11): one row per
+//! option the Options dialog shows on its General, File Types, Slideshow, Photo Viewer and Export
+//! tabs, read by the dialog,
 //! `options.list` / `options.set` (`cmd/options.rs`) and MCP alike, so the three never disagree.
 //!
 //! A row names its setting by `"<object>.<field>"` in `settings.json` (`interface.animations`
@@ -8,8 +9,9 @@
 //! that existed before M10 (`fileTypes`, the `files` group, M7's `edit.singleClickLeaves`, M8's
 //! export and M9's ask-first settings) are rows here, never second copies of their settings.
 //!
-//! An option whose feature does not exist yet (Language until localisation, the import rows until
-//! Import, reading the previous organizer's data until it can) is listed with the reason the dialog
+//! An option whose feature does not exist yet (Language until localisation, reading the previous
+//! organizer's data until it can, the slideshow's music and video sound until Dalica plays sound,
+//! the photo viewer's file types until the OS integration) is listed with the reason the dialog
 //! shows ([`OptionSpec::unavailable`]); its setting is stored only once its feature reads it, so
 //! `options.set` refuses it until then and its value is its default.
 //!
@@ -22,27 +24,31 @@ use serde_json::{Map, Value, json};
 
 use crate::keymap::Platform;
 use crate::settings::{
-    CUSTOM_QUALITY_DEFAULT, EXPORT_SIZE_DEFAULT, EXPORT_SIZE_RANGE, MAX_WATERMARK_BYTES, QUALITY_RANGE, SMALL_PICTURE_DEFAULT, SMALL_PICTURE_RANGE,
-    Settings, UI_SCALE_RANGE, UI_SCALE_STEP, UiScaleSetting,
+    CUSTOM_QUALITY_DEFAULT, DISPLAY_TIME_DEFAULT, DISPLAY_TIME_RANGE, EXPORT_SIZE_DEFAULT, EXPORT_SIZE_RANGE, MAX_WATERMARK_BYTES, QUALITY_RANGE,
+    SMALL_PICTURE_DEFAULT, SMALL_PICTURE_RANGE, Settings, UI_SCALE_RANGE, UI_SCALE_STEP, UiScaleSetting,
 };
 
-/// A tab of the Options dialog that has options in the catalogue (the Keyboard Shortcuts tab is
-/// the shortcut editor; Slideshow, Network, People and Photo Viewer join with their milestones).
+/// A tab of the Options dialog that has options in the catalogue, in the dialog's order (the
+/// Keyboard Shortcuts tab is the shortcut editor; Network and People join with their milestones).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Tab {
     General,
     FileTypes,
+    Slideshow,
+    PhotoViewer,
     Export,
 }
 
 impl Tab {
-    pub const ALL: [Tab; 3] = [Tab::General, Tab::FileTypes, Tab::Export];
+    pub const ALL: [Tab; 5] = [Tab::General, Tab::FileTypes, Tab::Slideshow, Tab::PhotoViewer, Tab::Export];
 
     /// The id `options.list {tab}` takes.
     pub fn id(self) -> &'static str {
         match self {
             Tab::General => "general",
             Tab::FileTypes => "fileTypes",
+            Tab::Slideshow => "slideshow",
+            Tab::PhotoViewer => "viewer",
             Tab::Export => "export",
         }
     }
@@ -56,6 +62,8 @@ impl Tab {
         match self {
             Tab::General => "General",
             Tab::FileTypes => "File Types",
+            Tab::Slideshow => "Slideshow",
+            Tab::PhotoViewer => "Photo Viewer",
             Tab::Export => "Export",
         }
     }
@@ -315,7 +323,19 @@ pub fn on_tab(tab: Tab) -> impl Iterator<Item = &'static OptionSpec> {
     CATALOGUE.iter().filter(move |o| o.tab == tab)
 }
 
-const IMPORT: &str = "Arrives with Import";
+const SOUND: &str = "Arrives with sound support";
+const OS_INTEGRATION: &str = "Arrives with OS integration";
+const TRANSITIONS: &[(&str, &str)] = &[
+    ("cut", "Cut"),
+    ("panAndZoom", "Pan and Zoom"),
+    ("dissolve", "Dissolve"),
+    ("wipe", "Wipe"),
+    ("circle", "Circle"),
+    ("push", "Push"),
+    ("rectangle", "Rectangle"),
+];
+const WHEEL: &[(&str, &str)] =
+    &[("zoom", "Mouse wheel zooms (hold Ctrl to navigate)"), ("navigate", "Mouse wheel moves through photos (hold Ctrl to zoom)")];
 const FONT_SIZES: &[(&str, &str)] = &[("small", "Small"), ("medium", "Medium"), ("large", "Large")];
 const LANGUAGES: &[(&str, &str)] = &[("system", "System")];
 const QUALITIES: &[(&str, &str)] =
@@ -365,8 +385,9 @@ static CATALOGUE: &[OptionSpec] = &[
     .applies(Applies::Restart)
     .later("Arrives with translations"),
     // General → Files.
-    row("import.detectDuplicates", Tab::General, "Files", "Detect duplicates while importing", Kind::Bool, Initial::Bool(true), |_| json!(true))
-        .later(IMPORT),
+    row("import.detectDuplicates", Tab::General, "Files", "Detect duplicates while importing", Kind::Bool, Initial::Bool(true), |s| {
+        json!(s.import().detect_duplicates)
+    }),
     row("organize.deleteWithoutAsking", Tab::General, "Files", "Delete from disk without asking", Kind::Bool, Initial::Bool(false), |s| {
         json!(s.organize().delete_without_asking)
     }),
@@ -412,9 +433,8 @@ static CATALOGUE: &[OptionSpec] = &[
     .applies(Applies::Rescan)
     .later("Arrives with the previous organizer's data"),
     // General → Import.
-    row("import.folder", Tab::General, "Import", "Save imported pictures in", Kind::Folder, Initial::Null, |_| Value::Null)
-        .hint("The Pictures folder unless chosen.")
-        .later(IMPORT),
+    row("import.folder", Tab::General, "Import", "Save imported pictures in", Kind::Folder, Initial::Null, |s| json!(s.import().folder))
+        .hint("The Pictures folder unless chosen."),
     // File Types.
     file_type("fileTypes.png", "PNG", |s| json!(s.file_types().allows(FileType::Png))),
     file_type("fileTypes.gif", "GIF", |s| json!(s.file_types().allows(FileType::Gif))),
@@ -438,6 +458,50 @@ static CATALOGUE: &[OptionSpec] = &[
     )
     .hint("Pictures smaller than this on both sides show only with View › Small Pictures.")
     .applies(Applies::Rescan),
+    // Slideshow.
+    row("slideshow.loop", Tab::Slideshow, "Slideshow", "Loop slideshow", Kind::Bool, Initial::Bool(false), |s| json!(s.slideshow().looping)),
+    row("slideshow.music", Tab::Slideshow, "Slideshow", "Play music during slideshows", Kind::Bool, Initial::Bool(false), |s| {
+        json!(s.slideshow().music)
+    })
+    .later(SOUND),
+    row("slideshow.musicFolder", Tab::Slideshow, "Slideshow", "Music folder", Kind::Folder, Initial::Null, |s| json!(s.slideshow().music_folder))
+        .hint("Every MP3, OGG, FLAC and WAV file in it plays in name order, looping.")
+        .later(SOUND),
+    row(
+        "slideshow.displayTime",
+        Tab::Slideshow,
+        "Slideshow",
+        "Display time",
+        Kind::Int { min: *DISPLAY_TIME_RANGE.start(), max: *DISPLAY_TIME_RANGE.end(), step: 1, unit: "s" },
+        Initial::Int(DISPLAY_TIME_DEFAULT),
+        |s| json!(s.slideshow().display_time),
+    ),
+    row("slideshow.transition", Tab::Slideshow, "Slideshow", "Transition", Kind::Choice(TRANSITIONS), Initial::Str("dissolve"), |s| {
+        json!(s.slideshow().transition.id())
+    }),
+    row("slideshow.captions", Tab::Slideshow, "Slideshow", "Show captions", Kind::Bool, Initial::Bool(true), |s| json!(s.slideshow().captions)),
+    row("slideshow.videoSound", Tab::Slideshow, "Slideshow", "Play video sound", Kind::Bool, Initial::Bool(false), |s| {
+        json!(s.slideshow().video_sound)
+    })
+    .later(SOUND),
+    // Photo Viewer.
+    row(
+        "viewer.defaultViewer",
+        Tab::PhotoViewer,
+        "File Types",
+        "Use Dalica as the default viewer for these file types",
+        Kind::Bool,
+        Initial::Bool(false),
+        |_| json!(false),
+    )
+    .later(OS_INTEGRATION),
+    row("viewer.wheel", Tab::PhotoViewer, "Interface", "Mouse wheel", Kind::Choice(WHEEL), Initial::Str("zoom"), |s| json!(s.viewer().wheel.id())),
+    row("viewer.hideControls", Tab::PhotoViewer, "Interface", "Hide controls automatically", Kind::Bool, Initial::Bool(true), |s| {
+        json!(s.viewer().hide_controls)
+    }),
+    row("viewer.translucent", Tab::PhotoViewer, "Interface", "Translucent background", Kind::Bool, Initial::Bool(true), |s| {
+        json!(s.viewer().translucent)
+    }),
     // Export.
     row("export.location", Tab::Export, "Location", "Default export location", Kind::Folder, Initial::Null, |s| json!(s.export().location))
         .hint("Pictures/Dalica/Exports unless chosen."),
