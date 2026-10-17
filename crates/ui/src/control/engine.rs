@@ -148,8 +148,26 @@ pub(super) fn execute_until(call: &mut Call<'_>, params: &Value, deadline: Insta
             Ok(_) => Next::Resume(Box::new(move |host| checked(host, &config, method, id, cmd_params, wait).unwrap_or_else(Outcome::from))),
         })));
     }
+    // The Import room's buttons write where the destination strip's draft says: that folder is
+    // checked as `import.run`'s destination would be.
+    if DRAFT_WRITES.contains(&id.as_str()) {
+        let app = call.host.app();
+        if let Some(path) = crate::commands::import::place(app, &app.state().import.destination) {
+            paths::lexical(&path, "destination")?;
+            let watched = app.session().map(|s| s.roots().to_vec()).unwrap_or_default();
+            return Ok(Outcome::Work(Box::new(move || {
+                match paths::check_output(&path, &config.effective_write_roots(), &watched, paths::Output::Folder) {
+                    Err(e) => Next::Reply(Err(e)),
+                    Ok(_) => Next::Resume(Box::new(move |host| checked(host, &config, method, id, cmd_params, wait).unwrap_or_else(Outcome::from))),
+                }
+            })));
+        }
+    }
     checked(call.host, &config, method, id, cmd_params, wait)
 }
+
+/// UI commands that run `import.run` into the destination drafted in the view state.
+const DRAFT_WRITES: &[&str] = &["import.importAll", "import.importSelected"];
 
 /// The rest of `engine.execute` once its paths to write are checked: the command must exist, be
 /// allowed and enabled, and not ask first; a path it reads is checked; then it runs.

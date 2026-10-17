@@ -582,7 +582,14 @@ embedded, never loaded by a referenced name. **Planned (M1, M14).**
   `automation::NEVER_AUTOMATED`, asked through `automation::never_automated` by MCP's
   `Policy::check_effect` and by the control channel's effect check (`crates/ui/src/control/engine.rs`
   `external_allowed`), both answering `external_denied`. Over automation `import.run`'s
-  `destination` keeps to the write roots or the watched folders, as an export's folder does).**
+  `destination` keeps to the write roots or the watched folders, as an export's folder does.
+  M11.20: the same holds on the control channel's UI routes. While a request runs (until its
+  reply, across the frames its input plays) the UI thread is marked as driven by automation, and
+  the Import room asks `control::refuse` before it runs either command: Remove Imported Files is
+  refused whether pressed by `ui.dialog.confirm`, `ui.clickWidget`, a raw `ui.pointer` click or a
+  key, and Import All / Import Selected keep to the write roots, whatever `ui.set` drafted
+  (`engine.execute` of them resolves the drafted folder first). Only the person's own click
+  removes.)**
 - Moving across volumes is copy + verify (hash) + delete-to-trash of the source, never delete
   before verify. **Built in `fs` (M9.2: `dalica-fs` `transfer` copies into a temporary file in the
   destination, `fsync`s it, keeps the source's modification time (and its permissions on Unix), compares it byte

@@ -58,6 +58,8 @@ fn driver(dir: &Path, card: bool, picker: Option<ScriptedPicker>, (w, h): (u32, 
     s.execute("folders.add", &json!({ "path": dir.join("photos/2026") })).unwrap();
     s.wait_idle();
     s.set_import_device_roots(Some(std::env::join_paths([&mounts]).unwrap()), Duration::from_millis(50));
+    // "Import to:" shows the same folder name on every machine.
+    s.set_pictures_dir(Some(dir.join("Pictures")));
     let app = match picker {
         Some(p) => App::with_picker(Some(s), Arc::new(p)),
         None => App::new(Some(s)),

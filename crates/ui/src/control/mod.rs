@@ -23,6 +23,18 @@
 //! `internal` (§3).
 //!
 //! `auth` is the transport's: it answers the first line itself and never passes `auth` here.
+//!
+//! # What automation never does, whatever the route
+//!
+//! While a request runs, from [`Connection::handle`] until its reply (across the frames its input
+//! plays, and again in each step back on the UI thread after work), the UI thread is marked as
+//! driven by automation ([`automated`]). Anything the app runs in that time, a dialog button
+//! pressed by `ui.dialog.confirm`, a click from `ui.clickWidget` or `ui.pointer`, a key, a UI
+//! command run through `engine.execute` or `ui.menu.invoke`, asks [`refuse`] before it runs a
+//! command whose danger depends on who asks: a command of `automation::NEVER_AUTOMATED` (removing
+//! imported files from a card) is refused, and `import.run`'s destination must lie in a write root
+//! or a watched folder (`security.md` §5.7). The person's own clicks, outside any request, are not
+//! marked.
 
 mod batch;
 mod dialog;
@@ -40,8 +52,10 @@ mod view;
 #[cfg(test)]
 mod tests;
 
+use std::cell::RefCell;
+use std::marker::PhantomData;
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use dalica_engine::CmdError;
@@ -467,8 +481,15 @@ impl Connection {
         Connection::default()
     }
 
-    /// Handles one request (never `auth`, which the transport answers).
+    /// Handles one request (never `auth`, which the transport answers). The UI thread is marked
+    /// as driven by automation until the request's reply ([`automated`]).
     pub fn handle(&mut self, control: &Control, host: &mut dyn Host, req: &Request) -> Outcome {
+        let running = Running::new(&control.config);
+        let outcome = self.dispatch(control, host, req);
+        hold(outcome, &control.config, running)
+    }
+
+    fn dispatch(&mut self, control: &Control, host: &mut dyn Host, req: &Request) -> Outcome {
         guard(|| match METHODS.iter().find(|m| m.name == req.method) {
             None => Error::new(Code::UnknownMethod, format!("no method `{}` (`methods` lists them)", req.method)).into(),
             Some(m) => match m.run {
@@ -502,6 +523,94 @@ impl Connection {
     pub fn held(&self) -> Vec<egui::Key> {
         self.held.iter().map(|(k, _)| *k).collect()
     }
+}
+
+thread_local! {
+    /// The configurations of the control requests running on this thread (the UI thread), newest
+    /// last.
+    static RUNNING: RefCell<Vec<Arc<Config>>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Marks a control request as running on this thread while it lives: until its reply, or until
+/// the outcome holding it is dropped. Never sent to another thread (it is not `Send`), so it ends
+/// on the thread it started on.
+struct Running(PhantomData<*const ()>);
+
+impl Running {
+    fn new(config: &Arc<Config>) -> Running {
+        let _ = RUNNING.try_with(|r| r.try_borrow_mut().map(|mut r| r.push(Arc::clone(config))));
+        Running(PhantomData)
+    }
+}
+
+impl Drop for Running {
+    fn drop(&mut self) {
+        let _ = RUNNING.try_with(|r| r.try_borrow_mut().map(|mut r| r.pop()));
+    }
+}
+
+/// `outcome` with the request still marked as running until its reply: through each
+/// continuation after input, and again (marked anew on the UI thread) in each step back after work.
+fn hold(outcome: Outcome, config: &Arc<Config>, running: Running) -> Outcome {
+    match outcome {
+        Outcome::Reply(r) => Outcome::Reply(r),
+        Outcome::Play(input, then) => {
+            let config = Arc::clone(config);
+            Outcome::Play(
+                input,
+                Box::new(move |host, played| {
+                    let next = then(host, played);
+                    hold(next, &config, running)
+                }),
+            )
+        }
+        Outcome::Work(work) => {
+            drop(running);
+            let config = Arc::clone(config);
+            Outcome::Work(Box::new(move || match work() {
+                Next::Resume(k) => Next::Resume(Box::new(move |host| {
+                    let running = Running::new(&config);
+                    let next = k(host);
+                    hold(next, &config, running)
+                })),
+                reply => reply,
+            }))
+        }
+    }
+}
+
+/// The configuration of the control request driving this thread now, if one is.
+pub fn automated() -> Option<Arc<Config>> {
+    RUNNING.try_with(|r| r.try_borrow().ok().and_then(|r| r.last().cloned())).ok().flatten()
+}
+
+/// What the app asks before it runs command `id` with `params` on behalf of whoever is driving it:
+/// nothing while no control request runs on this thread (the person's own clicks); otherwise a
+/// command automation never runs (`automation::never_automated`) is refused, and `import.run`'s
+/// `destination` must lie inside a write root or a watched folder (`watched`), compared as written
+/// (no disk access: this runs on the UI thread; `engine.execute` resolves the path before the
+/// command reaches the app).
+pub fn refuse(id: &str, params: &Value, watched: &[PathBuf]) -> Result<(), CmdError> {
+    let Some(config) = automated() else { return Ok(()) };
+    dalica_engine::automation::never_automated(id).map_err(|r| CmdError::Disabled(r.message))?;
+    if id == "import.run" {
+        let Some(dest) = params.get("destination").and_then(Value::as_str).map(PathBuf::from) else {
+            return Err(CmdError::BadParams("`destination` must be a path".into()));
+        };
+        dalica_engine::automation::lexical(&dest, "destination").map_err(|r| CmdError::BadParams(r.message))?;
+        if !inside_any(&dest, &config.effective_write_roots()) && !inside_any(&dest, watched) {
+            return Err(CmdError::Disabled(format!(
+                "{} is outside every automation write root (--automation-write-root; default: the temporary folder) and every watched folder",
+                dest.display()
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Whether `path` is one of `roots` or inside one, as written.
+fn inside_any(path: &Path, roots: &[PathBuf]) -> bool {
+    roots.iter().any(|r| path.starts_with(r))
 }
 
 /// One handler call.

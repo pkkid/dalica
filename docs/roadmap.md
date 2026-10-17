@@ -6406,7 +6406,7 @@ and are never loosened. No other step of M11 needs a maintainer decision mid-run
     the photo shown, one undo step each; no frame waits on a preview over 30 advances (M11.11's
     slowed decoder); a fingerprint of each transition at its midpoint and of a captioned photo at
     both window sizes.
-- ⬜ **M11.20 `ui`: the Import room: destination, importing and finishing**
+- ✅ **M11.20 `ui`: the Import room: destination, importing and finishing**
   - after: M11.8, M11.15
   - files: `crates/ui/src/panels/import/destination.rs`, `crates/ui/src/panels/import/progress.rs`, `crates/ui/src/commands/import.rs`, `crates/ui/src/dialogs/remove_from_card.rs`, `crates/ui/tests/import_run_ui.rs`, `crates/ui/tests/fingerprints/import-destination-*.json`, `crates/ui/tests/fingerprints/dialog-remove-from-card-*.json`
   - scope: `organizing.md` §3 items 4–6 and its flow: the destination strip ("Import to:" with the
