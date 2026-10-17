@@ -635,8 +635,10 @@ mod tests {
         let d = ImportDestination::default();
         let d = drafted(&d, &json!({ "folderName": { "dateTaken": true } })).unwrap();
         assert_eq!((d.place.clone(), d.folder_name.clone(), d.after), (None, Some(FolderName::DateTaken), AfterCopy::Leave));
-        let d = drafted(&d, &json!({ "after": "delete", "path": "/media/out" })).unwrap();
-        assert_eq!((d.place.as_deref(), d.after), (Some("/media/out"), AfterCopy::Delete));
+        // An absolute folder on this system (`/media/out` is relative on Windows: no drive).
+        let out = if cfg!(windows) { r"D:\media\out" } else { "/media/out" };
+        let d = drafted(&d, &json!({ "after": "delete", "path": out })).unwrap();
+        assert_eq!((d.place.as_deref(), d.after), (Some(out), AfterCopy::Delete));
         assert_eq!(d.folder_name, Some(FolderName::DateTaken), "kept");
         // An empty name is none chosen; null puts the default place back.
         let d = drafted(&d, &json!({ "folderName": "  ", "place": null })).unwrap();
