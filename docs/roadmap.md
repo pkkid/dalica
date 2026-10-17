@@ -6097,7 +6097,7 @@ and are never loosened. No other step of M11 needs a maintainer decision mid-run
     clock; `crates/ui-kit/tests/icons_viewing.rs`: every new icon stays in its grid at 12, 16, 20
     and 28 px in rest, hover and disabled colours; gallery and icon fingerprints; `widget_ids`,
     contrast, `cargo xtask assets` and `cargo xtask names` pass.
-- ⬜ **M11.4 `create`: slideshow sequencing and transition geometry**
+- ✅ **M11.4 `create`: slideshow sequencing and transition geometry**
   - after: M10.R
   - files: `crates/create/src/slideshow.rs`, `crates/create/src/slideshow/**`, `crates/create/tests/slideshow.rs`, `crates/create/README.md`
   - scope: `viewing.md` §1 as pure code (no I/O, no egui; `architecture.md` §2 puts slideshow
