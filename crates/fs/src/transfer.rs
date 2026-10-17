@@ -28,6 +28,14 @@
 //! a permanent delete. A source whose volume has no trash stays where it is
 //! ([`Finished::NoTrash`]): the move became a copy, and the caller says so.
 //!
+//! **Imports** (`organizing.md` §3, `security.md` §5.7). [`import_copy`] is the copy phase for a
+//! file from a card, a drive or a folder: the same steps as [`copy_file`] (a new temporary file,
+//! `fsync`, the source's modification time, a byte-for-byte check, a commit that never replaces;
+//! [`Imported::Exists`] on a clash for the caller to rename), with the bytes written counted in a
+//! shared [`Progress`] as they go (for a speed read-out) and a stop that takes effect between
+//! files: a file already started is finished, the next one answers [`Imported::Stopped`] with
+//! nothing written. The source is never changed; removing it later is [`crate::remove`]'s.
+//!
 //! **Folders.** [`new_folder`] makes a folder whose name must be free. [`move_folder`] renames or
 //! moves a folder in one step that never replaces one; across volumes it copies the tree into a
 //! temporary folder beside the target (at most [`MAX_DEPTH`] levels and [`MAX_ENTRIES`] entries;
@@ -45,9 +53,11 @@
 mod copy;
 mod tree;
 
-use std::ffi::OsStr;
-use std::io;
+use std::ffi::{OsStr, OsString};
+use std::fs::File;
+use std::io::{self, Read as _, Write as _};
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use dalica_core::names::MAX_NAME_BYTES;
 
@@ -150,6 +160,178 @@ pub fn copy_file(from: &Path, name: &str, expect: Identity, to: &Path, new_name:
     let (old, new) = names(from, name, new_name)?;
     let (src, dest) = open_pair(from, to)?;
     copy::place(&src, old, expect, &dest, new)
+}
+
+/// What an import shares with the thread that shows it: the bytes written so far and the request
+/// to stop. One per import, shared by reference with the copying thread (it is `Sync`).
+#[derive(Debug, Default)]
+pub struct Progress {
+    bytes: AtomicU64,
+    stop: AtomicBool,
+}
+
+impl Progress {
+    pub fn new() -> Progress {
+        Progress::default()
+    }
+
+    /// Bytes written into copies so far (those of a copy that then failed included: it is the work
+    /// done, for a speed read-out, not what was imported).
+    pub fn bytes(&self) -> u64 {
+        self.bytes.load(Ordering::Relaxed)
+    }
+
+    /// Asks the import to stop: the file being copied is finished, the next is not started.
+    pub fn stop(&self) {
+        self.stop.store(true, Ordering::Relaxed);
+    }
+
+    /// Whether [`Progress::stop`] was called.
+    pub fn stopped(&self) -> bool {
+        self.stop.load(Ordering::Relaxed)
+    }
+
+    fn add(&self, n: u64) {
+        self.bytes.fetch_add(n, Ordering::Relaxed);
+    }
+}
+
+/// What [`import_copy`] did with one file.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Imported {
+    /// Copied and verified; the copy's identity.
+    Copied(Identity),
+    /// The target name is taken; nothing was written. The caller renames (`-001`) and tries again.
+    Exists,
+    /// The import was asked to stop before this file; nothing was written.
+    Stopped,
+}
+
+/// Imports the file `name` in `from`, which must still have the identity `expect` (recorded when
+/// the source was listed), as `new_name` in the destination folder `to`: a temporary file written
+/// while `progress` counts its bytes, `fsync`, the source's modification time (and permissions on
+/// Unix), a byte-for-byte check against the source, then the name by a rename that never replaces
+/// (see the module docs). A failed check removes the temporary copy and leaves the source as it
+/// was. Fault points `faults::IMPORT_POINTS` (and the [`points::COPY_FLIP`] switch).
+pub fn import_copy(from: &Path, name: &str, expect: Identity, to: &Path, new_name: &str, progress: &Progress) -> Result<Imported> {
+    guard::check()?;
+    let (old, new) = names(from, name, new_name)?;
+    if progress.stopped() {
+        return Ok(Imported::Stopped);
+    }
+    let (src, dest) = open_pair(from, to)?;
+    faults::at(points::MOVE_CHECK, "stat", &src.join(old))?;
+    check_file(&src, old, expect)?;
+    let entry = src.entry(old)?.ok_or_else(|| Error::Changed(src.join(old)))?;
+    let mut input = copy::open_source(&src, old, expect)?;
+    let modified = input.metadata().and_then(|m| m.modified()).ok();
+
+    // 1. A temporary file, written, given the source's time and permissions, made durable.
+    faults::at(points::COPY_TEMP, "create", dest.path())?;
+    let (tmp, mut out) = import_temp(&dest, new)?;
+    let tmp_path = dest.join(&tmp);
+    let cleanup = |e: Error| {
+        if !matches!(e, Error::Crashed(_)) {
+            let _ = dest.remove(&tmp);
+        }
+        e
+    };
+    let first = counted_stream(&mut input, &mut out, expect.size(), &src.join(old), &tmp_path, progress).map_err(cleanup)?;
+    copy::keep_attributes(&out, &entry, modified);
+    faults::at(points::COPY_FSYNC, "fsync", &tmp_path).map_err(cleanup)?;
+    faults::fsync(&tmp_path, || out.sync_all()).map_err(|e| cleanup(io_err("fsync", &tmp_path)(e)))?;
+    copy::flip_switch(&mut out, first, &tmp_path).map_err(cleanup)?;
+    drop(out);
+    let copied = match dest.entry(&tmp).map_err(cleanup)? {
+        Some(e) if e.kind == Kind::File => e.identity,
+        _ => return Err(cleanup(Error::Changed(tmp_path))),
+    };
+
+    // 2. Byte for byte against the source, before it gets a name.
+    faults::at(points::COPY_VERIFY, "verify", &tmp_path).map_err(cleanup)?;
+    if !copy::same_bytes(&src, old, expect, &dest, &tmp).map_err(cleanup)? {
+        return Err(cleanup(Error::VerifyFailed(dest.join(new))));
+    }
+
+    // 3. The name, never replacing a file.
+    faults::at(points::COPY_COMMIT, "rename", &dest.join(new)).map_err(cleanup)?;
+    match rename_free(&dest, &tmp, &dest, new).map_err(cleanup)? {
+        Renamed::Done => {}
+        Renamed::Taken => {
+            let _ = dest.remove(&tmp);
+            return Ok(Imported::Exists);
+        }
+        Renamed::CrossVolume => return Err(cleanup(io_err("rename", &dest.join(new))(io::ErrorKind::CrossesDevices.into()))),
+    }
+    faults::at(points::COPY_FSYNC_DIR, "fsync", dest.path())?;
+    dest.sync()?;
+    faults::at(points::MOVE_VERIFY, "verify", &dest.join(new))?;
+    match dest.entry(new)? {
+        Some(e) if e.kind == Kind::File && e.identity == copied => Ok(Imported::Copied(copied)),
+        _ => Err(Error::VerifyFailed(dest.join(new))),
+    }
+}
+
+/// Bytes read at a time while importing.
+const IMPORT_CHUNK: usize = 1 << 20;
+
+/// A new temporary file for `name` in `dir` (the shape `stale` removes after a crash).
+fn import_temp(dir: &Folder, name: &OsStr) -> Result<(OsString, File)> {
+    for _ in 0..16 {
+        let tmp = copy::temp_name(name);
+        if let Some(f) = dir.create_new(&tmp, false)? {
+            return Ok((tmp, f));
+        }
+    }
+    Err(io_err("create", dir.path())(io::Error::new(io::ErrorKind::AlreadyExists, "no free temporary name")))
+}
+
+/// Copies exactly `size` bytes from `input` to `out`, adding each chunk written to `progress`
+/// (more or fewer bytes mean the source changed while it was read: [`Error::Changed`]), and
+/// returns the first byte. Fault point [`points::COPY_WRITE`]: an error, or a crash after half the
+/// first chunk was written.
+fn counted_stream(input: &mut File, out: &mut File, size: u64, src_path: &Path, out_path: &Path, progress: &Progress) -> Result<Option<u8>> {
+    let point = points::COPY_WRITE;
+    let mut buf = vec![0u8; IMPORT_CHUNK];
+    let (mut total, mut first) = (0u64, None);
+    let mut fault = faults::hit(point);
+    loop {
+        let n = match input.read(&mut buf) {
+            Ok(n) => n,
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(io_err("read", src_path)(e)),
+        };
+        if n == 0 {
+            break;
+        }
+        let chunk = buf.get(..n).unwrap_or_default();
+        if first.is_none() {
+            first = chunk.first().copied();
+        }
+        if let Some(f) = fault.take() {
+            let _ = out.write_all(chunk.get(..n / 2).unwrap_or_default());
+            return Err(match f {
+                Fault::Error => io_err("write", out_path)(faults::injected(point)),
+                Fault::Crash => Error::Crashed(point),
+            });
+        }
+        out.write_all(chunk).map_err(io_err("write", out_path))?;
+        progress.add(n as u64);
+        total = total.saturating_add(n as u64);
+        if total > size {
+            return Err(Error::Changed(src_path.to_path_buf()));
+        }
+    }
+    // An empty source still reaches the point.
+    match fault {
+        Some(Fault::Error) => return Err(io_err("write", out_path)(faults::injected(point))),
+        Some(Fault::Crash) => return Err(Error::Crashed(point)),
+        None => {}
+    }
+    if total != size {
+        return Err(Error::Changed(src_path.to_path_buf()));
+    }
+    Ok(first)
 }
 
 /// The second phase of a cross-volume move: when the source `name` in `from` still has the identity
@@ -338,7 +520,7 @@ fn open_pair(from: &Path, to: &Path) -> Result<(Folder, Folder)> {
 }
 
 /// A link in place of a folder is refused (a missing folder fails when it is opened).
-fn not_a_link(dir: &Path) -> Result<()> {
+pub(crate) fn not_a_link(dir: &Path) -> Result<()> {
     match std::fs::symlink_metadata(dir) {
         Ok(m) if m.file_type().is_symlink() => Err(Error::Link(dir.to_path_buf())),
         _ => Ok(()),
@@ -383,7 +565,7 @@ fn own_name(name: &str) -> bool {
 
 /// A name that may already exist in a folder and be moved from it: one component (no separator,
 /// no NUL, not `.` or `..`), at most 255 bytes, not one of Dalica's own.
-fn existing_name(name: &str) -> bool {
+pub(crate) fn existing_name(name: &str) -> bool {
     let separators: &[char] = if cfg!(windows) { &['/', '\\', ':', '\0'] } else { &['/', '\0'] };
     !name.is_empty() && name != "." && name != ".." && name.len() <= MAX_NAME_BYTES && !name.contains(separators) && !own_name(name)
 }
