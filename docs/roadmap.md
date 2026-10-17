@@ -6181,7 +6181,7 @@ and are never loosened. No other step of M11 needs a maintainer decision mid-run
     in the library and 3 repeated on the card are duplicates while a same-size file with other
     bytes is not; Exclude All and Include All; the owner thread made no `fs` call; each command's
     contract and graceful failures; `panic_hunt` green.
-- ⬜ **M11.9 `engine`: Batch Edit, Copy and Paste All Edits, and Undo All Edits**
+- ✅ **M11.9 `engine`: Batch Edit, Copy and Paste All Edits, and Undo All Edits**
   - after: M10.9, M11.1
   - files: `crates/engine/src/cmd/batch.rs`, `crates/engine/tests/batch_edit.rs`, `docs/editing.md`
   - scope: `editing.md` §5.1 and §9: `edit.apply {ids, op, params?}` appends one operation of

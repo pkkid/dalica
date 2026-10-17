@@ -126,7 +126,13 @@ enabled. Until the effects arrive (M12) tabs 3–5 show "No effects yet".)
   (`architecture.md` §4). Rotations and flips made in the edit view are steps of this history
   ("Undo Rotate").
 - Picture → **Undo All Edits** (also in the library for a selection): confirmation "Remove all
-  edits from %d pictures? You can't undo this." [Remove Edits] [Cancel].
+  edits from %d pictures?" [Remove Edits] [Cancel]. In Dalica it can be undone, so the question
+  does not say otherwise: in the library it is one library undo step ("Undo Remove Edits") over
+  every selected photo, in the edit view one step of the open photo's history. It empties each
+  unsaved recipe and its redo list. A saved photo keeps its saved pixels (Undo Save is the way
+  back to its original); when the selection holds saved photos the question names them
+  (`edit.undoAll {ids, confirm}` / `{id, history: true, confirm}`; without `confirm` it answers
+  the question, `needs_confirm` over automation).
 - Exception to linear history: **Crop** can be re-opened at any time; it shows the whole photo with
   the current rectangle and replaces the earlier crop without undoing later edits.
 
@@ -304,13 +310,24 @@ code). Each effect has a fingerprint test on a procedural scene so its look is p
 
 ## 9. Edit menu and batch editing
 
-- Edit → **Copy All Edits** (one photo selected): copies the photo's whole recipe. Edit → **Paste
-  All Edits**: **replaces** the recipe of the open photo or every selected photo (one undo step;
-  videos skipped with a toast).
+- Edit → **Copy All Edits** (one photo with edits selected): copies the photo's whole recipe,
+  kept for the session (`edit.copyRecipe {id}`). Edit → **Paste All Edits**: **replaces** the
+  recipe of the open photo or every selected photo with the copied one, verbatim (an operation
+  Dalica cannot read comes along unchanged), and clears its redo list. In the library it is one
+  library undo step ("Undo Paste All Edits"; videos skipped with a toast, `edit.pasteRecipe
+  {ids}`); in the edit view one step of the open photo's history (`{id, history: true}`). Greyed
+  until something is copied.
 - Picture → **Batch Edit ▸** (applies to the selection or tray; appends to each photo's recipe; one
   undo step for the whole batch):
   Rename… (F2) · — · Rotate Clockwise · Rotate Counterclockwise · — · Auto Contrast · Auto Color ·
   Auto Fix · — · Sepia · Sharpen · Warmify · Film Grain · Black and White.
+  - `edit.apply {ids, op, params?}` appends one operation of the catalogue (§13; its defaults when
+    `params` is left out) with the edit view's rules: a rotation right after a rotation merges, the
+    same flip twice cancels, a `tuning` right after a `tuning` replaces it, a crop is appended
+    (only the last crop counts). Each photo's redo list is cleared, as any new edit clears it. The
+    library undo step is named by the operation ("Undo Auto Fix").
+  - The effects (Sepia … Black and White) are greyed with "Arrives with Effects" until they draw
+    (M12): an operation this build cannot render is refused as disabled with that reason.
 - Library thumbnails always show photos with their edits applied and the *edited* badge.
 
 ## 10. Rotation
