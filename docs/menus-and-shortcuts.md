@@ -336,7 +336,9 @@ See [`editing.md`](editing.md) §12.
 ### 2.4 Slideshow, photo viewer, video, import
 
 See [`viewing.md`](viewing.md) §1.4 and §3.2, [`editing.md`](editing.md) §11, and in import: **X**
-toggles exclude on the selected item, Enter imports selected.
+toggles exclude on the selected items (include again when every one is excluded), Enter imports selected,
+the arrows move the selection from the item in the preview (Up and Down by the tray's columns) and
+with Shift extend it from the focused item, Ctrl+A selects every item listed.
 
 ### 2.5 Hidden extras
 

@@ -39,6 +39,7 @@ mod folder_properties;
 mod heic_hint;
 mod hidden;
 mod idle_write_back;
+mod import_room;
 mod jobs_control;
 mod layout;
 mod library_window;
