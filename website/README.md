@@ -99,7 +99,13 @@ dialog or notice is open; it is resized to 2000 × 1286. The 0.3 shots (`crop-sa
 `output.export.location`. Run them with `HOME` and the `XDG_*` folders pointed at a scratch
 folder, so no real path shows in the Export dialog. The export progress window is caught while
 the export is still running: export all 60 demo photos so the last frame comes before it ends.
-The photos inside the 0.2 shots and `library.jpg`, and `img/castle.jpg`, come from the `photos` set of the
+The five feature shots of 0.5 (`feat-*.jpg`, 1500 × 1000, 3:2) use a library like the hero's (25 corpus
+photos in Highlands, Spring, Old towns and By train) with tags, stars, two captions and an album
+(`album.create`), snapshotted at `--size 2800x1800 --scale 2` (the edit view at `2280x1800`, so its crop
+is 3:2) with steps such as `{"command": "search.set", "params": {"text": "mountains", "filters":
+{"starred": true}}}`, `edit.autoFix`, `scroll.nextSection` and `output.export` with
+`output.export.location` and clicks on `check:dialog.numbers` and `check:dialog.watermark`.
+The photos inside the 0.2 and 0.5 shots and `library.jpg`, and `img/castle.jpg`, come from the `photos` set of the
 project's own corpus ([pkkid/dalica-corpus](https://github.com/pkkid/dalica-corpus) at
 `6239cad`), where every file is CC0 or public domain with its source listed in `SOURCES.tsv`.
 Never use personal photos. Images, like the fonts, have rows in `ATTRIBUTION.md`.

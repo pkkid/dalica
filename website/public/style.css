@@ -76,6 +76,14 @@ h2 { font-weight: 800; font-size: clamp(32px, 4.4vw, 54px); letter-spacing: -.03
 .feat .stat { font: 500 12px/1 var(--mono); color: var(--accent); letter-spacing: .06em; margin-bottom: 18px; display: block; }
 @media (max-width: 900px) { .grid { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 600px) { .grid { grid-template-columns: 1fr; } }
+/* Five feature cards, each with a screenshot: three across, then two wider ones. */
+.grid.five { grid-template-columns: repeat(6, 1fr); }
+.five .feat { grid-column: span 2; display: flex; flex-direction: column; }
+.five .feat:nth-child(n+4) { grid-column: span 3; }
+.feat .frame { margin-bottom: 22px; box-shadow: 0 16px 40px rgba(0,0,0,.45); }
+.feat .frame img { display: block; width: 100%; height: auto; aspect-ratio: 3 / 2; }
+@media (max-width: 900px) { .grid.five { grid-template-columns: 1fr 1fr; } .five .feat, .five .feat:nth-child(n+4) { grid-column: span 1; } .five .feat:last-child { grid-column: span 2; } }
+@media (max-width: 600px) { .grid.five { grid-template-columns: 1fr; } .five .feat:last-child { grid-column: span 1; } }
 .next { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 26px; }
 .chip { font: 500 13px/1 var(--mono); padding: 9px 12px; border: 1px dashed #4a4a4a; border-radius: 999px; color: var(--dim); }
 
