@@ -8,7 +8,7 @@
 //!                        [x] Use the date of the oldest photo
 //! Place:                 [Lisbon, Portugal               ]
 //! Description:           [A weekend of trams             ]
-//! Music for slideshows:  [                     ] [Browse…]  (disabled until slideshows, M11)
+//! Music for slideshows:  [                     ] [Browse…]  (disabled: Arrives with sound support)
 //!                                                   [Cancel] [OK]
 //! ```
 //!
@@ -34,7 +34,8 @@
 //!
 //! Widget ids (`control-protocol.md` §7, the dialog row): `field:dialog.name`,
 //! `field:dialog.date`, `check:dialog.useOldest`, `field:dialog.place`, `field:dialog.description`,
-//! `field:dialog.music` and `button:dialog.browse` (both disabled), `button:dialog.cancel`,
+//! `field:dialog.music` and `button:dialog.browse` (both disabled, with Options ▸ Slideshow's reason
+//! for its music, [`music_reason`]), `button:dialog.cancel`,
 //! `button:dialog.ok`.
 
 use dalica_core::{Date, DateTime, FolderId};
@@ -59,8 +60,16 @@ const LABEL_W: f32 = 148.0;
 const GAP: f32 = 8.0;
 /// The checkbox's label.
 pub const USE_OLDEST: &str = "Use the date of the oldest photo";
-/// What the Music field says while slideshows are not there.
-pub const MUSIC_HINT: &str = "Arrives with slideshows";
+/// What the Music field says while it is empty.
+pub const MUSIC_HINT: &str = "No folder";
+/// Why the Music row is greyed when the options catalogue gives no reason.
+const NO_SOUND: &str = "Arrives with sound support";
+
+/// Why the Music row is greyed: the reason Options ▸ Slideshow greys its music with (one reason for
+/// both, until Dalica plays sound).
+pub fn music_reason() -> &'static str {
+    dalica_engine::options::find("slideshow.music").and_then(|o| o.unavailable).unwrap_or(NO_SOUND)
+}
 /// Why OK is disabled when the draft's date does not read as a day.
 pub const BAD_DATE: &str = "Type the date as YYYY-MM-DD.";
 /// Why OK is disabled while the Name field is blank.
@@ -234,13 +243,15 @@ pub fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
     row(ui, &t, "Place:", |ui| field(ui, &t, fields, "place", PLACE_ID, "Where these photos were taken", full));
     row(ui, &t, "Description:", |ui| field(ui, &t, fields, "description", DESCRIPTION_ID, "Add a description", full));
     row(ui, &t, "Music for slideshows:", |ui| {
-        // Slideshows arrive in M11: the row is there, disabled.
+        // Slideshow music waits for sound support: the row is there, disabled with its reason.
         ui.add_enabled_ui(false, |ui| {
             let browse = "Browse…";
             let bw = (ui.painter().layout_no_wrap(browse.to_owned(), fonts::semibold(t.button_label), t.text).size().x + 18.0).max(37.0).round();
             let mut music = String::new();
-            TextField::new(MUSIC_ID, MUSIC_HINT, (full - bw - GAP).max(24.0)).show(ui, &t, &mut music);
-            widgets::text_button(ui, &t, BROWSE_ID, browse, false);
+            let field = TextField::new(MUSIC_ID, MUSIC_HINT, (full - bw - GAP).max(24.0)).show(ui, &t, &mut music);
+            let browse = widgets::text_button(ui, &t, BROWSE_ID, browse, false);
+            widgets::tooltip(field.response, &t, music_reason(), None);
+            widgets::tooltip(browse, &t, music_reason(), None);
         });
     });
 }

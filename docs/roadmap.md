@@ -6439,7 +6439,7 @@ and are never loosened. No other step of M11 needs a maintainer decision mid-run
   - done when: `cargo test -p dalica-mcp --test workflows` runs W07 and W10 green (on all three OSes at the review);
     `crates/mcp/tests/edit_tools.rs`: `apply_edit` on 3 photos is one undo step; `cargo xtask
     stats` prints 11 / 12 passing and `stats --check` fails below that.
-- ⬜ **M11.21 `ui`: the slideshow's control bar, zoom, and Options ▸ Slideshow**
+- ✅ **M11.21 `ui`: the slideshow's control bar, zoom, and Options ▸ Slideshow**
   - after: M11.19
   - files: `crates/ui/src/panels/slideshow/bar.rs`, `crates/ui/src/panels/slideshow/zoom.rs`, `crates/ui/src/commands/slideshow.rs`, `crates/ui/src/dialogs/options/slideshow.rs`, `crates/ui/src/dialogs/folder_properties.rs`, `crates/ui/tests/slideshow_bar.rs`, `crates/ui/tests/fingerprints/slideshow-bar-*.json`, `crates/ui/tests/fingerprints/dialog-options-slideshow-*.json`, `docs/viewing.md`
   - scope: `viewing.md` §1.3 and §1.5: the bar on M11.3's overlay bar, shown for 2 s at start and
