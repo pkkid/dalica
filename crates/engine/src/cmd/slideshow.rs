@@ -18,12 +18,11 @@
 //!   the one after it is the one made ready. [`Slideshow::stats`] counts the changes and those
 //!   whose incoming photo was not ready when they began.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Arc;
-use std::time::Duration;
 
-use dalica_core::{Clock, PhotoId, Timestamp};
+use dalica_core::PhotoId;
 use dalica_create::slideshow::{self as create, Show, View};
 use dalica_library::search::{Filters, Query as SearchQuery};
 use dalica_library::{AlbumRef, Section, section_photos};
@@ -198,7 +197,6 @@ pub struct Slideshow {
     photos: Vec<PhotoId>,
     /// The display's size in device pixels: every preview is made to cover it.
     fit: (u32, u32),
-    clock: Arc<dyn Clock>,
     /// The photo each pane was opened on.
     panes: [Option<PhotoId>; PANES],
     /// The photo shown and its pane.
@@ -209,10 +207,6 @@ pub struct Slideshow {
     last_index: Option<usize>,
     /// What was prefetched last.
     prefetched: Vec<PhotoId>,
-    /// When each photo near the one shown was first asked for (the planted delay counts from it).
-    asked: HashMap<PhotoId, Timestamp>,
-    /// Tests: a preview counts as made only this long after it was first asked for.
-    delay: Duration,
     stats: ShowStats,
 }
 
@@ -232,20 +226,16 @@ impl Slideshow {
 
     /// [`Slideshow::start`] with the settings given.
     pub fn with_settings(s: &mut Session, photos: Vec<PhotoId>, start: usize, settings: create::Settings, fit: (u32, u32)) -> Slideshow {
-        let clock = Arc::clone(&s.clock);
-        let show = Show::new(Arc::clone(&clock), photos.len(), start, settings);
+        let show = Show::new(Arc::clone(&s.clock), photos.len(), start, settings);
         let mut me = Slideshow {
             show,
             photos,
             fit,
-            clock,
             panes: [None; PANES],
             current: None,
             outgoing: None,
             last_index: None,
             prefetched: Vec::new(),
-            asked: HashMap::new(),
-            delay: Duration::ZERO,
             stats: ShowStats::default(),
         };
         me.tick(s);
@@ -268,13 +258,6 @@ impl Slideshow {
 
     pub fn stats(&self) -> ShowStats {
         self.stats
-    }
-
-    /// Tests: every preview counts as made only `delay` after it was first asked for, on the
-    /// session's clock (a slow decoder, on a virtual clock).
-    #[doc(hidden)]
-    pub fn plant_decode_delay(&mut self, delay: Duration) {
-        self.delay = delay;
     }
 
     /// The display changed size: the previews are made again to cover `fit`.
@@ -348,21 +331,13 @@ impl Slideshow {
         }
     }
 
-    /// Whether pane `pane` shows photo `id`'s preview (and the planted delay has passed).
+    /// Whether pane `pane` shows photo `id`'s preview.
     fn ready_in(&self, s: &Session, pane: usize, id: PhotoId) -> bool {
-        let made = s.preview_in(pane).is_some_and(|f| f.photo == id);
-        let waited = self.asked.get(&id).is_none_or(|at| self.clock.now().since(*at) >= self.delay);
-        made && waited
-    }
-
-    fn note_asked(&mut self, id: PhotoId) {
-        let now = self.clock.now();
-        self.asked.entry(id).or_insert(now);
+        s.preview_in(pane).is_some_and(|f| f.photo == id)
     }
 
     /// Opens photo `id` in pane `pane` (a prefetched preview shows at once).
     fn open_in(&mut self, s: &mut Session, pane: usize, id: PhotoId) {
-        self.note_asked(id);
         if s.open_preview_in(pane, id, self.fit).is_ok()
             && let Some(slot) = self.panes.get_mut(pane)
         {
@@ -417,12 +392,7 @@ impl Slideshow {
             let places = index.map(|i| self.upcoming(s, i, 2)).unwrap_or_default();
             let upcoming: Vec<PhotoId> = places.iter().filter_map(|i| self.photos.get(*i).copied()).collect();
             if upcoming != self.prefetched {
-                for next in &upcoming {
-                    self.note_asked(*next);
-                }
                 s.prefetch_previews(&upcoming);
-                let keep: HashSet<PhotoId> = upcoming.iter().copied().chain([id]).chain(self.outgoing.map(|(o, _)| o)).collect();
-                self.asked.retain(|p, _| keep.contains(p));
                 self.prefetched = upcoming.clone();
             }
             // The next photo goes into the other pane once nothing is drawn from it.

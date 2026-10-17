@@ -1,8 +1,8 @@
 //! What a slideshow plays and its previews made ahead (`roadmap.md` M11.11; `viewing.md`
 //! §1.1–§1.2): `slideshow.list` for a folder, an album (in album order), a search and the tray's
 //! ids, each starting at the photo asked for, hidden photos only while shown and videos left out
-//! and counted; a show whose every decode takes 1.5 s on a 3 s display time finds the next photo's
-//! preview ready at each of 30 changes; a photo deleted from the list is skipped without a stall;
+//! and counted; a show whose every decode takes 1.5 s (the preview's planted decode delay, on a
+//! virtual clock) on a 3 s display time finds the next photo's preview ready at each of 30 changes; a photo deleted from the list is skipped without a stall;
 //! graceful failures.
 
 use std::sync::Arc;
@@ -203,14 +203,18 @@ fn play(clock: &VirtualClock, s: &mut Session, show: &mut Slideshow, changes: u6
 }
 
 /// Every decode slowed to 1.5 s on a 3 s display time: over 30 changes the next photo's preview is
-/// ready every time it comes in (zero waits), made at the display's size. A decode slower than the
-/// display time (3.5 s) shows what a wait is.
+/// ready every time it comes in (zero waits), made at the display's size; at 2.5 s the prefetch
+/// still covers it. A decode slower than the display time (3.5 s) shows what a wait is.
 #[test]
 fn with_every_decode_slowed_the_next_preview_is_ready_at_each_of_30_changes() {
     let (_dir, clock, mut s, ids) = porto(31);
+    s.plant_decode_delay(Some(Duration::from_millis(1_500)));
     let mut show = Slideshow::with_settings(&mut s, ids.clone(), 0, settings(), DISPLAY);
-    show.plant_decode_delay(Duration::from_millis(1_500));
+    assert!(s.wait_preview(PATIENCE), "the decodes finished; their results wait for the delay");
+    assert!(!show.tick(&mut s).ready, "the first photo's decode is held for 1.5 s");
+    clock.advance(Duration::from_millis(1_500));
     assert!(s.wait_preview(PATIENCE));
+    assert!(show.tick(&mut s).ready, "and is shown once they have passed");
     let shown = play(&clock, &mut s, &mut show, 30);
     assert_eq!(shown, ids[..31], "every photo in turn");
     assert_eq!(show.stats().changes, 30);
@@ -223,8 +227,16 @@ fn with_every_decode_slowed_the_next_preview_is_ready_at_each_of_30_changes() {
     show.close(&mut s);
     assert_eq!((s.preview_photo_in(0), s.preview_photo_in(1)), (None, None), "closing the show gives the panes back");
 
+    // 2.5 s: only the prefetch made as the photo before comes in is early enough (the other pane
+    // opens on the next photo 0.8 s later, when the change has ended).
+    s.plant_decode_delay(Some(Duration::from_millis(2_500)));
+    let mut early = Slideshow::with_settings(&mut s, ids[5..10].to_vec(), 0, settings(), DISPLAY);
+    play(&clock, &mut s, &mut early, 4);
+    assert_eq!((early.stats().changes, early.stats().waits), (4, 0), "the prefetch covers a 2.5 s decode");
+    early.close(&mut s);
+
+    s.plant_decode_delay(Some(Duration::from_millis(3_500)));
     let mut slow = Slideshow::with_settings(&mut s, ids[..5].to_vec(), 0, settings(), DISPLAY);
-    slow.plant_decode_delay(Duration::from_millis(3_500));
     play(&clock, &mut s, &mut slow, 4);
     assert_eq!(slow.stats().changes, 4);
     assert!(slow.stats().waits > 0, "a decode longer than the display time waits: {:?}", slow.stats());

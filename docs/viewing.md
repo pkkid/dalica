@@ -19,18 +19,13 @@ zoom and compare modes) is in [`editing.md`](editing.md).
   first). From the edit view: the current folder/album starting at the current photo. From a search:
   the results. Videos are included and play to the end before advancing (muted unless "Play video
   sound in slideshows" is on).
-- Order = the section's display order. Hidden photos play only while the view shows hidden
-  pictures. Until Dalica plays video, a show leaves videos out and counts them
-  (`slideshow.list`).
+- Order = the section's display order.
 
 ### 1.2 Presentation
 
 - Full screen, pure black background, photo fitted (never upscaled beyond 2× of its pixel size),
   centred. Rendered at screen resolution (always full quality).
-- The next photo is decoded ahead of time; a transition never waits on the disk. The engine keeps
-  the photo shown in one preview pane and the next in the other, and prefetches the next two the
-  moment a photo is shown, all at the display's size. A photo that leaves the library during the
-  show is skipped when its turn comes.
+- The next photo is decoded ahead of time; a transition never waits on the disk.
 - Captions (when the caption toggle is on): the photo's caption centred near the bottom, 22 pt
   Inter on a `black α160` rounded plate, max 70 % of the screen width, wrapping to 2 lines.
 - Starts **playing**; the control bar is visible for 2 s at start, then hides. Moving the mouse or

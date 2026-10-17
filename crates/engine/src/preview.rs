@@ -46,7 +46,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use dalica_core::PhotoId;
+use dalica_core::{Clock, PhotoId, Timestamp};
 use dalica_edit::{Recipe, Region};
 use dalica_image::Rgba8;
 use dalica_thumbs::ladder::{Render, Source};
@@ -251,6 +251,15 @@ pub(crate) struct Preview {
     stats: PreviewStats,
     /// Finished jobs are left unapplied by [`Session::poll`] (tests: [`Session::hold_preview`]).
     held: bool,
+    /// Tests: a slow decoder ([`Session::plant_decode_delay`]): the clock it is measured on and
+    /// the delay. Off (`None`) unless a test plants it.
+    decode_delay: Option<(Arc<dyn Clock>, Duration)>,
+    /// When each decoding job (a source load, a whole decode) was last submitted, while a decode
+    /// delay is planted.
+    asked: HashMap<Key, Timestamp>,
+    /// Finished decoding jobs whose result is held until the planted delay has passed on the
+    /// clock: when it is due, its key and its result.
+    delayed: Vec<(Timestamp, Key, Done)>,
 }
 
 impl Preview {
@@ -291,6 +300,11 @@ impl Preview {
                 Done::Panicked(message)
             })
         });
+        if let Some((clock, _)) = &self.decode_delay
+            && matches!(key, Key::Load(_) | Key::Full(_))
+        {
+            self.asked.insert(key, clock.now());
+        }
         // A key already outstanding is running or queued for us: its result is on its way.
         let fresh = self.outstanding.insert(key);
         self.offer(key, priority, Arc::new(Mutex::new(Some(wrapped))), fresh);
@@ -321,6 +335,17 @@ impl Preview {
                 self.offer(key, priority, slot, true);
             }
         }
+    }
+
+    /// When a finished job of `key` may be applied under the planted decode delay (`None`: now).
+    fn due(&self, key: &Key) -> Option<Timestamp> {
+        let (_, delay) = self.decode_delay.as_ref()?;
+        self.asked.get(key).map(|at| at.saturating_add(*delay))
+    }
+
+    /// Whether every job outstanding has finished and only waits for the planted decode delay.
+    fn only_delayed(&self) -> bool {
+        self.outstanding.iter().all(|k| self.delayed.iter().any(|(_, held, _)| held == k))
     }
 
     fn cancel(&mut self, key: Key) {
@@ -763,14 +788,62 @@ impl Session {
         self.preview.held = held;
     }
 
+    /// Tests: a slow decoder. While `Some(delay)`, the result of every job that decodes (a photo's
+    /// source with its preview, a whole decode) is held until `delay` has passed on the session's
+    /// clock since the job was asked for, then applied by the next poll: on a virtual clock the
+    /// test decides when the decode "ends", with no real sleep. `None` (the default) turns it off
+    /// and lets anything held through at the next poll.
+    #[doc(hidden)]
+    pub fn plant_decode_delay(&mut self, delay: Option<Duration>) {
+        self.preview.decode_delay = delay.map(|d| (Arc::clone(&self.clock), d));
+        if self.preview.decode_delay.is_none() {
+            self.preview.asked.clear();
+        }
+    }
+
+    /// Applies a finished job's result, or holds it while the planted decode delay has not passed.
+    fn receive(&mut self, key: Key, done: Done) {
+        if let (Some(due), Some((clock, _))) = (self.preview.due(&key), &self.preview.decode_delay)
+            && clock.now() < due
+        {
+            self.preview.delayed.push((due, key, done));
+            return;
+        }
+        self.handle_preview(key, done);
+    }
+
+    /// Applies the held results whose delay has passed (all of them once the delay is off); a
+    /// held job cancelled meanwhile is dropped. Returns how many were applied.
+    fn release_delayed(&mut self) -> usize {
+        if self.preview.delayed.is_empty() {
+            return 0;
+        }
+        let now = self.preview.decode_delay.as_ref().map(|(clock, _)| clock.now());
+        let (due, held): (Vec<_>, Vec<_>) =
+            std::mem::take(&mut self.preview.delayed).into_iter().partition(|(at, _, _)| now.is_none_or(|n| *at <= n));
+        self.preview.delayed = held;
+        let mut n = 0;
+        for (_, key, done) in due {
+            if self.preview.outstanding.contains(&key) {
+                self.handle_preview(key, done);
+                n += 1;
+            } else {
+                self.preview.stats.stale += 1;
+            }
+        }
+        n
+    }
+
     /// Waits up to `timeout` until every preview job has finished and been applied (CLI, tests,
-    /// benches). Returns whether it got there.
+    /// benches); with a decode delay planted, results still held for it count as finished.
+    /// Returns whether it got there.
     pub fn wait_preview(&mut self, timeout: Duration) -> bool {
         let until = Instant::now() + timeout;
         loop {
+            self.release_delayed();
             self.preview.retry_deferred();
             self.check_preview_recipe();
-            if self.preview.outstanding.is_empty() {
+            if self.preview.only_delayed() {
                 return true;
             }
             let left = until.saturating_duration_since(Instant::now());
@@ -779,7 +852,7 @@ impl Session {
             }
             let Some(pool) = &self.preview.pool else { return true };
             if let Some((key, done)) = pool.recv_timeout(left.min(Duration::from_millis(20))) {
-                self.handle_preview(key, done);
+                self.receive(key, done);
             }
         }
     }
@@ -789,18 +862,19 @@ impl Session {
     pub fn wait_preview_update(&mut self, timeout: Duration) -> Option<PreviewUpdate> {
         let until = Instant::now() + timeout;
         loop {
+            self.release_delayed();
             if let Some(u) = self.preview.updates.pop_front() {
                 return Some(u);
             }
             self.preview.retry_deferred();
             self.check_preview_recipe();
             let left = until.saturating_duration_since(Instant::now());
-            if left.is_zero() || self.preview.outstanding.is_empty() && self.preview.updates.is_empty() {
+            if left.is_zero() || self.preview.only_delayed() && self.preview.updates.is_empty() {
                 return self.preview.updates.pop_front();
             }
             let pool = self.preview.pool.as_ref()?;
             if let Some((key, done)) = pool.recv_timeout(left.min(Duration::from_millis(20))) {
-                self.handle_preview(key, done);
+                self.receive(key, done);
             }
         }
     }
@@ -811,11 +885,11 @@ impl Session {
         if self.preview.pool.is_none() || self.preview.held {
             return 0;
         }
+        let mut n = self.release_delayed();
         self.preview.retry_deferred();
         self.check_preview_recipe();
-        let mut n = 0;
         while let Some((key, done)) = self.preview.pool.as_ref().and_then(Pool::try_recv) {
-            self.handle_preview(key, done);
+            self.receive(key, done);
             n += 1;
         }
         n
