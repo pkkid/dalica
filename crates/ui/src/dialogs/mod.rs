@@ -49,6 +49,13 @@
 //!   view state's `options`, set when it opens and cleared when it closes. Apply is a button that
 //!   keeps its dialog open ([`Button::stays_open`]).
 //!
+//! - **M11's dialogs** (stubs: their titles, buttons and drafts in `dialogs[].fields` are final,
+//!   their bodies show the draft as text and their buttons say what they wait for, until
+//!   M11.16–M11.20 make them act): "Keep which version?" ([`keep_version`]) and "Apply changes to
+//!   the current photo?" ([`apply_changes`]) of compare, Undo All Edits' question ([`undo_all`]),
+//!   "Remove the imported files from the card?" ([`remove_from_card`]) and the photo viewer's
+//!   Settings ([`viewer_settings`]); and Options gains its Slideshow and Photo Viewer tabs.
+//!
 //! Each kind lives in a module of its own with the same three functions, which the host
 //! dispatches to: `look` (title, width, buttons), `body` (draws the draft and edits it in place)
 //! and `act` (what a button other than Cancel does). A new kind adds its [`DialogKind`] variant,
@@ -61,6 +68,7 @@
 pub mod about;
 pub mod adjust_date;
 pub mod album_properties;
+pub mod apply_changes;
 pub mod collision;
 pub mod confirm;
 pub mod copy_confirm;
@@ -71,16 +79,20 @@ pub mod export_progress;
 pub mod first_run;
 pub mod folder_manager;
 pub mod folder_properties;
+pub mod keep_version;
 pub mod move_confirm;
 pub mod new_folder;
 pub mod options;
 pub mod quick_tags;
 pub mod release_notes;
 pub mod remove_from_album;
+pub mod remove_from_card;
 pub mod rename_files;
 pub mod rename_tag;
 pub mod revert;
 pub mod save_explain;
+pub mod undo_all;
+pub mod viewer_settings;
 
 use dalica_engine::CmdError;
 use dalica_ui_kit::widgets::{self, ButtonKind, DialogButton};
@@ -173,6 +185,11 @@ fn look(app: &App, d: &Dialog) -> Look {
         DialogKind::RenameFiles => rename_files::look(app, d),
         DialogKind::DeletePhotos | DialogKind::DeleteFolder => delete::look(app, d),
         DialogKind::Options => options::look(app, d),
+        DialogKind::KeepVersion => keep_version::look(app, d),
+        DialogKind::ApplyChanges => apply_changes::look(app, d),
+        DialogKind::UndoAllEdits => undo_all::look(app, d),
+        DialogKind::RemoveFromCard => remove_from_card::look(app, d),
+        DialogKind::ViewerSettings => viewer_settings::look(app, d),
     }
 }
 
@@ -202,6 +219,11 @@ fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
         DialogKind::RenameFiles => rename_files::body(app, ui, d),
         DialogKind::DeletePhotos | DialogKind::DeleteFolder => delete::body(app, ui, d),
         DialogKind::Options => options::body(app, ui, d),
+        DialogKind::KeepVersion => keep_version::body(app, ui, d),
+        DialogKind::ApplyChanges => apply_changes::body(app, ui, d),
+        DialogKind::UndoAllEdits => undo_all::body(app, ui, d),
+        DialogKind::RemoveFromCard => remove_from_card::body(app, ui, d),
+        DialogKind::ViewerSettings => viewer_settings::body(app, ui, d),
     }
 }
 
@@ -231,6 +253,11 @@ fn act(app: &mut App, d: &Dialog, action: &str) -> Result<Value, CmdError> {
         DialogKind::RenameFiles => rename_files::act(app, d, action),
         DialogKind::DeletePhotos | DialogKind::DeleteFolder => delete::act(app, d, action),
         DialogKind::Options => options::act(app, d, action),
+        DialogKind::KeepVersion => keep_version::act(app, d, action),
+        DialogKind::ApplyChanges => apply_changes::act(app, d, action),
+        DialogKind::UndoAllEdits => undo_all::act(app, d, action),
+        DialogKind::RemoveFromCard => remove_from_card::act(app, d, action),
+        DialogKind::ViewerSettings => viewer_settings::act(app, d, action),
     }
 }
 

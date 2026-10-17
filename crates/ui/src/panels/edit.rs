@@ -10,10 +10,15 @@
 //! | [`canvas`], [`zoom`], [`navigator`] | the photo, the zoom read-out, the navigator | M7.15 |
 //! | [`panel`], [`basic`], [`history`], [`histogram`] | the edit panel, Basic fixes, Undo / Redo, the histogram box | M7.16 |
 //! | [`crop`], [`straighten`], [`fill_light`], [`tuning`], [`retouch`] | the tools ([`crate::commands::tools::Tool`]) | M7.19–M7.22 |
+//! | [`compare`] | the compare modes' second side and before/after | M11.16 |
+//!
+//! While a room is open the room tab strip sits under the menu bar (`ui-layout.md` §8): the edit
+//! view is the Library tab's content.
 
 pub mod basic;
 pub mod canvas;
 pub mod caption_bar;
+pub mod compare;
 pub mod crop;
 pub mod fill_light;
 pub mod filmstrip;
@@ -29,7 +34,7 @@ pub mod zoom;
 
 use egui::{Ui, UiBuilder, vec2};
 
-use super::{Panels, bottom, layout, light_table, menubar, region, side_pane, status};
+use super::{Panels, bottom, layout, light_table, menubar, region, rooms, side_pane, status};
 use crate::app::App;
 use crate::state::ToolKind;
 
@@ -44,6 +49,9 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
         let mut inner = ui.new_child(UiBuilder::new().max_rect(ui.max_rect().shrink2(vec2(8.0, 0.0))));
         menubar::show(p, app, &mut inner);
     });
+    if let Some(rect) = l.tab_strip {
+        region(ui, "tabStrip", rect, t.chrome, |ui| rooms::show(app, ui));
+    }
     region(ui, "editTopBar", l.top_bar, t.chrome, |ui| top_bar::show(app, ui));
     region(ui, "filmstrip", l.filmstrip, t.chrome, |ui| filmstrip::show(app, ui));
     if let Some(rect) = l.edit_panel {
@@ -51,6 +59,7 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
     }
     region(ui, "canvas", l.canvas, t.canvas, |ui| {
         canvas::show(app, ui);
+        compare::show(app, ui);
         match app.state().edit.tool {
             Some(ToolKind::Straighten) => straighten::show(app, ui),
             Some(ToolKind::Crop) => crop::on_canvas(app, ui),

@@ -9,6 +9,12 @@
 //! the last Apply's error, the scale and font size previewed, the shortcut editor) round-trips the
 //! same way; Ctrl+, and Ctrl+/ open the dialog on General and on Keyboard Shortcuts, Esc closes it,
 //! and Tools ▸ Options…, Help ▸ Keyboard Shortcuts… and the macOS Preferences… item are live.
+//!
+//! M11's view state (M11.2): the rooms, the Import room, the slideshow, the quick preview, the
+//! compare fields of `edit` and the photo viewer round-trip the same way; Ctrl+M opens the Import
+//! tab and the strip appears 28 high, closing it removes the strip; each view's keys act only in
+//! their context (a Slideshow key does nothing in the library); M11's stub dialogs and Options
+//! tabs are drawn with their ids.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -651,4 +657,240 @@ fn the_options_keys_open_the_dialog_and_its_menu_items_are_live() {
     assert!(prefs.live && prefs.enabled && prefs.shortcut.as_deref() == Some("Cmd+,"), "{prefs:?}");
     assert_eq!(ok(&mut t, "ui.menu.invoke", json!({ "id": "app.shortcuts" })), json!({ "dialog": "options" }));
     assert_eq!(state(&mut t)["options"]["tab"], "shortcuts");
+}
+
+/// Each M11 field round-trips through `ui.set` and `ui.state`; `import` merges field by field.
+#[test]
+fn every_m11_field_round_trips_through_ui_set_and_ui_state() {
+    let mut t = setup();
+    let p = t.photos.clone();
+    let defaults = state(&mut t);
+    assert_eq!((&defaults["room"], &defaults["rooms"]), (&json!("library"), &json!(["library"])));
+    assert_eq!((&defaults["slideshow"], &defaults["peek"], &defaults["viewer"]), (&Value::Null, &Value::Null, &Value::Null));
+    let show = json!({ "photos": [p[2], p[0], p[1]], "index": 1, "playing": false, "bar": true, "zoom": 2.5, "pan": [0.25, 0.75],
+                       "transition": { "from": 0, "progress": 0.5 }, "from": "edit" });
+    let viewer = json!({ "index": 4, "backdrop": "opaque", "controls": false, "zoom": 2.0 });
+    let destination = json!({ "place": "/media/pictures", "folderName": { "dateTaken": true }, "after": "delete" });
+    for change in [
+        json!({ "rooms": ["library", "import"] }),
+        json!({ "rooms": ["library", "import"], "room": "import" }),
+        json!({ "import": { "focus": 7, "selection": [7, 3, 9], "preview": 3 } }),
+        json!({ "import": { "destination": destination } }),
+        json!({ "import": { "destination": { "place": null, "folderName": "Holiday", "after": "leave" } } }),
+        json!({ "import": { "destination": { "place": null, "folderName": { "today": true }, "after": "leave" } } }),
+        json!({ "view": "slideshow", "slideshow": show }),
+        json!({ "peek": p[3] }),
+        json!({ "view": "viewer", "viewer": viewer }),
+        json!({ "view": "edit", "edit": { "photo": p[0], "compare": "two", "second": p[1], "focus": "right", "layout": "stacked", "showOriginal": true } }),
+    ] {
+        let reply = ok(&mut t, "ui.set", change.clone());
+        let now = state(&mut t);
+        for (field, value) in change.as_object().unwrap() {
+            // `import` and `edit` merge field by field: each field set reads back as set.
+            match value.as_object().filter(|_| field == "import" || field == "edit") {
+                Some(fields) => {
+                    for (k, v) in fields {
+                        assert_eq!(&now[field][k], v, "{field}.{k}");
+                        assert_eq!(&reply[field][k], v, "the reply is the new state: {field}.{k}");
+                    }
+                }
+                None => assert_eq!(&now[field], value, "{field}"),
+            }
+        }
+        // Back to the defaults, and nothing else moved.
+        let back: serde_json::Map<String, Value> = change.as_object().unwrap().keys().map(|k| (k.clone(), defaults[k].clone())).collect();
+        ok(&mut t, "ui.set", Value::Object(back));
+        assert_eq!(state(&mut t), defaults, "{change}");
+    }
+    // A partial slideshow and viewer take the defaults for the rest.
+    ok(&mut t, "ui.set", json!({ "view": "slideshow", "slideshow": { "photos": [p[0]] } }));
+    let s = state(&mut t)["slideshow"].clone();
+    assert_eq!(
+        (&s["index"], &s["playing"], &s["zoom"], &s["pan"], &s["from"]),
+        (&json!(0), &json!(true), &json!(1.0), &json!([0.5, 0.5]), &json!("library"))
+    );
+    ok(&mut t, "ui.set", json!({ "view": "viewer", "slideshow": null, "viewer": {} }));
+    assert_eq!(state(&mut t)["viewer"], json!({ "index": 0, "backdrop": "translucent", "controls": true, "zoom": "fit" }));
+    // Repeated ids are kept once; the Library tab is always first.
+    ok(&mut t, "ui.set", json!({ "view": "library", "viewer": null, "import": { "selection": [5, 5, 2] } }));
+    assert_eq!(state(&mut t)["import"]["selection"], json!([5, 2]));
+}
+
+/// Bad M11 values are `bad_params` (photos that do not exist `not_found`), and nothing changes.
+#[test]
+fn bad_m11_values_are_refused_and_change_nothing() {
+    let mut t = setup();
+    let p = t.photos.clone();
+    ok(&mut t, "ui.set", json!({ "rooms": ["library", "import"], "import": { "selection": [1] } }));
+    let before = state(&mut t);
+    let long = "x".repeat(4097);
+    for bad in [
+        json!({ "room": "collage" }),
+        json!({ "room": "attic" }),
+        json!({ "rooms": ["import"] }),
+        json!({ "rooms": ["library", "import", "import"] }),
+        json!({ "rooms": ["library", "library"] }),
+        json!({ "rooms": [] }),
+        json!({ "rooms": ["library"], "room": "import" }),
+        json!({ "import": { "selection": ["a"] } }),
+        json!({ "import": { "focus": -1 } }),
+        json!({ "import": { "colour": 1 } }),
+        json!({ "import": { "destination": { "after": "shred" } } }),
+        json!({ "import": { "destination": { "folderName": { "dateTaken": false } } } }),
+        json!({ "import": { "destination": { "folderName": { "today": true, "dateTaken": true } } } }),
+        json!({ "import": { "destination": { "folderName": 3 } } }),
+        json!({ "import": { "destination": { "folderName": long } } }),
+        json!({ "import": { "destination": { "place": "x".repeat(4097) } } }),
+        json!({ "view": "slideshow" }),
+        json!({ "slideshow": { "photos": [p[0]] } }),
+        json!({ "view": "slideshow", "slideshow": { "photos": [] } }),
+        json!({ "view": "slideshow", "slideshow": { "photos": [p[0]], "index": 1 } }),
+        json!({ "view": "slideshow", "slideshow": { "photos": [p[0]], "zoom": 0.5 } }),
+        json!({ "view": "slideshow", "slideshow": { "photos": [p[0]], "zoom": 9 } }),
+        json!({ "view": "slideshow", "slideshow": { "photos": [p[0]], "pan": [0.5, 1.5] } }),
+        json!({ "view": "slideshow", "slideshow": { "photos": [p[0]], "transition": { "from": 2, "progress": 0.5 } } }),
+        json!({ "view": "slideshow", "slideshow": { "photos": [p[0]], "transition": { "from": 0, "progress": 2 } } }),
+        json!({ "view": "slideshow", "slideshow": { "photos": [p[0]], "from": "attic" } }),
+        json!({ "view": "slideshow", "slideshow": { "photos": [p[0]], "speed": 2 } }),
+        json!({ "view": "viewer" }),
+        json!({ "view": "viewer", "viewer": { "zoom": 5 } }),
+        json!({ "view": "viewer", "viewer": { "backdrop": "glass" } }),
+        json!({ "view": "viewer", "viewer": { "index": -1 } }),
+        json!({ "view": "spiral" }),
+        json!({ "peek": "x" }),
+        json!({ "edit": { "second": p[1] } }),
+        json!({ "edit": { "focus": "middle" } }),
+        json!({ "edit": { "layout": "grid" } }),
+        json!({ "edit": { "showOriginal": "yes" } }),
+        // A good field next to a bad one: neither is applied.
+        json!({ "room": "library", "rooms": ["import"] }),
+    ] {
+        assert_eq!(code(&mut t, "ui.set", bad.clone()), "bad_params", "{bad}");
+        assert_eq!(state(&mut t), before, "{bad}");
+    }
+    let no_photo = p.iter().max().unwrap() + 100;
+    for bad in [
+        json!({ "peek": no_photo }),
+        json!({ "view": "slideshow", "slideshow": { "photos": [p[0], no_photo] } }),
+        json!({ "view": "edit", "edit": { "photo": p[0], "second": no_photo } }),
+    ] {
+        assert_eq!(code(&mut t, "ui.set", bad.clone()), "not_found", "{bad}");
+        assert_eq!(state(&mut t), before, "{bad}");
+    }
+}
+
+/// The rect of widget `id` in the last frame, if it was drawn.
+fn rect_of(t: &T, id: &str) -> Option<[f32; 4]> {
+    t.d.widgets().into_iter().find(|w| w.id == id).map(|w| w.rect)
+}
+
+/// Ctrl+M opens the Import tab: the strip appears under the menu bar, 28 high, with the Library
+/// and Import tabs, and the room's content replaces the library's; the Library tab brings the
+/// library back under the strip; closing Import removes the strip.
+#[test]
+fn ctrl_m_opens_the_import_tab_and_the_strip_appears_28_high() {
+    let mut t = setup();
+    assert_eq!(rect_of(&t, "region:tabStrip"), None, "no room open: no strip");
+    ok(&mut t, "ui.key", json!({ "combo": "Ctrl+M" }));
+    let s = state(&mut t);
+    assert_eq!((&s["room"], &s["rooms"]), (&json!("import"), &json!(["library", "import"])));
+    assert_eq!(rect_of(&t, "region:tabStrip"), Some([0.0, 32.0, 1400.0, 28.0]));
+    assert_eq!(rect_of(&t, "region:room"), Some([0.0, 60.0, 1400.0, 900.0 - 60.0 - 20.0]));
+    assert_eq!(rect_of(&t, "region:statusLine"), Some([0.0, 880.0, 1400.0, 20.0]));
+    for gone in ["region:toolbar", "region:tree", "region:lightTable", "region:tray"] {
+        assert_eq!(rect_of(&t, gone), None, "{gone} is replaced by the room");
+    }
+    let tab = t.d.widgets().into_iter().find(|w| w.id == "tab:room.import").unwrap();
+    assert!(tab.active && tab.enabled);
+    assert!(rect_of(&t, "button:room.close.library").is_none(), "the Library tab has no ×");
+    assert!(t.d.app().panels().unwrap().unregistered_widgets().is_empty());
+    // The Library tab: the library under the strip, the toolbar moved down by its height.
+    ok(&mut t, "ui.clickWidget", json!({ "id": "tab:room.library" }));
+    assert_eq!(state(&mut t)["room"], "library");
+    assert_eq!(rect_of(&t, "region:toolbar"), Some([0.0, 60.0, 1400.0, 40.0]));
+    assert_eq!(rect_of(&t, "region:tabStrip"), Some([0.0, 32.0, 1400.0, 28.0]));
+    // Ctrl+M again brings Import to the front; its × closes it and the strip goes.
+    ok(&mut t, "ui.key", json!({ "combo": "Ctrl+M" }));
+    assert_eq!(state(&mut t)["room"], "import");
+    ok(&mut t, "ui.clickWidget", json!({ "id": "button:room.close.import" }));
+    let s = state(&mut t);
+    assert_eq!((&s["room"], &s["rooms"]), (&json!("library"), &json!(["library"])));
+    assert_eq!(rect_of(&t, "region:tabStrip"), None);
+    assert_eq!(rect_of(&t, "region:toolbar"), Some([0.0, 32.0, 1400.0, 40.0]));
+}
+
+/// Each view's keys act in their context only: Space, End and Esc run nothing of the slideshow's
+/// in the library, X nothing of the Import room's; in a slideshow → advances and Esc exits; in the
+/// Import room X answers for the room; in the viewer Space switches the background.
+#[test]
+fn a_views_keys_act_only_in_its_context() {
+    let mut t = setup();
+    let p = t.photos.clone();
+    let not_playing = dalica_ui::commands::slideshow::NOT_PLAYING;
+    for combo in ["Space", "End", "Esc", "Plus"] {
+        ok(&mut t, "ui.key", json!({ "combo": combo }));
+        assert_ne!(t.d.app().state().status, not_playing, "{combo} ran a slideshow command in the library");
+    }
+    ok(&mut t, "ui.key", json!({ "combo": "X" }));
+    assert_ne!(t.d.app().state().status, dalica_ui::commands::import::NOT_YET, "X ran the Import room's command in the library");
+    // A slideshow: → advances, Space pauses, End goes to the last photo, Esc exits to the library.
+    ok(&mut t, "ui.set", json!({ "view": "slideshow", "slideshow": { "photos": [p[0], p[1], p[2]] } }));
+    ok(&mut t, "ui.key", json!({ "combo": "Right" }));
+    assert_eq!(state(&mut t)["slideshow"]["index"], 1);
+    ok(&mut t, "ui.key", json!({ "combo": "Space" }));
+    assert_eq!(state(&mut t)["slideshow"]["playing"], false);
+    ok(&mut t, "ui.key", json!({ "combo": "End" }));
+    assert_eq!(state(&mut t)["slideshow"]["index"], 2);
+    ok(&mut t, "ui.key", json!({ "combo": "Ctrl+1" }));
+    assert_eq!(t.d.app().state().thumb_size, dalica_ui::state::THUMB_DEFAULT, "a Library key does nothing in a slideshow");
+    ok(&mut t, "ui.key", json!({ "combo": "Esc" }));
+    let s = state(&mut t);
+    assert_eq!((&s["view"], &s["slideshow"]), (&json!("library"), &Value::Null));
+    // The Import room in front: its X answers (its command waits for importing).
+    ok(&mut t, "ui.key", json!({ "combo": "Ctrl+M" }));
+    ok(&mut t, "ui.key", json!({ "combo": "X" }));
+    assert_eq!(t.d.app().state().status, dalica_ui::commands::import::NOT_YET);
+    ok(&mut t, "engine.execute", json!({ "command": "room.close" }));
+    // The viewer: Space switches the background, Esc closes it.
+    ok(&mut t, "ui.set", json!({ "view": "viewer", "viewer": {} }));
+    ok(&mut t, "ui.key", json!({ "combo": "Space" }));
+    assert_eq!(state(&mut t)["viewer"]["backdrop"], "opaque");
+    ok(&mut t, "ui.key", json!({ "combo": "Esc" }));
+    assert_eq!((state(&mut t)["view"].as_str(), state(&mut t)["viewer"].is_null()), (Some("library"), true));
+}
+
+/// M11's stub dialogs are drawn with their ids and buttons, and Options shows its Slideshow and
+/// Photo Viewer tabs.
+#[test]
+fn m11s_stub_dialogs_and_options_tabs_are_drawn_with_their_ids() {
+    use dalica_ui::dialogs::{self, Dialog, DialogKind};
+    let mut t = setup();
+    for (kind, buttons) in [
+        (DialogKind::KeepVersion, &["button:dialog.left", "button:dialog.right", "button:dialog.cancel"][..]),
+        (DialogKind::ApplyChanges, &["button:dialog.apply", "button:dialog.discard", "button:dialog.cancel"][..]),
+        (DialogKind::UndoAllEdits, &["button:dialog.removeEdits", "button:dialog.cancel"][..]),
+        (DialogKind::RemoveFromCard, &["button:dialog.remove", "button:dialog.cancel"][..]),
+        (DialogKind::ViewerSettings, &["button:dialog.ok", "button:dialog.cancel"][..]),
+    ] {
+        dialogs::open(t.d.app_mut(), Dialog::new(kind)).unwrap();
+        ok(&mut t, "ui.wait", json!({ "ms": 50 }));
+        let v = ok(&mut t, "ui.inspect", json!({}));
+        assert_eq!(v["dialog"]["widget"], format!("dialog:{}", kind.name()));
+        assert_eq!(v["dialog"]["buttons"], json!(buttons), "{kind:?}");
+        for id in buttons {
+            assert!(rect_of(&t, id).is_some(), "{kind:?}: {id} drawn");
+        }
+        // A button other than Cancel says what it waits for, and the dialog stays.
+        if let Some(action) = buttons.first().and_then(|b| b.strip_prefix("button:dialog.")).filter(|a| *a != "cancel") {
+            assert!(matches!(dialogs::answer(t.d.app_mut(), Some(action)), Err(CmdError::Disabled(_))), "{kind:?}");
+        }
+        ok(&mut t, "ui.key", json!({ "combo": "Esc" }));
+        assert!(t.d.app().state().dialogs.is_empty(), "{kind:?}: Esc closes it");
+    }
+    ok(&mut t, "engine.execute", json!({ "command": "app.preferences" }));
+    ok(&mut t, "ui.wait", json!({ "ms": 50 }));
+    for (tab, id) in [("slideshow", "tab:options.slideshow"), ("viewer", "tab:options.viewer")] {
+        ok(&mut t, "ui.clickWidget", json!({ "id": id }));
+        assert_eq!(state(&mut t)["options"]["tab"], tab);
+    }
 }

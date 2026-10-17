@@ -1,5 +1,6 @@
 //! The caption bar under the photo (`editing.md` §2): 36 high on `canvas`, the show-captions toggle
-//! at the left (`button:caption.toggle`, for the slideshow, drawn disabled until M11), the photo's
+//! at the left (`button:caption.toggle`, for the slideshow: `slideshow.captions`, enabled as that
+//! command is, M11.21), the photo's
 //! caption in a centred field with the placeholder "Add a caption" (`field:caption`), and the trash
 //! button at the right (`button:edit.trash`).
 //!
@@ -69,8 +70,11 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let bar = ui.max_rect();
     let y = bar.center().y;
     let button = |x: f32| Rect::from_center_size(pos2(x, y), vec2(BUTTON, BUTTON));
-    // Disabled until the slideshow (M11).
-    top_bar::glyph_button(ui, &t, TOGGLE_ID, EditIcon::CaptionToggle, button(bar.min.x + MARGIN + BUTTON / 2.0), false, TOGGLE_TIP);
+    // The slideshow's captions setting, live as `slideshow.captions` is.
+    let captions = crate::commands::enabled(app, "slideshow.captions", &json!({})).is_ok();
+    if top_bar::glyph_button(ui, &t, TOGGLE_ID, EditIcon::CaptionToggle, button(bar.min.x + MARGIN + BUTTON / 2.0), captions, TOGGLE_TIP).clicked() {
+        let _ = app.run("slideshow.captions", &json!({}));
+    }
     if top_bar::glyph_button(ui, &t, TRASH_ID, EditIcon::Trash, button(bar.max.x - MARGIN - BUTTON / 2.0), true, TRASH_TIP).clicked() {
         let then: Arc<[PhotoId]> = edit_view::successors(app, photo).into();
         ui.ctx().data_mut(|d| d.insert_temp(Id::new(TRASHED), Trashed { photo, then }));

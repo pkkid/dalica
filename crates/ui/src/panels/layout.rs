@@ -9,18 +9,26 @@
 //! The edit view (`editing.md` §2) has a layout of its own, [`compute_edit`]: the menu bar, the
 //! edit top bar with the filmstrip in it, the edit panel, the photo area (the canvas and the
 //! caption bar under it), the optional side pane, and the library's status line and bottom area.
+//!
+//! Rooms (`ui-layout.md` §8, M11): while a room besides the Library is open, the room tab strip
+//! ([`TAB_STRIP`] high) sits under the menu bar in every layout, and the rest moves down by its
+//! height. A room in front replaces the toolbar, the tree, the light table, the side pane and the
+//! bottom area with its own content ([`compute_room`]); the menu bar, the strip and the status line
+//! stay.
 
 use dalica_ui_kit::Tokens;
 use dalica_ui_kit::registry::Role;
 use dalica_ui_kit::widgets::{self, Target};
 use egui::{Context, CursorIcon, Id, Rect, Sense, Ui, pos2, vec2};
 
-use crate::state::{LIGHT_TABLE_MIN, Pane, TREE_DEFAULT, TREE_MIN, UiState};
+use crate::state::{LIGHT_TABLE_MIN, Pane, Room, TREE_DEFAULT, TREE_MIN, UiState};
 
 /// Menu bar (the title row on Windows and Linux) height.
 pub const MENU_BAR: f32 = crate::titlebar::HEIGHT;
 /// Toolbar height.
 pub const TOOLBAR: f32 = 40.0;
+/// The room tab strip's height (`ui-layout.md` §8), shown only while a room is open.
+pub const TAB_STRIP: f32 = 28.0;
 /// Splitter width between the tree and the light table, and its grip.
 pub const SPLITTER: f32 = 8.0;
 pub const GRIP: egui::Vec2 = vec2(8.0, 48.0);
@@ -69,7 +77,7 @@ pub struct Layout {
     pub window: Rect,
     pub menu_bar: Rect,
     pub toolbar: Rect,
-    /// The room tab strip: only when a second room is open (M11), so never yet.
+    /// The room tab strip, under the menu bar while a room besides the Library is open (M11).
     pub tab_strip: Option<Rect>,
     pub tree: Rect,
     pub splitter: Rect,
@@ -149,7 +157,9 @@ pub fn compute(window: Rect, state: &UiState) -> Layout {
 
     // Rows from the top and from the bottom; the middle gets what is left.
     let menu_bar = span(left, right, top, top + MENU_BAR);
-    let toolbar = span(left, right, menu_bar.max.y, menu_bar.max.y + TOOLBAR);
+    let tab_strip = strip_shown(state).then(|| span(left, right, menu_bar.max.y, menu_bar.max.y + TAB_STRIP));
+    let under = tab_strip.map_or(menu_bar.max.y, |r| r.max.y);
+    let toolbar = span(left, right, under, under + TOOLBAR);
     let bottom = span(left, right, (bottom_edge - BOTTOM).max(toolbar.max.y), bottom_edge);
     let status_line = span(left, right, (bottom.min.y - STATUS_LINE).max(toolbar.max.y), bottom.min.y);
     let (mid_top, mid_bottom) = (toolbar.max.y, status_line.min.y);
@@ -181,7 +191,7 @@ pub fn compute(window: Rect, state: &UiState) -> Layout {
         window,
         menu_bar,
         toolbar,
-        tab_strip: None,
+        tab_strip,
         tree,
         splitter,
         banner,
@@ -203,6 +213,8 @@ pub fn compute(window: Rect, state: &UiState) -> Layout {
 pub struct EditLayout {
     pub window: Rect,
     pub menu_bar: Rect,
+    /// The room tab strip, while a room is open (M11).
+    pub tab_strip: Option<Rect>,
     /// The edit top bar, the whole width.
     pub top_bar: Rect,
     /// The filmstrip inside the top bar, between its left and right groups.
@@ -227,7 +239,7 @@ pub struct EditLayout {
 /// bottom area is the library's ([`compute`] places its parts), so the tray stays where it was.
 /// A window too small for a region gives it no area, never a negative one.
 pub fn compute_edit(window: Rect, state: &UiState) -> EditLayout {
-    let lib = compute(window, &UiState { pane: None, ..UiState::default() });
+    let lib = compute(window, &UiState { pane: None, rooms: state.rooms.clone(), ..UiState::default() });
     let window = lib.window;
     let (left, right) = (window.min.x, window.max.x.max(window.min.x));
     let width = right - left;
@@ -248,6 +260,7 @@ pub fn compute_edit(window: Rect, state: &UiState) -> EditLayout {
     EditLayout {
         window,
         menu_bar: lib.menu_bar,
+        tab_strip: lib.tab_strip,
         top_bar,
         filmstrip,
         edit_panel,
@@ -266,9 +279,10 @@ pub fn compute_edit(window: Rect, state: &UiState) -> EditLayout {
 impl EditLayout {
     /// Every region of the edit view by its protocol name (`control-protocol.md` §6.6), with a
     /// label; `None` for one not shown.
-    pub fn regions(&self) -> [(&'static str, &'static str, Option<Rect>); 12] {
+    pub fn regions(&self) -> [(&'static str, &'static str, Option<Rect>); 13] {
         [
             ("menuBar", "Menu bar", Some(self.menu_bar)),
+            ("tabStrip", "Room tabs", self.tab_strip),
             ("editTopBar", "Edit top bar", Some(self.top_bar)),
             ("filmstrip", "Filmstrip", Some(self.filmstrip)),
             ("editPanel", "Edit panel", self.edit_panel),
@@ -295,6 +309,57 @@ impl EditLayout {
     /// The area toasts show at the bottom of: the photo area.
     pub fn toast_area(&self) -> Rect {
         self.canvas
+    }
+}
+
+/// Whether the room tab strip shows: a room besides the Library is open.
+pub fn strip_shown(state: &UiState) -> bool {
+    state.rooms.iter().any(|r| *r != Room::Library)
+}
+
+/// Where the regions of a room in front are (`ui-layout.md` §8): the menu bar, the tab strip, the
+/// room's content and the status line at the bottom of the window.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RoomLayout {
+    pub window: Rect,
+    pub menu_bar: Rect,
+    pub tab_strip: Rect,
+    /// The room's own content, in place of the toolbar, tree, light table, side pane and bottom
+    /// area.
+    pub room: Rect,
+    pub status_line: Rect,
+}
+
+/// Lays out a room in front in `window`. A window too small for a region gives it no area, never
+/// a negative one.
+pub fn compute_room(window: Rect) -> RoomLayout {
+    let window = if window.is_finite() { window } else { Rect::ZERO };
+    let (left, right, top, bottom) = (window.min.x, window.max.x.max(window.min.x), window.min.y, window.max.y.max(window.min.y));
+    let menu_bar = span(left, right, top, top + MENU_BAR);
+    let tab_strip = span(left, right, menu_bar.max.y, menu_bar.max.y + TAB_STRIP);
+    let status_line = span(left, right, (bottom - STATUS_LINE).max(tab_strip.max.y), bottom);
+    let room = span(left, right, tab_strip.max.y, status_line.min.y);
+    RoomLayout { window, menu_bar, tab_strip, room, status_line }
+}
+
+impl RoomLayout {
+    /// Every region of a room by its protocol name, with a label.
+    pub fn regions(&self) -> [(&'static str, &'static str, Option<Rect>); 4] {
+        [
+            ("menuBar", "Menu bar", Some(self.menu_bar)),
+            ("tabStrip", "Room tabs", Some(self.tab_strip)),
+            ("room", "Room", Some(self.room)),
+            ("statusLine", "Status line", Some(self.status_line)),
+        ]
+    }
+
+    /// Registers every region as `region:<name>` for this pass, as [`Layout::register`] does.
+    pub fn register(&self, ctx: &Context) {
+        for (name, label, rect) in self.regions() {
+            if let Some(rect) = rect {
+                widgets::register(ctx, &format!("region:{name}"), Role::Other, label, Target::Painted { rect, clip: self.window }, false);
+            }
+        }
     }
 }
 
@@ -560,6 +625,31 @@ mod tests {
         for w in [window(0.0, 0.0), window(10.0, 10.0), window(-50.0, 300.0), window(f32::NAN, 900.0), window(1e9, 1e9)] {
             let l = compute_edit(w, &edit(true, Some(Pane::People), true));
             for r in l.regions().into_iter().filter_map(|(_, _, r)| r) {
+                assert!(r.width() >= 0.0 && r.height() >= 0.0 && !r.any_nan(), "{w:?}: {r:?}");
+            }
+        }
+    }
+
+    /// A room open puts the 28-high strip under the menu bar and moves the rest down; a room in
+    /// front keeps only the menu bar, the strip and the status line around its content.
+    #[test]
+    fn a_room_open_adds_the_tab_strip_and_a_room_in_front_replaces_the_content() {
+        let open = UiState { rooms: vec![Room::Library, Room::Import], ..UiState::default() };
+        for (w, h) in [(1400.0, 900.0), (900.0, 600.0)] {
+            let l = compute(window(w, h), &open);
+            assert_eq!(l.tab_strip.map(xywh), Some([0.0, 32.0, w, TAB_STRIP]));
+            assert_eq!(xywh(l.toolbar), [0.0, 60.0, w, 40.0]);
+            assert_eq!(l.tree.min.y, 100.0);
+            assert_eq!(compute(window(w, h), &UiState::default()).bottom, l.bottom, "the bottom area stays where it was");
+            let e = compute_edit(window(w, h), &open);
+            assert_eq!((e.tab_strip, e.top_bar.min.y), (l.tab_strip, 60.0));
+            let r = compute_room(window(w, h));
+            assert_eq!(xywh(r.tab_strip), [0.0, 32.0, w, 28.0]);
+            assert_eq!(xywh(r.room), [0.0, 60.0, w, h - 60.0 - 20.0]);
+            assert_eq!(xywh(r.status_line), [0.0, h - 20.0, w, 20.0]);
+        }
+        for w in [window(0.0, 0.0), window(10.0, 10.0), window(f32::NAN, 900.0)] {
+            for r in compute_room(w).regions().into_iter().filter_map(|(_, _, r)| r) {
                 assert!(r.width() >= 0.0 && r.height() >= 0.0 && !r.any_nan(), "{w:?}: {r:?}");
             }
         }

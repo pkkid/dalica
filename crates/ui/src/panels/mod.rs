@@ -3,21 +3,32 @@
 //! mode ([`search_banner`]), the light table, the side pane, the status line and the bottom area;
 //! the edit view's regions are in [`edit`]. [`layout`]
 //! says where each one is; [`show`] gives each its rect and registers the regions.
+//!
+//! M11's surfaces, stubs until the tasks that draw them: the room tab strip ([`rooms`]), the Import
+//! room ([`import`]), the slideshow ([`slideshow`]), the quick full-screen preview ([`peek`]) and
+//! the photo viewer ([`viewer`]); compare is the edit view's (`edit::compare`). A slideshow and the
+//! viewer fill the window; a room in front replaces the library's content under the tab strip;
+//! the quick preview covers whatever is shown.
 
 pub mod activity;
 pub mod bottom;
 pub mod edit;
 pub mod folders;
+pub mod import;
 pub mod layout;
 pub mod light_table;
 pub mod menubar;
+pub mod peek;
 pub mod properties;
+pub mod rooms;
 pub mod search_banner;
 pub mod side_pane;
+pub mod slideshow;
 pub mod status;
 pub mod tags;
 pub mod thumbnails;
 pub mod toolbar;
+pub mod viewer;
 
 use std::sync::Arc;
 
@@ -105,10 +116,51 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
     }
     // One central panel over the whole window, so egui counts every point as used (the pointer is
     // over egui anywhere); the regions are laid out inside it at the layout's rects.
-    egui::CentralPanel::default().frame(egui::Frame::NONE).show(ui, |ui| match app.state().view {
-        crate::state::View::Library => regions(p, app, ui),
-        crate::state::View::Edit => edit::show(p, app, ui),
+    egui::CentralPanel::default().frame(egui::Frame::NONE).show(ui, |ui| {
+        use crate::state::{Room, View};
+        match (app.state().view, app.state().room) {
+            (View::Slideshow, _) => slideshow::show(app, ui),
+            (View::Viewer, _) => viewer::show(app, ui),
+            (_, Room::Import) => room(p, app, ui),
+            (View::Library, Room::Library) => regions(p, app, ui),
+            (View::Edit, Room::Library) => edit::show(p, app, ui),
+        }
+        // The quick preview covers whatever is shown while Ctrl+Alt is held.
+        if app.state().peek.is_some() {
+            peek::show(app, ui);
+        }
     });
+}
+
+/// Where toasts show for `state` in `window`: at the bottom of the light table, of the photo area
+/// in the edit view, of a room's content, of the whole window over a slideshow or the viewer.
+pub fn toast_area(window: Rect, state: &crate::state::UiState) -> Rect {
+    use crate::state::{Room, View};
+    match (state.view, state.room) {
+        (View::Slideshow | View::Viewer, _) => window,
+        (_, Room::Import) => layout::compute_room(window).room,
+        (View::Library, Room::Library) => layout::compute(window, state).light_table,
+        (View::Edit, Room::Library) => layout::compute_edit(window, state).toast_area(),
+    }
+}
+
+/// A room in front (`ui-layout.md` §8): the menu bar, the tab strip, the room's content and the
+/// status line.
+fn room(p: &mut Panels, app: &mut App, ui: &mut Ui) {
+    let t = *app.tokens();
+    let l = layout::compute_room(ui.max_rect());
+    l.register(ui.ctx());
+    light_table::refresh(p, app);
+    region(ui, "menuBar", l.menu_bar, t.chrome, |ui| {
+        let mut inner = ui.new_child(UiBuilder::new().max_rect(ui.max_rect().shrink2(vec2(8.0, 0.0))));
+        menubar::show(p, app, &mut inner);
+    });
+    region(ui, "tabStrip", l.tab_strip, t.chrome, |ui| rooms::show(app, ui));
+    region(ui, "room", l.room, t.grid_bg, |ui| match app.state().room {
+        crate::state::Room::Import => import::show(app, ui),
+        crate::state::Room::Library => {}
+    });
+    region(ui, "statusLine", l.status_line, t.chrome, |ui| status::show(p, app, ui));
 }
 
 fn regions(p: &mut Panels, app: &mut App, ui: &mut Ui) {
@@ -121,6 +173,9 @@ fn regions(p: &mut Panels, app: &mut App, ui: &mut Ui) {
         let mut inner = ui.new_child(UiBuilder::new().max_rect(ui.max_rect().shrink2(vec2(8.0, 0.0))));
         menubar::show(p, app, &mut inner);
     });
+    if let Some(rect) = l.tab_strip {
+        region(ui, "tabStrip", rect, t.chrome, |ui| rooms::show(app, ui));
+    }
     region(ui, "toolbar", l.toolbar, t.chrome, |ui| toolbar::show(app, ui));
     region(ui, "tree", l.tree, t.chrome, |ui| folders::show(p, app, ui));
     // A tree click asks to scroll to its folder's section: the light table eases there.

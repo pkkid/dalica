@@ -1,11 +1,13 @@
 //! The edit top bar (`editing.md` §2): 40 high on `chrome`, from the left **Back to Library**
-//! (`button:edit.back`, `view.library`) and **Play** (`button:edit.play`, drawn disabled until the
-//! slideshow, M11); the filmstrip between the two groups ([`super::filmstrip`], its own region);
+//! (`button:edit.back`, `view.library`) and **Play** (`button:edit.play`, `view.slideshow`: a
+//! slideshow from this photo, enabled as the command is); the filmstrip between the two groups
+//! ([`super::filmstrip`], its own region);
 //! on the right the **compare toggle**, three joined segments "A", "A|B", "A|A" (a plain bar: the
 //! UI font has no box-drawing line)
 //! (`button:compare.one`, `button:compare.two`, `button:compare.same`, tooltips "Show one photo",
-//! "Compare two photos", "Compare two versions of this photo"), only "A" enabled until M11. Switch
-//! Focus and Switch Layout show only in the compare modes (M11), so their place stays empty.
+//! "Compare two photos", "Compare two versions of this photo"), each running `edit.compare {mode}`
+//! and enabled as that command is for its mode (A│B and A│A arrive with M11.16). Switch Focus and
+//! Switch Layout show only in the compare modes (M11.16), so their place stays empty.
 //!
 //! The groups take the widths `panels::layout` reserves for them ([`LEFT_GROUP`] and
 //! [`RIGHT_GROUP`] add up to its `TOP_LEFT_GROUP` and `TOP_RIGHT_GROUP`).
@@ -60,15 +62,19 @@ pub fn show(app: &mut App, ui: &mut Ui) {
         let _ = app.run("view.library", &json!({}));
     }
     let play = Rect::from_min_size(pos2(back.max.x + GAP, y), vec2(PLAY_W, h));
-    // Disabled until the slideshow (M11).
-    labelled_button(ui, &t, PLAY_ID, EditIcon::Play, PLAY, play, false, PLAY_TIP);
+    // A slideshow from this photo, live as `view.slideshow` is.
+    let can_play = crate::commands::enabled(app, "view.slideshow", &json!({})).is_ok();
+    if labelled_button(ui, &t, PLAY_ID, EditIcon::Play, PLAY, play, can_play, PLAY_TIP).clicked() {
+        let _ = app.run("view.slideshow", &json!({}));
+    }
 
     let right = bar.max.x - GAP - 2.0 * SWITCH_W - GAP;
     let compare = Rect::from_min_size(pos2(right - COMPARE_W, y), vec2(COMPARE_W, h));
+    let live = COMPARE.map(|(.., mode)| crate::commands::enabled(app, "edit.compare", &json!({ "mode": mode })).is_ok());
     if compare.min.x >= play.max.x
-        && let Some(mode) = compare_toggle(ui, &t, compare, app.state().edit.compare)
+        && let Some(mode) = compare_toggle(ui, &t, compare, app.state().edit.compare, live)
     {
-        app.state_mut().edit.compare = mode;
+        let _ = app.run("edit.compare", &json!({ "mode": mode }));
     }
 }
 
@@ -139,14 +145,14 @@ pub(crate) fn glyph_button(ui: &mut Ui, t: &Tokens, id: &str, icon: EditIcon, re
 }
 
 /// The compare toggle in `rect`: three joined segments, `current` filled `tool_active` with a
-/// `pick` label; only "A" is enabled until M11. Returns the mode clicked.
-fn compare_toggle(ui: &mut Ui, t: &Tokens, rect: Rect, current: Compare) -> Option<Compare> {
+/// `pick` label; a segment is enabled when `live` says so. Returns the mode clicked.
+fn compare_toggle(ui: &mut Ui, t: &Tokens, rect: Rect, current: Compare, live: [bool; 3]) -> Option<Compare> {
     let w = rect.width() / COMPARE.len() as f32;
     let font = fonts::semibold(t.button_label);
     let mut clicked = None;
     for (i, (id, label, tip, mode)) in COMPARE.iter().enumerate() {
         let seg = Rect::from_min_size(pos2(rect.min.x + w * i as f32, rect.min.y), vec2(w, rect.height()));
-        let enabled = *mode == Compare::One;
+        let enabled = live.get(i).copied().unwrap_or(false);
         let c = child(ui, seg, enabled);
         let r = c.interact(seg, Id::new(*id), Sense::click());
         let on = current == *mode;

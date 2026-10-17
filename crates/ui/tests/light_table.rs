@@ -19,7 +19,7 @@ use dalica_ui::headless::KeyState;
 use dalica_ui::panels::light_table::layout::{Grid, Layout, STICKY, Spacing};
 use dalica_ui::panels::light_table::{self, Sections};
 use dalica_ui::state::{ScrollAnchor, Section, THUMB_MAX, THUMB_MIN};
-use dalica_ui::{App, Driver, DriverError};
+use dalica_ui::{App, Driver};
 use serde_json::json;
 
 fn folder(n: u64) -> Section {
@@ -359,11 +359,14 @@ fn no_pictures_yet_offers_to_add_a_folder() {
     let get = |id: &str| widgets.iter().find(|w| w.id == id).unwrap_or_else(|| panic!("no {id}")).clone();
     assert_eq!(get(light_table::EMPTY_ID).label, "No pictures yet");
     assert!(get(light_table::ADD_FOLDER_ID).enabled);
-    assert!(!get(light_table::IMPORT_ID).enabled, "Import… waits for the import command");
+    assert!(get(light_table::IMPORT_ID).enabled, "Import… opens the Import room (M11.2)");
     let area = info(&d).area.unwrap();
     let block = get(light_table::EMPTY_ID).rect;
     assert!(area.contains(egui::pos2(block[0] + block[2] / 2.0, block[1] + block[3] / 2.0)), "centred in the light table");
-    assert!(matches!(d.click(light_table::IMPORT_ID), Err(DriverError::Disabled(_))));
+    d.click(light_table::IMPORT_ID).unwrap();
+    assert_eq!(d.state().room, dalica_ui::state::Room::Import, "Import… opens the Import room");
+    d.app_mut().run("room.close", &serde_json::json!({})).unwrap();
+    d.settle(FRAMES).unwrap();
     d.click(light_table::ADD_FOLDER_ID).unwrap();
     assert_eq!(d.state().dialogs.iter().map(|d| d.kind.name()).collect::<Vec<_>>(), ["folderManager"]);
     let row = row_id(&pictures, &pictures);

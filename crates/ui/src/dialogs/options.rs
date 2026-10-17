@@ -6,7 +6,7 @@
 //!
 //! ```text
 //! Options
-//! [General] [File Types] [Export] [Keyboard Shortcuts]
+//! [General] [File Types] [Slideshow] [Photo Viewer] [Export] [Keyboard Shortcuts]
 //! ┌──────────────────────────────────────────────────┐
 //! │ the tab's body                                   │
 //! └──────────────────────────────────────────────────┘
@@ -16,8 +16,8 @@
 //!
 //! This module is the frame: the tabs (`tab:options.<tab>`), the body's fixed height (the dialog is
 //! 720 × 540 points at 100 %, never larger than the window), the error line and the buttons. Each
-//! tab's body is a module of its own ([`general`], [`file_types`], [`export`], [`shortcuts`]), so
-//! the tasks that draw them never share a file.
+//! tab's body is a module of its own ([`general`], [`file_types`], [`slideshow`], [`viewer`],
+//! [`export`], [`shortcuts`]), so the tasks that draw them never share a file.
 //!
 //! - **Apply** (`button:dialog.apply`, enabled while the draft changes something) sends the changed
 //!   values in one `options.set {values}` and the shortcut editor's changes
@@ -31,6 +31,8 @@ pub mod export;
 pub mod file_types;
 pub mod general;
 pub mod shortcuts;
+pub mod slideshow;
+pub mod viewer;
 
 use dalica_engine::CmdError;
 use dalica_ui_kit::fonts;
@@ -55,9 +57,11 @@ const SCREEN_MARGIN: f32 = 32.0;
 const MIN_CONTENT_H: f32 = 120.0;
 
 /// The tabs: their state value, widget id and label.
-pub const TABS: [(OptionsTab, &str, &str); 4] = [
+pub const TABS: [(OptionsTab, &str, &str); 6] = [
     (OptionsTab::General, "tab:options.general", "General"),
     (OptionsTab::FileTypes, "tab:options.fileTypes", "File Types"),
+    (OptionsTab::Slideshow, "tab:options.slideshow", "Slideshow"),
+    (OptionsTab::Viewer, "tab:options.viewer", "Photo Viewer"),
     (OptionsTab::Export, "tab:options.export", "Export"),
     (OptionsTab::Shortcuts, "tab:options.shortcuts", "Keyboard Shortcuts"),
 ];
@@ -120,6 +124,8 @@ pub fn body(app: &mut App, ui: &mut Ui, _d: &mut Dialog) {
         match chosen {
             OptionsTab::General => general::body(app, ui),
             OptionsTab::FileTypes => file_types::body(app, ui),
+            OptionsTab::Slideshow => slideshow::body(app, ui),
+            OptionsTab::Viewer => viewer::body(app, ui),
             OptionsTab::Export => export::body(app, ui),
             OptionsTab::Shortcuts => shortcuts::body(app, ui),
         }

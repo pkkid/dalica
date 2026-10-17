@@ -386,9 +386,13 @@ fn invoking_items_runs_refuses_or_opens_them_like_a_click() {
         assert_eq!(code(&mut t, "ui.menu.invoke", bad.clone()), "not_found", "{bad}");
     }
     // Catalog items without a command yet, and `…` items whose dialog is not built.
-    for p in ["File/Import From…", "View/Slideshow", "Help/Rebuild Library…", "View/Folder View/Simplified Tree View"] {
+    for p in ["Help/Rebuild Library…", "View/Folder View/Simplified Tree View"] {
         assert_eq!(code(&mut t, "ui.menu.invoke", json!({ "path": p })), "unsupported", "{p}");
     }
+    // M11.2: Import From… opens the Import room; View ▸ Slideshow is live and waits for the show.
+    assert_eq!(ok(&mut t, "ui.menu.invoke", json!({ "path": "File/Import From…" })), json!({ "room": "import" }));
+    ok(&mut t, "engine.execute", json!({ "command": "room.close" }));
+    assert_eq!(code(&mut t, "ui.menu.invoke", json!({ "path": "View/Slideshow" })), "disabled");
     // A command since M9.10: with no folder or photo selected it says so.
     assert_eq!(code(&mut t, "ui.menu.invoke", json!({ "id": "section.sort", "params": { "by": "name" } })), "disabled");
     // Bad parameters change nothing.

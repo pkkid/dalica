@@ -25,7 +25,13 @@
 //!   Properties of an album section, Show in Folder), [`search`] (Ctrl+F / F3 to the search
 //!   field, Search for This Tag, Save Search Results…), [`files`] (Move to New Folder…, Split Folder Here…), [`rename`] (Rename…, F2),
 //!   [`folder_ops`] (Folder ▸ Move…) and [`clipboard`] (Cut, Copy, Paste);
-//! - [`options`]: the Options dialog (Tools ▸ Options…, Help ▸ Keyboard Shortcuts…, M10).
+//! - [`options`]: the Options dialog (Tools ▸ Options…, Help ▸ Keyboard Shortcuts…, M10);
+//! - M11's areas, stubs until the tasks that fill them, so those tasks never share a file:
+//!   [`rooms`] (the room tab strip: `room.select`, `room.close`), [`import`] (the Import room:
+//!   `import.open`, Ctrl+M), [`slideshow`] (`view.slideshow`, Ctrl+4, and the show's keys),
+//!   [`peek`] (the quick full-screen preview), [`compare`] (the edit view's compare modes and
+//!   before/after), [`batch`] (Undo All Edits…'s question) and [`viewer`] (the photo viewer's
+//!   keys and its Settings).
 //!
 //! **Openers** ([`OPENERS`]): a menu item ending in `…` whose *engine* command takes input
 //! (`photo.rename {ids, name}`, `photo.moveToNewFolder`, `folder.move`) opens its dialog in the UI,
@@ -46,25 +52,32 @@
 //! `export.run`, `photo.saveTo`), the way `folders.manager` runs `folders.set`.
 
 pub mod albums;
+pub mod batch;
 pub mod caption;
 pub mod clipboard;
+pub mod compare;
 pub mod dialogs;
 pub mod edit_view;
 pub mod export;
 pub mod files;
 pub mod folder_ops;
 pub mod help;
+pub mod import;
 pub mod info;
 pub mod options;
+pub mod peek;
 pub mod rename;
+pub mod rooms;
 pub mod save;
 pub mod save_as;
 pub mod scroll;
 pub mod search;
 pub mod select;
+pub mod slideshow;
 pub mod tools;
 pub mod tray;
 pub mod view;
+pub mod viewer;
 pub mod zoom;
 
 use dalica_engine::{CmdError, Context};
@@ -113,6 +126,13 @@ const AREAS: &[&[UiCommand]] = &[
     files::COMMANDS,
     clipboard::COMMANDS,
     options::COMMANDS,
+    rooms::COMMANDS,
+    import::COMMANDS,
+    slideshow::COMMANDS,
+    peek::COMMANDS,
+    compare::COMMANDS,
+    batch::COMMANDS,
+    viewer::COMMANDS,
 ];
 
 /// Whether a UI command can run now with its parameters; why not (the status line's text) when it
@@ -130,6 +150,10 @@ const CHECKS: &[&[(&str, Check)]] = &[
     search::CHECKS,
     files::CHECKS,
     clipboard::CHECKS,
+    import::CHECKS,
+    slideshow::CHECKS,
+    compare::CHECKS,
+    viewer::CHECKS,
 ];
 
 /// Whether UI command `id` can run now with `params` (what a click passes: `{}`); why not when it
@@ -163,7 +187,7 @@ pub struct Opener {
 }
 
 /// Every opener.
-pub const OPENERS: &[Opener] = &[rename::RENAME, files::MOVE_TO_NEW_FOLDER, folder_ops::MOVE, search::SAVE_RESULTS];
+pub const OPENERS: &[Opener] = &[rename::RENAME, files::MOVE_TO_NEW_FOLDER, folder_ops::MOVE, search::SAVE_RESULTS, batch::UNDO_ALL];
 
 /// The opener of `id`, if it has one.
 pub fn opener(id: &str) -> Option<&'static Opener> {
