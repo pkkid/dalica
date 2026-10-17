@@ -6159,7 +6159,7 @@ and are never loosened. No other step of M11 needs a maintainer decision mid-run
     with a trash gets the file there, and one without (a `faults` switch) deletes it; every fault
     point as Error and as Crash leaves the source whole or the copy verified (`--features faults`);
     hostile names are refused.
-- ⬜ **M11.7 `engine`: import sources, listing and duplicates**
+- ✅ **M11.7 `engine`: import sources, listing and duplicates**
   - after: M11.1, M11.5
   - files: `crates/engine/src/cmd/import.rs`, `crates/engine/src/import.rs`, `crates/engine/src/import/**`, `crates/engine/tests/import_list.rs`
   - scope: `organizing.md` §3 items 1–3 on M11.5's listing: `import.sources` (query: cards, drives

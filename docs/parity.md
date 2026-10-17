@@ -27,7 +27,7 @@ same commit.
 | Section | ✅ | 🟡 | ⬜ | 🚫 |
 |---|---:|---:|---:|---:|
 | A. Library view | 27 | 5 | 2 | 1 |
-| B. Organizing | 20 | 4 | 19 | 0 |
+| B. Organizing | 20 | 6 | 17 | 0 |
 | C. Editing | 11 | 6 | 5 | 4 |
 | D. Viewing | 0 | 1 | 5 | 2 |
 | E. Output | 1 | 0 | 1 | 9 |
@@ -35,7 +35,7 @@ same commit.
 | G. Preferences and system | 6 | 8 | 9 | 0 |
 | H. Menus | 0 | 6 | 2 | 0 |
 | I. Keyboard shortcuts | 74 | 2 | 9 | 0 |
-| **All** | 150 | 40 | 55 | 17 |
+| **All** | 150 | 42 | 53 | 17 |
 <!-- /parity:summary -->
 
 ## Top gaps
@@ -106,9 +106,9 @@ and DATA-FMT-JPEG-FAST (P2).
 | ORG-SORT-PHOTOS | Photo order in sections, manual order persisted | P1 | 🟡 | Sort Folder By ▸ Date / Name / Size and Reverse Order (`cmd:section.sort` on a folder: its sort written to `"folder": {"sort", "reverse"}`, read back by scans; one undo step) and an album's manual order by position keys (`crates/engine/tests/albums.rs`); a manual order inside a folder (dragging thumbnails, `"folder": {"order"}`) is missing; moved here by the P0 audit (M10.26): a manual order inside a folder by dragging (LIB-SEL) and the folder order in sidecars (DATA-SIDECAR) |
 | ORG-ADJDATE | Adjust Date and Time dialog | P1 | 🟡 | the engine command (M6.16): `photo.dates.set {ids, shift}` (every photo by the same seconds from its effective date, else its file time) or `{ids, set}`, one undo step, the folder's photos re-sorted by effective date, dates in the sidecar and surviving a rebuild: `crates/engine/src/cmd/dates.rs`, `crates/engine/tests/dates.rs`, `crates/library/src/query.rs`; the dialog (M6.29): Tools ▸ Adjust Date and Time… opens "Adjust Picture Date" ("— N pictures" for several) with the first photo's thumbnail, "Current date:", "New date:" as a date and a time field (typing, ↑ / ↓ step the part under the cursor, a day that does not exist refused; years 1–9999), for several photos the radios Shift (default) / Set; OK runs `photo.dates.set` once: `crates/ui/src/dialogs/adjust_date.rs`, `crates/ui-kit/src/widgets/datetime.rs`, `crates/ui/tests/adjust_date.rs`, `crates/ui-kit/tests/datetime.rs`; the light table orders and labels by the effective date (captions, tooltip, status line); missing: writing the date into the file (the metadata write queue) and localized date formats |
 | IMP-ROOM | Import room: source, tray, preview, destination strip | P1 | ⬜ | ref 04 §3; moved here by the P0 audit (M10.26): the empty light table's Import… (LIB-EMPTY) |
-| IMP-DEVICES | Memory card and removable-drive detection | P1 | ⬜ | |
+| IMP-DEVICES | Memory card and removable-drive detection | P1 | 🟡 | `scan` (M11.5): cards (a mounted volume holding `DCIM`, imported from that folder) and drives (the other removable volumes, imported from their root) from a cached list refreshed off the calling thread at most every 2 s: `crates/scan/src/devices.rs`, `crates/scan/tests/devices.rs`; engine (M11.7): `cmd:import.sources` (cards, drives, then the recent sources, never waiting on the disk), `cmd:import.open` (a device from that list or a folder; a new source drops the older listing), `cmd:import.list` (the status line "Loading 112 of 340 files…" / "340 files" / "No pictures found", candidates in capture order with their 2-hour groups, paged at 1 000), `cmd:import.close`: `crates/engine/src/cmd/import.rs`, `crates/engine/src/import.rs`, `crates/engine/tests/import_list.rs`; missing: the Import room's "Import from:" list (M11.15) |
 | IMP-MTP | Cameras/phones over MTP/PTP | P2 | ⬜ | OS integration (last milestone) |
-| IMP-DUP | Exclude duplicates | P1 | ⬜ | |
+| IMP-DUP | Exclude duplicates | P1 | 🟡 | engine (M11.7): a candidate is a duplicate when a library photo (its cached MD5 digest, made on the listing's worker and kept in the index when missing) or an earlier candidate has its size and digest and the bytes compare equal in full; "Exclude duplicates" starts from Options ▸ General ▸ Detect duplicates while importing (`cmd:import.options`); Exclude, Include, Exclude All, Include All and the room's star and rotation (`cmd:import.exclude`, `cmd:import.excludeAll`, `cmd:import.mark`), none an undo step: `crates/engine/src/import/worker.rs`, `crates/engine/tests/import_list.rs`; missing: the room's checkbox and ⊘ overlay (M11.15) and the import leaving duplicates out (M11.8) |
 | IMP-NAMING | Folder name options incl. date taken per day | P1 | ⬜ | |
 | IMP-AFTER | After-copying card options (leave, delete copied files) with confirmation; no "delete everything" | P1 | ⬜ | |
 | PPL-DETECT | Face detection + recognition (local models) | P1 | ⬜ | moved here by the P0 audit (M10.26): Find Faces Again (LIB-CTX-PHOTO), the first scan's faces pass (ORG-FIRSTRUN), the Remove Faces question (ORG-FOLDERMGR), the Faces filter (SRCH-FILTERS, LIB-REGIONS), faces and people in sidecars (DATA-SIDECAR) |
