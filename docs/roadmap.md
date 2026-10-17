@@ -6311,7 +6311,7 @@ and are never loosened. No other step of M11 needs a maintainer decision mid-run
     frame (never a grey frame), the wheel steps three photos and release focuses the third;
     holding over empty space does nothing; in the edit view it shows the current photo;
     fingerprints at both window sizes.
-- ⬜ **M11.15 `ui`: the Import room: sources, the import tray and the preview**
+- ✅ **M11.15 `ui`: the Import room: sources, the import tray and the preview**
   - after: M11.7, M11.13
   - files: `crates/ui/src/panels/import.rs`, `crates/ui/src/panels/import/source.rs`, `crates/ui/src/panels/import/tray.rs`, `crates/ui/src/panels/import/preview.rs`, `crates/ui/src/commands/import.rs`, `crates/ui/tests/import_room.rs`, `crates/ui/tests/fingerprints/import-room-*.json`
   - scope: `organizing.md` §3 items 1–3, with LightCraft `crates/ui-egui/src/import.rs`
