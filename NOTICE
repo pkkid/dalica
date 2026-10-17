@@ -144,6 +144,8 @@ file and revision in its first lines:
   crates/ui/src/dialogs/options/shortcuts/draft.rs
                                              LightCraft crates/ui-egui/src/panels/keymap.rs @ b3d392b4,
                                              PhotoCraft crates/ui-egui/src/prefs_ui.rs @ 583425b4
+  crates/scan/src/devices.rs                 LightCraft crates/engine/src/devices.rs @ 3b4279fc
+  crates/scan/tests/devices.rs (tests)       LightCraft crates/engine/src/devices.rs @ 3b4279fc
 
 Any other third-party code ever vendored will be listed here with its source and revision.
 

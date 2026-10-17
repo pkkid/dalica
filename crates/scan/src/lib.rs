@@ -31,8 +31,10 @@
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+pub mod devices;
 mod diff;
 pub mod facts;
+pub mod import;
 pub mod meta;
 pub mod originals;
 pub mod rules;

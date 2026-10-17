@@ -6117,7 +6117,7 @@ and are never loosened. No other step of M11 needs a maintainer decision mid-run
     inside the screen and opacities in 0…1 (property-tested over sizes and progress); Push's two
     rectangles never overlap; Pan and Zoom stays within 5–10 %; the fit never goes past 2×; hostile
     sizes (zero, huge) answer without a panic.
-- ⬜ **M11.5 `scan`: cards and drives, and listing an import source**
+- ✅ **M11.5 `scan`: cards and drives, and listing an import source**
   - after: M5.4, M10.R
   - files: `crates/scan/src/devices.rs`, `crates/scan/src/import.rs`, `crates/scan/src/import/**`, `crates/scan/tests/devices.rs`, `crates/scan/tests/import_source.rs`, `crates/scan/README.md`, `docs/security.md`, `NOTICE`
   - scope: `organizing.md` §3 and `security.md` §5.9: `devices.rs`, ported from LightCraft

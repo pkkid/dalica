@@ -616,7 +616,15 @@ embedded, never loaded by a referenced name. **Planned (M1, M14).**
 - Sync clients create conflict copies (for example `.dalica (conflict).json` style names). Dalica
   does not read or merge them automatically; it may report them. **Planned (M1).**
 - Devices (cameras, cards, phones) are read as untrusted trees: the walker bounds apply, names are
-  validated, and sizes reported by the device are not trusted for allocation. **Planned (M11).**
+  validated, and sizes reported by the device are not trusted for allocation. **Built for cards,
+  drives and folders (M11.5: `dalica-scan` `import::list_source` walks through `dalica-fs` with its
+  depth and loop bounds and at most 100 000 files; FIFOs, sockets and devices are never opened; a
+  name that is not valid Unicode is shown in a lossy form with control and bidirectional characters
+  replaced, and the file is only ever opened by its own name; each file is read in 64 KiB chunks,
+  at most 256 MiB kept for its header and thumbnail and 16 GiB read in all, never by the size the
+  device reports; headers decode under `dalica-image`'s limits, and a header that lies about its
+  size is listed with its reason and no thumbnail; `crates/scan/tests/import_source.rs`). Cameras
+  and phones over MTP/PTP: planned with the OS integration.**
 
 ### 5.10 Private data at rest
 
