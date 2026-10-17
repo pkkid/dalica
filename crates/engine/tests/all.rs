@@ -36,6 +36,8 @@ mod folder_move;
 mod folders;
 mod hide;
 mod import_list;
+mod import_remove;
+mod import_run;
 mod jobs;
 mod keymap;
 mod lessons_m9;

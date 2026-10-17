@@ -54,6 +54,11 @@ pub const ORIGINALS: &str = ".dalica-originals";
 /// The most roots of one kind kept (an MCP client's list beyond it is cut).
 pub const MAX_ROOTS: usize = 256;
 
+/// Commands no automation surface runs, whatever it was granted (`security.md` §5.7): removing
+/// imported files from a card is the one permanent deletion in Dalica, and only the person at the
+/// computer answers its question.
+pub const NEVER_AUTOMATED: &[&str] = &["import.removeFromSource"];
+
 /// Why a path or an effect was refused: the control protocol's error codes (`control-protocol.md`
 /// §3).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -208,8 +213,10 @@ impl Policy {
     }
 
     /// A command with `effect` (`id` naming it): an effect outside Dalica needs
-    /// `--automation-allow-external` (§5.6).
+    /// `--automation-allow-external` (§5.6), and a command of [`NEVER_AUTOMATED`] is refused
+    /// whatever was granted ([`never_automated`]).
     pub fn check_effect(&self, effect: Effect, id: &str) -> Result<(), Refused> {
+        never_automated(id)?;
         if effect == Effect::External && !self.allow_external {
             return Err(Refused::new(
                 Refusal::ExternalDenied,
@@ -308,6 +315,18 @@ impl Policy {
         }
         Ok(target)
     }
+}
+
+/// Refuses a command of [`NEVER_AUTOMATED`] (`external_denied`, as no grant allows it): every
+/// automation surface asks this before it runs a command.
+pub fn never_automated(id: &str) -> Result<(), Refused> {
+    if NEVER_AUTOMATED.contains(&id) {
+        return Err(Refused::new(
+            Refusal::ExternalDenied,
+            format!("`{id}` never runs over automation: it deletes files from a card, and only the person at the computer may answer its question"),
+        ));
+    }
+    Ok(())
 }
 
 /// Adds `dir` to `roots` when it is absolute and not there yet, up to [`MAX_ROOTS`].
