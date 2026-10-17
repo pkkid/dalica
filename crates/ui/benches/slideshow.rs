@@ -260,12 +260,12 @@ fn main() {
     }
     if a.check && mode == "release" && a.size.0 * a.size.1 >= FULL.0 * FULL.1 {
         let p50 = get("advance", "p50_ms");
-        if !(p50 <= ADVANCE_BUDGET_MS) {
+        if p50.is_nan() || p50 > ADVANCE_BUDGET_MS {
             missed.push(format!("advance: median {p50:.2} ms, over the {ADVANCE_BUDGET_MS} ms budget"));
         }
         let p95 = get("transition frame", "p95_ms");
         let budget = TRANSITION_BUDGET_MS.min(FRAME_CAP_MS);
-        if !(p95 <= budget) {
+        if p95.is_nan() || p95 > budget {
             missed.push(format!("transition frame: p95 {p95:.3} ms, over the {budget} ms budget"));
         }
     }
