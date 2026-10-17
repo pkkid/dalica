@@ -9,27 +9,25 @@
 //!   in **one library undo step** named by the operation ("Undo Auto Fix"). An operation this
 //!   build cannot draw yet is disabled with its reason ("Arrives with Effects").
 //! - **`edit.copyRecipe {id}`** (Edit ▸ Copy All Edits): keeps the photo's whole recipe, verbatim,
-//!   for this session (per library; nothing is written).
+//!   for this session (nothing is written).
 //! - **`edit.pasteRecipe {ids}`** (Edit ▸ Paste All Edits in the library): replaces each photo's
 //!   recipe with the copied one, verbatim (an operation Dalica cannot read comes along unchanged),
-//!   as one library step ("Undo Paste All Edits"); videos are skipped and named. **`{id, history:
-//!   true}`** (the edit view) is one step of that photo's own history instead.
+//!   as one library step ("Undo Paste All Edits"). **`{id, history: true}`** (the edit view) is one
+//!   step of that photo's own history instead. **Nothing a photo holds is dropped silently**, as
+//!   with `edit.recipe.set`: a photo holding an entry Dalica cannot read (a `legacy:` entry, an
+//!   operation from a newer version, refused parameters) that the copied recipe lacks keeps its
+//!   recipe; the library form skips it and names it with its reason under `skipped`, as it does
+//!   videos, and the history form is refused.
 //! - **`edit.undoAll {ids, confirm}`** (Picture ▸ Undo All Edits…): asks first (without
 //!   `"confirm": true` it refuses with the question, `needs_confirm` over automation), then empties
 //!   every unsaved recipe (and its redo list) as one library step ("Undo Remove Edits");
 //!   **`{id, history: true, confirm}`** is one step of that photo's history. A saved photo keeps
 //!   its saved pixels (Undo Save is the way back to its original) and is named in the answer.
 //!
-//! **The library step.** The step of `edit.apply`, and the library steps of `pasteRecipe` and
-//! `undoAll`, are recorded here ([`library_step`]) so they carry their own names; inside
-//! [`Session::execute_group`] the change is left to the group, which names its one step itself.
-//! `pasteRecipe` and `undoAll` are declared [`History::Photo`] because their `history` form is a
-//! photo step (a library-history command would record that change on the library stack too);
-//! their library form records its library step through [`library_step`].
-
-use std::collections::HashMap;
-use std::path::PathBuf;
-use std::sync::{LazyLock, Mutex, PoisonError};
+//! **The library step** is named by the change ([`Session::name_step`]: "Undo Auto Fix", "Undo
+//! Paste All Edits", "Undo Remove Edits"; inside [`Session::execute_group`] the group names its one
+//! step). `pasteRecipe` and `undoAll` are declared [`History::Photo`] because their `history` form
+//! is a photo step; naming the step makes their library form a library step.
 
 use dalica_core::PhotoId;
 use dalica_edit::{Op as EditOp, Recipe as EditRecipe};
@@ -43,7 +41,6 @@ use crate::error::CmdError;
 use crate::history::{Change, label};
 use crate::registry::{CommandSpec, Disabled, Effect, History, params};
 use crate::session::Session;
-use crate::undo::Step;
 
 /// Why an effect is greyed until it renders (`editing.md` §9).
 pub const ARRIVES_WITH_EFFECTS: &str = "Arrives with Effects";
@@ -61,7 +58,7 @@ pub const NO_EDITS: &str = "None of these photos has edits to remove.";
 pub const PASTE_LABEL: &str = "Paste All Edits";
 /// The library step of Undo All Edits ("Undo Remove Edits").
 pub const REMOVE_LABEL: &str = "Remove Edits";
-/// How many saved photos the question names.
+/// How many saved photos the question names, and how many entries a refusal names.
 const NAMED: usize = 4;
 
 pub fn specs() -> Vec<CommandSpec> {
@@ -93,7 +90,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Paste All Edits",
             menu: "",
             keys: &[],
-            params: r#"{"ids":[PhotoId]} | {"id":PhotoId, "history":true}: replaces each photo's recipe with the copied one, verbatim, clearing its redo list: as one library undo step ("Undo Paste All Edits"; videos skipped), or with "history": true as one step of that photo's own history (the edit view); disabled until a recipe is copied; answers {ids (changed), skipped:[PhotoId] (videos)} or, with history, the photo's history as photo.history.state does"#,
+            params: r#"{"ids":[PhotoId]} | {"id":PhotoId, "history":true}: replaces each photo's recipe with the copied one, verbatim, clearing its redo list: as one library undo step ("Undo Paste All Edits"; videos skipped), or with "history": true as one step of that photo's own history (the edit view); disabled until a recipe is copied; a photo holding an entry Dalica cannot read (legacy:, from a newer version, refused parameters) that the copied recipe lacks keeps its recipe and is skipped with its reason (the history form is refused); answers {ids (changed), skipped:[{id, reason}] (videos, unreadable entries)} or, with history, the photo's history as photo.history.state does"#,
             effect: Effect::Library,
             history: History::Photo,
             enabled: paste_enabled,
@@ -113,43 +110,20 @@ pub fn specs() -> Vec<CommandSpec> {
     ]
 }
 
-// ----- The copied recipe -----
-
-/// The recipe Copy All Edits kept, per library folder (one session holds a library at a time).
-static COPIED: LazyLock<Mutex<HashMap<PathBuf, Vec<String>>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
-
-/// The recipe copied in `s`'s library, if any.
-pub fn copied(s: &Session) -> Option<Vec<String>> {
-    COPIED.lock().unwrap_or_else(PoisonError::into_inner).get(&s.dir).cloned()
-}
-
-fn keep_copied(s: &Session, recipe: Vec<String>) {
-    COPIED.lock().unwrap_or_else(PoisonError::into_inner).insert(s.dir.clone(), recipe);
-}
-
 // ----- Shared helpers -----
 
-/// Whether `s` is running the steps of [`Session::execute_group`]: a group refuses to start
-/// inside another, and an empty group changes nothing.
-fn in_group(s: &mut Session) -> bool {
-    s.execute_group(&[], "").is_err()
+/// The recipe copied in `s`, if any.
+pub fn copied(s: &Session) -> Option<Vec<String>> {
+    s.copied_recipe.clone()
 }
 
-/// Sets `recipes` as one library undo step named `name` ("Undo `name`"). Inside a group the
-/// change is collected by the group, which names its step.
+/// Sets `recipes` as one library undo step named `name` ("Undo `name`").
 fn library_step(s: &mut Session, name: &'static str, recipes: Vec<(PhotoId, Recipe)>) -> Result<(), CmdError> {
     if recipes.is_empty() {
         return Ok(());
     }
-    let op = Op::SetRecipes { recipes };
-    if in_group(s) {
-        return s.apply(op).map(|_| ());
-    }
-    // Stamped here (Recently Updated): `apply_own` leaves that to its caller.
-    let op = s.library.stamped(op, s.clock.now());
-    let inverse = s.apply_own(op)?;
-    s.undo.push(Step { label: name, op: inverse, modes: None });
-    Ok(())
+    s.name_step(name);
+    s.apply(Op::SetRecipes { recipes }).map(|_| ())
 }
 
 /// The photos `ids` names, all known, at least one.
@@ -325,7 +299,7 @@ fn copy(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
     if recipe.is_empty() {
         return Err(CmdError::Disabled(NO_EDITS_TO_COPY.into()));
     }
-    keep_copied(s, recipe.clone());
+    s.copied_recipe = Some(recipe.clone());
     Ok(json!({ "id": id, "recipe": recipe }))
 }
 
@@ -342,6 +316,39 @@ fn is_video(s: &Session, id: PhotoId) -> bool {
     s.library().facts(id).video
 }
 
+/// Why Paste may not replace a recipe of `video` holding `held` with `new`, if it may not: a video,
+/// or an entry Dalica cannot read (`legacy:`, an operation from a newer version, parameters its
+/// module refuses) that the photo holds and the copied recipe lacks (each counted as often as it
+/// stands), as `edit.recipe.set` refuses it.
+fn paste_refusal(video: bool, held: &[String], new: &[String]) -> Option<String> {
+    if video {
+        return Some("Edits are not pasted onto videos.".into());
+    }
+    let readable = |e: &str| {
+        let op = EditOp::parse(e);
+        op.is_known() && !matches!(op.typed(), Some(Err(_)))
+    };
+    let mut kept: Vec<&String> = new.iter().filter(|e| !readable(e)).collect();
+    let mut dropped = Vec::new();
+    for entry in held.iter().filter(|e| !readable(e)) {
+        match kept.iter().position(|k| *k == entry) {
+            Some(i) => {
+                kept.swap_remove(i);
+            }
+            None => dropped.push(format!("{:?}", entry.chars().take(64).collect::<String>())),
+        }
+    }
+    if dropped.is_empty() {
+        return None;
+    }
+    let total = dropped.len();
+    let mut named: Vec<String> = dropped.into_iter().take(NAMED).collect();
+    if total > NAMED {
+        named.push(format!("and {} more", total - NAMED));
+    }
+    Some(format!("the photo holds operations Dalica cannot read that the copied edits lack: {}; its recipe is kept", named.join(", ")))
+}
+
 fn paste(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
     let target: Target = params(p)?;
     if target.confirm {
@@ -354,22 +361,26 @@ fn paste(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
             if is_video(s, id) {
                 return Err(CmdError::Disabled("Edits are not pasted onto videos.".into()));
             }
+            if let Some(why) = paste_refusal(false, &s.library().info(id).edits, &recipe) {
+                return Err(CmdError::BadParams(format!("photo {id}: {why}")));
+            }
             s.photo_step(id, Change::Replace(recipe), None)?;
             Ok(state_json(id, &history_of(s, id)?))
         }
         Mode::Library(ids) => {
-            let (videos, ids): (Vec<PhotoId>, Vec<PhotoId>) = ids.into_iter().partition(|id| is_video(s, *id));
-            let recipes: Vec<(PhotoId, Recipe)> = ids
-                .into_iter()
-                .filter(|id| {
-                    let info = s.library().info(*id);
-                    info.edits != recipe || !info.redo.is_empty()
-                })
-                .map(|id| (id, Recipe { edits: recipe.clone(), redo: Vec::new() }))
-                .collect();
+            let mut skipped = Vec::new();
+            let mut recipes = Vec::new();
+            for id in ids {
+                let info = s.library().info(id);
+                if let Some(why) = paste_refusal(is_video(s, id), &info.edits, &recipe) {
+                    skipped.push(json!({ "id": id, "reason": why }));
+                } else if info.edits != recipe || !info.redo.is_empty() {
+                    recipes.push((id, Recipe { edits: recipe.clone(), redo: Vec::new() }));
+                }
+            }
             let changed: Vec<PhotoId> = recipes.iter().map(|(id, _)| *id).collect();
             library_step(s, PASTE_LABEL, recipes)?;
-            Ok(json!({ "ids": changed, "skipped": videos }))
+            Ok(json!({ "ids": changed, "skipped": skipped }))
         }
     }
 }

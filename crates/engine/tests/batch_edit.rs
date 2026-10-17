@@ -115,6 +115,51 @@ fn paste_on_five_photos_replaces_their_recipes_and_keeps_an_unknown_operation() 
     assert_eq!(after, before, "undo gives each recipe and redo list back");
 }
 
+/// `AGENTS.md` §3, "Merge, never replace": a target's entry Dalica cannot read is never dropped
+/// silently by Paste, as `edit.recipe.set` never drops it.
+#[test]
+fn paste_keeps_a_recipe_holding_an_entry_dalica_cannot_read_and_names_it() {
+    let sidecar = json!({
+        "photos": {
+            "IMG_0001.jpg": { "edits": ["autofix()", "future_op(1;2)"] },
+            "IMG_0002.jpg": { "edits": ["legacy:redeye(1)", "bw()"] },
+            "IMG_0003.jpg": { "edits": ["future_op(1;2)", "rotate(90)"] }
+        }
+    });
+    let (_lib, _disk, folder, mut s, ids) = lisbon(&photos(4), Some(&sidecar));
+    s.execute("edit.copyRecipe", &json!({ "id": ids[0] })).unwrap();
+    let held = recipe(&s, ids[1]);
+
+    let v = s.execute("edit.pasteRecipe", &json!({ "ids": ids[1..] })).unwrap();
+    assert_eq!(v["ids"], json!([ids[2], ids[3]]), "a photo whose unreadable entry the copied recipe holds too takes it");
+    assert_eq!(v["skipped"].as_array().unwrap().len(), 1);
+    assert_eq!(v["skipped"][0]["id"], json!(ids[1]));
+    let reason = v["skipped"][0]["reason"].as_str().unwrap();
+    assert!(reason.contains("legacy:redeye(1)"), "{reason}");
+    assert_eq!(recipe(&s, ids[1]), held, "its recipe is kept");
+    assert_eq!(edits(&s, ids[2]), list(&["autofix()", "future_op(1;2)"]));
+    s.flush().unwrap();
+    let file: Value = serde_json::from_slice(&read(&folder.join(".dalica.json"))).unwrap();
+    assert_eq!(file["photos"]["IMG_0002.jpg"]["edits"], json!(["legacy:redeye(1)", "bw()"]));
+
+    // The history form is refused, and nothing changes.
+    let r = s.execute("edit.pasteRecipe", &json!({ "id": ids[1], "history": true }));
+    assert!(matches!(&r, Err(CmdError::BadParams(m)) if m.contains("legacy:redeye(1)")), "{r:?}");
+    assert_eq!(recipe(&s, ids[1]), held);
+}
+
+/// The copied recipe belongs to the session: a new session of the same library has none.
+#[test]
+fn the_copied_recipe_lasts_as_long_as_the_session() {
+    let (lib, _disk, _folder, mut s, ids) = lisbon(&photos(2), None);
+    s.execute("photo.history.apply", &json!({ "id": ids[0], "op": "autofix()" })).unwrap();
+    s.execute("edit.copyRecipe", &json!({ "id": ids[0] })).unwrap();
+    s.flush().unwrap();
+    drop(s);
+    let mut s = crate::common::open(lib.path());
+    assert_eq!(s.execute("edit.pasteRecipe", &json!({ "ids": [ids[1]] })), Err(CmdError::Disabled(NOTHING_COPIED.into())));
+}
+
 #[test]
 fn paste_with_history_is_a_step_of_the_photos_history_and_not_of_the_library() {
     let (_lib, _disk, _folder, mut s, ids) = lisbon(&photos(2), None);

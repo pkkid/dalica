@@ -313,7 +313,10 @@ code). Each effect has a fingerprint test on a procedural scene so its look is p
 - Edit → **Copy All Edits** (one photo with edits selected): copies the photo's whole recipe,
   kept for the session (`edit.copyRecipe {id}`). Edit → **Paste All Edits**: **replaces** the
   recipe of the open photo or every selected photo with the copied one, verbatim (an operation
-  Dalica cannot read comes along unchanged), and clears its redo list. In the library it is one
+  Dalica cannot read comes along unchanged), and clears its redo list. Nothing a photo holds is
+  dropped silently: a photo holding an entry Dalica cannot read (a `legacy:` entry, an operation
+  from a newer version) that the copied recipe lacks keeps its recipe, and is skipped and named
+  with that reason (in the edit view the paste is refused). In the library it is one
   library undo step ("Undo Paste All Edits"; videos skipped with a toast, `edit.pasteRecipe
   {ids}`); in the edit view one step of the open photo's history (`{id, history: true}`). Greyed
   until something is copied.
