@@ -369,9 +369,19 @@ fn the_listing_covers_every_command_once_per_context() {
         json!([{ "command": "photo.star.toggle", "label": "Star / Unstar", "menu": "Picture/Star / Unstar", "context": "library",
                  "keys": ["Ctrl+8", "F4"], "defaults": ["Ctrl+8", "F4"], "modified": false, "editable": true }])
     );
-    // No command is a hold gesture yet: every row is editable.
+    // Pressed commands are editable; the hold gestures (the quick preview, Show original), once the
+    // app adds them, are listed but not editable, and their key cannot be changed.
     let r = s.execute("keymap.list", &json!({ "withoutKeys": true })).unwrap();
     assert!(r["rows"].as_array().unwrap().iter().all(|row| row["editable"] == json!(true)));
+    let holds: [(&str, DefaultKeys); 2] = [("peek", &[]), ("edit.showOriginal", &[(Context::EditView, "\\")])];
+    s.add_ui_keys(&holds).unwrap();
+    let r = s.execute("keymap.list", &json!({ "withoutKeys": true })).unwrap();
+    for row in r["rows"].as_array().unwrap() {
+        let hold = matches!(row["command"].as_str(), Some("peek" | "edit.showOriginal"));
+        assert_eq!(row["editable"], json!(!hold), "{row}");
+    }
+    let refused = s.execute("app.setShortcut", &json!({ "command": "edit.showOriginal", "context": "editView", "key": "F9" }));
+    assert!(matches!(refused, Err(CmdError::Disabled(_))), "{refused:?}");
 }
 
 /// Search by name, menu path and key, ignoring case and spelling; the Context filter.

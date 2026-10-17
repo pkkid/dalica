@@ -174,14 +174,13 @@ fn controls_without_a_command_are_disabled_and_the_view_options_popup_opens() {
     let mut d = driver(dir.path(), (1400.0, 900.0));
     for (id, _) in CONTROLS {
         let wi = widget(&d, id);
-        // Only Import (`import.open`) has no command yet; Faces waits for faces; the activity
-        // indicator takes no click at rest.
-        let want = !matches!(id, "button:toolbar.import" | "button:filter.faces" | "indicator:activity");
+        // Faces waits for faces; the activity indicator takes no click at rest. Import
+        // (`import.open`) opens the Import room since M11.2.
+        let want = !matches!(id, "button:filter.faces" | "indicator:activity");
         assert_eq!(wi.enabled, want, "`{id}` enabled: {}", wi.enabled);
     }
     let before = d.state().clone();
-    assert!(d.click("button:toolbar.import").is_err(), "a disabled control does not take clicks");
-    assert!(d.click("button:filter.faces").is_err());
+    assert!(d.click("button:filter.faces").is_err(), "a disabled control does not take clicks");
     assert_eq!(d.state(), &before);
 
     d.click("button:toolbar.viewOptions").unwrap();

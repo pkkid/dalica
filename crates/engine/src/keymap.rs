@@ -267,9 +267,9 @@ pub struct Override {
 pub const KEYS_PER_CONTEXT: usize = 2;
 
 /// Commands run by holding a key rather than pressing it (`menus-and-shortcuts.md` §2.0: the
-/// quick full-screen preview's Ctrl+Alt, Show original's `\`): listed, never rebound. None is a
-/// keymap command yet; their tasks add their ids here.
-pub const HOLD_GESTURES: &[&str] = &[];
+/// quick full-screen preview's Ctrl+Alt, Show original's `\`): listed, never rebound. Both are UI
+/// commands the app adds to the keymap (`peek`, `edit.showOriginal`; M11.2).
+pub const HOLD_GESTURES: &[&str] = &["peek", "edit.showOriginal"];
 
 /// Whether `command` is a hold gesture ([`HOLD_GESTURES`]).
 pub fn is_hold(command: &str) -> bool {
