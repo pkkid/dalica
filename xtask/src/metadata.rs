@@ -30,6 +30,9 @@ pub struct Package {
     pub manifest_path: PathBuf,
     #[serde(default)]
     pub dependencies: Vec<Dependency>,
+    /// The `[features]` table: each feature and what it enables (`dep:x`, `x/f`, `x?/f`, `f`).
+    #[serde(default)]
+    pub features: std::collections::BTreeMap<String, Vec<String>>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -42,6 +45,12 @@ pub struct Dependency {
     /// Set for path dependencies.
     #[serde(default)]
     pub path: Option<PathBuf>,
+    /// Built only when a feature enables it.
+    #[serde(default)]
+    pub optional: bool,
+    /// The name it is used by when renamed (`package = …`), which its features refer to.
+    #[serde(default)]
+    pub rename: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

@@ -53,7 +53,7 @@ Principles:
 | File writes | atomic replace with identity check, no writes through symlinks, OS trash only | **Implemented** for sidecars (M1) and metadata write-back (M6.30: re-read, merge, verify, `fs::replace` expecting the identity read, the modification time put back; a root checked right before each write, M6.43); M8 (Save), M9 (file operations) | network file systems weaken atomicity (§5.9); a process killed between the rename and putting the time back leaves the new file with the write's time |
 | Control channel | loopback only, 256-bit token from a `0600` file, JSON-request-only lines, request/reply/connection/batch limits | M2 | no per-client capabilities, no encryption |
 | MCP server | stdio by default, roots, read-only mode, tool annotations, same limits | M10 | an authenticated agent can still trash or caption any photo in the library unless read-only |
-| Network features | user-initiated only, TLS with certificate validation always on, size limits, pinned model hashes | the HTTPS transport **implemented** (M13.13: `crates/fetch/src/http.rs`, `http/`, `proxy.rs`; the stack of §8.2, redirects to https only and at most 8, reply heads capped, `HTTPS_PROXY`/`NO_PROXY` or a manual proxy through `CONNECT`; fuzz target `response`); model downloads M13.16, map tiles and the geocoder M13.20 | the crypto provider is an alpha release (§8.2); no revocation checking (no OCSP or CRL fetching); the root certificates are fixed at build time; no proxy authentication |
+| Network features | user-initiated only, TLS with certificate validation always on, size limits, pinned model hashes | the HTTPS transport **implemented** (M13.13: `crates/fetch/src/http.rs`, `http/`, `proxy.rs`; the stack of §8.2, redirects to https only and at most 8, reply heads capped, `HTTPS_PROXY`/`NO_PROXY` or a manual proxy through `CONNECT`; fuzz target `response`); map tiles and the geocoder **implemented** (M13.20: `crates/engine/src/map_tiles.rs`, `geocode.rs`: off until the user allows them, only from the open Places pane, at most two tiles at a time, cached, one geocoder request a second, the limits of §4.2); model downloads M13.16 | the crypto provider is an alpha release (§8.2); no revocation checking (no OCSP or CRL fetching); the root certificates are fixed at build time; no proxy authentication |
 | Generated output | escaped JSON, sanitized file names | M8 (export), M14 (collage) | |
 | Dependencies | pure Rust, banned crates, licence allow-list, advisory check | M0 | scanner results do not replace review |
 | Releases | draft releases, `SHA256SUMS.txt`, optional signing secrets, least-privilege jobs | **Implemented** (M6.13 `.github/workflows/release.yml`, `packaging/checksums.sh`; packages M6.21–M6.23); signing and notarization M15 | until M15 every artifact is unsigned (ad hoc on macOS); consumers verify `SHA256SUMS.txt` |
@@ -320,7 +320,7 @@ rather than relying on defaults.
 | Video containers | `image` or the video crate | box depth ≤ 12, ≤ 4,096 boxes per level, sample tables bounded; or an external process with a timeout (reserved decision 2) | M15 |
 | Face models | `faces` | file ≤ 512 MiB (a longer source refused before a byte is read); weights ≤ 64 Mi elements in all, ≤ 20,000 weight tensors and ≤ 20,000 nodes; rank ≤ 8 for every weight, declared input or output and value; names ≤ 4,096 bytes, lists ≤ 1,000,000 values, ≤ 5,000,000 protobuf fields; one input, ≤ 64 outputs; any one tensor ≤ 64 Mi elements; live tensors, constant copies and the convolution scratch kept between layers ≤ 512 MiB at every step, checked for the input before anything is allocated; every weight and every computed value finite (an overflow is an error); stride and padding ≤ 65,536, nearest `Resize` by whole factors 1–16; external or sparse weights, custom operator domains, training graphs, opsets outside 10–17 and element types other than float32 (int64 only for constant shapes) refused by name; the interpreter starts no thread and a panic in a run is caught; SHA-256 pinned in the source for the built-in models | Limits **implemented** (M13.6; `crates/faces/src/limits.rs`, `graph.rs`, `net/shape.rs`, `runtime.rs`); the pins M13.10 |
 | HTTPS replies | `fetch` | status line and headers ≤ 64 KiB and ≤ 100 lines (no folded lines), ≤ 4 interim `1xx` heads, a chunk-size line ≤ 1 KiB and ≤ 100 trailers; one `Content-Length` (two different ones refused); a compressed or transformed body refused; ≤ 8 redirects, each to an https address; a proxy's `CONNECT` answer ≤ 16 KiB; the body capped by the download's spec (`fetch`) | **Implemented** (M13.13: `crates/fetch/src/http/response.rs`, `proxy.rs`) |
-| Map tiles, geocoder replies | network module | tile ≤ 1 MiB and ≤ 1,024 px edge, decoded under the raster limits; JSON reply ≤ 1 MiB, depth ≤ 32 | M13 |
+| Map tiles, geocoder replies | `engine` | tile ≤ 1 MiB (refused as it arrives, announced or not) and ≤ 1,024 px edge (read from its header before any pixel), decoded under the raster limits, a placeholder otherwise and never kept in the cache; JSON reply ≤ 1 MiB, nesting depth ≤ 32 (checked before it is parsed), ≤ 20 results, a name ≤ 256 bytes and a place ≤ 1 KiB each, a point on the globe or the result is passed over; the cache (`<cache>/tiles/`) ≤ 200 MB, pruned oldest first, listing and deleting only its own file names inside its own folder names, links never followed | **Implemented** (M13.20: `crates/engine/src/map_tiles.rs`, `geocode.rs`; `crates/engine/tests/map_tiles.rs`) |
 
 ### 4.3 Work budgets during scans
 
@@ -1004,8 +1004,9 @@ Map tiles, geocoding and model downloads (M13) need TLS. The usual Rust TLS prov
   certificates are data, and sharing them asks only that the licence text go with them), is not in
   §8.3's list; it is the one reviewed `LICENCE_EXCEPTIONS` row in `xtask/src/deps.rs`, allowed by
   the maintainer with this decision. Its licence text must travel with the release packages from
-  the first release that links `dalica-fetch` into the app (not yet: no app depends on it at
-  M13.13); the packages carry `NOTICE` and `ATTRIBUTION.md` today, not dependencies' licences.
+  the first release that links `dalica-fetch` into the app: the engine depends on it from M13.20
+  (map tiles and place searches), so 0.8 is that release; the packages carry `NOTICE` and
+  `ATTRIBUTION.md` today, not dependencies' licences.
 
 What was weighed: `rustls-rustcrypto` is an **alpha** release (0.0.2-alpha), younger and far less
 widely deployed than `ring` or `aws-lc-rs`. It is accepted because the alternatives break §8.1 (`ring` and `aws-lc-rs`
@@ -1016,7 +1017,11 @@ not a redesign (the provider is one line of `http/wire.rs`).
 
 `Cargo.lock` lists `ring` as an optional dependency of `rustls-webpki` that no enabled feature
 turns on; it is never built (`cargo tree -i ring` prints nothing, and `cargo xtask deps` checks the
-resolved graph, §8.1). `rustls-rustcrypto` also brings an older `rustls-webpki` (0.102) for its
+resolved graph, §8.1). `cargo metadata` still lists it under `rustls-webpki`, named by the weak
+feature `alloc = ["ring?/alloc"]`; since M13.20 (when the engine began to link `dalica-fetch`) the
+gate counts an optional dependency only when the parent's resolved features turn it on (`ring`,
+`dep:ring`, `ring/…`, through any chain), and a test keeps it agreeing with `cargo tree -i ring`
+on every target. `rustls-rustcrypto` also brings an older `rustls-webpki` (0.102) for its
 signature-algorithm types; the certificate chain is checked by rustls's own `rustls-webpki` 0.103.
 
 Whatever the stack: certificate validation is never disabled (there is no setting or API to turn

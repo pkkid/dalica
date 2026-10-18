@@ -4,8 +4,8 @@
 //! Export tables is in the catalogue once, on its tab, and nothing else is; keys are unique; each
 //! default is what its setting's accessor reads from an empty file (and a bool's is the table's
 //! on / off, a number's the table's number); each option that can be changed, stored under its key
-//! with each of its choices, is read back by that accessor; and the Network rows that wait on a
-//! reserved decision say so while the People rows can be changed.
+//! with each of its choices, is read back by that accessor; and the People rows and the Network
+//! rows of reserved decision 4 (M13.20) can be changed, the network log level still waiting.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -131,10 +131,10 @@ fn stored_and_read_back(o: &OptionSpec, other: &Value) {
 }
 
 /// M13's tabs: the People rows can be changed and their sliders take 50–95 in steps of 5; the map
-/// and proxy rows of the Network tab wait on reserved decisions 4 and 9 with the reasons
-/// `map_tiles` gives, and the network log level on the network log.
+/// and proxy rows of the Network tab can be changed since reserved decisions 4 and 9 were taken
+/// (`map_tiles` gives no reason), and the network log level waits on the network log.
 #[test]
-fn the_people_rows_can_be_changed_and_the_network_rows_wait_on_their_decisions() {
+fn the_people_and_network_rows_can_be_changed_but_the_network_log() {
     let people: Vec<&str> = on_tab(Tab::People).map(|o| o.key).collect();
     assert_eq!(
         people,
@@ -164,8 +164,8 @@ fn the_people_rows_can_be_changed_and_the_network_rows_wait_on_their_decisions()
             ("network.logLevel", Some("Arrives with the network log")),
         ]
     );
-    assert!(TILES_UNAVAILABLE.is_some_and(|r| r.starts_with("Arrives")) && PROXY_UNAVAILABLE.is_some_and(|r| r.starts_with("Arrives")));
-    // Stored by hand, a waiting row's value reads through its accessor all the same.
+    assert_eq!((TILES_UNAVAILABLE, PROXY_UNAVAILABLE), (None, None));
+    // Stored by hand, a row's value reads through its accessor.
     let mut st = Settings::default();
     st.merge("network", &[("allowMapTiles", Some(json!(true)))]);
     assert_eq!((find("network.allowMapTiles").unwrap().read)(&st), json!(true));
