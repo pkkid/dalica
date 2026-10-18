@@ -170,7 +170,7 @@ fn apply_edit_follows_the_edit_view() {
     assert_eq!(code(&c.call(16, "apply_edit", json!({ "ids": [3], "op": "autofix", "params": { "amount": 1 } }))), "bad_params");
     assert_eq!(code(&c.call(17, "apply_edit", json!({ "ids": [3], "op": "crop", "params": { "rect": [0.6, 0.6, 0.1, 0.1] } }))), "bad_params");
     assert_eq!(code(&c.call(18, "apply_edit", json!({ "ids": [3], "op": "crop", "params": { "rect": [0, 1] } }))), "bad_params");
-    assert_eq!(code(&c.call(19, "apply_edit", json!({ "ids": [3], "op": "soft_focus" }))), "bad_params", "a parameter with no default yet");
+    assert_eq!(code(&c.call(19, "apply_edit", json!({ "ids": [3], "op": "trim" }))), "bad_params", "a parameter with no default yet");
     assert_eq!(code(&c.call(20, "apply_edit", json!({ "ids": [], "op": "autofix" }))), "disabled");
     assert_eq!(recipe(&mut c, 21, 3), "autofix()", "nothing applied");
     invalid(&mut c, 22, "apply_edit", json!({ "ids": [3] }));

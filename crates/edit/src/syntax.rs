@@ -24,10 +24,11 @@ use crate::ops::{self, Operation, ParamError, Typed};
 /// The prefix of operations kept from the legacy organizer's sidecar.
 pub const LEGACY_PREFIX: &str = "legacy:";
 
-/// The operations of `data-model.md` §3.1 whose parameters stay text in M6, so their modules (M7)
-/// type them. `rotate`, `flip_h` and `flip_v` are typed here and are not in this list. An effect
-/// `editing.md` describes but §3.1 does not yet name joins the list with its module.
-pub const LISTED: [&str; 21] = [
+/// The operations of `data-model.md` §3.1 whose parameters stay text until their module types
+/// them (M7; the effects' modules, M12.1). `rotate`, `flip_h` and `flip_v` are typed here and are
+/// not in this list. The 27 effects stand in the order of their tabs' grids (`editing.md` §8): tab
+/// 3 from `sharpen` to `graduated_tint` (as M6 listed them), then tab 4 and tab 5.
+pub const LISTED: [&str; 36] = [
     "crop",
     "straighten",
     "retouch",
@@ -37,6 +38,7 @@ pub const LISTED: [&str; 21] = [
     "fill_light",
     "tuning",
     "trim",
+    // Tab 3, Effects.
     "sharpen",
     "sepia",
     "bw",
@@ -49,6 +51,23 @@ pub const LISTED: [&str; 21] = [
     "filtered_bw",
     "focal_bw",
     "graduated_tint",
+    // Tab 4, More effects.
+    "infrared",
+    "plastic_lens",
+    "hdr",
+    "widescreen",
+    "dream_glow",
+    "invert",
+    "duotone",
+    // Tab 5, Even more effects.
+    "boost",
+    "soften",
+    "vignette",
+    "pixelate",
+    "focal_zoom",
+    "border",
+    "drop_shadow",
+    "museum_matte",
 ];
 
 /// Listed operations that change the picture's geometry; they come first in the pipeline.
@@ -175,15 +194,22 @@ impl Op {
         }
     }
 
-    /// The operation's typed parameters, read by its module (`ops`): `None` for legacy and unknown
-    /// operations and for known ones without a module yet (the effects); `Some(Err)` when the
-    /// module refuses the parameter text (the operation is then kept and skipped by rendering).
+    /// The operation's typed parameters, read by its module (`ops`), for an operation Dalica
+    /// renders: `None` for legacy and unknown operations, for known ones without a module (`trim`)
+    /// and for those whose module is still a stub (`VERSION` 0: the effects until their renderer
+    /// lands), so every reader of "can Dalica render this" (Save, the renderer) keeps treating them
+    /// as not rendered; `Some(Err)` when the module refuses the parameter text, a stub's too (the
+    /// operation is then kept and skipped by rendering). [`Typed::parse`] reads a stub's
+    /// parameters whatever its version.
     pub fn typed(&self) -> Option<Result<Typed, ParamError>> {
         match self {
             Op::Rotate(turn) => Some(Ok(Typed::Rotate(Rotate(*turn)))),
             Op::FlipH => Some(Ok(Typed::FlipH(ops::orient::FlipH))),
             Op::FlipV => Some(Ok(Typed::FlipV(ops::orient::FlipV))),
-            Op::Listed { name, params } => Typed::parse(name, params),
+            Op::Listed { name, params } => match Typed::parse(name, params)? {
+                Ok(t) if t.version() == 0 => None,
+                read => Some(read),
+            },
             Op::Legacy(_) | Op::Unknown(_) => None,
         }
     }
@@ -193,7 +219,8 @@ impl Op {
         ops::label(self.name()?)
     }
 
-    /// The version of a known operation's renderer (0 while it renders nothing).
+    /// The version of a known operation's renderer (0 while it renders nothing: `trim` and the
+    /// effects whose module is a stub).
     pub fn version(&self) -> Option<u32> {
         ops::version(self.name()?)
     }

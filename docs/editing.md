@@ -287,11 +287,11 @@ Filtered B&W, Focal B&W, Graduated Tint.
 | **Film Grain** | Grain 0–50 (10), Lighten checkbox (off) | monochrome noise |
 | **Tint** | Tint color (#80CFFF), Fade 0–100 (0) | desaturate then colourise |
 | **Saturation** | Amount −1…+1 (+0.16) | toward B&W ↔ vivid |
-| **Soft Focus** | crosshair, Size, Amount | blur outside a sharp circle |
-| **Glow** | Intensity 0–1 (0.65), Radius (log scale, 3.0) | highlights bloom |
-| **Filtered B&W** | Filter color | B&W weighted by a coloured filter |
-| **Focal B&W** | crosshair, Size, Sharpness | colour inside a circle, B&W outside |
-| **Graduated Tint** | crosshair (drag sets extent and angle), Color (light blue), Feather 0–1 (0.25), Shade 0–1 (0.25) | coloured gradient over the sky; Shade deepens colour, whites stay white |
+| **Soft Focus** | crosshair (centre 0.5, 0.5), Size 0–1 (0.3), Amount 0–1 (0.5) | blur outside a sharp circle |
+| **Glow** | Intensity 0–1 (0.65), Radius 0.3–30 (3.0, log scale) | highlights bloom |
+| **Filtered B&W** | Filter color (#FF8000, orange) | B&W weighted by a coloured filter |
+| **Focal B&W** | crosshair (centre 0.5, 0.5), Size 0–1 (0.3), Sharpness 0–1 (0.5) | colour inside a circle, B&W outside |
+| **Graduated Tint** | crosshair (start 0.5, 0.5; drag sets the angle, 0–360, 0 = toward the top), Color (#9CC8FF, light blue), Feather 0–1 (0.25), Shade 0–1 (0.25) | coloured gradient over the sky; Shade deepens colour, whites stay white |
 
 ### 8.3 Tab 4 — More effects
 
@@ -317,14 +317,73 @@ Grid: Boost, Soften, Vignette / Pixelate, Focal Zoom, Border / Drop Shadow, Muse
 | **Boost** | Strength 0–100 (50) | stronger colour and contrast |
 | **Soften** | Softness 0–100 (50), Fade (50), paintable mask + eraser | soft glow blur, paint where it applies |
 | **Vignette** | Size 0–50 (35), Strength 1–2 (1.4), Color (black; pick from photo), Fade (0) | darkened (or coloured) edges; repeatable |
-| **Pixelate** | Pixel Size 2–150 (20), Blend mode (Normal), Fade (0) | mosaic |
-| **Focal Zoom** | crosshair, Zoom Amount 1–100 (50), Focal Size, Edge Hardness 0–100 (50), Fade (0) | radial zoom blur outside a sharp circle |
-| **Border** | Outer color (black), Outer thickness 0–100 (20), Inner color (white), Inner thickness 0–100 (5), Corner radius (0; max = oval), Caption height (0) | two-band frame; enlarges canvas |
+| **Pixelate** | Pixel Size 2–150 (20), Blend mode (Normal, Multiply, Screen, Overlay, Soft Light; Normal), Fade (0) | mosaic |
+| **Focal Zoom** | crosshair (centre 0.5, 0.5), Zoom Amount 1–100 (50), Focal Size 0–1 (0.3), Edge Hardness 0–100 (50), Fade (0) | radial zoom blur outside a sharp circle |
+| **Border** | Outer color (black), Outer thickness 0–100 (20), Inner color (white), Inner thickness 0–100 (5), Corner radius 0–100 (0; 100 = oval), Caption height 0–200 (0) | two-band frame; enlarges canvas |
 | **Drop Shadow** | Shadow color (black), Distance 0–30 (4), Angle 0–360 (90), Blur 0–100 (10), Fade (30), Background (white) | photo floating over a background; enlarges canvas |
 | **Museum Matte** | Outer color (#1A0E03), Outer thickness 0–100 (25), Inner color (#F0EAE4), Inner thickness 0–100 (40) | double mat with inner shadow; enlarges canvas; repeatable |
 
 Algorithms are implemented from the effect descriptions above and our own design (no reference
 code). Each effect has a fingerprint test on a procedural scene so its look is pinned (`architecture.md` §11).
+
+### 8.5 The effects' syntax (M12.1)
+
+Each effect is one recipe entry (`data-model.md` §3.1), its parameters in the order of its panel's
+controls, separated by `,`; the catalogue (§13) lists them with their ranges, defaults, tile place,
+one-click flag, crosshair and tooltip, and `dalica-edit`'s `ops` modules read and print them.
+
+- **Numbers** are plain decimals, printed as the shortest text that reads back (`0.6`, `20`). A
+  number out of its range (±infinity too) is brought to the nearest end when read.
+- **Colours** are sRGB `#rrggbb`, read in either case and written in lowercase.
+- **Checkboxes** are `true` or `false`; **choices** are their words (`normal`, `soft_light`).
+- **Points** (a crosshair's centre or start) are two numbers `x,y`, normalised in the stored frame
+  (`data-model.md` §3.3, reserved decision 11) and brought into 0..1, so rotating or flipping the
+  photo later never rewrites them.
+- **Angles** are degrees 0–360 in the stored frame, clockwise from pointing up (90 points right).
+- **Sizes** are relative to the picture's shorter side, so a thumbnail, the edit view, a zoomed
+  region and a Save agree: the focal circles' Size as a fraction of it (0.3 is a radius of 30 % of
+  the shorter side), Glow's Radius in percent of it, and HDR Look's Radius, Dream Glow's Bloom,
+  Pixelate's Pixel Size, Border's thicknesses and caption, Drop Shadow's Distance and Blur and
+  Museum Matte's thicknesses in thousandths of it. Vignette's Size is in percent of the
+  half-diagonal; Border's Corner radius in percent of the largest (100 an oval).
+- **Soften's strokes** follow its two numbers, each after a `;`: `paint` or `erase`, the brush
+  radius relative to the shorter side (0.001–0.25), then the stroke's points `x,y,x,y,…` in the
+  stored frame (−1..2, as Retouch's); at most 1 000 strokes of at most 4 096 points. No strokes
+  means the whole photo.
+- A `NaN`, a missing or extra field, a colour that is not `#rrggbb`, or a word that is not one of
+  the choices leaves the entry in the recipe, kept as written and skipped by rendering, like every
+  operation Dalica cannot read.
+
+| Tab | Effect | Entry at its defaults |
+|---|---|---|
+| 3 | Sharpen | `sharpen(0.6)` (`a`) |
+| 3 | Sepia, B&W, Warmify | `sepia()`, `bw()`, `warmify()` |
+| 3 | Film Grain | `grain(10,false)` (`grain,lighten`) |
+| 3 | Tint | `tint(#80cfff,0)` (`color,fade`) |
+| 3 | Saturation | `saturation(0.16)` (`a`) |
+| 3 | Soft Focus | `soft_focus(0.5,0.5,0.3,0.5)` (`x,y,size,amount`) |
+| 3 | Glow | `glow(0.65,3)` (`i,r`) |
+| 3 | Filtered B&W | `filtered_bw(#ff8000)` (`color`) |
+| 3 | Focal B&W | `focal_bw(0.5,0.5,0.3,0.5)` (`x,y,size,sharpness`) |
+| 3 | Graduated Tint | `graduated_tint(0.5,0.5,0,0.25,0.25,#9cc8ff)` (`x,y,angle,feather,shade,color`) |
+| 4 | Infrared Film | `infrared(0)` (`fade`) |
+| 4 | Plastic Lens | `plastic_lens(70,30,0)` (`blur,grain,fade`) |
+| 4 | HDR Look | `hdr(20,3,0)` (`radius,strength,fade`) |
+| 4 | Widescreen Film | `widescreen(true)` (`letterbox`) |
+| 4 | Dream Glow | `dream_glow(25,50,0)` (`bloom,brightness,fade`) |
+| 4 | Invert Colors | `invert()` |
+| 4 | Duo-Tone | `duotone(#004488,#ffff00,0,20,0)` (`first,second,brightness,contrast,fade`) |
+| 5 | Boost | `boost(50)` (`strength`) |
+| 5 | Soften | `soften(50,50)`, with strokes `soften(50,50;paint,0.05,0.2,0.3,0.25,0.3;erase,…)` |
+| 5 | Vignette | `vignette(35,1.4,#000000,0)` (`size,strength,color,fade`) |
+| 5 | Pixelate | `pixelate(20,normal,0)` (`size,mode,fade`) |
+| 5 | Focal Zoom | `focal_zoom(0.5,0.5,0.3,50,50,0)` (`x,y,size,amount,hardness,fade`) |
+| 5 | Border | `border(#000000,20,#ffffff,5,0,0)` (`outer_color,outer,inner_color,inner,radius,caption`) |
+| 5 | Drop Shadow | `drop_shadow(#000000,4,90,10,30,#ffffff)` (`color,distance,angle,blur,fade,background`) |
+| 5 | Museum Matte | `museum_matte(#1a0e03,25,#f0eae4,40)` (`outer_color,outer,inner_color,inner`) |
+
+An effect renders once its module does (M12.6–M12.14); until then its entry is kept, labelled and
+skipped, and Save and Batch Edit treat it as not yet available.
 
 ## 9. Edit menu and batch editing
 
@@ -402,10 +461,11 @@ code). Each effect has a fingerprint test on a procedural scene so its look is p
   change the picture's size (a crop; a quarter turn), the milestone that brings it, and whether
   this build renders it (its module renders; anything else is kept and skipped). The ranges and
   defaults of every rendered operation are its module's own, and a test checks each row against
-  the parser and the module's clamps. The rows of the effects give the controls of §8; a range or
-  default §8 leaves open is marked open until the effect's module settles it (M12.1). An effect
-  the parser does not know yet (tabs 4–5) has no row until it has its syntax (M12.1): a row is
-  always an operation a recipe can hold.
+  the parser and the module's clamps. The rows of the 27 effects (M12.1) give the controls of §8
+  with every range and default settled (§8.5), and say where the effect's tile stands (its tab
+  and place in the grid), whether it applies in one click, its crosshair (a circle, a gradient or
+  none), whether a slider is logarithmic (Glow's Radius) and its English tooltip, which says so
+  when the effect changes the picture's size: a row is always an operation a recipe can hold.
 - **A whole recipe** (`edit.recipe.set {ids, recipe, label?, dropUnknown?}`, used by Paste All
   Edits and by agents): `recipe` is the string form (entries joined by `|`; `""` empties it) or a
   list of entries or `{op, params}`. Each photo's recipe becomes the given entries verbatim, in

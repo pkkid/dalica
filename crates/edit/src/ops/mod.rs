@@ -10,12 +10,23 @@
 //!   asks for one), then run over row bands of the picture in working precision ([`Band`]).
 //!
 //! [`Typed`] is the closed set of operations that have a module; [`crate::Op`] dispatches to it
-//! ([`crate::Op::typed`]). An operation of §3.1 without a module yet (the effects, M12; `trim`,
-//! M15) is known and kept, has a label, and renders nothing.
+//! ([`crate::Op::typed`]). An operation of §3.1 without a module yet (`trim`, M15) is known and
+//! kept, has a label, and renders nothing.
 //!
-//! A module's `VERSION` is 0 while it renders nothing (a stub); the first renderer sets 1, and any
-//! later change to an operation's pixels bumps it, so the render key ([`crate::version`]) remakes
-//! cached pictures of the recipes that use it and no others.
+//! The 27 effects of `editing.md` §8 (M12.1) have one module per family, so each renderer task
+//! owns one file: [`colour`] (Sepia, B&W, Warmify, Tint, Saturation, Filtered B&W), [`detail`]
+//! (Sharpen, Film Grain, Glow), [`focal`] (Soft Focus, Focal B&W, Graduated Tint), [`remap`]
+//! (Invert Colors, Infrared Film, Duo-Tone, Boost), [`looks`] (HDR Look, Dream Glow, Plastic Lens),
+//! [`soften`], [`stylize`] (Vignette, Pixelate, Focal Zoom), [`canvas`] (Widescreen Film, Border)
+//! and [`mats`] (Drop Shadow, Museum Matte). Each effect's parameters are read with [`Reader`]
+//! and printed with [`num`] and [`hex`], so every effect writes numbers, colours, checkboxes and
+//! choices the same way (`editing.md` §8.5).
+//!
+//! A module's `VERSION` is 0 while it renders nothing (a stub: its `prepare` returns `None`, and
+//! [`crate::Op::typed`] leaves it untyped, so Save and every reader of "can Dalica render this"
+//! still see it as not rendered); the first renderer sets 1, and any later change to an
+//! operation's pixels bumps it, so the render key ([`crate::version`]) remakes cached pictures of
+//! the recipes that use it and no others.
 
 use std::fmt;
 
@@ -23,10 +34,19 @@ use crate::frame::Point;
 use crate::render::Geometry;
 
 pub mod auto;
+pub mod canvas;
+pub mod colour;
 pub mod crop;
+pub mod detail;
+pub mod focal;
+pub mod looks;
+pub mod mats;
 pub mod orient;
+pub mod remap;
 pub mod retouch;
+pub mod soften;
 pub mod straighten;
+pub mod stylize;
 pub mod tone;
 
 /// Why an operation's parameter text was refused by its module.
@@ -266,7 +286,143 @@ impl View<'_> {
     }
 }
 
-/// An operation with a module, with its typed parameters.
+/// `v` brought into `range` (`NaN` to its low end); `-0` becomes `0` so it prints as `0`.
+pub fn clamp(v: f64, range: (f64, f64)) -> f64 {
+    if v.is_nan() { range.0 } else { v.clamp(range.0, range.1) + 0.0 }
+}
+
+/// A number as an effect's entry writes it: the shortest text that reads back to it (`-0` as `0`).
+pub fn num(v: f64) -> String {
+    crop::number(v)
+}
+
+/// A stored-frame point as an entry writes it: `x,y`.
+pub fn num_point(p: Point) -> String {
+    format!("{},{}", num(p.x), num(p.y))
+}
+
+/// An sRGB colour as an entry writes it: `#rrggbb`, lowercase.
+pub fn hex(c: [u8; 3]) -> String {
+    format!("#{:02x}{:02x}{:02x}", c[0], c[1], c[2])
+}
+
+/// A checkbox as an entry writes it: `true` or `false`.
+pub fn flag(on: bool) -> &'static str {
+    if on { "true" } else { "false" }
+}
+
+/// `params` of an operation that takes none (`sepia()`): anything else is refused.
+pub fn no_params<T: Operation>(params: &str, value: T) -> Result<T, ParamError> {
+    if params.is_empty() { Ok(value) } else { Err(ParamError::new(T::NAME, params, "takes no parameters")) }
+}
+
+/// Reads an effect's parameter text, the fields in the order its syntax gives them, separated by
+/// `,` (`editing.md` §8.5):
+///
+/// - a number: plain decimal text; out of its range (±infinity too) it is brought to the nearest
+///   end; `NaN` or text that is not a number is refused;
+/// - a colour: `#rrggbb` in sRGB, either case;
+/// - a checkbox: `true` or `false`;
+/// - a choice: one of its words, exactly;
+/// - a point: two numbers, `x` then `y`, normalised in the stored frame (`data-model.md` §3.3)
+///   and brought into 0..1.
+///
+/// A missing or extra field is refused ([`Reader::end`]). A refusal keeps the entry in the recipe
+/// and skips it, as for every module.
+pub struct Reader<'a> {
+    op: &'static str,
+    params: &'a str,
+    fields: std::str::Split<'a, char>,
+}
+
+impl<'a> Reader<'a> {
+    pub fn new(op: &'static str, params: &'a str) -> Reader<'a> {
+        Reader { op, params, fields: params.split(',') }
+    }
+
+    /// A refusal of these parameters.
+    pub fn refuse(&self, why: impl Into<String>) -> ParamError {
+        ParamError::new(self.op, self.params, why)
+    }
+
+    fn next(&mut self, what: &str) -> Result<&'a str, ParamError> {
+        match self.fields.next() {
+            Some(field) => Ok(field),
+            None => Err(self.refuse(format!("{what} is missing"))),
+        }
+    }
+
+    /// A number brought into `range`.
+    pub fn number(&mut self, what: &str, range: (f64, f64)) -> Result<f64, ParamError> {
+        let field = self.next(what)?;
+        match field.parse::<f64>() {
+            Ok(v) if !v.is_nan() => Ok(clamp(v, range)),
+            _ => Err(self.refuse(format!("{what} is not a number"))),
+        }
+    }
+
+    /// An sRGB colour, `#rrggbb`.
+    pub fn colour(&mut self, what: &str) -> Result<[u8; 3], ParamError> {
+        let field = self.next(what)?;
+        parse_hex(field).ok_or_else(|| self.refuse(format!("{what} is not #rrggbb")))
+    }
+
+    /// A checkbox, `true` or `false`.
+    pub fn flag(&mut self, what: &str) -> Result<bool, ParamError> {
+        match self.next(what)? {
+            "true" => Ok(true),
+            "false" => Ok(false),
+            _ => Err(self.refuse(format!("{what} is not true or false"))),
+        }
+    }
+
+    /// One of `choices`, by its word.
+    pub fn choice<T: Copy>(&mut self, what: &str, choices: &[(&str, T)]) -> Result<T, ParamError> {
+        let field = self.next(what)?;
+        match choices.iter().find(|(word, _)| *word == field) {
+            Some((_, v)) => Ok(*v),
+            None => Err(self.refuse(format!("{what} is not one of its choices"))),
+        }
+    }
+
+    /// A point of the stored frame, `x,y`, brought into 0..1.
+    pub fn point(&mut self, what: &str) -> Result<Point, ParamError> {
+        let x = self.number(what, UNIT)?;
+        let y = self.number(what, UNIT)?;
+        Ok(Point::new(x, y))
+    }
+
+    /// Refuses a field past the last one the syntax names.
+    pub fn end(mut self) -> Result<(), ParamError> {
+        match self.fields.next() {
+            None => Ok(()),
+            Some(_) => Err(self.refuse("holds more fields than its syntax")),
+        }
+    }
+}
+
+/// The range of a normalised coordinate and of the 0–1 sliders.
+pub const UNIT: (f64, f64) = (0.0, 1.0);
+/// The range of Fade (`editing.md` §8.1): 0 is the effect, 100 the input.
+pub const FADE: (f64, f64) = (0.0, 100.0);
+/// The range of an angle in degrees in the stored frame, clockwise from pointing up (90 points
+/// right), as [`crate::fx::Gradient`] takes it.
+pub const DEGREES: (f64, f64) = (0.0, 360.0);
+
+/// `#rrggbb` (either case) as its three bytes.
+pub fn parse_hex(text: &str) -> Option<[u8; 3]> {
+    let hex = text.strip_prefix('#').filter(|h| h.len() == 6 && h.bytes().all(|b| b.is_ascii_hexdigit()))?;
+    let byte = |i: usize| hex.get(i..i + 2).and_then(|s| u8::from_str_radix(s, 16).ok());
+    Some([byte(0)?, byte(2)?, byte(4)?])
+}
+
+/// Clamps a stored-frame point into 0..1 (`NaN` to 0).
+pub fn clamp_point(p: Point) -> Point {
+    Point::new(clamp(p.x, UNIT), clamp(p.y, UNIT))
+}
+
+/// An operation with a module, with its typed parameters: the geometry, the fixes and Tuning (M6,
+/// M7), then the 27 effects in the order of their tabs' grids (`editing.md` §8).
 #[derive(Clone, Debug, PartialEq)]
 pub enum Typed {
     Rotate(orient::Rotate),
@@ -280,6 +436,33 @@ pub enum Typed {
     AutoColor(auto::AutoColor),
     FillLight(tone::FillLight),
     Tuning(tone::Tuning),
+    Sharpen(detail::Sharpen),
+    Sepia(colour::Sepia),
+    Bw(colour::Bw),
+    Warmify(colour::Warmify),
+    Grain(detail::Grain),
+    Tint(colour::Tint),
+    Saturation(colour::Saturation),
+    SoftFocus(focal::SoftFocus),
+    Glow(detail::Glow),
+    FilteredBw(colour::FilteredBw),
+    FocalBw(focal::FocalBw),
+    GraduatedTint(focal::GraduatedTint),
+    Infrared(remap::Infrared),
+    PlasticLens(looks::PlasticLens),
+    Hdr(looks::Hdr),
+    Widescreen(canvas::Widescreen),
+    DreamGlow(looks::DreamGlow),
+    Invert(remap::Invert),
+    Duotone(remap::Duotone),
+    Boost(remap::Boost),
+    Soften(soften::Soften),
+    Vignette(stylize::Vignette),
+    Pixelate(stylize::Pixelate),
+    FocalZoom(stylize::FocalZoom),
+    Border(canvas::Border),
+    DropShadow(mats::DropShadow),
+    MuseumMatte(mats::MuseumMatte),
 }
 
 /// Runs `$body` with `$p` bound to the typed parameters of whichever variant `$t` holds.
@@ -297,8 +480,197 @@ macro_rules! each_typed {
             Typed::AutoColor($p) => $body,
             Typed::FillLight($p) => $body,
             Typed::Tuning($p) => $body,
+            Typed::Sharpen($p) => $body,
+            Typed::Sepia($p) => $body,
+            Typed::Bw($p) => $body,
+            Typed::Warmify($p) => $body,
+            Typed::Grain($p) => $body,
+            Typed::Tint($p) => $body,
+            Typed::Saturation($p) => $body,
+            Typed::SoftFocus($p) => $body,
+            Typed::Glow($p) => $body,
+            Typed::FilteredBw($p) => $body,
+            Typed::FocalBw($p) => $body,
+            Typed::GraduatedTint($p) => $body,
+            Typed::Infrared($p) => $body,
+            Typed::PlasticLens($p) => $body,
+            Typed::Hdr($p) => $body,
+            Typed::Widescreen($p) => $body,
+            Typed::DreamGlow($p) => $body,
+            Typed::Invert($p) => $body,
+            Typed::Duotone($p) => $body,
+            Typed::Boost($p) => $body,
+            Typed::Soften($p) => $body,
+            Typed::Vignette($p) => $body,
+            Typed::Pixelate($p) => $body,
+            Typed::FocalZoom($p) => $body,
+            Typed::Border($p) => $body,
+            Typed::DropShadow($p) => $body,
+            Typed::MuseumMatte($p) => $body,
         }
     };
+}
+
+/// Runs `$m!(Type)` for every module type and gives the first `Some` (`None` when no type's
+/// `NAME` is `$name`). Used to look an operation up by name.
+macro_rules! by_name {
+    ($name:expr, $T:ident => $body:expr) => {{
+        let name: &str = $name;
+        let mut found = None;
+        if found.is_none() && name == orient::Rotate::NAME {
+            type $T = orient::Rotate;
+            found = Some($body);
+        }
+        if found.is_none() && name == orient::FlipH::NAME {
+            type $T = orient::FlipH;
+            found = Some($body);
+        }
+        if found.is_none() && name == orient::FlipV::NAME {
+            type $T = orient::FlipV;
+            found = Some($body);
+        }
+        if found.is_none() && name == crop::Crop::NAME {
+            type $T = crop::Crop;
+            found = Some($body);
+        }
+        if found.is_none() && name == straighten::Straighten::NAME {
+            type $T = straighten::Straighten;
+            found = Some($body);
+        }
+        if found.is_none() && name == retouch::Retouch::NAME {
+            type $T = retouch::Retouch;
+            found = Some($body);
+        }
+        if found.is_none() && name == auto::AutoFix::NAME {
+            type $T = auto::AutoFix;
+            found = Some($body);
+        }
+        if found.is_none() && name == auto::AutoContrast::NAME {
+            type $T = auto::AutoContrast;
+            found = Some($body);
+        }
+        if found.is_none() && name == auto::AutoColor::NAME {
+            type $T = auto::AutoColor;
+            found = Some($body);
+        }
+        if found.is_none() && name == tone::FillLight::NAME {
+            type $T = tone::FillLight;
+            found = Some($body);
+        }
+        if found.is_none() && name == tone::Tuning::NAME {
+            type $T = tone::Tuning;
+            found = Some($body);
+        }
+        if found.is_none() && name == detail::Sharpen::NAME {
+            type $T = detail::Sharpen;
+            found = Some($body);
+        }
+        if found.is_none() && name == colour::Sepia::NAME {
+            type $T = colour::Sepia;
+            found = Some($body);
+        }
+        if found.is_none() && name == colour::Bw::NAME {
+            type $T = colour::Bw;
+            found = Some($body);
+        }
+        if found.is_none() && name == colour::Warmify::NAME {
+            type $T = colour::Warmify;
+            found = Some($body);
+        }
+        if found.is_none() && name == detail::Grain::NAME {
+            type $T = detail::Grain;
+            found = Some($body);
+        }
+        if found.is_none() && name == colour::Tint::NAME {
+            type $T = colour::Tint;
+            found = Some($body);
+        }
+        if found.is_none() && name == colour::Saturation::NAME {
+            type $T = colour::Saturation;
+            found = Some($body);
+        }
+        if found.is_none() && name == focal::SoftFocus::NAME {
+            type $T = focal::SoftFocus;
+            found = Some($body);
+        }
+        if found.is_none() && name == detail::Glow::NAME {
+            type $T = detail::Glow;
+            found = Some($body);
+        }
+        if found.is_none() && name == colour::FilteredBw::NAME {
+            type $T = colour::FilteredBw;
+            found = Some($body);
+        }
+        if found.is_none() && name == focal::FocalBw::NAME {
+            type $T = focal::FocalBw;
+            found = Some($body);
+        }
+        if found.is_none() && name == focal::GraduatedTint::NAME {
+            type $T = focal::GraduatedTint;
+            found = Some($body);
+        }
+        if found.is_none() && name == remap::Infrared::NAME {
+            type $T = remap::Infrared;
+            found = Some($body);
+        }
+        if found.is_none() && name == looks::PlasticLens::NAME {
+            type $T = looks::PlasticLens;
+            found = Some($body);
+        }
+        if found.is_none() && name == looks::Hdr::NAME {
+            type $T = looks::Hdr;
+            found = Some($body);
+        }
+        if found.is_none() && name == canvas::Widescreen::NAME {
+            type $T = canvas::Widescreen;
+            found = Some($body);
+        }
+        if found.is_none() && name == looks::DreamGlow::NAME {
+            type $T = looks::DreamGlow;
+            found = Some($body);
+        }
+        if found.is_none() && name == remap::Invert::NAME {
+            type $T = remap::Invert;
+            found = Some($body);
+        }
+        if found.is_none() && name == remap::Duotone::NAME {
+            type $T = remap::Duotone;
+            found = Some($body);
+        }
+        if found.is_none() && name == remap::Boost::NAME {
+            type $T = remap::Boost;
+            found = Some($body);
+        }
+        if found.is_none() && name == soften::Soften::NAME {
+            type $T = soften::Soften;
+            found = Some($body);
+        }
+        if found.is_none() && name == stylize::Vignette::NAME {
+            type $T = stylize::Vignette;
+            found = Some($body);
+        }
+        if found.is_none() && name == stylize::Pixelate::NAME {
+            type $T = stylize::Pixelate;
+            found = Some($body);
+        }
+        if found.is_none() && name == stylize::FocalZoom::NAME {
+            type $T = stylize::FocalZoom;
+            found = Some($body);
+        }
+        if found.is_none() && name == canvas::Border::NAME {
+            type $T = canvas::Border;
+            found = Some($body);
+        }
+        if found.is_none() && name == mats::DropShadow::NAME {
+            type $T = mats::DropShadow;
+            found = Some($body);
+        }
+        if found.is_none() && name == mats::MuseumMatte::NAME {
+            type $T = mats::MuseumMatte;
+            found = Some($body);
+        }
+        found
+    }};
 }
 
 fn version_of<T: Operation>(_: &T) -> u32 {
@@ -311,24 +683,16 @@ fn name_of<T: Operation>(_: &T) -> &'static str {
 
 impl Typed {
     /// The parameters of operation `name` read from `params`; `None` when `name` has no module.
+    /// (A stub module, `VERSION` 0, reads its parameters too; [`crate::Op::typed`] is what leaves
+    /// it untyped until it renders.)
     pub fn parse(name: &str, params: &str) -> Option<Result<Typed, ParamError>> {
-        fn read<T: Operation>(params: &str, wrap: fn(T) -> Typed) -> Option<Result<Typed, ParamError>> {
-            Some(T::parse(params).map(wrap))
-        }
-        match name {
-            orient::Rotate::NAME => read(params, Typed::Rotate),
-            orient::FlipH::NAME => read(params, Typed::FlipH),
-            orient::FlipV::NAME => read(params, Typed::FlipV),
-            crop::Crop::NAME => read(params, Typed::Crop),
-            straighten::Straighten::NAME => read(params, Typed::Straighten),
-            retouch::Retouch::NAME => read(params, Typed::Retouch),
-            auto::AutoFix::NAME => read(params, Typed::AutoFix),
-            auto::AutoContrast::NAME => read(params, Typed::AutoContrast),
-            auto::AutoColor::NAME => read(params, Typed::AutoColor),
-            tone::FillLight::NAME => read(params, Typed::FillLight),
-            tone::Tuning::NAME => read(params, Typed::Tuning),
-            _ => None,
-        }
+        by_name!(name, T => T::parse(params).map(Typed::from))
+    }
+
+    /// Operation `name` at its defaults (an effect as its tile previews it, `editing.md` §8.1);
+    /// `None` when `name` has no module.
+    pub fn default_of(name: &str) -> Option<Typed> {
+        by_name!(name, T => Typed::from(T::default()))
     }
 
     pub fn name(&self) -> &'static str {
@@ -343,58 +707,259 @@ impl Typed {
     pub fn params(&self) -> String {
         each_typed!(self, p => p.to_string())
     }
+
+    /// The same parameters brought into their ranges.
+    pub fn clamped(self) -> Typed {
+        each_typed!(self, p => Typed::from(p.clamped()))
+    }
+}
+
+impl From<orient::Rotate> for Typed {
+    fn from(p: orient::Rotate) -> Typed {
+        Typed::Rotate(p)
+    }
+}
+
+impl From<orient::FlipH> for Typed {
+    fn from(p: orient::FlipH) -> Typed {
+        Typed::FlipH(p)
+    }
+}
+
+impl From<orient::FlipV> for Typed {
+    fn from(p: orient::FlipV) -> Typed {
+        Typed::FlipV(p)
+    }
+}
+
+impl From<crop::Crop> for Typed {
+    fn from(p: crop::Crop) -> Typed {
+        Typed::Crop(p)
+    }
+}
+
+impl From<straighten::Straighten> for Typed {
+    fn from(p: straighten::Straighten) -> Typed {
+        Typed::Straighten(p)
+    }
+}
+
+impl From<retouch::Retouch> for Typed {
+    fn from(p: retouch::Retouch) -> Typed {
+        Typed::Retouch(p)
+    }
+}
+
+impl From<auto::AutoFix> for Typed {
+    fn from(p: auto::AutoFix) -> Typed {
+        Typed::AutoFix(p)
+    }
+}
+
+impl From<auto::AutoContrast> for Typed {
+    fn from(p: auto::AutoContrast) -> Typed {
+        Typed::AutoContrast(p)
+    }
+}
+
+impl From<auto::AutoColor> for Typed {
+    fn from(p: auto::AutoColor) -> Typed {
+        Typed::AutoColor(p)
+    }
+}
+
+impl From<tone::FillLight> for Typed {
+    fn from(p: tone::FillLight) -> Typed {
+        Typed::FillLight(p)
+    }
+}
+
+impl From<tone::Tuning> for Typed {
+    fn from(p: tone::Tuning) -> Typed {
+        Typed::Tuning(p)
+    }
+}
+
+impl From<detail::Sharpen> for Typed {
+    fn from(p: detail::Sharpen) -> Typed {
+        Typed::Sharpen(p)
+    }
+}
+
+impl From<colour::Sepia> for Typed {
+    fn from(p: colour::Sepia) -> Typed {
+        Typed::Sepia(p)
+    }
+}
+
+impl From<colour::Bw> for Typed {
+    fn from(p: colour::Bw) -> Typed {
+        Typed::Bw(p)
+    }
+}
+
+impl From<colour::Warmify> for Typed {
+    fn from(p: colour::Warmify) -> Typed {
+        Typed::Warmify(p)
+    }
+}
+
+impl From<detail::Grain> for Typed {
+    fn from(p: detail::Grain) -> Typed {
+        Typed::Grain(p)
+    }
+}
+
+impl From<colour::Tint> for Typed {
+    fn from(p: colour::Tint) -> Typed {
+        Typed::Tint(p)
+    }
+}
+
+impl From<colour::Saturation> for Typed {
+    fn from(p: colour::Saturation) -> Typed {
+        Typed::Saturation(p)
+    }
+}
+
+impl From<focal::SoftFocus> for Typed {
+    fn from(p: focal::SoftFocus) -> Typed {
+        Typed::SoftFocus(p)
+    }
+}
+
+impl From<detail::Glow> for Typed {
+    fn from(p: detail::Glow) -> Typed {
+        Typed::Glow(p)
+    }
+}
+
+impl From<colour::FilteredBw> for Typed {
+    fn from(p: colour::FilteredBw) -> Typed {
+        Typed::FilteredBw(p)
+    }
+}
+
+impl From<focal::FocalBw> for Typed {
+    fn from(p: focal::FocalBw) -> Typed {
+        Typed::FocalBw(p)
+    }
+}
+
+impl From<focal::GraduatedTint> for Typed {
+    fn from(p: focal::GraduatedTint) -> Typed {
+        Typed::GraduatedTint(p)
+    }
+}
+
+impl From<remap::Infrared> for Typed {
+    fn from(p: remap::Infrared) -> Typed {
+        Typed::Infrared(p)
+    }
+}
+
+impl From<looks::PlasticLens> for Typed {
+    fn from(p: looks::PlasticLens) -> Typed {
+        Typed::PlasticLens(p)
+    }
+}
+
+impl From<looks::Hdr> for Typed {
+    fn from(p: looks::Hdr) -> Typed {
+        Typed::Hdr(p)
+    }
+}
+
+impl From<canvas::Widescreen> for Typed {
+    fn from(p: canvas::Widescreen) -> Typed {
+        Typed::Widescreen(p)
+    }
+}
+
+impl From<looks::DreamGlow> for Typed {
+    fn from(p: looks::DreamGlow) -> Typed {
+        Typed::DreamGlow(p)
+    }
+}
+
+impl From<remap::Invert> for Typed {
+    fn from(p: remap::Invert) -> Typed {
+        Typed::Invert(p)
+    }
+}
+
+impl From<remap::Duotone> for Typed {
+    fn from(p: remap::Duotone) -> Typed {
+        Typed::Duotone(p)
+    }
+}
+
+impl From<remap::Boost> for Typed {
+    fn from(p: remap::Boost) -> Typed {
+        Typed::Boost(p)
+    }
+}
+
+impl From<soften::Soften> for Typed {
+    fn from(p: soften::Soften) -> Typed {
+        Typed::Soften(p)
+    }
+}
+
+impl From<stylize::Vignette> for Typed {
+    fn from(p: stylize::Vignette) -> Typed {
+        Typed::Vignette(p)
+    }
+}
+
+impl From<stylize::Pixelate> for Typed {
+    fn from(p: stylize::Pixelate) -> Typed {
+        Typed::Pixelate(p)
+    }
+}
+
+impl From<stylize::FocalZoom> for Typed {
+    fn from(p: stylize::FocalZoom) -> Typed {
+        Typed::FocalZoom(p)
+    }
+}
+
+impl From<canvas::Border> for Typed {
+    fn from(p: canvas::Border) -> Typed {
+        Typed::Border(p)
+    }
+}
+
+impl From<mats::DropShadow> for Typed {
+    fn from(p: mats::DropShadow) -> Typed {
+        Typed::DropShadow(p)
+    }
+}
+
+impl From<mats::MuseumMatte> for Typed {
+    fn from(p: mats::MuseumMatte) -> Typed {
+        Typed::MuseumMatte(p)
+    }
 }
 
 /// The history label of every operation of `data-model.md` §3.1 (`editing.md` §5.1, §8).
 pub fn label(name: &str) -> Option<&'static str> {
-    Some(match name {
-        orient::Rotate::NAME => orient::Rotate::LABEL,
-        orient::FlipH::NAME => orient::FlipH::LABEL,
-        orient::FlipV::NAME => orient::FlipV::LABEL,
-        crop::Crop::NAME => crop::Crop::LABEL,
-        straighten::Straighten::NAME => straighten::Straighten::LABEL,
-        retouch::Retouch::NAME => retouch::Retouch::LABEL,
-        auto::AutoFix::NAME => auto::AutoFix::LABEL,
-        auto::AutoContrast::NAME => auto::AutoContrast::LABEL,
-        auto::AutoColor::NAME => auto::AutoColor::LABEL,
-        tone::FillLight::NAME => tone::FillLight::LABEL,
-        tone::Tuning::NAME => tone::Tuning::LABEL,
-        // Operations without a module yet: the effects (M12) and video trimming (M15).
-        "trim" => "Trim",
-        "sharpen" => "Sharpen",
-        "sepia" => "Sepia",
-        "bw" => "B&W",
-        "warmify" => "Warmify",
-        "grain" => "Film Grain",
-        "tint" => "Tint",
-        "saturation" => "Saturation",
-        "soft_focus" => "Soft Focus",
-        "glow" => "Glow",
-        "filtered_bw" => "Filtered B&W",
-        "focal_bw" => "Focal B&W",
-        "graduated_tint" => "Graduated Tint",
-        _ => return None,
-    })
+    match by_name!(name, T => T::LABEL) {
+        Some(label) => Some(label),
+        // Video trimming has no module yet (M15).
+        None if name == "trim" => Some("Trim"),
+        None => None,
+    }
 }
 
 /// The version of operation `name`: its module's, or 0 for a known operation without a module
 /// (it renders nothing). `None` for names Dalica does not know.
 pub fn version(name: &str) -> Option<u32> {
-    Some(match name {
-        orient::Rotate::NAME => orient::Rotate::VERSION,
-        orient::FlipH::NAME => orient::FlipH::VERSION,
-        orient::FlipV::NAME => orient::FlipV::VERSION,
-        crop::Crop::NAME => crop::Crop::VERSION,
-        straighten::Straighten::NAME => straighten::Straighten::VERSION,
-        retouch::Retouch::NAME => retouch::Retouch::VERSION,
-        auto::AutoFix::NAME => auto::AutoFix::VERSION,
-        auto::AutoContrast::NAME => auto::AutoContrast::VERSION,
-        auto::AutoColor::NAME => auto::AutoColor::VERSION,
-        tone::FillLight::NAME => tone::FillLight::VERSION,
-        tone::Tuning::NAME => tone::Tuning::VERSION,
-        other => {
-            label(other)?;
-            0
+    match by_name!(name, T => T::VERSION) {
+        Some(v) => Some(v),
+        None => {
+            label(name)?;
+            Some(0)
         }
-    })
+    }
 }
