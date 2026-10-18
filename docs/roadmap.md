@@ -7623,7 +7623,7 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
     with faces; `crates/library/tests/places.rs`: a geotag set, moved and cleared with undo, the
     geotagged query takes the model's geotag over the file's; every existing `library` test
     passes unchanged.
-- ⬜ **M13.2 `sidecar`: faces, people and geotags in `.dalica.json`**
+- ✅ **M13.2 `sidecar`: faces, people and geotags in `.dalica.json`**
   - after: M9.6, M12.R
   - files: `crates/sidecar/src/fields.rs`, `crates/sidecar/src/print.rs`, `crates/sidecar/src/lib.rs`, `crates/sidecar/tests/fields.rs`, `crates/sidecar/README.md`
   - scope: `data-model.md` §3: a photo's `"faces"` (`rect` and `person`; at most 256, extra
