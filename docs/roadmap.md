@@ -7935,7 +7935,7 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
     arrives off the owner thread and the owner made no `fs` call; without the people permission
     `faces.list` over automation has no names or rectangles; each command's contract and graceful
     failures; `panic_hunt` green.
-- ⬜ **M13.16 `engine`: face models: list, install, download, remove and use**
+- ✅ **M13.16 `engine`: face models: list, install, download, remove and use**
   - after: M13.3, M13.8, M13.10, M13.13
   - files: `crates/engine/src/cmd/face_models.rs`, `crates/engine/src/face_models.rs`, `crates/engine/tests/face_models.rs`, `docs/faces.md`
   - scope: `faces.md` §3 and §9 with the models of reserved decisions 5 and 9 (asked at M12.R):

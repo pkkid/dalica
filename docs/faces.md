@@ -4,13 +4,15 @@ Adapted from LightCraft `docs/faces.md` and `crates/faces` (revision 88ea1a8); M
 
 > **Status: Partly built (M13).** `crates/faces` has the interpreter and its limits (§2, M13.6),
 > grouping and suggestions (§5, M13.7), and the detector, alignment, embeddings, manifests, the
-> bring-your-own catalog, the known models and the self-test (§2–§3, M13.10), and the background
-> scan with its index and groups (§4–§5, M13.18), and the suggestions' commands (§5, M13.26); the downloads and the UI follow in M13. The user-facing behaviour (the People group,
-> Unnamed, suggestions, the People pane, options) is specified in [`organizing.md`](organizing.md)
-> §6; where faces are stored is in [`data-model.md`](data-model.md) §2–§5; how names travel in
-> files is in [`xmp-interop.md`](xmp-interop.md) §6. This document is the engine design behind
-> them. The choice of default models and their licences is a reserved decision
-> ([`roadmap.md`](roadmap.md), *Reserved decisions* #5).
+> bring-your-own catalog, the known models and the self-test (§2–§3, M13.10), the built-in list and
+> its calibration tables (§3.2, §5, M13.17); the engine has the model downloads, installs and
+> removals (§3, M13.16), the background scan with its index and groups (§4–§5, M13.18) and the
+> suggestions' commands (§5, M13.26); the UI follows in M13. The user-facing behaviour (the People
+> group, Unnamed, suggestions, the People pane, options) is specified in
+> [`organizing.md`](organizing.md) §6; where faces are stored is in [`data-model.md`](data-model.md)
+> §2–§5; how names travel in files is in [`xmp-interop.md`](xmp-interop.md) §6. This document is
+> the engine design behind them. The default models and their licences were reserved decision 5
+> ([`roadmap.md`](roadmap.md), *Reserved decisions*), decided 2026-10-18 (§3.2).
 
 ## 1. Principles
 
@@ -116,11 +118,11 @@ Candidates, with what is publicly known (the maintainer decides; *Reserved decis
   calibration table), shown with its notice in `caution` colour.
 - Each manifest records the model's preprocessing (size, RGB/BGR, mean/std), embedding dimension,
   a recommended match threshold (`matchCosine`) and, for built-in models, a calibration table (§5).
-- **Until reserved decision 5 is recorded** (it was not at M13.10), the built-in download list is
-  empty (`known::OFFERED` in `crates/faces`): a model comes from **Add a model file…** or the user's
-  `catalog.json`. The three candidates above are known by their SHA-256, so a file the user already
-  has is recognised and shown with its terms, and each one's address is kept pinned to a commit of
-  its own repository, so the decision is a change to that one list. A model whose weights are for
+- **The built-in list** (reserved decision 5, decided by the maintainer 2026-10-18, LightCraft's
+  set; `known::OFFERED` in `crates/faces`): the YuNet detector, then the SFace recogniser (the
+  default, offered first) and the AuraFace recogniser, each at an address pinned to a commit of its
+  own repository with its size and SHA-256, its licence shown before anything is fetched. Other
+  models come from **Add a model file…** or the user's `catalog.json`. A model whose weights are for
   non-commercial use is never offered, whatever the list says.
 
 ### 3.3 Switching models
@@ -128,6 +130,44 @@ Candidates, with what is publicly known (the maintainer decides; *Reserved decis
 The newest installed recogniser is the one in use; **Use** switches back to another. Embeddings are
 cached per model id, so switching back does not start over, and results of the previous model are
 never mixed into the new model's index. Face *rectangles and names* do not depend on the model.
+
+### 3.4 How it is built (M13.16)
+
+Engine `face_models.rs` and `cmd/face_models.rs`, on the models folder of §4 (the host gives the
+session `default_models_dir`; a session given none adds nothing):
+
+- **The list** (`faces.models.list`): the built-in models, then the entries of `catalog.json`, then
+  any other installed model ("local"), each with its role, licence (name, commercial use: yes, no
+  or unknown, its address and its terms in plain words), what it was trained on, its size, its site
+  and page, its state (available, partial, downloading, installed), whether it is the recogniser in
+  use and whether it is the default; `caution` for a model that is not built in or whose licence
+  does not plainly allow commercial use. The folder is read on a worker whenever it is given or
+  changed, so the window never waits; a command that needs it waits at most two seconds the first
+  time. Bad `catalog.json` entries are listed with why, never a reason to list nothing.
+- **Consent:** `faces.models.download` and `faces.models.install` do nothing unless
+  `acknowledged` is `true` (then `disabled`, with nothing read, requested or written). A download is
+  a `dalica-fetch` consent for exactly its pinned file.
+- **A download** is a cancellable `network` job with its progress ("Downloading SFace (face
+  recogniser): 12.3 of 38.7 MB"), one at a time, through the HTTPS transport of `dalica-fetch`
+  (reserved decision 9) and the proxy of Options ▸ Network. The file goes to
+  `<models>/.downloads/<id>.onnx`; a cut or cancelled download keeps its `.part` and the next one
+  resumes from it. A file of the wrong size or SHA-256 is deleted; a file that fails the self-test
+  is deleted; only then is it moved to `<models>/<id>/model.onnx` and its manifest
+  `face-model.json` written, last (a model without its manifest is never used).
+- **A local file** (`faces.models.inspect` says what it is first, `faces.models.install` adds it):
+  read once (at most 512 MiB), known by its SHA-256 (the built-in models, then the catalog) or, for
+  a recogniser, its assumptions stated (§3.1, and a match threshold of 0.40 at confidence 85, the
+  usual starting point, since a file carries none); the self-test runs on the bytes read, and those
+  bytes are copied (verified, never replacing a file) into the models folder. The installed file
+  gets the time of the install, so the newest model is the one just added.
+- **Removing** (`faces.models.remove`) deletes the model's file and manifest, a partial download of
+  it and its cached embeddings in the library; the scan lets go of the model while it runs.
+  Removing the model chosen with Use forgets the choice. Face rectangles and names stay.
+- **Use** (`faces.models.select {id}`; `null`: the newest) sets `people.model`; §3.3.
+- **Never inside a watched folder:** downloads and installs are refused while the models folder is
+  inside one, and in a read-only session.
+- **Automation:** inspecting, installing and downloading reach outside Dalica (a file anywhere, the
+  network), so automation runs them only with `--automation-allow-external`.
 
 ## 4. Background scan
 
@@ -182,9 +222,11 @@ Options → People: **Suggest names** (on), **Suggestion confidence** and **Grou
 
 - **Confidence → threshold.** Each slider value maps to a cosine-similarity threshold of the model in
   use. Built-in models carry a calibration table with one cosine value for each step 50, 55, …, 95,
-  measured on a public-domain evaluation set so that higher values mean fewer, more certain matches;
-  85 corresponds to the model's recommended `matchCosine`. A user model without a table uses
-  `matchCosine + (value − 85) × 0.01`.
+  measured on the public-domain portraits of `corpus/public-faces/` (M13.17) so that higher values
+  mean fewer, more certain matches: 85 is the model's recommended `matchCosine`; 50 is the first
+  0.01 step above the highest similarity of two different people in the set; 95 is the median
+  similarity of two portraits of the same person; the steps between are even (from 50 to 85, and
+  from 85 to 95). A user model without a table uses `matchCosine + (value − 85) × 0.01`.
 - **Suggestions:** an unnamed face gets "Name?" only when its best person scores at or above the
   Suggestion threshold **and** is ahead of the second-best person by a margin (default 0.05 cosine).
   A person's score is the best match over that person's confirmed faces (at most the 64 most recent

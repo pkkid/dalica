@@ -616,6 +616,11 @@ impl FaceScan {
     }
 
     /// Whether nothing is on its way and nothing is waiting that the pace would let start.
+    /// Nothing loading, waiting, in progress, grouping, to be written or deleted.
+    pub(crate) fn is_idle(&self) -> bool {
+        self.idle()
+    }
+
     fn idle(&self) -> bool {
         self.loading.is_none()
             && self.in_flight.is_empty()
@@ -933,6 +938,10 @@ impl Session {
         s.stats.read = s.stats.read.saturating_add(1);
         s.stats.embedded = s.stats.embedded.saturating_add(found.embedded.len() as u64);
         if !current || !same_model {
+            // A result for another model (switched while the photo was in progress) or another
+            // version of the file is dropped; the waiting list, made while the photo was busy,
+            // left it out, so it is made again and the photo waits its turn.
+            s.queued_for = None;
             return;
         }
         for rect in &found.todo {
@@ -1285,5 +1294,69 @@ mod tests {
         assert!((iou([0.0, 0.0, 0.5, 0.5], [0.25, 0.0, 0.75, 0.5]) - 1.0 / 3.0).abs() < 1e-12);
         assert_eq!(iou([0.0, 0.0, 0.1, 0.1], [0.5, 0.5, 0.6, 0.6]), 0.0);
         assert_eq!(iou([0.0, 0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 0.0]), 0.0);
+    }
+
+    /// A recogniser installed in `models` as `id`: a 1 × 1 convolution to `dim` numbers.
+    fn plant(models: &Path, id: &str, dim: usize) {
+        let bytes = dalica_faces::synthetic::tiny_embedder_model(dim);
+        let mut m = dalica_faces::known::sface();
+        m.id = id.into();
+        m.input = dalica_faces::manifest::InputSpec::default();
+        m.output = dalica_faces::manifest::OutputSpec::Embedding { dim: u32::try_from(dim).unwrap() };
+        m.thresholds.match_cosine = Some(0.5);
+        m.calibration = None;
+        m.sha256 = Some(dalica_faces::hash::sha256_hex(&bytes));
+        m.size_bytes = Some(bytes.len() as u64);
+        let dir = models.join(id);
+        dalica_fs::create_dir_all(&dir).unwrap();
+        dalica_fs::replace(&dir.join(MODEL_FILE), &bytes, dalica_fs::Expect::Absent).unwrap();
+        dalica_fs::replace(&dir.join(MANIFEST_FILE), &serde_json::to_vec(&m).unwrap(), dalica_fs::Expect::Absent).unwrap();
+    }
+
+    /// A photo in progress when the recogniser is switched: its result, of the old model, is
+    /// dropped, and the photo is queued again and embedded by the new model, with no change to the
+    /// library.
+    #[test]
+    fn a_photo_in_progress_during_a_model_switch_is_scanned_again() {
+        let (_dirs, mut s, ids) = crate::cmd::testing::library(1);
+        let models = tempfile::tempdir().unwrap();
+        plant(models.path(), "rec-a", 16);
+        plant(models.path(), "rec-b", 8);
+        let rect = Rect01::new(0.3, 0.3, 0.6, 0.7).unwrap();
+        s.execute("faces.add", &json!({ "id": ids[0], "rect": [0.3, 0.3, 0.6, 0.7] })).unwrap();
+        s.change_settings(|st| {
+            let mut p = st.people();
+            p.model = Some("rec-a".into());
+            st.set_people(&p);
+        });
+        s.set_face_models_dir(Some(models.path().to_path_buf()));
+        assert!(s.wait_faces(Duration::from_secs(60)));
+        assert_eq!((s.faces_index().model(), s.faces_index().faces()), (Some("rec-a"), 1));
+        let old_tag = s.face_scan.engine.as_ref().unwrap().tag();
+
+        // Switch to B while the photo is (as far as the scan knows) in progress with A.
+        s.change_settings(|st| {
+            let mut p = st.people();
+            p.model = Some("rec-b".into());
+            st.set_people(&p);
+        });
+        s.face_models_changed();
+        s.face_scan.in_flight.insert(u64::MAX, ids[0]);
+        let until = Instant::now() + Duration::from_secs(60);
+        while s.faces_index().model() != Some("rec-b") || s.face_scan.loading.is_some() || s.face_scan.queued_for.is_none() {
+            assert!(Instant::now() < until, "B loaded");
+            s.poll_face_scan();
+            std::thread::sleep(WAIT_STEP);
+        }
+        assert!(s.face_scan.queue.is_empty(), "the busy photo is left out of B's list");
+        let revision = s.library().revision();
+
+        // A's result arrives: dropped, and the photo is queued again.
+        s.face_scan.in_flight.remove(&u64::MAX);
+        let photo = s.library().photo(ids[0]).unwrap().clone();
+        s.face_photo_done(Found { tag: old_tag, stamp: PhotoStamp::of(&photo), todo: vec![rect], detected: None, embedded: Vec::new(), error: None });
+        assert!(s.wait_faces(Duration::from_secs(60)));
+        assert_eq!((s.faces_index().model(), s.faces_index().faces()), (Some("rec-b"), 1), "embedded by B");
+        assert_eq!(s.library().revision(), revision, "with no change to the library");
     }
 }

@@ -1004,9 +1004,9 @@ Map tiles, geocoding and model downloads (M13) need TLS. The usual Rust TLS prov
   certificates are data, and sharing them asks only that the licence text go with them), is not in
   §8.3's list; it is the one reviewed `LICENCE_EXCEPTIONS` row in `xtask/src/deps.rs`, allowed by
   the maintainer with this decision. Its licence text must travel with the release packages from
-  the first release that links `dalica-fetch` into the app: the engine depends on it from M13.20
-  (map tiles and place searches), so 0.8 is that release; the packages carry `NOTICE` and
-  `ATTRIBUTION.md` today, not dependencies' licences.
+  the first release that links `dalica-fetch` into the app: the engine depends on it from M13.16
+  and M13.20 (face model downloads, map tiles and place searches), so 0.8 is that release; the
+  text is in `NOTICE` (*Data compiled into the program*), which every package ships.
 
 What was weighed: `rustls-rustcrypto` is an **alpha** release (0.0.2-alpha), younger and far less
 widely deployed than `ring` or `aws-lc-rs`. It is accepted because the alternatives break §8.1 (`ring` and `aws-lc-rs`
