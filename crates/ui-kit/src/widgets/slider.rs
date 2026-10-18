@@ -1,7 +1,8 @@
 //! The sliders of `design-system.md` §6: the labelled [`slider`] of the edit panels (a control
 //! spec, drag, Shift = fine, double-click resets, ↑/↓ nudge, click the value to type one), its
-//! Tuning variant [`tuning_slider`] (no value shown: it is a tooltip; + / − nudge 2 %), and the
-//! thin [`zoom_slider`] for the thumbnail size and edit zoom; and the [`stops_slider`] of the
+//! Tuning variant [`tuning_slider`] (no value shown: it is a tooltip; + / − nudge 2 %), the effect
+//! panels' [`effect_slider`] (the Tuning slider with its label centred above, on a linear or a
+//! logarithmic scale: [`SliderScale`]), and the thin [`zoom_slider`] for the thumbnail size and edit zoom; and the [`stops_slider`] of the
 //! Export dialog (snaps near given stops, a linked number field beside it).
 //!
 //! Every number that reaches them may be hostile (a spec from a plug-in, a value from a sidecar):
@@ -120,6 +121,72 @@ pub fn tuning_nudged(spec: &SliderSpec<'_>, value: f64, steps: f64) -> f64 {
 /// The share of the range one + / − press moves a [`tuning_slider`].
 pub const TUNING_NUDGE: f64 = 0.02;
 
+/// How an [`effect_slider`]'s track maps to its value (`editing.md` §8: Glow's Radius is on a
+/// logarithmic scale).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SliderScale {
+    /// Equal distances along the track are equal steps of the value.
+    #[default]
+    Linear,
+    /// Equal distances along the track multiply the value by the same factor: the low end gets
+    /// most of the track. A range that starts at or below 0 is shifted to start at 1 first, so
+    /// it maps as `ln(1 + v − min)`.
+    Log,
+}
+
+/// Where `v` sits along the track of a slider on `scale`, 0 to 1 (the value clamped first).
+pub fn scale_fraction(spec: &SliderSpec<'_>, scale: SliderScale, v: f64) -> f32 {
+    match scale {
+        SliderScale::Linear => spec.fraction(v),
+        SliderScale::Log => {
+            let (lo, hi) = spec.bounds();
+            let (shift, a, b) = log_ends(lo, hi);
+            let span = (b / a).ln();
+            if !(span.is_finite() && span > 0.0) {
+                return 0.0;
+            }
+            let f = ((spec.clamp(v) + shift) / a).ln() / span;
+            if f.is_finite() { f.clamp(0.0, 1.0) as f32 } else { 0.0 }
+        }
+    }
+}
+
+/// The value at `fraction` of the track of a slider on `scale` (clamped to 0 … 1), not yet
+/// snapped; the inverse of [`scale_fraction`].
+pub fn scale_value(spec: &SliderSpec<'_>, scale: SliderScale, fraction: f32) -> f64 {
+    match scale {
+        SliderScale::Linear => spec.at_fraction(fraction),
+        SliderScale::Log => {
+            let (lo, hi) = spec.bounds();
+            let f = if fraction.is_finite() { f64::from(fraction).clamp(0.0, 1.0) } else { 0.0 };
+            let (shift, a, b) = log_ends(lo, hi);
+            let v = a * (b / a).powf(f) - shift;
+            if v.is_finite() { v.max(lo).min(hi) } else { lo }
+        }
+    }
+}
+
+/// The shift that brings `lo` to at least 1 and the shifted ends: `(shift, lo + shift, hi + shift)`.
+fn log_ends(lo: f64, hi: f64) -> (f64, f64, f64) {
+    let shift = if lo > 0.0 { 0.0 } else { 1.0 - lo };
+    (shift, lo + shift, hi + shift)
+}
+
+/// `value` moved by `share` of the track of a slider on `scale` (+ / − move 2 %), then put on the
+/// spec's steps and clamped; a move too small to reach the next step takes one step.
+pub fn scale_nudged(spec: &SliderSpec<'_>, scale: SliderScale, value: f64, share: f64) -> f64 {
+    let value = spec.clamp(value);
+    if !share.is_finite() || share == 0.0 {
+        return value;
+    }
+    let f = f64::from(scale_fraction(spec, scale, value)) + share;
+    let moved = spec.snap(scale_value(spec, scale, f.clamp(0.0, 1.0) as f32));
+    if (moved - value).abs() > 1e-12 || !(spec.step.is_finite() && spec.step > 0.0) {
+        return moved;
+    }
+    spec.snap(value + spec.step.copysign(share))
+}
+
 /// Which slider row to draw.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Variant {
@@ -127,6 +194,8 @@ enum Variant {
     Labelled,
     /// No value field: the value is a tooltip, + / − nudge 2 %.
     Tuning,
+    /// The Tuning row with its label centred above, on a scale.
+    Effect(SliderScale),
 }
 
 /// What a [`slider`] did this pass.
@@ -183,8 +252,23 @@ pub fn tuning_slider(ui: &mut Ui, t: &Tokens, spec: &SliderSpec<'_>, value: f64)
     slider_row(ui, t, spec, value, Variant::Tuning)
 }
 
+/// An effect panel's slider (`editing.md` §8.1): the [`tuning_slider`] with its label centred
+/// above the track, on `scale` ([`SliderScale::Log`] for Glow's Radius). The value is a tooltip
+/// while the pointer is on the track or it is dragged; + and − move it by [`TUNING_NUDGE`] of the
+/// track, ↑ / ↓ by a quarter of that (Shift: five times), on the spec's steps; drag (Shift: ten
+/// times finer), click and double-click (reset to the default) work as in [`slider`]. Registers
+/// `spec.id` (`slider:effect.<param>`) on the track only.
+pub fn effect_slider(ui: &mut Ui, t: &Tokens, spec: &SliderSpec<'_>, value: f64, scale: SliderScale) -> SliderOut {
+    slider_row(ui, t, spec, value, Variant::Effect(scale))
+}
+
 fn slider_row(ui: &mut Ui, t: &Tokens, spec: &SliderSpec<'_>, value: f64, variant: Variant) -> SliderOut {
-    let tuning = variant == Variant::Tuning;
+    let (tuning, scale) = match variant {
+        Variant::Labelled => (false, SliderScale::Linear),
+        Variant::Tuning => (true, SliderScale::Linear),
+        Variant::Effect(scale) => (true, scale),
+    };
+    let effect = matches!(variant, Variant::Effect(_));
     let m = &t.metrics;
     let enabled = ui.is_enabled();
     let value = spec.clamp(value);
@@ -199,8 +283,8 @@ fn slider_row(ui: &mut Ui, t: &Tokens, spec: &SliderSpec<'_>, value: f64, varian
     let value_w = (row.width() * 0.4).clamp(24.0, 72.0);
     let value_rect = Rect::from_min_max(pos2(label_rect.max.x - value_w, label_rect.min.y), label_rect.max);
 
-    let to_x = |v: f64| line.min.x + spec.fraction(v) * line.width();
-    let from_x = |x: f32| spec.at_fraction(if line.width() > 0.0 { (x - line.min.x) / line.width() } else { 0.0 });
+    let to_x = |v: f64| line.min.x + scale_fraction(spec, scale, v) * line.width();
+    let from_x = |x: f32| scale_value(spec, scale, if line.width() > 0.0 { (x - line.min.x) / line.width() } else { 0.0 });
     let mut out = SliderOut { value: None, drag_started: false, drag_stopped: false, reset: false, response: resp.clone() };
     let set = |out: &mut SliderOut, v: f64, one_shot: bool| {
         if (v - value).abs() > 1e-12 {
@@ -280,9 +364,10 @@ fn slider_row(ui: &mut Ui, t: &Tokens, spec: &SliderSpec<'_>, value: f64, varian
             {
                 let fine = ui.input(|i| i.modifiers.shift);
                 let v = if fine {
-                    let dx = f64::from(ui.input(|i| i.pointer.delta().x));
-                    let (lo, hi) = spec.bounds();
-                    value + dx * (hi - lo) / f64::from(line.width().max(1.0)) * 0.1
+                    // A tenth of the pointer's move along the track (on the slider's scale).
+                    let dx = ui.input(|i| i.pointer.delta().x);
+                    let f = scale_fraction(spec, scale, value) + dx / line.width().max(1.0) * 0.1;
+                    scale_value(spec, scale, f)
                 } else {
                     from_x(p.x)
                 };
@@ -303,14 +388,17 @@ fn slider_row(ui: &mut Ui, t: &Tokens, spec: &SliderSpec<'_>, value: f64, varian
                 });
                 if up || down {
                     let steps = if up { 1.0 } else { -1.0 } * if shift { 5.0 } else { 1.0 };
-                    set(&mut out, nudged(spec, value, steps), true);
+                    let v = if effect { scale_nudged(spec, scale, value, TUNING_NUDGE / 4.0 * steps) } else { nudged(spec, value, steps) };
+                    set(&mut out, v, true);
                 } else if tuning {
                     let (plus, minus) = ui.input_mut(|i| {
                         let plus = i.consume_key(Modifiers::NONE, Key::Plus) || i.consume_key(Modifiers::NONE, Key::Equals);
                         (plus, i.consume_key(Modifiers::NONE, Key::Minus))
                     });
                     if plus || minus {
-                        set(&mut out, tuning_nudged(spec, value, if plus { 1.0 } else { -1.0 }), true);
+                        let sign = if plus { 1.0 } else { -1.0 };
+                        let v = if effect { scale_nudged(spec, scale, value, TUNING_NUDGE * sign) } else { tuning_nudged(spec, value, sign) };
+                        set(&mut out, v, true);
                     }
                 }
             }
@@ -322,7 +410,11 @@ fn slider_row(ui: &mut Ui, t: &Tokens, spec: &SliderSpec<'_>, value: f64, varian
     let p = ui.painter();
     let text_color = if enabled { t.text_label } else { t.text_disabled };
     let font = fonts::regular(t.detail);
-    p.text(label_rect.left_center(), Align2::LEFT_CENTER, spec.label, font.clone(), text_color);
+    if effect {
+        p.text(label_rect.center(), Align2::CENTER_CENTER, spec.label, font.clone(), text_color);
+    } else {
+        p.text(label_rect.left_center(), Align2::LEFT_CENTER, spec.label, font.clone(), text_color);
+    }
     if !typing_now && !tuning {
         p.text(label_rect.right_center(), Align2::RIGHT_CENTER, spec.format(shown), font, text_color);
     }

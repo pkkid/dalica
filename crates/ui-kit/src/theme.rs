@@ -117,6 +117,10 @@ pub struct Tokens {
     pub face_box: Color32,
     /// … and its 1 pt outer outline, `black α160`.
     pub face_box_outer: Color32,
+    /// `#f0f0f0`: an effect's crosshair on the photo (its cross, circle, handle and line) …
+    pub crosshair: Color32,
+    /// … and the dark edge under it that keeps it readable on a bright photo, `black α160`.
+    pub crosshair_outer: Color32,
     /// White: the 2 pt outline of the focused (anchor) photo.
     pub photo_focus: Color32,
     /// `gray 170`: the 2 pt outline of the other selected photos.
@@ -434,6 +438,8 @@ impl Tokens {
         filter_banner: Color32::from_rgb(0x2f, 0x3b, 0x4d),
         face_box: grey(0xf0),
         face_box_outer: Color32::from_black_alpha(160),
+        crosshair: grey(0xf0),
+        crosshair_outer: Color32::from_black_alpha(160),
         photo_focus: Color32::WHITE,
         photo_selected: grey(170),
         badge_plate: Color32::from_black_alpha(130),
@@ -709,6 +715,7 @@ mod tests {
             (t.drop_target, "#0165dd"),
             (t.filter_banner, "#2f3b4d"),
             (t.face_box, "#f0f0f0"),
+            (t.crosshair, "#f0f0f0"),
             (t.photo_focus, "#ffffff"),
             (t.photo_selected, "#aaaaaa"),
             (t.placeholder, "#262626"),
@@ -721,7 +728,7 @@ mod tests {
         }
         for (got, alpha) in [(t.badge_plate, 130), (t.backdrop, 140), (t.toast_bg, 200), (t.viewer_overlay, 210), (t.face_box_outer, 160)]
             .into_iter()
-            .chain([(t.overlay_bar, 170), (t.caption_plate, 160), (t.excluded_dim, 150)])
+            .chain([(t.overlay_bar, 170), (t.caption_plate, 160), (t.excluded_dim, 150), (t.crosshair_outer, 160)])
         {
             assert_eq!(got.to_array(), [0, 0, 0, alpha]);
         }

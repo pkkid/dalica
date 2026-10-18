@@ -13,11 +13,13 @@
 //! `icons/output.rs`), the automatic albums', [`AlbumIcon`] ([`paint_album`];
 //! `icons/albums.rs`), the shortcut editor's, [`OptionsIcon`] ([`paint_options`];
 //! `icons/options.rs`), and the rooms', slideshow's, viewer's, import tray's and compare's,
-//! [`ViewingIcon`] ([`paint_viewing`]; `icons/viewing.rs`). [`Glyph`] names a glyph of any set, for
+//! [`ViewingIcon`] ([`paint_viewing`]; `icons/viewing.rs`), and the effect tabs', [`EffectIcon`]
+//! ([`paint_effect`]; `icons/effects.rs`). [`Glyph`] names a glyph of any set, for
 //! widgets that take glyphs from more than one ([`paint_glyph`]).
 
 mod albums;
 mod edit;
+mod effects;
 mod folder_modes;
 mod glyphs;
 mod options;
@@ -27,6 +29,7 @@ mod viewing;
 
 pub use albums::{AlbumIcon, paint_album};
 pub use edit::{EditIcon, paint_edit};
+pub use effects::{EffectIcon, paint_effect};
 pub use folder_modes::{FolderIcon, INHERITED_OPACITY, paint_folder, state_color};
 pub use options::{OptionsIcon, paint_options};
 pub use output::{OutputIcon, paint_output};
@@ -218,6 +221,8 @@ pub enum Glyph {
     Edit(EditIcon),
     /// A viewing glyph.
     Viewing(ViewingIcon),
+    /// An effect-tab glyph.
+    Effect(EffectIcon),
 }
 
 impl From<Icon> for Glyph {
@@ -238,6 +243,12 @@ impl From<ViewingIcon> for Glyph {
     }
 }
 
+impl From<EffectIcon> for Glyph {
+    fn from(icon: EffectIcon) -> Glyph {
+        Glyph::Effect(icon)
+    }
+}
+
 /// Paints `glyph` in `color`, centred in the largest square that fits `rect`, with its set's
 /// painter. An empty or non-finite rect paints nothing.
 pub fn paint_glyph(painter: &Painter, rect: Rect, glyph: Glyph, color: Color32) {
@@ -245,6 +256,7 @@ pub fn paint_glyph(painter: &Painter, rect: Rect, glyph: Glyph, color: Color32) 
         Glyph::Shell(icon) => paint(painter, rect, icon, color),
         Glyph::Edit(icon) => paint_edit(painter, rect, icon, color),
         Glyph::Viewing(icon) => paint_viewing(painter, rect, icon, color),
+        Glyph::Effect(icon) => paint_effect(painter, rect, icon, color),
     }
 }
 

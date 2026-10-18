@@ -1116,6 +1116,7 @@ dependencies = [
 name = "dalica-ui-kit"
 version = "0.6.0"
 dependencies = [
+ "dalica-core",
  "dalica-scenes",
  "egui",
  "serde",

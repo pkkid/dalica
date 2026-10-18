@@ -25,10 +25,12 @@ mod banner;
 mod buttons;
 mod caption_plate;
 mod checkbox;
+mod crosshair;
 mod datetime;
 mod dialog;
 mod drag_pill;
 mod dropdown;
+mod effect_tile;
 mod feedback;
 mod field;
 mod form;
@@ -42,6 +44,7 @@ mod overlay_bar;
 mod slider;
 mod splitter;
 mod stepper;
+mod swatch;
 mod tabs;
 mod tool_button;
 mod tooltip;
@@ -59,6 +62,7 @@ pub use caption_plate::{
     caption_plate,
 };
 pub use checkbox::{CheckboxRowOut, checkbox_row};
+pub use crosshair::{CROSSHAIR_ARM, CROSSHAIR_GRAB, CROSSHAIR_HANDLE, Crosshair, CrosshairOut, crosshair, crosshair_handle_id, handle_angle};
 pub use datetime::{
     DATE_HINT, DATE_WIDTH, DatePart, MAX_YEAR, MIN_YEAR, PickedDate, PickedTime, PickerOut, TIME_HINT, TIME_WIDTH, TimePart, date_field,
     days_in_month, time_field,
@@ -69,6 +73,10 @@ pub use drag_pill::{
     drag_pill_text, drop_target, insertion_marker,
 };
 pub use dropdown::{DROPDOWN_ITEM_MAX_W, DROPDOWN_ITEM_MIN_W, dropdown, dropdown_item, dropdown_popup_id};
+pub use effect_tile::{
+    EFFECT_BADGE, EFFECT_GRID_COLUMNS, EFFECT_GRID_ROWS, EFFECT_TILE_GAP, EffectGridOut, EffectTile, effect_grid, effect_grid_size, effect_tile,
+    effect_tile_id,
+};
 pub use feedback::{
     ProgressOut, TOAST_ERROR_SECS, TOAST_LINES, TOAST_SECS, ToastKind, ToastText, elide_middle, empty_state, progress_row, toast, toast_galley,
     toast_opacity, toast_text_width,
@@ -87,11 +95,16 @@ pub use overlay_bar::{
     OVERLAY_BOTTOM, OVERLAY_BUTTON, OVERLAY_FADE_SECS, OVERLAY_GLYPH, OVERLAY_PAD, OverlayFade, overlay_bar, overlay_bar_rect, overlay_button,
 };
 pub use slider::{
-    STOP_SNAP, STOPS_FIELD_W, STOPS_TRACK_MIN, SliderOut, SliderSpec, StopsSlider, TUNING_NUDGE, edit_slider_value, next_stop, nudged, slider,
-    snap_to_stop, stops_slider, tuning_nudged, tuning_slider, typed_value, zoom_slider,
+    STOP_SNAP, STOPS_FIELD_W, STOPS_TRACK_MIN, SliderOut, SliderScale, SliderSpec, StopsSlider, TUNING_NUDGE, edit_slider_value, effect_slider,
+    next_stop, nudged, scale_fraction, scale_nudged, scale_value, slider, snap_to_stop, stops_slider, tuning_nudged, tuning_slider, typed_value,
+    zoom_slider,
 };
 pub use splitter::{arrow_delta, split_position, splitter};
 pub use stepper::{STEPPER_BUTTON, STEPPER_GAP, StepperOut, stepped, stepper, stepper_ids};
+pub use swatch::{
+    HUE_STRIP_W, PICKER_FIELD, PICKER_PAD, SWATCH_SIZE, SwatchOut, close_swatch, field_color, field_point, hue_at, hue_color, hue_point, open_swatch,
+    swatch, swatch_open, swatch_popup_rect, swatch_popup_size,
+};
 pub use tabs::{
     ROOM_TAB_CLOSE, ROOM_TAB_MIN_WIDTH, ROOM_TAB_PAD, RoomTab, RoomTabsOut, ShownRoomTab, TAB_MIN_WIDTH, TAB_OVERFLOW_WIDTH, TEXT_TAB_MIN_WIDTH,
     TEXT_TAB_PAD, Tab, TabFit, TabItem, TabsOut, TextTab, TextTabsOut, fit as fit_tabs, room_tab_close_id, room_tabs, tab_page, tabs,
