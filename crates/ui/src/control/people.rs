@@ -24,9 +24,13 @@
 //! - **Menus** ([`nodes`]): the same people rows in `ui.menu.tree` (the face and person menus) and
 //!   in the model `ui.menu.invoke` looks a path up in.
 //! - **The view state** ([`state`]): the names typed in the Unnamed grid (`unnamed.names`), Add a
-//!   Person Manually's name (`peoplePane.manual.name`), and the drafts of the dialogs that hold a
-//!   name (New Person, Rename Person: `fields.name`, `fields.nickname`, and their command's), in
-//!   `dialogs` and in `ui.inspect`'s `dialog` ([`dialog`]).
+//!   Person Manually's name (`peoplePane.manual.name`), the Export draft's folder name while it
+//!   exports a person's section (`export.folderName`, suggested from their name), and the drafts
+//!   of the dialogs that hold a name (New Person, Rename Person: `fields.name`, `fields.nickname`,
+//!   and their command's), in `dialogs` and in `ui.inspect`'s `dialog` ([`dialog`]).
+//! - **Commands' replies over `engine.execute`** ([`command`], beside the engine's
+//!   `Policy::people_reply`): `export.defaults` of a person's section suggests the fallback folder
+//!   name (`fallbackName`, "Export 2026-06-04") rather than the person's name, as MCP's does.
 //! - **`ui.inspect`'s own** ([`inspect`]): the tooltip over a widget whose label is withheld (a
 //!   person section's icon says their name), and the drag's `pill` while faces are dragged.
 //!
@@ -183,8 +187,14 @@ pub(super) fn nodes(nodes: &mut [Node]) {
 }
 
 /// The view state (`ui.state`, `ui.set`'s reply, the view state in `ui.inspect`) without the names
-/// typed: `unnamed.names`, `peoplePane.manual.name`, and the name dialogs' drafts in `dialogs`.
+/// typed: `unnamed.names`, `peoplePane.manual.name`, the Export draft's folder name for a person's
+/// section (by the section's kind), and the name dialogs' drafts in `dialogs`.
 pub(super) fn state(v: &mut Value) {
+    if v.pointer("/export/section").and_then(Value::as_str).is_some_and(person_section)
+        && let Some(name) = v.pointer_mut("/export/folderName")
+    {
+        withhold(name);
+    }
     if let Some(Value::Object(names)) = v.pointer_mut("/unnamed/names") {
         names.values_mut().for_each(withhold);
     }
@@ -229,6 +239,26 @@ pub(super) fn inspect(app: &App, v: &mut Value, hovered: Option<&str>, changed: 
     {
         *tip = Value::String(PLACEHOLDER.to_string());
     }
+}
+
+/// Whether `section` names a person's section (`person:<PersonId>`).
+fn person_section(section: &str) -> bool {
+    section.strip_prefix("person:").is_some_and(|p| PersonId::parse(p).is_ok())
+}
+
+/// The reply of command `id`, run with `params` over `engine.execute` (after the engine's
+/// `Policy::people_reply`), without the people permission: `export.defaults` of a person's
+/// section suggests its `fallbackName` as `folderName`. Other replies stay as they are.
+pub(super) fn command(id: &str, params: &Value, mut reply: Value) -> Value {
+    let person = params.get("section").and_then(Value::as_str).is_some_and(person_section);
+    if id == "export.defaults"
+        && person
+        && let Some(o) = reply.as_object_mut()
+    {
+        let fallback = o.get("fallbackName").cloned().unwrap_or(Value::Null);
+        o.insert("folderName".into(), fallback);
+    }
+    reply
 }
 
 /// A non-empty string becomes the placeholder; anything else stays.

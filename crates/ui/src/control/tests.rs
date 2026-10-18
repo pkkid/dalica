@@ -1047,6 +1047,8 @@ fn the_import_rooms_writes_keep_to_automations_rules_on_every_route() {
 /// (§6.4): with it `faces.list` carries names and `person:Ana` finds her photo, as a batch step
 /// does; without it names are `null`, rectangles left out, and `person:Ana` and the plain word
 /// `Ana` find nothing (`person` unavailable), while the filter by her id still finds her photo.
+/// `export.defaults` of her section suggests her name as the folder only with it, else the
+/// fallback name.
 #[test]
 fn people_data_and_name_searches_follow_the_people_permission() {
     for allow in [false, true] {
@@ -1077,13 +1079,21 @@ fn people_data_and_name_searches_follow_the_people_permission() {
         );
         assert_eq!(b["results"][0]["result"]["total"], want, "{at}: a batch step");
         assert_eq!(b["results"][1]["result"]["faces"][0]["name"], if allow { json!("Ana") } else { Value::Null }, "{at}: a batch step");
+        // Her section's export folder is suggested by her name only with the permission.
+        let d = ok(
+            &mut t,
+            "engine.execute",
+            json!({ "command": "export.defaults", "params": { "section": format!("person:{}", ana.as_str().unwrap()) } }),
+        );
+        assert!(d["fallbackName"].as_str().unwrap().starts_with("Export"), "{at}: {d}");
+        assert_eq!(d["folderName"], if allow { json!("Ana") } else { d["fallbackName"].clone() }, "{at}: export.defaults");
     }
 }
 
 /// Without `--automation-allow-people` the window's own replies carry no person's name (§6.4,
 /// `control/people.rs`): with Ana named, her section shown (zoomed to her faces), the People pane
 /// open and the face menu's Move to Person ▸ listed, then with the People pane filtering by Ana and
-/// Rui, Rename Person open, "Ana" typed in the Unnamed grid with the people it offers, a face
+/// Rui, Rename Person open, Export open on her section, "Ana" typed in the Unnamed grid with the people it offers, a face
 /// dragged over her row, and the edit view's face boxes with Add a Person Manually's name "Ana",
 /// no reply of `ui.inspect`, `ui.state`, `ui.widgets` or `ui.menu.tree` contains "Ana", while the
 /// widgets listed are those drawn, by the same ids; the labels keep their counts around the
@@ -1162,6 +1172,13 @@ fn people_names_are_withheld_from_the_windows_replies_without_the_people_permiss
         t.d.settle(60).unwrap();
         check(&mut t, "Rename Person");
         assert_eq!(ok(&mut t, "ui.inspect", json!({}))["dialog"]["fields"]["name"], named("Person", "Ana"), "{at}");
+        ok(&mut t, "ui.dialog.cancel", json!({}));
+
+        // Export of her section: the draft's folder name is suggested from her name.
+        t.d.run("output.export", &json!({ "section": format!("person:{ana}") })).unwrap();
+        t.d.settle(60).unwrap();
+        check(&mut t, "Export");
+        assert_eq!(ok(&mut t, "ui.state", json!({}))["export"]["folderName"], named("Person", "Ana"), "{at}");
         ok(&mut t, "ui.dialog.cancel", json!({}));
 
         // "Ana" typed in the Unnamed grid, and the people it offers.
