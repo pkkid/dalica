@@ -52,6 +52,7 @@ mod panic_hunt;
 mod pending_writes;
 mod photo_history;
 mod photo_metadata;
+mod places;
 mod preview;
 mod preview_panes;
 mod progressive_scan;

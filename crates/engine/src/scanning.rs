@@ -95,7 +95,10 @@
 //!   name rules); a face naming a person named nowhere stays out of the model and in the file. A
 //!   rebuild's thread reads `people.json` after `albums.json` (names, nicknames), and the rebuild
 //!   ends by creating its people no folder brought back and setting its thumbnails
-//!   (`people_definitions`).
+//!   (`people_definitions`). **A file's GPS** (M13.14): a new photo whose sidecar has no word on
+//!   its place takes its file's GPS as its geotag in the same op; a known photo's place follows its
+//!   file through the diff's sync op (`dalica_scan::meta`), never over a location the user
+//!   removed, all with no undo step.
 //!
 //! Seams: [`crate::watching`] starts the periodic verification through
 //! [`Session::start_verification`]'s units and runs its own incremental rescans of dirty folders
@@ -110,7 +113,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 
 use dalica_core::{AlbumId, FolderId, PhotoId, PosKey, Timestamp};
-use dalica_library::{AlbumInfo, Library, Op};
+use dalica_library::{AlbumInfo, Geo, Library, Op};
 use dalica_scan::{Event, Failure, FoundFolder, HeaderReader, Known, Plan, Progress, ReadMetadata, Scan, Summary};
 use dalica_store::albums::{AlbumsRead, AlbumsReading};
 use dalica_store::people::{PeopleRead, PeopleReading};
@@ -685,12 +688,14 @@ impl Session {
     }
 
     /// The files the model knows now: listed once per library revision (one pass over the photos).
+    /// A photo whose file held GPS that the model has no word on counts as unknown, so its file is
+    /// read again and its place comes in (M13.14, [`Known::of_placed`]).
     fn known_files(&mut self) -> Arc<Known> {
         let revision = self.library.revision();
         match &self.scanning.known {
             Some((r, known)) if *r == revision => Arc::clone(known),
             _ => {
-                let known = Arc::new(Known::of(&self.library));
+                let known = Arc::new(Known::of_placed(&self.library));
                 self.scanning.known = Some((revision, Arc::clone(&known)));
                 known
             }
@@ -1472,7 +1477,9 @@ fn with_sidecar(
 /// under `people.json`'s name and nickname, `defs`, when a rebuild read it, else the folder's
 /// `"people"`), by the rebuild's rules ([`People`]: a name another person holds, ignoring case, is
 /// that person); then one `SetFaces` (a face naming a person named nowhere stays out of the model
-/// and in the file) and one `SetGeo` (`Geo::Removed` included). A scan never writes these keys.
+/// and in the file) and one `SetGeo` (`Geo::Removed` included; a photo whose sidecar has no word
+/// on its place takes its file's GPS, when the scan read one: M13.14). A scan never writes these
+/// keys (a geotag it brings is written to the sidecar like any change of the model's).
 fn with_people(lib: &Library, op: &Op, folder: &FoundFolder, defs: Option<&PeopleReading>) -> Option<Op> {
     let children: &[Op] = match op {
         Op::Batch { ops } => ops,
@@ -1514,7 +1521,10 @@ fn with_people(lib: &Library, op: &Op, folder: &FoundFolder, defs: Option<&Peopl
             if !list.is_empty() {
                 faces.push((p.id, list));
             }
-            if let Some(g) = found.geo {
+            // The sidecar's word first (a removed location included); without one, the file's GPS
+            // is the photo's point (M13.14: the first scan's import, `dalica_scan::meta`).
+            let word = found.geo.or_else(|| found.file.as_ref().and_then(|f| f.0.place).and_then(dalica_scan::meta::point_of).map(Geo::At));
+            if let Some(g) = word {
                 geo.push((p.id, Some(g)));
             }
         }

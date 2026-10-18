@@ -2,10 +2,12 @@
 //! places and dates the user changes reach the photo files themselves.
 //!
 //! - **The hook.** After every op the session applies, [`Session::metadata_applied`] is told the
-//!   owned values (caption, tags, star, the effective date) of the op's candidate photos from
-//!   before it, and records the fields that changed, and by what: a command (undo and redo
-//!   included, so every surface reaches it) or the files themselves (scans, rescans and imports,
-//!   which are never written back). [`Session::take_metadata_changes`] hands the records out.
+//!   owned values (caption, tags, star, the effective date, the model's word on the place) of the
+//!   op's candidate photos from before it, and records the fields that changed, and by what: a
+//!   command (undo and redo included, so every surface reaches it) or the files themselves (scans,
+//!   rescans and imports, which are never written back). [`Session::take_metadata_changes`] hands
+//!   the records out. A geotag set or cleared is written as the place (EXIF GPS and its XMP
+//!   mirror; a removed location deletes both), under the captions, tags and places option.
 //! - **Queueing.** A command's change queues one write per photo with the fields whose option is
 //!   on (Options → General → Files: captions, tags and places; stars as ratings; dates) through
 //!   `dalica-store`'s [`MetaWriteQueue`], which batches and debounces them per photo.
@@ -17,7 +19,8 @@
 //!   Writes waiting for an offline volume are tried again on their own, without a job.
 //! - **Results** come back through `poll`: the new last-synced hashes (a derived op); values another
 //!   application changed come back as one undoable import op ("Import Metadata", never written
-//!   back); both changed is noted for `photo.metadata` ([`Session::note_changed_elsewhere`]); a file
+//!   back; a place follows the file with no undo step, never over a location the user removed);
+//!   both changed is noted for `photo.metadata` ([`Session::note_changed_elsewhere`]); a file
 //!   Dalica wrote while the model knew its version gets its new size and time, so a rescan does
 //!   not take Dalica's own write for an outside change; a failed write becomes a
 //!   [`MetadataEvent`] (the UI's toasts), naming the file and the fields.
@@ -59,7 +62,7 @@ use std::time::Duration;
 
 use dalica_core::{Clock, DateTime, FolderId, PhotoId, Timestamp};
 use dalica_library::sync::Field as SyncField;
-use dalica_library::{Library, Op, Photo};
+use dalica_library::{Geo, Library, Op, Photo};
 use dalica_store::metawrite::{self, FieldOutcome, FileResult, MetaWriteQueue, Request, Status, Values};
 use dalica_store::writer::RootCheck;
 use serde_json::{Value, json};
@@ -483,12 +486,22 @@ pub(crate) struct Owned {
     tags: Vec<String>,
     /// The effective date: the user's, else the file's.
     date: Option<DateTime>,
+    /// The model's word on the place (M13.14): a point, the location removed, or none (the file's
+    /// GPS counts).
+    geo: Option<Geo>,
 }
 
 /// `p`'s owned values in `library`.
 pub(crate) fn owned(library: &Library, p: &Photo) -> Owned {
     let info = library.info(p.id);
-    Owned { star: p.star, caption: info.caption.clone(), tags: info.tags.clone(), date: info.date.or(p.date) }
+    Owned { star: p.star, caption: info.caption.clone(), tags: info.tags.clone(), date: info.date.or(p.date), geo: library.geo(p.id) }
+}
+
+/// The place the write queue takes for the model's word `geo`: a point's degrees; none for a
+/// location removed, or for no word (a photo the model has no word on has had no GPS since its
+/// file was last read: the scan brings a file's GPS in as a point).
+fn place_of(geo: Option<Geo>) -> Option<(f64, f64)> {
+    geo.and_then(|g| g.point()).map(|p| (p.lat(), p.lon()))
 }
 
 /// The fields in which `a` and `b` differ.
@@ -505,6 +518,9 @@ fn differ(a: &Owned, b: &Owned) -> Fields {
     }
     if a.date != b.date {
         f.insert(Field::Date);
+    }
+    if a.geo != b.geo {
+        f.insert(Field::Place);
     }
     f
 }
@@ -528,6 +544,7 @@ pub(crate) fn candidates(library: &Library, op: &Op) -> Vec<PhotoId> {
             Op::SetTags { tags } => out.extend(tags.iter().map(|(id, _)| *id)),
             Op::SetDates { dates } => out.extend(dates.iter().map(|(id, _)| *id)),
             Op::SetPhotoInfo { photos } => out.extend(photos.iter().map(|(id, _)| *id)),
+            Op::SetGeo { geo } => out.extend(geo.iter().map(|(id, _)| *id)),
             Op::Batch { ops } => stack.extend(ops),
             // Folders and photos entering or leaving the library, hidden flags, recipes, folder
             // info and derived data own no metadata field.
@@ -537,9 +554,9 @@ pub(crate) fn candidates(library: &Library, op: &Op) -> Vec<PhotoId> {
     out.into_iter().collect()
 }
 
-/// `o` as the write queue's values (places have no field in the model).
+/// `o` as the write queue's values.
 fn values_of(o: &Owned) -> Values {
-    Values { caption: o.caption.clone(), tags: o.tags.clone(), star: o.star, place: None, date: o.date }
+    Values { caption: o.caption.clone(), tags: o.tags.clone(), star: o.star, place: place_of(o.geo), date: o.date }
 }
 
 /// The owned values of `ids` in `library` now (photos not in it are left out).
@@ -681,13 +698,14 @@ impl Session {
     }
 
     /// The owned fields Dalica changed in photo `id` and has not written into its file, as its
-    /// last-synced hashes say (none without hashes). Places are left out: the model has no field
-    /// for them, so Dalica never changes one (writing one would remove the file's).
+    /// last-synced hashes say (none without hashes). The place counts only when the model has a
+    /// word on it: without one the file's GPS is the photo's, and nothing of Dalica's is unwritten.
     fn unwritten(&self, id: PhotoId) -> Fields {
         let (Some(synced), Some(p)) = (self.library.synced(id), self.library.photo(id)) else { return Fields::NONE };
         let ours = self.model_values(p);
         let mut out = Fields::NONE;
-        for f in [Field::Caption, Field::Tags, Field::Star, Field::Date] {
+        let place = self.library.geo(id).is_some().then_some(Field::Place);
+        for f in [Field::Caption, Field::Tags, Field::Star, Field::Date].into_iter().chain(place) {
             if synced.get(f.sync()).is_some_and(|h| h != ours.hash(f.sync())) {
                 out.insert(f);
             }
@@ -741,7 +759,8 @@ impl Session {
     /// Photo `p`'s owned values in the model, as the write queue takes them.
     fn model_values(&self, p: &Photo) -> Values {
         let info = self.library.info(p.id);
-        Values { caption: info.caption.clone(), tags: info.tags.clone(), star: p.star, place: None, date: self.library.effective_date(p.id) }
+        let place = place_of(self.library.geo(p.id));
+        Values { caption: info.caption.clone(), tags: info.tags.clone(), star: p.star, place, date: self.library.effective_date(p.id) }
     }
 
     /// For the photos of `ids` that may be RAW files: the names, by folder and folded stem, of the
@@ -760,9 +779,23 @@ impl Session {
     }
 
     /// The write of `fields` of photo `id` with the model's values now, and the file's version as
-    /// the model knows it.
-    fn write_request(&self, id: PhotoId, fields: BTreeSet<SyncField>, raws: &HashMap<(FolderId, String), Vec<String>>) -> Option<(Request, Version)> {
+    /// the model knows it. The place is left out when the model has no word on it while the file
+    /// held GPS when last read (a library indexed before geotags were read into the model, its
+    /// file not read again yet): Dalica does not know that GPS, so it leaves it in the file rather
+    /// than remove it. `None` when nothing is left to write.
+    fn write_request(
+        &self,
+        id: PhotoId,
+        mut fields: BTreeSet<SyncField>,
+        raws: &HashMap<(FolderId, String), Vec<String>>,
+    ) -> Option<(Request, Version)> {
         let p = self.library.photo(id)?;
+        if self.library.geo(id).is_none() && self.library.facts(id).geotagged {
+            fields.remove(&SyncField::Place);
+        }
+        if fields.is_empty() {
+            return None;
+        }
         let folder = self.library.folder(p.folder)?;
         let values = self.model_values(p);
         let raws =
@@ -940,8 +973,15 @@ impl Session {
             log::warn!("synced hashes of photo {id} not applied: {e}");
         }
         self.import_from_file(&result);
-        let conflicts: Vec<Field> =
-            result.fields.iter().filter(|(_, o)| matches!(o, FieldOutcome::Conflict { .. })).map(|(f, _)| Field::of_sync(*f)).collect();
+        // Without a word of the model's on the place, the file's GPS is the photo's: a change made to
+        // it elsewhere is no conflict.
+        let no_word = self.library.geo(id).is_none();
+        let conflicts: Vec<Field> = result
+            .fields
+            .iter()
+            .filter(|(f, o)| matches!(o, FieldOutcome::Conflict { .. }) && !(no_word && *f == SyncField::Place))
+            .map(|(f, _)| Field::of_sync(*f))
+            .collect();
         if !conflicts.is_empty() {
             self.note_changed_elsewhere(id, Fields::of(&conflicts));
         }
@@ -979,9 +1019,14 @@ impl Session {
     }
 
     /// Values another application changed (and Dalica did not): one undoable op, never written back.
-    /// Places have no field in the model yet and stay in the file.
+    /// The place follows the file with no undo step, as a scan's does (`dalica-scan` `meta`): a
+    /// point, or none when the file lost its GPS; a location the user removed is never brought
+    /// back.
     fn import_from_file(&mut self, result: &FileResult) {
         let (Some(file), id) = (&result.file, result.photo) else { return };
+        if result.imports().any(|f| f == SyncField::Place) {
+            self.follow_file_place(id, file.place);
+        }
         let mut ops = Vec::new();
         for field in result.imports() {
             match field {
@@ -992,6 +1037,7 @@ impl Session {
                     let own = self.library.photo(id).and_then(|p| p.date);
                     ops.push(Op::SetDates { dates: vec![(id, file.date.filter(|d| Some(*d) != own))] });
                 }
+                // Above, with no undo step.
                 SyncField::Place => {}
             }
         }
@@ -1002,6 +1048,23 @@ impl Session {
         match self.apply(op) {
             Ok(inverse) => self.undo.push(Step { label: IMPORT_LABEL, op: inverse, modes: None }),
             Err(e) => log::warn!("values photo {id}'s file holds could not be imported: {e}"),
+        }
+    }
+
+    /// Photo `id`'s place follows its file, which another application changed to `place`: the
+    /// model's point becomes the file's, or with none the model's word is dropped (the file's says
+    /// there is none). Never over a location the user removed. Applied as the files' change (no
+    /// undo step, never written back).
+    fn follow_file_place(&mut self, id: PhotoId, place: Option<(f64, f64)>) {
+        if self.library.geo(id) == Some(Geo::Removed) {
+            return;
+        }
+        let geo = place.and_then(dalica_scan::meta::point_of).map(Geo::At);
+        if geo == self.library.geo(id) {
+            return;
+        }
+        if let Err(e) = self.apply(Op::SetGeo { geo: vec![(id, geo)] }) {
+            log::warn!("the place photo {id}'s file holds could not be imported: {e}");
         }
     }
 
