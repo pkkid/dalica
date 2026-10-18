@@ -227,6 +227,38 @@ fn a_region_is_that_window_of_the_whole_render() {
     }
 }
 
+/// Soften's mask and blur are made once per render while its bands run: the thread making them
+/// never runs another band meanwhile (one waiting on this setup, or on another render's whose
+/// maker waits on this one). Before the setup ran apart from the bands' pool, two threads
+/// rendering into one small pool hung.
+#[test]
+fn its_one_time_setup_never_waits_on_the_bands_pool() {
+    use std::sync::Arc;
+    const ROUNDS: usize = 12;
+    let img = Arc::new(detailed(600, 400));
+    let pool = Arc::new(rayon::ThreadPoolBuilder::new().num_threads(4).build().unwrap());
+    let (done, wait) = std::sync::mpsc::channel();
+    let ops = ["soften(80,20)".to_string(), format!("soften(60,0;{PAINT})"), "soften(30,50;paint,0.2,0.5,0.5;erase,0.05,0.5,0.5)".to_string()];
+    for turn in 0..3 {
+        let (img, pool, done, ops) = (img.clone(), pool.clone(), done.clone(), ops.clone());
+        std::thread::spawn(move || {
+            for _ in 0..ROUNDS {
+                for k in 0..ops.len() {
+                    let op = ops[(k + turn) % ops.len()].as_str();
+                    let a = pool.install(|| render(Source::upright(&img), &recipe(&[op]), Target::Full).unwrap());
+                    let b = pool.install(|| render(Source::upright(&img), &recipe(&[op]), Target::Fit { width: 300, height: 300 }).unwrap());
+                    let _ = done.send((op.to_string(), a, b));
+                }
+            }
+        });
+    }
+    let mut seen = std::collections::HashMap::new();
+    for _ in 0..3 * ROUNDS * ops.len() {
+        let (op, a, b) = wait.recv_timeout(std::time::Duration::from_secs(30)).expect("the renders finish (no band waits on a setup it is making)");
+        assert_eq!(seen.entry(op.clone()).or_insert_with(|| (a.clone(), b.clone())), &(a, b), "{op} renders the same every time");
+    }
+}
+
 /// The mask at two sizes, the larger box-downscaled, agrees within a fraction of a pixel's edge.
 #[test]
 fn the_mask_is_the_same_at_two_sizes() {

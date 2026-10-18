@@ -254,6 +254,40 @@ fn small_windows_of_a_larger_photo_see_every_stroke_they_need() {
     }
 }
 
+/// The healed patches are made once per render while the bands run: the thread healing them
+/// never runs another band meanwhile, and two threads rendering into one small pool finish.
+#[test]
+fn its_one_time_setup_never_waits_on_the_bands_pool() {
+    use std::sync::Arc;
+    const ROUNDS: usize = 12;
+    let img = Arc::new(scene(47, 600, 400));
+    let pool = Arc::new(rayon::ThreadPoolBuilder::new().num_threads(4).build().unwrap());
+    let (done, wait) = std::sync::mpsc::channel();
+    let ops = [
+        "retouch(0.7,0.2,0.2,0.3,0.06;0.2,0.3,0.6,0.7,0.04)",
+        "retouch(0.1,0.1,0.9,0.9,0.1)",
+        "retouch(0.2,0.2,0.25,0.25,0.02;0.25,0.25,0.3,0.3,0.02)",
+    ];
+    for turn in 0..3 {
+        let (img, pool, done) = (img.clone(), pool.clone(), done.clone());
+        std::thread::spawn(move || {
+            for _ in 0..ROUNDS {
+                for k in 0..ops.len() {
+                    let op = ops[(k + turn) % ops.len()];
+                    let a = pool.install(|| render(Source::upright(&img), &recipe(&[op]), Target::Full).unwrap());
+                    let b = pool.install(|| render(Source::upright(&img), &recipe(&[op]), Target::Fit { width: 300, height: 300 }).unwrap());
+                    let _ = done.send((op, a, b));
+                }
+            }
+        });
+    }
+    let mut seen = std::collections::HashMap::new();
+    for _ in 0..3 * ROUNDS * ops.len() {
+        let (op, a, b) = wait.recv_timeout(std::time::Duration::from_secs(30)).expect("the renders finish (no band waits on a setup it is making)");
+        assert_eq!(seen.entry(op).or_insert_with(|| (a.clone(), b.clone())), &(a, b), "{op} renders the same every time");
+    }
+}
+
 #[test]
 fn a_pass_reads_only_as_far_as_its_strokes_reach() {
     let (w, h) = (4000u32, 3000u32);

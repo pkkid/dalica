@@ -9,7 +9,8 @@
 //! - [`blur`]: a Gaussian by three box passes ([`Gaussian`]) over a [`Plane`] of pixels placed in
 //!   the whole output, exactly the same in a region render (with the margin of its
 //!   [`Gaussian::reach`]) as in the whole render; [`Blurred`] blurs a pass's `before` view once per
-//!   render for every band.
+//!   render for every band; [`apart`] makes any such one-time setup that runs `rayon` work apart
+//!   from the bands' pool, so a band never waits on a setup it is making.
 //! - [`noise`]: [`Noise`], smooth value noise seeded from an entry's parameters ([`noise::seed`])
 //!   and placed in the stored frame, so a thumbnail, the edit view, a zoomed region and a Save
 //!   agree; mean 0 and a standard deviation of 1 before its amount.
@@ -34,7 +35,7 @@ pub mod noise;
 pub mod space;
 
 pub use blend::{Blend, fade, mix};
-pub use blur::{Blurred, Gaussian, Plane};
+pub use blur::{Blurred, Gaussian, Plane, apart};
 pub use brush::{Dabs, paint};
 pub use color::{luma, to_linear, to_srgb};
 pub use mask::{Circle, Edges, Gradient};

@@ -34,6 +34,7 @@ use std::sync::OnceLock;
 use super::crop::{number, read_number};
 use super::{Adjust, Band, Operation, ParamError, Pass, Prepare, Reach, View};
 use crate::frame::Point;
+use crate::fx::apart;
 
 /// The most strokes one `retouch` entry holds (`security.md` §8).
 pub const MAX_STROKES: usize = 1000;
@@ -223,7 +224,9 @@ impl Rect {
     }
 }
 
-/// The prepared strokes, healed once per render (by the first band to run) into `done`.
+/// The prepared strokes, healed once per render (by the first band to run) into `done`, through
+/// [`apart`] like every one-time setup inside a band (sequential today, so it could not hang, but
+/// a later parallel heal cannot either; it measured no slower).
 struct Heal {
     patches: Vec<Patch>,
     reach: u32,
@@ -255,7 +258,7 @@ impl Pass for Heal {
 
     fn run(&self, band: &mut Band<'_>) {
         let Some(view) = band.before else { return };
-        let Some(healed) = self.done.get_or_init(|| self.heal(view)) else { return };
+        let Some(healed) = self.done.get_or_init(|| apart(|| self.heal(view))) else { return };
         let (y0, y1) = (band.y0.max(healed.at.y0), band.y0.saturating_add(band.rows).min(healed.at.y1));
         let (x0, x1) = (band.x0.max(healed.at.x0), band.x0.saturating_add(band.width).min(healed.at.x1));
         for y in y0..y1 {
