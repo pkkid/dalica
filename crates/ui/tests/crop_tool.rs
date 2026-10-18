@@ -296,7 +296,8 @@ fn preview_apply_and_the_thumbnail_and_a_reopened_crop() {
 }
 
 /// Preview held: a press on Preview held past [`crop::HOLD`] shows the cropped photo until it is
-/// let go, and that release is no click, so Preview is not left on.
+/// let go, however long it is held (past egui's longest click too), and that release is no click,
+/// so Preview is not left on.
 #[test]
 fn preview_held_shows_the_crop_until_let_go() {
     let mut t = setup((1400, 900));
@@ -313,6 +314,10 @@ fn preview_held_shows_the_crop_until_let_go() {
     .unwrap();
     assert_eq!(view(&t).size, whole, "a press not yet held shows the whole photo");
     t.d.wait((crop::HOLD * 1000.0) as u64 + 100).unwrap();
+    assert!(crop::previewing(), "held: previewing");
+    // Held on, past the 0.8 s after which egui no longer takes the press for a click.
+    t.d.wait(1000).unwrap();
+    assert!(crop::previewing(), "held long: still previewing");
     settle(&mut t);
     assert!(crop::previewing(), "held: previewing");
     assert_eq!(view(&t).size, (300.0, 200.0), "held: the crop shows");
