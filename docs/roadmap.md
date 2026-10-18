@@ -8105,7 +8105,7 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
     them as one step; Ana's section shows her photos and Zoom to Faces shows her faces; Rename,
     Merge Into and Delete Person each undo in one step; Play starts a slideshow of her photos; at
     900 × 600 the tree fits; fingerprints of the tree and a person section at 1400 × 900.
-- ⬜ **M13.26 `engine`: suggestions: confirm, reject, Find More and evaluate**
+- ✅ **M13.26 `engine`: suggestions: confirm, reject, Find More and evaluate**
   - after: M13.7, M13.15, M13.18
   - files: `crates/engine/src/cmd/suggest.rs`, `crates/engine/src/suggestions.rs`, `crates/engine/tests/suggestions.rs`
   - scope: `faces.md` §5 on M13.7's maths and M13.18's index: `faces.suggest {ids? | person?}`

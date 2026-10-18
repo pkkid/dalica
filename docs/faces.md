@@ -5,7 +5,7 @@ Adapted from LightCraft `docs/faces.md` and `crates/faces` (revision 88ea1a8); M
 > **Status: Partly built (M13).** `crates/faces` has the interpreter and its limits (§2, M13.6),
 > grouping and suggestions (§5, M13.7), and the detector, alignment, embeddings, manifests, the
 > bring-your-own catalog, the known models and the self-test (§2–§3, M13.10), and the background
-> scan with its index and groups (§4–§5, M13.18); the downloads and the UI follow in M13. The user-facing behaviour (the People group,
+> scan with its index and groups (§4–§5, M13.18), and the suggestions' commands (§5, M13.26); the downloads and the UI follow in M13. The user-facing behaviour (the People group,
 > Unnamed, suggestions, the People pane, options) is specified in [`organizing.md`](organizing.md)
 > §6; where faces are stored is in [`data-model.md`](data-model.md) §2–§5; how names travel in
 > files is in [`xmp-interop.md`](xmp-interop.md) §6. This document is the engine design behind
@@ -204,6 +204,22 @@ Options → People: **Suggest names** (on), **Suggestion confidence** and **Grou
   value from evidence.
 - Nothing about one library is used in another.
 
+How suggestions are built (M13.26; engine `suggestions.rs`, `cmd/suggest.rs`):
+
+- **On demand, kept per state.** Suggestions are worked out when a command asks and kept until the
+  library (a face named, moved or removed, a person merged), the face index (faces embedded,
+  another model), the rejected pairs, Suggest names or the Suggestion confidence change; nothing is
+  done per frame. References are every named face with an embedding of the model in use;
+  decisions use the index's 8-bit embeddings.
+- **Confirm** names a face after its suggested person (one undo step for any number of faces, and
+  for Confirm All); **Reject** records the pair (photo path, rectangle, person) in `people.json`'s
+  `"rejected"`, no undo step. A pair follows its photo when the photo is renamed or moved in the
+  session. The rejected pairs are read once, on a helper thread, the first time suggestions are
+  needed; until they are read nothing is suggested.
+- **Find More** also answers while Suggest names is off (the user asked for it); a near miss it
+  lists is rejected by naming the person (`faces.reject {faces, person}`).
+- Replies carry face ids, person ids, scores and counts, never a name or a rectangle.
+
 ## 6. Storage
 
 | What | Where | Rebuildable? |
@@ -246,7 +262,9 @@ the engine adds, all drivable from the control channel, CLI and MCP:
 `faces.models.list`, `faces.models.inspect {path}`, `faces.models.install {path, acknowledged}`,
 `faces.models.download {id, acknowledged}`, `faces.models.cancel {id}`, `faces.models.remove {id}`,
 `faces.models.select {id}`, `faces.enable {on}`, `faces.detect {ids, apply?}`, `faces.index`,
-`faces.suggest {ids?}`, `faces.name {faces, person}`, `faces.ignore {faces}`, `faces.evaluate`.
+`faces.suggest {ids? | person?}`, `faces.confirm {faces}`, `faces.confirmAll {person}`,
+`faces.reject {faces, person?}`, `faces.findMore {person}`, `faces.name {faces, person}`,
+`faces.ignore {faces}`, `faces.evaluate`.
 `acknowledged` must be `true`: it asserts that the user was shown the terms and agreed; agents must
 never set it on their own initiative.
 
