@@ -96,6 +96,20 @@
 //!   again" remembers: ask before applying on a switch (on) and the side to keep (`"ask"`,
 //!   `"left"` or `"right"`; ask).
 //!
+//! M13 adds two objects, merged key by key the same way (M13.3; `menus-and-shortcuts.md` §5,
+//! `faces.md` §3–§5, `organizing.md` §6.1 and §7):
+//!
+//! - `"people"`: Options → People and the face model in use ([`PeopleSettings`]): `{findFaces,
+//!   suggestNames, suggestionConfidence, groupingConfidence, storeNamesInPhotos, model}`: on, on,
+//!   85 and 85 (in [`CONFIDENCE_RANGE`] 50–95 on a step of [`CONFIDENCE_STEP`] 5), off, and the
+//!   recogniser chosen with Use (a model id; none: the newest installed).
+//! - `"network"`: Options → Network ([`NetworkSettings`]): `{allowMapTiles, tileServer,
+//!   tileAttribution, geocoder, proxy, proxyHost, proxyPort, logLevel}`: off, the tile server's and
+//!   the geocoding service's address templates and the attribution (the defaults in
+//!   [`crate::map_tiles`]), `"system"` or `"manual"` ([`ProxyMode`]; system) with the manual
+//!   proxy's host (empty) and port (8080), and `"errors"`, `"requests"` or `"details"`
+//!   ([`NetworkLogLevel`]; errors).
+//!
 //! The command modules read them through [`Session::settings`](crate::Session::settings) and change
 //! them through [`Session::change_settings`](crate::Session::change_settings) with the typed
 //! accessors below. A value of the wrong type is the default and is reported once, when the library
@@ -751,6 +765,167 @@ pub struct CompareSettings {
 impl Default for CompareSettings {
     fn default() -> Self {
         CompareSettings { ask_before_applying: true, keep: KeepVersion::Ask }
+    }
+}
+
+/// The Suggestion and Grouping confidence sliders (`faces.md` §5): their default, range and step.
+pub const CONFIDENCE_DEFAULT: u32 = 85;
+pub const CONFIDENCE_RANGE: std::ops::RangeInclusive<u32> = 50..=95;
+pub const CONFIDENCE_STEP: u32 = 5;
+/// The longest face model id, in bytes.
+pub const MAX_MODEL_ID_BYTES: usize = 64;
+
+/// Whether `id` can name a face model: 1 to [`MAX_MODEL_ID_BYTES`] characters, starting with a
+/// lowercase letter or digit, then lowercase letters, digits, `.`, `_` or `-` (the model-id rule of
+/// LightCraft's face manifests), so it is never a path, hidden or `..`.
+pub fn model_id_ok(id: &str) -> bool {
+    let mut bytes = id.bytes();
+    let first = bytes.next().is_some_and(|b| b.is_ascii_lowercase() || b.is_ascii_digit());
+    first && id.len() <= MAX_MODEL_ID_BYTES && bytes.all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'.' | b'_' | b'-'))
+}
+
+/// Options → People and the face model in use (`"people"` in `settings.json`; `faces.md` §3–§5,
+/// `organizing.md` §6.1).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PeopleSettings {
+    /// Find faces in my photos (`findFaces`; on).
+    pub find_faces: bool,
+    /// Suggest names (`suggestNames`; on).
+    pub suggest_names: bool,
+    /// Suggestion confidence (`suggestionConfidence`; [`CONFIDENCE_DEFAULT`], in
+    /// [`CONFIDENCE_RANGE`] on a step of [`CONFIDENCE_STEP`]).
+    pub suggestion_confidence: u32,
+    /// Grouping confidence (`groupingConfidence`; as the suggestion confidence).
+    pub grouping_confidence: u32,
+    /// Store people names in photos (`storeNamesInPhotos`; off): MWG face regions written into the
+    /// photo files (`xmp-interop.md` §6).
+    pub store_names_in_photos: bool,
+    /// The recogniser chosen with Use (`model`, a model id, [`model_id_ok`]); `None`: the newest
+    /// installed one (`faces.md` §3.3).
+    pub model: Option<String>,
+}
+
+impl Default for PeopleSettings {
+    fn default() -> Self {
+        PeopleSettings {
+            find_faces: true,
+            suggest_names: true,
+            suggestion_confidence: CONFIDENCE_DEFAULT,
+            grouping_confidence: CONFIDENCE_DEFAULT,
+            store_names_in_photos: false,
+            model: None,
+        }
+    }
+}
+
+/// Whether `value` is a confidence a slider takes.
+fn confidence_ok(value: u32) -> bool {
+    CONFIDENCE_RANGE.contains(&value) && (value - CONFIDENCE_RANGE.start()).is_multiple_of(CONFIDENCE_STEP)
+}
+
+/// The longest tile server or geocoding service address template, in bytes.
+pub const MAX_TEMPLATE_BYTES: usize = 2048;
+/// The longest map attribution, in bytes.
+pub const MAX_ATTRIBUTION_BYTES: usize = 256;
+/// The longest proxy host name, in bytes (a DNS name's limit).
+pub const MAX_HOST_BYTES: usize = 253;
+/// The manual proxy's port by default, and the ports it takes.
+pub const PROXY_PORT_DEFAULT: u16 = 8080;
+pub const PROXY_PORT_RANGE: std::ops::RangeInclusive<u16> = 1..=65535;
+
+/// Where the network connections go through (Options → Network → Proxy).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ProxyMode {
+    /// The `HTTPS_PROXY` and `NO_PROXY` environment variables, on every OS.
+    #[default]
+    System,
+    /// The host and port given (`CONNECT` only, no proxy authentication).
+    Manual,
+}
+
+impl ProxyMode {
+    pub const ALL: [ProxyMode; 2] = [ProxyMode::System, ProxyMode::Manual];
+
+    /// The id stored in `settings.json`.
+    pub fn id(self) -> &'static str {
+        match self {
+            ProxyMode::System => "system",
+            ProxyMode::Manual => "manual",
+        }
+    }
+
+    pub fn from_id(id: &str) -> Option<ProxyMode> {
+        ProxyMode::ALL.into_iter().find(|m| m.id() == id)
+    }
+}
+
+/// How much the network connections log (Options → Network → Log level).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum NetworkLogLevel {
+    /// Failures only.
+    #[default]
+    Errors,
+    /// Every request: its address and its outcome.
+    Requests,
+    /// Every request in detail: its headers too (never a credential).
+    Details,
+}
+
+impl NetworkLogLevel {
+    pub const ALL: [NetworkLogLevel; 3] = [NetworkLogLevel::Errors, NetworkLogLevel::Requests, NetworkLogLevel::Details];
+
+    /// The id stored in `settings.json`.
+    pub fn id(self) -> &'static str {
+        match self {
+            NetworkLogLevel::Errors => "errors",
+            NetworkLogLevel::Requests => "requests",
+            NetworkLogLevel::Details => "details",
+        }
+    }
+
+    pub fn from_id(id: &str) -> Option<NetworkLogLevel> {
+        NetworkLogLevel::ALL.into_iter().find(|l| l.id() == id)
+    }
+}
+
+/// Options → Network (`"network"` in `settings.json`; `organizing.md` §7, `roadmap.md` M13 → *The
+/// network*). The addresses are kept as text; whoever connects checks them (an `https` address,
+/// its placeholders) before using one.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NetworkSettings {
+    /// Allow map tiles (`allowMapTiles`; off until the Places pane asks).
+    pub allow_map_tiles: bool,
+    /// The tile server's address template (`tileServer`; [`crate::map_tiles::DEFAULT_TILE_SERVER`];
+    /// at most [`MAX_TEMPLATE_BYTES`]).
+    pub tile_server: String,
+    /// The attribution drawn under its tiles (`tileAttribution`;
+    /// [`crate::map_tiles::DEFAULT_ATTRIBUTION`]; at most [`MAX_ATTRIBUTION_BYTES`]).
+    pub tile_attribution: String,
+    /// The geocoding service's address template (`geocoder`; [`crate::map_tiles::DEFAULT_GEOCODER`];
+    /// at most [`MAX_TEMPLATE_BYTES`]).
+    pub geocoder: String,
+    /// The proxy (`proxy`; system).
+    pub proxy: ProxyMode,
+    /// The manual proxy's host (`proxyHost`; empty; at most [`MAX_HOST_BYTES`]).
+    pub proxy_host: String,
+    /// The manual proxy's port (`proxyPort`; [`PROXY_PORT_DEFAULT`]).
+    pub proxy_port: u16,
+    /// The network log level (`logLevel`; errors).
+    pub log_level: NetworkLogLevel,
+}
+
+impl Default for NetworkSettings {
+    fn default() -> Self {
+        NetworkSettings {
+            allow_map_tiles: false,
+            tile_server: crate::map_tiles::DEFAULT_TILE_SERVER.into(),
+            tile_attribution: crate::map_tiles::DEFAULT_ATTRIBUTION.into(),
+            geocoder: crate::map_tiles::DEFAULT_GEOCODER.into(),
+            proxy: ProxyMode::System,
+            proxy_host: String::new(),
+            proxy_port: PROXY_PORT_DEFAULT,
+            log_level: NetworkLogLevel::Errors,
+        }
     }
 }
 
@@ -1586,6 +1761,123 @@ impl Settings {
         self.merge("compare", &[("askBeforeApplying", Some(json!(c.ask_before_applying))), ("keep", Some(json!(c.keep.id())))]);
     }
 
+    /// Options → People and the face model in use; a value of the wrong type, out of its range or
+    /// off the slider's step is its default.
+    pub fn people(&self) -> PeopleSettings {
+        self.read_people(&mut Vec::new())
+    }
+
+    /// Stores Options → People under `"people"` (a confidence the slider does not take as its
+    /// default; a model id that is not one, or `None`, removed); other keys are kept.
+    pub fn set_people(&mut self, p: &PeopleSettings) {
+        let confidence = |c: u32| if confidence_ok(c) { c } else { CONFIDENCE_DEFAULT };
+        self.merge(
+            "people",
+            &[
+                ("findFaces", Some(json!(p.find_faces))),
+                ("suggestNames", Some(json!(p.suggest_names))),
+                ("suggestionConfidence", Some(json!(confidence(p.suggestion_confidence)))),
+                ("groupingConfidence", Some(json!(confidence(p.grouping_confidence)))),
+                ("storeNamesInPhotos", Some(json!(p.store_names_in_photos))),
+                ("model", p.model.as_deref().filter(|m| model_id_ok(m)).map(|m| json!(m))),
+            ],
+        );
+    }
+
+    /// Options → Network; a value of the wrong type, too long or out of its range is its default.
+    pub fn network(&self) -> NetworkSettings {
+        self.read_network(&mut Vec::new())
+    }
+
+    /// Stores Options → Network under `"network"` (a text past its length, or a port of 0, as its
+    /// default); other keys are kept.
+    pub fn set_network(&mut self, n: &NetworkSettings) {
+        let d = NetworkSettings::default();
+        let text = |t: &str, max: usize, default: &str| json!(if t.len() <= max { t } else { default });
+        let port = if PROXY_PORT_RANGE.contains(&n.proxy_port) { n.proxy_port } else { d.proxy_port };
+        self.merge(
+            "network",
+            &[
+                ("allowMapTiles", Some(json!(n.allow_map_tiles))),
+                ("tileServer", Some(text(&n.tile_server, MAX_TEMPLATE_BYTES, &d.tile_server))),
+                ("tileAttribution", Some(text(&n.tile_attribution, MAX_ATTRIBUTION_BYTES, &d.tile_attribution))),
+                ("geocoder", Some(text(&n.geocoder, MAX_TEMPLATE_BYTES, &d.geocoder))),
+                ("proxy", Some(json!(n.proxy.id()))),
+                ("proxyHost", Some(text(&n.proxy_host, MAX_HOST_BYTES, &d.proxy_host))),
+                ("proxyPort", Some(json!(port))),
+                ("logLevel", Some(json!(n.log_level.id()))),
+            ],
+        );
+    }
+
+    fn read_people(&self, problems: &mut Vec<String>) -> PeopleSettings {
+        let mut p = PeopleSettings::default();
+        let Some(obj) = self.object("people", problems) else { return p };
+        p.find_faces = Settings::flag(obj, "people", "findFaces", true, problems);
+        p.suggest_names = Settings::flag(obj, "people", "suggestNames", true, problems);
+        let mut confidence = |key: &str| match obj.get(key) {
+            None => CONFIDENCE_DEFAULT,
+            Some(v) => match v.as_u64().and_then(|n| u32::try_from(n).ok()).filter(|n| confidence_ok(*n)) {
+                Some(n) => n,
+                None => {
+                    problems.push(format!(
+                        "people.{key} is not a whole number from {} to {} in steps of {CONFIDENCE_STEP}; the default ({CONFIDENCE_DEFAULT}) is used",
+                        CONFIDENCE_RANGE.start(),
+                        CONFIDENCE_RANGE.end()
+                    ));
+                    CONFIDENCE_DEFAULT
+                }
+            },
+        };
+        p.suggestion_confidence = confidence("suggestionConfidence");
+        p.grouping_confidence = confidence("groupingConfidence");
+        p.store_names_in_photos = Settings::flag(obj, "people", "storeNamesInPhotos", false, problems);
+        match obj.get("model") {
+            None | Some(Value::Null) => {}
+            Some(Value::String(m)) if model_id_ok(m) => p.model = Some(m.clone()),
+            Some(_) => problems.push("people.model is not a model id; the newest installed model is used".into()),
+        }
+        p
+    }
+
+    fn read_network(&self, problems: &mut Vec<String>) -> NetworkSettings {
+        let mut n = NetworkSettings::default();
+        let Some(obj) = self.object("network", problems) else { return n };
+        n.allow_map_tiles = Settings::flag(obj, "network", "allowMapTiles", false, problems);
+        // A text field: kept when it is text of at most `max` bytes, else reported by key.
+        let mut text = |key: &str, max: usize, slot: &mut String| match obj.get(key) {
+            None => {}
+            Some(Value::String(t)) if t.len() <= max => *slot = t.clone(),
+            Some(_) => problems.push(format!("network.{key} is not text of at most {max} bytes; the default is used")),
+        };
+        text("tileServer", MAX_TEMPLATE_BYTES, &mut n.tile_server);
+        text("tileAttribution", MAX_ATTRIBUTION_BYTES, &mut n.tile_attribution);
+        text("geocoder", MAX_TEMPLATE_BYTES, &mut n.geocoder);
+        text("proxyHost", MAX_HOST_BYTES, &mut n.proxy_host);
+        match obj.get("proxy") {
+            None => {}
+            Some(v) => match v.as_str().and_then(ProxyMode::from_id) {
+                Some(m) => n.proxy = m,
+                None => problems.push("network.proxy is not \"system\" or \"manual\"; the default (system) is used".into()),
+            },
+        }
+        match obj.get("proxyPort") {
+            None => {}
+            Some(v) => match v.as_u64().and_then(|p| u16::try_from(p).ok()).filter(|p| PROXY_PORT_RANGE.contains(p)) {
+                Some(p) => n.proxy_port = p,
+                None => problems.push(format!("network.proxyPort is not a port from 1 to 65535; the default ({PROXY_PORT_DEFAULT}) is used")),
+            },
+        }
+        match obj.get("logLevel") {
+            None => {}
+            Some(v) => match v.as_str().and_then(NetworkLogLevel::from_id) {
+                Some(l) => n.log_level = l,
+                None => problems.push("network.logLevel is not \"errors\", \"requests\" or \"details\"; the default (errors) is used".into()),
+            },
+        }
+        n
+    }
+
     fn read_slideshow(&self, problems: &mut Vec<String>) -> SlideshowSettings {
         let mut s = SlideshowSettings::default();
         let Some(obj) = self.object("slideshow", problems) else { return s };
@@ -1712,6 +2004,8 @@ impl Settings {
         self.read_viewer(&mut out);
         self.read_import(&mut out);
         self.read_compare(&mut out);
+        self.read_people(&mut out);
+        self.read_network(&mut out);
         out.into_iter().map(|p| format!("settings.json: {p}")).collect()
     }
 

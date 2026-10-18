@@ -205,6 +205,20 @@ Format rules:
   - Only Dalica's changes are kept here: a file changed on disk counts for Recently Updated by its
     own modification time against the first-indexed time, which is index-only, so after a rebuild
     only the changes made in Dalica remain in the list.
+- **The M13 fields** (built in M13.2: `dalica-sidecar` `fields`). Per photo: `faces`, a list of
+  `{"rect": [x0, y0, x1, y1], "person"?: …}` (the rectangle as above; `person` a person id, or
+  `"ignored"` for an ignored face; an **unnamed face has no `person` key at all**, never `"person":
+  null`), at most 256 used; and `geo`, `[latitude, longitude]` in degrees with six decimals. At
+  the top level: `people`, an object from person id to `{"name": …, "nickname"?: …}` naming every
+  person with a face in the folder (the mirror of `people.json`, §4). Each follows the M6 rules
+  above; besides:
+  - A face that cannot be used (a rectangle outside the photo, inverted or not finite; a `person`
+    that is neither a person id nor `"ignored"`) is left out of the model and kept verbatim, as are
+    the usable faces past 256; a rewrite writes Dalica's faces first, each into the entry it came
+    from so the keys of a face Dalica does not know stay with it, then the kept ones in order.
+  - A `faces` that is not a list and a `geo` that is not a place (a latitude past ±90, a longitude
+    past ±180, not two finite numbers) are values of the wrong type. People entries follow the
+    album names' rules.
 - Readers accept a BOM and CRLF; a duplicate key takes the later value. Nesting is bounded
   (`security.md` §8).
 - `dalica.missing` is Dalica's own bookkeeping for stale entries (§7): an object from a photo's
@@ -345,7 +359,7 @@ holds:
 |---|---|---|
 | `folders.json` | the Folder Manager's settings, one entry per folder that sets its own: `{"version": 2, "folders": [{"path", "mode"?: "always" \| "once" \| "remove", "faces"?: bool, "indexed"?: true}]}` (`indexed`: a Scan Once folder's first scan finished; an entry without `mode` sets only the faces flag; the `remove` entries are the exclusions). A v1 file (M1: `{"version": 1, "folders": [{"path"}]}`, every folder watched) is read as Scan Always entries and written back as v2 at once, atomically; keys and entries this version does not know are kept verbatim | no — small, backed up with settings |
 | `albums.json` | album definitions (id, name, description, date, use the newest photo's date, place, cover) and a copy of the order, below | yes, from sidecars (each member folder carries the album's name; each member its position key, §3.2) |
-| `people.json` | people (id, name, nickname), merges, settings | yes, from sidecars (names are mirrored per folder) |
+| `people.json` | every person (id, name, nickname, thumbnail face) and the rejected suggestions (Options → People is in `settings.json`, `"people"`) | yes, from sidecars (names are mirrored per folder; the rejected suggestions start empty) |
 | `index.log` + `index.snap` | the library index: one record per photo (path, size, mtime, dimensions, dates, EXIF summary, content hash, colour sketch, face descriptors), what the user said about photos, folders and albums (as in the sidecars and `albums.json`), the last-synced metadata hashes, the search facts, content digests and first-indexed and last-changed times; journal + snapshot as in LightCraft | yes, by rescanning (the synced hashes, facts, digests and first-indexed times start empty; the last-changed times come back from the sidecars) |
 | `pending-writes.json` | the folders whose sidecar write waits for an offline volume (§7): `{"version": 1, "folders": [path, …]}`, written through the I/O worker when the list changes; a damaged file is kept as `.corrupt-<time>` and the list found again by the next online checks (M5.13) | yes, partly: the journal keeps the edits; a lost list is rebuilt for roots found offline |
 | `damaged-folders.json` | the folders whose sidecar was damaged and kept aside (§3), until the user resets them: `{"version": 1, "folders": [{"path", "kept": [path]}]}`, written through the I/O worker when the list changes, read at open; a damaged file is kept as `.corrupt-<time>` and read as empty (a notice says so; such a folder is found again by the next write that meets it, and one whose damaged file was already kept aside gets a new sidecar then) (M10.52) | no — small; a lost list only loses the warning |
@@ -377,12 +391,16 @@ value), when the library opens. The objects:
 | `viewer` | Options → Photo Viewer → Interface (`viewing.md` §3.3): `wheel` (`"zoom"` or `"navigate"`; zoom), `hideControls` (on), `translucent` (on) | M11 |
 | `import` | `folder` (Options → General → "Save imported pictures in"; unset: the Pictures folder), `detectDuplicates` (on), `after` (the room's "After copying", `"leave"` or `"delete"`; leave), `recentSources`, `recentDestinations` (absolute folders) and `recentFolderNames`, each the last 8, most recent first (`organizing.md` §3) | M11 |
 | `compare` | what "Don't ask again" remembers in compare (`editing.md` §4): `askBeforeApplying` (on) and `keep` (`"ask"`, `"left"` or `"right"`; ask) | M11 |
+| `people` | Options → People (`faces.md` §3–§5, `organizing.md` §6.1): `findFaces` (on), `suggestNames` (on), `suggestionConfidence` and `groupingConfidence` (85, 50–95 in steps of 5), `storeNamesInPhotos` (off), and `model`, the recogniser chosen with Use (a model id: 1–64 lowercase letters, digits, `.`, `_` or `-`, starting with a letter or digit; none: the newest installed) | M13 |
+| `network` | Options → Network (`organizing.md` §7): `allowMapTiles` (off), `tileServer` (an address template with `{z}`, `{x}`, `{y}`; OpenStreetMap's tiles), `tileAttribution` (© OpenStreetMap contributors), `geocoder` (an address template with `{query}`; OpenStreetMap's Nominatim search), each text of at most 2 048 bytes (the attribution 256), `proxy` (`"system"` or `"manual"`; system), `proxyHost` (empty, at most 253 bytes), `proxyPort` (8080, 1–65535), `logLevel` (`"errors"`, `"requests"` or `"details"`; errors) | M13 |
 
 The Options dialog's rows name these keys (`menus-and-shortcuts.md` §5). An option whose feature
 arrives later (`files.readLegacyData`, `interface.language`, `slideshow.music`,
 `slideshow.musicFolder`, `slideshow.videoSound`) is never written by the Options dialog until that
 feature reads it; `viewer.defaultViewer` is the catalogue's row for the Photo Viewer's file types
-and has no key of its own until the OS integration.
+and has no key of its own until the OS integration. The Network tab's options wait on reserved
+decisions 4 and 9 (the map tile provider and the network stack) and `network.logLevel` on the
+network log; until then the Options dialog never writes them, and the defaults above are used.
 
 **`albums.json`** (built in M9.6: `dalica-sidecar` `albums`, `dalica-store` `albums` and
 `rebuild`), printed like the folder sidecar (UTF-8, two-space indentation, LF, keys sorted by

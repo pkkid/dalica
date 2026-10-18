@@ -63,6 +63,8 @@ pub enum JobKind {
     /// A file operation: photos or folders moved, copied, renamed or sent to the trash, or such an
     /// operation undone or redone (`fileops.rs`).
     Files,
+    /// A download over the network: a face model (`face_models.rs`), map tiles (`map_tiles.rs`).
+    Network,
 }
 
 /// Where a job is.

@@ -290,6 +290,20 @@ pub struct Session {
     pub(crate) viewer: crate::viewer::Viewer,
     /// The recipe Copy All Edits kept, for Paste All Edits (`cmd/batch.rs`).
     pub(crate) copied_recipe: Option<Vec<String>>,
+    /// The face scan and what the window says of the user's input (`faces_scan.rs`).
+    pub(crate) face_scan: crate::faces_scan::FaceScan,
+    /// The in-memory face index and its groups (`faces_index.rs`).
+    pub(crate) faces_index: crate::faces_index::FacesIndex,
+    /// The face models and their download (`face_models.rs`).
+    pub(crate) face_models: crate::face_models::FaceModels,
+    /// The face tiles cut for the window (`face_tiles.rs`).
+    pub(crate) face_tiles: crate::face_tiles::FaceTiles,
+    /// The name suggestions (`suggestions.rs`).
+    pub(crate) suggestions: crate::suggestions::Suggestions,
+    /// Geotags: the copied place (`places.rs`).
+    pub(crate) places: crate::places::Places,
+    /// Map tiles, and whether the Places pane is open (`map_tiles.rs`).
+    pub(crate) map_tiles: crate::map_tiles::MapTiles,
     /// Nothing is written (see the module's notes).
     read_only: bool,
     _lock: LibraryLock,
@@ -407,6 +421,13 @@ impl Session {
             variant: crate::variant::Variant::default(),
             viewer: crate::viewer::Viewer::default(),
             copied_recipe: None,
+            face_scan: crate::faces_scan::FaceScan::default(),
+            faces_index: crate::faces_index::FacesIndex::default(),
+            face_models: crate::face_models::FaceModels::default(),
+            face_tiles: crate::face_tiles::FaceTiles::default(),
+            suggestions: crate::suggestions::Suggestions::default(),
+            places: crate::places::Places::default(),
+            map_tiles: crate::map_tiles::MapTiles::default(),
             read_only,
             _lock: lock,
         };

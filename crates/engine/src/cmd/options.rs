@@ -39,7 +39,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "List Options",
             menu: "",
             keys: &[],
-            params: r#"{"tab"?:"general"|"fileTypes"|"slideshow"|"viewer"|"export"}: the options of one tab of Options, or of all of them, each {key, tab, group, label, hint, type, default, value, applies, available, reason, platforms, min?, max?, step?, unit?, choices?, maxBytes?}"#,
+            params: r#"{"tab"?:"general"|"fileTypes"|"slideshow"|"network"|"people"|"viewer"|"export"}: the options of one tab of Options, or of all of them, each {key, tab, group, label, hint, type, default, value, applies, available, reason, platforms, min?, max?, step?, unit?, choices?, maxBytes?}"#,
             effect: Effect::Query,
             history: History::None,
             enabled: always,

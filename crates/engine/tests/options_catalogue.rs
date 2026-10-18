@@ -1,15 +1,17 @@
-//! The options catalogue (`crates/engine/src/options.rs`, `roadmap.md` M10.1, M11.1) against
-//! `menus-and-shortcuts.md` §5: the six tabs shown are the catalogue's five and the shortcut
-//! editor; every option of the General, File Types, Slideshow, Photo Viewer and Export tables is in
-//! the catalogue once, on its tab, and nothing else is; keys are unique; each default is what its
-//! setting's accessor reads from an empty file (and a bool's is the table's on / off); and each
-//! option that can be changed, stored under its key with each of its choices, is read back by that
-//! accessor.
+//! The options catalogue (`crates/engine/src/options.rs`, `roadmap.md` M10.1, M11.1, M13.3) against
+//! `menus-and-shortcuts.md` §5: the eight tabs shown are the catalogue's seven and the shortcut
+//! editor; every option of the General, File Types, Slideshow, Network, People, Photo Viewer and
+//! Export tables is in the catalogue once, on its tab, and nothing else is; keys are unique; each
+//! default is what its setting's accessor reads from an empty file (and a bool's is the table's
+//! on / off, a number's the table's number); each option that can be changed, stored under its key
+//! with each of its choices, is read back by that accessor; and the Network rows that wait on a
+//! reserved decision say so while the People rows can be changed.
 
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use dalica_engine::options::{Initial, Kind, OptionSpec, Tab, catalogue};
+use dalica_engine::map_tiles::{PROXY_UNAVAILABLE, TILES_UNAVAILABLE};
+use dalica_engine::options::{Initial, Kind, OptionSpec, Tab, catalogue, find, on_tab};
 use dalica_engine::settings::Settings;
 use serde_json::{Value, json};
 
@@ -33,15 +35,14 @@ fn doc() -> String {
     std::fs::read_to_string(path).unwrap()
 }
 
-/// The tabs §5 names, in order, with the milestones' tabs still to come (Network, People) left out.
+/// The tabs §5 names, in order.
 #[test]
 fn the_tabs_shown_are_the_catalogues_and_the_shortcut_editor() {
     let doc = doc();
     let options = &doc[doc.find("## 5. Options").unwrap()..];
     let start = options.find("Tabs: **").unwrap() + "Tabs: **".len();
     let list = options[start..].split("**").next().unwrap().replace('\n', " ");
-    let named: Vec<&str> = list.split('·').map(str::trim).collect();
-    let shown: Vec<&str> = named.into_iter().filter(|t| !["Network", "People"].contains(t)).collect();
+    let shown: Vec<&str> = list.split('·').map(str::trim).collect();
     let mut want: Vec<&str> = Tab::ALL.iter().map(|t| t.label()).collect();
     want.push("Keyboard Shortcuts");
     assert_eq!(shown, want, "the catalogue's tabs in the dialog's order, then the shortcut editor");
@@ -52,7 +53,7 @@ fn the_tabs_shown_are_the_catalogues_and_the_shortcut_editor() {
 }
 
 #[test]
-fn every_option_of_the_five_tabs_is_in_the_catalogue_once() {
+fn every_option_of_the_seven_tabs_is_in_the_catalogue_once() {
     let doc = doc();
     let options = &doc[doc.find("## 5. Options").unwrap()..];
     let mut keys: BTreeMap<&str, usize> = BTreeMap::new();
@@ -68,8 +69,10 @@ fn every_option_of_the_five_tabs_is_in_the_catalogue_once() {
         assert_eq!(listed, documented, "{title}: the catalogue lists §5's options, in its order");
         for (key, default) in &rows {
             let o = catalogue().iter().find(|o| o.key == key).unwrap();
-            if let Initial::Bool(on) = o.default {
-                assert_eq!(default, if on { "on" } else { "off" }, "{key}");
+            match o.default {
+                Initial::Bool(on) => assert_eq!(default, if on { "on" } else { "off" }, "{key}"),
+                Initial::Int(n) => assert!(default.starts_with(&n.to_string()), "{key}: {default} is not {n}"),
+                Initial::Str(_) | Initial::Null => {}
             }
         }
     }
@@ -125,4 +128,45 @@ fn stored_and_read_back(o: &OptionSpec, other: &Value) {
     assert_eq!(back.get("future"), Some(&json!(1)));
     let row = o.to_json(&back);
     assert_eq!((row["key"].as_str(), &row["value"], &row["default"]), (Some(o.key), other, &o.default_value()), "{}", o.key);
+}
+
+/// M13's tabs: the People rows can be changed and their sliders take 50–95 in steps of 5; the map
+/// and proxy rows of the Network tab wait on reserved decisions 4 and 9 with the reasons
+/// `map_tiles` gives, and the network log level on the network log.
+#[test]
+fn the_people_rows_can_be_changed_and_the_network_rows_wait_on_their_decisions() {
+    let people: Vec<&str> = on_tab(Tab::People).map(|o| o.key).collect();
+    assert_eq!(
+        people,
+        ["people.findFaces", "people.suggestNames", "people.suggestionConfidence", "people.groupingConfidence", "people.storeNamesInPhotos"]
+    );
+    assert!(on_tab(Tab::People).all(OptionSpec::available), "Options ▸ People can be changed");
+    for key in ["people.suggestionConfidence", "people.groupingConfidence"] {
+        let o = find(key).unwrap();
+        for ok in [50, 55, 85, 95] {
+            assert_eq!(o.check(&json!(ok)), Ok(json!(ok)), "{key} {ok}");
+        }
+        for bad in [json!(45), json!(87), json!(100), json!(85.5), json!("85")] {
+            assert!(o.check(&bad).unwrap_err().ends_with("from 50 to 95 in steps of 5"), "{key} {bad}");
+        }
+    }
+    let reasons: Vec<(&str, Option<&str>)> = on_tab(Tab::Network).map(|o| (o.key, o.unavailable)).collect();
+    assert_eq!(
+        reasons,
+        [
+            ("network.allowMapTiles", TILES_UNAVAILABLE),
+            ("network.tileServer", TILES_UNAVAILABLE),
+            ("network.tileAttribution", TILES_UNAVAILABLE),
+            ("network.geocoder", TILES_UNAVAILABLE),
+            ("network.proxy", PROXY_UNAVAILABLE),
+            ("network.proxyHost", PROXY_UNAVAILABLE),
+            ("network.proxyPort", PROXY_UNAVAILABLE),
+            ("network.logLevel", Some("Arrives with the network log")),
+        ]
+    );
+    assert!(TILES_UNAVAILABLE.is_some_and(|r| r.starts_with("Arrives")) && PROXY_UNAVAILABLE.is_some_and(|r| r.starts_with("Arrives")));
+    // Stored by hand, a waiting row's value reads through its accessor all the same.
+    let mut st = Settings::default();
+    st.merge("network", &[("allowMapTiles", Some(json!(true)))]);
+    assert_eq!((find("network.allowMapTiles").unwrap().read)(&st), json!(true));
 }
