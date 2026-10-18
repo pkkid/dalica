@@ -6925,7 +6925,7 @@ a maintainer decision mid-run.
     leaves the pixels behind its start unchanged and a white patch white; on a photo turned 90° and
     cropped the circle sits where its stored-frame centre says; each effect renders the same at two
     sizes after a downscale.
-- ⬜ **M12.9 `edit`: Invert Colors, Infrared Film, Duo-Tone and Boost**
+- ✅ **M12.9 `edit`: Invert Colors, Infrared Film, Duo-Tone and Boost**
   - after: M12.1, M12.3
   - files: `crates/edit/src/ops/remap.rs`, `crates/edit/tests/remap_effects.rs`, `crates/edit/tests/fingerprints/remap-*.json`
   - scope: `editing.md` §8.3–§8.4's colour remaps as pixel passes: Invert Colors (the negative),

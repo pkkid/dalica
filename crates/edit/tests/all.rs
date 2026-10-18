@@ -14,6 +14,7 @@ mod frame;
 mod fx;
 mod geometry;
 mod recipe;
+mod remap_effects;
 mod render;
 mod retouch;
 mod soften;
