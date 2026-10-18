@@ -6,7 +6,8 @@
 //! photo shown, one undo step each; with every decode slowed by 1.5 s no change waits for its
 //! preview over 30 advances; the next photo's preview is uploaded as a texture while the photo
 //! before it shows, so a change's first frame uploads nothing (M11.29), and a show stepped by hand
-//! past a preview not made yet paints the thumbnail meanwhile; a fingerprint of each transition at its midpoint and of a captioned
+//! past a preview not made yet paints the thumbnail meanwhile, every preview's pixels converted on a
+//! worker (M12.24); a fingerprint of each transition at its midpoint and of a captioned
 //! photo at 1400 × 900 (at 900 × 600 the caption only has to fit).
 //!
 //! `DALICA_SHOTS=<dir>` writes the frames there too.
@@ -224,7 +225,8 @@ fn no_change_waits_for_a_preview_over_30_advances() {
 /// The next photo's preview holds a texture before the change to it starts, so the change's first
 /// frame uploads no texture; at most the photo shown and the next one (or a change's two photos)
 /// hold a texture at any frame. Stepped by hand past a preview not made yet, the show paints the
-/// photo's thumbnail meanwhile and its preview once it is there.
+/// photo's thumbnail meanwhile and its preview once it is there. Every preview's pixels are
+/// converted to the texture's format on a worker, never on the UI thread (M12.24).
 #[test]
 fn the_next_photos_texture_is_uploaded_before_the_change_starts() {
     let mut f = setup(8, (640, 420), LARGE);
@@ -233,6 +235,8 @@ fn the_next_photos_texture_is_uploaded_before_the_change_starts() {
     let play = json!({ "section": f.section, "ids": [o[0]] });
     run(&mut f, "section.slideshow", play);
     let previews = || dalica_ui::panels::slideshow::show::kept().into_iter().filter(|(_, p)| *p).map(|(id, _)| id).collect::<Vec<_>>();
+    let prepared = dalica_ui::panels::slideshow::show::prepared;
+    let before = prepared();
     let mut checked = 0;
     for _ in 0..200 {
         let before = cmd::stats().unwrap().changes;
@@ -251,6 +255,9 @@ fn the_next_photos_texture_is_uploaded_before_the_change_starts() {
         }
     }
     assert_eq!(checked, 3, "three changes checked");
+    let after = prepared();
+    assert!(after.on_worker >= before.on_worker + 4, "the first photo's and the three next photos' previews on a worker: {after:?}");
+    assert_eq!(after.on_ui_thread, before.on_ui_thread, "no preview converted on the UI thread: {after:?}");
 
     // By hand to a photo nothing prefetched: the thumbnail stands in, then the preview.
     session(&mut f).plant_decode_delay(Some(Duration::from_millis(1_500)));

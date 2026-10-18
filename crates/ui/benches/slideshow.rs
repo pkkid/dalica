@@ -25,8 +25,9 @@
 //!   measurement;
 //! - `transition frame <id>`: the same per transition (printed, not budgeted);
 //! - `upload frame`: a frame outside a change that uploaded a texture, the next photo's preview
-//!   once it is made, during the display time (printed, not budgeted: nothing moves but Pan and
-//!   Zoom then, and the show does not wait on it).
+//!   once a worker has converted it to the texture's format (M12.24: the frame only hands the
+//!   pixels over, one preview per frame), during the display time (printed, not budgeted; M12.24
+//!   brought its p95 from about 18 ms to under 8 ms on two cores, as Pan and Zoom moves then).
 //!
 //! `waits` (on the `advance` row) counts the changes whose incoming preview was not ready when they
 //! began, over every show: it must be 0. Rows carry `p50_ms`, `p95_ms`, `max_ms` and their budgets
