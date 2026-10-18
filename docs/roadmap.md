@@ -7138,7 +7138,7 @@ a maintainer decision mid-run.
   - done when: a test shows the toggle's look changes with the setting; a control test shows a
     destination reached through a link outside the write roots refused over automation; the docs
     read as built; `cargo xtask ci`.
-- ⬜ **M12.26 `engine` + `xtask`: the two budgets the M11.R review missed on GitHub**
+- ✅ **M12.26 `engine` + `xtask`: the two budgets the M11.R review missed on GitHub**
   - after: M11.R
   - files: `crates/engine/benches/search.rs`, `crates/engine/benches/import.rs`, `crates/engine/src/search.rs`, `crates/engine/src/search/**`, `crates/engine/src/import.rs`, `crates/engine/src/import/**`, `crates/scan/src/import.rs`, `crates/scan/src/import/**`, `xtask/src/bench.rs`, `xtask/src/accept.rs`, `docs/development.md`
   - scope: a fix task from M11.R (the maintainer merged the review with these two open). On the review
