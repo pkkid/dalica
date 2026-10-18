@@ -8349,7 +8349,7 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
     soften.rs`: the `soften-whole-large` and `soften-stroke-large` fingerprints blessed from the
     M12 code match, the existing fingerprints, the region test and the M12.28 no-deadlock test
     pass unchanged; `cargo xtask ci`.
-- ⬜ **M13.41 `edit`: Focal Zoom, Vignette and Pixelate within the slider's caps**
+- ✅ **M13.41 `edit`: Focal Zoom, Vignette and Pixelate within the slider's caps**
   - after: M12.R, M13.34
   - files: `crates/edit/src/ops/stylize.rs`, `crates/edit/tests/stylize_effects.rs`, `crates/edit/tests/fingerprints/stylize-*.json`
   - scope: effect speed. Draft / final p95 at M12.21: Focal Zoom 78.9 / 2 685 ms, Vignette 8.1 /
