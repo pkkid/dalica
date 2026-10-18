@@ -43,17 +43,32 @@
 //! [`dalica_sidecar::utc_text`]), so a rebuild keeps it ([`PHOTO_DATA_M9`]'s `lastChanged`,
 //! [`PhotoState::changed`]). A sidecar without it says no change was recorded; a value that is
 //! not such a time is unusable (kept, reported).
+//!
+//! **M13** (M13.9): a photo's faces (`photos.<name>.faces`, [`FACE_FIELDS`]) and geotag
+//! (`photos.<name>.geo`: `[lat, lon]`, or `null` for a location the user removed, so the file's
+//! GPS no longer counts; no key leaves the file's word) live in its entry ([`PHOTO_DATA_M13`]);
+//! the folder's top-level `"people"` mirrors the name and nickname of every person with a face in
+//! it ([`FOLDER_DATA_M13`]), and `people.json` holds every person ([`PERSON_FIELDS`],
+//! [`crate::people`]). The model is the truth for the folder's people and for the faces of its
+//! photos: a face Dalica cannot hold (an empty rectangle, or a person named nowhere in the file
+//! and unknown to the library: another program's or a hand edit) is kept in the file after the
+//! model's faces unless the model holds a face with the same rectangle, and is never used
+//! ([`apply`]); a face naming a person the file's `"people"` names but the library no longer has
+//! (deleted, or its creation undone) is Dalica's own and goes with the model's word. Embeddings, landmarks and which photos were searched
+//! are a cache beside the index ([`crate::faces_cache`]), never in a sidecar.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
-use dalica_core::{AlbumId, Date, DateTime, FolderId, PosKey, Timestamp};
+use dalica_core::geo::LatLon;
+use dalica_core::{AlbumId, Date, DateTime, FolderId, PersonId, PosKey, Rect01, Timestamp};
 use dalica_library::{
-    FolderInfo, Library, MAX_CAPTION, MAX_DESCRIPTION, MAX_DIGEST, MAX_FILE_NAME, MAX_OPERATION, MAX_OPERATIONS, MAX_PLACE, PhotoInfo, PhotoSort,
-    Project, SaveState, Saved, SavedAs, SortBy,
+    Face, FacePerson, FolderInfo, Geo, Library, MAX_CAPTION, MAX_DESCRIPTION, MAX_DIGEST, MAX_FACES, MAX_FILE_NAME, MAX_OPERATION, MAX_OPERATIONS,
+    MAX_PERSON_NAME, MAX_PLACE, PhotoInfo, PhotoSort, Project, SaveState, Saved, SavedAs, SortBy,
 };
+use dalica_sidecar::fields::GeoTag;
 use dalica_sidecar::originals::{self, Entry, Originals, State};
-use dalica_sidecar::{Field, FolderValue, PhotoValue, Sidecar, WrongType, plain_name};
+use dalica_sidecar::{Field, FolderValue, PersonName, PhotoFaces, PhotoValue, Sidecar, WrongType, plain_name};
 
 /// Where a model field's value comes from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -78,6 +93,9 @@ pub enum Source {
     /// Written to and read from the album's entry in `albums.json` in the library directory
     /// (`albums.<id>.<key>`, M9).
     Albums(&'static str),
+    /// Written to and read from the person's entry in `people.json` in the library directory
+    /// (`people.<id>.<key>`, M13).
+    People(&'static str),
 }
 
 /// Every field of [`dalica_library::Photo`] and where it lives.
@@ -180,6 +198,27 @@ pub const ALBUM_INFO_FIELDS: [(&str, Source); 5] = [
     ("place", Source::Albums("place")),
 ];
 
+/// Per-photo data M13 adds beside [`dalica_library::Photo`]: its faces (one object each in the
+/// photo's `faces` list) and its geotag (`photos.<name>.geo`).
+pub const PHOTO_DATA_M13: [(&str, Source); 2] = [("faces", Source::Fields("FACE_FIELDS")), ("geo", Source::Sidecar("geo"))];
+
+/// Every field of [`dalica_library::Face`]: `rect` and `person` (a person id, `"ignored"`, or no key
+/// for an unnamed face) of one object in the photo's `faces` list.
+pub const FACE_FIELDS: [(&str, Source); 2] = [("rect", Source::Sidecar("faces")), ("person", Source::Sidecar("faces"))];
+
+/// Folder data M13 adds: the name and nickname of every person with a face in the folder (the
+/// top-level `"people"`, mirrored from [`PERSON_FIELDS`]).
+pub const FOLDER_DATA_M13: [(&str, Source); 1] = [("people", Source::TopSidecar("people"))];
+
+/// Library data M13 adds: the people.
+pub const LIBRARY_DATA_M13: [(&str, Source); 1] = [("people", Source::Fields("PERSON_FIELDS"))];
+
+/// Every field of [`dalica_library::Person`], each under its own key of the person's entry in
+/// `people.json` (the thumbnail as the face's photo path and rectangle); the name and nickname are
+/// also mirrored in the sidecar of each folder holding a face of theirs.
+pub const PERSON_FIELDS: [(&str, Source); 3] =
+    [("name", Source::People("name")), ("nickname", Source::People("nickname")), ("thumbnail", Source::People("thumbnail"))];
+
 /// Every field of [`dalica_library::FolderInfo`] (Folder Properties, Hide Folder).
 pub const FOLDER_INFO_FIELDS: [(&str, Source); 4] = [
     ("description", Source::FolderSidecar("description")),
@@ -199,6 +238,10 @@ pub struct PhotoState {
     pub albums: BTreeMap<AlbumId, PosKey>,
     /// When Dalica last changed what is said about the photo (M10; `None`: no change recorded).
     pub changed: Option<Timestamp>,
+    /// The photo's faces (M13), in the model's order.
+    pub faces: Vec<Face>,
+    /// The model's word on where the photo was taken (M13; `None`: the file's GPS counts).
+    pub geo: Option<Geo>,
 }
 
 /// What a folder's sidecar should say, taken from the model: enough to write it on any thread.
@@ -219,6 +262,11 @@ pub struct FolderState {
     /// Every album the model has (M9): a photo's memberships of other albums are kept as they
     /// are in the file (an album deleted here, or one this library never had).
     pub known_albums: BTreeSet<AlbumId>,
+    /// The name and nickname of every person with a face in the folder (M13).
+    pub people: BTreeMap<PersonId, PersonName>,
+    /// Every person the model has (M13): a face naming anyone else the file's `"people"` does not
+    /// name either is kept in the file, not used.
+    pub known_people: BTreeSet<PersonId>,
 }
 
 impl Default for FolderState {
@@ -233,6 +281,8 @@ impl Default for FolderState {
             sort: PhotoSort::default(),
             album_names: BTreeMap::new(),
             known_albums: BTreeSet::new(),
+            people: BTreeMap::new(),
+            known_people: BTreeSet::new(),
         }
     }
 }
@@ -242,6 +292,11 @@ pub fn folder_state(library: &Library, folder: FolderId) -> Option<FolderState> 
     let f = library.folder(folder)?;
     let photos: Vec<(String, PhotoState)> = library.photos_in(folder).into_iter().map(|p| (p.name.clone(), photo_state(library, p))).collect();
     let album_names = photos.iter().flat_map(|(_, p)| p.albums.keys()).filter_map(|id| Some((id.clone(), library.album(id)?.name.clone()))).collect();
+    let people = photos
+        .iter()
+        .flat_map(|(_, p)| p.faces.iter().filter_map(|f| f.person.person()))
+        .filter_map(|id| Some((id.clone(), person_name(library.person(id)?))))
+        .collect();
     Some(FolderState {
         id: folder,
         path: f.path.clone(),
@@ -251,7 +306,14 @@ pub fn folder_state(library: &Library, folder: FolderId) -> Option<FolderState> 
         sort: library.folder_sort(folder),
         album_names,
         known_albums: library.albums().map(|(id, _)| id.clone()).collect(),
+        people,
+        known_people: library.people().map(|(id, _)| id.clone()).collect(),
     })
+}
+
+/// A person's name and nickname as a folder sidecar mirrors them.
+pub fn person_name(person: &dalica_library::Person) -> PersonName {
+    PersonName { name: person.name.clone(), nickname: (!person.nickname.is_empty()).then(|| person.nickname.clone()) }
 }
 
 /// The sidecar-relevant state of `photo`.
@@ -262,6 +324,8 @@ pub fn photo_state(library: &Library, photo: &dalica_library::Photo) -> PhotoSta
         saved_as: library.saved_as(photo.id).cloned(),
         albums: library.albums_of(photo.id).into_iter().map(|(a, k)| (a.clone(), k.clone())).collect(),
         changed: library.last_changed(photo.id),
+        faces: library.faces(photo.id).to_vec(),
+        geo: library.geo(photo.id),
     }
 }
 
@@ -356,6 +420,13 @@ pub struct PhotoReading {
     pub albums: Reading<BTreeMap<AlbumId, PosKey>>,
     /// When Dalica last changed the photo (M10); a value that is not a UTC time is unusable.
     pub changed: Reading<Option<Timestamp>>,
+    /// The photo's faces Dalica can hold (M13): entries it cannot use (and those past
+    /// [`MAX_FACES`]) are left out, kept in the file and noted; a face naming a person the library
+    /// does not have is in the list (the reader does not know the people: see [`known_faces`]);
+    /// `faces` that is not a list is unusable.
+    pub faces: Reading<Vec<Face>>,
+    /// The photo's geotag (M13): a place, removed by the user (`null`), or none (no key).
+    pub geo: Reading<Option<Geo>>,
     /// Values past a cap, one sentence each (values of the wrong type are
     /// [`Sidecar::problems`]).
     pub notes: Vec<String>,
@@ -379,6 +450,8 @@ impl PhotoReading {
             saved_as: self.saved_as.or_else(|| own.saved_as.clone()),
             albums: self.albums.or_else(|| own.albums.clone()),
             changed: self.changed.or(own.changed),
+            faces: self.faces.or_else(|| own.faces.clone()),
+            geo: self.geo.or(own.geo),
         }
     }
 }
@@ -438,7 +511,156 @@ pub fn read_photo(sidecar: &Sidecar, name: &str) -> PhotoReading {
         saved_as: saved_as(sidecar.saved_as(name), &mut notes),
         albums: memberships(sidecar.photo_albums(name), &mut notes),
         changed: dated(f.changed),
+        faces: faces(sidecar.photo_faces(name), &mut notes),
+        geo: geotag(sidecar.geo(name)),
         notes,
+    }
+}
+
+/// The model's face for a sidecar face: `None` when its rectangle is empty (the model's
+/// rectangles have a width and a height; the sidecar keeps such a face as written).
+pub fn model_face(face: &dalica_sidecar::Face) -> Option<Face> {
+    let [x0, y0, x1, y1] = face.rect.corners();
+    let rect = Rect01::new(x0, y0, x1, y1).ok()?;
+    let person = match &face.person {
+        dalica_sidecar::FacePerson::Unnamed => FacePerson::Unnamed,
+        dalica_sidecar::FacePerson::Ignored => FacePerson::Ignored,
+        dalica_sidecar::FacePerson::Named(id) => FacePerson::Person(id.clone()),
+    };
+    Some(Face::new(rect, person))
+}
+
+/// The sidecar's face for a model face (the rectangles agree to six decimals).
+pub fn sidecar_face(face: &Face) -> Option<dalica_sidecar::Face> {
+    let r = face.rect;
+    let rect = dalica_sidecar::FaceRect::new(r.x0(), r.y0(), r.x1(), r.y1())?;
+    let person = match &face.person {
+        FacePerson::Unnamed => dalica_sidecar::FacePerson::Unnamed,
+        FacePerson::Ignored => dalica_sidecar::FacePerson::Ignored,
+        FacePerson::Person(id) => dalica_sidecar::FacePerson::Named(id.clone()),
+    };
+    Some(dalica_sidecar::Face { rect, person })
+}
+
+/// A photo's usable faces: entries the sidecar cannot use, those past the cap and those with an
+/// empty rectangle are left out (noted by count: rectangles and names never reach a note,
+/// `faces.md` §7).
+fn faces(f: Field<PhotoFaces>, notes: &mut Vec<String>) -> Reading<Vec<Face>> {
+    match f {
+        Field::Absent => Reading::Usable(Vec::new()),
+        Field::WrongType(_) => Reading::Unusable,
+        Field::Value(v) => {
+            if !v.bad.is_empty() {
+                notes.push(format!("{} face entries are not faces Dalica can use: kept in the file, not used", v.bad.len()));
+            }
+            if v.over > 0 {
+                notes.push(format!("{} faces past the first {MAX_FACES}: kept in the file, not used", v.over));
+            }
+            let all = v.faces.len();
+            let out: Vec<Face> = v.faces.iter().filter_map(model_face).collect();
+            if out.len() < all {
+                notes.push(format!("{} faces have an empty rectangle: kept in the file, not used", all - out.len()));
+            }
+            Reading::Usable(out)
+        }
+    }
+}
+
+/// `faces` without the faces naming a person `known` does not answer for, and how many those were.
+pub fn known_faces(faces: Vec<Face>, known: impl Fn(&PersonId) -> bool) -> (Vec<Face>, usize) {
+    let all = faces.len();
+    let kept: Vec<Face> = faces.into_iter().filter(|f| f.person.person().is_none_or(&known)).collect();
+    let dropped = all - kept.len();
+    (kept, dropped)
+}
+
+/// A photo's geotag as the model takes it.
+fn geotag(f: Field<GeoTag>) -> Reading<Option<Geo>> {
+    match f {
+        Field::Absent => Reading::Usable(None),
+        Field::Value(GeoTag::Removed) => Reading::Usable(Some(Geo::Removed)),
+        Field::Value(GeoTag::At(g)) => match LatLon::new(g.lat(), g.lon()) {
+            Ok(p) => Reading::Usable(Some(Geo::At(p.round6()))),
+            Err(_) => Reading::Unusable,
+        },
+        Field::WrongType(_) => Reading::Unusable,
+    }
+}
+
+/// The sidecar's spelling of a model geotag.
+pub fn geo_tag(geo: Geo) -> Option<GeoTag> {
+    match geo {
+        Geo::At(p) => dalica_sidecar::Geo::new(p.lat(), p.lon()).map(GeoTag::At),
+        Geo::Removed => Some(GeoTag::Removed),
+    }
+}
+
+/// What the folder sidecar's top-level `"people"` says (M13): the name and nickname of each
+/// person with a usable id and name, cleaned the way the library cleans names, with one sentence
+/// per name that was cut or is nothing once cleaned (not used), and one per entry Dalica cannot
+/// use (left out, kept in the file); a `"people"` of the wrong type is unusable. The sentences
+/// name people by id, never by name (`faces.md` §7).
+pub fn read_people(sidecar: &Sidecar) -> (Reading<BTreeMap<PersonId, PersonName>>, Vec<String>) {
+    let mut notes = Vec::new();
+    let people = match sidecar.people() {
+        Field::Absent => Reading::Usable(BTreeMap::new()),
+        Field::WrongType(_) => Reading::Unusable,
+        Field::Value(v) => {
+            if !v.bad.is_empty() {
+                notes.push(format!("{} of the folder's people entries are not a person id with a name: kept in the file, not used", v.bad.len()));
+            }
+            let mut out = BTreeMap::new();
+            for (id, raw) in v.people {
+                match dalica_library::clean_person_name(&raw.name) {
+                    Some(name) => {
+                        if raw.name.len() > MAX_PERSON_NAME || raw.nickname.as_ref().is_some_and(|n| n.len() > MAX_PERSON_NAME) {
+                            notes.push(format!(
+                                "person {id}'s name or nickname is longer than {MAX_PERSON_NAME} bytes: shown cut, kept whole in the file"
+                            ));
+                        }
+                        let nickname = raw.nickname.as_deref().and_then(dalica_library::clean_person_name);
+                        out.insert(id, PersonName { name, nickname });
+                    }
+                    None => notes.push(format!("person {id}'s name is empty once cleaned: kept in the file, not used")),
+                }
+            }
+            Reading::Usable(out)
+        }
+    };
+    (people, notes)
+}
+
+/// Whether a face of the file is the model's to write: a rectangle with a size and a person the
+/// model has, none, ignored, or one the file's `"people"` names (Dalica wrote it; the library no
+/// longer has them). Otherwise (an empty rectangle, a person named nowhere) it is another
+/// program's, kept as written.
+fn dalicas(face: &dalica_sidecar::Face, known: &BTreeSet<PersonId>, mirrored: &BTreeSet<PersonId>) -> bool {
+    let person = match &face.person {
+        dalica_sidecar::FacePerson::Named(id) => known.contains(id) || mirrored.contains(id),
+        _ => true,
+    };
+    person && model_face(face).is_some()
+}
+
+/// The faces to write into photo `name`'s entry, or `None` when it already says the model's: the
+/// model's faces, then the faces of the file that are not Dalica's ([`dalicas`]) unless the model
+/// holds a face with the same rectangle. A `faces` of the wrong type is written over only when the
+/// model has faces. `mirrored` is the people the file's `"people"` named before this write.
+fn faces_to_write(
+    sidecar: &Sidecar,
+    name: &str,
+    photo: &PhotoState,
+    known: &BTreeSet<PersonId>,
+    mirrored: &BTreeSet<PersonId>,
+) -> Option<Vec<dalica_sidecar::Face>> {
+    let model: Vec<dalica_sidecar::Face> = photo.faces.iter().filter_map(sidecar_face).collect();
+    match sidecar.photo_faces(name) {
+        Field::Absent | Field::WrongType(_) => (!model.is_empty()).then_some(model),
+        Field::Value(read) => {
+            let (ours, kept): (Vec<_>, Vec<_>) =
+                read.faces.into_iter().partition(|f| dalicas(f, known, mirrored) || model.iter().any(|m| m.rect == f.rect));
+            (ours != model).then(|| model.into_iter().chain(kept).collect())
+        }
     }
 }
 
@@ -603,6 +825,14 @@ pub fn apply(state: &FolderState, sidecar: &mut Sidecar) -> Vec<WrongType> {
     if differs(&read_album_names(sidecar).0, &state.album_names) {
         sidecar.set_album_names(&state.album_names);
     }
+    let (people, _) = read_people(sidecar);
+    let mirrored: BTreeSet<PersonId> = match &people {
+        Reading::Usable(p) => p.keys().cloned().collect(),
+        Reading::Unusable => BTreeSet::new(),
+    };
+    if differs(&people, &state.people) {
+        sidecar.set_people(&state.people);
+    }
     if let Some(e) = folder_refused {
         refused.push(e);
     }
@@ -649,6 +879,19 @@ pub fn apply(state: &FolderState, sidecar: &mut Sidecar) -> Vec<WrongType> {
         let members: BTreeMap<AlbumId, PosKey> = photo.albums.iter().filter(|(a, _)| known(a)).map(|(a, k)| (a.clone(), k.clone())).collect();
         if photo_refused.is_none() && differs(&ours, &members) {
             photo_refused = sidecar.set_photo_albums(name, &members, known).err();
+        }
+        if photo_refused.is_none()
+            && let Some(list) = faces_to_write(sidecar, name, photo, &state.known_people, &mirrored)
+        {
+            photo_refused = sidecar.set_photo_faces(name, &list).err();
+        }
+        let geo = photo.geo.and_then(geo_tag);
+        let geo_differs = match sidecar.geo(name) {
+            Field::Value(read) => geo != Some(read),
+            Field::Absent | Field::WrongType(_) => geo.is_some(),
+        };
+        if photo_refused.is_none() && geo_differs {
+            photo_refused = sidecar.set_geo(name, geo).err();
         }
         if let Some(e) = photo_refused {
             refused.push(e);

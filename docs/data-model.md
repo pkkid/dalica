@@ -45,9 +45,10 @@ deletes files.
 | Folder photo sort (Sort Folder By, Reverse Order) | `"folder": { "sort", "reverse" }` | — | yes | |
 | Custom folder sort order | `"folder": { "order" }` | — | yes | |
 | Face rectangles + person | `"faces"` | XMP MWG Regions when "Store people names in photos" is on (default **off**) | yes | |
+| Face embeddings, landmarks, which photos were searched | — | — | — | `faces-<model id>.cache` in the library dir, one per recogniser (§4; derived) |
 | People (names) | `"people"` entries for people present in the folder | (as above) | yes | `people.json` in the library dir |
 | Ignored faces | `"faces"` entry with person `ignored` | — | yes | |
-| Place (geotag) | `"geo": [lat, lon]` | EXIF GPS (default **on**) | yes | |
+| Place (geotag) | `"geo": [lat, lon]`, or `"geo": null` for a location the user removed | EXIF GPS (default **on**) | yes | |
 | Date taken corrections | `"date"` | EXIF DateTimeOriginal when "Write date changes to files" is on (default **on**) | yes | |
 | Thumbnails, previews | — | — | disk cache | `<cache>/thumbs/` |
 | Watched folders | — | — | yes | `folders.json` in the library dir |
@@ -205,10 +206,13 @@ Format rules:
   - Only Dalica's changes are kept here: a file changed on disk counts for Recently Updated by its
     own modification time against the first-indexed time, which is index-only, so after a rebuild
     only the changes made in Dalica remain in the list.
-- **The M13 fields** (built in M13.2: `dalica-sidecar` `fields`). Per photo: `faces`, a list of
+- **The M13 fields** (built in M13.2: `dalica-sidecar` `fields`; mapped in M13.9: `dalica-store`
+  `mapping`, `people`, `rebuild`, `snapshot`). Per photo: `faces`, a list of
   `{"rect": [x0, y0, x1, y1], "person"?: …}` (the rectangle as above; `person` a person id, or
   `"ignored"` for an ignored face; an **unnamed face has no `person` key at all**, never `"person":
-  null`), at most 256 used; and `geo`, `[latitude, longitude]` in degrees with six decimals. At
+  null`), at most 256 used; and `geo`, `[latitude, longitude]` in degrees with six decimals, or
+  `null` when the user removed the location (the photo is then not geotagged whatever its file's
+  GPS says; no key at all leaves the file's word). At
   the top level: `people`, an object from person id to `{"name": …, "nickname"?: …}` naming every
   person with a face in the folder (the mirror of `people.json`, §4). Each follows the M6 rules
   above; besides:
@@ -216,9 +220,23 @@ Format rules:
     that is neither a person id nor `"ignored"`) is left out of the model and kept verbatim, as are
     the usable faces past 256; a rewrite writes Dalica's faces first, each into the entry it came
     from so the keys of a face Dalica does not know stay with it, then the kept ones in order.
-  - A `faces` that is not a list and a `geo` that is not a place (a latitude past ±90, a longitude
-    past ±180, not two finite numbers) are values of the wrong type. People entries follow the
-    album names' rules.
+  - A `faces` that is not a list and a `geo` that is neither a place nor `null` (a latitude past
+    ±90, a longitude past ±180, not two finite numbers) are values of the wrong type. People
+    entries follow the album names' rules (names cleaned as the library cleans a person's name,
+    cut to 1 KiB).
+  - **Built (M13.9).** The model is the truth for the faces of its photos, their geotags and the
+    folder's `people` (the name and nickname of every person with a face in it): a write sets and
+    clears them. A face the model cannot hold, one whose rectangle has no width or height or whose
+    person is named nowhere (not in the library, not in the file's own `people`: another program's
+    or a hand edit), is kept after the model's faces as written and never used, unless the model
+    holds a face with the same rectangle; a face naming a person the file's `people` names but the
+    library no longer has (deleted, or its creation undone) is Dalica's own and goes with the
+    model's word. A rebuild (`rebuild::import_library`) creates the people `people.json` has (with
+    their thumbnails) and those only a folder names (under the first folder's name); a person whose
+    name another already holds, ignoring case, is that person, and their faces are read as theirs.
+    Notes about faces and people give counts and person ids, never names or rectangles
+    (`faces.md` §7). The index keeps people, faces and geotags (snapshot `people`, `faces`, `geo`;
+    the journal records their ops).
 - Readers accept a BOM and CRLF; a duplicate key takes the later value. Nesting is bounded
   (`security.md` §8).
 - `dalica.missing` is Dalica's own bookkeeping for stale entries (§7): an object from a photo's
@@ -359,8 +377,9 @@ holds:
 |---|---|---|
 | `folders.json` | the Folder Manager's settings, one entry per folder that sets its own: `{"version": 2, "folders": [{"path", "mode"?: "always" \| "once" \| "remove", "faces"?: bool, "indexed"?: true}]}` (`indexed`: a Scan Once folder's first scan finished; an entry without `mode` sets only the faces flag; the `remove` entries are the exclusions). A v1 file (M1: `{"version": 1, "folders": [{"path"}]}`, every folder watched) is read as Scan Always entries and written back as v2 at once, atomically; keys and entries this version does not know are kept verbatim | no — small, backed up with settings |
 | `albums.json` | album definitions (id, name, description, date, use the newest photo's date, place, cover) and a copy of the order, below | yes, from sidecars (each member folder carries the album's name; each member its position key, §3.2) |
-| `people.json` | every person (id, name, nickname, thumbnail face) and the rejected suggestions (Options → People is in `settings.json`, `"people"`) | yes, from sidecars (names are mirrored per folder; the rejected suggestions start empty) |
-| `index.log` + `index.snap` | the library index: one record per photo (path, size, mtime, dimensions, dates, EXIF summary, content hash, colour sketch, face descriptors), what the user said about photos, folders and albums (as in the sidecars and `albums.json`), the last-synced metadata hashes, the search facts, content digests and first-indexed and last-changed times; journal + snapshot as in LightCraft | yes, by rescanning (the synced hashes, facts, digests and first-indexed times start empty; the last-changed times come back from the sidecars) |
+| `people.json` | every person (id, name, nickname, thumbnail face) and the rejected suggestions (Options → People is in `settings.json`, `"people"`); below | yes, from sidecars (names are mirrored per folder; the thumbnails and the rejected suggestions start empty) |
+| `faces-<model id>.cache` | the embeddings cache of one recogniser: per face its embedding and the detector's landmarks, per photo whether the detector searched it; below | yes, by finding faces again (derived; deleted with its model) |
+| `index.log` + `index.snap` | the library index: one record per photo (path, size, mtime, dimensions, dates, EXIF summary, content hash, colour sketch), what the user said about photos, folders, albums and people (faces, geotags; as in the sidecars, `albums.json` and `people.json`), the last-synced metadata hashes, the search facts, content digests and first-indexed and last-changed times; journal + snapshot as in LightCraft | yes, by rescanning (the synced hashes, facts, digests and first-indexed times start empty; the last-changed times come back from the sidecars) |
 | `pending-writes.json` | the folders whose sidecar write waits for an offline volume (§7): `{"version": 1, "folders": [path, …]}`, written through the I/O worker when the list changes; a damaged file is kept as `.corrupt-<time>` and the list found again by the next online checks (M5.13) | yes, partly: the journal keeps the edits; a lost list is rebuilt for roots found offline |
 | `damaged-folders.json` | the folders whose sidecar was damaged and kept aside (§3), until the user resets them: `{"version": 1, "folders": [{"path", "kept": [path]}]}`, written through the I/O worker when the list changes, read at open; a damaged file is kept as `.corrupt-<time>` and read as empty (a notice says so; such a folder is found again by the next write that meets it, and one whose damaged file was already kept aside gets a new sidecar then) (M10.52) | no — small; a lost list only loses the warning |
 | `file-ops.json` | the file-operation journal: the moves, copies, renames and trashes in progress and each item's state (§8), written through the I/O worker; a damaged file is kept as `.corrupt-<time>` and the operations that read are kept (M9.9) | no — repaired from at the next open, then empty |
@@ -463,7 +482,53 @@ environment variable names an absolute folder, which tests set so they never wri
 cache) holds the thumbnail/preview disk cache: pack files plus an
 index per size of the thumbnail ladder (`architecture.md` §6), 2 GiB default, deletable at any
 time. Demos and tests keep a temporary cache that goes with their session; a cache another Dalica
-process holds is not shared (the session falls back to a temporary one and says so). Face detection descriptors are cached in the index; face *assignments* live in sidecars.
+process holds is not shared (the session falls back to a temporary one and says so). Face embeddings and landmarks are cached beside the index (`faces-<model id>.cache`, below); face *assignments* live in sidecars.
+
+**`people.json`** (built in M13.9: `dalica-store` `people` and `rebuild`), printed like the folder
+sidecar (UTF-8, two-space indentation, LF, keys sorted by their bytes at every level, unknown keys
+and entries kept verbatim):
+
+```json
+{
+  "dalica": { "version": 1 },
+  "people": {
+    "p7f3a2c": {
+      "name": "Ana Costa",
+      "nickname": "Aninhas",
+      "thumbnail": { "photo": "/home/ana/Pictures/Lisbon/IMG_0001.jpg", "rect": [0.41, 0.22, 0.52, 0.38] }
+    }
+  },
+  "rejected": [{ "person": "p7f3a2c", "photo": "/home/ana/Pictures/Porto/IMG_0107.jpg", "rect": [0.1, 0.2, 0.3, 0.4] }]
+}
+```
+
+- One entry per person under `"people"`, keyed by their id. `name` is required; `nickname` and
+  `thumbnail` (the face Set as Person Thumbnail chose: its photo's absolute path and its rectangle
+  in the stored frame) are absent when empty. `rejected` lists the suggestions the user rejected,
+  each a face (photo path and rectangle) and the person it is not; the suggestions engine owns it,
+  so a write that does not carry it keeps the file's list as it is.
+- An entry whose id is not a person id, that is not an object or whose name is nothing once
+  cleaned is kept and reported (by id, never by name), never used; a nickname or thumbnail of the
+  wrong shape reads as none, is reported and is written over only by a value of the model's; a
+  rejected item that is not a path, a rectangle and a person id is kept and reported.
+- It is written after people change, merged into the file on disk (entries of people the library
+  no longer has go), only when its bytes change, through the atomic replace over the version just
+  read. A damaged file is set aside as `people.json.corrupt-<time>` and reported, and a new one
+  written; the people then come back from the folders and the rejected suggestions start empty.
+  When the engine writes it (and how it treats a file read at open into an empty model) follows
+  `albums.json`'s rules above; the engine's people commands (M13.15) do it.
+
+**`faces-<model id>.cache`** (built in M13.9: `dalica-store` `faces_cache`), one per recogniser in
+the library folder, a binary file of Dalica's own: a header naming the model (its id and SHA-256)
+and the embedding dimension, then appended records, each framed by its length and a CRC-32: a
+face (the photo, its rectangle, the five landmarks when the detector gave them, the embedding as
+float32), a photo searched, or a photo forgotten (Find Faces Again). A record names the photo by its
+index id with its file's size and modification time, so a file changed on disk, or a photo id
+another photo holds after an index rebuild, finds nothing and is searched again. A file of another
+model, version or dimension is never read: it starts again, empty. Reading stops at the first record
+that is cut off or fails its checksum, and that torn tail is cut off. Removing a model deletes its
+file only (only a regular file of the cache's name shape). Embeddings never reach a sidecar, a log
+or the control channel (`faces.md` §7).
 
 "Rebuild library" (Help → Troubleshooting) deletes the index and rescans; it must never lose user
 data, and a test proves it (scan → edit everything → rebuild → compare).

@@ -12,10 +12,12 @@
 
 pub mod albums;
 pub mod carry;
+pub mod faces_cache;
 pub mod intents;
 pub mod journal;
 pub mod mapping;
 pub mod metawrite;
+pub mod people;
 pub mod rebuild;
 pub mod snapshot;
 pub mod stale;

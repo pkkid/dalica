@@ -24,7 +24,9 @@
 //! [`Geo`]). A face that cannot be used (a rectangle outside the photo, inverted or not finite, a
 //! person that is not a person id) and the faces past [`MAX_FACES`] are kept verbatim and left
 //! out ([`PhotoFaces::bad`], [`PhotoFaces::over`]); so are the keys of a face Dalica does not know.
-//! A `geo` that is not a place on the globe is a value of the wrong type.
+//! A `geo` that is not a place on the globe is a value of the wrong type; `"geo": null` says the
+//! user removed the photo's location ([`GeoTag::Removed`], M13.9), so the file's own GPS no longer
+//! counts.
 //!
 //! Reading never fails: each key is [`Field::Absent`], a value of the right type, or
 //! [`Field::WrongType`] holding what is there (kept, reported by [`Sidecar::problems`]). A date
@@ -72,7 +74,7 @@ pub const M13_PHOTO_KEYS: [&str; 2] = [FACES, GEO];
 pub const M13_TOP_KEYS: [&str; 1] = [PEOPLE];
 /// A photo's faces (`photos.<name>.faces`), a list of `{"rect", "person"?}`.
 pub const FACES: &str = "faces";
-/// A photo's geotag (`photos.<name>.geo`), `[lat, lon]` in degrees.
+/// A photo's geotag (`photos.<name>.geo`), `[lat, lon]` in degrees, or `null`: removed by the user.
 pub const GEO: &str = "geo";
 /// The folder's people (top level), person id → `{"name", "nickname"?}`.
 pub const PEOPLE: &str = "people";
@@ -231,6 +233,30 @@ impl Geo {
         match v.as_array()?.as_slice() {
             [lat, lon] => Geo::new(lat.as_f64()?, lon.as_f64()?),
             _ => None,
+        }
+    }
+}
+
+/// What a photo's `geo` says: a place, or that the user removed the location (`"geo": null`), so
+/// the photo is not geotagged whatever its file says. No key says nothing (the file's GPS counts).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum GeoTag {
+    At(Geo),
+    Removed,
+}
+
+impl GeoTag {
+    fn from_json(v: &Value) -> Option<GeoTag> {
+        match v {
+            Value::Null => Some(GeoTag::Removed),
+            v => Geo::from_json(v).map(GeoTag::At),
+        }
+    }
+
+    fn to_json(self) -> Value {
+        match self {
+            GeoTag::At(g) => Value::Array(vec![Value::from(g.lat), Value::from(g.lon)]),
+            GeoTag::Removed => Value::Null,
         }
     }
 }
@@ -460,7 +486,7 @@ fn photo_problem(key: &str, v: &Value) -> Option<&'static str> {
         ALBUMS => v.is_object(),
         CHANGED => v.as_str().and_then(parse_utc).is_some(),
         FACES => v.is_array(),
-        GEO => Geo::from_json(v).is_some(),
+        GEO => GeoTag::from_json(v).is_some(),
         _ => true,
     };
     (!ok).then_some(match key {
@@ -471,7 +497,7 @@ fn photo_problem(key: &str, v: &Value) -> Option<&'static str> {
         ALBUMS => "an object from album id to position key",
         CHANGED => "a UTC time (2026-10-15T09:41:07.250Z)",
         FACES => "a list of faces ({\"rect\": [x0, y0, x1, y1], \"person\": …})",
-        GEO => "a place ([latitude, longitude] in degrees)",
+        GEO => "a place ([latitude, longitude] in degrees) or null",
         _ => "a list of strings",
     })
 }
@@ -915,23 +941,24 @@ impl Sidecar {
         Ok(())
     }
 
-    /// Photo `name`'s `geo`: absent, its place, or a value that is not a place on the globe (kept,
-    /// not used).
-    pub fn geo(&self, name: &str) -> Field<Geo> {
+    /// Photo `name`'s `geo`: absent, its place or `null` (the location removed), or a value that is
+    /// neither (kept, not used).
+    pub fn geo(&self, name: &str) -> Field<GeoTag> {
         match self.photo_entry(name).and_then(|e| e.get(GEO)) {
             None => Field::Absent,
-            Some(v) => Geo::from_json(v).map_or_else(|| Field::WrongType(v.clone()), Field::Value),
+            Some(v) => GeoTag::from_json(v).map_or_else(|| Field::WrongType(v.clone()), Field::Value),
         }
     }
 
-    /// Sets or clears photo `name`'s `geo` (`[lat, lon]`, six decimals), the way
-    /// [`Sidecar::set_photo`] sets a key: setting writes over whatever is there, clearing removes
-    /// the key and the entry left empty. Refused if `photos` or the entry is not an object.
-    pub fn set_geo(&mut self, name: &str, geo: Option<Geo>) -> Result<(), WrongType> {
+    /// Sets or clears photo `name`'s `geo` (`[lat, lon]` with six decimals, or `null` for a location
+    /// the user removed), the way [`Sidecar::set_photo`] sets a key: setting writes over whatever is
+    /// there, clearing removes the key and the entry left empty. Refused if `photos` or the entry is
+    /// not an object.
+    pub fn set_geo(&mut self, name: &str, geo: Option<GeoTag>) -> Result<(), WrongType> {
         let Some((entry, had)) = self.entry_for(name, geo.is_none())? else { return Ok(()) };
         match geo {
             Some(g) => {
-                entry.insert(GEO.into(), Value::Array(vec![Value::from(g.lat), Value::from(g.lon)]));
+                entry.insert(GEO.into(), g.to_json());
             }
             None => {
                 entry.remove(GEO);

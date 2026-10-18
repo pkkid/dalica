@@ -19,12 +19,18 @@
 //! pairs), `members` (`[album id, photo id, position key]` triples), `covers` (`[album id, photo
 //! id]` pairs), and the index-only `facts` (`[photo id, facts]`), `digests` (`[photo id, digest]`),
 //! `firstIndexed` and `lastChanged` (`[photo id, time in milliseconds]`), each left out when empty.
+//!
+//! M13's too: `people` (`[person id, person]` pairs: name, nickname, thumbnail face), `faces`
+//! (`[photo id, faces]` pairs) and `geo` (`[photo id, geotag]` pairs: `{"at": [lat, lon]}` or
+//! `"removed"`), each left out when empty. Loading puts the people back before the faces that
+//! name them.
 
 use std::path::Path;
 
-use dalica_core::{AlbumId, FolderId, PhotoId, PosKey, Timestamp};
+use dalica_core::{AlbumId, FolderId, PersonId, PhotoId, PosKey, Timestamp};
 use dalica_library::{
-    AlbumInfo, ContentDigest, Facts, Folder, FolderInfo, Library, Op, Photo, PhotoInfo, PhotoSort, Project, Saved, SavedAs, Sketch, Synced,
+    AlbumInfo, ContentDigest, Face, Facts, Folder, FolderInfo, Geo, Library, Op, Person, Photo, PhotoInfo, PhotoSort, Project, Saved, SavedAs,
+    Sketch, Synced,
 };
 use serde::{Deserialize, Serialize};
 
@@ -73,6 +79,12 @@ struct Snapshot {
     first_indexed: Vec<(PhotoId, Timestamp)>,
     #[serde(rename = "lastChanged", default, skip_serializing_if = "Vec::is_empty")]
     last_changed: Vec<(PhotoId, Timestamp)>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    people: Vec<(PersonId, Person)>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    faces: Vec<(PhotoId, Vec<Face>)>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    geo: Vec<(PhotoId, Geo)>,
 }
 
 /// Writes the model of `library` as of op `seq`.
@@ -97,6 +109,9 @@ pub fn write(path: &Path, library: &Library, seq: u64) -> Result<()> {
         digests: library.digests().map(|(id, d)| (id, d.clone())).collect(),
         first_indexed: library.first_indexed_all().collect(),
         last_changed: library.last_changed_all().collect(),
+        people: library.people().map(|(id, p)| (id.clone(), p.clone())).collect(),
+        faces: library.faces_all().map(|(id, f)| (id, f.to_vec())).collect(),
+        geo: library.geo_all().collect(),
     };
     let json = serde_json::to_vec(&snap).map_err(|e| Error::Json(e.to_string()))?;
     write_whole(path, &encode(&json))
@@ -157,6 +172,14 @@ pub fn read(bytes: &[u8]) -> std::result::Result<(Library, u64), String> {
     }
     if !snap.last_changed.is_empty() {
         ops.push(Op::SetLastChanged { changed: snap.last_changed.into_iter().map(|(id, t)| (id, Some(t))).collect() });
+    }
+    // People before the faces that name them (a person's thumbnail is not checked on adding).
+    ops.extend(snap.people.into_iter().map(|(id, person)| Op::AddPerson { id, person }));
+    if !snap.faces.is_empty() {
+        ops.push(Op::SetFaces { faces: snap.faces });
+    }
+    if !snap.geo.is_empty() {
+        ops.push(Op::SetGeo { geo: snap.geo.into_iter().map(|(id, g)| (id, Some(g))).collect() });
     }
     library.apply(Op::Batch { ops }).map_err(|e| format!("inconsistent snapshot: {e}"))?;
     Ok((library, snap.seq))

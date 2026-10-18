@@ -7763,7 +7763,7 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
     wrong size or hash deletes the file and says so; a reply past the cap stops at the cap;
     cancellation stops at the next read; no request carries an identifying header; hostile specs
     (an http URL, a name with a separator, a zero or huge cap) are refused without a panic.
-- ⬜ **M13.9 `store`: faces, people and geotags on disk, and the embeddings cache**
+- ✅ **M13.9 `store`: faces, people and geotags on disk, and the embeddings cache**
   - after: M13.1, M13.2
   - files: `crates/store/src/mapping.rs`, `crates/store/src/people.rs`, `crates/store/src/faces_cache.rs`, `crates/store/src/rebuild.rs`, `crates/store/src/snapshot.rs`, `crates/store/tests/fields.rs`, `crates/store/tests/people.rs`, `crates/store/tests/faces_cache.rs`, `crates/store/README.md`, `docs/data-model.md`
   - scope: `data-model.md` §2–§4 and the decisions above: the model ↔ sidecar mapping of faces,
