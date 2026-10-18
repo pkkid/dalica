@@ -2,10 +2,11 @@
 //! [`ScriptedPicker`]. A dialog never runs on the UI thread: [`Pending`] runs it on its own thread
 //! and the frame loop polls for the answer.
 //!
-//! Three dialogs: a folder to add, a folder for something else ([`FolderRequest`]: the Export
-//! dialog's Browse…, with a title and a starting folder), and a file to save to ([`SaveRequest`]:
-//! File ▸ Save As…, with a suggested name, a starting folder and the JPEG and PNG filters). A
-//! folder or save request also names the command its answer runs and that command's other
+//! Four dialogs: a folder to add, a folder for something else ([`FolderRequest`]: the Export
+//! dialog's Browse…, with a title and a starting folder), a file to save to ([`SaveRequest`]:
+//! File ▸ Save As…, with a suggested name, a starting folder and the JPEG and PNG filters), and a
+//! file to open ([`OpenRequest`]: Options ▸ People's Add a Model File…, with the ONNX filter). A
+//! folder, save or open request also names the command its answer runs and that command's other
 //! parameters, so the in-app stub that stands in for the picker over automation
 //! (`control-protocol.md` §5.6) can show and run it.
 
@@ -44,6 +45,27 @@ pub struct SaveRequest {
 
 impl SaveRequest {
     /// The parameters the answer `path` runs [`SaveRequest::command`] with: `params` plus `path`.
+    pub fn params_with(&self, path: &std::path::Path) -> Value {
+        with_path(&self.params, path)
+    }
+}
+
+/// The face model files Add a Model File… offers (`faces.md` §3.1).
+pub const MODEL_FILTERS: &[Filter] = &[Filter { name: "ONNX model", extensions: &["onnx"] }];
+
+/// An open dialog (Add a Model File…): what it shows and what its answer runs.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OpenRequest {
+    /// The dialog's title ("Add a Model File").
+    pub title: &'static str,
+    pub filters: &'static [Filter],
+    /// The command the chosen file runs (`faceModel.addFile`), with `params` plus `path`.
+    pub command: &'static str,
+    pub params: Value,
+}
+
+impl OpenRequest {
+    /// The parameters the answer `path` runs [`OpenRequest::command`] with: `params` plus `path`.
     pub fn params_with(&self, path: &std::path::Path) -> Value {
         with_path(&self.params, path)
     }
@@ -99,6 +121,12 @@ pub trait Picker: Send + Sync {
         let _ = request;
         None
     }
+
+    /// A file to open, or `None` if the user cancelled. A picker with no open dialog cancels.
+    fn pick_file(&self, request: &OpenRequest) -> Option<PathBuf> {
+        let _ = request;
+        None
+    }
 }
 
 /// Answers from a queue: tests push the folder or file the "user" picks. An empty queue is a
@@ -107,6 +135,7 @@ pub trait Picker: Send + Sync {
 pub struct ScriptedPicker {
     folders: Arc<Mutex<VecDeque<PathBuf>>>,
     saves: Arc<Mutex<VecDeque<PathBuf>>>,
+    files: Arc<Mutex<VecDeque<PathBuf>>>,
     asked: Arc<Mutex<Option<SaveRequest>>>,
 }
 
@@ -125,6 +154,11 @@ impl ScriptedPicker {
         self.saves.lock().unwrap_or_else(PoisonError::into_inner).push_back(path.into());
     }
 
+    /// The next `pick_file` answers `path`.
+    pub fn push_file(&self, path: impl Into<PathBuf>) {
+        self.files.lock().unwrap_or_else(PoisonError::into_inner).push_back(path.into());
+    }
+
     /// The last save dialog asked for, if any.
     pub fn last_save(&self) -> Option<SaveRequest> {
         self.asked.lock().unwrap_or_else(PoisonError::into_inner).clone()
@@ -139,6 +173,10 @@ impl Picker for ScriptedPicker {
     fn pick_save(&self, request: &SaveRequest) -> Option<PathBuf> {
         *self.asked.lock().unwrap_or_else(PoisonError::into_inner) = Some(request.clone());
         self.saves.lock().unwrap_or_else(PoisonError::into_inner).pop_front()
+    }
+
+    fn pick_file(&self, _request: &OpenRequest) -> Option<PathBuf> {
+        self.files.lock().unwrap_or_else(PoisonError::into_inner).pop_front()
     }
 }
 
@@ -164,6 +202,12 @@ impl Pending {
     pub fn pick_save(picker: &Arc<dyn Picker>, request: SaveRequest) -> Option<Pending> {
         let picker = Arc::clone(picker);
         Pending::spawn(move || picker.pick_save(&request))
+    }
+
+    /// Starts `pick_file` on a new thread. `None` if the thread could not start.
+    pub fn pick_file(picker: &Arc<dyn Picker>, request: OpenRequest) -> Option<Pending> {
+        let picker = Arc::clone(picker);
+        Pending::spawn(move || picker.pick_file(&request))
     }
 
     fn spawn(ask: impl FnOnce() -> Option<PathBuf> + Send + 'static) -> Option<Pending> {

@@ -165,8 +165,8 @@ fn a_hovered_filter_shows_its_tooltip_in_the_caption() {
     assert!(hovered > caption + 40, "the tooltip replaces the caption: {caption} → {hovered} columns of ink");
 }
 
-/// Controls without a command are present and disabled, and a click on them changes nothing (the
-/// Faces filter waits for faces); ▾ opens its popup, whose rows are listed: the folder and people
+/// Controls without a command are present and disabled (the activity indicator at rest), the
+/// filters live (Faces since M13.27); ▾ opens its popup, whose rows are listed: the folder and people
 /// sorts live (`view.folderSort`, `view.peopleSort`), the rest disabled until their commands exist.
 #[test]
 fn controls_without_a_command_are_disabled_and_the_view_options_popup_opens() {
@@ -174,13 +174,13 @@ fn controls_without_a_command_are_disabled_and_the_view_options_popup_opens() {
     let mut d = driver(dir.path(), (1400.0, 900.0));
     for (id, _) in CONTROLS {
         let wi = widget(&d, id);
-        // Faces waits for faces; the activity indicator takes no click at rest. Import
-        // (`import.open`) opens the Import room since M11.2.
-        let want = !matches!(id, "button:filter.faces" | "indicator:activity");
+        // The activity indicator takes no click at rest. Import (`import.open`) opens the Import
+        // room since M11.2; the Faces filter is live since M13.27.
+        let want = !matches!(id, "indicator:activity");
         assert_eq!(wi.enabled, want, "`{id}` enabled: {}", wi.enabled);
     }
     let before = d.state().clone();
-    assert!(d.click("button:filter.faces").is_err(), "a disabled control does not take clicks");
+    assert!(d.click("indicator:activity").is_err(), "a disabled control does not take clicks");
     assert_eq!(d.state(), &before);
 
     d.click("button:toolbar.viewOptions").unwrap();

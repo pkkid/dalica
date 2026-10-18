@@ -607,10 +607,22 @@ pub enum DialogKind {
     /// Tools ▸ Geotag ▸ Clear Location… and a marker's Remove Location: "Remove the location from %d
     /// photos?" (`organizing.md` §7; M13.22).
     ClearLocation,
+    /// The Folder Manager's "Remove the face rectangles found in these folders? …" [Remove Faces]
+    /// [Keep Faces] (`faces.removeInFolders`, `organizing.md` §2; M13.27).
+    RemoveFaces,
+    /// Tools ▸ Experimental ▸ Write People Names to Photos…: "Write the names of the people in …
+    /// into the files?" (`faces.writeXmp`, `xmp-interop.md` §6; M13.27).
+    WritePeopleNames,
+    /// Options ▸ People's Remove: "Remove the face model …?" (`faceModel.remove`, `faces.md` §3.4;
+    /// M13.27).
+    RemoveFaceModel,
+    /// Find faces in my photos turned off: "Also delete the face data …?" [Delete Face Data] [Keep]
+    /// (`faceModel.dropData`, `faces.md` §7; M13.27).
+    DropFaceData,
 }
 
 impl DialogKind {
-    pub const ALL: [DialogKind; 41] = [
+    pub const ALL: [DialogKind; 45] = [
         DialogKind::ClearTray,
         DialogKind::FolderManager,
         DialogKind::FirstRun,
@@ -652,6 +664,10 @@ impl DialogKind {
         DialogKind::FaceModel,
         DialogKind::ChangeLocation,
         DialogKind::ClearLocation,
+        DialogKind::RemoveFaces,
+        DialogKind::WritePeopleNames,
+        DialogKind::RemoveFaceModel,
+        DialogKind::DropFaceData,
     ];
 
     /// The kind as the protocol writes it (`clearTray`), the `<kind>` of `dialog:<kind>`.
@@ -698,6 +714,10 @@ impl DialogKind {
             DialogKind::FaceModel => "faceModel",
             DialogKind::ChangeLocation => "changeLocation",
             DialogKind::ClearLocation => "clearLocation",
+            DialogKind::RemoveFaces => "removeFaces",
+            DialogKind::WritePeopleNames => "writePeopleNames",
+            DialogKind::RemoveFaceModel => "removeFaceModel",
+            DialogKind::DropFaceData => "dropFaceData",
         }
     }
 

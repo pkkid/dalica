@@ -8120,7 +8120,7 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
     Suggest names off or below the threshold; Find More lists the near misses most similar first;
     `faces.evaluate` reports per step; each command's contract and graceful failures; `panic_hunt`
     green.
-- ⬜ **M13.27 `ui`: the face model dialog, Options ▸ People, Remove Faces and the Faces filter**
+- ✅ **M13.27 `ui`: the face model dialog, Options ▸ People, Remove Faces and the Faces filter**
   - after: M13.4, M13.16, M13.18
   - files: `crates/ui/src/dialogs/face_model.rs`, `crates/ui/src/dialogs/options/people.rs`, `crates/ui/src/dialogs/folder_manager.rs`, `crates/ui/src/dialogs/folder_manager/**`, `crates/ui/src/commands/face_model.rs`, `crates/ui/src/panels/toolbar.rs`, `crates/ui/src/app.rs`, `crates/ui/tests/face_model_ui.rs`, `crates/ui/tests/fingerprints/dialog-face-model-*.json`, `crates/ui/tests/fingerprints/dialog-options-people-*.json`
   - scope: `faces.md` §3.1 and `organizing.md` §6.1: the face model dialog (per file: licence,

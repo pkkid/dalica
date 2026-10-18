@@ -6,7 +6,7 @@
 //! - typing narrows the light table to the matching sections, and the banner says "Showing 20
 //!   pictures in 1 folder (… s) · 212.2 KB" with the engine's numbers;
 //! - each filter and the age combine with the text (the matches are the intersection), the age
-//!   slider reading "Pictures up to 1 week old"; Faces is greyed with its reason;
+//!   slider reading "Pictures up to 1 week old"; Faces is live (M13.27);
 //! - Show All leaves search mode and brings the scroll position back; Ctrl+F focuses the field,
 //!   and Esc there does the same;
 //! - a suggestion picked with ↓ and Enter puts `tag:<tag>` in the field and searches it;
@@ -173,7 +173,7 @@ fn filters_and_the_age_combine_with_the_text() {
     let starred = [photos_in(d, harbour)[0], photos_in(d, harbour)[3], photos_in(d, hills)[1]];
     d.run("photo.star.set", &json!({ "ids": starred, "on": true })).unwrap();
     d.settle(FRAMES).unwrap();
-    assert!(!try_widget(d, "button:filter.faces").unwrap().enabled, "Faces waits for faces");
+    assert!(try_widget(d, "button:filter.faces").unwrap().enabled, "Faces is live (M13.27)");
 
     search_for(d, "img");
     let text_only = matches(d);
