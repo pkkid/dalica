@@ -8373,7 +8373,7 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
     from the M12 code match (a Focal Zoom made another way is the case most likely to need a
     look change: then re-blessed with its diff images and the reason, asked at the review), the
     existing fingerprints, two-sizes tests and the region test pass; `cargo xtask ci`.
-- ⬜ **M13.42 `edit`: Widescreen Film's final and the frames' drafts within the slider's caps**
+- ✅ **M13.42 `edit`: Widescreen Film's final and the frames' drafts within the slider's caps**
   - after: M12.R, M13.34, M13.35
   - files: `crates/edit/src/ops/canvas.rs`, `crates/edit/src/ops/mats.rs`, `crates/edit/tests/canvas.rs`, `crates/edit/tests/mats.rs`, `crates/edit/tests/fingerprints/canvas-*.json`, `crates/edit/tests/fingerprints/mats-*.json`
   - scope: effect speed. Widescreen Film's final is 127 ms at p95 (the cap 100 ms): its film
