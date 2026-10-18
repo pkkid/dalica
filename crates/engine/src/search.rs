@@ -99,7 +99,8 @@ pub struct SearchResult {
     pub bytes: u64,
     /// How long the query took on the worker.
     pub seconds: f64,
-    /// Operators and filters used that match nothing yet (`person`, `color`, `faces`).
+    /// Operators and filters used that match nothing for want of data: `person` while the library
+    /// has no people, `faces` while no photo has a face, `color` (not built yet).
     pub unavailable: Vec<&'static str>,
     /// Whether the text was cut at the grammar's caps.
     pub truncated: bool,
@@ -152,6 +153,9 @@ pub struct SearchState {
     /// When the waiting query is sent, if one waits.
     due: Option<Timestamp>,
     worker: Option<Worker>,
+    /// What the session knows of `people.json` (`people_file.rs`), kept here because this
+    /// module's hooks follow every op and every poll.
+    pub(crate) people_file: crate::people_file::PeopleFile,
 }
 
 impl SearchState {
@@ -534,6 +538,8 @@ impl Session {
     /// After `op` was applied: the worker's copy and index follow it, and the results of a search
     /// in progress are asked for again once [`DEBOUNCE`] has passed.
     pub(crate) fn search_applied(&mut self, op: &Op) {
+        // `people.json` follows every op too (`people_file.rs`).
+        self.people_applied(op);
         let revision = self.library.revision();
         let Some(w) = &mut self.search.worker else { return };
         // Each op moves the revision by one (a derived one not at all): anything else means the
@@ -557,6 +563,8 @@ impl Session {
     /// Applies the search worker's answers (from `poll`), dropping stale ones, after sending the
     /// query whose debounce has passed. Returns how many it applied. Never blocks.
     pub(crate) fn poll_search(&mut self) -> usize {
+        // A `people.json` write held while scans applied goes once they are done (`people_file.rs`).
+        self.write_people_file();
         if self.search.worker.is_none() {
             return 0;
         }

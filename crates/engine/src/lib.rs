@@ -32,6 +32,7 @@ pub mod metadata;
 pub mod metadata_cache;
 pub mod offline;
 pub mod options;
+mod people_file;
 pub mod places;
 pub mod preview;
 pub mod registry;
