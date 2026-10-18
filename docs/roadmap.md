@@ -8293,7 +8293,7 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
     focal_effects.rs`: the `focal-soft-focus-large` fingerprint blessed from the M12 code
     matches, the existing fingerprints, two-sizes tests and the region test pass unchanged;
     `cargo xtask ci`.
-- ⬜ **M13.38 `edit`: Boost, Saturation and Warmify within the slider's caps**
+- ✅ **M13.38 `edit`: Boost, Saturation and Warmify within the slider's caps**
   - after: M12.R, M13.34
   - files: `crates/edit/src/ops/remap.rs`, `crates/edit/src/ops/colour.rs`, `crates/edit/tests/remap_effects.rs`, `crates/edit/tests/colour_effects.rs`, `crates/edit/tests/fingerprints/remap-*.json`, `crates/edit/tests/fingerprints/colour-*.json`
   - scope: effect speed. Draft / final p95 at M12.21: Boost 35.7 / 476 ms, Saturation 21.5 /

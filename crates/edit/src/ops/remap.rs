@@ -23,16 +23,16 @@
 //!     dull colours gain most, reds and skin least), then each channel through the S-curve
 //!     [`modern_contrast`] at `strength / 2 / 128`. Strength 0 is the identity.
 //!
-//!   Linear light goes through two tables of 4 096 steps built once (as in `colour`), and the
-//!   contrast curves through a table per effect built at prepare. [`modern_contrast`] is ported
-//!   from PhotoCraft `crates/compose/src/adjust.rs` at e4b2868a and the two-stop gradient follows
+//!   Boost runs by lanes on `colour`'s Vibrance (M13.38): the shared linear-light tables decode,
+//!   and one table built at prepare encodes and applies the S-curve together; within one level of
+//!   its exact maths. Duo-Tone's tone curve is a table per effect built at prepare.
+//!   [`modern_contrast`] is ported from PhotoCraft `crates/compose/src/adjust.rs` at e4b2868a and the two-stop gradient follows
 //!   `crates/compose/src/effects.rs` (`sample_stops`) there (MIT OR Apache-2.0, `NOTICE`); the
 //!   rest is our own.
 
 use std::fmt;
-use std::sync::OnceLock;
 
-use super::colour::vibrance_lin;
+use super::colour::{LaneTable, Vibrance, by_lanes};
 use super::{Adjust, Band, FADE, Operation, ParamError, Pass, Prepare, Reader, clamp, hex, no_params, num};
 use crate::fx;
 
@@ -204,13 +204,16 @@ impl Adjust for Duotone {
 
 impl Adjust for Boost {
     fn prepare(&self, _ctx: &Prepare<'_>) -> Option<Box<dyn Pass>> {
-        let s = self.clamped().strength as f32;
-        if s <= 0.0 {
-            return None;
-        }
-        let contrast = Curve::new(|v| modern_contrast(v, s * BOOST_CONTRAST));
-        Some(Box::new(RemapPass::Boost { vibrance: s / 100.0, contrast, lin: linear() }))
+        boost_pass(self.clamped().strength as f32).map(|p| Box::new(p) as Box<dyn Pass>)
     }
+}
+
+/// Boost's pass at Strength `s` (0..100), none at 0.
+fn boost_pass(s: f32) -> Option<RemapPass> {
+    let vibrance = Vibrance::new(s / 100.0)?;
+    let lin = fx::linear_light();
+    let encode = LaneTable::new(|v| modern_contrast(lin.to_srgb(v), s * BOOST_CONTRAST));
+    Some(RemapPass::Boost { vibrance, encode })
 }
 
 /// Infrared Film's channel weights (red, green, blue) on the encoded values; they sum to 1.
@@ -236,11 +239,10 @@ enum RemapPass {
         second: [f32; 3],
         fade: f64,
     },
-    /// Vibrance by this amount (0..1] in linear light, then this curve on each channel.
+    /// Vibrance in linear light, then each channel encoded and through the S-curve, one table.
     Boost {
-        vibrance: f32,
-        contrast: Curve,
-        lin: &'static Linear,
+        vibrance: Vibrance,
+        encode: LaneTable,
     },
 }
 
@@ -259,9 +261,10 @@ impl Pass for RemapPass {
                 let toned = fx::mix(*first, *second, tone.at(fx::luma(c)));
                 *p = faded(c, toned, *fade);
             }),
-            RemapPass::Boost { vibrance, contrast, lin } => px.for_each(|p| {
-                let vivid = lin.encode3(vibrance_lin(lin.decode3(unit3(*p)), *vibrance));
-                *p = vivid.map(|v| contrast.at(v));
+            RemapPass::Boost { vibrance, encode } => by_lanes(band.pixels, |r, g, b| {
+                vibrance.lin.decode.read3(r, g, b);
+                vibrance.lanes(r, g, b);
+                encode.read3(r, g, b);
             }),
         }
     }
@@ -309,27 +312,6 @@ impl Curve {
     }
 }
 
-/// The sRGB transfer curve and its inverse as tables, built once.
-struct Linear {
-    decode: Curve,
-    encode: Curve,
-}
-
-impl Linear {
-    fn decode3(&self, p: [f32; 3]) -> [f32; 3] {
-        p.map(|v| self.decode.at(v))
-    }
-
-    fn encode3(&self, p: [f32; 3]) -> [f32; 3] {
-        p.map(|v| self.encode.at(v))
-    }
-}
-
-fn linear() -> &'static Linear {
-    static LINEAR: OnceLock<Linear> = OnceLock::new();
-    LINEAR.get_or_init(|| Linear { decode: Curve::new(fx::to_linear), encode: Curve::new(fx::to_srgb) })
-}
-
 // Ported from PhotoCraft `crates/compose/src/adjust.rs` at e4b2868a (MIT OR Apache-2.0).
 
 /// A contrast S-curve on 0..1 with fixed ends: two cubic Hermite halves through (0, 0), (½, ½) and
@@ -351,6 +333,18 @@ pub fn modern_contrast(v: f32, contrast: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn boost_is_within_a_level_of_its_exact_maths() {
+        use crate::ops::colour::tests::{assert_within_a_level, exact_encode};
+        use crate::ops::colour::vibrance_lin;
+        for s in [1.0, 50.0, 100.0] {
+            let pass = boost_pass(s).expect("a pass above 0");
+            assert_within_a_level(&format!("boost({s})"), &pass, |p| {
+                vibrance_lin(unit3(p).map(fx::to_linear), s / 100.0).map(|v| modern_contrast(exact_encode(v), s * BOOST_CONTRAST))
+            });
+        }
+    }
 
     #[test]
     fn the_contrast_curve_keeps_its_ends_and_rises() {

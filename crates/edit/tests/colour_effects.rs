@@ -5,7 +5,9 @@
 //! R = G = B, B&W's grey is the Rec.601 luma within one level, a red filter lightens a red patch
 //! over a blue one of the same luma; Sepia gives R ≥ G ≥ B and keeps the order of lumas; Warmify
 //! raises R − B and keeps the luma within 3 %; Tint gives every coloured pixel the tint's hue and
-//! Fade 100 gives the input; Saturation 0 is the identity and −1 gives R = G = B.
+//! Fade 100 gives the input; Saturation 0 is the identity and −1 gives R = G = B. Warmify and
+//! Saturation also match fingerprints of a large photo rendered whole (`colour-*-large`, blessed
+//! from the M12 code before M13.38 made their passes faster).
 
 use crate::common::{assert_two_sizes_agree, check_fingerprint, pixels, recipe, rgba, run, scene, window};
 use dalica_edit::ops::colour::REC601;
@@ -87,6 +89,17 @@ fn each_effect_matches_its_fingerprint_at_two_sizes_and_in_a_region() {
                 assert_eq!(part, window(&whole, x, y, w, h), "{entry}: region at {x},{y}");
             }
         }
+    }
+}
+
+/// A large photo rendered whole with Warmify and with Saturation matches its fingerprint
+/// (`colour-warmify-large`, `colour-saturation-large`, blessed from the M12 per-pixel maths): the
+/// 3-D tables the passes read since M13.38 give the same picture at full resolution.
+#[test]
+fn warmify_and_saturation_match_their_large_fingerprints() {
+    let img = blobs(13, 1200, 800);
+    for (case, entry) in [("colour-warmify-large", "warmify()"), ("colour-saturation-large", "saturation(0.16)")] {
+        check_fingerprint(case, &render(Source::upright(&img), &recipe(&[entry]), Target::Full).unwrap(), 0.5);
     }
 }
 

@@ -5,7 +5,8 @@
 //! within one level; Infrared gives R = G = B with a green patch lighter and a blue one darker than
 //! their luma; Duo-Tone maps black to the first colour and white to the second at Brightness 0 and
 //! every pixel onto that segment; Boost 0 is the identity and Boost raises chroma and contrast; Fade
-//! 100 gives the input.
+//! 100 gives the input. Boost also matches a fingerprint of a large photo rendered whole
+//! (`remap-boost-large`, blessed from the M12 code before M13.38 made its pass faster).
 
 use crate::common::{assert_two_sizes_agree, check_fingerprint, pixels, recipe, rgba, run, scene, window};
 use dalica_edit::ops::colour::REC601;
@@ -85,6 +86,15 @@ fn each_effect_matches_its_fingerprint_at_two_sizes_and_in_a_region() {
             }
         }
     }
+}
+
+/// A large photo rendered whole with Boost matches its fingerprint (`remap-boost-large`, blessed
+/// from the M12 per-pixel maths): the 3-D table its pass reads since M13.38 gives the same picture
+/// at full resolution.
+#[test]
+fn boost_matches_its_large_fingerprint() {
+    let img = blobs(13, 1200, 800);
+    check_fingerprint("remap-boost-large", &render(Source::upright(&img), &recipe(&["boost(50)"]), Target::Full).unwrap(), 0.5);
 }
 
 #[test]

@@ -32,11 +32,20 @@
 //!     hue weights, taken from one filter colour, reduce to this weighted sum); a black filter
 //!     transmits nothing and falls back to plain B&W.
 //!
-//!   Linear light goes through two tables of 4 096 steps built once ([`crate::fx::to_linear`],
-//!   [`crate::fx::to_srgb`]), within 0.01 of a level of the exact curve. `photo_filter_matrix`,
-//!   `vibrance_px`, `vibrance_lin` and their constants are ported from PhotoCraft
-//!   `crates/compose/src/adjust.rs` and `crates/color/src/convert.rs` at e4b2868a (MIT OR
-//!   Apache-2.0, `NOTICE`); the rest is our own.
+//!   Linear light goes through the shared tables of 4 096 steps ([`crate::fx::linear_light`],
+//!   within 0.01 of a level of the exact curves).
+//! - **Speed** (M13.38): Warmify and Saturation above 0 (and Boost, in `remap`) run by lanes:
+//!   `LANES` pixels at a time, each channel one array, so their maths compiles to vector
+//!   instructions; the tables are read as `LaneTable`s (the shared tables' own samples, each step
+//!   with its rise to the next, the step found by a float-rounding trick), Vibrance's `exp` by a
+//!   polynomial and its `t^p (1 − t)^q` from a table. Each pass stays within one level (in fact a
+//!   few hundredths) of its exact maths, `powf` curves included, over every 8-bit grey and a
+//!   million random inputs between levels (the module's tests). A 3-D table of the whole function
+//!   (33³ or 65³ nodes, tetrahedral) was measured first and missed that by 4 to 12 levels where
+//!   the skin hues' weight bends near grey and where Warmify's luma restore clips.
+//! - **Provenance:** `photo_filter_matrix`, `vibrance_px`, `vibrance_lin` and their constants are
+//!   ported from PhotoCraft `crates/compose/src/adjust.rs` and `crates/color/src/convert.rs` at
+//!   e4b2868a (MIT OR Apache-2.0, `NOTICE`); the rest is our own.
 
 use std::fmt;
 use std::sync::OnceLock;
@@ -200,9 +209,13 @@ impl Adjust for Bw {
 
 impl Adjust for Warmify {
     fn prepare(&self, _ctx: &Prepare<'_>) -> Option<Box<dyn Pass>> {
-        let m = photo_filter_matrix(WARMING.map(|v| f32::from(v) / 255.0), WARMING_DENSITY, true);
-        Some(Box::new(ColourPass::Matrix(m, linear())))
+        Some(Box::new(warmify_pass()))
     }
+}
+
+/// Warmify's pass: its matrix on linear light, by lanes.
+fn warmify_pass() -> ColourPass {
+    ColourPass::Warmify(photo_filter_matrix(WARMING.map(|v| f32::from(v) / 255.0), WARMING_DENSITY, true), lane_linear())
 }
 
 impl Adjust for Tint {
@@ -217,14 +230,18 @@ impl Adjust for Tint {
 
 impl Adjust for Saturation {
     fn prepare(&self, _ctx: &Prepare<'_>) -> Option<Box<dyn Pass>> {
-        let a = self.clamped().amount as f32;
-        if a == 0.0 {
-            None
-        } else if a < 0.0 {
-            Some(Box::new(ColourPass::Desaturate(1.0 + a)))
-        } else {
-            Some(Box::new(ColourPass::Vibrance(a, linear())))
-        }
+        saturation_pass(self.clamped().amount as f32).map(|p| Box::new(p) as Box<dyn Pass>)
+    }
+}
+
+/// Saturation's pass at amount `a` (−1..1), none at 0.
+fn saturation_pass(a: f32) -> Option<ColourPass> {
+    if a == 0.0 {
+        None
+    } else if a < 0.0 {
+        Some(ColourPass::Desaturate(1.0 + a))
+    } else {
+        Vibrance::new(a).map(ColourPass::Vibrance)
     }
 }
 
@@ -259,27 +276,28 @@ enum ColourPass {
     Sepia(&'static Table<[f32; 3]>),
     /// A grey of these channel weights (B&W, Filtered B&W).
     Grey([f32; 3]),
-    /// A matrix on linear light (Warmify).
-    Matrix([[f32; 3]; 3], &'static Linear),
+    /// A matrix on linear light, then the input's luma restored (Warmify).
+    Warmify([[f32; 3]; 3], &'static LaneLinear),
     /// The luma colourised through this colour ([`colourise`]), then faded.
     Tint { color: [f32; 3], fade: f64 },
     /// Each pixel's distance from its luma scaled by this factor in 0..1.
     Desaturate(f32),
-    /// Vibrance by this amount in 0..1, in linear light.
-    Vibrance(f32, &'static Linear),
+    /// Positive Vibrance, in linear light.
+    Vibrance(Vibrance),
 }
 
 impl Pass for ColourPass {
     fn run(&self, band: &mut Band<'_>) {
         let px = band.pixels.iter_mut();
         match self {
+            ColourPass::Warmify(m, lin) => by_lanes(band.pixels, |r, g, b| warmify_lanes(m, lin, r, g, b)),
+            ColourPass::Vibrance(v) => by_lanes(band.pixels, |r, g, b| {
+                v.lin.decode.read3(r, g, b);
+                v.lanes(r, g, b);
+                v.lin.encode.read3(r, g, b);
+            }),
             ColourPass::Sepia(curves) => px.for_each(|p| *p = curves.at(fx::luma(unit3(*p)))),
             ColourPass::Grey(w) => px.for_each(|p| *p = [grey(*p, *w); 3]),
-            ColourPass::Matrix(m, lin) => px.for_each(|p| {
-                let input = unit3(*p);
-                let filtered = lin.encode3(mat3_mul(m, lin.decode3(input)));
-                *p = set_luma(filtered, fx::luma(input));
-            }),
             ColourPass::Tint { color, fade } => px.for_each(|p| {
                 let input = unit3(*p);
                 let toned = colourise(fx::luma(input), *color);
@@ -290,7 +308,6 @@ impl Pass for ColourPass {
                 let g = fx::luma(c);
                 *p = unit3(c.map(|v| g + k * (v - g)));
             }),
-            ColourPass::Vibrance(v, lin) => px.for_each(|p| *p = lin.encode3(vibrance_lin(lin.decode3(*p), *v))),
         }
     }
 }
@@ -311,7 +328,9 @@ fn grey(p: [f32; 3], w: [f32; 3]) -> f32 {
 }
 
 /// `c` moved to Rec.601 luma `l` keeping its hue, its channels brought into 0..1 toward the luma
-/// (the W3C *Compositing and Blending* `SetLum` and `ClipColor`, Rec.601 weights).
+/// (the W3C *Compositing and Blending* `SetLum` and `ClipColor`, Rec.601 weights): Warmify's exact
+/// maths, which [`warmify_lanes`] runs per lane.
+#[cfg(test)]
 fn set_luma(c: [f32; 3], l: f32) -> [f32; 3] {
     let l = unit(l);
     let d = l - fx::luma(c);
@@ -392,27 +411,6 @@ fn sepia_curves() -> &'static Table<[f32; 3]> {
     CURVES.get_or_init(|| Table::new(|l| SEPIA_POWERS.map(|k| l.powf(k))))
 }
 
-/// The sRGB transfer curve and its inverse as tables, built once.
-struct Linear {
-    decode: Table<f32>,
-    encode: Table<f32>,
-}
-
-impl Linear {
-    fn decode3(&self, p: [f32; 3]) -> [f32; 3] {
-        p.map(|v| self.decode.at(v))
-    }
-
-    fn encode3(&self, p: [f32; 3]) -> [f32; 3] {
-        p.map(|v| self.encode.at(v))
-    }
-}
-
-fn linear() -> &'static Linear {
-    static LINEAR: OnceLock<Linear> = OnceLock::new();
-    LINEAR.get_or_init(|| Linear { decode: Table::new(fx::to_linear), encode: Table::new(fx::to_srgb) })
-}
-
 // Ported from PhotoCraft `crates/color/src/convert.rs` at e4b2868a (MIT OR Apache-2.0).
 
 /// The D50 white point (ICC PCS).
@@ -423,6 +421,35 @@ const SRGB_TO_XYZ_D50: [[f32; 3]; 3] = [[0.436_074, 0.385_064, 0.143_080], [0.22
 
 /// D50 XYZ → linear sRGB (the inverse of [`SRGB_TO_XYZ_D50`]).
 const XYZ_D50_TO_SRGB: [[f32; 3]; 3] = [[3.133_856, -1.616_867, -0.490_615], [-0.978_768, 1.916_142, 0.033_454], [0.071_945, -0.228_991, 1.405_243]];
+
+/// Warmify on lanes of encoded pixels: the matrix `m` on their linear light, the result brought
+/// into 0..1 and encoded, then each input's Rec.601 luma restored ([`set_luma`]'s maths per lane).
+#[inline(always)]
+fn warmify_lanes(m: &[[f32; 3]; 3], lin: &LaneLinear, r: &mut Lane, g: &mut Lane, b: &mut Lane) {
+    let [wr, wg, wb] = REC601;
+    let mut luma = [0.0f32; LANES];
+    for k in 0..LANES {
+        luma[k] = wr * clamp_unit(r[k]) + wg * clamp_unit(g[k]) + wb * clamp_unit(b[k]);
+    }
+    lin.decode.read3(r, g, b);
+    for k in 0..LANES {
+        let [x, y, z] = mat3_mul(m, [r[k], g[k], b[k]]);
+        (r[k], g[k], b[k]) = (clamp_unit(x), clamp_unit(y), clamp_unit(z));
+    }
+    lin.encode.read3(r, g, b);
+    for k in 0..LANES {
+        // `set_luma`: moved to the luma, then brought into 0..1 toward it.
+        let l = clamp_unit(luma[k]);
+        let d = l - (wr * r[k] + wg * g[k] + wb * b[k]);
+        let c = [r[k] + d, g[k] + d, b[k] + d];
+        let lum = wr * c[0] + wg * c[1] + wb * c[2];
+        let mn = fmin(fmin(c[0], c[1]), c[2]);
+        let c = if mn < 0.0 && lum - mn > 1e-6 { c.map(|v| lum + (v - lum) * lum / (lum - mn)) } else { c };
+        let mx = fmax(fmax(c[0], c[1]), c[2]);
+        let c = if mx > 1.0 && mx - lum > 1e-6 { c.map(|v| lum + (v - lum) * (1.0 - lum) / (mx - lum)) } else { c };
+        (r[k], g[k], b[k]) = (clamp_unit(c[0]), clamp_unit(c[1]), clamp_unit(c[2]));
+    }
+}
 
 /// `m · v` for a row-major 3 × 3 matrix.
 fn mat3_mul(m: &[[f32; 3]; 3], v: [f32; 3]) -> [f32; 3] {
@@ -480,6 +507,204 @@ pub fn vibrance_lin(c: [f32; 3], v: f32) -> [f32; 3] {
     unit3(c.map(|x| m2 + (x - mn) * k))
 }
 
+/// The pixels a lane pass works on at once: its maths runs on each channel of this many pixels
+/// as one array (a structure of arrays), which the compiler turns into vector instructions, the
+/// tables read value by value.
+pub(crate) const LANES: usize = 16;
+
+/// One channel of [`LANES`] pixels.
+pub(crate) type Lane = [f32; LANES];
+
+/// `pixels` [`LANES`] at a time through `f` as three channel lanes (the last few padded with
+/// black, which `f` may change freely).
+#[inline(always)]
+pub(crate) fn by_lanes(pixels: &mut [[f32; 3]], f: impl Fn(&mut Lane, &mut Lane, &mut Lane)) {
+    for chunk in pixels.chunks_mut(LANES) {
+        let (mut r, mut g, mut b) = ([0.0f32; LANES], [0.0f32; LANES], [0.0f32; LANES]);
+        for (((p, r), g), b) in chunk.iter().zip(&mut r).zip(&mut g).zip(&mut b) {
+            (*r, *g, *b) = (p[0], p[1], p[2]);
+        }
+        f(&mut r, &mut g, &mut b);
+        for (((p, r), g), b) in chunk.iter_mut().zip(&r).zip(&g).zip(&b) {
+            *p = [*r, *g, *b];
+        }
+    }
+}
+
+/// A function of 0..1 in [`STEPS`] steps, read [`LANES`] values at a time with linear
+/// interpolation: each step holds its value and its rise to the next.
+pub(crate) struct LaneTable {
+    steps: Box<[[f32; 2]; STEPS]>,
+}
+
+impl LaneTable {
+    /// `f` sampled over 0..1.
+    pub(crate) fn new(f: impl Fn(f32) -> f32) -> LaneTable {
+        let mut steps = Box::new([[0.0f32; 2]; STEPS]);
+        let mut a = f(0.0);
+        for (i, step) in steps.iter_mut().enumerate() {
+            let b = f((i + 1) as f32 / STEPS as f32);
+            *step = [a, b - a];
+            a = b;
+        }
+        LaneTable { steps }
+    }
+
+    /// Every value of `x` (brought into 0..1, `NaN` as 0) through the function.
+    #[inline(always)]
+    pub(crate) fn read(&self, x: &mut Lane) {
+        let (mut at, mut t) = ([0i32; LANES], [0.0f32; LANES]);
+        for k in 0..LANES {
+            let pos = clamp_unit(x[k]) * STEPS as f32;
+            // The step below `pos`: `pos − ½` rounded to a whole number by adding `ROUNDER`, read
+            // from the low bits (an exact whole `pos` may land on the step below, at its end).
+            let i = (((pos - 0.5 + ROUNDER).to_bits() & 0x1fff) as i32).min(STEPS as i32 - 1);
+            (at[k], t[k]) = (i, pos - i as f32);
+        }
+        for k in 0..LANES {
+            let [a, rise] = self.steps[at[k] as usize % STEPS];
+            x[k] = a + rise * t[k];
+        }
+    }
+
+    /// [`LaneTable::read`] on three lanes.
+    #[inline(always)]
+    pub(crate) fn read3(&self, r: &mut Lane, g: &mut Lane, b: &mut Lane) {
+        self.read(r);
+        self.read(g);
+        self.read(b);
+    }
+}
+
+/// 1.5 · 2²³: a value within ±2²² added to it is rounded to a whole number (to even on a tie), the
+/// sum's low bits holding that number.
+const ROUNDER: f32 = 12_582_912.0;
+
+/// The shared linear-light tables ([`fx::linear_light`]) as [`LaneTable`]s: the same samples,
+/// read by lanes.
+pub(crate) struct LaneLinear {
+    pub(crate) decode: LaneTable,
+    pub(crate) encode: LaneTable,
+}
+
+/// [`LaneLinear`], built once.
+pub(crate) fn lane_linear() -> &'static LaneLinear {
+    static LINEAR: OnceLock<LaneLinear> = OnceLock::new();
+    LINEAR.get_or_init(|| {
+        let lin = fx::linear_light();
+        LaneLinear { decode: LaneTable::new(|v| lin.to_linear(v)), encode: LaneTable::new(|v| lin.to_srgb(v)) }
+    })
+}
+
+/// The Taylor series of `2^f` about 0: `(ln 2)^n / n!` for `n` from 1 to 5.
+const EXP2_TAYLOR: [f32; 5] = {
+    const L: f32 = std::f32::consts::LN_2;
+    [L, L * L / 2.0, L * L * L / 6.0, L * L * L * L / 24.0, L * L * L * L * L / 120.0]
+};
+
+/// `e^x` on every value of `x`, for `x` in about −80..80: `2^i · 2^f` with `i` the nearest whole
+/// number to `x · log₂ e` and `2^f` (`|f| ≤ ½`) by its Taylor series to the fifth power (relative
+/// error under 3·10⁻⁶).
+#[inline(always)]
+fn exp_lanes(x: &mut Lane) {
+    for v in x.iter_mut() {
+        let y = (*v * std::f32::consts::LOG2_E).clamp(-120.0, 120.0);
+        let i = (y + 128.5) as i32 - 128;
+        let f = y - i as f32;
+        let [k1, k2, k3, k4, k5] = EXP2_TAYLOR;
+        let p = 1.0 + f * (k1 + f * (k2 + f * (k3 + f * (k4 + f * k5))));
+        *v = p * f32::from_bits(((i + 127) as u32) << 23);
+    }
+}
+
+/// Positive Vibrance at one amount for a pass over every pixel: [`vibrance_lin`]'s maths on lanes,
+/// with what does not change from pixel to pixel made once (the skin hues' amount, its `powf`),
+/// the `t^p (1 − t)^q` term read from a table, `exp` by [`exp_lanes`] and the skin weight from the
+/// channels' order instead of the hue in degrees. Within a few hundredths of a level of
+/// [`vibrance_lin`].
+pub(crate) struct Vibrance {
+    /// The amount, in 0..1.
+    v: f32,
+    /// The amount on skin hues, `0.64 v^1.6`.
+    skin: f32,
+    /// `t^p (1 − t)^q` over the HSV saturation `t`.
+    shape: &'static LaneTable,
+    /// The linear-light tables, for the passes that convert.
+    pub(crate) lin: &'static LaneLinear,
+}
+
+impl Vibrance {
+    /// Vibrance by `v`, none unless `v` is above 0 (above 1 brought to 1).
+    pub(crate) fn new(v: f32) -> Option<Vibrance> {
+        if v.is_nan() || v <= 0.0 {
+            return None;
+        }
+        static SHAPE: OnceLock<LaneTable> = OnceLock::new();
+        let [_, _, p, q, ..] = VIBRANCE_BOOST;
+        let shape = SHAPE.get_or_init(|| LaneTable::new(|t| t.powf(p) * (1.0 - t).powf(q)));
+        let v = v.min(1.0);
+        Some(Vibrance { v, skin: 0.64 * v.powf(1.6), shape, lin: lane_linear() })
+    }
+
+    /// Lanes of linear-light pixels (each channel in 0..1, as the decoding table gives them) with
+    /// Vibrance.
+    #[inline(always)]
+    pub(crate) fn lanes(&self, r: &mut Lane, g: &mut Lane, b: &mut Lane) {
+        let [c0, c1, _, _, r0, ra, rt] = VIBRANCE_BOOST;
+        let (mut t, mut a, mut e) = ([0.0f32; LANES], [0.0f32; LANES], [0.0f32; LANES]);
+        for k in 0..LANES {
+            let (cr, cg, cb) = (r[k], g[k], b[k]);
+            let mx = fmax(fmax(cr, cg), cb);
+            let d = mx - fmin(fmin(cr, cg), cb);
+            t[k] = if mx > 0.0 { d / mx } else { 0.0 };
+            // The skin weight (`vibrance_skin` of the HSV hue): only where red is the largest
+            // channel does the hue lie within 0–60° (green over blue, `x` its sixth of the circle)
+            // or 300–360°.
+            let x = if d > 1e-9 { (cg - cb) / d } else { 0.0 };
+            let w = if x >= 0.0 { clamp_unit(3.0 - 4.0 * x) } else { fmax(1.0 + x, 0.0) };
+            a[k] = self.v + (self.skin - self.v) * if mx == cr { w } else { 0.0 };
+            e[k] = (r0 + ra * a[k] + rt * (1.0 - t[k])) * (1.0 - mx);
+        }
+        exp_lanes(&mut e);
+        let mut shape = t;
+        self.shape.read(&mut shape);
+        for k in 0..LANES {
+            let (cr, cg, cb) = (r[k], g[k], b[k]);
+            let mx = fmax(fmax(cr, cg), cb);
+            let mn = fmin(fmin(cr, cg), cb);
+            let d = mx - mn;
+            let (t, a) = (t[k], a[k]);
+            let boost = (c0 * a + c1 * a * a) * shape[k] * e[k];
+            let t2 = fmin(t * (1.0 + boost), 1.0);
+            let v2 = mx + self.v / 4.0 * (t * (1.0 - t) * (2.0 - t + t * t) * mx * (1.0 - mx));
+            let m2 = v2 * (1.0 - t2);
+            // A grey (or black) pixel stays as it is.
+            let (m2, k2, mn) = if d > 1e-9 { (m2, (v2 - m2) / d, mn) } else { (0.0, 1.0, 0.0) };
+            (r[k], g[k], b[k]) = (clamp_unit(m2 + (cr - mn) * k2), clamp_unit(m2 + (cg - mn) * k2), clamp_unit(m2 + (cb - mn) * k2));
+        }
+    }
+}
+
+/// `v` brought into 0..1, `NaN` as 0 (as [`unit`], in two comparisons the compiler keeps
+/// branch-free).
+#[inline(always)]
+fn clamp_unit(v: f32) -> f32 {
+    let v = if v > 0.0 { v } else { 0.0 };
+    if v < 1.0 { v } else { 1.0 }
+}
+
+/// The larger of `a` and `b` (`b` when either is `NaN`: one comparison).
+#[inline(always)]
+fn fmax(a: f32, b: f32) -> f32 {
+    if a > b { a } else { b }
+}
+
+/// The smaller of `a` and `b` (`b` when either is `NaN`: one comparison).
+#[inline(always)]
+fn fmin(a: f32, b: f32) -> f32 {
+    if a < b { a } else { b }
+}
+
 /// How much positive Vibrance treats a hue (degrees) as skin: 1 on 0–30°, fading to 0 by 45° and
 /// in again from 300°.
 fn vibrance_skin(h: f32) -> f32 {
@@ -508,16 +733,57 @@ fn hsv_hue(c: [f32; 3], mx: f32, mn: f32) -> f32 {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
+    /// Every 8-bit grey, then a seeded million RGB inputs anywhere in 0..1 (between levels too, as
+    /// a fused pass may hand them over).
+    fn inputs() -> impl Iterator<Item = [f32; 3]> {
+        let greys = (0..=255u8).map(|v| [f32::from(v) / 255.0; 3]);
+        let mut state = 0x5eed_0038_u64;
+        let mut next = move || {
+            // SplitMix64.
+            state = state.wrapping_add(0x9e37_79b9_7f4a_7c15);
+            let mut z = state;
+            z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+            z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+            ((z ^ (z >> 31)) >> 40) as f32 / (1u64 << 24) as f32
+        };
+        greys.chain((0..1_000_000).map(move |_| [next(), next(), next()]))
+    }
+
+    /// `pass` gives every input within one level (of 255) of `exact`.
+    pub(crate) fn assert_within_a_level(name: &str, pass: &dyn Pass, exact: impl Fn([f32; 3]) -> [f32; 3]) {
+        let input: Vec<[f32; 3]> = inputs().collect();
+        let mut pixels = input.clone();
+        let width = pixels.len() as u32;
+        pass.run(&mut Band { pixels: &mut pixels, width, rows: 1, x0: 0, y0: 0, before: None });
+        let mut worst = (0.0f32, [0.0f32; 3]);
+        for (p, fast) in input.iter().zip(&pixels) {
+            let e = exact(*p);
+            let d = (0..3).map(|c| (fast[c] - e[c]).abs()).fold(0.0, f32::max) * 255.0;
+            if d > worst.0 {
+                worst = (d, *p);
+            }
+        }
+        assert!(worst.0 <= 1.0, "{name}: {:.3} levels from the exact function at {:?}", worst.0, worst.1);
+    }
+
+    /// The sRGB curves exactly, a value brought into 0..1 before encoding.
+    pub(crate) fn exact_encode(v: f32) -> f32 {
+        fx::to_srgb(unit(v))
+    }
+
     #[test]
-    fn the_linear_tables_are_within_a_hundredth_of_a_level_of_the_curve() {
-        let lin = linear();
-        let worst = (0..=100_000).map(|i| i as f32 / 100_000.0).fold(0.0f32, |w, v| {
-            let d = (lin.decode.at(v) - fx::to_linear(v)).abs().max((lin.encode.at(v) - fx::to_srgb(v)).abs());
-            w.max(d)
+    fn warmify_and_saturation_are_within_a_level_of_their_exact_maths() {
+        let m = photo_filter_matrix(WARMING.map(|v| f32::from(v) / 255.0), WARMING_DENSITY, true);
+        assert_within_a_level("warmify()", &warmify_pass(), |p| {
+            let input = unit3(p);
+            set_luma(mat3_mul(&m, input.map(fx::to_linear)).map(exact_encode), fx::luma(input))
         });
-        assert!(worst * 255.0 < 0.01, "{} of a level", worst * 255.0);
+        for a in [0.16, 0.5, 1.0] {
+            let pass = saturation_pass(a).expect("a pass above 0");
+            assert_within_a_level(&format!("saturation({a})"), &pass, |p| vibrance_lin(unit3(p).map(fx::to_linear), a).map(exact_encode));
+        }
     }
 }
