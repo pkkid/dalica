@@ -31,6 +31,10 @@
 //! it was not selected and opens the face menu (`crate::panels::faces::menu`) for the person's
 //! faces on the photos selected, and a drag carries those faces (onto a person in the tree:
 //! `crate::drag::start_faces`). [`apply`] runs what the tiles asked for.
+//!
+//! **Suggestions** (`organizing.md` §6.3): in a person's section, a photo holding a face suggested
+//! for them (or listed by Find More) shows that face with "Name?" and ✓ / × instead
+//! ([`super::suggestions::cell`]); [`apply`] runs what its marks asked for.
 
 use std::collections::{HashMap, HashSet};
 
@@ -426,6 +430,14 @@ pub fn show(ui: &mut Ui, f: &Frame<'_>, cells: &mut Cells, thumbs: &mut Thumbnai
     };
     let primary = is_primary(c.section, selection);
     let selected = cells.selected.contains(&selection.ids, id) && primary;
+    // A face suggested for the person of the section: the face, "Name?" and ✓ / × (`suggestions`).
+    if let Some(person) = c.section.person()
+        && let Some(s) = super::suggestions::cell(ui, f, c, &person, (selected, selection.anchor == Some(id) && primary), alpha)
+    {
+        cells.faces.commands.extend(s.commands);
+        cells.shown.push(s.shown);
+        return s.out;
+    }
     // A person's section zoomed to their faces: the face tile in the photo's place.
     if let Some(person) = c.section.person().filter(|p| f.state.people.zoom_to_faces.contains(p))
         && let Some(face) = face_on(f.session.library(), id, &person)

@@ -36,7 +36,7 @@ pub struct PersonRow {
     pub count: usize,
     /// Their thumbnail face (Set as Person Thumbnail's, else their first).
     pub face: Option<FaceRef>,
-    /// Suggestions waiting for them (the "?" badge); 0 until suggestions are made.
+    /// Suggestions waiting for them (the "?" badge; [`PeopleGroup::set_pending`]).
     pub pending: usize,
 }
 
@@ -69,6 +69,13 @@ impl PeopleGroup {
             })
             .collect();
         PeopleGroup { collapsed, unnamed, rows, people }
+    }
+
+    /// Lights each person's "?" badge from `pending`, the suggestions waiting per person.
+    pub fn set_pending(&mut self, pending: &std::collections::BTreeMap<PersonId, usize>) {
+        for row in &mut self.rows {
+            row.pending = pending.get(&row.id).copied().unwrap_or(0);
+        }
     }
 
     /// Whether the group shows at all: the library has people or unnamed faces.

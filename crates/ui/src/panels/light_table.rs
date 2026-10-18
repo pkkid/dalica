@@ -135,6 +135,8 @@ struct ModelKey {
     duplicates: Option<u64>,
     /// The order of the person sections (the view options' Sort People by …).
     people: state::PeopleSort,
+    /// The suggestions the person sections show (`suggestions`).
+    suggested: suggestions::SectionsKey,
 }
 
 /// Find Duplicates' groups as the light table shows them: the search generation they answer, the
@@ -166,10 +168,11 @@ impl Sections {
     /// [`Sections::refresh`], with Find Duplicates' groups as the first section while they are
     /// shown (rebuilt when their generation changes).
     pub fn refresh_with(&mut self, library: &Library, roots: &[PathBuf], options: &TreeOptions, duplicates: Option<Duplicates<'_>>) -> bool {
-        self.refresh_people(library, roots, options, duplicates, state::PeopleSort::default())
+        self.refresh_people(library, roots, options, duplicates, state::PeopleSort::default(), suggestions::ForSections::default())
     }
 
-    /// [`Sections::refresh_with`], the person sections in `people`'s order.
+    /// [`Sections::refresh_with`], the person sections in `people`'s order with the suggestions
+    /// `suggested` gives them.
     pub fn refresh_people(
         &mut self,
         library: &Library,
@@ -177,15 +180,22 @@ impl Sections {
         options: &TreeOptions,
         duplicates: Option<Duplicates<'_>>,
         people: state::PeopleSort,
+        suggested: suggestions::ForSections<'_>,
     ) -> bool {
         let generation = duplicates.map(|d| d.generation);
+        let sk = suggested.key();
         let fresh = self.key.as_ref().is_some_and(|k| {
-            k.revision == library.revision() && k.roots == roots && k.options == *options && k.duplicates == generation && k.people == people
+            k.revision == library.revision()
+                && k.roots == roots
+                && k.options == *options
+                && k.duplicates == generation
+                && k.people == people
+                && k.suggested == sk
         });
         if fresh {
             return false;
         }
-        self.list = build(library, roots, options, people);
+        self.list = build(library, roots, options, people, suggested);
         if let Some(d) = duplicates {
             let ids: Vec<PhotoId> = d.groups.iter().flatten().copied().collect();
             let shown = section_photos(
@@ -203,7 +213,14 @@ impl Sections {
         }
         self.index = self.list.iter().enumerate().map(|(i, s)| (s.id, i)).collect();
         self.generation = self.generation.wrapping_add(1);
-        self.key = Some(ModelKey { revision: library.revision(), roots: roots.to_vec(), options: options.clone(), duplicates: generation, people });
+        self.key = Some(ModelKey {
+            revision: library.revision(),
+            roots: roots.to_vec(),
+            options: options.clone(),
+            duplicates: generation,
+            people,
+            suggested: sk,
+        });
         true
     }
 
@@ -294,7 +311,13 @@ fn is_small(p: &Photo, threshold: u32) -> bool {
     p.width > 0 && p.height > 0 && p.width < threshold && p.height < threshold
 }
 
-fn build(library: &Library, roots: &[PathBuf], options: &TreeOptions, people: state::PeopleSort) -> Vec<Section> {
+fn build(
+    library: &Library,
+    roots: &[PathBuf],
+    options: &TreeOptions,
+    people: state::PeopleSort,
+    suggested: suggestions::ForSections<'_>,
+) -> Vec<Section> {
     let tree = Tree::build(library, roots, options);
     let albums = AlbumTree::build(library, options);
     let mut out = Vec::with_capacity(albums.sections.len() + tree.sections.len());
@@ -315,16 +338,12 @@ fn build(library: &Library, roots: &[PathBuf], options: &TreeOptions, people: st
             photos,
         });
     }
-    // The People group's sections next, each person's photos by date.
+    // The People group's sections next, each person's photos by date, after their suggestions.
     for (key, name, photos) in super::folders::people::sections(library, options, people) {
         let date = photos.iter().filter_map(|id| library.photo(*id).and_then(|p| library.sort_date(p))).max();
-        out.push(Section {
-            id: state::Section::Album(state::AlbumSection::Person(key)),
-            folder: None,
-            title: name,
-            subtitle: subtitle(date.map(|d| d.date()), photos.len()),
-            photos,
-        });
+        let subtitle = subtitle(date.map(|d| d.date()), photos.len());
+        let photos = suggested.photos(library, options, key, photos);
+        out.push(Section { id: state::Section::Album(state::AlbumSection::Person(key)), folder: None, title: name, subtitle, photos });
     }
     let mut by_folder: HashMap<FolderId, Vec<&Photo>> = HashMap::new();
     for p in library.photos() {
@@ -542,6 +561,7 @@ pub fn refresh(p: &mut Panels, app: &mut App) {
     if let Some(ctx) = p.ctx.clone() {
         crate::commands::search::sync(app, &ctx);
     }
+    let suggested = crate::commands::suggestions::current(app);
     if let Some(session) = app.session() {
         let search = session.search_state();
         let duplicates = search.result.as_ref().filter(|_| search.mode == Some(dalica_engine::search::SearchMode::Duplicates)).map(|r| Duplicates {
@@ -549,7 +569,8 @@ pub fn refresh(p: &mut Panels, app: &mut App) {
             groups: &r.groups,
             files: r.count(),
         });
-        p.sections.refresh_people(session.library(), session.roots(), &tree_options(app), duplicates, app.state().people.sort);
+        let suggested = suggestions::ForSections { snapshot: Some(&suggested), only: &app.state().people.only_suggestions };
+        p.sections.refresh_people(session.library(), session.roots(), &tree_options(app), duplicates, app.state().people.sort, suggested);
     }
 }
 
@@ -793,7 +814,10 @@ mod tests {
         let mut app = App::new(Some(s));
         let shown = |app: &App| {
             let s = app.session().unwrap();
-            build(s.library(), s.roots(), &tree_options(app), state::PeopleSort::Name).iter().map(|x| x.photos.len()).sum::<usize>()
+            build(s.library(), s.roots(), &tree_options(app), state::PeopleSort::Name, suggestions::ForSections::default())
+                .iter()
+                .map(|x| x.photos.len())
+                .sum::<usize>()
         };
         assert_eq!(shown(&app), 2);
         app.run("options.set", &serde_json::json!({ "values": { "fileTypes.smallPictureThreshold": 1024 } })).unwrap();

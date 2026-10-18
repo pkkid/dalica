@@ -34,9 +34,12 @@ serde_json.workspace = true
 [dev-dependencies]
 # A metadata read held in flight (`metadata_cache::planted`, `tests/properties_pane.rs`).
 dalica-engine = { workspace = true, features = ["faults"] }
+# Synthetic face embeddings planted in the recogniser's cache (`tests/suggestions_ui.rs`).
+dalica-faces.workspace = true
 dalica-meta.workspace = true
 dalica-scan.workspace = true
 dalica-scenes.workspace = true
+dalica-store.workspace = true
 tempfile.workspace = true
 
 [[test]]

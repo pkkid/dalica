@@ -11,6 +11,8 @@
 //!   offered as it is typed (`field:faces.name/<n>/option/<k>`): Enter names the whole group
 //!   (`faces.nameGroup`). With Show Ignored Faces the ignored faces follow in a card of their own
 //!   (`group:ignored`), dimmed, with no name field.
+//! - **Suggestions** ([`suggestions`]): a face with a suggested name shows "Name?" under it with
+//!   ✓ (`face:<PhotoId>.<n>/confirm`) and × (`/reject`); its card's rows grow to hold them.
 //! - **Selecting**: a click selects a face, Ctrl-click adds or takes it away, Shift-click selects
 //!   the faces from the selection's anchor (its first face, outlined white) in the grid's order; a
 //!   rubber band from the empty space (`lightTable`) selects the faces it touches, across groups
@@ -99,6 +101,8 @@ pub struct Card {
     pub faces: Vec<FaceRef>,
     pub total: usize,
     pub cols: usize,
+    /// Its tiles have a "Name?" row and ✓ / × (one of its faces has a suggestion, [`suggestions`]).
+    pub marked: bool,
 }
 
 impl Card {
@@ -112,7 +116,7 @@ impl Card {
 
     /// The rect of its `i`-th face tile (content coordinates).
     pub fn tile(&self, i: usize) -> Rect {
-        let size = face_tile_size(FACE_SIDE, false, false);
+        let size = face_tile_size(FACE_SIDE, self.marked, self.marked);
         let cols = self.cols.max(1);
         let (row, col) = (i / cols, i % cols);
         let min = self.rect.min + vec2(CARD_PAD + col as f32 * size.x, CARD_PAD + CARD_TOP_H + row as f32 * size.y);
@@ -138,13 +142,20 @@ pub fn count_text(shown: usize, total: usize) -> String {
 /// The cards of `grid` laid out in `width` points: each group's (its first row only unless
 /// `expanded`), then the ignored faces' on a row of its own; and the content's height.
 pub fn layout(grid: &Grid, expanded: bool, width: f32, field_h: f32) -> (Vec<Card>, f32) {
-    let tile = face_tile_size(FACE_SIDE, false, false);
+    layout_marked(grid, expanded, width, field_h, &|_| false)
+}
+
+/// [`layout`], the cards holding a face `marked` says has a suggestion given room for its "Name?"
+/// row and ✓ / ×.
+pub fn layout_marked(grid: &Grid, expanded: bool, width: f32, field_h: f32, marked: &dyn Fn(FaceRef) -> bool) -> (Vec<Card>, f32) {
     let width = if width.is_finite() { width.max(1.0) } else { 1.0 };
     let mut cards = Vec::with_capacity(grid.groups.len() + 1);
     let (mut x, mut y, mut row_h) = (0.0f32, 0.0f32, 0.0f32);
     let mut place = |kind: CardKind, faces: Vec<FaceRef>, total: usize, max_cols: usize, field: bool, new_row: bool| {
         let cols = faces.len().clamp(1, max_cols);
         let rows = faces.len().div_ceil(cols).max(1);
+        let is_marked = faces.iter().any(|f| marked(*f));
+        let tile = face_tile_size(FACE_SIDE, is_marked, is_marked);
         let inner_w = (cols as f32 * tile.x).max(CARD_MIN_INNER);
         let field_h = if field { FIELD_GAP + field_h } else { 0.0 };
         let size = vec2(inner_w + 2.0 * CARD_PAD, CARD_PAD + CARD_TOP_H + rows as f32 * tile.y + field_h + CARD_PAD);
@@ -153,7 +164,7 @@ pub fn layout(grid: &Grid, expanded: bool, width: f32, field_h: f32) -> (Vec<Car
             y += row_h + CARD_GAP;
             row_h = 0.0;
         }
-        cards.push(Card { kind, rect: Rect::from_min_size(pos2(x, y), size), faces, total, cols });
+        cards.push(Card { kind, rect: Rect::from_min_size(pos2(x, y), size), faces, total, cols, marked: is_marked });
         x += size.x + CARD_GAP;
         row_h = row_h.max(size.y);
     };
@@ -203,10 +214,10 @@ fn current_with_key(app: &mut App, ctx: &Context) -> (Arc<Grid>, Option<Key>) {
 }
 
 /// The cards laid out, the content's height and the faces shown in the grid's order, kept while
-/// the grid, Expand Groups and the width are as they were.
+/// the grid, Expand Groups, the width and the suggestions are as they were.
 #[derive(Clone, Default)]
 struct Laid {
-    key: Option<(Key, bool, u32)>,
+    key: Option<(Key, bool, u32, u64)>,
     cards: Arc<Vec<Card>>,
     height: f32,
     order: Arc<Vec<FaceRef>>,
@@ -214,11 +225,12 @@ struct Laid {
 
 fn laid_out(ctx: &Context, key: Option<Key>, grid: &Grid, expanded: bool, width: f32, field_h: f32) -> Laid {
     let id = Id::new("faces.layout");
-    let key = key.map(|k| (k, expanded, width.to_bits()));
+    let snapshot = crate::commands::suggestions::latest();
+    let key = key.map(|k| (k, expanded, width.to_bits(), snapshot.generation));
     if let Some(l) = ctx.data(|d| d.get_temp::<Laid>(id)).filter(|l| key.is_some() && l.key == key) {
         return l;
     }
-    let (cards, height) = layout(grid, expanded, width, field_h);
+    let (cards, height) = layout_marked(grid, expanded, width, field_h, &|f| snapshot.suggested(f).is_some());
     let order = cards.iter().flat_map(|c| c.faces.iter().copied()).collect();
     let laid = Laid { key, cards: Arc::new(cards), height, order: Arc::new(order) };
     ctx.data_mut(|d| d.insert_temp(id, laid.clone()));
@@ -274,6 +286,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     }
 
     let (grid, key) = current_with_key(app, &ctx);
+    crate::commands::suggestions::current(app);
     pictures::begin(app, &ctx);
     let body = Rect::from_min_max(pos2(area.min.x, header.max.y), area.max);
     let mut col = ui.new_child(UiBuilder::new().max_rect(body.shrink2(vec2(MARGIN, 0.0))).layout(Layout::top_down(Align::Min)));
@@ -282,7 +295,6 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     } else {
         grid_body(app, &mut col, &t, (&grid, key), &mut asks);
     }
-    suggestions::show(app, &mut col);
     pictures::finish(app, &ctx);
     finish(app, asks);
     paint_drag(app, &ctx);
@@ -333,10 +345,12 @@ fn grid_body(app: &mut App, ui: &mut Ui, t: &Tokens, (grid, key): (&Grid, Option
                     }
                     let id = face.to_string();
                     let picture = picture_of(app, &ctx, *face, side_px);
+                    let name = suggestions::name(app, *face);
                     let tile = FaceTile {
                         side: FACE_SIDE,
                         picture,
-                        label: FaceLabel::None,
+                        label: name.as_deref().map_or(FaceLabel::None, FaceLabel::Suggested),
+                        marks: name.is_some(),
                         selected: selected.contains(face),
                         focused: anchor == Some(*face),
                         dragged: dragged.contains(face),
@@ -352,6 +366,9 @@ fn grid_body(app: &mut App, ui: &mut Ui, t: &Tokens, (grid, key): (&Grid, Option
                         continue;
                     };
                     tile_input(ui, &out.response, *face, &unnamed.selection, order, asks);
+                    if let Some(ask) = suggestions::act(*face, out.confirm, out.reject) {
+                        asks.command = Some(ask);
+                    }
                 }
                 if let CardKind::Group(n) = card.kind {
                     let field = card.field(t).translate(origin);

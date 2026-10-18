@@ -89,6 +89,7 @@ mod stand_in;
 mod status_line;
 mod status_tags;
 mod straighten_tool;
+mod suggestions_ui;
 mod tags_pane;
 mod titlebar_drag;
 mod toolbar;

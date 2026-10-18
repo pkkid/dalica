@@ -52,9 +52,10 @@
 //! Collage is made), | **Zoom to Faces** (`/zoomToFaces`, `people.zoomToFaces`: active while the
 //! cells show the person's faces; then its tooltip is Show Whole Photos), | **Set as Person
 //! Thumbnail** (`/thumbnail`, `people.thumbnail` with the person's face on the focused photo
-//! selected in the section; disabled until one is). There is no description row; a right-click
-//! selects the section and opens the person menu (Rename…, Merge Into ▸, Delete Person,
-//! `crate::commands::people::show_menu`).
+//! selected in the section; disabled until one is). There is no description row: in its place,
+//! while suggestions wait for the person, the suggestion strip (`super::suggestions`); a
+//! right-click selects the section and opens the person menu (Rename…, Merge Into ▸, Delete
+//! Person, `crate::commands::people::show_menu`).
 //!
 //! **Buttons** are live only when their command is registered (a UI command or one the session
 //! has) and its `enabled` accepts the parameters a click passes; Select Starred also needs a starred
@@ -776,6 +777,15 @@ pub fn show(ui: &mut Ui, f: &Frame<'_>, headers: &mut Headers, section: &Section
             out.commands.push((b.command().to_string(), p));
         }
         track(&resp, &mut out, enabled.is_ok());
+    }
+
+    // A person's suggestion strip, in the row a description takes (`super::suggestions`).
+    if let Some(p) = person.as_ref().filter(|p| super::suggestions::shows_strip(f, p)) {
+        let top = rect.min.y + super::suggestions::TOP;
+        let row = Rect::from_min_max(pos2(rect.min.x + PADDING, top), pos2(rect.max.x - PADDING, top + t.metrics.button_h));
+        if takes_input(row) {
+            out.commands.extend(super::suggestions::show(ui, f, section.id, p, row));
+        }
     }
 
     // The description line, or its inline editor; the automatic albums have none.
