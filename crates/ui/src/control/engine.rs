@@ -249,11 +249,16 @@ fn newest_job(host: &dyn Host) -> JobId {
 /// Runs the command, then lets one frame run so widgets show its effect (and the session has
 /// registered the jobs it started). A command that started a job then waits for it (§5.3). Its
 /// reply goes through `policy` (§6.4): without `--automation-allow-people` people's names and face
-/// rectangles are withheld.
+/// rectangles are withheld, and a person's export folder is suggested without their name
+/// (`control/people.rs`).
 fn run_command(host: &mut dyn Host, policy: &Policy, id: &str, params: &Value, wait: Wait) -> Outcome {
     let before = newest_job(host);
     let scan = SCANS.contains(&id);
-    let result = host.app_mut().run(id, params).map(|value| policy.people_reply(id, value));
+    let result = host
+        .app_mut()
+        .run(id, params)
+        .map(|value| policy.people_reply(id, value))
+        .map(|value| if policy.allow_people() { value } else { super::people::command(id, params, value) });
     Outcome::Play(
         Input::Frames(1),
         Box::new(move |host, _| match result {

@@ -79,7 +79,8 @@ struct T {
 fn setup() -> T {
     let dir = tempfile::tempdir().unwrap();
     let (s, homes, folders) = session(dir.path(), 2);
-    let control = Control::new(Config::default());
+    // The view state round-trips as typed, people's names too: the client has the people permission.
+    let control = Control::new(Config { allow_people: true, ..Config::default() });
     let mut d = new_driver(App::with_picker(Some(s), control.picker()), 1400, 900, 1.0);
     d.settle(FRAMES).unwrap();
     let photos = homes.iter().map(|(p, _)| *p).collect();

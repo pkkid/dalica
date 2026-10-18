@@ -51,6 +51,10 @@
 //!   people's names left out of the match ([`Policy::people_params`]: `"withholdNames": true`), so
 //!   no reply tells a guessed name from an unknown one; nothing is refused, and the filter by
 //!   person id (`people`) still holds: ids are not names.
+//! - **Face points** (`control-protocol.md` §6.4): without `--automation-allow-people` the replies
+//!   that tell where a face is ([`FACE_POINTS`]: `slideshow.list`'s `focus`) give each photo's
+//!   focus as the photo's centre `[0.5, 0.5]` and no face ([`Policy::people_reply`]); the window's
+//!   own show still moves toward the face.
 
 use std::path::{Component, Path, PathBuf, Prefix};
 
@@ -77,6 +81,13 @@ pub const NEVER_AUTOMATED: &[&str] = &["import.removeFromSource"];
 /// `--automation-allow-people` an automation surface passes their replies through
 /// [`Policy::people_reply`]. A command that comes to answer with people data joins this list.
 pub const PEOPLE_REPLIES: &[&str] = &["faces.list", "faces.add", "people.list"];
+
+/// The commands whose replies tell where a face is (`control-protocol.md` §6.4): `slideshow.list`'s
+/// `focus`, the face Pan and Zoom moves each photo toward (`{face, point}`). Without
+/// `--automation-allow-people` an automation surface passes their replies through
+/// [`Policy::people_reply`], which gives every photo's focus as its centre and no face. A command
+/// that comes to answer with a face's place joins this list.
+pub const FACE_POINTS: &[&str] = &["slideshow.list"];
 
 /// The commands that search by text (`faces.md` §7, `control-protocol.md` §6.4): without
 /// `--automation-allow-people` an automation surface runs them with people's names and nicknames
@@ -253,9 +264,13 @@ impl Policy {
     /// The reply of command `id` as this surface may give it (`control-protocol.md` §6.4): face
     /// descriptors (`embedding`, `landmarks`) are always left out; without
     /// `--automation-allow-people` the replies of [`PEOPLE_REPLIES`] have their names and
-    /// nicknames `null` and their face rectangles left out, ids and counts kept. Other replies are
-    /// returned as they are.
+    /// nicknames `null` and their face rectangles left out, ids and counts kept, and the replies of
+    /// [`FACE_POINTS`] give each photo's focus as its centre `[0.5, 0.5]` with no face. Other
+    /// replies are returned as they are.
     pub fn people_reply(&self, id: &str, reply: Value) -> Value {
+        if FACE_POINTS.contains(&id) && !self.allow_people {
+            return centred(reply);
+        }
         if !PEOPLE_REPLIES.contains(&id) {
             return reply;
         }
@@ -416,6 +431,17 @@ pub fn withhold_people(mut reply: Value, names: bool) -> Value {
                 }
             }
             _ => {}
+        }
+    }
+    reply
+}
+
+/// `reply` with every photo's `focus` (`{"<PhotoId>": {face, point}}`) the photo's centre and no
+/// face: `{"<PhotoId>": {point: [0.5, 0.5]}}`.
+fn centred(mut reply: Value) -> Value {
+    if let Some(Value::Object(focus)) = reply.get_mut("focus") {
+        for v in focus.values_mut() {
+            *v = serde_json::json!({ "point": [0.5, 0.5] });
         }
     }
     reply

@@ -32,6 +32,7 @@ use dalica_faces::manifest::{InputSpec, OutputSpec};
 use dalica_faces::synthetic::encode;
 use dalica_fs::Expect;
 use dalica_store::faces_cache::{CachedFace, FacesCache, Model, PhotoStamp, Record};
+use dalica_ui::control::{Config, Connection, Control, Request, serve};
 use dalica_ui::state::{AlbumSection, FaceRef, Pane, PersonKey, Section};
 use dalica_ui::{App, Driver};
 use serde_json::{Value, json};
@@ -296,6 +297,56 @@ fn find_more_the_unnamed_grid_and_the_people_pane_confirm_too() {
     let id = format!("{}/confirm", face(&t, 4).widget());
     click(&mut t, &id);
     assert_eq!(person_of(&t, 4), Some(ana.clone()));
+}
+
+/// A person's selection is their own photos (`organizing.md` §6.3): clicking Ana's row selects her
+/// two confirmed photos, not the three only suggested for her, whose cells still show (the tray's
+/// token counts 2, Export offers the two, Play and her header's ▶ play the two); a click on a
+/// suggested cell still selects it; with Show only suggestions on her row selects none and the
+/// section stays the selection's. Over a control client without the people permission the
+/// suggested tile reads "Person?" (`control-protocol.md` §6.4).
+#[test]
+fn a_persons_row_selects_their_confirmed_photos_only() {
+    let mut t = setup(LARGE.0, LARGE.1);
+    let ana = t.ana.clone();
+    let row = format!("tree:person:{ana}");
+    click(&mut t, &row);
+    let theirs = ids(&t, &[0, 1]);
+    let sel = t.d.state().selection.clone();
+    assert_eq!((sel.ids.clone(), sel.section, sel.whole), (theirs.clone(), Some(section_of(&ana)), true), "her own photos");
+    assert_eq!(section_photos(&t, &ana).len(), 5, "her suggestions stay in the section");
+    assert!(has(&t, &tile(&t, 3, &ana)), "a suggested cell still shows");
+    assert!(widget(&t.d, "tray:token").label.contains("2 photos"), "{}", widget(&t.d, "tray:token").label);
+
+    // Export offers the two.
+    assert_eq!(run(&mut t, "output.export", json!({})), json!({ "dialog": "export" }));
+    assert_eq!(t.d.state().export.as_ref().map(|e| e.ids.clone()), Some(theirs.clone()));
+    click(&mut t, "button:dialog.cancel");
+
+    // Over a control client without the people permission her suggestion reads "Person?".
+    let control = Control::new(Config::default());
+    let widgets = serve(&control, &mut Connection::new(), &mut t.d, &Request::new("ui.widgets", json!({ "filter": "face:" }))).unwrap();
+    let suggested = widgets.as_array().unwrap().iter().find(|w| w["id"] == json!(tile(&t, 3, &ana))).cloned().unwrap();
+    assert_eq!(suggested["label"], json!("Person?"));
+
+    // A click on a suggested cell selects it, as any cell.
+    let cell = tile(&t, 3, &ana);
+    click(&mut t, &cell);
+    assert_eq!(t.d.state().selection.ids, ids(&t, &[3]));
+
+    // Play and her header's ▶ play the two.
+    click(&mut t, &row);
+    assert_eq!(run(&mut t, "view.slideshow", json!({}))["photos"], json!(2));
+    run(&mut t, "slideshow.exit", json!({}));
+    click(&mut t, &row);
+    assert_eq!(run(&mut t, "section.slideshow", json!({ "section": section_of(&ana) }))["photos"], json!(2));
+    run(&mut t, "slideshow.exit", json!({}));
+
+    // Show only suggestions: her row selects none, in her section.
+    click(&mut t, &format!("section:person:{ana}/onlySuggestions"));
+    click(&mut t, &row);
+    let sel = t.d.state().selection.clone();
+    assert_eq!((sel.ids.len(), sel.section), (0, Some(section_of(&ana))));
 }
 
 /// Waits until every face drawn has its picture.

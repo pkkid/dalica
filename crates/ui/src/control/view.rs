@@ -6,7 +6,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::host::Input;
-use super::{Call, Code, Error, Outcome, object};
+use super::{Call, Code, Error, Outcome, object, people};
 use crate::state::{LIGHT_TABLE_MIN, MAX_IDS, SCROLL_OFFSET_MAX, Section, THUMB_MAX, THUMB_MIN, TREE_MIN, UiState};
 
 /// The regions of `ui-layout.md` §2 that `ui.inspect` → `regions` and `ui.widgets {region}` name.
@@ -83,10 +83,20 @@ fn state_json(call: &Call<'_>) -> Result<Value, Error> {
     serde_json::to_value(call.host.app().state()).map_err(|e| Error::new(Code::Internal, format!("the view state does not serialise: {e}")))
 }
 
+/// The view state as this client may see it: without the people permission the names typed are
+/// withheld (§6.4, [`people::state`]).
+fn state_reply(call: &Call<'_>) -> Result<Value, Error> {
+    let mut v = state_json(call)?;
+    if people::withheld(call.control.config()) {
+        people::state(&mut v);
+    }
+    Ok(v)
+}
+
 /// `ui.state`: the view state (§6.5).
 pub(super) fn state(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Error> {
     let _: NoParams = call.params(params)?;
-    Ok(Outcome::Reply(Ok(state_json(call)?)))
+    Ok(Outcome::Reply(Ok(state_reply(call)?)))
 }
 
 /// `ui.set`: any subset of the view state; every field is checked before any changes.
@@ -192,7 +202,7 @@ pub(super) fn set(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Error>
     // The transient status message is not part of the protocol's state: keep it.
     new.status = call.host.app().state().status.clone();
     *call.host.app_mut().state_mut() = new;
-    let reply = state_json(call)?;
+    let reply = state_reply(call)?;
     Ok(Outcome::play_then_reply(Input::Frames(1), reply))
 }
 
@@ -217,12 +227,15 @@ fn hovered_and_focused(call: &Call<'_>, widgets: &[WidgetInfo]) -> (Option<Strin
 /// `ui.inspect {resetPerf?}`: the view state plus the window, hover and focus, the scroll offsets,
 /// the open popup, dialog and tooltip, running animations, jobs, the stubbed file picker, notices,
 /// the regions' rects and the perf counters (§6.6). `resetPerf` clears the maxima after this
-/// report.
+/// report. Without the people permission people's names are withheld (§6.4, [`people`]).
 pub(super) fn inspect(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Error> {
     let p: Inspect = call.params(params)?;
-    let mut v = state_json(call)?;
-    let widgets = registry::widgets(call.host.ctx());
+    let withheld = people::withheld(call.control.config());
+    let mut v = state_reply(call)?;
+    let mut widgets = registry::widgets(call.host.ctx());
+    let changed = if withheld { people::widgets(call.host.app(), &mut widgets) } else { Default::default() };
     let (hovered, focused) = hovered_and_focused(call, &widgets);
+    let under = hovered.clone();
     let notices: Vec<String> = call.host.app().session().map(|s| [s.notices(), s.scan_warnings()].concat()).unwrap_or_default();
     let extra = json!({
         "window": call.host.window(),
@@ -243,6 +256,9 @@ pub(super) fn inspect(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Er
     });
     if let (Some(obj), Value::Object(extra)) = (v.as_object_mut(), extra) {
         obj.extend(extra);
+    }
+    if withheld {
+        people::inspect(call.host.app(), &mut v, under.as_deref(), &changed);
     }
     // Where the views are scrolled to, beside `scroll` (the view state's anchor) (§6.6).
     let views = Value::Object(scroll_views(call));
@@ -326,12 +342,16 @@ fn checkable(role: Role) -> bool {
     matches!(role, Role::Toggle | Role::Thumbnail | Role::TreeRow | Role::MenuItem)
 }
 
-/// `ui.widgets {filter?, region?}`: the widgets of the last frame, in paint order (§6.7). `region`
+/// `ui.widgets {filter?, region?}`: the widgets of the last frame, in paint order (§6.7), people's
+/// names withheld without the people permission ([`people::widgets`]). `region`
 /// keeps the widgets whose centre is inside that region's rect (the region's own `region:<name>`
 /// entry included, the other regions' left out); a region not shown has none.
 pub(super) fn widgets(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Error> {
     let p: Widgets = call.params(params)?;
-    let all = registry::widgets(call.host.ctx());
+    let mut all = registry::widgets(call.host.ctx());
+    if people::withheld(call.control.config()) {
+        people::widgets(call.host.app(), &mut all);
+    }
     let within = match &p.region {
         None => None,
         Some(name) if REGIONS.contains(&name.as_str()) => {

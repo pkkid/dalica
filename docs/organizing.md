@@ -387,6 +387,14 @@ Manager.
 - Suggestions: a strip "Suggestions:" with [Confirm All], [Confirm], [Reject], [Find More], toggle
   "Show only suggestions", hint "Click ✓ to confirm a match or × to reject it."; each suggested face
   has ✓ and × buttons.
+- **A person's selection is their own photos** (M13.49). The section shows the photos only
+  suggested for them first, but selecting the section as a unit (a click on their row or header,
+  `select.section`) selects the photos holding a confirmed face of theirs, in the section's order:
+  the suggested cells stay in the section, unselected, and a click on one still selects it as any
+  cell. So the tray's token, Play and Export from that selection take in their confirmed photos
+  only; with Show only suggestions on the row selects none (the section stays the selection's).
+  The header's ▶ and Folder ▸ View Slideshow on a person's section play their confirmed photos, as
+  `slideshow.list {section}` gives them.
 - Wrong face: select it → Delete / **Remove from Person** (back to Unnamed). Context menu on a face:
   Move to New Person…, Move to Person ▸, Remove from Person, Set as Person Thumbnail. Context menu on
   a person: Rename… (Name and Nickname; a name another person has asks to merge the two instead),

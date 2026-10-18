@@ -522,12 +522,14 @@ fn selected_album(state: &crate::state::UiState) -> Option<AlbumSection> {
 /// light table to scroll to it. The panels' sections are this frame's, so nothing is rebuilt for it.
 fn select_section(p: &mut Panels, app: &mut App, section: Section) {
     match p.sections.get(section) {
-        Some(s) => {
+        Some(s) if app.session().is_some() => {
             let scope = Scope { section, folder: s.folder, photos: &s.photos, cols: 1 };
-            selection::commit(app.state_mut(), selection::whole(&scope));
+            let Some(library) = app.session().map(dalica_engine::Session::library) else { return };
+            let sel = selection::whole(&scope, library);
+            selection::commit(app.state_mut(), sel);
             app.state_mut().status.clear();
         }
-        None => {
+        _ => {
             if app.run("select.section", &json!({ "section": section })).is_err() {
                 return;
             }

@@ -275,7 +275,7 @@ fn select_starred(app: &mut App, params: &Value) -> Result<Value, CmdError> {
 
 fn select_section(app: &mut App, params: &Value) -> Result<Value, CmdError> {
     let p: OfSection = parse(params)?;
-    in_section(app, Some(p.section), |_, scope, _| Ok(selection::whole(scope)))
+    in_section(app, Some(p.section), |_, scope, table| Ok(selection::whole(scope, table.library)))
 }
 
 /// An arrow, Home or End (`extend`: with Shift); the photo it reaches is scrolled into view.

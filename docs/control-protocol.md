@@ -521,7 +521,36 @@ and the CLI return the same JSON; the control method adds the UI-only fields (`c
   `embedding`, `embeddings` and `landmarks` never appear in a reply, and no error message holds
   a name or a rectangle (people are named by id). A command that comes to answer with people
   data joins `PEOPLE_REPLIES`. Over the control channel `engine.execute` and each `batch` step
-  answer through the policy the app's `--automation-allow-people` builds (M13.48).
+  answer through the policy the app's `--automation-allow-people` builds (M13.48), and without it
+  `export.defaults` of a person's section suggests `fallbackName` as `folderName` (M13.49), as
+  MCP's does.
+- **No face points** (M13.49; `automation::FACE_POINTS`, the same `Policy::people_reply`, one rule
+  for the control channel, headless MCP and connect mode): without `--automation-allow-people`
+  `slideshow.list`'s `focus` gives each photo's focus as the photo's centre, `{"point": [0.5,
+  0.5]}`, with no `face`, so no reply tells where a face is; the window's own show still moves
+  toward the face. No reply carries a running show's focus (`ui.state`'s `slideshow.pan` is the
+  viewer's own pan); one that comes to follows the same rule.
+- **No names in the window's replies** (M13.49; `control/people.rs`): without
+  `--automation-allow-people` `ui.inspect`, `ui.state`, `ui.widgets` and `ui.menu.tree` (also as
+  `batch` steps) carry no person's name or nickname. The placeholder **Person** stands where a name
+  was, the rest of a label kept ("Ana (12)" → "Person (12)", "Ana, 3 photos" → "Person, 3 photos",
+  "Ana?" → "Person?"), and every widget id stays, so a client still finds, clicks and drags by id:
+  the People group's rows (`tree:person:<id>`), a person section's header, `/icon` and `/title`,
+  the People pane's rows (`person:<id>`), face tiles (`face:<face>`, `face:<face>/in/<id>`), the
+  edit view's face boxes (`facebox:<face>`), the people the name fields offer
+  (`field:faces.name/<n>/option/<k>`, `field:people.name/<face>/option/<k>`,
+  `field:faces.manual/option/<k>`), the rows of Move to Person ▸ and Merge Into ▸
+  (`menuitem:faces.moveToPerson/<id>`, `menuitem:people.merge/<id>`, in `ui.widgets`, `ui.inspect`'s
+  `popup` and `ui.menu.tree`), the search banner while the People pane filters by people ("Showing
+  photos with Person and Person"), a face drag's pill, the tooltip over any of these (a person
+  section's icon says their name), the names typed (`unnamed.names`, `peoplePane.manual.name`), the
+  Export draft's folder name while it exports a person's section (`export.folderName`), and
+  New Person's and Rename Person's drafts (`fields.name`, `fields.nickname`, in `dialogs` and
+  `ui.inspect`'s `dialog`). `ui.menu.invoke {path}` matches a person's row by the placeholder only
+  (by `id` and `params` as before). What is withheld is chosen by widget id, role and dialog kind,
+  never by matching a reply's text against the library's names, which would change a folder or a
+  caption that happens to read like a guessed name and so confirm the guess. Screenshots show
+  what the window shows (§11). With the permission every reply is as the window has it.
 - **No guess-oracle in searches** (M13.48, `faces.md` §7; `automation::NAME_SEARCHES` and
   `Policy::people_params`): without `--automation-allow-people` the searches an automation
   surface runs (`library.query`, `search.set`, `slideshow.list`'s `search`) go with
@@ -736,7 +765,7 @@ parity tracks.
 
 ### 6.6 `ui.inspect` (with perf counters)
 
-Everything in `ui.state`, plus:
+Everything in `ui.state`, plus (people's names withheld without `--automation-allow-people`, §6.4):
 
 | Field | Content |
 |---|---|
@@ -749,7 +778,7 @@ Everything in `ui.state`, plus:
 | `filePicker` | the stubbed picker waiting for `ui.filePicker` (§5.6): `{command, kind, title}`, and for the save picker `name`, `folder` and `params` |
 | `status`, `toasts` | the status-line text as drawn; the toasts showing, oldest first: `[{id, text, kind, remaining}]` (`id` the toast's widget `toast:<n>`, `kind` `info` or `error`, `remaining` in seconds) |
 | `tooltip` | the text of the tooltip the last frame showed (its lines joined with `\n`), `null` when none |
-| `drag` | a drag of photos in progress, `null` when none: `{from, ids, target, op, pill}`: the widget it started on (`thumb:12`, `thumb:12/in/a91c0e`, `tray:item:12`, `tray:token`), the photos it carries (the selection when the photo was selected, else that photo; from the tray the tray-selected photos when the mini is tray-selected, else that one), the drop target under the pointer (a widget id: `tree:folder:<id>`, `tree:album:<id>`, `tray`, or for the gap beside a cell of a user album the cell's `thumb:<id>/in/<album>`; `null` for none, and where a drop would change nothing: the photos' own folder, an album or a tray already holding them all, the gap beside a dragged photo), what a drop there would do (`move`, `copy`, `add`, `reorder`, `hold`, `null`) and the drag pill's text ("Move 3 photos to Garden", "Copy 1 photo to Garden", "Add 3 photos to Lisbon", "Hold 3 photos in the tray", "Reorder 3 photos", "3 photos" over nothing); it ends when the button is released (dropping there) or Esc is pressed (dropping nothing). M13: a drag of faces (from `face:<id>`) carries `faces` (`["12.0", …]`) and no photos, a person's row `tree:person:<id>` takes them (`name`: "Name 2 faces Ana", "2 faces" over nothing), and photos over the Places pane's map `map:places` offer `geotag` (the drop opens the bubble "Put %d photos here?"). Not part of `ui.state` |
+| `drag` | a drag of photos in progress, `null` when none: `{from, ids, target, op, pill}`: the widget it started on (`thumb:12`, `thumb:12/in/a91c0e`, `tray:item:12`, `tray:token`), the photos it carries (the selection when the photo was selected, else that photo; from the tray the tray-selected photos when the mini is tray-selected, else that one), the drop target under the pointer (a widget id: `tree:folder:<id>`, `tree:album:<id>`, `tray`, or for the gap beside a cell of a user album the cell's `thumb:<id>/in/<album>`; `null` for none, and where a drop would change nothing: the photos' own folder, an album or a tray already holding them all, the gap beside a dragged photo), what a drop there would do (`move`, `copy`, `add`, `reorder`, `hold`, `null`) and the drag pill's text ("Move 3 photos to Garden", "Copy 1 photo to Garden", "Add 3 photos to Lisbon", "Hold 3 photos in the tray", "Reorder 3 photos", "3 photos" over nothing); it ends when the button is released (dropping there) or Esc is pressed (dropping nothing). M13: a drag of faces (from `face:<id>`) carries `faces` (`["12.0", …]`) and no photos, a person's row `tree:person:<id>` takes them (`name`: "Name 2 faces", the person not named in the pill yet; "2 faces" over nothing), and photos over the Places pane's map `map:places` offer `geotag` (the drop opens the bubble "Put %d photos here?"). Not part of `ui.state` |
 | `animations` | running animations: `[{kind, region}]`, today `{kind: "scrollToSection", region: "lightTable"}` while the light table eases to a section (pane slides and fades join as they are built) |
 | `jobs` | same entries as `jobs.list` |
 | `notices` | warnings waiting to be shown (damaged settings file kept aside, …) |
@@ -786,7 +815,9 @@ Widgets drawn in the **last frame**, in paint order, with screen-point rects (cl
 visible). `filter` is a substring of the id; `region` restricts to a region of §6.6 (the widgets whose
 centre is inside it, with its `region:<name>` entry; none for a region not shown). `checked` is the
 selected/toggled state where one exists. Off-screen thumbnails are not listed: scroll first
-(`ui.clickWidget` on the tree row, or `ui.scroll`). Ids are in §7.
+(`ui.clickWidget` on the tree row, or `ui.scroll`). Ids are in §7. Without
+`--automation-allow-people` a label that shows a person's name reads the placeholder Person, the
+rest of it kept, under the same id (§6.4).
 
 ### 6.8 Clicks, drags, hover and `ui.pointer`
 
@@ -853,7 +884,10 @@ children}`. Context menus are modelled as their regions arrive: `section` (the f
 `tray`, `photo`, `person` (M13.25: Rename…, Merge Into ▸ the other people by name, Delete Person, for the person
 whose section is selected; greyed with none) and `face` (M13.21: Move to New Person… · Move to Person ▸ the people by name, or a greyed
 "No people yet" · Remove from Person · Set as Person Thumbnail · Ignore Face, for the faces
-selected) answer now, the others are `unsupported` until then.
+selected) answer now, the others are `unsupported` until then. Without
+`--automation-allow-people` the rows naming a person read the placeholder Person (their `widget`
+and `params` keep the person's id), and `ui.menu.invoke {path}` matches such a row by the
+placeholder only (§6.4).
 
 `ui.menu.invoke {path: "Picture/Batch Edit/Rotate Clockwise"}` (labels as shown, without a
 trailing `…`, separated by `/`; a literal `/` in a label is `\/`) or `{id: "photo.rotate.cw"}`
@@ -1145,6 +1179,8 @@ failure). Until then use a client like the one above.
   changes, numbers are range-checked, lists are capped, and `panic_hunt` fuzzes every method as it
   fuzzes every command.
 - Replies and logs never contain the token, face descriptors or (without
-  `--automation-allow-people`) people names. Screenshots show whatever the window shows.
+  `--automation-allow-people`) people names or where a face is: not the commands' replies, not the
+  window's (`ui.inspect`, `ui.state`, `ui.widgets`, `ui.menu.tree`), not `slideshow.list`'s focus
+  (§6.4). Screenshots show whatever the window shows.
 - Security-relevant changes to this channel follow `contributing.md` (state whether the change adds
   a control or documents a limitation).
