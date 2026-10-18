@@ -30,7 +30,7 @@ cargo xtask ci --full                               # the review gate: every tes
 
 | Command | What it does | In `ci` |
 |---|---|---|
-| `xtask ci [--merge \| --full [--platform]]` | the gates (below): plain, a task's gate (fmt check, clippy `-D warnings` over the whole workspace with all targets, the static checks `layers`, `deps`, `assets`, `names`, `parity`, `docs`, `contributors --check`, `tasks sync --check`, and the tests of the packages the branch changed, quick); `--merge`, the same without tests; `--full`, the review gate; runs every step, prints a table with each step's time, and on a clean worktree records the green commit for `tasks submit` | — |
+| `xtask ci [--merge \| --full [--platform]]` | the gates (below): plain, a task's gate (fmt check, clippy `-D warnings` over the whole workspace with all targets, the static checks `layers`, `deps`, `assets`, `names`, `parity`, `docs`, `contributors --check`, `tasks sync --check`, and the tests of the packages the branch changed and of their direct dependents, quick); `--merge`, the same without tests; `--full`, the review gate; runs every step, prints a table with each step's time, and on a clean worktree records the green commit for `tasks submit` | — |
 | `xtask layers` | checks crate dependencies against the layer table in `xtask/src/layers.rs` (`architecture.md` §2); unregistered crates fail; UI crates only in L5; only `crates/fs` calls `std::fs` write functions | ✓ |
 | `xtask deps` | offline dependency audit (`security.md` §8): licence allow-list over the whole graph; on the product graph of `dalica` and `dalica-cli` for Linux, Windows and macOS, no banned crate, no C build script (reviewed exceptions are checked against the resolved features) and `*-sys` only from the allow-list; sources; duplicate versions warn | ✓ |
 | `xtask assets` | every image/icon/font/sound file is matched by a row in `ATTRIBUTION.md`; referenced licence files exist; forbidden file names/extensions fail | ✓ |
@@ -65,17 +65,24 @@ decision, 2026-10-15).
 
 | Gate | Who runs it | Steps |
 |---|---|---|
-| `cargo xtask ci` | a worker, before `tasks submit` (minutes) | fmt, clippy over the whole workspace with all targets (every crate and every test still compiles), the static checks, and the tests of only the packages the branch changed against `origin/main`, quick |
+| `cargo xtask ci` | a worker, before `tasks submit` (minutes) | fmt, clippy over the whole workspace with all targets (every crate and every test still compiles), the static checks, and the tests of the packages the branch changed against `origin/main` and of the packages that depend on them directly, quick |
 | `cargo xtask ci --merge` | `tasks merge`, after its rebase | fmt, clippy, the static checks; no tests (the worker's gate ran them on the same changes, and tasks never share files) |
 | `cargo xtask ci --full` | the lead at the review (`/milestone-review`), and the review's GitHub run on Linux | every test of every package at full strength, the heif decoder's tests, `parity` with every cited `cmd:` id checked against the registered commands, and the acceptance test of every finished milestone |
 | `cargo xtask ci --full --platform` | the review's GitHub run on Windows and macOS | `--full` without what gives the same answer on every system: fmt, the static checks, the heif tests, and the pure packages (`dalica-core`, `-library`, `-scenes`, `-edit`, `-image`, `-meta`, `-sidecar`, `xtask`) |
 
 **Which packages a task's gate tests.** A file belongs to the workspace member whose directory
-holds it; the gate tests those packages. A change to the root `Cargo.toml`, `Cargo.lock`,
-`clippy.toml`, the toolchain file, `deny.toml`, `.cargo/` or a file outside every package tests
-every package; a change only to docs (Markdown, `docs/`, `.github/`, `.claude/`) tests none.
-Dependents of a changed package are not tested: clippy still compiles them and their tests, and a
-behaviour break there surfaces at the review.
+holds it; the gate tests those packages, and every workspace member that depends on one of them
+**directly** (a normal, dev or build dependency in its `Cargo.toml`, target-specific ones
+included), so a dependent's test that a change breaks fails in the worker's gate rather than on
+`main` (maintainer decision, 2026-10-18). Transitive dependents are not added: clippy still
+compiles them and their tests, and a behaviour break there surfaces at the review.
+`dalica-acceptance` and `xtask` are never added as dependents (the acceptance package dev-depends
+on most crates; its tests run at the review and when its own files change). The gate prints the
+changed packages and the dependents it added on separate lines; a dependent runs as a changed
+package does (`stats --check` runs when either list holds `dalica-mcp`). A change to the root
+`Cargo.toml`, `Cargo.lock`, `clippy.toml`, the toolchain file, `deny.toml`, `.cargo/` or a file
+outside every package tests every package; a change only to docs (Markdown, `docs/`, `.github/`,
+`.claude/`) tests none.
 
 **Quick and full strength.** `DALICA_FULL_TESTS=1` runs tests at full strength: every fault
 point, full proptest case counts, full-size scale tests, exhaustive walks. `ci --full`, a
@@ -179,7 +186,8 @@ threads): `dalica-ui --test never_blank` 31 → 11 s, `--test layout` 26 → 3 s
 - Test photos are procedural (`dalica-scenes`, M1) or CC0 from the pinned corpus. Never commit
   media; never use personal photos.
 
-**Writing tests** (maintainer decision, 2026-10-15). Every test costs every run, so:
+**Writing tests** (maintainer decision, 2026-10-15). Every test costs every run (a task's gate
+runs the tests of the packages it changed and of their direct dependents, quick; §3), so:
 
 - **One test per behaviour,** at the lowest crate that fits; never re-test at a higher layer what a
   lower crate proves.

@@ -235,7 +235,7 @@ Run, in your worktree, with your agent environment loaded:
 
 ```sh
 cargo fmt --all
-cargo xtask ci                                               # the task gate: fmt, clippy (whole workspace), static checks, the changed packages' tests (quick)
+cargo xtask ci                                               # the task gate: fmt, clippy (whole workspace), static checks, the tests of the changed packages and their direct dependents (quick)
 cargo xtask parity --write                                   # if parity rows changed; commit the regenerated summary
 cargo xtask tasks log <id> "Landed: …  Open: …  Numbers: …"  # the dev-log entry (required by submit)
 cargo xtask tasks submit <id> --body-file <evidence.md>   # the PR body: evidence per *done when*, numbers, screenshots
@@ -245,8 +245,9 @@ cargo xtask tasks submit <id> --body-file <evidence.md>   # the PR body: evidenc
   `cargo xtask ci` takes minutes: clippy compiles every crate and every test, and only the packages
   your branch changed against `origin/main` run their tests, quick (a change to the root
   `Cargo.toml`, `Cargo.lock`, `clippy.toml`, the toolchain or a file outside every package tests
-  every package; docs alone test none). Dependents are not tested; a behaviour break there surfaces
-  at the review. The acceptance tests, `panic_hunt` at full strength, the benches and budgets, the
+  every package; docs alone test none). The packages that depend directly on a changed package run
+  their tests too (maintainer decision, 2026-10-18; never `dalica-acceptance` or `xtask`);
+  transitive dependents are not tested, and a behaviour break there surfaces at the review. The acceptance tests, `panic_hunt` at full strength, the benches and budgets, the
   corpus tests, fuzzing and the Windows and macOS runs all run once, at the review
   (`cargo xtask ci --full` and the review's GitHub run; `development.md` §3).
 - **Portable paths:** the review runs on Windows too. Paths in messages use `/` (as git prints
