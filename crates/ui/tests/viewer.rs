@@ -17,6 +17,7 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use crate::common::{FRAMES, LARGE, check_sizes, new_driver, try_widget, widget};
 use dalica_engine::Session;
@@ -44,11 +45,20 @@ fn fixture(dir: &Path) -> (Session, PathBuf) {
     (s, folder)
 }
 
+/// How long the viewer's workers may take to decode the pictures and make the thumbnails (real
+/// time: frames run as fast as the machine allows and say nothing about how long a worker had).
+const PATIENCE: Duration = Duration::from_secs(120);
+
 /// Settles with the pictures decoded by path and the filmstrip's thumbnails in (`ui.settle` does
-/// not count them).
+/// not count them): frames run, each yielding a millisecond to the workers, until they are.
 fn settle_with_thumbnails(d: &mut Driver) {
     d.settle(FRAMES).unwrap();
-    d.step_until(|app| app.session().is_some_and(|s| s.thumbnails_pending() == 0 && s.viewer_images_pending() == 0), FRAMES).unwrap();
+    let start = Instant::now();
+    while !d.app().session().is_some_and(|s| s.thumbnails_pending() == 0 && s.viewer_images_pending() == 0) {
+        assert!(start.elapsed() < PATIENCE, "the pictures and thumbnails are not in after {PATIENCE:?}");
+        d.step();
+        std::thread::sleep(Duration::from_millis(1));
+    }
     d.settle(FRAMES).unwrap();
 }
 
