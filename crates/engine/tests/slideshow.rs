@@ -3,7 +3,8 @@
 //! ids, each starting at the photo asked for, hidden photos only while shown and videos left out
 //! and counted; a show whose every decode takes 1.5 s (the preview's planted decode delay, on a
 //! virtual clock) on a 3 s display time finds the next photo's preview ready at each of 30 changes; a photo deleted from the list is skipped without a stall;
-//! graceful failures.
+//! a photo's largest named face (else its largest face) is the Pan and Zoom focus the list and the
+//! show pass on, mapped through its recipe; graceful failures.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -113,6 +114,53 @@ fn the_lists_of_a_folder_an_album_a_search_and_the_tray_start_at_the_photo_asked
     });
     assert_eq!(list(&mut s, json!({ "section": "folder:1", "start": p(4) })), (ids(&[1, 2, 3, 4, 5]), 3, 1), "hidden shown");
     assert_eq!(list(&mut s, json!({ "ids": [p(4), p(2)] })), (ids(&[4, 2]), 0, 0), "hidden shown, the tray");
+}
+
+/// The face Pan and Zoom moves toward: the largest named face, else the largest unnamed one, on the
+/// picture shown (a turned photo's face turned with it); none for a face cropped away or ignored.
+#[test]
+fn a_photo_with_a_named_face_passes_it_on_to_pan_and_zoom() {
+    let (_tmp, mut s, _album) = lists();
+    let p = PhotoId::new;
+    let ana = s.execute("people.create", &json!({ "name": "Ana" })).unwrap()["person"].clone();
+    let add = |s: &mut Session, id: u64, rect: [f64; 4], person: Option<&Value>| {
+        let mut params = json!({ "id": p(id), "rect": rect });
+        if let Some(who) = person {
+            params["person"] = who.clone();
+        }
+        s.execute("faces.add", &params).unwrap()["face"].as_str().unwrap().to_string()
+    };
+    // 1: a large unnamed face and a smaller named one.
+    add(&mut s, 1, [0.1, 0.5, 0.4, 0.9], None);
+    assert_eq!(add(&mut s, 1, [0.6, 0.2, 0.7, 0.4], Some(&ana)), "1.1");
+    // 2: an unnamed face on a photo turned a quarter clockwise: (x, y) shows at (1 − y, x).
+    add(&mut s, 2, [0.2, 0.2, 0.3, 0.4], None);
+    s.execute("photo.history.apply", &json!({ "id": p(2), "op": "rotate(90)" })).unwrap();
+    // 3: a face cropped away; 5: an ignored face.
+    add(&mut s, 3, [0.0, 0.0, 0.1, 0.1], Some(&ana));
+    s.execute("photo.crop.apply", &json!({ "id": p(3), "rect": [0.5, 0.5, 0.5, 0.5] })).unwrap();
+    add(&mut s, 5, [0.4, 0.4, 0.6, 0.6], None);
+    s.execute("faces.ignore", &json!({ "faces": ["5.0"] })).unwrap();
+
+    let v = s.execute("slideshow.list", &json!({ "section": "folder:1" })).unwrap();
+    let want = json!({
+        "1": { "face": "1.1", "point": [0.65, 0.3] },
+        "2": { "face": "2.0", "point": [0.7, 0.25] },
+    });
+    assert_eq!(v["focus"], want, "{v}");
+
+    // The show hands the same point to the slide it draws.
+    let pan = Settings { transition: Transition::PanAndZoom, ..settings() };
+    let mut show = Slideshow::with_settings(&mut s, ids(&[1, 3]), 0, pan, DISPLAY);
+    let f = show.tick(&mut s);
+    assert_eq!(f.photo.map(|(id, _)| id), Some(p(1)));
+    assert!((f.focus.x - 0.65).abs() < 1e-6 && (f.focus.y - 0.3).abs() < 1e-6, "{:?}", f.focus);
+    assert!(show.show_mut().next_photo());
+    let f = show.tick(&mut s);
+    assert_eq!(f.photo.map(|(id, _)| id), Some(p(3)));
+    assert_eq!(f.focus, dalica_create::slideshow::Point::CENTRE, "the face is cropped away");
+    assert!((f.outgoing_focus.x - 0.65).abs() < 1e-6, "{:?}", f.outgoing_focus);
+    show.close(&mut s);
 }
 
 /// Hostile and impossible lists fail with the reason, and change nothing.

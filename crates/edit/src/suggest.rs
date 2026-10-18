@@ -14,12 +14,17 @@
 //!   width at a slope of at most about 7°, along which at least 60 % of the columns step the same
 //!   way) is put on the upper or lower third line, across the subject when there is one.
 //! - **Centred.** The largest centred rectangle of the ratio ([`crop_geom::ratio_rect`]).
+//! - **Faces.** When the photo has faces (their rectangles given by the caller, mapped to the
+//!   picture shown), a rectangle holding every face, the faces' eyes (about [`EYES`] down each face,
+//!   the faces' mean weighted by their areas) on its upper third line and the faces centred across
+//!   it, choosing the size (the largest fit down to 60 % of it) that lands the eyes closest while
+//!   keeping every face inside.
 //!
-//! They are ranked subject, horizon, centred; then the subject on another thirds point and smaller
-//! centred rectangles fill the three places. Every rectangle kept overlaps every other by at most
-//! [`MAX_OVERLAP`] (intersection over union), so the three are distinct. The method is
-//! deterministic: the same proxy, size and ratio give the same rectangles. Faces join the ranking
-//! in M13.
+//! They are ranked faces, subject, horizon, centred; then the subject on another thirds point and
+//! smaller centred rectangles fill the three places. Every rectangle kept overlaps every other by
+//! at most [`MAX_OVERLAP`] (intersection over union), so the three are distinct. The method is
+//! deterministic: the same proxy, size, ratio and faces give the same rectangles, and without faces
+//! the faces' rectangle is simply not there.
 //!
 //! Rectangles are normalised to the picture the proxy shows (`0..1`, top-left origin); the caller
 //! maps them to the stored frame (`data-model.md` §3.3) as it does any rectangle of the displayed
@@ -47,12 +52,20 @@ pub const FLAT: f32 = 0.06;
 /// The sizes tried for a placed rectangle, as fractions of the ratio's largest fit.
 const SCALES: [f64; 9] = [1.0, 0.95, 0.9, 0.85, 0.8, 0.75, 0.7, 0.65, 0.6];
 
+/// How far down a face's rectangle its eyes lie, as a fraction of its height.
+pub const EYES: f64 = 0.4;
+
+/// The most faces [`suggest`] looks at (a photo holds at most 256).
+pub const MAX_FACES: usize = 256;
+
 /// The sizes of the centred rectangles, largest first.
 const CENTRED: [f64; 6] = [1.0, 0.8, 0.64, 0.5, 0.4, 0.32];
 
 /// Why a rectangle was proposed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Reason {
+    /// Every face inside, their eyes on the upper third line.
+    Faces,
     /// The salient subject sits on a thirds point.
     Subject,
     /// The horizon lies on a third line.
@@ -101,9 +114,12 @@ impl Horizon {
 
 /// Three distinct rectangles of ratio `aspect` (width / height in pixels) for a picture of
 /// `width × height` pixels, of which `proxy` is a (usually smaller) rendering, best first.
-/// `Err(BadImage)` for a buffer that is not `proxy.width × proxy.height` RGBA pixels or an empty
-/// proxy; `Err(BadTarget)` for an empty picture size or a ratio that is not finite and positive.
-pub fn suggest(proxy: &Rgba8, width: u32, height: u32, aspect: f64) -> Result<[Suggestion; COUNT]> {
+/// `faces` are the photo's face rectangles normalised to that picture (`0..1`, top-left origin);
+/// a rectangle that is not finite or holds nothing inside the picture is left out, and so is every
+/// one past the first [`MAX_FACES`]. `Err(BadImage)` for a buffer that is not
+/// `proxy.width × proxy.height` RGBA pixels or an empty proxy; `Err(BadTarget)` for an empty
+/// picture size or a ratio that is not finite and positive.
+pub fn suggest(proxy: &Rgba8, width: u32, height: u32, aspect: f64, faces: &[Rect]) -> Result<[Suggestion; COUNT]> {
     if width == 0 || height == 0 {
         return Err(Error::BadTarget("an empty picture"));
     }
@@ -111,7 +127,19 @@ pub fn suggest(proxy: &Rgba8, width: u32, height: u32, aspect: f64) -> Result<[S
         return Err(Error::BadTarget("a crop ratio must be finite and positive"));
     }
     let found = analyse(proxy)?;
-    Ok(place(&found, f64::from(width), f64::from(height), aspect))
+    let faces: Vec<Rect> = faces.iter().take(MAX_FACES).filter_map(|r| clean_face(*r)).collect();
+    Ok(place(&found, &faces, f64::from(width), f64::from(height), aspect))
+}
+
+/// A face rectangle inside the picture, corners in order; `None` when it is not finite or holds
+/// nothing inside the picture.
+fn clean_face(r: Rect) -> Option<Rect> {
+    if ![r.x0, r.y0, r.x1, r.y1].iter().all(|v| v.is_finite()) {
+        return None;
+    }
+    let c = |v: f64| v.clamp(0.0, 1.0);
+    let r = Rect::new(c(r.x0.min(r.x1)), c(r.y0.min(r.y1)), c(r.x0.max(r.x1)), c(r.y0.max(r.y1)));
+    (r.x1 > r.x0 && r.y1 > r.y0).then_some(r)
 }
 
 /// The subject and horizon [`suggest`] works from. `Err(BadImage)` as for [`suggest`].
@@ -151,7 +179,7 @@ impl Size {
     }
 }
 
-fn place(found: &Analysis, pw: f64, ph: f64, aspect: f64) -> [Suggestion; COUNT] {
+fn place(found: &Analysis, faces: &[Rect], pw: f64, ph: f64, aspect: f64) -> [Suggestion; COUNT] {
     let pic = Size { w: pw, h: ph };
     let r = ratio_rect(pw, ph, aspect);
     let fit = Size { w: ((r.x1 - r.x0) * pw).max(f64::MIN_POSITIVE), h: ((r.y1 - r.y0) * ph).max(f64::MIN_POSITIVE) };
@@ -162,6 +190,9 @@ fn place(found: &Analysis, pw: f64, ph: f64, aspect: f64) -> [Suggestion; COUNT]
 
     // Candidates in rank order.
     let mut ranked: Vec<(Px, Reason)> = Vec::new();
+    if let Some(px) = face_crop(faces, pic, fit) {
+        ranked.push((px, Reason::Faces));
+    }
     let subjects = found.subject.map(|s| subject_crops(&s, pic, fit)).unwrap_or_default();
     if let Some(first) = subjects.first() {
         ranked.push((*first, Reason::Subject));
@@ -245,6 +276,40 @@ fn subject_crops(s: &Subject, pic: Size, fit: Size) -> Vec<Px> {
     // A stable sort keeps the thirds points' order between equal scores: deterministic.
     best.sort_by(|a, b| b.0.total_cmp(&a.0));
     best.into_iter().map(|(_, r)| r).collect()
+}
+
+/// Every face inside, their eyes on the upper third line, centred across: for each size, the
+/// placement that puts them there, the best one kept (`None` without faces).
+fn face_crop(faces: &[Rect], pic: Size, fit: Size) -> Option<Px> {
+    let first = faces.first()?;
+    // The faces' bounds, and their eyes' height and centre weighted by their areas.
+    let mut bounds = *first;
+    let (mut mass, mut eyes, mut across) = (0.0f64, 0.0f64, 0.0f64);
+    for f in faces {
+        bounds = Rect::new(bounds.x0.min(f.x0), bounds.y0.min(f.y0), bounds.x1.max(f.x1), bounds.y1.max(f.y1));
+        let area = ((f.x1 - f.x0) * pic.w * (f.y1 - f.y0) * pic.h).max(f64::MIN_POSITIVE);
+        mass += area;
+        eyes += area * (f.y0 + EYES * (f.y1 - f.y0)) * pic.h;
+        across += area * (f.x0 + f.x1) / 2.0 * pic.w;
+    }
+    let (ex, ey) = (across / mass, eyes / mass);
+    // Centred across the faces' bounds; their weighted centre when the bounds are wider than the
+    // rectangle, so the larger faces stay.
+    let cx = (bounds.x0 + bounds.x1) / 2.0 * pic.w;
+    let mut best: Option<(f64, Px)> = None;
+    for sc in SCALES {
+        let size = fit.scaled(sc);
+        let x = if (bounds.x1 - bounds.x0) * pic.w <= size.w { cx } else { ex };
+        let r = put((x, ey), (0.5, 1.0 / 3.0), size, pic);
+        let off = ((ey - r.y0) / size.h - 1.0 / 3.0).abs();
+        let cut = faces.iter().map(|f| outside(r, *f, pic)).fold(0.0, f64::max);
+        // A face cut off costs more than a subject: the crop is for the faces.
+        let v = score(sc, off, 2.0 * cut);
+        if best.is_none_or(|(b, _)| v > b) {
+            best = Some((v, r));
+        }
+    }
+    best.map(|(_, r)| r)
 }
 
 /// The horizon on the upper or lower third line, across the subject when there is one.

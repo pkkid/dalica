@@ -12,8 +12,10 @@
 //!   `crop.ratios.remove {name}` change the custom ones (settings, not undo steps).
 //! - `photo.crop.suggest {id, ratio}` starts an `analysis` job: a worker renders a proxy of the
 //!   photo as the Crop tool shows it (its recipe without the crops, straightened, turned as
-//!   displayed), asks `edit::suggest` for three rectangles of the ratio, and answers them in the
-//!   stored frame (`data-model.md` §3.3). The owner thread only starts the worker and, in
+//!   displayed), maps the photo's faces (all but the ignored ones) from the stored frame onto that
+//!   picture ([`shown_rect`]), asks `edit::suggest` for three rectangles of the ratio (a rectangle
+//!   holding every face first, `reason: "faces"`), and answers them in the stored frame
+//!   (`data-model.md` §3.3). The owner thread only reads the library, starts the worker and, in
 //!   [`Session::poll`], finishes the job with what came back.
 //!
 //! Rectangles are `[x, y, w, h]` normalised to the straightened photo in the stored frame, as the
@@ -24,12 +26,13 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 
-use dalica_core::PhotoId;
+use dalica_core::{PhotoId, Rect01};
 use dalica_edit::crop_geom::MAX_RATIO;
 use dalica_edit::ops::crop::Crop;
 use dalica_edit::ops::straighten::{MAX_DEGREES, Straighten};
 use dalica_edit::suggest::{Reason, Suggestion};
-use dalica_edit::{Op as EditOp, Recipe, Rect, Typed};
+use dalica_edit::{Geometry, Op as EditOp, Point, Recipe, Rect, Typed};
+use dalica_image::Orientation;
 use dalica_thumbs::ladder::{self, Edits, Render};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -119,7 +122,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Suggest Crops",
             menu: "",
             keys: &[],
-            params: r#"{"id":PhotoId, "ratio":number (width / height as displayed) | "W:H"}: starts an analysis job (answers {job, pending:true}); its result is {id, ratio, suggestions: [{rect:[x,y,w,h], reason:"subject"|"horizon"|"centred"}] × 3}, rectangles in the stored frame, best first. A new ask for the same photo cancels the one before"#,
+            params: r#"{"id":PhotoId, "ratio":number (width / height as displayed) | "W:H"}: starts an analysis job (answers {job, pending:true}); its result is {id, ratio, suggestions: [{rect:[x,y,w,h], reason:"faces"|"subject"|"horizon"|"centred"}] × 3}, rectangles in the stored frame, best first (every face of the photo inside the first, when it has faces). A new ask for the same photo cancels the one before"#,
             effect: Effect::Query,
             history: History::None,
             enabled: always,
@@ -396,8 +399,26 @@ struct Request {
     /// The photo's size as displayed after its EXIF orientation (0 × 0 when unknown).
     size: (u32, u32),
     edits: Vec<String>,
+    /// The photo's faces the crop holds (all but the ignored ones), in the stored frame.
+    faces: Vec<Rect01>,
     aspect: f64,
     render: Render,
+}
+
+/// Where the stored-frame rectangle `r` shows on the picture `geometry` draws (its crop,
+/// straighten, frames and turns), normalised: the bounds of its four corners there, cut to the
+/// picture. `None` when nothing of it shows (cropped away) or a corner does not map.
+pub(crate) fn shown_rect(geometry: &Geometry, r: Rect01) -> Option<Rect> {
+    let corners = [(r.x0(), r.y0()), (r.x1(), r.y0()), (r.x0(), r.y1()), (r.x1(), r.y1())];
+    let (mut x0, mut y0, mut x1, mut y1) = (f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY);
+    for (x, y) in corners {
+        let p = geometry.to_display(Point::new(x, y))?;
+        (x0, y0, x1, y1) = (x0.min(p.x), y0.min(p.y), x1.max(p.x), y1.max(p.y));
+    }
+    let c = |v: f64| v.clamp(0.0, 1.0);
+    let shown = Rect::new(c(x0), c(y0), c(x1), c(y1));
+    let finite = [x0, y0, x1, y1].iter().all(|v| v.is_finite());
+    (finite && shown.x1 > shown.x0 && shown.y1 > shown.y0).then_some(shown)
 }
 
 fn suggest(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
@@ -418,6 +439,7 @@ fn suggest(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
         mtime_ms: photo.mtime.as_millis(),
         size: (photo.width, photo.height),
         edits: s.library().info(id).edits.clone(),
+        faces: s.library().faces(id).iter().filter(|f| f.counts()).map(|f| f.rect).collect(),
         aspect,
         render: s.thumbs.render(),
     };
@@ -474,12 +496,16 @@ fn suggestions(request: &Request, cancel: &AtomicBool) -> Result<Option<Value>, 
         return Ok(None);
     }
     let turn = recipe.orientation();
-    let shown = turn.apply(stored).map_err(|e| e.to_string())?;
-    let (width, height) = match request.size {
-        (w, h) if w > 0 && h > 0 => turn.display_size(w, h),
-        _ => (shown.width, shown.height),
+    // The faces on the picture shown: the photo's size in the stored frame, else the proxy's.
+    let upright = match request.size {
+        (w, h) if w > 0 && h > 0 => (w, h),
+        _ => (stored.width, stored.height),
     };
-    let found = dalica_edit::suggest::suggest(&shown, width, height, request.aspect).map_err(|e| e.to_string())?;
+    let shown = turn.apply(stored).map_err(|e| e.to_string())?;
+    let (width, height) = turn.display_size(upright.0, upright.1);
+    let geometry = Geometry::new(&uncropped, Orientation::default(), upright.0, upright.1);
+    let faces: Vec<Rect> = request.faces.iter().filter_map(|r| shown_rect(&geometry, *r)).collect();
+    let found = dalica_edit::suggest::suggest(&shown, width, height, request.aspect, &faces).map_err(|e| e.to_string())?;
     let list: Vec<Value> = found.iter().map(|s| suggestion_json(s, turn)).collect();
     Ok(Some(json!({ "id": request.id, "ratio": request.aspect, "suggestions": list })))
 }
@@ -488,6 +514,7 @@ fn suggestion_json(s: &Suggestion, turn: dalica_edit::Dihedral) -> Value {
     let r = s.rect.to_stored(turn);
     let n = |v: f64| round(v, RECT_DECIMALS);
     let reason = match s.reason {
+        Reason::Faces => "faces",
         Reason::Subject => "subject",
         Reason::Horizon => "horizon",
         Reason::Centred => "centred",

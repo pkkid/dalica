@@ -7,7 +7,8 @@
 //! preview over 30 advances; the next photo's preview is uploaded as a texture while the photo
 //! before it shows, so a change's first frame uploads nothing (M11.29), and a show stepped by hand
 //! past a preview not made yet paints the thumbnail meanwhile, every preview's pixels converted on a
-//! worker (M12.24); a fingerprint of each transition at its midpoint and of a captioned
+//! worker (M12.24); Pan and Zoom moves a photo with a named face toward that face and one without
+//! toward its centre (M13.23); a fingerprint of each transition at its midpoint and of a captioned
 //! photo at 1400 × 900 (at 900 × 600 the caption only has to fit).
 //!
 //! `DALICA_SHOTS=<dir>` writes the frames there too.
@@ -268,6 +269,31 @@ fn the_next_photos_texture_is_uploaded_before_the_change_starts() {
     session(&mut f).plant_decode_delay(None);
     pass(&mut f, 2_000);
     assert!(previews().contains(&shown), "then its preview");
+}
+
+/// Pan and Zoom moves a photo with a named face toward the face's centre, and one without a face
+/// toward its own centre: the slides the window draws take the engine's focus.
+#[test]
+fn pan_and_zoom_moves_toward_a_named_face() {
+    let mut f = setup(2, (640, 420), LARGE);
+    let o = f.order.clone();
+    let s = session(&mut f);
+    let ana = s.execute("people.create", &json!({ "name": "Ana" })).unwrap()["person"].clone();
+    s.execute("faces.add", &json!({ "id": o[0], "rect": [0.6, 0.2, 0.8, 0.5], "person": ana })).unwrap();
+    s.execute("options.set", &json!({ "values": { "slideshow.transition": "panAndZoom" } })).unwrap();
+    let play = json!({ "section": f.section, "ids": [o[0]] });
+    run(&mut f, "section.slideshow", play);
+    pass(&mut f, 500);
+    let slides = dalica_ui::panels::slideshow::show::slides();
+    let (id, slide) = slides.first().copied().expect("the photo shown is drawn");
+    assert_eq!(id, o[0]);
+    assert!((slide.focus.x - 0.7).abs() < 1e-4 && (slide.focus.y - 0.35).abs() < 1e-4, "{:?}", slide.focus);
+    // The next photo has no face: its centre.
+    pass(&mut f, DISPLAY_MS);
+    let slides = dalica_ui::panels::slideshow::show::slides();
+    assert_eq!(slides.first().map(|(id, s)| (*id, s.focus)), Some((o[1], dalica_create::slideshow::Point::CENTRE)), "{slides:?}");
+    let outgoing = slides.get(1).map(|(id, s)| (*id, s.focus.x));
+    assert!(outgoing.is_none_or(|(id, x)| id == o[0] && (x - 0.7).abs() < 1e-4), "the outgoing photo keeps its face: {slides:?}");
 }
 
 /// Each transition at the midpoint of its change (Pan and Zoom too, its photos moving), and a

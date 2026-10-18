@@ -190,7 +190,13 @@ The tab content is replaced by the **Crop** panel:
   A trash button next to the dropdown deletes the selected custom ratio. The last used ratio is
   remembered.
 - **Three suggested crops**: 80 × 50 thumbnails of proposed rectangles in the chosen ratio (computed
-  from detected faces, saliency and horizon); clicking one draws its rectangle.
+  from detected faces, saliency and horizon); clicking one draws its rectangle. When the photo has
+  faces (named or unnamed; ignored ones never count), the first suggestion holds every face, their
+  eyes (taken as 40 % down each face box, the faces' mean weighted by their areas) on its upper
+  third line and the faces centred across it, at the largest size that does so (down to 60 % of
+  the ratio's largest fit); the salient subject, the horizon and the centred rectangle follow. The
+  faces are mapped from the stored frame onto the picture the tool shows (straightened and turned,
+  not cropped). Without faces the three are those of the subject, horizon and centre alone.
 - Buttons: **Rotate** (portrait ↔ landscape; disabled until a rectangle exists) | **Preview** (shows
   the cropped result while held/toggled); **Reset**; **Apply** (primary) | **Cancel**.
 - On the photo: drag to draw (outside dimmed `black α140`); drag edges/corners to resize (ratio

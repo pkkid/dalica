@@ -64,7 +64,8 @@ Transition, display time and caption settings persist (Options → Slideshow mir
 controls store them at once (`options.set`, no undo step), and the edit view's caption-bar toggle
 is the same captions setting. A change applies to the show playing straight away (§1.6).
 Transitions last 0.8 s (Pan and Zoom spans the whole display time: a slow 5–10 % zoom/pan toward a
-detected face or the centre).
+detected face or the centre: the photo's largest named face, else its largest unnamed face, else its
+centre).
 
 ### 1.4 Keys and mouse
 
@@ -94,7 +95,7 @@ Music are drawn disabled with the reason "Arrives with sound support". The tab g
 **Sound**, below Loop, Show captions, Display time (a 1–60 s slider with its number field) and
 Transition.
 
-### 1.6 Decisions (M11.4, M11.11, M11.21)
+### 1.6 Decisions (M11.4, M11.11, M11.21, M13.23)
 
 The reference left these open; this is how Dalica behaves.
 
@@ -112,7 +113,11 @@ The reference left these open; this is how Dalica behaves.
   pans the photo, which always covers the screen where it is larger than it. The magnifier goes from
   fitted to 2× and back to fitted from any zoom.
 - **Transitions.** Pan and Zoom changes photos with a 0.8 s dissolve; each photo grows by 5 % plus
-  (its place in the show mod 6) % about its focus point, within its fitted frame. Wipe runs left to
+  (its place in the show mod 6) % about its focus point, within its fitted frame. The focus point is
+  the centre of the photo's largest named face (by its area on the picture shown), else of its
+  largest unnamed face, else the photo's centre; ignored faces and faces cropped away do not count,
+  and a face is mapped through the photo's crop, straighten and turns. `slideshow.list` names that
+  face and its point for each photo that has one (M13.23). Wipe runs left to
   right, Push comes in from the right, Circle and Rectangle open from the centre, all eased (slow
   in, slow out). Each photo of a change is painted over black within its own area, the incoming one
   on top at its opacity, so Dissolve is a true cross-fade.
