@@ -7187,8 +7187,46 @@ a maintainer decision mid-run.
     `photo.inspect` (the unit test in `cmd/photo.rs`) and `library.inspect`
     (`crates/engine/tests/library_inspect.rs`); the docs read as built; the parity rows updated
     and `cargo xtask parity --write` run; `panic_hunt` green; `cargo xtask ci`.
+- ⬜ **M12.28 `edit`: no one-time setup inside a render band waits on the pool it runs in (Soften, Heal, …)**
+  - after: M12.7, M12.11
+  - files: `crates/edit/src/ops/soften.rs`, `crates/edit/src/ops/retouch.rs`, `crates/edit/src/fx/blur.rs`, `crates/edit/src/fx.rs`, `crates/edit/tests/soften.rs`, `crates/edit/tests/retouch.rs`, `crates/edit/tests/fx.rs`, `NOTICE`
+  - scope: a fix task from M12.7 (#776), M12.8 and M12.12. A pass that makes something once per
+    render in a `OnceLock` reached from inside a band, whose initialiser runs `rayon` work, can
+    hang the render: while it waits on its own parallel work, the initialising thread steals
+    another band of the same pass, which blocks on the same lock (or on another render's lock
+    whose maker waits on this one); at best every other band waits on it and the render runs
+    serially. M12.8 avoided it in `ops/focal.rs` (no shared blur), M12.12 in `ops/stylize.rs`
+    (Pixelate's cells and Focal Zoom's plane are made on plain scoped threads, `par_rows`), and
+    M12.7 fixed `fx::Blurred` (the blur made on its own pool, `fx::blur::blur_pool`, from a plain
+    scoped thread the band waits on; regression test `fx::blurs_shared_by_bands_never_wait_on_each_other`,
+    which timed out at 30 s before). Two sites remain on `main`: Soften's `SoftenPass::make`
+    (`ops/soften.rs`, in `done.get_or_init`) paints its mask with `par_chunks_mut` and blurs with
+    `Gaussian::apply`, both `rayon`: M12.7's worker saw one `cargo xtask ci` hang in
+    `soften::a_region_is_that_window_of_the_whole_render` with every worker stack waiting in
+    Soften's one-time setup (intermittent; the rerun was green). Retouch's `Heal::heal`
+    (`ops/retouch.rs`, in `done.get_or_init`) reads as sequential today (its own box blur), so it
+    cannot re-enter but makes every other band wait while one thread heals: confirm by its test,
+    and move it only if that is no slower. Route every such setup through one helper in
+    `fx/blur.rs` that `Blurred` also uses (M12.7's mechanism made general: run the work on the
+    blur pool from a thread that only waits), or make it before the banded pass when that needs no
+    file outside this list; the output stays bit-identical, so the `soften-*` and `retouch`
+    baselines do not change. The grep of `crates/edit/src` on `main` after M12.7
+    (`OnceLock`/`get_or_init`/`Blurred`): `colour.rs` and `remap.rs` hold `static` tables built
+    without `rayon` (safe), `detail.rs`'s Glow uses the fixed `Blurred`, `stylize.rs` is safe as
+    above, `render.rs` has no one-time setup. M12.10 (`ops/looks.rs`) and M12.14 (`ops/mats.rs`)
+    are open: once each merges, the worker reads it (read-only) and reports any one-time setup
+    that runs pool work on its issue for a fix task, never editing it here. Also a `NOTICE` gap:
+    Sharpen's kernel in `ops/detail.rs` follows PhotoCraft `crates/algo/src/blur.rs`
+    (`gaussian_kernel`) @ e4b2868a, which `detail.rs`'s row does not list yet; add it there.
+  - done when: per fixed site, one regression test that timed out before the fix and passes after
+    it (two threads rendering that effect into one small shared pool, 2–4 threads, under a 30 s
+    timeout, like M12.7's), in `crates/edit/tests/soften.rs` and `crates/edit/tests/retouch.rs`
+    (Heal's test written either way, its before/after result in the PR); a region still equals
+    that window of the whole render for Soften (everywhere and painted) and Heal; Soften and Heal
+    render times at 12 MP (release, `Target::Full` and a 1:1 window, median of five) not worse,
+    before/after in the PR; the `NOTICE` row; `cargo xtask ci`.
 - ⬜ **M12.22 `accept M12`**
-  - after: M12.14, M12.15, M12.17, M12.18, M12.19, M12.20, M12.21, M12.24, M12.25, M12.26, M12.27
+  - after: M12.14, M12.15, M12.17, M12.18, M12.19, M12.20, M12.21, M12.24, M12.25, M12.26, M12.27, M12.28
   - files: `tests/acceptance/m12.rs`, `tests/acceptance/m12_*.rs`, `tests/acceptance/m12.md`, `tests/acceptance/fingerprints/m12-*.json`
   - scope: every *Done when* of M12's three areas in the real `dalica --headless` over the control
     channel and through `dalica-cli mcp`: each tab's grid filling with previews; each of the 27
@@ -7251,6 +7289,7 @@ wave 3   M12.14 drop shadow + museum matte  ‖  M12.15 tile grids  ‖  M12.16 
          ‖  M12.19 batch edit effects  ‖  M12.20 W11
 wave 4   M12.17 crosshair  ‖  M12.18 soften brush  ‖  M12.21 M12 budgets
          (fix task: M12.27 a frame's grown size everywhere and the effect docs, after M12.14)
+         (fix task: M12.28 one-time setups that wait on their own pool, after M12.7, M12.11)
 wave 5   M12.22 accept M12 → M12.R          (M12.23 lead: M14 blocks, any time after M11.25)
 ```
 
