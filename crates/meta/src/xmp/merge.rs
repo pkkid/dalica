@@ -21,6 +21,10 @@
 //!   [`NEW_PADDING`] bytes of padding.
 //! - Writing again the values Dalica's description holds changes nothing ([`merge`] returns `None`), and the
 //!   same write twice gives the same bytes.
+//! - Face regions (`Changes::faces`, [`super::regions`]) are edited where the packet has them, so
+//!   non-face entries and a matched entry's other fields stay byte for byte; a packet without
+//!   regions gets a new, self-contained `mwg-rs:Regions` in Dalica's description, kept there as
+//!   written. Named faces start a new packet like a caption does.
 //! - Extended XMP is never written. [`Merged`] reports the packet's size and how much padding could
 //!   go, for the APP1 limit ([`JPEG_MAX_PACKET`]).
 //!
@@ -29,7 +33,8 @@
 
 use std::ops::Range;
 
-use super::rdf::{ArrayKind, At, DC, EXIF, PHOTOSHOP, RDF, Rdf, Value, X, XMP};
+use super::rdf::{ArrayKind, At, DC, EXIF, MWG_RS, PHOTOSHOP, RDF, Rdf, Value, X, XMP};
+use super::regions::{self, Plan, Want};
 use super::xml::{self, Doc, is_xml_char};
 use super::{owned, parse_coordinate, text_of};
 use crate::fields::{DateTaken, Place, XmpOwned, clean_tags, clean_text};
@@ -58,11 +63,23 @@ enum P {
     DateTimeOriginal,
     DateCreated,
     CreateDate,
+    /// `mwg-rs:Regions`, held as written ([`V::Raw`]): only the face entries in it are Dalica's.
+    Regions,
     MetadataDate,
 }
 
-const ALL: [P; 9] =
-    [P::Description, P::Subject, P::Rating, P::Latitude, P::Longitude, P::DateTimeOriginal, P::DateCreated, P::CreateDate, P::MetadataDate];
+const ALL: [P; 10] = [
+    P::Description,
+    P::Subject,
+    P::Rating,
+    P::Latitude,
+    P::Longitude,
+    P::DateTimeOriginal,
+    P::DateCreated,
+    P::CreateDate,
+    P::Regions,
+    P::MetadataDate,
+];
 
 impl P {
     fn ns(self) -> &'static str {
@@ -71,6 +88,7 @@ impl P {
             P::Rating | P::CreateDate | P::MetadataDate => XMP,
             P::Latitude | P::Longitude | P::DateTimeOriginal => EXIF,
             P::DateCreated => PHOTOSHOP,
+            P::Regions => MWG_RS,
         }
     }
 
@@ -84,6 +102,7 @@ impl P {
             P::DateTimeOriginal => "DateTimeOriginal",
             P::DateCreated => "DateCreated",
             P::CreateDate => "CreateDate",
+            P::Regions => "Regions",
             P::MetadataDate => "MetadataDate",
         }
     }
@@ -112,10 +131,12 @@ enum V {
     /// `rdf:Bag` of texts.
     Bag(Vec<String>),
     Text(String),
+    /// An element written as it stands (a self-contained `mwg-rs:Regions`).
+    Raw(String),
 }
 
 /// Dalica's description: one optional value per owned property.
-type Model = [Option<V>; 9];
+type Model = [Option<V>; 10];
 
 /// A merged packet.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -187,11 +208,36 @@ pub fn merge_at(packet: Option<&[u8]>, changes: &Changes, metadata_date: Option<
     }
     let current = owned(&rdf, limits);
     let changed = wanted(changes, Some(&rdf), &current, limits);
-    if changed.is_empty() {
+    let faces = changes.faces.as_ref().map(|f| Want::of(f, limits));
+    if changed.is_empty() && faces.is_none() {
         return Ok(None);
     }
     let ours = find_ours(&doc, &rdf, metadata_date.is_some());
+    let ours_el = ours.as_ref().map(|(d, _)| *d);
     let mut model: Model = ours.as_ref().map(|(_, m)| m.clone()).unwrap_or_default();
+    // The regions: edited where they are (inside Dalica's description, in the copy it keeps), or new.
+    let mut extra: Vec<(Range<usize>, String)> = Vec::new();
+    let mut regions_changed = false;
+    if let Some(want) = &faces {
+        let contained = regions::find(&rdf).is_some_and(|(d, _)| Some(d) == ours_el);
+        let plan = regions::plan(&doc, &rdf, want, contained, limits)?;
+        regions_changed = plan != Plan::Unchanged;
+        match plan {
+            Plan::Unchanged => {}
+            Plan::Edits { element, edits } if contained => {
+                let raw = edited(&doc, element, edits)?;
+                set(&mut model, P::Regions, Some(V::Raw(raw)));
+            }
+            Plan::Edits { edits, .. } => extra = edits,
+            Plan::New => {
+                let nl = description_indent(&doc, &rdf, ours_el).map(|i| format!("{i} "));
+                set(&mut model, P::Regions, Some(V::Raw(regions::new_element(want, nl.as_deref()))));
+            }
+        }
+    }
+    if changed.is_empty() && !regions_changed {
+        return Ok(None);
+    }
     for (p, v) in &changed {
         set(&mut model, *p, v.clone());
     }
@@ -199,16 +245,46 @@ pub fn merge_at(packet: Option<&[u8]>, changes: &Changes, metadata_date: Option<
     // else differs, nothing changes.
     if let Some((_, old)) = &ours {
         set(&mut model, P::MetadataDate, old.get(P::MetadataDate.index()).cloned().flatten());
-        if splice(&doc, &rdf, ours.as_ref().map(|(d, _)| *d), &changed, &model)?.packet == bytes {
+        if splice(&doc, &rdf, ours_el, &changed, &extra, &model)?.packet == bytes {
             return Ok(None);
         }
     }
     if let Some(date) = metadata_date {
         set(&mut model, P::MetadataDate, Some(V::Text(date.to_string())));
     }
-    let merged = splice(&doc, &rdf, ours.as_ref().map(|(d, _)| *d), &changed, &model)?;
-    check(&merged.packet, &changed, limits)?;
+    let merged = splice(&doc, &rdf, ours_el, &changed, &extra, &model)?;
+    check(&merged.packet, &changed, faces.as_ref(), limits)?;
     Ok(Some(merged))
+}
+
+/// The element `element` of `doc` with `edits` (source offsets inside it) applied.
+fn edited(doc: &Doc<'_>, element: usize, mut edits: Vec<(Range<usize>, String)>) -> Result<String> {
+    let span = doc.element(element).map(|e| e.span.clone()).ok_or(Error::OutOfRange)?;
+    edits.sort_by_key(|(r, _)| (r.start, r.end));
+    let mut out = String::new();
+    let mut at = span.start;
+    for (range, text) in &edits {
+        if range.start < at || range.end > span.end {
+            return Err(Error::Malformed("XMP: overlapping region edits".to_owned()));
+        }
+        out.push_str(doc.src.get(at..range.start).ok_or(Error::OutOfRange)?);
+        out.push_str(text);
+        at = range.end;
+    }
+    out.push_str(doc.src.get(at..span.end).ok_or(Error::OutOfRange)?);
+    Ok(out)
+}
+
+/// The line break and indentation of Dalica's description: where it is, or where a new one goes
+/// (one space in from `</rdf:RDF>`); `None` where the packet has no line breaks.
+fn description_indent(doc: &Doc<'_>, rdf: &Rdf, ours: Option<usize>) -> Option<String> {
+    match ours.and_then(|o| doc.element(o)) {
+        Some(el) => indent_at(doc.src, doc.space_before(el.span.start)),
+        None => {
+            let rdf_el = rdf.rdf.and_then(|i| doc.element(i))?;
+            indent_at(doc.src, doc.space_before(rdf_el.close_start)).map(|close| format!("{close} "))
+        }
+    }
 }
 
 fn set(model: &mut Model, p: P, v: Option<V>) {
@@ -310,6 +386,14 @@ fn find_ours(doc: &Doc<'_>, rdf: &Rdf, dated: bool) -> Option<(usize, Model)> {
                     V::Bag(items.iter().map(|i| if i.lang.is_none() { text_item(&i.value) } else { None }).collect::<Option<_>>()?)
                 }
                 (P::Description | P::Subject, _) => return None,
+                // Regions Dalica keeps as written, so they must stand on their own: every prefix
+                // they use declared inside them.
+                (P::Regions, _) => {
+                    let At::Element(c) = prop.at else { return None };
+                    let raw = doc.src.get(doc.element(c)?.span.clone())?;
+                    xml::parse(raw).ok()?;
+                    V::Raw(raw.to_owned())
+                }
                 (_, Value::Text(t)) => V::Text(t.clone()),
                 _ => return None,
             };
@@ -332,12 +416,19 @@ fn text_item(v: &Value) -> Option<String> {
 
 /// The packet with the changed properties cut from the other descriptions and Dalica's description
 /// written from `model`, the padding absorbing the difference in size.
-fn splice(doc: &Doc<'_>, rdf: &Rdf, ours: Option<usize>, changed: &[(P, Option<V>)], model: &Model) -> Result<Merged> {
+fn splice(
+    doc: &Doc<'_>,
+    rdf: &Rdf,
+    ours: Option<usize>,
+    changed: &[(P, Option<V>)],
+    extra: &[(Range<usize>, String)],
+    model: &Model,
+) -> Result<Merged> {
     let src = doc.src;
     let rdf_index = rdf.rdf.ok_or_else(|| Error::Malformed("XMP: no rdf:RDF element".to_owned()))?;
     let rdf_el = doc.element(rdf_index).ok_or_else(|| Error::Malformed("XMP: no rdf:RDF element".to_owned()))?;
     let cut = |p: P| p == P::MetadataDate || changed.iter().any(|(c, _)| *c == p);
-    let mut edits: Vec<(Range<usize>, String)> = Vec::new();
+    let mut edits: Vec<(Range<usize>, String)> = extra.to_vec();
     for d in rdf.descriptions.iter().filter(|d| Some(d.element) != ours) {
         let Some(el) = doc.element(d.element) else { continue };
         for prop in &d.props {
@@ -408,7 +499,7 @@ fn splice(doc: &Doc<'_>, rdf: &Rdf, ours: Option<usize>, changed: &[(P, Option<V
 
 /// The indentation for an element preceded by `space`: a line break and the white space after it,
 /// or `None` when the packet is written without line breaks there.
-fn indent_at(src: &str, space: Range<usize>) -> Option<String> {
+pub(super) fn indent_at(src: &str, space: Range<usize>) -> Option<String> {
     let ws = src.get(space)?;
     let line = ws.rfind('\n')?;
     Some(format!("\n{}", ws.get(line + 1..).unwrap_or_default()))
@@ -449,10 +540,14 @@ fn serialize(model: &Model, r: &str, declare_rdf: bool, about: &str, indent: Opt
     s.push('>');
     for p in ALL {
         let Some(Some(v)) = model.get(p.index()) else { continue };
+        if let V::Raw(raw) = v {
+            s.push_str(&format!("{}{raw}", nl(1)));
+            continue;
+        }
         let name = format!("{}:{}", prefix_of(p.ns()), p.local());
         s.push_str(&format!("{}<{name}>", nl(1)));
         match v {
-            V::Text(t) => s.push_str(&escape(t, false)),
+            V::Text(t) | V::Raw(t) => s.push_str(&escape(t, false)),
             V::Alt(items) => {
                 s.push_str(&format!("{}<{r}:Alt>", nl(2)));
                 for (lang, t) in items {
@@ -478,12 +573,16 @@ fn serialize(model: &Model, r: &str, declare_rdf: bool, about: &str, indent: Opt
 /// and the date (`exif:DateTimeOriginal`) go in with them, never on their own.
 fn new_packet(changes: &Changes, metadata_date: Option<&DateTaken>, limits: &Limits) -> Result<Option<Merged>> {
     let changed = wanted(changes, None, &XmpOwned::default(), limits);
-    if !changed.iter().any(|(p, v)| v.is_some() && matches!(p, P::Description | P::Subject | P::Rating)) {
+    let faces = changes.faces.as_ref().map(|f| Want::of(f, limits)).filter(|w| !w.faces.is_empty());
+    if faces.is_none() && !changed.iter().any(|(p, v)| v.is_some() && matches!(p, P::Description | P::Subject | P::Rating)) {
         return Ok(None);
     }
     let mut model: Model = Default::default();
     for (p, v) in &changed {
         set(&mut model, *p, v.clone());
+    }
+    if let Some(want) = &faces {
+        set(&mut model, P::Regions, Some(V::Raw(regions::new_element(want, Some("\n   ")))));
     }
     if let Some(date) = metadata_date {
         set(&mut model, P::MetadataDate, Some(V::Text(date.to_string())));
@@ -494,12 +593,12 @@ fn new_packet(changes: &Changes, metadata_date: Option<&DateTaken>, limits: &Lim
         "<?xpacket begin=\"\u{feff}\" id=\"{PACKET_ID}\"?>\n<x:xmpmeta xmlns:x=\"{X}\">\n <rdf:RDF xmlns:rdf=\"{RDF}\">\n  {body}\n </rdf:RDF>\n</x:xmpmeta>\n"
     );
     let packet = format!("{head}{padding}<?xpacket end=\"w\"?>").into_bytes();
-    check(&packet, &changed, limits)?;
+    check(&packet, &changed, faces.as_ref(), limits)?;
     Ok(Some(Merged { padding: head.len()..head.len() + padding.len(), packet }))
 }
 
 /// The written packet parsed again: each changed property reads back as requested.
-fn check(packet: &[u8], changed: &[(P, Option<V>)], limits: &Limits) -> Result<()> {
+fn check(packet: &[u8], changed: &[(P, Option<V>)], faces: Option<&Want>, limits: &Limits) -> Result<()> {
     let doc = xml::parse(text_of(packet, limits)?).map_err(|e| Error::Verify(format!("the written XMP does not parse: {e}")))?;
     let got = owned(&Rdf::new(&doc), limits);
     let text = |v: &Option<V>| match v {
@@ -527,8 +626,8 @@ fn check(packet: &[u8], changed: &[(P, Option<V>)], limits: &Limits) -> Result<(
         P::DateTimeOriginal => got.date_time_original == date(v),
         P::DateCreated => got.date_created == date(v),
         P::CreateDate => got.create_date == date(v),
-        P::MetadataDate => true,
-    });
+        P::Regions | P::MetadataDate => true,
+    }) && faces.is_none_or(|w| regions::same_faces(&got.faces, &w.faces));
     if ok { Ok(()) } else { Err(Error::Verify("an XMP property does not read back as written".to_owned())) }
 }
 

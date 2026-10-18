@@ -45,6 +45,7 @@ fn everything() -> Changes {
         star: Some(true),
         place: Some(Some(place())),
         date_taken: Some(date("2026-06-04T19:42:10", Some(-210), Some("050"))),
+        faces: None,
     }
 }
 

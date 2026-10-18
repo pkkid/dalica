@@ -6,6 +6,7 @@
 //! - `rdf`: the top-level descriptions and their properties in attribute and element form, with
 //!   `rdf:Alt` (`x-default` and the other languages), `rdf:Bag`, `rdf:Seq` and structures.
 //! - [`read`]: the owned properties ([`XmpOwned`]); [`rows`]: Show All Metadata rows.
+//! - [`regions`]: MWG face regions read and written (`xmp-interop.md` §6).
 //! - [`merge()`]: writes Dalica's properties into a packet (or a new one), keeping everything else
 //!   byte for byte.
 //!
@@ -14,6 +15,7 @@
 
 pub mod merge;
 mod rdf;
+pub mod regions;
 pub mod xml;
 
 pub use merge::{JPEG_MAX_PACKET, Merged, NEW_PADDING, merge};
@@ -40,6 +42,9 @@ pub fn read(packet: &[u8], extended: Option<&[u8]>, limits: &Limits) -> Result<X
         out.date_time_original = out.date_time_original.or(more.date_time_original);
         out.date_created = out.date_created.or(more.date_created);
         out.create_date = out.create_date.or(more.create_date);
+        if out.faces.is_empty() {
+            out.faces = more.faces;
+        }
     }
     Ok(out)
 }
@@ -75,6 +80,7 @@ fn owned(rdf: &Rdf, limits: &Limits) -> XmpOwned {
         date_time_original: date(EXIF, "DateTimeOriginal"),
         date_created: date(PHOTOSHOP, "DateCreated"),
         create_date: date(XMP, "CreateDate"),
+        faces: regions::read(rdf, limits),
     }
 }
 

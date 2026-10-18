@@ -12,6 +12,7 @@ publish = false
 cargo-fuzz = true
 
 [dependencies]
+dalica-core = { path = "../../core" }
 dalica-meta = { path = ".." }
 libfuzzer-sys = "0.4"
 
@@ -53,6 +54,13 @@ bench = false
 [[bin]]
 name = "carry"
 path = "fuzz_targets/carry.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "regions"
+path = "fuzz_targets/regions.rs"
 test = false
 doc = false
 bench = false

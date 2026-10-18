@@ -17,7 +17,7 @@ const RDF_NS: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
 
 /// Every write option on, written at [`now`].
 fn all() -> WriteOptions {
-    WriteOptions { captions_tags_places: true, stars_as_ratings: true, dates: true, metadata_date: Some(now()), limits: l() }
+    WriteOptions { captions_tags_places: true, stars_as_ratings: true, dates: true, people_names: false, metadata_date: Some(now()), limits: l() }
 }
 
 fn full() -> Changes {
@@ -380,7 +380,14 @@ fn nothing_to_write_creates_no_file() {
     assert_eq!(write(None, None, &Changes::default()), SidecarWrite::Unchanged);
     assert_eq!(write(None, None, &Changes { star: Some(false), ..Changes::default() }), SidecarWrite::Unchanged);
     // The options still decide: captions off, stars off.
-    let off = WriteOptions { captions_tags_places: false, stars_as_ratings: false, dates: true, metadata_date: Some(now()), limits: l() };
+    let off = WriteOptions {
+        captions_tags_places: false,
+        stars_as_ratings: false,
+        dates: true,
+        people_names: false,
+        metadata_date: Some(now()),
+        limits: l(),
+    };
     assert_eq!(xmp_sidecar::merge(None, None, &full(), &off).unwrap(), SidecarWrite::Unchanged);
     assert_eq!(xmp_sidecar::merge(None, Some(DEVELOPER.as_bytes()), &full(), &off).unwrap(), SidecarWrite::Unchanged);
     let stars_off = WriteOptions { stars_as_ratings: false, ..all() };
