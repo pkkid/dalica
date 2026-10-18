@@ -12,8 +12,9 @@
 //!   "Name?" then. Nothing is done per frame.
 //! - **References** are every named face with an embedding of the model in use; each person is
 //!   scored against at most [`dalica_faces::matching::REFERENCES`] of theirs (the most recent and
-//!   most varied, by the photos' dates). Decisions are made on the index's 8-bit embeddings
-//!   ([`NoExact`]): the float32 vectors stay in the scan's cache.
+//!   most varied, by the photos' dates). Decisions are made on the index's 8-bit embeddings; one
+//!   that falls within their error of a bar is settled with the float32 vectors of the scan's
+//!   cache in memory ([`Session::exact_face_embedding`]), as `dalica-faces` designed it.
 //! - **Rejected pairs** (a face is not that person) are read from `people.json` once, on a helper
 //!   thread, the first time suggestions are needed (the owner thread waits for it at most
 //!   [`READ_WAIT`]; until it has them nothing is suggested), and written back through the I/O
@@ -31,7 +32,7 @@ use std::time::Duration;
 
 use dalica_core::{DateTime, PersonId, PhotoId, Timestamp};
 use dalica_faces::evaluate::{Named, Report};
-use dalica_faces::matching::{Bars, DEFAULT_MARGIN, Gallery, NoExact, Packed, Reference};
+use dalica_faces::matching::{Bars, DEFAULT_MARGIN, Embedding, ExactSource, Gallery, Packed, Reference};
 use dalica_library::{FaceRef, Library, Photo};
 use dalica_store::people::{PeopleState, PeopleWrite, Rejected};
 
@@ -257,7 +258,10 @@ impl Session {
         if self.suggestions.computed.as_ref().is_some_and(|c| c.key == key) {
             return Ok(());
         }
-        let computed = compute(&self.library, &self.faces_index, &self.suggestions.pairs, key, threshold);
+        let computed = {
+            let exact = |at: &FaceAt| self.exact_at(at);
+            compute(&self.library, &self.faces_index, &self.suggestions.pairs, key, threshold, &exact)
+        };
         log::debug!("suggestions made: {} faces, {} people", computed.list.len(), computed.counts.len());
         self.suggestions.computed = Some(computed);
         self.suggestions.generation = self.suggestions.generation.wrapping_add(1);
@@ -310,7 +314,15 @@ impl Session {
             .into_iter()
             .flat_map(|(person, refs)| refs.into_iter().map(move |r| Named { face: r.face, person: person.clone(), taken: r.taken, vec: r.vec }))
             .collect();
-        Some(dalica_faces::evaluate::evaluate(&all, &info.calibration, DEFAULT_MARGIN, &NoExact))
+        let exact = |at: &FaceAt| self.exact_at(at);
+        Some(dalica_faces::evaluate::evaluate(&all, &info.calibration, DEFAULT_MARGIN, &exact))
+    }
+
+    /// The float32 embedding of the face `at` names, from the scan's cache.
+    fn exact_at(&self, at: &FaceAt) -> Option<Embedding> {
+        let photo = self.library.photo(at.photo)?;
+        let face = self.library.faces(at.photo).iter().find(|f| at.is_at(&f.rect))?;
+        self.exact_face_embedding(photo, &face.rect)
     }
 
     /// Records that each of `pairs` (a face, the person it is not) is not to be suggested again;
@@ -466,8 +478,8 @@ fn rect_bits(r: &dalica_core::Rect01) -> [u64; 4] {
 
 /// The suggestions for `key`: the references of every person, the rejected pairs found in the
 /// library, and (with Suggest names on and a model) a "Name?" for each unnamed face that passes
-/// both bars.
-fn compute(lib: &Library, index: &FacesIndex, pairs: &[Pair], key: Key, threshold: Option<f32>) -> Computed {
+/// both bars, a decision within the 8-bit error settled from `exact`.
+fn compute(lib: &Library, index: &FacesIndex, pairs: &[Pair], key: Key, threshold: Option<f32>, exact: &impl ExactSource<FaceAt>) -> Computed {
     let mut gallery: Gallery<FaceAt, PersonId> = Gallery::new();
     for (person, refs) in named(lib, index) {
         gallery.set_person(person, refs);
@@ -481,7 +493,7 @@ fn compute(lib: &Library, index: &FacesIndex, pairs: &[Pair], key: Key, threshol
     if let (true, Some(threshold)) = (key.on, threshold) {
         let bars = Bars::new(threshold);
         for (face, at, vec) in unnamed(lib, index) {
-            if let Some(s) = gallery.suggest(&at, vec, bars, &NoExact) {
+            if let Some(s) = gallery.suggest(&at, vec, bars, exact) {
                 list.push(Made { face, at, person: s.person, score: s.score, runner_up: s.runner_up });
             }
         }

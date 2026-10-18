@@ -210,7 +210,9 @@ How suggestions are built (M13.26; engine `suggestions.rs`, `cmd/suggest.rs`):
   library (a face named, moved or removed, a person merged), the face index (faces embedded,
   another model), the rejected pairs, Suggest names or the Suggestion confidence change; nothing is
   done per frame. References are every named face with an embedding of the model in use;
-  decisions use the index's 8-bit embeddings.
+  decisions use the index's 8-bit embeddings, and one within their error of a bar is settled with
+  the float32 vectors of the scan's cache in memory. `people.list`'s `pending` is the number of
+  faces suggested as each person.
 - **Confirm** names a face after its suggested person (one undo step for any number of faces, and
   for Confirm All); **Reject** records the pair (photo path, rectangle, person) in `people.json`'s
   `"rejected"`, no undo step. A pair follows its photo when the photo is renamed or moved in the

@@ -2,7 +2,8 @@
 //! is suggested as Ana and confirming it makes it a reference; Confirm All is one undo step; a
 //! rejected pair never comes back, also after its photo is renamed and after a restart; nothing is suggested with Suggest names off,
 //! below the threshold or without a lead over the runner-up; Find More lists the near misses most
-//! similar first; `faces.evaluate` reports per confidence step; each command's contract.
+//! similar first; a decision within the 8-bit error of the threshold is settled at float32;
+//! `faces.evaluate` reports per confidence step; each command's contract.
 //!
 //! The embeddings are synthetic, planted in the recogniser's cache before the session loads it, so
 //! no photo is ever read: a four-number recogniser (whose own output is never used) is installed
@@ -17,6 +18,7 @@ use dalica_engine::Session;
 use dalica_faces::graph::{Attr, Graph, Node, Weight};
 use dalica_faces::known;
 use dalica_faces::manifest::{InputSpec, OutputSpec};
+use dalica_faces::matching::{Embedding, similarity};
 use dalica_faces::synthetic::encode;
 use dalica_fs::Expect;
 use dalica_library::FacePerson;
@@ -178,6 +180,10 @@ fn a_face_near_anas_is_suggested_as_ana_and_confirming_it_makes_it_a_reference()
     assert_eq!(m["runnerUp"]["person"], json!(bo));
     assert_eq!(v["pending"], json!({ ana.clone(): 1 }), "the pending count per person");
     assert_eq!(t.s.pending_suggestions().get(&dalica_core::PersonId::parse(&ana).unwrap()), Some(&1));
+    let people = t.run("people.list", json!({}));
+    let pending: Vec<(String, u64)> =
+        people["people"].as_array().unwrap().iter().map(|p| (p["id"].as_str().unwrap().into(), p["pending"].as_u64().unwrap())).collect();
+    assert_eq!(pending, [(ana.clone(), 1), (bo.clone(), 0)], "people.list's pending");
     assert!(!t.s.execute("faces.suggest", &json!({ "person": bo })).unwrap()["suggestions"].as_array().unwrap().iter().any(|_| true));
     let by_photo = t.run("faces.suggest", json!({ "ids": [t.ids[2]] }));
     assert_eq!(by_photo["total"], json!(1));
@@ -391,4 +397,33 @@ fn evaluate_reports_per_confidence_step() {
     let thresholds: Vec<f64> = steps.iter().map(|s| s["threshold"].as_f64().unwrap()).collect();
     assert!(thresholds.windows(2).all(|w| w[0] < w[1]) && (thresholds[7] - 0.5).abs() < 1e-6, "{thresholds:?}");
     assert_eq!(t.err("faces.evaluate", json!({ "x": 1 })), "bad_params");
+}
+
+/// A face `cos` from Ana (the rest of its length split between the last two numbers by `split`).
+fn at_cosine(cos: f64, split: f64) -> [f32; 4] {
+    let rest = (1.0 - cos * cos).sqrt();
+    [cos as f32, 0.0, (rest * split) as f32, (rest * (1.0 - split * split).sqrt()) as f32]
+}
+
+#[test]
+fn a_decision_within_the_8_bit_error_of_the_threshold_is_settled_at_full_precision() {
+    let mut t = setup(4);
+    let (ana, bo) = (t.ana.clone(), t.bo.clone());
+    t.face(0, 0, Some(&ana));
+    t.face(1, 0, Some(&bo));
+    let above = t.face(2, 0, None);
+    t.face(3, 0, None);
+    // 0.5007 from Ana at full precision but under 0.5 at 8 bits, and 0.4993 the other way round.
+    let (up, down) = (at_cosine(0.5007, 0.0), at_cosine(0.4993, 0.5));
+    let ana_8 = Embedding::new(&ANA).unwrap().pack();
+    for (v, exact_above) in [(up, true), (down, false)] {
+        let e = Embedding::new(&unit(v)).unwrap();
+        let exact = e.cosine(&Embedding::new(&ANA).unwrap()).unwrap();
+        let eight = similarity(&e.pack(), &ana_8).unwrap().value;
+        assert_eq!((exact >= 0.5, eight >= 0.5), (exact_above, !exact_above), "the two scores straddle 0.5: {exact} {eight}");
+    }
+    t.plant(&[(0, 0, ANA), (1, 0, BO), (2, 0, up), (3, 0, down)]);
+    assert_eq!(t.suggested(), [(above.clone(), ana.clone())], "suggested by the float32 score, not the 8-bit one");
+    let score = t.run("faces.suggest", json!({}))["suggestions"][0]["score"].as_f64().unwrap();
+    assert!(score >= 0.5, "the score given is the full-precision one: {score}");
 }
