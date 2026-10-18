@@ -44,6 +44,7 @@ mod jobs;
 mod keymap;
 mod lessons_m9;
 mod library_inspect;
+mod map_tiles;
 mod meta_import;
 mod move_copy;
 mod new_folder;

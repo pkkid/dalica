@@ -8005,7 +8005,7 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
     writes a region that reads back, renaming the person rewrites it, and undo writes the old
     value; with the option off nothing is written and `faces.writeXmp` writes after its question;
     a file's pet region survives every write; the owner thread made no `fs` call.
-- ⬜ **M13.20 `engine`: map tiles and place search**
+- ✅ **M13.20 `engine`: map tiles and place search**
   - after: M13.13, M13.14
   - files: `crates/engine/src/cmd/map.rs`, `crates/engine/src/map_tiles.rs`, `crates/engine/src/geocode.rs`, `crates/engine/tests/map_tiles.rs`, `docs/security.md`
   - scope: `organizing.md` §7 with reserved decisions 4 and 9 (asked at M12.R: the provider, its
