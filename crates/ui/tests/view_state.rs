@@ -1230,12 +1230,16 @@ fn the_new_menu_items_are_listed_and_greyed() {
         assert_eq!((&r["live"], &r["enabled"], &r["reason"]), (&json!(true), &json!(false), &json!(people::NOT_YET)), "{r}");
     }
     assert!(person.as_array().unwrap().iter().any(|n| n["widget"] == "submenu:Person/Merge Into"));
-    // The bar: Tools ▸ Geotag greyed (Clear Location… waits for its task, Copy and Paste for the
-    // engine's commands), the other M13 rows not live yet; View ▸ People and Places live.
+    // The bar: Tools ▸ Geotag's Clear Location… waits for its task, Copy and Paste Location are
+    // the engine's (M13.14: Copy live, Paste greyed with nothing copied); the other M13 rows not
+    // live yet; View ▸ People and Places live.
+    let copy = row(&mut t, "geo.copy", Value::Null);
+    assert_eq!((&copy["live"], &copy["enabled"]), (&json!(true), &json!(true)), "geo.copy: {copy}");
+    let paste = row(&mut t, "geo.paste", Value::Null);
+    assert_eq!((&paste["live"], &paste["enabled"]), (&json!(true), &json!(false)), "geo.paste: {paste}");
+    assert!(paste["reason"].is_string(), "geo.paste: {paste}");
     for (id, live, reason) in [
         ("geo.clear", true, places::NOT_YET),
-        ("geo.copy", false, "Not available yet."),
-        ("geo.paste", false, "Not available yet."),
         ("faces.reset", false, "Not available yet."),
         ("faces.writeXmp", false, "Not available yet."),
         ("people.manager", false, "Not available yet."),
