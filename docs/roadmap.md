@@ -7291,8 +7291,31 @@ a maintainer decision mid-run.
     fingerprint suites run (`cargo test -p dalica-ui-kit`, `cargo test -p dalica-ui --test all`)
     with no baseline moved beyond its tolerance, or the moved ones reported on the issue with
     their diff images (never blessed outside this task's files); `cargo xtask ci`.
+- ⬜ **M12.32 `edit`: Drop Shadow's defaults read at a glance**
+  - after: M12.14
+  - files: `crates/edit/src/ops/mats.rs`, `crates/edit/src/catalog.rs`, `crates/edit/tests/mats.rs`, `crates/edit/tests/fingerprints/mats-drop-shadow.json`, `docs/editing.md`
+  - scope: a fix task from the M12.R review (the maintainer's answer to Q7). At today's defaults
+    (`drop_shadow(#000000,4,90,10,30,#ffffff)`: Distance 4 and Blur 10 thousandths of the shorter
+    side, 1.3 px and 3.2 px on a 480 × 320 photo) the shadow is one grey pixel column at the
+    photo's right edge, and the effect reads as a plain white frame in the edit view, the tile and
+    the thumbnail. The renderer is right (opacity `1 − Fade/100`, the shadow cast along Angle);
+    only the defaults change: Distance 15 and Blur 25 thousandths of the shorter side (about
+    4.8 px and 8 px at 480 × 320; the canvas margin grows with them to 65 thousandths), Angle 90,
+    Fade 30, the colours and the ranges as they are. One place sets them: `DropShadow::default`
+    in `ops/mats.rs` and the catalogue row's defaults in `catalog.rs` agree (the catalogue's
+    tests already check every default prints back and renders the same). `editing.md` §8.4's
+    Drop Shadow row and §8.5's entry at its defaults read the new numbers. A recipe written with
+    the old defaults keeps its own numbers (they are its parameters, not defaults), so no saved
+    photo changes. `docs/editing.md` is also in M12.29's files: the board runs the two one after
+    the other.
+  - done when: `crates/edit/tests/mats.rs`: at the defaults on a 480 × 320 picture the shadow
+    darkens the background by at least 20 levels (of 255) 8 px beyond the photo's right edge
+    (about 32 levels there by the tent's closed form), the same distance beyond the left edge is
+    lighter than that (the shadow visibly offset, not a halo), and the far corners are the
+    background; the `mats-drop-shadow` fingerprint re-blessed after looking at its diff images
+    (the why in the commit body, images on the PR); `cargo xtask ci`.
 - ⬜ **M12.22 `accept M12`**
-  - after: M12.14, M12.15, M12.17, M12.18, M12.19, M12.20, M12.21, M12.24, M12.25, M12.26, M12.27, M12.28, M12.29, M12.30, M12.31
+  - after: M12.14, M12.15, M12.17, M12.18, M12.19, M12.20, M12.21, M12.24, M12.25, M12.26, M12.27, M12.28, M12.29, M12.30, M12.31, M12.32
   - files: `tests/acceptance/m12.rs`, `tests/acceptance/m12_*.rs`, `tests/acceptance/m12.md`, `tests/acceptance/fingerprints/m12-*.json`
   - scope: every *Done when* of M12's three areas in the real `dalica --headless` over the control
     channel and through `dalica-cli mcp`: each tab's grid filling with previews; each of the 27
