@@ -8607,7 +8607,7 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
     workspace's direct dependents of `dalica-engine` include `dalica-ui`, `dalica-mcp`, `dalica`
     and `dalica-cli`; `cargo xtask ci` on a branch changing only `crates/engine` runs the tests of
     `dalica-engine`, `dalica-ui`, `dalica-mcp`, `dalica` and `dalica-cli` (its output in the PR).
-- ⬜ **M13.32 `accept M13`**
+- ✅ **M13.32 `accept M13`**
   - after: M13.17, M13.23, M13.27, M13.28, M13.29, M13.30, M13.31, M13.43, M13.44, M13.46, M13.48, M13.49, M13.50
   - files: `tests/acceptance/m13.rs`, `tests/acceptance/m13_*.rs`, `tests/acceptance/m13.md`, `tests/acceptance/fingerprints/m13-*.json`
   - scope: every *Done when* of M13's three areas in the real `dalica --headless` over the control

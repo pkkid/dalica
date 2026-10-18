@@ -21,6 +21,8 @@ dalica-core.workspace = true
 dalica-create = { workspace = true, features = ["faults"] }
 dalica-edit.workspace = true
 dalica-engine.workspace = true
+# Synthetic face models: a planted detector and a recogniser installed from a file (M13).
+dalica-faces.workspace = true
 dalica-fs = { workspace = true, features = ["faults"] }
 dalica-image.workspace = true
 dalica-meta.workspace = true
@@ -90,3 +92,7 @@ path = "m11.rs"
 [[test]]
 name = "m12"
 path = "m12.rs"
+
+[[test]]
+name = "m13"
+path = "m13.rs"
