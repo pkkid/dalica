@@ -8314,7 +8314,7 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
     1 level of the exact function; the `remap-boost-large`, `colour-saturation-large` and
     `colour-warmify-large` fingerprints blessed from the M12 code match; the existing
     fingerprints and region tests pass unchanged; `cargo xtask ci`.
-- ⬜ **M13.39 `edit`: HDR Look, Plastic Lens and Dream Glow within the slider's caps**
+- ✅ **M13.39 `edit`: HDR Look, Plastic Lens and Dream Glow within the slider's caps**
   - after: M12.R, M13.34
   - files: `crates/edit/src/ops/looks.rs`, `crates/edit/tests/look_effects.rs`, `crates/edit/tests/fingerprints/looks-*.json`
   - scope: effect speed. Draft / final p95 at M12.21: HDR Look 31.1 / 740 ms, Plastic Lens 44.6 /
