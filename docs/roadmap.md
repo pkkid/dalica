@@ -7819,7 +7819,7 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
     write then a read returns every named face; non-face regions and a matched entry's foreign
     fields are byte-identical after a write; writing twice gives the same file; a region list of
     100 000 entries is bounded; the existing round-trip tests pass unchanged.
-- ⬜ **M13.12 `ui-kit`: the map: the offline layer, tiles, markers, the pin and bubbles**
+- ✅ **M13.12 `ui-kit`: the map: the offline layer, tiles, markers, the pin and bubbles**
   - after: M13.1, M13.5
   - files: `crates/ui-kit/src/widgets.rs`, `crates/ui-kit/src/widgets/map.rs`, `crates/ui-kit/src/widgets/map/**`, `assets/maps/**`, `ATTRIBUTION.md`, `crates/ui-kit/tests/map_widget.rs`, `crates/ui-kit/tests/fingerprints/map*.json`, `crates/ui-kit/tests/fingerprints/gallery*.json`, `docs/design-system.md`, `docs/assets.md`
   - scope: `organizing.md` §7 and the decisions above: a `map` widget on `core::geo`'s Web

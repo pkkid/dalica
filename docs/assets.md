@@ -160,5 +160,12 @@ rows that start with `|` are read; the commented example in `ATTRIBUTION.md` is 
   decision 5 in [`roadmap.md`](roadmap.md)).
 - **Map tiles** and other online data are fetched at run time only after a user action and shown
   with the provider's required attribution in the UI; none of it is cached into the repository.
+- **The offline map** (M13.12) is the one map layer in the repository: Natural Earth's 1:110m land
+  (public domain), converted by `assets/maps/convert.py` from the GeoJSON of
+  `nvkelso/natural-earth-vector` v5.1.2 into `assets/maps/land-110m.bin` (20 KB: rings of points in
+  hundredths of a degree, format in `assets/maps/README.md`) and compiled into `dalica-ui-kit`. It
+  has its `ATTRIBUTION.md` row; the map names it in its attribution line while no tiles are shown.
+  The file must stay within 256 KB (a test checks it); a finer scale needs the same conversion
+  and a new row, never data of unknown licence.
 - **Translations** are original work ([`localization.md`](localization.md)) and get an
   `ATTRIBUTION.md` row per catalog.
