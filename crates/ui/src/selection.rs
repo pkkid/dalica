@@ -25,6 +25,7 @@ use dalica_library::Library;
 
 use crate::app::App;
 use crate::panels::light_table::layout::Layout;
+use crate::panels::light_table::suggestions::ForSections;
 use crate::panels::light_table::{Sections, tree_options};
 use crate::state::{ScrollAnchor, Section, Selection, UiState};
 
@@ -166,10 +167,20 @@ pub fn starred(scope: &Scope<'_>, library: &Library) -> Option<Selection> {
     Some(scope.selection(ids, Some(anchor)))
 }
 
-/// The section as a unit (a tree row, `select.section`): all its photos, marked `whole`.
-pub fn whole(scope: &Scope<'_>) -> Selection {
-    let anchor = scope.photos.first().copied();
-    Selection::new(scope.photos.to_vec(), anchor, Some(scope.section), true)
+/// The section as a unit (a tree row, `select.section`): all its photos, marked `whole`. A
+/// person's section is their own photos: those holding a confirmed face of theirs, in the
+/// section's order, never the photos only suggested for them (`organizing.md` §6.3); with Show only
+/// suggestions on that is none, and the section stays the selection's.
+pub fn whole(scope: &Scope<'_>, library: &Library) -> Selection {
+    let ids = match scope.section.person() {
+        Some(person) => {
+            let theirs = |id: &PhotoId| library.faces(*id).iter().any(|f| f.person.person() == Some(&person));
+            scope.photos.iter().copied().filter(theirs).collect()
+        }
+        None => scope.photos.to_vec(),
+    };
+    let anchor = ids.first().copied();
+    Selection::new(ids, anchor, Some(scope.section), true)
 }
 
 /// The photos of section `index` a rubber band touches: `x` from the light table's left edge, `y`
@@ -235,8 +246,13 @@ impl<'a> Table<'a> {
         let library = session.library();
         let selected = app.state().selection.section;
         let Some(p) = app.panels() else {
+            // While the panels draw (they are out of the app), the sections as they draw them: the
+            // person sections in the People group's order, with the suggestions they show.
             let mut fresh = Sections::default();
-            fresh.refresh(library, session.roots(), &tree_options(app));
+            let state = app.state();
+            let suggested = crate::commands::suggestions::latest();
+            let people = ForSections { snapshot: Some(&suggested), only: &state.people.only_suggestions };
+            fresh.refresh_people(library, session.roots(), &tree_options(app), None, state.people.sort, people);
             return Some(Table { sections: Source::Fresh(Box::new(fresh)), selected, layout: None, view: None, library });
         };
         let lt = &p.light_table;
@@ -432,7 +448,7 @@ mod tests {
         assert_eq!(invert(&a, &s), Selection::default(), "inverting everything leaves nothing");
         let elsewhere = Selection::new(sel.ids, sel.anchor, Some(Section::Folder(FolderId::new(2))), sel.whole);
         assert_eq!(invert(&elsewhere, &s).ids, p, "a selection elsewhere counts as none");
-        let w = whole(&s);
+        let w = whole(&s, &Library::default());
         assert!(w.whole && w.ids == p);
     }
 }

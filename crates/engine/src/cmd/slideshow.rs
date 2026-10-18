@@ -11,7 +11,9 @@
 //!   permission always sends it: `automation::NAME_SEARCHES`). And the place to start from: `start`'s place
 //!   when it is in the list, else the first. For each photo with a face that shows (after its crop)
 //!   it gives the face Pan and Zoom moves toward ([`focus_of`]): the largest named face, else the
-//!   largest unnamed one (ignored faces never), and its centre on the picture shown.
+//!   largest unnamed one (ignored faces never), and its centre on the picture shown. Automation
+//!   without the people permission gets each photo's focus as its centre and no face
+//!   (`automation::FACE_POINTS`); the window's own show still moves toward the face.
 //! - [`Slideshow`]: the show the UI plays, M11.4's [`Show`] on the session's clock over that list,
 //!   with the previews it needs made ahead through the preview's two panes at the display's size:
 //!   the photo shown in one pane; the next photo opened in the other as soon as no change is under
@@ -53,7 +55,7 @@ pub fn specs() -> Vec<CommandSpec> {
         label: "Slideshow Photos",
         menu: "",
         keys: &[],
-        params: r#"{"section"?:"folder:<id>"|"album:<id>"|"album:starred"|"album:recent"|"album:search"|"person:<id>" (its photos in display order) | "ids"?:[PhotoId] (the tray, in its order) | "search"?:string (the search box's grammar; its matches in light-table order) (exactly one of the three), "start"?:PhotoId (the photo to start from), "withholdNames"?:bool (default false: people's names and nicknames take no part in search's match; automation without --automation-allow-people always sends true)}: the photos a slideshow plays: {photos:[PhotoId], start: the place of start in photos (0 when it is not there), videos: how many videos were left out, focus: {"<PhotoId>": {face:"<PhotoId>.<n>", point:[x, y]}} (for each photo with a face that shows: the face Pan and Zoom moves toward, the largest named one else the largest, and its centre normalised to the picture shown)}; hidden photos only while the view shows hidden pictures"#,
+        params: r#"{"section"?:"folder:<id>"|"album:<id>"|"album:starred"|"album:recent"|"album:search"|"person:<id>" (its photos in display order) | "ids"?:[PhotoId] (the tray, in its order) | "search"?:string (the search box's grammar; its matches in light-table order) (exactly one of the three), "start"?:PhotoId (the photo to start from), "withholdNames"?:bool (default false: people's names and nicknames take no part in search's match; automation without --automation-allow-people always sends true)}: the photos a slideshow plays: {photos:[PhotoId], start: the place of start in photos (0 when it is not there), videos: how many videos were left out, focus: {"<PhotoId>": {face:"<PhotoId>.<n>", point:[x, y]}} (for each photo with a face that shows: the face Pan and Zoom moves toward, the largest named one else the largest, and its centre normalised to the picture shown; automation without --automation-allow-people gets each photo's focus as {point:[0.5, 0.5]}, its centre, and no face)}; hidden photos only while the view shows hidden pictures"#,
         effect: Effect::Query,
         history: History::None,
         enabled: has_target,

@@ -8521,7 +8521,7 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
     names through, the headless session has the default models folder; `crates/ui/tests/people_pane.rs`:
     with Ana and Anabel in the library, selecting Ana in the pane shows only Ana's photos, and
     the existing pane tests and fingerprints pass unchanged on the engine's mapping; `cargo xtask ci`.
-- ⬜ **M13.49 `ui` + `engine`: people names and face points withheld from automation without the people permission**
+- ✅ **M13.49 `ui` + `engine`: people names and face points withheld from automation without the people permission**
   - after: M13.30, M13.48
   - files: `crates/ui/src/control/people.rs`, `crates/ui/src/control/mod.rs`, `crates/ui/src/control/view.rs`, `crates/ui/src/control/menu.rs`, `crates/ui/src/control/tests.rs`, `crates/engine/src/automation.rs`, `crates/engine/src/cmd/slideshow.rs`, `crates/engine/tests/people.rs`, `crates/ui/src/selection.rs`, `crates/ui/src/commands/select.rs`, `crates/ui/src/commands/slideshow.rs`, `crates/ui/src/commands/export.rs`, `crates/ui/src/panels/folders.rs`, `crates/ui/src/panels/light_table.rs`, `crates/ui/src/panels/light_table/suggestions.rs`, `crates/ui/tests/suggestions_ui.rs`, `docs/control-protocol.md`, `docs/organizing.md`
   - scope: fixes from the maintainer's answers at the M13.R review prep (2026-10-18). M13.48 closed

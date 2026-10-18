@@ -7,7 +7,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::host::Input;
-use super::{Call, Code, Error, Next, Outcome};
+use super::{Call, Code, Error, Next, Outcome, people};
 use crate::menus::{self, Lookup, Platform};
 
 /// The context menus `ui.menu.tree {context}` names (§6.10).
@@ -25,28 +25,48 @@ struct Tree {
     context: Option<String>,
 }
 
-/// `ui.menu.tree {context?}`: the bar, or a context menu's rows, for the current state.
+/// `ui.menu.tree {context?}`: the bar, or a context menu's rows, for the current state; without the
+/// people permission the rows naming a person read the placeholder ([`people::nodes`]).
 pub(super) fn tree(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Error> {
     let t: Tree = call.params(params)?;
     let app = call.host.app();
     let platform = Platform::current();
+    let withheld = people::withheld(call.control.config());
+    let shown = |mut rows: Vec<menus::Node>| {
+        if withheld {
+            people::nodes(&mut rows);
+        }
+        menus::nodes_json(&rows)
+    };
     let reply = match t.context.as_deref() {
-        None => menus::tree_json(&menus::bar(app, platform)),
-        Some("section") => menus::nodes_json(&menus::section_menu(app, platform)),
-        Some("photo") => menus::nodes_json(&menus::photo_menu(app, platform)),
-        Some("tray") => menus::nodes_json(&crate::panels::bottom::tray::context_nodes(app, &tray_targets(app))),
+        None => menus::tree_json(&bar(call)),
+        Some("section") => shown(menus::section_menu(app, platform)),
+        Some("photo") => shown(menus::photo_menu(app, platform)),
+        Some("tray") => shown(crate::panels::bottom::tray::context_nodes(app, &tray_targets(app))),
         // The person whose section is selected: their menu, Merge Into ▸ filled (M13.25).
         Some("person") => match app.state().selection.section.and_then(crate::state::Section::person) {
-            Some(person) => menus::nodes_json(&crate::commands::people::menu_nodes(app, &person)),
-            None => menus::nodes_json(&menus::person_menu(app, platform)),
+            Some(person) => shown(crate::commands::people::menu_nodes(app, &person)),
+            None => shown(menus::person_menu(app, platform)),
         },
-        Some("face") => menus::nodes_json(&crate::panels::faces::menu::nodes(app, platform)),
+        Some("face") => shown(crate::panels::faces::menu::nodes(app, platform)),
         Some(c) if CONTEXTS.contains(&c) => {
             return Err(Error::new(Code::Unsupported, format!("the {c} context menu is not built yet; it comes with its region")));
         }
         Some(other) => return Err(call.bad(format!("no context menu `{other}`; one of {}", CONTEXTS.join(", ")))),
     };
     Ok(Outcome::Reply(Ok(reply)))
+}
+
+/// The bar as this client sees it: without the people permission a row naming a person reads the
+/// placeholder, so `ui.menu.invoke {path}` matches it by the placeholder only (§6.10).
+fn bar(call: &Call<'_>) -> Vec<menus::MenuNode> {
+    let mut model = menus::bar(call.host.app(), Platform::current());
+    if people::withheld(call.control.config()) {
+        for m in &mut model {
+            people::nodes(&mut m.children);
+        }
+    }
+    model
 }
 
 /// The photos the tray menu acts on when it opens on the tray's empty space: the tray-selected
@@ -84,7 +104,7 @@ pub(super) fn invoke(call: &mut Call<'_>, params: &Value) -> Result<Outcome, Err
         (None, Some(id)) => Lookup::Id { id, params: p.params.clone() },
         _ => return Err(call.bad("give either `path` or `id`")),
     };
-    let model = menus::bar(call.host.app(), Platform::current());
+    let model = bar(call);
     let Some(item) = menus::find(&model, &lookup).cloned() else {
         let what = match &lookup {
             Lookup::Path(parts) => format!("at `{}`", parts.join("/")),

@@ -1079,3 +1079,126 @@ fn people_data_and_name_searches_follow_the_people_permission() {
         assert_eq!(b["results"][1]["result"]["faces"][0]["name"], if allow { json!("Ana") } else { Value::Null }, "{at}: a batch step");
     }
 }
+
+/// Without `--automation-allow-people` the window's own replies carry no person's name (§6.4,
+/// `control/people.rs`): with Ana named, her section shown (zoomed to her faces), the People pane
+/// open and the face menu's Move to Person ▸ listed, then with the People pane filtering by Ana and
+/// Rui, Rename Person open, "Ana" typed in the Unnamed grid with the people it offers, a face
+/// dragged over her row, and the edit view's face boxes with Add a Person Manually's name "Ana",
+/// no reply of `ui.inspect`, `ui.state`, `ui.widgets` or `ui.menu.tree` contains "Ana", while the
+/// widgets listed are those drawn, by the same ids; the labels keep their counts around the
+/// placeholder, and a menu path naming Ana is no item. With `allow_people` the replies read "Ana".
+#[test]
+fn people_names_are_withheld_from_the_windows_replies_without_the_people_permission() {
+    for allow in [false, true] {
+        let at = format!("allow_people {allow}");
+        let mut t = setup_with(4, |_| Config { allow_people: allow, ..Config::default() });
+        let ids = t.ids.clone();
+        let s = t.d.app_mut().session_mut().unwrap();
+        let faces: Vec<Value> =
+            ids.iter().map(|id| s.execute("faces.add", &json!({ "id": id, "rect": [0.2, 0.2, 0.5, 0.6] })).unwrap()["face"].clone()).collect();
+        let name = |s: &mut Session, faces: &[Value], name: &str| {
+            s.execute("faces.name", &json!({ "faces": faces, "name": name, "create": true })).unwrap()["person"].as_str().unwrap().to_string()
+        };
+        let ana = name(s, &faces[..2], "Ana");
+        let rui = name(s, &faces[2..3], "Rui");
+        t.d.settle(600).unwrap();
+        // Every reply of the four methods, as one text.
+        let replies = |t: &mut T| -> String {
+            let asks = [
+                ("ui.inspect", json!({})),
+                ("ui.state", json!({})),
+                ("ui.widgets", json!({})),
+                ("ui.menu.tree", json!({})),
+                ("ui.menu.tree", json!({ "context": "face" })),
+                ("ui.menu.tree", json!({ "context": "person" })),
+            ];
+            asks.into_iter().map(|(m, p)| ok(t, m, p).to_string()).collect::<Vec<_>>().join("\n")
+        };
+        let check = |t: &mut T, step: &str| {
+            let all = replies(t);
+            assert_eq!(all.contains("Ana"), allow, "{at}, {step}: {all}");
+        };
+        let label = |t: &mut T, id: &str| -> Value {
+            let list = ok(t, "ui.widgets", json!({}));
+            list.as_array().unwrap().iter().find(|w| w["id"] == json!(id)).unwrap_or_else(|| panic!("{at}: no {id}"))["label"].clone()
+        };
+        let named = |withheld: &str, shown: &str| json!(if allow { shown } else { withheld });
+
+        // Her section, zoomed to her faces, the People pane open, the face menu's Move to Person ▸.
+        ok(&mut t, "ui.clickWidget", json!({ "id": format!("tree:person:{ana}") }));
+        t.d.run("people.zoomToFaces", &json!({ "person": ana, "on": true })).unwrap();
+        t.d.run("pane.people", &json!({})).unwrap();
+        t.d.settle(600).unwrap();
+        ok(&mut t, "ui.hoverWidget", json!({ "id": format!("section:person:{ana}/icon"), "ms": 900 }));
+        assert_eq!(ok(&mut t, "ui.inspect", json!({}))["tooltip"], named("Person", "Ana"), "{at}: her icon's tooltip");
+        let tile = t.d.widgets().into_iter().find(|w| w.id.starts_with("face:")).unwrap().id;
+        ok(&mut t, "ui.clickWidget", json!({ "id": tile, "button": "right" }));
+        ok(&mut t, "ui.hoverWidget", json!({ "id": "submenu:Face/Move to Person", "ms": 300 }));
+        check(&mut t, "her section");
+        let listed: Vec<Value> = ok(&mut t, "ui.widgets", json!({})).as_array().unwrap().iter().map(|w| w["id"].clone()).collect();
+        let drawn: Vec<Value> = t.d.widgets().into_iter().map(|w| json!(w.id)).collect();
+        assert_eq!(listed, drawn, "{at}: the same widgets, by the same ids");
+        assert_eq!(label(&mut t, &format!("tree:person:{ana}")), named("Person (2)", "Ana (2)"), "{at}");
+        assert_eq!(label(&mut t, &format!("person:{ana}")), named("Person, 2 photos", "Ana, 2 photos"), "{at}");
+        assert_eq!(label(&mut t, &format!("menuitem:faces.moveToPerson/{ana}")), named("Person", "Ana"), "{at}");
+        let popup = ok(&mut t, "ui.inspect", json!({}))["popup"]["items"].clone();
+        assert!(popup.as_array().unwrap().iter().any(|i| i["widget"] == json!(format!("menuitem:faces.moveToPerson/{rui}"))), "{at}: {popup}");
+        let e = refused(&mut t, "ui.menu.invoke", json!({ "path": "Face/Move to Person/Ana" }), "not_found");
+        assert!(e.message.contains("no menu item"), "{at}: {e}");
+        ok(&mut t, "ui.key", json!({ "key": "Escape" }));
+        ok(&mut t, "ui.key", json!({ "key": "Escape" }));
+
+        // The People pane filtering by Ana and Rui: the banner.
+        t.d.run("people.filter", &json!({ "people": [ana, rui] })).unwrap();
+        t.d.settle(600).unwrap();
+        check(&mut t, "the filter");
+        let banner = label(&mut t, "banner:search");
+        assert_eq!(banner, named("Showing photos with Person and Person", "Showing photos with Ana and Rui"), "{at}");
+        t.d.run("people.filter", &json!({ "people": [] })).unwrap();
+
+        // Rename Person's draft.
+        (crate::commands::people::RENAME.open)(t.d.app_mut(), &json!({ "person": ana })).unwrap();
+        t.d.settle(60).unwrap();
+        check(&mut t, "Rename Person");
+        assert_eq!(ok(&mut t, "ui.inspect", json!({}))["dialog"]["fields"]["name"], named("Person", "Ana"), "{at}");
+        ok(&mut t, "ui.dialog.cancel", json!({}));
+
+        // "Ana" typed in the Unnamed grid, and the people it offers.
+        ok(&mut t, "ui.clickWidget", json!({ "id": "tree:person:unnamed" }));
+        ok(&mut t, "ui.clickWidget", json!({ "id": "field:faces.name/0" }));
+        ok(&mut t, "ui.type", json!({ "text": "Ana" }));
+        check(&mut t, "the Unnamed grid");
+        assert_eq!(ok(&mut t, "ui.state", json!({}))["unnamed"]["names"]["0"], named("Person", "Ana"), "{at}");
+        assert_eq!(label(&mut t, "field:faces.name/0/option/0"), named("Person", "Ana"), "{at}");
+        ok(&mut t, "ui.key", json!({ "key": "Escape" }));
+
+        // A face dragged over her row, not dropped yet: the pill.
+        let unnamed = format!("face:{}", faces[3].as_str().unwrap());
+        let centre = |t: &mut T, id: &str| {
+            let r = t.d.widgets().into_iter().find(|w| w.id == id).unwrap_or_else(|| panic!("no {id}")).rect;
+            (r[0] + r[2] / 2.0, r[1] + r[3] / 2.0)
+        };
+        let ((x0, y0), (x1, y1)) = (centre(&mut t, &unnamed), centre(&mut t, &format!("tree:person:{ana}")));
+        let events = json!({ "events": [
+            { "kind": "move", "x": x0, "y": y0 }, { "kind": "down", "x": x0, "y": y0 },
+            { "kind": "drag", "x": x0 + 20.0, "y": y0 }, { "kind": "drag", "x": x1, "y": y1 }, { "kind": "drag", "x": x1, "y": y1 + 1.0 }
+        ] });
+        ok(&mut t, "ui.pointer", events);
+        check(&mut t, "a face dragged");
+        let pill = ok(&mut t, "ui.inspect", json!({}))["drag"]["pill"].clone();
+        assert!(pill.as_str().unwrap().starts_with("Name 1 face"), "{at}: {pill}");
+        ok(&mut t, "ui.key", json!({ "key": "Escape" }));
+        ok(&mut t, "ui.pointer", json!({ "events": [{ "kind": "up", "x": x1, "y": y1 }] }));
+
+        // The edit view's face boxes, and Add a Person Manually's name.
+        t.d.run("view.edit", &json!({ "id": ids[0] })).unwrap();
+        t.d.run("faces.addManually", &json!({})).unwrap();
+        t.d.settle(60).unwrap();
+        ok(&mut t, "ui.clickWidget", json!({ "id": "field:faces.manual" }));
+        ok(&mut t, "ui.type", json!({ "text": "Ana" }));
+        check(&mut t, "the edit view");
+        assert_eq!(label(&mut t, &format!("facebox:{}", faces[0].as_str().unwrap())), named("Person", "Ana"), "{at}");
+        assert_eq!(ok(&mut t, "ui.state", json!({}))["peoplePane"]["manual"]["name"], named("Person", "Ana"), "{at}");
+    }
+}

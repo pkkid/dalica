@@ -444,6 +444,27 @@ fn without_the_people_permission_automation_sees_no_names_or_rectangles() {
     assert_eq!(allowed.people_reply("faces.list", with_embedding), list, "descriptors are never returned");
 }
 
+/// Without `--automation-allow-people` `slideshow.list` tells automation nothing of where a face is
+/// (`Policy::people_reply`, `automation::FACE_POINTS`): a photo with Ana's face has its focus at the
+/// photo's centre `[0.5, 0.5]` and no `face`; with the permission the focus is her face's id and
+/// centre, as the engine gives it.
+#[test]
+fn without_the_people_permission_a_slideshow_focus_is_the_photos_centre() {
+    let (_lib, _disk, _dir, mut s, ids) = lisbon(&[photo_bytes(1)], None);
+    let face = s.execute("faces.add", &json!({ "id": ids[0], "rect": [0.1, 0.2, 0.3, 0.6] })).unwrap()["face"].clone();
+    s.execute("faces.name", &json!({ "faces": [face], "name": "Ana", "create": true })).unwrap();
+    let list = s.execute("slideshow.list", &json!({ "ids": [ids[0]] })).unwrap();
+    let key = ids[0].to_string();
+    let theirs = list["focus"][&key].clone();
+    assert_eq!(theirs, json!({ "face": face, "point": [0.2, 0.4] }), "the engine's own reply");
+    let shown = Policy::default().people_reply("slideshow.list", list.clone());
+    assert_eq!(shown["focus"][&key], json!({ "point": [0.5, 0.5] }));
+    assert_eq!(shown["photos"], list["photos"], "the photos stay");
+    let mut allowed = Policy::default();
+    allowed.set_allow_people(true);
+    assert_eq!(allowed.people_reply("slideshow.list", list.clone()), list);
+}
+
 /// Without `--automation-allow-people` a search over automation leaves people's names out of the
 /// match (`Policy::people_params`): `library.query` with `person:Ana` finds nothing and lists
 /// `person` unavailable, the plain word `Ana` finds no photo by her name, `people: [Ana]` (an id)
