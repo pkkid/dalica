@@ -1,0 +1,27 @@
+{
+  "auraface-v1": {
+    "agreeing": 45,
+    "embedded": 45,
+    "faces_in_pure_groups": 45,
+    "people_whole": 10,
+    "precision_permille": 1000,
+    "suggested": 45,
+    "suggested_right": 45
+  },
+  "public-faces": {
+    "aligned": 45,
+    "detected": 45,
+    "files": 45,
+    "located": 45,
+    "people": 10
+  },
+  "sface-2021dec": {
+    "agreeing": 45,
+    "embedded": 45,
+    "faces_in_pure_groups": 45,
+    "people_whole": 8,
+    "precision_permille": 1000,
+    "suggested": 42,
+    "suggested_right": 42
+  }
+}

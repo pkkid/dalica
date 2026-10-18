@@ -25,6 +25,7 @@ pub const SEPARATE: &[(&str, &str, &str)] = &[
     ("crates/image", "heif", "half of it needs the `heif` feature"),
     ("crates/image", "corpus", "needs the `corpus` feature and the fetched corpus"),
     ("crates/meta", "corpus", "needs the `corpus` feature and the fetched corpus"),
+    ("crates/faces", "corpus", "needs the `corpus` feature and the fetched corpus"),
     ("crates/mcp", "workflows", "cargo xtask stats runs it alone (`--test workflows`) and reads its results"),
 ];
 

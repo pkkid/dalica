@@ -38,7 +38,7 @@ const MAX_DEPTH: usize = 16;
 
 /// The crates with corpus tests (`tests/corpus.rs` behind their `corpus` feature) and the extra
 /// features their corpus tests need.
-pub const CORPUS_CRATES: &[(&str, &[&str])] = &[("dalica-image", &["heif"]), ("dalica-meta", &[])];
+pub const CORPUS_CRATES: &[(&str, &[&str])] = &[("dalica-image", &["heif"]), ("dalica-meta", &[]), ("dalica-faces", &[])];
 
 /// `(sha256, path)` entries of a manifest, sorted by path.
 pub type Manifest = Vec<(String, String)>;
@@ -397,8 +397,15 @@ fn pin_text(set: &Set) -> String {
     }
 }
 
+/// The hosts the files come from, each once, in pin order.
 fn host(files: &[PinnedFile]) -> String {
-    files.first().and_then(|f| f.url.split('/').nth(2)).unwrap_or("?").to_string()
+    let mut hosts: Vec<&str> = Vec::new();
+    for h in files.iter().filter_map(|f| f.url.split('/').nth(2)) {
+        if !hosts.contains(&h) {
+            hosts.push(h);
+        }
+    }
+    if hosts.is_empty() { "?".into() } else { hosts.join(" and ") }
 }
 
 /// A staging directory `corpus/.<set>-staging` (our own naming shape), empty.
@@ -844,16 +851,16 @@ fn status(root: &Path) -> Result<(), String> {
     for set in corpus_pins::SETS {
         let state = state(root, set)?;
         let made = if state == State::NotPublished && set_dir(root, set).join("SOURCES.md").is_file() { " (made locally)" } else { "" };
-        println!("  corpus/{:<10} {}{made}", format!("{}/", set.name), state.label());
-        println!("  {:<17} {}", "", set.what);
-        println!("  {:<17} {}", "", pin_text(set));
+        println!("  corpus/{:<14} {}{made}", format!("{}/", set.name), state.label());
+        println!("  {:<21} {}", "", set.what);
+        println!("  {:<21} {}", "", pin_text(set));
         if let Source::Files(files) = &set.source {
             let mut by_ext: BTreeMap<String, usize> = BTreeMap::new();
             for f in *files {
                 *by_ext.entry(f.name.rsplit('.').next().unwrap_or("").to_ascii_uppercase()).or_default() += 1;
             }
             let kinds: Vec<String> = by_ext.iter().map(|(k, n)| format!("{k} {n}")).collect();
-            println!("  {:<17} {}", "", kinds.join(", "));
+            println!("  {:<21} {}", "", kinds.join(", "));
         }
         println!();
     }
@@ -1011,6 +1018,13 @@ mod tests {
         let names: Vec<&str> = corpus_pins::RAW_FILES.iter().map(|f| f.name).collect();
         assert!(names.iter().all(|n| safe_rel_path(n)), "{names:?}");
         assert!(corpus_pins::RAW_FILES.iter().all(|f| f.url.starts_with("https://raw.pixls.us/") && is_hash(f.sha256)));
+        // The face models: https only, each from its own repository pinned to a commit.
+        for f in corpus_pins::FACE_MODEL_FILES {
+            assert!(f.url.starts_with("https://") && is_hash(f.sha256) && safe_rel_path(f.name), "{}", f.name);
+            assert!(f.url.ends_with(&format!("/{}", f.name)), "{}", f.url);
+            assert!(f.url.split('/').any(|p| p.len() == 40 && p.bytes().all(|b| b.is_ascii_hexdigit())), "{}: pinned to a commit", f.url);
+        }
+        assert_eq!(host(corpus_pins::FACE_MODEL_FILES), "github.com and huggingface.co");
         // Two per raw kind Dalica reads.
         for ext in ["CR2", "CR3", "CRW", "DNG", "NEF", "ARW", "PEF", "ORF", "RW2", "SRW", "RAF", "MRW", "X3F"] {
             assert_eq!(names.iter().filter(|n| n.ends_with(&format!(".{ext}"))).count(), 2, "{ext}");
@@ -1156,7 +1170,8 @@ mod tests {
         assert!(parse_args(&strings(&["--fast"])).is_err());
         let t = parse_test_args(&strings(&["-p", "image", "--", "--test-threads=1"])).unwrap();
         assert_eq!(t, TestArgs { crates: vec!["dalica-image".into()], local: false, passthrough: vec!["--test-threads=1".into()] });
-        assert_eq!(parse_test_args(&[]).unwrap().crates, ["dalica-image", "dalica-meta"]);
+        assert_eq!(parse_test_args(&[]).unwrap().crates, ["dalica-image", "dalica-meta", "dalica-faces"]);
+        assert_eq!(parse_test_args(&strings(&["-p", "faces"])).unwrap().crates, ["dalica-faces"]);
         assert_eq!(parse_test_args(&strings(&["-p", "meta"])).unwrap().crates, ["dalica-meta"]);
         assert!(parse_test_args(&strings(&["-p", "thumbs"])).unwrap_err().contains("has no corpus tests"));
         assert!(parse_test_args(&strings(&["-p"])).is_err());

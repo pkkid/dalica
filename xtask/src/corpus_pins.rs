@@ -5,12 +5,16 @@
 //!
 //! - Third-party sets come from their upstreams, under their own terms, and are never copied into
 //!   our own corpus repository.
-//! - Our own sets (`photos`, `heif`, `metadata`) come from <https://github.com/pkkid/dalica-corpus> (CC0 and
+//! - Our own sets (`photos`, `heif`, `metadata`, `public-faces`) come from <https://github.com/pkkid/dalica-corpus> (CC0 and
 //!   public-domain files only, each with its source) at the commit pinned in
 //!   [`DALICA_CORPUS_COMMIT`]; that repository's `SOURCES.tsv` gives every file's source, author,
 //!   licence, size, sha256 and the tool that derived it. `heif-wide` is made locally by
 //!   `cargo xtask corpus make heif-wide` and stays "not published yet" until the maintainer
 //!   decides to publish it there.
+//!
+//! - The face models (`face-models`) are third-party files fetched from their own repositories at
+//!   the addresses `dalica-faces` pins in `crates/faces/src/known.rs` (reserved decision 5), never
+//!   copied into our corpus repository or any release.
 //!
 //! Moving a pin: change it here, run `cargo xtask corpus --update-manifest <set>`, review the
 //! manifest diff, run `cargo xtask test-corpus` and raise the floors that improved (never lower one).
@@ -52,9 +56,9 @@ pub struct Set {
 /// Our own CC0 corpus repository (`docs/development.md` §11).
 pub const DALICA_CORPUS_REPO: &str = "pkkid/dalica-corpus";
 /// The pinned commit of [`DALICA_CORPUS_REPO`] (M6.42: the `photos` and `heif` sets; M6.34: the
-/// `metadata` set added, `photos` and `heif` unchanged). `None` would mark its sets "not published
-/// yet".
-pub const DALICA_CORPUS_COMMIT: Option<&str> = Some("6239cad23d043ace64f171cadf951dd698568d01");
+/// `metadata` set added; M13.17: the `public-faces` set added, the other sets unchanged). `None`
+/// would mark its sets "not published yet".
+pub const DALICA_CORPUS_COMMIT: Option<&str> = Some("f3dd25cc3111f397f80157adefe956ecb9489e6d");
 
 /// PngSuite: Willem van Schaik's PNG test images, the 2017-07-19 release archive. Its own terms:
 /// "Permission to use, copy, modify and distribute these images for any purpose and without fee
@@ -301,5 +305,55 @@ pub const METADATA: Set = Set {
     source: Source::Repo { repo: DALICA_CORPUS_REPO, commit: DALICA_CORPUS_COMMIT, subdir: "metadata" },
 };
 
+/// `corpus/public-faces/`: public-domain portraits, several of each person, one folder per person
+/// (M13.17), from our own corpus repository; every file's source page, author and licence template
+/// is in its `SOURCES.tsv`. Also holds the reference vectors the corpus test checks embeddings
+/// against (`reference/<model id>.tsv`, written by `dalica-faces`' own pipeline).
+pub const PUBLIC_FACES: Set = Set {
+    name: "public-faces",
+    what: "45 public-domain portraits of 10 people (3 to 6 each; official portraits across decades and candid shots with other \
+           faces), US federal government works from Wikimedia Commons, and the reference vectors of the built-in recognisers",
+    terms: "`public-faces/` of https://github.com/pkkid/dalica-corpus: US federal government works (public domain, each file's \
+            PD-USGov template on its Commons page), Commons' 1280-pixel renditions, each with its source in that repository's \
+            SOURCES.tsv.",
+    used_by: &["dalica-faces"],
+    source: Source::Repo { repo: DALICA_CORPUS_REPO, commit: DALICA_CORPUS_COMMIT, subdir: "public-faces" },
+};
+
+/// The built-in face models (reserved decision 5, `faces.md` §3.2), each at the address
+/// `crates/faces/src/known.rs` pins to a commit of the model's own repository, with the SHA-256
+/// it records there (the `dalica-faces` corpus test checks both lists agree).
+pub const FACE_MODEL_FILES: &[PinnedFile] = &[
+    PinnedFile {
+        name: "face_detection_yunet_2023mar.onnx",
+        url: "https://github.com/opencv/opencv_zoo/raw/25f423d0e04c31a17254620e58febd7386da523b/models/face_detection_yunet/face_detection_yunet_2023mar.onnx",
+        sha256: "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4",
+        what: "YuNet 2023mar face detector (OpenCV Zoo), MIT, 0.2 MB",
+    },
+    PinnedFile {
+        name: "face_recognition_sface_2021dec.onnx",
+        url: "https://github.com/opencv/opencv_zoo/raw/25f423d0e04c31a17254620e58febd7386da523b/models/face_recognition_sface/face_recognition_sface_2021dec.onnx",
+        sha256: "0ba9fbfa01b5270c96627c4ef784da859931e02f04419c829e83484087c34e79",
+        what: "SFace 2021dec face recogniser (OpenCV Zoo), labelled Apache-2.0, 38.7 MB",
+    },
+    PinnedFile {
+        name: "glintr100.onnx",
+        url: "https://huggingface.co/fal/AuraFace-v1/resolve/af6d057c9b0ec4071d4c49c80e3539258798b609/glintr100.onnx",
+        sha256: "a7933ea5330113b01c9b60351d8f4c33003f145d8470ac5f0e52ee2effe25c60",
+        what: "AuraFace v1 face recogniser (fal.ai), Apache-2.0, 260.7 MB",
+    },
+];
+
+/// `corpus/face-models/`: [`FACE_MODEL_FILES`].
+pub const FACE_MODELS: Set = Set {
+    name: "face-models",
+    what: "the built-in face models: the YuNet 2023mar detector, the SFace 2021dec and AuraFace v1 recognisers",
+    terms: "Third-party model weights fetched from their own repositories, unmodified, for the dalica-faces corpus test only; \
+            never copied into dalica-corpus, this repository or a release. YuNet: MIT (OpenCV Zoo). SFace: labelled Apache-2.0 \
+            by OpenCV Zoo, training data undocumented. AuraFace v1: Apache-2.0 (fal.ai), training data undisclosed.",
+    used_by: &["dalica-faces"],
+    source: Source::Files(FACE_MODEL_FILES),
+};
+
 /// Every set, in the order `cargo xtask corpus` lists and fetches them.
-pub const SETS: &[&Set] = &[&PNGSUITE, &RAW, &PHOTOS, &HEIF, &HEIF_WIDE, &METADATA];
+pub const SETS: &[&Set] = &[&PNGSUITE, &RAW, &PHOTOS, &HEIF, &HEIF_WIDE, &METADATA, &PUBLIC_FACES, &FACE_MODELS];
