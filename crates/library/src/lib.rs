@@ -19,6 +19,11 @@
 //! inverses, the automatic albums (Starred Photos, Recently Updated) and the Albums group of the
 //! tree with its sections and a section filter for search mode ([`AlbumTree`], [`Section`],
 //! [`SectionFilter`]).
+//!
+//! M13 adds each photo's faces ([`Face`]: a rectangle and who it is) and geotag ([`Geo`]), the
+//! people ([`Person`]) with their ops, and the queries over them: person albums, Unnamed faces,
+//! counts, the geotagged photos (`people.rs`, `query.rs`); search reads `person:` and the Faces
+//! filter.
 
 #![forbid(unsafe_code)]
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
@@ -26,6 +31,7 @@
 pub mod albums;
 mod model;
 mod op;
+mod people;
 mod query;
 pub mod search;
 pub mod sync;
@@ -38,6 +44,9 @@ pub use model::{
     PhotoInfo, PhotoSort, Project, Recipe, SaveState, Saved, SavedAs, Sketch, SortBy, Synced,
 };
 pub use op::Op;
+pub use people::{
+    Face, FaceKey, FacePerson, FaceRef, Geo, MAX_FACES, MAX_PERSON_ID_DRAWS, MAX_PERSON_NAME, PeopleSort, Person, clean_person_name, person_id_from,
+};
 pub use query::AlbumStats;
 pub use tags::{
     MAX_CAPTION, MAX_DESCRIPTION, MAX_OPERATION, MAX_OPERATIONS, MAX_PLACE, MAX_TAG, MAX_TAGS, PartialCount, TagCount, TagIndex, clean_caption,
@@ -48,7 +57,7 @@ pub use tree::{
     Tree, TreeMode, TreeOptions, section_photos,
 };
 
-use dalica_core::{AlbumId, FolderId, PhotoId};
+use dalica_core::{AlbumId, FolderId, PersonId, PhotoId};
 
 /// Why an op was refused. A refused op changes nothing.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
@@ -88,6 +97,18 @@ pub enum Error {
     /// A folder moved inside itself, or onto a folder it is inside (`data-model.md` §8).
     #[error("folder {0} cannot move inside itself or onto a folder it is in")]
     FolderIntoItself(FolderId),
+    /// People (M13): named by id only, never by name (`faces.md` §7).
+    #[error("no person {0}")]
+    UnknownPerson(PersonId),
+    #[error("person {0} exists already")]
+    PersonExists(PersonId),
+    /// Two people's names may not be equal ignoring case; the id is the person holding it.
+    #[error("person {0} has that name already")]
+    PersonNameTaken(PersonId),
+    #[error("person {0} cannot merge into itself")]
+    MergeIntoItself(PersonId),
+    #[error("no face of person {person} on photo {photo}")]
+    NotPersonsFace { person: PersonId, photo: PhotoId },
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;

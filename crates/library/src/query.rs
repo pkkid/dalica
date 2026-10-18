@@ -10,6 +10,12 @@
 //! Recently Updated (the photos updated within some days of a given now, newest first), and each
 //! album's date, count and cover. Photo orders ([`PhotoSort`]) sort a folder's photos and Sort
 //! Album By.
+//!
+//! M13's queries (`organizing.md` §6–§7), worked out once per change like the album queries: each
+//! person's photos (the person album, by date like a folder), the Unnamed and ignored faces (in
+//! photo order, then their order on the photo), the photos with faces, counts per person, people
+//! by name or by count, a person's thumbnail, and the geotags: a photo is geotagged by the
+//! model's word when it has one, else by its file's GPS.
 
 use std::cmp::Ordering;
 use std::collections::HashMap;
@@ -17,9 +23,12 @@ use std::path::Path;
 use std::sync::OnceLock;
 use std::time::Duration;
 
-use dalica_core::{AlbumId, DateTime, FolderId, PhotoId, PosKey, Timestamp};
+use dalica_core::geo::LatLon;
+use dalica_core::{AlbumId, DateTime, FolderId, PersonId, PhotoId, PosKey, Timestamp};
 
 use crate::model::{Folder, Library, Photo, PhotoSort, Saved, SortBy};
+use crate::people::{Face, FacePerson, FaceRef, Geo, PeopleSort, Person};
+use crate::tags::fold;
 
 /// The album queries' answers, each worked out on first use. Every op that bumps the revision
 /// drops them, and so does a derived op that sets first-indexed or last-changed times.
@@ -31,6 +40,20 @@ pub(crate) struct Cache {
     /// Every photo with its updated time, newest first.
     updated: OnceLock<Vec<(Timestamp, PhotoId)>>,
     albums: OnceLock<HashMap<AlbumId, AlbumStats>>,
+    people: OnceLock<PeopleIndex>,
+}
+
+/// The faces walked once, in photo order (M13).
+#[derive(Clone, Debug, Default)]
+struct PeopleIndex {
+    /// Each person's photos, by date like a folder.
+    photos: HashMap<PersonId, Vec<PhotoId>>,
+    /// Each person's faces, in photo order, then their order on the photo.
+    faces: HashMap<PersonId, Vec<FaceRef>>,
+    unnamed: Vec<FaceRef>,
+    ignored: Vec<FaceRef>,
+    /// The photos with a named or unnamed face.
+    with_faces: Vec<PhotoId>,
 }
 
 /// What the tree shows of an album beside its name.
@@ -273,6 +296,172 @@ impl Library {
     /// How many photos album `id` holds.
     pub fn album_count(&self, id: &AlbumId) -> usize {
         self.album_stats(id).count
+    }
+}
+
+/// M13's queries: faces, people and geotags.
+impl Library {
+    /// Photo `id`'s faces (empty for none or an unknown photo).
+    pub fn faces(&self, id: PhotoId) -> &[Face] {
+        self.model.faces.get(&id).map(Vec::as_slice).unwrap_or_default()
+    }
+
+    /// Every photo with faces, by photo id.
+    pub fn faces_all(&self) -> impl Iterator<Item = (PhotoId, &[Face])> {
+        self.model.faces.iter().map(|(id, f)| (*id, f.as_slice()))
+    }
+
+    /// The face `r` names, if its photo has it.
+    pub fn face(&self, r: FaceRef) -> Option<&Face> {
+        self.faces(r.photo).get(r.index)
+    }
+
+    /// Person `id`, if there is one.
+    pub fn person(&self, id: &PersonId) -> Option<&Person> {
+        self.model.people.get(id)
+    }
+
+    /// Every person, by id.
+    pub fn people(&self) -> impl Iterator<Item = (&PersonId, &Person)> {
+        self.model.people.iter()
+    }
+
+    /// The person whose name equals `name` ignoring case, if any: typing an existing name assigns
+    /// to that person, a new one asks New Person.
+    pub fn person_by_name(&self, name: &str) -> Option<&PersonId> {
+        self.name_holder(name, None)
+    }
+
+    fn people_index(&self) -> &PeopleIndex {
+        self.cache.people.get_or_init(|| {
+            let mut out = PeopleIndex::default();
+            let photos = in_photo_order(self, self.model.faces.keys().filter_map(|id| self.model.photos.get(id)));
+            for p in photos {
+                let mut counted = false;
+                for (index, face) in self.faces(p.id).iter().enumerate() {
+                    let r = FaceRef { photo: p.id, index };
+                    match &face.person {
+                        FacePerson::Unnamed => out.unnamed.push(r),
+                        FacePerson::Ignored => {
+                            out.ignored.push(r);
+                            continue;
+                        }
+                        FacePerson::Person(id) => {
+                            let list = out.photos.entry(id.clone()).or_default();
+                            if list.last() != Some(&p.id) {
+                                list.push(p.id);
+                            }
+                            out.faces.entry(id.clone()).or_default().push(r);
+                        }
+                    }
+                    if !counted {
+                        out.with_faces.push(p.id);
+                        counted = true;
+                    }
+                }
+            }
+            out
+        })
+    }
+
+    /// Person `id`'s photos (the person album), by date like a folder, hidden ones included.
+    pub fn person_photos(&self, id: &PersonId) -> &[PhotoId] {
+        self.people_index().photos.get(id).map(Vec::as_slice).unwrap_or_default()
+    }
+
+    /// Person `id`'s faces, in photo order, then their order on the photo.
+    pub fn person_faces(&self, id: &PersonId) -> &[FaceRef] {
+        self.people_index().faces.get(id).map(Vec::as_slice).unwrap_or_default()
+    }
+
+    /// How many photos person `id` is in.
+    pub fn person_count(&self, id: &PersonId) -> usize {
+        self.person_photos(id).len()
+    }
+
+    /// Every person's count of photos (people in no photo count 0), by id.
+    pub fn person_counts(&self) -> Vec<(&PersonId, usize)> {
+        self.model.people.keys().map(|id| (id, self.person_count(id))).collect()
+    }
+
+    /// The people sorted by name (ignoring case, then as written, then id) or by count (most
+    /// photos first, then by name).
+    pub fn people_sorted(&self, sort: PeopleSort) -> Vec<PersonId> {
+        let mut list: Vec<(usize, String, &PersonId, &Person)> =
+            self.model.people.iter().map(|(id, p)| (self.person_count(id), fold(&p.name), id, p)).collect();
+        let by_name = |a: &(usize, String, &PersonId, &Person), b: &(usize, String, &PersonId, &Person)| {
+            a.1.cmp(&b.1).then_with(|| a.3.name.cmp(&b.3.name)).then_with(|| a.2.cmp(b.2))
+        };
+        match sort {
+            PeopleSort::Name => list.sort_by(by_name),
+            PeopleSort::Count => list.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| by_name(a, b))),
+        }
+        list.into_iter().map(|(_, _, id, _)| id.clone()).collect()
+    }
+
+    /// The Unnamed faces, in photo order, then their order on the photo.
+    pub fn unnamed_faces(&self) -> &[FaceRef] {
+        &self.people_index().unnamed
+    }
+
+    /// How many faces are unnamed (the tree's "Unnamed (n)").
+    pub fn unnamed_count(&self) -> usize {
+        self.unnamed_faces().len()
+    }
+
+    /// The ignored faces (Show Ignored Faces), in photo order.
+    pub fn ignored_faces(&self) -> &[FaceRef] {
+        &self.people_index().ignored
+    }
+
+    /// The photos with a named or unnamed face, by date like a folder.
+    pub fn photos_with_faces(&self) -> &[PhotoId] {
+        &self.people_index().with_faces
+    }
+
+    /// Person `id`'s thumbnail face: the one set while it is still theirs, else their first face.
+    pub fn person_thumbnail(&self, id: &PersonId) -> Option<FaceRef> {
+        let set = self.person(id)?.thumbnail.and_then(|key| {
+            let index = self.faces(key.photo).iter().position(|f| f.rect == key.rect && f.person.person() == Some(id))?;
+            Some(FaceRef { photo: key.photo, index })
+        });
+        set.or_else(|| self.person_faces(id).first().copied())
+    }
+
+    /// The model's word on where photo `id` was taken, if it has one.
+    pub fn geo(&self, id: PhotoId) -> Option<Geo> {
+        self.model.geo.get(&id).copied()
+    }
+
+    /// Every photo the model has a word on, by photo id.
+    pub fn geo_all(&self) -> impl Iterator<Item = (PhotoId, Geo)> + '_ {
+        self.model.geo.iter().map(|(id, g)| (*id, *g))
+    }
+
+    /// Photo `id`'s geotag in the model, if it has a point.
+    pub fn geotag(&self, id: PhotoId) -> Option<LatLon> {
+        self.geo(id).and_then(|g| g.point())
+    }
+
+    /// Whether photo `id` is geotagged: by the model's word when it has one (a point, or removed),
+    /// else by its file's GPS (the search fact).
+    pub fn is_geotagged(&self, id: PhotoId) -> bool {
+        match self.geo(id) {
+            Some(g) => g.point().is_some(),
+            None => self.facts(id).geotagged,
+        }
+    }
+
+    /// The geotagged photos ([`Library::is_geotagged`]), by date like a folder.
+    pub fn geotagged_photos(&self) -> Vec<PhotoId> {
+        in_photo_order(self, self.model.photos.values().filter(|p| self.is_geotagged(p.id))).into_iter().map(|p| p.id).collect()
+    }
+
+    /// The geotags of `ids` in the model, in the order given, each photo once; photos without a
+    /// point are left out (a file's GPS has no point in the model until a scan brings it).
+    pub fn geotags_of(&self, ids: &[PhotoId]) -> Vec<(PhotoId, LatLon)> {
+        let mut seen = std::collections::HashSet::with_capacity(ids.len());
+        ids.iter().filter(|id| seen.insert(**id)).filter_map(|id| Some((*id, self.geotag(*id)?))).collect()
     }
 }
 

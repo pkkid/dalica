@@ -11,6 +11,7 @@ pub mod clock;
 pub mod color;
 pub mod dates;
 pub mod error;
+pub mod geo;
 pub mod geom;
 pub mod ids;
 pub mod names;

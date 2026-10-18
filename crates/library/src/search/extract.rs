@@ -4,13 +4,19 @@
 //! The extract owns its data, so the engine can hand it to a worker that keeps the index there; the
 //! owner thread only works out an [`Update`] for each op it applies (the records the op touched,
 //! read again from the library) and sends it along.
+//!
+//! M13: a photo's record holds the people its faces name and whether it has a face the Faces
+//! filter counts (named or unnamed, not ignored); its geotagged flag is the model's word, else the
+//! file's ([`Library::is_geotagged`]). People are records of their own ([`PersonDoc`]), found
+//! through their photos like albums, so renaming one touches one record.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
-use dalica_core::{AlbumId, DateTime, FolderId, PhotoId, Timestamp};
+use dalica_core::{AlbumId, DateTime, FolderId, PersonId, PhotoId, Timestamp};
 
 use super::grammar::{MONTHS, terms};
+use crate::people::{Face, named_in};
 use crate::tags::fold;
 use crate::{Library, Op, Photo, PhotoSort};
 
@@ -42,9 +48,14 @@ pub struct PhotoDoc {
     pub make: String,
     pub model: String,
     pub video: bool,
+    /// The model's geotag, else the file's GPS ([`Library::is_geotagged`]).
     pub geotagged: bool,
     /// The user albums it is in, by id.
     pub albums: Vec<AlbumId>,
+    /// The people its faces name, each once, by id.
+    pub people: Vec<PersonId>,
+    /// Whether it has a named or unnamed face (ignored ones do not count): the Faces filter.
+    pub faces: bool,
 }
 
 impl PhotoDoc {
@@ -54,6 +65,7 @@ impl PhotoDoc {
         albums.dedup();
         let info = library.info(photo.id);
         let facts = library.facts(photo.id);
+        let faces = library.faces(photo.id);
         PhotoDoc {
             id: photo.id,
             folder: photo.folder,
@@ -71,8 +83,10 @@ impl PhotoDoc {
             make: facts.make.clone(),
             model: facts.model.clone(),
             video: facts.video,
-            geotagged: facts.geotagged,
+            geotagged: library.is_geotagged(photo.id),
             albums,
+            people: named_in(faces),
+            faces: faces.iter().any(Face::counts),
         }
     }
 
@@ -177,12 +191,33 @@ impl AlbumDoc {
     }
 }
 
+/// What search reads of one person: `person:` and plain words find their name and nickname.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PersonDoc {
+    pub id: PersonId,
+    pub name: String,
+    pub nickname: String,
+}
+
+impl PersonDoc {
+    /// Person `id`'s record, or `None` when the library has no such person.
+    pub fn from_library(library: &Library, id: &PersonId) -> Option<PersonDoc> {
+        library.person(id).map(|p| PersonDoc { id: id.clone(), name: p.name.clone(), nickname: p.nickname.clone() })
+    }
+
+    /// The terms of its name and nickname.
+    pub(crate) fn terms(&self) -> BTreeSet<String> {
+        terms(&self.name).chain(terms(&self.nickname)).collect()
+    }
+}
+
 /// Everything search reads of a library, owned.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Extract {
     pub photos: Vec<PhotoDoc>,
     pub folders: Vec<FolderDoc>,
     pub albums: Vec<AlbumDoc>,
+    pub people: Vec<PersonDoc>,
 }
 
 impl Extract {
@@ -198,21 +233,26 @@ impl Extract {
             photos: library.photos().map(|p| PhotoDoc::of(library, p, albums_of.remove(&p.id).unwrap_or_default())).collect(),
             folders: library.folders().filter_map(|f| FolderDoc::from_library(library, f.id)).collect(),
             albums: library.albums().map(|(id, info)| AlbumDoc { id: id.clone(), name: info.name.clone() }).collect(),
+            people: library.people().filter_map(|(id, _)| PersonDoc::from_library(library, id)).collect(),
         }
     }
 }
 
 /// The records one applied op changed, read again from the library after it: each `None` is a
 /// record that is gone. An index applies the purges first (a removed folder takes its photos, a
-/// deleted album its memberships), then the folders, the albums and the photos.
+/// deleted album its memberships, a deleted or merged person its names on photos), then the
+/// folders, the albums, the people and the photos.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Update {
     /// Folders removed by the op (their photos go with them, even when the folder came back).
     pub purged_folders: Vec<FolderId>,
     /// Albums deleted by the op (every membership goes, even when the album came back).
     pub purged_albums: Vec<AlbumId>,
+    /// People deleted or merged away by the op (every photo drops them, even when they came back).
+    pub purged_people: Vec<PersonId>,
     pub folders: Vec<(FolderId, Option<FolderDoc>)>,
     pub albums: Vec<(AlbumId, Option<AlbumDoc>)>,
+    pub people: Vec<(PersonId, Option<PersonDoc>)>,
     pub photos: Vec<(PhotoId, Option<PhotoDoc>)>,
 }
 
@@ -221,9 +261,13 @@ pub struct Update {
 struct Touched {
     purged_folders: BTreeSet<FolderId>,
     purged_albums: BTreeSet<AlbumId>,
+    purged_people: BTreeSet<PersonId>,
     folders: BTreeSet<FolderId>,
     albums: BTreeSet<AlbumId>,
+    people: BTreeSet<PersonId>,
     photos: BTreeSet<PhotoId>,
+    /// People faces were merged into: every photo holding one of their faces now is touched.
+    merged_into: BTreeSet<PersonId>,
     /// Tags renamed to these (folded): every photo holding one now is touched.
     renamed_to: BTreeSet<String>,
     /// Folders moved here: every folder at or under one is touched.
@@ -274,9 +318,23 @@ impl Touched {
                 Op::SetFacts { facts } => self.photos.extend(facts.iter().map(|(id, _)| *id)),
                 Op::SetFirstIndexed { indexed } => self.photos.extend(indexed.iter().map(|(id, _)| *id)),
                 Op::SetLastChanged { changed } => self.photos.extend(changed.iter().map(|(id, _)| *id)),
+                Op::SetFaces { faces } => self.photos.extend(faces.iter().map(|(id, _)| *id)),
+                Op::SetGeo { geo } => self.photos.extend(geo.iter().map(|(id, _)| *id)),
+                Op::AddPerson { id, .. } | Op::RenamePerson { id, .. } => {
+                    self.people.insert(id.clone());
+                }
+                Op::MergePeople { from, into } => {
+                    self.purged_people.insert(from.clone());
+                    self.people.insert(from.clone());
+                    self.merged_into.insert(into.clone());
+                }
+                Op::DeletePerson { id } => {
+                    self.purged_people.insert(id.clone());
+                    self.people.insert(id.clone());
+                }
                 // Nothing search reads: recipes, sketches, synced hashes, saved records, copies saved
                 // beside, project marks, member keys (album order is not search order), covers,
-                // digests.
+                // digests, person thumbnails.
                 Op::SetRecipes { .. }
                 | Op::SetSketches { .. }
                 | Op::SetSynced { .. }
@@ -285,7 +343,8 @@ impl Touched {
                 | Op::SetProjects { .. }
                 | Op::SetMemberKeys { .. }
                 | Op::SetCovers { .. }
-                | Op::SetDigests { .. } => {}
+                | Op::SetDigests { .. }
+                | Op::SetPersonThumbnail { .. } => {}
             }
         }
     }
@@ -311,12 +370,17 @@ impl Update {
                 }
             }
         }
+        for id in &t.merged_into {
+            t.photos.extend(library.photos_of_person(id));
+        }
         let albums_of = memberships_of(library, &t.photos);
         Update {
             purged_folders: t.purged_folders.into_iter().collect(),
             purged_albums: t.purged_albums.into_iter().collect(),
+            purged_people: t.purged_people.into_iter().collect(),
             folders: t.folders.into_iter().map(|id| (id, FolderDoc::from_library(library, id))).collect(),
             albums: t.albums.into_iter().map(|id| (id.clone(), AlbumDoc::from_library(library, &id))).collect(),
+            people: t.people.into_iter().map(|id| (id.clone(), PersonDoc::from_library(library, &id))).collect(),
             photos: t
                 .photos
                 .into_iter()
@@ -330,7 +394,13 @@ impl Update {
 
     /// Whether the update changes nothing.
     pub fn is_empty(&self) -> bool {
-        self.purged_folders.is_empty() && self.purged_albums.is_empty() && self.folders.is_empty() && self.albums.is_empty() && self.photos.is_empty()
+        self.purged_folders.is_empty()
+            && self.purged_albums.is_empty()
+            && self.purged_people.is_empty()
+            && self.folders.is_empty()
+            && self.albums.is_empty()
+            && self.people.is_empty()
+            && self.photos.is_empty()
     }
 }
 

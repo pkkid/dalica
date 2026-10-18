@@ -8,7 +8,7 @@ use std::collections::{BTreeSet, HashMap};
 use dalica_core::{DateTime, FolderId, PhotoId, Timestamp};
 use serde::{Deserialize, Serialize};
 
-use super::extract::{AlbumDoc, Extract, FolderDoc, PhotoDoc};
+use super::extract::{AlbumDoc, Extract, FolderDoc, PersonDoc, PhotoDoc};
 use super::grammar::{Field, Parsed};
 use crate::{RECENT_DAYS, SMALL_PICTURE_PX, Section, TreeOptions};
 
@@ -17,7 +17,7 @@ use crate::{RECENT_DAYS, SMALL_PICTURE_PX, Section, TreeOptions};
 #[serde(default, rename_all = "camelCase")]
 pub struct Filters {
     pub starred: bool,
-    /// Photos with faces: matches nothing until faces exist (M13).
+    /// Photos with a named or unnamed face (ignored faces do not count).
     pub faces: bool,
     pub videos: bool,
     pub geotagged: bool,
@@ -129,7 +129,7 @@ impl Scope {
 
 /// Whether a photo passes the filter buttons and the age (`cutoff` from [`Age::cutoff`]).
 pub(crate) fn passes(doc: &PhotoDoc, filters: &Filters, age: Option<&Age>, cutoff: Option<DateTime>) -> bool {
-    if filters.faces || (filters.starred && !doc.star) || (filters.videos && !doc.video) || (filters.geotagged && !doc.geotagged) {
+    if (filters.faces && !doc.faces) || (filters.starred && !doc.star) || (filters.videos && !doc.video) || (filters.geotagged && !doc.geotagged) {
         return false;
     }
     match (age, cutoff) {
@@ -138,15 +138,17 @@ pub(crate) fn passes(doc: &PhotoDoc, filters: &Filters, age: Option<&Age>, cutof
     }
 }
 
-/// Whether the text of `parsed` matches `photo`, in `folder`, in `albums` (the matcher's rule):
-/// every word that is not negated matches it and no negated word does. A word matches when each
-/// of its tokens starts one of the photo's terms in the word's field (ignoring case): for plain
-/// words its file name, caption, tags, date words, camera, pixel size, its folder's name,
-/// description and place, and its albums' names.
-pub fn text_matches(parsed: &Parsed, photo: &PhotoDoc, folder: Option<&FolderDoc>, albums: &[&AlbumDoc]) -> bool {
+/// Whether the text of `parsed` matches `photo`, in `folder`, in `albums`, with the faces of
+/// `people` (the matcher's rule): every word that is not negated matches it and no negated word
+/// does. A word matches when each of its tokens starts one of the photo's terms in the word's
+/// field (ignoring case): for plain words its file name, caption, tags, date words, camera, pixel
+/// size, its folder's name, description and place, its albums' names and its people's names and
+/// nicknames; for `person:` its people's names and nicknames.
+pub fn text_matches(parsed: &Parsed, photo: &PhotoDoc, folder: Option<&FolderDoc>, albums: &[&AlbumDoc], people: &[&PersonDoc]) -> bool {
     let mut any: Option<BTreeSet<String>> = None;
     let mut tags: Option<BTreeSet<String>> = None;
     let mut camera: Option<BTreeSet<String>> = None;
+    let mut names: Option<BTreeSet<String>> = None;
     for atom in &parsed.atoms {
         let terms: &BTreeSet<String> = match atom.field {
             Field::Any => any.get_or_insert_with(|| {
@@ -157,11 +159,15 @@ pub fn text_matches(parsed: &Parsed, photo: &PhotoDoc, folder: Option<&FolderDoc
                 for a in albums {
                     all.extend(a.terms());
                 }
+                for p in people {
+                    all.extend(p.terms());
+                }
                 all
             }),
             Field::Tag => tags.get_or_insert_with(|| photo.tag_terms()),
             Field::Camera => camera.get_or_insert_with(|| photo.camera_terms()),
-            Field::Person | Field::Color => {
+            Field::Person => names.get_or_insert_with(|| people.iter().flat_map(|p| p.terms()).collect()),
+            Field::Color => {
                 if atom.negated {
                     continue;
                 }
@@ -184,15 +190,17 @@ impl Extract {
         let cutoff = query.age.as_ref().and_then(Age::cutoff);
         let folders: HashMap<FolderId, &FolderDoc> = self.folders.iter().map(|f| (f.id, f)).collect();
         let albums: HashMap<&dalica_core::AlbumId, &AlbumDoc> = self.albums.iter().map(|a| (&a.id, a)).collect();
+        let people: HashMap<&dalica_core::PersonId, &PersonDoc> = self.people.iter().map(|p| (&p.id, p)).collect();
         let mut out: Vec<PhotoId> = self
             .photos
             .iter()
             .filter(|p| {
                 let folder = folders.get(&p.folder).copied();
                 let in_albums: Vec<&AlbumDoc> = p.albums.iter().filter_map(|a| albums.get(a).copied()).collect();
+                let with: Vec<&PersonDoc> = p.people.iter().filter_map(|id| people.get(id).copied()).collect();
                 scope.shows(p, folder.is_some_and(|f| f.hidden))
                     && passes(p, &query.filters, query.age.as_ref(), cutoff)
-                    && text_matches(&parsed, p, folder, &in_albums)
+                    && text_matches(&parsed, p, folder, &in_albums, &with)
             })
             .map(|p| p.id)
             .collect();
