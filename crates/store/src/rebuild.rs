@@ -18,17 +18,31 @@
 //! [`import_sidecars`] is the same without `albums.json`. Search facts, digests and the
 //! first-indexed times are index-only and start empty after a rebuild; each photo's last-changed
 //! time comes back from its entry's `changed` (M10), so Recently Updated keeps the changes.
+//!
+//! M13 (`data-model.md` §3–§4): faces, geotags and people. [`import_library`] reads `people.json`
+//! too ([`crate::people`]): its people are created or given its names, nicknames and thumbnails. A
+//! person `people.json` does not have but whose name a folder sidecar's top-level `"people"`
+//! carries is created under that name (the first folder's), so a lost `people.json` loses no
+//! person; one whose name another person already holds (ignoring case) is that person (a name is
+//! unique ignoring case), so their faces are read as that person's. Each photo's faces and geotag
+//! come from its entry; a face naming a person named nowhere is kept in its sidecar, reported and
+//! not used. The rejected
+//! suggestions live only in `people.json` and are not the model's; the embeddings cache is not
+//! read here (`crate::faces_cache`).
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
-use dalica_core::{AlbumId, DateTime, FolderId, PhotoId, PosKey, Timestamp};
-use dalica_library::{AlbumInfo, Library, Op, PhotoSort, Project, Saved, SavedAs};
+use dalica_core::{AlbumId, DateTime, FolderId, PersonId, PhotoId, PosKey, Timestamp};
+use dalica_library::tags::fold;
+use dalica_library::{AlbumInfo, Face, FaceKey, Geo, Library, Op, Person, PhotoSort, Project, Saved, SavedAs};
+use dalica_sidecar::PersonName;
 use dalica_sidecar::originals::{self, Originals};
 use dalica_sidecar::{FILE_NAME, Limits, Sidecar};
 
 use crate::albums::{AlbumsRead, AlbumsReading};
 use crate::mapping::{self, OriginalsReading};
+use crate::people::{PeopleRead, PeopleReading};
 use crate::writer::{self, Outcome};
 
 /// What the folders' sidecars say, as ops on the model.
@@ -38,15 +52,17 @@ pub struct Import {
     /// it already does): at most one `SetStars`, one `SetPhotoInfo`, one `SetFolderInfo`, one
     /// `SetSavedAs`, one `SetProjects` and one `SetSaved` (derived: no undo step), then M9's: at
     /// most one `SetFolderSorts`, `CreateAlbums`, `SetAlbumInfo`, `RemoveMembers`, `SetMemberKeys`,
-    /// `AddMembers` and `SetCovers`, in that order; then at most one derived `SetLastChanged`
-    /// (M10).
+    /// `AddMembers` and `SetCovers`, in that order; then M13's: at most one batch of `AddPerson`
+    /// and `RenamePerson`, one `SetFaces`, one `SetGeo` and one batch of `SetPersonThumbnail`; then
+    /// at most one derived `SetLastChanged` (M10).
     pub ops: Vec<Op>,
     /// Folders whose sidecar was damaged: kept aside, folder read-only.
     pub read_only: Vec<FolderId>,
     /// Folders whose sidecar or originals record could not be read, held values of the wrong type
     /// or values past the caps, and why (once per value).
     pub problems: Vec<(FolderId, String)>,
-    /// What `albums.json` could not give, and memberships not used, once each (M9).
+    /// What `albums.json` and `people.json` could not give, and memberships, people and faces not
+    /// used, once each (M9, M13).
     pub library_problems: Vec<String>,
 }
 
@@ -57,6 +73,22 @@ pub struct Import {
 pub fn import_library(library: &Library, dir: &Path, now: Timestamp) -> Import {
     let read = crate::albums::read(dir, now);
     let mut problems = Vec::new();
+    let people = match crate::people::read(dir, now) {
+        PeopleRead::Absent => None,
+        PeopleRead::Read(r) => {
+            problems.extend(r.notes.iter().cloned());
+            Some(r)
+        }
+        PeopleRead::Unreadable(why) => {
+            problems.push(format!("{}: {why}", crate::people::path(dir).display()));
+            None
+        }
+        PeopleRead::SetAside { why, kept } => {
+            let kept = kept.map(|k| format!("kept as {}", k.display())).unwrap_or_else(|| "could not be kept aside".into());
+            problems.push(format!("{}: {why}; {kept}", crate::people::path(dir).display()));
+            None
+        }
+    };
     let albums = match read {
         AlbumsRead::Absent => None,
         AlbumsRead::Read(r) => {
@@ -73,7 +105,7 @@ pub fn import_library(library: &Library, dir: &Path, now: Timestamp) -> Import {
             None
         }
     };
-    let mut out = import(library, albums.as_ref(), now);
+    let mut out = import(library, albums.as_ref(), people.as_ref(), now);
     problems.append(&mut out.library_problems);
     out.library_problems = problems;
     out
@@ -84,10 +116,10 @@ pub fn import_library(library: &Library, dir: &Path, now: Timestamp) -> Import {
 /// folder without a sidecar keeps the model's word, and one whose originals record cannot be read
 /// keeps its saved records. Any thread but the UI thread may call it.
 pub fn import_sidecars(library: &Library, now: Timestamp) -> Import {
-    import(library, None, now)
+    import(library, None, None, now)
 }
 
-fn import(library: &Library, albums: Option<&AlbumsReading>, now: Timestamp) -> Import {
+fn import(library: &Library, albums: Option<&AlbumsReading>, people: Option<&PeopleReading>, now: Timestamp) -> Import {
     let limits = Limits::default();
     let mut out = Import::default();
     let mut stars = Vec::new();
@@ -104,6 +136,10 @@ fn import(library: &Library, albums: Option<&AlbumsReading>, now: Timestamp) -> 
     let mut unread: BTreeSet<FolderId> = BTreeSet::new();
     // M10: each photo's last-changed time as its sidecar says it.
     let mut changed: Vec<(PhotoId, Option<Timestamp>)> = Vec::new();
+    // M13: names found in the folders (the first folder's wins), each photo's faces and geotag.
+    let mut person_names: BTreeMap<PersonId, PersonName> = BTreeMap::new();
+    let mut read_faces: Vec<(PhotoId, FolderId, Vec<Face>)> = Vec::new();
+    let mut geo: Vec<(PhotoId, Option<Geo>)> = Vec::new();
     for folder in library.folders() {
         match read_originals(&folder.path, now) {
             OriginalsFile::Read(reading) => {
@@ -159,6 +195,13 @@ fn import(library: &Library, albums: Option<&AlbumsReading>, now: Timestamp) -> 
                 names.entry(id).or_insert(name);
             }
         }
+        let (found, notes) = mapping::read_people(&sidecar);
+        out.problems.extend(notes.into_iter().map(|n| (folder.id, n)));
+        if let mapping::Reading::Usable(found) = found {
+            for (id, name) in found {
+                person_names.entry(id).or_insert(name);
+            }
+        }
         let own = library.folder_info(folder.id);
         let info = reading.merged(own);
         if info != *own {
@@ -184,6 +227,10 @@ fn import(library: &Library, albums: Option<&AlbumsReading>, now: Timestamp) -> 
             if read.changed != own.changed {
                 changed.push((photo.id, read.changed));
             }
+            read_faces.push((photo.id, folder.id, read.faces));
+            if read.geo != own.geo {
+                geo.push((photo.id, read.geo));
+            }
         }
     }
     if !stars.is_empty() {
@@ -208,6 +255,7 @@ fn import(library: &Library, albums: Option<&AlbumsReading>, now: Timestamp) -> 
         out.ops.push(Op::SetFolderSorts { sorts });
     }
     album_ops(library, albums, &names, read_members, &unread, &mut out);
+    people_ops(library, people, &person_names, read_faces, geo, &mut out);
     if !changed.is_empty() {
         out.ops.push(Op::SetLastChanged { changed });
     }
@@ -337,6 +385,120 @@ fn album_ops(
     }
     if !covers.is_empty() {
         out.ops.push(Op::SetCovers { covers });
+    }
+}
+
+/// The people ops of an import (M13): the people to create or rename (from `people.json`, then
+/// the names the folders carry), each photo's faces as its sidecar says them (faces naming a
+/// person named nowhere left out), the geotags (`geo`, the changes found), then the thumbnails
+/// `people.json` gives.
+fn people_ops(
+    library: &Library,
+    people: Option<&PeopleReading>,
+    names: &BTreeMap<PersonId, PersonName>,
+    read_faces: Vec<(PhotoId, FolderId, Vec<Face>)>,
+    geo: Vec<(PhotoId, Option<Geo>)>,
+    out: &mut Import,
+) {
+    // Who each person is: people.json's word, else the first folder's.
+    let mut defs: BTreeMap<&PersonId, (String, String)> = BTreeMap::new();
+    if let Some(p) = people {
+        for (id, d) in &p.people {
+            defs.insert(id, (d.name.clone(), d.nickname.clone()));
+        }
+    }
+    for (id, n) in names {
+        defs.entry(id).or_insert_with(|| (n.name.clone(), n.nickname.clone().unwrap_or_default()));
+    }
+    // Names in use ignoring case, as the ops below leave them.
+    let mut taken: BTreeMap<String, PersonId> = library.people().map(|(id, p)| (fold(&p.name), id.clone())).collect();
+    let mut person_ops = Vec::new();
+    let mut known: std::collections::BTreeSet<PersonId> = library.people().map(|(id, _)| id.clone()).collect();
+    // People whose name another holds: the same person (names are unique ignoring case).
+    let mut alias: BTreeMap<PersonId, PersonId> = BTreeMap::new();
+    for (id, (name, nickname)) in defs {
+        let holder = taken.get(&fold(&name)).filter(|h| *h != id).cloned();
+        match library.person(id) {
+            None if holder.is_none() => {
+                taken.insert(fold(&name), id.clone());
+                known.insert(id.clone());
+                person_ops.push(Op::AddPerson { id: id.clone(), person: Person { name, nickname, thumbnail: None } });
+            }
+            Some(own) if own.name != name || own.nickname != nickname => {
+                if holder.is_none() {
+                    taken.remove(&fold(&own.name));
+                    taken.insert(fold(&name), id.clone());
+                    person_ops.push(Op::RenamePerson { id: id.clone(), name, nickname });
+                } else {
+                    out.library_problems.push(format!("person {id}'s name is another person's (ignoring case): kept as the library has it"));
+                }
+            }
+            Some(_) => {}
+            None => {
+                if let Some(holder) = holder {
+                    out.library_problems.push(format!("person {id} has the name of person {holder} (ignoring case): their faces are {holder}'s"));
+                    alias.insert(id.clone(), holder);
+                }
+            }
+        }
+    }
+    // Faces: each photo's, as its sidecar says, of known people.
+    let mut faces: Vec<(PhotoId, Vec<Face>)> = Vec::new();
+    let mut after: BTreeMap<PhotoId, Vec<Face>> = BTreeMap::new();
+    let mut unnamed: BTreeMap<FolderId, usize> = BTreeMap::new();
+    for (photo, folder, list) in read_faces {
+        let list = list
+            .into_iter()
+            .map(|f| match f.person.person().and_then(|p| alias.get(p)) {
+                Some(holder) => Face::new(f.rect, dalica_library::FacePerson::Person(holder.clone())),
+                None => f,
+            })
+            .collect();
+        let (list, dropped) = mapping::known_faces(list, |p| known.contains(p));
+        if dropped > 0 {
+            *unnamed.entry(folder).or_default() += dropped;
+        }
+        if list != library.faces(photo) {
+            after.insert(photo, list.clone());
+            faces.push((photo, list));
+        }
+    }
+    for (folder, n) in unnamed {
+        out.problems
+            .push((folder, format!("{n} faces name a person named nowhere (in {} or a folder): kept in the sidecar, not used", crate::people::FILE)));
+    }
+    // Thumbnails: people.json's, by path and rectangle, when the face is still the person's.
+    let mut thumbs = Vec::new();
+    if let Some(p) = people {
+        for (id, def) in &p.people {
+            if !known.contains(id) {
+                continue;
+            }
+            let key = def.thumbnail.as_ref().and_then(|(path, rect)| {
+                let folder = library.folder_by_path(path.parent()?)?;
+                let photo = library.photo_by_name(folder, path.file_name()?.to_str()?)?.id;
+                let list = after.get(&photo).map_or_else(|| library.faces(photo), Vec::as_slice);
+                list.iter().any(|f| f.rect == *rect && f.person.person() == Some(id)).then_some(FaceKey { photo, rect: *rect })
+            });
+            if def.thumbnail.is_some() && key.is_none() {
+                out.library_problems.push(format!("person {id}'s thumbnail is not one of their faces: they show their first face"));
+            }
+            if key != library.person(id).and_then(|own| own.thumbnail) {
+                thumbs.push(Op::SetPersonThumbnail { id: id.clone(), thumbnail: key });
+            }
+        }
+    }
+    if !person_ops.is_empty() {
+        out.ops.push(Op::Batch { ops: person_ops });
+    }
+    if !faces.is_empty() {
+        out.ops.push(Op::SetFaces { faces });
+    }
+    if !geo.is_empty() {
+        out.ops.push(Op::SetGeo { geo });
+    }
+    if !thumbs.is_empty() {
+        out.ops.push(Op::Batch { ops: thumbs });
     }
 }
 

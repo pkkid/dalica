@@ -1,5 +1,5 @@
-//! Every field Dalica keeps, M6's, M8's and M9's together, through each way the store keeps it
-//! (`data-model.md` §3, §4, §6, §7, §10.1): a rebuild from the folders after the index is deleted
+//! Every field Dalica keeps, M6's, M8's, M9's and M13's together, through each way the store keeps
+//! it (`data-model.md` §3, §4, §6, §7, §10.1): a rebuild from the folders after the index is deleted
 //! gives back everything but the derived data (synced hashes, search facts, digests and times);
 //! journal replay and snapshots keep everything; clearing a field takes its keys out; and an entry
 //! holding only Dalica's fields is marked and pruned like a starred one when its file is gone.
@@ -8,15 +8,18 @@
 
 use std::path::Path;
 
-use dalica_core::{AlbumId, FolderId, PhotoId, Timestamp};
+use dalica_core::geo::LatLon;
+use dalica_core::{AlbumId, FolderId, PersonId, PhotoId, Rect01, Timestamp};
 use dalica_library::{
-    AlbumInfo, ContentDigest, Facts, Folder, FolderInfo, Library, Op, Photo, PhotoInfo, PhotoSort, Project, Recipe, SaveState, Saved, SavedAs,
-    SortBy, Synced,
+    AlbumInfo, ContentDigest, Face, FaceKey, FacePerson, Facts, Folder, FolderInfo, Geo, Library, Op, Person, Photo, PhotoInfo, PhotoSort, Project,
+    Recipe, SaveState, Saved, SavedAs, SortBy, Synced,
 };
+use dalica_sidecar::fields::{M13_PHOTO_KEYS, M13_TOP_KEYS};
 use dalica_sidecar::originals::{self as record, Originals};
 use dalica_sidecar::{Field, Limits, Sidecar};
+use dalica_store::mapping::{FACE_FIELDS, FOLDER_DATA_M13, FolderState, LIBRARY_DATA_M13, PERSON_FIELDS, PHOTO_DATA_M13, PhotoState, Source};
 use dalica_store::rebuild::import_library;
-use dalica_store::{Opened, Outcome, SidecarWriter, Store, albums, mapping, write_folder};
+use dalica_store::{Opened, Outcome, SidecarWriter, Store, albums, mapping, people, write_folder};
 use serde_json::{Value, json};
 
 use crate::common::{NOW, strings};
@@ -81,6 +84,62 @@ fn best() -> AlbumId {
 
 fn trams() -> AlbumId {
     AlbumId::parse("a77d020000bb").unwrap()
+}
+
+fn ana() -> PersonId {
+    PersonId::parse("p7f3a2c00001").unwrap()
+}
+
+fn rui() -> PersonId {
+    PersonId::parse("p0b1d0000002").unwrap()
+}
+
+fn rect(x0: f64, y0: f64, x1: f64, y1: f64) -> Rect01 {
+    Rect01::new(x0, y0, x1, y1).unwrap()
+}
+
+fn at(lat: f64, lon: f64) -> Option<Geo> {
+    Some(Geo::At(LatLon::new(lat, lon).unwrap()))
+}
+
+/// M13's ops: two people (one with a nickname), named, ignored and unnamed faces over both
+/// folders (stamped like the engine's), a thumbnail, two places and a location removed.
+fn m13_ops(lib: &Library, ids: &[Vec<PhotoId>]) -> Vec<Op> {
+    let (a, b) = (&ids[0], &ids[1]);
+    let faces = Op::SetFaces {
+        faces: vec![
+            (
+                a[0],
+                vec![
+                    Face::new(rect(0.41, 0.22, 0.52, 0.38), FacePerson::Person(ana())),
+                    Face::new(rect(0.7, 0.3, 0.78, 0.44), FacePerson::Ignored),
+                    Face::new(rect(0.1, 0.1, 0.2, 0.2), FacePerson::Unnamed),
+                ],
+            ),
+            (
+                b[2],
+                vec![
+                    Face::new(rect(0.123457, 0.25, 0.5, 1.0), FacePerson::Person(ana())),
+                    Face::new(rect(0.6, 0.1, 0.9, 0.5), FacePerson::Person(rui())),
+                ],
+            ),
+            (b[4], vec![Face::new(Rect01::FULL, FacePerson::Unnamed)]),
+        ],
+    };
+    let mut people = lib.clone();
+    let add = [
+        Op::AddPerson { id: ana(), person: Person { name: "Ana Costa".into(), nickname: "Aninhas".into(), thumbnail: None } },
+        Op::AddPerson { id: rui(), person: Person::named("Rui \"R\" ; Lopes 東京") },
+    ];
+    for op in &add {
+        people.apply(op.clone()).unwrap();
+    }
+    let faces = people.stamped(faces, Timestamp::from_millis(1_790_000_000_000));
+    let geo = Op::SetGeo { geo: vec![(a[0], at(38.7116, -9.1389)), (a[1], Some(Geo::Removed)), (b[3], at(-33.856784, 151.215297))] };
+    let thumbnail = Op::SetPersonThumbnail { id: ana(), thumbnail: Some(FaceKey { photo: b[2], rect: rect(0.123457, 0.25, 0.5, 1.0) }) };
+    let mut out = add.to_vec();
+    out.extend([faces, geo, thumbnail]);
+    out
 }
 
 /// M6's user fields: stars, captions, tags, hidden photos, recipes with an unknown operation and a
@@ -174,6 +233,10 @@ fn change_everything(lib: &mut Library, folders: &[FolderId], ids: &[Vec<PhotoId
     );
     let indexed = lib.first_indexed_op(&[a[0], a[1], b[4]], Timestamp::from_millis(1_780_000_000_000));
     run(lib, indexed);
+    // M13.
+    for op in m13_ops(lib, ids) {
+        run(lib, op);
+    }
     out
 }
 
@@ -259,6 +322,7 @@ fn deleting_the_index_and_rebuilding_gives_every_field_back() {
     let out = w.flush(&lib, NOW);
     assert!(out.values().all(|o| *o == Outcome::Written), "{out:?}");
     assert_eq!(albums::write(lib_dir.path(), &albums::state(&lib), NOW), albums::AlbumsWrite::Written);
+    assert_eq!(people::write(lib_dir.path(), &people::state(&lib), NOW), people::PeopleWrite::Written);
     let (first, second) = (sidecar(paths[0]), sidecar(paths[1]));
     assert_eq!(second.folder().hidden, Field::Value(true), "a hidden folder says so in its own sidecar");
     assert_eq!(
@@ -277,6 +341,14 @@ fn deleting_the_index_and_rebuilding_gives_every_field_back() {
     }
     let stamped = lib.photo(ids[0][0]).unwrap().name.clone();
     assert_eq!(first.photo(&stamped).changed, Field::Value(Timestamp::from_millis(1_790_000_000_000)));
+    // M13: faces, places (a removed one as null) and each folder's people.
+    let json = json_of(paths[0]);
+    let entry = |n: usize| &json["photos"][lib.photo(ids[0][n]).unwrap().name.as_str()];
+    assert_eq!(entry(0)["faces"][0], json!({"person": "p7f3a2c00001", "rect": [0.41, 0.22, 0.52, 0.38]}));
+    assert_eq!(entry(0)["faces"][2], json!({"rect": [0.1, 0.1, 0.2, 0.2]}), "an unnamed face has no person");
+    assert_eq!((&entry(0)["geo"], &entry(1)["geo"]), (&json!([38.7116, -9.1389]), &Value::Null));
+    assert_eq!(json["people"], json!({"p7f3a2c00001": {"name": "Ana Costa", "nickname": "Aninhas"}}), "only the people in the folder");
+    assert_eq!(json_of(paths[1])["people"].as_object().map(|p| p.len()), Some(2));
 
     // Delete the index; a new scan finds the same folders and photos with nothing said about them.
     for e in std::fs::read_dir(lib_dir.path()).unwrap() {
@@ -301,6 +373,10 @@ fn deleting_the_index_and_rebuilding_gives_every_field_back() {
         "createAlbums",
         "addMembers",
         "setCovers",
+        "batch",
+        "setFaces",
+        "setGeo",
+        "batch",
         "setLastChanged",
     ];
     assert_eq!(kinds, want);
@@ -315,6 +391,8 @@ fn deleting_the_index_and_rebuilding_gives_every_field_back() {
     assert_eq!(rebuilt.tag_index().counts(), lib.tag_index().counts());
     assert_eq!(rebuilt.unsaved_counts(), lib.unsaved_counts());
     assert!(rebuilt.is_folder_hidden(folders[1]) && rebuilt.is_hidden(ids[0][2]));
+    assert_eq!((rebuilt.geo(ids[0][1]), rebuilt.is_geotagged(ids[0][1])), (Some(Geo::Removed), false), "a removed location stays removed");
+    assert_eq!(rebuilt.person(&ana()).and_then(|p| p.thumbnail), Some(FaceKey { photo: ids[1][2], rect: rect(0.123457, 0.25, 0.5, 1.0) }));
     assert!(rebuilt.can_undo_save(ids[0][0]) && rebuilt.can_revert(ids[1][1]) && !rebuilt.can_undo_save(ids[0][4]));
     // Importing again finds nothing to change, and writing again changes no byte.
     assert!(import_library(&rebuilt, lib_dir.path(), NOW).ops.is_empty(), "importing again changes nothing");
@@ -387,7 +465,7 @@ fn journal_replay_and_snapshots_keep_every_field() {
     assert_eq!((snapped.report.clone(), snapped.library.model()), (vec![], lib.model()));
     assert_eq!(snapped.store.seq(), snapped.store.snapshot_seq());
     let snap = std::fs::read_to_string(dir.path().join(dalica_store::snapshot::FILE)).unwrap();
-    for key in ["\"saved\"", "\"savedAs\"", "\"projects\"", "\"facts\"", "\"digests\""] {
+    for key in ["\"saved\"", "\"savedAs\"", "\"projects\"", "\"facts\"", "\"digests\"", "\"people\"", "\"faces\"", "\"geo\""] {
         assert!(snap.contains(key), "{key} in {snap}");
     }
     // The snapshot taken half way holds the model as it was then.
@@ -422,6 +500,9 @@ fn clearing_every_field_removes_its_keys() {
         Op::SetSavedAs { saved_as: vec![(a[1], Some(SavedAs { name: "b.jpg".into(), recipe: Vec::new() }))] },
         Op::SetProjects { projects: vec![(f, Some(Project::Exported))] },
         Op::SetFolderSorts { sorts: vec![(f, PhotoSort::new(SortBy::Name, true))] },
+        Op::AddPerson { id: ana(), person: Person::named("Ana") },
+        Op::SetFaces { faces: vec![(a[0], vec![Face::new(Rect01::FULL, FacePerson::Person(ana()))])] },
+        Op::SetGeo { geo: vec![(a[0], Some(Geo::Removed)), (a[2], at(1.0, 2.0))] },
     ]);
     let mut undo = Vec::new();
     for op in ops {
@@ -432,6 +513,8 @@ fn clearing_every_field_removes_its_keys() {
     assert_eq!(doc["photos"]["a]b \"c\";=.jpg"]["savedAs"], json!({"name": "b.jpg"}));
     assert_eq!(doc["folder"]["project"], "exported");
     assert_eq!((&doc["folder"]["sort"], &doc["folder"]["reverse"]), (&json!("name"), &json!(true)));
+    assert_eq!(doc["photos"]["IMG_0001.jpg"]["faces"], json!([{"person": ana().as_str(), "rect": [0.0, 0.0, 1.0, 1.0]}]));
+    assert_eq!((&doc["photos"]["IMG_0001.jpg"]["geo"], &doc["people"][ana().as_str()]["name"]), (&Value::Null, &json!("Ana")));
     for op in undo.into_iter().rev() {
         lib.apply(op).unwrap();
     }
@@ -505,4 +588,72 @@ fn an_entry_with_only_dalica_fields_is_marked_and_pruned_when_its_file_is_gone()
         assert_eq!(doc["photos"][names[1]]["star"], true, "{case}");
         assert_eq!(PRUNE_AFTER, day * 30);
     }
+}
+
+/// Nothing M13 adds is silently dropped (`data-model.md` §2–§4): every field of a face and a
+/// person and both kinds of geotag is placed in a table, and the sidecar crate reads exactly the
+/// keys the tables name. A new field breaks a destructuring here until it is placed.
+#[test]
+fn every_m13_field_has_a_place() {
+    let Face { rect: _, person: _ } = Face::new(Rect01::FULL, FacePerson::Unnamed);
+    assert_eq!(FACE_FIELDS.map(|(n, _)| n), ["rect", "person"]);
+    assert!(FACE_FIELDS.iter().all(|(_, s)| *s == Source::Sidecar("faces")), "each in an object of the photo's faces list");
+    let Person { name: _, nickname: _, thumbnail: _ } = Person::default();
+    let FaceKey { photo: _, rect: _ } = FaceKey { photo: PhotoId::new(1), rect: Rect01::FULL };
+    assert_eq!(PERSON_FIELDS.map(|(n, _)| n), ["name", "nickname", "thumbnail"]);
+    assert!(PERSON_FIELDS.iter().all(|(n, s)| *s == Source::People(n)), "each under its own key in people.json");
+    match Geo::Removed {
+        Geo::At(_) | Geo::Removed => {}
+    }
+    assert_eq!(PHOTO_DATA_M13, [("faces", Source::Fields("FACE_FIELDS")), ("geo", Source::Sidecar("geo"))]);
+    assert_eq!(FOLDER_DATA_M13, [("people", Source::TopSidecar("people"))]);
+    assert_eq!(LIBRARY_DATA_M13, [("people", Source::Fields("PERSON_FIELDS"))]);
+    let photo_keys: Vec<&str> =
+        FACE_FIELDS.iter().chain(&PHOTO_DATA_M13).filter_map(|(_, s)| if let Source::Sidecar(k) = s { Some(*k) } else { None }).collect();
+    assert_eq!(photo_keys, ["faces", "faces", "geo"]);
+    assert_eq!(["faces", "geo"], M13_PHOTO_KEYS);
+    assert_eq!(FOLDER_DATA_M13.map(|(_, s)| s), M13_TOP_KEYS.map(Source::TopSidecar));
+    // `PhotoState` and `FolderState` name their M13 fields in `m9_fields.rs`'s destructuring.
+    assert_eq!((PhotoState::default().faces, FolderState::default().people), (Vec::new(), Default::default()));
+}
+
+/// A face the model cannot hold (an empty rectangle, or a person the library does not have) stays
+/// in the file after the model's faces and is never used; a face the model holds at the same
+/// rectangle takes its place; other keys of a face are kept.
+#[test]
+fn faces_the_model_cannot_hold_are_kept_in_the_file() {
+    let root = tempfile::tempdir().unwrap();
+    let theirs = json!({"rect": [0.5, 0.5, 0.5, 0.6], "x-tool": 1});
+    let stranger = json!({"rect": [0.1, 0.1, 0.3, 0.3], "person": "pabcdef"});
+    let planted = json!({"photos": {"IMG_0001.jpg": {"faces": [theirs.clone(), stranger.clone(), {"rect": [0.6, 0.6, 0.7, 0.7], "x-kept": true}]}}});
+    std::fs::write(root.path().join(".dalica.json"), planted.to_string()).unwrap();
+    let (mut lib, folders, ids) = scan(&[root.path()]);
+    let (f, a) = (folders[0], ids[0][0]);
+    let import = import_library(&lib, root.path(), NOW);
+    for op in import.ops {
+        lib.apply(op).unwrap();
+    }
+    assert_eq!(lib.faces(a), [Face::new(rect(0.6, 0.6, 0.7, 0.7), FacePerson::Unnamed)], "only the face the model can hold");
+    assert!(import.problems.iter().any(|(_, p)| p.contains("1 faces name a person named nowhere")), "{:?}", import.problems);
+    assert!(import.problems.iter().any(|(_, p)| p.contains("1 faces have an empty rectangle")), "{:?}", import.problems);
+    assert!(import.problems.iter().all(|(_, p)| !p.contains("0.1")), "rectangles never reach a note");
+
+    // Naming the face the model holds: the others are kept after it, as written.
+    lib.apply(Op::AddPerson { id: ana(), person: Person::named("Ana") }).unwrap();
+    lib.apply(Op::SetFaces { faces: vec![(a, vec![Face::new(rect(0.6, 0.6, 0.7, 0.7), FacePerson::Person(ana()))])] }).unwrap();
+    assert_eq!(write_folder(&mapping::folder_state(&lib, f).unwrap(), NOW), Outcome::Written);
+    let faces = &json_of(root.path())["photos"]["IMG_0001.jpg"]["faces"];
+    assert_eq!(faces, &json!([{"rect": [0.6, 0.6, 0.7, 0.7], "x-kept": true, "person": ana().as_str()}, theirs, stranger]));
+    assert_eq!(write_folder(&mapping::folder_state(&lib, f).unwrap(), NOW), Outcome::Unchanged);
+
+    // A face drawn by the model over the stranger's rectangle takes its place.
+    let over = vec![Face::new(rect(0.6, 0.6, 0.7, 0.7), FacePerson::Person(ana())), Face::new(rect(0.1, 0.1, 0.3, 0.3), FacePerson::Ignored)];
+    lib.apply(Op::SetFaces { faces: vec![(a, over)] }).unwrap();
+    assert_eq!(write_folder(&mapping::folder_state(&lib, f).unwrap(), NOW), Outcome::Written);
+    let faces = &json_of(root.path())["photos"]["IMG_0001.jpg"]["faces"];
+    assert_eq!(faces[1], json!({"rect": [0.1, 0.1, 0.3, 0.3], "person": "ignored"}));
+    assert_eq!(faces.as_array().map(Vec::len), Some(3), "{faces}");
+    assert_eq!(faces[2], theirs);
+    let geo = Sidecar::parse(&std::fs::read(root.path().join(".dalica.json")).unwrap(), &Limits::default()).unwrap().geo("IMG_0001.jpg");
+    assert_eq!(geo, Field::Absent);
 }

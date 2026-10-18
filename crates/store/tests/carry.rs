@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use dalica_core::{AlbumId, FolderId, PhotoId, PosKey, Timestamp};
 use dalica_fs::faults::{arm, disarm_all, run_at};
 use dalica_fs::transfer::{self, Outcome as Transfer};
-use dalica_library::{AlbumInfo, Folder, Library, Op, Photo, PhotoInfo};
+use dalica_library::{AlbumInfo, Folder, Geo, Library, Op, Photo, PhotoInfo};
 use dalica_sidecar::originals::{self, Entry, State};
 use dalica_sidecar::{Field, Limits, Originals, Sidecar};
 use dalica_store::carry::{self, Carry, CarryError, Mode};
@@ -85,6 +85,8 @@ fn world() -> World {
         },
         Op::CreateAlbums { albums: vec![(trams(), AlbumInfo { name: "Trams".into(), ..AlbumInfo::default() })] },
         Op::AddMembers { members: vec![(trams(), p, PosKey::first())] },
+        // A geotag is the model's since M13.9; it travels in the entry like the rest.
+        Op::SetGeo { geo: vec![(ids[1], Some(Geo::At(dalica_core::geo::LatLon::new(38.7, -9.1).unwrap())))] },
     ] {
         lib.apply(op).unwrap();
     }
@@ -97,7 +99,6 @@ fn world() -> World {
     edit(&a, |root| {
         root["photos"]["IMG_0001.jpg"]["faces"] = json!([{ "rect": [0.1, 0.2, 0.3, 0.4], "person": "p7f3a2c" }]);
         root["photos"]["IMG_0001.jpg"]["x-other"] = json!({ "rating": 5 });
-        root["photos"]["IMG_0002.jpg"] = json!({ "geo": [38.7, -9.1] });
     });
     edit(&b, |root| root["photos"]["IMG_0001.jpg"]["x-porto"] = json!(true));
     World { _dir: dir, a, b, lib, fa: folders[0], fb: folders[1], ids, writer }

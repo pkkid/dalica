@@ -98,7 +98,7 @@ mod m13 {
     use std::collections::BTreeMap;
 
     use dalica_core::PersonId;
-    use dalica_sidecar::fields::{FACES, GEO, IGNORED, M13_PHOTO_KEYS, M13_TOP_KEYS, MAX_FACES, PEOPLE};
+    use dalica_sidecar::fields::{FACES, GEO, GeoTag, IGNORED, M13_PHOTO_KEYS, M13_TOP_KEYS, MAX_FACES, PEOPLE};
     use dalica_sidecar::{Face, FacePerson, FaceRect, Field, FolderPeople, Geo, Limits, PersonName, PhotoFaces, Problem, Sidecar};
     use proptest::prelude::*;
     use serde_json::{Value, json};
@@ -143,14 +143,14 @@ mod m13 {
     fn faces_people_and_a_geotag_print_and_parse_back_equal() {
         let mut s = Sidecar::new();
         s.set_photo_faces("IMG_0001.jpg", &lisbon_faces()).unwrap();
-        s.set_geo("IMG_0001.jpg", Geo::new(38.7116, -9.1389)).unwrap();
+        s.set_geo("IMG_0001.jpg", Geo::new(38.7116, -9.1389).map(GeoTag::At)).unwrap();
         s.set_people(&ana());
         let again = reparse(&s);
         assert_eq!(again, s);
         assert_eq!(again.photo_faces("IMG_0001.jpg"), Field::Value(PhotoFaces { faces: lisbon_faces(), bad: vec![], over: 0 }));
         let geo = again.geo("IMG_0001.jpg");
-        assert_eq!(geo, Field::Value(Geo::new(38.7116, -9.1389).unwrap()));
-        let Field::Value(g) = geo else { unreachable!() };
+        assert_eq!(geo, Field::Value(GeoTag::At(Geo::new(38.7116, -9.1389).unwrap())));
+        let Field::Value(GeoTag::At(g)) = geo else { unreachable!() };
         assert_eq!((g.lat(), g.lon()), (38.7116, -9.1389));
         assert_eq!(again.people(), Field::Value(FolderPeople { people: ana(), bad: vec![] }));
         assert!(again.problems().is_empty(), "{:?}", again.problems());
@@ -184,7 +184,7 @@ mod m13 {
         let mut s = Sidecar::new();
         let faces = [Face { rect: rect(0.123_456_7, 0.25, 0.5, 0.999_999_9), person: FacePerson::Named(pid("p7f3a2c")) }];
         s.set_photo_faces("a.jpg", &faces).unwrap();
-        s.set_geo("a.jpg", Geo::new(-0.000_000_1, 179.999_999_96)).unwrap();
+        s.set_geo("a.jpg", Geo::new(-0.000_000_1, 179.999_999_96).map(GeoTag::At)).unwrap();
         s.set_people(&BTreeMap::from([(pid("p7f3a2c"), PersonName { name: "Ana".into(), nickname: Some("Aninhas".into()) })]));
         let expected = r#"{
   "dalica": {
@@ -253,7 +253,7 @@ mod m13 {
                 PhotoFaces { faces: vec![Face { rect: rect(0.1, 0.1, 0.2, 0.3), person: FacePerson::Named(pid("p7f3a2c")) }], bad: vec![0], over: 0 };
             assert_eq!(s.photo_faces("a.jpg"), Field::Value(want.clone()), "{bad}");
             assert_eq!(s.photo("a.jpg").star, Field::Value(true), "{bad}: the rest is read");
-            assert_eq!(s.geo("a.jpg"), Field::Value(Geo::new(1.5, 2.5).unwrap()), "{bad}");
+            assert_eq!(s.geo("a.jpg"), Field::Value(GeoTag::At(Geo::new(1.5, 2.5).unwrap())), "{bad}");
             assert!(s.problems().is_empty(), "{bad}: a bad face is left out, not a wrong type: {:?}", s.problems());
             // Rewriting the faces keeps the unusable entry verbatim, after Dalica's.
             s.set_photo_faces("a.jpg", &want.faces).unwrap();
@@ -262,6 +262,24 @@ mod m13 {
             s.set_photo_faces("a.jpg", &[]).unwrap();
             assert_eq!(json_of(&s)["photos"]["a.jpg"]["faces"], json!([bad.clone()]), "{bad}");
         }
+    }
+
+    /// `"geo": null` says the user removed the location (M13.9): it reads as removed, is no problem,
+    /// prints back as `null`, and a place or clearing writes over it.
+    #[test]
+    fn a_removed_location_is_null_and_round_trips() {
+        let mut s = parse(&json!({ "photos": { "a.jpg": { "geo": null, "x-other": 1 } } }).to_string());
+        assert_eq!(s.geo("a.jpg"), Field::Value(GeoTag::Removed));
+        assert!(s.problems().is_empty(), "{:?}", s.problems());
+        let mut fresh = Sidecar::new();
+        fresh.set_geo("a.jpg", Some(GeoTag::Removed)).unwrap();
+        assert_eq!(json_of(&fresh)["photos"]["a.jpg"], json!({ "geo": null }));
+        assert_eq!(reparse(&fresh).geo("a.jpg"), Field::Value(GeoTag::Removed));
+        s.set_geo("a.jpg", Geo::new(1.0, 2.0).map(GeoTag::At)).unwrap();
+        assert_eq!(json_of(&s)["photos"]["a.jpg"], json!({ "geo": [1.0, 2.0], "x-other": 1 }));
+        s.set_geo("a.jpg", Some(GeoTag::Removed)).unwrap();
+        s.set_geo("a.jpg", None).unwrap();
+        assert_eq!(json_of(&s)["photos"]["a.jpg"], json!({ "x-other": 1 }));
     }
 
     #[test]
@@ -434,11 +452,11 @@ mod m13 {
         ) {
             let mut s = Sidecar::new();
             s.set_photo_faces("a.jpg", &faces).unwrap();
-            s.set_geo("a.jpg", Geo::new(lat, lon)).unwrap();
+            s.set_geo("a.jpg", Geo::new(lat, lon).map(GeoTag::At)).unwrap();
             let again = reparse(&s);
             let want = if faces.is_empty() { Field::Absent } else { Field::Value(PhotoFaces { faces: faces.clone(), bad: vec![], over: 0 }) };
             prop_assert_eq!(again.photo_faces("a.jpg"), want);
-            prop_assert_eq!(again.geo("a.jpg"), Field::Value(Geo::new(lat, lon).unwrap()));
+            prop_assert_eq!(again.geo("a.jpg"), Field::Value(GeoTag::At(Geo::new(lat, lon).unwrap())));
             let mut twice = again.clone();
             twice.set_photo_faces("a.jpg", &faces).unwrap();
             prop_assert_eq!(twice.print(), s.print());
