@@ -746,6 +746,20 @@ impl Session {
         self.resume_face_scan();
     }
 
+    /// The float32 embedding of `photo`'s face at `rect`, from the recogniser's cache in memory
+    /// (never the disk), when the loaded recogniser is the index's model and the cache holds the
+    /// face for the photo's file as it is: what settles a suggestion falling within the 8-bit error
+    /// of a bar (`faces.md` §6, `suggestions.rs`). Waits for the cache's lock, which a worker holds
+    /// only while it appends a photo's records.
+    pub(crate) fn exact_face_embedding(&self, photo: &Photo, rect: &Rect01) -> Option<Embedding> {
+        let engine = self.face_scan.engine.as_ref()?;
+        if self.faces_index.model_info().map(|m| &m.sha256) != Some(&engine.info.sha256) {
+            return None;
+        }
+        let cache = engine.cache.lock().unwrap_or_else(PoisonError::into_inner);
+        Embedding::new(&cache.face(&PhotoStamp::of(photo), rect)?.embedding).ok()
+    }
+
     /// Stops the scan and deletes every model's cached embeddings in the library directory
     /// (`faces.enable {on: false, dropEmbeddings: true}`); the index forgets them too.
     pub(crate) fn drop_face_embeddings(&mut self) {

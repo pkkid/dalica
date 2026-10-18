@@ -72,6 +72,7 @@ mod search;
 mod settings;
 mod sidecar_people_places;
 mod slideshow;
+mod suggestions;
 mod synthetic;
 mod tags;
 mod thumb_cache;

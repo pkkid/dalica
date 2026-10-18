@@ -37,7 +37,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "List People",
             menu: "",
             keys: &[],
-            params: r#"{"sort"?:"name"|"count" (default name)}: every person: {people:[{id, section:"person:<id>", name, nickname:string|null, count (photos), faces, thumbnail:"<PhotoId>.<n>"|null, pending (suggestions waiting; 0 until suggestions are made)}], unnamed (faces), ignored (faces)}. Over automation without --automation-allow-people names and nicknames are null; counts stay"#,
+            params: r#"{"sort"?:"name"|"count" (default name)}: every person: {people:[{id, section:"person:<id>", name, nickname:string|null, count (photos), faces, thumbnail:"<PhotoId>.<n>"|null, pending (suggestions waiting: faces.suggest's count; 0 with Suggest names off or no model)}], unnamed (faces), ignored (faces)}. Over automation without --automation-allow-people names and nicknames are null; counts stay"#,
             effect: Effect::Query,
             history: History::None,
             enabled: always,
@@ -110,6 +110,7 @@ struct ListParams {
 
 fn list(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
     let p: ListParams = params(p)?;
+    let pending = s.pending_suggestions();
     let lib = s.library();
     let people: Vec<Value> = lib
         .people_sorted(p.sort)
@@ -121,8 +122,7 @@ fn list(s: &mut Session, p: &Value) -> Result<Value, CmdError> {
                 "nickname": if person.nickname.is_empty() { Value::Null } else { json!(person.nickname) },
                 "count": lib.person_count(&id), "faces": lib.person_faces(&id).len(),
                 "thumbnail": lib.person_thumbnail(&id).map(face_id),
-                // M13.26 counts the suggestions waiting for each person.
-                "pending": 0,
+                "pending": pending.get(&id).copied().unwrap_or(0),
             }))
         })
         .collect();

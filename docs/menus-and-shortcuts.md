@@ -223,8 +223,8 @@ commands change nothing and record no undo step.
 | `faces.detect` / `faces.index` | find the faces of photos now (`{ids, apply?}`); query: the face scan's progress for the People group's header (M13.18) |
 | `faces.removeInFolders` | the Folder Manager's Remove Faces (`{folders, confirm}`) (M13.18) |
 | `faces.suggest` | query: unnamed faces with their "Name?" person while Suggest names is on (`{ids? \| person?}`) (M13.26) |
-| `faces.confirm` / `faces.confirmAll` / `faces.reject` | confirm suggestions (`{faces}`; each a reference from then on), all of a person's (`{person}`, one undo step), or reject them (`{faces}`; the pair is never suggested again) (M13.26) |
-| `faces.findMore` | query: unnamed faces near a person's (`{person}`), most similar first (M13.26) |
+| `faces.confirm` / `faces.confirmAll` / `faces.reject` | confirm suggestions (`{faces}`; each a reference from then on; one undo step), all of a person's (`{person}`, one undo step), or reject them (`{faces, person?}`: the suggested person, or the one given for a face Find More listed; the pair is never suggested again, kept in `people.json`; no undo step) (M13.26) |
+| `faces.findMore` | query: unnamed faces near a person's (`{person}`), most similar first, also while Suggest names is off (M13.26) |
 | `faces.evaluate` | query: per confidence step, the suggestions that would be made on the user's named faces and how many are right (`faces.md` §5) (M13.26) |
 | `photo.inspect` | query: everything known about photos (`{ids}`) |
 | `library.query` | query: search with the search-box grammar, filters and paging |
