@@ -2,3 +2,4 @@
 //! test file is a module: `cargo test -p dalica-faces --test all grouping::` runs one.
 
 mod grouping;
+mod inference;

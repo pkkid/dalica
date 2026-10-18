@@ -2,7 +2,7 @@
 resolver = "3"
 members = ["crates/*", "apps/*", "xtask", "tests/acceptance"]
 # cargo-fuzz workspaces: nightly-only, outside the product graph (security.md §7.1).
-exclude = ["crates/image/fuzz", "crates/meta/fuzz"]
+exclude = ["crates/image/fuzz", "crates/meta/fuzz", "crates/faces/fuzz"]
 
 [workspace.package]
 version = "0.7.0"
@@ -77,6 +77,13 @@ fdeflate = "0.3"
 zune-jpegxl = { version = "0.5", default-features = false, features = ["std"] }
 zune-core = "0.5"
 tiff = "0.11"
+
+# The face models' interpreter (dalica-faces, M13.6; faces.md §2): safe matrix views over
+# `matrixmultiply`'s single-threaded float32 GEMM (pure Rust, intrinsics chosen at run time, AVX-512
+# included; no BLAS, no `rayon`, no `threading` feature). As LightCraft `crates/faces` (MIT OR
+# Apache-2.0). Its build script only probes the rustc version (`autocfg`, already in the graph).
+ndarray = { version = "0.17.2", default-features = false, features = ["std"] }
+matrixmultiply = { version = "0.3.11", default-features = false, features = ["std", "avx512"] }
 
 # Metadata, files, locations
 quick-xml = "0.42"
