@@ -413,8 +413,10 @@ skipped, and Save and Batch Edit treat it as not yet available.
     same flip twice cancels, a `tuning` right after a `tuning` replaces it, a crop is appended
     (only the last crop counts). Each photo's redo list is cleared, as any new edit clears it. The
     library undo step is named by the operation ("Undo Auto Fix").
-  - The effects (Sepia … Black and White) are greyed with "Arrives with Effects" until they draw
-    (M12): an operation this build cannot render is refused as disabled with that reason.
+  - The five effects (Sepia, Sharpen, Warmify, Film Grain, Black and White) are live, each at its
+    defaults, appended to every photo's recipe as one library undo step ("Undo Sepia", "Undo
+    B&W"). An effect whose module is still a stub is greyed with "Arrives with Effects": an
+    operation this build cannot render is refused as disabled with that reason.
 - Library thumbnails always show photos with their edits applied and the *edited* badge.
 
 ## 10. Rotation
