@@ -25,6 +25,8 @@
 //!   `eyedropper`: while it is armed the pointer is a crosshair over the photo and a click there
 //!   picks the colour under it ([`effect_session::start_pick`], answered off the UI thread).
 //! - A panel too short for its rows (left open on another tab of a small window) scrolls them.
+//! - An effect may add rows of its own under its controls ([`extra_rows`]): Soften's Paint │
+//!   Erase and Brush size ([`super::soften_brush::rows`]).
 
 pub mod controls;
 pub mod layout;
@@ -36,7 +38,7 @@ use egui::{Align, Align2, CursorIcon, Id, Layout, Response, ScrollArea, Ui, UiBu
 use serde_json::{Map, Value, json};
 
 use self::controls::{Control, ROW_GAP};
-use super::canvas;
+use super::{canvas, soften_brush};
 use crate::app::App;
 use crate::commands::edit_view;
 use crate::commands::effect_session::{self, set_eyedropper, set_picker};
@@ -46,6 +48,15 @@ use crate::state::{EffectDraft, EffectValue, effect_row};
 pub const APPLY_ID: &str = "button:panel.apply";
 pub const CANCEL_ID: &str = "button:panel.cancel";
 pub const RESET_ID: &str = "button:panel.reset";
+
+/// The rows effect `name` adds under its controls, drawn by its own module: their height and
+/// what draws them in the controls' area (scrolling with them).
+pub type ExtraRows = (fn(&Tokens) -> f32, fn(&mut App, &mut Ui));
+
+/// The extra rows of effect `name`, if it has any.
+pub fn extra_rows(name: &str) -> Option<ExtraRows> {
+    (name == soften_brush::EFFECT).then_some((soften_brush::rows_height as fn(&Tokens) -> f32, soften_brush::rows as fn(&mut App, &mut Ui)))
+}
 
 /// What a control asked for this pass, applied once every control is drawn.
 #[derive(Debug, Clone, PartialEq)]
@@ -67,7 +78,9 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     let Some(row) = effect_row(&d.name) else { return };
     let t: Tokens = *app.tokens();
     let list = controls::controls(row);
-    let l = layout::compute(ui.max_rect(), t.metrics.button_h, controls::rows_height(&t, &list));
+    let extra = extra_rows(row.name);
+    let need = controls::rows_height(&t, &list) + extra.map_or(0.0, |(height, _)| ROW_GAP + height(&t));
+    let l = layout::compute(ui.max_rect(), t.metrics.button_h, need);
     ui.painter().text(l.title.left_center(), Align2::LEFT_CENTER, row.label, fonts::semibold(t.title), t.text);
 
     let mut changes = Vec::new();
@@ -81,6 +94,10 @@ pub fn show(app: &mut App, ui: &mut Ui) {
                     ui.add_space(ROW_GAP);
                 }
                 control(ui, &t, &d, c, &mut changes);
+            }
+            if let Some((_, draw)) = extra {
+                ui.add_space(ROW_GAP);
+                draw(app, ui);
             }
         });
     }
