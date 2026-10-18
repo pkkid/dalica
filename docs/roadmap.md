@@ -7066,7 +7066,7 @@ a maintainer decision mid-run.
     the same on a photo turned 90°; Graduated Tint's drag sets its angle; on a photo with a Border
     the centre cannot leave the photo; fingerprints of Soft Focus's and Graduated Tint's crosshair
     at 1400 × 900.
-- ⬜ **M12.18 `ui`: Soften's brush and eraser**
+- ✅ **M12.18 `ui`: Soften's brush and eraser**
   - after: M12.11, M12.16
   - files: `crates/ui/src/panels/edit/soften_brush.rs`, `crates/ui/tests/soften_brush.rs`, `crates/ui/tests/fingerprints/soften-brush-*.json`
   - scope: `editing.md` §8.4 and the decisions above: in Soften's panel the Paint and Erase buttons
