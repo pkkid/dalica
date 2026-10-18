@@ -7112,7 +7112,7 @@ a maintainer decision mid-run.
     blocks with its numbers, never loosened.
   - done when: `cargo xtask bench effects` and `bench effect_tiles` print their numbers (in the
     PR); `cargo xtask budgets` passes with them and `--plant-ms` makes each fail.
-- ⬜ **M12.24 `ui`: the slideshow prepares the next photo off the UI thread**
+- ✅ **M12.24 `ui`: the slideshow prepares the next photo off the UI thread**
   - after: M11.R
   - files: `crates/ui/src/panels/slideshow/show.rs`, `crates/ui/src/panels/slideshow.rs`, `crates/ui/tests/slideshow.rs`, `crates/ui/benches/slideshow.rs`
   - scope: a fix task from M11.R. M11.29 moved the next photo's texture upload out of the change's first frame into one
