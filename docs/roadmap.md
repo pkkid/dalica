@@ -8333,7 +8333,7 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
     budgets); `crates/edit/tests/look_effects.rs`: the `looks-*-large` fingerprints blessed from
     the M12 code match, the existing fingerprints, two-sizes tests and the region test pass
     unchanged; `cargo xtask ci`.
-- ⬜ **M13.40 `edit`: Soften within the slider's caps**
+- ✅ **M13.40 `edit`: Soften within the slider's caps**
   - after: M12.R, M13.34
   - files: `crates/edit/src/ops/soften.rs`, `crates/edit/tests/soften.rs`, `crates/edit/tests/fingerprints/soften-*.json`
   - scope: effect speed. Draft / final p95 at M12.21: Soften 30.0 / 539 ms (at its defaults, no

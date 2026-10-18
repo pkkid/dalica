@@ -11,24 +11,30 @@
 //!   and whole points, `NaN`, or a missing or extra field is refused (the entry is kept and
 //!   skipped); numbers out of range are clamped.
 //! - **Rendering** (M12.11, `VERSION` 1): the photo blurred by a Gaussian of sigma
-//!   `Softness/100 ×` [`SIGMA`] of the shorter side ([`crate::fx::Gaussian`]), the blurred copy
-//!   screened over the photo by `Softness/100 ×` [`GLOW`] (a soft glow: detail melts, shadows lift
-//!   a little, whites stay white), faded toward the input by Fade ([`crate::fx::fade`]), then
-//!   applied by the mask: `out = in + (soft − in) · mask`, so where the mask is 0 the photo is
-//!   untouched. Softness 0 or Fade 100 changes nothing.
+//!   `Softness/100 ×` [`SIGMA`] of the shorter side, the blurred copy screened over the photo by
+//!   `Softness/100 ×` [`GLOW`] (a soft glow: detail melts, shadows lift a little, whites stay
+//!   white), faded toward the input by Fade, then applied by the mask: `out = in + (soft − in) ·
+//!   mask`, so where the mask is 0 the photo is untouched. Softness 0 or Fade 100 changes nothing.
 //! - **Mask** ([`Soften::coverage`]): 1 everywhere without strokes; otherwise the strokes in
 //!   order on 0, each its dabs ([`crate::fx::Dabs`], feather [`FEATHER`]) along its stored-frame
 //!   points mapped through [`super::Prepare::geometry`] (so they stay on the same content after a
 //!   crop, a straighten, an EXIF orientation and the recipe's turns): a paint stroke adds
 //!   `s · (1 − v)`, an erase stroke takes `v · s` away (as [`crate::fx::paint`]). The mask is
-//!   painted per pixel at the output's resolution, the strokes in parallel over chunks of rows;
-//!   an entry that would cost more than [`MAX_WORK`] there (thousands of long strokes of a large
-//!   brush) is painted on a grid halved until it fits and sampled bilinearly, so any accepted
-//!   entry renders in bounded time and memory. The blur covers only the box where the mask
-//!   applies, grown by its reach, so a small stroke on a large photo blurs a small patch; a
-//!   region render equals that window of the whole render. The mask and the blur are made once
-//!   per render, by the first band to run, through [`crate::fx::apart`] (M12.28): apart from the
-//!   bands' pool, so no band waits on a setup it is making.
+//!   painted per pixel at the output's resolution, the strokes in parallel over chunks of rows (a
+//!   stroke covers a pixel by its nearest dab: the profile falls with the distance); an entry
+//!   that would cost more than [`MAX_WORK`] there (thousands of long strokes of a large brush) is
+//!   painted on a grid halved until it fits and sampled bilinearly, so any accepted entry renders
+//!   in bounded time and memory.
+//! - **Speed** (M13.40, within the slider's caps, `development.md` §8): the blur is a
+//!   [`crate::fx::GridBlur`] (cell means on a coarse grid, read back bilinearly) mixed in whole and
+//!   within 4 % of the sigma of M12's box passes (`soften_blur`). Without strokes there is no
+//!   mask at all; with strokes it is painted only over the paint strokes' box (0 outside it), and
+//!   the blur's grid covers only the box where the mask applies, grown by its reach, so a small
+//!   stroke on a large photo blurs a small patch. The grid is read back a row at a time (each grid
+//!   row spread across the band's columns once) and the screen, the fade and the mask applied on
+//!   flat rows. A region render equals that window of the whole render. The mask is made once per
+//!   render, by the first band to run, through [`crate::fx::apart`] (M12.28), and the grid after
+//!   it by [`crate::fx::GridBlur::rgb`] (apart as well): no band waits on a setup it is making.
 
 use std::fmt;
 use std::sync::OnceLock;
@@ -39,7 +45,7 @@ use rayon::prelude::*;
 use super::{Adjust, Band, FADE, Operation, ParamError, Pass, Prepare, Reach, Reader, View, clamp, num, num_point};
 use crate::frame::Point;
 use crate::fx::brush::{MAX_DABS, dab_alpha, dab_spacing};
-use crate::fx::{Blend, Dabs, Gaussian, Plane, Space, apart, fade, mix};
+use crate::fx::{Dabs, Gaussian, GridBlur, Plane, Space, Window, apart};
 use crate::render::Geometry;
 
 /// The range of Softness.
@@ -209,102 +215,311 @@ impl Adjust for Soften {
             return None;
         }
         let space = Space::new(ctx)?;
-        let gaussian = Gaussian::new(space.length(s * SIGMA), (ctx.width, ctx.height));
+        let blur = soften_blur(space.length(s * SIGMA), (ctx.width, ctx.height));
         let brush = if self.strokes.is_empty() { None } else { Some(Brush::new(&self.strokes, ctx.geometry, ctx.width, ctx.height)?) };
-        Some(Box::new(SoftenPass { gaussian, glow: (s * GLOW) as f32, fade, brush, done: OnceLock::new() }))
+        let alpha = (1.0 - fade / 100.0) as f32;
+        Some(Box::new(SoftenPass { blur, glow: unit((s * GLOW) as f32), alpha: unit(alpha), brush, done: OnceLock::new() }))
     }
+}
+
+/// The blur Soften softens with for a Gaussian of `sigma` output pixels over a `size` output: a
+/// [`GridBlur`] mixed in whole ([`GridBlur::strength`] 1) whose sigma ([`GridBlur::sigma`]) comes
+/// closest to that of the three box passes M12 blurred with ([`Gaussian::sigma`]). The grid snaps
+/// its cells and its boxes, and mixes the unblurred picture back in where its boxes overshoot, so
+/// the sigma asked of it is varied from −20 % to +60 % in 0.5 % steps: the whole blurs found lie
+/// within 4 % of M12's. `None` when M12's boxes left the picture as it was.
+fn soften_blur(sigma: f64, size: (u32, u32)) -> Option<GridBlur> {
+    let gaussian = Gaussian::new(sigma, size);
+    if gaussian.is_identity() {
+        return None;
+    }
+    let want = gaussian.sigma();
+    // A grid mixed in by less than 1 keeps that share of the fine detail a blur this wide melts
+    // (5 % of a 3 px checker showed at Softness 100): a whole blur comes first.
+    let rank = |b: &GridBlur| (b.strength() < 1.0, (b.sigma() - want).abs());
+    let mut best: Option<GridBlur> = None;
+    for k in -40..=120 {
+        let Some(next) = GridBlur::new(want * (1.0 + f64::from(k) * 0.005), size) else { continue };
+        if best.as_ref().is_none_or(|b| rank(&next) < rank(b)) {
+            best = Some(next);
+        }
+    }
+    best
+}
+
+/// `v` in 0..1, `NaN` to 0.
+fn unit(v: f32) -> f32 {
+    if v.is_nan() { 0.0 } else { v.clamp(0.0, 1.0) }
 }
 
 /// Soften prepared for one render.
 struct SoftenPass {
-    gaussian: Gaussian,
+    /// `None` when the blur is too small to change anything (the picture screened over itself, as
+    /// M12's identity Gaussian did).
+    blur: Option<GridBlur>,
+    /// How much of the screened glow shows over the blurred copy, and how much of the result
+    /// shows over the input (`1 − Fade/100`), both in 0..1.
     glow: f32,
-    fade: f64,
+    alpha: f32,
     /// `None`: everywhere.
     brush: Option<Brush>,
-    /// The mask and the blurred picture over the `before` view, made by the first band to run,
-    /// through [`apart`] (both run `rayon` work, which must not wait inside the bands' pool).
+    /// The mask and the box where it applies over the `before` view, made by the first band to
+    /// run, through [`apart`] (the mask runs `rayon` work, which must not wait inside the bands'
+    /// pool). The blur's grid is made after it, by [`GridBlur::rgb`] (apart as well).
     done: OnceLock<Option<Made>>,
 }
 
 /// What every band of one render reads.
 struct Made {
-    /// The view's window and its mask at output resolution (`None`: everywhere).
+    /// The box where Soften applies, `(x0, y0, x1, y1)` half-open in output pixels; `None` when
+    /// it applies nowhere.
+    applied: Option<(u32, u32, u32, u32)>,
+    /// The mask over the strokes' box; `None`: 1 everywhere.
+    mask: Option<Mask>,
+    /// The window the blur's grid is made from (`x0, y0, width, height`): the applied box grown by
+    /// the blur's reach, inside the view; and its pixels when it is narrower than the view (a
+    /// window as wide as the view is its rows).
+    window: (u32, u32, u32, u32),
+    pixels: Option<Vec<u8>>,
+}
+
+/// The mask over a box of the output.
+struct Mask {
     x0: u32,
     y0: u32,
     width: u32,
-    mask: Option<Vec<f32>>,
-    /// The blurred picture over where the mask applies (and the blur's reach); `None` when it
-    /// applies nowhere.
-    plane: Option<Plane>,
+    values: Vec<f32>,
 }
 
-impl Made {
-    fn mask(&self, x: u32, y: u32) -> f32 {
-        let Some(mask) = &self.mask else { return 1.0 };
-        let (Some(lx), Some(ly)) = (x.checked_sub(self.x0), y.checked_sub(self.y0)) else { return 0.0 };
-        let i = (ly as usize).checked_mul(self.width as usize).and_then(|i| i.checked_add(lx as usize));
-        i.and_then(|i| mask.get(i)).copied().unwrap_or(0.0)
+impl Mask {
+    /// The mask over the output columns `x0..x1` of the row `y` (inside the box).
+    fn row(&self, y: u32, x0: u32, x1: u32) -> &[f32] {
+        let (Some(ly), Some(lx)) = (y.checked_sub(self.y0), x0.checked_sub(self.x0)) else { return &[] };
+        let at = (ly as usize).saturating_mul(self.width as usize).saturating_add(lx as usize);
+        self.values.get(at..at.saturating_add(x1.saturating_sub(x0) as usize)).unwrap_or(&[])
     }
 }
 
 impl SoftenPass {
     fn make(&self, view: &View<'_>) -> Option<Made> {
-        let (x0, y0, w, h) = (view.x0, view.y0, view.width, view.height);
-        let mask = match &self.brush {
-            Some(brush) => Some(brush.window(x0, y0, w, h)?),
-            None => None,
-        };
-        // The box where the mask applies, in output pixels, grown by the blur's reach.
-        let bounds = match &mask {
-            None => Some((x0, y0, x0.saturating_add(w), y0.saturating_add(h))),
-            Some(m) => applied_box(m, w as usize).map(|(a, b, c, d)| (x0 + a, y0 + b, x0 + c, y0 + d)),
-        };
-        let plane = match bounds {
-            None => None,
-            Some((ax, ay, bx, by)) => {
-                let reach = self.gaussian.reach();
-                let (ax, ay) = (ax.saturating_sub(reach).max(x0), ay.saturating_sub(reach).max(y0));
-                let (bx, by) = (bx.saturating_add(reach).min(x0.saturating_add(w)), by.saturating_add(reach).min(y0.saturating_add(h)));
-                let mut plane = Plane::from_fn(ax, ay, bx.saturating_sub(ax), by.saturating_sub(ay), |x, y| view.get(i64::from(x), i64::from(y)))?;
-                if !self.gaussian.apply(&mut plane) {
-                    return None;
+        let (vx0, vy0) = (view.x0, view.y0);
+        let (vx1, vy1) = (vx0.saturating_add(view.width), vy0.saturating_add(view.height));
+        let (mask, applied) = match &self.brush {
+            None => (None, Some((vx0, vy0, vx1, vy1))),
+            // The mask only over the paint strokes' box (it is 0 outside).
+            Some(brush) => match brush.paint_box().and_then(|b| intersect(b, (vx0, vy0, vx1, vy1))) {
+                None => (None, None),
+                Some((x0, y0, x1, y1)) => {
+                    let width = x1 - x0;
+                    let values = brush.window(x0, y0, width, y1 - y0)?;
+                    let applied = applied_box(&values, width as usize).map(|(a, b, c, d)| (x0 + a, y0 + b, x0 + c, y0 + d));
+                    (Some(Mask { x0, y0, width, values }), applied)
                 }
-                Some(plane)
-            }
+            },
         };
-        Some(Made { x0, y0, width: w, mask, plane })
+        let Some((ax, ay, bx, by)) = applied else {
+            return Some(Made { applied: None, mask: None, window: (vx0, vy0, 0, 0), pixels: None });
+        };
+        let reach = self.blur.as_ref().map_or(0, GridBlur::reach);
+        let (wx0, wy0) = (ax.saturating_sub(reach).max(vx0), ay.saturating_sub(reach).max(vy0));
+        let (wx1, wy1) = (bx.saturating_add(reach).min(vx1), by.saturating_add(reach).min(vy1));
+        let window = (wx0, wy0, wx1.saturating_sub(wx0), wy1.saturating_sub(wy0));
+        let pixels = if self.blur.is_some() && window.2 < view.width { Some(copy_box(view, window)?) } else { None };
+        Some(Made { applied, mask, window, pixels })
     }
+
+    /// The window of the `before` view the blur's grid is made from.
+    fn grid_window<'a>(made: &'a Made, view: &'a View<'a>) -> Option<Window<'a>> {
+        let (x0, y0, w, h) = made.window;
+        let full = view.full_size();
+        if let Some(pixels) = &made.pixels {
+            return Window::new(pixels, x0, y0, w, h, full);
+        }
+        let row = (view.width as usize).checked_mul(4)?;
+        let start = (y0.checked_sub(view.y0)? as usize).checked_mul(row)?;
+        let data = view.data.get(start..start.checked_add((h as usize).checked_mul(row)?)?)?;
+        Window::new(data, view.x0, y0, view.width, h, full)
+    }
+
+    /// Softens the pixels `row` by their blurred copy `blurred` (both three values a pixel): the
+    /// copy screened over them by the glow, toward the pixels by Fade and by the mask (`None`: 1).
+    fn soften_row(&self, row: &mut [f32], blurred: &[f32], mask: Option<&[f32]>) {
+        let (glow, alpha) = (self.glow, self.alpha);
+        match mask {
+            None => {
+                for (p, &b) in row.iter_mut().zip(blurred) {
+                    *p = soften(*p, b, glow, alpha);
+                }
+            }
+            Some(mask) => {
+                let (row, blurred) = (row.as_chunks_mut::<3>().0, blurred.as_chunks::<3>().0);
+                for ((p, b), &m) in row.iter_mut().zip(blurred).zip(mask) {
+                    // (`NaN` is not above 0.)
+                    if m > 0.0 {
+                        let k = alpha * m.min(1.0);
+                        *p = [soften(p[0], b[0], glow, k), soften(p[1], b[1], glow, k), soften(p[2], b[2], glow, k)];
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// One value softened: its blurred copy `b` screened over it by `glow` (`b + (screen − b)·glow`),
+/// then mixed in by `k` (the fade and the mask): `out = p + (glow − p)·k`.
+#[inline]
+fn soften(p: f32, b: f32, glow: f32, k: f32) -> f32 {
+    let screen = 1.0 - (1.0 - unit(p)) * (1.0 - unit(b));
+    let g = b + (screen - b) * glow;
+    p + (g - p) * k
+}
+
+/// The overlap of two boxes `(x0, y0, x1, y1)` (half-open), if any.
+fn intersect(a: (u32, u32, u32, u32), b: (u32, u32, u32, u32)) -> Option<(u32, u32, u32, u32)> {
+    let (x0, y0, x1, y1) = (a.0.max(b.0), a.1.max(b.1), a.2.min(b.2), a.3.min(b.3));
+    (x0 < x1 && y0 < y1).then_some((x0, y0, x1, y1))
+}
+
+/// The RGBA8 pixels of the `(x0, y0, width, height)` box of the view (inside it), row-major.
+fn copy_box(view: &View<'_>, b: (u32, u32, u32, u32)) -> Option<Vec<u8>> {
+    let (x0, y0, w, h) = b;
+    let (lx, ly) = (x0.checked_sub(view.x0)? as usize, y0.checked_sub(view.y0)? as usize);
+    let (row, span) = ((view.width as usize).checked_mul(4)?, (w as usize).checked_mul(4)?);
+    let mut out = Vec::new();
+    out.try_reserve_exact(span.checked_mul(h as usize)?).ok()?;
+    for j in 0..h as usize {
+        let at = (ly + j).checked_mul(row)?.checked_add(lx * 4)?;
+        out.extend_from_slice(view.data.get(at..at.checked_add(span)?)?);
+    }
+    Some(out)
 }
 
 impl Pass for SoftenPass {
     fn reach(&self) -> Reach {
-        Reach::Pixels(self.gaussian.reach())
+        Reach::Pixels(self.blur.as_ref().map_or(0, GridBlur::reach))
     }
 
     fn run(&self, band: &mut Band<'_>) {
         let Some(view) = band.before else { return };
         let Some(made) = self.done.get_or_init(|| apart(|| self.make(view))) else { return };
-        let Some(plane) = &made.plane else { return };
-        let (x0, y0, w) = (band.x0, band.y0, band.width as usize);
-        if w == 0 {
+        let Some((ax, ay, bx, by)) = made.applied else { return };
+        let w = band.width as usize;
+        // The band's columns where Soften applies.
+        let (cx0, cx1) = (band.x0.max(ax), band.x0.saturating_add(band.width).min(bx));
+        if w == 0 || cx0 >= cx1 {
             return;
         }
-        for (ly, row) in band.pixels.chunks_mut(w).enumerate() {
-            let y = y0.saturating_add(u32::try_from(ly).unwrap_or(u32::MAX));
-            for (lx, px) in row.iter_mut().enumerate() {
-                let x = x0.saturating_add(u32::try_from(lx).unwrap_or(u32::MAX));
-                let m = made.mask(x, y);
-                if m <= 0.0 || m.is_nan() {
-                    continue;
-                }
-                let input = *px;
-                let blurred = plane.get(i64::from(x), i64::from(y));
-                let glow = mix(blurred, Blend::Screen.apply(input, blurred), self.glow);
-                *px = mix(input, fade(input, glow, self.fade), m);
+        let span = (cx0 - band.x0) as usize..(cx1 - band.x0) as usize;
+        let mut reader = match &self.blur {
+            None => None,
+            Some(blur) => {
+                let Some(grid) = Self::grid_window(made, view).and_then(|window| blur.rgb(window)) else { return };
+                let Some(rows) = GridRows::new(blur, grid, cx0, span.len()) else { return };
+                Some((blur, grid, rows))
             }
+        };
+        let Some(mut blurred) = alloc(span.len().saturating_mul(3), 0.0f32) else { return };
+        for (j, row) in band.pixels.chunks_exact_mut(w).enumerate() {
+            let y = band.y0.saturating_add(u32::try_from(j).unwrap_or(u32::MAX));
+            if y < ay || y >= by {
+                continue;
+            }
+            let Some(row) = row.get_mut(span.clone()) else { continue };
+            let row = row.as_flattened_mut();
+            match &mut reader {
+                Some((blur, grid, rows)) => {
+                    rows.read(blur, grid, cx0, y, &mut blurred);
+                    let s = blur.strength();
+                    if s < 1.0 {
+                        // A blur under the smallest box blur is mixed in by its share.
+                        for (b, &p) in blurred.iter_mut().zip(row.iter()) {
+                            *b = p + (*b - p) * s;
+                        }
+                    }
+                }
+                None => blurred.copy_from_slice(row),
+            }
+            self.soften_row(row, &blurred, made.mask.as_ref().map(|m| m.row(y, cx0, cx1)));
         }
     }
+}
+
+/// The blurred grid read back at the pixels of a band's rows: [`GridBlur::read`]'s bilinear read
+/// with its two lerps in the other order. Each grid row the band reads is spread across the band's
+/// columns once (the place of each pixel between its two grid columns found once per band), and
+/// each output row lerps the two it lies between, flat.
+struct GridRows {
+    /// Per pixel of the row, its two grid columns (indices into a grid row) and the weight of the
+    /// second; empty when the grid is the pixels ([`GridBlur::read_row`] itself).
+    taps: Vec<(u32, u32, f32)>,
+    /// Two grid rows spread across the row (three values a pixel), and which grid rows they are.
+    spread: [(i64, Vec<f32>); 2],
+}
+
+impl GridRows {
+    /// The reader of `w` pixels from the output column `x0`.
+    fn new(blur: &GridBlur, grid: &Plane, x0: u32, w: usize) -> Option<GridRows> {
+        if blur.cell() <= 1 {
+            return Some(GridRows { taps: Vec::new(), spread: [(i64::MIN, Vec::new()), (i64::MIN, Vec::new())] });
+        }
+        let last = i64::from(grid.width.max(1)) - 1;
+        let at = |i: i64| (i - i64::from(grid.x0)).clamp(0, last) as u32;
+        let mut taps = Vec::new();
+        taps.try_reserve_exact(w).ok()?;
+        taps.extend((0..w).map(|k| {
+            let (i, t) = cell_tap(blur.cell(), x0.saturating_add(u32::try_from(k).unwrap_or(u32::MAX)));
+            (at(i), at(i + 1), t)
+        }));
+        let n = w.checked_mul(3)?;
+        Some(GridRows { taps, spread: [(i64::MIN, alloc(n, 0.0)?), (i64::MIN, alloc(n, 0.0)?)] })
+    }
+
+    /// The blur at the pixels of the output row `y` from the column `x0`, into `out` (three values
+    /// a pixel).
+    fn read(&mut self, blur: &GridBlur, grid: &Plane, x0: u32, y: u32, out: &mut [f32]) {
+        if blur.cell() <= 1 {
+            blur.read_row(grid, x0, y, out.as_chunks_mut::<3>().0);
+            return;
+        }
+        let (j, ty) = cell_tap(blur.cell(), y);
+        if self.spread[0].0 != j {
+            if self.spread[1].0 == j {
+                self.spread.swap(0, 1);
+            } else {
+                spread_row(grid, j, &self.taps, &mut self.spread[0].1);
+                self.spread[0].0 = j;
+            }
+        }
+        if self.spread[1].0 != j + 1 {
+            spread_row(grid, j + 1, &self.taps, &mut self.spread[1].1);
+            self.spread[1].0 = j + 1;
+        }
+        let [(_, top), (_, bottom)] = &self.spread;
+        for ((o, &a), &b) in out.iter_mut().zip(top).zip(bottom) {
+            *o = a + (b - a) * ty;
+        }
+    }
+}
+
+/// The grid row `j` (clamped into the grid) read across a row at `taps`, into `out` (three values
+/// a pixel).
+fn spread_row(grid: &Plane, j: i64, taps: &[(u32, u32, f32)], out: &mut [f32]) {
+    let gw = grid.width as usize;
+    let lj = (j - i64::from(grid.y0)).clamp(0, i64::from(grid.height.max(1)) - 1) as usize;
+    let row = grid.data.get(lj * gw..(lj + 1) * gw).unwrap_or(&[]);
+    for (o, &(i0, i1, t)) in out.as_chunks_mut::<3>().0.iter_mut().zip(taps) {
+        let (a, b) = (row.get(i0 as usize).copied().unwrap_or([0.0; 3]), row.get(i1 as usize).copied().unwrap_or([0.0; 3]));
+        *o = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+    }
+}
+
+/// The grid cell before the pixel coordinate `p` along one axis, for cells of `cell` pixels, and
+/// the weight of the next (as [`GridBlur::read`] places a pixel's centre).
+fn cell_tap(cell: u32, p: u32) -> (i64, f32) {
+    let u = (f64::from(p) + 0.5) / f64::from(cell.max(1)) - 0.5;
+    // `⌊u⌋` (`u` is above −0.5).
+    let i = u as i64 - i64::from(u < 0.0);
+    (i, (u - i as f64) as f32)
 }
 
 /// The box `(x0, y0, x1, y1)` (half-open, window pixels) of the mask's cells above 0, if any.
@@ -352,6 +567,29 @@ impl Brush {
             }
             k = k.saturating_mul(2);
         }
+    }
+
+    /// The box `(x0, y0, x1, y1)` (half-open output pixels, inside the output) outside which the
+    /// mask is 0: the paint strokes' points grown by their radius (dabs lie on the straight
+    /// segments between them), and a margin for the coarse grid's bilinear read; `None` when no
+    /// paint stroke reaches the output.
+    fn paint_box(&self) -> Option<(u32, u32, u32, u32)> {
+        let mut b = (f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY);
+        for s in self.strokes.iter().filter(|s| s.mode == Mode::Paint) {
+            let r = self.space.length(s.radius).max(0.5);
+            for q in s.points.iter().map(|p| self.space.to_output(*p)).filter(|q| q.0.is_finite() && q.1.is_finite()) {
+                b = (b.0.min(q.0 - r), b.1.min(q.1 - r), b.2.max(q.0 + r), b.3.max(q.1 + r));
+            }
+        }
+        if !(b.0.is_finite() && b.1.is_finite() && b.2.is_finite() && b.3.is_finite()) {
+            return None;
+        }
+        // Grid pixels to output pixels: three grid cells and two output pixels of margin.
+        let (sx, sy) = (f64::from(self.grid.0) / f64::from(self.out.0.max(1)), f64::from(self.grid.1) / f64::from(self.out.1.max(1)));
+        let lo = |v: f64, s: f64, n: u32| ((v - 3.0) / s - 2.0).floor().clamp(0.0, f64::from(n)) as u32;
+        let hi = |v: f64, s: f64, n: u32| ((v + 3.0) / s + 2.0).ceil().clamp(0.0, f64::from(n)) as u32;
+        let out = (lo(b.0, sx, self.out.0), lo(b.1, sy, self.out.1), hi(b.2, sx, self.out.0), hi(b.3, sy, self.out.1));
+        (out.0 < out.2 && out.1 < out.3).then_some(out)
     }
 
     /// The mask over the output window `(x0, y0, w, h)`, row-major.
@@ -425,7 +663,9 @@ impl Brush {
                 let Some(list) = lists.get(ci).filter(|l| !l.is_empty()) else { return };
                 let (cy0, n) = (ci * CHUNK, rows.len() / wu);
                 let cw = bx - ax;
-                let Some(mut cover) = alloc(cw * n, 0.0f32) else {
+                // Each pixel's squared distance to the nearest dab: a stroke covers a pixel by the
+                // most any dab gives there, and a dab gives less the further it is.
+                let Some(mut near) = alloc(cw * n, f64::INFINITY) else {
                     failed.store(true, Ordering::Relaxed);
                     return;
                 };
@@ -441,19 +681,19 @@ impl Brush {
                         let half = (r2 - dy2).sqrt();
                         let column = |v: f64| (v - f64::from(x0) - 0.5).clamp(*dx0 as f64, *dx1 as f64) as usize;
                         let (lo, hi) = (column((c.0 - half).floor()), column((c.0 + half).ceil() + 1.0));
-                        let Some(line) = cover.get_mut((ly - cy0) * cw + lo - ax..(ly - cy0) * cw + hi.max(lo) - ax) else { continue };
-                        for (lx, v) in (lo..).zip(line.iter_mut()) {
+                        let Some(line) = near.get_mut((ly - cy0) * cw + lo - ax..(ly - cy0) * cw + hi.max(lo) - ax) else { continue };
+                        for (lx, d) in (lo..).zip(line.iter_mut()) {
                             let dx = f64::from(x0) + lx as f64 + 0.5 - c.0;
-                            let dd2 = dx * dx + dy2;
-                            let a = if dd2 <= hard2 { 1.0 } else { dab_alpha(dd2.sqrt(), r, hard) };
-                            if a > *v {
-                                *v = a;
-                            }
+                            *d = d.min(dx * dx + dy2);
                         }
                     }
                 }
-                for (row, line) in rows.chunks_mut(wu).zip(cover.chunks(cw)) {
-                    for (v, &s) in row.iter_mut().skip(ax).zip(line) {
+                for (row, line) in rows.chunks_mut(wu).zip(near.chunks(cw)) {
+                    for (v, &dd2) in row.iter_mut().skip(ax).zip(line) {
+                        if dd2 > r2 {
+                            continue;
+                        }
+                        let s = if dd2 <= hard2 { 1.0 } else { dab_alpha(dd2.sqrt(), r, hard) };
                         if s > 0.0 {
                             *v = match mode {
                                 Mode::Paint => *v + s * (1.0 - *v),
@@ -531,6 +771,71 @@ mod tests {
     use super::*;
     use crate::{Recipe, render::Geometry};
     use dalica_image::Orientation;
+
+    /// Soften's grid blurs as M12's three box passes did, within 4 % of their sigma, and mixes in
+    /// none of the unblurred picture (which would keep the detail a wide blur melts).
+    #[test]
+    fn the_grid_blurs_whole_and_as_wide_as_m12s_boxes() {
+        for sigma in [1.0, 2.5, 5.0, 7.5, 12.0, 24.0, 30.0, 60.0, 120.0] {
+            let blur = soften_blur(sigma, (3000, 2000)).unwrap();
+            let want = Gaussian::new(sigma, (3000, 2000)).sigma();
+            assert_eq!(blur.strength(), 1.0, "{sigma}");
+            assert!((blur.sigma() / want - 1.0).abs() < 0.04, "{sigma}: {} for {want}", blur.sigma());
+        }
+        assert!(soften_blur(0.2, (3000, 2000)).is_none());
+    }
+
+    /// The rows read the grid as [`GridBlur::read`] does, within float rounding, from any column
+    /// and down any rows (the two spread grid rows kept, swapped or made again).
+    #[test]
+    fn the_rows_read_the_grid_as_grid_blur_does() {
+        let (fw, fh) = (900u32, 600u32);
+        let data: Vec<u8> = (0..fw * fh).flat_map(|i| [(i * 7 % 251) as u8, (i * 13 % 256) as u8, (i % 9 * 28) as u8, 255]).collect();
+        let view = View { data: &data, x0: 0, y0: 0, width: fw, height: fh, full_width: fw, full_height: fh };
+        for sigma in [4.0, 18.0, 60.0] {
+            let blur = soften_blur(sigma, (fw, fh)).unwrap();
+            let grid = blur.rgb(Window::of(&view).unwrap()).unwrap();
+            let (x0, w) = (37u32, 700usize);
+            let mut rows = GridRows::new(&blur, grid, x0, w).unwrap();
+            let mut got = vec![0.0f32; w * 3];
+            for y in [0u32, 1, 2, 30, 31, 299, 300, 598, 599, 5] {
+                rows.read(&blur, grid, x0, y, &mut got);
+                for (i, g) in got.chunks(3).enumerate() {
+                    let want = blur.read(grid, x0 + i as u32, y);
+                    assert!((0..3).all(|c| (g[c] - want[c]).abs() < 1e-5), "{sigma}: ({}, {y}) {g:?} vs {want:?}", x0 + i as u32);
+                }
+            }
+        }
+    }
+
+    /// The mask is 0 outside the paint strokes' box (where it is painted), on the output and on a
+    /// coarser grid; erase strokes alone have no box.
+    #[test]
+    fn the_mask_is_0_outside_the_paint_box() {
+        let (w, h) = (400u32, 300u32);
+        let g = Geometry::new(&Recipe::parse(["straighten(4)", "crop(0.1,0.05,0.9,0.95)"]).unwrap(), Orientation::default(), w, h);
+        let strokes = vec![
+            Stroke { mode: Mode::Paint, radius: 0.07, points: vec![Point::new(0.3, 0.2), Point::new(0.55, 0.6), Point::new(0.62, 0.45)] },
+            Stroke { mode: Mode::Erase, radius: 0.2, points: vec![Point::new(0.9, 0.9)] },
+            Stroke { mode: Mode::Paint, radius: 0.01, points: vec![Point::new(0.2, 0.7)] },
+        ];
+        let fine = Brush::within(&strokes, &g, w, h, f64::INFINITY).unwrap();
+        let quarter = Space::from_geometry(&g, w / 4, h / 4).unwrap();
+        let coarse = Brush::within(&strokes, &g, w, h, work(&quarter, &strokes)).unwrap();
+        assert_ne!(coarse.grid, (w, h));
+        for brush in [fine, coarse] {
+            let (x0, y0, x1, y1) = brush.paint_box().unwrap();
+            assert!((x1 - x0) * (y1 - y0) < w * h * 3 / 4, "{:?}", (x0, y0, x1, y1));
+            let mask = brush.window(0, 0, w, h).unwrap();
+            for (i, v) in mask.iter().enumerate() {
+                let (x, y) = (i as u32 % w, i as u32 / w);
+                assert!(*v == 0.0 || (x0..x1).contains(&x) && (y0..y1).contains(&y), "({x}, {y}) is {v} outside the box");
+            }
+            assert!(mask.iter().any(|v| *v > 0.5));
+        }
+        let erase = vec![Stroke { mode: Mode::Erase, radius: 0.1, points: vec![Point::new(0.5, 0.5)] }];
+        assert_eq!(Brush::new(&erase, &g, w, h).unwrap().paint_box(), None);
+    }
 
     /// An entry past the budget is painted on a coarser grid and sampled bilinearly: close to the
     /// mask at full resolution, the same between a window and the whole.
