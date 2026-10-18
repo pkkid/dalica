@@ -7,6 +7,29 @@ and git.
 
 ## Current
 
+- **Milestone:** M12, effects and Release 0.7, is done: M12.1–M12.32 are merged (25 planned tasks, seven fix tasks
+  added during the run and at the review, and the lead's M14 blocks) and `cargo xtask accept M12` passes (122 s; 309 s
+  with the release budgets). The edit view's tabs 3–5 with all 27 effects: background tile grids, one-click effects,
+  the parameter panel with swatches, a picker and an eyedropper, the crosshair, Soften's brush; four effects that grow
+  the picture, read at the grown size everywhere; Batch Edit's five effects; W11 over MCP. Version 0.7.0: M12.R is the
+  0.7 release gate, published once the review PR is merged. Next: M13, people and places (with M13.34–M13.44, the
+  effect speed tasks and the framed tiles); its issues open when the M12.R review PR is merged.
+- **M12 review (2026-10-18):** the maintainer answered: the effect render caps (draft 16 ms, final 100 ms) become
+  per-effect speed tasks in M13 and 0.7 ships with "effects slow at large sizes" as a known issue (M12.21 landed the
+  met budgets); the import listing and first screenful are judged relative to the last release on the same runner,
+  interleaved three times (M12.26); Sharpen's and Film Grain's two-size checks at their default and milder settings
+  stand; all 47 fingerprints and the 13 re-blessed acceptance baselines approved; Drop Shadow's defaults made larger
+  (M12.32); the two checks by hand (EDIT-ZOOM pinch, SYS-WINDOW on macOS) move to M13.R; ship 0.7 after the listed
+  fixes and green review-PR runs. Fix tasks M12.29–M12.31 came from the review's screenshots.
+- **Numbers (M12.R, 0aad5fda, 2026-10-18):** `cargo xtask ci --full` 11.0 min (i7-13700K, 10 jobs): tests 3 749
+  passed, 2 ignored, 0 failed, plus accept M12 (7 passed, 122 s; run alone since the gate runs only finished
+  milestones); release budgets (M12.22): effect tile grids tab 3 / 4 / 5 171 / 168 / 161 ms (≤ 355 / 350 / 360),
+  slideshow upload frame p95 5.07 ms (≤ 6.8), empty-recipe final p95 6.21 ms (≤ 12) and Save 27.5 ms (≤ 55), the 27
+  effects' 24 MP Saves within their budgets; effect drafts and finals printed for M13 (two cores, 24 MP: 15 finals
+  over 100 ms, Focal Zoom 2 683 ms; 13 drafts over 16 ms); parity ✅ 167 · 🟡 42 · ⬜ 39 · 🚫 17 (265 rows, 263
+  commands); workflows 12 / 12 (floor 12); +66 092 / −1 293 lines. Run: 25 tasks with 7 workers from 23:03 on
+  2026-10-17 to 03:00 on 2026-10-18, then the review's 8 tasks; 5 send-backs, `main` red once for 50 minutes (an
+  edit-only change broke a ui test), a render deadlock found by three workers and fixed.
 - **Milestone:** M11, import, compare and viewing and Release 0.6, is done: M11.1–M11.29 are merged (26 planned tasks,
   three fix tasks added during the run, and the lead's M13 blocks) and `cargo xtask accept M11` passes (111 s; 480 s
   with the release budgets). Import from cards and drives with checked copies and card removal only after the

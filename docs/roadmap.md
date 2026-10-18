@@ -10,8 +10,24 @@ state (ready, claimed, in review) is on the task board ([`task-board.md`](task-b
 
 ## Where we stand
 
-*Honest assessment, one dated entry per review, newest first (latest: 2026-10-17, M11.R). Agents:
+*Honest assessment, one dated entry per review, newest first (latest: 2026-10-18, M12.R). Agents:
 read this before picking work. Update it only with measured facts, dated.*
+
+*2026-10-18 (M12.R, the Release 0.7 gate).* M12 is done: `cargo xtask accept M12` passes in 122 s (309 s with the
+release budgets), and the tests on `main` went from 3 545 to 3 756. The edit view's tabs 3–5 hold all 27 effects:
+tile grids that preview each effect on the photo in the background (tab 3 fills in 170 ms at 24 MP with the release
+build, budget 355), one-click effects, a parameter panel with sliders, colour swatches, a picker and an eyedropper,
+Fade and a live preview, a crosshair for the four focal effects that lands where it was put on a turned photo, and
+Soften's brush. Every effect is one step of the photo's history named after it, survives a restart and a rebuild and
+shows on its thumbnail; Border, Widescreen Film, Drop Shadow and Museum Matte grow the picture, and every size the
+app reads accounts for it. Batch Edit's five effects are live, W11 passes over MCP (12 of 12 workflows), and the
+slideshow's upload frame dropped from 14–22 ms to about 4 ms at p95. Not done: effects are slow at large sizes (at 24 MP
+on two cores 15 of 27 finals miss the 100 ms cap, Focal Zoom 2.7 s; the caps are M13.34–M13.43, by the maintainer's
+answer), and the two checks by hand move to M13.R. The run found and fixed a render deadlock (a one-time setup running
+pool work inside a band, M12.7 and M12.28; Soften 767 → 254 ms) and, at the review, four visual faults no gate saw
+(frame tiles cropped, a cut label, a rasterizer gap in screenshots, a barely visible Drop Shadow; M12.29–M12.32), and
+a `main` left red for 50 minutes by an edit-only change that broke a ui test. 33 tasks merged with 7 workers. Parity
+✅ 167 · 🟡 42 · ⬜ 39 · 🚫 17. M12.R is the 0.7 release gate (version 0.7.0).
 
 *2026-10-17 (M11.R, the Release 0.6 gate).* M11 is done: `cargo xtask accept M11` passes in 111 s (480 s with the
 release budgets), and the tests on `main` went from 3 304 to 3 545. Import from cards, drives and folders: photos
@@ -311,7 +327,7 @@ waits for.)
 | Organize | M9 | Albums, search and file operations | lasting albums, instant search and filters, move/copy/rename/delete | ✅ |
 | | M10 | Preferences, MCP and Release 0.5 | Options and shortcut editor, MCP and the P0 workflows; all P0 rows shipped | ✅ |
 | P1 parity | M11 | Import, compare and viewing | import from cards and drives, compare and batch edit, slideshow, the viewer | ✅ |
-| | M12 | Effects | effect tiles, parameter panels and all 27 effects | ⬜ |
+| | M12 | Effects | effect tiles, parameter panels and all 27 effects | ✅ |
 | | M13 | People and places | local faces, the People pane, the Places pane and geotagging | ⬜ |
 | | M14 | Collage and legacy sidecars | the collage room; reading the previous organizer's data | ⬜ |
 | Finish | M15 | Video, localisation, OS integration and Release 1.0 | the honest 1.0 | ⬜ |
@@ -7344,7 +7360,7 @@ a maintainer decision mid-run.
     Craft-app code names the source files in its scope (`architecture.md` §9).
   - done when: `cargo xtask tasks sync --check` parses them and `tasks sync --dry-run` lists the new
     M14 tasks as planned.
-- ⬜ **M12.R Release 0.7 gate**
+- ✅ **M12.R Release 0.7 gate**
   - after: M12.22
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`
