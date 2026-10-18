@@ -122,14 +122,18 @@ finished row.
   last open one sit at the pane's bottom while the whole list fits, and follow the list once it is
   taller).
 - **Rows**: 24 high; 16 pt icon (folder, album, automatic album, person face thumbnail 20 pt in
-  28-high rows, project), name, count in `text_dim`; long names elide in the middle. Tree mode:
+  28-high rows, project), name, count in `text_dim`; long names elide in the middle. The People
+  group's rows are all 28 high: Unnamed (the viewfinder bust) first, then the people (their face, or
+  the plain bust until it arrives), each person's `caution` "?" badge after the count while
+  suggestions wait (`organizing.md` §6.2). Tree mode:
   16 pt indent per level with disclosure triangles, parents show their own count (often "(0)",
   dimmed). Flat mode sorted by date: **year dividers** (the year in `text_dim` 11 pt with a 1 pt
   rule to the right edge, 18 high), newest year first, only when folders span more than one year.
 - **Selection**: selected row = `canvas` fill with `text` label (focused list: plus a 2 pt `accent`
   bar at the left edge). Hover = `hover × 0.6`.
-- **Click** = scroll the light table to that section + select the folder as a unit (§1).
-  **Double-click** = Folder/Album Properties. **Right-click** = folder/album context menu
+- **Click** = scroll the light table to that section + select the folder as a unit (§1); on
+  Unnamed, the Unnamed grid replaces the light table until another row is clicked.
+  **Double-click** = Folder/Album Properties. **Right-click** = folder/album context menu (on a person: the person menu)
   (`organizing.md` §9.2). **Delete** on a folder = Delete Folder (confirmation).
 - **Drop target**: dragging photos over a folder row highlights it with `drop_target` (drop = move;
   Ctrl = copy; drag pill text changes accordingly); over an album row = add to album; over a person
@@ -203,8 +207,11 @@ Add a description
   it would lie under it.
 - **Sticky**: the header of the section being scrolled through stays pinned at the top of the
   light table (collapsed to its first line, 32 high) and is pushed up by the next header.
-- Person sections: header buttons **Zoom to Faces / Show Whole Photos**, **Set as Person
-  Thumbnail**, Play, Collage; the Unnamed section: **Expand Groups**, **Show Ignored Faces**.
+- Person sections: the person's face (32 pt) in the icon's place, their name, the newest photo's
+  date, no description row; buttons **Play**, **Collage** | **Zoom to Faces** (a toggle drawn
+  `pressed × 0.6` while on, its tooltip then **Show Whole Photos**) | **Set as Person
+  Thumbnail** (the bust); a right-click opens the person menu. Zoomed, each cell is the person's
+  face tile filling the square. The Unnamed section: **Expand Groups**, **Show Ignored Faces**.
 
 ### 5.3 Thumbnail grid
 

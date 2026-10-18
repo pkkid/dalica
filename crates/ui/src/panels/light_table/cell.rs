@@ -22,21 +22,33 @@
 //! [`super::input`] to act on. Once the cells are drawn, the parent calls [`apply`], which applies
 //! what the caption editor did. What the last pass drew is kept for tests and inspection
 //! ([`Cells::shown`], [`Cells::tooltip`]).
+//!
+//! **Zoom to Faces** (`organizing.md` §6.3): in a person's section zoomed to their faces
+//! (`people.zoomToFaces`), a cell shows the person's face on the photo as a face tile filling the
+//! square (`face:<PhotoId>.<n>`, from the shared face picture store) in place of the photo. The
+//! tile takes the cell's input itself: a click selects the photo as a thumbnail's click does
+//! (Ctrl toggles, Shift selects the range), a double-click opens it, a right-click selects it when
+//! it was not selected and opens the face menu (`crate::panels::faces::menu`) for the person's
+//! faces on the photos selected, and a drag carries those faces (onto a person in the tree:
+//! `crate::drag::start_faces`). [`apply`] runs what the tiles asked for.
 
 use std::collections::{HashMap, HashSet};
 
-use dalica_core::PhotoId;
+use dalica_core::{PersonId, PhotoId};
 use dalica_library::{Library, Photo};
 use dalica_ui_kit::registry::Role;
-use dalica_ui_kit::widgets::{self, Badge, Badges, Target};
+use dalica_ui_kit::widgets::{self, Badge, Badges, FACE_TILE_MIN, FACE_TILE_PAD, FaceTile, Target};
 use dalica_ui_kit::{Tokens, fonts};
-use egui::{Align2, Id, Painter, Rect, Response, Sense, Stroke, StrokeKind, Ui, vec2};
+use egui::{Align, Align2, Id, Layout, Painter, Rect, Response, Sense, Stroke, StrokeKind, Ui, UiBuilder, vec2};
+use serde_json::{Value, json};
 
 use super::caption_edit::{self, Editor};
+use super::header::face_on;
 use super::{Frame, long_date};
 use crate::app::App;
+use crate::panels::people_pane::pictures;
 use crate::panels::thumbnails::{Drawn, PhotoRef, Thumbnails};
-use crate::state::{self, Caption};
+use crate::state::{self, Caption, FaceRef};
 use crate::status_text as status;
 
 /// How long the pointer rests on a cell before its tooltip shows (seconds, `ui-layout.md` §5.5).
@@ -100,6 +112,19 @@ pub struct Cells {
     fitted: HashMap<PhotoId, (String, u32, String)>,
     /// The inline caption editor.
     editor: Editor,
+    /// What the Zoom to Faces tiles asked for this pass, for [`apply`].
+    faces: FaceAsks,
+}
+
+/// What the Zoom to Faces tiles of a pass ask for.
+#[derive(Debug, Default)]
+struct FaceAsks {
+    /// Commands to run, in order.
+    commands: Vec<(&'static str, Value)>,
+    /// A drag of faces starting from a tile: its widget id and the person.
+    drag: Option<(String, FaceRef, PersonId)>,
+    /// The tile whose face menu was asked for or is open, with the person.
+    menu: Option<(Response, PersonId)>,
 }
 
 impl Cells {
@@ -364,6 +389,8 @@ pub struct Look {
 pub fn thumb_id(section: state::Section, id: PhotoId) -> String {
     match section {
         state::Section::Folder(_) => format!("thumb:{}", id.get()),
+        // A person's section: `thumb:12/in/p7f3a2c`.
+        state::Section::Album(state::AlbumSection::Person(k)) => format!("thumb:{}/in/{k}", id.get()),
         state::Section::Album(_) => {
             let album = section.to_string();
             format!("thumb:{}/in/{}", id.get(), album.trim_start_matches("album:"))
@@ -397,9 +424,16 @@ pub fn show(ui: &mut Ui, f: &Frame<'_>, cells: &mut Cells, thumbs: &mut Thumbnai
         let response = ui.interact(c.rect, Id::new(("thumb", id.get(), c.section)), Sense::hover());
         return CellOut { photo: id, section: c.section, rect: c.rect, image, response, drawn: Drawn::Placeholder };
     };
-    let response = ui.interact(c.rect, Id::new(("thumb", id.get(), c.section)), Sense::click());
     let primary = is_primary(c.section, selection);
     let selected = cells.selected.contains(&selection.ids, id) && primary;
+    // A person's section zoomed to their faces: the face tile in the photo's place.
+    if let Some(person) = c.section.person().filter(|p| f.state.people.zoom_to_faces.contains(p))
+        && let Some(face) = face_on(f.session.library(), id, &person)
+    {
+        let anchor = selection.anchor == Some(id) && primary;
+        return face_cell(ui, f, cells, c, (face, person), (selected, anchor), alpha);
+    }
+    let response = ui.interact(c.rect, Id::new(("thumb", id.get(), c.section)), Sense::click());
     let mut painter = ui.painter().clone();
     painter.multiply_opacity(alpha);
     let look = Look {
@@ -449,10 +483,96 @@ pub fn show(ui: &mut Ui, f: &Frame<'_>, cells: &mut Cells, thumbs: &mut Thumbnai
     CellOut { photo: id, section: c.section, rect: c.rect, image, response, drawn }
 }
 
+/// A cell of a section zoomed to its person's faces: `face`, theirs on the photo, as a face tile
+/// filling the square, which takes the cell's input (see the module's doc).
+fn face_cell(
+    ui: &mut Ui,
+    f: &Frame<'_>,
+    cells: &mut Cells,
+    c: &CellIn<'_>,
+    (face, person): (FaceRef, PersonId),
+    (selected, anchor): (bool, bool),
+    alpha: f32,
+) -> CellOut {
+    let t = f.t;
+    let id = c.photo.id;
+    let ctx = ui.ctx().clone();
+    // The cell itself takes no input: the tile over it does.
+    let response = ui.interact(c.rect, Id::new(("thumb", id.get(), c.section)), Sense::hover());
+    widgets::register(&ctx, &thumb_id(c.section, id), Role::Thumbnail, &c.photo.name, Target::Widget(&response), selected);
+    let side = (c.rect.width() - 2.0 * FACE_TILE_PAD).max(FACE_TILE_MIN);
+    let library = f.session.library();
+    let rect = library.face(dalica_library::FaceRef { photo: face.photo, index: usize::from(face.index) }).map(|x| x.rect);
+    let picture = rect.and_then(|r| pictures::picture(&ctx, face, r, pictures::side_px(&ctx, side)));
+    let dragged = f.state.drag.as_ref().is_some_and(|d| d.faces.contains(&face));
+    let face_id = face.to_string();
+    let tile = FaceTile { side, picture, selected, focused: anchor, dragged, ..FaceTile::new(&face_id) };
+    let mut child = ui.new_child(UiBuilder::new().id_salt(("faceCell", face_id.as_str())).max_rect(c.rect).layout(Layout::left_to_right(Align::Min)));
+    child.multiply_opacity(alpha);
+    let out = widgets::face_tile(&mut child, t, &tile);
+    let r = &out.response;
+    let mods = ui.input(|i| i.modifiers);
+    let sel = &f.state.selection;
+    let section = json!(c.section);
+    if r.clicked() {
+        let here = sel.ids.is_empty() || sel.section == Some(c.section);
+        let mode = if mods.shift {
+            "range"
+        } else if mods.command && here {
+            "toggle"
+        } else {
+            "replace"
+        };
+        cells.faces.commands.push(("select.set", json!({ "ids": [id.get()], "mode": mode, "section": section })));
+    } else if r.secondary_clicked() && !selected {
+        cells.faces.commands.push(("select.set", json!({ "ids": [id.get()], "mode": "replace", "section": section })));
+    }
+    if r.double_clicked() {
+        cells.faces.commands.push(("view.edit", json!({ "id": id.get() })));
+    }
+    if r.drag_started() {
+        cells.faces.drag = Some((face.widget(), face, person.clone()));
+    }
+    if r.secondary_clicked() || r.context_menu_opened() {
+        cells.faces.menu = Some((r.clone(), person));
+    }
+    let drawn = if picture.is_some() { Drawn::Image } else { Drawn::Placeholder };
+    cells.shown.push(Shown { photo: id, caption: None, selected, opacity: alpha, badges: Badges::default(), drawn, tooltip: None });
+    CellOut { photo: id, section: c.section, rect: c.rect, image: out.picture, response, drawn }
+}
+
+/// The faces of `person` on the photos selected in their section (at most [`state::MAX_IDS`]):
+/// what the face menu and a drag from a Zoom to Faces cell act on.
+fn selected_faces(app: &App, person: &PersonId) -> Vec<FaceRef> {
+    let Some(session) = app.session() else { return Vec::new() };
+    let sel = &app.state().selection;
+    if sel.section != Some(state::Section::Album(state::AlbumSection::Person(state::PersonKey::of(person)))) {
+        return Vec::new();
+    }
+    sel.ids.iter().filter_map(|id| face_on(session.library(), *id, person)).take(state::MAX_IDS).collect()
+}
+
 /// Applies what the cells' parts did this frame, once the cells are drawn and the library is no
-/// longer borrowed: the caption editor's typing, commit or cancel ([`caption_edit::apply`]).
+/// longer borrowed: the caption editor's typing, commit or cancel ([`caption_edit::apply`]), and
+/// what the Zoom to Faces tiles asked for (the selection, a drag of faces, the face menu).
 pub fn apply(app: &mut App, cells: &mut Cells) {
     caption_edit::apply(app, &mut cells.editor, cells.pass);
+    let asks = std::mem::take(&mut cells.faces);
+    for (id, params) in asks.commands {
+        let _ = app.run(id, &params);
+    }
+    if let Some((from, face, person)) = asks.drag {
+        // The faces selected when the face is among them, else that face alone.
+        let selected = selected_faces(app, &person);
+        let faces = if selected.contains(&face) { selected } else { vec![face] };
+        crate::drag::start_faces(app, from, faces);
+    }
+    if let Some((r, person)) = asks.menu {
+        // The face menu acts on the faces selected: the person's on the photos selected.
+        let faces = selected_faces(app, &person);
+        app.state_mut().unnamed.selection = faces;
+        crate::panels::faces::menu::show(&r, app);
+    }
 }
 
 /// What goes under the image: the selected or hovered surround, and the photo's drop shadow.

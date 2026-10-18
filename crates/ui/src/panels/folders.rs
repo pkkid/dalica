@@ -37,7 +37,18 @@
 //!   pointer is offered as a drop target, a library folder's (move; Ctrl copies) or a user album's
 //!   (add), and gets the `drop_target` highlight when a drop there would change something; the
 //!   pointer held within [`DRAG_EDGE`] of the pane's top or bottom edge scrolls the rows
-//!   (faster nearer the edge), so a folder off screen can be reached.
+//!   (faster nearer the edge), so a folder off screen can be reached. A drag of faces (the Unnamed
+//!   grid, a person's Zoom to Faces cells) is offered a person's row: the drop names them as that
+//!   person's (one undo step); photos dragged onto a person change nothing (they hold no face).
+//! - **People** ([`people`], `organizing.md` §6.2–§6.3): the People group between Albums and
+//!   Folders. A click on Unnamed shows the Unnamed grid in the light table's place
+//!   (`unnamed.open`, its row then the selected one; a click on any other row puts the light table
+//!   back); a click on a person selects their section as a unit and scrolls to it, as an album's
+//!   row does. A right-click on a person's row opens the person menu (Rename…, Merge Into ▸,
+//!   Delete Person; `crate::commands::people::show_menu`). Their faces come from the shared face
+//!   picture store (`crate::panels::people_pane::pictures`); while the face scan runs the group's
+//!   header reads "Finding faces… n of m". The group is part of what the model is built from
+//!   (the library's revision covers the people, the view state's people sort their order).
 //! - **Offline folders:** rows under a watched root whose volume is offline
 //!   ([`Session::offline_roots`](dalica_engine::Session::offline_roots), `data-model.md` §7) are
 //!   dimmed with a `caution` "offline" marker; the roots are part of what the model is built from,
@@ -49,6 +60,7 @@
 
 pub mod model;
 mod paint;
+pub mod people;
 pub mod scrollbar;
 
 use std::collections::BTreeSet;
@@ -56,7 +68,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use dalica_core::FolderId;
+use dalica_core::{FolderId, PersonId};
 use dalica_library::{AlbumTree, Group, Tree, TreeMode, TreeOptions};
 use dalica_ui_kit::registry::Role;
 use dalica_ui_kit::widgets::{self, Target};
@@ -66,9 +78,10 @@ use serde_json::json;
 use self::model::{Heights, Kind, Model};
 use super::{Panels, light_table};
 use crate::app::App;
+use crate::panels::people_pane::pictures;
 use crate::perf::{self, Counter};
 use crate::selection::{self, Scope};
-use crate::state::{AlbumSection, DropAt, Section};
+use crate::state::{AlbumSection, DropAt, PeopleSort, Section};
 
 /// What the pane's tree was built from: the library's revision, the watched roots, the view
 /// state's tree options and folded folders, the pane's folded directories, the row heights.
@@ -80,6 +93,7 @@ struct ModelKey {
     folded: Vec<FolderId>,
     dirs: BTreeSet<PathBuf>,
     heights: Heights,
+    people: PeopleSort,
 }
 
 /// The pane's state between frames.
@@ -131,6 +145,8 @@ enum Action {
     Group(Group),
     /// Open item `i`'s Folder or Album Properties.
     Properties(usize),
+    /// Show the Unnamed grid in the light table's place.
+    Unnamed,
 }
 
 /// How far inside the pane's top and bottom edges a drag of photos scrolls the rows (points), and
@@ -193,6 +209,8 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
     let t = *app.tokens();
     let rect = ui.max_rect();
     let ctx = ui.ctx().clone();
+    // The people's faces: the tiles made since the last frame.
+    pictures::begin(app, &ctx);
     let Some(session) = app.session() else { return };
     let mut pane = ctx.data_mut(|d| d.remove_temp::<Pane>(pane_id())).unwrap_or_default();
 
@@ -209,6 +227,7 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
         folded: state.collapsed_folders.clone(),
         dirs: pane.dirs.clone(),
         heights,
+        people: state.people.sort,
     };
     let rebuilt = pane.key.as_ref() != Some(&key);
     if rebuilt {
@@ -218,7 +237,8 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
             key.folded.iter().filter_map(|id| library.folder(*id)).map(|f| f.path.clone()).chain(key.dirs.iter().cloned()).collect();
         let tree = Tree::build(library, &key.roots, &options);
         let albums = AlbumTree::build(library, &options);
-        let mut model = Model::with_albums(&tree, &albums, options.filter.is_some(), heights);
+        let people = people::PeopleGroup::build(library, key.people, options.collapsed_groups.contains(&Group::People));
+        let mut model = Model::with_groups(&tree, &albums, &people, options.filter.is_some(), heights);
         if !options.offline_roots.is_empty() {
             model.mark_offline(|path| options.is_offline(path));
         }
@@ -310,8 +330,12 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
 
     // The items on screen.
     let painter = ui.painter().clone();
-    let selected_folder = state.folder;
-    let selected_album = selected_album(state);
+    let unnamed_open = state.unnamed.open;
+    let selected_folder = state.folder.filter(|_| !unnamed_open);
+    let selected_album = selected_album(state).filter(|_| !unnamed_open);
+    let scan = people::scan_title(session);
+    let face_side = pictures::side_px(&ctx, paint::FACE);
+    let mut menu: Option<(egui::Response, PersonId)> = None;
     let mut visited = 0usize;
     for i in model.visible(pane.offset, view_h) {
         let (Some(item), Some(top)) = (model.items.get(i), model.screen_top(i, pane.offset, view_h)) else { continue };
@@ -319,6 +343,8 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
         match &item.kind {
             Kind::Header { group, title, collapsed } => {
                 let id = format!("tree:group:{}", group.id());
+                // While the face scan runs, the People group's header says how far it has come.
+                let title = scan.as_ref().filter(|_| *group == Group::People).unwrap_or(title);
                 let clicked = if model.search {
                     paint::search_header(ui, &t, &id, title, !collapsed, r).clicked()
                 } else {
@@ -338,10 +364,15 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
                 let response = ui.interact(r, Id::new(("tree-row", &row.id)), Sense::click());
                 let selected = match row.album {
                     Some(album) => selected_album == Some(album),
+                    None if row.unnamed => unnamed_open,
                     None => selected_album.is_none() && row.folder.is_some() && row.folder == selected_folder,
                 };
                 let look = paint::Look { selected, hovered: response.hovered() && dragging.is_none(), focused, indent: heights.indent };
-                paint::row(&painter, &t, r, row, look, tree_mode);
+                let face = row.face.and_then(|f| {
+                    let rect = library.face(dalica_library::FaceRef { photo: f.photo, index: usize::from(f.index) })?.rect;
+                    pictures::picture(&ctx, f, rect, face_side)
+                });
+                paint::row(&painter, &t, r, row, look, tree_mode, face);
                 if let Some(at) = dragging.filter(|p| r.contains(*p)).and_then(|_| drop_at(row))
                     && crate::drag::offer(&ctx, session, state, at, &row.id).is_some()
                 {
@@ -360,11 +391,22 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
                     }
                 }
                 if response.clicked() && !folded {
-                    if row.section.is_some() {
+                    if row.unnamed {
+                        actions.push(Action::Unnamed);
+                    } else if row.section.is_some() {
                         actions.push(Action::Select(i));
                     } else if row.has_children && tree_mode {
                         actions.push(Action::Fold(i, None));
                     }
+                }
+                // A person's row: the person menu, after selecting their section.
+                if let Some(person) = row.person().and_then(|k| k.id())
+                    && (response.secondary_clicked() || response.context_menu_opened())
+                {
+                    if response.secondary_clicked() && row.section.is_some() && !selected {
+                        actions.push(Action::Select(i));
+                    }
+                    menu = Some((response.clone(), person));
                 }
                 // The second click of a double-click also selects (as the first did), then opens.
                 if response.double_clicked() && !folded && (row.folder.is_some() || matches!(row.album, Some(AlbumSection::User(_)))) {
@@ -382,6 +424,10 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui) {
     for action in actions {
         apply(p, app, &mut pane, &model, action);
     }
+    if let Some((r, person)) = menu {
+        crate::commands::people::show_menu(&r, app, &person);
+    }
+    pictures::finish(app, &ctx);
     let info = PaneInfo {
         offset: pane.offset,
         height: model.height,
@@ -427,7 +473,11 @@ fn apply(p: &mut Panels, app: &mut App, pane: &mut Pane, model: &Model, action: 
         }
         Action::Select(i) => {
             let Some(section) = model.row(i).and_then(|r| r.section) else { return };
+            app.state_mut().unnamed.open = false;
             select_section(p, app, section);
+        }
+        Action::Unnamed => {
+            app.state_mut().unnamed.open = true;
         }
         Action::Properties(i) => {
             let Some(row) = model.row(i) else { return };
@@ -444,11 +494,13 @@ fn apply(p: &mut Panels, app: &mut App, pane: &mut Pane, model: &Model, action: 
     }
 }
 
-/// What a drag of photos dropped on `row` goes into: a library folder, or a user album.
+/// What a drag dropped on `row` goes into: a library folder or a user album (photos), or a person
+/// (faces).
 fn drop_at(row: &model::Row) -> Option<DropAt> {
     match (row.folder, row.album) {
         (Some(f), None) => Some(DropAt::Folder(f)),
         (None, Some(AlbumSection::User(k))) => Some(DropAt::Album(k)),
+        (None, Some(AlbumSection::Person(k))) => Some(DropAt::Person(k)),
         _ => None,
     }
 }

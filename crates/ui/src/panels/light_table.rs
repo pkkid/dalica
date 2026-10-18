@@ -1,6 +1,7 @@
-//! The light table (`ui-layout.md` §5): every visible album and folder as a section, in the library
-//! tree's order (the Albums group's sections first) — a header block, then a justified grid of
-//! square cells, each photo letterboxed — in one continuous view with our own scrolling.
+//! The light table (`ui-layout.md` §5): every visible album, person and folder as a section, in the
+//! library tree's order (the Albums group's sections first, then the People group's, `organizing.md`
+//! §6.3) — a header block, then a justified grid of square cells, each photo letterboxed (a person's
+//! face with Zoom to Faces) — in one continuous view with our own scrolling.
 //!
 //! This module is the **parent**: it owns the sections ([`Sections`], rebuilt only when the
 //! library or the tree options change), the scroll state ([`LightTable`]: the view's offset, the
@@ -119,6 +120,8 @@ pub fn album_ref(album: state::AlbumSection) -> Option<AlbumRef> {
         state::AlbumSection::Starred => Some(AlbumRef::Starred),
         state::AlbumSection::Recent => Some(AlbumRef::Recent),
         state::AlbumSection::User(k) => k.id().map(AlbumRef::User),
+        // A person's album is no album of the library's Albums group.
+        state::AlbumSection::Person(_) => None,
     }
 }
 
@@ -130,6 +133,8 @@ struct ModelKey {
     options: TreeOptions,
     /// The engine's search generation while Find Duplicates' groups are shown.
     duplicates: Option<u64>,
+    /// The order of the person sections (the view options' Sort People by …).
+    people: state::PeopleSort,
 }
 
 /// Find Duplicates' groups as the light table shows them: the search generation they answer, the
@@ -161,15 +166,26 @@ impl Sections {
     /// [`Sections::refresh`], with Find Duplicates' groups as the first section while they are
     /// shown (rebuilt when their generation changes).
     pub fn refresh_with(&mut self, library: &Library, roots: &[PathBuf], options: &TreeOptions, duplicates: Option<Duplicates<'_>>) -> bool {
+        self.refresh_people(library, roots, options, duplicates, state::PeopleSort::default())
+    }
+
+    /// [`Sections::refresh_with`], the person sections in `people`'s order.
+    pub fn refresh_people(
+        &mut self,
+        library: &Library,
+        roots: &[PathBuf],
+        options: &TreeOptions,
+        duplicates: Option<Duplicates<'_>>,
+        people: state::PeopleSort,
+    ) -> bool {
         let generation = duplicates.map(|d| d.generation);
-        let fresh = self
-            .key
-            .as_ref()
-            .is_some_and(|k| k.revision == library.revision() && k.roots == roots && k.options == *options && k.duplicates == generation);
+        let fresh = self.key.as_ref().is_some_and(|k| {
+            k.revision == library.revision() && k.roots == roots && k.options == *options && k.duplicates == generation && k.people == people
+        });
         if fresh {
             return false;
         }
-        self.list = build(library, roots, options);
+        self.list = build(library, roots, options, people);
         if let Some(d) = duplicates {
             let ids: Vec<PhotoId> = d.groups.iter().flatten().copied().collect();
             let shown = section_photos(
@@ -187,7 +203,7 @@ impl Sections {
         }
         self.index = self.list.iter().enumerate().map(|(i, s)| (s.id, i)).collect();
         self.generation = self.generation.wrapping_add(1);
-        self.key = Some(ModelKey { revision: library.revision(), roots: roots.to_vec(), options: options.clone(), duplicates: generation });
+        self.key = Some(ModelKey { revision: library.revision(), roots: roots.to_vec(), options: options.clone(), duplicates: generation, people });
         true
     }
 
@@ -278,7 +294,7 @@ fn is_small(p: &Photo, threshold: u32) -> bool {
     p.width > 0 && p.height > 0 && p.width < threshold && p.height < threshold
 }
 
-fn build(library: &Library, roots: &[PathBuf], options: &TreeOptions) -> Vec<Section> {
+fn build(library: &Library, roots: &[PathBuf], options: &TreeOptions, people: state::PeopleSort) -> Vec<Section> {
     let tree = Tree::build(library, roots, options);
     let albums = AlbumTree::build(library, options);
     let mut out = Vec::with_capacity(albums.sections.len() + tree.sections.len());
@@ -295,6 +311,17 @@ fn build(library: &Library, roots: &[PathBuf], options: &TreeOptions) -> Vec<Sec
             id: state::Section::Album(album_section(album)),
             folder: None,
             title: title.to_string(),
+            subtitle: subtitle(date.map(|d| d.date()), photos.len()),
+            photos,
+        });
+    }
+    // The People group's sections next, each person's photos by date.
+    for (key, name, photos) in super::folders::people::sections(library, options, people) {
+        let date = photos.iter().filter_map(|id| library.photo(*id).and_then(|p| library.sort_date(p))).max();
+        out.push(Section {
+            id: state::Section::Album(state::AlbumSection::Person(key)),
+            folder: None,
+            title: name,
             subtitle: subtitle(date.map(|d| d.date()), photos.len()),
             photos,
         });
@@ -522,7 +549,7 @@ pub fn refresh(p: &mut Panels, app: &mut App) {
             groups: &r.groups,
             files: r.count(),
         });
-        p.sections.refresh_with(session.library(), session.roots(), &tree_options(app), duplicates);
+        p.sections.refresh_people(session.library(), session.roots(), &tree_options(app), duplicates, app.state().people.sort);
     }
 }
 
@@ -530,6 +557,9 @@ pub fn refresh(p: &mut Panels, app: &mut App) {
 pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui, area: Rect, bar: Rect) {
     let t = *app.tokens();
     ui.painter().rect_filled(area.union(bar), 0, t.grid_bg);
+    // The faces of person sections (their header's face, Zoom to Faces cells) come from the shared
+    // face picture store.
+    super::people_pane::pictures::begin(app, ui.ctx());
     let Some(session) = app.session() else { return };
     if p.sections.list.is_empty() {
         p.light_table.info = FrameInfo { area: Some(area), ..FrameInfo::default() };
@@ -682,6 +712,7 @@ pub fn show(p: &mut Panels, app: &mut App, ui: &mut Ui, area: Rect, bar: Rect) {
         folder_banner::apply(app, out);
     }
     cell::apply(app, &mut lt.cells);
+    super::people_pane::pictures::finish(app, ui.ctx());
     if let Some(s) = app.session_mut() {
         p.thumbnails.set_order(&p.sections);
         p.thumbnails.end_frame(s, &motion);
@@ -762,7 +793,7 @@ mod tests {
         let mut app = App::new(Some(s));
         let shown = |app: &App| {
             let s = app.session().unwrap();
-            build(s.library(), s.roots(), &tree_options(app)).iter().map(|x| x.photos.len()).sum::<usize>()
+            build(s.library(), s.roots(), &tree_options(app), state::PeopleSort::Name).iter().map(|x| x.photos.len()).sum::<usize>()
         };
         assert_eq!(shown(&app), 2);
         app.run("options.set", &serde_json::json!({ "values": { "fileTypes.smallPictureThreshold": 1024 } })).unwrap();

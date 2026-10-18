@@ -1207,7 +1207,8 @@ fn rows_of(nodes: &Value) -> Vec<Value> {
 }
 
 /// The face and person menus and M13's Picture, Tools and View items are listed and greyed until
-/// their tasks make them act, with the reason; View ▸ People and Places are live.
+/// their tasks make them act or there is something to act on, with the reason; View ▸ People and
+/// Places are live.
 #[test]
 fn the_new_menu_items_are_listed_and_greyed() {
     use dalica_ui::commands::{faces, people};
@@ -1220,8 +1221,8 @@ fn the_new_menu_items_are_listed_and_greyed() {
     assert_eq!(ids, ["faces.moveToNewPerson", "faces.removeFromPerson", "people.thumbnail", "faces.ignoreSelected"]);
     assert!(face.as_array().unwrap().iter().any(|n| n["widget"] == "submenu:Face/Move to Person"), "{face}");
     for r in &rows {
-        // M13.21 made the face rows act: with no face selected they wait for one.
-        let why = if r["id"] == "people.thumbnail" { people::NOT_YET } else { faces::NO_FACES };
+        // M13.21 and M13.25 made the face rows act: with no face selected they wait for one.
+        let why = if r["id"] == "people.thumbnail" { people::NO_FACE } else { faces::NO_FACES };
         assert_eq!((&r["live"], &r["enabled"], &r["reason"]), (&json!(true), &json!(false), &json!(why)), "{r}");
     }
     assert_eq!(rows[0]["dialog"], "newPerson");
@@ -1230,7 +1231,8 @@ fn the_new_menu_items_are_listed_and_greyed() {
     let rows = rows_of(&person);
     assert_eq!(rows.iter().map(|r| r["id"].clone()).collect::<Vec<_>>(), [json!("people.rename"), json!("people.delete")]);
     for r in &rows {
-        assert_eq!((&r["live"], &r["enabled"], &r["reason"]), (&json!(true), &json!(false), &json!(people::NOT_YET)), "{r}");
+        // M13.25 made them act: with no person's section selected they wait for one.
+        assert_eq!((&r["live"], &r["enabled"], &r["reason"]), (&json!(true), &json!(false), &json!(people::NO_PERSON)), "{r}");
     }
     assert!(person.as_array().unwrap().iter().any(|n| n["widget"] == "submenu:Person/Merge Into"));
     // The bar: Tools ▸ Geotag's Clear Location… greyed with no located photo selected (M13.22),
@@ -1258,7 +1260,7 @@ fn the_new_menu_items_are_listed_and_greyed() {
         let r = row(&mut t, id, Value::Null);
         assert_eq!((&r["live"], &r["enabled"]), (&json!(true), &json!(true)), "{id}");
     }
-    // The people sorts' marks follow the sort chosen (their rows go live with M13.25).
+    // The people sorts' marks follow the sort chosen.
     ok(&mut t, "ui.set", json!({ "people": { "sort": "count" } }));
     assert!(menus::checked(t.d.app(), people::SORT_ID, &json!({ "by": "count" })));
     assert!(!menus::checked(t.d.app(), people::SORT_ID, &json!({ "by": "name" })));

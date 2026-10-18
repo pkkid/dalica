@@ -350,8 +350,15 @@ Manager.
 
 ### 6.2 The People group and Unnamed
 
-- The left tree has a **People** group between Albums and Folders: **Unnamed (n)** first, then one
-  entry per person with a count; a `caution` "?" badge marks people with pending suggestions.
+- The left tree has a **People** group between Albums and Folders, shown while the library has
+  people or unnamed faces; its header counts the people ("People (3)") and, while the face scan
+  runs, reads "Finding faces… 312 of 4,980" instead. **Unnamed (n)** comes first (n: the faces
+  found and not named; a click shows the Unnamed grid in the light table's place, a click on any
+  other row puts the light table back), then one entry per person with their thumbnail face and
+  how many photos hold them; a `caution` "?" badge marks people with pending suggestions. The view
+  options' Sort People by Name (ignoring case), by Count (most photos first, then by name) or by
+  Top 10 (the ten people in the most photos by count, then the others by name) orders them, and
+  their sections in the same order.
 - Selecting **Unnamed** shows a face grid on the light table: header "Unnamed people" with
   [Expand Groups] and [Show Ignored Faces]; faces cropped and grouped in clusters of similar faces;
   each cluster has an **"Add a name"** field under it and an × (ignore) at its top-right.
@@ -360,19 +367,32 @@ Manager.
 - Ignore: × or Delete moves faces to Ignored (confirmation "Ignore these faces?" [Ignore]
   [Cancel] + "Don't ask again").
 - Faces can be multi-selected (click, Ctrl/Shift-click, rubber band) and dragged onto a person in
-  the tree.
+  the tree, which names them as that person's (one undo step); photos dragged onto a person
+  change nothing (they hold no face to name).
 
 ### 6.3 Person albums and suggestions
 
-- Each person behaves as an album of the photos containing them (virtual).
-- Person header buttons: **Zoom to faces** / **Show whole photos** toggle, **Set as Person
-  Thumbnail**, Play slideshow, Collage.
+- Each person behaves as an album of the photos containing them (virtual): a click on their row
+  selects their section as a unit, which sits with the other people's between the albums' and the
+  folders' sections (none while the People group is collapsed), their photos by date.
+- Person header: their thumbnail face in the icon's place, their name, the newest photo's date
+  (no description row). Buttons: Play slideshow, Collage (greyed until Collage is made) |
+  **Zoom to faces** (a toggle, on: the tooltip reads **Show whole photos**) | **Set as Person
+  Thumbnail** (the person's face on the focused photo selected in the section; greyed until one
+  is). A right-click on the header or the person's row opens the person menu.
+- **Zoom to faces** shows, in each photo's cell, the person's face on it (their first there) as a
+  face tile filling the square. A click selects the photo (Ctrl, Shift as in any section), a
+  double-click opens it, a right-click opens the face menu for the person's faces on the photos
+  selected, and a drag carries those faces (onto another person in the tree).
 - Suggestions: a strip "Suggestions:" with [Confirm All], [Confirm], [Reject], [Find More], toggle
   "Show only suggestions", hint "Click ✓ to confirm a match or × to reject it."; each suggested face
   has ✓ and × buttons.
 - Wrong face: select it → Delete / **Remove from Person** (back to Unnamed). Context menu on a face:
   Move to New Person…, Move to Person ▸, Remove from Person, Set as Person Thumbnail. Context menu on
-  a person: Rename…, Merge Into ▸, Delete Person (faces return to Unnamed; confirmation).
+  a person: Rename… (Name and Nickname; a name another person has asks to merge the two instead),
+  Merge Into ▸ (the other people by name; "Merge Ana into Rui? Ana's faces become Rui's.", the
+  target's name is kept), Delete Person ("Delete Ana? Their faces go back to Unnamed."). Each is
+  one undo step.
 
 ### 6.4 People pane (right side pane)
 
