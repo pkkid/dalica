@@ -1,8 +1,9 @@
-//! The effects' primitives (`dalica_edit::fx`, M12.3): the blur, the seeded noise, the masks, the
-//! brush dabs, the blends and Fade, and luma and linear light, each on its own; the effects that use
-//! them are tested in their own files.
+//! The effects' primitives (`dalica_edit::fx`, M12.3, made fast in M13.34): the blur and the grid
+//! blur, the seeded noise and its rows, the masks, the brush dabs, the blends and Fade, and luma and
+//! linear light and their tables, each on its own; the effects that use them are tested in their own
+//! files.
 
-use dalica_edit::fx::{self, Blend, Circle, Dabs, Edges, Gaussian, Gradient, Noise, Plane, Space};
+use dalica_edit::fx::{self, Blend, Circle, Dabs, Edges, Gaussian, Gradient, GridBlur, Mono, Noise, Plane, Space, Window};
 use dalica_edit::{Geometry, Point};
 
 use crate::common::{exif, recipe};
@@ -79,6 +80,272 @@ fn the_blur_of_a_region_with_its_margin_equals_the_whole_blur() {
             }
         }
     }
+}
+
+/// M12's box passes, kept as the oracle of the fast ones (M13.34): each value to fixed point, the
+/// three passes along every row by a bounds-checked running sum in `i64`, the plane turned, the
+/// passes along every row again, and turned back.
+mod m12 {
+    const ONE: f32 = 1_048_576.0;
+    const LIMIT: f32 = 2_000.0;
+
+    fn to_fixed(v: f32) -> i32 {
+        let v = if v.is_nan() { 0.0 } else { v.clamp(-LIMIT, LIMIT) * ONE };
+        (if v >= 0.0 { v + 0.5 } else { v - 0.5 }) as i32
+    }
+
+    fn box_line<const C: usize>(line: &mut [[i32; C]], r: usize) {
+        let n = line.len();
+        if r == 0 || n == 0 {
+            return;
+        }
+        let tmp = line.to_vec();
+        let last = n - 1;
+        let at = |i: usize| tmp[i.min(last)];
+        let count = (2 * r + 1) as i64;
+        let first = at(0);
+        let mut acc: [i64; C] = std::array::from_fn(|c| i64::from(first[c]) * (r as i64 + 1));
+        for i in 1..=r.min(last) {
+            let v = at(i);
+            for c in 0..C {
+                acc[c] += i64::from(v[c]);
+            }
+        }
+        if r > last {
+            let v = at(last);
+            for c in 0..C {
+                acc[c] += i64::from(v[c]) * (r - last) as i64;
+            }
+        }
+        for (x, out) in line.iter_mut().enumerate() {
+            *out = std::array::from_fn(|c| ((acc[c] * 2 + count).div_euclid(count * 2)).clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32);
+            let (add, sub) = (at(x.saturating_add(r + 1)), at(x.saturating_sub(r)));
+            for c in 0..C {
+                acc[c] += i64::from(add[c]) - i64::from(sub[c]);
+            }
+        }
+    }
+
+    fn transpose<const C: usize>(data: &[[i32; C]], width: usize, height: usize) -> Vec<[i32; C]> {
+        (0..width).flat_map(|x| (0..height).map(move |y| data[y * width + x])).collect()
+    }
+
+    /// `data` (`width × height` pixels of `C` channels) blurred by boxes of `radii`.
+    pub fn blur<const C: usize>(data: &[[f32; C]], width: usize, height: usize, radii: [usize; 3]) -> Vec<[f32; C]> {
+        if radii == [0; 3] {
+            return data.to_vec();
+        }
+        let mut fixed: Vec<[i32; C]> = data.iter().map(|p| p.map(to_fixed)).collect();
+        for row in fixed.chunks_mut(width) {
+            for r in radii {
+                box_line(row, r);
+            }
+        }
+        let mut turned = transpose(&fixed, width, height);
+        for row in turned.chunks_mut(height) {
+            for r in radii {
+                box_line(row, r);
+            }
+        }
+        transpose(&turned, height, width).iter().map(|q| q.map(|v| v as f32 / ONE)).collect()
+    }
+}
+
+/// A seeded generator of test values (xorshift).
+struct Seeded(u64);
+
+impl Seeded {
+    fn next(&mut self) -> u64 {
+        self.0 ^= self.0 << 13;
+        self.0 ^= self.0 >> 7;
+        self.0 ^= self.0 << 17;
+        self.0
+    }
+
+    /// Mostly working values, now and then far outside them (and a `NaN` or an infinity).
+    fn value(&mut self) -> f32 {
+        match self.next() % 200 {
+            0 => f32::NAN,
+            1 => f32::INFINITY,
+            2 => -1e30,
+            3 => 1999.5,
+            4 => -2000.0,
+            _ => (self.next() % 1_000_000) as f32 / 1e6 * 1.4 - 0.2,
+        }
+    }
+}
+
+/// The fast box passes give exactly M12's planes, RGB and one channel, on seeded planes of odd
+/// sizes with radii up to the plane's size and past it.
+#[test]
+fn the_box_passes_give_m12_planes_bit_for_bit() {
+    let mut rng = Seeded(0x9e37_79b9_7f4a_7c15);
+    for (w, h) in [(1u32, 1u32), (1, 23), (29, 1), (7, 5), (17, 33), (61, 19), (40, 40), (97, 3)] {
+        let rgb = Plane::from_fn(0, 0, w, h, |_, _| [0.0; 3]).unwrap();
+        let rgb = Plane { data: rgb.data.iter().map(|_| [rng.value(), rng.value(), rng.value()]).collect(), ..rgb };
+        let mono = Mono { x0: 0, y0: 0, width: w, height: h, data: (0..w * h).map(|_| rng.value()).collect() };
+        let longest = f64::from(w.max(h));
+        for sigma in [0.5, 0.9, 1.7, 3.0, 6.5, longest / 3.0, longest / 2.0, longest, longest * 1.7] {
+            let g = Gaussian::new(sigma, (100_000, 100_000));
+            let (w, h) = (w as usize, h as usize);
+            let mut fast = rgb.clone();
+            assert!(g.apply(&mut fast));
+            let bits = |d: &[[f32; 3]]| d.iter().map(|p| p.map(f32::to_bits)).collect::<Vec<_>>();
+            assert!(bits(&fast.data) == bits(&m12::blur(&rgb.data, w, h, g.radii())), "{w} × {h}, radii {:?}", g.radii());
+            let mut one = mono.clone();
+            assert!(g.apply_mono(&mut one));
+            let want: Vec<f32> = m12::blur(&mono.data.iter().map(|v| [*v]).collect::<Vec<_>>(), w, h, g.radii()).into_iter().map(|[v]| v).collect();
+            assert!(one.data.iter().map(|v| v.to_bits()).eq(want.iter().map(|v| v.to_bits())), "one channel, {w} × {h}, radii {:?}", g.radii());
+        }
+    }
+}
+
+/// `w × h` RGBA8 pixels with detail everywhere.
+fn rgba(w: u32, h: u32, seed: u64) -> Vec<u8> {
+    let mut rng = Seeded(seed);
+    (0..w * h)
+        .flat_map(|i| {
+            let (x, y) = (i % w, i / w);
+            let base = ((x * 7 + y * 3) % 200) as u8;
+            [base.wrapping_add((rng.next() % 56) as u8), ((x / 9 + y / 7) % 2 * 255) as u8, (rng.next() % 256) as u8, 255]
+        })
+        .collect()
+}
+
+/// The window at `(x0, y0)` of `w × h` pixels cut from a whole `full` picture.
+fn cut(whole: &[u8], full: (u32, u32), x0: u32, y0: u32, w: u32, h: u32) -> Vec<u8> {
+    (y0..y0 + h).flat_map(|y| whole[((y * full.0 + x0) * 4) as usize..((y * full.0 + x0 + w) * 4) as usize].to_vec()).collect()
+}
+
+/// The grid blur of a region window with its reach as margin (cut to the picture) reads exactly
+/// the whole render's grid blur inside the region, for every form (RGB, weighted, luma), at the
+/// corners, an edge and in the middle; a row read equals the pixels read one by one.
+#[test]
+fn the_grid_blur_of_a_region_with_its_margin_equals_the_whole_render() {
+    let full = (330u32, 230u32);
+    let whole = rgba(full.0, full.1, 7);
+    let all = Window::new(&whole, 0, 0, full.0, full.1, full).unwrap();
+    let highlight = |p: [f32; 3]| {
+        let k = fx::smoothstep(0.5, 1.0, f64::from(fx::luma(p))) as f32;
+        p.map(|v| v * k)
+    };
+    for sigma in [0.5, 2.0, 7.5, 13.0, 40.0, 75.0] {
+        let blur = || GridBlur::new(sigma, full).unwrap();
+        let (b_rgb, b_weighted, b_luma) = (blur(), blur(), blur());
+        let (rgb, weighted, luma) = (b_rgb.rgb(all).unwrap(), b_weighted.rgb_weighted(all, highlight).unwrap(), b_luma.luma(all).unwrap());
+        let m = b_rgb.reach();
+        for (x0, y0, rw, rh) in [(0, 0, 37, 29), (101, 0, 50, 31), (77, 91, 61, 43), (300, 190, 30, 40), (5, 150, 17, 80)] {
+            let (ax, ay) = (x0 - m.min(x0), y0 - m.min(y0));
+            let (bx, by) = ((x0 + rw + m).min(full.0), (y0 + rh + m).min(full.1));
+            let part = cut(&whole, full, ax, ay, bx - ax, by - ay);
+            let window = Window::new(&part, ax, ay, bx - ax, by - ay, full).unwrap();
+            let (p_rgb, p_weighted, p_luma) = (blur(), blur(), blur());
+            let (rgb_r, weighted_r, luma_r) =
+                (p_rgb.rgb(window).unwrap(), p_weighted.rgb_weighted(window, highlight).unwrap(), p_luma.luma(window).unwrap());
+            for y in y0..y0 + rh {
+                let mut row = vec![[0.0f32; 3]; rw as usize];
+                p_rgb.read_row(rgb_r, x0, y, &mut row);
+                for x in x0..x0 + rw {
+                    let at = format!("sigma {sigma}, region at ({x0}, {y0}), pixel ({x}, {y})");
+                    assert_eq!(p_rgb.read(rgb_r, x, y), b_rgb.read(rgb, x, y), "{at}");
+                    assert_eq!(row[(x - x0) as usize], b_rgb.read(rgb, x, y), "a row read, {at}");
+                    assert_eq!(p_weighted.read(weighted_r, x, y), b_weighted.read(weighted, x, y), "weighted, {at}");
+                    assert_eq!(p_luma.read_luma(luma_r, x, y), b_luma.read_luma(luma, x, y), "luma, {at}");
+                }
+            }
+        }
+        // The luma grid is the luma of the RGB grid (within rounding); a later call reuses the grid.
+        for (x, y) in [(0, 0), (100, 50), (329, 229)] {
+            assert!((b_luma.read_luma(luma, x, y) - fx::luma(b_rgb.read(rgb, x, y))).abs() < 1e-5);
+        }
+        assert!(std::ptr::eq(b_rgb.rgb(all).unwrap(), rgb));
+    }
+}
+
+/// A dot blurred on the grid spreads by the grid's sigma (within the box passes' 2 %), wherever it
+/// sits in its cell, and that sigma is the one asked for within the box passes' tolerance at the
+/// grid's scale; a blur under the smallest box blur is mixed in by its share.
+#[test]
+fn the_grid_blur_spreads_a_dot_by_its_sigma() {
+    let n = 801u32;
+    for sigma in [0.5, 2.0, 5.0, 12.0, 30.0, 70.0] {
+        let blur = GridBlur::new(sigma, (n, n)).unwrap();
+        // The box passes make their sigma within 0.6 of a step of it; on the grid a step is a cell.
+        assert!((blur.sigma() - sigma).abs() < 0.6 * f64::from(blur.cell()), "{sigma}: the grid makes {}", blur.sigma());
+        for offset in [0, 1, blur.cell() / 2] {
+            let c = n / 2 + offset;
+            let mut data = vec![0u8; (n * n * 4) as usize];
+            data[((c * n + c) * 4) as usize] = 255;
+            let blur = GridBlur::new(sigma, (n, n)).unwrap();
+            let grid = blur.rgb(Window::new(&data, 0, 0, n, n, (n, n)).unwrap()).unwrap();
+            let (mut sum, mut var) = (0.0f64, 0.0f64);
+            let mut row = vec![[0.0f32; 3]; n as usize];
+            for y in 0..n {
+                blur.read_row(grid, 0, y, &mut row);
+                for (x, p) in row.iter().enumerate() {
+                    let input = if (x as u32, y) == (c, c) { [1.0, 0.0, 0.0] } else { [0.0; 3] };
+                    let v = f64::from(blur.mix(input, *p)[0]);
+                    sum += v;
+                    var += v * (x as f64 - f64::from(c)).powi(2);
+                }
+            }
+            // One 8-bit dot spread thin: the fixed point's rounding moves its weight a little.
+            assert!((sum - 1.0).abs() < 0.01, "{sigma}: the dot's weight {sum}");
+            let spread = (var / sum).sqrt();
+            assert!((spread - blur.sigma()).abs() < 0.02 * blur.sigma(), "{sigma}, offset {offset}: spread {spread} for {}", blur.sigma());
+        }
+    }
+    assert!(GridBlur::new(0.0, (n, n)).is_none() && GridBlur::new(f64::NAN, (n, n)).is_none());
+    assert!(GridBlur::new(0.4, (n, n)).unwrap().strength() < 1.0);
+}
+
+/// The row sampler gives the noise of [`Noise::at`] (and the field of [`Noise::value`]) within
+/// 10⁻⁴ over seeded rows of plain, turned, straightened and cropped spaces.
+#[test]
+fn the_noise_by_rows_agrees_with_the_noise_at_each_pixel() {
+    let mut rng = Seeded(31);
+    let spaces = [
+        space(&[], 1, 640, 480, 1.0),
+        space(&["straighten(7)"], 1, 640, 480, 0.5),
+        space(&["crop(0.1,0.2,0.9,0.8)", "straighten(-4)"], 6, 900, 600, 0.75),
+        space(&["straighten(45)", "rotate(90)"], 8, 300, 500, 2.0),
+    ];
+    for (s, _) in &spaces {
+        let (w, h) = s.size();
+        for cell in [0.0012, 0.004, 0.02, 1e-6, 1.0] {
+            let noise = Noise::new(rng.next() as u32, cell);
+            for _ in 0..12 {
+                let (x0, y) = ((rng.next() % u64::from(w)) as u32, (rng.next() % u64::from(h)) as u32);
+                let n = (w - x0) as usize;
+                let channel = (rng.next() % 3) as u32;
+                let (mut row, mut values) = (vec![0.0f32; n], vec![0.0f32; n]);
+                noise.row(s, x0, y, channel, &mut row);
+                noise.row_values(s, x0, y, channel, &mut values);
+                for (i, (r, v)) in row.iter().zip(&values).enumerate() {
+                    let x = x0 + i as u32;
+                    let at = noise.at(s, x, y, channel);
+                    assert!((r - at).abs() < 1e-4, "cell {cell}, ({x}, {y}): {r} vs {at}");
+                    let (u, w) = s.pixel_units(x, y);
+                    let field = noise.value(u, w, channel);
+                    assert!((v - field).abs() < 1e-4, "cell {cell}, ({x}, {y}): {v} vs {field}");
+                }
+            }
+        }
+    }
+}
+
+/// The shared linear-light tables are within a hundredth of a level of the curves.
+#[test]
+fn the_linear_light_tables_are_within_a_hundredth_of_a_level() {
+    let lin = fx::linear_light();
+    let worst = (0..=100_000).map(|i| i as f32 / 100_000.0).fold(0.0f32, |w, v| {
+        let d = (lin.to_linear(v) - fx::to_linear(v)).abs().max((lin.to_srgb(v) - fx::to_srgb(v)).abs());
+        w.max(d)
+    });
+    assert!(worst * 255.0 < 0.01, "{} of a level", worst * 255.0);
+    // Inputs outside 0..1 (and `NaN`) read the ends.
+    assert_eq!(lin.to_linear3([-1.0, 2.0, f32::NAN]), [lin.to_linear(0.0), lin.to_linear(1.0), lin.to_linear(0.0)]);
+    assert_eq!(lin.to_srgb3([-1.0, 2.0, f32::NAN]), [lin.to_srgb(0.0), lin.to_srgb(1.0), lin.to_srgb(0.0)]);
 }
 
 /// The noise at a stored-frame point is the same in a render three times larger (the pixel whose
@@ -347,6 +614,26 @@ fn hostile_sizes_answer_without_a_panic() {
     }
     let _ = fx::fade(odd, [0.5; 3], f64::NAN);
     assert_eq!((fx::to_linear(f32::NAN), fx::to_srgb(f32::NAN)), (0.0, 0.0));
+
+    let px = vec![128u8; 16 * 12 * 4];
+    for sigma in [0.0, -1.0, f64::NAN, f64::INFINITY, 1e300, f64::MIN_POSITIVE, 1e9] {
+        let _ = GridBlur::new(sigma, (u32::MAX, u32::MAX));
+        if let Some(blur) = GridBlur::new(sigma, (16, 12)) {
+            let grid = blur.rgb(Window::new(&px, 0, 0, 16, 12, (16, 12)).unwrap()).unwrap();
+            assert!(blur.read(grid, 15, 11).iter().all(|v| (v - 128.0 / 255.0).abs() < 1e-4), "{sigma}");
+            assert!(blur.reach() < u32::MAX && blur.sigma().is_finite());
+        }
+    }
+    assert!(Window::new(&px, 0, 0, 16, 11, (16, 12)).is_none());
+    assert!(Window::new(&px, 1, 0, 16, 12, (16, 12)).is_none());
+    assert!(Window::new(&[], 0, 0, 0, 0, (16, 12)).is_none());
+    assert!(Window::new(&px, u32::MAX, u32::MAX, 16, 12, (u32::MAX, u32::MAX)).is_none());
+    for cell in [0.0, f64::NAN, f64::INFINITY] {
+        let mut out = vec![9.0f32; 5];
+        Noise::new(1, cell).row(&s, u32::MAX - 2, u32::MAX, 0, &mut out);
+        assert!(out.iter().all(|v| v.is_finite() && v.abs() < 3.0));
+    }
+    Noise::new(1, 0.1).row(&s, 0, 0, 0, &mut []);
 }
 
 /// A pass's shared blur ([`fx::Blurred`], here Glow's) is made once while bands run: a band

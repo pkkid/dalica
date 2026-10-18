@@ -8156,7 +8156,7 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
   - done when: `cargo xtask bench inference`, `bench faces_scan` and `bench people_places` print
     their numbers (in the PR); `cargo xtask budgets` passes with them and `--plant-ms` makes each
     fail.
-- ⬜ **M13.34 `edit`: fast shared effect primitives: box passes, a grid blur, noise by rows, linear-light tables**
+- ✅ **M13.34 `edit`: fast shared effect primitives: box passes, a grid blur, noise by rows, linear-light tables**
   - after: M12.R
   - files: `crates/edit/src/fx.rs`, `crates/edit/src/fx/blur.rs`, `crates/edit/src/fx/grid.rs`, `crates/edit/src/fx/noise.rs`, `crates/edit/src/fx/color.rs`, `crates/edit/tests/fx.rs`
   - scope: effect speed (paragraph *Effect speed* above). The ground the module tasks M13.36–M13.42
