@@ -8154,7 +8154,7 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
     closes; Not Now keeps the offline map; a search on Enter lists results and moves the pin; the
     tab's values survive a restart; at 900 × 600 the tab fits; fingerprints of the tab and of the
     pane with tiles at 1400 × 900.
-- ⬜ **M13.29 `mcp`: geotags and people over MCP, and the workflows W13 and W14**
+- ✅ **M13.29 `mcp`: geotags and people over MCP, and the workflows W13 and W14**
   - after: M13.14, M13.15, M13.19
   - files: `crates/mcp/src/tools/organize.rs`, `crates/mcp/src/headless.rs`, `crates/mcp/src/connect.rs`, `crates/mcp/tests/organize_tools.rs`, `crates/mcp/tests/workflows/w13_geotags.rs`, `crates/mcp/tests/workflows/w14_people.rs`, `crates/mcp/tests/workflows/main.rs`, `xtask/src/stats.rs`, `docs/mcp.md`
   - scope: `mcp.md` §5 and §9: `set_metadata {geo}` live (no longer `unsupported`) and `photo_info`

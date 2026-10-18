@@ -24,6 +24,11 @@
 //!   the app has no grouped execute, so several steps are several undo steps there.
 //!   `render` reads the photo and its recipe from the app (`photo.inspect`) and renders the file
 //!   through the one output pipeline, as the headless backend does.
+//! - **People data** (`mcp.md` §5): the app withholds names and face rectangles from its control
+//!   clients by its own policy; the MCP process withholds them again, on the replies of
+//!   `engine.execute` and of each `engine.group` step ([`Policy::people_reply`]), unless it was
+//!   built with [`Connect::allow_people`] (`--automation-allow-people` given to it too). Names
+//!   reach the client only when both allow it.
 //! - **[`Options`]**: `--connect [HOST:PORT]` (default [`crate::DEFAULT_ADDR`]; loopback addresses
 //!   only) and `--control-token-file PATH`, shared by `dalica-cli run` and `dalica-cli mcp`.
 //!
@@ -42,6 +47,7 @@ use std::time::{Duration, Instant};
 use dalica_core::PhotoId;
 use dalica_create::output::{self, Choice, OutFormat, Purpose, Quality, Spec};
 use dalica_edit::Recipe;
+use dalica_engine::automation::Policy;
 use serde_json::{Map, Value, json};
 
 use crate::backend::{Backend, Progress, Rendered, ToolError};
@@ -375,11 +381,20 @@ fn reply_result(reply: &Value) -> Result<Value, ToolError> {
 #[derive(Debug)]
 pub struct Connect {
     client: Client,
+    /// Only the people permission is read: the app's own policy decides roots and effects.
+    policy: Policy,
 }
 
 impl Connect {
+    /// A backend over `client` that withholds people data whatever the app gives.
     pub fn new(client: Client) -> Connect {
-        Connect { client }
+        Connect { client, policy: Policy::default() }
+    }
+
+    /// With `allow` (`--automation-allow-people`), people data the app gives passes through.
+    pub fn allow_people(mut self, allow: bool) -> Connect {
+        self.policy.set_allow_people(allow);
+        self
     }
 
     pub fn client(&mut self) -> &mut Client {
@@ -389,6 +404,13 @@ impl Connect {
     /// `engine.execute {command, params?, wait?}`: a job the command starts is followed with
     /// `jobs.wait`, reporting its progress, and cancelled with `jobs.cancel` when the request is.
     fn execute(&mut self, params: Value, progress: &mut dyn Progress) -> Result<Value, ToolError> {
+        let id = params.get("command").and_then(Value::as_str).unwrap_or_default().to_string();
+        let reply = self.execute_unfiltered(params, progress)?;
+        Ok(self.policy.people_reply(&id, reply))
+    }
+
+    /// [`Connect::execute`] before its reply goes through the people policy.
+    fn execute_unfiltered(&mut self, params: Value, progress: &mut dyn Progress) -> Result<Value, ToolError> {
         let wait = params.get("wait").cloned().unwrap_or(Value::Null);
         let Value::Object(mut p) = params else { return self.client.call("engine.execute", params) };
         let mut photos = None;
@@ -560,7 +582,8 @@ impl Connect {
         let mut out = Vec::with_capacity(results.len());
         for (n, r) in results.iter().enumerate() {
             if r.get("ok") == Some(&Value::Bool(true)) {
-                out.push(r.get("result").cloned().unwrap_or(Value::Null));
+                let id = prepared.get(n).and_then(|s| s.get("command")).and_then(Value::as_str).unwrap_or_default();
+                out.push(self.policy.people_reply(id, r.get("result").cloned().unwrap_or(Value::Null)));
                 continue;
             }
             let e = reply_result(r).err().unwrap_or_else(|| ToolError::new("internal", "a failed step without an error"));
@@ -766,5 +789,60 @@ mod tests {
         assert_eq!(pending_job(&first), Some(7));
         assert_eq!(pending_job(&entry), None);
         assert_eq!(merge_job(first, entry), json!({ "folder": 3, "job": 7, "scanning": false, "state": "done", "result": { "photos": 2 } }));
+    }
+
+    /// An app that answers `auth`, every `engine.execute` with a `faces.list` reply carrying a
+    /// name, a rectangle and an embedding, and `batch` with one such step; its address and token
+    /// file.
+    fn people_app() -> (SocketAddr, tempfile::TempDir) {
+        use std::net::TcpListener;
+        let token = "ab".repeat(TOKEN_HEX / 2);
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("token"), format!("{token}\n")).unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(stream) = stream else { return };
+                let mut out = stream.try_clone().unwrap();
+                for line in BufReader::new(stream).lines() {
+                    let Ok(line) = line else { break };
+                    let r: Value = serde_json::from_str(&line).unwrap();
+                    let face = json!({ "faces": [{ "id": "1.0", "person": "p1", "name": "Ana", "rect": [0.1, 0.1, 0.4, 0.5], "embedding": [0.5] }] });
+                    let result = match r["method"].as_str() {
+                        Some("batch") => {
+                            json!({ "completed": 2, "failed": 0, "results": [{ "ok": true, "result": face.clone() }, { "ok": true, "result": face }] })
+                        }
+                        Some("auth") => json!({ "app": "dalica" }),
+                        _ => face,
+                    };
+                    if writeln!(out, "{}", json!({ "id": r["id"], "ok": true, "result": result })).is_err() {
+                        break;
+                    }
+                }
+            }
+        });
+        (addr, dir)
+    }
+
+    /// Connect mode withholds people data again, on `engine.execute` and on each `engine.group`
+    /// step: without [`Connect::allow_people`] names read null and rectangles are left out; with
+    /// it they pass; face descriptors never do.
+    #[test]
+    fn people_data_is_withheld_unless_allowed() {
+        let (addr, dir) = people_app();
+        let execute = json!({ "command": "faces.list", "params": { "ids": [1] } });
+        let steps =
+            json!({ "steps": [{ "command": "faces.list", "params": { "ids": [1] } }, { "command": "faces.list", "params": { "ids": [1] } }] });
+        for allow in [false, true] {
+            let mut c = Connect::new(Client::new(addr, dir.path().join("token"))).allow_people(allow);
+            let one = c.call("engine.execute", execute.clone(), &mut crate::backend::NoProgress).unwrap();
+            let group = c.call("engine.group", steps.clone(), &mut crate::backend::NoProgress).unwrap();
+            for face in [&one["faces"][0], &group["results"][0]["faces"][0], &group["results"][1]["faces"][0]] {
+                let name = if allow { json!("Ana") } else { Value::Null };
+                assert_eq!((&face["name"], face.get("rect").is_some(), face.get("embedding")), (&name, allow, None), "{face}");
+                assert_eq!((&face["id"], &face["person"]), (&json!("1.0"), &json!("p1")));
+            }
+        }
     }
 }
