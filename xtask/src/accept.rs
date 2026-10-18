@@ -117,7 +117,13 @@ pub struct Relative {
     /// The commit that first measured these budgets, the base when the release named by
     /// `--baseline` predates the bench.
     pub since: &'static str,
+    /// The judge of what the bench reports beyond [`Relative::rows`], still absolute (the import's
+    /// copy rate), applied to the first run in the reviewed commit; `None`: nothing else.
+    pub rest: Option<Judge>,
 }
+
+/// A budget's judge: a bench's stdout and a planted slowdown in ms → its verdict line.
+pub type Judge = fn(&str, f64) -> Result<String, String>;
 
 /// A relative budget's base: its label and the bench's medians there; `None`: judge the absolute
 /// budget.
@@ -125,6 +131,12 @@ pub type Base = Option<(String, BTreeMap<String, f64>)>;
 
 /// The largest slowdown a relative budget allows against its base commit.
 pub const RELATIVE_FACTOR: f64 = 1.3;
+
+/// How many times a relative budget's bench runs in the base commit and in the reviewed one,
+/// interleaved (base, head, base, head, …; M12.26): each row is judged on the median of the runs'
+/// medians, so a runner that slows down or speeds up during the job weighs on both sides. One run
+/// of each, minutes apart, put the same code at 1.36 × its base once (M11.R, a lone `-word`).
+pub const RELATIVE_ROUNDS: usize = 3;
 
 /// The release budget test of `tests/acceptance/m4.rs` (part 2).
 const THUMB_TEST: &str = "the_thumb_held_at_top_speed_through_100k_sketched_photos_never_shows_a_placeholder";
@@ -183,6 +195,7 @@ pub const BUDGETS: &[Budget] = &[
             rows: &[("save", None), ("save rotate-only", None), ("export 200 mixed", None)],
             source: "crates/engine/benches/save_export.rs",
             since: "8bd31cb",
+            rest: None,
         }),
     },
     Budget {
@@ -201,6 +214,7 @@ pub const BUDGETS: &[Budget] = &[
             ],
             source: "crates/engine/benches/search.rs",
             since: "0ad5663",
+            rest: None,
         }),
     },
     Budget {
@@ -222,10 +236,18 @@ pub const BUDGETS: &[Budget] = &[
     Budget {
         milestone: 11,
         name: "import",
-        what: "import: listing, then importing, 1 000 JPEGs (2048 px, 160 px EXIF thumbnails) from a temporary card, medians of three: the first screenful of thumbnails ≤ 35 ms, the listing ≤ 320 ms, then ≥ 22.9 files/s and ≥ 2.3 MB/s copied and verified (writes about 0.4 GB, removed after)",
+        what: "import: listing, then importing, 1 000 JPEGs (2048 px, 160 px EXIF thumbnails) from a temporary card, medians of three: the first screenful of thumbnails ≤ 35 ms, the listing ≤ 320 ms, then ≥ 22.9 files/s and ≥ 2.3 MB/s copied and verified (writes about 0.4 GB, removed after); on the review's runner the first screenful and the listing are judged against a base",
         cargo: &["bench", "-p", "dalica-engine", "--bench", "import", "--", "--json"],
         judge: crate::bench::judge_import,
-        relative: None,
+        // The listing missed its absolute 320 ms on two of six GitHub runs with the same code
+        // (245 to 354 ms, following the runner's single-core speed; 202 ms on a workstation):
+        // judged against a base on the same runner since M12.26 (maintainer decision at M12.R).
+        relative: Some(Relative {
+            rows: &[("first thumbnails 1000", None), ("list 1000", None)],
+            source: "crates/engine/benches/import.rs",
+            since: "4afdff5e",
+            rest: Some(crate::bench::judge_import_copy),
+        }),
     },
     Budget {
         milestone: 11,
@@ -575,34 +597,120 @@ pub fn report_medians(stdout: &str) -> Option<BTreeMap<String, f64>> {
     Some(rows.iter().filter_map(|r| Some((r.get("name")?.as_str()?.to_string(), r.get("p50_ms")?.as_f64().filter(|v| v.is_finite())?))).collect())
 }
 
-/// `stdout` of a release bench judged against `base` (the same bench's medians in the base
-/// commit `label`, on the same runner): each of `rel`'s rows at most [`RELATIVE_FACTOR`] × its
-/// base, and under its cap. A planted slowdown of `plant` ms is added to each median.
-pub fn judge_relative(stdout: &str, plant: f64, rel: &Relative, label: &str, base: &BTreeMap<String, f64>) -> Result<String, String> {
-    let report = crate::bench::parse_report(stdout).ok_or("the bench printed no JSON report with `rows`")?;
-    let mode = report.get("mode").and_then(serde_json::Value::as_str).unwrap_or("?");
-    if mode != "release" {
-        return Err(format!("the bench ran in a {mode} build; the budgets hold in release only"));
+/// The median of each row over `runs` (each a bench's medians by row name): only rows every run
+/// has; an even count takes the mean of the middle two.
+pub fn median_rows(runs: &[BTreeMap<String, f64>]) -> BTreeMap<String, f64> {
+    let Some(first) = runs.first() else { return BTreeMap::new() };
+    let mut out = BTreeMap::new();
+    for name in first.keys() {
+        let mut values: Vec<f64> = runs.iter().filter_map(|r| r.get(name).copied()).collect();
+        if values.len() != runs.len() {
+            continue;
+        }
+        values.sort_by(f64::total_cmp);
+        let mid = values.len() / 2;
+        let median = if values.len() % 2 == 1 {
+            values.get(mid).copied()
+        } else {
+            values.get(mid.saturating_sub(1)).zip(values.get(mid)).map(|(a, b)| (a + b) / 2.0)
+        };
+        if let Some(m) = median {
+            out.insert(name.clone(), m);
+        }
     }
-    let head = report_medians(stdout).unwrap_or_default();
+    out
+}
+
+/// `heads`, the stdout of each release run of a bench in the reviewed commit, judged against
+/// `base` (the same bench's medians in the base commit `label`, on the same runner, over its runs):
+/// each of `rel`'s rows, its median over `heads`, at most [`RELATIVE_FACTOR`] × its base and under
+/// its cap. A planted slowdown of `plant` ms is added to each median. Every row is judged and
+/// shown, also when one misses (M12.26: the review saw only the first missed row).
+pub fn judge_relative(heads: &[String], plant: f64, rel: &Relative, label: &str, base: &BTreeMap<String, f64>) -> Result<String, String> {
+    if heads.is_empty() {
+        return Err("the bench never ran in the reviewed commit".into());
+    }
+    let mut medians = Vec::new();
+    for stdout in heads {
+        let report = crate::bench::parse_report(stdout).ok_or("the bench printed no JSON report with `rows`")?;
+        let mode = report.get("mode").and_then(serde_json::Value::as_str).unwrap_or("?");
+        if mode != "release" {
+            return Err(format!("the bench ran in a {mode} build; the budgets hold in release only"));
+        }
+        medians.push(report_medians(stdout).unwrap_or_default());
+    }
+    let head = median_rows(&medians);
+    let runs = if heads.len() > 1 { format!(", medians of {} runs each", heads.len()) } else { String::new() };
     let mut parts = Vec::new();
+    let mut misses = Vec::new();
     for (name, cap) in rel.rows {
         let p50 = *head.get(*name).ok_or(format!("no row `{name}`"))?;
         let was = *base.get(*name).ok_or(format!("the base {label} has no row `{name}`"))?;
         let judged = p50 + plant;
         let limit = was * RELATIVE_FACTOR;
         let planted = if plant > 0.0 { format!(" ({p50:.2} ms measured + {plant:.2} ms planted)") } else { String::new() };
+        let ratio = judged / was.max(f64::MIN_POSITIVE);
+        let mut verdict = "";
         if judged > limit {
-            return Err(format!("{name}: median {judged:.2} ms{planted}, over {RELATIVE_FACTOR} × the base {label}'s {was:.2} ms"));
-        }
-        if let Some(cap) = cap
+            misses.push(format!("{name}: median {judged:.2} ms{planted}, over {RELATIVE_FACTOR} × the base {label}'s {was:.2} ms"));
+            verdict = " MISSED";
+        } else if let Some(cap) = cap
             && judged > *cap
         {
-            return Err(format!("{name}: median {judged:.2} ms{planted}, over its {cap} ms cap"));
+            misses.push(format!("{name}: median {judged:.2} ms{planted}, over its {cap} ms cap"));
+            verdict = " MISSED";
         }
-        parts.push(format!("{name} {judged:.2} ms ({:.2} × {was:.2} ms)", judged / was.max(f64::MIN_POSITIVE)));
+        parts.push(format!("{name} {judged:.2} ms ({ratio:.2} × {was:.2} ms){verdict}"));
     }
-    Ok(format!("against {label}: {}", parts.join("; ")))
+    if misses.is_empty() {
+        Ok(format!("against {label}{runs}: {}", parts.join("; ")))
+    } else {
+        Err(format!("{}; every row against {label}{runs}: {}", misses.join("; "), parts.join("; ")))
+    }
+}
+
+/// A relative budget run interleaved (M12.26): `first` is the base's first run, then the reviewed
+/// commit's, then [`RELATIVE_ROUNDS`] − 1 more of each, alternating; judged by [`judge_relative`]
+/// on the medians, and by `rel.rest` on the reviewed commit's first run.
+fn judge_interleaved(
+    b: &Budget,
+    rel: &Relative,
+    plant: f64,
+    (label, first): (String, BTreeMap<String, f64>),
+    base: &mut impl FnMut(&Budget) -> Result<Base, String>,
+    cargo: &mut impl FnMut(&[&str]) -> Result<(bool, String), String>,
+) -> Result<String, String> {
+    let mut bases = vec![first];
+    let mut heads = Vec::new();
+    for round in 0..RELATIVE_ROUNDS {
+        if round > 0 {
+            match base(b) {
+                Ok(Some((_, medians))) => bases.push(medians),
+                Ok(None) => return Err("the base went away between runs".into()),
+                Err(e) => return Err(format!("the base: {e}")),
+            }
+        }
+        match cargo(b.cargo)? {
+            (true, stdout) => heads.push(stdout),
+            (false, stdout) => {
+                print!("{stdout}");
+                return Err(format!("cargo {} failed", b.cargo.join(" ")));
+            }
+        }
+    }
+    let judged = judge_relative(&heads, plant, rel, &label, &median_rows(&bases));
+    let rest = match (rel.rest, heads.first()) {
+        (Some(judge), Some(stdout)) => Some(judge(stdout, plant)),
+        _ => None,
+    };
+    match (judged, rest) {
+        (Ok(line), None) => Ok(line),
+        (Ok(line), Some(Ok(more))) => Ok(format!("{line}; {more}")),
+        (Ok(line), Some(Err(e))) => Err(format!("{e}; {line}")),
+        (Err(e), Some(Ok(more))) => Err(format!("{e}; {more}")),
+        (Err(e), Some(Err(more))) => Err(format!("{e}; {more}")),
+        (Err(e), None) => Err(e),
+    }
 }
 
 /// Runs every budget with `cargo` (`cargo(args)` → `(succeeded, stdout)`), judges each, prints a
@@ -635,16 +743,16 @@ pub fn budgets_against(
             Some(Ok(found)) => found,
             None => None,
         };
-        let verdict = match cargo(b.cargo) {
-            Ok((true, stdout)) => match (&b.relative, &against) {
-                (Some(rel), Some((label, medians))) => judge_relative(&stdout, plant, rel, label, medians),
-                _ => (b.judge)(&stdout, plant),
+        let verdict = match (&b.relative, against) {
+            (Some(rel), Some(first)) => judge_interleaved(b, rel, plant, first, &mut base, &mut cargo),
+            _ => match cargo(b.cargo) {
+                Ok((true, stdout)) => (b.judge)(&stdout, plant),
+                Ok((false, stdout)) => {
+                    print!("{stdout}");
+                    Err(format!("cargo {} failed", b.cargo.join(" ")))
+                }
+                Err(e) => Err(e),
             },
-            Ok((false, stdout)) => {
-                print!("{stdout}");
-                Err(format!("cargo {} failed", b.cargo.join(" ")))
-            }
-            Err(e) => Err(e),
         };
         let secs = started.elapsed().as_secs_f64();
         match verdict {
@@ -851,28 +959,121 @@ mod tests {
 
     #[test]
     fn relative_budgets_judge_against_the_base_on_the_same_runner() {
-        let rel = Relative { rows: &[("index build", None), ("one word", Some(100.0))], source: "x.rs", since: "abc" };
+        let rel = Relative { rows: &[("index build", None), ("one word", Some(100.0))], source: "x.rs", since: "abc", rest: None };
         let out = |build: f64, word: f64| {
             let r = serde_json::json!({ "mode": "release", "rows": [{ "name": "index build", "p50_ms": build }, { "name": "one word", "p50_ms": word }] });
-            format!("{r}\n")
+            vec![format!("{r}\n")]
         };
         let base: BTreeMap<String, f64> = [("index build".to_string(), 600.0), ("one word".to_string(), 1.0)].into();
         // A slow runner: 749 ms against a base of 600 ms on it is 1.25 ×, within.
         assert!(judge_relative(&out(749.0, 1.2), 0.0, &rel, "v0.3.0", &base).unwrap().contains("index build 749.00 ms (1.25 ×"));
         let e = judge_relative(&out(781.0, 1.0), 0.0, &rel, "v0.3.0", &base).unwrap_err();
         assert!(e.starts_with("index build") && e.contains("1.3 × the base v0.3.0's 600.00 ms"), "{e}");
+        // Every row is judged and shown when one misses (M12.26), the missed ones marked.
+        assert!(e.contains("every row against v0.3.0: index build 781.00 ms (1.30 × 600.00 ms) MISSED; one word 1.00 ms (1.00 × 1.00 ms)"), "{e}");
+        let e = judge_relative(&out(900.0, 2.0), 0.0, &rel, "b", &base).unwrap_err();
+        assert!(e.starts_with("index build: median 900.00 ms") && e.contains("; one word: median 2.00 ms"), "{e}");
         // A planted slowdown counts; a cap still holds; the base must have every row.
         assert!(judge_relative(&out(600.0, 1.0), 200.0, &rel, "b", &base).is_err());
         let wide: BTreeMap<String, f64> = [("index build".to_string(), 600.0), ("one word".to_string(), 90.0)].into();
         assert!(judge_relative(&out(600.0, 101.0), 0.0, &rel, "b", &wide).unwrap_err().contains("100 ms cap"));
         let short: BTreeMap<String, f64> = [("index build".to_string(), 600.0)].into();
         assert!(judge_relative(&out(600.0, 1.0), 0.0, &rel, "b", &short).unwrap_err().contains("has no row `one word`"));
-        assert!(judge_relative("{\"mode\":\"debug\",\"rows\":[]}\n", 0.0, &rel, "b", &base).unwrap_err().contains("debug build"));
+        assert!(judge_relative(&["{\"mode\":\"debug\",\"rows\":[]}\n".to_string()], 0.0, &rel, "b", &base).unwrap_err().contains("debug build"));
+        assert!(judge_relative(&[], 0.0, &rel, "b", &base).unwrap_err().contains("never ran"));
+        // Several runs: each row's median over them, so one slow run does not decide.
+        let runs = [out(600.0, 1.0), out(1200.0, 1.0), out(610.0, 1.1)].concat();
+        assert!(judge_relative(&runs, 0.0, &rel, "b", &base).unwrap().contains("index build 610.00 ms (1.02 × 600.00 ms)"));
         // Every relative budget names its bench's source and the commit that first measured it.
         for b in BUDGETS.iter().filter_map(|b| b.relative.as_ref()) {
             assert!(Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join(b.source).is_file(), "{}", b.source);
             assert!(b.since.len() >= 7 && !b.rows.is_empty());
         }
+    }
+
+    #[test]
+    fn median_rows_takes_each_rows_middle_value_over_the_runs() {
+        let run = |a: f64, b: Option<f64>| -> BTreeMap<String, f64> {
+            let mut m: BTreeMap<String, f64> = [("a".to_string(), a)].into();
+            if let Some(b) = b {
+                m.insert("b".into(), b);
+            }
+            m
+        };
+        let m = median_rows(&[run(3.0, Some(1.0)), run(1.0, Some(2.0)), run(2.0, None)]);
+        assert_eq!(m.get("a"), Some(&2.0));
+        assert_eq!(m.get("b"), None, "a row one run lacks is left out");
+        assert_eq!(median_rows(&[run(1.0, None), run(4.0, None)]).get("a"), Some(&2.5));
+        assert!(median_rows(&[]).is_empty());
+    }
+
+    /// The review's job with a base (M12.26): each relative budget's bench runs base, head, base,
+    /// head, base, head; the import's listing and first screenful are judged against the base on the
+    /// same runner (346 ms on a slow runner whose base listed in 289 ms holds, though over the
+    /// workstation's 320 ms), its copy rate still absolutely; a slowed listing misses with every
+    /// row shown.
+    #[test]
+    fn the_review_job_interleaves_base_and_head_and_judges_the_import_against_its_base() {
+        use std::cell::RefCell;
+        let import_rel = BUDGETS.iter().find(|b| b.name == "import").and_then(|b| b.relative.as_ref()).unwrap();
+        assert_eq!(import_rel.since, "4afdff5e");
+        let rows: Vec<&str> = import_rel.rows.iter().map(|r| r.0).collect();
+        assert_eq!(rows, ["first thumbnails 1000", "list 1000"]);
+        let base_import = crate::bench::tests::import_out("release", 1000, 2048, 14.2, 289.0, 1_190.0);
+        let head = |list: f64, import_ms: f64| {
+            move |args: &[&str]| -> Result<(bool, String), String> {
+                Ok(if args.contains(&"save_export") {
+                    (true, save_export_out("release", 300.0, 150.0, 15_000.0))
+                } else if args.contains(&"search") {
+                    (true, search_out("release", 100_000, SEARCH_MEASURED))
+                } else if args.contains(&"import") {
+                    (true, crate::bench::tests::import_out("release", 1000, 2048, 15.0, list, import_ms))
+                } else {
+                    (false, String::new())
+                })
+            }
+        };
+        let run = |list: f64, import_ms: f64| -> (Result<(), String>, Vec<String>) {
+            let log = RefCell::new(Vec::new());
+            let head = head(list, import_ms);
+            let r = budgets_against(
+                0.0,
+                |b: &Budget| {
+                    log.borrow_mut().push(format!("base {}", b.name));
+                    let out = if b.name == "import" {
+                        base_import.clone()
+                    } else if b.name == "search" {
+                        search_out("release", 100_000, SEARCH_MEASURED)
+                    } else {
+                        save_export_out("release", 300.0, 150.0, 15_000.0)
+                    };
+                    Ok(Some(("v0.6.0".to_string(), report_medians(&out).unwrap())))
+                },
+                |args: &[&str]| {
+                    let name = ["save_export", "search", "import"].into_iter().find(|n| args.contains(n)).unwrap_or("other");
+                    log.borrow_mut().push(format!("head {name}"));
+                    head(args)
+                },
+            );
+            (r, log.into_inner())
+        };
+        let (r, log) = run(346.0, 1_200.0);
+        let e = r.unwrap_err();
+        // Only the budgets without a relative judge failed here (their benches are not faked).
+        assert!(!e.contains("M11 import") && !e.contains("M9 search") && !e.contains("M8 save"), "{e}");
+        let order: Vec<&str> = log.iter().map(String::as_str).filter(|l| l.ends_with("import")).collect();
+        assert_eq!(order, ["base import", "head import", "base import", "head import", "base import", "head import"]);
+        assert_eq!(log.iter().filter(|l| l.ends_with("search")).count(), 2 * RELATIVE_ROUNDS);
+        // A listing slowed past 1.3 × its base misses, every row shown; a slow copy misses too.
+        let (r, _) = run(400.0, 1_200.0);
+        let e = r.unwrap_err();
+        assert!(
+            e.contains("M11 import: list 1000: median 400.00 ms, over 1.3 × the base v0.6.0's 289.00 ms")
+                && e.contains("first thumbnails 1000 15.00 ms (1.06 × 14.20 ms); list 1000 400.00 ms (1.38 × 289.00 ms) MISSED"),
+            "{e}"
+        );
+        let (r, _) = run(300.0, 44_000.0);
+        assert!(r.unwrap_err().contains("M11 import: the import: 1000 files in 44.00 s"));
     }
 
     /// What `cargo bench … library_bench -- --json` prints, with the 100 k scroll's p95.

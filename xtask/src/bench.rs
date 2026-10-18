@@ -360,13 +360,7 @@ fn planted(measured: f64, plant: f64, unit: &str) -> String {
 /// within their budgets (a planted slowdown added once each), and the import's files and MB per
 /// second from its median at least theirs (a planted slowdown added once per file copied).
 pub fn judge_import(stdout: &str, plant: f64) -> Result<String, String> {
-    let report = release_report("import", stdout)?;
-    let photos = report.get("photos").and_then(Value::as_u64).unwrap_or(0);
-    let side = report.get("side_px").and_then(Value::as_u64).unwrap_or(0);
-    if photos < IMPORT_PHOTOS || side < IMPORT_SIDE_PX {
-        return Err(format!("import ran over {photos} photos of {side} px; the budgets hold for {IMPORT_PHOTOS} of {IMPORT_SIDE_PX} px"));
-    }
-    let n = photos;
+    let (report, n, side) = import_report(stdout)?;
     let first = row_number("import", &report, &format!("first thumbnails {n}"), "p50_ms")?;
     let judged = first + plant;
     if judged > IMPORT_FIRST_MS {
@@ -377,9 +371,36 @@ pub fn judge_import(stdout: &str, plant: f64) -> Result<String, String> {
     if listed > IMPORT_LIST_MS {
         return Err(format!("the listing: median {listed:.0} ms{}, over the {IMPORT_LIST_MS} ms budget", planted(list, plant, "ms")));
     }
+    let copied = import_copy(&report, n, plant)?;
+    Ok(format!(
+        "{n} photos of {side} px: first screenful {judged:.1} ms ≤ {IMPORT_FIRST_MS} ms, listed in {listed:.0} ms ≤ {IMPORT_LIST_MS} ms, {copied}"
+    ))
+}
+
+/// What the review's Budgets job judges absolutely when the first screenful and the listing are
+/// judged against a base commit on the same runner (M12.26, `accept.rs` → `Relative::rest`): the
+/// card's size and the import's files and MB per second, as [`judge_import`] does.
+pub fn judge_import_copy(stdout: &str, plant: f64) -> Result<String, String> {
+    let (report, n, side) = import_report(stdout)?;
+    Ok(format!("{n} photos of {side} px: {}", import_copy(&report, n, plant)?))
+}
+
+/// The import report in release, with its photos and side, over the card the budgets hold for.
+fn import_report(stdout: &str) -> Result<(Value, u64, u64), String> {
+    let report = release_report("import", stdout)?;
+    let photos = report.get("photos").and_then(Value::as_u64).unwrap_or(0);
+    let side = report.get("side_px").and_then(Value::as_u64).unwrap_or(0);
+    if photos < IMPORT_PHOTOS || side < IMPORT_SIDE_PX {
+        return Err(format!("import ran over {photos} photos of {side} px; the budgets hold for {IMPORT_PHOTOS} of {IMPORT_SIDE_PX} px"));
+    }
+    Ok((report, photos, side))
+}
+
+/// The import's files and MB per second from its median, at least their budgets.
+fn import_copy(report: &Value, n: u64, plant: f64) -> Result<String, String> {
     let name = format!("import {n}");
-    let import_s = row_number("import", &report, &name, "p50_ms")? / 1000.0;
-    let bytes = row_number("import", &report, &name, "bytes")?;
+    let import_s = row_number("import", report, &name, "p50_ms")? / 1000.0;
+    let bytes = row_number("import", report, &name, "bytes")?;
     let copied_s = import_s + plant * n as f64 / 1000.0;
     let per_s = n as f64 / copied_s.max(f64::MIN_POSITIVE);
     let mb_s = bytes / 1e6 / copied_s.max(f64::MIN_POSITIVE);
@@ -389,9 +410,7 @@ pub fn judge_import(stdout: &str, plant: f64) -> Result<String, String> {
             "the import: {n} files in {copied_s:.2} s{note}: {per_s:.1} files/s, {mb_s:.2} MB/s, under the {IMPORT_FILES_PER_S} files/s and {IMPORT_MB_PER_S} MB/s budget"
         ));
     }
-    Ok(format!(
-        "{n} photos of {side} px: first screenful {judged:.1} ms ≤ {IMPORT_FIRST_MS} ms, listed in {listed:.0} ms ≤ {IMPORT_LIST_MS} ms, imported in {copied_s:.2} s{note}: {per_s:.1} files/s ≥ {IMPORT_FILES_PER_S}, {mb_s:.2} MB/s ≥ {IMPORT_MB_PER_S}"
-    ))
+    Ok(format!("imported in {copied_s:.2} s{note}: {per_s:.1} files/s ≥ {IMPORT_FILES_PER_S}, {mb_s:.2} MB/s ≥ {IMPORT_MB_PER_S}"))
 }
 
 /// `batch_edit --json` in release over 1 000 photos: Auto Fix's median and its undo's within their
@@ -823,6 +842,13 @@ pub(crate) mod tests {
         assert!(judge_import(&import_out("release", 1000, 320, 1.0, 1.0, 1.0), 0.0).unwrap_err().contains("hold for 1000 of 2048 px"));
         assert!(judge_import("no report", 0.0).unwrap_err().contains("no JSON report"));
         assert!(judge_import("{\"mode\":\"release\",\"photos\":1000,\"side_px\":2048,\"rows\":[]}", 0.0).unwrap_err().contains("no row"));
+        // Judged against a base (M12.26), the first screenful and the listing are the base's to
+        // judge: the copy judge leaves them out and still holds the card and the copy rate.
+        let ok = judge_import_copy(&import_out("release", 1000, 2048, 40.0, 346.0, 29_101.0), 0.0).unwrap();
+        assert!(ok.contains("34.4 files/s ≥ 22.9") && !ok.contains("listed"), "{ok}");
+        assert!(judge_import_copy(&import_out("release", 1000, 2048, 1.0, 1.0, 44_000.0), 0.0).unwrap_err().contains("22.7 files/s"));
+        assert!(judge_import_copy(&import_out("release", 60, 2048, 1.0, 1.0, 1.0), 0.0).unwrap_err().contains("hold for 1000 of 2048 px"));
+        assert!(judge_import_copy(&import_out("debug", 1000, 2048, 1.0, 1.0, 1.0), 0.0).unwrap_err().contains("debug build"));
     }
 
     #[test]

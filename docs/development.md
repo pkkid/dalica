@@ -261,16 +261,25 @@ cargo run --release -p dalica -- --control 7990 --demo
 | An effect's slider draft and final on the 2560 × 1600 screen (p95) | printed; ≤ 16 ms and ≤ 100 ms are M13's per-effect speed tasks |
 | An effect tab's tiles of a 24 MP photo, from opening it to the last tile (median) | ≤ 355 ms (tab 3), 350 ms (tab 4), 360 ms (tab 5) |
 
-**At the review, the save, export and search budgets are judged against a base on the same
-runner** (maintainer decision, 2026-10-15): the Budgets job runs each of these benches in the last
-release (`git describe --tags --match 'v*'`; for a bench newer than that release, the commit that
-first measured it) and then in the reviewed commit, and a median may be at most 1.3 × the base's
-(`cargo xtask budgets --baseline <ref>`; `RELATIVE_FACTOR` and each budget's `Relative` in
-`xtask/src/accept.rs`). GitHub's runners differ by more than the budgets allowed (the index build
-took 446–490 ms on some and 718–769 ms on others, which failed 11 runs in a row); a ratio on one
-runner does not. The millisecond figures in the table are the budgets without a base (a plain
-`cargo xtask budgets`, on a workstation); the frame budgets (8 ms), the first screenful (1 s) and a
-query's 100 ms cap are always absolute.
+**At the review, the save, export and search budgets, and the import's first screenful and
+listing, are judged against a base on the same runner** (maintainer decisions, 2026-10-15, and for
+the import at M12.R): the Budgets job runs each of these benches in the last release
+(`git describe --tags --match 'v*'`; for a bench newer than that release, the commit that first
+measured it) and in the reviewed commit, three times each, interleaved (base, reviewed, base,
+reviewed, base, reviewed; `RELATIVE_ROUNDS`), and each row's median over the reviewed commit's runs
+may be at most 1.3 × its median over the base's (`cargo xtask budgets --baseline <ref>`;
+`RELATIVE_FACTOR` and each budget's `Relative` in `xtask/src/accept.rs`). Every row's verdict is
+printed, also when one misses. GitHub's runners differ by more than the budgets allowed (the index
+build took 446–490 ms on some and 718–769 ms on others, which failed 11 runs in a row); a ratio on
+one runner does not. One run of each, minutes apart, was not enough (M12.26): the same search code
+measured 1.36 × its base once and 1.00–1.02 × on three other runs, and the import listing, the same
+code every time, took 245 to 354 ms on six runs (missing its absolute 320 ms twice) while a
+workstation on two cores listed in 198–203 ms; the listing follows the runner's single-core speed
+(the cold start was 340 ms on both runs that missed it, 236–280 ms on the rest). The import's copy
+rate stays absolute, judged on the reviewed commit's first run. The millisecond figures in the
+table are the budgets without a base (a plain `cargo xtask budgets`, on a workstation); the frame
+budgets (8 ms), the first screenful after adding a folder (1 s) and a query's 100 ms cap are always
+absolute.
 
 The save and export budgets (M8.24) are 1.5 × their first measurement: release, two cores
 (`taskset -c 0,1`, as the budgets job's runner), 2026-10-14, a 24-core Linux workstation under
