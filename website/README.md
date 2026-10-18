@@ -105,7 +105,19 @@ photos in Highlands, Spring, Old towns and By train) with tags, stars, two capti
 is 3:2) with steps such as `{"command": "search.set", "params": {"text": "mountains", "filters":
 {"starred": true}}}`, `edit.autoFix`, `scroll.nextSection` and `output.export` with
 `output.export.location` and clicks on `check:dialog.numbers` and `check:dialog.watermark`.
-The photos inside the 0.2 and 0.5 shots and `library.jpg`, and `img/castle.jpg`, come from the `photos` set of the
+The four 0.6 shots (`feat-import.jpg`, `feat-compare.jpg`, `feat-slideshow.jpg`, `feat-viewer.jpg`,
+1500 × 1000) were taken from the running app, not `dalica-cli snapshot`: `dalica --headless --control`
+(and `dalica --view FILE --headless` for the viewer) with `interface.uiScale` at 200 and `ui.resize`
+to 1350 × 900 points, so `ui.screenshot` writes 2700 × 1800, then resized. The library is the 25 corpus
+photos in Highlands, Spring, Old towns and By train again, with stars, tags, captions and folder
+dates and descriptions. The import source is a folder `Card/DCIM/100DALIC` of eleven corpus photos
+renamed `DSC_41xx.jpg`, their metadata stripped and their file times set to three sessions so they
+group (`import.openSource {path}`, `import.exclude`, `import.mark`, `import.destination`,
+`import.select`); compare is `view.edit`, `edit.compare {"mode": "same"}`, `edit.switchFocus` and
+`edit.autoFix`; the slideshow is `section.slideshow` with captions on and `slideshow.pause`, which
+shows the control bar; the viewer has `viewer.hideControls` off and is shot once two captures in a
+row are the same, so the filmstrip's thumbnails are in.
+The photos inside the 0.2, 0.5 and 0.6 shots and `library.jpg`, and `img/castle.jpg`, come from the `photos` set of the
 project's own corpus ([pkkid/dalica-corpus](https://github.com/pkkid/dalica-corpus) at
 `6239cad`), where every file is CC0 or public domain with its source listed in `SOURCES.tsv`.
 Never use personal photos. Images, like the fonts, have rows in `ATTRIBUTION.md`.
