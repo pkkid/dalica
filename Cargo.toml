@@ -83,6 +83,9 @@ quick-xml = "0.42"
 # The IPTC digest (Photoshop resource 0x0425) in dalica-meta: RFC 1321 in one safe file, no
 # dependencies, no build script (MIT OR Apache-2.0).
 md5 = { version = "0.8.1", default-features = false }
+# The SHA-256 a download is pinned to (dalica-fetch, M13.8; as LightCraft): RustCrypto, pure Rust,
+# no `asm` feature (MIT OR Apache-2.0).
+sha2 = { version = "0.10.9", default-features = false, features = ["std"] }
 notify = "8"
 trash = "5.2"
 # The local time of a freedesktop trash record (`DeletionDate`) that dalica-fs writes itself for a
