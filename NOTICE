@@ -189,7 +189,9 @@ file and revision in its first lines:
                                              suggest.rs, hash.rs, runtime.rs @ f34c7a8a (M13.10)
   crates/fetch/src/lib.rs                    LightCraft crates/fetch/src/lib.rs @ f34c7a8a, without its HTTP code
                                              (M13.8; with crates/fetch/src/spec.rs, transport.rs)
-  crates/fetch/src/http.rs                   LightCraft crates/fetch/src/http.rs @ f34c7a8a (M13.13)
+  crates/fetch/src/http.rs                   LightCraft crates/fetch/src/http.rs @ f34c7a8a, with the name-lookup
+                                             timeout of e65b97e2 (M13.13; with crates/fetch/src/http/response.rs,
+                                             http/wire.rs)
 
 Any other third-party code ever vendored will be listed here with its source and revision.
 

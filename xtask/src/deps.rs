@@ -1,7 +1,8 @@
 //! `cargo xtask deps`: the offline dependency audit of `docs/security.md` §8.
 //!
 //! - Licences (whole resolved graph): every crate's SPDX expression must be satisfiable from
-//!   [`ALLOWED_LICENCES`]; `MPL-2.0` and crates without an SPDX licence only through [`LICENCE_EXCEPTIONS`].
+//!   [`ALLOWED_LICENCES`]; any other licence (`MPL-2.0`, `CDLA-Permissive-2.0`) and crates without an
+//!   SPDX licence only through [`LICENCE_EXCEPTIONS`], one reviewed row per crate.
 //! - Product graph (what `dalica` and `dalica-cli` link, normal and build edges, resolved separately
 //!   for Linux, Windows and macOS): no [`BANNED`] crate, no crate whose build script depends on a C
 //!   toolchain crate ([`C_BUILD`]), and `*-sys` crates only from [`SYS_ALLOW`].
@@ -29,8 +30,14 @@ pub const ALLOWED_LICENCES: &[&str] = &[
     "MIT-0",
 ];
 
-/// Reviewed per-crate licence exceptions (`MPL-2.0`, or no SPDX expression), each with a reason.
-pub const LICENCE_EXCEPTIONS: &[(&str, &str)] = &[];
+/// Reviewed per-crate licence exceptions (a licence outside [`ALLOWED_LICENCES`], or no SPDX
+/// expression), each with a reason. Adding one is the maintainer's (`security.md` §8.3).
+pub const LICENCE_EXCEPTIONS: &[(&str, &str)] = &[(
+    "webpki-roots",
+    "CDLA-Permissive-2.0: Mozilla's root certificates as data, compiled into the HTTPS transport of \
+     dalica-fetch (M13.13); a permissive data licence asking only that the licence text travel \
+     with the data; allowed by the maintainer with reserved decision 9 (2026-10-18, #814)",
+)];
 
 /// Crates that build or link C, or bring their own crypto in C/assembly (`security.md` §8.1).
 pub const BANNED: &[&str] =
@@ -446,6 +453,15 @@ mod tests {
         assert!(!source_ok(Some("git+https://example.com/x#88ea1a8f0000000000000000000000000000abcd")));
         let m = meta(vec![pkg("nolicence", None, Some(IO))], &[("dalica", "nolicence", None)]);
         assert!(check(&m)[0].message.contains("no SPDX"));
+    }
+
+    #[test]
+    fn a_licence_exception_covers_only_its_own_crate() {
+        let roots = pkg("webpki-roots", Some("CDLA-Permissive-2.0"), Some(IO));
+        let other = pkg("other-roots", Some("CDLA-Permissive-2.0"), Some(IO));
+        let m = meta(vec![roots, other], &[("dalica", "webpki-roots", None), ("dalica", "other-roots", None)]);
+        assert_eq!(names(&check(&m)), ["other-roots 1.0.0"]);
+        assert!(exception("webpki-roots").is_some_and(|why| why.contains("maintainer")));
     }
 
     #[test]

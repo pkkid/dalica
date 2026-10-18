@@ -7838,7 +7838,7 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
     bubble near each edge stays inside; the offline layer's file stays within 256 KB and loads
     without a panic when truncated; fingerprints of the offline map with markers and a bubble;
     `cargo xtask assets` passes.
-- ⬜ **M13.13 `fetch`: the HTTPS transport**
+- ✅ **M13.13 `fetch`: the HTTPS transport**
   - after: M13.8, M12.R
   - files: `crates/fetch/src/http.rs`, `crates/fetch/src/http/**`, `crates/fetch/src/proxy.rs`, `crates/fetch/tests/http.rs`, `crates/fetch/fuzz/**`, `.github/workflows/fuzz.yml`, `xtask/src/deps.rs`, `docs/security.md`
   - scope: the `Transport` that reserved decision 9 chose (asked at M12.R): for `rustls` with a

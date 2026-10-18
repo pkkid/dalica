@@ -53,7 +53,7 @@ Principles:
 | File writes | atomic replace with identity check, no writes through symlinks, OS trash only | **Implemented** for sidecars (M1) and metadata write-back (M6.30: re-read, merge, verify, `fs::replace` expecting the identity read, the modification time put back; a root checked right before each write, M6.43); M8 (Save), M9 (file operations) | network file systems weaken atomicity (§5.9); a process killed between the rename and putting the time back leaves the new file with the write's time |
 | Control channel | loopback only, 256-bit token from a `0600` file, JSON-request-only lines, request/reply/connection/batch limits | M2 | no per-client capabilities, no encryption |
 | MCP server | stdio by default, roots, read-only mode, tool annotations, same limits | M10 | an authenticated agent can still trash or caption any photo in the library unless read-only |
-| Network features | user-initiated only, TLS, size limits, pinned model hashes | M13 | TLS stack still to be decided (§8.2) |
+| Network features | user-initiated only, TLS with certificate validation always on, size limits, pinned model hashes | the HTTPS transport **implemented** (M13.13: `crates/fetch/src/http.rs`, `http/`, `proxy.rs`; the stack of §8.2, redirects to https only and at most 8, reply heads capped, `HTTPS_PROXY`/`NO_PROXY` or a manual proxy through `CONNECT`; fuzz target `response`); model downloads M13.16, map tiles and the geocoder M13.20 | the crypto provider is an alpha release (§8.2); no revocation checking (no OCSP or CRL fetching); the root certificates are fixed at build time; no proxy authentication |
 | Generated output | escaped JSON, sanitized file names | M8 (export), M14 (collage) | |
 | Dependencies | pure Rust, banned crates, licence allow-list, advisory check | M0 | scanner results do not replace review |
 | Releases | draft releases, `SHA256SUMS.txt`, optional signing secrets, least-privilege jobs | **Implemented** (M6.13 `.github/workflows/release.yml`, `packaging/checksums.sh`; packages M6.21–M6.23); signing and notarization M15 | until M15 every artifact is unsigned (ad hoc on macOS); consumers verify `SHA256SUMS.txt` |
@@ -319,6 +319,7 @@ rather than relying on defaults.
 | Control / MCP JSON | `ui`, `mcp` | see §6.5 | M2 / M10 |
 | Video containers | `image` or the video crate | box depth ≤ 12, ≤ 4,096 boxes per level, sample tables bounded; or an external process with a timeout (reserved decision 2) | M15 |
 | Face models | `faces` | file ≤ 512 MiB (a longer source refused before a byte is read); weights ≤ 64 Mi elements in all, ≤ 20,000 weight tensors and ≤ 20,000 nodes; rank ≤ 8 for every weight, declared input or output and value; names ≤ 4,096 bytes, lists ≤ 1,000,000 values, ≤ 5,000,000 protobuf fields; one input, ≤ 64 outputs; any one tensor ≤ 64 Mi elements; live tensors, constant copies and the convolution scratch kept between layers ≤ 512 MiB at every step, checked for the input before anything is allocated; every weight and every computed value finite (an overflow is an error); stride and padding ≤ 65,536, nearest `Resize` by whole factors 1–16; external or sparse weights, custom operator domains, training graphs, opsets outside 10–17 and element types other than float32 (int64 only for constant shapes) refused by name; the interpreter starts no thread and a panic in a run is caught; SHA-256 pinned in the source for the built-in models | Limits **implemented** (M13.6; `crates/faces/src/limits.rs`, `graph.rs`, `net/shape.rs`, `runtime.rs`); the pins M13.10 |
+| HTTPS replies | `fetch` | status line and headers ≤ 64 KiB and ≤ 100 lines (no folded lines), ≤ 4 interim `1xx` heads, a chunk-size line ≤ 1 KiB and ≤ 100 trailers; one `Content-Length` (two different ones refused); a compressed or transformed body refused; ≤ 8 redirects, each to an https address; a proxy's `CONNECT` answer ≤ 16 KiB; the body capped by the download's spec (`fetch`) | **Implemented** (M13.13: `crates/fetch/src/http/response.rs`, `proxy.rs`) |
 | Map tiles, geocoder replies | network module | tile ≤ 1 MiB and ≤ 1,024 px edge, decoded under the raster limits; JSON reply ≤ 1 MiB, depth ≤ 32 | M13 |
 
 ### 4.3 Work budgets during scans
@@ -904,8 +905,9 @@ its own entry points, because the limits are the ones Dalica passes.
 | Crate | Targets | Lands |
 |---|---|---|
 | `crates/image` | `sniff`, `decode_any`, `decode_jpeg`, `decode_png`, `decode_tiff`, `decode_webp`, `decode_gif`, `decode_bmp`, `decode_jxl`, `decode_psd`, `decode_heif` (each format decoded explicitly, no sniffing), `raw_preview` (every RAW container's recognition and preview decode), `embedded_thumbnail` (EXIF thumbnails, thumbnail IFDs, PSD resources, RAW previews), `icc` | **Implemented** (M5.1, in `crates/image/fuzz/`; the targets reach each decoder as M5.6–M5.10 filled it; `decode_heif` reaches `heic-rs` only when built with `--features dalica-image/heif`, and the Fuzz workflow builds without it, so there it fuzzes our box walk); built and run for 60 s each at every milestone review and when the Fuzz workflow is dispatched |
-| `crates/meta` | `exif` (IFDs and maker notes), `xmp` (including extended-XMP reassembly), `iptc`, `write_merge` (parse → merge-write → re-parse: no panic, foreign fields unchanged), `carry` (any file as the source of a rendered copy's metadata: an error, or a JPEG or PNG whose metadata reads back, orientation 1, the size asked, no GPS when the location was removed; setting the orientation reads back as asked) | **Implemented** (M6.4, in `crates/meta/fuzz/`; `carry` M8.7; `write_merge` reaches every container writer (JPEG M6.17, PNG, WebP and TIFF M6.18) and asserts that a returned write passes its verification, reads back and writes again to the same bytes; `xmp` reaches the XML reader (M6.9), the merge writer and extended-XMP reassembly with MD5 GUIDs, and writes its JPEG through `write_owned` (M6.17)); built and run for 60 s each at every milestone review and when the Fuzz workflow is dispatched. Local runs before merging (stable with cargo-fuzz's flags): `write_merge` 2.8 M runs in 180 s and `xmp` 0.8 M in 60 s with no finding after the one idempotence finding M6.17 fixed (`tests/write_jpeg.rs` keeps its regression test). The metadata corpus (M6.34, `crates/meta/tests/corpus.rs`) runs the same write rules over files other applications wrote |
+| `crates/meta` | `exif` (IFDs and maker notes), `xmp` (including extended-XMP reassembly), `iptc`, `write_merge` (parse → merge-write → re-parse: no panic, foreign fields unchanged), `carry` (any file as the source of a rendered copy's metadata: an error, or a JPEG or PNG whose metadata reads back, orientation 1, the size asked, no GPS when the location was removed; setting the orientation reads back as asked), `regions` (MWG face regions: an XMP packet read, then written into with named faces; a merge that succeeds reads back exactly the faces written, writing them again changes nothing, and the same packet in a JPEG passes `write_owned`'s verification) | **Implemented** (M6.4, in `crates/meta/fuzz/`; `carry` M8.7; `regions` M13.11; `write_merge` reaches every container writer (JPEG M6.17, PNG, WebP and TIFF M6.18) and asserts that a returned write passes its verification, reads back and writes again to the same bytes; `xmp` reaches the XML reader (M6.9), the merge writer and extended-XMP reassembly with MD5 GUIDs, and writes its JPEG through `write_owned` (M6.17)); built and run for 60 s each at every milestone review and when the Fuzz workflow is dispatched. Local runs before merging (stable with cargo-fuzz's flags): `write_merge` 2.8 M runs in 180 s and `xmp` 0.8 M in 60 s with no finding after the one idempotence finding M6.17 fixed (`tests/write_jpeg.rs` keeps its regression test). The metadata corpus (M6.34, `crates/meta/tests/corpus.rs`) runs the same write rules over files other applications wrote |
 | `crates/faces` | `model` (any bytes as a face model: refused with a reason, or loaded and run on a fixed input of its declared shape, each dynamic size taken as 1, giving finite outputs of the shapes promised by the input check) | **Implemented** (M13.6, in `crates/faces/fuzz/`, seeded by `dalica_faces::synthetic`); built and run for 60 s at every milestone review and when the Fuzz workflow is dispatched. Local run before merging (stable with cargo-fuzz's flags): 7.0 M runs in 180 s from the synthetic models, 1,235 corpus entries, no finding |
+| `crates/fetch` | `response` (any bytes as a server's reply, read as the HTTPS transport reads one after the TLS layer, the first byte choosing how many bytes each read hands out: an error, or a status of 200–599 and a body no longer than the input and exactly its announced length; a `Location` it carries leads to an https address or is refused) | **Implemented** (M13.13, in `crates/fetch/fuzz/`); built and run for 60 s at every milestone review and when the Fuzz workflow is dispatched. Local run before merging (stable with cargo-fuzz's flags): 3.3 M runs in 180 s from four seed replies, 794 corpus entries, no finding |
 | `crates/sidecar` | `parse`, `roundtrip` (parse → write → parse is stable, unknown data preserved), `recipe` (edit-operation list), `legacy` | **Not written** (planned for M1, never landed; no task yet; `legacy`: M14). Until then `crates/sidecar/src/tests.rs` runs property tests: random bytes never panic, print → parse is the identity, any file name round-trips as a key |
 | `crates/store` | `journal` (replay of journal records and snapshots), `json` (folders, albums, people, settings) | **Not written** (planned for M1, never landed; no task yet). Until then the journal's tests read every prefix of it in memory and reopen the store at each record boundary (at every byte at full strength; `crates/store/src/lib.rs`), and tear the sketch file's tail (`crates/store/tests/sketch.rs`) |
 | `crates/ui` control | `request_line` (line validation, auth state machine, limits) | **Not written** (planned for M2, never landed; no task yet) |
@@ -928,8 +930,8 @@ Reproduce a crash, minimize it (`cargo fuzz tmin`), add a deterministic regressi
 then fix it. A time-limited run with no findings is evidence of that run only, not proof that a
 parser is secure.
 
-CI: the Fuzz workflow (`.github/workflows/fuzz.yml`, M5.1, M6.4, M13.6) builds every `image`,
-`meta` and `faces` target and runs each for 60 s on the pull request of every milestone review
+CI: the Fuzz workflow (`.github/workflows/fuzz.yml`, M5.1, M6.4, M13.6, M13.13) builds every
+`image`, `meta`, `faces` and `fetch` target and runs each for 60 s on the pull request of every milestone review
 (maintainer decision, 2026-10-15; before that the targets were built but never run), and for a
 chosen time when dispatched by hand. A crash fails the review's run and keeps its input as an artifact; the fix is a
 task merged before the review closes. A scheduled weekly run of every target for a fixed time lands
@@ -988,20 +990,50 @@ they process attacker-controlled data.
 ### 8.2 Network stack
 
 Map tiles, geocoding and model downloads (M13) need TLS. The usual Rust TLS providers (`ring`,
-`aws-lc-rs`) contain C or assembly, and LightCraft's lockfile already contains `ring`. Before M13 a
-decision is recorded: a pure-Rust crypto provider for `rustls`, an optional clearly separated
-network feature, or delegating downloads to the platform. Until then the product contains no TLS
-code. It is reserved decision 9 in `roadmap.md`.
+`aws-lc-rs`) contain C or assembly. The choice was reserved decision 9 in `roadmap.md`.
 
-Whatever the stack: certificate validation is never disabled, downloaded models are checked against
-a SHA-256 pinned in the source, response sizes are capped (§4.2), and requests use a generic
-User-Agent with no personal details.
+**Decided 2026-10-18 (the maintainer, on #814): pure Rust.** The HTTPS transport of `dalica-fetch`
+(M13.13, ported from LightCraft's) is:
+
+- `rustls` 0.23 with its default features off (`std` and `tls12` only), so its `aws-lc-rs`
+  provider is never built; TLS 1.2 and 1.3 with rustls's safe defaults;
+- `rustls-rustcrypto` as the crypto provider: RustCrypto's AES-GCM, ChaCha20-Poly1305, X25519,
+  P-256/P-384 ECDSA, Ed25519 and RSA signatures in pure Rust, no `ring`, no assembly, no C build;
+- `webpki-roots` 1: Mozilla's root certificates compiled in, so validation never depends on the
+  system's store. Its licence, `CDLA-Permissive-2.0` (a permissive licence for data: the
+  certificates are data, and sharing them asks only that the licence text go with them), is not in
+  §8.3's list; it is the one reviewed `LICENCE_EXCEPTIONS` row in `xtask/src/deps.rs`, allowed by
+  the maintainer with this decision. Its licence text must travel with the release packages from
+  the first release that links `dalica-fetch` into the app (not yet: no app depends on it at
+  M13.13); the packages carry `NOTICE` and `ATTRIBUTION.md` today, not dependencies' licences.
+
+What was weighed: `rustls-rustcrypto` is an **alpha** release (0.0.2-alpha), younger and far less
+widely deployed than `ring` or `aws-lc-rs`. It is accepted because the alternatives break §8.1 (`ring` and `aws-lc-rs`
+build C and assembly) or leave the user's network to each platform's downloader, and because what
+the transport protects is small: downloads are pinned to a SHA-256 in the source, and map tiles
+are public pictures. Moving to a stable pure-Rust provider when one exists is a dependency update,
+not a redesign (the provider is one line of `http/wire.rs`).
+
+`Cargo.lock` lists `ring` as an optional dependency of `rustls-webpki` that no enabled feature
+turns on; it is never built (`cargo tree -i ring` prints nothing, and `cargo xtask deps` checks the
+resolved graph, §8.1). `rustls-rustcrypto` also brings an older `rustls-webpki` (0.102) for its
+signature-algorithm types; the certificate chain is checked by rustls's own `rustls-webpki` 0.103.
+
+Whatever the stack: certificate validation is never disabled (there is no setting or API to turn
+it off; a test root is trusted only by a transport built for it with `HttpsTransport::with_roots`,
+which replaces the bundled roots), downloaded models are checked against a SHA-256 pinned in the
+source, response sizes are capped (§4.2), redirects lead only to https addresses, and requests use
+a generic User-Agent with no personal details and no cookie, token or credential. A proxy is used
+only through `CONNECT`, so it sees the host and port, never the request or the file, and the
+certificate is checked against the server's own name.
 
 ### 8.3 Licences
 
 Allowed for dependencies: `MIT`, `Apache-2.0`, `Apache-2.0 WITH LLVM-exception`, `BSD-2-Clause`,
 `BSD-3-Clause`, `ISC`, `Zlib`, `BSL-1.0`, `Unicode-3.0`, `Unicode-DFS-2016`, `CC0-1.0`, `MIT-0`.
-`MPL-2.0` only as a reviewed per-crate exception for unmodified dependencies. Never `GPL`, `LGPL`,
+`MPL-2.0` only as a reviewed per-crate exception for unmodified dependencies. Reviewed per-crate
+exceptions (`LICENCE_EXCEPTIONS` in `xtask/src/deps.rs`, each the maintainer's): `webpki-roots`
+(`CDLA-Permissive-2.0`, the bundled root certificates; §8.2, 2026-10-18). Never `GPL`, `LGPL`,
 `AGPL`, `SSPL` or unlicensed crates (`process.md` §3). Asset licences are a separate check
 (`cargo xtask assets`).
 
@@ -1009,6 +1041,18 @@ Allowed for dependencies: `MIT`, `Apache-2.0`, `Apache-2.0 WITH LLVM-exception`,
 
 - RustSec advisories fail the check. An exception needs an owner, a rationale, a compensating
   control and a review date. Unmaintained-crate warnings are reviewed, not ignored.
+- Known advisories in the graph. `cargo xtask deps` is offline and reads no advisory database, and
+  the `cargo deny` job of §8.5 has not landed, so each known advisory is recorded here until it
+  does (and becomes an allow entry with the same justification there):
+  - **RUSTSEC-2023-0071, `rsa` 0.9** (the Marvin attack: a timing side channel in RSA
+    *decryption* that can leak the private key to someone who measures many decryptions). Brought
+    in by `rustls-rustcrypto` (§8.2). *Rationale:* Dalica is only ever a TLS client and never holds
+    an RSA private key; the client uses `rsa` only to *verify* servers' RSA signatures, which are
+    public-key operations with no secret to leak (rustls has no RSA key exchange at all, and Dalica
+    sends no client certificate). *Compensating control:*
+    downloads are pinned to a SHA-256 in the source, so a broken channel cannot change a model.
+    *Owner:* the lead. *Review:* at every milestone review, and when `rsa` 0.10 (constant-time)
+    reaches `rustls-rustcrypto`.
 - Sources: crates.io, plus git dependencies on the LightCraft and PhotoCraft repositories pinned to
   a full commit hash (never a branch). Other git sources are refused.
 - Duplicate versions warn; duplicates of parser crates are reviewed.
