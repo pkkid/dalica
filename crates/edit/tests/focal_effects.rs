@@ -240,3 +240,14 @@ fn two_sizes_agree_and_match_the_fingerprints() {
         check_fingerprint(case, &small, 0.5);
     }
 }
+
+/// Soft Focus at its defaults on a 1200 × 800 photo, large enough that its blur runs on a grid of
+/// cells and every fast path is taken, matches `fingerprints/focal-soft-focus-large.json` (blessed
+/// from the M12 code before its speed work, M13.37).
+#[test]
+fn a_large_soft_focus_matches_its_fingerprint() {
+    let photo = common::rgba(&Scene::new(23, 1200, 800).with_kind(Kind::Blobs).render().unwrap());
+    let entry = format!("{}({})", SoftFocus::NAME, SoftFocus::default());
+    let out = render(Source::upright(&photo), &recipe(&[&entry]), Target::Full).unwrap();
+    check_fingerprint("focal-soft-focus-large", &out, 0.5);
+}
