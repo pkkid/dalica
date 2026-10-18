@@ -68,6 +68,13 @@ fn move_pointer(d: &mut Driver, x: f32) {
     d.pointer(&[PointerEvent { kind: PointerKind::Move, pos: pos2(x, 20.0) }], PointerButton::Primary, Modifiers::NONE).unwrap();
 }
 
+/// A mouse move over the window, whatever the pointer did before: the pointer's first position
+/// in a window is no move (it has nothing to move from), so it comes in and then moves.
+fn mouse_move(d: &mut Driver) {
+    move_pointer(d, 700.0);
+    move_pointer(d, 640.0);
+}
+
 #[test]
 fn the_viewer_steps_zooms_stars_and_opens_the_photo_in_dalica() {
     let dir = tempfile::tempdir().unwrap();
@@ -166,14 +173,16 @@ fn the_controls_hide_after_three_seconds_without_a_mouse_move() {
     let (mut s, _) = fixture(dir.path());
     s.execute("options.set", &json!({ "values": { "viewer.hideControls": true } })).unwrap();
     let mut d = new_driver(App::new(Some(s)), LARGE.0, LARGE.1, 1.0);
+    // The settle's frames of virtual time may pass 3 s (a slow decode): the times count from the
+    // move.
     d.settle(FRAMES).unwrap();
-    move_pointer(&mut d, 700.0);
+    mouse_move(&mut d);
     d.wait(2500).unwrap();
     assert!(d.state().viewer.unwrap().controls && try_widget(&d, bar::BAR_ID).is_some(), "shown 2.5 s after the move");
     d.wait(800).unwrap();
     assert!(!d.state().viewer.unwrap().controls, "hidden after 3 s");
     assert!(try_widget(&d, bar::BAR_ID).is_none() && try_widget(&d, bar::CLOSE_ID).is_none(), "nothing left to click");
-    move_pointer(&mut d, 640.0);
+    move_pointer(&mut d, 760.0);
     d.wait(300).unwrap();
     assert!(d.state().viewer.unwrap().controls && try_widget(&d, bar::BAR_ID).is_some(), "back at the next move");
 }
@@ -188,6 +197,11 @@ fn while_another_dalica_holds_the_library_the_changes_are_greyed() {
     let s = Session::open_locked_viewer(&scratch, &folder.join("x.jpg"), Arc::new(dalica_core::SystemClock), &Default::default()).unwrap();
     let mut d = new_driver(App::new(Some(s)), LARGE.0, LARGE.1, 1.0);
     d.settle(FRAMES).unwrap();
+    // "Hide controls automatically" is on (a locked session cannot change options), and the
+    // settle's frames of virtual time pass its 3 s when the photo is slow to decode: a move shows
+    // the controls, faded in 0.3 s later and well inside the 3 s.
+    mouse_move(&mut d);
+    d.wait(300).unwrap();
     for id in ["button:viewer.star", "button:viewer.rotateLeft", "button:viewer.openInDalica"] {
         let w = widget(&d, id);
         assert!(!w.enabled && w.label == dalica_engine::viewer::ALREADY_OPEN, "{id}: {w:?}");
