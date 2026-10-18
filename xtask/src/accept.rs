@@ -4,7 +4,7 @@
 //! (`docs/roadmap.md` → How milestones work).
 
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Instant;
 
@@ -647,6 +647,59 @@ pub fn budgets_against(
     }
 }
 
+/// Checks out `sha` as a detached worktree at `target/budget-base/<sha>` and returns its path.
+/// A checkout there that git does not know as a healthy worktree at that commit (the Budgets job
+/// caches `target/`, so the directory can come back while `.git/worktrees` does not) is removed
+/// and checked out again. Only that one directory is ever removed: its name must be a full
+/// 40-hex commit id, so nothing outside xtask's own `target/budget-base/<sha>` shape is touched.
+/// The base's build artifacts live apart, in `target/budget-base-target`, and are kept.
+pub fn prepare_base_checkout(root: &Path, sha: &str) -> Result<PathBuf, String> {
+    if sha.len() != 40 || !sha.bytes().all(|c| c.is_ascii_hexdigit()) {
+        return Err(format!("the base `{sha}` is not a full commit id"));
+    }
+    let git = |args: &[&str]| -> Result<String, String> {
+        let out = Command::new("git").current_dir(root).args(args).output().map_err(|e| format!("cannot run git: {e}"))?;
+        if out.status.success() {
+            Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+        } else {
+            Err(format!("git {} failed: {}", args.join(" "), String::from_utf8_lossy(&out.stderr).trim()))
+        }
+    };
+    let dir = root.join("target").join("budget-base").join(sha);
+    git(&["worktree", "prune"])?;
+    if std::fs::symlink_metadata(&dir).is_ok() {
+        if base_checkout_is_healthy(&dir, sha, &git(&["worktree", "list", "--porcelain"])?) {
+            return Ok(dir);
+        }
+        println!("  base: {} is not a registered worktree at {sha}; checking it out again", dir.display());
+        let meta = std::fs::symlink_metadata(&dir).map_err(|e| format!("cannot read {}: {e}", dir.display()))?;
+        let removed = if meta.is_dir() { std::fs::remove_dir_all(&dir) } else { std::fs::remove_file(&dir) };
+        removed.map_err(|e| format!("cannot remove the stale base checkout {}: {e}", dir.display()))?;
+        git(&["worktree", "prune"])?;
+    }
+    git(&["worktree", "add", "--detach", &dir.display().to_string(), sha])?;
+    Ok(dir)
+}
+
+/// Whether `dir` is listed by `git worktree list --porcelain` (`listing`) with `HEAD <sha>`, its
+/// own `HEAD` resolves to `sha`, and it has the workspace manifest.
+fn base_checkout_is_healthy(dir: &Path, sha: &str, listing: &str) -> bool {
+    let same = |p: &str| match (std::fs::canonicalize(p), std::fs::canonicalize(dir)) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => false,
+    };
+    let registered = listing.split("\n\n").any(|entry| {
+        let mut lines = entry.lines();
+        let path_ok = lines.next().and_then(|l| l.strip_prefix("worktree ")).is_some_and(same);
+        path_ok && entry.lines().any(|l| l == format!("HEAD {sha}"))
+    });
+    if !registered || !dir.join("Cargo.toml").is_file() {
+        return false;
+    }
+    let head = Command::new("git").current_dir(dir).args(["rev-parse", "HEAD"]).output();
+    matches!(head, Ok(out) if out.status.success() && String::from_utf8_lossy(&out.stdout).trim() == sha)
+}
+
 /// `cargo xtask budgets [--plant-ms N] [--baseline <git ref>]`: builds in release and runs
 /// [`BUDGETS`]. With `--baseline` (the review's Budgets job: the last release tag), each relative
 /// budget first runs its bench in that commit, or in the commit that first measured it when the
@@ -678,10 +731,7 @@ pub fn budgets(root: &Path, args: &[String]) -> Result<(), String> {
         let commit = if has_bench { reference } else { rel.since };
         let sha = git(&["rev-parse", "--verify", &format!("{commit}^{{commit}}")])?;
         let label = if commit == sha { sha.chars().take(9).collect() } else { format!("{commit} ({})", sha.chars().take(9).collect::<String>()) };
-        let dir = root.join("target").join("budget-base").join(&sha);
-        if !dir.join("Cargo.toml").is_file() {
-            git(&["worktree", "add", "--detach", &dir.display().to_string(), &sha])?;
-        }
+        let dir = prepare_base_checkout(root, &sha)?;
         println!("  base: {label}, in {}", dir.display());
         let (ok, stdout) = run(&dir, Some(&root.join("target").join("budget-base-target")), b.cargo)?;
         if !ok {
@@ -715,6 +765,64 @@ mod tests {
     }
 
     // -- budgets ------------------------------------------------------------------------------
+
+    fn git_t(dir: &Path, args: &[&str]) -> String {
+        let out = Command::new("git")
+            .current_dir(dir)
+            .args(["-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "init.defaultBranch=main", "-c", "commit.gpgsign=false"])
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    }
+
+    /// A live failure (M11.R, 2026-10-17): the Budgets job caches `target/`, so
+    /// `target/budget-base/<sha>` came back without its `.git/worktrees` entry and
+    /// `git worktree add` refused it. A stale checkout there is now replaced, a healthy one reused,
+    /// and nothing but that one directory is touched.
+    #[test]
+    fn a_stale_base_checkout_is_replaced_and_nothing_else_touched() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("repo");
+        std::fs::create_dir_all(&root).unwrap();
+        git_t(&root, &["init", "--quiet"]);
+        std::fs::write(root.join("Cargo.toml"), "[workspace]\n").unwrap();
+        std::fs::write(root.join(".gitignore"), "/target\n").unwrap();
+        git_t(&root, &["add", "."]);
+        git_t(&root, &["commit", "--quiet", "-m", "M0.1: start"]);
+        let sha = git_t(&root, &["rev-parse", "HEAD"]);
+
+        // A cached directory: not registered, with a dangling `.git` file and leftovers.
+        let bases = root.join("target").join("budget-base");
+        let dir = bases.join(&sha);
+        std::fs::create_dir_all(dir.join("leftover")).unwrap();
+        std::fs::write(dir.join(".git"), "gitdir: /nowhere/.git/worktrees/gone\n").unwrap();
+        std::fs::write(dir.join("leftover").join("junk"), "x").unwrap();
+        // Neighbours of other shapes, and the base's build artifacts, must survive.
+        let other = bases.join("not-a-sha");
+        std::fs::create_dir_all(&other).unwrap();
+        std::fs::write(other.join("keep"), "k").unwrap();
+        let artifacts = root.join("target").join("budget-base-target");
+        std::fs::create_dir_all(&artifacts).unwrap();
+        std::fs::write(artifacts.join("keep"), "k").unwrap();
+
+        assert_eq!(prepare_base_checkout(&root, &sha).unwrap(), dir);
+        assert!(dir.join("Cargo.toml").is_file() && !dir.join("leftover").exists());
+        assert_eq!(git_t(&dir, &["rev-parse", "HEAD"]), sha);
+        assert!(other.join("keep").is_file() && artifacts.join("keep").is_file());
+
+        // A healthy checkout is reused as it is.
+        std::fs::write(dir.join("marker"), "m").unwrap();
+        assert_eq!(prepare_base_checkout(&root, &sha).unwrap(), dir);
+        assert!(dir.join("marker").is_file());
+
+        // Anything but a full commit id is refused before a path is built or touched.
+        for bad in ["not-a-sha", "../budget-base-target", &sha[..9]] {
+            assert!(prepare_base_checkout(&root, bad).unwrap_err().contains("not a full commit id"), "{bad}");
+        }
+        assert!(other.join("keep").is_file() && artifacts.join("keep").is_file());
+    }
 
     #[test]
     fn budget_flags() {
