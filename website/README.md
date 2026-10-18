@@ -117,6 +117,11 @@ group (`import.openSource {path}`, `import.exclude`, `import.mark`, `import.dest
 `edit.autoFix`; the slideshow is `section.slideshow` with captions on and `slideshow.pause`, which
 shows the control bar; the viewer has `viewer.hideControls` off and is shot once two captures in a
 row are the same, so the filmstrip's thumbnails are in.
+The three 0.7 shots (`feat-effects.jpg`, `feat-effect-panel.jpg`, `feat-frames.jpg`, 1500 × 1000) use the
+generated demo library: `dalica-cli snapshot --demo-fresh --size 1800x1200 --scale 2` (a compact 900 × 600 window, so the small demo photos read), resized. Each script opens a
+Hills photo (`view.edit` with id 22 or 26), picks an effects tab (`edit.tab` with `effects` or `effects3`), opens an
+effect's panel (`edit.tool.open {"tool": "effect", "name": "graduated_tint"}`), or applies one
+(`museum_matte`, then `edit.tool.apply`), and zooms in one step with `edit.zoom.in` (the demo photos are 480 × 320).
 The photos inside the 0.2, 0.5 and 0.6 shots and `library.jpg`, and `img/castle.jpg`, come from the `photos` set of the
 project's own corpus ([pkkid/dalica-corpus](https://github.com/pkkid/dalica-corpus) at
 `6239cad`), where every file is CC0 or public domain with its source listed in `SOURCES.tsv`.
