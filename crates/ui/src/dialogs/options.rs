@@ -162,6 +162,7 @@ pub fn apply(app: &mut App) -> Result<Value, CmdError> {
         }
         Err(e) => o.error = Some(e.to_string()),
     }
+    people::applied(app, &draft.values, result.is_ok());
     result
 }
 

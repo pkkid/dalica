@@ -177,7 +177,11 @@ fn look(app: &App, d: &Dialog) -> Look {
         | DialogKind::WatchDrive
         | DialogKind::DeleteAlbum
         | DialogKind::ResetFolderData
-        | DialogKind::StopImport => confirm::look(d),
+        | DialogKind::StopImport
+        | DialogKind::RemoveFaces
+        | DialogKind::WritePeopleNames
+        | DialogKind::RemoveFaceModel
+        | DialogKind::DropFaceData => confirm::look(d),
         DialogKind::FolderManager => folder_manager::look(app, d),
         DialogKind::FirstRun => first_run::look(app, d),
         DialogKind::FolderProperties => folder_properties::look(app, d),
@@ -218,7 +222,11 @@ fn body(app: &mut App, ui: &mut Ui, d: &mut Dialog) {
         | DialogKind::WatchDrive
         | DialogKind::DeleteAlbum
         | DialogKind::ResetFolderData
-        | DialogKind::StopImport => confirm::body(app, ui, d),
+        | DialogKind::StopImport
+        | DialogKind::RemoveFaces
+        | DialogKind::WritePeopleNames
+        | DialogKind::RemoveFaceModel
+        | DialogKind::DropFaceData => confirm::body(app, ui, d),
         DialogKind::FolderManager => folder_manager::body(app, ui, d),
         DialogKind::FirstRun => first_run::body(app, ui, d),
         DialogKind::FolderProperties => folder_properties::body(app, ui, d),
@@ -259,7 +267,11 @@ fn act(app: &mut App, d: &Dialog, action: &str) -> Result<Value, CmdError> {
         | DialogKind::WatchDrive
         | DialogKind::DeleteAlbum
         | DialogKind::ResetFolderData
-        | DialogKind::StopImport => confirm::act(app, d, action),
+        | DialogKind::StopImport
+        | DialogKind::RemoveFaces
+        | DialogKind::WritePeopleNames
+        | DialogKind::RemoveFaceModel
+        | DialogKind::DropFaceData => confirm::act(app, d, action),
         DialogKind::FolderManager => folder_manager::act(app, d, action),
         DialogKind::FirstRun => first_run::act(app, d, action),
         DialogKind::FolderProperties => folder_properties::act(app, d, action),

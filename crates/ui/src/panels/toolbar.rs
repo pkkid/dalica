@@ -11,8 +11,8 @@
 //! ([`VIEW_OPTIONS_ROWS`]).
 //!
 //! **Search** (`organizing.md` §8, `ui-layout.md` §9) edits the view state's `search`, which
-//! [`crate::commands::search::sync`] sends to the engine: the filter toggles (Faces greyed with
-//! [`FACES_LATER`] until faces exist), the age slider (`ui-kit`'s, its position in the view state,
+//! [`crate::commands::search::sync`] sends to the engine: the filter toggles (Faces shows only the
+//! photos with a named or unnamed face, M13.27), the age slider (`ui-kit`'s, its position in the view state,
 //! its label in the caption while hovered), and the search field (live; × and Esc leave search
 //! mode; Ctrl+F and F3 focus it). Under the focused field the engine's suggestions for the last word
 //! (tags, folders, albums with counts, at most [`SUGGESTIONS`]) are listed, `field:search/option/<n>`:
@@ -56,8 +56,6 @@ pub const SEARCH_ID: &str = "field:search";
 pub const SEARCH_CLEAR_ID: &str = "button:search.clear";
 pub const ACTIVITY_ID: &str = "indicator:activity";
 
-/// Why the Faces filter is greyed (faces arrive in M13).
-pub const FACES_LATER: &str = "Available once Dalica finds faces";
 /// The most suggestions listed under the search field (type more to narrow them).
 pub const SUGGESTIONS: usize = 8;
 
@@ -294,7 +292,7 @@ pub fn show(app: &mut App, ui: &mut Ui) {
 
     view_options(app, ui, &t, l.view_options);
 
-    // The filters, with the caption the hovered one's tooltip replaces. Faces waits for faces.
+    // The filters, with the caption the hovered one's tooltip replaces.
     let filters = [
         (Icon::Star, "Show starred photos only"),
         (Icon::Faces, "Show only photos with faces"),
@@ -305,18 +303,15 @@ pub fn show(app: &mut App, ui: &mut Ui) {
     for (i, ((id, (icon, tip)), rect)) in FILTER_IDS.iter().zip(filters).zip(l.filters).enumerate() {
         let f = &app.state().search.filters;
         let on = [f.starred, f.faces, f.videos, f.geotagged].get(i).copied().unwrap_or(false);
-        let faces = i == 1;
-        let r = place(ui, rect, !faces, |ui| widgets::toggle_filter(ui, &t, id, icon, on, tip));
+        let r = place(ui, rect, true, |ui| widgets::toggle_filter(ui, &t, id, icon, on, tip));
         if r.contains_pointer() {
             hovered = Some(tip.to_owned());
-        }
-        if faces {
-            widgets::tooltip(r.clone(), &t, tip, Some(FACES_LATER));
         }
         if r.clicked() {
             let f = &mut app.state_mut().search.filters;
             match i {
                 0 => f.starred = !f.starred,
+                1 => f.faces = !f.faces,
                 2 => f.videos = !f.videos,
                 3 => f.geotagged = !f.geotagged,
                 _ => {}

@@ -221,11 +221,11 @@ fn inspect_reports_scroll_animations_popups_tooltips_and_the_tray_menu() {
     );
     assert_eq!(v["animations"], json!([]));
     assert_eq!((v["popup"].clone(), v["tooltip"].clone()), (Value::Null, Value::Null));
-    // A tooltip shown on hover: its title, and its second line when it has one.
+    // A tooltip shown on hover: its text.
     ok(&mut t, "ui.hoverWidget", json!({ "id": "indicator:activity", "ms": 900 }));
     assert_eq!(inspect(&mut t)["tooltip"], "No background work");
     ok(&mut t, "ui.hoverWidget", json!({ "id": "button:filter.faces", "ms": 900 }));
-    assert_eq!(inspect(&mut t)["tooltip"], "Show only photos with faces\nAvailable once Dalica finds faces");
+    assert_eq!(inspect(&mut t)["tooltip"], "Show only photos with faces", "live since M13.27: no reason line");
     ok(&mut t, "ui.pointer", json!({ "events": [{ "kind": "move", "x": 700, "y": 500 }] }));
     ok(&mut t, "ui.wait", json!({ "ms": 100 }));
     // Scrolling to the second section eases there: the animation runs, then the offsets say where.

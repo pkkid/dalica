@@ -114,7 +114,10 @@ How it is built (M5.18; `crates/ui/src/dialogs/folder_manager.rs`, its tests
 - Remove from Dalica… (`folder.remove`) asks Remove Folder through the dialog host, naming the
   folder; over automation the question is `needs_confirm` with the generic text "Remove this
   folder and its subfolders from Dalica? The files stay on your disk."
-- The Remove Faces question waits for faces (M13). Help stays disabled until there is help.
+- The Remove Faces question (M13.27, `faces.removeInFolders`) follows OK when it turned "Find
+  faces in this folder" off for folders holding faces the scan found (unnamed or ignored): Remove
+  Faces takes them off in one undo step, Keep Faces keeps them. Help stays disabled until there is
+  help.
 - A dialog under another one keeps its buttons as parts of its own id (`dialog:folderManager/ok`),
   so `button:dialog.<action>` always names the top dialog's.
 - Ids: the tree's rows `choice:dialog.folder/<root>` (a root) and

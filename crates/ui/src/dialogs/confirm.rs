@@ -31,6 +31,12 @@
 //! ×): "Stop importing?" [Stop Import] [Keep Importing] (its Cancel button, [`cancel_label`]); Stop
 //! Import cancels the job and closes the room (`crate::commands::rooms`).
 //!
+//! M13.27's rows: Remove Faces (`faces.removeInFolders`, asked after the Folder Manager's OK turned
+//! face finding off for folders with faces found; [Remove Faces] [Keep Faces]), Write People Names
+//! (`faces.writeXmp` on the selection), Remove Face Model (`faceModel.remove`, Options ▸ People's
+//! Remove) and Delete Face Data (`faceModel.dropData`, Find faces in my photos turned off; [Delete
+//! Face Data] [Keep]); their rows are `crate::commands::face_model`'s.
+//!
 //! To route another command's question through the host: give the command a `confirm` parameter,
 //! add its [`DialogKind`] variant (the `<kind>` of `dialog:<kind>`), a row here and the variant to
 //! the arms of `super::{look, body, act}` that send confirmations to this module.
@@ -44,7 +50,7 @@ use serde_json::{Map, Value, json};
 
 use super::{Button, Dialog, DialogCommand, DialogKind, Look, delete, folder_manager, move_confirm, remove_from_album, revert, save_explain};
 use crate::app::App;
-use crate::commands::rooms;
+use crate::commands::{face_model, rooms};
 use crate::tray;
 
 /// The width of a confirmation (points).
@@ -216,12 +222,19 @@ pub static ASKS: &[Ask] = &[
         text_for: None,
         extra: &[],
     },
+    // M13.27's questions (`crate::commands::face_model`).
+    face_model::REMOVE_FACES,
+    face_model::WRITE_NAMES,
+    face_model::REMOVE_MODEL,
+    face_model::DROP_DATA,
 ];
 
 /// The label of `kind`'s Cancel button: "Cancel", or Stop Import's "Keep Importing".
 pub fn cancel_label(kind: DialogKind) -> &'static str {
     match kind {
         DialogKind::StopImport => rooms::KEEP_IMPORTING,
+        DialogKind::RemoveFaces => face_model::KEEP_FACES,
+        DialogKind::DropFaceData => face_model::KEEP_DATA,
         _ => "Cancel",
     }
 }

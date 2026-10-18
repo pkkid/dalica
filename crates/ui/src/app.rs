@@ -12,7 +12,7 @@ use serde_json::Value;
 pub use crate::commands::{UI_COMMANDS, UiCommand};
 use crate::notices::Notices;
 use crate::panels::{self, Panels};
-use crate::picker::{FolderRequest, Pending, Picker, SaveRequest};
+use crate::picker::{FolderRequest, OpenRequest, Pending, Picker, SaveRequest};
 use crate::state::{THUMB_DEFAULT, TREE_DEFAULT, UiState};
 use dalica_engine::settings::{ViewOptions, ViewState};
 
@@ -34,6 +34,10 @@ pub struct App {
     /// A folder dialog other than Add Folder (the Export dialog's Browse…) while it is open, and
     /// what its answer runs.
     folder_request: Option<(Pending, FolderRequest)>,
+    /// The open dialog (Add a Model File…) while it is open, and what its answer runs.
+    open_request: Option<(Pending, OpenRequest)>,
+    /// What the window knows of the face models between frames (`crate::commands::face_model`).
+    pub(crate) face_models: crate::commands::face_model::Models,
     /// The Save As job its picker started, and a picker to open again (`crate::commands::save_as`).
     pub(crate) save_as: crate::commands::save_as::Following,
     /// Restore the view state from the library's settings and save it when it changes
@@ -80,6 +84,8 @@ impl App {
             folder_dialog_open: false,
             save_dialog: None,
             folder_request: None,
+            open_request: None,
+            face_models: Default::default(),
             save_as: Default::default(),
             persist_view: false,
             saved_view: None,
@@ -293,6 +299,7 @@ impl App {
             && self.panels.as_ref().is_none_or(Panels::idle)
             && self.save_dialog.is_none()
             && self.folder_request.is_none()
+            && self.open_request.is_none()
     }
 
     /// Whether File ▸ Add Folder… can open the folder picker now; why not, if it cannot.
@@ -303,7 +310,7 @@ impl App {
             Err("There is no folder dialog here.".into())
         } else if self.want_folder_picker || self.panels.as_ref().map_or(self.folder_dialog_open, |p| p.dialog.is_some()) {
             Err("A folder dialog is already open.".into())
-        } else if self.save_dialog.is_some() || self.folder_request.is_some() {
+        } else if self.save_dialog.is_some() || self.folder_request.is_some() || self.open_request.is_some() {
             Err("A file dialog is already open.".into())
         } else {
             Ok(())
@@ -337,6 +344,33 @@ impl App {
         let pending = Pending::pick_folder_for(picker, request.clone()).ok_or("The file dialog could not open.")?;
         self.folder_request = Some((pending, request));
         Ok(())
+    }
+
+    /// Opens the open-file picker for `request` (Add a Model File…) on its own thread; the frame
+    /// that sees its answer runs the request's command with the file chosen
+    /// ([`OpenRequest::params_with`]), and a cancel runs nothing. Refused while another file dialog
+    /// is open or there is no picker.
+    pub fn pick_file_for(&mut self, request: OpenRequest) -> Result<(), String> {
+        self.can_pick()?;
+        let picker = self.picker.as_ref().ok_or("There is no file dialog here.")?;
+        let pending = Pending::pick_file(picker, request.clone()).ok_or("The file dialog could not open.")?;
+        self.open_request = Some((pending, request));
+        Ok(())
+    }
+
+    /// The open-file picker's request while it is open.
+    pub fn open_request(&self) -> Option<&OpenRequest> {
+        self.open_request.as_ref().map(|(_, r)| r)
+    }
+
+    /// Runs the open-file picker's answer once it has one.
+    fn poll_open_request(&mut self) {
+        let Some(answer) = self.open_request.as_ref().and_then(|(p, _)| p.poll()) else { return };
+        if let Some((_, request)) = self.open_request.take()
+            && let Some(path) = answer
+        {
+            let _ = self.run(request.command, &request.params_with(&path));
+        }
     }
 
     /// The folder picker's request (not Add Folder's) while it is open.
@@ -458,6 +492,10 @@ impl App {
         self.poll_save_dialog();
         crate::commands::save_as::follow(self);
         self.poll_folder_request();
+        self.poll_open_request();
+        // The face models: a model file dropped on the window, the face model dialog's downloads
+        // one after another, and the dialog offered on the first open of People.
+        crate::commands::face_model::frame(self, ui.ctx());
         // Under an open dialog the window takes no keys: no shortcut runs and no panel sees a key
         // press or typed text; the dialog gets them back once the panels are drawn.
         // While the shortcut editor records, every key press is its own (not the keymap's, not the

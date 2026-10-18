@@ -12,6 +12,10 @@
 //!   name or path; a click reveals one in the tree.
 //! - **Buttons:** Help (disabled until there is help), Cancel (Esc: changes nothing) and OK (the
 //!   default: applies the draft's changes with one `folders.set`, one undo step).
+//! - **Remove Faces:** OK after turning "Find faces in this folder" off for folders holding faces
+//!   the scan found asks "Remove the face rectangles found in these folders? …" [Remove Faces]
+//!   [Keep Faces] (`faces.removeInFolders`, M13.27): Remove Faces takes the found faces off their
+//!   photos (one undo step; named faces stay), Keep Faces keeps them.
 //! - **Watch Drive:** choosing Scan Always for a volume root or the home folder asks first (a
 //!   Watch Drive dialog over this one); Watch Drive sets the radio ([`drive_confirmed`]), Cancel
 //!   leaves it as it was. OK then sends `"confirm": true`.
@@ -275,7 +279,8 @@ fn set_mode(draft: &mut Draft, path: &Path, state: State, own: &Change) {
 }
 
 /// OK: applies the draft's changes with one `folders.set` (one undo step). With nothing changed it
-/// runs nothing.
+/// runs nothing. When it turned face finding off for folders holding faces the scan found, the
+/// Remove Faces question follows (`faces.removeInFolders`, [Remove Faces] [Keep Faces]).
 pub fn act(app: &mut App, d: &Dialog, _action: &str) -> Result<Value, CmdError> {
     let draft = Draft::read(&d.fields);
     let changes: Vec<Value> = draft
@@ -304,7 +309,14 @@ pub fn act(app: &mut App, d: &Dialog, _action: &str) -> Result<Value, CmdError> 
     if confirmed && let Some(o) = params.as_object_mut() {
         o.insert("confirm".into(), json!(true));
     }
-    app.run("folders.set", &params)
+    let reply = app.run("folders.set", &params)?;
+    let off: Vec<PathBuf> = draft.changes.iter().filter(|(_, c)| c.faces == Some(false)).map(|(p, _)| PathBuf::from(p)).collect();
+    let found = crate::commands::face_model::with_found_faces(app, &off);
+    if !found.is_empty() {
+        // Asks through the host: the question opens over this dialog, which closes under it.
+        app.run("faces.removeInFolders", &json!({ "folders": found }))?;
+    }
+    Ok(reply)
 }
 
 /// What the right side and the tree asked for this frame.

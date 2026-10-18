@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 
 use super::host::Input;
 use super::{Call, Code, DEFAULT_SETTLE_MS, Error, Next, Outcome, paths};
-use crate::picker::{FolderRequest, Picker, SaveRequest};
+use crate::picker::{FolderRequest, OpenRequest, Picker, SaveRequest};
 
 /// What a picker asks for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -132,6 +132,18 @@ impl Picker for StubPicker {
             title: request.title,
             name: Some(request.name.clone()),
             folder: request.folder.clone(),
+            params: request.params.clone(),
+            output: false,
+        })
+    }
+
+    fn pick_file(&self, request: &OpenRequest) -> Option<PathBuf> {
+        self.wait_for(PickerRequest {
+            command: request.command,
+            kind: PickerKind::File,
+            title: request.title,
+            name: None,
+            folder: None,
             params: request.params.clone(),
             output: false,
         })
