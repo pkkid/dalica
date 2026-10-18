@@ -5,6 +5,7 @@
 mod common;
 
 mod auto;
+mod canvas;
 mod catalog;
 mod colour_effects;
 mod crop;
