@@ -6953,7 +6953,7 @@ a maintainer decision mid-run.
     Look raises local contrast; Plastic Lens leaves the centre sharper and the corners darker than
     the input; a zoomed region equals that window of the whole render; each effect renders the same
     at two sizes after a downscale.
-- ⬜ **M12.11 `edit`: Soften and its paint mask**
+- ✅ **M12.11 `edit`: Soften and its paint mask**
   - after: M12.1, M12.3
   - files: `crates/edit/src/ops/soften.rs`, `crates/edit/tests/soften.rs`, `crates/edit/tests/fingerprints/soften-*.json`
   - scope: `editing.md` §8.4 and the decisions above: Soften (a soft glow blur by Softness, with

@@ -14,6 +14,7 @@ mod geometry;
 mod recipe;
 mod render;
 mod retouch;
+mod soften;
 mod straighten;
 mod suggest;
 mod tone;
