@@ -951,6 +951,9 @@ dependencies = [
 [[package]]
 name = "dalica-faces"
 version = "0.7.0"
+dependencies = [
+ "proptest",
+]
 
 [[package]]
 name = "dalica-fetch"

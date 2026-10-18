@@ -8,5 +8,14 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 publish = false
+# Every integration test is a module of one binary (`tests/all.rs`): one link, not one per file.
+autotests = false
 
 [dependencies]
+
+[dev-dependencies]
+proptest.workspace = true
+
+[[test]]
+name = "all"
+path = "tests/all.rs"
