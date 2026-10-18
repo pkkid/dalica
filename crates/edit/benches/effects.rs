@@ -15,8 +15,8 @@
 //!   bench): the photo halved to between one and two screen sizes (3000 × 2000, the preview's
 //!   source), then `--samples` (21) times a **draft** and a **final**, as a slider drag renders
 //!   them. The final renders at the largest power-of-two scale of the source that still covers the
-//!   box (`Target::Full` on that base; a frame that grows the picture renders from the source at
-//!   that scale); the draft at the scale the engine picks from the last final's time (full size
+//!   box (`Target::Full` on that base, a frame's too; a crop or a straighten renders from the
+//!   source at that scale); the draft at the scale the engine picks from the last final's time (full size
 //!   when it took at most 8 ms, half when a quarter of it does, else a quarter: `preview.rs`'s
 //!   `DRAFT_TARGET_MS` and `MIN_DRAFT_SCALE`). Only the renderer is timed (the engine's histogram
 //!   and the wait for a worker are not).
@@ -203,9 +203,10 @@ impl Screen {
         &self.bases[0]
     }
 
-    /// The engine's preview render (`preview/jobs.rs`): `halvings` to cover the box, plus one or
-    /// two more for a draft at ½ or ¼; `Target::Full` on that base, or the source at that scale
-    /// when the recipe changes the picture's size.
+    /// The engine's preview render (`preview/jobs.rs`, whose rule this copies): `halvings` to cover
+    /// the box (the size after the frames), plus one or two more for a draft at ½ or ¼;
+    /// `Target::Full` on that base when the photo's own size is unchanged (a frame grows only the
+    /// canvas), or the source at that scale when the recipe crops or straightens.
     fn render(&self, recipe: &Recipe, fit: (u32, u32), draft_scale: f64) -> Rgba8 {
         let source = self.source();
         let geometry = Geometry::new(recipe, Orientation::default(), source.width, source.height);
@@ -223,7 +224,8 @@ impl Screen {
         } else {
             2
         };
-        let unwarped = (w - f64::from(source.width)).abs() < 1e-9 && (h - f64::from(source.height)).abs() < 1e-9;
+        let (pw, ph) = geometry.photo_size();
+        let unwarped = (pw - f64::from(source.width)).abs() < 1e-9 && (ph - f64::from(source.height)).abs() < 1e-9;
         if unwarped && let Some(base) = self.bases.get(n as usize) {
             render(Source::upright(base), recipe, Target::Full).expect("a render")
         } else {

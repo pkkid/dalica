@@ -16,7 +16,15 @@
 //!   straightens renders at `Target::Full` from the source halved that many times (a *base*, kept
 //!   with the source); one that crops or straightens renders from the source at that scale. The
 //!   edit view draws the preview fitted to its box, as it draws any texture;
+//! - the test is the photo's own size ([`Geometry::photo_size`], after crop and straighten, before
+//!   any frame), not the output's: a frame (Border, Drop Shadow, Museum Matte, Widescreen Film)
+//!   grows the canvas, but in whole pixels at the scale it renders at, so a framed recipe renders
+//!   from the base too, its frames laid out at the base's scale (M13.35: the four frames' drafts
+//!   took 19–25 ms through the resample). The box is still covered by the grown size;
 //! - a recipe with no operations is its base, with no render at all.
+//!
+//! The `effects` bench (`crates/edit/benches/effects.rs`, `Screen::render`) keeps a copy of this
+//! rule so it measures what the preview does: a change here changes it there, in the same commit.
 
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Instant;
@@ -254,7 +262,9 @@ pub(crate) fn render(screen: &Screen, ask: &Ask) -> Result<Rendered, String> {
     let (dw, dh) = if geometry.orientation().swaps() { (h, w) } else { (w, h) };
     let fit = (f64::from(ask.fit.0) / dw).min(f64::from(ask.fit.1) / dh).min(1.0);
     let n = halvings(fit).saturating_add(draft_halvings(ask.scale)).min(MAX_HALVINGS);
-    let unwarped = (w - f64::from(source.width)).abs() < 1e-9 && (h - f64::from(source.height)).abs() < 1e-9;
+    // The photo's size before any frame: a frame grows the canvas but warps nothing.
+    let (pw, ph) = geometry.photo_size();
+    let unwarped = (pw - f64::from(source.width)).abs() < 1e-9 && (ph - f64::from(source.height)).abs() < 1e-9;
     let image = if unwarped {
         let base = screen.base(n);
         if ask.recipe.ops().is_empty() {

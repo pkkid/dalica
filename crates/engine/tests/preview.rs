@@ -3,7 +3,8 @@
 //! and equals the renderer's output; a newer request supersedes an older one; a tool's draft comes
 //! before its final; a refined window equals that window of a full render; a prefetched neighbour
 //! opens without a decode; the histogram equals a direct count; closing cancels; a history step
-//! renders again; the owner thread makes no `fs` call; graceful failures.
+//! renders again; the owner thread makes no `fs` call; graceful failures; a frame's draft renders
+//! from the halved base (M13.35).
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -202,6 +203,100 @@ fn a_draft_comes_before_the_final() {
     )
     .unwrap();
     assert!(*frame.image == expected, "the final is the full render");
+}
+
+/// The picture box-averaged to `width × height` (each output pixel the area-weighted mean of the
+/// source pixels under it), as the renderer's two-sizes tests shrink their large render.
+fn shrunk(img: &Rgba8, width: u32, height: u32) -> Rgba8 {
+    let (fx, fy) = (f64::from(img.width) / f64::from(width), f64::from(img.height) / f64::from(height));
+    let mut data = Vec::with_capacity((width * height * 4) as usize);
+    for y in 0..height {
+        let (y0, y1) = (f64::from(y) * fy, f64::from(y + 1) * fy);
+        for x in 0..width {
+            let (x0, x1) = (f64::from(x) * fx, f64::from(x + 1) * fx);
+            let (mut sum, mut total) = ([0.0f64; 4], 0.0);
+            for sy in y0.floor() as u32..(y1.ceil() as u32).min(img.height) {
+                let wy = (y1.min(f64::from(sy + 1)) - y0.max(f64::from(sy))).max(0.0);
+                for sx in x0.floor() as u32..(x1.ceil() as u32).min(img.width) {
+                    let wx = (x1.min(f64::from(sx + 1)) - x0.max(f64::from(sx))).max(0.0);
+                    let at = ((sy * img.width + sx) * 4) as usize;
+                    for (c, v) in sum.iter_mut().enumerate() {
+                        *v += f64::from(img.data[at + c]) * wx * wy;
+                    }
+                    total += wx * wy;
+                }
+            }
+            data.extend(sum.map(|v| (v / total).round().clamp(0.0, 255.0) as u8));
+        }
+    }
+    Rgba8 { width, height, data }
+}
+
+/// The fingerprint distance between two pictures of the same size (`dalica_scenes::fingerprint`).
+fn distance(a: &Rgba8, b: &Rgba8) -> f64 {
+    use dalica_scenes::fingerprint::{distance, fingerprint};
+    distance(&fingerprint(a.width, a.height, &a.data), &fingerprint(b.width, b.height, &b.data))
+}
+
+/// `roadmap.md` M13.35: a frame grows the canvas but warps nothing, so a framed recipe's draft
+/// renders from the halved base at `Target::Full` (the frame laid out at the base's scale), not
+/// from the source through the fractional resample: Border's and Drop Shadow's quarter-scale drafts
+/// are the renderer's output on the source halved twice, the frame on all four sides, within the
+/// effect's fingerprint tolerance (0.5) of the draft it was (the source at a quarter) and within its
+/// two-sizes tolerance (`crates/edit/tests/canvas.rs`, `mats.rs`) of the final shrunk; the source
+/// is left as it was. A cropped Border still renders from the source at a quarter.
+#[test]
+fn a_frames_draft_renders_from_the_halved_base() {
+    let (_dir, folder, mut s, ids) = setup(1);
+    s.open_preview(ids[0], (640, 640)).unwrap();
+    assert!(s.wait_preview(WAIT));
+    s.take_preview_updates();
+    let source = decoded(&folder, 0);
+    let quarter = halve(&halve(&source).unwrap()).unwrap();
+    let border = "border(#000000,20,#ffffff,5,0,0)";
+    for (entry, two_sizes) in [(border, 6.0), ("drop_shadow(#000000,15,90,25,30,#ffffff)", 7.0)] {
+        // A slow machine: the draft at a quarter, then the final at full size.
+        s.plant_preview_cost(200.0);
+        s.set_preview_candidate(Some(&strings(&[entry]))).unwrap();
+        let draft_update = s.wait_preview_update(WAIT).unwrap();
+        assert_eq!(draft_update.kind, UpdateKind::Draft, "{entry}");
+        let draft = s.preview().unwrap().image.clone();
+        let from_base = dalica_edit::render(dalica_edit::Source::upright(&quarter), &recipe(&[entry]), Target::Full).unwrap();
+        assert!(*draft == from_base, "{entry}: the draft is the renderer's output on the base halved twice");
+        let was = dalica_edit::render(dalica_edit::Source::upright(&source), &recipe(&[entry]), Target::Scale(0.25)).unwrap();
+        assert_eq!((draft.width, draft.height), (was.width, was.height), "{entry}: the frame's bands are the same whole pixels");
+        let d = distance(&draft, &was);
+        assert!(d <= 0.5, "{entry}: the draft is {d:.2} from the one through the resample");
+        // The frame on all four sides: the photo inside the canvas, each edge's middle the frame's
+        // colour (Border's black outer band, Drop Shadow's white background).
+        let geometry = dalica_edit::Geometry::new(&recipe(&[entry]), dalica_image::Orientation::default(), quarter.width, quarter.height);
+        let area = geometry.photo_area().unwrap();
+        assert!(area.x0 > 0.0 && area.y0 > 0.0 && area.x1 < 1.0 && area.y1 < 1.0, "{entry}: {area:?}");
+        let (w, h) = (draft.width, draft.height);
+        for (x, y) in [(w / 2, 0), (w / 2, h - 1), (0, h / 2), (w - 1, h / 2)] {
+            let at = ((y * w + x) * 4) as usize;
+            let rgb = &draft.data[at..at + 3];
+            let framed = if entry == border { rgb.iter().all(|&v| v <= 8) } else { rgb.iter().all(|&v| v >= 200) };
+            assert!(framed, "{entry}: the frame at {x}, {y}: {rgb:?}");
+        }
+        let final_update = s.wait_preview_update(WAIT).unwrap();
+        assert_eq!((final_update.kind, final_update.generation), (UpdateKind::Final, draft_update.generation), "{entry}");
+        let fin = s.preview().unwrap().image.clone();
+        let d = distance(&draft, &shrunk(&fin, w, h));
+        assert!(d <= two_sizes, "{entry}: the draft is {d:.2} from the final shrunk (two-sizes tolerance {two_sizes})");
+    }
+    // A crop changes the photo's own size: its Border still renders from the source at a quarter.
+    let cropped = ["crop(0,0,0.5,1)", border];
+    s.plant_preview_cost(200.0);
+    s.set_preview_candidate(Some(&strings(&cropped))).unwrap();
+    assert_eq!(s.wait_preview_update(WAIT).unwrap().kind, UpdateKind::Draft);
+    let expected = dalica_edit::render(dalica_edit::Source::upright(&source), &recipe(&cropped), Target::Scale(0.25)).unwrap();
+    assert!(*s.preview().unwrap().image == expected, "a cropped Border's draft is the source rendered at a quarter");
+    assert!(s.wait_preview(WAIT));
+    // The preview's source untouched: without the candidate, the unedited photo is its source.
+    s.set_preview_candidate(None).unwrap();
+    assert!(s.wait_preview(WAIT));
+    assert!(*s.preview().unwrap().image == source, "the preview's source is untouched");
 }
 
 /// `roadmap.md` M7.11: zoomed past the preview, the visible window is rendered from the whole

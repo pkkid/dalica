@@ -8197,7 +8197,7 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
     sampler agrees with `Noise::at` within 10⁻⁴; the tables within 0.01 of a level; every effect's
     fingerprint and region test in `crates/edit/tests/` passes unchanged; the bench's `glow` and
     `soften` final before and after in the PR (they use the box passes directly); `cargo xtask ci`.
-- ⬜ **M13.35 `engine`: a frame's draft renders from the halved base, not through the fractional resample**
+- ✅ **M13.35 `engine`: a frame's draft renders from the halved base, not through the fractional resample**
   - after: M12.R
   - files: `crates/engine/src/preview/jobs.rs`, `crates/engine/tests/preview.rs`, `crates/edit/benches/effects.rs`
   - scope: effect speed. The drafts of the four frames miss 16 ms although their own painting is
