@@ -31,6 +31,8 @@ mod dialog;
 mod drag_pill;
 mod dropdown;
 mod effect_tile;
+mod face_box;
+mod face_tile;
 mod feedback;
 mod field;
 mod form;
@@ -44,6 +46,7 @@ mod overlay_bar;
 mod slider;
 mod splitter;
 mod stepper;
+mod suggest_marks;
 mod swatch;
 mod tabs;
 mod tool_button;
@@ -52,8 +55,8 @@ mod tooltip;
 pub use age_slider::{AGE_MAX_DAYS, age_days, age_label, age_position, age_slider, age_snapped};
 pub use autocomplete::{AutocompleteOut, MAX_SUGGESTIONS, VISIBLE_SUGGESTIONS, autocomplete, autocomplete_matches};
 pub use badges::{
-    BADGE_GAP, BADGE_GLYPH, BADGE_INSET, BADGE_PLATE, Badge, BadgeRects, Badges, PHOTO_SHADOW, Video, badge_row, badges, duration_text,
-    excluded_mark, failed_mark, photo_shadow, star_badge,
+    BADGE_GAP, BADGE_GLYPH, BADGE_INSET, BADGE_PLATE, Badge, BadgeRects, Badges, PHOTO_SHADOW, SUGGESTION_BADGE, Video, badge_row, badges,
+    duration_text, excluded_mark, failed_mark, photo_shadow, star_badge, suggestion_badge,
 };
 pub use banner::{BANNER_H, BANNER_PAD, BANNER_TEXT_GAP, BannerOut, filter_banner};
 pub use buttons::{Segment, SegmentLabel, action_button, primary_button, segmented, toggle_filter};
@@ -76,6 +79,13 @@ pub use dropdown::{DROPDOWN_ITEM_MAX_W, DROPDOWN_ITEM_MIN_W, dropdown, dropdown_
 pub use effect_tile::{
     EFFECT_BADGE, EFFECT_GRID_COLUMNS, EFFECT_GRID_ROWS, EFFECT_LABEL_MIN, EFFECT_TILE_GAP, EffectGridOut, EffectTile, effect_grid, effect_grid_size,
     effect_tile, effect_tile_id, effect_tile_label,
+};
+pub use face_box::{
+    BoxHandle, FACE_BOX_GRAB, FACE_BOX_HANDLE, FACE_BOX_MIN, FaceBox, FaceBoxOut, dragged_box, face_box, face_box_handle_id, face_box_rect,
+};
+pub use face_tile::{
+    FACE_DRAG_OPACITY, FACE_IGNORE, FACE_IGNORE_INSET, FACE_LABEL_H, FACE_MARKS_H, FACE_TILE_DEFAULT, FACE_TILE_MAX, FACE_TILE_MIN, FACE_TILE_PAD,
+    FaceLabel, FacePicture, FaceTile, FaceTileOut, face_side, face_tile, face_tile_id, face_tile_size,
 };
 pub use feedback::{
     ProgressOut, TOAST_ERROR_SECS, TOAST_LINES, TOAST_SECS, ToastKind, ToastText, elide_middle, empty_state, progress_row, toast, toast_galley,
@@ -101,6 +111,7 @@ pub use slider::{
 };
 pub use splitter::{arrow_delta, split_position, splitter};
 pub use stepper::{STEPPER_BUTTON, STEPPER_GAP, StepperOut, stepped, stepper, stepper_ids};
+pub use suggest_marks::{SUGGEST_MARK, SUGGEST_MARK_GAP, SuggestMarksOut, suggest_mark_ids, suggest_marks, suggest_marks_size};
 pub use swatch::{
     HUE_STRIP_W, PICKER_FIELD, PICKER_PAD, SWATCH_SIZE, SwatchOut, close_swatch, field_color, field_point, hue_at, hue_color, hue_point, open_swatch,
     swatch, swatch_open, swatch_popup_rect, swatch_popup_size,
