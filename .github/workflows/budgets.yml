@@ -17,6 +17,10 @@
 # listing, files and MB per second copied and verified), batch_edit (Auto Fix on 1 000 photos as
 # one step, then its undo) and slideshow (24 MP photos in the headless app: no change waits for its
 # preview, the advance, a transition frame within 16 ms at p95), each 1.5 x its first measurement.
+# Since M12 also effects (each of the 27 effects at its defaults rendered at 24 MP as Save renders
+# it, and an empty recipe; a slider's drafts and finals are printed, their 16 and 100 ms are M13's
+# speed tasks) and effect_tiles (an effect tab's tiles of a 24 MP photo from opening it to the last
+# tile), and the slideshow's upload frame (p95), each 1.5 x its first measurement (about 6 minutes).
 # Like every test run on GitHub, it runs only at a milestone review (the pull request of a
 # `review/M<n>.R` branch) and when dispatched by hand: "Run workflow" on the Actions tab, which also
 # takes a planted slowdown to prove that a missed budget fails the run (docs/development.md §3, §8).

@@ -27,3 +27,8 @@ thiserror.workspace = true
 # Procedural photos and the pixel fingerprints of the geometry tests.
 dalica-scenes.workspace = true
 proptest.workspace = true
+
+# The 27 effects at screen size and as Save renders them (`docs/development.md` §8).
+[[bench]]
+name = "effects"
+harness = false

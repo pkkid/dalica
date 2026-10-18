@@ -255,6 +255,11 @@ cargo run --release -p dalica -- --control 7990 --demo
 | Slideshow of 24 MP photos: a change that waits for its preview | 0 |
 | Slideshow: an advance to the first frame of its transition, next photo prefetched (median) | ≤ 24 ms |
 | Slideshow: a transition frame (p95; never above 16 ms) | ≤ 1 ms |
+| Slideshow: a frame that uploads the next photo's texture (p95; never above 16 ms) | ≤ 6.8 ms |
+| An effect at its defaults, rendered at 24 MP as Save renders it (median) | ≤ 1.5 × its first measurement (`effects` → `BUDGETS`) |
+| An empty recipe: the final on the 2560 × 1600 screen (p95); the 24 MP Save render (median) | ≤ 12 ms; ≤ 55 ms |
+| An effect's slider draft and final on the 2560 × 1600 screen (p95) | printed; ≤ 16 ms and ≤ 100 ms are M13's per-effect speed tasks |
+| An effect tab's tiles of a 24 MP photo, from opening it to the last tile (median) | ≤ 355 ms (tab 3), 350 ms (tab 4), 360 ms (tab 5) |
 
 **At the review, the save, export and search budgets are judged against a base on the same
 runner** (maintainer decision, 2026-10-15): the Budgets job runs each of these benches in the last
@@ -338,6 +343,34 @@ so the quiet runs set the budgets.
   in every run. Frames are timed whole (`Driver::step`: the poll, the show, layout, texture
   uploads, tessellation); rasterizing is the GPU's and not measured.
 
+M12's budgets (M12.21) follow the same rule: 1.5 × the first measurement, the median of three
+runs in one sitting, release on two cores (`taskset -c 0,1`), 2026-10-18, the same 24-core
+workstation (load average 1.3 to 14 over the runs; the second run under other agents' builds);
+the tile grids and Saves rounded up to 5 ms, the empty final to 1 ms, the upload frame to 0.1 ms.
+- **Effects** (the `effects` bench, `dalica-edit`): a 6000 × 4000 `scenes` photo in memory; each
+  of the 27 effects at its defaults, alone in the recipe, rendered as the engine's preview renders
+  it on a 2560 × 1600 screen (the photo halved to 3000 × 2000; the final at `Target::Full` on that
+  source, a frame that grows the picture at its scale from the source; the draft at the scale the
+  engine picks from the last final's time, ½ or ¼), 21 drafts and finals each, and three renders
+  of the whole photo as Save renders it. **Budgeted:** each effect's Save render (median; from
+  158 ms for Filtered B&W and Invert to 14.9 s for Focal Zoom; the table is `BUDGETS` in
+  `crates/edit/benches/effects.rs`, the same as `EFFECT_BUDGETS` in `xtask/src/bench.rs`) and an
+  empty recipe's final (7.5 ms p95) and Save (33.5 ms). **Printed, not budgeted:** the effects'
+  drafts and finals. The slider's 16 ms draft and 100 ms final at p95 (the edit view's budgets
+  above) are missed today by 13 drafts and 15 finals on two cores (the worst: Focal Zoom, draft
+  81 ms and final 2.68 s; HDR Look 30 and 751 ms; Glow 29 and 540 ms; the drafts of the four
+  frames, about 20 ms, render through the fractional resample); the maintainer made them
+  per-effect speed tasks of M13 at M12.R (2026-10-18), tracked there, and each becomes a budget
+  in the task that meets it. `cargo xtask bench effects` prints them meanwhile.
+- **Effect tiles** (the `effect_tiles` bench, `dalica-engine`): a new session on an empty
+  thumbnail cache per sample (7 per tab), a 6000 × 4000 JPEG opened in the edit view at
+  2560 × 1600 and an effect tab's tiles asked for at 78 × 48 in the same instant: the last tile
+  after 234.8 ms (tab 3, 12 tiles), 230.9 ms (tab 4) and 239.0 ms (tab 5); the first tile about
+  5 ms before the last (the tiles wait for the preview, then one small decode).
+- **The slideshow's upload frame** (the `slideshow` bench's `upload frame` row, M12.24): p95
+  4.51 ms (the runs 4.51, 6.47 under load, and 2.92 ms; earlier the same day 3.95, 2.99 and
+  3.59 ms), so 6.8 ms, never above 16 ms.
+
 Measure, don't guess: record numbers in `docs/status.md` → Metrics with the machine and date.
 
 **The budgets job.** `.github/workflows/budgets.yml` runs `cargo xtask budgets` once per milestone,
@@ -366,7 +399,11 @@ and MB per second copied, a planted slowdown counted once per file), the `batch_
 planted slowdown added to each median) and the `slideshow` bench (no change waiting; the advance's
 median and a transition frame's p95, a planted slowdown added to every frame). `--plant-ms 8`
 misses Batch Edit's and the slideshow's budgets but not the import's (8 s over 1 000 files is
-inside its headroom); `--plant-ms 15` misses all three. A milestone adds its budgets to `BUDGETS` in `xtask/src/accept.rs`. Budgets are judged only at the
+inside its headroom); `--plant-ms 15` misses all three. Since M12 the slideshow's judge also
+holds an upload frame's p95 to its budget, and the job runs the `effects` bench (each effect's Save
+render and the empty recipe; a planted slowdown added once per render) and the `effect_tiles`
+bench (each tab's median, a planted slowdown added once per sample); `--plant-ms 8` misses the
+empty recipe's final, not the Saves or the tiles. A milestone adds its budgets to `BUDGETS` in `xtask/src/accept.rs`. Budgets are judged only at the
 review (maintainer decision, 2026-10-15); *Run workflow* on the Actions tab runs the job on any
 branch, with a planted slowdown (`plant_ms`) if asked. The same check locally:
 
@@ -734,7 +771,8 @@ budgeted, baseline-compared run that feeds the scorecard.
 **Bench runs.** The benches `xtask bench` knows are registered in `xtask/src/bench.rs` (a
 `harness = false` bench target each): `library_bench` (`dalica-ui`), `pack` (`dalica-thumbs`),
 `first_thumbnails`, `edit_preview`, `save_export`, `search`, `scan_throughput`, `import` and
-`batch_edit` (`dalica-engine`), and `cold_start` and `slideshow` (`dalica-ui`).
+`batch_edit` and `effect_tiles` (`dalica-engine`), `cold_start` and `slideshow` (`dalica-ui`),
+and `effects` (`dalica-edit`).
 A bench given `--json` prints one JSON object on its last line with a `rows` array; each row has a
 `name` (the key) and numbers. A row's **CPU-time fields** are those whose key names a time unit
 (`p50_ms`, `pack_us_per_read`): `xtask bench` compares them with the last run in the history that
@@ -847,6 +885,23 @@ frame where the show moves on; with `changes` and `waits`, the changes whose pre
 when they began), `transition frame` (every other frame of a change) and `transition frame <id>`
 per transition (printed). It exits non-zero when a change waited; `--check` also judges the
 budgets. Without `--bench` it runs three photos of 640 × 427, one change per transition.
+
+`effects` (M12.21, `dalica-edit`) makes a `--width × --height` `scenes` photo in memory (6000 ×
+4000) and renders each of the 27 effects at its defaults: `--samples` (21) drafts and finals on
+a `--fit` screen (2560 × 1600) as the engine's preview renders them, and `--saves` (3) renders
+of the whole photo at `Target::Full`. Rows: `<effect> draft` (with its `draft_scale`), `<effect>
+final`, `<effect> save` and `no effect final` / `no effect save` (printed). Only the renderer is
+timed. `--only a,b` measures some effects; `--check` judges the budgets itself, `--plant-ms N`
+adds N ms to each judged time. Without `--bench` it runs a 600 × 400 photo on a 256 × 160 screen,
+one sample each.
+
+`effect_tiles` (M12.21, `dalica-engine`) writes a `--width × --height` `scenes` JPEG (6000 ×
+4000); per sample (`--samples`, 7) and per effect tab, a new library on an empty thumbnail cache
+scans it (not timed), then `open_preview` at `--fit` (2560 × 1600) and `request_effect_tiles` at
+`--tile` (78 × 48) are timed to the poll that hands over the tab's last tile. Rows: `tab 3
+tiles`, `tab 4 tiles`, `tab 5 tiles` (p50/p95/max, `first_p50_ms`, `tiles`). It exits non-zero
+when a tile is missing or the photo was decoded more than once; `--check` judges the medians.
+Without `--bench` it runs a 600 × 400 photo, one sample per tab.
 
 **Adding a scenario.** Add a row to a bench (its name is the key: keep it stable), give the bench
 `--json` output, add a `[[scenario]]` to `perf/budgets.toml`, and run `cargo xtask scorecard`.

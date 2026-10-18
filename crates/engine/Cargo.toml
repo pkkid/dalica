@@ -96,3 +96,7 @@ harness = false
 [[bench]]
 name = "batch_edit"
 harness = false
+
+[[bench]]
+name = "effect_tiles"
+harness = false
