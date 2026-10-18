@@ -289,6 +289,20 @@ fn two_sizes_agree_and_match_the_fingerprints() {
     }
 }
 
+/// A whole 1200 × 800 render of the detailed photo at the defaults and with a painted stroke (the
+/// fingerprints' entries above), large enough that the blur runs on a grid and the rows' fast paths are taken (the 300 × 200
+/// fingerprints above are too small for that), matches its `soften-*-large` fingerprint, blessed
+/// from the M12 code before M13.40 made Soften faster.
+#[test]
+fn whole_and_stroke_match_their_large_fingerprints() {
+    let img = detailed(1200, 800);
+    for (case, op) in
+        [("soften-whole-large", "soften(50,50)"), ("soften-stroke-large", "soften(100,0;paint,0.1,0.15,0.5,0.4,0.35,0.6,0.6,0.85,0.45)")]
+    {
+        check_fingerprint(case, &run(&img, &[op]), 0.5);
+    }
+}
+
 /// The cap: 1 000 strokes of many points with a large brush render in bounded time (a coarser
 /// grid for the mask past its budget); the full gate draws every stroke with the most points.
 #[test]
