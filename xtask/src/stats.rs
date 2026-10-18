@@ -121,6 +121,7 @@ pub fn collect(root: &Path, env: &[(&str, &str)]) -> Result<Stats, String> {
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
     let mut cmd = Command::new(cargo);
     cmd.current_dir(root).args(["test", "--no-fail-fast", "-p", PACKAGE, "--test", TARGET]);
+    crate::ci::limit_threads(&mut cmd);
     for (k, v) in env {
         cmd.env(k, v);
     }

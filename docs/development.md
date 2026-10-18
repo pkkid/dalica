@@ -55,8 +55,10 @@ cargo xtask ci --full                               # the review gate: every tes
 Running a planned command says where it is planned and exits with status 2.
 
 `xtask ci` uses one test thread and build job per GiB of available RAM, capped by
-`CARGO_BUILD_JOBS` or the CPU count, so it doesn't take the machine down when several agents run it
-at once.
+`CARGO_BUILD_JOBS` and by the CPU count less 4 reserved cores (`DALICA_RESERVE_CORES` overrides the
+4), so it doesn't take the machine down when several agents run it at once. It also holds the
+tests' rayon pool to the same count (`RAYON_NUM_THREADS`) and, on Linux and macOS, runs at nice 10
+so the desktop stays responsive.
 
 **Three gates: test little during a milestone, everything once at its review** (maintainer
 decision, 2026-10-15).
