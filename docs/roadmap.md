@@ -8390,7 +8390,7 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
     after in the PR, Saves not above their budgets); `crates/edit/tests/canvas.rs` and
     `mats.rs`: the `canvas-widescreen-large` fingerprint blessed from the M12 code matches, the
     existing fingerprints and region tests pass unchanged; `cargo xtask ci`.
-- ⬜ **M13.47 `edit`: speed margin for every effect: the renderer's band conversion and one home for the shared samplers**
+- ✅ **M13.47 `edit`: speed margin for every effect: the renderer's band conversion and one home for the shared samplers**
   - after: M13.39, M13.41
   - files: `crates/edit/src/render.rs`, `crates/edit/src/fx.rs`, `crates/edit/src/fx/**`, `crates/edit/src/ops/detail.rs`, `crates/edit/src/ops/canvas.rs`, `crates/edit/src/ops/looks.rs`, `crates/edit/src/ops/soften.rs`, `crates/edit/src/ops/focal.rs`, `crates/edit/tests/fx.rs`, `crates/edit/tests/render.rs`, `crates/edit/README.md`
   - scope: from the effect tasks' reports (M13.36–M13.42). (1) About 33–40 ms of every

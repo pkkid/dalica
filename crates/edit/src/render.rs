@@ -42,6 +42,8 @@ use std::sync::Arc;
 use rayon::prelude::*;
 
 use crate::frame::Point;
+// `v / 255` for every 8-bit value, as `f32` (the same values the division gives, looked up).
+use crate::fx::UNIT8 as UNIT;
 use crate::ops::orient::dihedral_to_input;
 use crate::ops::{self, Adjust, Affine, Band, Pass, Prepare, Reach, Typed, View, Warp};
 use crate::{Dihedral, Error, Recipe, Result};
@@ -682,34 +684,40 @@ fn margin(slots: &[Slot<'_>]) -> u32 {
 
 /// The window `win` of a frame's canvas with the frame's input placed on it: the input's pixels
 /// where it lands (from `picture`, the input rendered over a window that holds every one of them
-/// the canvas window shows), opaque black elsewhere, for the frame's pass to paint.
+/// the canvas window shows), opaque black elsewhere, for the frame's pass to paint. Each byte is
+/// written once (M13.47): a row's columns before and after the input black, the input's copied.
 fn place(picture: Option<(Rgba8, Win)>, input: (u32, u32), layout: Layout, win: Win) -> Result<Rgba8> {
     let mut data = alloc(win.pixels())?;
     let row = win.w as usize * 4;
-    data.resize(row * win.h as usize, 0);
-    for px in data.as_chunks_mut::<4>().0 {
-        px[3] = 255;
-    }
-    let Some((src, from)) = picture else { return Ok(Rgba8 { width: win.w, height: win.h, data }) };
+    // One row of opaque black, the source of every black run.
+    let mut black = alloc(u64::from(win.w))?;
+    black.extend(std::iter::repeat_n([0, 0, 0, 255], win.w as usize).flatten());
+    let Some((src, from)) = picture else {
+        for _ in 0..win.h {
+            data.extend_from_slice(&black);
+        }
+        return Ok(Rgba8 { width: win.w, height: win.h, data });
+    };
     // The canvas columns the input covers, cut to the window and to the rendered input.
     let lo = (i64::from(from.x0) + layout.at.0).max(i64::from(win.x0)).max(layout.at.0);
     let hi = (i64::from(from.x0) + i64::from(from.w) + layout.at.0).min(i64::from(win.x0) + i64::from(win.w)).min(layout.at.0 + i64::from(input.0));
-    if lo >= hi {
-        return Ok(Rgba8 { width: win.w, height: win.h, data });
-    }
     let src_row = from.w as usize * 4;
-    let len = (hi - lo) as usize * 4;
-    let dst_x = (lo - i64::from(win.x0)) as usize * 4;
-    let src_x = (lo - layout.at.0 - i64::from(from.x0)) as usize * 4;
-    for (j, line) in data.chunks_mut(row).enumerate() {
-        let y = i64::from(win.y0) + j as i64;
-        let iy = y - layout.at.1;
-        if iy < i64::from(from.y0) || iy >= i64::from(from.y0) + i64::from(from.h) || iy >= i64::from(input.1) || iy < 0 {
-            continue;
-        }
-        let at = (iy - i64::from(from.y0)) as usize * src_row + src_x;
-        if let (Some(dst), Some(s)) = (line.get_mut(dst_x..dst_x + len), src.data.get(at..at + len)) {
-            dst.copy_from_slice(s);
+    let (dst_x, len, src_x) = if lo < hi {
+        ((lo - i64::from(win.x0)) as usize * 4, (hi - lo) as usize * 4, (lo - layout.at.0 - i64::from(from.x0)) as usize * 4)
+    } else {
+        (0, 0, 0)
+    };
+    for j in 0..i64::from(win.h) {
+        let iy = i64::from(win.y0) + j - layout.at.1;
+        let inside = len > 0 && iy >= i64::from(from.y0) && iy < i64::from(from.y0) + i64::from(from.h) && iy < i64::from(input.1) && iy >= 0;
+        let at = if inside { (iy - i64::from(from.y0)) as usize * src_row + src_x } else { 0 };
+        match src.data.get(at..at + len).filter(|_| inside) {
+            Some(s) => {
+                data.extend_from_slice(black.get(..dst_x).unwrap_or(&[]));
+                data.extend_from_slice(s);
+                data.extend_from_slice(black.get(..row.saturating_sub(dst_x + len)).unwrap_or(&[]));
+            }
+            None => data.extend_from_slice(&black),
         }
     }
     Ok(Rgba8 { width: win.w, height: win.h, data })
@@ -843,36 +851,23 @@ fn run_slots<'t>(
     Ok(())
 }
 
-/// `v / 255` for every 8-bit value, as `f32` (the same values the division gives, looked up).
-const UNIT: [f32; 256] = {
-    let mut t = [0.0f32; 256];
-    let mut i = 0;
-    while i < 256 {
-        t[i] = i as f32 / 255.0;
-        i += 1;
-    }
-    t
-};
-
-fn to_f32(p: &[u8; 4]) -> [f32; 3] {
-    [UNIT[p[0] as usize], UNIT[p[1] as usize], UNIT[p[2] as usize]]
-}
-
-/// `v × 255` rounded half away from zero and clamped to 0…255 (NaN gives 0). Written without
-/// `f32::round`, which is a library call on the baseline x86-64 target: the whole part by
-/// truncation and the fraction compared with ½ give the same value, exactly (the fraction of a
-/// value under 2²³ is exact in `f32`).
+/// `v × 255` rounded half away from zero and clamped to 0…255 (NaN gives 0), without a branch or
+/// a float-to-integer conversion, so a band's values convert in a loop the compiler vectorises
+/// (M13.47; `f32::round` is a library call on the baseline x86-64 target and `as` saturates, both
+/// in the way). The value is clamped first (`NaN` and below 0 as 0, past 255 as 255: two selects),
+/// then `v + 2²³` rounds it to the nearest whole number, ties to even, held in the float's low
+/// mantissa bits (its spacing there is 1); a tie that went down to even goes up instead (`v − r`
+/// is exactly ½ only for a tie). The same value as `round`, exactly.
+#[inline]
 fn to_u8(v: f32) -> u8 {
+    const SHIFT: f32 = 8_388_608.0;
     let v = v * 255.0;
-    if v.is_nan() || v <= 0.0 {
-        return 0;
-    }
-    if v >= 254.5 {
-        return 255;
-    }
-    let whole = v as u32;
-    let up = v - whole as f32 >= 0.5;
-    (whole + u32::from(up)) as u8
+    // `v > 0` is false for `NaN`: both selects are the compiler's `max` and `min`.
+    let v = if v > 0.0 { v } else { 0.0 };
+    let v = if v < 255.0 { v } else { 255.0 };
+    let t = v + SHIFT;
+    let up = u32::from(v - (t - SHIFT) == 0.5);
+    (t.to_bits().wrapping_add(up) & 0xff) as u8
 }
 
 /// The rounding `to_u8` replaced, kept as the reference its test compares with.
@@ -917,18 +912,30 @@ fn run_bands(buf: &mut Rgba8, win: Win, before: Option<&View<'_>>, f: impl Fn(&m
         return;
     }
     let width = buf.width;
-    buf.data.par_chunks_mut(row * BAND_ROWS).enumerate().for_each(|(i, chunk)| {
-        let mut pixels: Vec<[f32; 3]> = chunk.as_chunks::<4>().0.iter().map(to_f32).collect();
+    // One working buffer per piece of rayon's work, reused band after band (a band of a 3000-pixel
+    // row is over a megabyte: made per band, each one was fresh pages to fault in).
+    buf.data.par_chunks_mut(row * BAND_ROWS).enumerate().for_each_init(Vec::new, |pixels, (i, chunk)| {
+        to_working(chunk, pixels);
         let rows = (chunk.len() / row) as u32;
         let y0 = win.y0.saturating_add(u32::try_from(i * BAND_ROWS).unwrap_or(u32::MAX));
-        let mut band = Band { pixels: &mut pixels, width, rows, x0: win.x0, y0, before };
+        let mut band = Band { pixels, width, rows, x0: win.x0, y0, before };
         f(&mut band);
-        for (dst, src) in chunk.as_chunks_mut::<4>().0.iter_mut().zip(&pixels) {
-            dst[0] = to_u8(src[0]);
-            dst[1] = to_u8(src[1]);
-            dst[2] = to_u8(src[2]);
-        }
+        to_bytes(pixels, chunk);
     });
+}
+
+/// The RGBA8 pixels `bytes` in working values into `pixels` (made their length), alpha apart.
+fn to_working(bytes: &[u8], pixels: &mut Vec<[f32; 3]>) {
+    let px = bytes.as_chunks::<4>().0;
+    pixels.clear();
+    pixels.extend(px.iter().map(|p| [UNIT[usize::from(p[0])], UNIT[usize::from(p[1])], UNIT[usize::from(p[2])]]));
+}
+
+/// Working values `pixels` rounded back into the RGBA8 pixels `bytes`, their alpha kept.
+fn to_bytes(pixels: &[[f32; 3]], bytes: &mut [u8]) {
+    for (dst, src) in bytes.as_chunks_mut::<4>().0.iter_mut().zip(pixels) {
+        *dst = [to_u8(src[0]), to_u8(src[1]), to_u8(src[2]), dst[3]];
+    }
 }
 
 /// The window `win` of `buf`, which holds the window `from` of the same picture.

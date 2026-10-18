@@ -33,17 +33,17 @@
 //!     canvas.
 //! - **Speed** (M13.42, the slider's 100 ms final): Widescreen Film works a row at a time: a
 //!   row under a bar is filled black without its colour or grain, the colour runs over the row's
-//!   flat slice, the grain is drawn a run of [`FILM_RUN`] pixels at a time ([`Noise::row`], within
-//!   10⁻⁴ of [`Noise::at`]; the runs anchored at multiples of [`FILM_RUN`] in the whole canvas, so
-//!   a region draws exactly the whole render's values) and only the row an inner bar edge crosses
-//!   is darkened by its coverage.
+//!   flat slice, the grain is drawn a run of [`FILM_RUN`] pixels at a time ([`Noise::run`], bit for
+//!   bit [`Noise::row`], within 10⁻⁴ of [`Noise::at`]; the runs anchored at multiples of
+//!   [`FILM_RUN`] in the whole canvas, so a region draws exactly the whole render's values) and
+//!   only the row an inner bar edge crosses is darkened by its coverage.
 //!
 //! Our own design from `editing.md` §8.3–§8.4.
 
 use std::fmt;
 
 use super::{Band, Operation, ParamError, Pass, Reader, clamp, flag, hex, num};
-use crate::fx::noise::hash01;
+use crate::fx::noise::Corners;
 use crate::fx::{Noise, Space, luma, noise};
 use crate::render::{Layout, Placed, Reframe, pixels};
 
@@ -62,8 +62,8 @@ pub const BAR: f64 = 0.15;
 const GRAIN: f32 = 0.03;
 const GRAIN_CELL: f64 = 0.0012;
 /// Widescreen Film draws its grain in runs of this many pixels along a row, anchored at its
-/// multiples in the whole canvas ([`Noise::row`]).
-pub const FILM_RUN: u32 = 256;
+/// multiples in the whole canvas ([`Noise::run`], whose fast path takes runs this long).
+pub const FILM_RUN: u32 = noise::RUN;
 
 /// `widescreen(letterbox)`: crop to 1.7:1, muted filmic colour, grain, and with `letterbox` black
 /// bars top and bottom.
@@ -189,7 +189,7 @@ impl Reframe for Widescreen {
         let bar = if self.letterbox { f64::from(h) * BAR } else { 0.0 };
         // Seeded by the name alone, so Letterbox changes the bars and nothing else.
         let seed = noise::seed(Self::NAME);
-        let grain = Space::new(placed.ctx).map(|space| FilmGrain { space, noise: Noise::new(seed, GRAIN_CELL), seed });
+        let grain = Space::new(placed.ctx).map(|space| FilmGrain { space, noise: Noise::new(seed, GRAIN_CELL) });
         Some(Box::new(Film { height: h, bar, grain }))
     }
 }
@@ -206,8 +206,6 @@ struct Film {
 struct FilmGrain {
     space: Space,
     noise: Noise,
-    /// The noise's seed.
-    seed: u32,
 }
 
 impl Film {
@@ -224,6 +222,14 @@ impl Film {
             out[c] = 0.03 + 0.93 * v + shift[c];
         }
         out
+    }
+}
+
+/// [`Film::colour`] along a row: a function of its own so the compiler vectorises it (M13.47).
+#[inline(never)]
+fn colour_row(row: &mut [[f32; 3]]) {
+    for p in row.iter_mut() {
+        *p = Film::colour(*p);
     }
 }
 
@@ -245,162 +251,49 @@ impl Pass for Film {
         let mut noise = [0.0f32; FILM_RUN as usize];
         let mut corners = Corners::default();
         let x1 = band.x0.saturating_add(band.width);
+        let y = |j: usize| band.y0.saturating_add(u32::try_from(j).unwrap_or(u32::MAX));
+        // Under a bar: black, without the colour or the grain; elsewhere the colour.
         for (j, row) in band.pixels.chunks_exact_mut(width).enumerate() {
-            let y = band.y0.saturating_add(u32::try_from(j).unwrap_or(u32::MAX));
-            let covered = self.covered(y);
-            if covered >= 1.0 {
-                // Under a bar: black, without the colour or the grain.
+            if self.covered(y(j)) >= 1.0 {
                 row.fill([0.0; 3]);
-                continue;
+            } else {
+                colour_row(row);
             }
-            for p in row.iter_mut() {
-                *p = Film::colour(*p);
-            }
-            if let Some(grain) = &self.grain {
-                // The row in runs anchored at multiples of `FILM_RUN` in the whole canvas, so a
-                // region's pixels draw exactly the whole render's values.
-                let mut start = band.x0 - band.x0 % FILM_RUN;
-                while start < x1 {
-                    let end = start.saturating_add(FILM_RUN).min(x1);
+        }
+        if let Some(grain) = &self.grain {
+            // The band in runs anchored at multiples of `FILM_RUN` in the whole canvas, so a
+            // region's pixels draw exactly the whole render's values; each run down the band's
+            // rows (the lattice rows' corners carried from row to row, M13.47).
+            let mut start = band.x0 - band.x0 % FILM_RUN;
+            while start < x1 {
+                let end = start.saturating_add(FILM_RUN).min(x1);
+                let skip = band.x0.saturating_sub(start) as usize;
+                let at = (start.max(band.x0) - band.x0) as usize;
+                for (j, row) in band.pixels.chunks_exact_mut(width).enumerate() {
+                    if self.covered(y(j)) >= 1.0 {
+                        continue;
+                    }
                     let Some(run) = noise.get_mut(..(end - start) as usize) else { break };
-                    grain.run(start, y, run, &mut corners);
-                    let skip = band.x0.saturating_sub(start) as usize;
-                    let at = (start.max(band.x0) - band.x0) as usize;
+                    grain.noise.run(&grain.space, start, y(j), 0, run, &mut corners);
                     let Some(pixels) = row.get_mut(at..(end - band.x0) as usize) else { break };
                     for (p, n) in pixels.iter_mut().zip(run.iter().skip(skip)) {
                         let g = n * GRAIN;
                         *p = p.map(|c| c + g);
                     }
-                    start = end;
                 }
+                start = end;
             }
-            if covered > 0.0 {
-                // The row a bar's anti-aliased inner edge crosses.
+        }
+        // The rows a bar's anti-aliased inner edge crosses.
+        for (j, row) in band.pixels.chunks_exact_mut(width).enumerate() {
+            let covered = self.covered(y(j));
+            if covered > 0.0 && covered < 1.0 {
                 for p in row.iter_mut() {
                     *p = p.map(|c| c * (1.0 - covered));
                 }
             }
         }
     }
-}
-
-/// The lattice corners [`FilmGrain::run_values`] hashes along one run at most: two lattice cells a
-/// pixel, and the corner past the last.
-const CORNERS: usize = 2 * FILM_RUN as usize + 3;
-
-/// [`FilmGrain::run_values`]'s scratch: the hashed corners of two lattice rows and, per cell, its
-/// top-left corner, the step to the top-right one and the same below.
-struct Corners {
-    hashes: [[f32; CORNERS]; 2],
-    cells: [[f32; 4]; CORNERS],
-}
-
-impl Default for Corners {
-    fn default() -> Corners {
-        Corners { hashes: [[0.0; CORNERS]; 2], cells: [[0.0; 4]; CORNERS] }
-    }
-}
-
-impl FilmGrain {
-    /// [`Noise::row`] for the pixels `(start, y) … (start + out.len() − 1, y)` (at most
-    /// [`FILM_RUN`]), bit for bit, into `out`.
-    fn run(&self, start: u32, y: u32, out: &mut [f32], scratch: &mut Corners) {
-        self.run_values(start, y, out, scratch);
-        let k = self.noise.attenuation(&self.space);
-        if k != 1.0 {
-            for v in out.iter_mut() {
-                *v *= k;
-            }
-        }
-    }
-
-    /// [`Noise::row_values`] for the pixels `(start, y) … (start + out.len() − 1, y)` (at most
-    /// [`FILM_RUN`]), bit for bit, into `out`; `scratch` holds the run's corners.
-    ///
-    /// Where the run stays on one row of lattice cells and steps forward by at most two cells a
-    /// pixel (a render that is not turned or mirrored, its shorter side at least about 420 pixels:
-    /// the edit view's final and a Save), each lattice corner along it is hashed once, in a loop
-    /// that vectorises, rather than four per cell the row enters; the stored-frame point, the cell
-    /// and the smoothstep blend are those `row_values` computes. Elsewhere it is `row_values`
-    /// itself. Answers whether the run took the fast path. (Film Grain's sampler of M13.36, for
-    /// this effect's own noise; `fx::noise` is shared by tasks running beside this one.)
-    fn run_values(&self, start: u32, y: u32, out: &mut [f32], scratch: &mut Corners) -> bool {
-        // `row_values`'s affine step along the row.
-        const STRIDE: u32 = 1024;
-        let cell = self.noise.cell();
-        let (u0, v0) = self.space.pixel_units(start, y);
-        let (u1, v1) = self.space.pixel_units(start.saturating_add(STRIDE), y);
-        let span = f64::from(start.saturating_add(STRIDE) - start).max(1.0);
-        let (x, v) = (u0 / cell, v0 / cell);
-        let (dx, dv) = ((u1 - u0) / span / cell, (v1 - v0) / span / cell);
-        let last = out.len().saturating_sub(1) as f64;
-        let (x_end, v_end) = (x + dx * last, v + dv * last);
-        let inside = |t: f64| t.is_finite() && t.abs() < 1e9;
-        let row = lattice_floor(v);
-        let fast = !out.is_empty()
-            && out.len() <= FILM_RUN as usize
-            && [x, v, x_end, v_end].into_iter().all(inside)
-            && dx > 0.0
-            && dx <= 2.0
-            && lattice_floor(v_end) == row;
-        if !fast {
-            self.noise.row_values(&self.space, start, y, 0, out);
-            return false;
-        }
-        let Corners { hashes, cells } = scratch;
-        // The two lattice rows' corners from the first pixel's cell to past the last's, hashed
-        // once; then per cell its top-left corner and the step to the top-right one, and the same
-        // below (the differences the blend takes, made once per cell).
-        let first = lattice_floor(x);
-        let count = usize::try_from(lattice_floor(x_end) - first + 2).unwrap_or(0).min(CORNERS);
-        let [top, bottom] = hashes;
-        let (top, bottom) = (top.get_mut(..count).unwrap_or(&mut []), bottom.get_mut(..count).unwrap_or(&mut []));
-        let (j0, j1) = (row as i32, (row + 1) as i32);
-        for (k, (t, b)) in top.iter_mut().zip(bottom.iter_mut()).enumerate() {
-            let i = (first as i32).wrapping_add(k as i32);
-            *t = 2.0 * hash01(i, j0, 0, self.seed) - 1.0;
-            *b = 2.0 * hash01(i, j1, 0, self.seed) - 1.0;
-        }
-        for (c, ((t, t1), (b, b1))) in cells.iter_mut().zip(top.iter().zip(top.iter().skip(1)).zip(bottom.iter().zip(bottom.iter().skip(1)))) {
-            *c = [*t, *t1 - *t, *b, *b1 - *b];
-        }
-        let spread = noise::SPREAD as f32;
-        let (first, row) = (first as f64, row as f64);
-        let smooth = |f: f32| f * f * (3.0 - 2.0 * f);
-        // The pixels step forward along the run, so each one's cell is found by stepping past
-        // the lattice lines it crossed (exact integers in `f64`: `⌊px⌋` itself).
-        let (mut at, mut next) = (0usize, first + 1.0);
-        let mut blend = |o: &mut f32, px: f64, sv: f32| {
-            while px >= next {
-                next += 1.0;
-                at += 1;
-            }
-            let su = smooth((px - (next - 1.0)) as f32);
-            let [t0, dt, b0, db] = cells.get(at).copied().unwrap_or([0.0; 4]);
-            let (t, b) = (t0 + dt * su, b0 + db * su);
-            *o = (t + (b - t) * sv) / spread;
-        };
-        if dv == 0.0 {
-            // On a row of the stored frame the run's place between the lattice rows is the same
-            // at every pixel.
-            let sv = smooth((v - row) as f32);
-            for (k, o) in out.iter_mut().enumerate() {
-                blend(o, x + dx * k as f64, sv);
-            }
-        } else {
-            for (k, o) in out.iter_mut().enumerate() {
-                let k = k as f64;
-                blend(o, x + dx * k, smooth((v + dv * k - row) as f32));
-            }
-        }
-        true
-    }
-}
-
-/// `⌊v⌋` of a finite `v` inside ±10⁹, as the noise's row sampler takes it.
-fn lattice_floor(v: f64) -> i64 {
-    let t = v as i64;
-    if (t as f64) > v { t - 1 } else { t }
 }
 
 impl Border {
@@ -515,58 +408,5 @@ impl Pass for Frame {
                 *v = *v * photo + i * (inner - photo) + o * (1.0 - inner);
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{Recipe, render::Geometry};
-    use dalica_image::Orientation;
-
-    /// A small xorshift for the tests' places.
-    struct Rng(u64);
-
-    impl Rng {
-        fn below(&mut self, n: u32) -> u32 {
-            self.0 ^= self.0 << 13;
-            self.0 ^= self.0 >> 7;
-            self.0 ^= self.0 << 17;
-            (self.0 % u64::from(n.max(1))) as u32
-        }
-    }
-
-    /// Widescreen Film's grain runs give bit for bit `Noise::row`: the fast path where a run stays
-    /// on one row of lattice cells (taken on an upright render at 1:1 and at half size), `row_values`
-    /// itself on a straightened, turned or small render (attenuated there).
-    #[test]
-    fn grain_runs_equal_the_noise_rows() {
-        let mut rng = Rng(0x2545_f491_4f6c_dd1d);
-        let cases: [(&[&str], u8, u32, u32, f64); 5] = [
-            (&[], 1, 2000, 1500, 1.0),
-            (&[], 1, 4000, 3000, 0.5),
-            (&["straighten(3)"], 1, 2000, 1500, 0.8),
-            (&["crop(0.1,0.2,0.9,0.8)"], 6, 2000, 1500, 0.5),
-            (&[], 1, 2000, 1500, 0.1),
-        ];
-        let mut fast = 0usize;
-        for (ops, o, w, h, scale) in cases {
-            let g = Geometry::new(&Recipe::parse(ops).unwrap(), Orientation::new(o).unwrap(), w, h);
-            let (ow, oh) = g.output_size(scale).unwrap();
-            let space = Space::from_geometry(&g, ow, oh).unwrap();
-            let grain = FilmGrain { space, noise: Noise::new(77, GRAIN_CELL), seed: 77 };
-            let mut corners = Corners::default();
-            for _ in 0..200 {
-                let (start, y) = (rng.below(ow), rng.below(oh));
-                let n = (1 + rng.below(FILM_RUN)).min(ow - start) as usize;
-                let (mut got, mut want, mut values) = (vec![0.0f32; n], vec![0.0f32; n], vec![0.0f32; n]);
-                fast += usize::from(grain.run_values(start, y, &mut values, &mut corners));
-                grain.run(start, y, &mut got, &mut corners);
-                grain.noise.row(&grain.space, start, y, 0, &mut want);
-                let bits = |v: &[f32]| v.iter().map(|f| f.to_bits()).collect::<Vec<_>>();
-                assert_eq!(bits(&got), bits(&want), "{ops:?} at {scale}: ({start}, {y}) × {n}");
-            }
-        }
-        assert!(fast >= 300, "the fast path ran {fast} times");
     }
 }

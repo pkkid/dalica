@@ -3,7 +3,7 @@
 //! linear light and their tables, each on its own; the effects that use them are tested in their own
 //! files.
 
-use dalica_edit::fx::{self, Blend, Circle, Dabs, Edges, Gaussian, Gradient, GridBlur, Mono, Noise, Plane, Space, Window};
+use dalica_edit::fx::{self, Blend, Circle, Dabs, Edges, Gaussian, Gradient, GridBlur, GridRows, Mono, Noise, Plane, Space, Window, noise};
 use dalica_edit::{Geometry, Point};
 
 use crate::common::{exif, recipe};
@@ -331,6 +331,126 @@ fn the_noise_by_rows_agrees_with_the_noise_at_each_pixel() {
                 }
             }
         }
+    }
+}
+
+/// The run sampler gives `Noise::row_values` (and with its attenuation `Noise::row`) bit for bit
+/// (Film Grain's and Widescreen Film's grain, M13.47): the fast path where a run stays on one row
+/// of lattice cells (taken on upright renders at 1:1 and at half size, for both effects' cells),
+/// `row_values` itself on a straightened, turned or small render (attenuated there), runs longer
+/// than the fast path takes, and channels other than 0.
+#[test]
+fn the_noise_runs_are_the_noise_rows_bit_for_bit() {
+    let mut rng = Seeded(0x2545_f491_4f6c_dd1d);
+    let cases: [(&[&str], u8, u32, u32, f64); 5] = [
+        (&[], 1, 2000, 1500, 1.0),
+        (&[], 1, 4000, 3000, 0.5),
+        (&["straighten(3)"], 1, 2000, 1500, 0.8),
+        (&["crop(0.1,0.2,0.9,0.8)"], 6, 2000, 1500, 0.5),
+        (&[], 1, 2000, 1500, 0.1),
+    ];
+    let bits = |v: &[f32]| v.iter().map(|f| f.to_bits()).collect::<Vec<_>>();
+    let mut corners = noise::Corners::default();
+    for cell in [0.0005, 0.0012] {
+        let mut fast = 0usize;
+        for (ops, o, w, h, scale) in cases {
+            let (s, _) = space(ops, o, w, h, scale);
+            let (ow, oh) = s.size();
+            let noise = Noise::new(77, cell);
+            for k in 0..200 {
+                let (start, y) = ((rng.next() % u64::from(ow)) as u32, (rng.next() % u64::from(oh)) as u32);
+                let n = (1 + (rng.next() % u64::from(noise::RUN + 40)) as u32).min(ow - start) as usize;
+                let channel = if k % 10 == 0 { 2 } else { 0 };
+                let (mut got, mut want) = (vec![0.0f32; n], vec![0.0f32; n]);
+                fast += usize::from(noise.run_values(&s, start, y, channel, &mut got, &mut corners));
+                noise.row_values(&s, start, y, channel, &mut want);
+                assert_eq!(bits(&got), bits(&want), "cell {cell}, {ops:?} at {scale}: ({start}, {y}) × {n}");
+                noise.run(&s, start, y, channel, &mut got, &mut corners);
+                noise.row(&s, start, y, channel, &mut want);
+                assert_eq!(bits(&got), bits(&want), "attenuated, cell {cell}, {ops:?} at {scale}: ({start}, {y}) × {n}");
+            }
+        }
+        assert!(fast >= 300, "cell {cell}: the fast path ran {fast} times");
+    }
+    // Down a band, a run at a time (the corners kept from row to row, or their lower row moved
+    // up), and across a change of run, channel or seed between two rows.
+    let (s, _) = space(&[], 1, 3000, 2000, 1.0);
+    for (cell, seed) in [(0.0005, 77), (0.0012, 78), (0.0012, 77)] {
+        let noise = Noise::new(seed, cell);
+        for start in [0u32, 256, 2816] {
+            for y in 300..340u32 {
+                for (x0, channel) in [(start, 0), (start, 0), (start + 7, 0), (start, 1), (start, 0)] {
+                    let n = (noise::RUN as usize).min((3000 - x0) as usize);
+                    let (mut got, mut want) = (vec![0.0f32; n], vec![0.0f32; n]);
+                    assert!(noise.run_values(&s, x0, y, channel, &mut got, &mut corners), "({x0}, {y}): the fast path");
+                    noise.row_values(&s, x0, y, channel, &mut want);
+                    assert_eq!(bits(&got), bits(&want), "down a band: cell {cell}, seed {seed}, ({x0}, {y}), channel {channel}");
+                }
+            }
+        }
+    }
+}
+
+/// The band sampler gives `Noise::row`'s values bit for bit where the stored frame lies square
+/// (cells wider and narrower than a pixel, a crop; Plastic Lens's grain, M13.47), and serves no
+/// row of a straightened photo (`Noise::row` does).
+#[test]
+fn the_noise_lines_are_the_noise_rows_bit_for_bit() {
+    let seed = noise::seed("plastic_lens(70,30,0)");
+    let noise = Noise::new(seed, 0.0012);
+    for (ops, (w, h), square) in [
+        (&[][..], (3000u32, 2000u32), true),
+        (&[][..], (600, 400), true),
+        (&["crop(0.1,0.2,0.7,0.9)"][..], (1800, 1400), true),
+        (&["straighten(3)"][..], (900, 600), false),
+    ] {
+        let geometry = Geometry::new(&recipe(ops), exif(1), 3000, 2000);
+        let s = Space::from_geometry(&geometry, w, h).unwrap();
+        for (x0, y0) in [(0u32, 0u32), (0, 352), (0, h - 32)] {
+            let lines = noise.lines(&s, x0, y0, w, 32, 0);
+            let (mut got, mut want) = (vec![0.0f32; w as usize], vec![0.0f32; w as usize]);
+            let mut served = 0;
+            for ly in 0..32usize {
+                noise.row(&s, x0, y0 + ly as u32, 0, &mut want);
+                if lines.as_ref().is_some_and(|l| l.row(ly, &mut got)) {
+                    assert!(got.iter().map(|v| v.to_bits()).eq(want.iter().map(|v| v.to_bits())), "{ops:?} {w}x{h} row {}", y0 + ly as u32);
+                    served += 1;
+                }
+            }
+            assert_eq!(served, if square { 32 } else { 0 }, "{ops:?} {w}x{h}");
+        }
+    }
+}
+
+/// The band reader gives `GridBlur::read` (RGB) and `GridBlur::read_luma` (one channel) bit for
+/// bit (Glow, Soften, Soft Focus and the looks read their grids with it, M13.47): one-pixel cells
+/// and wider, from any column, down rows in order, back up, and jumping (the two spread grid rows
+/// kept, swapped or made again); a grid of the wrong length is refused.
+#[test]
+fn the_grid_rows_are_the_grid_reads_bit_for_bit() {
+    let full = (900u32, 600u32);
+    let data = rgba(full.0, full.1, 11);
+    let window = Window::new(&data, 0, 0, full.0, full.1, full).unwrap();
+    for sigma in [1.5, 4.0, 18.0, 60.0, 180.0] {
+        let blur = GridBlur::new(sigma, full).unwrap();
+        let (rgb, luma) = (blur.rgb(window).unwrap(), blur.luma(window).unwrap());
+        for (x0, w) in [(0u32, 900usize), (37, 700), (893, 7)] {
+            let (mut rows, mut lumas) = (blur.rows(rgb, x0, w).unwrap(), blur.luma_rows(luma, x0, w).unwrap());
+            let (mut got, mut one) = (vec![0.0f32; w * 3], vec![0.0f32; w]);
+            for y in [0u32, 1, 2, 30, 31, 299, 300, 301, 598, 599, 5, 4, 3, 450] {
+                rows.read(y, &mut got);
+                lumas.read(y, &mut one);
+                for i in 0..w {
+                    let x = x0 + i as u32;
+                    let want = blur.read(rgb, x, y);
+                    assert_eq!(got[3 * i..3 * i + 3].iter().map(|v| v.to_bits()).collect::<Vec<_>>(), want.map(f32::to_bits), "{sigma}: ({x}, {y})");
+                    assert_eq!(one[i].to_bits(), blur.read_luma(luma, x, y).to_bits(), "luma, {sigma}: ({x}, {y})");
+                }
+            }
+        }
+        let short = fx::Cells { data: &luma.data[1..], ..luma.into() };
+        assert!(GridRows::<1>::new(&blur, short, 0, 10).is_none());
+        assert!(GridRows::<3>::new(&blur, luma.into(), 0, 10).is_none(), "{sigma}: a luma grid read as RGB");
     }
 }
 

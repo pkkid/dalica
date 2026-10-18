@@ -13,11 +13,12 @@
 //!   from the bands' pool, so a band never waits on a setup it is making.
 //! - [`grid`]: [`GridBlur`], a wide Gaussian on a coarse grid of cell means anchored in the whole
 //!   output, made once per render for every band and read back bilinearly (M13.34): what the wide
-//!   blurs of the looks and Soft Focus share.
+//!   blurs of the looks and Soft Focus share; [`GridRows`] reads one back along a band's rows.
 //! - [`noise`]: [`Noise`], smooth value noise seeded from an entry's parameters ([`noise::seed`])
 //!   and placed in the stored frame, so a thumbnail, the edit view, a zoomed region and a Save
 //!   agree; mean 0 and a standard deviation of 1 before its amount; a row at a time by
-//!   [`Noise::row`].
+//!   [`Noise::row`], a run of a row by [`Noise::run`] and a band's rows by [`Noise::lines`], the
+//!   same values bit for bit (M13.47).
 //! - [`mask`]: per-pixel masks in output pixels from stored-frame shapes: a [`Circle`] with a
 //!   feathered edge, a linear [`Gradient`] with its start, angle and feather, and the distance from
 //!   the picture's [`Edges`].
@@ -25,7 +26,8 @@
 //! - [`blend`]: the blend modes ([`Blend`]: normal, screen, overlay, soft light, multiply), [`fade`]
 //!   (`alpha = 1 − Fade/100` toward the input) and [`mix`].
 //! - [`color`]: [`luma`] (Rec.601) and sRGB ↔ linear light ([`to_linear`], [`to_srgb`]), and the
-//!   same curves as shared tables ([`linear_light`]) for an effect that converts every pixel.
+//!   same curves as shared tables ([`linear_light`]) for an effect that converts every pixel, and
+//!   [`UNIT8`], an 8-bit value's working value looked up.
 //!
 //! The primitives are made for speed (M13.34): flat slices, work at a blur's own scale, once per
 //! render rather than once per band, tables for per-pixel curves, rows rather than per-pixel maps.
@@ -46,8 +48,8 @@ pub mod space;
 pub use blend::{Blend, fade, mix};
 pub use blur::{Blurred, Gaussian, Mono, Plane, apart};
 pub use brush::{Dabs, paint};
-pub use color::{LinearLight, linear_light, luma, to_linear, to_srgb};
-pub use grid::{GridBlur, Window};
+pub use color::{LinearLight, UNIT8, linear_light, luma, to_linear, to_srgb};
+pub use grid::{Cells, GridBlur, GridRows, Window};
 pub use mask::{Circle, Edges, Gradient};
 pub use noise::Noise;
 pub use space::Space;

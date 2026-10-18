@@ -13,6 +13,11 @@
 //!   blur under the smallest box blur ([`MIN_SIGMA`]) is that blur mixed in by the share of its
 //!   variance ([`GridBlur::strength`], [`GridBlur::mix`]), so a small render blurs as a large
 //!   one does once shrunk.
+//! - **Along a band** (M13.47, from the effects' own readers of M13.36–M13.40): [`GridBlur::rows`]
+//!   and [`GridBlur::luma_rows`] read a grid back along a band's rows ([`GridRows`]) with the values
+//!   of `read` and `read_luma`, bit for bit: the place of each pixel between its two grid columns
+//!   is worked out once per band, each grid row the band reads is spread across its pixels once,
+//!   and each output row is the mix of the two it lies between, a flat loop.
 //! - **Once per render:** the grid is made by the first band that asks for it (in a `OnceLock`,
 //!   through [`super::apart`], as [`super::Blurred`] is) over the whole window the render holds,
 //!   and every band reads it. A pass's [`crate::ops::Reach`] is `Reach::Pixels(blur.reach())`:
@@ -28,7 +33,7 @@ use std::sync::OnceLock;
 use rayon::prelude::*;
 
 use super::blur::{Gaussian, Mono, Plane, apart};
-use super::{luma, mix};
+use super::{UNIT8, luma, mix};
 use crate::ops::View;
 
 /// The smallest blur three whole-pixel boxes make (radii 0, 0, 1: σ ≈ 0.82 px); a smaller one is
@@ -222,11 +227,20 @@ impl GridBlur {
 
     /// The grid cell before the pixel coordinate `p` along one axis and the weight of the next.
     fn tap(&self, p: u32) -> (i64, f32) {
-        let c = f64::from(self.cell);
-        let u = (f64::from(p) + 0.5) / c - 0.5;
-        // `⌊u⌋` (`u` is above −0.5) without a call to the library's `floor`.
-        let i = u as i64 - i64::from(u < 0.0);
-        (i, (u - i as f64) as f32)
+        tap(self.cell, p)
+    }
+
+    /// A reader of `grid` (an RGB grid this blur made, [`GridBlur::rgb`]) along the rows of `width`
+    /// pixels from the output column `x0`: [`GridBlur::read`]'s values, bit for bit (three a
+    /// pixel). `None` when its buffers cannot be had.
+    pub fn rows<'g>(&self, grid: &'g Plane, x0: u32, width: usize) -> Option<GridRows<'g, 3>> {
+        GridRows::new(self, grid.into(), x0, width)
+    }
+
+    /// [`GridBlur::rows`] on a [`GridBlur::luma`] grid: [`GridBlur::read_luma`]'s values, bit for
+    /// bit (one a pixel).
+    pub fn luma_rows<'g>(&self, grid: &'g Mono, x0: u32, width: usize) -> Option<GridRows<'g, 1>> {
+        GridRows::new(self, grid.into(), x0, width)
     }
 
     /// The cells under the window: whole-output cell coordinates of the first, and the count.
@@ -291,7 +305,7 @@ impl GridBlur {
                 for (sum, xs) in sums.iter_mut().zip(columns.chunks_exact(c)) {
                     for &lx in xs {
                         if let Some(p) = row.get(lx * 4..lx * 4 + 3) {
-                            let w = weight([f32::from(p[0]) / 255.0, f32::from(p[1]) / 255.0, f32::from(p[2]) / 255.0]);
+                            let w = weight([UNIT8[usize::from(p[0])], UNIT8[usize::from(p[1])], UNIT8[usize::from(p[2])]]);
                             *sum = [sum[0] + w[0], sum[1] + w[1], sum[2] + w[2]];
                         }
                     }
@@ -306,6 +320,148 @@ impl GridBlur {
 
     fn blurred(&self, mut plane: Plane) -> Option<Plane> {
         self.gaussian.apply(&mut plane).then_some(plane)
+    }
+}
+
+/// The grid cell before the pixel coordinate `p` along one axis, for cells of `cell` pixels, and
+/// the weight of the next (a pixel's centre placed on the grid's cell centres).
+fn tap(cell: u32, p: u32) -> (i64, f32) {
+    let c = f64::from(cell.max(1));
+    let u = (f64::from(p) + 0.5) / c - 0.5;
+    // `⌊u⌋` (`u` is above −0.5) without a call to the library's `floor`.
+    let i = u as i64 - i64::from(u < 0.0);
+    (i, (u - i as f64) as f32)
+}
+
+/// A grid's cells as flat values, row-major, placed in the whole output by cells: an RGB grid
+/// ([`Plane`], three values a cell) or a luma grid ([`Mono`], one), for [`GridRows::new`].
+#[derive(Clone, Copy, Debug)]
+pub struct Cells<'g> {
+    pub x0: u32,
+    pub y0: u32,
+    pub width: u32,
+    pub height: u32,
+    pub data: &'g [f32],
+}
+
+impl<'g> From<&'g Plane> for Cells<'g> {
+    fn from(p: &'g Plane) -> Cells<'g> {
+        Cells { x0: p.x0, y0: p.y0, width: p.width, height: p.height, data: p.data.as_flattened() }
+    }
+}
+
+impl<'g> From<&'g Mono> for Cells<'g> {
+    fn from(m: &'g Mono) -> Cells<'g> {
+        Cells { x0: m.x0, y0: m.y0, width: m.width, height: m.height, data: &m.data }
+    }
+}
+
+/// A grid read back along a band's rows, `C` values a pixel ([`GridBlur::rows`],
+/// [`GridBlur::luma_rows`]): the bilinear read of [`GridBlur::read`] (its lerp across, then its
+/// lerp down, in the same order), bit for bit. Each pixel's two grid columns and weight are found
+/// once; each grid row the rows read is spread across the pixels once and kept while the next
+/// rows read it (two at a time).
+pub struct GridRows<'g, const C: usize> {
+    /// The grid: `C` values a cell, row-major, and its rows.
+    data: &'g [f32],
+    y0: u32,
+    height: u32,
+    /// Values a grid row.
+    stride: usize,
+    cell: u32,
+    /// Per pixel: where its two grid columns start in a grid row, and the weight of the second.
+    taps: Vec<(u32, u32, f32)>,
+    /// Two grid rows spread across the pixels (`C` values a pixel), and which grid rows they are.
+    spread: [(i64, Vec<f32>); 2],
+}
+
+impl<'g, const C: usize> GridRows<'g, C> {
+    /// A reader of `cells` (a grid `blur` made, `C` values a cell) along the rows of `width`
+    /// pixels from the output column `x0`; `None` when the cells are not `C` values each or its
+    /// buffers cannot be had.
+    pub fn new(blur: &GridBlur, cells: Cells<'g>, x0: u32, width: usize) -> Option<GridRows<'g, C>> {
+        let Cells { x0: gx0, y0, width: gw, height, data } = cells;
+        let cell = blur.cell;
+        let stride = (gw as usize).checked_mul(C)?;
+        if stride.checked_mul(height as usize)? != data.len() || C == 0 {
+            return None;
+        }
+        let last = i64::from(gw.max(1)) - 1;
+        let at = |i: i64| u32::try_from((i - i64::from(gx0)).clamp(0, last) as usize * C).unwrap_or(u32::MAX);
+        let mut taps = Vec::new();
+        taps.try_reserve_exact(width).ok()?;
+        taps.extend((0..width).map(|k| {
+            let x = x0.saturating_add(u32::try_from(k).unwrap_or(u32::MAX));
+            if cell <= 1 {
+                (at(i64::from(x)), 0, 0.0)
+            } else {
+                let (i, t) = tap(cell, x);
+                (at(i), at(i + 1), t)
+            }
+        }));
+        // One-pixel cells read the grid's values themselves: no row is spread.
+        let n = if cell <= 1 { 0 } else { width.checked_mul(C)? };
+        let line = || {
+            let mut v = Vec::new();
+            v.try_reserve_exact(n).ok()?;
+            v.resize(n, 0.0f32);
+            Some(v)
+        };
+        Some(GridRows { data, y0, height, stride, cell, taps, spread: [(i64::MIN, line()?), (i64::MIN, line()?)] })
+    }
+
+    /// The grid row `j` (clamped into the grid).
+    fn grid_row(&self, j: i64) -> &'g [f32] {
+        let lj = (j - i64::from(self.y0)).clamp(0, i64::from(self.height.max(1)) - 1) as usize;
+        let at = lj.saturating_mul(self.stride);
+        self.data.get(at..at.saturating_add(self.stride)).unwrap_or(&[])
+    }
+
+    /// The blur at the pixels of the output row `y`, into `out` (`C` values a pixel); not yet
+    /// mixed by the strength ([`GridBlur::mix`]).
+    pub fn read(&mut self, y: u32, out: &mut [f32]) {
+        let out = out.as_chunks_mut::<C>().0;
+        if self.cell <= 1 {
+            let row = self.grid_row(i64::from(y));
+            for (o, &(i0, _, _)) in out.iter_mut().zip(&self.taps) {
+                let i0 = i0 as usize;
+                if let Some(v) = row.get(i0..i0 + C) {
+                    o.copy_from_slice(v);
+                }
+            }
+            return;
+        }
+        let (j, ty) = tap(self.cell, y);
+        if self.spread[0].0 != j {
+            if self.spread[1].0 == j {
+                self.spread.swap(0, 1);
+            } else {
+                let row = self.grid_row(j);
+                spread_row::<C>(row, &self.taps, &mut self.spread[0].1);
+                self.spread[0].0 = j;
+            }
+        }
+        if self.spread[1].0 != j + 1 {
+            let row = self.grid_row(j + 1);
+            spread_row::<C>(row, &self.taps, &mut self.spread[1].1);
+            self.spread[1].0 = j + 1;
+        }
+        let [(_, top), (_, bottom)] = &self.spread;
+        for ((o, &a), &b) in out.as_flattened_mut().iter_mut().zip(top).zip(bottom) {
+            *o = a + (b - a) * ty;
+        }
+    }
+}
+
+/// The grid row `row` read across the pixels at `taps`, into `out` (`C` values a pixel).
+fn spread_row<const C: usize>(row: &[f32], taps: &[(u32, u32, f32)], out: &mut [f32]) {
+    for (o, &(i0, i1, t)) in out.as_chunks_mut::<C>().0.iter_mut().zip(taps) {
+        let (i0, i1) = (i0 as usize, i1 as usize);
+        if let (Some(a), Some(b)) = (row.get(i0..i0 + C), row.get(i1..i1 + C)) {
+            for ((o, &a), &b) in o.iter_mut().zip(a).zip(b) {
+                *o = a + (b - a) * t;
+            }
+        }
     }
 }
 

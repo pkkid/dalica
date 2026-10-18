@@ -31,8 +31,9 @@
 //!     blurs alike; a region render equals that window of the whole render. Each row solves the
 //!     circle once (its squared distance is a quadratic along the row): the sharp core is left
 //!     as it is without reading the blur, the edge is weighed pixel by pixel, and the rest takes
-//!     the blur in full on flat runs, the grid's two rows blended once per pixel row and each
-//!     column's taps once per band. Amount 0 changes nothing.
+//!     the blur in full on flat runs, read along the band's rows by [`crate::fx::GridRows`]
+//!     (M13.47: each column's taps once per band, each grid row spread across the band once, bit
+//!     for bit [`GridBlur::read`]). Amount 0 changes nothing.
 //!   - Focal B&W: colour inside the circle of Size, the Rec.601 grey ([`crate::fx::luma`]) outside;
 //!     the edge fades over `(1 − Sharpness) × Size` (one output pixel at Sharpness 1). Pixel-only.
 //!   - Graduated Tint: a [`Gradient`] from the start along the angle over Feather (at least one
@@ -45,7 +46,7 @@ use std::fmt;
 
 use super::{Adjust, Band, DEGREES, Operation, ParamError, Pass, Prepare, Reach, Reader, UNIT, clamp, clamp_point, hex, num, num_point};
 use crate::frame::Point;
-use crate::fx::{Circle, Gradient, GridBlur, Plane, Space, Window, luma, mix, smoothstep};
+use crate::fx::{Circle, Gradient, GridBlur, Space, Window, luma, mix, smoothstep};
 
 /// The range of a focal circle's Size: its radius as a fraction of the shorter side.
 pub const SIZE: (f64, f64) = UNIT;
@@ -332,31 +333,6 @@ impl Rows {
     }
 }
 
-/// Where a pixel column reads the grid: its two cells (as offsets into the grid's row) and the
-/// weight of the second, as [`GridBlur::read`] taps them.
-#[derive(Clone, Copy)]
-struct Tap {
-    i0: usize,
-    i1: usize,
-    t: f32,
-}
-
-/// The grid cell before the pixel coordinate `p` along one axis and the weight of the next, for
-/// cells of `cell` pixels (as [`GridBlur`] reads its grid).
-fn tap(p: u32, cell: u32) -> (i64, f32) {
-    let c = f64::from(cell.max(1));
-    let u = (f64::from(p) + 0.5) / c - 0.5;
-    let i = u.floor();
-    (i as i64, (u - i) as f32)
-}
-
-/// The grid's row `j` (clamped into it).
-fn grid_row(grid: &Plane, j: i64) -> &[[f32; 3]] {
-    let w = grid.width as usize;
-    let lj = (j - i64::from(grid.y0)).clamp(0, i64::from(grid.height.max(1)) - 1) as usize;
-    grid.data.get(lj * w..(lj + 1) * w).unwrap_or(&[])
-}
-
 impl Pass for SoftFocusPass {
     fn reach(&self) -> Reach {
         Reach::Pixels(self.blur.reach())
@@ -374,21 +350,11 @@ impl Pass for SoftFocusPass {
             return;
         }
         let Some(grid) = Window::of(view).and_then(|w| self.blur.rgb(w)) else { return };
-        let cell = self.blur.cell();
-        let last = i64::from(grid.width.max(1)) - 1;
-        let cell_at = |i: i64| (i - i64::from(grid.x0)).clamp(0, last) as usize;
-        // The grid's columns the band reads, and each pixel column's taps among them (the same on
-        // every row).
-        let (g0, g1) = (cell_at(tap(band.x0, cell).0), cell_at(tap(x1, cell).0.saturating_add(1)));
-        let taps: Vec<Tap> = (band.x0..=x1)
-            .map(|x| {
-                let (i, t) = tap(x, cell);
-                Tap { i0: cell_at(i).saturating_sub(g0), i1: cell_at(i.saturating_add(1)).saturating_sub(g0), t }
-            })
-            .collect();
-        let mut column = vec![[0.0f32; 3]; g1.saturating_sub(g0) + 1];
-        let strength = self.blur.strength();
         let width = band.width as usize;
+        // The grid read along the band's rows (each column's taps found once per band).
+        let Some(mut rows) = self.blur.rows(grid, band.x0, width) else { return };
+        let mut line = vec![[0.0f32; 3]; width];
+        let strength = self.blur.strength();
         let (bx0, bx1) = (i64::from(band.x0), i64::from(x1));
         // A span's columns as offsets into the band: `start..end`.
         let local = |span: Span| {
@@ -400,40 +366,29 @@ impl Pass for SoftFocusPass {
         };
         for (j, pixels) in band.pixels.chunks_exact_mut(width).enumerate() {
             let y = band.y0.saturating_add(j as u32);
-            // The grid between its two rows about this pixel row.
-            let (gj, ty) = tap(y, cell);
-            let (Some(top), Some(bottom)) = (grid_row(grid, gj).get(g0..=g1), grid_row(grid, gj.saturating_add(1)).get(g0..=g1)) else {
-                continue;
-            };
-            for ((v, a), b) in column.iter_mut().zip(top).zip(bottom) {
-                *v = lerp(*a, *b, ty);
-            }
             // Fully blurred outside the circle, the edge read pixel by pixel, the core unchanged.
             let row = self.rows.row(y);
             let (u0, u1) = local(row.under);
             let (c0, c1) = local(row.core);
             let (c0, c1) = if c0 < c1 { (c0.max(u0), c1.min(u1)) } else { (u0, u0) };
-            let blurred = |t: &Tap| match (column.get(t.i0), column.get(t.i1)) {
-                (Some(a), Some(b)) => Some(lerp(*a, *b, t.t)),
-                _ => None,
-            };
+            if c0 == 0 && c1 == width {
+                // A row wholly in the core never reads the blur.
+                continue;
+            }
+            rows.read(y, line.as_flattened_mut());
             for (s, e) in [(0, u0), (u1, width)] {
-                let (Some(pixels), Some(taps)) = (pixels.get_mut(s..e), taps.get(s..e)) else { continue };
-                for (px, t) in pixels.iter_mut().zip(taps) {
-                    if let Some(b) = blurred(t) {
-                        *px = lerp(*px, b, strength);
-                    }
+                let (Some(pixels), Some(blurred)) = (pixels.get_mut(s..e), line.get(s..e)) else { continue };
+                for (px, b) in pixels.iter_mut().zip(blurred) {
+                    *px = lerp(*px, *b, strength);
                 }
             }
             for (s, e) in [(u0, c0), (c1, u1)] {
-                let (Some(pixels), Some(taps)) = (pixels.get_mut(s..e), taps.get(s..e)) else { continue };
-                for (k, (px, t)) in pixels.iter_mut().zip(taps).enumerate() {
+                let (Some(pixels), Some(blurred)) = (pixels.get_mut(s..e), line.get(s..e)) else { continue };
+                for (k, (px, b)) in pixels.iter_mut().zip(blurred).enumerate() {
                     let x = band.x0.saturating_add((s + k) as u32);
                     let outside = (1.0 - self.rows.at(&row, x)) * strength;
-                    if outside > 0.0
-                        && let Some(b) = blurred(t)
-                    {
-                        *px = lerp(*px, b, outside);
+                    if outside > 0.0 {
+                        *px = lerp(*px, *b, outside);
                     }
                 }
             }
