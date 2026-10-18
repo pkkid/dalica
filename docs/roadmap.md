@@ -8642,8 +8642,60 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
     files in its scope (`architecture.md` §9).
   - done when: `cargo xtask tasks sync --check` parses them and `tasks sync --dry-run` lists the new
     M15 tasks as planned.
-- ⬜ **M13.R Release 0.8 gate**
+- ⬜ **M13.51 `faces` + `ui`: fixes found by accept M13: the two benches' debug runs, the scan's pace from the window, a model file's path under the read roots**
   - after: M13.32
+  - files: `crates/faces/benches/inference.rs`, `crates/faces/src/synthetic.rs`, `crates/ui/benches/people_places.rs`, `crates/ui/src/user_activity.rs`, `crates/ui/src/app.rs`, `crates/ui/tests/face_scan_pace.rs`, `crates/ui/src/control/engine.rs`, `crates/ui/src/control/tests.rs`, `crates/mcp/src/headless.rs`, `crates/mcp/tests/roots.rs`, `docs/control-protocol.md`, `docs/security.md`
+  - scope: four bugs M13.32 (`accept M13`, #908) found. (1) **The `inference` bench's debug run:**
+    without `--bench` it runs at a 160 px detector side, a 10-column stride-16 grid, and the second
+    planted face (`PLANTED`, column 18) falls outside it, so the network reports one face and the
+    run's `assert_eq!(found, PLANTED.len())` fails. The faces are planted where every side the
+    bench accepts holds them (scaled to the side's grid, or a smoke side whose grid holds both),
+    and a planted cell outside the grid fails with a message naming the side, never silently
+    (an additive check in `dalica_faces::synthetic` if the bench cannot see the grid; the
+    `yunet_shaped` signature stays: `crates/engine` calls it). The release run at 640 px and its
+    budgets are unchanged. (2) **The `people_places` bench's debug run:** its 1 000 photos (and
+    3 000) make so few Unnamed groups (sizes 1 500 ÷ k) that the grid fits the window, so the
+    wheel moves nothing and "the wheel scrolled the grid" fails. The planted groups scale with
+    `--photos` (or the smoke library is one the grid overflows) so every library the bench
+    accepts scrolls; the assert stays, the release rows at 10 000 photos and their budgets are
+    unchanged. (3) **The window reports the user's input to the face scan:** nothing in
+    `crates/ui` or `apps/` calls `Session::user_activity`, so the scan never holds back while the
+    user drags, types or scrolls (`faces.md` §4). A new `crates/ui/src/user_activity.rs` reads
+    each frame's input once (`App::frame`, before the panels take the keys) and reports one
+    `UserActivity`: `Input` for a key, typed text, a wheel, a pointer button down or a drag;
+    `Pointer` for a pointer move alone; `Away` while the viewport is minimised, or with no input
+    while the People view is shown (Unnamed or a person's section); else `Idle`. Reported on
+    change and at most once a second while unchanged (the session notes the time; the per-frame
+    cost is one input read). Input that automation injects (the control channel's clicks, keys
+    and wheel) counts as the user's: the window cannot tell them apart, and the scan only
+    slows. (4) **A model file's path under the read roots:** `faceModel.addFile {path}` (M13.27)
+    and `faceModel.open {file}` are UI commands with no effect, and the face model dialog starts
+    inspecting the file at once, so a control client reads any `.onnx` on the machine;
+    `folders.add` and `import.openSource` are checked against the automation read roots
+    (`control/engine.rs`'s `READ_PATHS`, `control-protocol.md` §5.7, `security.md` §6.6) and these
+    are not. Both join `READ_PATHS` (the picker's answer is checked already, `control/picker.rs`),
+    and so do the engine's `faces.models.inspect {path}` and `faces.models.install {path}`
+    (external-gated, but once allowed they read any path too), there and in headless MCP's
+    `check_paths` (`crates/mcp/src/headless.rs`), which today checks only `folders.add` and
+    `folders.set`. Decision (the lead's, reversible): a model file is read as a folder to add is
+    (inside a read root, a client root or a watched folder; none given: refused, except
+    `--demo`); the window's own Add a Model File… and a dropped `.onnx` are the user's and stay
+    unchecked. `control-protocol.md` §5.7's Reading list and `security.md`'s path-bearing
+    commands (§6.6) name the model file.
+  - done when: `cargo test -p dalica-faces --bench inference -- --json` and `cargo test -p
+    dalica-ui --bench people_places -- --json` pass (each failed before the fix; outputs in the
+    PR); `crates/ui/tests/face_scan_pace.rs` (headless, a `VirtualClock` session with a synthetic
+    model planted as `suggestions_ui.rs` does): while a wheel, key or drag arrives every frame the
+    scan starts no photo and `face_scan().activity()` holds `Input`; a pointer move alone reports
+    `Pointer`; frames with no input for three seconds of the clock report `Idle` and the scan finds
+    the faces; minimised reports `Away` (fails without the fix); `crates/ui/src/control/tests.rs`:
+    a control client whose read roots do not hold the file is refused `faceModel.addFile {path}`
+    with `path_denied` and no dialog opens, and with the file under a read root the dialog opens
+    on it (fails without the fix); `crates/mcp/tests/roots.rs`: headless MCP with
+    `--automation-allow-external` refuses `faces.models.inspect {path}` outside every root with
+    `path_denied` (fails without the fix); `cargo xtask ci`.
+- ⬜ **M13.R Release 0.8 gate**
+  - after: M13.32, M13.51
   - owner: maintainer
   - files: `docs/roadmap.md`, `docs/status.md`
   - scope: a release gate (Release 0.8): the lead runs `/milestone-review M13.R` to prepare it, with
@@ -8691,7 +8743,7 @@ wave 5   M13.25 People tree + person sections  ‖  M13.26 suggestions  ‖  M13
 wave 6   M13.30 suggestions in the window  ‖  M13.31 M13 budgets  ‖  M13.48 people follow-ups
          then M13.49 names withheld + a person's own selection (review fixes, after M13.48)
          ‖  M13.50 the gate tests direct dependents (after M13.17: shared docs/development.md)
-wave 7   M13.32 accept M13 → M13.R          (M13.33 lead: M15 blocks, any time after M12.23)
+wave 7   M13.32 accept M13, then M13.51 its fixes → M13.R   (M13.33 lead: M15 blocks, any time after M12.23)
 
 speed lane (effect speed, from M12.R; the board fits it between the feature waves, whose files
 it never shares except M13.43 with M13.31):
