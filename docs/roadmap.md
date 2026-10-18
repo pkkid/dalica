@@ -8576,7 +8576,7 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
     confirmed photos and one suggested: clicking her row selects the two, the suggested cell still
     shows, the tray token counts 2, Play plays the two and Export offers two photos (fails without
     the fix); the existing control, people and suggestion tests pass; `cargo xtask ci`.
-- ⬜ **M13.50 `xtask`: the task gate also tests the packages that depend directly on a changed package**
+- ✅ **M13.50 `xtask`: the task gate also tests the packages that depend directly on a changed package**
   - after: M12.R, M13.17
   - files: `xtask/src/ci.rs`, `docs/development.md`, `AGENTS.md`
   - scope: the maintainer's answer at the M13.R review prep (2026-10-18). Twice in M13 a dependent's

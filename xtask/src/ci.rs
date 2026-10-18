@@ -5,9 +5,12 @@
 //! Three strengths, so nothing runs twice and the full list runs once, at the milestone review:
 //!
 //! - **`cargo xtask ci`** (a task's gate, run by its worker): fmt, clippy over the whole workspace
-//!   (every crate and every test still compiles), the static checks, and the tests of only the
-//!   packages the branch changed, in quick mode. A change to the root manifest, the lock file or
-//!   the toolchain tests every package; a change only to docs tests none.
+//!   (every crate and every test still compiles), the static checks, and the tests of the
+//!   packages the branch changed and of the workspace packages that depend on one of them
+//!   **directly** (a normal, dev or build dependency), in quick mode; transitive dependents are not
+//!   added, and a break there surfaces at the review. `dalica-acceptance` and `xtask` are never added
+//!   as dependents (they run when their own files change). A change to the root manifest, the lock
+//!   file or the toolchain tests every package; a change only to docs tests none.
 //! - **`cargo xtask ci --merge`** (`tasks merge`, after the rebase): fmt, clippy and the static
 //!   checks, no tests: the worker's gate already ran them on the same changes, and tasks never
 //!   share files.
@@ -19,7 +22,7 @@
 //!   the packages in [`PURE`].
 //!
 //! `stats --check` (the workflow floor, `crate::stats`) runs in the review gate and in a task gate
-//! that tests `dalica-mcp`.
+//! that tests `dalica-mcp`, as a changed package or as a dependent.
 
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -130,9 +133,24 @@ impl Gate {
 pub enum Selection {
     /// Every package (the build itself changed, or the changes could not be read).
     All(String),
-    /// These packages (possibly none: only docs changed).
-    Some(BTreeSet<String>),
+    /// The packages the branch changed (possibly none: only docs changed) and the members that
+    /// depend on one of them directly, not already changed themselves.
+    Some { changed: BTreeSet<String>, dependents: BTreeSet<String> },
 }
+
+/// A workspace member: its directory (relative, `/`-separated), its package name and the names of
+/// the packages it depends on (normal, dev and build dependencies, target-specific ones included).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Member {
+    pub dir: String,
+    pub name: String,
+    pub deps: BTreeSet<String>,
+}
+
+/// Members never added as a dependent of a changed package: the acceptance package dev-depends on
+/// most crates, and its tests run at the review and when its own files change; `xtask` tests the
+/// gates, not the crates. Both still run as changed packages.
+pub const NEVER_DEPENDENT: &[&str] = &[ACCEPTANCE, "xtask"];
 
 /// Files outside every package that change how everything builds or runs: any change to one tests
 /// every package.
@@ -143,27 +161,33 @@ fn is_prose(path: &str) -> bool {
     path.ends_with(".md") || [".github/", ".claude/", "docs/", "notes/", "log/", "website/"].iter().any(|p| path.starts_with(p))
 }
 
-/// The packages a branch's `changed` files belong to. `packages` holds each workspace member's
-/// directory (relative, `/`-separated) and name; a file belongs to the member whose directory is
-/// its longest prefix.
-pub fn select(changed: &[String], packages: &[(String, String)]) -> Selection {
+/// The packages a branch's `changed` files belong to, and the members that depend on one of them
+/// directly. A file belongs to the member whose directory is its longest prefix. Dependents of
+/// dependents are not added, nor are the [`NEVER_DEPENDENT`] members.
+pub fn select(changed: &[String], members: &[Member]) -> Selection {
     let mut picked = BTreeSet::new();
     for path in changed {
         let path = path.replace('\\', "/");
         if EVERYTHING.contains(&path.as_str()) || path.starts_with(".cargo/") {
             return Selection::All(format!("{path} changed"));
         }
-        let owner = packages.iter().filter(|(dir, _)| path.starts_with(&format!("{dir}/"))).max_by_key(|(dir, _)| dir.len());
+        let owner = members.iter().filter(|m| path.starts_with(&format!("{}/", m.dir))).max_by_key(|m| m.dir.len());
         match owner {
-            Some((_, name)) if !path.ends_with(".md") => {
-                picked.insert(name.clone());
+            Some(m) if !path.ends_with(".md") => {
+                picked.insert(m.name.clone());
             }
             Some(_) => {}
             None if is_prose(&path) => {}
             None => return Selection::All(format!("{path} is outside every package")),
         }
     }
-    Selection::Some(picked)
+    let dependents = members
+        .iter()
+        .filter(|m| !picked.contains(&m.name) && !NEVER_DEPENDENT.contains(&m.name.as_str()))
+        .filter(|m| m.deps.iter().any(|d| picked.contains(d)))
+        .map(|m| m.name.clone())
+        .collect();
+    Selection::Some { changed: picked, dependents }
 }
 
 /// The `name` of a manifest's `[package]` table.
@@ -182,8 +206,72 @@ pub fn package_name(manifest: &str) -> Option<String> {
     None
 }
 
-/// The workspace members (`crates/*`, `apps/*`, `xtask`, `tests/acceptance`): directory and name.
-fn members(root: &Path) -> Vec<(String, String)> {
+/// The package names a manifest depends on: the keys of every `[dependencies]`,
+/// `[dev-dependencies]` and `[build-dependencies]` table, target-specific ones
+/// (`[target.'cfg(unix)'.dependencies]`) and the `[dependencies.<name>]` form included; a renamed
+/// dependency (`package = "…"`) counts under its package name.
+pub fn dependency_names(manifest: &str) -> BTreeSet<String> {
+    const TABLES: &[&str] = &["dependencies", "dev-dependencies", "dev_dependencies", "build-dependencies", "build_dependencies"];
+    let unquote = |s: &str| s.trim().trim_matches(|c| c == '"' || c == '\'').to_string();
+    // The quoted `package = "…"` value of an inline table or a dependency table's line.
+    let package_of = |text: &str| -> Option<String> {
+        text.match_indices("package").find_map(|(at, word)| {
+            let rest = text.get(at + word.len()..)?.trim_start().strip_prefix('=')?.trim_start().strip_prefix('"')?;
+            Some(rest.get(..rest.find('"')?)?.to_string())
+        })
+    };
+    let mut names = BTreeSet::new();
+    // In a dependency list (`[dependencies]`), or in one dependency's own table
+    // (`[dependencies.x]`, holding its key name until a `package` line renames it).
+    let mut in_list = false;
+    let mut table_dep: Option<String> = None;
+    for line in manifest.lines().map(str::trim) {
+        if line.starts_with('[') {
+            if let Some(dep) = table_dep.take() {
+                names.insert(dep);
+            }
+            let header = line.trim_start_matches('[').trim_end_matches(']').trim();
+            // Leave out `target.'cfg(…)'.` or `target.<triple>.` so the rest is the table's own path.
+            let path = match header.strip_prefix("target.") {
+                Some(rest) => match rest.rfind(['\'', '"']) {
+                    Some(i) => rest.get(i + 1..).unwrap_or_default().trim_start_matches('.'),
+                    None => rest.split_once('.').map_or("", |(_, r)| r),
+                },
+                None => header,
+            };
+            let (table, dep) = path.split_once('.').map_or((path, None), |(t, d)| (t, Some(d)));
+            in_list = TABLES.contains(&table) && dep.is_none();
+            table_dep = dep.filter(|_| TABLES.contains(&table)).map(unquote);
+            continue;
+        }
+        if line.starts_with('#') || line.is_empty() {
+            continue;
+        }
+        if let Some(dep) = table_dep.as_mut() {
+            if let Some(p) = package_of(line).filter(|_| line.starts_with("package")) {
+                *dep = p;
+            }
+            continue;
+        }
+        if in_list {
+            let Some((key, value)) = line.split_once('=') else { continue };
+            // `name.workspace = true` and `name = { … }` both start with the dependency's key.
+            let key = key.split('.').next().map(unquote).unwrap_or_default();
+            if key.is_empty() {
+                continue;
+            }
+            names.insert(package_of(value).unwrap_or(key));
+        }
+    }
+    if let Some(dep) = table_dep {
+        names.insert(dep);
+    }
+    names
+}
+
+/// The workspace members (`crates/*`, `apps/*`, `xtask`, `tests/acceptance`): directory, name and
+/// dependencies.
+fn members(root: &Path) -> Vec<Member> {
     let mut dirs = Vec::new();
     for group in ["crates", "apps"] {
         if let Ok(entries) = std::fs::read_dir(root.join(group)) {
@@ -196,7 +284,8 @@ fn members(root: &Path) -> Vec<(String, String)> {
     dirs.into_iter()
         .filter_map(|dir| {
             let manifest = std::fs::read_to_string(root.join(&dir).join("Cargo.toml")).ok()?;
-            Some((dir, package_name(&manifest)?))
+            let name = package_name(&manifest)?;
+            Some(Member { dir, name, deps: dependency_names(&manifest) })
         })
         .collect()
 }
@@ -278,7 +367,7 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), String> {
             Ok(files) => select(&files, &members(root)),
             Err(e) => Selection::All(format!("the changes could not be read ({e})")),
         },
-        Gate::Merge => Selection::Some(BTreeSet::new()),
+        Gate::Merge => Selection::Some { changed: BTreeSet::new(), dependents: BTreeSet::new() },
         Gate::Full { .. } => Selection::All("the review gate".into()),
     };
     let (test_all, picked) = match &selection {
@@ -286,13 +375,15 @@ pub fn run(root: &Path, args: &[String]) -> Result<(), String> {
             println!("ci: testing every package: {why}");
             (true, BTreeSet::new())
         }
-        Selection::Some(p) if p.is_empty() => {
+        Selection::Some { changed, .. } if changed.is_empty() => {
             println!("ci: no package to test ({})", if gate == Gate::Merge { "the merge gate" } else { "only docs changed" });
             (false, BTreeSet::new())
         }
-        Selection::Some(p) => {
-            println!("ci: testing the changed packages: {}", p.iter().cloned().collect::<Vec<_>>().join(", "));
-            (false, p.clone())
+        Selection::Some { changed, dependents } => {
+            let list = |s: &BTreeSet<String>| if s.is_empty() { "none".to_string() } else { s.iter().cloned().collect::<Vec<_>>().join(", ") };
+            println!("ci: testing the changed packages: {}", list(changed));
+            println!("ci: and their direct dependents: {}", list(dependents));
+            (false, changed.union(dependents).cloned().collect())
         }
     };
     let test_acceptance = test_all || picked.contains(ACCEPTANCE);
@@ -527,20 +618,29 @@ mod tests {
         assert!(Gate::parse(&a(&["--fast"])).is_err());
     }
 
+    /// Synthetic members: directory, name and dependencies.
+    fn graph(members: &[(&str, &str, &[&str])]) -> Vec<Member> {
+        members
+            .iter()
+            .map(|(dir, name, deps)| Member { dir: dir.to_string(), name: name.to_string(), deps: deps.iter().map(|d| d.to_string()).collect() })
+            .collect()
+    }
+
+    fn set(names: &[&str]) -> BTreeSet<String> {
+        names.iter().map(|n| n.to_string()).collect()
+    }
+
     #[test]
     fn a_task_tests_the_packages_it_changed() {
-        let members: Vec<(String, String)> = [
-            ("crates/ui", "dalica-ui"),
-            ("crates/ui-kit", "dalica-ui-kit"),
-            ("crates/image", "dalica-image"),
-            ("tests/acceptance", ACCEPTANCE),
-            ("xtask", "xtask"),
-        ]
-        .iter()
-        .map(|(d, n)| (d.to_string(), n.to_string()))
-        .collect();
+        let members = graph(&[
+            ("crates/ui", "dalica-ui", &[]),
+            ("crates/ui-kit", "dalica-ui-kit", &[]),
+            ("crates/image", "dalica-image", &[]),
+            ("tests/acceptance", ACCEPTANCE, &[]),
+            ("xtask", "xtask", &[]),
+        ]);
         let pick = |files: &[&str]| select(&files.iter().map(|f| f.to_string()).collect::<Vec<_>>(), &members);
-        let some = |names: &[&str]| Selection::Some(names.iter().map(|n| n.to_string()).collect());
+        let some = |names: &[&str]| Selection::Some { changed: set(names), dependents: BTreeSet::new() };
         // The longest directory wins: ui-kit is not ui.
         assert_eq!(pick(&["crates/ui-kit/src/lib.rs", "crates/ui/tests/layout.rs"]), some(&["dalica-ui", "dalica-ui-kit"]));
         // Docs alone test nothing; a crate's README is docs too.
@@ -557,16 +657,88 @@ mod tests {
     }
 
     #[test]
+    fn a_task_also_tests_the_direct_dependents_of_what_it_changed() {
+        // core → library → engine → ui; the acceptance package and xtask depend on everything.
+        let members = graph(&[
+            ("crates/core", "dalica-core", &[]),
+            ("crates/library", "dalica-library", &["dalica-core"]),
+            ("crates/engine", "dalica-engine", &["dalica-core", "dalica-library", "dalica-engine"]),
+            ("crates/ui", "dalica-ui", &["dalica-engine", "serde"]),
+            ("tests/acceptance", ACCEPTANCE, &["dalica-core", "dalica-library", "dalica-engine", "dalica-ui"]),
+            ("xtask", "xtask", &["dalica-library", "serde_json"]),
+        ]);
+        let pick = |files: &[&str]| select(&files.iter().map(|f| f.to_string()).collect::<Vec<_>>(), &members);
+        let some = |changed: &[&str], dependents: &[&str]| Selection::Some { changed: set(changed), dependents: set(dependents) };
+        // A library change: it and its direct dependent, not the dependent's dependents, never the
+        // acceptance package or xtask.
+        assert_eq!(pick(&["crates/library/src/lib.rs"]), some(&["dalica-library"], &["dalica-engine"]));
+        assert_eq!(pick(&["crates/core/src/lib.rs"]), some(&["dalica-core"], &["dalica-engine", "dalica-library"]));
+        // A dependent that changed itself is listed once, as changed; a package's dependency on
+        // itself adds nothing.
+        assert_eq!(pick(&["crates/library/src/lib.rs", "crates/engine/src/lib.rs"]), some(&["dalica-engine", "dalica-library"], &["dalica-ui"]));
+        // Nothing depends on the top of the graph.
+        assert_eq!(pick(&["crates/ui/src/lib.rs"]), some(&["dalica-ui"], &[]));
+        // The acceptance package and xtask still run as changed packages.
+        assert_eq!(pick(&["tests/acceptance/m13.rs", "xtask/src/ci.rs"]), some(&[ACCEPTANCE, "xtask"], &[]));
+        // Docs alone still test nothing; the build files still test everything.
+        assert_eq!(pick(&["docs/roadmap.md", "crates/library/README.md"]), some(&[], &[]));
+        assert!(matches!(pick(&["crates/library/src/lib.rs", "Cargo.toml"]), Selection::All(_)));
+        assert!(matches!(pick(&["crates/library/src/lib.rs", "Cargo.lock"]), Selection::All(_)));
+    }
+
+    #[test]
+    fn dependencies_come_from_every_dependency_table() {
+        let manifest = "[package]\nname = \"dalica-x\"\n\n[features]\nheif = [\"dalica-image/heif\"]\n\n[dependencies]\n\
+                        # a comment = here\ndalica-core.workspace = true\nlog = { workspace = true }\n\
+                        alias = { path = \"../package-dir\", package = \"dalica-fs\" }\nfeatures-list = { version = \"1\", features = [\n  \"a\",\n] }\n\n\
+                        [dev-dependencies]\ndalica-scenes.workspace = true\n\n[build-dependencies]\n\"dalica-meta\" = \"1\"\n\n\
+                        [target.'cfg(unix)'.dependencies]\nrustix.workspace = true\n\n[target.x86_64-pc-windows-msvc.dev-dependencies]\nwinapi = \"1\"\n\n\
+                        [dependencies.renamed]\nversion = \"1\"\npackage = \"dalica-store\"\n\n[target.\"cfg(windows)\".dependencies.dalica-edit]\npath = \"../edit\"\n\n\
+                        [[test]]\nname = \"all\"\npath = \"tests/all.rs\"\n\n[lints]\nworkspace = true\n";
+        assert_eq!(
+            dependency_names(manifest),
+            set(&[
+                "dalica-core",
+                "dalica-edit",
+                "dalica-fs",
+                "dalica-meta",
+                "dalica-scenes",
+                "dalica-store",
+                "features-list",
+                "log",
+                "rustix",
+                "winapi"
+            ])
+        );
+        assert!(dependency_names("[package]\nname = \"x\"\n").is_empty());
+    }
+
+    #[test]
+    fn the_engine_s_direct_dependents_in_the_real_workspace() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        let Selection::Some { changed, dependents } = select(&["crates/engine/src/lib.rs".to_string()], &members(&root)) else {
+            panic!("a change in crates/engine tests some packages");
+        };
+        assert_eq!(changed, set(&["dalica-engine"]));
+        for d in ["dalica-ui", "dalica-mcp", "dalica", "dalica-cli"] {
+            assert!(dependents.contains(d), "{d} is not a dependent of dalica-engine: {dependents:?}");
+        }
+        assert!(!dependents.contains(ACCEPTANCE) && !dependents.contains("xtask"), "{dependents:?}");
+        // Transitive only: nothing below the engine, and the UI kit does not depend on it.
+        assert!(!dependents.contains("dalica-core") && !dependents.contains("dalica-ui-kit"), "{dependents:?}");
+    }
+
+    #[test]
     fn every_member_has_a_package_name() {
         assert_eq!(package_name("[package]\nname = \"dalica-ui\"\n[dependencies]\nname = \"x\"\n").as_deref(), Some("dalica-ui"));
         assert_eq!(package_name("[workspace]\nmembers = []\n"), None);
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
         let m = members(&root);
-        assert!(m.iter().any(|(d, n)| d == "crates/ui" && n == "dalica-ui"), "{m:?}");
-        assert!(m.iter().any(|(d, n)| d == "tests/acceptance" && n == ACCEPTANCE), "{m:?}");
+        assert!(m.iter().any(|m| m.dir == "crates/ui" && m.name == "dalica-ui"), "{m:?}");
+        assert!(m.iter().any(|m| m.dir == "tests/acceptance" && m.name == ACCEPTANCE), "{m:?}");
         // Every PURE package exists.
         for p in PURE {
-            assert!(m.iter().any(|(_, n)| n == p), "{p} is not a workspace member");
+            assert!(m.iter().any(|m| m.name == *p), "{p} is not a workspace member");
         }
     }
 }
