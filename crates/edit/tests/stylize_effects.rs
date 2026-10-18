@@ -4,7 +4,8 @@
 //! at two sizes and under a crop (anchored in the stored frame); Focal Zoom leaves its circle as it
 //! was, wherever the photo is turned, straightened or cropped, and blurs along the radius more than
 //! across it; Fade 100 gives the input; a zoomed region equals that window of the whole render;
-//! hostile sizes render without a panic.
+//! hostile sizes render without a panic. `stylize-*-large.json` holds a whole 1200 × 800 render
+//! of each at its defaults, `stylize-focal-zoom-coarse.json` a 2400 × 1600 Focal Zoom.
 
 use crate::common::{assert_two_sizes_agree, check_fingerprint, exif, pixels, recipe, rgba, run, scene, stored, window};
 use dalica_edit::fx::Space;
@@ -46,6 +47,22 @@ fn each_effect_at_its_defaults_matches_its_fingerprint_at_two_sizes() {
         assert_ne!(small, render(Source::upright(&img), &recipe(&[]), Target::Fit { width: 96, height: 96 }).unwrap(), "{op} changes the picture");
         check_fingerprint(case, &small, 0.5);
     }
+}
+
+/// A whole 1200 × 800 render of each effect at its defaults, large enough for Focal Zoom's long
+/// paths and Pixelate's cells of many pixels, matches its `stylize-*-large` fingerprint, and a
+/// 2400 × 1600 Focal Zoom (past `COARSE_PIXELS`, blurred on a grid of 2 × 2 cells) its
+/// `stylize-focal-zoom-coarse` one, all blessed from the M12 code before M13.41 made them faster.
+#[test]
+fn each_effect_at_its_defaults_matches_its_large_fingerprint() {
+    let img = rgba(&Scene::new(5, 1200, 800).with_kind(Kind::Horizon).render().unwrap());
+    for (case, op) in DEFAULTS {
+        check_fingerprint(&format!("{case}-large"), &run(&img, &[op]), 0.5);
+    }
+    let img = rgba(&Scene::new(5, 2400, 1600).with_kind(Kind::Horizon).render().unwrap());
+    check_fingerprint("stylize-focal-zoom-coarse", &run(&img, &["focal_zoom(0.5,0.5,0.3,50,50,0)"]), 0.5);
+    // Across the grid's threshold the blur agrees with the one on every pixel.
+    assert_two_sizes_agree(Source::upright(&img), &recipe(&["focal_zoom(0.3,0.6,0.1,80,20,0)"]), 600, 2400, 2.0);
 }
 
 #[test]
@@ -247,6 +264,22 @@ fn a_region_is_that_window_of_the_whole_render() {
         "focal_zoom(0.1,0.8,0.05,100,0,10)",
     ];
     let around: [(u8, &[&str]); 3] = [(1, &[]), (6, &["crop(0.1,0.1,0.9,0.85)", "rotate(90)"]), (3, &["straighten(-4)", "flip_v()"])];
+    // Focal Zoom past `COARSE_PIXELS` blurs on a grid of 2 × 2 cells anchored in the whole output:
+    // windows starting on odd and even pixels.
+    let large = scene(17, 1900, 1200);
+    for (o, ops, effect) in [(1u8, &[][..], "focal_zoom(0.5,0.5,0.3,50,50,0)"), (6, &["rotate(90)"][..], "focal_zoom(0.1,0.8,0.05,100,0,10)")] {
+        let file = stored(&large, o);
+        let source = Source::new(&file, exif(o));
+        let mut with: Vec<&str> = ops.to_vec();
+        with.push(effect);
+        let r = recipe(&with);
+        let whole = render(source, &r, Target::Full).unwrap();
+        let (w, h) = (whole.width, whole.height);
+        for (x, y, ww, wh) in [(0, 0, 1, 1), (w / 3 + 1, h / 4, w / 2, h / 3), (w - 5, h - 4, 5, 4), (w / 5 + 1, h / 2 + 1, 7, 9)] {
+            let region = Region { scale: 1.0, x, y, width: ww, height: wh };
+            assert_eq!(render_region(source, &r, region).unwrap(), window(&whole, x, y, ww, wh), "{with:?} EXIF {o}: {region:?}");
+        }
+    }
     for effect in effects {
         for (o, ops) in around {
             let file = stored(&up, o);
