@@ -19,6 +19,7 @@ mod icons_people;
 mod icons_viewing;
 mod input;
 mod m9_widgets;
+mod map_widget;
 mod options_widgets;
 mod viewing_widgets;
 mod widgets;

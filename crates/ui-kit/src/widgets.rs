@@ -41,6 +41,7 @@ mod header;
 mod histogram;
 mod key_cell;
 mod list_row;
+mod map;
 mod marks;
 mod overlay_bar;
 mod slider;
@@ -101,6 +102,11 @@ pub use key_cell::{
     key_text,
 };
 pub use list_row::{LIST_COLUMN_GAP, LIST_ROW_GUTTER, LIST_ROW_H, ListCell, MODIFIED_DOT, list_columns, list_row, list_row_height, list_text};
+pub use map::{
+    BUBBLE_MARGIN, BUBBLE_MAX_W, BUBBLE_MIN_W, BUBBLE_PAD, BUBBLE_STACK, BUBBLE_STACK_MAX, BUBBLE_TAIL, BubbleAnchor, BubbleButton, BubbleSide,
+    BubbleThumb, LAND_FILE, LAND_MAGIC, LAND_MAX_BYTES, Land, LandError, LandRing, MAP_BUTTON, MAP_PAD, MARKER_GROUP, MARKER_SIZE, Map, MapBubble,
+    MapMarker, MapOut, MapTile, MapView, MarkerGroup, OFFLINE_ATTRIBUTION, bubble_rect, group_markers, map, offline_land, triangulate,
+};
 pub use overlay_bar::{
     OVERLAY_BOTTOM, OVERLAY_BUTTON, OVERLAY_FADE_SECS, OVERLAY_GLYPH, OVERLAY_PAD, OverlayFade, overlay_bar, overlay_bar_rect, overlay_button,
 };
