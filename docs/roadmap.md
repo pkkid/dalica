@@ -7856,8 +7856,47 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
     body, a stalled server timing out, oversized headers refused, a proxy `CONNECT` used when set
     and skipped for a `NO_PROXY` host; a certificate that does not validate fails; `cargo xtask
     deps` passes; `cargo +nightly fuzz build` builds the target.
+- ⬜ **M13.45 `scan` + `engine` + `store`: faces, geotags and people read from the sidecars on scan and rebuild**
+  - after: M13.9
+  - files: `crates/scan/src/walk.rs`, `crates/scan/src/lib.rs`, `crates/engine/src/scanning.rs`, `crates/store/src/stale.rs`, `crates/store/src/rebuild.rs`, `crates/store/tests/fields.rs`, `crates/engine/tests/sidecar_people_places.rs`, `crates/scan/README.md`, `crates/store/README.md`, `docs/data-model.md`
+  - scope: a data-safety task found by M13.9 (#861), ahead of the first writers of these keys
+    (M13.14, M13.15). M13.9's sidecar writer makes the model the truth for each photo's
+    `"faces"` and `"geo"` and the folder's `"people"`, but the engine fills its model from the
+    scans (`dalica_scan::photo_info`, `photo_albums` … in `walk.rs`, then `with_albums` in
+    `scanning.rs`), never through `store::rebuild`, and the scans read none of the three; so a
+    folder whose faces and places the model never loaded (an index rebuilt with
+    `library.rebuild` or after damage, a folder copied in from elsewhere, a photo restored beside
+    its old entry) would lose them at its next sidecar write. The walk reads them on the scan's
+    thread with the rest of the sidecar (`FoundPhoto::faces`, `FoundPhoto::geo`,
+    `FoundFolder::people`) by the rules of `store::mapping::read_photo` and `read_people`: `[lat,
+    lon]` → `Geo::At`, `null` → `Geo::Removed`, no key → none, a wrong type unused; faces Dalica
+    cannot hold (bad entries, past 256, empty rectangles) left out and kept in the file. Like
+    albums, they ride in the op that adds the photos (`scanning.rs`, beside `with_albums`, so the
+    watcher's rescans through `rescan_op_with_albums` get them too and no sidecar write can run in
+    between): the people the faces need created first (`AddPerson`) by the rules of M13.9's
+    rebuild (a name another person holds, ignoring case, is that person; shared from
+    `store::rebuild` rather than copied), then `SetFaces` and `SetGeo`; a face naming a person
+    named nowhere stays out of the model and in the file (the writer keeps it). A rebuild's thread
+    also reads `people.json` when present, as it reads `albums.json`, for nicknames and
+    thumbnails. Known photos keep the model's word, as for every other field. A scan never writes
+    these keys: applying its ops leaves the sidecar's bytes as they were, and `Geo::Removed`
+    reaches the model so M13.14's first-scan import of the file's GPS sees the user's word.
+    `stale.rs` counts `faces` and `geo` as Dalica's data (`PHOTO_DATA_M13`, `FACE_FIELDS`), so an
+    entry holding only those is marked and pruned like a starred one. The scanning unit test that
+    compares the scan's readings with the store's grows the faces, geo and people cases; the
+    READMEs and `data-model.md` §3 and §7 say what landed.
+  - done when: `crates/engine/tests/sidecar_people_places.rs` (a new module of `tests/all.rs`):
+    a folder whose `.dalica.json` holds faces (named, unnamed and ignored, plus one naming a person
+    named nowhere), a photo with `"geo": null` and the folder's `"people"` is scanned into a fresh
+    index, by `folders.add` and again by `library.rebuild`; the model holds every usable face, the
+    removed location and the people; then a caption change is written and the sidecar's `faces`,
+    `geo` and `people` are byte-for-byte what they were (the unusable face too); the same folder
+    added by a watcher's rescan keeps them as well; `crates/store/tests/fields.rs`: the
+    stale-entry test gains an entry holding only `faces` and one holding only `"geo": null`, each
+    marked when its file goes and pruned after 30 days; the readers' agreement test passes;
+    `panic_hunt` green; `cargo xtask ci`.
 - ⬜ **M13.14 `engine`: geotags: set, clear, copy and paste, written to the files and read on scan**
-  - after: M13.1, M13.3, M13.9
+  - after: M13.1, M13.3, M13.9, M13.45
   - files: `crates/engine/src/cmd/places.rs`, `crates/engine/src/places.rs`, `crates/engine/src/metadata.rs`, `crates/engine/src/scanning.rs`, `crates/scan/src/meta.rs`, `crates/scan/tests/meta.rs`, `crates/engine/tests/places.rs`
   - scope: `organizing.md` §7, `data-model.md` §5 and `xmp-interop.md` §2: `photo.geo.set {ids,
     geo | null, confirm?}` (one undo step; moving more than 20 tagged photos or clearing more than
@@ -7875,7 +7914,7 @@ The workstation is faster than the review's two-vCPU runner, so aim for about 12
     applies the copied place; 21 moves and 6 removals ask; each command's contract and graceful
     failures; the owner thread made no `fs` call; `panic_hunt` green.
 - ⬜ **M13.15 `engine`: faces and people as data: naming, ignoring, people, person albums, face tiles and search**
-  - after: M13.1, M13.3, M13.9
+  - after: M13.1, M13.3, M13.9, M13.45
   - files: `crates/engine/src/cmd/people.rs`, `crates/engine/src/cmd/faces.rs`, `crates/engine/src/face_tiles.rs`, `crates/engine/src/search.rs`, `crates/engine/src/automation.rs`, `crates/engine/tests/people.rs`, `docs/control-protocol.md`
   - scope: `organizing.md` §6 and `faces.md` §9, no model needed: `faces.list {person | unnamed |
     ids, ignored?}` (faces with their photo, rectangle and group), `faces.name {faces, person |
@@ -8460,6 +8499,7 @@ wave 1   M13.1 geo + model  ‖  M13.2 sidecar fields  ‖  M13.3 engine modules
          (once M12.R is closed)
 wave 2   M13.9 store + embeddings cache  ‖  M13.10 detector, embeddings, models (5)
          ‖  M13.11 MWG regions  ‖  M13.12 ui-kit map  ‖  M13.13 HTTPS transport (9)
+         then M13.45 faces, geotags + people read on scan (after M13.9)
 wave 3   M13.14 geotags  ‖  M13.15 faces + people data  ‖  M13.16 face models (5, 9)
          ‖  M13.17 face corpus + floors (5)
 wave 4   M13.18 face scan  ‖  M13.19 names in files  ‖  M13.20 tiles + place search (4, 9)
